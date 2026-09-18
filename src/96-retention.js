@@ -1929,6 +1929,50 @@ function reportingWaterfall() {
   // One card builder, two groupings (per Isaac, Sep 2026): by rep TYPE and by
   // SOURCE. Same population, same chips, same year picker — only the grouping
   // and the title change.
+  // Drill summary (per Isaac, Sep 2026): more than a list of accounts —
+  // the headline numbers, then where / when / why, each row drilling to
+  // its own accounts.
+  const _attrDrillSummary = (label, t) => {
+    const arvOf = (rs) => rs.reduce((a, r) => a + (Number(r.annual_recurring_value) || 0), 0);
+    const attr = t.subs ? t.cancelled / t.subs : null;
+    const MS_D = 86400000;
+    const lives = t.cxlRows.map(r => { const sd = r.sold_date ? new Date(r.sold_date) : null, cd = r._effCancel ? new Date(r._effCancel) : null; return sd && cd && !isNaN(sd) && !isNaN(cd) && cd >= sd ? (cd - sd) / MS_D : null; }).filter(v => v != null).sort((a, b) => a - b);
+    const medLife = lives.length ? lives[Math.floor((lives.length - 1) / 2)] : null;
+    const tile = (lab, val, sub, color) => el('div', { class: 'flex-1 px-3 py-2 rounded-xl', style: { background: 'var(--card-2)', minWidth: '120px' } },
+      el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, lab),
+      el('div', { class: 'text-lg font-black tabular-nums leading-tight', style: color ? { color } : {} }, val),
+      sub ? el('div', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-muted)' } }, sub) : null);
+    const group = (keyOf) => { const m = new Map(); for (const r of t.rows) { const k = keyOf(r); if (!m.has(k)) m.set(k, { subs: 0, cxl: 0, arv: 0, arvCxl: 0, rows: [], cxlRows: [] }); const g = m.get(k); g.subs++; g.arv += Number(r.annual_recurring_value) || 0; g.rows.push(r); if (r._effCancel) { g.cxl++; g.arvCxl += Number(r.annual_recurring_value) || 0; g.cxlRows.push(r); } } return [...m.entries()]; };
+    const mini = (title, entries, opts = {}) => {
+      const list = entries.sort((a, b) => (opts.sortKey ? String(b[0]).localeCompare(String(a[0])) : b[1].subs - a[1].subs)).slice(0, opts.limit || 8);
+      const th = (x) => el('th', { class: 'px-2 py-1 text-[9px] uppercase tracking-wider font-semibold text-left whitespace-nowrap', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, x);
+      const td = (x, o = {}) => el('td', { class: 'px-2 py-1 tabular-nums whitespace-nowrap text-left' + (o.bold ? ' font-bold' : ''), style: o.style || {} }, x);
+      return el('div', { class: 'flex-1 min-w-0 rounded-xl border overflow-hidden', style: { borderColor: 'var(--border)', minWidth: '220px' } },
+        el('div', { class: 'px-2 py-1.5 text-[10px] uppercase tracking-widest font-bold border-b', style: { color: 'var(--text-subtle)', borderColor: 'var(--border)' } }, title),
+        el('table', { class: 'w-full text-[11px]' },
+          el('thead', {}, el('tr', {}, th(opts.col || ''), th(opts.cxlOnly ? 'Cancels' : 'Subs'), opts.cxlOnly ? th('Share') : th('Cancelled'), opts.cxlOnly ? th('ARR lost') : th('Attrition'))),
+          el('tbody', {}, ...list.map(([k, g]) => { const a = g.subs ? g.cxl / g.subs : null; return el('tr', { class: 'border-t cursor-pointer transition hover:brightness-95', style: { borderColor: 'var(--border)' }, title: 'Click for the accounts',
+            onclick: (e) => { e.stopPropagation(); openReportingDrillModal({ chartTitle: label + ' · ' + title + ' · ' + k, sliceLabel: fmt.int((opts.cxlOnly ? g.cxlRows : g.rows).length) + ' accounts', rows: opts.cxlOnly ? g.cxlRows : g.rows, formatValue: (v) => fmt.usd0(v) }); } },
+            td(k, { bold: true }),
+            td(fmt.int(opts.cxlOnly ? g.cxl : g.subs)),
+            opts.cxlOnly ? td(t.cancelled ? (g.cxl / t.cancelled * 100).toFixed(0) + '%' : '—') : td(fmt.int(g.cxl)),
+            opts.cxlOnly ? td(fmt.usd0(g.arvCxl)) : td(a == null ? '—' : (a * 100).toFixed(1) + '%', { bold: true, style: a != null && a >= 0.35 ? { color: '#DC2626' } : a != null && a < 0.2 ? { color: '#16A34A' } : {} })); }))));
+    };
+    const yearOf = (r) => { const d = r.sold_date ? new Date(r.sold_date) : null; return d && !isNaN(d) ? String(d.getFullYear()) : '—'; };
+    const reasonOf = (r) => reportingCancelReasonOf(r) || 'Unspecified';
+    const byReason = group(reasonOf).filter(([, g]) => g.cxl > 0).map(([k, g]) => [k, { ...g, subs: g.cxl }]);
+    return el('div', { class: 'flex flex-col gap-3' },
+      el('div', { class: 'flex gap-2 flex-wrap' },
+        tile('Subs in the book', fmt.int(t.subs), fmt.usd0(arvOf(t.rows)) + ' ARR sold'),
+        tile('Active', fmt.int(t.active), fmt.usd0(arvOf(t.rows.filter(r => !r._effCancel))) + ' ARR retained', '#16A34A'),
+        tile('Cancelled', fmt.int(t.cancelled), fmt.usd0(arvOf(t.cxlRows)) + ' ARR lost', '#DC2626'),
+        tile('Attrition', attr == null ? '—' : (attr * 100).toFixed(1) + '%', 'cancelled ÷ subs', attr != null && attr >= 0.35 ? '#DC2626' : undefined),
+        tile('Median life', medLife == null ? '—' : (medLife / 30.44).toFixed(1) + ' mo', 'sold → cancel, cancelled subs')),
+      el('div', { class: 'flex gap-3 flex-wrap' },
+        mini('By office', group(r => (r.office_name || '').trim() || 'Unknown'), { col: 'Office' }),
+        mini('By year sold', group(yearOf), { col: 'Year', sortKey: true }),
+        mini('Why they left', byReason, { col: 'Reason', cxlOnly: true })));
+  };
   const _attritionByCard = (dim) => {
     // Sold-year cohort filter (per Isaac - the card had no time dimension
     // and read as "some year"). 'all' = the whole book in the snapshot;
@@ -1981,7 +2025,7 @@ function reportingWaterfall() {
     const row = (label, t, bold) => {
       const attr = t.subs > 0 ? t.cancelled / t.subs : null;
       return el('tr', { class: 'border-t cursor-pointer transition hover:brightness-95' + (bold ? ' font-bold' : ''), style: { borderColor: 'var(--border)', background: bold ? 'var(--card-2)' : '' }, title: 'Click for the counted cancels',
-        onclick: () => t.cxlRows.length && openReportingDrillModal({ chartTitle: (dim === 'source' ? 'Attrition by Source · ' : 'Attrition by Rep Type · ') + label, sliceLabel: fmt.int(t.cxlRows.length) + ' counted cancels of ' + fmt.int(t.subs), rows: t.cxlRows, formatValue: (v) => fmt.usd0(v) }) },
+        onclick: () => t.rows.length && openReportingDrillModal({ chartTitle: (dim === 'source' ? 'Attrition by Source · ' : dim === 'rep' ? 'Attrition by Rep · ' : dim === 'contract' ? 'Attrition by Contract Length · ' : 'Attrition by Rep Type · ') + label, sliceLabel: fmt.int(t.cxlRows.length) + ' counted cancels of ' + fmt.int(t.subs), rows: t.cxlRows, formatValue: (v) => fmt.usd0(v), summary: _attrDrillSummary(label, t) }) },
         el('td', { class: 'px-3 py-2 whitespace-nowrap' + (bold ? '' : ' font-semibold') }, label),
         el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(t.subs)),
         el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(t.active)),
