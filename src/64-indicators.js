@@ -3362,7 +3362,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         ),
       ),
       el('div', { class: 'scroll-x' },
-        el('table', { class: 'w-full text-[12px]' },
+        el('table', { class: 'w-full text-[12px] records-table' },
           el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
             el('tr', {},
               el('th', { class: 'text-left pl-5 pr-3 py-2 w-32', style: { position: 'sticky', left: '0', zIndex: '2', background: 'var(--card)', boxShadow: '1px 0 0 var(--border)' } }, 'Scope'),
@@ -3660,44 +3660,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       _teamOpts.length ? el('optgroup', { label: 'Teams' }, ..._teamOpts.map(t => el('option', { value: 'team:' + t, selected: _scope === 'team:' + t }, t))) : null,
       _officeOpts.length ? el('optgroup', { label: 'Offices' }, ..._officeOpts.map(o => el('option', { value: 'office:' + o, selected: _scope === 'office:' + o }, _mktgTC(o)))) : null);
     const tierCard = el('div', { class: 'card overflow-hidden', 'data-section': 'class-metrics' },
-      el('div', { class: 'px-5 py-3 border-b flex items-start justify-between gap-2 flex-wrap', style: { borderColor: 'var(--border)' } },
-        el('div', { class: 'flex items-center gap-3 flex-wrap' },
-          el('h3', { class: 'text-base font-bold', title: 'Tiers auto-set from sales history — first season selling = Rookie, returning reps = Vet. Manage Teams tags override. PRA divides by the Reps > $20K row; PRA · Serviced divides by Reps W/ Serviced.' }, 'Class Metrics'),
-          scopePicker
-        ),
-        untagged > 0 && el('button', {
-          class: 'text-[10px] italic px-2 py-1 rounded border cursor-pointer transition hover:brightness-95',
-          style: { color: 'var(--text-muted)', background: 'var(--card-2)', borderColor: 'var(--border-2)' },
-          title: 'Click to see exactly which reps have no Rookie/Vet class',
-          onclick: () => {
-            const overlay = el('div', { class: 'modal-overlay' });
-            const close = () => overlay.remove();
-            overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-            const _revOf = (r2) => r2.sales.reduce((x, s) => x + Number(s.contractValue || 0), 0);
-            const rows = untaggedReps.slice().sort((a, b) => _revOf(b) - _revOf(a));
-            overlay.append(el('div', { class: 'card w-full max-w-md my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
-              el('div', { class: 'flex items-center justify-between px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
-                el('div', {},
-                  el('h2', { class: 'text-base font-bold' }, 'Untagged reps'),
-                  el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'No Rookie/Vet class \u2014 not counted in Class Metrics. Tag them in Manage Teams.')),
-                el('button', { class: 'text-2xl leading-none cursor-pointer', onclick: close }, '\u00d7')),
-              el('div', { class: 'overflow-auto' }, el('table', { class: 'w-full text-sm' },
-                el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
-                  el('th', { class: 'px-4 py-2' }, 'Rep'),
-                  el('th', { class: 'px-4 py-2' }, 'Office'),
-                  el('th', { class: 'px-4 py-2 text-right' }, 'Subs'),
-                  el('th', { class: 'px-4 py-2 text-right' }, 'Revenue'))),
-                el('tbody', {}, ...rows.map(r2 => {
-                  const office = r2.office || (r2.sales[0] && r2.sales[0].office) || '\u2014';
-                  return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-                    el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, r2.name),
-                    el('td', { class: 'px-4 py-2 text-muted- whitespace-nowrap' }, String(office).toLowerCase().replace(/\b\w/g, c => c.toUpperCase())),
-                    el('td', { class: 'px-4 py-2 text-right tabular-nums' }, fmt.int(r2.sales.length)),
-                    el('td', { class: 'px-4 py-2 text-right tabular-nums font-semibold' }, fmt.usd0(_revOf(r2))));
-                }))))));
-            document.body.append(overlay);
-          },
-        }, untagged + ' rep' + (untagged === 1 ? '' : 's') + ' untagged · not counted here'),
+      // Header: title left, scope dropdown top-right (per Isaac). The
+      // "N untagged" chip is gone — untagged reps surface in Manage Teams.
+      el('div', { class: 'px-5 py-3 border-b flex items-center justify-between gap-2 flex-wrap', style: { borderColor: 'var(--border)' } },
+        el('h3', { class: 'text-base font-bold', title: 'Tiers auto-set from sales history \u2014 first season selling = Rookie, returning reps = Vet. Manage Teams tags override. PRA divides by the Reps > $20K row; PRA \u00b7 Serviced divides by Reps W/ Serviced.' }, 'Class Metrics'),
+        scopePicker,
       ),
       el('div', { class: 'grid items-center gap-2 px-3', style: { gridTemplateColumns: 'minmax(88px,1.1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)' } },
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, 'Class'),
@@ -4673,7 +4640,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
   const paint = () => {
     const pick = narrow ? (COLS.find(c => c.key === state._mixMobileCol) || COLS[1]) : null;
     const cols = pick ? [pick] : COLS;
-    const firstCol = (cls, txt, title) => el('div', { class: (narrow ? 'w-[120px]' : 'w-[200px] sm:w-[240px]') + ' shrink-0 ' + cls, title: title || undefined, style: { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1 } }, txt);
+    const firstCol = (cls, txt, title) => el('div', { class: (narrow ? 'w-[120px]' : 'w-[200px] sm:w-[240px]') + ' shrink-0 ' + cls, title: title || undefined, style: narrow ? {} : { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1 } }, txt);
     const maxShare = topSubscriptions.reduce((m, s) => Math.max(m, s.share), 0.0001);
     body.replaceChildren(el('div', { class: narrow ? '' : 'scroll-x' }, el('div', { style: narrow ? {} : { minWidth: '860px' } },
       el('div', { class: 'flex items-center gap-3 text-[10px] uppercase tracking-wider text-muted- font-semibold pb-1.5' },
