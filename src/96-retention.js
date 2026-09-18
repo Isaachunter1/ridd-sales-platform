@@ -1777,10 +1777,8 @@ function reportingWaterfall() {
       const k = String(x.r.subscription_cancellation_reason || '').trim() ? reportingCancelReasonOf(x.r) : '(no reason logged)';
       (byReason[k] = byReason[k] || []).push(x);
     }
-    const rks = Object.keys(byReason).filter(k => byReason[k].length >= 10)
-      .sort((a, b) => byReason[b].length - byReason[a].length);
-    const thL = (lab, right) => el('th', { class: (right ? 'text-left' : 'text-left') + ' px-3 py-2 whitespace-nowrap' }, lab);
-    const reasonRow = (k) => {
+    // Per-reason stats up front so the headers can sort on any of them.
+    const statsOf = (k) => {
       const xs = byReason[k];
       const ts = xs.map(x => x.t);
       const med = _med(ts);
@@ -1789,6 +1787,29 @@ function reportingWaterfall() {
       const in365 = ts.filter(t => t <= 365).length / ts.length;
       const arvs = xs.map(x => Number(x.r.annual_recurring_value) || 0);
       const avgArv = arvs.reduce((a, b) => a + b, 0) / (arvs.length || 1);
+      return { xs, med, avg, in90, in365, avgArv, n: xs.length };
+    };
+    const LCOLS = [
+      { key: 'reason', label: 'Cancellation Reason', str: true, get: (k) => k.toLowerCase() },
+      { key: 'n',      label: 'Cancels',     get: (k) => statsOf(k).n },
+      { key: 'med',    label: 'Median Life', get: (k) => statsOf(k).med },
+      { key: 'avg',    label: 'Avg',         get: (k) => statsOf(k).avg },
+      { key: 'in90',   label: 'Gone ≤90d',   get: (k) => statsOf(k).in90 },
+      { key: 'in365',  label: 'Gone ≤1yr',   get: (k) => statsOf(k).in365 },
+      { key: 'arv',    label: 'Avg ARV',     get: (k) => statsOf(k).avgArv },
+    ];
+    if (!state._rtLifeSort) state._rtLifeSort = { key: 'n', dir: 'desc' };
+    const lsort = state._rtLifeSort;
+    const lcol = LCOLS.find(c => c.key === lsort.key) || LCOLS[1];
+    const rks = Object.keys(byReason).filter(k => byReason[k].length >= 10)
+      .sort((a, b) => { const av = lcol.get(a), bv = lcol.get(b); const d = lcol.str ? String(av).localeCompare(String(bv)) : av - bv; return lsort.dir === 'asc' ? d : -d; });
+    const thL = (lab) => { const c = LCOLS.find(x => x.label === lab); const on = c && lsort.key === c.key; return el('th', {
+      class: 'text-left px-3 py-2 whitespace-nowrap cursor-pointer select-none' + (on ? ' font-black' : ''),
+      style: on ? { color: 'var(--accent)' } : {}, title: 'Click to sort',
+      onclick: () => { if (!c) return; state._rtLifeSort = on ? { key: c.key, dir: lsort.dir === 'asc' ? 'desc' : 'asc' } : { key: c.key, dir: c.str ? 'asc' : 'desc' }; mountApp(); },
+    }, lab + (on ? (lsort.dir === 'asc' ? ' ↑' : ' ↓') : '')); };
+    const reasonRow = (k) => {
+      const { xs, med, avg, in90, in365, avgArv } = statsOf(k);
       return el('tr', {
         class: 'border-t cursor-pointer transition hover:brightness-95',
         style: { borderColor: 'var(--border)' },
