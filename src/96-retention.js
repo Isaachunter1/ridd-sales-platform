@@ -2060,9 +2060,9 @@ function reportingWaterfall() {
           row('RIDD \u00b7 Total', total, true)))),
       el('div', { class: 'px-4 py-2 text-[10px] text-muted- border-t', style: { borderColor: 'var(--border)' } }, 'Same book as Attrition Steps — switch a step or a reason up there and this table follows.'));
   };
-  const repTypeAttritionCard = _attritionByCard('type');
-  const contractAttritionCard = _attritionByCard('contract');
-  const repAttritionCard = _attritionByCard('rep');
+  // (The four Attrition-by tables — Source / Rep / Contract Length / Rep
+  // Type — are ONE card with a dimension dropdown, per Isaac, Sep 2026.
+  // Only the picked dimension is built. See attritionByCard below.)
   // -- Attrition by Source (per Isaac, Sep 2026: the old Attrition-by-Source
   // table and the Source Quality Ledger folded into one). Population = the
   // retention book, so the steps card decides what is in; cancels are the
@@ -2558,6 +2558,21 @@ function reportingWaterfall() {
     window.addEventListener('resize', () => { try { syncPin(); } catch (e) { /* torn down */ } });
   }
   requestAnimationFrame(() => { syncPin(); setTimeout(syncPin, 200); });
-  return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, body, repTypeAttritionCard, contractAttritionCard, repAttritionCard, sourceAttritionCard, renewalRetentionCard, renewalTimingCard);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
+  const attritionByCard = (() => {
+    const DIMS = [['source', 'Source'], ['rep', 'Rep'], ['contract', 'Contract Length'], ['type', 'Rep Type']];
+    const dim = DIMS.some(d => d[0] === state._rtAttrDim) ? state._rtAttrDim : 'source';
+    const card = dim === 'source' ? sourceAttritionCard : _attritionByCard(dim);
+    if (!card) return null;
+    const title = card.querySelector('.font-display');
+    if (title) title.replaceWith(el('div', { class: 'flex items-center gap-2 flex-wrap' },
+      el('span', { class: 'font-display text-lg' }, 'Attrition by'),
+      el('select', {
+        class: 'rounded-lg border px-2.5 py-1 text-[12px] font-bold cursor-pointer',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+        onchange: (e) => { state._rtAttrDim = e.target.value; mountApp(); },
+      }, ...DIMS.map(([v, l]) => el('option', { value: v, selected: dim === v }, l)))));
+    return card;
+  })();
+  return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, body, attritionByCard, renewalRetentionCard, renewalTimingCard);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
 }
 
