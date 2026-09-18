@@ -8946,7 +8946,14 @@ function indicatorYoYTrendChart() {
   let raw = indicatorSales();
   // Rep accounts see THEIR OWN trend, not the company's — matched by name
   // signature so "Sauer, Drew" ↔ "Drew Sauer" resolves.
-  const _yoyRepOnly = !isAdminRole(state.profile && state.profile?.role);
+  // Partners / team leads (per Isaac, Sep 2026): the admin chart, scoped —
+  // Company plus the teams they reach and those teams' reps, defaulting to
+  // their team(s). Plain reps keep the personal chart.
+  const _yoyPartner = !isAdminRole(state.profile && state.profile?.role)
+    && ((typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role)) || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role)))
+    && typeof myReachTeams === 'function' && myReachTeams().size > 0;
+  const _yoyReachTeams = _yoyPartner ? [...myReachTeams()].filter(Boolean).sort() : [];
+  const _yoyRepOnly = !isAdminRole(state.profile && state.profile?.role) && !_yoyPartner;
   if (_yoyRepOnly) {
     const _sigY = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
     const _mineY = _sigY(state.profile.full_name);
@@ -9026,7 +9033,14 @@ function indicatorYoYTrendChart() {
   };
   const _yoySelScopes = (() => {
     if (_yoyRepOnly) return [{ t: 'co' }];
-    const sel = Array.isArray(state._indicatorYoYScopes) ? state._indicatorYoYScopes.filter(x => x && x.t) : [];
+    let sel = Array.isArray(state._indicatorYoYScopes) ? state._indicatorYoYScopes.filter(x => x && x.t) : [];
+    if (_yoyPartner) {
+      // Only what a partner may see: Company, their teams, their teams' reps.
+      const okTeam = new Set(_yoyReachTeams);
+      sel = sel.filter(sc => sc.t === 'co' || (sc.t === 'team' && okTeam.has(sc.v)) || (sc.t === 'rep' && okTeam.has(getRepTeam(sc.v) || '')));
+      if (!sel.length) return _yoyReachTeams.map(t => ({ t: 'team', v: t }));   // default: their team(s)
+      return sel;
+    }
     return sel.length ? sel : [{ t: 'co' }];
   })();
   // PRA is revenue ÷ unique sellers — for a REP scope that's ÷1, i.e. it
@@ -9374,11 +9388,12 @@ function indicatorYoYTrendChart() {
       _sApply.style.color = 'var(--accent-text)';
       _sApply.style.borderColor = 'var(--accent)';
     };
-    const offices = [...new Set(raw.map(_yoyOfficeOf).filter(Boolean))].sort();
-    const repNames = [...new Set(raw.map(s => s.rep ? getCanonicalRepName(s.rep) : '').filter(Boolean))].sort();
-    const teams = (typeof getRepTeam === 'function')
-      ? [...new Set(repNames.map(n => getRepTeam(n)).filter(Boolean))].sort()
-      : [];
+    const offices = _yoyPartner ? [] : [...new Set(raw.map(_yoyOfficeOf).filter(Boolean))].sort();
+    const repNamesAll = [...new Set(raw.map(s => s.rep ? getCanonicalRepName(s.rep) : '').filter(Boolean))].sort();
+    const repNames = _yoyPartner ? repNamesAll.filter(n => _yoyReachTeams.includes(getRepTeam(n) || '')) : repNamesAll;
+    const teams = _yoyPartner ? _yoyReachTeams : ((typeof getRepTeam === 'function')
+      ? [...new Set(repNamesAll.map(n => getRepTeam(n)).filter(Boolean))].sort()
+      : []);
     const rowBtn = (key, lab) => {
       const glyph = el('span', { style: { fontSize: '13px' } }, _staged.includes(key) ? '☑' : '☐');
       const row = el('button', {
@@ -9419,8 +9434,8 @@ function indicatorYoYTrendChart() {
       style: { top: 'calc(100% + 6px)', right: '0', minWidth: '230px', maxHeight: '340px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._yoyScopesOpen ? 'block' : 'none' },
     },
       rowBtn('co:', 'Company (everything on this page)'),
-      secTitle('Department'),
-      ..._YOY_DEPTS.map(([k, lab]) => rowBtn('dept:' + k, lab)),
+      _yoyPartner ? null : secTitle('Department'),
+      ...(_yoyPartner ? [] : _YOY_DEPTS.map(([k, lab]) => rowBtn('dept:' + k, lab))),
       offices.length ? secTitle('Offices') : null,
       ...offices.map(o => rowBtn('office:' + o, o)),
       teams.length ? secTitle('Teams') : null,
