@@ -780,22 +780,16 @@ function reportingWaterfall() {
     const drillRows = (title, rs) => rs.length ? () => openReportingDrillModal({ chartTitle: 'Cohort waterfall · ' + title, sliceLabel: rs.length.toLocaleString() + ' subscription' + (rs.length === 1 ? '' : 's'), rows: rs, formatValue: fmt.usd0 }) : undefined;
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-        el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Cohort Waterfall' + (office !== 'all' ? ' · ' + office : '')), el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, (isArr ? 'ARR' : 'Accounts') + ' still active at each year-end, by first-service year · ' + thisYear + ' = today · same book as Attrition Steps')),
+        el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Cohort Waterfall' + (office !== 'all' ? ' · ' + office : '')), el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, (isArr ? 'ARR' : 'Subs') + ' still active at each year-end, by first-service year · ' + thisYear + ' = today · same book as Attrition Steps')),
         el('div', { class: 'inline-flex', style: { border: '1px solid var(--border-2)' } },
-          ...[[false, 'Accounts'], [true, 'ARR']].map(([v, l]) => el('button', {
+          ...[[false, 'Subs'], [true, 'ARR']].map(([v, l]) => el('button', {
             class: 'px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
             style: !!state._rtWaterfallArr === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card)', color: 'var(--text-muted)' },
             onclick: () => { state._rtWaterfallArr = v; mountApp(); },
           }, l))),
-        (() => {
-          const t = retenTrailing12(rows);
-          const drillT = t.rows.counted.length ? () => openReportingDrillModal({ chartTitle: 'Trailing 12 months · counted cancels', sliceLabel: t.rows.counted.length.toLocaleString() + ' subscriptions · ' + t.st + ' → ' + t.en, rows: t.rows.counted, formatValue: fmt.usd0 }) : null;
-          return el('div', { class: 'text-right' + (drillT ? ' cursor-pointer hover:underline' : ''), title: t.rows.counted.length.toLocaleString() + ' cancels ' + t.st + ' → ' + t.en + ' ÷ ' + t.boy.toLocaleString() + ' on the books a year ago', onclick: drillT },
-            el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Trailing 12 months'),
-            el('div', { class: 'text-lg font-black tabular-nums' }, t.rate == null ? '—' : (t.rate * 100).toFixed(1) + '%'));
-        })()),
+        null),
       el('div', { style: { overflow: 'auto', maxHeight: '70vh' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-        el('thead', {}, el('tr', {}, th('Year', { left: true, corner: true }), th(isArr ? 'ARR' : 'Accounts'), ...years.map(y => th(String(y))))),
+        el('thead', {}, el('tr', {}, th('Year', { left: true, corner: true }), th(isArr ? 'ARR' : 'Subs'), ...years.map(y => th(String(y))))),
         el('tbody', {},
           ...cohorts.map(c => { const all = byCohort.get(c) || []; return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
             td(String(c), { left: true, sticky: true }),
