@@ -242,14 +242,35 @@ function viewTechs() {
   const revenue = inRange.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
   // Leaderboard: every SELLER of a Service Pro upsell in range, by CRM
   // name — techs without app accounts rank too (same rule as Inside Sales).
+  // Overhauled (per Isaac, Sep 2026): avatars, office, avg + biggest upsell,
+  // top service, revenue bars, a top-3 podium and a click-to-expand list.
   const byTech = new Map();
   inRange.forEach(s => {
     const nm = flipLastFirst(getCanonicalRepName(s.rep || '—'));
     if (FR_SYSTEM_NAME_RE.test(nm)) return;
-    let t = byTech.get(nm); if (!t) { t = { n: 0, rev: 0 }; byTech.set(nm, t); }
-    t.n++; t.rev += Number(s.contractValue) || 0;
+    let t = byTech.get(nm); if (!t) { t = { nm, n: 0, rev: 0, best: 0, office: '', svc: {}, rows: [] }; byTech.set(nm, t); }
+    const cv = Number(s.contractValue) || 0;
+    t.n++; t.rev += cv; if (cv > t.best) t.best = cv;
+    if (!t.office && s.office) t.office = String(s.office).split(',')[0].trim();
+    const sv = String(s.subscription || '').trim(); if (sv) t.svc[sv] = (t.svc[sv] || 0) + 1;
+    t.rows.push(s);
   });
-  const board = [...byTech.entries()].map(([nm, t]) => ({ nm, ...t })).sort((a, b) => b.rev - a.rev);
+  const board = [...byTech.values()].sort((a, b) => b.rev - a.rev);
+  board.forEach(t => { t.topSvc = Object.entries(t.svc).sort((x, y) => y[1] - x[1])[0]?.[0] || ''; });
+  const maxRev = board.length ? board[0].rev : 1;
+  const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  const _profByName = new Map((state.allProfiles || []).filter(p => p && p.full_name).map(p => [_sig(p.full_name), p]));
+  const meSig = _sig(state.profile?.full_name);
+  const avatarFor = (nm, size) => {
+    const p = _profByName.get(_sig(nm));
+    const parts = nm.split(/\s+/).filter(Boolean);
+    const initials = (parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : (parts[0] || '?').slice(0, 2)).toUpperCase();
+    if (p && p.avatar_url) return avatarNode(p.avatar_url, initials, size === 'lg' ? 'w-16 h-16 text-lg' : size === 'md' ? 'w-12 h-12 text-sm' : 'w-8 h-8 text-[10px]');
+    const px = size === 'lg' ? 64 : size === 'md' ? 48 : 32;
+    return el('span', { class: 'inline-flex items-center justify-center rounded-full font-black shrink-0', style: { width: px + 'px', height: px + 'px', fontSize: Math.round(px * .34) + 'px', background: 'rgba(95,108,91,.16)', color: '#5F6C5B', border: '1px solid rgba(95,108,91,.4)' } }, initials);
+  };
+  const officeLabel = (o) => (typeof branchAlias === 'function' ? branchAlias(o || '') : String(o || '')).toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+  const showDate = !['today', 'yesterday'].includes(state._techRange || 'today');
   const rangeSel = el('select', {
     class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
     onchange: (e) => { state._techRange = e.target.value; mountApp(); },
@@ -259,6 +280,45 @@ function viewTechs() {
     const src2 = state.sources.find(o => o.id === s.source_id);
     return src2 && TECH_UPSELL_SRC_RE.test(String(src2.name || ''));
   });
+  const kpi = (label, value, sub) => el('div', { class: 'min-w-0 flex flex-col justify-center px-2 sm:px-4 text-center' },
+    el('div', { class: 'text-[9px] sm:text-[10px] text-muted- uppercase tracking-widest font-semibold truncate' }, label),
+    el('div', { class: 'font-display text-2xl sm:text-4xl mt-1.5 tabular-nums truncate leading-none' }, value),
+    sub ? el('div', { class: 'text-[11px] text-muted- tabular-nums mt-1 truncate' }, sub) : null);
+  const biggest = inRange.length ? inRange.reduce((a, b) => ((Number(b.contractValue) || 0) > (Number(a.contractValue) || 0) ? b : a)) : null;
+  const top3 = board.slice(0, 3);
+  const podium = top3.length >= 2 ? (() => {
+    const order = top3.length === 3 ? [top3[1], top3[0], top3[2]] : [top3[0], top3[1]];
+    return el('div', { class: 'card p-4 sm:p-5' }, el('div', { class: 'flex items-end gap-3' }, ...order.map(t => {
+      const rank = top3.indexOf(t) + 1, first = rank === 1;
+      return el('div', {
+        class: 'flex-1 min-w-0 rounded-xl border p-3 sm:p-5 flex flex-col items-center text-center cursor-pointer transition hover:brightness-95',
+        style: { borderColor: first ? 'var(--accent)' : 'var(--border)', background: first ? 'rgba(223,100,58,.07)' : 'var(--card-2)', alignSelf: first ? 'stretch' : 'flex-end' },
+        onclick: () => { state._techLbOpen = t.nm; mountApp(); },
+      },
+        el('div', { class: 'font-display leading-none', style: { fontSize: first ? '28px' : '18px', color: first ? 'var(--accent)' : 'var(--text-muted)' } }, '#' + rank),
+        el('div', { class: 'mt-2' }, avatarFor(t.nm, first ? 'lg' : 'md')),
+        el('div', { class: 'font-bold mt-2 truncate w-full' + (first ? ' text-base' : ' text-sm') }, t.nm),
+        el('div', { class: 'text-[10px] text-muted- mt-0.5 truncate w-full' }, officeLabel(t.office) || '—'),
+        el('div', { class: 'font-display tabular-nums mt-2 leading-none', style: { fontSize: first ? '30px' : '22px' } }, fmt.usd0(t.rev)),
+        el('div', { class: 'text-[11px] text-muted- tabular-nums mt-1' }, t.n + ' upsell' + (t.n === 1 ? '' : 's') + ' · ' + fmt.usd0(t.rev / t.n) + ' avg'));
+    })));
+  })() : null;
+  const num = (v, cls, style) => el('td', { class: 'px-3 py-2.5 text-right tabular-nums whitespace-nowrap ' + (cls || ''), style: style || {} }, v);
+  const detailRow = (t) => el('tr', { style: { background: 'var(--card-2)' } }, el('td', { colspan: '7', class: 'px-4 py-2' },
+    el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-1' }, t.nm + ' · ' + t.n + ' upsell' + (t.n === 1 ? '' : 's')),
+    el('table', { class: 'w-full text-[12px]' },
+      el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' }, el('tr', {},
+        el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Date'), el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Customer'),
+        el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Service'), el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Office'),
+        el('th', { class: 'text-right px-2 py-1 font-semibold' }, 'Value'))),
+      el('tbody', {}, ...[...t.rows].sort((x, y) => String(dateSoldToIso(y.dateSold) || '').localeCompare(String(dateSoldToIso(x.dateSold) || ''))).slice(0, 200).map(sr => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums whitespace-nowrap' }, dateSoldToIso(sr.dateSold) || '—'),
+        el('td', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap' }, String(sr.customer || '—')),
+        el('td', { class: 'px-2 py-1.5 text-muted- whitespace-nowrap' }, String(sr.subscription || '—')),
+        el('td', { class: 'px-2 py-1.5 text-muted- whitespace-nowrap' }, officeLabel(sr.office)),
+        el('td', { class: 'px-2 py-1.5 text-right tabular-nums font-semibold' }, fmt.usd0(Number(sr.contractValue) || 0))))))));
+  const phone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })();
+  const latest = [...inRange].sort((x, y) => String(dateSoldToIso(y.dateSold) || '').localeCompare(String(dateSoldToIso(x.dateSold) || ''))).slice(0, 60);
   return el('div', { class: 'flex flex-col gap-5 w-full' },
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
       el('button', {
@@ -268,34 +328,67 @@ function viewTechs() {
       }, '+ Log Upsell'),
       rangeSel,
       configInfoBtn('Technicians data',
-        'Live from FieldRoutes: every subscription with source "Upsell - Service Pro" (the technicians\u2019 dedicated upsell source), refreshed by the hourly sync. Technicians ALSO log their upsells manually with the + button — the manual log is the commission record of the original deal, exactly like Inside Sales. Techs without app accounts still rank here under their CRM name.')),
-    el('div', { class: 'grid grid-cols-2 gap-4' },
-      el('div', { class: 'card p-4 sm:p-5 text-center' },
-        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Upsells'),
-        el('div', { class: 'font-display text-3xl sm:text-4xl mt-1' }, fmt.int(inRange.length))),
-      el('div', { class: 'card p-4 sm:p-5 text-center' },
-        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Upsell Revenue'),
-        el('div', { class: 'font-display text-3xl sm:text-4xl mt-1' }, fmt.usd0(revenue)))),
+        'Live from FieldRoutes: every subscription with source "Upsell - Service Pro" (the technicians’ dedicated upsell source), refreshed by the hourly sync. Technicians ALSO log their upsells manually with the + button — the manual log is the commission record of the original deal, exactly like Inside Sales. Techs without app accounts still rank here under their CRM name.')),
+    el('div', { class: 'card p-4 sm:p-5 grid kpi-multi kpi-multi-4 grid-cols-2 sm:grid-cols-4' },
+      kpi('Upsells', fmt.int(inRange.length), board.length + ' tech' + (board.length === 1 ? '' : 's') + ' selling'),
+      kpi('Upsell Revenue', fmt.usd0(revenue)),
+      kpi('Avg Upsell', inRange.length ? fmt.usd0(revenue / inRange.length) : '—'),
+      kpi('Biggest Upsell', biggest ? fmt.usd0(Number(biggest.contractValue) || 0) : '—', biggest ? flipLastFirst(getCanonicalRepName(biggest.rep || '')) + ' · ' + String(biggest.subscription || '') : '')),
+    podium,
     el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between' },
-        el('h2', { class: 'text-base font-bold' }, 'Service Pro Leaderboard'),
+        el('h2', { class: 'font-display text-lg' }, 'Service Pro Leaderboard'),
         el('span', { class: 'text-xs text-muted-' }, board.length + ' techs')),
       board.length === 0
         ? el('div', { class: 'p-10 text-center text-sm text-muted-' }, 'No Service Pro upsells in this window yet — first one on the board takes #1.')
-        : el('div', { class: 'scroll-x' },
+        : el('div', { class: phone ? '' : 'scroll-x', style: board.length > 6 ? { maxHeight: '440px', overflowY: 'auto' } : {} },
             el('table', { class: 'w-full text-[12px]' },
-              el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
+              el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: '2' } },
                 el('tr', {},
                   el('th', { class: 'text-left pl-4 pr-2 py-2 w-8' }, '#'),
                   el('th', { class: 'text-left px-2 py-2' }, 'Technician'),
-                  el('th', { class: 'text-right px-2 py-2' }, 'Upsells'),
-                  el('th', { class: 'text-right pl-2 pr-4 py-2' }, 'Revenue'))),
+                  el('th', { class: 'text-right px-3 py-2' }, 'Upsells'),
+                  el('th', { class: 'text-right px-3 py-2' }, 'Revenue'),
+                  ...(phone ? [] : [
+                    el('th', { class: 'text-right px-3 py-2' }, 'Avg'),
+                    el('th', { class: 'text-right px-3 py-2' }, 'Biggest'),
+                    el('th', { class: 'text-left px-3 py-2' }, 'Top Service')]))),
               el('tbody', {},
-                ...board.slice(0, 50).map((r, i) => el('tr', { class: 'border-t border-' },
-                  el('td', { class: 'pl-4 pr-2 py-2 font-bold tabular-nums' + (i === 0 ? ' text-base' : ''), style: i === 0 ? { color: 'var(--accent)' } : {} }, i + 1),
-                  el('td', { class: 'px-2 py-2 font-semibold' }, r.nm),
-                  el('td', { class: 'px-2 py-2 text-right tabular-nums' }, fmt.int(r.n)),
-                  el('td', { class: 'pl-2 pr-4 py-2 text-right tabular-nums font-semibold' }, fmt.usd0(r.rev)))))))),
+                ...board.slice(0, 50).flatMap((r, i) => {
+                  const isMe = _sig(r.nm) === meSig, isOpen = state._techLbOpen === r.nm, first = i === 0;
+                  return [el('tr', {
+                    class: 'border-t border- cursor-pointer transition hover:brightness-95',
+                    style: isMe ? { background: 'rgba(223,100,58,.08)' } : (isOpen ? { background: 'var(--card-2)' } : {}),
+                    title: isOpen ? 'Hide upsells' : 'Show ' + r.nm + '’s upsells',
+                    onclick: () => { state._techLbOpen = isOpen ? null : r.nm; mountApp(); },
+                  },
+                    el('td', { class: 'pl-4 pr-2 py-2 font-bold tabular-nums' + (first ? ' text-base' : ' text-muted-'), style: first ? { color: 'var(--accent)' } : {} }, i + 1),
+                    el('td', { class: 'px-2 py-2' }, el('div', { class: 'flex items-center gap-2.5' }, avatarFor(r.nm, 'sm'),
+                      el('div', { class: 'min-w-0' },
+                        el('div', { class: 'font-semibold whitespace-nowrap leading-tight' }, r.nm, isMe ? el('span', { class: 'text-[9px] font-bold uppercase tracking-wider ml-1.5 px-1.5 py-0.5 rounded', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, 'You') : null),
+                        el('div', { class: 'text-[10px] text-muted- mt-0.5 whitespace-nowrap' }, officeLabel(r.office) || '—')))),
+                    num(fmt.int(r.n)),
+                    el('td', { class: 'px-3 py-2 text-right tabular-nums whitespace-nowrap', style: { minWidth: '110px' } },
+                      el('div', { class: 'font-bold' }, fmt.usd0(r.rev)),
+                      el('div', { class: 'rounded-full mt-1 ml-auto', style: { height: '4px', width: Math.max(4, Math.round(r.rev / maxRev * 100)) + '%', background: 'var(--accent)', opacity: String(0.45 + 0.55 * (r.rev / maxRev)) } })),
+                    ...(phone ? [] : [
+                      num(fmt.usd0(r.rev / r.n), 'text-muted-'),
+                      num(fmt.usd0(r.best), 'text-muted-'),
+                      el('td', { class: 'px-3 py-2 text-left text-muted- whitespace-nowrap overflow-hidden', style: { maxWidth: '200px', textOverflow: 'ellipsis' } }, r.topSvc || '—')])),
+                    isOpen ? detailRow(r) : null].filter(Boolean);
+                }))))),
+    latest.length ? el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between' },
+        el('h2', { class: 'font-display text-lg' }, 'Latest Upsells'),
+        el('span', { class: 'text-xs text-muted-' }, fmt.int(inRange.length))),
+      el('div', { style: { maxHeight: '360px', overflowY: 'auto' } }, el('table', { class: 'w-full text-[12px]' },
+        el('tbody', {}, ...latest.map(sr => el('tr', { class: 'border-t border-' },
+          showDate ? el('td', { class: 'pl-4 pr-2 py-2 text-muted- tabular-nums whitespace-nowrap' }, dateSoldToIso(sr.dateSold) || '—') : null,
+          el('td', { class: (showDate ? 'px-2' : 'pl-4 pr-2') + ' py-2 whitespace-nowrap' }, el('span', { class: 'flex items-center gap-2' }, avatarFor(flipLastFirst(getCanonicalRepName(sr.rep || '')), 'sm'), el('span', { class: 'font-semibold' }, flipLastFirst(getCanonicalRepName(sr.rep || '')).split(' ')[0]))),
+          el('td', { class: 'px-2 py-2 font-semibold whitespace-nowrap' }, String(sr.customer || '—')),
+          el('td', { class: 'px-2 py-2 text-muted- whitespace-nowrap overflow-hidden', style: { maxWidth: '180px', textOverflow: 'ellipsis' } }, String(sr.subscription || '—')),
+          el('td', { class: 'pr-4 pl-2 py-2 text-right tabular-nums font-semibold' }, fmt.usd0(Number(sr.contractValue) || 0))))))))
+      : null,
     !isAdmin && el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b border-' }, el('h2', { class: 'text-base font-bold' }, 'My Logged Upsells')),
       myUpsells.length === 0
