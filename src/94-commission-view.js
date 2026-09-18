@@ -109,7 +109,7 @@ function commissionRenderOfficeStaff(B, repName) {
   const stats = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-3 py-2 font-display text-lg', style: { background: 'var(--text)', color: 'var(--bg)' } }, 'Accounts'),
     statRow('Total Accounts Sold', B.sold),
-    statRow('Serviced', B.serviced),
+    statRow('Commissionable', B.serviced),
     statRow('Below Minimums', B.below),
     statRow('Pending Audit', B.pending),
     statRow('Cancelled', B.cancelled, B.cancelled ? '#DC2626' : null));

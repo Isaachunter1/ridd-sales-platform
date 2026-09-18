@@ -120,6 +120,7 @@ function viewSales() {
       case 'revenue_amount':  return Number(s.revenue_amount || 0);
       case 'sold_date':       return s.sold_date || '';
       case 'commission_date': return (commissionableDate(s) || {}).date || '';
+      case 'service_date': return s.crm_serviced_at ? String(s.crm_serviced_at).slice(0, 10) : '';
       case 'audit_status':    return s.audit_status || '';
       case 'audited_by':      return (state.allProfiles.find(p => p.id === s.audited_by)?.full_name || '').toLowerCase();
       case 'crm_audit':       return s.crm_audit === 'passed' ? 2 : s.crm_audit === 'failed' ? 1 : 0;
@@ -669,7 +670,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
             !showBackend && headerCell('Monthly',     { sortableKey: 'monthly_amount', align: 'right', help: H.monthly }),
             headerCell('Revenue',     { sortableKey: 'revenue_amount', align: 'right', help: H.revenue }),
             headerCell('Sold Date',   { sortableKey: 'sold_date', help: H.sold }),
-            headerCell('Bill Date',   { sortableKey: 'commission_date', title: 'Commissionable date — charged upfront: the sale date (unless pre-service cancel); otherwise the later of initial service completed and first payment received' }),
+            headerCell('Service Date', { sortableKey: 'service_date', title: 'Initial service completed (from FieldRoutes). Commissionable status doesn\u2019t wait on this \u2014 a sale charged upfront is commissionable on the sale date.' }),
             // Three flags, sheet-style (per Isaac): PIF · COMM. (commission
             // paid out) · Upfront (payment collected at signing). Admins
             // toggle PIF / Upfront right here; COMM. is read-only — it is
@@ -742,8 +743,12 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
               el('td', { class: 'px-2 py-2 text-right tabular-nums font-semibold whitespace-nowrap' }, fmt.usd(s.revenue_amount)),
               cell(el('span', { class: 'text-muted- tabular-nums whitespace-nowrap' }, fmt.dateShortYear(s.sold_date))),
               cell((() => {
+                // Service Date (per Isaac): the initial service completion
+                // stamped from FieldRoutes; the commissionable reasoning
+                // rides in the tooltip.
                 const c = commissionableDate(s);
-                return el('span', { class: 'tabular-nums whitespace-nowrap ' + (c.date ? 'font-medium' : 'text-muted-'), title: c.why, style: c.date ? {} : { color: 'var(--text-subtle)' } }, c.date ? fmt.dateShortYear(c.date) : c.short);
+                const svc = s.crm_serviced_at ? String(s.crm_serviced_at).slice(0, 10) : null;
+                return el('span', { class: 'tabular-nums whitespace-nowrap ' + (svc ? 'font-medium' : 'text-muted-'), title: (svc ? 'Initial service completed ' + svc + ' \u00b7 ' : 'No initial service completed yet \u00b7 ') + c.why, style: svc ? {} : { color: 'var(--text-subtle)' } }, svc ? fmt.dateShortYear(svc) : 'not yet');
               })()),
               el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, 'paid_in_full', isAdmin, 'Paid in Full — the "Paid In Full" button on the FieldRoutes customer card')),
               el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, '_comm_paid', false, s.payroll_processed_at ? 'Commission paid ' + fmt.dateShortYear(String(s.payroll_processed_at).slice(0, 10)) : (s.staged_for_payroll ? 'Staged for the next payroll' : 'Commission not paid yet'))),
@@ -997,7 +1002,7 @@ function statusSelect(saleId) {
     },
   },
     el('option', { value: 'pending',         selected: current === 'pending' },         'Pending'),
-    el('option', { value: 'serviced',        selected: current === 'serviced' },        'Serviced'),
+    el('option', { value: 'serviced',        selected: current === 'serviced' },        'Commissionable'),
     el('option', { value: 'below_minimums',  selected: current === 'below_minimums' },  'Below Minimums'),
     el('option', { value: 'cancelled',       selected: current === 'cancelled' },       'Cancelled'),
     el('option', { value: 'nsf',             selected: current === 'nsf' },             'NSF'),

@@ -1532,6 +1532,8 @@ exports.handler = async (event) => {
       if (AL2.enabled) {
         const bySub = new Map();
         for (const r of objects) { const id = String(r.subscription_id || '').trim(); if (id) bySub.set(id, r); }
+        const _upFlag = String(AL2.upfront_flag ?? 'Passed Audit').trim().toLowerCase();
+        const _upfrontOf = (r) => !!_upFlag && !!r && String(r.customer_flags || '').split(',').some(f => f.trim().toLowerCase() === _upFlag);
         const { data: crmSales, error: csErr } = await supabase.from('sales')
           .select('id, crm_subscription_id, sold_date, audit_status, lock_status, payroll_processed_at, backend_payroll_processed_at, contract_months, notes, crm_audit')
           .not('crm_subscription_id', 'is', null)
@@ -1553,10 +1555,14 @@ exports.handler = async (event) => {
           const hasAppt = ['pending', 'completed'].includes(String(r.initial_status || '').trim().toLowerCase());
           const hasBilling = (() => { const a = String(r.customer_auto_pay || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); })();
           const eligible = (AL2.require_appt === false || hasAppt) && (AL2.require_billing === false || hasBilling) && (AL2.require_signed === false || signed || oneTime);
+          // Charged upfront (the configured customer flag) — per Isaac:
+          // commissionable on the sale date, no need to wait for service;
+          // and if it cancels while still pending it goes to Archived.
+          const upfront = _upfrontOf(r);
           const upd = {};
           if (s.audit_status === 'pending' && !s.payroll_processed_at) {
-            if (cancelled && !serviced) { upd.audit_status = 'cancelled'; upd.audited_at = stamp; upd.notes = ((s.notes || '') + ' · Auto: cancelled in CRM before service').trim(); }
-            else if (AL2.auto_approve && eligible && serviced && dpd <= 0 && s.crm_audit !== 'failed') { upd.audit_status = 'approved'; upd.audited_at = stamp; }
+            if (cancelled && (!serviced || upfront)) { upd.audit_status = 'cancelled'; upd.audited_at = stamp; upd.notes = ((s.notes || '') + (upfront && serviced ? ' · Auto: cancelled in CRM (charged upfront)' : ' · Auto: cancelled in CRM before service')).trim(); }
+            else if (AL2.auto_approve && eligible && (serviced || upfront) && dpd <= 0 && s.crm_audit !== 'failed') { upd.audit_status = 'serviced'; upd.audited_at = stamp; }
           }
           const lock = s.lock_status || 'pending';
           if (lock === 'pending' && s.payroll_processed_at && ['approved', 'serviced'].includes(upd.audit_status || s.audit_status)) {
