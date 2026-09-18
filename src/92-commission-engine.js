@@ -619,7 +619,8 @@ function viewD2dDashboard() {
         })) : el('div', { class: 'p-6 text-center text-sm text-muted-' }, 'No sales in this range yet.'));
     })();
 
-    return el('div', { class: 'flex flex-col gap-4' }, recordsCard, standingsCard, podium, lbCard);
+    void recordsCard;   // (Earliest / Latest / Biggest sale strip retired per Isaac, Sep 2026)
+    return el('div', { class: 'flex flex-col gap-4' }, standingsCard, podium, lbCard);
   };
   renderRange();
   lbHost.append(buildBoards());
