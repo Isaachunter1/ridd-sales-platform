@@ -1328,7 +1328,8 @@ function viewIndicators() {
       // Phone + rep/partner view (per Isaac): one branch column at a time —
       // defaults to THEIR branch (where their team / they sell the most),
       // with a dropdown to look at another branch. RIDD total stays.
-      const _narrowT = _repLite && (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
+      // Admins default to the RIDD (company) column; reps/partners to their own branch.
+      const _narrowT = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
       let _branchSel = null;
       if (_narrowT && sortedBranches.length > 1) {
         const homeBranch = (() => {
@@ -1344,7 +1345,10 @@ function viewIndicators() {
           let best = '', n = 0; tally.forEach((v, k) => { if (v > n) { n = v; best = k; } });
           return best;
         })();
-        const chosen = state._indMobileBranch === 'all' ? 'all' : (sortedBranches.includes(state._indMobileBranch) ? state._indMobileBranch : (sortedBranches.includes(homeBranch) ? homeBranch : sortedBranches[0]));
+        const chosen = (state._indMobileBranch === 'all' || state._indMobileBranch === 'ridd') ? state._indMobileBranch
+          : sortedBranches.includes(state._indMobileBranch) ? state._indMobileBranch
+          : !_repLite ? 'ridd'
+          : (sortedBranches.includes(homeBranch) ? homeBranch : sortedBranches[0]);
         const _lblB = (b) => b.split(' ').map(w => (w[0] || '') + w.slice(1).toLowerCase()).join(' ');
         _branchSel = el('div', { class: 'flex items-center gap-2 px-3 py-2 border-b', style: { borderColor: 'var(--border)' } },
           el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Branch'),
@@ -1353,9 +1357,11 @@ function viewIndicators() {
             style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
             onchange: (e) => { state._indMobileBranch = e.target.value; mountApp(); },
           },
+            el('option', { value: 'ridd', selected: chosen === 'ridd' }, 'RIDD \u00b7 company'),
             ...sortedBranches.map(b => el('option', { value: b, selected: chosen === b }, _lblB(b) + (b === homeBranch ? ' \u00b7 mine' : ''))),
             el('option', { value: 'all', selected: chosen === 'all' }, 'All branches')));
-        if (chosen !== 'all') sortedBranches = [chosen];
+        if (chosen === 'ridd') sortedBranches = [];
+        else if (chosen !== 'all') sortedBranches = [chosen];
       }
       return el('div', { class: 'card overflow-hidden' },
         _branchSel,
