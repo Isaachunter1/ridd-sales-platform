@@ -4648,7 +4648,8 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
   const paint = () => {
     const pick = narrow ? (COLS.find(c => c.key === state._mixMobileCol) || COLS[1]) : null;
     const cols = pick ? [pick] : COLS;
-    const firstCol = (cls, txt, title) => el('div', { class: (narrow ? 'w-[120px]' : 'w-[200px] sm:w-[240px]') + ' shrink-0 ' + cls, title: title || undefined, style: narrow ? {} : { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1 } }, txt);
+    // Fixed-width label column so every bar starts at the same x (per Isaac).
+    const firstCol = (cls, txt, title) => el('div', { class: (narrow ? '' : 'w-[200px] sm:w-[240px]') + ' shrink-0 ' + cls, title: title || undefined, style: narrow ? { width: '112px', minWidth: '112px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } : { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1 } }, txt);
     const maxShare = topSubscriptions.reduce((m, s) => Math.max(m, s.share), 0.0001);
     body.replaceChildren(el('div', { class: narrow ? '' : 'scroll-x' }, el('div', { style: narrow ? {} : { minWidth: '860px' } },
       el('div', { class: 'flex items-center gap-3 text-[10px] uppercase tracking-wider text-muted- font-semibold pb-1.5' },
