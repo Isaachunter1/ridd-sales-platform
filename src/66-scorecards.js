@@ -128,8 +128,12 @@ function viewScorecards() {
 
   // Roster-level rollups for the summary strip up top.
   const scores = roster.map(profile => {
-    const card = getCard(profile.id);
-    const score = card ? computeScorecardScore(card, tplFor(profile), period) : null;
+    // A rep with graded calls but no saved card still scores (per Isaac —
+    // Pere logged audits and saw nothing): score an empty shell so the
+    // automatic audit / accuracy rollup counts.
+    const hasAudits = typeof callAuditRollup === 'function' && callAuditRollup(profile.id, period).n > 0;
+    const card = getCard(profile.id) || (hasAudits ? { metrics: {}, attendance: {}, notes: '' } : null);
+    const score = card ? computeScorecardScore(card, tplFor(profile), period, profile.id) : null;
     return { profile, card, score };
   });
   const scored = scores.filter(s => s.score && s.score.coverage > 0);
@@ -172,7 +176,7 @@ function viewScorecards() {
       profile, card, score, tpl: t,
       trend: _trendKeys.map(k => {
         const c = state._scorecardData[profile.id + '|' + k];
-        const s = c ? computeScorecardScore(c, t, k) : null;
+        const s = c ? computeScorecardScore(c, t, k, p.id) : null;
         return (s && s.coverage > 0) ? { key: k, val: s.final } : { key: k, val: null };
       }),
       // Admins and team leads have the SAME scorecard permissions (per
@@ -406,7 +410,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
 
   const render = () => {
     modal.innerHTML = '';
-    const score = computeScorecardScore(draft, tpl, period);
+    const score = computeScorecardScore(draft, tpl, period, profileId);
     const band  = scorecardBand(score.final);
     // Finalize & lock (per Isaac): a finalized card is read-only for
     // EVERYONE; only an admin can unlock it for edits.
@@ -463,22 +467,26 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
     const metricSection = el('div', { class: 'mb-5' },
       el('h3', { class: 'text-xs font-bold uppercase tracking-widest text-muted- mb-3' }, 'Performance Metrics'),
       ...tpl.metrics.filter(m => m.source === 'manual').map(m => {
-        const v = draft.metrics[m.id];
+        const manual = draft.metrics[m.id];
+        const auto = (typeof scorecardAutoMetric === 'function') ? scorecardAutoMetric(profileId, m.id, period) : null;
+        const v = Number.isFinite(manual) ? manual : (auto != null ? auto : NaN);
         const b = scorecardBand(v);
         const has = Number.isFinite(v);
+        const isAuto = !Number.isFinite(manual) && auto != null;
         const contribution = has ? v * m.weight : 0;
         return el('div', { class: 'flex items-center gap-3 mb-2.5' },
           el('div', { class: 'flex-1 min-w-0' },
             el('div', { class: 'text-xs font-semibold' }, m.label),
             el('div', { class: 'text-[10px] text-muted-' },
               'Weight ' + Math.round(m.weight * 100) + '%'
-                + (has ? ' · contributes ' + contribution.toFixed(1) + ' pts' : '')),
+                + (has ? ' · contributes ' + contribution.toFixed(1) + ' pts' : '')
+                + (isAuto ? ' · from graded calls (type a value to override)' : '')),
           ),
           el('input', {
             type: 'number', min: '0', max: '100', step: '0.1',
             disabled: canEditNow ? null : true,
-            placeholder: '0–100',
-            value: has ? String(v) : '',
+            placeholder: isAuto ? String(auto) : '0–100',
+            value: Number.isFinite(manual) ? String(manual) : '',
             class: 'rounded-lg border px-2.5 py-1 text-[11px] tabular-nums text-right',
             style: { borderColor: 'var(--border-2)', width: '90px' },
             oninput: (e) => {
@@ -833,7 +841,7 @@ function meetingInsights(profile, tpl) {
   const ms = meetingsFor(profile.id).slice().reverse();   // oldest → newest
   const out = [];
   if (!ms.length) return ['No meetings logged yet — the story starts with the first one.'];
-  const scoreFor = (period) => { const c = (state._scorecardData || {})[profile.id + '|' + period]; const s = c ? computeScorecardScore(c, tpl, period) : null; return (s && s.coverage > 0) ? s.final : null; };
+  const scoreFor = (period) => { const c = (state._scorecardData || {})[profile.id + '|' + period]; const s = c ? computeScorecardScore(c, tpl, period, profile.id) : null; return (s && s.coverage > 0) ? s.final : null; };
   const periods = [...new Set(ms.map(m => String(m.period || m.meeting_date || '').slice(0, 7)))].filter(Boolean).sort();
   const scored = periods.map(p => ({ p, s: scoreFor(p) })).filter(x => x.s != null);
   if (scored.length >= 2) {
@@ -862,7 +870,7 @@ function openMeetingLogModal(profile, dept, tpl, canEdit) {
   overlay.append(modal);
   let editing = null;
 
-  const scoreFor = (period) => { const c = (state._scorecardData || {})[profile.id + '|' + period]; const s = c ? computeScorecardScore(c, tpl, period) : null; return (s && s.coverage > 0) ? s : null; };
+  const scoreFor = (period) => { const c = (state._scorecardData || {})[profile.id + '|' + period]; const s = c ? computeScorecardScore(c, tpl, period, profile.id) : null; return (s && s.coverage > 0) ? s : null; };
   const chip = (kind) => { const k = MEETING_KINDS[kind] || MEETING_KINDS.coaching; return el('span', { class: 'rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider', style: { background: k.color + '22', color: k.color } }, k.short); };
 
   const startNew = (kind) => {
@@ -919,7 +927,7 @@ function openMeetingLogModal(profile, dept, tpl, canEdit) {
       if (!opts.some(o => o.key === m.period)) opts.push({ key: m.period, label: m.period });
       opts.sort((a, b) => b.key.localeCompare(a.key));
       const card = (state._scorecardData || {})[profile.id + '|' + m.period] || { metrics: {}, attendance: {} };
-      const sc = computeScorecardScore(card, tpl, m.period);
+      const sc = computeScorecardScore(card, tpl, m.period, profile.id);
       const band = scorecardBand(sc && sc.coverage > 0 ? sc.final : null);
       const host = el('div', { class: 'rounded-lg border p-3 flex flex-col gap-2', style: { borderColor: 'var(--border)', background: 'var(--card)' } });
       const head = el('div', { class: 'flex items-center gap-2 flex-wrap' },

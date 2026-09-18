@@ -10551,16 +10551,30 @@ function scorecardPeriodOptions() {
 // dynamically for the month being scored.
 // Scores are OUT OF 100, not percentages (per Isaac's sheet): 85.75, 90.
 function fmtScore(v, dp = 2) { return Number.isFinite(v) ? String(Math.round(v * Math.pow(10, dp)) / Math.pow(10, dp)) : '\u2014'; }
-function computeScorecardScore(card, tpl, periodKey) {
+// Audit / Accuracy metrics (per Isaac, Sep 2026): graded calls roll up
+// into the score AUTOMATICALLY — a hand-entered value on the card still
+// wins, but nobody has to click "Apply" for logged audits to count. Pass
+// `profileId` so the rollup can be looked up; `card` may be an empty shell
+// for a rep who has audits but no saved card yet.
+function scorecardAutoMetric(profileId, metricId, periodKey) {
+  if (!profileId || typeof callAuditRollup !== 'function') return null;
+  if (metricId !== 'audit' && metricId !== 'accuracy') return null;
+  const r = callAuditRollup(profileId, periodKey);
+  if (!r || !r.n) return null;
+  const v = metricId === 'audit' ? r.call : r.accuracy;
+  return Number.isFinite(v) ? Math.round(v * 10) / 10 : null;
+}
+function computeScorecardScore(card, tpl, periodKey, profileId) {
   if (!card) return null;
   const attendanceScore = computeAttendanceScore(card.attendance || {}, tpl.attendance, periodKey);
   let composite = 0;
   let totalWeight = 0;
   const breakdown = {};
   for (const m of tpl.metrics) {
-    const v = m.source === 'attendance'
+    let v = m.source === 'attendance'
       ? attendanceScore
       : Number(card.metrics?.[m.id]);
+    if (!Number.isFinite(v)) { const auto = scorecardAutoMetric(profileId, m.id, periodKey); if (auto != null) v = auto; }
     if (Number.isFinite(v)) {
       composite   += v * m.weight;
       totalWeight += m.weight;
@@ -10782,7 +10796,7 @@ function saveScorecardCardCloud(profileId, period, dept, tpl) {
   if (!card) return;
   let final = null;
   try {
-    const sc = computeScorecardScore(card, tpl, period);
+    const sc = computeScorecardScore(card, tpl, period, profileId);
     if (sc && sc.coverage > 0) final = Number(sc.final.toFixed(2));
   } catch (e) { /* score stays null */ }
   supabase.from('scorecard_cards').upsert({
