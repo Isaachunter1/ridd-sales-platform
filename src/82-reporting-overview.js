@@ -97,7 +97,7 @@ function reportingOverview() {
       }) },
     { id: 'rarrOffice', title: 'Recurring Annual Value by Office',  subline: 'Sum of Annual Recurring Value · active subs',           totalLabel: 'Active ARV',          formatValue: fmt.usd0, sliceKey: 'rarrOffice' },
     { id: 'customers',  title: 'Active Customers',         subline: 'Distinct customers with at least one active sub',       totalLabel: 'Active customers',    sliceKey: 'customers' },
-    { id: 'activesubs', title: 'Active Subscriptions',     subline: 'Currently in service · by subscription type',           totalLabel: 'Active subs',         sliceKey: 'activeSubs' },
+    { id: 'activesubs', title: 'Subscriptions Active',     subline: 'Currently in service · by subscription type',           totalLabel: 'Subscriptions active',         sliceKey: 'activeSubs' },
     // Receivables — one card, two lenses (per Isaac, Sep 2026): every
     // customer's real balance by AGE (Current → 90+), or the past-due
     // portion (31+ days) by OFFICE. Same dollars either way; the office
