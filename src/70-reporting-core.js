@@ -894,8 +894,15 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
 }
 
 // Filter visible subs to a single office. 'all' means no filter.
+// 'all' = everything; a name = that office; 'multi' = the branches ticked in
+// state.reportingOffices (the Office checklist, per Isaac, Sep 2026).
 function reportingFilterByOffice(rows, office) {
   if (!office || office === 'all') return rows;
+  if (office === 'multi') {
+    const set = new Set(Array.isArray(state.reportingOffices) ? state.reportingOffices : []);
+    if (!set.size) return rows;
+    return rows.filter(r => set.has((r.office_name || '').trim()));
+  }
   return rows.filter(r => (r.office_name || '') === office);
 }
 
