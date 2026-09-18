@@ -136,7 +136,11 @@ function reportingOverview() {
     { id: 'retiredSubs', title: 'Retired Services',        subline: 'Active subs on discontinued services · should be closed', totalLabel: 'Active retired subs', sliceKey: 'retiredSubs' },
   ];
 
-  const makeCard = (def, data, side) => reportingPieCard({
+  // Cards that only earn a slot when they have something to say (per Isaac):
+  // Retired Services stays hidden until an active sub sits on a retired type.
+  const _emptyHidden = new Set(['retiredSubs']);
+  const _cardHidden = (def, data) => _emptyHidden.has(def.id) && !((data.slices[def.sliceKey] || []).some(sl => (sl.value || 0) > 0));
+  const makeCard = (def, data, side) => _cardHidden(def, data) ? null : reportingPieCard({
     key:         def.id + '-' + side,
     title:       def.title,
     // Subline may be a function for data-aware text (e.g., aging shows
