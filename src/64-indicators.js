@@ -8563,8 +8563,8 @@ function _repFirstRunCard() {
 
 // Tap anywhere → the full player card modal (records, drills, charts).
 // Attrition for the landing cards — same definition as the player card's
-// "Attrition · excl. ROR + OTS" tile: cancelled ÷ serviced contract value
-// with 3-day RORs and one-time services removed from both sides. Runs on
+// "Attrition · incl. 3-day ROR" tile (per Isaac): cancelled ÷ serviced
+// contract value, 3-day RORs and one-time services included on both sides. Runs on
 // the rep/team's full book (not just YTD) so it reads as a real rate.
 // Landing-card tiles: every tile drills to the accounts behind it (per
 // Isaac — partners want to see what's contributing). Click stops at the tile
@@ -8595,7 +8595,7 @@ function _landingTiles(tile, m) {
     tile('Avg Pest', m.avgPest > 0 ? fmt.usd(m.avgPest) : '\u2014', m.pest, 'pest accounts (Sentricon, German roach, interior flea excluded) \u00b7 avg initial'),
     tile('MY %', (m.myPct * 100).toFixed(1) + '%', multi, multi.length + ' multi-year of ' + (multi.length + twelve.length) + ' (multi + 12-month)'),
     tile('Auto Pay', (m.apay * 100).toFixed(1) + '%', apayOn, apayOn.length + ' of ' + m.count + ' on autopay'),
-    tile('Attrition', m.attrPct == null ? '\u2014' : (m.attrPct * 100).toFixed(1) + '%', attrRows.cancelled, 'cancelled \u00f7 serviced by contract value, 3-day ROR + one-time excluded \u00b7 ' + attrRows.cancelled.length + ' of ' + attrRows.serviced.length + ' serviced'),
+    tile('Attrition', m.attrPct == null ? '\u2014' : (m.attrPct * 100).toFixed(1) + '%', attrRows.cancelled, 'cancelled \u00f7 serviced by contract value, incl. 3-day ROR + one-time \u00b7 ' + attrRows.cancelled.length + ' of ' + attrRows.serviced.length + ' serviced'),
     tile('Cancels', String(m.cancels), cxl, 'counted cancels (excluded reasons removed)'),
   ];
 }
@@ -8612,7 +8612,7 @@ function _landingAttritionRows(rows) {
       return !(m > 1) && !/sentricon/i.test(String(x.subscription || ''));
     };
     for (const x of rows || []) {
-      if (!_svcR(x) || _ror(x) || _isOTS(x)) continue;
+      if (!_svcR(x)) continue;
       out.serviced.push(x);
       if (_cxlR(x)) out.cancelled.push(x);
     }
@@ -8633,7 +8633,7 @@ function _landingAttritionPct(rows) {
     };
     let serv = 0, cxl = 0;
     for (const x of rows || []) {
-      if (!_svcR(x) || _ror(x) || _isOTS(x)) continue;
+      if (!_svcR(x)) continue;
       const cv = Number(x.contractValue) || 0;
       serv += cv;
       if (_cxlR(x)) cxl += cv;
