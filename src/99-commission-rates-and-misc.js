@@ -1720,41 +1720,8 @@ function adminReps() {
             onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
             onclick: () => setViewAsRole(v),
           }, label)),
-          // ── View as a specific PERSON (per Isaac): their identity, role,
-          // office and data — the exact page they get, not just their role.
-          el('div', { class: 'px-3 pt-2 pb-1 mt-1 border-t text-[10px] uppercase tracking-widest font-semibold', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } }, 'View as a person\u2026'),
-          (() => {
-            const list = el('div', { class: 'flex flex-col', style: { maxHeight: '180px', overflowY: 'auto' } });
-            const people = (state.allProfiles || []).filter(p => p && p.id && p.is_active !== false && !isAdminRole(p.role)).sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || '')));
-            const draw = (q) => {
-              list.replaceChildren();
-              const needle = String(q || '').trim().toLowerCase();
-              const hits = needle ? people.filter(p => String(p.full_name || '').toLowerCase().includes(needle)) : [];
-              if (!needle) { list.append(el('div', { class: 'px-2.5 py-1 text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Type a name')); return; }
-              if (!hits.length) { list.append(el('div', { class: 'px-2.5 py-1 text-[10px]', style: { color: 'var(--text-subtle)' } }, 'No match')); return; }
-              hits.slice(0, 12).forEach(p => list.append(el('button', {
-                class: 'w-full text-left px-2.5 py-1 rounded-lg text-[11px] font-medium transition flex items-center justify-between gap-2',
-                style: { color: 'var(--text)' },
-                onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; },
-                onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
-                onclick: () => setViewAsProfile(p),
-              }, el('span', { class: 'truncate' }, p.full_name || p.email || p.id), el('span', { class: 'text-[9px] uppercase tracking-wider shrink-0', style: { color: 'var(--text-subtle)' } }, (ROLE_LABEL[p.role] || p.role || '').replace(/^Rep - /, '')))));
-            };
-            const inp = el('input', { type: 'text', placeholder: 'Search a rep\u2026', class: 'rounded-lg border px-2.5 py-1 text-[11px] w-full mb-1', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-              oninput: (e) => draw(e.target.value), onclick: (e) => e.stopPropagation() });
-            draw('');
-            return el('div', { class: 'px-1.5 pb-1' }, inp, list);
-          })(),
-          // ── Sandbox: live data in, no writes out ──
-          el('div', { class: 'px-3 pt-2 pb-1 mt-1 border-t text-[10px] uppercase tracking-widest font-semibold', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } }, 'Demo / rehearse'),
-          el('button', {
-            class: 'w-full text-left px-2.5 py-1 rounded-lg text-[11px] font-medium transition',
-            style: { color: 'var(--text)' },
-            title: 'Work against live data while every save is dropped \u2014 partners keep seeing the real app untouched. Refresh or Exit restores live.',
-            onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; },
-            onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
-            onclick: () => { sandboxOn() ? sandboxExit() : sandboxStart(); },
-          }, sandboxOn() ? '\ud83e\uddea Exit Sandbox Mode' : '\ud83e\uddea Sandbox Mode'));
+          // (View-as-a-person search and the Sandbox entry retired per Isaac, Sep 2026 — setViewAsProfile / sandboxStart stay callable.)
+          null);
         const btn = el('button', {
           class: 'icon-btn show',
           title: 'Change rep type view',
