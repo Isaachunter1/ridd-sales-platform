@@ -268,6 +268,29 @@
   button.rounded-xl.px-2\.5.py-1.text-\[11px\]:not(.w-full) {
     padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   }
+  /* ── Phone sweep (per Isaac, Sep 2026) ───────────────────────────────── */
+  @media (max-width: 640px) {
+    /* Long tab titles (PAY STUB, HALL OF FAME) stay on one line. */
+    .hb-topbar-title { font-size: 1.25rem !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* Sales totals strip: 2–3 tiles per row instead of five crushed together. */
+    .sales-totals-strip { flex-wrap: wrap; overflow-x: visible !important; }
+    .sales-totals-strip > div { flex: 1 1 30%; border-left: 0 !important; border-top: 1px solid var(--border); }
+    .sales-totals-strip > div:nth-child(-n+3) { border-top: 0; }
+    /* Retention attrition tiles: 2×2, not four squeezed across. */
+    .reten-tiles { display: grid !important; grid-template-columns: 1fr 1fr; gap: 8px 16px !important; width: 100%; }
+    .reten-tiles > div { text-align: left !important; }
+    .reten-tiles > button, .reten-tiles > span { grid-column: span 2; justify-self: start; }
+    /* Wide tables scroll inside their card instead of stretching the page
+       (the Settings pages were wider than the phone, clipping every
+       paragraph). Cards keep their own width. */
+    .card { min-width: 0; max-width: 100%; }
+    .card > table, .card > div > table { display: block; overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
+    /* Sales-mode switcher (Inside / D2D / Technicians) never runs off the edge. */
+    .sales-mode-toggle { max-width: 100%; }
+    .sales-mode-btn { min-width: 0; padding-left: 6px !important; padding-right: 6px !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* The view-as pill fits a phone: label wraps, button doesn't. */
+    body > div[style*="bottom: 18px"] { max-width: calc(100vw - 24px); }
+  }
   /* Manage Teams on phones (per Isaac): rows wrap to two lines — name + chips
      on top, last-active / status / tier / team underneath — so the list only
      ever scrolls vertically. Never sideways. */
