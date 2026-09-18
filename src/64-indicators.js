@@ -709,8 +709,12 @@ function viewIndicators() {
           // "Total Revenue" counts cancelled + sold-not-started rows too — an
           // admin analysis lens that just makes a rep's number look bigger
           // than anything comps or payroll will ever pay on.
-          const metricSel = _repLite ? (() => { state.indicatorAcctStatus = 'pending_serviced'; return null; })() :
-            el('select', {
+          // Metric stays LOCKED to Pending/Serviced for plain reps ("Total
+          // Revenue" counts cancelled + sold-not-started rows — an analysis
+          // lens, not a payroll number). Team leads / partners get the pick
+          // (per Isaac, Sep 2026 — Pere's view).
+          const _metricLocked = _repLite && !((typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role)) || (typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role)));
+          const metricSel = _metricLocked ? (() => { state.indicatorAcctStatus = 'pending_serviced'; _staged.acct = 'pending_serviced'; return null; })() : el('select', {
               class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer w-full',
               style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
               onchange: e => { _staged.acct = e.target.value; _markDirty(); },
@@ -718,6 +722,13 @@ function viewIndicators() {
               el('option', { value: 'pending_serviced', selected: _staged.acct === 'pending_serviced' }, 'Pending / Serviced Revenue'),
               el('option', { value: 'all', selected: _staged.acct === 'all' }, 'Total Revenue'),
             );
+          // Exclude — one-time services / 3-day RORs / renewals (per Isaac),
+          // same switches as the Performance Trends card (shared state).
+          const _stExcl = { ...indicatorExcl() };
+          const exclBox = (key, lab) => el('label', { class: 'flex items-center gap-1.5 text-[11px] font-medium cursor-pointer', style: { color: 'var(--text)' } },
+            el('input', { type: 'checkbox', checked: !!_stExcl[key], style: { width: '13px', height: '13px' }, onchange: (e) => { _stExcl[key] = !!e.target.checked; _markDirty(); } }), lab);
+          const exclSel = el('div', { class: 'flex flex-col gap-1 rounded-xl px-2.5 py-1.5', style: { border: '1px solid var(--border-2)', background: 'var(--card)' } },
+            exclBox('oneTime', 'One-time services'), exclBox('ror', '3-day RORs'), exclBox('renewal', 'Renewals'));
           // Emp Type — classified from the Customer Report's "Sold By Type".
           const typeSel = el('select', {
             class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer w-full',
@@ -773,7 +784,8 @@ function viewIndicators() {
               ...(() => {
                 const hl = (node, on) => { if (node && on) { node.style.borderColor = 'var(--accent)'; node.style.boxShadow = '0 0 0 2px rgba(223,100,58,.25)'; } return node; };
                 return [
-                  _fRow('Metric', hl(metricSel, !_repLite && (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced')),
+                  _metricLocked ? null : _fRow('Metric', hl(metricSel, (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced')),
+                  _fRow('Exclude', hl(exclSel, !!indicatorExclKey())),
                   _repLite ? null : _fRow('Type',   hl(typeSel,   (state.indicatorDept || 'all') !== 'all')),
                   _fRow('Date',   hl(dateSel,   isRange && state.indicatorsRangePreset !== 'this_year')),
                   _fRow('Group',  hl(groupSel,  groupBy !== 'branch')),
@@ -787,7 +799,8 @@ function viewIndicators() {
                     toast(state.indicatorsComps ? 'Competitions are branch-level — turn Comps off first' : 'This grouping needs a raw-sales upload', 'warn');
                     return;
                   }
-                  if (!_repLite) state.indicatorAcctStatus = _staged.acct;
+                  state.indicatorAcctStatus = _staged.acct;
+                  state.indicatorExcl = { ..._stExcl };
                   state.indicatorDept = _staged.dept;
                   if (_staged.preset !== state.indicatorsRangePreset) {
                     state.indicatorsRangePreset = _staged.preset;
@@ -805,7 +818,8 @@ function viewIndicators() {
             ),
           );
           const nonDefault = [
-            !_repLite && (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced',
+            (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced',
+            !!indicatorExclKey(),
             !_repLite && (state.indicatorDept || 'all') !== 'all',
             isRange && state.indicatorsRangePreset !== 'this_year',
             groupBy !== 'branch',
@@ -822,7 +836,7 @@ function viewIndicators() {
           const btn = el('button', {
             class: 'relative rounded-xl px-2.5 py-1 text-[11px] font-semibold border transition hover:brightness-95 shrink-0',
             style: { borderColor: nonDefault ? 'var(--accent)' : 'var(--border-2)', color: 'var(--text)' },
-            title: 'Filters — Metric, Type, Date, Group',
+            title: 'Filters — Metric, Exclude, Type, Date, Group',
             onclick: (e) => {
               e.stopPropagation();
               const open = panel.style.display === 'block';
@@ -6068,7 +6082,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
     drillRepName = state._indicatorRepDrillDown;
     drillRep = drillRepName && repMap[drillRepName] ? repMap[drillRepName] : null;
   }
-  const _perfTitle = ((typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role)) || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role))) ? '📈 Performance Trends' : '📈 Your Performance Trends';
+  const _perfTitle = '📈 Performance Trends';
   const _trendTitleNode = () => el('h3', { class: 'text-base font-bold' }, _perfTitle);
   // Right-hand control cluster on the card's TITLE row — the Filters
   // dropdown is appended first (below), then buildTrendMiniGrid mounts the
@@ -9239,8 +9253,10 @@ function indicatorYoYTrendChart() {
   }
 
   // Office staff can split the revenue metric into Total / New / Renewal.
-  const isOffice = (state.indicatorDept === 'office');
-  const revType = (isOffice && metric === 'revenue') ? (state._indicatorYoYRevType || 'total') : 'total';
+  // Revenue splits into Total / New / Renewal for EVERY user type (per Isaac,
+  // Sep 2026) — sales reps default to Total and won't notice a difference.
+  const isOffice = true;
+  const revType = (metric === 'revenue') ? (state._indicatorYoYRevType || 'total') : 'total';
   const valOf = (a, matchedHorizon) => {
     if (!a) return null;
     switch (metric) {
@@ -9400,8 +9416,8 @@ function indicatorYoYTrendChart() {
           document.removeEventListener('mousedown', closer);
         }), 0); }
       },
-    }, (gran === 'year' ? 'Years' : (gran === 'month' ? 'Months' : 'Weeks') + (_yoySelYears.length === 1 ? ' · ' + _yoySelYears[0] : ' · ' + _yoySelYears.length + ' years')));
-    // The button reads the current value (per Isaac); the category rides the tooltip.
+    }, 'Range', el('span', { style: { fontSize: '9px' } }, '\u25bc'));
+    // The button reads "Range" (per Isaac, Sep 2026); the current value rides the tooltip.
     btn.title = 'Range: ' + (gran === 'year' ? 'Years · all' : (gran === 'month' ? 'Months' : 'Weeks') + ' · ' + _yoySelYears.join(', ')) + ' — tap to change';
     if (gran !== 'week' || _yoySelYears.length !== 1) { btn.style.background = 'var(--accent)'; btn.style.color = 'var(--accent-text)'; btn.style.borderColor = 'var(--accent)'; }
     // (value text kept as-is — the fixed "View" label is added at render)
@@ -9524,6 +9540,23 @@ function indicatorYoYTrendChart() {
       return row;
     };
     const secTitle = (t) => el('div', { class: 'px-2.5 pt-2 pb-1 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, t);
+    let _stTiers = [..._yoySelTiers];
+    const tierBtn = (tid, lab) => {
+      const glyph = el('span', { style: { fontSize: '13px' } }, _stTiers.includes(tid) ? '☑' : '☐');
+      const row = el('button', {
+        class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer text-left transition hover:brightness-95',
+        style: { color: 'var(--text)', background: _stTiers.includes(tid) ? 'var(--card-2)' : 'transparent' },
+        onclick: (e) => {
+          e.stopPropagation();
+          _stTiers = _stTiers.includes(tid) ? _stTiers.filter(x => x !== tid) : [..._stTiers, tid];
+          const on = _stTiers.includes(tid);
+          glyph.textContent = on ? '☑' : '☐';
+          row.style.background = on ? 'var(--card-2)' : 'transparent';
+          _sDirty();
+        },
+      }, glyph, el('span', {}, lab));
+      return row;
+    };
     const repList = el('div', {});
     const paintReps = (q) => {
       repList.innerHTML = '';
@@ -9547,6 +9580,10 @@ function indicatorYoYTrendChart() {
       style: { top: 'calc(100% + 6px)', right: '0', minWidth: '230px', maxHeight: '340px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._yoyScopesOpen ? 'block' : 'none' },
     },
       rowBtn('co:', 'Company (everything on this page)'),
+      // Type (All reps / Rookies / Vets) lives INSIDE this picker now (per
+      // Isaac) — the separate "All types" button is gone.
+      secTitle('Type'),
+      ...YOY_TIERS.map(([tid, lab]) => tierBtn(tid, lab)),
       _yoyPartner ? null : secTitle('Department'),
       ...(_yoyPartner ? [] : _YOY_DEPTS.map(([k, lab]) => rowBtn('dept:' + k, lab))),
       offices.length ? secTitle('Offices') : null,
@@ -9563,14 +9600,16 @@ function indicatorYoYTrendChart() {
           e.stopPropagation();
           const parsed = _staged.map(k => { const i = k.indexOf(':'); return { t: k.slice(0, i), v: k.slice(i + 1) || undefined }; });
           state._indicatorYoYScopes = parsed.length ? parsed : [{ t: 'co' }];
+          state._indicatorYoYTiers = _stTiers.length ? _stTiers : ['all'];
           state._yoyScopesOpen = false;
           mountApp();
         },
       }, 'Apply')));
-    const multi = _yoySelScopes.length > 1 || _yoySelScopes[0].t !== 'co';
-    const label = !multi ? 'Company'
+    const multi = _yoySelScopes.length > 1 || _yoySelScopes[0].t !== 'co' || _tierSplit;
+    const _tierLab = _tierSplit ? _yoySelTiers.map(t => (YOY_TIERS.find(x => x[0] === t) || [])[1] || t).join(' + ') : '';
+    const label = (!multi ? 'Company'
       : _yoySelScopes.length === 1 ? _scopeLabelOf(_yoySelScopes[0])
-      : _yoySelScopes.length + ' selected';
+      : _yoySelScopes.length + ' selected') + (_tierLab ? ' · ' + _tierLab : '');
     const btn = el('button', {
       class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer border flex items-center gap-1.5',
       style: multi
@@ -9811,6 +9850,61 @@ function indicatorYoYTrendChart() {
     });
   }, 50);
 
+  // Exclude picker (per Isaac, Sep 2026) — one-time services / 3-day RORs /
+  // renewals, for EVERY user type. Shares state with the page Filters panel
+  // (indicatorSales() already drops them), so the whole tab agrees.
+  const exclWrap = (() => {
+    const wrap = el('div', { class: 'relative' });
+    const _st = { ...indicatorExcl() };
+    let _xApply = null;
+    const dirty = () => { if (!_xApply) return; _xApply.style.background = 'var(--accent)'; _xApply.style.color = 'var(--accent-text)'; _xApply.style.borderColor = 'var(--accent)'; };
+    const rowX = (key, lab) => {
+      const glyph = el('span', { style: { fontSize: '13px' } }, _st[key] ? '\u2611' : '\u2610');
+      const row = el('button', {
+        class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer text-left transition hover:brightness-95',
+        style: { color: 'var(--text)', background: _st[key] ? 'var(--card-2)' : 'transparent' },
+        onclick: (e) => { e.stopPropagation(); _st[key] = !_st[key]; glyph.textContent = _st[key] ? '\u2611' : '\u2610'; row.style.background = _st[key] ? 'var(--card-2)' : 'transparent'; dirty(); },
+      }, glyph, el('span', {}, lab));
+      return row;
+    };
+    const panel = el('div', {
+      class: 'card absolute p-1.5',
+      style: { top: 'calc(100% + 6px)', right: '0', minWidth: '190px', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._yoyExclOpen ? 'block' : 'none' },
+    },
+      el('div', { class: 'px-2.5 pt-1 pb-0.5 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Leave out'),
+      rowX('oneTime', 'One-time services'), rowX('ror', '3-day RORs'), rowX('renewal', 'Renewals'),
+      (_xApply = el('button', {
+        class: 'w-full rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95 mt-1',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        onclick: (e) => { e.stopPropagation(); state.indicatorExcl = { ..._st }; state._yoyExclOpen = false; mountApp(); },
+      }, 'Apply')));
+    const nX = Object.values(indicatorExcl()).filter(Boolean).length;
+    const btn = el('button', {
+      class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer border flex items-center gap-1.5',
+      style: nX ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)', color: 'var(--text)' },
+      title: 'Exclude one-time services, 3-day RORs or renewals from the lines (applies to the whole Indicators tab)',
+      onclick: (e) => {
+        e.stopPropagation();
+        const open = panel.style.display === 'block';
+        panel.style.display = open ? 'none' : 'block';
+        state._yoyExclOpen = !open;
+        if (!open) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+          if (wrap.contains(ev.target)) return;
+          panel.style.display = 'none'; state._yoyExclOpen = false;
+          document.removeEventListener('mousedown', closer);
+        }), 0); }
+      },
+    }, 'Exclude' + (nX ? ' \u00b7 ' + nX : ''), el('span', { style: { fontSize: '9px' } }, '\u25bc'));
+    if (state._yoyExclOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+      if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
+      if (wrap.contains(ev.target)) return;
+      panel.style.display = 'none'; state._yoyExclOpen = false;
+      document.removeEventListener('mousedown', closer);
+    }), 0); }
+    wrap.append(btn, panel);
+    return wrap;
+  })();
+
   // Partner view (per Isaac): ONE dropdown — Company / their team(s) / every
   // rep on those teams listed outright (no search), the type split and the
   // range (Weeks / Months / Years + overlay years) — one Apply.
@@ -9908,10 +10002,10 @@ function indicatorYoYTrendChart() {
 
   return el('div', { class: 'card p-5' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-3' },
-      el('h3', { class: 'text-sm font-bold' }, _yoyRepOnly ? 'Your Performance Trends' : 'Performance Trends'),
+      el('h3', { class: 'text-sm font-bold' }, 'Performance Trends'),
       // Labels live INSIDE the buttons now (Scope / Type / Range / Metric —
       // per Isaac); the current value shows in each button's tooltip.
-      el('div', { class: 'flex items-center gap-2 flex-wrap' }, ...(comboWrap ? [comboWrap] : [scopesWrap, tiersWrap, yearsWrap]), metricSel)),
+      el('div', { class: 'flex items-center gap-2 flex-wrap' }, ...(comboWrap ? [comboWrap] : [scopesWrap, yearsWrap]), exclWrap, metricSel)),
     cvsWrap);
 }
 
