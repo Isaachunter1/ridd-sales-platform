@@ -3839,7 +3839,11 @@ function openIndicatorRepCard(rep, allReps = []) {
   const fullAccess = Array.isArray(rep._members) ? canViewAggregate(rep._members) : canViewRepDetails(rep.name, rep.team);
   // Per Isaac (Sep 2026): outside the viewer's reach the card doesn't open
   // at all — a sales rep sees the leaderboard numbers, not other reps' cards.
-  if (!fullAccess) { try { toast('You can open your own player card here — other reps\u2019 cards are for leads and admins.', 'info'); } catch (e) { /* pre-boot */ } return; }
+  if (!fullAccess) {
+    const lead = typeof myReachTeams === 'function' && myReachTeams().size > 0;
+    try { toast(lead ? 'You can view both your own player card statistics as well as anyone on your team\u2019s player card.' : 'You can open your own player card here \u2014 other reps\u2019 cards are for leads and admins.', 'info'); } catch (e) { /* pre-boot */ }
+    return;
+  }
   const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 
