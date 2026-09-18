@@ -408,22 +408,17 @@ function viewD2dDashboard() {
     const pct1 = (n, d) => (d ? (n / d * 100).toFixed(1) : '0.0') + '%';
     const num = (v, cls, style) => el('td', { class: 'px-3 py-2.5 text-right tabular-nums whitespace-nowrap ' + (cls || ''), style: style || {} }, v);
     const LB = [
-      { key: 'n',    label: 'Accts',        tot: (T) => num(String(T.n), 'font-bold'), row: (o) => num(String(o.n)) },
+      { key: 'n',    label: 'Accounts',     tot: (T) => num(String(T.n), 'font-bold'), row: (o) => num(String(o.n)) },
       { key: 'cv',   label: 'Revenue',      tot: (T) => num(fmt.usd0(T.cv), 'font-black'),
         row: (o) => el('td', { class: 'px-3 py-2.5 text-right tabular-nums whitespace-nowrap', style: { minWidth: '120px' } },
           el('div', { class: 'font-bold' }, fmt.usd0(o.cv)),
           el('div', { class: 'rounded-full mt-1 ml-auto', style: { height: '4px', width: Math.max(4, Math.round(o.cv / maxCv * 100)) + '%', background: 'var(--accent)', opacity: String(0.45 + 0.55 * (o.cv / maxCv)) } })) },
-      { key: 'acv',  label: 'ACV',          tot: (T) => num(fmt.usd0(T.n ? T.cv / T.n : 0), 'font-bold'), row: (o) => num(fmt.usd0(o.n ? o.cv / o.n : 0), 'text-muted-') },
-      ...(showDate ? [
-        { key: 'perday', label: '$ / Day',  title: 'Revenue \u00f7 days with a sale in this range', tot: (T) => num(fmt.usd0(T.sellDaysAll ? T.cv / T.sellDaysAll : 0), 'font-bold'), row: (o) => num(fmt.usd0(o.sellDays ? o.cv / o.sellDays : 0), 'text-muted-') },
-        { key: 'best', label: 'Best Day',   title: 'Biggest single day in this range', tot: (T) => num(fmt.usd0(T.bestDayAll || 0), 'font-bold'), row: (o) => num(fmt.usd0(o.bestDay || 0), 'text-muted-') },
-      ] : []),
-      { key: 'my',   label: 'MY %',         title: 'Multi-year mix — 18mo+ ÷ (12mo + 18mo+)', tot: (T) => num(pct(T.multi, T.multi + T.twelve), 'font-bold'), row: (o) => num(pct(o.multi, o.multi + o.twelve), 'text-muted-') },
-      { key: 'apay', label: 'APay %',       tot: (T) => num(pct(T.apay, T.n), 'font-bold'), row: (o) => num(pct(o.apay, o.n), 'text-muted-') },
       { key: 'init', label: 'Avg Initial',  tot: (T) => num(fmt.usd0(T.n ? T.init / T.n : 0), 'font-bold'), row: (o) => num(fmt.usd0(o.n ? o.init / o.n : 0), 'text-muted-') },
-      { key: 'pest', label: 'Avg Pest Init', tot: (T) => num(fmt.usd0(T.pestN ? T.pestInit / T.pestN : 0), 'font-bold'), row: (o) => num(fmt.usd0(o.pestN ? o.pestInit / o.pestN : 0), 'text-muted-') },
-      { key: 'lr',   label: 'Last Resort %', title: 'Accounts under $99 initial ÷ all accounts', tot: (T) => num(pct1(T.lastResort, T.n), 'font-bold'), row: (o) => num(pct1(o.lastResort, o.n), '', (o.n && o.lastResort / o.n >= 0.2) ? { color: '#DC2626', fontWeight: '600' } : {}) },
-      { key: 'ret',  label: 'Retained %',   title: 'Revenue still on the books ÷ revenue sold — real cancels only (RORs, sold-not-started, combined and renewals do not count against the rep)', tot: (T) => num(pct1(T.keptCv, T.cv), 'font-bold'), row: (o) => num(pct1(o.keptCv, o.cv), 'font-semibold', o.cv && o.keptCv / o.cv < 0.8 ? { color: '#DC2626' } : {}) },
+      { key: 'pest', label: 'Avg Pest Initial', tot: (T) => num(fmt.usd0(T.pestN ? T.pestInit / T.pestN : 0), 'font-bold'), row: (o) => num(fmt.usd0(o.pestN ? o.pestInit / o.pestN : 0), 'text-muted-') },
+      { key: 'acv',  label: 'ACV',          tot: (T) => num(fmt.usd0(T.n ? T.cv / T.n : 0), 'font-bold'), row: (o) => num(fmt.usd0(o.n ? o.cv / o.n : 0), 'text-muted-') },
+      { key: 'my',   label: 'MY %',         title: 'Multi-year mix \u2014 18mo+ \u00f7 (12mo + 18mo+)', tot: (T) => num(pct(T.multi, T.multi + T.twelve), 'font-bold'), row: (o) => num(pct(o.multi, o.multi + o.twelve), 'text-muted-') },
+      { key: 'apay', label: 'APay %',       tot: (T) => num(pct(T.apay, T.n), 'font-bold'), row: (o) => num(pct(o.apay, o.n), 'text-muted-') },
+      { key: 'lr',   label: 'Last Resort %', title: 'Accounts under $99 initial \u00f7 all accounts', tot: (T) => num(pct1(T.lastResort, T.n), 'font-bold'), row: (o) => num(pct1(o.lastResort, o.n), '', (o.n && o.lastResort / o.n >= 0.2) ? { color: '#DC2626', fontWeight: '600' } : {}) },
     ];
     const phone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })();
     const pick = phone ? (LB.find(c => c.key === state._d2dLbMobileCol) || LB[1]) : null;
@@ -583,33 +578,48 @@ function viewD2dDashboard() {
         el('div', { class: 'flex items-end gap-3' }, ...order.map(tile)));
     })() : null;
 
-    // ── Team standings for the range: revenue bar per team, reps with a
-    // sale, per-rep average — the number a knocker's team actually races.
-    const teamsCard = (() => {
-      const byTeam = new Map();
-      reps.forEach(o => { const t = getRepTeam(o.name) || ''; if (!t) return; const g = byTeam.get(t) || { team: t, cv: 0, n: 0, reps: 0 }; g.cv += o.cv; g.n += o.n; g.reps++; byTeam.set(t, g); });
-      const list = [...byTeam.values()].sort((a, b) => b.cv - a.cv);
-      if (list.length < 2) return null;
-      const max = list[0].cv || 1;
+    // ── Standings for the range: Teams ⇄ Offices toggle (per Isaac).
+    // Revenue bar per group, reps with a sale, per-rep average.
+    const standingsCard = (() => {
+      const mode = state._d2dStandings === 'office' ? 'office' : 'team';
+      const groups = new Map();
+      reps.forEach(o => {
+        const g = mode === 'team' ? (getRepTeam(o.name) || '') : branchAlias(o.office || '');
+        if (!g) return;
+        const x = groups.get(g) || { name: g, cv: 0, n: 0, reps: 0 };
+        x.cv += o.cv; x.n += o.n; x.reps++; groups.set(g, x);
+      });
+      const list = [...groups.values()].sort((a, b) => b.cv - a.cv);
+      const max = list.length ? list[0].cv || 1 : 1;
+      const colorOf = (g) => mode === 'team' ? (getTeamColor(g) || 'var(--accent)') : ((typeof BRANCH_COLORS !== 'undefined' && BRANCH_COLORS[String(g).toUpperCase()]) || 'var(--accent)');
+      const labelOf = (g) => mode === 'team' ? g : String(g).toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+      const toggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+        ...[['team', 'Teams'], ['office', 'Offices']].map(([v, l]) => el('button', {
+          class: 'px-2.5 py-1 text-[11px] font-semibold transition',
+          style: mode === v ? { background: 'var(--text)', color: 'var(--bg)' } : { color: 'var(--text-muted)' },
+          onclick: () => { state._d2dStandings = v; _rebuildBoards(); },
+        }, l)));
       return el('div', { class: 'card overflow-hidden' },
-        el('div', { class: 'px-4 py-3 border-b flex items-center justify-between', style: { borderColor: 'var(--border)' } },
-          el('div', { class: 'font-display text-lg' }, 'Team Standings'),
-          el('span', { class: 'text-[11px] text-muted-' }, list.length + ' teams with a sale')),
-        el('div', { class: 'flex flex-col' }, ...list.slice(0, 12).map((g, i) => {
-          const c = getTeamColor(g.team) || 'var(--accent)';
+        el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-2 flex-wrap', style: { borderColor: 'var(--border)' } },
+          el('div', { class: 'font-display text-lg' }, mode === 'team' ? 'Team Standings' : 'Office Standings'),
+          el('div', { class: 'flex items-center gap-2' },
+            el('span', { class: 'text-[11px] text-muted-' }, list.length + (mode === 'team' ? ' teams' : ' offices') + ' with a sale'),
+            toggle)),
+        list.length ? el('div', { class: 'flex flex-col' }, ...list.slice(0, 14).map((g, i) => {
+          const c = colorOf(g.name);
           return el('div', { class: 'flex items-center gap-3 px-4 py-2 border-t text-[12px]', style: { borderColor: 'var(--border)' } },
             el('span', { class: 'w-5 tabular-nums font-bold' + (i === 0 ? '' : ' text-muted-'), style: i === 0 ? { color: 'var(--accent)' } : {} }, String(i + 1)),
-            el('span', { style: { width: '10px', height: '10px', borderRadius: '50%', background: c, display: 'inline-block', flexShrink: '0' } }),
-            el('span', { class: 'font-semibold truncate', style: { width: '9rem' } }, g.team),
+            el('span', { style: { width: '10px', height: '10px', borderRadius: mode === 'team' ? '50%' : '0', background: c, display: 'inline-block', flexShrink: '0' } }),
+            el('span', { class: 'font-semibold truncate', style: { width: '9rem' } }, labelOf(g.name)),
             el('div', { class: 'flex-1 rounded-full', style: { height: '10px', background: 'var(--card-2)' } },
               el('div', { class: 'rounded-full', style: { height: '100%', width: Math.max(2, Math.round(g.cv / max * 100)) + '%', background: c, opacity: '.85' } })),
             el('span', { class: 'tabular-nums font-bold w-20 text-right' }, fmt.usd0(g.cv)),
             el('span', { class: 'tabular-nums text-muted- w-28 text-right whitespace-nowrap hidden sm:inline' }, g.n + ' accts \u00b7 ' + g.reps + ' rep' + (g.reps === 1 ? '' : 's')),
             el('span', { class: 'tabular-nums text-muted- w-16 text-right whitespace-nowrap hidden sm:inline', title: 'Revenue per rep with a sale' }, fmt.usd0(g.cv / g.reps) + '/rep'));
-        })));
+        })) : el('div', { class: 'p-6 text-center text-sm text-muted-' }, 'No sales in this range yet.'));
     })();
 
-    return el('div', { class: 'flex flex-col gap-4' }, recordsCard, podium, teamsCard, lbCard);
+    return el('div', { class: 'flex flex-col gap-4' }, recordsCard, standingsCard, podium, lbCard);
   };
   renderRange();
   lbHost.append(buildBoards());
