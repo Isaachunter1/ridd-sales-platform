@@ -326,7 +326,7 @@ function viewD2dDashboard() {
     const showDate = r !== 'today' && r !== 'yesterday';
     const _tod = (s) => { const t = _parseIndicatorTime(s); return t ? t.hour * 60 + t.minute : null; };
     const _timeStr = (s) => { const t = _parseIndicatorTime(s); return t ? ((t.hour % 12 || 12) + ':' + String(t.minute).padStart(2, '0') + (t.hour < 12 ? 'a' : 'p') + ' ' + _officeTzShort(s.office)) : '—'; };
-    const _feedTitle = ({ today: "Today's Sales", yesterday: "Yesterday's Sales", week: "This Week's Sales", month: "This Month's Sales", year: "This Year's Sales", all: 'All Sales' })[r] || 'Sales';
+    const _feedTitle = ({ today: "Latest Sales", yesterday: "Yesterday's Sales", week: "This Week's Sales", month: "This Month's Sales", year: "This Year's Sales", all: 'All Sales' })[r] || 'Sales';
     // Inline accounts table (used by every rep row AND the Total row).
     const _sortRows = (list) => [...list].sort((a, b) => {
       const _da = _d2dIso(a) || '', _db = _d2dIso(b) || '';
@@ -358,80 +358,107 @@ function viewD2dDashboard() {
             el('td', { class: 'px-2 py-1.5 tabular-nums font-semibold' }, fmt.usd0(Number(sr.contractValue) || 0)),
             el('td', { class: 'px-2 py-1.5 text-muted-' }, (sr.autoPay && sr.autoPay !== 'No') ? 'Yes' : 'No'));
         }))));
+    // ── Leaderboard (restyled per Isaac, Sep 2026, to match the Office
+    // Staff dashboard): avatar + bold name with a team dot, #1 in accent,
+    // a proportional revenue bar, and one column definition that drives
+    // desktop (all columns) and phones (Revenue + a metric dropdown).
+    const _profByName = (() => { const m = new Map(); (state.allProfiles || []).forEach(p => { if (p && p.full_name) m.set(_sigMe(p.full_name), p); }); return m; })();
+    const _avatarFor = (name, team) => {
+      const p = _profByName.get(_sigMe(name));
+      const parts = String(name || '').replace(',', '').split(/\s+/).filter(Boolean);
+      const initials = (parts.length > 1 ? parts[parts.length - 1][0] + parts[0][0] : (parts[0] || '?').slice(0, 2)).toUpperCase();
+      if (p && p.avatar_url && typeof avatarNode === 'function') return avatarNode(p.avatar_url, initials, 'w-8 h-8 text-[10px]');
+      const c = team ? getTeamColor(team) : null;
+      return el('span', { class: 'inline-flex items-center justify-center rounded-full text-[10px] font-black shrink-0', style: { width: '32px', height: '32px', background: c ? c + '22' : 'var(--card-2)', color: c || 'var(--text-muted)', border: '1px solid ' + (c ? c + '55' : 'var(--border-2)') } }, initials);
+    };
+    const maxCv = reps.reduce((m, o) => Math.max(m, o.cv), 0) || 1;
+    const pct = (n, d) => d ? Math.round(n / d * 100) + '%' : '0%';
+    const pct1 = (n, d) => (d ? (n / d * 100).toFixed(1) : '0.0') + '%';
+    const num = (v, cls, style) => el('td', { class: 'px-3 py-2.5 text-right tabular-nums whitespace-nowrap ' + (cls || ''), style: style || {} }, v);
+    const LB = [
+      { key: 'n',    label: 'Accts',        tot: (T) => num(String(T.n), 'font-bold'), row: (o) => num(String(o.n)) },
+      { key: 'cv',   label: 'Revenue',      tot: (T) => num(fmt.usd0(T.cv), 'font-black'),
+        row: (o) => el('td', { class: 'px-3 py-2.5 text-right tabular-nums whitespace-nowrap', style: { minWidth: '120px' } },
+          el('div', { class: 'font-bold' }, fmt.usd0(o.cv)),
+          el('div', { class: 'rounded-full mt-1 ml-auto', style: { height: '4px', width: Math.max(4, Math.round(o.cv / maxCv * 100)) + '%', background: 'var(--accent)', opacity: String(0.45 + 0.55 * (o.cv / maxCv)) } })) },
+      { key: 'acv',  label: 'ACV',          tot: (T) => num(fmt.usd0(T.n ? T.cv / T.n : 0), 'font-bold'), row: (o) => num(fmt.usd0(o.n ? o.cv / o.n : 0), 'text-muted-') },
+      { key: 'my',   label: 'MY %',         title: 'Multi-year mix — 18mo+ ÷ (12mo + 18mo+)', tot: (T) => num(pct(T.multi, T.multi + T.twelve), 'font-bold'), row: (o) => num(pct(o.multi, o.multi + o.twelve), 'text-muted-') },
+      { key: 'apay', label: 'APay %',       tot: (T) => num(pct(T.apay, T.n), 'font-bold'), row: (o) => num(pct(o.apay, o.n), 'text-muted-') },
+      { key: 'init', label: 'Avg Initial',  tot: (T) => num(fmt.usd0(T.n ? T.init / T.n : 0), 'font-bold'), row: (o) => num(fmt.usd0(o.n ? o.init / o.n : 0), 'text-muted-') },
+      { key: 'pest', label: 'Avg Pest Init', tot: (T) => num(fmt.usd0(T.pestN ? T.pestInit / T.pestN : 0), 'font-bold'), row: (o) => num(fmt.usd0(o.pestN ? o.pestInit / o.pestN : 0), 'text-muted-') },
+      { key: 'lr',   label: 'Last Resort %', title: 'Accounts under $99 initial ÷ all accounts', tot: (T) => num(pct1(T.lastResort, T.n), 'font-bold'), row: (o) => num(pct1(o.lastResort, o.n), '', (o.n && o.lastResort / o.n >= 0.2) ? { color: '#DC2626', fontWeight: '600' } : {}) },
+      { key: 'ret',  label: 'Retained %',   title: 'Revenue still on the books ÷ revenue sold — real cancels only (RORs, sold-not-started, combined and renewals do not count against the rep)', tot: (T) => num(pct1(T.keptCv, T.cv), 'font-bold'), row: (o) => num(pct1(o.keptCv, o.cv), 'font-semibold', o.cv && o.keptCv / o.cv < 0.8 ? { color: '#DC2626' } : {}) },
+    ];
+    const phone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })();
+    const pick = phone ? (LB.find(c => c.key === state._d2dLbMobileCol) || LB[1]) : null;
+    const cols = pick ? [pick] : LB;
+    const T = reps.reduce((t, o) => ({ n: t.n + o.n, cv: t.cv + o.cv, apay: t.apay + o.apay, init: t.init + o.init, pestInit: t.pestInit + o.pestInit, pestN: t.pestN + o.pestN, multi: t.multi + o.multi, twelve: t.twelve + o.twelve, lastResort: t.lastResort + o.lastResort, keptCv: t.keptCv + o.keptCv }),
+      { n: 0, cv: 0, apay: 0, init: 0, pestInit: 0, pestN: 0, multi: 0, twelve: 0, lastResort: 0, keptCv: 0 });
+    const colSpan = 2 + cols.length;
+    const accountsTd = (title, list, withRep) => { const td = accountsTable(title, list, withRep); td.setAttribute('colspan', String(colSpan)); return td; };
+    const th = (h, k, title, extra) => el('th', {
+      class: 'px-3 py-2 whitespace-nowrap text-right' + (k ? ' cursor-pointer select-none hover:text-default' : ''),
+      style: Object.assign({}, extra || {}, k && _sortKey === k ? { color: 'var(--accent)', fontWeight: '800' } : {}),
+      title: title || (k ? 'Sort by ' + h : ''),
+      onclick: k ? () => _setSort(k) : undefined,
+    }, h + (k && _sortKey === k ? (_sortDir === 'desc' ? ' ▾' : ' ▴') : ''));
+    const totOpen = state._d2dLbOpen === '__total__';
     const lbCard = el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 flex items-center justify-between flex-wrap gap-2 border-b', style: { borderColor: 'var(--border)' } },
         el('div', { class: 'font-display text-lg' }, 'Leaderboard'),
-        rangeHost),
-      reps.length ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
-        el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
-          ...[['#', null], ['Rep', 'name'], ['Team', 'team'], ['Accts', 'n'], ['Revenue', 'cv'], ['ACV', 'acv'], ['MY %', 'my'], ['APay %', 'apay'], ['Avg Initial', 'init'], ['Avg Pest Init', 'pest'], ['Last Resort %', 'lr'], ['Retained %', 'ret']].map(([h, k], i) => el('th', {
-            class: 'px-4 py-2 whitespace-nowrap' + (k ? ' cursor-pointer select-none' : ''),
-            style: Object.assign({}, i === 0 ? Object.assign(_stickyL('0'), { zIndex: 2, minWidth: '40px', width: '40px' }) : i === 1 ? Object.assign(_stickyL('40px'), { zIndex: 2 }) : {}, k && _sortKey === k ? { color: 'var(--accent)', fontWeight: '800' } : {}),
-            title: h === 'MY %' ? 'Multi-year mix \u2014 18mo+ \u00f7 (12mo + 18mo+)' : h === 'Last Resort %' ? 'Accounts under $99 initial \u00f7 all accounts' : h === 'Retained %' ? 'Revenue still on the books \u00f7 revenue sold \u2014 real cancels only (RORs, sold-not-started, combined and renewals do not count against the rep)' : (k ? 'Sort by ' + h : ''),
-            onclick: k ? () => _setSort(k) : undefined,
-          }, h)))),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          phone ? el('select', {
+            class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
+            onchange: (e) => { state._d2dLbMobileCol = e.target.value; _rebuildBoards(); },
+          }, ...LB.map(c => el('option', { value: c.key, selected: pick.key === c.key }, c.label))) : null,
+          rangeHost)),
+      reps.length ? el('div', { class: phone ? '' : 'overflow-x-auto', style: reps.length > 6 ? { maxHeight: '440px', overflowY: 'auto' } : {} }, el('table', { class: 'w-full text-sm' },
+        el('thead', { style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: '3' } }, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
+          el('th', { class: 'px-3 py-2', style: Object.assign(_stickyL('0'), { zIndex: 2, minWidth: '40px', width: '40px' }) }, '#'),
+          el('th', { class: 'px-3 py-2 cursor-pointer select-none' + (_sortKey === 'name' ? '' : ''), style: Object.assign(_stickyL('40px'), { zIndex: 2 }, _sortKey === 'name' || _sortKey === 'team' ? { color: 'var(--accent)', fontWeight: '800' } : {}), title: 'Sort by rep', onclick: () => _setSort('name') }, 'Rep'),
+          ...cols.map(c => th(c.label, c.key, c.title)))),
         el('tbody', {},
-          // Total row (per Isaac — mirrors the Indicators leaderboard): sums +
-          // sales-weighted rates across every rep shown; click expands the
-          // range's accounts.
-          ...(() => {
-            const T = reps.reduce((t, o) => ({ n: t.n + o.n, cv: t.cv + o.cv, apay: t.apay + o.apay, init: t.init + o.init, pestInit: t.pestInit + o.pestInit, pestN: t.pestN + o.pestN, multi: t.multi + o.multi, twelve: t.twelve + o.twelve, lastResort: t.lastResort + o.lastResort, keptCv: t.keptCv + o.keptCv }),
-              { n: 0, cv: 0, apay: 0, init: 0, pestInit: 0, pestN: 0, multi: 0, twelve: 0, lastResort: 0, keptCv: 0 });
-            // Click = expand every account sold in this range (per Isaac),
-            // not the combined player card.
-            const canTot = rows.length > 0;
-            const totOpen = state._d2dLbOpen === '__total__';
-            const openTot = () => { state._d2dLbOpen = totOpen ? null : '__total__'; _rebuildBoards(); };
-            const tdT = (v, cls) => el('td', { class: 'px-4 py-2 tabular-nums font-bold ' + (cls || '') }, v);
-            const totDetail = totOpen ? el('tr', { style: { background: 'var(--card-2)' } }, accountsTable(_feedTitle, _sortRows(rows), true)) : null;
-            return [el('tr', {
-              class: canTot ? 'cursor-pointer transition hover:brightness-95' : '',
-              title: canTot ? (totOpen ? 'Hide accounts' : 'Show every account sold in this range') : '',
-              onclick: canTot ? openTot : undefined,
-              style: { background: 'var(--card-2)', boxShadow: 'inset 0 -2px 0 var(--border-2), inset 0 1px 0 var(--border)' },
-            },
-              el('td', { class: 'px-4 py-2 text-base leading-none', style: Object.assign(_stickyL('0'), { background: 'var(--card-2)', fontFamily: 'Georgia, "Times New Roman", serif' }) }, '\ud835\udd7d'),
-              el('td', { class: 'px-4 py-2 whitespace-nowrap', style: Object.assign(_stickyL('40px'), { background: 'var(--card-2)' }) },
-                el('span', { class: 'font-black text-[11px] uppercase tracking-wider' }, 'Total'),
-                el('span', { class: 'text-[10px] text-muted- ml-1.5' }, reps.length + ' reps')),
-              el('td', { class: 'px-4 py-2 font-bold whitespace-nowrap' }, 'RIDD'),
-              tdT(String(T.n)), tdT(fmt.usd0(T.cv)), tdT(fmt.usd0(T.n ? T.cv / T.n : 0)),
-              tdT(((T.multi + T.twelve) ? Math.round(T.multi / (T.multi + T.twelve) * 100) : 0) + '%'),
-              tdT((T.n ? Math.round(T.apay / T.n * 100) : 0) + '%'),
-              tdT(fmt.usd0(T.n ? T.init / T.n : 0)), tdT(fmt.usd0(T.pestN ? T.pestInit / T.pestN : 0)),
-              tdT((T.n ? (T.lastResort / T.n * 100).toFixed(1) : '0.0') + '%'),
-              tdT((T.cv ? (T.keptCv / T.cv * 100).toFixed(1) : '0.0') + '%')), totDetail];
-          })().filter(Boolean),
-          ...reps.slice(0, 100).flatMap((o, i) => {
-          const team = getRepTeam(o.name) || '';
-          const clickable = true;   // any rep may open the Sales view (per Isaac)
-          const isMe = _sigMe(o.name) === meSig || isMyRepName(o.name);
-          // Click = expand the rep's accounts for this range inline (per
-          // Isaac — not the player card). One rep open at a time.
-          const isOpen = state._d2dLbOpen === o.name;
-          const repRows = isOpen ? _sortRows(rows.filter(x => getCanonicalRepName(x.rep) === o.name)) : [];
-          const detailRow = isOpen ? el('tr', { style: { background: 'var(--card-2)' } }, accountsTable(o.name, repRows, false)) : null;
-          return [el('tr', {
-            class: 'border-t' + (clickable ? ' cursor-pointer' : ''),
-            style: { borderColor: 'var(--border)', background: isMe ? 'rgba(223,100,58,.08)' : (isOpen ? 'var(--card-2)' : '') },
-            title: clickable ? (isOpen ? 'Hide accounts' : 'Show accounts sold in this range') : '',
-            onclick: clickable ? () => { state._d2dLbOpen = isOpen ? null : o.name; _rebuildBoards(); } : undefined,
-            onmouseenter: clickable ? (e) => { if (!isMe) e.currentTarget.style.background = 'var(--card-2)'; } : undefined,
-            onmouseleave: clickable ? (e) => { if (!isMe) e.currentTarget.style.background = isOpen ? 'var(--card-2)' : ''; } : undefined,
+          // RIDD total row — pinned first (per Isaac) so reps race a visible
+          // bar; click expands every account sold in the range.
+          el('tr', {
+            class: 'cursor-pointer transition hover:brightness-95 border-b-2',
+            title: totOpen ? 'Hide accounts' : 'Show every account sold in this range',
+            onclick: () => { state._d2dLbOpen = totOpen ? null : '__total__'; _rebuildBoards(); },
+            style: { background: 'var(--card-2)', borderColor: 'var(--border-2)' },
           },
-            el('td', { class: 'px-4 py-2 tabular-nums text-muted-', style: Object.assign(_stickyL('0'), isMe || isOpen ? { background: 'var(--card-2)' } : {}) }, String(i + 1)),
-            el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap', style: Object.assign(_stickyL('40px'), isMe || isOpen ? { background: 'var(--card-2)' } : {}) }, _ofcChip(o.office), o.name + (isMe ? ' · You' : '')),
-            el('td', { class: 'px-4 py-2 text-muted- whitespace-nowrap' }, team || '—'),
-            el('td', { class: 'px-4 py-2 tabular-nums' }, String(o.n)),
-            el('td', { class: 'px-4 py-2 tabular-nums font-semibold' }, fmt.usd0(o.cv)),
-            el('td', { class: 'px-4 py-2 tabular-nums' }, fmt.usd0(o.n ? o.cv / o.n : 0)),
-            el('td', { class: 'px-4 py-2 tabular-nums' }, ((o.multi + o.twelve) ? Math.round(o.multi / (o.multi + o.twelve) * 100) : 0) + '%'),
-            el('td', { class: 'px-4 py-2 tabular-nums' }, (o.n ? Math.round(o.apay / o.n * 100) : 0) + '%'),
-            el('td', { class: 'px-4 py-2 tabular-nums' }, fmt.usd0(o.n ? o.init / o.n : 0)),
-            el('td', { class: 'px-4 py-2 tabular-nums' }, fmt.usd0(o.pestN ? o.pestInit / o.pestN : 0)),
-            el('td', { class: 'px-4 py-2 tabular-nums', style: (o.n && o.lastResort / o.n >= 0.2) ? { color: '#DC2626', fontWeight: '600' } : {} }, (o.n ? (o.lastResort / o.n * 100).toFixed(1) : '0.0') + '%'),
-            el('td', { class: 'px-4 py-2 tabular-nums font-semibold', style: o.cv && o.keptCv / o.cv < 0.8 ? { color: '#DC2626' } : {} }, (o.cv ? (o.keptCv / o.cv * 100).toFixed(1) : '0.0') + '%')), detailRow].filter(Boolean);
-        }))))
+            el('td', { class: 'px-3 py-2.5 text-base leading-none', style: Object.assign(_stickyL('0'), { background: 'var(--card-2)', fontFamily: 'Georgia, "Times New Roman", serif' }) }, '𝕽'),
+            el('td', { class: 'px-3 py-2.5 whitespace-nowrap', style: Object.assign(_stickyL('40px'), { background: 'var(--card-2)' }) },
+              el('span', { class: 'font-black' }, 'RIDD'),
+              el('span', { class: 'text-[10px] text-muted- ml-1.5 font-normal' }, reps.length + ' rep' + (reps.length === 1 ? '' : 's'))),
+            ...cols.map(c => c.tot(T))),
+          totOpen ? el('tr', { style: { background: 'var(--card-2)' } }, accountsTd(_feedTitle, _sortRows(rows), true)) : null,
+          ...reps.slice(0, 100).flatMap((o, i) => {
+            const team = getRepTeam(o.name) || '';
+            const tc = team ? getTeamColor(team) : null;
+            const isMe = _sigMe(o.name) === meSig || isMyRepName(o.name);
+            const isOpen = state._d2dLbOpen === o.name;
+            const repRows = isOpen ? _sortRows(rows.filter(x => getCanonicalRepName(x.rep) === o.name)) : [];
+            const bg = isMe ? 'rgba(223,100,58,.08)' : (isOpen ? 'var(--card-2)' : 'var(--card)');
+            const first = i === 0 && o.cv > 0;
+            return [el('tr', {
+              class: 'border-t cursor-pointer transition hover:brightness-95',
+              style: { borderColor: 'var(--border)', background: isMe || isOpen ? bg : '' },
+              title: isOpen ? 'Hide accounts' : 'Show accounts sold in this range',
+              onclick: () => { state._d2dLbOpen = isOpen ? null : o.name; _rebuildBoards(); },
+            },
+              el('td', { class: 'px-3 py-2.5 tabular-nums font-bold' + (first ? ' text-base' : ' text-muted-'), style: Object.assign(_stickyL('0'), { background: bg }, first ? { color: 'var(--accent)' } : {}) }, String(i + 1)),
+              el('td', { class: 'px-3 py-2', style: Object.assign(_stickyL('40px'), { background: bg }) },
+                el('div', { class: 'flex items-center gap-2.5' },
+                  _avatarFor(o.name, team),
+                  el('div', { class: 'min-w-0' },
+                    el('div', { class: 'font-semibold whitespace-nowrap leading-tight' }, o.name, isMe ? el('span', { class: 'text-[9px] font-bold uppercase tracking-wider ml-1.5 px-1.5 py-0.5 rounded', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, 'You') : null),
+                    el('div', { class: 'flex items-center gap-1.5 text-[10px] text-muted- mt-0.5 whitespace-nowrap' },
+                      _ofcChip(o.office),
+                      tc ? el('span', { style: { width: '7px', height: '7px', borderRadius: '50%', background: tc, display: 'inline-block', flexShrink: '0' } }) : null,
+                      team || (o.office ? branchAlias(o.office).toLowerCase().replace(/\b\w/g, (ch) => ch.toUpperCase()) : '—'))))),
+              ...cols.map(c => c.row(o))),
+              isOpen ? el('tr', { style: { background: 'var(--card-2)' } }, accountsTd(o.name, repRows, false)) : null].filter(Boolean);
+          }))))
         : el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'No sales in this range yet.'));
     // ── Day records: earliest · latest · biggest sale in the range ──
     // Times are each selling office's local clock, so "earliest" means the
