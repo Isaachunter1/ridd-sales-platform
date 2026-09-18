@@ -117,9 +117,9 @@ function openTvBoard() {
   // ── pieces ──
   const eyebrow = (t, extra = {}) => el('div', { style: { fontFamily: MONO, fontSize: '11px', letterSpacing: '.24em', textTransform: 'uppercase', color: T.dim, ...extra } }, t);
   const figure = (v, size, color) => el('div', { style: { fontFamily: MONO, fontSize: size, lineHeight: '1', color: color || T.ink, fontVariantNumeric: 'tabular-nums' } }, v);
-  const panel = (children, extra = {}) => el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, padding: '22px 24px', display: 'flex', flexDirection: 'column', minHeight: '0', ...extra } }, ...children);
-  const tile = (label, value, sub, drill) => el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: '10px', minWidth: '0', cursor: drill ? 'pointer' : 'default' }, title: drill ? 'Tap to see what is behind this number' : '', onclick: drill || null },
-    eyebrow(label), figure(value, 'clamp(26px, 2.6vw, 40px)'), sub ? el('div', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.06em' } }, sub + (drill ? '  ·  tap' : '')) : null);
+  const panel = (children, extra = {}) => { const { onclick, ...st } = extra; return el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, padding: '20px 24px', display: 'flex', flexDirection: 'column', minHeight: '0', ...st }, onclick: onclick || null }, ...children); };
+  const tile = (label, value, sub, drill) => el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '0', cursor: drill ? 'pointer' : 'default' }, title: drill ? 'Tap to see what is behind this number' : '', onclick: drill || null },
+    eyebrow(label), figure(value, 'clamp(22px, 2.2vw, 34px)'), sub ? el('div', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.06em' } }, sub + (drill ? '  ·  tap' : '')) : null);
   // Drill panel (per Isaac): what is pulling a % up or down — the sales
   // that count on one side, the ones that don't on the other, as they were sold.
   const openDrill = (title, yesLabel, yes, noLabel, no, repName) => {
@@ -188,17 +188,27 @@ function openTvBoard() {
         iconBtn('Close (Esc)', '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>', cleanup)));
 
     // Hero: THE number (ember, Anton, once) + goal bar + the stat tiles.
-    const hero = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gap: '18px', padding: '22px 36px 0', alignItems: 'stretch' } },
-      panel([
-        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } }, eyebrow(d.range.label + ' · revenue'), eyebrow(d.count + ' sale' + (d.count === 1 ? '' : 's'))),
-        el('div', { class: fresh ? 'tv-pulse' : '', style: { fontFamily: HEAD, fontSize: 'clamp(84px, 9.5vw, 172px)', lineHeight: '.95', letterSpacing: '.01em', color: T.ember, marginTop: '10px', fontVariantNumeric: 'tabular-nums' } }, money(d.revenue)),
-        el('div', { style: { marginTop: 'auto', paddingTop: '18px' } },
+    const hero = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gap: '18px', padding: '18px 36px 0', alignItems: 'stretch', flex: '0 0 auto', maxHeight: '42vh' } },
+      state._tvHeroOffices ? panel([
+        // Tap-swapped view (per Isaac): the window's revenue by branch. Tap again for the number.
+        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } }, eyebrow(d.range.label + ' · revenue by branch'), eyebrow(money(d.revenue) + ' · tap to go back')),
+        el('div', { class: 'tv-scroll', style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px', overflowY: 'auto', minHeight: '0', flex: '1' } },
+          ...(d.offices.length ? d.offices.map((o, i) => el('div', {},
+            el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' } },
+              el('div', { style: { fontFamily: HEAD, fontSize: 'clamp(16px, 1.3vw, 22px)', letterSpacing: '.03em', textTransform: 'uppercase' } }, o.name),
+              figure(money(o.revenue), 'clamp(15px, 1.3vw, 22px)', i === 0 ? T.ember : T.ink)),
+            el('div', { style: { height: '4px', background: T.surface2 } }, el('div', { style: { height: '100%', width: (d.offices[0].revenue ? o.revenue / d.offices[0].revenue * 100 : 0) + '%', background: i === 0 ? T.ember : T.dim } }))))
+          : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'No sales in this window yet.')]))], { cursor: 'pointer', onclick: () => { state._tvHeroOffices = false; render(); } })
+      : panel([
+        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } }, eyebrow(d.range.label + ' · revenue'), eyebrow(d.count + ' sale' + (d.count === 1 ? '' : 's') + ' · tap for branches')),
+        el('div', { class: fresh ? 'tv-pulse' : '', style: { fontFamily: HEAD, fontSize: 'clamp(64px, 6.8vw, 124px)', lineHeight: '.95', letterSpacing: '.01em', color: T.ember, marginTop: '6px', fontVariantNumeric: 'tabular-nums' } }, money(d.revenue)),
+        el('div', { style: { marginTop: 'auto', paddingTop: '12px' } },
           el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '8px' } },
             eyebrow(d.goal > 0 ? d.range.label + ' goal ' + money(d.goal) : 'No goal set'),
             d.goal > 0 ? el('div', { style: { fontFamily: MONO, fontSize: '13px', color: goalPct >= 1 ? T.ember : T.ink, letterSpacing: '.06em' } }, Math.round(goalPct * 100) + '%' + (d.revenue >= d.goal ? '  ·  GOAL HIT' : '  ·  ' + money(d.goal - d.revenue) + ' to go')) : null),
           el('div', { style: { height: '6px', background: T.surface2, position: 'relative' } },
-            el('div', { style: { position: 'absolute', left: 0, top: 0, bottom: 0, width: ((goalPct || 0) * 100) + '%', background: goalPct >= 1 ? T.ember : T.ink, transition: 'width .6s ease' } })))]),
-      el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gridAutoRows: '1fr', gap: '12px', minWidth: '0' } },
+            el('div', { style: { position: 'absolute', left: 0, top: 0, bottom: 0, width: ((goalPct || 0) * 100) + '%', background: goalPct >= 1 ? T.ember : T.ink, transition: 'width .6s ease' } })))], { cursor: 'pointer', onclick: () => { state._tvHeroOffices = true; render(); } }),
+      el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gridAutoRows: '1fr', gap: '10px', minWidth: '0' } },
         tile('Avg initial', money(d.avgInitial), 'subscriptions'),
         tile('Avg recurring', money(d.avgMonthly), 'per month'),
         tile('Avg ACV', money(d.avgContract), 'contract value per sale'),
@@ -242,15 +252,11 @@ function openTvBoard() {
                 el('span', { style: { color: T.ink } }, (Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME')), '  ·  ' + (s._crmService || s.service_name || '—') + (s.created_at ? '  ·  ' + ago(s.created_at) : ''))),
             figure(money(s.revenue_amount), 'clamp(18px, 1.6vw, 26px)', i === 0 && fresh ? T.ember : T.ink));
         }) : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'Nothing yet.')]))], { flex: '1' });
-    const body = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr)', gap: '18px', padding: '18px 36px 28px', flex: '1', minHeight: '0' } },
+    const body = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr)', gap: '18px', padding: '18px 36px 24px', flex: '1', minHeight: '0' } },
       board,
       latestEl);   // (By branch retired per Isaac — the column is the latest sales.)
 
-    const foot = el('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '0 36px 16px', fontFamily: MONO, fontSize: '10px', letterSpacing: '.18em', textTransform: 'uppercase', color: T.dim } },
-      el('span', {}, 'Live from FieldRoutes · ' + ((typeof appSyncStampStr === 'function') ? appSyncStampStr() : '')),
-      el('span', {}, '1 · 2 · 3 range   F fullscreen   Esc close'));
-
-    overlay.replaceChildren(el('div', { style: { display: 'flex', flexDirection: 'column', height: '100%', minHeight: '0' } }, header, hero, body, foot));
+    overlay.replaceChildren(el('div', { style: { display: 'flex', flexDirection: 'column', height: '100%', minHeight: '0' } }, header, hero, body));
     timers.forEach(clearInterval); timers = [];
     timers.push(setInterval(tick, 15000));
     timers.push(setInterval(() => { try { render(); } catch (e) { /* keep the board up */ } }, 30000));
