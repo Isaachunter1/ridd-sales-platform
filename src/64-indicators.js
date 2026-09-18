@@ -9626,7 +9626,7 @@ function indicatorYoYTrendChart() {
               _yoySelTiers.forEach((tier) => {
                 const tierLab = tier === 'all' ? '' : tier === 'rookie' ? 'Rookies' : 'Vets';
                 const label = [scopeLab, tierLab].filter(Boolean).join(' · ') || 'Company';
-                const color = multiScope ? scopePalette0[si % scopePalette0.length]
+                const color = _yoySelScopes.length > 1 ? scopePalette0[(_tierSplit ? si * _yoySelTiers.length + _yoySelTiers.indexOf(tier) : si) % scopePalette0.length]
                   : tier === 'rookie' ? '#DF643A' : tier === 'vet' ? '#818CF8' : '#DF643A';
                 const data = yearsPresent.map(y => { const _b = _bucketsOfIn(A, y, tier) || {}; return valOf(_b[1], y === prevY); });
                 lines.push({ label, data, borderColor: color, backgroundColor: 'rgba(223,100,58,.10)', fill: lines.length === 0 && kind !== 'pct' && _yoySelScopes.length * _yoySelTiers.length === 1, spanGaps: true, borderWidth: 3, tension: 0.25, pointRadius: 3.5, pointHoverRadius: 6 });
@@ -9651,8 +9651,11 @@ function indicatorYoYTrendChart() {
                 // (years distinguished by solid vs dashed); otherwise the
                 // tier split colors (Rookies amber / Vets indigo); otherwise
                 // the classic year palette.
-                const color = multiScope
-                  ? scopePalette[si % scopePalette.length]
+                // One scope (a team, say) split by type still needs two
+                // colors — otherwise Rookies and Vets paint the same orange.
+                const _ti = _yoySelTiers.indexOf(tier);
+                const color = _yoySelScopes.length > 1
+                  ? scopePalette[(_tierSplit ? si * _yoySelTiers.length + _ti : si) % scopePalette.length]
                   : tier === 'all' ? yColor : (tier === 'rookie' ? (isCur ? '#DF643A' : '#A9441F') : (isCur ? '#818CF8' : '#5F6C5B'));
                 const tierLab = tier === 'all' ? '' : tier === 'rookie' ? ' · Rookies' : ' · Vets';
                 const label = String(y) + tierLab + scopeLab;
@@ -9800,12 +9803,107 @@ function indicatorYoYTrendChart() {
     });
   }, 50);
 
+  // Partner view (per Isaac): ONE dropdown — Company / their team(s) / every
+  // rep on those teams listed outright (no search), the type split and the
+  // range (Weeks / Months / Years + overlay years) — one Apply.
+  const comboWrap = _yoyPartner ? (() => {
+    const wrap = el('div', { class: 'relative' });
+    let _stScopes = _yoySelScopes.map(sc => _scopeKey(sc));
+    let _stTiers = [..._yoySelTiers];
+    let _stYears = [..._yoySelYears];
+    let _stGran = gran;
+    let _apply = null;
+    const dirty = () => { if (!_apply) return; _apply.style.background = 'var(--accent)'; _apply.style.color = 'var(--accent-text)'; _apply.style.borderColor = 'var(--accent)'; };
+    const secTitle = (t) => el('div', { class: 'px-2.5 pt-2 pb-0.5 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, t);
+    const check = (has, toggle, lab) => {
+      const glyph = el('span', { style: { fontSize: '13px' } }, has() ? '\u2611' : '\u2610');
+      const row = el('button', {
+        class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer text-left transition hover:brightness-95',
+        style: { color: 'var(--text)', background: has() ? 'var(--card-2)' : 'transparent' },
+        onclick: (e) => { e.stopPropagation(); toggle(); const on = has(); glyph.textContent = on ? '\u2611' : '\u2610'; row.style.background = on ? 'var(--card-2)' : 'transparent'; dirty(); },
+      }, glyph, el('span', { class: 'truncate' }, lab));
+      return row;
+    };
+    const scopeRow = (key, lab) => check(() => _stScopes.includes(key), () => { _stScopes = _stScopes.includes(key) ? _stScopes.filter(x => x !== key) : [..._stScopes, key]; }, lab);
+    const tierRow = (tid, lab) => check(() => _stTiers.includes(tid), () => { _stTiers = _stTiers.includes(tid) ? _stTiers.filter(x => x !== tid) : [..._stTiers, tid]; }, lab);
+    const yearRow = (y) => check(() => _stYears.includes(y), () => { _stYears = _stYears.includes(y) ? _stYears.filter(x => x !== y) : [..._stYears, y]; }, String(y) + (y === curY ? ' \u00b7 current' : ''));
+    const granRows = [];
+    const granRow = (gid, lab) => {
+      const glyph = el('span', { style: { fontSize: '13px' } });
+      const row = el('button', { class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer text-left transition hover:brightness-95', style: { color: 'var(--text)' },
+        onclick: (e) => { e.stopPropagation(); _stGran = gid; paintGran(); dirty(); } }, glyph, el('span', {}, lab));
+      granRows.push({ row, glyph, gid });
+      return row;
+    };
+    const paintGran = () => granRows.forEach(({ row, glyph, gid }) => { const on = _stGran === gid; glyph.textContent = on ? '\u25c9' : '\u25cb'; row.style.background = on ? 'var(--card-2)' : 'transparent'; });
+    const repNamesAll = [...new Set(raw.map(x => x.rep ? getCanonicalRepName(x.rep) : '').filter(Boolean))];
+    const teamReps = (t) => repNamesAll.filter(n => (getRepTeam(n) || '') === t).sort();
+    const panel = el('div', {
+      class: 'card absolute p-1.5',
+      style: { top: 'calc(100% + 6px)', right: '0', minWidth: '250px', maxHeight: '70vh', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._yoyComboOpen ? 'block' : 'none' },
+    },
+      scopeRow('co:', 'Company'),
+      ..._yoyReachTeams.flatMap(t => [
+        secTitle(t + ' team'),
+        scopeRow('team:' + t, t + ' (whole team)'),
+        ...teamReps(t).map(n => scopeRow('rep:' + n, n)),
+      ]),
+      secTitle('Type'),
+      ...YOY_TIERS.map(([tid, lab]) => tierRow(tid, lab)),
+      secTitle('Show as'),
+      granRow('week', 'Weeks'), granRow('month', 'Months'), granRow('year', 'Years (all history)'),
+      secTitle('Overlay years'),
+      ...yearsPresent.slice().sort((a, b) => b - a).map(yearRow),
+      (_apply = el('button', {
+        class: 'w-full rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95 mt-1 sticky',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)', background: 'var(--card)', bottom: '0' },
+        onclick: (e) => {
+          e.stopPropagation();
+          const parsed = _stScopes.map(k => { const i = k.indexOf(':'); return { t: k.slice(0, i), v: k.slice(i + 1) || undefined }; });
+          state._indicatorYoYScopes = parsed.length ? parsed : _yoyReachTeams.map(t => ({ t: 'team', v: t }));
+          state._indicatorYoYTiers = _stTiers.length ? _stTiers : ['all'];
+          state._indicatorYoYYears = _stYears.length ? _stYears : [curY];
+          state._indicatorYoYGran = _stGran;
+          state._yoyComboOpen = false;
+          mountApp();
+        },
+      }, 'Apply')));
+    paintGran();
+    const scopeLab = _yoySelScopes.length === 1 ? _scopeLabelOf(_yoySelScopes[0]) : _yoySelScopes.length + ' selected';
+    const tierLab = (_yoySelTiers.length === 1 && _yoySelTiers[0] === 'all') ? '' : _yoySelTiers.map(t => (YOY_TIERS.find(x => x[0] === t) || [])[1] || t).join(' + ');
+    const granLab = gran === 'year' ? 'Years' : (gran === 'month' ? 'Months' : 'Weeks') + ' \u00b7 ' + _yoySelYears.slice().sort().join('/');
+    const btn = el('button', {
+      class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer border flex items-center gap-1.5',
+      style: { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' },
+      title: 'Who to plot, rep type and time range',
+      onclick: (e) => {
+        e.stopPropagation();
+        const open = panel.style.display === 'block';
+        panel.style.display = open ? 'none' : 'block';
+        state._yoyComboOpen = !open;
+        if (!open) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+          if (wrap.contains(ev.target)) return;
+          panel.style.display = 'none'; state._yoyComboOpen = false;
+          document.removeEventListener('mousedown', closer);
+        }), 0); }
+      },
+    }, [scopeLab, tierLab, granLab].filter(Boolean).join(' \u00b7 '), el('span', { style: { fontSize: '9px' } }, '\u25bc'));
+    if (state._yoyComboOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+      if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
+      if (wrap.contains(ev.target)) return;
+      panel.style.display = 'none'; state._yoyComboOpen = false;
+      document.removeEventListener('mousedown', closer);
+    }), 0); }
+    wrap.append(btn, panel);
+    return wrap;
+  })() : null;
+
   return el('div', { class: 'card p-5' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-3' },
       el('h3', { class: 'text-sm font-bold' }, _yoyRepOnly ? 'Your Performance Trends' : 'Performance Trends'),
       // Labels live INSIDE the buttons now (Scope / Type / Range / Metric —
       // per Isaac); the current value shows in each button's tooltip.
-      el('div', { class: 'flex items-center gap-2 flex-wrap' }, scopesWrap, tiersWrap, yearsWrap, metricSel)),
+      el('div', { class: 'flex items-center gap-2 flex-wrap' }, ...(comboWrap ? [comboWrap] : [scopesWrap, tiersWrap, yearsWrap]), metricSel)),
     cvsWrap);
 }
 
