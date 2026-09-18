@@ -56,6 +56,9 @@ function openTvBoard() {
     const monthTarget = (mi) => {
       const mn = Array.isArray(g.monthly_new) && g.monthly_new.length === 12 ? Number(g.monthly_new[mi]) || 0 : 0;
       const mr = Array.isArray(g.monthly_renewal) && g.monthly_renewal.length === 12 ? Number(g.monthly_renewal[mi]) || 0 : 0;
+      // The hero number is NEW revenue (per Isaac), so the goal is the new
+      // line only; the renewal line stays out of both sides of the bar.
+      if (mn > 0) return mn;
       if (mn + mr > 0) return mn + mr;
       const annual = Number(g.amount) || 0;
       return g.period === 'year' ? annual / 12 : annual;
@@ -105,6 +108,10 @@ function openTvBoard() {
     const pool = (typeof dashboardSales === 'function' ? dashboardSales() : (state.allSales || [])) || [];
     const rows = pool.filter(s => { if (EXCLUDED.has(s.audit_status)) return false; const day = localDay(s.created_at) || s.sold_date; return day && day >= range.start && day <= range.end; });
     const rev = (xs) => xs.reduce((a, s) => a + (Number(s.revenue_amount) || 0), 0);
+    // New vs renewal (per Isaac): the four Renewal sources are renewal
+    // revenue; the headline is everything else.
+    const isRenewal = (s) => (typeof reportingSourceClass === 'function' ? reportingSourceClass(sourceOf(s)) : (/^renewal\s*-/i.test(sourceOf(s)) ? 'renewal' : 'new')) === 'renewal';
+    const renewRows = rows.filter(isRenewal), newRows = rows.filter(s => !isRenewal(s));
     const subs = rows.filter(s => !isOts(s));
     const my = subs.map(s => (typeof myBucketOf === 'function') ? myBucketOf(s) : null).filter(Boolean);
     const multi = my.filter(b => b === 'multi').length;
@@ -127,11 +134,11 @@ function openTvBoard() {
     }).sort((x, y) => y.revenue - x.revenue);
     // Offices
     const offAgg = new Map();
-    rows.forEach(s => { const o = (state.offices || []).find(x => x.id === s.office_id); const n = o ? o.name : (s._crmOffice || 'Unassigned'); offAgg.set(n, (offAgg.get(n) || 0) + (Number(s.revenue_amount) || 0)); });
+    newRows.forEach(s => { const o = (state.offices || []).find(x => x.id === s.office_id); const n = o ? o.name : (s._crmOffice || 'Unassigned'); offAgg.set(n, (offAgg.get(n) || 0) + (Number(s.revenue_amount) || 0)); });
     const offices = [...offAgg.entries()].map(([name, revenue]) => ({ name, revenue })).sort((a, b) => b.revenue - a.revenue);
     const latest = [...rows].sort((a, b) => saleKey(b) - saleKey(a));   // newest sale first — by the CRM's clock, not sync order
     const goal = goalFor(range);
-    return { range, rows, revenue: rev(rows), count: rows.length,
+    return { range, rows, revenue: rev(newRows), newCount: newRows.length, totalRevenue: rev(rows), renewalRevenue: rev(renewRows), renewalCount: renewRows.length, count: rows.length,
       avgInitial: subs.length ? subs.reduce((a, s) => a + (Number(s.initial_amount) || 0), 0) / subs.length : 0,
       avgMonthly: subs.length ? subs.reduce((a, s) => a + (Number(s.monthly_amount) || 0), 0) / subs.length : 0,
       avgContract: rows.length ? rev(rows) / rows.length : 0,
@@ -220,19 +227,24 @@ function openTvBoard() {
 
     // Hero: THE number (ember, Anton, once) + goal bar + the stat tiles.
     const hero = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gap: '18px', padding: '18px 36px 0', alignItems: 'stretch', flex: '0 0 auto' } },
-      state._tvHeroOffices ? panel([
-        // Tap-swapped view (per Isaac): the window's revenue by branch. Tap again for the number.
-        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } }, eyebrow(d.range.label + ' · revenue by branch'), eyebrow(money(d.revenue) + ' · tap to go back')),
-        el('div', { class: 'tv-scroll', style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px', overflowY: 'auto', minHeight: '0', flex: '1' } },
+      state._tvHeroOffices ? panel([el('div', { style: { position: 'absolute', inset: '20px 24px', display: 'flex', flexDirection: 'column', minHeight: '0' } },
+        // Tap-swapped view (per Isaac): the window's NEW revenue by branch,
+        // in the SAME footprint as the number (the list scrolls inside).
+        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } }, eyebrow(d.range.label + ' · new revenue by branch'), eyebrow(money(d.revenue) + ' · tap to go back')),
+        el('div', { class: 'tv-scroll', style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px', overflowY: 'auto', minHeight: '0', flex: '1', paddingRight: '4px' } },
           ...(d.offices.length ? d.offices.map((o, i) => el('div', {},
             el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' } },
               el('div', { style: { fontFamily: HEAD, fontSize: 'clamp(16px, 1.3vw, 22px)', letterSpacing: '.03em', textTransform: 'uppercase' } }, o.name),
               figure(money(o.revenue), 'clamp(15px, 1.3vw, 22px)', i === 0 ? T.ember : T.ink)),
             el('div', { style: { height: '4px', background: T.surface2 } }, el('div', { style: { height: '100%', width: (d.offices[0].revenue ? o.revenue / d.offices[0].revenue * 100 : 0) + '%', background: i === 0 ? T.ember : T.dim } }))))
-          : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'No sales in this window yet.')]))], { cursor: 'pointer', onclick: () => { state._tvHeroOffices = false; render(); } })
+          : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'No sales in this window yet.')])))], { cursor: 'pointer', position: 'relative', padding: '0', onclick: () => { state._tvHeroOffices = false; render(); } })
       : panel([
-        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } }, eyebrow(d.range.label + ' · revenue'), eyebrow(d.count + ' sale' + (d.count === 1 ? '' : 's') + ' · tap for branches')),
+        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } }, eyebrow(d.range.label + ' · new revenue'), eyebrow(d.newCount + ' sale' + (d.newCount === 1 ? '' : 's') + ' · tap for branches')),
         el('div', { class: fresh ? 'tv-pulse' : '', style: { fontFamily: HEAD, fontSize: 'clamp(64px, 6.8vw, 124px)', lineHeight: '.95', letterSpacing: '.01em', color: T.ember, marginTop: '6px', fontVariantNumeric: 'tabular-nums' } }, money(d.revenue)),
+        // Total and renewal, minimally (per Isaac) — the headline stays NEW.
+        el('div', { style: { display: 'flex', gap: '28px', marginTop: '10px', flexWrap: 'wrap' } },
+          el('div', {}, eyebrow('Total'), figure(money(d.totalRevenue), 'clamp(16px, 1.4vw, 22px)', T.ink)),
+          el('div', {}, eyebrow('Renewal'), figure(money(d.renewalRevenue) + (d.renewalCount ? '  ·  ' + d.renewalCount : ''), 'clamp(16px, 1.4vw, 22px)', T.dim))),
         el('div', { style: { marginTop: 'auto', paddingTop: '12px' } },
           el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '8px' } },
             eyebrow(d.goal > 0 ? d.range.label + ' goal ' + money(d.goal) : 'No goal set'),
