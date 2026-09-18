@@ -547,16 +547,24 @@ function reportingRenewals() {
   // ALREADY RENEWED (per Isaac): a customer holding ANY active subscription
   // from one of the four Renewal sources has been renewed — renewed once
   // means DONE, they never appear on a renewal call list again.
+  // Eligibility rules (per Isaac, Sep 2026):
+  //   1. Renew once — ANY subscription on the account with a Renewal source
+  //      (active or not) makes the whole account ineligible.
+  //   2. Term end = start date + contract length; eligible inside the final
+  //      2 months (and still eligible once past term while month-to-month).
+  //   3. Sentricon is never renewed.
   const RENEWAL_SRC_RE = /^renewal\s*-/i;
+  const _isSentricon = (r) => /sentricon/i.test(String(r.subscription || ''));
   const renewedCust = new Set();
   rows.forEach(r => {
-    if (!isActive(r) || !r.customer_id) return;
+    if (!r.customer_id) return;
     if (RENEWAL_SRC_RE.test(String(r.subscription_source || ''))) renewedCust.add(r.customer_id);
   });
   const expiring = [], past = [];
   let renewedN = 0, renewedArr = 0;
   rows.forEach(r => {
     if (!isActive(r)) return;
+    if (_isSentricon(r)) return;
     const len = Number(r.agreement_length) || 0;
     if (len <= 1) return;
     const d = new Date(String(r.initial_service) + 'T00:00');
@@ -582,153 +590,149 @@ function reportingRenewals() {
   past.sort((a, b) => b.arv - a.arv);
   const arrOf = (L) => L.reduce((a, x) => a + x.arv, 0);
 
-  // ── Disposition working layer (modeled on Isaac's tracking sheet) ──
+  // Renewed via the CRM (a Renewal-source sub is active) — surfaced in the
+  // Renewed column as read-only cards so the board shows the whole picture.
+  const crmRenewed = [];
+  const _seenCrm = new Set();
+  rows.forEach(r => {
+    if (!isActive(r) || !r.customer_id || !renewedCust.has(r.customer_id) || _seenCrm.has(r.customer_id)) return;
+    if (!RENEWAL_SRC_RE.test(String(r.subscription_source || ''))) return;
+    _seenCrm.add(r.customer_id);
+    crmRenewed.push({ id: r.customer_id, name: _custDisplayName(r), office: r.office_name || '—', phone: r.phone || '', svc: r.subscription, arv: Number(r.annual_recurring_value) || 0, len: Number(r.agreement_length) || 0, mo: 0, toGo: 0, pastBy: 0, autopay: true, pastDue: 0, crm: true, since: r.sold_date || '' });
+  });
+  crmRenewed.sort((a, b) => String(b.since).localeCompare(String(a.since)));
+
+  // ── PIPELINE BOARD (per Isaac, Sep 2026) — four stages, kanban style.
+  // Stage lives in renewal_worklog.result (shared, instant). Legacy
+  // dispositions map onto the stages so nothing already worked is lost:
+  // No Answer / Follow Up → Contacting, Resigned → Renewed.
   const LOG = state._renewalLog || {};
   const logOf = (x) => LOG[String(x.id)] || {};
-  const RESULTS = ['Resigned', 'Not Interested', 'No Answer', 'Follow Up'];
-  const RESULT_COLOR = { 'Resigned': '#DF643A', 'Not Interested': '#DC2626', 'No Answer': '#A9441F', 'Follow Up': '#5F6C5B' };
-  const disp = state._renewalDisp || 'towork';
-  const matchDisp = (x) => {
-    const r = logOf(x).result || '';
-    if (disp === 'all') return true;
-    if (disp === 'towork') return !r || r === 'Follow Up' || r === 'No Answer';
-    return r === disp;
+  const STAGES = [
+    { key: 'Eligible',       label: 'Eligible',       emoji: '🟢', color: '#5F6C5B', bg: 'rgba(95,108,91,.10)',  blurb: 'Final 2 months of term (start date + contract length) or past term and still month-to-month · never renewed before · no Sentricon' },
+    { key: 'Contacting',     label: 'Contacting',     emoji: '📞', color: '#A9441F', bg: 'rgba(169,68,31,.10)',  blurb: 'Reached out — call attempts and notes live on the card' },
+    { key: 'Renewed',        label: 'Renewed',        emoji: '✅', color: '#16A34A', bg: 'rgba(22,163,74,.10)',  blurb: 'Re-signed. Cards marked CRM came in through a Renewal source automatically' },
+    { key: 'Not Interested', label: 'Not Interested', emoji: '❌', color: '#DC2626', bg: 'rgba(220,38,38,.10)',  blurb: 'Declined — stays here so nobody calls them again' },
+  ];
+  const stageOf = (x) => {
+    const r = String(logOf(x).result || '');
+    if (r === 'Contacting' || r === 'No Answer' || r === 'Follow Up') return 'Contacting';
+    if (r === 'Renewed' || r === 'Resigned') return 'Renewed';
+    if (r === 'Not Interested') return 'Not Interested';
+    return 'Eligible';
   };
-  const chipDefs = [['towork', '📞 To work'], ['Follow Up', '🔵 Follow Up'], ['No Answer', '🟡 No Answer'], ['Resigned', '✅ Resigned'], ['Not Interested', '❌ Not Interested'], ['all', 'All']];
+  const q = String(state._renewalQ || '').trim().toLowerCase();
+  const matchQ = (x) => !q || String(x.name).toLowerCase().includes(q) || String(x.id).includes(q) || String(x.phone || '').includes(q) || String(x.office).toLowerCase().includes(q);
   const allRecs = expiring.concat(past);
-  const chipCount = (k) => k === 'all' ? allRecs.length
-    : k === 'towork' ? allRecs.filter(x => { const r = logOf(x).result || ''; return !r || r === 'Follow Up' || r === 'No Answer'; }).length
-    : allRecs.filter(x => (logOf(x).result || '') === k).length;
-  const chips = el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
-    ...chipDefs.map(([k, l]) => el('button', {
-      class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition hover:brightness-95',
-      style: disp === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' },
-      onclick: () => { state._renewalDisp = k; mountApp(); },
-    }, l + ' · ' + chipCount(k).toLocaleString())));
+  const cols = {}; STAGES.forEach(s => cols[s.key] = []);
+  allRecs.forEach(x => cols[stageOf(x)].push(x));
+  cols.Renewed = cols.Renewed.concat(crmRenewed);
+  // Eligible: soonest term end first, then past-term biggest ARV; other
+  // stages: most recently touched first.
+  const touched = (x) => String(logOf(x).updated_at || '');
+  cols.Eligible.sort((a, b) => (a.pastBy >= 0 ? 1 : 0) - (b.pastBy >= 0 ? 1 : 0) || (a.pastBy >= 0 ? b.arv - a.arv : a.toGo - b.toGo));
+  ['Contacting', 'Renewed', 'Not Interested'].forEach(k => cols[k].sort((a, b) => touched(b).localeCompare(touched(a))));
+  const moveTo = (x, stage) => {
+    if (x.crm) return;
+    _renewalLogSave(x.id, { result: stage === 'Eligible' ? '' : stage });
+    mountApp();
+  };
+  const dragKey = { cur: null };
+  const CARD_LIMIT = 120;
 
-  const exportBtn = (L, name, extraHdr, extraFn) => el('button', {
+  const card = (x, stage) => {
+    const g = logOf(x);
+    const open = state._renewalOpenCard === String(x.id);
+    const endTxt = x.crm ? ('renewed ' + (x.since ? String(x.since).slice(0, 10) : '')) : x.pastBy >= 0 ? ('+' + x.pastBy.toFixed(1) + ' mo past term') : ('ends in ' + x.toGo.toFixed(1) + ' mo');
+    const endColor = x.crm ? '#16A34A' : x.pastBy >= 0 ? '#DC2626' : x.toGo < 1 ? '#DC2626' : '#A9441F';
+    const stageSel = el('select', {
+      class: 'rounded-md border px-1.5 py-0.5 text-[10px] font-bold cursor-pointer',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      title: 'Move to a stage',
+      onclick: (e) => e.stopPropagation(),
+      onchange: (e) => moveTo(x, e.target.value),
+    }, ...STAGES.map(s => { const o = el('option', { value: s.key }, s.emoji + ' ' + s.label); if (s.key === stage) o.selected = true; return o; }));
+    const c = el('div', {
+      class: 'rounded-xl border p-2.5 flex flex-col gap-1.5 transition' + (x.crm ? '' : ' cursor-grab'),
+      draggable: x.crm ? 'false' : 'true',
+      style: { borderColor: 'var(--border)', background: 'var(--card)', opacity: x.crm ? '.85' : '1' },
+      ondragstart: (e) => { if (x.crm) { e.preventDefault(); return; } dragKey.cur = x; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', String(x.id)); } catch { /* ignore */ } c.style.opacity = '.5'; },
+      ondragend: () => { c.style.opacity = '1'; dragKey.cur = null; },
+      onclick: () => { state._renewalOpenCard = open ? null : String(x.id); mountApp(); },
+    },
+      el('div', { class: 'flex items-start justify-between gap-2' },
+        el('div', { class: 'min-w-0' },
+          el('div', { class: 'text-xs font-bold truncate' }, x.name),
+          el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-subtle)' } }, '#' + x.id + ' · ' + _titleCaseWords(x.office))),
+        x.crm ? el('span', { class: 'text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md shrink-0', style: { background: 'rgba(22,163,74,.12)', color: '#16A34A' } }, 'CRM')
+          : (g.attempts ? el('span', { class: 'text-[9px] font-bold px-1.5 py-0.5 rounded-md shrink-0 tabular-nums', style: { background: 'var(--card-2)', color: 'var(--text-muted)' }, title: 'Call attempts' }, '📞 ' + g.attempts) : null)),
+      el('div', { class: 'flex items-center justify-between gap-2 text-[11px]' },
+        el('span', { class: 'truncate', style: { color: 'var(--text-muted)' } }, x.svc),
+        el('span', { class: 'font-bold tabular-nums shrink-0' }, fmt.usd0(x.arv))),
+      el('div', { class: 'flex items-center justify-between gap-2 text-[10px]' },
+        el('span', { class: 'font-bold', style: { color: endColor } }, endTxt),
+        el('span', { style: { color: 'var(--text-subtle)' } }, (x.autopay ? '' : 'no autopay') + (x.pastDue > 0 ? (x.autopay ? '' : ' · ') + x.pastDue + 'd past due' : ''))),
+      open && !x.crm ? el('div', { class: 'flex flex-col gap-1.5 pt-1.5 border-t', style: { borderColor: 'var(--border)' }, onclick: (e) => e.stopPropagation() },
+        x.phone ? el('a', { href: 'tel:' + String(x.phone).replace(/[^0-9+]/g, ''), class: 'text-[11px] font-bold tabular-nums', style: { color: 'var(--accent)' } }, '📞 ' + x.phone) : null,
+        el('div', { class: 'flex items-center gap-1.5' },
+          el('button', { class: 'rounded-md border px-2 py-0.5 text-[10px] font-black cursor-pointer transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, title: 'Log a call attempt (stamps you + today)',
+            onclick: () => { _renewalLogSave(x.id, { attempts: (Number(g.attempts) || 0) + 1, result: stage === 'Eligible' ? 'Contacting' : (g.result || '') }); mountApp(); } }, '+1 attempt'),
+          stageSel),
+        el('input', { class: 'rounded-lg border px-2 py-1 text-[11px] w-full', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, placeholder: 'notes…', value: g.notes || '',
+          onchange: (e) => _renewalLogSave(x.id, { notes: e.target.value }) }),
+        g.worked_by ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'last touched by ' + g.worked_by.split(' ')[0] + (g.updated_at ? ' · ' + String(g.updated_at).slice(0, 10) : '')) : null)
+        : (open && x.crm ? el('div', { class: 'text-[10px] pt-1.5 border-t', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } }, 'Renewed through a Renewal source in FieldRoutes — nothing to work here.') : null),
+      !open && g.notes ? el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-muted)' } }, '✎ ' + g.notes) : null);
+    return c;
+  };
+
+  const column = (s) => {
+    const L = cols[s.key].filter(matchQ);
+    const shownN = state['_renewalMore_' + s.key] ? L.length : Math.min(L.length, CARD_LIMIT);
+    const body = el('div', { class: 'flex flex-col gap-2 p-2 overflow-y-auto', style: { maxHeight: '68vh', minHeight: '120px' } },
+      ...(L.length ? L.slice(0, shownN).map(x => card(x, s.key)) : [el('div', { class: 'text-[11px] text-center py-6', style: { color: 'var(--text-subtle)' } }, 'Nothing here' + (q ? ' for “' + q + '”' : ''))]),
+      L.length > shownN ? el('button', { class: 'rounded-lg border px-2 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: () => { state['_renewalMore_' + s.key] = true; mountApp(); } }, 'Show all ' + L.length.toLocaleString()) : null);
+    const col = el('div', { class: 'rounded-2xl border flex flex-col min-w-0', style: { borderColor: 'var(--border)', background: 'var(--card-2)' },
+      ondragover: (e) => { if (!dragKey.cur) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; col.style.outline = '2px solid ' + s.color; },
+      ondragleave: () => { col.style.outline = ''; },
+      ondrop: (e) => { e.preventDefault(); col.style.outline = ''; if (dragKey.cur) moveTo(dragKey.cur, s.key); },
+    },
+      el('div', { class: 'px-3 py-2 rounded-t-2xl', style: { background: s.bg }, title: s.blurb },
+        el('div', { class: 'flex items-center justify-between gap-2' },
+          el('div', { class: 'text-xs font-black truncate' }, s.emoji + ' ' + s.label),
+          el('div', { class: 'text-[10px] font-bold tabular-nums shrink-0', style: { color: s.color } }, L.length.toLocaleString())),
+        el('div', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-muted)' } }, fmt.usd0(arrOf(L)) + ' ARR')),
+      body);
+    return col;
+  };
+
+  const exportAll = el('button', {
     class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
     style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-    onclick: () => _reportingCsvDownload(name,
-      ['Customer ID', 'Customer Name', 'Phone', 'Email', 'Office Name', 'Subscription Type', 'ARV', 'Contract', 'Months In', extraHdr, 'Auto Pay', 'Days Past Due', 'Attempts', 'Office Rep', 'Result', 'Notes'],
-      L.map(x => { const g = logOf(x); return [x.id, x.name, x.phone, x.email, x.office, x.svc, Math.round(x.arv), x.len, x.mo.toFixed(1), extraFn(x), x.autopay ? 'Yes' : 'No', x.pastDue, g.attempts || '', g.worked_by || '', g.result || '', g.notes || '']; })),
-  }, '⬇ Export (' + L.length.toLocaleString() + ')');
-
-  const workCells = (x) => {
-    const g = logOf(x);
-    const sel = el('select', {
-      class: 'rounded-lg border px-1.5 py-1 text-[11px] font-semibold cursor-pointer',
-      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: RESULT_COLOR[g.result] || 'var(--text)', maxWidth: '116px' },
-      onchange: (e) => { _renewalLogSave(x.id, { result: e.target.value }); mountApp(); },
-    },
-      el('option', { value: '', selected: !g.result }, '— result —'),
-      ...RESULTS.map(rz => { const o = el('option', { value: rz }, rz); if (g.result === rz) o.selected = true; return o; }));
-    const attempts = el('div', { class: 'flex items-center gap-1' },
-      el('span', { class: 'tabular-nums font-bold text-[11px]', style: { minWidth: '14px', textAlign: 'right' } }, String(g.attempts || 0)),
-      el('button', {
-        class: 'rounded-md border px-1.5 py-0.5 text-[10px] font-black cursor-pointer transition hover:brightness-95',
-        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-        title: 'Log a call attempt (stamps you + today)',
-        onclick: () => { _renewalLogSave(x.id, { attempts: (Number(g.attempts) || 0) + 1 }); mountApp(); },
-      }, '+1'));
-    const notes = el('input', {
-      class: 'rounded-lg border px-2.5 py-1 text-[11px]',
-      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '170px' },
-      placeholder: 'notes…', value: g.notes || '',
-      onchange: (e) => _renewalLogSave(x.id, { notes: e.target.value }),
-    });
-    return { sel, attempts, notes, workedBy: g.worked_by || '' };
-  };
-
-  const listCard = (title, blurb, L0, cols, emptyMsg) => {
-    const L = L0.filter(matchDisp);
-    return el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'p-4 border-b flex items-start justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-      el('div', {},
-        el('h3', { class: 'text-sm font-bold' }, title),
-        el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, blurb),
-        el('div', { class: 'text-xs font-black tabular-nums mt-1' }, L.length.toLocaleString() + ' contracts · ' + fmt.usd0(arrOf(L)) + ' ARR')),
-      cols.btn(L)),
-    L.length === 0
-      ? el('div', { class: 'p-6 text-center text-xs', style: { color: 'var(--text-muted)' } }, emptyMsg)
-      : el('div', { class: 'overflow-x-auto', style: { maxHeight: '480px' } },
-        el('table', { class: 'w-full text-xs' },
-          el('thead', { class: 'text-[10px] uppercase tracking-wider sticky top-0', style: { background: 'var(--card-2)', color: 'var(--text-muted)', zIndex: 2 } },
-            el('tr', {},
-              el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Customer'),
-              el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Office'),
-              el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Service'),
-              el('th', { class: 'text-right px-2 py-2 font-semibold' }, 'ARV'),
-              el('th', { class: 'text-right px-2 py-2 font-semibold' }, cols.lastHdr),
-              el('th', { class: 'text-right px-2 py-2 font-semibold', title: 'Call attempts logged' }, 'Att.'),
-              el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Result'),
-              el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Notes'),
-              el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Rep'))),
-          el('tbody', {},
-            ...L.slice(0, 250).map(x => {
-              const w = workCells(x);
-              return el('tr', { class: 'border-t tabular-nums', style: { borderColor: 'var(--border)' } },
-                el('td', { class: 'px-3 py-1.5' },
-                  el('div', { class: 'font-semibold' }, x.name),
-                  el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
-                    '#' + x.id + (x.autopay ? '' : ' · no autopay') + (x.pastDue > 0 ? ' · ' + x.pastDue + 'd past due' : '')),
-                  x.phone ? el('a', { href: 'tel:' + String(x.phone).replace(/[^0-9+]/g, ''), class: 'text-[11px] font-bold tabular-nums', style: { color: 'var(--accent)' } }, x.phone) : null),
-                el('td', { class: 'px-2 py-1.5 whitespace-nowrap' }, _titleCaseWords(x.office)),
-                el('td', { class: 'px-2 py-1.5' }, x.svc),
-                el('td', { class: 'px-2 py-1.5 text-right font-semibold' }, fmt.usd0(x.arv)),
-                el('td', { class: 'px-2 py-1.5 text-right font-bold whitespace-nowrap', style: { color: cols.lastColor(x) } }, cols.lastVal(x)),
-                el('td', { class: 'px-2 py-1.5 text-right' }, w.attempts),
-                el('td', { class: 'px-2 py-1.5' }, w.sel),
-                el('td', { class: 'px-2 py-1.5' }, w.notes),
-                el('td', { class: 'px-3 py-1.5 text-[10px] whitespace-nowrap', style: { color: 'var(--text-muted)' } }, w.workedBy ? w.workedBy.split(' ')[0] : '—'));
-            }),
-            L.length > 250 ? el('tr', {}, el('td', { class: 'px-3 py-3 text-center text-[11px] italic', colspan: 9, style: { color: 'var(--text-subtle)' } }, 'Showing 250 — export the CSV for all ' + L.length.toLocaleString() + '.')) : null))));
-  };
+    onclick: () => _reportingCsvDownload('renewals-pipeline.csv',
+      ['Stage', 'Customer ID', 'Customer Name', 'Phone', 'Office Name', 'Subscription Type', 'ARV', 'Contract', 'Months In', 'Months To Term End', 'Auto Pay', 'Days Past Due', 'Attempts', 'Office Rep', 'Notes', 'Updated'],
+      STAGES.flatMap(s => cols[s.key].map(x => { const g = logOf(x); return [s.key, x.id, x.name, x.phone, x.office, x.svc, Math.round(x.arv), x.len, x.mo.toFixed(1), x.crm ? '' : x.toGo.toFixed(1), x.autopay ? 'Yes' : 'No', x.pastDue, g.attempts || 0, g.worked_by || '', g.notes || '', g.updated_at || '']; }))),
+  }, '⬇ Export board');
+  const search = el('input', {
+    class: 'rounded-lg border px-2.5 py-1 text-[11px]', type: 'search', placeholder: 'Search name, #id, phone, office…', value: state._renewalQ || '',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: '220px' },
+    oninput: (e) => { state._renewalQ = e.target.value; clearTimeout(state._renewalQT); state._renewalQT = setTimeout(mountApp, 250); },
+  });
+  const worked = allRecs.filter(x => stageOf(x) !== 'Eligible').length;
+  const renewedManual = cols.Renewed.filter(x => !x.crm).length;
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'card p-4' },
-      el('h2', { class: 'text-lg font-bold' }, '🔁 Renewals'),
-      el('p', { class: 'text-xs mt-0.5 mb-2', style: { color: 'var(--text-muted)' } },
-        'The call list refreshes itself from the CRM every hour — no more manual list pulls. Window opens 2 months before term end (month 10/16/22). Dispositions, attempts, and notes save instantly and are shared across every agent (same fields as the old tracking sheet). Customers holding any "Renewal - …" subscription never appear here.'),
-      chips,
-      renewedN > 0 && el('div', { class: 'text-[11px] font-bold tabular-nums mt-1.5', style: { color: '#DF643A' } },
-        '✓ ' + renewedN.toLocaleString() + ' contracts at/past term already renewed via a Renewal source (' + fmt.usd0(renewedArr) + ' ARR) — excluded.'),
-      // ── Results scoreboard — computed from the disposition log itself.
-      (() => {
-        const entries = Object.values(state._renewalLog || {}).filter(e => e && e.result);
-        if (entries.length < 3) return null;
-        const cnt = {}; entries.forEach(e => cnt[e.result] = (cnt[e.result] || 0) + 1);
-        const worked = entries.length;
-        const resigned = cnt['Resigned'] || 0;
-        const byAgent = {};
-        entries.forEach(e => {
-          const a = (e.worked_by || '—').split(' ')[0];
-          const o = byAgent[a] || (byAgent[a] = { n: 0, r: 0, att: 0 });
-          o.n++; if (e.result === 'Resigned') o.r++; o.att += Number(e.attempts) || 0;
-        });
-        const agents = Object.entries(byAgent).sort((a, b) => b[1].r - a[1].r).slice(0, 6);
-        return el('div', { class: 'mt-3 rounded-xl p-3', style: { background: 'var(--card-2)' } },
-          el('div', { class: 'flex items-baseline gap-3 flex-wrap' },
-            el('div', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Results so far'),
-            el('div', { class: 'text-xs tabular-nums' },
-              el('b', { style: { color: '#DF643A' } }, resigned.toLocaleString() + ' resigned'),
-              el('span', { style: { color: 'var(--text-muted)' } }, ' of ' + worked.toLocaleString() + ' worked (' + (worked ? (resigned / worked * 100).toFixed(0) : 0) + '%) · '
-                + (cnt['Not Interested'] || 0) + ' not interested · ' + (cnt['No Answer'] || 0) + ' no answer · ' + (cnt['Follow Up'] || 0) + ' follow-ups open'))),
-          agents.length > 1 && el('div', { class: 'flex gap-x-4 gap-y-1 flex-wrap mt-1.5 text-[11px] tabular-nums' },
-            ...agents.map(([a, o]) => el('span', {},
-              el('b', {}, a), el('span', { style: { color: 'var(--text-muted)' } }, ': ' + o.r + '/' + o.n + ' resigned' + (o.att ? ' · ' + o.att + ' calls' : ''))))));
-      })()),
-    listCard('Renewal window — final 2 months of term',
-      'Call these FIRST — sorted by how soon the contract ends, then ARV.',
-      expiring,
-      { btn: (L) => exportBtn(L, 'renewals-expiring.csv', 'Months To Term End', (x) => x.toGo.toFixed(1)),
-        lastHdr: 'Ends in', lastVal: (x) => x.toGo.toFixed(1) + ' mo', lastColor: (x) => x.toGo < 1 ? '#DC2626' : '#A9441F' },
-      'Nothing here under this disposition filter.'),
-    listCard('Past term — rolled over, never re-signed',
-      'Contract completed and still active month-to-month. Zero commitment protecting this ARR — biggest tickets first.',
-      past,
-      { btn: (L) => exportBtn(L, 'renewals-past-term.csv', 'Months Past Term', (x) => x.pastBy.toFixed(1)),
-        lastHdr: 'Past term', lastVal: (x) => '+' + x.pastBy.toFixed(1) + ' mo', lastColor: () => '#DC2626' },
-      'Nothing here under this disposition filter.'));
+      el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
+        el('div', {},
+          el('h2', { class: 'text-lg font-bold' }, '🔁 Renewals pipeline'),
+          el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
+            'Eligible = inside the final 2 months of the contract (start date + contract length) or past term and still month-to-month, never renewed before (any Renewal-source sub on the account rules it out), and not Sentricon. Refreshes from the CRM sync. Drag a card between stages or use the stage picker on it; attempts and notes save instantly for everyone.')),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' }, search, exportAll)),
+      el('div', { class: 'flex gap-x-4 gap-y-1 flex-wrap mt-2 text-[11px] tabular-nums', style: { color: 'var(--text-muted)' } },
+        el('span', {}, el('b', {}, allRecs.length.toLocaleString()), ' eligible contracts · ', el('b', {}, fmt.usd0(arrOf(allRecs))), ' ARR in play'),
+        el('span', {}, el('b', {}, worked.toLocaleString()), ' worked · ', el('b', { style: { color: '#16A34A' } }, renewedManual.toLocaleString()), ' renewed by the team' + (worked ? ' (' + (renewedManual / worked * 100).toFixed(0) + '%)' : '')),
+        crmRenewed.length ? el('span', {}, el('b', {}, crmRenewed.length.toLocaleString()), ' renewed via a Renewal source in the CRM · ', el('b', {}, fmt.usd0(arrOf(crmRenewed))), ' ARR') : null)),
+    el('div', { class: 'grid gap-3 renewal-board', style: { gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' } }, ...STAGES.map(column)));
 }
 
 // ── Renewal disposition log — shared across agents. Supabase table
