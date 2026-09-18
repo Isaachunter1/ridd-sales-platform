@@ -775,10 +775,7 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
         const display = v == null
           ? (metricKey === 'service' ? distinctSvc + ' service types (need 11+)' : '< 10 subs')
           : (metricKey === 'service' ? distinctSvc + ' service types · click for top 10' : fmtMetric(v));
-        const tooltipHtml = '<b>ZIP ' + zip + '</b><br>'
-          + metricLabel + ': ' + display + '<br>'
-          + z.subs + ' subs · ' + z.customers + ' customers';
-        layerObj.bindTooltip(tooltipHtml, { sticky: true });
+        layerObj.bindTooltip(reportingGeoTipHtml('ZIP ' + zip, z, metricLabel, display), { sticky: true });
         layerObj.on('click', () => { if (container._zipSelectMode) _toggleSel(zip, layerObj); else onZipClick(z); });
         // Mouseover / mouseout reset to the default border. Skip the
         // reset for the highlighted polygon so the red ring stays
@@ -927,10 +924,7 @@ function initReportingCountyMap(containerId, stateCode, countiesInState, metricK
         }
         const v = countyMetricFor(c);
         const display = v == null ? '< 10 subs' : fmtMetric(v);
-        const tooltipHtml = '<b>' + name + ' County</b><br>'
-          + metricLabel + ': ' + display + '<br>'
-          + c.subs + ' subs · ' + c.customers + ' customers';
-        layerObj.bindTooltip(tooltipHtml, { sticky: true });
+        layerObj.bindTooltip(reportingGeoTipHtml(name + ' County', c, metricLabel, display), { sticky: true });
         layerObj.on('click', () => onCountyClick(c));
         layerObj.on('mouseover', (e) => {
           if (!isHighlight) e.target.setStyle({ weight: 2, color: '#323230' });
@@ -1062,6 +1056,25 @@ function openReportingServicesModal(area, label) {
 // Roll a set of finalized geo buckets (ZIPs / counties / offices / states)
 // into one RIDD total — sums for counts and dollars, sub- or customer-
 // weighted for the rates — for the 𝕽 row pinned atop each table.
+// Map hover: EVERY area metric at once (per Isaac, Sep 2026 — "show all the
+// data"); the picker only decides what the map is colored by.
+function reportingGeoTipHtml(name, o, colorLabel, colorDisplay) {
+  if (!o) return '<b>' + name + '</b><br><i>No data in current filter</i>';
+  const n = (v) => Math.round(v || 0).toLocaleString();
+  const usd = (v) => '$' + n(v);
+  const pct = (v) => (Math.round((v || 0) * 1000) / 10).toFixed(1) + '%';
+  const attr = o.attritionEligible ? pct(o.cancelRate) + ' <span style="opacity:.7">(' + pct(1 - (o.cancelRate || 0)) + ' kept)</span>' : '<span style="opacity:.7">&lt; 10 subs</span>';
+  const line = (k, v) => '<span style="opacity:.7">' + k + '</span> ' + v;
+  return '<b>' + name + '</b>'
+    + (colorLabel ? '<br><span style="opacity:.7">' + colorLabel + ':</span> <b>' + colorDisplay + '</b>' : '')
+    + '<div style="margin-top:4px;display:grid;grid-template-columns:auto auto;gap:1px 10px;font-variant-numeric:tabular-nums">'
+    + line('Customers', n(o.customers)) + line('Subs', n(o.subs))
+    + line('Active ARR', usd(o.arv)) + line('ACV', usd(o.avgContract))
+    + line('Cancels', n(o.cancellations)) + line('Attrition', attr)
+    + line('Avg tenure', o.avgTenure ? o.avgTenure.toFixed(1) + ' mo' : '—') + line('2yr+', pct(o.twoYrPct))
+    + line('Sentricon', pct(o.sentriconPct)) + line('LTV / cust', usd(o.ltv))
+    + '</div>';
+}
 function reportingGeoTotal(items) {
   const t = { customers: 0, subs: 0, active: 0, contract: 0, arv: 0, cancellations: 0, tenureW: 0, twoYrW: 0, sentW: 0, ltvW: 0 };
   for (const it of items || []) {
@@ -1319,8 +1332,7 @@ function initReportingGeoMap(containerId, states, metricKey, metricLabel, fmtMet
         const s = code ? states[code] : null;
         const v = metricFor(s);
         const display = v == null ? 'No data' : fmtMetric(v);
-        const subsLine = s ? '<br>' + s.subs.toLocaleString() + ' subs · ' + s.customers.toLocaleString() + ' customers' : '';
-        layer.bindTooltip('<b>' + name + '</b><br>' + metricLabel + ': ' + display + subsLine, { sticky: true });
+        layer.bindTooltip(reportingGeoTipHtml(name, s, metricLabel, display), { sticky: true });
         layer.on('click', () => {
           if (s && onStateClick) onStateClick(code, name);
         });
