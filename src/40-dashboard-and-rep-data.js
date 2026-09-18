@@ -2883,6 +2883,27 @@ function _repCancelExcluded(s) {
   if (_isSoldNotStarted(s) || _isCombinedSub(s) || _indConfigCancelExcluded(s)) return true;
   return false;
 }
+// ── Attrition by REVENUE (per Isaac, Sep 2026) — the ONE definition the
+// rep leaderboard's Attrition % column and the player card's headline
+// number share: cancelled $ ÷ serviced $, with 3-day RORs and one-time
+// services removed from both sides. Saved accounts (status Active with a
+// logged cancel) count as kept, same as the card. ──
+function _attrRevIsSvc(x) { return (Number(x.services) || 0) > 0 || !!x.servicedDate; }
+function _attrRevIsAct(x) { return (x.status || '').toLowerCase() === 'active' || ((x.status || '') === '' && _subAliveNow(x) === true); }
+function _attrRevIsOTS(x) {
+  if (/^\s*one[\s-]?time/i.test(String(x.subscription || ''))) return true;
+  const m = Number(x.contract);
+  return !(m > 1) && !/sentricon/i.test(String(x.subscription || ''));
+}
+// Returns { serv, cxl } contract-value contributions of ONE sale to the
+// attrition fraction (zeros when the sale doesn't count).
+function _attrRevParts(x) {
+  if (!x || !_attrRevIsSvc(x)) return { serv: 0, cxl: 0 };
+  if ((_is3DayROR(x) && !_isSoldNotStarted(x)) || _attrRevIsOTS(x)) return { serv: 0, cxl: 0 };
+  const cv = Number(x.contractValue) || 0;
+  const cxl = !!x.cancelDate && !_attrRevIsAct(x);
+  return { serv: cv, cxl: cxl ? cv : 0 };
+}
 function _repCancelCounts(s) {
   if (!s) return false;
   if (!_subCancelledNow(s)) return false;

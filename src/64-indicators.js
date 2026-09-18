@@ -2431,7 +2431,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   const repMap = {};
   rawSales.forEach(s => {
     const rep = getCanonicalRepName(s.rep || 'Unknown');
-    if (!repMap[rep]) repMap[rep] = { name: rep, office: s.office, officeRev: {}, recRev: {}, sales: [], cancels: 0, cancelEligible: 0, revenue: 0, newRevenue: 0, renewalRevenue: 0, multi: 0, twelve: 0, autoPay: 0, aged: 0 };
+    if (!repMap[rep]) repMap[rep] = { name: rep, office: s.office, officeRev: {}, recRev: {}, sales: [], cancels: 0, cancelEligible: 0, attrServRev: 0, attrCxlRev: 0, revenue: 0, newRevenue: 0, renewalRevenue: 0, multi: 0, twelve: 0, autoPay: 0, aged: 0 };
     if (s.office) repMap[rep].officeRev[s.office] = (repMap[rep].officeRev[s.office] || 0) + (Number(s.contractValue) || 0);
     // Per-CRM-record split: raw rep spelling + employee id + office. When a
     // person exists as multiple FieldRoutes employee records, each line here
@@ -2453,6 +2453,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // currently strips — excluded rows neither count as a cancel nor pad
     // the base. (Volume/revenue metrics above include those rows.)
     if (!_repCancelExcluded(s)) r.cancelEligible++;
+    { const _ap = _attrRevParts(s); r.attrServRev += _ap.serv; r.attrCxlRev += _ap.cxl; }
     if (/failed\s*audit/i.test(s.customerFlags || '')) r.auditFail = (r.auditFail || 0) + 1;
     if (s.age > 0) r.aged++;
   });
@@ -2598,6 +2599,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       myPct: ctTotal > 0 ? r.multi / ctTotal : 0,
       autoPayPct: count > 0 ? r.autoPay / count : 0,
       cancelPct: r.cancelEligible > 0 ? r.cancels / r.cancelEligible : 0,
+      // Attrition % by revenue — same math as the player card headline.
+      attrPct: r.attrServRev > 0 ? r.attrCxlRev / r.attrServRev : 0,
       // Audit % = accounts NOT flagged Failed Audit ÷ all accounts (passed,
       // no-audit and pending all count as good — same rule as the branch row).
       auditPct: count > 0 ? (count - (r.auditFail || 0)) / count : 0,
@@ -3496,15 +3499,23 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const allBucket = [];   // every D2D seller, tagged or not — the ALL column
     // Scope (per Isaac): break the cohorts down by team or office. Stored
     // as 'all' | 'team:<name>' | 'office:<name>'.
-    const _scope = String(state._classScope || 'all');
-    const _scopeKind = _scope.startsWith('team:') ? 'team' : _scope.startsWith('office:') ? 'office' : 'all';
-    const _scopeVal = _scope.replace(/^(team|office):/, '');
+    let _scope = String(state._classScope || 'all');
+    let _scopeKind = _scope.startsWith('team:') ? 'team' : _scope.startsWith('office:') ? 'office' : 'all';
+    let _scopeVal = _scope.replace(/^(team|office):/, '');
     const _repOffice = (r) => String(r.office || ((r.sales || []).find(x => x.office) || {}).office || '').trim();
     const _inScope = (r) => _scopeKind === 'all' ? true
       : _scopeKind === 'team' ? (getRepTeam(r.name) || '') === _scopeVal
       : _repOffice(r).toUpperCase() === _scopeVal.toUpperCase();
-    const _teamOpts = [...new Set(Object.values(repMap).map(r => getRepTeam(r.name) || '').filter(Boolean))].sort();
-    const _officeOpts = [...new Set(Object.values(repMap).map(_repOffice).filter(Boolean))].sort();
+    // Partners / team leads (per Isaac): RIDD (all D2D) + the team(s) they
+    // lead only — no other teams, no offices.
+    const _cmReach = (!isAdminRole(state.profile?.role)
+      && ((typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role)) || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role)))
+      && typeof myReachTeams === 'function') ? myReachTeams() : null;
+    const _teamOpts = [...new Set(Object.values(repMap).map(r => getRepTeam(r.name) || '').filter(Boolean))].sort()
+      .filter(t => !_cmReach || _cmReach.has(t));
+    const _officeOpts = _cmReach ? [] : [...new Set(Object.values(repMap).map(_repOffice).filter(Boolean))].sort();
+    // A partner can't sit on a scope outside their reach.
+    if (_cmReach && _scopeKind !== 'all' && !(_scopeKind === 'team' && _cmReach.has(_scopeVal))) { state._classScope = 'all'; _scope = 'all'; _scopeKind = 'all'; _scopeVal = ''; }
     const _scopedNames = new Set();
     Object.values(repMap).forEach(r => {
       if (!_inScope(r)) return;
@@ -3687,7 +3698,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       title: 'Break the Rookie / Vet cohorts down by team or office',
       onchange: (e) => { state._classScope = e.target.value; mountApp(); },
     },
-      el('option', { value: 'all', selected: _scope === 'all' }, 'All D2D'),
+      el('option', { value: 'all', selected: _scope === 'all' }, _cmReach ? 'RIDD' : 'All D2D'),
       _teamOpts.length ? el('optgroup', { label: 'Teams' }, ..._teamOpts.map(t => el('option', { value: 'team:' + t, selected: _scope === 'team:' + t }, t))) : null,
       _officeOpts.length ? el('optgroup', { label: 'Offices' }, ..._officeOpts.map(o => el('option', { value: 'office:' + o, selected: _scope === 'office:' + o }, _mktgTC(o)))) : null);
     const tierCard = el('div', { class: 'card overflow-hidden', 'data-section': 'class-metrics' },
@@ -3798,7 +3809,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     { key: 'myPct',      label: 'MY %',     align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, (r.myPct * 100).toFixed(1) + '%') },
     { key: 'autoPayPct', label: 'APay %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, (r.autoPayPct * 100).toFixed(1) + '%') },
     { key: 'cancels',    label: 'Cancels',  align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.cancels > 0 ? fmt.int(r.cancels) : '—') },
-    { key: 'cancelPct',  label: 'Cancel %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', style: r.cancelPct > 0.1 ? { color: '#DC2626', fontWeight: '600' } : {} }, r.cancelPct > 0 ? (r.cancelPct * 100).toFixed(1) + '%' : '—') },
+    { key: 'attrPct',    label: 'Attrition %', align: 'left', defaultDir: 'desc', title: 'Cancelled $ ÷ serviced $ · 3-day RORs + one-time services removed from both sides (same number as the player card)', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', style: r.attrPct > 0.1 ? { color: '#DC2626', fontWeight: '600' } : {} }, r.attrPct > 0 ? (r.attrPct * 100).toFixed(1) + '%' : '—') },
     // ─── Records: Best Day / Week / Month moved to the end of the row so
     // they don't push the regular metrics off-screen. Sort dir 'date' picks
     // the rep whose biggest record happened MOST RECENTLY; 'amount' picks
@@ -4163,8 +4174,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 secLabel('Tier'), tierRow,
                 teamSel && secLabel('Team'), teamSel && el('div', { class: 'px-2.5 pb-1' }, teamSel),
                 secLabel('Office'), el('div', { class: 'px-2.5 pb-1' }, officeSel),
-                secLabel('Cancel types'),
-                ...opts.map(([key, label, tip]) => el('button', {
+                ...(isAdminRole(state.profile?.role) ? [secLabel('Cancel types')] : []),
+                ...(isAdminRole(state.profile?.role) ? opts : []).map(([key, label, tip]) => el('button', {
                   class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer text-left transition hover:brightness-95',
                   style: { color: 'var(--text)', background: state[key] ? 'var(--card-2)' : 'transparent' },
                   title: tip,
@@ -4214,7 +4225,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   ? (sortDir === 'amount' ? ' · by $' : ' · by date')
                   : '';   // direction arrows retired — active header is highlighted
                 const align = c.align === 'right' ? 'text-right' : 'text-left';
-                const padLeft = c.key === 'cancelPct' ? 'pl-2 pr-5' : 'px-2';
+                const padLeft = (c.key === 'cancelPct' || c.key === 'attrPct') ? 'pl-2 pr-5' : 'px-2';
                 return el('th', {
                   class: align + ' ' + padLeft + ' py-2 font-semibold cursor-pointer select-none hover:text-default transition whitespace-nowrap',
                   style: isSorting ? { color: 'var(--accent)' } : {},   // (bold Best-Day rule starts on the body rows, not the header — per Isaac)
@@ -4250,7 +4261,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             // single-rep record on the board.
             (() => {
               if (!displayReps.length) return null;
-              const T = { count: 0, revenue: 0, newRevenue: 0, renewalRevenue: 0, sellingDays: 0, cancels: 0 };
+              const T = { count: 0, revenue: 0, newRevenue: 0, renewalRevenue: 0, sellingDays: 0, cancels: 0, attrServRev: 0, attrCxlRev: 0 };
               let wAudit = 0, wMy = 0, wAuto = 0, wPest = 0, nPest = 0, wInit = 0, nInit = 0;
               let bDay = 0, bWeek = 0, bMonth = 0;
               displayReps.forEach(r => {
@@ -4261,6 +4272,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 T.renewalRevenue += Number(r.renewalRevenue) || 0;
                 T.sellingDays += Number(r.sellingDays) || 0;
                 T.cancels += Number(r.cancels) || 0;
+                T.attrServRev += Number(r.attrServRev) || 0;
+                T.attrCxlRev += Number(r.attrCxlRev) || 0;
                 wAudit += (Number(r.auditPct) || 0) * c;
                 wMy    += (Number(r.myPct) || 0) * c;
                 wAuto  += (Number(r.autoPayPct) || 0) * c;
@@ -4291,6 +4304,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 autoPayPct: pct(wAuto),
                 cancels: T.cancels > 0 ? fmt.int(T.cancels) : '—',
                 cancelPct: (T.count > 0 && T.cancels > 0) ? ((T.cancels / T.count) * 100).toFixed(1) + '%' : '—',
+                attrPct: (T.attrServRev > 0 && T.attrCxlRev > 0) ? ((T.attrCxlRev / T.attrServRev) * 100).toFixed(1) + '%' : '—',
                 bestDayTime: bDay > 0 ? fmt.usd0(bDay) : '—',
                 bestWeekTime: bWeek > 0 ? fmt.usd0(bWeek) : '—',
                 bestMonthTime: bMonth > 0 ? fmt.usd0(bMonth) : '—',
@@ -4306,6 +4320,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 avgPest: 'Sales-weighted average across reps with a value',
                 avgInitial: 'Sales-weighted average across reps with a value',
                 cancelPct: 'Total cancels ÷ total sales',
+                attrPct: 'Cancelled $ ÷ serviced $ · excl. 3-day ROR + one-time',
                 bestDayTime: 'Biggest single-rep record among the reps shown',
                 bestWeekTime: 'Biggest single-rep record among the reps shown',
                 bestMonthTime: 'Biggest single-rep record among the reps shown',
@@ -4338,7 +4353,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   if (c.key === 'team' || c.key === 'office') return el('td', { class: 'px-2 py-2' }, '');
                   const st = { fontWeight: '700' };
                   if (c.key === 'bestDayTime') st.borderLeft = '1px solid var(--border-2)';
-                  const pad = c.key === 'bestMonthTime' ? 'pl-2 pr-5' : (c.key === 'cancelPct' ? 'pl-2 pr-5' : 'px-2');
+                  const pad = c.key === 'bestMonthTime' ? 'pl-2 pr-5' : ((c.key === 'cancelPct' || c.key === 'attrPct') ? 'pl-2 pr-5' : 'px-2');
                   return el('td', { class: pad + ' py-2 text-left tabular-nums whitespace-nowrap', style: st, title: tips[c.key] || '' },
                     vals[c.key] != null ? vals[c.key] : '—');
                 }));
