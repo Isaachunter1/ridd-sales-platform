@@ -1605,6 +1605,26 @@ function computeRepRecords(repId, repSales) {
 // but an admin retag in one place now applies to indicators too.
 const _IND_RENEWAL_RE = /renewal/i; // legacy default, retained for reference
 function _indicatorIsRenewal(s) { return reportingSourceClass(s && s.source ? String(s.source) : '') === 'renewal'; }
+// Page-level exclusions (per Isaac, Sep 2026): one-time services, 3-day RORs
+// and renewals can be dropped from every Indicators number + Performance
+// Trends. Session-only, off by default. One-time = the service's lifecycle
+// in Configurations says so, or the name / cancel reason reads one-time.
+function indicatorExcl() { return state.indicatorExcl || (state.indicatorExcl = { oneTime: false, ror: false, renewal: false }); }
+function indicatorExclKey() { const x = indicatorExcl(); return (x.oneTime ? 'o' : '') + (x.ror ? 'r' : '') + (x.renewal ? 'n' : ''); }
+function _indIsOneTimeSale(s) {
+  if (!s) return false;
+  const nm = String(s.subscription || '').trim();
+  if (_ONETIME_SUB_RE.test(nm) || _ONETIME_REASON_RE.test(s.cancelReason || '')) return true;
+  const lc = (typeof reportingServiceLifecycleMap === 'function') ? reportingServiceLifecycleMap().get(nm) : null;
+  return lc === 'onetime';
+}
+function _indExclDrop(s) {
+  const x = indicatorExcl();
+  if (x.oneTime && _indIsOneTimeSale(s)) return true;
+  if (x.ror && _is3DayROR(s)) return true;
+  if (x.renewal && _indicatorIsRenewal(s)) return true;
+  return false;
+}
 // Service types RIDD excludes by default from all reporting (mirrors the CRM's
 // Global excluded service types) — fees, chargebacks, follow-ups, inspections,
 // removals, etc. that aren't real new production. Matched on the subscription
@@ -1712,7 +1732,7 @@ function indicatorSales() {
   // or a filter changes.
   const cfg = _indCfgRev + '|' + (state.indicatorsComps ? 1 : 0)
     + '|' + _acct + '#' + _exclSvc.join('~') + '#' + _inclSvc.join('~') + '#' + _inclSrcArr.join('~') + '#' + _exclSrcArr.join('~')
-    + '#' + (state.indicatorDeletedCustIds || []).join('~');
+    + '#' + (state.indicatorDeletedCustIds || []).join('~') + '#x' + indicatorExclKey();
   if (_indSalesCache.src !== src || _indSalesCache.cfg !== cfg) {
     _indSalesCache.src = src; _indSalesCache.cfg = cfg; _indSalesCache.byKey.clear();
   }
@@ -1746,6 +1766,8 @@ function indicatorSales() {
     // Matches the CRM Sales Leaderboard's "Global:" excluded service types so
     // the two reconcile to the penny.
     if (FR_GLOBAL_EXCLUDED_SERVICES.has(String(s.subscription || '').trim())) return false;
+    // Filters panel: exclude one-time services / 3-day RORs / renewals.
+    if (_indExclDrop(s)) return false;
     // Account status. Default "Pending / Serviced" now uses FIELDROUTES' OWN
     // definition: the account's initial-appointment status is Pending or
     // Completed. Verified against the CRM's Sales Leaderboard to the penny
@@ -3539,7 +3561,7 @@ const REP_LAYOUT_KEY = 'ridd_rep_layout_v1';
 const _repLayoutKeyForMe = () => REP_LAYOUT_KEY + '::' + ((state.profile && state.profile.id) || 'anon');
 const REP_LAYOUT_SECTIONS = [
   ['card',  'My Player Card'],
-  ['yoy',   'Your Performance Trends'],
+  ['yoy',   'Performance Trends'],
   ['board', 'Leaderboard'],
   ['trend', 'Your Metric Trends'],
 ];
