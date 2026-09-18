@@ -236,7 +236,7 @@ function viewSales() {
     el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
     el('div', { class: 'text-base font-black tabular-nums', style: accent ? { color: 'var(--accent)' } : {} }, fmt.usd0(_sumRev(list))),
     el('div', { class: 'text-[10px] tabular-nums text-muted-' }, list.length.toLocaleString() + ' sale' + (list.length === 1 ? '' : 's')));
-  const totalsStrip = isAdmin ? el('div', { class: 'card flex items-stretch overflow-x-auto' },
+  const totalsStrip = isAdmin ? el('div', { class: 'card flex items-stretch overflow-x-auto sales-totals-strip' },
     _tile(_yr + ' sold', _ytd, true),
     _tile('Upfront', source.filter(isUpfrontPending)),
     _tile('Backend lock', source.filter(isBackendPending)),

@@ -1073,7 +1073,7 @@ function mountApp() {
     },
       el('span', { class: 'text-xs font-semibold', title: 'Every screen, tab, button and data pull runs exactly as this user type — the only thing not mimicked is the database\u2019s row-level security, since your login is still an admin.' }, '\ud83d\udc41 Viewing as ' + (state.profile && state.profile._viewAs ? (state.profile.full_name + ' \u00b7 ') : '') + ((typeof ROLE_LABEL !== 'undefined' && ROLE_LABEL[viewAsRole()]) || viewAsRole())),
       el('button', {
-        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95 whitespace-nowrap shrink-0',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => setViewAsRole(''),
       }, 'Back to Admin'),

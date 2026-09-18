@@ -210,7 +210,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap cursor-pointer', onclick: () => { state._retenMethodOpen = !open; mountApp(); } },
       el('div', { class: 'flex-1 min-w-0' },
         el('h3', { class: 'text-sm font-bold' }, (open ? '▾ ' : '▸ ') + 'Attrition Steps')),
-      el('div', { class: 'flex items-start gap-4 tabular-nums' },
+      el('div', { class: 'flex items-start gap-4 tabular-nums reten-tiles' },
         el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, (year - 1) + ' attrition'), el('div', { class: 'text-lg font-black' }, pct(prev.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.prev)) : null)),
         el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' YTD attrition'), el('div', { class: 'text-lg font-black' }, pct(cur.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.cur)) : null)),
         el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' projected attrition'), el('div', { class: 'text-lg font-black' }, pct(projected), el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'seasonal pace'))),
@@ -2288,7 +2288,9 @@ function reportingWaterfall() {
   const syncPin = () => {
     const f = document.getElementById('retenFrozen'), sp = document.getElementById('retenFrozenSpacer');
     if (!f || !sp || !f.isConnected) return;
-    if (state._retenMethodOpen === true) { f.style.position = ''; f.style.top = ''; f.style.left = ''; f.style.width = ''; f.style.zIndex = ''; sp.style.display = 'none'; return; }
+    // Phones: the block is a third of the screen — never pin it there.
+    const _narrow = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })();
+    if (state._retenMethodOpen === true || _narrow) { f.style.position = ''; f.style.top = ''; f.style.left = ''; f.style.width = ''; f.style.zIndex = ''; f.style.paddingTop = '6px'; sp.style.display = 'none'; sp.style.marginTop = ''; return; }
     const pinned = f.style.position === 'fixed';
     const anchor = pinned ? sp : f;
     const natTop = anchor.getBoundingClientRect().top;

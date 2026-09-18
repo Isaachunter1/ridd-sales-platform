@@ -4074,6 +4074,10 @@ const TAB_TITLES = {
   marketing:    'MARKETING',
   commission:   'SALES',
   d2d_dashboard: 'SALES',
+  d2d_sales:    'SALES',
+  techs:        'SALES',
+  tech_sales:   'SALES',
+  tech_pay:     'PAY STUB',
   admin:        'SETTINGS',
 };
 
