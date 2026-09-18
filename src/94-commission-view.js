@@ -168,8 +168,7 @@ function commissionCalculator() {
     const lblO = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold block mb-1' }, t);
     const optForO = (e) => el('option', { value: e.employee_id, selected: e.employee_id === state._commEmpId }, _frEmpName(e) + (e.office_name ? ' · ' + e.office_name : ''));
     const repSelectO = el('select', { class: 'rounded-xl border px-2.5 py-1 text-[11px] font-medium', style: { borderColor: 'var(--border-2)', maxWidth: '260px' }, onchange: (e) => { state._commEmpId = e.target.value; mountApp(); } },
-      salesReps.length ? el('optgroup', { label: 'Sales Reps · CRM' }, ...salesReps.map(optForO)) : null,
-      officeStaff.length ? el('optgroup', { label: 'Office Staff · Inside Sales' }, ...officeStaff.map(optForO)) : null);
+      salesReps.length ? el('optgroup', { label: 'Sales Reps · CRM' }, ...salesReps.map(optForO)) : null);
     const dateInputO = (val, onCommit) => el('input', { type: 'date', value: val || '', class: 'rounded-xl border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)' }, onchange: (e) => { onCommit(e.target.value); mountApp(); } });
     const B = commissionComputeOfficeStaff(emp, startMs, endMs);
     const { breakdown, stats } = commissionRenderOfficeStaff(B, _frEmpName(emp));
@@ -238,8 +237,7 @@ function commissionCalculator() {
   // ---- controls ----
   const optFor = (e) => el('option', { value: e.employee_id, selected: e.employee_id === state._commEmpId }, _frEmpName(e) + (e.office_name ? ' · ' + e.office_name : ''));
   const repSelect = el('select', { class: 'rounded-xl border px-2.5 py-1 text-[11px] font-medium', style: { borderColor: 'var(--border-2)', maxWidth: '260px' }, onchange: (e) => { state._commEmpId = e.target.value; mountApp(); } },
-    salesReps.length ? el('optgroup', { label: 'Sales Reps · CRM' }, ...salesReps.map(optFor)) : null,
-    officeStaff.length ? el('optgroup', { label: 'Office Staff · Inside Sales' }, ...officeStaff.map(optFor)) : null);
+    salesReps.length ? el('optgroup', { label: 'Sales Reps · CRM' }, ...salesReps.map(optFor)) : null);
   const dateInput = (val, onCommit) => el('input', { type: 'date', value: val || '', class: 'rounded-xl border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)' }, onchange: (e) => { onCommit(e.target.value); mountApp(); } });
 
   return el('div', { class: 'flex flex-col gap-4 w-full' },
