@@ -3792,12 +3792,14 @@ function viewNrlaPublic() {
           ));
           // One-offs (per Isaac): Mystery Boxes / Avg Pest & Raffle aren't
           // sanctioned season comps — their own dropdown, off to the side.
-          if (oneOffs.length) {
+          // Admin competitions (per Isaac): the unsanctioned one-offs are an
+          // admin-only dropdown now — reps never see them.
+          if (oneOffs.length && isAdmin) {
             const sel1 = el('select', {
               class: 'px-4 text-[13px] font-bold cursor-pointer',
               style: { ...mono, borderRadius: '0', background: '#111', color: 'var(--accent)', border: '2px solid #111', minWidth: '240px', height: '46px' },
             }, ...oneOffs.map(c => el('option', { value: c.id }, c.name)));
-            box.append(el('div', { class: 'mt-6' }, eyebrow((running.length ? '04 / ' : '03 / ') + 'One-off competitions')), el('div', { class: 'flex flex-wrap items-stretch gap-2 mt-4' },
+            box.append(el('div', { class: 'mt-6' }, eyebrow((running.length ? '04 / ' : '03 / ') + 'Admin competitions')), el('div', { class: 'flex flex-wrap items-stretch gap-2 mt-4' },
               sel1,
               el('button', { class: 'px-5 text-[13px] font-bold transition hover:brightness-110', style: { ...mono, background: 'var(--accent)', color: '#111', border: '2px solid #111', height: '46px', textTransform: 'uppercase', letterSpacing: '.08em' }, onclick: () => open(sel1.value) }, 'Open \u2192')));
           }
