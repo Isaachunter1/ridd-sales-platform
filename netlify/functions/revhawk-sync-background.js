@@ -425,7 +425,20 @@ async function getAccessToken() {
 }
 
 // Run a query and page through every result row.
-async function runQuery(token, sql) {
+// `opts.compact` (the big subscription pull): every page is parsed into
+// plain objects the moment it lands and the raw BigQuery page is dropped,
+// so peak memory is the compact rows, not the whole verbose REST payload.
+// Sep 18 2026: the worker died silently right after 'query-complete:paging'
+// with no error — the raw {f:[{v}]} rows for ~105k subs × 60 columns were
+// being held in full (hundreds of MB of tiny objects) and the function was
+// OOM-killed before it could write a heartbeat.
+async function runQuery(token, sql, opts = {}) {
+  const compact = !!opts.compact;
+  const squash = (page, schema) => {
+    const objs = toObjects(schema, page);
+    for (const o of objs) for (const k of Object.keys(o)) if (o[k] === null || o[k] === undefined || o[k] === '') delete o[k];
+    return objs;
+  };
   const base = `https://bigquery.googleapis.com/bigquery/v2/projects/${JOB_PROJECT}`;
   const auth = { Authorization: `Bearer ${token}` };
   let res = await fetch(`${base}/queries`, {
@@ -438,7 +451,7 @@ async function runQuery(token, sql) {
 
   const jobId = j.jobReference.jobId;
   const location = j.jobReference.location || '';
-  const schema = (j.schema && j.schema.fields) || [];
+  let schema = (j.schema && j.schema.fields) || [];
   let rows = j.rows || [];
   let pageToken = j.pageToken;
 
@@ -458,18 +471,26 @@ async function runQuery(token, sql) {
     j = await res.json();
     if (!res.ok) throw new Error('BigQuery getResults failed: ' + JSON.stringify(j.error || j).slice(0, 400));
     rows = j.rows || rows;
+    schema = (j.schema && j.schema.fields) || schema;
     pageToken = j.pageToken;
   }
   if (globalThis.__syncStage) await globalThis.__syncStage('query-complete:paging');
 
+  let out = compact ? squash(rows, schema) : rows;
+  rows = null; j = null;
+  let pages = 1;
   while (pageToken) {
     res = await fetch(`${base}/queries/${jobId}?location=${location}&maxResults=20000&pageToken=${encodeURIComponent(pageToken)}`, { headers: auth });
-    j = await res.json();
-    if (!res.ok) throw new Error('BigQuery paging failed: ' + JSON.stringify(j.error || j).slice(0, 400));
-    rows = rows.concat(j.rows || []);
-    pageToken = j.pageToken;
+    const pj = await res.json();
+    if (!res.ok) throw new Error('BigQuery paging failed: ' + JSON.stringify(pj.error || pj).slice(0, 400));
+    const page = pj.rows || [];
+    if (compact) { for (const o of squash(page, schema)) out.push(o); }
+    else out = out.concat(page);
+    pageToken = pj.pageToken;
+    pages++;
+    if (compact && globalThis.__syncStage) await globalThis.__syncStage('query-paging:' + pages + ':' + out.length + 'rows:' + Math.round(process.memoryUsage().rss / 1048576) + 'MB');
   }
-  return { schema, rows };
+  return compact ? { schema, objects: out } : { schema, rows: out };
 }
 
 // BigQuery returns every value as a string under row.f[i].v — coerce numeric
@@ -571,21 +592,15 @@ exports.handler = async (event) => {
       if (absent.length) console.warn('[cust-probe] ABSENT from FieldRoutesSubscription entirely: ' + absent.join(', '));
     } catch (pe) { console.warn('[cust-probe] failed (non-fatal):', pe && pe.message); }
 
-    let _q = await runQuery(token, buildSQL());
-    const objects = toObjects(_q.schema, _q.rows);
+    // Parsed page by page (compact) — see runQuery. Null/empty values are
+    // already dropped: readers all use `r.field ||` / `== null`, so a
+    // missing key behaves exactly like null and the payload is smaller.
+    let _q = await runQuery(token, buildSQL(), { compact: true });
+    const objects = _q.objects;
     _q = null;
     if (global.gc) { try { global.gc(); } catch (e) { /* not exposed */ } }
+    await _stage('parsed:' + objects.length + 'rows');
     if (!objects.length) return { statusCode: 200, body: JSON.stringify({ ok: false, note: 'query returned 0 rows — nothing written' }) };
-
-    // Slim the payload before shipping: drop null/empty values (readers all
-    // use `r.field ||` / `== null` patterns, so a missing key behaves exactly
-    // like null) and compress at max level. Same rows, same fields when
-    // present — just fewer bytes for every browser that downloads it.
-    for (const o of objects) {
-      for (const k of Object.keys(o)) {
-        if (o[k] === null || o[k] === undefined || o[k] === '') delete o[k];
-      }
-    }
     // ── OFFICE-DROP MONITOR ────────────────────────────────────────────
     // Compares this run's per-office row counts against the PREVIOUS run
     // (stored beside the heartbeat). A branch losing >35% of its rows
