@@ -3720,6 +3720,7 @@ function mountAuth(opts = {}) {
     fieldStyle: { border: 0, borderBottom: '1px solid rgba(0,0,0,.3)', background: 'transparent', color: '#000', outline: 'none', borderRadius: 0, fontFamily: 'Archivo, ui-sans-serif, system-ui, sans-serif' },
   };
   const form = el('form', {
+    id: 'login-form', method: 'post', action: '#',   // a real, named form — what keychains attach a saved login to
     class: 'w-full flex flex-col gap-6',
     style: { maxWidth: '320px', color: '#000' },
     novalidate: true,   // our own checks below give real messages; native validation on a hidden field blocks submit with no feedback
@@ -3923,13 +3924,17 @@ function mountAuth(opts = {}) {
     el('span', { 'aria-hidden': 'true' }, '←'), 'Back to sign in');
   const emailField = el('label', { class: 'block' },
     el('span', { class: DOOR.label, style: DOOR.labelStyle }, 'Email'),
-    el('input', { name: 'email', type: 'email', required: true, class: DOOR.field, style: DOOR.fieldStyle, placeholder: 'you@ridd.com', onfocus: (e) => { e.target.style.borderBottomColor = '#000'; }, onblur: (e) => { e.target.style.borderBottomColor = 'rgba(0,0,0,.3)'; } }));
+    // Password-manager friendly (per Isaac, Sep 2026): the phone keychains
+    // (iOS Passwords, Google) only offer a saved login when the username field
+    // says autocomplete="username" and the form pairs it with a
+    // current-password field — the same cue the desktop browsers key off.
+    el('input', { id: 'login-email', name: 'email', type: 'email', required: true, autocomplete: 'username', inputmode: 'email', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', class: DOOR.field, style: DOOR.fieldStyle, placeholder: 'you@ridd.com', onfocus: (e) => { e.target.style.borderBottomColor = '#000'; }, onblur: (e) => { e.target.style.borderBottomColor = 'rgba(0,0,0,.3)'; } }));
   // Password input with a show/hide eye inside the box (per Isaac). One
   // eye per field; the confirm field gets its own so each can be peeked.
   const EYE_OPEN = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
   const EYE_OFF  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-6.5 0-10-7-10-7a19.8 19.8 0 0 1 5.06-5.94"/><path d="M9.9 4.24A10.9 10.9 0 0 1 12 4c6.5 0 10 7 10 7a19.8 19.8 0 0 1-3.22 4.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
   const passwordBox = (name, label, placeholder) => {
-    const input = el('input', { name, type: 'password', required: true, minlength: 6, autocomplete: name === 'password' ? 'current-password' : 'new-password', class: DOOR.field, style: { ...DOOR.fieldStyle, paddingRight: '32px' }, placeholder, onfocus: (e) => { e.target.style.borderBottomColor = '#000'; }, onblur: (e) => { e.target.style.borderBottomColor = 'rgba(0,0,0,.3)'; } });
+    const input = el('input', { id: 'login-' + name, name, type: 'password', required: true, minlength: 6, autocomplete: name === 'password' ? 'current-password' : 'new-password', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', class: DOOR.field, style: { ...DOOR.fieldStyle, paddingRight: '32px' }, placeholder, onfocus: (e) => { e.target.style.borderBottomColor = '#000'; }, onblur: (e) => { e.target.style.borderBottomColor = 'rgba(0,0,0,.3)'; } });
     const eye = el('button', { type: 'button', tabindex: -1, title: 'Show password', 'aria-label': 'Show password',
       class: 'absolute right-0 flex items-center px-1 transition', style: { top: 0, bottom: 0, background: 'transparent', border: 0, cursor: 'pointer', color: 'rgba(0,0,0,.7)' },
       onclick: () => { const show = input.type === 'password'; input.type = show ? 'text' : 'password'; eye.innerHTML = show ? EYE_OFF : EYE_OPEN; eye.title = eye.ariaLabel = show ? 'Hide password' : 'Show password'; input.focus(); } });
