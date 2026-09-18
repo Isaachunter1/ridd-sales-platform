@@ -266,6 +266,18 @@ function reportingAuditing() {
     const group = (title, tiles) => el('div', {},
       el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' }, title),
       el('div', { class: 'grid grid-cols-2 sm:grid-cols-3 gap-2' }, ...tiles));
+    // Attrition pair in ONE tile — excl. ROR + OTS on the left, incl. on the
+    // right — so the group is two cards wide and fills a phone row.
+    const attrTile = (excl, incl) => el('div', { class: 'rounded-xl p-3', style: { background: 'var(--card-2)' } },
+      el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Attrition'),
+      el('div', { class: 'grid grid-cols-2 gap-3 mt-0.5' },
+        el('div', {},
+          el('div', { class: 'text-xl font-black tabular-nums', style: { color: good } }, pctS(excl)),
+          el('div', { class: 'text-[10px] text-muted- mt-0.5' }, 'excl. 3-day ROR + one-time (removed from both sides)')),
+        el('div', {},
+          el('div', { class: 'text-xl font-black tabular-nums' }, pctS(incl)),
+          el('div', { class: 'text-[10px] text-muted- mt-0.5' }, 'incl. 3-day ROR + one-time'))),
+      el('div', { class: 'text-[10px] text-muted- mt-1' }, 'cancelled ÷ serviced'));
     const card = el('div', { class: 'card w-full max-w-2xl my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
       el('div', { class: 'p-5 pb-3 flex items-start justify-between gap-3', style: { borderBottom: '1px solid var(--border)' } },
         el('div', {},
@@ -298,10 +310,8 @@ function reportingAuditing() {
           tile('Aging', money(s.agingRev), 'at-risk slice of Active', s.agingRev > 0 ? bad : null, drill('Aging', r => _svc(r) && _act(r) && (Number(r.days_past_due) || 0) >= reportingAgingDays())),
         ]),
         group('Attrition · of serviced', [
-          // Fixed identity colors (not thresholds): green = the headline
-          // excl-ROR number, black = incl-ROR, yellow = the aging what-if.
-          tile('Attrition · excl. ROR + OTS', pctS(attrExclRor), 'cancelled ÷ serviced (3-day RORs + one-time services removed from both sides)', good),
-          tile('Attrition · incl. 3-day ROR', pctS(attrInclRor), 'cancelled ÷ serviced (incl. ROR + one-time)', 'var(--text)'),
+          // One card for both reads (per Isaac): excl. ROR + OTS beside incl.
+          attrTile(attrExclRor, attrInclRor),
           tile('If aging churns', pctS(cancelIfAging), '(cancelled + aging) ÷ serviced', '#A9441F'),
           tile('Active retention', pctS(activeRetention), 'active ÷ serviced', activeRetention == null ? null : (activeRetention >= 0.85 ? good : activeRetention < 0.65 ? bad : null)),
         ]),
