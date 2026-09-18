@@ -82,6 +82,12 @@ function _retenScopeStepsBuild(rows) {
   // of the Configurations exclusions; the list lives on the step itself.
   const brOff = retenBranchesOff();
   run('branches', 'Pick the branches that count', 'Every branch is in by default. Untick one and its subscriptions leave here — attrition for a subset of the company (say, the branches a buyer would take).' + (brOff.size ? ' Out: ' + [...brOff].join(', ') + '.' : ''), r => brOff.has((r.office_name || '').trim()), true);
+  // Configuration rules run next, LOCKED (per Isaac, Sep 2026 — every
+  // number on the Overview already has them applied, so the steps must
+  // too or the two tabs drift). Change them in Reporting → Configurations.
+  run('orphans', 'Remove accounts deleted in FieldRoutes', '[Configurations rule] Subscriptions whose customer record no longer exists in FieldRoutes — the account was deleted in the CRM but the mirror never forgets a row. Detected automatically by the sync.', r => (reportingAutoExcludeOrphans() && !!r.customer_missing) || manual.has(String(r.customer_id != null ? r.customer_id : '')), true);
+  run('hidden', 'Remove hidden service types', '[Configurations rule] Service types marked Hidden in Configurations → Service types (late fees, inspections, admin items…).', r => !!(cfgByName.get(r.subscription) || {}).is_hidden, true);
+  run('sources', 'Remove excluded lead sources', '[Configurations rule] Lead sources switched off in Configurations' + (exclSrc.size ? ': ' + [...exclSrc].join(', ') : ' (none today)') + '.', r => exclSrc.has(reportingSourceOf(r)), true);
   // Always-on steps come first (per Isaac, Sep 2026): the locked ones the
   // sheet does every time, then the toggles.
   const lifecycleByName = reportingServiceLifecycleMap();
@@ -89,9 +95,6 @@ function _retenScopeStepsBuild(rows) {
   run('onetime', 'Remove one-time service types', '[Sheet step 1] Service types whose lifecycle is One-time (the “One Time …”, Initial, Reservice, Inspection-style items) — set aside here, still counted on the Overview and in the P&L. Lifecycle is set per type in Configurations → Service types.', r => { const lc = lifecycleByName.get(r.subscription); return !(lc === 'recurring' || lc === 'retired'); }, true);
   run('retired', 'Remove retired service types', '[Sheet step 1] Types marked Retired in Configurations — no longer sold and not part of the recurring book.', r => !recurringByName.get(r.subscription), true);
   run('status', 'Keep every account status', '[Sheet step 3] Active, Frozen and cancelled subscriptions all stay in — nothing is removed for status. Cancels are counted by their date, later.', r => !(!!r.initial_service && r.initial_service >= '2000-01-01'), true);
-  run('orphans', 'Remove accounts deleted in FieldRoutes', 'Subscriptions whose customer record no longer exists in FieldRoutes — the account was deleted in the CRM but the mirror never forgets a row. Detected automatically by the sync.', r => !!r.customer_missing || manual.has(String(r.customer_id != null ? r.customer_id : '')));
-  run('hidden', 'Remove hidden service types', 'Service types marked Hidden in Configurations → Service types (late fees, inspections, admin items…).', r => !!(cfgByName.get(r.subscription) || {}).is_hidden);
-  run('sources', 'Remove excluded lead sources', 'Lead sources switched off in Configurations' + (exclSrc.size ? ': ' + [...exclSrc].join(', ') : ' (none today)') + '.', r => exclSrc.has(reportingSourceOf(r)));
   return { steps, out: cur };
 }
 const _retenOfficeMemo = { g: null, by: new Map() };

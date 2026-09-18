@@ -1060,7 +1060,12 @@ function reportingChartData(scopeRows, serviceConfig) {
     if (otSet.size) return otSet.has(name);
     return name.startsWith('one time') || name.startsWith('one-time');
   };
-  const oneTimeRows     = scopeRows.filter(isOneTimeService);
+  // Align with Retention → Attrition Steps (per Isaac, Sep 2026): the
+  // one-time and retired cards count subs that RECEIVED an initial service,
+  // the same population the steps start from. Not-yet-serviced one-time
+  // bookings are still in the funnel top ("in FieldRoutes"), just not here.
+  const _servicedInit = (r) => !!r.initial_service;
+  const oneTimeRows     = scopeRows.filter(r => isOneTimeService(r) && _servicedInit(r));
   // Retired services (config Lifecycle = Retired): the active subs still
   // sitting on discontinued services — the cleanup backlog, by service type.
   const lifecycleByName  = reportingServiceLifecycleMap();
