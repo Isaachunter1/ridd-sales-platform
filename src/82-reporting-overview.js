@@ -367,6 +367,44 @@ function reportingOverview() {
   // (ARV of counted cancels by cancel date). Office scope follows the tab;
   // the window is the card's own (7 / 30 / 90 days) so the Time range
   // picker above doesn't collapse it. Bars = sold, lines = serviced / churned.
+  // Pulse drill (per Isaac): not a row list — WHICH BRANCHES made the day and
+  // how: dollars, share, subs, average per sub, the biggest single account and
+  // (for churn) the top cancel reason; the account list is one click deeper.
+  const openPulseBranchDrill = (title, rowsIn, valOf, unit, isChurn) => {
+    const by = new Map();
+    for (const r of rowsIn) { const k = (r.office_name || '').trim() || 'Unassigned'; if (!by.has(k)) by.set(k, { rows: [], total: 0, reasons: new Map(), svc: new Map() }); const g = by.get(k); g.rows.push(r); g.total += valOf(r);
+      if (isChurn) { const re = reportingCancelReasonOf(r) || 'Unspecified'; g.reasons.set(re, (g.reasons.get(re) || 0) + 1); }
+      const sv = String(r.subscription || '').trim() || '—'; g.svc.set(sv, (g.svc.get(sv) || 0) + 1); }
+    const grand = rowsIn.reduce((a, r) => a + valOf(r), 0);
+    const list = [...by.entries()].sort((a, b) => b[1].total - a[1].total);
+    const top = (m) => { let k = null, n = 0; for (const [kk, v] of m) if (v > n) { k = kk; n = v; } return k ? k + ' (' + n + ')' : '—'; };
+    const overlay = el('div', { class: 'modal-overlay' });
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    const th = (t, right) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
+    const td = (t, o = {}) => el('td', { class: 'px-3 py-2 whitespace-nowrap tabular-nums ' + (o.right ? 'text-right' : 'text-left') + (o.bold ? ' font-black' : '') }, t);
+    const row = (k, g, bold) => el('tr', { class: 'border-t cursor-pointer transition hover:brightness-95' + (bold ? ' font-bold' : ''), style: { borderColor: bold ? 'var(--border-2)' : 'var(--border)', background: bold ? 'var(--card-2)' : '' }, title: 'Click for the accounts',
+      onclick: () => openReportingDrillModal({ chartTitle: 'Daily pulse · ' + title + ' · ' + k, sliceLabel: g.rows.length.toLocaleString() + ' subscription' + (g.rows.length === 1 ? '' : 's') + ' · ' + fmt.usd0(g.total), rows: g.rows, formatValue: fmt.usd0 }) },
+      td(k, { bold }),
+      td(fmt.usd0(g.total), { right: true, bold: true }),
+      td(grand ? (g.total / grand * 100).toFixed(1) + '%' : '—', { right: true }),
+      el('td', { class: 'px-3 py-2', style: { minWidth: '120px' } }, el('div', { style: { height: '6px', background: 'var(--card-2)' } }, el('div', { style: { height: '100%', width: (grand ? g.total / grand * 100 : 0) + '%', background: isChurn ? '#DC2626' : 'var(--accent)' } }))),
+      td(fmt.int(g.rows.length), { right: true }),
+      td(g.rows.length ? fmt.usd0(g.total / g.rows.length) : '—', { right: true }),
+      td(fmt.usd0(Math.max(0, ...g.rows.map(valOf))), { right: true }),
+      td(isChurn ? top(g.reasons) : top(g.svc)));
+    const all = { rows: rowsIn, total: grand, reasons: new Map(), svc: new Map() };
+    for (const [, g] of by) { for (const [k, v] of g.reasons) all.reasons.set(k, (all.reasons.get(k) || 0) + v); for (const [k, v] of g.svc) all.svc.set(k, (all.svc.get(k) || 0) + v); }
+    overlay.append(el('div', { class: 'card p-5 flex flex-col gap-3', style: { width: 'min(980px, 94vw)', maxHeight: '88vh', overflow: 'auto' } },
+      el('div', { class: 'flex items-start justify-between gap-3' },
+        el('div', {}, el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Daily pulse · by branch'),
+          el('div', { class: 'text-lg font-black' }, title),
+          el('div', { class: 'text-[11px] text-muted-' }, fmt.usd0(grand) + ' of ' + unit + ' across ' + fmt.int(rowsIn.length) + ' subscription' + (rowsIn.length === 1 ? '' : 's') + ' in ' + list.length + ' branch' + (list.length === 1 ? '' : 'es') + ' · click a branch for the accounts')),
+        el('button', { class: 'text-xl leading-none', onclick: () => overlay.remove() }, '\u00d7')),
+      el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+        el('thead', {}, el('tr', {}, th('Branch'), th(unit === 'ARR' ? 'ARR' : 'Sold', true), th('Share', true), th(''), th('Subs', true), th('Avg / sub', true), th('Largest', true), th(isChurn ? 'Top reason' : 'Top service'))),
+        el('tbody', {}, ...list.map(([k, g]) => row(k, g, false)), row('RIDD · Total', all, true))))));
+    document.body.append(overlay);
+  };
   const pulseCard = (() => {
     const span = [7, 30, 90].includes(Number(state._rtPulseSpan)) ? Number(state._rtPulseSpan) : 30;
     const rows = reportingFilterByOffice(scope.visible, office);
@@ -410,7 +448,8 @@ function reportingOverview() {
             const i = els[0].index, dsi = els[0].datasetIndex;
             const set = dsi === 0 ? soldRows[i] : dsi === 1 ? svcRows[i] : cxlRows[i];
             const what = dsi === 0 ? 'Sold' : dsi === 1 ? 'Serviced (first initial)' : 'Churned';
-            if (set.length) openReportingDrillModal({ chartTitle: 'Daily pulse · ' + what + ' · ' + lbl[i], sliceLabel: set.length.toLocaleString() + ' subscription' + (set.length === 1 ? '' : 's'), rows: set, formatValue: fmt.usd0 });
+            const valOf = dsi === 0 ? (r) => Number(r.subscription_contract_value) || 0 : (r) => Number(r.annual_recurring_value) || 0;
+            if (set.length) openPulseBranchDrill(what + ' · ' + lbl[i], set, valOf, dsi === 0 ? 'contract value' : 'ARR', dsi === 2);
           },
           plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 } } },
             tooltip: { callbacks: { label: (c) => ' ' + c.dataset.label + ': $' + Math.round(c.parsed.y).toLocaleString() } } },

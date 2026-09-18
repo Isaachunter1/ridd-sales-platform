@@ -1232,7 +1232,7 @@ function reportingScope(opts = {}) {
     visible, offices, office, compareOffice, inCompare,
     datePreset, dateStart, dateEnd, dateLabel, inDate,
     scopeA, scopeB,
-    officeLabel: (o) => o === 'all' ? 'All Offices' : o,
+    officeLabel: (o) => o === 'all' ? 'All Offices' : o === 'multi' ? ((state.reportingOffices || []).length + ' branches') : o,
   };
 }
 
@@ -1245,6 +1245,47 @@ function reportingFilterBar(scope, opts = {}) {
   const showOffice  = opts.showOffice  !== false;   // default: show the office picker
   const { offices, office, compareOffice, inCompare, datePreset, dateStart, dateEnd, dateLabel, inDate } = scope;
 
+  // Office A is a CHECKLIST (per Isaac, Sep 2026): every branch ticked by
+  // default, untick to drop one — the selection lives in state.reportingOffices
+  // and reportingFilterByOffice reads it as office === 'multi'.
+  const officeChecklist = (hint) => {
+    const all = offices.slice();
+    const picked = new Set(state.reportingOffice === 'multi' && Array.isArray(state.reportingOffices) ? state.reportingOffices : (state.reportingOffice && state.reportingOffice !== 'all' ? [state.reportingOffice] : all));
+    const allOn = all.every(o => picked.has(o));
+    const commit = (set) => {
+      const arr = all.filter(o => set.has(o));
+      if (arr.length === all.length) { state.reportingOffice = 'all'; state.reportingOffices = null; }
+      else if (arr.length === 1) { state.reportingOffice = arr[0]; state.reportingOffices = null; }
+      else { state.reportingOffice = 'multi'; state.reportingOffices = arr; }
+      state._rptOfficeOpen = true; mountApp();
+    };
+    const wrap = el('div', { class: 'relative' });
+    const panel = el('div', { class: 'card absolute p-1.5', style: { top: 'calc(100% + 6px)', left: '0', minWidth: '220px', maxHeight: '320px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._rptOfficeOpen ? 'block' : 'none' } },
+      el('div', { class: 'flex items-center gap-1 px-1.5 pb-1.5 mb-1', style: { borderBottom: '1px solid var(--border)' } },
+        ...[['All', () => commit(new Set(all))], ['None', () => commit(new Set())]].map(([l, fn]) => el('button', { class: 'rounded-lg px-2 py-0.5 text-[10px] font-bold', style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: (e) => { e.stopPropagation(); fn(); } }, l))),
+      ...all.map(o => {
+        const on = picked.has(o);
+        const cb = el('input', { type: 'checkbox', checked: on, style: { accentColor: 'var(--accent)' }, onclick: (e) => e.stopPropagation(), onchange: (e) => { const n = new Set(picked); if (e.target.checked) n.add(o); else n.delete(o); commit(n); } });
+        cb.checked = on;
+        return el('label', { class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer transition hover:brightness-95', style: { color: 'var(--text)', background: on ? 'var(--card-2)' : 'transparent' }, onclick: (e) => e.stopPropagation() }, cb, el('span', { class: 'flex-1 truncate' }, o));
+      }));
+    const label = allOn ? 'All Offices' : picked.size === 0 ? 'No offices' : picked.size === 1 ? [...picked][0] : picked.size + ' of ' + all.length + ' offices';
+    const btn = el('button', {
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer flex items-center justify-between gap-2',
+      style: { borderColor: allOn ? 'var(--border-2)' : 'var(--accent)', background: 'var(--card)', color: 'var(--text)', minWidth: '180px' },
+      onclick: (e) => {
+        e.stopPropagation();
+        const open = panel.style.display === 'block';
+        panel.style.display = open ? 'none' : 'block'; state._rptOfficeOpen = !open;
+        if (!open) { try { clampDropdownPanel(panel); } catch (err) { /* helper optional */ } setTimeout(() => document.addEventListener('mousedown', function closer(ev) { if (!wrap.contains(ev.target)) { panel.style.display = 'none'; state._rptOfficeOpen = false; document.removeEventListener('mousedown', closer); } }), 0); }
+      },
+    }, el('span', { class: 'truncate' }, label), el('span', { style: { fontSize: '9px', opacity: .7 } }, '\u25BE'));
+    if (state._rptOfficeOpen) { try { clampDropdownPanel(panel); } catch (err) { /* optional */ } setTimeout(() => document.addEventListener('mousedown', function closer(ev) { if (!wrap.contains(ev.target)) { panel.style.display = 'none'; state._rptOfficeOpen = false; document.removeEventListener('mousedown', closer); } }), 0); }
+    wrap.append(btn, panel);
+    return el('div', { class: 'flex flex-col gap-1 rep-filter-pick' },
+      hint && el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, hint),
+      wrap);
+  };
   const officePicker = (selected, onChange, hint) => {
     const sel = el('select', {
       class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
@@ -1342,7 +1383,7 @@ function reportingFilterBar(scope, opts = {}) {
   // the right edge instead of wrapping underneath (per Isaac).
   return el('div', { class: 'card p-4 flex flex-col gap-2' },
     el('div', { class: 'flex items-end gap-3 flex-wrap rep-filter-row' },
-      showOffice && officePicker(office, (v) => { state.reportingOffice = v; mountApp(); }, inCompare ? 'Office A' : 'Office'),
+      showOffice && (inCompare ? officePicker(office, (v) => { state.reportingOffice = v; mountApp(); }, 'Office A') : officeChecklist('Office')),
       showOffice && inCompare && el('div', { class: 'text-sm font-bold self-end pb-2', style: { color: 'var(--text-muted)' } }, 'vs'),
       showOffice && inCompare && officePicker(compareOffice, (v) => { state.reportingCompareOffice = v; mountApp(); }, 'Office B'),
       showDate && datePicker,
