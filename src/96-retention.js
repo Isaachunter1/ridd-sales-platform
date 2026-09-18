@@ -2300,6 +2300,97 @@ function reportingWaterfall() {
             row('Month-to-month', m2m, { strong: true })))));
   })();
 
+  // -- Renewal Timing (per Isaac, Sep 2026): WHEN do we renew people, and
+  // does it matter? Each renewal sub is paired with the customer's prior
+  // non-renewal sub (latest one sold before it) to get tenure at renewal
+  // and the offset from that contract's end: early (before the 2-month
+  // window), in the window, or late (already month-to-month). Then the
+  // 12-month survival per timing bucket says whether timing matters.
+  const renewalTimingCard = (() => {
+    const now = new Date();
+    const _sentR = (r) => /sentricon/i.test(String(r.subscription || ''));
+    const _aliveR = (r) => /active/i.test(String(r.subscription_status || ''));
+    const isRen = (r) => reportingSourceClass(r.subscription_source) === 'renewal';
+    const byCust = new Map();
+    for (const r of popA) { if (!r.customer_id || _sentR(r) || !r.sold_date) continue; const k = String(r.customer_id); if (!byCust.has(k)) byCust.set(k, []); byCust.get(k).push(r); }
+    const moDiff = (a, b) => (b - a) / (86400000 * 30.44);
+    const addMo = (d, m) => { const e = new Date(d); e.setMonth(e.getMonth() + m); return e; };
+    const pairs = [];
+    for (const [, subs] of byCust) {
+      const rens = subs.filter(isRen); if (!rens.length) continue;
+      for (const ren of rens) {
+        const rd = new Date(ren.sold_date); if (isNaN(rd)) continue;
+        const prior = subs.filter(x => !isRen(x) && x.sold_date < ren.sold_date && (Number(x.agreement_length) || 0) >= 12).sort((a, b) => b.sold_date.localeCompare(a.sold_date))[0];
+        if (!prior) continue;
+        const pd = new Date(prior.sold_date); if (isNaN(pd)) continue;
+        const len = Number(prior.agreement_length) || 0;
+        const tenure = moDiff(pd, rd);                 // months into the relationship when renewed
+        const offset = tenure - len;                   // months relative to contract end (− = before)
+        const cd = ren.subscription_date_canceled ? new Date(ren.subscription_date_canceled) : null;
+        const cancel = (cd && !_aliveR(ren) && !isNaN(cd)) ? cd : null;
+        pairs.push({ ren, prior, len, tenure, offset, start: rd, cancel });
+      }
+    }
+    if (pairs.length < 20) return null;
+    const med = (a) => { if (!a.length) return null; const t = [...a].sort((x, y) => x - y); return t[Math.floor((t.length - 1) / 2)]; };
+    const avg = (a) => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+    const tenures = pairs.map(p => p.tenure), offsets = pairs.map(p => p.offset);
+    const BUCKETS = [
+      { key: 'early',  label: 'Early · 3+ mo before term end', test: (o) => o < -2,             color: '#2F5D62' },
+      { key: 'window', label: 'In the window · final 2 mo',    test: (o) => o >= -2 && o < 0,   color: '#16A34A' },
+      { key: 'late1',  label: 'Late · 0–3 mo past term',       test: (o) => o >= 0 && o < 3,    color: '#DF643A' },
+      { key: 'late2',  label: 'Late · 3–12 mo past term',      test: (o) => o >= 3 && o < 12,   color: '#A9441F' },
+      { key: 'late3',  label: 'Very late · 12+ mo past term',  test: (o) => o >= 12,            color: '#DC2626' },
+    ];
+    const survive = (ps, h) => { let elig = 0, kept = 0; for (const p of ps) { const mark = addMo(p.start, h); if (mark > now) continue; elig++; if (!p.cancel || p.cancel > mark) kept++; } return elig ? { rate: kept / elig, elig, kept } : null; };
+    // histogram of offset, −6 … +18 months (clamped at the ends)
+    const LO = -6, HI = 18;
+    const hist = new Array(HI - LO + 1).fill(0); const histRows = hist.map(() => []);
+    for (const p of pairs) { const i = Math.max(LO, Math.min(HI, Math.floor(p.offset))) - LO; hist[i]++; histRows[i].push(p.ren); }
+    const hmax = Math.max(...hist, 1);
+    const bars = el('div', { class: 'flex items-end', style: { gap: '2px', height: '84px' } },
+      ...hist.map((v, i) => { const m = i + LO; const col = m < -2 ? '#2F5D62' : m < 0 ? '#16A34A' : m < 3 ? '#DF643A' : m < 12 ? '#A9441F' : '#DC2626';
+        return el('button', { class: 'flex-1 flex flex-col justify-end cursor-pointer transition hover:brightness-110', style: { minWidth: 0, background: 'transparent', border: 'none', padding: 0, height: '100%' },
+          title: (m === LO ? '≤ ' : m === HI ? '≥ ' : '') + (m < 0 ? Math.abs(m) + ' mo before term end' : m === 0 ? 'the month term ended' : m + ' mo after term end') + ' — ' + fmt.int(v) + ' renewal' + (v === 1 ? '' : 's'),
+          onclick: () => v && openReportingDrillModal({ chartTitle: 'Renewals sold ' + (m < 0 ? Math.abs(m) + ' mo before term end' : m + ' mo after term end'), sliceLabel: fmt.int(v) + ' renewals', rows: histRows[i], formatValue: (x) => fmt.usd0(x) }) },
+          el('div', { style: { height: (v ? Math.max(2, v / hmax * 80) : 0) + 'px', background: col } })); }));
+    const axis = el('div', { class: 'flex', style: { gap: '2px' } }, ...hist.map((_, i) => { const m = i + LO; return el('div', { class: 'flex-1 text-center text-[9px] tabular-nums', style: { minWidth: 0, color: 'var(--text-subtle)' } }, (m % 3 === 0) ? (m > 0 ? '+' + m : String(m)) : ''); }));
+    const tile = (lab, val, sub) => el('div', { class: 'text-left' },
+      el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, lab),
+      el('div', { class: 'text-sm font-bold tabular-nums' }, val, sub ? el('span', { class: 'text-[10px] font-normal text-muted-' }, ' · ' + sub) : null));
+    const th = (t, o = {}) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (o.left ? 'text-left' : 'text-right'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' }, title: o.help || '' }, t);
+    const td = (t, o = {}) => el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap ' + (o.left ? 'text-left font-semibold' : 'text-right') + (o.bold ? ' font-black' : ''), style: { color: o.color || (o.muted ? 'var(--text-subtle)' : undefined), background: o.bg } }, t);
+    const heat = (rate) => rate == null ? undefined : 'hsl(' + Math.max(0, Math.min(120, ((rate - 0.5) / 0.5) * 120)) + ', 70%, 88%)';
+    const brow = (label, ps, color, strong) => { const s12 = survive(ps, 12), s24 = survive(ps, 24);
+      return el('tr', { class: 'border-t cursor-pointer transition hover:brightness-95', style: { borderColor: strong ? 'var(--border-2)' : 'var(--border)', background: strong ? 'var(--card-2)' : undefined, borderTopWidth: strong ? '2px' : undefined }, title: 'Click for the renewals',
+        onclick: () => ps.length && openReportingDrillModal({ chartTitle: 'Renewal timing · ' + label, sliceLabel: fmt.int(ps.length) + ' renewals', rows: ps.map(p => p.ren), formatValue: (x) => fmt.usd0(x) }) },
+        el('td', { class: 'px-3 py-2 whitespace-nowrap font-semibold flex items-center gap-2' }, color ? el('span', { style: { width: '8px', height: '8px', background: color, display: 'inline-block' } }) : null, label),
+        td(fmt.int(ps.length), { bold: strong }),
+        td((ps.length / pairs.length * 100).toFixed(0) + '%'),
+        td(ps.length ? med(ps.map(p => p.tenure)).toFixed(1) + ' mo' : '—'),
+        td(ps.length ? avg(ps.map(p => p.tenure)).toFixed(1) + ' mo' : '—', { muted: true }),
+        td(ps.length ? fmt.usd0(avg(ps.map(p => Number(p.ren.annual_recurring_value) || 0))) : '—'),
+        td(s12 ? (s12.rate * 100).toFixed(1) + '%' : '—', { bold: true, bg: heat(s12 ? s12.rate : null) }),
+        td(s24 ? (s24.rate * 100).toFixed(1) + '%' : '—', { bold: true, bg: heat(s24 ? s24.rate : null) })); };
+    const inWindow = pairs.filter(p => p.offset >= -2 && p.offset < 0).length, late = pairs.filter(p => p.offset >= 0).length;
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b flex items-start justify-between flex-wrap gap-3', style: { borderColor: 'var(--border)' } },
+        el('div', {},
+          el('h3', { class: 'text-sm font-bold' }, 'Renewal Timing' + (office !== 'all' ? ' · ' + officeLabel(office) : '')),
+          el('div', { class: 'text-[11px] text-muted-' }, 'When a renewal is sold, measured against the customer’s prior contract: tenure = months since the original sale, offset = months before (−) or after (+) that contract ended. ' + fmt.int(pairs.length) + ' renewals paired with a prior 12+ month contract · Sentricon excluded. Click a bar or a row for the accounts.')),
+        el('div', { class: 'flex items-center gap-5 flex-wrap' },
+          tile('Median tenure at renewal', med(tenures).toFixed(1) + ' mo', 'avg ' + avg(tenures).toFixed(1)),
+          tile('Median offset vs term end', (med(offsets) >= 0 ? '+' : '') + med(offsets).toFixed(1) + ' mo', 'avg ' + (avg(offsets) >= 0 ? '+' : '') + avg(offsets).toFixed(1)),
+          tile('In the window', (inWindow / pairs.length * 100).toFixed(0) + '%', 'final 2 months'),
+          tile('After term end', (late / pairs.length * 100).toFixed(0) + '%', 'already month-to-month'))),
+      el('div', { class: 'px-4 pt-3 pb-2' }, bars, axis,
+        el('div', { class: 'text-[10px] pt-1 text-muted-' }, 'Months before (−) / after (+) the prior contract ended when the renewal was sold')),
+      el('div', { class: 'scroll-x border-t', style: { borderColor: 'var(--border)' } },
+        el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+          el('thead', {}, el('tr', {}, th('Renewed', { left: true }), th('Renewals'), th('Share'), th('Median tenure', { help: 'Months since the original sale when renewed' }), th('Avg tenure'), th('Avg ARV'), th('Kept · 12 mo', { help: '% of these renewals still active 12 months after the renewal (only ones old enough to count)' }), th('Kept · 24 mo'))),
+          el('tbody', {}, ...BUCKETS.map(b => brow(b.label, pairs.filter(p => b.test(p.offset)), b.color)), brow('All renewals', pairs, null, true)))));
+  })();
+
   // -- Renewal Outreach queue (per Isaac) -- who to call. Eligible = active,
   // never renewed (source is not Renewal), not Sentricon, real 12/18/24-mo
   // term, and within 2 months of contract end OR already month-to-month.
@@ -2440,6 +2531,6 @@ function reportingWaterfall() {
     window.addEventListener('resize', () => { try { syncPin(); } catch (e) { /* torn down */ } });
   }
   requestAnimationFrame(() => { syncPin(); setTimeout(syncPin, 200); });
-  return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, body, repTypeAttritionCard, contractAttritionCard, repAttritionCard, sourceAttritionCard, renewalRetentionCard);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
+  return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, body, repTypeAttritionCard, contractAttritionCard, repAttritionCard, sourceAttritionCard, renewalRetentionCard, renewalTimingCard);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
 }
 
