@@ -104,14 +104,24 @@ function openTvBoard() {
     return new Date(ms);
   };
   // FieldRoutes stamps dateAdded on the COMPANY clock, whichever office the
-  // account belongs to — and RIDD's company clock is MOUNTAIN. Verified
-  // Sep 18 2026 against the RevHawk mirror: for every office (Destin,
-  // Atlanta, Salt Lake…) dateAdded sits ~6 h behind the UTC insert time,
-  // i.e. UTC−6 = MDT. So no per-office zone here; Mountain in, Mountain out.
-  const CRM_TZ = 'America/Denver';
+  // account belongs to — and RIDD's company clock is UTC−7 year-round
+  // (Mountain STANDARD, no DST — the same +1/+2/+3 raw offsets the
+  // Indicators feed has always applied). Verified Sep 18 2026 against the
+  // RevHawk mirror, which lands every 15 min: dateAdded + 7 h is always a
+  // few minutes before the row's insert time. So: Phoenix in, Mountain out.
+  const CRM_TZ = 'America/Phoenix';
+  // The Indicators feed's CRM rows carry created_at as a naive wall clock
+  // already shifted to the OFFICE's zone (raw + _saleHourOffset) — undo the
+  // shift, then read it as the raw UTC−7 clock.
+  const _crmCreatedAt = (s) => {
+    const m = String(s.created_at || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/); if (!m) return null;
+    const off = (typeof _saleHourOffset === 'function') ? _saleHourOffset(s._crmOffice || '') : 1;
+    return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) - off * 3600000 + 7 * 3600000);
+  };
   const saleAt = (s) => {
     const snap = s.crm_subscription_id != null ? _snapBySub.get(String(s.crm_subscription_id)) : null;
     if (snap) { const d = _localToDate(snap.sold_at, CRM_TZ); if (d && !isNaN(d)) return d; }
+    if (s._crm) { const d = _crmCreatedAt(s); if (d && !isNaN(d)) return d; }
     const c = s.created_at ? new Date(s.created_at) : null; return c && !isNaN(c) ? c : null;
   };
   const saleKey = (s) => { const d = saleAt(s); return d ? d.getTime() : 0; };
