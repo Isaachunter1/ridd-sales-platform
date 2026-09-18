@@ -1682,20 +1682,27 @@ function adminReps() {
 
   // ── Header ──
   // Rep-type tabs sit right of the title (per Isaac — saves a row).
-  const _typeTabs = el('div', { class: 'flex items-center gap-1 flex-wrap' },
+  // Phones (per Isaac): the four type tabs share ONE row — tighter padding
+  // and the counts drop, so Sales Reps fits beside Technicians.
+  const _phoneU = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })();
+  const _typeTabs = el('div', { class: 'flex items-center gap-1' + (_phoneU ? '' : ' flex-wrap'), style: _phoneU ? { width: '100%' } : {} },
     ...REP_TYPE_TABS.map(t => {
       const on = typeTab === t;
       return el('button', {
-        class: 'px-2.5 py-1 text-[11px] font-semibold transition whitespace-nowrap flex items-center gap-2 rounded-lg',
+        class: (_phoneU ? 'px-2 py-1 flex-1 justify-center' : 'px-2.5 py-1') + ' text-[11px] font-semibold transition whitespace-nowrap flex items-center gap-2 rounded-lg',
         style: { background: on ? 'rgba(223,100,58,.10)' : 'transparent', color: on ? 'var(--text)' : 'var(--text-muted)', boxShadow: on ? 'inset 0 -2px 0 var(--accent)' : 'none' },
         onclick: () => { state._adminUserTypeTab = t; mountApp(); },
       }, REP_TYPE_TAB_LABEL[t],
-        el('span', { class: 'text-[10px] tabular-nums px-1.5 py-0.5 rounded', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, countByType(t).toLocaleString()));
+        _phoneU ? null : el('span', { class: 'text-[10px] tabular-nums px-1.5 py-0.5 rounded', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, countByType(t).toLocaleString()));
     }));
+  // The eye (view-as) + New user move down to the status row on phones so
+  // everything sits on one line: [Active | Inactive | All] [+ New user] [Filters] [👁].
+  const _actionsRow = el('div', { class: 'flex items-center gap-2' });
   host.append(el('div', { class: 'flex items-center justify-between flex-wrap gap-3' },
-    el('div', { class: 'flex items-center gap-4 flex-wrap' },
+    el('div', { class: 'flex items-center gap-4 flex-wrap' + (_phoneU ? ' w-full' : '') },
       el('h3', { class: 'text-lg font-bold' }, 'Users'), _typeTabs),
-    el('div', { class: 'flex items-center gap-2' },
+    _actionsRow));
+  _actionsRow.append(
       // 👁 View-as — icon only; the hover tip explains it, the click opens
       // a small role menu. Renders the app exactly as that role sees it (the
       // floating pill brings you back to admin).
@@ -1772,9 +1779,11 @@ function adminReps() {
       })(),
       el('button', {
         class: 'px-2.5 py-1 rounded-xl font-semibold text-[11px] transition hover:brightness-95',
-        style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+        style: { background: 'var(--accent)', color: 'var(--accent-text)', height: '28px' },
         onclick: () => openUserEditor(),
-      }, '+ New user'))));
+      }, '+ New user'));
+  // (the two action controls are re-homed into the status row below)
+  const _eyeWrap = _actionsRow.children[0], _newUserBtn = _actionsRow.children[1];
 
   // ── Roster status banner — tells the admin exactly why the CRM roster is
   // empty (table missing → run the SQL; loaded 0 → run a sync; or an error). ──
@@ -1853,8 +1862,9 @@ function adminReps() {
     clampDropdownPanel(panel);
     return wrap;
   })();
+  _actionsRow.remove();
   host.append(el('div', { class: 'flex items-center flex-wrap gap-2' },
-    el('div', { class: 'inline-flex rounded-xl border overflow-hidden shrink-0', style: { borderColor: 'var(--border-2)' } },
+    el('div', { class: 'inline-flex rounded-xl border overflow-hidden shrink-0', style: { borderColor: 'var(--border-2)', height: '28px' } },
       ...[
         { id: 'active', label: 'Active', count: aCount },
         { id: 'inactive', label: 'Inactive', count: inTab.length - aCount },
@@ -1865,7 +1875,9 @@ function adminReps() {
         onclick: () => { state._adminUserActiveFilter = t.id; mountApp(); },
       }, el('span', {}, t.label),
         el('span', { class: 'text-[10px] tabular-nums px-1.5 py-0.5 rounded', style: activeFilter === t.id ? { background: 'rgba(0,0,0,.15)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' } }, t.count.toLocaleString())))),
+    _newUserBtn,
     _filtersWrap,
+    _eyeWrap,
     el('input', {
       id: 'admin-user-search',
       class: 'rounded-xl border px-2.5 py-1 text-[11px] flex-1 min-w-0', style: { borderColor: 'var(--border-2)', minWidth: '180px' },
