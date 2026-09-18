@@ -1252,6 +1252,15 @@ function openScorecardTemplateModal(dept = 'inside_sales') {
 // exact match first, then substring match). Throws if Customer ID or
 // Subscription is missing — without those a row can't be tied to a customer
 // or grouped by service.
+// State as filed in the CRM. Blank / "un" / "unknown" / "??" / "n/a" all
+// mean "no state" and group under ?? on the Geographic tab (waiting on a
+// sync, or missing in FieldRoutes). Anything else — even junk like "AA" /
+// "AC" — is kept as typed so it shows up as something to fix in the CRM.
+function _normStateCode(v) {
+  const t = String(v == null ? '' : v).trim().toUpperCase();
+  if (!t || t === '??' || t === 'UN' || t === 'UNK' || t === 'UNKNOWN' || t === 'N/A' || t === 'NA' || t === 'NONE' || t === '-' || t === '--') return null;
+  return t;
+}
 function parseReportingCsv(text) {
   function parseLine(line) {
     const result = [];
@@ -1380,7 +1389,7 @@ function parseReportingCsv(text) {
       initial_service:                  initialService,
       subscription_source:              textOrNull(pick(r, cols.subscription_source)),
       country:                          textOrNull(pick(r, cols.country)),
-      state:                            textOrNull(pick(r, cols.state)),
+      state:                            _normStateCode(textOrNull(pick(r, cols.state))),
       zip_code:                         textOrNull(pick(r, cols.zip_code)),
       days_past_due:                    parseIntOrNull(pick(r, cols.days_past_due)),
       office_name:                      textOrNull(pick(r, cols.office_name)),

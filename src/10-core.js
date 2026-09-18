@@ -1777,6 +1777,8 @@ async function loadReportingSubscriptions(uploadId) {
   // EVERYTHING in FieldRoutes, so remember what the loader itself dropped.
   state._snapshotLoadDrops = { raw: Array.isArray(raw) ? raw.length : 0, phantom: (Array.isArray(raw) ? raw.length : 0) - (Array.isArray(noPhantom) ? noPhantom.length : 0), dupes: (Array.isArray(noPhantom) ? noPhantom.length : 0) - (Array.isArray(deduped) ? deduped.length : 0) };
   const rows = linkRenewalChains(deduped);
+  // Blank / "un" / "unknown" states all group under ?? on the Geographic tab.
+  if (typeof _normStateCode === 'function') for (const r of rows) r.state = _normStateCode(r.state);
   // Same guard as the sync: a sub sold in the last 7 days whose customer row
   // hasn't landed yet is a feed lag, not a deleted account (Julia Phillips,
   // #180833 — sold and serviced the day of the sync). Clear the flag so it
