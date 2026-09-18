@@ -1730,9 +1730,9 @@ function reportingWaterfall() {
     // Matrix wants ~560px; when it can't have it (phones) the blended table
     // wraps underneath instead of both squeezing side by side.
     // (Cohort matrix hidden per Isaac, Sep 2026 — renderMatrix stays for when it comes back.)
+    attritionTrendsCard(pop, label),   // right under Attrition Steps (per Isaac, Sep 2026)
     renderBlended(pop),
     seasonalityCard(pop, label),
-    attritionTrendsCard(pop, label),
     startCohortCard(pop, label));   // (LTV card retired per Isaac, Sep 2026)
 
   const body = inCompare
