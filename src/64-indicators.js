@@ -1345,7 +1345,7 @@ function viewIndicators() {
           let best = '', n = 0; tally.forEach((v, k) => { if (v > n) { n = v; best = k; } });
           return best;
         })();
-        const chosen = (state._indMobileBranch === 'all' || state._indMobileBranch === 'ridd') ? state._indMobileBranch
+        const chosen = state._indMobileBranch === 'ridd' ? 'ridd'
           : sortedBranches.includes(state._indMobileBranch) ? state._indMobileBranch
           : !_repLite ? 'ridd'
           : (sortedBranches.includes(homeBranch) ? homeBranch : sortedBranches[0]);
@@ -1358,10 +1358,9 @@ function viewIndicators() {
             onchange: (e) => { state._indMobileBranch = e.target.value; mountApp(); },
           },
             el('option', { value: 'ridd', selected: chosen === 'ridd' }, 'RIDD'),
-            ...sortedBranches.map(b => el('option', { value: b, selected: chosen === b }, _lblB(b) + (b === homeBranch ? ' \u00b7 mine' : ''))),
-            el('option', { value: 'all', selected: chosen === 'all' }, 'All branches')));
-        if (chosen === 'ridd') sortedBranches = [];
-        else if (chosen !== 'all') sortedBranches = [chosen];
+            ...sortedBranches.map(b => el('option', { value: b, selected: chosen === b }, _lblB(b) + (b === homeBranch ? ' \u00b7 mine' : '')))));
+        if (chosen === 'ridd' || chosen === 'all') sortedBranches = [];
+        else sortedBranches = [chosen];
       }
       return el('div', { class: 'card overflow-hidden' },
         _branchSel,
