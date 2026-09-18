@@ -1787,16 +1787,31 @@ function reportingWaterfall() {
       const in365 = ts.filter(t => t <= 365).length / ts.length;
       const arvs = xs.map(x => Number(x.r.annual_recurring_value) || 0);
       const avgArv = arvs.reduce((a, b) => a + b, 0) / (arvs.length || 1);
-      return { xs, med, avg, in90, in365, avgArv, n: xs.length };
+      const arrLost = arvs.reduce((a, b) => a + b, 0);
+      // Where in the customer's life this reason strikes: month-of-life
+      // histogram (0..35, 36+), its peak, and the share that left while
+      // still inside their contract term (agreement_length months).
+      const hist = new Array(37).fill(0);
+      for (const t of ts) hist[Math.min(36, Math.floor(t / 30))]++;
+      let peak = 0; for (let i = 1; i < hist.length; i++) if (hist[i] > hist[peak]) peak = i;
+      let termN = 0, inTerm = 0;
+      for (const x of xs) { const m = Number(x.r.agreement_length) || 0; if (m <= 1) continue; termN++; if (x.t < m * 30.44) inTerm++; }
+      const inTermPct = termN ? inTerm / termN : null;
+      return { xs, med, avg, in90, in365, avgArv, arrLost, hist, peak, inTermPct, n: xs.length, share: xs.length / rowsL.length };
     };
+    const _statCache = new Map();
+    const S = (k) => { if (!_statCache.has(k)) _statCache.set(k, statsOf(k)); return _statCache.get(k); };
     const LCOLS = [
       { key: 'reason', label: 'Cancellation Reason', str: true, get: (k) => k.toLowerCase() },
-      { key: 'n',      label: 'Cancels',     get: (k) => statsOf(k).n },
-      { key: 'med',    label: 'Median Life', get: (k) => statsOf(k).med },
-      { key: 'avg',    label: 'Avg',         get: (k) => statsOf(k).avg },
-      { key: 'in90',   label: 'Gone ≤90d',   get: (k) => statsOf(k).in90 },
-      { key: 'in365',  label: 'Gone ≤1yr',   get: (k) => statsOf(k).in365 },
-      { key: 'arv',    label: 'Avg ARV',     get: (k) => statsOf(k).avgArv },
+      { key: 'n',      label: 'Cancels',      get: (k) => S(k).n,        tip: 'Counted cancels with this reason' },
+      { key: 'share',  label: 'Share',        get: (k) => S(k).share,    tip: 'Share of every counted cancel' },
+      { key: 'lost',   label: 'ARR lost',     get: (k) => S(k).arrLost,  tip: 'Annual recurring value that walked out with this reason' },
+      { key: 'med',    label: 'Median Life',  get: (k) => S(k).med,      tip: 'Half left sooner, half later' },
+      { key: 'peak',   label: 'Peak month',   get: (k) => S(k).peak,     tip: 'Month of customer life where this reason strikes most often' },
+      { key: 'term',   label: 'Left in term', get: (k) => S(k).inTermPct == null ? -1 : S(k).inTermPct, tip: 'Cancelled before their contract length was up (subs with a term)' },
+      { key: 'in365',  label: 'Gone ≤1yr',    get: (k) => S(k).in365,    tip: 'Gone within the first 12 months' },
+      { key: 'arv',    label: 'Avg ARV',      get: (k) => S(k).avgArv },
+      { key: 'curve',  label: 'Life curve',   get: (k) => S(k).peak,     tip: 'Cancels by month of life, 0 → 36+' },
     ];
     if (!state._rtLifeSort) state._rtLifeSort = { key: 'n', dir: 'desc' };
     const lsort = state._rtLifeSort;
@@ -1805,11 +1820,14 @@ function reportingWaterfall() {
       .sort((a, b) => { const av = lcol.get(a), bv = lcol.get(b); const d = lcol.str ? String(av).localeCompare(String(bv)) : av - bv; return lsort.dir === 'asc' ? d : -d; });
     const thL = (lab) => { const c = LCOLS.find(x => x.label === lab); const on = c && lsort.key === c.key; return el('th', {
       class: 'text-left px-3 py-2 whitespace-nowrap cursor-pointer select-none' + (on ? ' font-black' : ''),
-      style: on ? { color: 'var(--accent)' } : {}, title: 'Click to sort',
+      style: on ? { color: 'var(--accent)' } : {}, title: ((c && c.tip) ? c.tip + ' · ' : '') + 'click to sort',
       onclick: () => { if (!c) return; state._rtLifeSort = on ? { key: c.key, dir: lsort.dir === 'asc' ? 'desc' : 'asc' } : { key: c.key, dir: c.str ? 'asc' : 'desc' }; mountApp(); },
     }, lab + (on ? (lsort.dir === 'asc' ? ' ↑' : ' ↓') : '')); };
     const reasonRow = (k) => {
-      const { xs, med, avg, in90, in365, avgArv } = statsOf(k);
+      const { xs, med, in365, avgArv, arrLost, hist, peak, inTermPct, share } = S(k);
+      const hmax = Math.max(...hist, 1);
+      const curve = el('div', { class: 'flex items-end', style: { gap: '1px', height: '18px', width: '112px' }, title: 'Cancels by month of life (0 → 36+) · peak month ' + peak },
+        ...hist.map((v, i) => el('div', { style: { flex: '1 1 0', height: Math.max(v ? 1 : 0, v / hmax * 18) + 'px', background: i === peak ? 'var(--accent)' : 'var(--text-subtle)', opacity: i === peak ? '1' : '.45' } })));
       return el('tr', {
         class: 'border-t cursor-pointer transition hover:brightness-95',
         style: { borderColor: 'var(--border)' },
@@ -1820,12 +1838,15 @@ function reportingWaterfall() {
       },
         el('td', { class: 'px-3 py-2 whitespace-nowrap font-semibold' }, k),
         el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(xs.length)),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, fmt.int(med) + 'd',
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, (share * 100).toFixed(1) + '%'),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, fmt.usd0(arrLost)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(med) + 'd',
           el('span', { class: 'text-[10px] font-normal text-muted-' }, ' · ' + moTxt(med))),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(Math.round(avg)) + 'd'),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums', style: in90 >= 0.5 ? { color: '#DC2626', fontWeight: '700' } : {} }, (in90 * 100).toFixed(0) + '%'),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold', style: (peak >= 2 && peak <= 5) ? { color: '#DC2626' } : (peak >= 11 && peak <= 13) ? { color: '#A9441F' } : {} }, peak >= 36 ? '36+' : 'mo ' + peak),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums', style: inTermPct != null && inTermPct >= 0.5 ? { color: '#DC2626', fontWeight: '700' } : {} }, inTermPct == null ? '—' : (inTermPct * 100).toFixed(0) + '%'),
         el('td', { class: 'px-3 py-2 text-left tabular-nums' }, (in365 * 100).toFixed(0) + '%'),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.usd0(avgArv)));
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.usd0(avgArv)),
+        el('td', { class: 'px-3 py-2' }, curve));
     };
     const statL = (lab, val, sub) => el('div', { class: 'text-left' },
       el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, lab),
@@ -1880,7 +1901,7 @@ function reportingWaterfall() {
         return el('div', {}, bar, openR ? el('div', { class: 'overflow-x-auto border-t', style: { borderColor: 'var(--border)' } },
           el('table', { class: 'w-full text-xs' },
             el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' }, el('tr', { style: { background: 'var(--card-2)' } },
-              thL('Cancellation Reason'), thL('Cancels', 1), thL('Median Life', 1), thL('Avg', 1), thL('Gone ≤90d', 1), thL('Gone ≤1yr', 1), thL('Avg ARV', 1))),
+              ...LCOLS.map(c => thL(c.label)))),
             el('tbody', {}, ...rks.map(reasonRow)))) : null);
       })());
   })();
