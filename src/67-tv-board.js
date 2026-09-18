@@ -123,7 +123,12 @@ function openTvBoard() {
     const subs = rows.filter(s => !isOts(s));
     // Multi-year % (per Isaac): anything sold by the house "RIDD Account"
     // login is out of the ratio (shown in its own column on the drill).
-    const isHouse = (s) => /ridd\s*account/i.test(String(s._crmRep || '')) || (typeof FR_SYSTEM_NAME_RE !== 'undefined' && FR_SYSTEM_NAME_RE.test(String(s._crmRep || '')));
+    // "RIDD Account" is an app USER (per Isaac), so the sale carries a rep_id
+    // and the CRM name may be blank — resolve the seller's display name the
+    // same way the leaderboard does and match on that.
+    const _profName = (id) => { if (!id) return ''; const p = (state.allProfiles || []).find(x => x.id === id) || (state.profile && state.profile.id === id ? state.profile : null); return p ? String(p.full_name || p.email || '') : ''; };
+    const sellerName = (s) => _profName(s.rep_id) || String(s._crmRep || '');
+    const isHouse = (s) => { const n = sellerName(s); return /ridd\s*account/i.test(n) || (typeof FR_SYSTEM_NAME_RE !== 'undefined' && FR_SYSTEM_NAME_RE.test(n)); };
     // Agent performance, not the automated account (per Isaac): every rate
     // tile runs on rowsAgent / subsMy; the house rows stay in the revenue.
     const rowsAgent = rows.filter(s => !isHouse(s));
