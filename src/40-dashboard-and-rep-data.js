@@ -5578,101 +5578,82 @@ function leaderboardSection(range) {
         })(),
       ),
     ),
-    // Table
-    el('div', { class: 'scroll-x' },
-      el('table', { class: 'w-full text-[12px]' },
-        el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
-          el('tr', {},
-            el('th', { class: 'text-left pl-4 pr-1 py-2', style: { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 2, minWidth: '40px', width: '40px' } }, '#'),
-            el('th', { class: 'text-left px-2 py-2', style: { position: 'sticky', left: '40px', background: 'var(--card)', zIndex: 2 } }, 'Rep'),
-            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('sales'), onclick: () => setSort('sales') }, 'Sales'),
-            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('initial'), title: 'Average initial invoice per sale', onclick: () => setSort('initial') }, 'Initial'),
-            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('revenue'), onclick: () => setSort('revenue') }, 'Revenue'),
-            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('recurring'), title: 'Contract revenue only — total revenue minus one-time service revenue', onclick: () => setSort('recurring') }, 'Rec. Rev'),
-            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('ots'), title: 'One-time service revenue (no contract months)', onclick: () => setSort('ots') }, 'OTS Rev'),
-            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('acv'), title: 'Average contract value across ALL sales, one-time services included', onclick: () => setSort('acv') }, 'ACV'),
-            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('auto_pay'), title: 'Sales on auto-pay \u00f7 CRM-synced sales (manual upsell logs don\'t carry the field)', onclick: () => setSort('auto_pay') }, 'APay %'),
-
-            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('my_pct'), title: 'Multi-year contracts (18+ mo) / all contract sales', onclick: () => setSort('my_pct') }, 'MY %'),
-            el('th', { class: 'text-right pl-2 pr-4 py-2 cursor-pointer select-none hover:text-default', style: sortHl('rec_mix_pct'), title: '12/18/24-mo contracts / (contracts + one-time services)', onclick: () => setSort('rec_mix_pct') }, 'Rec Mix %'),
-          ),
-        ),
-        el('tbody', {},
-          // ── RIDD totals — the whole department under the current filter,
-          // pinned as the first row (per Isaac) so reps race a visible bar.
-          (() => {
-            if (!rows.length) return null;
-            const t = rows.reduce((a, r) => ({
-              count: a.count + (r.count || 0), revenue: a.revenue + (r.revenue || 0),
-              recurring: a.recurring + (r.recurring || 0), ots: a.ots + (r.ots || 0),
-              initSum: a.initSum + (r.initial || 0) * (r.count || 0),
-              myW: a.myW + (r.my_pct || 0) * (r.count || 0), mixW: a.mixW + (r.rec_mix_pct || 0) * (r.count || 0),
-              apW: a.apW + (r.auto_pay_pct != null ? r.auto_pay_pct * (r.count || 0) : 0),
-              apN: a.apN + (r.auto_pay_pct != null ? (r.count || 0) : 0),
-            }), { count: 0, revenue: 0, recurring: 0, ots: 0, initSum: 0, myW: 0, mixW: 0, apW: 0, apN: 0 });
-            const stick = (left) => ({ position: 'sticky', left, background: 'var(--card-2)', zIndex: 1 });
-            return el('tr', { class: 'border-b-2 tabular-nums font-black', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
-              el('td', { class: 'pl-4 pr-1 py-2 text-base leading-none', style: Object.assign({ minWidth: '40px', fontFamily: 'Georgia, "Times New Roman", serif' }, stick('0')) }, '\ud835\udd7d'),
-              el('td', { class: 'px-2 py-2 whitespace-nowrap', style: stick('40px') },
-                lbOnly.size ? 'Total' : 'RIDD',
-                el('span', { class: 'text-[10px] text-muted- ml-1.5 font-normal' }, rows.length + ' rep' + (rows.length === 1 ? '' : 's'))),
-              el('td', { class: 'px-2 py-2 text-right' }, fmt.int(t.count)),
-              el('td', { class: 'px-2 py-2 text-right' }, t.count ? fmt.usd0(t.initSum / t.count) : '—'),
-              el('td', { class: 'px-2 py-2 text-right' }, fmt.usd0(t.revenue)),
-              el('td', { class: 'px-2 py-2 text-right' }, fmt.usd0(t.recurring)),
-              el('td', { class: 'px-2 py-2 text-right' }, t.ots > 0 ? fmt.usd0(t.ots) : '\u2014'),
-              el('td', { class: 'px-2 py-2 text-right' }, t.count ? fmt.usd0(t.revenue / t.count) : '—'),
-              el('td', { class: 'px-2 py-2 text-right' }, t.apN ? fmt.pct(t.apW / t.apN) : '\u2014'),
-              el('td', { class: 'px-2 py-2 text-right' }, t.count ? fmt.pct(t.myW / t.count) : '—'),
-              el('td', { class: 'pl-2 pr-4 py-2 text-right' }, t.count ? fmt.pct(t.mixW / t.count) : '—'));
-          })(),
-          rows.map((r, i) => {
-            const isMe = r.rep_id === state.profile.id;
-            return el('tr', {
-              class: 'border-t border- hover:brightness-95 transition',
-              style: isMe ? { background: 'rgba(223,100,58,.08)' } : {},
-            },
-              el('td', {
-                class: 'pl-4 pr-1 py-2 font-bold tabular-nums' + (i === 0 && r.count > 0 ? ' text-base' : ''),
-                style: Object.assign({ position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1, minWidth: '40px' }, i === 0 && r.count > 0 ? { color: 'var(--accent)' } : {}),
-              }, i + 1),
-              el('td', { class: 'px-2 py-2', style: { position: 'sticky', left: '40px', background: 'var(--card)', zIndex: 1 } },
-                el('div', {
-                  class: 'flex items-center gap-2 cursor-pointer',
-                  onclick: () => openDashboardPlayerCard(r.rep_id),
-                  title: 'Open ' + (r.full_name || r.first_name) + '\'s player card',
+    // Table — one column definition drives desktop (all columns) and phones
+    // (Revenue by default, every other metric behind a dropdown — per Isaac).
+    (() => {
+      const th = (key, label, title, cls) => el('th', { class: (cls || 'text-right px-2 py-2') + ' cursor-pointer select-none hover:text-default', style: sortHl(key), title: title || undefined, onclick: () => setSort(key) }, label);
+      const td = (v, cls) => el('td', { class: 'px-2 py-2 text-right tabular-nums ' + (cls || '') }, v);
+      const LB_COLS = [
+        { key: 'sales',       label: 'Sales',     total: (t) => td(fmt.int(t.count)),                                       row: (r) => td(fmt.int(r.count)) },
+        { key: 'initial',     label: 'Initial',   title: 'Average initial invoice per sale', total: (t) => td(t.count ? fmt.usd0(t.initSum / t.count) : '—'), row: (r) => td(fmt.usd0(r.initial), 'text-muted-') },
+        { key: 'revenue',     label: 'Revenue',   total: (t) => td(fmt.usd0(t.revenue)),                                   row: (r) => td(fmt.usd0(r.revenue), 'font-semibold') },
+        { key: 'recurring',   label: 'Rec. Rev',  title: 'Contract revenue only — total revenue minus one-time service revenue', total: (t) => td(fmt.usd0(t.recurring)), row: (r) => td(fmt.usd0(r.recurring), 'text-muted-') },
+        { key: 'ots',         label: 'OTS Rev',   title: 'One-time service revenue (no contract months)', total: (t) => td(t.ots > 0 ? fmt.usd0(t.ots) : '—'), row: (r) => td(r.ots > 0 ? fmt.usd0(r.ots) : '—', 'text-muted-') },
+        { key: 'acv',         label: 'ACV',       title: 'Average contract value across ALL sales, one-time services included', total: (t) => td(t.count ? fmt.usd0(t.revenue / t.count) : '—'), row: (r) => td(fmt.usd0(r.acv), 'text-muted-') },
+        { key: 'auto_pay',    label: 'APay %',    title: 'Sales on auto-pay ÷ CRM-synced sales (manual upsell logs don’t carry the field)', total: (t) => td(t.apN ? fmt.pct(t.apW / t.apN) : '—'), row: (r) => td(r.auto_pay_pct == null ? '—' : fmt.pct(r.auto_pay_pct), 'text-muted-') },
+        { key: 'my_pct',      label: 'MY %',      title: 'Multi-year contracts (18+ mo) / all contract sales', total: (t) => td(t.count ? fmt.pct(t.myW / t.count) : '—'), row: (r) => td(fmt.pct(r.my_pct)) },
+        { key: 'rec_mix_pct', label: 'Rec Mix %', title: '12/18/24-mo contracts / (contracts + one-time services)', cls: 'text-right pl-2 pr-4 py-2', total: (t) => td(t.count ? fmt.pct(t.mixW / t.count) : '—', 'pr-4'), row: (r) => td(fmt.pct(r.rec_mix_pct), 'pr-4') },
+      ];
+      const phone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
+      const pick = phone ? (LB_COLS.find(c => c.key === state._lbMobileCol) || LB_COLS.find(c => c.key === 'revenue')) : null;
+      const cols = pick ? [pick] : LB_COLS;
+      const totals = rows.reduce((a, r) => ({
+        count: a.count + (r.count || 0), revenue: a.revenue + (r.revenue || 0),
+        recurring: a.recurring + (r.recurring || 0), ots: a.ots + (r.ots || 0),
+        initSum: a.initSum + (r.initial || 0) * (r.count || 0),
+        myW: a.myW + (r.my_pct || 0) * (r.count || 0), mixW: a.mixW + (r.rec_mix_pct || 0) * (r.count || 0),
+        apW: a.apW + (r.auto_pay_pct != null ? r.auto_pay_pct * (r.count || 0) : 0),
+        apN: a.apN + (r.auto_pay_pct != null ? (r.count || 0) : 0),
+      }), { count: 0, revenue: 0, recurring: 0, ots: 0, initSum: 0, myW: 0, mixW: 0, apW: 0, apN: 0 });
+      const stick = (left) => ({ position: 'sticky', left, background: 'var(--card-2)', zIndex: 1 });
+      return el('div', {},
+        phone ? el('div', { class: 'flex items-center justify-end gap-2 px-4 py-2 border-b', style: { borderColor: 'var(--border)' } },
+          el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Show'),
+          el('select', {
+            class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold',
+            style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+            onchange: (e) => { state._lbMobileCol = e.target.value; mountApp(); },
+          }, ...LB_COLS.map(c => el('option', { value: c.key, selected: pick.key === c.key }, c.label)))) : null,
+        el('div', { class: phone ? '' : 'scroll-x' },
+          el('table', { class: 'w-full text-[12px]' },
+            el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
+              el('tr', {},
+                el('th', { class: 'text-left pl-4 pr-1 py-2', style: { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 2, minWidth: '40px', width: '40px' } }, '#'),
+                el('th', { class: 'text-left px-2 py-2', style: { position: 'sticky', left: '40px', background: 'var(--card)', zIndex: 2 } }, 'Rep'),
+                ...cols.map(c => th(c.key, c.label, c.title, c.cls)))),
+            el('tbody', {},
+              rows.length ? el('tr', { class: 'border-b-2 tabular-nums font-black', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
+                el('td', { class: 'pl-4 pr-1 py-2 text-base leading-none', style: Object.assign({ minWidth: '40px', fontFamily: 'Georgia, "Times New Roman", serif' }, stick('0')) }, '𝕽'),
+                el('td', { class: 'px-2 py-2 whitespace-nowrap', style: stick('40px') },
+                  lbOnly.size ? 'Total' : 'RIDD',
+                  el('span', { class: 'text-[10px] text-muted- ml-1.5 font-normal' }, rows.length + ' rep' + (rows.length === 1 ? '' : 's'))),
+                ...cols.map(c => c.total(totals))) : null,
+              rows.map((r, i) => {
+                const isMe = r.rep_id === state.profile.id;
+                return el('tr', {
+                  class: 'border-t border- hover:brightness-95 transition',
+                  style: isMe ? { background: 'rgba(223,100,58,.08)' } : {},
                 },
-                  avatarNode(r.avatar_url, r.initials, 'w-7 h-7 text-[9px]'),
-                  el('div', { class: 'flex-1 min-w-0' },
-                    el('div', { class: 'font-semibold' + (r._noProfile ? '' : ' hover:underline') }, r.full_name || r.first_name),
-                    // Badges drop below the name so they don't crowd the
-                    // first-name line. Hidden when the rep has none.
-                    (repBadges[r.rep_id] || []).length > 0 && el('div', { class: 'flex items-center gap-1 flex-wrap mt-0.5' },
-                      ...[...(repBadges[r.rep_id] || [])].map(code => badgeChip(code)),
-                    ),
-                  ),
-                ),
-              ),
-              r.count === 0
-                ? el('td', { class: 'px-2 py-2 text-subtle- italic', colspan: 9 }, 'No sales')
-                : [
-                    el('td', { class: 'px-2 py-2 text-right tabular-nums' }, fmt.int(r.count)),
-                    el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' }, fmt.usd0(r.initial)),
-                    el('td', { class: 'px-2 py-2 text-right tabular-nums font-semibold' }, fmt.usd0(r.revenue)),
-                    el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' }, fmt.usd0(r.recurring)),
-                    el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' }, r.ots > 0 ? fmt.usd0(r.ots) : '\u2014'),
-                    el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' }, fmt.usd0(r.acv)),
-                    el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' },
-                      r.auto_pay_pct == null ? '\u2014' : fmt.pct(r.auto_pay_pct)),
-
-                    el('td', { class: 'px-2 py-2 text-right tabular-nums' }, fmt.pct(r.my_pct)),
-                    el('td', { class: 'pl-2 pr-4 py-2 text-right tabular-nums' }, fmt.pct(r.rec_mix_pct)),
-                  ],
-            );
-          }),
-        ),
-      ),
-    ),
+                  el('td', {
+                    class: 'pl-4 pr-1 py-2 font-bold tabular-nums' + (i === 0 && r.count > 0 ? ' text-base' : ''),
+                    style: Object.assign({ position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1, minWidth: '40px' }, i === 0 && r.count > 0 ? { color: 'var(--accent)' } : {}),
+                  }, i + 1),
+                  el('td', { class: 'px-2 py-2', style: { position: 'sticky', left: '40px', background: 'var(--card)', zIndex: 1 } },
+                    el('div', {
+                      class: 'flex items-center gap-2 cursor-pointer',
+                      onclick: () => openDashboardPlayerCard(r.rep_id),
+                      title: 'Open ' + (r.full_name || r.first_name) + '\'s player card',
+                    },
+                      avatarNode(r.avatar_url, r.initials, 'w-7 h-7 text-[9px]'),
+                      el('div', { class: 'flex-1 min-w-0' },
+                        el('div', { class: 'font-semibold' + (r._noProfile ? '' : ' hover:underline') }, r.full_name || r.first_name),
+                        (repBadges[r.rep_id] || []).length > 0 && el('div', { class: 'flex items-center gap-1 flex-wrap mt-0.5' },
+                          ...[...(repBadges[r.rep_id] || [])].map(code => badgeChip(code)))))),
+                  r.count === 0
+                    ? el('td', { class: 'px-2 py-2 text-subtle- italic', colspan: String(cols.length) }, 'No sales')
+                    : cols.map(c => c.row(r)));
+              })))));
+    })(),
     empty && el('div', { class: 'px-5 py-3 text-xs text-muted- border-t border-' }, 'No sales in this window yet — first one on the board takes #1'),
   );
 }
