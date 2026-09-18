@@ -128,7 +128,9 @@ function openTvBoard() {
     // same way the leaderboard does and match on that.
     const _profName = (id) => { if (!id) return ''; const p = (state.allProfiles || []).find(x => x.id === id) || (state.profile && state.profile.id === id ? state.profile : null); return p ? String(p.full_name || p.email || '') : ''; };
     const sellerName = (s) => _profName(s.rep_id) || String(s._crmRep || '');
-    const isHouse = (s) => { const n = sellerName(s); return /ridd\s*account/i.test(n) || (typeof FR_SYSTEM_NAME_RE !== 'undefined' && FR_SYSTEM_NAME_RE.test(n)); };
+    // The CRM stores names "Last, First" — "Account, RIDD" — so match on the
+    // words, not the order.
+    const isHouse = (s) => { const n = sellerName(s).toLowerCase(); return (/\bridd\b/.test(n) && /\baccount\b/.test(n)) || (typeof FR_SYSTEM_NAME_RE !== 'undefined' && FR_SYSTEM_NAME_RE.test(sellerName(s))); };
     // Agent performance, not the automated account (per Isaac): every rate
     // tile runs on rowsAgent / subsMy; the house rows stay in the revenue.
     const rowsAgent = rows.filter(s => !isHouse(s));
