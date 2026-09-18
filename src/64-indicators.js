@@ -1324,7 +1324,40 @@ function viewIndicators() {
       const _PR_CTX = new Set(['new_revenue', 'renewal_revenue', 'audit_pct', 'last_resort_pct']);
       const tableMetrics = [..._shownMetrics.filter(m => !_PR_CTX.has(m.key)), ..._shownMetrics.filter(m => _PR_CTX.has(m.key))];
       const _prDividerAt = _shownMetrics.some(m => _PR_CTX.has(m.key)) ? tableMetrics.filter(m => !_PR_CTX.has(m.key)).length : null;
+      // Phone + rep/partner view (per Isaac): one branch column at a time —
+      // defaults to THEIR branch (where their team / they sell the most),
+      // with a dropdown to look at another branch. RIDD total stays.
+      const _narrowT = _repLite && (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
+      let _branchSel = null;
+      if (_narrowT && sortedBranches.length > 1) {
+        const homeBranch = (() => {
+          const pool = _rangeGroups ? Object.entries(_rangeGroups) : [];
+          const mineTeams = (typeof myReachTeams === 'function') ? myReachTeams() : new Set();
+          const tally = new Map();
+          pool.forEach(([b, rows]) => rows.forEach(x => {
+            const nm = x.rep ? getCanonicalRepName(x.rep) : '';
+            if (!nm) return;
+            const mine = (typeof isMyRepName === 'function' && isMyRepName(x.rep)) || mineTeams.has(getRepTeam(nm) || '');
+            if (mine) tally.set(b, (tally.get(b) || 0) + 1);
+          }));
+          let best = '', n = 0; tally.forEach((v, k) => { if (v > n) { n = v; best = k; } });
+          return best;
+        })();
+        const chosen = state._indMobileBranch === 'all' ? 'all' : (sortedBranches.includes(state._indMobileBranch) ? state._indMobileBranch : (sortedBranches.includes(homeBranch) ? homeBranch : sortedBranches[0]));
+        const _lblB = (b) => b.split(' ').map(w => (w[0] || '') + w.slice(1).toLowerCase()).join(' ');
+        _branchSel = el('div', { class: 'flex items-center gap-2 px-3 py-2 border-b', style: { borderColor: 'var(--border)' } },
+          el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Branch'),
+          el('select', {
+            class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold flex-1',
+            style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+            onchange: (e) => { state._indMobileBranch = e.target.value; mountApp(); },
+          },
+            ...sortedBranches.map(b => el('option', { value: b, selected: chosen === b }, _lblB(b) + (b === homeBranch ? ' \u00b7 mine' : ''))),
+            el('option', { value: 'all', selected: chosen === 'all' }, 'All branches')));
+        if (chosen !== 'all') sortedBranches = [chosen];
+      }
       return el('div', { class: 'card overflow-hidden' },
+        _branchSel,
         el('div', { class: 'scroll-x' },
           el('table', { class: 'w-full text-[12px]' },
             el('thead', {},
@@ -4602,92 +4635,90 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
     .sort((a, b) => b.count - a.count)
     .slice(0, 15);
 
-  return el('div', { class: 'card p-5' },
-      el('div', { class: 'flex items-center justify-between mb-4 flex-wrap gap-3' },
-        el('div', {},
-          el('h3', { class: 'text-base font-bold' }, opts.title || 'Sales Mix'),
-          // (Subtitle "% weight = share of N accounts" retired — per Isaac.)
-        ),
-        opts.headerExtra || null,
-      ),
-      // Header + rows share one horizontal scroller so the fixed columns
-      // never push the page wider than the screen on mobile.
-      el('div', { class: 'scroll-x' }, el('div', { style: { minWidth: '860px' } },
-      // Header row
+  // Blended totals across ALL accounts (the reference row on top).
+  const T = (() => {
+    let _rev = 0, _init = 0, _mu = 0, _tw = 0, _ap = 0, _cx = 0;
+    subSales.forEach(s => {
+      _rev += s.contractValue; _init += Number(s.initialPrice) || 0;
+      const _myb = myBucketOf(s);
+      if (_myb === 'multi') _mu++; else if (_myb === 'twelve') _tw++;
+      if (s.autoPay && s.autoPay !== 'No') _ap++;
+      if (typeof _isReportableCancel === 'function' ? _isReportableCancel(s) : !!s.cancelDate) _cx++;
+    });
+    const _n = totalSubCount;
+    return { n: _n, rev: _rev, init: _init, my: (_mu + _tw) > 0 ? _mu / (_mu + _tw) : null, ap: _ap, attr: _n > 0 ? _cx / _n : 0 };
+  })();
+  const attrColor = (a) => a >= 0.10 ? '#DC2626' : a >= 0.05 ? '#A9441F' : '#DF643A';
+  // Metric columns — one definition drives the desktop table AND the phone
+  // view, where a dropdown picks the single column to show (per Isaac).
+  const COLS = [
+    { key: 'share', label: '% Mix', w: 'w-14', total: () => el('div', { class: 'w-14 text-right tabular-nums font-bold shrink-0', style: { color: 'var(--accent)' } }, '100%'),
+      row: (s) => el('div', { class: 'w-14 text-right tabular-nums font-bold shrink-0', style: { color: 'var(--accent)' } }, (s.share * 100).toFixed(1) + '%') },
+    { key: 'revenue', label: 'Revenue', w: 'w-24', total: () => el('div', { class: 'w-24 text-right tabular-nums shrink-0 font-black' }, fmt.usd0(T.rev)),
+      row: (s) => el('div', { class: 'w-24 text-right tabular-nums shrink-0 font-semibold' }, fmt.usd0(s.revenue)) },
+    { key: 'acv', label: 'ACV', w: 'w-16', total: () => el('div', { class: 'w-16 text-right tabular-nums shrink-0 font-bold' }, T.n > 0 ? fmt.usd0(T.rev / T.n) : '—'),
+      row: (s) => el('div', { class: 'w-16 text-right tabular-nums text-muted- shrink-0' }, s.acv > 0 ? fmt.usd0(s.acv) : '—') },
+    { key: 'avgInit', label: 'Avg Init', w: 'w-16', title: 'Average initial price', total: () => el('div', { class: 'w-16 text-right tabular-nums shrink-0 font-bold' }, T.n > 0 ? fmt.usd0(T.init / T.n) : '—'),
+      row: (s) => el('div', { class: 'w-16 text-right tabular-nums text-muted- shrink-0' }, s.avgInit > 0 ? fmt.usd0(s.avgInit) : '—') },
+    { key: 'my', label: 'MY %', w: 'w-12', title: 'Multi-year share of contract sales', total: () => el('div', { class: 'w-12 text-right tabular-nums shrink-0 font-bold' }, T.my == null ? '—' : (T.my * 100).toFixed(0) + '%'),
+      row: (s) => el('div', { class: 'w-12 text-right tabular-nums text-muted- shrink-0' }, s.myPct == null ? '—' : (s.myPct * 100).toFixed(0) + '%') },
+    { key: 'apay', label: 'APay', w: 'w-14', title: 'Auto-pay share', total: () => el('div', { class: 'w-14 text-right tabular-nums shrink-0 font-bold' }, T.n > 0 ? (T.ap / T.n * 100).toFixed(0) + '%' : '—'),
+      row: (s) => el('div', { class: 'w-14 text-right tabular-nums text-muted- shrink-0' }, s.count > 0 ? (s.apOn / s.count * 100).toFixed(0) + '%' : '—') },
+    { key: 'attr', label: 'Attr %', w: 'w-14', title: 'Reportable cancels ÷ accounts (RORs, SNS, combined, one-time and renewals excluded)', total: () => el('div', { class: 'w-14 text-right tabular-nums font-black shrink-0', style: { color: attrColor(T.attr) } }, (T.attr * 100).toFixed(1) + '%'),
+      row: (s) => el('div', { class: 'w-14 text-right tabular-nums font-semibold shrink-0', style: { color: attrColor(s.attr) } }, (s.attr * 100).toFixed(1) + '%') },
+  ];
+  const narrow = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
+  const body = el('div');
+  const paint = () => {
+    const pick = narrow ? (COLS.find(c => c.key === state._mixMobileCol) || COLS[1]) : null;
+    const cols = pick ? [pick] : COLS;
+    const firstCol = (cls, txt, title) => el('div', { class: (narrow ? 'w-[120px]' : 'w-[200px] sm:w-[240px]') + ' shrink-0 ' + cls, title: title || undefined, style: { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1 } }, txt);
+    const maxShare = topSubscriptions.reduce((m, s) => Math.max(m, s.share), 0.0001);
+    body.replaceChildren(el('div', { class: narrow ? '' : 'scroll-x' }, el('div', { style: narrow ? {} : { minWidth: '860px' } },
       el('div', { class: 'flex items-center gap-3 text-[10px] uppercase tracking-wider text-muted- font-semibold pb-1.5' },
-        el('div', { class: 'w-[200px] sm:w-[240px] shrink-0', style: { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 2, boxShadow: '1px 0 0 var(--border)' } }, opts.firstCol || 'Subscription'),
-        el('div', { class: 'flex-1 text-right pr-2' }, 'Total'),   // bar track stretches with the card — count rides inside the bar
-        el('div', { class: 'w-14 text-right shrink-0' }, '% Mix'),
-        el('div', { class: 'w-24 text-right shrink-0' }, 'Revenue'),
-        el('div', { class: 'w-16 text-right shrink-0' }, 'ACV'),
-        el('div', { class: 'w-16 text-right shrink-0', title: 'Average initial price' }, 'Avg Init'),
-        el('div', { class: 'w-12 text-right shrink-0', title: 'Multi-year share of contract sales' }, 'MY %'),
-        el('div', { class: 'w-14 text-right shrink-0', title: 'Auto-pay share' }, 'APay'),
-        el('div', { class: 'w-14 text-right shrink-0', title: 'Reportable cancels ÷ accounts (RORs, SNS, combined, one-time and renewals excluded)' }, 'Attr %'),
-      ),
+        firstCol('', opts.firstCol || 'Subscription'),
+        el('div', { class: 'flex-1 text-right pr-2' }, 'Total'),
+        ...cols.map(c => el('div', { class: c.w + ' text-right shrink-0', title: c.title || undefined }, c.label))),
       topSubscriptions.length === 0
         ? el('div', { class: 'text-xs text-muted- italic py-3 text-center' }, 'No accounts here.')
         : el('div', { class: 'flex flex-col' },
-            // TOTAL reference row on top (per Isaac) — full-width dark bar,
-            // count riding inside it, blended metrics across ALL accounts.
-            (() => {
-              let _rev = 0, _init = 0, _mu = 0, _tw = 0, _ap = 0, _cx = 0;
-              subSales.forEach(s => {
-                _rev += s.contractValue; _init += Number(s.initialPrice) || 0;
-                const _myb = myBucketOf(s);
-                if (_myb === 'multi') _mu++; else if (_myb === 'twelve') _tw++;
-                if (s.autoPay && s.autoPay !== 'No') _ap++;
-                if (typeof _isReportableCancel === 'function' ? _isReportableCancel(s) : !!s.cancelDate) _cx++;
-              });
-              const _n = totalSubCount;
-              const _my = (_mu + _tw) > 0 ? _mu / (_mu + _tw) : null;
-              const _attr = _n > 0 ? _cx / _n : 0;
-              return el('div', { class: 'flex items-center gap-3 text-[13px] py-2.5', style: { borderBottom: '3px solid var(--text)' } },
-                el('div', { class: 'w-[200px] sm:w-[240px] truncate font-black shrink-0', style: { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }, 'Total'),
-                el('div', { class: 'flex-1 rounded-full', style: { background: 'var(--text)', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '9px' } },
-                  el('span', { class: 'tabular-nums font-black', style: { color: 'var(--accent)', fontSize: '11.5px', lineHeight: '1' } }, fmt.int(_n))),
-                el('div', { class: 'w-14 text-right tabular-nums font-bold shrink-0', style: { color: 'var(--accent)' } }, '100%'),
-                el('div', { class: 'w-24 text-right tabular-nums shrink-0 font-black' }, fmt.usd0(_rev)),
-                el('div', { class: 'w-16 text-right tabular-nums shrink-0 font-bold' }, _n > 0 ? fmt.usd0(_rev / _n) : '\u2014'),
-                el('div', { class: 'w-16 text-right tabular-nums shrink-0 font-bold' }, _n > 0 ? fmt.usd0(_init / _n) : '\u2014'),
-                el('div', { class: 'w-12 text-right tabular-nums shrink-0 font-bold' }, _my == null ? '\u2014' : (_my * 100).toFixed(0) + '%'),
-                el('div', { class: 'w-14 text-right tabular-nums shrink-0 font-bold' }, _n > 0 ? (_ap / _n * 100).toFixed(0) + '%' : '\u2014'),
-                el('div', { class: 'w-14 text-right tabular-nums font-black shrink-0', style: { color: _attr >= 0.10 ? '#DC2626' : _attr >= 0.05 ? '#A9441F' : '#DF643A' } }, (_attr * 100).toFixed(1) + '%'));
-            })(),
-            ...(() => {
-              // Bars scale to the BIGGEST subscription (relative), so the #1
-              // row runs full width and the rest read proportionally — the
-              // absolute-share bars were near-invisible slivers.
-              const maxShare = topSubscriptions.reduce((m, s) => Math.max(m, s.share), 0.0001);
-              return topSubscriptions.map((s, i) => (() => {
-                // Bigger rows + the count INSIDE the bar (per Isaac). Short
-                // bars park the count just past their end instead so it
-                // never gets squeezed.
-                const _pct = Math.max(1.5, s.share / maxShare * 100);
-                const _inBar = _pct >= 15;
-                return el('div', {
+            el('div', { class: 'flex items-center gap-3 text-[13px] py-2.5', style: { borderBottom: '3px solid var(--text)' } },
+              firstCol('truncate font-black', 'Total'),
+              el('div', { class: 'flex-1 rounded-full', style: { background: 'var(--text)', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '9px' } },
+                el('span', { class: 'tabular-nums font-black', style: { color: 'var(--accent)', fontSize: '11.5px', lineHeight: '1' } }, fmt.int(T.n))),
+              ...cols.map(c => c.total())),
+            ...topSubscriptions.map((s, i) => {
+              const _pct = Math.max(1.5, s.share / maxShare * 100);
+              const _inBar = _pct >= 15;
+              return el('div', {
                 class: 'flex items-center gap-3 text-[13px] py-2.5 transition hover:brightness-95 rounded' + (i > 0 ? ' border-t border-' : '') + (opts.onRowClick ? ' cursor-pointer' : ''),
                 title: opts.rowTitle || '',
                 onclick: opts.onRowClick ? () => opts.onRowClick(s.name) : undefined,
               },
-                el('div', { class: 'w-[200px] sm:w-[240px] truncate font-medium shrink-0', title: s.name, style: { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }, s.name),
+                firstCol('truncate font-medium', s.name, s.name),
                 el('div', { class: 'flex-1 rounded-full relative', style: { background: 'var(--card-2)', height: '22px' } },
                   el('div', { style: { width: _pct + '%', height: '100%', background: 'var(--accent)', borderRadius: '0', opacity: String(0.55 + 0.45 * (s.share / maxShare)), transition: 'width .3s', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '9px' } },
                     _inBar ? el('span', { class: 'tabular-nums font-black', style: { color: '#fff', fontSize: '11.5px', lineHeight: '1', textShadow: '0 1px 1px rgba(0,0,0,.2)' } }, fmt.int(s.count)) : null),
-                  _inBar ? null : el('span', { class: 'tabular-nums font-black', style: { position: 'absolute', left: 'calc(' + _pct + '% + 8px)', top: '50%', transform: 'translateY(-50%)', color: 'var(--text)', fontSize: '11.5px', lineHeight: '1' } }, fmt.int(s.count)),
-                ),
-                el('div', { class: 'w-14 text-right tabular-nums font-bold shrink-0', style: { color: 'var(--accent)' } }, (s.share * 100).toFixed(1) + '%'),
-                el('div', { class: 'w-24 text-right tabular-nums shrink-0 font-semibold' }, fmt.usd0(s.revenue)),
-                el('div', { class: 'w-16 text-right tabular-nums text-muted- shrink-0' }, s.acv > 0 ? fmt.usd0(s.acv) : '—'),
-                el('div', { class: 'w-16 text-right tabular-nums text-muted- shrink-0' }, s.avgInit > 0 ? fmt.usd0(s.avgInit) : '—'),
-                el('div', { class: 'w-12 text-right tabular-nums text-muted- shrink-0' }, s.myPct == null ? '—' : (s.myPct * 100).toFixed(0) + '%'),
-                el('div', { class: 'w-14 text-right tabular-nums text-muted- shrink-0' }, s.count > 0 ? (s.apOn / s.count * 100).toFixed(0) + '%' : '—'),
-                el('div', { class: 'w-14 text-right tabular-nums font-semibold shrink-0', style: { color: s.attr >= 0.10 ? '#DC2626' : s.attr >= 0.05 ? '#A9441F' : '#DF643A' } }, (s.attr * 100).toFixed(1) + '%'),
-              );
-              })());
-            })(),
-          ),
-      )),
+                  _inBar ? null : el('span', { class: 'tabular-nums font-black', style: { position: 'absolute', left: 'calc(' + _pct + '% + 8px)', top: '50%', transform: 'translateY(-50%)', color: 'var(--text)', fontSize: '11.5px', lineHeight: '1' } }, fmt.int(s.count))),
+                ...cols.map(c => c.row(s)));
+            })))));
+  };
+  paint();
+  // Phone: a metric dropdown replaces the seven columns (per Isaac).
+  const mobileSel = narrow ? el('select', {
+    class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+    onchange: (e) => { state._mixMobileCol = e.target.value; paint(); },
+  }, ...COLS.map(c => el('option', { value: c.key, selected: (state._mixMobileCol || 'revenue') === c.key }, c.label))) : null;
+
+  return el('div', { class: 'card p-5' },
+      el('div', { class: 'flex items-center justify-between mb-4 flex-wrap gap-3' },
+        el('div', {},
+          el('h3', { class: 'text-base font-bold' }, opts.title || 'Sales Mix'),
+        ),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' }, mobileSel, opts.headerExtra || null),
+      ),
+      body,
     );
 }
 

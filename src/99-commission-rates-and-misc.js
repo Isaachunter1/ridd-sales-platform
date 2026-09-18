@@ -2778,7 +2778,7 @@ function openUserEditor(existing = null, prefill = null) {
         btn.textContent = original;
       }
     },
-  }, '🔑 Send Reset Link') : null;
+  }, 'Send Reset Link') : null;
 
   // (Resend Invite retired, per Isaac. It emailed a passwordless magic
   // sign-in link - the first-login flow from before admins created users
