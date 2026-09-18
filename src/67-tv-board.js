@@ -217,10 +217,10 @@ function openTvBoard() {
         el('div', { style: { width: '1px', height: '22px', background: T.hair } }),
         // Last data sync (the CRM feed the board reads) + the board's own last repaint.
         // One stamp (per Isaac): the board's last refresh, in Mountain time.
-        eyebrow(new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: BOARD_TZ }) + '  ·  ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: BOARD_TZ }) + ' MT')),
+        eyebrow(new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: BOARD_TZ }).replace(',', ' ·') + '  ·  ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: BOARD_TZ }) + ' MT')),
       el('div', { style: { display: 'flex', alignItems: 'center', gap: '18px' } },
         el('div', { style: { display: 'flex', gap: '6px' } }, ...RANGES.map(([id, l]) => pill(id, l))),
-        clock,
+        // (header clock retired per Isaac — the stamp on the left carries date + time)
         (() => {
           // Resync: kicks the server-side FieldRoutes → snapshot job (1–2 min),
           // the board pulls the fresh dataset in on its own when it lands.
