@@ -215,7 +215,9 @@ function notifySlack(userId, text) {
 }
 function openMySettingsModal() {
   const p = state.profile || {};
-  const seller = (typeof isSellerRole === 'function') ? isSellerRole(p.role) : true;
+  // Annual goal is set by admins in Edit User (per Isaac); Slack DMs are an
+  // office-staff feature — sellers and partners don't see either section.
+  const officeStaff = (typeof isOfficeStaffProfile === 'function') ? isOfficeStaffProfile(p) : (typeof isOfficeStaffRole === 'function' && isOfficeStaffRole(p.role));
   const overlay = el('div', { class: 'modal-overlay' });
   const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
   const key = (e) => { if (e.key === 'Escape') close(); };
@@ -255,40 +257,6 @@ function openMySettingsModal() {
     el('div', { class: 'flex items-center gap-2' }, slackId, slackBtn),
     el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
       'Find your Member ID in Slack: your profile \u2192 \u22ee \u2192 Copy member ID. A test DM confirms the hookup.'));
-
-  // ── Annual goal — writes ONLY the caller's own goal via the set_my_goal
-  // RPC (security definer, own row, one column — no open profile writes). ──
-  const goalInput = el('input', {
-    type: 'number', min: '0', step: '1000',
-    value: p.annual_revenue_goal || '',
-    placeholder: 'e.g. 500000',
-    class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px]',
-  });
-  const goalBtn = el('button', {
-    class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95 whitespace-nowrap',
-    style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-    onclick: async (e) => {
-      const btn = e.currentTarget;
-      const goal = Math.max(0, parseFloat(goalInput.value) || 0);
-      btn.disabled = true; btn.textContent = 'Saving…';
-      try {
-        if (!DEMO) {
-          const { error } = await supabase.rpc('set_my_goal', { goal });
-          if (error) throw error;
-        }
-        p.annual_revenue_goal = goal;
-        if (state._realProfile) state._realProfile.annual_revenue_goal = goal;
-        const row = (state.allProfiles || []).find(x => x.id === p.id);
-        if (row) row.annual_revenue_goal = goal;
-        toast('Goal saved — $' + goal.toLocaleString() + ' for the year', 'success');
-        scheduleBackgroundRemount();
-      } catch (err) {
-        toast(/function|schema|does not exist/i.test(err.message || '')
-          ? 'Goal save failed — an admin needs to run rep_self_settings.sql in Supabase'
-          : (err.message || 'Save failed'), 'error');
-      } finally { btn.disabled = false; btn.textContent = 'Save Goal'; }
-    },
-  }, 'Save Goal');
 
   // ── Change password — same policy + live checklist as the reset screen. ──
   const pw1 = el('input', { type: 'password', placeholder: 'New password', autocomplete: 'new-password', class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]' });
@@ -341,10 +309,6 @@ function openMySettingsModal() {
           (p.full_name || '') + ' · ' + roleLabel(p.role))),
       el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
     el('div', { class: 'px-5 pb-5 flex flex-col gap-5' },
-      seller ? el('div', { class: 'flex flex-col gap-2' },
-        secLabel('Annual Revenue Goal ($)'),
-        el('div', { class: 'flex items-center gap-2' }, goalInput, goalBtn),
-        el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Your personal target — drives your goal pacing anywhere it shows in the app.')) : null,
       el('div', { class: 'flex flex-col gap-2' },
         secLabel('Time Zone'),
         el('select', {
@@ -354,7 +318,7 @@ function openMySettingsModal() {
         }, ...USER_TZ_CHOICES.map(([v, label]) => el('option', { value: v, selected: userTzPref() === v }, label))),
         el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
           'Affects time displays like Today\u2019s Sales. Auto = Mountain (Utah) for office staff; D2D sale times always show in the selling office\u2019s local time.')),
-      slackSection,
+      officeStaff ? slackSection : null,
       el('div', { class: 'flex flex-col gap-2' },
         secLabel('Change Password'),
         pw1, pw2, policyList, pwBtn),

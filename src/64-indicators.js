@@ -1819,7 +1819,7 @@ function myStatsCard() {
     el('div', { class: 'flex items-center justify-between flex-wrap gap-2 mb-3' },
       el('div', { class: 'text-sm font-bold' }, 'My Stats'),
       el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
-        goal > 0 ? 'Goal set in ⚙ My Settings' : 'Set your annual goal in ⚙ My Settings to track your pace')),
+        goal > 0 ? 'Annual goal set by your admin' : 'Ask an admin to set your annual goal to track your pace')),
     goal > 0 ? el('div', { class: 'mb-3' },
       el('div', { class: 'flex items-baseline justify-between text-xs mb-1' },
         el('span', { class: 'font-semibold' }, money(ytdRev) + ' of ' + money(goal) + ' YTD'),

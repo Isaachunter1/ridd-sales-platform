@@ -560,7 +560,7 @@ function viewDashboard() {
               el('div', { class: 'flex items-center gap-2 min-w-0' },
                 avatarNode(me.avatar_url, me.initials, 'w-8 h-8 text-[10px]'),
                 el('div', {}, el('div', { class: 'text-sm font-bold' }, 'My Pacer'),
-                  el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, goal > 0 ? 'YTD new revenue vs your annual goal · seasonal pace' : 'Set your annual goal in ⚙ My Settings to unlock pace, catch-up and projections'))),
+                  el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, goal > 0 ? 'YTD new revenue vs your annual goal · seasonal pace' : 'Ask an admin to set your annual goal to unlock pace, catch-up and projections'))),
               el('div', { class: 'text-right' },
                 el('div', { class: 'text-2xl font-black tabular-nums' }, fmt.usd0(rev), goal > 0 ? el('span', { class: 'text-sm font-semibold', style: { color: 'var(--text-muted)' } }, ' / ' + fmt.usd0(goal) + ' · ' + Math.round(rev / goal * 100) + '%') : null),
                 goal > 0 ? el('div', { class: 'text-[11px] font-bold', style: { color: delta >= 0 ? '#DF643A' : '#DC2626' } }, (delta >= 0 ? '▲ ' + fmt.usd0(delta) + ' ahead of' : '▼ ' + fmt.usd0(-delta) + ' behind') + ' seasonal pace') : null,
@@ -581,7 +581,7 @@ function viewDashboard() {
           goalHeader,
           sellers.length === 0
             ? el('div', { class: 'text-xs py-4 text-center', style: { color: 'var(--text-muted)' } },
-                'No individual goals yet — reps set theirs in ⚙ My Settings, or set them in Edit User.')
+                'No individual goals yet — set them in Edit User.')
             : el('div', { class: 'flex flex-col gap-3' },
                 ...sellers.map(({ p, goal, rev }) => {
                   const pct = goal > 0 ? Math.min(100, rev / goal * 100) : 0;
