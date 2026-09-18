@@ -119,7 +119,7 @@ function openTvBoard() {
   const figure = (v, size, color) => el('div', { style: { fontFamily: MONO, fontSize: size, lineHeight: '1', color: color || T.ink, fontVariantNumeric: 'tabular-nums' } }, v);
   const panel = (children, extra = {}) => { const { onclick, ...st } = extra; return el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, padding: '20px 24px', display: 'flex', flexDirection: 'column', minHeight: '0', ...st }, onclick: onclick || null }, ...children); };
   const tile = (label, value, sub, drill) => el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '0', cursor: drill ? 'pointer' : 'default' }, title: drill ? 'Tap to see what is behind this number' : '', onclick: drill || null },
-    eyebrow(label), figure(value, 'clamp(22px, 2.2vw, 34px)'), sub ? el('div', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.06em' } }, sub + (drill ? '  ·  tap' : '')) : null);
+    eyebrow(label + (drill ? '  ·  tap' : '')), figure(value, 'clamp(22px, 2.2vw, 34px)'));   // (descriptions dropped per Isaac — the room knows what these are)
   // Drill panel (per Isaac): what is pulling a % up or down — the sales
   // that count on one side, the ones that don't on the other, as they were sold.
   const openDrill = (title, yesLabel, yes, noLabel, no, repName) => {
@@ -188,7 +188,7 @@ function openTvBoard() {
         iconBtn('Close (Esc)', '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>', cleanup)));
 
     // Hero: THE number (ember, Anton, once) + goal bar + the stat tiles.
-    const hero = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gap: '18px', padding: '18px 36px 0', alignItems: 'stretch', flex: '0 0 auto', maxHeight: '42vh' } },
+    const hero = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gap: '18px', padding: '18px 36px 0', alignItems: 'stretch', flex: '0 0 auto' } },
       state._tvHeroOffices ? panel([
         // Tap-swapped view (per Isaac): the window's revenue by branch. Tap again for the number.
         el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } }, eyebrow(d.range.label + ' · revenue by branch'), eyebrow(money(d.revenue) + ' · tap to go back')),
@@ -256,7 +256,7 @@ function openTvBoard() {
               el('div', { style: { fontFamily: VOICE, fontWeight: 500, fontSize: '12px', color: T.dim, marginTop: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, s._crmService || s.service_name || '—')),
             figure(money(s.revenue_amount), 'clamp(18px, 1.6vw, 26px)', i === 0 && fresh ? T.ember : T.ink));
         }) : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'Nothing yet.')]))], { flex: '1' });
-    const body = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr)', gap: '18px', padding: '18px 36px 24px', flex: '1', minHeight: '0' } },
+    const body = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr)', gap: '18px', padding: '20px 36px 24px', flex: '1', minHeight: '0' } },
       board,
       latestEl);   // (By branch retired per Isaac — the column is the latest sales.)
 
