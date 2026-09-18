@@ -285,6 +285,10 @@
        paragraph). Cards keep their own width. */
     .card { min-width: 0; max-width: 100%; }
     .card > table, .card > div > table { display: block; overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
+    /* Records: the table stays a real table inside its own .scroll-x so the
+       Scope column can freeze (a display:block table was what made the
+       sticky cell drift and leave the phantom gap on iOS). */
+    .card > div > table.records-table { display: table; overflow: visible; width: max-content; min-width: 100%; }
     /* Sales-mode switcher (Inside / D2D / Technicians) never runs off the edge. */
     .sales-mode-toggle { max-width: 100%; }
     .sales-mode-btn { min-width: 0; padding-left: 6px !important; padding-right: 6px !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -875,9 +879,9 @@
       mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 22px), rgba(0,0,0,.25) 100%);
     }
 
-    /* Records table: iOS leaves a phantom gap left of a sticky first column
-       after a sideways swipe, so on phones the Scope cells just scroll. */
-    .records-table th, .records-table td { position: static !important; box-shadow: none !important; }
+    /* Records table: Scope column frozen (per Isaac) — sticky cells work
+       once the table is a real table inside .scroll-x (rule above). */
+    .records-table th:first-child, .records-table td:first-child { position: sticky; left: 0; }
 
     /* NRLA standings: pin Seed + Team while the money columns swipe */
     .nrla-standings th, .nrla-standings td { white-space: nowrap; }
