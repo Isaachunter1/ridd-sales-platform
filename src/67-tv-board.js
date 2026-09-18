@@ -39,6 +39,7 @@ function openTvBoard() {
   const localDay = (v) => { if (!v) return null; const d = new Date(v); return isNaN(d) ? null : iso(d); };
   const money = (n) => '$' + Math.round(n || 0).toLocaleString('en-US');
   const pct = (n) => (Math.round((n || 0) * 10) / 10).toFixed(1) + '%';
+  const BOARD_TZ = 'America/Denver';   // the room's clock (per Isaac): every time on the board reads Mountain
   // One-time service? CRM rows: not Sentricon and no multi-month term; app rows: contract types 4/5.
   const isOts = (s) => s._crm ? (!/sentricon/i.test(String(s._crmService || '')) && !(Number(s.contract_months) > 1)) : new Set([4, 5]).has(Number(s.contract_type_id));
   const isSellingDay = (d) => { const w = d.getDay(); if (w === 0 || w === 6) return false; return !(typeof companyHolidayFor === 'function' && companyHolidayFor(iso(d))); };
@@ -134,8 +135,8 @@ function openTvBoard() {
     }).sort((x, y) => y.revenue - x.revenue);
     // Offices
     const offAgg = new Map();
-    newRows.forEach(s => { const o = (state.offices || []).find(x => x.id === s.office_id); const n = o ? o.name : (s._crmOffice || 'Unassigned'); offAgg.set(n, (offAgg.get(n) || 0) + (Number(s.revenue_amount) || 0)); });
-    const offices = [...offAgg.entries()].map(([name, revenue]) => ({ name, revenue })).sort((a, b) => b.revenue - a.revenue);
+    rows.forEach(s => { const o = (state.offices || []).find(x => x.id === s.office_id); const n = o ? o.name : (s._crmOffice || 'Unassigned'); if (!offAgg.has(n)) offAgg.set(n, { name: n, revenue: 0, renewal: 0, total: 0 }); const g = offAgg.get(n); const v = Number(s.revenue_amount) || 0; g.total += v; if (isRenewal(s)) g.renewal += v; else g.revenue += v; });
+    const offices = [...offAgg.values()].sort((a, b) => b.revenue - a.revenue);   // revenue = NEW (the headline); renewal + total ride along
     const latest = [...rows].sort((a, b) => saleKey(b) - saleKey(a));   // newest sale first — by the CRM's clock, not sync order
     const goal = goalFor(range);
     return { range, rows, revenue: rev(newRows), newCount: newRows.length, totalRevenue: rev(rows), renewalRevenue: rev(renewRows), renewalCount: renewRows.length, count: rows.length,
@@ -147,6 +148,10 @@ function openTvBoard() {
         multi: { yes: subs.filter(s => (typeof myBucketOf === 'function' ? myBucketOf(s) : null) === 'multi'), no: subs.filter(s => (typeof myBucketOf === 'function' ? myBucketOf(s) : null) === 'twelve') },
         autopay: { yes: rows.filter(s => s._crm && s._crmAutoPay), no: rows.filter(s => s._crm && !s._crmAutoPay) },
         recmix: { yes: subs, no: rows.filter(s => isOts(s)) },
+        // Price-point drills (per Isaac): initial ≥ $99 / under, recurring ≥ $59 / under, ACV ≥ $700 / under.
+        initial: { yes: subs.filter(s => (Number(s.initial_amount) || 0) >= 99), no: subs.filter(s => (Number(s.initial_amount) || 0) < 99) },
+        recurring: { yes: subs.filter(s => (Number(s.monthly_amount) || 0) >= 59), no: subs.filter(s => (Number(s.monthly_amount) || 0) < 59) },
+        acv: { yes: rows.filter(s => (Number(s.revenue_amount) || 0) >= 700), no: rows.filter(s => (Number(s.revenue_amount) || 0) < 700) },
       } };
   };
 
@@ -200,7 +205,7 @@ function openTvBoard() {
 
     // Header: wordmark · INSIDE SALES · range pills · clock · fullscreen · close
     const clock = el('div', { style: { fontFamily: MONO, fontSize: '13px', letterSpacing: '.12em', color: T.dim } });
-    const tick = () => { clock.textContent = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).toUpperCase() + '  ·  ' + new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase(); };
+    const tick = () => { clock.textContent = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: BOARD_TZ }).toUpperCase() + ' MT' + '  ·  ' + new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase(); };
     tick();
     const pill = (id, label) => el('button', { style: { fontFamily: MONO, fontSize: '11px', letterSpacing: '.18em', textTransform: 'uppercase', padding: '8px 12px', background: state._tvRange === id ? T.ink : 'transparent', color: state._tvRange === id ? T.void : T.dim, border: '1px solid ' + (state._tvRange === id ? T.ink : T.hair), cursor: 'pointer' }, onclick: () => { state._tvRange = id; render(); } }, label);
     const iconBtn = (title, path, fn) => { const b = el('button', { title, style: { width: '36px', height: '36px', background: 'transparent', border: '1px solid ' + T.hair, color: T.dim, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }, onclick: fn }); b.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg>'; return b; };
@@ -211,7 +216,7 @@ function openTvBoard() {
         eyebrow('Inside Sales League', { color: T.ink }),
         el('div', { style: { width: '1px', height: '22px', background: T.hair } }),
         // Last data sync (the CRM feed the board reads) + the board's own last repaint.
-        eyebrow(((typeof appSyncStampStr === 'function' && appSyncStampStr()) ? String(appSyncStampStr()).replace(/^last sync:?\s*/i, 'Synced ') : 'Sync —') + '  ·  refreshed ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }))),
+        eyebrow(((typeof appSyncStampStr === 'function' && appSyncStampStr()) ? String(appSyncStampStr()).replace(/^last sync:?\s*/i, 'Synced ') : 'Sync —') + '  ·  refreshed ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: BOARD_TZ }))),
       el('div', { style: { display: 'flex', alignItems: 'center', gap: '18px' } },
         el('div', { style: { display: 'flex', gap: '6px' } }, ...RANGES.map(([id, l]) => pill(id, l))),
         clock,
@@ -230,12 +235,15 @@ function openTvBoard() {
       state._tvHeroOffices ? panel([el('div', { style: { position: 'absolute', inset: '20px 24px', display: 'flex', flexDirection: 'column', minHeight: '0' } },
         // Tap-swapped view (per Isaac): the window's NEW revenue by branch,
         // in the SAME footprint as the number (the list scrolls inside).
-        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } }, eyebrow(d.range.label + ' · new revenue by branch'), eyebrow(money(d.revenue) + ' · tap to go back')),
+        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } }, eyebrow(d.range.label + ' · new revenue by branch · bar = new'), eyebrow(money(d.revenue) + ' new · ' + money(d.totalRevenue) + ' total · tap to go back')),
         el('div', { class: 'tv-scroll', style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px', overflowY: 'auto', minHeight: '0', flex: '1', paddingRight: '4px' } },
           ...(d.offices.length ? d.offices.map((o, i) => el('div', {},
-            el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' } },
-              el('div', { style: { fontFamily: HEAD, fontSize: 'clamp(16px, 1.3vw, 22px)', letterSpacing: '.03em', textTransform: 'uppercase' } }, o.name),
-              figure(money(o.revenue), 'clamp(15px, 1.3vw, 22px)', i === 0 ? T.ember : T.ink)),
+            el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px', gap: '12px' } },
+              el('div', { style: { fontFamily: HEAD, fontSize: 'clamp(16px, 1.3vw, 22px)', letterSpacing: '.03em', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, o.name),
+              el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '18px', whiteSpace: 'nowrap' } },
+                el('span', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.06em' } }, 'RENEWAL ' + money(o.renewal)),
+                el('span', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.06em' } }, 'TOTAL ' + money(o.total)),
+                figure(money(o.revenue), 'clamp(15px, 1.3vw, 22px)', i === 0 ? T.ember : T.ink))),
             el('div', { style: { height: '4px', background: T.surface2 } }, el('div', { style: { height: '100%', width: (d.offices[0].revenue ? o.revenue / d.offices[0].revenue * 100 : 0) + '%', background: i === 0 ? T.ember : T.dim } }))))
           : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'No sales in this window yet.')])))], { cursor: 'pointer', position: 'relative', padding: '0', onclick: () => { state._tvHeroOffices = false; render(); } })
       : panel([
@@ -252,9 +260,9 @@ function openTvBoard() {
           el('div', { style: { height: '6px', background: T.surface2, position: 'relative' } },
             el('div', { style: { position: 'absolute', left: 0, top: 0, bottom: 0, width: ((goalPct || 0) * 100) + '%', background: goalPct >= 1 ? T.ember : T.ink, transition: 'width .6s ease' } })))], { cursor: 'pointer', onclick: () => { state._tvHeroOffices = true; render(); } }),
       el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gridAutoRows: '1fr', gap: '10px', minWidth: '0' } },
-        tile('Avg initial', money(d.avgInitial), 'subscriptions'),
-        tile('Avg recurring', money(d.avgMonthly), 'per month'),
-        tile('Avg ACV', money(d.avgContract), 'contract value per sale'),
+        tile('Avg initial', money(d.avgInitial), 'subscriptions', () => openDrill('Avg initial · ' + money(d.avgInitial), 'Initial $99 and up', d.splits.initial.yes, 'Initial under $99', d.splits.initial.no, repNameOf)),
+        tile('Avg recurring', money(d.avgMonthly), 'per month', () => openDrill('Avg recurring · ' + money(d.avgMonthly), 'Recurring $59 and up', d.splits.recurring.yes, 'Recurring under $59', d.splits.recurring.no, repNameOf)),
+        tile('Avg ACV', money(d.avgContract), 'contract value per sale', () => openDrill('Avg ACV · ' + money(d.avgContract), 'ACV $700 and up', d.splits.acv.yes, 'ACV under $700', d.splits.acv.no, repNameOf)),
         tile('Multi-year', pct(d.multiPct), '18 mo and up', () => openDrill('Multi-year · ' + pct(d.multiPct), 'Multi-year (18 mo+)', d.splits.multi.yes, '12-month', d.splits.multi.no, repNameOf)),
         tile('Auto pay', d.autoPay == null ? '—' : pct(d.autoPay * 100), 'of CRM sales', () => openDrill('Auto pay · ' + (d.autoPay == null ? '—' : pct(d.autoPay * 100)), 'On auto pay', d.splits.autopay.yes, 'Not on auto pay', d.splits.autopay.no, repNameOf)),
         tile('Rec mix', pct(d.recMix), 'recurring subs of all sales', () => openDrill('Rec mix · ' + pct(d.recMix), 'Recurring subscriptions', d.splits.recmix.yes, 'One-time services', d.splits.recmix.no, repNameOf))));
@@ -311,7 +319,7 @@ function openTvBoard() {
       el('div', { class: 'tv-scroll', style: { display: 'flex', flexDirection: 'column', marginTop: '10px', overflowY: 'auto', flex: '1', minHeight: '0', paddingRight: '4px' } },
         ...(d.latest.length ? d.latest.map((s, i) => {
           const r = d.reps.find(x => x.key === (s.rep_id || ('crm:' + s._crmRep)));
-          const when = (d) => !d || isNaN(d) ? '' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) + ' · ' + ago(d);
+          const when = (d) => !d || isNaN(d) ? '' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: BOARD_TZ }) + ' MT · ' + ago(d);
           const at = saleAt(s), src = sourceOf(s);
           // Name with the time stamp under it · term + subscription in the middle · amount right (per Isaac).
           return el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 1fr) auto', gap: '14px', alignItems: 'center', padding: '11px 0', borderTop: i ? '1px solid ' + T.hair : 'none' } },
