@@ -84,21 +84,13 @@ function reportingGeographic() {
   const _phone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
   const metricToggle = el('div', { class: 'p-3 flex items-center gap-2 flex-wrap', style: { borderBottom: '1px solid var(--border)' } },
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Map metric'),
-    // Phones: one dropdown instead of six buttons (per Isaac).
-    ..._phone ? [el('select', {
-      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer flex-1',
-      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+    // One dropdown everywhere (per Isaac, Sep 2026) — the seven-button row
+    // is gone; the map can only color by one metric at a time anyway.
+    el('select', {
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer' + (_phone ? ' flex-1' : ''),
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: _phone ? undefined : '170px' },
       onchange: (e) => { state.reportingGeoMetric = e.target.value; mountApp(); },
-    }, ...metrics.map(m => el('option', { value: m.key, selected: m.key === metricKey }, m.label)))] : metrics.map(m => {
-      const active = m.key === metricKey;
-      return el('button', {
-        class: 'px-2.5 py-1 rounded-lg text-[11px] font-semibold transition hover:brightness-95',
-        style: active
-          ? { background: 'var(--accent)', color: 'var(--accent-text)' }
-          : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' },
-        onclick: () => { state.reportingGeoMetric = m.key; mountApp(); },
-      }, m.label);
-    }),
+    }, ...metrics.map(m => el('option', { value: m.key, selected: m.key === metricKey }, m.label))),
     el('div', { class: 'text-[10px] ml-auto', style: { color: 'var(--text-subtle)' } },
       (metricKey === 'attrition' || metricKey === 'retention') ? 'Uses 10+ sub floor per area · darker = '
           + (isRetention ? 'better retention' : 'higher attrition')
