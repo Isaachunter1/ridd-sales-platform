@@ -655,6 +655,18 @@ function openReportingSliceStatsModal({ chartTitle, sliceLabel, rows, siblings, 
   document.body.append(overlay);
 }
 
+// Recurring $ per service for a drill row: the CRM's recurring charge when
+// the snapshot carries it, else ARR spread over the services a year implied
+// by the frequency (days between services). -1 / 0 frequency = billed per
+// service with no fixed cadence → no estimate.
+function _drillRecurring(r) {
+  const rc = Number(r.recurring_charge);
+  if (r.recurring_charge != null && r.recurring_charge !== '' && !isNaN(rc) && rc > 0) return rc;
+  const arr = Number(r.annual_recurring_value) || 0, f = Number(r.recurring_frequency) || 0;
+  if (arr > 0 && f > 0) return arr / (365 / f);
+  return null;
+}
+function _drillAutopay(r) { const a = String(r.customer_auto_pay || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); }
 function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, summary }) {
   const overlay = el('div', { class: 'modal-overlay' });
   const closeKey = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', closeKey); } };
@@ -696,10 +708,21 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
     { key: 'status',       label: 'Status',          align: 'left',  type: 'str', get: r => (r.subscription_status || '').toLowerCase() },
     ...(hasFlags ? [{ key: 'svcs', label: 'Svcs', align: 'right', type: 'num', get: r => Number(r.subscription_completed_services) || 0 }] : []),
     ...(hasFlags ? [{ key: 'flag', label: 'Flag', align: 'left',  type: 'str', get: r => (r._flagReason || '').toLowerCase() }] : []),
-    { key: 'arv',          label: 'ARV',             align: 'right', type: 'num', get: r => Number(r.annual_recurring_value) || 0 },
+    // Money + tenure block (per Isaac, Sep 2026): ARR (FieldRoutes' annual
+    // recurring value), contract, initial $, recurring $ per service (from
+    // the CRM once synced, else ARR ÷ services-per-year from the frequency),
+    // term, completed appointments, autopay, sold and initial dates.
+    { key: 'arv',          label: 'ARR',             align: 'right', type: 'num', get: r => Number(r.annual_recurring_value) || 0 },
     { key: 'contract',     label: 'Contract $',      align: 'right', type: 'num', get: r => Number(r.subscription_contract_value) || 0 },
+    { key: 'initialPrice', label: 'Initial $',       align: 'right', type: 'num', get: r => Number(r.initial_price) || 0 },
+    { key: 'recurring',    label: 'Recurring $',     align: 'right', type: 'num', get: r => _drillRecurring(r) || 0 },
+    { key: 'term',         label: 'Term',            align: 'right', type: 'num', get: r => Number(r.agreement_length) || 0 },
+    { key: 'appts',        label: 'Appts',           align: 'right', type: 'num', get: r => Number(r.subscription_completed_services) || 0 },
+    { key: 'autopay',      label: 'Autopay',         align: 'left',  type: 'str', get: r => _drillAutopay(r) ? 'yes' : 'no' },
+    { key: 'sold',         label: 'Sold',            align: 'left',  type: 'str', get: r => r.sold_date || '' },
     { key: 'initial',      label: 'Initial Service', align: 'left',  type: 'str', get: r => r.initial_service || '' },
     { key: 'pastdue',      label: 'Past Due',        align: 'right', type: 'num', get: r => Number(r.days_past_due) || 0 },
+    { key: 'balance',      label: 'Balance',         align: 'right', type: 'num', get: r => Number(r.responsible_balance) || 0 },
     { key: 'canceled',     label: 'Canceled',        align: 'left',  type: 'str', get: r => r.subscription_date_canceled || '' },
   ];
 
@@ -747,11 +770,18 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
       r.annual_recurring_value != null ? '$' + Math.round(r.annual_recurring_value).toLocaleString() : '—'),
     el('td', { class: 'px-3 py-2 text-right tabular-nums' },
       r.subscription_contract_value != null ? '$' + Math.round(r.subscription_contract_value).toLocaleString() : '—'),
+    el('td', { class: 'px-3 py-2 text-right tabular-nums' }, r.initial_price != null && r.initial_price !== '' ? '$' + Math.round(Number(r.initial_price)).toLocaleString() : '—'),
+    el('td', { class: 'px-3 py-2 text-right tabular-nums' }, (() => { const v = _drillRecurring(r); return v ? el('span', { title: r.recurring_charge != null ? 'Recurring charge in FieldRoutes' + (r.recurring_frequency ? ' · every ' + r.recurring_frequency + ' days' : '') : 'ARR ÷ services per year (frequency ' + (r.recurring_frequency || '?') + ' days)' }, '$' + Math.round(v).toLocaleString()) : '—'; })()),
+    el('td', { class: 'px-3 py-2 text-right tabular-nums' }, Number(r.agreement_length) ? r.agreement_length + ' mo' : '—'),
+    el('td', { class: 'px-3 py-2 text-right tabular-nums' }, String(Number(r.subscription_completed_services) || 0)),
+    el('td', { class: 'px-3 py-2' }, _drillAutopay(r) ? el('span', { style: { color: '#16A34A' } }, 'Yes') : el('span', { style: { color: 'var(--text-subtle)' } }, 'No')),
+    el('td', { class: 'px-3 py-2' }, fmtDate(r.sold_date)),
     el('td', { class: 'px-3 py-2' }, fmtDate(r.initial_service)),
     el('td', {
       class: 'px-3 py-2 text-right tabular-nums',
       style: { color: (Number(r.days_past_due) || 0) > 0 ? '#DC2626' : 'var(--text-muted)' },
     }, r.days_past_due ? r.days_past_due + 'd' : '—'),
+    el('td', { class: 'px-3 py-2 text-right tabular-nums', style: { color: (Number(r.responsible_balance) || 0) > 0 ? '#DC2626' : 'var(--text-muted)' } }, (Number(r.responsible_balance) || 0) > 0 ? '$' + Math.round(Number(r.responsible_balance)).toLocaleString() : '—'),
     el('td', { class: 'px-3 py-2' },
       r.subscription_date_canceled
         ? el('div', {},
@@ -819,7 +849,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
   // render window — the workflow for hunting CRM errors needs every row.
   const exportCsv = () => {
     const data = sortedCache || computeSorted();
-    const head = ['Customer', 'Customer ID', 'Office', 'Sold By', 'Sold By Type', 'Subscription', 'Source', 'Status', 'Completed Services', 'Flag', 'ARV', 'Contract', 'Initial Service', 'Days Past Due', 'Canceled Date', 'Cancel Reason'];
+    const head = ['Customer', 'Customer ID', 'Office', 'Sold By', 'Sold By Type', 'State', 'ZIP', 'County', 'Subscription', 'Source', 'Status', 'Completed Services', 'Flag', 'ARR', 'Contract', 'Initial $', 'Recurring $', 'Term (mo)', 'Autopay', 'Sold', 'Initial Service', 'Days Past Due', 'Balance', 'Canceled', 'Cancel Reason'];
     const lines = [head.map(csvEsc).join(',')];
     for (const r of data) {
       lines.push([
@@ -828,6 +858,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
         csvEsc(r.office_name || ''),
         csvEsc(r.sold_by || ''),
         csvEsc(r.sold_by_type || ''),
+        csvEsc(r.state || ''), csvEsc(r.zip_code || ''), csvEsc(r.county || ''),
         csvEsc(r.subscription || ''),
         csvEsc(r.subscription_source || ''),
         csvEsc(r.subscription_status || ''),
@@ -835,8 +866,14 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
         csvEsc(r._flagReason || ''),
         Number(r.annual_recurring_value) || 0,
         Number(r.subscription_contract_value) || 0,
+        Number(r.initial_price) || 0,
+        Math.round((_drillRecurring(r) || 0) * 100) / 100,
+        Number(r.agreement_length) || 0,
+        _drillAutopay(r) ? 'Yes' : 'No',
+        csvEsc(r.sold_date || ''),
         csvEsc(r.initial_service || ''),
         Number(r.days_past_due) || 0,
+        Number(r.responsible_balance) || 0,
         csvEsc(r.subscription_date_canceled || ''),
         csvEsc(r.subscription_cancellation_reason || ''),
       ].join(','));
