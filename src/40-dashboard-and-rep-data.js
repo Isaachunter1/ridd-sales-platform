@@ -3687,6 +3687,7 @@ function canViewAggregate(reps) {
   return list.every(r => canViewRepDetails(r.name, r.team));
 }
 function _indAccountsTable(sales, sort, onSort, opts) {
+  const isAutoPayOn = (s) => s.autoPay && s.autoPay !== 'No' && String(s.autoPay).trim() !== '';
 const showRep = !!(opts && opts.showRep);
   // Sortable headers — click cycles desc → asc. State lives on the modal
   // instance so it survives re-renders while the card is open.
@@ -3787,6 +3788,7 @@ const showRep = !!(opts && opts.showRep);
 // Landing-card tile drill (partners / reps): a modal with the accounts behind
 // one tile, using the same sortable table as the player card's retention drills.
 function openLandingTileDrill(title, subtitle, rows, opts) {
+  const isAutoPayOn = (s) => s.autoPay && s.autoPay !== 'No' && String(s.autoPay).trim() !== '';
   let sort = { key: 'sold', dir: 'desc' };
   const overlay = el('div', { class: 'modal-overlay', style: { zIndex: '1200' } });
   const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
