@@ -3277,10 +3277,18 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             + ' · click any ' + (scope === 'branch' ? 'branch' : scope === 'rep' ? 'rep' : 'team')
             + ' to see their own top 10 per category'),
         el('div', { class: 'flex flex-col gap-1.5' },
-          ...groups
-            .slice()
-            .sort((a, b) => (b.bestDay?.[byMetric] || 0) - (a.bestDay?.[byMetric] || 0))
-            .map(g => {
+          ...(() => {
+            // Top 10 by default with a "Show more" (per Isaac) — the full
+            // rep list ran to a page of accordions. An open row past the cut
+            // keeps the list expanded so it never hides behind the fold.
+            const _sorted = groups.slice().sort((a, b) => (b.bestDay?.[byMetric] || 0) - (a.bestDay?.[byMetric] || 0));
+            const _LIM = 10;
+            if (!state._recSubShowAll) state._recSubShowAll = {};
+            const _openIdx = _sorted.findIndex(g => groupExpanded[scope] === g.name);
+            const _all = !!state._recSubShowAll[scope] || _openIdx >= _LIM;
+            const _vis = _all ? _sorted : _sorted.slice(0, _LIM);
+            const _more = _sorted.length - _LIM;
+            const _rows = _vis.map(g => {
               const isOpen = groupExpanded[scope] === g.name;
               const subSales = (scope === 'branch' ? salesByBranch : scope === 'rep' ? salesByRep : salesByTeam)[g.name] || [];
               const subTops = isOpen ? topRecords(subSales, 10, byMetric) : null;
@@ -3334,7 +3342,14 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   ),
                 ),
               );
-            }),
+            });
+            if (_more > 0) _rows.push(el('button', {
+              class: 'rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition hover:brightness-95 self-center mt-1',
+              style: { borderColor: 'var(--border-2)', color: 'var(--text)', background: 'var(--card)' },
+              onclick: () => { state._recSubShowAll[scope] = !_all; mountApp(); },
+            }, _all ? 'Show top ' + _LIM : 'Show ' + _more + ' more'));
+            return _rows;
+          })(),
         ),
       );
 
