@@ -96,7 +96,6 @@ function reportingOverview() {
         onClick: () => openReportingArrCombineModal(d, 'Recurring Annual Value by Service'),
       }) },
     { id: 'rarrOffice', title: 'Recurring Annual Value by Office',  subline: 'Sum of Annual Recurring Value · active subs',           totalLabel: 'Active ARV',          formatValue: fmt.usd0, sliceKey: 'rarrOffice' },
-    { id: 'customers',  title: 'Active Customers',         subline: 'Distinct customers with at least one active sub',       totalLabel: 'Active customers',    sliceKey: 'customers' },
     { id: 'activesubs', title: 'Subscriptions Active',     subline: 'Currently in service · by subscription type',           totalLabel: 'Subscriptions active',         sliceKey: 'activeSubs' },
     // Receivables — one card, two lenses (per Isaac, Sep 2026): every
     // customer's real balance by AGE (Current → 90+), or the past-due
@@ -157,7 +156,6 @@ function reportingOverview() {
           }),
         };
       } },
-    { id: 'onetimeRev',  title: 'One-Time Revenue',        subline: 'Contract value of non-recurring subs · by service',     totalLabel: 'One-time revenue',    formatValue: fmt.usd0, sliceKey: 'onetimeRev' },
     { id: 'retiredSubs', title: 'Retired Services',        subline: 'Active subs on discontinued services · should be closed', totalLabel: 'Active retired subs', sliceKey: 'retiredSubs' },
   ];
 
