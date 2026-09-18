@@ -1370,7 +1370,7 @@ function reportingWaterfall() {
     const smCell = (kept, eligible) => smMode === 'count' ? fmt.int(kept) : ((kept / eligible) * 100).toFixed(1) + '%';
     const today = new Date();
     const addM = (iso, n) => { const d = new Date(iso + 'T00:00'); d.setMonth(d.getMonth() + n); return d; };
-    const HORIZONS = [3, 12, 24];
+    const HORIZONS = [3, 6, 9, 12, 18, 24];   // (6, 9, 18 added per Isaac, Sep 2026)
     const byMonth = Array.from({ length: 12 }, () => []);
     rows.forEach(r => {
       const d = new Date(r.initial_service + 'T00:00');
