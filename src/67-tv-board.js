@@ -163,20 +163,26 @@ function openTvBoard() {
     eyebrow(label + (drill ? '  ·  tap' : '')), figure(value, 'clamp(22px, 2.2vw, 34px)'));   // (descriptions dropped per Isaac — the room knows what these are)
   // Drill panel (per Isaac): what is pulling a % up or down — the sales
   // that count on one side, the ones that don't on the other, as they were sold.
-  const openDrill = (title, yesLabel, yes, noLabel, no, repName, hero) => {
+  // `metric` (optional): { of: (sale) → number, fmt: (n) → string } — what the
+  // right-hand figure and the column summary show instead of ACV (per Isaac:
+  // initial $ on the Avg initial drill, recurring $ on Avg recurring, term on Multi-year).
+  const openDrill = (title, yesLabel, yes, noLabel, no, repName, hero, metric) => {
+    const amtOf = metric ? metric.of : (x) => Number(x.revenue_amount) || 0;
+    const amtFmt = metric ? metric.fmt : money;
+    const summary = (xs) => { if (!xs.length) return ''; const tot = xs.reduce((a, x) => a + amtOf(x), 0); return metric ? (metric.avg === false ? '' : '  ·  avg ' + amtFmt(tot / xs.length)) : '  ·  ' + money(tot); };
     const back = el('div', { style: { position: 'fixed', inset: '0', background: 'rgba(10,11,13,.82)', zIndex: '10000', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px' } });
     back.addEventListener('click', (e) => { if (e.target === back) back.remove(); });
     const esc = (e) => { if (e.key === 'Escape') { back.remove(); document.removeEventListener('keydown', esc, true); e.stopPropagation(); } };
     document.addEventListener('keydown', esc, true);
     const list = (label, xs, hot) => el('div', { style: { minWidth: '0', display: 'flex', flexDirection: 'column' } },
-      el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' } }, eyebrow(label, { color: hot ? T.ember : T.ink }), eyebrow(xs.length + ' sale' + (xs.length === 1 ? '' : 's') + '  ·  ' + money(xs.reduce((a, x) => a + (Number(x.revenue_amount) || 0), 0)))),
+      el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' } }, eyebrow(label, { color: hot ? T.ember : T.ink }), eyebrow(xs.length + ' sale' + (xs.length === 1 ? '' : 's') + summary(xs))),
       el('div', { style: { overflow: 'auto', maxHeight: '60vh' } },
         ...(xs.length ? xs.map((x, i) => el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '12px', alignItems: 'baseline', padding: '9px 0', borderTop: i ? '1px solid ' + T.hair : 'none' } },
           el('div', { style: { minWidth: '0' } },
             el('div', { style: { fontFamily: HEAD, fontSize: '18px', letterSpacing: '.02em', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, repName(x)),
             el('div', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.04em', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
               el('span', { style: { color: T.ink } }, (Number(x.contract_months) > 1 ? Number(x.contract_months) + ' MO' : 'ONE-TIME')), '  ·  ' + (x._crmService || x.service_name || '—') + (sourceOf(x) ? '  ·  ' + sourceOf(x) : '') + (saleAt(x) ? '  ·  ' + ago(saleAt(x)) : ''))),
-          figure(money(x.revenue_amount), '16px')))
+          figure(amtFmt(amtOf(x)), '16px')))
         : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'None.')])));
     back.append(el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, color: T.ink, width: 'min(1200px, 94vw)', padding: '26px 30px', display: 'flex', flexDirection: 'column', gap: '18px' } },
       el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
@@ -261,10 +267,10 @@ function openTvBoard() {
           el('div', { style: { height: '6px', background: T.surface2, position: 'relative' } },
             el('div', { style: { position: 'absolute', left: 0, top: 0, bottom: 0, width: ((goalPct || 0) * 100) + '%', background: T.ember, transition: 'width .6s ease' } })))], { cursor: 'pointer', onclick: () => { state._tvHeroOffices = true; render(); } }),
       el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gridAutoRows: '1fr', gap: '10px', minWidth: '0' } },
-        tile('Avg initial', money(d.avgInitial), 'subscriptions', () => openDrill('Avg initial · ' + money(d.avgInitial), 'Initial $99 and up', d.splits.initial.yes, 'Initial under $99', d.splits.initial.no, repNameOf)),
-        tile('Avg recurring', money(d.avgMonthly), 'per month', () => openDrill('Avg recurring · ' + money(d.avgMonthly), 'Recurring $59 and up', d.splits.recurring.yes, 'Recurring under $59', d.splits.recurring.no, repNameOf)),
+        tile('Avg initial', money(d.avgInitial), 'subscriptions', () => openDrill('Avg initial · ' + money(d.avgInitial), 'Initial $99 and up', d.splits.initial.yes, 'Initial under $99', d.splits.initial.no, repNameOf, null, { of: (x) => Number(x.initial_amount) || 0, fmt: money })),
+        tile('Avg recurring', money(d.avgMonthly), 'per month', () => openDrill('Avg recurring · ' + money(d.avgMonthly), 'Recurring $59 and up', d.splits.recurring.yes, 'Recurring under $59', d.splits.recurring.no, repNameOf, null, { of: (x) => Number(x.monthly_amount) || 0, fmt: (n) => money(n) + '/mo' })),
         tile('Avg ACV', money(d.avgContract), 'contract value per sale', () => openDrill('Avg ACV · ' + money(d.avgContract), 'ACV $700 and up', d.splits.acv.yes, 'ACV under $700', d.splits.acv.no, repNameOf)),
-        tile('Multi-year', pct(d.multiPct), '18 mo and up', () => openDrill('Multi-year · ' + pct(d.multiPct), 'Multi-year (18 mo+)', d.splits.multi.yes, '12-month', d.splits.multi.no, repNameOf)),
+        tile('Multi-year', pct(d.multiPct), '18 mo and up', () => openDrill('Multi-year · ' + pct(d.multiPct), 'Multi-year (18 mo+)', d.splits.multi.yes, '12-month', d.splits.multi.no, repNameOf, null, { of: (x) => Number(x.contract_months) || 0, fmt: (n) => n > 1 ? Math.round(n) + ' MO' : 'ONE-TIME', avg: false })),
         tile('Auto pay', d.autoPay == null ? '—' : pct(d.autoPay * 100), 'of CRM sales', () => openDrill('Auto pay · ' + (d.autoPay == null ? '—' : pct(d.autoPay * 100)), 'On auto pay', d.splits.autopay.yes, 'Not on auto pay', d.splits.autopay.no, repNameOf)),
         tile('Rec mix', pct(d.recMix), 'recurring subs of all sales', () => openDrill('Rec mix · ' + pct(d.recMix), 'Recurring subscriptions', d.splits.recmix.yes, 'One-time services', d.splits.recmix.no, repNameOf))));
 
