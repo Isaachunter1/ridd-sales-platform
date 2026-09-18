@@ -348,7 +348,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
             const nw = { ...(state._retenWhatIf || {}) }; const rs = { ...(nw.reasons || {}) };
             if (e.target.checked === model.excludedSet.has(g.key)) delete rs[g.key]; else rs[g.key] = e.target.checked;
             nw.reasons = rs; state._retenWhatIf = nw; mountApp(); } });
-          cb.checked = excl.has(g.key);   // property, not just attribute — some browsers ignored the attribute here
+          cb.checked = excl.has(g.key); cb.defaultChecked = cb.checked;   // property AND default — a re-serialised node keeps only one of them
           const nowEx = excl.has(g.key);
           if (nowEx) cb.style.accentColor = '#DC2626';
           // Red = being removed from churn (treated as retained); grey = counts as churn.
