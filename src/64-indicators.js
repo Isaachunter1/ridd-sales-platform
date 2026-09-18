@@ -70,6 +70,15 @@ function viewIndicators() {
   // any saved preset or persisted session still holding it, otherwise the
   // page would sit in a mode the dropdown can no longer show or leave.
   if (state.indicatorsGroupBy === 'dept') state.indicatorsGroupBy = 'branch';
+  // Partners / team leads (per Isaac, Sep 2026): the table + Power Ranking
+  // open in TEAMS mode — a partner's team may sell across offices, so the
+  // branch column is the wrong lens. Once per session; the Group filter
+  // still lets them switch to branches.
+  if (!state._indPartnerGroupInit && rawSalesAvailable && !state.indicatorsComps
+      && ((typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role)) || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role)))) {
+    state._indPartnerGroupInit = true;
+    state.indicatorsGroupBy = 'teams';
+  }
   const wantTeams = state.indicatorsGroupBy === 'teams';
   const wantDept  = state.indicatorsGroupBy === 'dept';
   const wantCompany = state.indicatorsGroupBy === 'company';
@@ -1365,7 +1374,7 @@ function viewIndicators() {
           : (sortedBranches.includes(homeBranch) ? homeBranch : sortedBranches[0]);
         const _lblB = (b) => b.split(' ').map(w => (w[0] || '') + w.slice(1).toLowerCase()).join(' ');
         _branchSel = el('div', { class: 'flex items-center gap-2 px-3 py-2 border-b', style: { borderColor: 'var(--border)' } },
-          el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Branch'),
+          el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, groupBy === 'teams' ? 'Team' : 'Branch'),
           el('select', {
             class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold flex-1',
             style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
