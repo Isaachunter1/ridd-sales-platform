@@ -857,6 +857,10 @@
       mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 22px), rgba(0,0,0,.25) 100%);
     }
 
+    /* Records table: iOS leaves a phantom gap left of a sticky first column
+       after a sideways swipe, so on phones the Scope cells just scroll. */
+    .records-table th, .records-table td { position: static !important; box-shadow: none !important; }
+
     /* NRLA standings: pin Seed + Team while the money columns swipe */
     .nrla-standings th, .nrla-standings td { white-space: nowrap; }
 
