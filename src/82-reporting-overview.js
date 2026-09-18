@@ -460,7 +460,10 @@ function reportingOverview() {
             if (set.length) openPulseBranchDrill(what + ' · ' + lbl[i], set, valOf, dsi === 0 ? 'contract value' : 'ARR', dsi === 2);
           },
           plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 } } },
-            tooltip: { callbacks: { label: (c) => ' ' + c.dataset.label + ': $' + Math.round(c.parsed.y).toLocaleString() } } },
+            tooltip: { callbacks: {
+              // Long-form date in the tooltip title (per Isaac): "Wednesday, September 6th, 2026".
+              title: (items) => { const i = items && items[0] ? items[0].dataIndex : -1; if (i < 0) return ''; const dt = new Date(days[i] + 'T00:00'); const n = dt.getDate(); const sfx = (n % 10 === 1 && n !== 11) ? 'st' : (n % 10 === 2 && n !== 12) ? 'nd' : (n % 10 === 3 && n !== 13) ? 'rd' : 'th'; return dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long' }) + ' ' + n + sfx + ', ' + dt.getFullYear(); },
+              label: (c) => ' ' + c.dataset.label + ': $' + Math.round(c.parsed.y).toLocaleString() } } },
           scales: { x: { ticks: { color: txt, maxTicksLimit: span > 30 ? 15 : 31 }, grid: { display: false } },
                     y: { beginAtZero: true, ticks: { color: txt, callback: v => '$' + (v >= 1000 ? Math.round(v / 1000) + 'k' : v) }, grid: { color: grid } } } },
       });
