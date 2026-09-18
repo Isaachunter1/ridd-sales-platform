@@ -667,6 +667,44 @@ function _drillRecurring(r) {
   return null;
 }
 function _drillAutopay(r) { const a = String(r.customer_auto_pay || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); }
+// ── Pinned toolbar (per Isaac, Sep 2026): the filter bar every table below
+// depends on freezes under the page header once you scroll past it — same
+// pattern as Retention / P&L (main is overflow-x:hidden, so position:sticky
+// can't work; we flip to position:fixed and leave a spacer in the flow).
+// Phones never pin (the bar is a third of the screen there).
+function reportingPinBar(key, bar) {
+  const spId = 'pinSp-' + key, barId = 'pinBar-' + key;
+  bar.id = barId;
+  const spacer = el('div', { id: spId }, bar);
+  const sync = () => {
+    const sp = document.getElementById(spId), b = document.getElementById(barId);
+    if (!sp || !b || !b.isConnected) return;
+    const narrow = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })();
+    const hdr = document.querySelector('header.page-header');
+    const top = hdr ? Math.round(hdr.getBoundingClientRect().bottom) : 60;
+    if (!sp.style.height) sp.style.height = b.offsetHeight + 'px';
+    const pin = !narrow && sp.getBoundingClientRect().top < top;
+    if (pin && !b._pinned) {
+      b._pinned = true;
+      const r = sp.getBoundingClientRect();
+      Object.assign(b.style, { position: 'fixed', top: top + 'px', left: r.left + 'px', width: r.width + 'px', zIndex: '15', boxShadow: '0 6px 12px -8px rgba(0,0,0,.25)' });
+    } else if (!pin && b._pinned) {
+      b._pinned = false;
+      Object.assign(b.style, { position: '', top: '', left: '', width: '', zIndex: '', boxShadow: '' });
+    } else if (pin) { const r = sp.getBoundingClientRect(); b.style.left = r.left + 'px'; b.style.width = r.width + 'px'; }
+  };
+  window._rptPinSyncs = window._rptPinSyncs || {};
+  window._rptPinSyncs[key] = sync;
+  if (!window._rptPinBound) {
+    window._rptPinBound = true;
+    const all = () => { for (const f of Object.values(window._rptPinSyncs || {})) { try { f(); } catch (e) { /* torn down */ } } };
+    window.addEventListener('scroll', all, { passive: true });
+    window.addEventListener('resize', () => { for (const k of Object.keys(window._rptPinSyncs || {})) { const sp = document.getElementById('pinSp-' + k); if (sp) sp.style.height = ''; } all(); });
+  }
+  requestAnimationFrame(() => { sync(); setTimeout(sync, 200); });
+  return spacer;
+}
+
 function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, summary }) {
   const overlay = el('div', { class: 'modal-overlay' });
   const closeKey = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', closeKey); } };

@@ -501,8 +501,9 @@ function reportingAuditing() {
 
   return el('div', { class: 'flex flex-col gap-4' },
     // Toolbar — same card treatment as the Reporting filter bars; pickers
-    // left, tools (⬇ export · 👥 manage teams) pushed right.
-    el('div', { class: 'card p-4 flex items-center gap-2 flex-wrap' },
+    // left, tools (⬇ export · 👥 manage teams) pushed right. Pinned under
+    // the page header on scroll (per Isaac).
+    reportingPinBar('audit', el('div', { class: 'card p-4 flex items-center gap-2 flex-wrap' },
       sel(offFilter, [['all', 'All Branches'], ...offices.map(o => [o, o])], (e) => { state.auditOffice = e.target.value; mountApp(); }),
       sel(teamFilter, [['all', 'All Teams'], ...teamsList.map(t => [t, t])], (e) => { state.auditTeam = e.target.value; mountApp(); }, 'Filter by team'),
       sel(preset, presetOpts, (e) => {
@@ -532,7 +533,7 @@ function reportingAuditing() {
         title: 'Assign reps to teams / tiers (same as the Indicators tab)',
         onclick: () => openManageTeamsModal(),
       }, '\ud83d\udc65'),
-      ),
+      )),
 
     // ONE rollup table with an Office ⇄ Teams toggle (per Isaac), then the per-rep detail table.
     (() => {

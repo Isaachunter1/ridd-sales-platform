@@ -628,7 +628,7 @@ function reportingGeographic() {
   })() : null;
 
   return el('div', { class: 'flex flex-col gap-4' },
-    filterBar,
+    reportingPinBar('geo', filterBar),
     compareNotice,
     svcOutBanner,
     breadcrumb,

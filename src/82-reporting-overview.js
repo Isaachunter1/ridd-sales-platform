@@ -572,7 +572,7 @@ function reportingOverview() {
   })();
 
   return el('div', { class: 'flex flex-col gap-4' },
-    filterBar,
+    reportingPinBar('overview', filterBar),
     statsBlock,
     pulseCard,
     columnsBlock,
