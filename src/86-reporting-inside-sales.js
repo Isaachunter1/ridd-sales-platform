@@ -1352,7 +1352,8 @@ function initReportingGeoMap(containerId, states, metricKey, metricLabel, fmtMet
 function exportReportingGeoCsv(items, kind, scopeTag) {
   if (!items || !items.length) { toast('Nothing to export', 'warn'); return; }
   const firstCol = kind === 'county' ? 'county' : 'zip';
-  const headers = [firstCol, 'state', 'offices', 'accounts', 'subscriptions', 'avg_contract_value', 'active_arr', 'active_subscriptions', 'cancellations', 'attrition_pct', 'avg_tenure_months', 'two_year_plus_pct', 'sentricon_customer_pct', 'ltv_per_customer'];
+  // Per Isaac: the export is a lean list — ZIP (or county), office, active subs.
+  const headers = [firstCol, 'office', 'active_subscriptions'];
   const lines = [headers.join(',')];
   for (const it of items) {
     // Distinct office names contributing to this ZIP/county, in volume order.
@@ -1364,21 +1365,8 @@ function exportReportingGeoCsv(items, kind, scopeTag) {
     const offices = [...offCounts.entries()].sort((a, b) => b[1] - a[1]).map(([o]) => o).join('; ');
     lines.push([
       csvEsc(kind === 'county' ? (it.county || 'Unknown') : it.zip),
-      csvEsc(it.state || ''),
       csvEsc(offices),
-      it.customers,
-      it.subs,
-      Math.round(it.avgContract),
-      Math.round(it.arv),
       it.active,
-      it.cancellations,
-      // Mirror the table: attrition is only meaningful with 10+ subs, so
-      // leave it blank below the floor rather than print a noisy rate.
-      it.attritionEligible ? (it.cancelRate * 100).toFixed(1) : '',
-      (it.avgTenure || 0).toFixed(1),
-      Math.round((it.twoYrPct || 0) * 100),
-      Math.round((it.sentriconPct || 0) * 100),
-      Math.round(it.ltv || 0),
     ].join(','));
   }
   const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
