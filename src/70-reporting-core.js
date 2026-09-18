@@ -751,7 +751,6 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
     // the CRM once synced, else ARR ÷ services-per-year from the frequency),
     // term, completed appointments, autopay, sold and initial dates.
     { key: 'arv',          label: 'ARR',             align: 'right', type: 'num', get: r => Number(r.annual_recurring_value) || 0 },
-    { key: 'contract',     label: 'Contract $',      align: 'right', type: 'num', get: r => Number(r.subscription_contract_value) || 0 },
     { key: 'initialPrice', label: 'Initial $',       align: 'right', type: 'num', get: r => Number(r.initial_price) || 0 },
     { key: 'recurring',    label: 'Recurring $',     align: 'right', type: 'num', get: r => _drillRecurring(r) || 0 },
     { key: 'term',         label: 'Term',            align: 'right', type: 'num', get: r => Number(r.agreement_length) || 0 },
@@ -762,9 +761,11 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
     { key: 'pastdue',      label: 'Past Due',        align: 'right', type: 'num', get: r => Number(r.days_past_due) || 0 },
     { key: 'balance',      label: 'Balance',         align: 'right', type: 'num', get: r => Number(r.responsible_balance) || 0 },
     { key: 'canceled',     label: 'Canceled',        align: 'left',  type: 'str', get: r => r.subscription_date_canceled || '' },
+    // Cancel reason is its own column (per Isaac, Sep 2026) — Contract $ left to make room.
+    { key: 'reason',       label: 'Cancel Reason',   align: 'left',  type: 'str', get: r => String(r.subscription_cancellation_reason || '').toLowerCase() },
   ];
 
-  let sortKey = 'contract';   // default: largest contract value first
+  let sortKey = 'arv';   // default: largest ARR first
   let sortDir = 'desc';
   // Render is WINDOWED: a big slice (e.g. the whole snapshot behind the
   // Subscriptions card) is tens of thousands of rows × 11 cells — building
@@ -806,8 +807,6 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
         : '—'),
     el('td', { class: 'px-3 py-2 text-right tabular-nums' },
       r.annual_recurring_value != null ? '$' + Math.round(r.annual_recurring_value).toLocaleString() : '—'),
-    el('td', { class: 'px-3 py-2 text-right tabular-nums' },
-      r.subscription_contract_value != null ? '$' + Math.round(r.subscription_contract_value).toLocaleString() : '—'),
     el('td', { class: 'px-3 py-2 text-right tabular-nums' }, r.initial_price != null && r.initial_price !== '' ? '$' + Math.round(Number(r.initial_price)).toLocaleString() : '—'),
     el('td', { class: 'px-3 py-2 text-right tabular-nums' }, (() => { const v = _drillRecurring(r); return v ? el('span', { title: r.recurring_charge != null ? 'Recurring charge in FieldRoutes' + (r.recurring_frequency ? ' · every ' + r.recurring_frequency + ' days' : '') : 'ARR ÷ services per year (frequency ' + (r.recurring_frequency || '?') + ' days)' }, '$' + Math.round(v).toLocaleString()) : '—'; })()),
     el('td', { class: 'px-3 py-2 text-right tabular-nums' }, Number(r.agreement_length) ? r.agreement_length + ' mo' : '—'),
@@ -820,14 +819,8 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
       style: { color: (Number(r.days_past_due) || 0) > 0 ? '#DC2626' : 'var(--text-muted)' },
     }, r.days_past_due ? r.days_past_due + 'd' : '—'),
     el('td', { class: 'px-3 py-2 text-right tabular-nums', style: { color: (Number(r.responsible_balance) || 0) > 0 ? '#DC2626' : 'var(--text-muted)' } }, (Number(r.responsible_balance) || 0) > 0 ? '$' + Math.round(Number(r.responsible_balance)).toLocaleString() : '—'),
-    el('td', { class: 'px-3 py-2' },
-      r.subscription_date_canceled
-        ? el('div', {},
-            el('div', {}, fmtDate(r.subscription_date_canceled)),
-            r.subscription_cancellation_reason && el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, r.subscription_cancellation_reason),
-          )
-        : '—',
-    ),
+    el('td', { class: 'px-3 py-2 whitespace-nowrap' }, r.subscription_date_canceled ? fmtDate(r.subscription_date_canceled) : '—'),
+    el('td', { class: 'px-3 py-2', style: { minWidth: '140px', maxWidth: '240px', whiteSpace: 'normal', lineHeight: '1.3' } }, r.subscription_cancellation_reason || '—'),
   );
 
   const tbody = el('tbody', {});
