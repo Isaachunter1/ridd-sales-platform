@@ -2679,6 +2679,13 @@ async function boot() {
   // Put them back at the scroll position they left (best-effort — data
   // sections finish loading async, so a slightly different height is fine).
   if (state._resumeScroll) { const y = state._resumeScroll; state._resumeScroll = 0; setTimeout(() => window.scrollTo(0, y), 400); }
+  // Back onto the TV board after a version auto-reload (the board set the flag).
+  try {
+    if (sessionStorage.getItem('ridd_reopen_tv') === '1') {
+      sessionStorage.removeItem('ridd_reopen_tv');
+      if (typeof openTvBoard === 'function' && state.profile) setTimeout(() => { try { openTvBoard(); } catch (e) { /* board optional */ } }, 600);
+    }
+  } catch { /* ignore */ }
   // Post-reload confirmation from the password-save handoff.
   try {
     if (sessionStorage.getItem('ridd_pw_saved') === '1') {
@@ -3530,6 +3537,10 @@ function _armSplashWatchdog() {
       if (!r.ok) return;
       const v = await r.json();
       if (!v || !v.hash || v.hash === _myBundle) return;
+      // The TV board is an unattended screen (per Isaac, Sep 18): nobody is
+      // there to press Refresh, and the board's overlay hides the banner
+      // anyway. Reload straight away and come back up on the board.
+      if (state._tvOpen) { try { sessionStorage.setItem('ridd_reopen_tv', '1'); sessionStorage.setItem('ridd_reloaded_for', v.hash); } catch { /* private */ } location.reload(); return; }
       showBanner(v.hash);
     } catch { /* offline — next cycle */ }
   };
