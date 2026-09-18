@@ -1769,6 +1769,16 @@ function linkRenewalChains(rows) {
   state._renewalLinks = links;
   return rows;
 }
+async function _loadCrmDeletedIds() {
+  if (state._crmDeletedLoaded || DEMO || !supabase) return;
+  try {
+    const { data } = await supabase.from('app_settings').select('value').eq('key', 'crm_deleted').maybeSingle();
+    const v = data && data.value;
+    state._crmDeletedIds = (v && Array.isArray(v.ids)) ? v.ids.map(x => String(x).trim()).filter(Boolean) : [];
+    state._crmDeletedMeta = v ? { scanned_at: v.scanned_at || null, checked: v.checked || 0, mirror: v.mirror || 0 } : null;
+  } catch (e) { state._crmDeletedIds = state._crmDeletedIds || []; }
+  state._crmDeletedLoaded = true;
+}
 async function loadReportingSubscriptions(uploadId) {
   const raw = await _loadReportingSubscriptionsRaw(uploadId);
   const noPhantom = stripPhantomOffices(raw);
@@ -1786,6 +1796,10 @@ async function loadReportingSubscriptions(uploadId) {
   const _cut = new Date(); _cut.setDate(_cut.getDate() - 7);
   const _cutIso = _cut.toISOString().slice(0, 10);
   for (const r of rows) if (r.customer_missing && r.sold_date && String(r.sold_date).slice(0, 10) >= _cutIso) r.customer_missing = null;
+  // Nightly FieldRoutes scan (app_settings.crm_deleted): customer ids the
+  // CRM no longer returns. The mirror never forgets a deleted account, so
+  // without this they read as live customers forever (per Isaac).
+  await _loadCrmDeletedIds();
   const orphans = rows.filter(r => r.customer_missing);
   state._orphanSubs = orphans;
   state._orphanCustIds = [...new Set(orphans.map(r => String(r.customer_id != null ? r.customer_id : '')).filter(Boolean))];

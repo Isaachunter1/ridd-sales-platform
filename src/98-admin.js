@@ -426,12 +426,15 @@ function adminConfigurations() {
   const orphanCust = new Set(orphans.map(r => String(r.customer_id || ''))).size;
   const autoOrph = reportingAutoExcludeOrphans();
   const delIds = state.indicatorDeletedCustIds || [];
+  const crmDelN = (state._crmDeletedIds || []).length;
+  const crmMeta = state._crmDeletedMeta;
   const reportingRules = card('Reporting rules', null,
     row('Recurring basis', sel(reportingRecurringMode(), [['arv', 'Data-driven (ARV > $0)'], ['lifecycle', 'Lifecycle config']], (v) => { setReportingRecurringMode(v); mountApp(); }), { tip: 'How the app decides which subscriptions are recurring. Data-driven: annual recurring value > $0 (self-maintaining, recommended). Lifecycle: the Service Types list decides.' }),
     row('Aging threshold', [el('span', { class: 'text-[11px] text-muted-' }, 'days past due ≥'), num(reportingAgingDays(), (v) => { setReportingAgingDays(v); mountApp(); })], { tip: 'A sub counts as aging / at-risk when its days past due is greater than or equal to this number.' }),
     row('Active includes one-time', sw(reportingActiveInclOneTime(), () => { setReportingActiveInclOneTime(!reportingActiveInclOneTime()); mountApp(); }), { tip: 'Count one-time active subs in “Subscriptions Active”. Off = recurring only.' }),
     row('Deleted CRM accounts · auto-exclude', [
       orphans.length ? el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => openReportingDrillModal({ chartTitle: 'Subscriptions with no FieldRoutes customer record', sliceLabel: n(orphans.length) + ' subscriptions · deleted in the CRM', rows: orphans, formatValue: fmt.usd0 }) }, n(orphanCust) + ' detected →') : pill('0 detected'),
+      pill(n(crmDelN) + ' from nightly FieldRoutes check' + (crmMeta && crmMeta.scanned_at ? ' · ' + new Date(crmMeta.scanned_at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ' · not run yet')),
       sw(autoOrph, () => {
         setReportingAutoExcludeOrphans(!autoOrph);
         if (Array.isArray(state.reportingSubscriptions)) {

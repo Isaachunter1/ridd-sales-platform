@@ -42,6 +42,11 @@
 [functions."tech-stats-scheduled"]
   schedule = "20 * * * *"
 
+# Deleted-in-FieldRoutes scan (per Isaac) — nightly ~4am ET, ~90 FieldRoutes
+# calls; writes app_settings.crm_deleted for the app-wide exclusion + step.
+[functions."crm-deleted-scan-scheduled"]
+  schedule = "0 8 * * *"
+
 [functions."teamlead-digest-scheduled"]
   schedule = "45 * * * *"     # hourly at :45 — gates itself to 7:45pm ET inside (Netlify ignores range crons)
 
