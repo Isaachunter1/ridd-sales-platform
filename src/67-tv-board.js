@@ -70,6 +70,34 @@ function openTvBoard() {
     return total;
   };
 
+  // ── Sale time (per Isaac, Sep 2026): created_at is only when the SYNC
+  // wrote the row, so 'latest' was sync order and the clock was wrong. The
+  // CRM snapshot carries sold_at = FieldRoutes' dateAdded on the office's
+  // own clock; map it by subscription id, shift office-local → real instant
+  // with the branch zone, and everything (order, clock, 'ago') is truthful.
+  const _snapBySub = (() => { const m = new Map(); for (const r of (state.reportingSubscriptions || [])) { if (r.subscription_id != null && r.sold_at) m.set(String(r.subscription_id), r); } return m; })();
+  const _tzOfOffice = (name) => { const k = String(name || '').toUpperCase().trim(); const cfg = state.nrlaConfig; return (typeof nrlaBranchTzOf === 'function') ? nrlaBranchTzOf(cfg, k) : ((typeof NRLA_BRANCH_TZ !== 'undefined' && NRLA_BRANCH_TZ[k]) || 'America/New_York'); };
+  // Office-local wall clock "YYYY-MM-DD HH:MM:SS" in `tz` → Date. Two passes
+  // of Intl to find the zone offset at that moment (handles DST).
+  const _localToDate = (str, tz) => {
+    const m = String(str || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/); if (!m) return null;
+    const asUtc = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+    const offAt = (ms) => { try { const p = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(new Date(ms)); const g = (t) => +p.find(x => x.type === t).value; return Date.UTC(g('year'), g('month') - 1, g('day'), g('hour') % 24, g('minute'), g('second')) - ms; } catch { return 0; } };
+    let ms = asUtc - offAt(asUtc); ms = asUtc - offAt(ms);
+    return new Date(ms);
+  };
+  const saleAt = (s) => {
+    const snap = s.crm_subscription_id != null ? _snapBySub.get(String(s.crm_subscription_id)) : null;
+    if (snap) { const d = _localToDate(snap.sold_at, _tzOfOffice(snap.office_name)); if (d && !isNaN(d)) return d; }
+    const c = s.created_at ? new Date(s.created_at) : null; return c && !isNaN(c) ? c : null;
+  };
+  const saleKey = (s) => { const d = saleAt(s); return d ? d.getTime() : 0; };
+  const sourceOf = (s) => {
+    const byId = s.source_id != null ? (state.sources || []).find(o => o.id === s.source_id) : null; if (byId && byId.name) return byId.name;
+    const snap = s.crm_subscription_id != null ? _snapBySub.get(String(s.crm_subscription_id)) : null; if (snap && snap.subscription_source) return snap.subscription_source;
+    return s.source || s._crmSource || '';
+  };
+
   const compute = () => {
     const range = rangeOf();
     const pool = (typeof dashboardSales === 'function' ? dashboardSales() : (state.allSales || [])) || [];
@@ -85,9 +113,9 @@ function openTvBoard() {
     rows.forEach(s => {
       const key = s.rep_id || (s._crm && s._crmRep && !(typeof FR_SYSTEM_NAME_RE !== 'undefined' && FR_SYSTEM_NAME_RE.test(s._crmRep)) ? 'crm:' + s._crmRep : null);
       if (!key) return;
-      if (!agg.has(key)) agg.set(key, { key, id: s.rep_id, crm: s._crmRep, revenue: 0, count: 0, last: null });
-      const a = agg.get(key); a.revenue += Number(s.revenue_amount) || 0; a.count++;
-      if (!a.last || String(s.created_at) > String(a.last)) a.last = s.created_at;
+      if (!agg.has(key)) agg.set(key, { key, id: s.rep_id, crm: s._crmRep, revenue: 0, count: 0, last: null, sales: [] });
+      const a = agg.get(key); a.revenue += Number(s.revenue_amount) || 0; a.count++; a.sales.push(s);
+      const t = saleAt(s); if (t && (!a.last || t > a.last)) a.last = t;
     });
     const profOf = (a) => (state.allProfiles || []).find(p => p.id === a.id) || (state.profile && state.profile.id === a.id ? state.profile : null);
     const reps = [...agg.values()].map(a => {
@@ -100,7 +128,7 @@ function openTvBoard() {
     const offAgg = new Map();
     rows.forEach(s => { const o = (state.offices || []).find(x => x.id === s.office_id); const n = o ? o.name : (s._crmOffice || 'Unassigned'); offAgg.set(n, (offAgg.get(n) || 0) + (Number(s.revenue_amount) || 0)); });
     const offices = [...offAgg.entries()].map(([name, revenue]) => ({ name, revenue })).sort((a, b) => b.revenue - a.revenue);
-    const latest = [...rows].sort((a, b) => String(b.created_at || b.sold_date).localeCompare(String(a.created_at || a.sold_date)));
+    const latest = [...rows].sort((a, b) => saleKey(b) - saleKey(a));   // newest sale first — by the CRM's clock, not sync order
     const goal = goalFor(range);
     return { range, rows, revenue: rev(rows), count: rows.length,
       avgInitial: subs.length ? subs.reduce((a, s) => a + (Number(s.initial_amount) || 0), 0) / subs.length : 0,
@@ -134,14 +162,15 @@ function openTvBoard() {
           el('div', { style: { minWidth: '0' } },
             el('div', { style: { fontFamily: HEAD, fontSize: '18px', letterSpacing: '.02em', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, repName(x)),
             el('div', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.04em', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
-              el('span', { style: { color: T.ink } }, (Number(x.contract_months) > 1 ? Number(x.contract_months) + ' MO' : 'ONE-TIME')), '  ·  ' + (x._crmService || x.service_name || '—') + (x.created_at ? '  ·  ' + ago(x.created_at) : ''))),
+              el('span', { style: { color: T.ink } }, (Number(x.contract_months) > 1 ? Number(x.contract_months) + ' MO' : 'ONE-TIME')), '  ·  ' + (x._crmService || x.service_name || '—') + (sourceOf(x) ? '  ·  ' + sourceOf(x) : '') + (saleAt(x) ? '  ·  ' + ago(saleAt(x)) : ''))),
           figure(money(x.revenue_amount), '16px')))
         : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'None.')])));
     back.append(el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, color: T.ink, width: 'min(1200px, 94vw)', padding: '26px 30px', display: 'flex', flexDirection: 'column', gap: '18px' } },
       el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
         el('div', { style: { fontFamily: HEAD, fontSize: '32px', letterSpacing: '.02em', textTransform: 'uppercase' } }, title),
         el('button', { style: { width: '36px', height: '36px', background: 'transparent', border: '1px solid ' + T.hair, color: T.dim, cursor: 'pointer', fontSize: '18px' }, onclick: () => back.remove() }, '\u00d7')),
-      el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '28px' } }, list(yesLabel, yes, true), list(noLabel, no, false))));
+      no ? el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '28px' } }, list(yesLabel, yes, true), list(noLabel, no, false))
+         : list(yesLabel, [...yes].sort((a, b) => saleKey(b) - saleKey(a)), true)));
     overlay.append(back);
   };
   const avatar = (r, px) => r.avatar
@@ -220,7 +249,7 @@ function openTvBoard() {
     const board = panel([
       el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '14px' } }, eyebrow('Leaderboard'), eyebrow('revenue · sales')),
       d.reps.length ? el('div', { class: 'tv-scroll', style: { display: 'flex', flexDirection: 'column', gap: '6px', overflowY: 'auto', flex: '1', minHeight: '0', paddingRight: '4px' } },
-        ...d.reps.map((r, i) => el('div', { style: { display: 'grid', gridTemplateColumns: '44px 56px minmax(0, 1fr) auto', alignItems: 'center', gap: '16px', padding: '8px 10px', background: i === 0 ? T.surface2 : 'transparent', borderLeft: i === 0 ? '3px solid ' + T.ember : '3px solid transparent' } },
+        ...d.reps.map((r, i) => el('div', { title: 'Tap for ' + r.name + '’s sales', onclick: () => openDrill(r.name + ' · ' + d.range.label, r.count + ' sale' + (r.count === 1 ? '' : 's') + ' · ' + money(r.revenue), r.sales, null, null, (x) => (x.customer_name || (x.customer_number ? 'Customer #' + x.customer_number : '—'))), style: { cursor: 'pointer', display: 'grid', gridTemplateColumns: '44px 56px minmax(0, 1fr) auto', alignItems: 'center', gap: '16px', padding: '8px 10px', background: i === 0 ? T.surface2 : 'transparent', borderLeft: i === 0 ? '3px solid ' + T.ember : '3px solid transparent' } },
           el('div', { style: { fontFamily: MONO, fontSize: '14px', color: i === 0 ? T.ember : T.dim, letterSpacing: '.08em' } }, String(i + 1).padStart(2, '0')),
           avatar(r, 56),
           el('div', { style: { minWidth: '0' } },
@@ -245,15 +274,16 @@ function openTvBoard() {
       el('div', { class: 'tv-scroll', style: { display: 'flex', flexDirection: 'column', marginTop: '10px', overflowY: 'auto', flex: '1', minHeight: '0', paddingRight: '4px' } },
         ...(d.latest.length ? d.latest.map((s, i) => {
           const r = d.reps.find(x => x.key === (s.rep_id || ('crm:' + s._crmRep)));
-          const when = (v) => { const d = new Date(v); return isNaN(d) ? '' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) + ' · ' + ago(v); };
+          const when = (d) => !d || isNaN(d) ? '' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) + ' · ' + ago(d);
+          const at = saleAt(s), src = sourceOf(s);
           // Name with the time stamp under it · term + subscription in the middle · amount right (per Isaac).
           return el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 1fr) auto', gap: '14px', alignItems: 'center', padding: '11px 0', borderTop: i ? '1px solid ' + T.hair : 'none' } },
             el('div', { style: { minWidth: '0' } },
               el('div', { style: { fontFamily: HEAD, fontSize: 'clamp(18px, 1.5vw, 24px)', letterSpacing: '.02em', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, (r ? r.name : (s._crmRep || 'Rep'))),
-              el('div', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.06em', marginTop: '3px', whiteSpace: 'nowrap' } }, s.created_at ? when(s.created_at) : '—')),
+              el('div', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.06em', marginTop: '3px', whiteSpace: 'nowrap' } }, at ? when(at) : '—')),
             el('div', { style: { minWidth: '0', textAlign: 'right' } },
               el('div', { style: { fontFamily: MONO, fontSize: '13px', color: T.ink, letterSpacing: '.08em', whiteSpace: 'nowrap' } }, (Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME')),
-              el('div', { style: { fontFamily: VOICE, fontWeight: 500, fontSize: '12px', color: T.dim, marginTop: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, s._crmService || s.service_name || '—')),
+              el('div', { style: { fontFamily: VOICE, fontWeight: 500, fontSize: '12px', color: T.dim, marginTop: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, (s._crmService || s.service_name || '—') + (src ? ' · ' + src : ''))),
             figure(money(s.revenue_amount), 'clamp(18px, 1.6vw, 26px)', i === 0 && fresh ? T.ember : T.ink));
         }) : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'Nothing yet.')]))], { flex: '1' });
     const body = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr)', gap: '18px', padding: '20px 36px 24px', flex: '1', minHeight: '0' } },
