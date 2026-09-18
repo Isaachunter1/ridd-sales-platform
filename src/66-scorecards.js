@@ -1820,6 +1820,9 @@ function setRetenExclFrozenOneSvc(b)  { _setAdminRule('retenExclFrozenOneSvc', !
 // reasons leave the retention book entirely - they are not customers lost
 // (3-day ROR = never really a customer; Combined = folded into another
 // sub; Renewal-* = the old sub was replaced by the renewal, which stays).
+// "ROR" as a WORD (3 Day ROR, ROR, right of rescission) — a bare /ror/
+// also matched "Subscription ERROR" and pulled real cancels into the ROR step.
+function _isRorReason(x) { return /\bror\b|rescission/i.test(String(x || '')); }
 const RETEN_POP_EXCL_REASONS_DEFAULT = ['3 Day ROR', 'Combined Subscriptions', 'Renewal - Outbound', 'Renewal - Loyalty', 'Renewal - Service Pro Upsell', 'Renewal - Inbound'];
 // These three getters are called PER ROW inside 77k-row filters, so they
 // memoize on (admin rules, cancel config, what-if, tab) — rebuilding a Set
@@ -1838,9 +1841,9 @@ function _retenPopExclReasonsBuild() {
   let list = v.map(_normCancelReason);
   // What-if switches on the Retention tab: the 3-day ROR reason and the
   // combined / renewal reasons can be turned off separately.
-  if (!_retenWhatIf('popRor', true)) list = list.filter(x => !/ror/.test(x));
+  if (!_retenWhatIf('popRor', true)) list = list.filter(x => !_isRorReason(x));
   if (!_retenWhatIf('popCombined', true)) list = list.filter(x => !/combined/.test(x));
-  if (!_retenWhatIf('popRenew', true)) list = list.filter(x => /ror|combined/.test(x));
+  if (!_retenWhatIf('popRenew', true)) list = list.filter(x => _isRorReason(x) || /combined/.test(x));
   return new Set(list);
 }
 function setRetenPopExclReasons(arr) { _setAdminRule('retenPopExclReasons', arr); }
@@ -1873,11 +1876,11 @@ function retenIsRorSub(r) {
   if (!r.subscription_date_canceled) return false;
   // Timing-based catch (cancelled within 3 days, reason miscoded) is a
   // separate toggle on the Retention tab — the hand sheet only uses the reason.
-  return /ror/.test(_normCancelReason(reportingCancelReasonOf(r))) || (_retenWhatIf('popRorTiming', true) && _reporting3dayRor(r));
+  return _isRorReason(_normCancelReason(reportingCancelReasonOf(r))) || (_retenWhatIf('popRorTiming', true) && _reporting3dayRor(r));
 }
 function retenPopulationExcluded(r) {
   const popSet = retenPopExclReasons();
-  if ([...popSet].some(x => /ror/.test(x)) && retenIsRorSub(r)) return 'closed by 3 Day ROR';
+  if ([...popSet].some(_isRorReason) && retenIsRorSub(r)) return 'closed by 3 Day ROR';
   if (r.subscription_date_canceled && popSet.has(_normCancelReason(reportingCancelReasonOf(r)))) return 'closed by ' + String(reportingCancelReasonOf(r) || '').trim();
   if (retenExclRenewalSubs() && reportingSourceClass(r.subscription_source) === 'renewal') return 'renewal sub';
   if (retenExclZeroPay() && (Number(r.annual_recurring_value) || 0) <= 0) return '$0 paying';
