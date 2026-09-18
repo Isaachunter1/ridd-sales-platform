@@ -21,8 +21,11 @@ function viewPay() {
   // Admins can spot-check any rep's pay stub without logging in as them.
   // `state.payViewRepId` is the override; default is self. Non-admins are
   // always pinned to themselves.
+  // Office Staff stubs only (per Isaac): the D2D and Technician groups have
+  // their own Pay tabs, so sales reps / techs never show in this picker.
   const profilesForPicker = (state.allProfiles || []).filter(p =>
     p.is_active !== false && p.role !== 'auditor'
+    && (p.id === state.profile.id || (typeof repTypeGroup === 'function' ? repTypeGroup(p) === 'office' : true))
   );
   const viewedProfile = (isAdmin && state.payViewRepId)
     ? (profilesForPicker.find(p => p.id === state.payViewRepId) || state.profile)

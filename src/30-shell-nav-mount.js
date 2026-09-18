@@ -83,7 +83,7 @@ function salesModeToggle(mode) {
     },
   }, label);
   return el('div', { class: 'sales-mode-toggle inline-flex rounded-lg border overflow-hidden mr-2 shrink-0', style: { borderColor: 'var(--border-2)' } },
-    btn('inside', 'Inside Sales'), btn('d2d', 'D2D Sales'), btn('techs', 'Technicians'));
+    btn('inside', 'Office Staff'), btn('d2d', 'D2D Sales'), btn('techs', 'Technicians'));   // 'Office Staff' matches FieldRoutes (per Isaac)
 }
 function insideSalesSubTabs() {
   const tabs = insideSalesTabsFor(state.profile?.role);
