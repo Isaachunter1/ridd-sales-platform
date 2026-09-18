@@ -23,6 +23,7 @@ function openTvBoard() {
     document.removeEventListener('keydown', onKey);
     document.removeEventListener('fullscreenchange', onFs);
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    document.querySelectorAll('[data-tv-drill]').forEach(n => n.remove());
     overlay.remove();
   };
   const onKey = (e) => {
@@ -158,6 +159,7 @@ function openTvBoard() {
     // tile runs on rowsAgent / subsMy; the house rows stay in the revenue.
     const rowsAgent = rows.filter(s => !isHouse(s));
     const subsMy = subs.filter(s => !isHouse(s));
+    const subsAcv = subsMy.filter(s => !isRenewal(s));   // ACV (per Isaac): renewals out as well
     const my = subsMy.map(s => (typeof myBucketOf === 'function') ? myBucketOf(s) : null).filter(Boolean);
     const multi = my.filter(b => b === 'multi').length;
     const apPool = rowsAgent.filter(s => s._crm);
@@ -187,7 +189,7 @@ function openTvBoard() {
     return { range, rows, revenue: rev(newRows), newCount: newRows.length, totalRevenue: rev(rows), renewalRevenue: rev(renewRows), renewalCount: renewRows.length, count: rows.length, prior, priorRevenue, priorCount: priorRows.length,
       avgInitial: subsMy.length ? subsMy.reduce((a, s) => a + (Number(s.initial_amount) || 0), 0) / subsMy.length : 0,   // house account out
       avgMonthly: subsMy.length ? subsMy.reduce((a, s) => a + (Number(s.monthly_amount) || 0), 0) / subsMy.length : 0,   // house account out
-      avgContract: subsMy.length ? rev(subsMy) / subsMy.length : 0,   // recurring subs, house account out
+      avgContract: subsAcv.length ? rev(subsAcv) / subsAcv.length : 0,   // recurring NEW subs — house account, one-time and renewals out
       multiPct: my.length ? multi / my.length * 100 : 0, autoPay: ap, recMix: rowsAgent.length ? subsMy.length / rowsAgent.length * 100 : 0, reps, offices, latest, goal,
       splits: {
         multi: { yes: subsMy.filter(s => (typeof myBucketOf === 'function' ? myBucketOf(s) : null) === 'multi'), no: subsMy.filter(s => (typeof myBucketOf === 'function' ? myBucketOf(s) : null) === 'twelve'), excluded: subs.filter(isHouse) },
@@ -197,7 +199,7 @@ function openTvBoard() {
         initial: { yes: subsMy.filter(s => (Number(s.initial_amount) || 0) >= 99), no: subsMy.filter(s => (Number(s.initial_amount) || 0) < 99), excluded: subs.filter(isHouse) },
         recurring: { yes: subsMy.filter(s => (Number(s.monthly_amount) || 0) >= 59), no: subsMy.filter(s => (Number(s.monthly_amount) || 0) < 59), excluded: subs.filter(isHouse) },
         // ACV (per Isaac): RIDD Account sales and one-time services sit out of the average, in their own column.
-        acv: { yes: subsMy.filter(s => (Number(s.revenue_amount) || 0) >= 700), no: subsMy.filter(s => (Number(s.revenue_amount) || 0) < 700), excluded: rows.filter(s => isHouse(s) || isOts(s)) },
+        acv: { yes: subsAcv.filter(s => (Number(s.revenue_amount) || 0) >= 700), no: subsAcv.filter(s => (Number(s.revenue_amount) || 0) < 700), excluded: rows.filter(s => isHouse(s) || isOts(s) || isRenewal(s)) },
       } };
   };
 
@@ -216,9 +218,13 @@ function openTvBoard() {
     const amtOf = metric ? metric.of : (x) => Number(x.revenue_amount) || 0;
     const amtFmt = metric ? metric.fmt : money;
     const summary = (xs) => { if (!xs.length) return ''; const tot = xs.reduce((a, x) => a + amtOf(x), 0); return metric ? (metric.avg === false ? '' : '  ·  avg ' + amtFmt(tot / xs.length)) : '  ·  ' + money(tot); };
-    const back = el('div', { style: { position: 'fixed', inset: '0', background: 'rgba(10,11,13,.82)', zIndex: '10000', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px' } });
-    back.addEventListener('click', (e) => { if (e.target === back) back.remove(); });
-    const esc = (e) => { if (e.key === 'Escape') { back.remove(); document.removeEventListener('keydown', esc, true); e.stopPropagation(); } };
+    // The drill is its own layer on <body> (the 30-second repaint rebuilds
+    // the overlay's children, which used to wipe an open drill out from
+    // under the viewer — per Isaac). Closing it repaints so nothing is stale.
+    const back = el('div', { 'data-tv-drill': '1', style: { position: 'fixed', inset: '0', background: 'rgba(10,11,13,.82)', zIndex: '10000', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px' } });
+    const close = () => { back.remove(); document.removeEventListener('keydown', esc, true); try { render(); } catch (e) { /* keep the board up */ } };
+    back.addEventListener('click', (e) => { if (e.target === back) close(); });
+    const esc = (e) => { if (e.key === 'Escape') { close(); e.stopPropagation(); } };
     document.addEventListener('keydown', esc, true);
     const list = (label, xs, hot) => el('div', { style: { minWidth: '0', display: 'flex', flexDirection: 'column' } },
       el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' } }, eyebrow(label, { color: hot ? T.ember : T.ink }), eyebrow(xs.length + ' sale' + (xs.length === 1 ? '' : 's') + summary(xs))),
@@ -234,11 +240,11 @@ function openTvBoard() {
     back.append(el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, color: T.ink, width: 'min(1200px, 94vw)', padding: '26px 30px', display: 'flex', flexDirection: 'column', gap: '18px' } },
       el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
         hero ? el('div', {}) : el('div', { style: { fontFamily: HEAD, fontSize: '32px', letterSpacing: '.02em', textTransform: 'uppercase' } }, title),
-        el('button', { style: { width: '36px', height: '36px', background: 'transparent', border: '1px solid ' + T.hair, color: T.dim, cursor: 'pointer', fontSize: '18px' }, onclick: () => back.remove() }, '\u00d7')),
+        el('button', { style: { width: '36px', height: '36px', background: 'transparent', border: '1px solid ' + T.hair, color: T.dim, cursor: 'pointer', fontSize: '18px' }, onclick: close }, '\u00d7')),
       hero || null,
       no ? el('div', { style: { display: 'grid', gridTemplateColumns: metric && metric.third ? '1fr 1fr 1fr' : '1fr 1fr', gap: '28px' } }, list(yesLabel, yes, true), list(noLabel, no, false), metric && metric.third ? list(metric.third.label, metric.third.rows, false) : null)
          : list(yesLabel, [...yes].sort((a, b) => saleKey(b) - saleKey(a)), true)));
-    overlay.append(back);
+    document.body.append(back);
   };
   const avatar = (r, px) => r.avatar
     ? el('img', { src: r.avatar, alt: '', style: { width: px + 'px', height: px + 'px', objectFit: 'cover', flexShrink: '0' } })   // (colour, per Isaac — the grayscale treatment is gone)
@@ -246,6 +252,7 @@ function openTvBoard() {
   const ago = (v) => { const d = new Date(v); if (isNaN(d)) return ''; const m = Math.max(0, Math.round((Date.now() - d) / 60000)); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' hr ago' : Math.round(m / 1440) + ' d ago'; };
 
   const render = () => {
+    if (document.querySelector('[data-tv-drill]')) return;   // someone is reading a drill — repaint when it closes
     const d = compute();
     const keys = new Set(d.rows.map(s => s.id));
     const fresh = lastKeys ? [...keys].some(k => !lastKeys.has(k)) : false;
@@ -324,7 +331,7 @@ function openTvBoard() {
       el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gridAutoRows: '1fr', gap: '10px', minWidth: '0' } },
         tile('Avg initial', money(d.avgInitial), 'subscriptions', () => openDrill('Avg initial · ' + money(d.avgInitial), 'Initial $99 and up', d.splits.initial.yes, 'Initial under $99', d.splits.initial.no, repNameOf, null, { of: (x) => Number(x.initial_amount) || 0, fmt: money, third: { label: 'Excluded · RIDD Account', rows: d.splits.initial.excluded } })),
         tile('Avg recurring', money(d.avgMonthly), 'per month', () => openDrill('Avg recurring · ' + money(d.avgMonthly), 'Recurring $59 and up', d.splits.recurring.yes, 'Recurring under $59', d.splits.recurring.no, repNameOf, null, { of: (x) => Number(x.monthly_amount) || 0, fmt: (n) => money(n) + '/mo', third: { label: 'Excluded · RIDD Account', rows: d.splits.recurring.excluded } })),
-        tile('Avg ACV', money(d.avgContract), 'contract value per sale', () => openDrill('Avg ACV · ' + money(d.avgContract), 'ACV $700 and up', d.splits.acv.yes, 'ACV under $700', d.splits.acv.no, repNameOf, null, { of: (x) => Number(x.revenue_amount) || 0, fmt: money, third: { label: 'Excluded · RIDD Account + one-time', rows: d.splits.acv.excluded } })),
+        tile('Avg ACV', money(d.avgContract), 'contract value per sale', () => openDrill('Avg ACV · ' + money(d.avgContract), 'ACV $700 and up', d.splits.acv.yes, 'ACV under $700', d.splits.acv.no, repNameOf, null, { of: (x) => Number(x.revenue_amount) || 0, fmt: money, third: { label: 'Excluded · RIDD Account, one-time, renewals', rows: d.splits.acv.excluded } })),
         tile('Multi-year', pct(d.multiPct), '18 mo and up', () => openDrill('Multi-year · ' + pct(d.multiPct), 'Multi-year (18 mo+)', d.splits.multi.yes, '12-month', d.splits.multi.no, repNameOf, null, { of: (x) => Number(x.contract_months) || 0, fmt: (n) => n > 1 ? Math.round(n) + ' MO' : 'ONE-TIME', avg: false, third: { label: 'Excluded · RIDD Account', rows: d.splits.multi.excluded } })),
         tile('Auto pay', d.autoPay == null ? '—' : pct(d.autoPay * 100), 'of CRM sales', () => openDrill('Auto pay · ' + (d.autoPay == null ? '—' : pct(d.autoPay * 100)), 'On auto pay', d.splits.autopay.yes, 'Not on auto pay', d.splits.autopay.no, repNameOf, null, { of: (x) => Number(x.revenue_amount) || 0, fmt: money, avg: false, third: { label: 'Excluded · RIDD Account', rows: d.splits.autopay.excluded } })),
         tile('Rec mix', pct(d.recMix), 'recurring subs of all sales', () => openDrill('Rec mix · ' + pct(d.recMix), 'Recurring subscriptions', d.splits.recmix.yes, 'One-time services', d.splits.recmix.no, repNameOf, null, { of: (x) => Number(x.revenue_amount) || 0, fmt: money, avg: false, third: { label: 'Excluded · RIDD Account', rows: d.splits.recmix.excluded } }))));
