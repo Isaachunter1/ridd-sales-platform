@@ -856,8 +856,9 @@ function viewIndicators() {
             const icon = iconTrophy();
             icon.style.width = '15px'; icon.style.height = '15px';
             return el('button', {
-              class: 'relative rounded-xl px-2.5 py-1 border cursor-pointer transition hover:brightness-95 shrink-0 flex items-center justify-center text-[11px]',
-              style: { color: excludedNow.size ? 'var(--accent)' : 'var(--text)', borderColor: excludedNow.size ? 'var(--accent)' : 'var(--border-2)' },
+              class: 'relative rounded-xl border cursor-pointer transition hover:brightness-95 shrink-0 flex items-center justify-center text-[11px]',
+              // Square (per Isaac): same height as the Filters button beside it, width to match.
+              style: { color: excludedNow.size ? 'var(--accent)' : 'var(--text)', borderColor: excludedNow.size ? 'var(--accent)' : 'var(--border-2)', alignSelf: 'stretch', aspectRatio: '1 / 1', padding: '0', minWidth: '28px' },
               title: 'Manage teams — assign reps, pick a color, and choose which offices/teams are scored in the Power Ranking'
                 + (excludedNow.size ? ' · ' + excludedNow.size + ' out of the ranking' : ''),
               onclick: () => openManageTeamsModal(),

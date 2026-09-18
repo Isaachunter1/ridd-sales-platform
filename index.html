@@ -659,6 +659,7 @@
     background: rgba(255,255,255,.08);
     border-radius: 0;
     width: 36px; height: 36px;
+    flex: 0 0 36px; min-width: 36px; padding: 0; aspect-ratio: 1 / 1;   /* always square (per Isaac) */
     align-items: center; justify-content: center;
     color: var(--header-text);
     transition: background .15s ease;
@@ -820,7 +821,7 @@
     .page-header { padding-left: 8px !important; padding-right: 8px !important; gap: 6px; }
     main { padding-left: 8px !important; padding-right: 8px !important; }   /* keep content flush with the header on phones too */
     #indFixedBar > div { padding-left: 8px !important; padding-right: 8px !important; }   /* Indicators toolbar hugs the same gutter */
-    .icon-btn { width: 34px; height: 34px; }
+    .icon-btn { width: 34px; height: 34px; flex-basis: 34px; min-width: 34px; }
 
     /* Spring Cleaning standings poster: keep the print layout intact and
        let the phone scroll it sideways */
