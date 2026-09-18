@@ -8562,6 +8562,32 @@ function _repFirstRunCard() {
 }
 
 // Tap anywhere → the full player card modal (records, drills, charts).
+// Attrition for the landing cards — same definition as the player card's
+// "Attrition · excl. ROR + OTS" tile: cancelled ÷ serviced contract value
+// with 3-day RORs and one-time services removed from both sides. Runs on
+// the rep/team's full book (not just YTD) so it reads as a real rate.
+function _landingAttritionPct(rows) {
+  try {
+    const _svcR = (x) => (Number(x.services) || 0) > 0 || !!x.servicedDate;
+    const _actR = (x) => (x.status || '').toLowerCase() === 'active' || ((x.status || '') === '' && _subAliveNow(x) === true);
+    const _cxlR = (x) => !!x.cancelDate && !_actR(x);
+    const _ror = (x) => _is3DayROR(x) && !_isSoldNotStarted(x);
+    const _isOTS = (x) => {
+      if (/^\s*one[\s-]?time/i.test(String(x.subscription || ''))) return true;
+      const m = Number(x.contract);
+      return !(m > 1) && !/sentricon/i.test(String(x.subscription || ''));
+    };
+    let serv = 0, cxl = 0;
+    for (const x of rows || []) {
+      if (!_svcR(x) || _ror(x) || _isOTS(x)) continue;
+      const cv = Number(x.contractValue) || 0;
+      serv += cv;
+      if (_cxlR(x)) cxl += cv;
+    }
+    return serv > 0 ? cxl / serv : null;
+  } catch { return null; }
+}
+
 function repLandingPlayerCard(opts) {
   try {
     const _hdrExtra = (opts && opts.headerExtra) || null;
@@ -8588,6 +8614,7 @@ function repLandingPlayerCard(opts) {
     const myPct = (multi + twelve) > 0 ? multi / (multi + twelve) : 0;
     const apay = count ? ytd.filter(s => s.autoPay && s.autoPay !== 'No').length / count : 0;
     const cancels = ytd.filter(s => (typeof _repCancelCounts === 'function') ? _repCancelCounts(s) : !!s.cancelDate).length;
+    const attrPct = _landingAttritionPct(ytd);
     const team = getRepTeam(name);
     const teamColor = team ? getTeamColor(team) : null;
     const tierMeta = (typeof repTierMeta === 'function') ? repTierMeta(getRepTier(name)) : null;
@@ -8630,7 +8657,7 @@ function repLandingPlayerCard(opts) {
         tile('Avg Pest', avgPest > 0 ? fmt.usd(avgPest) : '—'),
         tile('MY %', (myPct * 100).toFixed(1) + '%'),
         tile('Auto Pay', (apay * 100).toFixed(1) + '%'),
-        tile('Days w/ a Sale', String(sellDays)),
+        tile('Attrition', attrPct == null ? '—' : (attrPct * 100).toFixed(1) + '%'),
         tile('Cancels', String(cancels)),
       ),
     );
@@ -8665,6 +8692,7 @@ function teamLandingPlayerCards(opts) {
       const myPct = (multi + twelve) > 0 ? multi / (multi + twelve) : 0;
       const apay = count ? ytd.filter(s => s.autoPay && s.autoPay !== 'No').length / count : 0;
       const cancels = ytd.filter(s => (typeof _repCancelCounts === 'function') ? _repCancelCounts(s) : !!s.cancelDate).length;
+      const attrPct = _landingAttritionPct(ytd);
       const color = getTeamColor(team) || 'var(--accent)';
       const initials = String(team).split(/\s+/).filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase();
       const entity = { name: team, team, office: '', tier: '', sales: all, revenue: all.reduce((a, s) => a + (Number(s.contractValue) || 0), 0), _entity: 'team' };
@@ -8695,7 +8723,7 @@ function teamLandingPlayerCards(opts) {
           tile('Avg Pest', avgPest > 0 ? fmt.usd(avgPest) : '—'),
           tile('MY %', (myPct * 100).toFixed(1) + '%'),
           tile('Auto Pay', (apay * 100).toFixed(1) + '%'),
-          tile('Days w/ a Sale', String(sellDays)),
+          tile('Attrition', attrPct == null ? '—' : (attrPct * 100).toFixed(1) + '%'),
           tile('Cancels', String(cancels))));
     });
   } catch (e) { console.warn('[ridd] team landing card failed', e); return []; }
