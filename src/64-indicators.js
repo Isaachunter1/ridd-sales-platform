@@ -1249,9 +1249,9 @@ function viewIndicators() {
     // page (above the metrics table + charts) — per Isaac. Respects the
     // Customize hide toggle; the stack below skips 'card' so it can't
     // render twice.
-    _isPartner && !_focusedComp && userCan('ind_card') && !(_repLayoutPrefs().hidden || []).includes('card') && repLandingPlayerCard(),
-    // Partners / team leads: a card per team they reach, right under their own (per Isaac).
-    ...((_isPartner && !_focusedComp && userCan('ind_card') && ((typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role)) || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role)))) ? teamLandingPlayerCards() : []),
+    // Partners / office leads with a team default to the TEAM card, with a
+    // Team / Me toggle to flip to their personal card (per Isaac).
+    _isPartner && !_focusedComp && userCan('ind_card') && !(_repLayoutPrefs().hidden || []).includes('card') && partnerLandingCard(),
     // Sales reps: Your Performance Trends sits right under the player card,
     // ahead of the Indicators table + Power Ranking (per Isaac).
     _repSalesLayout && !_focusedComp && userCan('ind_yoy') && !(_repLayoutPrefs().hidden || []).includes('yoy') && indicatorYoYTrendChart(),
@@ -8562,8 +8562,9 @@ function _repFirstRunCard() {
 }
 
 // Tap anywhere → the full player card modal (records, drills, charts).
-function repLandingPlayerCard() {
+function repLandingPlayerCard(opts) {
   try {
+    const _hdrExtra = (opts && opts.headerExtra) || null;
     const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
     const mine = _sig(state.profile && state.profile.full_name);
     if (!mine && !myRepNameSet().size) return _repFirstRunCard();
@@ -8619,6 +8620,7 @@ function repLandingPlayerCard() {
             // of the tile grid so the remaining 9 tiles fill even 3-per-row
             // rows on mobile.
             el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-1' }, fmt.usd0(revenue)))),
+        _hdrExtra,
         el('span', { class: 'text-[11px] font-bold shrink-0', style: { color: 'var(--accent)' } }, 'Player card →')),
       el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))' } },
         tile('Sales', fmt.int(count)),
@@ -8639,8 +8641,9 @@ function repLandingPlayerCard() {
 // numbers, so every team they reach (Settings → Users → Teams led, or their
 // own assignment) gets a card under their own — same tiles, same click-through
 // to a full player card (entity mode: every drill runs on the pooled sales).
-function teamLandingPlayerCards() {
+function teamLandingPlayerCards(opts) {
   try {
+    const _hdrExtra = (opts && opts.headerExtra) || null;
     if (typeof myReachTeams !== 'function') return [];
     const teams = [...myReachTeams()].filter(Boolean).slice(0, 4);
     if (!teams.length) return [];
@@ -8648,7 +8651,7 @@ function teamLandingPlayerCards() {
     const PEST_RE = /sentricon|german\s*roach|interior\s*flea/i;
     const pool = (state._indicatorRawSales || []).filter(s => s && s.rep && frPendingServiced(s));
     const teamOf = (s) => getRepTeam(getCanonicalRepName(s.rep)) || '';
-    return teams.map(team => {
+    return teams.map((team, i) => {
       const all = pool.filter(s => teamOf(s) === team);
       const ytd = all.filter(s => { const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : ''; return iso && iso.slice(0, 4) === yr; });
       const revenue = ytd.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
@@ -8682,6 +8685,7 @@ function teamLandingPlayerCards() {
               el('span', { class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: color + '22', color } }, 'Team'),
               el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-1' }, fmt.usd0(revenue))),
             el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, reps + ' rep' + (reps === 1 ? '' : 's') + ' with a sale this year')),
+          i === 0 ? _hdrExtra : null,
           el('span', { class: 'text-[11px] font-bold shrink-0', style: { color: 'var(--accent)' } }, 'Team card →')),
         el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))' } },
           tile('Sales', fmt.int(count)),
@@ -8695,6 +8699,47 @@ function teamLandingPlayerCards() {
           tile('Cancels', String(cancels))));
     });
   } catch (e) { console.warn('[ridd] team landing card failed', e); return []; }
+}
+
+// One landing card for partners / office leads: TEAM stats by default (the
+// numbers they actually live in), with a Team | Me toggle in the header to
+// flip to their personal player card. Falls back to the personal card when
+// they don't reach a team. Choice persists per browser.
+function partnerLandingCard() {
+  try {
+    const leadRole = (typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role))
+      || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role));
+    const teams = (leadRole && typeof myReachTeams === 'function') ? [...myReachTeams()].filter(Boolean) : [];
+    if (!teams.length) return repLandingPlayerCard();
+    let view = 'team';
+    try { view = localStorage.getItem('ridd_partner_card_view') === 'me' ? 'me' : 'team'; } catch { /* private mode */ }
+    const wrap = el('div', { class: 'flex flex-col gap-4' });
+    const paint = () => {
+      const toggle = el('div', {
+        class: 'inline-flex rounded-lg border overflow-hidden shrink-0 text-[10px] font-bold uppercase tracking-wider',
+        style: { borderColor: 'var(--border-2)' },
+        onclick: (e) => e.stopPropagation(),
+      }, ...[['team', 'Team'], ['me', 'Me']].map(([v, label]) => el('button', {
+        class: 'px-2.5 py-1 transition',
+        style: view === v
+          ? { background: 'var(--accent)', color: 'var(--accent-text)' }
+          : { background: 'var(--card)', color: 'var(--text-muted)' },
+        onclick: (e) => {
+          e.stopPropagation();
+          if (view === v) return;
+          view = v;
+          try { localStorage.setItem('ridd_partner_card_view', v); } catch { /* ignore */ }
+          paint();
+        },
+      }, label)));
+      const nodes = view === 'team'
+        ? teamLandingPlayerCards({ headerExtra: toggle })
+        : [repLandingPlayerCard({ headerExtra: toggle })];
+      wrap.replaceChildren(...nodes.filter(Boolean));
+    };
+    paint();
+    return wrap;
+  } catch (e) { console.warn('[ridd] partner landing card failed', e); return repLandingPlayerCard(); }
 }
 
 function repDrillPanel(rep, chartBuckets, titleNode) {
