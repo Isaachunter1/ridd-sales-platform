@@ -360,31 +360,8 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       node.children[1].append(listEl);
       return node;
     })(),
-    // ── Attrition + pacing ──
-    (() => {
-      const today = new Date();
-      const doy = Math.floor((today - new Date(today.getFullYear(), 0, 1)) / 86400000) + 1;
-      const yearDays = (today.getFullYear() % 4 === 0) ? 366 : 365;
-      // Seasonality from last year: what share of last year's counted cancels
-      // had happened by this same day? Scale this year's YTD by the inverse.
-      const cutoff = (year - 1) + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
-      const prevByNow = prev.rows.counted.filter(r => r._effCancel <= cutoff).length;
-      const share = prev.counted ? prevByNow / prev.counted : null;
-      const paceSeason = share && share > 0.05 && cur.boy ? (cur.counted / share) / cur.boy : null;
-      const paceLinear = cur.boy ? (cur.counted * (yearDays / doy)) / cur.boy : null;
-      const rolling = retenTrailing12(book);
-      const tile = (label, val, sub, fn) => el('div', { class: 'flex-1 px-3 py-2 rounded-xl', style: { background: 'var(--card-2)', minWidth: '150px' } },
-        el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
-        clickable(el('div', { class: 'text-xl font-black tabular-nums' }, val), fn),
-        sub ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, sub) : null);
-      return el('div', { class: 'pt-4 flex flex-col gap-2' },
-        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Attrition · counted cancels ÷ beginning-of-year book'),
-        el('div', { class: 'flex gap-2 flex-wrap' },
-          tile(year + ' YTD', pct(cur.rate) + (official ? ' · official ' + pct(official.cur) : ''), n(cur.counted) + ' of ' + n(cur.boy) + ' on the books Jan 1' + (cur.exclN || cur.rorN ? ' · ' + n(cur.exclN + cur.rorN) + ' cancels not counted (excluded reasons / ROR)' : ''), drill(year + ' counted cancels', cur.rows.counted, 'counted as churn')),
-          tile('Pacing to (full ' + year + ')', paceSeason != null ? pct(paceSeason) : '—', paceSeason != null ? 'By this date ' + (year - 1) + ' had seen ' + Math.round(share * 100) + '% of its cancels · straight-line pace ' + pct(paceLinear) : 'Needs a full prior year', null),
-          tile('Trailing 12 months', pct(rolling.rate), n(rolling.c) + ' cancels ÷ ' + n(rolling.boy) + ' on the books a year ago', drill('Trailing 12 months · counted cancels', rolling.rows.counted, 'counted as churn')),
-          tile((year - 1) + ' full year', pct(prev.rate) + (official ? ' · official ' + pct(official.prev) : ''), n(prev.counted) + ' of ' + n(prev.boy), drill((year - 1) + ' counted cancels', prev.rows.counted, 'counted as churn'))));
-    })()));
+    // (Attrition + pacing tiles retired per Isaac, Sep 2026 — the bar at the top carries YTD / projected / trailing 12.)
+    null));
   return card;
 }
 
