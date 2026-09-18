@@ -1658,6 +1658,9 @@ function viewIndicators() {
 // production vs the week before, best day, accounts. Shown once per ISO week
 // per browser (localStorage stamp). Admins are skipped — this is rep candy.
 function maybeShowWeeklyRecap() {
+  // Retired for every user type (per Isaac, Sep 2026) — the popup is gone;
+  // the numbers still live on My Stats / the player card.
+  return;
   try {
     if ((typeof DEMO !== 'undefined' && DEMO) || !state.profile || isAdminRole(state.profile?.role)) return;
     // Office staff skip the recap popup (per Isaac) — they live in the app
