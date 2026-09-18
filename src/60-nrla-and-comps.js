@@ -3703,13 +3703,23 @@ function viewNrlaPublic() {
   // The tab switcher is open to every account — other types' boards are
   // read-only displays anyway — so office staff can flip back to their own
   // comps after seeing the featured one.
-  if (!state._compsRepTypeTab) {
+  // Non-admins (per Isaac, Sep 2026) are pinned to THEIR type's comps —
+  // office staff see Office Staff, techs see Technicians, everyone else
+  // (sales reps, partners, team leads) sees Sales Reps. No tab switcher.
+  const _myCompType = (() => {
+    const r = state.profile?.role;
+    if (isAdminRole(r)) return null;
+    const grp = (typeof repTypeGroup === 'function') ? repTypeGroup(state.profile) : (isOfficeStaffRole(r) ? 'office' : 'd2d');
+    return grp === 'office' ? 'Office Staff' : grp === 'tech' ? 'Technicians' : 'Sales Reps';
+  })();
+  if (_myCompType) state._compsRepTypeTab = _myCompType;
+  else if (!state._compsRepTypeTab) {
     const _hasFav = comps.some(c => c.favorite) || !!state._compFavoriteMystery;
     state._compsRepTypeTab = _hasFav ? 'Sales Reps'
       : (isOfficeStaffRole(state.profile?.role) ? 'Office Staff' : 'Sales Reps');
   }
   const repTypeTab = COMP_REPTYPE_TABS.includes(state._compsRepTypeTab) ? state._compsRepTypeTab : 'Sales Reps';
-  {
+  if (!_myCompType) {
     wrap.append(el('div', { class: 'flex items-center gap-1 border-b flex-wrap', style: { borderColor: 'var(--border)' } },
       ...COMP_REPTYPE_TABS.map(t => {
         const on = repTypeTab === t;
