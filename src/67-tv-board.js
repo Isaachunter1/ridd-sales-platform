@@ -39,6 +39,8 @@ function openTvBoard() {
   const localDay = (v) => { if (!v) return null; const d = new Date(v); return isNaN(d) ? null : iso(d); };
   const money = (n) => '$' + Math.round(n || 0).toLocaleString('en-US');
   const pct = (n) => (Math.round((n || 0) * 10) / 10).toFixed(1) + '%';
+  // One-time service? CRM rows: not Sentricon and no multi-month term; app rows: contract types 4/5.
+  const isOts = (s) => s._crm ? (!/sentricon/i.test(String(s._crmService || '')) && !(Number(s.contract_months) > 1)) : new Set([4, 5]).has(Number(s.contract_type_id));
   const isSellingDay = (d) => { const w = d.getDay(); if (w === 0 || w === 6) return false; return !(typeof companyHolidayFor === 'function' && companyHolidayFor(iso(d))); };
 
   const rangeOf = () => {
@@ -103,7 +105,6 @@ function openTvBoard() {
     const pool = (typeof dashboardSales === 'function' ? dashboardSales() : (state.allSales || [])) || [];
     const rows = pool.filter(s => { if (EXCLUDED.has(s.audit_status)) return false; const day = localDay(s.created_at) || s.sold_date; return day && day >= range.start && day <= range.end; });
     const rev = (xs) => xs.reduce((a, s) => a + (Number(s.revenue_amount) || 0), 0);
-    const isOts = (s) => s._crm ? (!/sentricon/i.test(String(s._crmService || '')) && !(Number(s.contract_months) > 1)) : new Set([4, 5]).has(Number(s.contract_type_id));
     const subs = rows.filter(s => !isOts(s));
     const my = subs.map(s => (typeof myBucketOf === 'function') ? myBucketOf(s) : null).filter(Boolean);
     const multi = my.filter(b => b === 'multi').length;
@@ -150,7 +151,7 @@ function openTvBoard() {
     eyebrow(label + (drill ? '  ·  tap' : '')), figure(value, 'clamp(22px, 2.2vw, 34px)'));   // (descriptions dropped per Isaac — the room knows what these are)
   // Drill panel (per Isaac): what is pulling a % up or down — the sales
   // that count on one side, the ones that don't on the other, as they were sold.
-  const openDrill = (title, yesLabel, yes, noLabel, no, repName) => {
+  const openDrill = (title, yesLabel, yes, noLabel, no, repName, hero) => {
     const back = el('div', { style: { position: 'fixed', inset: '0', background: 'rgba(10,11,13,.82)', zIndex: '10000', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px' } });
     back.addEventListener('click', (e) => { if (e.target === back) back.remove(); });
     const esc = (e) => { if (e.key === 'Escape') { back.remove(); document.removeEventListener('keydown', esc, true); e.stopPropagation(); } };
@@ -167,14 +168,15 @@ function openTvBoard() {
         : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'None.')])));
     back.append(el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, color: T.ink, width: 'min(1200px, 94vw)', padding: '26px 30px', display: 'flex', flexDirection: 'column', gap: '18px' } },
       el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
-        el('div', { style: { fontFamily: HEAD, fontSize: '32px', letterSpacing: '.02em', textTransform: 'uppercase' } }, title),
+        hero ? el('div', {}) : el('div', { style: { fontFamily: HEAD, fontSize: '32px', letterSpacing: '.02em', textTransform: 'uppercase' } }, title),
         el('button', { style: { width: '36px', height: '36px', background: 'transparent', border: '1px solid ' + T.hair, color: T.dim, cursor: 'pointer', fontSize: '18px' }, onclick: () => back.remove() }, '\u00d7')),
+      hero || null,
       no ? el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '28px' } }, list(yesLabel, yes, true), list(noLabel, no, false))
          : list(yesLabel, [...yes].sort((a, b) => saleKey(b) - saleKey(a)), true)));
     overlay.append(back);
   };
   const avatar = (r, px) => r.avatar
-    ? el('img', { src: r.avatar, alt: '', style: { width: px + 'px', height: px + 'px', objectFit: 'cover', flexShrink: '0', filter: 'grayscale(1) contrast(1.1)' } })
+    ? el('img', { src: r.avatar, alt: '', style: { width: px + 'px', height: px + 'px', objectFit: 'cover', flexShrink: '0' } })   // (colour, per Isaac — the grayscale treatment is gone)
     : el('div', { style: { width: px + 'px', height: px + 'px', flexShrink: '0', background: T.surface2, color: T.ink, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: HEAD, fontSize: Math.round(px * .42) + 'px', letterSpacing: '.04em' } }, r.initials);
   const ago = (v) => { const d = new Date(v); if (isNaN(d)) return ''; const m = Math.max(0, Math.round((Date.now() - d) / 60000)); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' hr ago' : Math.round(m / 1440) + ' d ago'; };
 
@@ -245,11 +247,34 @@ function openTvBoard() {
         tile('Auto pay', d.autoPay == null ? '—' : pct(d.autoPay * 100), 'of CRM sales', () => openDrill('Auto pay · ' + (d.autoPay == null ? '—' : pct(d.autoPay * 100)), 'On auto pay', d.splits.autopay.yes, 'Not on auto pay', d.splits.autopay.no, repNameOf)),
         tile('Rec mix', pct(d.recMix), 'recurring subs of all sales', () => openDrill('Rec mix · ' + pct(d.recMix), 'Recurring subscriptions', d.splits.recmix.yes, 'One-time services', d.splits.recmix.no, repNameOf))));
 
+    // Rep drill hero (per Isaac): the picture blown up, the day's numbers big.
+    const repHero = (r, rank) => {
+      const sales = r.sales || [];
+      const subsR = sales.filter(s => !isOts(s));
+      const myR = subsR.map(s => (typeof myBucketOf === 'function') ? myBucketOf(s) : null).filter(Boolean);
+      const multiR = myR.filter(b => b === 'multi').length;
+      const crmR = sales.filter(s => s._crm), apR = crmR.length ? crmR.filter(s => s._crmAutoPay).length / crmR.length : null;
+      const avgR = sales.length ? r.revenue / sales.length : 0;
+      const stat = (label, val, color) => el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '0' } },
+        eyebrow(label), figure(val, 'clamp(30px, 3vw, 48px)', color || T.ink));
+      return el('div', { style: { display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', gap: '32px', alignItems: 'center', paddingBottom: '18px', borderBottom: '1px solid ' + T.hair } },
+        avatar(r, 180),
+        el('div', { style: { minWidth: '0', display: 'flex', flexDirection: 'column', gap: '18px' } },
+          el('div', {},
+            eyebrow('#' + String(rank + 1).padStart(2, '0') + ' · ' + d.range.label, { color: rank === 0 ? T.ember : T.dim }),
+            el('div', { style: { fontFamily: HEAD, fontSize: 'clamp(40px, 4.5vw, 72px)', lineHeight: '1', letterSpacing: '.02em', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '8px' } }, r.name)),
+          el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: '22px' } },
+            stat('Revenue', money(r.revenue), T.ember),
+            stat('Sales', String(r.count)),
+            stat('Avg sale', money(avgR)),
+            stat('Multi-year', myR.length ? pct(multiR / myR.length * 100) : '—'),
+            stat('Auto pay', apR == null ? '—' : pct(apR * 100)))));
+    };
     // Body: leaderboard | offices + latest
     const board = panel([
       el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '14px' } }, eyebrow('Leaderboard'), eyebrow('revenue · sales')),
       d.reps.length ? el('div', { class: 'tv-scroll', style: { display: 'flex', flexDirection: 'column', gap: '6px', overflowY: 'auto', flex: '1', minHeight: '0', paddingRight: '4px' } },
-        ...d.reps.map((r, i) => el('div', { title: 'Tap for ' + r.name + '’s sales', onclick: () => openDrill(r.name + ' · ' + d.range.label, r.count + ' sale' + (r.count === 1 ? '' : 's') + ' · ' + money(r.revenue), r.sales, null, null, (x) => (x.customer_name || (x.customer_number ? 'Customer #' + x.customer_number : '—'))), style: { cursor: 'pointer', display: 'grid', gridTemplateColumns: '44px 56px minmax(0, 1fr) auto', alignItems: 'center', gap: '16px', padding: '8px 10px', background: i === 0 ? T.surface2 : 'transparent', borderLeft: i === 0 ? '3px solid ' + T.ember : '3px solid transparent' } },
+        ...d.reps.map((r, i) => el('div', { title: 'Tap for ' + r.name + '’s sales', onclick: () => openDrill(r.name + ' · ' + d.range.label, 'Sales · ' + d.range.label, r.sales, null, null, (x) => (x.customer_name || (x.customer_number ? 'Customer #' + x.customer_number : '—')), repHero(r, i)), style: { cursor: 'pointer', display: 'grid', gridTemplateColumns: '44px 56px minmax(0, 1fr) auto', alignItems: 'center', gap: '16px', padding: '8px 10px', background: i === 0 ? T.surface2 : 'transparent', borderLeft: i === 0 ? '3px solid ' + T.ember : '3px solid transparent' } },
           el('div', { style: { fontFamily: MONO, fontSize: '14px', color: i === 0 ? T.ember : T.dim, letterSpacing: '.08em' } }, String(i + 1).padStart(2, '0')),
           avatar(r, 56),
           el('div', { style: { minWidth: '0' } },
@@ -282,8 +307,9 @@ function openTvBoard() {
               el('div', { style: { fontFamily: HEAD, fontSize: 'clamp(18px, 1.5vw, 24px)', letterSpacing: '.02em', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, (r ? r.name : (s._crmRep || 'Rep'))),
               el('div', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.06em', marginTop: '3px', whiteSpace: 'nowrap' } }, at ? when(at) : '—')),
             el('div', { style: { minWidth: '0', textAlign: 'right' } },
-              el('div', { style: { fontFamily: MONO, fontSize: '13px', color: T.ink, letterSpacing: '.08em', whiteSpace: 'nowrap' } }, (Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME')),
-              el('div', { style: { fontFamily: VOICE, fontWeight: 500, fontSize: '12px', color: T.dim, marginTop: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, (s._crmService || s.service_name || '—') + (src ? ' · ' + src : ''))),
+              el('div', { style: { fontFamily: HEAD, fontSize: 'clamp(18px, 1.5vw, 24px)', color: T.ink, letterSpacing: '.03em', whiteSpace: 'nowrap', lineHeight: '1' } }, (Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME')),
+              el('div', { style: { fontFamily: VOICE, fontWeight: 600, fontSize: 'clamp(13px, 1vw, 16px)', color: T.ink, marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, s._crmService || s.service_name || '—'),
+              src ? el('div', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, marginTop: '3px', letterSpacing: '.04em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, src) : null),
             figure(money(s.revenue_amount), 'clamp(18px, 1.6vw, 26px)', i === 0 && fresh ? T.ember : T.ink));
         }) : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'Nothing yet.')]))], { flex: '1' });
     const body = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr)', gap: '18px', padding: '20px 36px 24px', flex: '1', minHeight: '0' } },
