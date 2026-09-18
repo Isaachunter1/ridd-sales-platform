@@ -50,7 +50,7 @@ function retenBranchesOff() {
 // re-render with nothing changed costs nothing.
 const _retenScopeMemo = new WeakMap();
 function retenScopeSteps(rows) {
-  const key = JSON.stringify([_adminRules() || null, state._retenWhatIf || null, state.reportingSubTab, (state.reportingServiceConfig || []).length, (state.reportingSourceConfig || []).length, (state.indicatorDeletedCustIds || []).length]);
+  const key = JSON.stringify([_adminRules() || null, state._retenWhatIf || null, state.reportingSubTab, (state.reportingServiceConfig || []).map(c => c.service_name + ':' + (c.lifecycle || '') + ':' + (c.is_recurring == null ? '' : c.is_recurring)).join('|'), (state.reportingSourceConfig || []).length, (state.indicatorDeletedCustIds || []).length]);
   const hit = _retenScopeMemo.get(rows);
   if (hit && hit.key === key) return hit.res;
   const res = _retenScopeStepsBuild(rows);
@@ -77,12 +77,19 @@ function _retenScopeStepsBuild(rows) {
   // initial service cannot retain or churn, so the funnel starts from the
   // subs with a completed initial — the same pull he takes from FieldRoutes.
   run('initial', 'Keep only subs that received an initial service', '[Sheet step 2] Initial service marked Completed in FieldRoutes. Everything else — pending, never started, cancelled before the first visit — is not a customer yet. Always applied; this is the true top of the funnel.', r => !r.initial_service, true);
-  run('orphans', 'Remove accounts deleted in FieldRoutes', 'Subscriptions whose customer record no longer exists in FieldRoutes — the account was deleted in the CRM but the mirror never forgets a row. Detected automatically by the sync.', r => !!r.customer_missing || manual.has(String(r.customer_id != null ? r.customer_id : '')));
   // Branch pick (per Isaac): untick a branch and it leaves the funnel here —
   // "what if a PE group bought only these branches". Session slicer on top
   // of the Configurations exclusions; the list lives on the step itself.
   const brOff = retenBranchesOff();
   run('branches', 'Pick the branches that count', 'Every branch is in by default. Untick one and its subscriptions leave here — attrition for a subset of the company (say, the branches a buyer would take).' + (brOff.size ? ' Out: ' + [...brOff].join(', ') + '.' : ''), r => brOff.has((r.office_name || '').trim()), true);
+  // Always-on steps come first (per Isaac, Sep 2026): the locked ones the
+  // sheet does every time, then the toggles.
+  const lifecycleByName = reportingServiceLifecycleMap();
+  const recurringByName = reportingServiceRecurringMap();
+  run('onetime', 'Remove one-time service types', '[Sheet step 1] Service types whose lifecycle is One-time (the “One Time …”, Initial, Reservice, Inspection-style items) — set aside here, still counted on the Overview and in the P&L. Lifecycle is set per type in Configurations → Service types.', r => { const lc = lifecycleByName.get(r.subscription); return !(lc === 'recurring' || lc === 'retired'); }, true);
+  run('retired', 'Remove retired service types', '[Sheet step 1] Types marked Retired in Configurations — no longer sold and not part of the recurring book.', r => !recurringByName.get(r.subscription), true);
+  run('status', 'Keep every account status', '[Sheet step 3] Active, Frozen and cancelled subscriptions all stay in — nothing is removed for status. Cancels are counted by their date, later.', r => !(!!r.initial_service && r.initial_service >= '2000-01-01'), true);
+  run('orphans', 'Remove accounts deleted in FieldRoutes', 'Subscriptions whose customer record no longer exists in FieldRoutes — the account was deleted in the CRM but the mirror never forgets a row. Detected automatically by the sync.', r => !!r.customer_missing || manual.has(String(r.customer_id != null ? r.customer_id : '')));
   run('hidden', 'Remove hidden service types', 'Service types marked Hidden in Configurations → Service types (late fees, inspections, admin items…).', r => !!(cfgByName.get(r.subscription) || {}).is_hidden);
   run('sources', 'Remove excluded lead sources', 'Lead sources switched off in Configurations' + (exclSrc.size ? ': ' + [...exclSrc].join(', ') : ' (none today)') + '.', r => exclSrc.has(reportingSourceOf(r)));
   return { steps, out: cur };
@@ -299,16 +306,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       }
       return node;
     }),
-    (() => {
-      // One-time services leave the book, but their revenue is still real —
-      // show what is being pulled out (per Isaac), with the drill to the subs.
-      const oneTime = notIn(pop, s1o);
-      const otRev = oneTime.reduce((a, r) => a + (Number(r.subscription_contract_value) || 0), 0);
-      const otCust = new Set(oneTime.map(r => r.customer_id)).size;
-      return step(next(), 'Remove one-time service types', SHEET(1) + 'Service types whose lifecycle is One-time (the “One Time …”, Initial, Reservice, Inspection-style items) — ' + n(oneTime.length) + ' subs across ' + n(otCust) + ' customers, $' + Math.round(otRev).toLocaleString() + ' of one-time revenue, set aside here (still counted on the Overview and in the P&L). Lifecycle is set per type in Configurations → Service types.', n0 - s1o.length, null, '$' + Math.round(otRev).toLocaleString() + ' one-time revenue', oneTime, s1o);
-    })(),
-    step(next(), 'Remove retired service types', SHEET(1) + 'Types marked Retired in Configurations — no longer sold and not part of the recurring book.', s1o.length - s1.length, null, null, notIn(s1o, s1), s1),
-    step(next(), 'Keep every account status', SHEET(3) + 'Active, Frozen and cancelled subscriptions all stay in — nothing is removed for status. Cancels are counted by their date, later.', 0, null, n(s2.length) + ' kept', null, null),
+    // (one-time / retired / status steps now run in the locked scope chain above)
     step(next(), 'Remove 3-day RORs coded in the CRM', SHEET(4) + 'Cancellation reason “3 Day ROR” — a right-of-rescission, never really a customer.', s2.length - s2r.length, 'popRor', null, notIn(s2, s2r), s2r),
     (() => {
       const removed = notIn(s2r, step1a);
