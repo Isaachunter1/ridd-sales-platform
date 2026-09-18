@@ -29,7 +29,7 @@ function viewHallOfFame() {
   const deptRecords = (() => {
     const raw = state._indicatorRawSales || [];
     if (!raw.length || typeof _indicatorDeptOf !== 'function') return null;
-    const GROUPS = [['all', '🏢 RIDD — Whole Company'], ['office', '☎️ Inside Sales · new only'], ['d2d', '🚪 Sales Reps (D2D)'], ['techs', '🔧 Technicians']];
+    const GROUPS = [['all', '🏢 RIDD — Whole Company'], ['office', '☎️ Office Staff · new only'], ['d2d', '🚪 Sales Reps (D2D)'], ['techs', '🔧 Technicians']];
     const acc = {};
     GROUPS.forEach(([g]) => acc[g] = { day: {}, week: {}, month: {} });
     raw.forEach(s => {
@@ -82,13 +82,11 @@ function viewHallOfFame() {
   return el('div', { class: 'flex flex-col gap-6 w-full' },
     el('div', {},
       el('h1', { class: 'text-3xl font-bold' }, 'Hall of Fame'),
-      el('p', { class: 'text-sm text-muted- mt-1' }, 'Personal bests. Beat them, break them, earn a badge.'),
     ),
 
     // ── Department records — total production, all-time in the dataset ──
     deptRecords && el('div', {},
-      el('h2', { class: 'text-lg font-semibold mb-1' }, 'Department Records'),
-      el('p', { class: 'text-xs text-muted- mb-3' }, 'Total production records — every sale by everyone in the department, from the shared CRM dataset. This is the number to beat.'),
+      el('h2', { class: 'text-lg font-semibold mb-3' }, 'Department Records'),
       el('div', { class: 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3' },
         ...deptRecords.map(r => el('div', { class: 'card p-4' },
           el('div', { class: 'text-xs font-black mb-1' }, r.label),
