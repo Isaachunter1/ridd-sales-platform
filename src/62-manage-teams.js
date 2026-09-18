@@ -1033,8 +1033,14 @@ function manageTeamsPanel(opts) {
       const openSet = state._mtOpenTeams instanceof Set ? state._mtOpenTeams : (state._mtOpenTeams = new Set());
       const out = [];
       if (needs.length) {
-        out.push(el('div', { class: 'px-5 py-1.5 text-[10px] uppercase tracking-widest font-bold border-b', style: { color: '#A9441F', borderColor: 'var(--border)', background: 'rgba(255,193,7,.06)' } }, needs.length + ' need a team or tier'));
-        needs.forEach(r => out.push(buildRow(r)));
+        // Collapsible too (per Isaac) — open by default, click the bar to tuck it away.
+        const needsOpen = state._mtNeedsOpen !== false;
+        out.push(el('div', { class: 'flex items-center gap-2 px-5 py-1.5 text-[10px] uppercase tracking-widest font-bold border-b cursor-pointer hover:brightness-95', 'data-needs-head': '1',
+          style: { color: '#A9441F', borderColor: 'var(--border)', background: 'rgba(255,193,7,.06)' },
+          onclick: () => { state._mtNeedsOpen = !needsOpen; render(); } },
+          el('span', { class: 'flex-1' }, needs.length + ' need a team or tier'),
+          el('span', {}, needsOpen ? '\u25b2' : '\u25bc')));
+        if (needsOpen) needs.forEach(r => out.push(buildRow(r)));
       }
       teamOrder.forEach(t => {
         const rows = byTeam.get(t); const open = openSet.has(t); const real = t !== '(unassigned)';
@@ -1042,13 +1048,14 @@ function manageTeamsPanel(opts) {
         const color = real ? getTeamColor(t) : 'var(--border-2)';
         out.push(el('div', { class: 'flex items-center gap-2.5 px-5 py-2 border-b border-t cursor-pointer hover:brightness-95', 'data-team-head': t,
           style: { borderColor: 'var(--border)', background: open ? 'rgba(223,100,58,.06)' : 'var(--card-2)' },
-          onclick: () => { if (open) openSet.delete(t); else openSet.add(t); render(); } },
+          // Accordion (per Isaac): opening a team closes the others.
+          onclick: () => { const was = open; openSet.clear(); if (!was) openSet.add(t); render(); } },
           logo ? el('img', { src: logo, alt: '', style: { width: '18px', height: '18px', borderRadius: '50%', objectFit: 'cover', background: '#fff' } })
                : el('span', { style: { width: '10px', height: '10px', borderRadius: '50%', background: color, display: 'inline-block', flex: 'none' } }),
           el('span', { class: 'text-sm font-bold flex-1 min-w-0 truncate' }, t, isTeamExcluded(t) ? el('span', { class: 'ml-2 text-[9px] uppercase tracking-wider font-bold', style: { color: '#DC2626' } }, 'excluded') : null),
           el('span', { class: 'text-[11px] tabular-nums text-muted-' }, rows.length + ' rep' + (rows.length === 1 ? '' : 's')),
           real ? el('button', { class: 'text-[11px] font-semibold px-2 py-0.5 rounded-md border', style: { borderColor: 'var(--border-2)', color: teamSelect === t ? 'var(--accent)' : 'var(--text-muted)' }, title: 'Rename, color, logo, exclude',
-            onclick: (e) => { e.stopPropagation(); state._indicatorManageTeamFilter = teamSelect === t ? '' : t; openSet.add(t); render(); } }, teamSelect === t ? 'Close settings' : 'Settings') : null,
+            onclick: (e) => { e.stopPropagation(); state._indicatorManageTeamFilter = teamSelect === t ? '' : t; openSet.clear(); openSet.add(t); render(); } }, teamSelect === t ? 'Close settings' : 'Settings') : null,
           el('span', { class: 'text-[11px] text-muted-' }, open ? '▲' : '▼')));
         if (open) {
           if (teamSelect === t && detailPanel) out.push(detailPanel);
@@ -1068,7 +1075,8 @@ function manageTeamsPanel(opts) {
         // Searching: open every section so the matches are reachable.
         const heads = repList.querySelectorAll('[data-team-head]');
         let need = false; heads.forEach(h => { if (!state._mtOpenTeams.has(h.getAttribute('data-team-head'))) need = true; });
-        if (need) { heads.forEach(h => state._mtOpenTeams.add(h.getAttribute('data-team-head'))); render(); return; }
+        if (state._mtNeedsOpen === false && repList.querySelector('[data-needs-head]')) need = true;
+        if (need) { heads.forEach(h => state._mtOpenTeams.add(h.getAttribute('data-team-head'))); state._mtNeedsOpen = true; render(); return; }
       }
       for (const row of repList.querySelectorAll('[data-rep]')) {
         const name = row.getAttribute('data-rep');
