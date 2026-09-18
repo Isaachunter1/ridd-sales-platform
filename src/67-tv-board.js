@@ -51,6 +51,16 @@ function openTvBoard() {
     if (state._tvRange === 'year') { return { start: now.getFullYear() + '-01-01', end: today, label: String(now.getFullYear()) }; }
     return { start: today, end: today, label: 'Today' };
   };
+  // The comparable slice of the PRIOR period (per Isaac): yesterday; last
+  // week Monday → same weekday; last month 1st → same day; last year
+  // Jan 1 → same date. To-date, so mid-period the comparison is fair.
+  const priorRangeOf = () => {
+    const now = new Date(); const shift = (d, fn) => { const x = new Date(d); fn(x); return x; };
+    if (state._tvRange === 'week') { const s = shift(now, x => x.setDate(x.getDate() - ((x.getDay() + 6) % 7) - 7)); const e = shift(now, x => x.setDate(x.getDate() - 7)); return { start: iso(s), end: iso(e), label: 'Last week to date' }; }
+    if (state._tvRange === 'month') { const s = new Date(now.getFullYear(), now.getMonth() - 1, 1); const e = new Date(now.getFullYear(), now.getMonth() - 1, Math.min(now.getDate(), new Date(now.getFullYear(), now.getMonth(), 0).getDate())); return { start: iso(s), end: iso(e), label: s.toLocaleDateString('en-US', { month: 'long' }) + ' to date' }; }
+    if (state._tvRange === 'year') { const e = shift(now, x => x.setFullYear(x.getFullYear() - 1)); return { start: (now.getFullYear() - 1) + '-01-01', end: iso(e), label: (now.getFullYear() - 1) + ' to date' }; }
+    const y = shift(now, x => x.setDate(x.getDate() - 1)); return { start: iso(y), end: iso(y), label: 'Yesterday' };
+  };
   // Goal for the window: the Goals tab's monthly allocation (new + renewal,
   // else the annual spread evenly) over the month's selling days.
   const goalFor = (range) => {
@@ -120,6 +130,9 @@ function openTvBoard() {
     // revenue; the headline is everything else.
     const isRenewal = (s) => (typeof reportingSourceClass === 'function' ? reportingSourceClass(sourceOf(s)) : (/^renewal\s*-/i.test(sourceOf(s)) ? 'renewal' : 'new')) === 'renewal';
     const renewRows = rows.filter(isRenewal), newRows = rows.filter(s => !isRenewal(s));
+    const prior = priorRangeOf();
+    const priorRows = pool.filter(s => { if (EXCLUDED.has(s.audit_status)) return false; const day = localDay(s.created_at) || s.sold_date; return day && day >= prior.start && day <= prior.end && !isRenewal(s); });
+    const priorRevenue = rev(priorRows);
     const subs = rows.filter(s => !isOts(s));
     // Multi-year % (per Isaac): anything sold by the house "RIDD Account"
     // login is out of the ratio (shown in its own column on the drill).
@@ -161,7 +174,7 @@ function openTvBoard() {
     const offices = [...offAgg.values()].sort((a, b) => b.revenue - a.revenue);   // revenue = NEW (the headline); renewal + total ride along
     const latest = [...rows].sort((a, b) => saleKey(b) - saleKey(a));   // newest sale first — by the CRM's clock, not sync order
     const goal = goalFor(range);
-    return { range, rows, revenue: rev(newRows), newCount: newRows.length, totalRevenue: rev(rows), renewalRevenue: rev(renewRows), renewalCount: renewRows.length, count: rows.length,
+    return { range, rows, revenue: rev(newRows), newCount: newRows.length, totalRevenue: rev(rows), renewalRevenue: rev(renewRows), renewalCount: renewRows.length, count: rows.length, prior, priorRevenue, priorCount: priorRows.length,
       avgInitial: subsMy.length ? subsMy.reduce((a, s) => a + (Number(s.initial_amount) || 0), 0) / subsMy.length : 0,   // house account out
       avgMonthly: subsMy.length ? subsMy.reduce((a, s) => a + (Number(s.monthly_amount) || 0), 0) / subsMy.length : 0,   // house account out
       avgContract: subsMy.length ? rev(subsMy) / subsMy.length : 0,   // recurring subs, house account out
@@ -280,7 +293,14 @@ function openTvBoard() {
           : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'No sales in this window yet.')])))], { cursor: 'pointer', position: 'relative', padding: '0', onclick: () => { state._tvHeroOffices = false; render(); } })
       : panel([
         el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } }, eyebrow(d.range.label + ' · new revenue'), eyebrow(d.newCount + ' sale' + (d.newCount === 1 ? '' : 's') + ' · tap for branches')),
-        el('div', { class: fresh ? 'tv-pulse' : '', style: { fontFamily: HEAD, fontSize: 'clamp(64px, 6.8vw, 124px)', lineHeight: '.95', letterSpacing: '.01em', color: T.ember, marginTop: '6px', fontVariantNumeric: 'tabular-nums' } }, money(d.revenue)),
+        el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '22px', flexWrap: 'wrap', marginTop: '6px' } },
+          el('div', { class: fresh ? 'tv-pulse' : '', style: { fontFamily: HEAD, fontSize: 'clamp(64px, 6.8vw, 124px)', lineHeight: '.95', letterSpacing: '.01em', color: T.ember, fontVariantNumeric: 'tabular-nums' } }, money(d.revenue)),
+          // Prior period at a quarter of the size (per Isaac): yesterday / last week / last month / last year, to date.
+          el('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px', paddingBottom: '6px' } },
+            eyebrow(d.prior.label),
+            el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '10px' } },
+              figure(money(d.priorRevenue), 'clamp(16px, 1.7vw, 31px)', T.dim),
+              d.priorRevenue > 0 ? el('span', { style: { fontFamily: MONO, fontSize: '11px', letterSpacing: '.06em', color: d.revenue >= d.priorRevenue ? T.ember : T.dim } }, (d.revenue >= d.priorRevenue ? '+' : '−') + Math.round(Math.abs(d.revenue - d.priorRevenue) / d.priorRevenue * 100) + '%') : null))),
         // Total and renewal, minimally (per Isaac) — the headline stays NEW.
         el('div', { style: { display: 'flex', gap: '28px', marginTop: '10px', flexWrap: 'wrap' } },
           el('div', {}, eyebrow('Total'), figure(money(d.totalRevenue), 'clamp(16px, 1.4vw, 22px)', T.ink)),
