@@ -5362,7 +5362,7 @@ function todaysSalesPanel(windowSales, range) {
   const rows = [...windowSales].sort((a, b) => _wallMs(b) - _wallMs(a));
 
   const titleByRange = {
-    today:      "Today's Sales",
+    today:      "Latest Sales",   // matches the TV Display (per Isaac)
     yesterday:  "Yesterday's Sales",
     week:       "This Week's Sales",
     last_week:  "Last Week's Sales",
@@ -5614,9 +5614,11 @@ function leaderboardSection(range) {
             style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
             onchange: (e) => { state._lbMobileCol = e.target.value; mountApp(); },
           }, ...LB_COLS.map(c => el('option', { value: c.key, selected: pick.key === c.key }, c.label)))) : null,
-        el('div', { class: phone ? '' : 'scroll-x' },
+        // Past ~6 reps the board scrolls inside a fixed-height box (per
+        // Isaac) so the card stays the same size as the Latest Sales feed.
+        el('div', { class: phone ? '' : 'scroll-x', style: rows.length > 6 ? { maxHeight: '412px', overflowY: 'auto' } : {} },
           el('table', { class: 'w-full text-[12px]' },
-            el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
+            el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: '3' } },
               el('tr', {},
                 el('th', { class: 'text-left pl-4 pr-1 py-2', style: { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 2, minWidth: '40px', width: '40px' } }, '#'),
                 el('th', { class: 'text-left px-2 py-2', style: { position: 'sticky', left: '40px', background: 'var(--card)', zIndex: 2 } }, 'Rep'),
