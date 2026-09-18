@@ -372,15 +372,16 @@ function reportingWaterfall() {
   if (gate) return gate;
   // Retention hosts three sections now (per Isaac): the retention analytics
   // suite, Customer Health (churn defense), and Next Best Service (attach).
-  const _sec = state._retenSection || 'retention';
+  const _sec = (state._retenSection === 'nextbest' ? 'retention' : state._retenSection) || 'retention';
   const _secBar = el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
-    ...[['retention', '📊 Retention'], ['health', '❤️‍🩹 Customer Health'], ['nextbest', '🎯 Next Best Service'], ['renewals', '🔁 Renewals'], ['contract', '📄 Contract Length']].map(([k, l]) => el('button', {
+    ...[['retention', '📊 Retention'], ['health', '❤️‍🩹 Customer Health'], ['renewals', '🔁 Renewals'], ['contract', '📄 Contract Length']].map(([k, l]) => el('button', {
       class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition hover:brightness-95',
       style: _sec === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' },
       onclick: () => { state._retenSection = k; mountApp(); },
     }, l)));
   if (_sec === 'health')   return el('div', { class: 'flex flex-col gap-4' }, _secBar, reportingCustomerHealth());
-  if (_sec === 'nextbest') return el('div', { class: 'flex flex-col gap-4' }, _secBar, reportingNextBest());
+  // (Next Best Service tab retired from Retention per Isaac, Sep 2026 — reportingNextBest still lives on the Queues page.)
+  if (_sec === 'nextbest') { state._retenSection = 'retention'; }
   if (_sec === 'renewals') return el('div', { class: 'flex flex-col gap-4' }, _secBar, reportingRenewals());
   if (_sec === 'contract') return el('div', { class: 'flex flex-col gap-4' }, _secBar, reportingContractLength());
   const scope = reportingScope();
@@ -1726,11 +1727,137 @@ function reportingWaterfall() {
       cvsWrap);
   };
 
+  const lifetimeCard = (() => {
+    // Reads the retention book and its COUNTED cancels (per Isaac) — the
+    // steps card decides what is in; no card-level chips.
+    const _yrL = state._rtAttrYear || 'all';
+    const _yOfL = (r) => { const d = r.sold_date ? new Date(r.sold_date) : null; return d && !isNaN(d) ? d.getFullYear() : null; };
+    const _isRenewL = (r) => reportingSourceClass(r.subscription_source) === 'renewal'
+      || /^renewal\b/i.test(_normCancelReason(r.subscription_cancellation_reason));
+    const _isOneL = (r) => /^\s*one[\s-]?time/i.test(String(r.subscription || ''))
+      || ((Number(r.agreement_length) || 0) <= 1 && !/sentricon/i.test(String(r.subscription || '')));
+    const rowsL = [];
+    for (const r of _retenEff(popA)) {
+      if (_yrL !== 'all' && _yOfL(r) !== _yrL) continue;
+      if (!r.sold_date || !r._effCancel) continue;
+      const t = Math.round((new Date(r._effCancel) - new Date(r.sold_date)) / 86400000);
+      if (!(t >= 0 && t <= 4000)) continue;
+      rowsL.push({ r, t });
+    }
+    if (!rowsL.length) return null;
+    const _med = (arr) => { const s2 = [...arr].sort((a, b) => a - b); return s2[Math.floor((s2.length - 1) / 2)]; };
+    const allT = rowsL.map(x => x.t);
+    const medAll = _med(allT);
+    const avgAll = allT.reduce((a, b) => a + b, 0) / allT.length;
+    const moTxt = (d) => (d / 30.44).toFixed(1) + ' mo';
+    // month-of-life histogram: every month out to the longest life in the
+    // book (per Isaac, Sep 2026 — no 24+ bucket; the strip scrolls / drags
+    // / swipes sideways instead).
+    const lastMo = Math.max(24, ...rowsL.map(x => Math.floor(x.t / 30)));
+    const buckets = Array.from({ length: lastMo + 1 }, () => []);
+    for (const x of rowsL) buckets[Math.floor(x.t / 30)].push(x.r);
+    const maxB = Math.max(...buckets.map(b => b.length), 1);
+    const BAR_W = 26;   // px per month — 24 months ≈ one card width, the rest scrolls
+    const barL = (b, i) => el('button', {
+      class: 'flex flex-col shrink-0 cursor-pointer transition hover:brightness-110',
+      style: { width: BAR_W + 'px', background: 'transparent', border: 'none', padding: '0 2px', height: '100%' },
+      title: 'Month ' + i + ' of life — ' + fmt.int(b.length) + ' cancel' + (b.length === 1 ? '' : 's'),
+      onclick: () => b.length && openReportingDrillModal({
+        chartTitle: 'Cancelled in month ' + i + ' of customer life',
+        sliceLabel: fmt.int(b.length) + ' account' + (b.length === 1 ? '' : 's'),
+        rows: b, formatValue: (v) => fmt.usd0(v) }),
+    }, el('div', {
+      style: {
+        height: (b.length ? Math.max(2, b.length / maxB * 84) : 0) + 'px',
+        background: (i >= 2 && i <= 5) ? '#DC2626' : (i >= 11 && i <= 13) ? '#A9441F' : 'var(--accent)',
+      } }));
+    // by-reason lifetime table (merges trailing-period label variants)
+    const byReason = {};
+    for (const x of rowsL) {
+      const k = String(x.r.subscription_cancellation_reason || '').trim() ? reportingCancelReasonOf(x.r) : '(no reason logged)';
+      (byReason[k] = byReason[k] || []).push(x);
+    }
+    const rks = Object.keys(byReason).filter(k => byReason[k].length >= 10)
+      .sort((a, b) => byReason[b].length - byReason[a].length);
+    const thL = (lab, right) => el('th', { class: (right ? 'text-left' : 'text-left') + ' px-3 py-2 whitespace-nowrap' }, lab);
+    const reasonRow = (k) => {
+      const xs = byReason[k];
+      const ts = xs.map(x => x.t);
+      const med = _med(ts);
+      const avg = ts.reduce((a, b) => a + b, 0) / ts.length;
+      const in90 = ts.filter(t => t <= 90).length / ts.length;
+      const in365 = ts.filter(t => t <= 365).length / ts.length;
+      const arvs = xs.map(x => Number(x.r.annual_recurring_value) || 0);
+      const avgArv = arvs.reduce((a, b) => a + b, 0) / (arvs.length || 1);
+      return el('tr', {
+        class: 'border-t cursor-pointer transition hover:brightness-95',
+        style: { borderColor: 'var(--border)' },
+        onclick: () => openReportingDrillModal({
+          chartTitle: 'Customer lifetime — ' + k,
+          sliceLabel: fmt.int(xs.length) + ' cancels · median ' + fmt.int(med) + ' days',
+          rows: xs.map(x => x.r), formatValue: (v) => fmt.usd0(v) }),
+      },
+        el('td', { class: 'px-3 py-2 whitespace-nowrap font-semibold' }, k),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(xs.length)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, fmt.int(med) + 'd',
+          el('span', { class: 'text-[10px] font-normal text-muted-' }, ' · ' + moTxt(med))),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(Math.round(avg)) + 'd'),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums', style: in90 >= 0.5 ? { color: '#DC2626', fontWeight: '700' } : {} }, (in90 * 100).toFixed(0) + '%'),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, (in365 * 100).toFixed(0) + '%'),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.usd0(avgArv)));
+    };
+    const statL = (lab, val, sub) => el('div', { class: 'text-left' },
+      el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, lab),
+      el('div', { class: 'text-sm font-bold tabular-nums' }, val,
+        sub ? el('span', { class: 'text-[10px] font-normal text-muted-' }, ' · ' + sub) : null));
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 flex items-center justify-between flex-wrap gap-3' },
+        el('div', {},
+          el('div', { class: 'font-display text-lg' }, 'Customer Lifetime'),
+          el('div', { class: 'text-[11px] text-muted-' },
+            'Sold date → cancel date for cancelled accounts · '
+            + (_yrL === 'all' ? 'all years in the book' : 'sold ' + _yrL)
+            + (office !== 'all' ? ' · ' + officeLabel(office) : '')
+            + ' · click a bar or a reason to see the accounts.')),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          statL('Median life', fmt.int(medAll) + 'd', moTxt(medAll)),
+          statL('Average', fmt.int(Math.round(avgAll)) + 'd', moTxt(avgAll)),
+          statL('Cancels', fmt.int(rowsL.length), null))),
+      el('div', { class: 'px-4 pb-2' },
+        // Scroll strip: native swipe on touch, click-and-drag with a mouse.
+        (() => {
+          const strip = el('div', { class: 'overflow-x-auto', style: { cursor: 'grab', scrollbarWidth: 'thin', WebkitOverflowScrolling: 'touch', overscrollBehaviorX: 'contain' } },
+            el('div', { class: 'flex items-end', style: { height: '92px', width: (buckets.length * BAR_W) + 'px' } }, ...buckets.map(barL)),
+            el('div', { class: 'flex pt-1', style: { width: (buckets.length * BAR_W) + 'px' } }, ...buckets.map((b, i) => el('div', {
+              class: 'shrink-0 text-center text-[9px] text-muted- tabular-nums',
+              style: { width: BAR_W + 'px' } }, (i % 3 === 0) ? String(i) : ''))));
+          let down = false, sx = 0, sl = 0, moved = false;
+          strip.addEventListener('mousedown', (e) => { down = true; moved = false; sx = e.pageX; sl = strip.scrollLeft; strip.style.cursor = 'grabbing'; });
+          const end = () => { down = false; strip.style.cursor = 'grab'; };
+          strip.addEventListener('mouseleave', end); strip.addEventListener('mouseup', end);
+          strip.addEventListener('mousemove', (e) => { if (!down) return; const dx = e.pageX - sx; if (Math.abs(dx) > 3) moved = true; strip.scrollLeft = sl - dx; e.preventDefault(); });
+          // A drag must not fire the bar's click at the end of it.
+          strip.addEventListener('click', (e) => { if (moved) { e.stopPropagation(); e.preventDefault(); moved = false; } }, true);
+          return strip;
+        })(),
+        el('div', { class: 'flex items-center justify-between pt-1 text-[10px] text-muted-' },
+          el('span', {}, 'Month of customer life at cancel \u00b7 drag or swipe for later months (to month ' + lastMo + ')'),
+          el('span', { class: 'flex items-center gap-3' },
+            el('span', { class: 'flex items-center gap-1' }, el('span', { style: { width: '8px', height: '8px', background: '#DC2626', display: 'inline-block' } }), 'collections cliff (mo 2–5)'),
+            el('span', { class: 'flex items-center gap-1' }, el('span', { style: { width: '8px', height: '8px', background: '#A9441F', display: 'inline-block' } }), 'contract end (mo 11–13)')))),
+      el('div', { class: 'overflow-x-auto border-t', style: { borderColor: 'var(--border)' } },
+        el('table', { class: 'w-full text-xs' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' }, el('tr', { style: { background: 'var(--card-2)' } },
+            thL('Cancellation Reason'), thL('Cancels', 1), thL('Median Life', 1), thL('Avg', 1), thL('Gone ≤90d', 1), thL('Gone ≤1yr', 1), thL('Avg ARV', 1))),
+          el('tbody', {}, ...rks.map(reasonRow)))));
+  })();
+
   const renderSide = (data, pop, label, sideMark) => el('div', { class: 'flex flex-col gap-4' },
     // Matrix wants ~560px; when it can't have it (phones) the blended table
     // wraps underneath instead of both squeezing side by side.
     // (Cohort matrix hidden per Isaac, Sep 2026 — renderMatrix stays for when it comes back.)
     attritionTrendsCard(pop, label),   // right under Attrition Steps (per Isaac, Sep 2026)
+    lifetimeCard,                       // Customer Lifetime follows the trends chart (per Isaac)
     renderBlended(pop),
     seasonalityCard(pop, label),
     startCohortCard(pop, label));   // (LTV card retired per Isaac, Sep 2026)
@@ -1765,7 +1892,13 @@ function reportingWaterfall() {
     const TYPE_LABEL = (r) => {
       if (dim === 'source') return String(r.subscription_source || '').trim() || 'Unspecified';
       if (dim === 'contract') { const m = Number(r.agreement_length) || 0; return m === 12 ? '12 mo' : m === 18 ? '18 mo' : m === 24 ? '24 mo' : m > 24 ? '24+ mo' : m > 0 ? 'Under 12 mo' : 'No term'; }
-      if (dim === 'rep') return (typeof flipLastFirst === 'function' ? flipLastFirst(String(r.sold_by || '').trim()) : String(r.sold_by || '').trim()) || 'Unknown';
+      // Rep: the CRM name when the warehouse has it. RevHawk's employee
+      // mirror only carries ACTIVE FieldRoutes employees (verified Sep 2026:
+      // every row active=1), so anyone who has since left has an id on the
+      // sub but no name — those show as "Former rep #id" rather than one
+      // giant Unknown bucket, and pick up their name automatically the day
+      // the mirror includes inactive employees.
+      if (dim === 'rep') { const nm = (typeof flipLastFirst === 'function' ? flipLastFirst(String(r.sold_by || '').trim()) : String(r.sold_by || '').trim()); if (nm) return nm; const id = String(r.sold_by_id || '').trim(); return id && id !== '0' ? 'Former rep #' + id : 'Unknown'; }
       const t = String(r.sold_by_type || '').trim().toLowerCase();
       if (t === 'sales rep') return 'Door to Door';
       if (t === 'technician') return 'Technician';
@@ -1809,7 +1942,7 @@ function reportingWaterfall() {
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
         el('div', {},
           el('div', { class: 'font-display text-lg' }, dim === 'source' ? 'Attrition by Source' : dim === 'contract' ? 'Attrition by Contract Length' : dim === 'rep' ? 'Attrition by Rep' : 'Attrition by Rep Type'),
-          el('div', { class: 'text-[11px] text-muted-' }, (dim === 'source' ? 'Where the account CAME FROM \u00b7 ' : dim === 'contract' ? 'Agreement length on the subscription \u00b7 ' : dim === 'rep' ? 'The rep who sold it \u00b7 ' : 'Who SOLD the account \u00b7 ') + (_rtYear === 'all' ? 'all years in the book' : 'sold in ' + _rtYear + ', cancels to date') + ' \u00b7 same population and cancel rules as this tab' + (office !== 'all' ? ' \u00b7 ' + officeLabel : '') + '.')),
+          el('div', { class: 'text-[11px] text-muted-' }, (dim === 'source' ? 'Where the account CAME FROM \u00b7 ' : dim === 'contract' ? 'Agreement length on the subscription \u00b7 ' : dim === 'rep' ? 'The rep who sold it \u00b7 \u201cFormer rep #id\u201d = inactive in FieldRoutes, so the CRM export carries no name \u00b7 ' : 'Who SOLD the account \u00b7 ') + (_rtYear === 'all' ? 'all years in the book' : 'sold in ' + _rtYear + ', cancels to date') + ' \u00b7 same population and cancel rules as this tab' + (office !== 'all' ? ' \u00b7 ' + officeLabel : '') + '.')),
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
           el('select', {
             class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
@@ -1953,114 +2086,6 @@ function reportingWaterfall() {
   // by default via the chips, and the card follows the Attrition year picker.
   // Red bars = the collections cliff (months 2-5); amber = the 12-month
   // contract-end window (months 11-13).
-  const lifetimeCard = (() => {
-    // Reads the retention book and its COUNTED cancels (per Isaac) — the
-    // steps card decides what is in; no card-level chips.
-    const _yrL = state._rtAttrYear || 'all';
-    const _yOfL = (r) => { const d = r.sold_date ? new Date(r.sold_date) : null; return d && !isNaN(d) ? d.getFullYear() : null; };
-    const _isRenewL = (r) => reportingSourceClass(r.subscription_source) === 'renewal'
-      || /^renewal\b/i.test(_normCancelReason(r.subscription_cancellation_reason));
-    const _isOneL = (r) => /^\s*one[\s-]?time/i.test(String(r.subscription || ''))
-      || ((Number(r.agreement_length) || 0) <= 1 && !/sentricon/i.test(String(r.subscription || '')));
-    const rowsL = [];
-    for (const r of _retenEff(popA)) {
-      if (_yrL !== 'all' && _yOfL(r) !== _yrL) continue;
-      if (!r.sold_date || !r._effCancel) continue;
-      const t = Math.round((new Date(r._effCancel) - new Date(r.sold_date)) / 86400000);
-      if (!(t >= 0 && t <= 4000)) continue;
-      rowsL.push({ r, t });
-    }
-    if (!rowsL.length) return null;
-    const _med = (arr) => { const s2 = [...arr].sort((a, b) => a - b); return s2[Math.floor((s2.length - 1) / 2)]; };
-    const allT = rowsL.map(x => x.t);
-    const medAll = _med(allT);
-    const avgAll = allT.reduce((a, b) => a + b, 0) / allT.length;
-    const moTxt = (d) => (d / 30.44).toFixed(1) + ' mo';
-    // month-of-life histogram: 0..23, then 24+
-    const buckets = Array.from({ length: 25 }, () => []);
-    for (const x of rowsL) buckets[Math.min(24, Math.floor(x.t / 30))].push(x.r);
-    const maxB = Math.max(...buckets.map(b => b.length), 1);
-    const barL = (b, i) => el('button', {
-      class: 'flex-1 flex flex-col  cursor-pointer transition hover:brightness-110',
-      style: { minWidth: 0, background: 'transparent', border: 'none', padding: '0 1px', height: '100%' },
-      title: (i === 24 ? 'Month 24+' : 'Month ' + i) + ' of life — ' + fmt.int(b.length) + ' cancel' + (b.length === 1 ? '' : 's'),
-      onclick: () => b.length && openReportingDrillModal({
-        chartTitle: 'Cancelled in ' + (i === 24 ? 'month 24+' : 'month ' + i) + ' of customer life',
-        sliceLabel: fmt.int(b.length) + ' account' + (b.length === 1 ? '' : 's'),
-        rows: b, formatValue: (v) => fmt.usd0(v) }),
-    }, el('div', {
-      style: {
-        height: (b.length ? Math.max(2, b.length / maxB * 84) : 0) + 'px',
-        background: (i >= 2 && i <= 5) ? '#DC2626' : (i >= 11 && i <= 13) ? '#A9441F' : 'var(--accent)',
-      } }));
-    // by-reason lifetime table (merges trailing-period label variants)
-    const byReason = {};
-    for (const x of rowsL) {
-      const k = String(x.r.subscription_cancellation_reason || '').trim() ? reportingCancelReasonOf(x.r) : '(no reason logged)';
-      (byReason[k] = byReason[k] || []).push(x);
-    }
-    const rks = Object.keys(byReason).filter(k => byReason[k].length >= 10)
-      .sort((a, b) => byReason[b].length - byReason[a].length);
-    const thL = (lab, right) => el('th', { class: (right ? 'text-left' : 'text-left') + ' px-3 py-2 whitespace-nowrap' }, lab);
-    const reasonRow = (k) => {
-      const xs = byReason[k];
-      const ts = xs.map(x => x.t);
-      const med = _med(ts);
-      const avg = ts.reduce((a, b) => a + b, 0) / ts.length;
-      const in90 = ts.filter(t => t <= 90).length / ts.length;
-      const in365 = ts.filter(t => t <= 365).length / ts.length;
-      const arvs = xs.map(x => Number(x.r.annual_recurring_value) || 0);
-      const avgArv = arvs.reduce((a, b) => a + b, 0) / (arvs.length || 1);
-      return el('tr', {
-        class: 'border-t cursor-pointer transition hover:brightness-95',
-        style: { borderColor: 'var(--border)' },
-        onclick: () => openReportingDrillModal({
-          chartTitle: 'Customer lifetime — ' + k,
-          sliceLabel: fmt.int(xs.length) + ' cancels · median ' + fmt.int(med) + ' days',
-          rows: xs.map(x => x.r), formatValue: (v) => fmt.usd0(v) }),
-      },
-        el('td', { class: 'px-3 py-2 whitespace-nowrap font-semibold' }, k),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(xs.length)),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, fmt.int(med) + 'd',
-          el('span', { class: 'text-[10px] font-normal text-muted-' }, ' · ' + moTxt(med))),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(Math.round(avg)) + 'd'),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums', style: in90 >= 0.5 ? { color: '#DC2626', fontWeight: '700' } : {} }, (in90 * 100).toFixed(0) + '%'),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, (in365 * 100).toFixed(0) + '%'),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.usd0(avgArv)));
-    };
-    const statL = (lab, val, sub) => el('div', { class: 'text-left' },
-      el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, lab),
-      el('div', { class: 'text-sm font-bold tabular-nums' }, val,
-        sub ? el('span', { class: 'text-[10px] font-normal text-muted-' }, ' · ' + sub) : null));
-    return el('div', { class: 'card overflow-hidden' },
-      el('div', { class: 'px-4 py-3 flex items-center justify-between flex-wrap gap-3' },
-        el('div', {},
-          el('div', { class: 'font-display text-lg' }, 'Customer Lifetime'),
-          el('div', { class: 'text-[11px] text-muted-' },
-            'Sold date → cancel date for cancelled accounts · '
-            + (_yrL === 'all' ? 'all years in the book' : 'sold ' + _yrL)
-            + (office !== 'all' ? ' · ' + officeLabel(office) : '')
-            + ' · click a bar or a reason to see the accounts.')),
-        el('div', { class: 'flex items-center gap-2 flex-wrap' },
-          statL('Median life', fmt.int(medAll) + 'd', moTxt(medAll)),
-          statL('Average', fmt.int(Math.round(avgAll)) + 'd', moTxt(avgAll)),
-          statL('Cancels', fmt.int(rowsL.length), null))),
-      el('div', { class: 'px-4 pb-2' },
-        el('div', { class: 'flex items-end', style: { height: '92px' } }, ...buckets.map(barL)),
-        el('div', { class: 'flex pt-1' }, ...buckets.map((b, i) => el('div', {
-          class: 'flex-1 text-center text-[9px] text-muted- tabular-nums',
-          style: { minWidth: 0 } }, (i % 3 === 0 || i === 24) ? (i === 24 ? '24+' : String(i)) : ''))),
-        el('div', { class: 'flex items-center justify-between pt-1 text-[10px] text-muted-' },
-          el('span', {}, 'Month of customer life at cancel'),
-          el('span', { class: 'flex items-center gap-3' },
-            el('span', { class: 'flex items-center gap-1' }, el('span', { style: { width: '8px', height: '8px', background: '#DC2626', display: 'inline-block' } }), 'collections cliff (mo 2–5)'),
-            el('span', { class: 'flex items-center gap-1' }, el('span', { style: { width: '8px', height: '8px', background: '#A9441F', display: 'inline-block' } }), 'contract end (mo 11–13)')))),
-      el('div', { class: 'overflow-x-auto border-t', style: { borderColor: 'var(--border)' } },
-        el('table', { class: 'w-full text-xs' },
-          el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' }, el('tr', { style: { background: 'var(--card-2)' } },
-            thL('Cancellation Reason'), thL('Cancels', 1), thL('Median Life', 1), thL('Avg', 1), thL('Gone ≤90d', 1), thL('Gone ≤1yr', 1), thL('Avg ARV', 1))),
-          el('tbody', {}, ...rks.map(reasonRow)))));
-  })();
 
 
   // -- Renewal Retention (per Isaac) -- do renewed accounts stick better
@@ -2311,6 +2336,6 @@ function reportingWaterfall() {
     window.addEventListener('resize', () => { try { syncPin(); } catch (e) { /* torn down */ } });
   }
   requestAnimationFrame(() => { syncPin(); setTimeout(syncPin, 200); });
-  return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, body, repTypeAttritionCard, contractAttritionCard, repAttritionCard, sourceAttritionCard, lifetimeCard, renewalRetentionCard);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
+  return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, body, repTypeAttritionCard, contractAttritionCard, repAttritionCard, sourceAttritionCard, renewalRetentionCard);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
 }
 
