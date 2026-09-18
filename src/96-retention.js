@@ -107,7 +107,7 @@ function _retenOfficeSlice(office) {
 }
 function _retenOfficial() {
   const saved = state._retenWhatIf; state._retenWhatIf = null;
-  const o = { initial: true, orphans: reportingAutoExcludeOrphans(), branches: true, hidden: true, sources: reportingExcludedSources().size > 0, popRor: [...retenPopExclReasons()].some(x => /ror/.test(x)), popRorTiming: true, popCombined: [...retenPopExclReasons()].some(x => /combined/.test(x)), popRenew: [...retenPopExclReasons()].some(x => !/ror|combined/.test(x)), zero: retenExclZeroPay(), oneSvc: retenExclOneSvc(), oneSvcExempt: true, frozenOneSvc: retenExclFrozenOneSvc(), exclReasons: reportingExcludedCancelReasons().size > 0, ror: reportingExcludeRorChurn() };
+  const o = { initial: true, orphans: reportingAutoExcludeOrphans(), branches: true, hidden: true, sources: reportingExcludedSources().size > 0, popRor: [...retenPopExclReasons()].some(_isRorReason), popRorTiming: true, popCombined: [...retenPopExclReasons()].some(x => /combined/.test(x)), popRenew: [...retenPopExclReasons()].some(x => !_isRorReason(x) && !/combined/.test(x)), zero: retenExclZeroPay(), oneSvc: retenExclOneSvc(), oneSvcExempt: true, frozenOneSvc: retenExclFrozenOneSvc(), exclReasons: reportingExcludedCancelReasons().size > 0, ror: reportingExcludeRorChurn() };
   state._retenWhatIf = saved;
   return o;
 }
@@ -183,10 +183,10 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
   const s2 = s1.filter(r => !!r.initial_service && r.initial_service >= '2000-01-01');
   // Population steps, applied in order so each count is "removed at this step".
   const popSet = retenPopExclReasons();
-  const rorOn = [...popSet].some(x => /ror/.test(x));
+  const rorOn = [...popSet].some(_isRorReason);
   const rorTimingOn = _retenWhatIf('popRorTiming', true);
   const closedBy = (r, re) => r.subscription_date_canceled && popSet.has(_normCancelReason(reportingCancelReasonOf(r))) && re.test(_normCancelReason(reportingCancelReasonOf(r)));
-  const rorByReason = (r) => !!r.subscription_date_canceled && /ror/.test(_normCancelReason(reportingCancelReasonOf(r)));
+  const rorByReason = (r) => !!r.subscription_date_canceled && _isRorReason(_normCancelReason(reportingCancelReasonOf(r)));
   const s2r = s2.filter(r => !(rorOn && rorByReason(r)));                       // minus RORs coded as such (the sheet's rule)
   const step1a = s2r.filter(r => !(rorOn && rorTimingOn && _reporting3dayRor(r)));   // minus RORs caught by timing (app extra)
   const step1b = step1a.filter(r => !closedBy(r, /combined/));                  // minus combined
@@ -2102,7 +2102,7 @@ function reportingWaterfall() {
       const cxl = r.subscription_date_canceled && !_aliveS(r);
       if (!cxl) continue;
       g.poolCxl++;
-      if (_reporting3dayRor(r) || /ror|rescission/.test(_normCancelReason(r.subscription_cancellation_reason))) g.ror++;
+      if (_reporting3dayRor(r) || _isRorReason(_normCancelReason(r.subscription_cancellation_reason))) g.ror++;
       if (_isDelinq(r)) g.delinq++;
     }
     const total = mk();

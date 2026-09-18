@@ -471,7 +471,7 @@ function adminConfigurations() {
   const attrition = card('Attrition steps', pill('saved defaults · Retention tab switches are session-only'),
     stepRow(1, 'Remove one-time services', pill('from recurring basis')),
     stepRow(2, 'Remove subs that never received an initial service', pill('always')),
-    stepRow(3, 'Remove 3-day RORs', [pill(popOf(/ror/i).join(', ') || '— no reason set'), el('span', { class: 'text-[10px] text-muted-' }, '+ D2D cancelled ≤3 days'), sw(reportingExcludeRorChurn(), () => { setReportingExcludeRorChurn(!reportingExcludeRorChurn()); mountApp(); })]),
+    stepRow(3, 'Remove 3-day RORs', [pill(popOf(/\bror\b|rescission/i).join(', ') || '— no reason set'), el('span', { class: 'text-[10px] text-muted-' }, '+ D2D cancelled ≤3 days'), sw(reportingExcludeRorChurn(), () => { setReportingExcludeRorChurn(!reportingExcludeRorChurn()); mountApp(); })]),
     stepRow(4, 'Remove combined subscriptions', pill(popOf(/combined/i).join(', ') || '— no reason set')),
     stepRow(5, 'Remove renewals', pill(popOf(/renewal/i).join(', ') || '— no reason set')),
     row('Reasons that remove a sub from the book (steps 3–5)', txt(popList.join(', '), (v) => { const l = splitList(v); setRetenPopExclReasons(l.length ? l : RETEN_POP_EXCL_REASONS_DEFAULT); toast('Retention book updated', 'success'); mountApp(); }, { width: '360px' }), { small: true, indent: true }),
