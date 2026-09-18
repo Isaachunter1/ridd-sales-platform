@@ -12,7 +12,7 @@ function openTvBoard() {
   const HEAD = "'Anton', 'Archivo', ui-sans-serif, system-ui, sans-serif";
   const VOICE = "'Archivo', ui-sans-serif, system-ui, sans-serif";
   const EXCLUDED = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
-  const RANGES = [['today', 'Today'], ['week', 'This week'], ['month', 'This month']];
+  const RANGES = [['today', 'Today'], ['week', 'This week'], ['month', 'This month'], ['year', 'This year']];
   if (!RANGES.some(r => r[0] === state._tvRange)) state._tvRange = 'today';
 
   const overlay = el('div', { style: { position: 'fixed', inset: '0', background: T.void, color: T.ink, zIndex: '9999', overflow: 'hidden', fontFamily: VOICE } });
@@ -27,7 +27,7 @@ function openTvBoard() {
   };
   const onKey = (e) => {
     if (e.key === 'Escape') { if (!document.fullscreenElement) cleanup(); return; }
-    if (e.key === '1' || e.key === '2' || e.key === '3') { state._tvRange = RANGES[Number(e.key) - 1][0]; render(); }
+    if (e.key === '1' || e.key === '2' || e.key === '3' || e.key === '4') { state._tvRange = RANGES[Number(e.key) - 1][0]; render(); }
     if (e.key === 'f' || e.key === 'F') toggleFs();
   };
   const toggleFs = () => { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); else overlay.requestFullscreen?.().catch(() => {}); };
@@ -48,6 +48,7 @@ function openTvBoard() {
     const now = new Date(); const today = iso(now);
     if (state._tvRange === 'week') { const s = new Date(now); s.setDate(s.getDate() - ((s.getDay() + 6) % 7)); return { start: iso(s), end: today, label: 'This week' }; }   // Monday → today
     if (state._tvRange === 'month') { return { start: iso(new Date(now.getFullYear(), now.getMonth(), 1)), end: today, label: now.toLocaleDateString('en-US', { month: 'long' }) }; }
+    if (state._tvRange === 'year') { return { start: now.getFullYear() + '-01-01', end: today, label: String(now.getFullYear()) }; }
     return { start: today, end: today, label: 'Today' };
   };
   // Goal for the window: the Goals tab's monthly allocation (new + renewal,
@@ -92,9 +93,13 @@ function openTvBoard() {
     let ms = asUtc - offAt(asUtc); ms = asUtc - offAt(ms);
     return new Date(ms);
   };
+  // FieldRoutes stamps dateAdded on the COMPANY clock (Eastern), whichever
+  // office the account belongs to — a Destin sale read as Central came out
+  // an hour ahead of the room (per Isaac, Sep 18).
+  const CRM_TZ = 'America/New_York';
   const saleAt = (s) => {
     const snap = s.crm_subscription_id != null ? _snapBySub.get(String(s.crm_subscription_id)) : null;
-    if (snap) { const d = _localToDate(snap.sold_at, _tzOfOffice(snap.office_name)); if (d && !isNaN(d)) return d; }
+    if (snap) { const d = _localToDate(snap.sold_at, CRM_TZ); if (d && !isNaN(d)) return d; }
     const c = s.created_at ? new Date(s.created_at) : null; return c && !isNaN(c) ? c : null;
   };
   const saleKey = (s) => { const d = saleAt(s); return d ? d.getTime() : 0; };
@@ -231,7 +236,8 @@ function openTvBoard() {
           // Resync: kicks the server-side FieldRoutes → snapshot job (1–2 min),
           // the board pulls the fresh dataset in on its own when it lands.
           const b = el('button', { title: 'Pull fresh numbers from FieldRoutes now', style: { fontFamily: MONO, fontSize: '11px', letterSpacing: '.18em', textTransform: 'uppercase', padding: '8px 12px', background: 'transparent', color: state._revhawkSyncing ? T.ember : T.dim, border: '1px solid ' + (state._revhawkSyncing ? T.ember : T.hair), cursor: 'pointer' } }, state._revhawkSyncing ? 'Syncing…' : 'Resync');
-          b.onclick = async () => { try { if (typeof syncFromRevHawk === 'function') { b.textContent = 'Syncing…'; b.style.color = T.ember; b.style.borderColor = T.ember; await syncFromRevHawk(null); } } catch (e) { /* toast already shown */ } finally { setTimeout(render, 1500); } };
+          b.onclick = async () => { const since = Date.now(); try { if (typeof syncFromRevHawk === 'function') { b.textContent = 'Syncing…'; b.style.color = T.ember; b.style.borderColor = T.ember; state._tvSyncNote = ''; await syncFromRevHawk(null); } } catch (e) { /* toast already shown */ } if (overlay._tvWatchSync) overlay._tvWatchSync(b, since); };
+          if (state._tvSyncNote) b.textContent = state._tvSyncNote;
           return b;
         })(),
         iconBtn(inFs ? 'Exit fullscreen (F)' : 'Fullscreen (F)', inFs ? '<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>' : '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>', toggleFs),
@@ -360,5 +366,29 @@ function openTvBoard() {
   document.body.append(overlay);
   render();
   // Refresh the CRM pool in the background so the board keeps up with the sync.
-  timers.push(setInterval(() => { try { if (typeof refreshIndicatorsFromCloud === 'function') refreshIndicatorsFromCloud(true); } catch (e) { /* poll retries */ } }, 5 * 60000));
+  const pullFresh = async () => {
+    try { if (typeof refreshIndicatorsFromCloud === 'function') await refreshIndicatorsFromCloud(true); } catch (e) { /* poll retries */ }
+    try { if (typeof refreshSalesData === 'function') await refreshSalesData(); } catch (e) { /* poll retries */ }
+    try { render(); } catch (e) { /* keep the board up */ }
+  };
+  timers.push(setInterval(pullFresh, 5 * 60000));
+  // After a Resync: watch /api/sync-status until a NEWER snapshot lands (or
+  // the run fails), then pull the fresh data and say so on the button.
+  const watchSync = async (b, since) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < 6 * 60000) {
+      await new Promise(r => setTimeout(r, 8000));
+      let j = null; try { j = await fetch('/api/sync-status', { cache: 'no-store' }).then(r => r.json()); } catch { /* keep waiting */ }
+      const latest = j && j.recentSnapshots && j.recentSnapshots[0] && Date.parse(j.recentSnapshots[0].uploaded_at);
+      const failed = j && j.lastRun && j.lastRun.stage === 'failed' && Date.parse(j.lastRun.at) > since;
+      if (failed) { state._tvSyncNote = 'Sync failed'; b.textContent = 'Sync failed'; b.style.color = T.ember; return; }
+      if (latest && latest > since) {
+        state._tvSyncNote = 'Synced ' + new Date(latest).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: BOARD_TZ }) + ' MT';
+        await pullFresh(); return;
+      }
+      b.textContent = 'Syncing… ' + Math.round((Date.now() - t0) / 1000) + 's';
+    }
+    state._tvSyncNote = 'Sync still running'; render();
+  };
+  overlay._tvWatchSync = watchSync;
 }
