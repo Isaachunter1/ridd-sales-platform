@@ -4693,7 +4693,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
         el('div', {},
           el('h3', { class: 'text-base font-bold' }, opts.title || 'Sales Mix'),
         ),
-        el('div', { class: 'flex items-center gap-2 flex-wrap' }, mobileSel, opts.headerExtra || null),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' }, opts.headerExtra || null, mobileSel),
       ),
       body,
     );
