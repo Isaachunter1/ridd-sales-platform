@@ -132,7 +132,7 @@ function retenBranchDropdown(g0) {
   const later = (fn) => requestAnimationFrame(() => setTimeout(fn, 0));
   const setBranches = (br) => { const nw = { ...(state._retenWhatIf || {}) }; if (br) nw.branches = br; else delete nw.branches; state._retenWhatIf = nw; later(mountApp); };
   const wrap = el('div', { class: 'relative shrink-0', onclick: (e) => e.stopPropagation() });
-  const label = off.size === 0 ? 'All branches' : inN === 1 ? names.find(o => !off.has(o)) : inN + ' of ' + names.length + ' branches';
+  const label = off.size === 0 ? 'RIDD' : inN === 1 ? names.find(o => !off.has(o)) : inN + ' of ' + names.length + ' branches';
   const btn = el('button', {
     class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold whitespace-nowrap transition hover:brightness-95',
     style: { borderColor: off.size ? 'var(--accent)' : 'var(--border-2)', color: 'var(--text)', background: 'var(--card)' },
@@ -144,8 +144,8 @@ function retenBranchDropdown(g0) {
   const panel = el('div', { class: 'rounded-xl border shadow-lg p-2', style: { position: 'fixed', zIndex: 60, display: state._retenBranchOpen ? 'block' : 'none', background: 'var(--card)', borderColor: 'var(--border-2)', minWidth: '240px', maxHeight: '60vh', overflowY: 'auto' } },
     el('div', { class: 'flex items-center justify-between gap-2 px-1 pb-1.5 mb-1 border-b', style: { borderColor: 'var(--border)' } },
       el('span', { class: 'text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Branches in the book'),
-      el('span', { class: 'flex items-center gap-1' },
-        ...[['All in', () => setBranches(null)], ['None', () => { const br = {}; names.forEach(o => { br[o] = false; }); setBranches(br); }]].map(([l, fn]) => el('button', { class: 'rounded-md border px-1.5 py-0.5 text-[10px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: fn }, l)))),
+      // Reset (per Isaac) puts every branch back in — replaces All in / None.
+      el('button', { class: 'rounded-md border px-1.5 py-0.5 text-[10px] font-bold', style: { borderColor: off.size ? 'var(--accent)' : 'var(--border-2)', color: off.size ? 'var(--accent)' : 'var(--text-subtle)' }, title: 'Every branch back in the book', onclick: () => setBranches(null) }, 'Reset')),
     ...names.map(o => {
       const isOff = off.has(o);
       const cb = el('input', { type: 'checkbox', checked: !isOff, style: { accentColor: 'var(--accent)' }, onchange: (e) => {
