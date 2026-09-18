@@ -1720,8 +1720,42 @@ function adminReps() {
             onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
             onclick: () => setViewAsRole(v),
           }, label)),
-          // (View-as-a-person search and the Sandbox entry retired per Isaac, Sep 2026 — setViewAsProfile / sandboxStart stay callable.)
-          null);
+          // ── View as a specific PERSON (per Isaac): their whole identity —
+          // name, id, role, office, team reach — so the page is exactly what
+          // they get (team card, drills, permissions), not just their role.
+          el('div', { class: 'px-3 pt-2 pb-1 mt-1 border-t text-[10px] uppercase tracking-widest font-semibold', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } }, 'View as a person\u2026'),
+          (() => {
+            const list = el('div', { class: 'flex flex-col', style: { maxHeight: '220px', overflowY: 'auto' } });
+            const roleRank = (r) => (['rep_partner', 'rep_team_lead', 'rep_office_lead', 'rep_loyalty_lead', 'rep_office', 'rep_loyalty', 'rep_sales'].indexOf(r) + 1) || 99;
+            const people = (state.allProfiles || []).filter(p => p && p.id && p.is_active !== false && !isAdminRole(p.role))
+              .sort((a, b) => (roleRank(a.role) - roleRank(b.role)) || String(a.full_name || '').localeCompare(String(b.full_name || '')));
+            const shortRole = (r) => (ROLE_LABEL[r] || r || '').replace(/^Rep - /, '');
+            const draw = (q) => {
+              list.replaceChildren();
+              const needle = String(q || '').trim().toLowerCase();
+              const hits = needle ? people.filter(p => (String(p.full_name || '') + ' ' + shortRole(p.role)).toLowerCase().includes(needle)) : people;
+              if (!hits.length) { list.append(el('div', { class: 'px-2.5 py-1 text-[10px]', style: { color: 'var(--text-subtle)' } }, 'No match')); return; }
+              let lastRole = null;
+              hits.forEach(p => {
+                if (!needle && p.role !== lastRole) {
+                  lastRole = p.role;
+                  list.append(el('div', { class: 'px-2.5 pt-1.5 pb-0.5 text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, shortRole(p.role)));
+                }
+                list.append(el('button', {
+                  class: 'w-full text-left px-2.5 py-1 rounded-lg text-[11px] font-medium transition flex items-center justify-between gap-2',
+                  style: { color: 'var(--text)' },
+                  onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; },
+                  onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
+                  onclick: () => setViewAsProfile(p),
+                }, el('span', { class: 'truncate' }, p.full_name || p.email || p.id),
+                  needle ? el('span', { class: 'text-[9px] uppercase tracking-wider shrink-0', style: { color: 'var(--text-subtle)' } }, shortRole(p.role)) : null));
+              });
+            };
+            const inp = el('input', { type: 'text', placeholder: 'Search a name or role\u2026', class: 'rounded-lg border px-2.5 py-1 text-[11px] w-full mb-1', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+              oninput: (e) => draw(e.target.value), onclick: (e) => e.stopPropagation() });
+            draw('');
+            return el('div', { class: 'px-1.5 pb-1' }, inp, list);
+          })());
         const btn = el('button', {
           class: 'icon-btn show',
           title: 'Change rep type view',
