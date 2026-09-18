@@ -415,12 +415,15 @@ function viewPricing() {
     // safe-area inset shifts it), minus the 2px of breathing room the block
     // carries, so the quote's top edge lines up with the slick's (per Isaac).
     const hdrH = hdr ? Math.round(hdr.getBoundingClientRect().bottom) : 60;
-    const top = el('div', { class: 'pricing-quote', style: { position: 'sticky', top: Math.max(0, hdrH - 2) + 'px', zIndex: 5, background: 'var(--bg)', paddingTop: '2px', marginTop: '-2px' } }, quote);
+    const top = el('div', { class: 'pricing-quote', style: { position: 'sticky', top: Math.max(0, hdrH) + 'px', zIndex: 5, background: 'var(--bg)' } }, quote);
     board.classList.add('pricing-board');
     quote.style.position = ''; quote.style.top = ''; quote.style.zIndex = '';
     root.replaceChildren(top, board);
   };
   render();
+  // Land at the top (per Isaac): a carried-over scroll position left the
+  // first program's title tucked under the sticky quote on phones.
+  try { requestAnimationFrame(() => window.scrollTo(0, 0)); } catch (e) { /* noop */ }
   return root;
 }
 
