@@ -3756,7 +3756,7 @@ function openIndicatorRepCard(rep, allReps = []) {
       { key: 'sales',      label: 'Sales',      value: fmt.int(count) },
       { key: 'revenue',    label: 'Revenue',    value: fmt.usd0(scopedRep.revenue || 0) },
       { key: 'revPerDay',  label: 'Production/Day',
-        value: sellDays > 0 ? fmt.usd0((scopedRep.revenue || 0) / sellDays) + ' / ' + (count / sellDays).toFixed(1) : '—' },
+        value: sellDays > 0 ? fmt.usd0((scopedRep.revenue || 0) / sellDays) + ' / ' + Math.round(count / sellDays) : '—' },   // whole accounts/day — decimals clipped the tile (per Isaac)
       { key: 'acv',        label: 'ACV',        value: fmt.usd(acv) },
       // Sales Rep dept → Avg Pest Initial (excludes Sentricon / German Roach /
       // Interior Flea). Office Staff, Technician, and All → plain Avg Initial.
