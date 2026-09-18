@@ -245,11 +245,15 @@ function openTvBoard() {
       el('div', { class: 'tv-scroll', style: { display: 'flex', flexDirection: 'column', marginTop: '10px', overflowY: 'auto', flex: '1', minHeight: '0', paddingRight: '4px' } },
         ...(d.latest.length ? d.latest.map((s, i) => {
           const r = d.reps.find(x => x.key === (s.rep_id || ('crm:' + s._crmRep)));
-          return el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '12px', alignItems: 'baseline', padding: '12px 0', borderTop: i ? '1px solid ' + T.hair : 'none' } },
+          const when = (v) => { const d = new Date(v); return isNaN(d) ? '' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) + ' · ' + ago(v); };
+          // Name with the time stamp under it · term + subscription in the middle · amount right (per Isaac).
+          return el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 1fr) auto', gap: '14px', alignItems: 'center', padding: '11px 0', borderTop: i ? '1px solid ' + T.hair : 'none' } },
             el('div', { style: { minWidth: '0' } },
               el('div', { style: { fontFamily: HEAD, fontSize: 'clamp(18px, 1.5vw, 24px)', letterSpacing: '.02em', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, (r ? r.name : (s._crmRep || 'Rep'))),
-              el('div', { style: { fontFamily: MONO, fontSize: '12px', color: T.dim, letterSpacing: '.04em', marginTop: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
-                el('span', { style: { color: T.ink } }, (Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME')), '  ·  ' + (s._crmService || s.service_name || '—') + (s.created_at ? '  ·  ' + ago(s.created_at) : ''))),
+              el('div', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.06em', marginTop: '3px', whiteSpace: 'nowrap' } }, s.created_at ? when(s.created_at) : '—')),
+            el('div', { style: { minWidth: '0', textAlign: 'right' } },
+              el('div', { style: { fontFamily: MONO, fontSize: '13px', color: T.ink, letterSpacing: '.08em', whiteSpace: 'nowrap' } }, (Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME')),
+              el('div', { style: { fontFamily: VOICE, fontWeight: 500, fontSize: '12px', color: T.dim, marginTop: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, s._crmService || s.service_name || '—')),
             figure(money(s.revenue_amount), 'clamp(18px, 1.6vw, 26px)', i === 0 && fresh ? T.ember : T.ink));
         }) : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'Nothing yet.')]))], { flex: '1' });
     const body = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr)', gap: '18px', padding: '18px 36px 24px', flex: '1', minHeight: '0' } },
