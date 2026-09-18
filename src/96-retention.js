@@ -1051,14 +1051,8 @@ function reportingWaterfall() {
       onchange: (e) => { state._churnWindow = e.target.value; state._churnPanStart = null; mountApp(); },
     }, ...[['12', '12 mo'], ['24', '24 mo'], ['36', '36 mo'], ['all', 'All']]
       .map(([v, l]) => { const o = el('option', { value: v }, l); if (String(state._churnWindow || 'all') === v) o.selected = true; return o; }));
-    const trendBtn = el('button', {
-      class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer border transition hover:brightness-95',
-      style: state._churnTrend
-        ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
-        : { borderColor: 'var(--border-2)', color: 'var(--text)' },
-      title: 'Overlay a least-squares trendline per series, fit to the visible window',
-      onclick: () => { state._churnTrend = !state._churnTrend; mountApp(); },
-    }, '📈 Trend');
+    // (Trend overlay button removed, per Isaac — state._churnTrend stays off.)
+    state._churnTrend = false;
     // Years filter for the Graph view — restrict the timeline to specific
     // years (empty = all history). Selected years plot back-to-back.
     const graphYearsSel = (Array.isArray(state._churnGraphYears) ? state._churnGraphYears.filter(y => yearsAvail.includes(y)) : []);
@@ -1339,7 +1333,6 @@ function reportingWaterfall() {
           null,   // (year pickers retired — rolling last 5 years)
           view === 'timeline' ? seriesDrop : null,
           (view === 'timeline' && !yoyOn) ? windowSel : null,
-          (view === 'timeline' && !yoyOn) ? trendBtn : null,
           view === 'timeline' ? yoyBtn : null,
           viewToggle,
           )),
