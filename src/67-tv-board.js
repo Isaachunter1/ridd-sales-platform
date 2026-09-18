@@ -336,7 +336,7 @@ function openTvBoard() {
               el('div', { style: { display: 'flex', alignItems: 'baseline', minWidth: '0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
                 el('span', { style: { fontFamily: HEAD, fontSize: 'clamp(17px, 1.35vw, 22px)', letterSpacing: '.02em', textTransform: 'uppercase' } }, (r ? r.name : (s._crmRep || 'Rep'))),
                 sep(), el('span', { style: { fontFamily: VOICE, fontWeight: 600, fontSize: 'clamp(12px, .95vw, 15px)', color: T.ink } }, s._crmService || s.service_name || '—'),
-                sep(), el('span', { style: { fontFamily: HEAD, fontSize: 'clamp(15px, 1.2vw, 20px)', letterSpacing: '.03em', color: T.ink } }, (Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME')),
+                sep(), el('span', { style: { fontFamily: VOICE, fontWeight: 600, fontSize: 'clamp(12px, .95vw, 15px)', color: T.ink } }, (Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME')),
                 src ? sep() : null, src ? el('span', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.04em' } }, src) : null),
               el('div', { style: { fontFamily: MONO, fontSize: '10px', color: T.dim, letterSpacing: '.06em', marginTop: '2px', whiteSpace: 'nowrap' } }, at ? when(at) : '—')),
             figure(money(s.revenue_amount), 'clamp(17px, 1.5vw, 24px)', i === 0 && fresh ? T.ember : T.ink));
