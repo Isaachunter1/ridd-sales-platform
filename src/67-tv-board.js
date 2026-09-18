@@ -322,16 +322,16 @@ function openTvBoard() {
           const r = d.reps.find(x => x.key === (s.rep_id || ('crm:' + s._crmRep)));
           const when = (d) => !d || isNaN(d) ? '' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: BOARD_TZ }) + ' MT · ' + ago(d);
           const at = saleAt(s), src = sourceOf(s);
-          // One line per sale (per Isaac): NAME | 12 MO | subscription | source … amount, time under the name.
+          // One line per sale (per Isaac): NAME | subscription | source | 12 MO … amount, time under the name.
           // Compact rows so more of the day fits without scrolling.
           const sep = () => el('span', { style: { color: T.hair, padding: '0 10px', fontFamily: MONO } }, '|');
           return el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '14px', alignItems: 'center', padding: '7px 0', borderTop: i ? '1px solid ' + T.hair : 'none' } },
             el('div', { style: { minWidth: '0' } },
               el('div', { style: { display: 'flex', alignItems: 'baseline', minWidth: '0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
                 el('span', { style: { fontFamily: HEAD, fontSize: 'clamp(17px, 1.35vw, 22px)', letterSpacing: '.02em', textTransform: 'uppercase' } }, (r ? r.name : (s._crmRep || 'Rep'))),
-                sep(), el('span', { style: { fontFamily: HEAD, fontSize: 'clamp(15px, 1.2vw, 20px)', letterSpacing: '.03em', color: T.ink } }, (Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME')),
                 sep(), el('span', { style: { fontFamily: VOICE, fontWeight: 600, fontSize: 'clamp(12px, .95vw, 15px)', color: T.ink } }, s._crmService || s.service_name || '—'),
-                src ? sep() : null, src ? el('span', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.04em' } }, src) : null),
+                src ? sep() : null, src ? el('span', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.04em' } }, src) : null,
+                sep(), el('span', { style: { fontFamily: HEAD, fontSize: 'clamp(15px, 1.2vw, 20px)', letterSpacing: '.03em', color: T.ink } }, (Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME'))),
               el('div', { style: { fontFamily: MONO, fontSize: '10px', color: T.dim, letterSpacing: '.06em', marginTop: '2px', whiteSpace: 'nowrap' } }, at ? when(at) : '—')),
             figure(money(s.revenue_amount), 'clamp(17px, 1.5vw, 24px)', i === 0 && fresh ? T.ember : T.ink));
         }) : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'Nothing yet.')]))], { flex: '1' });
