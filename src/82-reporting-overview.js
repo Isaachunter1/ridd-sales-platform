@@ -104,7 +104,14 @@ function reportingOverview() {
     { id: 'agreement',  title: 'Agreement Length Mix',     subline: 'Distribution by contract length (months)',               totalLabel: 'Subs w/ term',        sliceKey: 'agreement', preserveOrder: true },
     { id: 'cancels',    title: 'Cancellation Reasons',     subline: 'All canceled recurring subs',                            totalLabel: 'Cancellations',       sliceKey: 'cancels' },
     { id: 'sources',    title: 'Subscription Sources',     subline: 'Distribution of every visible subscription',             totalLabel: 'Subscriptions',       sliceKey: 'sources' },
-    { id: 'onetimeSubs', title: 'One-Time Subscriptions',  subline: 'Non-recurring subs by service type',                    totalLabel: 'One-time subs',       sliceKey: 'onetimeSubs',
+    { id: 'onetimeSubs', title: 'One-Time Subscriptions',  subline: state._rtOneTimeRev ? 'Contract value of non-recurring subs \u00b7 by service' : 'Non-recurring subs by service type', totalLabel: state._rtOneTimeRev ? 'One-time revenue' : 'One-time subs', sliceKey: state._rtOneTimeRev ? 'onetimeRev' : 'onetimeSubs', formatValue: state._rtOneTimeRev ? fmt.usd0 : undefined,
+      // Count ⇄ revenue toggle (per Isaac) — one card, two lenses.
+      headerRight: () => el('div', { class: 'inline-flex shrink-0', style: { border: '1px solid var(--border-2)' } },
+        ...[[false, 'Subs'], [true, 'Revenue']].map(([v, l]) => el('button', {
+          class: 'px-2 py-0.5 text-[10px] font-bold transition hover:brightness-95',
+          style: !!state._rtOneTimeRev === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card)', color: 'var(--text-muted)' },
+          onclick: () => { state._rtOneTimeRev = v; mountApp(); },
+        }, l))),
       // Inspect link → active subs that data-hygiene flags as "should be
       // closed" (config-driven lifecycle rules in the Configurations tab).
       footer: (d) => {
@@ -137,6 +144,7 @@ function reportingOverview() {
     subline:     typeof def.subline === 'function' ? def.subline(data) : def.subline,
     totalLabel:  def.totalLabel,
     formatValue: def.formatValue,
+    headerRight: typeof def.headerRight === 'function' ? def.headerRight() : undefined,
     slices:      data.slices[def.sliceKey],
     officeLabel: inCompare ? officeLabel(side === 'a' ? office : compareOffice) : null,
     colorMap:    inCompare ? colorMaps[def.sliceKey] : undefined,
@@ -243,10 +251,10 @@ function reportingOverview() {
     return { rows, total: g.length };
   })();
   const COLUMN_CARDS = [
-    { key: 'subs',      label: 'Subscriptions Serviced',  value: (_topFunnel ? _topFunnel.rows.length : (dataA.stats.servicedSubs != null ? dataA.stats.servicedSubs : dataA.stats.subs)).toLocaleString(), sub: 'received an initial service \u00b7 of ' + (_topFunnel ? _topFunnel.total : dataA.stats.subs).toLocaleString() + ' in FieldRoutes \u00b7 ' + dataA.stats.recurring.toLocaleString() + ' recurring', chartIds: ['sources', 'agreement', 'onetimeSubs', 'retiredSubs'] },
-    { key: 'active',    label: 'Subscriptions Active',    value: (reportingActiveInclOneTime() ? dataA.stats.activeSubs : dataA.stats.activeRecurring).toLocaleString(), sub: reportingActiveInclOneTime() ? 'currently in service · incl. one-time' : 'currently in service · recurring', chartIds: ['activesubs'] },
-    { key: 'customers', label: 'Customers Active',        value: (dataA.stats.activeCustomers != null ? dataA.stats.activeCustomers : dataA.stats.uniqueCustomers).toLocaleString(), sub: (dataA.stats.distinctActiveServices != null ? dataA.stats.distinctActiveServices : dataA.stats.distinctServices) + ' active services', chartIds: ['customers', 'tenure'] },
-    { key: 'arr',       label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: 'from active recurring subs',                                        chartIds: ['rarr', 'rarrOffice', 'onetimeRev'] },
+    { key: 'subs',      label: 'Subscriptions Serviced',  value: (_topFunnel ? _topFunnel.rows.length : (dataA.stats.servicedSubs != null ? dataA.stats.servicedSubs : dataA.stats.subs)).toLocaleString(), sub: 'received an initial service \u00b7 of ' + (_topFunnel ? _topFunnel.total : dataA.stats.subs).toLocaleString() + ' in FieldRoutes \u00b7 ' + dataA.stats.recurring.toLocaleString() + ' recurring', chartIds: ['sources', 'onetimeSubs', 'retiredSubs'] },
+    { key: 'active',    label: 'Subscriptions Active',    value: (reportingActiveInclOneTime() ? dataA.stats.activeSubs : dataA.stats.activeRecurring).toLocaleString(), sub: reportingActiveInclOneTime() ? 'currently in service · incl. one-time' : 'currently in service · recurring', chartIds: ['activesubs', 'agreement'] },   // (Agreement Length Mix moved here from column 1, per Isaac)
+    { key: 'customers', label: 'Customers Active',        value: (dataA.stats.activeCustomers != null ? dataA.stats.activeCustomers : dataA.stats.uniqueCustomers).toLocaleString(), sub: (dataA.stats.distinctActiveServices != null ? dataA.stats.distinctActiveServices : dataA.stats.distinctServices) + ' active services', chartIds: ['tenure'] },   // (Active Customers donut retired, per Isaac)
+    { key: 'arr',       label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: 'from active recurring subs',                                        chartIds: ['rarr', 'rarrOffice'] },   // (One-Time Revenue donut folded into the One-Time Subscriptions toggle)
     { key: 'cancels',   label: 'Subscriptions Cancelled', value: dataA.stats.realCancels.toLocaleString(),                   sub: dataA.stats.cancelRate.toFixed(2) + '% rate · recurring subs only',  chartIds: ['cancels', 'aging', 'pastdue'] },
   ];
   // "Other active" customers = active customers whose active subs are all

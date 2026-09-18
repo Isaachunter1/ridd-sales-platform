@@ -234,7 +234,7 @@ const REPORTING_TENURE_ORDER = ['<1 year', '1–2 years', '2–3 years', '3–4 
 // Chart.js instance can be cleanly destroyed before re-creation. When
 // `colorMap` is provided (compare mode), labels look up colors there so
 // the same service is the same color across both offices' pies.
-function reportingPieCard({ key, title, slices, formatValue, totalLabel, subline, top = 6, officeLabel, colorMap, overrideTotal, hidePercent, preserveOrder, onSliceClick, onOtherClick, footerAction }) {
+function reportingPieCard({ key, title, slices, formatValue, totalLabel, subline, top = 6, officeLabel, colorMap, overrideTotal, hidePercent, preserveOrder, onSliceClick, onOtherClick, footerAction, headerRight }) {
   const id = 'rpt-pie-' + key;
   const formatter = formatValue || ((n) => Number(n).toLocaleString());
   // `preserveOrder` keeps the caller's order (used for aging buckets so
@@ -319,7 +319,9 @@ function reportingPieCard({ key, title, slices, formatValue, totalLabel, subline
         class: 'text-[9px] uppercase tracking-widest font-bold mb-1 truncate',
         style: { color: 'var(--accent)' },
       }, officeLabel),
-      el('div', { class: 'text-sm font-bold truncate', title }, title),
+      el('div', { class: 'flex items-center justify-between gap-2' },
+        el('div', { class: 'text-sm font-bold truncate', title }, title),
+        headerRight || null),
       el('div', { class: 'text-[10px] text-muted- mt-0.5 truncate', title: subline || '' }, subline || '\u00a0'),
     ),
     sorted.length === 0
