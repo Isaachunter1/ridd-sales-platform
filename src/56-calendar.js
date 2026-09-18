@@ -211,7 +211,9 @@ function renderWeekGrid(anchor, today, meId, repById) {
     ...days.map(d => {
       const iso = isoDate(d);
       return el('div', {
-        class: 'flex-1 p-3 text-center',
+        class: 'flex-1 p-3 text-center cursor-pointer hover:brightness-95',
+        title: 'Open the full day',
+        onclick: () => openDaySheet(iso),
         style: { background: iso === todayIso ? 'rgba(223,100,58,0.16)' : 'transparent',
                  boxShadow: iso === todayIso ? 'inset 0 0 0 2px var(--accent)' : 'none',
                  color: iso === todayIso ? 'var(--accent)' : 'var(--text-muted)' },
@@ -398,7 +400,9 @@ function renderMonthGrid(anchor, today, meId, repById) {
             background: holiday ? 'rgba(242,20,140,0.05)' : isToday ? 'rgba(223,100,58,0.14)' : 'transparent',
             boxShadow: isToday ? 'inset 0 0 0 2px var(--accent)' : 'none',
           },
-          onclick: isAdmin ? () => openNewShiftModal(iso) : null,
+          // Tap the day → full-day sheet (per Isaac: month cells are too small
+          // to hit one shift). The + badge still opens New shift for admins.
+          onclick: () => openDaySheet(iso),
         },
           holiday && el('div', {
             class: 'text-[9px] font-black uppercase tracking-widest rounded-md px-1.5 py-1 pointer-events-none',
@@ -408,13 +412,14 @@ function renderMonthGrid(anchor, today, meId, repById) {
           el('div', { class: 'flex items-center justify-between mb-0.5 pointer-events-none' },
             el('div', { class: 'text-xs font-bold', style: { color: isToday ? 'var(--accent)' : 'var(--text)' } }, String(d.getDate())),
             isAdmin && el('span', {
-              class: 'cal-add-badge inline-flex items-center justify-center rounded-full text-[12px] font-bold leading-none',
+              class: 'cal-add-badge inline-flex items-center justify-center rounded-full text-[12px] font-bold leading-none cursor-pointer',
               style: {
                 width: '18px', height: '18px',
                 background: 'var(--accent)', color: 'var(--accent-text)',
-                flexShrink: '0',
+                flexShrink: '0', pointerEvents: 'auto',
               },
               title: 'Add shift',
+              onclick: (e) => { e.stopPropagation(); openNewShiftModal(iso); },
             }, '+'),
           ),
           // One line per AGENT with their REAL window (per Isaac: slot
@@ -438,7 +443,7 @@ function renderMonthGrid(anchor, today, meId, repById) {
                   ? { background: 'var(--accent)', color: 'var(--accent-text)' }
                   : { background: c + '14', color: 'var(--text)', borderLeft: '3px solid ' + c },
                 title: calendarRepShort(a.rep_id, repById) + ' \u00b7 ' + calShortTime(calShiftTimes(a).st) + ' \u2013 ' + calShortTime(calShiftTimes(a).en),
-                onclick: (e) => { e.stopPropagation(); openSlotModal(iso, calShiftTimes(a).slotId); },
+                onclick: (e) => { e.stopPropagation(); if (_calPhone()) openDaySheet(iso); else openSlotModal(iso, calShiftTimes(a).slotId); },
               },
                 el('span', { class: 'cal-chip-name truncate' }, calendarRepShort(a.rep_id, repById)),
                 el('span', { class: 'cal-chip-time ml-auto tabular-nums shrink-0', style: { color: mine ? 'var(--accent-text)' : 'var(--text-muted)', fontWeight: '600' } },
@@ -852,6 +857,78 @@ function applyRecurringChange(assignment, label, applyFn, redraw) {
 }
 
 // ── Slot modal: one slot/date. Add/remove reps, split, transfer ───────────
+// ── Day sheet (per Isaac, Sep 2026): tap a day and see EVERYTHING on it —
+// every shift, every rep, with the same actions the slot modal offers
+// (reassign / edit time / split / remove for admins, request transfer +
+// accept / decline for reps). Arrows step through days; admins add from here.
+function _calPhone() { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } }
+function openDaySheet(iso0) {
+  let iso = iso0;
+  const overlay = el('div', { class: 'modal-overlay' });
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  const render = () => {
+    const allReps    = state.allProfiles.length ? state.allProfiles : [state.profile];
+    const activeReps = calendarEligibleProfiles(state.profile);
+    const meId = state.profile.id;
+    const isAdmin = calendarCanManage(state.profile?.role);
+    const repById = Object.fromEntries(allReps.map(r => [r.id, r]));
+    const d = new Date(iso + 'T00:00');
+    const dateLabel = d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    const holiday = companyHolidayFor(iso);
+    const vis = _shiftVisibleOn(iso);
+    const rows = deptShifts()
+      .filter(sh => sh.date === iso && vis(sh) && calendarAssignVisible(sh))
+      .sort((a, b) => String(a.start || a.slot_start || '').localeCompare(String(b.start || b.slot_start || ''))
+        || calendarRepShort(a.rep_id, repById).localeCompare(calendarRepShort(b.rep_id, repById)));
+    // Group by slot (Morning / Afternoon / …) so the day reads like a roster.
+    const bySlot = new Map();
+    rows.forEach(a => { const t = calShiftTimes(a); const k = t.slotId; if (!bySlot.has(k)) bySlot.set(k, []); bySlot.get(k).push(a); });
+    const mine = rows.filter(a => a.rep_id === meId);
+    const step = (n) => { const x = new Date(iso + 'T00:00'); x.setDate(x.getDate() + n); iso = isoDate(x); render(); };
+    const navBtn = (lab, n) => el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)' }, onclick: () => step(n) }, lab);
+
+    const card = el('div', { class: 'card w-full max-w-lg my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } });
+    const header = el('div', { class: 'flex items-center justify-between gap-2 px-5 py-4 border-b', style: { borderColor: 'var(--border)' } },
+      el('div', { class: 'min-w-0' },
+        el('h2', { class: 'text-base font-bold truncate' }, dateLabel),
+        el('div', { class: 'text-xs text-muted- mt-0.5' },
+          (holiday ? '🎉 ' + holiday + ' · ' : '')
+          + rows.length + ' shift' + (rows.length === 1 ? '' : 's')
+          + (mine.length ? ' · you’re on ' + mine.map(a => calShortTime(calShiftTimes(a).st) + '–' + calShortTime(calShiftTimes(a).en)).join(', ') : ''))),
+      el('div', { class: 'flex items-center gap-1 shrink-0' },
+        navBtn('‹', -1), navBtn('›', 1),
+        el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] text-muted-', style: { borderColor: 'var(--border-2)' }, onclick: () => overlay.remove() }, 'Close')));
+    const body = el('div', { class: 'flex-1 overflow-y-auto' });
+    if (!rows.length) {
+      body.append(el('div', { class: 'px-5 py-8 text-sm text-muted- italic text-center' },
+        holiday ? 'Company holiday — nobody is scheduled.' : 'Nobody is scheduled this day.'));
+    }
+    for (const [slotId, list] of bySlot) {
+      const slot = slotTemplate(iso, slotId) || { label: 'Shift', slot_start: list[0].slot_start, slot_end: list[0].slot_end };
+      body.append(el('div', { class: 'px-5 py-4 flex flex-col gap-2 border-b', style: { borderColor: 'var(--border)' } },
+        el('div', { class: 'flex items-center justify-between gap-2' },
+          el('div', { class: 'text-xs font-bold uppercase tracking-wider text-muted-' },
+            slot.label + ' · ' + fmtTime(slot.slot_start) + '–' + fmtTime(slot.slot_end) + ' · ' + list.length),
+          !_calPhone() ? el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => { overlay.remove(); openSlotModal(iso, slotId); } }, 'Open shift →') : null),
+        ...list.map(a => assignmentRow(a, slot, activeReps, repById, meId, isAdmin, redraw))));
+    }
+    if (isAdmin) {
+      body.append(el('div', { class: 'px-5 py-4 flex items-center gap-2' },
+        el('button', {
+          class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
+          style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+          onclick: () => { overlay.remove(); openNewShiftModal(iso); },
+        }, '+ New shift'),
+        ...(bySlot.size ? [el('span', { class: 'text-[11px] text-muted-' }, 'or add a rep to an existing shift above')] : [])));
+    }
+    card.append(header, body);
+    overlay.replaceChildren(card);
+  };
+  const redraw = () => { render(); mountApp(); };
+  render();
+  document.body.append(overlay);
+}
+
 function openSlotModal(iso, slotId) {
   const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
