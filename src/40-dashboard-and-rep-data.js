@@ -464,10 +464,13 @@ function viewDashboard() {
       // against the personal goal they set (⚙ My Settings) or an admin set
       // for them, with the same year-pace marker as the department bars. ──
       const goalMode = state.dashGoalMode === 'reps' ? 'reps' : 'dept';
-      const goalHeader = el('div', { class: 'flex items-center justify-between mb-2' },
-        el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } },
+      // Toggle stays pinned right on phones too (per Isaac): the longer
+      // Individual title gets flex-1 / min-w-0 so it wraps instead of
+      // shoving the toggle around.
+      const goalHeader = el('div', { class: 'flex items-center justify-between gap-2 mb-2' },
+        el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold flex-1 min-w-0', style: { color: 'var(--text-subtle)' } },
           goalMode === 'reps' ? 'Individual Revenue Pacer · YTD new revenue' : 'Revenue Pacer'),
-        el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+        el('div', { class: 'inline-flex rounded-lg border overflow-hidden shrink-0 ml-auto', style: { borderColor: 'var(--border-2)' } },
           ...[['dept', 'Department'], ['reps', 'Individual']].map(([v, l]) => el('button', {
             class: 'px-2.5 py-1 text-[11px] font-semibold transition',
             style: goalMode === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
