@@ -210,12 +210,12 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap cursor-pointer', onclick: () => { state._retenMethodOpen = !open; mountApp(); } },
       el('div', { class: 'flex-1 min-w-0' },
         el('h3', { class: 'text-sm font-bold' }, (open ? '▾ ' : '▸ ') + 'Attrition Steps')),
-      el('div', { class: 'flex items-start gap-4 tabular-nums reten-tiles' },
+      el('div', { class: 'flex items-center gap-4 tabular-nums reten-tiles' },
         el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, (year - 1) + ' attrition'), el('div', { class: 'text-lg font-black' }, pct(prev.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.prev)) : null)),
         el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' YTD attrition'), el('div', { class: 'text-lg font-black' }, pct(cur.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.cur)) : null)),
         el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' projected attrition'), el('div', { class: 'text-lg font-black' }, pct(projected), el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'seasonal pace'))),
         (() => { const t = retenTrailing12(book); const fn = drill('Trailing 12 months · counted cancels', t.rows.counted, 'counted as churn'); return el('div', { class: 'text-right', title: n(t.c) + ' cancels ' + t.st + ' → ' + t.en + ' ÷ ' + n(t.boy) + ' on the books a year ago' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Trailing 12 months'), el('div', { class: 'text-lg font-black', style: fn ? { cursor: 'pointer' } : {}, onclick: fn ? (e) => { e.stopPropagation(); fn(); } : null }, pct(t.rate))); })(),
-        whatIf ? el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: (e) => { e.stopPropagation(); state._retenWhatIf = null; mountApp(); } }, 'Reset to official') : null,
+        whatIf ? el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)', marginTop: '10px' }, onclick: (e) => { e.stopPropagation(); state._retenWhatIf = null; mountApp(); } }, 'Reset to official') : null,
         // Reconcile against a hand-built FieldRoutes export (CSV): matched /
         // only-in-app / only-in-file, each explained row by row.
         (() => {
@@ -226,9 +226,9 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
             rd.onload = () => { try { const rows = retenParseCsv(rd.result); if (!rows.length || !('customer id' in rows[0]) || !('subscription' in rows[0])) { toast('CSV needs Customer ID and Subscription columns', 'error'); return; } openRetenReconcileModal(retenReconcile(rows, pop, book, _retenEff, g0)); } catch (e) { toast('Could not read that file: ' + ((e && e.message) || e), 'error'); } };
             rd.readAsText(f);
           });
-          return el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, title: 'Upload a FieldRoutes Customer Report (CSV) and diff it against the app — top of the funnel (completed initial, before any step) and the final book, row by row', onclick: (e) => { e.stopPropagation(); inp.click(); } }, '⇄ Reconcile', inp);
+          return el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--text)', marginTop: '10px' }, title: 'Upload a FieldRoutes Customer Report (CSV) and diff it against the app — top of the funnel (completed initial, before any step) and the final book, row by row', onclick: (e) => { e.stopPropagation(); inp.click(); } }, '⇄ Reconcile', inp);
         })(),
-        infoBtn ? el('span', { onclick: (e) => e.stopPropagation() }, infoBtn) : null)));
+        infoBtn ? el('span', { class: 'inline-flex', style: { marginTop: '10px' }, onclick: (e) => e.stopPropagation() }, infoBtn) : null)));
   if (!open) return card;
   const loadDrops = state._snapshotLoadDrops || null;
   // Which of Isaac's workbook Steps (RIDD Reporting.xlsx → Steps tab) a
