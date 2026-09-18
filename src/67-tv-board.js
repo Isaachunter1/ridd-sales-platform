@@ -6,6 +6,7 @@
 // │ Part of the app.js bundle (tools/bundle.js concatenates src/*.js in name order).
 // └────────────────────────────────────────────────────────────────────────
 function openTvBoard() {
+  state._tvOpen = true;   // the version watcher auto-reloads while this is set
   // Deck 2.0 tokens (docs/design-kit/BRAND.md) — scoped to the board.
   const T = { void: '#0A0B0D', surface: '#14161A', surface2: '#1E2128', hair: '#2B2F38', ink: '#F4F6F8', dim: '#9AA2B1', ember: '#FF5F2E' };
   const MONO = "'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
@@ -19,6 +20,7 @@ function openTvBoard() {
   let timers = [];
   let lastKeys = null;   // sale ids seen on the previous paint → pulse on a new one
   const cleanup = () => {
+    state._tvOpen = false;
     timers.forEach(clearInterval); timers = [];
     document.removeEventListener('keydown', onKey);
     document.removeEventListener('fullscreenchange', onFs);
@@ -281,14 +283,7 @@ function openTvBoard() {
       el('div', { style: { display: 'flex', alignItems: 'center', gap: '18px' } },
         el('div', { style: { display: 'flex', gap: '6px' } }, ...RANGES.map(([id, l]) => pill(id, l))),
         // (header clock retired per Isaac — the stamp on the left carries date + time)
-        (() => {
-          // Resync: kicks the server-side FieldRoutes → snapshot job (1–2 min),
-          // the board pulls the fresh dataset in on its own when it lands.
-          const b = el('button', { title: 'Pull fresh numbers from FieldRoutes now', style: { fontFamily: MONO, fontSize: '11px', letterSpacing: '.18em', textTransform: 'uppercase', padding: '8px 12px', background: 'transparent', color: state._revhawkSyncing ? T.ember : T.dim, border: '1px solid ' + (state._revhawkSyncing ? T.ember : T.hair), cursor: 'pointer' } }, state._revhawkSyncing ? 'Syncing…' : 'Resync');
-          b.onclick = async () => { const since = Date.now(); try { if (typeof syncFromRevHawk === 'function') { b.textContent = 'Syncing…'; b.style.color = T.ember; b.style.borderColor = T.ember; state._tvSyncNote = ''; await syncFromRevHawk(null); } } catch (e) { /* toast already shown */ } if (overlay._tvWatchSync) overlay._tvWatchSync(b, since); };
-          if (state._tvSyncNote) b.textContent = state._tvSyncNote;
-          return b;
-        })(),
+        // (Resync button retired per Isaac, Sep 18 — the snapshot lands every 30 min, the live feed every 15, the board pulls every 5.)
         iconBtn(inFs ? 'Exit fullscreen (F)' : 'Fullscreen (F)', inFs ? '<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>' : '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>', toggleFs),
         iconBtn('Close (Esc)', '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>', cleanup)));
 
@@ -434,23 +429,4 @@ function openTvBoard() {
     try { render(); } catch (e) { /* keep the board up */ }
   };
   timers.push(setInterval(pullFresh, 5 * 60000));
-  // After a Resync: watch /api/sync-status until a NEWER snapshot lands (or
-  // the run fails), then pull the fresh data and say so on the button.
-  const watchSync = async (b, since) => {
-    const t0 = Date.now();
-    while (Date.now() - t0 < 6 * 60000) {
-      await new Promise(r => setTimeout(r, 8000));
-      let j = null; try { j = await fetch('/api/sync-status', { cache: 'no-store' }).then(r => r.json()); } catch { /* keep waiting */ }
-      const latest = j && j.recentSnapshots && j.recentSnapshots[0] && Date.parse(j.recentSnapshots[0].uploaded_at);
-      const failed = j && j.lastRun && j.lastRun.stage === 'failed' && Date.parse(j.lastRun.at) > since;
-      if (failed) { state._tvSyncNote = 'Sync failed'; b.textContent = 'Sync failed'; b.style.color = T.ember; return; }
-      if (latest && latest > since) {
-        state._tvSyncNote = 'Synced ' + new Date(latest).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: BOARD_TZ }) + ' MT';
-        await pullFresh(); return;
-      }
-      b.textContent = 'Syncing… ' + Math.round((Date.now() - t0) / 1000) + 's';
-    }
-    state._tvSyncNote = 'Sync still running'; render();
-  };
-  overlay._tvWatchSync = watchSync;
 }
