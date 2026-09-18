@@ -3265,7 +3265,12 @@ function setViewAsRole(role) {
 // allSales/mySales = office rows only, exactly as before.
 function _splitSalesRows(rows) {
   const office = [], other = { d2d: [], tech: [] };
-  for (const s of rows) { const q = s.queue_type || 'office'; if (q === 'office') office.push(s); else (other[q] || (other[q] = [])).push(s); }
+  for (const s of rows) {
+    // 'approved' was the auto-stager's early spelling of the commissionable
+    // status; payroll and the queues key on 'serviced' (shown as
+    // "Commissionable"). Read both as one.
+    if (s.audit_status === 'approved') s.audit_status = 'serviced';
+    const q = s.queue_type || 'office'; if (q === 'office') office.push(s); else (other[q] || (other[q] = [])).push(s); }
   state.allSales   = office;
   state.mySales    = office.filter(s => s.rep_id === state.profile.id);
   state.queueSales = other;

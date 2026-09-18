@@ -66,7 +66,7 @@ exports.handler = async (event) => {
     const { data: have } = await supabase.from('sales').select('crm_subscription_id').in('crm_subscription_id', ids);
     const haveSub = new Set((have || []).map(r => String(r.crm_subscription_id)));
     const fresh = ids.filter(id => !haveSub.has(id));
-    if (!fresh.length) return { statusCode: 200, body: ids.length + ' subscriptions, all logged' };
+    // (Already-logged subs get their amounts trued up in step 3b.)
 
     // 3. Details + the people/lookups to attribute them.
     const subs = [];
@@ -162,9 +162,11 @@ exports.handler = async (event) => {
       const _appt = hasAppt(s), _bill = hasBilling(cust), _signed = signedCust.has(String(s.customerID));
       if (!(_appt && _bill && _signed)) skippedNotYet++;
       const cv = Number(s.contractValue) || 0;
+      // Straight from the subscription (per Isaac): Initial = FieldRoutes'
+      // initial service total, Monthly = its recurring charge — no deriving.
       const initial = Number(s.initialServiceTotal) || 0;
       const months = Number(s.agreementLength) || 12;
-      const monthly = Math.max(0, Math.round(((cv - initial) / 11) * 100) / 100);
+      const monthly = Number(s.recurringCharge) > 0 ? Math.round(Number(s.recurringCharge) * 100) / 100 : Math.max(0, Math.round(((cv - initial) / 11) * 100) / 100);
       batch.push({
         rep_id: prof.id,
         queue_type: QUEUE_OF[type] || 'office',
@@ -209,7 +211,39 @@ exports.handler = async (event) => {
         else throw new Error(error.message);
       }
     }
-    const msg = '[fr-live] ' + ids.length + ' subs since ' + from + ' · +' + added + ' logged · ' + skippedNoRep + ' seller(s) with no app account · ' + skippedType + ' skipped by type · ' + skippedNotYet + ' logged but not yet eligible (appt/billing/signed) · ' + svcCreated + ' service type(s) created · ' + (Date.now() - started) + 'ms';
+    // 3b. True-up: auto-added rows whose Initial / Monthly / Revenue drifted
+    // from FieldRoutes (e.g. the old derived Monthly) get the CRM's numbers.
+    // Runs over the 400 auto-added rows checked longest ago (all of this
+    // year's book cycles through in a few hours at the 15-minute cadence).
+    let fixed = 0;
+    {
+      try {
+        const { data: rows } = await supabase.from('sales').select('id, crm_subscription_id, initial_amount, monthly_amount, revenue_amount, notes')
+          .gte('sold_date', START).not('crm_subscription_id', 'is', null).ilike('notes', '%auto-added from fieldroutes%')
+          .order('crm_checked_at', { ascending: true, nullsFirst: true }).limit(400);
+        const auto = (rows || []);
+        const stampNow = new Date().toISOString();
+        for (const part of chunk(auto.map(r => r.crm_subscription_id), 1000)) {
+          const got = await fr('subscription/get', { subscriptionIDs: part.map(Number) });
+          const list = Array.isArray(got.subscriptions) ? got.subscriptions : Object.values(got.subscriptions || {});
+          for (const s of list) {
+            const row = auto.find(r => String(r.crm_subscription_id) === String(s.subscriptionID));
+            if (!row) continue;
+            const cv = Number(s.contractValue) || 0;
+            const initial = Number(s.initialServiceTotal) || 0;
+            const monthly = Number(s.recurringCharge) > 0 ? Math.round(Number(s.recurringCharge) * 100) / 100 : Number(row.monthly_amount) || 0;
+            const patch = {};
+            if (Math.abs((Number(row.initial_amount) || 0) - initial) >= 0.01) patch.initial_amount = initial;
+            if (Math.abs((Number(row.monthly_amount) || 0) - monthly) >= 0.01) patch.monthly_amount = monthly;
+            if (cv > 0 && Math.abs((Number(row.revenue_amount) || 0) - cv) >= 0.01) patch.revenue_amount = cv;
+            patch.crm_checked_at = stampNow;
+            const { error } = await supabase.from('sales').update(patch).eq('id', row.id);
+            if (!error && Object.keys(patch).length > 1) fixed++;
+          }
+        }
+      } catch (e) { console.warn('[fr-live] true-up skipped:', e.message); }
+    }
+    const msg = '[fr-live] ' + ids.length + ' subs since ' + from + ' · +' + added + ' logged · ' + fixed + ' trued up · ' + skippedNoRep + ' seller(s) with no app account · ' + skippedType + ' skipped by type · ' + skippedNotYet + ' logged but not yet eligible (appt/billing/signed) · ' + svcCreated + ' service type(s) created · ' + (Date.now() - started) + 'ms';
     console.log(msg);
     return { statusCode: 200, body: msg };
   } catch (e) {

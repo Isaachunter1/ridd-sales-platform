@@ -1222,7 +1222,7 @@ async function auditSale(saleId, status) {
     // whether it sends) — first event wired to per-user notifications.
     try {
       if (sale && sale.profile_id && sale.profile_id !== state.profile?.id) {
-        const _lbl = { pending: 'Pending', serviced: 'Serviced \u2705', below_minimums: 'Below Minimums', cancelled: 'Cancelled', nsf: 'NSF', not_payable: 'Not Payable', reschedule: 'Reschedule' }[status] || status;
+        const _lbl = { pending: 'Pending', serviced: 'Commissionable \u2705', below_minimums: 'Below Minimums', cancelled: 'Cancelled', nsf: 'NSF', not_payable: 'Not Payable', reschedule: 'Reschedule' }[status] || status;
         notifySlack(sale.profile_id, '\ud83d\udd0e Audit update \u2014 your sale for ' + (sale.customer_name || 'a customer') + ' was marked *' + _lbl + '*.');
       }
     } catch (e2) { /* best-effort */ }
