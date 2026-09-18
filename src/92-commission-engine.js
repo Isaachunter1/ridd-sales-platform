@@ -414,9 +414,6 @@ function viewD2dDashboard() {
           el('div', { class: 'font-bold' }, fmt.usd0(o.cv)),
           el('div', { class: 'rounded-full mt-1 ml-auto', style: { height: '4px', width: Math.max(4, Math.round(o.cv / maxCv * 100)) + '%', background: 'var(--accent)', opacity: String(0.45 + 0.55 * (o.cv / maxCv)) } })) },
       { key: 'acv',  label: 'ACV',          tot: (T) => num(fmt.usd0(T.n ? T.cv / T.n : 0), 'font-bold'), row: (o) => num(fmt.usd0(o.n ? o.cv / o.n : 0), 'text-muted-') },
-      { key: 'streak', label: 'Streak',     title: 'Consecutive days with a sale, ending today or yesterday (Sundays off don\u2019t break it)',
-        tot: (T) => num(T.streakMax ? '\ud83d\udd25 ' + T.streakMax : '\u2014', 'font-bold'),
-        row: (o) => num(o.streak >= 2 ? '\ud83d\udd25 ' + o.streak : (o.streak === 1 ? '1' : '\u2014'), o.streak >= 3 ? 'font-bold' : 'text-muted-', o.streak >= 3 ? { color: 'var(--accent)' } : {}) },
       ...(showDate ? [
         { key: 'perday', label: '$ / Day',  title: 'Revenue \u00f7 days with a sale in this range', tot: (T) => num(fmt.usd0(T.sellDaysAll ? T.cv / T.sellDaysAll : 0), 'font-bold'), row: (o) => num(fmt.usd0(o.sellDays ? o.cv / o.sellDays : 0), 'text-muted-') },
         { key: 'best', label: 'Best Day',   title: 'Biggest single day in this range', tot: (T) => num(fmt.usd0(T.bestDayAll || 0), 'font-bold'), row: (o) => num(fmt.usd0(o.bestDay || 0), 'text-muted-') },
