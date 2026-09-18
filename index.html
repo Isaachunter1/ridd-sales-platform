@@ -398,6 +398,17 @@
     color: var(--text) !important;
     border: 1px solid var(--input-border) !important;
   }
+  /* Checkboxes / radios: the shorthand above wiped the checked-state check
+     mark (Tailwind forms paints it as a background-image), so every ticked
+     box looked empty (per Isaac, Sep 2026). Paint the states explicitly. */
+  input[type=checkbox], input[type=radio] { background: var(--card) !important; border: 1px solid var(--border-2) !important; cursor: pointer; }
+  input[type=checkbox]:checked, input[type=radio]:checked, input[type=checkbox]:indeterminate {
+    background-color: var(--accent) !important; border-color: var(--accent) !important;
+    background-size: 100% 100% !important; background-position: center !important; background-repeat: no-repeat !important;
+  }
+  input[type=checkbox]:checked { background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='%23fff' viewBox='0 0 16 16'%3E%3Cpath d='M12.207 4.793a1 1 0 0 1 0 1.414l-5 5a1 1 0 0 1-1.414 0l-2-2a1 1 0 0 1 1.414-1.414L6.5 9.086l4.293-4.293a1 1 0 0 1 1.414 0'/%3E%3C/svg%3E") !important; }
+  input[type=checkbox]:indeterminate { background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 16 16'%3E%3Cpath stroke='%23fff' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M4 8h8'/%3E%3C/svg%3E") !important; }
+  input[type=radio]:checked { background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='%23fff' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='3'/%3E%3C/svg%3E") !important; }
   input::placeholder, textarea::placeholder { color: var(--text-subtle) !important; }
   /* The login door (design kit): hairline underline, never a box — wins over the global input rule above */
   input.door-field { background: transparent !important; color: #000 !important; border: 0 !important; border-bottom: 1px solid rgba(0,0,0,.3) !important; border-radius: 0 !important; box-shadow: none !important; }
