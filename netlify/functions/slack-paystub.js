@@ -52,19 +52,7 @@ exports.handler = async (event) => {
     };
   }
 
-  // ── Optional: Supabase JWT auth gate ────────────────────────────────────
-  // Uncomment when you've wired Supabase auth and want to make sure only
-  // signed-in admins can trigger sends.
-  //
-  // const jwt = (event.headers.authorization || '').replace(/^Bearer\s+/i, '');
-  // if (!jwt) return { statusCode: 401, body: JSON.stringify({ error: 'No token' }) };
-  // try {
-  //   const { data: user, error } = await supabaseAdmin.auth.getUser(jwt);
-  //   if (error || !user) throw new Error('Invalid JWT');
-  //   // optionally: check that user.role === 'admin' on your profiles table
-  // } catch (err) {
-  //   return { statusCode: 401, body: JSON.stringify({ error: err.message }) };
-  // }
+  // (Auth: requireRole above — admins only.)
 
   let body;
   try {

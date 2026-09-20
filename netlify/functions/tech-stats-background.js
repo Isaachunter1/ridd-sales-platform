@@ -9,10 +9,12 @@
 // └────────────────────────────────────────────────────────────────────────
 const zlib = require('zlib');
 const { createClient } = require('@supabase/supabase-js');
+const { requireSyncSecret } = require('../lib/sync-gate.js');
 const { _bq } = require('./revhawk-sync-background.js');
 
-exports.handler = async () => {
+exports.handler = async (event) => {
   const started = Date.now();
+  const _gate = requireSyncSecret(event); if (_gate) return _gate;
   const SUPABASE_URL = process.env.SUPABASE_URL;
   const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!SUPABASE_URL || !SERVICE_ROLE) return { statusCode: 500, body: 'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY required' };
