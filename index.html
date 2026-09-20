@@ -301,6 +301,11 @@
     /* A frozen table with only a couple of columns fills the card instead
        of leaving white space to the right (P&L single-branch view). */
     .card table.frozen-table { width: 100% !important; }
+    /* Phones: the frozen label column never eats more than ~half the
+       screen — long labels ellipsise so more numbers show before a swipe. */
+    @media (max-width: 640px) {
+      .frozen-table > tbody td:first-child, .frozen-table > thead th:first-child { max-width: 46vw; overflow: hidden; text-overflow: ellipsis; }
+    }
     /* Fixed-layout tables (Latest Sales feed, leaderboards…) already size
        themselves to the card — leave them as real tables so they never grow
        a sideways scrollbar (per Isaac: no horizontal panning on phones). */
