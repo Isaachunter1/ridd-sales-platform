@@ -5846,8 +5846,10 @@ function leaderboardSection(range) {
       return el('div', {},
         // Past ~6 reps the board scrolls inside a fixed-height box (per
         // Isaac) so the card stays the same size as the Latest Sales feed.
-        el('div', { class: (phone ? '' : 'scroll-x ') + 'flex-1', style: { minHeight: '0', overflowY: 'auto' } },
-          el('table', { class: 'w-full text-[12px]' },
+        el('div', { class: (phone ? '' : 'scroll-x ') + 'flex-1', style: { minHeight: '0', overflowY: 'auto', overflowX: phone ? 'hidden' : undefined } },
+          // Phones: one metric column, so the table fits the card exactly
+          // (fit-table keeps it a real fixed-layout table — no sideways drift).
+          el('table', { class: 'w-full text-[12px]' + (phone ? ' fit-table' : ''), style: phone ? { tableLayout: 'fixed' } : {} },
             el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: '3' } },
               el('tr', {},
                 el('th', { class: 'text-left pl-4 pr-1 py-2', style: { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 2, minWidth: '40px', width: '40px' } }, '#'),
