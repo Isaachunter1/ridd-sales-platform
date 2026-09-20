@@ -416,8 +416,10 @@ function reportingGeographic() {
           onclick: () => exportReportingGeoCsv(sortedItems, breakdown.labelKey, exportScopeTag + (bOffice !== 'all' ? '-' + bOffice.toLowerCase().replace(/\s+/g, '_') : '')),
         }, '⬇')),
     ),
-    el('div', { style: { overflow: 'auto', maxHeight: '500px' } },
-      el('table', { class: 'w-full text-xs' },
+    el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '500px' } },
+      // frozen-table: stays a REAL table on phones so the sticky # / ZIP
+      // columns pin properly instead of drifting off a blank gutter (per Isaac).
+      el('table', { class: 'w-full text-xs frozen-table' },
         el('thead', { class: 'text-[10px] uppercase tracking-wider sticky top-0', style: { background: 'var(--card-2)', color: 'var(--text-muted)', zIndex: 2 } },
           el('tr', {},
             el('th', { class: 'px-3 py-2 font-semibold text-left', style: { background: 'var(--card-2)', width: '40px', position: 'sticky', left: 0, zIndex: 3 } }, '#'),

@@ -288,7 +288,7 @@
     /* Records: the table stays a real table inside its own .scroll-x so the
        Scope column can freeze (a display:block table was what made the
        sticky cell drift and leave the phantom gap on iOS). */
-    .card > div > table.records-table { display: table; overflow: visible; width: max-content; min-width: 100%; }
+    .card > div > table.records-table, .card table.frozen-table { display: table !important; overflow: visible !important; width: max-content; min-width: 100%; }
     /* Fixed-layout tables (Latest Sales feed, leaderboards…) already size
        themselves to the card — leave them as real tables so they never grow
        a sideways scrollbar (per Isaac: no horizontal panning on phones). */
