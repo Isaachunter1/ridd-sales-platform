@@ -489,6 +489,10 @@ function reportingOverview() {
         const nameOf = (r) => { const l = (r.last_name || '').trim(), f = (r.first_name || '').trim(); return l && f ? l + ', ' + f : (l || f || r.customer_id || '\u2014'); };
         const ageMo = (r) => { const a = r.initial_service || r.sold_date; if (!a) return null; const d = (new Date(String(r.subscription_date_canceled).slice(0, 10) + 'T00:00') - new Date(String(a).slice(0, 10) + 'T00:00')) / 2629800000; return isFinite(d) ? Math.max(0, Math.round(d)) : null; };
         const accts = rowsIn.slice().sort((a, b) => K.valOf(b) - K.valOf(a));
+        // Save-attempt loop (P3-5): who called this account and what happened.
+        const canSave = typeof openSaveAttemptModal === 'function';
+        if (canSave) { state._saveAttemptsOnLoad = () => { if (overlay.isConnected) render(); }; saveAttemptsFor(accts.slice(0, 200).map(r => r.customer_id)); }
+        const saveBtn = (r) => !canSave || !r.customer_id ? null : el('button', { class: 'text-[10px] font-bold whitespace-nowrap', style: { color: 'var(--accent)' }, onclick: (e) => { e.stopPropagation(); openSaveAttemptModal(r, () => { if (overlay.isConnected) render(); }); } }, (saveAttemptChip(r.customer_id) ? 'Log another' : 'Log save attempt'));
         const acctTable = el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)' } },
           el('div', { class: 'px-3 py-2 flex items-center justify-between gap-2 flex-wrap', style: { background: 'var(--card-2)' } },
             el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Churned accounts \u00b7 ' + fmt.int(accts.length)),
@@ -498,17 +502,19 @@ function reportingOverview() {
                 el('div', { class: 'text-xs font-semibold truncate' }, nameOf(r), r.customer_id ? el('span', { class: 'text-[10px] text-muted- ml-1' }, '#' + r.customer_id) : null),
                 el('div', { class: 'text-xs font-black tabular-nums whitespace-nowrap' }, fmt.usd0(K.valOf(r)))),
               el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)', overflowWrap: 'anywhere' } }, [(r.office_name || '').trim(), String(r.subscription || '').trim(), String(r.subscription_source || '').trim(), ageMo(r) == null ? '' : ageMo(r) + ' mo'].filter(Boolean).join(' · ')),
-              el('div', { class: 'text-[10px]', style: { overflowWrap: 'anywhere' } }, reportingCancelReasonOf(r) || '\u2014'))),
+              el('div', { class: 'text-[10px]', style: { overflowWrap: 'anywhere' } }, reportingCancelReasonOf(r) || '\u2014'),
+              canSave ? el('div', { class: 'flex items-center gap-2 mt-1' }, saveAttemptChip(r.customer_id), saveBtn(r)) : null)),
               accts.length > 200 ? el('div', { class: 'px-3 py-1.5 text-[10px] text-muted-' }, 'Showing 200 of ' + fmt.int(accts.length) + ' \u2014 open the full table for the rest') : null) :
           el('div', { style: { maxHeight: '320px', overflowY: 'auto', overflowX: 'hidden' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse', tableLayout: 'fixed' } },
-            el('thead', {}, el('tr', {}, th('Customer'), th('Office'), th('Service'), th('Source'), th('ARR', true), th('Age', true), th('Reason'))),
+            el('thead', {}, el('tr', {}, th('Customer'), th('Office'), th('Service'), th('Source'), th('ARR', true), th('Age', true), th('Reason'), canSave ? th('Save') : null)),
             el('tbody', {}, ...accts.slice(0, 200).map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
               el('td', { class: 'px-3 py-1.5 font-semibold', style: { overflowWrap: 'anywhere' } }, nameOf(r), r.customer_id ? el('span', { class: 'text-[10px] text-muted- ml-1' }, '#' + r.customer_id) : null),
               tdw((r.office_name || '').trim() || '\u2014'), tdw(String(r.subscription || '').trim() || '\u2014'), tdw(String(r.subscription_source || '').trim() || '\u2014'),
               td(fmt.usd0(K.valOf(r)), { right: true, bold: true }),
               td(ageMo(r) == null ? '\u2014' : ageMo(r) + ' mo', { right: true }),
-              el('td', { class: 'px-3 py-1.5', style: { maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, title: reportingCancelReasonOf(r) || '' }, reportingCancelReasonOf(r) || '\u2014'))),
-              accts.length > 200 ? el('tr', {}, el('td', { class: 'px-3 py-1.5 text-[10px] text-muted-', colspan: 7 }, 'Showing 200 of ' + fmt.int(accts.length) + ' \u2014 open the full table for the rest')) : null))));
+              el('td', { class: 'px-3 py-1.5', style: { overflowWrap: 'anywhere' }, title: reportingCancelReasonOf(r) || '' }, reportingCancelReasonOf(r) || '\u2014'),
+              canSave ? el('td', { class: 'px-3 py-1.5' }, el('div', { class: 'flex items-center gap-1.5 flex-wrap' }, saveAttemptChip(r.customer_id), saveBtn(r))) : null)),
+              accts.length > 200 ? el('tr', {}, el('td', { class: 'px-3 py-1.5 text-[10px] text-muted-', colspan: 8 }, 'Showing 200 of ' + fmt.int(accts.length) + ' \u2014 open the full table for the rest')) : null))));
         return [
           el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mt-1', style: { color: 'var(--text-subtle)' } }, 'Where the churn came from'),
           el('div', { class: 'grid gap-3', style: { gridTemplateColumns: narrow ? '1fr' : 'repeat(auto-fit, minmax(260px, 1fr))' } }, mini('By cancel reason', byReason, 'Reason'), mini('By lead source', bySource, 'Source'), mini('By service', bySvc, 'Service')),
