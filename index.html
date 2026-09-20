@@ -289,7 +289,11 @@
        (the Settings pages were wider than the phone, clipping every
        paragraph). Cards keep their own width. */
     .card { min-width: 0; max-width: 100%; }
-    .card > table, .card > div > table { display: block; overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
+    /* A table that already lives in a scroll box (.scroll-x / overflow:auto)
+       stays a REAL table — that is what lets its first column freeze. Only a
+       bare table with no scroll box around it becomes a block scroller.
+       (P1-5 in AUDIT.md: the old blanket rule broke every sticky column.) */
+    .card > table, .card > div:not(.scroll-x):not([style*="overflow"]) > table { display: block; overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
     /* Records: the table stays a real table inside its own .scroll-x so the
        Scope column can freeze (a display:block table was what made the
        sticky cell drift and leave the phantom gap on iOS). */
