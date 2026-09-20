@@ -29,7 +29,7 @@ Ordered by the brief's priority: data integrity → security → reliability →
 14. **P1-6** Control classes (`.ctl`, `.ctl-primary`, `.ctl-select`) + sweep. Keep "button shows its value" convention. _M · B_
 15. **P2-1** Tap targets ≥ 40 px via padding. _S · A_
 16. **P2-2 / P2-3 / P2-10** Formatting + terminology sweep with a small `fmt` audit script that greps for raw `toFixed(` and `toLocaleString(` outside `fmt`. _S · B_
-17. **P2-7** Restore `:focus-visible`. _S · A_
+17. **P2-7** Merge the two `:focus-visible` rules into one. _S · B_
 
 ## Sprint 4 — Speed
 

@@ -1,6 +1,6 @@
 # RIDD Sales Platform — Product, Engineering, UX & Architecture Audit
 
-_Date: 2026-09-20. Scope: the whole app as of commit `7641e41`. Constraint honoured throughout: this is a working product with deliberate decisions — findings are classified **A** (objectively problematic), **B** (inconsistent with the rest of the product) or **C** (subjective / potentially better). A and B are fair game; C is flagged, not pushed._
+_Date: 2026-09-20. Scope: the whole app as of commit `7641e41`. Status of fixes is tracked at the bottom._ Constraint honoured throughout: this is a working product with deliberate decisions — findings are classified **A** (objectively problematic), **B** (inconsistent with the rest of the product) or **C** (subjective / potentially better). A and B are fair game; C is flagged, not pushed._
 
 ---
 
@@ -118,7 +118,7 @@ Each item: **Problem · Where · Who · Why it matters · Solution · Risk · Im
 - **P2-4** Empty states: many tables render a bare "—" row or nothing. Standard empty state component: one line of what would be here + the one action that fills it. (B)
 - **P2-5** Loading: the Retention tab shows nothing while 77k rows crunch. Skeleton rows for the card shells; already have "Downloading snapshot…" toast for the fetch. (A)
 - **P2-6** Confirmations: 43 `confirm()` calls (blocking native dialogs). Replace destructive ones with the two-tap pattern used for ownership transfer. (B)
-- **P2-7** Focus states: keyboard focus rings are suppressed globally on buttons; restore `:focus-visible`. (A — accessibility)
+- **P2-7** Focus states: verified present — `:focus-visible` rings exist (ink outline + accent box-shadow on inputs). Two competing rules (`index.html` ~971 and ~1152) should be merged into one so the ring is identical on buttons and inputs. (B)
 - **P2-8** Icon set: emoji icons (🏢 ⇄ ⬇ 📈) mixed with SVG line icons. Keep emoji where they are part of the brand voice (comps, RIDDcoin), use SVG in chrome. (C)
 - **P2-9** Card density: some cards nest a card inside a card with the same border (Retention what-if, Daily Pulse drill). Flatten the inner to a `card-2` background. (B)
 - **P2-10** Date formats: `9/18/2026`, `2026-09-18`, `Sep 18`, `Wednesday, September 6th, 2026` in adjacent places. Short `Sep 18, 2026` in tables; long form only in headers/tooltips. (B)
@@ -171,3 +171,16 @@ Strong: RLS on sales/profiles/blobs, JWT gate on privileged functions, service k
 - Bundle: 3,942,107 B raw / 1,059,065 B gz. Target after minify + role split: ~350 KB gz for reps.
 - Rep blob: ~77k rows JSON.gz parsed on the main thread; IndexedDB warm cache helps repeat opens. Consider moving parse + first derive into a Web Worker (M).
 - `mountApp()` on Indicators (admin, 90 days): re-crunches indicatorSales() per dept + charts; caches exist. The re-render model (P1-1) is the lever.
+
+---
+
+## Implementation log
+
+| Item | Commit | Status |
+|---|---|---|
+| P0-1 secret-gate background workers | `7e6bfbc` | done |
+| P0-2 scorecard / call-audit / meeting RLS | `1623ec4` (migration `20260920_scorecard_write_policies.sql`) | done — run in Supabase |
+| P1-4 / P1-10 attrition golden tests in CI | `27c9197` | done |
+| P1-5 table CSS default inverted | `e83ef0c` | done — verify each tab on a phone |
+| P1-8 Run FieldRoutes check now | `e8a3e7c` | done |
+| Calendar write policy (P0-2 part 2) | — | pending: needs an RPC for rep shift edits before the blob can be locked |
