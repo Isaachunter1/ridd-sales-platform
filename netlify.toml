@@ -177,6 +177,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/crm-deleted-scan-now"
+  to   = "/.netlify/functions/crm-deleted-scan-now"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
