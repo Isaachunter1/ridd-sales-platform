@@ -330,6 +330,13 @@
   /* Phones: program tiles 2×2 instead of four across; quote totals stack. */
   @media (max-width: 639px) {
     .pricing-board [style*="1.05fr 1fr 1fr 1fr"] { grid-template-columns: 1fr 1fr !important; }
+    /* Trust chips: two up, the third stretches the full width; the
+       "100%" and the italic label shrink so nothing bleeds out (per Isaac). */
+    .pricing-chips { grid-template-columns: 1fr 1fr !important; }
+    .pricing-chips > .pricing-chip:last-child { grid-column: 1 / -1; }
+    .pricing-chip { padding: 10px 12px !important; gap: 10px !important; }
+    .pricing-chip-big { font-size: 26px !important; }
+    .pricing-chip-txt { font-size: 14px !important; }
     .pricing-quote .pricing-qgrid { grid-template-columns: minmax(0, 1fr) !important; }
     .pricing-quote .pricing-qgrid > div:last-child { min-width: 0 !important; }
   }

@@ -296,10 +296,10 @@ function viewPricing() {
         PRICING_FREQ.map(([k, lbl], i) => trow([lbl, money(pricingSavings(T, 'tfm', i)), money(pricingSavings(T, 'mole', i)), money(pricingSavings(T, 'rodent', i))], false, null, i))));
 
     // ── chips + reviews (D2D cards) ──
-    const chip = (big, txt, sub) => el('div', { style: { background: C.cream, borderRadius: '12px', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '14px', minHeight: '76px' } },
-      el('div', { style: { font: '700 ' + (big.length > 2 ? '30px' : '40px') + '/1 Archivo, Arial, sans-serif', color: C.orange, flexShrink: 0, letterSpacing: '-.02em' } }, big),
-      el('div', { style: { minWidth: 0 } },
-        el('div', { style: { font: 'italic 700 16px/1.15 Archivo, Arial, sans-serif', color: C.char } }, txt),
+    const chip = (big, txt, sub) => el('div', { class: 'pricing-chip', style: { background: C.cream, borderRadius: '12px', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '14px', minHeight: '76px', overflow: 'hidden' } },
+      el('div', { class: 'pricing-chip-big', style: { font: '700 ' + (big.length > 2 ? '30px' : '40px') + '/1 Archivo, Arial, sans-serif', color: C.orange, flexShrink: 0, letterSpacing: '-.02em' } }, big),
+      el('div', { style: { minWidth: 0, flex: '1 1 0', overflowWrap: 'anywhere' } },
+        el('div', { class: 'pricing-chip-txt', style: { font: 'italic 700 16px/1.15 Archivo, Arial, sans-serif', color: C.char } }, txt),
         sub ? el('div', { style: { font: '400 11px/1.25 Archivo, Arial, sans-serif', marginTop: '3px', color: C.ink2 } }, sub) : null));
     // Stretches to fill whatever height the add-ons column leaves (per Isaac).
     const reviews = el('div', { style: { background: C.cream, borderRadius: '12px', padding: '18px 14px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', justifyContent: 'center', flex: '1 1 auto', minHeight: '150px' } },
@@ -335,7 +335,7 @@ function viewPricing() {
         el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' } },
           addonsCard,
           el('div', { class: 'flex flex-col gap-3' }, oneTimeCard, saveCard, T.onetime ? null : reviews)),
-        el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' } },
+        el('div', { class: 'grid gap-3 pricing-chips', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' } },
           chip('🐾', 'Kid & Pet Safe'), chip('100%', 'Satisfaction Guarantee', 'Backed by unlimited free re-services'), chip('✓', 'Licensed & Insured'))));
 
     // ── quote, laid out like a receipt in the slick's cream (per Isaac) ──
@@ -410,12 +410,11 @@ function viewPricing() {
     // the fixed page header (measured live — it's ~60px, not 76 — so the
     // block no longer floats mid-page and overlaps the slick). The block
     // paints the page background so nothing shows through the gaps.
-    const hdr = document.querySelector('header.page-header');
-    // Sticky offset = the header's BOTTOM edge (not its height — a banner or
-    // safe-area inset shifts it), minus the 2px of breathing room the block
-    // carries, so the quote's top edge lines up with the slick's (per Isaac).
-    const hdrH = hdr ? Math.round(hdr.getBoundingClientRect().bottom) : 60;
-    const top = el('div', { class: 'pricing-quote', style: { position: 'sticky', top: Math.max(0, hdrH) + 'px', zIndex: 5, background: 'var(--bg)' } }, quote);
+    // Sticky offset follows the fixed header LIVE through CSS (60px header +
+    // the phone safe-area + the update banner when it's up) — a one-time
+    // measurement went stale the moment a banner/toast came or went and
+    // left the quote floating mid-page over the slick (per Isaac).
+    const top = el('div', { class: 'pricing-quote', style: { position: 'sticky', top: 'calc(60px + env(safe-area-inset-top, 0px) + var(--nv-banner, 0px))', zIndex: 5, background: 'var(--bg)' } }, quote);
     board.classList.add('pricing-board');
     quote.style.position = ''; quote.style.top = ''; quote.style.zIndex = '';
     root.replaceChildren(top, board);
