@@ -305,6 +305,26 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       clickable(el('div', { class: 'text-lg font-black tabular-nums' }, n(g0.length)), drill('Everything in FieldRoutes', g0, 'the whole snapshot'))),
     ...scopeSteps.map(st => {
       const node = step(next(), st.title, (st.locked ? '' : APP) + st.detail, st.removed.length, st.locked ? null : st.key, null, st.removed, st.left);
+      if (st.key === 'orphans' && isAdminRole(state.profile?.role)) {
+        // Admin: run the FieldRoutes deleted-customer check now instead of
+        // waiting for the 4am pass (P1-8).
+        const btn = el('button', {
+          class: 'mt-1.5 rounded-lg border px-2.5 py-0.5 text-[11px] font-bold transition hover:brightness-95',
+          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+          title: 'Ask FieldRoutes which customer ids still exist (~90 API calls, about two minutes), then reload Retention',
+          onclick: async (e) => {
+            e.stopPropagation(); btn.disabled = true; btn.textContent = 'Starting\u2026';
+            try {
+              const h = await _apiAuthHeaders({ 'Content-Type': 'application/json' });
+              const r = await fetch('/api/crm-deleted-scan-now', { method: 'POST', headers: h });
+              const j = await r.json().catch(() => ({}));
+              if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+              toast(j.message || 'FieldRoutes check started', 'success'); btn.textContent = 'Running \u2014 reload in ~2 min';
+            } catch (err) { toast('Could not start the check: ' + (err && err.message || err), 'error'); btn.disabled = false; btn.textContent = '\u21bb Run FieldRoutes check now'; }
+          },
+        }, '\u21bb Run FieldRoutes check now');
+        node.children[1].append(btn);
+      }
       if (st.key === 'branches') {
         // The checklist moved to the 🏢 dropdown on the bar above (per Isaac).
         const off = retenBranchesOff();
