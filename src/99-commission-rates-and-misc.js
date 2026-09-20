@@ -2295,6 +2295,10 @@ function openUserEditor(existing = null, prefill = null) {
     onsubmit: async e => {
       e.preventDefault();
       const data = Object.fromEntries(new FormData(form));
+      // "Admin - Owner" → an admin role + the owner flag (the DB trigger
+      // enforces who may do this and moves the flag off the previous owner).
+      const _wantOwner = data.role === 'admin_owner';
+      if (_wantOwner) data.role = (existing && (existing.role === 'admin' || existing.role === 'admin_rep')) ? existing.role : 'admin_rep';
       // Commission: standard base rate is 7%. The "Commission Override" field
       // is a BUMP added on top of the base (e.g. 0.5 means 7.5% total).
       const BASE_COMMISSION = 0.07;
@@ -2347,6 +2351,7 @@ function openUserEditor(existing = null, prefill = null) {
         // that joins this app user to their CRM sales.
         phone: (data.phone || '').trim() || null,
         fieldroutes_employee_id: modal.fr_id || null,
+        ...(existing && (_wantOwner !== !!existing.is_owner) ? { is_owner: _wantOwner } : {}),
       };
 
       // Password field is admin-set: leave blank to keep existing /
@@ -2469,6 +2474,10 @@ function openUserEditor(existing = null, prefill = null) {
         // the one row locally (edits) or pull just the profiles list (creates)
         // instead of re-fetching every table. One render, no screen bouncing.
         if (existing) {
+          if (payload.is_owner === true) {
+            (state.allProfiles || []).forEach(p => { p.is_owner = p.id === existing.id; });
+            if (state._realProfile && state._realProfile.id !== existing.id) state._realProfile.is_owner = false;
+          }
           Object.assign(existing, payload);
           const _i = state.allProfiles.findIndex(p => p.id === existing.id);
           if (_i >= 0) state.allProfiles[_i] = Object.assign({}, state.allProfiles[_i], payload);
@@ -2612,6 +2621,10 @@ function openUserEditor(existing = null, prefill = null) {
       // saving them migrates to an explicit role.
       let seedRole = existing?.role || prefill?.role || 'rep_sales';
       if (seedRole === 'rep') seedRole = 'rep_sales';
+      // "Admin - Owner" is a virtual option: the owner flag on top of an
+      // admin role. Picking it on another admin transfers ownership; picking
+      // it on yourself while nobody owns the app claims it.
+      if (existing && existing.is_owner) seedRole = 'admin_owner';
       // Owner rules (per Isaac): only the owner admin can make or unmake an
       // admin. Everyone else sees the admin options greyed out, and an
       // existing admin's role is locked for them entirely.
@@ -2623,10 +2636,12 @@ function openUserEditor(existing = null, prefill = null) {
       const _lockRole = !_owner && _targetAdmin;
       const roleSelect = el('select', { name: 'role', class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]', disabled: _lockRole,
         title: _lockRole ? 'Only the Admin - Owner can change an admin\u2019s access' : '' },
-        ...['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead'].map(v => el('option', { value: v, selected: seedRole === v, disabled: !!(existing && existing.is_owner) }, ROLE_LABEL[v])),
-        el('option', { value: 'admin_rep',  selected: seedRole === 'admin_rep', disabled: !_owner && seedRole !== 'admin_rep' },  'Admin + Sales'),
-        el('option', { value: 'admin',      selected: seedRole === 'admin', disabled: !_owner && seedRole !== 'admin' },      'Admin (no sales)'),
-        el('option', { value: 'auditor',    selected: seedRole === 'auditor', disabled: !!(existing && existing.is_owner) },    'Auditor'),
+        ...['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead'].map(v => el('option', { value: v, selected: seedRole === v }, ROLE_LABEL[v])),
+        // ONE Admin option (per Isaac): an account already on admin_rep keeps
+        // that value (it still sells / shows on boards); new picks are 'admin'.
+        el('option', { value: seedRole === 'admin_rep' ? 'admin_rep' : 'admin', selected: seedRole === 'admin' || seedRole === 'admin_rep', disabled: !_owner && seedRole !== 'admin' && seedRole !== 'admin_rep' }, 'Admin'),
+        el('option', { value: 'admin_owner', selected: seedRole === 'admin_owner', disabled: !_owner }, 'Admin - Owner'),
+        el('option', { value: 'auditor',    selected: seedRole === 'auditor' },    'Auditor'),
       );
       // A disabled select drops out of FormData — carry the locked role along.
       const roleHidden = _lockRole ? el('input', { type: 'hidden', name: 'role', value: seedRole }) : null;
