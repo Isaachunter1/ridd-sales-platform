@@ -1238,9 +1238,9 @@ function subscribeRosterRealtime() {
         if (Date.now() - (window._rosterMirrorAt || 0) < 10000) return;      // our own mirror
         if (window._rosterRtToastAt && Date.now() - window._rosterRtToastAt < 30000) return;
         window._rosterRtToastAt = Date.now();
-        if (isAdminRole(state.profile?.role) && typeof toast === 'function') {
-          toast('NRLA rosters were just updated by another admin — refresh to pull the latest', 'info');
-        }
+        // (Toast retired per Isaac, Sep 2026 — the whole app re-syncs on its
+        // own now, so a roster-only "refresh to pull the latest" nag was
+        // misleading. The subscription stays for the stage-2 auto-apply.)
       })
       .subscribe();
   } catch (e) { console.warn('[ridd] roster realtime subscribe failed', e); }
