@@ -192,5 +192,10 @@ Strong: RLS on sales/profiles/blobs, JWT gate on privileged functions, service k
 | Busy-guard on every async button | `0ead4e2` | done |
 | CAS for pay_settings / commission_config | `0d11144` (migration `20260920_app_settings_cas.sql`) | done — run in Supabase |
 | 429 back-off in FieldRoutes workers | `7804f18` | done |
+| P2-7 one focus ring; P2-1 phone tap targets | `fab07f7` | done |
+| P2-3 Branch → Office on-screen labels | `ba4a3b9` | done (CSV headers kept) |
+| P1-6 control chrome (radius: cards/pills square vs `rounded-lg`/`rounded-xl` controls) | — | deferred — needs a visual pass with Isaac; heights already align in rows (26–28 px). Class C on radius, B on height |
+| P2-4 empty states | — | deferred — per-card work, pair with the render-model change (P1-1) |
+| "Cancel %" (count-based) on the Reps table / Performance Trends vs "Attrition %" (revenue) on the leaderboard | — | left as is on purpose: different metrics; renaming would mislead. Consider "Cancel rate (accounts)" label if it confuses |
 | Calendar write policy (P0-2 part 2) | — | pending: needs an RPC for rep shift edits before the blob can be locked |
 | Money in floating point (`320.00000000000006`) | — | noted (C): engine sums raw floats and the UI rounds; rounding each component to cents at the engine boundary would match payroll practice — Isaac's call |
