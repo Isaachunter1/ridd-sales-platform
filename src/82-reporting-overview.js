@@ -419,10 +419,14 @@ function reportingOverview() {
     };
     const totalOf = (k) => (sets[k] || []).reduce((a, r) => a + KINDS[k].valOf(r), 0);
     let kind = KINDS[initialKind] ? initialKind : 'sold';
+    // Vertical-only (per Isaac): nothing in this modal scrolls sideways. On
+    // phones the wide tables become stacked rows; on desktop they fit 94vw.
+    const narrow = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })();
     const overlay = el('div', { class: 'modal-overlay' });
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
     const th = (t, right) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
     const td = (t, o = {}) => el('td', { class: 'px-3 py-2 whitespace-nowrap tabular-nums ' + (o.right ? 'text-right' : 'text-left') + (o.bold ? ' font-black' : '') }, t);
+    const tdw = (t) => el('td', { class: 'px-3 py-1.5 text-left', style: { overflowWrap: 'anywhere' } }, t);
     const top = (m) => { let k = null, n = 0; for (const [kk, v] of m) if (v > n) { k = kk; n = v; } return k ? k + ' (' + n + ')' : '—'; };
     const body = el('div', { class: 'flex flex-col gap-3' });
     const render = () => {
@@ -445,6 +449,15 @@ function reportingOverview() {
         td(g.rows.length ? fmt.usd0(g.total / g.rows.length) : '—', { right: true }),
         td(fmt.usd0(Math.max(0, ...g.rows.map(K.valOf))), { right: true }),
         td(isChurn ? top(g.reasons) : top(g.svc)));
+      // Phone version of a branch row: one block, no sideways scroll.
+      const stack = (k, g, bold) => el('div', { class: 'rounded-lg border px-3 py-2 cursor-pointer', style: { borderColor: bold ? 'var(--border-2)' : 'var(--border)', background: bold ? 'var(--card-2)' : '' },
+        onclick: () => openReportingDrillModal({ chartTitle: 'Daily pulse · ' + K.label + ' · ' + dayLabel + ' · ' + k, sliceLabel: g.rows.length.toLocaleString() + ' subscription' + (g.rows.length === 1 ? '' : 's') + ' · ' + fmt.usd0(g.total), rows: g.rows, formatValue: fmt.usd0 }) },
+        el('div', { class: 'flex items-center justify-between gap-2' },
+          el('div', { class: 'text-xs font-bold truncate' }, k),
+          el('div', { class: 'text-sm font-black tabular-nums whitespace-nowrap' }, fmt.usd0(g.total), el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, grand ? (g.total / grand * 100).toFixed(1) + '%' : ''))),
+        el('div', { style: { height: '4px', background: 'var(--card-2)', margin: '4px 0' } }, el('div', { style: { height: '100%', width: (grand ? g.total / grand * 100 : 0) + '%', background: K.color } })),
+        el('div', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-muted)', overflowWrap: 'anywhere' } },
+          fmt.int(g.rows.length) + ' subs · avg ' + (g.rows.length ? fmt.usd0(g.total / g.rows.length) : '—') + ' · largest ' + fmt.usd0(Math.max(0, ...g.rows.map(K.valOf))) + ' · ' + K.extra.toLowerCase() + ': ' + (isChurn ? top(g.reasons) : top(g.svc))));
       // summary strip — the three series for the day, each one a switch
       const tile = (k) => { const K2 = KINDS[k], n = (sets[k] || []).length, on = k === kind; return el('button', {
         class: 'text-left rounded-lg px-3 py-2 transition hover:brightness-95 flex-1',
@@ -467,7 +480,7 @@ function reportingOverview() {
           el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
             el('thead', {}, el('tr', {}, th(keyLabel), th('Subs', true), th('ARR', true), th('Share', true))),
             el('tbody', {}, ...list.slice(0, 8).map(([k, g]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-              el('td', { class: 'px-3 py-1.5', style: { maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, title: k }, k),
+              el('td', { class: 'px-3 py-1.5', style: { overflowWrap: 'anywhere' }, title: k }, k),
               td(fmt.int(g.n), { right: true }), td(fmt.usd0(g.arr), { right: true, bold: true }), td(grand ? (g.arr / grand * 100).toFixed(0) + '%' : '\u2014', { right: true }))),
               list.length > 8 ? el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, el('td', { class: 'px-3 py-1.5 text-[10px] text-muted-', colspan: 4 }, '+ ' + (list.length - 8) + ' more')) : null)));
         const byReason = bucket(r => reportingCancelReasonOf(r));
@@ -480,18 +493,25 @@ function reportingOverview() {
           el('div', { class: 'px-3 py-2 flex items-center justify-between gap-2 flex-wrap', style: { background: 'var(--card-2)' } },
             el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Churned accounts \u00b7 ' + fmt.int(accts.length)),
             el('button', { class: 'text-[10px] font-bold', style: { color: 'var(--accent)' }, onclick: () => openReportingDrillModal({ chartTitle: 'Daily pulse \u00b7 Churned \u00b7 ' + dayLabel, sliceLabel: fmt.int(accts.length) + ' subscription' + (accts.length === 1 ? '' : 's') + ' \u00b7 ' + fmt.usd0(grand), rows: accts, formatValue: fmt.usd0 }) }, 'Full table \u2192')),
-          el('div', { class: 'scroll-x', style: { maxHeight: '320px', overflowY: 'auto' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+          narrow ? el('div', { class: 'flex flex-col', style: { maxHeight: '360px', overflowY: 'auto', overflowX: 'hidden' } }, ...accts.slice(0, 200).map(r => el('div', { class: 'px-3 py-2 border-t', style: { borderColor: 'var(--border)' } },
+              el('div', { class: 'flex items-center justify-between gap-2' },
+                el('div', { class: 'text-xs font-semibold truncate' }, nameOf(r), r.customer_id ? el('span', { class: 'text-[10px] text-muted- ml-1' }, '#' + r.customer_id) : null),
+                el('div', { class: 'text-xs font-black tabular-nums whitespace-nowrap' }, fmt.usd0(K.valOf(r)))),
+              el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)', overflowWrap: 'anywhere' } }, [(r.office_name || '').trim(), String(r.subscription || '').trim(), String(r.subscription_source || '').trim(), ageMo(r) == null ? '' : ageMo(r) + ' mo'].filter(Boolean).join(' · ')),
+              el('div', { class: 'text-[10px]', style: { overflowWrap: 'anywhere' } }, reportingCancelReasonOf(r) || '\u2014'))),
+              accts.length > 200 ? el('div', { class: 'px-3 py-1.5 text-[10px] text-muted-' }, 'Showing 200 of ' + fmt.int(accts.length) + ' \u2014 open the full table for the rest') : null) :
+          el('div', { style: { maxHeight: '320px', overflowY: 'auto', overflowX: 'hidden' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse', tableLayout: 'fixed' } },
             el('thead', {}, el('tr', {}, th('Customer'), th('Office'), th('Service'), th('Source'), th('ARR', true), th('Age', true), th('Reason'))),
             el('tbody', {}, ...accts.slice(0, 200).map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-              el('td', { class: 'px-3 py-1.5 whitespace-nowrap font-semibold' }, nameOf(r), r.customer_id ? el('span', { class: 'text-[10px] text-muted- ml-1' }, '#' + r.customer_id) : null),
-              td((r.office_name || '').trim() || '\u2014'), td(String(r.subscription || '').trim() || '\u2014'), td(String(r.subscription_source || '').trim() || '\u2014'),
+              el('td', { class: 'px-3 py-1.5 font-semibold', style: { overflowWrap: 'anywhere' } }, nameOf(r), r.customer_id ? el('span', { class: 'text-[10px] text-muted- ml-1' }, '#' + r.customer_id) : null),
+              tdw((r.office_name || '').trim() || '\u2014'), tdw(String(r.subscription || '').trim() || '\u2014'), tdw(String(r.subscription_source || '').trim() || '\u2014'),
               td(fmt.usd0(K.valOf(r)), { right: true, bold: true }),
               td(ageMo(r) == null ? '\u2014' : ageMo(r) + ' mo', { right: true }),
               el('td', { class: 'px-3 py-1.5', style: { maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, title: reportingCancelReasonOf(r) || '' }, reportingCancelReasonOf(r) || '\u2014'))),
               accts.length > 200 ? el('tr', {}, el('td', { class: 'px-3 py-1.5 text-[10px] text-muted-', colspan: 7 }, 'Showing 200 of ' + fmt.int(accts.length) + ' \u2014 open the full table for the rest')) : null))));
         return [
           el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mt-1', style: { color: 'var(--text-subtle)' } }, 'Where the churn came from'),
-          el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' } }, mini('By cancel reason', byReason, 'Reason'), mini('By lead source', bySource, 'Source'), mini('By service', bySvc, 'Service')),
+          el('div', { class: 'grid gap-3', style: { gridTemplateColumns: narrow ? '1fr' : 'repeat(auto-fit, minmax(260px, 1fr))' } }, mini('By cancel reason', byReason, 'Reason'), mini('By lead source', bySource, 'Source'), mini('By service', bySvc, 'Service')),
           acctTable,
         ];
       })();
@@ -499,13 +519,14 @@ function reportingOverview() {
         el('div', { class: 'flex gap-2 flex-wrap' }, tile('sold'), tile('svc'), tile('cxl'), netTile),
         el('div', { class: 'text-[11px] text-muted-' }, K.label + ': ' + fmt.usd0(grand) + ' of ' + K.unit + ' across ' + fmt.int(rowsIn.length) + ' subscription' + (rowsIn.length === 1 ? '' : 's') + ' in ' + list.length + ' office' + (list.length === 1 ? '' : 's') + ' · click a branch for the accounts'),
         !rowsIn.length ? el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'Nothing ' + K.label.toLowerCase() + ' on this day.') :
-        el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+        narrow ? el('div', { class: 'flex flex-col gap-2' }, ...list.map(([k, g]) => stack(k, g, false)), stack('RIDD · Total', all, true)) :
+        el('div', { style: { overflowX: 'hidden' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
           el('thead', {}, el('tr', {}, th('Office'), th(K.col, true), th('Share', true), th(''), th('Subs', true), th('Avg / sub', true), th('Largest', true), th(K.extra))),
           el('tbody', {}, ...list.map(([k, g]) => row(k, g, false)), row('RIDD · Total', all, true)))),
         ...churnBlocks);
     };
     render();
-    overlay.append(el('div', { class: 'card p-5 flex flex-col gap-3', style: { width: 'min(980px, 94vw)', maxHeight: '88vh', overflow: 'auto' } },
+    overlay.append(el('div', { class: 'card p-5 flex flex-col gap-3', style: { width: 'min(980px, 94vw)', maxHeight: '88vh', overflowY: 'auto', overflowX: 'hidden', touchAction: 'pan-y' } },
       el('div', { class: 'flex items-start justify-between gap-3' },
         el('div', {}, el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Daily pulse · by office'),
           el('div', { class: 'text-lg font-black' }, longDate || dayLabel)),
@@ -598,6 +619,36 @@ function reportingOverview() {
     const winLabel = single ? (spanRaw === 'today' ? 'Today' : 'Yesterday') : 'Last ' + span + ' days';
     const winLong = single ? (() => { const dt = new Date(days[0] + 'T00:00'); return dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }); })() : winLabel + ' \u00b7 ' + days[0] + ' \u2192 ' + days[days.length - 1];
     const openWindow = (kind) => openPulseDayDrill(winLabel, winLong, { sold: flat(soldRows), svc: flat(svcRows), cxl: flat(cxlRows) }, kind);
+    // SUBSCRIPTIONS LOST (per Isaac, Sep 2026): right on the main page, under
+    // the chart — RIDD first, then each office — how many subscriptions and
+    // how much ARR churned in the window. Same rows as the red series above
+    // (counted cancels only: 3-day RORs and non-real cancels are excluded).
+    const lostBlock = (() => {
+      const cxlAll = flat(cxlRows);
+      const arrOf = (r) => Number(r.annual_recurring_value) || 0;
+      const by = new Map();
+      for (const r of cxlAll) { const k = (r.office_name || '').trim() || 'Unassigned'; const g = by.get(k) || { n: 0, arr: 0, rows: [] }; g.n++; g.arr += arrOf(r); g.rows.push(r); by.set(k, g); }
+      const tot = { n: cxlAll.length, arr: cxlAll.reduce((a, r) => a + arrOf(r), 0), rows: cxlAll };
+      const list = [...by.entries()].sort((a, b) => b[1].arr - a[1].arr);
+      const perDay = span > 1;
+      const hd = (t, right) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
+      const cell = (t, o = {}) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap ' + (o.right ? 'text-right' : 'text-left') + (o.bold ? ' font-black' : ''), style: o.color ? { color: o.color } : {} }, t);
+      const line = (label, g, bold) => el('tr', { class: 'border-t cursor-pointer transition hover:brightness-95', style: { borderColor: bold ? 'var(--border-2)' : 'var(--border)', background: bold ? 'var(--card-2)' : '' }, title: 'Click for the lost accounts',
+        onclick: () => openReportingDrillModal({ chartTitle: 'Subscriptions lost · ' + winLabel + ' · ' + label, sliceLabel: fmt.int(g.n) + ' subscription' + (g.n === 1 ? '' : 's') + ' · ' + fmt.usd0(g.arr) + ' ARR', rows: g.rows, formatValue: fmt.usd0 }) },
+        el('td', { class: 'px-2 py-1.5 ' + (bold ? 'font-black' : 'font-semibold'), style: { overflowWrap: 'anywhere' } }, label),
+        cell(fmt.int(g.n), { right: true, bold: true, color: g.n ? C.cxl : '' }),
+        cell(fmt.usd0(g.arr), { right: true, bold: true, color: g.arr ? C.cxl : '' }),
+        cell(tot.arr ? (g.arr / tot.arr * 100).toFixed(0) + '%' : '\u2014', { right: true }),
+        perDay ? cell((g.n / span).toFixed(1), { right: true }) : null);
+      return el('div', { class: 'mt-3 pt-3 border-t', style: { borderColor: 'var(--border)' } },
+        el('div', { class: 'flex items-center justify-between gap-2 flex-wrap mb-1' },
+          el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Subscriptions lost · ' + winLabel.toLowerCase()),
+          el('button', { class: 'text-[10px] font-bold', style: { color: 'var(--accent)' }, onclick: () => openWindow('cxl') }, 'Where it came from \u2192')),
+        el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+          el('thead', {}, el('tr', {}, hd('Office'), hd('Subs lost', true), hd('ARR lost', true), hd('Share', true), perDay ? hd('Per day', true) : null)),
+          el('tbody', {}, line('RIDD', tot, true), ...list.map(([k, g]) => line(k, g, false)),
+            !cxlAll.length ? el('tr', {}, el('td', { class: 'px-2 py-2 text-[10px] text-muted-', colspan: perDay ? 5 : 4 }, 'No subscriptions lost in this window.')) : null)));
+    })();
     const stat = (label, v, color, kind) => el('button', { class: 'text-right cursor-pointer transition hover:brightness-95', title: 'See the ' + label.toLowerCase() + ' accounts, by office \u2014 and where churn came from', onclick: () => openWindow(kind) },
       el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
       el('div', { class: 'text-base font-black tabular-nums', style: { color } }, fmt.usd0(v)));
@@ -613,7 +664,8 @@ function reportingOverview() {
             style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
             onchange: (e) => { const v = e.target.value; state._rtPulseSpan = (v === 'today' || v === 'yesterday') ? v : Number(v); mountApp(); },
           }, ...[['today', 'Today'], ['yesterday', 'Yesterday'], [7, 'Last 7 days'], [30, 'Last 30 days'], [90, 'Last 90 days']].map(([v, l]) => el('option', { value: String(v), selected: single ? spanRaw === v : span === v }, l))))),
-      cvsWrap);
+      cvsWrap,
+      lostBlock);
   })();
 
   return el('div', { class: 'flex flex-col gap-4' },
