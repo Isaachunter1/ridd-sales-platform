@@ -197,5 +197,8 @@ Strong: RLS on sales/profiles/blobs, JWT gate on privileged functions, service k
 | P1-6 control chrome (radius: cards/pills square vs `rounded-lg`/`rounded-xl` controls) | — | deferred — needs a visual pass with Isaac; heights already align in rows (26–28 px). Class C on radius, B on height |
 | P2-4 empty states | — | deferred — per-card work, pair with the render-model change (P1-1) |
 | "Cancel %" (count-based) on the Reps table / Performance Trends vs "Attrition %" (revenue) on the leaderboard | — | left as is on purpose: different metrics; renaming would mislead. Consider "Cancel rate (accounts)" label if it confuses |
+| P1-3 minified deploy bundle + source map | `bdaf89f` | done — 1.06 MB → 0.51 MB gzipped |
+| P1-2 role-split bundle | — | analysed, deferred: the admin-only files (Reporting, P&L, Marketing, Retention, Settings, Auditing) are ~24% of the source; 15 shared helpers would have to move into core and a bootstrap loader added. Post-minify a rep would go from 0.51 MB → ~0.39 MB gz. Worth doing only after P1-1, and with a role-by-role smoke pass |
+| P1-1 incremental render | — | not started on purpose — needs a profile of the real app (Indicators / Retention on an admin login) before choosing which cards to convert; measured, not guessed |
 | Calendar write policy (P0-2 part 2) | — | pending: needs an RPC for rep shift edits before the blob can be locked |
 | Money in floating point (`320.00000000000006`) | — | noted (C): engine sums raw floats and the UI rounds; rounding each component to cents at the engine boundary would match payroll practice — Isaac's call |
