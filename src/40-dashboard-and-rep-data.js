@@ -5748,8 +5748,9 @@ function leaderboardSection(range) {
     // Header with tabs
     el('div', { class: 'flex items-center justify-between px-4 py-3 flex-wrap gap-3 border-b border-' },
       el('h2', { class: 'text-base font-bold' }, 'Leaderboard'),
-      el('div', { class: 'flex items-center gap-2 flex-wrap' },
-        el('div', { class: 'pill-tabs' },
+      el('div', { class: 'flex items-center gap-2 flex-wrap', style: { flex: '1 1 auto' } },
+        // All three header controls share one 26px box (per Isaac).
+        el('div', { class: 'pill-tabs', style: { height: '26px', boxSizing: 'border-box', alignItems: 'center' } },
           ...[['total','Total'],['new','New'],['renewals','Renewals']].map(([k, label]) =>
             el('button', {
               'data-active': state.dashLeaderTab === k,
@@ -5767,7 +5768,7 @@ function leaderboardSection(range) {
           // per Isaac) via flex order so Reps lands between the tabs and it.
           return el('select', {
             class: 'border px-2 text-[11px] font-semibold',
-            style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', color: 'var(--text)', height: '26px', lineHeight: '26px', padding: '0 22px 0 8px', borderRadius: '0', order: '3', boxSizing: 'border-box', margin: '0' },
+            style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', color: 'var(--text)', height: '26px', lineHeight: '26px', padding: '0 22px 0 8px', borderRadius: '0', order: '3', boxSizing: 'border-box', margin: '0 0 0 auto' },
             onchange: (e) => { state._lbMobileCol = e.target.value; mountApp(); },
           }, ...opts.map(([k, l]) => el('option', { value: k, selected: cur === k }, l)));
         })(),
