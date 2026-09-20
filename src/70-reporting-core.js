@@ -679,11 +679,12 @@ function reportingPinBar(key, bar) {
   const sync = () => {
     const sp = document.getElementById(spId), b = document.getElementById(barId);
     if (!sp || !b || !b.isConnected) return;
-    const narrow = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })();
+    // Phones pin too (per Isaac, Sep 2026) — the Office / Time range bar
+    // stays under the header while the Overview scrolls.
     const hdr = document.querySelector('header.page-header');
     const top = hdr ? Math.round(hdr.getBoundingClientRect().bottom) : 60;
     if (!sp.style.height) sp.style.height = b.offsetHeight + 'px';
-    const pin = !narrow && sp.getBoundingClientRect().top < top;
+    const pin = sp.getBoundingClientRect().top < top;
     if (pin && !b._pinned) {
       b._pinned = true;
       const r = sp.getBoundingClientRect();
