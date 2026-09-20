@@ -1828,7 +1828,7 @@ function adminReps() {
       style: { top: 'calc(100% + 6px)', left: '0', minWidth: '250px', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._adminUserFiltersOpen ? 'flex' : 'none' },
     },
       el('div', {}, _fLabel('Access Profile'), _fSel('role', 'Access Profile', [..._roleOpts.map(r => ({ v: r, t: roleLabel(r) })), { v: '__crm', t: 'In CRM (not added)' }])),
-      el('div', {}, _fLabel('Branch'), _fSel('office', 'Branch', _officeOpts.map(o => ({ v: o, t: o })))),
+      el('div', {}, _fLabel('Office'), _fSel('office', 'Office', _officeOpts.map(o => ({ v: o, t: o })))),
       el('div', {}, _fLabel('Tier'), _fSel('tier', 'Tier', (typeof REP_TIERS !== 'undefined' ? REP_TIERS : []).map(t => ({ v: t.id, t: t.label })))),
       _fActive ? el('button', {
         class: 'text-[11px] font-bold px-2.5 py-1 rounded-lg border transition hover:brightness-95',
