@@ -30,12 +30,22 @@ async function fr(endpoint, params) {
     authenticationToken: process.env.FIELDROUTES_AUTH_TOKEN || '',
   });
   for (const [k, v] of Object.entries(params || {})) q.set(k, typeof v === 'string' ? v : JSON.stringify(v));
-  const res = await fetch(base + endpoint + '?' + q.toString());
-  const txt = await res.text();
+  // FieldRoutes rate limit (429 / "too many requests"): back off and retry
+  // twice before giving up, and count it so the log says why a run was thin.
+  let res, txt;
+  for (let attempt = 0; ; attempt++) {
+    res = await fetch(base + endpoint + '?' + q.toString());
+    txt = await res.text();
+    const limited = res.status === 429 || /too many requests|rate limit/i.test(txt.slice(0, 300));
+    if (!limited || attempt >= 2) break;
+    fr.rateLimited = (fr.rateLimited || 0) + 1;
+    await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+  }
   let json; try { json = JSON.parse(txt); } catch (e) { throw new Error(endpoint + ': non-JSON response (' + res.status + '): ' + txt.slice(0, 120)); }
   if (json.success === false || (json.errorMessage && json.errorMessage !== '')) throw new Error(endpoint + ': ' + (json.errorMessage || 'request failed'));
   return json;
 }
+fr.rateLimited = 0;
 const chunk = (arr, n) => { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; };
 const norm = (x) => String(x || '').trim().toLowerCase();
 
@@ -246,7 +256,7 @@ exports.handler = async (event) => {
       } catch (e) { console.warn('[fr-live] true-up skipped:', e.message); }
     }
     const msg = '[fr-live] ' + ids.length + ' subs since ' + from + ' · +' + added + ' logged · ' + fixed + ' trued up · ' + skippedNoRep + ' seller(s) with no app account · ' + skippedType + ' skipped by type · ' + skippedNotYet + ' logged but not yet eligible (appt/billing/signed) · ' + svcCreated + ' service type(s) created · ' + (Date.now() - started) + 'ms';
-    console.log(msg);
+    console.log(msg + (fr.rateLimited ? ' · ' + fr.rateLimited + ' rate-limited retr' + (fr.rateLimited === 1 ? 'y' : 'ies') : ''));
     return { statusCode: 200, body: msg };
   } catch (e) {
     console.error('[fr-live]', e);
