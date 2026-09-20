@@ -8755,7 +8755,7 @@ function repLandingPlayerCard(opts) {
       onclick: () => openIndicatorRepCard(repObj, []),
       title: 'Open your full player card — records, accounts, drill-downs',
     },
-      el('div', { class: 'flex items-center gap-3 mb-3' },
+      el('div', { class: 'flex items-start gap-3 mb-3' },
         (typeof avatarNode === 'function') ? avatarNode(state.profile.avatar_url || null, initials, 'w-12 h-12 text-base') : null,
         el('div', { class: 'min-w-0 flex-1' },
           el('div', { class: 'flex items-center gap-2 flex-wrap' },
@@ -8768,8 +8768,11 @@ function repLandingPlayerCard(opts) {
             // of the tile grid so the remaining 9 tiles fill even 3-per-row
             // rows on mobile.
             el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-1' }, fmt.usd0(revenue)))),
-        _hdrExtra,
-        el('span', { class: 'text-[11px] font-bold shrink-0', style: { color: 'var(--accent)' } }, 'Player card →')),
+        // Right column, pinned top-right: Team | Me toggle over the link
+        // (per Isaac — the toggle used to float mid-row on phones).
+        el('div', { class: 'flex flex-col items-end gap-1.5 shrink-0 self-start ml-auto' },
+          _hdrExtra,
+          el('span', { class: 'text-[11px] font-bold shrink-0', style: { color: 'var(--accent)' } }, 'Player card →'))),
       el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))' } },
         ..._landingTiles(tile, { ytd, count, revenue, sellDays, avgPest, pest, myPct, apay, attrPct, cancels }),
       ),
@@ -8816,7 +8819,7 @@ function teamLandingPlayerCards(opts) {
         onclick: () => openIndicatorRepCard(_scopeRep(entity, () => true), []),
         title: 'Open the team’s player card — pooled records, accounts, drill-downs',
       },
-        el('div', { class: 'flex items-center gap-3 mb-3' },
+        el('div', { class: 'flex items-start gap-3 mb-3' },
           el('div', { class: 'w-12 h-12 rounded-full flex items-center justify-center text-base font-black shrink-0', style: { background: color, color: '#fff' } }, initials),
           el('div', { class: 'min-w-0 flex-1' },
             el('div', { class: 'flex items-center gap-2 flex-wrap' },
@@ -8824,8 +8827,9 @@ function teamLandingPlayerCards(opts) {
               el('span', { class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: color + '22', color } }, 'Team'),
               el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-1' }, fmt.usd0(revenue))),
             el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, reps + ' rep' + (reps === 1 ? '' : 's') + ' with a sale this year')),
-          i === 0 ? _hdrExtra : null,
-          el('span', { class: 'text-[11px] font-bold shrink-0', style: { color: 'var(--accent)' } }, 'Team card →')),
+          el('div', { class: 'flex flex-col items-end gap-1.5 shrink-0 self-start ml-auto' },
+            i === 0 ? _hdrExtra : null,
+            el('span', { class: 'text-[11px] font-bold shrink-0', style: { color: 'var(--accent)' } }, 'Team card →'))),
         el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))' } },
           ..._landingTiles(tile, { ytd, count, revenue, sellDays, avgPest, pest, myPct, apay, attrPct, cancels })));
     });
