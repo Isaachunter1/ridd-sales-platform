@@ -272,6 +272,7 @@ function viewSales() {
   }
 
   return el('div', { class: 'flex flex-col gap-5 w-full' },
+    (typeof repTodayStrip === 'function') ? repTodayStrip() : null,
     queueRow,
     filterBar,
 

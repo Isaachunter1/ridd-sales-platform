@@ -330,6 +330,8 @@ function viewD2dDashboard() {
   renderRange();
   const _exc = (typeof exceptionFeedCard === 'function') ? exceptionFeedCard() : null;
   if (_exc) wrap.append(_exc);
+  const _today = (typeof repTodayStrip === 'function') ? repTodayStrip() : null;
+  if (_today) wrap.append(_today);
   wrap.append(rangeHost);
   wrap.append(kpiMulti([
     heroStat('Today', byRange('today')), heroStat('This Week', byRange('week')),

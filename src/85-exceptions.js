@@ -149,3 +149,49 @@ function exceptionFeedCard() {
     el('button', { class: 'text-[11px] font-bold whitespace-nowrap shrink-0', style: { color: 'var(--accent)' }, onclick: i.onClick }, i.action + ' →')))) : null;
   return el('div', { class: 'card overflow-hidden' }, head, rows);
 }
+
+// ── Rep "today" strip (AUDIT P3-4) ────────────────────────────────────────
+// One thin row of chips above a rep's landing page: what's actionable for
+// THEM today — competitions running now, sales the auditor bounced back,
+// open shifts up for grabs. Nothing to show → nothing rendered.
+function repTodayStrip() {
+  const me = state.profile; if (!me) return null;
+  const r = me.role;
+  if (isAdminRole(r) || (typeof isAuditorRole === 'function' && isAuditorRole(r))) return null;
+  const grp = (typeof repTypeGroup === 'function') ? repTypeGroup(me) : 'd2d';
+  const chips = [];
+  const go = (view, patch) => () => { Object.assign(state, patch || {}); state.view = view; try { history.replaceState(null, '', VIEW_TO_HASH[view] || '#' + view); } catch (e) { /* noop */ } mountApp(); };
+  const fmtD = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  // Competitions running now for my rep type.
+  try {
+    const want = grp === 'office' ? 'Office Staff' : grp === 'tech' ? 'Technicians' : 'Sales Reps';
+    const sc = compScheduleStore();
+    for (const c of compScheduleList()) {
+      if (((sc[c.id] && sc[c.id].group) || c.group) !== want) continue;
+      const occ = compRunningNow(c.id); if (!occ) continue;
+      const name = (sc[c.id] && sc[c.id].name) || c.name;
+      const daysLeft = Math.max(0, Math.round((occ.end - new Date().setHours(12, 0, 0, 0)) / 86400000));
+      chips.push({ icon: '🏆', text: name + ' · ' + (daysLeft === 0 ? 'ends today' : daysLeft === 1 ? 'ends tomorrow' : 'ends ' + fmtD(occ.end)), onClick: go('competitions', { _compsLanding: false, _compsTabSel: c.id, _compsRepTypeTab: want }) });
+    }
+  } catch (e) { /* schedule not loaded yet */ }
+  // Sales bounced back by the auditor (below minimums / NSF) — mine only.
+  try {
+    const mine = (state.mySales || []).filter(s => s.rep_id === me.id && (s.audit_status === 'below_minimums' || s.audit_status === 'nsf') && !s.payroll_processed_at);
+    if (mine.length) chips.push({ icon: '⚠️', text: mine.length + ' sale' + (mine.length === 1 ? '' : 's') + ' need' + (mine.length === 1 ? 's' : '') + ' a fix (' + [...new Set(mine.map(s => s.audit_status === 'nsf' ? 'NSF' : 'below minimums'))].join(', ') + ')', onClick: go(grp === 'tech' ? 'tech_sales' : grp === 'd2d' ? 'd2d_sales' : 'sales', { _salesQueueFilter: 'upfront' }) });
+  } catch (e) { /* noop */ }
+  // Open shifts up for grabs (inside sales calendar).
+  if (grp === 'office') {
+    try {
+      const open = (state.shiftSwapRequests || []).filter(x => typeof isOpenReq === 'function' && isOpenReq(x) && x.from_rep_id !== me.id);
+      if (open.length) chips.push({ icon: '📅', text: open.length + ' open shift' + (open.length === 1 ? '' : 's') + ' up for grabs', onClick: go('calendar') });
+    } catch (e) { /* noop */ }
+  }
+  if (!chips.length) return null;
+  return el('div', { class: 'flex items-center gap-2 flex-wrap' },
+    el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Today'),
+    ...chips.map(c => el('button', {
+      class: 'rounded-full border px-3 py-1 text-[11px] font-semibold transition hover:brightness-95 text-left',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', maxWidth: '100%' },
+      onclick: c.onClick,
+    }, c.icon + ' ' + c.text + ' →')));
+}
