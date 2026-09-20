@@ -197,8 +197,10 @@ function _permRoleOf(profile) {
 // Manual upsell logging stays until Configurations → Auto-log → Upsells is
 // flipped to Automatic (add-on tickets in FieldRoutes). One switch, no lag.
 function manualUpsellsOn() {
-  const al = state._autolog || state._autologCache;
-  return !(al && al.upsells === 'auto');
+  // Manual sale / upsell logging is RETIRED (per Isaac, Sep 2026): every
+  // sale and upsell comes from FieldRoutes through the syncs. The form
+  // still opens for EDITS and queue claims; nobody logs from scratch.
+  return false;
 }
 function userCan(permId, profile) {
   const p = profile || state.profile;

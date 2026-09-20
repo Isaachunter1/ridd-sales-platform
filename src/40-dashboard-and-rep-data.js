@@ -357,11 +357,7 @@ function viewTechs() {
   const latest = [...inRange].sort((x, y) => String(dateSoldToIso(y.dateSold) || '').localeCompare(String(dateSoldToIso(x.dateSold) || ''))).slice(0, 60);
   return el('div', { class: 'flex flex-col gap-5 w-full' },
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
-      el('button', {
-        class: 'flex-1 min-w-0 rounded-xl px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
-        style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-        onclick: () => { state._saleFormPreset = 'tech'; openNewSaleModal(); state._saleFormPreset = null; },   // modal builds synchronously — consume then clear
-      }, '+ Log Upsell'),
+      // (+ Log Upsell retired per Isaac, Sep 2026 — upsells sync from FieldRoutes.)
       rangeSel,
       configInfoBtn('Technicians data',
         'Live from FieldRoutes: every subscription with source "Upsell - Service Pro" (the technicians’ dedicated upsell source), refreshed by the hourly sync. Technicians ALSO log their upsells manually with the + button — the manual log is the commission record of the original deal, exactly like Inside Sales. Techs without app accounts still rank here under their CRM name.')),
@@ -506,12 +502,7 @@ function viewDashboard() {
     el('div', { class: 'flex items-center gap-2 flex-wrap dash-toolbar' },
       // + New Sale stretches to fill the row on every screen (per Isaac);
       // Today / info keep their natural size on the right (dash-toolbar CSS).
-      manualUpsellsOn() ? el('button', {
-        class: 'dash-newsale rounded-xl px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
-        style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-        onclick: () => openNewSaleModal(),
-      }, '+ New Sale') : el('div', { class: 'dash-newsale rounded-xl px-2.5 py-1 text-[11px] font-semibold text-center', style: { background: 'var(--card-2)', color: 'var(--text-muted)' }, title: 'Upsells are logged automatically from FieldRoutes add-on tickets' }, 'Sales and upsells sync from FieldRoutes'),
-
+      // (+ New Sale retired per Isaac, Sep 2026 — sales sync from FieldRoutes.)
       // Date filter
       el('select', {
         class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',

@@ -1299,19 +1299,19 @@ function _ensureAskWidget() {
     onclick: onPick,
   }, el('span', { style: { fontSize: '16px' } }, icon), labelTxt);
   let dialOpen = false;
-  const fabIcon = el('span', { style: { fontSize: '26px', lineHeight: '1', transition: 'transform .18s ease', display: 'inline-block', marginTop: '-2px' } }, '+');
+  const fabIcon = el('span', { style: { fontSize: '22px', lineHeight: '1', transition: 'transform .18s ease', display: 'inline-block', marginTop: '-2px' } }, '\ud83d\udcac');
   const dial = el('div', { style: { display: 'none', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' } });
   const setDial = (v) => { dialOpen = v; dial.style.display = v ? 'flex' : 'none'; fabIcon.style.transform = v ? 'rotate(45deg)' : 'none'; };
   dial.append(
     optBtn('💬', 'RIDD AI Agent', () => { setDial(false); C.open = true; panel.style.display = 'flex'; paint(); setTimeout(() => input.focus(), 50); }),
-    optBtn('🛒', 'New Sale', () => { setDial(false); if (typeof openNewSaleModal === 'function') openNewSaleModal(); }),
   );
   const fab = el('button', {
-    title: 'New Sale · RIDD AI Agent',
+    title: 'RIDD AI Agent',
     style: { width: '54px', height: '54px', borderRadius: '50%', background: 'var(--accent)', color: 'var(--accent-text)', boxShadow: 'var(--shadow-lg)', cursor: 'pointer', border: 'none', display: 'grid', placeItems: 'center' },
     onclick: () => {
       if (C.open) { C.open = false; panel.style.display = 'none'; setDial(false); return; }
-      setDial(!dialOpen);
+      // One option left (New Sale retired) — open the agent straight away.
+      setDial(false); C.open = true; panel.style.display = 'flex'; paint(); setTimeout(() => input.focus(), 50);
     },
   }, fabIcon);
   document.addEventListener('mousedown', (e) => { if (dialOpen && !widget.contains(e.target)) setDial(false); });

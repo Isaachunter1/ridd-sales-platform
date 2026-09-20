@@ -290,7 +290,7 @@ function viewSales() {
                 : queueFilter === 'cancels'
                   ? 'Nothing archived \u2014 no cancelled, not-payable or rescheduled sales.'
                   : 'All caught up \u2014 no sales waiting for upfront audit.')
-            : 'Nothing pending. Log a sale from the Dashboard.')
+            : 'Nothing pending — new sales arrive from FieldRoutes automatically.')
       : el('div', {},
           // Mobile: card list (hidden on sm+). Tapping a card opens the same
           // edit modal as clicking a desktop row, so the rep can fix details
