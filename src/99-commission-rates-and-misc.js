@@ -2615,11 +2615,14 @@ function openUserEditor(existing = null, prefill = null) {
       // Owner rules (per Isaac): only the owner admin can make or unmake an
       // admin. Everyone else sees the admin options greyed out, and an
       // existing admin's role is locked for them entirely.
-      const _owner = isOwnerUser();
+      // Until an owner exists (migration not run yet / nobody has claimed
+      // it), every admin keeps the old powers — nobody gets locked out.
+      const _ownerExists = (state.allProfiles || []).some(p => p && p.is_owner);
+      const _owner = isOwnerUser() || !_ownerExists;
       const _targetAdmin = !!existing && (existing.role === 'admin' || existing.role === 'admin_rep');
       const _lockRole = !_owner && _targetAdmin;
       const roleSelect = el('select', { name: 'role', class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]', disabled: _lockRole,
-        title: _lockRole ? 'Only the owner admin can change an admin\u2019s access' : '' },
+        title: _lockRole ? 'Only the Admin - Owner can change an admin\u2019s access' : '' },
         ...['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead'].map(v => el('option', { value: v, selected: seedRole === v, disabled: !!(existing && existing.is_owner) }, ROLE_LABEL[v])),
         el('option', { value: 'admin_rep',  selected: seedRole === 'admin_rep', disabled: !_owner && seedRole !== 'admin_rep' },  'Admin + Sales'),
         el('option', { value: 'admin',      selected: seedRole === 'admin', disabled: !_owner && seedRole !== 'admin' },      'Admin (no sales)'),
@@ -2633,8 +2636,9 @@ function openUserEditor(existing = null, prefill = null) {
       wrapper.append(mk('User Role', roleSelect));
       if (roleHidden) wrapper.append(roleHidden);
       if (existing && existing.is_owner) wrapper.append(el('div', { class: 'text-[11px] -mt-2', style: { color: 'var(--accent)', fontWeight: '700' } }, '\u2605 Owner admin \u2014 the only login that can grant or remove admin access.'));
-      else if (_lockRole) wrapper.append(el('div', { class: 'text-[11px] -mt-2', style: { color: 'var(--text-muted)' } }, 'This is an admin account \u2014 only the owner admin can change its access.'));
-      else if (!_owner) wrapper.append(el('div', { class: 'text-[11px] -mt-2', style: { color: 'var(--text-muted)' } }, 'Admin roles can only be granted by the owner admin.'));
+      else if (!_ownerExists && isAdminRole(state.profile?.role)) wrapper.append(el('div', { class: 'text-[11px] -mt-2', style: { color: 'var(--text-muted)' } }, 'No Admin - Owner yet \u2014 pick \u201cAdmin - Owner\u201d on your own account to claim it.'));
+      else if (_lockRole) wrapper.append(el('div', { class: 'text-[11px] -mt-2', style: { color: 'var(--text-muted)' } }, 'This is an admin account \u2014 only the Admin - Owner can change its access.'));
+      else if (!_owner) wrapper.append(el('div', { class: 'text-[11px] -mt-2', style: { color: 'var(--text-muted)' } }, 'Admin roles can only be granted by the Admin - Owner.'));
       // Transfer ownership — owner only, to another admin, two taps.
       if (_owner && existing && !existing.is_owner && _targetAdmin && existing.id !== (state._realProfile || state.profile || {}).id) {
         let armed = false;
@@ -2644,7 +2648,7 @@ function openUserEditor(existing = null, prefill = null) {
           style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
           title: 'Hand the owner admin role to this person. You stay an admin; they become the only one who can change admin access.',
           onclick: async () => {
-            if (!armed) { armed = true; xfer.textContent = 'Confirm \u2014 make ' + (existing.full_name || 'this user') + ' the owner admin'; xfer.style.background = 'var(--accent)'; xfer.style.color = 'var(--accent-text)'; xfer.style.borderColor = 'var(--accent)'; return; }
+            if (!armed) { armed = true; xfer.textContent = 'Confirm \u2014 make ' + (existing.full_name || 'this user') + ' the Admin - Owner'; xfer.style.background = 'var(--accent)'; xfer.style.color = 'var(--accent-text)'; xfer.style.borderColor = 'var(--accent)'; return; }
             xfer.disabled = true; xfer.textContent = 'Transferring\u2026';
             try {
               const { error } = await supabase.from('profiles').update({ is_owner: true }).eq('id', existing.id);
@@ -2654,11 +2658,11 @@ function openUserEditor(existing = null, prefill = null) {
               if (state._realProfile) state._realProfile.is_owner = false;
               if (state.profile) state.profile.is_owner = state.profile.id === existing.id;
               logActivity('user_edited', { detail: 'Ownership transferred to ' + (existing.full_name || existing.email || '') });
-              toast((existing.full_name || 'They') + ' is now the owner admin', 'success');
+              toast((existing.full_name || 'They') + ' is now the Admin - Owner', 'success');
               overlay.remove(); mountApp();
-            } catch (err) { toast(err.message || 'Transfer failed', 'error'); xfer.disabled = false; armed = false; xfer.textContent = 'Transfer owner admin to this user'; }
+            } catch (err) { toast(err.message || 'Transfer failed', 'error'); xfer.disabled = false; armed = false; xfer.textContent = 'Make this user the Admin - Owner'; }
           },
-        }, 'Transfer owner admin to this user');
+        }, 'Make this user the Admin - Owner');
         wrapper.append(el('div', { class: 'flex' }, xfer));
       }
       // ── Teams led — right under the role, only once Partner (or Team
