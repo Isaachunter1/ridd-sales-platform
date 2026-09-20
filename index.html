@@ -294,6 +294,10 @@
        Scope column can freeze (a display:block table was what made the
        sticky cell drift and leave the phantom gap on iOS). */
     .card > div > table.records-table, .card table.frozen-table { display: table !important; overflow: visible !important; width: max-content; min-width: 100%; }
+    /* frozen-table: first column + header row pin while the rest swipes. */
+    .frozen-table > thead { position: sticky; top: 0; z-index: 2; background: var(--card); }
+    .frozen-table > thead th:first-child, .frozen-table > tbody td:first-child { position: sticky; left: 0; z-index: 1; background: var(--card); box-shadow: 1px 0 0 var(--border); }
+    .frozen-table > thead th:first-child { z-index: 3; }
     /* Fixed-layout tables (Latest Sales feed, leaderboards…) already size
        themselves to the card — leave them as real tables so they never grow
        a sideways scrollbar (per Isaac: no horizontal panning on phones). */
