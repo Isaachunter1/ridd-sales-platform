@@ -3708,6 +3708,22 @@ function _reportClientError(message, stack) {
     }).catch(() => { /* fire and forget */ });
   } catch { /* never let telemetry throw */ }
 }
+// ── Opt-in render profiler (AUDIT P1-1) ──────────────────────────────────
+// localStorage.ridd_prof = '1' turns it on; each mountApp then records the
+// view, total ms and per-phase ms into window.__riddProf (last 40 renders)
+// so the slow phases can be read off a real login instead of guessed.
+const _profOn = (() => { try { return localStorage.getItem('ridd_prof') === '1'; } catch (e) { return false; } })();
+let _profCur = null;
+function _profStart(view) { if (!_profOn) return; _profCur = { view, t0: performance.now(), last: performance.now(), phases: [] }; }
+function _profMark(label) { if (!_profOn || !_profCur) return; const now = performance.now(); _profCur.phases.push([label, Math.round(now - _profCur.last)]); _profCur.last = now; }
+function _profEnd() {
+  if (!_profOn || !_profCur) return;
+  _profMark('render-tail');
+  const rec = { view: _profCur.view, ms: Math.round(performance.now() - _profCur.t0), phases: _profCur.phases, at: new Date().toISOString() };
+  (window.__riddProf = window.__riddProf || []).push(rec); if (window.__riddProf.length > 40) window.__riddProf.shift();
+  console.log('[ridd][prof] ' + rec.view + ' ' + rec.ms + 'ms ' + rec.phases.map(p => p[0] + ':' + p[1]).join(' '));
+  _profCur = null;
+}
 // ── Source health (P1-7 in AUDIT.md) ─────────────────────────────────────
 // Every loader reports ok / error per SOURCE instead of console.warn being
 // the terminal state. The header's "Last sync" pill reads the worst of them
