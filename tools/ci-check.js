@@ -134,7 +134,7 @@ try {
 // ── 7. Attrition golden tests ───────────────────────────────────────────
 // The one revenue-attrition definition the leaderboard and player card
 // share (cancelled $ ÷ serviced $, RORs + one-time out of both sides).
-console.log('\n[7/8] Attrition golden tests (tools/attrition-test.js)');
+console.log('\n[7/9] Attrition golden tests (tools/attrition-test.js)');
 try {
   const out = require('child_process').execFileSync(process.execPath, [path.join(__dirname, 'attrition-test.js')], { stdio: 'pipe' }).toString().trim();
   ok(out.split('\n').pop());
@@ -144,12 +144,22 @@ try {
 }
 
 // ── 8. Commission golden tests ──────────────────────────────────────────
-console.log('\n[8/8] Commission golden tests (tools/commission-test.js)');
+console.log('\n[8/9] Commission golden tests (tools/commission-test.js)');
 try {
   const out = require('child_process').execFileSync(process.execPath, [path.join(__dirname, 'commission-test.js')], { stdio: 'pipe' }).toString().trim();
   ok(out.split('\n').pop());
 } catch (e) {
   bad('Commission scenarios FAILED — the D2D backend pay math changed',
+      String((e.stdout || '') + (e.stderr || '')).split('\n').slice(0, 8).join('\n'));
+}
+
+// ── 9. Upsell record fixtures ───────────────────────────────────────────
+console.log('\n[9/9] Upsell record fixtures (tools/upsell-test.js)');
+try {
+  const out = require('child_process').execFileSync(process.execPath, [path.join(__dirname, 'upsell-test.js')], { stdio: 'pipe' }).toString().trim();
+  ok(out.split('\n').pop());
+} catch (e) {
+  bad('Upsell fixtures FAILED — the ticket → sales-row shape changed',
       String((e.stdout || '') + (e.stderr || '')).split('\n').slice(0, 8).join('\n'));
 }
 

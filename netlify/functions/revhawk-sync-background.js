@@ -1026,31 +1026,15 @@ exports.handler = async (event) => {
         const AL3 = Object.assign({ enabled: false, start: '2026-01-01', upsells: 'manual', upsell_services: [] }, (alRow3 && alRow3.value) || {});
         if (AL3.enabled && AL3.upsells === 'auto') {
           const START3 = String(AL3.start || '2026-01-01').slice(0, 10);
-          const terms = (Array.isArray(AL3.upsell_services) ? AL3.upsell_services : []).map(x => String(x).toLowerCase()).filter(Boolean);
-          const isAddOn = (name) => { const n = String(name || '').toLowerCase(); return terms.length ? terms.some(t => n.includes(t)) : /add[- ]?on|upsell/.test(n); };
+          // Ticket line → candidate → sales row lives in lib/upsell-record.js
+          // (pure, fixture-tested by tools/upsell-test.js) so the upsell
+          // build can't drift the shape silently.
+          const { makeIsAddOn, upsellCandidates, upsellSaleRow } = require('../lib/upsell-record.js');
+          const isAddOn = makeIsAddOn(AL3.upsell_services);
           const tq = await runQuery(token, TICKET_SQL(START3));
-          // One candidate per matching LINE ITEM. The items JSON shape isn't
-          // in the warehouse yet (no add-ons sold), so read the usual keys
-          // defensively: name/description, price/charge/amount, quantity, and
-          // an item-level employee (assigned rep) when FieldRoutes sends one.
           const tickets = [];
-          for (const t of toObjects(tq.schema, tq.rows)) {
-            let items = [];
-            try { const j = JSON.parse(String(t.items || '[]')); items = Array.isArray(j) ? j : Object.values(j || {}); } catch (e) { continue; }
-            items.forEach((it, idx) => {
-              if (!it || typeof it !== 'object') return;
-              const name = String(it.description || it.name || it.item || it.itemName || '').trim();
-              if (!name || !isAddOn(name)) return;
-              const qty = Number(it.quantity || it.qty || 1) || 1;
-              const price = Number(it.total ?? it.amount ?? it.price ?? it.charge ?? 0) || 0;
-              const amount = Math.round(price * (it.total != null ? 1 : qty) * 100) / 100;
-              if (amount <= 0) return;
-              const by = String(it.employeeID || it.soldBy || it.salesRep || it.assignedTo || t.created_by || '').trim();
-              tickets.push({ ...t, ticket_id: String(t.ticket_id) + ':' + idx, service: name, total: amount, created_by: by });
-            });
-          }
+          for (const t of toObjects(tq.schema, tq.rows)) tickets.push(...upsellCandidates({ ...t, items: String(t.items || '[]') }, isAddOn));
           if (tickets.length) {
-            const QUEUE_OF3 = { '0': 'office', '2': 'd2d', '1': 'tech' };
             const masterOf3 = new Map();
             roster.forEach(e => String(e.employee_ids || e.employee_id || '').split(',').forEach(id => { const t = id.trim(); if (t) masterOf3.set(t, String(e.employee_id)); }));
             const { data: profs4 } = await supabase.from('profiles').select('id, fieldroutes_employee_id, office_id').not('fieldroutes_employee_id', 'is', null);
@@ -1075,22 +1059,11 @@ exports.handler = async (event) => {
               const svcName = String(t.service || '').trim() || 'Add-on';
               let svcId = svcByName3.get(norm3(svcName));
               if (!svcId) { const ins = await supabase.from('service_types').insert({ name: svcName }).select('id').maybeSingle(); if (ins.data && ins.data.id) { svcId = ins.data.id; svcByName3.set(norm3(svcName), svcId); } }
-              const total = Math.round((Number(t.total) || 0) * 100) / 100;
-              batch3.push({
-                rep_id: prof.id, logged_by: null,
-                sale_kind: 'upsell', crm_ticket_id: tid, parent_subscription_id: String(t.subscription_id || '') || null,
-                queue_type: QUEUE_OF3[String(t.created_by_type || '')] || 'office',
-                customer_name: [String(t.first_name || '').trim(), String(t.last_name || '').trim()].filter(Boolean).join(' ') || ('Customer ' + t.customer_id),
-                customer_number: String(t.customer_id || ''),
-                office_id: officeByName3.get(norm3(OFFICE_NAMES[String(t.office_id)] || '')) ?? prof.office_id ?? null,
-                service_type_id: svcId || null,
-                contract_months: 0, initial_amount: total, monthly_amount: 0, num_services: null, pay_per_service: false,
-                paid_in_full: true, is_commercial: false, revenue_amount: total,
-                sold_date: String(t.created || '').slice(0, 10), commission_date: null,
-                notes: 'Auto-added upsell (add-on item) from FieldRoutes ticket #' + tid.split(':')[0],
-                audit_status: 'pending', created_at: new Date().toISOString(),
-                crm_status: 'verified', crm_contract_value: total, crm_subscription: svcName, crm_checked_at: new Date().toISOString(),
-              });
+              batch3.push(upsellSaleRow(t, {
+                repId: prof.id,
+                officeId: officeByName3.get(norm3(OFFICE_NAMES[String(t.office_id)] || '')) ?? prof.office_id ?? null,
+                serviceTypeId: svcId || null,
+              }));
               haveT.add(tid); added3++;
             }
             for (let i = 0; i < batch3.length; i += 500) {
