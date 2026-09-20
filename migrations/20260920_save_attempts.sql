@@ -13,7 +13,7 @@ create table if not exists public.save_attempts (
   cancel_date      date,
   outcome          text not null check (outcome in ('saved', 'callback', 'no_answer', 'declined', 'other')),
   note             text,
-  attempted_by     uuid not null default auth.uid() references public.profiles (id) on delete set null,
+  attempted_by     uuid default auth.uid() references public.profiles (id) on delete set null,
   attempted_at     timestamptz not null default now()
 );
 create index if not exists save_attempts_customer_idx on public.save_attempts (customer_id, attempted_at desc);
