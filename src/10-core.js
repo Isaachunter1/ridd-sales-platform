@@ -501,9 +501,9 @@ async function refreshTechStatsFromCloud(force) {
     const text = await new Response(r.blob.stream().pipeThrough(new DecompressionStream('gzip'))).text();
     const payload = JSON.parse(text);
     if (!payload || !Array.isArray(payload.rows)) return;
-    state.techStats = payload;
+    state.techStats = payload; healthReport('techstats', true);
     if (state.view === 'techs') mountApp();
-  } catch (e) { console.warn('[ridd] tech stats pull skipped', e); }
+  } catch (e) { healthReport('techstats', false, e); }
 }
 async function refreshIndicatorsFromCloud(force) {
   // Open to every signed-in user (was admin-only) — the rep-facing NRLA board
@@ -538,12 +538,12 @@ async function refreshIndicatorsFromCloud(force) {
     if ((!r || (!r.blob && !r.notModified)) && _cloudPath !== INDICATORS_CLOUD_PATH) {
       r = await _downloadSnapshotBlob(INDICATORS_CLOUD_PATH, null, { meta: true }).catch(() => null);
     }
-    if (r && r.notModified) { state._indPullError = null; return; }   // device is reachable + up to date
+    if (r && r.notModified) { state._indPullError = null; healthReport('indicators', true); return; }   // device is reachable + up to date
     if (!r || !r.blob) {
       // 403 / 404 / timeout on THIS DEVICE — the server-age stamp can stay
       // green while this phone shows days-old numbers. Record it so the
       // stamp can say so (cleared on the next successful pull).
-      state._indPullError = { at: Date.now(), msg: 'download failed' };
+      state._indPullError = { at: Date.now(), msg: 'download failed' }; healthReport('indicators', false, 'download failed');
       return; // next poll retries
     }
     const blob = r.blob;
@@ -582,12 +582,12 @@ async function refreshIndicatorsFromCloud(force) {
     saveDemoData();
     // Silent by design: this fires on every open/wake as routine hygiene —
     // the Last-sync stamp is the freshness UI, not a popup.
-    state._indPullError = null;
+    state._indPullError = null; healthReport('indicators', true);
     console.info('[ridd] indicators refreshed from cloud (' + (payload.fileName || 'CSV') + ')');
     if (typeof scheduleBackgroundRemount === 'function') scheduleBackgroundRemount(); else mountApp();
     setTimeout(() => { try { maybeShowWeeklyRecap(); } catch { /* ignore */ } }, 800);
   } catch (e) {
-    state._indPullError = { at: Date.now(), msg: String((e && e.message) || e || 'network') };
+    state._indPullError = { at: Date.now(), msg: String((e && e.message) || e || 'network') }; healthReport('indicators', false, e);
     console.warn('[ridd] indicators cloud refresh failed', e);
   }
 }
@@ -1225,7 +1225,7 @@ async function _mirrorNrlaRostersToRows() {
       }
     } while (_rosterMirrorAgain);
   } catch (err) {
-    console.warn('[ridd] roster row mirror skipped (run indicator_rosters.sql?)', (err && err.message) || err);
+    healthReport('rosters', false, err);
   } finally {
     _rosterMirrorBusy = false;
   }
@@ -1484,9 +1484,10 @@ async function loadCommissionConfig() {
   if (DEMO || !supabase || !state.profile || !isAdminRole(state.profile?.role)) return;
   try {
     const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'commission_config').maybeSingle();
-    if (error) { console.warn('[ridd] commission_config load failed', error); return; }
+    if (error) { healthReport('commission', false, error); return; }
+    healthReport('commission', true);
     if (data && data.value) state.commissionConfig = data.value;
-  } catch (e) { console.warn('[ridd] commission_config load threw', e); }
+  } catch (e) { healthReport('commission', false, e); }
 }
 async function saveCommissionConfig(next) {
   state.commissionConfig = next;
@@ -1531,9 +1532,10 @@ async function loadAppSettings() {
   if (DEMO || !supabase || !state.profile) return;
   try {
     const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'pay_settings').maybeSingle();
-    if (error) { console.warn('[ridd] pay_settings load failed', error); return; }
+    if (error) { healthReport('pay', false, error); return; }
+    healthReport('pay', true);
     if (data && data.value) state.appSettings = Object.assign({}, state.appSettings, data.value);
-  } catch (e) { console.warn('[ridd] pay_settings load threw', e); }
+  } catch (e) { healthReport('pay', false, e); }
 }
 // Per-pay-period "Other Pay" lines (per Isaac: bonuses, competition earnings
 // and the like, entered by hand each pay period). RLS: reps read their own,
@@ -1614,6 +1616,7 @@ async function loadReportingMetadata() {
     if (configRes.error)  { console.warn('[ridd] reporting_service_config load failed', configRes.error); }
     if (cancelCfgRes && cancelCfgRes.error) { console.warn('[ridd] reporting_cancel_config load failed (run reporting_cancel_config.sql)', cancelCfgRes.error); }
     if (sourceCfgRes && sourceCfgRes.error) { console.warn('[ridd] reporting_source_config load failed (run reporting_source_config.sql)', sourceCfgRes.error); }
+    if (uploadsRes.error || configRes.error) healthReport('settings', false, (uploadsRes.error || configRes.error)); else healthReport('settings', true);
     state.reportingUploads       = uploadsRes.data || [];
     state.reportingServiceConfig = configRes.data || [];
     state.reportingCancelConfig  = (cancelCfgRes && cancelCfgRes.data) || [];
@@ -1623,7 +1626,7 @@ async function loadReportingMetadata() {
       state.reportingActiveUploadId = state.reportingUploads[0].id;
     }
   } catch (err) {
-    console.warn('[ridd] reporting metadata load threw', err);
+    healthReport('settings', false, err);
   }
 }
 
@@ -1710,7 +1713,7 @@ function prefetchReportingSnapshot() {
       state._reportingSilent = true;
       loadReportingSubscriptions(id).then(rows => {
         if (rows && rows.length && state.reportingActiveUploadId === id && state.reportingSubscriptionsLoadedFor !== id) {
-          state.reportingSubscriptions = rows;
+          state.reportingSubscriptions = rows; healthReport('reporting', true);
           state.reportingSubscriptionsLoadedFor = id;
           if (typeof _refreshRepTypeMap === 'function') { try { _refreshRepTypeMap(); } catch (e) { /* optional */ } }
           if (state.view === 'reporting') mountApp();
@@ -1991,7 +1994,7 @@ async function _loadReportingSubscriptionsRaw(uploadId) {
   }
   const loaded = results.flat();
   if (loaded.length < count) {
-    console.warn('[ridd] reporting load incomplete:', loaded.length, 'of', count);
+    healthReport('reporting', false, 'snapshot incomplete: ' + loaded.length + ' of ' + count + ' rows');
   } else {
     reportingIdbPut(uploadId, loaded); // only cache a COMPLETE load
     migrateSnapshotToStorage(uploadId, loaded); // make next load a 1-file download
@@ -3237,8 +3240,8 @@ function _calendarCloudAutoSync() {
         updated_by: state.profile.id,
         updated_at: new Date().toISOString(),
       });
-      if (error) console.warn('[ridd] calendar cloud push failed', error.message);
-    } catch (e) { console.warn('[ridd] calendar cloud push failed', e); }
+      if (error) healthReport('calendar', false, error); else healthReport('calendar', true);
+    } catch (e) { healthReport('calendar', false, e); }
   }, 800);
 }
 
@@ -3661,6 +3664,57 @@ function _reportClientError(message, stack) {
       }),
     }).catch(() => { /* fire and forget */ });
   } catch { /* never let telemetry throw */ }
+}
+// ── Source health (P1-7 in AUDIT.md) ─────────────────────────────────────
+// Every loader reports ok / error per SOURCE instead of console.warn being
+// the terminal state. The header's "Last sync" pill reads the worst of them
+// and the status sheet lists each one with when it last worked.
+const HEALTH_SOURCES = {
+  indicators: 'Sales dataset (FieldRoutes via RevHawk)',
+  reporting:  'Reporting snapshot',
+  techstats:  'Technician route stats',
+  qbo:        'QuickBooks spend (Windsor)',
+  pay:        'Pay settings',
+  commission: 'Commission config',
+  calendar:   'Calendar cloud save',
+  rosters:    'Competition rosters',
+  settings:   'Reporting configuration',
+};
+function healthReport(source, ok, msg) {
+  const h = state._health || (state._health = {});
+  const cur = h[source] || {};
+  h[source] = ok
+    ? { ok: true, at: Date.now(), okAt: Date.now(), msg: '' }
+    : { ok: false, at: Date.now(), okAt: cur.okAt || null, msg: String(msg && msg.message || msg || 'failed').slice(0, 200) };
+  if (!ok) console.warn('[ridd][health] ' + source + ': ' + h[source].msg);
+}
+// Worst recent problem across sources (errors older than 3h age out).
+function healthWorst() {
+  const h = state._health || {};
+  const bad = Object.entries(h).filter(([, v]) => v && !v.ok && (Date.now() - v.at) < 3 * 3600000);
+  return bad.length ? bad.map(([k, v]) => ({ source: k, label: HEALTH_SOURCES[k] || k, ...v })) : [];
+}
+function openHealthSheet() {
+  const overlay = el('div', { class: 'modal-overlay' });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  const fmtT = (t) => t ? new Date(t).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '\u2014';
+  const rows = Object.keys(HEALTH_SOURCES).map(k => {
+    const v = (state._health || {})[k];
+    const st = !v ? 'not loaded yet' : v.ok ? 'ok' : 'error';
+    const color = st === 'ok' ? '#5F6C5B' : st === 'error' ? '#DC2626' : 'var(--text-subtle)';
+    return el('div', { class: 'flex items-start justify-between gap-3 px-3 py-2 text-[12px]', style: { borderTop: '1px solid var(--border)' } },
+      el('div', { class: 'min-w-0' }, el('div', { class: 'font-semibold' }, HEALTH_SOURCES[k]),
+        el('div', { class: 'text-[10px] text-muted-' }, st === 'error' ? ('Failed ' + fmtT(v.at) + (v.okAt ? ' \u00b7 last worked ' + fmtT(v.okAt) : '') + ' \u00b7 ' + v.msg) : st === 'ok' ? 'Last loaded ' + fmtT(v.at) : 'Loads when its tab opens')),
+      el('span', { class: 'text-[10px] font-bold uppercase tracking-wider shrink-0', style: { color } }, st));
+  });
+  overlay.append(el('div', { class: 'card p-0 flex flex-col', style: { width: 'min(520px, 94vw)', maxHeight: '80vh', overflow: 'auto' } },
+    el('div', { class: 'px-4 py-3 flex items-center justify-between gap-3' },
+      el('div', {}, el('div', { class: 'text-sm font-bold' }, 'Data sources'), el('div', { class: 'text-[10px] text-muted-' }, (typeof appSyncStampStr === 'function' ? 'Last sync ' + appSyncStampStr() : ''))),
+      el('div', { class: 'flex items-center gap-2' },
+        el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: () => { overlay.remove(); try { refreshIndicatorsFromCloud(true); toast('Refreshing\u2026', 'success'); } catch (e) { /* poll retries */ } } }, '\u21bb Refresh'),
+        el('button', { class: 'text-xl leading-none', onclick: () => overlay.remove() }, '\u00d7'))),
+    ...rows));
+  document.body.append(overlay);
 }
 window.addEventListener('error', (e) => _reportClientError(e.message, e.error && e.error.stack));
 window.addEventListener('unhandledrejection', (e) => {

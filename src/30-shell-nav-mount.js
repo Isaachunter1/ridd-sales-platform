@@ -871,19 +871,24 @@ function mountApp() {
         // Device-unreachable beats server age: a rep whose downloads 403 or
         // time out must never read a green stamp over stale numbers.
         const pullErr = state._indPullError && (Date.now() - state._indPullError.at) < 3 * 3600000;
-        const lvl = pullErr ? 'red' : (typeof indicatorsSyncStaleness === 'function') ? indicatorsSyncStaleness() : null;
+        // Any OTHER source in error (QuickBooks, pay settings, calendar save…)
+        // turns the pill amber and lists itself in the tooltip (P1-7).
+        const _bad = (typeof healthWorst === 'function') ? healthWorst().filter(b => b.source !== 'indicators') : [];
+        const lvl0 = pullErr ? 'red' : (typeof indicatorsSyncStaleness === 'function') ? indicatorsSyncStaleness() : null;
+        const lvl = lvl0 || (_bad.length ? 'amber' : null);
         const c = lvl === 'red' ? '#DC2626' : lvl === 'amber' ? '#A9441F' : null;
         return txt ? el('span', {
           class: 'block text-[11px] whitespace-nowrap cursor-pointer truncate min-w-0',
-          onclick: pullErr ? (() => { try { refreshIndicatorsFromCloud(true); toast('Retrying\u2026', 'success'); } catch (e) { /* poll retries */ } }) : undefined,
+          onclick: () => { if (typeof openHealthSheet === 'function') openHealthSheet(); else if (pullErr) { try { refreshIndicatorsFromCloud(true); toast('Retrying\u2026', 'success'); } catch (e) { /* poll retries */ } } },
           style: { color: c || 'var(--text-muted)', marginRight: '6px', alignSelf: 'center', textAlign: 'right', fontWeight: lvl === 'red' ? '700' : '' },
           title: pullErr ? 'THIS DEVICE can\u2019t reach the server (' + state._indPullError.msg + ') — showing older data. Tap to retry.'
             : lvl === 'red' ? 'Data is over 4 hours old during selling hours — multiple syncs have failed. Check /api/sync-status and Netlify logs.'
+            : lvl === 'amber' && !lvl0 ? 'Problem with: ' + _bad.map(b => b.label).join(', ') + ' — tap for details'
             : lvl === 'amber' ? 'Data is older than the hourly sync cadence — a run may have failed (check Netlify logs)'
-            : 'Syncs land hourly on the hour, 8am–11pm ET',
+            : 'Syncs land hourly on the hour, 8am–11pm ET — tap for every data source',
         },
           _phone ? 'Last sync ' : 'Last sync: ', el('span', { class: 'font-semibold', style: { color: c || 'var(--text)' } }, txt),
-          pullErr ? (_phone ? ' \u00b7 OFFLINE' : ' \u00b7 CAN\u2019T REACH SERVER') : lvl === 'red' ? ' \u00b7 SYNC DOWN' : lvl === 'amber' ? ' \u00b7 overdue' : '') : null;
+          pullErr ? (_phone ? ' \u00b7 OFFLINE' : ' \u00b7 CAN\u2019T REACH SERVER') : lvl === 'red' ? ' \u00b7 SYNC DOWN' : (lvl === 'amber' && !lvl0) ? ' \u00b7 ' + _bad.length + ' issue' + (_bad.length === 1 ? '' : 's') : lvl === 'amber' ? ' \u00b7 overdue' : '') : null;
       })();
   const pageHeader = el('header', {
     class: 'page-header px-4 sm:px-6 py-4',

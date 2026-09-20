@@ -733,15 +733,15 @@ function reportingLoadQboSpend(force) {
   const useFile = () => { state.reportingIsSpend = {}; state._isSpendSource = 'none'; state._isSpendLoading = false; mountApp(); };
   _apiAuthHeaders().then(h => fetch('/api/qbo-spend' + (force ? '?_=' + Date.now() : ''), { headers: h })).then(r => r.ok ? r.json() : null).then(j => {
     if (j && j.bySourceMonth && Object.keys(j.bySourceMonth).length) {
-      state.reportingIsSpend = j.bySourceMonth; state._isSpendSource = 'QuickBooks'; state._isSpendPulledAt = j.pulledAt; state._isSpendLoading = false; mountApp();
+      state.reportingIsSpend = j.bySourceMonth; state._isSpendSource = 'QuickBooks'; state._isSpendPulledAt = j.pulledAt; state._isSpendLoading = false; if (typeof healthReport === 'function') healthReport('qbo', true); mountApp();
       // A stale copy was served while Windsor re-pulls in the background — pick up the fresh one shortly.
       if (j.refreshing && !state._isSpendRepoll) { state._isSpendRepoll = true; setTimeout(() => { state._isSpendRepoll = false; reportingLoadQboSpend(true); }, 45000); }
     } else if (j && j.pending) {
       // First pull is running in the background (Windsor ledger takes ~30s) — poll.
       state._isSpendLoading = false; state.reportingIsSpend = null;
       setTimeout(() => reportingLoadQboSpend(false), 25000);
-    } else { useFile(); }
-  }).catch(useFile);
+    } else { if (typeof healthReport === 'function') healthReport('qbo', false, 'QuickBooks spend unavailable — using the uploaded file'); useFile(); }
+  }).catch((e) => { if (typeof healthReport === 'function') healthReport('qbo', false, e); useFile(); });
 }
 // QuickBooks branch accounts → sales-data office names.
 const _MKTG_QBO_OFFICE = { 'utah': 'SALT LAKE', 'michigan': 'DETROIT', 'executive': null, 'corporate': null };
