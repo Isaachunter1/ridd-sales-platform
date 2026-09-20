@@ -17,11 +17,37 @@ const path = require('path');
 const crypto = require('crypto');
 
 const root = path.join(__dirname, '..');
-const src = fs.readFileSync(path.join(root, 'app.js'));
+const src = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
 const hash = crypto.createHash('sha256').update(src).digest('hex').slice(0, 8);
 const hashedName = `app-${hash}.immutable.js`;
 
-fs.writeFileSync(path.join(root, hashedName), src);
+// Minify for the deploy (AUDIT P1-3): roughly halves the gzipped bundle.
+// Conservative on purpose — top-level names are NOT mangled (the bundle is
+// one module scope whose functions call each other by name and the CI
+// golden tests extract them by name from app.js), only locals inside
+// functions are. A source map ships beside it so client-error stacks and
+// DevTools still point at src/*.js lines. app.js itself stays readable.
+const out = (async () => {
+  let code = src, map = null;
+  try {
+    const { minify } = require('terser');
+    const r = await minify({ [hashedName]: src }, {
+      module: true,
+      compress: { defaults: true, passes: 1, toplevel: false, unsafe: false, keep_fnames: true, keep_classnames: true },
+      mangle: { toplevel: false, keep_fnames: true, keep_classnames: true },
+      format: { comments: false },
+      sourceMap: { filename: hashedName, url: hashedName + '.map' },
+    });
+    if (r && r.code) { code = r.code; map = r.map || null; }
+    else console.warn('[build] terser returned nothing — shipping unminified');
+  } catch (e) {
+    console.warn('[build] minify skipped (' + ((e && e.message) || e) + ') — shipping unminified');
+  }
+  fs.writeFileSync(path.join(root, hashedName), code);
+  if (map) fs.writeFileSync(path.join(root, hashedName + '.map'), map);
+  return code.length;
+})();
+out.then((bytes) => {
 
 const htmlPath = path.join(root, 'index.html');
 let html = fs.readFileSync(htmlPath, 'utf8');
@@ -40,4 +66,5 @@ fs.writeFileSync(htmlPath, html);
 // shipped, then self-reload onto the fresh bundle (see the client's
 // version watcher). no-cache headers in netlify.toml keep it honest.
 fs.writeFileSync(path.join(root, 'version.json'), JSON.stringify({ hash: hashedName, builtAt: new Date().toISOString() }));
-console.log(`[build] app.js → ${hashedName} (${(src.length / 1024 / 1024).toFixed(2)}MB), index.html rewritten, version.json stamped`);
+console.log(`[build] app.js → ${hashedName} (${(src.length / 1024 / 1024).toFixed(2)}MB source → ${(bytes / 1024 / 1024).toFixed(2)}MB shipped), index.html rewritten, version.json stamped`);
+}).catch((e) => { console.error('[build] FATAL', e); process.exit(1); });
