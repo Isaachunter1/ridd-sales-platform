@@ -467,7 +467,7 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
     if (a == null || b == null || !isFinite(a) || !isFinite(b)) return '—';
     return signedRow(row, a - b) || '—';
   };
-  const table = el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
+  const table = el('table', { class: 'w-full text-[12px] frozen-table', style: { borderCollapse: 'collapse' } },
     el('thead', {}, el('tr', {}, th('', 'sticky left-0'), ...shownIdx.map(i => { const m = MKTG_MONTHS[i]; const isOpen = _mktgYm(year, i) === putisOpenMonth(); return th(isOpen ? m + ' · open' : (rangeYm ? m + ' ' + year : m), isOpen ? 'italic' : '', isOpen ? 'Current month — books not closed yet, numbers move daily. Not included in YTD.' : PUTIS_COL_TIPS.month); }),
       th(year + ' YTD' + (ytd.months ? ' (thru ' + MKTG_MONTHS[Math.min(upto, Math.max(0, (String(year) === openYm.slice(0, 4) ? new Date().getMonth() - 1 : 11)))] + ')' : ''), '', PUTIS_COL_TIPS.ytd + ' The open (current) month is excluded.'),
       th('Trailing 12 mo', '', ttm.months ? 'The last twelve closed months, ' + ttm.ks[ttm.ks.length - 1] + ' through ' + ttm.ks[0] + (ttm.months < 12 ? ' (' + ttm.months + ' available in the feed)' : '') + '. Percentage rows are recomputed from the summed dollars.' : 'No closed months yet.'))),
@@ -697,7 +697,7 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
         el('h3', { class: 'text-sm font-bold' + (opts.compact ? ' truncate' : '') }, (opts.title || ({ book: 'Recurring Book', margins: 'Margins', unit: 'Unit Economics' })[part] || 'P&L Indicators') + (opts.compact ? '' : ' · ' + periodLabel)),
         null),
       opts.headerExtra || null),
-    el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
+    el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-[12px] frozen-table', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('', '', true), ...cols.flatMap(c => {
         const on = pctOn(c.key);
         const h = th(c.label + (withPct && !opts.onlyCol ? (on ? ' ▾' : ' ▸') : ''), withPct && !opts.onlyCol ? (on ? 'Click to hide the % of revenue column' : 'Click to show % of revenue for ' + c.label) : '');
@@ -897,7 +897,7 @@ function putisBranchScorecard(M, U, yms, branches, title) {
       el('div', {}, el('h3', { class: 'text-sm font-bold' }, title),
         el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'Green = best in column · red = worst · click a header to sort' + (topShare != null ? ' · top-branch concentration ' + _putisPct1(topShare) : ''))),
     ),
-    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px] frozen-table', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold text-left', style: { color: 'var(--text-muted)' } }, 'Branch'), ...COLS.map(th))),
       el('tbody', {},
         ...rows.map(r => el('tr', { class: 'border-t border-' }, el('td', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap', style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }, r.name), ...COLS.map(c => td(c, r.m, false)))),
@@ -976,7 +976,7 @@ function putisComparativeCard(M, ym, branches, title, headerExtra, opts = {}) {
     el('div', { class: 'px-5 py-3 border-b flex items-start gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
       el('div', {}, el('h3', { class: 'text-sm font-bold' }, title + (ym === openYm ? ' · open month' : ''))),
       headerExtra || null),
-    el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } }, el('thead', {}, head), el('tbody', {}, ...body))));
+    el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-[12px] frozen-table', style: { borderCollapse: 'collapse' } }, el('thead', {}, head), el('tbody', {}, ...body))));
 }
 
 function reportingPutis() {

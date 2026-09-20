@@ -298,6 +298,9 @@
     .frozen-table > thead { position: sticky; top: 0; z-index: 2; background: var(--card); }
     .frozen-table > thead th:first-child, .frozen-table > tbody td:first-child { position: sticky; left: 0; z-index: 1; background: var(--card); box-shadow: 1px 0 0 var(--border); }
     .frozen-table > thead th:first-child { z-index: 3; }
+    /* A frozen table with only a couple of columns fills the card instead
+       of leaving white space to the right (P&L single-branch view). */
+    .card table.frozen-table { width: 100% !important; }
     /* Fixed-layout tables (Latest Sales feed, leaderboards…) already size
        themselves to the card — leave them as real tables so they never grow
        a sideways scrollbar (per Isaac: no horizontal panning on phones). */
