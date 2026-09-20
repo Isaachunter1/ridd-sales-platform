@@ -1951,7 +1951,7 @@ function adminReps() {
     switch (key) {
       case 'id':       return Number((e2 && e2.employee_id) || 0) || 0;
       case 'username': return String((e2 && e2.username) || '').toLowerCase();
-      case 'role':     return x.isApp ? roleLabel((p && p.role) || '').toLowerCase() : '~in crm';
+      case 'role':     return x.isApp ? roleLabelOf(p).toLowerCase() : '~in crm';
       case 'reptype':  return (x.type || '').toLowerCase();
       case 'phone':    return String((p && p.phone) || (e2 && e2.phone) || '');
       case 'email':    return String((p && p.email) || (e2 && e2.email) || '').toLowerCase();
@@ -2020,7 +2020,7 @@ function adminReps() {
         el('div', {}, el('div', { class: 'font-semibold' }, p.full_name),
           fr && !p.fieldroutes_employee_id ? el('div', { class: 'text-[10px]', style: { color: 'var(--accent)' } }, '↔ match — confirm to link') : null))),
       tdM(fr ? fr.username : null),                                       // User ID (CRM username)
-      td(roleLabel(p.role)),                                             // Access Profile (app role)
+      td(roleLabelOf(p), p.is_owner ? 'font-bold' : ''),                 // Access Profile (app role)
       td(fr ? fr.type_label : null, fr ? '' : 'text-muted- italic'),      // Rep Type (CRM)
       tdM(p.phone || (fr ? fr.phone : null)),                             // Phone (profile wins, else CRM)
       (() => { const em = p.email || (fr ? fr.email : null);              // Email — truncated, full on hover
@@ -2612,16 +2612,55 @@ function openUserEditor(existing = null, prefill = null) {
       // saving them migrates to an explicit role.
       let seedRole = existing?.role || prefill?.role || 'rep_sales';
       if (seedRole === 'rep') seedRole = 'rep_sales';
-      const roleSelect = el('select', { name: 'role', class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]' },
-        ...['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead'].map(v => el('option', { value: v, selected: seedRole === v }, ROLE_LABEL[v])),
-        el('option', { value: 'admin_rep',  selected: seedRole === 'admin_rep' },  'Admin + Sales'),
-        el('option', { value: 'admin',      selected: seedRole === 'admin' },      'Admin (no sales)'),
-        el('option', { value: 'auditor',    selected: seedRole === 'auditor' },    'Auditor'),
+      // Owner rules (per Isaac): only the owner admin can make or unmake an
+      // admin. Everyone else sees the admin options greyed out, and an
+      // existing admin's role is locked for them entirely.
+      const _owner = isOwnerUser();
+      const _targetAdmin = !!existing && (existing.role === 'admin' || existing.role === 'admin_rep');
+      const _lockRole = !_owner && _targetAdmin;
+      const roleSelect = el('select', { name: 'role', class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]', disabled: _lockRole,
+        title: _lockRole ? 'Only the owner admin can change an admin\u2019s access' : '' },
+        ...['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead'].map(v => el('option', { value: v, selected: seedRole === v, disabled: !!(existing && existing.is_owner) }, ROLE_LABEL[v])),
+        el('option', { value: 'admin_rep',  selected: seedRole === 'admin_rep', disabled: !_owner && seedRole !== 'admin_rep' },  'Admin + Sales'),
+        el('option', { value: 'admin',      selected: seedRole === 'admin', disabled: !_owner && seedRole !== 'admin' },      'Admin (no sales)'),
+        el('option', { value: 'auditor',    selected: seedRole === 'auditor', disabled: !!(existing && existing.is_owner) },    'Auditor'),
       );
+      // A disabled select drops out of FormData — carry the locked role along.
+      const roleHidden = _lockRole ? el('input', { type: 'hidden', name: 'role', value: seedRole }) : null;
       // (Commission Bump, Revenue Goal, Close Rate, Other Pay and Loyalty Pay
       // left this modal per Isaac — pay lives in Settings → Commissions.)
       const wrapper = document.createDocumentFragment();
       wrapper.append(mk('User Role', roleSelect));
+      if (roleHidden) wrapper.append(roleHidden);
+      if (existing && existing.is_owner) wrapper.append(el('div', { class: 'text-[11px] -mt-2', style: { color: 'var(--accent)', fontWeight: '700' } }, '\u2605 Owner admin \u2014 the only login that can grant or remove admin access.'));
+      else if (_lockRole) wrapper.append(el('div', { class: 'text-[11px] -mt-2', style: { color: 'var(--text-muted)' } }, 'This is an admin account \u2014 only the owner admin can change its access.'));
+      else if (!_owner) wrapper.append(el('div', { class: 'text-[11px] -mt-2', style: { color: 'var(--text-muted)' } }, 'Admin roles can only be granted by the owner admin.'));
+      // Transfer ownership — owner only, to another admin, two taps.
+      if (_owner && existing && !existing.is_owner && _targetAdmin && existing.id !== (state._realProfile || state.profile || {}).id) {
+        let armed = false;
+        const xfer = el('button', {
+          type: 'button',
+          class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95 self-start',
+          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+          title: 'Hand the owner admin role to this person. You stay an admin; they become the only one who can change admin access.',
+          onclick: async () => {
+            if (!armed) { armed = true; xfer.textContent = 'Confirm \u2014 make ' + (existing.full_name || 'this user') + ' the owner admin'; xfer.style.background = 'var(--accent)'; xfer.style.color = 'var(--accent-text)'; xfer.style.borderColor = 'var(--accent)'; return; }
+            xfer.disabled = true; xfer.textContent = 'Transferring\u2026';
+            try {
+              const { error } = await supabase.from('profiles').update({ is_owner: true }).eq('id', existing.id);
+              if (error) throw error;
+              existing.is_owner = true;
+              (state.allProfiles || []).forEach(p => { p.is_owner = p.id === existing.id; });
+              if (state._realProfile) state._realProfile.is_owner = false;
+              if (state.profile) state.profile.is_owner = state.profile.id === existing.id;
+              logActivity('user_edited', { detail: 'Ownership transferred to ' + (existing.full_name || existing.email || '') });
+              toast((existing.full_name || 'They') + ' is now the owner admin', 'success');
+              overlay.remove(); mountApp();
+            } catch (err) { toast(err.message || 'Transfer failed', 'error'); xfer.disabled = false; armed = false; xfer.textContent = 'Transfer owner admin to this user'; }
+          },
+        }, 'Transfer owner admin to this user');
+        wrapper.append(el('div', { class: 'flex' }, xfer));
+      }
       // ── Teams led — right under the role, only once Partner (or Team
       // Lead) is picked. Drives leaderboard + player-card reach.
       if (existing && existing.id) {
