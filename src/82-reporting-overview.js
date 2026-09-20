@@ -458,13 +458,51 @@ function reportingOverview() {
         el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Net ARR · serviced − churned'),
         el('div', { class: 'text-lg font-black tabular-nums leading-tight', style: { color: net >= 0 ? '#16A34A' : '#DC2626' } }, (net < 0 ? '−' : '+') + fmt.usd0(Math.abs(net))),
         el('div', { class: 'text-[10px] text-muted-' }, 'for the day'));
+      // Churn view (per Isaac): WHERE the churn came from — reason, lead
+      // source and service — plus the accounts themselves, right here.
+      const churnBlocks = !isChurn || !rowsIn.length ? [] : (() => {
+        const bucket = (keyOf) => { const m = new Map(); for (const r of rowsIn) { const k = keyOf(r) || 'Unspecified'; const g = m.get(k) || { n: 0, arr: 0 }; g.n++; g.arr += K.valOf(r); m.set(k, g); } return [...m.entries()].sort((a, b) => b[1].arr - a[1].arr); };
+        const mini = (title, list, keyLabel) => el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', minWidth: '0' } },
+          el('div', { class: 'px-3 py-2 text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)', background: 'var(--card-2)' } }, title),
+          el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+            el('thead', {}, el('tr', {}, th(keyLabel), th('Subs', true), th('ARR', true), th('Share', true))),
+            el('tbody', {}, ...list.slice(0, 8).map(([k, g]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+              el('td', { class: 'px-3 py-1.5', style: { maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, title: k }, k),
+              td(fmt.int(g.n), { right: true }), td(fmt.usd0(g.arr), { right: true, bold: true }), td(grand ? (g.arr / grand * 100).toFixed(0) + '%' : '\u2014', { right: true }))),
+              list.length > 8 ? el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, el('td', { class: 'px-3 py-1.5 text-[10px] text-muted-', colspan: 4 }, '+ ' + (list.length - 8) + ' more')) : null)));
+        const byReason = bucket(r => reportingCancelReasonOf(r));
+        const bySource = bucket(r => (typeof reportingSourceOf === 'function' ? reportingSourceOf(r) : r.subscription_source));
+        const bySvc = bucket(r => String(r.subscription || '').trim());
+        const nameOf = (r) => { const l = (r.last_name || '').trim(), f = (r.first_name || '').trim(); return l && f ? l + ', ' + f : (l || f || r.customer_id || '\u2014'); };
+        const ageMo = (r) => { const a = r.initial_service || r.sold_date; if (!a) return null; const d = (new Date(String(r.subscription_date_canceled).slice(0, 10) + 'T00:00') - new Date(String(a).slice(0, 10) + 'T00:00')) / 2629800000; return isFinite(d) ? Math.max(0, Math.round(d)) : null; };
+        const accts = rowsIn.slice().sort((a, b) => K.valOf(b) - K.valOf(a));
+        const acctTable = el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)' } },
+          el('div', { class: 'px-3 py-2 flex items-center justify-between gap-2 flex-wrap', style: { background: 'var(--card-2)' } },
+            el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Churned accounts \u00b7 ' + fmt.int(accts.length)),
+            el('button', { class: 'text-[10px] font-bold', style: { color: 'var(--accent)' }, onclick: () => openReportingDrillModal({ chartTitle: 'Daily pulse \u00b7 Churned \u00b7 ' + dayLabel, sliceLabel: fmt.int(accts.length) + ' subscription' + (accts.length === 1 ? '' : 's') + ' \u00b7 ' + fmt.usd0(grand), rows: accts, formatValue: fmt.usd0 }) }, 'Full table \u2192')),
+          el('div', { class: 'scroll-x', style: { maxHeight: '320px', overflowY: 'auto' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+            el('thead', {}, el('tr', {}, th('Customer'), th('Branch'), th('Service'), th('Source'), th('ARR', true), th('Age', true), th('Reason'))),
+            el('tbody', {}, ...accts.slice(0, 200).map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+              el('td', { class: 'px-3 py-1.5 whitespace-nowrap font-semibold' }, nameOf(r), r.customer_id ? el('span', { class: 'text-[10px] text-muted- ml-1' }, '#' + r.customer_id) : null),
+              td((r.office_name || '').trim() || '\u2014'), td(String(r.subscription || '').trim() || '\u2014'), td(String(r.subscription_source || '').trim() || '\u2014'),
+              td(fmt.usd0(K.valOf(r)), { right: true, bold: true }),
+              td(ageMo(r) == null ? '\u2014' : ageMo(r) + ' mo', { right: true }),
+              el('td', { class: 'px-3 py-1.5', style: { maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, title: reportingCancelReasonOf(r) || '' }, reportingCancelReasonOf(r) || '\u2014'))),
+              accts.length > 200 ? el('tr', {}, el('td', { class: 'px-3 py-1.5 text-[10px] text-muted-', colspan: 7 }, 'Showing 200 of ' + fmt.int(accts.length) + ' \u2014 open the full table for the rest')) : null))));
+        return [
+          el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mt-1', style: { color: 'var(--text-subtle)' } }, 'Where the churn came from'),
+          el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' } }, mini('By cancel reason', byReason, 'Reason'), mini('By lead source', bySource, 'Source'), mini('By service', bySvc, 'Service')),
+          acctTable,
+        ];
+      })();
       body.replaceChildren(
         el('div', { class: 'flex gap-2 flex-wrap' }, tile('sold'), tile('svc'), tile('cxl'), netTile),
         el('div', { class: 'text-[11px] text-muted-' }, K.label + ': ' + fmt.usd0(grand) + ' of ' + K.unit + ' across ' + fmt.int(rowsIn.length) + ' subscription' + (rowsIn.length === 1 ? '' : 's') + ' in ' + list.length + ' branch' + (list.length === 1 ? '' : 'es') + ' · click a branch for the accounts'),
         !rowsIn.length ? el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'Nothing ' + K.label.toLowerCase() + ' on this day.') :
         el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
           el('thead', {}, el('tr', {}, th('Branch'), th(K.col, true), th('Share', true), th(''), th('Subs', true), th('Avg / sub', true), th('Largest', true), th(K.extra))),
-          el('tbody', {}, ...list.map(([k, g]) => row(k, g, false)), row('RIDD · Total', all, true)))));
+          el('tbody', {}, ...list.map(([k, g]) => row(k, g, false)), row('RIDD · Total', all, true)))),
+        ...churnBlocks);
     };
     render();
     overlay.append(el('div', { class: 'card p-5 flex flex-col gap-3', style: { width: 'min(980px, 94vw)', maxHeight: '88vh', overflow: 'auto' } },
@@ -553,7 +591,14 @@ function reportingOverview() {
                     y: { beginAtZero: true, ticks: { color: txt, callback: v => '$' + (v >= 1000 ? Math.round(v / 1000) + 'k' : v) }, grid: { color: grid } } } },
       });
     }, 50);
-    const stat = (label, v, color) => el('div', { class: 'text-right' },
+    // The three headline numbers open the same drill for the WHOLE window
+    // (per Isaac — tap Churned to see the day's/window's lost accounts,
+    // where they came from and what each branch lost).
+    const flat = (arr) => arr.reduce((a, x) => a.concat(x), []);
+    const winLabel = single ? (spanRaw === 'today' ? 'Today' : 'Yesterday') : 'Last ' + span + ' days';
+    const winLong = single ? (() => { const dt = new Date(days[0] + 'T00:00'); return dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }); })() : winLabel + ' \u00b7 ' + days[0] + ' \u2192 ' + days[days.length - 1];
+    const openWindow = (kind) => openPulseDayDrill(winLabel, winLong, { sold: flat(soldRows), svc: flat(svcRows), cxl: flat(cxlRows) }, kind);
+    const stat = (label, v, color, kind) => el('button', { class: 'text-right cursor-pointer transition hover:brightness-95', title: 'See the ' + label.toLowerCase() + ' accounts, by branch \u2014 and where churn came from', onclick: () => openWindow(kind) },
       el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
       el('div', { class: 'text-base font-black tabular-nums', style: { color } }, fmt.usd0(v)));
     return el('div', { class: 'card p-4' },
@@ -562,7 +607,7 @@ function reportingOverview() {
           el('h3', { class: 'text-sm font-bold' }, 'Daily Pulse' + (office !== 'all' ? ' · ' + officeLabel(office) : '')),
           el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } }, (single ? 'By branch: contract value SOLD (green) · ARR of accounts that received their first service (teal) · ARR that CHURNED (red). Click a bar for the day.' : 'Each day: contract value SOLD (green bars) · ARR of accounts that received their first service (teal) · ARR that CHURNED (red). Click a bar or point for the accounts.'))),
         el('div', { class: 'flex items-center gap-4 flex-wrap' },
-          stat('Sold · ' + (single ? (spanRaw === 'today' ? 'today' : 'yesterday') : span + 'd'), sum(sold), C.sold), stat('Serviced', sum(serviced), C.svc), stat('Churned', sum(churned), C.cxl),
+          stat('Sold · ' + (single ? (spanRaw === 'today' ? 'today' : 'yesterday') : span + 'd'), sum(sold), C.sold, 'sold'), stat('Serviced', sum(serviced), C.svc, 'svc'), stat('Churned', sum(churned), C.cxl, 'cxl'),
           el('select', {
             class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
             style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
