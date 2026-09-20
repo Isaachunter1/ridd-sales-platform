@@ -4,6 +4,6 @@ exports.handler = async () => {
   if (!(etHour >= 6 && etHour <= 23)) return { statusCode: 200, body: 'overnight — skipped' };
   const base = process.env.URL || process.env.DEPLOY_PRIME_URL || process.env.DEPLOY_URL;
   if (!base) return { statusCode: 500, body: 'no site URL available' };
-  const res = await fetch(base + '/.netlify/functions/tech-stats-background', { method: 'POST' });
+  const res = await fetch(base + '/.netlify/functions/tech-stats-background', { method: 'POST', headers: { 'x-sync-secret': process.env.REVHAWK_SYNC_SECRET || '' } });
   return { statusCode: 200, body: 'kick -> HTTP ' + res.status };
 };
