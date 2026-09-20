@@ -259,18 +259,33 @@ function viewD2dDashboard() {
   const yearIso = todayIso.slice(0, 4);
   const _yd = new Date(_td); _yd.setDate(_td.getDate() - 1);
   const yesterdayIso = _yd.toISOString().slice(0, 10);
+  const _lws = new Date(_ws); _lws.setDate(_ws.getDate() - 7);
+  const _lwe = new Date(_ws); _lwe.setDate(_ws.getDate() - 1);
+  const lastWeekStartIso = _lws.toISOString().slice(0, 10), lastWeekEndIso = _lwe.toISOString().slice(0, 10);
+  const _lm = new Date(_td.getFullYear(), _td.getMonth() - 1, 15, 12);
+  const lastMonthIso = _lm.getFullYear() + '-' + String(_lm.getMonth() + 1).padStart(2, '0');
+  const lastYearIso = String(_td.getFullYear() - 1);
   const inRange = (iso, r) => r === 'today' ? iso === todayIso
     : r === 'yesterday' ? iso === yesterdayIso
     : r === 'week' ? (iso >= weekStartIso && iso <= todayIso)
+    : r === 'last_week' ? (iso >= lastWeekStartIso && iso <= lastWeekEndIso)
     : r === 'month' ? iso.slice(0, 7) === monthIso
+    : r === 'last_month' ? iso.slice(0, 7) === lastMonthIso
+    : r === 'last_year' ? iso.slice(0, 4) === lastYearIso
+    : r === 'all' ? true
     : r === 'custom' ? (iso >= (state._d2dCustomStart || todayIso) && iso <= (state._d2dCustomEnd || todayIso))
     : iso.slice(0, 4) === yearIso;
+  const D2D_RANGES = [['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'This Week'], ['last_week', 'Last Week'], ['month', 'This Month'], ['last_month', 'Last Month'], ['year', 'This Year'], ['last_year', 'Last Year'], ['all', 'All Time'], ['custom', 'Custom…']];
 
   // ── Range control (top right) — one range drives the record tiles AND
   // the leaderboard below. "Custom…" opens a start/end date pair. ──
   if (!state._d2dLbRange) state._d2dLbRange = 'today';
   const lbHost = el('div', { class: 'flex flex-col gap-4' });
-  const rangeHost = el('div', { class: 'flex items-center justify-end gap-2 flex-wrap' });
+  // Range dropdown sits at the top of the page (per Isaac, Sep 2026) — the
+  // same control Technicians and Office Staff have — and drives the
+  // leaderboard + record tiles below. The hero card stays fixed
+  // Today / Week / Month / Year.
+  const rangeHost = el('div', { class: 'flex items-center gap-2 flex-wrap' });
   const _rebuildBoards = () => { lbHost.innerHTML = ''; lbHost.append(buildBoards()); };
   const renderRange = () => {
     rangeHost.innerHTML = '';
@@ -285,8 +300,7 @@ function viewD2dDashboard() {
           }
           renderRange(); _rebuildBoards();
         },
-      }, ...[['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'This Week'], ['month', 'This Month'], ['year', 'This Year'], ['custom', 'Custom…']]
-        .map(([v, l]) => el('option', { value: v, selected: state._d2dLbRange === v }, l))),
+      }, ...D2D_RANGES.map(([v, l]) => el('option', { value: v, selected: state._d2dLbRange === v }, l))),
       state._d2dLbRange === 'custom' ? el('div', { class: 'flex items-center gap-2' },
         el('input', { type: 'date', class: 'rounded-xl px-2.5 py-1 text-[11px]', value: state._d2dCustomStart || '', onchange: (e) => { state._d2dCustomStart = e.target.value; _rebuildBoards(); } }),
         el('span', { class: 'text-muted- text-xs' }, '→'),
@@ -313,6 +327,8 @@ function viewD2dDashboard() {
     const cv = rows.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
     return [label, fmt.usd0(cv), rows.length + (rows.length === 1 ? ' account' : ' accounts')];
   };
+  renderRange();
+  wrap.append(rangeHost);
   wrap.append(kpiMulti([
     heroStat('Today', byRange('today')), heroStat('This Week', byRange('week')),
     heroStat('This Month', byRange('month')), heroStat('This Year', byRange('year'))], 4));
@@ -492,7 +508,7 @@ function viewD2dDashboard() {
             class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
             onchange: (e) => { state._d2dLbMobileCol = e.target.value; _rebuildBoards(); },
           }, ...LB.map(c => el('option', { value: c.key, selected: pick.key === c.key }, c.label))) : null,
-          rangeHost)),
+          el('span', { class: 'text-[11px] font-semibold', style: { color: 'var(--text-muted)' } }, (D2D_RANGES.find(([v]) => v === state._d2dLbRange) || [])[1] || ''))),
       reps.length ? el('div', { class: phone ? '' : 'overflow-x-auto', style: reps.length > 6 ? { maxHeight: '440px', overflowY: 'auto' } : {} }, el('table', { class: 'w-full text-sm' },
         el('thead', { style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: '3' } }, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
           el('th', { class: 'px-3 py-2', style: Object.assign(_stickyL('0'), { zIndex: 2, minWidth: '40px', width: '40px' }) }, '#'),
@@ -670,7 +686,6 @@ function viewD2dDashboard() {
     void recordsCard;   // (Earliest / Latest / Biggest sale strip retired per Isaac, Sep 2026)
     return el('div', { class: 'flex flex-col gap-4' }, standingsCard, podium, lbCard);
   };
-  renderRange();
   lbHost.append(buildBoards());
   wrap.append(lbHost);
   return wrap;
