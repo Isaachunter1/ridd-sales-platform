@@ -1135,7 +1135,7 @@ function manageTeamsPanel(opts) {
         ...repTypesPresent.filter(t => t !== 'Sales Rep').map(t => ({ value: t, label: t + ' only' })),
         ...(repTypesPresent.includes('Sales Rep') ? [{ value: 'Sales Rep', label: 'Sales Rep (CRM-matched)' }] : []),
       ], (v) => { state._indicatorManageTypeFilter = v; render(); }),
-      mkFilter('Branch', branchSelect, [
+      mkFilter('Office', branchSelect, [
         { value: '', label: 'All' },
         ...branchesPresent.map(b => ({ value: b, label: titleCase(b) + ' · ' + branchCounts[b] })),
       ], (v) => { state._indicatorManageBranchFilter = v; render(); }),

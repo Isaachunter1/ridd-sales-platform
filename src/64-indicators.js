@@ -935,7 +935,7 @@ function viewIndicators() {
             },
               opt('⬆ Import CSV…', () => hiddenImport.click()),
               opt(state.indicatorsComps ? '⬇ Export Competition (.xlsx)' : '⬇ Export CSV', async () => {
-                const groupLabel = groupBy === 'teams' ? 'Team' : 'Branch';
+                const groupLabel = groupBy === 'teams' ? 'Team' : 'Office';
 
                 // ── COMPS ON → competition-specific 2-sheet workbook ──
                 // Sheet 1 = metrics that matter (already computed under the
@@ -1374,7 +1374,7 @@ function viewIndicators() {
           : (sortedBranches.includes(homeBranch) ? homeBranch : sortedBranches[0]);
         const _lblB = (b) => b.split(' ').map(w => (w[0] || '') + w.slice(1).toLowerCase()).join(' ');
         _branchSel = el('div', { class: 'flex items-center gap-2 px-3 py-2 border-b', style: { borderColor: 'var(--border)' } },
-          el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, groupBy === 'teams' ? 'Team' : 'Branch'),
+          el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, groupBy === 'teams' ? 'Team' : 'Office'),
           el('select', {
             class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold flex-1',
             style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
@@ -5653,7 +5653,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
         ...[
           { id: 'rep',    label: 'Rep' },
           { id: 'team',   label: 'Team' },
-          { id: 'branch', label: 'Branch' },
+          { id: 'branch', label: 'Office' },
           { id: 'custom', label: 'Custom' },
         ].map(m => el('button', {
           class: 'px-2.5 py-1 text-[11px] font-semibold transition',
@@ -6194,7 +6194,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
         class: 'card absolute p-3 flex flex-col gap-2.5',
         style: { top: 'calc(100% + 6px)', left: '0', minWidth: '240px', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._trendFiltersOpen ? 'flex' : 'none' },
       },
-        el('div', {}, _fLabel('Branch'), pickerSel('Company', branchesAll.map(b => [b, titleCase2(b)]),
+        el('div', {}, _fLabel('Office'), pickerSel('Company', branchesAll.map(b => [b, titleCase2(b)]),
           curScope.type === 'branch' ? curScope.value : '',
           (v) => setScope(v ? { type: 'branch', value: v } : { type: 'company' }, null),
           'Company-wide, or scope the mini-charts to one branch')),
@@ -8935,7 +8935,7 @@ function scopeDrillPanel(scope, allScopedSales, chartBuckets, compareRep, panelO
   const rev = scopedSales.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
   const sublabel = (scope.type === 'company'
       ? 'All branches and teams'
-      : scope.type === 'branch' ? 'Branch' : 'Team')
+      : scope.type === 'branch' ? 'Office' : 'Team')
     + ' · ' + reps + ' rep' + (reps === 1 ? '' : 's')
     + ' · ' + scopedSales.length + ' sale' + (scopedSales.length === 1 ? '' : 's')
     + ' · $' + Math.round(rev).toLocaleString();
@@ -10088,7 +10088,7 @@ function indicatorChart(title, data, branches, metricKey, weeks, invertForRankin
   canvasWrap.append(canvas);
 
   // Banner above the chart when drilled in (one or many branches)
-  const groupLabel = state.indicatorsGroupBy === 'teams' ? 'Team' : 'Branch';
+  const groupLabel = state.indicatorsGroupBy === 'teams' ? 'Team' : 'Office';
   const isDrilled  = drilledBranches.length > 0;
   // Drill UI is just a small Reset button inline with the chart title —
   // the old green chip banner above the canvas made the card jump around

@@ -962,7 +962,7 @@ function _mktgPnl() {
   const inc = (rk, i) => sum(rk, b => Number((m.incentives[_mktgYm(y, i)] || {})[b]) || 0);
   const tot = (rk, i) => ad(rk, i) + wg(rk, i) + inc(rk, i);
   const jobs = (rk, i) => sum(rk, b => (a.branch[b] ? a.branch[b][i].subs + a.branch[b][i].upsells : 0));
-  const opts = { groupRows: groups, label: (rk) => groups.has(rk) ? rk : _mktgTC(rk), firstCol: 'Branch' };
+  const opts = { groupRows: groups, label: (rk) => groups.has(rk) ? rk : _mktgTC(rk), firstCol: 'Office' };
   const ratioTotal = (num, den) => (rk) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += num(rk, i); d += den(rk, i); } return _mktgDiv(n, d); };
   const T = m.settings.targets;
   const goalStyle = (goal, better) => (v) => v == null ? {} : { color: better(v, goal) ? '#5F6C5B' : '#DC2626', fontWeight: '600' };
@@ -1152,7 +1152,7 @@ function _mktgSpendEntry() {
         el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'branch × channel · this is the sheet the controller books from · saved for every admin')),
       el('div', { class: 'flex items-center gap-2 flex-wrap' }, monthSel, copyPrev, addChannel, addBranch, exportBtn)),
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px] frozen-table' },
-      el('thead', {}, el('tr', {}, th('Branch', false), ...channels.map(ch => th(ch)), th('Total'), th('Wages'), th('Incentives'))),
+      el('thead', {}, el('tr', {}, th('Office', false), ...channels.map(ch => th(ch)), th('Total'), th('Wages'), th('Incentives'))),
       el('tbody', {},
         ...B.all.map(b => el('tr', { class: 'border-t border-' },
           _mktgTd(_mktgTC(b), { left: true, bold: true, style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }),
@@ -1194,7 +1194,7 @@ function _mktgProjections() {
   const pWg  = (rk, i) => pRev(rk, i) * s.wagesPct;
   const pInc = (rk, i) => pRev(rk, i) * s.incentivesPct;
   const aRev = (rk, i) => members(rk).reduce((t, b) => t + (a.branch[b] ? a.branch[b][i].rev + a.branch[b][i].upRev : 0), 0);
-  const opts = { groupRows: groups, label: (rk) => groups.has(rk) ? rk : _mktgTC(rk), firstCol: 'Branch' };
+  const opts = { groupRows: groups, label: (rk) => groups.has(rk) ? rk : _mktgTC(rk), firstCol: 'Office' };
   const num = (v, onSave, opts2 = {}) => el('input', { type: 'number', step: opts2.step || '1', value: v == null ? '' : String(v), class: 'rounded-lg border px-2.5 py-1 text-[11px] text-left', style: { width: opts2.w || '110px', borderColor: 'var(--border-2)' },
     onchange: (e) => { const x = parseFloat(e.target.value); onSave(isNaN(x) ? 0 : x); _mktgSave(); mountApp(); } });
   const goalsCard = el('div', { class: 'card overflow-hidden' },
@@ -1202,7 +1202,7 @@ function _mktgProjections() {
       el('h3', { class: 'text-sm font-bold' }, 'Branch goals · ' + y),
       el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'revenue goal per branch · ad spend ' + Math.round(s.adSpendPct * 100) + '% · wages ' + Math.round(s.wagesPct * 100) + '% · incentives ' + Math.round(s.incentivesPct * 100) + '% (rates in Configurations)')),
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px] frozen-table' },
-      el('thead', {}, el('tr', {}, _mktgTh('Branch', false), _mktgTh('Revenue goal'), _mktgTh('Ad spend'), _mktgTh('Wages'), _mktgTh('Incentives'), _mktgTh('Total spend'), _mktgTh('Attrition %', true, 'Projected annual attrition — sets replacement revenue'), _mktgTh('YTD actual'), _mktgTh('% of goal'))),
+      el('thead', {}, el('tr', {}, _mktgTh('Office', false), _mktgTh('Revenue goal'), _mktgTh('Ad spend'), _mktgTh('Wages'), _mktgTh('Incentives'), _mktgTh('Total spend'), _mktgTh('Attrition %', true, 'Projected annual attrition — sets replacement revenue'), _mktgTh('YTD actual'), _mktgTh('% of goal'))),
       el('tbody', {},
         ...B.all.map(b => { const g = goal(b); const ytd = aRev(b, 0) + [1,2,3,4,5,6,7,8,9,10,11].reduce((t, i) => t + aRev(b, i), 0); return el('tr', { class: 'border-t border-' },
           _mktgTd(_mktgTC(b), { left: true, bold: true }),

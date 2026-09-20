@@ -228,7 +228,7 @@ function reportingAuditing() {
     const activeRetention = s.servicedRev > 0 ? activeRev / s.servicedRev : null;
     const aP = rate(s.attr.passed), aF = rate(s.attr.failed);
     const soldSvc = s.sold > 0 ? s.serviced / s.sold : null;
-    const kindLabel = kind === 'rep' ? 'Rep' : kind === 'team' ? 'Team' : 'Branch';
+    const kindLabel = kind === 'rep' ? 'Rep' : kind === 'team' ? 'Team' : 'Office';
     const _meta = (typeof reportingActiveSnapshotMeta === 'function') ? reportingActiveSnapshotMeta() : null;
     const asOf = _meta && _meta.uploaded_at ? new Date(_meta.uploaded_at).toLocaleDateString() : null;
     const pctS = (p) => p == null ? '—' : (p * 100).toFixed(1) + '%';
@@ -418,7 +418,7 @@ function reportingAuditing() {
   const _phoneAud = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
   const statTable = (label, entries, note, kind, headerRight) => {
     const cols = [
-      { id: 'name', label: kind === 'rep' ? 'Rep' : (kind === 'team' ? 'Team' : 'Branch'), tip: kind === 'rep' ? 'Sales rep (canonical name).' : (kind === 'team' ? 'Team from Manage Teams (current Team Year). "Unassigned" = no team set.' : 'Branch / office.') },
+      { id: 'name', label: kind === 'rep' ? 'Rep' : (kind === 'team' ? 'Team' : 'Office'), tip: kind === 'rep' ? 'Sales rep (canonical name).' : (kind === 'team' ? 'Team from Manage Teams (current Team Year). "Unassigned" = no team set.' : 'Branch / office.') },
       // (Office/Team columns removed — the table filters below cover them;
       // the rep card modal still shows both.)
       { id: 'sold', label: 'Sold', tip: 'EVERY subscription sold in range (a customer with 2 subs counts as 2). Passed, failed, pending and no-audit all included. D2D production only.' },

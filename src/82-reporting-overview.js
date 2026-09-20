@@ -481,7 +481,7 @@ function reportingOverview() {
             el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Churned accounts \u00b7 ' + fmt.int(accts.length)),
             el('button', { class: 'text-[10px] font-bold', style: { color: 'var(--accent)' }, onclick: () => openReportingDrillModal({ chartTitle: 'Daily pulse \u00b7 Churned \u00b7 ' + dayLabel, sliceLabel: fmt.int(accts.length) + ' subscription' + (accts.length === 1 ? '' : 's') + ' \u00b7 ' + fmt.usd0(grand), rows: accts, formatValue: fmt.usd0 }) }, 'Full table \u2192')),
           el('div', { class: 'scroll-x', style: { maxHeight: '320px', overflowY: 'auto' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-            el('thead', {}, el('tr', {}, th('Customer'), th('Branch'), th('Service'), th('Source'), th('ARR', true), th('Age', true), th('Reason'))),
+            el('thead', {}, el('tr', {}, th('Customer'), th('Office'), th('Service'), th('Source'), th('ARR', true), th('Age', true), th('Reason'))),
             el('tbody', {}, ...accts.slice(0, 200).map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
               el('td', { class: 'px-3 py-1.5 whitespace-nowrap font-semibold' }, nameOf(r), r.customer_id ? el('span', { class: 'text-[10px] text-muted- ml-1' }, '#' + r.customer_id) : null),
               td((r.office_name || '').trim() || '\u2014'), td(String(r.subscription || '').trim() || '\u2014'), td(String(r.subscription_source || '').trim() || '\u2014'),
@@ -497,17 +497,17 @@ function reportingOverview() {
       })();
       body.replaceChildren(
         el('div', { class: 'flex gap-2 flex-wrap' }, tile('sold'), tile('svc'), tile('cxl'), netTile),
-        el('div', { class: 'text-[11px] text-muted-' }, K.label + ': ' + fmt.usd0(grand) + ' of ' + K.unit + ' across ' + fmt.int(rowsIn.length) + ' subscription' + (rowsIn.length === 1 ? '' : 's') + ' in ' + list.length + ' branch' + (list.length === 1 ? '' : 'es') + ' · click a branch for the accounts'),
+        el('div', { class: 'text-[11px] text-muted-' }, K.label + ': ' + fmt.usd0(grand) + ' of ' + K.unit + ' across ' + fmt.int(rowsIn.length) + ' subscription' + (rowsIn.length === 1 ? '' : 's') + ' in ' + list.length + ' office' + (list.length === 1 ? '' : 's') + ' · click a branch for the accounts'),
         !rowsIn.length ? el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'Nothing ' + K.label.toLowerCase() + ' on this day.') :
         el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-          el('thead', {}, el('tr', {}, th('Branch'), th(K.col, true), th('Share', true), th(''), th('Subs', true), th('Avg / sub', true), th('Largest', true), th(K.extra))),
+          el('thead', {}, el('tr', {}, th('Office'), th(K.col, true), th('Share', true), th(''), th('Subs', true), th('Avg / sub', true), th('Largest', true), th(K.extra))),
           el('tbody', {}, ...list.map(([k, g]) => row(k, g, false)), row('RIDD · Total', all, true)))),
         ...churnBlocks);
     };
     render();
     overlay.append(el('div', { class: 'card p-5 flex flex-col gap-3', style: { width: 'min(980px, 94vw)', maxHeight: '88vh', overflow: 'auto' } },
       el('div', { class: 'flex items-start justify-between gap-3' },
-        el('div', {}, el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Daily pulse · by branch'),
+        el('div', {}, el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Daily pulse · by office'),
           el('div', { class: 'text-lg font-black' }, longDate || dayLabel)),
         el('button', { class: 'text-xl leading-none', onclick: () => overlay.remove() }, '×')),
       body));
@@ -598,14 +598,14 @@ function reportingOverview() {
     const winLabel = single ? (spanRaw === 'today' ? 'Today' : 'Yesterday') : 'Last ' + span + ' days';
     const winLong = single ? (() => { const dt = new Date(days[0] + 'T00:00'); return dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }); })() : winLabel + ' \u00b7 ' + days[0] + ' \u2192 ' + days[days.length - 1];
     const openWindow = (kind) => openPulseDayDrill(winLabel, winLong, { sold: flat(soldRows), svc: flat(svcRows), cxl: flat(cxlRows) }, kind);
-    const stat = (label, v, color, kind) => el('button', { class: 'text-right cursor-pointer transition hover:brightness-95', title: 'See the ' + label.toLowerCase() + ' accounts, by branch \u2014 and where churn came from', onclick: () => openWindow(kind) },
+    const stat = (label, v, color, kind) => el('button', { class: 'text-right cursor-pointer transition hover:brightness-95', title: 'See the ' + label.toLowerCase() + ' accounts, by office \u2014 and where churn came from', onclick: () => openWindow(kind) },
       el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
       el('div', { class: 'text-base font-black tabular-nums', style: { color } }, fmt.usd0(v)));
     return el('div', { class: 'card p-4' },
       el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-2' },
         el('div', {},
           el('h3', { class: 'text-sm font-bold' }, 'Daily Pulse' + (office !== 'all' ? ' · ' + officeLabel(office) : '')),
-          el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } }, (single ? 'By branch: contract value SOLD (green) · ARR of accounts that received their first service (teal) · ARR that CHURNED (red). Click a bar for the day.' : 'Each day: contract value SOLD (green bars) · ARR of accounts that received their first service (teal) · ARR that CHURNED (red). Click a bar or point for the accounts.'))),
+          el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } }, (single ? 'By office: contract value SOLD (green) · ARR of accounts that received their first service (teal) · ARR that CHURNED (red). Click a bar for the day.' : 'Each day: contract value SOLD (green bars) · ARR of accounts that received their first service (teal) · ARR that CHURNED (red). Click a bar or point for the accounts.'))),
         el('div', { class: 'flex items-center gap-4 flex-wrap' },
           stat('Sold · ' + (single ? (spanRaw === 'today' ? 'today' : 'yesterday') : span + 'd'), sum(sold), C.sold, 'sold'), stat('Serviced', sum(serviced), C.svc, 'svc'), stat('Churned', sum(churned), C.cxl, 'cxl'),
           el('select', {
