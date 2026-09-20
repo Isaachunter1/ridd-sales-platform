@@ -275,7 +275,7 @@ const ROLE_LABEL = {
   rep_office_lead: 'Office Staff - Team Lead',
   rep_loyalty: 'Office Staff - Loyalty Rep',
   rep_loyalty_lead: 'Office Staff - Loyalty Team Lead',
-  admin_rep:  'Admin + Sales',
+  admin_rep:  'Admin',   // one "Admin" label (per Isaac) — admin_rep still sells under the hood
   admin:      'Admin',
   auditor:    'Auditor',
 };
