@@ -483,7 +483,7 @@ function adminBackup() {
       ),
 
       log.length === 0
-        ? el('div', { class: 'p-6 text-center text-muted- text-sm' }, 'No activity yet. Log a sale to start the trail.')
+        ? el('div', { class: 'p-6 text-center text-muted- text-sm' }, 'No activity yet.')
         : !drillUser
         ? usersTable
         : visible.length === 0
