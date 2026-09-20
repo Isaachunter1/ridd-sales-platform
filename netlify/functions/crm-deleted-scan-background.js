@@ -30,12 +30,20 @@ async function fr(endpoint, params) {
     authenticationToken: process.env.FIELDROUTES_AUTH_TOKEN || '',
   });
   for (const [k, v] of Object.entries(params || {})) q.set(k, typeof v === 'string' ? v : JSON.stringify(v));
-  const res = await fetch(frBase() + endpoint + '?' + q.toString());
-  const txt = await res.text();
+  let res, txt;
+  for (let attempt = 0; ; attempt++) {
+    res = await fetch(frBase() + endpoint + '?' + q.toString());
+    txt = await res.text();
+    const limited = res.status === 429 || /too many requests|rate limit/i.test(txt.slice(0, 300));
+    if (!limited || attempt >= 2) break;
+    fr.rateLimited = (fr.rateLimited || 0) + 1;
+    await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+  }
   let json; try { json = JSON.parse(txt); } catch (e) { throw new Error(endpoint + ': non-JSON response (' + res.status + '): ' + txt.slice(0, 120)); }
   if (json.success === false || (json.errorMessage && json.errorMessage !== '')) throw new Error(endpoint + ': ' + (json.errorMessage || 'request failed'));
   return json;
 }
+fr.rateLimited = 0;
 const chunk = (arr, n) => { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; };
 
 exports.handler = async (event) => {
@@ -79,7 +87,7 @@ exports.handler = async (event) => {
       }
     }
     const deleted = mirrorIds.filter(id => checked.has(id) && !alive.has(id));
-    console.log('[crm-deleted] calls', calls, 'skipped batches', skipped, 'checked', checked.size, 'deleted', deleted.length);
+    console.log('[crm-deleted] calls', calls, 'rate-limited retries', fr.rateLimited, 'skipped batches', skipped, 'checked', checked.size, 'deleted', deleted.length);
 
     // 3. Merge with what we knew: ids from batches that were skipped tonight
     //    keep yesterday's verdict, so one flaky call never un-deletes anyone.
