@@ -5763,9 +5763,11 @@ function leaderboardSection(range) {
           if (!ph) return null;
           const opts = [['sales', 'Sales'], ['initial', 'Initial'], ['revenue', 'Revenue'], ['recurring', 'Rec. Rev'], ['ots', 'OTS Rev'], ['acv', 'ACV'], ['auto_pay', 'APay %'], ['my_pct', 'MY %'], ['rec_mix_pct', 'Rec Mix %']];
           const cur = state._lbMobileCol || 'revenue';
+          // Same 26px box as the pills + Reps button; sits LAST (far right,
+          // per Isaac) via flex order so Reps lands between the tabs and it.
           return el('select', {
             class: 'border px-2 text-[11px] font-semibold',
-            style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', height: '26px', borderRadius: '0' },
+            style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', color: 'var(--text)', height: '26px', lineHeight: '26px', padding: '0 22px 0 8px', borderRadius: '0', order: '3', boxSizing: 'border-box', margin: '0' },
             onchange: (e) => { state._lbMobileCol = e.target.value; mountApp(); },
           }, ...opts.map(([k, l]) => el('option', { value: k, selected: cur === k }, l)));
         })(),
@@ -5775,7 +5777,7 @@ function leaderboardSection(range) {
           const on = lbOnly.size > 0;
           const btn = el('button', {
             class: 'border px-2.5 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
-            style: { borderColor: on ? 'var(--accent)' : 'var(--border-2)', color: on ? 'var(--accent)' : 'var(--text-muted)', height: '26px', borderRadius: '0', background: 'var(--card-2)' },
+            style: { borderColor: on ? 'var(--accent)' : 'var(--border-2)', color: on ? 'var(--accent)' : 'var(--text-muted)', height: '26px', lineHeight: '24px', borderRadius: '0', background: 'var(--card-2)', boxSizing: 'border-box' },
             title: 'Tick reps to show only them on this leaderboard',
             onclick: (e) => { e.stopPropagation(); state.dashLeaderFilterOpen = !state.dashLeaderFilterOpen; mountApp(); },
           }, on ? ('Reps ' + rows.length + '/' + rowsAll.length) : 'Reps');
