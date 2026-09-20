@@ -850,19 +850,35 @@ function _mktgTd(v, opts = {}) { return el('td', { class: 'px-2 py-1.5 tabular-n
 // number (or null); `total(rowKey)` optional override; fmt formats.
 function _mktgMatrixCard(title, note, rows, cell, fmtFn, opts = {}) {
   const totalOf = (rk) => { if (opts.total) return opts.total(rk); let t = 0, any = false; for (let i = 0; i < 12; i++) { const v = cell(rk, i); if (v != null) { t += v; any = true; } } return any ? t : null; };
+  // Phones (per Isaac, Sep 2026): ONE month at a time — a dropdown in the
+  // card header picks the month (or the year total); the first column and
+  // the header row freeze while the rest scrolls. Desktop keeps Jan..Dec.
+  const phone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })();
+  if (state._mktMobileMonth == null) state._mktMobileMonth = new Date().getMonth();
+  const mSel = phone ? state._mktMobileMonth : null;          // 0..11 or 'total'
+  const monthIdx = phone ? (mSel === 'total' ? [] : [Number(mSel)]) : Array.from({ length: 12 }, (_, i) => i);
+  const showTotal = !phone || mSel === 'total';
+  const stickyL = (bg) => ({ position: 'sticky', left: 0, background: bg, zIndex: 1, boxShadow: '1px 0 0 var(--border)' });
   const rowEl = (rk) => {
     const isGroup = opts.groupRows && opts.groupRows.has(rk);
     return el('tr', { class: 'border-t border-' + (isGroup ? ' font-bold' : ''), style: isGroup ? { background: 'var(--card-2)' } : {} },
-      _mktgTd(opts.label ? opts.label(rk) : rk, { left: true, bold: true, style: { position: 'sticky', left: 0, background: isGroup ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }),
-      ...Array.from({ length: 12 }, (_, i) => { const v = cell(rk, i); return _mktgTd(v == null ? '—' : fmtFn(v, rk, i), { style: opts.cellStyle ? (opts.cellStyle(v, rk, i) || {}) : {} }); }),
-      _mktgTd((() => { const t = totalOf(rk); return t == null ? '—' : fmtFn(t, rk, 'total'); })(), { bold: true }));
+      _mktgTd(opts.label ? opts.label(rk) : rk, { left: true, bold: true, style: stickyL(isGroup ? 'var(--card-2)' : 'var(--card)') }),
+      ...monthIdx.map(i => { const v = cell(rk, i); return _mktgTd(v == null ? '—' : fmtFn(v, rk, i), { style: opts.cellStyle ? (opts.cellStyle(v, rk, i) || {}) : {} }); }),
+      showTotal ? _mktgTd((() => { const t = totalOf(rk); return t == null ? '—' : fmtFn(t, rk, 'total'); })(), { bold: true }) : null);
   };
+  const monthPick = phone ? el('select', {
+    class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', marginLeft: 'auto' },
+    onchange: (e) => { state._mktMobileMonth = e.target.value === 'total' ? 'total' : Number(e.target.value); mountApp(); },
+  }, ...MKTG_MONTHS.map((mn, i) => el('option', { value: String(i), selected: mSel === i }, mn)), el('option', { value: 'total', selected: mSel === 'total' }, 'Year total')) : null;
+  const thL = _mktgTh(opts.firstCol || '', false);
+  Object.assign(thL.style, stickyL('var(--card)'), { zIndex: 3 });
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-start gap-4 gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
       el('div', {}, el('h3', { class: 'text-sm font-bold' }, title), note ? el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, note) : null),
-      opts.headerExtra || null),
-    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
-      el('thead', {}, el('tr', {}, _mktgTh(opts.firstCol || '', false), ...MKTG_MONTHS.map(mn => _mktgTh(mn)), _mktgTh('Total'))),
+      opts.headerExtra || null, monthPick),
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px] frozen-table' },
+      el('thead', { style: { position: 'sticky', top: 0, zIndex: 2, background: 'var(--card)' } }, el('tr', {}, thL, ...monthIdx.map(i => _mktgTh(MKTG_MONTHS[i])), showTotal ? _mktgTh('Total') : null)),
       el('tbody', {}, ...rows.map(rowEl)))));
 }
 const _mktgUsd0 = (v) => fmt.usd0(v);
@@ -883,8 +899,7 @@ function _mktgYearBar(sub) {
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = y - 1; mountApp(); } }, '‹'),
       el('span', { class: 'text-sm font-black tabular-nums px-1' }, String(y)),
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = y + 1; mountApp(); } }, '›')),
-    _mktgQboConnectBtn(),
-    el('span', { class: 'text-[10px] text-muted-' }, 'FieldRoutes: revenue · subs · bookings   ·   QuickBooks: booked spend   ·   hand-entered: allocation, wages, leads'));
+    _mktgQboConnectBtn());
 }
 
 // One-click QuickBooks connect (admin): a plain navigation to the connect
@@ -1136,7 +1151,7 @@ function _mktgSpendEntry() {
       el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Ad spend allocation · ' + reportingMonthLbl(ym)),
         el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'branch × channel · this is the sheet the controller books from · saved for every admin')),
       el('div', { class: 'flex items-center gap-2 flex-wrap' }, monthSel, copyPrev, addChannel, addBranch, exportBtn)),
-    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px] frozen-table' },
       el('thead', {}, el('tr', {}, th('Branch', false), ...channels.map(ch => th(ch)), th('Total'), th('Wages'), th('Incentives'))),
       el('tbody', {},
         ...B.all.map(b => el('tr', { class: 'border-t border-' },
@@ -1158,7 +1173,7 @@ function _mktgSpendEntry() {
     el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
       el('h3', { class: 'text-sm font-bold' }, 'Leads · ' + reportingMonthLbl(ym)),
       el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'hand-entered per channel · GoHighLevel count shown as a hint where it has the source')),
-    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px] frozen-table' },
       el('thead', {}, el('tr', {}, th('Channel', false), th('Leads'), th('GHL says'))),
       el('tbody', {}, ...channels.map(ch => el('tr', { class: 'border-t border-' },
         _mktgTd(ch, { left: true, bold: true }),
@@ -1186,7 +1201,7 @@ function _mktgProjections() {
     el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
       el('h3', { class: 'text-sm font-bold' }, 'Branch goals · ' + y),
       el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'revenue goal per branch · ad spend ' + Math.round(s.adSpendPct * 100) + '% · wages ' + Math.round(s.wagesPct * 100) + '% · incentives ' + Math.round(s.incentivesPct * 100) + '% (rates in Configurations)')),
-    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px] frozen-table' },
       el('thead', {}, el('tr', {}, _mktgTh('Branch', false), _mktgTh('Revenue goal'), _mktgTh('Ad spend'), _mktgTh('Wages'), _mktgTh('Incentives'), _mktgTh('Total spend'), _mktgTh('Attrition %', true, 'Projected annual attrition — sets replacement revenue'), _mktgTh('YTD actual'), _mktgTh('% of goal'))),
       el('tbody', {},
         ...B.all.map(b => { const g = goal(b); const ytd = aRev(b, 0) + [1,2,3,4,5,6,7,8,9,10,11].reduce((t, i) => t + aRev(b, i), 0); return el('tr', { class: 'border-t border-' },
@@ -1207,7 +1222,7 @@ function _mktgProjections() {
     el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
       el('h3', { class: 'text-sm font-bold' }, 'Lead-partner spend plan · ' + y),
       el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'planned ad spend per channel per month · compare to Providers → Ad spend')),
-    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px] frozen-table' },
       el('thead', {}, el('tr', {}, _mktgTh('Channel', false), ...MKTG_MONTHS.map(mn => _mktgTh(mn)), _mktgTh('Total'))),
       el('tbody', {},
         ...channels.map(ch => el('tr', { class: 'border-t border-' },
@@ -1241,7 +1256,7 @@ function reportingMarketingGoalsPanel() {
   const q = (arr, from) => arr.slice(from, from + 3).reduce((t, v) => t + v, 0);
   const seasonalTable = (title, arr, total, reps, key) => el('div', { class: 'mt-3' },
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-1', style: { color: 'var(--text-muted)' } }, title + ' · ' + (Math.round(arr.reduce((t, v) => t + v, 0) * 1000) / 10) + '% allocated'),
-    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]' },
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px] frozen-table' },
       el('thead', {}, el('tr', {}, _mktgTh('', false), ...MKTG_MONTHS.map(mn => _mktgTh(mn)))),
       el('tbody', {},
         el('tr', { class: 'border-t border-' }, _mktgTd('%', { left: true, bold: true }), ...arr.map((v, i) => el('td', { class: 'px-1 py-1 text-left' }, num(Math.round(v * 1000) / 10, (x) => { s[key][i] = x / 100; }, { w: '56px', step: '0.5' })))),
