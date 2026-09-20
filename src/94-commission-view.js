@@ -24,10 +24,10 @@ function commissionMyPay() {
   const row = state._myCommission;
   if (!row || !row.data) return wrap(el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'Your commission will appear here, updated with each sync. Nothing to show yet.'));
   const B = row.data;
-  const { breakdown, stats } = commissionRenderCards(B, B.name || p.full_name || '');
+  const { breakdown, stats, explain } = commissionRenderCards(B, B.name || p.full_name || '');
   return wrap(el('div', { class: 'flex flex-col gap-3' },
     el('div', { class: 'text-xs text-muted-' }, 'Updated ' + (row.published_at ? new Date(row.published_at).toLocaleDateString() : '') + (row.period_start ? ' · sold ' + row.period_start + ' → ' + row.period_end : '')),
-    el('div', { class: 'flex flex-col gap-4 w-full max-w-[440px]' }, breakdown, stats)));
+    el('div', { class: 'flex flex-col gap-4 w-full max-w-[440px]' }, breakdown, stats, explain)));
 }
 
 // ── Office Staff (Inside Sales) commission — the in-app Pay-Tab model ────────
@@ -205,7 +205,7 @@ function commissionCalculator() {
       onchange: (e) => onCommit(e.target.value) }));
 
   // ---- breakdown + stats (shared with the rep's own pay view) ----
-  const { breakdown, stats } = commissionRenderCards(R, _frEmpName(emp));
+  const { breakdown, stats, explain } = commissionRenderCards(R, _frEmpName(emp));
 
   // ---- per-rep rate override (type defaults live in Settings → Commissions) ----
   const typeLabel = emp.type_label || 'Sales Rep';
@@ -255,7 +255,7 @@ function commissionCalculator() {
         R.sold === 0 ? el('div', { class: 'card p-3 text-xs', style: { borderLeft: '3px solid var(--accent)' } },
           el('b', { style: { color: 'var(--text)' } }, 'No sales matched this rep in the window.'),
           el('span', { class: 'text-muted-' }, ' Try widening the dates, re-syncing, or confirming the rep’s FieldRoutes link on Settings → Users. Once accounts show up, map their service types to split the revenue.')) : null,
-        breakdown, stats,
+        breakdown, stats, explain,
         // Transparency card: what the canonical gates removed and why —
         // these rows exist in the CRM but are NOT commissionable here.
         (() => {

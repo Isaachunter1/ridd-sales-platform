@@ -87,7 +87,23 @@ function commissionCompute(emp, startMs, endMs, lockMs) {
   const totalCommission = pestComm + bundleComm + ancComm + overrides + multiYearAmt;
   const netDue = totalCommission - rent - paidYtd - other - audit;
   const biWeekly = payPeriods ? netDue / payPeriods : netDue;
+  // ── INPUTS (P0-3 in AUDIT.md): everything the numbers above were built
+  // from, in a plain serialisable shape, so a published stub can answer
+  // "why does this say $X?" months later even after rates or rows change.
+  const inputs = {
+    engine: 'commissionCompute/1',
+    window: { start: startMs ? new Date(startMs).toISOString().slice(0, 10) : null, end: endMs ? new Date(endMs).toISOString().slice(0, 10) : null, lock: lockMs ? new Date(lockMs).toISOString().slice(0, 10) : null },
+    employee: { id: String(emp.employee_id || ''), ids: [...empIds], type: typeLabel },
+    rates: { pest: pestRate, bundle: bundleRate, ancillary: ancRate, ancMult, bundleMult, overridden: !!rt.overridden },
+    multiYear: { hiPct: MY.hiPct, loPct: MY.loPct, rate18: MY.rate18, rate24: MY.rate24, penalty: MY.penalty },
+    manual: { overrides, rent, paidYtd, other, audit, payPeriods },
+    rules: { agingDays, excludedSources: [..._exclSrcSet].sort(), excludedCancelReasons: [..._exclReasons].sort() },
+    gated: { global: gates.global.n, source: gates.source.n, renewal: gates.renewal.n, sns: gates.sns.n },
+    // One line per counted sale — id, service, category, $, term, sold, cancel.
+    sales: rows.map(r => ({ id: r.subscription_id != null ? String(r.subscription_id) : null, cust: r.customer_id != null ? String(r.customer_id) : null, svc: String(r.subscription || ''), cat: catOf(r), cv: cv(r), term: Number(r.agreement_length) || 0, sold: String(r.sold_date || '').slice(0, 10), cxl: r.subscription_date_canceled ? String(r.subscription_date_canceled).slice(0, 10) : null, reason: r.subscription_date_canceled ? (_reasonOf(r) || null) : null })),
+  };
   return {
+    inputs,
     rows, pestRev, bundleRev, ancRev, exclRev, unclRev, unclassified, payableRev,
     pestRate, bundleRate, ancRate, ancMult, bundleMult, overridden: rt.overridden, pestComm, bundleComm, ancComm,
     rev18, rev24, myPct, multiYearAmt, MY,
@@ -146,7 +162,38 @@ function commissionRenderCards(B, repName) {
     el('div', { class: 'flex items-center justify-between px-3 py-2.5', style: { borderTop: '2px solid var(--text)', background: 'var(--text)', color: 'var(--bg)' } },
       el('span', { class: 'font-display text-lg' }, 'FINAL ATTRITION'),
       el('span', { class: 'font-display text-lg tabular-nums' }, pct(B.finalAttrition))));
-  return { breakdown, stats };
+  // "How this was computed" — the inputs block rendered plainly (P0-3).
+  // Present on live admin runs and on published stubs that carry it.
+  const I = B.inputs;
+  const explain = !I ? null : (() => {
+    const line = (k, v) => el('div', { class: 'flex items-start justify-between gap-3 px-3 py-1.5 text-[11px]', style: { borderTop: '1px solid var(--border)' } },
+      el('span', { class: 'text-muted-' }, k), el('span', { class: 'tabular-nums text-right' }, v));
+    const pctS = (v) => (Math.round((v || 0) * 10000) / 100).toFixed(2) + '%';
+    const n = (v) => Number(v || 0).toLocaleString();
+    const rowsEl = el('div', { class: 'scroll-x', style: { maxHeight: '260px', overflowY: 'auto', display: 'none' } },
+      el('table', { class: 'w-full text-[11px] frozen-table' },
+        el('thead', {}, el('tr', {}, ...['Sale', 'Service', 'Category', 'Contract $', 'Term', 'Sold', 'Cancelled'].map((h, i) => el('th', { class: 'px-2 py-1 text-[9px] uppercase tracking-wider font-semibold text-left whitespace-nowrap', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, h)))),
+        el('tbody', {}, ...(I.sales || []).map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          el('td', { class: 'px-2 py-1 whitespace-nowrap tabular-nums' }, (r.cust ? '#' + r.cust : '') + (r.id ? ' · ' + r.id : '')),
+          el('td', { class: 'px-2 py-1 whitespace-nowrap' }, r.svc), el('td', { class: 'px-2 py-1' }, r.cat),
+          el('td', { class: 'px-2 py-1 tabular-nums' }, money(r.cv)), el('td', { class: 'px-2 py-1 tabular-nums' }, r.term ? r.term + ' mo' : '\u2014'),
+          el('td', { class: 'px-2 py-1 whitespace-nowrap tabular-nums' }, r.sold || '\u2014'),
+          el('td', { class: 'px-2 py-1 whitespace-nowrap tabular-nums', style: r.cxl ? { color: '#DC2626' } : {} }, r.cxl ? r.cxl + (r.reason ? ' \u00b7 ' + r.reason : '') : '\u2014'))))));
+    const toggle = el('button', { class: 'px-3 py-2 text-[11px] font-bold text-left w-full', style: { color: 'var(--accent)', borderTop: '1px solid var(--border)' },
+      onclick: () => { const open = rowsEl.style.display !== 'none'; rowsEl.style.display = open ? 'none' : 'block'; toggle.textContent = (open ? 'Show' : 'Hide') + ' the ' + n((I.sales || []).length) + ' sales behind these numbers'; } },
+      'Show the ' + n((I.sales || []).length) + ' sales behind these numbers');
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-3 py-2 font-display text-lg', style: { background: 'var(--card-2)' } }, 'How this was computed'),
+      line('Sold window', (I.window && I.window.start ? I.window.start + ' \u2192 ' + (I.window.end || 'today') : 'all') + (I.window && I.window.lock ? ' \u00b7 lock ' + I.window.lock : '')),
+      line('Rep type \u00b7 rates', I.employee.type + ' \u00b7 pest ' + pctS(I.rates.pest) + ' \u00b7 bundle ' + pctS(I.rates.bundle) + ' \u00b7 ancillary ' + pctS(I.rates.ancillary) + (I.rates.overridden ? ' (rep override)' : '')),
+      line('Multi-year rule', '\u2265 ' + I.multiYear.hiPct + '% MY \u2192 +' + I.multiYear.rate18 + '% / +' + I.multiYear.rate24 + '% \u00b7 < ' + I.multiYear.loPct + '% \u2192 \u2212' + I.multiYear.penalty + '%'),
+      line('Gated out (not paid)', n(I.gated.global) + ' global \u00b7 ' + n(I.gated.source) + ' excluded source \u00b7 ' + n(I.gated.renewal) + ' renewal \u00b7 ' + n(I.gated.sns) + ' sold-not-started'),
+      line('Cancel reasons not counted', (I.rules.excludedCancelReasons || []).join(', ') || 'none'),
+      line('Manual entries', 'overrides ' + money(I.manual.overrides) + ' \u00b7 rent ' + money(I.manual.rent) + ' \u00b7 paid YTD ' + money(I.manual.paidYtd) + ' \u00b7 other ' + money(I.manual.other) + ' \u00b7 audit ' + money(I.manual.audit) + ' \u00b7 \u00f7 ' + I.manual.payPeriods),
+      line('Engine', I.engine),
+      toggle, rowsEl);
+  })();
+  return { breakdown, stats, explain };
 }
 
 // Plain serializable summary of a computed run — what we publish for the rep.
@@ -158,6 +205,7 @@ function commissionSnapshot(R, emp, period) {
     'rawMatched', 'gates', 'reasonExcl', 'apayN', 'lastResort'];
   const o = { name: _frEmpName(emp), period, at: new Date().toISOString() };
   for (const k of keys) o[k] = R[k];
+  if (R.inputs) o.inputs = R.inputs;   // the audit trail (P0-3)
   return o;
 }
 
