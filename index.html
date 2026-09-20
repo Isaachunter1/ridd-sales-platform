@@ -289,6 +289,10 @@
        Scope column can freeze (a display:block table was what made the
        sticky cell drift and leave the phantom gap on iOS). */
     .card > div > table.records-table { display: table; overflow: visible; width: max-content; min-width: 100%; }
+    /* Fixed-layout tables (Latest Sales feed, leaderboards…) already size
+       themselves to the card — leave them as real tables so they never grow
+       a sideways scrollbar (per Isaac: no horizontal panning on phones). */
+    .card > div > table[style*="table-layout"], .card > table[style*="table-layout"], .card table.fit-table { display: table !important; overflow: visible !important; width: 100% !important; table-layout: fixed !important; }
     /* Sales-mode switcher (Inside / D2D / Technicians) never runs off the edge. */
     .sales-mode-toggle { max-width: 100%; }
     .sales-mode-btn { min-width: 0; padding-left: 6px !important; padding-right: 6px !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
