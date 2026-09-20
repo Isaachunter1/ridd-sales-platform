@@ -122,7 +122,7 @@ try {
 // board and pay number. The scenario suite in tools/ps-gate-test.js locks
 // in the semantics reconciled to the CRM (Jul 2026); any behavioral drift
 // fails the deploy.
-console.log('\n[6/7] P/S gate golden tests (tools/ps-gate-test.js)');
+console.log('\n[6/8] P/S gate golden tests (tools/ps-gate-test.js)');
 try {
   const out = require('child_process').execFileSync(process.execPath, [path.join(__dirname, 'ps-gate-test.js')], { stdio: 'pipe' }).toString().trim();
   ok(out.split('\n').pop());
@@ -134,12 +134,22 @@ try {
 // ── 7. Attrition golden tests ───────────────────────────────────────────
 // The one revenue-attrition definition the leaderboard and player card
 // share (cancelled $ ÷ serviced $, RORs + one-time out of both sides).
-console.log('\n[7/7] Attrition golden tests (tools/attrition-test.js)');
+console.log('\n[7/8] Attrition golden tests (tools/attrition-test.js)');
 try {
   const out = require('child_process').execFileSync(process.execPath, [path.join(__dirname, 'attrition-test.js')], { stdio: 'pipe' }).toString().trim();
   ok(out.split('\n').pop());
 } catch (e) {
   bad('Attrition scenarios FAILED — the attrition definition changed',
+      String((e.stdout || '') + (e.stderr || '')).split('\n').slice(0, 8).join('\n'));
+}
+
+// ── 8. Commission golden tests ──────────────────────────────────────────
+console.log('\n[8/8] Commission golden tests (tools/commission-test.js)');
+try {
+  const out = require('child_process').execFileSync(process.execPath, [path.join(__dirname, 'commission-test.js')], { stdio: 'pipe' }).toString().trim();
+  ok(out.split('\n').pop());
+} catch (e) {
+  bad('Commission scenarios FAILED — the D2D backend pay math changed',
       String((e.stdout || '') + (e.stderr || '')).split('\n').slice(0, 8).join('\n'));
 }
 
