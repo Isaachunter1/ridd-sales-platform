@@ -2374,11 +2374,27 @@ const slack = {
 // ──────────────────────────────────────────────────────────────────────────
 const $  = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+// Double-click protection for every async button in the app (AUDIT.md,
+// Sprint 2): when a click handler returns a promise the button is disabled
+// and marked busy until it settles, so a second tap during a save / send /
+// publish can't fire the request twice. Sync handlers are untouched.
+const _withBusy = (node, fn) => function (ev) {
+  if (node._busy) { ev.preventDefault(); ev.stopImmediatePropagation(); return; }
+  let r;
+  try { r = fn.call(this, ev); } catch (err) { throw err; }
+  if (r && typeof r.then === 'function') {
+    node._busy = true; const wasDisabled = node.disabled; node.disabled = true; node.setAttribute('aria-busy', 'true');
+    const done = () => { node._busy = false; node.removeAttribute('aria-busy'); if (!wasDisabled && node.isConnected) node.disabled = false; };
+    r.then(done, done);
+  }
+  return r;
+};
 const el = (tag, attrs = {}, ...children) => {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
     if (k === 'class') e.className = v;
     else if (k === 'style' && typeof v === 'object') Object.assign(e.style, v);
+    else if (k === 'onclick' && typeof v === 'function' && (tag === 'button' || tag === 'a')) e.addEventListener('click', _withBusy(e, v));
     else if (k.startsWith('on') && typeof v === 'function') e.addEventListener(k.slice(2).toLowerCase(), v);
     else if (k === 'html') e.innerHTML = v;
     else if (v !== false && v != null) e.setAttribute(k, v);
