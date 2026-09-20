@@ -1480,22 +1480,45 @@ function commissionRatesFor(empId, typeLabel) {
   return { pest, ancMult, bundleMult, ancRate: pest * ancMult, bundleRate: pest * bundleMult,
            overridden: (r.pest != null || r.ancMult != null || r.bundleMult != null) };
 }
+// CAS write for a shared setting (save_app_setting RPC, app_settings_cas.sql).
+// `state._settingsSeen[key]` is the server updated_at we last loaded; a
+// write based on an older copy is refused and the caller reloads instead
+// of clobbering another admin's edit. Falls back to the plain upsert when
+// the RPC isn't installed yet.
+async function saveAppSettingCas(key, value, onConflict) {
+  const seen = (state._settingsSeen || {})[key] || null;
+  try {
+    const { data, error } = await supabase.rpc('save_app_setting', { p_key: key, p_value: value, based_on: seen });
+    if (error && /function|does not exist|schema cache/i.test(error.message || '')) {
+      const r = await supabase.from('app_settings').upsert({ key, value }, { onConflict: 'key' });
+      return r.error ? { ok: false, error: r.error } : { ok: true };
+    }
+    if (error) return { ok: false, error };
+    if (data && data.ok) { (state._settingsSeen = state._settingsSeen || {})[key] = data.updated_at; return { ok: true }; }
+    if (data && data.conflict) { if (onConflict) await onConflict(data); return { ok: false, conflict: true }; }
+    return { ok: false, error: new Error((data && data.error) || 'save refused') };
+  } catch (e) { return { ok: false, error: e }; }
+}
 async function loadCommissionConfig() {
   if (DEMO || !supabase || !state.profile || !isAdminRole(state.profile?.role)) return;
   try {
-    const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'commission_config').maybeSingle();
+    const { data, error } = await supabase.from('app_settings').select('value, updated_at').eq('key', 'commission_config').maybeSingle();
     if (error) { healthReport('commission', false, error); return; }
     healthReport('commission', true);
-    if (data && data.value) state.commissionConfig = data.value;
+    if (data && data.value) { state.commissionConfig = data.value; (state._settingsSeen = state._settingsSeen || {}).commission_config = data.updated_at; }
   } catch (e) { healthReport('commission', false, e); }
 }
 async function saveCommissionConfig(next) {
   state.commissionConfig = next;
   if (DEMO || !supabase || !state.profile || !isAdminRole(state.profile?.role)) return;
   try {
-    const { error } = await supabase.from('app_settings').upsert({ key: 'commission_config', value: next }, { onConflict: 'key' });
-    if (error) { console.warn('[ridd] commission_config save failed', error); if (typeof toast === 'function') toast('Saved locally — server sync failed', 'warn'); }
-  } catch (e) { console.warn('[ridd] commission_config save threw', e); }
+    const r = await saveAppSettingCas('commission_config', next, async () => {
+      await loadCommissionConfig();
+      toast('Another admin changed Commissions settings since you opened them — reloaded the latest, please re-apply your edit', 'warn');
+      mountApp();
+    });
+    if (!r.ok && !r.conflict) { healthReport('commission', false, r.error); if (typeof toast === 'function') toast('Saved locally — server sync failed', 'warn'); }
+  } catch (e) { healthReport('commission', false, e); }
 }
 // ── Company goal (annual target + monthly allocation) — shared via app_settings ──
 // In demo mode this lives in the demo snapshot; in production it persists to
@@ -1531,10 +1554,10 @@ async function loadAutologSwitch() {
 async function loadAppSettings() {
   if (DEMO || !supabase || !state.profile) return;
   try {
-    const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'pay_settings').maybeSingle();
+    const { data, error } = await supabase.from('app_settings').select('value, updated_at').eq('key', 'pay_settings').maybeSingle();
     if (error) { healthReport('pay', false, error); return; }
     healthReport('pay', true);
-    if (data && data.value) state.appSettings = Object.assign({}, state.appSettings, data.value);
+    if (data && data.value) { state.appSettings = Object.assign({}, state.appSettings, data.value); (state._settingsSeen = state._settingsSeen || {}).pay_settings = data.updated_at; }
   } catch (e) { healthReport('pay', false, e); }
 }
 // Per-pay-period "Other Pay" lines (per Isaac: bonuses, competition earnings
@@ -1568,9 +1591,13 @@ async function removePayAdjustment(id) {
 async function saveAppSettings() {
   if (DEMO || !supabase || !state.profile || !isAdminRole(state.profile?.role)) return;
   try {
-    const { error } = await supabase.from('app_settings').upsert({ key: 'pay_settings', value: state.appSettings }, { onConflict: 'key' });
-    if (error) { console.warn('[ridd] pay_settings save failed', error); if (typeof toast === 'function') toast('Saved locally — server sync failed', 'warn'); }
-  } catch (e) { console.warn('[ridd] pay_settings save threw', e); }
+    const r = await saveAppSettingCas('pay_settings', state.appSettings, async () => {
+      await loadAppSettings();
+      toast('Another admin changed Pay settings since you opened them — reloaded the latest, please re-apply your edit', 'warn');
+      mountApp();
+    });
+    if (!r.ok && !r.conflict) { healthReport('pay', false, r.error); if (typeof toast === 'function') toast('Saved locally — server sync failed', 'warn'); }
+  } catch (e) { healthReport('pay', false, e); }
 }
 // Publish one rep's computed breakdown to the per-rep, RLS-protected results
 // table so that rep (and only that rep) can see it in "My Commission".
