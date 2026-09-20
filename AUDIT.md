@@ -188,5 +188,9 @@ Strong: RLS on sales/profiles/blobs, JWT gate on privileged functions, service k
 | P0-3 commission inputs + Explain card + golden tests | `633a59c` | done |
 | P0-5 app_settings sensitive keys admin-only | `9e176f5` (migration `20260920_app_settings_read_scope.sql`) | done — run in Supabase |
 | P3-2 app_settings change history | `cf555ef` (migration `20260920_app_settings_history.sql`) | done — run in Supabase |
+| P1-7 per-source health + Data sources sheet | `fb0c054` | done |
+| Busy-guard on every async button | `0ead4e2` | done |
+| CAS for pay_settings / commission_config | `0d11144` (migration `20260920_app_settings_cas.sql`) | done — run in Supabase |
+| 429 back-off in FieldRoutes workers | `7804f18` | done |
 | Calendar write policy (P0-2 part 2) | — | pending: needs an RPC for rep shift edits before the blob can be locked |
 | Money in floating point (`320.00000000000006`) | — | noted (C): engine sums raw floats and the UI rounds; rounding each component to cents at the engine boundary would match payroll practice — Isaac's call |
