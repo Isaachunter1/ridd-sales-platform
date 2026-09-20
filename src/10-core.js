@@ -282,7 +282,7 @@ const roleLabel = (r) => ROLE_LABEL[r] || r || '';
 // the only login that can grant / remove admin access or hand ownership
 // on. Checked against the REAL profile so "view as" can never borrow it.
 const isOwnerUser = () => !!((state._realProfile || state.profile || {}).is_owner);
-const roleLabelOf = (p) => !p ? '' : (p.is_owner ? 'Owner Admin' + (p.role === 'admin_rep' ? ' + Sales' : '') : roleLabel(p.role));
+const roleLabelOf = (p) => !p ? '' : (p.is_owner ? 'Admin - Owner' : roleLabel(p.role));
 // Rep access flavors. The explicit roles decide directly; the legacy 'rep'
 // role falls back to the CRM rep-type lookup (state.myRepType, fetched at
 // login) so existing accounts keep working unchanged.

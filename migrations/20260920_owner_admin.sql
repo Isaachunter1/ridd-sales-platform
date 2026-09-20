@@ -31,17 +31,19 @@ begin
 
   -- Admin access changes hands only through the owner.
   if was_admin and not is_admin_now and not public.is_owner() then
-    raise exception 'Only the owner admin can remove admin access from %', coalesce(OLD.full_name, OLD.email);
+    raise exception 'Only the Admin - Owner can remove admin access from %', coalesce(OLD.full_name, OLD.email);
   end if;
   if is_admin_now and not was_admin and not public.is_owner() then
-    raise exception 'Only the owner admin can grant admin access to %', coalesce(NEW.full_name, NEW.email);
+    raise exception 'Only the Admin - Owner can grant admin access to %', coalesce(NEW.full_name, NEW.email);
   end if;
 
   -- Ownership transfer: owner sets is_owner on another ADMIN; the previous
   -- owner (the caller) drops back to a plain admin in the same statement.
   if NEW.is_owner is distinct from OLD.is_owner then
-    if not public.is_owner() then
-      raise exception 'Only the owner admin can transfer ownership';
+    -- First claim (nobody owns the app yet) is open to any admin; after
+    -- that only the owner can move the flag.
+    if not public.is_owner() and exists (select 1 from public.profiles where is_owner) then
+      raise exception 'Only the Admin - Owner can transfer ownership';
     end if;
     if NEW.is_owner then
       if not is_admin_now then
@@ -55,7 +57,7 @@ begin
 
   -- The owner always stays an admin.
   if NEW.is_owner and not is_admin_now then
-    raise exception 'The owner admin has to keep an admin role — transfer ownership first';
+    raise exception 'The Admin - Owner has to keep an admin role — transfer ownership first';
   end if;
   return NEW;
 end;
