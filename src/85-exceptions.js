@@ -195,3 +195,84 @@ function repTodayStrip() {
       onclick: c.onClick,
     }, c.icon + ' ' + c.text + ' →')));
 }
+
+// ── Save-attempt loop (AUDIT P3-5) ────────────────────────────────────────
+// Off the Daily Pulse churn list: log who called a cancelled account and
+// what happened. Rows live in public.save_attempts (append-only; see
+// migrations/20260920_save_attempts.sql). Cached per session by customer #.
+const SAVE_OUTCOMES = [['saved', 'Saved'], ['callback', 'Call back'], ['no_answer', 'No answer'], ['declined', 'Declined'], ['other', 'Other']];
+function saveAttemptsFor(customerIds) {
+  // Returns a Map customer_id → [attempts…] from the cache; kicks a fetch
+  // for ids not yet loaded and re-renders via the callback when it lands.
+  state._saveAttempts = state._saveAttempts || new Map();
+  const ids = [...new Set(customerIds.map(String).filter(Boolean))];
+  const missing = ids.filter(id => !state._saveAttempts.has(id));
+  const out = new Map(ids.map(id => [id, state._saveAttempts.get(id) || []]));
+  if (missing.length && typeof supabase !== 'undefined' && supabase && !(typeof DEMO !== 'undefined' && DEMO)) {
+    missing.forEach(id => state._saveAttempts.set(id, []));   // mark in flight
+    const chunks = []; for (let i = 0; i < missing.length; i += 200) chunks.push(missing.slice(i, i + 200));
+    Promise.all(chunks.map(c => supabase.from('save_attempts').select('*').in('customer_id', c).order('attempted_at', { ascending: false })))
+      .then(results => {
+        let any = false;
+        for (const { data, error } of results) {
+          if (error) { console.warn('save attempts load failed:', error.message); continue; }
+          for (const row of (data || [])) { const k = String(row.customer_id); state._saveAttempts.set(k, [...(state._saveAttempts.get(k) || []), row]); any = true; }
+        }
+        if (any && typeof state._saveAttemptsOnLoad === 'function') state._saveAttemptsOnLoad();
+      });
+  }
+  return out;
+}
+function saveAttemptChip(customerId) {
+  const list = (state._saveAttempts && state._saveAttempts.get(String(customerId))) || [];
+  if (!list.length) return null;
+  const last = list[0];
+  const lbl = (SAVE_OUTCOMES.find(([v]) => v === last.outcome) || [])[1] || last.outcome;
+  const who = ((state.allProfiles || []).find(p => p.id === last.attempted_by) || {}).full_name || '';
+  const saved = last.outcome === 'saved';
+  return el('span', { class: 'inline-block text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap', style: { background: saved ? 'rgba(22,163,74,.14)' : 'var(--card-2)', color: saved ? '#16A34A' : 'var(--text-muted)' },
+    title: list.length + ' attempt' + (list.length === 1 ? '' : 's') + (who ? ' · last by ' + who : '') + (last.note ? ' · ' + last.note : '') }, lbl + (list.length > 1 ? ' ×' + list.length : ''));
+}
+function openSaveAttemptModal(r, onDone) {
+  const overlay = el('div', { class: 'modal-overlay' });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  const name = [(r.first_name || '').trim(), (r.last_name || '').trim()].filter(Boolean).join(' ') || ('Customer #' + r.customer_id);
+  const prior = (state._saveAttempts && state._saveAttempts.get(String(r.customer_id))) || [];
+  let outcome = 'callback';
+  const noteEl = el('textarea', { class: 'w-full rounded-lg border px-2.5 py-1.5 text-xs', rows: '3', placeholder: 'What happened on the call? (optional)', style: { borderColor: 'var(--border-2)', background: 'var(--card)' } });
+  const pills = el('div', { class: 'flex gap-1.5 flex-wrap' });
+  const drawPills = () => pills.replaceChildren(...SAVE_OUTCOMES.map(([v, l]) => el('button', {
+    class: 'rounded-full border px-2.5 py-1 text-[11px] font-semibold transition',
+    style: v === outcome ? { background: 'var(--text)', color: 'var(--bg)', borderColor: 'var(--text)' } : { borderColor: 'var(--border-2)' },
+    onclick: () => { outcome = v; drawPills(); } }, l)));
+  drawPills();
+  const submit = async () => {
+    const row = { customer_id: String(r.customer_id || ''), subscription_id: r.subscription_id != null ? String(r.subscription_id) : null, office_name: (r.office_name || '').trim() || null,
+      cancel_date: String(r.subscription_date_canceled || '').slice(0, 10) || null, outcome, note: noteEl.value.trim() || null, attempted_by: state.profile?.id };
+    if (!row.customer_id) { toast('No customer # on this row', 'error'); return; }
+    if (typeof supabase === 'undefined' || !supabase || (typeof DEMO !== 'undefined' && DEMO)) { toast('Not connected — attempt not saved', 'error'); return; }
+    const { data, error } = await supabase.from('save_attempts').insert(row).select().maybeSingle();
+    if (error) { toast('Could not save: ' + error.message, 'error'); return; }
+    state._saveAttempts = state._saveAttempts || new Map();
+    state._saveAttempts.set(row.customer_id, [data || { ...row, attempted_at: new Date().toISOString() }, ...prior]);
+    overlay.remove();
+    toast('Save attempt logged', 'success');
+    if (typeof onDone === 'function') onDone();
+  };
+  const fmtWhen = (iso) => { try { return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); } catch (e) { return ''; } };
+  overlay.append(el('div', { class: 'card p-5 flex flex-col gap-3', style: { width: 'min(460px, 94vw)', maxHeight: '88vh', overflowY: 'auto', overflowX: 'hidden' } },
+    el('div', { class: 'flex items-start justify-between gap-3' },
+      el('div', {}, el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Save attempt'),
+        el('div', { class: 'text-base font-black' }, name),
+        el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, [String(r.subscription || '').trim(), (r.office_name || '').trim(), r.customer_id ? '#' + r.customer_id : ''].filter(Boolean).join(' · '))),
+      el('button', { class: 'text-xl leading-none', onclick: () => overlay.remove() }, '×')),
+    (typeof reportingCancelReasonOf === 'function' && reportingCancelReasonOf(r)) ? el('div', { class: 'text-xs' }, el('span', { style: { color: 'var(--text-muted)' } }, 'Cancel reason: '), reportingCancelReasonOf(r)) : null,
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Outcome'),
+    pills, noteEl,
+    el('button', { class: 'rounded-lg px-3 py-2 text-xs font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: submit }, 'Log attempt'),
+    prior.length ? el('div', { class: 'border-t pt-2 flex flex-col gap-1', style: { borderColor: 'var(--border)' } },
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Earlier attempts'),
+      ...prior.map(a => el('div', { class: 'text-[11px]', style: { overflowWrap: 'anywhere' } },
+        el('b', {}, (SAVE_OUTCOMES.find(([v]) => v === a.outcome) || [])[1] || a.outcome), ' · ' + fmtWhen(a.attempted_at) + ' · ' + (((state.allProfiles || []).find(p => p.id === a.attempted_by) || {}).full_name || 'someone') + (a.note ? ' — ' + a.note : '')))) : null));
+  document.body.append(overlay);
+}
