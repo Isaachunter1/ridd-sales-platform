@@ -175,10 +175,9 @@ function intelSourceEconomicsCard() {
   const td = (v, o = {}) => el('td', { class: 'px-3 py-1.5 tabular-nums whitespace-nowrap ' + (o.right ? 'text-right' : '') + (o.bold ? ' font-semibold' : ''), style: o.style || {} }, v);
   return el('div', { class: 'card p-4 flex flex-col gap-3' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
-      el('div', {}, el('div', { class: 'text-sm font-bold' }, 'Source economics'),
-        el('div', { class: 'text-[11px] text-muted-' }, 'New recurring accounts in the last 12 months by source · LTV = avg ARR × (1 ÷ annual churn, max 8 yrs) · type monthly spend to get CAC')),
-      el('div', { class: 'text-[10px] text-muted-' }, '~ = 12-month retention not judgeable yet, annualised from 90-day')),
-    el('div', { style: { overflow: 'auto', maxHeight: '460px' } }, el('table', { class: 'w-full text-xs' },
+      el('div', {}, el('div', { class: 'text-sm font-bold', title: 'New recurring accounts in the last 12 months by source \u00b7 LTV = avg ARR \u00d7 (1 \u00f7 annual churn, max 8 yrs) \u00b7 type monthly spend to get CAC \u00b7 ~ = 12-month retention annualised from 90-day' }, 'Source economics'))),
+    // Source column frozen while the numbers swipe (per Isaac).
+    el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '460px' } }, el('table', { class: 'w-full text-xs frozen-table' },
       el('thead', {}, el('tr', {}, th('Source'), th('New accts', true), th('Avg ARR', true), th('Ret 90d', true), th('Ret 12mo', true), th('Lifetime', true), th('LTV', true), th('Spend / mo', true), th('CAC', true), th('LTV : CAC', true))),
       el('tbody', {}, ...ents.map(e => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
         td(e.src, { bold: true }), td(e.n.toLocaleString(), { right: true }), td(fmt.usd0(e.avgArv), { right: true }),
