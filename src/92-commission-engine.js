@@ -328,6 +328,8 @@ function viewD2dDashboard() {
     return [label, fmt.usd0(cv), rows.length + (rows.length === 1 ? ' account' : ' accounts')];
   };
   renderRange();
+  const _exc = (typeof exceptionFeedCard === 'function') ? exceptionFeedCard() : null;
+  if (_exc) wrap.append(_exc);
   wrap.append(rangeHost);
   wrap.append(kpiMulti([
     heroStat('Today', byRange('today')), heroStat('This Week', byRange('week')),
