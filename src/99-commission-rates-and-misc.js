@@ -696,9 +696,24 @@ function adminCompetitionSchedule() {
             el('tbody', {}, ...idx.map(([, i]) => rows[i]))))
         : el('div', { class: 'px-4 py-6 text-center text-xs text-muted- italic' }, 'No ' + group.toLowerCase() + ' competitions scheduled yet.'));
   };
+  // Tabs per user type (per Isaac, Sep 2026): one group on screen at a time
+  // instead of all three stacked; the calendar follows the selected tab.
+  const GROUPS = ['Sales Reps', 'Office Staff', 'Technicians'];
+  const groupTab = GROUPS.includes(state._compSchedGroup) ? state._compSchedGroup : 'Sales Reps';
+  const groupOf = (c) => (sc[c.id] && sc[c.id].group) || c.group;
+  const tabs = el('div', { class: 'flex items-center gap-1 border-b flex-wrap', style: { borderColor: 'var(--border)' } },
+    ...GROUPS.map(g => {
+      const on = g === groupTab, n = comps.filter(c => groupOf(c) === g).length;
+      return el('button', {
+        class: 'px-2.5 py-1.5 text-[11px] font-semibold transition whitespace-nowrap',
+        style: on ? { color: 'var(--text)', boxShadow: 'inset 0 -2px 0 var(--accent)' } : { color: 'var(--text-muted)' },
+        onclick: () => { state._compSchedGroup = g; mountApp(); },
+      }, g, el('span', { class: 'ml-1 text-[10px] font-semibold', style: { color: 'var(--text-muted)' } }, String(n)));
+    }));
   const table = el('div', { class: 'flex flex-col gap-4' },
+    tabs,
     el('div', { class: 'text-[11px] text-muted-' }, 'Set each comp’s first run + how it repeats; "Starts on" pins the weekday for monthly / quarterly / yearly repeats.'),
-    groupCard('Sales Reps'), groupCard('Office Staff'), groupCard('Technicians'));
+    groupCard(groupTab));
 
   // ── Month calendar ──
   if (!state._compCalYm) state._compCalYm = _csIso(today).slice(0, 7);
@@ -708,6 +723,7 @@ function adminCompetitionSchedule() {
   const perDay = Array.from({ length: daysIn }, () => []);
   comps.forEach((c, i) => {
     const cfg = sc[c.id]; if (!cfg || !cfg.start) return;
+    if (groupOf(c) !== groupTab) return;
     compOccurrences(cfg).forEach(o => {
       for (let d = 1; d <= daysIn; d++) {
         const day = new Date(cy, cm - 1, d, 12);
@@ -727,7 +743,7 @@ function adminCompetitionSchedule() {
   }
   const calendar = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-4 py-3 flex items-center gap-2 border-b', style: { borderColor: 'var(--border)' } },
-      el('h3', { class: 'text-sm font-bold' }, 'Calendar'),
+      el('h3', { class: 'text-sm font-bold' }, 'Calendar', el('span', { class: 'ml-2 text-[11px] font-semibold', style: { color: 'var(--text-muted)' } }, groupTab)),
       el('div', { class: 'ml-auto flex items-center gap-1' },
         el('button', { class: 'px-2.5 py-1 text-[11px] rounded-lg border', style: { borderColor: 'var(--border-2)' }, onclick: () => shiftMonth(-1) }, '‹'),
         el('span', { class: 'text-[11px] font-semibold px-2 tabular-nums' }, first.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })),
