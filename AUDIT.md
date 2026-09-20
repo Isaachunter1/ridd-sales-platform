@@ -84,6 +84,8 @@ Each item: **Problem · Where · Who · Why it matters · Solution · Risk · Im
 
 **P0-3 Pay/commission has no server-side truth or input snapshot** · `src/92-commission-engine.js`, `src/52-pay.js`, `commission_results` · admins, reps, payroll · A stub is whatever the admin's browser computed at the moment of save; if rates or sales rows change afterwards there is no record of what the number was built from, and nothing can recompute it · (1) On save, store an `inputs` JSON alongside each result: rate table version, list of sale ids with the amounts used, adjustments applied, engine version. (2) Add `tools/pay-test.js` with fixture sales → expected stub, run in CI. (3) Later: move the engine to a Netlify function so the server computes and the client displays · Medium — additive first, no behaviour change · High (payroll auditability) · M/L · **A**
 
+**P0-5 `app_settings` readable by every signed-in user** · `migrations/20260429_schema.sql` policy "settings: read all" · reps → admins · `commission_config` holds every rep's manual pay entries (rent, paid-to-date, overrides, audit deductions) and per-rep rate overrides; any rep could read all of it from the console · Restrictive select policy: sensitive keys (`commission_config`, `commission_locks`, `source_spend`) admin-only; company-wide keys stay readable · Low (only admin code paths load those keys) · High · S · **A** — fixed `9e176f5`
+
 **P0-4 Owner/admin role change path was locked for a day** (fixed in `8de1bff`) — recorded here because the class of bug matters: a gate that depends on data the migration hasn't created yet. Rule going forward: feature gates default open until their backing data exists. · **A**
 
 ### P1 — High impact
@@ -183,4 +185,8 @@ Strong: RLS on sales/profiles/blobs, JWT gate on privileged functions, service k
 | P1-4 / P1-10 attrition golden tests in CI | `27c9197` | done |
 | P1-5 table CSS default inverted | `e83ef0c` | done — verify each tab on a phone |
 | P1-8 Run FieldRoutes check now | `e8a3e7c` | done |
+| P0-3 commission inputs + Explain card + golden tests | `633a59c` | done |
+| P0-5 app_settings sensitive keys admin-only | `9e176f5` (migration `20260920_app_settings_read_scope.sql`) | done — run in Supabase |
+| P3-2 app_settings change history | `cf555ef` (migration `20260920_app_settings_history.sql`) | done — run in Supabase |
 | Calendar write policy (P0-2 part 2) | — | pending: needs an RPC for rep shift edits before the blob can be locked |
+| Money in floating point (`320.00000000000006`) | — | noted (C): engine sums raw floats and the UI rounds; rounding each component to cents at the engine boundary would match payroll practice — Isaac's call |
