@@ -356,6 +356,7 @@ function viewTechs() {
   const phone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })();
   const latest = [...inRange].sort((x, y) => String(dateSoldToIso(y.dateSold) || '').localeCompare(String(dateSoldToIso(x.dateSold) || ''))).slice(0, 60);
   return el('div', { class: 'flex flex-col gap-5 w-full' },
+    (typeof repTodayStrip === 'function') ? repTodayStrip() : null,
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
       // (+ Log Upsell retired per Isaac, Sep 2026 — upsells sync from FieldRoutes.)
       rangeSel,
