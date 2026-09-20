@@ -40,11 +40,11 @@ Ordered by the brief's priority: data integrity → security → reliability →
 
 ## Sprint 5 — Product
 
-22. **P3-3** Manager exception feed (one page, deep links). _M_
-23. **P3-4** Rep "today" strip above the player card. _S/M_
-24. **P3-6** Upsell record shape + fixture before the upsell UI build. _M_
-25. **P3-5** Save-attempt loop off the Daily Pulse churn list. _M_
-26. **P3-1** Server-computed pay (after 6–7 are stable). _L_
+22. **P3-3** Manager exception feed (one page, deep links). _M_ — done `12fb0e1`
+23. **P3-4** Rep "today" strip above the player card. _S/M_ — done `63f0c39`
+24. **P3-6** Upsell record shape + fixture before the upsell UI build. _M_ — done `1a22139`
+25. **P3-5** Save-attempt loop off the Daily Pulse churn list. _M_ — done `2813c1f` (migration to run)
+26. **P3-1** Server-computed pay (after 6–7 are stable). _L_ — deferred, needs Isaac's go
 
 ## Final polish pass (after each sprint, 30 minutes)
 

@@ -202,3 +202,9 @@ Strong: RLS on sales/profiles/blobs, JWT gate on privileged functions, service k
 | P1-1 incremental render | — | not started on purpose — needs a profile of the real app (Indicators / Retention on an admin login) before choosing which cards to convert; measured, not guessed |
 | Calendar write policy (P0-2 part 2) | — | pending: needs an RPC for rep shift edits before the blob can be locked |
 | Money in floating point (`320.00000000000006`) | — | noted (C): engine sums raw floats and the UI rounds; rounding each component to cents at the engine boundary would match payroll practice — Isaac's call |
+| Render profiler (opt-in, `localStorage.ridd_prof=1` → `window.__riddProf`) | `b9626ce` | done — phase timings for mountApp / Indicators / Retention; drives P1-1 |
+| P3-3 manager exception feed ("Needs attention", Sales + D2D dashboards) | `12fb0e1` | done — data health, quiet reps, attrition spikes, failed audits, aging pending; collapsed by default; deep links |
+| P3-4 rep "Today" strip (live comps, bounced sales, open shifts) | `63f0c39` | done — Sales queue, D2D and Technicians dashboards; renders nothing when empty |
+| P3-6 upsell record shape + fixtures | `1a22139` | done — `netlify/lib/upsell-record.js` (pure), 7 scenarios in CI step 9; sync behaviour unchanged |
+| P3-5 save-attempt loop | `2813c1f` (migration `20260920_save_attempts.sql`) | done — run in Supabase; logged from the Daily Pulse churn list |
+| P3-1 server-computed pay | — | deferred: prerequisite is a stable, tested engine (done: commission golden tests) plus a Netlify function that runs the same engine over the same inputs and stores a `pay_runs` snapshot; the client would then display, not compute. Sized L; not started without Isaac's go |
