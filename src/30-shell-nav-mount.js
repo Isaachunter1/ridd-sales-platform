@@ -1024,6 +1024,7 @@ function mountApp() {
   // (Mobile freshness line retired — the header stamp shows on phones now, per Isaac.)
   usagePing('view', state.view);
   main.append(pageHeader, contentWrap);
+  _profMark('dom-attach');
 
   shell.append(main);
   // Mobile bottom tab bar RETIRED — the ⊞ nav menu top-left is navigation
@@ -1126,7 +1127,9 @@ function mountApp() {
   }
   if (INSIDE_SALES_TAB_KEYS.has(state.view)) state._lastIsTab = state.view;
   if (D2D_SALES_TAB_KEYS.has(state.view)) state._lastD2dTab = state.view;
+  _profStart(state.view);
   const node = view();
+  _profMark('view()');
   node.classList.add('fade-in');
   // Per-user layout (🔧): reorder / hide sections on every tab.
   try { applyUserLayout(node); } catch (e) { console.warn('[ridd] user layout skipped', e); }
@@ -1178,6 +1181,7 @@ function mountApp() {
     requestAnimationFrame(() => window.scrollTo(kx, ky));
   }
   _lastMountedView = state.view;
+  _profEnd();
 }
 
 // ── Overflow guard for display numbers ─────────────────────────────────────

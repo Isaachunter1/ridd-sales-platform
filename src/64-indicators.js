@@ -2419,6 +2419,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     ];
   }
 
+  _profMark('ind:table+charts');
   const sections = [];
 
   // ── Compute rep stats ──
@@ -4015,6 +4016,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
 
   // Stash the full roster for the Top-15 PDF (Manage Teams → Reports).
   state._indLbAllReps = allReps;
+  _profMark('ind:leaderboard-compute');
   sections.push(
     // overflow-visible while the Filters menu is open so the dropdown isn't
     // clipped at the card edge (per Isaac).
@@ -4576,11 +4578,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // selector: each shows only when its competition is the active one. With
   // Comps off, neither shows.
   if (state.indicatorsComps && getActiveComp().scoring === 'avg_pest_initial') {
-    sections.push(buildD2DCompSection());
+    _profMark('ind:leaderboard-dom'); sections.push(buildD2DCompSection()); _profMark('ind:comps');
   }
-  sections.push(buildAggregateRecordsCard());
+  sections.push(buildAggregateRecordsCard()); _profMark('ind:records');
   // Rookie vs Vet lives directly under the Records card (built earlier).
-  if (_tierCardSection && state.indicatorDept !== 'office') sections.push(_tierCardSection);
+  if (_tierCardSection && state.indicatorDept !== 'office') sections.push(_tierCardSection); _profMark('ind:class-metrics');
 
   // ── 3. (Cancel Analysis card retired — per Isaac. Reasons live in the
   // Retention tab's drills; package/office/team attrition lives in the
@@ -4635,7 +4637,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       mixGroupTabs),
   });
   _mixCardNode.setAttribute('data-section', 'sales-mix');   // partners pick it up by this tag
-  sections.push(_mixCardNode);
+  sections.push(_mixCardNode); _profMark('ind:sales-mix');
 
   return sections;
 }

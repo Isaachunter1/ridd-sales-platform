@@ -1933,15 +1933,16 @@ function reportingWaterfall() {
       })());
   })();
 
+  const _pm = (l, f) => { const r = f(); _profMark(l); return r; };
   const renderSide = (data, pop, label, sideMark) => el('div', { class: 'flex flex-col gap-4' },
     // Matrix wants ~560px; when it can't have it (phones) the blended table
     // wraps underneath instead of both squeezing side by side.
     // (Cohort matrix hidden per Isaac, Sep 2026 — renderMatrix stays for when it comes back.)
-    attritionTrendsCard(pop, label),   // right under Attrition Steps (per Isaac, Sep 2026)
+    _pm('ret:trends', () => attritionTrendsCard(pop, label)),   // right under Attrition Steps (per Isaac, Sep 2026)
     lifetimeCard,                       // Customer Lifetime follows the trends chart (per Isaac)
-    renderBlended(pop),
-    seasonalityCard(pop, label),
-    startCohortCard(pop, label));   // (LTV card retired per Isaac, Sep 2026)
+    _pm('ret:blended', () => renderBlended(pop)),
+    _pm('ret:seasonality', () => seasonalityCard(pop, label)),
+    _pm('ret:cohorts', () => startCohortCard(pop, label)));   // (LTV card retired per Isaac, Sep 2026)
 
   const body = inCompare
     ? el('div', { class: 'flex flex-col gap-4' },
@@ -2416,7 +2417,9 @@ function reportingWaterfall() {
   // joined block — tabs, bar, steps header — frozen under the page header.
   // When the steps card is expanded the block stops being sticky (it would
   // be a screen tall), and comes back the moment it is collapsed.
+  _profMark('ret:pre-steps');
   const stepsCard = retenMethodCard(popA, _retenEff, groundA, _methodologyInfo);
+  _profMark('ret:steps');
   const joined = stepsCard;
   const stepsOpen = state._retenMethodOpen === true;
   // position: sticky cannot work here — <main> is overflow-x:hidden and the
@@ -2455,6 +2458,7 @@ function reportingWaterfall() {
     window.addEventListener('resize', () => { try { syncPin(); } catch (e) { /* torn down */ } });
   }
   requestAnimationFrame(() => { syncPin(); setTimeout(syncPin, 200); });
+  _profMark('ret:pin');
   const attritionByCard = (() => {
     const DIMS = [['source', 'Source'], ['rep', 'Rep'], ['contract', 'Contract Length'], ['type', 'Rep Type']];
     const dim = DIMS.some(d => d[0] === state._rtAttrDim) ? state._rtAttrDim : 'source';
