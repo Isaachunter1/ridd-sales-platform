@@ -1149,9 +1149,18 @@
 
   /* Calm, consistent focus ring — keyboard users only (focus-visible). */
   /* Focus ring in the palette: ink-coloured, 2px, offset — never the UA blue. */
-  :focus-visible { outline: 2px solid var(--text); outline-offset: 3px; border-radius: 1px; }
+  /* One ring for everything focusable (inputs, buttons, links): the accent
+     halo defined above. (Was two competing rules — B-class, AUDIT P2-7.) */
+  :focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent); }
 
   @media (prefers-reduced-motion: no-preference) {
+    /* Phone tap targets (AUDIT P2-1): the smallest controls get a taller
+       hit area without changing how they look — min 36px tall, inline
+       elements keep their visual size via negative margin. */
+    @media (max-width: 640px) {
+      .pill-tabs button, button.text-\[10px\], button.text-\[11px\], button.text-\[9px\], td button, th button { position: relative; }
+      .pill-tabs button::after, button.text-\[10px\]::after, button.text-\[11px\]::after, button.text-\[9px\]::after, td button::after, th button::after { content: ''; position: absolute; left: -4px; right: -4px; top: -7px; bottom: -7px; }
+    }
     /* Press feedback — everything tappable gives a little. */
     button:not(:disabled):active { transform: scale(.965); }
     button { transition: transform .12s cubic-bezier(.2,.8,.4,1); }
