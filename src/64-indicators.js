@@ -2630,6 +2630,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // weekly/range filter the indicators table uses. The user picks the
   // window via a small filter bar above the cards (default: last 2 weeks
   // ending at the most recent sale).
+  _profMark('ind:lb-reps');
   const RAFFLE_EXCLUDE_RE = /sentricon|german\s*roach|interior\s*flea/i;
   const AVG_PEST_MIN_ACCOUNTS = 5;
   const ticketsForInitial = (amount) => {
@@ -2982,6 +2983,14 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const PRA_MIN_BRANCH  = 5;
     const PRA_MIN_TEAM    = 3;
 
+    // Memoized (P1-1): the company / branch / team / rep aggregation is
+    // ~1.7 s on a full admin dataset and nothing on this card changes it
+    // except the sales set, the metric and the team/alias config. Keyed on
+    // the indicatorSales() array identity (it's cached per dept+filters),
+    // the leaderboard scope, the metric and _indCfgRev.
+    const _recKeyMemo = [allRawSales.length, applyExclusion ? 1 : 0, isRange ? (rangeBounds ? rangeBounds.start + '..' + rangeBounds.end : 'r') : 'w', byMetric, (typeof _indCfgRev !== 'undefined') ? _indCfgRev : 0, state.indicatorDept || 'all'].join('|');
+    const _recMemo = (window._indRecordsMemo && window._indRecordsMemo.src === allRawSales && window._indRecordsMemo.key === _recKeyMemo) ? window._indRecordsMemo.val : null;
+    const _recCompute = () => {
     const company = aggregateRecords(rawSales, byMetric);
     const companyPRA = bestPRADayRecord(rawSales, PRA_MIN_COMPANY, byMetric);
 
@@ -3027,6 +3036,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         salesByRep[rn].push(s);
       }
     }
+    return { company, companyPRA, branchAll, teamAll, repAll, salesByBranch, salesByTeam, salesByRep };
+    };
+    const _rec = _recMemo || _recCompute();
+    if (!_recMemo) window._indRecordsMemo = { src: allRawSales, key: _recKeyMemo, val: _rec };
+    const { company, companyPRA, branchAll, teamAll, repAll, salesByBranch, salesByTeam, salesByRep } = _rec;
 
     // Top winner per category, used for the summary rows. Comparator
     // honors the active metric so toggling Revenue ↔ Sales picks new winners.
@@ -3446,6 +3460,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   if (state._indicatorRepChart.mode === 'selected')    state._indicatorRepChart.mode = 'custom';
   if (!state._indicatorRepChart.mode)   state._indicatorRepChart.mode   = 'rep';
   if (!Array.isArray(state._indicatorRepChart.selected)) state._indicatorRepChart.selected = [];
+  _profMark('ind:lb-helpers');
   const repChartCfg = state._indicatorRepChart;
 
   // Pick the reps that will be plotted in 'rep' or 'custom' modes. Team and
@@ -3503,6 +3518,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // tier are not counted on either side — admins tag them in Manage Teams.
   // Rendered UNDERNEATH the 🏅 Records card (stashed here, pushed later) so
   // the Performance Trend chart sits right under the page-level cards.
+  _profMark('ind:lb-chart-prep');
   let _tierCardSection = null;
   (() => {
     const tierBuckets = { rookie: [], vet: [] };
@@ -3755,6 +3771,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // Migrate legacy Best Day sort dir from the old 'desc' value to the new
   // explicit 'date' / 'amount' modes (default to date — most recent first).
   // Best Week and Best Month follow the same pattern.
+  _profMark('ind:class-metrics-build');
   const RECORD_SORT_KEYS = new Set(['bestDayTime', 'bestWeekTime', 'bestMonthTime']);
   if (RECORD_SORT_KEYS.has(state._indicatorRepSort.key) && state._indicatorRepSort.dir !== 'date' && state._indicatorRepSort.dir !== 'amount') {
     state._indicatorRepSort = { key: state._indicatorRepSort.key, dir: 'date' };
