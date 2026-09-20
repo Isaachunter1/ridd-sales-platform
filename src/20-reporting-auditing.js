@@ -465,8 +465,9 @@ function reportingAuditing() {
       el('div', { class: 'px-4 pt-4 pb-2 flex items-center justify-between gap-3 flex-wrap' },
         el('h3', { class: 'text-base font-bold' }, label),
         headerRight || null),
-      el('div', { style: scrolls ? { overflow: 'auto', maxHeight: '70vh' } : {} },
-        el('table', { class: 'w-full', style: {
+      el('div', { class: scrolls ? 'scroll-x' : '', style: scrolls ? { overflow: 'auto', maxHeight: '70vh' } : {} },
+        // frozen-table: stays a real table on phones so the name column pins (per Isaac).
+        el('table', { class: 'w-full' + (scrolls ? ' frozen-table' : ''), style: {
           borderCollapse: 'collapse',
           // Branch/Team on desktop: FIXED layout — first column 110px, the
           // rest split the remaining width evenly, so both tables' columns
