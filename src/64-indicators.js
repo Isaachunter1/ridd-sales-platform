@@ -3863,7 +3863,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             )
           : '—',
       ) },
-    { key: 'bestWeekTime', label: 'Best Week', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap' },
+    { key: 'bestWeekTime', label: 'Best Week', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'pl-2 pr-5 py-2 text-left tabular-nums whitespace-nowrap', style: { borderLeft: '1px solid var(--border-2)' } },
         r.bestWeek > 0
           ? el('div', {},
               el('div', { class: 'font-semibold' }, fmt.usd0(r.bestWeek)),
@@ -3871,7 +3871,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             )
           : '—',
       ) },
-    { key: 'bestMonthTime', label: 'Best Month', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'pl-2 pr-5 py-2 text-left tabular-nums whitespace-nowrap' },
+    { key: 'bestMonthTime', label: 'Best Month', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'pl-2 pr-5 py-2 text-left tabular-nums whitespace-nowrap', style: { borderLeft: '1px solid var(--border-2)' } },
         r.bestMonth > 0
           ? el('div', {},
               el('div', { class: 'font-semibold' }, fmt.usd0(r.bestMonth)),
@@ -3920,6 +3920,14 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // Sorting by a column that just got hidden strands the sort — heal it.
   if (state._indicatorRepSort && _lbHiddenKeys.includes(state._indicatorRepSort.key)) {
     state._indicatorRepSort = { key: 'revenue', dir: 'desc' };
+  }
+  // ONE record column at a time (per Isaac, Sep 21): Best Day / Week / Month
+  // share a slot; a tiny picker on the header swaps which one shows. Sorting
+  // by a record column that's no longer visible falls back to the shown one.
+  const _lbRecordCol = RECORD_SORT_KEYS.has(state._lbRecordCol) ? state._lbRecordCol : 'bestDayTime';
+  repCols = repCols.filter(c => !RECORD_SORT_KEYS.has(c.key) || c.key === _lbRecordCol);
+  if (state._indicatorRepSort && RECORD_SORT_KEYS.has(state._indicatorRepSort.key) && state._indicatorRepSort.key !== _lbRecordCol) {
+    state._indicatorRepSort = { key: _lbRecordCol, dir: state._indicatorRepSort.dir };
   }
 
   // Apply office + team + tier + name-search filters. Reps flipped to
@@ -4285,7 +4293,18 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                     }
                     mountApp();
                   },
-                }, c.label + arrow,
+                }, isRecordCol
+                  // Best Day / Week / Month picker ON the header (per Isaac): the select swaps the record column; the rest of the header still sorts.
+                  ? el('span', { class: 'inline-flex items-center gap-1' },
+                      el('select', {
+                        class: 'cursor-pointer font-semibold uppercase',
+                        style: { border: 0, background: 'transparent', color: 'inherit', font: 'inherit', padding: 0, appearance: 'auto', WebkitAppearance: 'menulist' },
+                        title: 'Swap the record column: Best Day / Best Week / Best Month',
+                        onclick: (e) => e.stopPropagation(),
+                        onchange: (e) => { e.stopPropagation(); state._lbRecordCol = e.target.value; if (state._indicatorRepSort && RECORD_SORT_KEYS.has(state._indicatorRepSort.key)) state._indicatorRepSort = { key: e.target.value, dir: state._indicatorRepSort.dir }; mountApp(); },
+                      }, ...[['bestDayTime', 'Best Day'], ['bestWeekTime', 'Best Week'], ['bestMonthTime', 'Best Month']].map(([k, l]) => el('option', { value: k, selected: k === c.key }, l))),
+                      arrow ? el('span', {}, arrow) : null)
+                  : c.label + arrow,
                   (isAdminRole(state.profile?.role) && state._editMode && c.key !== 'name') ? el('span', {
                     class: 'ml-1 cursor-pointer select-none',
                     style: { color: 'var(--text-subtle)', fontSize: '9px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '.04em' },
@@ -4393,8 +4412,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                     el('span', { class: 'text-[10px] text-muted- ml-1.5 normal-case tracking-normal' }, displayReps.length + ' reps'));
                   if (c.key === 'team' || c.key === 'office') return el('td', { class: 'px-2 py-2' }, '');
                   const st = { fontWeight: '700' };
-                  if (c.key === 'bestDayTime') st.borderLeft = '1px solid var(--border-2)';
-                  const pad = c.key === 'bestMonthTime' ? 'pl-2 pr-5' : ((c.key === 'cancelPct' || c.key === 'attrPct') ? 'pl-2 pr-5' : 'px-2');
+                  if (RECORD_SORT_KEYS.has(c.key)) st.borderLeft = '1px solid var(--border-2)';
+                  const pad = RECORD_SORT_KEYS.has(c.key) ? 'pl-2 pr-5' : ((c.key === 'cancelPct' || c.key === 'attrPct') ? 'pl-2 pr-5' : 'px-2');
                   return el('td', { class: pad + ' py-2 text-left tabular-nums whitespace-nowrap', style: st, title: tips[c.key] || '' },
                     vals[c.key] != null ? vals[c.key] : '—');
                 }));
