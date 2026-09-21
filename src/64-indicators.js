@@ -3793,11 +3793,12 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   let repCols = [
     { key: 'name',       label: 'Rep',      align: 'left',  defaultDir: 'asc',  cell: r => {
         const meta = repTierMeta(r.tier);
-        return el('td', { class: 'px-2 py-2' },
-          el('div', { class: 'flex items-center gap-1.5' },
-            el('span', { class: 'font-semibold' }, r.name),
+        // Tier pill under the name (per Isaac) — a narrower Rep column so the table stops scrolling sideways.
+        return el('td', { class: 'px-2 py-2', style: { maxWidth: '150px' } },
+          el('div', {},
+            el('div', { class: 'font-semibold truncate', title: r.name }, r.name),
             meta && el('span', {
-              class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded',
+              class: 'inline-block text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded mt-0.5',
               style: { background: meta.color + '22', color: meta.color },
             }, meta.label),
           ),
