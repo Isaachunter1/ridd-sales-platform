@@ -1175,6 +1175,13 @@
       .pill-tabs button::after, button.text-\[10px\]::after, button.text-\[11px\]::after, button.text-\[9px\]::after, td button::after, th button::after { content: ''; position: absolute; left: -4px; right: -4px; top: -7px; bottom: -7px; }
       /* Pills sit 2px apart — a sideways hit-area overlap made "New" land on "Renewals". Vertical only inside a pill group. */
       .pill-tabs button::after { left: 0; right: 0; }
+      /* STACKED buttons (the spider menu tabs, full-width rows, table cells,
+         dropdown lists): a vertical overhang overlaps the neighbour below,
+         and the later sibling wins the tap — "I tap a tab and get the one
+         under it". No overhang there; the rows are already ≥ 28px and the
+         menu adds its own row height instead. */
+      .nav-menu button::after, button.w-full::after, td button::after, th button::after, .flex-col > button::after, .modal-overlay button::after { top: 0; bottom: 0; left: 0; right: 0; }
+      .nav-menu button { min-height: 40px; }
     }
     /* Press feedback — everything tappable gives a little. */
     button:not(:disabled):active { transform: scale(.965); }
