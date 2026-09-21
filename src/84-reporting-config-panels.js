@@ -1102,8 +1102,116 @@ function _mktgProviders() {
     style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
     onchange: (e) => { state._mktProvMetric = e.target.value; mountApp(); },
   }, ...groupsL.map(g => el('optgroup', { label: g }, ...METRICS.filter(x => x.group === g).map(x => el('option', { value: x.key, selected: x.key === cur.key }, x.label)))));
+  // Goal + direction per metric (for the bar colouring and the goal line).
+  const GOAL = { spj: { v: T.spendPerJob, better: 'low' }, roas: { v: T.roas, better: 'high' }, cac: { v: T.adSpendCac, better: 'low' } };
+  const lowerIsBetter = cur.key === 'cpl' || cur.key === 'spj' || cur.key === 'cac';
+  // What ranks a provider for the trend chart's "top" cut: the metric's own
+  // volume, or for a ratio the side that drives it (spend for cost ratios,
+  // revenue for ROAS / CAC).
+  const rankBy = { rev, spend: sp, leads, book, cpl: sp, spj: sp, roas: sp, cac: sp, revW: rev, spendW: sp }[cur.key] || rev;
   return el('div', { class: 'flex flex-col gap-4' },
-    _mktgMatrixCard(cur.label, cur.note, cur.rows, cur.cell, cur.fmt, { ...cur.opts, headerExtra: el('div', { class: 'ml-auto flex items-center gap-2' }, el('span', { class: 'text-[10px] text-muted-' }, 'Metric'), picker) }));
+    _mktgMatrixCard(cur.label, cur.note, cur.rows, cur.cell, cur.fmt, { ...cur.opts, headerExtra: el('div', { class: 'ml-auto flex items-center gap-2' }, el('span', { class: 'text-[10px] text-muted-' }, 'Metric'), picker) }),
+    _mktgProvidersViz(cur, { y, channels, rankBy, goal: GOAL[cur.key] || null, lowerIsBetter }));
+}
+
+// ── Providers visuals (per Isaac, Sep 2026): two charts under the matrix,
+// both driven by the metric picker. (1) Year-to-date ranking — one bar per
+// provider, sorted best → worst, coloured against the goal when the metric
+// has one, the goal drawn as a line. (2) Monthly trend — the top providers
+// as lines (ranked by the volume behind the metric), goal dashed; click a
+// bar in (1) to spotlight that provider in (2). ──
+function _mktgProvidersViz(cur, o) {
+  const { y, channels, rankBy, goal, lowerIsBetter } = o;
+  const now = new Date();
+  const lastMonth = (y === now.getFullYear()) ? now.getMonth() : (y < now.getFullYear() ? 11 : -1);
+  const total = (ch) => { if (cur.opts && cur.opts.total) return cur.opts.total(ch); let t = 0, any = false; for (let i = 0; i < 12; i++) { const v = cur.cell(ch, i); if (v != null && isFinite(v)) { t += v; any = true; } } return any ? t : null; };
+  const rankVal = (ch) => { let t = 0; for (let i = 0; i < 12; i++) t += rankBy(ch, i) || 0; return t; };
+  const isRatio = !(cur.key === 'rev' || cur.key === 'spend' || cur.key === 'leads' || cur.key === 'book');
+  const isMix = cur.key === 'revW' || cur.key === 'spendW';
+  const ytd = channels.map(ch => ({ ch, v: total(ch), rank: rankVal(ch) })).filter(x => x.v != null && isFinite(x.v) && (isRatio ? x.v > 0 || x.rank > 0 : x.v > 0));
+  ytd.sort((a, b) => lowerIsBetter ? a.v - b.v : b.v - a.v);
+  const focus = state._mktProvFocus && channels.includes(state._mktProvFocus) ? state._mktProvFocus : null;
+  const isDark = state.theme === 'dark';
+  const txt = isDark ? '#C9C9BE' : '#555', grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
+  const OK = '#5F6C5B', BAD = '#DC2626', INK = isDark ? '#E6E6DC' : '#323230', ACC = '#DF643A';
+  const passes = (v) => !goal ? null : (goal.better === 'low' ? v <= goal.v : v >= goal.v);
+  const fmtV = cur.fmt;
+  const monthsShown = lastMonth < 0 ? [] : MKTG_MONTHS.slice(0, lastMonth + 1);
+  // Fixed colour order by YTD rank of the volume behind the metric (colour
+  // follows the provider for the rest of this render, never its position).
+  const topN = [...channels].map(ch => ({ ch, r: rankVal(ch) })).filter(x => x.r > 0).sort((a, b) => b.r - a.r).slice(0, 6).map(x => x.ch);
+  // Six brand hues in a fixed order (validated: adjacent pairs stay apart under CVD; the legend + table carry identity too).
+  const PROV_PALETTE = ['#DF643A', '#5F6C5B', '#323230', '#A78256', '#6B2A12', '#E8A06B'];
+  const colorOf = {}; topN.forEach((ch, i) => { colorOf[ch] = PROV_PALETTE[i % PROV_PALETTE.length]; });
+  if (focus && !colorOf[focus]) colorOf[focus] = ACC;
+  const lineChans = focus && !topN.includes(focus) ? [...topN, focus] : topN;
+
+  const idA = 'mktg-prov-rank-' + cur.key, idB = 'mktg-prov-trend-' + cur.key;
+  const hA = Math.max(160, 26 * ytd.length + 40);
+  const rankCard = el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+      el('div', {}, el('h3', { class: 'text-sm font-bold' }, cur.label + ' by provider \u00b7 ' + y + (lastMonth >= 0 && lastMonth < 11 ? ' YTD' : '')),
+        el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, (lowerIsBetter ? 'lower is better' : 'higher is better') + (goal ? ' \u00b7 goal ' + fmtV(goal.v) + ' (line) \u00b7 green meets it, red misses' : '') + ' \u00b7 click a bar to spotlight it in the trend')),
+      focus ? el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktProvFocus = null; mountApp(); } }, 'Clear spotlight \u00b7 ' + focus) : null),
+    ytd.length ? el('div', { class: 'p-3', style: { height: hA + 'px' } }, el('canvas', { id: idA }))
+      : el('div', { class: 'px-4 py-8 text-center text-[11px]', style: { color: 'var(--text-muted)' } }, 'Nothing to chart yet for ' + cur.label.toLowerCase() + ' \u2014 ' + (isRatio ? 'enter ad spend on the Spend entry tab.' : 'no data in ' + y + '.')));
+  const trendCard = el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-4 py-3 border-b', style: { borderColor: 'var(--border)' } },
+      el('h3', { class: 'text-sm font-bold' }, cur.label + ' by month \u00b7 ' + (focus ? focus + ' vs the top providers' : 'top ' + lineChans.length + ' providers')),
+      el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'ranked by ' + ({ rev: 'revenue', spend: 'ad spend', leads: 'leads', book: 'bookings', cpl: 'ad spend', spj: 'ad spend', roas: 'ad spend', cac: 'ad spend', revW: 'revenue', spendW: 'ad spend' }[cur.key] || 'revenue') + ' in ' + y + (goal ? ' \u00b7 goal dashed' : '') + (isRatio ? ' \u00b7 a month with no spend or no result is left blank' : ''))),
+    lineChans.length && monthsShown.length ? el('div', { class: 'p-3', style: { height: '280px' } }, el('canvas', { id: idB }))
+      : el('div', { class: 'px-4 py-8 text-center text-[11px]', style: { color: 'var(--text-muted)' } }, 'No months to chart yet.'));
+
+  setTimeout(() => {
+    if (typeof Chart === 'undefined') return;
+    // (1) ranking bars
+    const cA = document.getElementById(idA);
+    if (cA && ytd.length) {
+      if (_chartInstances[idA]) { _chartInstances[idA].destroy(); delete _chartInstances[idA]; }
+      const labels = ytd.map(x => x.ch);
+      const colors = ytd.map(x => { const p = passes(x.v); return p == null ? (focus === x.ch ? ACC : INK) : (p ? OK : BAD); });
+      const goalLine = { id: 'goalLine', afterDatasetsDraw(chart) {
+        const { ctx, scales: { x }, chartArea } = chart;
+        if (goal) { const gx = x.getPixelForValue(goal.v); if (isFinite(gx) && gx >= chartArea.left && gx <= chartArea.right) { ctx.save(); ctx.strokeStyle = txt; ctx.setLineDash([4, 4]); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(gx, chartArea.top); ctx.lineTo(gx, chartArea.bottom); ctx.stroke(); ctx.restore(); } }
+        // value at the end of each bar
+        const meta = chart.getDatasetMeta(0); ctx.save(); ctx.fillStyle = txt; ctx.font = '600 10px "IBM Plex Mono", ui-monospace, monospace'; ctx.textBaseline = 'middle';
+        meta.data.forEach((bar, i) => { const v = ytd[i].v; ctx.textAlign = 'left'; ctx.fillText(fmtV(v), bar.x + 6, bar.y); });
+        ctx.restore();
+      } };
+      _chartInstances[idA] = new Chart(cA.getContext('2d'), {
+        type: 'bar',
+        data: { labels, datasets: [{ label: cur.label, data: ytd.map(x => x.v), backgroundColor: colors, borderWidth: 0, borderRadius: 3, barThickness: 14, maxBarThickness: 16 }] },
+        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, layout: { padding: { right: 8 } },
+          onClick: (evt, els) => { if (!els || !els.length) return; const ch = labels[els[0].index]; state._mktProvFocus = state._mktProvFocus === ch ? null : ch; mountApp(); },
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => ' ' + fmtV(c.parsed.x) + (goal ? (passes(c.parsed.x) ? ' \u00b7 meets goal' : ' \u00b7 misses goal') : '') } } },
+          scales: { x: { beginAtZero: true, suggestedMax: Math.max(...ytd.map(x => x.v), goal ? goal.v : 0) * 1.22, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => fmtV(v) } },
+                    y: { grid: { display: false }, ticks: { color: txt, font: { size: 11, weight: (ctx) => labels[ctx.index] === focus ? '700' : '400' } } } } },
+        plugins: [goalLine],
+      });
+    }
+    // (2) monthly trend lines
+    const cB = document.getElementById(idB);
+    if (cB && lineChans.length && monthsShown.length) {
+      if (_chartInstances[idB]) { _chartInstances[idB].destroy(); delete _chartInstances[idB]; }
+      const ds = lineChans.map(ch => {
+        const on = !focus || focus === ch;
+        const col = colorOf[ch] || INK;
+        return { label: ch, data: monthsShown.map((_, i) => { const v = cur.cell(ch, i); return v == null || !isFinite(v) || (!isRatio && v === 0 && rankBy(ch, i) === 0) ? null : v; }),
+          borderColor: on ? col : (isDark ? 'rgba(230,230,220,.18)' : 'rgba(50,50,48,.16)'), backgroundColor: col, borderWidth: focus === ch ? 3 : 2, tension: 0.3, pointRadius: on ? 3 : 0, pointHoverRadius: 5, spanGaps: false, order: focus === ch ? 0 : 1 };
+      });
+      if (goal) ds.push({ label: 'Goal', data: monthsShown.map(() => goal.v), borderColor: txt, backgroundColor: txt, borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, tension: 0, order: 2 });
+      _chartInstances[idB] = new Chart(cB.getContext('2d'), {
+        type: 'line',
+        data: { labels: monthsShown, datasets: ds },
+        options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 }, usePointStyle: true } },
+            tooltip: { callbacks: { label: (c) => ' ' + c.dataset.label + ': ' + (c.parsed.y == null ? '\u2014' : fmtV(c.parsed.y)) } } },
+          scales: { x: { grid: { display: false }, ticks: { color: txt, font: { size: 10 } } },
+                    y: { beginAtZero: !isRatio || isMix, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => fmtV(v) } } } },
+      });
+    }
+  }, 50);
+  return el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' }, rankCard, trendCard);
 }
 
 // ── Spend entry: the controller allocation (branch × channel) for one month ──
