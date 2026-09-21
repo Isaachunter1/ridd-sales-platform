@@ -797,6 +797,9 @@ function indicatorsSyncStampText() {
 // user's Time Zone preference, defaulting to Mountain (company clock) —
 // with the zone label printed so two users comparing screens can never
 // think they're out of sync when they're just in different time zones.
+// ONE description of where the numbers come from and how fresh they are
+// (provenance audit): every tooltip that talks about the sync quotes this.
+const SYNC_CADENCE_TEXT = 'FieldRoutes data reaches the app through the RevHawk mirror, which refreshes once a night (~2 AM MT). The app re-syncs from that mirror every hour during selling hours (8 AM–11 PM ET), so boards, Indicators and Reporting show CRM data as of the last nightly mirror; the Sales queues also pick up same-day accounts from a 15-minute FieldRoutes live pull when it is enabled.';
 function appSyncStampStr() {
   indicatorsSyncStampText();   // runs the self-heal on the stored timestamp
   if (!state.indicatorsUploadedAt) return '';
@@ -3781,6 +3784,7 @@ function openHealthSheet() {
       if (lr.error) bits.push(lr.error);
       if (snap && snap.uploaded_at) bits.push('Newest snapshot ' + fmtT(snap.uploaded_at) + (snap.rows ? ' \u00b7 ' + Number(snap.rows).toLocaleString() + ' rows' : ''));
       if (j.minutesSinceLastSnapshot != null) bits.push(j.minutesSinceLastSnapshot + ' min ago');
+      if (lr.dataAsOf) bits.unshift('CRM data as of ' + fmtT(lr.dataAsOf));
       serverRow.replaceChildren(
         el('div', { class: 'flex items-start justify-between gap-3' },
           el('div', { class: 'min-w-0' }, el('div', { class: 'font-semibold' }, 'Sync worker (server)'), el('div', { class: 'text-[10px] text-muted-', style: { overflowWrap: 'anywhere' } }, bits.join(' \u00b7 ') || 'No heartbeat yet')),
@@ -3789,7 +3793,7 @@ function openHealthSheet() {
   }
   overlay.append(el('div', { class: 'card p-0 flex flex-col', style: { width: 'min(520px, 94vw)', maxHeight: '80vh', overflow: 'auto' } },
     el('div', { class: 'px-4 py-3 flex items-center justify-between gap-3' },
-      el('div', {}, el('div', { class: 'text-sm font-bold' }, 'Data sources'), el('div', { class: 'text-[10px] text-muted-' }, (typeof appSyncStampStr === 'function' ? 'Last sync ' + appSyncStampStr() : ''))),
+      el('div', {}, el('div', { class: 'text-sm font-bold', title: SYNC_CADENCE_TEXT }, 'Data sources'), el('div', { class: 'text-[10px] text-muted-' }, (typeof appSyncStampStr === 'function' ? 'Last sync ' + appSyncStampStr() : ''))),
       el('div', { class: 'flex items-center gap-2' },
         el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: () => { overlay.remove(); try { refreshIndicatorsFromCloud(true); toast('Refreshing\u2026', 'success'); } catch (e) { /* poll retries */ } } }, '\u21bb Refresh'),
         el('button', { class: 'text-xl leading-none', onclick: () => overlay.remove() }, '\u00d7'))),

@@ -860,10 +860,10 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                 }
                 if (v.status === 'unchecked') {
                   return el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' },
-                    title: 'The CRM auto-check runs every ~30 minutes — this sale hasn\'t been checked yet.' }, '… checking');
+                    title: 'The CRM auto-check runs with the hourly sync — this sale hasn\'t been checked yet.' }, '… checking');
                 }
                 return el('span', { style: { color: 'var(--text-subtle)' }, class: 'text-[10px]',
-                  title: 'Customer #' + (s.customer_number || '?') + ' isn\'t in the warehouse yet — new accounts appear within ~30 min of the CRM sync.' },
+                  title: 'Customer #' + (s.customer_number || '?') + ' isn\'t in the mirror yet — new accounts land after the nightly RevHawk refresh (or the 15-minute live pull, for the Sales queues).' },
                   'not in CRM yet');
               })()),
 

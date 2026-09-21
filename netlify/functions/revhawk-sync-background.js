@@ -601,6 +601,15 @@ exports.handler = async (event) => {
     if (global.gc) { try { global.gc(); } catch (e) { /* not exposed */ } }
     await _stage('parsed:' + objects.length + 'rows');
     if (!objects.length) return { statusCode: 200, body: JSON.stringify({ ok: false, note: 'query returned 0 rows — nothing written' }) };
+    // Data-as-of (provenance audit): the newest FieldRoutes update in the
+    // mirror, so the app can say "synced 10:05 AM · CRM data as of 2:10 AM"
+    // instead of implying the numbers are live. One column, one row.
+    let _dataAsOf = null;
+    try {
+      const aq = await runQuery(token, `SELECT FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%SZ', MAX(SAFE_CAST(updatedAt AS TIMESTAMP))) AS m FROM \`${PROJECT}.${DATASET}.FieldRoutesSubscription\``);
+      const row = (aq.objects || toObjects(aq.schema, aq.rows) || [])[0];
+      _dataAsOf = row && row.m ? String(row.m) : null;
+    } catch (e) { console.warn('[revhawk-sync] data-as-of probe skipped:', String((e && e.message) || e).slice(0, 200)); }
     // ── OFFICE-DROP MONITOR ────────────────────────────────────────────
     // Compares this run's per-office row counts against the PREVIOUS run
     // (stored beside the heartbeat). A branch losing >35% of its rows
@@ -1555,7 +1564,7 @@ exports.handler = async (event) => {
       console.error('[revhawk-sync] auto-stage skipped:', stageError);
     }
 
-    await _hb({ stage: 'finished', ok: true, rows: objects.length, ms: Date.now() - started, indicatorsError: indicatorsError || undefined, officeError: officeError || undefined, srcError: srcError || undefined, verifyError: verifyError || undefined });
+    await _hb({ stage: 'finished', ok: true, rows: objects.length, ms: Date.now() - started, dataAsOf: _dataAsOf || undefined, indicatorsError: indicatorsError || undefined, officeError: officeError || undefined, srcError: srcError || undefined, verifyError: verifyError || undefined });
     return {
       statusCode: 200,
       body: JSON.stringify({ ok: true, rows: objects.length, employees: rosterCount, rosterError, sources: srcCount, srcError, officesAdded: officeCount, officeError, salesVerified: verifyCount, verifyError, salesStaged: stageCount, stageError, storage_path: path, ms: Date.now() - started }),

@@ -1153,7 +1153,7 @@ function adminSources() {
   return el('div', { class: 'flex flex-col gap-5' },
     el('h2', { class: 'text-xl font-bold' }, 'Sources'),
     el('p', { class: 'text-xs text-muted-' },
-      'Read-only mirror of the FieldRoutes source list, refreshed every 30 minutes — add or hide sources in FieldRoutes and verify here. ' +
+      'Read-only mirror of the FieldRoutes source list, refreshed by the hourly sync — add or hide sources in FieldRoutes and verify here. ' +
       'Every CRM source is shown, visible and hidden alike; visible ones feed the Source dropdown on the Sales Log. ' +
       'Anything no longer in FieldRoutes is hidden automatically (past sales keep showing whatever they were logged with).'),
 
@@ -1167,7 +1167,7 @@ function adminSources() {
           frLinked.length + ' from FieldRoutes',
           frStamp
             ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Last CRM check ' + frStamp)
-            : el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'CRM sync pending — runs every 30 min'),
+            : el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'CRM sync pending — runs hourly'),
         ),
       ),
       el('table', { class: 'w-full text-sm' },

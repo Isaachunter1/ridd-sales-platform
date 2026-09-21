@@ -537,7 +537,7 @@ function viewDashboard() {
       ),
 
       configInfoBtn('Sales data',
-        'Live from FieldRoutes. Every number on this page — goals, sales and revenue cards, the sales feed, and the leaderboard — comes from the CRM shared dataset (office-staff sales, refreshed by the hourly sync shown in the stamp), plus manually logged UPSELL rows (the one thing the CRM can\'t express). Reps manually log every sale for the pay/audit ledger — those logs are the commission record of the ORIGINAL contract — but regular logged sales are not re-counted here, since the CRM already carries them. Upsells count as New revenue. Office staff without an app account still count — their CRM sales rank under their CRM name. Contract values are exact CRM figures.'),
+        'Live from FieldRoutes. Every number on this page — goals, sales and revenue cards, the sales feed, and the leaderboard — comes from the CRM shared dataset (office-staff sales; ' + SYNC_CADENCE_TEXT + ') plus manually logged UPSELL rows (the one thing the CRM can\'t express). Reps manually log every sale for the pay/audit ledger — those logs are the commission record of the ORIGINAL contract — but regular logged sales are not re-counted here, since the CRM already carries them. Upsells count as New revenue. Office staff without an app account still count — their CRM sales rank under their CRM name. Contract values are exact CRM figures.'),
     ),
 
     // ─── Revenue Goal card — 3 bars: Total, New, Renewal ───
@@ -1039,10 +1039,14 @@ function viewDashboard() {
       ['New Sales',   fmt.int(newSalesCount),   () => { state.view = 'sales'; mountApp(); }],
       ['Renewals',    fmt.int(renewalCount),    () => { state.view = 'sales'; state._salesQueueFilter = 'history'; mountApp(); }],
     ]),
+    // Revenue tiles drill to the exact rows behind the number (per the
+    // provenance audit: "why is this $X?" — the window's sales, minus
+    // cancelled / NSF / not payable / reschedule / rejected, split by the
+    // renewal source flag). Rows are mapped to the reporting drill's shape.
     kpiTripleCard([
-      ['Total Revenue',   fmt.usd0(totalRevenue)],
-      ['New Revenue',     fmt.usd0(newRevenue)],
-      ['Renewal Revenue', fmt.usd0(renewalRevenue)],
+      ['Total Revenue',   fmt.usd0(totalRevenue),   () => dashRevenueDrill('Total Revenue', approved, totalRevenue, range)],
+      ['New Revenue',     fmt.usd0(newRevenue),     () => dashRevenueDrill('New Revenue (excl. renewals)', approvedNew, newRevenue, range)],
+      ['Renewal Revenue', fmt.usd0(renewalRevenue), () => dashRevenueDrill('Renewal Revenue', approvedRenewal, renewalRevenue, range)],
     ]),
     // (Reconcile export link removed per Isaac — the CSV logic lives in git history if ever needed.)
 
@@ -1063,6 +1067,37 @@ function viewDashboard() {
 // old 3-cards-per-row KPI grid on the dashboard — on mobile the three
 // numbers share one row instead of stacking three full-width cards.
 // stats: array of [label, value, onclick?]
+// Dashboard sale rows → the reporting drill's row shape, so one modal
+// serves both feeds. Rows with no CRM counterpart yet are flagged.
+function dashRevenueDrill(label, sales, total, range) {
+  if (typeof openReportingDrillModal !== 'function') return;
+  const offById = new Map((state.offices || []).map(o => [o.id, o.name]));
+  const svcById = new Map((state.serviceTypes || []).map(o => [o.id, o.name]));
+  const srcById = new Map((state.sources || []).map(o => [o.id, o.name]));
+  const repById = new Map((state.allProfiles || []).map(p => [p.id, p.full_name]));
+  const rows = sales.map(s => {
+    const nm = String(s.customer_name || '').trim();
+    const parts = nm.includes(',') ? nm.split(',').map(x => x.trim()) : [nm.split(' ').slice(-1)[0] || '', nm.split(' ').slice(0, -1).join(' ')];
+    return {
+      last_name: parts[0] || '', first_name: parts[1] || '',
+      customer_id: s.customer_number || '',
+      subscription: s._crmService || svcById.get(s.service_type_id) || '',
+      subscription_source: srcById.get(s.source_id) || '',
+      subscription_contract_value: Number(s.revenue_amount) || 0,
+      sold_date: s.sold_date,
+      sold_by: s._crmRep || repById.get(s.rep_id) || '',
+      office_name: s._crmOffice || offById.get(s.office_id) || '',
+      subscription_status: s._crm ? 'CRM' : ('app · ' + String(s.audit_status || '').replace(/_/g, ' ')),
+      _flagReason: s._pendingSync ? 'Logged in the app, not in the CRM dataset yet' : undefined,
+    };
+  }).sort((a, b) => b.subscription_contract_value - a.subscription_contract_value);
+  const win = range && range.start ? (range.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' \u2013 ' + range.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })) : '';
+  openReportingDrillModal({
+    chartTitle: 'Dashboard \u00b7 ' + label + (win ? ' \u00b7 ' + win : ''),
+    sliceLabel: fmt.usd0(total) + ' \u00b7 ' + fmt.int(rows.length) + ' sale' + (rows.length === 1 ? '' : 's') + ' \u00b7 contract value of sales sold in the window, excluding cancelled / NSF / not payable / reschedule / rejected',
+    rows, formatValue: fmt.usd0,
+  });
+}
 function kpiTripleCard(stats) {
   return el('div', { class: 'card p-4 sm:p-5 grid grid-cols-3' },
     ...stats.map(([label, value, onclick], i) => el('div', {
