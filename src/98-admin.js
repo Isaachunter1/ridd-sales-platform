@@ -588,7 +588,7 @@ function adminUploads() {
     el('div', { class: 'card p-3' },
       el('div', { class: 'text-sm font-semibold mb-0.5' }, 'RevHawk live data'),
       el('div', { class: 'text-[11px] text-muted-' },
-        'Syncs automatically every hour on the hour during the day (8am–11pm ET) and rebuilds Reporting + Indicators each run. Manual syncs are retired — each one was a full BigQuery scan that costs real quota.')),
+        'Syncs automatically every hour on the hour during the day (8am–11pm ET) and rebuilds Reporting + Indicators each run. Resync (in the ⚙ menu) kicks the same job by hand — use it sparingly, each run is a full BigQuery scan that costs real quota.')),
     toggle,
     tab === 'activity'
       ? adminBackup()
