@@ -42,6 +42,10 @@
 [functions."tech-stats-scheduled"]
   schedule = "20 * * * *"
 
+# Operations weekly stats for the COO tab (per Isaac, Sep 2026) — every 6 h.
+[functions."ops-stats-scheduled"]
+  schedule = "40 */6 * * *"
+
 # Deleted-in-FieldRoutes scan (per Isaac) — nightly ~4am ET, ~90 FieldRoutes
 # calls; writes app_settings.crm_deleted for the app-wide exclusion + step.
 [functions."crm-deleted-scan-scheduled"]
@@ -174,6 +178,11 @@
 [[redirects]]
   from = "/api/revhawk-sync-now"
   to   = "/.netlify/functions/revhawk-sync-now"
+  status = 200
+
+[[redirects]]
+  from = "/api/ops-stats-now"
+  to   = "/.netlify/functions/ops-stats-now"
   status = 200
 
 [[redirects]]
