@@ -2043,6 +2043,8 @@ async function migrateSnapshotToStorage(uploadId, rows) {
   try {
     const u = (state.reportingUploads || []).find(x => x.id === uploadId);
     if (!u || u.storage_path) return;                 // already migrated
+    if (!Array.isArray(rows) || !rows.length) return;  // never overwrite a snapshot with an empty load
+    if (u.row_count && rows.length < u.row_count) return;   // or a partial one
     if (typeof CompressionStream === 'undefined') return;
     const blob = await new Response(new Blob([JSON.stringify(rows)]).stream()
       .pipeThrough(new CompressionStream('gzip'))).blob();
@@ -3720,7 +3722,10 @@ async function resyncFromCloud(reason) {
   // session and never refreshed, so Overview / Daily Pulse / Retention could
   // sit on the morning's data all day. If a newer upload exists and the user
   // is on "latest" (not pinned to an older snapshot), advance and prefetch.
-  safe(() => supabase.from('reporting_uploads').select('id, filename, row_count, uploaded_at').order('uploaded_at', { ascending: false }).limit(1).then(({ data }) => {
+  // select('*'): the row MUST carry storage_path — a copy without it made the
+  // loader take the legacy DB-rows path (0 rows) and then "migrate" that empty
+  // load over the real snapshot file (Sep 21, 18:31 — Reporting went blank).
+  safe(() => supabase.from('reporting_uploads').select('*').order('uploaded_at', { ascending: false }).limit(1).then(({ data }) => {
     const newest = data && data[0]; if (!newest) return;
     const onLatest = !state.reportingActiveUploadId || state.reportingActiveUploadId === state._reportingLatestId;
     if (newest.id !== state._reportingLatestId) {
