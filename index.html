@@ -355,8 +355,23 @@
     .pricing-quote .pricing-qgrid { grid-template-columns: minmax(0, 1fr) !important; }   /* totals block drops under the lines in the narrow column */
     .pricing-quote .pricing-qgrid > div:last-child { min-width: 0 !important; }
   }
+  .overflow-x-clip- { overflow-x: clip; }
+  /* Quote states (per Isaac, Sep 2026): an EMPTY quote is one compact row;
+     once something is selected the full receipt shows. On phones, scrolling
+     past the quote collapses it to a one-line sticky bar (tap to expand). */
+  .pricing-quote .pq-bar { display: none; }
+  .pricing-quote .pq-empty { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
   /* Phones: program tiles 2×2 instead of four across; quote totals stack. */
   @media (max-width: 639px) {
+    .pricing-layout { gap: 12px; }
+    .pricing-quote { padding-bottom: 0 !important; }
+    .pricing-quote > .pq-card { margin-bottom: 0 !important; }
+    .pricing-quote.pq-stuck:not(.pq-open) > .pq-card { display: none; }
+    .pricing-quote.pq-stuck:not(.pq-open) .pq-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; }
+    .pricing-board > div:first-child { padding: 12px 16px !important; }
+    .pricing-board > .flex.flex-col { padding: 12px !important; gap: 12px !important; }
+    .pricing-board [style*="padding: 14px 18px 6px"] { padding: 12px 12px 4px !important; }
+    .pricing-board [style*="padding: 6px 14px 12px"] { padding: 4px 10px 10px !important; }
     .pricing-board [style*="1.05fr 1fr 1fr 1fr"] { grid-template-columns: 1fr 1fr !important; }
     /* Trust chips: two up, the third stretches the full width; the
        "100%" and the italic label shrink so nothing bleeds out (per Isaac). */

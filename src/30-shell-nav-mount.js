@@ -1023,10 +1023,17 @@ function mountApp() {
   if (_viewChanged && state.view === 'nrla') state._compsLanding = true;
   // Pay always opens on the CURRENT pay period (per Isaac).
   if (_viewChanged && state.view === 'pay') { state.payYear = null; state.payPeriodId = null; }
-  const contentWrap = el('div', { class: 'py-4 sm:py-6 w-full max-w-[1600px] mx-auto overflow-x-auto' + (_viewChanged ? ' view-enter' : '') });
+  // Pricing pins its quote with position: sticky. `overflow-x: auto` here
+  // would make THIS wrapper the sticky's scroll container (a 60px+ blank
+  // band above the quote, and the quote painting over the first program on
+  // phones) — so that view clips instead of scrolls.
+  const contentWrap = el('div', { class: 'py-4 sm:py-6 w-full max-w-[1600px] mx-auto ' + (state.view === 'pricing' ? 'overflow-x-clip-' : 'overflow-x-auto') + (_viewChanged ? ' view-enter' : '') });
   // (Mobile freshness line retired — the header stamp shows on phones now, per Isaac.)
   usagePing('view', state.view);
   main.append(pageHeader, contentWrap);
+  // Live header height for anything that pins under it (Pricing quote):
+  // measured, so the phone safe-area and the update banner are included.
+  try { requestAnimationFrame(() => { const h = pageHeader.getBoundingClientRect().bottom; if (h > 0) document.documentElement.style.setProperty('--hdr-h', Math.round(h) + 'px'); }); } catch (e) { /* noop */ }
   _profMark('dom-attach');
 
   shell.append(main);
