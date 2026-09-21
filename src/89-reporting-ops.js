@@ -62,11 +62,10 @@ function reportingOps() {
   if (!state.opsStats && !state._opsStatsMissing) refreshOpsStatsFromCloud();
   const wrap = el('div', { class: 'flex flex-col gap-4' });
   const S = state.opsStats;
-  const kick = el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)' }, title: 'Rebuild the weekly stats from FieldRoutes now (otherwise every 6 hours)',
-    onclick: async () => { try { const r = await fetch('/api/ops-stats-now', { method: 'POST', headers: { Authorization: 'Bearer ' + (state.session && state.session.access_token) } }); const j = await r.json().catch(() => ({})); toast(j.message || j.error || ('HTTP ' + r.status), r.ok ? 'success' : 'error'); } catch (e) { toast('Could not start: ' + e.message, 'error'); } } }, '↻ Refresh now');
+  // (Refresh-now button retired per Isaac, Sep 21 — the worker runs every 6 hours.)
   if (!S) {
     wrap.append(el('div', { class: 'card p-8 text-center text-sm text-muted- flex flex-col items-center gap-3' },
-      state._opsStatsMissing ? 'No operations stats yet — the worker runs every 6 hours; kick it now and reload in a minute.' : 'Loading operations stats…', kick));
+      state._opsStatsMissing ? 'No operations stats yet — the worker runs every 6 hours; check back after the next run.' : 'Loading operations stats…'));
     return wrap;
   }
   const names = S.officeNames || {};
@@ -121,37 +120,61 @@ function reportingOps() {
     { key: 'hrs_excl', group: 'Direct labor', label: 'Tech hours worked (time clock)', fmt: num1, calc: (t) => t.hrs_excl },
     { key: 'fr_reviews', group: 'Reviews', label: 'FieldRoutes reviews received', fmt: num1, calc: (t) => t.fr_reviews },
   ];
-  const mKey = METRICS.some(m => m.key === state._opsMetric) ? state._opsMetric : 'done';
-  const M = METRICS.find(m => m.key === mKey);
+  // Layout (per Isaac, Sep 21): no metric dropdown — EVERY metric is a row
+  // on the page (the sheet's shape), columns are the periods, and an office
+  // picker scopes the whole table. Click a metric row to open its by-office
+  // breakdown underneath.
   const view = ['week', 'month'].includes(state._opsView) ? state._opsView : 'week';
   const completedWeeks = Math.max(1, weeks.filter(w => w < todayWs).length);
-
+  const allIds = offices.map(o => o.id);
+  const scopeId = state._opsOffice && allIds.includes(state._opsOffice) ? state._opsOffice : 'RIDD';
+  const scopeName = scopeId === 'RIDD' ? 'RIDD' : names[scopeId];
+  const scopeIds = scopeId === 'RIDD' ? allIds : [scopeId];
   const months = [...new Set(weeks.map(w => w.slice(0, 7)))].sort();
   const weekCols = state._opsAllWeeks ? weeks.slice().reverse() : weeks.slice(-14).reverse();
   const cols = view === 'week'
     ? weekCols.map(w => ({ key: w, label: opsWeekLabel(w), pairsFor: (oids) => oids.map(o => [o, w]), live: w === todayWs }))
     : months.slice().reverse().map(mo => ({ key: mo, label: new Date(mo + '-15T12:00:00').toLocaleDateString('en-US', { month: 'short' }), pairsFor: (oids) => oids.flatMap(o => weeks.filter(w => w.slice(0, 7) === mo).map(w => [o, w])), live: mo === todayWs.slice(0, 7) }));
-  const base25 = OPS_BASELINE_2025[mKey] || null;
-  const valueFor = (oids, col) => M.calc(agg(col.pairsFor(oids)));
-  const ytdWeekly = (oids) => { const v = M.calc(agg(oids.flatMap(o => weeks.filter(w => w < todayWs).map(w => [o, w])))); return v == null ? null : (M.rate ? v : v / completedWeeks); };
-  const lowerIsBetter = ['resvc_pct', 'resvc', 'spend_per_appt', 'spend_per_hr_incl', 'spend_per_hr_excl', 'svc_minutes'].includes(mKey);
-
+  // One aggregate per column per scope, shared by every metric row.
+  const aggCache = new Map();
+  const aggFor = (oids, col) => { const k = oids.join(',') + '|' + col.key; if (!aggCache.has(k)) aggCache.set(k, agg(col.pairsFor(oids))); return aggCache.get(k); };
+  const ytdAggFor = (oids) => { const k = oids.join(',') + '|ytd'; if (!aggCache.has(k)) aggCache.set(k, agg(oids.flatMap(o => weeks.filter(w => w < todayWs).map(w => [o, w])))); return aggCache.get(k); };
+  const ytdWeekly = (M, oids) => { const v = M.calc(ytdAggFor(oids)); return v == null ? null : (M.rate ? v : v / completedWeeks); };
+  const LOWER = new Set(['resvc_pct', 'resvc', 'svc_minutes']);
   const th = (t, right, extra) => el('th', Object.assign({ class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, extra || {}), t);
   const td = (t, o = {}) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap ' + (o.right ? 'text-right' : 'text-left') + (o.bold ? ' font-black' : ''), style: Object.assign({}, o.muted ? { color: 'var(--text-subtle)' } : {}, o.style || {}) }, t);
-  const rowFor = (label, oids, bold) => {
-    const cells = [el('td', { class: 'px-2 py-1.5 whitespace-nowrap ' + (bold ? 'font-black' : 'font-semibold'), style: bold ? { background: 'var(--card-2)' } : {} }, label)];
-    const yv = ytdWeekly(oids); const b = base25 && base25[label] != null ? base25[label] : null;
-    cells.push(td(M.fmt(yv), { right: true, bold: true }));
-    cells.push(td(b == null ? '—' : M.fmt(b), { right: true, muted: true }));
+  // A metric's cells for one scope: YTD · 2025 · vs · periods.
+  const metricCells = (M, oids, baseName, bold) => {
+    const yv = ytdWeekly(M, oids); const base25 = OPS_BASELINE_2025[M.key] || null; const b = base25 && base25[baseName] != null ? base25[baseName] : null;
     const ch = (yv != null && b) ? (yv - b) / b : null;
-    cells.push(td(ch == null ? '—' : (ch > 0 ? '+' : '') + (ch * 100).toFixed(1) + '%', { right: true, style: ch == null ? {} : { color: (lowerIsBetter ? ch <= 0 : ch >= 0) ? 'var(--ok)' : '#DC2626' } }));
-    for (const c of cols) { const v = valueFor(oids, c); cells.push(td(v == null ? '—' : M.fmt(v), { right: true, muted: c.live })); }
-    return el('tr', { class: 'border-t', style: { borderColor: bold ? 'var(--border-2)' : 'var(--border)', background: bold ? 'var(--card-2)' : '' } }, ...cells);
+    return [
+      td(M.fmt(yv), { right: true, bold: true }),
+      td(b == null ? '—' : M.fmt(b), { right: true, muted: true }),
+      td(ch == null ? '—' : (ch > 0 ? '+' : '') + (ch * 100).toFixed(1) + '%', { right: true, style: ch == null ? {} : { color: (LOWER.has(M.key) ? ch <= 0 : ch >= 0) ? 'var(--ok)' : '#DC2626' } }),
+      ...cols.map(c => { const v = M.calc(aggFor(oids, c)); return td(v == null ? '—' : M.fmt(v), { right: true, muted: c.live, bold: !!bold }); }),
+    ];
   };
-  const allIds = offices.map(o => o.id);
-  const table = el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse' } },
-    el('thead', {}, el('tr', {}, th('Office'), th(M.rate ? 'YTD' : 'YTD wk avg', true), th('2025', true, { title: '2025 from the COO sheet (weekly average for counts, ratio for rates)' }), th('vs 2025', true), ...cols.map(c => th(c.label + (c.live ? ' · live' : ''), true)))),
-    el('tbody', {}, rowFor('RIDD', allIds, true), ...offices.map(o => rowFor(o.name, [o.id], false))));
+  const open = state._opsExpanded && METRICS.some(m => m.key === state._opsExpanded) ? state._opsExpanded : null;
+  const headRow = () => el('tr', {}, th('Metric'), th('YTD', true, { title: 'Weekly average of completed weeks for counts; the ratio itself for rates' }), th('2025', true, { title: '2025 from the COO sheet (weekly average for counts, ratio for rates)' }), th('vs 2025', true), ...cols.map(c => th(c.label + (c.live ? ' · live' : ''), true)));
+  const bodyRows = [];
+  let lastGroup = null;
+  for (const M of METRICS) {
+    if (M.group !== lastGroup) { lastGroup = M.group; bodyRows.push(el('tr', {}, el('td', { class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-bold', colspan: String(4 + cols.length), style: { color: 'var(--text-subtle)' } }, M.group))); }
+    const isOpen = open === M.key;
+    bodyRows.push(el('tr', { class: 'border-t cursor-pointer hover:brightness-95 transition', style: { borderColor: 'var(--border)', background: isOpen ? 'rgba(223,100,58,.06)' : '' }, title: (M.note ? M.note + ' · ' : '') + 'Click for the by-office breakdown',
+      onclick: () => { state._opsExpanded = isOpen ? null : M.key; mountApp(); } },
+      el('td', { class: 'px-2 py-1.5 whitespace-nowrap font-semibold', style: { position: 'sticky', left: 0, background: isOpen ? 'rgba(223,100,58,.06)' : 'var(--card)', zIndex: 1 } }, (isOpen ? '▾ ' : '▸ ') + M.label),
+      ...metricCells(M, scopeIds, scopeName, false)));
+    if (isOpen && scopeId === 'RIDD') {
+      // By-office breakdown, right under the metric.
+      for (const o of offices) bodyRows.push(el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
+        el('td', { class: 'px-2 py-1 whitespace-nowrap text-[11px]', style: { paddingLeft: '22px', color: 'var(--text-muted)', position: 'sticky', left: 0, background: 'var(--card-2)', zIndex: 1 } }, o.name),
+        ...metricCells(M, [o.id], o.name, false).map(c => { c.style.fontSize = '11px'; return c; })));
+    }
+  }
+  const table = el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse' } }, el('thead', {}, headRow()), el('tbody', {}, ...bodyRows));
+  const officePills = el('div', { class: 'flex items-center gap-1 flex-wrap' },
+    ...[['RIDD', 'RIDD'], ...offices.map(o => [o.id, o.name])].map(([id, l]) => el('button', { class: 'rounded-full px-2 py-0.5 text-[10px] font-bold transition hover:brightness-95', style: scopeId === id ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: () => { state._opsOffice = id === 'RIDD' ? null : id; mountApp(); } }, l)));
 
   const rtypeCard = (() => {
     const t = agg(allIds.flatMap(o => weeks.map(w => [o, w])));
@@ -168,19 +191,14 @@ function reportingOps() {
   // (Hand-entered inputs card retired per Isaac, Sep 21 — payroll / management hours / Google reviews are out of this tab; FieldRoutes-only metrics remain.)
 
   wrap.append(
-    el('div', { class: 'card p-4 flex items-center gap-3 flex-wrap' },
-      el('div', { class: 'flex-1 min-w-0' }, el('h3', { class: 'text-sm font-bold' }, 'Operations'), el('div', { class: 'text-[11px] text-muted-' }, 'Sun–Sat weeks · by office · FieldRoutes appointments, tickets and time clock + Service Pro upsells from the Indicators dataset' + (S.generatedAt ? ' · built ' + new Date(S.generatedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''))),
-      el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', background: 'var(--card)', maxWidth: '100%' }, onchange: (e) => { state._opsMetric = e.target.value; mountApp(); } },
-        ...[...new Set(METRICS.map(m => m.group))].map(g => el('optgroup', { label: g }, ...METRICS.filter(m => m.group === g).map(m => el('option', { value: m.key, selected: m.key === mKey }, m.label))))),
-      el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
-        ...[['week', 'Weeks'], ['month', 'Months']].map(([v, l]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-bold transition', style: v === view ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._opsView = v; mountApp(); } }, l))),
-      view === 'week' && weeks.length > 14 ? el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._opsAllWeeks = !state._opsAllWeeks; mountApp(); } }, state._opsAllWeeks ? 'Last 14 weeks' : 'All ' + weeks.length + ' weeks') : null,
-      kick),
-    el('div', { class: 'card overflow-hidden' },
-      el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-2 flex-wrap', style: { borderColor: 'var(--border)' } },
-        el('div', {}, el('h3', { class: 'text-sm font-bold' }, M.label), el('div', { class: 'text-[11px] text-muted-' }, (M.note || '') + (M.rate ? '' : ' · YTD = weekly average of completed weeks'))),
-        el('div', { class: 'text-[10px] text-muted-' }, 'Current period is live and partial')),
-      el('div', { class: 'scroll-x' }, table)),
+    el('div', { class: 'card p-4 flex flex-col gap-3' },
+      el('div', { class: 'flex items-center gap-3 flex-wrap' },
+        el('div', { class: 'flex-1 min-w-0' }, el('h3', { class: 'text-sm font-bold' }, 'Operations · ' + scopeName), el('div', { class: 'text-[11px] text-muted-' }, 'Sun–Sat weeks · FieldRoutes appointments, tickets and time clock + Service Pro upsells from the Indicators dataset' + (S.generatedAt ? ' · built ' + new Date(S.generatedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '') + ' · refreshes every 6 hours · current period is live and partial · YTD = weekly average of completed weeks (ratios as-is) · click a metric for the by-office split')),
+        el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+          ...[['week', 'Weeks'], ['month', 'Months']].map(([v, l]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-bold transition', style: v === view ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._opsView = v; mountApp(); } }, l))),
+        view === 'week' && weeks.length > 14 ? el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._opsAllWeeks = !state._opsAllWeeks; mountApp(); } }, state._opsAllWeeks ? 'Last 14 weeks' : 'All ' + weeks.length + ' weeks') : null),
+      officePills),
+    el('div', { class: 'card overflow-hidden' }, el('div', { class: 'scroll-x' }, table)),
     rtypeCard);
   return wrap;
 }
