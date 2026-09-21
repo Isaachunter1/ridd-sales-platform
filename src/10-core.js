@@ -4361,7 +4361,11 @@ function mountAuth(opts = {}) {
 
   // The room (design kit door.tsx): white, edge to edge, wordmark top left,
   // the app's name in mono top right, the form centred in a 320px column.
-  const room = el('main', { class: 'flex flex-col w-full', style: { minHeight: '100svh', background: '#fff', color: '#000', padding: '20px 20px' } },
+  // The room is its own fixed layer (per Isaac, Sep 2026): on phones a
+  // swipe-up on the login screen could scroll to whatever sat under it in
+  // the document. Fixed + inset 0 means the page itself has nothing to
+  // scroll; the room scrolls internally only when the keyboard needs it.
+  const room = el('main', { class: 'flex flex-col w-full', style: { position: 'fixed', inset: '0', overflowY: 'auto', overscrollBehavior: 'none', WebkitOverflowScrolling: 'touch', background: '#fff', color: '#000', padding: '20px 20px', zIndex: '50' } },
     el('header', { class: 'flex items-center justify-between' },
       (typeof riddmadeWordmark === 'function') ? riddmadeWordmark(150) : el('div', { class: 'font-display text-2xl' }, 'RIDDMADE'),
       el('span', { class: 'text-[11px] uppercase', style: { fontFamily: "'IBM Plex Mono', ui-monospace, monospace", letterSpacing: '.2em' } }, 'Sales')),
