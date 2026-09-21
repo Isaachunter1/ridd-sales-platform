@@ -1655,6 +1655,7 @@ async function loadReportingMetadata() {
     if (!state.reportingActiveUploadId && state.reportingUploads.length) {
       state.reportingActiveUploadId = state.reportingUploads[0].id;
     }
+    state._reportingLatestId = state.reportingUploads.length ? state.reportingUploads[0].id : null;
   } catch (err) {
     healthReport('settings', false, err);
   }
@@ -3673,6 +3674,23 @@ async function resyncFromCloud(reason) {
   // Calendar: only when nothing local is waiting to push (a pending
   // debounced edit would otherwise be clobbered by the server copy).
   if (typeof _calFp === 'function' && _calFp() === _calCloudFp) safe(() => loadCalendarFromCloud());
+  // Reporting snapshot (provenance audit): the snapshot was loaded once per
+  // session and never refreshed, so Overview / Daily Pulse / Retention could
+  // sit on the morning's data all day. If a newer upload exists and the user
+  // is on "latest" (not pinned to an older snapshot), advance and prefetch.
+  safe(() => supabase.from('reporting_uploads').select('id, filename, row_count, uploaded_at').order('uploaded_at', { ascending: false }).limit(1).then(({ data }) => {
+    const newest = data && data[0]; if (!newest) return;
+    const onLatest = !state.reportingActiveUploadId || state.reportingActiveUploadId === state._reportingLatestId;
+    if (newest.id !== state._reportingLatestId) {
+      state.reportingUploads = [newest, ...(state.reportingUploads || []).filter(u => u.id !== newest.id)];
+      state._reportingLatestId = newest.id;
+      if (onLatest) {
+        state.reportingActiveUploadId = newest.id;
+        state._reportingPrefetching = false;
+        if (typeof prefetchReportingSnapshot === 'function') prefetchReportingSnapshot();
+      }
+    }
+  }));
   // Scorecards: drop the per-period cache so the next render refetches.
   state._scorecardCloudFor = null;
   if (typeof loadScorecardMeetingsCloud === 'function') safe(() => loadScorecardMeetingsCloud(true));
