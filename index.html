@@ -355,6 +355,8 @@
     .pricing-quote .pricing-qgrid { grid-template-columns: minmax(0, 1fr) !important; }   /* totals block drops under the lines in the narrow column */
     .pricing-quote .pricing-qgrid > div:last-child { min-width: 0 !important; }
   }
+  /* Churn Timing (Retention): the heatmap spans two of three columns on desktop, full width on phones. */
+  @media (max-width: 1023px) { .churn-heat-col { grid-column: auto !important; } }
   .overflow-x-clip- { overflow-x: clip; }
   /* Quote states (per Isaac, Sep 2026): an EMPTY quote is one compact row;
      once something is selected the full receipt shows. On phones, scrolling

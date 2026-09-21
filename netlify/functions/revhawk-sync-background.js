@@ -230,6 +230,9 @@ SELECT
   cxl.reason AS subscription_cancellation_reason,
   CASE WHEN s.fieldRoutes_dateCancelled IS NULL OR s.fieldRoutes_dateCancelled LIKE '0000%'
        THEN NULL ELSE LEFT(s.fieldRoutes_dateCancelled,10) END AS subscription_date_canceled,
+  -- Full cancel timestamp (company clock, like sold_at) — Retention's churn-by-hour/day view.
+  CASE WHEN s.fieldRoutes_dateCancelled IS NULL OR s.fieldRoutes_dateCancelled LIKE '0000%'
+       THEN NULL ELSE LEFT(s.fieldRoutes_dateCancelled,19) END AS canceled_at,
   s.fieldRoutes_activeText AS subscription_status,
   s.fieldRoutes_initialStatusText AS initial_status,
   CASE WHEN s.fieldRoutes_initialStatusText='Completed'

@@ -1640,6 +1640,99 @@ function reportingWaterfall() {
   // seasonality grid (cancels ÷ true book at month start, same-month
   // acquire-lose excluded), just drawn as lines.
   const LAST_RESORT_START = '2026-06-05';
+  // ── CHURN TIMING (per Isaac, Sep 2026) — WHEN cancels get keyed in:
+  // day-of-week × hour heatmap of counted cancels, with the two marginals
+  // (by weekday, by hour). Hours are the branch's local clock (the sync
+  // stamps canceled_at on the company clock, shifted per office the same
+  // way sold_at is on the War Room). Window + reason pills; Subs / ARR.
+  // Automated cancels (collections runs) show up as a single hot hour —
+  // the reason pill lets you take them out to see the human pattern. ──
+  const churnTimingCard = (pop, label) => {
+    const rows = _retenEff(pop).filter(r => r._effCancel);
+    const stamped = rows.filter(r => r.canceled_at && /^\d{4}-\d{2}-\d{2} \d{2}/.test(String(r.canceled_at)));
+    const title = el('h3', { class: 'text-sm font-bold' }, 'Churn Timing' + (label ? ' — ' + label : ''));
+    if (!stamped.length) {
+      return el('div', { class: 'card overflow-hidden' },
+        el('div', { class: 'px-4 py-3 border-b', style: { borderColor: 'var(--border)' } }, title),
+        el('div', { class: 'px-4 py-6 text-center text-[11px]', style: { color: 'var(--text-muted)' } }, 'Cancel times arrive with the next FieldRoutes sync (the snapshot only carried the cancel date until now).'));
+    }
+    const WIN = [[90, 'Last 90 days'], [365, 'Last 12 months'], ['ytd', 'YTD'], ['all', 'All time']];
+    const win = WIN.some(w => w[0] === state._rtChurnWin) ? state._rtChurnWin : 90;
+    const mode = state._rtChurnMode === 'arr' ? 'arr' : 'subs';
+    const today = new Date(); const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    const since = win === 'all' ? '0000' : win === 'ytd' ? today.getFullYear() + '-01-01' : iso(new Date(today.getTime() - (win - 1) * 86400000));
+    const inWin = stamped.filter(r => r._effCancel >= since);
+    // Reason pills: every reason in the window, biggest first; "All" plus one-click exclude of the top automated one.
+    const reasonOf = (r) => String(reportingCancelReasonOf(r) || 'Unspecified').trim() || 'Unspecified';
+    const byReason = new Map(); inWin.forEach(r => byReason.set(reasonOf(r), (byReason.get(reasonOf(r)) || 0) + 1));
+    const reasons = [...byReason.entries()].sort((a, b) => b[1] - a[1]);
+    const rsel = state._rtChurnReason || 'all';
+    const excl = state._rtChurnExcl || null;   // one reason hidden (e.g. collections)
+    const use = inWin.filter(r => (rsel === 'all' || reasonOf(r) === rsel) && (!excl || reasonOf(r) !== excl));
+    const val = (r) => mode === 'arr' ? (Number(r.annual_recurring_value) || 0) : 1;
+    const fmtV = (v) => mode === 'arr' ? fmt.usdShort(v) : fmt.int(v);
+    // Local day/hour.
+    const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const local = (r) => { const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/.exec(String(r.canceled_at)); if (!m) return null; const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]) + ((typeof _saleHourOffset === 'function') ? _saleHourOffset(r.office_name) : 0), Number(m[5])); return { day: (d.getDay() + 6) % 7, hour: d.getHours() }; };
+    const grid = DAYS.map(() => Array(24).fill(0)), gridRows = DAYS.map(() => Array.from({ length: 24 }, () => []));
+    const byDay = Array(7).fill(0), byHour = Array(24).fill(0);
+    let tot = 0;
+    for (const r of use) { const l = local(r); if (!l) continue; const v = val(r); grid[l.day][l.hour] += v; gridRows[l.day][l.hour].push(r); byDay[l.day] += v; byHour[l.hour] += v; tot += v; }
+    const max = Math.max(1, ...grid.map(a => Math.max(...a)));
+    // Hours shown: 6a–9p always; earlier/later only when something landed there.
+    const hours = []; for (let h = 0; h < 24; h++) if ((h >= 6 && h <= 21) || byHour[h] > 0) hours.push(h);
+    const hl = (h) => h === 0 ? '12a' : h === 12 ? '12p' : h < 12 ? h + 'a' : (h - 12) + 'p';
+    const isDark = state.theme === 'dark';
+    const cellBg = (v) => { if (!v) return 'transparent'; const t = Math.pow(v / max, 0.6); return 'rgba(223,100,58,' + (0.12 + 0.78 * t).toFixed(3) + ')'; };
+    const cellFg = (v) => (v / max) > 0.55 ? '#fff' : 'var(--text)';
+    const drill = (title2, rs) => rs.length ? () => openReportingDrillModal({ chartTitle: 'Churn timing · ' + title2, sliceLabel: rs.length + ' counted cancel' + (rs.length === 1 ? '' : 's'), rows: rs, formatValue: fmt.usd0 }) : null;
+    const pill = (on, txt, fn, ttl) => el('button', { class: 'rounded-full px-2 py-0.5 text-[10px] font-bold transition hover:brightness-95 shrink-0', title: ttl || '', style: on ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: fn }, txt);
+    const controls = el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
+      ...WIN.map(([k, l]) => pill(win === k, l, () => { state._rtChurnWin = k; mountApp(); })),
+      el('span', { style: { width: '6px' } }),
+      pill(mode === 'subs', 'Subs', () => { state._rtChurnMode = 'subs'; mountApp(); }), pill(mode === 'arr', 'ARR', () => { state._rtChurnMode = 'arr'; mountApp(); }));
+    const reasonSel = el('select', { class: 'rounded-lg border px-2 py-0.5 text-[10px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', maxWidth: '220px' },
+      onchange: (e) => { state._rtChurnReason = e.target.value; state._rtChurnExcl = null; mountApp(); } },
+      el('option', { value: 'all', selected: rsel === 'all' }, 'All reasons (' + inWin.length + ')'),
+      ...reasons.map(([k, n]) => el('option', { value: k, selected: rsel === k }, k + ' (' + n + ')')));
+    const topReason = reasons[0] ? reasons[0][0] : null;
+    const exclBtn = rsel === 'all' && topReason ? pill(excl === topReason, (excl === topReason ? 'Showing without ' : 'Hide ') + topReason, () => { state._rtChurnExcl = excl === topReason ? null : topReason; mountApp(); }, 'Automated cancel runs land on one hour — take the biggest reason out to see the human pattern') : null;
+    const th = (t) => el('th', { class: 'px-1 py-1 text-[9px] uppercase tracking-wider font-semibold text-center', style: { color: 'var(--text-muted)' } }, t);
+    const heat = el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full', style: { borderCollapse: 'separate', borderSpacing: '2px', fontSize: '10px' } },
+      el('thead', {}, el('tr', {}, el('th', {}), ...hours.map(h => th(hl(h))), th('Total'))),
+      el('tbody', {}, ...DAYS.map((d, di) => el('tr', {},
+        el('td', { class: 'px-1 text-[10px] font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)' } }, d),
+        ...hours.map(h => { const v = grid[di][h], fn = drill(d + ' ' + hl(h), gridRows[di][h]); return el('td', { class: 'text-center tabular-nums', title: d + ' ' + hl(h) + ' · ' + fmtV(v) + (tot ? ' · ' + (100 * v / tot).toFixed(1) + '% of the window' : ''), style: { background: cellBg(v), color: cellFg(v), borderRadius: '3px', height: '26px', minWidth: '30px', cursor: fn ? 'pointer' : 'default', border: '1px solid ' + (v ? 'transparent' : 'var(--border)') }, onclick: fn }, v ? fmtV(v) : ''); }),
+        (() => { const v = byDay[di], fn = drill(d, gridRows[di].flat()); return el('td', { class: 'text-center tabular-nums font-bold', style: { cursor: fn ? 'pointer' : 'default', color: 'var(--text)' }, onclick: fn }, v ? fmtV(v) : ''); })())),
+        el('tr', {}, el('td', { class: 'px-1 text-[10px] font-bold', style: { color: 'var(--text-muted)' } }, 'Total'),
+          ...hours.map(h => { const v = byHour[h], fn = drill(hl(h), gridRows.map(a => a[h]).flat()); return el('td', { class: 'text-center tabular-nums font-bold', style: { cursor: fn ? 'pointer' : 'default' }, onclick: fn }, v ? fmtV(v) : ''); }),
+          el('td', { class: 'text-center tabular-nums font-black' }, fmtV(tot))))));
+    // Marginal bars (Chart.js): share by weekday and by hour.
+    const idD = 'churn-dow-' + (label || 'a').replace(/\W+/g, ''), idH = 'churn-hour-' + (label || 'a').replace(/\W+/g, '');
+    const bars = (id, ttl) => el('div', {}, el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-1', style: { color: 'var(--text-subtle)' } }, ttl), el('div', { style: { height: '120px' } }, el('canvas', { id })));
+    setTimeout(() => {
+      if (typeof Chart === 'undefined') return;
+      const txt = isDark ? '#C9C9BE' : '#555', gridc = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
+      const mk = (id, labels, data, onIdx) => { const c = document.getElementById(id); if (!c) return; if (_chartInstances[id]) { _chartInstances[id].destroy(); delete _chartInstances[id]; }
+        const mx = Math.max(...data), hi = data.map(v => v === mx && mx > 0 ? '#DF643A' : (isDark ? '#7C857A' : '#5F6C5B'));
+        _chartInstances[id] = new Chart(c.getContext('2d'), { type: 'bar', data: { labels, datasets: [{ data, backgroundColor: hi, borderWidth: 0, borderRadius: 3, maxBarThickness: 22 }] },
+          options: { responsive: true, maintainAspectRatio: false, onClick: (e, els) => { if (els && els.length) onIdx(els[0].index); },
+            plugins: { legend: { display: false }, tooltip: { callbacks: { label: (x) => ' ' + fmtV(x.parsed.y) + (tot ? ' · ' + (100 * x.parsed.y / tot).toFixed(1) + '%' : '') } } },
+            scales: { x: { grid: { display: false }, ticks: { color: txt, font: { size: 9 }, autoSkip: false, maxRotation: 0 } }, y: { beginAtZero: true, grid: { color: gridc }, ticks: { color: txt, font: { size: 9 }, callback: (v) => fmtV(v), maxTicksLimit: 4 } } } } }); };
+      mk(idD, DAYS, byDay, (i) => { const fn = drill(DAYS[i], gridRows[i].flat()); if (fn) fn(); });
+      mk(idH, hours.map(hl), hours.map(h => byHour[h]), (i) => { const h = hours[i]; const fn = drill(hl(h), gridRows.map(a => a[h]).flat()); if (fn) fn(); });
+    }, 50);
+    // One-line read: the busiest day and hour.
+    const bd = byDay.indexOf(Math.max(...byDay)), bh = byHour.indexOf(Math.max(...byHour));
+    const read = tot ? DAYS[bd] + ' is the heaviest day (' + (100 * byDay[bd] / tot).toFixed(0) + '%) and ' + hl(bh) + ' the heaviest hour (' + (100 * byHour[bh] / tot).toFixed(0) + '%)' + (excl ? ' · ' + excl + ' hidden' : '') : 'Nothing in this window.';
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+        el('div', {}, title, el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'when counted cancels were keyed in · branch local time · ' + read)),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' }, controls, reasonSel, exclBtn)),
+      el('div', { class: 'grid grid-cols-1 lg:grid-cols-3 gap-4 p-4 items-start' },
+        el('div', { style: { gridColumn: 'span 2 / span 2' }, class: 'churn-heat-col' }, heat),
+        el('div', { class: 'flex flex-col gap-3' }, bars(idD, 'By weekday'), bars(idH, 'By hour'))));
+  };
   const attritionTrendsCard = (pop, label) => {
     const rows = _retenEff(pop);
     if (!rows.length) return null;
@@ -1958,6 +2051,7 @@ function reportingWaterfall() {
     // wraps underneath instead of both squeezing side by side.
     // (Cohort matrix hidden per Isaac, Sep 2026 — renderMatrix stays for when it comes back.)
     _shell('Attrition Trends', _pm('ret:trends', () => attritionTrendsCard(pop, label))),   // right under Attrition Steps (per Isaac, Sep 2026)
+    _shell('Churn Timing', _pm('ret:timing', () => churnTimingCard(pop, label))),
     _shell('Customer Lifetime', lifetimeCard),                       // Customer Lifetime follows the trends chart (per Isaac)
     _shell('Cohort Waterfall', _pm('ret:blended', () => renderBlended(pop))),
     _shell('Monthly Churn', _pm('ret:seasonality', () => seasonalityCard(pop, label))),
