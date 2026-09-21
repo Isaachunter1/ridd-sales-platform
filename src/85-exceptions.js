@@ -38,7 +38,7 @@ function exceptionFeedItems(scope) {
   // Which checks feed the card (per Isaac, Sep 2026): quiet reps, failed
   // audits and aging pending are retired — the card is being repurposed on
   // the Marketing tab. Data health and attrition spikes stay for now.
-  const ON = new Set(['data', 'attrition']);
+  const ON = new Set(['data']);   // attrition retired too (per Isaac) — the card is now the CRM reconciliation list
   // 1. Data health — anything a sync reported broken in the last 3 hours.
   const bad = (typeof healthWorst === 'function') ? healthWorst() : [];
   if (ON.has('data')) for (const h of bad) items.push({ sev: 'red', tag: 'Data', text: h.label + ': ' + (h.msg || 'not healthy'), action: 'Details', onClick: () => openHealthSheet() });
@@ -131,7 +131,73 @@ function exceptionFeedItems(scope) {
     if (aging) items.push({ sev: 'amber', tag: 'Pending', text: aging + ' account' + (aging === 1 ? '' : 's') + ' sold 14+ days ago still waiting on the first service (' + fmt.usd0(agingArr) + ' ARR)',
       action: _adm ? 'Retention' : 'Indicators', onClick: go('reporting', null, 'waterfall') });
   }
+
+  // 6–8. CRM reconciliation (per Isaac, Sep 2026) — the Monday checks, as
+  // three items: Location, Source, Cancellation. Each opens the account list
+  // with the reason on every row (and the location columns) so it can be
+  // fixed in FieldRoutes straight from the drill.
+  if (_adm && subs.length) {
+    const rec = crmReconciliationChecks(subs);
+    const mk = (tag, label, rows, action) => {
+      if (!rows.length) return;
+      const recent = rows.filter(r => r.sold_date && r.sold_date >= d30).length;
+      items.push({ sev: recent ? 'red' : 'amber', tag, text: rows.length + ' ' + label + (recent ? ' \u00b7 ' + recent + ' sold in the last 30 days' : ''), action: 'Review',
+        onClick: () => openReportingDrillModal({ chartTitle: 'CRM fixes \u00b7 ' + tag, sliceLabel: rows.length + ' account' + (rows.length === 1 ? '' : 's') + ' \u00b7 newest first', rows, formatValue: fmt.usd0 }) });
+    };
+    mk('Location', 'account' + (rec.location.length === 1 ? '' : 's') + ' whose state doesn\u2019t fit the branch', rec.location);
+    mk('Source', 'subscription' + (rec.source.length === 1 ? '' : 's') + ' sourced wrong for who sold them', rec.source);
+    mk('Cancellation', 'cancel reason' + (rec.cancel.length === 1 ? '' : 's') + ' that can\u2019t be right', rec.cancel);
+  }
   return items;
+}
+
+// ── CRM reconciliation checks (per Isaac, Sep 2026) ───────────────────
+// What he looks for every Monday, computed off the reporting snapshot:
+//  Location — a customer whose state isn't one of the branch's home states
+//    (home = any state holding at least 1% of the branch's customers, min
+//    25 accounts, so Charleston keeps SC+GA and Myrtle Beach SC+NC) or a
+//    blank state. (A blank county only ever shows on accounts that never
+//    started, so it isn't flagged; country isn't in the export yet.)
+//  Source — Technicians must be "Upsell - Service Pro"; Sales Reps must be
+//    "Door to Door" or "Upsell - Termite Pro"; Office Staff must NOT be
+//    "Door to Door", "N/A" or blank (the defaults reps forget to change).
+//    Accounts whose seller type FieldRoutes doesn't know are skipped.
+//  Cancellation — "Sold, Not Started (No Initial)" on an account whose
+//    initial was completed (or that has completed services), and the
+//    retired "Expired Subscription" reason.
+// Rows come back as copies with _flagReason so the standard drill shows it.
+function crmReconciliationChecks(subs) {
+  const out = { location: [], source: [], cancel: [] };
+  const flag = (r, why) => Object.assign({}, r, { _flagReason: why });
+  const newest = (a, b) => String(b.sold_date || '').localeCompare(String(a.sold_date || ''));
+  // Home states per branch.
+  const byOff = new Map();
+  for (const r of subs) { const o = (r.office_name || '').trim(); if (!o) continue; const st = String(r.state || '').trim().toUpperCase(); const m = byOff.get(o) || (byOff.set(o, { n: 0, st: {} }), byOff.get(o)); m.n++; if (st) m.st[st] = (m.st[st] || 0) + 1; }
+  const home = new Map();
+  for (const [o, m] of byOff) home.set(o, new Set(Object.entries(m.st).filter(([, n]) => n >= 25 && n / m.n >= 0.01).map(([k]) => k)));
+  const TYPE = (r) => String(r.sold_by_type || '').trim().toLowerCase();
+  const SRC = (r) => String(r.subscription_source || '').trim();
+  const norm = (v) => String(v || '').trim().toLowerCase();
+  const initialDone = (r) => /completed/i.test(String(r.initial_status || '')) || (Number(r.subscription_completed_services) || 0) > 0;
+  for (const r of subs) {
+    const o = (r.office_name || '').trim();
+    // Location
+    const st = String(r.state || '').trim().toUpperCase();
+    const hs = home.get(o);
+    if (!st) out.location.push(flag(r, 'No state on the customer'));
+    else if (hs && hs.size && !hs.has(st)) out.location.push(flag(r, st + ' is not a ' + o + ' state (' + [...hs].join('/') + ')'));
+    // Source
+    const t = TYPE(r), src = SRC(r), ns = norm(src);
+    if (t === 'technician') { if (ns !== 'upsell - service pro') out.source.push(flag(r, 'Technician sale sourced "' + (src || 'blank') + '" \u2014 should be Upsell - Service Pro')); }
+    else if (t === 'sales rep') { if (ns !== 'door to door' && ns !== 'upsell - termite pro') out.source.push(flag(r, 'Sales Rep sale sourced "' + (src || 'blank') + '" \u2014 should be Door to Door or Upsell - Termite Pro')); }
+    else if (t === 'office staff') { if (ns === 'door to door' || ns === 'n/a' || ns === '') out.source.push(flag(r, 'Office Staff sale left on the default source "' + (src || 'blank') + '"')); }
+    // Cancellation
+    const reason = String(r.subscription_cancellation_reason || '').trim();
+    if (/sold,?\s*not\s*started/i.test(reason) && initialDone(r)) out.cancel.push(flag(r, 'Sold, Not Started but the initial was completed' + ((Number(r.subscription_completed_services) || 0) > 0 ? ' (' + r.subscription_completed_services + ' service' + (Number(r.subscription_completed_services) === 1 ? '' : 's') + ')' : '')));
+    else if (/expired\s*subscription/i.test(reason)) out.cancel.push(flag(r, '"Expired Subscription" is a retired cancel reason'));
+  }
+  out.location.sort(newest); out.source.sort(newest); out.cancel.sort(newest);
+  return out;
 }
 
 // The card. Collapsed to one line by default (per the product constraint —
@@ -147,7 +213,7 @@ function exceptionFeedCard() {
   const head = el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', onclick: () => { state._excOpen = !open; mountApp(); } },
     el('span', { class: 'inline-block rounded-full', style: { width: '8px', height: '8px', background: !items.length ? 'var(--ok)' : reds ? '#DC2626' : '#D97706' } }),
     el('span', { class: 'text-[11px] uppercase tracking-widest font-bold' }, 'Needs attention'),
-    el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, !items.length ? 'Nothing flagged — data feeds and attrition look normal.' : items.length + ' item' + (items.length === 1 ? '' : 's') + (open ? '' : ' · ' + items.slice(0, 2).map(i => i.tag).join(', ') + (items.length > 2 ? '…' : ''))),
+    el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, !items.length ? 'Nothing flagged — data feeds are healthy and the CRM checks (location, source, cancel reason) are clean.' : items.length + ' item' + (items.length === 1 ? '' : 's') + (open ? '' : ' · ' + items.slice(0, 2).map(i => i.tag).join(', ') + (items.length > 2 ? '…' : ''))),
     el('span', { class: 'ml-auto text-[11px]', style: { color: 'var(--text-muted)' } }, open ? '▴' : '▾'));
   const rows = open && items.length ? el('div', { class: 'border-t', style: { borderColor: 'var(--border)' } }, ...items.map(i => el('div', { class: 'flex items-start gap-3 px-4 py-2 border-t text-xs', style: { borderColor: 'var(--border)' } },
     el('span', { class: 'text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded shrink-0 mt-0.5', style: { background: i.sev === 'red' ? 'rgba(220,38,38,.12)' : 'rgba(217,119,6,.14)', color: i.sev === 'red' ? '#DC2626' : '#B45309', minWidth: '58px', textAlign: 'center' } }, i.tag),
