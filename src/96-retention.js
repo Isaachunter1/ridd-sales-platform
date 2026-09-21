@@ -2073,8 +2073,7 @@ function reportingWaterfall() {
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
         el('div', {},
-          el('div', { class: 'font-display text-lg' }, dim === 'source' ? 'Attrition by Source' : dim === 'contract' ? 'Attrition by Contract Length' : dim === 'rep' ? 'Attrition by Rep' : 'Attrition by Rep Type'),
-          el('div', { class: 'text-[11px] text-muted-' }, (dim === 'source' ? 'Where the account CAME FROM \u00b7 ' : dim === 'contract' ? 'Agreement length on the subscription \u00b7 ' : dim === 'rep' ? 'The rep who sold it \u00b7 \u201cFormer rep #id\u201d = inactive in FieldRoutes, so the CRM export carries no name \u00b7 ' : 'Who SOLD the account \u00b7 ') + (_rtYear === 'all' ? 'all years in the book' : 'sold in ' + _rtYear + ', cancels to date') + ' \u00b7 same population and cancel rules as this tab' + (office !== 'all' ? ' \u00b7 ' + officeLabel : '') + '.')),
+          el('div', { class: 'font-display text-lg', title: (dim === 'source' ? 'Where the account CAME FROM \u00b7 ' : dim === 'contract' ? 'Agreement length on the subscription \u00b7 ' : dim === 'rep' ? 'The rep who sold it \u00b7 \u201cFormer rep #id\u201d = inactive in FieldRoutes, so the CRM export carries no name \u00b7 ' : 'Who SOLD the account \u00b7 ') + (_rtYear === 'all' ? 'all years in the book' : 'sold in ' + _rtYear + ', cancels to date') + ' \u00b7 same population and cancel rules as this tab' + (office !== 'all' ? ' \u00b7 ' + officeLabel : '') + '.' }, dim === 'source' ? 'Attrition by Source' : dim === 'contract' ? 'Attrition by Contract Length' : dim === 'rep' ? 'Attrition by Rep' : 'Attrition by Rep Type')),
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
           el('select', {
             class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
@@ -2082,8 +2081,7 @@ function reportingWaterfall() {
             onchange: (e) => { state._rtAttrYear = e.target.value === 'all' ? 'all' : Number(e.target.value); mountApp(); },
           },
             el('option', { value: 'all', selected: _rtYear === 'all' }, 'All years'),
-            ..._rtYears.map(y => el('option', { value: String(y), selected: _rtYear === y }, 'Sold ' + y))),
-          el('span', { class: 'text-[10px] text-muted-' }, fmt.int(total.subs) + ' in the retention book'))),
+            ..._rtYears.map(y => el('option', { value: String(y), selected: _rtYear === y }, 'Sold ' + y))))),
       !total.subs ? el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'No accounts in this cohort under the current rules.') :
       el('div', { style: { overflow: 'auto', maxHeight: (dim === 'source' || dim === 'rep') ? '460px' : 'none' } }, el('table', { class: 'w-full text-xs' },
         el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: 0, zIndex: 1 } }, el('tr', { style: { background: 'var(--card-2)' } },
@@ -2191,8 +2189,7 @@ function reportingWaterfall() {
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
         el('div', {},
-          el('div', { class: 'font-display text-lg' }, 'Attrition by Source'),
-          el('div', { class: 'text-[11px] text-muted-' }, 'Where the account CAME FROM · ' + (_rtYear === 'all' ? 'all years in the book' : 'sold in ' + _rtYear) + (office !== 'all' ? ' · ' + officeLabel(office) : '') + ' · ROR % and Delinq % are measured on every serviced sub from the source, the rest on the retention book. Click a column to sort, a row for the cancels.')),
+          el('div', { class: 'font-display text-lg', title: 'Where the account CAME FROM · ' + (_rtYear === 'all' ? 'all years in the book' : 'sold in ' + _rtYear) + (office !== 'all' ? ' · ' + officeLabel(office) : '') + ' · ROR % and Delinq % are measured on every serviced sub from the source, the rest on the retention book. Click a column to sort, a row for the cancels.' }, 'Attrition by Source')),
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
           el('select', {
             class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
@@ -2200,8 +2197,7 @@ function reportingWaterfall() {
             onchange: (e) => { state._rtAttrYear = e.target.value === 'all' ? 'all' : Number(e.target.value); mountApp(); },
           },
             el('option', { value: 'all', selected: _rtYear === 'all' }, 'All years'),
-            ..._rtYears.map(y => el('option', { value: String(y), selected: _rtYear === y }, 'Sold ' + y))),
-          el('span', { class: 'text-[10px] text-muted-' }, fmt.int(total.subs) + ' in the retention book'))),
+            ..._rtYears.map(y => el('option', { value: String(y), selected: _rtYear === y }, 'Sold ' + y))))),
       !total.subs ? el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'No accounts in this cohort under the current rules.') :
       el('div', { style: { overflow: 'auto', maxHeight: '520px' } }, el('table', { class: 'w-full text-xs' },
         el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: 0, zIndex: 1 } }, el('tr', { style: { background: 'var(--card-2)' } }, ...COLS.map(th))),
@@ -2305,8 +2301,7 @@ function reportingWaterfall() {
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
         el('div', {},
-          el('div', { class: 'font-display text-lg' }, 'Renewal Retention' + (office !== 'all' ? ' · ' + officeLabel(office) : '')),
-          el('div', { class: 'text-[11px] text-muted-' }, 'Renewal subscriptions with a completed service, by ' + (grp === 'year' ? 'the year the renewal was sold' : 'renewal type') + ' · same population and cancel rules as this tab · Sentricon excluded. Age at renewal = months as a customer when the renewal was sold; Age today = months as a customer now (or at cancel). Month-to-month = reached contract end and kept going without renewing.')),
+          el('div', { class: 'font-display text-lg', title: 'Renewal subscriptions with a completed service, by ' + (grp === 'year' ? 'the year the renewal was sold' : 'renewal type') + ' · same population and cancel rules as this tab · Sentricon excluded. Age at renewal = months as a customer when the renewal was sold; Age today = months as a customer now (or at cancel). Month-to-month = reached contract end and kept going without renewing.' }, 'Renewal Retention' + (office !== 'all' ? ' · ' + officeLabel(office) : ''))),
         el('div', { class: 'flex items-center gap-1' }, btn(grp === 'type', 'By type', () => { state._rtRenewGroup = 'type'; mountApp(); }), btn(grp === 'year', 'By year', () => { state._rtRenewGroup = 'year'; mountApp(); }))),
       el('div', { class: 'scroll-x' },
         el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
@@ -2470,14 +2465,17 @@ function reportingWaterfall() {
     const dim = DIMS.some(d => d[0] === state._rtAttrDim) ? state._rtAttrDim : 'source';
     const card = dim === 'source' ? sourceAttritionCard : _attritionByCard(dim);
     if (!card) return null;
+    // Title reads "Attrition Indicators"; the dimension picker sits on the
+    // right beside the year picker (per Isaac, Sep 2026). No description line.
     const title = card.querySelector('.font-display');
-    if (title) title.replaceWith(el('div', { class: 'flex items-center gap-2 flex-wrap' },
-      el('span', { class: 'font-display text-lg' }, 'Attrition by'),
-      el('select', {
-        class: 'rounded-lg border px-2.5 py-1 text-[12px] font-bold cursor-pointer',
-        style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-        onchange: (e) => { state._rtAttrDim = e.target.value; mountApp(); },
-      }, ...DIMS.map(([v, l]) => el('option', { value: v, selected: dim === v }, l)))));
+    if (title) title.textContent = 'Attrition Indicators';
+    const dimSel = el('select', {
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      onchange: (e) => { state._rtAttrDim = e.target.value; mountApp(); },
+    }, ...DIMS.map(([v, l]) => el('option', { value: v, selected: dim === v }, l)));
+    const right = title && title.parentElement && title.parentElement.nextElementSibling;
+    if (right && right.classList.contains('flex')) right.prepend(dimSel); else if (title) title.after(dimSel);
     return card;
   })();
   return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, body, attritionByCard, renewalRetentionCard);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
