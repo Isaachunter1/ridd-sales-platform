@@ -85,7 +85,7 @@ function openRcItemModal(i) {
   const out = i.stock != null && i.stock <= 0;
   const cant = myBal < i.cost;
   let idx = 0;
-  const overlay = el('div', { class: 'fixed inset-0 bg-black/70 z-40 flex items-start justify-center p-4 overflow-y-auto' });
+  const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   const mainImg = el('div', { style: { width: '100%', aspectRatio: '1 / 1', borderRadius: '0', background: 'var(--card-2)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' } });
   const thumbsRow = el('div', { class: 'flex items-center gap-1.5 mt-2 flex-wrap' });
@@ -127,7 +127,7 @@ function openRcUserHistory(uid) {
   const names = state._rcNames || {};
   const rows = (state._rcLedger || []).filter(r => r.user_id === uid);
   const bal = rows.reduce((a2, r) => a2 + (Number(r.delta) || 0), 0);
-  const overlay = el('div', { class: 'fixed inset-0 bg-black/70 z-40 flex items-start justify-center p-4 overflow-y-auto' });
+  const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   overlay.append(el('div', { class: 'card p-5 w-full', style: { maxWidth: '640px' } },
     el('div', { class: 'flex items-center justify-between gap-3 mb-3' },

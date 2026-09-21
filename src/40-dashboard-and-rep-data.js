@@ -2009,7 +2009,7 @@ function openCrmReconcileModal() {
     resBox.textContent = report;
     if (copyBtn) { copyBtn.style.display = ''; copyBtn.onclick = () => { navigator.clipboard.writeText(report); copyBtn.textContent = 'Copied ✓'; setTimeout(() => { copyBtn.textContent = 'Copy report'; }, 1500); }; }
   };
-  const overlay = el('div', { class: 'fixed inset-0 bg-black/70 z-40 flex items-start justify-center p-4 overflow-y-auto' });
+  const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   const ta = el('textarea', {
     class: 'w-full rounded-lg border p-2 text-xs', rows: '6',

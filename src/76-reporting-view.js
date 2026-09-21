@@ -305,8 +305,9 @@ function reportingCustomerHealth() {
   scored.sort((a, b) => b.score - a.score || b.arr - a.arr);
 
   const BUCKETS = [
+    // One colour per bucket, worst → best: red, rust, orange (attention), sage (good).
     ['critical', 'Critical', '#DC2626'], ['atrisk', 'At Risk', '#A9441F'],
-    ['watch', 'Watch', '#A9441F'], ['healthy', 'Healthy', '#DF643A'],
+    ['watch', 'Watch', '#DF643A'], ['healthy', 'Healthy', '#5F6C5B'],
   ];
   const bucketAgg = {};
   BUCKETS.forEach(([k]) => bucketAgg[k] = { n: 0, arr: 0 });
