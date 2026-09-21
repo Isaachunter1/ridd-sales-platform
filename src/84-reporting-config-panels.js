@@ -13,7 +13,7 @@ function openInfoModal(title, body) {
   const card = el('div', { class: 'card w-full max-w-md my-8 overflow-hidden flex flex-col' },
     el('div', { class: 'flex items-start justify-between gap-3 p-4 pb-2' },
       el('h2', { class: 'text-base font-bold' }, title),
-      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×'),
+      el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: close }, '×'),
     ),
     el('div', { class: 'px-4 pb-4 text-[13px] leading-relaxed', style: { color: 'var(--text-muted)' } }, body),
   );
@@ -877,7 +877,7 @@ function _mktgMatrixCard(title, note, rows, cell, fmtFn, opts = {}) {
     el('div', { class: 'px-5 py-3 border-b flex items-start gap-4 gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
       el('div', {}, el('h3', { class: 'text-sm font-bold' }, title), note ? el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, note) : null),
       opts.headerExtra || null, monthPick),
-    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px] frozen-table' },
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs frozen-table' },
       el('thead', { style: { position: 'sticky', top: 0, zIndex: 2, background: 'var(--card)' } }, el('tr', {}, thL, ...monthIdx.map(i => _mktgTh(MKTG_MONTHS[i])), showTotal ? _mktgTh('Total') : null)),
       el('tbody', {}, ...rows.map(rowEl)))));
 }
@@ -1151,7 +1151,7 @@ function _mktgSpendEntry() {
       el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Ad spend allocation · ' + reportingMonthLbl(ym)),
         el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'branch × channel · this is the sheet the controller books from · saved for every admin')),
       el('div', { class: 'flex items-center gap-2 flex-wrap' }, monthSel, copyPrev, addChannel, addBranch, exportBtn)),
-    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px] frozen-table' },
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs frozen-table' },
       el('thead', {}, el('tr', {}, th('Office', false), ...channels.map(ch => th(ch)), th('Total'), th('Wages'), th('Incentives'))),
       el('tbody', {},
         ...B.all.map(b => el('tr', { class: 'border-t border-' },
@@ -1173,7 +1173,7 @@ function _mktgSpendEntry() {
     el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
       el('h3', { class: 'text-sm font-bold' }, 'Leads · ' + reportingMonthLbl(ym)),
       el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'hand-entered per channel · GoHighLevel count shown as a hint where it has the source')),
-    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px] frozen-table' },
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs frozen-table' },
       el('thead', {}, el('tr', {}, th('Channel', false), th('Leads'), th('GHL says'))),
       el('tbody', {}, ...channels.map(ch => el('tr', { class: 'border-t border-' },
         _mktgTd(ch, { left: true, bold: true }),
@@ -1201,7 +1201,7 @@ function _mktgProjections() {
     el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
       el('h3', { class: 'text-sm font-bold' }, 'Branch goals · ' + y),
       el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'revenue goal per branch · ad spend ' + Math.round(s.adSpendPct * 100) + '% · wages ' + Math.round(s.wagesPct * 100) + '% · incentives ' + Math.round(s.incentivesPct * 100) + '% (rates in Configurations)')),
-    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px] frozen-table' },
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs frozen-table' },
       el('thead', {}, el('tr', {}, _mktgTh('Office', false), _mktgTh('Revenue goal'), _mktgTh('Ad spend'), _mktgTh('Wages'), _mktgTh('Incentives'), _mktgTh('Total spend'), _mktgTh('Attrition %', true, 'Projected annual attrition — sets replacement revenue'), _mktgTh('YTD actual'), _mktgTh('% of goal'))),
       el('tbody', {},
         ...B.all.map(b => { const g = goal(b); const ytd = aRev(b, 0) + [1,2,3,4,5,6,7,8,9,10,11].reduce((t, i) => t + aRev(b, i), 0); return el('tr', { class: 'border-t border-' },
@@ -1222,7 +1222,7 @@ function _mktgProjections() {
     el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
       el('h3', { class: 'text-sm font-bold' }, 'Lead-partner spend plan · ' + y),
       el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'planned ad spend per channel per month · compare to Providers → Ad spend')),
-    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px] frozen-table' },
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs frozen-table' },
       el('thead', {}, el('tr', {}, _mktgTh('Channel', false), ...MKTG_MONTHS.map(mn => _mktgTh(mn)), _mktgTh('Total'))),
       el('tbody', {},
         ...channels.map(ch => el('tr', { class: 'border-t border-' },
@@ -1250,7 +1250,7 @@ function reportingMarketingGoalsPanel() {
   const num = (v, onSave, opts = {}) => el('input', { type: 'number', step: opts.step || '1', value: v == null ? '' : String(v), class: 'rounded-lg border px-2.5 py-1 text-[11px] text-left', style: { width: opts.w || '110px', borderColor: 'var(--border-2)' },
     onchange: (e) => { const x = parseFloat(e.target.value); onSave(isNaN(x) ? 0 : x); _mktgSave(); mountApp(); } });
   const row = (label, node, hint) => el('div', { class: 'flex items-center gap-4 gap-3 py-1.5 border-t', style: { borderColor: 'var(--border)' } },
-    el('div', { class: 'min-w-0' }, el('div', { class: 'text-[12px] font-semibold' }, label), hint ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, hint) : null), node);
+    el('div', { class: 'min-w-0' }, el('div', { class: 'text-xs font-semibold' }, label), hint ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, hint) : null), node);
   const pctIn = (get, set) => num(Math.round(get() * 100), (v) => set(v / 100), { w: '70px' });
   const isMonthly = (i) => s.isGoal * (s.seasonal[i] || 0), rnMonthly = (i) => s.renewalsGoal * (s.renewalSeasonal[i] || 0);
   const q = (arr, from) => arr.slice(from, from + 3).reduce((t, v) => t + v, 0);

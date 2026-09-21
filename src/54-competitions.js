@@ -15,15 +15,15 @@ function viewCompetitions() {
   container.append(
     el('div', {},
       el('h1', { class: 'text-3xl font-bold' }, 'Competitions'),
-      el('p', { class: 'text-battle-2 text-sm mt-1' }, 'Live progress on your active competitions.'),
+      el('p', { class: 'text-muted- text-sm mt-1' }, 'Live progress on your active competitions.'),
     ),
   );
 
   if (active.length === 0 && upcoming.length === 0) {
     container.append(el('div', { class: 'card p-10 text-center' },
-      el('div', { class: 'text-battle-2 text-sm mb-2' }, 'No competitions yet.'),
+      el('div', { class: 'text-muted- text-sm mb-2' }, 'No competitions yet.'),
       isAdminRole(state.profile?.role) && el('button', {
-        class: 'mt-2 px-2.5 py-1 rounded-xl bg-lime text-eerie font-semibold text-[11px]',
+        class: 'mt-2 px-2.5 py-1 rounded-xl font-semibold text-[11px]', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => { state.view = 'admin'; history.replaceState(null, '', VIEW_TO_HASH['admin'] || '#admin'); mountApp(); },
       }, 'Create one \u2192'),
     ));
@@ -59,14 +59,14 @@ function competitionCard(comp, { compact = false } = {}) {
     // Header
     el('div', { class: 'flex items-start justify-between gap-4 mb-4' },
       el('div', {},
-        el('div', { class: 'text-[10px] uppercase tracking-widest text-battleship' },
+        el('div', { class: 'text-[10px] uppercase tracking-widest text-muted-' },
           comp.category.replace('_', ' ') + ' · ' + comp.type + ' · ' + fmt.dateShort(comp.start_date) + ' → ' + fmt.dateShort(comp.end_date)),
         el('h2', { class: 'text-2xl font-bold mt-1' }, comp.name),
-        comp.description && el('p', { class: 'text-sm text-battle-2 mt-1 max-w-2xl' }, comp.description),
+        comp.description && el('p', { class: 'text-sm text-muted- mt-1 max-w-2xl' }, comp.description),
       ),
       el('div', { class: 'text-right shrink-0' },
-        el('div', { class: 'text-[10px] uppercase tracking-widest text-battleship' }, 'Prize'),
-        el('div', { class: 'text-lg font-bold text-lime' }, comp.prize_text || '—'),
+        el('div', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, 'Prize'),
+        el('div', { class: 'text-lg font-bold', style: { color: 'var(--accent)' } }, comp.prize_text || '—'),
       ),
     ),
 
@@ -87,7 +87,7 @@ function competitionCard(comp, { compact = false } = {}) {
               title: `${rule.label} — current: ${cv}/${rule.threshold}`,
             },
               el('div', { class: 'font-semibold' }, rule.label),
-              el('div', { class: 'text-[10px] text-battleship mt-1 tabular-nums' }, `${cv} / ${rule.threshold}`),
+              el('div', { class: 'text-[10px] text-muted- mt-1 tabular-nums' }, `${cv} / ${rule.threshold}`),
               el('div', { class: 'check mt-1' }, '✓'),
             );
           })
@@ -99,23 +99,23 @@ function competitionCard(comp, { compact = false } = {}) {
               const met = p?.met || false;
               const cv = p ? Number(p.current_value) : 0;
               return el('div', {
-                class: 'flex items-center justify-between p-3 rounded-lg border border-eerie3 bg-eerie',
-                style: met ? { borderColor: '#DF643A', background: 'rgba(223,100,58,.08)' } : {},
+                class: 'flex items-center justify-between p-3 rounded-lg border',
+                style: met ? { borderColor: '#DF643A', background: 'rgba(223,100,58,.08)' } : { borderColor: 'var(--border)', background: 'var(--card-2)' },
               },
                 el('div', {},
                   el('div', { class: 'text-sm font-medium' }, rule.label),
-                  el('div', { class: 'text-xs text-battle-2' }, `${metricLabel(rule.metric)} · ${rule.window}`),
+                  el('div', { class: 'text-xs text-muted-' }, `${metricLabel(rule.metric)} · ${rule.window}`),
                 ),
                 el('div', { class: 'text-right' },
-                  el('div', { class: 'text-sm font-semibold tabular-nums' + (met ? ' text-lime' : '') }, `${cv} / ${rule.threshold}`),
-                  met ? el('div', { class: 'text-[10px] text-lime uppercase tracking-widest' }, 'Qualified') : null,
+                  el('div', { class: 'text-sm font-semibold tabular-nums', style: met ? { color: 'var(--accent)' } : {} }, `${cv} / ${rule.threshold}`),
+                  met ? el('div', { class: 'text-[10px] uppercase tracking-widest', style: { color: 'var(--accent)' } }, 'Qualified') : null,
                 ),
               );
             }))
-        : el('div', { class: 'text-sm text-battle-2 italic' }, 'No rules defined for this competition yet.'),
+        : el('div', { class: 'text-sm text-muted- italic' }, 'No rules defined for this competition yet.'),
 
     // Compact stats
-    compact && el('div', { class: 'text-xs text-battle-2 mt-1' }, comp.prize_text || ''),
+    compact && el('div', { class: 'text-xs text-muted- mt-1' }, comp.prize_text || ''),
   );
 
   return card;
@@ -194,7 +194,7 @@ function shiftAnchor(anchor, view, dir) {
 function calendarWindowLabel(anchor, view) {
   if (view === 'week') {
     const end = new Date(anchor); end.setDate(anchor.getDate() + 6);
-    const fmtShort = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const fmtShort = fmt.dateMed;
     return `${fmtShort(anchor)} – ${fmtShort(end)}, ${end.getFullYear()}`;
   }
   return anchor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
@@ -372,6 +372,8 @@ function openAgentScheduleModal(rep) {
   let horizonWeeks = 12;
 
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   const card = el('div', { class: 'card w-full max-w-md my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } });
   overlay.append(card);
@@ -474,7 +476,7 @@ function openAgentScheduleModal(rep) {
         el('div', {},
           el('h2', { class: 'text-base font-bold leading-none' }, rep.full_name || 'Agent'),
           el('div', { class: 'text-[10px] text-muted- mt-1 uppercase tracking-wider font-semibold' }, (DEPARTMENTS.find(x => x.id === dept) || {}).name || dept))),
-      el('button', { class: 'text-2xl text-muted-', onclick: () => overlay.remove() }, '×')),
+      el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', onclick: () => overlay.remove() }, '×')),
     body, footer);
   document.body.append(overlay);
 }

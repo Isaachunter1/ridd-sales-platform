@@ -190,7 +190,7 @@ function viewAdmin() {
 // one-off spreadsheets, permanent. Each check names the CRM fix; every
 // list exports for whoever cleans it up. Runs on the live snapshot.
 function adminDataHygiene() {
-  if (!isAdminRole(state.profile?.role)) return el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Admins only.');
+  if (!isAdminRole(state.profile?.role)) return emptyCard('Admins only.');
   // Lazy-load the snapshot rows (same pattern as Configurations).
   const activeId = state.reportingActiveUploadId;
   if (activeId && state.reportingSubscriptionsLoadedFor !== activeId
@@ -205,7 +205,7 @@ function adminDataHygiene() {
     }).catch(() => { state._hygRowsLoading = false; });
   }
   if (!(state.reportingSubscriptions || []).length) {
-    return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, state._hygRowsLoading ? 'Loading the snapshot…' : 'No snapshot loaded yet.');
+    return emptyCard(state._hygRowsLoading ? 'Loading the snapshot…' : 'No snapshot loaded yet.');
   }
   const { all, isRecurring, isActive } = reportingFilters();
   const _iso = (v) => String(v || '').slice(0, 10);
@@ -339,7 +339,7 @@ function adminDataHygiene() {
 // share manageTeamsPanel(). Editing here writes through to the same per-year
 // team map and tier map the Users tab reads.
 function adminTeams() {
-  if (!isAdminRole(state.profile?.role)) return el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Admins only.');
+  if (!isAdminRole(state.profile?.role)) return emptyCard('Admins only.');
   return el('div', { class: 'flex flex-col gap-3' }, manageTeamsPanel({ embedded: true }));
 }
 
@@ -610,7 +610,7 @@ function adminUploads() {
 // number look off" always has a checkable answer.
 function dataIntegrityPanel() {
   const raw = state._indicatorRawSales || [];
-  if (!raw.length) return el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'No dataset loaded — hit ↻ sync first.');
+  if (!raw.length) return emptyCard('No dataset loaded — hit ↻ sync first.');
   const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
   const typeMap = state._indicatorRepTypeBySig || {};
   const rosterSigs = new Set();
@@ -1278,7 +1278,7 @@ function adminD2dPayscales() {
   };
   // ── ladder table (shared by the defaults view and the rep view) ──
   const cell = (val, onCommit, o = {}) => el('input', { type: 'text', inputmode: o.text ? 'text' : 'decimal', value: val == null ? '' : String(val), placeholder: o.placeholder || '',
-    class: 'rounded-lg border px-2 py-1 text-[12px] w-full ' + (o.text ? '' : 'text-right tabular-nums font-semibold'),
+    class: 'rounded-lg border px-2 py-1 text-xs w-full ' + (o.text ? '' : 'text-right tabular-nums font-semibold'),
     style: { borderColor: 'transparent', background: 'transparent', color: o.muted ? 'var(--text-muted)' : 'var(--text)' },
     onfocus: (e) => { e.target.style.borderColor = 'var(--accent)'; e.target.style.background = 'var(--card)'; },
     onblur: (e) => { e.target.style.borderColor = 'transparent'; e.target.style.background = 'transparent'; onCommit(e.target.value); },
@@ -1290,7 +1290,7 @@ function adminD2dPayscales() {
       el('td', { class: 'px-3 py-1', style: { width: '150px' } }, cell(money(t[1]), (v) => { t[1] = num(v); onChange(); draw(); })),
       el('td', { class: 'px-3 py-1' }, cell(t[2] || '', (v) => { t[2] = v.trim(); onChange(); }, { text: true, placeholder: '—', muted: true })),
       el('td', { class: 'px-3 py-1 text-right tabular-nums font-bold text-[13px]', style: { width: '140px' } }, money(t[0] / 100 * t[1])),
-      el('td', { class: 'px-1 py-1 text-right', style: { width: '32px' } }, opts.readonly ? null : el('button', { class: 'text-[12px] px-1.5', style: { color: 'var(--text-subtle)' }, title: 'Remove tier', onclick: () => { tiers.splice(i, 1); onChange(); draw(); } }, '×')))));
+      el('td', { class: 'px-1 py-1 text-right', style: { width: '32px' } }, opts.readonly ? null : el('button', { class: 'text-xs px-1.5', style: { color: 'var(--text-subtle)' }, title: 'Remove tier', onclick: () => { tiers.splice(i, 1); onChange(); draw(); } }, '×')))));
     draw();
     return el('div', { class: 'card overflow-hidden' },
       el('table', { class: 'w-full' },
@@ -1322,7 +1322,7 @@ function adminD2dPayscales() {
       L && L.custom ? el('span', { class: 'rounded-full px-2 py-0.5 text-[10px] font-bold', style: { background: 'rgba(223,100,58,.12)', color: 'var(--accent)' } }, 'custom ladder') : null,
       L && L.custom ? el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { if (confirm('Drop ' + rep.full_name + '’s custom tiers and put them back on the standard ' + L.label + ' ladder?')) saveRep({ scale: L.scale }).then(mountApp); } }, 'Reset to ' + L.label) : null,
       L && !L.custom ? el('span', { class: 'text-[10px] ml-auto', style: { color: 'var(--text-subtle)' } }, 'On the standard ' + L.label + ' ladder — edit any cell below to give them their own.') : null);
-    if (!L) return el('div', { class: 'flex flex-col gap-3' }, picker, head, el('div', { class: 'card p-6 text-center text-[12px]', style: { color: 'var(--text-muted)' } }, 'Pick a payscale above to place ' + rep.full_name + '.'));
+    if (!L) return el('div', { class: 'flex flex-col gap-3' }, picker, head, el('div', { class: 'card p-6 text-center text-xs', style: { color: 'var(--text-muted)' } }, 'Pick a payscale above to place ' + rep.full_name + '.'));
     // Editing a cell forks the standard ladder into the rep's own tiers.
     const mine = L.custom ? o.tiers : JSON.parse(JSON.stringify(L.tiers));
     const table = ladderTable(mine, () => { saveRep({ scale: L.scale, tiers: mine }); });
@@ -1346,7 +1346,7 @@ function adminD2dPayscales() {
 // still be overridden on the calculator; this is the default for everyone of a
 // type. The service→category map is global (one taxonomy for all).
 function adminCommissions() {
-  if (!isAdminRole(state.profile?.role)) return el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Admins only.');
+  if (!isAdminRole(state.profile?.role)) return emptyCard('Admins only.');
   const pct = (n) => (Math.round((n || 0) * 100) / 100).toFixed(2) + '%';
   const money = (n) => '$' + Math.round(n || 0).toLocaleString();
   if (!COMMISSION_REP_TYPES.includes(state._commRulesTab)) state._commRulesTab = 'Sales Rep';
@@ -1534,7 +1534,7 @@ function adminPricingSimple() {
   ];
   const fmt = (v, unit) => v == null || v === '' ? '' : unit === '$' ? '$' + Number(v).toFixed(2) : (unit === 'pts' ? (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%' : Number(v).toFixed(2) + (unit === '%+' ? '% +' : '%'));
   const cellInput = (get, set, unit, hint, placeholder) => el('input', { type: 'text', inputmode: 'decimal', value: fmt(get(), unit), placeholder: placeholder || '', title: hint,
-    class: 'text-right tabular-nums font-semibold rounded-lg border px-2 py-1 text-[12px] w-full',
+    class: 'text-right tabular-nums font-semibold rounded-lg border px-2 py-1 text-xs w-full',
     style: { borderColor: 'transparent', background: 'transparent', color: 'var(--text)', maxWidth: '120px' },
     onfocus: (e) => { e.target.style.borderColor = 'var(--accent)'; e.target.style.background = 'var(--card)'; const v = get(); e.target.value = v == null ? '' : String(v); e.target.select(); },
     onblur: (e) => { set(e.target.value.trim() === '' ? null : num(e.target.value)); e.target.style.borderColor = 'transparent'; e.target.style.background = 'transparent'; },
@@ -1546,7 +1546,7 @@ function adminPricingSimple() {
       if (Array.isArray(r)) return el('tr', {}, el('td', { colspan: rep ? '3' : '2', class: 'px-3 py-1.5 text-[10px] uppercase tracking-widest font-bold', style: { background: 'var(--card-2)', color: 'var(--text-muted)', borderTop: '1px solid var(--border)' } }, r[1]));
       const defIn = cellInput(r.get, (v) => { if (v != null) { r.set(v); persist(); } draw(); }, r.unit, r.hint);
       const cells = [
-        el('td', { class: 'px-3 py-1.5 text-[12px] font-semibold uppercase whitespace-nowrap', title: r.hint }, r.label),
+        el('td', { class: 'px-3 py-1.5 text-xs font-semibold uppercase whitespace-nowrap', title: r.hint }, r.label),
         el('td', { class: 'px-3 py-1 text-right', style: { width: '140px' } }, defIn),
       ];
       if (rep) {
@@ -1592,10 +1592,10 @@ function adminPricingSimple() {
         el('th', { class: 'px-3 py-2 text-right' }, 'Amount'))),
       el('tbody', {},
         el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-          el('td', { class: 'px-3 py-1.5 text-[12px] font-semibold uppercase whitespace-nowrap' }, 'Close Rate'),
+          el('td', { class: 'px-3 py-1.5 text-xs font-semibold uppercase whitespace-nowrap' }, 'Close Rate'),
           el('td', { class: 'px-3 py-1 text-right', style: { width: '150px' } }, closeIn)),
         ...stubFields.map(([k, label, hint]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-          el('td', { class: 'px-3 py-1.5 text-[12px] font-semibold uppercase whitespace-nowrap', title: hint }, label),
+          el('td', { class: 'px-3 py-1.5 text-xs font-semibold uppercase whitespace-nowrap', title: hint }, label),
           el('td', { class: 'px-3 py-1 text-right', style: { width: '150px' } },
             cellInput(() => (Number(rep[k]) || 0) === 0 ? null : Number(rep[k]), (v) => saveField(k, v), '$', hint, '$0.00')))))));
   })() : null;
@@ -1879,7 +1879,7 @@ function adminPricing(opts = {}) {
 // modals, searches, time-to-complete — so the next improvements come from
 // behaviour, not intuition.
 function adminUsage() {
-  if (!isAdminRole(state.profile?.role)) return el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Admins only.');
+  if (!isAdminRole(state.profile?.role)) return emptyCard('Admins only.');
   const days = [7, 30, 90].includes(Number(state._usageDays)) ? Number(state._usageDays) : 30;
   const key = 'd' + days;
   state._usage = state._usage || {};
@@ -1897,7 +1897,7 @@ function adminUsage() {
     el('div', {}, el('h2', { class: 'text-lg font-bold' }, 'Usage'), el('div', { class: 'text-[11px] text-muted-' }, 'Page views, time on page, actions, adoption, errors and abandoned flows — recorded by the app itself. Rows older than 90 days are pruned.')),
     el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
       ...[7, 30, 90].map(d => el('button', { class: 'px-2.5 py-1 text-[11px] font-bold transition', style: d === days ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._usageDays = d; mountApp(); } }, 'Last ' + d + ' days')))));
-  if (!cached) { wrap.append(el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Loading usage…')); return wrap; }
+  if (!cached) { wrap.append(emptyCard('Loading usage…')); return wrap; }
   if (cached.error) {
     wrap.append(el('div', { class: 'card p-6 text-sm' }, el('div', { class: 'font-bold mb-1' }, 'Usage data is not available yet'),
       el('div', { class: 'text-[11px] text-muted-' }, /usage_summary|app_events/.test(cached.error) ? 'Run migrations/20260921_app_events.sql in Supabase — the app starts recording the moment the table exists.' : cached.error)));

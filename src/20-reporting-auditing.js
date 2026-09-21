@@ -285,7 +285,7 @@ function reportingAuditing() {
           el('h2', { class: 'text-xl font-bold mt-0.5' }, name),
           // (office · team line hidden — multi-market attribution confused reps)
           asOf ? el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-subtle)' } }, 'As of ' + asOf) : null),
-        el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
+        el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
       el('div', { class: 'p-5 overflow-auto flex flex-col gap-4' },
         group('Production', [
           tile('Sold', fmt.int(s.sold), null, null, drill('Sold', () => true)),

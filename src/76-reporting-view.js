@@ -146,7 +146,7 @@ function openReportingMethodologyModal(tab) {
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Reporting Methodology'),
         el('h2', { class: 'text-xl font-bold mt-0.5' }, 'How this report is calculated'),
       ),
-      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => { overlay.remove(); document.removeEventListener('keydown', closeKey); } }, '×'),
+      el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: () => { overlay.remove(); document.removeEventListener('keydown', closeKey); } }, '×'),
     ),
     el('div', { class: 'overflow-auto px-6 pb-6', style: { borderTop: '1px solid var(--border)' } },
       el('div', { class: 'pt-4' },
@@ -613,7 +613,7 @@ function reportingRenewals() {
   const STAGES = [
     { key: 'Eligible',       label: 'Eligible',       emoji: '🟢', color: '#5F6C5B', bg: 'rgba(95,108,91,.10)',  blurb: 'Final 2 months of term (start date + contract length) or past term and still month-to-month · never renewed before · no Sentricon' },
     { key: 'Contacting',     label: 'Contacting',     emoji: '📞', color: '#A9441F', bg: 'rgba(169,68,31,.10)',  blurb: 'Reached out — call attempts and notes live on the card' },
-    { key: 'Renewed',        label: 'Renewed',        emoji: '✅', color: '#16A34A', bg: 'rgba(22,163,74,.10)',  blurb: 'Re-signed. Cards marked CRM came in through a Renewal source automatically' },
+    { key: 'Renewed',        label: 'Renewed',        emoji: '✅', color: 'var(--ok)', bg: 'rgba(22,163,74,.10)',  blurb: 'Re-signed. Cards marked CRM came in through a Renewal source automatically' },
     { key: 'Not Interested', label: 'Not Interested', emoji: '❌', color: '#DC2626', bg: 'rgba(220,38,38,.10)',  blurb: 'Declined — stays here so nobody calls them again' },
   ];
   const stageOf = (x) => {
@@ -646,7 +646,7 @@ function reportingRenewals() {
     const g = logOf(x);
     const open = state._renewalOpenCard === String(x.id);
     const endTxt = x.crm ? ('renewed ' + (x.since ? String(x.since).slice(0, 10) : '')) : x.pastBy >= 0 ? ('+' + x.pastBy.toFixed(1) + ' mo past term') : ('ends in ' + x.toGo.toFixed(1) + ' mo');
-    const endColor = x.crm ? '#16A34A' : x.pastBy >= 0 ? '#DC2626' : x.toGo < 1 ? '#DC2626' : '#A9441F';
+    const endColor = x.crm ? 'var(--ok)' : x.pastBy >= 0 ? '#DC2626' : x.toGo < 1 ? '#DC2626' : '#A9441F';
     const stageSel = el('select', {
       class: 'rounded-md border px-1.5 py-0.5 text-[10px] font-bold cursor-pointer',
       style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
@@ -666,7 +666,7 @@ function reportingRenewals() {
         el('div', { class: 'min-w-0' },
           el('div', { class: 'text-xs font-bold truncate' }, x.name),
           el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-subtle)' } }, '#' + x.id + ' · ' + _titleCaseWords(x.office))),
-        x.crm ? el('span', { class: 'text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md shrink-0', style: { background: 'rgba(22,163,74,.12)', color: '#16A34A' } }, 'CRM')
+        x.crm ? el('span', { class: 'text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md shrink-0', style: { background: 'rgba(22,163,74,.12)', color: 'var(--ok)' } }, 'CRM')
           : (g.attempts ? el('span', { class: 'text-[9px] font-bold px-1.5 py-0.5 rounded-md shrink-0 tabular-nums', style: { background: 'var(--card-2)', color: 'var(--text-muted)' }, title: 'Call attempts' }, '📞 ' + g.attempts) : null)),
       el('div', { class: 'flex items-center justify-between gap-2 text-[11px]' },
         el('span', { class: 'truncate', style: { color: 'var(--text-muted)' } }, x.svc),
@@ -732,7 +732,7 @@ function reportingRenewals() {
         el('div', { class: 'flex items-center gap-2 flex-wrap' }, search, exportAll)),
       el('div', { class: 'flex gap-x-4 gap-y-1 flex-wrap mt-2 text-[11px] tabular-nums', style: { color: 'var(--text-muted)' } },
         el('span', {}, el('b', {}, allRecs.length.toLocaleString()), ' eligible contracts · ', el('b', {}, fmt.usd0(arrOf(allRecs))), ' ARR in play'),
-        el('span', {}, el('b', {}, worked.toLocaleString()), ' worked · ', el('b', { style: { color: '#16A34A' } }, renewedManual.toLocaleString()), ' renewed by the team' + (worked ? ' (' + (renewedManual / worked * 100).toFixed(0) + '%)' : '')),
+        el('span', {}, el('b', {}, worked.toLocaleString()), ' worked · ', el('b', { style: { color: 'var(--ok)' } }, renewedManual.toLocaleString()), ' renewed by the team' + (worked ? ' (' + (renewedManual / worked * 100).toFixed(0) + '%)' : '')),
         crmRenewed.length ? el('span', {}, el('b', {}, crmRenewed.length.toLocaleString()), ' renewed via a Renewal source in the CRM · ', el('b', {}, fmt.usd0(arrOf(crmRenewed))), ' ARR') : null)),
     el('div', { class: 'grid gap-3 renewal-board', style: { gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' } }, ...STAGES.map(column)));
 }

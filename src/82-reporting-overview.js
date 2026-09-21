@@ -208,6 +208,8 @@ function reportingOverview() {
         : def.title;
       const fmtV = def.formatValue || ((v) => fmt.int(v));
       const overlay = el('div', { class: 'modal-overlay' });
+      const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+      document.addEventListener('keydown', _escClose);
       overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
       const drillTo = (label) => {
         overlay.remove();
@@ -232,7 +234,7 @@ function reportingOverview() {
             el('h2', { class: 'text-base font-bold' }, chartTitle + ' — the other ' + otherLabels.length),
             el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
               fmtV(otherTotal) + ' combined' + (overall > 0 ? ' · ' + (otherTotal / overall * 100).toFixed(1) + '% of total' : '') + ' · click a category for its accounts')),
-          el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×')),
+          el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×')),
         el('div', { class: 'px-4 pb-2 overflow-y-auto' }, ...rowsEls),
         el('div', { class: 'p-4 pt-2' },
           el('button', {
@@ -423,6 +425,8 @@ function reportingOverview() {
     // phones the wide tables become stacked rows; on desktop they fit 94vw.
     const narrow = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })();
     const overlay = el('div', { class: 'modal-overlay' });
+    const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+    document.addEventListener('keydown', _escClose);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
     const th = (t, right) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
     const td = (t, o = {}) => el('td', { class: 'px-3 py-2 whitespace-nowrap tabular-nums ' + (o.right ? 'text-right' : 'text-left') + (o.bold ? ' font-black' : '') }, t);
@@ -536,7 +540,7 @@ function reportingOverview() {
       el('div', { class: 'flex items-start justify-between gap-3' },
         el('div', {}, el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Daily pulse · by office'),
           el('div', { class: 'text-lg font-black' }, longDate || dayLabel)),
-        el('button', { class: 'text-xl leading-none', onclick: () => overlay.remove() }, '×')),
+        el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', onclick: () => overlay.remove() }, '×')),
       body));
     document.body.append(overlay);
   };

@@ -146,7 +146,7 @@ function exceptionFeedCard() {
   const open = state._excOpen === true;
   const reds = items.filter(i => i.sev === 'red').length;
   const head = el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', onclick: () => { state._excOpen = !open; mountApp(); } },
-    el('span', { class: 'inline-block rounded-full', style: { width: '8px', height: '8px', background: !items.length ? '#16A34A' : reds ? '#DC2626' : '#D97706' } }),
+    el('span', { class: 'inline-block rounded-full', style: { width: '8px', height: '8px', background: !items.length ? 'var(--ok)' : reds ? '#DC2626' : '#D97706' } }),
     el('span', { class: 'text-[11px] uppercase tracking-widest font-bold' }, 'Needs attention'),
     el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, !items.length ? 'Nothing flagged — data, reps, attrition, audits and pending accounts all look normal.' : items.length + ' item' + (items.length === 1 ? '' : 's') + (open ? '' : ' · ' + items.slice(0, 2).map(i => i.tag).join(', ') + (items.length > 2 ? '…' : ''))),
     el('span', { class: 'ml-auto text-[11px]', style: { color: 'var(--text-muted)' } }, open ? '▴' : '▾'));
@@ -168,7 +168,7 @@ function repTodayStrip() {
   const grp = (typeof repTypeGroup === 'function') ? repTypeGroup(me) : 'd2d';
   const chips = [];
   const go = (view, patch) => () => { Object.assign(state, patch || {}); state.view = view; try { history.replaceState(null, '', VIEW_TO_HASH[view] || '#' + view); } catch (e) { /* noop */ } mountApp(); };
-  const fmtD = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const fmtD = fmt.dateMed;
   // Competitions running now for my rep type.
   try {
     const want = grp === 'office' ? 'Office Staff' : grp === 'tech' ? 'Technicians' : 'Sales Reps';
@@ -237,7 +237,7 @@ function saveAttemptChip(customerId) {
   const lbl = (SAVE_OUTCOMES.find(([v]) => v === last.outcome) || [])[1] || last.outcome;
   const who = ((state.allProfiles || []).find(p => p.id === last.attempted_by) || {}).full_name || '';
   const saved = last.outcome === 'saved';
-  return el('span', { class: 'inline-block text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap', style: { background: saved ? 'rgba(22,163,74,.14)' : 'var(--card-2)', color: saved ? '#16A34A' : 'var(--text-muted)' },
+  return el('span', { class: 'inline-block text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap', style: { background: saved ? 'rgba(22,163,74,.14)' : 'var(--card-2)', color: saved ? 'var(--ok)' : 'var(--text-muted)' },
     title: list.length + ' attempt' + (list.length === 1 ? '' : 's') + (who ? ' · last by ' + who : '') + (last.note ? ' · ' + last.note : '') }, lbl + (list.length > 1 ? ' ×' + list.length : ''));
 }
 function openSaveAttemptModal(r, onDone) {
@@ -276,7 +276,7 @@ function openSaveAttemptModal(r, onDone) {
       el('div', {}, el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Save attempt'),
         el('div', { class: 'text-base font-black' }, name),
         el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, [String(r.subscription || '').trim(), (r.office_name || '').trim(), r.customer_id ? '#' + r.customer_id : ''].filter(Boolean).join(' · '))),
-      el('button', { class: 'text-xl leading-none', onclick: _close }, '×')),
+      el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', onclick: _close }, '×')),
     (typeof reportingCancelReasonOf === 'function' && reportingCancelReasonOf(r)) ? el('div', { class: 'text-xs' }, el('span', { style: { color: 'var(--text-muted)' } }, 'Cancel reason: '), reportingCancelReasonOf(r)) : null,
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Outcome'),
     pills, noteEl,

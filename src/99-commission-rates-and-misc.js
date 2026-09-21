@@ -397,7 +397,7 @@ function adminBackup() {
     .sort((a, b) => b.last - a.last);
   const fmtWhen = (ms) => { if (!ms) return '—'; const t = new Date(ms); return t.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }) + ' ' + t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); };
   const usersTable = el('div', { class: 'scroll-x', style: { maxHeight: '480px', overflowY: 'auto' } },
-    el('table', { class: 'w-full text-[12px]' },
+    el('table', { class: 'w-full text-xs' },
       el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted- sticky top-0', style: { background: 'var(--card)' } },
         el('tr', {},
           el('th', { class: 'text-left pl-5 pr-2 py-2 font-semibold' }, 'User'),
@@ -489,7 +489,7 @@ function adminBackup() {
         : visible.length === 0
           ? el('div', { class: 'p-6 text-center text-muted- text-sm italic' }, 'No entries match your search.')
           : el('div', { class: 'scroll-x', style: { maxHeight: '480px', overflowY: 'auto' } },
-              el('table', { class: 'w-full text-[12px]' },
+              el('table', { class: 'w-full text-xs' },
                 el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted- sticky top-0', style: { background: 'var(--card)' } },
                   el('tr', {},
                     el('th', { class: 'text-left pl-5 pr-2 py-2 font-semibold' }, 'Time'),
@@ -632,13 +632,13 @@ function compOccurrences(cfg, horizonDays = 548) {
   return out;
 }
 function adminCompetitionSchedule() {
-  if (!isAdminRole(state.profile?.role)) return el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Admins only.');
+  if (!isAdminRole(state.profile?.role)) return emptyCard('Admins only.');
   const sc = compScheduleStore();
   const comps = compScheduleList();
   const today = new Date(); today.setHours(12, 0, 0, 0);
   const COLORS = ['#DF643A', '#5F6C5B', '#323230', '#A78256', '#9C3F1E', '#8E9C8A', '#FFB899', '#C9B98A', '#3F4A3C', '#E8A06B', '#7C857A', '#6B2A12'];
   const colorOf = (i) => COLORS[i % COLORS.length];
-  const fmtD = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const fmtD = fmt.dateMed;
   const inp = (id, key, type, extra = {}) => el('input', Object.assign({
     type, value: (sc[id] && sc[id][key]) || '',
     class: 'rounded-lg border px-2.5 py-1 text-[11px]',
@@ -691,7 +691,7 @@ function adminCompetitionSchedule() {
           onclick: () => { const id = 'custom_' + Date.now(); sc[id] = { custom: true, name: 'New competition', group, recur: 'none' }; compScheduleSave(); mountApp(); },
         }, '+ Competition')),
       idx.length
-        ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
+        ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs' },
             el('thead', {}, el('tr', {}, th('Competition'), th('Start'), th('End'), th('Repeats'), th('Starts on'), th('Next runs'), th(''))),
             el('tbody', {}, ...idx.map(([, i]) => rows[i]))))
         : el('div', { class: 'px-4 py-6 text-center text-xs text-muted- italic' }, 'No ' + group.toLowerCase() + ' competitions scheduled yet.'));
@@ -1255,23 +1255,23 @@ function adminCompetitions() {
   const host = el('div', { class: 'flex flex-col gap-4' });
   host.append(
     el('button', {
-      class: 'self-start px-2.5 py-1 rounded-xl bg-lime text-eerie font-semibold text-[11px]',
+      class: 'self-start px-2.5 py-1 rounded-xl font-semibold text-[11px]', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
       onclick: () => openCompEditor(),
     }, '+ New competition'),
   );
   if (state.competitions.length === 0) {
-    host.append(el('div', { class: 'card p-6 text-center text-battle-2 text-sm' }, 'No competitions yet.'));
+    host.append(el('div', { class: 'card p-6 text-center text-muted- text-sm' }, 'No competitions yet.'));
   } else {
     state.competitions.forEach(c => host.append(
       el('div', { class: 'card p-4 flex items-center justify-between gap-3' },
         el('div', { class: 'flex-1' },
           el('div', { class: 'font-semibold' }, c.name),
-          el('div', { class: 'text-xs text-battle-2' },
+          el('div', { class: 'text-xs text-muted-' },
             `${c.category.replace('_', ' ')} · ${c.type} · ${fmt.dateShort(c.start_date)} → ${fmt.dateShort(c.end_date)} · ${state.compRules.filter(r => r.competition_id === c.id).length} rules`),
         ),
         el('div', { class: 'flex gap-2' },
           el('button', {
-            class: 'text-[11px] px-2.5 py-1 rounded-lg border border-battleship text-battle-2 hover:border-lime hover:text-lime',
+            class: 'text-[11px] px-2.5 py-1 rounded-lg border text-muted- hover:border-lime hover:text-lime', style: { borderColor: 'var(--border)' },
             onclick: () => openCompEditor(c),
           }, 'Edit'),
           el('button', {
@@ -1303,6 +1303,8 @@ function adminCompetitions() {
 
 function openCompEditor(existing = null) {
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 
   const form = el('form', {
@@ -1361,7 +1363,7 @@ function openCompEditor(existing = null) {
 
   const inp = (name, attrs = {}) => el('input', { name, class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]', ...attrs });
   const mk = (label, input) => el('label', { class: 'block text-sm' },
-    el('span', { class: 'text-battle-2 block mb-1 text-xs' }, label), input);
+    el('span', { class: 'text-muted- block mb-1 text-xs' }, label), input);
 
   // Loyalty Royalty + Golden Phone (and any future royalty-style comp)
   // always run a full calendar year, so pre-fill new comps with the
@@ -1397,9 +1399,9 @@ function openCompEditor(existing = null) {
   // rules untouched, so the bingo card keeps working.
 
   form.append(
-    el('div', { class: 'flex justify-end gap-2 pt-2 border-t border-eerie3' },
-      el('button', { type: 'button', class: 'px-2.5 py-1 rounded-lg text-battle-2 hover:text-smoke text-[11px]', onclick: () => overlay.remove() }, 'Cancel'),
-      el('button', { type: 'submit', class: 'px-2.5 py-1 rounded-lg bg-lime text-eerie font-semibold text-[11px]' }, 'Save'),
+    el('div', { class: 'flex justify-end gap-2 pt-2 border-t', style: { borderColor: 'var(--border)' } },
+      el('button', { type: 'button', class: 'px-2.5 py-1 rounded-lg text-muted- hover:text-smoke text-[11px]', onclick: () => overlay.remove() }, 'Cancel'),
+      el('button', { type: 'submit', class: 'px-2.5 py-1 rounded-lg font-semibold text-[11px]', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, 'Save'),
     ),
   );
 
@@ -1492,11 +1494,13 @@ function openAdoptionDrill(kind, allRows, o = {}) {
   const roleOf = (id) => { const p = profOf(id); return p ? ((typeof ROLE_LABEL !== 'undefined' && ROLE_LABEL[p.role]) || p.role || '') : ''; };
   const tabName = (d) => (typeof TAB_TITLES !== 'undefined' && TAB_TITLES[d]) ? String(TAB_TITLES[d]).replace(/^\w/, c => c.toUpperCase()) : (d || '\u2014');
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   const modal = el('div', { class: 'card w-full max-w-4xl p-5 my-8 overflow-y-auto', style: { maxHeight: 'calc(100vh - 64px)' } });
   overlay.append(modal);
   const th = (t, right) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-widest font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)' } }, t);
-  const td = (t, right, cls = '') => el('td', { class: 'px-2 py-1.5 text-[12px] ' + (right ? 'text-right tabular-nums ' : '') + cls }, t);
+  const td = (t, right, cls = '') => el('td', { class: 'px-2 py-1.5 text-xs ' + (right ? 'text-right tabular-nums ' : '') + cls }, t);
   const table = (heads, body) => el('div', { class: 'overflow-x-auto mt-3' }, el('table', { class: 'w-full' }, el('thead', { style: { background: 'var(--card-2)' } }, el('tr', {}, ...heads)), el('tbody', {}, ...body)));
   const head = (title, sub, extra) => el('div', { class: 'flex items-start justify-between gap-3' },
     el('div', {}, el('h3', { class: 'text-base font-bold' }, title), el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, sub)),
@@ -1578,7 +1582,7 @@ function openAdoptionDrill(kind, allRows, o = {}) {
     modal.append(head(o.title + ' \u00b7 ' + fb.length, o.sub),
       fb.length ? el('div', { class: 'flex flex-col gap-2 mt-3' }, ...fb.map(r => el('div', { class: 'rounded-lg border px-3 py-2', style: { borderColor: 'var(--border)' } },
         el('div', { class: 'flex items-center justify-between gap-2 text-[10px]', style: { color: 'var(--text-muted)' } }, el('span', { class: 'font-bold', style: { color: 'var(--text)' } }, nameOf(r.profile_id) + ' \u00b7 ' + roleOf(r.profile_id)), el('span', { title: new Date(r.at).toLocaleString() }, timeAgo(r.at))),
-        el('div', { class: 'text-[12px] mt-1 whitespace-pre-wrap' }, r.detail || ''),
+        el('div', { class: 'text-xs mt-1 whitespace-pre-wrap' }, r.detail || ''),
         attachBox(r))))
       : el('div', { class: 'mt-3 text-[11px] text-center py-6', style: { color: 'var(--text-muted)' } }, 'No feedback in the last 30 days.'));
   }
@@ -2223,7 +2227,7 @@ function openAvatarCropModal(file, onDone) {
         el('div', {},
           el('h2', { class: 'text-base font-bold' }, 'Position Your Photo'),
           el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Drag to move · slide to zoom — the circle is what everyone sees')),
-        el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
+        el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
       el('div', { class: 'relative rounded-xl overflow-hidden', style: { width: V + 'px', height: V + 'px', background: '#111' } },
         canvas,
         // Circle guide — dark everywhere except the circular window, plus a
@@ -2296,6 +2300,8 @@ function changeProfileAvatar(p) {
 
 function openUserEditor(existing = null, prefill = null) {
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 
   // Modal-local state so we can track avatar changes + active toggle
@@ -2602,7 +2608,7 @@ function openUserEditor(existing = null, prefill = null) {
       el('h2', { class: 'text-xl font-bold' }, existing ? 'Edit User' : 'New User'),
       el('div', { class: 'flex items-center gap-4' },
         activeToggle,
-        el('button', { type: 'button', class: 'text-2xl text-muted-', onclick: () => overlay.remove() }, '×')),
+        el('button', { type: 'button', class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', onclick: () => overlay.remove() }, '×')),
     ),
     el('button', {
       type: 'button',

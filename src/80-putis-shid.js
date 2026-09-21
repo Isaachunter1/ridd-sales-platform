@@ -296,6 +296,8 @@ function retenReconcile(fileRows, pop, book, _retenEff, ground) {
 function openRetenReconcileModal(res) {
   const n = (v) => Number(v || 0).toLocaleString();
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   const groupTable = (title, rows, note) => {
     const g = new Map(); rows.forEach(r => g.set(r._why, (g.get(r._why) || []).concat([r])));
@@ -322,7 +324,7 @@ function openRetenReconcileModal(res) {
       el('div', {}, el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Retention book reconciliation'),
         el('div', { class: 'text-lg font-black' }, n(res.matched) + ' match · ' + n(res.appOnly.length) + ' only in app · ' + n(res.fileOnly.length) + ' only in your file'),
         el('div', { class: 'text-[11px] text-muted-' }, 'App book ' + n(res.bookCount) + ' · your file ' + n(res.fileCount) + ' · matched on Customer ID + Subscription')),
-      el('div', { class: 'flex items-center gap-2' }, exportBtn, el('button', { class: 'text-xl leading-none', onclick: () => overlay.remove() }, '×'))),
+      el('div', { class: 'flex items-center gap-2' }, exportBtn, el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', onclick: () => overlay.remove() }, '×'))),
     res.top ? el('div', { class: 'flex flex-col gap-3 p-3 rounded-xl', style: { background: 'var(--card-2)' } },
       el('div', {},
         el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Top of the funnel · subs with a completed initial, before any step'),
@@ -339,11 +341,13 @@ function openRetenReconcileModal(res) {
 // Phones can't hover — tapping a row label opens this instead of a tooltip.
 function putisExplain(label, tip) {
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   overlay.append(el('div', { class: 'card p-5 flex flex-col gap-2', style: { width: 'min(440px, 92vw)' } },
     el('div', { class: 'flex items-start justify-between gap-3' },
       el('div', { class: 'text-base font-bold' }, label),
-      el('button', { class: 'text-xl leading-none', onclick: () => overlay.remove() }, '×')),
+      el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', onclick: () => overlay.remove() }, '×')),
     el('div', { class: 'text-sm', style: { color: 'var(--text-muted)', lineHeight: '1.5' } }, tip || 'Straight from the QuickBooks general ledger for the selected period.')));
   document.body.append(overlay);
 }
@@ -467,7 +471,7 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
     if (a == null || b == null || !isFinite(a) || !isFinite(b)) return '—';
     return signedRow(row, a - b) || '—';
   };
-  const table = el('table', { class: 'w-full text-[12px] frozen-table', style: { borderCollapse: 'collapse' } },
+  const table = el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse' } },
     el('thead', {}, el('tr', {}, th('', 'sticky left-0'), ...shownIdx.map(i => { const m = MKTG_MONTHS[i]; const isOpen = _mktgYm(year, i) === putisOpenMonth(); return th(isOpen ? m + ' · open' : (rangeYm ? m + ' ' + year : m), isOpen ? 'italic' : '', isOpen ? 'Current month — books not closed yet, numbers move daily. Not included in YTD.' : PUTIS_COL_TIPS.month); }),
       th(year + ' YTD' + (ytd.months ? ' (thru ' + MKTG_MONTHS[Math.min(upto, Math.max(0, (String(year) === openYm.slice(0, 4) ? new Date().getMonth() - 1 : 11)))] + ')' : ''), '', PUTIS_COL_TIPS.ytd + ' The open (current) month is excluded.'),
       th('Trailing 12 mo', '', ttm.months ? 'The last twelve closed months, ' + ttm.ks[ttm.ks.length - 1] + ' through ' + ttm.ks[0] + (ttm.months < 12 ? ' (' + ttm.months + ' available in the feed)' : '') + '. Percentage rows are recomputed from the summed dollars.' : 'No closed months yet.'))),
@@ -696,7 +700,7 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
         el('h3', { class: 'text-sm font-bold' + (opts.compact ? ' truncate' : '') }, (opts.title || ({ book: 'Recurring Book', margins: 'Margins', unit: 'Unit Economics' })[part] || 'P&L Indicators') + (opts.compact ? '' : ' · ' + periodLabel)),
         null),
       opts.headerExtra || null),
-    el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-[12px] frozen-table', style: { borderCollapse: 'collapse' } },
+    el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('', '', true), ...cols.flatMap(c => {
         const on = pctOn(c.key);
         const h = th(c.label + (withPct && !opts.onlyCol ? (on ? ' ▾' : ' ▸') : ''), withPct && !opts.onlyCol ? (on ? 'Click to hide the % of revenue column' : 'Click to show % of revenue for ' + c.label) : '');
@@ -896,7 +900,7 @@ function putisBranchScorecard(M, U, yms, branches, title) {
       el('div', {}, el('h3', { class: 'text-sm font-bold' }, title),
         el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'Green = best in column · red = worst · click a header to sort' + (topShare != null ? ' · top-branch concentration ' + _putisPct1(topShare) : ''))),
     ),
-    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px] frozen-table', style: { borderCollapse: 'collapse' } },
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold text-left', style: { color: 'var(--text-muted)' } }, 'Branch'), ...COLS.map(th))),
       el('tbody', {},
         ...rows.map(r => el('tr', { class: 'border-t border-' }, el('td', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap', style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }, r.name), ...COLS.map(c => td(c, r.m, false)))),
@@ -975,11 +979,11 @@ function putisComparativeCard(M, ym, branches, title, headerExtra, opts = {}) {
     el('div', { class: 'px-5 py-3 border-b flex items-start gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
       el('div', {}, el('h3', { class: 'text-sm font-bold' }, title + (ym === openYm ? ' · open month' : ''))),
       headerExtra || null),
-    el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-[12px] frozen-table', style: { borderCollapse: 'collapse' } }, el('thead', {}, head), el('tbody', {}, ...body))));
+    el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse' } }, el('thead', {}, head), el('tbody', {}, ...body))));
 }
 
 function reportingPutis() {
-  if (!isAdminRole(state.profile?.role)) return el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Admins only.');
+  if (!isAdminRole(state.profile?.role)) return emptyCard('Admins only.');
   reportingLoadLedger();
   const M = putisMonthly();
   const wrap = el('div', { class: 'flex flex-col gap-4' });
@@ -1185,11 +1189,10 @@ function reportingSubTabs() {
 function reportingDataGate() {
   const activeId = state.reportingActiveUploadId;
   if (!activeId) {
-    return el('div', { class: 'card p-12 text-center text-sm text-muted-' },
-      'No snapshot loaded yet — the scheduled sync (hourly during the day) pulls the latest from RevHawk automatically.');
+    return emptyCard('No snapshot loaded yet — the scheduled sync (hourly during the day) pulls the latest from RevHawk automatically.');
   }
   if (state.reportingSubscriptionsLoadedFor !== activeId) {
-    return el('div', { class: 'card p-12 text-center text-sm text-muted-' }, 'Loading snapshot…');
+    return emptyCard('Loading snapshot…');
   }
   if (DEMO && (state.reportingSubscriptions || []).length === 0) {
     return el('div', { class: 'card p-12 text-center flex flex-col gap-2' },

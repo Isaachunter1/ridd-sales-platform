@@ -392,11 +392,13 @@ function viewIndicators() {
         : indicatorWeekLabel(currentWeek, { short: true });
     } catch { /* label is cosmetic */ }
     const overlay = el('div', { class: 'modal-overlay' });
+    const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+    document.addEventListener('keydown', _escClose);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
     overlay.append(el('div', { class: 'card p-5 w-full', style: { maxWidth: '440px' } },
       el('div', { class: 'flex items-center justify-between mb-1' },
         el('h3', { class: 'text-base font-bold' }, b),
-        el('button', { class: 'text-xl leading-none cursor-pointer px-2', onclick: () => overlay.remove() }, '×')),
+        el('button', { class: 'text-2xl leading-none text-muted- cursor-pointer px-2', 'aria-label': 'Close', title: 'Close', onclick: () => overlay.remove() }, '×')),
       el('p', { class: 'text-xs text-muted- mb-3' },
         (winLabel ? winLabel + ' · ' : '') + entries.length + ' rep' + (entries.length === 1 ? '' : 's') + ' w/ a sale · ' + nQual + ' counted for PRA (> $20K company-wide, home column here)'),
       el('div', { style: { maxHeight: '60vh', overflowY: 'auto' } },
@@ -1392,7 +1394,7 @@ function viewIndicators() {
           // Real table display (the phone CSS turns card tables into blocks
           // so they can scroll — that also stops them filling the width once
           // there's only one branch column, per Isaac).
-          el('table', { class: 'w-full text-[12px]', style: { display: 'table', width: '100%' } },
+          el('table', { class: 'w-full text-xs', style: { display: 'table', width: '100%' } },
             el('thead', {},
               el('tr', {},
                 el('th', { class: 'text-left px-3 py-2 text-[10px] uppercase tracking-wider text-muted- font-semibold sticky left-0', style: { background: 'var(--card)', zIndex: 2 } },
@@ -1786,7 +1788,7 @@ function maybeShowWeeklyRecap() {
           el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } },
             lastMon.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' – ' +
             new Date(sunday.getTime() - 86400000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }))),
-        el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
+        el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
       el('div', { class: 'grid grid-cols-3 gap-2' },
         statBox('Revenue', money(lastRev)),
         statBox('Accounts', String(lastWk.length)),
@@ -2132,7 +2134,7 @@ function buildAvgPestCompCard({ cf, allRawSales, rawSales, windowLabel, applyExc
     rankedByPest.length === 0
       ? el('div', { class: 'p-6 text-center text-xs text-muted- italic' }, 'No reps with more than ' + AVG_PEST_MIN_ACCOUNTS + ' accounts in this window.')
       : el('div', { class: 'scroll-x', style: { maxHeight: '320px', overflowY: 'auto' } },
-          el('table', { class: 'w-full text-[12px]' },
+          el('table', { class: 'w-full text-xs' },
             el('thead', {
               class: 'text-[9px] uppercase tracking-wider text-muted-',
               style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: 1 },
@@ -2172,7 +2174,7 @@ function buildAvgPestCompCard({ cf, allRawSales, rawSales, windowLabel, applyExc
     raffleSorted.length === 0
       ? el('div', { class: 'p-6 text-center text-xs text-muted- italic' }, 'No qualifying sales (initial ≥ $149) in this window.')
       : el('div', { class: 'scroll-x', style: { maxHeight: '320px', overflowY: 'auto' } },
-          el('table', { class: 'w-full text-[12px]' },
+          el('table', { class: 'w-full text-xs' },
             el('thead', {
               class: 'text-[9px] uppercase tracking-wider text-muted-',
               style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: 1 },
@@ -2916,7 +2918,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         ? el('div', { class: 'p-4 text-center text-xs text-muted- italic' }, 'Nothing to flag in this window. 🎉')
         : (isOpen
             ? el('div', { class: 'scroll-x', style: { maxHeight: '360px', overflowY: 'auto' } },
-                el('table', { class: 'w-full text-[12px]' },
+                el('table', { class: 'w-full text-xs' },
                   el('thead', {
                     class: 'text-[9px] uppercase tracking-wider text-muted-',
                     style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: 1 },
@@ -3427,7 +3429,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         ),
       ),
       el('div', { class: 'scroll-x' },
-        el('table', { class: 'w-full text-[12px] records-table' },
+        el('table', { class: 'w-full text-xs records-table' },
           el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
             el('tr', {},
               el('th', { class: 'text-left pl-5 pr-3 py-2 w-32', style: { position: 'sticky', left: '0', zIndex: '2', background: 'var(--card)', boxShadow: '1px 0 0 var(--border)' } }, 'Scope'),
@@ -4244,7 +4246,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       // scrolling kicks in (each row averages ~44px once the Best
       // Day/Week/Month two-line cells render, plus the ~32px header).
       el('div', { class: 'hidden sm:block scroll-x', style: { maxHeight: '520px', overflowY: 'auto' } },
-        el('table', { class: 'w-full text-[12px]' },
+        el('table', { class: 'w-full text-xs' },
           el('thead', {
             class: 'text-[9px] uppercase tracking-wider text-muted-',
             style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: 1 },
@@ -4502,7 +4504,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             onclick: () => openIndicatorRepCard(me._orig || me, allReps),
           },
             el('div', { class: 'flex items-center gap-2' },
-              el('span', { class: 'font-black tabular-nums text-[12px]', style: { color: 'var(--accent)' } }, '#' + (myIdx + 1)),
+              el('span', { class: 'font-black tabular-nums text-xs', style: { color: 'var(--accent)' } }, '#' + (myIdx + 1)),
               el('span', { class: 'font-bold truncate text-sm' }, me.name),
               el('span', { class: 'text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, 'You'),
               el('span', { class: 'text-xl leading-none font-black tabular-nums ml-auto shrink-0' }, fmt.usd0(me.revenue || 0))),
@@ -4545,7 +4547,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               },
                 // Rank + name on the left, THE number — revenue — big on the right
                 el('div', { class: 'flex items-center gap-2' },
-                  el('span', { class: 'font-black tabular-nums shrink-0 text-[12px]', style: { color: i === 0 ? 'var(--accent)' : 'var(--text-muted)' } }, '#' + (i + 1)),
+                  el('span', { class: 'font-black tabular-nums shrink-0 text-xs', style: { color: i === 0 ? 'var(--accent)' : 'var(--text-muted)' } }, '#' + (i + 1)),
                   el('span', { class: 'font-bold truncate text-sm' }, r.name),
                   tierMeta && el('span', {
                     class: 'text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0',
@@ -6012,7 +6014,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
     ),
     // Desktop / tablet: full table with horizontal scroll
     el('div', { class: 'hidden sm:block scroll-x' },
-      el('table', { class: 'w-full text-[12px]' },
+      el('table', { class: 'w-full text-xs' },
         el('thead', {},
           el('tr', { class: 'border-b', style: { borderColor: 'var(--border)' } },
             verifyHeaderCell('#', 'left'),
@@ -8231,7 +8233,7 @@ function openTeamReportsModal(ctx) {
       el('div', { class: 'min-w-0' }, title, subline),
       el('div', { class: 'flex items-center gap-2 shrink-0' },
         modeSelect,
-        el('button', { class: 'text-2xl cursor-pointer', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
+        el('button', { class: 'text-2xl leading-none text-muted- cursor-pointer', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
     ),
     lbRow,
     rosterRow,
@@ -10445,7 +10447,7 @@ function viewHistory({ embedded = false } = {}) {
     container.append(
       el('div', {},
         el('h1', { class: 'text-3xl font-bold' }, 'Sales History'),
-        el('p', { class: 'text-battle-2 text-sm mt-1' }, 'Every sale on record, filterable and exportable.'),
+        el('p', { class: 'text-muted- text-sm mt-1' }, 'Every sale on record, filterable and exportable.'),
       ),
     );
   }
@@ -10493,11 +10495,11 @@ function viewHistory({ embedded = false } = {}) {
     const r = filterRows();
     tableHost.innerHTML = '';
     tableHost.append(
-      el('div', { class: 'text-xs text-battle-2 px-1 py-2' }, `${r.length} record${r.length === 1 ? '' : 's'}`),
+      el('div', { class: 'text-xs text-muted- px-1 py-2' }, `${r.length} record${r.length === 1 ? '' : 's'}`),
       el('div', { class: 'card overflow-hidden' },
         el('div', { class: 'scroll-x' },
           el('table', { class: 'w-full text-sm' },
-            el('thead', { class: 'text-[10px] uppercase tracking-widest text-battleship bg-eerie3' },
+            el('thead', { class: 'text-[10px] uppercase tracking-widest text-muted-', style: { background: 'var(--card-2)' } },
               el('tr', {},
                 el('th', { class: 'text-left px-3 py-2' }, 'Customer'),
                 el('th', { class: 'text-left px-3 py-2 desktop-only' }, 'Cust #'),
@@ -10515,19 +10517,19 @@ function viewHistory({ embedded = false } = {}) {
               ),
             ),
             el('tbody', {}, r.length === 0
-              ? el('tr', {}, el('td', { colspan: 13, class: 'text-center text-battle-2 py-8' }, 'No results.'))
+              ? el('tr', {}, el('td', { colspan: 13, class: 'text-center text-muted- py-8' }, 'No results.'))
               : r.map(s => {
-                  return el('tr', { class: 'border-t border-eerie3' },
+                  return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
                     el('td', { class: 'px-3 py-2.5 font-medium' }, s.customer_name),
-                    el('td', { class: 'px-3 py-2.5 text-battle-2 desktop-only' }, s.customer_number || '—'),
+                    el('td', { class: 'px-3 py-2.5 text-muted- desktop-only' }, s.customer_number || '—'),
                     el('td', { class: 'px-3 py-2.5 whitespace-nowrap' }, ((state.allProfiles || []).find(p => p.id === s.rep_id) || {}).full_name || '—'),
-                    el('td', { class: 'px-3 py-2.5 text-battle-2 desktop-only' }, nameFromId(state.offices, s.office_id)),
-                    el('td', { class: 'px-3 py-2.5 text-battle-2' }, nameFromId(state.serviceTypes, s.service_type_id)),
-                    el('td', { class: 'px-3 py-2.5 text-battle-2 desktop-only' }, nameFromId(state.sources, s.source_id)),
+                    el('td', { class: 'px-3 py-2.5 text-muted- desktop-only' }, nameFromId(state.offices, s.office_id)),
+                    el('td', { class: 'px-3 py-2.5 text-muted-' }, nameFromId(state.serviceTypes, s.service_type_id)),
+                    el('td', { class: 'px-3 py-2.5 text-muted- desktop-only' }, nameFromId(state.sources, s.source_id)),
                     el('td', { class: 'px-3 py-2.5 text-right tabular-nums' }, fmt.usd(s.initial_amount)),
                     el('td', { class: 'px-3 py-2.5 text-right tabular-nums desktop-only' }, fmt.usd(s.monthly_amount)),
                     el('td', { class: 'px-3 py-2.5 text-right tabular-nums font-medium' }, fmt.usd(s.revenue_amount)),
-                    el('td', { class: 'px-3 py-2.5 text-battle-2 tabular-nums' }, fmt.dateShort(s.sold_date)),
+                    el('td', { class: 'px-3 py-2.5 text-muted- tabular-nums' }, fmt.dateShort(s.sold_date)),
                     el('td', { class: 'px-3 py-2.5' }, statusChip(s.audit_status)),
                     el('td', { class: 'px-3 py-2.5 whitespace-nowrap' },
                       SETTLED_AUDIT.has(s.audit_status)
@@ -11029,7 +11031,7 @@ function openCallAuditModal(profile, period, dept, onDone) {
         el('div', { class: 'text-right' },
           el('div', { class: 'text-[9px] uppercase tracking-widest text-muted- font-bold' }, 'Accuracy'),
           el('div', { class: 'text-lg font-black tabular-nums', style: { color: 'var(--accent)' } }, accSc.score == null ? '—' : accSc.score.toFixed(0) + '%')),
-        el('button', { class: 'text-2xl text-muted-', onclick: () => overlay.remove() }, '×'))));
+        el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', onclick: () => overlay.remove() }, '×'))));
     if (callSc.flagged) modal.append(el('div', { class: 'rounded-lg border px-3 py-2 text-[11px] mb-3', style: { borderColor: '#DC2626', background: 'rgba(220,38,38,.08)', color: '#DC2626' } },
       '⚑ Compliance flag — a compliance criterion is graded No. The call still scores; the flag rides with it.'));
     const inp = (key, ph, type) => el('input', {

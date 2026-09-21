@@ -599,7 +599,7 @@ function reportingGeographic() {
                         overlay.append(el('div', { class: 'card p-4 flex flex-col gap-3', style: { width: 'min(520px, 94vw)', maxHeight: '85vh', overflow: 'auto' } },
                           el('div', { class: 'flex items-start justify-between gap-3' },
                             el('div', {}, el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, s.name), el('div', { class: 'text-lg font-black' }, ents.length + ' ' + unitLabel + (ents.length === 1 ? '' : 's'))),
-                            el('button', { class: 'text-xl leading-none', onclick: () => overlay.remove() }, '×')),
+                            el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', onclick: () => overlay.remove() }, '×')),
                           el('table', { class: 'w-full text-xs' },
                             el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } }, el('tr', {}, el('th', { class: 'py-1 text-left' }, unitLabel), el('th', { class: 'py-1 text-right' }, 'Subs'), el('th', { class: 'py-1 text-right' }, 'Active ARR'))),
                             el('tbody', {}, ...ents.map(([o, n]) => {

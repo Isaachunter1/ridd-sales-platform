@@ -70,7 +70,7 @@ function reportingInsideSales() {
   };
 
   // ── Formatting + color coding ──
-  const usd = (v) => v == null ? '—' : '$' + Math.round(v).toLocaleString();
+  const usd = fmt.usd0;
   const num = (v) => v == null ? '—' : Math.round(v).toLocaleString();
   const pct = (v) => v == null ? '—' : (v * 100).toFixed(1) + '%';
   const x2  = (v) => v == null ? '—' : v.toFixed(2);
@@ -1030,7 +1030,7 @@ function openReportingServicesModal(area, label) {
         el('div', { class: 'text-xs text-muted- mt-1' },
           breakdown.length.toLocaleString() + ' distinct service types · ' + total.toLocaleString() + ' subs'),
       ),
-      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×'),
+      el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: close }, '×'),
     ),
     el('div', { class: 'overflow-auto px-5 pb-5 flex flex-col gap-2', style: { borderTop: '1px solid var(--border)' } },
       ...top.map(([name, n], i) => {

@@ -1269,7 +1269,7 @@ function subscribeMySalesRealtime() {
         seen.add(key);
         const who = row.customer_name || 'your sale';
         if (row.staged_for_payroll) {
-          toast('💰 ' + who + ' just staged for payroll', 'success');
+          toast(who + ' just staged for payroll', 'success');
         } else if (row.audit_status && row.audit_status !== 'pending') {
           const nice = String(row.audit_status).replace(/_/g, ' ');
           toast((row.audit_status === 'cancelled' || row.audit_status === 'nsf' ? '⚠ ' : '✅ ') + who + ' — audit: ' + nice, row.audit_status === 'cancelled' ? 'warn' : 'success');
@@ -1318,7 +1318,7 @@ async function openIndicatorConfigHistoryModal() {
         el('h2', { class: 'text-base font-bold' }, '🕘 Config history'),
         el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
           'Teams · rosters · competitions — every change, last 50 snapshots. Restore rolls the shared config back for every admin.')),
-      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
+      el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
     el('div', { class: 'p-6 text-center text-sm', style: { color: 'var(--text-muted)' } }, 'Loading…'));
   overlay.append(card);
   document.body.append(overlay);
@@ -2304,7 +2304,7 @@ const slack = {
       });
       const sent = withSlack.length;
       if (sent > 0) {
-        toast('📬 Slack DM (demo): ' + sent + ' rep' + (sent === 1 ? '' : 's')
+        toast('Slack DM (demo): ' + sent + ' rep' + (sent === 1 ? '' : 's')
           + (without > 0 ? ' · ' + without + ' missing Slack ID' : ''),
           'success');
       } else if (without > 0) {
@@ -2456,17 +2456,40 @@ const fmt = {
   // M/D/YY — same as dateShort but with a 2-digit year. Used in the Sales
   // table where year matters (sales can sit a quarter or two in flight).
   dateShortYear: s => (s ? new Date(s + 'T00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' }) : '—'),
+  // Percent helpers where x is ALREADY a percentage (0–100), unlike fmt.pct.
+  pct1:  x => (Number(x) || 0).toFixed(1) + '%',
+  pct0:  x => (Number(x) || 0).toFixed(0) + '%',
+  // "Sep 6" — accepts YYYY-MM-DD (local midnight) or a full ISO timestamp.
+  dateMed: s => {
+    if (!s) return '—';
+    const d = typeof s === 'string' && s.length === 10 ? new Date(s + 'T00:00') : new Date(s);
+    return isNaN(d) ? '—' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  },
+  // +$1,234 / −$1,234 (unicode minus). money=false → +1,234 / −1,234.
+  signed: (n, money) => {
+    const v = Number(n) || 0, a = Math.abs(v);
+    const body = money ? '$' + a.toLocaleString('en-US', { maximumFractionDigits: 0 }) : a.toLocaleString('en-US');
+    return (v < 0 ? '−' : '+') + body;
+  },
 };
+fmt.usd2 = fmt.usd;
+
+// Canonical empty-state card ("No data yet", "Admins only.", "Loading…").
+function emptyCard(msg, extra) {
+  return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, msg, extra || null);
+}
 
 function toast(msg, type = 'info') {
+  // Card-token skin (legacy bg-eerie3 / bg-lime palette retired).
   const colors = {
-    info:    'bg-eerie3 border-battleship text-smoke',
-    success: 'bg-lime text-eerie border-lime-600',
-    error:   'bg-red-500 text-white border-red-600',
-    warn:    'bg-amber-500 text-eerie border-amber-600',
+    info:    { background: 'var(--card-2)', color: 'var(--text)', borderColor: 'var(--border-2)' },
+    success: { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' },
+    error:   { background: '#DC2626', color: '#fff', borderColor: '#DC2626' },
+    warn:    { background: '#A9441F', color: '#fff', borderColor: '#A9441F' },
   };
   const t = el('div', {
-    class: `pointer-events-auto fade-in rounded-xl border px-4 py-3 shadow-lg max-w-[min(360px,calc(100vw-2rem))] ${colors[type]}`,
+    class: 'pointer-events-auto fade-in rounded-xl border px-4 py-3 shadow-lg text-sm font-semibold',
+    style: Object.assign({ maxWidth: 'min(360px, calc(100vw - 2rem))' }, colors[type] || colors.info),
   }, msg);
   $('#toasts').append(t);
   setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity .3s'; }, 3200);
@@ -3520,20 +3543,20 @@ function mount(view) {
 function mountConfigMissing() {
   mount(el('div', { class: 'min-h-screen flex items-center justify-center p-6' },
     el('div', { class: 'card p-8 max-w-xl text-center' },
-      el('div', { class: 'text-lime text-4xl font-black tracking-tight mb-1' }, 'RIDD'),
-      el('div', { class: 'text-xs text-battleship tracking-widest mb-6' }, 'SALES PLATFORM'),
+      el('div', { class: 'text-4xl font-black tracking-tight mb-1', style: { color: 'var(--accent)' } }, 'RIDD'),
+      el('div', { class: 'text-xs text-muted- tracking-widest mb-6' }, 'SALES PLATFORM'),
       el('h1', { class: 'text-xl font-semibold mb-3' }, 'Configuration needed'),
-      el('p', { class: 'text-battle-2 text-sm mb-4' },
-        'Open ', el('code', { class: 'text-lime' }, 'index.html'),
+      el('p', { class: 'text-muted- text-sm mb-4' },
+        'Open ', el('code', { style: { color: 'var(--accent)' } }, 'index.html'),
         ' and paste your Supabase publishable key into the ',
-        el('code', { class: 'text-lime' }, 'RIDD_CONFIG'), ' block at the top of the file.'),
-      el('p', { class: 'text-battle-2 text-xs mb-6' },
+        el('code', { style: { color: 'var(--accent)' } }, 'RIDD_CONFIG'), ' block at the top of the file.'),
+      el('p', { class: 'text-muted- text-xs mb-6' },
         'Supabase Dashboard → Settings → API Keys → "Publishable and secret API keys" → Create new API keys'),
-      el('div', { class: 'pt-4 border-t border-eerie3' },
-        el('p', { class: 'text-xs text-battleship mb-3' }, 'Or explore the UI with mock data:'),
+      el('div', { class: 'pt-4 border-t', style: { borderColor: 'var(--border)' } },
+        el('p', { class: 'text-xs text-muted- mb-3' }, 'Or explore the UI with mock data:'),
         el('a', {
           href: '?demo',
-          class: 'inline-block px-5 py-2.5 rounded-xl bg-lime hover:bg-lime-600 text-eerie font-semibold text-sm transition',
+          class: 'inline-block px-5 py-2.5 rounded-xl font-semibold text-sm transition hover:brightness-95', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         }, 'View demo →'),
       ),
     )));
@@ -3831,13 +3854,15 @@ function healthWorst() {
 function openHealthSheet() {
   if (typeof trackAction === 'function') trackAction('health_sheet', 'open');
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   const fmtT = (t) => t ? new Date(t).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '\u2014';
   const rows = Object.keys(HEALTH_SOURCES).map(k => {
     const v = (state._health || {})[k];
     const st = !v ? 'not loaded yet' : v.ok ? 'ok' : 'error';
     const color = st === 'ok' ? '#5F6C5B' : st === 'error' ? '#DC2626' : 'var(--text-subtle)';
-    return el('div', { class: 'flex items-start justify-between gap-3 px-3 py-2 text-[12px]', style: { borderTop: '1px solid var(--border)' } },
+    return el('div', { class: 'flex items-start justify-between gap-3 px-3 py-2 text-xs', style: { borderTop: '1px solid var(--border)' } },
       el('div', { class: 'min-w-0' }, el('div', { class: 'font-semibold' }, HEALTH_SOURCES[k]),
         el('div', { class: 'text-[10px] text-muted-' }, st === 'error' ? ('Failed ' + fmtT(v.at) + (v.okAt ? ' \u00b7 last worked ' + fmtT(v.okAt) : '') + ' \u00b7 ' + v.msg) : st === 'ok' ? 'Last loaded ' + fmtT(v.at) : 'Loads when its tab opens')),
       el('span', { class: 'text-[10px] font-bold uppercase tracking-wider shrink-0', style: { color } }, st));
@@ -3845,7 +3870,7 @@ function openHealthSheet() {
   // Server side (admins): the sync worker's own heartbeat + newest reporting
   // snapshot from /api/sync-status — "the job ran at 3:00 and finished ok
   // in 41 s" instead of only what this browser managed to load.
-  const serverRow = isAdminRole(state.profile?.role) ? el('div', { class: 'px-3 py-2 text-[12px]', style: { borderTop: '1px solid var(--border)' } },
+  const serverRow = isAdminRole(state.profile?.role) ? el('div', { class: 'px-3 py-2 text-xs', style: { borderTop: '1px solid var(--border)' } },
     el('div', { class: 'font-semibold' }, 'Sync worker (server)'),
     el('div', { class: 'text-[10px] text-muted-' }, 'Checking\u2026')) : null;
   if (serverRow) {
@@ -3869,7 +3894,7 @@ function openHealthSheet() {
       el('div', {}, el('div', { class: 'text-sm font-bold', title: SYNC_CADENCE_TEXT }, 'Data sources'), el('div', { class: 'text-[10px] text-muted-' }, (typeof appSyncStampStr === 'function' ? 'Last sync ' + appSyncStampStr() : ''))),
       el('div', { class: 'flex items-center gap-2' },
         el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: () => { overlay.remove(); try { refreshIndicatorsFromCloud(true); toast('Refreshing\u2026', 'success'); } catch (e) { /* poll retries */ } } }, '\u21bb Refresh'),
-        el('button', { class: 'text-xl leading-none', onclick: () => overlay.remove() }, '\u00d7'))),
+        el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', onclick: () => overlay.remove() }, '\u00d7'))),
     serverRow,
     ...rows));
   document.body.append(overlay);
@@ -3918,7 +3943,7 @@ function mountError(err) {
         el('pre', { class: 'text-xs whitespace-pre-wrap mt-1', style: { color: 'var(--text-subtle)' } }, msg)),
       el('div', { class: 'flex items-center gap-2 mt-3' },
         el('button', {
-          class: 'px-2.5 py-1 rounded-lg bg-lime text-eerie font-semibold text-[11px]',
+          class: 'px-2.5 py-1 rounded-lg font-semibold text-[11px]', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
           onclick: () => location.reload(),
         }, isNet ? 'Try again' : 'Reload'),
         isAuth && el('button', {
