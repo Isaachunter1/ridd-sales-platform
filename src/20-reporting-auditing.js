@@ -275,14 +275,15 @@ function reportingAuditing() {
     // Spans two columns everywhere (per Isaac): a full phone row, two of the three desktop columns with Aging on the right.
     const attrTile = (excl, incl) => el('div', { class: 'rounded-xl p-3 sm:col-span-2', style: { background: 'var(--card-2)', gridColumn: 'span 2 / span 2' } },
       el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Attrition'),
-      el('div', { class: 'grid grid-cols-2 gap-3 mt-0.5' },
+      // Read labels ABOVE the figures (per Isaac).
+      el('div', { class: 'grid grid-cols-2 gap-3 mt-1' },
         el('div', {},
-          el('div', { class: 'text-xl font-black tabular-nums', style: { color: good } }, pctS(excl)),
-          el('div', { class: 'text-[10px] text-muted- mt-0.5' }, 'excl. 3-day ROR + one-time (removed from both sides)')),
+          el('div', { class: 'text-[10px] font-semibold text-muted-' }, 'Excl. 3-day ROR'),
+          el('div', { class: 'text-xl font-black tabular-nums mt-0.5', style: { color: good }, title: 'ROR + one-time removed from both sides' }, pctS(excl))),
         el('div', {},
-          el('div', { class: 'text-xl font-black tabular-nums' }, pctS(incl)),
-          el('div', { class: 'text-[10px] text-muted- mt-0.5' }, 'incl. 3-day ROR + one-time'))),
-      el('div', { class: 'text-[10px] text-muted- mt-1' }, 'cancelled ÷ serviced'));
+          el('div', { class: 'text-[10px] font-semibold text-muted-' }, 'Incl. 3-day ROR'),
+          el('div', { class: 'text-xl font-black tabular-nums mt-0.5' }, pctS(incl)))),
+      el('div', { class: 'text-[10px] text-muted- mt-1' }, 'cancelled \u00f7 serviced \u00b7 one-time services out of both'));
     const card = el('div', { class: 'card w-full max-w-2xl my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
       el('div', { class: 'p-5 pb-3 flex items-start justify-between gap-3', style: { borderBottom: '1px solid var(--border)' } },
         el('div', {},
@@ -317,7 +318,7 @@ function reportingAuditing() {
         group('Attrition · of serviced', [
           // One card for both reads (per Isaac): excl. ROR + OTS beside incl.
           attrTile(attrExclRor, attrInclRor),
-          tile('If aging churns', pctS(cancelIfAging), '(cancelled + aging) ÷ serviced', '#A9441F'),
+          tile('Incl. 3-day ROR + aging', pctS(cancelIfAging), '(cancelled + aging) \u00f7 serviced', '#A9441F'),
           tile('Active retention', pctS(activeRetention), 'active ÷ serviced', activeRetention == null ? null : (activeRetention >= 0.85 ? good : activeRetention < 0.65 ? bad : null)),
         ]),
         // ── "True Attrition" bar (per Isaac) — same definition as the rep
@@ -342,7 +343,7 @@ function reportingAuditing() {
           return el('div', { class: 'rounded-xl p-3', style: { background: 'var(--card-2)' } },
             el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
               el('div', {},
-                el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'True attrition · excl. ROR + OTS + renewals · aging counts as churn'),
+                el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'True attrition \u00b7 excl. 3-day ROR + aging'),
                 el('div', { class: 'text-[10px] text-muted- mt-0.5' }, '(cancelled ' + money(tCxl) + ' + aging ' + money(tAging) + ') ÷ ' + money(tSvc) + ' serviced')),
               el('div', { class: 'text-xl font-black tabular-nums', style: { color: rate >= 0.15 ? bad : rate < 0.08 ? good : '#A9441F' } }, pctS(rate))),
             el('div', { class: 'flex overflow-hidden rounded-full mt-2', style: { height: '10px', background: 'var(--border)' } }, seg(tCxl, bad, 'Cancelled'), seg(tAging, '#A9441F', 'Aging'), seg(kept, good, 'Kept')),
