@@ -61,7 +61,7 @@ exports.handler = async (event) => {
     // 1. Every customer id the mirror knows about.
     const token = await _bq.getAccessToken();
     const T = (n) => '`' + _bq.PROJECT + '.' + _bq.DATASET + '.' + n + '`';
-    const rows = await _bq.runQuery(token, `SELECT DISTINCT fieldRoutes_customerID AS id FROM ${T('FieldRoutesCustomer')} WHERE fieldRoutes_customerID IS NOT NULL AND SAFE_CAST(fieldRoutes_customerID AS INT64) > 0`);
+    const rows = await _bq.queryObjects(token, `SELECT DISTINCT fieldRoutes_customerID AS id FROM ${T('FieldRoutesCustomer')} WHERE fieldRoutes_customerID IS NOT NULL AND SAFE_CAST(fieldRoutes_customerID AS INT64) > 0`);
     const mirrorIds = rows.map(r => String(r.id)).filter(Boolean);
     console.log('[crm-deleted] mirror customers:', mirrorIds.length);
 

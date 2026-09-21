@@ -85,11 +85,11 @@ SELECT x.tech, COALESCE(NULLIF(e.name, ''), CONCAT('Tech #', x.tech)) AS name, A
 FROM attributed x LEFT JOIN emp e ON e.employee_id = x.tech
 WHERE x.tech IS NOT NULL
 GROUP BY x.tech, name, x.d`;
-    const rows = await _bq.runQuery(token, sql, { compact: true });
+    const rows = await _bq.queryObjects(token, sql);
     // Office names for the office_id → branch label.
     const officeNames = {};
     try {
-      const og = await _bq.runQuery(token, `SELECT DISTINCT fieldRoutes_officeID AS id, fieldRoutes_officeName AS name FROM ${T('FieldRoutesOffice')}`, { compact: true });
+      const og = await _bq.queryObjects(token, `SELECT DISTINCT fieldRoutes_officeID AS id, fieldRoutes_officeName AS name FROM ${T('FieldRoutesOffice')}`);
       og.forEach(o => { if (o.id) officeNames[String(o.id)] = o.name; });
     } catch (e) { console.warn('[tech-stats] office names skipped:', e.message); }
     const payload = { generatedAt: new Date().toISOString(), start, end, officeNames,

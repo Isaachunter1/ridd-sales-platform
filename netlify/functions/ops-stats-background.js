@@ -84,9 +84,9 @@ GROUP BY 1, 2`;
 SELECT fieldRoutes_officeIDs AS office_id, SUBSTR(fieldRoutes_date, 1, 10) AS d, COUNT(*) AS n, COUNTIF(SAFE_CAST(fieldRoutes_starRating AS INT64) >= 4) AS good
 FROM ${T('FieldRoutesReview')} WHERE SUBSTR(fieldRoutes_date, 1, 10) BETWEEN '${start}' AND '${end}' GROUP BY 1, 2`;
     const [appt, clock, reviews] = await Promise.all([
-      _bq.runQuery(token, apptSql, { compact: true }),
-      _bq.runQuery(token, clockSql, { compact: true }).catch(e => { console.warn('[ops-stats] timeclock skipped:', e.message); return []; }),
-      _bq.runQuery(token, reviewSql, { compact: true }).catch(e => { console.warn('[ops-stats] reviews skipped:', e.message); return []; }),
+      _bq.queryObjects(token, apptSql),
+      _bq.queryObjects(token, clockSql).catch(e => { console.warn('[ops-stats] timeclock skipped:', e.message); return []; }),
+      _bq.queryObjects(token, reviewSql).catch(e => { console.warn('[ops-stats] reviews skipped:', e.message); return []; }),
     ]);
     // Roll days up to office × week.
     const cells = {};

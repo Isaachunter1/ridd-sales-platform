@@ -1614,4 +1614,9 @@ exports.handler = async (event) => {
 };
 
 // Shared BigQuery plumbing for sibling workers (tech-stats-background).
-exports._bq = { getAccessToken, runQuery, PROJECT, DATASET };
+// Plain-object rows for the side workers (ops-stats, tech-stats, deleted
+// scan): runQuery returns { schema, rows|objects } — iterating that directly
+// was the "appt is not iterable" crash that kept those blobs from ever
+// being written.
+async function queryObjects(token, sql) { const r = await runQuery(token, sql, { compact: true }); return (r && r.objects) || []; }
+exports._bq = { getAccessToken, runQuery, queryObjects, PROJECT, DATASET };
