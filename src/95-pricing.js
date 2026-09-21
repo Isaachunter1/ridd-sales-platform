@@ -274,14 +274,14 @@ function viewPricing() {
       secH('Add-Ons', null),
       el('div', { style: hasPlan ? {} : { opacity: '.45' } },
         table(['Add-On Service', 'Initial', 'Monthly'],
-          // Every add-on row always renders (the base plan's own row just
-          // dims) so the card never changes height and nothing below it
+          // Every add-on row always renders (the base plan's own row, and any
+          // add-on it already covers, just dims — no label, reps know why) so the card never changes height and nothing below it
           // shifts when a plan is picked (per Isaac).
           T.addons.map(([id, init, mo], i) => {
             const isBase = id === st.base;
             const covered = !isBase && pricingCoveredBy(st.base, id);
             const on = !isBase && !covered && !!st.addons[id];
-            const row = trow([el('span', { class: 'inline-flex items-center' }, box(on), PRICING_SERVICES[id].label + (isBase ? ' · your base plan' : covered ? ' · included in ' + PRICING_SERVICES[st.base].label : '')), money(init), '+' + money(mo)], on, (hasPlan && !isBase && !covered) ? () => { if (on) delete st.addons[id]; else st.addons[id] = true; rerender(); } : null, i);
+            const row = trow([el('span', { class: 'inline-flex items-center' }, box(on), PRICING_SERVICES[id].label), money(init), '+' + money(mo)], on, (hasPlan && !isBase && !covered) ? () => { if (on) delete st.addons[id]; else st.addons[id] = true; rerender(); } : null, i);
             if (isBase || covered) row.style.opacity = '.4';
             return row;
           }))));
