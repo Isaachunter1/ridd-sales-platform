@@ -146,9 +146,12 @@ function retenBranchDropdown(g0) {
   const place = () => { try { const r = btn.getBoundingClientRect(); panel.style.top = (r.bottom + 4) + 'px'; panel.style.right = Math.max(8, window.innerWidth - r.right) + 'px'; } catch { /* ignore */ } };
   const panel = el('div', { class: 'rounded-xl border shadow-lg p-2', style: { position: 'fixed', zIndex: 60, display: state._retenBranchOpen ? 'block' : 'none', background: 'var(--card)', borderColor: 'var(--border-2)', minWidth: '240px', maxHeight: '60vh', overflowY: 'auto' } },
     el('div', { class: 'flex items-center justify-between gap-2 px-1 pb-1.5 mb-1 border-b', style: { borderColor: 'var(--border)' } },
-      el('span', { class: 'text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Branches in the book'),
-      // Reset (per Isaac) puts every branch back in — replaces All in / None.
-      el('button', { class: 'rounded-md border px-1.5 py-0.5 text-[10px] font-bold', style: { borderColor: off.size ? 'var(--accent)' : 'var(--border-2)', color: off.size ? 'var(--accent)' : 'var(--text-subtle)' }, title: 'Every branch back in the book', onclick: () => setBranches(null) }, 'Reset')),
+      el('span', { class: 'text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Branches'),
+      el('span', { class: 'inline-flex items-center gap-1' },
+        // None (per Isaac): clear every branch, then tick the one to look at.
+        el('button', { class: 'rounded-md border px-1.5 py-0.5 text-[10px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--text-subtle)' }, title: 'Take every branch out, then tick just the one you want', onclick: () => { const br = {}; names.forEach(o => { br[o] = false; }); setBranches(br); } }, 'None'),
+        // Reset puts every branch back in.
+        el('button', { class: 'rounded-md border px-1.5 py-0.5 text-[10px] font-bold', style: { borderColor: off.size ? 'var(--accent)' : 'var(--border-2)', color: off.size ? 'var(--accent)' : 'var(--text-subtle)' }, title: 'Every branch back in the book', onclick: () => setBranches(null) }, 'Reset'))),
     ...names.map(o => {
       const isOff = off.has(o);
       const cb = el('input', { type: 'checkbox', checked: !isOff, style: { accentColor: 'var(--accent)' }, onchange: (e) => {
