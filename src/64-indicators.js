@@ -4752,7 +4752,8 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
               const _pct = Math.max(1.5, s.share / maxShare * 100);
               // In-bar label only when the bar is wide enough for the digits —
               // phone bars are ~330px, so 15% clipped "1,477" (per Isaac).
-              const _inBar = _pct >= Math.max(15, fmt.int(s.count).length * (narrow ? 5.5 : 3));
+              // Phones need more room per digit ("45" at ~19% still spilled, per Isaac): 22% floor, 9%/digit.
+              const _inBar = narrow ? _pct >= Math.max(22, fmt.int(s.count).length * 9) : _pct >= Math.max(15, fmt.int(s.count).length * 3);
               return el('div', {
                 class: 'flex items-center gap-3 text-[13px] py-2.5 transition hover:brightness-95 rounded' + (i > 0 ? ' border-t border-' : '') + (opts.onRowClick ? ' cursor-pointer' : ''),
                 title: opts.rowTitle || '',
