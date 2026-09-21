@@ -198,16 +198,21 @@ const BRANCH_COLORS = {
 // branch; RIDD = the sum of both (admin-only grouping on Indicators).
 // Workbook rows: RPC light yellow-green, RPS orange-red (matched to the
 // reporting sheet screenshot — tweak hexes here if the print looks off).
-const COMPANY_COLORS = { 'RPS': '#D2451E', 'RPC': '#9BCB3C' };
+// Display names (per Isaac, Sep 2026): the abbreviations read as
+// "RIDD Pest Control" / "RIDD Pest Solutions" everywhere in the app. The
+// short keys stay in configs (branchGroups) and marketing row keys.
+const COMPANY_NAMES = { RPC: 'RIDD Pest Control', RPS: 'RIDD Pest Solutions' };
+function companyName(k) { return COMPANY_NAMES[String(k || '').toUpperCase()] || k; }
+const COMPANY_COLORS = { 'RPS': '#D2451E', 'RPC': '#9BCB3C', 'RIDD PEST SOLUTIONS': '#D2451E', 'RIDD PEST CONTROL': '#9BCB3C' };
 const RPS_OFFICES_RE = /detroit|joplin|little\s*rock/i;
 function companyGroupOf(office) {
   const o = String(office || '');
   const ar = (typeof _adminRules === 'function') ? _adminRules() : null;
   if (ar && ar.branchGroups && typeof ar.branchGroups === 'object') {
     const hit = ar.branchGroups[o] || ar.branchGroups[o.trim().toUpperCase()];
-    if (hit === 'RPS' || hit === 'RPC') return hit;
+    if (hit === 'RPS' || hit === 'RPC') return COMPANY_NAMES[hit];
   }
-  return RPS_OFFICES_RE.test(o) ? 'RPS' : 'RPC';
+  return RPS_OFFICES_RE.test(o) ? COMPANY_NAMES.RPS : COMPANY_NAMES.RPC;
 }
 // Readable text on any group color (SALT LAKE is near-white).
 function groupHeaderTextColor(bg) {
