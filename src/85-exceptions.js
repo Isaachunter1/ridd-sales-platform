@@ -84,7 +84,7 @@ function exceptionFeedItems(scope) {
     // 3. Attrition spike — churned ARR in the last 7 days vs the average of
     // the 4 weeks before, per team (partners) or office (admins).
     const cur = new Map(), prev = new Map();
-    for (const r of subs) {
+    if (ON.has('attrition')) for (const r of subs) {
       const cd = String(r.subscription_date_canceled || '').slice(0, 10);
       if (!cd || cd < d35 || cd > todayIso || !isReal(r) || !rowIn(r)) continue;
       const k = groupOf(r), m = cd >= d7 ? cur : prev;
