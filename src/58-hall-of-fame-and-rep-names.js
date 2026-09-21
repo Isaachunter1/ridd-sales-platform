@@ -1130,10 +1130,18 @@ function _riddChartTooltip(ctx) {
   const tip = ctx.tooltip;
   if (!tip || tip.opacity === 0) { t.style.opacity = '0'; return; }
   const title = (tip.title || []).join(' ');
-  const items = (tip.body || []).map((b, i) => ({
-    text: b.lines.join(' '),
-    color: (tip.labelColors && tip.labelColors[i] && (tip.labelColors[i].borderColor || tip.labelColors[i].backgroundColor)) || 'var(--accent)',
-  }));
+  // Swatch colour: bars carry their colour in backgroundColor (their border is
+  // Chart.js's default gray, which made the Sold bar look gray in the Daily
+  // Pulse tooltip); lines carry it in borderColor. Pick by dataset type.
+  const _dp = tip.dataPoints || [];
+  const items = (tip.body || []).map((b, i) => {
+    const lc = (tip.labelColors && tip.labelColors[i]) || {};
+    const ds = _dp[i] && _dp[i].dataset;
+    const isBar = ds && (ds.type === 'bar' || (!ds.type && ctx.chart && ctx.chart.config && ctx.chart.config.type === 'bar'));
+    const solid = (c) => c && typeof c === 'string' && !/rgba\([^)]*,\s*0?\.\d+\)/.test(c) ? c : null;
+    const color = isBar ? (solid(lc.backgroundColor) || lc.borderColor || lc.backgroundColor) : (lc.borderColor || lc.backgroundColor);
+    return { text: b.lines.join(' '), color: color || 'var(--accent)' };
+  });
   const footer = (tip.footer || []).join(' ');
   const MAX = 12;
   let html = '';
