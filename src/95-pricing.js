@@ -197,7 +197,7 @@ function viewPricing() {
     const hasPlan = !!baseSvc;
     const fi = Math.max(0, PRICING_FREQ.findIndex(([k]) => k === st.freq));
     const q = pricingQuote(st);
-    const rerender = () => { const y = window.scrollY; render(); window.scrollTo(0, y); };
+    const rerender = () => { const y = window.scrollY; render(); window.scrollTo(0, y); onScroll(); };
 
     // ── tier switch lives IN the badge bubble on the board (no separate
     // "change" bar — most users never switch). Sales reps are locked to D2D,
@@ -389,12 +389,18 @@ function viewPricing() {
     const total = (lbl, val, o = {}) => el(o.onclick ? 'button' : 'div', { onclick: o.onclick, title: o.title, style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px', width: '100%', textAlign: 'left', cursor: o.onclick ? 'pointer' : 'default', background: 'transparent', border: 0, padding: 0, color: 'inherit' } },
       el('span', { style: { font: '700 9px/1 ' + F, letterSpacing: '.14em', textTransform: 'uppercase', color: o.accent ? C.orange : 'rgba(251,244,218,.7)' } }, lbl),
       el('span', { style: { font: '700 ' + (o.big ? '24px' : '14px') + '/1.1 ' + F, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color: o.accent ? C.orange : C.cream } }, val));
-    const quote = el('div', { class: 'mb-3', style: { background: C.cream, color: C.char, borderRadius: '12px', padding: '12px 14px', boxShadow: 'var(--shadow-lg)', border: '1.5px solid ' + C.orange } },
+    const tierLabel = 'Quote \u00b7 ' + (st.tier === 'd2d' ? (st.min ? 'D2D minimums' : 'D2D') : T.label);
+    // EMPTY quote (per Isaac): one row that says where the quote will appear
+    // — no totals block, no Reset (nothing to reset). ~44px instead of ~200.
+    const quoteEmpty = el('div', { class: 'pq-card pq-empty mb-3', style: { background: C.cream, color: C.char, borderRadius: '12px', padding: '10px 14px', boxShadow: 'var(--shadow-lg)', border: '1.5px solid ' + C.orange } },
+      el('div', { style: { font: '700 10px/1 ' + F, letterSpacing: '.16em', textTransform: 'uppercase', color: C.ink2 } }, tierLabel),
+      el('div', { style: { font: '500 11px/1.3 ' + F, color: C.ink3, textAlign: 'right' } }, 'Nothing selected yet \u00b7 tap a plan below'));
+    const quoteFull = el('div', { class: 'pq-card mb-3', style: { background: C.cream, color: C.char, borderRadius: '12px', padding: '12px 14px', boxShadow: 'var(--shadow-lg)', border: '1.5px solid ' + C.orange } },
       el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '6px' } },
         el('div', { style: { font: '700 10px/1 ' + F, letterSpacing: '.16em', textTransform: 'uppercase', color: C.ink2 } }, 'Quote · ' + (st.tier === 'd2d' ? (st.min ? 'D2D minimums' : 'D2D') : T.label)),
         el('button', { style: { padding: '5px 12px', borderRadius: '999px', border: '1.5px solid ' + C.ink3, background: 'transparent', color: C.char, font: '700 9px/1.2 ' + F, letterSpacing: '.1em', textTransform: 'uppercase', cursor: 'pointer' }, onclick: () => { st.base = null; st.addons = {}; st.onetime = {}; st.termite = false; st.custom = {}; editKey = null; rerender(); } }, 'Reset')),
       el('div', { class: 'grid gap-3 items-start pricing-qgrid', style: { gridTemplateColumns: 'minmax(0, 1fr) auto' } },
-        el('div', { style: { minWidth: 0 } }, ...(q.empty ? [el('div', { style: { font: '500 11px/1.4 ' + F, color: C.ink3, padding: '8px 0' } }, 'Nothing selected yet.')] : q.lines.map(rline))),
+        el('div', { style: { minWidth: 0 } }, ...q.lines.map(rline)),
         el('div', { style: { background: C.char, color: C.cream, borderRadius: '10px', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '7px', flexShrink: 0, minWidth: '150px', opacity: q.ok ? 1 : .55 } },
           total('Initial', money(q.init), { big: true }),
           // D2D: first-year cost is tucked away — tap Monthly to flip it into
@@ -406,6 +412,13 @@ function viewPricing() {
                el('div', { style: { borderTop: '1px dashed rgba(251,244,218,.35)', margin: '1px 0' } }),
                total('First year', money(q.acv))]))));
 
+    const quote = q.empty ? quoteEmpty : quoteFull;
+    // Phone: the one-line bar the quote collapses to once it's scrolled past.
+    const bar = el('button', { class: 'pq-bar', 'aria-label': 'Show the quote', style: { width: '100%', textAlign: 'left', background: C.char, color: C.cream, borderRadius: '12px', padding: '8px 14px', border: '1.5px solid ' + C.orange, boxShadow: 'var(--shadow-lg)', cursor: 'pointer' },
+      onclick: () => { top.classList.add('pq-open'); } },
+      el('span', { style: { font: '700 9px/1 ' + F, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(251,244,218,.7)' } }, 'Quote'),
+      el('span', { style: { font: '700 14px/1.1 ' + F, fontVariantNumeric: 'tabular-nums', letterSpacing: '-.01em', whiteSpace: 'nowrap' } }, money(q.init) + ' today', el('span', { style: { color: C.orange } }, ' \u00b7 ' + money(q.mo) + '/mo')),
+      el('span', { style: { font: '700 9px/1 ' + F, letterSpacing: '.1em', textTransform: 'uppercase', color: C.orange } }, 'View \u25be'));
     // Picker + quote ride together as one sticky block pinned right under
     // the fixed page header (measured live — it's ~60px, not 76 — so the
     // block no longer floats mid-page and overlaps the slick). The block
@@ -414,11 +427,28 @@ function viewPricing() {
     // the phone safe-area + the update banner when it's up) — a one-time
     // measurement went stale the moment a banner/toast came or went and
     // left the quote floating mid-page over the slick (per Isaac).
-    const top = el('div', { class: 'pricing-quote', style: { position: 'sticky', top: 'calc(60px + env(safe-area-inset-top, 0px) + var(--nv-banner, 0px))', zIndex: 5, background: 'var(--bg)' } }, quote);
+    // Offset = the MEASURED header (--hdr-h, set by mountApp; safe-area and
+    // banner included) so the quote never tucks under it; 60px was a guess.
+    const top = el('div', { class: 'pricing-quote', style: { position: 'sticky', top: 'var(--hdr-h, calc(60px + env(safe-area-inset-top, 0px) + var(--nv-banner, 0px)))', zIndex: 5, background: 'var(--bg)' } }, q.empty ? quote : bar, quote);
+    if (q.empty) bar.remove();
     board.classList.add('pricing-board');
     quote.style.position = ''; quote.style.top = ''; quote.style.zIndex = '';
+    if (_pqOpen) top.classList.add('pq-open');
+    top.addEventListener('click', (e) => { if (e.target === bar || bar.contains(e.target)) { _pqOpen = true; top.classList.add('pq-open'); } });
     root.replaceChildren(top, board);
+    _pqTop = top;
   };
+  // Collapse/expand the phone quote on scroll: stuck = scrolled past where
+  // it sits at the top of the page. Expanding by tap holds until the user
+  // scrolls back up to the top or makes another selection.
+  let _pqTop = null, _pqOpen = false;
+  const onScroll = () => {
+    const t = _pqTop; if (!t || !t.isConnected) return;
+    const stuck = window.scrollY > 40;
+    t.classList.toggle('pq-stuck', stuck);
+    if (!stuck && _pqOpen) { _pqOpen = false; t.classList.remove('pq-open'); }
+  };
+  window.addEventListener('scroll', onScroll, { passive: true });
   render();
   // Land at the top (per Isaac): a carried-over scroll position left the
   // first program's title tucked under the sticky quote on phones.
