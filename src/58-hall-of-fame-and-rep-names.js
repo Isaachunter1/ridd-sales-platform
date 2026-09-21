@@ -793,6 +793,13 @@ function getGroupColor(name) {
     return ({ 'SALES REP': '#DF643A', 'OFFICE STAFF': '#5F6C5B', 'TECHNICIAN': '#A9441F' })[String(name).toUpperCase()] || '#666';
   }
   if (state.indicatorsGroupBy === 'company') return COMPANY_COLORS[String(name).toUpperCase()] || '#666';
+  return getBranchColor(name);
+}
+// Branch colour exactly as Indicators shows it (Settings → branch colours,
+// then the built-in palette, then a stable hue for a new branch) — for any
+// table that colours a row by office regardless of the Indicators group mode.
+function getBranchColor(name) {
+  if (!name) return '#666';
   const up = String(name).toUpperCase();
   const ar = (typeof _adminRules === 'function') ? _adminRules() : null;
   if (ar && ar.branchColors && (ar.branchColors[name] || ar.branchColors[up])) return ar.branchColors[name] || ar.branchColors[up];
