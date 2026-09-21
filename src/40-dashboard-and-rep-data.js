@@ -4434,18 +4434,15 @@ function openIndicatorRepCard(rep, allReps = []) {
       : null;
     if (!rec || rec.revenue === 0) {
       return el('div', { class: 'rounded-lg border p-3', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
-        el('div', { class: 'flex items-start justify-between gap-2' },
-          el('div', { class: 'text-[9px] uppercase tracking-widest text-muted- font-semibold' }, label),
-          rankBadge,
-        ),
+        el('div', { class: 'text-[9px] uppercase tracking-widest text-muted- font-semibold' }, label),
+        rankBadge ? el('div', { class: 'mt-1' }, rankBadge) : null,
         el('div', { class: 'text-base font-bold tabular-nums mt-1 text-muted-' }, '—'),
       );
     }
     return el('div', { class: 'rounded-lg border p-3', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
-      el('div', { class: 'flex items-start justify-between gap-2' },
-        el('div', { class: 'text-[9px] uppercase tracking-widest text-muted- font-semibold' }, label),
-        rankBadge,
-      ),
+      // Label on top, rank badge on its own line beneath (per Isaac — side by side bled out of the box on phones).
+      el('div', { class: 'text-[9px] uppercase tracking-widest text-muted- font-semibold' }, label),
+      rankBadge ? el('div', { class: 'mt-1' }, rankBadge) : null,
       el('div', { class: 'text-lg font-bold tabular-nums mt-1' }, fmt.usd0(rec.revenue)),
       el('div', { class: 'text-[10px] text-muted- mt-0.5' },
         rec.count + ' sale' + (rec.count === 1 ? '' : 's') + ' · ' + formatLabel(rec),
@@ -4665,11 +4662,13 @@ function openIndicatorRepCard(rep, allReps = []) {
               ),
               // Revenue figure under every bar, compact ($4.5K) so 12 fit.
               el('div', { class: 'flex gap-1 mt-1' },
+                // Phones: 12 labels share ~330px, so drop the decimal ($25K) and let a cell clip rather than push past the card (per Isaac).
                 ...tr.weeks12.map(w => el('div', {
-                  class: 'flex-1 text-center tabular-nums font-semibold' + (w.count > 0 ? ' cursor-pointer' : ''),
+                  class: 'flex-1 text-center tabular-nums font-semibold min-w-0 overflow-hidden' + (w.count > 0 ? ' cursor-pointer' : ''),
                   style: { fontSize: '8px', color: w.revenue > 0 ? 'var(--text-muted)' : 'var(--text-subtle)' },
+                  title: fmt.usd0(w.revenue),
                   onclick: w.count > 0 ? () => openChartDrill('Week of ' + w.weekStart, _salesInWeek(w.weekStart)) : undefined,
-                }, cash(w.revenue) || '·')),
+                }, ((() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })() ? String(cash(w.revenue) || '').replace(/\.\d(?=[KM])/, '') : cash(w.revenue)) || '\u00b7')),
               ),
             ),
       ),
