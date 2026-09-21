@@ -707,6 +707,7 @@ function reportingPinBar(key, bar) {
 }
 
 function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, summary }) {
+  if (typeof trackAction === 'function') trackAction('drill', String(chartTitle || '').split(' · ')[0].slice(0, 60), { rows: (rows || []).length });
   const overlay = el('div', { class: 'modal-overlay' });
   const closeKey = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', closeKey); } };
   document.addEventListener('keydown', closeKey);

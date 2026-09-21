@@ -4056,6 +4056,7 @@ function openLandingTileDrill(title, subtitle, rows, opts) {
 }
 
 function openIndicatorRepCard(rep, allReps = []) {
+  if (typeof trackAction === 'function') trackAction('player_card', 'open');
   if (!rep) return;
   // PRIVACY GATE — admin: anyone · self: always · Rep - Partner: their own
   // team's reps too (they manage them) · everyone else: self only. The

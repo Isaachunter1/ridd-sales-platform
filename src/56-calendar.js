@@ -498,6 +498,7 @@ function renderMonthGrid(anchor, today, meId, repById) {
 function isOpenReq(r) { return !!r && r.status === 'pending' && !r.to_rep_id; }
 function openShiftReqFor(shiftId) { return state.shiftSwapRequests.find(r => r.shift_id === shiftId && isOpenReq(r)); }
 function dropShiftOpen(assignment, note, redraw) {
+  if (typeof trackAction === 'function') trackAction('shift', 'drop');
   const meId = state.profile.id;
   state.shiftSwapRequests.push({
     id: 'swap-' + Date.now(),
@@ -511,6 +512,7 @@ function dropShiftOpen(assignment, note, redraw) {
   if (redraw) redraw();
 }
 function pickUpOpenShift(req, redraw) {
+  if (typeof trackAction === 'function') trackAction('shift', 'pickup');
   const me = state.profile || {};
   if (!isOpenReq(req)) { toast('That shift was already taken', 'warn'); return; }
   req.to_rep_id = me.id;

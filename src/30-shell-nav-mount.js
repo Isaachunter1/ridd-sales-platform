@@ -954,6 +954,7 @@ function mountApp() {
           isAdmin
             ? item('resync', state._revhawkSyncing ? 'Syncing…' : 'Resync', () => {
                 if (state._revhawkSyncing) return;
+                if (typeof trackAction === 'function') trackAction('resync', 'manual');
                 syncFromRevHawk(gearBtn);
               })
             : item('resync', 'Refresh data', () => {
@@ -1128,8 +1129,13 @@ function mountApp() {
   if (INSIDE_SALES_TAB_KEYS.has(state.view)) state._lastIsTab = state.view;
   if (D2D_SALES_TAB_KEYS.has(state.view)) state._lastD2dTab = state.view;
   _profStart(state.view);
+  const _t0 = performance.now();
   const node = view();
   _profMark('view()');
+  try {
+    const _sub = state.view === 'reporting' ? (state.reportingSubTab || 'overview') : /^(sales|d2d_sales|tech_sales)$/.test(state.view) ? (state._salesQueueFilter || 'upfront') : state.view === 'admin' ? (state.adminSection || null) : null;
+    _trkView(state.view, _sub, Math.round(performance.now() - _t0));
+  } catch (e) { /* noop */ }
   node.classList.add('fade-in');
   // Per-user layout (🔧): reorder / hide sections on every tab.
   try { applyUserLayout(node); } catch (e) { console.warn('[ridd] user layout skipped', e); }

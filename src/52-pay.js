@@ -546,6 +546,7 @@ function paySourceBreakdown(repId, salesByStatus) {
 
 // Stage a single sale for payroll
 async function stageSale(saleId) {
+  if (typeof trackAction === 'function') trackAction('pay_stage', 'one');
   if (DEMO) {
     for (const list of [state.mySales, state.allSales]) {
       const s = list.find(x => x.id === saleId);
@@ -571,6 +572,7 @@ async function stageSale(saleId) {
 }
 
 async function stageAllForPayroll(sales) {
+  if (typeof trackAction === 'function') trackAction('pay_stage', 'all', { n: sales.length });
   if (DEMO) {
     sales.forEach(s => {
       logActivity('staged', { sale_id: s.id, customer_name: s.customer_name, new_status: 'staged' });
@@ -656,7 +658,8 @@ function processBackendPayroll(period, repId) {
 
 function processPayroll(sales, period) {
   if (!sales.length) return;
-  if (!confirm(`Process payroll for ${sales.length} account${sales.length === 1 ? '' : 's'} in ${period.label}?`)) return;
+  if (!confirm(`Process payroll for ${sales.length} account${sales.length === 1 ? '' : 's'} in ${period.label}?`)) { if (typeof trackAction === 'function') trackAction('payroll_run', 'cancelled'); return; }
+  if (typeof trackAction === 'function') trackAction('payroll_run', 'upfront', { n: sales.length });
   if (DEMO) {
     sales.forEach(s => {
       logActivity('payroll_processed', { sale_id: s.id, customer_name: s.customer_name, new_status: 'paid', detail: period.label });
@@ -867,6 +870,7 @@ function payExplainCard(title, lines, meta) {
 }
 
 function downloadPayrollCsv(sales, period, viewedProfile) {
+  if (typeof trackAction === 'function') trackAction('export', 'payroll_csv');
   if (!sales.length) return toast('Nothing to export', 'warn');
   // The rep whose stub is on screen (an admin exporting for someone else
   // must get THAT rep's rate overrides, not their own).
