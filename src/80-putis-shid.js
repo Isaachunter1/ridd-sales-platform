@@ -1151,8 +1151,8 @@ function reportingSubTabs() {
     ['waterfall',  'Retention'],
     ['auditing',   'Auditing'],
     ['marketing',  'Marketing'],
-    ['putis',      'P&L'],
     ['ops',        'Operations'],
+    ['putis',      'P&L'],
   ];
   const go = (k) => { const t = tabs.find(([kk]) => kk === k); if (t && t[2]) { window.open(t[2], '_blank', 'noopener'); return; } state.reportingSubTab = k; mountApp(); };
   const cur = tabs.some(([k]) => k === state.reportingSubTab && !tabs.find(([kk]) => kk === k)[2]) ? state.reportingSubTab : tabs[0][0];
