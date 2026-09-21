@@ -4705,7 +4705,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
     if (typeof _isReportableCancel === 'function' ? _isReportableCancel(s) : !!s.cancelDate) m.cancels++;
   });
   const totalSubCount = subSales.length; // includes Unknown
-  const topSubscriptions = Object.entries(subMix)
+  const allSubscriptions = Object.entries(subMix)
     .map(([name, v]) => ({
       name, ...v,
       share: totalSubCount > 0 ? v.count / totalSubCount : 0,
@@ -4714,8 +4714,11 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
       attr: v.count > 0 ? v.cancels / v.count : 0,
       myPct: (v.multi + v.twelve) > 0 ? v.multi / (v.multi + v.twelve) : null,
     }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 15);
+    .sort((a, b) => b.count - a.count);
+  // Top 15 by default; "Show all N" at the bottom opens the rest (per Isaac, Sep 21).
+  const MIX_TOP = 15;
+  const _showAllKey = '_mixShowAll:' + (opts.title || 'mix');
+  const visibleSubs = () => state[_showAllKey] ? allSubscriptions : allSubscriptions.slice(0, MIX_TOP);
 
   // Blended totals across ALL accounts (the reference row on top).
   const T = (() => {
@@ -4756,6 +4759,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
     const cols = pick ? [pick] : COLS;
     // Fixed-width label column so every bar starts at the same x (per Isaac).
     const firstCol = (cls, txt, title) => el('div', { class: (narrow ? '' : 'w-[200px] sm:w-[240px]') + ' shrink-0 ' + cls, title: title || undefined, style: narrow ? { width: '112px', minWidth: '112px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } : { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1 } }, txt);
+    const topSubscriptions = visibleSubs();
     const maxShare = topSubscriptions.reduce((m, s) => Math.max(m, s.share), 0.0001);
     body.replaceChildren(el('div', { class: narrow ? '' : 'scroll-x' }, el('div', { style: narrow ? {} : { minWidth: '860px' } },
       el('div', { class: 'flex items-center gap-3 text-[10px] uppercase tracking-wider text-muted- font-semibold pb-1.5' },
@@ -4787,7 +4791,12 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
                     _inBar ? el('span', { class: 'tabular-nums font-black', style: { color: '#fff', fontSize: '11.5px', lineHeight: '1', textShadow: '0 1px 1px rgba(0,0,0,.2)' } }, fmt.int(s.count)) : null),
                   _inBar ? null : el('span', { class: 'tabular-nums font-black', style: { position: 'absolute', left: 'calc(' + _pct + '% + 8px)', top: '50%', transform: 'translateY(-50%)', color: 'var(--text)', fontSize: '11.5px', lineHeight: '1' } }, fmt.int(s.count))),
                 ...cols.map(c => c.row(s)));
-            })))));
+            }),
+            allSubscriptions.length > MIX_TOP ? el('button', {
+              class: 'w-full text-[11px] font-bold py-2 mt-1 rounded-lg transition hover:brightness-95',
+              style: { color: 'var(--accent)', background: 'var(--card-2)' },
+              onclick: () => { state[_showAllKey] = !state[_showAllKey]; paint(); },
+            }, state[_showAllKey] ? '\u25B4 Show top ' + MIX_TOP : '\u25BE Show all ' + fmt.int(allSubscriptions.length) + ' (' + fmt.int(allSubscriptions.length - MIX_TOP) + ' more)') : null))));
   };
   paint();
   // Phone: a metric dropdown replaces the seven columns (per Isaac).
