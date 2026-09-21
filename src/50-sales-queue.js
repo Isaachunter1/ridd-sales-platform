@@ -184,6 +184,7 @@ function viewSales() {
       class: 'flex-1 min-w-[200px] rounded-lg border px-2.5 py-1 text-[11px]',
       placeholder: 'Search customer or notes…',
       value: sf.q || '',
+      onchange: e => { if (e.target.value.trim() && typeof trackAction === 'function') trackAction('search:sales_queue', state._salesQueueFilter || 'upfront', { len: e.target.value.trim().length }); },
       oninput: e => {
         sf.q = e.target.value;
         clearTimeout(state._salesQTimer);

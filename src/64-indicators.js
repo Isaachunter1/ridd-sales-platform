@@ -821,6 +821,7 @@ function viewIndicators() {
                   }
                   state.indicatorsGroupBy = _staged.group;
                   state._indFiltersOpen = false;   // one commit, one render, panel closes
+                  if (typeof trackAction === 'function') trackAction('filters_apply', 'indicators', { dept: state.indicatorDept || 'all', group: _staged.group, acct: state.indicatorAcctStatus || '' });
                   mountApp();
                 },
               }, 'Apply')),
@@ -4063,6 +4064,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             value: state._indicatorRepNameSearch || '',
             class: 'lb-search rounded-lg border px-2.5 py-1 text-[11px] flex-1 min-w-0',
             style: { borderColor: 'var(--border-2)', minWidth: '160px' },
+            onchange: (e) => { if (e.target.value.trim() && typeof trackAction === 'function') trackAction('search:leaderboard', null, { len: e.target.value.trim().length }); },
             oninput: (e) => {
               state._indicatorRepNameSearch = e.target.value;
               const q = e.target.value.trim().toLowerCase();
@@ -10973,6 +10975,7 @@ function saveScorecardCardCloud(profileId, period, dept, tpl) {
 }
 
 function saveCallAuditRow(row) {
+  if (typeof trackAction === 'function') trackAction('call_audit', 'save');
   const k = row.profile_id + '|' + row.period;
   state._scorecardAudits = state._scorecardAudits || {};
   (state._scorecardAudits[k] = state._scorecardAudits[k] || []).push(row);

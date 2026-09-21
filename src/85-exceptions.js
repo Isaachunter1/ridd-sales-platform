@@ -241,8 +241,11 @@ function saveAttemptChip(customerId) {
     title: list.length + ' attempt' + (list.length === 1 ? '' : 's') + (who ? ' · last by ' + who : '') + (last.note ? ' · ' + last.note : '') }, lbl + (list.length > 1 ? ' ×' + list.length : ''));
 }
 function openSaveAttemptModal(r, onDone) {
+  const _openedAt = performance.now(); let _done = false;
+  if (typeof trackModal === 'function') trackModal('save_attempt', 'open');
   const overlay = el('div', { class: 'modal-overlay' });
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  const _close = () => { overlay.remove(); if (!_done && typeof trackModal === 'function') { _done = true; trackModal('save_attempt', 'dismiss', _openedAt); } };
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) _close(); });
   const name = [(r.first_name || '').trim(), (r.last_name || '').trim()].filter(Boolean).join(' ') || ('Customer #' + r.customer_id);
   const prior = (state._saveAttempts && state._saveAttempts.get(String(r.customer_id))) || [];
   let outcome = 'callback';
@@ -263,6 +266,7 @@ function openSaveAttemptModal(r, onDone) {
     state._saveAttempts = state._saveAttempts || new Map();
     state._saveAttempts.set(row.customer_id, [data || { ...row, attempted_at: new Date().toISOString() }, ...prior]);
     overlay.remove();
+    if (!_done && typeof trackModal === 'function') { _done = true; trackModal('save_attempt', 'done', _openedAt); }
     toast('Save attempt logged', 'success');
     if (typeof onDone === 'function') onDone();
   };
@@ -272,7 +276,7 @@ function openSaveAttemptModal(r, onDone) {
       el('div', {}, el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Save attempt'),
         el('div', { class: 'text-base font-black' }, name),
         el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, [String(r.subscription || '').trim(), (r.office_name || '').trim(), r.customer_id ? '#' + r.customer_id : ''].filter(Boolean).join(' · '))),
-      el('button', { class: 'text-xl leading-none', onclick: () => overlay.remove() }, '×')),
+      el('button', { class: 'text-xl leading-none', onclick: _close }, '×')),
     (typeof reportingCancelReasonOf === 'function' && reportingCancelReasonOf(r)) ? el('div', { class: 'text-xs' }, el('span', { style: { color: 'var(--text-muted)' } }, 'Cancel reason: '), reportingCancelReasonOf(r)) : null,
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Outcome'),
     pills, noteEl,

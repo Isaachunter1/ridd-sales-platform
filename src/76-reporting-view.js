@@ -384,6 +384,7 @@ function reportingCustomerHealth() {
           class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]',
           style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
           placeholder: 'Search name / ID / office…', value: state._healthQ || '',
+          onchange: (e) => { if (e.target.value.trim() && typeof trackAction === 'function') trackAction('search:customer_health'); },
           oninput: (e) => { state._healthQ = e.target.value; clearTimeout(state._healthQt); state._healthQt = setTimeout(() => mountApp(), 350); },
         })),
       el('div', { class: 'overflow-x-auto', style: { maxHeight: '560px' } },

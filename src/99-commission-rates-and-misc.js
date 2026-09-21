@@ -1202,6 +1202,7 @@ function _evalStaging(sale) {
 }
 
 async function auditSale(saleId, status) {
+  if (typeof trackAction === 'function') trackAction('sale_audit', status);
   if (DEMO) {
     for (const list of [state.mySales, state.allSales]) {
       const sale = list.find(s => s.id === saleId);

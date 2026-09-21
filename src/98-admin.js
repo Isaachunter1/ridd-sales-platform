@@ -108,6 +108,7 @@ function viewAdmin() {
       ['slack',   'Slack',          '💬'],
       ['teams',   'Teams',          '🤝'],
       ['users',   'Users',          '👥'],
+      ['usage',   'Usage',          '📈'],
     ] },
   ];
 
@@ -153,6 +154,7 @@ function viewAdmin() {
     sources: adminSources,
     slack:   adminSlack,
     comps:   adminCompetitionSchedule,
+    usage:   adminUsage,
     pricing: adminCommissions,   // "Commissions" — CRM commission rules by rep type
     backup:  adminBackup,
   };
@@ -1869,3 +1871,78 @@ function adminPricing(opts = {}) {
   );
 }
 
+
+
+// ── Usage (Sep 2026): how people actually use the app ─────────────────────
+// Reads usage_summary() (migrations/20260921_app_events.sql). Page usage,
+// time on page, render speed, actions, feature adoption, errors, abandoned
+// modals, searches, time-to-complete — so the next improvements come from
+// behaviour, not intuition.
+function adminUsage() {
+  if (!isAdminRole(state.profile?.role)) return el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Admins only.');
+  const days = [7, 30, 90].includes(Number(state._usageDays)) ? Number(state._usageDays) : 30;
+  const key = 'd' + days;
+  state._usage = state._usage || {};
+  const cached = state._usage[key];
+  if (!cached && !state._usageLoading && typeof supabase !== 'undefined' && supabase) {
+    state._usageLoading = true;
+    supabase.rpc('usage_summary', { days }).then(({ data, error }) => {
+      state._usageLoading = false;
+      state._usage[key] = error ? { error: error.message } : (data || {});
+      if (state.view === 'admin' && state.adminSection === 'usage') mountApp();
+    });
+  }
+  const wrap = el('div', { class: 'flex flex-col gap-4' });
+  wrap.append(el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
+    el('div', {}, el('h2', { class: 'text-lg font-bold' }, 'Usage'), el('div', { class: 'text-[11px] text-muted-' }, 'Page views, time on page, actions, adoption, errors and abandoned flows — recorded by the app itself. Rows older than 90 days are pruned.')),
+    el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+      ...[7, 30, 90].map(d => el('button', { class: 'px-2.5 py-1 text-[11px] font-bold transition', style: d === days ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._usageDays = d; mountApp(); } }, 'Last ' + d + ' days')))));
+  if (!cached) { wrap.append(el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Loading usage…')); return wrap; }
+  if (cached.error) {
+    wrap.append(el('div', { class: 'card p-6 text-sm' }, el('div', { class: 'font-bold mb-1' }, 'Usage data is not available yet'),
+      el('div', { class: 'text-[11px] text-muted-' }, /usage_summary|app_events/.test(cached.error) ? 'Run migrations/20260921_app_events.sql in Supabase — the app starts recording the moment the table exists.' : cached.error)));
+    return wrap;
+  }
+  const u = cached;
+  const tile = (label, v, sub) => el('div', { class: 'card p-4' }, el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, label), el('div', { class: 'font-display text-2xl sm:text-4xl mt-1 tabular-nums' }, v), sub ? el('div', { class: 'text-[11px] text-muted- mt-0.5' }, sub) : null);
+  const totalViews = (u.views || []).reduce((a, v) => a + (Number(v.n) || 0), 0);
+  const totalErrors = (u.errors || []).reduce((a, v) => a + (Number(v.n) || 0), 0);
+  wrap.append(el('div', { class: 'grid gap-3 grid-cols-2 sm:grid-cols-4' },
+    tile('Active users', fmt.int(u.active_users || 0), fmt.int(u.active_users_7d || 0) + ' in the last 7 days'),
+    tile('Sessions', fmt.int(u.sessions || 0), 'sign-ins / app opens'),
+    tile('Page views', fmt.int(totalViews), 'across ' + (u.views || []).length + ' pages'),
+    tile('Errors', fmt.int(totalErrors), (u.errors || []).length + ' distinct')));
+  const th = (t, right) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
+  const td = (t, right) => el('td', { class: 'px-2 py-1.5 tabular-nums ' + (right ? 'text-right whitespace-nowrap' : 'text-left'), style: right ? {} : { overflowWrap: 'anywhere' } }, t);
+  const table = (title, sub, heads, rows, empty) => el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-4 py-3 border-b', style: { borderColor: 'var(--border)' } }, el('h3', { class: 'text-sm font-bold' }, title), sub ? el('div', { class: 'text-[11px] text-muted-' }, sub) : null),
+    rows.length ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, ...heads.map(([h, r]) => th(h, r)))),
+      el('tbody', {}, ...rows.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, ...r.map(([v, right]) => td(v, right)))))))
+      : el('div', { class: 'px-4 py-6 text-center text-xs text-muted- italic' }, empty || 'Nothing recorded yet.'));
+  const pageName = (v) => (v.name || '?') + (v.sub ? ' · ' + v.sub : '');
+  const secs = (n) => { n = Number(n) || 0; return n >= 60 ? Math.round(n / 60) + ' min' : n + ' s'; };
+  wrap.append(el('div', { class: 'grid gap-4', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))' } },
+    table('Pages', 'Views, distinct users, average time on page and median render time.', [['Page'], ['Views', 1], ['Users', 1], ['Avg time', 1], ['Render', 1]],
+      (u.views || []).slice(0, 40).map(v => [[pageName(v)], [fmt.int(v.n), 1], [fmt.int(v.users), 1], [secs(v.sec), 1], [(Number(v.render_ms) || 0) + ' ms', 1]])),
+    table('By role', 'Who is using the app.', [['Role'], ['Users', 1], ['Views', 1]],
+      (u.by_role || []).map(r => [[(typeof ROLE_LABEL !== 'undefined' && ROLE_LABEL[r.role]) || r.role], [fmt.int(r.users), 1], [fmt.int(r.views), 1]])),
+    table('Actions', 'Workflow completions: audits, staging, payroll runs, save attempts, exports, drills, filters.', [['Action'], ['Times', 1], ['Users', 1]],
+      (u.actions || []).slice(0, 40).map(a => [[(a.name || '?') + (a.sub ? ' · ' + a.sub : '')], [fmt.int(a.n), 1], [fmt.int(a.users), 1]])),
+    table('Feature adoption', 'Share of active users who used each feature at least once.', [['Feature'], ['Users', 1], ['Adoption', 1]],
+      (u.adoption || []).map(a => [[a.name], [fmt.int(a.users), 1], [(Number(a.pct) || 0) + '%', 1]])),
+    table('Time to complete', 'Median seconds from opening the page to completing the action on it.', [['Action'], ['Median', 1], ['Samples', 1]],
+      (u.time_to || []).map(a => [[a.name], [secs(a.median_sec), 1], [fmt.int(a.n), 1]])),
+    table('Modals', 'Opened vs completed — the gap is abandonment.', [['Modal'], ['Opened', 1], ['Completed', 1], ['Abandoned', 1], ['Avg open', 1]],
+      (u.modals || []).map(m => [[m.name], [fmt.int(m.opened), 1], [fmt.int(m.completed), 1], [fmt.int(Math.max(0, (m.opened || 0) - (m.completed || 0))), 1], [secs(m.sec), 1]])),
+    table('Searches', 'Where people type to find things.', [['Search box'], ['Searches', 1], ['Users', 1]],
+      (u.searches || []).map(a => [[String(a.name || '').replace(/^search:/, '')], [fmt.int(a.n), 1], [fmt.int(a.users), 1]])),
+    table('Errors', 'Uncaught errors and failed renders, most frequent first.', [['Error'], ['Times', 1], ['Users', 1], ['Last', 1]],
+      (u.errors || []).map(e => [[e.name], [fmt.int(e.n), 1], [fmt.int(e.users), 1], [e.last ? new Date(e.last).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—', 1]]), 'No errors recorded.')));
+  if ((u.daily || []).length) {
+    const mx = Math.max(1, ...u.daily.map(d => Number(d.users) || 0));
+    wrap.append(el('div', { class: 'card p-4' }, el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted- mb-2' }, 'Active users by day'),
+      el('div', { class: 'flex items-end gap-1', style: { height: '80px' } }, ...u.daily.map(d => el('div', { class: 'flex-1', title: d.d + ' · ' + d.users + ' users · ' + d.views + ' views', style: { height: Math.max(2, Math.round((Number(d.users) || 0) / mx * 76)) + 'px', background: 'var(--accent)', minWidth: '3px' } })))));
+  }
+  return wrap;
+}
