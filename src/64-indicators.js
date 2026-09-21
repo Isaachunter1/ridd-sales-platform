@@ -3844,7 +3844,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     { key: 'avgInitial', label: 'Avg Init',      align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgInitial > 0 ? fmt.usd(r.avgInitial) : '—') },
     { key: 'myPct',      label: 'MY %',     align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, (r.myPct * 100).toFixed(1) + '%') },
     { key: 'autoPayPct', label: 'APay %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, (r.autoPayPct * 100).toFixed(1) + '%') },
-    { key: 'cancels',    label: 'Cancels',  align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.cancels > 0 ? fmt.int(r.cancels) : '—') },
+    // (Cancels column retired from the leaderboard per Isaac, Sep 21 — fewer columns so the table fits without a scroll; Attrition % carries the read, and the player card keeps the count.)
     { key: 'attrPct',    label: 'Attrition %', align: 'left', defaultDir: 'desc', title: 'Cancelled $ ÷ serviced $ · 3-day RORs + one-time services removed from both sides (same number as the player card)', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', style: r.attrPct > 0.1 ? { color: '#DC2626', fontWeight: '600' } : {} }, r.attrPct > 0 ? (r.attrPct * 100).toFixed(1) + '%' : '—') },
     // ─── Records: Best Day / Week / Month moved to the end of the row so
     // they don't push the regular metrics off-screen. Sort dir 'date' picks
