@@ -1161,8 +1161,13 @@ function reportingSubTabs() {
   const strip = el('div', { class: 'rpt-subtabs flex items-center gap-1 border-b overflow-x-auto', style: { borderColor: 'var(--border)' } },
     ...tabs.map(([k, label]) => {
       const active = cur === k;
+      // Marketing carries a small red bubble with the Needs-attention count (per Isaac, Sep 2026) — owner only, like the card.
+      let badge = null;
+      if (k === 'marketing' && typeof exceptionFeedScope === 'function' && typeof exceptionFeedItems === 'function') {
+        try { const sc = exceptionFeedScope(); const n = sc ? exceptionFeedItems(sc).length : 0; if (n) badge = el('span', { class: 'inline-flex items-center justify-center rounded-full text-[9px] font-bold ml-1', title: n + ' item' + (n === 1 ? '' : 's') + ' need attention', style: { background: '#DC2626', color: '#fff', minWidth: '16px', height: '16px', padding: '0 4px', lineHeight: '16px' } }, String(n)); } catch (e) { /* badge is optional */ }
+      }
       return el('button', {
-        class: 'px-2.5 py-1 text-[11px] font-semibold transition whitespace-nowrap',
+        class: 'px-2.5 py-1 text-[11px] font-semibold transition whitespace-nowrap inline-flex items-center',
         style: {
           borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
           color: active ? 'var(--text)' : 'var(--text-muted)',
@@ -1171,7 +1176,7 @@ function reportingSubTabs() {
           marginBottom: '-1px',
         },
         onclick: () => go(k),
-      }, label);
+      }, label, badge);
     }),
   );
   const pick = el('div', { class: 'rpt-subtabs-select' },
