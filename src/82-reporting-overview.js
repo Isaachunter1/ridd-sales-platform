@@ -649,11 +649,12 @@ function reportingOverview() {
       const signed = (v, money) => (v < 0 ? '\u2212' : v > 0 ? '+' : '') + (money ? fmt.usd0(Math.abs(v)) : fmt.int(Math.abs(v)));
       const netColor = (v) => v > 0 ? C.sold : v < 0 ? C.cxl : '';
       const drill = (label, rows, what, val) => openReportingDrillModal({ chartTitle: what + ' \u00b7 ' + winLabel + ' \u00b7 ' + label, sliceLabel: fmt.int(rows.length) + ' subscription' + (rows.length === 1 ? '' : 's') + ' \u00b7 ' + val, rows, formatValue: fmt.usd0 });
-      const clickable = (rows, onclick) => rows.length ? { class: 'cursor-pointer hover:underline', onclick: (e) => { e.stopPropagation(); onclick(); } } : {};
+      const numCell = 'px-2 py-1.5 tabular-nums whitespace-nowrap text-right font-bold';
+      const clickable = (rows, onclick) => rows.length ? { class: numCell + ' cursor-pointer hover:underline', onclick: (e) => { e.stopPropagation(); onclick(); } } : { class: numCell };
       const line = (label, g, bold) => el('tr', { class: 'border-t', style: { borderColor: bold ? 'var(--border-2)' : 'var(--border)', background: bold ? 'var(--card-2)' : '' } },
         el('td', { class: 'px-2 py-1.5 whitespace-nowrap ' + (bold ? 'font-black' : 'font-semibold'), style: bold ? { background: 'var(--card-2)' } : {} }, label),
-        el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap text-right font-bold', style: { color: g.sn ? C.sold : '' }, title: 'Click for the sold accounts', ...clickable(g.sold, () => drill(label, g.sold, 'Subscriptions sold', fmt.usd0(g.srev) + ' contract value')) }, fmt.int(g.sn)),
-        el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap text-right font-bold', style: { color: g.ln ? C.cxl : '' }, title: 'Click for the lost accounts', ...clickable(g.lost, () => drill(label, g.lost, 'Subscriptions lost', fmt.usd0(g.lrev) + ' ARR')) }, fmt.int(g.ln)),
+        el('td', { style: { color: g.sn ? C.sold : '' }, title: 'Click for the sold accounts', ...clickable(g.sold, () => drill(label, g.sold, 'Subscriptions sold', fmt.usd0(g.srev) + ' contract value')) }, fmt.int(g.sn)),
+        el('td', { style: { color: g.ln ? C.cxl : '' }, title: 'Click for the lost accounts', ...clickable(g.lost, () => drill(label, g.lost, 'Subscriptions lost', fmt.usd0(g.lrev) + ' ARR')) }, fmt.int(g.ln)),
         cell(signed(g.sn - g.ln, false), { right: true, bold: true, color: netColor(g.sn - g.ln) }),
         cell(fmt.usd0(g.srev), { right: true, color: g.srev ? C.sold : '' }),
         cell(fmt.usd0(g.lrev), { right: true, color: g.lrev ? C.cxl : '' }),
@@ -670,7 +671,7 @@ function reportingOverview() {
           el('button', { class: 'text-[10px] font-bold', style: { color: 'var(--accent)' }, onclick: () => openWindow('cxl') }, 'Where the churn came from \u2192')),
         el('div', { class: 'scroll-x' }, tbl));
     })();
-    const stat = (label, v, color, kind) => el('button', { class: 'text-right cursor-pointer transition hover:brightness-95', title: 'See the ' + label.toLowerCase() + ' accounts, by office \u2014 and where churn came from', onclick: () => openWindow(kind) },
+    const stat = (label, v, color, kind) => el('button', { class: 'text-left cursor-pointer transition hover:brightness-95', title: 'See the ' + label.toLowerCase() + ' accounts, by office \u2014 and where churn came from', onclick: () => openWindow(kind) },
       el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
       el('div', { class: 'text-base font-black tabular-nums', style: { color } }, fmt.usd0(v)));
     return el('div', { class: 'card p-4' },
