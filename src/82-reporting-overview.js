@@ -415,8 +415,8 @@ function reportingOverview() {
   // series that was clicked, switches without closing.
   const openPulseDayDrill = (dayLabel, longDate, sets, initialKind) => {
     const KINDS = {
-      sold: { label: 'Sold',     unit: 'contract value', col: 'Sold', color: '#16A34A', valOf: (r) => Number(r.subscription_contract_value) || 0, extra: 'Top service' },
-      svc:  { label: 'Serviced', unit: 'ARR',            col: 'ARR',  color: '#2F5D62',       valOf: (r) => Number(r.annual_recurring_value) || 0,      extra: 'Top service' },
+      sold: { label: 'Sold',     unit: 'contract value', col: 'Sold', color: '#16A34A', valOf: (r) => Number(r.subscription_contract_value) || 0, extra: 'Sold by \u00b7 D2D / Office / Tech' },
+      svc:  { label: 'Serviced', unit: 'ARR',            col: 'ARR',  color: '#2F5D62',       valOf: (r) => Number(r.annual_recurring_value) || 0,      extra: 'Sold by \u00b7 D2D / Office / Tech' },
       cxl:  { label: 'Churned',  unit: 'ARR',            col: 'ARR',  color: '#DC2626',       valOf: (r) => Number(r.annual_recurring_value) || 0,      extra: 'Top reason' },
     };
     const totalOf = (k) => (sets[k] || []).reduce((a, r) => a + KINDS[k].valOf(r), 0);
@@ -432,6 +432,20 @@ function reportingOverview() {
     const td = (t, o = {}) => el('td', { class: 'px-3 py-2 whitespace-nowrap tabular-nums ' + (o.right ? 'text-right' : 'text-left') + (o.bold ? ' font-black' : '') }, t);
     const tdw = (t) => el('td', { class: 'px-3 py-1.5 text-left', style: { overflowWrap: 'anywhere' } }, t);
     const top = (m) => { let k = null, n = 0; for (const [kk, v] of m) if (v > n) { k = kk; n = v; } return k ? k + ' (' + n + ')' : '—'; };
+    // Who sold the accounts (per Isaac): share of accounts by seller type —
+    // Sales Rep (D2D) / Office Staff / Technician — as a 3-segment bar + %.
+    const TYPE_COLORS = { 'Sales Rep': '#DF643A', 'Office Staff': '#5F6C5B', 'Technician': '#2F5D62' };
+    const TYPE_SHORT = { 'Sales Rep': 'D2D', 'Office Staff': 'Office', 'Technician': 'Tech' };
+    const typeMix = (rows) => {
+      const n = rows.length; if (!n) return el('span', { style: { color: 'var(--text-subtle)' } }, '\u2014');
+      const c = { 'Sales Rep': 0, 'Office Staff': 0, 'Technician': 0, Other: 0 };
+      for (const r of rows) { const t = String(r.sold_by_type || '').trim(); c[t in c ? t : 'Other']++; }
+      const parts = Object.entries(c).filter(([, v]) => v > 0);
+      return el('div', { class: 'flex items-center gap-2', style: { minWidth: '190px' } },
+        el('div', { class: 'flex overflow-hidden', style: { height: '6px', width: '70px', background: 'var(--card-2)', flexShrink: 0 } },
+          ...parts.map(([t, v]) => el('div', { style: { width: (v / n * 100) + '%', background: TYPE_COLORS[t] || 'var(--border-2)' }, title: t + ' \u00b7 ' + v }))),
+        el('span', { class: 'text-[11px] tabular-nums whitespace-nowrap' }, ...parts.map(([t, v], i) => el('span', { style: { color: TYPE_COLORS[t] || 'var(--text-muted)', fontWeight: 700 } }, (i ? ' \u00b7 ' : '') + (TYPE_SHORT[t] || t) + ' ' + Math.round(v / n * 100) + '%'))));
+    };
     const body = el('div', { class: 'flex flex-col gap-3' });
     const render = () => {
       const K = KINDS[kind], rowsIn = sets[kind] || [], isChurn = kind === 'cxl';
@@ -452,7 +466,7 @@ function reportingOverview() {
         td(fmt.int(g.rows.length), { right: true }),
         td(g.rows.length ? fmt.usd0(g.total / g.rows.length) : '—', { right: true }),
         td(fmt.usd0(Math.max(0, ...g.rows.map(K.valOf))), { right: true }),
-        td(isChurn ? top(g.reasons) : top(g.svc)));
+        isChurn ? td(top(g.reasons)) : el('td', { class: 'px-3 py-2' }, typeMix(g.rows)));
       // Phone version of a branch row: one block, no sideways scroll.
       const stack = (k, g, bold) => el('div', { class: 'rounded-lg border px-3 py-2 cursor-pointer', style: { borderColor: bold ? 'var(--border-2)' : 'var(--border)', background: bold ? 'var(--card-2)' : '' },
         onclick: () => openReportingDrillModal({ chartTitle: 'Daily pulse · ' + K.label + ' · ' + dayLabel + ' · ' + k, sliceLabel: g.rows.length.toLocaleString() + ' subscription' + (g.rows.length === 1 ? '' : 's') + ' · ' + fmt.usd0(g.total), rows: g.rows, formatValue: fmt.usd0 }) },
@@ -461,7 +475,8 @@ function reportingOverview() {
           el('div', { class: 'text-sm font-black tabular-nums whitespace-nowrap' }, fmt.usd0(g.total), el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, grand ? (g.total / grand * 100).toFixed(1) + '%' : ''))),
         el('div', { style: { height: '4px', background: 'var(--card-2)', margin: '4px 0' } }, el('div', { style: { height: '100%', width: (grand ? g.total / grand * 100 : 0) + '%', background: K.color } })),
         el('div', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-muted)', overflowWrap: 'anywhere' } },
-          fmt.int(g.rows.length) + ' subs · avg ' + (g.rows.length ? fmt.usd0(g.total / g.rows.length) : '—') + ' · largest ' + fmt.usd0(Math.max(0, ...g.rows.map(K.valOf))) + ' · ' + K.extra.toLowerCase() + ': ' + (isChurn ? top(g.reasons) : top(g.svc))));
+          fmt.int(g.rows.length) + ' subs · avg ' + (g.rows.length ? fmt.usd0(g.total / g.rows.length) : '—') + ' · largest ' + fmt.usd0(Math.max(0, ...g.rows.map(K.valOf))) + (isChurn ? ' · top reason: ' + top(g.reasons) : '')),
+        isChurn ? null : el('div', { class: 'mt-1' }, typeMix(g.rows)));
       // summary strip — the three series for the day, each one a switch
       const tile = (k) => { const K2 = KINDS[k], n = (sets[k] || []).length, on = k === kind; return el('button', {
         class: 'text-left rounded-lg px-3 py-2 transition hover:brightness-95 flex-1',
