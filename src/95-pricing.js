@@ -259,8 +259,9 @@ function viewPricing() {
 
     // ── add-ons table (rows are toggles) ──
     const box = (on) => el('span', { style: { display: 'inline-flex', width: '14px', height: '14px', borderRadius: '3px', border: '1.5px solid ' + (on ? C.orange : C.ink3), background: on ? C.orange : 'transparent', color: C.cream, font: '900 10px/14px Archivo, Arial, sans-serif', justifyContent: 'center', alignItems: 'center', marginRight: '8px', flexShrink: 0 } }, on ? '✓' : '');
-    const trow = (cells, on, onclick, i) => el('tr', { onclick, style: { cursor: onclick ? 'pointer' : 'default', background: on ? 'rgba(223,100,58,.14)' : (i % 2 === 0 ? C.cream2 : C.cream) } },
-      ...cells.map((c, j) => el('td', { style: { padding: '5px 8px', fontSize: '11px', textAlign: j === 0 ? 'left' : 'center', fontWeight: j === 0 ? 500 : 700, fontVariantNumeric: 'tabular-nums', color: j === 0 ? C.char : price.color, borderRadius: j === 0 ? '6px 0 0 6px' : (j === cells.length - 1 ? '0 6px 6px 0' : '0'), whiteSpace: 'nowrap' } }, c)));
+    // `valueColor` (optional): savings read green on Bundle & Save (per Isaac).
+    const trow = (cells, on, onclick, i, valueColor) => el('tr', { onclick, style: { cursor: onclick ? 'pointer' : 'default', background: on ? 'rgba(223,100,58,.14)' : (i % 2 === 0 ? C.cream2 : C.cream) } },
+      ...cells.map((c, j) => el('td', { style: { padding: '5px 8px', fontSize: '11px', textAlign: j === 0 ? 'left' : 'center', fontWeight: j === 0 ? 500 : 700, fontVariantNumeric: 'tabular-nums', color: j === 0 ? C.char : (valueColor || price.color), borderRadius: j === 0 ? '6px 0 0 6px' : (j === cells.length - 1 ? '0 6px 6px 0' : '0'), whiteSpace: 'nowrap' } }, c)));
     const thead = (cols) => el('thead', {}, el('tr', {}, ...cols.map((c, j) => el('th', { style: { padding: '4px 8px 2px', fontSize: '10px', letterSpacing: '.04em', textTransform: 'uppercase', color: C.ink2, fontWeight: 500, textAlign: j === 0 ? 'left' : 'center' } }, c))));
     const table = (cols, rows) => el('table', { style: { width: '100%', borderCollapse: 'separate', borderSpacing: '0 3px', padding: '4px 8px 8px' } }, thead(cols), el('tbody', {}, ...rows));
     const addonsCard = card(
@@ -292,7 +293,7 @@ function viewPricing() {
     const saveCard = card(
       secH('Bundle & Save', 'Annual savings vs buying separately'),
       table(['Plan', '+ TFM', '+ Mole', '+ Rodent'],
-        PRICING_FREQ.map(([k, lbl], i) => trow([lbl, money(pricingSavings(T, 'tfm', i)), money(pricingSavings(T, 'mole', i)), money(pricingSavings(T, 'rodent', i))], false, null, i))));
+        PRICING_FREQ.map(([k, lbl], i) => trow([lbl, money(pricingSavings(T, 'tfm', i)), money(pricingSavings(T, 'mole', i)), money(pricingSavings(T, 'rodent', i))], false, null, i, '#2F7D32'))));
 
     // ── chips + reviews (D2D cards) ──
     const chip = (big, txt, sub) => el('div', { class: 'pricing-chip', style: { background: C.cream, borderRadius: '12px', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '14px', minHeight: '76px', overflow: 'hidden' } },
