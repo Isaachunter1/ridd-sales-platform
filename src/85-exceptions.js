@@ -5,15 +5,10 @@
 // │ Part of the app.js bundle (tools/bundle.js concatenates src/*.js in name order).
 // └────────────────────────────────────────────────────────────────────────
 
-// Who gets the feed: admins (whole company), partners / team leads (their
-// teams), office leads (their office). Everyone else → null (no card).
+// Who gets the feed (per Isaac, Sep 2026): the Admin - Owner only, on the
+// Reporting tab. Nobody else sees these notifications.
 function exceptionFeedScope() {
-  const r = state.profile?.role;
-  if (isAdminRole(r)) return { kind: 'all', teams: null };
-  if (typeof isPartnerRole === 'function' && isPartnerRole(r) && typeof myReachTeams === 'function') {
-    const t = myReachTeams(); return t && t.size ? { kind: 'teams', teams: t } : null;
-  }
-  if (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(r)) return { kind: 'office', teams: null };
+  if (typeof isOwnerUser === 'function' && isOwnerUser()) return { kind: 'all', teams: null };
   return null;
 }
 

@@ -497,7 +497,6 @@ function viewDashboard() {
 
   // (Board look pulled off this dashboard per Isaac — it stays on D2D / Techs.)
   return el('div', { class: 'flex flex-col gap-5 w-full' },
-    (typeof exceptionFeedCard === 'function') ? exceptionFeedCard() : null,
 
     // ─── Top row: + New Sale + date filter + office view ───
     el('div', { class: 'flex items-center gap-2 flex-wrap dash-toolbar' },
