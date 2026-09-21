@@ -628,6 +628,8 @@ function openNewShiftModal(defaultIso, opts = {}) {
   // the AGENT's own department (from their user type), not the dropdown.
   const reps = calendarDeptAgents();
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 
   // ── Form state ──
@@ -902,6 +904,8 @@ function applyRecurringChange(assignment, label, applyFn, redraw) {
     return;
   }
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   const dateLabel = new Date(assignment.date + 'T00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
   const weekday = weekdayName(assignment.date);
@@ -940,6 +944,8 @@ function _calPhone() { try { return window.matchMedia('(max-width: 640px)').matc
 function openDaySheet(iso0) {
   let iso = iso0;
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   const render = () => {
     const allReps    = state.allProfiles.length ? state.allProfiles : [state.profile];
@@ -1006,6 +1012,8 @@ function openDaySheet(iso0) {
 
 function openSlotModal(iso, slotId) {
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   const render = () => {
     const slot = slotTemplate(iso, slotId);
@@ -1248,6 +1256,8 @@ function assignmentRow(a, slot, reps, repById, meId, isAdmin, redraw) {
 
 function openSplitSheet(assignment, slot, redraw) {
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   const toM = (hhmm) => { const [h,m] = hhmm.split(':').map(Number); return h*60+m; };
   const toS = (mins) => `${String(Math.floor(mins/60)).padStart(2,'0')}:${String(mins%60).padStart(2,'0')}`;
@@ -1293,6 +1303,8 @@ function openSplitSheet(assignment, slot, redraw) {
 
 function openTransferSheet(assignment, reps, redraw) {
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   const meId = state.profile.id;
   const others = reps.filter(r => r.id !== meId && r.is_active !== false);
@@ -1341,6 +1353,8 @@ function openTransferSheet(assignment, reps, redraw) {
 // ── Admin-only: directly reassign an assignment to a different rep ────────
 function openReassignSheet(assignment, reps, redraw) {
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   const currentRep = reps.find(r => r.id === assignment.rep_id);
   const others = reps.filter(r => r.id !== assignment.rep_id && r.is_active !== false);
@@ -1385,6 +1399,8 @@ function openReassignSheet(assignment, reps, redraw) {
 // ── Admin-only: edit an assignment's start/end times (within slot bounds) ─
 function openEditTimesSheet(assignment, slot, redraw) {
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   const startInput = el('input', { type: 'time', class: 'w-full rounded-lg border px-2 py-2 text-sm', value: assignment.start, style: { borderColor: 'var(--border-2)' } });
   const endInput   = el('input', { type: 'time', class: 'w-full rounded-lg border px-2 py-2 text-sm', value: assignment.end,   style: { borderColor: 'var(--border-2)' } });

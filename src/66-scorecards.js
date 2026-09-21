@@ -434,7 +434,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
                 + (officeName ? ' · ' + officeName : '')),
           ),
         ),
-        el('button', { class: 'text-2xl text-muted-', onclick: close }, '×'),
+        el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', onclick: close }, '×'),
       ),
     );
 
@@ -865,6 +865,8 @@ function meetingInsights(profile, tpl) {
 
 function openMeetingLogModal(profile, dept, tpl, canEdit) {
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   const modal = el('div', { class: 'card w-full max-w-3xl p-6 my-8 overflow-y-auto', style: { maxHeight: 'calc(100vh - 64px)' } });
   overlay.append(modal);
@@ -886,7 +888,7 @@ function openMeetingLogModal(profile, dept, tpl, canEdit) {
   const form = () => {
     const m = editing;
     const inp = (key, ph, rows) => el(rows ? 'textarea' : 'input', Object.assign({
-      class: 'w-full rounded-lg border px-2.5 py-1.5 text-[12px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+      class: 'w-full rounded-lg border px-2.5 py-1.5 text-xs', style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
       placeholder: ph, value: m[key] || '', oninput: (e) => { m[key] = e.target.value; },
     }, rows ? { rows } : { type: 'text' }));
     const focusSuggest = [...new Set([...(tpl.metrics || []).map(x => x.label), ...meetingsFor(profile.id).flatMap(x => x.focus || [])])];
@@ -907,9 +909,9 @@ function openMeetingLogModal(profile, dept, tpl, canEdit) {
       itemsBox.innerHTML = '';
       (m.action_items || []).forEach((a, i) => itemsBox.append(el('div', { class: 'flex items-center gap-2' },
         el('input', { type: 'checkbox', checked: !!a.done, style: { accentColor: 'var(--accent)' }, onchange: (e) => { a.done = e.target.checked; } }),
-        el('input', { type: 'text', value: a.text || '', class: 'flex-1 rounded-lg border px-2.5 py-1 text-[12px]', style: { borderColor: 'var(--border-2)' }, oninput: (e) => { a.text = e.target.value; } }),
+        el('input', { type: 'text', value: a.text || '', class: 'flex-1 rounded-lg border px-2.5 py-1 text-xs', style: { borderColor: 'var(--border-2)' }, oninput: (e) => { a.text = e.target.value; } }),
         a.carried_from ? el('span', { class: 'text-[9px] uppercase tracking-wider font-bold whitespace-nowrap', style: { color: '#A9441F' }, title: 'Open item carried from the ' + _mtgFmt(a.carried_from) + ' meeting' }, 'carried' + (a.carried_count >= 2 ? ' ×' + a.carried_count : '')) : null,
-        el('button', { class: 'text-[12px] text-muted-', onclick: () => { m.action_items.splice(i, 1); drawItems(); } }, '×'))));
+        el('button', { class: 'text-xs text-muted-', onclick: () => { m.action_items.splice(i, 1); drawItems(); } }, '×'))));
       itemsBox.append(el('button', { class: 'self-start text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => { (m.action_items = m.action_items || []).push({ text: '', done: false }); drawItems(); setTimeout(() => { const t = itemsBox.querySelectorAll('input[type=text]'); if (t.length) t[t.length - 1].focus(); }, 0); } }, '+ Action item'));
     };
     drawItems();
@@ -943,7 +945,7 @@ function openMeetingLogModal(profile, dept, tpl, canEdit) {
       (tpl.metrics || []).filter(x => x.source === 'manual').forEach(x => {
         const v = card.metrics ? card.metrics[x.id] : undefined;
         rowsBox.append(el('div', { class: 'flex items-center gap-2' },
-          el('span', { class: 'flex-1 text-[12px] font-semibold' }, x.label),
+          el('span', { class: 'flex-1 text-xs font-semibold' }, x.label),
           el('span', { class: 'text-[11px] text-muted- tabular-nums', style: { width: '36px', textAlign: 'right' }, title: 'Weight' }, Math.round(x.weight * 100) + '%'),
           el('input', { type: 'number', min: '0', max: '100', step: '0.1', placeholder: '0–100', value: Number.isFinite(v) ? String(v) : '',
             class: 'rounded-lg border px-2.5 py-1 text-[11px] tabular-nums', style: { borderColor: 'var(--border-2)', width: '84px' },
@@ -954,13 +956,13 @@ function openMeetingLogModal(profile, dept, tpl, canEdit) {
         const attScore = computeAttendanceScore(card.attendance || {}, att, m.period);
         const attW = ((tpl.metrics || []).find(x => x.source === 'attendance') || {}).weight;
         rowsBox.append(el('div', { class: 'flex items-center gap-2 mt-1' },
-          el('span', { class: 'flex-1 text-[12px] font-semibold' }, 'Attendance Score', el('span', { class: 'text-[10px] text-muted- font-normal ml-1' }, 'auto from the counts below')),
+          el('span', { class: 'flex-1 text-xs font-semibold' }, 'Attendance Score', el('span', { class: 'text-[10px] text-muted- font-normal ml-1' }, 'auto from the counts below')),
           attW != null ? el('span', { class: 'text-[11px] text-muted- tabular-nums', style: { width: '36px', textAlign: 'right' }, title: 'Weight' }, Math.round(attW * 100) + '%') : null,
           el('span', { class: 'text-[11px] font-bold tabular-nums text-right', style: { width: '84px', color: scorecardBand(attScore).color } }, fmtScore(attScore, 1))));
         (att.penalties || []).forEach(pn => {
           const v = card.attendance ? card.attendance[pn.id] : undefined;
           rowsBox.append(el('div', { class: 'flex items-center gap-2' },
-            el('span', { class: 'flex-1 text-[12px]' }, pn.label),
+            el('span', { class: 'flex-1 text-xs' }, pn.label),
             el('input', { type: 'number', min: '0', step: '1', placeholder: '0', value: Number.isFinite(Number(v)) && v !== '' && v != null ? String(v) : '',
               class: 'rounded-lg border px-2.5 py-1 text-[11px] tabular-nums', style: { borderColor: 'var(--border-2)', width: '84px' },
               onchange: (e) => { const a2 = { ...(card.attendance || {}) }; a2[pn.id] = e.target.value === '' ? 0 : Number(e.target.value); scorecardUpsertCard(profile.id, m.period, { attendance: a2 }); render(); } })));
@@ -1018,11 +1020,11 @@ function openMeetingLogModal(profile, dept, tpl, canEdit) {
           canEdit ? el('span', { class: 'flex items-center gap-2' + (sc == null ? ' ml-auto' : '') },
             el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => { editing = JSON.parse(JSON.stringify(m)); render(); } }, 'Edit'),
             el('button', { class: 'text-[11px] font-semibold', style: { color: '#DC2626' }, onclick: async () => { if (!confirm('Delete this meeting?')) return; await deleteScorecardMeeting(m.id); render(); if (state.view === 'scorecards') mountApp(); } }, 'Delete')) : null),
-        m.notes ? el('div', { class: 'text-[12px] leading-relaxed whitespace-pre-wrap mb-2' }, m.notes) : null,
-        m.wins ? el('div', { class: 'text-[12px] mb-2' }, el('span', { class: 'font-bold', style: { color: '#5F6C5B' } }, 'Wins: '), m.wins) : null,
+        m.notes ? el('div', { class: 'text-xs leading-relaxed whitespace-pre-wrap mb-2' }, m.notes) : null,
+        m.wins ? el('div', { class: 'text-xs mb-2' }, el('span', { class: 'font-bold', style: { color: '#5F6C5B' } }, 'Wins: '), m.wins) : null,
         (m.focus || []).length ? el('div', { class: 'flex items-center gap-1.5 flex-wrap mb-2' }, el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Focus'), ...m.focus.map(f => el('span', { class: 'rounded-full px-2 py-0.5 text-[10px] font-semibold', style: { background: 'rgba(223,100,58,.12)', color: '#DF643A' } }, f))) : null,
         items.length ? el('div', { class: 'flex flex-col gap-1' }, el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Action items'),
-          ...items.map(a => el('label', { class: 'flex items-center gap-2 text-[12px]' + (canEdit ? ' cursor-pointer' : '') },
+          ...items.map(a => el('label', { class: 'flex items-center gap-2 text-xs' + (canEdit ? ' cursor-pointer' : '') },
             el('input', { type: 'checkbox', checked: !!a.done, disabled: !canEdit, style: { accentColor: 'var(--accent)' }, onchange: async (e) => { a.done = e.target.checked; await saveScorecardMeeting(m); render(); } }),
             el('span', { style: a.done ? { textDecoration: 'line-through', color: 'var(--text-muted)' } : {} }, a.text),
             a.carried_from ? el('span', { class: 'text-[9px] uppercase tracking-wider font-bold', style: { color: '#A9441F' } }, 'carried from ' + _mtgFmt(a.carried_from)) : null))) : null);
@@ -1038,7 +1040,7 @@ function openMeetingLogModal(profile, dept, tpl, canEdit) {
         el('div', { class: 'flex items-center gap-3' },
           avatarNode(profile.avatar_url, profile.initials || (profile.full_name || '?').slice(0, 2), 'w-10 h-10 text-sm'),
           el('div', {}, el('h2', { class: 'text-xl font-bold' }, profile.full_name), el('div', { class: 'text-[11px] font-semibold', style: { color: cad.color } }, cad.label + ' · ' + cad.count + ' meeting' + (cad.count === 1 ? '' : 's') + (cad.openItems ? ' · ' + cad.openItems + ' open item' + (cad.openItems === 1 ? '' : 's') : '')))),
-        el('button', { class: 'text-2xl text-muted-', onclick: () => overlay.remove() }, '×')),
+        el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', onclick: () => overlay.remove() }, '×')),
       state._scorecardMeetingsMissing ? el('div', { class: 'card p-3 text-xs mb-3', style: { background: 'rgba(220,38,38,.08)', color: '#B91C1C' } }, 'The scorecard_meetings table isn’t in Supabase yet — run scorecard_meetings.sql. Meetings logged now stay on this device only.') : null,
       canEdit && !editing ? el('div', { class: 'flex items-center gap-2 flex-wrap mb-4' },
         ...Object.entries(MEETING_KINDS).map(([kk, kv]) => el('button', {
@@ -1049,7 +1051,7 @@ function openMeetingLogModal(profile, dept, tpl, canEdit) {
       editing ? el('div', { class: 'mb-4' }, form()) : null,
       el('div', { class: 'card p-4 mb-4', style: { background: 'var(--card-2)' } },
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-1.5', style: { color: 'var(--text-subtle)' } }, 'The story so far'),
-        ...meetingInsights(profile, tpl).map(t => el('div', { class: 'text-[12px] leading-relaxed' }, '• ' + t))),
+        ...meetingInsights(profile, tpl).map(t => el('div', { class: 'text-xs leading-relaxed' }, '• ' + t))),
       timeline()].filter(Boolean));
   };
   // Open straight into the form (per Isaac): review by default, coaching
@@ -1091,7 +1093,7 @@ function openScorecardTemplateModal(dept = 'inside_sales') {
           el('div', { class: 'text-xs text-muted- mt-1' },
             'Configure the metrics + weights every ' + deptLabel + ' scorecard uses.'),
         ),
-        el('button', { class: 'text-2xl text-muted-', onclick: close }, '×'),
+        el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', onclick: close }, '×'),
       ),
       // Template name
       el('div', { class: 'mb-4' },

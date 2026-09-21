@@ -29,7 +29,7 @@ function viewQueues() {
     }, l)));
   let body;
   if (state._queuesRowsLoading && state.reportingSubscriptionsLoadedFor !== state.reportingActiveUploadId) {
-    body = el('div', { class: 'card p-12 text-center text-sm text-muted-' }, 'Loading the customer book…');
+    body = emptyCard('Loading the customer book…');
   } else {
     body = sec === 'health' ? reportingCustomerHealth() : sec === 'nextbest' ? reportingNextBest() : reportingRenewals();
   }

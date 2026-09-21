@@ -105,7 +105,7 @@ function openNrlaRepMarketModal(sales) {
               render();
             },
           }, '↺ Reset all'),
-          el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×'))),
+          el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: close }, '×'))),
       el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } }, searchInput),
       el('div', { class: 'overflow-y-auto flex-1' },
         ...names.map(name => {
@@ -297,7 +297,7 @@ function openNrlaRosterModal(rawSales) {
         onclick: () => openIndicatorConfigHistoryModal(),
       }, '🕘'),
       saveBtn,
-      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')));
+      el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: close }, '×')));
   const searchInput = el('input', {
     type: 'text', value: state._nrlaRosterSearch || '', placeholder: 'Search reps…',
     class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]',
@@ -524,7 +524,7 @@ function openNrlaRosterModal(rawSales) {
                   }, 'Keep this'))
             : el('span', { class: 'flex items-center gap-1.5 shrink-0' },
                 el('button', {
-                  class: 'cursor-pointer text-[12px] px-1 rounded',
+                  class: 'cursor-pointer text-xs px-1 rounded',
                   style: { opacity: '.5', background: 'transparent', border: 'none' },
                   title: 'Duplicate spelling of another rep? Merge the two — pick this one as the duplicate, then click "Keep this" on the real one',
                   onclick: (e) => { e.preventDefault(); e.stopPropagation(); state._nrlaMergeSrc = name; renderList(); },
@@ -2569,7 +2569,7 @@ function kobeWeekSection(raw, KOBE_FROM, KOBE_TO, FINAL_REPS) {
                 state._kobeSort = { key, dir: on ? (_kSort.dir === 'desc' ? 'asc' : 'desc') : ((key === 'name' || key === 'team') ? 'asc' : 'desc') };
                 mountApp();
               },
-            }, label + (on ? (_kSort.dir === 'desc' ? ' \u2193' : ' \u2191') : ''));
+            }, label + (on ? (_kSort.dir === 'desc' ? ' \u25bc' : ' \u25b2') : ''));
           };
           return [
             _kTh('name', 'Rep', ''),
@@ -2728,6 +2728,8 @@ function openKothDayModal(name, day, raw) {
   const rows = kothDayRows(raw, name, day);
   if (!rows.length) { if (typeof toast === 'function') toast('No account detail for that day in this snapshot', 'warn'); return; }
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   const modal = el('div', { class: 'card w-full max-w-3xl p-6 my-8 overflow-y-auto', style: { maxHeight: 'calc(100vh - 64px)' } });
   overlay.append(modal);
@@ -3160,7 +3162,7 @@ function mysteryBoxSection(isAdmin) {
                 state._mbSort = { key: k, dir: cur.key === k ? (cur.dir === 'desc' ? 'asc' : 'desc') : (k === 'name' ? 'asc' : 'desc') };
                 mountApp();
               },
-            }, h + (active ? (_srt.dir === 'desc' ? ' \u2193' : ' \u2191') : ''));
+            }, h + (active ? (_srt.dir === 'desc' ? ' \u25bc' : ' \u25b2') : ''));
           }))),
         el('tbody', {},
           ...qual2.map(row),
@@ -4869,7 +4871,7 @@ function openSpringRepMarketModal(sales, officeList) {
               render();
             },
           }, '↺ Reset all'),
-          el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×'))),
+          el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: close }, '×'))),
       // 🏢 competing offices (merged in from the old separate modal — per
       // Isaac): green = in the comp, struck = sitting out. Synced.
       (() => {
@@ -4952,7 +4954,7 @@ function openSpringPendingModal(roundNum, roundLabelStr, pending) {
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Spring Cleaning · Round ' + roundNum + ' · ' + roundLabelStr),
         el('h2', { class: 'text-xl font-bold mt-0.5' }, list.length + ' pending audit' + (list.length === 1 ? '' : 's')),
         el('p', { class: 'text-xs text-muted- mt-1' }, 'Door-to-Door, ≥$99, no Passed / No Audit / Failed flag yet (counted as assumed-passing). Flag these in FieldRoutes to settle the round.')),
-      el('button', { class: 'text-2xl leading-none px-2', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
+      el('button', { class: 'text-2xl leading-none text-muted- px-2', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
     el('div', { class: 'overflow-auto px-5 pb-5', style: { borderTop: '1px solid var(--border)' } },
       list.length === 0
         ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'No pending audits — this round is settled.')
@@ -4991,7 +4993,7 @@ function openSpringCleaningHelpModal() {
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Spring Cleaning'),
         el('h2', { class: 'text-xl font-bold mt-0.5' }, 'Full competition rules'),
       ),
-      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×'),
+      el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: close }, '×'),
     ),
     el('div', { class: 'overflow-auto px-5 pb-5', style: { borderTop: '1px solid var(--border)' } },
       el('div', { class: 'pt-4' },
@@ -5129,6 +5131,8 @@ function openSpringCompetingModal(branchList) {
   if (!comp) { toast('No active Spring Cleaning config found', 'warn'); return; }
   if (!Array.isArray(comp.excludedBranches)) comp.excludedBranches = ['SALT LAKE'];
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   const body = el('div', { class: 'flex items-center gap-1.5 flex-wrap' });
   const render = () => {
@@ -5162,7 +5166,7 @@ function openSpringCompetingModal(branchList) {
   overlay.append(el('div', { class: 'card p-5 w-full', style: { maxWidth: '520px' } },
     el('div', { class: 'flex items-center justify-between mb-1' },
       el('h3', { class: 'text-base font-bold' }, '🏢 Offices competing'),
-      el('button', { class: 'text-xl leading-none cursor-pointer px-2', onclick: () => overlay.remove() }, '×')),
+      el('button', { class: 'text-2xl leading-none text-muted- cursor-pointer px-2', 'aria-label': 'Close', title: 'Close', onclick: () => overlay.remove() }, '×')),
     el('p', { class: 'text-xs text-muted- mb-3' },
       'Green = in the comp. Struck through = sitting this one out — excluded branches drop from every category, the points race, and Audit %. Synced to every admin.'),
     body));
@@ -5895,6 +5899,8 @@ function openRepWhereSoldModal(repName) {
   const recent = rows.slice().sort((a, b) => iso(b).localeCompare(iso(a))).slice(0, 15);
   const titleCase2 = (t) => String(t).split(' ').map(w => w ? w[0] + w.slice(1).toLowerCase() : w).join(' ');
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   const card = el('div', { class: 'card w-full max-w-lg my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
     el('div', { class: 'flex items-start justify-between gap-3 p-4 pb-2' },
@@ -5902,7 +5908,7 @@ function openRepWhereSoldModal(repName) {
         el('h2', { class: 'text-base font-bold' }, canonical + ' — where they sold'),
         el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
           fmt.int(rows.length) + ' pending/serviced accounts · ' + fmt.usd0(rows.reduce((a, s) => a + (Number(s.contractValue) || 0), 0)) + ' total')),
-      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×')),
+      el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×')),
     el('div', { class: 'px-4 pb-4 overflow-y-auto' },
       offices2.length === 0
         ? el('div', { class: 'p-6 text-center text-sm', style: { color: 'var(--text-muted)' } }, 'No pending/serviced accounts in the loaded dataset.')
@@ -6206,6 +6212,8 @@ function addTeam(name) {
 // remove with an are-you-sure that states how many reps become untagged.
 function openTeamsListModal(teamYear, onChange) {
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   const card = el('div', { class: 'card w-full max-w-md my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } });
   overlay.append(card);

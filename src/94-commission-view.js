@@ -19,10 +19,10 @@ function viewCommission() {
 function commissionMyPay() {
   const p = state.profile || {};
   const wrap = (node) => el('div', { class: 'flex flex-col gap-4 w-full' }, el('h1', { class: 'text-2xl font-bold' }, 'My Commission'), node);
-  if (!p.fieldroutes_employee_id) return wrap(el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'Your account isn’t linked to a FieldRoutes rep yet. Ask an admin to link you on Settings → Users.'));
-  if (!state._myCommissionLoaded) { loadMyCommissionResult().then(() => { if (state.view === 'commission') mountApp(); }); return wrap(el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'Loading your commission…')); }
+  if (!p.fieldroutes_employee_id) return wrap(emptyCard('Your account isn’t linked to a FieldRoutes rep yet. Ask an admin to link you on Settings → Users.'));
+  if (!state._myCommissionLoaded) { loadMyCommissionResult().then(() => { if (state.view === 'commission') mountApp(); }); return wrap(emptyCard('Loading your commission…')); }
   const row = state._myCommission;
-  if (!row || !row.data) return wrap(el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'Your commission will appear here, updated with each sync. Nothing to show yet.'));
+  if (!row || !row.data) return wrap(emptyCard('Your commission will appear here, updated with each sync. Nothing to show yet.'));
   const B = row.data;
   const { breakdown, stats, explain } = commissionRenderCards(B, B.name || p.full_name || '');
   return wrap(el('div', { class: 'flex flex-col gap-3' },
@@ -117,7 +117,7 @@ function commissionRenderOfficeStaff(B, repName) {
 }
 
 function commissionCalculator() {
-  if (!isAdminRole(state.profile?.role)) return el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Commission Calculator is admin-only.');
+  if (!isAdminRole(state.profile?.role)) return emptyCard('Commission Calculator is admin-only.');
   const money = (n) => { const v = Math.round((n || 0) * 100) / 100; const s = v < 0 ? '-' : ''; return s + '$' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
   const pct = (n) => (Math.round((n || 0) * 100) / 100).toFixed(2) + '%';
 
@@ -137,7 +137,7 @@ function commissionCalculator() {
   // Pay tab under the Office Staff group. (officeStaff kept for the roster
   // reconcile below.)
   const reps = [...salesReps];
-  if (!reps.length) return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'No sales reps yet — run a sync to pull the FieldRoutes roster.');
+  if (!reps.length) return emptyCard('No sales reps yet — run a sync to pull the FieldRoutes roster.');
 
   if (!state._commEmpId || !reps.find(e => e.employee_id === state._commEmpId)) state._commEmpId = reps[0].employee_id;
   const emp = reps.find(e => e.employee_id === state._commEmpId);
@@ -146,10 +146,10 @@ function commissionCalculator() {
   // pull from in-app logged sales, so they skip this guard.
   if (!emp.isApp) {
     const activeId = state.reportingActiveUploadId;
-    if (!activeId) return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'No CRM snapshot yet — hit the ↻ sync icon to pull FieldRoutes, then come back.');
+    if (!activeId) return emptyCard('No CRM snapshot yet — hit the ↻ sync icon to pull FieldRoutes, then come back.');
     if (state.reportingSubscriptionsLoadedFor !== activeId) {
       loadReportingSubscriptions(activeId).then(rows => { if (rows && state.reportingActiveUploadId === activeId) { state.reportingSubscriptions = rows; state.reportingSubscriptionsLoadedFor = activeId; mountApp(); } });
-      return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'Loading the CRM snapshot…');
+      return emptyCard('Loading the CRM snapshot…');
     }
   }
 
@@ -288,7 +288,7 @@ function reportingReconciliation() {
   if (state.frRoster == null && !state._frRosterLoading) {
     loadFieldRoutesRoster().then(() => { if (state.view === 'reporting') mountApp(); });
   }
-  const money = (n) => (typeof fmt !== 'undefined' && fmt.usd0) ? fmt.usd0(n) : ('$' + Math.round(n || 0).toLocaleString());
+  const money = fmt.usd0;
   const nameKey = (s) => String(s || '').toLowerCase().replace(/[^a-z ]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
 
   const profiles = state.allProfiles || [];

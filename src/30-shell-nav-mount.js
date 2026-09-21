@@ -307,7 +307,7 @@ function openMySettingsModal() {
         el('h2', { class: 'text-lg font-bold' }, 'My Settings'),
         el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } },
           (p.full_name || '') + ' · ' + roleLabel(p.role))),
-      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
+      el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
     el('div', { class: 'px-5 pb-5 flex flex-col gap-5' },
       el('div', { class: 'flex flex-col gap-2' },
         secLabel('Time Zone'),
@@ -451,6 +451,8 @@ function usagePing(event, detail) {
 // Settings → Users → Adoption → Feedback.
 function openFeedbackModal() {
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   const MAX_FILES = 6, MAX_MB = 50;
   const files = [];   // File objects picked so far
@@ -526,7 +528,7 @@ function openFeedbackModal() {
         });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         overlay.remove();
-        toast('📣 Sent — thank you!', 'success');
+        toast('Sent — thank you', 'success');
         state._usageStats = null;   // Adoption card re-pulls next time it renders
       } catch (err) {
         send.disabled = false; send.textContent = 'Send';
@@ -537,7 +539,7 @@ function openFeedbackModal() {
   overlay.append(el('div', { class: 'card w-full max-w-md p-5 flex flex-col gap-3' },
     el('div', { class: 'flex items-center justify-between' },
       el('h2', { class: 'text-lg font-bold' }, '📣 Feedback'),
-      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×')),
+      el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×')),
     ta, drop, picker, list,
     el('div', { class: 'flex items-center justify-between gap-2' },
       el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Goes to the app team (Slack) and the Adoption log.'),
@@ -1113,8 +1115,8 @@ function mountApp() {
     const ctx = _moduleCtx();
     if (state._lastModuleView !== _mod.id && typeof _mod.onEnter === 'function') { try { _mod.onEnter(ctx); } catch (e) { console.warn('[ridd] module onEnter', e); } }
     state._lastModuleView = _mod.id;
-    let node; try { node = _mod.render(ctx); } catch (e) { console.error('[ridd] module render failed', _mod.id, e); node = el('div', { class: 'card p-8 text-center text-sm text-muted-' }, (_mod.label || _mod.id) + ' failed to render — check the console.'); }
-    if (!(node instanceof Node)) node = el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Module returned nothing.');
+    let node; try { node = _mod.render(ctx); } catch (e) { console.error('[ridd] module render failed', _mod.id, e); node = emptyCard((_mod.label || _mod.id) + ' failed to render — check the console.'); }
+    if (!(node instanceof Node)) node = emptyCard('Module returned nothing.');
     node.classList.add('fade-in');
     contentWrap.append(node);
     return;

@@ -228,8 +228,7 @@ function techUpsellRows() {
 function viewTechs() {
   const isAdmin = isAdminRole(state.profile?.role);
   if (!isAdmin && !isTechProfile(state.profile)) {
-    return el('div', { class: 'card p-10 text-center text-sm text-muted-' },
-      'The Technicians tab is for Service Pros and admins. If you should have access, ask an admin to link your account to your CRM technician profile (Settings → Users).');
+    return emptyCard('The Technicians tab is for Service Pros and admins. If you should have access, ask an admin to link your account to your CRM technician profile (Settings → Users).');
   }
   const range = getDateRange(state._techRange || 'today');
   const all = techUpsellRows();
@@ -342,7 +341,7 @@ function viewTechs() {
   const num = (v, cls, style) => el('td', { class: 'px-3 py-2.5 text-right tabular-nums whitespace-nowrap ' + (cls || ''), style: style || {} }, v);
   const detailRow = (t) => el('tr', { style: { background: 'var(--card-2)' } }, el('td', { colspan: '13', class: 'px-4 py-2' },
     el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-1' }, t.nm + ' · ' + t.n + ' upsell' + (t.n === 1 ? '' : 's')),
-    el('table', { class: 'w-full text-[12px]' },
+    el('table', { class: 'w-full text-xs' },
       el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' }, el('tr', {},
         el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Date'), el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Customer'),
         el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Service'), el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Office'),
@@ -380,7 +379,7 @@ function viewTechs() {
       board.length === 0
         ? el('div', { class: 'p-10 text-center text-sm text-muted-' }, hasRoutes ? 'No routes or upsells in this window.' : 'No Service Pro upsells in this window yet — first one on the board takes #1.')
         : el('div', { class: phone ? '' : 'scroll-x', style: board.length > 6 ? { maxHeight: '440px', overflowY: 'auto' } : {} },
-            el('table', { class: 'w-full text-[12px]' },
+            el('table', { class: 'w-full text-xs' },
               el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: '2' } },
                 el('tr', {},
                   el('th', { class: 'text-left pl-4 pr-2 py-2 w-8' }, '#'),
@@ -438,7 +437,7 @@ function viewTechs() {
       el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between' },
         el('h2', { class: 'font-display text-lg' }, 'Latest Upsells'),
         el('span', { class: 'text-xs text-muted-' }, fmt.int(inRange.length))),
-      el('div', { style: { maxHeight: '360px', overflowY: 'auto' } }, el('table', { class: 'w-full text-[12px]' },
+      el('div', { style: { maxHeight: '360px', overflowY: 'auto' } }, el('table', { class: 'w-full text-xs' },
         el('tbody', {}, ...latest.map(sr => el('tr', { class: 'border-t border-' },
           showDate ? el('td', { class: 'pl-4 pr-2 py-2 text-muted- tabular-nums whitespace-nowrap' }, dateSoldToIso(sr.dateSold) || '—') : null,
           el('td', { class: (showDate ? 'px-2' : 'pl-4 pr-2') + ' py-2 whitespace-nowrap' }, el('span', { class: 'flex items-center gap-2' }, avatarFor(flipLastFirst(getCanonicalRepName(sr.rep || '')), 'sm'), el('span', { class: 'font-semibold' }, flipLastFirst(getCanonicalRepName(sr.rep || '')).split(' ')[0]))),
@@ -450,7 +449,7 @@ function viewTechs() {
       el('div', { class: 'px-4 py-3 border-b border-' }, el('h2', { class: 'text-base font-bold' }, 'My Logged Upsells')),
       myUpsells.length === 0
         ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'Nothing logged yet — tap + Log Upsell after your next one.')
-        : el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
+        : el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs' },
             el('tbody', {}, ...myUpsells.slice(0, 25).map(s => el('tr', { class: 'border-t border-' },
               el('td', { class: 'pl-4 pr-2 py-2 tabular-nums text-muted-' }, s.sold_date),
               el('td', { class: 'px-2 py-2 font-semibold' }, s.customer_name || '—'),
@@ -717,11 +716,11 @@ function viewDashboard() {
               goal > 0 ? el('div', { title: 'Where today sits on the seasonal plan — ' + (seasonalPct * 100).toFixed(1) + '% of the year\'s weighted goal should be sold by today', style: { position: 'absolute', top: '-3px', bottom: '-3px', left: seasonalMarkerPct.toFixed(1) + '%', width: '2px', background: 'var(--text)', opacity: '.6' } }) : null),
             goal > 0 ? el('div', { class: 'grid gap-2 mt-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' } },
               tile(monName + ' so far', fmt.usd0(mtd) + ' / ' + fmt.usd0(monTarget), daysDoneM + ' of ' + daysTotM + ' selling days', { tip: 'Month-to-date new revenue vs this month\'s share of your annual goal (' + (_shape[_mi] * 100).toFixed(1) + '% of the year)' }),
-              tile('Need / day · rest of ' + monName, needMonth == null ? '—' : needMonth > 0 ? fmt.usd0(needMonth) : '✓ hit', daysLeftM + ' selling days left', { color: needMonth > 0 ? undefined : '#16A34A', tip: fmt.usd0(Math.max(0, monTarget - mtd)) + ' left on ' + monName + ' ÷ ' + daysLeftM + ' selling days (Mon–Fri, holidays off)' }),
-              tile('Need / day · rest of year', needYear == null ? '—' : needYear > 0 ? fmt.usd0(needYear) : '✓ hit', daysLeftY + ' selling days left', { color: needYear > 0 ? undefined : '#16A34A', tip: fmt.usd0(Math.max(0, goal - rev)) + ' left on the annual goal ÷ ' + daysLeftY + ' selling days' }),
-              tile('Projected ' + monName, projMonth == null ? '—' : fmt.usd0(projMonth), 'of ' + fmt.usd0(monTarget), { color: projMonth == null ? undefined : hit(projMonth, monTarget) ? '#16A34A' : '#DC2626', tip: 'This month\'s run-rate carried to month end' }),
-              tile('Projected year', projYear == null ? '—' : fmt.usd0(projYear), 'of ' + fmt.usd0(goal), { color: projYear == null ? undefined : hit(projYear, goal) ? '#16A34A' : '#DC2626', tip: 'YTD ÷ the seasonal share of the year that should be sold by today' }),
-              tile(winLabel, fmt.usd0(winActual) + ' / ' + fmt.usd0(winGoal), !open ? (winActual >= winGoal ? '✓ hit · +' + fmt.usd0(winActual - winGoal) : 'missed by ' + fmt.usd0(winGoal - winActual)) : kind === 'today' ? (winActual >= winGoal ? '✓ day goal hit' : fmt.usd0(Math.max(0, winGoal - winActual)) + ' to go today') : winNeed == null ? (winActual >= winGoal ? '✓ hit' : 'no selling days left') : winNeed > 0 ? 'need ' + fmt.usd0(winNeed) + '/day · ' + winLeft + ' days left' : '✓ window goal hit', { color: (!open || winNeed === 0 || (kind === 'today' && winActual >= winGoal)) && winActual >= winGoal ? '#16A34A' : (!open && winActual < winGoal ? '#DC2626' : undefined), tip: 'Follows the date filter at the top. Window goal = your annual goal spread by the seasonal month shape over that month\'s selling days.' }),
+              tile('Need / day · rest of ' + monName, needMonth == null ? '—' : needMonth > 0 ? fmt.usd0(needMonth) : '✓ hit', daysLeftM + ' selling days left', { color: needMonth > 0 ? undefined : 'var(--ok)', tip: fmt.usd0(Math.max(0, monTarget - mtd)) + ' left on ' + monName + ' ÷ ' + daysLeftM + ' selling days (Mon–Fri, holidays off)' }),
+              tile('Need / day · rest of year', needYear == null ? '—' : needYear > 0 ? fmt.usd0(needYear) : '✓ hit', daysLeftY + ' selling days left', { color: needYear > 0 ? undefined : 'var(--ok)', tip: fmt.usd0(Math.max(0, goal - rev)) + ' left on the annual goal ÷ ' + daysLeftY + ' selling days' }),
+              tile('Projected ' + monName, projMonth == null ? '—' : fmt.usd0(projMonth), 'of ' + fmt.usd0(monTarget), { color: projMonth == null ? undefined : hit(projMonth, monTarget) ? 'var(--ok)' : '#DC2626', tip: 'This month\'s run-rate carried to month end' }),
+              tile('Projected year', projYear == null ? '—' : fmt.usd0(projYear), 'of ' + fmt.usd0(goal), { color: projYear == null ? undefined : hit(projYear, goal) ? 'var(--ok)' : '#DC2626', tip: 'YTD ÷ the seasonal share of the year that should be sold by today' }),
+              tile(winLabel, fmt.usd0(winActual) + ' / ' + fmt.usd0(winGoal), !open ? (winActual >= winGoal ? '✓ hit · +' + fmt.usd0(winActual - winGoal) : 'missed by ' + fmt.usd0(winGoal - winActual)) : kind === 'today' ? (winActual >= winGoal ? '✓ day goal hit' : fmt.usd0(Math.max(0, winGoal - winActual)) + ' to go today') : winNeed == null ? (winActual >= winGoal ? '✓ hit' : 'no selling days left') : winNeed > 0 ? 'need ' + fmt.usd0(winNeed) + '/day · ' + winLeft + ' days left' : '✓ window goal hit', { color: (!open || winNeed === 0 || (kind === 'today' && winActual >= winGoal)) && winActual >= winGoal ? 'var(--ok)' : (!open && winActual < winGoal ? '#DC2626' : undefined), tip: 'Follows the date filter at the top. Window goal = your annual goal spread by the seasonal month shape over that month\'s selling days.' }),
             ) : null);
         }
         return el('div', { class: 'card p-5 rev-goal-card' },
@@ -1226,18 +1225,18 @@ function compSummaryCard(comp) {
     onclick: () => { state.view = 'competitions'; mountApp(); },
   },
     el('div', { class: 'flex items-center justify-between mb-2' },
-      el('div', { class: 'text-[10px] text-battleship uppercase tracking-widest' }, comp.category.replace('_', ' ') + ' · ' + comp.type),
+      el('div', { class: 'text-[10px] text-muted- uppercase tracking-widest' }, comp.category.replace('_', ' ') + ' · ' + comp.type),
       el('div', { class: 'chip chip-pending' }, fmt.dateShort(comp.start_date) + ' → ' + fmt.dateShort(comp.end_date)),
     ),
-    el('h3', { class: 'text-xl font-bold text-smoke' }, comp.name),
-    el('div', { class: 'text-sm text-battle-2 mt-1' }, comp.prize_text || ''),
+    el('h3', { class: 'text-xl font-bold text-muted-' }, comp.name),
+    el('div', { class: 'text-sm text-muted- mt-1' }, comp.prize_text || ''),
     total > 0 && el('div', { class: 'mt-3' },
-      el('div', { class: 'flex items-center justify-between text-xs text-battle-2 mb-1' },
+      el('div', { class: 'flex items-center justify-between text-xs text-muted- mb-1' },
         el('span', {}, `${met} / ${total} ${comp.type === 'bingo' ? 'squares' : 'rules'}`),
         el('span', {}, fmt.pct(met / total)),
       ),
-      el('div', { class: 'h-1.5 rounded-full bg-eerie3 overflow-hidden' },
-        el('div', { class: 'h-full bg-lime transition-all', style: { width: (total ? (met / total * 100) : 0) + '%' } }),
+      el('div', { class: 'h-1.5 rounded-full overflow-hidden', style: { background: 'var(--card-2)' } },
+        el('div', { class: 'h-full transition-all', style: { background: 'var(--accent)', width: (total ? (met / total * 100) : 0) + '%' } }),
       ),
     ),
   );
@@ -1901,7 +1900,7 @@ function openCrmReconcileModal() {
     if (state.indicatorsComps && isRepExcluded(s.rep)) return 'comp exclusion (team excluded)';
     return null;
   };
-  const money = (n) => fmt.usd(n);
+  const money = fmt.usd;
   const run = (text, resBox, copyBtn) => {
     const recs = _crmReconCsv(text);
     if (recs.length < 2) { resBox.textContent = 'Paste the full CSV, header row included.'; return; }
@@ -2010,6 +2009,8 @@ function openCrmReconcileModal() {
     if (copyBtn) { copyBtn.style.display = ''; copyBtn.onclick = () => { navigator.clipboard.writeText(report); copyBtn.textContent = 'Copied ✓'; setTimeout(() => { copyBtn.textContent = 'Copy report'; }, 1500); }; }
   };
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   const ta = el('textarea', {
     class: 'w-full rounded-lg border p-2 text-xs', rows: '6',
@@ -2024,7 +2025,7 @@ function openCrmReconcileModal() {
   overlay.append(el('div', { class: 'card p-5 w-full', style: { maxWidth: '860px' } },
     el('div', { class: 'flex items-center justify-between mb-1' },
       el('h3', { class: 'text-base font-bold' }, 'Reconcile vs CRM'),
-      el('button', { class: 'text-xl leading-none cursor-pointer px-2', onclick: () => overlay.remove() }, '×')),
+      el('button', { class: 'text-2xl leading-none text-muted- cursor-pointer px-2', 'aria-label': 'Close', title: 'Close', onclick: () => overlay.remove() }, '×')),
     el('p', { class: 'text-xs text-muted- mb-3' },
       'Paste a SalesReport CSV from the CRM’s Sales Leaderboard (one rep or many). Every account is joined on Customer ID against this app’s synced data, and any difference is named account-by-account with the exact rule responsible.'),
     ta,
@@ -2468,6 +2469,8 @@ function openCoachModeModal() {
   const repByName = Object.fromEntries(allReps.map(r => [r.name, r]));
 
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   const modal = el('div', { class: 'card w-full max-w-5xl p-6 my-8 overflow-y-auto', style: { maxHeight: 'calc(100vh - 64px)' } });
   overlay.append(modal);
@@ -2529,7 +2532,7 @@ function openCoachModeModal() {
           highCount > 0 && el('span', { class: 'text-[10px] font-bold px-1.5 py-0.5 rounded', style: { background: 'rgba(220,38,38,.12)', color: '#B91C1C' } }, highCount + ' high'),
           medCount > 0 && el('span', { class: 'text-[10px] font-bold px-1.5 py-0.5 rounded', style: { background: 'rgba(223,100,58,.15)', color: '#A9441F' } }, medCount + ' med'),
         ),
-        el('button', { class: 'text-2xl text-muted-', onclick: () => overlay.remove() }, '×'),
+        el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', onclick: () => overlay.remove() }, '×'),
       ),
       // Roster-cleanup toolbar — only renders when there are actually
       // ≥30-day silent reps to act on. Filter pill on the left scopes
@@ -2564,7 +2567,7 @@ function openCoachModeModal() {
           ? el('div', { class: 'p-6 text-center text-xs text-muted- italic' }, 'No reps match this filter.')
           : el('div', { class: 'rounded-lg border overflow-hidden', style: { borderColor: 'var(--border)' } },
               el('div', { class: 'scroll-x', style: { maxHeight: 'calc(100vh - 260px)', overflowY: 'auto' } },
-                el('table', { class: 'w-full text-[12px]' },
+                el('table', { class: 'w-full text-xs' },
                   el('thead', {
                     class: 'text-[9px] uppercase tracking-wider text-muted-',
                     style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: 1 },
@@ -3342,6 +3345,8 @@ function computeImportInsights() {
 function openImportInsightsModal(insights) {
   if (!insights) return;
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   const modal = el('div', {
     class: 'card w-full max-w-3xl p-6 my-8 overflow-y-auto',
@@ -3386,7 +3391,7 @@ function openImportInsightsModal(insights) {
             + ' · ' + insights.weekLabel.daysElapsed + ' day' + (insights.weekLabel.daysElapsed === 1 ? '' : 's') + ' each (apples-to-apples)'),
       ),
       el('button', {
-        class: 'text-2xl leading-none -mr-1', style: { color: 'var(--text-muted)' },
+        class: 'text-2xl leading-none text-muted- -mr-1', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' },
         onclick: () => overlay.remove(),
       }, '×'),
     ),
@@ -3719,6 +3724,8 @@ async function loadUserPrefs() {
 // sheet); everything is per-device so reps can't affect each other.
 function openRepCustomizeModal() {
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   const card = el('div', { class: 'card w-full max-w-sm my-8 flex flex-col overflow-hidden', style: { maxHeight: 'calc(100vh - 64px)' } });
   overlay.append(card); document.body.append(overlay);
@@ -3736,7 +3743,7 @@ function openRepCustomizeModal() {
         el('div', {},
           el('h2', { class: 'text-lg font-bold' }, '✏️ Customize My Page'),
           el('div', { class: 'text-[11px] text-muted- mt-0.5' }, 'Just for you, on this device.')),
-        el('button', { class: 'text-xl leading-none text-muted-', style: { lineHeight: '1' }, onclick: () => overlay.remove() }, '×')),
+        el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { lineHeight: '1' }, onclick: () => overlay.remove() }, '×')),
       el('div', { class: 'p-4 flex flex-col gap-2 overflow-auto' },
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Sections · order & visibility'),
         ...p.order.map((k, i) => {
@@ -4050,7 +4057,7 @@ function openLandingTileDrill(title, subtitle, rows, opts) {
         el('div', { class: 'text-[11px] mt-0.5 text-muted-' }, rows.length + ' account' + (rows.length === 1 ? '' : 's') + (subtitle ? ' \u00b7 ' + subtitle : ''))),
       el('div', { class: 'flex items-center gap-2 shrink-0' },
         el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)' }, onclick: csv }, 'Export CSV'),
-        el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '\u00d7'))),
+        el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: close }, '\u00d7'))),
     el('div', { class: 'p-3' }, body)));
   document.body.append(overlay);
 }
@@ -4075,6 +4082,8 @@ function openIndicatorRepCard(rep, allReps = []) {
     return;
   }
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 
   const modal = el('div', {
@@ -4589,7 +4598,7 @@ function openIndicatorRepCard(rep, allReps = []) {
           el('div', { class: 'text-sm font-bold' }, title),
           el('div', { class: 'text-[11px] text-muted- mt-0.5 tabular-nums' },
             list.length + ' account' + (list.length === 1 ? '' : 's') + ' · ' + fmt.usd0(rev))),
-        el('button', { class: 'text-xl leading-none text-muted-', style: { lineHeight: '1' }, onclick: () => ov.remove() }, '×')),
+        el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { lineHeight: '1' }, onclick: () => ov.remove() }, '×')),
       el('div', { class: 'overflow-auto' },
         accountsTable(list.slice().sort((a, b) => (b.dateSold || '').localeCompare(a.dateSold || ''))))));
     document.body.append(ov);
@@ -4959,7 +4968,7 @@ function openIndicatorRepCard(rep, allReps = []) {
       drillSales.length === 0
         ? el('div', { class: 'p-4 text-center text-xs text-muted- italic' }, 'No accounts match this filter.')
         : el('div', { class: 'scroll-x', style: { maxHeight: '420px', overflowY: 'auto' } },
-            el('table', { class: 'w-full text-[12px]' },
+            el('table', { class: 'w-full text-xs' },
               el('thead', {
                 class: 'text-[9px] uppercase tracking-wider text-muted-',
                 style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: 1 },
@@ -5116,7 +5125,7 @@ function openIndicatorRepCard(rep, allReps = []) {
           el('div', {},
             el('div', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--accent)' } }, retDrill.label),
             el('div', { class: 'text-[10px] text-muted- mt-0.5' }, rows.length + ' account' + (rows.length === 1 ? '' : 's'))),
-          el('button', { class: 'text-lg leading-none text-muted-', onclick: () => { retDrill = null; renderBody(); } }, '×')),
+          el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', onclick: () => { retDrill = null; renderBody(); } }, '×')),
         rows.length === 0
           ? el('div', { class: 'p-4 text-center text-xs text-muted- italic' }, 'No accounts in this bucket.')
           : el('div', { style: { maxHeight: '420px', overflowY: 'auto' } }, accountsTable(rows)));
@@ -5237,7 +5246,7 @@ function openIndicatorRepCard(rep, allReps = []) {
           ),
         ),
         el('button', {
-          class: 'sm:hidden text-xl text-muted- transition leading-none self-start ml-auto',
+          class: 'text-2xl leading-none text-muted- sm:hidden transition self-start ml-auto', 'aria-label': 'Close', title: 'Close',
           style: { lineHeight: '1' },
           onclick: () => overlay.remove(),
         }, '×'),
@@ -5273,7 +5282,7 @@ function openIndicatorRepCard(rep, allReps = []) {
           ...CARD_SCOPE_PRESETS.map(p => el('option', { value: p.id, selected: cardScope === p.id }, p.label)),
         ),
         el('button', {
-          class: 'hidden sm:block text-xl text-muted- hover:text-default transition leading-none -mr-1',
+          class: 'text-2xl leading-none text-muted- hidden sm:block hover:text-default transition -mr-1', 'aria-label': 'Close', title: 'Close',
           style: { lineHeight: '1' },
           onclick: () => overlay.remove(),
         }, '×'),
@@ -5443,6 +5452,8 @@ function openRepProfileModal(repId) {
   const leaderRow = computeLeaderboard('total').find(r => r.rep_id === repId);
 
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 
   const EXCLUDE = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
@@ -5455,7 +5466,7 @@ function openRepProfileModal(repId) {
     // Header
     el('div', { class: 'flex items-center justify-between mb-5' },
       el('button', { class: 'text-xs text-muted- hover:text-default transition', onclick: () => overlay.remove() }, '← Back'),
-      el('button', { class: 'text-2xl text-muted-', onclick: () => overlay.remove() }, '×'),
+      el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', onclick: () => overlay.remove() }, '×'),
     ),
 
     // Avatar + name + badges. No email here (kept private to the Users tab).
@@ -5540,7 +5551,7 @@ function openRepProfileModal(repId) {
       repSales.length === 0
         ? el('div', { class: 'text-sm text-muted- italic' }, 'No sales logged yet.')
         : el('div', { class: 'scroll-x' },
-            el('table', { class: 'w-full text-[12px]' },
+            el('table', { class: 'w-full text-xs' },
               el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
                 el('tr', {},
                   el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Customer'),
@@ -5881,7 +5892,7 @@ function leaderboardSection(range) {
         el('div', { class: (phone ? '' : 'scroll-x ') + 'flex-1', style: { minHeight: '0', overflowY: 'auto', overflowX: phone ? 'hidden' : undefined } },
           // Phones: one metric column, so the table fits the card exactly
           // (fit-table keeps it a real fixed-layout table — no sideways drift).
-          el('table', { class: 'w-full text-[12px]' + (phone ? ' fit-table' : ''), style: phone ? { tableLayout: 'fixed' } : {} },
+          el('table', { class: 'w-full text-xs' + (phone ? ' fit-table' : ''), style: phone ? { tableLayout: 'fixed' } : {} },
             el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: '3' } },
               el('tr', {},
                 el('th', { class: 'text-left pl-4 pr-1 py-2', style: { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 2, minWidth: '40px', width: '40px' } }, '#'),
@@ -5928,12 +5939,12 @@ function leaderboardTable(rows) {
   // Legacy wrapper for any old callers. New code should call leaderboardSection().
   return leaderboardSection();
   // unreachable old code kept for reference
-  if (!rows.length) return el('div', { class: 'card p-6 text-center text-battle-2 text-sm' }, 'Leaderboard will show up once sales are approved this month.');
+  if (!rows.length) return el('div', { class: 'card p-6 text-center text-muted- text-sm' }, 'Leaderboard will show up once sales are approved this month.');
   const sorted = [...rows].sort((a, b) => Number(b.approved_revenue) - Number(a.approved_revenue));
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'scroll-x' },
       el('table', { class: 'w-full text-sm' },
-        el('thead', { class: 'text-[10px] uppercase tracking-widest text-battleship bg-eerie3' },
+        el('thead', { class: 'text-[10px] uppercase tracking-widest text-muted-', style: { background: 'var(--card-2)' } },
           el('tr', {},
             el('th', { class: 'text-left px-4 py-2 w-10' }, '#'),
             el('th', { class: 'text-left px-4 py-2' }, 'Rep'),
@@ -5945,10 +5956,10 @@ function leaderboardTable(rows) {
         el('tbody', {},
           sorted.map((r, i) => {
             const isMe = r.rep_id === state.profile.id;
-            return el('tr', { class: 'border-t border-eerie3' + (isMe ? ' bg-lime/10' : '') },
-              el('td', { class: 'px-4 py-2.5 font-bold tabular-nums' + (i === 0 ? ' text-lime' : '') }, i + 1),
+            return el('tr', { class: 'border-t', style: isMe ? { borderColor: 'var(--border)', background: 'rgba(223,100,58,.10)' } : { borderColor: 'var(--border)' } },
+              el('td', { class: 'px-4 py-2.5 font-bold tabular-nums', style: i === 0 ? { color: 'var(--accent)' } : {} }, i + 1),
               el('td', { class: 'px-4 py-2.5 font-medium' }, r.full_name + (isMe ? ' (you)' : '')),
-              el('td', { class: 'px-4 py-2.5 text-battle-2 desktop-only' }, r.office || '—'),
+              el('td', { class: 'px-4 py-2.5 text-muted- desktop-only' }, r.office || '—'),
               el('td', { class: 'px-4 py-2.5 text-right tabular-nums' }, fmt.int(r.approved_sales)),
               el('td', { class: 'px-4 py-2.5 text-right tabular-nums font-medium' }, fmt.usd0(r.approved_revenue)),
             );

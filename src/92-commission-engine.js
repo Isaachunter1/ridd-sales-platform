@@ -246,8 +246,7 @@ function viewD2dDashboard() {
   const loading = _d2dKickIfEmpty();
   const raw = d2dRawSales();
   if (!raw.length) {
-    wrap.append(el('div', { class: 'card p-10 text-center text-sm text-muted-' },
-      loading ? 'Loading the CRM dataset…' : 'No D2D sales in the CRM snapshot yet — hit the ↻ sync icon.'));
+    wrap.append(emptyCard(loading ? 'Loading the CRM dataset…' : 'No D2D sales in the CRM snapshot yet — hit the ↻ sync icon.'));
     return wrap;
   }
   const todayIso = _d2dTodayIso();
@@ -436,7 +435,7 @@ function viewD2dDashboard() {
     });
     const accountsTable = (title, list, withRep) => el('td', { colspan: 11, class: 'px-4 py-2' },
       el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-1' }, title + ' \u00b7 ' + list.length + ' account' + (list.length === 1 ? '' : 's')),
-      el('table', { class: 'w-full text-[12px]' },
+      el('table', { class: 'w-full text-xs' },
         el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' }, el('tr', {},
           el('th', { class: 'text-left px-2 py-1 font-semibold' }, showDate ? 'Date' : 'Time'),
           withRep ? el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Rep') : null,
@@ -502,7 +501,7 @@ function viewD2dDashboard() {
       style: Object.assign({}, extra || {}, k && _sortKey === k ? { color: 'var(--accent)', fontWeight: '800' } : {}),
       title: title || (k ? 'Sort by ' + h : ''),
       onclick: k ? () => _setSort(k) : undefined,
-    }, h + (k && _sortKey === k ? (_sortDir === 'desc' ? ' ▾' : ' ▴') : ''));
+    }, h + (k && _sortKey === k ? (_sortDir === 'desc' ? ' ▼' : ' ▲') : ''));
     const totOpen = state._d2dLbOpen === '__total__';
     const lbCard = el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 flex items-center justify-between flex-wrap gap-2 border-b', style: { borderColor: 'var(--border)' } },
@@ -593,7 +592,7 @@ function viewD2dDashboard() {
       _feedRows.length === 0
         ? el('div', { class: 'flex-1 flex items-center justify-center py-16 text-muted- text-sm' }, 'No sales')
         : el('div', { class: 'scroll-x', style: { maxHeight: '412px', overflowY: 'auto' } },
-          el('table', { class: 'w-full text-[12px]' },
+          el('table', { class: 'w-full text-xs' },
             el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: '1' } },
               el('tr', {},
                 el('th', { class: 'text-left pl-4 pr-2 py-1.5 font-semibold' }, showDate ? 'Date' : 'Time'),
@@ -675,7 +674,7 @@ function viewD2dDashboard() {
             toggle)),
         list.length ? el('div', { class: 'flex flex-col' }, ...list.slice(0, 14).map((g, i) => {
           const c = colorOf(g.name);
-          return el('div', { class: 'flex items-center gap-3 px-4 py-2 border-t text-[12px]', style: { borderColor: 'var(--border)' } },
+          return el('div', { class: 'flex items-center gap-3 px-4 py-2 border-t text-xs', style: { borderColor: 'var(--border)' } },
             el('span', { class: 'w-5 tabular-nums font-bold' + (i === 0 ? '' : ' text-muted-'), style: i === 0 ? { color: 'var(--accent)' } : {} }, String(i + 1)),
             el('span', { style: { width: '10px', height: '10px', borderRadius: mode === 'team' ? '50%' : '0', background: c, display: 'inline-block', flexShrink: '0' } }),
             el('span', { class: 'font-semibold truncate', style: { width: '9rem' } }, labelOf(g.name)),
@@ -706,22 +705,21 @@ function viewD2dUpfront() {
   if (!isAdminRole(state.profile?.role)) {
     return el('div', { class: 'flex flex-col gap-4 w-full' },
       el('h1', { class: 'text-2xl font-bold' }, 'Upfront Pay'),
-      el('div', { class: 'card p-10 text-center text-sm text-muted-' },
-        'Your upfront pay stub will live here — your admin runs and publishes it. Check the Pay tab for your published commission.'));
+      emptyCard('Your upfront pay stub will live here — your admin runs and publishes it. Check the Pay tab for your published commission.'));
   }
   // Roster: CRM Sales Reps (same source as the calculator).
   if (state.frRoster == null && !state._frRosterLoading) loadFieldRoutesRoster().then(() => { if (state.view === 'commission') mountApp(); });
   const roster = state.frRoster || [];
   const salesReps = roster.filter(e => e.type_label === 'Sales Rep').sort((a, b) => _frEmpName(a).localeCompare(_frEmpName(b)));
-  if (!salesReps.length) return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'No Sales Reps in the roster yet — run a sync first.');
+  if (!salesReps.length) return emptyCard('No Sales Reps in the roster yet — run a sync first.');
   if (!state._commEmpId || !salesReps.find(e => e.employee_id === state._commEmpId)) state._commEmpId = salesReps[0].employee_id;
   const emp = salesReps.find(e => e.employee_id === state._commEmpId);
   // CRM snapshot on demand (identical guard to the calculator).
   const activeId = state.reportingActiveUploadId;
-  if (!activeId) return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'No CRM snapshot yet — hit the ↻ sync icon to pull FieldRoutes, then come back.');
+  if (!activeId) return emptyCard('No CRM snapshot yet — hit the ↻ sync icon to pull FieldRoutes, then come back.');
   if (state.reportingSubscriptionsLoadedFor !== activeId) {
     loadReportingSubscriptions(activeId).then(rows => { if (rows && state.reportingActiveUploadId === activeId) { state.reportingSubscriptions = rows; state.reportingSubscriptionsLoadedFor = activeId; mountApp(); } });
-    return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'Loading the CRM snapshot…');
+    return emptyCard('Loading the CRM snapshot…');
   }
   const yr = new Date().getFullYear();
   // Default period: the PREVIOUS completed week (Sun–Sat) — payroll runs on
@@ -854,7 +852,7 @@ function viewD2dUpfront() {
           const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
           const now = new Date(); now.setHours(0, 0, 0, 0);
           const curSun = new Date(now); curSun.setDate(now.getDate() - now.getDay());
-          const fmtD = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          const fmtD = fmt.dateMed;
           const opts = [];
           for (let i = 0; i < 10; i++) {
             const s = new Date(curSun); s.setDate(curSun.getDate() - i * 7);

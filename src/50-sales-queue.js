@@ -422,7 +422,7 @@ function unloggedSalesBlock(isAdmin) {
         search,
         el('span', { class: 'text-[10px] text-muted-' }, 'Claim to log it and start the audit · Not mine to dismiss'))),
     el('div', { class: 'scroll-x' },
-      el('table', { class: 'w-full text-[12px]' },
+      el('table', { class: 'w-full text-xs' },
         el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted- bg-card2-' },
           el('tr', {}, el('th', { class: 'text-left pl-4 pr-2 py-2 font-semibold whitespace-nowrap' }, 'Customer Name'), th('Customer #'), th('Office Rep'), th('Office'), th('Service Type'), th('Contract Type'), th('Source'), th('Initial', true), th('Monthly', true), th('Revenue', true), th('Sold Date'), th('Signed'), th(''))),
         el('tbody', {}, ...shown.slice(0, st.limit).map(row)))),
@@ -467,7 +467,7 @@ function salesCardsMobile(rows, { isAdmin = false, queueFilter = 'upfront' } = {
           statusChip(s.audit_status),
         ),
         // Middle row: rep (admin only) · contract · revenue
-        el('div', { class: 'flex items-center justify-between gap-3 mt-2 text-[12px]' },
+        el('div', { class: 'flex items-center justify-between gap-3 mt-2 text-xs' },
           el('div', { class: 'flex items-center gap-2 min-w-0' },
             isAdmin && avatarNode(rep?.avatar_url, rep?.initials, 'w-5 h-5 text-[8px]'),
             isAdmin && el('span', { class: 'text-[11px] font-medium truncate' }, repFirst),
@@ -655,7 +655,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
 
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'scroll-x' },
-      el('table', { class: 'w-full text-[12px]' },
+      el('table', { class: 'w-full text-xs' },
         el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted- bg-card2-' },
           el('tr', {},
             headerCell('Customer Name', { sortableKey: 'customer_name', extraClass: 'pl-4', help: H.customer }),
@@ -1197,6 +1197,8 @@ function contractTypeLabelForSale(s) {
 
 function openRepBreakdownModal() {
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 
   const isAdmin = isAdminRole(state.profile?.role);
@@ -1226,7 +1228,7 @@ function openRepBreakdownModal() {
   const modal = el('div', { class: 'card w-full max-w-2xl p-6 my-8' },
     el('div', { class: 'flex items-center justify-between mb-1' },
       el('h2', { class: 'text-xl font-bold' }, 'Rep Breakdown'),
-      el('button', { class: 'text-2xl text-muted-', onclick: () => overlay.remove() }, '×'),
+      el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', onclick: () => overlay.remove() }, '×'),
     ),
     el('p', { class: 'text-xs text-muted- mb-4' }, 'Year-to-date contribution toward the ' + fmt.usd0(goal.amount) + ' goal'),
     rows.length === 0
@@ -1283,6 +1285,8 @@ function openNewSaleModal(defaultRepId, existingSale = null, opts = {}) {
   };
 
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 
   // Build a card-like modal with a sticky footer bar
@@ -1676,10 +1680,10 @@ function openNewSaleModal(defaultRepId, existingSale = null, opts = {}) {
   );
 
   // ── FOOTER (sticky dark bar with live ACV + Projected Commission) ──
-  const footerRep   = el('div', { class: 'text-base font-bold text-smoke' }, '—');
-  const footerAcv   = el('div', { class: 'text-lg font-bold text-smoke tabular-nums' }, '$0.00');
-  const footerComm  = el('div', { class: 'text-lg font-bold text-smoke tabular-nums' }, '$0.00');
-  const footerStatus= el('div', { class: 'text-base font-bold text-smoke' }, 'Pending');
+  const footerRep   = el('div', { class: 'text-base font-bold text-muted-' }, '—');
+  const footerAcv   = el('div', { class: 'text-lg font-bold text-muted- tabular-nums' }, '$0.00');
+  const footerComm  = el('div', { class: 'text-lg font-bold text-muted- tabular-nums' }, '$0.00');
+  const footerStatus= el('div', { class: 'text-base font-bold text-muted-' }, 'Pending');
   const submitBtn   = el('button', {
     type: 'submit',
     class: 'fab w-full sm:w-auto',

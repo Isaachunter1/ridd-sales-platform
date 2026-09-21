@@ -401,6 +401,8 @@ function openReportingArrCombineModal(data, chartTitle) {
   let q = '';
   let sortKey = 'arr';   // 'arr' (default, biggest first) or 'name' (A→Z)
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   const summaryEl = el('div', {});
   const listEl = el('div', { class: 'px-4 pb-2 overflow-y-auto flex-1' });
@@ -476,7 +478,7 @@ function openReportingArrCombineModal(data, chartTitle) {
         el('h2', { class: 'text-base font-bold' }, (chartTitle || 'Recurring Annual Value') + ' — combine services'),
         el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
           'Check off service types to see their combined active ARR. Search, then "Select shown" to grab a whole family at once.')),
-      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×')),
+      el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×')),
     summaryEl,
     el('div', { class: 'px-4 pb-2 flex items-center gap-2' },
       searchBox,
@@ -546,6 +548,8 @@ function openReportingAreaStatsModal({ area, peers, kind }) {
     : avgPct >= 0.2 ? ['Below the pack', '#A9441F']
     : ['One of your weakest ' + peerNoun, '#DC2626'];
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   const card = el('div', { class: 'card w-full max-w-md my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
     el('div', { class: 'flex items-start justify-between gap-3 p-4 pb-2' },
@@ -555,7 +559,7 @@ function openReportingAreaStatsModal({ area, peers, kind }) {
           'vs ' + all.length.toLocaleString() + ' ' + peerNoun + ' in this view · bars = percentile (right = best)'),
         standing && el('div', { class: 'text-[11px] font-bold mt-1', style: { color: standing[1] } },
           (avgPct >= 0.5 ? '▲ ' : '▼ ') + standing[0] + ' — better than ' + Math.round(avgPct * 100) + '% overall')),
-      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×')),
+      el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×')),
     el('div', { class: 'px-4 pb-2 overflow-y-auto' }, ...rowsEls),
     el('div', { class: 'p-4 pt-2' },
       el('button', {
@@ -602,6 +606,8 @@ function openReportingSliceStatsModal({ chartTitle, sliceLabel, rows, siblings, 
   const byOffice = groupTop(r => _titleCaseWords(r.office_name || '—'));
   const bySvc = groupTop(r => r.subscription);
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   const stat = (label, val, sub) => el('div', { class: 'flex-1 px-3 py-2 rounded-xl', style: { background: 'var(--card-2)', minWidth: '105px' } },
     el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
@@ -628,7 +634,7 @@ function openReportingSliceStatsModal({ chartTitle, sliceLabel, rows, siblings, 
         el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
           chartTitle + (myIdx >= 0 ? ' · #' + (myIdx + 1) + ' of ' + sibs.length : '')
           + (myVal != null && sibTotal > 0 ? ' · ' + (myVal / sibTotal * 100).toFixed(1) + '% of the chart (' + fmtV(myVal) + ')' : ''))),
-      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×')),
+      el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×')),
     el('div', { class: 'px-4 pb-2 overflow-y-auto' },
       el('div', { class: 'flex gap-2 flex-wrap mb-3' },
         stat('Subs', fmt.int(n), fmt.int(customers) + ' customers'),
@@ -813,7 +819,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
     el('td', { class: 'px-3 py-2 text-right tabular-nums' }, (() => { const v = _drillRecurring(r); return v ? el('span', { title: r.recurring_charge != null ? 'Recurring charge in FieldRoutes' + (r.recurring_frequency ? ' · every ' + r.recurring_frequency + ' days' : '') : 'ARR ÷ services per year (frequency ' + (r.recurring_frequency || '?') + ' days)' }, '$' + Math.round(v).toLocaleString()) : '—'; })()),
     el('td', { class: 'px-3 py-2 text-right tabular-nums' }, Number(r.agreement_length) ? r.agreement_length + ' mo' : '—'),
     el('td', { class: 'px-3 py-2 text-right tabular-nums' }, String(Number(r.subscription_completed_services) || 0)),
-    el('td', { class: 'px-3 py-2' }, _drillAutopay(r) ? el('span', { style: { color: '#16A34A' } }, 'Yes') : el('span', { style: { color: 'var(--text-subtle)' } }, 'No')),
+    el('td', { class: 'px-3 py-2' }, _drillAutopay(r) ? el('span', { style: { color: 'var(--ok)' } }, 'Yes') : el('span', { style: { color: 'var(--text-subtle)' } }, 'No')),
     el('td', { class: 'px-3 py-2' }, fmtDate(r.sold_date)),
     el('td', { class: 'px-3 py-2' }, fmtDate(r.initial_service)),
     el('td', {
@@ -944,7 +950,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
           onclick: exportCsv,
         }, '↓ Export CSV'),
         el('button', {
-          class: 'text-2xl leading-none',
+          class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close',
           style: { color: 'var(--text-muted)' },
           onclick: () => { overlay.remove(); document.removeEventListener('keydown', closeKey); },
         }, '×'),

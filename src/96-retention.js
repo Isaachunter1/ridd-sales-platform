@@ -672,6 +672,8 @@ function reportingWaterfall() {
     const earlyLosses = rows.filter(r => inPeriod(r.initial_service) && r._effCancel && inPeriod(r._effCancel));
 
     const overlay = el('div', { class: 'modal-overlay' });
+    const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+    document.addEventListener('keydown', _escClose);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
     // Stat tiles drill to their accounts (per Isaac, Sep 2026).
     const stat = (label, val, sub, drillRows) => el('div', { class: 'flex-1 px-3 py-2 rounded-xl' + (drillRows && drillRows.length ? ' cursor-pointer transition hover:brightness-95' : ''), style: { background: 'var(--card-2)', minWidth: '110px' },
@@ -756,7 +758,7 @@ function reportingWaterfall() {
             title: 'CSV of EVERY cancel dated in this period — counted or not, with the reason it was excluded. XLOOKUP it against RevHawk / the CRM by Customer ID.',
             onclick: exportPeriodCsv,
           }, '⬇ Reconcile CSV'),
-          el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×'))),
+          el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×'))),
       el('div', { class: 'px-4 pb-4 overflow-y-auto' },
         el('div', { class: 'flex gap-2 flex-wrap mb-3' },
           stat('B.O.Y. book', fmt.int(boyRows.length), null, boyRows),
@@ -1553,7 +1555,7 @@ function reportingWaterfall() {
     rows.forEach(r => { const o = r.office_name || '—'; offCounts.set(o, (offCounts.get(o) || 0) + 1); });
     [...offCounts.entries()].sort((a, b) => b[1] - a[1])
       .forEach(([o]) => segs.push({ name: o, s: segStats(rows.filter(r => (r.office_name || '—') === o)) }));
-    const money2 = (v) => '$' + Math.round(v).toLocaleString();
+    const money2 = fmt.usd0;
     // Column sort (click a header) — rows re-order WITHIN their section so
     // Overall / contract / service / office groups stay intact.
     const _sort = state._ltvSort || null;
@@ -1855,7 +1857,7 @@ function reportingWaterfall() {
       class: 'text-left px-3 py-2 whitespace-nowrap cursor-pointer select-none' + (on ? ' font-black' : ''),
       style: on ? { color: 'var(--accent)' } : {}, title: ((c && c.tip) ? c.tip + ' · ' : '') + 'click to sort',
       onclick: () => { if (!c) return; state._rtLifeSort = on ? { key: c.key, dir: lsort.dir === 'asc' ? 'desc' : 'asc' } : { key: c.key, dir: c.str ? 'asc' : 'desc' }; mountApp(); },
-    }, lab + (on ? (lsort.dir === 'asc' ? ' ↑' : ' ↓') : '')); };
+    }, lab + (on ? (lsort.dir === 'asc' ? ' ▲' : ' ▼') : '')); };
     const reasonRow = (k) => {
       const { xs, med, in365, avgArv, arrLost, hist, peak, inTermPct, share } = S(k);
       const hmax = Math.max(...hist, 1);
@@ -1992,7 +1994,7 @@ function reportingWaterfall() {
             td(k, { bold: true }),
             td(fmt.int(opts.cxlOnly ? g.cxl : g.subs)),
             opts.cxlOnly ? td(t.cancelled ? (g.cxl / t.cancelled * 100).toFixed(0) + '%' : '—') : td(fmt.int(g.cxl)),
-            opts.cxlOnly ? td(fmt.usd0(g.arvCxl)) : td(a == null ? '—' : (a * 100).toFixed(1) + '%', { bold: true, style: a != null && a >= 0.35 ? { color: '#DC2626' } : a != null && a < 0.2 ? { color: '#16A34A' } : {} })); }))));
+            opts.cxlOnly ? td(fmt.usd0(g.arvCxl)) : td(a == null ? '—' : (a * 100).toFixed(1) + '%', { bold: true, style: a != null && a >= 0.35 ? { color: '#DC2626' } : a != null && a < 0.2 ? { color: 'var(--ok)' } : {} })); }))));
     };
     const yearOf = (r) => { const d = r.sold_date ? new Date(r.sold_date) : null; return d && !isNaN(d) ? String(d.getFullYear()) : '—'; };
     const reasonOf = (r) => reportingCancelReasonOf(r) || 'Unspecified';
@@ -2000,7 +2002,7 @@ function reportingWaterfall() {
     return el('div', { class: 'flex flex-col gap-3' },
       el('div', { class: 'flex gap-2 flex-wrap' },
         tile('Subs in the book', fmt.int(t.subs), fmt.usd0(arvOf(t.rows)) + ' ARR sold'),
-        tile('Active', fmt.int(t.active), fmt.usd0(arvOf(t.rows.filter(r => !r._effCancel))) + ' ARR retained', '#16A34A'),
+        tile('Active', fmt.int(t.active), fmt.usd0(arvOf(t.rows.filter(r => !r._effCancel))) + ' ARR retained', 'var(--ok)'),
         tile('Cancelled', fmt.int(t.cancelled), fmt.usd0(arvOf(t.cxlRows)) + ' ARR lost', '#DC2626'),
         tile('Attrition', attr == null ? '—' : (attr * 100).toFixed(1) + '%', 'cancelled ÷ subs', attr != null && attr >= 0.35 ? '#DC2626' : undefined),
         tile('Median life', medLife == null ? '—' : (medLife / 30.44).toFixed(1) + ' mo', 'sold → cancel, cancelled subs')),
@@ -2169,7 +2171,7 @@ function reportingWaterfall() {
       class: 'px-3 py-2 whitespace-nowrap text-left cursor-pointer select-none' + (sort.key === c.key ? ' font-black' : ''),
       style: sort.key === c.key ? { color: 'var(--accent)' } : {}, title: (c.tip ? c.tip + ' · ' : '') + 'click to sort',
       onclick: () => { state._rtSrcSort = sort.key === c.key ? { key: c.key, dir: sort.dir === 'asc' ? 'desc' : 'asc' } : { key: c.key, dir: c.str ? 'asc' : 'desc' }; mountApp(); },
-    }, c.label + (sort.key === c.key ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''));
+    }, c.label + (sort.key === c.key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''));
     const td = (t, o = {}) => el('td', { class: 'px-3 py-2 whitespace-nowrap text-left tabular-nums' + (o.bold ? ' font-bold' : ''), style: o.style || {} }, t);
     const row = ([k, g], bold) => {
       const attr = g.subs ? g.cxl / g.subs : null;

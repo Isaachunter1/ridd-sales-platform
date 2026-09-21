@@ -61,7 +61,7 @@ async function _rcRedeem(i) {
   if (!confirm('Redeem "' + i.name + '" for ' + _rcCoin(i.cost) + '? This spends your RIDDCOIN and reserves the prize for year-end pickup.')) return false;
   const { error } = await supabase.rpc('riddcoin_spend', { p_item: i.id });
   if (error) { toast('Redeem failed: ' + error.message, 'error'); return false; }
-  toast('🎉 ' + i.name + ' reserved — see you at prize pickup!', 'success');
+  toast(i.name + ' reserved — see you at prize pickup', 'success');
   await loadRiddcoin(true); mountApp();
   return true;
 }
@@ -86,6 +86,8 @@ function openRcItemModal(i) {
   const cant = myBal < i.cost;
   let idx = 0;
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   const mainImg = el('div', { style: { width: '100%', aspectRatio: '1 / 1', borderRadius: '0', background: 'var(--card-2)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' } });
   const thumbsRow = el('div', { class: 'flex items-center gap-1.5 mt-2 flex-wrap' });
@@ -104,7 +106,7 @@ function openRcItemModal(i) {
   renderGallery();
   overlay.append(el('div', { class: 'card p-5 w-full', style: { maxWidth: '720px' } },
     el('div', { class: 'flex items-center justify-end mb-1' },
-      el('button', { class: 'text-xl leading-none cursor-pointer px-2', onclick: () => overlay.remove() }, '×')),
+      el('button', { class: 'text-2xl leading-none text-muted- cursor-pointer px-2', 'aria-label': 'Close', title: 'Close', onclick: () => overlay.remove() }, '×')),
     el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 gap-4' },
       el('div', {}, mainImg, thumbsRow),
       el('div', { class: 'flex flex-col' },
@@ -128,6 +130,8 @@ function openRcUserHistory(uid) {
   const rows = (state._rcLedger || []).filter(r => r.user_id === uid);
   const bal = rows.reduce((a2, r) => a2 + (Number(r.delta) || 0), 0);
   const overlay = el('div', { class: 'modal-overlay' });
+  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
+  document.addEventListener('keydown', _escClose);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   overlay.append(el('div', { class: 'card p-5 w-full', style: { maxWidth: '640px' } },
     el('div', { class: 'flex items-center justify-between gap-3 mb-3' },
@@ -135,7 +139,7 @@ function openRcUserHistory(uid) {
         el('h3', { class: 'text-base font-bold' }, names[uid] || 'User'),
         el('div', { class: 'text-xs text-muted-' }, rows.length + ' ledger entr' + (rows.length === 1 ? 'y' : 'ies') + ' · balance ',
           el('span', { class: 'font-black tabular-nums', style: { color: bal >= 0 ? '#DF643A' : '#B91C1C' } }, _rcCoin(bal)))),
-      el('button', { class: 'text-xl leading-none cursor-pointer px-2', onclick: () => overlay.remove() }, '×')),
+      el('button', { class: 'text-2xl leading-none text-muted- cursor-pointer px-2', 'aria-label': 'Close', title: 'Close', onclick: () => overlay.remove() }, '×')),
     el('div', { style: { maxHeight: '62vh', overflowY: 'auto' } },
       el('table', { class: 'w-full text-xs' },
         el('tbody', {},
@@ -238,7 +242,7 @@ function viewMarketplace() {
                       // one, it opens on the SERVER-rolled prize.
                       if (typeof openMysteryBoxOverlay === 'function' && typeof _mbEnc === 'function') {
                         openMysteryBoxOverlay({ id: '__rcspin__', prize: _mbEnc(won) });
-                      } else toast('🎁 You won: ' + won + '!', 'success');
+                      } else toast('You won: ' + won, 'success');
                     }),
                   }, '🎰 Spin')));
             }
@@ -515,7 +519,7 @@ function viewMarketplace() {
                 p_active: true, p_description: JSON.stringify({ spin: true, pool }), p_delete: false,
               });
               if (error) return toast('Save failed: ' + error.message, 'error');
-              toast('🎰 Spin saved — live in the store', 'success');
+              toast('Spin saved — live in the store', 'success');
               state._rcSpinDraft = null;
               await loadRiddcoin(true); mountApp();
             },
