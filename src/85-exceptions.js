@@ -35,14 +35,18 @@ function exceptionFeedItems(scope) {
     try { window.scrollTo({ top: 0 }); } catch (e) { /* noop */ }
   };
 
+  // Which checks feed the card (per Isaac, Sep 2026): quiet reps, failed
+  // audits and aging pending are retired — the card is being repurposed on
+  // the Marketing tab. Data health and attrition spikes stay for now.
+  const ON = new Set(['data', 'attrition']);
   // 1. Data health — anything a sync reported broken in the last 3 hours.
   const bad = (typeof healthWorst === 'function') ? healthWorst() : [];
-  for (const h of bad) items.push({ sev: 'red', tag: 'Data', text: h.label + ': ' + (h.msg || 'not healthy'), action: 'Details', onClick: () => openHealthSheet() });
+  if (ON.has('data')) for (const h of bad) items.push({ sev: 'red', tag: 'Data', text: h.label + ': ' + (h.msg || 'not healthy'), action: 'Details', onClick: () => openHealthSheet() });
 
   // 2. Quiet reps — D2D reps who sold in the last 14 days but nothing in
   // the last 3 (today + 2 prior). Active reps who went silent, not the
   // whole roster.
-  {
+  if (ON.has('reps')) {
     // Office leads get the same test over Office Staff sellers; D2D scopes
     // over Sales Reps.
     const wantDept = scope.kind === 'office' ? 'office' : 'd2d';
@@ -96,7 +100,7 @@ function exceptionFeedItems(scope) {
 
     // 4. Failed audits in the last 30 days (D2D), by rep.
     const failed = new Map();
-    for (const r of subs) {
+    if (ON.has('audits')) for (const r of subs) {
       if ((r.subscription_source || '').trim() !== 'Door to Door') continue;
       if (typeof _auditStatusOf !== 'function' || _auditStatusOf(r.customer_flags) !== 'failed') continue;
       const sd = String(r.sold_date || '').slice(0, 10);
@@ -113,7 +117,7 @@ function exceptionFeedItems(scope) {
 
     // 5. Aging pending — sold 14+ days ago, never serviced, not cancelled.
     let aging = 0, agingArr = 0;
-    for (const r of subs) {
+    if (ON.has('pending')) for (const r of subs) {
       if (r.subscription_date_canceled) continue;
       const sd = String(r.sold_date || '').slice(0, 10);
       if (!sd || sd > d14) continue;
@@ -143,7 +147,7 @@ function exceptionFeedCard() {
   const head = el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', onclick: () => { state._excOpen = !open; mountApp(); } },
     el('span', { class: 'inline-block rounded-full', style: { width: '8px', height: '8px', background: !items.length ? 'var(--ok)' : reds ? '#DC2626' : '#D97706' } }),
     el('span', { class: 'text-[11px] uppercase tracking-widest font-bold' }, 'Needs attention'),
-    el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, !items.length ? 'Nothing flagged — data, reps, attrition, audits and pending accounts all look normal.' : items.length + ' item' + (items.length === 1 ? '' : 's') + (open ? '' : ' · ' + items.slice(0, 2).map(i => i.tag).join(', ') + (items.length > 2 ? '…' : ''))),
+    el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, !items.length ? 'Nothing flagged — data feeds and attrition look normal.' : items.length + ' item' + (items.length === 1 ? '' : 's') + (open ? '' : ' · ' + items.slice(0, 2).map(i => i.tag).join(', ') + (items.length > 2 ? '…' : ''))),
     el('span', { class: 'ml-auto text-[11px]', style: { color: 'var(--text-muted)' } }, open ? '▴' : '▾'));
   const rows = open && items.length ? el('div', { class: 'border-t', style: { borderColor: 'var(--border)' } }, ...items.map(i => el('div', { class: 'flex items-start gap-3 px-4 py-2 border-t text-xs', style: { borderColor: 'var(--border)' } },
     el('span', { class: 'text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded shrink-0 mt-0.5', style: { background: i.sev === 'red' ? 'rgba(220,38,38,.12)' : 'rgba(217,119,6,.14)', color: i.sev === 'red' ? '#DC2626' : '#B45309', minWidth: '58px', textAlign: 'center' } }, i.tag),

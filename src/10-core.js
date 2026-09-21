@@ -4311,6 +4311,7 @@ function mountAuth(opts = {}) {
       passField.querySelector('input').autocomplete = 'current-password';
       confirmField.style.display = 'none';
       confirmField.querySelector('input').required = false;
+      confirmField.remove();   // iOS Passwords / Face ID only offer a saved login when NO new-password field is in the form — even a hidden one flips it to "sign-up" mode
       submitBtn.textContent = 'Login';
       forgotBtn.textContent = 'Forgot password?';
       forgotBtn.style.display = '';
@@ -4325,6 +4326,7 @@ function mountAuth(opts = {}) {
       passField.querySelector('input').required = false;
       confirmField.style.display = 'none';
       confirmField.querySelector('input').required = false;
+      confirmField.remove();
       submitBtn.textContent = 'Send reset link';
       forgotBtn.textContent = 'Back to sign in';
       forgotBtn.style.display = '';
@@ -4340,6 +4342,7 @@ function mountAuth(opts = {}) {
       passField.querySelector('input').required = true;
       passField.querySelector('input').minLength = 8;
       passField.querySelector('input').autocomplete = 'new-password';
+      if (!confirmField.isConnected) passField.after(confirmField);
       confirmField.style.display = 'block';
       confirmField.querySelector('input').required = true;
       confirmField.querySelector('input').minLength = 8;
