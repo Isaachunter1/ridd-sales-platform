@@ -1640,6 +1640,39 @@ function reportingWaterfall() {
   // seasonality grid (cancels ÷ true book at month start, same-month
   // acquire-lose excluded), just drawn as lines.
   const LAST_RESORT_START = '2026-06-05';
+  // Churn-timing drill (per Isaac): a breakdown by cancellation reason,
+  // not a customer table — subs, ARR and share of each; a row opens the
+  // accounts behind that reason.
+  const openChurnReasonModal = (title, rs) => {
+    const reasonOf = (r) => String(reportingCancelReasonOf(r) || 'Unspecified').trim() || 'Unspecified';
+    const by = new Map();
+    for (const r of rs) { const k = reasonOf(r); const g = by.get(k) || (by.set(k, { k, n: 0, arr: 0, rows: [] }), by.get(k)); g.n++; g.arr += Number(r.annual_recurring_value) || 0; g.rows.push(r); }
+    const list = [...by.values()].sort((a, b) => b.n - a.n);
+    const totN = rs.length, totArr = list.reduce((a, g) => a + g.arr, 0);
+    const overlay = el('div', { class: 'modal-overlay' });
+    const close = () => { overlay.remove(); document.removeEventListener('keydown', esc); };
+    const esc = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', esc);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    const th = (t, right) => el('th', { class: 'px-3 py-1.5 text-[9px] uppercase tracking-widest font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)' } }, t);
+    const td = (t, right, cls = '') => el('td', { class: 'px-3 py-1.5 text-xs ' + (right ? 'text-right tabular-nums ' : '') + cls }, t);
+    const pctOf = (a, b) => b ? (100 * a / b).toFixed(1) + '%' : '—';
+    const bar = (p) => el('span', { class: 'inline-block align-middle mr-2 rounded-full overflow-hidden', style: { width: '70px', height: '6px', background: 'var(--card-2)' } }, el('span', { class: 'block h-full', style: { width: Math.max(2, p) + '%', background: 'var(--accent)' } }));
+    const modal = el('div', { class: 'card w-full max-w-3xl p-5 my-8 overflow-y-auto', style: { maxHeight: 'calc(100vh - 64px)' } },
+      el('div', { class: 'flex items-start justify-between gap-3' },
+        el('div', {}, el('h3', { class: 'text-base font-bold' }, title), el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, fmt.int(totN) + ' counted cancel' + (totN === 1 ? '' : 's') + ' · ' + fmt.usd0(totArr) + ' ARR · by cancellation reason · click a reason for the accounts')),
+        el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: close }, 'Close')),
+      el('div', { class: 'overflow-x-auto mt-3' }, el('table', { class: 'w-full' },
+        el('thead', { style: { background: 'var(--card-2)' } }, el('tr', {}, th('Reason'), th('Share'), th('Subs', true), th('% subs', true), th('ARR', true), th('% ARR', true))),
+        el('tbody', {}, ...list.map(g => el('tr', { class: 'border-t cursor-pointer hover:brightness-95 transition', style: { borderColor: 'var(--border)' }, title: 'Click for the ' + g.n + ' account' + (g.n === 1 ? '' : 's'),
+            onclick: () => openReportingDrillModal({ chartTitle: title + ' · ' + g.k, sliceLabel: g.n + ' counted cancel' + (g.n === 1 ? '' : 's'), rows: g.rows, formatValue: fmt.usd0 }) },
+          td(el('span', { class: 'font-semibold' }, g.k)),
+          td(bar(totN ? 100 * g.n / totN : 0)),
+          td(fmt.int(g.n), true), td(pctOf(g.n, totN), true), td(fmt.usd0(g.arr), true), td(pctOf(g.arr, totArr), true))),
+          el('tr', { class: 'border-t font-bold', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } }, td('Total'), td(''), td(fmt.int(totN), true), td('100%', true), td(fmt.usd0(totArr), true), td('100%', true))))));
+    overlay.append(modal);
+    document.body.append(overlay);
+  };
   // ── CHURN TIMING (per Isaac, Sep 2026) — WHEN cancels get keyed in:
   // day-of-week × hour heatmap of counted cancels, with the two marginals
   // (by weekday, by hour). Hours are the branch's local clock (the sync
@@ -1685,7 +1718,7 @@ function reportingWaterfall() {
     const isDark = state.theme === 'dark';
     const cellBg = (v) => { if (!v) return 'transparent'; const t = Math.pow(v / max, 0.6); return 'rgba(223,100,58,' + (0.12 + 0.78 * t).toFixed(3) + ')'; };
     const cellFg = (v) => (v / max) > 0.55 ? '#fff' : 'var(--text)';
-    const drill = (title2, rs) => rs.length ? () => openReportingDrillModal({ chartTitle: 'Churn timing · ' + title2, sliceLabel: rs.length + ' counted cancel' + (rs.length === 1 ? '' : 's'), rows: rs, formatValue: fmt.usd0 }) : null;
+    const drill = (title2, rs) => rs.length ? () => openChurnReasonModal('Churn timing \u00b7 ' + title2, rs) : null;
     const pill = (on, txt, fn, ttl) => el('button', { class: 'rounded-full px-2 py-0.5 text-[10px] font-bold transition hover:brightness-95 shrink-0', title: ttl || '', style: on ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: fn }, txt);
     const controls = el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
       ...WIN.map(([k, l]) => pill(win === k, l, () => { state._rtChurnWin = k; mountApp(); })),
