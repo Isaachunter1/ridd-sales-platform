@@ -614,8 +614,10 @@ function reportingGeographic() {
                   }
                   // Office view: every state is a chip → click for the customers
                   // filed under it (per Isaac — spotting wrong states in the CRM).
-                  return el('span', { class: 'flex items-center gap-1 flex-wrap' }, ...ents.map(([o, n]) => summaryBy === 'state'
-                    ? el('span', {}, _mktgTC(o))
+                  // State view: offices read as "Myrtle Beach · Charleston" (per
+                  // Isaac — the bare run of names was hard to parse).
+                  return el('span', { class: 'flex items-center gap-1 flex-wrap' }, ...ents.map(([o, n], i) => summaryBy === 'state'
+                    ? el('span', { class: 'whitespace-nowrap', title: n.toLocaleString() + ' sub' + (n === 1 ? '' : 's') }, i ? el('span', { class: 'mx-1', style: { color: 'var(--text-subtle)' } }, '|') : null, _mktgTC(o))
                     : el('button', {
                         class: 'px-1.5 py-0.5 rounded text-[10px] font-semibold transition hover:brightness-95',
                         style: { background: 'var(--card-2)', border: '1px solid var(--border-2)', color: 'var(--text)' },
