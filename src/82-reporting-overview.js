@@ -508,8 +508,8 @@ function reportingOverview() {
         const nameOf = (r) => { const l = (r.last_name || '').trim(), f = (r.first_name || '').trim(); return l && f ? l + ', ' + f : (l || f || r.customer_id || '\u2014'); };
         const ageMo = (r) => { const a = r.initial_service || r.sold_date; if (!a) return null; const d = (new Date(String(r.subscription_date_canceled).slice(0, 10) + 'T00:00') - new Date(String(a).slice(0, 10) + 'T00:00')) / 2629800000; return isFinite(d) ? Math.max(0, Math.round(d)) : null; };
         const accts = rowsIn.slice().sort((a, b) => K.valOf(b) - K.valOf(a));
-        // Save-attempt loop (P3-5): who called this account and what happened.
-        const canSave = typeof openSaveAttemptModal === 'function';
+        // (Save-attempt logging retired from this list per Isaac, Sep 2026.)
+        const canSave = false;
         if (canSave) { state._saveAttemptsOnLoad = () => { if (overlay.isConnected) render(); }; saveAttemptsFor(accts.slice(0, 200).map(r => r.customer_id)); }
         const saveBtn = (r) => !canSave || !r.customer_id ? null : el('button', { class: 'text-[10px] font-bold whitespace-nowrap', style: { color: 'var(--accent)' }, onclick: (e) => { e.stopPropagation(); openSaveAttemptModal(r, () => { if (overlay.isConnected) render(); }); } }, (saveAttemptChip(r.customer_id) ? 'Log another' : 'Log save attempt'));
         const acctTable = el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)' } },
