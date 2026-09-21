@@ -367,7 +367,7 @@ function reportingAuditing() {
     // by team at a glance. The frozen name cell needs a SOLID version of the
     // wash (it covers cells scrolling under it), hence color-mix over the card.
     const groupColor = opts.total ? null
-      : opts.kind === 'office' ? (typeof getBranchColor === 'function' ? getBranchColor(name) : null)
+      : (opts.kind === 'office' || opts.kind === 'branch') ? (typeof getBranchColor === 'function' ? getBranchColor(name) : null)
       : opts.kind === 'team' ? (name && name !== 'Unassigned' && typeof getTeamColor === 'function' ? getTeamColor(name) : null)
       : null;
     const repTeam = (!opts.total && opts.kind === 'rep' && opts.org) ? opts.org.team : '';
