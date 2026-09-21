@@ -141,7 +141,7 @@ function exceptionFeedItems(scope) {
     const mk = (tag, label, rows, action) => {
       if (!rows.length) return;
       const recent = rows.filter(r => r.sold_date && r.sold_date >= d30).length;
-      items.push({ sev: recent ? 'red' : 'amber', tag, text: rows.length + ' ' + label + (recent ? ' \u00b7 ' + recent + ' sold in the last 30 days' : ''), action: 'Review',
+      items.push({ sev: recent ? 'red' : 'amber', tag, count: rows.length, text: label + (recent ? ' \u00b7 ' + recent + ' sold in the last 30 days' : ''), action: 'Review',
         onClick: () => openReportingDrillModal({ chartTitle: 'CRM fixes \u00b7 ' + tag, sliceLabel: rows.length + ' account' + (rows.length === 1 ? '' : 's') + ' \u00b7 newest first', rows, formatValue: fmt.usd0 }) });
     };
     const pl = (n, one, many) => n === 1 ? one : many;
@@ -241,8 +241,11 @@ function exceptionFeedCard() {
     el('span', { class: 'text-[11px] uppercase tracking-widest font-bold' }, 'Needs attention'),
     el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, !items.length ? 'Nothing flagged — data feeds are healthy and the CRM checks (location, source, cancel reason) are clean.' : items.length + ' item' + (items.length === 1 ? '' : 's') + (open ? '' : ' · ' + items.slice(0, 2).map(i => i.tag).join(', ') + (items.length > 2 ? '…' : ''))),
     el('span', { class: 'ml-auto text-[11px]', style: { color: 'var(--text-muted)' } }, open ? '▴' : '▾'));
-  const rows = open && items.length ? el('div', { class: 'border-t', style: { borderColor: 'var(--border)' } }, ...items.map(i => el('div', { class: 'flex items-start gap-3 px-4 py-2 border-t text-xs', style: { borderColor: 'var(--border)' } },
-    el('span', { class: 'text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded shrink-0 mt-0.5', style: { background: i.sev === 'red' ? 'rgba(220,38,38,.12)' : 'rgba(217,119,6,.14)', color: i.sev === 'red' ? '#DC2626' : '#B45309', minWidth: '58px', textAlign: 'center' } }, i.tag),
+  // Numbered rows with the count out front (per Isaac): "3 · Cancellation · 364 · …".
+  const rows = open && items.length ? el('div', { class: 'border-t', style: { borderColor: 'var(--border)' } }, ...items.map((i, idx) => el('div', { class: 'flex items-center gap-3 px-4 py-2 border-t text-xs', style: { borderColor: 'var(--border)' } },
+    el('span', { class: 'text-[10px] font-bold tabular-nums shrink-0', style: { color: 'var(--text-subtle)', width: '18px', textAlign: 'right' } }, String(idx + 1) + '.'),
+    el('span', { class: 'text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded shrink-0', style: { background: i.sev === 'red' ? 'rgba(220,38,38,.12)' : 'rgba(217,119,6,.14)', color: i.sev === 'red' ? '#DC2626' : '#B45309', minWidth: '58px', textAlign: 'center' } }, i.tag),
+    i.count != null ? el('span', { class: 'text-sm font-black tabular-nums shrink-0', style: { minWidth: '52px', textAlign: 'right', color: i.sev === 'red' ? '#DC2626' : 'var(--text)' } }, Number(i.count).toLocaleString()) : null,
     el('span', { class: 'flex-1 min-w-0', style: { overflowWrap: 'anywhere' } }, i.text),
     el('button', { class: 'text-[11px] font-bold whitespace-nowrap shrink-0', style: { color: 'var(--accent)' }, onclick: i.onClick }, i.action + ' →')))) : null;
   return el('div', { class: 'card overflow-hidden' }, head, rows);
