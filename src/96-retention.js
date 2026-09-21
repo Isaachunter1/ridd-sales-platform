@@ -1944,15 +1944,24 @@ function reportingWaterfall() {
   })();
 
   const _pm = (l, f) => { const r = f(); _profMark(l); return r; };
+  // "None" in the branch picker empties the book. Every card returns null on
+  // an empty population, which made the tab look broken — so (per Isaac) the
+  // cards stay put as blank shells until a branch is ticked again.
+  const _bookEmpty = !popA.length;
+  const _shell = (title, node) => node || (!_bookEmpty ? null : el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3', style: { borderColor: 'var(--border)' } },
+      el('h3', { class: 'text-sm font-bold' }, title),
+      el('span', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-subtle)' } }, '0 subscriptions')),
+    el('div', { class: 'px-4 py-6 text-center text-[11px]', style: { color: 'var(--text-subtle)' } }, 'No branches selected \u2014 tick a branch on Attrition Steps.')));
   const renderSide = (data, pop, label, sideMark) => el('div', { class: 'flex flex-col gap-4' },
     // Matrix wants ~560px; when it can't have it (phones) the blended table
     // wraps underneath instead of both squeezing side by side.
     // (Cohort matrix hidden per Isaac, Sep 2026 — renderMatrix stays for when it comes back.)
-    _pm('ret:trends', () => attritionTrendsCard(pop, label)),   // right under Attrition Steps (per Isaac, Sep 2026)
-    lifetimeCard,                       // Customer Lifetime follows the trends chart (per Isaac)
-    _pm('ret:blended', () => renderBlended(pop)),
-    _pm('ret:seasonality', () => seasonalityCard(pop, label)),
-    _pm('ret:cohorts', () => startCohortCard(pop, label)));   // (LTV card retired per Isaac, Sep 2026)
+    _shell('Attrition Trends', _pm('ret:trends', () => attritionTrendsCard(pop, label))),   // right under Attrition Steps (per Isaac, Sep 2026)
+    _shell('Customer Lifetime', lifetimeCard),                       // Customer Lifetime follows the trends chart (per Isaac)
+    _shell('Cohort Waterfall', _pm('ret:blended', () => renderBlended(pop))),
+    _shell('Monthly Churn', _pm('ret:seasonality', () => seasonalityCard(pop, label))),
+    _shell('\ud83c\udf31 Retention by Start Month', _pm('ret:cohorts', () => startCohortCard(pop, label))));   // (LTV card retired per Isaac, Sep 2026)
 
   const body = inCompare
     ? el('div', { class: 'flex flex-col gap-4' },
@@ -2482,6 +2491,6 @@ function reportingWaterfall() {
     if (right && right.classList.contains('flex')) right.prepend(dimSel); else if (title) title.after(dimSel);
     return card;
   })();
-  return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, body, attritionByCard, renewalRetentionCard);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
+  return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, body, _shell('Attrition Indicators', attritionByCard), _shell('Renewal Retention', renewalRetentionCard));   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
 }
 
