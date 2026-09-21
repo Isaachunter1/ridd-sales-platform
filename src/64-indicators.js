@@ -783,7 +783,7 @@ function viewIndicators() {
           },
             el('option', { value: 'branch', selected: _staged.group === 'branch' }, 'Branch / Office'),
             el('option', { value: 'teams', selected: _staged.group === 'teams' }, 'Teams'),
-            isAdminRole(state.profile?.role) ? el('option', { value: 'company', selected: _staged.group === 'company' }, 'Company (RPS / RPC)') : null,
+            isAdminRole(state.profile?.role) ? el('option', { value: 'company', selected: _staged.group === 'company' }, 'Company (RIDD Pest Control / RIDD Pest Solutions)') : null,
           );
           const panel = el('div', {
             class: 'card',

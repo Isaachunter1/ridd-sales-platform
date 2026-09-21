@@ -963,7 +963,7 @@ function _mktgPnl() {
   const inc = (rk, i) => sum(rk, b => Number((m.incentives[_mktgYm(y, i)] || {})[b]) || 0);
   const tot = (rk, i) => ad(rk, i) + wg(rk, i) + inc(rk, i);
   const jobs = (rk, i) => sum(rk, b => (a.branch[b] ? a.branch[b][i].subs + a.branch[b][i].upsells : 0));
-  const opts = { groupRows: groups, label: (rk) => groups.has(rk) ? rk : _mktgTC(rk), firstCol: 'Office' };
+  const opts = { groupRows: groups, label: (rk) => groups.has(rk) ? companyName(rk) : _mktgTC(rk), firstCol: 'Office' };
   const ratioTotal = (num, den) => (rk) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += num(rk, i); d += den(rk, i); } return _mktgDiv(n, d); };
   const T = m.settings.targets;
   const goalStyle = (goal, better) => (v) => v == null ? {} : { color: better(v, goal) ? '#5F6C5B' : '#DC2626', fontWeight: '600' };
@@ -1035,7 +1035,7 @@ function _mktgCac() {
     style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
     onchange: (e) => { state._mktCacScope = e.target.value; mountApp(); },
   },
-    ...[['RIDD', 'RIDD (all)'], ['RPC', 'RPC'], ['RPS', 'RPS']].map(([v, l]) => el('option', { value: v, selected: scope === v }, l)),
+    ...[['RIDD', 'RIDD (all)'], ['RPC', companyName('RPC')], ['RPS', companyName('RPS')]].map(([v, l]) => el('option', { value: v, selected: scope === v }, l)),
     ...B.all.map(b => el('option', { value: b, selected: scope === b }, _mktgTC(b))));
   const ROWS = [
     ['CAC %', (i) => _mktgDiv(tot(i), rev(i) + upRev(i)), _mktgPct, 'ratio', [tot, (i) => rev(i) + upRev(i)]],
@@ -1058,7 +1058,7 @@ function _mktgCac() {
   const byKey = Object.fromEntries(ROWS.map(r => [r[0], r]));
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'flex items-center gap-2 flex-wrap' }, el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Office'), scopeSel),
-    _mktgMatrixCard('CAC · ' + (['RIDD', 'RPC', 'RPS'].includes(scope) ? scope : _mktgTC(scope)), 'FieldRoutes revenue & counts · QuickBooks ad spend (allocation for unbooked months) · wages / incentives from Spend entry · projection from Configurations', ROWS.map(r => r[0]),
+    _mktgMatrixCard('CAC · ' + (['RIDD', 'RPC', 'RPS'].includes(scope) ? companyName(scope) : _mktgTC(scope)), 'FieldRoutes revenue & counts · QuickBooks ad spend (allocation for unbooked months) · wages / incentives from Spend entry · projection from Configurations', ROWS.map(r => r[0]),
       (rk, i) => byKey[rk][1](i),
       (v, rk) => byKey[rk][2](v),
       { firstCol: 'Metric', groupRows: new Set(['Total new sales', 'Total new revenue', 'Total spend']),
@@ -1195,7 +1195,7 @@ function _mktgProjections() {
   const pWg  = (rk, i) => pRev(rk, i) * s.wagesPct;
   const pInc = (rk, i) => pRev(rk, i) * s.incentivesPct;
   const aRev = (rk, i) => members(rk).reduce((t, b) => t + (a.branch[b] ? a.branch[b][i].rev + a.branch[b][i].upRev : 0), 0);
-  const opts = { groupRows: groups, label: (rk) => groups.has(rk) ? rk : _mktgTC(rk), firstCol: 'Office' };
+  const opts = { groupRows: groups, label: (rk) => groups.has(rk) ? companyName(rk) : _mktgTC(rk), firstCol: 'Office' };
   const num = (v, onSave, opts2 = {}) => el('input', { type: 'number', step: opts2.step || '1', value: v == null ? '' : String(v), class: 'rounded-lg border px-2.5 py-1 text-[11px] text-left', style: { width: opts2.w || '110px', borderColor: 'var(--border-2)' },
     onchange: (e) => { const x = parseFloat(e.target.value); onSave(isNaN(x) ? 0 : x); _mktgSave(); mountApp(); } });
   const goalsCard = el('div', { class: 'card overflow-hidden' },
