@@ -1492,7 +1492,7 @@ function openAdoptionDrill(kind, allRows, o = {}) {
   const profOf = (id) => (state.allProfiles || []).find(p => p.id === id) || null;
   const nameOf = (id) => (profOf(id) || {}).full_name || 'Unknown (' + String(id || '').slice(0, 8) + ')';
   const roleOf = (id) => { const p = profOf(id); return p ? ((typeof ROLE_LABEL !== 'undefined' && ROLE_LABEL[p.role]) || p.role || '') : ''; };
-  const tabName = (d) => (typeof TAB_TITLES !== 'undefined' && TAB_TITLES[d]) ? String(TAB_TITLES[d]).replace(/^\w/, c => c.toUpperCase()) : (d || '\u2014');
+  const tabName = (d) => usageScreenName(d);
   const overlay = el('div', { class: 'modal-overlay' });
   const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
   document.addEventListener('keydown', _escClose);
@@ -1524,21 +1524,26 @@ function openAdoptionDrill(kind, allRows, o = {}) {
     const draw = () => {
       body.replaceChildren(...users.filter(u => !q || nameOf(u.id).toLowerCase().includes(q) || roleOf(u.id).toLowerCase().includes(q)).map(u => {
         const top = Object.entries(u.tabs).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, n]) => tabName(k) + ' \u00d7' + n).join(' \u00b7 ');
-        return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        return el('tr', { class: 'border-t transition', style: { borderColor: 'var(--border)', cursor: 'pointer' }, title: 'Click to see exactly what ' + nameOf(u.id) + ' looked at',
+          onmouseenter: (e) => { e.currentTarget.style.background = 'var(--bg-subtle)'; }, onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
+          onclick: () => openUsageUserDrill(u.id, { since: o.since || 0, back: () => { modal.replaceChildren(...saved); } , modal }) },
           td(el('span', { class: 'font-semibold' }, nameOf(u.id))),
           td(el('span', { style: { color: 'var(--text-muted)' } }, roleOf(u.id))),
           td(String(u.days.size), true), td(String(u.views), true), td(String(u.events), true),
           td(el('span', { title: new Date(u.last).toLocaleString() }, timeAgo(new Date(u.last).toISOString())), false, 'whitespace-nowrap'),
-          td(el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, top || '\u2014')));
+          td(el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, top || '\u2014')),
+          td(el('span', { class: 'text-[10px] font-semibold', style: { color: 'var(--accent)' } }, 'what they saw \u2192'), true));
       }));
       if (!body.children.length) body.append(el('tr', {}, el('td', { class: 'px-2 py-4 text-center text-[11px]', colspan: '7', style: { color: 'var(--text-muted)' } }, 'No activity in this window.')));
     };
     draw();
+    let saved = [];
     const search = el('input', { type: 'text', placeholder: 'Search name or role\u2026', class: 'rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '180px' }, oninput: (e) => { q = e.target.value.trim().toLowerCase(); draw(); } });
     modal.append(head(o.title + ' \u00b7 ' + users.length + (users.length === 1 ? ' user' : ' users'), o.sub, search),
       el('div', { class: 'overflow-x-auto mt-3' }, el('table', { class: 'w-full' },
-        el('thead', { style: { background: 'var(--card-2)' } }, el('tr', {}, th('User'), th('Access profile'), th('Days active', true), th('Tab views', true), th('Events', true), th('Last active'), th('Top tabs'))),
+        el('thead', { style: { background: 'var(--card-2)' } }, el('tr', {}, th('User'), th('Access profile'), th('Days active', true), th('Tab views', true), th('Events', true), th('Last active'), th('Top tabs'), th(''))),
         body)));
+    saved = [...modal.childNodes];
   } else if (kind === 'tabs') {
     const views = rows.filter(r => r.event === 'view' && r.detail);
     const byTab = new Map();
@@ -1587,6 +1592,153 @@ function openAdoptionDrill(kind, allRows, o = {}) {
       : el('div', { class: 'mt-3 text-[11px] text-center py-6', style: { color: 'var(--text-muted)' } }, 'No feedback in the last 30 days.'));
   }
   document.body.append(overlay);
+}
+
+// Human names for what the telemetry records: a view key plus the sub-tab /
+// queue / settings section that was open. Distinct per screen (the old
+// TAB_TITLES lookup called every Sales-group view "SALES").
+const USAGE_SCREEN_NAMES = {
+  dashboard: 'Inside Sales · Dashboard', sales: 'Inside Sales · Sales', pay: 'Inside Sales · Pay', scorecards: 'Scorecards', calendar: 'Calendar',
+  hall_of_fame: 'Hall of Fame', competitions: 'Competitions', nrla: 'Competitions', queues: 'Queues',
+  d2d_dashboard: 'D2D · Dashboard', d2d_sales: 'D2D · Sales', commission: 'D2D · Pay',
+  techs: 'Technicians · Dashboard', tech_sales: 'Technicians · Sales', tech_pay: 'Technicians · Pay',
+  indicators: 'Indicators', reporting: 'Reporting', marketing: 'Marketing', admin: 'Settings', auditing: 'Auditing', pricing: 'Pricing',
+};
+const USAGE_SUB_NAMES = {
+  upfront: 'Upfront Sales', backend: 'Pending Backend Lock', cancels: 'Archived', history: 'History',
+  overview: 'Overview', geographic: 'Geographic', waterfall: 'Retention', auditing: 'Auditing', marketing: 'Marketing', putis: 'P&L', ops: 'Operations',
+  uploads: 'Admin', pricing: 'Commissions', comps: 'Competitions', config: 'Configurations', goals: 'Goals', perms: 'Permissions', slack: 'Slack', teams: 'Teams', users: 'Users', usage: 'Usage', sources: 'Sources',
+};
+function usageScreenName(view, sub) {
+  const base = USAGE_SCREEN_NAMES[view] || (view ? String(view).replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase()) : '\u2014');
+  if (!sub) return base;
+  return base + ' \u203a ' + (USAGE_SUB_NAMES[sub] || String(sub).replace(/_/g, ' '));
+}
+function usageFmtDur(ms) {
+  const s = Math.round((ms || 0) / 1000);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60); if (m < 60) return m + 'm ' + String(s % 60).padStart(2, '0') + 's';
+  const h = Math.floor(m / 60); return h + 'h ' + String(m % 60).padStart(2, '0') + 'm';
+}
+
+// ── Per-user drilldown (per Isaac): exactly what one person looked at —
+// every screen with opens and time on it, what they did there (drills,
+// searches, audits, exports…), and a recent timeline. Reads app_events
+// (the richer feed: sub-tabs, time on page, actions) for that user; falls
+// back to the legacy usage_events pings when app_events isn't there yet.
+async function openUsageUserDrill(userId, o = {}) {
+  const prof = (state.allProfiles || []).find(p => p.id === userId) || {};
+  const name = prof.full_name || 'Unknown';
+  const role = (typeof ROLE_LABEL !== 'undefined' && ROLE_LABEL[prof.role]) || prof.role || '';
+  const since = new Date(o.since || (Date.now() - 30 * 86400000)).toISOString();
+  const modal = o.modal;
+  const th = (t, right) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-widest font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)' } }, t);
+  const td = (t, right, cls = '') => el('td', { class: 'px-2 py-1.5 text-xs ' + (right ? 'text-right tabular-nums ' : '') + cls }, t);
+  const table = (heads, body, empty) => el('div', { class: 'overflow-x-auto mt-2' }, el('table', { class: 'w-full' }, el('thead', { style: { background: 'var(--card-2)' } }, el('tr', {}, ...heads)),
+    el('tbody', {}, ...(body.length ? body : [el('tr', {}, el('td', { class: 'px-2 py-3 text-center text-[11px]', colspan: String(heads.length), style: { color: 'var(--text-muted)' } }, empty || 'Nothing yet.'))]))));
+  const section = (title, sub) => el('div', { class: 'mt-4' }, el('div', { class: 'text-[11px] font-bold' }, title), sub ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, sub) : null);
+  const head = el('div', { class: 'flex items-start justify-between gap-3' },
+    el('div', {}, el('h3', { class: 'text-base font-bold' }, name), el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, role + ' \u00b7 what they looked at since ' + new Date(since).toLocaleDateString())),
+    el('div', { class: 'flex items-center gap-2' },
+      el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => o.back && o.back() }, '\u2190 Back'),
+      el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { const ov = modal.closest('.modal-overlay'); if (ov) ov.remove(); } }, 'Close')));
+  modal.replaceChildren(head, el('div', { class: 'mt-4 text-[11px]', style: { color: 'var(--text-muted)' } }, 'Loading\u2026'));
+
+  let rows = null, err = null;
+  try {
+    const r = await supabase.from('app_events').select('event, name, sub, dur_ms, props, device, session_id, at').eq('user_id', userId).gte('at', since).order('at', { ascending: false }).limit(4000);
+    if (r.error) err = r.error.message || 'failed'; else rows = r.data || [];
+  } catch (e) { err = String(e && e.message || e); }
+  if (!modal.isConnected) return;
+
+  if (!rows) {
+    // Fallback: the legacy 10-minute view pings.
+    const legacy = ((state._usageStats && state._usageStats.rows) || []).filter(r => r.profile_id === userId && new Date(r.at).getTime() >= new Date(since).getTime());
+    const counts = {};
+    legacy.forEach(r => { if (r.event === 'view' && r.detail) counts[r.detail] = (counts[r.detail] || 0) + 1; });
+    modal.replaceChildren(head,
+      el('div', { class: 'mt-3 text-[11px] rounded-lg border px-3 py-2', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } },
+        /app_events|relation|schema cache/i.test(err || '') ? 'Detailed usage needs migrations/20260921_app_events.sql in Supabase — showing the basic tab pings until then.' : 'Detailed usage unavailable (' + err + ') — showing the basic tab pings.'),
+      section('Tabs opened', 'one ping per tab per 10 minutes'),
+      table([th('Screen'), th('Opens', true)], Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([k, n]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, td(usageScreenName(k)), td(String(n), true)))));
+    return;
+  }
+
+  // ── Screens: opens + time on page (closed view rows carry dur_ms) ──
+  const screens = new Map();
+  const views = rows.filter(r => r.event === 'view');
+  for (const r of views) {
+    const k = (r.name || '') + '|' + (r.sub || '');
+    const sc = screens.get(k) || (screens.set(k, { view: r.name, sub: r.sub, opens: 0, ms: 0, last: 0 }), screens.get(k));
+    const opened = r.props && r.props.opened, closed = r.props && r.props.closed;
+    if (opened || (!opened && !closed)) sc.opens++;
+    if (closed && r.dur_ms > 0 && r.dur_ms < 4 * 3600000) sc.ms += r.dur_ms;
+    const t = new Date(r.at).getTime(); if (t > sc.last) sc.last = t;
+  }
+  const scList = [...screens.values()].sort((a, b) => b.ms - a.ms || b.opens - a.opens);
+  const totalMs = scList.reduce((a, b) => a + b.ms, 0);
+  const sessions = new Set(rows.map(r => r.session_id).filter(Boolean)).size;
+  const days = new Set(rows.map(r => String(r.at).slice(0, 10))).size;
+  const devices = rows.reduce((m, r) => { m[r.device || 'desktop'] = (m[r.device || 'desktop'] || 0) + 1; return m; }, {});
+  const devTxt = Object.entries(devices).sort((a, b) => b[1] - a[1]).map(([d, n]) => d + ' ' + Math.round(100 * n / rows.length) + '%').join(' \u00b7 ');
+  const stat = (label, val) => el('div', { class: 'rounded-lg border px-3 py-2', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
+    el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
+    el('div', { class: 'text-sm font-bold tabular-nums' }, val));
+  const bar = (pct) => el('div', { class: 'rounded-full overflow-hidden', style: { height: '6px', background: 'var(--card-2)', width: '90px', display: 'inline-block', verticalAlign: 'middle', marginRight: '6px' } },
+    el('div', { style: { height: '100%', width: Math.max(2, pct) + '%', background: 'var(--accent)' } }));
+
+  // ── Actions: drills / searches / audits / exports … ──
+  const actions = new Map();
+  const ACTION_LABEL = { drill: 'Opened a chart drilldown', 'search:sales_queue': 'Searched the Sales queue', 'search:leaderboard': 'Searched the leaderboard', 'search:customer_health': 'Searched customer health',
+    sale_audit: 'Audited a sale', pay_stage: 'Staged pay', payroll_run: 'Ran payroll', export: 'Exported', filters_apply: 'Applied filters', resync: 'Resynced', player_card: 'Opened a player card',
+    health_sheet: 'Opened the sync health sheet', setting_save: 'Saved a setting', call_audit: 'Saved a call audit', shift: 'Calendar shift' };
+  for (const r of rows.filter(r => r.event === 'action')) {
+    const label = ACTION_LABEL[r.name] || String(r.name || '').replace(/_/g, ' ');
+    const detail = r.name === 'drill' ? (r.sub || '') : r.name === 'export' ? (r.sub || '') : r.name === 'sale_audit' ? ('\u2192 ' + (r.sub || '')) : r.name === 'filters_apply' ? (r.sub || '') : (r.props && r.props.view ? 'on ' + usageScreenName(r.props.view) : (r.sub || ''));
+    const k = label + '|' + detail;
+    const a = actions.get(k) || (actions.set(k, { label, detail, n: 0, last: 0 }), actions.get(k));
+    a.n++; const t = new Date(r.at).getTime(); if (t > a.last) a.last = t;
+  }
+  const acts = [...actions.values()].sort((a, b) => b.n - a.n);
+  const modals = new Map();
+  for (const r of rows.filter(r => r.event === 'modal')) {
+    const m = modals.get(r.name) || (modals.set(r.name, { name: r.name, open: 0, done: 0 }), modals.get(r.name));
+    if (r.sub === 'open') m.open++; if (r.sub === 'done') m.done++;
+  }
+  const errs = rows.filter(r => r.event === 'error');
+
+  // ── Timeline: most recent 60 opens / actions in order ──
+  const timeline = rows.filter(r => (r.event === 'view' && r.props && r.props.opened) || r.event === 'action' || r.event === 'error').slice(0, 60);
+  const tlRow = (r) => {
+    const t = new Date(r.at);
+    const what = r.event === 'view' ? usageScreenName(r.name, r.sub)
+      : r.event === 'error' ? '\u26a0 ' + (r.name || 'error')
+      : ((ACTION_LABEL[r.name] || String(r.name || '').replace(/_/g, ' ')) + (r.sub ? ' \u00b7 ' + r.sub : ''));
+    return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+      td(el('span', { class: 'whitespace-nowrap', style: { color: 'var(--text-muted)' }, title: t.toLocaleString() }, t.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + t.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }))),
+      td(el('span', { class: r.event === 'view' ? 'font-semibold' : '', style: r.event === 'error' ? { color: '#B91C1C' } : r.event === 'action' ? { color: 'var(--text-muted)' } : {} }, what)),
+      td(el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, r.device || ''), false, 'whitespace-nowrap'));
+  };
+
+  modal.replaceChildren(head,
+    el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3' },
+      stat('Days active', String(days)), stat('Sessions', String(sessions)), stat('Time in app', usageFmtDur(totalMs)), stat('Device', devTxt || '\u2014')),
+    section('Screens', 'every screen they opened, ranked by time spent (sub-tab / queue included)'),
+    table([th('Screen'), th('Share of time'), th('Time', true), th('Opens', true), th('Last opened')],
+      scList.map(sc => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        td(el('span', { class: 'font-semibold' }, usageScreenName(sc.view, sc.sub))),
+        td(el('span', { class: 'whitespace-nowrap tabular-nums text-[11px]' }, bar(totalMs ? 100 * sc.ms / totalMs : 0), (totalMs ? Math.round(100 * sc.ms / totalMs) : 0) + '%')),
+        td(usageFmtDur(sc.ms), true), td(String(sc.opens), true),
+        td(el('span', { title: new Date(sc.last).toLocaleString() }, timeAgo(new Date(sc.last).toISOString())), false, 'whitespace-nowrap'))), 'No screens recorded in this window.'),
+    section('What they did', 'drilldowns opened, searches, audits, exports, filters'),
+    table([th('Action'), th('Detail'), th('Times', true), th('Last')],
+      acts.map(a => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        td(el('span', { class: 'font-semibold' }, a.label)), td(el('span', { style: { color: 'var(--text-muted)' } }, a.detail || '\u2014')), td(String(a.n), true),
+        td(el('span', { title: new Date(a.last).toLocaleString() }, timeAgo(new Date(a.last).toISOString())), false, 'whitespace-nowrap'))), 'No actions recorded — just browsing.'),
+    (modals.size || errs.length) ? el('div', { class: 'mt-3 text-[11px]', style: { color: 'var(--text-muted)' } },
+      [...modals.values()].map(m => m.name + ': opened ' + m.open + (m.done ? ', completed ' + m.done : '')).concat(errs.length ? ['\u26a0 ' + errs.length + ' error' + (errs.length === 1 ? '' : 's') + ' hit'] : []).join(' \u00b7 ')) : null,
+    section('Recent activity', 'newest first, last ' + timeline.length + ' screen opens and actions'),
+    table([th('When'), th('What'), th('')], timeline.map(tlRow), 'No activity yet.'));
 }
 
 function adminReps() {
