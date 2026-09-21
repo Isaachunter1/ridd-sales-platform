@@ -79,24 +79,24 @@ function _retenScopeStepsBuild(rows) {
   // Step 1 is LOCKED (per Isaac): a subscription that never received its
   // initial service cannot retain or churn, so the funnel starts from the
   // subs with a completed initial — the same pull he takes from FieldRoutes.
-  run('initial', 'Keep only subs that received an initial service', '[Sheet step 2] Initial service marked Completed in FieldRoutes. Everything else — pending, never started, cancelled before the first visit — is not a customer yet. Always applied; this is the true top of the funnel.', r => !r.initial_service, true);
+  run('initial', 'Keep only subs that received an initial service', 'Only subscriptions whose initial service is marked Completed in FieldRoutes go forward. A sub that is still pending, never got started, or was cancelled before the first visit never became a customer — it cannot retain and it cannot churn, so counting it either way would distort the rate. This is the true top of the funnel and is always applied.', r => !r.initial_service, true);
   // (The branch pick is no longer a step — per Isaac, Sep 21. It scopes
   // "Everything in FieldRoutes" itself, from the 🏢 dropdown on the bar; see
   // _retenOfficeSlice.)
   // Configuration rules run next, LOCKED (per Isaac, Sep 2026 — every
   // number on the Overview already has them applied, so the steps must
   // too or the two tabs drift). Change them in Reporting → Configurations.
-  run('orphans', 'Remove accounts deleted in FieldRoutes', '[Configurations rule] Accounts deleted inside FieldRoutes — the mirror never forgets a row, so a nightly check asks FieldRoutes which customer ids still exist and anything it no longer returns lands here (plus subs with no customer record at all, and the manual list in Configurations).' + crmStamp, r => { const id = String(r.customer_id != null ? r.customer_id : ''); return (reportingAutoExcludeOrphans() && (!!r.customer_missing || crmDel.has(id))) || manual.has(id); }, true);
-  run('hidden', 'Remove hidden service types', '[Configurations rule] Service types marked Hidden in Configurations → Service types (late fees, inspections, admin items…).', r => !!(cfgByName.get(r.subscription) || {}).is_hidden, true);
+  run('orphans', 'Remove accounts deleted in FieldRoutes', 'Customers that have been deleted inside FieldRoutes. The app\u2019s mirror keeps every row it ever synced, so a nightly check asks FieldRoutes which customer ids still exist and anything FieldRoutes no longer returns is removed here, along with subscriptions that have no customer record at all and any ids listed manually in Configurations. If the CRM no longer has the account, it is not part of the book.' + crmStamp, r => { const id = String(r.customer_id != null ? r.customer_id : ''); return (reportingAutoExcludeOrphans() && (!!r.customer_missing || crmDel.has(id))) || manual.has(id); }, true);
+  run('hidden', 'Remove hidden service types', 'Service types marked Hidden in Configurations \u2192 Service types: late fees, inspections, admin and billing items. These are line items on an account, not a pest-control plan a customer can keep or cancel, so they are removed before anything is counted.', r => !!(cfgByName.get(r.subscription) || {}).is_hidden, true);
   // Always-on steps come first (per Isaac, Sep 2026): the locked ones the
   // sheet does every time, then the toggles.
   const lifecycleByName = reportingServiceLifecycleMap();
   const recurringByName = reportingServiceRecurringMap();
-  run('onetime', 'Remove one-time service types', '[Sheet step 1] Service types whose lifecycle is One-time (the “One Time …”, Initial, Reservice, Inspection-style items) — set aside here, still counted on the Overview and in the P&L. Lifecycle is set per type in Configurations → Service types.', r => { const lc = lifecycleByName.get(r.subscription); return !(lc === 'recurring' || lc === 'retired'); }, true);
+  run('onetime', 'Remove one-time service types', 'Service types set to a One-time lifecycle in Configurations \u2192 Service types (the \u201cOne Time \u2026\u201d treatments, Initials, Reservices, Inspection-style items). A one-time job is complete when it is done \u2014 there is nothing recurring to retain, so it cannot count as churn when it ends. These still count as revenue on the Overview and in the P&L; they are only set aside for attrition.', r => { const lc = lifecycleByName.get(r.subscription); return !(lc === 'recurring' || lc === 'retired'); }, true);
   // Excluded lead sources run AFTER one-time types (per Isaac, Sep 21).
-  run('sources', 'Remove excluded lead sources', '[Configurations rule] Lead sources switched off in Configurations' + (exclSrc.size ? ': ' + [...exclSrc].join(', ') : ' (none today)') + '.', r => exclSrc.has(reportingSourceOf(r)), true);
-  run('retired', 'Remove retired service types', '[Sheet step 1] Types marked Retired in Configurations — no longer sold and not part of the recurring book.', r => !recurringByName.get(r.subscription), true);
-  run('status', 'Keep every account status', '[Sheet step 3] Active, Frozen and cancelled subscriptions all stay in — nothing is removed for status. Cancels are counted by their date, later.', r => !(!!r.initial_service && r.initial_service >= '2000-01-01'), true);
+  run('sources', 'Remove excluded lead sources', 'Subscriptions whose lead source is switched off in Configurations \u2192 Lead sources' + (exclSrc.size ? ': ' + [...exclSrc].join(', ') : ' (none today)') + '. These sources are internal or bookkeeping channels rather than real customer acquisition (upsells recorded as new subs, internal saves, test and unknown sources), so the accounts behind them are not part of the retention book.', r => exclSrc.has(reportingSourceOf(r)), true);
+  run('retired', 'Remove retired service types', 'Service types marked Retired in Configurations \u2014 plans RIDD no longer sells or services. A retired plan that ended was closed by the company, not lost by the customer, so it is kept out of the book rather than counted as churn.', r => !recurringByName.get(r.subscription), true);
+  run('status', 'Keep every account status', 'Active, Frozen and cancelled subscriptions all stay in \u2014 nothing is removed here for status. Dropping cancelled accounts at this point would hide the churn the rate is meant to measure; a cancel is counted by its cancel date in the steps that follow.', r => !(!!r.initial_service && r.initial_service >= '2000-01-01'), true);
   return { steps, out: cur };
 }
 const _retenOfficeMemo = { g: null, by: new Map() };
@@ -297,10 +297,6 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
 
   if (!open) return card;
   const loadDrops = state._snapshotLoadDrops || null;
-  // Which of Isaac's workbook Steps (RIDD Reporting.xlsx → Steps tab) a
-  // step mirrors, or "app rule" for the ones the sheet doesn't do.
-  const SHEET = (k) => '[Sheet step ' + k + '] ';
-  const APP = '[App rule] ';
   let stepNo = 0;
   const next = () => ++stepNo;
   card.append(el('div', { class: 'px-5 pb-4' },
@@ -312,7 +308,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
           + (loadDrops && (loadDrops.phantom || loadDrops.dupes) ? ' The loader itself set aside ' + n(loadDrops.phantom) + ' phantom-office row' + (loadDrops.phantom === 1 ? '' : 's') + ' and ' + n(loadDrops.dupes) + ' duplicate' + (loadDrops.dupes === 1 ? '' : 's') + ' of the same subscription id (' + n(loadDrops.raw) + ' raw rows).' : ''))),
       clickable(el('div', { class: 'text-lg font-black tabular-nums' }, n(g0.length)), drill('Everything in FieldRoutes', g0, 'the whole snapshot'))),
     ...scopeSteps.map(st => {
-      const node = step(next(), st.title, (st.locked ? '' : APP) + st.detail, st.removed.length, st.locked ? null : st.key, null, st.removed, st.left);
+      const node = step(next(), st.title, st.detail, st.removed.length, st.locked ? null : st.key, null, st.removed, st.left);
       if (st.key === 'orphans' && isAdminRole(state.profile?.role)) {
         // Admin: run the FieldRoutes deleted-customer check now instead of
         // waiting for the 4am pass (P1-8).
@@ -336,12 +332,12 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       return node;
     }),
     // (one-time / retired / status steps now run in the locked scope chain above)
-    step(next(), 'Remove 3-day RORs coded in the CRM', SHEET(4) + 'Cancellation reason “3 Day ROR” — a right-of-rescission, never really a customer.', s2.length - s2r.length, 'popRor', null, notIn(s2, s2r), s2r),
+    step(next(), 'Remove 3-day RORs coded in the CRM', 'Subscriptions cancelled with the reason \u201c3 Day ROR\u201d \u2014 the customer used the three-day right of rescission on a door-to-door sale. The contract was legally undone before service began, so this was never a customer and is neither retained nor churned.', s2.length - s2r.length, 'popRor', null, notIn(s2, s2r), s2r),
     (() => {
       const removed = notIn(s2r, step1a);
       // RORs caught by TIMING whose reason isn't coded "3 Day ROR" — fix these in FieldRoutes.
       const miscoded = removed;
-      const node = step(next(), 'Remove 3-day RORs caught by timing', APP + 'Door-to-door subs cancelled within 3 days of the sale whatever reason was typed — an ROR the rep or office miscoded. Not in the sheet; switch it off to match the sheet exactly.', s2r.length - step1a.length, rorOn ? 'popRorTiming' : null, rorOn ? null : 'needs the ROR step on', removed, step1a);
+      const node = step(next(), 'Remove 3-day RORs caught by timing', 'Door-to-door subscriptions cancelled within three days of the sale whatever reason was typed in FieldRoutes. Timing makes these rescissions in substance \u2014 the rep or office simply coded a different reason \u2014 so they are treated the same as the coded RORs above. Switch it off to count only the reason as coded.', s2r.length - step1a.length, rorOn ? 'popRorTiming' : null, rorOn ? null : 'needs the ROR step on', removed, step1a);
       if (miscoded.length) node.children[1].append(el('button', {
         class: 'mt-1.5 rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.3)' },
         title: 'Cancelled within 3 days of the sale but the reason in FieldRoutes is not “3 Day ROR” — open the list and correct them in the CRM',
@@ -349,15 +345,15 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       }, '⚑ ' + n(miscoded.length) + ' miscoded — fix the reason in the CRM'));
       return node;
     })(),
-    step(next(), 'Remove combined subscriptions', SHEET(4) + 'Cancellation reason “Combined Subscriptions” — folded into another sub on the same account, which carries on.', step1a.length - step1b.length, 'popCombined', null, notIn(step1a, step1b), step1b),
-    step(next(), 'Remove renewals', SHEET(4) + 'Cancellation reason Renewal - Outbound / Loyalty / Service Pro Upsell / Inbound — the old plan was replaced by the renewal sub, which stays in the book carrying the original start date.' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), step1b.length - step1.length, 'popRenew', null, notIn(step1b, step1), step1),
-    step(next(), 'Remove subs with no ARR', SHEET(5) + '$0 annual recurring value — nothing recurring to retain.', step1.length - step2.length, 'zero', null, notIn(step1, step2), step2),
-    step(next(), 'Remove prior-year subs that never received a 2nd treatment', SHEET(6) + 'Filter out the current year, then take out every subscription that only ever received one service — it never became a customer. ' + year + ' one-visit accounts (' + n(oneSvcAll.filter(r => soldThisYear(r)).length) + ') stay: they are just young.', step2.length - step2b.length, 'oneSvc', null, notIn(step2, step2b), step2b),
+    step(next(), 'Remove combined subscriptions', 'Subscriptions cancelled with the reason \u201cCombined Subscriptions\u201d \u2014 the plan was merged into another subscription on the same account, which carries on. The customer is still with RIDD, so counting the closed line as churn would double-count a customer who never left.', step1a.length - step1b.length, 'popCombined', null, notIn(step1a, step1b), step1b),
+    step(next(), 'Remove renewals', 'Subscriptions cancelled with a Renewal reason (Outbound, Loyalty, Service Pro Upsell, Inbound) \u2014 the old plan was closed because the customer signed a renewal. The renewal subscription stays in the book carrying the original start date, so the customer is counted once, as retained, and the closed plan is not a loss.' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), step1b.length - step1.length, 'popRenew', null, notIn(step1b, step1), step1),
+    step(next(), 'Remove subs with no ARR', 'Subscriptions with $0 annual recurring value. Attrition is measured on recurring revenue, and a sub that bills nothing can neither be kept nor lost in dollar terms, so it is removed rather than diluting the rate.', step1.length - step2.length, 'zero', null, notIn(step1, step2), step2),
+    step(next(), 'Remove prior-year subs that never received a 2nd treatment', 'Subscriptions from prior years that only ever received a single service. A recurring plan that never had a second visit never became an ongoing customer relationship, so it is removed rather than counted as churn. Only prior-year subs are judged this way \u2014 ' + year + ' one-visit accounts (' + n(oneSvcAll.filter(r => soldThisYear(r)).length) + ') stay: they are just young.', step2.length - step2b.length, 'oneSvc', null, notIn(step2, step2b), step2b),
     (() => {
       const kept = step2b.filter(r => svcOf(r) <= 1 && sentricon(r) && !soldThisYear(r));
-      return step(next(), 'Keep Sentricon one-visit subs', SHEET(6) + 'Exemption to the step above: ' + retenOneSvcExemptTerms().join(', ') + ' is annual — one visit a year IS the service — so those subs stay in the book. Switch off to remove them too.', 0, 'oneSvcExempt', n(kept.length) + ' kept', null, null, kept);
+      return step(next(), 'Keep Sentricon one-visit subs', 'Exemption to the step above: ' + retenOneSvcExemptTerms().join(', ') + ' is annual — one visit a year IS the service — so those subs stay in the book. Switch off to remove them too.', 0, 'oneSvcExempt', n(kept.length) + ' kept', null, null, kept);
     })(),
-    step(next(), 'Remove ' + year + ' subs frozen after one treatment', APP + 'Accounts sold this year that took one visit and already cancelled. Active ' + year + ' one-visit accounts (' + n(oneSvcKept.length) + ') stay — they are just young.', step2b.length - step3.length, 'frozenOneSvc', null, notIn(step2b, step3), step3),
+    step(next(), 'Remove ' + year + ' subs frozen after one treatment', 'Accounts sold this year that took one visit and already cancelled \u2014 the same never-became-a-customer logic as the prior-year step, applied to this year\u2019s subs only once they have actually cancelled. Active ' + year + ' one-visit accounts (' + n(oneSvcKept.length) + ') stay — they are just young.', step2b.length - step3.length, 'frozenOneSvc', null, notIn(step2b, step3), step3),
     total('Retention book', n(book.length), 'Subscriptions the rest of this tab counts', book),
     // ── 9 · Excluded cancel reasons — configured RIGHT HERE (per Isaac) so
     // the card shows exactly what counts. A checked reason means a sub that
@@ -388,7 +384,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       // Sits AFTER the Retention book on purpose: it does not shrink the
       // book — these subs stay in it as retained — it takes them out of the
       // CHURN count. The number is labelled so it can't read as a book step.
-      const node = step(next(), 'Count these cancel reasons as retained', APP + 'The book above stays at ' + n(book.length) + ' — this step changes what counts as churn, not who is in the book. The sheet counts every dated cancel as churn (its reason list is empty). Tick a reason and subscriptions cancelled for it are treated as RETAINED — the company ended it, the customer did not leave. Unticked reasons count as churn. These are slicers for this tab and session only (an * marks a reason that differs from the saved setting); the saved list lives in Reporting → Configurations → Cancellation reasons and drives the rest of the app.', neutralised.length, 'exclReasons', n(neutralised.length) + ' cancels moved from churn to retained', neutralised, null, neutralised);
+      const node = step(next(), 'Count these cancel reasons as retained', 'The book above stays at ' + n(book.length) + ' — this step changes what counts as churn, not who is in the book. By default every dated cancel counts as churn. Tick a reason and subscriptions cancelled for it are treated as RETAINED — the company ended it, the customer did not leave. Unticked reasons count as churn. These are slicers for this tab and session only (an * marks a reason that differs from the saved setting); the saved list lives in Reporting → Configurations → Cancellation reasons and drives the rest of the app.', neutralised.length, 'exclReasons', n(neutralised.length) + ' cancels moved from churn to retained', neutralised, null, neutralised);
       node.children[1].append(listEl);
       return node;
     })(),
