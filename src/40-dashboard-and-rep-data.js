@@ -4156,6 +4156,8 @@ function openIndicatorRepCard(rep, allReps = []) {
       { key: 'myPct',      label: 'MY %',       value: (myPct * 100).toFixed(1) + '%' },
       { key: 'autoPay',    label: 'Auto Pay',   value: (autoPayPct * 100).toFixed(1) + '%' },
       { key: 'cancels',    label: 'Cancels',    value: fmt.int(scopedRep.cancels || 0) },
+      // Ninth tile (per Isaac): cancels as a share of sales, so the grid fills 3×3 on phones.
+      { key: 'cancelPct',  label: 'Cancel %',   value: count > 0 ? (((scopedRep.cancels || 0) / count) * 100).toFixed(1) + '%' : '\u2014' },
     ];
   }
 
@@ -4214,6 +4216,7 @@ function openIndicatorRepCard(rep, allReps = []) {
           return true;
         }).sort((a, b) => (b.dateSold || '').localeCompare(a.dateSold || ''));
       case 'cancels':
+      case 'cancelPct':
         // Follows the leaderboard's ROR toggle: RORs show here when the
         // toggle is on; Sold-Not-Started / Combined rows never do. They
         // all live in the dataset for Cancel Analysis either way.
@@ -4256,7 +4259,8 @@ function openIndicatorRepCard(rep, allReps = []) {
   function statsGrid() {
     // auto-fit grid: 9 tiles flow 3-up on phones and up to 9-up on wide
     // desktops without needing a grid-cols-9 utility in the static CSS.
-    return el('div', { class: 'grid gap-2 sm:gap-3 mb-5', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(112px, 1fr))' } },
+    // 3 × 3 on phones, 5 + 4 on desktop (wider tiles, two rows — per Isaac); columns come from .rep-stats-grid in index.html.
+    return el('div', { class: 'grid gap-2 sm:gap-3 mb-5 rep-stats-grid' },
       ...scopedStats.map(stat => {
         const selected = drillKey === stat.key;
         return el('div', {
@@ -4983,7 +4987,7 @@ function openIndicatorRepCard(rep, allReps = []) {
                   // see exactly which sales are pulling the avg.
                   el('th', { class: 'text-right px-2 py-2' },
                     (drillKey === 'avgInitial' || drillKey === 'avgPest') ? 'Initial' : 'Value'),
-                  drillKey === 'cancels'
+                  (drillKey === 'cancels' || drillKey === 'cancelPct')
                     ? el('th', { class: 'text-left px-2 py-2' }, 'Reason')
                     : el('th', { class: 'text-center px-2 py-2' }, 'Auto Pay'),
                 ),
@@ -5007,7 +5011,7 @@ function openIndicatorRepCard(rep, allReps = []) {
                     el('td', { class: 'px-2 py-2 text-muted- tabular-nums desktop-only whitespace-nowrap' }, s.dateSold || '—'),
                     el('td', { class: 'px-2 py-2 text-right text-muted- tabular-nums desktop-only' }, s.contract ? s.contract + 'mo' : '—'),
                     el('td', { class: 'px-2 py-2 text-right tabular-nums font-semibold' }, headlineValue),
-                    drillKey === 'cancels'
+                    (drillKey === 'cancels' || drillKey === 'cancelPct')
                       ? el('td', { class: 'px-2 py-2 text-muted-' }, s.cancelReason || '—')
                       : el('td', { class: 'px-2 py-2 text-center' },
                           el('span', {
