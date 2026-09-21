@@ -56,3 +56,17 @@ Spacing on card headers, radii, icon sizes, wrapping at 375 px, empty states, to
 - No visual redesign. Brand, palette, typography, navigation and information density stay.
 - No changes to CRM/QuickBooks sync semantics beyond auth gating and health reporting.
 - No feature additions that don't map to a named problem above.
+
+## Status (Sep 21, 2026)
+
+Sprints 0–5 are shipped except P3-1 (server-computed pay — deferred, needs Isaac's go). Since then: the three audits in `docs/` (role walkthrough, number provenance, design consistency) with their A/B fixes, usage analytics (Settings → Usage), pay-run snapshots, the Active ARR steps, the Operations (COO) tab, and a run of phone fixes. See the implementation log at the bottom of AUDIT.md for commit hashes.
+
+## What's left
+
+1. **P1-1 incremental render, second pass** — read `window.__riddProf` after a Type→Apply on Indicators (profiler is deployed; `localStorage.ridd_prof='1'`) and memoize the leaderboard block the same way Records was. Needs a signed-in session.
+2. **Pricing phone pass on the live build** — verify 320/375/390/430 + desktop; fix what it shows. Needs a signed-in session.
+3. **Operations tab definitions** — match the OPS sheet's report once Isaac says which FieldRoutes report / rules it uses (completed, scheduled, routes, production), and whether payroll and Google reviews get a source or stay hand-entered.
+4. **Technicians route stats** — `tech-stats-background` has never written `indicators/tech-stats.json.gz`; needs the Netlify function log to see why.
+5. **Design consistency, remaining B** — `uiBtn` / `statTile` / `openModal` helpers and the call-site migration (mechanical, long, no visible change until complete).
+6. **Deferred by design** — P1-2 role-split bundle (after P1-1), P3-1 server-computed pay, calendar write policy via RPC, money rounding to cents at the engine boundary (Isaac's call).
+
