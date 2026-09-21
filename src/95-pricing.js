@@ -32,6 +32,11 @@ const PRICING_SERVICES = {
   roach:    { label: 'German Roach' },
   flea:     { label: 'Interior Flea' },
 };
+// Add-ons a base plan already includes (per Isaac, Sep 21): Tick, Flea &
+// Mosquito covers mosquito season, so Seasonal Mosquito can't be sold on top
+// of it. The row dims like the base plan's own row and drops off the quote.
+const PRICING_COVERED = { tfm: ['seasonal'] };
+const pricingCoveredBy = (base, id) => !!base && (id === base || (PRICING_COVERED[base] || []).includes(id));
 const PRICING_PROGRAMS = [
   { id: 'home',    label: 'Home Essentials', services: ['pest', 'rodent'] },
   { id: 'yard',    label: 'Yard Essentials', services: ['tfm', 'mole'] },
@@ -101,6 +106,7 @@ function pricingStore() {
   if (!st.base) st.addons = {};
   if (!st.freq) st.freq = 'q';
   if (!st.addons) st.addons = {};
+  for (const id of Object.keys(st.addons)) { if (pricingCoveredBy(st.base, id)) delete st.addons[id]; }   // a base plan drops the add-ons it already covers
   if (!st.onetime) st.onetime = {};
   if (!st.customer) st.customer = 'new';
   // Custom (rep-entered) prices, keyed by receipt line — D2D only, and never
@@ -140,7 +146,7 @@ function pricingQuote(st) {
   if (svc) {
     lines.push({ key: 'base', kind: 'base', label: (PRICING_PROGRAMS.find(p => p.id === svc.program) || {}).label + ' · ' + svc.label, sub: PRICING_FREQ[fi][1] + ' · base plan', init: T.init, mo: T[svc.program][fi] });
     for (const [id, init, mo] of T.addons) {
-      if (id === st.base || !st.addons[id]) continue;
+      if (pricingCoveredBy(st.base, id) || !st.addons[id]) continue;
       lines.push({ key: 'addon:' + id, kind: 'addon', label: PRICING_SERVICES[id].label, sub: 'add-on', init, mo });
     }
   }
@@ -273,9 +279,10 @@ function viewPricing() {
           // shifts when a plan is picked (per Isaac).
           T.addons.map(([id, init, mo], i) => {
             const isBase = id === st.base;
-            const on = !isBase && !!st.addons[id];
-            const row = trow([el('span', { class: 'inline-flex items-center' }, box(on), PRICING_SERVICES[id].label + (isBase ? ' · your base plan' : '')), money(init), '+' + money(mo)], on, (hasPlan && !isBase) ? () => { if (on) delete st.addons[id]; else st.addons[id] = true; rerender(); } : null, i);
-            if (isBase) row.style.opacity = '.4';
+            const covered = !isBase && pricingCoveredBy(st.base, id);
+            const on = !isBase && !covered && !!st.addons[id];
+            const row = trow([el('span', { class: 'inline-flex items-center' }, box(on), PRICING_SERVICES[id].label + (isBase ? ' · your base plan' : covered ? ' · included in ' + PRICING_SERVICES[st.base].label : '')), money(init), '+' + money(mo)], on, (hasPlan && !isBase && !covered) ? () => { if (on) delete st.addons[id]; else st.addons[id] = true; rerender(); } : null, i);
+            if (isBase || covered) row.style.opacity = '.4';
             return row;
           }))));
 
