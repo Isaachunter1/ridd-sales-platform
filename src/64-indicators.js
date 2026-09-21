@@ -3804,44 +3804,44 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // Team + Office don't apply to office staff (they're not on D2D team
     // rosters and all share the office) — dropped when that dept is scoped.
     ...(state.indicatorDept === 'office' ? [] : [
-      { key: 'team',       label: 'Team',     align: 'left',  defaultDir: 'asc',  cell: r => el('td', { class: 'px-2 py-2 text-muted-' }, r.team || '—') },
-      { key: 'office',     label: 'Office',   align: 'left',  defaultDir: 'asc',  cell: r => {
+      // Team + Office share one column (per Isaac): team on top, office beneath. Sorts by team.
+      { key: 'team',       label: 'Team · Office', align: 'left',  defaultDir: 'asc',  cell: r => {
           // Multi-branch reps (per Isaac): show the office they sold the
-          // MOST in, with "+N" for the rest and the full revenue split on
-          // hover — so the merged total is always explainable against
-          // per-branch CRM reports.
+          // MOST in, with the full revenue split on hover — so the merged
+          // total is always explainable against per-branch CRM reports.
           const _tc = (o) => (o || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
           const ent = Object.entries(r.officeRev || {}).sort((a2, b2) => b2[1] - a2[1]);
           const recs = Object.entries(r.recRev || {}).sort((a2, b2) => b2[1] - a2[1]);
           const label = _tc(ent.length ? ent[0][0] : r.office);
-          // The hover reconciles this MERGED person against per-record CRM
-          // tools: each line = one FieldRoutes employee record's revenue.
           const title = recs.length > 1
             ? 'Merged from ' + recs.length + ' CRM records:\n' + recs.map(([k, v]) => k + ' \u2014 ' + fmt.usd0(v)).join('\n')
             : '';
-          return el('td', { class: 'px-2 py-2 text-muted- whitespace-nowrap', title }, label);
+          return el('td', { class: 'px-2 py-2 whitespace-nowrap', title },
+            el('div', { class: 'text-muted-' }, r.team || '\u2014'),
+            el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, label || ''));
         } },
     ]),
+    // Column order per Isaac (Sep 21): Sales · Days w/ Sale · Revenue · Pest Init · Avg Init · ACV · $/Day · Accts/Day · Audit % · MY % · APay % · Attrition %.
     { key: 'count',      label: 'Sales',    align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.int(r.count)) },
+    { key: 'sellingDays', label: 'Days w/ Sale', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Days with at least one sale' }, fmt.int(r.sellingDays || 0)) },
     { key: 'revenue',    label: 'Revenue',  align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums font-semibold' }, fmt.usd0(r.revenue)) },
     // 12-week revenue sparkline with WoW slope. Sort key = trendSlope so
     // clicking surfaces reps with the biggest week-over-week jump (or drop).
+    { key: 'avgPest',    label: 'Pest Init', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgPest > 0 ? fmt.usd(r.avgPest) : '—') },
+    { key: 'avgInitial', label: 'Avg Init',      align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgInitial > 0 ? fmt.usd(r.avgInitial) : '—') },
+    { key: 'acv',        label: 'ACV',      align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.usd(r.acv)) },
+    // Selling-day metrics — averages over days WITH ≥1 sale only.
+    { key: 'revPerDay',   label: '$/Day',     align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Average revenue per SELLING day (days off don\'t count)' }, fmt.usd0(r.revPerDay || 0)) },
+    { key: 'acctsPerDay', label: 'Accts/Day', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Average accounts per SELLING day' }, (r.acctsPerDay || 0).toFixed(1)) },
+    // Avg Pest Initial = avg of initialPrice EXCLUDING Sentricon / German Roach
+    // / Interior Flea (matches the door-to-door comp). Avg Initial = avg of
+    // every sale's initialPrice with no exclusions (overall pricing power).
     { key: 'auditPct', label: 'Audit %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap' },
         el('span', {
           class: 'font-semibold',
           style: { color: r.auditPct >= 0.9 ? '#DF643A' : r.auditPct < 0.7 ? '#DC2626' : 'var(--text)' },
           title: 'Accounts not flagged Failed Audit ÷ all accounts (no-audit + pending count as good)',
         }, (r.auditPct * 100).toFixed(1) + '%')) },
-    { key: 'acv',        label: 'ACV',      align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.usd(r.acv)) },
-    // Selling-day metrics — averages over days WITH ≥1 sale only.
-    { key: 'sellingDays', label: 'Days',   align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Days with at least one sale' }, fmt.int(r.sellingDays || 0)) },
-    { key: 'revPerDay',   label: '$/Day',     align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Average revenue per SELLING day (days off don\'t count)' }, fmt.usd0(r.revPerDay || 0)) },
-    { key: 'acctsPerDay', label: 'Accts/Day', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Average accounts per SELLING day' }, (r.acctsPerDay || 0).toFixed(1)) },
-    // Avg Pest Initial = avg of initialPrice EXCLUDING Sentricon / German Roach
-    // / Interior Flea (matches the door-to-door comp). Avg Initial = avg of
-    // every sale's initialPrice with no exclusions (overall pricing power).
-    { key: 'avgPest',    label: 'Pest Init', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgPest > 0 ? fmt.usd(r.avgPest) : '—') },
-    { key: 'avgInitial', label: 'Avg Init',      align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgInitial > 0 ? fmt.usd(r.avgInitial) : '—') },
     { key: 'myPct',      label: 'MY %',     align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, (r.myPct * 100).toFixed(1) + '%') },
     { key: 'autoPayPct', label: 'APay %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, (r.autoPayPct * 100).toFixed(1) + '%') },
     // (Cancels column retired from the leaderboard per Isaac, Sep 21 — fewer columns so the table fits without a scroll; Attrition % carries the read, and the player card keeps the count.)
