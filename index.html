@@ -357,6 +357,9 @@
   }
   /* Churn Timing (Retention): the heatmap spans two of three columns on desktop, full width on phones. */
   @media (max-width: 1023px) { .churn-heat-col { grid-column: auto !important; } }
+  /* Rep card stat tiles: 3 per row on phones, 5 per row (two rows for nine tiles) from tablet up. */
+  .rep-stats-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  @media (min-width: 640px) { .rep-stats-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
   .overflow-x-clip- { overflow-x: clip; }
   /* Quote states (per Isaac, Sep 2026): an EMPTY quote is one compact row;
      once something is selected the full receipt shows. On phones, scrolling
