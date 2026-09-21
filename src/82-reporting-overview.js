@@ -690,7 +690,11 @@ function reportingOverview() {
         cell(signed(g.srev - g.lrev, true), { right: true, bold: true, color: netColor(g.srev - g.lrev) }));
       const tbl = el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse' } },
         el('thead', {}, el('tr', {}, hd('Office'), hd('Subs sold', true), hd('Subs lost', true), hd('Net subs', true), hd('Revenue sold', true), hd('Revenue lost', true), hd('Net revenue', true))),
-        el('tbody', {}, line('RIDD', tot, true), ...list.map(([k, g]) => line(k, g, false)),
+        // Collapsed by default (per Isaac): the RIDD line plus an expand row; the office lines open on demand.
+        el('tbody', {}, line('RIDD', tot, true), ...(state._pulseOfficesOpen ? list.map(([k, g]) => line(k, g, false)) : []),
+          list.length ? el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+            el('td', { class: 'px-2 py-1.5', colspan: 7 }, el('button', { class: 'text-[11px] font-bold', style: { color: 'var(--accent)' }, onclick: () => { state._pulseOfficesOpen = !state._pulseOfficesOpen; mountApp(); } },
+              state._pulseOfficesOpen ? '\u25be Hide offices' : '\u25b8 Show ' + list.length + ' office' + (list.length === 1 ? '' : 's')))) : null,
           !cxlAll.length && !soldAll.length ? el('tr', {}, el('td', { class: 'px-2 py-2 text-[10px] text-muted-', colspan: 7 }, 'Nothing sold or lost in this window.')) : null));
       // ── DAILY view (per Isaac): one row per day — exactly what was lost
       // each day, with the reason and office behind it — plus a few
