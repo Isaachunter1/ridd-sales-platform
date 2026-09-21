@@ -27,7 +27,11 @@ function exceptionFeedItems(scope) {
   const todayIso = iso(today), d3 = back(2), d7 = back(6), d14 = back(13), d30 = back(29), d35 = back(34);
   const teamOf = (name) => (typeof getRepTeam === 'function' && getRepTeam(name)) || '';
   const inScopeTeam = (t) => !scope.teams || scope.teams.has(t);
+  const _adm = isAdminRole(state.profile?.role);
   const go = (view, patch, sub) => () => {
+    // Reporting is admin-only (ADMIN_ONLY_VIEWS); leads and partners get
+    // the closest page they can open instead of a bounce.
+    if (view === 'reporting' && !_adm) { view = 'indicators'; sub = null; }
     Object.assign(state, patch || {});
     if (sub) state.reportingSubTab = sub;
     state.view = view;
@@ -89,7 +93,7 @@ function exceptionFeedItems(scope) {
     spikes.sort((a, b) => (b[1] - b[2]) - (a[1] - a[2]));
     for (const [k, v, base] of spikes.slice(0, 4)) {
       items.push({ sev: 'red', tag: 'Attrition', text: k + ': ' + fmt.usd0(v) + ' ARR churned in 7 days' + (base ? ' vs ' + fmt.usd0(base) + '/wk average' : ' (none in the prior 4 weeks)'),
-        action: 'Daily Pulse', onClick: go('reporting', { _rtPulseSpan: 7 }, 'overview') });
+        action: _adm ? 'Daily Pulse' : 'Indicators', onClick: go('reporting', { _rtPulseSpan: 7 }, 'overview') });
     }
 
     // 4. Failed audits in the last 30 days (D2D), by rep.
@@ -106,7 +110,7 @@ function exceptionFeedItems(scope) {
       const list = [...failed.entries()].sort((a, b) => b[1] - a[1]);
       const n = list.reduce((a, [, c]) => a + c, 0);
       items.push({ sev: 'amber', tag: 'Audits', text: n + ' failed audit' + (n === 1 ? '' : 's') + ' in 30 days: ' + list.slice(0, 5).map(([k, c]) => (typeof flipLastFirst === 'function' ? flipLastFirst(k) : k) + ' (' + c + ')').join(', ') + (list.length > 5 ? ' +' + (list.length - 5) + ' more' : ''),
-        action: 'Auditing', onClick: go('reporting', null, 'auditing') });
+        action: _adm ? 'Auditing' : 'Sales queue', onClick: _adm ? go('reporting', null, 'auditing') : go(scope.kind === 'office' ? 'sales' : 'd2d_sales', { _salesQueueFilter: 'backend' }) });
     }
 
     // 5. Aging pending — sold 14+ days ago, never serviced, not cancelled.
@@ -123,7 +127,7 @@ function exceptionFeedItems(scope) {
       aging++; agingArr += arr(r);
     }
     if (aging) items.push({ sev: 'amber', tag: 'Pending', text: aging + ' account' + (aging === 1 ? '' : 's') + ' sold 14+ days ago still waiting on the first service (' + fmt.usd0(agingArr) + ' ARR)',
-      action: 'Retention', onClick: go('reporting', null, 'waterfall') });
+      action: _adm ? 'Retention' : 'Indicators', onClick: go('reporting', null, 'waterfall') });
   }
   return items;
 }
@@ -171,7 +175,7 @@ function repTodayStrip() {
       const occ = compRunningNow(c.id); if (!occ) continue;
       const name = (sc[c.id] && sc[c.id].name) || c.name;
       const daysLeft = Math.max(0, Math.round((occ.end - new Date().setHours(12, 0, 0, 0)) / 86400000));
-      chips.push({ icon: '🏆', text: name + ' · ' + (daysLeft === 0 ? 'ends today' : daysLeft === 1 ? 'ends tomorrow' : 'ends ' + fmtD(occ.end)), onClick: go('competitions', { _compsLanding: false, _compsTabSel: c.id, _compsRepTypeTab: want }) });
+      chips.push({ icon: '🏆', text: name + ' · ' + (daysLeft === 0 ? 'ends today' : daysLeft === 1 ? 'ends tomorrow' : 'ends ' + fmtD(occ.end)), onClick: go('nrla', { _compsLanding: false, _compsTabSel: c.id, _compsRepTypeTab: want }) });
     }
   } catch (e) { /* schedule not loaded yet */ }
   // Sales bounced back by the auditor (below minimums / NSF) — mine only.

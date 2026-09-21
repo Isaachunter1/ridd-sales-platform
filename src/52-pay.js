@@ -152,7 +152,8 @@ function viewPay() {
   // The four manual additives are set by admin in Users settings; default 0.
   // All five fields come from viewedProfile so admins can spot-check any rep.
   const repType            = viewedProfile.rep_type || 'sales_rep';
-  const isLoyaltyRep       = repType === 'loyalty_rep';
+  // Loyalty = the CRM rep_type OR the rep_loyalty / rep_loyalty_lead access role (same rule as Scorecards + Calendar).
+  const isLoyaltyRep       = repType === 'loyalty_rep' || (typeof scorecardDeptOf === 'function' && scorecardDeptOf(viewedProfile) === 'loyalty');
   const goldenPhoneAmt     = Number(viewedProfile.golden_phone_amount    || 0);
   const loyaltyRoyaltyAmt  = Number(viewedProfile.loyalty_royalty_amount || 0);
   const loyaltyPayAmt      = Number(viewedProfile.loyalty_pay_amount     || 0);
@@ -293,7 +294,7 @@ function viewPay() {
         el('button', {
           class: 'px-2.5 py-1 rounded-lg text-[11px] font-medium border',
           style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-          onclick: () => downloadPayrollCsv(commissionable, period),
+          onclick: () => downloadPayrollCsv(commissionable, period, viewedProfile),
         }, '↓ CSV'),
       ),
     ),
@@ -751,9 +752,12 @@ function notifySaleLogged(row) {
   }
 }
 
-function downloadPayrollCsv(sales, period) {
+function downloadPayrollCsv(sales, period, viewedProfile) {
   if (!sales.length) return toast('Nothing to export', 'warn');
-  const repId = state.profile.id;
+  // The rep whose stub is on screen (an admin exporting for someone else
+  // must get THAT rep's rate overrides, not their own).
+  const who = viewedProfile || state.profile;
+  const repId = who.id;
   const headers = ['customer_name','customer_number','contract','revenue','rate','commission','backend_est','sold_date','status'];
   const lines = [headers.join(',')];
   for (const s of sales) {
@@ -776,7 +780,7 @@ function downloadPayrollCsv(sales, period) {
   }
   const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
-  const a = el('a', { href: url, download: `ridd-payroll-${state.profile.full_name.replace(/\s+/g, '-')}-${period.isoStart}.csv` });
+  const a = el('a', { href: url, download: `ridd-payroll-${String(who.full_name || 'rep').replace(/\s+/g, '-')}-${period.isoStart}.csv` });
   document.body.append(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
