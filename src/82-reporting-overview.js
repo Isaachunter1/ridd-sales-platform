@@ -667,13 +667,70 @@ function reportingOverview() {
         el('thead', {}, el('tr', {}, hd('Office'), hd('Subs sold', true), hd('Subs lost', true), hd('Net subs', true), hd('Revenue sold', true), hd('Revenue lost', true), hd('Net revenue', true))),
         el('tbody', {}, line('RIDD', tot, true), ...list.map(([k, g]) => line(k, g, false)),
           !cxlAll.length && !soldAll.length ? el('tr', {}, el('td', { class: 'px-2 py-2 text-[10px] text-muted-', colspan: 7 }, 'Nothing sold or lost in this window.')) : null));
+      // ── DAILY view (per Isaac): one row per day — exactly what was lost
+      // each day, with the reason and office behind it — plus a few
+      // insights (worst day, weekday pattern, last 7 vs prior 7).
+      const dayView = state._pulseLostView === 'day';
+      const dayLong = (iso) => { const dt = new Date(iso + 'T00:00'); return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); };
+      const dayShort = (iso) => { const dt = new Date(iso + 'T00:00'); return (dt.getMonth() + 1) + '/' + dt.getDate(); };
+      const dayFull = (iso) => { const dt = new Date(iso + 'T00:00'); const n = dt.getDate(); const sfx = (n % 10 === 1 && n !== 11) ? 'st' : (n % 10 === 2 && n !== 12) ? 'nd' : (n % 10 === 3 && n !== 13) ? 'rd' : 'th'; return dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long' }) + ' ' + n + sfx + ', ' + dt.getFullYear(); };
+      const topOf = (rows, keyOf) => { const m = new Map(); for (const r of rows) { const k = keyOf(r) || 'Unspecified'; m.set(k, (m.get(k) || 0) + 1); } let best = '', n = 0; for (const [k, v] of m) if (v > n) { best = k; n = v; } return best ? best + ' (' + n + ')' : '\u2014'; };
+      const dayRows = days.map((d, i) => ({ d, i, sn: soldRows[i].length, srev: soldRows[i].reduce((a, r) => a + cvOf(r), 0), ln: cxlRows[i].length, lrev: cxlRows[i].reduce((a, r) => a + arrOf(r), 0),
+        reason: topOf(cxlRows[i], reportingCancelReasonOf), office: topOf(cxlRows[i], ofc) }));
+      const dayLine = (r) => el('tr', { class: 'border-t cursor-pointer transition hover:brightness-95', style: { borderColor: 'var(--border)' }, title: 'Click for this day\u2019s drilldown',
+        onclick: () => openPulseDayDrill(dayShort(r.d), dayFull(r.d), { sold: soldRows[r.i], svc: svcRows[r.i], cxl: cxlRows[r.i] }, 'cxl') },
+        el('td', { class: 'px-2 py-1.5 whitespace-nowrap font-semibold' }, dayLong(r.d), r.d === days[days.length - 1] && spanRaw !== 'yesterday' ? el('span', { class: 'ml-1 text-[9px] font-semibold', style: { color: 'var(--text-subtle)' } }, 'live') : null),
+        cell(fmt.int(r.sn), { right: true, bold: true, color: r.sn ? C.sold : '' }),
+        cell(fmt.int(r.ln), { right: true, bold: true, color: r.ln ? C.cxl : '' }),
+        cell(signed(r.sn - r.ln, false), { right: true, bold: true, color: netColor(r.sn - r.ln) }),
+        cell(fmt.usd0(r.srev), { right: true, color: r.srev ? C.sold : '' }),
+        cell(fmt.usd0(r.lrev), { right: true, color: r.lrev ? C.cxl : '' }),
+        cell(signed(r.srev - r.lrev, true), { right: true, bold: true, color: netColor(r.srev - r.lrev) }),
+        el('td', { class: 'px-2 py-1.5 whitespace-nowrap text-[11px]', style: { color: 'var(--text-muted)' } }, r.reason),
+        el('td', { class: 'px-2 py-1.5 whitespace-nowrap text-[11px]', style: { color: 'var(--text-muted)' } }, r.office));
+      const dayTbl = el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse' } },
+        el('thead', {}, el('tr', {}, hd('Day'), hd('Subs sold', true), hd('Subs lost', true), hd('Net subs', true), hd('Revenue sold', true), hd('Revenue lost', true), hd('Net revenue', true), hd('Top cancel reason'), hd('Office losing most'))),
+        el('tbody', {}, ...dayRows.slice().reverse().map(dayLine),
+          el('tr', { class: 'border-t font-bold', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
+            el('td', { class: 'px-2 py-1.5', style: { background: 'var(--card-2)' } }, winLabel), cell(fmt.int(tot.sn), { right: true, color: C.sold }), cell(fmt.int(tot.ln), { right: true, color: C.cxl }), cell(signed(tot.sn - tot.ln, false), { right: true, color: netColor(tot.sn - tot.ln) }),
+            cell(fmt.usd0(tot.srev), { right: true, color: C.sold }), cell(fmt.usd0(tot.lrev), { right: true, color: C.cxl }), cell(signed(tot.srev - tot.lrev, true), { right: true, color: netColor(tot.srev - tot.lrev) }), cell(''), cell(''))));
+      // Insights — only meaningful over a multi-day window.
+      const insights = (() => {
+        if (span < 7) return null;
+        const done = dayRows.filter(r => r.d < days[days.length - 1] || spanRaw === 'yesterday');   // completed days only
+        if (!done.length) return null;
+        const avgLost = done.reduce((a, r) => a + r.ln, 0) / done.length;
+        const worst = done.reduce((a, r) => (r.ln > a.ln ? r : a), done[0]);
+        const best = done.reduce((a, r) => (r.ln < a.ln ? r : a), done[0]);
+        const byDow = [0, 1, 2, 3, 4, 5, 6].map(dw => { const rs = done.filter(r => new Date(r.d + 'T00:00').getDay() === dw); return { dw, avg: rs.length ? rs.reduce((a, r) => a + r.ln, 0) / rs.length : null, n: rs.length }; }).filter(x => x.avg != null);
+        const heavy = byDow.slice().sort((a, b) => b.avg - a.avg)[0];
+        const dowName = (dw) => ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dw];
+        const last7 = done.slice(-7).reduce((a, r) => a + r.ln, 0), prior7 = done.slice(-14, -7).reduce((a, r) => a + r.ln, 0);
+        const trend = done.length >= 14 && prior7 ? (last7 - prior7) / prior7 : null;
+        const reason = topOf(cxlAll, reportingCancelReasonOf);
+        const tile = (label, v, sub, color) => el('div', { class: 'rounded-lg border px-3 py-2', style: { borderColor: 'var(--border)', minWidth: '150px', flex: '1 1 150px' } },
+          el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
+          el('div', { class: 'text-base font-black tabular-nums leading-tight', style: color ? { color } : {} }, v),
+          sub ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)', overflowWrap: 'anywhere' } }, sub) : null);
+        return el('div', { class: 'flex gap-2 flex-wrap mb-2' },
+          tile('Avg lost per day', avgLost.toFixed(1) + ' subs', fmt.usd0(done.reduce((a, r) => a + r.lrev, 0) / done.length) + ' ARR / day', C.cxl),
+          tile('Worst day', dayLong(worst.d), worst.ln + ' subs \u00b7 ' + fmt.usd0(worst.lrev) + ' \u00b7 ' + worst.reason, C.cxl),
+          tile('Best day', dayLong(best.d), best.ln + ' subs \u00b7 ' + fmt.usd0(best.lrev), C.sold),
+          heavy ? tile('Heaviest weekday', dowName(heavy.dw), 'avg ' + heavy.avg.toFixed(1) + ' subs lost (' + heavy.n + ' ' + dowName(heavy.dw) + 's)') : null,
+          trend != null ? tile('Last 7 days vs prior 7', (trend > 0 ? '+' : '') + Math.round(trend * 100) + '%', last7 + ' vs ' + prior7 + ' subs lost', trend > 0 ? C.cxl : C.sold) : null,
+          tile('Top cancel reason', reason.replace(/ \(\d+\)$/, ''), reason.match(/\((\d+)\)$/) ? reason.match(/\((\d+)\)$/)[1] + ' of ' + fmt.int(cxlAll.length) + ' cancels' : ''));
+      })();
+      const viewBtn = (v, l) => el('button', { class: 'px-2.5 py-1 text-[11px] font-bold transition', style: (dayView ? v === 'day' : v === 'office') ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._pulseLostView = v; mountApp(); } }, l);
       return el('div', { class: 'mt-3 pt-3 border-t', style: { borderColor: 'var(--border)' } },
         el('div', { class: 'flex items-center justify-between gap-2 flex-wrap mb-1' },
           el('div', {},
-            el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Subscriptions sold vs lost \u00b7 ' + winLabel.toLowerCase()),
+            el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Subscriptions sold vs lost \u00b7 ' + winLabel.toLowerCase() + (dayView ? ' \u00b7 by day' : ' \u00b7 by office')),
             el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, 'Revenue sold = contract value \u00b7 revenue lost = ARR of counted cancels' + (span > 1 ? ' \u00b7 RIDD is losing ' + (tot.ln / span).toFixed(1) + ' subs / day' : ''))),
-          el('button', { class: 'text-[10px] font-bold', style: { color: 'var(--accent)' }, onclick: () => openWindow('cxl') }, 'Where the churn came from \u2192')),
-        el('div', { class: 'scroll-x' }, tbl));
+          el('div', { class: 'flex items-center gap-2 flex-wrap' },
+            el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } }, viewBtn('office', 'By office'), viewBtn('day', 'Daily')),
+            el('button', { class: 'text-[10px] font-bold', style: { color: 'var(--accent)' }, onclick: () => openWindow('cxl') }, 'Where the churn came from \u2192'))),
+        dayView ? insights : null,
+        el('div', { class: 'scroll-x' }, dayView ? dayTbl : tbl));
     })();
     const stat = (label, v, color, kind) => el('button', { class: 'text-left cursor-pointer transition hover:brightness-95', title: 'See the ' + label.toLowerCase() + ' accounts, by office \u2014 and where churn came from', onclick: () => openWindow(kind) },
       el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
