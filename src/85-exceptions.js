@@ -144,9 +144,14 @@ function exceptionFeedItems(scope) {
       items.push({ sev: recent ? 'red' : 'amber', tag, text: rows.length + ' ' + label + (recent ? ' \u00b7 ' + recent + ' sold in the last 30 days' : ''), action: 'Review',
         onClick: () => openReportingDrillModal({ chartTitle: 'CRM fixes \u00b7 ' + tag, sliceLabel: rows.length + ' account' + (rows.length === 1 ? '' : 's') + ' \u00b7 newest first', rows, formatValue: fmt.usd0 }) });
     };
-    mk('Location', 'account' + (rec.location.length === 1 ? '' : 's') + ' whose state doesn\u2019t fit the branch', rec.location);
-    mk('Source', 'subscription' + (rec.source.length === 1 ? '' : 's') + ' sourced wrong for who sold them', rec.source);
-    mk('Cancellation', 'cancel reason' + (rec.cancel.length === 1 ? '' : 's') + ' that can\u2019t be right', rec.cancel);
+    const pl = (n, one, many) => n === 1 ? one : many;
+    mk('Location', pl(rec.location.length, 'account whose state or ZIP doesn\u2019t fit', 'accounts whose state or ZIP doesn\u2019t fit the branch'), rec.location);
+    mk('Source', pl(rec.source.length, 'subscription sourced wrong for who sold it', 'subscriptions sourced wrong for who sold them'), rec.source);
+    mk('Cancellation', pl(rec.cancel.length, 'cancel reason that can\u2019t be right', 'cancel reasons that can\u2019t be right'), rec.cancel);
+    mk('Status', pl(rec.status.length, 'subscription still Active but carrying a cancel date or reason', 'subscriptions still Active but carrying a cancel date or reason'), rec.status);
+    mk('Duplicates', pl(rec.dupes.length, 'active subscription duplicated on the same customer', 'active subscriptions duplicated on the same customer (same service twice)'), rec.dupes);
+    mk('Seller', pl(rec.seller.length, 'active subscription with no Sold By rep', 'active subscriptions with no Sold By rep'), rec.seller);
+    mk('No reason', pl(rec.noReason.length, 'cancelled subscription with no cancel reason', 'cancelled subscriptions with no cancel reason'), rec.noReason);
   }
   return items;
 }
@@ -166,8 +171,19 @@ function exceptionFeedItems(scope) {
 //    initial was completed (or that has completed services), and the
 //    retired "Expired Subscription" reason.
 // Rows come back as copies with _flagReason so the standard drill shows it.
+//  Status — subscription still Active in FieldRoutes but carrying a cancel
+//    date or reason (the status never flipped).
+//  Duplicates — one customer with the same service Active twice.
+//  Seller — Active subscription with no Sold By rep.
+//  No reason — cancelled (Frozen) with no cancel reason at all.
+//  ZIP — the ZIP's state (first three digits) disagrees with the customer's
+//    state; rides in the Location list.
+const CRM_ZIP_STATE = { AL: [350, 369], AK: [995, 999], AZ: [850, 865], AR: [716, 729], CA: [900, 961], CO: [800, 816], CT: [60, 69], DE: [197, 199], DC: [200, 205], FL: [320, 349], GA: [300, 319], HI: [967, 968], ID: [832, 838], IL: [600, 629], IN: [460, 479], IA: [500, 528], KS: [660, 679], KY: [400, 427], LA: [700, 714], ME: [39, 49], MD: [206, 219], MA: [10, 27], MI: [480, 499], MN: [550, 567], MS: [386, 397], MO: [630, 658], MT: [590, 599], NE: [680, 693], NV: [889, 898], NH: [30, 38], NJ: [70, 89], NM: [870, 884], NY: [100, 149], NC: [270, 289], ND: [580, 588], OH: [430, 459], OK: [730, 749], OR: [970, 979], PA: [150, 196], RI: [28, 29], SC: [290, 299], SD: [570, 577], TN: [370, 385], TX: [750, 799], UT: [840, 847], VT: [50, 59], VA: [220, 246], WA: [980, 994], WV: [247, 268], WI: [530, 549], WY: [820, 831] };
+function crmZipState(zip) { const m = /^(\d{3})\d{2}/.exec(String(zip || '').trim()); if (!m) return null; const p = Number(m[1]); for (const k in CRM_ZIP_STATE) { const [a, b] = CRM_ZIP_STATE[k]; if (p >= a && p <= b) return k; } return null; }
 function crmReconciliationChecks(subs) {
-  const out = { location: [], source: [], cancel: [] };
+  const out = { location: [], source: [], cancel: [], status: [], dupes: [], seller: [], noReason: [] };
+  const isActive = (r) => /active/i.test(String(r.subscription_status || ''));
+  const dupKey = new Map();
   const flag = (r, why) => Object.assign({}, r, { _flagReason: why });
   const newest = (a, b) => String(b.sold_date || '').localeCompare(String(a.sold_date || ''));
   // Home states per branch.
@@ -184,8 +200,17 @@ function crmReconciliationChecks(subs) {
     // Location
     const st = String(r.state || '').trim().toUpperCase();
     const hs = home.get(o);
-    if (!st) out.location.push(flag(r, 'No state on the customer'));
-    else if (hs && hs.size && !hs.has(st)) out.location.push(flag(r, st + ' is not a ' + o + ' state (' + [...hs].join('/') + ')'));
+    const zs = crmZipState(r.zip_code);
+    if (!st) out.location.push(flag(r, 'No state on the customer' + (zs ? ' \u2014 ZIP ' + r.zip_code + ' is ' + zs : '')));
+    else if (hs && hs.size && !hs.has(st)) out.location.push(flag(r, st + ' is not a ' + o + ' state (' + [...hs].join('/') + ')' + (zs && zs !== st ? ' \u2014 ZIP ' + r.zip_code + ' is ' + zs : '')));
+    else if (zs && zs !== st) out.location.push(flag(r, 'ZIP ' + r.zip_code + ' is a ' + zs + ' ZIP but the state says ' + st));
+    // Status / duplicates / seller / no reason
+    const cxlDate = String(r.subscription_date_canceled || '').trim();
+    const cxlReason = String(r.subscription_cancellation_reason || '').trim();
+    if (isActive(r) && (cxlDate || cxlReason)) out.status.push(flag(r, 'Active but ' + (cxlDate ? 'cancelled ' + cxlDate : 'has a cancel reason') + (cxlReason ? ' \u00b7 ' + cxlReason : '')));
+    if (isActive(r)) { const k = String(r.customer_id) + '|' + String(r.subscription || '').trim().toLowerCase(); (dupKey.get(k) || dupKey.set(k, []).get(k)).push(r); }
+    if (isActive(r) && !String(r.sold_by || '').trim()) out.seller.push(flag(r, 'Active with no Sold By'));
+    if (!isActive(r) && cxlDate && !cxlReason) out.noReason.push(flag(r, 'Cancelled ' + cxlDate + ' with no reason'));
     // Source
     const t = TYPE(r), src = SRC(r), ns = norm(src);
     if (t === 'technician') { if (ns !== 'upsell - service pro') out.source.push(flag(r, 'Technician sale sourced "' + (src || 'blank') + '" \u2014 should be Upsell - Service Pro')); }
@@ -196,7 +221,8 @@ function crmReconciliationChecks(subs) {
     if (/sold,?\s*not\s*started/i.test(reason) && initialDone(r)) out.cancel.push(flag(r, 'Sold, Not Started but the initial was completed' + ((Number(r.subscription_completed_services) || 0) > 0 ? ' (' + r.subscription_completed_services + ' service' + (Number(r.subscription_completed_services) === 1 ? '' : 's') + ')' : '')));
     else if (/expired\s*subscription/i.test(reason)) out.cancel.push(flag(r, '"Expired Subscription" is a retired cancel reason'));
   }
-  out.location.sort(newest); out.source.sort(newest); out.cancel.sort(newest);
+  for (const [, rs] of dupKey) if (rs.length > 1) rs.forEach(r => out.dupes.push(flag(r, String(r.subscription || '') + ' is Active ' + rs.length + '\u00d7 on customer ' + r.customer_id)));
+  for (const k in out) out[k].sort(newest);
   return out;
 }
 
