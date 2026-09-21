@@ -250,7 +250,12 @@ function openTvBoard() {
       hero || null,
       no ? el('div', { style: { display: 'grid', gridTemplateColumns: metric && metric.third ? '1fr 1fr 1fr' : '1fr 1fr', gap: '28px' } }, list(yesLabel, yes, true), list(noLabel, no, false), metric && metric.third ? list(metric.third.label, metric.third.rows, false) : null)
          : list(yesLabel, [...yes].sort((a, b) => saleKey(b) - saleKey(a)), true)));
-    document.body.append(back);
+    // In fullscreen the browser only paints the fullscreen element's
+    // subtree — a layer on <body> opens invisibly (Pere's TV, per Isaac,
+    // Sep 21) and the board then freezes waiting for it to close. Mount the
+    // drill inside whatever is fullscreen; render() already stands still
+    // while a drill is open, so the 30-second repaint can't wipe it.
+    (document.fullscreenElement || document.body).append(back);
   };
   const avatar = (r, px) => r.avatar
     ? el('img', { src: r.avatar, alt: '', style: { width: px + 'px', height: px + 'px', objectFit: 'cover', flexShrink: '0' } })   // (colour, per Isaac — the grayscale treatment is gone)
