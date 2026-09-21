@@ -3827,6 +3827,7 @@ try {
 // the terminal state. The header's "Last sync" pill reads the worst of them
 // and the status sheet lists each one with when it last worked.
 const HEALTH_SOURCES = {
+  ops: 'Operations stats (FieldRoutes)',
   indicators: 'Sales dataset (FieldRoutes via RevHawk)',
   reporting:  'Reporting snapshot',
   techstats:  'Technician route stats',
