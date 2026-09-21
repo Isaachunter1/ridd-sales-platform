@@ -391,7 +391,7 @@ function viewIndicators() {
         ? indicatorPresetLabel(state.indicatorsRangePreset)
         : indicatorWeekLabel(currentWeek, { short: true });
     } catch { /* label is cosmetic */ }
-    const overlay = el('div', { class: 'fixed inset-0 bg-black/70 z-40 flex items-start justify-center p-4 overflow-y-auto' });
+    const overlay = el('div', { class: 'modal-overlay' });
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
     overlay.append(el('div', { class: 'card p-5 w-full', style: { maxWidth: '440px' } },
       el('div', { class: 'flex items-center justify-between mb-1' },

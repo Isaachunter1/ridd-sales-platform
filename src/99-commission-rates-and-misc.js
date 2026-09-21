@@ -1301,7 +1301,7 @@ function adminCompetitions() {
 }
 
 function openCompEditor(existing = null) {
-  const overlay = el('div', { class: 'fixed inset-0 bg-black/70 z-40 flex items-start justify-center p-4 overflow-y-auto' });
+  const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 
   const form = el('form', {

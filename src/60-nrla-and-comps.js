@@ -1882,7 +1882,7 @@ function openMbRepModal(rep, day) {
   const B = { passed: { c: '#DF643A', bg: 'rgba(223,100,58,.14)', lab: 'Passed' },
               pending: { c: '#A9441F', bg: 'rgba(240,172,30,.16)', lab: 'Pending' },
               failed: { c: '#B91C1C', bg: 'rgba(220,38,38,.10)', lab: 'Failed' } };
-  const overlay = el('div', { class: 'fixed inset-0 bg-black/70 z-40 flex items-start justify-center p-4 overflow-y-auto' });
+  const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   const statChip = (lab, v, color) => el('div', { class: 'text-center' },
     el('div', { class: 'text-[9px] font-black uppercase tracking-widest', style: { color: 'var(--text-muted)' } }, lab),
@@ -5128,7 +5128,7 @@ function openSpringCompetingModal(branchList) {
   const comp = (typeof getActiveComp === 'function') ? getActiveComp() : null;
   if (!comp) { toast('No active Spring Cleaning config found', 'warn'); return; }
   if (!Array.isArray(comp.excludedBranches)) comp.excludedBranches = ['SALT LAKE'];
-  const overlay = el('div', { class: 'fixed inset-0 bg-black/70 z-40 flex items-start justify-center p-4 overflow-y-auto' });
+  const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   const body = el('div', { class: 'flex items-center gap-1.5 flex-wrap' });
   const render = () => {
