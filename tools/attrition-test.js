@@ -44,10 +44,11 @@ const src = [
   extractFn('_attrRevIsOTS'),
   extractFn('_attrRevParts'),
   extractFn('_isRorReason'),
-  'return { _attrRevParts, _is3DayROR, _isRorReason };',
+  extractFn('_landingAttritionPct'),
+  'return { _attrRevParts, _is3DayROR, _isRorReason, _landingAttritionPct };',
 ].join('\n');
 const state = { _indManualMode: false };
-const { _attrRevParts, _is3DayROR, _isRorReason } = new Function('state', src)(state);
+const { _attrRevParts, _is3DayROR, _isRorReason, _landingAttritionPct } = new Function('state', src)(state);
 
 // ── Fixtures: one sale each, the way indicatorSales() rows look ──
 const base = { subscription: 'Pest 4', contract: '12', contractValue: 1000, services: 2, status: 'Active', dateSold: '5/1/2026', cancelDate: '', cancelReason: '', active: 'Yes' };
@@ -80,6 +81,10 @@ const pct = t.serv ? t.cxl / t.serv : 0;
 const wantPct = 4 / 7;   // 4 churned of 7 serviced $1,000 rows in the fixture
 if (Math.abs(pct - wantPct) > 1e-9) { fail++; console.error('  ✗ fixture attrition % ' + pct + ' want ' + wantPct); }
 else console.log('  ✓ fixture book attrition = ' + (pct * 100).toFixed(1) + '% (' + t.cxl + ' / ' + t.serv + ')');
+// The Indicators landing "Attrition" tile must read the same book number.
+const tilePct = _landingAttritionPct(book);
+if (Math.abs(tilePct - wantPct) > 1e-9) { fail++; console.error('  ✗ landing tile attrition ' + tilePct + ' want ' + wantPct); }
+else console.log('  ✓ landing tile attrition matches the leaderboard definition');
 // Retention tab's reason test (same word-boundary rule, different surface)
 for (const [reason, want] of [['3 Day ROR', true], ['ror', true], ['Right of Rescission', true], ['Subscription Error', false], ['Error - Duplicate', false], ['Moved', false]]) {
   const got = _isRorReason(reason.toLowerCase());

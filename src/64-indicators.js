@@ -8711,23 +8711,14 @@ function _landingAttritionRows(rows) {
 }
 
 function _landingAttritionPct(rows) {
+  // ONE attrition definition (per Isaac): the same _attrRevParts the
+  // leaderboard "Attrition %" and the player card use — cancelled $ ÷
+  // serviced $, with 3-day RORs and one-time services out of both sides.
+  // (This tile used to define those exclusions and then not apply them,
+  // so a rep saw two different "Attrition" numbers on one page.)
   try {
-    const _svcR = (x) => (Number(x.services) || 0) > 0 || !!x.servicedDate;
-    const _actR = (x) => (x.status || '').toLowerCase() === 'active' || ((x.status || '') === '' && _subAliveNow(x) === true);
-    const _cxlR = (x) => !!x.cancelDate && !_actR(x);
-    const _ror = (x) => _is3DayROR(x) && !_isSoldNotStarted(x);
-    const _isOTS = (x) => {
-      if (/^\s*one[\s-]?time/i.test(String(x.subscription || ''))) return true;
-      const m = Number(x.contract);
-      return !(m > 1) && !/sentricon/i.test(String(x.subscription || ''));
-    };
     let serv = 0, cxl = 0;
-    for (const x of rows || []) {
-      if (!_svcR(x)) continue;
-      const cv = Number(x.contractValue) || 0;
-      serv += cv;
-      if (_cxlR(x)) cxl += cv;
-    }
+    for (const x of rows || []) { const p = _attrRevParts(x); serv += p.serv; cxl += p.cxl; }
     return serv > 0 ? cxl / serv : null;
   } catch { return null; }
 }
