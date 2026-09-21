@@ -120,7 +120,7 @@ function viewSales() {
       case 'revenue_amount':  return Number(s.revenue_amount || 0);
       case 'sold_date':       return s.sold_date || '';
       case 'commission_date': return (commissionableDate(s) || {}).date || '';
-      case 'service_date': return s.crm_serviced_at ? String(s.crm_serviced_at).slice(0, 10) : '';
+      case 'service_date': return s.crm_serviced_at ? String(s.crm_serviced_at).slice(0, 10) : (s.crm_initial_appt_at ? String(s.crm_initial_appt_at).slice(0, 10) : '');
       case 'audit_status':    return s.audit_status || '';
       case 'audited_by':      return (state.allProfiles.find(p => p.id === s.audited_by)?.full_name || '').toLowerCase();
       case 'crm_audit':       return s.crm_audit === 'passed' ? 2 : s.crm_audit === 'failed' ? 1 : 0;
@@ -460,7 +460,8 @@ function salesCardsMobile(rows, { isAdmin = false, queueFilter = 'upfront' } = {
             el('div', { class: 'text-[11px] text-muted- mt-0.5' },
               [
                 s.customer_number ? '#' + s.customer_number : null,
-                fmt.dateShort(s.sold_date),
+                'sold ' + fmt.dateShort(s.sold_date),
+                s.crm_serviced_at ? '\u2713 serviced ' + fmt.dateShort(String(s.crm_serviced_at).slice(0, 10)) : s.crm_initial_appt_at ? 'service ' + fmt.dateShort(String(s.crm_initial_appt_at).slice(0, 10)) : 'not scheduled',
               ].filter(Boolean).join(' · '),
             ),
           ),
@@ -672,7 +673,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
             !showBackend && headerCell('Monthly',     { sortableKey: 'monthly_amount', align: 'right', help: H.monthly }),
             headerCell('Revenue',     { sortableKey: 'revenue_amount', align: 'right', help: H.revenue }),
             headerCell('Sold Date',   { sortableKey: 'sold_date', help: H.sold }),
-            headerCell('Service Date', { sortableKey: 'service_date', title: 'Initial service completed (from FieldRoutes). Commissionable status doesn\u2019t wait on this \u2014 a sale charged upfront is commissionable on the sale date.' }),
+            headerCell('Service Date', { sortableKey: 'service_date', title: 'The initial appointment in FieldRoutes: the scheduled date until it happens, then the completed date with a \u2713. Commissionable status doesn\u2019t wait on this \u2014 a sale charged upfront is commissionable on the sale date.' }),
             // Three flags, sheet-style (per Isaac): PIF · COMM. (commission
             // paid out) · Upfront (payment collected at signing). Admins
             // toggle PIF / Upfront right here; COMM. is read-only — it is
@@ -749,7 +750,10 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                 // rides in the tooltip.
                 const c = commissionableDate(s);
                 const svc = s.crm_serviced_at ? String(s.crm_serviced_at).slice(0, 10) : null;
-                return el('span', { class: 'tabular-nums whitespace-nowrap ' + (svc ? 'font-medium' : 'text-muted-'), title: (svc ? 'Initial service completed ' + svc + ' \u00b7 ' : 'No initial service completed yet \u00b7 ') + c.why, style: svc ? {} : { color: 'var(--text-subtle)' } }, svc ? fmt.dateShortYear(svc) : 'not yet');
+                const sched = s.crm_initial_appt_at ? String(s.crm_initial_appt_at).slice(0, 10) : null;
+                if (svc) return el('span', { class: 'tabular-nums whitespace-nowrap font-medium', title: 'Initial service completed ' + svc + ' \u00b7 ' + c.why, style: { color: 'var(--ok)' } }, '\u2713 ' + fmt.dateShortYear(svc));
+                if (sched) { const past = sched < new Date().toISOString().slice(0, 10); return el('span', { class: 'tabular-nums whitespace-nowrap font-medium', title: (past ? 'Initial appointment was scheduled for ' + sched + ' but is not marked completed in FieldRoutes' : 'Initial appointment scheduled for ' + sched) + ' \u00b7 ' + c.why, style: past ? { color: '#B45309' } : {} }, (past ? '\u26a0 ' : '\u{1F4C5} ') + fmt.dateShortYear(sched)); }
+                return el('span', { class: 'tabular-nums whitespace-nowrap text-muted-', title: 'No initial appointment on the subscription yet \u00b7 ' + c.why, style: { color: 'var(--text-subtle)' } }, 'not scheduled');
               })()),
               el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, 'paid_in_full', isAdmin, 'Paid in Full — the "Paid In Full" button on the FieldRoutes customer card')),
               el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, 'upfront_collected', isAdmin, 'Charged Upfront — payment collected at signing (feeds the Charge Upfront % tier)')),

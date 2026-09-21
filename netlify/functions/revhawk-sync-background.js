@@ -157,6 +157,14 @@ appt AS (
   WHERE fieldRoutes_dateCompleted IS NOT NULL AND fieldRoutes_dateCompleted NOT LIKE '0000%' AND fieldRoutes_dateCompleted != ''
   GROUP BY 1
 ),
+apptSched AS (
+  -- SCHEDULED date of each appointment (any status but cancelled) — the
+  -- Sales queues' "Service date" before the initial visit has happened.
+  SELECT fieldRoutes_appointmentID AS aid, MIN(NULLIF(LEFT(fieldRoutes_date,10),'0000-00-00')) AS appt_date
+  FROM \`${PROJECT}.${DATASET}.FieldRoutesAppointment\`
+  WHERE fieldRoutes_status != '-1' AND fieldRoutes_date IS NOT NULL AND fieldRoutes_date NOT LIKE '0000%'
+  GROUP BY 1
+),
 pay AS (
   -- Successful payments (status 1, money actually applied) per customer —
   -- the commissionable-date rule (per Isaac) needs "first payment received
@@ -227,6 +235,7 @@ SELECT
   CASE WHEN s.fieldRoutes_initialStatusText='Completed'
        THEN NULLIF(LEFT(s.fieldRoutes_dateAdded,10),'0000-00-00') END AS initial_service,
   appt.serviced_date AS initial_serviced_date,
+  apptSched.appt_date AS initial_appt_date,
   -- First successful payment on/after the sale date (commissionable-date rule).
   (SELECT MIN(p.paid_on) FROM pay p WHERE p.cid = s.fieldRoutes_customerID AND p.paid_on >= LEFT(s.fieldRoutes_dateAdded,10)) AS first_paid_date,
   s.fieldRoutes_source AS subscription_source,
@@ -266,6 +275,7 @@ LEFT JOIN emp   ON emp.eid   = s.fieldRoutes_soldBy
 LEFT JOIN flags ON flags.cid = s.fieldRoutes_customerID
 LEFT JOIN cxl   ON cxl.sid   = s.id
 LEFT JOIN appt  ON appt.aid  = s.fieldRoutes_initialAppointmentID
+LEFT JOIN apptSched ON apptSched.aid = s.fieldRoutes_initialAppointmentID
 LEFT JOIN sigsub  ON sigsub.sid  = s.fieldRoutes_subscriptionID
 LEFT JOIN sigcust ON sigcust.cid = s.fieldRoutes_customerID
 WHERE s.fieldRoutes_customerID IS NOT NULL AND s.fieldRoutes_customerID != ''
@@ -1354,6 +1364,15 @@ exports.handler = async (event) => {
       let { data: appSales, error: asErr } = await supabase.from('sales')
         .select('id, customer_number, revenue_amount, sold_date, paid_in_full, is_commercial, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance, crm_contract_signed_at, crm_contract_state, crm_initial_status, crm_autopay, crm_subscription_id, upfront_collected, crm_audit, crm_first_paid_at')
         .gte('sold_date', since);
+      // Scheduled initial appointment (20260921_sales_initial_appt.sql) — read
+      // separately so the select chain above stays as it is; off if the column
+      // isn't there yet.
+      let _apptCol = true; const _apptNow = new Map();
+      try {
+        const { data: ap, error: apErr } = await supabase.from('sales').select('id, crm_initial_appt_at').gte('sold_date', since);
+        if (apErr) { _apptCol = false; console.warn('[revhawk-sync] crm_initial_appt_at missing — run migrations/20260921_sales_initial_appt.sql for the Service date column'); }
+        else (ap || []).forEach(x => _apptNow.set(x.id, x.crm_initial_appt_at ? String(x.crm_initial_appt_at).slice(0, 10) : null));
+      } catch (e) { _apptCol = false; }
       let _agreementCols = true;   // flips off if sales_crm_agreement.sql hasn't been run
       let _eligCols = true;        // flips off if 20260916_sales_eligibility.sql hasn't been run
       if (asErr && /crm_first_paid_at/i.test(asErr.message || '')) {
@@ -1397,7 +1416,7 @@ exports.handler = async (event) => {
           const cust = s.customer_number != null ? String(s.customer_number).trim() : '';
           const rev = Number(s.revenue_amount) || 0;
           let status = 'not_found', cv = null, subName = null;
-          const lc = { serviced_at: null, first_paid_at: null, completed: 0, dpd: null, balance: null, pif: false, signed_at: null, contract_state: null };
+          const lc = { serviced_at: null, first_paid_at: null, completed: 0, dpd: null, balance: null, pif: false, signed_at: null, contract_state: null, appt_at: null };
           const subs = cust ? byCust.get(cust) : null;
           if (subs && subs.length) {
             const soldT = Date.parse(s.sold_date || '') || 0;
@@ -1422,6 +1441,7 @@ exports.handler = async (event) => {
             status = bestDiff === 0 ? 'verified' : bestDiff <= 1 ? 'near_match' : 'revenue_mismatch';
             // Lifecycle from the warehouse: serviced yet? paid / current?
             lc.serviced_at = best.initial_serviced_date ? String(best.initial_serviced_date).slice(0, 10) : null;
+            lc.appt_at = best.initial_appt_date ? String(best.initial_appt_date).slice(0, 10) : null;
             lc.first_paid_at = best.first_paid_date ? String(best.first_paid_date).slice(0, 10) : null;
             lc.completed = Number(best.subscription_completed_services) || 0;
             lc.dpd = (best.days_past_due === null || best.days_past_due === undefined || best.days_past_due === '') ? null : (Number(best.days_past_due) || 0);
@@ -1446,6 +1466,7 @@ exports.handler = async (event) => {
             (Number(s.crm_completed_services) || 0) !== (lc.completed || 0) ||
             (s.crm_days_past_due == null ? null : Number(s.crm_days_past_due)) !== lc.dpd ||
             (s.crm_balance == null ? null : Number(s.crm_balance)) !== lc.balance);
+          const apptChanged = _apptCol && (_apptNow.get(s.id) || null) !== (lc.appt_at || null);
           const pifChanged = !!lc.cardKnown && (!!s.paid_in_full) !== lc.pif;
           const commChanged = !!lc.cardKnown && (!!s.is_commercial) !== !!lc.commercial;
           const flagNow = _hasFlagV(lc.best);
@@ -1458,10 +1479,11 @@ exports.handler = async (event) => {
           const eligChanged = _eligCols && lc.best && (
             String(s.crm_initial_status || '') !== (String(lc.best.initial_status || '').trim() || 'None')
             || (s.crm_autopay == null || !!s.crm_autopay) !== (() => { const a = String(lc.best.customer_auto_pay || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); })());
-          if (s.crm_status === status && (Number(s.crm_contract_value) || 0) === (cv || 0) && !lcChanged && !pifChanged && !commChanged && !sigChanged && !eligChanged && !flagChanged && !auditChanged) continue;
+          if (s.crm_status === status && (Number(s.crm_contract_value) || 0) === (cv || 0) && !lcChanged && !pifChanged && !commChanged && !sigChanged && !eligChanged && !flagChanged && !auditChanged && !apptChanged) continue;
           const upd = { crm_status: status, crm_contract_value: cv, crm_subscription: subName, crm_checked_at: stamp };
           if (_lifecycleCols) { upd.crm_serviced_at = lc.serviced_at; upd.crm_completed_services = lc.completed; upd.crm_days_past_due = lc.dpd; upd.crm_balance = lc.balance; }
           if (_lifecycleCols && _paidCol) upd.crm_first_paid_at = lc.first_paid_at;
+          if (_apptCol) upd.crm_initial_appt_at = lc.appt_at;
           if (_eligCols && lc.best) { upd.crm_initial_status = String(lc.best.initial_status || '').trim() || 'None'; upd.crm_autopay = (() => { const a = String(lc.best.customer_auto_pay || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); })(); }
           if (_agreementCols) { upd.crm_contract_signed_at = lc.signed_at; upd.crm_contract_state = lc.contract_state; }
           if (pifChanged) upd.paid_in_full = lc.pif;
