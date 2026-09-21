@@ -294,7 +294,8 @@ function calendarEligibleProfiles(fallback) {
 // office-staff profile under Inside Sales. The dropdown up top is a view
 // scope, not a filing decision.
 function calendarAgentDept(p) {
-  return (p && p.rep_type === 'loyalty_rep') ? 'loyalty' : 'inside_sales';
+  // Same loyalty rule everywhere (Pay, Scorecards, Calendar): CRM rep_type or the loyalty access roles.
+  return (typeof scorecardDeptOf === 'function' ? scorecardDeptOf(p) : ((p && p.rep_type === 'loyalty_rep') ? 'loyalty' : 'inside_sales'));
 }
 function calendarDeptAgents() {
   return calendarEligibleProfiles(state.profile)

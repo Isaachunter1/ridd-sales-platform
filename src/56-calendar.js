@@ -8,6 +8,9 @@ function viewCalendar() {
   const isAdmin = calendarCanManage(me.role);
   const reps = calendarEligibleProfiles(me);
   const repById = Object.fromEntries(reps.map(r => [r.id, r]));
+  // Loyalty reps open on the Loyalty department once per session instead
+  // of Inside Sales every time (the picker still switches freely).
+  if (!state._calDeptInit) { state._calDeptInit = true; if (!isAdmin && !state.calendarDepartment && typeof calendarAgentDept === 'function') state.calendarDepartment = calendarAgentDept(me); }
   if (!(state._calAgentHidden instanceof Set)) state._calAgentHidden = new Set();
   if (state._calFocus === undefined) state._calFocus = null;
 
