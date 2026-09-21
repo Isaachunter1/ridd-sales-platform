@@ -875,7 +875,8 @@ function _mktgMatrixCard(title, note, rows, cell, fmtFn, opts = {}) {
   Object.assign(thL.style, stickyL('var(--card)'), { zIndex: 3 });
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-start gap-4 gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, title), note ? el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, note) : null),
+      // Description line under the title retired (per Isaac, Sep 2026) — the definition rides the title as a tooltip.
+      el('div', {}, el('h3', { class: 'text-sm font-bold', title: note || '' }, title)),
       opts.headerExtra || null, monthPick),
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs frozen-table' },
       el('thead', { style: { position: 'sticky', top: 0, zIndex: 2, background: 'var(--card)' } }, el('tr', {}, thL, ...monthIdx.map(i => _mktgTh(MKTG_MONTHS[i])), showTotal ? _mktgTh('Total') : null)),
@@ -993,11 +994,11 @@ function _mktgPnl() {
       const METRICS = {
         roas:   { label: 'ROAS',              note: 'new revenue ÷ ad spend · goal ' + T.roas + '+',                                  cell: (rk, i) => _mktgDiv(rev(rk, i), ad(rk, i)), fmt: _mktgX,   total: ratioTotal(rev, ad), style: goalStyle(T.roas, (v, g) => v >= g) },
         cac:    { label: 'CAC',               note: 'total spend ÷ new revenue',                                                      cell: (rk, i) => _mktgDiv(tot(rk, i), rev(rk, i)), fmt: _mktgPct, total: ratioTotal(tot, rev) },
-        adcac:  { label: 'Ad spend % of CAC', note: 'ad spend ÷ new revenue · goal ' + Math.round(T.adSpendCac * 100) + '%',         cell: (rk, i) => _mktgDiv(ad(rk, i), rev(rk, i)),  fmt: _mktgPct, total: ratioTotal(ad, rev),  style: goalStyle(T.adSpendCac, (v, g) => v <= g) },
-        wgcac:  { label: 'Wages % of CAC',    note: 'wages ÷ new revenue · goal ' + Math.round(T.wagesCac * 100) + '%',              cell: (rk, i) => _mktgDiv(wg(rk, i), rev(rk, i)),  fmt: _mktgPct, total: ratioTotal(wg, rev),  style: goalStyle(T.wagesCac, (v, g) => v <= g) },
+        adcac:  { label: 'Agency CAC %',      note: 'ad spend ÷ new revenue · goal ' + Math.round(T.adSpendCac * 100) + '%',         cell: (rk, i) => _mktgDiv(ad(rk, i), rev(rk, i)),  fmt: _mktgPct, total: ratioTotal(ad, rev),  style: goalStyle(T.adSpendCac, (v, g) => v <= g) },
+        wgcac:  { label: 'Wages %',           note: 'wages ÷ new revenue · goal ' + Math.round(T.wagesCac * 100) + '%',              cell: (rk, i) => _mktgDiv(wg(rk, i), rev(rk, i)),  fmt: _mktgPct, total: ratioTotal(wg, rev),  style: goalStyle(T.wagesCac, (v, g) => v <= g) },
         // Cost per job (per Isaac): total spend ÷ subscriptions sold (new +
         // upsell, pending/serviced) — the same rows New revenue is built on.
-        cpj:    { label: 'Cost per job',      note: 'total spend ÷ subscriptions (new + upsell · pending/serviced · by sold month)',    cell: (rk, i) => _mktgDiv(tot(rk, i), jobs(rk, i)), fmt: _mktgUsd0, total: ratioTotal(tot, jobs) },
+        cpj:    { label: 'Cost/Job',          note: 'total spend ÷ subscriptions (new + upsell · pending/serviced · by sold month)',    cell: (rk, i) => _mktgDiv(tot(rk, i), jobs(rk, i)), fmt: _mktgUsd0, total: ratioTotal(tot, jobs) },
       };
       const key = METRICS[state._mktEffMetric] ? state._mktEffMetric : 'roas';
       const M = METRICS[key];
@@ -1005,7 +1006,7 @@ function _mktgPnl() {
         class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer ml-auto',
         style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
         onchange: (e) => { state._mktEffMetric = e.target.value; mountApp(); },
-      }, ...Object.entries(METRICS).map(([k, v]) => el('option', { value: k, selected: k === key }, v.label)));
+      }, ...['roas', 'cac', 'cpj', 'adcac', 'wgcac'].map(k => [k, METRICS[k]]).map(([k, v]) => el('option', { value: k, selected: k === key }, v.label)));   // order per Isaac: ROAS · CAC · Cost/Job · Agency CAC % · Wages %
       return _mktgMatrixCard('Efficiency · ' + M.label, M.note, rows, M.cell, M.fmt, { ...opts, total: M.total, cellStyle: M.style, headerExtra: picker });
     })(),
     // (QuickBooks booked vs allocated card dropped — ad spend is QuickBooks-only now.)
