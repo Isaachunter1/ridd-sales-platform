@@ -222,11 +222,10 @@ function viewPricing() {
 
     // ── card primitives (brand look, fixed colours — the slick doesn't theme) ──
     const card = (...kids) => el('div', { style: { background: C.cream, borderRadius: '12px', overflow: 'hidden', color: C.char } }, ...kids);
-    const secH = (title, sub, extra) => el('div', { class: 'flex items-baseline justify-between gap-3 flex-wrap', style: { padding: '12px 16px 4px' } },
-      el('div', { class: 'flex items-baseline gap-3 flex-wrap' },
-        el('div', { style: { font: '700 14px/1 Archivo, "Helvetica Neue", Arial, sans-serif', textTransform: 'uppercase', color: C.char } }, title),
-        extra || null),
-      sub ? el('div', { style: { font: '400 9px/1.2 Archivo, Arial, sans-serif', color: C.ink2, textAlign: 'right' } }, sub) : null);
+    // `extra` (the New / Current toggle) sits at the right edge of the header (per Isaac).
+    const secH = (title, sub, extra) => el('div', { class: 'flex items-center justify-between gap-3 flex-wrap', style: { padding: '12px 16px 4px' } },
+      el('div', { style: { font: '700 14px/1 Archivo, "Helvetica Neue", Arial, sans-serif', textTransform: 'uppercase', color: C.char } }, title),
+      extra || (sub ? el('div', { style: { font: '400 9px/1.2 Archivo, Arial, sans-serif', color: C.ink2, textAlign: 'right' } }, sub) : null));
     const pill = (txt, on, onclick) => el('button', { onclick, style: { background: on ? C.orange : 'transparent', color: on ? C.cream : C.char, border: '1.5px solid ' + (on ? C.orange : C.ink3), font: '700 10px/1 Archivo, Arial, sans-serif', letterSpacing: '.08em', textTransform: 'uppercase', padding: '6px 10px', borderRadius: '999px', cursor: 'pointer' } }, txt);
     // Selected tile = solid orange with cream type (per Isaac), not just an outline.
     const tile = (label, sub, val, on, onclick, o = {}) => {
