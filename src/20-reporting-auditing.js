@@ -272,7 +272,8 @@ function reportingAuditing() {
       el('div', { class: 'grid grid-cols-2 sm:grid-cols-3 gap-2' }, ...tiles));
     // Attrition pair in ONE tile — excl. ROR + OTS on the left, incl. on the
     // right — so the group is two cards wide and fills a phone row.
-    const attrTile = (excl, incl) => el('div', { class: 'rounded-xl p-3', style: { background: 'var(--card-2)' } },
+    // Spans two columns everywhere (per Isaac): a full phone row, two of the three desktop columns with Aging on the right.
+    const attrTile = (excl, incl) => el('div', { class: 'rounded-xl p-3 sm:col-span-2', style: { background: 'var(--card-2)', gridColumn: 'span 2 / span 2' } },
       el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Attrition'),
       el('div', { class: 'grid grid-cols-2 gap-3 mt-0.5' },
         el('div', {},
