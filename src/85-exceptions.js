@@ -47,17 +47,20 @@ function exceptionFeedItems(scope) {
   // 2. Quiet reps — D2D reps who sold in the last 14 days but nothing in
   // the last 3 (today + 2 prior). Active reps who went silent, not the
   // whole roster.
-  if (scope.kind !== 'office') {
+  {
+    // Office leads get the same test over Office Staff sellers; D2D scopes
+    // over Sales Reps.
+    const wantDept = scope.kind === 'office' ? 'office' : 'd2d';
     const raw = state._indicatorRawSales || [];
     const byRep = new Map();
     for (const s of raw) {
-      if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') continue;
+      if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== wantDept) continue;
       const dt = (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || '';
       if (!dt || dt < d14 || dt > todayIso) continue;
       const nm = (typeof getCanonicalRepName === 'function' ? getCanonicalRepName(s.rep) : s.rep) || '';
       if (!nm) continue;
-      const t = teamOf(nm); if (!inScopeTeam(t)) continue;
-      const g = byRep.get(nm) || { n14: 0, n3: 0, team: t };
+      const t = teamOf(nm); if (wantDept === 'd2d' && !inScopeTeam(t)) continue;
+      const g = byRep.get(nm) || { n14: 0, n3: 0, team: wantDept === 'd2d' ? t : '' };
       g.n14++; if (dt >= d3) g.n3++;
       byRep.set(nm, g);
     }

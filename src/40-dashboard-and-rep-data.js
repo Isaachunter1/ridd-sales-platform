@@ -5713,6 +5713,9 @@ function todaysSalesPanel(windowSales, range) {
 }
 
 function leaderboardSection(range) {
+  // Loyalty reps sell renewals — their board opens on Renewals (once per
+  // session; the pill still switches).
+  if (!state._lbTabInit) { state._lbTabInit = true; if (typeof scorecardDeptOf === 'function' && scorecardDeptOf(state.profile) === 'loyalty' && !isAdminRole(state.profile?.role)) state.dashLeaderTab = 'renewals'; }
   // Scoped to the dashboard's date filter (defaults to Today) — one filter
   // drives the whole page: cards, feed, and leaderboard.
   // Only reps with a recorded sale in the selected window rank — no

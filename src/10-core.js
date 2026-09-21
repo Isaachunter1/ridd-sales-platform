@@ -3766,12 +3766,34 @@ function openHealthSheet() {
         el('div', { class: 'text-[10px] text-muted-' }, st === 'error' ? ('Failed ' + fmtT(v.at) + (v.okAt ? ' \u00b7 last worked ' + fmtT(v.okAt) : '') + ' \u00b7 ' + v.msg) : st === 'ok' ? 'Last loaded ' + fmtT(v.at) : 'Loads when its tab opens')),
       el('span', { class: 'text-[10px] font-bold uppercase tracking-wider shrink-0', style: { color } }, st));
   });
+  // Server side (admins): the sync worker's own heartbeat + newest reporting
+  // snapshot from /api/sync-status — "the job ran at 3:00 and finished ok
+  // in 41 s" instead of only what this browser managed to load.
+  const serverRow = isAdminRole(state.profile?.role) ? el('div', { class: 'px-3 py-2 text-[12px]', style: { borderTop: '1px solid var(--border)' } },
+    el('div', { class: 'font-semibold' }, 'Sync worker (server)'),
+    el('div', { class: 'text-[10px] text-muted-' }, 'Checking\u2026')) : null;
+  if (serverRow) {
+    fetch('/api/sync-status', { cache: 'no-store' }).then(r => r.json()).then(j => {
+      const lr = j.lastRun || {}, snap = (j.recentSnapshots || [])[0];
+      const ok = lr.ok === true || lr.stage === 'finished';
+      const bits = [];
+      if (lr.at) bits.push((lr.stage === 'failed' ? 'Failed ' : lr.stage === 'finished' ? 'Finished ' : (lr.stage ? 'Running \u00b7 ' + lr.stage + ' \u00b7 ' : '')) + fmtT(lr.at) + (lr.ms ? ' in ' + Math.round(lr.ms / 1000) + ' s' : ''));
+      if (lr.error) bits.push(lr.error);
+      if (snap && snap.uploaded_at) bits.push('Newest snapshot ' + fmtT(snap.uploaded_at) + (snap.rows ? ' \u00b7 ' + Number(snap.rows).toLocaleString() + ' rows' : ''));
+      if (j.minutesSinceLastSnapshot != null) bits.push(j.minutesSinceLastSnapshot + ' min ago');
+      serverRow.replaceChildren(
+        el('div', { class: 'flex items-start justify-between gap-3' },
+          el('div', { class: 'min-w-0' }, el('div', { class: 'font-semibold' }, 'Sync worker (server)'), el('div', { class: 'text-[10px] text-muted-', style: { overflowWrap: 'anywhere' } }, bits.join(' \u00b7 ') || 'No heartbeat yet')),
+          el('span', { class: 'text-[10px] font-bold uppercase tracking-wider shrink-0', style: { color: lr.stage === 'failed' ? '#DC2626' : ok ? '#5F6C5B' : 'var(--text-subtle)' } }, lr.stage === 'failed' ? 'error' : ok ? 'ok' : (lr.stage || 'unknown'))));
+    }).catch(() => { serverRow.lastChild.textContent = 'Could not reach /api/sync-status'; });
+  }
   overlay.append(el('div', { class: 'card p-0 flex flex-col', style: { width: 'min(520px, 94vw)', maxHeight: '80vh', overflow: 'auto' } },
     el('div', { class: 'px-4 py-3 flex items-center justify-between gap-3' },
       el('div', {}, el('div', { class: 'text-sm font-bold' }, 'Data sources'), el('div', { class: 'text-[10px] text-muted-' }, (typeof appSyncStampStr === 'function' ? 'Last sync ' + appSyncStampStr() : ''))),
       el('div', { class: 'flex items-center gap-2' },
         el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: () => { overlay.remove(); try { refreshIndicatorsFromCloud(true); toast('Refreshing\u2026', 'success'); } catch (e) { /* poll retries */ } } }, '\u21bb Refresh'),
         el('button', { class: 'text-xl leading-none', onclick: () => overlay.remove() }, '\u00d7'))),
+    serverRow,
     ...rows));
   document.body.append(overlay);
 }
