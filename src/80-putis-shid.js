@@ -1279,8 +1279,8 @@ function reportingFilterBar(scope, opts = {}) {
       }));
     const label = allOn ? 'All Offices' : picked.size === 0 ? 'No offices' : picked.size === 1 ? [...picked][0] : picked.size + ' of ' + all.length + ' offices';
     const btn = el('button', {
-      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer flex items-center justify-between gap-2',
-      style: { borderColor: allOn ? 'var(--border-2)' : 'var(--accent)', background: 'var(--card)', color: 'var(--text)', minWidth: '180px' },
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer flex items-center justify-between gap-2 w-full',   // w-full: escapes the toolbar centring rule so the label sits left (per Isaac)
+      style: { borderColor: allOn ? 'var(--border-2)' : 'var(--accent)', background: 'var(--card)', color: 'var(--text)', minWidth: '180px', width: 'auto', justifyContent: 'space-between', textAlign: 'left' },
       onclick: (e) => {
         e.stopPropagation();
         const open = panel.style.display === 'block';
