@@ -1925,6 +1925,11 @@ function _reporting3dayRor(r) {
   // sold-by types keep the old behavior (legacy rows, benefit of the doubt).
   const _t = String(r.sold_by_type || '').trim().toLowerCase();
   if (_t && _t !== 'sales rep') return false;
+  // A sub with MORE THAN ONE completed appointment was really serviced (per
+  // Isaac, Sep 21): whatever the CRM dates say, nobody rescinded it. Those
+  // stay in the book — and if the cancel reason is a renewal, the renewals
+  // step later treats them as retained.
+  if ((Number(r.subscription_completed_services) || 0) > 1) return false;
   const d = (new Date(r.subscription_date_canceled) - new Date(r.sold_date)) / 86400000;
   return d >= 0 && d <= 3;
 }
