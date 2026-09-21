@@ -1285,7 +1285,8 @@ function reportingMarketingPnl() {
   reportingLoadQboSpend();
   const sub = ['pnl', 'cac', 'providers', 'spend', 'projections'].includes(state._mktSub) ? state._mktSub : 'pnl';
   const body = sub === 'cac' ? _mktgCac() : sub === 'providers' ? _mktgProviders() : sub === 'spend' ? _mktgSpendEntry() : sub === 'projections' ? _mktgProjections() : _mktgPnl();
-  return el('div', { class: 'flex flex-col gap-4' }, _mktgYearBar(sub), body);
+  // Needs attention (owner-only feed) lives on the Marketing tab (per Isaac, Sep 2026).
+  return el('div', { class: 'flex flex-col gap-4' }, (typeof exceptionFeedCard === 'function') ? exceptionFeedCard() : null, _mktgYearBar(sub), body);
 }
 
 const REPORTING_MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];

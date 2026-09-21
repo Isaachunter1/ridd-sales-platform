@@ -777,7 +777,6 @@ function reportingOverview() {
 
   return el('div', { class: 'flex flex-col gap-4' },
     reportingPinBar('overview', filterBar),
-    (typeof exceptionFeedCard === 'function') ? exceptionFeedCard() : null,
     statsBlock,
     pulseCard,
     columnsBlock,
