@@ -678,9 +678,8 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
             // toggle PIF / Upfront right here; COMM. is read-only — it is
             // stamped by payroll.
             headerCell('PIF',     { extraClass: 'text-center', align: 'center', help: H.pif }),
-            headerCell('Comm.',   { extraClass: 'text-center', align: 'center', help: H.comm }),
             headerCell('Upfront', { extraClass: 'text-center', align: 'center', help: H.upfront }),
-            headerCell('Comm\u2019l', { extraClass: 'text-center', align: 'center', help: H.commercial }),
+            headerCell('Comm.', { extraClass: 'text-center', align: 'center', help: H.commercial }),
             headerCell('Status',      { sortableKey: 'audit_status', help: H.status }),
             headerCell('Audit',       { sortableKey: 'crm_audit', extraClass: 'text-center', align: 'center', help: H.audit }),
             // CRM revenue check + lifecycle chips — auto-verified against the
@@ -753,10 +752,13 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                 return el('span', { class: 'tabular-nums whitespace-nowrap ' + (svc ? 'font-medium' : 'text-muted-'), title: (svc ? 'Initial service completed ' + svc + ' \u00b7 ' : 'No initial service completed yet \u00b7 ') + c.why, style: svc ? {} : { color: 'var(--text-subtle)' } }, svc ? fmt.dateShortYear(svc) : 'not yet');
               })()),
               el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, 'paid_in_full', isAdmin, 'Paid in Full — the "Paid In Full" button on the FieldRoutes customer card')),
-              el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, '_comm_paid', false, s.payroll_processed_at ? 'Commission paid ' + fmt.dateShortYear(String(s.payroll_processed_at).slice(0, 10)) : (s.staged_for_payroll ? 'Staged for the next payroll' : 'Commission not paid yet'))),
               el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, 'upfront_collected', isAdmin, 'Charged Upfront — payment collected at signing (feeds the Charge Upfront % tier)')),
               el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, 'is_commercial', false, 'Commercial Account toggle on the FieldRoutes customer card — pays the commercial rate')),
-              cell(statusSelect(s.id)),
+              // Status + the payroll stamp under it (per Isaac: the paid flag
+              // lives here, not in its own column).
+              el('td', { class: 'px-2 py-2 whitespace-nowrap' }, statusSelect(s.id),
+                s.payroll_processed_at ? el('div', { class: 'text-[10px] font-semibold mt-0.5', style: { color: 'var(--ok)' }, title: 'Commission paid out on this pay run' }, '\u2713 Paid ' + fmt.dateShortYear(String(s.payroll_processed_at).slice(0, 10)))
+                : s.staged_for_payroll ? el('div', { class: 'text-[10px] font-semibold mt-0.5', style: { color: 'var(--text-muted)' } }, 'Staged for payroll') : null),
               // Audit = the office's Passed / Failed Audit flag on the
               // FieldRoutes customer card (synced hourly) — not an assigned
               // auditor (per Isaac).
