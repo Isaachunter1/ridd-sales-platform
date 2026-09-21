@@ -335,6 +335,22 @@ function viewPay() {
         pending.length ? el('div', { class: 'px-3 py-1.5 border-t text-[10px]', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } },
           pending.length + ' sale' + (pending.length === 1 ? '' : 's') + ' still pending audit (' + fmt.usd0(pendingRev) + ' · est. ' + fmt.usd0(pendingPay) + ' pay)') : null,
       ),
+      // "Why is this number?" — the per-sale lines behind Sales Pay / Below
+      // Minimums. A paid period shows the STORED run (what was actually
+      // paid, at the rates in force then); an open period shows the live
+      // lines from the same functions the stub sums.
+      (() => {
+        const runs = payRunsFor(repId, state.payYear).filter(r => Number(r.period_id) === Number(period.id) && r.kind === 'upfront');
+        const stored = runs[0];
+        if (stored && stored.inputs && Array.isArray(stored.inputs.lines)) {
+          const t = stored.totals || {};
+          return payExplainCard('How this stub was paid', stored.inputs.lines,
+            'Paid run recorded ' + fmt.dateShortYear(String(stored.run_at).slice(0, 10)) + ' · charge-upfront tier ' + Math.round((stored.inputs.upfront_pct || 0) * 100) + '% → ×' + (stored.inputs.upfront_mult ?? 1) + ' · sales pay ' + fmt.usd(t.sales_pay || 0) + ' · below minimums ' + fmt.usd(t.below_pay || 0) + (stored.inputs.rep_overrides && Object.keys(stored.inputs.rep_overrides).length ? ' · rep rate overrides applied' : ' · default rates'));
+        }
+        const lines = isPayLines(repId, [...servicedStaged, ...belowStaged], upfrontMult);
+        return payExplainCard('How this stub is computed', lines,
+          'Live · charge-upfront tier ' + Math.round(upfrontPct * 100) + '% of staged accounts → ×' + upfrontMult + ' on every line · ' + (Object.keys(payOverridesFor(repId)).length ? 'rep rate overrides applied' : 'default rates from Settings → Commissions') + ' · renewal sources pay flat $/account; below-minimums pay the configured share.');
+      })(),
 
       // BACKEND PAY — the quarter that contains this period
       block(
@@ -657,6 +673,20 @@ function processPayroll(sales, period) {
   (async () => {
     try {
       const ids = sales.map(s => s.id);
+      // Snapshot the inputs BEFORE the flags flip (the lines read audit_status).
+      const snaps = [];
+      try {
+        const byRep = new Map(); sales.forEach(s => { if (!byRep.has(s.rep_id)) byRep.set(s.rep_id, []); byRep.get(s.rep_id).push(s); });
+        for (const [rid, list] of byRep) {
+          const prof = state.allProfiles.find(p => p.id === rid) || {};
+          const pct = upfrontCollectedPct(list), mult = upfrontTierPayPct(pct, rid);
+          const lines = isPayLines(rid, list, mult);
+          const sales_pay = lines.filter(l => l.status === 'serviced').reduce((a, l) => a + l.amount, 0);
+          const below_pay = lines.filter(l => l.status === 'below_minimums').reduce((a, l) => a + l.amount, 0);
+          snaps.push([rid, list, { sales_pay: Math.round(sales_pay * 100) / 100, below_pay: Math.round(below_pay * 100) / 100, accounts: list.length, revenue: Math.round(lines.reduce((a, l) => a + l.revenue, 0) * 100) / 100 },
+            isPayInputsSnapshot(rid, prof, { lines, upfront_pct: pct, upfront_mult: mult })]);
+        }
+      } catch (e) { console.warn('pay run snapshot skipped:', e && e.message); }
       const { error } = await supabase.from('sales').update({
         staged_for_payroll: false,
         payroll_processed_at: new Date().toISOString(),
@@ -664,6 +694,7 @@ function processPayroll(sales, period) {
       }).in('id', ids);
       if (error) throw error;
       toast(`Payroll processed for ${sales.length} accounts`, 'success');
+      for (const [rid, list, totals, inputs] of snaps) recordPayRun('upfront', rid, period, list, totals, inputs);
       notifyPayrollRun(sales, period, 'upfront');
       await refreshSalesData();
       mountApp();
@@ -750,6 +781,89 @@ function notifySaleLogged(row) {
   if (settings.sale_broadcast?.enabled && settings.sale_broadcast?.channel) {
     slack.sendChannel(settings.sale_broadcast.channel, slack.formatSaleBroadcast(profile, row), 'sale_broadcast');
   }
+}
+
+// ── Pay provenance (Sep 2026) ───────────────────────────────────────────
+// One per-sale line for each staged account, built by CALLING the same
+// functions the stub sums (getCommissionRate / getCommissionAmount /
+// getBackendAmount) — so the lines always reconcile to the stub, and a
+// reviewer can read "revenue × rate × tier = amount" for every account.
+function isPayLines(repId, sales, upfrontMult) {
+  const mult = Number(upfrontMult) || 1;
+  return (sales || []).map(s => {
+    const rev = Number(s.revenue_amount || 0);
+    const renewal = isRenewalSource(s);
+    const base = getCommissionAmount(repId, s);      // renewal flat or rev × rate (already halved for below_minimums)
+    const rate = renewal ? null : getCommissionRate(repId, s);
+    return {
+      sale_id: s.id, customer: s.customer_name || '', customer_number: s.customer_number || '', sold_date: s.sold_date || '',
+      status: s.audit_status, contract: contractTypeLabelForSale(s), months: Number(s.contract_months) || 0,
+      pif: !!s.paid_in_full, commercial: !!s.is_commercial, renewal,
+      revenue: Math.round(rev * 100) / 100,
+      rate: rate == null ? null : Math.round(rate * 10000) / 10000,
+      base: Math.round(base * 100) / 100,
+      tier_mult: mult,
+      amount: Math.round(base * mult * 100) / 100,
+      backend: Math.round(getBackendAmount(s) * 100) / 100,
+    };
+  });
+}
+// Snapshot of every setting the lines depend on, for the stored run.
+function isPayInputsSnapshot(repId, viewedProfile, extra) {
+  const eff = effectivePaySettings(repId);
+  const o = payOverridesFor(repId);
+  return Object.assign({
+    settings: { contract_commissions: eff.contract_commissions, upfront_tiers: eff.upfront_tiers, close_rate_tiers: eff.close_rate_tiers, renewal_flat: eff.renewal_flat,
+      pif_modifier: eff.pif_modifier, commercial_multiplier: eff.commercial_multiplier, below_min_multiplier: eff.below_min_multiplier,
+      multi_year_rate_18: eff.multi_year_rate_18, multi_year_rate_24: eff.multi_year_rate_24, renewal_backend_rate: eff.renewal_backend_rate },
+    rep_overrides: o, close_rate: Number((viewedProfile || {}).close_rate_target ?? 0.5),
+    computed_at: new Date().toISOString(),
+  }, extra || {});
+}
+// Stored runs for a rep+year (lazy, cached per session).
+function payRunsFor(repId, year) {
+  state._payRuns = state._payRuns || {};
+  const k = repId + '|' + year;
+  if (state._payRuns[k]) return state._payRuns[k];
+  state._payRuns[k] = [];
+  if (typeof supabase !== 'undefined' && supabase && !(typeof DEMO !== 'undefined' && DEMO)) {
+    supabase.from('pay_runs').select('*').eq('rep_id', repId).eq('pay_year', year).order('run_at', { ascending: false })
+      .then(({ data, error }) => { if (error) { if (!/pay_runs/.test(error.message || '')) console.warn('pay_runs load failed:', error.message); return; } state._payRuns[k] = data || []; if (state.view === 'pay' && (data || []).length) mountApp(); });
+  }
+  return state._payRuns[k];
+}
+async function recordPayRun(kind, repId, period, sales, totals, inputs) {
+  if (typeof supabase === 'undefined' || !supabase || (typeof DEMO !== 'undefined' && DEMO)) return;
+  try {
+    const row = { rep_id: repId, pay_year: Number(state.payYear), period_id: Number(period.id), period_label: period.label, kind, totals, inputs, sale_ids: sales.map(s => s.id), run_by: state.profile?.id };
+    const { error } = await supabase.from('pay_runs').insert(row);
+    if (error) { console.warn('pay run snapshot failed:', error.message); toast('Paid, but the run snapshot was not saved (' + error.message + ')', 'warn'); return; }
+    state._payRuns = state._payRuns || {}; const k = repId + '|' + state.payYear; state._payRuns[k] = [Object.assign({ run_at: new Date().toISOString() }, row), ...(state._payRuns[k] || [])];
+  } catch (e) { console.warn('pay run snapshot failed:', e && e.message); }
+}
+// The "how this was computed" card: per-sale lines + the tier + totals.
+function payExplainCard(title, lines, meta) {
+  const th = (t, right) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
+  const td = (t, right) => el('td', { class: 'px-2 py-1 tabular-nums whitespace-nowrap ' + (right ? 'text-right' : 'text-left') }, t);
+  const open = state._payExplainOpen === true;
+  const sum = (k) => lines.reduce((a, l) => a + (Number(l[k]) || 0), 0);
+  const body = !open ? null : el('div', {},
+    meta ? el('div', { class: 'px-3 py-2 text-[11px]', style: { color: 'var(--text-muted)', overflowWrap: 'anywhere' } }, meta) : null,
+    lines.length ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px] frozen-table', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, th('Account'), th('Sold'), th('Contract'), th('Revenue', true), th('Rate', true), th('Base', true), th('Tier', true), th('Pay', true), th('Backend', true))),
+      el('tbody', {}, ...lines.map(l => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        el('td', { class: 'px-2 py-1 whitespace-nowrap font-semibold' }, l.customer || ('#' + l.customer_number), l.status === 'below_minimums' ? el('span', { class: 'ml-1 text-[9px] font-bold', style: { color: '#B45309' } }, 'below min') : null),
+        td(l.sold_date), td(l.contract + (l.pif ? ' · PIF' : '') + (l.commercial ? ' · COMM' : '') + (l.renewal ? ' · renewal' : '')),
+        td(fmt.usd(l.revenue), true), td(l.rate == null ? 'flat' : (l.rate * 100).toFixed(2) + '%', true), td(fmt.usd(l.base), true),
+        td(l.tier_mult === 1 ? '—' : Math.round(l.tier_mult * 100) + '%', true), td(fmt.usd(l.amount), true), td(l.backend ? fmt.usd(l.backend) : '—', true))),
+        el('tr', { class: 'border-t font-bold', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
+          el('td', { class: 'px-2 py-1', style: { background: 'var(--card-2)' } }, 'Total'), td(''), td(''), td(fmt.usd(sum('revenue')), true), td('', true), td(fmt.usd(sum('base')), true), td('', true), td(fmt.usd(sum('amount')), true), td(fmt.usd(sum('backend')), true)))))
+      : el('div', { class: 'px-3 py-3 text-[11px] text-muted-' }, 'No staged accounts in this period.'));
+  return el('div', { class: 'card overflow-hidden' },
+    el('button', { class: 'w-full flex items-center justify-between gap-2 px-3 py-2 text-left', onclick: () => { state._payExplainOpen = !open; mountApp(); } },
+      el('span', { class: 'text-[10px] uppercase tracking-widest font-bold' }, title),
+      el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, (open ? 'Hide' : 'Show') + ' · ' + lines.length + ' line' + (lines.length === 1 ? '' : 's') + ' ' + (open ? '▴' : '▾'))),
+    body);
 }
 
 function downloadPayrollCsv(sales, period, viewedProfile) {
