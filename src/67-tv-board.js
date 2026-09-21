@@ -6,6 +6,8 @@
 // │ Part of the app.js bundle (tools/bundle.js concatenates src/*.js in name order).
 // └────────────────────────────────────────────────────────────────────────
 function openTvBoard() {
+  // Desktop only (per Isaac): the board is a wall display, never a phone view.
+  try { if (window.matchMedia('(max-width: 900px)').matches) { if (typeof toast === 'function') toast('TV Display is desktop-only \u2014 open it on a computer.', 'info'); return; } } catch (e) { /* noop */ }
   state._tvOpen = true;   // the version watcher auto-reloads while this is set
   // Deck 2.0 tokens (docs/design-kit/BRAND.md) — scoped to the board.
   const T = { void: '#0A0B0D', surface: '#14161A', surface2: '#1E2128', hair: '#2B2F38', ink: '#F4F6F8', dim: '#9AA2B1', ember: '#FF5F2E' };
