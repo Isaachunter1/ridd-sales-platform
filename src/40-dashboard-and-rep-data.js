@@ -4443,15 +4443,17 @@ function openIndicatorRepCard(rep, allReps = []) {
       : null;
     if (!rec || rec.revenue === 0) {
       return el('div', { class: 'rounded-lg border p-3', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
-        el('div', { class: 'text-[9px] uppercase tracking-widest text-muted- font-semibold' }, label),
-        rankBadge ? el('div', { class: 'mt-1' }, rankBadge) : null,
+        el('div', { class: 'flex items-start justify-between gap-2 rec-head' },
+          el('div', { class: 'text-[9px] uppercase tracking-widest text-muted- font-semibold' }, label),
+          rankBadge),
         el('div', { class: 'text-base font-bold tabular-nums mt-1 text-muted-' }, '—'),
       );
     }
     return el('div', { class: 'rounded-lg border p-3', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
-      // Label on top, rank badge on its own line beneath (per Isaac — side by side bled out of the box on phones).
-      el('div', { class: 'text-[9px] uppercase tracking-widest text-muted- font-semibold' }, label),
-      rankBadge ? el('div', { class: 'mt-1' }, rankBadge) : null,
+      // Desktop: label left, rank badge top-right. Phones: badge drops under the label (side by side bled out of the box — per Isaac).
+      el('div', { class: 'flex items-start justify-between gap-2 rec-head' },
+        el('div', { class: 'text-[9px] uppercase tracking-widest text-muted- font-semibold' }, label),
+        rankBadge),
       el('div', { class: 'text-lg font-bold tabular-nums mt-1' }, fmt.usd0(rec.revenue)),
       el('div', { class: 'text-[10px] text-muted- mt-0.5' },
         rec.count + ' sale' + (rec.count === 1 ? '' : 's') + ' · ' + formatLabel(rec),

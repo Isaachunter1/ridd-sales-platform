@@ -357,6 +357,8 @@
   }
   /* Churn Timing (Retention): the heatmap spans two of three columns on desktop, full width on phones. */
   @media (max-width: 1023px) { .churn-heat-col { grid-column: auto !important; } }
+  /* Personal-record tiles: the rank badge sits top-right on desktop and stacks under the label on phones. */
+  @media (max-width: 640px) { .rec-head { flex-direction: column; align-items: flex-start; gap: 4px; } }
   /* Rep card stat tiles: 3 per row on phones, 5 per row (two rows for nine tiles) from tablet up. */
   .rep-stats-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   @media (min-width: 640px) { .rep-stats-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
