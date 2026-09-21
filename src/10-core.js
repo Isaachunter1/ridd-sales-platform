@@ -3158,6 +3158,10 @@ async function _checkIdle() {
   try {
     if (typeof DEMO !== 'undefined' && DEMO) return;
     if (!state.session) return;
+    // The TV board is an unattended wall screen (per Isaac): nobody touches
+    // it all day, so the board itself counts as activity — it must never
+    // idle out to the login screen mid-shift.
+    if (state._tvOpen) { _touchActivity(); return; }
     const last = Number(localStorage.getItem('ridd_last_active') || 0);
     if (last && Date.now() - last > IDLE_LIMIT_MS) {
       await supabase.auth.signOut();
@@ -3669,7 +3673,16 @@ function _armSplashWatchdog() {
       // The TV board is an unattended screen (per Isaac, Sep 18): nobody is
       // there to press Refresh, and the board's overlay hides the banner
       // anyway. Reload straight away and come back up on the board.
-      if (state._tvOpen) { try { sessionStorage.setItem('ridd_reopen_tv', '1'); sessionStorage.setItem('ridd_reloaded_for', v.hash); } catch { /* private */ } location.reload(); return; }
+      // …but a reload drops element-fullscreen (browsers need a real key
+      // press to re-enter it), so a daytime deploy used to knock the wall
+      // screen out of fullscreen every time (per Isaac, Sep 21). The board
+      // now takes new builds overnight (1–5am on the board's clock) or when
+      // someone presses R on it; data keeps refreshing every 30s regardless.
+      if (state._tvOpen) {
+        const h = new Date().getHours();
+        if (!(h >= 1 && h < 5)) { window.__riddTvPendingVersion = v.hash; return; }
+        try { sessionStorage.setItem('ridd_reopen_tv', '1'); sessionStorage.setItem('ridd_reloaded_for', v.hash); } catch { /* private */ } location.reload(); return;
+      }
       showBanner(v.hash);
     } catch { /* offline — next cycle */ }
   };

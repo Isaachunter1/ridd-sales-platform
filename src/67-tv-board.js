@@ -34,6 +34,8 @@ function openTvBoard() {
     if (e.key === 'Escape') { if (!document.fullscreenElement) cleanup(); return; }
     if (e.key === '1' || e.key === '2' || e.key === '3' || e.key === '4') { state._tvRange = RANGES[Number(e.key) - 1][0]; render(); }
     if (e.key === 'f' || e.key === 'F') toggleFs();
+    // R: take a waiting build now (deploys otherwise land on the board overnight).
+    if (e.key === 'r' || e.key === 'R') { try { sessionStorage.setItem('ridd_reopen_tv', '1'); if (window.__riddTvPendingVersion) sessionStorage.setItem('ridd_reloaded_for', window.__riddTvPendingVersion); } catch { /* private */ } location.reload(); }
   };
   const toggleFs = () => { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); else overlay.requestFullscreen?.().catch(() => {}); };
   // (listeners are attached after render() exists — a const can't be
