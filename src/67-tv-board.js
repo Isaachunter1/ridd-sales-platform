@@ -53,17 +53,17 @@ function openTvBoard() {
 
   const rangeOf = () => {
     const now = new Date(); const today = iso(now);
-    if (state._tvRange === 'week') { const s = new Date(now); s.setDate(s.getDate() - ((s.getDay() + 6) % 7)); return { start: iso(s), end: today, label: 'This week' }; }   // Monday → today
+    if (state._tvRange === 'week') { const s = new Date(now); s.setDate(s.getDate() - s.getDay()); return { start: iso(s), end: today, label: 'This week' }; }   // Sunday → today (Sun–Sat weeks, same as the rest of the app)
     if (state._tvRange === 'month') { return { start: iso(new Date(now.getFullYear(), now.getMonth(), 1)), end: today, label: now.toLocaleDateString('en-US', { month: 'long' }) }; }
     if (state._tvRange === 'year') { return { start: now.getFullYear() + '-01-01', end: today, label: String(now.getFullYear()) }; }
     return { start: today, end: today, label: 'Today' };
   };
   // The comparable slice of the PRIOR period (per Isaac): yesterday; last
-  // week Monday → same weekday; last month 1st → same day; last year
+  // week Sunday → same weekday; last month 1st → same day; last year
   // Jan 1 → same date. To-date, so mid-period the comparison is fair.
   const priorRangeOf = () => {
     const now = new Date(); const shift = (d, fn) => { const x = new Date(d); fn(x); return x; };
-    if (state._tvRange === 'week') { const s = shift(now, x => x.setDate(x.getDate() - ((x.getDay() + 6) % 7) - 7)); const e = shift(now, x => x.setDate(x.getDate() - 7)); return { start: iso(s), end: iso(e), label: 'Last week to date' }; }
+    if (state._tvRange === 'week') { const s = shift(now, x => x.setDate(x.getDate() - x.getDay() - 7)); const e = shift(now, x => x.setDate(x.getDate() - 7)); return { start: iso(s), end: iso(e), label: 'Last week to date' }; }
     if (state._tvRange === 'month') { const s = new Date(now.getFullYear(), now.getMonth() - 1, 1); const e = new Date(now.getFullYear(), now.getMonth() - 1, Math.min(now.getDate(), new Date(now.getFullYear(), now.getMonth(), 0).getDate())); return { start: iso(s), end: iso(e), label: s.toLocaleDateString('en-US', { month: 'long' }) + ' to date' }; }
     if (state._tvRange === 'year') { const e = shift(now, x => x.setFullYear(x.getFullYear() - 1)); return { start: (now.getFullYear() - 1) + '-01-01', end: iso(e), label: (now.getFullYear() - 1) + ' to date' }; }
     const y = shift(now, x => x.setDate(x.getDate() - 1)); return { start: iso(y), end: iso(y), label: 'Yesterday' };
