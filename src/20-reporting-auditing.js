@@ -228,7 +228,7 @@ function reportingAuditing() {
     const activeRetention = s.servicedRev > 0 ? activeRev / s.servicedRev : null;
     const aP = rate(s.attr.passed), aF = rate(s.attr.failed);
     const soldSvc = s.sold > 0 ? s.serviced / s.sold : null;
-    const kindLabel = kind === 'rep' ? 'Rep' : kind === 'team' ? 'Team' : 'Office';
+    const kindLabel = kind === 'all' ? 'Everything in scope' : kind === 'rep' ? 'Rep' : kind === 'team' ? 'Team' : 'Office';
     const _meta = (typeof reportingActiveSnapshotMeta === 'function') ? reportingActiveSnapshotMeta() : null;
     const asOf = _meta && _meta.uploaded_at ? new Date(_meta.uploaded_at).toLocaleDateString() : null;
     const pctS = (p) => p == null ? '—' : (p * 100).toFixed(1) + '%';
@@ -252,6 +252,10 @@ function reportingAuditing() {
       if (!inRange(a)) return false;
       if (offFilter !== 'all' && a.office !== offFilter) return false;
       if (teamFilter !== 'all' && a.team !== teamFilter) return false;
+      if (kind === 'all') {   // TOTAL row: everything in the table — the rep table's own team / office pickers included
+        const rt = (org && org.repTeam) || 'all', ro = (org && org.repOffice) || 'all';
+        return (rt === 'all' || (repTeamOf(a.rep) || 'Unassigned') === rt) && (ro === 'all' || repOfficeOf(a.rep) === ro);
+      }
       return kind === 'rep' ? a.rep === name : kind === 'team' ? a.team === name : a.office === name;
     });
     const entityRows = entityAccts.flatMap(a => a.rows || []);
@@ -357,14 +361,35 @@ function reportingAuditing() {
     // TOTAL row: uniform background — per-cell tints on the last row bled
     // past the card's rounded clip and looked like a stray extra row.
     const td0 = td;
+    // Colour (per Isaac, Sep 2026): Office / Team rows carry the same colour
+    // Indicators and Manage Teams use for them (swatch + coloured name);
+    // rep rows get a faint wash of their team's colour so the table reads
+    // by team at a glance. The frozen name cell needs a SOLID version of the
+    // wash (it covers cells scrolling under it), hence color-mix over the card.
+    const groupColor = opts.total ? null
+      : opts.kind === 'office' ? (typeof getBranchColor === 'function' ? getBranchColor(name) : null)
+      : opts.kind === 'team' ? (name && name !== 'Unassigned' && typeof getTeamColor === 'function' ? getTeamColor(name) : null)
+      : null;
+    const repTeam = (!opts.total && opts.kind === 'rep' && opts.org) ? opts.org.team : '';
+    const washColor = (repTeam && repTeam !== 'Unassigned' && typeof getTeamColor === 'function') ? getTeamColor(repTeam) : null;
+    const wash = washColor ? 'color-mix(in srgb, ' + washColor + ' 9%, transparent)' : null;
+    const washSolid = washColor ? 'color-mix(in srgb, ' + washColor + ' 9%, var(--card))' : null;
     const td_ = (val, o = {}) => opts.total ? td0(val, { ...o, bg: 'var(--card-2)' }) : td0(val, o);
+    const nameCell = groupColor
+      ? el('span', { class: 'inline-flex items-center gap-1.5' },
+          el('span', { class: 'inline-block rounded-full shrink-0', style: { width: '9px', height: '9px', background: groupColor } }),
+          el('span', { class: 'font-semibold', style: { color: groupColor } }, name))
+      : name;
+    // TOTAL row opens the same card for everything in scope (per Isaac).
+    const totalOrg = opts.kind === 'rep' ? { repTeam: state._auditRepTeam || 'all', repOffice: state._auditRepOffice || 'all' } : {};
+    const totalName = [offFilter !== 'all' ? offFilter : '', teamFilter !== 'all' ? teamFilter : '', totalOrg.repOffice && totalOrg.repOffice !== 'all' ? totalOrg.repOffice : '', totalOrg.repTeam && totalOrg.repTeam !== 'all' ? totalOrg.repTeam : ''].filter(Boolean).join(' \u00b7 ') || 'RIDD';
     return el('tr', {
-      class: 'border-t' + (opts.total ? '' : ' cursor-pointer hover:brightness-95 transition'),
-      style: { borderColor: 'var(--border)', background: opts.total ? 'var(--card-2)' : 'transparent' },
-      title: opts.total ? '' : 'Click for the ' + (opts.kind === 'rep' ? 'rep' : opts.kind === 'team' ? 'team' : 'branch') + ' card',
-      onclick: opts.total ? undefined : () => openAuditCardModal(name, s, opts.kind, opts.org),
+      class: 'border-t cursor-pointer hover:brightness-95 transition',
+      style: { borderColor: 'var(--border)', background: opts.total ? 'var(--card-2)' : (wash || 'transparent') },
+      title: opts.total ? 'Click for the card covering every ' + (opts.kind === 'rep' ? 'rep' : opts.kind === 'team' ? 'team' : 'branch') + ' in this table' : 'Click for the ' + (opts.kind === 'rep' ? 'rep' : opts.kind === 'team' ? 'team' : 'branch') + ' card' + (repTeam ? ' \u00b7 ' + repTeam : ''),
+      onclick: opts.total ? () => openAuditCardModal(totalName, s, 'all', totalOrg) : () => openAuditCardModal(name, s, opts.kind, opts.org),
     },
-      td_(name, { bold: !!opts.total, sticky: true }),
+      td_(nameCell, { bold: !!opts.total, sticky: true, bg: opts.total ? undefined : washSolid }),
 
       td_(fmt.int(s.sold)),
       td_(fmt.int(s.serviced)),
