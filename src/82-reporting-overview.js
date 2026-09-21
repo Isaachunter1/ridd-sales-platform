@@ -350,6 +350,16 @@ function reportingOverview() {
     arr:     { rows: (dataA.drill && dataA.drill.rarr    && dataA.drill.rarr.source)    || [], label: 'active recurring subscriptions' },
     cancels: { rows: (dataA.drill && dataA.drill.cancels && dataA.drill.cancels.source) || [], label: 'cancelled recurring subscriptions' },
   };
+  // Active ARR (per Isaac, Sep 2026): not a row list — the step-by-step
+  // walk from everything in FieldRoutes down to Active ARR, exactly the way
+  // the Retention tab's Attrition Steps read, so what counts and what
+  // doesn't is one click away.
+  const cardArr = COLUMN_CARDS.find(c => c.key === 'arr');
+  if (cardArr && !cardArr.onClick) {
+    cardArr.onClick = () => openArrStepsModal(scope, dataA);
+    cardArr.clickLabel = 'Click for the step-by-step \u2192';
+    cardArr.clickTitle = 'Everything in FieldRoutes \u2192 Active ARR, one rule at a time';
+  }
   for (const c of COLUMN_CARDS) {
     if (c.onClick) continue;                 // 'customers' already wired above
     const d = cardDrills[c.key];
@@ -775,3 +785,76 @@ function reportingOverview() {
   );
 }
 
+
+// ── Active ARR · steps (per Isaac, Sep 2026) ───────────────────────────────
+// The same rules reportingFilters() / reportingChartData() apply, replayed
+// one at a time with what each one removes (subs + ARR) and what remains, so
+// the headline reconciles to the last line. Every step drills to its rows.
+function openArrStepsModal(scope, dataA) {
+  const F = reportingFilters();
+  const arr = (r) => Number(r.annual_recurring_value) || 0;
+  const sumArr = (rows) => rows.reduce((a, r) => a + arr(r), 0);
+  const excludedSources = reportingExcludedSources();
+  const exclBranches = (typeof reportingExcludedBranches === 'function') ? reportingExcludedBranches() : new Set();
+  const raw = state.reportingSubscriptions || [];
+  const officeLabel = scope.officeLabel || ((o) => o);
+  const steps = [];
+  let cur = raw;
+  const step = (title, detail, keep, tag) => {
+    const kept = cur.filter(keep), removed = cur.filter(r => !keep(r));
+    steps.push({ title, detail, removed, kept, tag });
+    cur = kept;
+  };
+  step('Remove excluded branches', 'Offices switched off in Reporting → Configurations → Branches.', r => !exclBranches.has((r.office_name || '').trim()), 'config');
+  step('Remove hidden service types', 'Service types marked Hidden in Configurations (internal / test services).', r => !F.isHidden(r), 'config');
+  step('Remove excluded lead sources', 'Sources excluded from all reporting in Configurations (e.g. Miscellaneous).', r => !excludedSources.has(reportingSourceOf(r)), 'config');
+  step('Remove subs that never started', 'No initial service ever completed AND frozen/removed in the CRM or cancelled as Sold-Not-Started / No Initial — dead cards, not customers.', r => !reportingNeverStarted(r), 'app rule');
+  if (scope.dateStart || scope.dateEnd) {
+    const inDate = new Set(reportingFilterByDate(cur, scope.dateStart, scope.dateEnd));
+    step('Keep the selected time range', 'Time range on this tab: ' + scope.dateLabel + '. Subs sold outside it leave here.', r => inDate.has(r), 'filter');
+  }
+  if (scope.office && scope.office !== 'all') {
+    const inOffice = new Set(reportingFilterByOffice(cur, scope.office));
+    step('Keep the selected office(s)', 'Office filter on this tab: ' + officeLabel(scope.office) + '.', r => inOffice.has(r), 'filter');
+  }
+  step('Remove non-recurring service types', 'One-time services and any service type not classed Recurring (Configurations → Services). Their ARV never counts toward ARR.', r => F.isRecurring(r), 'app rule');
+  step('Remove cancelled subscriptions', 'Any cancel date on the subscription — whatever the reason. (Attrition rules about RORs and excluded reasons decide what counts as churn, not what is active.)', r => !r.subscription_date_canceled, 'app rule');
+  step('Keep only status = Active', 'Frozen, inactive, pending and every other CRM status leaves here. What remains is the Active ARR book.', r => (r.subscription_status || '').toLowerCase() === 'active', 'app rule');
+  const active = cur;
+  const zeroArr = active.filter(r => arr(r) <= 0);
+  const total = sumArr(active);
+  const headline = Number(dataA && dataA.stats && dataA.stats.activeArr) || 0;
+
+  const n = (v) => Number(v || 0).toLocaleString('en-US');
+  const drill = (title, rows, what) => rows.length ? () => openReportingDrillModal({ chartTitle: 'Active ARR steps · ' + title, sliceLabel: n(rows.length) + ' subscription' + (rows.length === 1 ? '' : 's') + ' · ' + fmt.usd0(sumArr(rows)) + ' ARV · ' + what, rows, formatValue: fmt.usd0 }) : null;
+  const clickable = (node, fn) => { if (fn) { node.classList.add('cursor-pointer', 'hover:underline'); node.onclick = (e) => { e.stopPropagation(); fn(); }; } return node; };
+  const chip = (t) => el('span', { class: 'text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full shrink-0', style: { color: 'var(--text-subtle)', border: '1px solid var(--border)' } }, t);
+  const row = (i, st) => el('div', { class: 'flex items-start gap-3 py-2 border-t', style: { borderColor: 'var(--border)' } },
+    el('div', { class: 'w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-black shrink-0', style: { background: 'var(--card-2)' } }, String(i)),
+    el('div', { class: 'flex-1 min-w-0' }, el('div', { class: 'text-sm font-semibold' }, st.title), el('div', { class: 'text-[11px] text-muted-' }, st.detail)),
+    el('div', { class: 'text-right shrink-0 tabular-nums' },
+      clickable(el('div', { class: 'text-sm font-bold', style: { color: st.removed.length ? '#DC2626' : 'var(--text-subtle)' } }, st.removed.length ? '−' + n(st.removed.length) + ' subs' : '0'), drill(st.title, st.removed, 'removed by this step')),
+      clickable(el('div', { class: 'text-[10px] font-semibold', style: { color: st.removed.length ? '#DC2626' : 'var(--text-subtle)' } }, st.removed.length ? '−' + fmt.usd0(sumArr(st.removed)) + ' ARV' : ''), drill(st.title, st.removed, 'removed by this step')),
+      clickable(el('div', { class: 'text-[10px] font-semibold', style: { color: 'var(--text-muted)' } }, n(st.kept.length) + ' remain · ' + fmt.usd0(sumArr(st.kept))), drill(st.title + ' · remaining', st.kept, 'still in after this step'))),
+    chip(st.tag));
+  const totalRow = (label, rows, sub, strong) => el('div', { class: 'flex items-center justify-between gap-3 py-2 border-t-2', style: { borderColor: 'var(--border-2)' } },
+    el('div', {}, el('div', { class: 'text-sm font-black' }, label), sub ? el('div', { class: 'text-[11px] text-muted-' }, sub) : null),
+    clickable(el('div', { class: 'text-right tabular-nums' }, el('div', { class: (strong ? 'text-lg' : 'text-base') + ' font-black' }, fmt.usd0(sumArr(rows))), el('div', { class: 'text-[10px] text-muted-' }, n(rows.length) + ' subscriptions')), drill(label, rows, 'included')));
+
+  const overlay = el('div', { class: 'modal-overlay' });
+  const closeKey = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', closeKey); } };
+  document.addEventListener('keydown', closeKey);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) { overlay.remove(); document.removeEventListener('keydown', closeKey); } });
+  overlay.append(el('div', { class: 'card p-5 flex flex-col gap-2', style: { width: 'min(860px, 94vw)', maxHeight: '88vh', overflowY: 'auto', overflowX: 'hidden' } },
+    el('div', { class: 'flex items-start justify-between gap-3' },
+      el('div', {}, el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Active ARR · step by step'),
+        el('div', { class: 'text-lg font-black' }, 'Everything in FieldRoutes → Active ARR'),
+        el('div', { class: 'text-[11px] text-muted-' }, 'The same rules the Overview applies, one at a time. ARV = each subscription’s annual recurring value in FieldRoutes. Click any number for the accounts.')),
+      el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', onclick: () => { overlay.remove(); document.removeEventListener('keydown', closeKey); } }, '×')),
+    totalRow('Everything in FieldRoutes', raw, 'Every subscription in the synced snapshot, any status, any service type — the top of the funnel.', false),
+    ...steps.map((st, i) => row(i + 1, st)),
+    totalRow('Active ARR', active, zeroArr.length ? n(zeroArr.length) + ' of these active subs carry $0 ARV in FieldRoutes and add nothing — click to see them' : 'Sum of ARV across active recurring subscriptions.', true),
+    zeroArr.length ? clickable(el('div', { class: 'text-[10px] font-semibold text-right', style: { color: 'var(--text-muted)' } }, n(zeroArr.length) + ' active subs at $0 ARV →'), drill('Active subs with $0 ARV', zeroArr, 'active but contributing no ARR')) : null,
+    Math.abs(total - headline) > 1 ? el('div', { class: 'text-[10px] font-semibold', style: { color: '#B45309' } }, 'Note: the card shows ' + fmt.usd0(headline) + '; these steps total ' + fmt.usd0(total) + '. The difference means a rule changed since the page rendered — reload the tab.') : null));
+  document.body.append(overlay);
+}
