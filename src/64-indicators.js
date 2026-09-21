@@ -3823,9 +3823,14 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, label || ''));
         } },
     ]),
-    // Column order per Isaac (Sep 21): Sales · Days w/ Sale · Revenue · Pest Init · Avg Init · ACV · $/Day · Accts/Day · Audit % · MY % · APay % · Attrition %.
+    // Column order per Isaac (Sep 21): Sales · Days w/ Sale · Accts/Day · $/Day · Revenue · Pest Init · Avg Init · ACV · Audit % · MY % · APay % · Attrition %.
     { key: 'count',      label: 'Sales',    align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.int(r.count)) },
     { key: 'sellingDays', label: 'Days w/ Sale', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Days with at least one sale' }, fmt.int(r.sellingDays || 0)) },
+    { key: 'acctsPerDay', label: 'Accts/Day', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Average accounts per SELLING day' }, (r.acctsPerDay || 0).toFixed(1)) },
+    // Avg Pest Initial = avg of initialPrice EXCLUDING Sentricon / German Roach
+    // / Interior Flea (matches the door-to-door comp). Avg Initial = avg of
+    // every sale's initialPrice with no exclusions (overall pricing power).
+    { key: 'revPerDay',   label: '$/Day',     align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Average revenue per SELLING day (days off don\'t count)' }, fmt.usd0(r.revPerDay || 0)) },
     { key: 'revenue',    label: 'Revenue',  align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums font-semibold' }, fmt.usd0(r.revenue)) },
     // 12-week revenue sparkline with WoW slope. Sort key = trendSlope so
     // clicking surfaces reps with the biggest week-over-week jump (or drop).
@@ -3833,11 +3838,6 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     { key: 'avgInitial', label: 'Avg Init',      align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgInitial > 0 ? fmt.usd(r.avgInitial) : '—') },
     { key: 'acv',        label: 'ACV',      align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.usd(r.acv)) },
     // Selling-day metrics — averages over days WITH ≥1 sale only.
-    { key: 'revPerDay',   label: '$/Day',     align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Average revenue per SELLING day (days off don\'t count)' }, fmt.usd0(r.revPerDay || 0)) },
-    { key: 'acctsPerDay', label: 'Accts/Day', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Average accounts per SELLING day' }, (r.acctsPerDay || 0).toFixed(1)) },
-    // Avg Pest Initial = avg of initialPrice EXCLUDING Sentricon / German Roach
-    // / Interior Flea (matches the door-to-door comp). Avg Initial = avg of
-    // every sale's initialPrice with no exclusions (overall pricing power).
     { key: 'auditPct', label: 'Audit %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap' },
         el('span', {
           class: 'font-semibold',
