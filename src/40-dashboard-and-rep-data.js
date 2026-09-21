@@ -4156,8 +4156,11 @@ function openIndicatorRepCard(rep, allReps = []) {
       { key: 'myPct',      label: 'MY %',       value: (myPct * 100).toFixed(1) + '%' },
       { key: 'autoPay',    label: 'Auto Pay',   value: (autoPayPct * 100).toFixed(1) + '%' },
       { key: 'cancels',    label: 'Cancels',    value: fmt.int(scopedRep.cancels || 0) },
-      // Ninth tile (per Isaac): cancels as a share of sales, so the grid fills 3×3 on phones.
-      { key: 'cancelPct',  label: 'Cancel %',   value: count > 0 ? (((scopedRep.cancels || 0) / count) * 100).toFixed(1) + '%' : '\u2014' },
+      // Ninth tile (per Isaac): the SAME attrition the leaderboard's Attrition %
+      // column shows — cancelled $ ÷ serviced $, 3-day RORs + one-time out of
+      // both sides (_attrRevParts) — so the card and the board never disagree.
+      (() => { let serv = 0, cxl = 0; for (const x of allSales) { const p = _attrRevParts(x); serv += p.serv; cxl += p.cxl; }
+        return { key: 'cancelPct', label: 'Attrition %', sub: 'excl. 3-day ROR', title: 'Cancelled $ \u00f7 serviced $ \u00b7 3-day RORs + one-time services removed from both sides \u00b7 same number as the leaderboard\u2019s Attrition %', value: serv > 0 ? ((cxl / serv) * 100).toFixed(1) + '%' : '\u2014' }; })(),
     ];
   }
 
@@ -4265,6 +4268,7 @@ function openIndicatorRepCard(rep, allReps = []) {
         const selected = drillKey === stat.key;
         return el('div', {
           class: 'rounded-lg border p-3 text-center cursor-pointer transition hover:brightness-95',
+          title: stat.title || '',
           style: selected
             ? { borderColor: 'var(--accent)', background: 'rgba(223,100,58,.12)', boxShadow: '0 0 0 1px var(--accent)' }
             : { borderColor: 'var(--border)', background: 'var(--card-2)' },
@@ -4283,6 +4287,7 @@ function openIndicatorRepCard(rep, allReps = []) {
             class: (String(stat.value).length > 11 ? 'text-xs' : String(stat.value).length > 8 ? 'text-sm' : 'text-lg')
               + ' font-bold tabular-nums mt-1 whitespace-nowrap overflow-hidden',
           }, stat.value),
+          stat.sub ? el('div', { class: 'text-[9px] whitespace-nowrap overflow-hidden', style: { color: 'var(--text-subtle)' } }, stat.sub) : null,
         );
       }),
     );
