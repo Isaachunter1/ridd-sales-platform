@@ -1014,7 +1014,10 @@ function mountApp() {
   // Side gutter lives on <main> (not the content wrapper) so it matches the
   // header exactly: both are gutter → max-w-[1600px] centred box (per Isaac —
   // the spider and gear sat 24px outside the content edge on wide screens).
-  const main = el('main', { class: 'flex-1 overflow-x-hidden pt-[76px] px-4 sm:px-6' });
+  // overflow-x: CLIP, not hidden — hidden turns <main> into a scroll
+  // container, which silently breaks every position: sticky inside it
+  // (the Pricing quote stuck to <main>'s top instead of the viewport).
+  const main = el('main', { class: 'flex-1 overflow-x-clip- pt-[76px] px-4 sm:px-6' });
   // Apple-feel: crossfade + rise ONLY when the view actually changes —
   // in-place re-renders (filters, toggles) stay instant and steady.
   const _viewChanged = state._lastAnimView !== state.view;
