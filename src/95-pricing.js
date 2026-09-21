@@ -168,7 +168,18 @@ function pricingQuote(st) {
   const hasBase = !!svc || !!st.termite;
   const hasOneTime = lines.some(l => l.kind === 'onetime');
   const ok = hasBase || (T.onetime && hasOneTime);
-  return { tier: T, lines, init, mo, acv: init + mo * 11, ok, hasBase, empty: lines.length === 0 };
+  // Annual savings (per Isaac, Sep 21): what the customer saves by bundling
+  // vs buying each add-on as its own plan — same math as Bundle & Save
+  // (standalone plan ACV − what the add-on actually costs on this quote),
+  // summed over the add-ons that could have been sold as a plan.
+  let savings = 0;
+  for (const l of lines) {
+    if (l.kind !== 'addon') continue;
+    const id = l.key.slice(6), prog = PRICING_SERVICES[id].program;
+    if (!prog || !T[prog]) continue;
+    savings += (T[prog][fi] * 11 + T.init) - (l.mo * 12 + l.init);
+  }
+  return { tier: T, lines, init, mo, acv: init + mo * 11, savings: Math.max(0, savings), ok, hasBase, empty: lines.length === 0 };
 }
 
 // Bundle & Save (per Isaac's savings table): standalone plan ACV (11 × monthly
@@ -394,8 +405,8 @@ function viewPricing() {
           editable ? el('button', { title: 'Custom price for this line', 'aria-label': 'Edit price', onclick: () => { editKey = l.key; rerender(); }, style: { width: '26px', height: '26px', borderRadius: '50%', border: '1.5px solid ' + C.ink3, background: 'transparent', color: C.char, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 } }, pencil()) : null));
     };
     const total = (lbl, val, o = {}) => el(o.onclick ? 'button' : 'div', { onclick: o.onclick, title: o.title, style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px', width: '100%', textAlign: 'left', cursor: o.onclick ? 'pointer' : 'default', background: 'transparent', border: 0, padding: 0, color: 'inherit' } },
-      el('span', { style: { font: '700 9px/1 ' + F, letterSpacing: '.14em', textTransform: 'uppercase', color: o.accent ? C.orange : 'rgba(251,244,218,.7)' } }, lbl),
-      el('span', { style: { font: '700 ' + (o.big ? '24px' : '14px') + '/1.1 ' + F, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color: o.accent ? C.orange : C.cream } }, val));
+      el('span', { style: { font: '700 9px/1 ' + F, letterSpacing: '.14em', textTransform: 'uppercase', color: o.green ? '#8FD19E' : o.accent ? C.orange : 'rgba(251,244,218,.7)' } }, lbl),
+      el('span', { style: { font: '700 ' + (o.big ? '24px' : '14px') + '/1.1 ' + F, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color: o.green ? '#8FD19E' : o.accent ? C.orange : C.cream } }, val));
     const tierLabel = 'Quote \u00b7 ' + (st.tier === 'd2d' ? (st.min ? 'D2D minimums' : 'D2D') : T.label);
     // EMPTY quote (per Isaac): one row that says where the quote will appear
     // — no totals block, no Reset (nothing to reset). ~44px instead of ~200.
@@ -417,7 +428,9 @@ function viewPricing() {
                ...(st.showAcv ? [el('div', { style: { borderTop: '1px dashed rgba(251,244,218,.35)', margin: '1px 0' } }), total('First year', money(q.acv))] : [])]
             : [total('Monthly', money(q.mo) + '/mo', { accent: true }),
                el('div', { style: { borderTop: '1px dashed rgba(251,244,218,.35)', margin: '1px 0' } }),
-               total('First year', money(q.acv))]))));
+               total('First year', money(q.acv))]),
+          // Annual savings from bundling (per Isaac) — builds as add-ons are ticked; green like Bundle & Save.
+          ...(q.savings > 0 ? [el('div', { style: { borderTop: '1px dashed rgba(251,244,218,.35)', margin: '1px 0' } }), total('You save / yr', money(q.savings), { green: true, title: 'Annual savings vs buying each add-on as its own plan' })] : []))));
 
     const quote = q.empty ? quoteEmpty : quoteFull;
     // Phone: the one-line bar the quote collapses to once it's scrolled past.
