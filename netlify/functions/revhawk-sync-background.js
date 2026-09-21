@@ -521,6 +521,28 @@ function toObjects(schema, rows) {
   });
 }
 
+// Streamed gzip of a JSON array — never materialises the full JSON string.
+function _gzipJsonArray(arr, chunkRows = 2000) {
+  return new Promise((resolve, reject) => {
+    const g = zlib.createGzip({ level: 6 });
+    const out = [];
+    g.on('data', (c) => out.push(c));
+    g.on('error', reject);
+    g.on('end', () => resolve(Buffer.concat(out)));
+    let i = 0;
+    const pump = () => {
+      while (i < arr.length) {
+        const part = arr.slice(i, i + chunkRows).map(o => JSON.stringify(o)).join(',');
+        const piece = (i === 0 ? '[' : ',') + part;
+        i += chunkRows;
+        if (!g.write(piece)) { g.once('drain', pump); return; }
+      }
+      g.end(arr.length ? ']' : '[]');
+    };
+    pump();
+  });
+}
+
 exports.handler = async (event) => {
   // Optional shared-secret gate (skipped if REVHAWK_SYNC_SECRET isn't set).
   const need = process.env.REVHAWK_SYNC_SECRET;
@@ -668,7 +690,11 @@ exports.handler = async (event) => {
           + _noCust.slice(0, 15).map(o => o.customer_id + (o.office_name ? '/' + o.office_name : '')).join(', '));
       }
     } catch (mErr) { console.warn('[revhawk-sync] no-cust monitor failed', mErr); }
-    const gz = zlib.gzipSync(Buffer.from(JSON.stringify(objects)), { level: 6 });
+    // Gzip the snapshot in row chunks: JSON.stringify of the whole 105k-row
+    // array plus its Buffer copy peaked ~250MB on top of a ~700MB heap and
+    // tripped Netlify's 1GB limit (Sep 21 — the run died silently right
+    // after the no-customer monitor, twice). Streaming keeps the peak flat.
+    const gz = await _gzipJsonArray(objects);
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
     await _stage('queried:' + objects.length + 'rows');
