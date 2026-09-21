@@ -541,7 +541,7 @@ function reportingGeographic() {
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Average months on the books' }, 'Avg Tenure'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Share of customers with a Sentricon (termite) plan on their account' }, 'Sentricon %'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Realized recurring revenue per customer' }, 'LTV / Cust'),
-              el('th', { class: 'px-3 py-2 text-left font-semibold', title: summaryBy === 'state' ? 'Branches servicing this state, biggest first' : 'States this branch services, biggest first' }, summaryBy === 'state' ? 'Offices' : 'States'))),
+              summaryBy !== 'state' ? null : el('th', { class: 'px-3 py-2 text-left font-semibold', title: summaryBy === 'state' ? 'Branches servicing this state, biggest first' : 'States this branch services, biggest first' }, summaryBy === 'state' ? 'Offices' : 'States'))),
           el('tbody', {},
             (() => {
               const T = reportingGeoTotal(rows);
@@ -556,7 +556,7 @@ function reportingGeographic() {
                 td(T.subs ? Math.round(T.active / T.subs * 100) + '%' : '\u2014'),
                 td(T.avgTenure ? T.avgTenure.toFixed(1) + ' mo' : '\u2014'),
                 td(Math.round(T.sentriconPct * 100) + '%'), td('$' + Math.round(T.ltv).toLocaleString()),
-                td(rows.length + (summaryBy === 'state' ? ' states' : ' offices')));
+                summaryBy !== 'state' ? null : td(rows.length + ' states'));
             })(),
             ...rows.map(s => {
               const rated = s.subs >= floor;
@@ -580,7 +580,8 @@ function reportingGeographic() {
                 el('td', { class: 'px-3 py-2 text-left' }, s.avgTenure ? s.avgTenure.toFixed(1) + ' mo' : '—'),
                 el('td', { class: 'px-3 py-2 text-left' }, s.customers ? Math.round((s.sentriconPct || 0) * 100) + '%' : '—'),
                 el('td', { class: 'px-3 py-2 text-left font-semibold' }, s.ltv ? '$' + Math.round(s.ltv).toLocaleString() : '—'),
-                el('td', { class: 'px-3 py-2 whitespace-nowrap text-muted-' }, (() => {
+                // (Office view: the States column is gone — mis-sourced states are a Needs-attention check now, per Isaac.)
+                summaryBy !== 'state' ? null : el('td', { class: 'px-3 py-2 whitespace-nowrap text-muted-' }, (() => {
                   const c = new Map();
                   for (const r of (s.rows || [])) { const o = summaryBy === 'state' ? r.office_name : (r.state || ''); c.set(o, (c.get(o) || 0) + 1); }
                   const ents = [...c.entries()].sort((a, b) => b[1] - a[1]);
