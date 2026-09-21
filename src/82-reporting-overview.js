@@ -715,7 +715,12 @@ function reportingOverview() {
         el('td', { class: 'px-2 py-1.5 whitespace-nowrap text-[11px]', style: { color: 'var(--text-muted)' } }, r.office));
       const dayTbl = el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse' } },
         el('thead', {}, el('tr', {}, hd('Day'), hd('Subs sold', true), hd('Subs lost', true), hd('Net subs', true), hd('Revenue sold', true), hd('Revenue lost', true), hd('Net revenue', true), hd('Top cancel reason'), hd('Office losing most'))),
-        el('tbody', {}, ...dayRows.slice().reverse().map(dayLine),
+        // Last 7 days by default (per Isaac); "Show all N days" reveals the rest of the window. The total row stays the whole window.
+        el('tbody', {}, ...(state._pulseDaysAll || dayRows.length <= 8 ? dayRows.slice().reverse() : dayRows.slice(-7).reverse()).map(dayLine),
+          (!state._pulseDaysAll && dayRows.length > 8) ? el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+            el('td', { class: 'px-2 py-1.5', colspan: '9' }, el('button', { class: 'text-[11px] font-bold', style: { color: 'var(--accent)' }, onclick: () => { state._pulseDaysAll = true; mountApp(); } }, 'Show all ' + dayRows.length + ' days \u2192'))) : null,
+          (state._pulseDaysAll && dayRows.length > 8) ? el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+            el('td', { class: 'px-2 py-1.5', colspan: '9' }, el('button', { class: 'text-[11px] font-bold', style: { color: 'var(--accent)' }, onclick: () => { state._pulseDaysAll = false; mountApp(); } }, 'Show last 7 days'))) : null,
           el('tr', { class: 'border-t font-bold', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
             el('td', { class: 'px-2 py-1.5', style: { background: 'var(--card-2)' } }, winLabel), cell(fmt.int(tot.sn), { right: true, color: C.sold }), cell(fmt.int(tot.ln), { right: true, color: C.cxl }), cell(signed(tot.sn - tot.ln, false), { right: true, color: netColor(tot.sn - tot.ln) }),
             cell(fmt.usd0(tot.srev), { right: true, color: C.sold }), cell(fmt.usd0(tot.lrev), { right: true, color: C.cxl }), cell(signed(tot.srev - tot.lrev, true), { right: true, color: netColor(tot.srev - tot.lrev) }), cell(''), cell(''))));
