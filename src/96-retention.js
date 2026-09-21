@@ -383,7 +383,10 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
             cb, el('span', { class: 'flex-1 truncate', title: g.display + (nowEx ? ' · removed from churn' : ' · counts as churn') + (nowEx !== isEx ? ' · differs from the saved setting' : '') }, g.display, nowEx !== isEx ? el('span', { style: { color: 'var(--accent)' } }, ' *') : null),
             clickable(el('span', { class: 'tabular-nums' }, n(rs.length)), rs.length ? drill(g.display, rs, 'cancelled for this reason') : null));
         }));
-      const node = step(next(), 'Remove cancels with these reasons', APP + 'The sheet counts every dated cancel as churn (its reason list is empty). Tick a reason and subscriptions cancelled for it are treated as RETAINED — the company ended it, the customer did not leave. Unticked reasons count as churn. These are slicers for this tab and session only (an * marks a reason that differs from the saved setting); the saved list lives in Reporting → Configurations → Cancellation reasons and drives the rest of the app.', neutralised.length, 'exclReasons', null, neutralised);
+      // Sits AFTER the Retention book on purpose: it does not shrink the
+      // book — these subs stay in it as retained — it takes them out of the
+      // CHURN count. The number is labelled so it can't read as a book step.
+      const node = step(next(), 'Count these cancel reasons as retained', APP + 'The book above stays at ' + n(book.length) + ' — this step changes what counts as churn, not who is in the book. The sheet counts every dated cancel as churn (its reason list is empty). Tick a reason and subscriptions cancelled for it are treated as RETAINED — the company ended it, the customer did not leave. Unticked reasons count as churn. These are slicers for this tab and session only (an * marks a reason that differs from the saved setting); the saved list lives in Reporting → Configurations → Cancellation reasons and drives the rest of the app.', neutralised.length, 'exclReasons', n(neutralised.length) + ' cancels moved from churn to retained', neutralised, null, neutralised);
       node.children[1].append(listEl);
       return node;
     })(),
