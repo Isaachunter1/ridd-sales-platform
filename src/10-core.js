@@ -3631,6 +3631,10 @@ function _armSplashWatchdog() {
   let _shownFor = '';
   const showBanner = (hash) => {
     if (_shownFor === hash || document.getElementById('newVersionBanner')) return;
+    // Login screen (per Isaac): no banner. Signing in always boots from a
+    // clean load, so the sign-in itself becomes the refresh — remember the
+    // hash so that reload is stamped like a banner refresh would be.
+    if (!state.profile) { window.__riddNewVersion = hash; try { sessionStorage.setItem('ridd_reloaded_for', hash); } catch { /* private */ } return; }
     _shownFor = hash;
     const bar = el('div', {
       id: 'newVersionBanner',
@@ -4064,10 +4068,12 @@ function mountAuth(opts = {}) {
           try { localStorage.setItem('ridd_last_auth_v1', String(Date.now())); } catch { /* private */ }
           console.log('[login] signed in');
           done = true;
-          submitBtn.innerHTML = '\u2713 Signed in';
+          submitBtn.innerHTML = window.__riddNewVersion ? '\u2713 Signed in \u00b7 updating' : '\u2713 Signed in';
           // Boot from a clean load so the app comes up on the new session
           // every time (no dependence on the SDK's auth-change event firing).
-          setTimeout(() => location.replace(window.location.pathname + (window.location.hash || '')), 250);
+          // A newer deploy found while on the login screen comes up here too
+          // (per Isaac: the sign-in IS the refresh — no banner on login).
+          setTimeout(() => { if (window.__riddNewVersion) location.reload(); else location.replace(window.location.pathname + (window.location.hash || '')); }, 250);
           return;
         } else if (mode === 'forgot') {
           const { error } = await supabase.auth.resetPasswordForEmail(email, {
