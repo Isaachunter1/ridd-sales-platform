@@ -113,7 +113,7 @@ function viewAdmin() {
   ];
 
   const navBtn = ([k, label, icon]) => el('button', {
-    class: 'flex items-center gap-3 px-2.5 py-1 rounded-lg text-[11px] font-medium transition text-left',
+    class: 'flex items-center gap-3 px-2.5 py-1 rounded-lg text-[11px] font-medium transition text-left w-full',
     style: state.adminSection === k
       ? { background: 'var(--bg-subtle)', color: 'var(--text)', fontWeight: '600' }
       : { color: 'var(--text-muted)' },
