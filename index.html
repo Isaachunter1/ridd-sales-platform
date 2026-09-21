@@ -1201,7 +1201,12 @@
          under it". No overhang there; the rows are already ≥ 28px and the
          menu adds its own row height instead. */
       .nav-menu button::after, button.w-full::after, td button::after, th button::after, .flex-col > button::after, .modal-overlay button::after { top: 0; bottom: 0; left: 0; right: 0; }
-      .nav-menu button { min-height: 40px; }
+      /* The control-box rule above pins every text-[11px] button to 28px
+         with !important, which silently beat this min-height — so the
+         spider-menu rows were still 28px on phones and a thumb on
+         "Pricing" landed on "RIDDMADE" below it. Override with the same
+         weight: 44px rows (Apple's tap minimum). */
+      .nav-menu button, .nav-menu button.text-\[11px\] { height: auto !important; min-height: 44px !important; line-height: 1.3 !important; }
     }
     /* Press feedback — everything tappable gives a little. */
     button:not(:disabled):active { transform: scale(.965); }
