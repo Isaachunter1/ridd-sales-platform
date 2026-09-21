@@ -32,7 +32,7 @@ function retenGroundZero() {
   m.subs = subs; m.del = del; m.ren = renKey; m.out = base;
   return base;
 }
-// Scope steps 1–5: what stands between "everything in FieldRoutes" and the
+// Scope steps: what stands between "everything in FieldRoutes" and the
 // population the rest of Reporting reads. Each is toggleable on the
 // Retention tab (session what-ifs); official = the saved Configurations.
 // Branches currently OUT of the retention funnel: the saved Configurations
@@ -80,22 +80,21 @@ function _retenScopeStepsBuild(rows) {
   // initial service cannot retain or churn, so the funnel starts from the
   // subs with a completed initial — the same pull he takes from FieldRoutes.
   run('initial', 'Keep only subs that received an initial service', '[Sheet step 2] Initial service marked Completed in FieldRoutes. Everything else — pending, never started, cancelled before the first visit — is not a customer yet. Always applied; this is the true top of the funnel.', r => !r.initial_service, true);
-  // Branch pick (per Isaac): untick a branch and it leaves the funnel here —
-  // "what if a PE group bought only these branches". Session slicer on top
-  // of the Configurations exclusions; the list lives on the step itself.
-  const brOff = retenBranchesOff();
-  run('branches', 'Pick the branches that count', 'Every branch is in by default. Untick one and its subscriptions leave here — attrition for a subset of the company (say, the branches a buyer would take).' + (brOff.size ? ' Out: ' + [...brOff].join(', ') + '.' : ''), r => brOff.has((r.office_name || '').trim()), true);
+  // (The branch pick is no longer a step — per Isaac, Sep 21. It scopes
+  // "Everything in FieldRoutes" itself, from the 🏢 dropdown on the bar; see
+  // _retenOfficeSlice.)
   // Configuration rules run next, LOCKED (per Isaac, Sep 2026 — every
   // number on the Overview already has them applied, so the steps must
   // too or the two tabs drift). Change them in Reporting → Configurations.
   run('orphans', 'Remove accounts deleted in FieldRoutes', '[Configurations rule] Accounts deleted inside FieldRoutes — the mirror never forgets a row, so a nightly check asks FieldRoutes which customer ids still exist and anything it no longer returns lands here (plus subs with no customer record at all, and the manual list in Configurations).' + crmStamp, r => { const id = String(r.customer_id != null ? r.customer_id : ''); return (reportingAutoExcludeOrphans() && (!!r.customer_missing || crmDel.has(id))) || manual.has(id); }, true);
   run('hidden', 'Remove hidden service types', '[Configurations rule] Service types marked Hidden in Configurations → Service types (late fees, inspections, admin items…).', r => !!(cfgByName.get(r.subscription) || {}).is_hidden, true);
-  run('sources', 'Remove excluded lead sources', '[Configurations rule] Lead sources switched off in Configurations' + (exclSrc.size ? ': ' + [...exclSrc].join(', ') : ' (none today)') + '.', r => exclSrc.has(reportingSourceOf(r)), true);
   // Always-on steps come first (per Isaac, Sep 2026): the locked ones the
   // sheet does every time, then the toggles.
   const lifecycleByName = reportingServiceLifecycleMap();
   const recurringByName = reportingServiceRecurringMap();
   run('onetime', 'Remove one-time service types', '[Sheet step 1] Service types whose lifecycle is One-time (the “One Time …”, Initial, Reservice, Inspection-style items) — set aside here, still counted on the Overview and in the P&L. Lifecycle is set per type in Configurations → Service types.', r => { const lc = lifecycleByName.get(r.subscription); return !(lc === 'recurring' || lc === 'retired'); }, true);
+  // Excluded lead sources run AFTER one-time types (per Isaac, Sep 21).
+  run('sources', 'Remove excluded lead sources', '[Configurations rule] Lead sources switched off in Configurations' + (exclSrc.size ? ': ' + [...exclSrc].join(', ') : ' (none today)') + '.', r => exclSrc.has(reportingSourceOf(r)), true);
   run('retired', 'Remove retired service types', '[Sheet step 1] Types marked Retired in Configurations — no longer sold and not part of the recurring book.', r => !recurringByName.get(r.subscription), true);
   run('status', 'Keep every account status', '[Sheet step 3] Active, Frozen and cancelled subscriptions all stay in — nothing is removed for status. Cancels are counted by their date, later.', r => !(!!r.initial_service && r.initial_service >= '2000-01-01'), true);
   return { steps, out: cur };
@@ -104,8 +103,11 @@ const _retenOfficeMemo = { g: null, by: new Map() };
 function _retenOfficeSlice(office) {
   const g = retenGroundZero();
   if (_retenOfficeMemo.g !== g) { _retenOfficeMemo.g = g; _retenOfficeMemo.by = new Map(); }
-  const k = office || 'all';
-  if (!_retenOfficeMemo.by.has(k)) _retenOfficeMemo.by.set(k, reportingFilterByOffice(g, k));
+  // The 🏢 branch pick scopes the ground itself (per Isaac, Sep 21): untick
+  // a branch and it is gone from "Everything in FieldRoutes" down.
+  const brOff = retenBranchesOff();
+  const k = (office || 'all') + '|' + [...brOff].sort().join(',');
+  if (!_retenOfficeMemo.by.has(k)) { let rows = reportingFilterByOffice(g, office || 'all'); if (brOff.size) rows = rows.filter(r => !brOff.has((r.office_name || '').trim())); _retenOfficeMemo.by.set(k, rows); }
   return _retenOfficeMemo.by.get(k);
 }
 function _retenOfficial() {
@@ -273,7 +275,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     el('div', { class: 'px-5 py-3 flex flex-col gap-2 cursor-pointer', onclick: () => { state._retenMethodOpen = !open; mountApp(); } },
       el('div', { class: 'flex items-center gap-2 flex-wrap' },
         el('h3', { class: 'text-sm font-bold flex-1 min-w-0' }, (open ? '▾ ' : '▸ ') + 'Attrition Steps'),
-        el('span', { class: 'inline-flex' }, retenBranchDropdown(g0)),
+        el('span', { class: 'inline-flex' }, retenBranchDropdown(retenGroundZero())),
         whatIf ? el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: (e) => { e.stopPropagation(); state._retenWhatIf = null; mountApp(); } }, 'Reset to official') : null,
         (() => {
           const inp = el('input', { type: 'file', accept: '.csv,text/csv', style: { display: 'none' } });
@@ -306,6 +308,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     el('div', { class: 'flex items-center justify-between py-2 gap-3' },
       el('div', {}, el('div', { class: 'text-sm font-black' }, 'Everything in FieldRoutes'),
         el('div', { class: 'text-[11px] text-muted-' }, 'Every subscription in the synced snapshot, any status, any service type — the top of the funnel.'
+          + (retenBranchesOff().size ? ' Branches out (🏢 dropdown above): ' + [...retenBranchesOff()].join(', ') + '.' : '')
           + (loadDrops && (loadDrops.phantom || loadDrops.dupes) ? ' The loader itself set aside ' + n(loadDrops.phantom) + ' phantom-office row' + (loadDrops.phantom === 1 ? '' : 's') + ' and ' + n(loadDrops.dupes) + ' duplicate' + (loadDrops.dupes === 1 ? '' : 's') + ' of the same subscription id (' + n(loadDrops.raw) + ' raw rows).' : ''))),
       clickable(el('div', { class: 'text-lg font-black tabular-nums' }, n(g0.length)), drill('Everything in FieldRoutes', g0, 'the whole snapshot'))),
     ...scopeSteps.map(st => {
@@ -329,12 +332,6 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
           },
         }, '\u21bb Run FieldRoutes check now');
         node.children[1].append(btn);
-      }
-      if (st.key === 'branches') {
-        // The checklist moved to the 🏢 dropdown on the bar above (per Isaac).
-        const off = retenBranchesOff();
-        node.children[1].append(el('div', { class: 'text-[11px] mt-1', style: { color: 'var(--text-muted)' } },
-          off.size ? 'Out: ' + [...off].join(', ') + ' — change it in the branch dropdown above.' : 'Every branch is in — pick branches in the 🏢 dropdown above.'));
       }
       return node;
     }),
