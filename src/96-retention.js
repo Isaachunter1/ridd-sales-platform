@@ -79,7 +79,7 @@ function _retenScopeStepsBuild(rows) {
   // Step 1 is LOCKED (per Isaac): a subscription that never received its
   // initial service cannot retain or churn, so the funnel starts from the
   // subs with a completed initial — the same pull he takes from FieldRoutes.
-  run('initial', 'Keep only subs that received an initial service', 'Only subscriptions whose initial service is marked Completed in FieldRoutes go forward. A sub that is still pending, never got started, or was cancelled before the first visit never became a customer — it cannot retain and it cannot churn, so counting it either way would distort the rate. This is the true top of the funnel and is always applied.', r => !r.initial_service, true);
+  run('initial', 'Remove subscriptions that have not received an initial service yet', 'Subscriptions whose initial service is not yet marked Completed in FieldRoutes — still pending, never started, or cancelled before the first visit. These have not become customers yet: they cannot retain and they cannot churn, so counting them either way would distort the rate. They are removed here and the funnel starts from everyone who has actually been serviced. Always applied.', r => !r.initial_service, true);
   // (The branch pick is no longer a step — per Isaac, Sep 21. It scopes
   // "Everything in FieldRoutes" itself, from the 🏢 dropdown on the bar; see
   // _retenOfficeSlice.)
