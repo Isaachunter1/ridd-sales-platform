@@ -212,3 +212,11 @@ Strong: RLS on sales/profiles/blobs, JWT gate on privileged functions, service k
 | Number provenance (docs/NUMBER_PROVENANCE.md) | `fb09367` `e433b6b` `7db8103` + pay_runs | done — landing Attrition tile unified (golden test), Dashboard revenue drills, SYNC_CADENCE_TEXT, dataAsOf in heartbeat, reporting snapshot auto-advance, IS pay explain card + stored pay_runs (migration `20260921_pay_runs.sql`) |
 | Design consistency (docs/DESIGN_CONSISTENCY.md) | `8e9dfa3` | A items done (overlays, health buckets, toolbar rule). B migration (helpers + mechanical replacements) staged next |
 | Usage analytics | `7e8136b` (migration `20260921_app_events.sql`) | done — Admin → Usage |
+| Design consistency (B, mechanical) | `03f092e` | done — shared fmt helpers, one sort glyph, canonical close buttons + Escape, emptyCard(), pre-brand palette → tokens, toast re-skin. Still open (B): shared `uiBtn` / `statTile` / `openModal` helpers and routing the ~300 inline button/tile/modal builders through them — a long mechanical pass, no user-visible change until done |
+| Phone tap accuracy | `b5dbf18` | fixed — the P2-1 hit-area overhang overlapped stacked rows (taps landed on the row below); stacked buttons now use exact edges |
+| Sticky on phones | `d3a26b1` | fixed — `overflow-x: hidden` on html/body/main made them scroll containers and broke every `position: sticky`; now `clip` |
+| Pricing phone layout | `ee64525` | done — quote pinned at the measured header height, compact empty state, collapsing sticky bar; awaiting a live viewport pass (needs a signed-in session) |
+| Daily Pulse | `82cbb7e` `51c5d4e` `45ed5c6` `5d597f0` | sold-vs-lost by office / by day + insights; seller-type mix in the drill; save-attempt UI retired from the churn list |
+| Active ARR provenance | `f4648cc` | done — step-by-step from everything in FieldRoutes to Active ARR, every step drillable, $0-ARV active subs flagged |
+| Operations tab (COO) | `d3f0c8f` | built — definitions need confirming against the OPS sheet's source report (open questions to Isaac); `tech-stats-background` has never written its blob — needs the Netlify function log |
+| P1-1 incremental render | `816ba70` | partial — Records memoized (−1.7 s of 5.1 s). Next: leaderboard block (1.2 s) once a fresh profile is read from the new marks |
