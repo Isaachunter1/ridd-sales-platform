@@ -3771,6 +3771,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // flip stored defaults to revenue (an explicit user pick after this
   // migration sticks like normal).
   if (!state._repSortRevenueV1) { state._repSortRevenueV1 = true; state._indicatorRepSort = { key: 'revenue', dir: 'desc' }; saveDemoData(); }
+  // A saved sort on a retired column (Cancels, the old Office column) falls back to revenue.
+  if (state._indicatorRepSort && (state._indicatorRepSort.key === 'cancels' || state._indicatorRepSort.key === 'office')) state._indicatorRepSort = { key: 'revenue', dir: 'desc' };
   // Migrate legacy Best Day sort dir from the old 'desc' value to the new
   // explicit 'date' / 'amount' modes (default to date — most recent first).
   // Best Week and Best Month follow the same pattern.
