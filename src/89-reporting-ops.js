@@ -3,8 +3,8 @@
 // │ as a live tab. Weekly (Sun–Sat) × office, from indicators/ops-stats.json
 // │ (ops-stats-background: FieldRoutes appointments, tickets, time clock,
 // │ reviews) + Service Pro upsell dollars from the Indicators dataset. Gross
-// │ pay, management hours and Google reviews are not in FieldRoutes — they
-// │ are typed in on this tab (app_settings.ops_manual) and stay in the math.
+// │ (Hand-entered payroll / management hours / Google reviews retired Sep 21 —
+// │ everything on the tab now comes from FieldRoutes.)
 // │ 2025 baselines come from the sheet (OPS_BASELINE_2025) for % change.
 // │ Part of the app.js bundle (tools/bundle.js concatenates src/*.js in name order).
 // └────────────────────────────────────────────────────────────────────────
@@ -60,7 +60,6 @@ function opsWeekLabel(ws) { const a = new Date(ws + 'T12:00:00'); const b = new 
 
 function reportingOps() {
   if (!state.opsStats && !state._opsStatsMissing) refreshOpsStatsFromCloud();
-  if (!state._opsManualLoaded) loadOpsManual();
   const wrap = el('div', { class: 'flex flex-col gap-4' });
   const S = state.opsStats;
   const kick = el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)' }, title: 'Rebuild the weekly stats from FieldRoutes now (otherwise every 6 hours)',
@@ -75,8 +74,6 @@ function reportingOps() {
   const offices = officeIds.map(id => ({ id, name: names[id] })).sort((a, b) => a.name.localeCompare(b.name));
   const weeks = (S.weeks || []).filter(w => w <= S.end);
   const todayWs = opsWeekStart(new Date().toISOString().slice(0, 10));
-  const manual = state.opsManual || {};
-  const man = (o, w) => (manual[w] && manual[w][o]) || {};
 
   // Service Pro upsell $ by office × week from the Indicators dataset (contract value, sold date).
   const upsell = {};
@@ -88,16 +85,16 @@ function reportingOps() {
     upsell[oid + '|' + w] = (upsell[oid + '|' + w] || 0) + (Number(s.contractValue) || 0);
   });
   const raw = (oid, w) => Object.assign({ done: 0, sch: 0, resvc: 0, prod: 0, routes: 0, mins: 0, minsn: 0, rtypes: {}, hours: 0, fr_reviews: 0 }, S.cells[oid + '|' + w] || {}, { upsell: upsell[oid + '|' + w] || 0 });
-  // Sum of cells (offices × weeks) → one aggregate, manual fields included.
+  // Sum of cells (offices × weeks) → one aggregate.
   const agg = (pairs) => {
-    const t = { done: 0, sch: 0, resvc: 0, prod: 0, routes: 0, mins: 0, minsn: 0, rtypes: {}, hours: 0, fr_reviews: 0, upsell: 0, pay_incl: 0, pay_excl: 0, hrs_mgmt: 0, reviews: 0, n: 0 };
+    const t = { done: 0, sch: 0, resvc: 0, prod: 0, routes: 0, mins: 0, minsn: 0, rtypes: {}, hours: 0, fr_reviews: 0, upsell: 0, n: 0 };
     for (const [oid, w] of pairs) {
-      const c = raw(oid, w), m = man(oid, w);
+      const c = raw(oid, w);
       for (const k of ['done', 'sch', 'resvc', 'prod', 'routes', 'mins', 'minsn', 'hours', 'fr_reviews', 'upsell']) t[k] += Number(c[k]) || 0;
       for (const k of Object.keys(c.rtypes || {})) t.rtypes[k] = (t.rtypes[k] || 0) + c.rtypes[k];
-      t.pay_incl += Number(m.pay_incl) || 0; t.pay_excl += Number(m.pay_excl) || 0; t.hrs_mgmt += Number(m.hrs_mgmt) || 0; t.reviews += Number(m.reviews) || 0; t.n++;
+      t.n++;
     }
-    t.hrs_excl = t.hours; t.hrs_incl = t.hours + t.hrs_mgmt;
+    t.hrs_excl = t.hours;
     return t;
   };
   const pct = (v) => v == null ? '—' : (v * 100).toFixed(1) + '%';
@@ -121,14 +118,7 @@ function reportingOps() {
     { key: 'svc_minutes', group: 'Production', label: 'Service duration (min)', fmt: num1, calc: (t) => div(t.mins, t.minsn), rate: true, note: 'Check-in → check-out on completed stops' },
     { key: 'resvc_pct', group: 'Reservices', label: 'Reservice % of completed', fmt: pct, calc: (t) => div(t.resvc, t.done), rate: true },
     { key: 'resvc', group: 'Reservices', label: 'Reservices', fmt: num1, calc: (t) => t.resvc },
-    { key: 'spend_per_appt', group: 'Direct labor', label: 'Spend per appointment (mgmt excluded)', fmt: usd, calc: (t) => div(t.pay_excl, t.done), rate: true, manual: true },
-    { key: 'spend_per_hr_incl', group: 'Direct labor', label: 'Spend per hour (mgmt included)', fmt: usd, calc: (t) => div(t.pay_incl, t.hrs_incl), rate: true, manual: true },
-    { key: 'spend_per_hr_excl', group: 'Direct labor', label: 'Spend per hour (mgmt excluded)', fmt: usd, calc: (t) => div(t.pay_excl, t.hrs_excl), rate: true, manual: true },
-    { key: 'pay_incl', group: 'Direct labor', label: 'Gross pay (mgmt included)', fmt: usd, calc: (t) => t.pay_incl, manual: true },
-    { key: 'pay_excl', group: 'Direct labor', label: 'Gross pay (mgmt excluded)', fmt: usd, calc: (t) => t.pay_excl, manual: true },
-    { key: 'hrs_incl', group: 'Direct labor', label: 'Hours worked (mgmt included)', fmt: num1, calc: (t) => t.hrs_incl, note: 'Tech time clock + management hours entered by hand' },
-    { key: 'hrs_excl', group: 'Direct labor', label: 'Hours worked (techs, time clock)', fmt: num1, calc: (t) => t.hrs_excl },
-    { key: 'reviews', group: 'Reviews', label: 'Google reviews received', fmt: num1, calc: (t) => t.reviews, manual: true },
+    { key: 'hrs_excl', group: 'Direct labor', label: 'Tech hours worked (time clock)', fmt: num1, calc: (t) => t.hrs_excl },
     { key: 'fr_reviews', group: 'Reviews', label: 'FieldRoutes reviews received', fmt: num1, calc: (t) => t.fr_reviews },
   ];
   const mKey = METRICS.some(m => m.key === state._opsMetric) ? state._opsMetric : 'done';
@@ -175,33 +165,7 @@ function reportingOps() {
         : el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'No reservices yet.'));
   })();
 
-  const manualCard = (() => {
-    const wk = weeks.includes(state._opsManualWeek) ? state._opsManualWeek : (weeks.filter(w => w < todayWs).slice(-1)[0] || weeks[weeks.length - 1]);
-    const FIELDS = [['pay_incl', 'Gross pay · mgmt incl.'], ['pay_excl', 'Gross pay · mgmt excl.'], ['hrs_mgmt', 'Management hours'], ['reviews', 'Google reviews']];
-    const inputs = [];
-    const save = async () => {
-      const next = JSON.parse(JSON.stringify(state.opsManual || {}));
-      next[wk] = next[wk] || {};
-      for (const { oid, key, inp } of inputs) { const v = inp.value.trim(); next[wk][oid] = next[wk][oid] || {}; if (v === '') delete next[wk][oid][key]; else next[wk][oid][key] = Number(v); if (!Object.keys(next[wk][oid]).length) delete next[wk][oid]; }
-      if (!Object.keys(next[wk]).length) delete next[wk];
-      state.opsManual = next;
-      const r = await saveAppSettingCas('ops_manual', next, async () => { await loadOpsManual(); toast('Someone else saved this week since you opened it — reloaded, please re-enter', 'warn'); });
-      if (r.ok) { toast('Week saved', 'success'); mountApp(); } else if (!r.conflict) toast('Save failed — ' + ((r.error && r.error.message) || 'unknown'), 'error');
-    };
-    return el('div', { class: 'card overflow-hidden' },
-      el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-2 flex-wrap', style: { borderColor: 'var(--border)' } },
-        el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Hand-entered inputs'), el('div', { class: 'text-[11px] text-muted-' }, 'Payroll and Google reviews are not in FieldRoutes. Type a week’s numbers here; the labor and review metrics above use them.')),
-        el('div', { class: 'flex items-center gap-2' },
-          el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', background: 'var(--card)' }, onchange: (e) => { state._opsManualWeek = e.target.value; mountApp(); } },
-            ...weeks.slice().reverse().map(w => el('option', { value: w, selected: w === wk }, opsWeekLabel(w) + (w === todayWs ? ' (current)' : '')))),
-          el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: save }, 'Save week'))),
-      el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse' } },
-        el('thead', {}, el('tr', {}, th('Office'), ...FIELDS.map(([, l]) => th(l, true)), th('Tech hours (clock)', true))),
-        el('tbody', {}, ...offices.map(o => { const m = man(o.id, wk); const c = raw(o.id, wk); return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-          el('td', { class: 'px-2 py-1 font-semibold whitespace-nowrap' }, o.name),
-          ...FIELDS.map(([key]) => { const inp = el('input', { type: 'number', step: 'any', value: m[key] != null ? String(m[key]) : '', class: 'rounded-lg border px-2 py-0.5 text-[11px] tabular-nums text-right', style: { borderColor: 'var(--border-2)', background: 'var(--card)', width: '110px' } }); inputs.push({ oid: o.id, key, inp }); return el('td', { class: 'px-2 py-1 text-right' }, inp); }),
-          td(num1(c.hours), { right: true, muted: true })); })))));
-  })();
+  // (Hand-entered inputs card retired per Isaac, Sep 21 — payroll / management hours / Google reviews are out of this tab; FieldRoutes-only metrics remain.)
 
   wrap.append(
     el('div', { class: 'card p-4 flex items-center gap-3 flex-wrap' },
@@ -214,10 +178,9 @@ function reportingOps() {
       kick),
     el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-2 flex-wrap', style: { borderColor: 'var(--border)' } },
-        el('div', {}, el('h3', { class: 'text-sm font-bold' }, M.label), el('div', { class: 'text-[11px] text-muted-' }, (M.note || '') + (M.manual ? (M.note ? ' · ' : '') + 'uses the hand-entered inputs below' : '') + (M.rate ? '' : ' · YTD = weekly average of completed weeks'))),
+        el('div', {}, el('h3', { class: 'text-sm font-bold' }, M.label), el('div', { class: 'text-[11px] text-muted-' }, (M.note || '') + (M.rate ? '' : ' · YTD = weekly average of completed weeks'))),
         el('div', { class: 'text-[10px] text-muted-' }, 'Current period is live and partial')),
       el('div', { class: 'scroll-x' }, table)),
-    rtypeCard,
-    manualCard);
+    rtypeCard);
   return wrap;
 }
