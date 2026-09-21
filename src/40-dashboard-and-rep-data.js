@@ -5793,7 +5793,7 @@ function leaderboardSection(range) {
       el('h2', { class: 'text-base font-bold' }, 'Leaderboard'),
       el('div', { class: 'flex items-center gap-2 flex-wrap', style: { flex: '1 1 auto' } },
         // All three header controls share one 26px box (per Isaac).
-        el('div', { class: 'pill-tabs', style: { height: '26px', boxSizing: 'border-box', alignItems: 'center' } },
+        el('div', { class: 'pill-tabs lb-pills', style: { height: '26px', boxSizing: 'border-box', alignItems: 'center' } },
           ...[['total','Total'],['new','New'],['renewals','Renewals']].map(([k, label]) =>
             el('button', {
               'data-active': state.dashLeaderTab === k,
@@ -5820,8 +5820,8 @@ function leaderboardSection(range) {
         (() => {
           const on = lbOnly.size > 0;
           const btn = el('button', {
-            class: 'border px-2.5 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
-            style: { borderColor: on ? 'var(--accent)' : 'var(--border-2)', color: on ? 'var(--accent)' : 'var(--text-muted)', height: '26px', lineHeight: '24px', borderRadius: '0', background: 'var(--card-2)', boxSizing: 'border-box' },
+            class: 'border px-2.5 font-semibold transition hover:brightness-95 whitespace-nowrap',
+            style: { fontSize: '11px', borderColor: on ? 'var(--accent)' : 'var(--border-2)', color: on ? 'var(--accent)' : 'var(--text-muted)', height: '26px', lineHeight: '24px', borderRadius: '0', background: 'var(--card-2)', boxSizing: 'border-box' },
             title: 'Tick reps to show only them on this leaderboard',
             onclick: (e) => { e.stopPropagation(); state.dashLeaderFilterOpen = !state.dashLeaderFilterOpen; mountApp(); },
           }, on ? ('Reps ' + rows.length + '/' + rowsAll.length) : 'Reps');
