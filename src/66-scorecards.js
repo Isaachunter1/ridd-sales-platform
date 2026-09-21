@@ -1918,6 +1918,18 @@ function reportingBranchRenames() {
 function setReportingBranchRename(from, to) { try { const m = { ...reportingBranchRenames() }; if (to && to !== from) m[from] = to; else delete m[from]; _setAdminRule('branchRenames', m); localStorage.setItem('ridd_rpt_branch_renames', JSON.stringify(m)); } catch {} }
 function reportingAllBranches() { const s = new Set(); for (const r of (state.reportingSubscriptions || [])) { const o = (r.office_name || '').trim(); if (o) s.add(o); } return [...s].sort(); }
 function _reporting3dayRor(r) {
+  if (!_reporting3dayRorByDates(r)) return false;
+  // A sub with MORE THAN ONE completed appointment was really serviced (per
+  // Isaac, Sep 21): whatever the CRM dates say, nobody rescinded it. Those
+  // stay in the book — and if the cancel reason is a renewal, the renewals
+  // step later treats them as retained. A step on Retention (default ON)
+  // shows them and can switch the exemption off to see them as RORs.
+  const keepServiced = (typeof _retenWhatIf === 'function') ? _retenWhatIf('popRorServiced', true) : true;
+  if (keepServiced && (Number(r.subscription_completed_services) || 0) > 1) return false;
+  return true;
+}
+// The pure dates test: door-to-door, cancelled within 3 days of the sale.
+function _reporting3dayRorByDates(r) {
   if (!r.subscription_date_canceled || !r.sold_date) return false;
   // 3-day ROR is a DOOR-TO-DOOR contract right (per Isaac) - office staff
   // and technician sales don't get one, so a quick cancel there is a real
@@ -1925,11 +1937,6 @@ function _reporting3dayRor(r) {
   // sold-by types keep the old behavior (legacy rows, benefit of the doubt).
   const _t = String(r.sold_by_type || '').trim().toLowerCase();
   if (_t && _t !== 'sales rep') return false;
-  // A sub with MORE THAN ONE completed appointment was really serviced (per
-  // Isaac, Sep 21): whatever the CRM dates say, nobody rescinded it. Those
-  // stay in the book — and if the cancel reason is a renewal, the renewals
-  // step later treats them as retained.
-  if ((Number(r.subscription_completed_services) || 0) > 1) return false;
   const d = (new Date(r.subscription_date_canceled) - new Date(r.sold_date)) / 86400000;
   return d >= 0 && d <= 3;
 }
