@@ -56,7 +56,7 @@ function viewReporting() {
     _guarded(() =>
     isMarketing                            ? reportingMarketingPnl() :
     state.reportingSubTab === 'is'         ? reportingMarketingPnl() :
-    state.reportingSubTab === 'config'     ? el('div', { class: 'flex flex-col gap-4' }, reportingAuditExportCard(), el('div', { class: 'grid grid-cols-1 lg:grid-cols-3 gap-4 items-start' }, reportingServiceConfigPanel(), reportingSourceConfigPanel(), reportingCancelConfigPanel()), reportingMarketingGoalsPanel()) :
+    state.reportingSubTab === 'config'     ? el('div', { class: 'flex flex-col gap-4' }, reportingAuditExportCard(), el('div', { class: 'grid grid-cols-1 lg:grid-cols-3 gap-4 items-start' }, reportingServiceConfigPanel(), reportingSourceConfigPanel(), reportingCancelConfigPanel()), reportingCrmVocabPanel(), reportingMarketingGoalsPanel()) :
     state.reportingSubTab === 'uploads'    ? reportingUploadsPanel() :
     state.reportingSubTab === 'putis'      ? reportingPutis() :
     state.reportingSubTab === 'geographic' ? reportingGeographic() :
