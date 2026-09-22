@@ -223,6 +223,31 @@ exports.handler = async (event) => {
         else throw new Error(error.message);
       }
     }
+    // 3a. Appointment status for the subs we ALREADY have from the last two
+    // days (per Isaac, Sep 22): the TV board only shows a sale once its initial
+    // appointment is on the books, and the appointment is usually scheduled
+    // minutes after the subscription is created — so re-read these every run
+    // (one batched call) and flip crm_initial_status the moment it changes.
+    let apptFlipped = 0;
+    try {
+      const known = ids.filter(id => haveSub.has(id));
+      if (known.length) {
+        const { data: cur } = await supabase.from('sales').select('id, crm_subscription_id, crm_initial_status').in('crm_subscription_id', known);
+        const curBy = new Map((cur || []).map(r => [String(r.crm_subscription_id), r]));
+        for (const part of chunk(known, 1000)) {
+          const got = await fr('subscription/get', { subscriptionIDs: part.map(Number) });
+          const list = Array.isArray(got.subscriptions) ? got.subscriptions : Object.values(got.subscriptions || {});
+          for (const s of list) {
+            const row = curBy.get(String(s.subscriptionID)); if (!row) continue;
+            const next = hasAppt(s) ? String(s.initialStatusText || s.initialStatus || 'Pending') : 'None';
+            if (String(row.crm_initial_status || '') === next) continue;
+            const { error } = await supabase.from('sales').update({ crm_initial_status: next, crm_checked_at: new Date().toISOString() }).eq('id', row.id);
+            if (!error) apptFlipped++;
+          }
+        }
+      }
+    } catch (e) { console.warn('[fr-live] appointment refresh skipped:', e.message); }
+
     // 3b. True-up: auto-added rows whose Initial / Monthly / Revenue drifted
     // from FieldRoutes (e.g. the old derived Monthly) get the CRM's numbers.
     // Runs over the 400 auto-added rows checked longest ago (all of this
@@ -255,7 +280,7 @@ exports.handler = async (event) => {
         }
       } catch (e) { console.warn('[fr-live] true-up skipped:', e.message); }
     }
-    const msg = '[fr-live] ' + ids.length + ' subs since ' + from + ' · +' + added + ' logged · ' + fixed + ' trued up · ' + skippedNoRep + ' seller(s) with no app account · ' + skippedType + ' skipped by type · ' + skippedNotYet + ' logged but not yet eligible (appt/billing/signed) · ' + svcCreated + ' service type(s) created · ' + (Date.now() - started) + 'ms';
+    const msg = '[fr-live] ' + ids.length + ' subs since ' + from + ' · +' + added + ' logged · ' + fixed + ' trued up · ' + apptFlipped + ' appt status changed · ' + skippedNoRep + ' seller(s) with no app account · ' + skippedType + ' skipped by type · ' + skippedNotYet + ' logged but not yet eligible (appt/billing/signed) · ' + svcCreated + ' service type(s) created · ' + (Date.now() - started) + 'ms';
     console.log(msg + (fr.rateLimited ? ' · ' + fr.rateLimited + ' rate-limited retr' + (fr.rateLimited === 1 ? 'y' : 'ies') : ''));
     return { statusCode: 200, body: msg };
   } catch (e) {

@@ -143,14 +143,19 @@ function openTvBoard() {
   const compute = () => {
     const range = rangeOf();
     const pool = (typeof dashboardSales === 'function' ? dashboardSales() : (state.allSales || [])) || [];
-    const rows = pool.filter(s => { if (EXCLUDED.has(s.audit_status)) return false; const day = localDay(s.created_at) || s.sold_date; return day && day >= range.start && day <= range.end; });
+    // Only subscriptions with an initial appointment ON THE BOOKS (per Isaac,
+    // Sep 22): crm_initial_status Pending or Completed, as the sync stamps it.
+    // 'None' / cancelled initials stay off the board until FieldRoutes has an
+    // appointment. Rows without the stamp (manual / legacy) still show.
+    const hasAppt = (s) => { if (s.crm_initial_status == null) return true; const st = String(s.crm_initial_status).trim().toLowerCase(); return st === 'pending' || st === 'completed'; };
+    const rows = pool.filter(s => { if (EXCLUDED.has(s.audit_status)) return false; if (!hasAppt(s)) return false; const day = localDay(s.created_at) || s.sold_date; return day && day >= range.start && day <= range.end; });
     const rev = (xs) => xs.reduce((a, s) => a + (Number(s.revenue_amount) || 0), 0);
     // New vs renewal (per Isaac): the four Renewal sources are renewal
     // revenue; the headline is everything else.
     const isRenewal = (s) => (typeof reportingSourceClass === 'function' ? reportingSourceClass(sourceOf(s)) : (/^renewal\s*-/i.test(sourceOf(s)) ? 'renewal' : 'new')) === 'renewal';
     const renewRows = rows.filter(isRenewal), newRows = rows.filter(s => !isRenewal(s));
     const prior = priorRangeOf();
-    const priorRows = pool.filter(s => { if (EXCLUDED.has(s.audit_status)) return false; const day = localDay(s.created_at) || s.sold_date; return day && day >= prior.start && day <= prior.end && !isRenewal(s); });
+    const priorRows = pool.filter(s => { if (EXCLUDED.has(s.audit_status)) return false; if (!hasAppt(s)) return false; const day = localDay(s.created_at) || s.sold_date; return day && day >= prior.start && day <= prior.end && !isRenewal(s); });
     const priorRevenue = rev(priorRows);
     const subs = rows.filter(s => !isOts(s));
     // Multi-year % (per Isaac): anything sold by the house "RIDD Account"
