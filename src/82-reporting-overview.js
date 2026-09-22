@@ -642,7 +642,9 @@ function reportingOverview() {
             tooltip: { callbacks: {
               // Long-form date in the tooltip title (per Isaac): "Wednesday, September 6th, 2026".
               title: (items) => { const i = items && items[0] ? items[0].dataIndex : -1; return i < 0 ? '' : single ? (labels[i] + ' · ' + longDate(0)) : longDate(i); },
-              label: (c) => ' ' + c.dataset.label + ': $' + Math.round(c.parsed.y).toLocaleString() } } },
+              label: (c) => ' ' + c.dataset.label + ': $' + Math.round(c.parsed.y).toLocaleString(),
+              // Net = Sold − Churned for the hovered day / branch (per Isaac, Sep 22).
+              footer: (items) => { const i = items && items[0] ? items[0].dataIndex : -1; if (i < 0) return ''; const n = (Number(dsSold[i]) || 0) - (Number(dsCxl[i]) || 0); return ' Net (sold − churned): ' + (n < 0 ? '−' : '') + '$' + Math.round(Math.abs(n)).toLocaleString(); } } } },
           scales: { x: { ticks: { color: txt, maxTicksLimit: span > 30 ? 15 : 31 }, grid: { display: false } },
                     y: { beginAtZero: true, ticks: { color: txt, callback: v => '$' + (v >= 1000 ? Math.round(v / 1000) + 'k' : v) }, grid: { color: grid } } } },
       });
@@ -775,6 +777,10 @@ function reportingOverview() {
           el('h3', { class: 'text-sm font-bold', title: (single ? 'By office: contract value SOLD (green) · ARR of accounts that received their first service (teal) · ARR that CHURNED (red). Click a bar for the day.' : 'Each day: contract value SOLD (green bars) · ARR of accounts that received their first service (teal) · ARR that CHURNED (red). Click a bar or point for the accounts.') }, 'Daily Pulse' + (office !== 'all' ? ' · ' + officeLabel(office) : ''))),
         el('div', { class: 'flex items-center gap-4 flex-wrap' },
           stat('Sold · ' + (single ? (spanRaw === 'today' ? 'today' : 'yesterday') : span + 'd'), sum(sold), C.sold, 'sold'), stat('Serviced', sum(serviced), C.svc, 'svc'), stat('Churned', sum(churned), C.cxl, 'cxl'),
+          // Net = Sold − Churned for the selected window (per Isaac, Sep 22).
+          (() => { const n = sum(sold) - sum(churned); return el('div', { class: 'text-left', title: 'Sold − Churned for this window' },
+            el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Net'),
+            el('div', { class: 'text-base font-black tabular-nums', style: { color: n >= 0 ? C.sold : C.cxl } }, (n < 0 ? '−' : '') + fmt.usd0(Math.abs(n)))); })(),
           el('select', {
             class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
             style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
