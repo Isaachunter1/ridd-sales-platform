@@ -21,9 +21,11 @@ function openTvBoard() {
   const overlay = el('div', { style: { position: 'fixed', inset: '0', background: T.void, color: T.ink, zIndex: '9999', overflow: 'hidden', fontFamily: VOICE } });
   let timers = [];
   let lastKeys = null;   // sale ids seen on the previous paint → pulse on a new one
+  let rtSub = null;      // Supabase realtime channel on `sales` (per Isaac, Sep 22: the board reacts the moment a row lands)
   const cleanup = () => {
     state._tvOpen = false;
     timers.forEach(clearInterval); timers = [];
+    if (rtSub) { try { supabase.removeChannel(rtSub); } catch (e) { /* already gone */ } rtSub = null; }
     document.removeEventListener('keydown', onKey);
     document.removeEventListener('fullscreenchange', onFs);
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -437,5 +439,22 @@ function openTvBoard() {
     try { if (typeof refreshSalesData === 'function') await refreshSalesData(); } catch (e) { /* poll retries */ }
     try { render(); } catch (e) { /* keep the board up */ }
   };
-  timers.push(setInterval(pullFresh, 5 * 60000));
+  // Fallback poll every 2 minutes (was 5); the realtime channel below is what
+  // makes it feel live — this just covers a dropped socket.
+  timers.push(setInterval(pullFresh, 2 * 60000));
+  // Realtime: any insert / update on `sales` (the FieldRoutes live pull writes
+  // here every few minutes) re-pulls the sales pool and repaints within a
+  // second. Debounced so a batch of 30 inserts is one refresh.
+  try {
+    let _rtTimer = null;
+    rtSub = supabase.channel('tv_board_sales_rt')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sales' }, () => {
+        clearTimeout(_rtTimer);
+        _rtTimer = setTimeout(async () => {
+          try { if (typeof refreshSalesData === 'function') await refreshSalesData(); } catch (e) { /* poll covers it */ }
+          try { render(); } catch (e) { /* keep the board up */ }
+        }, 1500);
+      })
+      .subscribe();
+  } catch (e) { rtSub = null; /* realtime unavailable — the poll still runs */ }
 }

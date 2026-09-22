@@ -1,4 +1,4 @@
-// Every 15 minutes during selling hours: kick the FieldRoutes live pull so
+// Every 5 minutes during selling hours (was 15): kick the FieldRoutes live pull so
 // new subscriptions reach the Sales queues the same day (RevHawk is nightly).
 // Schedule lives in netlify.toml [functions."fieldroutes-live-sync-scheduled"].
 exports.handler = async () => {
