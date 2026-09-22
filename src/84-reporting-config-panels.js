@@ -761,7 +761,26 @@ function _mktgQboOffice(acct) {
 // (_compExtras.marketing). Quota + goals live in Configurations.
 const MKTG_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MKTG_DEFAULT_CHANNELS = ['Facebook', 'Google Ads', 'Google Local Services', 'Angi', 'Baton', 'DoLead', 'ElectGen', 'Pest Net', 'Service Direct'];
-const MKTG_RPS = new Set(['DETROIT', 'JOPLIN', 'LITTLE ROCK']);   // RIDD Pest Solutions branches; the rest are RPC
+// Legal-entity grouping of branches (generalization, Sep 22 2026): entities
+// come from RIDD_CONFIG.ENTITIES (default RPC / RPS) and a branch's entity from
+// companyGroupOf() — Configurations → branch groups, or the RIDD default
+// (Detroit / Joplin / Little Rock = RPS, everything else RPC). One entity =
+// no entity rows, just the company total.
+const MKTG_ALL = 'RIDD';   // sentinel key for the company-wide row / scope (display label = the company name)
+function _mktgEntities() { return Object.keys(COMPANY_NAMES); }
+function _mktgEntityOf(branch) { const g = companyGroupOf(branch); const k = Object.keys(COMPANY_NAMES).find(k => COMPANY_NAMES[k] === g); return k || _mktgEntities()[0]; }
+function _mktgGroupLabel(rk) { return rk === MKTG_ALL ? CFG.COMPANY_NAME : companyName(rk); }
+// Row layout shared by the P&L / Projections matrices: each entity's branches,
+// then the entity total; then the company total. A single-entity company gets
+// branches + company total only.
+function _mktgGroupRows(B) {
+  const ents = _mktgEntities(), multi = ents.length > 1;
+  const rows = [], groups = new Set([MKTG_ALL]);
+  for (const k of ents) { const bs = B.byEntity[k] || []; if (!bs.length && multi) continue; rows.push(...bs); if (multi) { rows.push(k); groups.add(k); } }
+  rows.push(MKTG_ALL);
+  const members = (rk) => rk === MKTG_ALL ? B.all : (groups.has(rk) ? (B.byEntity[rk] || []) : [rk]);
+  return { rows, groups, members };
+}
 function _mktgStore() {
   state._compExtras = state._compExtras || {};
   const m = state._compExtras.marketing = (state._compExtras.marketing && typeof state._compExtras.marketing === 'object') ? state._compExtras.marketing : {};
@@ -836,8 +855,11 @@ function _mktgBranchList(year) {
   Object.keys(m.settings.branchGoals).forEach(b => set.add(b));
   for (const ym in m.spend) for (const ch in m.spend[ym]) Object.keys(m.spend[ym][ch]).forEach(b => set.add(b));
   set.delete('UNKNOWN');
-  const rpc = [...set].filter(b => !MKTG_RPS.has(b)).sort(), rps = [...set].filter(b => MKTG_RPS.has(b)).sort();
-  return { rpc, rps, all: [...rpc, ...rps] };
+  const byEntity = {}; for (const k of _mktgEntities()) byEntity[k] = [];
+  for (const b of [...set].sort()) { const k = _mktgEntityOf(b); (byEntity[k] || (byEntity[k] = [])).push(b); }
+  const all = _mktgEntities().flatMap(k => byEntity[k] || []);
+  // rpc / rps kept for any caller that still reads them (RIDD's two entities).
+  return { byEntity, all, rpc: byEntity.RPC || [], rps: byEntity.RPS || [] };
 }
 const _mktgSpendBranchMonth = (m, ym, b) => { let t = 0; const M = m.spend[ym] || {}; for (const ch in M) t += Number(M[ch][b]) || 0; return t; };
 const _mktgSpendChannelMonth = (m, ym, ch) => { let t = 0; const C = (m.spend[ym] || {})[ch] || {}; for (const b in C) t += Number(C[b]) || 0; return t; };
@@ -947,9 +969,7 @@ function _mktgQboConnectBtn() {
 // ── P&L: branch × month ──
 function _mktgPnl() {
   const y = _mktgYearSel(), m = _mktgStore(), a = _mktgActuals(y), B = _mktgBranchList(y);
-  const groups = new Set(['RPC', 'RPS', 'RIDD']);
-  const rows = [...B.rpc, 'RPC', ...B.rps, 'RPS', 'RIDD'];
-  const members = (rk) => rk === 'RPC' ? B.rpc : rk === 'RPS' ? B.rps : rk === 'RIDD' ? B.all : [rk];
+  const { rows, groups, members } = _mktgGroupRows(B);
   const sum = (rk, f) => members(rk).reduce((t, b) => t + (f(b) || 0), 0);
   const rev = (rk, i) => sum(rk, b => (a.branch[b] ? a.branch[b][i].rev + a.branch[b][i].upRev : 0));
   // QuickBooks booked marketing per branch per month (Advertising & Marketing → "<Branch> Marketing").
@@ -963,7 +983,7 @@ function _mktgPnl() {
   const inc = (rk, i) => sum(rk, b => Number((m.incentives[_mktgYm(y, i)] || {})[b]) || 0);
   const tot = (rk, i) => ad(rk, i) + wg(rk, i) + inc(rk, i);
   const jobs = (rk, i) => sum(rk, b => (a.branch[b] ? a.branch[b][i].subs + a.branch[b][i].upsells : 0));
-  const opts = { groupRows: groups, label: (rk) => groups.has(rk) ? companyName(rk) : _mktgTC(rk), firstCol: 'Office' };
+  const opts = { groupRows: groups, label: (rk) => groups.has(rk) ? _mktgGroupLabel(rk) : _mktgTC(rk), firstCol: 'Office' };
   const ratioTotal = (num, den) => (rk) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += num(rk, i); d += den(rk, i); } return _mktgDiv(n, d); };
   const T = m.settings.targets;
   const goalStyle = (goal, better) => (v) => v == null ? {} : { color: better(v, goal) ? '#5F6C5B' : '#DC2626', fontWeight: '600' };
@@ -1018,7 +1038,7 @@ function _mktgCac() {
   const y = _mktgYearSel(), m = _mktgStore(), a = _mktgActuals(y), B = _mktgBranchList(y), s = m.settings;
   // Scope (per Isaac): RIDD · RPC · RPS · or any single office.
   const scope = state._mktCacScope || 'RIDD';
-  const scopeBranches = scope === 'RIDD' ? B.all : scope === 'RPC' ? B.rpc : scope === 'RPS' ? B.rps : [scope];
+  const scopeBranches = scope === MKTG_ALL ? B.all : (B.byEntity[scope] ? B.byEntity[scope] : [scope]);
   const zero = { rev: 0, upRev: 0, subs: 0, upsells: 0 };
   const cell = (i) => scopeBranches.reduce((t, b) => { const x = (a.branch[b] || [])[i] || zero; return { rev: t.rev + x.rev, upRev: t.upRev + x.upRev, subs: t.subs + x.subs, upsells: t.upsells + x.upsells }; }, { ...zero });
   const rev = (i) => cell(i).rev, upRev = (i) => cell(i).upRev, subs = (i) => cell(i).subs, ups = (i) => cell(i).upsells;
@@ -1035,7 +1055,7 @@ function _mktgCac() {
     style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
     onchange: (e) => { state._mktCacScope = e.target.value; mountApp(); },
   },
-    ...[['RIDD', 'RIDD (all)'], ['RPC', companyName('RPC')], ['RPS', companyName('RPS')]].map(([v, l]) => el('option', { value: v, selected: scope === v }, l)),
+    ...[[MKTG_ALL, CFG.COMPANY_NAME + ' (all)'], ...(_mktgEntities().length > 1 ? _mktgEntities().map(k => [k, companyName(k)]) : [])].map(([v, l]) => el('option', { value: v, selected: scope === v }, l)),
     ...B.all.map(b => el('option', { value: b, selected: scope === b }, _mktgTC(b))));
   const ROWS = [
     ['CAC %', (i) => _mktgDiv(tot(i), rev(i) + upRev(i)), _mktgPct, 'ratio', [tot, (i) => rev(i) + upRev(i)]],
@@ -1058,7 +1078,7 @@ function _mktgCac() {
   const byKey = Object.fromEntries(ROWS.map(r => [r[0], r]));
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'flex items-center gap-2 flex-wrap' }, el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Office'), scopeSel),
-    _mktgMatrixCard('CAC · ' + (['RIDD', 'RPC', 'RPS'].includes(scope) ? companyName(scope) : _mktgTC(scope)), 'FieldRoutes revenue & counts · QuickBooks ad spend (allocation for unbooked months) · wages / incentives from Spend entry · projection from Configurations', ROWS.map(r => r[0]),
+    _mktgMatrixCard('CAC · ' + (scope === MKTG_ALL ? CFG.COMPANY_NAME : B.byEntity[scope] ? companyName(scope) : _mktgTC(scope)), 'FieldRoutes revenue & counts · QuickBooks ad spend (allocation for unbooked months) · wages / incentives from Spend entry · projection from Configurations', ROWS.map(r => r[0]),
       (rk, i) => byKey[rk][1](i),
       (v, rk) => byKey[rk][2](v),
       { firstCol: 'Metric', groupRows: new Set(['Total new sales', 'Total new revenue', 'Total spend']),
@@ -1294,16 +1314,14 @@ function _mktgSpendEntry() {
 // ── Projections ──
 function _mktgProjections() {
   const y = _mktgYearSel(), m = _mktgStore(), s = m.settings, B = _mktgBranchList(y), a = _mktgActuals(y);
-  const groups = new Set(['RPC', 'RPS', 'RIDD']);
-  const rows = [...B.rpc, 'RPC', ...B.rps, 'RPS', 'RIDD'];
-  const members = (rk) => rk === 'RPC' ? B.rpc : rk === 'RPS' ? B.rps : rk === 'RIDD' ? B.all : [rk];
+  const { rows, groups, members } = _mktgGroupRows(B);
   const goal = (b) => Number(s.branchGoals[b]) || 0;
   const pRev = (rk, i) => members(rk).reduce((t, b) => t + goal(b) * (s.seasonal[i] || 0), 0);
   const pAd  = (rk, i) => pRev(rk, i) * s.adSpendPct;
   const pWg  = (rk, i) => pRev(rk, i) * s.wagesPct;
   const pInc = (rk, i) => pRev(rk, i) * s.incentivesPct;
   const aRev = (rk, i) => members(rk).reduce((t, b) => t + (a.branch[b] ? a.branch[b][i].rev + a.branch[b][i].upRev : 0), 0);
-  const opts = { groupRows: groups, label: (rk) => groups.has(rk) ? companyName(rk) : _mktgTC(rk), firstCol: 'Office' };
+  const opts = { groupRows: groups, label: (rk) => groups.has(rk) ? _mktgGroupLabel(rk) : _mktgTC(rk), firstCol: 'Office' };
   const num = (v, onSave, opts2 = {}) => el('input', { type: 'number', step: opts2.step || '1', value: v == null ? '' : String(v), class: 'rounded-lg border px-2.5 py-1 text-[11px] text-left', style: { width: opts2.w || '110px', borderColor: 'var(--border-2)' },
     onchange: (e) => { const x = parseFloat(e.target.value); onSave(isNaN(x) ? 0 : x); _mktgSave(); mountApp(); } });
   const goalsCard = el('div', { class: 'card overflow-hidden' },
