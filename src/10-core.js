@@ -274,6 +274,12 @@ const PERM_SCOPE_LABELS = { none: 'Nobody else', self: 'Self only', team: 'Own t
 const PERM_SCOPE_DEFS = [
   { id: 'drill_scope', label: 'Player-card drill-down', group: 'Reach',
     help: 'Whose DETAILED player cards this user type can open (leaderboard rows, record drill-downs). Headline numbers stay visible to all; the full card is what this gates. Self always works.' },
+  // Data reach (per Isaac, Sep 22): self / own team / own dept / company for
+  // what a role SEES, separate from what it can drill into.
+  { id: 'board_scope', label: 'Leaderboard rows', group: 'Reach',
+    help: 'Whose rows this user type sees on the leaderboards (Indicators rep leaderboard, Dashboard leaderboard). Self only = just their own row; Own team = their team; Own dept = inside sales or D2D; Everyone = the company.' },
+  { id: 'sales_scope', label: 'Sales tab rows', group: 'Reach',
+    help: 'Whose sales this user type sees on the Sales tab. Self only = their own sales (today\u2019s behaviour for reps); Own team / Own dept / Everyone widen it.' },
 ];
 const PERM_SCOPE_DEFAULTS = {
   rep_sales:       { drill_scope: 'self' },
@@ -286,6 +292,9 @@ const PERM_SCOPE_DEFAULTS = {
   office_staff:    { drill_scope: 'dept' },
   auditor:         { drill_scope: 'none' },
 };
+// Data-reach defaults = today's behaviour: every role sees every leaderboard
+// row; reps see only their own sales on the Sales tab.
+for (const _r of Object.keys(PERM_SCOPE_DEFAULTS)) { PERM_SCOPE_DEFAULTS[_r].board_scope = 'all'; PERM_SCOPE_DEFAULTS[_r].sales_scope = 'self'; }
 function userScope(scopeId, profile) {
   const p = profile || state.profile;
   if (!p) return 'none';
