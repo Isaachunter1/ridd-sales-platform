@@ -1954,3 +1954,42 @@ function reportingSetupLink() {
   if (steps.some(s => !s.done)) return null;   // the card is showing instead
   return el('button', { class: 'text-[10px] font-semibold self-start', style: { color: 'var(--text-subtle)' }, onclick: () => { state._setupOpen = true; mountApp(); } }, '✓ Company setup complete · show checklist');
 }
+
+// ── Operations baseline panel (Configurations) ────────────────────────
+// Generalization slice 9: the Operations tab's "<year>" and "vs <year>"
+// columns compare against a baseline table. RIDD's is the 2025 COO sheet
+// baked into src/89 (the default); another company pastes its own here as
+// CSV — metric,office,value — with ALL as the company-wide office. Values
+// are weekly averages for counts and the ratio itself for rates.
+const OPS_BASELINE_METRIC_KEYS = ['upsell_per_prod', 'upsell', 'appts_per_route', 'completion', 'done', 'sch', 'routes', 'prod', 'prod_per_appt', 'prod_per_route', 'prod_per_hr', 'svc_minutes', 'resvc_pct', 'resvc', 'hrs_excl', 'fr_reviews', 'spend_per_appt', 'spend_per_hr_incl', 'spend_per_hr_excl', 'reviews'];
+function reportingOpsBaselinePanel() {
+  if (!isAdminRole(state.profile?.role)) return null;
+  const r = _adminRules(); const stored = r && r.opsBaseline && typeof r.opsBaseline === 'object' && r.opsBaseline.values ? r.opsBaseline : null;
+  const B = opsBaseline();
+  const open = !!state._opsBaseOpen;
+  const toCsv = (vals) => { const out = []; for (const k in vals) for (const o in vals[k]) out.push(k + ',' + (o === 'RIDD' ? 'ALL' : o) + ',' + vals[k][o]); return out.join('\n'); };
+  const parse = (txt) => {
+    const values = {}; let bad = 0;
+    for (const line of String(txt || '').split(/\r?\n/)) {
+      const t = line.trim(); if (!t || /^metric\s*,/i.test(t)) continue;
+      const m = /^([a-z_]+)\s*,\s*([^,]+?)\s*,\s*(-?[\d.]+)\s*%?$/i.exec(t);
+      if (!m || !OPS_BASELINE_METRIC_KEYS.includes(m[1])) { bad++; continue; }
+      (values[m[1]] = values[m[1]] || {})[m[2] === 'ALL' ? 'ALL' : m[2]] = Number(m[3]);
+    }
+    return { values, bad };
+  };
+  const yearIn = el('input', { type: 'number', min: 2000, max: 2100, value: B.year, class: 'rounded-lg border px-2 py-1 text-[11px] tabular-nums', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '72px' } });
+  const ta = el('textarea', { rows: 8, placeholder: 'metric,office,value\ncompletion,ALL,0.93\ndone,ALL,2400\ndone,Atlanta,270', class: 'w-full rounded-lg border px-2 py-1 text-[11px] font-mono', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } }, stored ? toCsv(stored.values) : '');
+  const msg = el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '');
+  return el('div', { class: 'card p-4', id: 'cfg-ops-baseline' },
+    el('div', { class: 'flex items-center justify-between gap-2 cursor-pointer', onclick: () => { state._opsBaseOpen = !open; mountApp(); } },
+      el('div', {}, el('h3', { class: 'text-sm font-bold' }, (open ? '▾ ' : '▸ ') + 'Operations baseline · ' + B.year), el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, stored ? 'Custom baseline (' + Object.keys(stored.values).length + ' metrics)' : 'Default — RIDD’s 2025 sheet. The Operations tab compares this year against it.')),
+      el('span', { class: 'text-[9px] font-semibold px-1.5 py-0.5 rounded-full', style: stored ? { background: 'rgba(223,100,58,.12)', color: 'var(--accent)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' } }, stored ? 'custom' : 'default')),
+    open ? el('div', { class: 'mt-2 flex flex-col gap-2' },
+      el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'One row per metric and office: metric key, office name (ALL = company-wide), value. Counts are weekly averages; rates are the ratio (0.93, not 93). Keys: ' + OPS_BASELINE_METRIC_KEYS.join(', ') + '.'),
+      el('div', { class: 'flex items-center gap-2' }, el('span', { class: 'text-[11px] font-semibold' }, 'Baseline year'), yearIn),
+      ta, msg,
+      el('div', { class: 'flex items-center gap-2' },
+        el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => { const { values, bad } = parse(ta.value); if (!Object.keys(values).length) { msg.textContent = 'Nothing parsed' + (bad ? ' — ' + bad + ' line' + (bad === 1 ? '' : 's') + ' not understood' : '') + '.'; return; } _setAdminRule('opsBaseline', { year: Number(yearIn.value) || B.year, values }); toast('Operations baseline saved' + (bad ? ' · ' + bad + ' line' + (bad === 1 ? '' : 's') + ' skipped' : ''), 'success'); mountApp(); } }, 'Save baseline'),
+        stored ? el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { _setAdminRule('opsBaseline', null); toast('Back to the default baseline', 'success'); mountApp(); } }, 'Use default') : null)) : null);
+}
