@@ -225,7 +225,23 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     return { boy: boy.length, raw: raw.length, exclN: exclRows.length, rorN: rorRows.length, counted: countedRows.length, rate: boy.length ? countedRows.length / boy.length : null,
       rows: { boy, raw, excl: exclRows, ror: rorRows, counted: countedRows } };
   };
-  const cur = cancelSteps(year), prev = cancelSteps(year - 1);
+  // Cohort read (per Isaac, Sep 22): Blended = the book on Jan 1 followed
+  // through the year (what the steps always showed); Same-year = accounts
+  // first serviced IN the year that cancelled in the same year ÷ everything
+  // first serviced in the year. Toggle on the header; the waterfall shows both.
+  const cohortMode = state._rtCohort === 'same' ? 'same' : 'blended';
+  const sameYearSteps = (yr) => {
+    const st = yr + '-01-01', en = yr + '-12-31';
+    const started = book.filter(r => r.initial_service >= st && r.initial_service <= en);
+    const raw = started.filter(r => r.subscription_date_canceled && r.subscription_date_canceled >= st && r.subscription_date_canceled <= en);
+    const exclRows = raw.filter(r => excl.has(_normCancelReason(reportingCancelReasonOf(r))));
+    const rorRows = raw.filter(r => !excl.has(_normCancelReason(reportingCancelReasonOf(r))) && reportingExcludeRorChurn() && _reporting3dayRor(r));
+    const countedRows = started.filter(r => r._effCancel && r._effCancel >= st && r._effCancel <= en);
+    return { boy: started.length, raw: raw.length, exclN: exclRows.length, rorN: rorRows.length, counted: countedRows.length, rate: started.length ? countedRows.length / started.length : null,
+      rows: { boy: started, raw, excl: exclRows, ror: rorRows, counted: countedRows } };
+  };
+  const stepsFor = cohortMode === 'same' ? sameYearSteps : cancelSteps;
+  const cur = stepsFor(year), prev = stepsFor(year - 1);
   // Projected full-year attrition: this year's YTD cancels scaled by the
   // share of last year's cancels that had happened by today's date.
   const projected = (() => {
@@ -278,6 +294,9 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       el('div', { class: 'flex items-center gap-2 flex-wrap' },
         el('h3', { class: 'text-sm font-bold flex-1 min-w-0' }, (open ? '▾ ' : '▸ ') + 'Attrition Steps'),
         el('span', { class: 'inline-flex' }, retenBranchDropdown(retenGroundZero())),
+        // Cohort toggle (per Isaac, Sep 22): which attrition the headline reads.
+        el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' }, onclick: (e) => e.stopPropagation(), title: 'Blended = the book on Jan 1 followed through the year. Same-year = accounts first serviced in the year that cancelled in that year.' },
+          ...[['blended', 'Blended'], ['same', 'Same-year']].map(([v, l]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-bold transition', style: v === cohortMode ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._rtCohort = v; mountApp(); } }, l))),
         whatIf ? el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: (e) => { e.stopPropagation(); state._retenWhatIf = null; mountApp(); } }, 'Reset to official') : null,
         (() => {
           const inp = el('input', { type: 'file', accept: '.csv,text/csv', style: { display: 'none' } });
@@ -295,7 +314,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
         (() => { const fn = drill((year - 1) + ' \u00b7 counted cancels', prev.rows.counted, 'counted as churn'); return el('div', { class: 'text-right', title: n(prev.counted) + ' counted cancels in ' + (year - 1) + ' \u00f7 ' + n(prev.boy) + ' on the books Jan 1, ' + (year - 1) }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, (year - 1) + ' attrition'), el('div', { class: 'text-base font-black', style: fn ? { cursor: 'pointer' } : {}, onclick: fn ? (e) => { e.stopPropagation(); fn(); } : null }, pct(prev.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.prev)) : null)); })(),
         el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' YTD attrition'), el('div', { class: 'text-base font-black' }, pct(cur.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.cur)) : null)),
         el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' projected attrition'), el('div', { class: 'text-base font-black' }, pct(projected), el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'seasonal pace'))),
-        (() => { const t = retenTrailing12(book); const fn = drill('Trailing 12 months · counted cancels', t.rows.counted, 'counted as churn'); return el('div', { class: 'text-right', title: n(t.c) + ' cancels ' + t.st + ' → ' + t.en + ' ÷ ' + n(t.boy) + ' on the books a year ago' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Trailing 12 months'), el('div', { class: 'text-base font-black', style: fn ? { cursor: 'pointer' } : {}, onclick: fn ? (e) => { e.stopPropagation(); fn(); } : null }, pct(t.rate))); })())));
+        (() => { const t = cohortMode === 'same' ? (() => { const today = new Date(); const start = new Date(today); start.setFullYear(start.getFullYear() - 1); const st = start.toISOString().slice(0, 10), en = today.toISOString().slice(0, 10); const boy = book.filter(r => r.initial_service >= st && r.initial_service <= en); const counted = boy.filter(r => r._effCancel && r._effCancel >= st && r._effCancel <= en); return { rate: boy.length ? counted.length / boy.length : null, c: counted.length, boy: boy.length, st, en, rows: { boy, counted } }; })() : retenTrailing12(book); const fn = drill('Trailing 12 months · counted cancels', t.rows.counted, 'counted as churn'); return el('div', { class: 'text-right', title: n(t.c) + ' cancels ' + t.st + ' → ' + t.en + ' ÷ ' + n(t.boy) + ' on the books a year ago' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Trailing 12 months'), el('div', { class: 'text-base font-black', style: fn ? { cursor: 'pointer' } : {}, onclick: fn ? (e) => { e.stopPropagation(); fn(); } : null }, pct(t.rate))); })())));
 
   if (!open) return card;
   const loadDrops = state._snapshotLoadDrops || null;
