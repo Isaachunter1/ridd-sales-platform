@@ -175,7 +175,12 @@ async function callAdminSetPassword(payload) {
 // overrides are edited in Settings → Permissions (checkbox matrix) and ride
 // the synced config row (competitions.extras.perms), so a change reaches
 // every user on every device — no deploy per role tweak.
-const PERM_ROLES = ['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead', 'office_staff', 'auditor'];
+const PERM_ROLES = ['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead', 'office_staff', 'tech_regional', 'tech_branch', 'tech_senior_lead', 'tech_pro', 'auditor'];
+// Technician access profiles (per Isaac, Sep 22): explicit roles instead of inferring from the CRM type.
+const TECH_ROLES = new Set(['tech_regional', 'tech_branch', 'tech_senior_lead', 'tech_pro']);
+const TECH_MANAGER_ROLES = new Set(['tech_regional', 'tech_branch']);
+const isTechRole = (r) => TECH_ROLES.has(r);
+const isTechManagerRole = (r) => TECH_MANAGER_ROLES.has(r);
 const PERM_DEFS = [
   { id: 'view_comps',       label: 'Competitions tab',    group: 'Tabs' },
   { id: 'view_indicators',  label: 'Indicators tab',      group: 'Tabs' },
@@ -216,6 +221,7 @@ const PERM_DEFS = [
 // Settings to nobody but admins until switched on here.
 const _PERM_D2D_TABS    = { tab_dashboard: 1, tab_sales: 1, tab_pay: 1, view_pricing: 1 };
 const _PERM_OFFICE_TABS = { tab_dashboard: 1, tab_sales: 1, tab_pay: 1, tab_scorecards: 1, tab_calendar: 1, tab_hof: 1, view_pricing: 1, view_tv: 1 };
+const _PERM_TECH_TABS   = { tab_dashboard: 1, tab_sales: 1, tab_pay: 1, view_pricing: 1, view_tv: 1 };
 const PERM_DEFAULTS = {
   rep_sales:       { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ..._PERM_D2D_TABS },   // no Indicators table / Power Ranking for sales reps (per Isaac, Sep 2026)
   rep_office:      { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ..._PERM_OFFICE_TABS },
@@ -226,6 +232,11 @@ const PERM_DEFAULTS = {
   rep_loyalty_lead: { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1, ..._PERM_OFFICE_TABS },
   // Office Staff - Office (per Isaac, Sep 22): works in the office, doesn't sell — no player card, no pay; sees the boards. Tune in Settings → Permissions.
   office_staff:    { view_comps: 1, view_indicators: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ..._PERM_OFFICE_TABS, tab_pay: 0 },
+  // Technicians (per Isaac, Sep 22): Service Pros get their dashboard / sales / pay; leads add the Indicators table; managers add the Power Ranking + mix.
+  tech_pro:         { view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ..._PERM_TECH_TABS },
+  tech_senior_lead: { view_indicators: 1, ind_card: 1, ind_table: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ..._PERM_TECH_TABS },
+  tech_branch:      { view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1, ..._PERM_TECH_TABS },
+  tech_regional:    { view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1, ..._PERM_TECH_TABS },
   auditor:         { tab_sales: 1, view_pricing: 1 },   // auditors live in the Sales queue — grant extras here as needed
 };
 // Settings pages → the permission that opens each (Permissions itself is admin-only, always).
@@ -290,11 +301,15 @@ const PERM_SCOPE_DEFAULTS = {
   rep_office_lead: { drill_scope: 'dept' },
   rep_loyalty_lead: { drill_scope: 'dept' },
   office_staff:    { drill_scope: 'dept' },
+  tech_pro:         { drill_scope: 'self', sales_scope: 'self' },
+  tech_senior_lead: { drill_scope: 'team', sales_scope: 'team' },
+  tech_branch:      { drill_scope: 'dept', sales_scope: 'team' },
+  tech_regional:    { drill_scope: 'all', sales_scope: 'all' },
   auditor:         { drill_scope: 'none' },
 };
 // Data-reach defaults = today's behaviour: every role sees every leaderboard
 // row; reps see only their own sales on the Sales tab.
-for (const _r of Object.keys(PERM_SCOPE_DEFAULTS)) { PERM_SCOPE_DEFAULTS[_r].board_scope = 'all'; PERM_SCOPE_DEFAULTS[_r].sales_scope = 'self'; }
+for (const _r of Object.keys(PERM_SCOPE_DEFAULTS)) { PERM_SCOPE_DEFAULTS[_r].board_scope = 'all'; PERM_SCOPE_DEFAULTS[_r].sales_scope = PERM_SCOPE_DEFAULTS[_r].sales_scope || 'self'; }
 function userScope(scopeId, profile) {
   const p = profile || state.profile;
   if (!p) return 'none';
@@ -338,6 +353,10 @@ const ROLE_LABEL = {
   rep_loyalty: 'Office Staff - Loyalty Rep',
   rep_loyalty_lead: 'Office Staff - Loyalty Team Lead',
   office_staff: 'Office Staff - Office',   // non-selling office user (per Isaac, Sep 22)
+  tech_regional: 'Technician - Regional Manager',
+  tech_branch: 'Technician - Branch Manager',
+  tech_senior_lead: 'Technician - Senior Lead Service Pro',
+  tech_pro: 'Technician - Service Pro',
   admin_rep:  'Admin',   // one "Admin" label (per Isaac) — admin_rep still sells under the hood
   admin:      'Admin',
   auditor:    'Auditor',

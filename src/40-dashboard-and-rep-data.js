@@ -195,6 +195,7 @@ function defaultViewFor(p) {
 }
 function isTechProfile(p) {
   if (!p) return false;
+  if (isTechRole(p.role)) return true;   // explicit technician roles (per Isaac, Sep 22)
   if (_EXPLICIT_ROLES.has(p.role) || isAdminRole(p.role) || isAuditorRole(p.role)) return false;   // access profile wins over CRM type
   const emp = frRosterRowForProfile(p);
   if (emp && emp.type_label) return crmSellerIs('technician', emp.type_label);

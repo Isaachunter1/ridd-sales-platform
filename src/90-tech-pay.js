@@ -231,13 +231,20 @@ function techCommissionsView(repId, opts) {
 }
 
 // ── Overrides (managers) ───────────────────────────────────────────────────
-function techOverrideScopesFor(profileId) { return (state.techOverrides || []).filter(o => o.profile_id === profileId && o.active !== false); }
+function techOverrideScopesFor(profileId) {
+  const rows = (state.techOverrides || []).filter(o => o.profile_id === profileId && o.active !== false);
+  if (rows.length) return rows;
+  // No configured scope yet: a Branch Manager covers their own office, a Regional Manager every office (per Isaac, Sep 22).
+  const p = (state.allProfiles || []).find(x => x.id === profileId) || (state.profile && state.profile.id === profileId ? state.profile : null);
+  if (!p || !isTechManagerRole(p.role)) return [];
+  return [{ profile_id: profileId, rate: techPayCfg().override_rate, office_ids: p.role === 'tech_branch' && p.office_id ? [p.office_id] : [], seller_roles: ['technician'], label: 'Technician Sales', active: true, _implied: true }];
+}
 function techOverridesView(managerId) {
   loadTechPayTables();
   const { y, q } = techQuarterSel();
   const cfg = techPayCfg();
   const isAdmin = isAdminRole(state.profile?.role);
-  const managers = [...new Set((state.techOverrides || []).map(o => o.profile_id))].map(id => [id, techRepName(id)]).sort((a, b) => a[1].localeCompare(b[1]));
+  const managers = [...new Set([...(state.techOverrides || []).map(o => o.profile_id), ...(state.allProfiles || []).filter(p => isTechManagerRole(p.role)).map(p => p.id)])].map(id => [id, techRepName(id)]).sort((a, b) => a[1].localeCompare(b[1]));
   const pick = managerId || state._tpMgr || (managers[0] && managers[0][0]) || null;
   const mgrSel = (isAdmin && !managerId) ? el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { state._tpMgr = e.target.value; mountApp(); } },
     ...(managers.length ? managers : [['', 'No override scopes yet — add one under Configuration']]).map(([v, l]) => el('option', { value: v, selected: v === pick }, l))) : null;
@@ -458,7 +465,7 @@ function viewTechPay() {
   const isAdmin = isAdminRole(state.profile?.role);
   const me = state.profile?.id;
   loadTechPayTables();
-  const hasScope = techOverrideScopesFor(me).length > 0;
+  const hasScope = techOverrideScopesFor(me).length > 0 || isTechManagerRole(state.profile?.role);
   const SUBS = [['commissions', 'Sales commissions'], ['production', 'Production pay'], ...(hasScope || isAdmin ? [['overrides', 'Overrides']] : [])];
   const sub = SUBS.some(([v]) => v === state._techPaySub) ? state._techPaySub : 'commissions';
   const body = sub === 'production' ? techProductionPayView(isAdmin ? null : me) : sub === 'overrides' ? techOverridesView(isAdmin ? null : me) : techCommissionsView(isAdmin ? null : me);
