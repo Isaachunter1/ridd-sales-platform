@@ -3500,16 +3500,33 @@ function _splitSalesRows(rows) {
   state.queueSales = other;
 }
 async function refreshSalesData() {
-  const [salesRes, lb, gh] = await Promise.all([
+  const [salesRes, lb, gh, ao] = await Promise.all([
     supabase.from('sales').select('*').order('sold_date', { ascending: false }),
     supabase.from('leaderboard').select('*'),
     loadUnloggedSales(),
+    loadAddOns(),
   ]);
   if (salesRes.data) {
     _splitSalesRows(salesRes.data);
   }
   if (lb.data) state.leaderboard = lb.data;
   if (gh) state.unloggedSales = gh;
+  if (ao) state.addOns = ao;
+}
+// Add-ons (per Isaac + COO, Sep 2026 — docs/TECH_UPSELLS.md): one row per
+// add-on ticket item on a subscription, with its 5-paid-invoice streak.
+// RLS hands reps their own rows. Best-effort until 20260922_add_ons.sql runs.
+async function loadAddOns() {
+  try {
+    const { data, error } = await supabase.from('add_ons').select('*').order('added_at', { ascending: false });
+    if (error) return null;
+    return data || [];
+  } catch (e) { return null; }
+}
+function addOnOfSale(s) {
+  if (!s || !state.addOns || !state.addOns.length) return null;
+  if (s.add_on_id != null) return state.addOns.find(a => a.id === s.add_on_id) || null;
+  return null;
 }
 // 👻 Unlogged ("ghost") sales the sync found in FieldRoutes for a rep that
 // were never logged here. RLS scopes reps to their own rows. Best-effort:

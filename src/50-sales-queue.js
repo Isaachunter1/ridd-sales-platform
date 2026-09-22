@@ -787,6 +787,14 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                 // office's — flag the sale for a second-touch call before it churns.
                 (() => { try { if (!isAdmin || typeof intelSellerRisk !== 'function') return; const m = intelSellerRisk(); const rk = m && m.get(String(rep?.full_name || '').toLowerCase()); if (rk) lcChips.push(chip('⚠ 2× cancels', 'rgba(220,38,38,.12)', '#B91C1C', 'Sold by a rep whose 90-day cancel rate (' + Math.round(rk.cxl * 100) + '%) is ≥ 2× their office (' + Math.round(rk.base * 100) + '%) over the last 12 months · ' + rk.n + ' accounts judged · worth a second-touch call')); } catch (e) {} })();
                 if (s.sale_kind === 'upsell') lcChips.push(chip('＋ Upsell', 'rgba(156,63,30,.14)', '#9C3F1E', 'Add-on' + (s.crm_ticket_id ? ' · FieldRoutes ticket #' + s.crm_ticket_id : '') + (s.parent_subscription_id ? ' on subscription ' + s.parent_subscription_id : '')));
+                // Add-on streak (docs/TECH_UPSELLS.md): backend pays after 5 paid
+                // invoices ON/after the add-on date with the add-on still on each.
+                (() => { const a = addOnOfSale(s); if (!a) return;
+                  const n = Number(a.invoices_paid) || 0, st = a.streak_status || 'accruing';
+                  const tip = (a.service_name || 'Add-on') + ' · added ' + (a.added_at || '?') + ' · ' + n + ' of 5 invoices paid' + (st === 'locked' ? ' · locked ' + (a.locked_at || '') : st === 'broken' || st === 'clawback' ? ' · streak broke ' + (a.broke_at || '') + (a.break_reason ? ' (' + a.break_reason.replace(/_/g, ' ') + ')' : '') : '') + (a.last_reconciled_at ? ' · checked ' + String(a.last_reconciled_at).slice(0, 10) : ' · not reconciled yet');
+                  if (st === 'locked') lcChips.push(chip('🔒 5 of 5 paid', 'rgba(95,108,91,.16)', '#5F6C5B', tip));
+                  else if (st === 'broken' || st === 'clawback') lcChips.push(chip('✗ Streak broke · ' + n + ' of 5', 'rgba(220,38,38,.12)', '#B91C1C', tip));
+                  else lcChips.push(chip(n + ' of 5 paid', 'rgba(156,63,30,.14)', '#9C3F1E', tip)); })();
                 // Eligibility (per Isaac): appointment + billing stamped by the
                 // sync (20260916_sales_eligibility.sql). Every subscription is
                 // logged; these show which can earn a payout.

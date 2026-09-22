@@ -154,9 +154,18 @@ try {
 }
 
 // ── 9. Upsell record fixtures ───────────────────────────────────────────
-console.log('\n[9/9] Upsell record fixtures (tools/upsell-test.js)');
+console.log('\n[9/10] Upsell record fixtures (tools/upsell-test.js)');
 try {
   const out = require('child_process').execFileSync(process.execPath, [path.join(__dirname, 'upsell-test.js')], { stdio: 'pipe' }).toString().trim();
+  ok(out.split('\n').pop());
+} catch (e) {
+  bad('Upsell fixtures FAILED — the ticket → sales-row shape changed',
+      String((e.stdout || '') + (e.stderr || '')).split('\n').slice(0, 8).join('\n'));
+}
+
+console.log('\n[10/10] Add-on streak fixtures (tools/addon-test.js)');
+try {
+  const out = require('child_process').execFileSync(process.execPath, [path.join(__dirname, 'addon-test.js')], { stdio: 'pipe' }).toString().trim();
   ok(out.split('\n').pop());
 } catch (e) {
   bad('Upsell fixtures FAILED — the ticket → sales-row shape changed',
