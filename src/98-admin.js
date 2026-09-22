@@ -889,7 +889,12 @@ function indicatorsUploadsPanel() {
 
 // ── Placeholder settings sections (filled in later as needed) ──
 function adminGoals() {
-  const g = state.companyGoal;
+  // One set of goals per department (per Isaac, Sep 22): Office Staff is the
+  // company goal everything already reads; Door to Door and Technicians are
+  // their own objects (same cards, own storage) to be configured from here.
+  const dept = GOAL_DEPTS.find(d => d.id === state._goalDept) || GOAL_DEPTS[0];
+  const g = deptGoalObj(dept.id);
+  g.amount         = g.amount         ?? 0;
   g.new_amount     = g.new_amount     ?? Math.round(g.amount * 0.75);
   g.renewal_amount = g.renewal_amount ?? Math.round(g.amount * 0.25);
   g.is_reps        = g.is_reps        ?? 5;   // Inside Sales reps (carry the NEW quota)
@@ -910,7 +915,7 @@ function adminGoals() {
     g.quarterly         = [0,1,2,3].map(q => g.quarterly_new[q] + g.quarterly_renewal[q]);
   };
   syncDerived();
-  const persist = () => { syncDerived(); saveDemoData(); saveCompanyGoal(); };
+  const persist = () => { syncDerived(); saveDemoData(); saveDeptGoal(dept.id); };
   // Re-spread an annual total across the 12 months via the matching seasonal curve.
   const reseed = (which, annual) => {
     const curve = which === 'new' ? IS_SEASONAL : IS_RENEWAL_SEASONAL;
@@ -918,29 +923,31 @@ function adminGoals() {
     if (which === 'new') g.monthly_new = arr; else g.monthly_renewal = arr;
     persist(); mountApp();
   };
-  const ytd = goalYtdRevenue(true);
+  // YTD actuals only exist for the office-staff goal today (the CRM pool the
+  // dashboard reads); the other departments show targets without progress.
+  const ytd = dept.id === 'office' ? goalYtdRevenue(true) : { total: 0, new: 0, renewal: 0 };
+  const tabs = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+    ...GOAL_DEPTS.map(d => el('button', { class: 'px-3 py-1.5 text-[11px] font-bold transition', style: d.id === dept.id ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._goalDept = d.id; mountApp(); } }, d.label)));
 
   return el('div', { class: 'flex flex-col gap-5' },
-    el('h2', { class: 'text-xl font-bold' }, 'Goals'),
-    el('p', { class: 'text-xs text-muted- -mt-3' }, 'Set the annual New and Renewal targets, then shape how they land across the year. These monthly numbers drive the Inside Sales pacer, the dashboard, and the Marketing tab.'),
+    el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' }, el('h2', { class: 'text-xl font-bold' }, 'Goals'), tabs),
 
     // ── Annual targets + team size ──
     el('div', { class: 'card p-5' },
-      el('h3', { class: 'text-sm font-bold mb-1' }, 'Annual targets & team'),
-      el('p', { class: 'text-xs text-muted- mb-4' }, 'New (Inside Sales) + Renewal (Loyalty) = Total. Editing a target re-spreads it across the months by its seasonal curve. Rep counts drive the per-rep quotas below.'),
+      el('h3', { class: 'text-sm font-bold mb-4' }, 'Annual targets & team'),
       el('div', { class: 'grid grid-cols-1 sm:grid-cols-3 gap-4' },
         goalTargetCard('Total Revenue', g.amount, ytd.total, null, true),
-        goalTargetCard('New / Inside Sales', g.new_amount, ytd.new, (val) => reseed('new', val)),
-        goalTargetCard('Renewal / Loyalty', g.renewal_amount, ytd.renewal, (val) => reseed('renewal', val))),
+        goalTargetCard(dept.lines.a, g.new_amount, ytd.new, (val) => reseed('new', val)),
+        goalTargetCard(dept.lines.b, g.renewal_amount, ytd.renewal, (val) => reseed('renewal', val))),
       el('div', { class: 'grid grid-cols-2 gap-4 mt-4 max-w-md' },
-        goalRepCountField('Inside Sales Reps', g.is_reps, (v) => { g.is_reps = Math.max(1, parseInt(v) || 1); persist(); mountApp(); }),
-        goalRepCountField('Loyalty Reps', g.loyalty_reps, (v) => { g.loyalty_reps = Math.max(1, parseInt(v) || 1); persist(); mountApp(); }))),
+        goalRepCountField(dept.reps.a, g.is_reps, (v) => { g.is_reps = Math.max(1, parseInt(v) || 1); persist(); mountApp(); }),
+        goalRepCountField(dept.reps.b, g.loyalty_reps, (v) => { g.loyalty_reps = Math.max(1, parseInt(v) || 1); persist(); mountApp(); }))),
 
     // ── Monthly seasonal allocation (with per-rep) ──
-    goalMonthlyCard(g, persist),
+    goalMonthlyCard(g, persist, dept),
 
-    // ── Quarterly per-rep quotas (Inside Sales + Loyalty) ──
-    goalQuarterlyCard(g),
+    // ── Quarterly per-rep quotas ──
+    goalQuarterlyCard(g, dept),
   );
 }
 
@@ -954,7 +961,8 @@ function goalRepCountField(label, val, onCommit) {
 
 // Quarterly rollup with per-rep quota (quarterly amount ÷ rep count) — matches
 // the Inside Sales / Loyalty quota blocks in the RIDD quota sheet.
-function goalQuarterlyCard(g) {
+function goalQuarterlyCard(g, dept) {
+  dept = dept || GOAL_DEPTS[0];
   const usd = (n) => '$' + Math.round(n || 0).toLocaleString();
   const block = (title, qAmts, reps) => {
     const yr = qAmts.reduce((a, b) => a + (b || 0), 0);
@@ -980,13 +988,15 @@ function goalQuarterlyCard(g) {
   return el('div', { class: 'card p-4' },
     el('h3', { class: 'text-sm font-bold mb-3' }, 'Quarterly quotas'),
     el('div', { class: 'rounded-lg border overflow-x-auto', style: { borderColor: 'var(--border)' } },
-      block('Inside Sales', g.quarterly_new, g.is_reps),
-      block('Loyalty', g.quarterly_renewal, g.loyalty_reps)));
+      block(dept.blocks.a, g.quarterly_new, g.is_reps),
+      block(dept.blocks.b, g.quarterly_renewal, g.loyalty_reps)));
 }
 
 // Monthly allocation grid — New + Renewal editable per month, Total computed.
 // This is what the IS pacer / dashboard / Marketing read for projections.
-function goalMonthlyCard(g, persist) {
+function goalMonthlyCard(g, persist, dept) {
+  dept = dept || GOAL_DEPTS[0];
+  const lineA = dept.blocks.a, lineB = dept.blocks.b;
   const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const usd = (n) => '$' + Math.round(n || 0).toLocaleString();
   const curM = new Date().getMonth();
@@ -1036,12 +1046,12 @@ function goalMonthlyCard(g, persist) {
             el('th', { class: 'text-left px-3 py-2 font-semibold whitespace-nowrap', style: { borderLeft: '2px solid var(--border)' } }, 'Year'))),
         el('tbody', {},
           ...[
-            ['New curve %',   (m) => curveCell(g.monthly_new, m),                        '100%',                 false],
-            ['New',           (m) => cell(g.monthly_new, m),                             usd(totNew),            true],
-            ['New /rep',      (m) => usd((g.monthly_new[m] || 0) / isReps),               usd(totNew / isReps),   false],
-            ['Renewal curve %', (m) => curveCell(g.monthly_renewal, m),                  '100%',                 false],
-            ['Renewal',       (m) => cell(g.monthly_renewal, m),                         usd(totRen),            true],
-            ['Renewal /rep',  (m) => usd((g.monthly_renewal[m] || 0) / loyReps),         usd(totRen / loyReps),  false],
+            [lineA + ' curve %', (m) => curveCell(g.monthly_new, m),                        '100%',                 false],
+            [lineA,           (m) => cell(g.monthly_new, m),                             usd(totNew),            true],
+            [lineA + ' /rep', (m) => usd((g.monthly_new[m] || 0) / isReps),               usd(totNew / isReps),   false],
+            [lineB + ' curve %', (m) => curveCell(g.monthly_renewal, m),                  '100%',                 false],
+            [lineB,           (m) => cell(g.monthly_renewal, m),                         usd(totRen),            true],
+            [lineB + ' /rep', (m) => usd((g.monthly_renewal[m] || 0) / loyReps),         usd(totRen / loyReps),  false],
             ['Total',         (m) => usd((g.monthly_new[m] || 0) + (g.monthly_renewal[m] || 0)), usd(totNew + totRen), true],
           ].map(([label, cellOf, yearVal, bold], ri) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: label === 'Total' ? 'var(--card-2)' : 'transparent', borderTop: label === 'Total' ? '2px solid var(--border)' : undefined } },
             el('td', { class: 'px-3 py-1.5 text-left font-semibold whitespace-nowrap', style: { position: 'sticky', left: 0, background: label === 'Total' ? 'var(--card-2)' : 'var(--card)', zIndex: 1 } }, label),

@@ -1605,6 +1605,41 @@ async function saveCompanyGoal() {
     if (error) { console.warn('[ridd] company_goal save failed', error); if (typeof toast === 'function') toast('Saved locally — server sync failed', 'warn'); }
   } catch (e) { console.warn('[ridd] company_goal save threw', e); }
 }
+// ── Department goals (per Isaac, Sep 22): the Goals tab has one set per
+// department. Office Staff IS the existing company_goal (every pacer /
+// dashboard consumer keeps reading it unchanged); Door to Door and
+// Technicians get their own objects under app_settings keys
+// 'company_goal_d2d' / 'company_goal_tech', same shape, no consumers yet.
+const GOAL_DEPTS = [
+  { id: 'office', label: 'Office Staff',  key: 'company_goal',      lines: { a: 'New / Inside Sales', b: 'Renewal / Loyalty' }, reps: { a: 'Inside Sales Reps', b: 'Loyalty Reps' }, blocks: { a: 'Inside Sales', b: 'Loyalty' } },
+  { id: 'd2d',    label: 'Door to Door',  key: 'company_goal_d2d',  lines: { a: 'New / Door to Door', b: 'Upsells / Termite Pro' }, reps: { a: 'Sales Reps', b: 'Termite Pro Reps' }, blocks: { a: 'Door to Door', b: 'Termite Pro' } },
+  { id: 'tech',   label: 'Technicians',   key: 'company_goal_tech', lines: { a: 'Upsells / Service Pro', b: 'Other' }, reps: { a: 'Technicians', b: 'Technicians (other)' }, blocks: { a: 'Service Pro', b: 'Other' } },
+];
+function deptGoalObj(deptId) {
+  if (deptId === 'office' || !deptId) return state.companyGoal;
+  state._deptGoals = state._deptGoals || {};
+  if (!state._deptGoals[deptId]) state._deptGoals[deptId] = { amount: 0, new_amount: 0, renewal_amount: 0, is_reps: 1, loyalty_reps: 1, period: 'year' };
+  return state._deptGoals[deptId];
+}
+async function loadDeptGoals() {
+  if (DEMO || !supabase || !state.profile) return;
+  try {
+    const keys = GOAL_DEPTS.filter(d => d.id !== 'office').map(d => d.key);
+    const { data, error } = await supabase.from('app_settings').select('key, value').in('key', keys);
+    if (error) { console.warn('[ridd] dept goals load failed', error); return; }
+    state._deptGoals = state._deptGoals || {};
+    for (const row of (data || [])) { const d = GOAL_DEPTS.find(x => x.key === row.key); if (d && row.value) state._deptGoals[d.id] = row.value; }
+  } catch (e) { console.warn('[ridd] dept goals load threw', e); }
+}
+async function saveDeptGoal(deptId) {
+  if (deptId === 'office' || !deptId) return saveCompanyGoal();
+  if (DEMO || !supabase || !state.profile || !isAdminRole(state.profile?.role)) return;
+  const d = GOAL_DEPTS.find(x => x.id === deptId); if (!d) return;
+  try {
+    const { error } = await supabase.from('app_settings').upsert({ key: d.key, value: deptGoalObj(deptId) }, { onConflict: 'key' });
+    if (error) { console.warn('[ridd] ' + d.key + ' save failed', error); if (typeof toast === 'function') toast('Saved locally — server sync failed', 'warn'); }
+  } catch (e) { console.warn('[ridd] ' + d.key + ' save threw', e); }
+}
 // ── Pay settings (Inside Sales / Office Staff pay rules) — shared via
 // app_settings key 'pay_settings'. Holds contract-type rates, below-min,
 // PIF/commercial overrides, renewal flat $, backend rates, close-rate tiers.
@@ -3778,6 +3813,7 @@ async function resyncFromCloud(reason) {
   safe(() => loadAppSettings());
   safe(() => loadCommissionConfig());
   safe(() => loadCompanyGoal());
+  safe(() => loadDeptGoals());
   // Calendar: only when nothing local is waiting to push (a pending
   // debounced edit would otherwise be clobbered by the server copy).
   if (typeof _calFp === 'function' && _calFp() === _calCloudFp) safe(() => loadCalendarFromCloud());
