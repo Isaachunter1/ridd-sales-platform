@@ -201,9 +201,12 @@ const BRANCH_COLORS = {
 // Display names (per Isaac, Sep 2026): the abbreviations read as
 // "RIDD Pest Control" / "RIDD Pest Solutions" everywhere in the app. The
 // short keys stay in configs (branchGroups) and marketing row keys.
-const COMPANY_NAMES = { RPC: 'RIDD Pest Control', RPS: 'RIDD Pest Solutions' };
+// Legal entities / operating companies (generalization, Sep 22 2026): RIDD_CONFIG.ENTITIES =
+// { RPC: { name, color }, … } overrides; most companies have one and can leave it unset.
+const _CFG_ENTITIES = (() => { try { const e = window.RIDD_CONFIG && window.RIDD_CONFIG.ENTITIES; return e && typeof e === 'object' && Object.keys(e).length ? e : null; } catch (x) { return null; } })();
+const COMPANY_NAMES = _CFG_ENTITIES ? Object.fromEntries(Object.entries(_CFG_ENTITIES).map(([k, v]) => [k, (v && v.name) || k])) : { RPC: 'RIDD Pest Control', RPS: 'RIDD Pest Solutions' };
 function companyName(k) { return COMPANY_NAMES[String(k || '').toUpperCase()] || k; }
-const COMPANY_COLORS = { 'RPS': '#D2451E', 'RPC': '#9BCB3C', 'RIDD PEST SOLUTIONS': '#D2451E', 'RIDD PEST CONTROL': '#9BCB3C' };
+const COMPANY_COLORS = _CFG_ENTITIES ? Object.fromEntries(Object.entries(_CFG_ENTITIES).flatMap(([k, v]) => [[k, (v && v.color) || '#888'], [String((v && v.name) || k).toUpperCase(), (v && v.color) || '#888']])) : { 'RPS': '#D2451E', 'RPC': '#9BCB3C', 'RIDD PEST SOLUTIONS': '#D2451E', 'RIDD PEST CONTROL': '#9BCB3C' };
 const RPS_OFFICES_RE = /detroit|joplin|little\s*rock/i;
 function companyGroupOf(office) {
   const o = String(office || '');
