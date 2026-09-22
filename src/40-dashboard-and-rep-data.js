@@ -1322,7 +1322,8 @@ function computeLeaderboard(tab = 'total', range = null) {
   // away from the revenue tiles). Disabled/former reps only appear when
   // they actually have sales in the window.
   const _poolRepIds = new Set(salesPool.map(s => s.rep_id).filter(Boolean));
-  const profiles = profilesAll.filter(p => (isSellerRole(p.role) && isOfficeStaffProfile(p)) || _poolRepIds.has(p.id));
+  const _boardScope = (typeof userScope === 'function') ? userScope('board_scope') : 'all';
+  const profiles = profilesAll.filter(p => ((isSellerRole(p.role) && isOfficeStaffProfile(p)) || _poolRepIds.has(p.id)) && (_boardScope === 'all' || repInReach(_boardScope, p.full_name)));   // Reach: leaderboard rows
 
   // Week-over-Week % — this week's revenue vs last week's AT THE SAME POINT
   // in the week (a Wednesday compares against last week through Wednesday),
@@ -3869,13 +3870,17 @@ function canViewRepDetails(repName, repTeam) {
       if (t && crmSellerIs('office_staff', t)) return scorecardDeptOf(me) === 'inside_sales';
     } catch (e) { /* fall through */ }
   }
+  return repInReach(userScope('drill_scope'), repName, repTeam);
+}
+// Is `repName` inside `scope` (self / team / dept / all) for the signed-in
+// user? Shared by the player-card drill (above), the leaderboard-row reach
+// and the Sales-tab reach (Settings → Permissions → Reach). Self always.
+function repInReach(scope, repName, repTeam) {
+  const me = state.profile;
+  if (!me) return false;
+  if (isAdminRole(me.role)) return true;
   const _sigG = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
-  // Self is ALWAYS viewable, whatever the configured reach.
   if (_sigG(repName) === _sigG(me.full_name) || isMyRepName(repName)) return true;
-  // Reach comes from Settings → Permissions now (defaults preserve the old
-  // hardcoded rules: partners/team leads = own team, office leads = the
-  // call center, everyone else = self only).
-  const scope = userScope('drill_scope');
   if (scope === 'all') return true;
   if (scope === 'dept') {
     // Same department as the viewer: office-staff viewers reach office

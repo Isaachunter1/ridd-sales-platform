@@ -15,8 +15,13 @@ function viewSales() {
   // One renderer, three queues: Inside Sales ('sales'), D2D ('d2d_sales'),
   // Technicians ('tech_sales'). Rows carry queue_type from the sync.
   const _queue = SALES_QUEUE_OF_VIEW[state.view] || 'office';
-  const _pool = _queue === 'office' ? (isAdmin ? state.allSales : state.mySales)
-    : ((state.queueSales && state.queueSales[_queue]) || []).filter(s => isAdmin || s.rep_id === state.profile.id);
+  // Reach (Settings → Permissions → Sales tab rows): 'self' = own sales (the
+  // default); team / dept / everyone widen it to those reps' sales.
+  const _salesScope = isAdmin ? 'all' : ((typeof userScope === 'function') ? userScope('sales_scope') : 'self');
+  const _profName = new Map((state.allProfiles || []).map(p => [String(p.id), p.full_name || '']));
+  const _mine = (s) => s.rep_id === state.profile.id || (_salesScope !== 'self' && _salesScope !== 'none' && repInReach(_salesScope, _profName.get(String(s.rep_id)) || ''));
+  const _pool = _queue === 'office' ? (isAdmin ? state.allSales : (_salesScope === 'self' ? state.mySales : (state.allSales || []).filter(_mine)))
+    : ((state.queueSales && state.queueSales[_queue]) || []).filter(s => isAdmin || _mine(s));
   const source  = _pool;
   // The Sales tab is the active queue — anything that still needs admin/auditor
   // attention OR is in flight to payroll. A sale falls off only when payroll

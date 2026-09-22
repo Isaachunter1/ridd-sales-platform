@@ -4038,7 +4038,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // fixed-height scroll container (see maxHeight below) sized to show
   // ~10 rows out of the gate; rows 11+ scroll inside the card so the
   // page doesn't stretch indefinitely.
-  const displayReps = boardReps;
+  // Reach (Settings → Permissions): which rows this role sees at all. Default = everyone.
+  const _boardScope = (typeof userScope === 'function') ? userScope('board_scope') : 'all';
+  const displayReps = _boardScope === 'all' ? boardReps : boardReps.filter(r => repInReach(_boardScope, r.name));
 
   const offices = [...new Set(allReps.map(r => r.office).filter(Boolean))].sort();
 
