@@ -74,7 +74,8 @@ const SALES_QUEUE_OF_VIEW = { sales: 'office', d2d_sales: 'd2d', tech_sales: 'te
 // else (Dashboard/leaderboard, Pay, Scorecards, Calendar, Competitions,
 // Hall of Fame) is hidden from them.
 function insideSalesTabsFor(role) {
-  const tabs = INSIDE_SALES_TABS.filter(([k]) => viewFeatureOn(k));   // feature switches (RIDD_CONFIG.FEATURES)
+  let tabs = INSIDE_SALES_TABS.filter(([k]) => viewFeatureOn(k));   // feature switches (RIDD_CONFIG.FEATURES)
+  if (role === 'office_staff') tabs = tabs.filter(([k]) => k !== 'pay');   // Office Staff - Office doesn't sell → no Pay tab (per Isaac, Sep 22)
   return isAuditorRole(role) ? tabs.filter(([k]) => k === 'sales') : tabs;
 }
 // Admin-only segmented toggle between the two halves of "Sales":

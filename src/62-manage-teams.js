@@ -126,12 +126,13 @@ function manageTeamsPanel(opts) {
       counts[t] = (counts[t] || 0) + 1;
     });
     // Counts per tier for the second filter row — same exclusion.
-    const tierCounts = { rookie: 0, vet: 0, untagged: 0 };
+    const tierCounts = { rookie: 0, vet: 0, na: 0, untagged: 0 };
     reps.forEach(r => {
       if (isAlias(r)) return;
       const t = getRepTier(r);
       if (t === 'rookie') tierCounts.rookie++;
       else if (t === 'vet') tierCounts.vet++;
+      else if (t === 'na') tierCounts.na++;
       else tierCounts.untagged++;
     });
     // Last active (per Isaac): each rep's most recent sold date in the
@@ -418,6 +419,7 @@ function manageTeamsPanel(opts) {
       }, 'All · ' + reps.length),
       tierChip('rookie',   'Rookie',   '#5F6C5B', tierCounts.rookie),
       tierChip('vet',      'Vet',      '#DF643A', tierCounts.vet),
+      tierChip('na',       'N/A',      '#8A8A88', tierCounts.na),
       tierChip('untagged', 'Untagged', '#9B6B2C', tierCounts.untagged),
     );
 
@@ -565,7 +567,7 @@ function manageTeamsPanel(opts) {
       const office = getRepOffice(name) || '';
       const bits = [];
       if (includeTeam && team) bits.push(team);
-      if (tier) bits.push(tier === 'rookie' ? 'Rookie' : tier === 'vet' ? 'Vet' : tier);
+      if (tier) bits.push(tier === 'rookie' ? 'Rookie' : tier === 'vet' ? 'Vet' : tier === 'na' ? 'N/A' : tier);
       if (office) bits.push(office);
       return el('div', { class: 'flex flex-col min-w-0' },
         el('span', { class: 'text-sm font-semibold truncate' }, name),
@@ -1126,9 +1128,10 @@ function manageTeamsPanel(opts) {
         onclick: () => openTeamsListModal(teamYear, render),
       }, 'Teams'),
       mkFilter('Tier', tierSelect, [
-        { value: '', label: 'All · ' + (tierCounts.rookie + tierCounts.vet + tierCounts.untagged) },
+        { value: '', label: 'All · ' + (tierCounts.rookie + tierCounts.vet + tierCounts.na + tierCounts.untagged) },
         { value: 'rookie', label: 'Rookie · ' + tierCounts.rookie },
         { value: 'vet', label: 'Vet · ' + tierCounts.vet },
+        { value: 'na', label: 'N/A · ' + tierCounts.na },
         { value: 'untagged', label: 'Untagged · ' + tierCounts.untagged },
       ], (v) => { state._indicatorManageTierFilter = v; render(); }),
       mkFilter('Status', activeSelect, [

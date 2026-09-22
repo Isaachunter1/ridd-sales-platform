@@ -175,7 +175,7 @@ async function callAdminSetPassword(payload) {
 // overrides are edited in Settings → Permissions (checkbox matrix) and ride
 // the synced config row (competitions.extras.perms), so a change reaches
 // every user on every device — no deploy per role tweak.
-const PERM_ROLES = ['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead', 'auditor'];
+const PERM_ROLES = ['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead', 'office_staff', 'auditor'];
 const PERM_DEFS = [
   { id: 'view_comps',       label: 'Competitions tab',    group: 'Tabs' },
   { id: 'view_indicators',  label: 'Indicators tab',      group: 'Tabs' },
@@ -197,6 +197,8 @@ const PERM_DEFAULTS = {
   rep_team_lead:   { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1 },
   rep_office_lead: { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1 },
   rep_loyalty_lead: { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1 },
+  // Office Staff - Office (per Isaac, Sep 22): works in the office, doesn't sell — no player card, no pay; sees the boards. Tune in Settings → Permissions.
+  office_staff:    { view_comps: 1, view_indicators: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },
   auditor:         {},   // auditors live in the Sales queue — grant extras here as needed
 };
 // Effective permission role: legacy 'rep' resolves by CRM type.
@@ -246,6 +248,7 @@ const PERM_SCOPE_DEFAULTS = {
   rep_team_lead:   { drill_scope: 'team' },
   rep_office_lead: { drill_scope: 'dept' },
   rep_loyalty_lead: { drill_scope: 'dept' },
+  office_staff:    { drill_scope: 'dept' },
   auditor:         { drill_scope: 'none' },
 };
 function userScope(scopeId, profile) {
@@ -290,6 +293,7 @@ const ROLE_LABEL = {
   rep_office_lead: 'Office Staff - Team Lead',
   rep_loyalty: 'Office Staff - Loyalty Rep',
   rep_loyalty_lead: 'Office Staff - Loyalty Team Lead',
+  office_staff: 'Office Staff - Office',   // non-selling office user (per Isaac, Sep 22)
   admin_rep:  'Admin',   // one "Admin" label (per Isaac) — admin_rep still sells under the hood
   admin:      'Admin',
   auditor:    'Auditor',
@@ -303,7 +307,7 @@ const roleLabelOf = (p) => !p ? '' : (p.is_owner ? 'Admin - Owner' : roleLabel(p
 // Rep access flavors. The explicit roles decide directly; the legacy 'rep'
 // role falls back to the CRM rep-type lookup (state.myRepType, fetched at
 // login) so existing accounts keep working unchanged.
-const isOfficeStaffRole = (r) => r === 'rep_office' || r === 'rep_office_lead' || r === 'rep_loyalty' || r === 'rep_loyalty_lead'
+const isOfficeStaffRole = (r) => r === 'rep_office' || r === 'rep_office_lead' || r === 'rep_loyalty' || r === 'rep_loyalty_lead' || r === 'office_staff'
   || (r === 'rep' && crmSellerIs('office_staff', state.myRepType || ''));
 
 // ──────────────────────────────────────────────────────────────────────────
