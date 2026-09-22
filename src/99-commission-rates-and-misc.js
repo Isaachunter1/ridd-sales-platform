@@ -2231,7 +2231,7 @@ function adminReps() {
             // a nickname profile can't match its own sales rows.
             full_name: _frRealName(e).replace(/\b\w/g, c => c.toUpperCase()) || x.name,
             email: e.email || '', phone: e.phone || '',
-            role: /office\s*staff/i.test(e.type_label || '') ? 'rep_office' : 'rep_sales',
+            role: crmSellerIs('office_staff', e.type_label || '') ? 'rep_office' : 'rep_sales',
             fieldroutes_employee_id: e.employee_id }) }, '+ Add to app')));
   };
 

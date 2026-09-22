@@ -191,9 +191,8 @@ function crmReconciliationChecks(subs) {
   for (const r of subs) { const o = (r.office_name || '').trim(); if (!o) continue; const st = String(r.state || '').trim().toUpperCase(); const m = byOff.get(o) || (byOff.set(o, { n: 0, st: {} }), byOff.get(o)); m.n++; if (st) m.st[st] = (m.st[st] || 0) + 1; }
   const home = new Map();
   for (const [o, m] of byOff) home.set(o, new Set(Object.entries(m.st).filter(([, n]) => n >= 25 && n / m.n >= 0.01).map(([k]) => k)));
-  const TYPE = (r) => String(r.sold_by_type || '').trim().toLowerCase();
+  const TYPE = (r) => crmSellerRole(r.sold_by_type);   // 'sales_rep' | 'office_staff' | 'technician' | null (src/12-crm-vocab.js)
   const SRC = (r) => String(r.subscription_source || '').trim();
-  const norm = (v) => String(v || '').trim().toLowerCase();
   const initialDone = (r) => /completed/i.test(String(r.initial_status || '')) || (Number(r.subscription_completed_services) || 0) > 0;
   for (const r of subs) {
     const o = (r.office_name || '').trim();
@@ -212,10 +211,10 @@ function crmReconciliationChecks(subs) {
     if (isActive(r) && !String(r.sold_by || '').trim()) out.seller.push(flag(r, 'Active with no Sold By'));
     if (!isActive(r) && cxlDate && !cxlReason) out.noReason.push(flag(r, 'Cancelled ' + cxlDate + ' with no reason'));
     // Source
-    const t = TYPE(r), src = SRC(r), ns = norm(src);
-    if (t === 'technician') { if (ns !== 'upsell - service pro') out.source.push(flag(r, 'Technician sale sourced "' + (src || 'blank') + '" \u2014 should be Upsell - Service Pro')); }
-    else if (t === 'sales rep') { if (ns !== 'door to door' && ns !== 'upsell - termite pro') out.source.push(flag(r, 'Sales Rep sale sourced "' + (src || 'blank') + '" \u2014 should be Door to Door or Upsell - Termite Pro')); }
-    else if (t === 'office staff') { if (ns === 'door to door' || ns === 'n/a' || ns === '') out.source.push(flag(r, 'Office Staff sale left on the default source "' + (src || 'blank') + '"')); }
+    const t = TYPE(r), src = SRC(r);
+    if (t === 'technician') { if (!crmSourceIs('tech_upsell', src)) out.source.push(flag(r, 'Technician sale sourced "' + (src || 'blank') + '" \u2014 should be a technician-upsell source')); }
+    else if (t === 'sales_rep') { if (!crmSourceIs('d2d', src) && !crmSourceIs('termite_upsell', src)) out.source.push(flag(r, 'Sales Rep sale sourced "' + (src || 'blank') + '" \u2014 should be a door-to-door or termite-upsell source')); }
+    else if (t === 'office_staff') { if (crmSourceIs('d2d', src) || crmSourceIs('unset', src)) out.source.push(flag(r, 'Office Staff sale left on the default source "' + (src || 'blank') + '"')); }
     // Cancellation
     const reason = String(r.subscription_cancellation_reason || '').trim();
     if (/sold,?\s*not\s*started/i.test(reason) && initialDone(r)) out.cancel.push(flag(r, 'Sold, Not Started but the initial was completed' + ((Number(r.subscription_completed_services) || 0) > 0 ? ' (' + r.subscription_completed_services + ' service' + (Number(r.subscription_completed_services) === 1 ? '' : 's') + ')' : '')));

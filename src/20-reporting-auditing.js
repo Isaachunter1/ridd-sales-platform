@@ -30,11 +30,11 @@ function reportingAuditing() {
   // churn (reason match, or a no-reason cancel within 3 days of the sale).
   const isExcludableRow = (r) => {
     const reason = r.subscription_cancellation_reason || '';
-    if (_ROR_REASON_RE.test(reason) || _SNS_REASON_RE.test(reason)) return true;
+    if (_rorReasonHit(reason) || _SNS_REASON_RE.test(reason)) return true;
     if (reason.trim()) return false;
     if (!r.sold_date || !r.subscription_date_canceled) return false;
     const d = (new Date(r.subscription_date_canceled) - new Date(r.sold_date)) / 86400000;
-    return d >= 0 && d <= 3;
+    return d >= 0 && d <= crmRorWindowDays();
   };
   // 3-day ROR ONLY (a Right-of-Rescission cancel — explicit reason, or a
   // no-reason cancel within 3 days of the sale). Sold-Not-Started is NOT a ROR.
@@ -42,11 +42,11 @@ function reportingAuditing() {
   const isRorRow = (r) => {
     const reason = r.subscription_cancellation_reason || '';
     if (_SNS_REASON_RE.test(reason)) return false;     // Sold-Not-Started, not a ROR
-    if (_ROR_REASON_RE.test(reason)) return true;       // explicit ROR reason
+    if (_rorReasonHit(reason)) return true;       // explicit ROR reason
     if (reason.trim()) return false;                    // some other reason → not a ROR
     if (!r.sold_date || !r.subscription_date_canceled) return false;
     const d = (new Date(r.subscription_date_canceled) - new Date(r.sold_date)) / 86400000;
-    return d >= 0 && d <= 3;
+    return d >= 0 && d <= crmRorWindowDays();
   };
 
   // Team lookup from Manage Teams (indicators), but format-agnostic: the

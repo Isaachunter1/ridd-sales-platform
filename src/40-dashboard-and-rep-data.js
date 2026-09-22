@@ -197,11 +197,11 @@ function isTechProfile(p) {
   if (!p) return false;
   if (_EXPLICIT_ROLES.has(p.role) || isAdminRole(p.role) || isAuditorRole(p.role)) return false;   // access profile wins over CRM type
   const emp = frRosterRowForProfile(p);
-  if (emp && emp.type_label) return /technician/i.test(emp.type_label);
-  if (state.profile && p.id === state.profile.id && state.myRepType) return /technician/i.test(state.myRepType);
+  if (emp && emp.type_label) return crmSellerIs('technician', emp.type_label);
+  if (state.profile && p.id === state.profile.id && state.myRepType) return crmSellerIs('technician', state.myRepType);
   try {
     const t = (state._indicatorRepTypeBySig || {})[_repTypeNameSig(getCanonicalRepName(p.full_name || ''))];
-    if (t) return /technician/i.test(t);
+    if (t) return crmSellerIs('technician', t);
   } catch (e) { /* fall through */ }
   return false;
 }
@@ -1283,11 +1283,11 @@ function isOfficeStaffProfile(p) {
   if (p.role === 'rep_office' || p.role === 'rep_office_lead' || p.role === 'rep_loyalty' || p.role === 'rep_loyalty_lead') return true;
   if (p.role === 'rep_sales' || p.role === 'rep_partner' || p.role === 'rep_team_lead') return false;
   const emp = frRosterRowForProfile(p);   // works even when the profile stores a branch id
-  if (emp && emp.type_label) return /office\s*staff/i.test(emp.type_label);
-  if (state.profile && p.id === state.profile.id && state.myRepType) return /office\s*staff/i.test(state.myRepType);
+  if (emp && emp.type_label) return crmSellerIs('office_staff', emp.type_label);
+  if (state.profile && p.id === state.profile.id && state.myRepType) return crmSellerIs('office_staff', state.myRepType);
   try {
     const t = (state._indicatorRepTypeBySig || {})[_repTypeNameSig(getCanonicalRepName(p.full_name || ''))];
-    if (t) return /office\s*staff/i.test(t);
+    if (t) return crmSellerIs('office_staff', t);
   } catch (e) { /* fall through */ }
   return false; // unknown type — self-heals once their CRM type syncs
 }
@@ -2793,10 +2793,14 @@ let _repLeaderboardSearchTimer = null;
 // outside Cancel Analysis should call _isReportableCancel(s) instead of
 // the raw `(s.cancelDate || s.active === 'No')` predicate.
 const _ROR_REASON_RE = /\b(ror|right\s*of\s*rescission|3[-\s]*day)/i;
+// Vocabulary-aware (src/12-crm-vocab.js): a company that has TAGGED its cancel
+// reasons is matched by its list; otherwise the legacy pattern above applies.
+function _rorReasonHit(x) { return (typeof crmVocab === 'function' && crmVocab().reasons.ror) ? crmReasonIs('ror', x) : _ROR_REASON_RE.test(String(x || '')); }
 // Combined subscriptions — the account was merged into another account, not
 // lost. Matches "Combined", "Combined Subscriptions", "combined with #102084",
 // etc. Not real attrition, so it never counts as a cancel.
 const _COMBINED_REASON_RE = /combin/i;
+function _combinedReasonHit(x) { return (typeof crmVocab === 'function' && crmVocab().reasons.combined) ? crmReasonIs('combined', x) : _COMBINED_REASON_RE.test(String(x || '')); }
 // One-time services — the job ran its course and the subscription closed out.
 // Matched by cancel reason ("One Time Service", "One-Time", "OTS") OR by the
 // subscription name itself ("One Time Pest Control", "One Time Mosquito", …)
@@ -2819,7 +2823,7 @@ function _parseSlashDate(str) {
 }
 function _is3DayROR(s) {
   if (!s) return false;
-  if (_ROR_REASON_RE.test(s.cancelReason || '')) return true;
+  if (_rorReasonHit(s.cancelReason || '')) return true;
   // Date-based fallback: cancel within 3 days of sale, regardless of
   // what's typed in the reason field — confirmed rule: a quick cancel is
   // ROR even when the reason is mistagged (those get cleaned up in
@@ -2828,10 +2832,10 @@ function _is3DayROR(s) {
   const cancel = _parseSlashDate(s.cancelDate);
   if (!sold || !cancel) return false;
   const diff = Math.round((cancel.getTime() - sold.getTime()) / 86400000);
-  return diff >= 0 && diff <= 3;
+  return diff >= 0 && diff <= ((typeof crmRorWindowDays === 'function') ? crmRorWindowDays() : 3);
 }
 function _isCombinedSub(s) {
-  return !!s && _COMBINED_REASON_RE.test(s.cancelReason || '');
+  return !!s && _combinedReasonHit(s.cancelReason || '');
 }
 function _isOneTimeCancel(s) {
   if (!s) return false;
@@ -3861,7 +3865,7 @@ function canViewRepDetails(repName, repTeam) {
     if (target) return isOfficeStaffProfile(target) && scorecardDeptOf(target) === scorecardDeptOf(me);
     try {
       const t = (state._indicatorRepTypeBySig || {})[_repTypeNameSig(getCanonicalRepName(repName))];
-      if (t && /office\s*staff/i.test(t)) return scorecardDeptOf(me) === 'inside_sales';
+      if (t && crmSellerIs('office_staff', t)) return scorecardDeptOf(me) === 'inside_sales';
     } catch (e) { /* fall through */ }
   }
   const _sigG = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
@@ -3877,7 +3881,7 @@ function canViewRepDetails(repName, repTeam) {
     // staff; D2D viewers reach non-office (their world).
     try {
       const t = (state._indicatorRepTypeBySig || {})[_repTypeNameSig(getCanonicalRepName(repName))];
-      const targetIsOffice = !!(t && /office\s*staff/i.test(t));
+      const targetIsOffice = !!(t && crmSellerIs('office_staff', t));
       return isOfficeStaffProfile(me) ? targetIsOffice : !targetIsOffice;
     } catch (e) { return false; }
   }

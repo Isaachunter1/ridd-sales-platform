@@ -195,13 +195,13 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
   const popSet = retenPopExclReasons();
   const rorOn = [...popSet].some(_isRorReason);
   const rorTimingOn = _retenWhatIf('popRorTiming', true);
-  const closedBy = (r, re) => r.subscription_date_canceled && popSet.has(_normCancelReason(reportingCancelReasonOf(r))) && re.test(_normCancelReason(reportingCancelReasonOf(r)));
+  const closedBy = (r, kind) => r.subscription_date_canceled && popSet.has(_normCancelReason(reportingCancelReasonOf(r))) && crmReasonIs(kind, reportingCancelReasonOf(r));   // kind: 'combined' | 'renewal' (src/12-crm-vocab.js)
   const rorByReason = (r) => !!r.subscription_date_canceled && _isRorReason(_normCancelReason(reportingCancelReasonOf(r)));
   const s2r = s2.filter(r => !(rorOn && rorByReason(r)));                       // minus RORs coded as such (the sheet's rule)
   const step1a = s2r.filter(r => !(rorOn && rorTimingOn && _reporting3dayRor(r)));   // minus RORs caught by timing (app extra)
-  const step1b = step1a.filter(r => !closedBy(r, /combined/));                  // minus combined
-  const step1 = step1b.filter(r => !closedBy(r, /renewal/));                    // minus renewals
-  const byReason1 = {}; step1b.forEach(r => { if (closedBy(r, /renewal/)) { const k = String(reportingCancelReasonOf(r) || '').trim(); byReason1[k] = (byReason1[k] || 0) + 1; } });
+  const step1b = step1a.filter(r => !closedBy(r, 'combined'));                  // minus combined
+  const step1 = step1b.filter(r => !closedBy(r, 'renewal'));                    // minus renewals
+  const byReason1 = {}; step1b.forEach(r => { if (closedBy(r, 'renewal')) { const k = String(reportingCancelReasonOf(r) || '').trim(); byReason1[k] = (byReason1[k] || 0) + 1; } });
   const step2 = step1.filter(r => !(retenExclZeroPay() && (Number(r.annual_recurring_value) || 0) <= 0));
   const svcOf = (r) => Number(r.subscription_completed_services) || 0;
   const sentricon = (r) => retenOneSvcExemptTerms().some(t => String(r.subscription || '').toLowerCase().includes(t));
@@ -2173,11 +2173,10 @@ function reportingWaterfall() {
       // giant Unknown bucket, and pick up their name automatically the day
       // the mirror includes inactive employees.
       if (dim === 'rep') { const nm = (typeof flipLastFirst === 'function' ? flipLastFirst(String(r.sold_by || '').trim()) : String(r.sold_by || '').trim()); if (nm) return nm; const id = String(r.sold_by_id || '').trim(); return id && id !== '0' ? 'Former rep #' + id : 'Unknown'; }
-      const t = String(r.sold_by_type || '').trim().toLowerCase();
-      if (t === 'sales rep') return 'Door to Door';
-      if (t === 'technician') return 'Technician';
-      if (t === 'office staff') return 'Office Staff';
-      return t ? (t.charAt(0).toUpperCase() + t.slice(1)) : 'Unknown';
+      const t = String(r.sold_by_type || '').trim();
+      const role = crmSellerRole(t);
+      if (role) return CRM_SELLER_LABELS[role];
+      return t ? (t.charAt(0).toUpperCase() + t.slice(1).toLowerCase()) : 'Unknown';
     };
     const mk = () => ({ subs: 0, active: 0, cancelled: 0, arv: 0, arvCxl: 0, rows: [], cxlRows: [] });
     const byType = {}; const total = mk();
