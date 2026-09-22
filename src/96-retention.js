@@ -858,8 +858,20 @@ function reportingWaterfall() {
             td('Total', { left: true, sticky: true, bg: 'var(--card-2)' }), td(num(val(rows)), { bold: true }),
             ...years.map(y => td(num(colTotal(y)), { bold: true }))),
           el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-            td('Attrition', { left: true, sticky: true, muted: true }), td('', {}),
-            ...years.map(y => { const a = blended(y); return td(a == null ? '—' : (a * 100).toFixed(1) + '%', { bold: true, muted: a == null, onclick: a == null ? undefined : () => openAttritionDrill(scoped, y) }); }))))));
+            td('Blended attrition', { left: true, sticky: true, muted: true }), td('', {}),
+            ...years.map(y => { const a = blended(y); return td(a == null ? '—' : (a * 100).toFixed(1) + '%', { bold: true, muted: a == null, onclick: a == null ? undefined : () => openAttritionDrill(scoped, y) }); })),
+          // Same-year attrition (per Isaac, Sep 22): the year's OWN cohort —
+          // accounts first serviced in the year that cancelled inside that
+          // same year ÷ everything first serviced in the year. The blended
+          // row above is the prior book; this is the new business.
+          el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+            td('Same-year attrition', { left: true, sticky: true, muted: true }), td('', {}),
+            ...years.map(y => {
+              const all = byCohort.get(y) || []; if (!all.length) return td('—', { muted: true });
+              const en = endOf(y); const lost = all.filter(r => r._effCancel && r._effCancel <= en);
+              const a = val(all) ? 1 - val(cell(y, y)) / val(all) : null;
+              return td(a == null ? '—' : (a * 100).toFixed(1) + '%', { bold: true, muted: a == null, onclick: lost.length ? drillRows(y + ' cohort cancelled in ' + y + ' (' + (isArr ? money0(val(lost)) : lost.length.toLocaleString()) + ' of ' + (isArr ? money0(val(all)) : all.length.toLocaleString()) + ')', lost) : undefined });
+            }))))));
   };
   // ── SEASONALITY — monthly churn rate, months × years. Finds the "do we
   // bleed customers at certain points of the year" pattern. Cell = churn ÷
