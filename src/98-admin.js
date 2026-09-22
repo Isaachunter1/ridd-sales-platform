@@ -63,7 +63,19 @@ function adminPermissions() {
           ...PERM_DEFS.filter(d => d.group === g).map(d => {
             const on = !!eff[d.id];
             const overridden = overrides[role] && overrides[role][d.id] !== undefined;
-            return row(d.label, sw(on, () => setPerm(role, d.id, !on), overridden));
+            // Sensitive permissions (per Isaac, Sep 22): switching one ON asks
+            // "are you sure" and says what it exposes. Switching off never asks.
+            const toggle = () => {
+              if (!on && d.sensitive) {
+                const who = ROLE_LABEL[role] || role;
+                if (!confirm('Give every ' + who + ' access to ' + d.sensitive + '?\n\nThis is sensitive information. Are you sure?')) return;
+              }
+              setPerm(role, d.id, !on);
+            };
+            const label = d.sensitive
+              ? el('span', { class: 'inline-flex items-center gap-1.5' }, d.label, el('span', { class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: 'rgba(220,38,38,.10)', color: '#B91C1C' }, title: 'Sensitive \u2014 ' + d.sensitive }, 'sensitive'))
+              : d.label;
+            return row(label, sw(on, toggle, overridden));
           }),
         ]),
         groupHead('Reach'),
