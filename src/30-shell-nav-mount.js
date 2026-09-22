@@ -1140,9 +1140,7 @@ function mountApp() {
     d2d_sales:    viewSales,
     techs:        viewTechs,
     tech_sales:   viewSales,
-    tech_pay:     () => el('div', { class: 'card p-12 text-center' },
-      el('div', { class: 'text-sm font-bold' }, 'Technician Pay — under construction'),
-      el('div', { class: 'text-xs text-muted- mt-1' }, 'Commission rules for Technicians are being configured. Sales are already being pulled in under the Sales tab.')),
+    tech_pay:     viewTechPay,
     admin:        viewAdmin,
   }[state.view];
   // Registered module views render through their own render(ctx).

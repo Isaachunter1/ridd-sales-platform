@@ -69,7 +69,7 @@ function viewReporting() {
     // Retention — legacy persisted values land there too.
     (state.reportingSubTab === 'health' || state.reportingSubTab === 'nextbest' || state.reportingSubTab === 'services') ? reportingWaterfall() :
     state.reportingSubTab === 'auditing'   ? reportingAuditing() :
-    state.reportingSubTab === 'ops'        ? reportingOps() :
+    state.reportingSubTab === 'ops'        ? reportingOpsHub() :
                                               reportingOverview()),
   );
 }
