@@ -331,7 +331,10 @@ WITH src AS (
     fieldRoutes_active AS active, fieldRoutes_lastLogin AS last_login
   FROM \`${PROJECT}.${DATASET}.FieldRoutesEmployee\`
   WHERE fieldRoutes_employeeID IS NOT NULL AND fieldRoutes_employeeID != ''
-    AND (fieldRoutes_active = '1' OR LOWER(fieldRoutes_active) = 'true')
+    -- Inactive employees stay IN the mirror (per Isaac, Sep 22 2026 — RevHawk
+    -- now carries them): former reps keep their names on Manage Teams and
+    -- the boards, and the auto-revoke below can see who left. The \`active\`
+    -- column says which is which; the Users list only offers active people.
     -- Drop FieldRoutes' internal/system accounts (FieldRoutes Admin, FR-System,
     -- Test users, integrations, etc.) so the roster is real people only. Also
     -- stops system accounts that reuse a real person's email from polluting them.

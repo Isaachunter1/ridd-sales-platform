@@ -1847,6 +1847,7 @@ function adminReps() {
     if (appByEmpId.has(e.employee_id)) return;                       // already a linked app user
     if (matchedEmpIds.has(e.employee_id)) return;                    // matched to an app user (email or name)
     if (e.email && appEmails.has(_frNormEmail(e.email))) return;     // matches an app user's email
+    if (!e.active) return;                                           // inactive in FieldRoutes — not someone to invite (roster carries them since Sep 22)
     people.push({ isApp: false, emp: e, name: _frEmpName(e), email: e.email || '', type: e.type_label || 'Office Staff', active: false });
   });
 
