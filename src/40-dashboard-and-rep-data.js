@@ -499,7 +499,7 @@ function viewDashboard() {
   return el('div', { class: 'flex flex-col gap-5 w-full' },
 
     // ─── Top row: + New Sale + date filter + office view ───
-    el('div', { class: 'flex items-center gap-2 flex-wrap dash-toolbar' },
+    el('div', { class: 'flex items-center gap-2 flex-wrap dash-toolbar justify-end' },   // date filter + ⓘ right-justified (per Isaac, Sep 22)
       // + New Sale stretches to fill the row on every screen (per Isaac);
       // Today / info keep their natural size on the right (dash-toolbar CSS).
       // (+ New Sale retired per Isaac, Sep 2026 — sales sync from FieldRoutes.)
@@ -655,7 +655,7 @@ function viewDashboard() {
           .filter(p => isSellerRole(p.role) && p.is_active !== false && isOfficeStaffProfile(p))
           .map(p => ({ p, goal: Number(p.annual_revenue_goal) || 0, rev: ytdByRep[p.id] || 0 }))
           .filter(x => x.goal > 0 || x.rev > 0)
-          .sort((a, b) => (b.goal ? b.rev / b.goal : 0) - (a.goal ? a.rev / a.goal : 0) || b.rev - a.rev);
+          .sort((a, b) => b.rev - a.rev);   // most YTD revenue first (per Isaac, Sep 22 — was % of goal)
         // ── Personal pacer (per Isaac): a rep doesn't need the whole
         // room's bars. Sellers see ONLY their own card, with the same
         // seasonal pace / catch-up / projection / period-window numbers the
@@ -5898,7 +5898,10 @@ function leaderboardSection(range) {
       return el('div', {},
         // Past ~6 reps the board scrolls inside a fixed-height box (per
         // Isaac) so the card stays the same size as the Latest Sales feed.
-        el('div', { class: (phone ? '' : 'scroll-x ') + 'flex-1', style: { minHeight: '0', overflowY: 'auto', overflowX: phone ? 'hidden' : undefined } },
+        // Phones: iOS Safari doesn't pass the card's max-height down through the
+        // flex column, so the box grew to the full table and the card clipped it
+        // — nothing scrolled (per Isaac, Sep 22). Cap the scroll box itself.
+        el('div', { class: (phone ? '' : 'scroll-x ') + 'flex-1', style: { minHeight: '0', overflowY: 'auto', overflowX: phone ? 'hidden' : undefined, maxHeight: phone ? '400px' : undefined, WebkitOverflowScrolling: 'touch', overscrollBehaviorY: 'contain' } },
           // Phones: one metric column, so the table fits the card exactly
           // (fit-table keeps it a real fixed-layout table — no sideways drift).
           el('table', { class: 'w-full text-xs' + (phone ? ' fit-table' : ''), style: phone ? { tableLayout: 'fixed' } : {} },
