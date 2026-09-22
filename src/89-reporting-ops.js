@@ -29,6 +29,21 @@ const OPS_BASELINE_2025 = {
   spend_per_hr_excl: { RIDD: 22.74, Atlanta: 26.47, Charleston: 33.2, Destin: 27.41, 'Myrtle Beach': 34.98, Raleigh: 14.46, 'Salt Lake': 10.8, 'Virginia Beach': 14.77 },
   reviews:         { RIDD: 160.37, Atlanta: 20.46, Charleston: 36.87, Destin: 14.82, 'Myrtle Beach': 35.94, Raleigh: 25.26, 'Salt Lake': 7.62, 'Virginia Beach': 19.39 },
 };
+// Baseline year for the "vs" column (generalization, Sep 22 2026): a company
+// can store its own in adminRules.opsBaseline = { year: 2025, values: { <metric key>: { ALL: n, '<Office>': n } } }
+// ('ALL' or the company name = company-wide). Nothing stored = RIDD's 2025 sheet
+// above. A company with no baseline just sees '—' in those two columns.
+function opsBaseline() {
+  const r = (typeof _adminRules === 'function') ? _adminRules() : null;
+  const b = r && r.opsBaseline && typeof r.opsBaseline === 'object' && r.opsBaseline.values ? r.opsBaseline : null;
+  return b ? { year: Number(b.year) || (new Date().getFullYear() - 1), values: b.values } : { year: 2025, values: OPS_BASELINE_2025 };
+}
+function opsBaselineFor(metricKey, scopeName) {
+  const B = opsBaseline(); const m = B.values[metricKey]; if (!m) return null;
+  const isAll = scopeName === 'RIDD' || scopeName === 'ALL' || scopeName === CFG.COMPANY_NAME;
+  const v = isAll ? (m.ALL != null ? m.ALL : m.RIDD != null ? m.RIDD : m[CFG.COMPANY_NAME]) : m[scopeName];
+  return v == null ? null : v;
+}
 const OPS_RESVC_TYPES = ['Ants', 'Carpenter Bee', 'Earwigs', 'Fire Ants', 'German Roach', 'Interior Flea', 'Manager', 'Mole', 'Mosquito', 'Roach', 'Rodent', 'Snake', 'Spiders', 'Tech Error', 'VIP', 'Wasps'];
 
 let _opsCheckedAt = 0;
@@ -128,7 +143,7 @@ function reportingOps() {
   const completedWeeks = Math.max(1, weeks.filter(w => w < todayWs).length);
   const allIds = offices.map(o => o.id);
   const scopeId = state._opsOffice && allIds.includes(state._opsOffice) ? state._opsOffice : 'RIDD';
-  const scopeName = scopeId === 'RIDD' ? 'RIDD' : names[scopeId];
+  const scopeName = scopeId === 'RIDD' ? CFG.COMPANY_NAME : names[scopeId];   // 'RIDD' stays the sentinel scope id; the label is the company name
   const scopeIds = scopeId === 'RIDD' ? allIds : [scopeId];
   const months = [...new Set(weeks.map(w => w.slice(0, 7)))].sort();
   const weekCols = state._opsAllWeeks ? weeks.slice().reverse() : weeks.slice(-14).reverse();
@@ -145,7 +160,7 @@ function reportingOps() {
   const td = (t, o = {}) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap ' + (o.right ? 'text-right' : 'text-left') + (o.bold ? ' font-black' : ''), style: Object.assign({}, o.muted ? { color: 'var(--text-subtle)' } : {}, o.style || {}) }, t);
   // A metric's cells for one scope: YTD · 2025 · vs · periods.
   const metricCells = (M, oids, baseName, bold) => {
-    const yv = ytdWeekly(M, oids); const base25 = OPS_BASELINE_2025[M.key] || null; const b = base25 && base25[baseName] != null ? base25[baseName] : null;
+    const yv = ytdWeekly(M, oids); const b = opsBaselineFor(M.key, baseName);
     const ch = (yv != null && b) ? (yv - b) / b : null;
     return [
       td(M.fmt(yv), { right: true, bold: true }),
@@ -155,7 +170,7 @@ function reportingOps() {
     ];
   };
   const open = state._opsExpanded && METRICS.some(m => m.key === state._opsExpanded) ? state._opsExpanded : null;
-  const headRow = () => el('tr', {}, th('Metric'), th('YTD', true, { title: 'Weekly average of completed weeks for counts; the ratio itself for rates' }), th('2025', true, { title: '2025 from the COO sheet (weekly average for counts, ratio for rates)' }), th('vs 2025', true), ...cols.map(c => th(c.label + (c.live ? ' · live' : ''), true)));
+  const headRow = () => el('tr', {}, th('Metric'), th('YTD', true, { title: 'Weekly average of completed weeks for counts; the ratio itself for rates' }), th(String(opsBaseline().year), true, { title: opsBaseline().year + ' baseline (weekly average for counts, ratio for rates)' }), th('vs ' + opsBaseline().year, true), ...cols.map(c => th(c.label + (c.live ? ' · live' : ''), true)));
   const bodyRows = [];
   let lastGroup = null;
   for (const M of METRICS) {
@@ -174,7 +189,7 @@ function reportingOps() {
   }
   const table = el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse' } }, el('thead', {}, headRow()), el('tbody', {}, ...bodyRows));
   const officePills = el('div', { class: 'flex items-center gap-1 flex-wrap' },
-    ...[['RIDD', 'RIDD'], ...offices.map(o => [o.id, o.name])].map(([id, l]) => el('button', { class: 'rounded-full px-2 py-0.5 text-[10px] font-bold transition hover:brightness-95', style: scopeId === id ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: () => { state._opsOffice = id === 'RIDD' ? null : id; mountApp(); } }, l)));
+    ...[['RIDD', CFG.COMPANY_NAME], ...offices.map(o => [o.id, o.name])].map(([id, l]) => el('button', { class: 'rounded-full px-2 py-0.5 text-[10px] font-bold transition hover:brightness-95', style: scopeId === id ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: () => { state._opsOffice = id === 'RIDD' ? null : id; mountApp(); } }, l)));
 
   const rtypeCard = (() => {
     const t = agg(allIds.flatMap(o => weeks.map(w => [o, w])));
