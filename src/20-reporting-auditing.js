@@ -30,7 +30,7 @@ function reportingAuditing() {
   // churn (reason match, or a no-reason cancel within 3 days of the sale).
   const isExcludableRow = (r) => {
     const reason = r.subscription_cancellation_reason || '';
-    if (_rorReasonHit(reason) || _SNS_REASON_RE.test(reason)) return true;
+    if (_rorReasonHit(reason) || _snsReasonHit(reason)) return true;
     if (reason.trim()) return false;
     if (!r.sold_date || !r.subscription_date_canceled) return false;
     const d = (new Date(r.subscription_date_canceled) - new Date(r.sold_date)) / 86400000;
@@ -41,7 +41,7 @@ function reportingAuditing() {
   // Tracked separately so the player card can show attrition with vs. without RORs.
   const isRorRow = (r) => {
     const reason = r.subscription_cancellation_reason || '';
-    if (_SNS_REASON_RE.test(reason)) return false;     // Sold-Not-Started, not a ROR
+    if (_snsReasonHit(reason)) return false;     // Sold-Not-Started, not a ROR
     if (_rorReasonHit(reason)) return true;       // explicit ROR reason
     if (reason.trim()) return false;                    // some other reason → not a ROR
     if (!r.sold_date || !r.subscription_date_canceled) return false;

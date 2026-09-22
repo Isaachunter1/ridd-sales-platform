@@ -646,7 +646,7 @@ function dataIntegrityPanel() {
       const dateRor = (typeof _is3DayROR === 'function') && _is3DayROR({ ...x, cancelReason: '' });
       if (_rorReasonHit(reason)) cancelCls.explicitRor++;
       else if (!reason && dateRor) cancelCls.dateFallbackRor++;
-      else if (reason && dateRor && !_SNS_REASON_RE.test(reason)) { cancelCls.mistagSuspect++; if (mistagRows.length < 120) mistagRows.push(x); }
+      else if (reason && dateRor && !_snsReasonHit(reason)) { cancelCls.mistagSuspect++; if (mistagRows.length < 120) mistagRows.push(x); }
       if (!reason) { cancelCls.unspecified++; if (unspecRows.length < 120) unspecRows.push(x); }
     }
   }

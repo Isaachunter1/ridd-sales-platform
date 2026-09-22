@@ -27,6 +27,7 @@ const CRM_VOCAB_DEFAULTS = Object.freeze({
     ror:      /\bror\b|rescission/i,
     combined: /combined/i,
     renewal:  /renewal/i,
+    sns:      /sold,?\s*not\s*started/i,   // sold, never received an initial (paperwork churn, not attrition)
   },
   sellerTypes: {
     sales_rep:    /^sales\s*rep$/i,
@@ -41,7 +42,7 @@ const CRM_VOCAB_DEFAULTS = Object.freeze({
   },
 });
 const CRM_VOCAB_BUCKETS = Object.freeze({
-  reasons:     [['ror', '3-day right of rescission'], ['combined', 'Merged into another subscription on the same account'], ['renewal', 'Closed because the customer renewed onto a new subscription']],
+  reasons:     [['ror', '3-day right of rescission'], ['combined', 'Merged into another subscription on the same account'], ['renewal', 'Closed because the customer renewed onto a new subscription'], ['sns', 'Sold but never started (no initial service)']],
   sellerTypes: [['sales_rep', 'Door-to-door sales rep'], ['office_staff', 'Inside sales / office staff'], ['technician', 'Technician']],
   sources:     [['d2d', 'Door-to-door sale'], ['tech_upsell', 'Technician upsell'], ['termite_upsell', 'Termite upsell by a sales rep'], ['unset', 'Default / blank source that should have been changed']],
 });
@@ -72,7 +73,7 @@ function _crmMatch(group, key, value) {
 // ── Predicates the rest of the app uses ──
 // Cancel reasons
 function crmReasonIs(kind, reason) { return _crmMatch('reasons', kind, reason); }
-function crmReasonKind(reason) { for (const k of ['ror', 'combined', 'renewal']) if (crmReasonIs(k, reason)) return k; return null; }
+function crmReasonKind(reason) { for (const k of ['ror', 'combined', 'renewal', 'sns']) if (crmReasonIs(k, reason)) return k; return null; }
 // Seller types (FieldRoutes employee type label on the sold-by employee)
 function crmSellerRole(typeLabel) { for (const k of ['sales_rep', 'office_staff', 'technician']) if (_crmMatch('sellerTypes', k, typeLabel)) return k; return null; }
 function crmSellerIs(kind, typeLabel) { return _crmMatch('sellerTypes', kind, typeLabel); }
