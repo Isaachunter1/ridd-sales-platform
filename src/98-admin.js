@@ -961,7 +961,9 @@ function goalQuarterlyCard(g) {
     const td = (v, bold) => el('td', { class: 'px-3 py-1.5 text-left tabular-nums' + (bold ? ' font-bold' : '') }, v);
     return el('div', { class: 'mb-1' },
       el('div', { class: 'text-xs font-bold uppercase tracking-wider px-3 py-1.5', style: { background: 'var(--text)', color: 'var(--bg)' } }, title + ' · ' + reps + ' reps'),
-      el('table', { class: 'w-full text-xs' },
+      // Fixed column layout, identical in both blocks, so Q1–Total line up vertically across Inside Sales and Loyalty (per Isaac, Sep 22).
+      el('table', { class: 'w-full text-xs', style: { tableLayout: 'fixed' } },
+        el('colgroup', {}, el('col', { style: { width: '22%' } }), ...[1, 2, 3, 4, 5].map(() => el('col', { style: { width: '15.6%' } }))),
         el('thead', { class: 'text-[10px] uppercase tracking-wider text-left', style: { color: 'var(--text-muted)' } },
           el('tr', {}, el('th', { class: 'text-left px-3 py-2 font-semibold' }, ''), ...['Q1','Q2','Q3','Q4','Total'].map(q => el('th', { class: 'text-left px-3 py-2 font-semibold' }, q)))),
         el('tbody', {},
@@ -976,8 +978,7 @@ function goalQuarterlyCard(g) {
             ...qAmts.map(a => td(usd(reps > 0 ? a / reps : 0), true)), td(usd(reps > 0 ? yr / reps : 0), true)))));
   };
   return el('div', { class: 'card p-4' },
-    el('h3', { class: 'text-sm font-bold mb-1' }, 'Quarterly quotas'),
-    el('p', { class: 'text-[11px] text-muted- mb-3' }, 'Quarterly rollup of the monthly allocation, with each rep’s share (quarterly amount ÷ rep count).'),
+    el('h3', { class: 'text-sm font-bold mb-3' }, 'Quarterly quotas'),
     el('div', { class: 'rounded-lg border overflow-x-auto', style: { borderColor: 'var(--border)' } },
       block('Inside Sales', g.quarterly_new, g.is_reps),
       block('Loyalty', g.quarterly_renewal, g.loyalty_reps)));
