@@ -538,9 +538,13 @@ async function syncIndicatorsToCloud() {
     // Rep-facing copy too (rep-UX audit #5): reps read latest-rep.json.gz —
     // without this, an admin-side publish left reps on older numbers until
     // the background worker's next successful run.
+    // Same sanitising as the derive worker (customer names out, numbers in) —
+    // this used to push the FULL blob to the rep path until the next worker run.
     try {
+      const repBlob = await new Response(new Blob([JSON.stringify(payload, (k, v) => (k === 'customer') ? undefined : v)]).stream()
+        .pipeThrough(new CompressionStream('gzip'))).blob();
       await supabase.storage.from('reporting')
-        .upload('indicators/latest-rep.json.gz', blob, { contentType: 'application/gzip', upsert: true });
+        .upload('indicators/latest-rep.json.gz', repBlob, { contentType: 'application/gzip', upsert: true });
     } catch (e2) { console.warn('[ridd] rep blob publish skipped', e2); }
     return { ok: true };
   } catch (e) {
