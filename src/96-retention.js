@@ -820,6 +820,10 @@ function reportingWaterfall() {
   // = year-end, cells = accounts from that cohort still active at that
   // year-end. Built from the SAME retention book as Attrition Steps, with an
   // office dropdown (RIDD = every office).
+  // Cohort-age palette (per Isaac, Sep 22): every cohort's year 1 is the same
+  // colour, year 2 the same, and so on — so the same-age cells line up
+  // visually down the diagonals instead of colouring by survival.
+  const COHORT_AGE_BG = ['#DCEFD6', '#E4EED0', '#F1EBC7', '#F7E3C2', '#F7D9C4', '#F3CFC9', '#EBC9D3', '#E2CCE0'];
   const renderBlended = (pop) => {
     const scoped = pop;   // office scope comes from the tab's top filter
     const rows = _retenEff(scoped);
@@ -867,7 +871,7 @@ function reportingWaterfall() {
               const lost = prevRs.filter(r => r._effCancel && r._effCancel <= en && (y === c || r._effCancel > (y - 1) + '-12-31'));
               const a = val(prevRs) > 0 ? 1 - val(rs) / val(prevRs) : null;
               // Both reads in the cell (per Isaac): what's still active, and the % lost that year underneath.
-              return td(el('div', { class: 'flex flex-col items-end leading-tight' }, el('span', {}, num(val(rs))), el('span', { class: 'text-[10px] font-semibold', style: { color: a == null ? 'var(--text-subtle)' : a > 0 ? '#B91C1C' : 'var(--text-subtle)' } }, a == null ? '\u2014' : '\u2212' + (a * 100).toFixed(1) + '%')), { title: num(val(lost)) + ' of ' + num(val(prevRs)) + ' lost in ' + (y >= thisYear ? y + ' to date' : y) + ' \u00b7 ' + num(val(rs)) + ' still active', onclick: lost.length ? drillRows(c + ' cohort \u00b7 cancelled in ' + y + ' (' + num(val(lost)) + ' of ' + num(val(prevRs)) + ')', lost) : undefined, bg: rs.length && all.length ? 'hsl(' + Math.max(0, Math.min(120, (val(rs) / val(all)) * 120)) + ', 70%, 92%)' : undefined }); })); }),
+              return td(el('div', { class: 'flex flex-col items-end leading-tight' }, el('span', {}, num(val(rs))), el('span', { class: 'text-[10px] font-semibold', style: { color: a == null ? 'var(--text-subtle)' : a > 0 ? '#B91C1C' : 'var(--text-subtle)' } }, a == null ? '\u2014' : '\u2212' + (a * 100).toFixed(1) + '%')), { title: num(val(lost)) + ' of ' + num(val(prevRs)) + ' lost in ' + (y >= thisYear ? y + ' to date' : y) + ' \u00b7 ' + num(val(rs)) + ' still active', onclick: lost.length ? drillRows(c + ' cohort \u00b7 cancelled in ' + y + ' (' + num(val(lost)) + ' of ' + num(val(prevRs)) + ')', lost) : undefined, bg: COHORT_AGE_BG[Math.min(y - c, COHORT_AGE_BG.length - 1)] }); })); }),
           el('tr', { class: 'border-t-2 font-black', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
             td('Total', { left: true, sticky: true, bg: 'var(--card-2)' }), td(num(val(rows)), { bold: true }),
             ...years.map(y => td(num(colTotal(y)), { bold: true }))),
