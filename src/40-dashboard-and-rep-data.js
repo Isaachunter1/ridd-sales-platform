@@ -5079,7 +5079,7 @@ function openIndicatorRepCard(rep, allReps = []) {
       return !(m > 1) && !/sentricon/i.test(String(x.subscription || ''));
     };
     const _realCancel = (x) => _cxlR(x) && !_isExcludableCancel(x);
-    let sold = 0, serviced = 0, activeN = 0, soldRev = 0, servicedRev = 0, activeRev = 0, agingRev = 0, cancelledRev = 0, frozenRev = 0, rorRev = 0, exclRev = 0, exclCancelRev = 0, otsCancelRev = 0;
+    let sold = 0, serviced = 0, activeN = 0, soldRev = 0, servicedRev = 0, activeRev = 0, agingRev = 0, cancelledRev = 0, frozenRev = 0, rorRev = 0, exclRev = 0, exclCancelRev = 0, otsCancelRev = 0, otsSvcRev = 0, otsAgingRev = 0;
     const audit = { passed: 0, failed: 0, noaudit: 0, pending: 0 };
     const attr = { passed: [0, 0], failed: [0, 0] };
     for (const x of all) {
@@ -5096,7 +5096,7 @@ function openIndicatorRepCard(rep, allReps = []) {
           exclRev += cv;
           if (_cxlR(x)) exclCancelRev += cv;
         }
-        if (_isOTS(x) && _cxlR(x)) otsCancelRev += cv;
+        if (_isOTS(x)) { otsSvcRev += cv; if (_cxlR(x)) otsCancelRev += cv; else if (_actR(x) && _isAging(x)) otsAgingRev += cv; }
       }
       const st = _stat(x);
       if (st === 'pending') { if ((x.status || '').toLowerCase() !== 'frozen' && !(x.cancelDate && !svc)) audit.pending++; }
@@ -5107,8 +5107,12 @@ function openIndicatorRepCard(rep, allReps = []) {
     const passPct = passBase > 0 ? (audit.passed + audit.noaudit) / passBase : null;
     const servExcl = servicedRev - exclRev;
     const attrExclRor = servExcl > 0 ? (cancelledRev - exclCancelRev) / servExcl : null;
-    const attrInclRor = servicedRev > 0 ? cancelledRev / servicedRev : null;
-    const cancelIfAging = servicedRev > 0 ? (cancelledRev + agingRev) / servicedRev : null;
+    // One-time services are never recurring, so they never count toward
+    // attrition — on EITHER side, in EVERY read on this card (per Isaac, Sep 22).
+    // "Incl. 3-day ROR" keeps the RORs in; it still drops OTS.
+    const svcNoOts = servicedRev - otsSvcRev, cxlNoOts = cancelledRev - otsCancelRev;
+    const attrInclRor = svcNoOts > 0 ? cxlNoOts / svcNoOts : null;
+    const cancelIfAging = svcNoOts > 0 ? (cxlNoOts + (agingRev - otsAgingRev)) / svcNoOts : null;
     const activeRetention = servicedRev > 0 ? activeRev / servicedRev : null;
     const soldSvc = sold > 0 ? serviced / sold : null;
     const rateOf = (pair) => pair[1] > 0 ? pair[0] / pair[1] : null;
@@ -5130,16 +5134,17 @@ function openIndicatorRepCard(rep, allReps = []) {
       el('div', { class: 'grid grid-cols-2 sm:grid-cols-3 gap-2' }, ...tiles));
     // Attrition pair in ONE tile — excl. ROR + OTS on the left, incl. on the
     // right — so the group is two cards wide and fills a phone row.
-    const attrTile = (excl, incl) => el('div', { class: 'rounded-xl p-3', style: { background: 'var(--card-2)' } },
+    // Two columns wide on desktop (per Isaac, Sep 22) so 'If aging churns' sits on the right of the row.
+    const attrTile = (excl, incl) => el('div', { class: 'rounded-xl p-3 sm:col-span-2', style: { background: 'var(--card-2)', gridColumn: (() => { try { return window.matchMedia('(min-width: 640px)').matches ? 'span 2 / span 2' : 'auto'; } catch (e) { return 'auto'; } })() } },
       el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Attrition'),
-      el('div', { class: 'grid grid-cols-2 gap-3 mt-0.5' },
+      el('div', { class: 'grid grid-cols-2 gap-3 mt-1.5' },
         el('div', {},
-          el('div', { class: 'text-xl font-black tabular-nums', style: { color: good } }, pctS(excl)),
-          el('div', { class: 'text-[10px] text-muted- mt-0.5' }, 'excl. 3-day ROR + one-time (removed from both sides)')),
+          el('div', { class: 'text-[10px] font-semibold', style: { color: 'var(--text-muted)' } }, 'Excl. 3-day ROR \u2212 OTS'),
+          el('div', { class: 'text-xl font-black tabular-nums', style: { color: good } }, pctS(excl))),
         el('div', {},
-          el('div', { class: 'text-xl font-black tabular-nums' }, pctS(incl)),
-          el('div', { class: 'text-[10px] text-muted- mt-0.5' }, 'incl. 3-day ROR + one-time'))),
-      el('div', { class: 'text-[10px] text-muted- mt-1' }, 'cancelled ÷ serviced'));
+          el('div', { class: 'text-[10px] font-semibold', style: { color: 'var(--text-muted)' } }, 'Incl. 3-day ROR \u2212 OTS'),
+          el('div', { class: 'text-xl font-black tabular-nums' }, pctS(incl)))),
+      el('div', { class: 'text-[10px] text-muted- mt-1' }, 'cancelled \u00f7 serviced \u00b7 one-time services never count, on either side'));
     const drillPanel = () => {
       if (!retDrill) return null;
       const rows = all.filter(retDrill.pred).sort((a, b) => (b.dateSold || '').localeCompare(a.dateSold || ''));
@@ -5179,7 +5184,7 @@ function openIndicatorRepCard(rep, allReps = []) {
       group('Attrition · of serviced', [
         // One card for both reads (per Isaac): excl. ROR + OTS beside incl.
         attrTile(attrExclRor, attrInclRor),
-        tile('If aging churns', pctS(cancelIfAging), '(cancelled + aging) ÷ serviced', '#A9441F'),
+        tile('If aging churns', pctS(cancelIfAging), '(cancelled + aging) \u00f7 serviced \u00b7 incl. 3-day ROR \u2212 OTS', '#A9441F'),
           // ('Active retention' tile removed per Isaac - it duplicated 1 - attrition and left the grid uneven.)
       ]),
       // \u2500\u2500 "True Attrition" bar (per Isaac) \u2014 same fixed definition as
