@@ -1020,41 +1020,33 @@ function goalMonthlyCard(g, persist) {
   const totNew = g.monthly_new.reduce((a, b) => a + (b || 0), 0);
   const totRen = g.monthly_renewal.reduce((a, b) => a + (b || 0), 0);
   const isReps = Math.max(1, g.is_reps || 1), loyReps = Math.max(1, g.loyalty_reps || 1);
-  const th = (t, align) => el('th', { class: (align || 'text-left') + ' px-3 py-2 font-semibold' }, t);
   return el('div', { class: 'card p-4' },
-    el('div', { class: 'flex items-center justify-between flex-wrap gap-2 mb-1' },
+    el('div', { class: 'flex items-center justify-between flex-wrap gap-2 mb-3' },
       el('h3', { class: 'text-sm font-bold' }, 'Monthly allocation'),
       el('button', { class: 'text-[11px] rounded px-2.5 py-1 border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
         onclick: () => { g.monthly_new = IS_SEASONAL.map(s => Math.round(g.new_amount * s)); g.monthly_renewal = IS_RENEWAL_SEASONAL.map(s => Math.round(g.renewal_amount * s)); persist(); mountApp(); } },
         '↻ Reset to default curve')),
-    el('p', { class: 'text-[11px] text-muted- mb-3' }, 'How the annual targets land each month. Edit the New/Renewal Curve % to reshape the seasonal spread (each line’s annual total stays fixed and the other months rescale), or edit a month’s New/Renewal dollar amount directly. Reset to default curve restores the seasonal defaults.'),
+    // Transposed (per Isaac, Sep 22): months across the top, one row per line
+    // — the curve reads left-to-right as a curve. Inputs stay editable in place.
     el('div', { class: 'rounded-lg border overflow-x-auto', style: { borderColor: 'var(--border)' } },
-      el('table', { class: 'w-full text-xs' },
+      el('table', { class: 'text-xs', style: { minWidth: '100%', borderCollapse: 'collapse' } },
         el('thead', { class: 'text-[10px] uppercase tracking-wider text-left', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
-          el('tr', {}, th('New Curve %'), th('Renewal Curve %'), th('Month', 'text-left'), th('New'), th('New /rep'), th('Renewal'), th('Renewal /rep'), th('Total'))),
+          el('tr', {}, el('th', { class: 'text-left px-3 py-2 font-semibold whitespace-nowrap', style: { position: 'sticky', left: 0, background: 'var(--card-2)', zIndex: 1 } }, ''),
+            ...M.map((lbl, m) => el('th', { class: 'text-left px-3 py-2 font-semibold whitespace-nowrap', style: m === curM ? { color: 'var(--accent)' } : {} }, lbl + (m === curM ? ' ·' : ''))),
+            el('th', { class: 'text-left px-3 py-2 font-semibold whitespace-nowrap', style: { borderLeft: '2px solid var(--border)' } }, 'Year'))),
         el('tbody', {},
-          ...M.map((lbl, m) => {
-            const nv = g.monthly_new[m] || 0, rv = g.monthly_renewal[m] || 0;
-            return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: m === curM ? 'rgba(223,100,58,.06)' : 'transparent' } },
-              el('td', { class: 'px-3 py-1.5 text-left' }, curveCell(g.monthly_new, m)),
-              el('td', { class: 'px-3 py-1.5 text-left' }, curveCell(g.monthly_renewal, m)),
-              el('td', { class: 'px-3 py-1.5 text-left font-semibold' }, lbl + (m === curM ? ' ·' : '')),
-              el('td', { class: 'px-3 py-1.5 text-left' }, cell(g.monthly_new, m)),
-              el('td', { class: 'px-3 py-1.5 text-left tabular-nums' }, usd(nv / isReps)),
-              el('td', { class: 'px-3 py-1.5 text-left' }, cell(g.monthly_renewal, m)),
-              el('td', { class: 'px-3 py-1.5 text-left tabular-nums' }, usd(rv / loyReps)),
-              el('td', { class: 'px-3 py-1.5 text-left tabular-nums font-semibold' }, usd(nv + rv)));
-          })),
-        el('tfoot', {},
-          el('tr', { style: { borderTop: '2px solid var(--border)', background: 'var(--card-2)' } },
-            el('td', { class: 'px-3 py-2 text-left text-muted-' }, '100%'),
-            el('td', { class: 'px-3 py-2 text-left text-muted-' }, '100%'),
-            el('td', { class: 'px-3 py-2 text-left font-bold' }, 'Year'),
-            el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, usd(totNew)),
-            el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, usd(totNew / isReps)),
-            el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, usd(totRen)),
-            el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, usd(totRen / loyReps)),
-            el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, usd(totNew + totRen)))))));
+          ...[
+            ['New curve %',   (m) => curveCell(g.monthly_new, m),                        '100%',                 false],
+            ['New',           (m) => cell(g.monthly_new, m),                             usd(totNew),            true],
+            ['New /rep',      (m) => usd((g.monthly_new[m] || 0) / isReps),               usd(totNew / isReps),   false],
+            ['Renewal curve %', (m) => curveCell(g.monthly_renewal, m),                  '100%',                 false],
+            ['Renewal',       (m) => cell(g.monthly_renewal, m),                         usd(totRen),            true],
+            ['Renewal /rep',  (m) => usd((g.monthly_renewal[m] || 0) / loyReps),         usd(totRen / loyReps),  false],
+            ['Total',         (m) => usd((g.monthly_new[m] || 0) + (g.monthly_renewal[m] || 0)), usd(totNew + totRen), true],
+          ].map(([label, cellOf, yearVal, bold], ri) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: label === 'Total' ? 'var(--card-2)' : 'transparent', borderTop: label === 'Total' ? '2px solid var(--border)' : undefined } },
+            el('td', { class: 'px-3 py-1.5 text-left font-semibold whitespace-nowrap', style: { position: 'sticky', left: 0, background: label === 'Total' ? 'var(--card-2)' : 'var(--card)', zIndex: 1 } }, label),
+            ...M.map((lbl, m) => el('td', { class: 'px-3 py-1.5 text-left tabular-nums whitespace-nowrap' + (bold && typeof cellOf(m) === 'string' ? ' font-semibold' : ''), style: m === curM ? { background: 'rgba(223,100,58,.06)' } : {} }, cellOf(m))),
+            el('td', { class: 'px-3 py-1.5 text-left tabular-nums font-bold whitespace-nowrap', style: { borderLeft: '2px solid var(--border)' } }, yearVal)))))));
 }
 
 // Helper card for the Goals section — shows target, YTD actual, and a mini progress bar
