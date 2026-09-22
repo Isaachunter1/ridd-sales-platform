@@ -229,19 +229,8 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
   // through the year (what the steps always showed); Same-year = accounts
   // first serviced IN the year that cancelled in the same year ÷ everything
   // first serviced in the year. Toggle on the header; the waterfall shows both.
-  const cohortMode = state._rtCohort === 'same' ? 'same' : 'blended';
-  const sameYearSteps = (yr) => {
-    const st = yr + '-01-01', en = yr + '-12-31';
-    const started = book.filter(r => r.initial_service >= st && r.initial_service <= en);
-    const raw = started.filter(r => r.subscription_date_canceled && r.subscription_date_canceled >= st && r.subscription_date_canceled <= en);
-    const exclRows = raw.filter(r => excl.has(_normCancelReason(reportingCancelReasonOf(r))));
-    const rorRows = raw.filter(r => !excl.has(_normCancelReason(reportingCancelReasonOf(r))) && reportingExcludeRorChurn() && _reporting3dayRor(r));
-    const countedRows = started.filter(r => r._effCancel && r._effCancel >= st && r._effCancel <= en);
-    return { boy: started.length, raw: raw.length, exclN: exclRows.length, rorN: rorRows.length, counted: countedRows.length, rate: started.length ? countedRows.length / started.length : null,
-      rows: { boy: started, raw, excl: exclRows, ror: rorRows, counted: countedRows } };
-  };
-  const stepsFor = cohortMode === 'same' ? sameYearSteps : cancelSteps;
-  const cur = stepsFor(year), prev = stepsFor(year - 1);
+  // (Same-year attrition lives on the Cohort Waterfall's diagonal — per Isaac, Sep 22.)
+  const cur = cancelSteps(year), prev = cancelSteps(year - 1);
   // Projected full-year attrition: this year's YTD cancels scaled by the
   // share of last year's cancels that had happened by today's date.
   const projected = (() => {
@@ -294,9 +283,6 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       el('div', { class: 'flex items-center gap-2 flex-wrap' },
         el('h3', { class: 'text-sm font-bold flex-1 min-w-0' }, (open ? '▾ ' : '▸ ') + 'Attrition Steps'),
         el('span', { class: 'inline-flex' }, retenBranchDropdown(retenGroundZero())),
-        // Cohort toggle (per Isaac, Sep 22): which attrition the headline reads.
-        el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' }, onclick: (e) => e.stopPropagation(), title: 'Blended = the book on Jan 1 followed through the year. Same-year = accounts first serviced in the year that cancelled in that year.' },
-          ...[['blended', 'Blended'], ['same', 'Same-year']].map(([v, l]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-bold transition', style: v === cohortMode ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._rtCohort = v; mountApp(); } }, l))),
         whatIf ? el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: (e) => { e.stopPropagation(); state._retenWhatIf = null; mountApp(); } }, 'Reset to official') : null,
         (() => {
           const inp = el('input', { type: 'file', accept: '.csv,text/csv', style: { display: 'none' } });
@@ -311,10 +297,10 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
         infoBtn ? el('span', { class: 'inline-flex', onclick: (e) => e.stopPropagation() }, infoBtn) : null),
       el('div', { class: 'flex items-center justify-end gap-4 tabular-nums reten-tiles' },
         // Last year's full-year attrition first (per Isaac) — same rules, whole year, drillable to the counted cancels.
-        (() => { const fn = drill((year - 1) + ' \u00b7 counted cancels', prev.rows.counted, 'counted as churn'); return el('div', { class: 'text-right', title: n(prev.counted) + ' counted cancels in ' + (year - 1) + ' \u00f7 ' + n(prev.boy) + (cohortMode === 'same' ? ' first serviced in ' + (year - 1) : ' on the books Jan 1, ' + (year - 1)) }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, (year - 1) + ' attrition'), el('div', { class: 'text-base font-black', style: fn ? { cursor: 'pointer' } : {}, onclick: fn ? (e) => { e.stopPropagation(); fn(); } : null }, pct(prev.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.prev)) : null)); })(),
-        el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' YTD attrition' + (cohortMode === 'same' ? ' \u00b7 same-year' : '')), el('div', { class: 'text-base font-black' }, pct(cur.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.cur)) : null)),
+        (() => { const fn = drill((year - 1) + ' \u00b7 counted cancels', prev.rows.counted, 'counted as churn'); return el('div', { class: 'text-right', title: n(prev.counted) + ' counted cancels in ' + (year - 1) + ' \u00f7 ' + n(prev.boy) + ' on the books Jan 1, ' + (year - 1) }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, (year - 1) + ' attrition'), el('div', { class: 'text-base font-black', style: fn ? { cursor: 'pointer' } : {}, onclick: fn ? (e) => { e.stopPropagation(); fn(); } : null }, pct(prev.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.prev)) : null)); })(),
+        el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' YTD attrition'), el('div', { class: 'text-base font-black' }, pct(cur.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.cur)) : null)),
         el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' projected attrition'), el('div', { class: 'text-base font-black' }, pct(projected), el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'seasonal pace'))),
-        (() => { const t = cohortMode === 'same' ? (() => { const today = new Date(); const start = new Date(today); start.setFullYear(start.getFullYear() - 1); const st = start.toISOString().slice(0, 10), en = today.toISOString().slice(0, 10); const boy = book.filter(r => r.initial_service >= st && r.initial_service <= en); const counted = boy.filter(r => r._effCancel && r._effCancel >= st && r._effCancel <= en); return { rate: boy.length ? counted.length / boy.length : null, c: counted.length, boy: boy.length, st, en, rows: { boy, counted } }; })() : retenTrailing12(book); const fn = drill('Trailing 12 months · counted cancels', t.rows.counted, 'counted as churn'); return el('div', { class: 'text-right', title: n(t.c) + ' cancels ' + t.st + ' → ' + t.en + ' ÷ ' + n(t.boy) + ' on the books a year ago' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Trailing 12 months'), el('div', { class: 'text-base font-black', style: fn ? { cursor: 'pointer' } : {}, onclick: fn ? (e) => { e.stopPropagation(); fn(); } : null }, pct(t.rate))); })())));
+        (() => { const t = retenTrailing12(book); const fn = drill('Trailing 12 months · counted cancels', t.rows.counted, 'counted as churn'); return el('div', { class: 'text-right', title: n(t.c) + ' cancels ' + t.st + ' → ' + t.en + ' ÷ ' + n(t.boy) + ' on the books a year ago' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Trailing 12 months'), el('div', { class: 'text-base font-black', style: fn ? { cursor: 'pointer' } : {}, onclick: fn ? (e) => { e.stopPropagation(); fn(); } : null }, pct(t.rate))); })())));
 
   if (!open) return card;
   const loadDrops = state._snapshotLoadDrops || null;
@@ -858,7 +844,7 @@ function reportingWaterfall() {
     const drillRows = (title, rs) => rs.length ? () => openReportingDrillModal({ chartTitle: 'Cohort waterfall · ' + title, sliceLabel: rs.length.toLocaleString() + ' subscription' + (rs.length === 1 ? '' : 's'), rows: rs, formatValue: fmt.usd0 }) : undefined;
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-        el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Cohort Waterfall' + (office !== 'all' ? ' · ' + office : '')), el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, (isArr ? 'ARR' : 'Subs') + ' still active at each year-end, by first-service year · ' + thisYear + ' = today · same book as Attrition Steps')),
+        el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Cohort Waterfall' + (office !== 'all' ? ' · ' + office : '')), el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, '% of each first-service-year cohort lost in each year · diagonal = same-year attrition · ' + thisYear + ' = to date · Total = ' + (isArr ? 'ARR' : 'subs') + ' still active · same book as Attrition Steps')),
         el('div', { class: 'inline-flex', style: { border: '1px solid var(--border-2)' } },
           ...[[false, 'Subs'], [true, 'ARR']].map(([v, l]) => el('button', {
             class: 'px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
@@ -872,25 +858,21 @@ function reportingWaterfall() {
           ...cohorts.map(c => { const all = byCohort.get(c) || []; return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
             td(String(c), { left: true, sticky: true }),
             td(num(val(all)), { bold: true, onclick: drillRows(c + ' cohort', all) }),
-            ...years.map(y => { if (y < c) return td('', {}); const rs = cell(c, y); return td(num(val(rs)), { onclick: drillRows(c + ' cohort active at ' + (y >= thisYear ? 'today' : y + ' year-end'), rs), bg: rs.length && all.length ? 'hsl(' + Math.max(0, Math.min(120, (val(rs) / val(all)) * 120)) + ', 70%, 92%)' : undefined }); })); }),
+            ...years.map(y => { if (y < c) return td('', {}); const rs = cell(c, y);
+              // Cell = share of the cohort lost IN this year (per Isaac, Sep 22): alive at the
+              // prior year-end (the whole cohort in its first year) minus alive now, over the
+              // prior figure. The diagonal is same-year / first-year attrition. Hover = counts;
+              // click = the cancelled accounts.
+              const prevRs = y === c ? all : cell(c, y - 1); const en = endOf(y);
+              const lost = prevRs.filter(r => r._effCancel && r._effCancel <= en && (y === c || r._effCancel > (y - 1) + '-12-31'));
+              const a = val(prevRs) > 0 ? 1 - val(rs) / val(prevRs) : null;
+              return td(a == null ? '\u2014' : (a * 100).toFixed(1) + '%', { title: num(val(lost)) + ' of ' + num(val(prevRs)) + ' lost in ' + (y >= thisYear ? y + ' to date' : y) + ' \u00b7 ' + num(val(rs)) + ' still active', onclick: lost.length ? drillRows(c + ' cohort \u00b7 cancelled in ' + y + ' (' + num(val(lost)) + ' of ' + num(val(prevRs)) + ')', lost) : undefined, bg: rs.length && all.length ? 'hsl(' + Math.max(0, Math.min(120, (val(rs) / val(all)) * 120)) + ', 70%, 92%)' : undefined }); })); }),
           el('tr', { class: 'border-t-2 font-black', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
             td('Total', { left: true, sticky: true, bg: 'var(--card-2)' }), td(num(val(rows)), { bold: true }),
             ...years.map(y => td(num(colTotal(y)), { bold: true }))),
           el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
             td('Blended attrition', { left: true, sticky: true, muted: true }), td('', {}),
-            ...years.map(y => { const a = blended(y); return td(a == null ? '—' : (a * 100).toFixed(1) + '%', { bold: true, muted: a == null, onclick: a == null ? undefined : () => openAttritionDrill(scoped, y) }); })),
-          // Same-year attrition (per Isaac, Sep 22): the year's OWN cohort —
-          // accounts first serviced in the year that cancelled inside that
-          // same year ÷ everything first serviced in the year. The blended
-          // row above is the prior book; this is the new business.
-          el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-            td('Same-year attrition', { left: true, sticky: true, muted: true }), td('', {}),
-            ...years.map(y => {
-              const all = byCohort.get(y) || []; if (!all.length) return td('—', { muted: true });
-              const en = endOf(y); const lost = all.filter(r => r._effCancel && r._effCancel <= en);
-              const a = val(all) ? 1 - val(cell(y, y)) / val(all) : null;
-              return td(a == null ? '—' : (a * 100).toFixed(1) + '%', { bold: true, muted: a == null, onclick: lost.length ? drillRows(y + ' cohort cancelled in ' + y + ' (' + (isArr ? money0(val(lost)) : lost.length.toLocaleString()) + ' of ' + (isArr ? money0(val(all)) : all.length.toLocaleString()) + ')', lost) : undefined });
-            }))))));
+            ...years.map(y => { const a = blended(y); return td(a == null ? '—' : (a * 100).toFixed(1) + '%', { bold: true, muted: a == null, onclick: a == null ? undefined : () => openAttritionDrill(scoped, y) }); }))))));
   };
   // ── SEASONALITY — monthly churn rate, months × years. Finds the "do we
   // bleed customers at certain points of the year" pattern. Cell = churn ÷
