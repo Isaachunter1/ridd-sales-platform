@@ -55,6 +55,9 @@ window.RIDD_CONFIG = {
   },
   // Optional legal entities (RIDD has two: RPC / RPS). One company → leave out.
   // ENTITIES: { ACME: { name: "Acme Pest Control", color: "#2F7D32" } },
+  // Feature switches — RIDD-specific programs. Unset = all on. A new company
+  // usually starts with none of these; add as they adopt them.
+  FEATURES: [],   // any of: 'pay', 'competitions', 'hall_of_fame', 'scorecards', 'calendar', 'pricing'
 };
 ```
 Accent colours are CSS variables in `index.html` (`--accent`, `--accent-text`, …);
@@ -80,15 +83,16 @@ Do these in order; every list shows the distinct values from *their* data.
 4. **Cancellation reasons** — which reasons count as retained (company-ended).
 5. **Branches** — renames, exclusions; home states infer from the data.
 6. **Holidays**, **Goals** (department + per-rep annual goals), **Teams**.
-7. Settings → Users: invite reps; roles map from their FieldRoutes employee types
+7. **Operations baseline** (optional): `adminRules.opsBaseline = { year, values }` gives the Operations tab its "vs <year>" column; without it the column shows —.
+8. Settings → Users: invite reps; roles map from their FieldRoutes employee types
    via the vocabulary above.
 
-## 6. Modules
-Default set for a new company: Sales · Indicators · Reporting · Retention ·
-Settings. RIDD-specific programs (inside-sales commissions & pay runs,
-competitions, RIDDcoin, Hall of Fame, Pricing) are switched on per company via the
-module registry (`window.RIDD_MODULES`) — see `docs/GENERALIZATION.md` §C for
-what is and isn't ready to toggle yet.
+## 6. Features
+With `FEATURES: []` a company gets Sales (Dashboard + Sales) · Indicators ·
+Reporting · Retention · Settings. `FEATURES` switches on the RIDD programs:
+`pay` (commission calculator + pay runs), `competitions` (+ RIDDcoin, which lives
+inside comps), `hall_of_fame`, `scorecards`, `calendar`, `pricing`. A switched-off
+feature is simply absent from the nav and sub-tab bars.
 
 ## 7. Verify before hand-off
 - Retention → Attrition Steps: every step has a sensible count; the ROR step is

@@ -74,7 +74,8 @@ const SALES_QUEUE_OF_VIEW = { sales: 'office', d2d_sales: 'd2d', tech_sales: 'te
 // else (Dashboard/leaderboard, Pay, Scorecards, Calendar, Competitions,
 // Hall of Fame) is hidden from them.
 function insideSalesTabsFor(role) {
-  return isAuditorRole(role) ? INSIDE_SALES_TABS.filter(([k]) => k === 'sales') : INSIDE_SALES_TABS;
+  const tabs = INSIDE_SALES_TABS.filter(([k]) => viewFeatureOn(k));   // feature switches (RIDD_CONFIG.FEATURES)
+  return isAuditorRole(role) ? tabs.filter(([k]) => k === 'sales') : tabs;
 }
 // Admin-only segmented toggle between the two halves of "Sales":
 // Inside Sales (office) ⇄ D2D Sales (the commission calculator). Reps never
@@ -134,7 +135,7 @@ function insideSalesSubTabs() {
 // D2D counterpart — same bar, same mobile dropdown consolidation, with the
 // admin Inside/D2D/Techs toggle riding in front.
 function d2dSalesSubTabs(mode) {
-  const tabs = mode === 'techs' ? TECH_TABS : D2D_SALES_TABS;
+  const tabs = (mode === 'techs' ? TECH_TABS : D2D_SALES_TABS).filter(([k]) => viewFeatureOn(k));   // feature switches
   const go = (k) => { state.view = k; state._navChosen = true; history.replaceState(null, '', VIEW_TO_HASH[k] || '#' + k); mountApp(); };
   const tabBar = el('div', { class: 'hidden sm:flex items-center flex-wrap gap-x-1 gap-y-0' },
     ...tabs.map(([k, label]) => {
@@ -759,7 +760,7 @@ function mountApp() {
     ...(isOfficeStaff ? [['inside_sales', 'Sales', iconSales()]]
       : isTechType ? [['techs', 'Sales', iconSales()]]
       : [['d2d_group', 'Sales', iconDollar()]]),
-    ...(userCan('view_comps') ? [['nrla', 'Competitions', iconTrophy()]] : []),
+    ...(userCan('view_comps') && featureOn('competitions') ? [['nrla', 'Competitions', iconTrophy()]] : []),
     ...(userCan('view_indicators') ? [['indicators', 'Indicators', iconChart()]] : []),
   ] : [
     // Auditors only have the Sales tab, so call the entry what it is.
@@ -768,7 +769,7 @@ function mountApp() {
     ['inside_sales', 'Sales', iconSales()],
     // Competitions — every comp (NRLA, Spring Cleaning, Top Gun, …) on its
     // own tab, visible to EVERYONE. Read-only for non-admins.
-    ...(isAuditor && !userCan('view_comps') ? [] : [['nrla', 'Competitions', iconTrophy()]]),
+    ...((isAuditor && !userCan('view_comps')) || !featureOn('competitions') ? [] : [['nrla', 'Competitions', iconTrophy()]]),
     ...(isAdmin || (isAuditor && userCan('view_indicators')) ? [['indicators', 'Indicators', iconChart()]] : []),
     ...(isAdmin ? [['reporting',     'Reporting',     iconPie()]]       : []),
   ];
