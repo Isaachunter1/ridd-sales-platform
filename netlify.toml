@@ -40,6 +40,13 @@
 [functions."fieldroutes-live-sync-scheduled"]
   schedule = "*/5 * * * *"
 
+# Add-ons (per Isaac + COO, Sep 2026): every 15 min the kicker pulls new
+# FieldRoutes ticket items into add_ons (7am–11pm ET) and, at ~3am ET, runs
+# the invoice reconcile that advances each add-on's 5-paid-invoice streak.
+# Skips until the FieldRoutes env vars exist. See docs/TECH_UPSELLS.md.
+[functions."addons-scheduled"]
+  schedule = "*/15 * * * *"
+
 # Technician route stats (per Isaac) — hourly at :20, 6am–11pm ET.
 [functions."tech-stats-scheduled"]
   schedule = "20 * * * *"
