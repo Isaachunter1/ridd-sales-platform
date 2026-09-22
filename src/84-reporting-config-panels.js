@@ -1808,3 +1808,69 @@ function reportingLeadAttribution() {
     table, moreBar);
 }
 
+
+// ── CRM vocabulary panel (Configurations) ─────────────────────────────
+// Generalization slice 2 (Isaac, Sep 22 2026): shows what the app takes
+// each FieldRoutes label to MEAN — cancel reasons, sold-by employee types,
+// lead sources, and the rescission window — and lets an admin tag the
+// company's own labels into those buckets. Untouched = RIDD's defaults
+// (the patterns the rules always used), so RIDD's numbers never move.
+// Values listed are the distinct labels observed in the reporting snapshot.
+const _crmVocabObsMemo = { subs: null, out: null };
+function _crmVocabObserved() {
+  const subs = state.reportingSubscriptions || [];
+  if (_crmVocabObsMemo.out && _crmVocabObsMemo.subs === subs) return _crmVocabObsMemo.out;
+  const cnt = (map, k) => { const key = String(k == null ? '' : k).replace(/\s+/g, ' ').trim(); if (!key) return; map.set(key, (map.get(key) || 0) + 1); };
+  const reasons = new Map(), sellers = new Map(), sources = new Map();
+  for (const r of subs) { cnt(reasons, reportingCancelReasonOf(r)); cnt(sellers, r.sold_by_type); cnt(sources, reportingSourceOf(r)); }
+  const list = (m) => [...m.entries()].sort((a, b) => b[1] - a[1]);
+  const out = { reasons: list(reasons), sellerTypes: list(sellers), sources: list(sources) };
+  _crmVocabObsMemo.subs = subs; _crmVocabObsMemo.out = out;
+  return out;
+}
+function reportingCrmVocabPanel() {
+  const V = crmVocab();
+  const rules = _adminRules(); const stored = rules && rules.crmVocab && typeof rules.crmVocab === 'object' ? rules.crmVocab : {};
+  const obs = _crmVocabObserved();
+  const save = (next) => { setCrmVocab(next); _crmVocabObsMemo.out = null; toast('CRM vocabulary saved', 'success'); mountApp(); };
+  const listFor = (group, key) => (stored[group] && Array.isArray(stored[group][key])) ? stored[group][key].slice() : null;
+  const setList = (group, key, arr) => { const next = JSON.parse(JSON.stringify(stored)); next[group] = next[group] || {}; if (arr && arr.length) next[group][key] = arr; else delete next[group][key]; if (next[group] && !Object.keys(next[group]).length) delete next[group]; save(Object.keys(next).length ? next : null); };
+  const isDefault = (group, key) => !V[group][key];
+  const GROUP_LABEL = { reasons: ['Cancel reasons', 'Which of the CRM’s cancel reasons mean a rescission, a merge into another subscription, or a renewal. The attrition steps read these.'], sellerTypes: ['Sold-by employee types', 'Which FieldRoutes employee types are door-to-door reps, inside sales / office staff, and technicians. Scopes the Sales tabs, the rescission rule and CRM checks.'], sources: ['Lead sources', 'Which lead sources are door-to-door, technician upsells, termite upsells, and the default/blank values reps forget to change. The Needs-attention CRM checks read these.'] };
+  const section = (group) => {
+    const values = obs[group];
+    return el('div', { class: 'py-2 border-t', style: { borderColor: 'var(--border)' } },
+      el('div', { class: 'text-[11px] font-bold' }, GROUP_LABEL[group][0]),
+      el('div', { class: 'text-[10px] mb-1.5', style: { color: 'var(--text-subtle)' } }, GROUP_LABEL[group][1]),
+      ...CRM_VOCAB_BUCKETS[group].map(([key, desc]) => {
+        const configured = listFor(group, key);
+        const matched = values.filter(([v]) => _crmMatch(group, key, v));
+        const open = state._crmVocabOpen === group + ':' + key;
+        return el('div', { class: 'mb-1' },
+          el('div', { class: 'flex items-center gap-2 cursor-pointer', onclick: () => { state._crmVocabOpen = open ? null : group + ':' + key; mountApp(); } },
+            el('span', { class: 'text-[10px] font-semibold uppercase tracking-wider', style: { minWidth: '92px', color: 'var(--text-muted)' } }, (open ? '▾ ' : '▸ ') + key.replace('_', ' ')),
+            el('span', { class: 'text-[11px] flex-1 min-w-0 truncate' }, matched.length ? matched.map(([v, n]) => v + ' (' + fmt.int(n) + ')').join(' · ') : el('span', { style: { color: 'var(--text-subtle)' } }, 'nothing in the data matches')),
+            el('span', { class: 'text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0', style: isDefault(group, key) ? { background: 'var(--card-2)', color: 'var(--text-muted)' } : { background: 'rgba(223,100,58,.12)', color: 'var(--accent)' } }, isDefault(group, key) ? 'default' : 'custom')),
+          open ? el('div', { class: 'mt-1 mb-2 rounded-lg p-2', style: { background: 'var(--card-2)' } },
+            el('div', { class: 'text-[10px] mb-1', style: { color: 'var(--text-subtle)' } }, desc + '. Tick every label in the CRM that means this. Untick everything to go back to the default pattern.'),
+            el('div', { class: 'flex flex-col', style: { maxHeight: '220px', overflowY: 'auto' } },
+              ...values.map(([v, n]) => {
+                const on = configured ? configured.map(_crmNorm).includes(_crmNorm(v)) : _crmMatch(group, key, v);
+                return el('label', { class: 'flex items-center gap-2 py-0.5 text-[11px] cursor-pointer' },
+                  el('input', { type: 'checkbox', checked: on, onchange: () => { const cur = configured ? configured.slice() : matched.map(([x]) => x); const i = cur.map(_crmNorm).indexOf(_crmNorm(v)); if (i >= 0) cur.splice(i, 1); else cur.push(v); setList(group, key, cur); } }),
+                  el('span', { class: 'flex-1 min-w-0 truncate' }, v), el('span', { class: 'tabular-nums', style: { color: 'var(--text-subtle)' } }, fmt.int(n)));
+              }),
+              values.length ? null : el('div', { class: 'text-[11px] py-1', style: { color: 'var(--text-subtle)' } }, 'No values in the snapshot yet.')),
+            configured ? el('button', { class: 'mt-1.5 text-[10px] font-bold', style: { color: 'var(--accent)' }, onclick: () => setList(group, key, null) }, 'Reset to default') : null) : null);
+      }));
+  };
+  const win = el('input', { type: 'number', min: 0, max: 30, step: 1, value: V.rorWindowDays, class: 'rounded-lg border px-2 py-1 text-[11px] tabular-nums', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '64px' },
+    onchange: (e) => { const d = Math.max(0, Math.round(Number(e.target.value) || 0)); const next = JSON.parse(JSON.stringify(stored)); if (d && d !== CRM_VOCAB_DEFAULTS.rorWindowDays) next.rorWindowDays = d; else delete next.rorWindowDays; save(Object.keys(next).length ? next : null); } });
+  return el('div', { class: 'card p-4' },
+    el('div', { class: 'flex items-center justify-between gap-2 mb-1' },
+      el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'CRM vocabulary'), el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'What each FieldRoutes label means to the app. Defaults are RIDD’s spellings; a company on a different CRM setup tags its own here. The rules themselves never change.')),
+      V.configured ? el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { if (confirm('Reset every vocabulary tag to the defaults?')) save(null); } }, 'Reset all') : null),
+    el('div', { class: 'flex items-center justify-between gap-3 py-1.5 border-t', style: { borderColor: 'var(--border)' }, title: 'The right-of-rescission window: a door-to-door sale cancelled within this many days of the sale is a rescission, not a customer. State law; RIDD’s markets are 3.' },
+      el('span', { class: 'text-[11px] font-semibold' }, 'Rescission window (days)'), el('div', { class: 'flex items-center gap-2' }, win, el('span', { class: 'text-[9px] font-semibold px-1.5 py-0.5 rounded-full', style: V.rorWindowDays === CRM_VOCAB_DEFAULTS.rorWindowDays ? { background: 'var(--card-2)', color: 'var(--text-muted)' } : { background: 'rgba(223,100,58,.12)', color: 'var(--accent)' } }, V.rorWindowDays === CRM_VOCAB_DEFAULTS.rorWindowDays ? 'default' : 'custom'))),
+    section('reasons'), section('sellerTypes'), section('sources'));
+}
