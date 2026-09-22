@@ -13,6 +13,21 @@
 import { createClient } from './vendor-supabase.js';
 
 const CFG = window.RIDD_CONFIG;
+// Feature switches (generalization, Sep 22 2026): RIDD_CONFIG.FEATURES lists
+// the RIDD-specific programs a deployment runs — 'pay' (commission calculator
+// + pay runs), 'competitions', 'hall_of_fame', 'scorecards', 'calendar',
+// 'pricing'. Unset = everything on (RIDD). A switched-off feature drops out of
+// the nav and sub-tab bars; nothing else about it changes.
+const RIDD_FEATURE_KEYS = ['pay', 'competitions', 'hall_of_fame', 'scorecards', 'calendar', 'pricing'];
+function featureOn(key) {
+  const f = CFG && CFG.FEATURES;
+  if (f == null) return true;
+  if (Array.isArray(f)) return f.includes(key);
+  return f[key] !== false;
+}
+// Sub-tab / view keys → the feature that owns them.
+const VIEW_FEATURE = { pay: 'pay', commission: 'pay', hall_of_fame: 'hall_of_fame', scorecards: 'scorecards', calendar: 'calendar', nrla: 'competitions', competitions: 'competitions' };
+function viewFeatureOn(viewKey) { const f = VIEW_FEATURE[viewKey]; return !f || featureOn(f); }
 const hasConfig = CFG.SUPABASE_PUBLISHABLE_KEY && !CFG.SUPABASE_PUBLISHABLE_KEY.includes('PASTE_');
 const DEMO = new URLSearchParams(location.search).has('demo') || location.hash === '#demo';
 const _sbReal = hasConfig

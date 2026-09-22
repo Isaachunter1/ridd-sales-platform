@@ -26,7 +26,7 @@ golden tests (`tools/attrition-test.js`, `ps-gate-test.js`, `commission-test.js`
 
 ## Slices done
 
-- **1.** CRM vocabulary layer (below). **2.** Configurations → CRM vocabulary panel. **3.** Sold-Not-Started bucket + pop-exclusion default derives from tags. **4.** `RIDD_CONFIG.BRAND` (wordmark / mark / external link) and `RIDD_CONFIG.ENTITIES` (legal entities) — see `docs/DEPLOY_NEW_COMPANY.md`.
+- **1.** CRM vocabulary layer (below). **2.** Configurations → CRM vocabulary panel. **3.** Sold-Not-Started bucket + pop-exclusion default derives from tags. **4.** `RIDD_CONFIG.BRAND` (wordmark / mark / external link) and `RIDD_CONFIG.ENTITIES` (legal entities). **5.** Marketing P&L / CAC / Projections iterate the entity list (no hardcoded RPS office set). **6.** Operations baseline from `adminRules.opsBaseline` (RIDD 2025 sheet = default). **7.** `RIDD_CONFIG.FEATURES` switches (pay / competitions / hall_of_fame / scorecards / calendar / pricing) gate the nav and sub-tabs. See `docs/DEPLOY_NEW_COMPANY.md`.
 
 ## Slice 1 — CRM vocabulary layer (`src/12-crm-vocab.js`)
 
@@ -57,7 +57,7 @@ Grouped by the kind of work. Effort is rough.
 - `RETEN_POP_EXCL_REASONS_DEFAULT` (66) — default list of pop-excluded reasons; should derive from the vocab tags (`ror` + `combined` + `renewal` reasons found in the data) instead of a RIDD list.
 - ~~`_ROR_REASON_RE` / `_COMBINED_REASON_RE` / `_SNS_REASON_RE`~~ — vocab-aware (slices 1 + 3). The engine's own `_isSoldNotStarted` (`engine/src/10-sales-helpers.js`) is pure and keeps its regex; the engine is versioned separately.
 - Cancel-reason "meaning" inference in Cancel Analysis (`70-reporting-core` source kind guess `/renewal/`, `/upsell/`) — default guesses, fine, but should consult the vocab first.
-- `OPS_BASELINE_2025` (89) — RIDD's 2025 operations baselines from the COO sheet. Becomes a per-company baseline table (or "no baseline" = hide the vs-2025 column).
+- ~~`OPS_BASELINE_2025`~~ → `adminRules.opsBaseline` (done; no Configurations UI for it yet — set via the store).
 - ~~Company-wide goals~~ — already `state.companyGoal` from the Goals settings; nothing hardcoded.
 - ~~`COMPANY_NAMES` / `COMPANY_COLORS` (58)~~ → `RIDD_CONFIG.ENTITIES` (done). Still hardcoded: the marketing matrices in 84 key on `B.rpc` / `B.rps` / `'RIDD'` scope ids — needs to iterate the entity list.
 - Timezone offsets by office (`40:2120` returns 3 for Eastern) — should come from office config.
@@ -70,7 +70,7 @@ Grouped by the kind of work. Effort is rough.
 - Inside Sales commission calculator + pay runs (`52-pay`, `99-commission-*`) — RIDD's comp plan.
 - Competitions engine: NRLA, Spring Cleaning, Top Gun, Kobe, LMS (`54`, `60`, engine/) — RIDD's comps.
 - RIDDcoin (`74`), Hall of Fame (`58`), Pricing tab (`95`, RIDD's 2026 slicks), Slicks.
-- Route these through the existing module registry with a per-company `modules` list; default set for a new company = Sales · Indicators · Reporting · Retention · Settings.
+- ~~Route through a per-company list~~ → `RIDD_CONFIG.FEATURES` (done). Not yet gated: Settings-tab sections that belong to a feature (pay periods, comp admin) still render for admins; the views stay reachable by hash.
 
 ### D. Data feed (the gating question for any prospect)
 - Sync is RevHawk-only (`revhawk-sync-background`). A company without RevHawk needs a FieldRoutes-API adapter that produces the same row shape (`subscriptions` mirror columns). The rest of the app never sees the difference.
