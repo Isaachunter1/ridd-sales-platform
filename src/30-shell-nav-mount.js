@@ -75,8 +75,9 @@ const SALES_QUEUE_OF_VIEW = { sales: 'office', d2d_sales: 'd2d', tech_sales: 'te
 // Hall of Fame) is hidden from them.
 function insideSalesTabsFor(role) {
   let tabs = INSIDE_SALES_TABS.filter(([k]) => viewFeatureOn(k));   // feature switches (RIDD_CONFIG.FEATURES)
-  if (role === 'office_staff') tabs = tabs.filter(([k]) => k !== 'pay');   // Office Staff - Office doesn't sell → no Pay tab (per Isaac, Sep 22)
-  return isAuditorRole(role) ? tabs.filter(([k]) => k === 'sales') : tabs;
+  // Settings → Permissions decides the sub-tabs per role (defaults = the old hardcoded lists).
+  if (!isAdminRole(role)) tabs = tabs.filter(([k]) => !VIEW_TAB_PERM[k] || userCan(VIEW_TAB_PERM[k]));
+  return tabs;
 }
 // Admin-only segmented toggle between the two halves of "Sales":
 // Inside Sales (office) ⇄ D2D Sales (the commission calculator). Reps never
@@ -136,7 +137,8 @@ function insideSalesSubTabs() {
 // D2D counterpart — same bar, same mobile dropdown consolidation, with the
 // admin Inside/D2D/Techs toggle riding in front.
 function d2dSalesSubTabs(mode) {
-  const tabs = (mode === 'techs' ? TECH_TABS : D2D_SALES_TABS).filter(([k]) => viewFeatureOn(k));   // feature switches
+  const tabs = (mode === 'techs' ? TECH_TABS : D2D_SALES_TABS).filter(([k]) => viewFeatureOn(k))
+    .filter(([k]) => isAdminRole(state.profile?.role) || !VIEW_TAB_PERM[k] || userCan(VIEW_TAB_PERM[k]));   // Settings → Permissions
   const go = (k) => { state.view = k; state._navChosen = true; history.replaceState(null, '', VIEW_TO_HASH[k] || '#' + k); mountApp(); };
   const tabBar = el('div', { class: 'hidden sm:flex items-center flex-wrap gap-x-1 gap-y-0' },
     ...tabs.map(([k, label]) => {
@@ -702,7 +704,9 @@ function mountApp() {
     history.replaceState(null, '', VIEW_TO_HASH.indicators || '#indicators');
   }
   const ADMIN_ONLY_VIEWS = new Set(['reporting', 'marketing', 'admin']);
-  if (!isAdmin && ADMIN_ONLY_VIEWS.has(state.view)) {
+  // Permissions can open Reporting / Settings to a non-admin (per Isaac, Sep 22).
+  const _grantedView = (v) => (v === 'reporting' && userCan('view_reporting')) || (v === 'admin' && canOpenSettings());
+  if (!isAdmin && ADMIN_ONLY_VIEWS.has(state.view) && !_grantedView(state.view)) {
     state.view = 'indicators';
     history.replaceState(null, '', VIEW_TO_HASH.indicators || '#indicators');
   }
@@ -721,12 +725,15 @@ function mountApp() {
   const isSalesRepType = isRepOnly && !isOfficeStaff && !isTechType;
   // Tab visibility now reads the Settings → Permissions matrix (userCan);
   // defaults match the old hardcoded list exactly.
+  const _tabOk = (v) => !VIEW_TAB_PERM[v] || userCan(VIEW_TAB_PERM[v]);
   const repCanSee = (v) => (v === 'nrla' && userCan('view_comps'))
     || (v === 'indicators' && userCan('view_indicators'))
+    || (v === 'reporting' && userCan('view_reporting'))
+    || (v === 'admin' && canOpenSettings())
     || _visibleModules().some(m => m.id === v)             // registered modules (Pricing, riddmarket…) the module itself allows
-    || (isTechType && TECH_TAB_KEYS.has(v))                // Technicians: Dashboard + Sales queue
-    || (isSalesRepType && D2D_SALES_TAB_KEYS.has(v))       // Sales Reps: the D2D Sales group
-    || (isOfficeStaff && INSIDE_SALES_TAB_KEYS.has(v));
+    || (isTechType && TECH_TAB_KEYS.has(v) && _tabOk(v))                // Technicians: Dashboard + Sales queue
+    || (isSalesRepType && D2D_SALES_TAB_KEYS.has(v) && _tabOk(v))       // Sales Reps: the D2D Sales group
+    || (isOfficeStaff && INSIDE_SALES_TAB_KEYS.has(v) && _tabOk(v));
   if (isRepOnly && !repCanSee(state.view)) {
     // Home per rep type (per Isaac): Sales Reps land in their D2D Sales
     // group; office staff on their Sales world; others keep Indicators.
@@ -763,6 +770,7 @@ function mountApp() {
       : [['d2d_group', 'Sales', iconDollar()]]),
     ...(userCan('view_comps') && featureOn('competitions') ? [['nrla', 'Competitions', iconTrophy()]] : []),
     ...(userCan('view_indicators') ? [['indicators', 'Indicators', iconChart()]] : []),
+    ...(userCan('view_reporting') ? [['reporting', 'Reporting', iconPie()]] : []),   // granted in Settings → Permissions
   ] : [
     // Auditors only have the Sales tab, so call the entry what it is.
     // ONE "Sales" entry for every role — admins toggle Inside Sales ⇄ D2D
@@ -772,7 +780,7 @@ function mountApp() {
     // own tab, visible to EVERYONE. Read-only for non-admins.
     ...((isAuditor && !userCan('view_comps')) || !featureOn('competitions') ? [] : [['nrla', 'Competitions', iconTrophy()]]),
     ...(isAdmin || (isAuditor && userCan('view_indicators')) ? [['indicators', 'Indicators', iconChart()]] : []),
-    ...(isAdmin ? [['reporting',     'Reporting',     iconPie()]]       : []),
+    ...(isAdmin || userCan('view_reporting') ? [['reporting',     'Reporting',     iconPie()]]       : []),
   ];
   // Registered modules (riddmarket etc.) join the nav for whoever they allow.
   for (const m of _visibleModules()) navItems.push([m.id, m.label || m.id, typeof m.icon === 'function' ? m.icon() : (m.icon || el('span', {}, '▦'))]);
@@ -985,15 +993,15 @@ function mountApp() {
                 setTimeout(() => { try { gearBtn.classList.remove('icon-spin'); } catch (err) { /* gone */ } }, 4000);
               }),
           item(state.theme === 'light' ? 'moon' : 'sun', state.theme === 'light' ? 'Dark mode' : 'Light mode', () => toggleTheme()),
-          item('settings', isAdmin ? 'Settings' : 'My Settings', () => {
-            if (isAdmin) { state.view = 'admin'; history.replaceState(null, '', VIEW_TO_HASH['admin'] || '#admin'); mountApp(); }
+          item('settings', (isAdmin || canOpenSettings()) ? 'Settings' : 'My Settings', () => {
+            if (isAdmin || canOpenSettings()) { state.view = 'admin'; history.replaceState(null, '', VIEW_TO_HASH['admin'] || '#admin'); mountApp(); }
             else openMySettingsModal();
           }),
           item('feedback', 'Feedback', () => openFeedbackModal()),
           // TV Display (per Isaac, Sep 2026): the inside-sales floor board.
           // Admins + office-staff reps only (per Isaac) — it is the inside-sales floor board.
           // Desktop only (per Isaac) — a wall board has no business on a phone.
-          (typeof openTvBoard === 'function' && !(() => { try { return window.matchMedia('(max-width: 900px)').matches; } catch (e) { return false; } })() && (isAdmin || (typeof isOfficeStaffProfile === 'function' && isOfficeStaffProfile(state.profile)))) ? item('tv', 'TV Display', () => openTvBoard()) : null,
+          (typeof openTvBoard === 'function' && !(() => { try { return window.matchMedia('(max-width: 900px)').matches; } catch (e) { return false; } })() && (isAdmin || userCan('view_tv'))) ? item('tv', 'TV Display', () => openTvBoard()) : null,   // Settings → Permissions (default: office staff)
           el('div', { style: { borderTop: '1px solid var(--border)', margin: '4px 2px' } }),
           item('power', 'Sign out', async () => {
             if (typeof DEMO !== 'undefined' && DEMO) { location.href = location.pathname; return; }

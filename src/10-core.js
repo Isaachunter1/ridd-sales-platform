@@ -179,6 +179,26 @@ const PERM_ROLES = ['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', '
 const PERM_DEFS = [
   { id: 'view_comps',       label: 'Competitions tab',    group: 'Tabs' },
   { id: 'view_indicators',  label: 'Indicators tab',      group: 'Tabs' },
+  { id: 'view_reporting',   label: 'Reporting tab',       group: 'Tabs' },   // read-only reporting for a non-admin (per Isaac, Sep 22)
+  { id: 'view_pricing',     label: 'Pricing tab',         group: 'Tabs' },
+  { id: 'view_tv',          label: 'TV Display',          group: 'Tabs' },
+  // The role's Sales group sub-tabs (Inside Sales / D2D / Technician bar).
+  { id: 'tab_dashboard',    label: 'Sales · Dashboard',   group: 'Sales tabs' },
+  { id: 'tab_sales',        label: 'Sales · Sales',       group: 'Sales tabs' },
+  { id: 'tab_pay',          label: 'Sales · Pay',         group: 'Sales tabs' },
+  { id: 'tab_scorecards',   label: 'Sales · Scorecards',  group: 'Sales tabs' },
+  { id: 'tab_calendar',     label: 'Sales · Calendar',    group: 'Sales tabs' },
+  { id: 'tab_hof',          label: 'Sales · Hall of Fame', group: 'Sales tabs' },
+  // Settings pages a non-admin may open (Permissions itself stays admin-only).
+  { id: 'view_settings',    label: 'Settings',            group: 'Settings' },
+  { id: 'set_users',        label: 'Settings · Users',    group: 'Settings' },
+  { id: 'set_teams',        label: 'Settings · Teams',    group: 'Settings' },
+  { id: 'set_goals',        label: 'Settings · Goals',    group: 'Settings' },
+  { id: 'set_comps',        label: 'Settings · Competitions', group: 'Settings' },
+  { id: 'set_commissions',  label: 'Settings · Commissions',  group: 'Settings' },
+  { id: 'set_config',       label: 'Settings · Configurations', group: 'Settings' },
+  { id: 'set_slack',        label: 'Settings · Slack',    group: 'Settings' },
+  { id: 'set_usage',        label: 'Settings · Usage',    group: 'Settings' },
   { id: 'ind_card',         label: 'My Player Card',      group: 'Indicators sections' },
   { id: 'ind_table',        label: 'Indicators table',    group: 'Indicators sections' },
   { id: 'ind_power_chart',  label: 'Power Ranking chart', group: 'Indicators sections' },
@@ -189,18 +209,33 @@ const PERM_DEFS = [
   { id: 'ind_class',        label: 'Class Metrics', group: 'Indicators sections' },
   { id: 'ind_mix',          label: 'Sales Mix table', group: 'Indicators sections' },
 ];
+// Sales-group sub-tab defaults = what each family sees today: D2D reps get
+// Dashboard / Sales / Pay; office staff the full Inside Sales bar; the
+// non-selling office role everything but Pay; auditors just Sales. Pricing is
+// open to everyone (as it is now); TV Display to office staff; Reporting and
+// Settings to nobody but admins until switched on here.
+const _PERM_D2D_TABS    = { tab_dashboard: 1, tab_sales: 1, tab_pay: 1, view_pricing: 1 };
+const _PERM_OFFICE_TABS = { tab_dashboard: 1, tab_sales: 1, tab_pay: 1, tab_scorecards: 1, tab_calendar: 1, tab_hof: 1, view_pricing: 1, view_tv: 1 };
 const PERM_DEFAULTS = {
-  rep_sales:       { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },   // no Indicators table / Power Ranking for sales reps (per Isaac, Sep 2026)
-  rep_office:      { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },
-  rep_loyalty:     { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },
-  rep_partner:     { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1 },
-  rep_team_lead:   { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1 },
-  rep_office_lead: { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1 },
-  rep_loyalty_lead: { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1 },
+  rep_sales:       { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ..._PERM_D2D_TABS },   // no Indicators table / Power Ranking for sales reps (per Isaac, Sep 2026)
+  rep_office:      { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ..._PERM_OFFICE_TABS },
+  rep_loyalty:     { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ..._PERM_OFFICE_TABS },
+  rep_partner:     { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1, ..._PERM_D2D_TABS },
+  rep_team_lead:   { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1, ..._PERM_D2D_TABS },
+  rep_office_lead: { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1, ..._PERM_OFFICE_TABS },
+  rep_loyalty_lead: { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1, ..._PERM_OFFICE_TABS },
   // Office Staff - Office (per Isaac, Sep 22): works in the office, doesn't sell — no player card, no pay; sees the boards. Tune in Settings → Permissions.
-  office_staff:    { view_comps: 1, view_indicators: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },
-  auditor:         {},   // auditors live in the Sales queue — grant extras here as needed
+  office_staff:    { view_comps: 1, view_indicators: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ..._PERM_OFFICE_TABS, tab_pay: 0 },
+  auditor:         { tab_sales: 1, view_pricing: 1 },   // auditors live in the Sales queue — grant extras here as needed
 };
+// Settings pages → the permission that opens each (Permissions itself is admin-only, always).
+const ADMIN_SECTION_PERM = { users: 'set_users', teams: 'set_teams', goals: 'set_goals', comps: 'set_comps', pricing: 'set_commissions', config: 'set_config', slack: 'set_slack', usage: 'set_usage' };
+// Sub-tab view key → its Sales-tab permission (all three groups).
+const VIEW_TAB_PERM = { dashboard: 'tab_dashboard', sales: 'tab_sales', pay: 'tab_pay', scorecards: 'tab_scorecards', calendar: 'tab_calendar', hall_of_fame: 'tab_hof',
+  d2d_dashboard: 'tab_dashboard', d2d_sales: 'tab_sales', commission: 'tab_pay', techs: 'tab_dashboard', tech_sales: 'tab_sales', tech_pay: 'tab_pay' };
+// Non-admins may open Settings when granted; only the sections they hold.
+function canOpenSettings(profile) { const p = profile || state.profile; return !!p && (isAdminRole(p.role) || userCan('view_settings', p)); }
+function canOpenAdminSection(k, profile) { const p = profile || state.profile; if (!p) return false; if (isAdminRole(p.role)) return true; if (k === 'perms' || k === 'uploads') return false; return userCan('view_settings', p) && !!ADMIN_SECTION_PERM[k] && userCan(ADMIN_SECTION_PERM[k], p); }
 // Effective permission role: legacy 'rep' resolves by CRM type.
 function _permRoleOf(profile) {
   const r = (profile && profile.role) || '';
