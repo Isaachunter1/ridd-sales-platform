@@ -83,7 +83,7 @@ Do these in order; every list shows the distinct values from *their* data.
 4. **Cancellation reasons** — which reasons count as retained (company-ended).
 5. **Branches** — renames, exclusions; home states infer from the data.
 6. **Holidays**, **Goals** (department + per-rep annual goals), **Teams**.
-7. **Operations baseline** (optional): `adminRules.opsBaseline = { year, values }` gives the Operations tab its "vs <year>" column; without it the column shows —.
+7. **Operations baseline** (optional) — Configurations → Operations baseline: paste `metric,office,value` rows (ALL = company-wide) and the year; without it the "vs <year>" column shows —.
 8. Settings → Users: invite reps; roles map from their FieldRoutes employee types
    via the vocabulary above.
 

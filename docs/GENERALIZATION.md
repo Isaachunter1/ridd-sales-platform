@@ -26,7 +26,7 @@ golden tests (`tools/attrition-test.js`, `ps-gate-test.js`, `commission-test.js`
 
 ## Slices done
 
-- **1.** CRM vocabulary layer (below). **2.** Configurations → CRM vocabulary panel. **3.** Sold-Not-Started bucket + pop-exclusion default derives from tags. **4.** `RIDD_CONFIG.BRAND` (wordmark / mark / external link) and `RIDD_CONFIG.ENTITIES` (legal entities). **5.** Marketing P&L / CAC / Projections iterate the entity list (no hardcoded RPS office set). **6.** Operations baseline from `adminRules.opsBaseline` (RIDD 2025 sheet = default). **7.** `RIDD_CONFIG.FEATURES` switches (pay / competitions / hall_of_fame / scorecards / calendar / pricing) gate the nav and sub-tabs. See `docs/DEPLOY_NEW_COMPANY.md`.
+- **1.** CRM vocabulary layer (below). **2.** Configurations → CRM vocabulary panel. **3.** Sold-Not-Started bucket + pop-exclusion default derives from tags. **4.** `RIDD_CONFIG.BRAND` (wordmark / mark / external link) and `RIDD_CONFIG.ENTITIES` (legal entities). **5.** Marketing P&L / CAC / Projections iterate the entity list (no hardcoded RPS office set). **6.** Operations baseline from `adminRules.opsBaseline` (RIDD 2025 sheet = default). **7.** `RIDD_CONFIG.FEATURES` switches (pay / competitions / hall_of_fame / scorecards / calendar / pricing) gate the nav and sub-tabs. **8.** Company setup checklist on Configurations (onboarding). **9.** Configurations → Operations baseline panel (CSV paste). See `docs/DEPLOY_NEW_COMPANY.md`.
 
 ## Slice 1 — CRM vocabulary layer (`src/12-crm-vocab.js`)
 
@@ -57,7 +57,7 @@ Grouped by the kind of work. Effort is rough.
 - `RETEN_POP_EXCL_REASONS_DEFAULT` (66) — default list of pop-excluded reasons; should derive from the vocab tags (`ror` + `combined` + `renewal` reasons found in the data) instead of a RIDD list.
 - ~~`_ROR_REASON_RE` / `_COMBINED_REASON_RE` / `_SNS_REASON_RE`~~ — vocab-aware (slices 1 + 3). The engine's own `_isSoldNotStarted` (`engine/src/10-sales-helpers.js`) is pure and keeps its regex; the engine is versioned separately.
 - Cancel-reason "meaning" inference in Cancel Analysis (`70-reporting-core` source kind guess `/renewal/`, `/upsell/`) — default guesses, fine, but should consult the vocab first.
-- ~~`OPS_BASELINE_2025`~~ → `adminRules.opsBaseline` (done; no Configurations UI for it yet — set via the store).
+- ~~`OPS_BASELINE_2025`~~ → `adminRules.opsBaseline` (done; Configurations → Operations baseline panel).
 - ~~Company-wide goals~~ — already `state.companyGoal` from the Goals settings; nothing hardcoded.
 - ~~`COMPANY_NAMES` / `COMPANY_COLORS` (58)~~ → `RIDD_CONFIG.ENTITIES` (done). Still hardcoded: the marketing matrices in 84 key on `B.rpc` / `B.rps` / `'RIDD'` scope ids — needs to iterate the entity list.
 - Timezone offsets by office (`40:2120` returns 3 for Eastern) — should come from office config.
