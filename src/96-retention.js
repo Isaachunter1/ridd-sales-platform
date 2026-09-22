@@ -844,7 +844,7 @@ function reportingWaterfall() {
     const drillRows = (title, rs) => rs.length ? () => openReportingDrillModal({ chartTitle: 'Cohort waterfall · ' + title, sliceLabel: rs.length.toLocaleString() + ' subscription' + (rs.length === 1 ? '' : 's'), rows: rs, formatValue: fmt.usd0 }) : undefined;
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-        el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Cohort Waterfall' + (office !== 'all' ? ' · ' + office : '')), el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, '% of each first-service-year cohort lost in each year · diagonal = same-year attrition · ' + thisYear + ' = to date · Total = ' + (isArr ? 'ARR' : 'subs') + ' still active · same book as Attrition Steps')),
+        el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Cohort Waterfall' + (office !== 'all' ? ' · ' + office : '')), el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, (isArr ? 'ARR' : 'Subs') + ' still active at each year-end + the % of the cohort lost that year · diagonal = same-year attrition · ' + thisYear + ' = to date · Total = ' + (isArr ? 'ARR' : 'subs') + ' still active · same book as Attrition Steps')),
         el('div', { class: 'inline-flex', style: { border: '1px solid var(--border-2)' } },
           ...[[false, 'Subs'], [true, 'ARR']].map(([v, l]) => el('button', {
             class: 'px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
@@ -866,7 +866,8 @@ function reportingWaterfall() {
               const prevRs = y === c ? all : cell(c, y - 1); const en = endOf(y);
               const lost = prevRs.filter(r => r._effCancel && r._effCancel <= en && (y === c || r._effCancel > (y - 1) + '-12-31'));
               const a = val(prevRs) > 0 ? 1 - val(rs) / val(prevRs) : null;
-              return td(a == null ? '\u2014' : (a * 100).toFixed(1) + '%', { title: num(val(lost)) + ' of ' + num(val(prevRs)) + ' lost in ' + (y >= thisYear ? y + ' to date' : y) + ' \u00b7 ' + num(val(rs)) + ' still active', onclick: lost.length ? drillRows(c + ' cohort \u00b7 cancelled in ' + y + ' (' + num(val(lost)) + ' of ' + num(val(prevRs)) + ')', lost) : undefined, bg: rs.length && all.length ? 'hsl(' + Math.max(0, Math.min(120, (val(rs) / val(all)) * 120)) + ', 70%, 92%)' : undefined }); })); }),
+              // Both reads in the cell (per Isaac): what's still active, and the % lost that year underneath.
+              return td(el('div', { class: 'flex flex-col items-end leading-tight' }, el('span', {}, num(val(rs))), el('span', { class: 'text-[10px] font-semibold', style: { color: a == null ? 'var(--text-subtle)' : a > 0 ? '#B91C1C' : 'var(--text-subtle)' } }, a == null ? '\u2014' : '\u2212' + (a * 100).toFixed(1) + '%')), { title: num(val(lost)) + ' of ' + num(val(prevRs)) + ' lost in ' + (y >= thisYear ? y + ' to date' : y) + ' \u00b7 ' + num(val(rs)) + ' still active', onclick: lost.length ? drillRows(c + ' cohort \u00b7 cancelled in ' + y + ' (' + num(val(lost)) + ' of ' + num(val(prevRs)) + ')', lost) : undefined, bg: rs.length && all.length ? 'hsl(' + Math.max(0, Math.min(120, (val(rs) / val(all)) * 120)) + ', 70%, 92%)' : undefined }); })); }),
           el('tr', { class: 'border-t-2 font-black', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
             td('Total', { left: true, sticky: true, bg: 'var(--card-2)' }), td(num(val(rows)), { bold: true }),
             ...years.map(y => td(num(colTotal(y)), { bold: true }))),
