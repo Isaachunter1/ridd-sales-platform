@@ -2460,7 +2460,23 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     { const _ap = _attrRevParts(s); r.attrServRev += _ap.serv; r.attrCxlRev += _ap.cxl; }
     if (/failed\s*audit/i.test(s.customerFlags || '')) r.auditFail = (r.auditFail || 0) + 1;
     if (s.age > 0) r.aged++;
+    // Serviced evidence — the same test the P/S gate uses (≥1 completed service or a serviced date).
+    if ((Number(s.services) || 0) > 0 || !!s.servicedDate) r.servicedN = (r.servicedN || 0) + 1;
   });
+  // Serviced % = serviced ÷ SOLD (per Isaac, Sep 22): the denominator is every
+  // account the rep signed in the window, including the ones cancelled before
+  // a service ever happened — which the Pending/Serviced gate above strips out
+  // of rawSales. So count "sold" off the ungated pool (same filters, acct = all).
+  {
+    const _savedAcct = state.indicatorAcctStatus;
+    let _soldPool;
+    try { state.indicatorAcctStatus = 'all'; _soldPool = indicatorSales(); } finally { state.indicatorAcctStatus = _savedAcct; }
+    (_soldPool || []).forEach(s => {
+      if (!inRepScope(s) || (applyExclusion && isRepExcluded(s.rep))) return;
+      const r = repMap[getCanonicalRepName(s.rep || 'Unknown')];
+      if (r) r.soldAll = (r.soldAll || 0) + 1;
+    });
+  }
   // 3-day RORs that indicatorSales() dropped as "never serviced" aren't in
   // rawSales, so "Count 3-Day RORs" would only ever move the handful of serviced
   // ones. When the toggle is ON, fold the dropped RORs (same window + team scope)
@@ -2608,6 +2624,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       // Audit % = accounts NOT flagged Failed Audit ÷ all accounts (passed,
       // no-audit and pending all count as good — same rule as the branch row).
       auditPct: count > 0 ? (count - (r.auditFail || 0)) / count : 0,
+      servicedN: r.servicedN || 0, soldAll: Math.max(r.soldAll || 0, r.servicedN || 0),
+      servicedPct: (r.soldAll || 0) > 0 ? (r.servicedN || 0) / Math.max(r.soldAll, r.servicedN || 0) : 0,
       bestDay:        bD.value,
       bestDayDate:    bD.key,
       bestDayTime:    Number.isFinite(bestDayTime)   ? bestDayTime   : 0,
@@ -3845,6 +3863,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           style: { color: r.auditPct >= 0.9 ? '#DF643A' : r.auditPct < 0.7 ? '#DC2626' : 'var(--text)' },
           title: 'Accounts not flagged Failed Audit ÷ all accounts (no-audit + pending count as good)',
         }, (r.auditPct * 100).toFixed(1) + '%')) },
+    // Serviced % (per Isaac, Sep 22): serviced accounts ÷ every account sold, cancelled-before-service included.
+    { key: 'servicedPct', label: 'Serviced %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap', title: fmt.int(r.servicedN) + ' serviced of ' + fmt.int(r.soldAll) + ' sold (sold = every account signed in the window, including cancelled before service)' }, r.soldAll > 0 ? (r.servicedPct * 100).toFixed(1) + '%' : '—') },
     { key: 'myPct',      label: 'MY %',     align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, (r.myPct * 100).toFixed(1) + '%') },
     { key: 'autoPayPct', label: 'APay %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, (r.autoPayPct * 100).toFixed(1) + '%') },
     // (Cancels column retired from the leaderboard per Isaac, Sep 21 — fewer columns so the table fits without a scroll; Attrition % carries the read, and the player card keeps the count.)
@@ -4321,7 +4341,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             // single-rep record on the board.
             (() => {
               if (!displayReps.length) return null;
-              const T = { count: 0, revenue: 0, newRevenue: 0, renewalRevenue: 0, sellingDays: 0, cancels: 0, attrServRev: 0, attrCxlRev: 0 };
+              const T = { count: 0, revenue: 0, newRevenue: 0, renewalRevenue: 0, sellingDays: 0, cancels: 0, attrServRev: 0, attrCxlRev: 0, servicedN: 0, soldAll: 0 };
               let wAudit = 0, wMy = 0, wAuto = 0, wPest = 0, nPest = 0, wInit = 0, nInit = 0;
               let bDay = 0, bWeek = 0, bMonth = 0;
               displayReps.forEach(r => {
@@ -4335,6 +4355,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 T.attrServRev += Number(r.attrServRev) || 0;
                 T.attrCxlRev += Number(r.attrCxlRev) || 0;
                 wAudit += (Number(r.auditPct) || 0) * c;
+                T.servicedN += Number(r.servicedN) || 0; T.soldAll += Number(r.soldAll) || 0;
                 wMy    += (Number(r.myPct) || 0) * c;
                 wAuto  += (Number(r.autoPayPct) || 0) * c;
                 if (r.avgPest > 0)    { wPest += r.avgPest * c;    nPest += c; }
@@ -4351,6 +4372,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 newRevenue: fmt.usd0(T.newRevenue),
                 renewalRevenue: fmt.usd0(T.renewalRevenue),
                 auditPct: pct(wAudit),
+                servicedPct: T.soldAll > 0 ? ((T.servicedN / T.soldAll) * 100).toFixed(1) + '%' : '—',
                 acv: T.count > 0 ? fmt.usd(T.revenue / T.count) : '—',
                 // Days = AVERAGE selling days per rep (per Isaac) — a summed
                 // rep-day count read as a nonsense "total". $/Day and Accts/Day
@@ -4371,6 +4393,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               };
               const tips = {
                 auditPct: 'Sales-weighted average across the reps shown',
+                servicedPct: fmt.int(T.servicedN) + ' serviced of ' + fmt.int(T.soldAll) + ' sold across the reps shown',
                 myPct: 'Sales-weighted average across the reps shown',
                 autoPayPct: 'Sales-weighted average across the reps shown',
                 acv: 'Total revenue ÷ total sales',
