@@ -58,9 +58,12 @@ exports.handler = async (event) => {
     if (indErr) throw new Error('full blob upload failed: ' + indErr.message);
     await _hb({ stage: 'published', bytes: indGz.length });
 
-    // Rep-sanitized copy — customer identity stripped DURING stringify.
+    // Rep-sanitized copy — customer NAMES stripped during stringify. The
+    // FieldRoutes customer number stays (per Isaac, Sep 22): the TV board and
+    // the boards must read identically for office staff and admins, and the
+    // number alone identifies nobody.
     try {
-      const repJson = JSON.stringify(payload, (k, v) => (k === 'customer' || k === 'customerId') ? undefined : v);
+      const repJson = JSON.stringify(payload, (k, v) => (k === 'customer') ? undefined : v);
       const repGz = zlib.gzipSync(Buffer.from(repJson), { level: 6 });
       const { error: repErr } = await supabase.storage.from('reporting')
         .upload('indicators/latest-rep.json.gz', repGz, { contentType: 'application/gzip', upsert: true });
