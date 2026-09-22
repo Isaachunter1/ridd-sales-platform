@@ -2463,20 +2463,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // Serviced evidence — the same test the P/S gate uses (≥1 completed service or a serviced date).
     if ((Number(s.services) || 0) > 0 || !!s.servicedDate) r.servicedN = (r.servicedN || 0) + 1;
   });
-  // Serviced % = serviced ÷ SOLD (per Isaac, Sep 22): the denominator is every
-  // account the rep signed in the window, including the ones cancelled before
-  // a service ever happened — which the Pending/Serviced gate above strips out
-  // of rawSales. So count "sold" off the ungated pool (same filters, acct = all).
-  {
-    const _savedAcct = state.indicatorAcctStatus;
-    let _soldPool;
-    try { state.indicatorAcctStatus = 'all'; _soldPool = indicatorSales(); } finally { state.indicatorAcctStatus = _savedAcct; }
-    (_soldPool || []).forEach(s => {
-      if (!inRepScope(s) || (applyExclusion && isRepExcluded(s.rep))) return;
-      const r = repMap[getCanonicalRepName(s.rep || 'Unknown')];
-      if (r) r.soldAll = (r.soldAll || 0) + 1;
-    });
-  }
+  // Serviced % = serviced ÷ sold (per Isaac, Sep 22), where "sold" is the same
+  // Sales count the board and the player card's Sold tile show — so the column
+  // and the card's Sold/Serviced tile are the same number.
   // 3-day RORs that indicatorSales() dropped as "never serviced" aren't in
   // rawSales, so "Count 3-Day RORs" would only ever move the handful of serviced
   // ones. When the toggle is ON, fold the dropped RORs (same window + team scope)
@@ -2624,8 +2613,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       // Audit % = accounts NOT flagged Failed Audit ÷ all accounts (passed,
       // no-audit and pending all count as good — same rule as the branch row).
       auditPct: count > 0 ? (count - (r.auditFail || 0)) / count : 0,
-      servicedN: r.servicedN || 0, soldAll: Math.max(r.soldAll || 0, r.servicedN || 0),
-      servicedPct: (r.soldAll || 0) > 0 ? (r.servicedN || 0) / Math.max(r.soldAll, r.servicedN || 0) : 0,
+      servicedN: r.servicedN || 0, soldAll: count,
+      servicedPct: count > 0 ? (r.servicedN || 0) / count : 0,
       bestDay:        bD.value,
       bestDayDate:    bD.key,
       bestDayTime:    Number.isFinite(bestDayTime)   ? bestDayTime   : 0,
@@ -3864,7 +3853,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           title: 'Accounts not flagged Failed Audit ÷ all accounts (no-audit + pending count as good)',
         }, (r.auditPct * 100).toFixed(1) + '%')) },
     // Serviced % (per Isaac, Sep 22): serviced accounts ÷ every account sold, cancelled-before-service included.
-    { key: 'servicedPct', label: 'Serviced %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap', title: fmt.int(r.servicedN) + ' serviced of ' + fmt.int(r.soldAll) + ' sold (sold = every account signed in the window, including cancelled before service)' }, r.soldAll > 0 ? (r.servicedPct * 100).toFixed(1) + '%' : '—') },
+    { key: 'servicedPct', label: 'Serviced %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap', title: fmt.int(r.servicedN) + ' serviced of ' + fmt.int(r.soldAll) + ' sold \u00b7 same as the player card\u2019s Sold/Serviced' }, r.soldAll > 0 ? (r.servicedPct * 100).toFixed(1) + '%' : '—') },
     { key: 'myPct',      label: 'MY %',     align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, (r.myPct * 100).toFixed(1) + '%') },
     { key: 'autoPayPct', label: 'APay %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, (r.autoPayPct * 100).toFixed(1) + '%') },
     // (Cancels column retired from the leaderboard per Isaac, Sep 21 — fewer columns so the table fits without a scroll; Attrition % carries the read, and the player card keeps the count.)

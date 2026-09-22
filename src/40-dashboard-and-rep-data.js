@@ -4164,6 +4164,11 @@ function openIndicatorRepCard(rep, allReps = []) {
       // Ninth tile (per Isaac): the SAME attrition the leaderboard's Attrition %
       // column shows — cancelled $ ÷ serviced $, 3-day RORs + one-time out of
       // both sides (_attrRevParts) — so the card and the board never disagree.
+      // Tenth tile (per Isaac, Sep 22): Sold/Serviced — moved here from the
+      // Retention tab. Serviced (≥1 completed service or a serviced date) ÷ the
+      // Sold count above; same number as the leaderboard's Serviced % column.
+      (() => { const svc = allSales.filter(x => (Number(x.services) || 0) > 0 || !!x.servicedDate).length;
+        return { key: 'soldSvc', label: 'Sold/Serviced', value: count > 0 ? ((svc / count) * 100).toFixed(1) + '%' : '\u2014', sub: fmt.int(svc) + ' of ' + fmt.int(count), title: 'Serviced accounts \u00f7 sold \u00b7 same as the leaderboard\u2019s Serviced %' }; })(),
       (() => { let serv = 0, cxl = 0; for (const x of allSales) { const p = _attrRevParts(x); serv += p.serv; cxl += p.cxl; }
         return { key: 'cancelPct', label: 'Attrition %', sub: 'excl. 3-day ROR', title: 'Cancelled $ \u00f7 serviced $ \u00b7 3-day RORs + one-time services removed from both sides \u00b7 same number as the leaderboard\u2019s Attrition %', value: serv > 0 ? ((cxl / serv) * 100).toFixed(1) + '%' : '\u2014' }; })(),
     ];
@@ -4223,6 +4228,10 @@ function openIndicatorRepCard(rep, allReps = []) {
           if (drillSub === 'off') return !on;
           return true;
         }).sort((a, b) => (b.dateSold || '').localeCompare(a.dateSold || ''));
+      case 'soldSvc':
+        // Sold/Serviced drill: the NOT-yet-serviced accounts (the gap), newest first — the ones to chase.
+        return all.filter(s => !((Number(s.services) || 0) > 0 || !!s.servicedDate))
+          .sort((a, b) => (b.dateSold || '').localeCompare(a.dateSold || ''));
       case 'cancels':
       case 'cancelPct':
         // Follows the leaderboard's ROR toggle: RORs show here when the
@@ -4477,7 +4486,7 @@ function openIndicatorRepCard(rep, allReps = []) {
   function recordsStrip() {
     const recs = computeIndicatorRecords(scopedRep);
     return el('div', { class: 'mb-5' },
-      el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' }, 'Personal Records'),
+      el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' }, 'Records'),
       el('div', { class: 'grid grid-cols-3 gap-3' },
         recordCard('Best Day',   recs.bestDay,   r => r.date,                    rankFor('bestDay'),   'bestDay'),
         recordCard('Best Week',  recs.bestWeek,  r => 'Week of ' + r.weekStart,  rankFor('bestWeek'),  'bestWeek'),
@@ -5149,7 +5158,7 @@ function openIndicatorRepCard(rep, allReps = []) {
         tile('Sold', fmt.int(sold), null, null, drill('Sold', () => true)),
         tile('Serviced', fmt.int(serviced), null, null, drill('Serviced', _svcR)),
         tile('Active', fmt.int(activeN), 'still on the books', activeN > 0 ? good : null, drill('Active accounts', x => _svcR(x) && _actR(x))),
-        tile('Sold/Serviced', pctS(soldSvc), null, soldSvc == null ? null : (soldSvc >= 0.85 ? good : soldSvc < 0.65 ? bad : null)),
+        // (Sold/Serviced moved to the Sales tab's stat tiles — per Isaac, Sep 22.)
       ]),
       group('Audit', [
         tile('Pass %', pctS(passPct), passBase + ' audited (incl. no-audit)', passPct == null ? null : (passPct >= 0.85 ? good : passPct < 0.65 ? bad : null)),
