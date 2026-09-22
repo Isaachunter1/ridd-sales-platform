@@ -84,7 +84,7 @@ function reportingServiceConfigPanel() {
     }
   };
 
-  return el('div', { class: 'card p-3' },
+  return el('div', { class: 'card p-3', id: 'cfg-services' },
     el('div', { class: 'flex items-center gap-2 mb-3' },
       el('h2', { class: 'text-base font-bold' }, 'Service Types'),
       configInfoBtn('Service Type Configuration',
@@ -259,7 +259,7 @@ function reportingCancelReasonModel() {
 function reportingCancelConfigPanel() {
   const { cfg, subs, cfgByReason, list, excludedSet, updateCancelConfig } = reportingCancelReasonModel();
 
-  return el('div', { class: 'card p-3' },
+  return el('div', { class: 'card p-3', id: 'cfg-cancel' },
     el('div', { class: 'flex items-center gap-2 mb-3' },
       el('h2', { class: 'text-base font-bold' }, 'Cancellation Reasons'),
       configInfoBtn('Cancellation Reasons',
@@ -382,7 +382,7 @@ function reportingSourceConfigPanel() {
     }
   };
 
-  return el('div', { class: 'card p-3' },
+  return el('div', { class: 'card p-3', id: 'cfg-sources' },
     el('div', { class: 'flex items-center gap-2 mb-3' },
       el('h2', { class: 'text-base font-bold' }, 'Lead Sources'),
       configInfoBtn('Lead Sources',
@@ -1884,11 +1884,73 @@ function reportingCrmVocabPanel() {
   };
   const win = el('input', { type: 'number', min: 0, max: 30, step: 1, value: V.rorWindowDays, class: 'rounded-lg border px-2 py-1 text-[11px] tabular-nums', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '64px' },
     onchange: (e) => { const d = Math.max(0, Math.round(Number(e.target.value) || 0)); const next = JSON.parse(JSON.stringify(stored)); if (d && d !== CRM_VOCAB_DEFAULTS.rorWindowDays) next.rorWindowDays = d; else delete next.rorWindowDays; save(Object.keys(next).length ? next : null); } });
-  return el('div', { class: 'card p-4' },
+  return el('div', { class: 'card p-4', id: 'cfg-vocab' },
     el('div', { class: 'flex items-center justify-between gap-2 mb-1' },
       el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'CRM vocabulary'), el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'What each FieldRoutes label means to the app. Defaults are RIDD’s spellings; a company on a different CRM setup tags its own here. The rules themselves never change.')),
       V.configured ? el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { if (confirm('Reset every vocabulary tag to the defaults?')) save(null); } }, 'Reset all') : null),
     el('div', { class: 'flex items-center justify-between gap-3 py-1.5 border-t', style: { borderColor: 'var(--border)' }, title: 'The right-of-rescission window: a door-to-door sale cancelled within this many days of the sale is a rescission, not a customer. State law; RIDD’s markets are 3.' },
       el('span', { class: 'text-[11px] font-semibold' }, 'Rescission window (days)'), el('div', { class: 'flex items-center gap-2' }, win, el('span', { class: 'text-[9px] font-semibold px-1.5 py-0.5 rounded-full', style: V.rorWindowDays === CRM_VOCAB_DEFAULTS.rorWindowDays ? { background: 'var(--card-2)', color: 'var(--text-muted)' } : { background: 'rgba(223,100,58,.12)', color: 'var(--accent)' } }, V.rorWindowDays === CRM_VOCAB_DEFAULTS.rorWindowDays ? 'default' : 'custom'))),
     section('reasons'), section('sellerTypes'), section('sources'));
+}
+
+// ── Company setup checklist (onboarding) ──────────────────────────────
+// Generalization slice 8 (Isaac, Sep 22 2026): the "onboarding hour" for a
+// company that isn't RIDD, as a checklist over the SAME Configurations panels
+// — nothing new to configure, just the order and a status per step computed
+// from their data. Shows at the top of Configurations while anything is
+// still open; once every step is done it folds to a one-line link at the
+// bottom (RIDD lands there on day one).
+function _setupSteps() {
+  const subs = state.reportingSubscriptions || [];
+  const obs = _crmVocabObserved();
+  const hit = (group, key) => obs[group].some(([v]) => _crmMatch(group, key, v));
+  const svcCfg = state.reportingServiceConfig || [];
+  const explicitSvc = svcCfg.filter(c => ['recurring', 'onetime', 'retired'].includes(c.lifecycle) || c.recurring_override === true || c.recurring_override === false).length;
+  const svcNames = new Set(subs.map(r => r.subscription).filter(Boolean));
+  const svcDefaulted = [...svcNames].filter(n => { const c = svcCfg.find(x => x.service_name === n); return !c || !(['recurring', 'onetime', 'retired'].includes(c.lifecycle) || c.recurring_override === true || c.recurring_override === false); }).length;
+  const srcCfg = state.reportingSourceConfig || [];
+  const srcNames = new Set(subs.map(reportingSourceOf));
+  const srcUnset = [...srcNames].filter(n => !srcCfg.some(c => c.source === n)).length;
+  const offices = state.offices || [];
+  const branchNames = new Set(subs.map(r => (r.office_name || '').trim()).filter(Boolean));
+  const unmappedBranches = [...branchNames].filter(b => !offices.some(o => String(o.name || '').trim().toLowerCase() === b.toLowerCase())).length;
+  const people = (state.allProfiles || []).length;
+  const goal = state.companyGoal && (Number(state.companyGoal.new_goal || state.companyGoal.annual || state.companyGoal.goal || 0) > 0 || Object.keys(state.companyGoal).length > 0);
+  const goTo = (id) => () => { state.reportingSubTab = 'config'; state._setupOpen = true; mountApp(); requestAnimationFrame(() => { const n = document.getElementById(id); if (n) n.scrollIntoView({ behavior: 'smooth', block: 'start' }); }); };
+  const goAdmin = () => { state.view = 'admin'; history.replaceState(null, '', '#admin'); mountApp(); };
+  return [
+    { key: 'data', title: 'Data feed', done: subs.length > 0, detail: subs.length ? fmt.int(subs.length) + ' subscriptions in the reporting snapshot' : 'No snapshot yet — run the sync, then the reporting snapshot builds on the next pass', action: subs.length ? null : ['Uploads', () => { state.reportingSubTab = 'uploads'; mountApp(); }] },
+    { key: 'vocab', title: 'CRM vocabulary', done: subs.length > 0 && hit('reasons', 'ror') && (hit('sellerTypes', 'sales_rep') || hit('sellerTypes', 'office_staff') || hit('sellerTypes', 'technician')) && hit('sources', 'd2d'),
+      detail: !subs.length ? 'Needs data first' : [['reasons', 'ror', 'rescission reason'], ['reasons', 'renewal', 'renewal reason'], ['sellerTypes', 'sales_rep', 'door-to-door type'], ['sellerTypes', 'office_staff', 'office-staff type'], ['sellerTypes', 'technician', 'technician type'], ['sources', 'd2d', 'door-to-door source']].map(([g, k, l]) => (hit(g, k) ? '✓ ' : '✗ ') + l).join(' · ') + ' · rescission window ' + crmRorWindowDays() + 'd', action: ['Open', goTo('cfg-vocab')] },
+    { key: 'services', title: 'Service types', done: explicitSvc > 0, detail: svcNames.size ? explicitSvc + ' set explicitly · ' + svcDefaulted + ' on the default guess (recurring unless named “One Time…”)' : 'Needs data first', action: ['Open', goTo('cfg-services')] },
+    { key: 'sources', title: 'Lead sources', done: srcCfg.length > 0, detail: srcNames.size ? srcCfg.length + ' configured · ' + srcUnset + ' source' + (srcUnset === 1 ? '' : 's') + ' in the data with no row yet (counted as new revenue, included)' : 'Needs data first', action: ['Open', goTo('cfg-sources')] },
+    { key: 'cancel', title: 'Cancellation reasons', done: (state.reportingCancelConfig || []).length > 0 || obs.reasons.length === 0, detail: obs.reasons.length + ' distinct reason' + (obs.reasons.length === 1 ? '' : 's') + ' in the data · ' + (state.reportingCancelConfig || []).length + ' classified as retained', action: ['Open', goTo('cfg-cancel')] },
+    { key: 'branches', title: 'Branches', done: offices.length > 0 && unmappedBranches === 0, detail: offices.length + ' office' + (offices.length === 1 ? '' : 's') + ' set up' + (unmappedBranches ? ' · ' + unmappedBranches + ' branch name' + (unmappedBranches === 1 ? '' : 's') + ' in the data with no office row (add the office or a rename)' : ''), action: ['Settings', goAdmin] },
+    { key: 'goals', title: 'Goals', done: !!goal, detail: goal ? 'Department goal set' : 'No department goal yet — the pacer and daily goals need one', action: ['Settings', goAdmin] },
+    { key: 'users', title: 'Users', done: people > 1, detail: people + ' user' + (people === 1 ? '' : 's') + ' — invite reps and leads; roles follow their CRM employee type', action: ['Settings', goAdmin] },
+  ];
+}
+function reportingSetupCard() {
+  if (!isAdminRole(state.profile?.role)) return null;
+  if (state.reportingActiveUploadId && !state.reportingSubscriptionsLoadedFor) return null;   // snapshot still loading — don't flash an empty checklist
+  let steps; try { steps = _setupSteps(); } catch (e) { return null; }
+  const done = steps.filter(s => s.done).length, all = steps.length;
+  const complete = done === all;
+  if (complete && !state._setupOpen) return null;
+  const dot = (ok) => el('span', { class: 'inline-flex items-center justify-center rounded-full shrink-0 text-[10px] font-black', style: { width: '18px', height: '18px', background: ok ? 'rgba(47,125,50,.15)' : 'rgba(223,100,58,.15)', color: ok ? '#2F7D32' : 'var(--accent)' } }, ok ? '✓' : '•');
+  return el('div', { class: 'card p-4', id: 'cfg-setup' },
+    el('div', { class: 'flex items-center justify-between gap-2 mb-1' },
+      el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Company setup · ' + done + ' of ' + all), el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Do these in order the first time; each one is a card on this tab or a Settings page. Status is read from the data, so it updates as you go.')),
+      complete ? el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--text-muted)' }, onclick: () => { state._setupOpen = false; mountApp(); } }, 'Hide') : null),
+    el('div', { class: 'h-1.5 rounded-full mb-2', style: { background: 'var(--card-2)' } }, el('div', { class: 'h-full rounded-full', style: { width: (done / all * 100) + '%', background: '#2F7D32', transition: 'width .3s' } })),
+    ...steps.map((s, i) => el('div', { class: 'flex items-start gap-2 py-1.5 border-t', style: { borderColor: 'var(--border)' } },
+      dot(s.done),
+      el('div', { class: 'flex-1 min-w-0' }, el('div', { class: 'text-[11px] font-semibold' }, (i + 1) + '. ' + s.title), el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, s.detail)),
+      s.action ? el('button', { class: 'rounded-lg border px-2 py-0.5 text-[10px] font-semibold shrink-0', style: { borderColor: 'var(--border-2)' }, onclick: s.action[1] }, s.action[0]) : null)));
+}
+function reportingSetupLink() {
+  if (!isAdminRole(state.profile?.role) || state._setupOpen || (state.reportingActiveUploadId && !state.reportingSubscriptionsLoadedFor)) return null;
+  let steps; try { steps = _setupSteps(); } catch (e) { return null; }
+  if (steps.some(s => !s.done)) return null;   // the card is showing instead
+  return el('button', { class: 'text-[10px] font-semibold self-start', style: { color: 'var(--text-subtle)' }, onclick: () => { state._setupOpen = true; mountApp(); } }, '✓ Company setup complete · show checklist');
 }
