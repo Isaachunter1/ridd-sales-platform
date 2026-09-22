@@ -1848,7 +1848,13 @@ function _retenMemoGet(slot, build) {
 }
 function retenPopExclReasons() { return _retenMemoGet('pop', _retenPopExclReasonsBuild); }
 function _retenPopExclReasonsBuild() {
-  const r = _adminRules(); const v = r && Array.isArray(r.retenPopExclReasons) ? r.retenPopExclReasons : RETEN_POP_EXCL_REASONS_DEFAULT;
+  const r = _adminRules();
+  // Default list: RIDD's reasons — or, for a company that has TAGGED its cancel
+  // reasons in Configurations → CRM vocabulary, every reason it tagged as
+  // ror / combined / renewal (src/12-crm-vocab.js).
+  const V = crmVocab();
+  const tagged = ['ror', 'combined', 'renewal'].flatMap(k => V.reasons[k] ? [...V.reasons[k]] : []);
+  const v = r && Array.isArray(r.retenPopExclReasons) ? r.retenPopExclReasons : (tagged.length ? tagged : RETEN_POP_EXCL_REASONS_DEFAULT);
   let list = v.map(_normCancelReason);
   // What-if switches on the Retention tab: the 3-day ROR reason and the
   // combined / renewal reasons can be turned off separately.

@@ -2800,6 +2800,7 @@ function _rorReasonHit(x) { return (typeof crmVocab === 'function' && crmVocab()
 // lost. Matches "Combined", "Combined Subscriptions", "combined with #102084",
 // etc. Not real attrition, so it never counts as a cancel.
 const _COMBINED_REASON_RE = /combin/i;
+function _snsReasonHit(x) { return (typeof crmVocab === 'function' && crmVocab().reasons.sns) ? crmReasonIs('sns', x) : _SNS_REASON_RE.test(String(x || '')); }
 function _combinedReasonHit(x) { return (typeof crmVocab === 'function' && crmVocab().reasons.combined) ? crmReasonIs('combined', x) : _COMBINED_REASON_RE.test(String(x || '')); }
 // One-time services — the job ran its course and the subscription closed out.
 // Matched by cancel reason ("One Time Service", "One-Time", "OTS") OR by the
