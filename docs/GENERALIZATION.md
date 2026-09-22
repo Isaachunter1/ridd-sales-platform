@@ -24,7 +24,11 @@ golden tests (`tools/attrition-test.js`, `ps-gate-test.js`, `commission-test.js`
 | Offices, teams, reps, goals, avatars | Supabase tables | |
 | Optional modules (riddmarket etc.) | `window.RIDD_MODULES` registry (`_visibleModules`) | The mechanism for company-specific add-ons already exists. |
 
-## Slice 1 — DONE: CRM vocabulary layer (`src/12-crm-vocab.js`)
+## Slices done
+
+- **1.** CRM vocabulary layer (below). **2.** Configurations → CRM vocabulary panel. **3.** Sold-Not-Started bucket + pop-exclusion default derives from tags. **4.** `RIDD_CONFIG.BRAND` (wordmark / mark / external link) and `RIDD_CONFIG.ENTITIES` (legal entities) — see `docs/DEPLOY_NEW_COMPANY.md`.
+
+## Slice 1 — CRM vocabulary layer (`src/12-crm-vocab.js`)
 
 The app used to test RIDD spellings inline: `"3 Day ROR"`, `/renewal/`, `/combined/`,
 `"Upsell - Service Pro"`, `"Door to Door"`, `"sales rep"`, `/office\s*staff/`,
@@ -51,16 +55,16 @@ Grouped by the kind of work. Effort is rough.
 
 ### A. Move to config (small, behaviour-preserving)
 - `RETEN_POP_EXCL_REASONS_DEFAULT` (66) — default list of pop-excluded reasons; should derive from the vocab tags (`ror` + `combined` + `renewal` reasons found in the data) instead of a RIDD list.
-- `_ROR_REASON_RE` / `_COMBINED_REASON_RE` / `_SNS_REASON_RE` (40) — the dashboard-side reason patterns. Slice 1 made ror/combined vocab-aware; Sold-Not-Started needs a `sns` bucket.
+- ~~`_ROR_REASON_RE` / `_COMBINED_REASON_RE` / `_SNS_REASON_RE`~~ — vocab-aware (slices 1 + 3). The engine's own `_isSoldNotStarted` (`engine/src/10-sales-helpers.js`) is pure and keeps its regex; the engine is versioned separately.
 - Cancel-reason "meaning" inference in Cancel Analysis (`70-reporting-core` source kind guess `/renewal/`, `/upsell/`) — default guesses, fine, but should consult the vocab first.
 - `OPS_BASELINE_2025` (89) — RIDD's 2025 operations baselines from the COO sheet. Becomes a per-company baseline table (or "no baseline" = hide the vs-2025 column).
-- Company-wide goals: `$4,000,000` new / `$1,600,000` renewal pacer targets, per-rep `annual_revenue_goal` defaults — already in Supabase for reps; the department goal should be too.
-- `COMPANY_NAMES` / `COMPANY_COLORS` (58) — RIDD's two legal entities (RPC / RPS) and their colours. Becomes a `companies` config list (most companies have one).
+- ~~Company-wide goals~~ — already `state.companyGoal` from the Goals settings; nothing hardcoded.
+- ~~`COMPANY_NAMES` / `COMPANY_COLORS` (58)~~ → `RIDD_CONFIG.ENTITIES` (done). Still hardcoded: the marketing matrices in 84 key on `B.rpc` / `B.rps` / `'RIDD'` scope ids — needs to iterate the entity list.
 - Timezone offsets by office (`40:2120` returns 3 for Eastern) — should come from office config.
 - 3-day ROR being **door-to-door only** (`_reporting3dayRorByDates`) — a rule, keep; but "which seller types get a rescission right" could be a vocab flag later.
 
 ### B. Branding (small)
-- `RIDDMADE` wordmark + spider mark (30, 10), `whyridd.com` menu link, "RIDDMADE" strings in comps posters/emails, `ridd.com` demo emails, `RIDD_CONFIG` name → a `brand` block in config (name, wordmark SVG path list, mark, accent colours, external link). Tailwind/CSS accent vars already drive most colour.
+- ~~Wordmark, mark, menu link~~ → `RIDD_CONFIG.BRAND` (done). Still hardcoded: "RIDDMADE" strings inside comps posters / emails / TV board footers, `ridd.com` demo emails, accent colour CSS vars (edit in index.html).
 
 ### C. Modules that are RIDD programs, not industry features (medium — toggle, don't rewrite)
 - Inside Sales commission calculator + pay runs (`52-pay`, `99-commission-*`) — RIDD's comp plan.

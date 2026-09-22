@@ -8,16 +8,30 @@ const RIDD_SPIDER_PATH = 'M87.36 117.39 L87.36 100.86 C87.35 100.74 87.34 100.59
 // (marks/riddmade-wordmark.svg), fill = currentColor so it takes the ink of
 // whatever it sits on. Never carries a period as part of the mark.
 const RIDDMADE_WORDMARK_PATHS = ["M0,26.72V0h27.66c6.62,0,11.91,2.15,11.91,9.83,0,6.07-3.8,8.93-9.44,9.56l-.71.08,1.88.98,8.31,6.27h-13.21l-8.46-6.66h-7.37v6.66H0ZM10.58,12.23h15.91c1.49,0,2.12-.39,2.12-1.57,0-1.37-.63-1.65-2.12-1.65h-15.91v3.21Z", "M41.77,26.72V0h10.58v26.72h-10.58Z", "M55.48,26.72V0h27.82c8.35,0,15.05,2.82,15.05,13.32s-6.82,13.4-15.05,13.4h-27.82ZM66.06,17.71h16.18c3.49,0,5.13-.35,5.13-4.39s-1.65-4.31-5.13-4.31h-16.18v8.7Z", "M100.69,26.72V0h27.82c8.35,0,15.05,2.82,15.05,13.32s-6.82,13.4-15.05,13.4h-27.82ZM111.27,17.71h16.18c3.49,0,5.13-.35,5.13-4.39s-1.65-4.31-5.13-4.31h-16.18v8.7Z", "M145.91,26.72V0h12.85l13.79,18.06L186.35,0h12.62v26.72h-10.58v-14.15l-10.58,14.15h-10.74l-10.58-14.18v14.18h-10.58Z", "M231.33,22.3h-16.34l-2.55,4.43h-12.7L216.16,0h14.15l16.42,26.72h-12.85l-2.55-4.43ZM227.17,15.05l-4-6.94-4.04,6.94h8.03Z", "M247.5,26.72V0h27.82c8.35,0,15.05,2.82,15.05,13.32s-6.82,13.4-15.05,13.4h-27.82ZM258.08,17.71h16.18c3.49,0,5.13-.35,5.13-4.39s-1.65-4.31-5.13-4.31h-16.18v8.7Z", "M292.72,26.72V0h36.52v8.23h-25.94v1.76h25.2v6.66h-25.2v1.84h25.94v8.23h-36.52Z"];
+// Brand (generalization, Sep 22 2026): a company can set RIDD_CONFIG.BRAND =
+// { WORDMARK_TEXT, WORDMARK_SVG: { viewBox, paths:[…] }, MARK_SVG: { viewBox, paths:[…] }, EXTERNAL_LINK: { label, url } }.
+// Nothing set = the RIDDMADE wordmark and spider mark below, exactly as before.
+function _brand() { try { return (window.RIDD_CONFIG && window.RIDD_CONFIG.BRAND) || {}; } catch (e) { return {}; } }
 function riddmadeWordmark(width, opts = {}) {
   const NS = 'http://www.w3.org/2000/svg';
+  const B = _brand();
+  if (B.WORDMARK_TEXT && !B.WORDMARK_SVG) { const d = document.createElement('div'); d.className = 'font-display'; d.style.fontSize = Math.round(width / 6) + 'px'; d.style.lineHeight = '1'; d.textContent = B.WORDMARK_TEXT; return d; }
   const s = document.createElementNS(NS, 'svg');
+  if (B.WORDMARK_SVG && Array.isArray(B.WORDMARK_SVG.paths)) {
+    const [, , vw, vh] = String(B.WORDMARK_SVG.viewBox || '0 0 329.24 26.72').split(/\s+/).map(Number);
+    s.setAttribute('viewBox', B.WORDMARK_SVG.viewBox); s.setAttribute('width', width); s.setAttribute('height', Math.round(width * vh / vw));
+    s.setAttribute('fill', 'currentColor'); s.setAttribute('role', 'img'); s.setAttribute('aria-label', opts.label || B.WORDMARK_TEXT || CFG.COMPANY_NAME);
+    for (const d of B.WORDMARK_SVG.paths) { const p = document.createElementNS(NS, 'path'); p.setAttribute('d', d); s.append(p); }
+    s.style.display = 'block'; return s;
+  }
   s.setAttribute('viewBox', '0 0 329.24 26.72'); s.setAttribute('width', width); s.setAttribute('height', Math.round(width * 26.72 / 329.24));
   s.setAttribute('fill', 'currentColor'); s.setAttribute('role', 'img'); s.setAttribute('aria-label', opts.label || 'RIDDMADE');
   for (const d of RIDDMADE_WORDMARK_PATHS) { const p = document.createElementNS(NS, 'path'); p.setAttribute('d', d); s.append(p); }
   s.style.display = 'block';
   return s;
 }
-function riddSpiderMark(px) { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 109.2 117.4'); s.setAttribute('width', px); s.setAttribute('height', px); s.setAttribute('aria-hidden', 'true'); const p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); p.setAttribute('d', RIDD_SPIDER_PATH); p.setAttribute('fill', '#DF643A'); s.append(p); s.style.display = 'block'; return s; }
+function riddSpiderMark(px) { const B = _brand(); if (B.MARK_SVG && Array.isArray(B.MARK_SVG.paths)) { const NS = 'http://www.w3.org/2000/svg'; const s = document.createElementNS(NS, 'svg'); s.setAttribute('viewBox', B.MARK_SVG.viewBox || '0 0 100 100'); s.setAttribute('width', px); s.setAttribute('height', px); s.setAttribute('aria-hidden', 'true'); s.setAttribute('fill', 'currentColor'); for (const d of B.MARK_SVG.paths) { const p = document.createElementNS(NS, 'path'); p.setAttribute('d', d); s.append(p); } return s; }
+  const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 109.2 117.4'); s.setAttribute('width', px); s.setAttribute('height', px); s.setAttribute('aria-hidden', 'true'); const p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); p.setAttribute('d', RIDD_SPIDER_PATH); p.setAttribute('fill', '#DF643A'); s.append(p); s.style.display = 'block'; return s; }
 // ── Inside Sales consolidated tab ─────────────────────────────────────────
 // The seven rep-facing views live under ONE "Inside Sales" nav entry; the
 // individual views render with a Reporting-style sub-tab bar above them.
@@ -760,8 +774,10 @@ function mountApp() {
   ];
   // Registered modules (riddmarket etc.) join the nav for whoever they allow.
   for (const m of _visibleModules()) navItems.push([m.id, m.label || m.id, typeof m.icon === 'function' ? m.icon() : (m.icon || el('span', {}, '▦'))]);
-  // RIDDMADE (Why RIDD) — external link (whyridd.com) in the app menu for everyone (per Isaac).
-  navItems.push(['__whyridd', 'RIDDMADE', svg('<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>')]);
+  // External brand link in the app menu for everyone (per Isaac): RIDDMADE → whyridd.com,
+  // or whatever RIDD_CONFIG.BRAND.EXTERNAL_LINK names; none set on a brand = no entry.
+  const _extLink = _brand().EXTERNAL_LINK !== undefined ? _brand().EXTERNAL_LINK : { label: 'RIDDMADE', url: 'https://whyridd.com' };
+  if (_extLink && _extLink.url) navItems.push(['__whyridd', _extLink.label || _extLink.url, svg('<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>')]);
 
   // ── Nav dropdown menu (anchored to the grid icon) ──
   const navMenu = el('div', {
@@ -799,7 +815,7 @@ function mountApp() {
         onmouseenter: (e) => { if (!active) e.currentTarget.style.background = 'var(--card-2)'; },
         onmouseleave: (e) => { if (!active) e.currentTarget.style.background = 'transparent'; },
         onclick: () => {
-          if (k === '__whyridd') { window.open('https://whyridd.com', '_blank', 'noopener'); return; }
+          if (k === '__whyridd') { window.open(_extLink.url, '_blank', 'noopener'); return; }
           const target = k === 'inside_sales'
             ? (isAuditor ? 'sales' : (INSIDE_SALES_TAB_KEYS.has(state._lastIsTab) ? state._lastIsTab : 'dashboard'))
             : k === 'd2d_group'
