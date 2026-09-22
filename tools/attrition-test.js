@@ -27,13 +27,24 @@ function extractFn(name) {
   }
   throw new Error('unbalanced braces extracting ' + name);
 }
+function extractRange(startMarker, endFnName) {
+  const start = appJs.indexOf(startMarker);
+  if (start === -1) throw new Error('cannot find ' + startMarker);
+  const fn = extractFn(endFnName);
+  const end = appJs.indexOf(fn, start) + fn.length;
+  return appJs.slice(start, end);
+}
 function extractConst(name) {
   const m = appJs.match(new RegExp('const ' + name + ' = [^\\n]*;'));
   if (!m) throw new Error('cannot find const ' + name);
   return m[0];
 }
 const src = [
+  extractRange('const CRM_VOCAB_DEFAULTS', 'setCrmVocab'),   // src/12-crm-vocab.js — the predicates read it
   extractConst('_ROR_REASON_RE'),
+  extractFn('_rorReasonHit'),
+  extractConst('_COMBINED_REASON_RE'),
+  extractFn('_combinedReasonHit'),
   extractConst('_SNS_REASON_RE'),
   extractFn('_parseSlashDate'),
   extractFn('_isSoldNotStarted'),

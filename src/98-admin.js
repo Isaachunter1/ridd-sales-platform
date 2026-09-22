@@ -230,9 +230,9 @@ function adminDataHygiene() {
   // 2b + 2c. Cancel Hygiene (moved from the Retention tab, per Isaac):
   // RORs hiding under other reason codes, and 3-day-ROR-coded cancels whose
   // dates say otherwise. Recode the reason (or fix the dates) in FieldRoutes.
-  const _quickCxl = (r) => { if (!r.sold_date || !r.subscription_date_canceled) return false; const d = (new Date(r.subscription_date_canceled) - new Date(r.sold_date)) / 86400000; return d >= 0 && d <= 3; };
-  const _rorReason = (r) => /^3\s*day\s*ror$/i.test(reportingCancelReasonOf(r));
-  const _salesRepSold = (r) => { const t = String(r.sold_by_type || '').trim().toLowerCase(); return !t || t === 'sales rep'; };
+  const _quickCxl = (r) => { if (!r.sold_date || !r.subscription_date_canceled) return false; const d = (new Date(r.subscription_date_canceled) - new Date(r.sold_date)) / 86400000; return d >= 0 && d <= crmRorWindowDays(); };
+  const _rorReason = (r) => crmVocab().reasons.ror ? crmReasonIs('ror', reportingCancelReasonOf(r)) : /^3\s*day\s*ror$/i.test(reportingCancelReasonOf(r));
+  const _salesRepSold = (r) => { const t = String(r.sold_by_type || '').trim(); return !t || crmSellerIs('sales_rep', t); };
   const _cxlOnly = (r) => r.subscription_date_canceled && !/active/i.test(String(r.subscription_status || ''));
   checks.push({
     id: 'miscodedror', icon: '\ud83d\udd01', title: 'ROR hiding under another reason',
@@ -458,7 +458,7 @@ function adminConfigurations() {
 
   // ── 2. Attrition steps (mirror of the Retention tab, saved defaults) ──
   const popList = (() => { const r = _adminRules(); return r && Array.isArray(r.retenPopExclReasons) ? r.retenPopExclReasons : RETEN_POP_EXCL_REASONS_DEFAULT; })();
-  const popOf = (re) => popList.filter(x => re.test(x));
+  const popOf = (kind) => popList.filter(x => crmReasonIs(kind, x));   // 'combined' | 'renewal' (src/12-crm-vocab.js)
   const exclReasons = reportingExcludedCancelReasons();
   const stepNo = (i) => el('span', { class: 'inline-flex items-center justify-center text-[10px] font-black rounded-full mr-2', style: { width: '18px', height: '18px', background: 'var(--card-2)', color: 'var(--text-muted)' } }, String(i));
   const STEP_TIP = {
@@ -476,9 +476,9 @@ function adminConfigurations() {
   const attrition = card('Attrition steps', pill('saved defaults · Retention tab switches are session-only'),
     stepRow(1, 'Remove one-time services', pill('from recurring basis')),
     stepRow(2, 'Remove subs that never received an initial service', pill('always')),
-    stepRow(3, 'Remove 3-day RORs', [pill(popOf(/\bror\b|rescission/i).join(', ') || '— no reason set'), el('span', { class: 'text-[10px] text-muted-' }, '+ D2D cancelled ≤3 days'), sw(reportingExcludeRorChurn(), () => { setReportingExcludeRorChurn(!reportingExcludeRorChurn()); mountApp(); })]),
-    stepRow(4, 'Remove combined subscriptions', pill(popOf(/combined/i).join(', ') || '— no reason set')),
-    stepRow(5, 'Remove renewals', pill(popOf(/renewal/i).join(', ') || '— no reason set')),
+    stepRow(3, 'Remove 3-day RORs', [pill(popOf('ror').join(', ') || '— no reason set'), el('span', { class: 'text-[10px] text-muted-' }, '+ D2D cancelled ≤3 days'), sw(reportingExcludeRorChurn(), () => { setReportingExcludeRorChurn(!reportingExcludeRorChurn()); mountApp(); })]),
+    stepRow(4, 'Remove combined subscriptions', pill(popOf('combined').join(', ') || '— no reason set')),
+    stepRow(5, 'Remove renewals', pill(popOf('renewal').join(', ') || '— no reason set')),
     row('Reasons that remove a sub from the book (steps 3–5)', txt(popList.join(', '), (v) => { const l = splitList(v); setRetenPopExclReasons(l.length ? l : RETEN_POP_EXCL_REASONS_DEFAULT); toast('Retention book updated', 'success'); mountApp(); }, { width: '360px' }), { small: true, indent: true }),
     stepRow(6, 'Remove subs with no ARR', sw(retenExclZeroPay(), () => { setRetenExclZeroPay(!retenExclZeroPay()); mountApp(); })),
     stepRow(7, 'Remove subs that never received a 2nd treatment (prior years)', sw(retenExclOneSvc(), () => { setRetenExclOneSvc(!retenExclOneSvc()); mountApp(); })),
@@ -644,7 +644,7 @@ function dataIntegrityPanel() {
       cancelCls.total++;
       const reason = (x.cancelReason || '').trim();
       const dateRor = (typeof _is3DayROR === 'function') && _is3DayROR({ ...x, cancelReason: '' });
-      if (_ROR_REASON_RE.test(reason)) cancelCls.explicitRor++;
+      if (_rorReasonHit(reason)) cancelCls.explicitRor++;
       else if (!reason && dateRor) cancelCls.dateFallbackRor++;
       else if (reason && dateRor && !_SNS_REASON_RE.test(reason)) { cancelCls.mistagSuspect++; if (mistagRows.length < 120) mistagRows.push(x); }
       if (!reason) { cancelCls.unspecified++; if (unspecRows.length < 120) unspecRows.push(x); }

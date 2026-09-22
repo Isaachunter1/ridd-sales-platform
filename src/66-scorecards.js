@@ -1833,7 +1833,7 @@ function setRetenExclFrozenOneSvc(b)  { _setAdminRule('retenExclFrozenOneSvc', !
 // sub; Renewal-* = the old sub was replaced by the renewal, which stays).
 // "ROR" as a WORD (3 Day ROR, ROR, right of rescission) — a bare /ror/
 // also matched "Subscription ERROR" and pulled real cancels into the ROR step.
-function _isRorReason(x) { return /\bror\b|rescission/i.test(String(x || '')); }
+function _isRorReason(x) { return crmReasonIs('ror', x); }   // → src/12-crm-vocab.js (RIDD default: “3 Day ROR” / rescission)
 const RETEN_POP_EXCL_REASONS_DEFAULT = ['3 Day ROR', 'Combined Subscriptions', 'Renewal - Outbound', 'Renewal - Loyalty', 'Renewal - Service Pro Upsell', 'Renewal - Inbound'];
 // These three getters are called PER ROW inside 77k-row filters, so they
 // memoize on (admin rules, cancel config, what-if, tab) — rebuilding a Set
@@ -1853,8 +1853,8 @@ function _retenPopExclReasonsBuild() {
   // What-if switches on the Retention tab: the 3-day ROR reason and the
   // combined / renewal reasons can be turned off separately.
   if (!_retenWhatIf('popRor', true)) list = list.filter(x => !_isRorReason(x));
-  if (!_retenWhatIf('popCombined', true)) list = list.filter(x => !/combined/.test(x));
-  if (!_retenWhatIf('popRenew', true)) list = list.filter(x => _isRorReason(x) || /combined/.test(x));
+  if (!_retenWhatIf('popCombined', true)) list = list.filter(x => !crmReasonIs('combined', x));
+  if (!_retenWhatIf('popRenew', true)) list = list.filter(x => _isRorReason(x) || crmReasonIs('combined', x));
   return new Set(list);
 }
 function setRetenPopExclReasons(arr) { _setAdminRule('retenPopExclReasons', arr); }
@@ -1935,10 +1935,10 @@ function _reporting3dayRorByDates(r) {
   // and technician sales don't get one, so a quick cancel there is a real
   // cancel (or a miscoded reason to fix), never an ROR exclusion. Blank
   // sold-by types keep the old behavior (legacy rows, benefit of the doubt).
-  const _t = String(r.sold_by_type || '').trim().toLowerCase();
-  if (_t && _t !== 'sales rep') return false;
+  const _t = String(r.sold_by_type || '').trim();
+  if (_t && !crmSellerIs('sales_rep', _t)) return false;   // seller-type vocabulary (src/12-crm-vocab.js)
   const d = (new Date(r.subscription_date_canceled) - new Date(r.sold_date)) / 86400000;
-  return d >= 0 && d <= 3;
+  return d >= 0 && d <= crmRorWindowDays();   // rescission window is state law — configurable, RIDD = 3
 }
 // Apply branch exclusions + renames to a row set (used by every reporting scope).
 function reportingApplyBranchRules(rows) {

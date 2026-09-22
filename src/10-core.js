@@ -289,7 +289,7 @@ const roleLabelOf = (p) => !p ? '' : (p.is_owner ? 'Admin - Owner' : roleLabel(p
 // role falls back to the CRM rep-type lookup (state.myRepType, fetched at
 // login) so existing accounts keep working unchanged.
 const isOfficeStaffRole = (r) => r === 'rep_office' || r === 'rep_office_lead' || r === 'rep_loyalty' || r === 'rep_loyalty_lead'
-  || (r === 'rep' && /office\s*staff/i.test(state.myRepType || ''));
+  || (r === 'rep' && crmSellerIs('office_staff', state.myRepType || ''));
 
 // ──────────────────────────────────────────────────────────────────────────
 // Demo state persistence — keep sales/competitions alive across page reloads
