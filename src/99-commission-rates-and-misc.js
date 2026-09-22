@@ -2810,7 +2810,7 @@ function openUserEditor(existing = null, prefill = null) {
       const _owner = isOwnerUser() || !_ownerExists;
       const _targetAdmin = !!existing && (existing.role === 'admin' || existing.role === 'admin_rep');
       const _lockRole = !_owner && _targetAdmin;
-      const roleSelect = el('select', { name: 'role', class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]', disabled: _lockRole,
+      const roleSelect = el('select', { name: 'role', class: 'w-full rounded-lg border px-3 py-2 text-sm', disabled: _lockRole,   // same box as the text inputs (per Isaac, Sep 22)
         title: _lockRole ? 'Only the Admin - Owner can change an admin\u2019s access' : '' },
         ...['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead', 'office_staff'].map(v => el('option', { value: v, selected: seedRole === v }, ROLE_LABEL[v])),
         // ONE Admin option (per Isaac): an account already on admin_rep keeps
