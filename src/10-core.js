@@ -4233,14 +4233,23 @@ function mountAuth(opts = {}) {
           setTimeout(() => { if (window.__riddNewVersion) location.reload(); else location.replace(window.location.pathname + (window.location.hash || '')); }, 250);
           return;
         } else if (mode === 'forgot') {
-          const { error } = await supabase.auth.resetPasswordForEmail(email, {
-            redirectTo: authEmailRedirectUrl(),
-          });
-          if (error) {
-            // Map Supabase's terse errors to something a rep can act on.
-            if (/rate limit|security purposes/i.test(error.message || '')) throw new Error('Too many reset requests — wait a minute and try once more.');
-            throw error;
+          // Only say "sent" for a REAL user (per Isaac, Sep 22): the server
+          // looks the address up and sends the reset itself; anyone else is
+          // told plainly there's no account, so they fix the email instead
+          // of waiting on a message that will never come.
+          let out;
+          try {
+            const res = await fetch('/api/auth-forgot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, redirectTo: authEmailRedirectUrl() }) });
+            out = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(out.error || ('Reset request failed (' + res.status + ')'));
+          } catch (e) {
+            if (!/failed to fetch|networkerror/i.test(String(e && e.message))) throw e;
+            // Function unreachable (offline / preview): fall back to the SDK's own send.
+            const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: authEmailRedirectUrl() });
+            if (error) { if (/rate limit|security purposes/i.test(error.message || '')) throw new Error('Too many reset requests — wait a minute and try once more.'); throw error; }
+            out = { exists: true, sent: true };
           }
+          if (!out.exists) throw new Error('No account uses ' + email + '. Check the address you sign in with, or ask an admin to add you.');
           toast('Reset link sent — check your email. Open it on THIS device and browser.', 'success');
           form.dataset.mode = 'login';
           renderMode();
