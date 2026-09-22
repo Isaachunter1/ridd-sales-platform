@@ -97,7 +97,10 @@ function viewAdmin() {
   // One flat list, alphabetical (per Isaac, Sep 2026). Sources now lives
   // inside Configurations; the old 'sources' section key still resolves.
   if (state.adminSection === 'sources') state.adminSection = 'config';
-  const groups = [
+  // Non-admins reach this page only through Settings → Permissions, and see
+  // only the sections they were granted (Permissions / Admin never).
+  const _allowed = (k) => canOpenAdminSection(k);
+  const _groupsAll = [
     { label: 'Settings', items: [
       ['uploads', 'Admin',          '🗂'],
       ['pricing', 'Commissions',    '💵'],
@@ -111,6 +114,8 @@ function viewAdmin() {
       ['usage',   'Usage',          '📈'],
     ] },
   ];
+  const groups = _groupsAll.map(g => ({ label: g.label, items: g.items.filter(([k]) => _allowed(k)) })).filter(g => g.items.length);
+  if (!_allowed(state.adminSection)) { const first = groups[0] && groups[0].items[0]; state.adminSection = first ? first[0] : 'users'; }
 
   const navBtn = ([k, label, icon]) => el('button', {
     class: 'flex items-center gap-3 px-2.5 py-1 rounded-lg text-[11px] font-medium transition text-left w-full',
@@ -158,7 +163,7 @@ function viewAdmin() {
     pricing: adminCommissions,   // "Commissions" — CRM commission rules by rep type
     backup:  adminBackup,
   };
-  const view = sectionRenderers[state.adminSection] || adminReps;
+  const view = _allowed(state.adminSection) ? (sectionRenderers[state.adminSection] || adminReps) : (() => el('div', { class: 'card p-6 text-sm text-muted-' }, 'Nothing here for your role yet \u2014 ask an admin to grant a Settings page in Permissions.'));
   const body = el('div', { class: 'flex-1 min-w-0' }, view());
 
   const mobileNav = el('div', { class: 'sm:hidden flex items-center gap-2' },

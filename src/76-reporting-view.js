@@ -3,10 +3,14 @@
 // │ Part of the app.js bundle (tools/bundle.js concatenates src/*.js in name order).
 // └────────────────────────────────────────────────────────────────────────
 function viewReporting() {
-  if (!isAdminRole(state.profile?.role)) {
+  const _adminHere = isAdminRole(state.profile?.role);
+  if (!_adminHere && !userCan('view_reporting')) {
     return el('div', { class: 'card p-6 text-center text-sm text-muted-' }, 'Reporting is an admin-only tab.');
   }
   if (!state.reportingSubTab) state.reportingSubTab = 'overview';
+  // A non-admin granted Reporting (Settings → Permissions) gets the read-only
+  // tabs; Marketing / P&L (spend, QuickBooks) and Configurations / Uploads stay admin.
+  if (!_adminHere && ['marketing', 'putis', 'config', 'uploads'].includes(state.reportingSubTab)) state.reportingSubTab = 'overview';
 
   // Lazy-load subscription rows for the active snapshot on first visit.
   // Re-checks on each render in case the user just switched snapshots.
