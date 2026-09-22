@@ -1069,6 +1069,17 @@ function viewDashboard() {
 // serves both feeds. Rows with no CRM counterpart yet are flagged.
 function dashRevenueDrill(label, sales, total, range) {
   if (typeof openReportingDrillModal !== 'function') return;
+  // Guardrail (per Isaac, Sep 22): the headline is the whole room, but the
+  // CUSTOMER-level table underneath follows the viewer's Sales-tab reach
+  // (Settings → Permissions → Reach). Reps see their own accounts unless
+  // widened; admins see everything.
+  let scoped = false;
+  if (!isAdminRole(state.profile?.role)) {
+    const sc = (typeof userScope === 'function') ? userScope('sales_scope') : 'self';
+    const nameOf = new Map((state.allProfiles || []).map(p => [String(p.id), p.full_name || '']));
+    const mine = (x) => x.rep_id === state.profile.id || (sc !== 'self' && sc !== 'none' && typeof repInReach === 'function' && repInReach(sc, nameOf.get(String(x.rep_id)) || ''));
+    const before = sales.length; sales = sales.filter(mine); scoped = sales.length !== before;
+  }
   const offById = new Map((state.offices || []).map(o => [o.id, o.name]));
   const svcById = new Map((state.serviceTypes || []).map(o => [o.id, o.name]));
   const srcById = new Map((state.sources || []).map(o => [o.id, o.name]));
@@ -1091,7 +1102,7 @@ function dashRevenueDrill(label, sales, total, range) {
   }).sort((a, b) => b.subscription_contract_value - a.subscription_contract_value);
   const win = range && range.start ? (range.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' \u2013 ' + range.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })) : '';
   openReportingDrillModal({
-    chartTitle: 'Dashboard \u00b7 ' + label + (win ? ' \u00b7 ' + win : ''),
+    chartTitle: 'Dashboard \u00b7 ' + label + (win ? ' \u00b7 ' + win : '') + (scoped ? ' \u00b7 your accounts' : ''),
     sliceLabel: fmt.usd0(total) + ' \u00b7 ' + fmt.int(rows.length) + ' sale' + (rows.length === 1 ? '' : 's') + ' \u00b7 contract value of sales sold in the window, excluding cancelled / NSF / not payable / reschedule / rejected',
     rows, formatValue: fmt.usd0,
   });
