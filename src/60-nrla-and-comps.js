@@ -5589,6 +5589,7 @@ function isRepExcluded(repName) {
 const REP_TIERS = [
   { id: 'rookie', label: 'Rookie', color: '#5F6C5B' },
   { id: 'vet',    label: 'Vet',    color: '#DF643A' },
+  { id: 'na',     label: 'N/A',    color: '#8A8A88' },   // not a competing rep (office people, house accounts) — per Isaac, Sep 22
 ];
 function setRepTier(repName, tier) {
   if (!state._indicatorRepTier) state._indicatorRepTier = {};

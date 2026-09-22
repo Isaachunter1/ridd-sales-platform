@@ -175,7 +175,7 @@ function dashboardSales() {
 // explicit role wins outright — a rep whose CRM type says Technician or
 // Office Staff but who was given "Sales Rep - Partner" here IS a partner.
 // The CRM type is only consulted for legacy 'rep' / role-less accounts.
-const _EXPLICIT_ROLES = new Set(['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead']);
+const _EXPLICIT_ROLES = new Set(['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead', 'office_staff']);
 function repTypeGroup(p) {
   if (!p) return null;
   if (isAdminRole(p.role)) return 'admin';
@@ -1280,7 +1280,7 @@ function recentSalesTable(rows, opts = {}) {
 // family (leaderboard, individual goals, Hall of Fame) to office staff.
 function isOfficeStaffProfile(p) {
   if (!p) return false;
-  if (p.role === 'rep_office' || p.role === 'rep_office_lead' || p.role === 'rep_loyalty' || p.role === 'rep_loyalty_lead') return true;
+  if (p.role === 'rep_office' || p.role === 'rep_office_lead' || p.role === 'rep_loyalty' || p.role === 'rep_loyalty_lead' || p.role === 'office_staff') return true;
   if (p.role === 'rep_sales' || p.role === 'rep_partner' || p.role === 'rep_team_lead') return false;
   const emp = frRosterRowForProfile(p);   // works even when the profile stores a branch id
   if (emp && emp.type_label) return crmSellerIs('office_staff', emp.type_label);

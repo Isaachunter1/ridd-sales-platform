@@ -1887,7 +1887,7 @@ function adminReps() {
           style: { position: 'absolute', top: 'calc(100% + 6px)', right: '0', minWidth: '190px', padding: '6px', display: 'none', zIndex: '50', boxShadow: 'var(--shadow-lg)' },
         },
           el('div', { class: 'px-3 pt-1.5 pb-2 text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'View the app as\u2026'),
-          ...['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead', 'auditor'].map(v => [v, ROLE_LABEL[v]]).map(([v, label]) => el('button', {
+          ...['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead', 'office_staff', 'auditor'].map(v => [v, ROLE_LABEL[v]]).map(([v, label]) => el('button', {
             class: 'w-full text-left px-2.5 py-1 rounded-lg text-[11px] font-medium transition',
             style: { color: 'var(--text)' },
             onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; },
@@ -1900,7 +1900,7 @@ function adminReps() {
           el('div', { class: 'px-3 pt-2 pb-1 mt-1 border-t text-[10px] uppercase tracking-widest font-semibold', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } }, 'View as a person\u2026'),
           (() => {
             const list = el('div', { class: 'flex flex-col', style: { maxHeight: '220px', overflowY: 'auto' } });
-            const roleRank = (r) => (['rep_partner', 'rep_team_lead', 'rep_office_lead', 'rep_loyalty_lead', 'rep_office', 'rep_loyalty', 'rep_sales'].indexOf(r) + 1) || 99;
+            const roleRank = (r) => (['rep_partner', 'rep_team_lead', 'rep_office_lead', 'rep_loyalty_lead', 'rep_office', 'rep_loyalty', 'office_staff', 'rep_sales'].indexOf(r) + 1) || 99;
             const people = (state.allProfiles || []).filter(p => p && p.id && p.is_active !== false && !isAdminRole(p.role))
               .sort((a, b) => (roleRank(a.role) - roleRank(b.role)) || String(a.full_name || '').localeCompare(String(b.full_name || '')));
             const shortRole = (r) => (ROLE_LABEL[r] || r || '').replace(/^Rep - /, '');
@@ -2812,7 +2812,7 @@ function openUserEditor(existing = null, prefill = null) {
       const _lockRole = !_owner && _targetAdmin;
       const roleSelect = el('select', { name: 'role', class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]', disabled: _lockRole,
         title: _lockRole ? 'Only the Admin - Owner can change an admin\u2019s access' : '' },
-        ...['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead'].map(v => el('option', { value: v, selected: seedRole === v }, ROLE_LABEL[v])),
+        ...['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead', 'office_staff'].map(v => el('option', { value: v, selected: seedRole === v }, ROLE_LABEL[v])),
         // ONE Admin option (per Isaac): an account already on admin_rep keeps
         // that value (it still sells / shows on boards); new picks are 'admin'.
         el('option', { value: seedRole === 'admin_rep' ? 'admin_rep' : 'admin', selected: seedRole === 'admin' || seedRole === 'admin_rep', disabled: !_owner && seedRole !== 'admin' && seedRole !== 'admin_rep' }, 'Admin'),

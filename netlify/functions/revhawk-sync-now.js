@@ -32,7 +32,7 @@ exports.handler = async (event) => {
   if (profErr) return json(500, { error: 'Profile lookup failed: ' + profErr.message });
   // Admins, plus office-staff profiles (per Isaac, Sep 2026): the TV board
   // on the inside-sales floor carries a Resync button for the room.
-  const ALLOWED = ['admin', 'admin_rep', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead'];
+  const ALLOWED = ['admin', 'admin_rep', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead', 'office_staff'];
   if (!prof || !ALLOWED.includes(prof.role)) return json(403, { error: 'Admins and office staff only.' });
 
   // ── Fire the background worker (it carries the 15-min budget + the secret) ──
