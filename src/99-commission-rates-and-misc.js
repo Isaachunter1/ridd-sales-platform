@@ -2514,7 +2514,7 @@ function openUserEditor(existing = null, prefill = null) {
         // Isaac — matches the sheet's SETTINGS tab; never derived).
         close_rate_target: Number.isFinite(parseFloat(data.close_rate_pct)) ? Math.max(0, Math.min(100, parseFloat(data.close_rate_pct))) / 100 : (existing?.close_rate_target ?? 0.50),
         // Pay Stub personalization (drives the Pay tab's Upfront Pay rows).
-        rep_type: data.rep_type || 'sales_rep',
+        rep_type: (data.role === 'rep_loyalty' || data.role === 'rep_loyalty_lead') ? 'loyalty_rep' : (data.rep_type || existing?.rep_type || 'sales_rep'),   // follows the role (no picker since Sep 22)
         // The field only shows for office-staff roles; a hidden input still
         // submits its (prefilled) value, and blank falls back to the record
         // so a save can never silently wipe a stored amount.
@@ -2915,10 +2915,9 @@ function openUserEditor(existing = null, prefill = null) {
         }),
       );
 
-      const repTypeSelect = el('select', { name: 'rep_type', class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]' },
-        el('option', { value: 'sales_rep',   selected: (existing?.rep_type || 'sales_rep') === 'sales_rep' }, 'Sales Rep'),
-        el('option', { value: 'loyalty_rep', selected: existing?.rep_type === 'loyalty_rep' }, 'Loyalty Rep'),
-      );
+      // Rep Type select retired (per Isaac, Sep 22): the ROLE already says
+      // loyalty vs. inside sales (rep_loyalty / rep_loyalty_lead), so the
+      // stored rep_type follows the role on save instead of a second picker.
 
       // Pay Stub rows that live HERE in Edit User are the fixed quarterly
       // additives an admin sets ahead of time per rep. Golden Phone's input
@@ -2928,25 +2927,20 @@ function openUserEditor(existing = null, prefill = null) {
       // inside-sales royalty. Sales reps never see the field; office-staff
       // roles do, unless the rep is typed Loyalty (who get Loyalty Royalty
       // instead).
-      const goldenPhoneRow    = mk('Golden Phone',    moneyInp('golden_phone_amount',    existing?.golden_phone_amount));
+      // Golden Phone editor retired for now (per Isaac, Sep 22) — any stored amount is preserved by the save path.
       const loyaltyRoyaltyRow = mk('Loyalty Royalty', moneyInp('loyalty_royalty_amount', existing?.loyalty_royalty_amount));
       // (Close Rate / Other Pay / Loyalty Pay moved to Settings → Commissions, per Isaac.)
 
-      const OFFICE_ROLES = new Set(['rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead']);
+      const LOYALTY_ROLES = new Set(['rep_loyalty', 'rep_loyalty_lead']);
       const grid = el('div', { class: 'flex flex-col gap-3' });
       const applyRepTypeVisibility = () => {
-        const isLoyalty = repTypeSelect.value === 'loyalty_rep';
         const roleSel = form.querySelector('select[name="role"]');
-        const isOffice = roleSel ? OFFICE_ROLES.has(roleSel.value) : false;
-        goldenPhoneRow.style.display    = (isOffice && !isLoyalty) ? '' : 'none';
-        loyaltyRoyaltyRow.style.display = isLoyalty ? '' : 'none';
+        loyaltyRoyaltyRow.style.display = (roleSel && LOYALTY_ROLES.has(roleSel.value)) ? '' : 'none';
       };
-      repTypeSelect.addEventListener('change', applyRepTypeVisibility);
-      grid.append(goldenPhoneRow, loyaltyRoyaltyRow);
+      grid.append(loyaltyRoyaltyRow);
 
       const section = el('div', { class: 'flex flex-col gap-3 pt-3 border-t', style: { borderColor: 'var(--border)' } },
         el('h4', { class: 'text-[11px] uppercase tracking-widest font-bold text-muted-' }, 'Pay Stub'),
-        mk('Rep Type', repTypeSelect),
         grid,
       );
 
@@ -2958,9 +2952,8 @@ function openUserEditor(existing = null, prefill = null) {
         const roleSel = form.querySelector('select[name="role"]');
         if (!roleSel) return;
         const checkRole = () => {
-          // Sales reps have nothing left here (per Isaac) — only office-staff
-          // roles keep Rep Type + Golden Phone / Loyalty Royalty.
-          section.style.display = OFFICE_ROLES.has(roleSel.value) ? '' : 'none';
+          // Only loyalty roles have a stub field left here (Loyalty Royalty) — per Isaac, Sep 22.
+          section.style.display = LOYALTY_ROLES.has(roleSel.value) ? '' : 'none';
           applyRepTypeVisibility();   // Golden Phone visibility depends on the role too
         };
         roleSel.addEventListener('change', checkRole);

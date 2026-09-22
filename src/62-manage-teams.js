@@ -1033,25 +1033,20 @@ function manageTeamsPanel(opts) {
       rest.forEach(r => { const t = getRepTeam(r) || '(unassigned)'; if (!byTeam.has(t)) byTeam.set(t, []); byTeam.get(t).push(r); });
       const teamOrder = [...byTeam.keys()].sort((a, b) => byTeam.get(b).length - byTeam.get(a).length || a.localeCompare(b));
       const openSet = state._mtOpenTeams instanceof Set ? state._mtOpenTeams : (state._mtOpenTeams = new Set());
-      // Search (per Isaac, Sep 22): open ONLY the sections that hold a match —
-      // not every section — and fold them back when the box is cleared.
-      const _q = (state._indicatorTeamSearch || '').trim().toLowerCase();
-      { const m = {}; needs.forEach(r => { m[String(r).toLowerCase()] = '__needs'; }); byTeam.forEach((rows, t) => rows.forEach(r => { m[String(r).toLowerCase()] = t; })); state._mtRepTeamMap = m; }   // for the live search below
-      if (_q) {
-        state._mtSearchOpened = true; openSet.clear();
-        byTeam.forEach((rows, t) => { if (rows.some(r => String(r).toLowerCase().includes(_q))) openSet.add(t); });
-        state._mtNeedsOpen = needs.some(r => String(r).toLowerCase().includes(_q));
-      } else if (state._mtSearchOpened) { state._mtSearchOpened = false; openSet.clear(); state._mtNeedsOpen = false; }
+      // Every section's rows are ALWAYS in the DOM (hidden when closed), so
+      // opening / closing and the search box work in place — no re-render,
+      // no flicker, the search field never loses focus (per Isaac, Sep 22).
       const out = [];
+      const body = (attr, open, nodes) => el('div', { [attr]: '1', style: { display: open ? '' : 'none' } }, ...nodes);
       if (needs.length) {
         // Collapsible too (per Isaac) — CLOSED by default; click the bar to open it.
         const needsOpen = state._mtNeedsOpen === true;
         out.push(el('div', { class: 'flex items-center gap-2 px-5 py-1.5 text-[10px] uppercase tracking-widest font-bold border-b cursor-pointer hover:brightness-95', 'data-needs-head': '1',
           style: { color: '#A9441F', borderColor: 'var(--border)', background: 'rgba(255,193,7,.06)' },
-          onclick: () => { state._mtNeedsOpen = !needsOpen; render(); } },
+          onclick: (e) => { const on = state._mtNeedsOpen !== true; state._mtNeedsOpen = on; const b = e.currentTarget.nextElementSibling; if (b) b.style.display = on ? '' : 'none'; e.currentTarget.lastElementChild.textContent = on ? '\u25b2' : '\u25bc'; } },
           el('span', { class: 'flex-1' }, needs.length + ' unassigned'),
           el('span', {}, needsOpen ? '\u25b2' : '\u25bc')));
-        if (needsOpen) needs.forEach(r => out.push(buildRow(r)));
+        out.push(body('data-needs-body', needsOpen, needs.map(r => buildRow(r))));
       }
       teamOrder.forEach(t => {
         const rows = byTeam.get(t); const open = openSet.has(t); const real = t !== '(unassigned)';
@@ -1059,8 +1054,12 @@ function manageTeamsPanel(opts) {
         const color = real ? getTeamColor(t) : 'var(--border-2)';
         out.push(el('div', { class: 'flex items-center gap-2.5 px-5 py-2 border-b border-t cursor-pointer hover:brightness-95', 'data-team-head': t,
           style: { borderColor: 'var(--border)', background: open ? 'rgba(223,100,58,.06)' : 'var(--card-2)' },
-          // Accordion (per Isaac): opening a team closes the others.
-          onclick: () => { const was = open; openSet.clear(); if (!was) openSet.add(t); render(); } },
+          // Accordion (per Isaac): opening a team closes the others — in the DOM, no re-render.
+          onclick: (e) => {
+            const head = e.currentTarget, list = head.parentElement; const was = openSet.has(t);
+            openSet.clear(); if (!was) openSet.add(t);
+            list.querySelectorAll('[data-team-head]').forEach(h => { const on = openSet.has(h.getAttribute('data-team-head')); h.style.background = on ? 'rgba(223,100,58,.06)' : 'var(--card-2)'; h.lastElementChild.textContent = on ? '\u25b2' : '\u25bc'; const b = h.nextElementSibling; if (b && b.hasAttribute('data-team-body')) b.style.display = on ? '' : 'none'; });
+          } },
           logo ? el('img', { src: logo, alt: '', style: { width: '18px', height: '18px', borderRadius: '50%', objectFit: 'cover', background: '#fff' } })
                : el('span', { style: { width: '10px', height: '10px', borderRadius: '50%', background: color, display: 'inline-block', flex: 'none' } }),
           el('span', { class: 'text-sm font-bold flex-1 min-w-0 truncate' }, t, isTeamExcluded(t) ? el('span', { class: 'ml-2 text-[9px] uppercase tracking-wider font-bold', style: { color: '#DC2626' } }, 'excluded') : null),
@@ -1068,10 +1067,7 @@ function manageTeamsPanel(opts) {
           real ? el('button', { class: 'text-[11px] font-semibold px-2 py-0.5 rounded-md border', style: { borderColor: 'var(--border-2)', color: teamSelect === t ? 'var(--accent)' : 'var(--text-muted)' }, title: 'Rename, color, logo, exclude',
             onclick: (e) => { e.stopPropagation(); state._indicatorManageTeamFilter = teamSelect === t ? '' : t; openSet.clear(); openSet.add(t); render(); } }, teamSelect === t ? 'Close settings' : 'Settings') : null,
           el('span', { class: 'text-[11px] text-muted-' }, open ? '▲' : '▼')));
-        if (open) {
-          if (teamSelect === t && detailPanel) out.push(detailPanel);
-          rows.forEach(r => out.push(buildRow(r)));
-        }
+        out.push(body('data-team-body', open, [ (open && teamSelect === t && detailPanel) ? detailPanel : null, ...rows.map(r => buildRow(r)) ]));
       });
       return out;
       })(),
@@ -1082,21 +1078,18 @@ function manageTeamsPanel(opts) {
     // Show/hide rep rows by the search box without re-rendering the modal.
     const applyRepSearch = () => {
       const q = (state._indicatorTeamSearch || '').trim().toLowerCase();
-      // Which sections should be open for this search — re-render only when that set changes
-      // (the builder above decides; this just notices). Focus/scroll are restored by render().
-      {
-        const map = state._mtRepTeamMap || {}; const openSet = state._mtOpenTeams instanceof Set ? state._mtOpenTeams : new Set();
-        if (q) {
-          const want = new Set(); let wantNeeds = false;
-          for (const n in map) if (n.includes(q)) { if (map[n] === '__needs') wantNeeds = true; else want.add(map[n]); }
-          const same = want.size === openSet.size && [...want].every(t => openSet.has(t)) && (state._mtNeedsOpen === true) === wantNeeds;
-          if (!same) { render(); return; }
-        } else if (state._mtSearchOpened) { render(); return; }
-      }
+      // Rows: show only the matches. Sections: while searching, a section is
+      // open iff it holds a match; cleared → back to the user's own open/closed
+      // state. All in the DOM, no re-render (per Isaac, Sep 22).
       for (const row of repList.querySelectorAll('[data-rep]')) {
         const name = row.getAttribute('data-rep');
         row.style.display = (!q || name.includes(q)) ? '' : 'none';
       }
+      const openSet = state._mtOpenTeams instanceof Set ? state._mtOpenTeams : new Set();
+      const setSection = (head, bodyEl, on) => { if (!head || !bodyEl) return; bodyEl.style.display = on ? '' : 'none'; head.lastElementChild.textContent = on ? '\u25b2' : '\u25bc'; if (head.hasAttribute('data-team-head')) head.style.background = on ? 'rgba(223,100,58,.06)' : 'var(--card-2)'; };
+      const hasMatch = (bodyEl) => !!bodyEl && [...bodyEl.querySelectorAll('[data-rep]')].some(r => r.style.display !== 'none');
+      repList.querySelectorAll('[data-team-head]').forEach(h => { const b = h.nextElementSibling; setSection(h, b, q ? hasMatch(b) : openSet.has(h.getAttribute('data-team-head'))); });
+      { const h = repList.querySelector('[data-needs-head]'); if (h) setSection(h, h.nextElementSibling, q ? hasMatch(h.nextElementSibling) : state._mtNeedsOpen === true); }
     };
     applyRepSearch();
 
