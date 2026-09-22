@@ -341,10 +341,17 @@ WITH src AS (
     AND NOT REGEXP_CONTAINS(LOWER(CONCAT(COALESCE(fieldRoutes_fname,''),' ',COALESCE(fieldRoutes_lname,''))),
         r'\\badmin\\b|\\bsystem\\b|fieldroutes|fr-system|\\btest\\b|\\breferral\\b|sellify|pest routes|ridd account|ridd sales|pro products|mosquito joe|clicki|pest ai|pest booker|applause')
 ),
+-- Group key (fixed Sep 22 2026): a record LINKED to a base employee joins the
+-- base's group even when it has no email of its own. Before, a linked record
+-- with a blank email keyed on the base id while the base keyed on its email —
+-- two groups, the same employee_id, and the upsert kept only one (Pere's
+-- Myrtle Beach login #10596 vanished from the roster, so 517 of his sales
+-- had no app owner).
+base_email AS (SELECT eid AS beid, email_l AS bemail FROM src),
 g AS (
-  SELECT *, COALESCE(email_l, base_eid) AS gkey,
-         SAFE_CAST(base_eid AS INT64) AS base_num, SAFE_CAST(eid AS INT64) AS id_num
-  FROM src
+  SELECT s.*, COALESCE(b.bemail, s.email_l, s.base_eid) AS gkey,
+         SAFE_CAST(s.base_eid AS INT64) AS base_num, SAFE_CAST(s.eid AS INT64) AS id_num
+  FROM src s LEFT JOIN base_email b ON b.beid = s.base_eid
 )
 SELECT
   CAST(MIN(base_num) AS STRING) AS employee_id,
