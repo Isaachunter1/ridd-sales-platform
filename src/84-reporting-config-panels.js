@@ -95,7 +95,7 @@ function reportingServiceConfigPanel() {
     ),
     list.length === 0
       ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'Service types appear here after you upload a snapshot.')
-      : el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', maxHeight: '440px', overflowY: 'auto' } },
+      : el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', maxHeight: '280px', overflowY: 'scroll', scrollbarWidth: 'thin', scrollbarGutter: 'stable' } },
           el('table', { class: 'w-full text-xs' },
             el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)', position: 'sticky', top: '0', zIndex: '10' } },
               el('tr', {},
@@ -269,7 +269,7 @@ function reportingCancelConfigPanel() {
     ),
     list.length === 0
       ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'Cancellation reasons appear here once a snapshot has canceled subscriptions.')
-      : el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', maxHeight: '440px', overflowY: 'auto' } },
+      : el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', maxHeight: '280px', overflowY: 'scroll', scrollbarWidth: 'thin', scrollbarGutter: 'stable' } },
           el('table', { class: 'w-full text-xs' },
             el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)', position: 'sticky', top: '0', zIndex: '10' } },
               el('tr', {},
@@ -391,7 +391,7 @@ function reportingSourceConfigPanel() {
     ),
     list.length === 0
       ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'Lead sources appear here after you upload a snapshot.')
-      : el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', maxHeight: '440px', overflowY: 'auto' } },
+      : el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', maxHeight: '280px', overflowY: 'scroll', scrollbarWidth: 'thin', scrollbarGutter: 'stable' } },
           el('table', { class: 'w-full text-xs' },
             el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)', position: 'sticky', top: '0', zIndex: '10' } },
               el('tr', {},
@@ -1886,7 +1886,7 @@ function reportingCrmVocabPanel() {
     onchange: (e) => { const d = Math.max(0, Math.round(Number(e.target.value) || 0)); const next = JSON.parse(JSON.stringify(stored)); if (d && d !== CRM_VOCAB_DEFAULTS.rorWindowDays) next.rorWindowDays = d; else delete next.rorWindowDays; save(Object.keys(next).length ? next : null); } });
   return el('div', { class: 'card p-4', id: 'cfg-vocab' },
     el('div', { class: 'flex items-center justify-between gap-2 mb-1' },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'CRM vocabulary'), el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'What each FieldRoutes label means to the app. Defaults are RIDD’s spellings; a company on a different CRM setup tags its own here. The rules themselves never change.')),
+      el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'CRM vocabulary')),
       V.configured ? el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { if (confirm('Reset every vocabulary tag to the defaults?')) save(null); } }, 'Reset all') : null),
     el('div', { class: 'flex items-center justify-between gap-3 py-1.5 border-t', style: { borderColor: 'var(--border)' }, title: 'The right-of-rescission window: a door-to-door sale cancelled within this many days of the sale is a rescission, not a customer. State law; RIDD’s markets are 3.' },
       el('span', { class: 'text-[11px] font-semibold' }, 'Rescission window (days)'), el('div', { class: 'flex items-center gap-2' }, win, el('span', { class: 'text-[9px] font-semibold px-1.5 py-0.5 rounded-full', style: V.rorWindowDays === CRM_VOCAB_DEFAULTS.rorWindowDays ? { background: 'var(--card-2)', color: 'var(--text-muted)' } : { background: 'rgba(223,100,58,.12)', color: 'var(--accent)' } }, V.rorWindowDays === CRM_VOCAB_DEFAULTS.rorWindowDays ? 'default' : 'custom'))),
@@ -1983,7 +1983,7 @@ function reportingOpsBaselinePanel() {
   const msg = el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '');
   return el('div', { class: 'card p-4', id: 'cfg-ops-baseline' },
     el('div', { class: 'flex items-center justify-between gap-2 cursor-pointer', onclick: () => { state._opsBaseOpen = !open; mountApp(); } },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, (open ? '▾ ' : '▸ ') + 'Operations baseline · ' + B.year), el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, stored ? 'Custom baseline (' + Object.keys(stored.values).length + ' metrics)' : 'Default — RIDD’s 2025 sheet. The Operations tab compares this year against it.')),
+      el('div', {}, el('h3', { class: 'text-sm font-bold' }, (open ? '▾ ' : '▸ ') + 'Operations baseline · ' + B.year)),
       el('span', { class: 'text-[9px] font-semibold px-1.5 py-0.5 rounded-full', style: stored ? { background: 'rgba(223,100,58,.12)', color: 'var(--accent)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' } }, stored ? 'custom' : 'default')),
     open ? el('div', { class: 'mt-2 flex flex-col gap-2' },
       el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'One row per metric and office: metric key, office name (ALL = company-wide), value. Counts are weekly averages; rates are the ratio (0.93, not 93). Keys: ' + OPS_BASELINE_METRIC_KEYS.join(', ') + '.'),
