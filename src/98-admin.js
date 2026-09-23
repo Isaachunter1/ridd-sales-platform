@@ -1007,9 +1007,17 @@ function goalMonthlyCard(g, persist, dept) {
   const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const usd = (n) => '$' + Math.round(n || 0).toLocaleString();
   const curM = new Date().getMonth();
+  // Phone (per Isaac, Sep 23): one month at a time behind a dropdown, defaulting
+  // to the current month; the quarterly band shows that month's quarter.
+  // Desktop: all 12 months fit the card width — no horizontal scrolling.
+  const phone = window.matchMedia('(max-width: 767px)').matches;
+  if (state._goalMonth == null) state._goalMonth = curM;
+  const months = phone ? [state._goalMonth] : M.map((_, i) => i);
+  const quarters = phone ? [Math.floor(state._goalMonth / 3)] : [0, 1, 2, 3];
+  if (!window.__goalGridResize) { window.__goalGridResize = true; let _t; window.addEventListener('resize', () => { clearTimeout(_t); _t = setTimeout(() => { if (state.view === 'admin') mountApp(); }, 200); }); }
   const cell = (arr, m) => el('input', {
     type: 'text', inputmode: 'numeric', value: Math.round(arr[m] || 0).toLocaleString(),
-    class: 'text-left text-[11px] rounded border px-2.5 py-1 tabular-nums', style: { borderColor: 'var(--border-2)', width: '92px' },
+    class: 'text-left text-[11px] rounded border px-1.5 py-1 tabular-nums', style: { borderColor: 'var(--border-2)', width: '100%', minWidth: '0' },
     onchange: (e) => { arr[m] = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); mountApp(); },
   });
   // Editable seasonal curve %: each month's share of its line's annual total.
@@ -1030,7 +1038,7 @@ function goalMonthlyCard(g, persist, dept) {
     const pct = tot > 0 ? (arr[m] || 0) / tot * 100 : 0;
     return el('input', {
       type: 'text', inputmode: 'decimal', value: pct.toFixed(1) + '%',
-      class: 'text-left text-[11px] rounded border px-2.5 py-1 tabular-nums', style: { borderColor: 'var(--border-2)', width: '92px' },
+      class: 'text-left text-[11px] rounded border px-1.5 py-1 tabular-nums', style: { borderColor: 'var(--border-2)', width: '100%', minWidth: '0' },
       onchange: (e) => { reshapeCurve(arr, m, (parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0) / 100); persist(); mountApp(); },
     });
   };
@@ -1040,17 +1048,21 @@ function goalMonthlyCard(g, persist, dept) {
   return el('div', { class: 'card p-4' },
     el('div', { class: 'flex items-center justify-between flex-wrap gap-2 mb-3' },
       el('h3', { class: 'text-sm font-bold' }, dept.label + ' Quota'),
+      phone ? el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+        onchange: (e) => { state._goalMonth = Number(e.target.value); mountApp(); } },
+        ...M.map((lbl, m) => el('option', { value: m, selected: m === state._goalMonth }, lbl + (m === curM ? ' (current)' : '')))) : null,
       el('button', { class: 'text-[11px] rounded px-2.5 py-1 border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
         onclick: () => { g.monthly_new = IS_SEASONAL.map(s => Math.round(g.new_amount * s)); g.monthly_renewal = IS_RENEWAL_SEASONAL.map(s => Math.round(g.renewal_amount * s)); persist(); mountApp(); } },
         '↻ Reset to default curve')),
     // Transposed (per Isaac, Sep 22): months across the top, one row per line
     // — the curve reads left-to-right as a curve. Inputs stay editable in place.
-    el('div', { class: 'rounded-lg border overflow-x-auto', style: { borderColor: 'var(--border)' } },
-      el('table', { class: 'text-xs', style: { minWidth: '100%', borderCollapse: 'collapse' } },
+    el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', overflow: 'hidden' } },
+      el('table', { class: 'text-xs', style: { width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' } },
+        el('colgroup', {}, el('col', { style: { width: phone ? '44%' : '13%' } }), ...months.map(() => el('col', {})), el('col', { style: { width: phone ? '28%' : '8%' } })),
         el('thead', { class: 'text-[10px] uppercase tracking-wider text-left', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
-          el('tr', {}, el('th', { class: 'text-left px-3 py-2 font-semibold whitespace-nowrap', style: { position: 'sticky', left: 0, background: 'var(--card-2)', zIndex: 1 } }, ''),
-            ...M.map((lbl, m) => el('th', { class: 'text-left px-3 py-2 font-semibold whitespace-nowrap', style: m === curM ? { color: 'var(--accent)' } : {} }, lbl + (m === curM ? ' ·' : ''))),
-            el('th', { class: 'text-left px-3 py-2 font-semibold whitespace-nowrap', style: { borderLeft: '2px solid var(--border)' } }, 'Year'))),
+          el('tr', {}, el('th', { class: 'text-left px-2 py-2 font-semibold whitespace-nowrap' }, ''),
+            ...months.map((m) => el('th', { class: 'text-left px-1.5 py-2 font-semibold whitespace-nowrap', style: m === curM ? { color: 'var(--accent)' } : {} }, M[m] + (m === curM ? ' ·' : ''))),
+            el('th', { class: 'text-left px-2 py-2 font-semibold whitespace-nowrap', style: { borderLeft: '2px solid var(--border)' } }, 'Year'))),
         el('tbody', {},
           ...[
             [lineA + ' curve %', (m) => curveCell(g.monthly_new, m),                        '100%',                 false],
@@ -1061,14 +1073,14 @@ function goalMonthlyCard(g, persist, dept) {
             [lineB + ' /rep', (m) => usd((g.monthly_renewal[m] || 0) / loyReps),         usd(totRen / loyReps),  false],
             ['Total',         (m) => usd((g.monthly_new[m] || 0) + (g.monthly_renewal[m] || 0)), usd(totNew + totRen), true],
           ].map(([label, cellOf, yearVal, bold], ri) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: label === 'Total' ? 'var(--card-2)' : 'transparent', borderTop: label === 'Total' ? '2px solid var(--border)' : undefined } },
-            el('td', { class: 'px-3 py-1.5 text-left font-semibold whitespace-nowrap', style: { position: 'sticky', left: 0, background: label === 'Total' ? 'var(--card-2)' : 'var(--card)', zIndex: 1 } }, label),
-            ...M.map((lbl, m) => el('td', { class: 'px-3 py-1.5 text-left tabular-nums whitespace-nowrap' + (bold && typeof cellOf(m) === 'string' ? ' font-semibold' : ''), style: m === curM ? { background: 'rgba(223,100,58,.06)' } : {} }, cellOf(m))),
-            el('td', { class: 'px-3 py-1.5 text-left tabular-nums font-bold whitespace-nowrap', style: { borderLeft: '2px solid var(--border)' } }, yearVal))),
+            el('td', { class: 'px-2 py-1.5 text-left font-semibold', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, label),
+            ...months.map((m) => el('td', { class: 'px-1.5 py-1.5 text-left tabular-nums whitespace-nowrap' + (bold && typeof cellOf(m) === 'string' ? ' font-semibold' : ''), style: Object.assign({ overflow: 'hidden' }, m === curM ? { background: 'rgba(223,100,58,.06)' } : {}) }, cellOf(m))),
+            el('td', { class: 'px-2 py-1.5 text-left tabular-nums font-bold whitespace-nowrap', style: { borderLeft: '2px solid var(--border)', overflow: 'hidden' } }, yearVal))),
           // ── Quarterly rollup — each quarter cell spans its three months (3× box) ──
           el('tr', { style: { background: 'var(--card-2)', borderTop: '2px solid var(--border)' } },
-            el('th', { class: 'text-left px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap', style: { position: 'sticky', left: 0, background: 'var(--card-2)', zIndex: 1, color: 'var(--text-muted)' } }, 'Quarterly'),
-            ...[0, 1, 2, 3].map(q => el('th', { colspan: '3', class: 'text-left px-3 py-2 text-[10px] uppercase tracking-wider font-semibold', style: Object.assign({ color: 'var(--text-muted)' }, Math.floor(curM / 3) === q ? { color: 'var(--accent)' } : {}) }, 'Q' + (q + 1) + (Math.floor(curM / 3) === q ? ' ·' : ''))),
-            el('th', { class: 'text-left px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap', style: { borderLeft: '2px solid var(--border)', color: 'var(--text-muted)' } }, 'Year')),
+            el('th', { class: 'text-left px-2 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)' } }, 'Quarterly'),
+            ...quarters.map(q => el('th', { colspan: phone ? '1' : '3', class: 'text-left px-1.5 py-2 text-[10px] uppercase tracking-wider font-semibold', style: Object.assign({ color: 'var(--text-muted)' }, Math.floor(curM / 3) === q ? { color: 'var(--accent)' } : {}) }, 'Q' + (q + 1) + (Math.floor(curM / 3) === q ? ' ·' : ''))),
+            el('th', { class: 'text-left px-2 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap', style: { borderLeft: '2px solid var(--border)', color: 'var(--text-muted)' } }, 'Year')),
           ...(() => {
             const qsum = (arr, q) => (arr[q * 3] || 0) + (arr[q * 3 + 1] || 0) + (arr[q * 3 + 2] || 0);
             const qn = [0, 1, 2, 3].map(q => qsum(g.monthly_new, q)), qr = [0, 1, 2, 3].map(q => qsum(g.monthly_renewal, q));
@@ -1083,9 +1095,9 @@ function goalMonthlyCard(g, persist, dept) {
               ['Total quarterly',      q => usd(qn[q] + qr[q]), usd(totNew + totRen), true],
             ];
             return rows.map(([label, cellOf, yearVal, bold]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: label === 'Total quarterly' ? 'var(--card-2)' : (/\/rep/.test(label) ? 'rgba(223,100,58,.06)' : 'transparent'), borderTop: label === 'Total quarterly' ? '2px solid var(--border)' : undefined } },
-              el('td', { class: 'px-3 py-1.5 text-left font-semibold whitespace-nowrap', style: { position: 'sticky', left: 0, background: label === 'Total quarterly' ? 'var(--card-2)' : 'var(--card)', zIndex: 1 } }, label),
-              ...[0, 1, 2, 3].map(q => el('td', { colspan: '3', class: 'px-3 py-1.5 text-left tabular-nums whitespace-nowrap' + (bold ? ' font-semibold' : ''), style: Math.floor(curM / 3) === q ? { background: 'rgba(223,100,58,.06)' } : {} }, cellOf(q))),
-              el('td', { class: 'px-3 py-1.5 text-left tabular-nums font-bold whitespace-nowrap', style: { borderLeft: '2px solid var(--border)' } }, yearVal)));
+              el('td', { class: 'px-2 py-1.5 text-left font-semibold', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, label),
+              ...quarters.map(q => el('td', { colspan: phone ? '1' : '3', class: 'px-1.5 py-1.5 text-left tabular-nums whitespace-nowrap' + (bold ? ' font-semibold' : ''), style: Math.floor(curM / 3) === q ? { background: 'rgba(223,100,58,.06)' } : {} }, cellOf(q))),
+              el('td', { class: 'px-2 py-1.5 text-left tabular-nums font-bold whitespace-nowrap', style: { borderLeft: '2px solid var(--border)' } }, yearVal)));
           })()))));
 }
 
