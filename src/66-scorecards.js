@@ -1769,9 +1769,9 @@ function _setAdminRule(key, val) {
 }
 
 function reportingRecurringMode() {
-  const r = _adminRules();
-  if (r && (r.recurringMode === 'arv' || r.recurringMode === 'lifecycle')) return r.recurringMode;
-  try { return localStorage.getItem('ridd_reporting_recurring_mode') === 'arv' ? 'arv' : 'lifecycle'; } catch { return 'lifecycle'; }
+  // ARR > $0 is the only basis (per Isaac, Sep 23) — the manual Lifecycle
+  // list no longer decides what counts as recurring.
+  return 'arv';
 }
 function setReportingRecurringMode(m) {
   _setAdminRule('recurringMode', m === 'arv' ? 'arv' : 'lifecycle');
