@@ -1741,8 +1741,8 @@ async function openUsageUserDrill(userId, o = {}) {
     table([th('When'), th('What'), th('')], timeline.map(tlRow), 'No activity yet.'));
 }
 
-function adminReps() {
-  const host = el('div', { class: 'flex flex-col gap-4' });
+// Adoption card — lives on Settings → Usage (per Isaac, Sep 23; was on Users).
+function adoptionCard(host) {
   // ── 📊 Adoption — who's actually using the app (usage_events). Card
   // renders only once the telemetry table exists and has rows; silent
   // otherwise. Cached 5 minutes so opening Users doesn't hammer the DB. ──
@@ -1761,7 +1761,7 @@ function adminReps() {
           state._usageStats = { at: Date.now(), rows: error ? null : (data || []) };
         } catch (e) { state._usageStats = { at: Date.now(), rows: null }; }
         state._usageStatsLoading = false;
-        if (state.view === 'admin' && state.adminSection === 'users') mountApp();
+        if (state.view === 'admin' && state.adminSection === 'usage') mountApp();
       })();
     }
     const us = state._usageStats;
@@ -1794,6 +1794,10 @@ function adminReps() {
           (r.meta && Array.isArray(r.meta.attachments) && r.meta.attachments.length) ? el('span', { class: 'ml-2 text-[10px]', style: { color: 'var(--text-subtle)' } }, '\ud83d\udcce ' + r.meta.attachments.length) : null))));
     }
   }
+}
+
+function adminReps() {
+  const host = el('div', { class: 'flex flex-col gap-4' });
   // Pull the CRM roster the first time an admin opens this screen.
   if (!(typeof DEMO !== 'undefined' && DEMO) && state.frRoster == null && !state._frRosterLoading) {
     loadFieldRoutesRoster().then(() => { if (state.view === 'admin') mountApp(); });

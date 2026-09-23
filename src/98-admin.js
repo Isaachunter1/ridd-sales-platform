@@ -1917,6 +1917,8 @@ function adminUsage() {
     el('div', {}, el('h2', { class: 'text-lg font-bold' }, 'Usage'), el('div', { class: 'text-[11px] text-muted-' }, 'Page views, time on page, actions, adoption, errors and abandoned flows — recorded by the app itself. Rows older than 90 days are pruned.')),
     el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
       ...[7, 30, 90].map(d => el('button', { class: 'px-2.5 py-1 text-[11px] font-bold transition', style: d === days ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._usageDays = d; mountApp(); } }, 'Last ' + d + ' days')))));
+  // Adoption (who's actually using the app) moved here from Users (per Isaac, Sep 23).
+  try { if (typeof adoptionCard === 'function') adoptionCard(wrap); } catch (e) { /* card is best-effort */ }
   if (!cached) { wrap.append(emptyCard('Loading usage…')); return wrap; }
   if (cached.error) {
     wrap.append(el('div', { class: 'card p-6 text-sm' }, el('div', { class: 'font-bold mb-1' }, 'Usage data is not available yet'),
