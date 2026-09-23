@@ -560,17 +560,14 @@ function reportingRenewals(srcRows, opts) {
     if (!r.customer_id) return;
     if (RENEWAL_SRC_RE.test(String(r.subscription_source || ''))) renewedCust.add(r.customer_id);
   });
-  // Per Isaac (Sep 23): term runs from the SIGNED AGREEMENT date (fallback:
-  // initial service when no e-sign stamp), and only accounts whose active
-  // subscription is their ONLY one — a bundle is not one agreement ending.
-  const activeSubsByCust = new Map();
-  rows.forEach(r => { if (isActive(r) && r.customer_id) activeSubsByCust.set(r.customer_id, (activeSubsByCust.get(r.customer_id) || 0) + 1); });
+  // Per Isaac (Sep 23): any recurring plan that can go back under contract —
+  // everything except Sentricon and one-time services. Term runs from the
+  // SIGNED AGREEMENT date (fallback: initial service when no e-sign stamp).
   const expiring = [], past = [];
   let renewedN = 0, renewedArr = 0;
   rows.forEach(r => {
     if (!isActive(r)) return;
     if (_isSentricon(r)) return;
-    if ((activeSubsByCust.get(r.customer_id) || 0) !== 1) return;
     const len = Number(r.agreement_length) || 0;
     if (len <= 1) return;
     const d = new Date(String(r.contract_signed_at || r.initial_service) + 'T00:00');
@@ -615,7 +612,7 @@ function reportingRenewals(srcRows, opts) {
   const LOG = state._renewalLog || {};
   const logOf = (x) => LOG[String(x.id)] || {};
   const STAGES = [
-    { key: 'Eligible',       label: 'Eligible',       emoji: '🟢', color: '#5F6C5B', bg: 'rgba(95,108,91,.10)',  blurb: 'Final 2 months of the agreement (signed date + contract length), or past term and month-to-month · their only subscription · never renewed before · no Sentricon' },
+    { key: 'Eligible',       label: 'Eligible',       emoji: '🟢', color: '#5F6C5B', bg: 'rgba(95,108,91,.10)',  blurb: 'Final 2 months of the agreement (signed date + contract length), or past term and month-to-month · any recurring plan · never renewed before · no Sentricon, no one-time' },
     { key: 'Contacting',     label: 'Contacting',     emoji: '📞', color: '#A9441F', bg: 'rgba(169,68,31,.10)',  blurb: 'Reached out — call attempts and notes live on the card' },
     { key: 'Renewed',        label: 'Renewed',        emoji: '✅', color: 'var(--ok)', bg: 'rgba(22,163,74,.10)',  blurb: 'Re-signed. Cards marked CRM came in through a Renewal source automatically' },
     { key: 'Not Interested', label: 'Not Interested', emoji: '❌', color: '#DC2626', bg: 'rgba(220,38,38,.10)',  blurb: 'Declined — stays here so nobody calls them again' },
