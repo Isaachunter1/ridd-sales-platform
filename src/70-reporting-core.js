@@ -697,10 +697,11 @@ function reportingPinBar(key, bar) {
     if (pin && !b._pinned) {
       b._pinned = true;
       const r = sp.getBoundingClientRect();
-      Object.assign(b.style, { position: 'fixed', top: top + 'px', left: r.left + 'px', width: r.width + 'px', zIndex: '15', boxShadow: '0 6px 12px -8px rgba(0,0,0,.25)' });
+      // Same spacing as the Retention Attrition Steps header (per Isaac, Sep 23): 14px under the header rule, 8px below, page background.
+      Object.assign(b.style, { position: 'fixed', top: top + 'px', left: r.left + 'px', width: r.width + 'px', zIndex: '15', background: 'var(--bg)', paddingTop: '14px', paddingBottom: '8px' });
     } else if (!pin && b._pinned) {
       b._pinned = false;
-      Object.assign(b.style, { position: '', top: '', left: '', width: '', zIndex: '', boxShadow: '' });
+      Object.assign(b.style, { position: '', top: '', left: '', width: '', zIndex: '', background: '', paddingTop: '', paddingBottom: '' });
     } else if (pin) { const r = sp.getBoundingClientRect(); b.style.left = r.left + 'px'; b.style.width = r.width + 'px'; }
   };
   window._rptPinSyncs = window._rptPinSyncs || {};

@@ -1053,10 +1053,10 @@ function reportingPutis() {
     if (pin && !bar._pinned) {
       bar._pinned = true;
       const r = sp.getBoundingClientRect();
-      Object.assign(bar.style, { position: 'fixed', top: headerH + 'px', left: r.left + 'px', width: r.width + 'px', zIndex: '15', background: 'var(--bg)', padding: '8px 0', borderBottom: '1px solid var(--border)' });
+      Object.assign(bar.style, { position: 'fixed', top: headerH + 'px', left: r.left + 'px', width: r.width + 'px', zIndex: '15', background: 'var(--bg)', padding: '14px 0 8px' });   // same spacing as the Retention header (per Isaac, Sep 23)
     } else if (!pin && bar._pinned) {
       bar._pinned = false;
-      Object.assign(bar.style, { position: '', top: '', left: '', width: '', zIndex: '', background: '', padding: '', borderBottom: '' });
+      Object.assign(bar.style, { position: '', top: '', left: '', width: '', zIndex: '', background: '', padding: '' });
     } else if (pin) { const r = sp.getBoundingClientRect(); bar.style.left = r.left + 'px'; bar.style.width = r.width + 'px'; }
   };
   setTimeout(pinPutisBar, 0);
