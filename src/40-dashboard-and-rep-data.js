@@ -5428,14 +5428,14 @@ function leaderboardSection(range) {
     (() => {
       const th = (key, label, title, cls) => el('th', { class: (cls || 'text-right px-2 py-2') + ' cursor-pointer select-none hover:text-default', style: sortHl(key), title: title || undefined, onclick: () => setSort(key) }, label);
       const td = (v, cls) => el('td', { class: 'px-2 py-2 text-right tabular-nums ' + (cls || '') }, v);
-      // Drill-down cells (per Isaac, Sep 23): click a metric to see exactly
-      // which sales landed on each side of the ratio — same lists the TV
-      // board's tiles open — so a number can be checked against FieldRoutes.
+      // Drill-down (per Isaac, Sep 23): click a rep's Sales count (or the
+      // RIDD total) to list every sale behind it — customer #, term, service,
+      // office, source, value — so the board reconciles against FieldRoutes.
       // r = a rep row; null = the pinned RIDD total (every row pooled).
       const tdDrill = (v, r, key, cls) => el('td', {
         class: 'px-2 py-2 text-right tabular-nums cursor-pointer hover:underline ' + (cls || ''),
         title: 'See the sales behind this number',
-        onclick: (e) => { e.stopPropagation(); openLeaderDrill(r ? r : { full_name: lbOnly.size ? 'Total' : 'RIDD', _sales: rows.flatMap(x => x._sales || []) }, key); },
+        onclick: (e) => { e.stopPropagation(); openLeaderDrill(r ? r : { full_name: lbOnly.size ? 'Total' : 'RIDD', _sales: rows.flatMap(x => x._sales || []) }); },
       }, v);
       const LB_COLS = [
         { key: 'sales',       label: 'Sales',     total: (t) => tdDrill(fmt.int(t.count), null, 'sales'),                   row: (r) => tdDrill(fmt.int(r.count), r, 'sales') },
@@ -5444,9 +5444,9 @@ function leaderboardSection(range) {
         { key: 'recurring',   label: 'Rec. Rev',  title: 'Contract revenue only — total revenue minus one-time service revenue', total: (t) => td(fmt.usd0(t.recurring)), row: (r) => td(fmt.usd0(r.recurring), 'text-muted-') },
         { key: 'ots',         label: 'OTS Rev',   title: 'One-time service revenue (no contract months)', total: (t) => td(t.ots > 0 ? fmt.usd0(t.ots) : '—'), row: (r) => td(r.ots > 0 ? fmt.usd0(r.ots) : '—', 'text-muted-') },
         { key: 'acv',         label: 'ACV',       title: 'Average contract value across ALL sales, one-time services included', total: (t) => td(t.count ? fmt.usd0(t.revenue / t.count) : '—'), row: (r) => td(fmt.usd0(r.acv), 'text-muted-') },
-        { key: 'auto_pay',    label: 'APay %',    title: 'Sales on auto-pay ÷ CRM-synced sales (manual upsell logs don’t carry the field)', total: (t) => tdDrill(t.apN ? fmt.pct(t.apW / t.apN) : '—', null, 'auto_pay'), row: (r) => tdDrill(r.auto_pay_pct == null ? '—' : fmt.pct(r.auto_pay_pct), r, 'auto_pay', 'text-muted-') },
-        { key: 'my_pct',      label: 'MY %',      title: 'Multi-year contracts (18+ mo) / all contract sales', total: (t) => tdDrill(t.count ? fmt.pct(t.myW / t.count) : '—', null, 'my_pct'), row: (r) => tdDrill(fmt.pct(r.my_pct), r, 'my_pct') },
-        { key: 'rec_mix_pct', label: 'Rec Mix %', title: '12/18/24-mo contracts / (contracts + one-time services)', cls: 'text-right pl-2 pr-4 py-2', total: (t) => tdDrill(t.count ? fmt.pct(t.mixW / t.count) : '—', null, 'rec_mix_pct', 'pr-4'), row: (r) => tdDrill(fmt.pct(r.rec_mix_pct), r, 'rec_mix_pct', 'pr-4') },
+        { key: 'auto_pay',    label: 'APay %',    title: 'Sales on auto-pay ÷ CRM-synced sales (manual upsell logs don’t carry the field)', total: (t) => td(t.apN ? fmt.pct(t.apW / t.apN) : '—'), row: (r) => td(r.auto_pay_pct == null ? '—' : fmt.pct(r.auto_pay_pct), 'text-muted-') },
+        { key: 'my_pct',      label: 'MY %',      title: 'Multi-year contracts (18+ mo) / all contract sales', total: (t) => td(t.count ? fmt.pct(t.myW / t.count) : '—'), row: (r) => td(fmt.pct(r.my_pct)) },
+        { key: 'rec_mix_pct', label: 'Rec Mix %', title: '12/18/24-mo contracts / (contracts + one-time services)', cls: 'text-right pl-2 pr-4 py-2', total: (t) => td(t.count ? fmt.pct(t.mixW / t.count) : '—', 'pr-4'), row: (r) => td(fmt.pct(r.rec_mix_pct), 'pr-4') },
       ];
       const phone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
       const pick = phone ? (LB_COLS.find(c => c.key === state._lbMobileCol) || LB_COLS.find(c => c.key === 'revenue')) : null;
@@ -6123,36 +6123,18 @@ function viewLoyaltyDashboard() {
 
 
 // ── Leaderboard drill-down (per Isaac, Sep 23) ──────────────────────────
-// Mirrors the TV board's tile drills: the sales on each side of a ratio,
-// with customer #, service, term, office, source and value, so the app's
-// number can be reconciled line-by-line against a FieldRoutes report.
-function openLeaderDrill(row, key) {
+// Every sale behind a rep's Sales count — customer #, term, service, office,
+// source, sold date and value — so the board reconciles line-by-line against
+// a FieldRoutes report. Only the Sales cell drills (per Isaac).
+function openLeaderDrill(row) {
   const sales = row._sales || [];
   const svcOf = (s) => String(s._crmService || nameFromId(state.serviceTypes || [], s.service_type_id) || '—');
   const srcOf = (s) => { const o = (state.sources || []).find(x => x.id === s.source_id); return o ? o.name : (s._crmSource || ''); };
   const offOf = (s) => { const o = (state.offices || []).find(x => x.id === s.office_id); return o ? o.name : (s._crmOffice || ''); };
-  const isOneTime = (s) => !Number(s.contract_months) || Number(s.contract_months) <= 1;
   const money = (n) => fmt.usd0(n);
   const bySold = (a, b) => String(b.sold_date || '').localeCompare(String(a.sold_date || '')) || String(b.created_at || '').localeCompare(String(a.created_at || ''));
-  let title = '', groups = [];
-  if (key === 'my_pct') {
-    const yes = sales.filter(s => myBucketOf(s) === 'multi'), no = sales.filter(s => myBucketOf(s) === 'twelve');
-    const ex = sales.filter(s => myBucketOf(s) == null);
-    title = 'MY % · ' + fmt.pct((yes.length + no.length) ? yes.length / (yes.length + no.length) : 0) + ' · ' + yes.length + ' of ' + (yes.length + no.length) + ' contracts';
-    groups = [['Multi-year (18 mo+)', yes, true], ['12-month', no, false], ['Not in the ratio · one-time, Sentricon, no term', ex, false]];
-  } else if (key === 'auto_pay') {
-    const pool = sales.filter(s => s._crm);
-    const yes = pool.filter(s => s._crmAutoPay), no = pool.filter(s => !s._crmAutoPay), ex = sales.filter(s => !s._crm);
-    title = 'APay % · ' + (pool.length ? fmt.pct(yes.length / pool.length) : '—') + ' · ' + yes.length + ' of ' + pool.length + ' CRM sales';
-    groups = [['On auto pay', yes, true], ['Not on auto pay', no, false], ['Not in the ratio · app-logged, no CRM field', ex, false]];
-  } else if (key === 'rec_mix_pct') {
-    const yes = sales.filter(s => !isOneTime(s)), no = sales.filter(isOneTime);
-    title = 'Rec Mix % · ' + fmt.pct(sales.length ? yes.length / sales.length : 0) + ' · ' + yes.length + ' recurring of ' + sales.length;
-    groups = [['Recurring contracts', yes, true], ['One-time services', no, false]];
-  } else {
-    title = 'Sales · ' + sales.length + ' · ' + money(sales.reduce((a, s) => a + Number(s.revenue_amount || 0), 0));
-    groups = [['All sales in the window', [...sales].sort(bySold), true]];
-  }
+  const title = sales.length + ' sale' + (sales.length === 1 ? '' : 's') + ' · ' + money(sales.reduce((a, s) => a + Number(s.revenue_amount || 0), 0));
+  const groups = [['All sales in the window', [...sales].sort(bySold), true]];
   const overlay = el('div', { class: 'modal-overlay' });
   const close = () => { overlay.remove(); document.removeEventListener('keydown', esc); };
   const esc = (e) => { if (e.key === 'Escape') close(); };
