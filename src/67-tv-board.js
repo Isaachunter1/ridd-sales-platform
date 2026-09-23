@@ -149,7 +149,7 @@ function openTvBoard() {
     // Sep 22): crm_initial_status Pending or Completed, as the sync stamps it.
     // 'None' / cancelled initials stay off the board until FieldRoutes has an
     // appointment. Rows without the stamp (manual / legacy) still show.
-    const hasAppt = (s) => { if (s.crm_initial_status == null) return true; const st = String(s.crm_initial_status).trim().toLowerCase(); return st === 'pending' || st === 'completed'; };
+    const hasAppt = (s) => (typeof saleHasAppt === 'function') ? saleHasAppt(s) : true;   // shared with dashboardSales() so both boards agree
     const rows = pool.filter(s => { if (EXCLUDED.has(s.audit_status)) return false; if (!hasAppt(s)) return false; const day = localDay(s.created_at) || s.sold_date; return day && day >= range.start && day <= range.end; });
     const rev = (xs) => xs.reduce((a, s) => a + (Number(s.revenue_amount) || 0), 0);
     // New vs renewal (per Isaac): the four Renewal sources are renewal
