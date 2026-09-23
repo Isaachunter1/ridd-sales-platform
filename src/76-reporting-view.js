@@ -786,7 +786,7 @@ function _renewalLogLoad() {
   supabase.from('renewal_worklog').select('*').then(({ data, error }) => {
     if (error) { console.warn('[renewals] worklog load failed (run renewal_worklog.sql?)', error.message); return; }
     (data || []).forEach(r => { state._renewalLog[String(r.customer_id)] = r; });
-    if (state.view === 'renewals' || (state.reportingSubTab === 'waterfall' && state._retenSection === 'renewals')) mountApp();
+    if (state.view === 'loyalty_renewals') mountApp();
   });
   // Many reps work the board at once (per Isaac): every save lands on every
   // open board within a second through the realtime channel, so two people
@@ -799,7 +799,7 @@ function _renewalLogLoad() {
           if (msg.eventType === 'DELETE') { const k = msg.old && msg.old.customer_id; if (k) delete state._renewalLog[String(k)]; }
           else if (row) state._renewalLog[String(row.customer_id)] = row;
           try { localStorage.setItem('ridd_renewal_log_v1', JSON.stringify(state._renewalLog)); } catch (e) { /* quota */ }
-          if (state.view === 'renewals' || (state.reportingSubTab === 'waterfall' && state._retenSection === 'renewals')) { clearTimeout(state._renewalRtT); state._renewalRtT = setTimeout(mountApp, 300); }
+          if (state.view === 'loyalty_renewals') { clearTimeout(state._renewalRtT); state._renewalRtT = setTimeout(mountApp, 300); }
         }).subscribe();
     }
   } catch (e) { /* realtime unavailable — saves still land, boards refresh on reload */ }
