@@ -1213,12 +1213,21 @@ function reportingChartData(scopeRows, serviceConfig) {
   // Customer tenure: count subs per tenure bucket. Stable order so the
   // legend reads <1yr → 4+yr → Unknown across every snapshot.
   const today = new Date();
+  // Two lenses (per Isaac, Sep 23):
+  //   lifetime — every sub (active, frozen, cancelled): how long it made it,
+  //              initial service → cancel date, or → today while still active;
+  //   active   — one per CUSTOMER with at least one active sub: years since
+  //              the account's earliest initial service.
+  const _lifeBucket = (r) => reportingTenureBucket(r.initial_service, r.subscription_date_canceled ? new Date(String(r.subscription_date_canceled) + 'T00:00') : today);
   const tenureCounts = new Map(REPORTING_TENURE_ORDER.map(k => [k, 0]));
-  for (const r of scopeRows) {
-    const bucket = reportingTenureBucket(r.initial_service, today);
-    tenureCounts.set(bucket, (tenureCounts.get(bucket) || 0) + 1);
-  }
+  for (const r of scopeRows) { const b = _lifeBucket(r); tenureCounts.set(b, (tenureCounts.get(b) || 0) + 1); }
   const tenureSlices = REPORTING_TENURE_ORDER.map(k => ({ label: k, value: tenureCounts.get(k) || 0 }));
+  const _custStart = new Map();
+  for (const r of activeForCharts) { if (!r.customer_id || !r.initial_service) continue; const cur = _custStart.get(r.customer_id); if (!cur || String(r.initial_service) < cur) _custStart.set(r.customer_id, String(r.initial_service)); }
+  const _custTenure = (cid) => reportingTenureBucket(_custStart.get(cid) || '', today);
+  const tenureActiveCounts = new Map(REPORTING_TENURE_ORDER.map(k => [k, 0]));
+  for (const cid of new Set(activeForCharts.filter(r => r.customer_id).map(r => r.customer_id))) { const b = _custTenure(cid); tenureActiveCounts.set(b, (tenureActiveCounts.get(b) || 0) + 1); }
+  const tenureActiveSlices = REPORTING_TENURE_ORDER.map(k => ({ label: k, value: tenureActiveCounts.get(k) || 0 }));
 
   // Agreement length mix: 12 / 18 / 24 are the real products — everything
   // else (6, 13, 36, legacy oddballs) rolls into one "Other" slice (per
@@ -1272,6 +1281,7 @@ function reportingChartData(scopeRows, serviceConfig) {
       aging:       receivablesSlices,
       pastDueOffice: reportingGroupSum(pastDueCusts, c => c.office, c => c.balance),
       tenure:      tenureSlices,
+      tenureActive: tenureActiveSlices,
       agreement:   agreementSlices,
       cancels:     reportingGroupCount(realCancels, r => reportingCancelReasonOf(r)),
       sources:     reportingGroupCount(scopeRows,   r => r.subscription_source || 'Unspecified'),
@@ -1295,7 +1305,8 @@ function reportingChartData(scopeRows, serviceConfig) {
       serviced:      { source: servicedRows,  key: r => r.subscription },
       aging:         { source: scopeRows,     key: r => reportingAgingBucket(r.days_past_due) },
       pastDueOffice: { source: pastDueRows,   key: r => r.office_name || 'Unspecified' },
-      tenure:        { source: scopeRows,     key: r => reportingTenureBucket(r.initial_service, today) },
+      tenure:        { source: scopeRows,     key: r => _lifeBucket(r) },
+      tenureActive:  { source: activeForCharts.filter(r => r.customer_id), key: r => _custTenure(r.customer_id) },
       agreement:     { source: scopeRows.filter(r => (Number(r.agreement_length) || 0) > 0), key: r => { const m = Number(r.agreement_length) || 0; return (m === 12 || m === 18 || m === 24) ? m + ' mo' : 'Other'; } },
       cancels:       { source: realCancels,   key: r => reportingCancelReasonOf(r) },
       sources:       { source: scopeRows,     key: r => r.subscription_source || 'Unspecified' },
