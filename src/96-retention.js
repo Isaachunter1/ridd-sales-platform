@@ -1700,12 +1700,27 @@ function reportingWaterfall() {
         el('div', { class: 'px-4 py-3 border-b', style: { borderColor: 'var(--border)' } }, title),
         el('div', { class: 'px-4 py-6 text-center text-[11px]', style: { color: 'var(--text-muted)' } }, 'Cancel times arrive with the next FieldRoutes sync (the snapshot only carried the cancel date until now).'));
     }
-    const WIN = [[90, 'Last 90 days'], [365, 'Last 12 months'], ['ytd', 'YTD'], ['all', 'All time']];
-    const win = WIN.some(w => w[0] === state._rtChurnWin) ? state._rtChurnWin : 90;
+    // Window (per Isaac, Sep 23): one dropdown — today · this week · last
+    // week · this month · last month · last 90 · last 12 months · YTD · all ·
+    // custom (start / end). Weeks run Sun–Sat like the rest of the app.
+    const WIN = [['today', 'Today'], ['week', 'This week'], ['lastweek', 'Last week'], ['month', 'This month'], ['lastmonth', 'Last month'], [90, 'Last 90 days'], [365, 'Last 12 months'], ['ytd', 'YTD'], ['all', 'All time'], ['custom', 'Custom…']];
+    const win = WIN.some(w => String(w[0]) === String(state._rtChurnWin)) ? state._rtChurnWin : 90;
     const mode = state._rtChurnMode === 'arr' ? 'arr' : 'subs';
     const today = new Date(); const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-    const since = win === 'all' ? '0000' : win === 'ytd' ? today.getFullYear() + '-01-01' : iso(new Date(today.getTime() - (win - 1) * 86400000));
-    const inWin = stamped.filter(r => r._effCancel >= since);
+    const shift = (d, fn) => { const x = new Date(d); fn(x); return x; };
+    const range = (() => {
+      const t = iso(today);
+      if (win === 'today') return [t, t];
+      if (win === 'week') return [iso(shift(today, x => x.setDate(x.getDate() - x.getDay()))), t];
+      if (win === 'lastweek') { const s0 = shift(today, x => x.setDate(x.getDate() - x.getDay() - 7)); return [iso(s0), iso(shift(s0, x => x.setDate(x.getDate() + 6)))]; }
+      if (win === 'month') return [iso(new Date(today.getFullYear(), today.getMonth(), 1)), t];
+      if (win === 'lastmonth') return [iso(new Date(today.getFullYear(), today.getMonth() - 1, 1)), iso(new Date(today.getFullYear(), today.getMonth(), 0))];
+      if (win === 'ytd') return [today.getFullYear() + '-01-01', t];
+      if (win === 'all') return ['0000', '9999'];
+      if (win === 'custom') return [state._rtChurnFrom || iso(shift(today, x => x.setDate(x.getDate() - 29))), state._rtChurnTo || t];
+      return [iso(new Date(today.getTime() - (Number(win) - 1) * 86400000)), t];
+    })();
+    const inWin = stamped.filter(r => r._effCancel >= range[0] && r._effCancel <= range[1]);
     // Reason pills: every reason in the window, biggest first; "All" plus one-click exclude of the top automated one.
     const reasonOf = (r) => String(reportingCancelReasonOf(r) || 'Unspecified').trim() || 'Unspecified';
     const byReason = new Map(); inWin.forEach(r => byReason.set(reasonOf(r), (byReason.get(reasonOf(r)) || 0) + 1));
@@ -1731,8 +1746,14 @@ function reportingWaterfall() {
     const cellFg = (v) => (v / max) > 0.55 ? '#fff' : 'var(--text)';
     const drill = (title2, rs) => rs.length ? () => openChurnReasonModal('Churn timing \u00b7 ' + title2, rs) : null;
     const pill = (on, txt, fn, ttl) => el('button', { class: 'rounded-full px-2 py-0.5 text-[10px] font-bold transition hover:brightness-95 shrink-0', title: ttl || '', style: on ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: fn }, txt);
+    const winSel = el('select', { class: 'rounded-lg border px-2 py-0.5 text-[10px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      onchange: (e) => { const v = e.target.value; state._rtChurnWin = /^\d+$/.test(v) ? Number(v) : v; mountApp(); } },
+      ...WIN.map(([k, l]) => el('option', { value: String(k), selected: String(win) === String(k) }, l)));
+    const dateIn = (key, val) => el('input', { type: 'date', value: val, class: 'rounded-lg border px-1.5 py-0.5 text-[10px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      onchange: (e) => { if (e.target.value) { state[key] = e.target.value; mountApp(); } } });
     const controls = el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
-      ...WIN.map(([k, l]) => pill(win === k, l, () => { state._rtChurnWin = k; mountApp(); })),
+      winSel,
+      win === 'custom' ? dateIn('_rtChurnFrom', range[0]) : null, win === 'custom' ? el('span', { class: 'text-[10px] text-muted-' }, '–') : null, win === 'custom' ? dateIn('_rtChurnTo', range[1]) : null,
       el('span', { style: { width: '6px' } }),
       pill(mode === 'subs', 'Subs', () => { state._rtChurnMode = 'subs'; mountApp(); }), pill(mode === 'arr', 'ARR', () => { state._rtChurnMode = 'arr'; mountApp(); }));
     const reasonSel = el('select', { class: 'rounded-lg border px-2 py-0.5 text-[10px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', maxWidth: '220px' },
