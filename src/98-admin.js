@@ -1421,7 +1421,7 @@ function adminD2dPayscales() {
     const scaleSel = el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
       onchange: (e) => { const v = e.target.value; saveRep(v ? { scale: v } : null).then(mountApp); } },
       el('option', { value: '', selected: !L }, '— not placed —'),
-      ...ps.order.map(id => el('option', { value: id, selected: L && L.scale === id }, ps.scales[id].label + ' · ' + ps.scales[id].requirement)));
+      ...ps.order.map(id => el('option', { value: id, selected: L && L.scale === id }, ps.scales[id].label)));
     const head = el('div', { class: 'card p-3 flex items-center gap-3 flex-wrap' },
       el('div', {}, el('div', { class: 'text-sm font-bold' }, rep.full_name), el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, (typeof ROLE_LABEL !== 'undefined' && ROLE_LABEL[rep.role]) || rep.role)),
       el('label', { class: 'flex items-center gap-2 text-[11px] font-semibold' }, 'Payscale', scaleSel),
@@ -1440,8 +1440,6 @@ function adminD2dPayscales() {
     ...ps.order.map(id => el('button', { class: 'rounded-full px-3 py-1 text-[11px] font-bold border transition', style: id === state._d2dScaleTab ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: () => { state._d2dScaleTab = id; mountApp(); } }, ps.scales[id].label)));
   const meta = el('div', { class: 'card p-3 flex items-center gap-4 flex-wrap' },
     tabs,
-    el('label', { class: 'flex items-center gap-2 text-[11px] font-semibold' }, 'Requirement', el('input', { type: 'text', value: cur.requirement, class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '110px' }, onchange: (e) => { cur.requirement = e.target.value.trim(); saveD2dPayscales(ps); } })),
-    el('label', { class: 'flex items-center gap-2 text-[11px] font-semibold' }, 'Retained by', el('input', { type: 'text', value: ps.deadline, class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '120px' }, onchange: (e) => { ps.deadline = e.target.value.trim(); saveD2dPayscales(ps); } })),
     el('span', { class: 'text-[10px] ml-auto', style: { color: 'var(--text-subtle)' } }, placed.filter(p => p.pay_overrides.d2d.scale === state._d2dScaleTab).length + ' reps on ' + cur.label));
   const table = ladderTable(cur.tiers, () => saveD2dPayscales(ps));
   return el('div', { class: 'flex flex-col gap-3 max-w-4xl w-full' }, picker, meta, table);
