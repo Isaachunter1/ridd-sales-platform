@@ -541,7 +541,7 @@ function adminConfigurations() {
       open ? el('div', { class: 'px-4 pb-4' }, build()) : null);
   };
   const svcCount = (() => { try { const m = reportingServiceRecurringMap(); return n(m.size) + ' services'; } catch (e) { return ''; } })();
-  const cxlCount = n(exclReasons.size) + ' excluded';
+  const cxlCount = (() => { try { return n(reportingExcludedCancelReasons().size) + ' excluded'; } catch (e) { return ''; } })();
 
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'flex items-center gap-2' },
