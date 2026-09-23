@@ -1384,7 +1384,7 @@ function adminD2dPayscales() {
   };
   // ── ladder table (shared by the defaults view and the rep view) ──
   const cell = (val, onCommit, o = {}) => el('input', { type: 'text', inputmode: o.text ? 'text' : 'decimal', value: val == null ? '' : String(val), placeholder: o.placeholder || '',
-    class: 'rounded-lg border px-2 py-1 text-xs w-full ' + (o.text ? '' : 'text-right tabular-nums font-semibold'),
+    class: 'rounded-lg border px-2 py-1 text-xs w-full ' + (o.text ? '' : 'text-left tabular-nums font-semibold'),
     style: { borderColor: 'transparent', background: 'transparent', color: o.muted ? 'var(--text-muted)' : 'var(--text)' },
     onfocus: (e) => { e.target.style.borderColor = 'var(--accent)'; e.target.style.background = 'var(--card)'; },
     onblur: (e) => { e.target.style.borderColor = 'transparent'; e.target.style.background = 'transparent'; onCommit(e.target.value); },
@@ -1392,16 +1392,16 @@ function adminD2dPayscales() {
   const ladderTable = (tiers, onChange, opts = {}) => {
     const body = el('tbody');
     const draw = () => body.replaceChildren(...tiers.map((t, i) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-      el('td', { class: 'px-3 py-1', style: { width: '90px' } }, cell(t[0], (v) => { t[0] = num(v); onChange(); draw(); })),
+      el('td', { class: 'px-3 py-1', style: { width: '90px' } }, cell((Number(t[0]) || 0) + '%', (v) => { t[0] = num(v); onChange(); draw(); })),
       el('td', { class: 'px-3 py-1', style: { width: '150px' } }, cell(money(t[1]), (v) => { t[1] = num(v); onChange(); draw(); })),
       el('td', { class: 'px-3 py-1' }, cell(t[2] || '', (v) => { t[2] = v.trim(); onChange(); }, { text: true, placeholder: '—', muted: true })),
-      el('td', { class: 'px-3 py-1 text-right tabular-nums font-bold text-[13px]', style: { width: '140px' } }, money(t[0] / 100 * t[1])),
+      el('td', { class: 'px-3 py-1 text-left tabular-nums font-bold text-[13px]', style: { width: '140px' } }, money(t[0] / 100 * t[1])),
       el('td', { class: 'px-1 py-1 text-right', style: { width: '32px' } }, opts.readonly ? null : el('button', { class: 'text-xs px-1.5', style: { color: 'var(--text-subtle)' }, title: 'Remove tier', onclick: () => { tiers.splice(i, 1); onChange(); draw(); } }, '×')))));
     draw();
     return el('div', { class: 'card overflow-hidden' },
       el('table', { class: 'w-full' },
         el('thead', {}, el('tr', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)', background: 'var(--card-2)' } },
-          el('th', { class: 'px-3 py-2 text-right' }, 'Rate %'), el('th', { class: 'px-3 py-2 text-right' }, 'Retained revenue'), el('th', { class: 'px-3 py-2 text-left' }, 'Unlocks'), el('th', { class: 'px-3 py-2 text-right' }, 'Est. earnings'), el('th', {}))),
+          el('th', { class: 'px-3 py-2 text-left' }, 'Rate %'), el('th', { class: 'px-3 py-2 text-left' }, 'Retained revenue'), el('th', { class: 'px-3 py-2 text-left' }, 'Unlocks'), el('th', { class: 'px-3 py-2 text-left' }, 'Est. earnings'), el('th', {}))),
         body),
       opts.readonly ? null : el('div', { class: 'px-3 py-2 border-t flex items-center gap-2', style: { borderColor: 'var(--border)' } },
         el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { const last = tiers[tiers.length - 1] || [20, 25000, '']; tiers.push([last[0] + 2, Math.round(last[1] * 1.25 / 1000) * 1000, '']); onChange(); draw(); } }, '+ Add tier'),
