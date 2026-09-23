@@ -296,9 +296,8 @@ function reportingCustomerHealth() {
     if (!c.autopay)           { score += 15; why.push('no autopay'); flags.apay = true; }
     if (c.fams.size <= 1)     { score += 10; why.push('single service'); flags.single = true; }
     if (c.oldest != null && c.oldest >= 3 && c.oldest <= 14) { score += 10; why.push('danger-zone tenure (' + c.oldest.toFixed(0) + ' mo)'); flags.danger = true; }
-    if (c.renewal)            { score += 15; why.push('renewal window'); flags.renewal = true; }
+    // (Renewal window + high-churn service retired per Isaac, Sep 23 — renewals have their own tab.)
     if (riskyZip(c.zip))      { score += 10; why.push('high-churn ZIP'); flags.zip = true; }
-    if ([...c.fams].some(riskyFam)) { score += 10; why.push('high-churn service'); flags.svc = true; }
     // Golden autopay conversion: pays reliably by hand (zero past due, 3+
     // months tenure) but no autopay — the easiest "flip them on" ask.
     // (True "billing method on file" isn't in the CRM export yet.)
@@ -310,14 +309,13 @@ function reportingCustomerHealth() {
   scored.sort((a, b) => b.score - a.score || b.arr - a.arr);
 
   const BUCKETS = [
-    // One colour per bucket, worst → best: red, rust, orange (attention), sage (good).
-    ['critical', 'Critical', '#DC2626'], ['atrisk', 'At Risk', '#A9441F'],
-    ['watch', 'Watch', '#DF643A'], ['healthy', 'Healthy', '#5F6C5B'],
+    // Worst → least: red, rust, orange. Healthy is not a call list (per Isaac, Sep 23).
+    ['critical', 'Critical', '#DC2626'], ['atrisk', 'At Risk', '#A9441F'], ['watch', 'Watch', '#DF643A'],
   ];
   const bucketAgg = {};
   BUCKETS.forEach(([k]) => bucketAgg[k] = { n: 0, arr: 0 });
-  scored.forEach(c => { bucketAgg[c.bucket].n++; bucketAgg[c.bucket].arr += c.arr; });
-  const sel = state._healthBucket || 'critical';
+  scored.forEach(c => { if (bucketAgg[c.bucket]) { bucketAgg[c.bucket].n++; bucketAgg[c.bucket].arr += c.arr; } });
+  const sel = BUCKETS.some(([k]) => k === state._healthBucket) ? state._healthBucket : 'critical';
   const q = String(state._healthQ || '').toLowerCase();
   const factor = state._healthFactor || 'all';
   const list = scored.filter(c => (sel === 'all' || c.bucket === sel)
@@ -341,7 +339,7 @@ function reportingCustomerHealth() {
         el('div', {},
           el('h2', { class: 'text-lg font-bold' }, '❤️‍🩹 Customer Health'),
           el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
-            'Every active customer, scored on the churn drivers measured in OUR book — past due balance, no autopay, single service, danger-zone tenure (months 3–14), renewal window, high-churn ZIP / service. Call the top of this list before they cancel.')),
+            'Every active customer, scored on the churn drivers measured in OUR book — past due balance, no autopay, single service, danger-zone tenure (months 3–14), high-churn ZIP. Call the top of this list before they cancel.')),
         exportBtn),
       el('div', { class: 'grid gap-3 mt-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' } },
         ...BUCKETS.map(([k, label, color]) => el('button', {
@@ -350,16 +348,7 @@ function reportingCustomerHealth() {
           onclick: () => { state._healthBucket = k; mountApp(); },
         },
           el('div', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color } }, label),
-          el('div', { class: 'text-xl font-black tabular-nums' }, bucketAgg[k].n.toLocaleString()),
-          el('div', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-muted)' } }, fmt.usd0(bucketAgg[k].arr) + ' ARR'))),
-        el('button', {
-          class: 'rounded-xl p-3 text-left transition hover:brightness-95 cursor-pointer',
-          style: { background: 'var(--card-2)', border: sel === 'all' ? '2px solid var(--accent)' : '2px solid transparent' },
-          onclick: () => { state._healthBucket = 'all'; mountApp(); },
-        },
-          el('div', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-muted)' } }, 'All'),
-          el('div', { class: 'text-xl font-black tabular-nums' }, scored.length.toLocaleString()),
-          el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, 'active customers')))),
+          el('div', { class: 'text-xl font-black tabular-nums' }, bucketAgg[k].n.toLocaleString()))))),
     el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'p-3 border-b flex flex-col gap-2', style: { borderColor: 'var(--border)' } },
         // Factor breakouts (per Isaac) — one chip per risk driver; the APay
@@ -367,8 +356,7 @@ function reportingCustomerHealth() {
         (() => {
           const F = [
             ['all', 'All factors'], ['pastdue', '💸 Past due'], ['apay', '💳 No autopay'],
-            ['single', '1️⃣ Single service'], ['danger', '⏳ Danger zone'], ['renewal', '🔁 Renewal window'],
-            ['zip', '📍 High-churn ZIP'], ['svc', '🧪 High-churn service'],
+            ['single', '1️⃣ Single service'], ['danger', '⏳ Danger zone'], ['zip', '📍 High-churn ZIP'],
           ];
           const inBucket = scored.filter(c => (sel === 'all' || c.bucket === sel));
           const cnt = (k) => k === 'all' ? inBucket.length : inBucket.filter(c => c.flags[k]).length;
@@ -572,14 +560,20 @@ function reportingRenewals(srcRows, opts) {
     if (!r.customer_id) return;
     if (RENEWAL_SRC_RE.test(String(r.subscription_source || ''))) renewedCust.add(r.customer_id);
   });
+  // Per Isaac (Sep 23): term runs from the SIGNED AGREEMENT date (fallback:
+  // initial service when no e-sign stamp), and only accounts whose active
+  // subscription is their ONLY one — a bundle is not one agreement ending.
+  const activeSubsByCust = new Map();
+  rows.forEach(r => { if (isActive(r) && r.customer_id) activeSubsByCust.set(r.customer_id, (activeSubsByCust.get(r.customer_id) || 0) + 1); });
   const expiring = [], past = [];
   let renewedN = 0, renewedArr = 0;
   rows.forEach(r => {
     if (!isActive(r)) return;
     if (_isSentricon(r)) return;
+    if ((activeSubsByCust.get(r.customer_id) || 0) !== 1) return;
     const len = Number(r.agreement_length) || 0;
     if (len <= 1) return;
-    const d = new Date(String(r.initial_service) + 'T00:00');
+    const d = new Date(String(r.contract_signed_at || r.initial_service) + 'T00:00');
     if (isNaN(d)) return;
     const mo = (now - d) / 2629800000;
     const inWindow = mo >= len - 2;
@@ -621,7 +615,7 @@ function reportingRenewals(srcRows, opts) {
   const LOG = state._renewalLog || {};
   const logOf = (x) => LOG[String(x.id)] || {};
   const STAGES = [
-    { key: 'Eligible',       label: 'Eligible',       emoji: '🟢', color: '#5F6C5B', bg: 'rgba(95,108,91,.10)',  blurb: 'Final 2 months of term (start date + contract length) or past term and still month-to-month · never renewed before · no Sentricon' },
+    { key: 'Eligible',       label: 'Eligible',       emoji: '🟢', color: '#5F6C5B', bg: 'rgba(95,108,91,.10)',  blurb: 'Final 2 months of the agreement (signed date + contract length), or past term and month-to-month · their only subscription · never renewed before · no Sentricon' },
     { key: 'Contacting',     label: 'Contacting',     emoji: '📞', color: '#A9441F', bg: 'rgba(169,68,31,.10)',  blurb: 'Reached out — call attempts and notes live on the card' },
     { key: 'Renewed',        label: 'Renewed',        emoji: '✅', color: 'var(--ok)', bg: 'rgba(22,163,74,.10)',  blurb: 'Re-signed. Cards marked CRM came in through a Renewal source automatically' },
     { key: 'Not Interested', label: 'Not Interested', emoji: '❌', color: '#DC2626', bg: 'rgba(220,38,38,.10)',  blurb: 'Declined — stays here so nobody calls them again' },
@@ -635,8 +629,12 @@ function reportingRenewals(srcRows, opts) {
   };
   const q = String(state._renewalQ || '').trim().toLowerCase();
   const fBranch = String(state._renewalBranch || ''), fMinAcv = Number(state._renewalMinAcv) || 0, fSort = String(state._renewalSort || 'soonest');
+  // Window (default per Isaac): the accounts ENDING within 2 months — reach
+  // them before the cancellation call. Past-term (month-to-month) and All are a click away.
+  const fWin = String(state._renewalWindow || 'ending');
+  const inWin = (x) => x.crm || fWin === 'all' || (fWin === 'ending' ? x.pastBy < 0 : x.pastBy >= 0);
   const matchQ = (x) => (!q || String(x.name).toLowerCase().includes(q) || String(x.id).includes(q) || String(x.phone || '').includes(q) || String(x.office).toLowerCase().includes(q))
-    && (!fBranch || String(x.office) === fBranch) && (!(fMinAcv > 0) || x.arv >= fMinAcv);
+    && (!fBranch || String(x.office) === fBranch) && (!(fMinAcv > 0) || x.arv >= fMinAcv) && inWin(x);
   const allRecs = expiring.concat(past);
   const cols = {}; STAGES.forEach(s => cols[s.key] = []);
   allRecs.forEach(x => cols[stageOf(x)].push(x));
@@ -745,6 +743,8 @@ function reportingRenewals(srcRows, opts) {
   const branches = [...new Set(allRecs.map(x => String(x.office || '')).filter(Boolean))].sort();
   const selCls = 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer';
   const selSty = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
+  const winSel = el('select', { class: selCls, style: selSty, title: 'Which eligible accounts to show', onchange: (e) => { state._renewalWindow = e.target.value; mountApp(); } },
+    ...[['ending', 'Ending within 2 months'], ['past', 'Past term (month-to-month)'], ['all', 'All eligible']].map(([v, l]) => el('option', { value: v, selected: fWin === v }, l)));
   const branchSel = el('select', { class: selCls, style: selSty, onchange: (e) => { state._renewalBranch = e.target.value; mountApp(); } },
     el('option', { value: '', selected: !fBranch }, 'All branches'), ...branches.map(b => el('option', { value: b, selected: fBranch === b }, _titleCaseWords(b))));
   const acvIn = el('input', { type: 'text', inputmode: 'numeric', placeholder: 'Min ACV $', value: fMinAcv > 0 ? String(fMinAcv) : '', class: 'rounded-lg border px-2 py-1 text-[11px] tabular-nums', style: Object.assign({ width: '90px' }, selSty),
@@ -753,7 +753,7 @@ function reportingRenewals(srcRows, opts) {
     ...[['soonest', 'Soonest term end'], ['newest_out', 'Most recently out of contract'], ['oldest_out', 'Longest out of contract'], ['acv', 'Highest ACV']].map(([v, l]) => el('option', { value: v, selected: fSort === v }, l)));
   if (opts.compact) {
     return el('div', { class: 'flex flex-col gap-3' },
-      el('div', { class: 'flex items-center gap-2 flex-wrap' }, search, branchSel, acvIn, sortSel,
+      el('div', { class: 'flex items-center gap-2 flex-wrap' }, search, winSel, branchSel, acvIn, sortSel,
         el('span', { class: 'text-[11px] tabular-nums ml-auto', style: { color: 'var(--text-muted)' } }, cols.Eligible.filter(matchQ).length.toLocaleString() + ' eligible · ' + fmt.usd0(arrOf(cols.Eligible.filter(matchQ))) + ' ARR'),
         exportAll),
       el('div', { class: 'grid gap-3 renewal-board', style: { gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' } }, ...STAGES.map(column)));
@@ -765,7 +765,7 @@ function reportingRenewals(srcRows, opts) {
           el('h2', { class: 'text-lg font-bold' }, '🔁 Renewals pipeline'),
           el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
             'Eligible = inside the final 2 months of the contract (start date + contract length) or past term and still month-to-month, never renewed before (any Renewal-source sub on the account rules it out), and not Sentricon. Refreshes from the CRM sync. Drag a card between stages or use the stage picker on it; attempts and notes save instantly for everyone.')),
-        el('div', { class: 'flex items-center gap-2 flex-wrap' }, search, branchSel, acvIn, sortSel, exportAll)),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' }, search, winSel, branchSel, acvIn, sortSel, exportAll)),
       el('div', { class: 'flex gap-x-4 gap-y-1 flex-wrap mt-2 text-[11px] tabular-nums', style: { color: 'var(--text-muted)' } },
         el('span', {}, el('b', {}, allRecs.length.toLocaleString()), ' eligible contracts · ', el('b', {}, fmt.usd0(arrOf(allRecs))), ' ARR in play'),
         el('span', {}, el('b', {}, worked.toLocaleString()), ' worked · ', el('b', { style: { color: 'var(--ok)' } }, renewedManual.toLocaleString()), ' renewed by the team' + (worked ? ' (' + (renewedManual / worked * 100).toFixed(0) + '%)' : '')),
