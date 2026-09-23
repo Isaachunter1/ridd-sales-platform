@@ -1158,7 +1158,7 @@ function reportingSubTabs() {
   const cur = tabs.some(([k]) => k === state.reportingSubTab && !tabs.find(([kk]) => kk === k)[2]) ? state.reportingSubTab : tabs[0][0];
   // Desktop: the tab strip. Phones: one dropdown (the strip had grown past
   // the screen width) — CSS in index.html swaps them at 640px.
-  const strip = el('div', { class: 'rpt-subtabs flex items-center gap-1 border-b overflow-x-auto', style: { borderColor: 'var(--border)' } },
+  const strip = el('div', { class: 'rpt-subtabs flex items-center gap-1 border-b flex-wrap', style: { borderColor: 'var(--border)' } },
     ...tabs.map(([k, label]) => {
       const active = cur === k;
       // Marketing carries a small red bubble with the Needs-attention count (per Isaac, Sep 2026) — owner only, like the card.
