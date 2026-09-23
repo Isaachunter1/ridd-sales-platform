@@ -730,31 +730,107 @@ function reportingOverview() {
           el('tr', { class: 'border-t font-bold', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
             el('td', { class: 'px-2 py-1.5', style: { background: 'var(--card-2)' } }, winLabel), cell(fmt.int(tot.sn), { right: true, color: C.sold }), cell(fmt.int(tot.ln), { right: true, color: C.cxl }), cell(signed(tot.sn - tot.ln, false), { right: true, color: netColor(tot.sn - tot.ln) }),
             cell(fmt.usd0(tot.srev), { right: true, color: C.sold }), cell(fmt.usd0(tot.lrev), { right: true, color: C.cxl }), cell(signed(tot.srev - tot.lrev, true), { right: true, color: netColor(tot.srev - tot.lrev) }), cell(''), cell(''))));
-      // Insights — only meaningful over a multi-day window.
+      // ── DAILY view redesign (per Isaac, Sep 23): one glance answers "are
+      // we bleeding faster than we sell, and where do I look today?" —
+      // (1) three direction numbers, (2) a diverging daily chart (sold up,
+      // lost down, net line, today hatched, prior-window avg net dashed),
+      // (3) offices ranked by net loss and reasons ranked with sparklines.
+      // The daily table stays behind a toggle as the audit trail.
       const insights = (() => {
         if (span < 7) return null;
-        const done = dayRows.filter(r => r.d < days[days.length - 1] || spanRaw === 'yesterday');   // completed days only
+        const isToday = spanRaw !== 'yesterday';
+        const done = dayRows.filter(r => !isToday || r.d < days[days.length - 1]);   // completed days
         if (!done.length) return null;
-        const avgLost = done.reduce((a, r) => a + r.ln, 0) / done.length;
-        const worst = done.reduce((a, r) => (r.ln > a.ln ? r : a), done[0]);
-        const best = done.reduce((a, r) => (r.ln < a.ln ? r : a), done[0]);
-        const byDow = [0, 1, 2, 3, 4, 5, 6].map(dw => { const rs = done.filter(r => new Date(r.d + 'T00:00').getDay() === dw); return { dw, avg: rs.length ? rs.reduce((a, r) => a + r.ln, 0) / rs.length : null, n: rs.length }; }).filter(x => x.avg != null);
-        const heavy = byDow.slice().sort((a, b) => b.avg - a.avg)[0];
-        const dowName = (dw) => ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dw];
-        const last7 = done.slice(-7).reduce((a, r) => a + r.ln, 0), prior7 = done.slice(-14, -7).reduce((a, r) => a + r.ln, 0);
-        const trend = done.length >= 14 && prior7 ? (last7 - prior7) / prior7 : null;
-        const reason = topOf(cxlAll, reportingCancelReasonOf);
-        const tile = (label, v, sub, color) => el('div', { class: 'rounded-lg border px-3 py-2', style: { borderColor: 'var(--border)', minWidth: '150px', flex: '1 1 150px' } },
+        // Prior window (same length, ending the day before this one) for the reference line.
+        const priorDays = []; { const d0 = new Date(days[0] + 'T00:00'); for (let i = span; i >= 1; i--) { const d = new Date(d0); d.setDate(d.getDate() - i); priorDays.push(iso(d)); } }
+        const pIdx = new Map(priorDays.map((d, i) => [d, i]));
+        const pSold = new Array(span).fill(0), pLost = new Array(span).fill(0);
+        for (const r of rows) {
+          const sd = String(r.sold_date || '').slice(0, 10); if (pIdx.has(sd)) pSold[pIdx.get(sd)]++;
+          const cd = String(r.subscription_date_canceled || '').slice(0, 10); if (cd && pIdx.has(cd) && isRealCancel(r)) pLost[pIdx.get(cd)]++;
+        }
+        const priorAvgNet = span ? (sum(pSold) - sum(pLost)) / span : 0;
+        const last7 = done.slice(-7), prior7 = done.slice(-14, -7);
+        const n7 = last7.reduce((a, r) => a + r.sn - r.ln, 0), n7p = prior7.length ? prior7.reduce((a, r) => a + r.sn - r.ln, 0) : null;
+        const lost7 = last7.reduce((a, r) => a + r.ln, 0) / Math.max(1, last7.length), lostAll = done.reduce((a, r) => a + r.ln, 0) / done.length;
+        // Month-end projection: MTD net + last-7-day net pace × days left in the month.
+        const t0 = new Date(days[days.length - 1] + 'T00:00'); const mStart = iso(new Date(t0.getFullYear(), t0.getMonth(), 1));
+        const dim = new Date(t0.getFullYear(), t0.getMonth() + 1, 0).getDate();
+        const mtd = dayRows.filter(r => r.d >= mStart).reduce((a, r) => a + r.sn - r.ln, 0);
+        const daysLeft = dim - t0.getDate() + (isToday ? 1 : 0);
+        const pace7 = last7.length ? n7 / last7.length : 0;
+        const projected = Math.round(mtd + pace7 * daysLeft);
+        const signedN = (v) => (v < 0 ? '−' : v > 0 ? '+' : '') + fmt.int(Math.abs(v));
+        const tile = (label, v, sub, color, title) => el('div', { class: 'rounded-xl px-3 py-2.5', style: { background: 'var(--card-2)', flex: '1 1 150px', minWidth: '150px' }, title: title || '' },
           el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
-          el('div', { class: 'text-base font-black tabular-nums leading-tight', style: color ? { color } : {} }, v),
-          sub ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)', overflowWrap: 'anywhere' } }, sub) : null);
-        return el('div', { class: 'flex gap-2 flex-wrap mb-2' },
-          tile('Avg lost per day', avgLost.toFixed(1) + ' subs', fmt.usd0(done.reduce((a, r) => a + r.lrev, 0) / done.length) + ' ARR / day', C.cxl),
-          tile('Worst day', dayLong(worst.d), worst.ln + ' subs \u00b7 ' + fmt.usd0(worst.lrev) + ' \u00b7 ' + worst.reason, C.cxl),
-          tile('Best day', dayLong(best.d), best.ln + ' subs \u00b7 ' + fmt.usd0(best.lrev), C.sold),
-          heavy ? tile('Heaviest weekday', dowName(heavy.dw), 'avg ' + heavy.avg.toFixed(1) + ' subs lost (' + heavy.n + ' ' + dowName(heavy.dw) + 's)') : null,
-          trend != null ? tile('Last 7 days vs prior 7', (trend > 0 ? '+' : '') + Math.round(trend * 100) + '%', last7 + ' vs ' + prior7 + ' subs lost', trend > 0 ? C.cxl : C.sold) : null,
-          tile('Top cancel reason', reason.replace(/ \(\d+\)$/, ''), reason.match(/\((\d+)\)$/) ? reason.match(/\((\d+)\)$/)[1] + ' of ' + fmt.int(cxlAll.length) + ' cancels' : ''));
+          el('div', { class: 'text-xl font-black tabular-nums leading-tight', style: color ? { color } : {} }, v),
+          sub ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, sub) : null);
+        const arrow = (cur, prev) => prev == null ? '' : cur > prev ? ' ▲' : cur < prev ? ' ▼' : ' ▬';
+        const pctChg = (cur, prev) => (prev == null || !prev) ? '' : ((cur - prev) / Math.abs(prev) * 100 > 0 ? '+' : '') + Math.round((cur - prev) / Math.abs(prev) * 100) + '%';
+        const tiles = el('div', { class: 'flex flex-col gap-2', style: { flex: '0 0 190px' } },
+          tile('Net subs · last 7 days', signedN(n7) + arrow(n7, n7p), n7p == null ? 'no prior week yet' : 'vs ' + signedN(n7p) + ' prior 7 ' + (pctChg(n7, n7p) ? '(' + pctChg(n7, n7p) + ')' : ''), n7 >= 0 ? C.sold : C.cxl, 'Subscriptions sold minus lost, last 7 completed days vs the 7 before'),
+          tile('Lost per day · last 7', lost7.toFixed(1) + arrow(lostAll, lost7), 'vs ' + lostAll.toFixed(1) + ' avg over ' + done.length + ' days', lost7 > lostAll * 1.1 ? C.cxl : lost7 < lostAll * 0.9 ? C.sold : '', 'Average subscriptions lost per completed day'),
+          tile('Projected month-end net', signedN(projected), signedN(mtd) + ' so far · ' + daysLeft + ' day' + (daysLeft === 1 ? '' : 's') + ' left at ' + signedN(Math.round(pace7)) + '/day', projected >= 0 ? C.sold : C.cxl, 'Month-to-date net + the last-7-day pace for the rest of the month'));
+        // Diverging daily chart (subscription counts).
+        const cid = id + '_div';
+        const divWrap = el('div', { style: { position: 'relative', height: '230px', flex: '1 1 420px', minWidth: '0' } }, el('canvas', { id: cid }));
+        setTimeout(() => {
+          if (typeof Chart === 'undefined') return;
+          const c = document.getElementById(cid); if (!c) return;
+          if (_chartInstances[cid]) { _chartInstances[cid].destroy(); delete _chartInstances[cid]; }
+          const txt = isDark ? '#C9C9BE' : '#555', grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
+          const hatch = (() => { const cv = document.createElement('canvas'); cv.width = cv.height = 8; const g = cv.getContext('2d'); g.strokeStyle = C.cxl; g.lineWidth = 2; g.beginPath(); g.moveTo(0, 8); g.lineTo(8, 0); g.stroke(); return c.getContext('2d').createPattern(cv, 'repeat'); })();
+          const hatchG = (() => { const cv = document.createElement('canvas'); cv.width = cv.height = 8; const g = cv.getContext('2d'); g.strokeStyle = C.sold; g.lineWidth = 2; g.beginPath(); g.moveTo(0, 8); g.lineTo(8, 0); g.stroke(); return c.getContext('2d').createPattern(cv, 'repeat'); })();
+          const lastI = days.length - 1;
+          const lbl = days.map(d => { const dt = new Date(d + 'T00:00'); return (dt.getMonth() + 1) + '/' + dt.getDate(); });
+          _chartInstances[cid] = new Chart(c.getContext('2d'), {
+            data: { labels: lbl, datasets: [
+              { type: 'bar', label: 'Sold', data: dayRows.map(r => r.sn), backgroundColor: dayRows.map(r => (isToday && r.i === lastI) ? hatchG : C.sold), borderWidth: 0, order: 3, stack: 's' },
+              { type: 'bar', label: 'Lost', data: dayRows.map(r => -r.ln), backgroundColor: dayRows.map(r => (isToday && r.i === lastI) ? hatch : C.cxl), borderWidth: 0, order: 3, stack: 's' },
+              { type: 'line', label: 'Net', data: dayRows.map(r => r.sn - r.ln), borderColor: isDark ? '#FBF4DA' : '#323230', backgroundColor: isDark ? '#FBF4DA' : '#323230', borderWidth: 2, pointRadius: 2, tension: 0.3, order: 1 },
+              { type: 'line', label: 'Prior ' + span + '-day avg net', data: dayRows.map(() => priorAvgNet), borderColor: txt, borderDash: [4, 4], borderWidth: 1, pointRadius: 0, order: 2 },
+            ] },
+            options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+              onClick: (evt, els) => { if (!els || !els.length) return; const i = els[0].index; openPulseDayDrill(dayShort(days[i]), dayFull(days[i]), { sold: soldRows[i], svc: svcRows[i], cxl: cxlRows[i] }, els[0].datasetIndex === 0 ? 'sold' : 'cxl'); },
+              plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 } } },
+                tooltip: { callbacks: { title: (it) => it && it[0] ? dayFull(days[it[0].dataIndex]) + ((isToday && it[0].dataIndex === lastI) ? ' · so far today' : '') : '', label: (x) => ' ' + x.dataset.label + ': ' + (x.dataset.label === 'Lost' ? fmt.int(-x.parsed.y) : (x.dataset.label === 'Net' ? signedN(x.parsed.y) : (Number.isInteger(x.parsed.y) ? fmt.int(x.parsed.y) : x.parsed.y.toFixed(1)))) } } },
+              scales: { x: { stacked: true, ticks: { color: txt, maxTicksLimit: span > 30 ? 15 : 31 }, grid: { display: false } },
+                        y: { stacked: true, ticks: { color: txt, callback: (v) => fmt.int(Math.abs(v)) }, grid: { color: grid } } } },
+          });
+        }, 60);
+        // Ranked lists: offices by net loss (last 7 days) · reasons with sparklines (whole window).
+        const l7Set = new Set(last7.map(r => r.d));
+        const byOff = new Map();
+        for (const r of soldAll) { const d = String(r.sold_date || '').slice(0, 10); if (!l7Set.has(d)) continue; const k = ofc(r); const g = byOff.get(k) || { sn: 0, ln: 0, reasons: new Map(), lost: [] }; g.sn++; byOff.set(k, g); }
+        for (const r of cxlAll) { const d = String(r.subscription_date_canceled || '').slice(0, 10); if (!l7Set.has(d)) continue; const k = ofc(r); const g = byOff.get(k) || { sn: 0, ln: 0, reasons: new Map(), lost: [] }; g.ln++; g.lost.push(r); const rs = reportingCancelReasonOf(r) || 'Unspecified'; g.reasons.set(rs, (g.reasons.get(rs) || 0) + 1); byOff.set(k, g); }
+        const offRank = [...byOff.entries()].map(([k, g]) => ({ k, ...g, net: g.sn - g.ln, top: [...g.reasons.entries()].sort((a, b) => b[1] - a[1])[0] })).sort((a, b) => a.net - b.net).slice(0, 8);
+        const byReason = new Map();
+        for (const r of cxlAll) { const k = reportingCancelReasonOf(r) || 'Unspecified'; const g = byReason.get(k) || { n: 0, series: new Array(span).fill(0), rows: [] }; g.n++; g.rows.push(r); const i = idx.get(String(r.subscription_date_canceled || '').slice(0, 10)); if (i != null) g.series[i]++; byReason.set(k, g); }
+        const reasonRank = [...byReason.entries()].map(([k, g]) => ({ k, ...g })).sort((a, b) => b.n - a.n).slice(0, 8);
+        const spark = (series) => { const w = 90, h = 22, m = Math.max(1, ...series); const pts = series.map((v, i) => (i / Math.max(1, series.length - 1) * w).toFixed(1) + ',' + (h - v / m * (h - 2)).toFixed(1)).join(' '); const wrap = el('span', { style: { display: 'inline-block', width: w + 'px', height: h + 'px', verticalAlign: 'middle' } }); wrap.innerHTML = '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '"><polyline fill="none" stroke="' + C.cxl + '" stroke-width="1.5" points="' + pts + '"/></svg>'; return wrap; };
+        const trendOf = (series) => { const half = Math.floor(series.length / 2); const a = sum(series.slice(0, half)), b = sum(series.slice(half)); return !a ? '' : ((b - a) / a * 100 > 0 ? '+' : '') + Math.round((b - a) / a * 100) + '%'; };
+        const listHdr = (t) => el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold mb-1', style: { color: 'var(--text-subtle)' } }, t);
+        const rowBtn = (kids, onclick, title) => el('button', { class: 'w-full flex items-center justify-between gap-2 py-1 border-t text-left text-[11px] transition hover:brightness-95', style: { borderColor: 'var(--border)', background: 'transparent' }, title: title || '', onclick }, ...kids);
+        const offList = el('div', { style: { flex: '1 1 260px', minWidth: '0' } }, listHdr('Offices · net subs, last 7 days'),
+          ...(offRank.length ? offRank.map(o => rowBtn([
+            el('span', { class: 'font-semibold truncate' }, _titleCaseWords(o.k)),
+            el('span', { class: 'flex items-center gap-2 shrink-0 tabular-nums' },
+              o.top ? el('span', { class: 'text-[10px] truncate', style: { color: 'var(--text-muted)', maxWidth: '150px' } }, o.top[0].replace(/ \(Collections\)/, '') + ' ' + o.top[1]) : null,
+              el('span', { class: 'font-black', style: { color: o.net < 0 ? C.cxl : C.sold } }, signedN(o.net)))],
+            () => openReportingDrillModal({ chartTitle: 'Subscriptions lost · last 7 days · ' + o.k, sliceLabel: fmt.int(o.lost.length) + ' subscriptions · ' + fmt.int(o.sn) + ' sold', rows: o.lost, formatValue: () => '' }),
+            o.sn + ' sold · ' + o.ln + ' lost — click for the lost accounts')) : [el('div', { class: 'text-[10px] py-2', style: { color: 'var(--text-subtle)' } }, 'Nothing in the last 7 days.')]));
+        const reasonList = el('div', { style: { flex: '1 1 300px', minWidth: '0' } }, listHdr('Cancel reasons · ' + winLabel + ' · first half vs second half'),
+          ...(reasonRank.length ? reasonRank.map(o => rowBtn([
+            el('span', { class: 'font-semibold truncate' }, o.k.replace(/ \(Collections\)/, '')),
+            el('span', { class: 'flex items-center gap-2 shrink-0 tabular-nums' }, spark(o.series),
+              el('span', { class: 'text-[10px]', style: { color: /^\+/.test(trendOf(o.series)) ? C.cxl : 'var(--text-muted)' } }, trendOf(o.series)),
+              el('span', { class: 'font-black' }, fmt.int(o.n)), el('span', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, cxlAll.length ? Math.round(o.n / cxlAll.length * 100) + '%' : ''))],
+            () => openReportingDrillModal({ chartTitle: 'Subscriptions lost · ' + winLabel + ' · ' + o.k, sliceLabel: fmt.int(o.n) + ' subscriptions', rows: o.rows, formatValue: () => '' }),
+            'Click for the accounts')) : [el('div', { class: 'text-[10px] py-2', style: { color: 'var(--text-subtle)' } }, 'No cancels in this window.')]));
+        return el('div', { class: 'flex flex-col gap-3 mb-2' },
+          el('div', { class: 'flex gap-3 flex-wrap items-stretch' }, tiles, divWrap),
+          el('div', { class: 'flex gap-6 flex-wrap' }, offList, reasonList),
+          el('button', { class: 'self-start text-[11px] font-bold', style: { color: 'var(--accent)' }, onclick: () => { state._pulseDayTable = !state._pulseDayTable; mountApp(); } }, state._pulseDayTable ? '▾ Hide daily table' : '▸ Show daily table'));
       })();
       // Pill tabs (the Revenue Goal pattern) — the ad-hoc segmented control
       // rendered blank / dead on phones (per Isaac, Sep 23).
@@ -768,7 +844,7 @@ function reportingOverview() {
             el('div', { class: 'pill-tabs' }, viewBtn('office', 'By office'), viewBtn('day', 'Daily')),
             el('button', { class: 'text-[10px] font-bold', style: { color: 'var(--accent)' }, title: 'Where the churn came from — the window\'s lost accounts, by office', onclick: () => openWindow('cxl') }, 'See more \u2192'))),
         dayView ? insights : null,
-        el('div', { class: 'scroll-x' }, dayView ? dayTbl : tbl));
+        el('div', { class: 'scroll-x' }, dayView ? (state._pulseDayTable ? dayTbl : null) : tbl));
     })();
     const stat = (label, v, color, kind) => el('button', { class: 'text-left cursor-pointer transition hover:brightness-95', title: 'See the ' + label.toLowerCase() + ' accounts, by office \u2014 and where churn came from', onclick: () => openWindow(kind) },
       el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
