@@ -847,6 +847,7 @@ function reportingContractLength() {
     if (cxl && life != null) {
       o.cxl.push(life); o.cxlN++;
       const reason = reportingCancelReasonOf(r);
+      (o.cxlByReason = o.cxlByReason || []).push([reason, life]);
       o.reasons.set(reason, (o.reasons.get(reason) || 0) + 1);
       if (/delinquent/i.test(reason)) o.delinq++;
     }
@@ -909,40 +910,48 @@ function reportingContractLength() {
               el('div', {}, el('b', { style: { color: o.cxlN && o.delinq / o.cxlN > 0.45 ? '#DC2626' : 'inherit' } }, o.cxlN ? pct(o.delinq / o.cxlN) : '—'), el('span', { style: { color: 'var(--text-muted)' } }, ' of cancels = delinquency')),
               el('div', {}, el('b', {}, fmt.usd0(o.n ? o.arv / o.n : 0)), el('span', { style: { color: 'var(--text-muted)' } }, ' avg ARV'))));
         }))]),
-    // Reason mix
-    card([
-      secHdr('Why each term cancels', 'Share of that term\u2019s cancels. The tell: 18s over-index on Delinquent (non-payment) while every VOLUNTARY reason is lower than on 12s — the customer doesn\u2019t quit, the payment does.'),
-      el('div', { class: 'overflow-x-auto' },
-        el('table', { class: 'w-full text-xs tabular-nums' },
-          el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } },
-            el('tr', {},
-              el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Reason'),
-              ...TERMS.map(t => el('th', { class: 'text-right px-2 py-1.5 font-semibold', style: { color: TERM_COLOR[t] } }, t + ' mo')))),
-          el('tbody', {},
-            ...topReasons.map(([k]) => {
-              const isDel = /delinquent/i.test(k);
-              return el('tr', { class: 'border-t', style: Object.assign({ borderColor: 'var(--border)' }, isDel ? { background: 'rgba(220,38,38,.05)' } : {}) },
-                el('td', { class: 'px-2 py-1.5' + (isDel ? ' font-bold' : '') }, k),
-                ...TERMS.map(t => {
-                  const o = T[t];
-                  const share = o.cxlN ? (o.reasons.get(k) || 0) / o.cxlN : 0;
-                  const worst = TERMS.every(t2 => t2 === t || (T[t2].cxlN ? (T[t2].reasons.get(k) || 0) / T[t2].cxlN : 0) <= share);
-                  return el('td', { class: 'px-2 py-1.5 text-right' + (worst && share > 0.02 ? ' font-bold' : ''), style: worst && isDel ? { color: '#DC2626' } : {} }, pct(share));
-                }));
-            }))))]),
-    // Early-cancel timing
-    card([
-      secHdr('How early the cancels happen', 'Among cancelled subs of each term — the 18s\u2019 exits cluster in the first half-year, the signature of a term used as a closing crutch rather than a commitment.'),
-      el('div', { class: 'flex gap-3 flex-wrap' },
-        ...TERMS.map(t => {
-          const o = T[t];
-          return el('div', { class: 'flex-1 rounded-xl p-3', style: { background: 'var(--card-2)', minWidth: '170px', borderTop: '3px solid ' + TERM_COLOR[t] } },
-            el('div', { class: 'text-xs font-black mb-1' }, t + '-month cancels'),
-            el('div', { class: 'text-[11px] tabular-nums flex flex-col gap-0.5' },
-              el('div', {}, el('b', {}, o.cxl.length ? med(o.cxl).toFixed(1) + ' mo' : '—'), el('span', { style: { color: 'var(--text-muted)' } }, ' median lifetime')),
-              el('div', {}, el('b', {}, pct(pctUnder(o.cxl, 4))), el('span', { style: { color: 'var(--text-muted)' } }, ' gone within 4 months')),
-              el('div', {}, el('b', {}, pct(pctUnder(o.cxl, 7))), el('span', { style: { color: 'var(--text-muted)' } }, ' gone within 7 months'))));
-        }))]),
+    // Customer lifetime (per Isaac, Sep 23): reason dropdown drives the tiles
+    // AND the bars below — "why each term cancels" as a grouped bar chart.
+    (() => {
+      const rsel = state._ctReason || 'all';
+      const cxlOf = (o) => rsel === 'all' ? o.cxl : (o.cxlByReason || []).filter(([k]) => k === rsel).map(([, l]) => l);
+      const reasonSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', maxWidth: '260px' },
+        onchange: (e) => { state._ctReason = e.target.value; mountApp(); } },
+        el('option', { value: 'all', selected: rsel === 'all' }, 'All reasons'),
+        ...[...allReasons.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => el('option', { value: k, selected: rsel === k }, k + ' (' + n.toLocaleString() + ')')));
+      const cid = 'ct-reason-bars';
+      setTimeout(() => {
+        if (typeof Chart === 'undefined') return;
+        const cvs = document.getElementById(cid); if (!cvs) return;
+        if (_chartInstances[cid]) { _chartInstances[cid].destroy(); delete _chartInstances[cid]; }
+        const isDark = state.theme === 'dark';
+        const txt = isDark ? '#C9C9BE' : '#555', gridc = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
+        const shareOf = (t, k) => T[t].cxlN ? (T[t].reasons.get(k) || 0) / T[t].cxlN * 100 : 0;
+        const labels = rsel === 'all' ? topReasons.map(([k]) => k) : TERMS.map(t => t + '-month');
+        const datasets = rsel === 'all'
+          ? TERMS.map(t => ({ label: t + ' mo', data: topReasons.map(([k]) => shareOf(t, k)), backgroundColor: TERM_COLOR[t], borderRadius: 3 }))
+          : [{ label: rsel, data: TERMS.map(t => shareOf(t, rsel)), backgroundColor: TERMS.map(t => TERM_COLOR[t]), borderRadius: 3 }];
+        _chartInstances[cid] = new Chart(cvs.getContext('2d'), {
+          type: 'bar', data: { labels, datasets },
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: rsel === 'all', labels: { color: txt, boxWidth: 10, font: { size: 10 } } }, tooltip: { callbacks: { label: (c) => c.dataset.label + ': ' + c.parsed.y.toFixed(1) + '% of that term\u2019s cancels' } } },
+            scales: { x: { ticks: { color: txt, font: { size: 10 }, autoSkip: false, maxRotation: 30 }, grid: { display: false } }, y: { ticks: { color: txt, font: { size: 10 }, callback: (v) => v + '%' }, grid: { color: gridc }, title: { display: true, text: 'share of the term\u2019s cancels', color: txt, font: { size: 10 } } } } },
+        });
+      }, 0);
+      return card([
+        el('div', { class: 'flex items-start justify-between gap-3 flex-wrap mb-2' }, secHdr('Customer lifetime — how early the cancels happen'), reasonSel),
+        el('div', { class: 'flex gap-3 flex-wrap' },
+          ...TERMS.map(t => {
+            const L = cxlOf(T[t]);
+            return el('div', { class: 'flex-1 rounded-xl p-3', style: { background: 'var(--card-2)', minWidth: '170px', borderTop: '3px solid ' + TERM_COLOR[t] } },
+              el('div', { class: 'text-xs font-black mb-1' }, t + '-month cancels' + (rsel === 'all' ? '' : ' · ' + L.length.toLocaleString())),
+              el('div', { class: 'text-[11px] tabular-nums flex flex-col gap-0.5' },
+                el('div', {}, el('b', {}, L.length ? med(L).toFixed(1) + ' mo' : '—'), el('span', { style: { color: 'var(--text-muted)' } }, ' median lifetime')),
+                el('div', {}, el('b', {}, pct(pctUnder(L, 4))), el('span', { style: { color: 'var(--text-muted)' } }, ' gone within 4 months')),
+                el('div', {}, el('b', {}, pct(pctUnder(L, 7))), el('span', { style: { color: 'var(--text-muted)' } }, ' gone within 7 months'))));
+          })),
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mt-4 mb-1', style: { color: 'var(--text-subtle)' } }, rsel === 'all' ? 'Why each term cancels' : rsel + ' — share of each term\u2019s cancels'),
+        el('div', { style: { height: '220px' } }, el('canvas', { id: cid }))]);
+    })(),
     // Office term mix
     card([
       secHdr('Who sells which term', 'Term mix per office, with each office\u2019s delinquency share of cancels — the 18-heavy offices are the weak-collections offices, which is most of why the 18 aggregate looks bad.'),
