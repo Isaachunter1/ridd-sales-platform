@@ -280,10 +280,10 @@ function reportingOverview() {
     return { rows, total: g.length };
   })();
   const COLUMN_CARDS = [
+    { key: 'arr',       label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: 'from active recurring subs',                                        chartIds: ['rarr', 'rarrOffice'] },   // (One-Time Revenue donut folded into the One-Time Subscriptions toggle)
     { key: 'subs',      label: 'Subscriptions Serviced',  value: (_topFunnel ? _topFunnel.rows.length : (dataA.stats.servicedSubs != null ? dataA.stats.servicedSubs : dataA.stats.subs)).toLocaleString(), sub: 'received an initial service \u00b7 of ' + (_topFunnel ? _topFunnel.total : dataA.stats.subs).toLocaleString() + ' in FieldRoutes \u00b7 ' + dataA.stats.recurring.toLocaleString() + ' recurring', chartIds: ['sources', 'onetimeSubs', 'retiredSubs'] },
     { key: 'active',    label: 'Subscriptions Active',    value: (reportingActiveInclOneTime() ? dataA.stats.activeSubs : dataA.stats.activeRecurring).toLocaleString(), sub: reportingActiveInclOneTime() ? 'currently in service · incl. one-time' : 'currently in service · recurring', chartIds: ['activesubs', 'agreement'] },   // (Agreement Length Mix moved here from column 1, per Isaac)
     { key: 'customers', label: 'Customers Active',        value: (dataA.stats.activeCustomers != null ? dataA.stats.activeCustomers : dataA.stats.uniqueCustomers).toLocaleString(), sub: (dataA.stats.distinctActiveServices != null ? dataA.stats.distinctActiveServices : dataA.stats.distinctServices) + ' active services', chartIds: ['custDepth', 'tenure'] },   // (Active Customers donut retired, per Isaac; Services per Customer added)
-    { key: 'arr',       label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: 'from active recurring subs',                                        chartIds: ['rarr', 'rarrOffice'] },   // (One-Time Revenue donut folded into the One-Time Subscriptions toggle)
     { key: 'cancels',   label: 'Subscriptions Cancelled', value: dataA.stats.realCancels.toLocaleString(),                   sub: dataA.stats.cancelRate.toFixed(2) + '% rate · recurring subs only',  chartIds: ['cancels', 'aging'] },
   ];
   // "Other active" customers = active customers whose active subs are all
@@ -378,7 +378,7 @@ function reportingOverview() {
   // One metric at a time (per Isaac): a dropdown picks the headline card,
   // that card pops, and only ITS charts render beneath it — instead of five
   // columns side by side.
-  const pickKey = COLUMN_CARDS.some(c => c.key === state.reportingOverviewMetric) ? state.reportingOverviewMetric : 'subs';
+  const pickKey = COLUMN_CARDS.some(c => c.key === state.reportingOverviewMetric) ? state.reportingOverviewMetric : 'arr';   // Active ARR first / default (per Isaac, Sep 23)
   const picked = COLUMN_CARDS.find(c => c.key === pickKey);
   // The card's own label IS the picker on phones — a select styled like the
   // small-caps label with a caret, so the card reads as a dropdown.
