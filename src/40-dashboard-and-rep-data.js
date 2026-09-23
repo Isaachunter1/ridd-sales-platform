@@ -357,11 +357,11 @@ function viewTechs() {
   const latest = [...inRange].sort((x, y) => String(dateSoldToIso(y.dateSold) || '').localeCompare(String(dateSoldToIso(x.dateSold) || ''))).slice(0, 60);
   return el('div', { class: 'flex flex-col gap-5 w-full' },
     (typeof repTodayStrip === 'function') ? repTodayStrip() : null,
-    el('div', { class: 'flex items-center gap-2 flex-wrap' },
+    el('div', { class: 'flex items-center gap-2 flex-wrap dash-toolbar justify-end' },   // date range right-justified; rides in the sub-tab row on phones (30-shell)
       // (+ Log Upsell retired per Isaac, Sep 2026 — upsells sync from FieldRoutes.)
       rangeSel,
-      configInfoBtn('Technicians data',
-        'Live from FieldRoutes: every subscription with source "Upsell - Service Pro" (the technicians’ dedicated upsell source), refreshed by the hourly sync. Technicians ALSO log their upsells manually with the + button — the manual log is the commission record of the original deal, exactly like Inside Sales. Techs without app accounts still rank here under their CRM name.')),
+      // (ⓘ info button retired per Isaac, Sep 23.)
+    ),
     hasRoutes ? el('div', { class: 'card p-4 sm:p-5 grid kpi-multi kpi-multi-4 grid-cols-2 sm:grid-cols-4', title: tsAge != null ? 'Route stats from FieldRoutes · refreshed ' + tsAge + ' min ago' : '' },
       kpi('Jobs on Routes', fmt.int(R.sch), R.techs + ' tech' + (R.techs === 1 ? '' : 's') + ' completing'),
       kpi('Completed', fmt.int(R.done), R.resvc ? R.resvc + ' reservice' + (R.resvc === 1 ? '' : 's') : ''),
