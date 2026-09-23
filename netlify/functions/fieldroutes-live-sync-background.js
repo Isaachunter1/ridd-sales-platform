@@ -98,7 +98,8 @@ exports.handler = async (event) => {
     // effort: if the endpoint is unavailable nothing is treated as signed here —
     // the nightly RevHawk pass (which reads FieldRoutesContract) logs it then.
     const signedCust = new Set();
-    if (AL.require_signed) {
+    const _anySigned = AL.require_signed !== false || Object.values(AL.approval || {}).some(a => a && a.signed);
+    if (_anySigned) {
       try {
         for (const part of chunk(custIds, 500)) {
           const got = await fr('contract/search', { customerIDs: part.map(Number), documentState: 'COMPLETED' });
