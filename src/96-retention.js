@@ -748,9 +748,7 @@ function reportingWaterfall() {
     const card = el('div', { class: 'card w-full max-w-2xl my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
       el('div', { class: 'flex items-start justify-between gap-3 p-4 pb-2' },
         el('div', {},
-          el('h2', { class: 'text-base font-bold' }, periodLabel + ' Attrition — who left and why'),
-          el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
-            'Same population and rules as the Blended table: book at period start only, excluded reasons and ROR don\u2019t count as churn.')),
+          el('h2', { class: 'text-base font-bold' }, periodLabel + ' Attrition — who left and why')),
         el('div', { class: 'flex items-center gap-2' },
           el('button', {
             class: 'rounded-lg border px-2.5 py-1.5 text-[10px] font-bold cursor-pointer transition hover:brightness-95 whitespace-nowrap',
@@ -839,7 +837,7 @@ function reportingWaterfall() {
     const drillRows = (title, rs) => rs.length ? () => openReportingDrillModal({ chartTitle: 'Cohort waterfall · ' + title, sliceLabel: rs.length.toLocaleString() + ' subscription' + (rs.length === 1 ? '' : 's'), rows: rs, formatValue: fmt.usd0 }) : undefined;
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-        el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Cohort Waterfall' + (office !== 'all' ? ' · ' + office : '')), el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, (isArr ? 'ARR' : 'Subs') + ' still active at each year-end + the % of the cohort lost that year · diagonal = same-year attrition · ' + thisYear + ' = to date · Total = ' + (isArr ? 'ARR' : 'subs') + ' still active · same book as Attrition Steps')),
+        el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Cohort Waterfall' + (office !== 'all' ? ' · ' + office : ''))),
         el('div', { class: 'inline-flex', style: { border: '1px solid var(--border-2)' } },
           ...[[false, 'Subs'], [true, 'ARR']].map(([v, l]) => el('button', {
             class: 'px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
@@ -1455,9 +1453,7 @@ function reportingWaterfall() {
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
         el('div', {},
-          el('h3', { class: 'text-sm font-bold' }, '🌱 Retention by Start Month' + (label ? ' — ' + label : '')),
-          el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
-            'Do customers signed in April stick better than October signups? All years pooled by the month the customer STARTED.')),
+          el('h3', { class: 'text-sm font-bold' }, '🌱 Retention by Start Month' + (label ? ' — ' + label : ''))),
         el('div', { class: 'flex items-center gap-2' },
           el('div', { class: 'inline-flex', style: { border: '1px solid var(--border-2)' } },
             ...[['pct', '% kept'], ['count', 'Subs left']].map(([k, l]) => el('button', {
@@ -1619,9 +1615,7 @@ function reportingWaterfall() {
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
         el('div', {},
-          el('h3', { class: 'text-sm font-bold' }, '💎 LTV' + (label ? ' — ' + label : '')),
-          el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
-            'LTV = (avg ARV ÷ 12) × implied lifetime, where implied lifetime = 1 ÷ trailing-24-month monthly churn.')),
+          el('h3', { class: 'text-sm font-bold' }, '💎 LTV' + (label ? ' — ' + label : ''))),
         configInfoBtn('Lifetime Value',
           'Same population and churn rules as everything on this tab (recurring + serviced subs; excluded reasons and 3-day ROR count as retained). Monthly churn = countable cancels ÷ book-months over the TRAILING 24 MONTHS, per segment — so LTV reflects how the segment retains TODAY, not its whole history. Implied lifetime = 1 ÷ monthly churn, capped at 120 months. Avg ARV averages subs with a recurring value; LTV = monthly ARPU × implied lifetime. Median lifetime (churned subs only) is shown as the observed sanity check. Segments under 50 subs or 300 book-months show "small sample" — don\u2019t price a deal off those.')),
       el('div', { class: 'scroll-x' },
@@ -1671,7 +1665,7 @@ function reportingWaterfall() {
     const bar = (p) => el('span', { class: 'inline-block align-middle mr-2 rounded-full overflow-hidden', style: { width: '70px', height: '6px', background: 'var(--card-2)' } }, el('span', { class: 'block h-full', style: { width: Math.max(2, p) + '%', background: 'var(--accent)' } }));
     const modal = el('div', { class: 'card w-full max-w-3xl p-5 my-8 overflow-y-auto', style: { maxHeight: 'calc(100vh - 64px)' } },
       el('div', { class: 'flex items-start justify-between gap-3' },
-        el('div', {}, el('h3', { class: 'text-base font-bold' }, title), el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, fmt.int(totN) + ' counted cancel' + (totN === 1 ? '' : 's') + ' · ' + fmt.usd0(totArr) + ' ARR · by cancellation reason · click a reason for the accounts')),
+        el('div', {}, el('h3', { class: 'text-base font-bold' }, title)),
         el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: close }, 'Close')),
       el('div', { class: 'overflow-x-auto mt-3' }, el('table', { class: 'w-full' },
         el('thead', { style: { background: 'var(--card-2)' } }, el('tr', {}, th('Reason'), th('Share'), th('Subs', true), th('% subs', true), th('ARR', true), th('% ARR', true))),
@@ -2310,7 +2304,7 @@ function reportingWaterfall() {
     const total = mk();
     for (const g of bySrc.values()) { for (const k of ['subs', 'active', 'cxl', 'arvSold', 'arrKept', 'pool', 'poolCxl', 'ror', 'delinq']) total[k] += g[k]; total.lives.push(...g.lives); total.rows.push(...g.rows); total.cxlRows.push(...g.cxlRows); }
     if (!total.subs && _rtYear === 'all') return null;
-    const MIN = 20;
+    const MIN = 0;   // every source on its own row (per Isaac, Sep 23 — no "Other (small sources)" fold)
     const other = mk(); const named = [];
     for (const [k, g] of bySrc) {
       if (g.subs >= MIN) named.push([k, g]);
