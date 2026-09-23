@@ -13,16 +13,14 @@
 // Off until all three FieldRoutes vars exist AND app_settings.autolog.enabled.
 
 const { createClient } = require('@supabase/supabase-js');
+const { applyFieldRoutesEnv, fieldRoutesBase, recordIntegrationStatus } = require('../lib/integrations.js');
 const { requireSyncSecret } = require('../lib/sync-gate.js');
 
 const EXCLUDED_SVCS = new Set(['ACH Chargeback', 'Early Cancellation Fee', 'German Roach Initial', 'Rodent Station Removal']);
 const QUEUE_OF = { 'Office Staff': 'office', 'Sales Rep': 'd2d', 'Technician': 'tech' };
 const TYPE_LABEL = { '0': 'Office Staff', '1': 'Technician', '2': 'Sales Rep' };
 
-function frBase() {
-  const sub = (process.env.FIELDROUTES_SUBDOMAIN || '').trim();
-  return sub ? 'https://' + sub + '.pestroutes.com/api/' : null;
-}
+function frBase() { return fieldRoutesBase(); }
 async function fr(endpoint, params) {
   const base = frBase();
   const q = new URLSearchParams({
@@ -55,6 +53,8 @@ exports.handler = async (event) => {
   const SUPABASE_URL = process.env.SUPABASE_URL;
   const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!SUPABASE_URL || !SERVICE_ROLE) return { statusCode: 500, body: 'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY required' };
+  // Credentials come from Settings → Data sources (public.integrations) first, Netlify env as the fallback.
+  try { await applyFieldRoutesEnv(createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })); } catch (e) { /* env fallback */ }
   if (!frBase() || !process.env.FIELDROUTES_AUTH_KEY || !process.env.FIELDROUTES_AUTH_TOKEN) {
     console.log('[fr-live] FieldRoutes API env not set — skipping');
     return { statusCode: 200, body: 'fieldroutes env not set — skipped' };
@@ -72,7 +72,7 @@ exports.handler = async (event) => {
     // 1. Which subscriptions were added since `from`?
     const search = await fr('subscription/search', { dateAdded: { operator: '>=', value: from } });
     const ids = (search.subscriptionIDs || []).map(String);
-    if (!ids.length) return { statusCode: 200, body: 'no new subscriptions' };
+    if (!ids.length) { await recordIntegrationStatus(supabase, 'fieldroutes', { last_run_at: new Date().toISOString(), last_run_ok: true, last_run_message: 'no new subscriptions since ' + from, last_run_ms: Date.now() - started }); return { statusCode: 200, body: 'no new subscriptions' }; }
 
     // 2. Already logged? (either by this worker or the nightly pass)
     const { data: have } = await supabase.from('sales').select('crm_subscription_id').in('crm_subscription_id', ids);
@@ -282,9 +282,11 @@ exports.handler = async (event) => {
     }
     const msg = '[fr-live] ' + ids.length + ' subs since ' + from + ' · +' + added + ' logged · ' + fixed + ' trued up · ' + apptFlipped + ' appt status changed · ' + skippedNoRep + ' seller(s) with no app account · ' + skippedType + ' skipped by type · ' + skippedNotYet + ' logged but not yet eligible (appt/billing/signed) · ' + svcCreated + ' service type(s) created · ' + (Date.now() - started) + 'ms';
     console.log(msg + (fr.rateLimited ? ' · ' + fr.rateLimited + ' rate-limited retr' + (fr.rateLimited === 1 ? 'y' : 'ies') : ''));
+    await recordIntegrationStatus(supabase, 'fieldroutes', { last_run_at: new Date().toISOString(), last_run_ok: true, last_run_message: msg.replace('[fr-live] ', ''), last_run_ms: Date.now() - started, rate_limited: fr.rateLimited || 0 });
     return { statusCode: 200, body: msg };
   } catch (e) {
     console.error('[fr-live]', e);
+    await recordIntegrationStatus(supabase, 'fieldroutes', { last_run_at: new Date().toISOString(), last_run_ok: false, last_run_message: String((e && e.message) || e).slice(0, 300) });
     return { statusCode: 500, body: String((e && e.message) || e) };
   }
 };

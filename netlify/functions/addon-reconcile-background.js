@@ -14,12 +14,13 @@
 // Nightly (addons-scheduled.js gates the hour). Nothing here pays anyone.
 
 const { createClient } = require('@supabase/supabase-js');
+const { applyFieldRoutesEnv, fieldRoutesBase } = require('../lib/integrations.js');
 const { requireSyncSecret } = require('../lib/sync-gate.js');
 const { _bq } = require('./revhawk-sync-background.js');
 const { streakOf } = require('../lib/add-on-streak.js');
 
 const chunk = (arr, n) => { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; };
-function frBase() { const sub = (process.env.FIELDROUTES_SUBDOMAIN || '').trim(); return sub ? 'https://' + sub + '.pestroutes.com/api/' : null; }
+function frBase() { return fieldRoutesBase(); }
 async function fr(endpoint, params) {
   const q = new URLSearchParams({ authenticationKey: process.env.FIELDROUTES_AUTH_KEY || '', authenticationToken: process.env.FIELDROUTES_AUTH_TOKEN || '' });
   for (const [k, v] of Object.entries(params || {})) q.set(k, typeof v === 'string' ? v : JSON.stringify(v));
@@ -75,6 +76,7 @@ FROM ${T('FieldRoutesSubscription')} WHERE fieldRoutes_subscriptionID IN (${part
     tickets.forEach(t => { const k = String(t.sub_id); (bySub.get(k) || bySub.set(k, []).get(k)).push(t); });
 
     // 3. Item presence via FieldRoutes (best effort).
+    try { await applyFieldRoutesEnv(createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })); } catch (e) { /* env fallback */ }
     const canAskFr = !!(frBase() && process.env.FIELDROUTES_AUTH_KEY && process.env.FIELDROUTES_AUTH_TOKEN);
     const itemsByTicket = new Map();   // ticket_id → [item description]
     if (canAskFr) {

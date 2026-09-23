@@ -190,6 +190,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/integrations-admin"
+  to   = "/.netlify/functions/integrations-admin"
+  status = 200
+
+[[redirects]]
   from = "/api/revhawk-sync-now"
   to   = "/.netlify/functions/revhawk-sync-now"
   status = 200

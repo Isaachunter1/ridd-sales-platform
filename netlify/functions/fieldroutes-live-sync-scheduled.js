@@ -2,6 +2,7 @@
 // new subscriptions reach the Sales queues the same day (RevHawk is nightly).
 // Schedule lives in netlify.toml [functions."fieldroutes-live-sync-scheduled"].
 exports.handler = async () => {
+  try { const { createClient } = require('@supabase/supabase-js'); const { applyFieldRoutesEnv } = require('../lib/integrations.js'); await applyFieldRoutesEnv(createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })); } catch (e) { /* env fallback */ }
   if (!process.env.FIELDROUTES_AUTH_KEY) return { statusCode: 200, body: 'fieldroutes env not set — skipped' };
   const etHour = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false, hourCycle: 'h23' }).format(new Date()));
   if (!(etHour >= 7 && etHour <= 23)) return { statusCode: 200, body: 'outside selling hours — skipped' };
