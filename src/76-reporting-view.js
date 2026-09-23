@@ -949,6 +949,41 @@ function reportingContractLength() {
                 el('div', {}, el('b', {}, pct(pctUnder(L, 4))), el('span', { style: { color: 'var(--text-muted)' } }, ' gone within 4 months')),
                 el('div', {}, el('b', {}, pct(pctUnder(L, 7))), el('span', { style: { color: 'var(--text-muted)' } }, ' gone within 7 months'))));
           })),
+        // Insights (per Isaac): the selected reason against every other reason
+        // and the all-reason averages — lifetime, how early, how big a slice.
+        (() => {
+          const all = TERMS.flatMap(t => T[t].cxlByReason || []);
+          if (!all.length) return null;
+          const byR = new Map(); all.forEach(([k, l]) => { const a = byR.get(k) || []; a.push(l); byR.set(k, a); });
+          const stat = (L) => ({ n: L.length, med: L.length ? med(L) : null, u4: pctUnder(L, 4), u7: pctUnder(L, 7), avg: L.length ? L.reduce((a, b) => a + b, 0) / L.length : null });
+          const A = stat(all.map(([, l]) => l));
+          const rows = [...byR.entries()].filter(([, L]) => L.length >= 20).map(([k, L]) => ({ k, ...stat(L) }));
+          const byMed = rows.slice().sort((a, b) => a.med - b.med);
+          const line = (t) => el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, t);
+          const bold = (t) => el('b', { style: { color: 'var(--text)' } }, t);
+          const mo = (v) => v == null ? '—' : v.toFixed(1) + ' mo';
+          const box = (kids) => el('div', { class: 'rounded-xl p-3 mt-3 flex flex-col gap-1', style: { background: 'var(--card-2)' } }, el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-0.5', style: { color: 'var(--text-subtle)' } }, 'Insights'), ...kids);
+          if (rsel === 'all') {
+            const fast = byMed[0], slow = byMed[byMed.length - 1];
+            const big = rows.slice().sort((a, b) => b.n - a.n)[0];
+            return box([
+              line(['Across ', bold(A.n.toLocaleString() + ' cancels'), ' the median lifetime is ', bold(mo(A.med)), ' (average ', bold(mo(A.avg)), '); ', bold(pct(A.u4)), ' are gone within 4 months and ', bold(pct(A.u7)), ' within 7.']),
+              fast ? line(['Fastest exit: ', bold(fast.k), ' at a median ', bold(mo(fast.med)), ' (', pct(fast.u4), ' gone within 4 months). Slowest: ', bold(slow.k), ' at ', bold(mo(slow.med)), '.']) : null,
+              big ? line(['Biggest reason: ', bold(big.k), ' — ', bold(pct(big.n / A.n)), ' of all cancels, median ', bold(mo(big.med)), '.']) : null,
+              line('Pick a reason above to compare it against these averages.')]);
+          }
+          const R = rows.find(x => x.k === rsel) || (byR.get(rsel) ? { k: rsel, ...stat(byR.get(rsel)) } : null);
+          if (!R || !R.n) return box([line('No cancels with this reason in the current scope.')]);
+          const rank = byMed.findIndex(x => x.k === rsel);
+          const dMed = R.med != null && A.med != null ? R.med - A.med : null;
+          const shareAll = R.n / A.n;
+          const termShares = TERMS.map(t => [t, T[t].cxlN ? (T[t].reasons.get(rsel) || 0) / T[t].cxlN : 0]).sort((a, b) => b[1] - a[1]);
+          return box([
+            line([bold(R.k), ': ', bold(R.n.toLocaleString() + ' cancels'), ' — ', bold(pct(shareAll)), ' of all cancels. Median lifetime ', bold(mo(R.med)), dMed == null ? '' : (dMed < 0 ? ', ' + Math.abs(dMed).toFixed(1) + ' months SOONER than the all-reason median of ' + mo(A.med) : ', ' + dMed.toFixed(1) + ' months later than the all-reason median of ' + mo(A.med)), '.']),
+            line([bold(pct(R.u4)), ' gone within 4 months vs ', bold(pct(A.u4)), ' overall; ', bold(pct(R.u7)), ' within 7 vs ', bold(pct(A.u7)), '.']),
+            rank >= 0 ? line(['Among the ', byMed.length, ' reasons with 20+ cancels this is the ', bold('#' + (rank + 1)), ' fastest exit', rank === 0 ? ' — the quickest of all.' : rank === byMed.length - 1 ? ' — the slowest of all.' : '.']) : null,
+            termShares[0] ? line(['Hits ', bold(termShares[0][0] + '-month'), ' contracts hardest (', bold(pct(termShares[0][1])), ' of their cancels) and ', bold(termShares[termShares.length - 1][0] + '-month'), ' least (', bold(pct(termShares[termShares.length - 1][1])), ').']) : null]);
+        })(),
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mt-4 mb-1', style: { color: 'var(--text-subtle)' } }, rsel === 'all' ? 'Why each term cancels' : rsel + ' — share of each term\u2019s cancels'),
         el('div', { style: { height: '220px' } }, el('canvas', { id: cid }))]);
     })(),
