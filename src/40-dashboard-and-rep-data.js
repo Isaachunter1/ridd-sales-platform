@@ -5565,6 +5565,7 @@ function idFromName(list, name) { return list.find(x => x.name === name)?.id; }
 // opts.loyalty = loyalty reps only, RENEWAL revenue vs the renewal goal.
 function dashboardGoalCard(range, opts) {
   opts = opts || {}; const LOY = !!opts.loyalty;
+    const daysLeft = daysLeftInGoalPeriod(getGoalForContext());   // was viewDashboard's local before the card was extracted
     const now2 = new Date();
     const dayOfYear = Math.floor((now2 - new Date(now2.getFullYear(), 0, 0)) / 86400000);
     const expectedPct = dayOfYear / 365;   // even time — no longer drives the bars (seasonal pace below); kept for reference
