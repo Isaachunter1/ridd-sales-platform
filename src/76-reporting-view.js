@@ -583,6 +583,10 @@ function reportingRenewals(srcRows, opts) {
       phone: r.phone || '', email: r.email || '',
       svc: r.subscription, arv: Number(r.annual_recurring_value) || 0, len, mo,
       toGo: len - mo, pastBy: mo - len,
+      // Last month of the term (per Isaac, Sep 23 — shown instead of "ends in
+      // X mo"): an 18-month agreement first serviced Mar ’25 bills through
+      // Aug ’26, i.e. start + (length − 1) months.
+      endMonth: (() => { const e = new Date(d.getFullYear(), d.getMonth() + len - 1, 1); return e.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }).replace(' ', ' \u2019'); })(),
       autopay: (() => { const _ap = String(r.customer_auto_pay || '').trim(); return !!_ap && !/^no$/i.test(_ap); })(),
       pastDue: Number(r.days_past_due) || 0,
       unsigned: String(r.contract_state || 'none') !== 'signed',   // term start fell back to the initial service — verify the document
@@ -661,7 +665,7 @@ function reportingRenewals(srcRows, opts) {
   const card = (x, stage) => {
     const g = logOf(x);
     const open = state._renewalOpenCard === String(x.id);
-    const endTxt = x.crm ? ('renewed ' + (x.since ? String(x.since).slice(0, 10) : '')) : x.pastBy >= 0 ? ('+' + x.pastBy.toFixed(1) + ' mo past term') : ('ends in ' + x.toGo.toFixed(1) + ' mo');
+    const endTxt = x.crm ? ('renewed ' + (x.since ? String(x.since).slice(0, 10) : '')) : x.pastBy >= 0 ? ('term ended ' + x.endMonth + ' · ' + x.pastBy.toFixed(1) + ' mo ago') : ('term ends ' + x.endMonth);
     const endColor = x.crm ? 'var(--ok)' : x.pastBy >= 0 ? '#DC2626' : x.toGo < 1 ? '#DC2626' : '#A9441F';
     const stageSel = el('select', {
       class: 'rounded-md border px-1.5 py-0.5 text-[10px] font-bold cursor-pointer',
