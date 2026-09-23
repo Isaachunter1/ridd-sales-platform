@@ -909,6 +909,11 @@ function adminGoals() {
   g.renewal_amount = g.renewal_amount ?? Math.round(g.amount * 0.25);
   g.is_reps        = g.is_reps        ?? 5;   // Inside Sales reps (carry the NEW quota)
   g.loyalty_reps   = g.loyalty_reps   ?? 4;   // Loyalty reps (carry the RENEWAL quota)
+  // Per-quarter head counts (per Isaac, Sep 23): the /rep quota is the
+  // quarter's revenue ÷ the reps on the floor THAT quarter. Seeded from the
+  // old single number; edited inside the quota grid.
+  if (!Array.isArray(g.is_reps_q)      || g.is_reps_q.length      !== 4) g.is_reps_q      = [0, 1, 2, 3].map(() => Math.max(1, g.is_reps || 1));
+  if (!Array.isArray(g.loyalty_reps_q) || g.loyalty_reps_q.length !== 4) g.loyalty_reps_q = [0, 1, 2, 3].map(() => Math.max(1, g.loyalty_reps || 1));
   // Monthly allocation is the source of truth — seeded from the seasonal curve,
   // editable per month, and feeds the IS pacer, dashboard, and Marketing tab.
   if (!Array.isArray(g.monthly_new)     || g.monthly_new.length     !== 12) g.monthly_new     = IS_SEASONAL.map(s => Math.round(g.new_amount * s));
@@ -923,6 +928,8 @@ function adminGoals() {
     g.quarterly_new     = [0,1,2,3].map(q => qsum(g.monthly_new, q));
     g.quarterly_renewal = [0,1,2,3].map(q => qsum(g.monthly_renewal, q));
     g.quarterly         = [0,1,2,3].map(q => g.quarterly_new[q] + g.quarterly_renewal[q]);
+    const cq = Math.floor(new Date().getMonth() / 3);
+    g.is_reps = Math.max(1, g.is_reps_q[cq] || 1); g.loyalty_reps = Math.max(1, g.loyalty_reps_q[cq] || 1);   // legacy single numbers = this quarter
   };
   syncDerived();
   const persist = () => { syncDerived(); saveDemoData(); saveDeptGoal(dept.id); };
@@ -948,10 +955,7 @@ function adminGoals() {
       el('div', { class: 'grid grid-cols-1 sm:grid-cols-3 gap-4' },
         goalTargetCard('Total Revenue', g.amount, ytd.total, null, true),
         goalTargetCard(dept.lines.a, g.new_amount, ytd.new, (val) => reseed('new', val)),
-        goalTargetCard(dept.lines.b, g.renewal_amount, ytd.renewal, (val) => reseed('renewal', val))),
-      el('div', { class: 'grid grid-cols-2 gap-4 mt-4 max-w-md' },
-        goalRepCountField(dept.reps.a, g.is_reps, (v) => { g.is_reps = Math.max(1, parseInt(v) || 1); persist(); mountApp(); }),
-        goalRepCountField(dept.reps.b, g.loyalty_reps, (v) => { g.loyalty_reps = Math.max(1, parseInt(v) || 1); persist(); mountApp(); }))),
+        goalTargetCard(dept.lines.b, g.renewal_amount, ytd.renewal, (val) => reseed('renewal', val)))),
 
     // ── Quota grid: monthly allocation + quarterly rollup in one table (per Isaac, Sep 23) ──
     goalMonthlyCard(g, persist, dept),
@@ -1044,7 +1048,14 @@ function goalMonthlyCard(g, persist, dept) {
   };
   const totNew = g.monthly_new.reduce((a, b) => a + (b || 0), 0);
   const totRen = g.monthly_renewal.reduce((a, b) => a + (b || 0), 0);
-  const isReps = Math.max(1, g.is_reps || 1), loyReps = Math.max(1, g.loyalty_reps || 1);
+  const repsA = (q) => Math.max(1, Number(g.is_reps_q[q]) || 1), repsB = (q) => Math.max(1, Number(g.loyalty_reps_q[q]) || 1);
+  const qOf = (m) => Math.floor(m / 3);
+  const yrA = [0, 1, 2, 3].reduce((a, q) => a + repsA(q), 0) / 4, yrB = [0, 1, 2, 3].reduce((a, q) => a + repsB(q), 0) / 4;   // year /rep = avg head count
+  const repCell = (arr, q) => el('input', {
+    type: 'number', min: '1', step: '1', value: Math.max(1, Number(arr[q]) || 1), title: 'Reps on the floor this quarter',
+    class: 'text-left text-[11px] rounded border px-1.5 py-0.5 tabular-nums', style: { borderColor: 'var(--border-2)', width: '56px' },
+    onchange: (e) => { arr[q] = Math.max(1, parseInt(e.target.value, 10) || 1); persist(); mountApp(); },
+  });
   return el('div', { class: 'card p-4' },
     el('div', { class: 'flex items-center justify-between flex-wrap gap-2 mb-3' },
       el('h3', { class: 'text-sm font-bold' }, dept.label + ' Quota'),
@@ -1067,10 +1078,10 @@ function goalMonthlyCard(g, persist, dept) {
           ...[
             [lineA + ' curve %', (m) => curveCell(g.monthly_new, m),                        '100%',                 false],
             [lineA,           (m) => cell(g.monthly_new, m),                             usd(totNew),            true],
-            [lineA + ' /rep', (m) => usd((g.monthly_new[m] || 0) / isReps),               usd(totNew / isReps),   false],
+            [lineA + ' /rep', (m) => usd((g.monthly_new[m] || 0) / repsA(qOf(m))),         usd(totNew / yrA),      false],
             [lineB + ' curve %', (m) => curveCell(g.monthly_renewal, m),                  '100%',                 false],
             [lineB,           (m) => cell(g.monthly_renewal, m),                         usd(totRen),            true],
-            [lineB + ' /rep', (m) => usd((g.monthly_renewal[m] || 0) / loyReps),         usd(totRen / loyReps),  false],
+            [lineB + ' /rep', (m) => usd((g.monthly_renewal[m] || 0) / repsB(qOf(m))),     usd(totRen / yrB),      false],
             ['Total',         (m) => usd((g.monthly_new[m] || 0) + (g.monthly_renewal[m] || 0)), usd(totNew + totRen), true],
           ].map(([label, cellOf, yearVal, bold], ri) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: label === 'Total' ? 'var(--card-2)' : 'transparent', borderTop: label === 'Total' ? '2px solid var(--border)' : undefined } },
             el('td', { class: 'px-2 py-1.5 text-left font-semibold', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, label),
@@ -1084,14 +1095,16 @@ function goalMonthlyCard(g, persist, dept) {
           ...(() => {
             const qsum = (arr, q) => (arr[q * 3] || 0) + (arr[q * 3 + 1] || 0) + (arr[q * 3 + 2] || 0);
             const qn = [0, 1, 2, 3].map(q => qsum(g.monthly_new, q)), qr = [0, 1, 2, 3].map(q => qsum(g.monthly_renewal, q));
-            const pctOf = (a, t) => (t > 0 ? Math.round(a / t * 100) : 0) + '%';
+            const pctOf = (a, t) => (t > 0 ? (a / t * 100).toFixed(1) : '0.0') + '%';   // = the three months' curve % added up
             const rows = [
               [lineA + ' quarterly %', q => pctOf(qn[q], totNew), '100%', false],
               [lineA + ' quarterly',   q => usd(qn[q]), usd(totNew), true],
-              [lineA + ' /rep quota',  q => usd(qn[q] / isReps), usd(totNew / isReps), true],
+              [dept.reps.a,            q => repCell(g.is_reps_q, q), (Math.round(yrA * 10) / 10) + ' avg', false],
+              [lineA + ' /rep quota',  q => usd(qn[q] / repsA(q)), usd(totNew / yrA), true],
               [lineB + ' quarterly %', q => pctOf(qr[q], totRen), '100%', false],
               [lineB + ' quarterly',   q => usd(qr[q]), usd(totRen), true],
-              [lineB + ' /rep quota',  q => usd(qr[q] / loyReps), usd(totRen / loyReps), true],
+              [dept.reps.b,            q => repCell(g.loyalty_reps_q, q), (Math.round(yrB * 10) / 10) + ' avg', false],
+              [lineB + ' /rep quota',  q => usd(qr[q] / repsB(q)), usd(totRen / yrB), true],
               ['Total quarterly',      q => usd(qn[q] + qr[q]), usd(totNew + totRen), true],
             ];
             return rows.map(([label, cellOf, yearVal, bold]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: label === 'Total quarterly' ? 'var(--card-2)' : (/\/rep/.test(label) ? 'rgba(223,100,58,.06)' : 'transparent'), borderTop: label === 'Total quarterly' ? '2px solid var(--border)' : undefined } },
