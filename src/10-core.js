@@ -3804,12 +3804,36 @@ function _armSplashWatchdog() {
     document.body.classList.add('has-nv-banner');
     fix(); window.addEventListener('resize', fix);
   };
+  // Auto-reload on resume (per Isaac, Sep 23): installed apps drifted weeks
+  // behind because the banner waits for a tap nobody makes. When the app
+  // comes back to the foreground after ≥ 30 min away and a newer build is
+  // live, reload right then — the one moment nobody is mid-anything. Under
+  // 30 min, or while someone is working, it stays the banner. Guardrails:
+  // no open modal, no typed-in field, and at most once per new version.
+  const RESUME_RELOAD_MS = 30 * 60 * 1000;
+  let _hiddenAt = 0, _resumeCheck = false;
+  const _busy = () => {
+    try {
+      if (document.querySelector('.modal-overlay')) return true;
+      const a = document.activeElement; if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.type !== 'checkbox') return true;
+      return [...document.querySelectorAll('input[type="text"], input[type="number"], input[type="search"], textarea')].some(i => i.value && i.value.trim() && !i.readOnly && !i.disabled && i.type !== 'search');
+    } catch { return false; }
+  };
   const check = async () => {
+    const resumed = _resumeCheck; _resumeCheck = false;
     try {
       const r = await fetch('/version.json', { cache: 'no-store' });
       if (!r.ok) return;
       const v = await r.json();
       if (!v || !v.hash || v.hash === _myBundle) return;
+      if (resumed && state.profile && !state._tvOpen && !_busy()) {
+        let done = null; try { done = sessionStorage.getItem('ridd_auto_reloaded_for'); } catch { /* private */ }
+        if (done !== v.hash) {
+          try { sessionStorage.setItem('ridd_auto_reloaded_for', v.hash); sessionStorage.setItem('ridd_reloaded_for', v.hash); } catch { /* private */ }
+          console.log('[version] newer build live after a long background — reloading');
+          location.reload(); return;
+        }
+      }
       // The TV board is an unattended screen (per Isaac, Sep 18): nobody is
       // there to press Refresh, and the board's overlay hides the banner
       // anyway. Reload straight away and come back up on the board.
@@ -3828,7 +3852,11 @@ function _armSplashWatchdog() {
   };
   setTimeout(check, 4000);
   setInterval(check, 2 * 60 * 1000);
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(check, 800); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') { _hiddenAt = Date.now(); return; }
+    _resumeCheck = _hiddenAt > 0 && Date.now() - _hiddenAt >= RESUME_RELOAD_MS;
+    setTimeout(check, 800);
+  });
 })();
 
 // ── RESUME RESYNC ────────────────────────────────────────────────────────
