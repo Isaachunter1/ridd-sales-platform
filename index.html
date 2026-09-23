@@ -178,6 +178,8 @@
   /* Dashboard toolbar: + New Sale fills the row; Today + info hug the right. */
   .dash-toolbar .dash-newsale { flex: 1 1 auto; }
   .dash-toolbar > select, .dash-toolbar > button:not(.dash-newsale), .dash-toolbar > div { flex: 0 0 auto; }
+  /* In the sub-tab row (30-shell moves it there): no own margin, sits flush right. */
+  .sales-subtabs .dash-toolbar { flex: 0 0 auto; margin: 0 0 4px auto !important; }
   @media (max-width: 640px) {
     /* ── Calendar on phones (per Isaac — Google Calendar month feel) ──
        Agents become one horizontal chip strip; the month grid takes the
