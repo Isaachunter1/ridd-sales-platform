@@ -1246,18 +1246,21 @@ function mountApp() {
   try { _ensureEditBanner(); } catch (e) { /* never block a render */ }
   // Inside Sales views get the consolidated sub-tab bar above the content
   // (auditors get no bar — their only tab is Sales).
+  // The bar (rep-type toggle + tabs + date filter) freezes under the page
+  // header on scroll, same pin as the Reporting toolbars (per Isaac, Sep 23).
+  const _pinBar = (bar) => (typeof reportingPinBar === 'function') ? reportingPinBar('subtabs', bar) : bar;
   if (INSIDE_SALES_TAB_KEYS.has(state.view)) {
     const subTabBar = insideSalesSubTabs();
-    if (subTabBar) contentWrap.append(subTabBar);
+    if (subTabBar) contentWrap.append(_pinBar(subTabBar));
   } else if (D2D_SALES_TAB_KEYS.has(state.view)) {
     // D2D Sales group — its own sub-tab bar (admin toggle rides in front).
     const subTabBar = d2dSalesSubTabs();
-    if (subTabBar) contentWrap.append(subTabBar);
+    if (subTabBar) contentWrap.append(_pinBar(subTabBar));
   } else if (TECH_TAB_KEYS.has(state.view)) {
     const subTabBar = d2dSalesSubTabs('techs');
-    if (subTabBar) contentWrap.append(subTabBar);
+    if (subTabBar) contentWrap.append(_pinBar(subTabBar));
   } else if (LOYALTY_TAB_KEYS.has(state.view)) {
-    contentWrap.append(loyaltySubTabs());
+    contentWrap.append(_pinBar(loyaltySubTabs()));
   }
   contentWrap.append(node);
   // The date-range dropdown rides in the sub-tab row (per Isaac, Sep 23) —
