@@ -951,7 +951,9 @@ function computeLeaderboard(tab = 'total', range = null) {
     const unmatched = new Map();
     salesPool.forEach(s => {
       if (s.rep_id != null || !s._crm || !s._crmRep) return;
-      if (FR_SYSTEM_NAME_RE.test(s._crmRep)) return;   // system/integration accounts don't rank
+      // System / integration logins (FieldRoutes Admin, RIDD Account, Pest
+      // Booker…) rank under their own CRM name too (per Isaac, Sep 23) — the
+      // board should read like FieldRoutes' roster and the sales feed.
       let g = unmatched.get(s._crmRep); if (!g) { g = []; unmatched.set(s._crmRep, g); }
       g.push(s);
     });
@@ -984,6 +986,7 @@ function computeLeaderboard(tab = 'total', range = null) {
       rows.push({
         rep_id: 'crm:' + name,           // synthetic — no app profile behind it
         _noProfile: true,
+        _system: FR_SYSTEM_NAME_RE.test(name),
         full_name: disp,
         first_name: disp,                // leaderboard shows full names for everyone
         avatar_url: null,
@@ -1006,7 +1009,7 @@ function computeLeaderboard(tab = 'total', range = null) {
     const covered = new Set(profiles.map(p => p.id));
     let sales = salesPool.filter(s => {
       if (s.rep_id != null) return !covered.has(s.rep_id);
-      return !(s._crm && s._crmRep && !FR_SYSTEM_NAME_RE.test(s._crmRep));
+      return !(s._crm && s._crmRep);   // named CRM sellers (system logins included) have their own row
     });
     if (tab === 'new')      sales = sales.filter(s => !isRenewalSale(s));
     if (tab === 'renewals') sales = sales.filter(s =>  isRenewalSale(s));
