@@ -104,7 +104,8 @@ function adminPermissions() {
 
 // ──────────────────────────────────────────────────────────────────────────
 function viewAdmin() {
-  if (!state.adminSection) state.adminSection = 'users';
+  // Partners / team leads land on Goals (per Isaac, Sep 23) — it's the section they own.
+  if (!state.adminSection) state.adminSection = (state.profile && !isAdminRole(state.profile.role) && isPartnerRole(state.profile.role)) ? 'goals' : 'users';
 
   // One flat list, alphabetical (per Isaac, Sep 2026). Sources now lives
   // inside Configurations; the old 'sources' section key still resolves.
@@ -902,7 +903,20 @@ function adminGoals() {
   // One set of goals per department (per Isaac, Sep 22): Office Staff is the
   // company goal everything already reads; Door to Door and Technicians are
   // their own objects (same cards, own storage) to be configured from here.
+  // Sep 23: Door to Door = per-rep goals set by partners (their own teams);
+  // Technicians cleared — Isaac builds that out with the COO.
+  const _partnerOnly = !isAdminRole(state.profile?.role) && isPartnerRole(state.profile?.role);
+  if (_partnerOnly) state._goalDept = 'd2d';
   const dept = GOAL_DEPTS.find(d => d.id === state._goalDept) || GOAL_DEPTS[0];
+  if (dept.id === 'd2d' || dept.id === 'tech') {
+    const tabs = _partnerOnly ? null : el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+      ...GOAL_DEPTS.map(d => el('button', { class: 'px-3 py-1.5 text-[11px] font-bold transition', style: d.id === dept.id ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._goalDept = d.id; mountApp(); } }, d.label)));
+    return el('div', { class: 'flex flex-col gap-5' },
+      el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' }, el('h2', { class: 'text-xl font-bold' }, 'Goals'), tabs),
+      dept.id === 'tech'
+        ? el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Technician goals are being built out with the COO.')
+        : d2dRepGoalsCard(_partnerOnly));
+  }
   const g = deptGoalObj(dept.id);
   g.amount         = g.amount         ?? 0;
   g.new_amount     = g.new_amount     ?? Math.round(g.amount * 0.75);
@@ -2022,4 +2036,80 @@ function adminUsage() {
       el('div', { class: 'flex items-end gap-1', style: { height: '80px' } }, ...u.daily.map(d => el('div', { class: 'flex-1', title: d.d + ' · ' + d.users + ' users · ' + d.views + ' views', style: { height: Math.max(2, Math.round((Number(d.users) || 0) / mx * 76)) + 'px', background: 'var(--accent)', minWidth: '3px' } })))));
   }
   return wrap;
+}
+
+
+// ── Door to Door goals (per Isaac, Sep 23): a table of every sales rep on the
+// viewer's teams — partners / team leads see the teams they lead (Settings →
+// Users → Teams led + their own Manage Teams team), admins see everyone
+// grouped by team. Revenue goal feeds the Individual pacer
+// (profiles.annual_revenue_goal); the other goals live in profiles.year_goals
+// {accounts, acv, retained_pct, other}. Saved through the set_rep_goals RPC so
+// a partner can write their reps' rows without profile-wide update rights.
+function d2dRepGoalsCard(partnerOnly) {
+  const year = new Date().getFullYear();
+  // Goals sit behind the profiles self-read policy, so a partner's roster
+  // rows don't carry them — pull them once through rep_goals_all() and merge.
+  if (state._repGoalsLoaded === undefined && !DEMO && supabase) {
+    state._repGoalsLoaded = false;
+    supabase.rpc('rep_goals_all').then(({ data }) => {
+      state._repGoalsLoaded = true;
+      if (!data) return;
+      const by = new Map(data.map(r => [r.id, r]));
+      (state.allProfiles || []).forEach(p => { const r = by.get(p.id); if (r) { p.annual_revenue_goal = r.annual_revenue_goal; p.year_goals = r.year_goals || {}; } });
+      mountApp();
+    }).catch(() => { state._repGoalsLoaded = true; });
+  }
+  const reach = partnerOnly ? myReachTeams() : null;
+  const reps = (state.allProfiles || []).filter(p => p.is_active !== false && slackTypeOfProfile(p) === 'd2d')
+    .map(p => ({ p, team: (typeof getRepTeam === 'function' && (getRepTeam(p.full_name) || (typeof getCanonicalRepName === 'function' ? getRepTeam(getCanonicalRepName(p.full_name)) : ''))) || '' }))
+    .filter(x => !reach || (x.team && reach.has(x.team)))
+    .sort((a, b) => (a.team || 'zzz').localeCompare(b.team || 'zzz') || a.p.full_name.localeCompare(b.p.full_name));
+  const usd = (n) => '$' + Math.round(n || 0).toLocaleString();
+  const save = async (p, patch) => {
+    const yg = Object.assign({}, p.year_goals || {}, patch.year_goals || {});
+    const rev = patch.annual_revenue_goal != null ? patch.annual_revenue_goal : (Number(p.annual_revenue_goal) || 0);
+    if (DEMO || !supabase) { p.annual_revenue_goal = rev; p.year_goals = yg; saveDemoData(); return; }
+    const { error } = await supabase.rpc('set_rep_goals', { target: p.id, revenue: rev, goals: yg });
+    if (error) { toast(/set_rep_goals/.test(String(error.message)) ? 'Run migrations/20260923_rep_goals.sql in Supabase first' : ('Could not save: ' + error.message), 'error'); return; }
+    p.annual_revenue_goal = rev; p.year_goals = yg;
+    logActivity('config_change', { detail: 'Rep goals · ' + p.full_name + ' · ' + JSON.stringify(patch) });
+    toast('Saved', 'success');
+  };
+  const inp = (val, onSave, o = {}) => el('input', Object.assign({
+    type: 'text', inputmode: o.text ? 'text' : 'decimal', value: val == null || val === '' ? '' : String(val), placeholder: o.placeholder || '',
+    class: 'text-left text-[11px] rounded border px-1.5 py-1 tabular-nums', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '100%', minWidth: '0' },
+    onchange: (e) => onSave(o.text ? e.target.value.trim() : (parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0)),
+  }));
+  const th = (t) => el('th', { class: 'text-left px-2 py-2 text-[10px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)' } }, t);
+  const COLS = [['Revenue goal', 'annual_revenue_goal'], ['Accounts', 'accounts'], ['Avg contract $', 'acv'], ['Retained %', 'retained_pct'], ['Other goal', 'other']];
+  let lastTeam = null;
+  const rows = [];
+  for (const { p, team } of reps) {
+    if (team !== lastTeam) {
+      lastTeam = team;
+      rows.push(el('tr', { style: { background: 'var(--card-2)' } }, el('td', { colspan: String(COLS.length + 1), class: 'px-2 py-1 text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-muted)' } }, team || 'No team yet')));
+    }
+    const yg = p.year_goals || {};
+    rows.push(el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+      el('td', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap' }, p.full_name),
+      el('td', { class: 'px-2 py-1' }, inp(Number(p.annual_revenue_goal) ? Math.round(Number(p.annual_revenue_goal)).toLocaleString() : '', (v) => save(p, { annual_revenue_goal: v }), { placeholder: '$' })),
+      el('td', { class: 'px-2 py-1' }, inp(yg.accounts, (v) => save(p, { year_goals: { accounts: v } }), { placeholder: '#' })),
+      el('td', { class: 'px-2 py-1' }, inp(yg.acv, (v) => save(p, { year_goals: { acv: v } }), { placeholder: '$' })),
+      el('td', { class: 'px-2 py-1' }, inp(yg.retained_pct, (v) => save(p, { year_goals: { retained_pct: v } }), { placeholder: '%' })),
+      el('td', { class: 'px-2 py-1' }, inp(yg.other, (v) => save(p, { year_goals: { other: v } }), { text: true, placeholder: 'e.g. 40 Sentricon' }))));
+  }
+  const total = reps.reduce((a, x) => a + (Number(x.p.annual_revenue_goal) || 0), 0);
+  return el('div', { class: 'card p-4' },
+    el('div', { class: 'flex items-center justify-between flex-wrap gap-2 mb-3' },
+      el('h3', { class: 'text-sm font-bold' }, (partnerOnly ? 'My team' : 'Door to Door') + ' · ' + year + ' rep goals'),
+      el('span', { class: 'text-[11px] text-muted-' }, reps.length + ' rep' + (reps.length === 1 ? '' : 's') + ' · revenue goals total ' + usd(total))),
+    reps.length
+      ? el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', overflow: 'hidden' } },
+          el('table', { class: 'text-xs', style: { width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' } },
+            el('colgroup', {}, el('col', { style: { width: '22%' } }), el('col', { style: { width: '16%' } }), el('col', { style: { width: '12%' } }), el('col', { style: { width: '14%' } }), el('col', { style: { width: '12%' } }), el('col', {})),
+            el('thead', {}, el('tr', {}, th('Rep'), ...COLS.map(([l]) => th(l)))),
+            el('tbody', {}, ...rows)))
+      : el('div', { class: 'p-6 text-center text-sm text-muted-' }, partnerOnly ? 'No reps are assigned to your team yet — assignments come from Manage Teams.' : 'No active sales reps yet.'),
+    el('div', { class: 'text-[10px] mt-2', style: { color: 'var(--text-subtle)' } }, 'Revenue goal drives each rep’s Individual pacer on the Dashboard. Other goals are yours to define per rep for the year.'));
 }

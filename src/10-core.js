@@ -246,8 +246,8 @@ const PERM_DEFAULTS = {
   rep_sales:       { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ..._PERM_D2D_TABS },   // no Indicators table / Power Ranking for sales reps (per Isaac, Sep 2026)
   rep_office:      { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ..._PERM_OFFICE_TABS },
   rep_loyalty:     { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ..._PERM_OFFICE_TABS },
-  rep_partner:     { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1, ..._PERM_D2D_TABS },
-  rep_team_lead:   { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1, ..._PERM_D2D_TABS },
+  rep_partner:     { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1, view_settings: 1, set_goals: 1, ..._PERM_D2D_TABS },   // Settings → Goals: their own reps' yearly goals (per Isaac, Sep 23)
+  rep_team_lead:   { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1, view_settings: 1, set_goals: 1, ..._PERM_D2D_TABS },
   rep_office_lead: { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1, ..._PERM_OFFICE_TABS },
   rep_loyalty_lead: { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1, ..._PERM_OFFICE_TABS },
   // Office Staff - Office (per Isaac, Sep 22): works in the office, doesn't sell — no player card, no pay; sees the boards. Tune in Settings → Permissions.
