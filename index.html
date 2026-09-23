@@ -685,9 +685,12 @@
   @media all and (display-mode: standalone) {
     .page-header { padding-top: calc(1rem + env(safe-area-inset-top)) !important; }
     body { padding-bottom: env(safe-area-inset-bottom); }
-    .modal-overlay > * {
-      padding-top: env(safe-area-inset-top);
-      padding-bottom: env(safe-area-inset-bottom);
+    /* Sheets start below the status bar. Must out-rank `.card.p-5 { padding }`
+       (0,2,0), which was silently beating this and tucking modal titles
+       under the clock on phones (per Isaac, Sep 23). */
+    .modal-overlay > *, .modal-overlay > .card.p-5, .modal-overlay > .card.p-4 {
+      padding-top: calc(14px + env(safe-area-inset-top)) !important;
+      padding-bottom: calc(14px + env(safe-area-inset-bottom)) !important;
     }
     /* EVERY fixed-position offset must grow by the same inset the header
        grew by, or content tucks under it (the "cut-off dropdowns" bug):

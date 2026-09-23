@@ -756,15 +756,17 @@ function reportingOverview() {
           trend != null ? tile('Last 7 days vs prior 7', (trend > 0 ? '+' : '') + Math.round(trend * 100) + '%', last7 + ' vs ' + prior7 + ' subs lost', trend > 0 ? C.cxl : C.sold) : null,
           tile('Top cancel reason', reason.replace(/ \(\d+\)$/, ''), reason.match(/\((\d+)\)$/) ? reason.match(/\((\d+)\)$/)[1] + ' of ' + fmt.int(cxlAll.length) + ' cancels' : ''));
       })();
-      const viewBtn = (v, l) => el('button', { class: 'px-2.5 py-1 text-[11px] font-bold transition', style: (dayView ? v === 'day' : v === 'office') ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._pulseLostView = v; mountApp(); } }, l);
+      // Pill tabs (the Revenue Goal pattern) — the ad-hoc segmented control
+      // rendered blank / dead on phones (per Isaac, Sep 23).
+      const viewBtn = (v, l) => el('button', { type: 'button', 'data-active': String(dayView ? v === 'day' : v === 'office'), onclick: () => { state._pulseLostView = v; mountApp(); } }, l);
       return el('div', { class: 'mt-3 pt-3 border-t', style: { borderColor: 'var(--border)' } },
         el('div', { class: 'flex items-center justify-between gap-2 flex-wrap mb-1' },
           el('div', {},
             el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' }, title: 'Revenue sold = contract value \u00b7 revenue lost = ARR of counted cancels' + (span > 1 ? ' \u00b7 RIDD is losing ' + (tot.ln / span).toFixed(1) + ' subs / day' : '') }, 'Subscriptions sold vs lost \u00b7 ' + winLabel.toLowerCase() + (dayView ? ' \u00b7 by day' : ' \u00b7 by office')),
             null),
-          el('div', { class: 'flex items-center gap-2 flex-wrap' },
-            el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } }, viewBtn('office', 'By office'), viewBtn('day', 'Daily')),
-            el('button', { class: 'text-[10px] font-bold', style: { color: 'var(--accent)' }, onclick: () => openWindow('cxl') }, 'Where the churn came from \u2192'))),
+          el('div', { class: 'flex items-center gap-2 flex-wrap justify-end', style: { marginLeft: 'auto' } },   // right-justified (per Isaac, Sep 23)
+            el('div', { class: 'pill-tabs' }, viewBtn('office', 'By office'), viewBtn('day', 'Daily')),
+            el('button', { class: 'text-[10px] font-bold', style: { color: 'var(--accent)' }, title: 'Where the churn came from — the window\'s lost accounts, by office', onclick: () => openWindow('cxl') }, 'See more \u2192'))),
         dayView ? insights : null,
         el('div', { class: 'scroll-x' }, dayView ? dayTbl : tbl));
     })();
