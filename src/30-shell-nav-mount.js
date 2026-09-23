@@ -224,6 +224,8 @@ function refreshIndSection(id) {
 function notifySlack(userId, text) {
   try {
     if (DEMO || !userId || !text || !state.session) return;
+    const _p = (state.allProfiles || []).find(x => x.id === userId) || (state.profile && state.profile.id === userId ? state.profile : null);
+    if (_p && !slackAllowedFor(_p)) return;   // Slack is off for this rep type (Configurations)
     fetch('/api/slack-dm', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (state.session.access_token || '') },
@@ -336,7 +338,7 @@ function openMySettingsModal() {
         }, ...USER_TZ_CHOICES.map(([v, label]) => el('option', { value: v, selected: userTzPref() === v }, label))),
         el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
           'Affects time displays like Today\u2019s Sales. Auto = Mountain (Utah) for office staff; D2D sale times always show in the selling office\u2019s local time.')),
-      officeStaff ? slackSection : null,
+      slackAllowedFor(p) ? slackSection : null,
       el('div', { class: 'flex flex-col gap-2' },
         secLabel('Change Password'),
         pw1, pw2, policyList, pwBtn),

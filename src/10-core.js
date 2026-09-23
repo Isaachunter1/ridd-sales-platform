@@ -180,6 +180,26 @@ const PERM_ROLES = ['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', '
 const TECH_ROLES = new Set(['tech_regional', 'tech_branch', 'tech_senior_lead', 'tech_pro']);
 const TECH_MANAGER_ROLES = new Set(['tech_regional', 'tech_branch']);
 const isTechRole = (r) => TECH_ROLES.has(r);
+// Slack DMs per rep type (Settings → Configurations → Slack notifications).
+// Defaults per Isaac (Sep 2026): on for office staff, off for D2D + technicians.
+// Admins/auditors always allowed. Stored in pay_settings.slack_types so every
+// signed-in user loads it.
+const SLACK_TYPE_DEFAULTS = { office: true, d2d: false, tech: false };
+function slackTypeOfProfile(p) {
+  if (!p) return null;
+  if (isTechRole(p.role)) return 'tech';
+  if (p.role === 'rep_sales' || p.role === 'rep_partner' || p.role === 'rep_team_lead') return 'd2d';
+  if (typeof isOfficeStaffProfile === 'function' ? isOfficeStaffProfile(p) : isOfficeStaffRole(p.role)) return 'office';
+  return null;
+}
+function slackAllowedFor(p) {
+  if (!p) return false;
+  if (isAdminRole(p.role) || p.role === 'auditor') return true;
+  const t = slackTypeOfProfile(p);
+  if (!t) return false;
+  const cfg = Object.assign({}, SLACK_TYPE_DEFAULTS, (state.appSettings && state.appSettings.slack_types) || {});
+  return cfg[t] !== false;
+}
 const isTechManagerRole = (r) => TECH_MANAGER_ROLES.has(r);
 const PERM_DEFS = [
   { id: 'view_comps',       label: 'Competitions tab',    group: 'Tabs' },

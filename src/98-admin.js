@@ -541,6 +541,15 @@ function adminConfigurations() {
     ]));
 
   // ── 4. Indicators ──
+  // ── Slack notifications per rep type (pay_settings.slack_types) ──
+  const SL = Object.assign({}, SLACK_TYPE_DEFAULTS, (state.appSettings && state.appSettings.slack_types) || {});
+  const saveSL = (k, v) => { state.appSettings.slack_types = Object.assign({}, SL, { [k]: v }); saveAppSettings(); logActivity('config_change', { detail: 'Slack ' + k + ': ' + (v ? 'on' : 'off') }); toast('Saved', 'success'); mountApp(); };
+  const slackCfg = card('Slack notifications', pill([['office', 'Inside Sales'], ['d2d', 'D2D'], ['tech', 'Technicians']].filter(([k]) => SL[k] !== false).map(([, l]) => l).join(' · ') || 'off'),
+    row('Inside Sales', sw(SL.office !== false, () => saveSL('office', !(SL.office !== false))), { tip: 'Office staff and loyalty reps can wire a Slack Member ID in ⚙ My Settings and get DMs (audit results, pay stubs and more). Default on.' }),
+    row('D2D sales reps', sw(SL.d2d === true, () => saveSL('d2d', !(SL.d2d === true))), { tip: 'Sales reps, partners and team leads. Off hides the Slack section from their settings and mutes DMs to them. Default off.' }),
+    row('Technicians', sw(SL.tech === true, () => saveSL('tech', !(SL.tech === true))), { tip: 'All technician roles. Default off.' }),
+  );
+
   const indicators = card('Indicators', null,
     row('MY % exclusions', svcPicker(myExcludeTerms(), (l) => { state.indicatorMyExclServiceTerms = l.length ? l : null; saveIndicatorState(); toast(l.length ? l.length + ' service' + (l.length === 1 ? '' : 's') + ' excluded from MY %' : 'Reset to the default (sentricon)', 'success'); mountApp(); })),
   );
@@ -563,6 +572,7 @@ function adminConfigurations() {
       configInfoBtn('How reporting works', howItWorks())),
     reportingRules,
     autolog,
+    slackCfg,
     attrition,
     indicators,
     listCard('service', 'Service Types', svcCount, reportingServiceConfigPanel),

@@ -35,9 +35,19 @@ exports.handler = async (event) => {
   }
 
   const { data: target } = await admin.from('profiles')
-    .select('slack_member_id, slack_notify, full_name').eq('id', user_id).maybeSingle();
+    .select('slack_member_id, slack_notify, full_name, role').eq('id', user_id).maybeSingle();
   if (!target) return json(404, { error: 'user not found' });
   if (!target.slack_notify || !target.slack_member_id) return json(200, { ok: false, skipped: 'user has Slack notifications off' });
+  // Per-rep-type switch (Settings → Configurations → Slack notifications).
+  // Defaults: office on, D2D + technicians off. Admins/auditors always pass.
+  try {
+    const { data: ps } = await admin.from('app_settings').select('value').eq('key', 'pay_settings').maybeSingle();
+    const cfg = Object.assign({ office: true, d2d: false, tech: false }, (ps && ps.value && ps.value.slack_types) || {});
+    const r = String(target.role || '');
+    const type = /^tech_/.test(r) ? 'tech' : (r === 'rep_sales' || r === 'rep_partner' || r === 'rep_team_lead') ? 'd2d'
+      : (r === 'rep_office' || r === 'rep_office_lead' || r === 'rep_loyalty' || r === 'rep_loyalty_lead' || r === 'office_staff' || r === 'rep') ? 'office' : null;
+    if (type && cfg[type] === false) return json(200, { ok: false, skipped: 'Slack is off for ' + type + ' reps (Configurations)' });
+  } catch (e) { /* config unreadable — fall through and send */ }
 
   const res = await fetch('https://slack.com/api/chat.postMessage', {
     method: 'POST',
