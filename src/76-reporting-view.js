@@ -891,73 +891,7 @@ function reportingContractLength() {
     sub && el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, sub));
   const pct = (v) => (v * 100).toFixed(1) + '%';
 
-  // ── AGREEMENT AUDIT (per Isaac, Sep 23): the recorded contract length is a
-  // hand-typed field and drifts from the signed document, which is the source
-  // of truth. The document's term isn't in the warehouse, so this flags the
-  // cases the data CAN prove wrong or unverifiable, for the office to fix in
-  // FieldRoutes: term not 12/18/24 · no signed agreement on file · signed
-  // long after the initial service · an Early Cancellation Fee charged AFTER
-  // the recorded term ended (so the real term was longer).
-  const audit = (() => {
-    const isActive = (r) => (r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled;
-    const ecfByCust = new Map();
-    rows.forEach(r => { if (/early cancellation fee/i.test(String(r.subscription || '')) && r.customer_id) { const d = new Date(String(r.sold_date || r.initial_service) + 'T00:00'); if (!isNaN(d)) { const L = ecfByCust.get(r.customer_id) || []; L.push(d); ecfByCust.set(r.customer_id, L); } } });
-    const flags = [];
-    rows.forEach(r => {
-      if (/sentricon|early cancellation|chargeback/i.test(String(r.subscription || ''))) return;
-      if (/^renewal\s*-/i.test(String(r.subscription_source || ''))) return;
-      const len = Number(r.agreement_length) || 0;
-      if (len <= 1) return;   // one-time / no term recorded — not a contract
-      const init = new Date(String(r.initial_service) + 'T00:00');
-      const signed = r.contract_signed_at ? new Date(String(r.contract_signed_at) + 'T00:00') : null;
-      const start = signed && !isNaN(signed) ? signed : init;
-      const why = [];
-      if (!TERMS.includes(len)) why.push('term recorded as ' + len + ' months');
-      if (isActive(r) && String(r.contract_state || 'none') !== 'signed') why.push('no signed agreement on file');
-      if (signed && !isNaN(signed) && !isNaN(init) && (signed - init) / 86400000 > 60) why.push('signed ' + Math.round((signed - init) / 86400000) + ' days after the initial service');
-      if (!isNaN(start)) {
-        const termEnd = new Date(start); termEnd.setMonth(termEnd.getMonth() + len);
-        const ecf = (ecfByCust.get(r.customer_id) || []).find(d => d > termEnd);
-        if (ecf) why.push('early-cancel fee charged ' + ecf.toISOString().slice(0, 10) + ', after the recorded ' + len + '-month term ended — real term was longer');
-      }
-      if (why.length) flags.push({ r, len, why, active: isActive(r), signed: signed && !isNaN(signed) ? signed.toISOString().slice(0, 10) : '' });
-    });
-    const kinds = [
-      ['bad_term', 'Term not 12 / 18 / 24', (f) => f.why.some(w => /term recorded/.test(w))],
-      ['unsigned', 'Active, no signed agreement', (f) => f.why.some(w => /no signed/.test(w))],
-      ['late', 'Signed 60+ days after service', (f) => f.why.some(w => /days after/.test(w))],
-      ['ecf', 'Cancel fee after recorded term', (f) => f.why.some(w => /early-cancel/.test(w))],
-    ];
-    const sel = state._ctAuditKind || 'all';
-    const list = flags.filter(f => sel === 'all' || (kinds.find(k => k[0] === sel) || [])[2](f)).sort((a, b) => (b.active ? 1 : 0) - (a.active ? 1 : 0) || (Number(b.r.annual_recurring_value) || 0) - (Number(a.r.annual_recurring_value) || 0));
-    const chip = (k, l, n) => el('button', { class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition hover:brightness-95', style: sel === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' }, onclick: () => { state._ctAuditKind = k; mountApp(); } }, l + ' · ' + n.toLocaleString());
-    const exp = el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-      onclick: () => _reportingCsvDownload('agreement-audit.csv', ['Customer ID', 'Customer', 'Office', 'Service', 'Recorded Term', 'Initial Service', 'Agreement Signed', 'Active', 'ARV', 'Flags'],
-        list.map(f => [f.r.customer_id, _custDisplayName(f.r), f.r.office_name || '', f.r.subscription || '', f.len, f.r.initial_service || '', f.signed, f.active ? 'Yes' : 'No', Math.round(Number(f.r.annual_recurring_value) || 0), f.why.join(' | ')])) }, '⬇ Export (' + list.length.toLocaleString() + ')');
-    return card([
-      el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
-        secHdr('🧾 Agreement audit — recorded term vs the signed document', 'The contract-length field is typed by hand; the e-signed agreement is the source of truth. Its term isn\u2019t in the warehouse, so these are the accounts the data can prove wrong or can\u2019t verify. Fix them in FieldRoutes and they clear on the next sync.'),
-        exp),
-      el('div', { class: 'flex items-center gap-1.5 flex-wrap mb-2' }, chip('all', 'All flags', flags.length), ...kinds.map(([k, l, fn]) => chip(k, l, flags.filter(fn).length))),
-      el('div', { class: 'overflow-x-auto', style: { maxHeight: '420px' } },
-        el('table', { class: 'w-full text-xs' },
-          el('thead', { class: 'text-[10px] uppercase tracking-wider sticky top-0', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
-            el('tr', {}, ...['Customer', 'Office', 'Service', 'Recorded', 'Signed', 'ARV', 'What looks wrong'].map((h, i) => el('th', { class: 'text-left px-2 py-2 font-semibold' + (i === 5 ? ' text-right' : '') }, h)))),
-          el('tbody', {}, ...list.slice(0, 200).map(f => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', opacity: f.active ? '1' : '.6' } },
-            el('td', { class: 'px-2 py-1.5' }, el('div', { class: 'font-semibold' }, _custDisplayName(f.r)), el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '#' + f.r.customer_id + (f.active ? '' : ' · cancelled'))),
-            el('td', { class: 'px-2 py-1.5 whitespace-nowrap' }, _titleCaseWords(f.r.office_name || '—')),
-            el('td', { class: 'px-2 py-1.5' }, f.r.subscription || ''),
-            el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap' }, f.len + ' mo'),
-            el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap' }, f.signed || el('span', { style: { color: '#DC2626' } }, 'none')),
-            el('td', { class: 'px-2 py-1.5 text-right tabular-nums' }, fmt.usd0(Number(f.r.annual_recurring_value) || 0)),
-            el('td', { class: 'px-2 py-1.5', style: { color: 'var(--text-muted)' } }, f.why.join(' · ')))),
-            list.length > 200 ? el('tr', {}, el('td', { class: 'px-2 py-3 text-center text-[11px] italic', colspan: 7, style: { color: 'var(--text-subtle)' } }, 'Showing 200 — export for all ' + list.length.toLocaleString() + '.')) : null,
-            !list.length ? el('tr', {}, el('td', { class: 'px-2 py-6 text-center text-[11px]', colspan: 7, style: { color: 'var(--text-subtle)' } }, 'Nothing flagged.')) : null))),
-    ]);
-  })();
-
   return el('div', { class: 'flex flex-col gap-4' },
-    audit,
     // Headline cards
     card([
       secHdr('📄 Contract Length — 12 vs 18 vs 24', 'The full term story on one screen. Verdict from the data: 24s are proven (+2 months kept, best 12-mo survival); 18s die of NON-PAYMENT, early, concentrated in the offices with the weakest collections — the term isn\u2019t toxic, how it\u2019s sold is.'),
