@@ -953,11 +953,8 @@ function adminGoals() {
         goalRepCountField(dept.reps.a, g.is_reps, (v) => { g.is_reps = Math.max(1, parseInt(v) || 1); persist(); mountApp(); }),
         goalRepCountField(dept.reps.b, g.loyalty_reps, (v) => { g.loyalty_reps = Math.max(1, parseInt(v) || 1); persist(); mountApp(); }))),
 
-    // ── Monthly seasonal allocation (with per-rep) ──
+    // ── Quota grid: monthly allocation + quarterly rollup in one table (per Isaac, Sep 23) ──
     goalMonthlyCard(g, persist, dept),
-
-    // ── Quarterly per-rep quotas ──
-    goalQuarterlyCard(g, dept),
   );
 }
 
@@ -1012,7 +1009,7 @@ function goalMonthlyCard(g, persist, dept) {
   const curM = new Date().getMonth();
   const cell = (arr, m) => el('input', {
     type: 'text', inputmode: 'numeric', value: Math.round(arr[m] || 0).toLocaleString(),
-    class: 'w-24 text-left text-[11px] rounded border px-2.5 py-1 tabular-nums', style: { borderColor: 'var(--border-2)' },
+    class: 'text-left text-[11px] rounded border px-2.5 py-1 tabular-nums', style: { borderColor: 'var(--border-2)', width: '92px' },
     onchange: (e) => { arr[m] = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); mountApp(); },
   });
   // Editable seasonal curve %: each month's share of its line's annual total.
@@ -1032,8 +1029,8 @@ function goalMonthlyCard(g, persist, dept) {
     const tot = arr.reduce((a, b) => a + (b || 0), 0);
     const pct = tot > 0 ? (arr[m] || 0) / tot * 100 : 0;
     return el('input', {
-      type: 'text', inputmode: 'decimal', value: pct.toFixed(1),
-      class: 'w-16 text-left text-[11px] rounded border px-2.5 py-1 tabular-nums', style: { borderColor: 'var(--border-2)' },
+      type: 'text', inputmode: 'decimal', value: pct.toFixed(1) + '%',
+      class: 'text-left text-[11px] rounded border px-2.5 py-1 tabular-nums', style: { borderColor: 'var(--border-2)', width: '92px' },
       onchange: (e) => { reshapeCurve(arr, m, (parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0) / 100); persist(); mountApp(); },
     });
   };
@@ -1042,7 +1039,7 @@ function goalMonthlyCard(g, persist, dept) {
   const isReps = Math.max(1, g.is_reps || 1), loyReps = Math.max(1, g.loyalty_reps || 1);
   return el('div', { class: 'card p-4' },
     el('div', { class: 'flex items-center justify-between flex-wrap gap-2 mb-3' },
-      el('h3', { class: 'text-sm font-bold' }, 'Monthly allocation'),
+      el('h3', { class: 'text-sm font-bold' }, dept.label + ' Quota'),
       el('button', { class: 'text-[11px] rounded px-2.5 py-1 border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
         onclick: () => { g.monthly_new = IS_SEASONAL.map(s => Math.round(g.new_amount * s)); g.monthly_renewal = IS_RENEWAL_SEASONAL.map(s => Math.round(g.renewal_amount * s)); persist(); mountApp(); } },
         '↻ Reset to default curve')),
@@ -1066,7 +1063,30 @@ function goalMonthlyCard(g, persist, dept) {
           ].map(([label, cellOf, yearVal, bold], ri) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: label === 'Total' ? 'var(--card-2)' : 'transparent', borderTop: label === 'Total' ? '2px solid var(--border)' : undefined } },
             el('td', { class: 'px-3 py-1.5 text-left font-semibold whitespace-nowrap', style: { position: 'sticky', left: 0, background: label === 'Total' ? 'var(--card-2)' : 'var(--card)', zIndex: 1 } }, label),
             ...M.map((lbl, m) => el('td', { class: 'px-3 py-1.5 text-left tabular-nums whitespace-nowrap' + (bold && typeof cellOf(m) === 'string' ? ' font-semibold' : ''), style: m === curM ? { background: 'rgba(223,100,58,.06)' } : {} }, cellOf(m))),
-            el('td', { class: 'px-3 py-1.5 text-left tabular-nums font-bold whitespace-nowrap', style: { borderLeft: '2px solid var(--border)' } }, yearVal)))))));
+            el('td', { class: 'px-3 py-1.5 text-left tabular-nums font-bold whitespace-nowrap', style: { borderLeft: '2px solid var(--border)' } }, yearVal))),
+          // ── Quarterly rollup — each quarter cell spans its three months (3× box) ──
+          el('tr', { style: { background: 'var(--card-2)', borderTop: '2px solid var(--border)' } },
+            el('th', { class: 'text-left px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap', style: { position: 'sticky', left: 0, background: 'var(--card-2)', zIndex: 1, color: 'var(--text-muted)' } }, 'Quarterly'),
+            ...[0, 1, 2, 3].map(q => el('th', { colspan: '3', class: 'text-left px-3 py-2 text-[10px] uppercase tracking-wider font-semibold', style: Object.assign({ color: 'var(--text-muted)' }, Math.floor(curM / 3) === q ? { color: 'var(--accent)' } : {}) }, 'Q' + (q + 1) + (Math.floor(curM / 3) === q ? ' ·' : ''))),
+            el('th', { class: 'text-left px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap', style: { borderLeft: '2px solid var(--border)', color: 'var(--text-muted)' } }, 'Year')),
+          ...(() => {
+            const qsum = (arr, q) => (arr[q * 3] || 0) + (arr[q * 3 + 1] || 0) + (arr[q * 3 + 2] || 0);
+            const qn = [0, 1, 2, 3].map(q => qsum(g.monthly_new, q)), qr = [0, 1, 2, 3].map(q => qsum(g.monthly_renewal, q));
+            const pctOf = (a, t) => (t > 0 ? Math.round(a / t * 100) : 0) + '%';
+            const rows = [
+              [lineA + ' quarterly %', q => pctOf(qn[q], totNew), '100%', false],
+              [lineA + ' quarterly',   q => usd(qn[q]), usd(totNew), true],
+              [lineA + ' /rep quota',  q => usd(qn[q] / isReps), usd(totNew / isReps), true],
+              [lineB + ' quarterly %', q => pctOf(qr[q], totRen), '100%', false],
+              [lineB + ' quarterly',   q => usd(qr[q]), usd(totRen), true],
+              [lineB + ' /rep quota',  q => usd(qr[q] / loyReps), usd(totRen / loyReps), true],
+              ['Total quarterly',      q => usd(qn[q] + qr[q]), usd(totNew + totRen), true],
+            ];
+            return rows.map(([label, cellOf, yearVal, bold]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: label === 'Total quarterly' ? 'var(--card-2)' : (/\/rep/.test(label) ? 'rgba(223,100,58,.06)' : 'transparent'), borderTop: label === 'Total quarterly' ? '2px solid var(--border)' : undefined } },
+              el('td', { class: 'px-3 py-1.5 text-left font-semibold whitespace-nowrap', style: { position: 'sticky', left: 0, background: label === 'Total quarterly' ? 'var(--card-2)' : 'var(--card)', zIndex: 1 } }, label),
+              ...[0, 1, 2, 3].map(q => el('td', { colspan: '3', class: 'px-3 py-1.5 text-left tabular-nums whitespace-nowrap' + (bold ? ' font-semibold' : ''), style: Math.floor(curM / 3) === q ? { background: 'rgba(223,100,58,.06)' } : {} }, cellOf(q))),
+              el('td', { class: 'px-3 py-1.5 text-left tabular-nums font-bold whitespace-nowrap', style: { borderLeft: '2px solid var(--border)' } }, yearVal)));
+          })()))));
 }
 
 // Helper card for the Goals section — shows target, YTD actual, and a mini progress bar
