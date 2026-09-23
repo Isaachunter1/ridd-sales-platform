@@ -1604,7 +1604,15 @@ exports.handler = async (event) => {
           const oneTime = (Number(s.contract_months) || 0) <= 0;
           const hasAppt = ['pending', 'completed'].includes(String(r.initial_status || '').trim().toLowerCase());
           const hasBilling = (() => { const a = String(r.customer_auto_pay || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); })();
-          const eligible = (AL2.require_appt === false || hasAppt) && (AL2.require_billing === false || hasBilling) && (AL2.require_signed === false || signed || oneTime);
+          // Guard rails per rep type (Configurations → Commission Rules →
+          // Upfront Commission Approval): AL2.approval[office|d2d|tech] =
+          // { appt, autopay, signed }; the old company-wide require_* flags
+          // are the fallback for a type with nothing set.
+          const _ap = ((AL2.approval || {})[String(s.queue_type || 'office')]) || {};
+          const needAppt = _ap.appt != null ? !!_ap.appt : AL2.require_appt !== false;
+          const needPay  = _ap.autopay != null ? !!_ap.autopay : AL2.require_billing !== false;
+          const needSign = _ap.signed != null ? !!_ap.signed : AL2.require_signed !== false;
+          const eligible = (!needAppt || hasAppt) && (!needPay || hasBilling) && (!needSign || signed || oneTime);
           // Charged upfront (the configured customer flag) — per Isaac:
           // commissionable on the sale date, no need to wait for service;
           // and if it cancels while still pending it goes to Archived.

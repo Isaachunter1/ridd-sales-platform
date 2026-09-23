@@ -501,10 +501,29 @@ function adminConfigurations() {
           el('input', { type: 'checkbox', checked: on, onchange: () => saveAL({ types: on ? (AL.types || []).filter(x => x !== k) : [...(AL.types || []), k] }) }), l);
       })), { indent: true, small: true }),
       row('Effective date', el('input', { type: 'date', value: String(AL.start || '').slice(0, 10), class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { if (e.target.value) saveAL({ start: e.target.value }); } }), { indent: true, small: true, tip: 'Subscriptions sold on or after this date are logged, ongoing, until the switch above is turned off. Earlier ones are never backfilled.' }),
-      sub('Upfront approval'),
-      row('Approval requires an initial appointment on the books', sw(AL.require_appt !== false, () => saveAL({ require_appt: !(AL.require_appt !== false) })), { tip: 'Every subscription is logged; auto-approval (and a payout) waits until the initial appointment is scheduled or completed.' }),
-      row('… and billing on file', sw(AL.require_billing !== false, () => saveAL({ require_billing: !(AL.require_billing !== false) })), { tip: 'Customer has autopay (card or ACH) on file in FieldRoutes.' }),
-      row('… and a signed agreement', sw(AL.require_signed !== false, () => saveAL({ require_signed: !(AL.require_signed !== false) })), { tip: 'A completed e-sign agreement on the subscription or the customer. The row shows ✓/✗ chips for each requirement; auto-approve waits for all the required ones.' }),
+      sub('Upfront Commission Approval'),
+      // One row per rep type (per Isaac, Sep 23): each type has its own guard
+      // rails before a sale auto-approves for upfront pay. Stored as
+      // AL.approval[office|d2d|tech] = { appt, autopay, signed }; the old
+      // company-wide require_* flags are the fallback for anything unset.
+      (() => {
+        const AP = AL.approval || {};
+        const ruleOf = (k, f) => { const a = AP[k] || {}; if (a[f] != null) return !!a[f]; return f === 'appt' ? AL.require_appt !== false : f === 'autopay' ? AL.require_billing !== false : AL.require_signed !== false; };
+        const setRule = (k, f, v) => saveAL({ approval: Object.assign({}, AP, { [k]: Object.assign({ appt: ruleOf(k, 'appt'), autopay: ruleOf(k, 'autopay'), signed: ruleOf(k, 'signed') }, AP[k] || {}, { [f]: v }) }) });
+        const RULES = [
+          ['appt',    'Initial appointment scheduled OR completed', 'The subscription\u2019s initial appointment is Pending or Completed in FieldRoutes.'],
+          ['autopay', 'Autopay on file',                            'Customer has autopay (card or ACH) on file in FieldRoutes.'],
+          ['signed',  'Signed agreement',                           'A completed e-sign agreement on the subscription or the customer (one-time services exempt).'],
+        ];
+        const TYPES = [['office', 'Inside Sales'], ['d2d', 'D2D'], ['tech', 'Technicians']];
+        const th = (t, cls) => el('th', { class: (cls || 'text-left') + ' px-2 py-1.5 text-[10px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)' } }, t);
+        return el('div', { class: 'rounded-lg border mb-2 overflow-x-auto', style: { borderColor: 'var(--border)' } },
+          el('table', { class: 'text-xs', style: { width: '100%', borderCollapse: 'collapse' } },
+            el('thead', {}, el('tr', { style: { background: 'var(--card-2)' } }, th('Auto-approval requires'), ...TYPES.map(([, l]) => th(l, 'text-center')))),
+            el('tbody', {}, ...RULES.map(([f, label, tip]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' }, title: tip },
+              el('td', { class: 'px-2 py-1.5 font-semibold' }, label),
+              ...TYPES.map(([k]) => el('td', { class: 'px-2 py-1.5 text-center' }, sw(ruleOf(k, f), () => setRule(k, f, !ruleOf(k, f))))))))));
+      })(),
       sub('FieldRoutes audit flags'),
       row('Charge-upfront tier counts accounts flagged', txt(AL.upfront_flag == null ? 'Passed Audit' : AL.upfront_flag, (v) => saveAL({ upfront_flag: String(v || '').trim() }), { placeholder: 'FieldRoutes customer flag', width: '180px' }), { tip: 'The FieldRoutes customer flag that marks an account as charged upfront / passed the office audit. Accounts carrying it count toward the Charge Upfront % on the Pay tab (70%+ pays 100% of upfront commission; 50–69.9% 95%; 35–49.9% 90%; under 35% 85%). Re-checked every sync, so a flag added later still counts.' }),
       row('Failed-audit flag holds auto-approval', txt(AL.audit_fail_flag == null ? 'Failed Audit' : AL.audit_fail_flag, (v) => saveAL({ audit_fail_flag: String(v || '').trim() }), { placeholder: 'FieldRoutes customer flag', width: '180px' }), { indent: true, small: true, tip: 'Accounts carrying this flag stay in Upfront Sales for manual review instead of auto-approving. Clear the flag (or re-flag Passed) in FieldRoutes and the next sync continues the automated upfront-pay flow. Blank = no hold.' }),
