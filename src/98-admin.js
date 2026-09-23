@@ -398,11 +398,6 @@ function adminConfigurations() {
     defRow('Active includes one-time', 'Count one-time active subs in “Subscriptions Active”; off = recurring only.'),
     defRow('Deleted CRM accounts', 'Customer IDs deleted inside FieldRoutes. The warehouse keeps their rows, so they are excluded from every dataset — automatically when the sync flags them, plus any IDs you list.'),
     defRow('Auto-log from FieldRoutes', 'The hourly sync (and the 15-minute FieldRoutes live pull) creates one sale per CRM subscription sold by a linked rep (Inside Sales, D2D, Technicians) the moment it exists. Each row shows whether it is commission-eligible — initial appointment on the books, billing on file, signed agreement — and auto-approval waits for the required ones. It then moves Upfront → Pending Backend Lock → Archived / History from the account’s live state. Revenue is frozen at first sight; the Log Sale form is for upsells only. Payroll runs stay the admin’s click.'),
-    defRow('Attrition steps', 'The saved population rules behind the Retention tab, in the same order as its Attrition Steps card. The tab’s own switches are session-only what-ifs; what you set here is the default every user sees. Attrition = counted cancels ÷ beginning-of-year book.'),
-    defRow('Step 3 · 3-day RORs', 'Reason “3 Day ROR”, or (switch on) any door-to-door sub cancelled within 3 days of the sale regardless of reason.'),
-    defRow('Steps 4–5', 'Combined Subscriptions and Renewal - … reasons: the old sub was folded into / replaced by another that carries on, so it leaves the book without counting as a loss.'),
-    defRow('Step 7 exemptions', 'Service names containing these terms keep their one-visit subs (Sentricon is annual — one visit a year is the service).'),
-    defRow('Step 9', 'Cancel reasons treated as retained — the company ended it, the customer did not leave. Edited in the Cancel reasons list below.'),
     defRow('Indicators · MY % exclusions', 'Service terms left out of the MY % (multi-year) calculation on Indicators.'),
     defRow('Marketing / IS', 'Counts Office-Staff-sold accounts only; Renewal sources are excluded from new-business pace.'),
   );
@@ -475,36 +470,8 @@ function adminConfigurations() {
     }, { placeholder: 'customer IDs, comma-separated' })], { small: true, indent: true }),
   );
 
-  // ── 2. Attrition steps (mirror of the Retention tab, saved defaults) ──
-  const popList = (() => { const r = _adminRules(); return r && Array.isArray(r.retenPopExclReasons) ? r.retenPopExclReasons : RETEN_POP_EXCL_REASONS_DEFAULT; })();
-  const popOf = (kind) => popList.filter(x => crmReasonIs(kind, x));   // 'combined' | 'renewal' (src/12-crm-vocab.js)
-  const exclReasons = reportingExcludedCancelReasons();
-  const stepNo = (i) => el('span', { class: 'inline-flex items-center justify-center text-[10px] font-black rounded-full mr-2', style: { width: '18px', height: '18px', background: 'var(--card-2)', color: 'var(--text-muted)' } }, String(i));
-  const STEP_TIP = {
-    1: 'One-time services are never part of a retention book. Which subs are one-time comes from the recurring basis above.',
-    2: 'A sub that never received its initial service never started, so it can neither retain nor churn.',
-    3: 'Buyer’s remorse, not attrition. Removed when the cancel reason is a 3-day ROR, or (switch on) when a door-to-door sub was cancelled within 3 days of the sale whatever the reason.',
-    4: 'Cancel reason “Combined Subscriptions” — the sub was folded into another sub on the same account, which carries on.',
-    5: 'Cancel reason Renewal - … — the old plan was replaced by a renewal sub that stays in the book and inherits the original start date.',
-    6: '$0 annual recurring value — nothing recurring to retain.',
-    7: 'Prior-year subs with a single completed visit never became a customer, so their cancel is not real attrition. Exempt services (Sentricon) keep their one-visit subs because one visit a year is the service.',
-    8: 'Frozen after one visit, any year. No cancel date ever lands, so left in they would count as retained forever.',
-    9: 'Cancels with these reasons count as RETAINED — the company ended the service, the customer did not leave. Edited in the Cancel reasons list below.',
-  };
-  const stepRow = (i, label, control, o) => row(el('span', { class: 'inline-flex items-center' }, stepNo(i), label), control, { ...(o || {}), tip: STEP_TIP[i] });
-  const attrition = card('Attrition steps', pill('saved defaults · Retention tab switches are session-only'),
-    stepRow(1, 'Remove one-time services', pill('from recurring basis')),
-    stepRow(2, 'Remove subs that never received an initial service', pill('always')),
-    stepRow(3, 'Remove 3-day RORs', [pill(popOf('ror').join(', ') || '— no reason set'), el('span', { class: 'text-[10px] text-muted-' }, '+ D2D cancelled ≤3 days'), sw(reportingExcludeRorChurn(), () => { setReportingExcludeRorChurn(!reportingExcludeRorChurn()); mountApp(); })]),
-    stepRow(4, 'Remove combined subscriptions', pill(popOf('combined').join(', ') || '— no reason set')),
-    stepRow(5, 'Remove renewals', pill(popOf('renewal').join(', ') || '— no reason set')),
-    row('Reasons that remove a sub from the book (steps 3–5)', txt(popList.join(', '), (v) => { const l = splitList(v); setRetenPopExclReasons(l.length ? l : RETEN_POP_EXCL_REASONS_DEFAULT); toast('Retention book updated', 'success'); mountApp(); }, { width: '360px' }), { small: true, indent: true }),
-    stepRow(6, 'Remove subs with no ARR', sw(retenExclZeroPay(), () => { setRetenExclZeroPay(!retenExclZeroPay()); mountApp(); })),
-    stepRow(7, 'Remove subs that never received a 2nd treatment (prior years)', sw(retenExclOneSvc(), () => { setRetenExclOneSvc(!retenExclOneSvc()); mountApp(); })),
-    row('Exempt services', svcPicker(retenOneSvcExemptTerms(), (l) => { setRetenOneSvcExemptTerms(l.length ? l : ['sentricon']); toast('Exempt services saved', 'success'); mountApp(); }), { small: true, indent: true }),
-    stepRow(8, 'Remove frozen subs with ≤1 service (any year)', sw(retenExclFrozenOneSvc(), () => { setRetenExclFrozenOneSvc(!retenExclFrozenOneSvc()); mountApp(); })),
-    stepRow(9, 'Remove cancels with these reasons (count as retained)', [pill(n(exclReasons.size) + ' reason' + (exclReasons.size === 1 ? '' : 's')), lbtn('Edit', () => { state._cfgOpen = 'cancel'; mountApp(); setTimeout(() => { const t = document.getElementById('cfg-list-cancel'); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 50); })]),
-  );
+  // (Attrition steps card retired Sep 23 per Isaac — the Retention tab's own
+  // switches are the place to reason about the retention book.)
 
   // ── Auto-log from FieldRoutes (app_settings.autolog) ──
   if (state._autolog === undefined) {
@@ -581,7 +548,6 @@ function adminConfigurations() {
     reportingRules,
     autolog,
     slackCfg,
-    attrition,
     indicators,
     listCard('service', 'Service Types', svcCount, reportingServiceConfigPanel),
     listCard('source', 'Sources', '', reportingSourceConfigPanel),
