@@ -1190,6 +1190,15 @@ function mountApp() {
     if (subTabBar) contentWrap.append(subTabBar);
   }
   contentWrap.append(node);
+  // Phones (per Isaac, Sep 23): the date-range dropdown shares the row with
+  // the "Dashboard" tab dropdown instead of taking a row of its own — move
+  // the dashboard toolbar into the sub-tab bar; the CSS lets the two split it.
+  try {
+    if (window.innerWidth < 640) {
+      const bar = contentWrap.querySelector('.sales-subtabs'), tb = node.querySelector('.dash-toolbar');
+      if (bar && tb) bar.append(tb);
+    }
+  } catch (e) { /* layout nicety only */ }
 
   // Floating action button — hidden on admin/settings, indicators, and calendar
   // (those tabs aren't sales-input contexts)

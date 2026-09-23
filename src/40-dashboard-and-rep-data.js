@@ -500,7 +500,7 @@ function viewDashboard() {
   return el('div', { class: 'flex flex-col gap-5 w-full' },
 
     // ─── Top row: + New Sale + date filter + office view ───
-    el('div', { class: 'flex items-center gap-2 flex-wrap dash-toolbar justify-end' },   // date filter + ⓘ right-justified (per Isaac, Sep 22)
+    el('div', { class: 'flex items-center gap-2 flex-wrap dash-toolbar justify-end' },   // date filter right-justified (per Isaac, Sep 22); on phones it rides in the sub-tab row (30-shell)
       // + New Sale stretches to fill the row on every screen (per Isaac);
       // Today / info keep their natural size on the right (dash-toolbar CSS).
       // (+ New Sale retired per Isaac, Sep 2026 — sales sync from FieldRoutes.)
@@ -535,8 +535,7 @@ function viewDashboard() {
         el('input', { type: 'date', class: 'rounded-xl px-2.5 py-1 text-[11px]', value: state.dashCustomEnd || '', onchange: e => { state.dashCustomEnd = e.target.value; mountApp(); } }),
       ),
 
-      configInfoBtn('Sales data',
-        'Live from FieldRoutes. Every number on this page — goals, sales and revenue cards, the sales feed, and the leaderboard — comes from the CRM shared dataset (office-staff sales; ' + SYNC_CADENCE_TEXT + ') plus manually logged UPSELL rows (the one thing the CRM can\'t express). Reps manually log every sale for the pay/audit ledger — those logs are the commission record of the ORIGINAL contract — but regular logged sales are not re-counted here, since the CRM already carries them. Upsells count as New revenue. Office staff without an app account still count — their CRM sales rank under their CRM name. Contract values are exact CRM figures.'),
+      // (ⓘ info button retired per Isaac, Sep 23.)
     ),
 
     // ─── Revenue Goal card — 3 bars: Total, New, Renewal ───
