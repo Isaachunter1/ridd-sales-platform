@@ -216,7 +216,9 @@
        the tab dropdown ("Dashboard") drops to its own row underneath. */
     .sales-mode-toggle { display: flex !important; width: 100%; margin-right: 0 !important; }
     .sales-mode-btn { flex: 1 1 0; }
-    .sales-tab-select { flex: 0 0 100% !important; }
+    .sales-tab-select { flex: 1 1 0 !important; min-width: 0; }
+    /* Date-range dropdown moved in from the dashboard toolbar (30-shell) sits beside it. */
+    .sales-subtabs .dash-toolbar { flex: 0 0 auto; margin: 0 !important; }
     /* Same breathing room below the Dashboard dropdown as between it and
        the rep-type toggle above (the desktop mb-4 read as a gap on phones). */
     .sales-subtabs { margin-bottom: 12px !important; row-gap: 12px !important; border-bottom: 0 !important; }
