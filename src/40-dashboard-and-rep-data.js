@@ -642,15 +642,42 @@ function viewDashboard() {
         // muted "+$X renewal" so it isn't invisible, just not goal credit.
         const _renIds = new Set((state.sources || []).filter(s => s.is_renewal).map(s => s.id));
         const _isRenS = (s) => s._crmRenewal ?? _renIds.has(s.source_id);
-        const ytdByRep = {}, renByRep = {};
+        // Quarterly quota (per Isaac, Sep 23): each rep's share of THIS quarter
+        // = annual goal × the quarter's weight in the seasonal shape (the same
+        // numbers the Goals tab's Quarterly quotas table shows), raced by
+        // quarter-to-date new revenue with its own pace marker.
+        const _qi = Math.floor(_mi / 3), _qStart = new Date(now2.getFullYear(), _qi * 3, 1), _qEnd = new Date(now2.getFullYear(), _qi * 3 + 3, 0);
+        const _qShare = _shape.slice(_qi * 3, _qi * 3 + 3).reduce((a, b) => a + b, 0);
+        const _qBefore = _shape.slice(0, _qi * 3).reduce((a, b) => a + b, 0);
+        const _qPace = _qShare > 0 ? Math.max(0, Math.min(1, (seasonalPct - _qBefore) / _qShare)) : 0;   // how far through the quarter's weighted goal today sits
+        const _qLabel = 'Q' + (_qi + 1);
+        const ytdByRep = {}, renByRep = {}, qtdByRep = {};
         for (const s of dashboardSales()) {
           if (EXCLUDE2.has(s.audit_status)) continue;
           const d = s.sold_date ? new Date(s.sold_date + 'T00:00') : null;
           if (!d || isNaN(d) || d < jan1) continue;
           const amt = Number(s.revenue_amount || 0);
           if (_isRenS(s)) renByRep[s.rep_id] = (renByRep[s.rep_id] || 0) + amt;
-          else ytdByRep[s.rep_id] = (ytdByRep[s.rep_id] || 0) + amt;
+          else { ytdByRep[s.rep_id] = (ytdByRep[s.rep_id] || 0) + amt; if (d >= _qStart) qtdByRep[s.rep_id] = (qtdByRep[s.rep_id] || 0) + amt; }
         }
+        // Second bar under a rep's annual pacer: quarter-to-date vs quarterly quota.
+        const quarterBar = (goal, qtd, small) => {
+          if (!(goal > 0)) return null;
+          const quota = goal * _qShare, pct = quota > 0 ? Math.min(100, qtd / quota * 100) : 0, qDelta = qtd - quota * _qPace;
+          const left = _sellingDaysBetween(new Date(now2.getFullYear(), _mi, now2.getDate() + 1), _qEnd);
+          const need = left > 0 ? Math.max(0, (quota - qtd) / left) : 0;
+          return el('div', { class: small ? 'mt-1.5' : 'mt-3' },
+            el('div', { class: 'flex items-center justify-between gap-2 mb-0.5' },
+              el('div', { class: 'flex items-center gap-2 min-w-0' },
+                el('span', { class: 'text-[10px] font-semibold', style: { color: 'var(--text-muted)' } }, _qLabel + ' quota'),
+                el('span', { class: 'text-[10px] font-bold whitespace-nowrap', style: { color: qDelta >= 0 ? '#5F6C5B' : '#DC2626' }, title: (qDelta >= 0 ? fmt.usd0(qDelta) + ' ahead of' : fmt.usd0(-qDelta) + ' behind') + ' the quarter\'s seasonal pace' }, qDelta >= 0 ? '▲ ahead' : '▼ behind')),
+              el('span', { class: 'text-[10px] font-bold tabular-nums whitespace-nowrap' }, fmt.usd0(qtd) + ' / ' + fmt.usd0(quota) + ' · ' + Math.round(quota > 0 ? qtd / quota * 100 : 0) + '%')),
+            el('div', { class: 'goal-track', style: { position: 'relative', height: small ? '6px' : '8px' } },
+              el('div', { style: { background: '#5F6C5B', height: '100%', width: pct.toFixed(1) + '%', borderRadius: '0', transition: 'width .3s' } }),
+              el('div', { title: 'Where today sits on the quarter\'s seasonal plan — ' + (_qPace * 100).toFixed(1) + '% of the quarterly quota should be sold by today', style: { position: 'absolute', top: '-2px', bottom: '-2px', left: (_qPace * 100).toFixed(1) + '%', width: '2px', background: 'var(--text)', opacity: '.6' } })),
+            el('div', { class: 'text-[10px] mt-0.5 tabular-nums', style: { color: qDelta >= 0 ? 'var(--text-muted)' : '#DC2626' }, title: fmt.usd0(Math.max(0, quota - qtd)) + ' left on the ' + _qLabel + ' quota ÷ ' + left + ' selling days left in the quarter' },
+              need > 0 ? fmt.usd0(need) + '/day rest of ' + _qLabel + ' to hit the quarterly quota' : '✓ ' + _qLabel + ' quota hit'));
+        };
         const sellers = (state.allProfiles || [])
           .filter(p => isSellerRole(p.role) && p.is_active !== false && isOfficeStaffProfile(p))
           .map(p => ({ p, goal: Number(p.annual_revenue_goal) || 0, rev: ytdByRep[p.id] || 0 }))
@@ -713,6 +740,7 @@ function viewDashboard() {
             el('div', { class: 'goal-track', style: { position: 'relative', height: '10px' } },
               el('div', { style: { background: 'var(--accent)', height: '100%', width: pct.toFixed(1) + '%', transition: 'width .3s' } }),
               goal > 0 ? el('div', { title: 'Where today sits on the seasonal plan — ' + (seasonalPct * 100).toFixed(1) + '% of the year\'s weighted goal should be sold by today', style: { position: 'absolute', top: '-3px', bottom: '-3px', left: seasonalMarkerPct.toFixed(1) + '%', width: '2px', background: 'var(--text)', opacity: '.6' } }) : null),
+            quarterBar(goal, qtdByRep[me.id] || 0, false),
             goal > 0 ? el('div', { class: 'grid gap-2 mt-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' } },
               tile(monName + ' so far', fmt.usd0(mtd) + ' / ' + fmt.usd0(monTarget), daysDoneM + ' of ' + daysTotM + ' selling days', { tip: 'Month-to-date new revenue vs this month\'s share of your annual goal (' + (_shape[_mi] * 100).toFixed(1) + '% of the year)' }),
               tile('Need / day · rest of ' + monName, needMonth == null ? '—' : needMonth > 0 ? fmt.usd0(needMonth) : '✓ hit', daysLeftM + ' selling days left', { color: needMonth > 0 ? undefined : 'var(--ok)', tip: fmt.usd0(Math.max(0, monTarget - mtd)) + ' left on ' + monName + ' ÷ ' + daysLeftM + ' selling days (Mon–Fri, holidays off)' }),
@@ -782,7 +810,8 @@ function viewDashboard() {
                     },
                       todayNeed > 0
                         ? fmt.usd0(todayNeed) + '/day rest of year to hit the annual goal'
-                        : '\u2713 annual goal hit \u2014 everything from here is gravy'));
+                        : '\u2713 annual goal hit \u2014 everything from here is gravy'),
+                    quarterBar(goal, qtdByRep[p.id] || 0, true));
                 })));
       }
 
