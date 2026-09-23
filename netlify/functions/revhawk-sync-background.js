@@ -1632,7 +1632,24 @@ exports.handler = async (event) => {
               const sy = Number(String(s.sold_date || '').slice(0, 4)) || new Date(today).getFullYear();
               if (today >= Date.UTC(sy + 1, 0, 31)) { upd.lock_status = 'lock'; upd.audit_2_at = stamp; }
             }
-            else if (ageDays >= lockDays && completed >= minSvc) { upd.lock_status = 'lock'; upd.audit_2_at = stamp; }
+            else {
+              // Inside Sales / Technicians backend (per Isaac, Sep 23): the
+              // account stays PENDING until every configured indication
+              // holds — Configurations → Commission Rules → Backend lock,
+              // AL2.backend[office|tech] = { min_days, min_services (completed
+              // AFTER the initial), max_dpd (a balance past due this many days
+              // blocks), autopay, signed }. Old lock_days / lock_min_services
+              // are the fallback.
+              const _bk = ((AL2.backend || {})[s.queue_type === 'tech' ? 'tech' : 'office']) || {};
+              const bDays = _bk.min_days != null ? Math.max(0, Number(_bk.min_days) || 0) : lockDays;
+              const bSvc = _bk.min_services != null ? Math.max(0, Number(_bk.min_services) || 0) : Math.max(0, minSvc - 1);
+              const bDpd = _bk.max_dpd != null ? Math.max(0, Number(_bk.max_dpd) || 0) : 7;
+              const bPay = _bk.autopay != null ? !!_bk.autopay : true;
+              const bSign = _bk.signed != null ? !!_bk.signed : true;
+              const afterInitial = Math.max(0, completed - (serviced ? 1 : 0));
+              const ok = ageDays >= bDays && afterInitial >= bSvc && !(bDpd > 0 && dpd >= bDpd) && (!bPay || hasBilling) && (!bSign || signed || oneTime);
+              if (ok) { upd.lock_status = 'lock'; upd.audit_2_at = stamp; }
+            }
           }
           if (!Object.keys(upd).length) continue;
           const { error: uErr } = await supabase.from('sales').update(upd).eq('id', s.id);

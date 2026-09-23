@@ -531,8 +531,30 @@ function adminConfigurations() {
       row('Upsells', el('span', { class: 'text-[11px] font-semibold' }, 'Automatic \u2014 add-on ticket items in FieldRoutes'), { tip: 'Every add-on sold as a ticket item in FieldRoutes (Invoices \u2192 Add Ticket Item) becomes an upsell sale for the rep it is assigned to (or the person who added it). No manual logging (per Isaac).' }),
       row('Add-on services', svcPicker(AL.upsell_services || [], (l) => saveAL({ upsell_services: l })), { indent: true, small: true, tip: 'Which service types count as add-ons. Empty = any service whose name contains “add-on” or “upsell”.' }),
       sub('Backend lock'),
-      row('Auto-approve upfront audit', sw(!!AL.auto_approve, () => saveAL({ auto_approve: !AL.auto_approve })), { tip: 'Approved automatically once the CRM shows the initial service completed, a signed agreement (one-time services exempt) and nothing past due. Off = an auditor clicks Approve.' }),
-      row('Inside Sales & Technicians lock', [el('span', { class: 'text-[11px] text-muted-' }, 'days after sale ≥'), num(AL.lock_days, (v) => saveAL({ lock_days: Math.max(0, parseInt(v, 10) || 0) })), el('span', { class: 'text-[11px] text-muted-' }, 'and services completed ≥'), num(AL.lock_min_services, (v) => saveAL({ lock_min_services: Math.max(0, parseInt(v, 10) || 0) }))], { tip: 'Locks when both are true and the subscription is still active. A cancelled subscription becomes a chargeback instead. Payroll runs stay manual.' }),
+      row('Auto-approve upfront commission', sw(!!AL.auto_approve, () => saveAL({ auto_approve: !AL.auto_approve })), { tip: 'Approved automatically once the Upfront Commission Approval guard rails for the rep type hold (and no Failed Audit flag). Off = an auditor clicks Approve.' }),
+      // Backend lock guard rails per rep type (per Isaac, Sep 23): the account
+      // stays pending until every indication holds. AL.backend[office|tech].
+      (() => {
+        const BK = AL.backend || {};
+        const get = (k, f) => { const b = BK[k] || {}; if (b[f] != null) return b[f]; return f === 'min_days' ? (AL.lock_days ?? 90) : f === 'min_services' ? Math.max(0, (AL.lock_min_services ?? 2) - 1) : f === 'max_dpd' ? 7 : true; };
+        const set = (k, f, v) => saveAL({ backend: Object.assign({}, BK, { [k]: Object.assign({}, BK[k] || {}, { [f]: v }) }) });
+        const TYPES = [['office', 'Inside Sales'], ['tech', 'Technicians']];
+        const th = (t, cls) => el('th', { class: (cls || 'text-left') + ' px-2 py-1.5 text-[10px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)' } }, t);
+        const ROWS = [
+          ['min_days',     'Days since sale \u2265',                    'num',    'How old the sale must be before the backend can lock.'],
+          ['min_services', 'Services completed after the initial \u2265', 'num',   'Regular appointments completed since the initial service (the initial itself does not count).'],
+          ['max_dpd',      'No balance past due \u2265 (days)',           'num',    'A balance past due this many days or more holds the backend. 0 = ignore balances.'],
+          ['autopay',      'Autopay still on file',                     'switch', 'Customer still has a card or ACH on file in FieldRoutes.'],
+          ['signed',       'Signed agreement',                          'switch', 'A completed e-sign agreement (one-time services exempt).'],
+        ];
+        return el('div', { class: 'rounded-lg border mb-2 overflow-x-auto', style: { borderColor: 'var(--border)' } },
+          el('table', { class: 'text-xs', style: { width: '100%', borderCollapse: 'collapse' } },
+            el('thead', {}, el('tr', { style: { background: 'var(--card-2)' } }, th('Backend locks when'), ...TYPES.map(([, l]) => th(l, 'text-center')))),
+            el('tbody', {}, ...ROWS.map(([f, label, kind, tip]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' }, title: tip },
+              el('td', { class: 'px-2 py-1.5 font-semibold' }, label),
+              ...TYPES.map(([k]) => el('td', { class: 'px-2 py-1.5 text-center' },
+                kind === 'num' ? num(get(k, f), (v) => set(k, f, Math.max(0, parseInt(v, 10) || 0))) : sw(!!get(k, f), () => set(k, f, !get(k, f))))))))));
+      })(),
       row('Sales Reps (D2D) lock', pill('January 31 of the following year'), { tip: 'Fixed rule (per Isaac): every account a door-to-door rep sells in a year locks on Jan 31 of the next year — services completed do not matter. Cancelled before then = chargeback.' }),
     ]));
 
