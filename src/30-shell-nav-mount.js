@@ -684,7 +684,21 @@ function mountApp() {
     };
     window.addEventListener('focus', _freshKick);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) _freshKick(); });
-    setInterval(_freshKick, 180000);
+    // Same clock as the TV board (per Isaac, Sep 23: the dashboard and the
+    // board must show the same numbers at the same time): 2-minute poll plus
+    // realtime on `sales` — the live FieldRoutes pull and the sync both write
+    // there — so an insert repaints the dashboard within seconds, throttle
+    // bypassed.
+    setInterval(_freshKick, 120000);
+    try {
+      let _rtT = null;
+      state._salesRtSub = supabase.channel('app_sales_rt')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'sales' }, () => {
+          clearTimeout(_rtT);
+          _rtT = setTimeout(() => { _appDataAt = 0; _freshKick(); }, 1500);
+        })
+        .subscribe();
+    } catch (e) { /* realtime unavailable — the poll still runs */ }
   }
   // Access revoked (CRM marked the rep inactive → sync set role='disabled'):
   // full-stop screen, nothing else renders. Admins restore access from

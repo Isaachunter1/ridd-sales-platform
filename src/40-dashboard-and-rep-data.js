@@ -121,6 +121,15 @@ function warRoomCrmSales() {
   _wrBridgeCache = { src: raw, roster: state.frRoster, profiles: state.allProfiles, out };
   return out;
 }
+// FieldRoutes' own Pending/Serviced rule for an app-logged row: the initial
+// appointment is on the books (Pending) or done (Completed). Rows without the
+// stamp (manual logs, legacy) pass. The CRM feed applies the same gate
+// upstream (frPendingServiced), so the dashboard and the TV board agree.
+function saleHasAppt(s) {
+  if (s.crm_initial_status == null) return true;
+  const st = String(s.crm_initial_status).trim().toLowerCase();
+  return st === 'pending' || st === 'completed';
+}
 // The combined pool every War Room metric reads: CRM rows + app upsells.
 // Falls back to the app sales table until the shared dataset has loaded
 // (with a one-time cloud kick so the room fills in without a manual refresh).
@@ -137,7 +146,7 @@ function dashboardSales() {
     }
     return state.allSales;
   }
-  if (_dashSalesCache.crm === crm && _dashSalesCache.all === state.allSales
+  if (_dashSalesCache.crm === crm && _dashSalesCache.all === state.allSales && _dashSalesCache.raw === state._indicatorRawSales
       && _dashSalesCache.cts === state.contractTypes && _dashSalesCache.srcs === state.sources
       && _dashSalesCache.day === ((typeof bizTodayIso === 'function') ? bizTodayIso() : _dashSalesCache.day)) return _dashSalesCache.out;
   const upsellCt  = new Set((state.contractTypes || []).filter(c => /upsell/i.test(String(c.name || ''))).map(c => c.id));
@@ -153,17 +162,29 @@ function dashboardSales() {
   const _sqz = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
   const _crmNumsToday = new Set(), _crmNamesToday = new Set();
   crm.forEach(s => { if (s.sold_date === _todayIso) { if (s.customer_number) _crmNumsToday.add(String(s.customer_number)); if (s.customer_name) _crmNamesToday.add(_sqz(s.customer_name)); } });
+  // …matched against the RAW CRM feed too (per Isaac, Sep 23 — dashboard ≠
+  // TV board): a CRM row that exists but is gated OUT (No Appointment, one of
+  // the excluded services) was missing from `crm`, so its app-logged twin
+  // rode along as "pending sync" and the board counted a sale FieldRoutes
+  // doesn't. Any CRM row for the customer today, counted or not, retires the
+  // optimistic row.
+  (state._indicatorRawSales || []).forEach(s => {
+    if (((typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || '') !== _todayIso) return;
+    if (s.customerId != null) _crmNumsToday.add(String(s.customerId));
+    if (s.customer) _crmNamesToday.add(_sqz(s.customer));
+  });
   const _upIds = new Set(ups.map(u => u.id));
   const _EXCL_OPT = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
   const pend = (state.allSales || []).filter(s =>
     s.sold_date === _todayIso
     && !_upIds.has(s.id)
     && !_EXCL_OPT.has(s.audit_status)
+    && saleHasAppt(s)   // same appointment rule FieldRoutes' report and the TV board apply
     && !(s.customer_number && _crmNumsToday.has(String(s.customer_number)))
     && !(s.customer_name && _crmNamesToday.has(_sqz(s.customer_name)))
   ).map(s => Object.assign({}, s, { _pendingSync: true }));
   const out = crm.concat(ups, pend);
-  _dashSalesCache = { crm, all: state.allSales, cts: state.contractTypes, srcs: state.sources, out, day: _todayIso };
+  _dashSalesCache = { crm, all: state.allSales, raw: state._indicatorRawSales, cts: state.contractTypes, srcs: state.sources, out, day: _todayIso };
   return out;
 }
 
