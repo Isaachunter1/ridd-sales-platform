@@ -212,7 +212,8 @@ function reportingAgingBucket(days) {
   return '90+ days';
 }
 const REPORTING_AGING_ORDER = ['Current', '31–60 days', '61–90 days', '90+ days'];
-const REPORTING_DEPTH_ORDER = ['1 service', '2 services', '3+ services'];
+// Services per Customer slices (per Isaac, Sep 23): one non-Sentricon plan · Sentricon + other plans · Sentricon only · 2+ plans with no Sentricon.
+const REPORTING_DEPTH_ORDER = ['1 plan (no Sentricon)', 'Sentricon + other plans', 'Sentricon only', '2+ plans, no Sentricon'];
 const reportingDepthBucket = (n) => n >= 3 ? '3+ services' : n === 2 ? '2 services' : '1 service';
 
 // Customer tenure bucket from initial_service date — years between then
@@ -1195,15 +1196,17 @@ function reportingChartData(scopeRows, serviceConfig) {
   // active customer is — 1, 2 or 3+ active services — and where they are.
   // Counted once per customer over the same active pool as the Subscriptions
   // Active donut; the office is whichever branch holds their active subs.
-  const activePerCust = new Map(), custOffice = new Map();
+  const activePerCust = new Map(), custOffice = new Map(), custSentricon = new Map();
   for (const r of activeForCharts) {
     if (!r.customer_id) continue;
     activePerCust.set(r.customer_id, (activePerCust.get(r.customer_id) || 0) + 1);
+    if (/sentricon/i.test(String(r.subscription || ''))) custSentricon.set(r.customer_id, (custSentricon.get(r.customer_id) || 0) + 1);
     if (!custOffice.has(r.customer_id)) custOffice.set(r.customer_id, r.office_name || 'Unspecified');
   }
+  const custBucket = (cid) => { const n = activePerCust.get(cid) || 0, sn = custSentricon.get(cid) || 0; return sn === 0 ? (n === 1 ? REPORTING_DEPTH_ORDER[0] : REPORTING_DEPTH_ORDER[3]) : (n === sn ? REPORTING_DEPTH_ORDER[2] : REPORTING_DEPTH_ORDER[1]); };
   const depthCount = new Map(), custOfficeCount = new Map();
   for (const [cid, n] of activePerCust) {
-    const b = reportingDepthBucket(n); depthCount.set(b, (depthCount.get(b) || 0) + 1);
+    const b = custBucket(cid); depthCount.set(b, (depthCount.get(b) || 0) + 1);
     const o = custOffice.get(cid) || 'Unspecified'; custOfficeCount.set(o, (custOfficeCount.get(o) || 0) + 1);
   }
 
@@ -1280,7 +1283,7 @@ function reportingChartData(scopeRows, serviceConfig) {
     // returns every row that contributed to that slice. Used by the drill
     // modal so a user can click into any wedge and see the underlying subs.
     drill: {
-      custDepth:     { source: activeForCharts.filter(r => r.customer_id), key: r => reportingDepthBucket(activePerCust.get(r.customer_id) || 0) },
+      custDepth:     { source: activeForCharts.filter(r => r.customer_id), key: r => custBucket(r.customer_id) },
       custOffice:    { source: activeForCharts.filter(r => r.customer_id), key: r => custOffice.get(r.customer_id) || 'Unspecified' },
       rarr:          { source: activeRecurring, key: r => r.subscription },
       rarrOffice:    { source: activeRecurring, key: r => r.office_name || 'Unspecified' },
