@@ -399,7 +399,7 @@ function adminConfigurations() {
     defRow('Aging threshold', 'A sub counts as aging / at-risk when its days past due is greater than or equal to this number (default 7).'),
     defRow('Active includes one-time', 'Count one-time active subs in “Subscriptions Active”; off = recurring only.'),
     defRow('Deleted CRM accounts', 'Customer IDs deleted inside FieldRoutes. The warehouse keeps their rows, so they are excluded from every dataset — automatically when the sync flags them, plus any IDs you list.'),
-    defRow('Auto-log from FieldRoutes', 'The hourly sync (and the 15-minute FieldRoutes live pull) creates one sale per CRM subscription sold by a linked rep (Inside Sales, D2D, Technicians) the moment it exists. Each row shows whether it is commission-eligible — initial appointment on the books, billing on file, signed agreement — and auto-approval waits for the required ones. It then moves Upfront → Pending Backend Lock → Archived / History from the account’s live state. Revenue is frozen at first sight; the Log Sale form is for upsells only. Payroll runs stay the admin’s click.'),
+    defRow('Commission Rules', 'The hourly sync (and the 15-minute FieldRoutes live pull) creates one sale per CRM subscription sold by a linked rep (Inside Sales, D2D, Technicians) the moment it exists. Each row shows whether it is commission-eligible — initial appointment on the books, billing on file, signed agreement — and auto-approval waits for the required ones. It then moves Upfront → Pending Backend Lock → Archived / History from the account’s live state. Revenue is frozen at first sight; the Log Sale form is for upsells only. Payroll runs stay the admin’s click.'),
     defRow('Indicators · MY % exclusions', 'Service terms left out of the MY % (multi-year) calculation on Indicators.'),
     defRow('Marketing / IS', 'Counts Office-Staff-sold accounts only; Renewal sources are excluded from new-business pace.'),
   );
@@ -491,16 +491,16 @@ function adminConfigurations() {
     mountApp();
   };
   const TYPE_LABELS = [['Office Staff', 'Inside Sales'], ['Sales Rep', 'D2D'], ['Technician', 'Technicians']];
-  const autolog = card('Auto-log from FieldRoutes', AL ? pill(AL.enabled ? 'on · every sync' : 'off') : pill('loading…'),
+  const autolog = card('Commission Rules', AL ? pill(AL.enabled ? 'on · every sync' : 'off') : pill('loading…'),
     ...(!AL ? [] : [
       sub('What gets logged'),
-      row('Create sales from CRM subscriptions', sw(!!AL.enabled, () => saveAL({ enabled: !AL.enabled })), { tip: 'Every sync creates one sale per FieldRoutes subscription sold by a linked rep, with the revenue frozen at first sight. Off = reps log by hand.' }),
-      row('Rep types', el('div', { class: 'flex items-center gap-3' }, ...TYPE_LABELS.map(([k, l]) => {
+      row('Create sales from CRM subscriptions', sw(!!AL.enabled, () => saveAL({ enabled: !AL.enabled })), { tip: 'Every sync creates one sale per FieldRoutes subscription — recurring plans AND one-time services — sold by a linked rep, with the revenue frozen at first sight. Off = reps log by hand.' }),
+      row('Rep types', el('div', { class: 'flex items-center gap-3', title: 'Untick a type and the sync stops creating sales (and pay) for those reps from the next run on; sales already logged stay.' }, ...TYPE_LABELS.map(([k, l]) => {
         const on = (AL.types || []).includes(k);
         return el('label', { class: 'inline-flex items-center gap-1 text-[11px] font-semibold cursor-pointer' },
           el('input', { type: 'checkbox', checked: on, onchange: () => saveAL({ types: on ? (AL.types || []).filter(x => x !== k) : [...(AL.types || []), k] }) }), l);
       })), { indent: true, small: true }),
-      row('Start date', el('input', { type: 'date', value: String(AL.start || '').slice(0, 10), class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { if (e.target.value) saveAL({ start: e.target.value }); } }), { indent: true, small: true, tip: 'Subscriptions sold on or after this date are logged. Earlier ones are ignored.' }),
+      row('Effective date', el('input', { type: 'date', value: String(AL.start || '').slice(0, 10), class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { if (e.target.value) saveAL({ start: e.target.value }); } }), { indent: true, small: true, tip: 'Subscriptions sold on or after this date are logged, ongoing, until the switch above is turned off. Earlier ones are never backfilled.' }),
       sub('Upfront approval'),
       row('Approval requires an initial appointment on the books', sw(AL.require_appt !== false, () => saveAL({ require_appt: !(AL.require_appt !== false) })), { tip: 'Every subscription is logged; auto-approval (and a payout) waits until the initial appointment is scheduled or completed.' }),
       row('… and billing on file', sw(AL.require_billing !== false, () => saveAL({ require_billing: !(AL.require_billing !== false) })), { tip: 'Customer has autopay (card or ACH) on file in FieldRoutes.' }),
@@ -2187,7 +2187,7 @@ function adminDataSources() {
     el('h3', { class: 'text-sm font-bold mb-2' }, 'Setup checklist'),
     ...[
       ['FieldRoutes connected', !!connected],
-      ['Auto-log from FieldRoutes switched on (Configurations)', !!(state._autolog && state._autolog.enabled)],
+      ['Commission Rules · Create sales from CRM subscriptions switched on (Configurations)', !!(state._autolog && state._autolog.enabled)],
       ['RevHawk snapshot healthy', rvOk],
       ['Reps linked to their FieldRoutes employee (Users)', (state.allProfiles || []).some(p => p.fieldroutes_employee_id)],
       ['Slack notifications configured', !!(state.appSettings && state.appSettings.slack_channels && state.appSettings.slack_channels.length)],
