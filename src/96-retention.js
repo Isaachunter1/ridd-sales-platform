@@ -1792,8 +1792,8 @@ function reportingWaterfall() {
     const read = tot ? DAYS[bd] + ' is the heaviest day (' + (100 * byDay[bd] / tot).toFixed(0) + '%) and ' + hl(bh) + ' the heaviest hour (' + (100 * byHour[bh] / tot).toFixed(0) + '%)' + (excl ? ' · ' + excl + ' hidden' : '') : 'Nothing in this window.';
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-        el('div', {}, title, el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'when counted cancels were keyed in · branch local time · ' + read)),
-        el('div', { class: 'flex items-center gap-2 flex-wrap' }, controls, reasonSel, exclBtn)),
+        el('div', {}, title),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' }, controls, reasonSel)),
       el('div', { class: 'grid grid-cols-1 lg:grid-cols-3 gap-4 p-4 items-start' },
         el('div', { style: { gridColumn: 'span 2 / span 2' }, class: 'churn-heat-col' }, heat),
         el('div', { class: 'flex flex-col gap-3' }, bars(idD, 'By weekday'), bars(idH, 'By hour'))));
