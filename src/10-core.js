@@ -1656,7 +1656,10 @@ async function saveCompanyGoal() {
 // Technicians get their own objects under app_settings keys
 // 'company_goal_d2d' / 'company_goal_tech', same shape, no consumers yet.
 const GOAL_DEPTS = [
-  { id: 'office', label: 'Office Staff',  key: 'company_goal',      lines: { a: 'New / Inside Sales', b: 'Renewal / Loyalty' }, reps: { a: 'Inside Sales Reps', b: 'Loyalty Reps' }, blocks: { a: 'Inside Sales', b: 'Loyalty' } },
+  { id: 'office', label: 'Office Staff',  key: 'company_goal',      lines: { a: 'New / Inside Sales', b: 'Renewal / Loyalty' }, reps: { a: 'Inside Sales Reps', b: 'Loyalty Reps' }, blocks: { a: 'Inside Sales', b: 'Loyalty' },
+    // Row labels on the Office Staff Quota grid (per Isaac, Sep 23).
+    names: { curveA: 'IS Seasonal Curve', revA: 'IS Revenue', perA: 'Revenue/IS Rep', curveB: 'Loyalty Seasonal Curve', revB: 'Loyalty Revenue', perB: 'Revenue/Loyalty Rep', total: 'Total Revenue',
+             qPctA: 'IS Quarterly Revenue %', qA: 'IS Quarterly Revenue', repsA: 'IS Reps', quotaA: 'IS Quarterly Quota', qPctB: 'Loyalty Quarterly Revenue %', qB: 'Loyalty Quarterly Revenue', repsB: 'Loyalty Reps', quotaB: 'Loyalty Quarterly Quota', qTotal: 'Total Quarterly Revenue' } },
   { id: 'd2d',    label: 'Door to Door',  key: 'company_goal_d2d',  lines: { a: 'New / Door to Door', b: 'Upsells / Termite Pro' }, reps: { a: 'Sales Reps', b: 'Termite Pro Reps' }, blocks: { a: 'Door to Door', b: 'Termite Pro' } },
   { id: 'tech',   label: 'Technicians',   key: 'company_goal_tech', lines: { a: 'Upsells / Service Pro', b: 'Other' }, reps: { a: 'Technicians', b: 'Technicians (other)' }, blocks: { a: 'Service Pro', b: 'Other' } },
 ];

@@ -997,6 +997,7 @@ function goalQuarterlyCard(g, dept) {
 function goalMonthlyCard(g, persist, dept) {
   dept = dept || GOAL_DEPTS[0];
   const lineA = dept.blocks.a, lineB = dept.blocks.b;
+  const N = dept.names || {};   // explicit row labels (Office Staff); other depts fall back to the block names
   const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const usd = (n) => '$' + Math.round(n || 0).toLocaleString();
   const curM = new Date().getMonth();
@@ -1058,20 +1059,20 @@ function goalMonthlyCard(g, persist, dept) {
     // — the curve reads left-to-right as a curve. Inputs stay editable in place.
     el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', overflow: 'hidden' } },
       el('table', { class: 'text-xs', style: { width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' } },
-        el('colgroup', {}, el('col', { style: { width: phone ? '44%' : '13%' } }), ...months.map(() => el('col', {})), el('col', { style: { width: phone ? '28%' : '8%' } })),
+        el('colgroup', {}, el('col', { style: { width: phone ? '44%' : '15.5%' } }), ...months.map(() => el('col', {})), el('col', { style: { width: phone ? '28%' : '8%' } })),
         el('thead', { class: 'text-[10px] uppercase tracking-wider text-left', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
           el('tr', {}, el('th', { class: 'text-left px-2 py-2 font-semibold whitespace-nowrap' }, ''),
             ...months.map((m) => el('th', { class: 'text-left px-1.5 py-2 font-semibold whitespace-nowrap', style: m === curM ? { color: 'var(--accent)' } : {} }, M[m] + (m === curM ? ' ·' : ''))),
             el('th', { class: 'text-left px-2 py-2 font-semibold whitespace-nowrap', style: { borderLeft: '2px solid var(--border)' } }, 'Year'))),
         el('tbody', {},
           ...[
-            [lineA + ' curve %', (m) => curveCell(g.monthly_new, m),                        '100%',                 false],
-            [lineA,           (m) => cell(g.monthly_new, m),                             usd(totNew),            true],
-            [lineA + ' /rep', (m) => usd((g.monthly_new[m] || 0) / repsA(qOf(m))),         usd(totNew / yrA),      false],
-            [lineB + ' curve %', (m) => curveCell(g.monthly_renewal, m),                  '100%',                 false],
-            [lineB,           (m) => cell(g.monthly_renewal, m),                         usd(totRen),            true],
-            [lineB + ' /rep', (m) => usd((g.monthly_renewal[m] || 0) / repsB(qOf(m))),     usd(totRen / yrB),      false],
-            ['Total',         (m) => usd((g.monthly_new[m] || 0) + (g.monthly_renewal[m] || 0)), usd(totNew + totRen), true],
+            [N.curveA || (lineA + ' curve %'), (m) => curveCell(g.monthly_new, m),                        '100%',                 false],
+            [N.revA || lineA, (m) => cell(g.monthly_new, m),                             usd(totNew),            true],
+            [N.perA || (lineA + ' /rep'), (m) => usd((g.monthly_new[m] || 0) / repsA(qOf(m))),         usd(totNew / yrA),      false],
+            [N.curveB || (lineB + ' curve %'), (m) => curveCell(g.monthly_renewal, m),                  '100%',                 false],
+            [N.revB || lineB, (m) => cell(g.monthly_renewal, m),                         usd(totRen),            true],
+            [N.perB || (lineB + ' /rep'), (m) => usd((g.monthly_renewal[m] || 0) / repsB(qOf(m))),     usd(totRen / yrB),      false],
+            [N.total || 'Total', (m) => usd((g.monthly_new[m] || 0) + (g.monthly_renewal[m] || 0)), usd(totNew + totRen), true],
           ].map(([label, cellOf, yearVal, bold], ri) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: label === 'Total' ? 'var(--card-2)' : 'transparent', borderTop: label === 'Total' ? '2px solid var(--border)' : undefined } },
             el('td', { class: 'px-2 py-1.5 text-left font-semibold', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, label),
             ...months.map((m) => el('td', { class: 'px-1.5 py-1.5 text-left tabular-nums whitespace-nowrap' + (bold && typeof cellOf(m) === 'string' ? ' font-semibold' : ''), style: Object.assign({ overflow: 'hidden' }, m === curM ? { background: 'rgba(223,100,58,.06)' } : {}) }, cellOf(m))),
@@ -1086,15 +1087,15 @@ function goalMonthlyCard(g, persist, dept) {
             const qn = [0, 1, 2, 3].map(q => qsum(g.monthly_new, q)), qr = [0, 1, 2, 3].map(q => qsum(g.monthly_renewal, q));
             const pctOf = (a, t) => (t > 0 ? (a / t * 100).toFixed(1) : '0.0') + '%';   // = the three months' curve % added up
             const rows = [
-              [lineA + ' quarterly %', q => pctOf(qn[q], totNew), '100%', false],
-              [lineA + ' quarterly',   q => usd(qn[q]), usd(totNew), true],
-              [dept.reps.a,            q => repCell(g.is_reps_q, q), (Math.round(yrA * 10) / 10) + ' avg', false],
-              [lineA + ' /rep quota',  q => usd(qn[q] / repsA(q)), usd(totNew / yrA), true],
-              [lineB + ' quarterly %', q => pctOf(qr[q], totRen), '100%', false],
-              [lineB + ' quarterly',   q => usd(qr[q]), usd(totRen), true],
-              [dept.reps.b,            q => repCell(g.loyalty_reps_q, q), (Math.round(yrB * 10) / 10) + ' avg', false],
-              [lineB + ' /rep quota',  q => usd(qr[q] / repsB(q)), usd(totRen / yrB), true],
-              ['Total quarterly',      q => usd(qn[q] + qr[q]), usd(totNew + totRen), true],
+              [N.qPctA || (lineA + ' quarterly %'), q => pctOf(qn[q], totNew), '100%', false],
+              [N.qA || (lineA + ' quarterly'), q => usd(qn[q]), usd(totNew), true],
+              [N.repsA || dept.reps.a, q => repCell(g.is_reps_q, q), (Math.round(yrA * 10) / 10) + ' avg', false],
+              [N.quotaA || (lineA + ' /rep quota'), q => usd(qn[q] / repsA(q)), usd(totNew / yrA), true],
+              [N.qPctB || (lineB + ' quarterly %'), q => pctOf(qr[q], totRen), '100%', false],
+              [N.qB || (lineB + ' quarterly'), q => usd(qr[q]), usd(totRen), true],
+              [N.repsB || dept.reps.b, q => repCell(g.loyalty_reps_q, q), (Math.round(yrB * 10) / 10) + ' avg', false],
+              [N.quotaB || (lineB + ' /rep quota'), q => usd(qr[q] / repsB(q)), usd(totRen / yrB), true],
+              [N.qTotal || 'Total quarterly', q => usd(qn[q] + qr[q]), usd(totNew + totRen), true],
             ];
             return rows.map(([label, cellOf, yearVal, bold]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: label === 'Total quarterly' ? 'var(--card-2)' : (/\/rep/.test(label) ? 'rgba(223,100,58,.06)' : 'transparent'), borderTop: label === 'Total quarterly' ? '2px solid var(--border)' : undefined } },
               el('td', { class: 'px-2 py-1.5 text-left font-semibold', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, label),
