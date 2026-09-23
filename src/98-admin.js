@@ -119,6 +119,7 @@ function viewAdmin() {
       ['pricing', 'Commissions',    '💵'],
       ['comps',   'Competitions',   '🏆'],
       ['config',  'Configurations', '🧮'],
+      ['data',    'Data sources',   '🔌'],
       ['goals',   'Goals',          '🎯'],
       ['perms',   'Permissions',    '🔐'],
       ['slack',   'Slack',          '💬'],
@@ -173,6 +174,7 @@ function viewAdmin() {
     slack:   adminSlack,
     comps:   adminCompetitionSchedule,
     usage:   adminUsage,
+    data:    adminDataSources,
     pricing: adminCommissions,   // "Commissions" — CRM commission rules by rep type
     backup:  adminBackup,
   };
@@ -2085,4 +2087,90 @@ function d2dRepGoalsCard(partnerOnly) {
             el('tbody', {}, ...rows)))
       : el('div', { class: 'p-6 text-center text-sm text-muted-' }, partnerOnly ? 'No reps are assigned to your team yet — assignments come from Manage Teams.' : 'No active sales reps yet.'),
     el('div', { class: 'text-[10px] mt-2', style: { color: 'var(--text-subtle)' } }, 'Revenue goal drives each rep’s Individual pacer on the Dashboard. Other goals are yours to define per rep for the year.'));
+}
+
+
+// ── Settings → Data sources (per Isaac, Sep 23) ──────────────────────────
+// The product is being built to be sold: every external system it reads is
+// connected from here, per company, with a test button and live health —
+// no Netlify env vars needed for a new customer. Secrets are write-only from
+// the browser (saved through /api/integrations-admin; the masked view
+// integrations_public only says whether each one is set).
+function adminDataSources() {
+  if (!isAdminRole(state.profile?.role)) return el('div', { class: 'card p-6 text-sm text-muted-' }, 'Admins only.');
+  if (state._integrations === undefined) {
+    state._integrations = null;
+    Promise.all([
+      supabase.from('integrations_public').select('*'),
+      fetch('/api/sync-status').then(r => r.json()).catch(() => null),
+    ]).then(([q, st]) => {
+      state._integrations = {}; (q.data || []).forEach(r => { state._integrations[r.id] = r; });
+      state._integrationsErr = q.error ? q.error.message : null;
+      state._syncStatus = st; mountApp();
+    });
+  }
+  const I = state._integrations || {}, fr = I.fieldroutes || { config: {}, status: {}, secrets_set: {} }, st = state._syncStatus || {};
+  const cfg = fr.config || {}, fst = fr.status || {}, set = fr.secrets_set || {};
+  const when = (iso) => iso ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
+  const ago = (iso) => { if (!iso) return 'never'; const m = Math.round((Date.now() - Date.parse(iso)) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
+  const pill = (ok, txt) => el('span', { class: 'text-[10px] font-bold px-2 py-0.5 rounded-full', style: ok === true ? { background: 'rgba(95,108,91,.16)', color: '#5F6C5B' } : ok === false ? { background: 'rgba(220,38,38,.12)', color: '#B91C1C' } : { background: 'var(--card-2)', color: 'var(--text-muted)' } }, txt);
+  const field = (label, node, hint) => el('label', { class: 'block' },
+    el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold block mb-1', style: { color: 'var(--text-subtle)' } }, label), node,
+    hint ? el('span', { class: 'text-[10px] block mt-0.5', style: { color: 'var(--text-subtle)' } }, hint) : null);
+  const inp = (attrs) => el('input', Object.assign({ class: 'w-full rounded-lg border px-2.5 py-1.5 text-[12px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } }, attrs));
+  const subIn = inp({ type: 'text', value: cfg.subdomain || '', placeholder: 'riddpest', autocomplete: 'off' });
+  const domSel = el('select', { class: 'w-full rounded-lg border px-2.5 py-1.5 text-[12px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } },
+    ...['pestroutes.com', 'fieldroutes.com'].map(d => el('option', { value: d, selected: (cfg.domain || 'pestroutes.com') === d }, d)));
+  const keyIn = inp({ type: 'password', placeholder: set.auth_key ? '•••••••• (saved — leave blank to keep)' : 'Authentication Key', autocomplete: 'new-password' });
+  const tokIn = inp({ type: 'password', placeholder: set.auth_token ? '•••••••• (saved — leave blank to keep)' : 'Authentication Token', autocomplete: 'new-password' });
+  const call = async (action) => {
+    const { data } = await supabase.auth.getSession();
+    const body = { id: 'fieldroutes', action, config: { subdomain: subIn.value.trim(), domain: domSel.value, enabled: true }, secrets: { auth_key: keyIn.value, auth_token: tokIn.value } };
+    const r = await fetch('/api/integrations-admin', { method: 'POST', headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + (data.session && data.session.access_token || '') }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { toast(j.error || ('HTTP ' + r.status), 'error'); return; }
+    if (j.test) toast(j.test.ok ? '✓ ' + j.test.message : '✗ ' + j.test.message, j.test.ok ? 'success' : 'error');
+    else toast('Saved', 'success');
+    logActivity('config_change', { detail: 'Data sources · FieldRoutes · ' + action });
+    state._integrations = undefined; mountApp();
+  };
+  const btn = (label, fn, primary) => el('button', { class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold transition hover:brightness-95', style: primary ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { border: '1px solid var(--border-2)', color: 'var(--text)' }, onclick: fn }, label);
+  const row = (k, v) => el('div', { class: 'flex items-center justify-between gap-3 py-1 border-t text-[11px]', style: { borderColor: 'var(--border)' } }, el('span', { style: { color: 'var(--text-muted)' } }, k), el('span', { class: 'tabular-nums text-right' }, v));
+  const connected = fst.last_test_ok === true && set.auth_key && set.auth_token;
+  const frCard = el('div', { class: 'card p-5' },
+    el('div', { class: 'flex items-start justify-between gap-3 flex-wrap mb-3' },
+      el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'FieldRoutes (CRM)'), el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'New subscriptions land in the Sales queues within 5 minutes; add-on tickets and the deleted-account scan use the same key.')),
+      pill(connected ? true : (fst.last_test_ok === false ? false : null), connected ? 'Connected' : fst.last_test_ok === false ? 'Not connected' : (set.auth_key ? 'Saved · untested' : 'Not set up'))),
+    el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' } },
+      field('Subdomain', subIn, 'The first part of the address you sign in at — riddpest for riddpest.pestroutes.com.'),
+      field('Domain', domSel),
+      field('Authentication key', keyIn, 'FieldRoutes → Settings → API. Use a global key (all offices) with read access to subscriptions, customers, contracts and offices.'),
+      field('Authentication token', tokIn)),
+    el('div', { class: 'flex items-center gap-2 mt-3 flex-wrap' }, btn('Save & test', () => call('save'), true), btn('Test connection', () => call('test')),
+      el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Saved here overrides the Netlify environment variables; leave a secret blank to keep the saved one.')),
+    el('div', { class: 'mt-4' },
+      row('Last test', fst.last_test_at ? (fst.last_test_ok ? '✓ ' : '✗ ') + (fst.last_test_message || '') + ' · ' + ago(fst.last_test_at) : '—'),
+      row('Last live pull', fst.last_run_at ? (fst.last_run_ok ? '✓ ' : '✗ ') + ago(fst.last_run_at) + ' · ' + (fst.last_run_message || '') : 'not yet — runs every 5 min, 7am–11pm ET, once connected'),
+      fst.rate_limited ? row('Rate-limited retries (last run)', String(fst.rate_limited)) : null));
+  const rvOk = !!(st && st.lastRun && st.lastRun.ok);
+  const rvCard = el('div', { class: 'card p-5' },
+    el('div', { class: 'flex items-start justify-between gap-3 flex-wrap mb-3' },
+      el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'RevHawk (data warehouse)'), el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Full-book snapshot every 30 minutes — Reporting, Retention, Indicators and the TV board read this. Service account lives in the Netlify environment (GCP_SA_EMAIL / GCP_SA_PRIVATE_KEY).')),
+      pill(st && st.lastRun ? rvOk : null, st && st.lastRun ? (rvOk ? 'Healthy' : 'Last run failed') : 'checking…')),
+    row('Last snapshot', st && st.recentSnapshots && st.recentSnapshots[0] ? ago(st.recentSnapshots[0].uploaded_at) + ' · ' + Number(st.recentSnapshots[0].rows || 0).toLocaleString() + ' rows' : '—'),
+    row('Last run', st && st.lastRun ? (st.lastRun.stage || '') + (st.lastRun.ms ? ' · ' + Math.round(st.lastRun.ms / 1000) + 's' : '') : '—'),
+    row('Derive worker', st && st.lastDerive ? (st.lastDerive.ok ? '✓ ' : '') + (st.lastDerive.stage || '') + ' · ' + ago(st.lastDerive.at) : '—'),
+    el('div', { class: 'text-[10px] mt-3', style: { color: 'var(--text-subtle)' } }, 'Roadmap: a FieldRoutes-native mirror (nightly full pull + 5-minute changes into our own tables) makes this source optional for new customers.'));
+  const sbCard = el('div', { class: 'card p-5' },
+    el('h3', { class: 'text-sm font-bold mb-2' }, 'Setup checklist'),
+    ...[
+      ['FieldRoutes connected', !!connected],
+      ['Auto-log from FieldRoutes switched on (Configurations)', !!(state._autolog && state._autolog.enabled)],
+      ['RevHawk snapshot healthy', rvOk],
+      ['Reps linked to their FieldRoutes employee (Users)', (state.allProfiles || []).some(p => p.fieldroutes_employee_id)],
+      ['Slack notifications configured', !!(state.appSettings && state.appSettings.slack_channels && state.appSettings.slack_channels.length)],
+    ].map(([l, ok]) => el('div', { class: 'flex items-center gap-2 py-1 text-[12px]' }, el('span', { style: { color: ok ? '#5F6C5B' : 'var(--text-subtle)' } }, ok ? '✓' : '○'), el('span', { style: ok ? {} : { color: 'var(--text-muted)' } }, l))));
+  return el('div', { class: 'flex flex-col gap-4' },
+    el('div', { class: 'flex items-center gap-2' }, el('h2', { class: 'text-lg font-bold' }, 'Data sources'), state._integrationsErr ? pill(false, 'run migrations/20260923_integrations.sql') : null),
+    frCard, rvCard, sbCard);
 }

@@ -17,13 +17,11 @@
 // list only shrinks or grows from batches FieldRoutes answered cleanly.
 
 const { createClient } = require('@supabase/supabase-js');
+const { applyFieldRoutesEnv, fieldRoutesBase } = require('../lib/integrations.js');
 const { requireSyncSecret } = require('../lib/sync-gate.js');
 const { _bq } = require('./revhawk-sync-background.js');
 
-function frBase() {
-  const sub = (process.env.FIELDROUTES_SUBDOMAIN || '').trim();
-  return sub ? 'https://' + sub + '.pestroutes.com/api/' : null;
-}
+function frBase() { return fieldRoutesBase(); }
 async function fr(endpoint, params) {
   const q = new URLSearchParams({
     authenticationKey: process.env.FIELDROUTES_AUTH_KEY || '',
@@ -52,6 +50,7 @@ exports.handler = async (event) => {
   const SUPABASE_URL = process.env.SUPABASE_URL;
   const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!SUPABASE_URL || !SERVICE_ROLE) return { statusCode: 500, body: 'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY required' };
+  try { await applyFieldRoutesEnv(createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })); } catch (e) { /* env fallback */ }
   if (!frBase() || !process.env.FIELDROUTES_AUTH_KEY || !process.env.FIELDROUTES_AUTH_TOKEN) {
     console.log('[crm-deleted] FieldRoutes API env not set — skipping');
     return { statusCode: 200, body: 'fieldroutes env not set — skipped' };

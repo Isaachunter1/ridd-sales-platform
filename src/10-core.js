@@ -261,14 +261,14 @@ const PERM_DEFAULTS = {
   auditor:         { tab_sales: 1, view_pricing: 1 },   // auditors live in the Sales queue — grant extras here as needed
 };
 // Settings pages → the permission that opens each (Permissions itself is admin-only, always).
-const ADMIN_SECTION_PERM = { users: 'set_users', teams: 'set_teams', goals: 'set_goals', comps: 'set_comps', pricing: 'set_commissions', config: 'set_config', slack: 'set_slack', usage: 'set_usage' };
+const ADMIN_SECTION_PERM = { users: 'set_users', teams: 'set_teams', goals: 'set_goals', comps: 'set_comps', pricing: 'set_commissions', config: 'set_config', slack: 'set_slack', usage: 'set_usage' };   // 'data' (Data sources) is admin-only, never delegated
 // Sub-tab view key → its Sales-tab permission (all three groups).
 const VIEW_TAB_PERM = { dashboard: 'tab_dashboard', sales: 'tab_sales', pay: 'tab_pay', scorecards: 'tab_scorecards', calendar: 'tab_calendar', hall_of_fame: 'tab_hof',
   d2d_dashboard: 'tab_dashboard', d2d_sales: 'tab_sales', commission: 'tab_pay', techs: 'tab_dashboard', tech_sales: 'tab_sales', tab_pay: 'tab_pay', tech_pay: 'tab_pay', loyalty_renewals: 'tab_loyalty', loyalty_health: 'tab_loyalty' };
 function canOpenLoyalty(profile) { const p = profile || state.profile; return !!p && (isAdminRole(p.role) || userCan('tab_loyalty', p)); }
 // Non-admins may open Settings when granted; only the sections they hold.
 function canOpenSettings(profile) { const p = profile || state.profile; return !!p && (isAdminRole(p.role) || userCan('view_settings', p)); }
-function canOpenAdminSection(k, profile) { const p = profile || state.profile; if (!p) return false; if (isAdminRole(p.role)) return true; if (k === 'perms' || k === 'uploads') return false; return userCan('view_settings', p) && !!ADMIN_SECTION_PERM[k] && userCan(ADMIN_SECTION_PERM[k], p); }
+function canOpenAdminSection(k, profile) { const p = profile || state.profile; if (!p) return false; if (isAdminRole(p.role)) return true; if (k === 'perms' || k === 'uploads' || k === 'data') return false; return userCan('view_settings', p) && !!ADMIN_SECTION_PERM[k] && userCan(ADMIN_SECTION_PERM[k], p); }
 // Effective permission role: legacy 'rep' resolves by CRM type.
 function _permRoleOf(profile) {
   const r = (profile && profile.role) || '';

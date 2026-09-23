@@ -3,6 +3,7 @@
 // invoice reconcile that advances / locks / breaks each add-on's 5-invoice
 // streak. Schedule lives in netlify.toml [functions."addons-scheduled"].
 exports.handler = async () => {
+  try { const { createClient } = require('@supabase/supabase-js'); const { applyFieldRoutesEnv } = require('../lib/integrations.js'); await applyFieldRoutesEnv(createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })); } catch (e) { /* env fallback */ }
   if (!process.env.FIELDROUTES_AUTH_KEY) return { statusCode: 200, body: 'fieldroutes env not set — skipped' };
   const et = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: 'numeric', hour12: false, hourCycle: 'h23' }).formatToParts(new Date());
   const hour = Number(et.find(p => p.type === 'hour').value), minute = Number(et.find(p => p.type === 'minute').value);

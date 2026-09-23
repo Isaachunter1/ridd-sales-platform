@@ -28,11 +28,12 @@
 //      SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY. Silently skips without them.
 
 const { createClient } = require('@supabase/supabase-js');
+const { applyFieldRoutesEnv, fieldRoutesBase } = require('../lib/integrations.js');
 const { requireSyncSecret } = require('../lib/sync-gate.js');
 const { makeIsAddOn, upsellSaleRow } = require('../lib/upsell-record.js');
 const { groupTicketItems } = require('../lib/add-on-streak.js');
 
-function frBase() { const sub = (process.env.FIELDROUTES_SUBDOMAIN || '').trim(); return sub ? 'https://' + sub + '.pestroutes.com/api/' : null; }
+function frBase() { return fieldRoutesBase(); }
 async function fr(endpoint, params) {
   const q = new URLSearchParams({ authenticationKey: process.env.FIELDROUTES_AUTH_KEY || '', authenticationToken: process.env.FIELDROUTES_AUTH_TOKEN || '' });
   for (const [k, v] of Object.entries(params || {})) q.set(k, typeof v === 'string' ? v : JSON.stringify(v));
@@ -56,6 +57,8 @@ exports.handler = async (event) => {
   const _gate = requireSyncSecret(event); if (_gate) return _gate;
   const SUPABASE_URL = process.env.SUPABASE_URL, SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!SUPABASE_URL || !SERVICE_ROLE) return { statusCode: 500, body: 'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY required' };
+  // Credentials come from Settings → Data sources (public.integrations) first, Netlify env as the fallback.
+  try { await applyFieldRoutesEnv(createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })); } catch (e) { /* env fallback */ }
   if (!frBase() || !process.env.FIELDROUTES_AUTH_KEY || !process.env.FIELDROUTES_AUTH_TOKEN) return { statusCode: 200, body: 'fieldroutes env not set — skipped' };
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
   const log = { items: 0, addOns: 0, inserted: 0, updated: 0, sales: 0, unmatchedEmployees: 0 };
