@@ -583,16 +583,18 @@ function reportingOverview() {
     const days = [];
     for (let i = span - 1; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); days.push(iso(d)); }
     const idx = new Map(days.map((d, i) => [d, i]));
+    // Unit (per Isaac, Sep 23): Revenue (default: sold = contract value, serviced / churned = ARR) or Subs (counts). Toggle in the header.
+    const unitSubs = state._pulseUnit === 'subs';
     const sold = new Array(span).fill(0), serviced = new Array(span).fill(0), churned = new Array(span).fill(0);
     const soldRows = days.map(() => []), svcRows = days.map(() => []), cxlRows = days.map(() => []);
     for (const r of rows) {
       const sd = String(r.sold_date || '').slice(0, 10);
-      if (idx.has(sd)) { const i = idx.get(sd); sold[i] += Number(r.subscription_contract_value) || 0; soldRows[i].push(r); }
+      if (idx.has(sd)) { const i = idx.get(sd); sold[i] += unitSubs ? 1 : (Number(r.subscription_contract_value) || 0); soldRows[i].push(r); }
       const initDone = String(r.initial_status || '').toLowerCase() === 'completed' || !!r.initial_serviced_date;
       const svd = initDone ? String(r.initial_serviced_date || r.initial_service || '').slice(0, 10) : '';
-      if (svd && idx.has(svd)) { const i = idx.get(svd); serviced[i] += Number(r.annual_recurring_value) || 0; svcRows[i].push(r); }
+      if (svd && idx.has(svd)) { const i = idx.get(svd); serviced[i] += unitSubs ? 1 : (Number(r.annual_recurring_value) || 0); svcRows[i].push(r); }
       const cd = String(r.subscription_date_canceled || '').slice(0, 10);
-      if (cd && idx.has(cd) && isRealCancel(r)) { const i = idx.get(cd); churned[i] += Number(r.annual_recurring_value) || 0; cxlRows[i].push(r); }
+      if (cd && idx.has(cd) && isRealCancel(r)) { const i = idx.get(cd); churned[i] += unitSubs ? 1 : (Number(r.annual_recurring_value) || 0); cxlRows[i].push(r); }
     }
     const sum = (a) => a.reduce((x, y) => x + y, 0);
     const id = 'rptPulse' + (office !== 'all' ? '_' + String(office).replace(/\W/g, '') : '');
@@ -615,21 +617,21 @@ function reportingOverview() {
         const ofc = (r) => (r.office_name || '').trim() || 'Unassigned';
         const agg = new Map();
         const add = (set, k, valOf) => { for (const r of set) { const o = ofc(r); if (!agg.has(o)) agg.set(o, { sold: 0, svc: 0, cxl: 0 }); agg.get(o)[k] += valOf(r); } };
-        add(soldRows[0], 'sold', (r) => Number(r.subscription_contract_value) || 0);
-        add(svcRows[0], 'svc', (r) => Number(r.annual_recurring_value) || 0);
-        add(cxlRows[0], 'cxl', (r) => Number(r.annual_recurring_value) || 0);
+        add(soldRows[0], 'sold', (r) => unitSubs ? 1 : (Number(r.subscription_contract_value) || 0));
+        add(svcRows[0], 'svc', (r) => unitSubs ? 1 : (Number(r.annual_recurring_value) || 0));
+        add(cxlRows[0], 'cxl', (r) => unitSubs ? 1 : (Number(r.annual_recurring_value) || 0));
         const list = [...agg.entries()].sort((a, b) => (b[1].sold + b[1].svc) - (a[1].sold + a[1].svc));
         labels = list.map(([k]) => k); dsSold = list.map(([, v]) => v.sold); dsSvc = list.map(([, v]) => v.svc); dsCxl = list.map(([, v]) => v.cxl);
       }
       _chartInstances[id] = new Chart(cvsEl.getContext('2d'), {
         data: { labels, datasets: single ? [
           { type: 'bar', label: 'Sold', data: dsSold, backgroundColor: C.sold, borderWidth: 0 },
-          { type: 'bar', label: 'Serviced (new ARR)', data: dsSvc, backgroundColor: C.svc, borderWidth: 0 },
-          { type: 'bar', label: 'Churned (ARR)', data: dsCxl, backgroundColor: C.cxl, borderWidth: 0 },
+          { type: 'bar', label: unitSubs ? 'Serviced' : 'Serviced (new ARR)', data: dsSvc, backgroundColor: C.svc, borderWidth: 0 },
+          { type: 'bar', label: unitSubs ? 'Churned' : 'Churned (ARR)', data: dsCxl, backgroundColor: C.cxl, borderWidth: 0 },
         ] : [
           { type: 'bar', label: 'Sold', data: sold, backgroundColor: C.sold, borderWidth: 0, order: 3 },
-          { type: 'line', label: 'Serviced (new ARR)', data: serviced, borderColor: C.svc, backgroundColor: C.svc, borderWidth: 2, tension: 0.3, pointRadius: 2, order: 1 },
-          { type: 'line', label: 'Churned (ARR)', data: churned, borderColor: C.cxl, backgroundColor: C.cxl, borderWidth: 2, tension: 0.3, pointRadius: 2, order: 2 },
+          { type: 'line', label: unitSubs ? 'Serviced' : 'Serviced (new ARR)', data: serviced, borderColor: C.svc, backgroundColor: C.svc, borderWidth: 2, tension: 0.3, pointRadius: 2, order: 1 },
+          { type: 'line', label: unitSubs ? 'Churned' : 'Churned (ARR)', data: churned, borderColor: C.cxl, backgroundColor: C.cxl, borderWidth: 2, tension: 0.3, pointRadius: 2, order: 2 },
         ] },
         options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
           onClick: (evt, els) => {
@@ -642,11 +644,11 @@ function reportingOverview() {
             tooltip: { callbacks: {
               // Long-form date in the tooltip title (per Isaac): "Wednesday, September 6th, 2026".
               title: (items) => { const i = items && items[0] ? items[0].dataIndex : -1; return i < 0 ? '' : single ? (labels[i] + ' · ' + longDate(0)) : longDate(i); },
-              label: (c) => ' ' + c.dataset.label + ': $' + Math.round(c.parsed.y).toLocaleString(),
+              label: (c) => ' ' + c.dataset.label + ': ' + (unitSubs ? Math.round(c.parsed.y).toLocaleString() : '$' + Math.round(c.parsed.y).toLocaleString()),
               // Net = Sold − Churned for the hovered day / branch (per Isaac, Sep 22).
-              footer: (items) => { const i = items && items[0] ? items[0].dataIndex : -1; if (i < 0) return ''; const n = (Number(dsSold[i]) || 0) - (Number(dsCxl[i]) || 0); return ' Net: ' + (n < 0 ? '−' : '') + '$' + Math.round(Math.abs(n)).toLocaleString(); } } } },
+              footer: (items) => { const i = items && items[0] ? items[0].dataIndex : -1; if (i < 0) return ''; const n = (Number(dsSold[i]) || 0) - (Number(dsCxl[i]) || 0); return ' Net: ' + (n < 0 ? '−' : '') + (unitSubs ? '' : '$') + Math.round(Math.abs(n)).toLocaleString(); } } } },
           scales: { x: { ticks: { color: txt, maxTicksLimit: span > 30 ? 15 : 31 }, grid: { display: false } },
-                    y: { beginAtZero: true, ticks: { color: txt, callback: v => '$' + (v >= 1000 ? Math.round(v / 1000) + 'k' : v) }, grid: { color: grid } } } },
+                    y: { beginAtZero: true, ticks: { color: txt, callback: v => unitSubs ? v : '$' + (v >= 1000 ? Math.round(v / 1000) + 'k' : v) }, grid: { color: grid } } } },
       });
     }, 50);
     // The three headline numbers open the same drill for the WHOLE window
@@ -656,162 +658,11 @@ function reportingOverview() {
     const winLabel = single ? (spanRaw === 'today' ? 'Today' : 'Yesterday') : 'Last ' + span + ' days';
     const winLong = single ? (() => { const dt = new Date(days[0] + 'T00:00'); return dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }); })() : winLabel + ' \u00b7 ' + days[0] + ' \u2192 ' + days[days.length - 1];
     const openWindow = (kind) => openPulseDayDrill(winLabel, winLong, { sold: flat(soldRows), svc: flat(svcRows), cxl: flat(cxlRows) }, kind);
-    // SUBSCRIPTIONS LOST (per Isaac, Sep 2026): right on the main page, under
-    // the chart — RIDD first, then each office — how many subscriptions and
-    // how much ARR churned in the window. Same rows as the red series above
-    // (counted cancels only: 3-day RORs and non-real cancels are excluded).
-    const lostBlock = (() => {
-      // Per Isaac: alongside what was lost, what was SOLD in the same window
-      // and the net — for subscriptions and for revenue. Revenue sold is
-      // contract value (the green series); revenue lost is ARR (the red
-      // series) — the same numbers as the chart above.
-      const cxlAll = flat(cxlRows), soldAll = flat(soldRows);
-      const arrOf = (r) => Number(r.annual_recurring_value) || 0;
-      const cvOf = (r) => Number(r.subscription_contract_value) || 0;
-      const ofc = (r) => (r.office_name || '').trim() || 'Unassigned';
-      const by = new Map();
-      const g0 = () => ({ sn: 0, srev: 0, ln: 0, lrev: 0, sold: [], lost: [] });
-      for (const r of soldAll) { const k = ofc(r); const g = by.get(k) || g0(); g.sn++; g.srev += cvOf(r); g.sold.push(r); by.set(k, g); }
-      for (const r of cxlAll) { const k = ofc(r); const g = by.get(k) || g0(); g.ln++; g.lrev += arrOf(r); g.lost.push(r); by.set(k, g); }
-      const tot = g0(); for (const g of by.values()) { tot.sn += g.sn; tot.srev += g.srev; tot.ln += g.ln; tot.lrev += g.lrev; tot.sold.push(...g.sold); tot.lost.push(...g.lost); }
-      const list = [...by.entries()].sort((a, b) => (b[1].lrev + b[1].srev) - (a[1].lrev + a[1].srev));
-      const hd = (t, right) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
-      const cell = (t, o = {}) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap ' + (o.right ? 'text-right' : 'text-left') + (o.bold ? ' font-black' : ''), style: o.color ? { color: o.color } : {} }, t);
-      const signed = (v, money) => (v < 0 ? '\u2212' : v > 0 ? '+' : '') + (money ? fmt.usd0(Math.abs(v)) : fmt.int(Math.abs(v)));
-      const netColor = (v) => v > 0 ? C.sold : v < 0 ? C.cxl : '';
-      const drill = (label, rows, what, val) => openReportingDrillModal({ chartTitle: what + ' \u00b7 ' + winLabel + ' \u00b7 ' + label, sliceLabel: fmt.int(rows.length) + ' subscription' + (rows.length === 1 ? '' : 's') + ' \u00b7 ' + val, rows, formatValue: fmt.usd0 });
-      const numCell = 'px-2 py-1.5 tabular-nums whitespace-nowrap text-right font-bold';
-      const clickable = (rows, onclick) => rows.length ? { class: numCell + ' cursor-pointer hover:underline', onclick: (e) => { e.stopPropagation(); onclick(); } } : { class: numCell };
-      const line = (label, g, bold) => el('tr', { class: 'border-t', style: { borderColor: bold ? 'var(--border-2)' : 'var(--border)', background: bold ? 'var(--card-2)' : '' } },
-        el('td', { class: 'px-2 py-1.5 whitespace-nowrap ' + (bold ? 'font-black' : 'font-semibold'), style: bold ? { background: 'var(--card-2)' } : {} }, label),
-        el('td', { style: { color: g.sn ? C.sold : '' }, title: 'Click for the sold accounts', ...clickable(g.sold, () => drill(label, g.sold, 'Subscriptions sold', fmt.usd0(g.srev) + ' contract value')) }, fmt.int(g.sn)),
-        el('td', { style: { color: g.ln ? C.cxl : '' }, title: 'Click for the lost accounts', ...clickable(g.lost, () => drill(label, g.lost, 'Subscriptions lost', fmt.usd0(g.lrev) + ' ARR')) }, fmt.int(g.ln)),
-        cell(signed(g.sn - g.ln, false), { right: true, bold: true, color: netColor(g.sn - g.ln) }),
-        cell(fmt.usd0(g.srev), { right: true, color: g.srev ? C.sold : '' }),
-        cell(fmt.usd0(g.lrev), { right: true, color: g.lrev ? C.cxl : '' }),
-        cell(signed(g.srev - g.lrev, true), { right: true, bold: true, color: netColor(g.srev - g.lrev) }));
-      const tbl = el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse' } },
-        el('thead', {}, el('tr', {}, hd('Office'), hd('Subs sold', true), hd('Subs lost', true), hd('Net subs', true), hd('Revenue sold', true), hd('Revenue lost', true), hd('Net revenue', true))),
-        // Collapsed by default (per Isaac): the RIDD line plus an expand row; the office lines open on demand.
-        el('tbody', {}, line('RIDD', tot, true), ...(state._pulseOfficesOpen ? list.map(([k, g]) => line(k, g, false)) : []),
-          list.length ? el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-            el('td', { class: 'px-2 py-1.5', colspan: 7 }, el('button', { class: 'text-[11px] font-bold', style: { color: 'var(--accent)' }, onclick: () => { state._pulseOfficesOpen = !state._pulseOfficesOpen; mountApp(); } },
-              state._pulseOfficesOpen ? '\u25be Hide offices' : '\u25b8 Show ' + list.length + ' office' + (list.length === 1 ? '' : 's')))) : null,
-          !cxlAll.length && !soldAll.length ? el('tr', {}, el('td', { class: 'px-2 py-2 text-[10px] text-muted-', colspan: 7 }, 'Nothing sold or lost in this window.')) : null));
-      // ── DAILY view (per Isaac): one row per day — exactly what was lost
-      // each day, with the reason and office behind it — plus a few
-      // insights (worst day, weekday pattern, last 7 vs prior 7).
-      const dayView = state._pulseLostView === 'day';
-      const dayLong = (iso) => { const dt = new Date(iso + 'T00:00'); return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); };
-      const dayShort = (iso) => { const dt = new Date(iso + 'T00:00'); return (dt.getMonth() + 1) + '/' + dt.getDate(); };
-      const dayFull = (iso) => { const dt = new Date(iso + 'T00:00'); const n = dt.getDate(); const sfx = (n % 10 === 1 && n !== 11) ? 'st' : (n % 10 === 2 && n !== 12) ? 'nd' : (n % 10 === 3 && n !== 13) ? 'rd' : 'th'; return dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long' }) + ' ' + n + sfx + ', ' + dt.getFullYear(); };
-      const topOf = (rows, keyOf) => { const m = new Map(); for (const r of rows) { const k = keyOf(r) || 'Unspecified'; m.set(k, (m.get(k) || 0) + 1); } let best = '', n = 0; for (const [k, v] of m) if (v > n) { best = k; n = v; } return best ? best + ' (' + n + ')' : '\u2014'; };
-      const dayRows = days.map((d, i) => ({ d, i, sn: soldRows[i].length, srev: soldRows[i].reduce((a, r) => a + cvOf(r), 0), ln: cxlRows[i].length, lrev: cxlRows[i].reduce((a, r) => a + arrOf(r), 0),
-        reason: topOf(cxlRows[i], reportingCancelReasonOf), office: topOf(cxlRows[i], ofc) }));
-      const dayLine = (r) => el('tr', { class: 'border-t cursor-pointer transition hover:brightness-95', style: { borderColor: 'var(--border)' }, title: 'Click for this day\u2019s drilldown',
-        onclick: () => openPulseDayDrill(dayShort(r.d), dayFull(r.d), { sold: soldRows[r.i], svc: svcRows[r.i], cxl: cxlRows[r.i] }, 'cxl') },
-        el('td', { class: 'px-2 py-1.5 whitespace-nowrap font-semibold' }, dayLong(r.d), r.d === days[days.length - 1] && spanRaw !== 'yesterday' ? el('span', { class: 'ml-1 text-[9px] font-semibold', style: { color: 'var(--text-subtle)' } }, 'live') : null),
-        cell(fmt.int(r.sn), { right: true, bold: true, color: r.sn ? C.sold : '' }),
-        cell(fmt.int(r.ln), { right: true, bold: true, color: r.ln ? C.cxl : '' }),
-        cell(signed(r.sn - r.ln, false), { right: true, bold: true, color: netColor(r.sn - r.ln) }),
-        cell(fmt.usd0(r.srev), { right: true, color: r.srev ? C.sold : '' }),
-        cell(fmt.usd0(r.lrev), { right: true, color: r.lrev ? C.cxl : '' }),
-        cell(signed(r.srev - r.lrev, true), { right: true, bold: true, color: netColor(r.srev - r.lrev) }),
-        el('td', { class: 'px-2 py-1.5 whitespace-nowrap text-[11px]', style: { color: 'var(--text-muted)' } }, r.reason),
-        el('td', { class: 'px-2 py-1.5 whitespace-nowrap text-[11px]', style: { color: 'var(--text-muted)' } }, r.office));
-      const dayTbl = el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse' } },
-        el('thead', {}, el('tr', {}, hd('Day'), hd('Subs sold', true), hd('Subs lost', true), hd('Net subs', true), hd('Revenue sold', true), hd('Revenue lost', true), hd('Net revenue', true), hd('Top cancel reason'), hd('Office losing most'))),
-        // Last 7 days by default (per Isaac); "Show all N days" reveals the rest of the window. The total row stays the whole window.
-        el('tbody', {}, ...(state._pulseDaysAll || dayRows.length <= 8 ? dayRows.slice().reverse() : dayRows.slice(-7).reverse()).map(dayLine),
-          (!state._pulseDaysAll && dayRows.length > 8) ? el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-            el('td', { class: 'px-2 py-1.5', colspan: '9' }, el('button', { class: 'text-[11px] font-bold', style: { color: 'var(--accent)' }, onclick: () => { state._pulseDaysAll = true; mountApp(); } }, 'Show all ' + dayRows.length + ' days \u2192'))) : null,
-          (state._pulseDaysAll && dayRows.length > 8) ? el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-            el('td', { class: 'px-2 py-1.5', colspan: '9' }, el('button', { class: 'text-[11px] font-bold', style: { color: 'var(--accent)' }, onclick: () => { state._pulseDaysAll = false; mountApp(); } }, 'Show last 7 days'))) : null,
-          el('tr', { class: 'border-t font-bold', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
-            el('td', { class: 'px-2 py-1.5', style: { background: 'var(--card-2)' } }, winLabel), cell(fmt.int(tot.sn), { right: true, color: C.sold }), cell(fmt.int(tot.ln), { right: true, color: C.cxl }), cell(signed(tot.sn - tot.ln, false), { right: true, color: netColor(tot.sn - tot.ln) }),
-            cell(fmt.usd0(tot.srev), { right: true, color: C.sold }), cell(fmt.usd0(tot.lrev), { right: true, color: C.cxl }), cell(signed(tot.srev - tot.lrev, true), { right: true, color: netColor(tot.srev - tot.lrev) }), cell(''), cell(''))));
-      // ── DAILY view redesign (per Isaac, Sep 23): one glance answers "are
-      // we bleeding faster than we sell, and where do I look today?" —
-      // (1) three direction numbers, (2) a diverging daily chart (sold up,
-      // lost down, net line, today hatched, prior-window avg net dashed),
-      // (3) offices ranked by net loss and reasons ranked with sparklines.
-      // The daily table stays behind a toggle as the audit trail.
-      const insights = (() => {
-        if (span < 7) return null;
-        const isToday = spanRaw !== 'yesterday';
-        // Unit (per Isaac, Sep 23): Revenue (default — sold = contract value,
-        // lost = ARR, the same $ as the chart above) or Subs (counts).
-        const unitSubs = state._pulseUnit === 'subs';
-        const S = (r) => unitSubs ? r.sn : r.srev, L = (r) => unitSubs ? r.ln : r.lrev;
-        const fmtU = (v) => unitSubs ? fmt.int(Math.abs(v)) : fmt.usd0(Math.abs(v));
-        const uLabel = unitSubs ? 'subs' : 'revenue';
-        const done = dayRows.filter(r => !isToday || r.d < days[days.length - 1]);   // completed days
-        if (!done.length) return null;
-        const last7 = done.slice(-7), prior7 = done.slice(-14, -7);
-        const signedN = (v) => (v < 0 ? '−' : v > 0 ? '+' : '') + fmtU(v);
-        // Ranked lists: offices by net loss (last 7 days) · reasons with sparklines (whole window).
-        const l7Set = new Set(last7.map(r => r.d));
-        const byOff = new Map();
-        const p7Set = new Set(prior7.map(r => r.d));
-        const g0o = () => ({ sn: 0, ln: 0, sv: 0, lv: 0, pn: 0, pv: 0, reasons: new Map(), lost: [] });
-        for (const r of soldAll) { const d = String(r.sold_date || '').slice(0, 10); const k = ofc(r); const g = byOff.get(k) || g0o(); if (l7Set.has(d)) { g.sn++; g.sv += cvOf(r); } else if (p7Set.has(d)) { g.pn++; g.pv += cvOf(r); } byOff.set(k, g); }
-        for (const r of cxlAll) { const d = String(r.subscription_date_canceled || '').slice(0, 10); const k = ofc(r); const g = byOff.get(k) || g0o(); if (l7Set.has(d)) { g.ln++; g.lv += arrOf(r); g.lost.push(r); const rs = reportingCancelReasonOf(r) || 'Unspecified'; g.reasons.set(rs, (g.reasons.get(rs) || 0) + 1); } else if (p7Set.has(d)) { g.pn--; g.pv -= arrOf(r); } byOff.set(k, g); }
-        // Every office, worst net first (per Isaac: the offices list is the keeper — make it carry the story).
-        const offRank = [...byOff.entries()].map(([k, g]) => ({ k, ...g, net: unitSubs ? g.sn - g.ln : g.sv - g.lv, prior: unitSubs ? g.pn : g.pv, top: [...g.reasons.entries()].sort((a, b) => b[1] - a[1])[0] })).filter(o => o.sn || o.ln).sort((a, b) => a.net - b.net);
-        const byReason = new Map();
-        for (const r of cxlAll) { const k = reportingCancelReasonOf(r) || 'Unspecified'; const g = byReason.get(k) || { n: 0, v: 0, series: new Array(span).fill(0), rows: [] }; g.n++; g.v += arrOf(r); g.rows.push(r); const i = idx.get(String(r.subscription_date_canceled || '').slice(0, 10)); if (i != null) g.series[i] += unitSubs ? 1 : arrOf(r); byReason.set(k, g); }
-        const totV = cxlAll.reduce((a, r) => a + arrOf(r), 0);
-        const reasonRank = [...byReason.entries()].map(([k, g]) => ({ k, ...g, val: unitSubs ? g.n : g.v })).sort((a, b) => b.val - a.val).slice(0, 8);
-        const spark = (series) => { const w = 90, h = 22, m = Math.max(1, ...series); const pts = series.map((v, i) => (i / Math.max(1, series.length - 1) * w).toFixed(1) + ',' + (h - v / m * (h - 2)).toFixed(1)).join(' '); const wrap = el('span', { style: { display: 'inline-block', width: w + 'px', height: h + 'px', verticalAlign: 'middle' } }); wrap.innerHTML = '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '"><polyline fill="none" stroke="' + C.cxl + '" stroke-width="1.5" points="' + pts + '"/></svg>'; return wrap; };
-        const trendOf = (series) => { const half = Math.floor(series.length / 2); const a = sum(series.slice(0, half)), b = sum(series.slice(half)); return !a ? '' : ((b - a) / a * 100 > 0 ? '+' : '') + Math.round((b - a) / a * 100) + '%'; };
-        const listHdr = (t) => el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold mb-1', style: { color: 'var(--text-subtle)' } }, t);
-        const rowBtn = (kids, onclick, title) => el('button', { class: 'w-full flex items-center justify-between gap-2 py-1 border-t text-left text-[11px] transition hover:brightness-95', style: { borderColor: 'var(--border)', background: 'transparent' }, title: title || '', onclick }, ...kids);
-        const oh = (t, right) => el('th', { class: 'px-2 py-1 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)' } }, t);
-        const oc = (t, o = {}) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap ' + (o.right ? 'text-right' : 'text-left') + (o.bold ? ' font-black' : ''), style: o.color ? { color: o.color } : {} }, t);
-        const chg = (cur, prev) => prev ? Math.round((cur - prev) / Math.abs(prev) * 100) : null;
-        const offList = el('div', { style: { flex: '1 1 100%', minWidth: '0' } }, listHdr('Offices · last 7 days · ' + uLabel + ' · worst net first'),
-          el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-            el('thead', {}, el('tr', {}, oh('Office'), oh('Sold', true), oh('Lost', true), oh('Net', true), oh('vs prior 7', true), oh('Lost / day', true), oh('Top cancel reason'))),
-            el('tbody', {}, ...(offRank.length ? offRank.map(o => { const d = chg(o.net, o.prior); return el('tr', { class: 'border-t cursor-pointer transition hover:brightness-95', style: { borderColor: 'var(--border)' }, title: 'Click for the lost accounts',
-                onclick: () => openReportingDrillModal({ chartTitle: 'Subscriptions lost · last 7 days · ' + o.k, sliceLabel: fmt.int(o.lost.length) + ' subscriptions · ' + fmt.int(o.sn) + ' sold', rows: o.lost, formatValue: () => '' }) },
-                oc(_titleCaseWords(o.k), { bold: true }),
-                oc(unitSubs ? fmt.int(o.sn) : fmt.usd0(o.sv), { right: true, color: C.sold }),
-                oc(unitSubs ? fmt.int(o.ln) : fmt.usd0(o.lv), { right: true, color: C.cxl }),
-                oc(signedN(o.net), { right: true, bold: true, color: o.net < 0 ? C.cxl : C.sold }),
-                oc(d == null ? '—' : (d > 0 ? '+' : '') + d + '%', { right: true, color: d == null ? 'var(--text-subtle)' : d < 0 ? C.cxl : C.sold }),
-                oc((o.ln / 7).toFixed(1), { right: true }),
-                oc(o.top ? o.top[0].replace(/ \(Collections\)/, '') + ' · ' + o.top[1] + ' of ' + o.ln : '—', { color: 'var(--text-muted)' })); })
-              : [el('tr', {}, el('td', { class: 'px-2 py-2 text-[10px]', colspan: 7, style: { color: 'var(--text-subtle)' } }, 'Nothing in the last 7 days.'))])))));
-        const reasonList = el('div', { style: { flex: '1 1 300px', minWidth: '0' } }, listHdr('Cancel reasons · ' + winLabel + ' · first half vs second half'),
-          ...(reasonRank.length ? reasonRank.map(o => rowBtn([
-            el('span', { class: 'font-semibold truncate' }, o.k.replace(/ \(Collections\)/, '')),
-            el('span', { class: 'flex items-center gap-2 shrink-0 tabular-nums' },
-              el('span', { class: 'text-[10px]', style: { color: /^\+/.test(trendOf(o.series)) ? C.cxl : 'var(--text-muted)' } }, trendOf(o.series)),
-              el('span', { class: 'font-black' }, fmtU(o.val)), el('span', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, unitSubs ? (cxlAll.length ? Math.round(o.n / cxlAll.length * 100) + '%' : '') : (totV ? Math.round(o.v / totV * 100) + '%' : '')))],
-            () => openReportingDrillModal({ chartTitle: 'Subscriptions lost · ' + winLabel + ' · ' + o.k, sliceLabel: fmt.int(o.n) + ' subscriptions', rows: o.rows, formatValue: () => '' }),
-            'Click for the accounts')) : [el('div', { class: 'text-[10px] py-2', style: { color: 'var(--text-subtle)' } }, 'No cancels in this window.')]));
-        return el('div', { class: 'flex flex-col gap-3 mb-2' },
-          el('div', { class: 'flex gap-6 flex-wrap' }, offList, reasonList),
-          el('button', { class: 'self-start text-[11px] font-bold', style: { color: 'var(--accent)' }, onclick: () => { state._pulseDayTable = !state._pulseDayTable; mountApp(); } }, state._pulseDayTable ? '▾ Hide daily table' : '▸ Show daily table'));
-      })();
-      // Pill tabs (the Revenue Goal pattern) — the ad-hoc segmented control
-      // rendered blank / dead on phones (per Isaac, Sep 23).
-      // (Revenue / Subs toggle lives in the card header now — per Isaac, Sep 23.)
-      return el('div', { class: 'mt-3 pt-3 border-t', style: { borderColor: 'var(--border)' } },
-        el('div', { class: 'flex items-center justify-between gap-2 flex-wrap mb-1' },
-          el('div', {},
-            el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' }, title: 'Revenue sold = contract value \u00b7 revenue lost = ARR of counted cancels' + (span > 1 ? ' \u00b7 RIDD is losing ' + (tot.ln / span).toFixed(1) + ' subs / day' : '') }, 'Subscriptions sold vs lost \u00b7 ' + winLabel.toLowerCase() + (dayView ? ' \u00b7 by day' : ' \u00b7 by office')),
-            null),
-          el('div', { class: 'flex items-center gap-2 flex-wrap justify-end', style: { marginLeft: 'auto' } },   // right-justified (per Isaac, Sep 23)
-            el('button', { class: 'text-[10px] font-bold', style: { color: 'var(--accent)' }, title: 'Where the churn came from — the window\'s lost accounts, by office', onclick: () => openWindow('cxl') }, 'See more \u2192'))),
-        insights,
-        state._pulseDayTable ? el('div', { class: 'scroll-x' }, dayTbl) : null);
-    })();
     const unitBtn = (v, l) => el('button', { type: 'button', 'data-active': String((state._pulseUnit === 'subs') === (v === 'subs')), onclick: () => { state._pulseUnit = v; mountApp(); } }, l);
     const unitToggle = el('div', { class: 'pill-tabs' }, unitBtn('rev', 'Revenue'), unitBtn('subs', 'Subs'));
     const stat = (label, v, color, kind) => el('button', { class: 'text-left cursor-pointer transition hover:brightness-95', title: 'See the ' + label.toLowerCase() + ' accounts, by office \u2014 and where churn came from', onclick: () => openWindow(kind) },
       el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
-      el('div', { class: 'text-base font-black tabular-nums', style: { color } }, fmt.usd0(v)));
+      el('div', { class: 'text-base font-black tabular-nums', style: { color } }, unitSubs ? fmt.int(v) : fmt.usd0(v)));
     return el('div', { class: 'card p-4' },
       el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-2' },
         el('div', {},
@@ -821,15 +672,14 @@ function reportingOverview() {
           // Net = Sold − Churned for the selected window (per Isaac, Sep 22).
           (() => { const n = sum(sold) - sum(churned); return el('div', { class: 'text-left', title: 'Sold − Churned for this window' },
             el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Net'),
-            el('div', { class: 'text-base font-black tabular-nums', style: { color: n >= 0 ? C.sold : C.cxl } }, (n < 0 ? '−' : '') + fmt.usd0(Math.abs(n)))); })(),
+            el('div', { class: 'text-base font-black tabular-nums', style: { color: n >= 0 ? C.sold : C.cxl } }, (n < 0 ? '−' : '') + (unitSubs ? fmt.int(Math.abs(n)) : fmt.usd0(Math.abs(n))))); })(),
           el('select', {
             class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
             style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
             onchange: (e) => { const v = e.target.value; state._rtPulseSpan = (v === 'today' || v === 'yesterday') ? v : Number(v); mountApp(); },
           }, ...[['today', 'Today'], ['yesterday', 'Yesterday'], [7, 'Last 7 days'], [30, 'Last 30 days'], [90, 'Last 90 days']].map(([v, l]) => el('option', { value: String(v), selected: single ? spanRaw === v : span === v }, l))),
           unitToggle)),
-      cvsWrap,
-      lostBlock);
+      cvsWrap);
   })();
 
   return el('div', { class: 'flex flex-col gap-4' },
