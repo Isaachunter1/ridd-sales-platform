@@ -1002,6 +1002,13 @@ exports.handler = async (event) => {
               rows.forEach(x => { delete x.crm_initial_status; delete x.crm_autopay; delete x.crm_contract_state; delete x.crm_contract_signed_at; });
               ({ error: insErr } = await supabase.from('sales').insert(rows));
             }
+            if (insErr && /upfront_collected|crm_audit/i.test(insErr.message || '')) {
+              // 20260917_audit_flag_and_pay_adjustments.sql / upfront_collected column not run yet — never let a missing
+              // stamp column stop the sales from landing (this exact miss silenced the auto-log Sep 17–23).
+              console.warn('[revhawk-sync] audit-flag columns missing — run migrations/20260923_sales_upfront_collected.sql; inserting without them');
+              rows.forEach(x => { delete x.upfront_collected; delete x.crm_audit; });
+              ({ error: insErr } = await supabase.from('sales').insert(rows));
+            }
             if (insErr) console.warn('[revhawk-sync] auto-add batch failed: ' + insErr.message);
           };
           for (const r of pool) {
