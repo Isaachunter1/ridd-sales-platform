@@ -1089,7 +1089,7 @@ exports.handler = async (event) => {
       try {
         const { data: alRow3 } = await supabase.from('app_settings').select('value').eq('key', 'autolog').maybeSingle();
         const AL3 = Object.assign({ enabled: false, start: '2026-01-01', upsells: 'manual', upsell_services: [] }, (alRow3 && alRow3.value) || {});
-        if (AL3.enabled && AL3.upsells === 'auto') {
+        if (AL3.enabled && AL3.upsells !== 'off') {   // always automatic (per Isaac, Sep 23)
           const START3 = String(AL3.start || '2026-01-01').slice(0, 10);
           // Ticket line → candidate → sales row lives in lib/upsell-record.js
           // (pure, fixture-tested by tools/upsell-test.js) so the upsell

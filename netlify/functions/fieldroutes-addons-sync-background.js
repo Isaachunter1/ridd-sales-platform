@@ -131,7 +131,7 @@ exports.handler = async (event) => {
       if (error) { console.warn('[fr-addons] insert failed', a.subscription_id, a.service_name, error.message); continue; }
       log.inserted++;
       // 6. Automatic upsells: one `sales` row per add-on, attributed to the credited employee.
-      if (AL.upsells === 'auto' && prof) {
+      if (AL.upsells !== 'off' && prof) {   // upsells are always automatic (per Isaac, Sep 23) — the manual Log Sale path is retired
         const t = tickets[a.initial_ticket_id || a.first_recurring_ticket_id] || {};
         const sale = upsellSaleRow({
           ticket_id: 'addon:' + ins.id, customer_id: a.customer_id, subscription_id: a.subscription_id, office_id: a.office_fr_id,

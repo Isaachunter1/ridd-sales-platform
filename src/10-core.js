@@ -3647,7 +3647,7 @@ async function loadData() {
   // right after first paint instead of holding the splash hostage.
   const [salesRes, profiles] = await Promise.all([salesQuery, profilesQuery]);
   loadUnloggedSales().then(gh => { if (gh) { state.unloggedSales = gh; if (state.view === 'sales') mountApp(); } });
-  loadAutologSwitch().then(() => { if (state._autologCache && state._autologCache.upsells === 'auto') mountApp(); });
+  loadAutologSwitch();   // upsells are always automatic now — no remount needed
   setTimeout(() => {
     Promise.all([
       supabase.from('competitions').select('*').order('start_date', { ascending: false }),
