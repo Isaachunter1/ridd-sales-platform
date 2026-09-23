@@ -1056,7 +1056,7 @@ function mountApp() {
   // would make THIS wrapper the sticky's scroll container (a 60px+ blank
   // band above the quote, and the quote painting over the first program on
   // phones) — so that view clips instead of scrolls.
-  const contentWrap = el('div', { class: 'py-4 sm:py-6 w-full max-w-[1600px] mx-auto ' + (state.view === 'pricing' ? 'overflow-x-clip-' : 'overflow-x-auto') + (_viewChanged ? ' view-enter' : '') });
+  const contentWrap = el('div', { class: 'content-wrap py-4 sm:py-6 w-full max-w-[1600px] mx-auto ' + (state.view === 'pricing' ? 'overflow-x-clip-' : 'overflow-x-auto') + (_viewChanged ? ' view-enter' : '') });
   // (Mobile freshness line retired — the header stamp shows on phones now, per Isaac.)
   usagePing('view', state.view);
   main.append(pageHeader, contentWrap);
