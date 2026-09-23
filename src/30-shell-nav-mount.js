@@ -1260,14 +1260,12 @@ function mountApp() {
     contentWrap.append(loyaltySubTabs());
   }
   contentWrap.append(node);
-  // Phones (per Isaac, Sep 23): the date-range dropdown shares the row with
-  // the "Dashboard" tab dropdown instead of taking a row of its own — move
-  // the dashboard toolbar into the sub-tab bar; the CSS lets the two split it.
+  // The date-range dropdown rides in the sub-tab row (per Isaac, Sep 23) —
+  // right of the tabs on desktop, beside the "Dashboard" dropdown on phones —
+  // instead of taking a row of its own above the Revenue Pacer.
   try {
-    if (window.innerWidth < 640) {
-      const bar = contentWrap.querySelector('.sales-subtabs'), tb = node.querySelector('.dash-toolbar');
-      if (bar && tb) bar.append(tb);
-    }
+    const bar = contentWrap.querySelector('.sales-subtabs'), tb = node.querySelector('.dash-toolbar');
+    if (bar && tb) { tb.classList.add('ml-auto'); bar.append(tb); }
   } catch (e) { /* layout nicety only */ }
 
   // Floating action button — hidden on admin/settings, indicators, and calendar
