@@ -264,12 +264,17 @@ SELECT
   NULLIF(COALESCE(NULLIF(s.fieldRoutes_leadSource,''), cust.csource), '') AS lead_source,
   -- Signed agreement: date the e-sign doc was COMPLETED (sub-level first,
   -- else a customer-level doc signed on/after the day the sub was added).
+  -- FieldRoutes' own "Signed Agreement = Yes" (per Isaac, Sep 23) is the
+  -- agreement attached to the subscription (contractAdded) — 44k of 44.6k
+  -- active subs carry it, only 26k have an e-sign document. Either counts.
   CAST(COALESCE(sigsub.signed_on,
            IF(sigcust.signed_on >= DATE_SUB(SAFE.PARSE_DATE('%Y-%m-%d', NULLIF(LEFT(s.fieldRoutes_dateAdded,10),'0000-00-00')), INTERVAL 1 DAY),
-              sigcust.signed_on, NULL)) AS STRING) AS contract_signed_at,
+              sigcust.signed_on, NULL),
+           SAFE.PARSE_DATE('%Y-%m-%d', NULLIF(LEFT(s.fieldRoutes_contractAdded,10),'0000-00-00'))) AS STRING) AS contract_signed_at,
   CASE
     WHEN sigsub.signed_on IS NOT NULL
-      OR sigcust.signed_on >= DATE_SUB(SAFE.PARSE_DATE('%Y-%m-%d', NULLIF(LEFT(s.fieldRoutes_dateAdded,10),'0000-00-00')), INTERVAL 1 DAY) THEN 'signed'
+      OR sigcust.signed_on >= DATE_SUB(SAFE.PARSE_DATE('%Y-%m-%d', NULLIF(LEFT(s.fieldRoutes_dateAdded,10),'0000-00-00')), INTERVAL 1 DAY)
+      OR SAFE.PARSE_DATE('%Y-%m-%d', NULLIF(LEFT(s.fieldRoutes_contractAdded,10),'0000-00-00')) IS NOT NULL THEN 'signed'
     WHEN COALESCE(sigsub.wip,0) > 0 OR COALESCE(sigcust.wip,0) > 0 THEN 'sent'
     ELSE 'none' END AS contract_state
 FROM sub s
