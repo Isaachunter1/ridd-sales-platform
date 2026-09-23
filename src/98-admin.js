@@ -2037,7 +2037,9 @@ function d2dRepGoalsCard(partnerOnly) {
     }).catch(() => { state._repGoalsLoaded = true; });
   }
   const reach = partnerOnly ? myReachTeams() : null;
-  const reps = (state.allProfiles || []).filter(p => p.is_active !== false && slackTypeOfProfile(p) === 'd2d')
+  // Active in the app AND active in Manage Teams (per Isaac, Sep 23).
+  const _mtActive = (p) => { if (typeof isRepActive !== 'function') return true; const c = (typeof getCanonicalRepName === 'function') ? getCanonicalRepName(p.full_name) : p.full_name; return isRepActive(p.full_name) || (c !== p.full_name && isRepActive(c)); };
+  const reps = (state.allProfiles || []).filter(p => p.is_active !== false && slackTypeOfProfile(p) === 'd2d' && _mtActive(p))
     .map(p => ({ p, team: (typeof getRepTeam === 'function' && (getRepTeam(p.full_name) || (typeof getCanonicalRepName === 'function' ? getRepTeam(getCanonicalRepName(p.full_name)) : ''))) || '' }))
     .filter(x => !reach || (x.team && reach.has(x.team)))
     .sort((a, b) => (a.team || 'zzz').localeCompare(b.team || 'zzz') || a.p.full_name.localeCompare(b.p.full_name));
@@ -2059,33 +2061,52 @@ function d2dRepGoalsCard(partnerOnly) {
   }));
   const th = (t) => el('th', { class: 'text-left px-2 py-2 text-[10px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)' } }, t);
   const COLS = [['Revenue goal', 'annual_revenue_goal'], ['Accounts', 'accounts'], ['Avg contract $', 'acv'], ['Retained %', 'retained_pct'], ['Other goal', 'other']];
-  let lastTeam = null;
-  const rows = [];
-  for (const { p, team } of reps) {
-    if (team !== lastTeam) {
-      lastTeam = team;
-      rows.push(el('tr', { style: { background: 'var(--card-2)' } }, el('td', { colspan: String(COLS.length + 1), class: 'px-2 py-1 text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-muted)' } }, team || 'No team yet')));
-    }
+  const repRow = (p) => {
     const yg = p.year_goals || {};
-    rows.push(el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+    return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
       el('td', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap' }, p.full_name),
       el('td', { class: 'px-2 py-1' }, inp(Number(p.annual_revenue_goal) ? Math.round(Number(p.annual_revenue_goal)).toLocaleString() : '', (v) => save(p, { annual_revenue_goal: v }), { placeholder: '$' })),
       el('td', { class: 'px-2 py-1' }, inp(yg.accounts, (v) => save(p, { year_goals: { accounts: v } }), { placeholder: '#' })),
       el('td', { class: 'px-2 py-1' }, inp(yg.acv, (v) => save(p, { year_goals: { acv: v } }), { placeholder: '$' })),
       el('td', { class: 'px-2 py-1' }, inp(yg.retained_pct, (v) => save(p, { year_goals: { retained_pct: v } }), { placeholder: '%' })),
-      el('td', { class: 'px-2 py-1' }, inp(yg.other, (v) => save(p, { year_goals: { other: v } }), { text: true, placeholder: 'e.g. 40 Sentricon' }))));
-  }
+      el('td', { class: 'px-2 py-1' }, inp(yg.other, (v) => save(p, { year_goals: { other: v } }), { text: true, placeholder: 'e.g. 40 Sentricon' })));
+  };
+  // Broken out by team like Manage Teams (per Isaac, Sep 23): one accordion
+  // section per team — logo / colour dot, name, rep count, goals total —
+  // toggled in the DOM. Partners' own teams start open; admins start closed.
+  const byTeam = new Map();
+  for (const { p, team } of reps) { const k = team || '(unassigned)'; if (!byTeam.has(k)) byTeam.set(k, []); byTeam.get(k).push(p); }
+  if (!(state._goalTeamsOpen instanceof Set)) state._goalTeamsOpen = new Set(partnerOnly ? [...byTeam.keys()] : []);
+  const openSet = state._goalTeamsOpen;
+  const colgroup = () => el('colgroup', {}, el('col', { style: { width: '22%' } }), el('col', { style: { width: '16%' } }), el('col', { style: { width: '12%' } }), el('col', { style: { width: '14%' } }), el('col', { style: { width: '12%' } }), el('col', {}));
+  const sections = [...byTeam.entries()].map(([t, ps]) => {
+    const real = t !== '(unassigned)';
+    const logo = real && typeof getTeamLogo === 'function' ? getTeamLogo(t) : '';
+    const color = real && typeof getTeamColor === 'function' ? getTeamColor(t) : 'var(--border-2)';
+    const tTotal = ps.reduce((a, p) => a + (Number(p.annual_revenue_goal) || 0), 0);
+    const open = openSet.has(t);
+    const body = el('div', { style: { display: open ? '' : 'none' } },
+      el('table', { class: 'text-xs', style: { width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' } },
+        colgroup(),
+        el('thead', {}, el('tr', { style: { background: 'var(--card)' } }, th('Rep'), ...COLS.map(([l]) => th(l)))),
+        el('tbody', {}, ...ps.map(repRow))));
+    const head = el('div', { class: 'flex items-center gap-2.5 px-3 py-2 border-t cursor-pointer hover:brightness-95 select-none',
+      style: { borderColor: 'var(--border)', background: open ? 'rgba(223,100,58,.06)' : 'var(--card-2)' },
+      onclick: () => { const on = !openSet.has(t); if (on) openSet.add(t); else openSet.delete(t); body.style.display = on ? '' : 'none'; head.style.background = on ? 'rgba(223,100,58,.06)' : 'var(--card-2)'; head.lastElementChild.textContent = on ? '\u25b2' : '\u25bc'; } },
+      logo ? el('img', { src: logo, alt: '', style: { width: '18px', height: '18px', borderRadius: '50%', objectFit: 'cover', background: '#fff' } })
+           : el('span', { style: { width: '10px', height: '10px', borderRadius: '50%', background: color, display: 'inline-block', flex: 'none' } }),
+      el('span', { class: 'text-sm font-bold flex-1 min-w-0 truncate' }, real ? t : 'Unassigned'),
+      el('span', { class: 'text-[11px] tabular-nums text-muted-' }, ps.length + ' rep' + (ps.length === 1 ? '' : 's') + ' · ' + usd(tTotal)),
+      el('span', { class: 'text-[11px] text-muted-' }, open ? '\u25b2' : '\u25bc'));
+    return [head, body];
+  }).flat();
   const total = reps.reduce((a, x) => a + (Number(x.p.annual_revenue_goal) || 0), 0);
   return el('div', { class: 'card p-4' },
     el('div', { class: 'flex items-center justify-between flex-wrap gap-2 mb-3' },
       el('h3', { class: 'text-sm font-bold' }, (partnerOnly ? 'My team' : 'Door to Door') + ' · ' + year + ' rep goals'),
       el('span', { class: 'text-[11px] text-muted-' }, reps.length + ' rep' + (reps.length === 1 ? '' : 's') + ' · revenue goals total ' + usd(total))),
     reps.length
-      ? el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', overflow: 'hidden' } },
-          el('table', { class: 'text-xs', style: { width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' } },
-            el('colgroup', {}, el('col', { style: { width: '22%' } }), el('col', { style: { width: '16%' } }), el('col', { style: { width: '12%' } }), el('col', { style: { width: '14%' } }), el('col', { style: { width: '12%' } }), el('col', {})),
-            el('thead', {}, el('tr', {}, th('Rep'), ...COLS.map(([l]) => th(l)))),
-            el('tbody', {}, ...rows)))
+      ? el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', overflow: 'hidden' } }, ...sections)
       : el('div', { class: 'p-6 text-center text-sm text-muted-' }, partnerOnly ? 'No reps are assigned to your team yet — assignments come from Manage Teams.' : 'No active sales reps yet.'),
     el('div', { class: 'text-[10px] mt-2', style: { color: 'var(--text-subtle)' } }, 'Revenue goal drives each rep’s Individual pacer on the Dashboard. Other goals are yours to define per rep for the year.'));
 }
