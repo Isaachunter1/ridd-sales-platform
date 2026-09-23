@@ -69,6 +69,7 @@ const TECH_TAB_KEYS = new Set(TECH_TABS.map(([k]) => k));
 // Renewals pipeline (the shared drag-and-drop board) and Customer Health.
 // Office staff only (Permissions → Loyalty); admins always.
 const LOYALTY_TABS = [
+  ['loyalty_dashboard', 'Dashboard'],
   ['loyalty_renewals', 'Renewals'],
   ['loyalty_health',   'Customer Health'],
 ];
@@ -878,7 +879,7 @@ function mountApp() {
             : k === 'd2d_group'
               ? (D2D_SALES_TAB_KEYS.has(state._lastD2dTab) ? state._lastD2dTab : 'd2d_dashboard')
               : k === 'loyalty_group'
-                ? (LOYALTY_TAB_KEYS.has(state._lastLoyaltyTab) ? state._lastLoyaltyTab : 'loyalty_renewals')
+                ? (LOYALTY_TAB_KEYS.has(state._lastLoyaltyTab) ? state._lastLoyaltyTab : 'loyalty_dashboard')
                 : k;
           state.view = target;
           history.replaceState(null, '', VIEW_TO_HASH[target] || '#' + target);
@@ -1178,6 +1179,7 @@ function mountApp() {
     calendar:     viewCalendar,
     competitions: viewCompetitions,
     hall_of_fame: viewHallOfFame,
+    loyalty_dashboard: viewLoyaltyDashboard,
     loyalty_renewals: viewLoyaltyRenewals,
     loyalty_health: viewLoyaltyHealth,
     queues: viewQueues,

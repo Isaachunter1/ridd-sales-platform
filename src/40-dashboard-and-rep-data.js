@@ -539,518 +539,7 @@ function viewDashboard() {
     ),
 
     // ─── Revenue Goal card — 3 bars: Total, New, Renewal ───
-    (() => {
-      const now2 = new Date();
-      const dayOfYear = Math.floor((now2 - new Date(now2.getFullYear(), 0, 0)) / 86400000);
-      const expectedPct = dayOfYear / 365;   // even time — no longer drives the bars (seasonal pace below); kept for reference
-      const paceMarkerPct = Math.min(100, expectedPct * 100);
-
-      // Targets from Goals settings
-      const g = state.companyGoal;
-      const newTarget     = g.new_amount     || Math.round(g.amount * 0.75);
-      const renewalTarget = g.renewal_amount || Math.round(g.amount * 0.25);
-
-      // ── Seasonal year-shape (per Isaac): July carries ~5× January, so an
-      // even-time marker calls September "ahead" on seasonality alone. Both
-      // the Department bars and the Individual view now judge pace against
-      // the Goals tab's monthly allocation (falls back to the IS curve).
-      const _shapeOf = (monthly) => {
-        const m = Array.isArray(monthly) && monthly.length === 12 ? monthly.map(Number) : null;
-        const arr = (m && m.some(v => v > 0)) ? m : (typeof IS_SEASONAL !== 'undefined' ? IS_SEASONAL : Array(12).fill(1));
-        const tot = arr.reduce((a, b) => a + (b || 0), 0) || 1;
-        return arr.map(v => (v || 0) / tot);
-      };
-      const _dimOf = (y, mi) => new Date(y, mi + 1, 0).getDate();
-      const _isoOf = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-      // Selling day = Mon–Fri, company holidays off (weekends are bonus — same rule as the weekday goal).
-      const _isSellingDay = (d) => { const w = d.getDay(); if (w === 0 || w === 6) return false; return !(typeof companyHolidayFor === 'function' && companyHolidayFor(_isoOf(d))); };
-      const _sellingDaysInMonth = (y, mi) => { let n = 0; for (let d = 1; d <= _dimOf(y, mi); d++) if (_isSellingDay(new Date(y, mi, d))) n++; return n; };
-      const _sellingDaysBetween = (a, b) => { let n = 0; const d = new Date(a.getFullYear(), a.getMonth(), a.getDate()); const end = new Date(b.getFullYear(), b.getMonth(), b.getDate()); while (d <= end) { if (_isSellingDay(d)) n++; d.setDate(d.getDate() + 1); } return n; };
-      // Seasonal share of the year that "should" be sold by a date (whole months before it + this month pro-rated by selling days).
-      const _seasonalPctAt = (shape, d) => {
-        const mi = d.getMonth(), y = d.getFullYear();
-        const done = _sellingDaysBetween(new Date(y, mi, 1), d), tot = _sellingDaysInMonth(y, mi) || 1;
-        return shape.slice(0, mi).reduce((a, b) => a + b, 0) + shape[mi] * Math.min(1, done / tot);
-      };
-      const _hasMonthly = (monthly) => Array.isArray(monthly) && monthly.length === 12 && monthly.some(v => Number(v) > 0);
-      const _monthTargetOf = (monthly, annual, mi) => _hasMonthly(monthly) ? Number(monthly[mi]) || 0 : annual * _shapeOf(monthly)[mi];
-      // Goal dollars for one calendar day: the month's allocation spread over its selling days (weekends/holidays = $0).
-      const _dayGoal = (monthly, annual, d) => _isSellingDay(d) ? _monthTargetOf(monthly, annual, d.getMonth()) / (_sellingDaysInMonth(d.getFullYear(), d.getMonth()) || 1) : 0;
-      const _goalBetween = (monthly, annual, a, b) => { let t = 0; const d = new Date(a.getFullYear(), a.getMonth(), a.getDate()); const end = new Date(b.getFullYear(), b.getMonth(), b.getDate()); while (d <= end) { t += _dayGoal(monthly, annual, d); d.setDate(d.getDate() + 1); } return t; };
-      // Month-to-date actuals by bucket (the annual bars are YTD; the catch-up and projection need MTD).
-      const _mtd = (() => {
-        const EX = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
-        const m0 = new Date(now2.getFullYear(), now2.getMonth(), 1);
-        const rIds = new Set((state.sources || []).filter(x => x.is_renewal).map(x => x.id));
-        const isR = (x) => x._crmRenewal ?? rIds.has(x.source_id);
-        const t = { new: 0, renewal: 0 };
-        for (const x of dashboardSales()) { if (EX.has(x.audit_status)) continue; const d = new Date(x.sold_date + 'T00:00'); if (isNaN(d) || d < m0) continue; t[isR(x) ? 'renewal' : 'new'] += Number(x.revenue_amount || 0); }
-        return t;
-      })();
-
-      // DEPARTMENT numbers for everyone (per Isaac): reps were seeing their
-      // PERSONAL YTD racing the department's $4M goal (-98% "behind"). The
-      // Department pacer always shows the whole department; personal numbers
-      // live in the Individual toggle.
-      const ytdDept = goalYtdRevenue(true);
-
-      // Progress bars for New and Renewal
-      const progressBars = [
-        { label: 'New Revenue',     actual: ytdDept.new,     target: newTarget,     color: '#DF643A' },
-        { label: 'Renewal Revenue', actual: ytdDept.renewal, target: renewalTarget, color: '#5F6C5B' },
-      ];
-
-      // Total Revenue distribution bar (stacked: New | Renewal)
-      const totalActual = ytdDept.total;
-      const newPctOfTotal = totalActual > 0 ? (ytdDept.new / totalActual * 100) : 50;
-      const renewalPctOfTotal = totalActual > 0 ? (ytdDept.renewal / totalActual * 100) : 50;
-
-      // ── Department ⇄ Individual toggle — Individual shows every rep's YTD
-      // against the personal goal they set (⚙ My Settings) or an admin set
-      // for them, with the same year-pace marker as the department bars. ──
-      const goalMode = state.dashGoalMode === 'reps' ? 'reps' : 'dept';
-      // Toggle stays pinned right on phones too (per Isaac): the longer
-      // Individual title gets flex-1 / min-w-0 so it wraps instead of
-      // shoving the toggle around.
-      const goalHeader = el('div', { class: 'flex items-center justify-between gap-2 mb-2' },
-        el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold flex-1 min-w-0', style: { color: 'var(--text-subtle)' } },
-          goalMode === 'reps' ? 'Individual Revenue Pacer · YTD new revenue' : 'Revenue Pacer'),
-        el('div', { class: 'inline-flex rounded-lg border overflow-hidden shrink-0 ml-auto', style: { borderColor: 'var(--border-2)' } },
-          ...[['dept', 'Department'], ['reps', 'Individual']].map(([v, l]) => el('button', {
-            class: 'px-2.5 py-1 text-[11px] font-semibold transition',
-            style: goalMode === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
-            title: v === 'reps' ? 'Each rep\'s YTD revenue vs their individual goal' : 'Department totals vs the company goal',
-            onclick: () => { state.dashGoalMode = v; mountApp(); },
-          }, l))));
-
-      if (goalMode === 'reps') {
-        // ── Seasonal pace (per Isaac): "even pace" is wrong for this
-        // business — July carries ~5× January. The year-shape comes from
-        // the Goals tab's monthly NEW allocation (falls back to the IS
-        // seasonal curve), so a rep is judged against the months as
-        // they're actually weighted, and today's catch-up number asks for
-        // more during the busy season.
-        const _shape = _shapeOf(g.monthly_new);
-        const _mi = now2.getMonth();
-        const seasonalPct = _seasonalPctAt(_shape, now2);   // same math as the Department bars
-        const seasonalPctMonthEnd = _shape.slice(0, _mi + 1).reduce((a, b) => a + b, 0);
-        const seasonalMarkerPct = Math.min(100, seasonalPct * 100);
-        const EXCLUDE2 = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
-        const jan1 = new Date(now2.getFullYear(), 0, 1);
-        // Goals are NEW-revenue goals (per Isaac) — split each rep's YTD so
-        // the bar races new business only; renewal production shows as a
-        // muted "+$X renewal" so it isn't invisible, just not goal credit.
-        const _renIds = new Set((state.sources || []).filter(s => s.is_renewal).map(s => s.id));
-        const _isRenS = (s) => s._crmRenewal ?? _renIds.has(s.source_id);
-        // Quarterly quota (per Isaac, Sep 23): each rep's share of THIS quarter
-        // = annual goal × the quarter's weight in the seasonal shape (the same
-        // numbers the Goals tab's Quarterly quotas table shows), raced by
-        // quarter-to-date new revenue with its own pace marker.
-        const _qi = Math.floor(_mi / 3), _qStart = new Date(now2.getFullYear(), _qi * 3, 1), _qEnd = new Date(now2.getFullYear(), _qi * 3 + 3, 0);
-        const _qShare = _shape.slice(_qi * 3, _qi * 3 + 3).reduce((a, b) => a + b, 0);
-        const _qBefore = _shape.slice(0, _qi * 3).reduce((a, b) => a + b, 0);
-        const _qPace = _qShare > 0 ? Math.max(0, Math.min(1, (seasonalPct - _qBefore) / _qShare)) : 0;   // how far through the quarter's weighted goal today sits
-        const _qLabel = 'Q' + (_qi + 1);
-        const ytdByRep = {}, renByRep = {}, qtdByRep = {};
-        for (const s of dashboardSales()) {
-          if (EXCLUDE2.has(s.audit_status)) continue;
-          const d = s.sold_date ? new Date(s.sold_date + 'T00:00') : null;
-          if (!d || isNaN(d) || d < jan1) continue;
-          const amt = Number(s.revenue_amount || 0);
-          if (_isRenS(s)) renByRep[s.rep_id] = (renByRep[s.rep_id] || 0) + amt;
-          else { ytdByRep[s.rep_id] = (ytdByRep[s.rep_id] || 0) + amt; if (d >= _qStart) qtdByRep[s.rep_id] = (qtdByRep[s.rep_id] || 0) + amt; }
-        }
-        // Second bar under a rep's annual pacer: quarter-to-date vs quarterly quota.
-        const quarterBar = (goal, qtd, small) => {
-          if (!(goal > 0)) return null;
-          const quota = goal * _qShare, pct = quota > 0 ? Math.min(100, qtd / quota * 100) : 0, qDelta = qtd - quota * _qPace;
-          const left = _sellingDaysBetween(new Date(now2.getFullYear(), _mi, now2.getDate() + 1), _qEnd);
-          const need = left > 0 ? Math.max(0, (quota - qtd) / left) : 0;
-          return el('div', { class: small ? 'mt-1.5' : 'mt-3' },
-            el('div', { class: 'flex items-center justify-between gap-2 mb-0.5' },
-              el('div', { class: 'flex items-center gap-2 min-w-0' },
-                el('span', { class: 'text-[10px] font-semibold', style: { color: 'var(--text-muted)' } }, _qLabel + ' quota'),
-                el('span', { class: 'text-[10px] font-bold whitespace-nowrap', style: { color: qDelta >= 0 ? '#5F6C5B' : '#DC2626' }, title: (qDelta >= 0 ? fmt.usd0(qDelta) + ' ahead of' : fmt.usd0(-qDelta) + ' behind') + ' the quarter\'s seasonal pace' }, qDelta >= 0 ? '▲ ahead' : '▼ behind')),
-              el('span', { class: 'text-[10px] font-bold tabular-nums whitespace-nowrap' }, fmt.usd0(qtd) + ' / ' + fmt.usd0(quota) + ' · ' + Math.round(quota > 0 ? qtd / quota * 100 : 0) + '%')),
-            el('div', { class: 'goal-track', style: { position: 'relative', height: small ? '6px' : '8px' } },
-              el('div', { style: { background: '#5F6C5B', height: '100%', width: pct.toFixed(1) + '%', borderRadius: '0', transition: 'width .3s' } }),
-              el('div', { title: 'Where today sits on the quarter\'s seasonal plan — ' + (_qPace * 100).toFixed(1) + '% of the quarterly quota should be sold by today', style: { position: 'absolute', top: '-2px', bottom: '-2px', left: (_qPace * 100).toFixed(1) + '%', width: '2px', background: 'var(--text)', opacity: '.6' } })),
-            el('div', { class: 'text-[10px] mt-0.5 tabular-nums', style: { color: qDelta >= 0 ? 'var(--text-muted)' : '#DC2626' }, title: fmt.usd0(Math.max(0, quota - qtd)) + ' left on the ' + _qLabel + ' quota ÷ ' + left + ' selling days left in the quarter' },
-              need > 0 ? fmt.usd0(need) + '/day rest of ' + _qLabel + ' to hit the quarterly quota' : '✓ ' + _qLabel + ' quota hit'));
-        };
-        const sellers = (state.allProfiles || [])
-          .filter(p => isSellerRole(p.role) && p.is_active !== false && isOfficeStaffProfile(p))
-          .map(p => ({ p, goal: Number(p.annual_revenue_goal) || 0, rev: ytdByRep[p.id] || 0 }))
-          .filter(x => x.goal > 0 || x.rev > 0)
-          .sort((a, b) => b.rev - a.rev);   // most YTD revenue first (per Isaac, Sep 22 — was % of goal)
-        // ── Personal pacer (per Isaac): a rep doesn't need the whole
-        // room's bars. Sellers see ONLY their own card, with the same
-        // seasonal pace / catch-up / projection / period-window numbers the
-        // Department view carries. Admins keep the full roster below.
-        const me = state.profile;
-        const mine = me && !isAdminRole(me.role) ? sellers.find(x => x.p.id === me.id) : null;
-        if (mine || (me && !isAdminRole(me.role) && isSellerRole(me.role))) {
-          const goal = mine ? mine.goal : Number(me.annual_revenue_goal) || 0;
-          const rev = mine ? mine.rev : (ytdByRep[me.id] || 0);
-          const ren = renByRep[me.id] || 0;
-          const _y = now2.getFullYear();
-          const monthTarget = (mi) => goal * _shape[mi];
-          const dayGoal = (d) => _isSellingDay(d) ? monthTarget(d.getMonth()) / (_sellingDaysInMonth(d.getFullYear(), d.getMonth()) || 1) : 0;
-          const goalBetween = (a, b) => { let t = 0; const d = new Date(a.getFullYear(), a.getMonth(), a.getDate()); const end = new Date(b.getFullYear(), b.getMonth(), b.getDate()); while (d <= end) { t += dayGoal(d); d.setDate(d.getDate() + 1); } return t; };
-          const today0 = new Date(_y, _mi, now2.getDate());
-          const tom = new Date(_y, _mi, now2.getDate() + 1);
-          const m0 = new Date(_y, _mi, 1), mEnd = new Date(_y, _mi, _dimOf(_y, _mi));
-          const mtd = (() => { let t = 0; for (const x of dashboardSales()) { if (x.rep_id !== me.id || EXCLUDE2.has(x.audit_status) || _isRenS(x)) continue; const d = new Date(x.sold_date + 'T00:00'); if (!isNaN(d) && d >= m0) t += Number(x.revenue_amount || 0); } return t; })();
-          const daysDoneM = _sellingDaysBetween(m0, today0), daysTotM = _sellingDaysInMonth(_y, _mi) || 1;
-          const daysLeftM = _sellingDaysBetween(tom, mEnd), daysLeftY = _sellingDaysBetween(tom, new Date(_y, 11, 31));
-          const monTarget = monthTarget(_mi);
-          const needMonth = daysLeftM > 0 ? Math.max(0, (monTarget - mtd) / daysLeftM) : null;
-          const needYear = daysLeftY > 0 ? Math.max(0, (goal - rev) / daysLeftY) : null;
-          const projMonth = daysDoneM > 0 ? mtd / daysDoneM * daysTotM : null;
-          const projYear = seasonalPct > 0.02 ? rev / seasonalPct : null;
-          const delta = rev - goal * seasonalPct;
-          const pct = goal > 0 ? Math.min(100, rev / goal * 100) : 0;
-          const monName = now2.toLocaleDateString('en-US', { month: 'short' });
-          // Window (follows the date filter): this rep's NEW revenue in the window vs their share of the goal for it.
-          const kind = state.dashDateRange || 'today';
-          const natEnd = kind === 'today' ? today0 : kind === 'week' ? (() => { const d = new Date(today0); d.setDate(d.getDate() + (6 - d.getDay())); return d; })() : kind === 'month' ? mEnd : kind === 'quarter' ? new Date(_y, Math.floor(_mi / 3) * 3 + 3, 0) : kind === 'year' ? new Date(_y, 11, 31) : new Date(range.end.getFullYear(), range.end.getMonth(), range.end.getDate());
-          const open = natEnd >= today0 && range.end >= today0;
-          const winEnd = open ? natEnd : range.end;
-          const winLabel = ({ today: 'Today', yesterday: 'Yesterday', week: 'This week', last_week: 'Last week', month: 'This month', last_month: 'Last month', quarter: 'This quarter', year: 'This year', last_year: 'Last year' })[kind] || 'Custom range';
-          const winActual = (() => { let t = 0; for (const x of dashboardSales()) { if (x.rep_id !== me.id || EXCLUDE2.has(x.audit_status) || _isRenS(x)) continue; const d = new Date(x.sold_date + 'T00:00'); if (!isNaN(d) && d >= range.start && d <= range.end) t += Number(x.revenue_amount || 0); } return t; })();
-          const winGoal = goal > 0 ? goalBetween(range.start, winEnd) : 0;
-          const winLeft = open ? _sellingDaysBetween(tom, winEnd) : 0;
-          const winNeed = open && winLeft > 0 ? Math.max(0, (winGoal - winActual) / winLeft) : null;
-          const tile = (label, value, sub, o = {}) => el('div', { class: 'rounded-lg border p-3', style: { borderColor: 'var(--border)', background: 'var(--card-2)' }, title: o.tip || '' },
-            el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
-            el('div', { class: 'text-lg font-black tabular-nums mt-0.5', style: o.color ? { color: o.color } : {} }, value),
-            sub ? el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } }, sub) : null);
-          const hit = (v, t) => v != null && t > 0 && v >= t;
-          return el('div', { class: 'card p-5 rev-goal-card' },
-            goalHeader,
-            el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-2' },
-              el('div', { class: 'flex items-center gap-2 min-w-0' },
-                avatarNode(me.avatar_url, me.initials, 'w-8 h-8 text-[10px]'),
-                el('div', {}, el('div', { class: 'text-sm font-bold' }, 'My Pacer'),
-                  el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, goal > 0 ? 'YTD new revenue vs your annual goal · seasonal pace' : 'No annual goal set'))),
-              el('div', { class: 'text-right' },
-                el('div', { class: 'text-2xl font-black tabular-nums' }, fmt.usd0(rev), goal > 0 ? el('span', { class: 'text-sm font-semibold', style: { color: 'var(--text-muted)' } }, ' / ' + fmt.usd0(goal) + ' · ' + Math.round(rev / goal * 100) + '%') : null),
-                goal > 0 ? el('div', { class: 'text-[11px] font-bold', style: { color: delta >= 0 ? '#DF643A' : '#DC2626' } }, (delta >= 0 ? '▲ ' + fmt.usd0(delta) + ' ahead of' : '▼ ' + fmt.usd0(-delta) + ' behind') + ' seasonal pace') : null,
-                ren > 0 ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' }, title: 'Renewal production — real revenue, but goals are NEW-revenue goals' }, '+' + fmt.usd0(ren) + ' renewal') : null)),
-            el('div', { class: 'goal-track', style: { position: 'relative', height: '10px' } },
-              el('div', { style: { background: 'var(--accent)', height: '100%', width: pct.toFixed(1) + '%', transition: 'width .3s' } }),
-              goal > 0 ? el('div', { title: 'Where today sits on the seasonal plan — ' + (seasonalPct * 100).toFixed(1) + '% of the year\'s weighted goal should be sold by today', style: { position: 'absolute', top: '-3px', bottom: '-3px', left: seasonalMarkerPct.toFixed(1) + '%', width: '2px', background: 'var(--text)', opacity: '.6' } }) : null),
-            quarterBar(goal, qtdByRep[me.id] || 0, false),
-            goal > 0 ? el('div', { class: 'grid gap-2 mt-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' } },
-              tile(monName + ' so far', fmt.usd0(mtd) + ' / ' + fmt.usd0(monTarget), daysDoneM + ' of ' + daysTotM + ' selling days', { tip: 'Month-to-date new revenue vs this month\'s share of your annual goal (' + (_shape[_mi] * 100).toFixed(1) + '% of the year)' }),
-              tile('Need / day · rest of ' + monName, needMonth == null ? '—' : needMonth > 0 ? fmt.usd0(needMonth) : '✓ hit', daysLeftM + ' selling days left', { color: needMonth > 0 ? undefined : 'var(--ok)', tip: fmt.usd0(Math.max(0, monTarget - mtd)) + ' left on ' + monName + ' ÷ ' + daysLeftM + ' selling days (Mon–Fri, holidays off)' }),
-              tile('Need / day · rest of year', needYear == null ? '—' : needYear > 0 ? fmt.usd0(needYear) : '✓ hit', daysLeftY + ' selling days left', { color: needYear > 0 ? undefined : 'var(--ok)', tip: fmt.usd0(Math.max(0, goal - rev)) + ' left on the annual goal ÷ ' + daysLeftY + ' selling days' }),
-              tile('Projected ' + monName, projMonth == null ? '—' : fmt.usd0(projMonth), 'of ' + fmt.usd0(monTarget), { color: projMonth == null ? undefined : hit(projMonth, monTarget) ? 'var(--ok)' : '#DC2626', tip: 'This month\'s run-rate carried to month end' }),
-              tile('Projected year', projYear == null ? '—' : fmt.usd0(projYear), 'of ' + fmt.usd0(goal), { color: projYear == null ? undefined : hit(projYear, goal) ? 'var(--ok)' : '#DC2626', tip: 'YTD ÷ the seasonal share of the year that should be sold by today' }),
-              tile(winLabel, fmt.usd0(winActual) + ' / ' + fmt.usd0(winGoal), !open ? (winActual >= winGoal ? '✓ hit · +' + fmt.usd0(winActual - winGoal) : 'missed by ' + fmt.usd0(winGoal - winActual)) : kind === 'today' ? (winActual >= winGoal ? '✓ day goal hit' : fmt.usd0(Math.max(0, winGoal - winActual)) + ' to go today') : winNeed == null ? (winActual >= winGoal ? '✓ hit' : 'no selling days left') : winNeed > 0 ? 'need ' + fmt.usd0(winNeed) + '/day · ' + winLeft + ' days left' : '✓ window goal hit', { color: (!open || winNeed === 0 || (kind === 'today' && winActual >= winGoal)) && winActual >= winGoal ? 'var(--ok)' : (!open && winActual < winGoal ? '#DC2626' : undefined), tip: 'Follows the date filter at the top. Window goal = your annual goal spread by the seasonal month shape over that month\'s selling days.' }),
-            ) : null);
-        }
-        return el('div', { class: 'card p-5 rev-goal-card' },
-          goalHeader,
-          sellers.length === 0
-            ? el('div', { class: 'text-xs py-4 text-center', style: { color: 'var(--text-muted)' } },
-                'No individual goals set.')
-            : el('div', { class: 'flex flex-col gap-3' },
-                ...sellers.map(({ p, goal, rev }) => {
-                  const pct = goal > 0 ? Math.min(100, rev / goal * 100) : 0;
-                  // Seasonal pace: where this rep SHOULD be given how the
-                  // year is weighted (not day-of-year ÷ 365).
-                  const delta = rev - goal * seasonalPct;
-                  // The number that matters (per Isaac): what to sell each
-                  // remaining SELLING DAY of the YEAR (Mon–Sat, company
-                  // holidays off) to land the ANNUAL goal — not a get-back-
-                  // on-pace-by-month-end figure.
-                  const _daysLeftYear = (() => {
-                    let n = 0;
-                    const d = new Date(now2); d.setHours(12, 0, 0, 0);
-                    while (d.getFullYear() === now2.getFullYear()) {
-                      const iso = d.toISOString().slice(0, 10);
-                      if (d.getDay() !== 0 && !(typeof companyHolidayFor === 'function' && companyHolidayFor(iso))) n++;
-                      d.setDate(d.getDate() + 1);
-                    }
-                    return Math.max(1, n);
-                  })();
-                  const todayNeed = goal > 0 ? Math.max(0, (goal - rev) / _daysLeftYear) : 0;
-                  return el('div', {},
-                    el('div', { class: 'flex items-center justify-between mb-1 gap-2' },
-                      el('div', {
-                        class: 'flex items-center gap-2 min-w-0 cursor-pointer group',
-                        title: 'Open ' + (p.full_name || 'this rep') + '\'s player card',
-                        onclick: () => openDashboardPlayerCard(p.id),
-                      },
-                        avatarNode(p.avatar_url, p.initials, 'w-6 h-6 text-[9px]'),
-                        el('span', { class: 'text-xs font-semibold truncate group-hover:underline' }, p.full_name),
-                        goal > 0
-                          ? el('span', { class: 'text-[10px] font-bold whitespace-nowrap', style: { color: delta >= 0 ? '#DF643A' : '#DC2626' },
-                              title: (delta >= 0 ? fmt.usd0(delta) + ' ahead of' : fmt.usd0(-delta) + ' behind') + ' the seasonal pace (year shape from the Goals tab\'s monthly allocation)' },
-                              delta >= 0 ? '▲ ahead' : '▼ behind')
-                          : el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'no goal set'),
-                        // Month-end seasonal target (per Isaac) — the number
-                        // this rep should have banked by the end of THIS month.
-                        goal > 0 ? el('span', { class: 'text-[10px] tabular-nums whitespace-nowrap', style: { color: 'var(--text-muted)' },
-                            title: 'Where the seasonal plan says this rep should be by month-end (' + (seasonalPctMonthEnd * 100).toFixed(1) + '% of the annual goal)' },
-                          'target ' + fmt.usd0(goal * seasonalPctMonthEnd) + ' by ' + now2.toLocaleDateString('en-US', { month: 'short' }) + ' end') : null),
-                      el('span', { class: 'text-[11px] font-bold tabular-nums whitespace-nowrap' },
-                        fmt.usd0(rev) + (goal > 0 ? ' / ' + fmt.usd0(goal) + ' · ' + Math.round(rev / goal * 100) + '%' : ''),
-                        (renByRep[p.id] || 0) > 0 ? el('span', { class: 'font-normal', style: { color: 'var(--text-subtle)' }, title: 'Renewal production — real revenue, but individual goals are NEW-revenue goals' }, '  +' + fmt.usd0(renByRep[p.id]) + ' renewal') : null)),
-                    el('div', { class: 'goal-track', style: { position: 'relative' } },
-                      el('div', { style: { background: 'var(--accent)', height: '100%', width: pct.toFixed(1) + '%', borderRadius: '0', transition: 'width .3s' } }),
-                      goal > 0 ? el('div', {
-                        title: 'Where today sits on the SEASONAL plan — ' + (seasonalPct * 100).toFixed(1) + '% of the year\'s weighted goal should be sold by today',
-                        style: { position: 'absolute', top: '-2px', bottom: '-2px', left: seasonalMarkerPct.toFixed(1) + '%', width: '2px', background: 'var(--text)', opacity: '.6' },
-                      }) : null),
-                    goal > 0 && el('div', {
-                      class: 'text-[10px] mt-0.5 tabular-nums', style: { color: delta >= 0 ? 'var(--text-muted)' : '#DC2626' },
-                      title: fmt.usd0(Math.max(0, goal - rev)) + ' left to the annual goal \u00f7 ' + _daysLeftYear + ' selling days (Mon\u2013Sat, holidays off) left this year',
-                    },
-                      todayNeed > 0
-                        ? fmt.usd0(todayNeed) + '/day rest of year to hit the annual goal'
-                        : '\u2713 annual goal hit \u2014 everything from here is gravy'),
-                    quarterBar(goal, qtdByRep[p.id] || 0, true));
-                })));
-      }
-
-      return el('div', { class: 'card p-5 rev-goal-card' },
-        goalHeader,
-        el('div', { class: 'flex flex-col gap-4' },
-
-          // ── Total Revenue: distribution bar ──
-          el('div', {},
-            el('div', { class: 'flex items-center justify-between mb-1' },
-              el('div', { class: 'flex items-center gap-2' },
-                el('span', { class: 'text-sm font-semibold' }, 'Total Revenue'),
-                el('span', { class: 'text-[11px] text-muted-' }, '· ' + daysLeft + ' days left'),
-              ),
-              el('span', { class: 'text-sm font-bold tabular-nums' }, fmt.usd0(totalActual)),
-            ),
-            // Stacked bar
-            el('div', { class: 'goal-track flex overflow-hidden', style: { position: 'relative' } },
-              el('div', {
-                style: { background: '#DF643A', height: '100%', width: newPctOfTotal.toFixed(1) + '%', transition: 'width .3s', borderRadius: '0' },
-                title: 'New: ' + fmt.usd0(ytdDept.new) + ' (' + newPctOfTotal.toFixed(1) + '%)',
-              }),
-              el('div', {
-                style: { background: '#5F6C5B', height: '100%', width: renewalPctOfTotal.toFixed(1) + '%', transition: 'width .3s', borderRadius: '0' },
-                title: 'Renewal: ' + fmt.usd0(ytdDept.renewal) + ' (' + renewalPctOfTotal.toFixed(1) + '%)',
-              }),
-            ),
-            // Legend
-            el('div', { class: 'flex items-center gap-4 mt-1.5' },
-              el('div', { class: 'flex items-center gap-1.5' },
-                el('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: '#DF643A' } }),
-                el('span', { class: 'text-[11px]' }, 'New'),
-                el('span', { class: 'text-[11px] font-semibold tabular-nums' }, fmt.usd0(ytdDept.new)),
-                el('span', { class: 'text-[10px] text-muted-' }, '(' + newPctOfTotal.toFixed(0) + '%)'),
-              ),
-              el('div', { class: 'flex items-center gap-1.5' },
-                el('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: '#5F6C5B' } }),
-                el('span', { class: 'text-[11px]' }, 'Renewal'),
-                el('span', { class: 'text-[11px] font-semibold tabular-nums' }, fmt.usd0(ytdDept.renewal)),
-                el('span', { class: 'text-[10px] text-muted-' }, '(' + renewalPctOfTotal.toFixed(0) + '%)'),
-              ),
-            ),
-          ),
-
-          // Slight divider so "what's earned" (Total Revenue distribution
-          // above) reads separately from "tracking toward target" (the
-          // New / Renewal progress bars below).
-          el('div', { style: { height: '1px', background: 'var(--border)', margin: '2px 0' } }),
-
-          // ── New Revenue + Renewal Revenue: progress bars toward target ──
-          ...progressBars.map(bar => {
-            const pct = bar.target > 0 ? Math.min(1, bar.actual / bar.target) : 0;
-            const _monthly = bar.label.startsWith('New') ? g.monthly_new : g.monthly_renewal;
-            const _bucket = bar.label.startsWith('New') ? 'new' : 'renewal';
-            // Pace vs the SEASONAL plan (not even time) — see _shapeOf above.
-            const seasonalPctBar = _seasonalPctAt(_shapeOf(_monthly), now2);
-            const barMarkerPct = Math.min(100, seasonalPctBar * 100);
-            const paceDiff = bar.target > 0 ? (((bar.actual / bar.target) - seasonalPctBar) / (seasonalPctBar || 0.01) * 100) : 0;
-            const paceAhead = paceDiff >= 0;
-            // Catch-up (per Isaac): $/selling-day for the rest of the MONTH to
-            // land this month's allocation, and for the rest of the YEAR to
-            // land the annual goal. Projection: this month's run-rate carried
-            // to month end, and YTD ÷ seasonal share carried to year end.
-            const _mi2 = now2.getMonth(), _y2 = now2.getFullYear();
-            const monTarget = _monthTargetOf(_monthly, bar.target, _mi2);
-            const mtdActual = _mtd[_bucket];
-            const daysDoneM = _sellingDaysBetween(new Date(_y2, _mi2, 1), now2);
-            const daysTotM = _sellingDaysInMonth(_y2, _mi2) || 1;
-            const _tom = new Date(_y2, _mi2, now2.getDate() + 1);
-            const daysLeftM = _sellingDaysBetween(_tom, new Date(_y2, _mi2, _dimOf(_y2, _mi2)));
-            const daysLeftY = _sellingDaysBetween(_tom, new Date(_y2, 11, 31));
-            const needMonth = monTarget > 0 && daysLeftM > 0 ? Math.max(0, (monTarget - mtdActual) / daysLeftM) : null;
-            const needYear = bar.target > 0 && daysLeftY > 0 ? Math.max(0, (bar.target - bar.actual) / daysLeftY) : null;
-            const projMonth = daysDoneM > 0 ? mtdActual / daysDoneM * daysTotM : null;
-            const projYear = seasonalPctBar > 0.02 ? bar.actual / seasonalPctBar : null;
-            const monName = now2.toLocaleDateString('en-US', { month: 'short' });
-            const _hit = (v, t) => v != null && t > 0 && v >= t;
-            // Phones (per Isaac): the four outlook lines are too wordy — the
-            // bar, the %, the pace chip and the day goal carry the story there.
-            const outlook = el('div', { class: 'hidden sm:flex items-center gap-x-3 gap-y-1 flex-wrap mt-1 text-[10px] tabular-nums', style: { color: 'var(--text-muted)' } },
-              needMonth != null ? el('span', { title: fmt.usd0(Math.max(0, monTarget - mtdActual)) + ' left on ' + monName + ' (' + fmt.usd0(monTarget) + ' allocation, ' + fmt.usd0(mtdActual) + ' sold) ÷ ' + daysLeftM + ' selling days left this month' },
-                needMonth > 0 ? el('span', {}, 'Need ', el('b', { style: { color: bar.color } }, fmt.usd0(needMonth) + '/day'), ' rest of ' + monName) : el('span', {}, '✓ ' + monName + ' allocation hit')) : null,
-              needYear != null ? el('span', { title: fmt.usd0(Math.max(0, bar.target - bar.actual)) + ' left on the annual goal ÷ ' + daysLeftY + ' selling days left this year' },
-                needYear > 0 ? el('span', {}, 'Need ', el('b', { style: { color: bar.color } }, fmt.usd0(needYear) + '/day'), ' rest of year') : el('span', {}, '✓ annual goal hit')) : null,
-              projMonth != null && monTarget > 0 ? el('span', { title: 'This month’s run-rate (' + fmt.usd0(mtdActual) + ' over ' + daysDoneM + ' of ' + daysTotM + ' selling days) carried to month end' },
-                'Projected ' + monName + ' ', el('b', { style: { color: _hit(projMonth, monTarget) ? '#5F6C5B' : '#DC2626' } }, fmt.usd0(projMonth)), ' of ' + fmt.usd0(monTarget)) : null,
-              projYear != null && bar.target > 0 ? el('span', { title: 'YTD ÷ the seasonal share of the year that should be sold by today (' + (seasonalPctBar * 100).toFixed(1) + '%)' },
-                'Projected year ', el('b', { style: { color: _hit(projYear, bar.target) ? '#5F6C5B' : '#DC2626' } }, fmt.usd0(projYear)), ' of ' + fmt.usd0(bar.target)) : null,
-            );
-            let needLine = null, needLineMob = null;
-            if (Array.isArray(_monthly) && _monthly.length === 12 && bar.target > 0) {
-              const _mi = now2.getMonth();
-              const _dim = new Date(now2.getFullYear(), _mi + 1, 0).getDate();
-              // Weekday goal (per Isaac): THIS month's seasonal target ÷ ALL
-              // of its weekdays (company holidays off) — a fixed daily
-              // number for the whole month. Weekends are bonus revenue on
-              // top; no year-deficit catch-up baked in.
-              let _weekdaysInMonth = 0;
-              for (let _d = 1; _d <= _dim; _d++) {
-                const _dt = new Date(now2.getFullYear(), _mi, _d);
-                const _dow = _dt.getDay();
-                if (_dow === 0 || _dow === 6) continue;
-                const _iso2 = _dt.getFullYear() + '-' + String(_mi + 1).padStart(2, '0') + '-' + String(_d).padStart(2, '0');
-                if (typeof companyHolidayFor === 'function' && companyHolidayFor(_iso2)) continue;
-                _weekdaysInMonth++;
-              }
-              const _monTarget = Number(_monthly[_mi]) || 0;
-              const _monLabel = now2.toLocaleDateString('en-US', { month: 'long' });
-              if (_monTarget > 0 && _weekdaysInMonth > 0) {
-                const _dayGoal = _monTarget / _weekdaysInMonth;
-                const _wgTitle = _monLabel + ' target ' + fmt.usd0(_monTarget) + ' ÷ ' + _weekdaysInMonth + ' weekdays (holidays off) · weekends are bonus';
-                // Rides inline to the right of the goal amount (per Isaac).
-                needLine = el('span', { class: 'text-xs tabular-nums font-semibold whitespace-nowrap hidden sm:inline', style: { color: 'var(--text-muted)' }, title: _wgTitle },
-                  '· weekday goal ', el('span', { style: { color: bar.color, fontWeight: '700' } }, fmt.usd0(_dayGoal) + '/day'));
-                needLineMob = el('span', { class: 'text-[10px] tabular-nums font-semibold', style: { color: 'var(--text-muted)' }, title: _wgTitle },
-                  fmt.usd0(_dayGoal) + '/day goal');
-              }
-            }
-            return el('div', {},
-              // ONE line on every screen size (label + % left, money + pace
-              // chip right; the chip drops before the money wraps).
-              el('div', { class: 'flex items-center justify-between mb-1 gap-2', style: { flexWrap: 'nowrap', minWidth: 0 } },
-                el('div', { class: 'flex items-center gap-1.5 shrink-0' },
-                  el('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: bar.color } }),
-                  el('span', { class: 'text-sm font-semibold whitespace-nowrap' }, bar.label),
-                  el('span', { class: 'text-sm font-bold whitespace-nowrap hidden sm:inline', style: { color: bar.color } }, fmt.pct(pct)),
-                  // Goal rides next to the % (per Isaac)
-                  el('span', { class: 'text-xs tabular-nums font-bold whitespace-nowrap hidden sm:inline', style: { color: 'var(--text-muted)' } }, 'of ' + fmt.usd0(bar.target)),
-                  needLine,
-                ),
-                el('div', { class: 'flex items-center gap-2 min-w-0 justify-end' },
-                  el('span', { class: 'text-xs tabular-nums whitespace-nowrap font-semibold' }, fmt.usd0(bar.actual)),
-                  el('span', {
-                    class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap hidden sm:inline',
-                    style: {
-                      background: paceAhead ? 'rgba(223,100,58,.12)' : 'rgba(220,38,38,.08)',
-                      color: paceAhead ? '#DF643A' : '#DC2626',
-                    },
-                  }, (paceAhead ? '+' : '') + paceDiff.toFixed(1) + '%'),
-                ),
-              ),
-              // Mobile: % + goal + pace chip on their own tiny line under the
-              // label row instead of forcing a mid-row wrap.
-              el('div', { class: 'flex items-center gap-2 mb-1 sm:hidden' },
-                el('span', { class: 'text-xs font-bold', style: { color: bar.color } }, fmt.pct(pct)),
-                el('span', { class: 'text-[11px] tabular-nums font-bold', style: { color: 'var(--text-muted)' } }, 'of ' + fmt.usd0(bar.target)),
-                el('span', {
-                  class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full',
-                  style: {
-                    background: paceAhead ? 'rgba(223,100,58,.12)' : 'rgba(220,38,38,.08)',
-                    color: paceAhead ? '#DF643A' : '#DC2626',
-                  },
-                }, (paceAhead ? '+' : '') + paceDiff.toFixed(1) + '% vs year pace'),
-                needLineMob,
-              ),
-              el('div', { class: 'goal-track', style: { position: 'relative' } },
-                el('div', { style: { background: bar.color, height: '100%', borderRadius: '0', transition: 'width .3s', width: (pct * 100).toFixed(2) + '%' } }),
-                el('div', {
-                  style: {
-                    position: 'absolute', top: '-3px', bottom: '-3px',
-                    left: barMarkerPct.toFixed(1) + '%',
-                    width: '2px', background: '#DC2626', borderRadius: '0',
-                  },
-                  title: 'Seasonal pace — ' + (seasonalPctBar * 100).toFixed(1) + '% of the year’s goal should be sold by today (Goals tab monthly allocation)',
-                }),
-              ),
-              el('div', { class: 'goal-ticks mt-1' },
-                ...goalTicks(bar.target).map(t => el('span', {}, t)),
-              ),
-              outlook,
-            );
-          }),
-
-          // ── Period strip (per Isaac): follows the date filter at the top.
-          // Open windows (Today / This week / This month / Quarter / Year /
-          // a custom range ending today or later) pace against the goal for
-          // that window and say what's needed per selling day to close it.
-          // Closed windows (Yesterday / Last week / Last month / Last year /
-          // a past custom range) are a result — hit, or missed by $X — with
-          // no pace judgement.
-          (() => {
-            const kind = state.dashDateRange || 'today';
-            const rs = range.start, re = range.end;
-            const today0 = new Date(now2.getFullYear(), now2.getMonth(), now2.getDate());
-            const natEnd = kind === 'today' ? today0
-              : kind === 'week' ? (() => { const d = new Date(today0); d.setDate(d.getDate() + (6 - d.getDay())); return d; })()
-              : kind === 'month' ? new Date(now2.getFullYear(), now2.getMonth() + 1, 0)
-              : kind === 'quarter' ? new Date(now2.getFullYear(), Math.floor(now2.getMonth() / 3) * 3 + 3, 0)
-              : kind === 'year' ? new Date(now2.getFullYear(), 11, 31)
-              : new Date(re.getFullYear(), re.getMonth(), re.getDate());
-            const open = natEnd >= today0 && re >= today0;
-            const label = ({ today: 'Today', yesterday: 'Yesterday', week: 'This week', last_week: 'Last week', month: 'This month', last_month: 'Last month', quarter: 'This quarter', year: 'This year', last_year: 'Last year' })[kind]
-              || (rs.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' – ' + re.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-            const winEnd = open ? natEnd : re;
-            const rowsP = [
-              { label: 'New', color: '#DF643A', actual: newRevenue, monthly: g.monthly_new, annual: newTarget },
-              { label: 'Renewal', color: '#5F6C5B', actual: renewalRevenue, monthly: g.monthly_renewal, annual: renewalTarget },
-            ].map(r => {
-              const goalWin = _goalBetween(r.monthly, r.annual, rs, winEnd);            // whole window (through its natural end)
-              const goalSoFar = open ? _goalBetween(r.monthly, r.annual, rs, today0) : goalWin;   // what should be in by today
-              const tom = new Date(today0); tom.setDate(tom.getDate() + 1);
-              const left = open ? _sellingDaysBetween(tom, winEnd) : 0;
-              const need = open && left > 0 ? Math.max(0, (goalWin - r.actual) / left) : null;
-              return { ...r, goalWin, goalSoFar, left, need };
-            });
-            if (!rowsP.some(r => r.goalWin > 0)) return null;
-            const line = (r) => {
-              const pctW = r.goalWin > 0 ? Math.min(1, r.actual / r.goalWin) : 0;
-              const soFarPct = r.goalWin > 0 ? Math.min(100, r.goalSoFar / r.goalWin * 100) : 0;
-              const diff = r.actual - r.goalWin;
-              const verdict = !open
-                ? el('span', { class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap', style: diff >= 0 ? { background: 'rgba(95,108,91,.10)', color: '#5F6C5B' } : { background: 'rgba(220,38,38,.08)', color: '#DC2626' } }, diff >= 0 ? '✓ hit · +' + fmt.usd0(diff) : 'missed by ' + fmt.usd0(-diff))
-                : kind === 'today'
-                  ? el('span', { class: 'text-[10px] font-semibold whitespace-nowrap', style: { color: r.actual >= r.goalWin ? '#5F6C5B' : 'var(--text-muted)' } }, r.actual >= r.goalWin ? '✓ day goal hit' : fmt.usd0(Math.max(0, r.goalWin - r.actual)) + ' to go today')
-                  : r.need != null
-                    ? el('span', { class: 'text-[10px] font-semibold whitespace-nowrap', style: { color: r.need > 0 ? 'var(--text-muted)' : '#5F6C5B' }, title: fmt.usd0(Math.max(0, r.goalWin - r.actual)) + ' left ÷ ' + r.left + ' selling days left in the window' }, r.need > 0 ? 'need ' + fmt.usd0(r.need) + '/day · ' + r.left + ' days left' : '✓ window goal hit')
-                    : el('span', { class: 'text-[10px] font-semibold whitespace-nowrap', style: { color: r.actual >= r.goalWin ? '#5F6C5B' : '#DC2626' } }, r.actual >= r.goalWin ? '✓ hit' : fmt.usd0(r.goalWin - r.actual) + ' short, no selling days left');
-              return el('div', { class: 'min-w-0' },
-                el('div', { class: 'flex items-center justify-between gap-2 mb-1 min-w-0' },
-                  el('div', { class: 'flex items-center gap-1.5 min-w-0' },
-                    el('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: r.color, flexShrink: 0 } }),
-                    el('span', { class: 'text-xs font-semibold whitespace-nowrap' }, r.label),
-                    el('span', { class: 'text-xs tabular-nums font-bold whitespace-nowrap' }, fmt.usd0(r.actual)),
-                    el('span', { class: 'text-[10px] tabular-nums text-muted- whitespace-nowrap' }, 'of ' + fmt.usd0(r.goalWin))),
-                  verdict),
-                el('div', { class: 'goal-track', style: { position: 'relative', height: '6px' } },
-                  el('div', { style: { background: r.color, height: '100%', width: (pctW * 100).toFixed(1) + '%', transition: 'width .3s' } }),
-                  open && kind !== 'today' && r.goalWin > 0 ? el('div', { title: 'Where today sits in the window — ' + fmt.usd0(r.goalSoFar) + ' should be in by now', style: { position: 'absolute', top: '-2px', bottom: '-2px', left: soFarPct.toFixed(1) + '%', width: '2px', background: 'var(--text)', opacity: '.6' } }) : null));
-            };
-            return el('div', {},
-              el('div', { style: { height: '1px', background: 'var(--border)', margin: '2px 0 10px' } }),
-              el('div', { class: 'flex items-center justify-between mb-2' },
-                el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label + (open ? ' · pace' : ' · result')),
-                el('span', { class: 'text-[10px] text-muted-', title: 'Window goal = the Goals tab’s monthly allocation spread over that month’s selling days (Mon–Fri, holidays off), summed across the window. Weekends are bonus.' }, open ? 'goal through ' + winEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'follows the date filter')),
-              el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3' }, ...rowsP.map(line)));
-          })(),
-        ),
-      );
-    })(),
+    dashboardGoalCard(range),
 
     // ─── Office stats (per Isaac): replaces the old 🏢 Office toggle — a
     // collapsed bar under the revenue pacer that expands into a per-office
@@ -6071,3 +5560,536 @@ function statusChip(s) {
 function nameFromId(list, id) { return list.find(x => x.id === id)?.name || '—'; }
 function idFromName(list, name) { return list.find(x => x.name === name)?.id; }
 
+// ── Revenue Goal / pacer card (Department ⇄ Individual). Shared by the
+// Office Staff dashboard and the Loyalty dashboard (per Isaac, Sep 23):
+// opts.loyalty = loyalty reps only, RENEWAL revenue vs the renewal goal.
+function dashboardGoalCard(range, opts) {
+  opts = opts || {}; const LOY = !!opts.loyalty;
+    const now2 = new Date();
+    const dayOfYear = Math.floor((now2 - new Date(now2.getFullYear(), 0, 0)) / 86400000);
+    const expectedPct = dayOfYear / 365;   // even time — no longer drives the bars (seasonal pace below); kept for reference
+    const paceMarkerPct = Math.min(100, expectedPct * 100);
+
+    // Targets from Goals settings
+    const g = state.companyGoal;
+    const newTarget     = g.new_amount     || Math.round(g.amount * 0.75);
+    const renewalTarget = g.renewal_amount || Math.round(g.amount * 0.25);
+
+    // ── Seasonal year-shape (per Isaac): July carries ~5× January, so an
+    // even-time marker calls September "ahead" on seasonality alone. Both
+    // the Department bars and the Individual view now judge pace against
+    // the Goals tab's monthly allocation (falls back to the IS curve).
+    const _shapeOf = (monthly) => {
+      const m = Array.isArray(monthly) && monthly.length === 12 ? monthly.map(Number) : null;
+      const arr = (m && m.some(v => v > 0)) ? m : (typeof IS_SEASONAL !== 'undefined' ? IS_SEASONAL : Array(12).fill(1));
+      const tot = arr.reduce((a, b) => a + (b || 0), 0) || 1;
+      return arr.map(v => (v || 0) / tot);
+    };
+    const _dimOf = (y, mi) => new Date(y, mi + 1, 0).getDate();
+    const _isoOf = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    // Selling day = Mon–Fri, company holidays off (weekends are bonus — same rule as the weekday goal).
+    const _isSellingDay = (d) => { const w = d.getDay(); if (w === 0 || w === 6) return false; return !(typeof companyHolidayFor === 'function' && companyHolidayFor(_isoOf(d))); };
+    const _sellingDaysInMonth = (y, mi) => { let n = 0; for (let d = 1; d <= _dimOf(y, mi); d++) if (_isSellingDay(new Date(y, mi, d))) n++; return n; };
+    const _sellingDaysBetween = (a, b) => { let n = 0; const d = new Date(a.getFullYear(), a.getMonth(), a.getDate()); const end = new Date(b.getFullYear(), b.getMonth(), b.getDate()); while (d <= end) { if (_isSellingDay(d)) n++; d.setDate(d.getDate() + 1); } return n; };
+    // Seasonal share of the year that "should" be sold by a date (whole months before it + this month pro-rated by selling days).
+    const _seasonalPctAt = (shape, d) => {
+      const mi = d.getMonth(), y = d.getFullYear();
+      const done = _sellingDaysBetween(new Date(y, mi, 1), d), tot = _sellingDaysInMonth(y, mi) || 1;
+      return shape.slice(0, mi).reduce((a, b) => a + b, 0) + shape[mi] * Math.min(1, done / tot);
+    };
+    const _hasMonthly = (monthly) => Array.isArray(monthly) && monthly.length === 12 && monthly.some(v => Number(v) > 0);
+    const _monthTargetOf = (monthly, annual, mi) => _hasMonthly(monthly) ? Number(monthly[mi]) || 0 : annual * _shapeOf(monthly)[mi];
+    // Goal dollars for one calendar day: the month's allocation spread over its selling days (weekends/holidays = $0).
+    const _dayGoal = (monthly, annual, d) => _isSellingDay(d) ? _monthTargetOf(monthly, annual, d.getMonth()) / (_sellingDaysInMonth(d.getFullYear(), d.getMonth()) || 1) : 0;
+    const _goalBetween = (monthly, annual, a, b) => { let t = 0; const d = new Date(a.getFullYear(), a.getMonth(), a.getDate()); const end = new Date(b.getFullYear(), b.getMonth(), b.getDate()); while (d <= end) { t += _dayGoal(monthly, annual, d); d.setDate(d.getDate() + 1); } return t; };
+    // Month-to-date actuals by bucket (the annual bars are YTD; the catch-up and projection need MTD).
+    const _mtd = (() => {
+      const EX = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
+      const m0 = new Date(now2.getFullYear(), now2.getMonth(), 1);
+      const rIds = new Set((state.sources || []).filter(x => x.is_renewal).map(x => x.id));
+      const isR = (x) => x._crmRenewal ?? rIds.has(x.source_id);
+      const t = { new: 0, renewal: 0 };
+      for (const x of dashboardSales()) { if (EX.has(x.audit_status)) continue; const d = new Date(x.sold_date + 'T00:00'); if (isNaN(d) || d < m0) continue; t[isR(x) ? 'renewal' : 'new'] += Number(x.revenue_amount || 0); }
+      return t;
+    })();
+
+    // DEPARTMENT numbers for everyone (per Isaac): reps were seeing their
+    // PERSONAL YTD racing the department's $4M goal (-98% "behind"). The
+    // Department pacer always shows the whole department; personal numbers
+    // live in the Individual toggle.
+    const ytdDept = goalYtdRevenue(true);
+
+    // Progress bars for New and Renewal
+    const progressBars = [
+      { label: 'New Revenue',     actual: ytdDept.new,     target: newTarget,     color: '#DF643A' },
+      { label: 'Renewal Revenue', actual: ytdDept.renewal, target: renewalTarget, color: '#5F6C5B' },
+    ];
+
+    // Total Revenue distribution bar (stacked: New | Renewal)
+    const totalActual = ytdDept.total;
+    const newPctOfTotal = totalActual > 0 ? (ytdDept.new / totalActual * 100) : 50;
+    const renewalPctOfTotal = totalActual > 0 ? (ytdDept.renewal / totalActual * 100) : 50;
+
+    // ── Department ⇄ Individual toggle — Individual shows every rep's YTD
+    // against the personal goal they set (⚙ My Settings) or an admin set
+    // for them, with the same year-pace marker as the department bars. ──
+    const goalMode = LOY ? 'reps' : (state.dashGoalMode === 'reps' ? 'reps' : 'dept');
+    // Toggle stays pinned right on phones too (per Isaac): the longer
+    // Individual title gets flex-1 / min-w-0 so it wraps instead of
+    // shoving the toggle around.
+    const goalHeader = el('div', { class: 'flex items-center justify-between gap-2 mb-2' },
+      el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold flex-1 min-w-0', style: { color: 'var(--text-subtle)' } },
+        LOY ? 'Loyalty Revenue Pacer · YTD renewal revenue' : goalMode === 'reps' ? 'Individual Revenue Pacer · YTD new revenue' : 'Revenue Pacer'),
+      LOY ? null : el('div', { class: 'inline-flex rounded-lg border overflow-hidden shrink-0 ml-auto', style: { borderColor: 'var(--border-2)' } },
+        ...[['dept', 'Department'], ['reps', 'Individual']].map(([v, l]) => el('button', {
+          class: 'px-2.5 py-1 text-[11px] font-semibold transition',
+          style: goalMode === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
+          title: v === 'reps' ? 'Each rep\'s YTD revenue vs their individual goal' : 'Department totals vs the company goal',
+          onclick: () => { state.dashGoalMode = v; mountApp(); },
+        }, l))));
+
+    if (goalMode === 'reps') {
+      // ── Seasonal pace (per Isaac): "even pace" is wrong for this
+      // business — July carries ~5× January. The year-shape comes from
+      // the Goals tab's monthly NEW allocation (falls back to the IS
+      // seasonal curve), so a rep is judged against the months as
+      // they're actually weighted, and today's catch-up number asks for
+      // more during the busy season.
+      const _shape = _shapeOf(LOY ? g.monthly_renewal : g.monthly_new);
+      const _mi = now2.getMonth();
+      const seasonalPct = _seasonalPctAt(_shape, now2);   // same math as the Department bars
+      const seasonalPctMonthEnd = _shape.slice(0, _mi + 1).reduce((a, b) => a + b, 0);
+      const seasonalMarkerPct = Math.min(100, seasonalPct * 100);
+      const EXCLUDE2 = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
+      const jan1 = new Date(now2.getFullYear(), 0, 1);
+      // Goals are NEW-revenue goals (per Isaac) — split each rep's YTD so
+      // the bar races new business only; renewal production shows as a
+      // muted "+$X renewal" so it isn't invisible, just not goal credit.
+      const _renIds = new Set((state.sources || []).filter(s => s.is_renewal).map(s => s.id));
+      const _isRenS = (s) => s._crmRenewal ?? _renIds.has(s.source_id);
+      // Quarterly quota (per Isaac, Sep 23): each rep's share of THIS quarter
+      // = annual goal × the quarter's weight in the seasonal shape (the same
+      // numbers the Goals tab's Quarterly quotas table shows), raced by
+      // quarter-to-date new revenue with its own pace marker.
+      const _qi = Math.floor(_mi / 3), _qStart = new Date(now2.getFullYear(), _qi * 3, 1), _qEnd = new Date(now2.getFullYear(), _qi * 3 + 3, 0);
+      const _qShare = _shape.slice(_qi * 3, _qi * 3 + 3).reduce((a, b) => a + b, 0);
+      const _qBefore = _shape.slice(0, _qi * 3).reduce((a, b) => a + b, 0);
+      const _qPace = _qShare > 0 ? Math.max(0, Math.min(1, (seasonalPct - _qBefore) / _qShare)) : 0;   // how far through the quarter's weighted goal today sits
+      const _qLabel = 'Q' + (_qi + 1);
+      const ytdByRep = {}, renByRep = {}, qtdByRep = {};
+      for (const s of dashboardSales()) {
+        if (EXCLUDE2.has(s.audit_status)) continue;
+        const d = s.sold_date ? new Date(s.sold_date + 'T00:00') : null;
+        if (!d || isNaN(d) || d < jan1) continue;
+        const amt = Number(s.revenue_amount || 0);
+        const _counts = LOY ? _isRenS(s) : !_isRenS(s);   // loyalty pacer = renewal revenue; inside sales = new revenue
+        if (!_counts) renByRep[s.rep_id] = (renByRep[s.rep_id] || 0) + amt;
+        else { ytdByRep[s.rep_id] = (ytdByRep[s.rep_id] || 0) + amt; if (d >= _qStart) qtdByRep[s.rep_id] = (qtdByRep[s.rep_id] || 0) + amt; }
+      }
+      // Quarterly quota — the SAME number for every agent (per Isaac, Sep 23):
+      // the Goals grid's quarterly amount ÷ that quarter's head count. Falls
+      // back to the rep's own goal × the quarter's seasonal weight.
+      const quotaOf = (goal) => {
+        const _qAmt = LOY ? (Array.isArray(g.quarterly_renewal) ? Number(g.quarterly_renewal[_qi]) || 0 : 0) : (Array.isArray(g.quarterly_new) ? Number(g.quarterly_new[_qi]) || 0 : 0);
+        const _qReps = Math.max(1, Number(((LOY ? g.loyalty_reps_q : g.is_reps_q) || [])[_qi]) || Number(LOY ? g.loyalty_reps : g.is_reps) || 1);
+        return _qAmt > 0 ? _qAmt / _qReps : goal * _qShare;
+      };
+      // Two bars stacked tight, labels on the left (per Isaac, Sep 23):
+      //   YTD      ████████|░░░░   $rev / $goal · 62%
+      //   Quarter  █████|░░░░░░░   $qtd / $quota · 40%
+      const pacerBars = (goal, rev, qtd, big) => {
+        const quota = quotaOf(goal);
+        const qPct = quota > 0 ? Math.min(100, qtd / quota * 100) : 0, qDelta = qtd - quota * _qPace;
+        const yPct = goal > 0 ? Math.min(100, rev / goal * 100) : 0, yDelta = rev - goal * seasonalPct;
+        const h = big ? '10px' : '7px';
+        const row = (label, pct, markerPct, delta, hasGoal, text, tipBar, tipDelta, color) => [
+          el('span', { class: 'text-[10px] font-semibold uppercase tracking-wider', style: { color: 'var(--text-muted)' } }, label),
+          el('div', { class: 'goal-track', style: { position: 'relative', height: h } },
+            el('div', { style: { background: color, height: '100%', width: pct.toFixed(1) + '%', borderRadius: '0', transition: 'width .3s' } }),
+            hasGoal ? el('div', { title: tipBar, style: { position: 'absolute', top: '-2px', bottom: '-2px', left: markerPct.toFixed(1) + '%', width: '2px', background: 'var(--text)', opacity: '.6' } }) : null),
+          el('span', { class: 'text-[10px] font-bold tabular-nums whitespace-nowrap flex items-center gap-1.5 justify-end' },
+            hasGoal ? el('span', { style: { color: delta >= 0 ? '#5F6C5B' : '#DC2626' }, title: tipDelta }, delta >= 0 ? '▲' : '▼') : null,
+            text),
+        ];
+        return el('div', { class: 'grid items-center gap-x-2 gap-y-1 ' + (big ? 'mt-2' : 'mt-1'), style: { gridTemplateColumns: '52px minmax(0,1fr) auto' } },
+          ...row('YTD', yPct, seasonalMarkerPct, yDelta, goal > 0, goal > 0 ? fmt.usd0(rev) + ' / ' + fmt.usd0(goal) + ' · ' + Math.round(rev / goal * 100) + '%' : fmt.usd0(rev),
+            'Where today sits on the seasonal plan — ' + (seasonalPct * 100).toFixed(1) + '% of the year\'s weighted goal should be sold by today',
+            (yDelta >= 0 ? fmt.usd0(yDelta) + ' ahead of' : fmt.usd0(-yDelta) + ' behind') + ' the seasonal pace', 'var(--accent)'),
+          ...(quota > 0 ? row('Quarter', qPct, _qPace * 100, qDelta, true, fmt.usd0(qtd) + ' / ' + fmt.usd0(quota) + ' · ' + Math.round(qtd / quota * 100) + '%',
+            'Where today sits on the quarter\'s seasonal plan — ' + (_qPace * 100).toFixed(1) + '% of the ' + _qLabel + ' quota should be sold by today',
+            (qDelta >= 0 ? fmt.usd0(qDelta) + ' ahead of' : fmt.usd0(-qDelta) + ' behind') + ' the quarter\'s pace · quota is the same for every agent', '#5F6C5B') : []));
+      };
+      const sellers = (state.allProfiles || [])
+        .filter(p => isSellerRole(p.role) && p.is_active !== false && isOfficeStaffProfile(p) && (LOY ? _isLoyaltyProfile(p) : !_isLoyaltyProfile(p)))
+        .map(p => ({ p, goal: Number(p.annual_revenue_goal) || 0, rev: ytdByRep[p.id] || 0 }))
+        .filter(x => LOY || x.goal > 0 || x.rev > 0)
+        .sort((a, b) => b.rev - a.rev);   // most YTD revenue first (per Isaac, Sep 22 — was % of goal)
+      // ── Personal pacer (per Isaac): a rep doesn't need the whole
+      // room's bars. Sellers see ONLY their own card, with the same
+      // seasonal pace / catch-up / projection / period-window numbers the
+      // Department view carries. Admins keep the full roster below.
+      const me = state.profile;
+      const mine = me && !isAdminRole(me.role) ? sellers.find(x => x.p.id === me.id) : null;
+      if (mine || (me && !isAdminRole(me.role) && isSellerRole(me.role))) {
+        const goal = mine ? mine.goal : Number(me.annual_revenue_goal) || 0;
+        const rev = mine ? mine.rev : (ytdByRep[me.id] || 0);
+        const ren = renByRep[me.id] || 0;   // (on the loyalty pacer this is the rep's NEW revenue)
+        const _y = now2.getFullYear();
+        const monthTarget = (mi) => goal * _shape[mi];
+        const dayGoal = (d) => _isSellingDay(d) ? monthTarget(d.getMonth()) / (_sellingDaysInMonth(d.getFullYear(), d.getMonth()) || 1) : 0;
+        const goalBetween = (a, b) => { let t = 0; const d = new Date(a.getFullYear(), a.getMonth(), a.getDate()); const end = new Date(b.getFullYear(), b.getMonth(), b.getDate()); while (d <= end) { t += dayGoal(d); d.setDate(d.getDate() + 1); } return t; };
+        const today0 = new Date(_y, _mi, now2.getDate());
+        const tom = new Date(_y, _mi, now2.getDate() + 1);
+        const m0 = new Date(_y, _mi, 1), mEnd = new Date(_y, _mi, _dimOf(_y, _mi));
+        const mtd = (() => { let t = 0; for (const x of dashboardSales()) { if (x.rep_id !== me.id || EXCLUDE2.has(x.audit_status) || _isRenS(x)) continue; const d = new Date(x.sold_date + 'T00:00'); if (!isNaN(d) && d >= m0) t += Number(x.revenue_amount || 0); } return t; })();
+        const daysDoneM = _sellingDaysBetween(m0, today0), daysTotM = _sellingDaysInMonth(_y, _mi) || 1;
+        const daysLeftM = _sellingDaysBetween(tom, mEnd), daysLeftY = _sellingDaysBetween(tom, new Date(_y, 11, 31));
+        const monTarget = monthTarget(_mi);
+        const needMonth = daysLeftM > 0 ? Math.max(0, (monTarget - mtd) / daysLeftM) : null;
+        const needYear = daysLeftY > 0 ? Math.max(0, (goal - rev) / daysLeftY) : null;
+        const projMonth = daysDoneM > 0 ? mtd / daysDoneM * daysTotM : null;
+        const projYear = seasonalPct > 0.02 ? rev / seasonalPct : null;
+        const delta = rev - goal * seasonalPct;
+        const pct = goal > 0 ? Math.min(100, rev / goal * 100) : 0;
+        const monName = now2.toLocaleDateString('en-US', { month: 'short' });
+        // Window (follows the date filter): this rep's NEW revenue in the window vs their share of the goal for it.
+        const kind = state.dashDateRange || 'today';
+        const natEnd = kind === 'today' ? today0 : kind === 'week' ? (() => { const d = new Date(today0); d.setDate(d.getDate() + (6 - d.getDay())); return d; })() : kind === 'month' ? mEnd : kind === 'quarter' ? new Date(_y, Math.floor(_mi / 3) * 3 + 3, 0) : kind === 'year' ? new Date(_y, 11, 31) : new Date(range.end.getFullYear(), range.end.getMonth(), range.end.getDate());
+        const open = natEnd >= today0 && range.end >= today0;
+        const winEnd = open ? natEnd : range.end;
+        const winLabel = ({ today: 'Today', yesterday: 'Yesterday', week: 'This week', last_week: 'Last week', month: 'This month', last_month: 'Last month', quarter: 'This quarter', year: 'This year', last_year: 'Last year' })[kind] || 'Custom range';
+        const winActual = (() => { let t = 0; for (const x of dashboardSales()) { if (x.rep_id !== me.id || EXCLUDE2.has(x.audit_status) || _isRenS(x)) continue; const d = new Date(x.sold_date + 'T00:00'); if (!isNaN(d) && d >= range.start && d <= range.end) t += Number(x.revenue_amount || 0); } return t; })();
+        const winGoal = goal > 0 ? goalBetween(range.start, winEnd) : 0;
+        const winLeft = open ? _sellingDaysBetween(tom, winEnd) : 0;
+        const winNeed = open && winLeft > 0 ? Math.max(0, (winGoal - winActual) / winLeft) : null;
+        const tile = (label, value, sub, o = {}) => el('div', { class: 'rounded-lg border p-3', style: { borderColor: 'var(--border)', background: 'var(--card-2)' }, title: o.tip || '' },
+          el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
+          el('div', { class: 'text-lg font-black tabular-nums mt-0.5', style: o.color ? { color: o.color } : {} }, value),
+          sub ? el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } }, sub) : null);
+        const hit = (v, t) => v != null && t > 0 && v >= t;
+        return el('div', { class: 'card p-5 rev-goal-card' },
+          goalHeader,
+          el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-2' },
+            el('div', { class: 'flex items-center gap-2 min-w-0' },
+              avatarNode(me.avatar_url, me.initials, 'w-8 h-8 text-[10px]'),
+              el('div', {}, el('div', { class: 'text-sm font-bold' }, 'My Pacer'),
+                el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, goal > 0 ? 'YTD ' + (LOY ? 'renewal' : 'new') + ' revenue vs your annual goal · seasonal pace' : 'No annual goal set'))),
+            el('div', { class: 'text-right' },
+              el('div', { class: 'text-2xl font-black tabular-nums' }, fmt.usd0(rev), goal > 0 ? el('span', { class: 'text-sm font-semibold', style: { color: 'var(--text-muted)' } }, ' / ' + fmt.usd0(goal) + ' · ' + Math.round(rev / goal * 100) + '%') : null),
+              goal > 0 ? el('div', { class: 'text-[11px] font-bold', style: { color: delta >= 0 ? '#DF643A' : '#DC2626' } }, (delta >= 0 ? '▲ ' + fmt.usd0(delta) + ' ahead of' : '▼ ' + fmt.usd0(-delta) + ' behind') + ' seasonal pace') : null,
+              ren > 0 ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' }, title: 'Renewal production — real revenue, but goals are NEW-revenue goals' }, '+' + fmt.usd0(ren) + ' renewal') : null)),
+          pacerBars(goal, rev, qtdByRep[me.id] || 0, true),
+          goal > 0 ? el('div', { class: 'grid gap-2 mt-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' } },
+            tile(monName + ' so far', fmt.usd0(mtd) + ' / ' + fmt.usd0(monTarget), daysDoneM + ' of ' + daysTotM + ' selling days', { tip: 'Month-to-date new revenue vs this month\'s share of your annual goal (' + (_shape[_mi] * 100).toFixed(1) + '% of the year)' }),
+            tile('Need / day · rest of ' + monName, needMonth == null ? '—' : needMonth > 0 ? fmt.usd0(needMonth) : '✓ hit', daysLeftM + ' selling days left', { color: needMonth > 0 ? undefined : 'var(--ok)', tip: fmt.usd0(Math.max(0, monTarget - mtd)) + ' left on ' + monName + ' ÷ ' + daysLeftM + ' selling days (Mon–Fri, holidays off)' }),
+            tile('Need / day · rest of year', needYear == null ? '—' : needYear > 0 ? fmt.usd0(needYear) : '✓ hit', daysLeftY + ' selling days left', { color: needYear > 0 ? undefined : 'var(--ok)', tip: fmt.usd0(Math.max(0, goal - rev)) + ' left on the annual goal ÷ ' + daysLeftY + ' selling days' }),
+            tile('Projected ' + monName, projMonth == null ? '—' : fmt.usd0(projMonth), 'of ' + fmt.usd0(monTarget), { color: projMonth == null ? undefined : hit(projMonth, monTarget) ? 'var(--ok)' : '#DC2626', tip: 'This month\'s run-rate carried to month end' }),
+            tile('Projected year', projYear == null ? '—' : fmt.usd0(projYear), 'of ' + fmt.usd0(goal), { color: projYear == null ? undefined : hit(projYear, goal) ? 'var(--ok)' : '#DC2626', tip: 'YTD ÷ the seasonal share of the year that should be sold by today' }),
+            tile(winLabel, fmt.usd0(winActual) + ' / ' + fmt.usd0(winGoal), !open ? (winActual >= winGoal ? '✓ hit · +' + fmt.usd0(winActual - winGoal) : 'missed by ' + fmt.usd0(winGoal - winActual)) : kind === 'today' ? (winActual >= winGoal ? '✓ day goal hit' : fmt.usd0(Math.max(0, winGoal - winActual)) + ' to go today') : winNeed == null ? (winActual >= winGoal ? '✓ hit' : 'no selling days left') : winNeed > 0 ? 'need ' + fmt.usd0(winNeed) + '/day · ' + winLeft + ' days left' : '✓ window goal hit', { color: (!open || winNeed === 0 || (kind === 'today' && winActual >= winGoal)) && winActual >= winGoal ? 'var(--ok)' : (!open && winActual < winGoal ? '#DC2626' : undefined), tip: 'Follows the date filter at the top. Window goal = your annual goal spread by the seasonal month shape over that month\'s selling days.' }),
+          ) : null);
+      }
+      return el('div', { class: 'card p-5 rev-goal-card' },
+        goalHeader,
+        sellers.length === 0
+          ? el('div', { class: 'text-xs py-4 text-center', style: { color: 'var(--text-muted)' } },
+              'No individual goals set.')
+          : el('div', { class: 'flex flex-col gap-3' },
+              ...sellers.map(({ p, goal, rev }) => {
+                const pct = goal > 0 ? Math.min(100, rev / goal * 100) : 0;
+                // Seasonal pace: where this rep SHOULD be given how the
+                // year is weighted (not day-of-year ÷ 365).
+                const delta = rev - goal * seasonalPct;
+                // The number that matters (per Isaac): what to sell each
+                // remaining SELLING DAY of the YEAR (Mon–Sat, company
+                // holidays off) to land the ANNUAL goal — not a get-back-
+                // on-pace-by-month-end figure.
+                const _daysLeftYear = (() => {
+                  let n = 0;
+                  const d = new Date(now2); d.setHours(12, 0, 0, 0);
+                  while (d.getFullYear() === now2.getFullYear()) {
+                    const iso = d.toISOString().slice(0, 10);
+                    if (d.getDay() !== 0 && !(typeof companyHolidayFor === 'function' && companyHolidayFor(iso))) n++;
+                    d.setDate(d.getDate() + 1);
+                  }
+                  return Math.max(1, n);
+                })();
+                const todayNeed = goal > 0 ? Math.max(0, (goal - rev) / _daysLeftYear) : 0;
+                return el('div', {},
+                  el('div', { class: 'flex items-center justify-between mb-1 gap-2' },
+                    el('div', {
+                      class: 'flex items-center gap-2 min-w-0 cursor-pointer group',
+                      title: 'Open ' + (p.full_name || 'this rep') + '\'s player card',
+                      onclick: () => openDashboardPlayerCard(p.id),
+                    },
+                      avatarNode(p.avatar_url, p.initials, 'w-6 h-6 text-[9px]'),
+                      el('span', { class: 'text-xs font-semibold truncate group-hover:underline' }, p.full_name),
+                      goal > 0
+                        ? el('span', { class: 'text-[10px] font-bold whitespace-nowrap', style: { color: delta >= 0 ? '#DF643A' : '#DC2626' },
+                            title: (delta >= 0 ? fmt.usd0(delta) + ' ahead of' : fmt.usd0(-delta) + ' behind') + ' the seasonal pace (year shape from the Goals tab\'s monthly allocation)' },
+                            delta >= 0 ? '▲ ahead' : '▼ behind')
+                        : el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'no goal set'),
+                      // Month-end seasonal target (per Isaac) — the number
+                      // this rep should have banked by the end of THIS month.
+                      goal > 0 ? el('span', { class: 'text-[10px] tabular-nums whitespace-nowrap', style: { color: 'var(--text-muted)' },
+                          title: 'Where the seasonal plan says this rep should be by month-end (' + (seasonalPctMonthEnd * 100).toFixed(1) + '% of the annual goal)' },
+                        'target ' + fmt.usd0(goal * seasonalPctMonthEnd) + ' by ' + now2.toLocaleDateString('en-US', { month: 'short' }) + ' end') : null),
+                    (renByRep[p.id] || 0) > 0 ? el('span', { class: 'text-[10px] tabular-nums whitespace-nowrap', style: { color: 'var(--text-subtle)' }, title: LOY ? 'New-business production — real revenue, but the loyalty pacer races RENEWAL revenue' : 'Renewal production — real revenue, but individual goals are NEW-revenue goals' }, '+' + fmt.usd0(renByRep[p.id]) + (LOY ? ' new' : ' renewal')) : null),
+                  pacerBars(goal, rev, qtdByRep[p.id] || 0, false),
+                  goal > 0 && el('div', {
+                    class: 'text-[10px] mt-0.5 tabular-nums', style: { color: delta >= 0 ? 'var(--text-muted)' : '#DC2626' },
+                    title: fmt.usd0(Math.max(0, goal - rev)) + ' left to the annual goal \u00f7 ' + _daysLeftYear + ' selling days (Mon\u2013Sat, holidays off) left this year',
+                  },
+                    todayNeed > 0
+                      ? fmt.usd0(todayNeed) + '/day rest of year to hit the annual goal'
+                      : '\u2713 annual goal hit \u2014 everything from here is gravy'));
+              })));
+    }
+
+    return el('div', { class: 'card p-5 rev-goal-card' },
+      goalHeader,
+      el('div', { class: 'flex flex-col gap-4' },
+
+        // ── Total Revenue: distribution bar ──
+        el('div', {},
+          el('div', { class: 'flex items-center justify-between mb-1' },
+            el('div', { class: 'flex items-center gap-2' },
+              el('span', { class: 'text-sm font-semibold' }, 'Total Revenue'),
+              el('span', { class: 'text-[11px] text-muted-' }, '· ' + daysLeft + ' days left'),
+            ),
+            el('span', { class: 'text-sm font-bold tabular-nums' }, fmt.usd0(totalActual)),
+          ),
+          // Stacked bar
+          el('div', { class: 'goal-track flex overflow-hidden', style: { position: 'relative' } },
+            el('div', {
+              style: { background: '#DF643A', height: '100%', width: newPctOfTotal.toFixed(1) + '%', transition: 'width .3s', borderRadius: '0' },
+              title: 'New: ' + fmt.usd0(ytdDept.new) + ' (' + newPctOfTotal.toFixed(1) + '%)',
+            }),
+            el('div', {
+              style: { background: '#5F6C5B', height: '100%', width: renewalPctOfTotal.toFixed(1) + '%', transition: 'width .3s', borderRadius: '0' },
+              title: 'Renewal: ' + fmt.usd0(ytdDept.renewal) + ' (' + renewalPctOfTotal.toFixed(1) + '%)',
+            }),
+          ),
+          // Legend
+          el('div', { class: 'flex items-center gap-4 mt-1.5' },
+            el('div', { class: 'flex items-center gap-1.5' },
+              el('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: '#DF643A' } }),
+              el('span', { class: 'text-[11px]' }, 'New'),
+              el('span', { class: 'text-[11px] font-semibold tabular-nums' }, fmt.usd0(ytdDept.new)),
+              el('span', { class: 'text-[10px] text-muted-' }, '(' + newPctOfTotal.toFixed(0) + '%)'),
+            ),
+            el('div', { class: 'flex items-center gap-1.5' },
+              el('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: '#5F6C5B' } }),
+              el('span', { class: 'text-[11px]' }, 'Renewal'),
+              el('span', { class: 'text-[11px] font-semibold tabular-nums' }, fmt.usd0(ytdDept.renewal)),
+              el('span', { class: 'text-[10px] text-muted-' }, '(' + renewalPctOfTotal.toFixed(0) + '%)'),
+            ),
+          ),
+        ),
+
+        // Slight divider so "what's earned" (Total Revenue distribution
+        // above) reads separately from "tracking toward target" (the
+        // New / Renewal progress bars below).
+        el('div', { style: { height: '1px', background: 'var(--border)', margin: '2px 0' } }),
+
+        // ── New Revenue + Renewal Revenue: progress bars toward target ──
+        ...progressBars.map(bar => {
+          const pct = bar.target > 0 ? Math.min(1, bar.actual / bar.target) : 0;
+          const _monthly = bar.label.startsWith('New') ? g.monthly_new : g.monthly_renewal;
+          const _bucket = bar.label.startsWith('New') ? 'new' : 'renewal';
+          // Pace vs the SEASONAL plan (not even time) — see _shapeOf above.
+          const seasonalPctBar = _seasonalPctAt(_shapeOf(_monthly), now2);
+          const barMarkerPct = Math.min(100, seasonalPctBar * 100);
+          const paceDiff = bar.target > 0 ? (((bar.actual / bar.target) - seasonalPctBar) / (seasonalPctBar || 0.01) * 100) : 0;
+          const paceAhead = paceDiff >= 0;
+          // Catch-up (per Isaac): $/selling-day for the rest of the MONTH to
+          // land this month's allocation, and for the rest of the YEAR to
+          // land the annual goal. Projection: this month's run-rate carried
+          // to month end, and YTD ÷ seasonal share carried to year end.
+          const _mi2 = now2.getMonth(), _y2 = now2.getFullYear();
+          const monTarget = _monthTargetOf(_monthly, bar.target, _mi2);
+          const mtdActual = _mtd[_bucket];
+          const daysDoneM = _sellingDaysBetween(new Date(_y2, _mi2, 1), now2);
+          const daysTotM = _sellingDaysInMonth(_y2, _mi2) || 1;
+          const _tom = new Date(_y2, _mi2, now2.getDate() + 1);
+          const daysLeftM = _sellingDaysBetween(_tom, new Date(_y2, _mi2, _dimOf(_y2, _mi2)));
+          const daysLeftY = _sellingDaysBetween(_tom, new Date(_y2, 11, 31));
+          const needMonth = monTarget > 0 && daysLeftM > 0 ? Math.max(0, (monTarget - mtdActual) / daysLeftM) : null;
+          const needYear = bar.target > 0 && daysLeftY > 0 ? Math.max(0, (bar.target - bar.actual) / daysLeftY) : null;
+          const projMonth = daysDoneM > 0 ? mtdActual / daysDoneM * daysTotM : null;
+          const projYear = seasonalPctBar > 0.02 ? bar.actual / seasonalPctBar : null;
+          const monName = now2.toLocaleDateString('en-US', { month: 'short' });
+          const _hit = (v, t) => v != null && t > 0 && v >= t;
+          // Phones (per Isaac): the four outlook lines are too wordy — the
+          // bar, the %, the pace chip and the day goal carry the story there.
+          const outlook = el('div', { class: 'hidden sm:flex items-center gap-x-3 gap-y-1 flex-wrap mt-1 text-[10px] tabular-nums', style: { color: 'var(--text-muted)' } },
+            needMonth != null ? el('span', { title: fmt.usd0(Math.max(0, monTarget - mtdActual)) + ' left on ' + monName + ' (' + fmt.usd0(monTarget) + ' allocation, ' + fmt.usd0(mtdActual) + ' sold) ÷ ' + daysLeftM + ' selling days left this month' },
+              needMonth > 0 ? el('span', {}, 'Need ', el('b', { style: { color: bar.color } }, fmt.usd0(needMonth) + '/day'), ' rest of ' + monName) : el('span', {}, '✓ ' + monName + ' allocation hit')) : null,
+            needYear != null ? el('span', { title: fmt.usd0(Math.max(0, bar.target - bar.actual)) + ' left on the annual goal ÷ ' + daysLeftY + ' selling days left this year' },
+              needYear > 0 ? el('span', {}, 'Need ', el('b', { style: { color: bar.color } }, fmt.usd0(needYear) + '/day'), ' rest of year') : el('span', {}, '✓ annual goal hit')) : null,
+            projMonth != null && monTarget > 0 ? el('span', { title: 'This month’s run-rate (' + fmt.usd0(mtdActual) + ' over ' + daysDoneM + ' of ' + daysTotM + ' selling days) carried to month end' },
+              'Projected ' + monName + ' ', el('b', { style: { color: _hit(projMonth, monTarget) ? '#5F6C5B' : '#DC2626' } }, fmt.usd0(projMonth)), ' of ' + fmt.usd0(monTarget)) : null,
+            projYear != null && bar.target > 0 ? el('span', { title: 'YTD ÷ the seasonal share of the year that should be sold by today (' + (seasonalPctBar * 100).toFixed(1) + '%)' },
+              'Projected year ', el('b', { style: { color: _hit(projYear, bar.target) ? '#5F6C5B' : '#DC2626' } }, fmt.usd0(projYear)), ' of ' + fmt.usd0(bar.target)) : null,
+          );
+          let needLine = null, needLineMob = null;
+          if (Array.isArray(_monthly) && _monthly.length === 12 && bar.target > 0) {
+            const _mi = now2.getMonth();
+            const _dim = new Date(now2.getFullYear(), _mi + 1, 0).getDate();
+            // Weekday goal (per Isaac): THIS month's seasonal target ÷ ALL
+            // of its weekdays (company holidays off) — a fixed daily
+            // number for the whole month. Weekends are bonus revenue on
+            // top; no year-deficit catch-up baked in.
+            let _weekdaysInMonth = 0;
+            for (let _d = 1; _d <= _dim; _d++) {
+              const _dt = new Date(now2.getFullYear(), _mi, _d);
+              const _dow = _dt.getDay();
+              if (_dow === 0 || _dow === 6) continue;
+              const _iso2 = _dt.getFullYear() + '-' + String(_mi + 1).padStart(2, '0') + '-' + String(_d).padStart(2, '0');
+              if (typeof companyHolidayFor === 'function' && companyHolidayFor(_iso2)) continue;
+              _weekdaysInMonth++;
+            }
+            const _monTarget = Number(_monthly[_mi]) || 0;
+            const _monLabel = now2.toLocaleDateString('en-US', { month: 'long' });
+            if (_monTarget > 0 && _weekdaysInMonth > 0) {
+              const _dayGoal = _monTarget / _weekdaysInMonth;
+              const _wgTitle = _monLabel + ' target ' + fmt.usd0(_monTarget) + ' ÷ ' + _weekdaysInMonth + ' weekdays (holidays off) · weekends are bonus';
+              // Rides inline to the right of the goal amount (per Isaac).
+              needLine = el('span', { class: 'text-xs tabular-nums font-semibold whitespace-nowrap hidden sm:inline', style: { color: 'var(--text-muted)' }, title: _wgTitle },
+                '· weekday goal ', el('span', { style: { color: bar.color, fontWeight: '700' } }, fmt.usd0(_dayGoal) + '/day'));
+              needLineMob = el('span', { class: 'text-[10px] tabular-nums font-semibold', style: { color: 'var(--text-muted)' }, title: _wgTitle },
+                fmt.usd0(_dayGoal) + '/day goal');
+            }
+          }
+          return el('div', {},
+            // ONE line on every screen size (label + % left, money + pace
+            // chip right; the chip drops before the money wraps).
+            el('div', { class: 'flex items-center justify-between mb-1 gap-2', style: { flexWrap: 'nowrap', minWidth: 0 } },
+              el('div', { class: 'flex items-center gap-1.5 shrink-0' },
+                el('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: bar.color } }),
+                el('span', { class: 'text-sm font-semibold whitespace-nowrap' }, bar.label),
+                el('span', { class: 'text-sm font-bold whitespace-nowrap hidden sm:inline', style: { color: bar.color } }, fmt.pct(pct)),
+                // Goal rides next to the % (per Isaac)
+                el('span', { class: 'text-xs tabular-nums font-bold whitespace-nowrap hidden sm:inline', style: { color: 'var(--text-muted)' } }, 'of ' + fmt.usd0(bar.target)),
+                needLine,
+              ),
+              el('div', { class: 'flex items-center gap-2 min-w-0 justify-end' },
+                el('span', { class: 'text-xs tabular-nums whitespace-nowrap font-semibold' }, fmt.usd0(bar.actual)),
+                el('span', {
+                  class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap hidden sm:inline',
+                  style: {
+                    background: paceAhead ? 'rgba(223,100,58,.12)' : 'rgba(220,38,38,.08)',
+                    color: paceAhead ? '#DF643A' : '#DC2626',
+                  },
+                }, (paceAhead ? '+' : '') + paceDiff.toFixed(1) + '%'),
+              ),
+            ),
+            // Mobile: % + goal + pace chip on their own tiny line under the
+            // label row instead of forcing a mid-row wrap.
+            el('div', { class: 'flex items-center gap-2 mb-1 sm:hidden' },
+              el('span', { class: 'text-xs font-bold', style: { color: bar.color } }, fmt.pct(pct)),
+              el('span', { class: 'text-[11px] tabular-nums font-bold', style: { color: 'var(--text-muted)' } }, 'of ' + fmt.usd0(bar.target)),
+              el('span', {
+                class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full',
+                style: {
+                  background: paceAhead ? 'rgba(223,100,58,.12)' : 'rgba(220,38,38,.08)',
+                  color: paceAhead ? '#DF643A' : '#DC2626',
+                },
+              }, (paceAhead ? '+' : '') + paceDiff.toFixed(1) + '% vs year pace'),
+              needLineMob,
+            ),
+            el('div', { class: 'goal-track', style: { position: 'relative' } },
+              el('div', { style: { background: bar.color, height: '100%', borderRadius: '0', transition: 'width .3s', width: (pct * 100).toFixed(2) + '%' } }),
+              el('div', {
+                style: {
+                  position: 'absolute', top: '-3px', bottom: '-3px',
+                  left: barMarkerPct.toFixed(1) + '%',
+                  width: '2px', background: '#DC2626', borderRadius: '0',
+                },
+                title: 'Seasonal pace — ' + (seasonalPctBar * 100).toFixed(1) + '% of the year’s goal should be sold by today (Goals tab monthly allocation)',
+              }),
+            ),
+            el('div', { class: 'goal-ticks mt-1' },
+              ...goalTicks(bar.target).map(t => el('span', {}, t)),
+            ),
+            outlook,
+          );
+        }),
+
+        // ── Period strip (per Isaac): follows the date filter at the top.
+        // Open windows (Today / This week / This month / Quarter / Year /
+        // a custom range ending today or later) pace against the goal for
+        // that window and say what's needed per selling day to close it.
+        // Closed windows (Yesterday / Last week / Last month / Last year /
+        // a past custom range) are a result — hit, or missed by $X — with
+        // no pace judgement.
+        (() => {
+          const kind = state.dashDateRange || 'today';
+          const rs = range.start, re = range.end;
+          const today0 = new Date(now2.getFullYear(), now2.getMonth(), now2.getDate());
+          const natEnd = kind === 'today' ? today0
+            : kind === 'week' ? (() => { const d = new Date(today0); d.setDate(d.getDate() + (6 - d.getDay())); return d; })()
+            : kind === 'month' ? new Date(now2.getFullYear(), now2.getMonth() + 1, 0)
+            : kind === 'quarter' ? new Date(now2.getFullYear(), Math.floor(now2.getMonth() / 3) * 3 + 3, 0)
+            : kind === 'year' ? new Date(now2.getFullYear(), 11, 31)
+            : new Date(re.getFullYear(), re.getMonth(), re.getDate());
+          const open = natEnd >= today0 && re >= today0;
+          const label = ({ today: 'Today', yesterday: 'Yesterday', week: 'This week', last_week: 'Last week', month: 'This month', last_month: 'Last month', quarter: 'This quarter', year: 'This year', last_year: 'Last year' })[kind]
+            || (rs.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' – ' + re.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+          const winEnd = open ? natEnd : re;
+          const rowsP = [
+            { label: 'New', color: '#DF643A', actual: newRevenue, monthly: g.monthly_new, annual: newTarget },
+            { label: 'Renewal', color: '#5F6C5B', actual: renewalRevenue, monthly: g.monthly_renewal, annual: renewalTarget },
+          ].map(r => {
+            const goalWin = _goalBetween(r.monthly, r.annual, rs, winEnd);            // whole window (through its natural end)
+            const goalSoFar = open ? _goalBetween(r.monthly, r.annual, rs, today0) : goalWin;   // what should be in by today
+            const tom = new Date(today0); tom.setDate(tom.getDate() + 1);
+            const left = open ? _sellingDaysBetween(tom, winEnd) : 0;
+            const need = open && left > 0 ? Math.max(0, (goalWin - r.actual) / left) : null;
+            return { ...r, goalWin, goalSoFar, left, need };
+          });
+          if (!rowsP.some(r => r.goalWin > 0)) return null;
+          const line = (r) => {
+            const pctW = r.goalWin > 0 ? Math.min(1, r.actual / r.goalWin) : 0;
+            const soFarPct = r.goalWin > 0 ? Math.min(100, r.goalSoFar / r.goalWin * 100) : 0;
+            const diff = r.actual - r.goalWin;
+            const verdict = !open
+              ? el('span', { class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap', style: diff >= 0 ? { background: 'rgba(95,108,91,.10)', color: '#5F6C5B' } : { background: 'rgba(220,38,38,.08)', color: '#DC2626' } }, diff >= 0 ? '✓ hit · +' + fmt.usd0(diff) : 'missed by ' + fmt.usd0(-diff))
+              : kind === 'today'
+                ? el('span', { class: 'text-[10px] font-semibold whitespace-nowrap', style: { color: r.actual >= r.goalWin ? '#5F6C5B' : 'var(--text-muted)' } }, r.actual >= r.goalWin ? '✓ day goal hit' : fmt.usd0(Math.max(0, r.goalWin - r.actual)) + ' to go today')
+                : r.need != null
+                  ? el('span', { class: 'text-[10px] font-semibold whitespace-nowrap', style: { color: r.need > 0 ? 'var(--text-muted)' : '#5F6C5B' }, title: fmt.usd0(Math.max(0, r.goalWin - r.actual)) + ' left ÷ ' + r.left + ' selling days left in the window' }, r.need > 0 ? 'need ' + fmt.usd0(r.need) + '/day · ' + r.left + ' days left' : '✓ window goal hit')
+                  : el('span', { class: 'text-[10px] font-semibold whitespace-nowrap', style: { color: r.actual >= r.goalWin ? '#5F6C5B' : '#DC2626' } }, r.actual >= r.goalWin ? '✓ hit' : fmt.usd0(r.goalWin - r.actual) + ' short, no selling days left');
+            return el('div', { class: 'min-w-0' },
+              el('div', { class: 'flex items-center justify-between gap-2 mb-1 min-w-0' },
+                el('div', { class: 'flex items-center gap-1.5 min-w-0' },
+                  el('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: r.color, flexShrink: 0 } }),
+                  el('span', { class: 'text-xs font-semibold whitespace-nowrap' }, r.label),
+                  el('span', { class: 'text-xs tabular-nums font-bold whitespace-nowrap' }, fmt.usd0(r.actual)),
+                  el('span', { class: 'text-[10px] tabular-nums text-muted- whitespace-nowrap' }, 'of ' + fmt.usd0(r.goalWin))),
+                verdict),
+              el('div', { class: 'goal-track', style: { position: 'relative', height: '6px' } },
+                el('div', { style: { background: r.color, height: '100%', width: (pctW * 100).toFixed(1) + '%', transition: 'width .3s' } }),
+                open && kind !== 'today' && r.goalWin > 0 ? el('div', { title: 'Where today sits in the window — ' + fmt.usd0(r.goalSoFar) + ' should be in by now', style: { position: 'absolute', top: '-2px', bottom: '-2px', left: soFarPct.toFixed(1) + '%', width: '2px', background: 'var(--text)', opacity: '.6' } }) : null));
+          };
+          return el('div', {},
+            el('div', { style: { height: '1px', background: 'var(--border)', margin: '2px 0 10px' } }),
+            el('div', { class: 'flex items-center justify-between mb-2' },
+              el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label + (open ? ' · pace' : ' · result')),
+              el('span', { class: 'text-[10px] text-muted-', title: 'Window goal = the Goals tab’s monthly allocation spread over that month’s selling days (Mon–Fri, holidays off), summed across the window. Weekends are bonus.' }, open ? 'goal through ' + winEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'follows the date filter')),
+            el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3' }, ...rowsP.map(line)));
+        })(),
+      ),
+    );
+}
+
+// Loyalty rep? Role first (rep_loyalty / lead), else the FieldRoutes rep type / profile rep_type.
+function _isLoyaltyProfile(p) {
+  if (!p) return false;
+  if (p.role === 'rep_loyalty' || p.role === 'rep_loyalty_lead') return true;
+  return /loyalty/i.test(String(p.rep_type || ''));
+}
+// Loyalty → Dashboard (per Isaac, Sep 23): the revenue pacer for loyalty reps, nothing else.
+function viewLoyaltyDashboard() {
+  const range = getDateRange(state.dashDateRange);
+  return el('div', { class: 'flex flex-col gap-4 w-full' }, dashboardGoalCard(range, { loyalty: true }));
+}

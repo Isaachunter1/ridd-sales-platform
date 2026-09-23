@@ -264,7 +264,7 @@ const PERM_DEFAULTS = {
 const ADMIN_SECTION_PERM = { users: 'set_users', teams: 'set_teams', goals: 'set_goals', comps: 'set_comps', pricing: 'set_commissions', config: 'set_config', slack: 'set_slack', usage: 'set_usage' };   // 'data' (Data sources) is admin-only, never delegated
 // Sub-tab view key → its Sales-tab permission (all three groups).
 const VIEW_TAB_PERM = { dashboard: 'tab_dashboard', sales: 'tab_sales', pay: 'tab_pay', scorecards: 'tab_scorecards', calendar: 'tab_calendar', hall_of_fame: 'tab_hof',
-  d2d_dashboard: 'tab_dashboard', d2d_sales: 'tab_sales', commission: 'tab_pay', techs: 'tab_dashboard', tech_sales: 'tab_sales', tab_pay: 'tab_pay', tech_pay: 'tab_pay', loyalty_renewals: 'tab_loyalty', loyalty_health: 'tab_loyalty' };
+  d2d_dashboard: 'tab_dashboard', d2d_sales: 'tab_sales', commission: 'tab_pay', techs: 'tab_dashboard', tech_sales: 'tab_sales', tab_pay: 'tab_pay', tech_pay: 'tab_pay', loyalty_dashboard: 'tab_loyalty', loyalty_renewals: 'tab_loyalty', loyalty_health: 'tab_loyalty' };
 function canOpenLoyalty(profile) { const p = profile || state.profile; return !!p && (isAdminRole(p.role) || userCan('tab_loyalty', p)); }
 // Non-admins may open Settings when granted; only the sections they hold.
 function canOpenSettings(profile) { const p = profile || state.profile; return !!p && (isAdminRole(p.role) || userCan('view_settings', p)); }
@@ -4602,6 +4602,7 @@ const TAB_TITLES = {
   calendar:     'CALENDAR',
   competitions: 'COMPETITIONS',
   hall_of_fame: 'HALL OF FAME',
+  loyalty_dashboard: 'LOYALTY',
   loyalty_renewals: 'LOYALTY',
   loyalty_health: 'LOYALTY',
   queues:       'QUEUES',
@@ -4621,7 +4622,7 @@ const TAB_TITLES = {
 
 // #history is kept as a legacy alias — it lands the user on Sales tab with
 // the History queue pill pre-selected (see boot/hashchange handlers below).
-const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#d2ddash':'d2d_dashboard', '#d2dupfront':'commission', '#d2dsales':'d2d_sales', '#techs':'techs', '#techsales':'tech_sales', '#techpay':'tech_pay', '#admin':'admin', '#renewals':'loyalty_renewals', '#health':'loyalty_health' };
+const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#d2ddash':'d2d_dashboard', '#d2dupfront':'commission', '#d2dsales':'d2d_sales', '#techs':'techs', '#techsales':'tech_sales', '#techpay':'tech_pay', '#admin':'admin', '#loyaltydash':'loyalty_dashboard', '#renewals':'loyalty_renewals', '#health':'loyalty_health' };
 const VIEW_TO_HASH = Object.fromEntries(Object.entries(HASH_MAP).map(([h,v])=>[v,h]));
 
 // Only ring the bell when a sale's audit_status flips to one of these,
