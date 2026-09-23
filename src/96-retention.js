@@ -412,18 +412,9 @@ function reportingWaterfall() {
   if (gate) return gate;
   // Retention hosts three sections now (per Isaac): the retention analytics
   // suite, Customer Health (churn defense), and Next Best Service (attach).
-  const _sec = (state._retenSection === 'nextbest' ? 'retention' : state._retenSection) || 'retention';
-  const _secBar = el('div', { class: 'flex items-center gap-1.5 reten-sec-bar' },
-    ...[['retention', 'Retention'], ['health', 'Customer Health'], ['renewals', 'Renewals'], ['contract', 'Contract Length']].map(([k, l]) => el('button', {
-      class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition hover:brightness-95 whitespace-nowrap reten-sec-btn',
-      style: _sec === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' },
-      onclick: () => { state._retenSection = k; mountApp(); },
-    }, l)));
-  if (_sec === 'health')   return el('div', { class: 'flex flex-col gap-4' }, _secBar, reportingCustomerHealth());
-  // (Next Best Service tab retired from Retention per Isaac, Sep 2026 — reportingNextBest still lives on the Queues page.)
-  if (_sec === 'nextbest') { state._retenSection = 'retention'; }
-  if (_sec === 'renewals') return el('div', { class: 'flex flex-col gap-4' }, _secBar, reportingRenewals());
-  if (_sec === 'contract') return el('div', { class: 'flex flex-col gap-4' }, _secBar, reportingContractLength());
+  // Sep 23 (per Isaac): Retention is the whole tab — Renewals and Customer
+  // Health moved to the Loyalty group; Contract Length is folded in below.
+  state._retenSection = 'retention';
   const scope = reportingScope();
   // Office + Metrics filters retired (per Isaac, Sep 2026): the branch pick
   // on Attrition Steps is the office scope now, Contract Length and Rep are
@@ -2637,6 +2628,10 @@ function reportingWaterfall() {
     if (right && right.classList.contains('flex')) right.prepend(dimSel); else if (title) title.after(dimSel);
     return card;
   })();
-  return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, body, _shell('Attrition Indicators', attritionByCard), _shell('Renewal Retention', renewalRetentionCard));   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
+  // Contract Length (12 vs 18 vs 24) rides at the bottom of Retention now
+  // (per Isaac, Sep 23) instead of being its own section.
+  let contractLen = null;
+  try { contractLen = reportingContractLength(); } catch (e) { console.warn('[retention] contract length card skipped', e); }
+  return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, body, _shell('Attrition Indicators', attritionByCard), _shell('Renewal Retention', renewalRetentionCard), contractLen);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
 }
 

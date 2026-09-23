@@ -65,6 +65,47 @@ const TECH_TABS = [
   ['tech_pay',   'Pay'],
 ];
 const TECH_TAB_KEYS = new Set(TECH_TABS.map(([k]) => k));
+// ── LOYALTY GROUP (per Isaac, Sep 23) — the loyalty team's working tabs:
+// Renewals pipeline (the shared drag-and-drop board) and Customer Health.
+// Office staff only (Permissions → Loyalty); admins always.
+const LOYALTY_TABS = [
+  ['loyalty_renewals', 'Renewals'],
+  ['loyalty_health',   'Customer Health'],
+];
+const LOYALTY_TAB_KEYS = new Set(LOYALTY_TABS.map(([k]) => k));
+function loyaltySubTabs() {
+  const go = (k) => { state.view = k; state._navChosen = true; history.replaceState(null, '', VIEW_TO_HASH[k] || '#' + k); mountApp(); };
+  const tabBar = el('div', { class: 'hidden sm:flex items-center flex-wrap gap-x-1 gap-y-0' },
+    ...LOYALTY_TABS.map(([k, label]) => el('button', {
+      class: 'px-2.5 py-1 text-[11px] font-semibold transition whitespace-nowrap',
+      style: { borderBottom: state.view === k ? '2px solid var(--accent)' : '2px solid transparent', color: state.view === k ? 'var(--text)' : 'var(--text-muted)', marginBottom: '-1px' },
+      onclick: () => go(k),
+    }, label)));
+  const tabSelect = el('div', { class: 'sales-tab-select sm:hidden flex-1 min-w-0 py-1.5' },
+    el('select', { class: 'w-full rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => go(e.target.value) },
+      ...LOYALTY_TABS.map(([k, label]) => el('option', { value: k, selected: state.view === k }, label))));
+  return el('div', { class: 'sales-subtabs flex items-center flex-wrap gap-x-1 gap-y-0 border-b mb-4', style: { borderColor: 'var(--border)' } }, tabBar, tabSelect);
+}
+// Both Loyalty views read the reporting snapshot (same rows the Retention
+// tab uses); load it on first visit, then hand off to the section.
+function _loyaltyView(build) {
+  if (!canOpenLoyalty()) return el('div', { class: 'card p-6 text-center text-sm text-muted-' }, 'The Loyalty tab is for office staff.');
+  if (!state.reportingUploads || !state.reportingUploads.length) {
+    if (!state._loyaltyMetaKick) { state._loyaltyMetaKick = true; loadReportingMetadata().then(() => mountApp()).catch(() => {}); }
+  }
+  const activeId = state.reportingActiveUploadId;
+  if (activeId && state.reportingSubscriptionsLoadedFor !== activeId) {
+    loadReportingSubscriptions(activeId).then(rows => {
+      if (state.reportingActiveUploadId !== activeId || rows == null) return;
+      state.reportingSubscriptions = rows; state.reportingSubscriptionsLoadedFor = activeId;
+      if (typeof _refreshRepTypeMap === 'function') _refreshRepTypeMap();
+      mountApp();
+    });
+  }
+  return build();
+}
+function viewLoyaltyRenewals() { return _loyaltyView(() => reportingRenewals(null, { compact: true })); }
+function viewLoyaltyHealth()   { return _loyaltyView(() => reportingCustomerHealth()); }
 // Which Sales queue a view shows — rows carry queue_type from the sync
 // ('office' | 'd2d' | 'tech'); legacy manual rows (null) are Inside Sales.
 const SALES_QUEUE_OF_VIEW = { sales: 'office', d2d_sales: 'd2d', tech_sales: 'tech' };
@@ -735,7 +776,8 @@ function mountApp() {
     || _visibleModules().some(m => m.id === v)             // registered modules (Pricing, riddmarket…) the module itself allows
     || (isTechType && TECH_TAB_KEYS.has(v) && _tabOk(v))                // Technicians: Dashboard + Sales queue
     || (isSalesRepType && D2D_SALES_TAB_KEYS.has(v) && _tabOk(v))       // Sales Reps: the D2D Sales group
-    || (isOfficeStaff && INSIDE_SALES_TAB_KEYS.has(v) && _tabOk(v));
+    || (isOfficeStaff && INSIDE_SALES_TAB_KEYS.has(v) && _tabOk(v))
+    || (isOfficeStaff && LOYALTY_TAB_KEYS.has(v) && _tabOk(v));            // Office staff: the Loyalty group
   if (isRepOnly && !repCanSee(state.view)) {
     // Home per rep type (per Isaac): Sales Reps land in their D2D Sales
     // group; office staff on their Sales world; others keep Indicators.
@@ -770,6 +812,7 @@ function mountApp() {
     ...(isOfficeStaff ? [['inside_sales', 'Sales', iconSales()]]
       : isTechType ? [['techs', 'Sales', iconSales()]]
       : [['d2d_group', 'Sales', iconDollar()]]),
+    ...(isOfficeStaff && userCan('tab_loyalty') ? [['loyalty_group', 'Loyalty', iconHeart()]] : []),
     ...(userCan('view_comps') && featureOn('competitions') ? [['nrla', 'Competitions', iconTrophy()]] : []),
     ...(userCan('view_indicators') ? [['indicators', 'Indicators', iconChart()]] : []),
     ...(userCan('view_reporting') ? [['reporting', 'Reporting', iconPie()]] : []),   // granted in Settings → Permissions
@@ -778,6 +821,7 @@ function mountApp() {
     // ONE "Sales" entry for every role — admins toggle Inside Sales ⇄ D2D
     // Sales inside the view itself (salesModeToggle).
     ['inside_sales', 'Sales', iconSales()],
+    ...(isAdmin ? [['loyalty_group', 'Loyalty', iconHeart()]] : []),
     // Competitions — every comp (NRLA, Spring Cleaning, Top Gun, …) on its
     // own tab, visible to EVERYONE. Read-only for non-admins.
     ...((isAuditor && !userCan('view_comps')) || !featureOn('competitions') ? [] : [['nrla', 'Competitions', iconTrophy()]]),
@@ -818,6 +862,7 @@ function mountApp() {
     ...navItems.map(([k, label, icon]) => {
       const active = k === 'inside_sales' ? INSIDE_SALES_TAB_KEYS.has(state.view)
         : k === 'd2d_group' ? D2D_SALES_TAB_KEYS.has(state.view)
+        : k === 'loyalty_group' ? LOYALTY_TAB_KEYS.has(state.view)
         : state.view === k;
       return el('button', {
         class: 'w-full flex items-center gap-3 px-2.5 py-1 rounded-lg text-[11px] font-medium transition',
@@ -832,7 +877,9 @@ function mountApp() {
             ? (isAuditor ? 'sales' : (INSIDE_SALES_TAB_KEYS.has(state._lastIsTab) ? state._lastIsTab : 'dashboard'))
             : k === 'd2d_group'
               ? (D2D_SALES_TAB_KEYS.has(state._lastD2dTab) ? state._lastD2dTab : 'd2d_dashboard')
-              : k;
+              : k === 'loyalty_group'
+                ? (LOYALTY_TAB_KEYS.has(state._lastLoyaltyTab) ? state._lastLoyaltyTab : 'loyalty_renewals')
+                : k;
           state.view = target;
           history.replaceState(null, '', VIEW_TO_HASH[target] || '#' + target);
           mountApp();
@@ -1131,6 +1178,8 @@ function mountApp() {
     calendar:     viewCalendar,
     competitions: viewCompetitions,
     hall_of_fame: viewHallOfFame,
+    loyalty_renewals: viewLoyaltyRenewals,
+    loyalty_health: viewLoyaltyHealth,
     queues: viewQueues,
     indicators:   viewIndicators,
     nrla:         viewNrlaPublic,
@@ -1166,6 +1215,7 @@ function mountApp() {
   }
   if (INSIDE_SALES_TAB_KEYS.has(state.view)) state._lastIsTab = state.view;
   if (D2D_SALES_TAB_KEYS.has(state.view)) state._lastD2dTab = state.view;
+  if (LOYALTY_TAB_KEYS.has(state.view)) state._lastLoyaltyTab = state.view;
   _profStart(state.view);
   const _t0 = performance.now();
   const node = view();
@@ -1190,6 +1240,8 @@ function mountApp() {
   } else if (TECH_TAB_KEYS.has(state.view)) {
     const subTabBar = d2dSalesSubTabs('techs');
     if (subTabBar) contentWrap.append(subTabBar);
+  } else if (LOYALTY_TAB_KEYS.has(state.view)) {
+    contentWrap.append(loyaltySubTabs());
   }
   contentWrap.append(node);
   // Phones (per Isaac, Sep 23): the date-range dropdown shares the row with
