@@ -395,7 +395,7 @@ function adminConfigurations() {
     el('div', { class: 'text-muted- leading-relaxed' }, def));
   const howItWorks = () => el('div', { class: 'flex flex-col gap-1.5' },
     defRow('Data source', 'A live mirror of FieldRoutes (RevHawk), re-synced hourly during the day — no manual uploads.'),
-    defRow('Recurring basis', 'Data-driven: a sub is recurring if its annual recurring value > $0 (self-maintaining, recommended). Lifecycle: the manual Service Types list decides.'),
+    defRow('Recurring basis', 'A subscription is recurring when its annual recurring revenue (ARR) is above $0 — read from FieldRoutes, self-maintaining.'),
     defRow('Aging threshold', 'A sub counts as aging / at-risk when its days past due is greater than or equal to this number (default 7).'),
     defRow('Active includes one-time', 'Count one-time active subs in “Subscriptions Active”; off = recurring only.'),
     defRow('Deleted CRM accounts', 'Customer IDs deleted inside FieldRoutes. The warehouse keeps their rows, so they are excluded from every dataset — automatically when the sync flags them, plus any IDs you list.'),
@@ -447,7 +447,7 @@ function adminConfigurations() {
   const crmDelN = (state._crmDeletedIds || []).length;
   const crmMeta = state._crmDeletedMeta;
   const reportingRules = card('Reporting rules', null,
-    row('Recurring basis', sel(reportingRecurringMode(), [['arv', 'Data-driven (ARV > $0)'], ['lifecycle', 'Lifecycle config']], (v) => { setReportingRecurringMode(v); mountApp(); }), { tip: 'How the app decides which subscriptions are recurring. Data-driven: annual recurring value > $0 (self-maintaining, recommended). Lifecycle: the Service Types list decides.' }),
+    row('Recurring basis', el('span', { class: 'text-[11px] font-semibold' }, 'ARR > $0'), { tip: 'A subscription is recurring when its annual recurring revenue is above $0 — read straight from FieldRoutes, nothing to maintain.' }),
     row('Aging threshold', [el('span', { class: 'text-[11px] text-muted-' }, 'days past due ≥'), num(reportingAgingDays(), (v) => { setReportingAgingDays(v); mountApp(); })], { tip: 'A sub counts as aging / at-risk when its days past due is greater than or equal to this number.' }),
     row('Active includes one-time', sw(reportingActiveInclOneTime(), () => { setReportingActiveInclOneTime(!reportingActiveInclOneTime()); mountApp(); }), { tip: 'Count one-time active subs in “Subscriptions Active”. Off = recurring only.' }),
     row('Deleted CRM accounts · auto-exclude', [
