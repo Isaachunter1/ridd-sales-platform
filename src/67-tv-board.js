@@ -9,6 +9,7 @@ function openTvBoard() {
   // Desktop only (per Isaac): the board is a wall display, never a phone view.
   try { if (window.matchMedia('(max-width: 900px)').matches) { if (typeof toast === 'function') toast('TV Display is desktop-only \u2014 open it on a computer.', 'info'); return; } } catch (e) { /* noop */ }
   state._tvOpen = true;   // the version watcher auto-reloads while this is set
+  try { localStorage.setItem('ridd_tv_board', '1'); } catch (e) { /* private */ }   // any reload (deploy, crash, power blip) lands back on the board
   // Deck 2.0 tokens (docs/design-kit/BRAND.md) — scoped to the board.
   const T = { void: '#0A0B0D', surface: '#14161A', surface2: '#1E2128', hair: '#2B2F38', ink: '#F4F6F8', dim: '#9AA2B1', ember: '#FF5F2E' };
   const MONO = "'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
@@ -24,6 +25,7 @@ function openTvBoard() {
   let rtSub = null;      // Supabase realtime channel on `sales` (per Isaac, Sep 22: the board reacts the moment a row lands)
   const cleanup = () => {
     state._tvOpen = false;
+    try { localStorage.removeItem('ridd_tv_board'); } catch (e) { /* private */ }
     timers.forEach(clearInterval); timers = [];
     if (rtSub) { try { supabase.removeChannel(rtSub); } catch (e) { /* already gone */ } rtSub = null; }
     document.removeEventListener('keydown', onKey);
@@ -37,7 +39,7 @@ function openTvBoard() {
     if (e.key === '1' || e.key === '2' || e.key === '3' || e.key === '4') { state._tvRange = RANGES[Number(e.key) - 1][0]; render(); }
     if (e.key === 'f' || e.key === 'F') toggleFs();
     // R: take a waiting build now (deploys otherwise land on the board overnight).
-    if (e.key === 'r' || e.key === 'R') { try { sessionStorage.setItem('ridd_reopen_tv', '1'); if (window.__riddTvPendingVersion) sessionStorage.setItem('ridd_reloaded_for', window.__riddTvPendingVersion); } catch { /* private */ } location.reload(); }
+    if (e.key === 'r' || e.key === 'R') { try { sessionStorage.setItem('ridd_reopen_tv', '1'); } catch { /* private */ } location.reload(); }
   };
   const toggleFs = () => { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); else overlay.requestFullscreen?.().catch(() => {}); };
   // (listeners are attached after render() exists — a const can't be

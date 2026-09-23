@@ -2924,7 +2924,7 @@ async function boot() {
       const REAUTH_MS = 30 * 86400000;
       const la = Number(localStorage.getItem('ridd_last_auth_v1') || 0);
       if (!la) localStorage.setItem('ridd_last_auth_v1', String(Date.now()));   // existing sessions: start the clock now
-      else if (Date.now() - la > REAUTH_MS) {
+      else if (Date.now() - la > REAUTH_MS && localStorage.getItem('ridd_tv_board') !== '1') {   // the TV board never gets bounced for a re-auth (per Isaac, Sep 23)
         localStorage.removeItem('ridd_last_auth_v1');
         await supabase.auth.signOut();
         mountAuth();
@@ -2942,7 +2942,7 @@ async function boot() {
   if (state._resumeScroll) { const y = state._resumeScroll; state._resumeScroll = 0; setTimeout(() => window.scrollTo(0, y), 400); }
   // Back onto the TV board after a version auto-reload (the board set the flag).
   try {
-    if (sessionStorage.getItem('ridd_reopen_tv') === '1') {
+    if (sessionStorage.getItem('ridd_reopen_tv') === '1' || localStorage.getItem('ridd_tv_board') === '1') {
       sessionStorage.removeItem('ridd_reopen_tv');
       if (typeof openTvBoard === 'function' && state.profile) setTimeout(() => { try { openTvBoard(); } catch (e) { /* board optional */ } }, 600);
     }
@@ -3862,10 +3862,13 @@ function _armSplashWatchdog() {
       // screen out of fullscreen every time (per Isaac, Sep 21). The board
       // now takes new builds overnight (1–5am on the board's clock) or when
       // someone presses R on it; data keeps refreshing every 30s regardless.
+      // (Per Isaac, Sep 23: take the build NOW — the wall screen must never
+      // sit on stale code, and it comes straight back up on the board. Use
+      // the browser's own full screen (⌃⌘F / F11) rather than the board's F
+      // key so the reload keeps it; element fullscreen can't survive one.)
       if (state._tvOpen) {
-        const h = new Date().getHours();
-        if (!(h >= 1 && h < 5)) { window.__riddTvPendingVersion = v.hash; return; }
-        try { sessionStorage.setItem('ridd_reopen_tv', '1'); sessionStorage.setItem('ridd_reloaded_for', v.hash); } catch { /* private */ } location.reload(); return;
+        try { localStorage.setItem('ridd_tv_board', '1'); sessionStorage.setItem('ridd_reopen_tv', '1'); sessionStorage.setItem('ridd_reloaded_for', v.hash); } catch { /* private */ }
+        location.reload(); return;
       }
       showBanner(v.hash);
     } catch { /* offline — next cycle */ }
