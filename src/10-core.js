@@ -4560,9 +4560,9 @@ function mountAuth(opts = {}) {
   // the document. Fixed + inset 0 means the page itself has nothing to
   // scroll; the room scrolls internally only when the keyboard needs it.
   const room = el('main', { class: 'flex flex-col w-full', style: { position: 'fixed', inset: '0', overflowY: 'auto', overscrollBehavior: 'none', WebkitOverflowScrolling: 'touch', background: '#fff', color: '#000', padding: '20px 20px', zIndex: '50' } },
-    el('header', { class: 'flex items-center justify-between' },
-      (typeof riddmadeWordmark === 'function') ? riddmadeWordmark(150) : el('div', { class: 'font-display text-2xl' }, 'RIDDMADE'),
-      el('span', { class: 'text-[11px] uppercase', style: { fontFamily: "'IBM Plex Mono', ui-monospace, monospace", letterSpacing: '.2em' } }, 'Sales')),
+    // Wordmark centred, no "Sales" tag (per Isaac, Sep 23) — desktop and phone alike.
+    el('header', { class: 'flex items-center justify-center' },
+      (typeof riddmadeWordmark === 'function') ? riddmadeWordmark(150) : el('div', { class: 'font-display text-2xl' }, 'RIDDMADE')),
     el('div', { class: 'flex flex-1 flex-col items-center justify-center', style: { padding: '64px 0' } }, form));
   mount(room);
 }
