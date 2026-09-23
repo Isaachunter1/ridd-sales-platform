@@ -410,6 +410,7 @@ function adminConfigurations() {
   // ── tiny controls ──
   const sw = (on, onToggle) => el('button', { class: 'shrink-0', style: { width: '36px', height: '20px', borderRadius: '10px', background: on ? 'var(--accent)' : 'var(--border-2)', position: 'relative', border: 'none', cursor: 'pointer' }, onclick: onToggle },
     el('div', { style: { position: 'absolute', top: '2px', left: on ? '18px' : '2px', width: '16px', height: '16px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.3)', transition: 'left .12s' } }));
+  const sub = (t) => el('div', { class: 'text-[10px] uppercase tracking-widest font-bold pt-3 pb-1', style: { color: 'var(--text-subtle)' } }, t);
   const row = (label, control, o = {}) => el('div', { class: 'flex items-center justify-between gap-3 py-1.5 border-t', style: { borderColor: 'var(--border)', paddingLeft: o.indent ? '18px' : '0' }, title: o.tip || '' },
     el('div', { class: (o.small ? 'text-xs' : 'text-sm') + ' font-semibold' + (o.tip ? ' cursor-help' : ''), style: o.muted ? { color: 'var(--text-muted)' } : {} }, label),
     el('div', { class: 'flex items-center gap-2 shrink-0' }, ...[].concat(control).filter(Boolean)));
@@ -523,6 +524,7 @@ function adminConfigurations() {
   const TYPE_LABELS = [['Office Staff', 'Inside Sales'], ['Sales Rep', 'D2D'], ['Technician', 'Technicians']];
   const autolog = card('Auto-log from FieldRoutes', AL ? pill(AL.enabled ? 'on · every sync' : 'off') : pill('loading…'),
     ...(!AL ? [] : [
+      sub('What gets logged'),
       row('Create sales from CRM subscriptions', sw(!!AL.enabled, () => saveAL({ enabled: !AL.enabled })), { tip: 'Every sync creates one sale per FieldRoutes subscription sold by a linked rep, with the revenue frozen at first sight. Off = reps log by hand.' }),
       row('Rep types', el('div', { class: 'flex items-center gap-3' }, ...TYPE_LABELS.map(([k, l]) => {
         const on = (AL.types || []).includes(k);
@@ -530,15 +532,20 @@ function adminConfigurations() {
           el('input', { type: 'checkbox', checked: on, onchange: () => saveAL({ types: on ? (AL.types || []).filter(x => x !== k) : [...(AL.types || []), k] }) }), l);
       })), { indent: true, small: true }),
       row('Start date', el('input', { type: 'date', value: String(AL.start || '').slice(0, 10), class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { if (e.target.value) saveAL({ start: e.target.value }); } }), { indent: true, small: true, tip: 'Subscriptions sold on or after this date are logged. Earlier ones are ignored.' }),
+      sub('Upfront approval'),
       row('Approval requires an initial appointment on the books', sw(AL.require_appt !== false, () => saveAL({ require_appt: !(AL.require_appt !== false) })), { tip: 'Every subscription is logged; auto-approval (and a payout) waits until the initial appointment is scheduled or completed.' }),
       row('… and billing on file', sw(AL.require_billing !== false, () => saveAL({ require_billing: !(AL.require_billing !== false) })), { tip: 'Customer has autopay (card or ACH) on file in FieldRoutes.' }),
       row('… and a signed agreement', sw(AL.require_signed !== false, () => saveAL({ require_signed: !(AL.require_signed !== false) })), { tip: 'A completed e-sign agreement on the subscription or the customer. The row shows ✓/✗ chips for each requirement; auto-approve waits for all the required ones.' }),
+      sub('FieldRoutes audit flags'),
       row('Charge-upfront tier counts accounts flagged', txt(AL.upfront_flag == null ? 'Passed Audit' : AL.upfront_flag, (v) => saveAL({ upfront_flag: String(v || '').trim() }), { placeholder: 'FieldRoutes customer flag', width: '180px' }), { tip: 'The FieldRoutes customer flag that marks an account as charged upfront / passed the office audit. Accounts carrying it count toward the Charge Upfront % on the Pay tab (70%+ pays 100% of upfront commission; 50–69.9% 95%; 35–49.9% 90%; under 35% 85%). Re-checked every sync, so a flag added later still counts.' }),
       row('Failed-audit flag holds auto-approval', txt(AL.audit_fail_flag == null ? 'Failed Audit' : AL.audit_fail_flag, (v) => saveAL({ audit_fail_flag: String(v || '').trim() }), { placeholder: 'FieldRoutes customer flag', width: '180px' }), { indent: true, small: true, tip: 'Accounts carrying this flag stay in Upfront Sales for manual review instead of auto-approving. Clear the flag (or re-flag Passed) in FieldRoutes and the next sync continues the automated upfront-pay flow. Blank = no hold.' }),
+      sub('Upsells'),
       row('Upsells', sel(AL.upsells || 'manual', [['manual', 'Manual — Log Sale form'], ['auto', 'Automatic — add-on tickets in FieldRoutes']], (v) => saveAL({ upsells: v })), { tip: 'Manual: reps log upsells with the Log Sale form (today). Automatic: once RIDD sells upsells as add-on ticket items in FieldRoutes (Invoices → Add Ticket Item), every matching item becomes an upsell sale for the rep it is assigned to (or the person who added it), and the Log Sale form goes away. Flip this the day the CRM switches — no deploy.' }),
       row('Add-on services', svcPicker(AL.upsell_services || [], (l) => saveAL({ upsell_services: l })), { indent: true, small: true, tip: 'Which service types count as add-ons. Empty = any service whose name contains “add-on” or “upsell”.' }),
+      sub('Backend lock'),
       row('Auto-approve upfront audit', sw(!!AL.auto_approve, () => saveAL({ auto_approve: !AL.auto_approve })), { tip: 'Approved automatically once the CRM shows the initial service completed, a signed agreement (one-time services exempt) and nothing past due. Off = an auditor clicks Approve.' }),
-      row('Backend lock', [el('span', { class: 'text-[11px] text-muted-' }, 'days after sale ≥'), num(AL.lock_days, (v) => saveAL({ lock_days: Math.max(0, parseInt(v, 10) || 0) })), el('span', { class: 'text-[11px] text-muted-' }, 'and services completed ≥'), num(AL.lock_min_services, (v) => saveAL({ lock_min_services: Math.max(0, parseInt(v, 10) || 0) }))], { tip: 'Locks when both are true and the subscription is still active. A cancelled subscription becomes a chargeback instead. Payroll runs stay manual.' }),
+      row('Inside Sales & Technicians lock', [el('span', { class: 'text-[11px] text-muted-' }, 'days after sale ≥'), num(AL.lock_days, (v) => saveAL({ lock_days: Math.max(0, parseInt(v, 10) || 0) })), el('span', { class: 'text-[11px] text-muted-' }, 'and services completed ≥'), num(AL.lock_min_services, (v) => saveAL({ lock_min_services: Math.max(0, parseInt(v, 10) || 0) }))], { tip: 'Locks when both are true and the subscription is still active. A cancelled subscription becomes a chargeback instead. Payroll runs stay manual.' }),
+      row('Sales Reps (D2D) lock', pill('January 31 of the following year'), { tip: 'Fixed rule (per Isaac): every account a door-to-door rep sells in a year locks on Jan 31 of the next year — services completed do not matter. Cancelled before then = chargeback.' }),
     ]));
 
   // ── 4. Indicators ──
