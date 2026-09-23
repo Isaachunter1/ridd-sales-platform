@@ -110,12 +110,12 @@ function viewAdmin() {
   // One flat list, alphabetical (per Isaac, Sep 2026). Sources now lives
   // inside Configurations; the old 'sources' section key still resolves.
   if (state.adminSection === 'sources') state.adminSection = 'config';
+  if (state.adminSection === 'uploads') state.adminSection = 'data';   // Admin section retired (per Isaac, Sep 23) — Data integrity lives under Data sources
   // Non-admins reach this page only through Settings → Permissions, and see
   // only the sections they were granted (Permissions / Admin never).
   const _allowed = (k) => canOpenAdminSection(k);
   const _groupsAll = [
     { label: 'Settings', items: [
-      ['uploads', 'Admin',          '🗂'],
       ['pricing', 'Commissions',    '💵'],
       ['comps',   'Competitions',   '🏆'],
       ['config',  'Configurations', '🧮'],
@@ -2231,7 +2231,15 @@ function adminDataSources() {
       ['Reps linked to their FieldRoutes employee (Users)', (state.allProfiles || []).some(p => p.fieldroutes_employee_id)],
       ['Slack notifications configured', !!(state.appSettings && state.appSettings.slack_channels && state.appSettings.slack_channels.length)],
     ].map(([l, ok]) => el('div', { class: 'flex items-center gap-2 py-1 text-[12px]' }, el('span', { style: { color: ok ? '#5F6C5B' : 'var(--text-subtle)' } }, ok ? '✓' : '○'), el('span', { style: ok ? {} : { color: 'var(--text-muted)' } }, l))));
+  // Data integrity (per Isaac, Sep 23): moved here from the retired Admin
+  // section — collapsed, since it is a diagnostic, not a setting.
+  const diOpen = state._dsIntegrityOpen === true;
+  const diCard = el('div', { class: 'card overflow-hidden' },
+    el('button', { class: 'w-full flex items-center justify-between gap-3 px-5 py-3 text-left', onclick: () => { state._dsIntegrityOpen = !diOpen; mountApp(); } },
+      el('div', {}, el('div', { class: 'text-sm font-bold' }, 'Data integrity'), el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Every judgment call the bridge makes — fallbacks, name matching, cancel tagging — with the rows behind each count.')),
+      el('span', { class: 'text-[11px] text-muted-' }, diOpen ? '▲' : '▼')),
+    diOpen ? el('div', { class: 'px-5 pb-5 flex flex-col gap-4' }, dataIntegrityPanel(), adminDataHygiene()) : null);
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'flex items-center gap-2' }, el('h2', { class: 'text-lg font-bold' }, 'Data sources'), state._integrationsErr ? pill(false, 'run migrations/20260923_integrations.sql') : null),
-    frCard, rvCard, sbCard);
+    frCard, rvCard, sbCard, diCard);
 }
