@@ -284,7 +284,7 @@ function viewD2dDashboard() {
   // same control Technicians and Office Staff have — and drives the
   // leaderboard + record tiles below. The hero card stays fixed
   // Today / Week / Month / Year.
-  const rangeHost = el('div', { class: 'flex items-center gap-2 flex-wrap' });
+  const rangeHost = el('div', { class: 'flex items-center gap-2 flex-wrap dash-toolbar justify-end' });   // same row as the tab dropdown on phones (30-shell, per Isaac Sep 23)
   const _rebuildBoards = () => { lbHost.innerHTML = ''; lbHost.append(buildBoards()); };
   const renderRange = () => {
     rangeHost.innerHTML = '';
