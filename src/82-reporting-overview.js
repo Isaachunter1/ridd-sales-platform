@@ -842,18 +842,19 @@ function reportingOverview() {
       })();
       // Pill tabs (the Revenue Goal pattern) — the ad-hoc segmented control
       // rendered blank / dead on phones (per Isaac, Sep 23).
-      const unitBtn = (v, l) => el('button', { type: 'button', 'data-active': String((state._pulseUnit === 'subs') === (v === 'subs')), onclick: () => { state._pulseUnit = v; mountApp(); } }, l);
+      // (Revenue / Subs toggle lives in the card header now — per Isaac, Sep 23.)
       return el('div', { class: 'mt-3 pt-3 border-t', style: { borderColor: 'var(--border)' } },
         el('div', { class: 'flex items-center justify-between gap-2 flex-wrap mb-1' },
           el('div', {},
             el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' }, title: 'Revenue sold = contract value \u00b7 revenue lost = ARR of counted cancels' + (span > 1 ? ' \u00b7 RIDD is losing ' + (tot.ln / span).toFixed(1) + ' subs / day' : '') }, 'Subscriptions sold vs lost \u00b7 ' + winLabel.toLowerCase() + (dayView ? ' \u00b7 by day' : ' \u00b7 by office')),
             null),
           el('div', { class: 'flex items-center gap-2 flex-wrap justify-end', style: { marginLeft: 'auto' } },   // right-justified (per Isaac, Sep 23)
-            el('div', { class: 'pill-tabs' }, unitBtn('rev', 'Revenue'), unitBtn('subs', 'Subs')),
             el('button', { class: 'text-[10px] font-bold', style: { color: 'var(--accent)' }, title: 'Where the churn came from — the window\'s lost accounts, by office', onclick: () => openWindow('cxl') }, 'See more \u2192'))),
         insights,
         state._pulseDayTable ? el('div', { class: 'scroll-x' }, dayTbl) : null);
     })();
+    const unitBtn = (v, l) => el('button', { type: 'button', 'data-active': String((state._pulseUnit === 'subs') === (v === 'subs')), onclick: () => { state._pulseUnit = v; mountApp(); } }, l);
+    const unitToggle = el('div', { class: 'pill-tabs' }, unitBtn('rev', 'Revenue'), unitBtn('subs', 'Subs'));
     const stat = (label, v, color, kind) => el('button', { class: 'text-left cursor-pointer transition hover:brightness-95', title: 'See the ' + label.toLowerCase() + ' accounts, by office \u2014 and where churn came from', onclick: () => openWindow(kind) },
       el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
       el('div', { class: 'text-base font-black tabular-nums', style: { color } }, fmt.usd0(v)));
@@ -871,7 +872,8 @@ function reportingOverview() {
             class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
             style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
             onchange: (e) => { const v = e.target.value; state._rtPulseSpan = (v === 'today' || v === 'yesterday') ? v : Number(v); mountApp(); },
-          }, ...[['today', 'Today'], ['yesterday', 'Yesterday'], [7, 'Last 7 days'], [30, 'Last 30 days'], [90, 'Last 90 days']].map(([v, l]) => el('option', { value: String(v), selected: single ? spanRaw === v : span === v }, l))))),
+          }, ...[['today', 'Today'], ['yesterday', 'Yesterday'], [7, 'Last 7 days'], [30, 'Last 30 days'], [90, 'Last 90 days']].map(([v, l]) => el('option', { value: String(v), selected: single ? spanRaw === v : span === v }, l))),
+          unitToggle)),
       cvsWrap,
       lostBlock);
   })();
