@@ -3249,6 +3249,7 @@ function iconHistory()   { return svg('<path d="M3 12a9 9 0 1 0 9-9 9.74 9.74 0 
 function iconShield()    { return svg('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>'); }
 function iconCrown()     { return svg('<path d="M2 20h20l-2-10-5 3-5-8-5 8-5-3 2 10z"/><path d="M6 20v0"/><path d="M18 20v0"/>'); }
 function iconChart(s)    { return svg('<path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>', s || 20); }
+function iconHeart(s)    { return svg('<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>', s || 20); }
 function iconPie(s)      { return svg('<path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/>', s || 20); }
 function iconClipboard(s){ return svg('<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6"/><path d="M9 16h4"/>', s || 20); }
 function iconNote(s)     { return svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/>', s || 16); }

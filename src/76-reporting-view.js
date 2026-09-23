@@ -542,13 +542,18 @@ function reportingNextBest() {
             list.length > 300 ? el('tr', {}, el('td', { class: 'px-3 py-3 text-center text-[11px] italic', colspan: 6, style: { color: 'var(--text-subtle)' } }, 'Showing top 300 by expected value — export the CSV for all ' + list.length.toLocaleString() + '.')) : null)))));
 }
 
-function reportingRenewals() {
-  const gate = reportingDataGate();
-  if (gate) return gate;
-  _renewalLogLoad();   // shared disposition log (Supabase; local fallback)
-  const { visible } = reportingFilters();
-  const office = state.reportingOffice || 'all';
-  const rows = reportingFilterByOffice(visible, office);
+function reportingRenewals(srcRows, opts) {
+  opts = opts || {};
+  let rows;
+  if (srcRows) rows = srcRows;   // Renewals tab: rows from the renewal_pipeline view (live CRM mirror)
+  else {
+    const gate = reportingDataGate();
+    if (gate) return gate;
+    const { visible } = reportingFilters();
+    const office = state.reportingOffice || 'all';
+    rows = reportingFilterByOffice(visible, office);
+  }
+  _renewalLogLoad();   // shared disposition log (Supabase realtime; local fallback)
   const now = new Date();
   const isActive = (r) => (r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled;
   // ALREADY RENEWED (per Isaac): a customer holding ANY active subscription
@@ -629,7 +634,9 @@ function reportingRenewals() {
     return 'Eligible';
   };
   const q = String(state._renewalQ || '').trim().toLowerCase();
-  const matchQ = (x) => !q || String(x.name).toLowerCase().includes(q) || String(x.id).includes(q) || String(x.phone || '').includes(q) || String(x.office).toLowerCase().includes(q);
+  const fBranch = String(state._renewalBranch || ''), fMinAcv = Number(state._renewalMinAcv) || 0, fSort = String(state._renewalSort || 'soonest');
+  const matchQ = (x) => (!q || String(x.name).toLowerCase().includes(q) || String(x.id).includes(q) || String(x.phone || '').includes(q) || String(x.office).toLowerCase().includes(q))
+    && (!fBranch || String(x.office) === fBranch) && (!(fMinAcv > 0) || x.arv >= fMinAcv);
   const allRecs = expiring.concat(past);
   const cols = {}; STAGES.forEach(s => cols[s.key] = []);
   allRecs.forEach(x => cols[stageOf(x)].push(x));
@@ -637,7 +644,15 @@ function reportingRenewals() {
   // Eligible: soonest term end first, then past-term biggest ARV; other
   // stages: most recently touched first.
   const touched = (x) => String(logOf(x).updated_at || '');
-  cols.Eligible.sort((a, b) => (a.pastBy >= 0 ? 1 : 0) - (b.pastBy >= 0 ? 1 : 0) || (a.pastBy >= 0 ? b.arv - a.arv : a.toGo - b.toGo));
+  // Sort (per Isaac): soonest term end · most recently out of contract ·
+  // longest out of contract · highest ACV.
+  const SORTS = {
+    soonest: (a, b) => (a.pastBy >= 0 ? 1 : 0) - (b.pastBy >= 0 ? 1 : 0) || (a.pastBy >= 0 ? b.arv - a.arv : a.toGo - b.toGo),
+    newest_out: (a, b) => a.pastBy - b.pastBy,       // just went out of contract first (still-in-term first)
+    oldest_out: (a, b) => b.pastBy - a.pastBy,       // longest out of contract first
+    acv: (a, b) => b.arv - a.arv,
+  };
+  cols.Eligible.sort(SORTS[fSort] || SORTS.soonest);
   ['Contacting', 'Renewed', 'Not Interested'].forEach(k => cols[k].sort((a, b) => touched(b).localeCompare(touched(a))));
   const moveTo = (x, stage) => {
     if (x.crm) return;
@@ -727,6 +742,22 @@ function reportingRenewals() {
   });
   const worked = allRecs.filter(x => stageOf(x) !== 'Eligible').length;
   const renewedManual = cols.Renewed.filter(x => !x.crm).length;
+  const branches = [...new Set(allRecs.map(x => String(x.office || '')).filter(Boolean))].sort();
+  const selCls = 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer';
+  const selSty = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
+  const branchSel = el('select', { class: selCls, style: selSty, onchange: (e) => { state._renewalBranch = e.target.value; mountApp(); } },
+    el('option', { value: '', selected: !fBranch }, 'All branches'), ...branches.map(b => el('option', { value: b, selected: fBranch === b }, _titleCaseWords(b))));
+  const acvIn = el('input', { type: 'text', inputmode: 'numeric', placeholder: 'Min ACV $', value: fMinAcv > 0 ? String(fMinAcv) : '', class: 'rounded-lg border px-2 py-1 text-[11px] tabular-nums', style: Object.assign({ width: '90px' }, selSty),
+    onchange: (e) => { state._renewalMinAcv = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; mountApp(); } });
+  const sortSel = el('select', { class: selCls, style: selSty, title: 'Order of the Eligible column', onchange: (e) => { state._renewalSort = e.target.value; mountApp(); } },
+    ...[['soonest', 'Soonest term end'], ['newest_out', 'Most recently out of contract'], ['oldest_out', 'Longest out of contract'], ['acv', 'Highest ACV']].map(([v, l]) => el('option', { value: v, selected: fSort === v }, l)));
+  if (opts.compact) {
+    return el('div', { class: 'flex flex-col gap-3' },
+      el('div', { class: 'flex items-center gap-2 flex-wrap' }, search, branchSel, acvIn, sortSel,
+        el('span', { class: 'text-[11px] tabular-nums ml-auto', style: { color: 'var(--text-muted)' } }, cols.Eligible.filter(matchQ).length.toLocaleString() + ' eligible · ' + fmt.usd0(arrOf(cols.Eligible.filter(matchQ))) + ' ARR'),
+        exportAll),
+      el('div', { class: 'grid gap-3 renewal-board', style: { gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' } }, ...STAGES.map(column)));
+  }
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'card p-4' },
       el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
@@ -734,7 +765,7 @@ function reportingRenewals() {
           el('h2', { class: 'text-lg font-bold' }, '🔁 Renewals pipeline'),
           el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
             'Eligible = inside the final 2 months of the contract (start date + contract length) or past term and still month-to-month, never renewed before (any Renewal-source sub on the account rules it out), and not Sentricon. Refreshes from the CRM sync. Drag a card between stages or use the stage picker on it; attempts and notes save instantly for everyone.')),
-        el('div', { class: 'flex items-center gap-2 flex-wrap' }, search, exportAll)),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' }, search, branchSel, acvIn, sortSel, exportAll)),
       el('div', { class: 'flex gap-x-4 gap-y-1 flex-wrap mt-2 text-[11px] tabular-nums', style: { color: 'var(--text-muted)' } },
         el('span', {}, el('b', {}, allRecs.length.toLocaleString()), ' eligible contracts · ', el('b', {}, fmt.usd0(arrOf(allRecs))), ' ARR in play'),
         el('span', {}, el('b', {}, worked.toLocaleString()), ' worked · ', el('b', { style: { color: 'var(--ok)' } }, renewedManual.toLocaleString()), ' renewed by the team' + (worked ? ' (' + (renewedManual / worked * 100).toFixed(0) + '%)' : '')),
@@ -755,8 +786,23 @@ function _renewalLogLoad() {
   supabase.from('renewal_worklog').select('*').then(({ data, error }) => {
     if (error) { console.warn('[renewals] worklog load failed (run renewal_worklog.sql?)', error.message); return; }
     (data || []).forEach(r => { state._renewalLog[String(r.customer_id)] = r; });
-    if (state.reportingSubTab === 'waterfall' && state._retenSection === 'renewals') mountApp();
+    if (state.view === 'renewals' || (state.reportingSubTab === 'waterfall' && state._retenSection === 'renewals')) mountApp();
   });
+  // Many reps work the board at once (per Isaac): every save lands on every
+  // open board within a second through the realtime channel, so two people
+  // never drag the same card without seeing it move.
+  try {
+    if (!state._renewalRt) {
+      state._renewalRt = supabase.channel('renewal_worklog_rt')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'renewal_worklog' }, (msg) => {
+          const row = msg.new && msg.new.customer_id ? msg.new : null;
+          if (msg.eventType === 'DELETE') { const k = msg.old && msg.old.customer_id; if (k) delete state._renewalLog[String(k)]; }
+          else if (row) state._renewalLog[String(row.customer_id)] = row;
+          try { localStorage.setItem('ridd_renewal_log_v1', JSON.stringify(state._renewalLog)); } catch (e) { /* quota */ }
+          if (state.view === 'renewals' || (state.reportingSubTab === 'waterfall' && state._retenSection === 'renewals')) { clearTimeout(state._renewalRtT); state._renewalRtT = setTimeout(mountApp, 300); }
+        }).subscribe();
+    }
+  } catch (e) { /* realtime unavailable — saves still land, boards refresh on reload */ }
 }
 function _renewalLogSave(custId, patch) {
   state._renewalLog = state._renewalLog || {};
