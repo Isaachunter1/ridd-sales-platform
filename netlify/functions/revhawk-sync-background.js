@@ -1585,7 +1585,7 @@ exports.handler = async (event) => {
         const _upFlag = String(AL2.upfront_flag ?? 'Passed Audit').trim().toLowerCase();
         const _upfrontOf = (r) => !!_upFlag && !!r && String(r.customer_flags || '').split(',').some(f => f.trim().toLowerCase() === _upFlag);
         const { data: crmSales, error: csErr } = await supabase.from('sales')
-          .select('id, crm_subscription_id, sold_date, audit_status, lock_status, payroll_processed_at, backend_payroll_processed_at, contract_months, notes, crm_audit')
+          .select('id, crm_subscription_id, sold_date, audit_status, lock_status, payroll_processed_at, backend_payroll_processed_at, contract_months, notes, crm_audit, queue_type')
           .not('crm_subscription_id', 'is', null)
           .or('audit_status.eq.pending,lock_status.eq.pending');
         if (csErr) throw new Error(csErr.message);
@@ -1618,6 +1618,12 @@ exports.handler = async (event) => {
           if (lock === 'pending' && s.payroll_processed_at && ['approved', 'serviced'].includes(upd.audit_status || s.audit_status)) {
             const ageDays = (today - (Date.parse(String(s.sold_date || '')) || today)) / 86400000;
             if (cancelled) { upd.lock_status = 'chargeback'; upd.audit_2_at = stamp; }
+            else if (s.queue_type === 'd2d') {
+              // Sales Reps (per Isaac, Sep 23): every account sold in a year locks on
+              // Jan 31 of the FOLLOWING year, always — services completed don't matter.
+              const sy = Number(String(s.sold_date || '').slice(0, 4)) || new Date(today).getFullYear();
+              if (today >= Date.UTC(sy + 1, 0, 31)) { upd.lock_status = 'lock'; upd.audit_2_at = stamp; }
+            }
             else if (ageDays >= lockDays && completed >= minSvc) { upd.lock_status = 'lock'; upd.audit_2_at = stamp; }
           }
           if (!Object.keys(upd).length) continue;
