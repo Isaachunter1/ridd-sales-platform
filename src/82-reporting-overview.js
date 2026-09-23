@@ -644,7 +644,7 @@ function reportingOverview() {
               title: (items) => { const i = items && items[0] ? items[0].dataIndex : -1; return i < 0 ? '' : single ? (labels[i] + ' · ' + longDate(0)) : longDate(i); },
               label: (c) => ' ' + c.dataset.label + ': $' + Math.round(c.parsed.y).toLocaleString(),
               // Net = Sold − Churned for the hovered day / branch (per Isaac, Sep 22).
-              footer: (items) => { const i = items && items[0] ? items[0].dataIndex : -1; if (i < 0) return ''; const n = (Number(dsSold[i]) || 0) - (Number(dsCxl[i]) || 0); return ' Net (sold − churned): ' + (n < 0 ? '−' : '') + '$' + Math.round(Math.abs(n)).toLocaleString(); } } } },
+              footer: (items) => { const i = items && items[0] ? items[0].dataIndex : -1; if (i < 0) return ''; const n = (Number(dsSold[i]) || 0) - (Number(dsCxl[i]) || 0); return ' Net: ' + (n < 0 ? '−' : '') + '$' + Math.round(Math.abs(n)).toLocaleString(); } } } },
           scales: { x: { ticks: { color: txt, maxTicksLimit: span > 30 ? 15 : 31 }, grid: { display: false } },
                     y: { beginAtZero: true, ticks: { color: txt, callback: v => '$' + (v >= 1000 ? Math.round(v / 1000) + 'k' : v) }, grid: { color: grid } } } },
       });
