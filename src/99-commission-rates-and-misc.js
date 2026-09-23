@@ -1093,10 +1093,11 @@ function adminSlack() {
       el('p', { class: 'text-xs text-muted- mb-3' },
         'Find a rep\'s Slack User ID in their Slack profile → ⋮ → Copy member ID. Looks like ',
         el('code', { style: { color: 'var(--accent)' } }, 'U01AB2CD3EF'),
-        '. Required for DMs.',
+        '. Required for DMs. Office staff only — sales reps and technicians don\'t use Slack.',
       ),
       el('div', { class: 'flex flex-col gap-2' },
-        ...profiles.map(p => el('div', { class: 'flex items-center gap-3' },
+        // Office staff only (per Isaac, Sep 23): D2D reps and techs never get Slack DMs.
+        ...profiles.filter(p => p.is_active !== false && (isAdminRole(p.role) || (typeof isOfficeStaffProfile === 'function' ? isOfficeStaffProfile(p) : isOfficeStaffRole(p.role)))).map(p => el('div', { class: 'flex items-center gap-3' },
           el('div', { class: 'flex items-center gap-2 w-44 shrink-0' },
             avatarNode(p.avatar_url, p.initials, 'w-6 h-6 text-[8px]'),
             el('span', { class: 'text-sm font-medium truncate' }, p.full_name),
