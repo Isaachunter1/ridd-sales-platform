@@ -349,6 +349,8 @@ function reportingPieCard({ key, title, slices, formatValue, totalLabel, subline
               },
                 el('div', { style: { width: '8px', height: '8px', borderRadius: '0', background: colorFor(s.label, i), flexShrink: '0' } }),
                 el('div', { class: 'flex-1 truncate', style: { color: 'var(--text)' } }, s.label),
+                // % share of the whole (per Isaac, Sep 23) — skipped where slices aren't parts of a total (hidePercent).
+                (!hidePercent && sliceSum > 0) ? el('div', { class: 'tabular-nums text-[10px] w-10 text-right', style: { color: 'var(--text-subtle)' } }, (s.value / sliceSum * 100).toFixed(1) + '%') : null,
                 el('div', { class: 'tabular-nums', style: { color: 'var(--text-muted)' } }, formatter(s.value)),
               );
               return rowEl;
@@ -366,6 +368,7 @@ function reportingPieCard({ key, title, slices, formatValue, totalLabel, subline
               },
                 el('div', { style: { width: '8px', height: '8px', borderRadius: '0', background: 'var(--text-subtle)', flexShrink: '0' } }),
                 el('div', { class: 'flex-1', style: { color: 'var(--text-muted)' } }, 'Other (' + otherCount + ')'),
+                (!hidePercent && sliceSum > 0) ? el('div', { class: 'tabular-nums text-[10px] w-10 text-right', style: { color: 'var(--text-subtle)' } }, (otherTotal / sliceSum * 100).toFixed(1) + '%') : null,
                 el('div', { class: 'tabular-nums', style: { color: 'var(--text-muted)' } }, formatter(otherTotal)),
               );
             })(),
