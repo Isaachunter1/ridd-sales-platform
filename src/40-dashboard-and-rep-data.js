@@ -5565,7 +5565,21 @@ function idFromName(list, name) { return list.find(x => x.name === name)?.id; }
 // opts.loyalty = loyalty reps only, RENEWAL revenue vs the renewal goal.
 function dashboardGoalCard(range, opts) {
   opts = opts || {}; const LOY = !!opts.loyalty;
-    const daysLeft = daysLeftInGoalPeriod(getGoalForContext());   // was viewDashboard's local before the card was extracted
+    // These were viewDashboard's locals before the card was extracted:
+    const daysLeft = daysLeftInGoalPeriod(getGoalForContext());
+    const { newRevenue, renewalRevenue } = (() => {
+      const EX = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
+      const rIds = new Set((state.sources || []).filter(x => x.is_renewal).map(x => x.id));
+      const isR = (x) => x._crmRenewal ?? rIds.has(x.source_id);
+      let n = 0, r = 0;
+      for (const x of dashboardSales()) {
+        if (EX.has(x.audit_status)) continue;
+        const d = new Date(x.sold_date + 'T00:00');
+        if (isNaN(d) || d < range.start || d > range.end) continue;
+        if (isR(x)) r += Number(x.revenue_amount || 0); else n += Number(x.revenue_amount || 0);
+      }
+      return { newRevenue: n, renewalRevenue: r };
+    })();
     const now2 = new Date();
     const dayOfYear = Math.floor((now2 - new Date(now2.getFullYear(), 0, 0)) / 86400000);
     const expectedPct = dayOfYear / 365;   // even time — no longer drives the bars (seasonal pace below); kept for reference
