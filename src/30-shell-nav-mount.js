@@ -466,7 +466,7 @@ function usagePing(event, detail) {
 // screenshots / screen recordings. Files go to the private "feedback"
 // bucket under the sender's folder, the note + attachment list hit
 // /api/feedback (Slack + usage_events.meta), and admins see it all under
-// Settings → Users → Adoption → Feedback.
+// Settings → Usage → Adoption → Feedback.
 function openFeedbackModal() {
   const overlay = el('div', { class: 'modal-overlay' });
   const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
