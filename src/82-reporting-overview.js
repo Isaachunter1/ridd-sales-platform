@@ -58,7 +58,7 @@ function reportingOverview() {
         ),
         compareRow('Subscriptions Serviced', dataA.stats.servicedSubs != null ? dataA.stats.servicedSubs : dataA.stats.subs, dataB.stats.servicedSubs != null ? dataB.stats.servicedSubs : dataB.stats.subs, (n) => n.toLocaleString()),
         compareRow('Active Recurring',  dataA.stats.activeRecurring, dataB.stats.activeRecurring, (n) => n.toLocaleString()),
-        compareRow('Active ARV',        dataA.stats.activeArr,       dataB.stats.activeArr,       (n) => '$' + Math.round(n).toLocaleString()),
+        compareRow('Active ARR',        dataA.stats.activeArr,       dataB.stats.activeArr,       (n) => '$' + Math.round(n).toLocaleString()),
         compareRow('Unique Customers',  dataA.stats.uniqueCustomers, dataB.stats.uniqueCustomers, (n) => n.toLocaleString()),
         // For cancellations, lower is better — flip the color logic so
         // the lower-cancellation office reads as the winner (green).
@@ -90,12 +90,12 @@ function reportingOverview() {
 
   // Each chart definition fired through both offices when in compare mode.
   const chartDefs = [
-    { id: 'rarr',       title: 'Recurring Annual Value by Service', subline: 'Sum of Annual Recurring Value · active subs',           totalLabel: 'Active ARV',          formatValue: fmt.usd0, sliceKey: 'rarr',
+    { id: 'rarr',       title: 'Active ARR by Service', subline: 'Annual recurring revenue · serviced, active subs',           totalLabel: 'Active ARR',          formatValue: fmt.usd0, sliceKey: 'rarr',
       footer: (d) => ({
         label: '🧮 Combine service types → total ARR',
         onClick: () => openReportingArrCombineModal(d, 'Recurring Annual Value by Service'),
       }) },
-    { id: 'rarrOffice', title: 'Recurring Annual Value by Office',  subline: 'Sum of Annual Recurring Value · active subs',           totalLabel: 'Active ARV',          formatValue: fmt.usd0, sliceKey: 'rarrOffice' },
+    { id: 'rarrOffice', title: 'Active ARR by Office',  subline: 'Annual recurring revenue · serviced, active subs',           totalLabel: 'Active ARR',          formatValue: fmt.usd0, sliceKey: 'rarrOffice' },
     { id: 'activesubs', title: 'Subscriptions Active',     subline: 'Currently in service · by subscription type',           totalLabel: 'Subscriptions active',         sliceKey: 'activeSubs' },
     // Receivables — one card, two lenses (per Isaac, Sep 2026): every
     // customer's real balance by AGE (Current → 90+), or the past-due
@@ -288,7 +288,7 @@ function reportingOverview() {
     return { rows, total: g.length };
   })();
   const COLUMN_CARDS = [
-    { key: 'arr',       label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: 'from active recurring subs',                                        chartIds: ['rarr', 'rarrOffice'] },   // (One-Time Revenue donut folded into the One-Time Subscriptions toggle)
+    { key: 'arr',       label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: (dataA.stats.pendingArr > 0 ? '+ $' + Math.round(dataA.stats.pendingArr).toLocaleString() + ' pending \u00b7 ' + Number(dataA.stats.pendingArrSubs || 0).toLocaleString() + ' sold, not yet serviced' : 'serviced, active recurring subs'),                                        chartIds: ['rarr', 'rarrOffice'] },   // (One-Time Revenue donut folded into the One-Time Subscriptions toggle)
     { key: 'subs',      label: 'Subscriptions Serviced',  value: (_topFunnel ? _topFunnel.rows.length : (dataA.stats.servicedSubs != null ? dataA.stats.servicedSubs : dataA.stats.subs)).toLocaleString(), sub: 'received an initial service \u00b7 of ' + (_topFunnel ? _topFunnel.total : dataA.stats.subs).toLocaleString() + ' in FieldRoutes \u00b7 ' + dataA.stats.recurring.toLocaleString() + ' recurring', chartIds: ['sources', 'onetimeSubs', 'retiredSubs'] },
     { key: 'active',    label: 'Subscriptions Active',    value: (reportingActiveInclOneTime() ? dataA.stats.activeSubs : dataA.stats.activeRecurring).toLocaleString(), sub: reportingActiveInclOneTime() ? 'currently in service · incl. one-time' : 'currently in service · recurring', chartIds: ['activesubs', 'agreement'] },   // (Agreement Length Mix moved here from column 1, per Isaac)
     { key: 'customers', label: 'Customers Active',        value: (dataA.stats.activeCustomers != null ? dataA.stats.activeCustomers : dataA.stats.uniqueCustomers).toLocaleString(), sub: (dataA.stats.distinctActiveServices != null ? dataA.stats.distinctActiveServices : dataA.stats.distinctServices) + ' active services', chartIds: ['custDepth', 'tenure'] },   // (Active Customers donut retired, per Isaac; Services per Customer added)
@@ -731,16 +731,19 @@ function openArrStepsModal(scope, dataA) {
     const inOffice = new Set(reportingFilterByOffice(cur, scope.office));
     step('Keep the selected office(s)', 'Office filter on this tab: ' + officeLabel(scope.office) + '.', r => inOffice.has(r), 'filter');
   }
-  step('Remove non-recurring service types', 'One-time services and any service type not classed Recurring (Configurations → Services). Their ARV never counts toward ARR.', r => F.isRecurring(r), 'app rule');
+  step('Remove non-recurring service types', 'One-time services and any service type not classed Recurring (Configurations → Services). Their value never counts toward ARR.', r => F.isRecurring(r), 'app rule');
   step('Remove cancelled subscriptions', 'Any cancel date on the subscription — whatever the reason. (Attrition rules about RORs and excluded reasons decide what counts as churn, not what is active.)', r => !r.subscription_date_canceled, 'app rule');
-  step('Keep only status = Active', 'Frozen, inactive, pending and every other CRM status leaves here. What remains is the Active ARR book.', r => (r.subscription_status || '').toLowerCase() === 'active', 'app rule');
+  step('Keep only status = Active', 'Frozen, inactive, pending and every other CRM status leaves here.', r => (r.subscription_status || '').toLowerCase() === 'active', 'app rule');
+  const activeAll = cur;
+  step('Keep only subs that completed their initial service', 'Sold but not yet serviced is PENDING ARR, shown below \u2014 revenue is not recurring until the first visit happens (per Isaac, Sep 24). What remains is the Active ARR book.', r => !!r.initial_service, 'app rule');
   const active = cur;
+  const pending = activeAll.filter(r => !r.initial_service);
   const zeroArr = active.filter(r => arr(r) <= 0);
   const total = sumArr(active);
   const headline = Number(dataA && dataA.stats && dataA.stats.activeArr) || 0;
 
   const n = (v) => Number(v || 0).toLocaleString('en-US');
-  const drill = (title, rows, what) => rows.length ? () => openReportingDrillModal({ chartTitle: 'Active ARR steps · ' + title, sliceLabel: n(rows.length) + ' subscription' + (rows.length === 1 ? '' : 's') + ' · ' + fmt.usd0(sumArr(rows)) + ' ARV · ' + what, rows, formatValue: fmt.usd0 }) : null;
+  const drill = (title, rows, what) => rows.length ? () => openReportingDrillModal({ chartTitle: 'Active ARR steps · ' + title, sliceLabel: n(rows.length) + ' subscription' + (rows.length === 1 ? '' : 's') + ' · ' + fmt.usd0(sumArr(rows)) + ' ARR · ' + what, rows, formatValue: fmt.usd0 }) : null;
   const clickable = (node, fn) => { if (fn) { node.classList.add('cursor-pointer', 'hover:underline'); node.onclick = (e) => { e.stopPropagation(); fn(); }; } return node; };
   const chip = (t) => el('span', { class: 'text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full shrink-0', style: { color: 'var(--text-subtle)', border: '1px solid var(--border)' } }, t);
   const row = (i, st) => el('div', { class: 'flex items-start gap-3 py-2 border-t', style: { borderColor: 'var(--border)' } },
@@ -748,7 +751,7 @@ function openArrStepsModal(scope, dataA) {
     el('div', { class: 'flex-1 min-w-0' }, el('div', { class: 'text-sm font-semibold' }, st.title), el('div', { class: 'text-[11px] text-muted-' }, st.detail)),
     el('div', { class: 'text-right shrink-0 tabular-nums' },
       clickable(el('div', { class: 'text-sm font-bold', style: { color: st.removed.length ? '#DC2626' : 'var(--text-subtle)' } }, st.removed.length ? '−' + n(st.removed.length) + ' subs' : '0'), drill(st.title, st.removed, 'removed by this step')),
-      clickable(el('div', { class: 'text-[10px] font-semibold', style: { color: st.removed.length ? '#DC2626' : 'var(--text-subtle)' } }, st.removed.length ? '−' + fmt.usd0(sumArr(st.removed)) + ' ARV' : ''), drill(st.title, st.removed, 'removed by this step')),
+      clickable(el('div', { class: 'text-[10px] font-semibold', style: { color: st.removed.length ? '#DC2626' : 'var(--text-subtle)' } }, st.removed.length ? '−' + fmt.usd0(sumArr(st.removed)) + ' ARR' : ''), drill(st.title, st.removed, 'removed by this step')),
       clickable(el('div', { class: 'text-[10px] font-semibold', style: { color: 'var(--text-muted)' } }, n(st.kept.length) + ' remain · ' + fmt.usd0(sumArr(st.kept))), drill(st.title + ' · remaining', st.kept, 'still in after this step'))),
     chip(st.tag));
   const totalRow = (label, rows, sub, strong) => el('div', { class: 'flex items-center justify-between gap-3 py-2 border-t-2', style: { borderColor: 'var(--border-2)' } },
@@ -763,11 +766,12 @@ function openArrStepsModal(scope, dataA) {
     el('div', { class: 'flex items-start justify-between gap-3' },
       el('div', {}, el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Active ARR · step by step'),
         el('div', { class: 'text-lg font-black' }, 'Everything in FieldRoutes → Active ARR'),
-        el('div', { class: 'text-[11px] text-muted-' }, 'The same rules the Overview applies, one at a time. ARV = each subscription’s annual recurring value in FieldRoutes. Click any number for the accounts.')),
+        el('div', { class: 'text-[11px] text-muted-' }, 'The same rules the Overview applies, one at a time. ARR = each subscription’s annual recurring revenue in FieldRoutes. Click any number for the accounts.')),
       el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', onclick: () => { overlay.remove(); document.removeEventListener('keydown', closeKey); } }, '×')),
     totalRow('Everything in FieldRoutes', raw, 'Every subscription in the synced snapshot, any status, any service type — the top of the funnel.', false),
     ...steps.map((st, i) => row(i + 1, st)),
-    totalRow('Active ARR', active, zeroArr.length ? n(zeroArr.length) + ' of these active subs carry $0 ARV in FieldRoutes and add nothing — click to see them' : 'Sum of ARV across active recurring subscriptions.', true),
+    totalRow('Active ARR', active, zeroArr.length ? n(zeroArr.length) + ' of these active subs carry $0 ARR in FieldRoutes and add nothing — click to see them' : 'Sum of ARR across serviced, active recurring subscriptions.', true),
+    totalRow('Pending ARR', pending, 'Sold and active, initial service not completed yet \u2014 what Active ARR grows by once these are serviced (net of any that cancel first).', false),
     zeroArr.length ? clickable(el('div', { class: 'text-[10px] font-semibold text-right', style: { color: 'var(--text-muted)' } }, n(zeroArr.length) + ' active subs at $0 ARV →'), drill('Active subs with $0 ARV', zeroArr, 'active but contributing no ARR')) : null,
     Math.abs(total - headline) > 1 ? el('div', { class: 'text-[10px] font-semibold', style: { color: '#B45309' } }, 'Note: the card shows ' + fmt.usd0(headline) + '; these steps total ' + fmt.usd0(total) + '. The difference means a rule changed since the page rendered — reload the tab.') : null));
   document.body.append(overlay);
