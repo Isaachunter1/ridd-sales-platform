@@ -116,7 +116,7 @@ function reportingOverview() {
     // Customers Active, second donut (per Isaac, Sep 2026): how deep each
     // active customer is (1 / 2 / 3+ active services) or where they are.
     { id: 'custDepth',  title: 'Sentricon Watch',
-      subline: state._rtCustView === 'office' ? 'Distinct active customers by office' : 'Active customers: no Sentricon, Sentricon alongside a pest plan, or Sentricon only',
+      subline: state._rtCustView === 'office' ? 'Distinct active customers by office' : 'Active customers with no active Sentricon subscription, Sentricon alongside a pest plan, or Sentricon only',
       totalLabel: 'Active customers', sliceKey: state._rtCustView === 'office' ? 'custOffice' : 'custDepth', preserveOrder: state._rtCustView !== 'office',
       headerRight: () => el('div', { class: 'inline-flex shrink-0', style: { border: '1px solid var(--border-2)' } },
         ...[['depth', 'Depth'], ['office', 'By office']].map(([v, l]) => el('button', {
