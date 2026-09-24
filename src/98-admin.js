@@ -2076,22 +2076,50 @@ function d2dRepGoalsCard(partnerOnly) {
       mountApp();
     }).catch(() => { state._repGoalsLoaded = true; });
   }
+  // Goals for roster reps WITHOUT an app account (rep_name_goals, by name).
+  if (state._repNameGoalsYear !== year && !DEMO && supabase) {
+    state._repNameGoalsYear = year; state._repNameGoals = state._repNameGoals || {};
+    supabase.from('rep_name_goals').select('name,revenue,goals').eq('year', year).then(({ data }) => {
+      state._repNameGoals = {}; (data || []).forEach(r => { state._repNameGoals[r.name] = { annual_revenue_goal: r.revenue, year_goals: r.goals || {} }; });
+      mountApp();
+    }).catch(() => {});
+  }
   const reach = partnerOnly ? myReachTeams() : null;
+  const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  const _teamOf = (n) => (typeof getRepTeam === 'function' && (getRepTeam(n) || (typeof getCanonicalRepName === 'function' ? getRepTeam(getCanonicalRepName(n)) : ''))) || '';
   // Active in the app AND active in Manage Teams (per Isaac, Sep 23).
-  const _mtActive = (p) => { if (typeof isRepActive !== 'function') return true; const c = (typeof getCanonicalRepName === 'function') ? getCanonicalRepName(p.full_name) : p.full_name; return isRepActive(p.full_name) || (c !== p.full_name && isRepActive(c)); };
-  const reps = (state.allProfiles || []).filter(p => p.is_active !== false && slackTypeOfProfile(p) === 'd2d' && _mtActive(p))
-    .map(p => ({ p, team: (typeof getRepTeam === 'function' && (getRepTeam(p.full_name) || (typeof getCanonicalRepName === 'function' ? getRepTeam(getCanonicalRepName(p.full_name)) : ''))) || '' }))
-    .filter(x => !reach || (x.team && reach.has(x.team)))
-    .sort((a, b) => (a.team || 'zzz').localeCompare(b.team || 'zzz') || a.p.full_name.localeCompare(b.p.full_name));
+  const _mtActive = (n) => { if (typeof isRepActive !== 'function') return true; const c = (typeof getCanonicalRepName === 'function') ? getCanonicalRepName(n) : n; return isRepActive(n) || (c !== n && isRepActive(c)); };
+  const profBySig = new Map();
+  (state.allProfiles || []).forEach(p => { if (p.full_name) profBySig.set(_sig(p.full_name), p); });
+  // Every rep Manage Teams assigns to a team (per Isaac, Sep 24 — Grayson
+  // sees ALL of the Dawgs, not just the ones with an app login) + any app
+  // D2D profile. A profile row carries its goals on the profile; a
+  // roster-only row keeps them in rep_name_goals under the CRM name.
+  const seen = new Set(), reps = [];
+  const push = (name, p) => {
+    const key = _sig(name); if (!key || seen.has(key)) return; seen.add(key);
+    const team = _teamOf(name) || (p ? _teamOf(p.full_name) : '');
+    if (reach && !(team && reach.has(team))) return;
+    const disp = p ? p.full_name : (typeof flipLastFirst === 'function' ? flipLastFirst(name) : name);
+    const g = p ? p : ((state._repNameGoals || {})[name] || { annual_revenue_goal: 0, year_goals: {} });
+    reps.push({ p, name, disp, team, g });
+  };
+  Object.keys(state._indicatorRepTeam || {}).forEach(n => { if (_mtActive(n)) push(n, profBySig.get(_sig(n)) || null); });
+  (state.allProfiles || []).filter(p => p.is_active !== false && slackTypeOfProfile(p) === 'd2d' && _mtActive(p.full_name)).forEach(p => push(p.full_name, p));
+  reps.sort((a, b) => (a.team || 'zzz').localeCompare(b.team || 'zzz') || a.disp.localeCompare(b.disp));
   const usd = (n) => '$' + Math.round(n || 0).toLocaleString();
-  const save = async (p, patch) => {
-    const yg = Object.assign({}, p.year_goals || {}, patch.year_goals || {});
-    const rev = patch.annual_revenue_goal != null ? patch.annual_revenue_goal : (Number(p.annual_revenue_goal) || 0);
-    if (DEMO || !supabase) { p.annual_revenue_goal = rev; p.year_goals = yg; saveDemoData(); return; }
-    const { error } = await supabase.rpc('set_rep_goals', { target: p.id, revenue: rev, goals: yg });
-    if (error) { toast(/set_rep_goals/.test(String(error.message)) ? 'Run migrations/20260923_rep_goals.sql in Supabase first' : ('Could not save: ' + error.message), 'error'); return; }
-    p.annual_revenue_goal = rev; p.year_goals = yg;
-    logActivity('config_change', { detail: 'Rep goals · ' + p.full_name + ' · ' + JSON.stringify(patch) });
+  const save = async (r, patch) => {
+    const g = r.g;
+    const yg = Object.assign({}, g.year_goals || {}, patch.year_goals || {});
+    const rev = patch.annual_revenue_goal != null ? patch.annual_revenue_goal : (Number(g.annual_revenue_goal) || 0);
+    if (DEMO || !supabase) { g.annual_revenue_goal = rev; g.year_goals = yg; saveDemoData(); return; }
+    const { error } = r.p
+      ? await supabase.rpc('set_rep_goals', { target: r.p.id, revenue: rev, goals: yg })
+      : await supabase.rpc('set_rep_name_goals', { yr: year, nm: r.name, revenue: rev, goals: yg });
+    if (error) { toast(/set_rep_goals|set_rep_name_goals|rep_name_goals/.test(String(error.message)) ? 'Run migrations/20260924_rep_name_goals.sql in Supabase first' : ('Could not save: ' + error.message), 'error'); return; }
+    g.annual_revenue_goal = rev; g.year_goals = yg;
+    if (!r.p) (state._repNameGoals = state._repNameGoals || {})[r.name] = g;
+    logActivity('config_change', { detail: 'Rep goals · ' + r.disp + ' · ' + JSON.stringify(patch) });
     toast('Saved', 'success');
   };
   const inp = (val, onSave, o = {}) => el('input', Object.assign({
@@ -2101,21 +2129,21 @@ function d2dRepGoalsCard(partnerOnly) {
   }));
   const th = (t) => el('th', { class: 'text-left px-2 py-2 text-[10px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)' } }, t);
   const COLS = [['Revenue goal', 'annual_revenue_goal'], ['Accounts', 'accounts'], ['Avg contract $', 'acv'], ['Retained %', 'retained_pct'], ['Other goal', 'other']];
-  const repRow = (p) => {
-    const yg = p.year_goals || {};
+  const repRow = (r) => {
+    const g = r.g, yg = g.year_goals || {};
     return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-      el('td', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap' }, p.full_name),
-      el('td', { class: 'px-2 py-1' }, inp(Number(p.annual_revenue_goal) ? Math.round(Number(p.annual_revenue_goal)).toLocaleString() : '', (v) => save(p, { annual_revenue_goal: v }), { placeholder: '$' })),
-      el('td', { class: 'px-2 py-1' }, inp(yg.accounts, (v) => save(p, { year_goals: { accounts: v } }), { placeholder: '#' })),
-      el('td', { class: 'px-2 py-1' }, inp(yg.acv, (v) => save(p, { year_goals: { acv: v } }), { placeholder: '$' })),
-      el('td', { class: 'px-2 py-1' }, inp(yg.retained_pct, (v) => save(p, { year_goals: { retained_pct: v } }), { placeholder: '%' })),
-      el('td', { class: 'px-2 py-1' }, inp(yg.other, (v) => save(p, { year_goals: { other: v } }), { text: true, placeholder: 'e.g. 40 Sentricon' })));
+      el('td', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap' }, r.disp, r.p ? null : el('span', { class: 'ml-1.5 text-[9px] font-normal', style: { color: 'var(--text-subtle)' }, title: 'No app login yet — goals are kept under the CRM name and carry over when they sign up' }, 'no login')),
+      el('td', { class: 'px-2 py-1' }, inp(Number(g.annual_revenue_goal) ? Math.round(Number(g.annual_revenue_goal)).toLocaleString() : '', (v) => save(r, { annual_revenue_goal: v }), { placeholder: '$' })),
+      el('td', { class: 'px-2 py-1' }, inp(yg.accounts, (v) => save(r, { year_goals: { accounts: v } }), { placeholder: '#' })),
+      el('td', { class: 'px-2 py-1' }, inp(yg.acv, (v) => save(r, { year_goals: { acv: v } }), { placeholder: '$' })),
+      el('td', { class: 'px-2 py-1' }, inp(yg.retained_pct, (v) => save(r, { year_goals: { retained_pct: v } }), { placeholder: '%' })),
+      el('td', { class: 'px-2 py-1' }, inp(yg.other, (v) => save(r, { year_goals: { other: v } }), { text: true, placeholder: 'e.g. 40 Sentricon' })));
   };
   // Broken out by team like Manage Teams (per Isaac, Sep 23): one accordion
   // section per team — logo / colour dot, name, rep count, goals total —
   // toggled in the DOM. Partners' own teams start open; admins start closed.
   const byTeam = new Map();
-  for (const { p, team } of reps) { const k = team || '(unassigned)'; if (!byTeam.has(k)) byTeam.set(k, []); byTeam.get(k).push(p); }
+  for (const r of reps) { const k = r.team || '(unassigned)'; if (!byTeam.has(k)) byTeam.set(k, []); byTeam.get(k).push(r); }
   if (!(state._goalTeamsOpen instanceof Set)) state._goalTeamsOpen = new Set(partnerOnly ? [...byTeam.keys()] : []);
   const openSet = state._goalTeamsOpen;
   const colgroup = () => el('colgroup', {}, el('col', { style: { width: '22%' } }), el('col', { style: { width: '16%' } }), el('col', { style: { width: '12%' } }), el('col', { style: { width: '14%' } }), el('col', { style: { width: '12%' } }), el('col', {}));
@@ -2123,7 +2151,7 @@ function d2dRepGoalsCard(partnerOnly) {
     const real = t !== '(unassigned)';
     const logo = real && typeof getTeamLogo === 'function' ? getTeamLogo(t) : '';
     const color = real && typeof getTeamColor === 'function' ? getTeamColor(t) : 'var(--border-2)';
-    const tTotal = ps.reduce((a, p) => a + (Number(p.annual_revenue_goal) || 0), 0);
+    const tTotal = ps.reduce((a, r) => a + (Number(r.g.annual_revenue_goal) || 0), 0);
     const open = openSet.has(t);
     const body = el('div', { style: { display: open ? '' : 'none' } },
       el('table', { class: 'text-xs', style: { width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' } },
@@ -2140,7 +2168,7 @@ function d2dRepGoalsCard(partnerOnly) {
       el('span', { class: 'text-[11px] text-muted-' }, open ? '\u25b2' : '\u25bc'));
     return [head, body];
   }).flat();
-  const total = reps.reduce((a, x) => a + (Number(x.p.annual_revenue_goal) || 0), 0);
+  const total = reps.reduce((a, x) => a + (Number(x.g.annual_revenue_goal) || 0), 0);
   return el('div', { class: 'card p-4' },
     el('div', { class: 'flex items-center justify-between flex-wrap gap-2 mb-3' },
       el('h3', { class: 'text-sm font-bold' }, (partnerOnly ? 'My team' : 'Door to Door') + ' · ' + year + ' rep goals'),
