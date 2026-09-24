@@ -1758,10 +1758,10 @@ function reportingWaterfall() {
     const dateIn = (key, val) => el('input', { type: 'date', value: val, class: 'rounded-lg border px-1.5 py-0.5 text-[10px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
       onchange: (e) => { if (e.target.value) { state[key] = e.target.value; mountApp(); } } });
     const controls = el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
-      winSel,
-      win === 'custom' ? dateIn('_rtChurnFrom', range[0]) : null, win === 'custom' ? el('span', { class: 'text-[10px] text-muted-' }, '–') : null, win === 'custom' ? dateIn('_rtChurnTo', range[1]) : null,
+      pill(mode === 'subs', 'Subs', () => { state._rtChurnMode = 'subs'; mountApp(); }), pill(mode === 'arr', 'ARR', () => { state._rtChurnMode = 'arr'; mountApp(); }),
       el('span', { style: { width: '6px' } }),
-      pill(mode === 'subs', 'Subs', () => { state._rtChurnMode = 'subs'; mountApp(); }), pill(mode === 'arr', 'ARR', () => { state._rtChurnMode = 'arr'; mountApp(); }));
+      winSel,
+      win === 'custom' ? dateIn('_rtChurnFrom', range[0]) : null, win === 'custom' ? el('span', { class: 'text-[10px] text-muted-' }, '–') : null, win === 'custom' ? dateIn('_rtChurnTo', range[1]) : null);
     const reasonSel = el('select', { class: 'rounded-lg border px-2 py-0.5 text-[10px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', maxWidth: '220px' },
       onchange: (e) => { state._rtChurnReason = e.target.value; state._rtChurnExcl = null; mountApp(); } },
       el('option', { value: 'all', selected: rsel === 'all' }, 'All reasons (' + inWin.length + ')'),
