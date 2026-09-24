@@ -116,14 +116,21 @@ function frPendingServiced(s) {
   // cancelled unserviced sale were exactly that sale high in the app
   // (Karson +$968 etc). Serviced accounts that cancel LATER still count —
   // the serviced-evidence check above already returned for those.
-  if (String(s.active || '').trim().toLowerCase() === 'no') return false;
+  // `active` arrives as Yes/No on CSV exports and as the status text
+  // (Active / Frozen / Inactive) on the live mirror — read both (Cindy Elias
+  // #181739, Sep 24: cancel + same-day rebook, status Active, stale SNS
+  // reason, was dropped because 'Active' !== 'yes').
+  const _act = String(s.active || '').trim().toLowerCase();
+  const _alive = _act === 'yes' || _act === 'active' || _act === '1' || _act === 'true';
+  const _dead = _act === 'no' || _act === 'frozen' || _act === 'inactive' || _act === '0' || _act === 'false';
+  if (_dead) return false;
   // Sold-Not-Started CANCELLATION REASON excludes — but only while the
   // subscription is actually dead. The Jul 2026 row-level reconcile caught
   // 12 accounts the CRM still counts whose mirror rows carry a stale SNS
   // reason from a cancel + rebook: if FieldRoutes says the sub is active
   // again, the old reason must not bury the sale. True SNS (cancelled, no
   // service) stays excluded. 3-day RORs are NOT excluded here — they count.
-  if (_isSoldNotStarted(s) && String(s.active || '').trim().toLowerCase() !== 'yes') return false;
+  if (_isSoldNotStarted(s) && !_alive) return false;
   if (_scInitialStatusHasData()) {
     const ist = String(s.initialStatus || '').trim().toLowerCase();
     // Pending/Serviced = the account has MADE IT TO THE SCHEDULE (initial
