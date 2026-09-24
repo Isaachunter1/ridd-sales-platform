@@ -9702,28 +9702,34 @@ function indicatorYoYTrendChart() {
     const _tierLab = _tierSplit ? _yoySelTiers.map(t => (YOY_TIERS.find(x => x[0] === t) || [])[1] || t).join(' + ') : '';
     const _granLab = gran === 'year' ? 'Years' : (gran === 'month' ? 'Months' : 'Weeks') + ' \u00b7 ' + _yoySelYears.slice().sort().join('/');
     const _nX = Object.values(indicatorExcl()).filter(Boolean).length;
+    // Trigger is a search box styled like the Leaderboard's (per Isaac,
+    // Sep 24): typing opens the panel with matches; picked reps stay listed
+    // at the top with their checkmarks until Apply.
     const _nReps = _yoySelScopes.filter(sc => sc.t === 'rep').length;
-    const label = _nReps ? (_nReps === 1 ? _yoySelScopes[0].v : _nReps + ' reps') : 'Reps';
-    const btn = el('button', {
-      class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer border flex items-center gap-1.5',
-      style: multi
-        ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
-        : { borderColor: 'var(--border-2)', color: 'var(--text)' },
-      title: 'Overlay departments, offices, teams, or individual reps as their own lines (multiplies with Years and Type — up to 14 lines)',
-      onclick: (e) => {
-        e.stopPropagation();
-        const open = panel.style.display === 'block';
-        panel.style.display = open ? 'none' : 'block';
-        state._yoyScopesOpen = !open;
-        if (!open) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
-          if (wrap.contains(ev.target)) return;
-          panel.style.display = 'none'; state._yoyScopesOpen = false;
-          document.removeEventListener('mousedown', closer);
-        }), 0); }
-      },
-    }, label);
-    btn.title = 'Scope: ' + label + ' — ' + btn.title;
-    if (state._yoyScopesOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+    const openPanel = () => {
+      if (panel.style.display === 'block') return;
+      panel.style.display = 'block'; state._yoyScopesOpen = true;
+      clampDropdownPanel(panel);
+      setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+        if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
+        if (wrap.contains(ev.target)) return;
+        panel.style.display = 'none'; state._yoyScopesOpen = false;
+        document.removeEventListener('mousedown', closer);
+      }), 0);
+    };
+    const btn = el('input', {
+      type: 'text', autocomplete: 'off',
+      placeholder: _nReps ? (_nReps === 1 ? _yoySelScopes[0].v : _nReps + ' reps overlaid') : 'Search rep\u2026',
+      class: 'rounded-lg border px-2.5 py-1 text-[11px]',
+      style: { borderColor: _nReps ? 'var(--accent)' : 'var(--border-2)', minWidth: '160px', background: 'var(--card)', color: 'var(--text)' },
+      title: 'Overlay specific reps as their own lines',
+      onfocus: openPanel,
+      onclick: (e) => { e.stopPropagation(); openPanel(); },
+      oninput: (e) => { openPanel(); paintReps(e.target.value); },
+    });
+    // The panel's own search box is redundant now — the trigger IS the search.
+    repSearch.style.display = 'none';
+    if (state._yoyScopesOpen) { panel.style.display = 'block'; clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
       if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
       if (wrap.contains(ev.target)) return;
       panel.style.display = 'none'; state._yoyScopesOpen = false;
