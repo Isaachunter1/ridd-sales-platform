@@ -759,10 +759,24 @@ function reportingWaterfall() {
           el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×'))),
       el('div', { class: 'px-4 pb-4 overflow-y-auto' },
         el('div', { class: 'flex gap-2 flex-wrap mb-3' },
-          stat('B.O.Y. book', fmt.int(boyRows.length), null, boyRows),
-          stat('Churned', fmt.int(attr.length), (rate * 100).toFixed(2) + '% attrition', attr),
-          stat('ARR lost', money0(arrOf(attr)), null, [...attr].sort((a, b) => (Number(b.annual_recurring_value) || 0) - (Number(a.annual_recurring_value) || 0))),
-          stat('Median lifetime', median.toFixed(1) + ' mo', Math.round(under12 * 100) + '% left within 12 mo', attr.filter(r => { const v = lifeMonths(r); return v != null && v < 12; })),
+          // Book at the START of the period (BOM for a month, BOY for a year)
+          // and at its END — EOM/EOY, or MTD/YTD while the period is still
+          // running (per Isaac, Sep 24; replaces Median lifetime).
+          (() => {
+            const _todayIso = new Date().toISOString().slice(0, 10);
+            const periodEndExcl = month ? (month === 12 ? (year + 1) + '-01-01' : year + '-' + pad2(month + 1) + '-01') : (year + 1) + '-01-01';
+            const running = periodEndExcl > _todayIso;
+            const endRows = rows.filter(r => r.initial_service < periodEndExcl && (!r._effCancel || r._effCancel >= periodEndExcl));
+            const startLbl = month ? 'B.O.M. book' : 'B.O.Y. book';
+            const endLbl = running ? (month ? 'M.T.D. book' : 'Y.T.D. book') : (month ? 'E.O.M. book' : 'E.O.Y. book');
+            const net = endRows.length - boyRows.length;
+            return [
+              stat(startLbl, fmt.int(boyRows.length), null, boyRows),
+              stat('Churned', fmt.int(attr.length), (rate * 100).toFixed(2) + '% attrition', attr),
+              stat('ARR lost', money0(arrOf(attr)), null, [...attr].sort((a, b) => (Number(b.annual_recurring_value) || 0) - (Number(a.annual_recurring_value) || 0))),
+              stat(endLbl, fmt.int(endRows.length), (net >= 0 ? '+' : '\u2212') + fmt.int(Math.abs(net)) + ' net vs start' + (running ? ' · so far' : ''), endRows),
+            ];
+          })(),
           earlyLosses.length > 0 && stat('Early losses', fmt.int(earlyLosses.length), money0(arrOf(earlyLosses)) + ' ARR — sold & lost inside ' + periodLabel + ' · sales quality, NOT in the churn rate', earlyLosses)),
         el('div', { class: 'text-[10px] uppercase tracking-widest font-bold mb-1', style: { color: 'var(--text-subtle)' } }, 'By cancellation reason'),
         // Donut (per Isaac, Sep 2026) — replaces the bar list. Legend rows
