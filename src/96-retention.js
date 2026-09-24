@@ -876,6 +876,11 @@ function reportingWaterfall() {
     if (!rows.length) return null;
     const pad2 = (n) => String(n).padStart(2, '0');
     const startsByYm = {}, cancelsByYm = {}, reasonsByYm = {};
+    // Per-reason view (per Isaac, Sep 24): pick one cancellation reason and
+    // the grid shows THAT reason's churn month by month / year by year —
+    // numerator = cancels with the reason, denominator = the whole book.
+    const R = state._churnSeasonReason || '';
+    const reasonCounts = {};
     let minY = 9999;
     rows.forEach(r => {
       const sYm = String(r.initial_service).slice(0, 7);
@@ -883,19 +888,26 @@ function reportingWaterfall() {
       minY = Math.min(minY, Number(sYm.slice(0, 4)) || 9999);
       if (r._effCancel) {
         const cYm = String(r._effCancel).slice(0, 7);
+        const reason = reportingCancelReasonOf(r);
         // PE-standard churn: only subs that EXISTED at the month's start
         // count — an account acquired and lost inside the same month is a
         // sales-quality event, not book erosion. (The denominator already
         // excluded same-month starts; the numerator now matches, so these
         // cells agree exactly with the click-through drill.)
         if (sYm < cYm) {
+          reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
+          if (R && reason !== R) return;
           cancelsByYm[cYm] = (cancelsByYm[cYm] || 0) + 1;
           const rs = reasonsByYm[cYm] || (reasonsByYm[cYm] = {});
-          const reason = reportingCancelReasonOf(r);
           rs[reason] = (rs[reason] || 0) + 1;
         }
       }
     });
+    const reasonSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', maxWidth: '220px' },
+      title: 'Show churn for one cancellation reason (cancels with that reason ÷ the whole book)',
+      onchange: (e) => { state._churnSeasonReason = e.target.value; mountApp(); } },
+      el('option', { value: '', selected: !R }, 'All reasons'),
+      ...Object.entries(reasonCounts).sort((a, b) => b[1] - a[1]).map(([k, n]) => el('option', { value: k, selected: k === R }, k + ' (' + fmt.int(n) + ')')));
     const now = new Date();
     const curY = now.getFullYear(), curM = now.getMonth() + 1;
     // Walk the whole book month by month so each cell's denominator is the
@@ -1396,9 +1408,9 @@ function reportingWaterfall() {
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
         el('div', {},
-          el('h3', { class: 'text-sm font-bold' }, 'Monthly Churn' + (label ? ' — ' + label : ''))),
+          el('h3', { class: 'text-sm font-bold' }, 'Monthly Churn' + (label ? ' — ' + label : '') + (R ? ' · ' + R : ''))),
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
-          null,   // (year pickers retired — rolling last 5 years)
+          view === 'table' ? reasonSel : null,
           view === 'timeline' ? seriesDrop : null,
           (view === 'timeline' && !yoyOn) ? windowSel : null,
           view === 'timeline' ? yoyBtn : null,
