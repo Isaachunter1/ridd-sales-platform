@@ -2020,14 +2020,17 @@ function reportingWaterfall() {
       { key: 'arv',    label: 'Avg ARV',      get: (k) => S(k).avgArv },
     ];
     if (!state._rtLifeSort) state._rtLifeSort = { key: 'n', dir: 'desc' };
-    const lsort = state._rtLifeSort;
-    const lcol = LCOLS.find(c => c.key === lsort.key) || LCOLS[1];
-    const rks = Object.keys(byReason).filter(k => byReason[k].length >= 10)
-      .sort((a, b) => { const av = lcol.get(a), bv = lcol.get(b); const d = lcol.str ? String(av).localeCompare(String(bv)) : av - bv; return lsort.dir === 'asc' ? d : -d; });
-    const thL = (lab) => { const c = LCOLS.find(x => x.label === lab); const on = c && lsort.key === c.key; return el('th', {
+    // Sort + expand/collapse repaint ONLY this table (per Isaac, Sep 24): a
+    // full remount redrew every chart on the tab and the page jumped.
+    let _tableRepaint = null;
+    const sortedReasons = () => { const ls = state._rtLifeSort; const lc = LCOLS.find(c => c.key === ls.key) || LCOLS[1];
+      return Object.keys(byReason).filter(k => byReason[k].length >= 10)
+        .sort((a, b) => { const av = lc.get(a), bv = lc.get(b); const d = lc.str ? String(av).localeCompare(String(bv)) : av - bv; return ls.dir === 'asc' ? d : -d; }); };
+    const rks = sortedReasons();
+    const thL = (lab) => { const lsort = state._rtLifeSort; const c = LCOLS.find(x => x.label === lab); const on = c && lsort.key === c.key; return el('th', {
       class: 'text-left px-3 py-2 whitespace-nowrap cursor-pointer select-none' + (on ? ' font-black' : ''),
       style: on ? { color: 'var(--accent)' } : {}, title: ((c && c.tip) ? c.tip + ' · ' : '') + 'click to sort',
-      onclick: () => { if (!c) return; state._rtLifeSort = on ? { key: c.key, dir: lsort.dir === 'asc' ? 'desc' : 'asc' } : { key: c.key, dir: c.str ? 'asc' : 'desc' }; mountApp(); },
+      onclick: () => { if (!c) return; state._rtLifeSort = on ? { key: c.key, dir: lsort.dir === 'asc' ? 'desc' : 'asc' } : { key: c.key, dir: c.str ? 'asc' : 'desc' }; if (_tableRepaint) _tableRepaint(); else mountApp(); },
     }, lab + (on ? (lsort.dir === 'asc' ? ' ▲' : ' ▼') : '')); };
     const reasonRow = (k) => {
       const { xs, med, in365, in730, avgArv, arrLost, hist, peak, share } = S(k);
@@ -2092,19 +2095,30 @@ function reportingWaterfall() {
       // By-reason table is collapsed by default (per Isaac, Sep 2026) —
       // click the bar to expand it under the chart.
       (() => {
-        const openR = state._rtLifeReasonsOpen === true;
+        // Expand / collapse in the DOM (per Isaac, Sep 24 — a full remount
+        // redrew every chart on the tab and the page jumped).
+        let openR = state._rtLifeReasonsOpen === true;
+        const tableWrap = el('div', { class: 'overflow-x-auto border-t', style: { borderColor: 'var(--border)', display: openR ? '' : 'none' } });
+        let built = false;
+        const build = (force) => { if (built && !force) return; built = true; tableWrap.replaceChildren(el('table', { class: 'w-full text-xs' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' }, el('tr', { style: { background: 'var(--card-2)' } }, ...LCOLS.map(c => thL(c.label)))),
+          el('tbody', {}, ...sortedReasons().map(reasonRow)))); };
+        _tableRepaint = () => build(true);
+        if (openR) build();
+        const arrow = el('span', { class: 'text-[10px] uppercase tracking-widest font-bold' }, (openR ? '\u25be ' : '\u25b8 ') + 'Lifetime by cancellation reason');
+        const hint = el('span', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-muted)' } }, rks.length + ' reasons · ' + (openR ? 'click to collapse' : 'click to expand'));
         const bar = el('button', {
           class: 'w-full flex items-center justify-between gap-3 px-4 py-2.5 border-t text-left transition hover:brightness-95',
           style: { borderColor: 'var(--border)', background: 'var(--card-2)', color: 'var(--text)' },
-          onclick: () => { state._rtLifeReasonsOpen = !openR; mountApp(); },
-        },
-          el('span', { class: 'text-[10px] uppercase tracking-widest font-bold' }, (openR ? '▾ ' : '▸ ') + 'Lifetime by cancellation reason'),
-          el('span', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-muted)' } }, rks.length + ' reasons · ' + (openR ? 'click to collapse' : 'click to expand')));
-        return el('div', {}, bar, openR ? el('div', { class: 'overflow-x-auto border-t', style: { borderColor: 'var(--border)' } },
-          el('table', { class: 'w-full text-xs' },
-            el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' }, el('tr', { style: { background: 'var(--card-2)' } },
-              ...LCOLS.map(c => thL(c.label)))),
-            el('tbody', {}, ...rks.map(reasonRow)))) : null);
+          onclick: () => {
+            openR = !openR; state._rtLifeReasonsOpen = openR;
+            if (openR) build();
+            tableWrap.style.display = openR ? '' : 'none';
+            arrow.textContent = (openR ? '\u25be ' : '\u25b8 ') + 'Lifetime by cancellation reason';
+            hint.textContent = rks.length + ' reasons · ' + (openR ? 'click to collapse' : 'click to expand');
+          },
+        }, arrow, hint);
+        return el('div', {}, bar, tableWrap);
       })());
   })();
 
