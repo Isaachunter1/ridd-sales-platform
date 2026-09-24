@@ -827,7 +827,7 @@ function mountApp() {
     ...(isOfficeStaff ? [['inside_sales', 'Sales', iconSales()]]
       : isTechType ? [['techs', 'Sales', iconSales()]]
       : [['d2d_group', 'Sales', iconDollar()]]),
-    ...(isOfficeStaff && userCan('tab_loyalty') ? [['loyalty_group', 'Loyalty', iconHeart()]] : []),
+    ...(canOpenLoyalty() ? [['loyalty_group', 'Loyalty', iconHeart()]] : []),
     ...(userCan('view_comps') && featureOn('competitions') ? [['nrla', 'Competitions', iconTrophy()]] : []),
     ...(userCan('view_indicators') ? [['indicators', 'Indicators', iconChart()]] : []),
     ...(userCan('view_reporting') ? [['reporting', 'Reporting', iconPie()]] : []),   // granted in Settings → Permissions
