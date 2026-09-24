@@ -364,7 +364,7 @@ function openTvBoard() {
       el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gridAutoRows: '1fr', gap: '10px', minWidth: '0' } },
         // Layout (per Isaac, Sep 24): [Avg initial | Avg recurring] · Avg ACV /
         // Multi-year · Auto pay / Signed agreement · Rec mix.
-        el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', minWidth: '0' } },
+        el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', minWidth: '0', minHeight: '0', height: '100%', alignItems: 'stretch' } },   // two square cards, full row height
           tile('Avg initial', money(d.avgInitial), 'subscriptions', () => openDrill('Avg initial · ' + money(d.avgInitial), 'Initial $99 and up', d.splits.initial.yes, 'Initial under $99', d.splits.initial.no, repNameOf, null, { of: (x) => Number(x.initial_amount) || 0, fmt: money, third: { label: 'Excluded · RIDD Account', rows: d.splits.initial.excluded } })),
           tile('Avg recurring', money(d.avgMonthly), 'per month', () => openDrill('Avg recurring · ' + money(d.avgMonthly), 'Recurring $59 and up', d.splits.recurring.yes, 'Recurring under $59', d.splits.recurring.no, repNameOf, null, { of: (x) => Number(x.monthly_amount) || 0, fmt: (n) => money(n) + '/mo', third: { label: 'Excluded · RIDD Account', rows: d.splits.recurring.excluded } }))),
         tile('Avg ACV', money(d.avgContract), 'contract value per sale', () => openDrill('Avg ACV · ' + money(d.avgContract), 'ACV $700 and up', d.splits.acv.yes, 'ACV under $700', d.splits.acv.no, repNameOf, null, { of: (x) => Number(x.revenue_amount) || 0, fmt: money, third: { label: 'Excluded · RIDD Account, one-time, renewals', rows: d.splits.acv.excluded } })),
