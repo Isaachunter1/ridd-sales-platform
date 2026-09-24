@@ -1980,13 +1980,22 @@ async function loadReportingSubscriptions(uploadId) {
   // cancel date (Joshua Carter #137561, Fredrick Allen #110570). Churn is
   // ONLY subs that are actually frozen/cancelled today — an active sub is not
   // churn, whatever its history. The old date is kept on `reinstated_from`.
-  let _reinstated = 0;
+  // Grace window (Configurations → Reporting rules, default 30 days): back
+  // within the window = never churned; later = the cancel stands (revenue was
+  // missed) and the reactivation is a win-back (`winback_at`). The
+  // reactivation date comes from the feed (`reactivated_at`); rows without it
+  // are treated as reinstated in time.
+  const _grace = (typeof reportingReinstateGraceDays === 'function') ? reportingReinstateGraceDays() : 30;
+  let _reinstated = 0, _winbacks = 0;
   for (const r of rows) {
     if (r.subscription_date_canceled && String(r.subscription_status || '').trim().toLowerCase() === 'active') {
+      const re = r.reactivated_at ? String(r.reactivated_at).slice(0, 10) : null;
+      const gap = re ? Math.round((Date.parse(re) - Date.parse(String(r.subscription_date_canceled).slice(0, 10))) / 86400000) : null;
+      if (gap != null && gap > _grace) { r.winback_at = re; _winbacks++; continue; }   // churn stands; came back later
       r.reinstated_from = r.subscription_date_canceled; r.subscription_date_canceled = null; _reinstated++;
     }
   }
-  state._snapshotReinstated = _reinstated;
+  state._snapshotReinstated = _reinstated; state._snapshotWinbacks = _winbacks;
   // Blank / "un" / "unknown" states all group under ?? on the Geographic tab.
   if (typeof _normStateCode === 'function') for (const r of rows) r.state = _normStateCode(r.state);
   // Same guard as the sync: a sub sold in the last 7 days whose customer row
