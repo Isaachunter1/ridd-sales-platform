@@ -1300,7 +1300,10 @@ function reportingChartData(scopeRows, serviceConfig) {
     // returns every row that contributed to that slice. Used by the drill
     // modal so a user can click into any wedge and see the underlying subs.
     drill: {
-      custDepth:     { source: activeForCharts.filter(r => r.customer_id), key: r => custBucket(r.customer_id) },
+      // Sentricon Watch is CUSTOMERS, not subscriptions (per Isaac, Sep 24):
+      // one row per active customer (their first active sub stands in for
+      // them in the drill), bucketed by whether ANY active sub is Sentricon.
+      custDepth:     { source: (() => { const seen = new Set(); return activeForCharts.filter(r => r.customer_id && !seen.has(r.customer_id) && seen.add(r.customer_id)); })(), key: r => custBucket(r.customer_id) },
       custOffice:    { source: activeForCharts.filter(r => r.customer_id), key: r => custOffice.get(r.customer_id) || 'Unspecified' },
       rarr:          { source: activeRecurring.filter(_served), key: r => r.subscription },
       rarrOffice:    { source: activeRecurring.filter(_served), key: r => r.office_name || 'Unspecified' },
