@@ -243,7 +243,7 @@ function openTvBoard() {
   const figure = (v, size, color) => el('div', { style: { fontFamily: MONO, fontSize: size, lineHeight: '1', color: color || T.ink, fontVariantNumeric: 'tabular-nums' } }, v);
   const panel = (children, extra = {}) => { const { onclick, ...st } = extra; return el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, padding: '20px 24px', display: 'flex', flexDirection: 'column', minHeight: '0', ...st }, onclick: onclick || null }, ...children); };
   const tile = (label, value, sub, drill) => el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '0', cursor: drill ? 'pointer' : 'default' }, title: drill ? 'Tap to see what is behind this number' : '', onclick: drill || null },
-    eyebrow(label + (drill ? '  ·  tap' : '')), figure(value, 'clamp(22px, 2.2vw, 34px)'));   // (descriptions dropped per Isaac — the room knows what these are)
+    eyebrow(label), figure(value, 'clamp(22px, 2.2vw, 34px)'));   // (descriptions dropped per Isaac — the room knows what these are)
   // Drill panel (per Isaac): what is pulling a % up or down — the sales
   // that count on one side, the ones that don't on the other, as they were sold.
   // `metric` (optional): { of: (sale) → number, fmt: (n) → string } — what the
@@ -330,7 +330,7 @@ function openTvBoard() {
       state._tvHeroOffices ? panel([el('div', { style: { position: 'absolute', inset: '20px 24px', display: 'flex', flexDirection: 'column', minHeight: '0' } },
         // Tap-swapped view (per Isaac): the window's NEW revenue by branch,
         // in the SAME footprint as the number (the list scrolls inside).
-        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } }, eyebrow(d.range.label + ' · new revenue by branch · bar = new'), eyebrow(money(d.revenue) + ' new · ' + money(d.totalRevenue) + ' total · tap to go back')),
+        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } }, eyebrow(d.range.label + ' · new revenue by branch · bar = new'), eyebrow(money(d.revenue) + ' new · ' + money(d.totalRevenue) + ' total')),
         el('div', { class: 'tv-scroll', style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px', overflowY: 'auto', minHeight: '0', flex: '1', paddingRight: '4px' } },
           ...(d.offices.length ? d.offices.map((o, i) => el('div', {},
             el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px', gap: '12px' } },
@@ -342,7 +342,7 @@ function openTvBoard() {
             el('div', { style: { height: '4px', background: T.surface2 } }, el('div', { style: { height: '100%', width: (d.offices[0].revenue ? o.revenue / d.offices[0].revenue * 100 : 0) + '%', background: i === 0 ? T.ember : T.dim } }))))
           : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'No sales in this window yet.')])))], { cursor: 'pointer', position: 'relative', padding: '0', onclick: () => { state._tvHeroOffices = false; render(); } })
       : panel([
-        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } }, eyebrow(d.range.label + ' · new revenue'), eyebrow(d.newCount + ' sale' + (d.newCount === 1 ? '' : 's') + ' · tap for branches')),
+        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } }, eyebrow(d.range.label + ' · new revenue'), eyebrow(d.newCount + ' sale' + (d.newCount === 1 ? '' : 's') + '')),
         el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '22px', flexWrap: 'wrap', marginTop: '6px' } },
           el('div', { class: fresh ? 'tv-pulse' : '', style: { fontFamily: HEAD, fontSize: 'clamp(64px, 6.8vw, 124px)', lineHeight: '.95', letterSpacing: '.01em', color: T.ember, fontVariantNumeric: 'tabular-nums' } }, money(d.revenue)),
           // Prior period at a quarter of the size (per Isaac): yesterday / last week / last month / last year, to date.
