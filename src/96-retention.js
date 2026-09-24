@@ -1978,6 +1978,11 @@ function reportingWaterfall() {
       const k = String(x.r.subscription_cancellation_reason || '').trim() ? reportingCancelReasonOf(x.r) : '(no reason logged)';
       (byReason[k] = byReason[k] || []).push(x);
     }
+    // Year-1 / year-2 weight (per Isaac, Sep 24): of every cancel that
+    // happened in the first year of life, what share was THIS reason — and
+    // the same for the second year (months 13–24).
+    const _allY1 = rowsL.filter(x => x.t <= 365).length || 1;
+    const _allY2 = rowsL.filter(x => x.t > 365 && x.t <= 730).length || 1;
     // Per-reason stats up front so the headers can sort on any of them.
     const statsOf = (k) => {
       const xs = byReason[k];
@@ -1985,8 +1990,8 @@ function reportingWaterfall() {
       const med = _med(ts);
       const avg = ts.reduce((a, b) => a + b, 0) / ts.length;
       const in90 = ts.filter(t => t <= 90).length / ts.length;
-      const in365 = ts.filter(t => t <= 365).length / ts.length;
-      const in730 = ts.filter(t => t <= 730).length / ts.length;
+      const in365 = ts.filter(t => t <= 365).length / _allY1;                 // this reason's share of ALL year-1 cancels
+      const in730 = ts.filter(t => t > 365 && t <= 730).length / _allY2;      // …and of all year-2 cancels
       const arvs = xs.map(x => Number(x.r.annual_recurring_value) || 0);
       const avgArv = arvs.reduce((a, b) => a + b, 0) / (arvs.length || 1);
       const arrLost = arvs.reduce((a, b) => a + b, 0);
@@ -2010,10 +2015,9 @@ function reportingWaterfall() {
       { key: 'lost',   label: 'ARR lost',     get: (k) => S(k).arrLost,  tip: 'Annual recurring value that walked out with this reason' },
       { key: 'med',    label: 'Median Life',  get: (k) => S(k).med,      tip: 'Half left sooner, half later' },
       { key: 'peak',   label: 'Peak month',   get: (k) => S(k).peak,     tip: 'Month of customer life where this reason strikes most often' },
-      { key: 'in365',  label: 'Gone ≤1yr',    get: (k) => S(k).in365,    tip: 'Gone within the first 12 months' },
-      { key: 'in730',  label: 'Gone ≤2yr',    get: (k) => S(k).in730,    tip: 'Gone within the first 24 months' },
+      { key: 'in365',  label: 'Yr 1 weight',  get: (k) => S(k).in365,    tip: 'Of every cancel in the first year of life, the share with this reason' },
+      { key: 'in730',  label: 'Yr 2 weight',  get: (k) => S(k).in730,    tip: 'Of every cancel in the second year of life (months 13–24), the share with this reason' },
       { key: 'arv',    label: 'Avg ARV',      get: (k) => S(k).avgArv },
-      { key: 'curve',  label: 'Life curve',   get: (k) => S(k).peak,     tip: 'Cancels by month of life, 0 → 36+' },
     ];
     if (!state._rtLifeSort) state._rtLifeSort = { key: 'n', dir: 'desc' };
     const lsort = state._rtLifeSort;
@@ -2027,9 +2031,6 @@ function reportingWaterfall() {
     }, lab + (on ? (lsort.dir === 'asc' ? ' ▲' : ' ▼') : '')); };
     const reasonRow = (k) => {
       const { xs, med, in365, in730, avgArv, arrLost, hist, peak, share } = S(k);
-      const hmax = Math.max(...hist, 1);
-      const curve = el('div', { class: 'flex items-end', style: { gap: '1px', height: '18px', width: '112px' }, title: 'Cancels by month of life (0 → 36+) · peak month ' + peak },
-        ...hist.map((v, i) => el('div', { style: { flex: '1 1 0', height: Math.max(v ? 1 : 0, v / hmax * 18) + 'px', background: i === peak ? 'var(--accent)' : 'var(--text-subtle)', opacity: i === peak ? '1' : '.45' } })));
       return el('tr', {
         class: 'border-t cursor-pointer transition hover:brightness-95',
         style: { borderColor: 'var(--border)' },
@@ -2045,10 +2046,9 @@ function reportingWaterfall() {
         el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(med) + 'd',
           el('span', { class: 'text-[10px] font-normal text-muted-' }, ' · ' + moTxt(med))),
         el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold', style: (peak >= 2 && peak <= 5) ? { color: '#DC2626' } : (peak >= 11 && peak <= 13) ? { color: '#A9441F' } : {} }, peak >= 36 ? '36+' : 'mo ' + peak),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, (in365 * 100).toFixed(0) + '%'),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, (in730 * 100).toFixed(0) + '%'),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.usd0(avgArv)),
-        el('td', { class: 'px-3 py-2' }, curve));
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, (in365 * 100).toFixed(1) + '%'),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, (in730 * 100).toFixed(1) + '%'),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.usd0(avgArv)));
     };
     const statL = (lab, val, sub) => el('div', { class: 'text-left' },
       el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, lab),
