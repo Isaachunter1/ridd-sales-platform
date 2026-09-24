@@ -798,8 +798,7 @@ function viewIndicators() {
           const _teams = (typeof distinctTeams === 'function' ? distinctTeams() : []).filter(t => !(typeof isTeamExcluded === 'function' && isTeamExcluded(t)));
           const teamSel = el('select', Object.assign({ onchange: e => { _staged.team = e.target.value; _markDirty(); } }, _selCls),
             el('option', { value: '', selected: !_staged.team }, 'All teams'),
-            ..._teams.map(t => el('option', { value: t, selected: _staged.team === t }, t)),
-            el('option', { value: '__unassigned__', selected: _staged.team === '__unassigned__' }, '\u2014 Unassigned \u2014'));
+            ..._teams.map(t => el('option', { value: t, selected: _staged.team === t }, t)));
           const _tiers = (typeof REP_TIERS !== 'undefined') ? REP_TIERS : [];
           const tierSel = _tiers.length ? el('select', Object.assign({ onchange: e => { _staged.tier = e.target.value; _markDirty(); } }, _selCls),
             el('option', { value: '', selected: !_staged.tier }, 'All tiers'),
