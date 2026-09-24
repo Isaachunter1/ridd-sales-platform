@@ -1787,6 +1787,11 @@ function setReportingAgingDays(n) {
   const v = Math.max(0, parseInt(n, 10) || 0);
   _setAdminRule('agingDays', v);
   try { localStorage.setItem('ridd_rpt_aging_days', String(v)); } catch {} }
+// Reinstatement grace (per Isaac, Sep 24): an account cancelled and turned
+// back on within this many days never churned; beyond it, the cancel stands
+// as churn (we missed the revenue) and the reactivation is a win-back.
+function reportingReinstateGraceDays() { const r = _adminRules(); const n = r && Number(r.reinstateGraceDays); return Number.isFinite(n) && n >= 0 ? n : 30; }
+function setReportingReinstateGraceDays(n) { _setAdminRule('reinstateGraceDays', Math.max(0, parseInt(n, 10) || 0)); }
 function reportingExcludeRorChurn() {
   if (state._retenWhatIf && typeof state._retenWhatIf.ror === 'boolean' && state.reportingSubTab === 'waterfall') return state._retenWhatIf.ror;
   const r = _adminRules();
