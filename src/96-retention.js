@@ -1974,6 +1974,7 @@ function reportingWaterfall() {
       const avg = ts.reduce((a, b) => a + b, 0) / ts.length;
       const in90 = ts.filter(t => t <= 90).length / ts.length;
       const in365 = ts.filter(t => t <= 365).length / ts.length;
+      const in730 = ts.filter(t => t <= 730).length / ts.length;
       const arvs = xs.map(x => Number(x.r.annual_recurring_value) || 0);
       const avgArv = arvs.reduce((a, b) => a + b, 0) / (arvs.length || 1);
       const arrLost = arvs.reduce((a, b) => a + b, 0);
@@ -1986,7 +1987,7 @@ function reportingWaterfall() {
       let termN = 0, inTerm = 0;
       for (const x of xs) { const m = Number(x.r.agreement_length) || 0; if (m <= 1) continue; termN++; if (x.t < m * 30.44) inTerm++; }
       const inTermPct = termN ? inTerm / termN : null;
-      return { xs, med, avg, in90, in365, avgArv, arrLost, hist, peak, inTermPct, n: xs.length, share: xs.length / rowsL.length };
+      return { xs, med, avg, in90, in365, in730, avgArv, arrLost, hist, peak, inTermPct, n: xs.length, share: xs.length / rowsL.length };
     };
     const _statCache = new Map();
     const S = (k) => { if (!_statCache.has(k)) _statCache.set(k, statsOf(k)); return _statCache.get(k); };
@@ -1997,8 +1998,8 @@ function reportingWaterfall() {
       { key: 'lost',   label: 'ARR lost',     get: (k) => S(k).arrLost,  tip: 'Annual recurring value that walked out with this reason' },
       { key: 'med',    label: 'Median Life',  get: (k) => S(k).med,      tip: 'Half left sooner, half later' },
       { key: 'peak',   label: 'Peak month',   get: (k) => S(k).peak,     tip: 'Month of customer life where this reason strikes most often' },
-      { key: 'term',   label: 'Left in term', get: (k) => S(k).inTermPct == null ? -1 : S(k).inTermPct, tip: 'Cancelled before their contract length was up (subs with a term)' },
       { key: 'in365',  label: 'Gone ≤1yr',    get: (k) => S(k).in365,    tip: 'Gone within the first 12 months' },
+      { key: 'in730',  label: 'Gone ≤2yr',    get: (k) => S(k).in730,    tip: 'Gone within the first 24 months' },
       { key: 'arv',    label: 'Avg ARV',      get: (k) => S(k).avgArv },
       { key: 'curve',  label: 'Life curve',   get: (k) => S(k).peak,     tip: 'Cancels by month of life, 0 → 36+' },
     ];
@@ -2013,7 +2014,7 @@ function reportingWaterfall() {
       onclick: () => { if (!c) return; state._rtLifeSort = on ? { key: c.key, dir: lsort.dir === 'asc' ? 'desc' : 'asc' } : { key: c.key, dir: c.str ? 'asc' : 'desc' }; mountApp(); },
     }, lab + (on ? (lsort.dir === 'asc' ? ' ▲' : ' ▼') : '')); };
     const reasonRow = (k) => {
-      const { xs, med, in365, avgArv, arrLost, hist, peak, inTermPct, share } = S(k);
+      const { xs, med, in365, in730, avgArv, arrLost, hist, peak, share } = S(k);
       const hmax = Math.max(...hist, 1);
       const curve = el('div', { class: 'flex items-end', style: { gap: '1px', height: '18px', width: '112px' }, title: 'Cancels by month of life (0 → 36+) · peak month ' + peak },
         ...hist.map((v, i) => el('div', { style: { flex: '1 1 0', height: Math.max(v ? 1 : 0, v / hmax * 18) + 'px', background: i === peak ? 'var(--accent)' : 'var(--text-subtle)', opacity: i === peak ? '1' : '.45' } })));
@@ -2032,8 +2033,8 @@ function reportingWaterfall() {
         el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(med) + 'd',
           el('span', { class: 'text-[10px] font-normal text-muted-' }, ' · ' + moTxt(med))),
         el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold', style: (peak >= 2 && peak <= 5) ? { color: '#DC2626' } : (peak >= 11 && peak <= 13) ? { color: '#A9441F' } : {} }, peak >= 36 ? '36+' : 'mo ' + peak),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums', style: inTermPct != null && inTermPct >= 0.5 ? { color: '#DC2626', fontWeight: '700' } : {} }, inTermPct == null ? '—' : (inTermPct * 100).toFixed(0) + '%'),
         el('td', { class: 'px-3 py-2 text-left tabular-nums' }, (in365 * 100).toFixed(0) + '%'),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, (in730 * 100).toFixed(0) + '%'),
         el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.usd0(avgArv)),
         el('td', { class: 'px-3 py-2' }, curve));
     };
