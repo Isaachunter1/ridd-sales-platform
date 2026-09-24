@@ -707,6 +707,11 @@ function viewIndicators() {
             dept: state.indicatorDept || 'all',
             preset: state.indicatorsRangePreset,
             group: state.indicatorsGroupBy || 'branch',
+            // Leaderboard scope lives HERE now (per Isaac, Sep 24) — the
+            // leaderboard's own Filters button is gone.
+            office: state._indicatorRepOfficeFilter || '',
+            team: state._indicatorRepTeamFilter || '',
+            tier: state._indicatorRepTierFilter || '',
           };
           let _applyBtn = null;
           const _markDirty = () => {
@@ -785,6 +790,21 @@ function viewIndicators() {
             el('option', { value: 'teams', selected: _staged.group === 'teams' }, 'Teams'),
             isAdminRole(state.profile?.role) ? el('option', { value: 'company', selected: _staged.group === 'company' }, 'Company (RIDD Pest Control / RIDD Pest Solutions)') : null,
           );
+          const _selCls = { class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer w-full', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } };
+          const _offices = [...new Set((state._indicatorRawSales || []).map(x => x.office).filter(Boolean))].sort();   // raw CRM strings — the leaderboard matches on these exactly
+          const officeSel = el('select', Object.assign({ onchange: e => { _staged.office = e.target.value; _markDirty(); } }, _selCls),
+            el('option', { value: '', selected: !_staged.office }, 'All offices'),
+            ..._offices.map(o => el('option', { value: o, selected: _staged.office === o }, String(o).split(' ').map(w => w[0] ? w[0].toUpperCase() + w.slice(1).toLowerCase() : '').join(' '))));
+          const _teams = (typeof distinctTeams === 'function' ? distinctTeams() : []).filter(t => !(typeof isTeamExcluded === 'function' && isTeamExcluded(t)));
+          const teamSel = el('select', Object.assign({ onchange: e => { _staged.team = e.target.value; _markDirty(); } }, _selCls),
+            el('option', { value: '', selected: !_staged.team }, 'All teams'),
+            ..._teams.map(t => el('option', { value: t, selected: _staged.team === t }, t)),
+            el('option', { value: '__unassigned__', selected: _staged.team === '__unassigned__' }, '\u2014 Unassigned \u2014'));
+          const _tiers = (typeof REP_TIERS !== 'undefined') ? REP_TIERS : [];
+          const tierSel = _tiers.length ? el('select', Object.assign({ onchange: e => { _staged.tier = e.target.value; _markDirty(); } }, _selCls),
+            el('option', { value: '', selected: !_staged.tier }, 'All tiers'),
+            ..._tiers.map(p => el('option', { value: p.id, selected: _staged.tier === p.id }, p.label)),
+            el('option', { value: '__unassigned__', selected: _staged.tier === '__unassigned__' }, '\u2014 Unassigned \u2014')) : null;
           const panel = el('div', {
             class: 'card',
             style: { position: 'absolute', right: '0', top: 'calc(100% + 6px)', zIndex: '60', minWidth: '250px', padding: '12px', boxShadow: 'var(--shadow-lg)', display: state._indFiltersOpen ? 'block' : 'none' },
@@ -800,6 +820,9 @@ function viewIndicators() {
                   _repLite ? null : _fRow('Type',   hl(typeSel,   (state.indicatorDept || 'all') !== 'all')),
                   _fRow('Date',   hl(dateSel,   isRange && state.indicatorsRangePreset !== 'this_year')),
                   _fRow('Group',  hl(groupSel,  groupBy !== 'branch')),
+                  _repLite ? null : _fRow('Office', hl(officeSel, !!state._indicatorRepOfficeFilter)),
+                  _repLite ? null : _fRow('Team',   hl(teamSel,   !!state._indicatorRepTeamFilter)),
+                  (_repLite || !tierSel) ? null : _fRow('Tier', hl(tierSel, !!state._indicatorRepTierFilter)),
                 ];
               })(),
               (_applyBtn = el('button', {
@@ -822,6 +845,9 @@ function viewIndicators() {
                     }
                   }
                   state.indicatorsGroupBy = _staged.group;
+                  state._indicatorRepOfficeFilter = _staged.office || '';
+                  state._indicatorRepTeamFilter = _staged.team || '';
+                  state._indicatorRepTierFilter = _staged.tier || '';
                   state._indFiltersOpen = false;   // one commit, one render, panel closes
                   if (typeof trackAction === 'function') trackAction('filters_apply', 'indicators', { dept: state.indicatorDept || 'all', group: _staged.group, acct: state.indicatorAcctStatus || '' });
                   mountApp();
@@ -832,6 +858,7 @@ function viewIndicators() {
           const nonDefault = [
             (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced',
             !!indicatorExclKey(),
+            !_repLite && !!state._indicatorRepOfficeFilter, !_repLite && !!state._indicatorRepTeamFilter, !_repLite && !!state._indicatorRepTierFilter,
             !_repLite && (state.indicatorDept || 'all') !== 'all',
             isRange && state.indicatorsRangePreset !== 'this_year',
             groupBy !== 'branch',
@@ -4163,102 +4190,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               onclick: () => { state._indRepRevMode = v; mountApp(); },
             }, l))) : null,
           (() => {
-            // One-time migration: the old default EXCLUDED these three kinds.
-            // New default = include everything (uncheck to exclude).
-            if (!state._repFiltersV2) {
-              state._repFiltersV2 = true;
-              state._indicatorRepIncludeRor = true;
-              state._indicatorRepIncludeOneTime = true;
-              state._indicatorRepIncludeRenewals = true;
-              saveDemoData();
-            }
-            const opts = [
-              ['_indicatorRepIncludeRor',      'Count 3-Day RORs',        'Cancels within 3 days of sale (Right of Rescission)'],
-              ['_indicatorRepIncludeOneTime',  'Count one-time services', 'Cancels on "One Time …" service types (completed jobs closing out)'],
-              ['_indicatorRepIncludeRenewals', 'Count renewals',          'Cancels where the customer renewed onto a new subscription (Renewal - …)'],
-            ];
-            const offCount = opts.filter(([k]) => !state[k]).length;
-            const activeN = offCount + (tierFilter ? 1 : 0) + (teamFilter ? 1 : 0) + (officeFilter ? 1 : 0);
-            const wrap = el('div', { class: 'relative' });
-            wrap.append(el('button', {
-              class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition border flex items-center gap-1.5',
-              style: activeN
-                ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
-                : { borderColor: 'var(--border-2)', color: 'var(--text)' },
-              title: 'Tier, team, office, and cancel-type filters',
-              onclick: (e) => { e.stopPropagation(); state._repCancelMenuOpen = !state._repCancelMenuOpen; mountApp(); },
-            },
-              el('span', {}, 'Filters' + (activeN ? ' · ' + activeN : ''))));
-            if (state._repCancelMenuOpen) {
-              const secLabel = (t) => el('div', { class: 'px-2.5 pt-2 pb-1 text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, t);
-              // Tier pills (All / Rookie / Vet / Unassigned)
-              const hasUnassignedTier = _activeUnassignedTier;
-              const pillOpts = [
-                { id: '', label: 'All' },
-                ...REP_TIERS.map(t => ({ id: t.id, label: t.label, color: t.color })),
-              ];
-              if (hasUnassignedTier && isAdminRole(state.profile?.role)) pillOpts.push({ id: '__unassigned__', label: 'Unassigned' });
-              const tierRow = el('div', { class: 'px-2.5 pb-1' },
-                el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
-                  ...pillOpts.map(p => el('button', {
-                    class: 'px-2.5 py-1 text-[11px] font-semibold transition',
-                    style: tierFilter === p.id
-                      ? { background: p.color || 'var(--accent)', color: '#fff' }
-                      : { background: 'transparent', color: 'var(--text)' },
-                    onclick: (e) => { e.stopPropagation(); state._indicatorRepTierFilter = p.id; mountApp(); },
-                  }, p.label))));
-              // Team select: admins see every team; partners / team leads get
-              // it too (per Isaac, Sep 2026) so they can look at their own team.
-              const _teamSelOk = isAdminRole(state.profile?.role) || (typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role)) || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role));
-              const teamSel = _teamSelOk ? (() => {
-                const teams = distinctTeams().filter(t => !isTeamExcluded(t));
-                const hasUnassigned = _activeUnassignedTeam;
-                return el('select', {
-                  class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer w-full',
-                  style: { borderColor: 'var(--border-2)' },
-                  onchange: (e) => { state._indicatorRepTeamFilter = e.target.value; mountApp(); },
-                },
-                  el('option', { value: '', selected: !teamFilter }, 'All teams'),
-                  ...teams.map(t => el('option', { value: t, selected: teamFilter === t }, t)),
-                  hasUnassigned && el('option', { value: '__unassigned__', selected: teamFilter === '__unassigned__' }, '— Unassigned —'));
-              })() : null;
-              const officeSel = el('select', {
-                class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer w-full',
-                style: { borderColor: 'var(--border-2)' },
-                onchange: (e) => { state._indicatorRepOfficeFilter = e.target.value; mountApp(); },
-              },
-                el('option', { value: '', selected: !officeFilter }, 'All offices'),
-                ...offices.map(o => el('option', { value: o, selected: officeFilter === o },
-                  o.split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' '))));
-              const _lbPanel = el('div', { class: 'card absolute p-1.5', style: { top: 'calc(100% + 6px)', right: '0', minWidth: '270px', zIndex: '40', boxShadow: 'var(--shadow-lg)' } },
-                secLabel('Tier'), tierRow,
-                teamSel && secLabel('Team'), teamSel && el('div', { class: 'px-2.5 pb-1' }, teamSel),
-                secLabel('Office'), el('div', { class: 'px-2.5 pb-1' }, officeSel),
-                ...(isAdminRole(state.profile?.role) ? [secLabel('Cancel types')] : []),
-                ...(isAdminRole(state.profile?.role) ? opts : []).map(([key, label, tip]) => el('button', {
-                  class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer text-left transition hover:brightness-95',
-                  style: { color: 'var(--text)', background: state[key] ? 'var(--card-2)' : 'transparent' },
-                  title: tip,
-                  onclick: (e) => { e.stopPropagation(); state[key] = !state[key]; saveDemoData(); mountApp(); },
-                },
-                  el('span', { style: { fontSize: '13px' } }, state[key] ? '☑' : '☐'),
-                  el('span', {}, label))),
-                el('div', { class: 'px-2.5 pt-1.5 pb-1 text-[10px]', style: { color: 'var(--text-subtle)', borderTop: '1px solid var(--border)', marginTop: '4px' } },
-                  'Checked cancel types count (the default). Uncheck to exclude. Sold-Not-Started & Combined never count.'));
-              wrap.append(_lbPanel);
-              clampDropdownPanel(_lbPanel);
-              if (window._repCancelMenuCloser) document.removeEventListener('mousedown', window._repCancelMenuCloser);
-              window._repCancelMenuCloser = (ev) => {
-                const w = document.getElementById('rep-cancel-filter-wrap');
-                if (w && w.contains(ev.target)) return;
-                document.removeEventListener('mousedown', window._repCancelMenuCloser);
-                window._repCancelMenuCloser = null;
-                if (state._repCancelMenuOpen) { state._repCancelMenuOpen = false; mountApp(); }
-              };
-              setTimeout(() => document.addEventListener('mousedown', window._repCancelMenuCloser), 0);
-            }
-            wrap.id = 'rep-cancel-filter-wrap';
-            return wrap;
+            // One-time migration kept: the old default EXCLUDED these three cancel kinds.
+            if (!state._repFiltersV2) { state._repFiltersV2 = true; state._indicatorRepIncludeRor = true; state._indicatorRepIncludeOneTime = true; state._indicatorRepIncludeRenewals = true; saveDemoData(); }
+            return null;   // (leaderboard Filters button retired per Isaac, Sep 24 — office / team / tier live in the page-header Filters)
           })(),
           // (Top-15 PDF export moved into Manage Teams → Reports — per Isaac.)
         ),
@@ -9725,8 +9659,7 @@ function indicatorYoYTrendChart() {
       // Isaac) — the separate "All types" button is gone.
       secTitle('Type'),
       ...YOY_TIERS.map(([tid, lab]) => tierBtn(tid, lab)),
-      _yoyPartner ? null : secTitle('Department'),
-      ...(_yoyPartner ? [] : _YOY_DEPTS.map(([k, lab]) => rowBtn('dept:' + k, lab))),
+      // (Department rows retired per Isaac, Sep 24 — the page-header Type filter already scopes this chart.)
       offices.length ? secTitle('Offices') : null,
       ...offices.map(o => rowBtn('office:' + o, o)),
       teams.length ? secTitle('Teams') : null,
