@@ -1975,6 +1975,18 @@ async function loadReportingSubscriptions(uploadId) {
   // EVERYTHING in FieldRoutes, so remember what the loader itself dropped.
   state._snapshotLoadDrops = { raw: Array.isArray(raw) ? raw.length : 0, phantom: (Array.isArray(raw) ? raw.length : 0) - (Array.isArray(noPhantom) ? noPhantom.length : 0), dupes: (Array.isArray(noPhantom) ? noPhantom.length : 0) - (Array.isArray(deduped) ? deduped.length : 0) };
   const rows = linkRenewalChains(deduped);
+  // Reinstated accounts (per Isaac, Sep 24): a sub that was cancelled and
+  // then turned back on is ACTIVE in FieldRoutes but still carries the old
+  // cancel date (Joshua Carter #137561, Fredrick Allen #110570). Churn is
+  // ONLY subs that are actually frozen/cancelled today — an active sub is not
+  // churn, whatever its history. The old date is kept on `reinstated_from`.
+  let _reinstated = 0;
+  for (const r of rows) {
+    if (r.subscription_date_canceled && String(r.subscription_status || '').trim().toLowerCase() === 'active') {
+      r.reinstated_from = r.subscription_date_canceled; r.subscription_date_canceled = null; _reinstated++;
+    }
+  }
+  state._snapshotReinstated = _reinstated;
   // Blank / "un" / "unknown" states all group under ?? on the Geographic tab.
   if (typeof _normStateCode === 'function') for (const r of rows) r.state = _normStateCode(r.state);
   // Same guard as the sync: a sub sold in the last 7 days whose customer row
