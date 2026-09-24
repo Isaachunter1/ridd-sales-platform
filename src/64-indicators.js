@@ -803,8 +803,7 @@ function viewIndicators() {
           const _tiers = (typeof REP_TIERS !== 'undefined') ? REP_TIERS : [];
           const tierSel = _tiers.length ? el('select', Object.assign({ onchange: e => { _staged.tier = e.target.value; _markDirty(); } }, _selCls),
             el('option', { value: '', selected: !_staged.tier }, 'All tiers'),
-            ..._tiers.map(p => el('option', { value: p.id, selected: _staged.tier === p.id }, p.label)),
-            el('option', { value: '__unassigned__', selected: _staged.tier === '__unassigned__' }, '\u2014 Unassigned \u2014')) : null;
+            ..._tiers.filter(p => p.id === 'rookie' || p.id === 'vet').map(p => el('option', { value: p.id, selected: _staged.tier === p.id }, p.id === 'rookie' ? 'Rookies' : 'Vets'))) : null;
           const panel = el('div', {
             class: 'card',
             style: { position: 'absolute', right: '0', top: 'calc(100% + 6px)', zIndex: '60', minWidth: '250px', padding: '12px', boxShadow: 'var(--shadow-lg)', display: state._indFiltersOpen ? 'block' : 'none' },
