@@ -669,7 +669,6 @@ function reportingWaterfall() {
     // wants this visible next to (never inside) the churn rate: it's the
     // sales-quality bridge between our BoY churn and a BI tool's raw
     // "total ARR lost" number.
-    const earlyLosses = rows.filter(r => inPeriod(r.initial_service) && r._effCancel && inPeriod(r._effCancel));
 
     const overlay = el('div', { class: 'modal-overlay' });
     const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
@@ -777,7 +776,7 @@ function reportingWaterfall() {
               stat(endLbl, fmt.int(endRows.length), (net >= 0 ? '+' : '\u2212') + fmt.int(Math.abs(net)) + ' net vs start' + (running ? ' · so far' : ''), endRows),
             ];
           })(),
-          earlyLosses.length > 0 && stat('Early losses', fmt.int(earlyLosses.length), money0(arrOf(earlyLosses)) + ' ARR — sold & lost inside ' + periodLabel + ' · sales quality, NOT in the churn rate', earlyLosses)),
+          ),   // (Early losses tile retired per Isaac, Sep 24)
         el('div', { class: 'text-[10px] uppercase tracking-widest font-bold mb-1', style: { color: 'var(--text-subtle)' } }, 'By cancellation reason'),
         // Donut (per Isaac, Sep 2026) — replaces the bar list. Legend rows
         // and slices both drill to the accounts behind that reason.
