@@ -1174,7 +1174,14 @@ function reportingChartData(scopeRows, serviceConfig) {
     else             { otherActiveCustomers++;  otherActiveCustIds.add(cid); }
   }
 
-  const activeArr = activeRecurring.reduce((s, r) => s + (Number(r.annual_recurring_value) || 0), 0);
+  // Active ARR (per Isaac, Sep 24): only subs that have COMPLETED their
+  // initial service — revenue isn't recurring until the first visit happens.
+  // Sold-but-not-yet-serviced actives are the PENDING ARR shown beside it.
+  const _served = (r) => !!r.initial_service;
+  const activeArr = activeRecurring.reduce((s, r) => s + (_served(r) ? (Number(r.annual_recurring_value) || 0) : 0), 0);
+  const pendingArr = activeRecurring.reduce((s, r) => s + (!_served(r) ? (Number(r.annual_recurring_value) || 0) : 0), 0);
+  const pendingArrSubs = activeRecurring.filter(r => !_served(r)).length;
+  const activeArrSubs = activeRecurring.length - pendingArrSubs;
   // Rate over RECURRING subs (the card says "recurring subs only") — it used
   // to divide by every row incl. one-time services, so it read low.
   const cancelRate = recurringRows.length > 0
@@ -1251,7 +1258,7 @@ function reportingChartData(scopeRows, serviceConfig) {
       recurring:        recurringRows.length,
       activeRecurring:  activeRecurring.length,
       activeSubs:       activeSubs.length,
-      activeArr,
+      activeArr, activeArrSubs, pendingArr, pendingArrSubs,
       uniqueCustomers:  new Set(scopeRows.map(r => r.customer_id).filter(Boolean)).size,
       // Customers with ≥1 ACTIVE sub — matches the Active Customers donut
       // (recurring + other-active). The old KPI used uniqueCustomers, which
@@ -1270,8 +1277,8 @@ function reportingChartData(scopeRows, serviceConfig) {
     slices: {
       custDepth:   REPORTING_DEPTH_ORDER.map(k => ({ label: k, value: depthCount.get(k) || 0 })),
       custOffice:  [...custOfficeCount.entries()].map(([label, value]) => ({ label, value })),
-      rarr:        reportingGroupSum(activeRecurring, r => r.subscription,                r => r.annual_recurring_value),
-      rarrOffice:  reportingGroupSum(activeRecurring, r => r.office_name || 'Unspecified', r => r.annual_recurring_value),
+      rarr:        reportingGroupSum(activeRecurring.filter(_served), r => r.subscription,                r => r.annual_recurring_value),   // serviced only — ties to the Active ARR card
+      rarrOffice:  reportingGroupSum(activeRecurring.filter(_served), r => r.office_name || 'Unspecified', r => r.annual_recurring_value),
       customers:   [
         { label: 'Recurring customers', value: recurringCustomers },
         { label: 'Other active',        value: otherActiveCustomers },
@@ -1295,8 +1302,8 @@ function reportingChartData(scopeRows, serviceConfig) {
     drill: {
       custDepth:     { source: activeForCharts.filter(r => r.customer_id), key: r => custBucket(r.customer_id) },
       custOffice:    { source: activeForCharts.filter(r => r.customer_id), key: r => custOffice.get(r.customer_id) || 'Unspecified' },
-      rarr:          { source: activeRecurring, key: r => r.subscription },
-      rarrOffice:    { source: activeRecurring, key: r => r.office_name || 'Unspecified' },
+      rarr:          { source: activeRecurring.filter(_served), key: r => r.subscription },
+      rarrOffice:    { source: activeRecurring.filter(_served), key: r => r.office_name || 'Unspecified' },
       customers:     {
         source: scopeRows.filter(r => r.customer_id && (recurringCustIds.has(r.customer_id) || otherActiveCustIds.has(r.customer_id))),
         key: r => recurringCustIds.has(r.customer_id) ? 'Recurring customers' : 'Other active',
