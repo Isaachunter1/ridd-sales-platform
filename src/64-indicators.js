@@ -9156,6 +9156,9 @@ function indicatorYoYTrendChart() {
   const YOY_TIERS = [['all', 'All reps'], ['rookie', 'Rookies'], ['vet', 'Vets']];
   const _yoySelTiers = (() => {
     if (_yoyRepOnly) return ['all'];
+    // Admins (per Isaac, Sep 24): the page-header Tier filter drives this
+    // chart; partners keep their own combo picker.
+    if (!_yoyPartner) { const t = state._indicatorRepTierFilter; return (t === 'rookie' || t === 'vet') ? [t] : ['all']; }
     const sel = Array.isArray(state._indicatorYoYTiers) ? state._indicatorYoYTiers.filter(t => YOY_TIERS.some(x => x[0] === t)) : [];
     return sel.length ? sel : ['all'];
   })();
@@ -9214,7 +9217,14 @@ function indicatorYoYTrendChart() {
       if (!sel.length) return _yoyReachTeams.map(t => ({ t: 'team', v: t }));   // default: their team(s)
       return sel;
     }
-    return sel.length ? sel : [{ t: 'co' }];
+    // Admins (per Isaac, Sep 24): scope follows the page-header Filters —
+    // Team, else Office, else Company — unless specific reps are picked
+    // here, in which case each rep is its own line.
+    const reps = sel.filter(sc => sc.t === 'rep');
+    if (reps.length) return reps;
+    if (state._indicatorRepTeamFilter && state._indicatorRepTeamFilter !== '__unassigned__') return [{ t: 'team', v: state._indicatorRepTeamFilter }];
+    if (state._indicatorRepOfficeFilter) return [{ t: 'office', v: state._indicatorRepOfficeFilter }];
+    return [{ t: 'co' }];
   })();
   // PRA is revenue ÷ unique sellers — for a REP scope that's ÷1, i.e. it
   // just repaints Revenue (Isaac: "the PRA metric isn't doing anything").
@@ -9372,6 +9382,18 @@ function indicatorYoYTrendChart() {
   // Years picker — defaults to the CURRENT year only; check other years to
   // overlay them (plotting all six by default was spaghetti).
   const _yoySelYears = (() => {
+    if (!_yoyPartner && !_yoyRepOnly) {
+      // Admins: the years spanned by the page-header Date range (a single
+      // year for the presets; several for a custom range across years).
+      try {
+        const rb = indicatorRangeBounds(state.indicatorsRangePreset, { start: state.indicatorsCustomStart, end: state.indicatorsCustomEnd });
+        if (rb && rb.start && rb.end) {
+          const y0 = Number(String(rb.start).slice(0, 4)), y1 = Number(String(rb.end).slice(0, 4));
+          const ys = yearsPresent.filter(y => y >= y0 && y <= y1);
+          if (ys.length && (y1 - y0) < 6) return ys;
+        }
+      } catch (e) { /* fall through */ }
+    }
     const sel = Array.isArray(state._indicatorYoYYears) ? state._indicatorYoYYears.filter(y => yearsPresent.includes(y)) : [];
     if (sel.length) return sel;
     return yearsPresent.includes(curY) ? [curY] : yearsPresent.slice(-1);
@@ -9653,35 +9675,19 @@ function indicatorYoYTrendChart() {
       class: 'card absolute p-1.5',
       style: { top: 'calc(100% + 6px)', right: '0', minWidth: '230px', maxHeight: '70vh', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._yoyScopesOpen ? 'block' : 'none' },
     },
-      rowBtn('co:', 'Company (everything on this page)'),
-      // Type (All reps / Rookies / Vets) lives INSIDE this picker now (per
-      // Isaac) — the separate "All types" button is gone.
-      secTitle('Type'),
-      ...YOY_TIERS.map(([tid, lab]) => tierBtn(tid, lab)),
-      // (Department rows retired per Isaac, Sep 24 — the page-header Type filter already scopes this chart.)
-      offices.length ? secTitle('Offices') : null,
-      ...offices.map(o => rowBtn('office:' + o, o)),
-      teams.length ? secTitle('Teams') : null,
-      ...teams.map(t => rowBtn('team:' + t, t)),
-      secTitle('Reps'),
+      // Reps only (per Isaac, Sep 24): everything else — type, office, team,
+      // tier, date range, exclusions — comes from the page-header Filters.
+      // Picked reps overlay as their own lines; none picked = the header scope.
+      secTitle('Overlay reps'),
       el('div', { class: 'px-1.5 pb-1' }, repSearch),
       repList,
-      // ONE filters panel (per Isaac, Sep 24): Range and Exclusions fold in
-      // here so the header is just Filters + Metric.
-      ..._extraSections(),
       (_sApply = el('button', {
         class: 'w-full rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95 mt-1 sticky',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)', background: 'var(--card)', bottom: '0' },
         onclick: (e) => {
           e.stopPropagation();
-          const parsed = _staged.map(k => { const i = k.indexOf(':'); return { t: k.slice(0, i), v: k.slice(i + 1) || undefined }; });
-          state._indicatorYoYScopes = parsed.length ? parsed : [{ t: 'co' }];
-          state._indicatorYoYTiers = _stTiers.length ? _stTiers : ['all'];
-          if (!_yoyPartner) {
-            state._indicatorYoYYears = _stYears.length ? _stYears : [curY];
-            state._indicatorYoYGran = _stGran;
-            state.indicatorExcl = { ..._stExcl };
-          }
+          const parsed = _staged.filter(k => k.indexOf('rep:') === 0).map(k => ({ t: 'rep', v: k.slice(4) }));
+          state._indicatorYoYScopes = parsed;   // [] = follow the page-header scope
           state._yoyScopesOpen = false;
           mountApp();
         },
@@ -9690,9 +9696,8 @@ function indicatorYoYTrendChart() {
     const _tierLab = _tierSplit ? _yoySelTiers.map(t => (YOY_TIERS.find(x => x[0] === t) || [])[1] || t).join(' + ') : '';
     const _granLab = gran === 'year' ? 'Years' : (gran === 'month' ? 'Months' : 'Weeks') + ' \u00b7 ' + _yoySelYears.slice().sort().join('/');
     const _nX = Object.values(indicatorExcl()).filter(Boolean).length;
-    const label = (!multi ? 'Company'
-      : _yoySelScopes.length === 1 ? _scopeLabelOf(_yoySelScopes[0])
-      : _yoySelScopes.length + ' selected') + (_tierLab ? ' · ' + _tierLab : '') + (_yoyPartner ? '' : ' · ' + _granLab + (_nX ? ' · ' + _nX + ' excl' : ''));
+    const _nReps = _yoySelScopes.filter(sc => sc.t === 'rep').length;
+    const label = _nReps ? (_nReps === 1 ? _yoySelScopes[0].v : _nReps + ' reps') : 'Reps';
     const btn = el('button', {
       class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer border flex items-center gap-1.5',
       style: multi
