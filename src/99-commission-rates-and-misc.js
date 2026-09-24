@@ -2525,7 +2525,7 @@ function openUserEditor(existing = null, prefill = null) {
         // submits its (prefilled) value, and blank falls back to the record
         // so a save can never silently wipe a stored amount.
         golden_phone_amount:    Number.isFinite(parseFloat(data.golden_phone_amount)) ? parseFloat(data.golden_phone_amount) : (existing?.golden_phone_amount ?? 0),
-        loyalty_royalty_amount: parseFloat(data.loyalty_royalty_amount) || 0,
+        loyalty_royalty_amount: existing?.loyalty_royalty_amount ?? 0,   // editor retired — keep whatever is stored
         loyalty_pay_amount:     Number.isFinite(parseFloat(data.loyalty_pay_amount)) ? parseFloat(data.loyalty_pay_amount) : (existing?.loyalty_pay_amount ?? 0),
         other_pay_amount:       Number.isFinite(parseFloat(data.other_pay_amount)) ? parseFloat(data.other_pay_amount) : (existing?.other_pay_amount ?? 0),
         // CRM bridge — phone carried from FieldRoutes, plus the employee-ID link
@@ -2934,18 +2934,19 @@ function openUserEditor(existing = null, prefill = null) {
       // roles do, unless the rep is typed Loyalty (who get Loyalty Royalty
       // instead).
       // Golden Phone editor retired for now (per Isaac, Sep 22) — any stored amount is preserved by the save path.
-      const loyaltyRoyaltyRow = mk('Loyalty Royalty', moneyInp('loyalty_royalty_amount', existing?.loyalty_royalty_amount));
+      // Loyalty Royalty editor retired (per Isaac, Sep 24) — any stored amount is preserved by the save path.
+      const loyaltyRoyaltyRow = el('div', { style: { display: 'none' } });
       // (Close Rate / Other Pay / Loyalty Pay moved to Settings → Commissions, per Isaac.)
 
       const LOYALTY_ROLES = new Set(['rep_loyalty', 'rep_loyalty_lead']);
       const grid = el('div', { class: 'flex flex-col gap-3' });
       const applyRepTypeVisibility = () => {
         const roleSel = form.querySelector('select[name="role"]');
-        loyaltyRoyaltyRow.style.display = (roleSel && LOYALTY_ROLES.has(roleSel.value)) ? '' : 'none';
+        void roleSel;   // (nothing role-specific left in the pay stub block)
       };
       grid.append(loyaltyRoyaltyRow);
 
-      const section = el('div', { class: 'flex flex-col gap-3 pt-3 border-t', style: { borderColor: 'var(--border)' } },
+      const section = el('div', { class: 'flex flex-col gap-3 pt-3 border-t', style: { borderColor: 'var(--border)', display: 'none' } },   // Pay Stub block empty since Loyalty Royalty retired (per Isaac, Sep 24)
         el('h4', { class: 'text-[11px] uppercase tracking-widest font-bold text-muted-' }, 'Pay Stub'),
         grid,
       );

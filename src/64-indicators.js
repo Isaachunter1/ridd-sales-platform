@@ -4588,8 +4588,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // My Team (default) or Offices; the subscription breakdown is one click in.
   const _mixPartnerish = !isAdminRole(state.profile?.role)
     && ((typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role)) || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role)));
+  // Partners / leads (per Isaac, Sep 24): Subscriptions = THEIR team's mix
+  // (the pool is already scoped to their reach), or Offices. No Teams view.
   const mixGroup = _mixPartnerish
-    ? (state._indicatorMixGroup === 'office' ? 'office' : 'team')
+    ? (state._indicatorMixGroup === 'office' ? 'office' : 'subscription')
     : (['office', 'team'].includes(state._indicatorMixGroup) ? state._indicatorMixGroup : 'subscription');
   const _mixTC = (o) => String(o || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
   const officeKeyOf = (s) => _mixTC(s.office || 'Unknown');
@@ -4608,7 +4610,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     ? _mixScoped.filter(s => (mixGroup === 'office' ? officeKeyOf(s) : teamKeyOf(s)) === drill.key)
     : _mixScoped;
   const mixGroupTabs = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
-    ...(_mixPartnerish ? [['team', 'My Team'], ['office', 'Offices']] : [['subscription', 'Subscriptions'], ['office', 'Offices'], ['team', 'Teams']]).map(([v, l]) => el('button', {
+    ...(_mixPartnerish ? [['subscription', 'Subscriptions'], ['office', 'Offices']] : [['subscription', 'Subscriptions'], ['office', 'Offices'], ['team', 'Teams']]).map(([v, l]) => el('button', {
       class: 'px-2.5 py-1 text-[11px] font-semibold transition',
       style: mixGroup === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
       onclick: () => { state._indicatorMixGroup = v; state._indicatorMixDrill = null; mountApp(); },

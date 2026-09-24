@@ -265,7 +265,8 @@ const ADMIN_SECTION_PERM = { users: 'set_users', teams: 'set_teams', goals: 'set
 // Sub-tab view key → its Sales-tab permission (all three groups).
 const VIEW_TAB_PERM = { dashboard: 'tab_dashboard', sales: 'tab_sales', pay: 'tab_pay', scorecards: 'tab_scorecards', calendar: 'tab_calendar', hall_of_fame: 'tab_hof',
   d2d_dashboard: 'tab_dashboard', d2d_sales: 'tab_sales', commission: 'tab_pay', techs: 'tab_dashboard', tech_sales: 'tab_sales', tab_pay: 'tab_pay', tech_pay: 'tab_pay', loyalty_dashboard: 'tab_loyalty', loyalty_renewals: 'tab_loyalty', loyalty_health: 'tab_loyalty' };
-function canOpenLoyalty(profile) { const p = profile || state.profile; return !!p && (isAdminRole(p.role) || userCan('tab_loyalty', p)); }
+// Loyalty tab (per Isaac, Sep 24): every office rep, loyalty rep and loyalty / office lead — always; others via Settings → Permissions.
+function canOpenLoyalty(profile) { const p = profile || state.profile; return !!p && (isAdminRole(p.role) || ['rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead', 'office_staff'].includes(String(p.role || '')) || userCan('tab_loyalty', p)); }
 // Non-admins may open Settings when granted; only the sections they hold.
 function canOpenSettings(profile) { const p = profile || state.profile; return !!p && (isAdminRole(p.role) || userCan('view_settings', p)); }
 function canOpenAdminSection(k, profile) { const p = profile || state.profile; if (!p) return false; if (isAdminRole(p.role)) return true; if (k === 'perms' || k === 'uploads' || k === 'data') return false; return userCan('view_settings', p) && !!ADMIN_SECTION_PERM[k] && userCan(ADMIN_SECTION_PERM[k], p); }
