@@ -9653,6 +9653,34 @@ function indicatorYoYTrendChart() {
       return row;
     };
     const secTitle = (t) => el('div', { class: 'px-2.5 pt-2 pb-1 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, t);
+    // Range + Exclusions staged alongside scope (admins; partners keep their combo picker).
+    let _stYears = [..._yoySelYears], _stGran = gran, _stExcl = { ...indicatorExcl() };
+    const _chk = (has, toggle, lab) => {
+      const glyph = el('span', { style: { fontSize: '13px' } }, has() ? '\u2611' : '\u2610');
+      const row = el('button', { class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer text-left transition hover:brightness-95', style: { color: 'var(--text)', background: has() ? 'var(--card-2)' : 'transparent' },
+        onclick: (e) => { e.stopPropagation(); toggle(); const on = has(); glyph.textContent = on ? '\u2611' : '\u2610'; row.style.background = on ? 'var(--card-2)' : 'transparent'; _sDirty(); } }, glyph, el('span', { class: 'truncate' }, lab));
+      return row;
+    };
+    const _extraSections = () => {
+      if (_yoyPartner) return [];
+      const granRows = [];
+      const paintGran = () => granRows.forEach(({ row, glyph, gid }) => { const on = _stGran === gid; glyph.textContent = on ? '\u25c9' : '\u25cb'; row.style.background = on ? 'var(--card-2)' : 'transparent'; });
+      const granRow = (gid, lab) => { const glyph = el('span', { style: { fontSize: '13px' } });
+        const row = el('button', { class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer text-left transition hover:brightness-95', style: { color: 'var(--text)' },
+          onclick: (e) => { e.stopPropagation(); _stGran = gid; paintGran(); _sDirty(); } }, glyph, el('span', {}, lab));
+        granRows.push({ row, glyph, gid }); return row; };
+      const out = [
+        secTitle('Show as'), granRow('week', 'Weeks'), granRow('month', 'Months'), granRow('year', 'Years (all history)'),
+        secTitle('Overlay years'),
+        ...yearsPresent.slice().sort((a, b) => b - a).map(y => _chk(() => _stYears.includes(y), () => { _stYears = _stYears.includes(y) ? _stYears.filter(x => x !== y) : [..._stYears, y]; }, String(y) + (y === curY ? ' \u00b7 current' : ''))),
+        secTitle('Exclude'),
+        _chk(() => !!_stExcl.oneTime, () => { _stExcl.oneTime = !_stExcl.oneTime; }, 'One-time services'),
+        _chk(() => !!_stExcl.ror, () => { _stExcl.ror = !_stExcl.ror; }, '3-day RORs'),
+        _chk(() => !!_stExcl.renewal, () => { _stExcl.renewal = !_stExcl.renewal; }, 'Renewals'),
+      ];
+      paintGran();
+      return out;
+    };
     let _stTiers = [..._yoySelTiers];
     const tierBtn = (tid, lab) => {
       const glyph = el('span', { style: { fontSize: '13px' } }, _stTiers.includes(tid) ? '☑' : '☐');
@@ -9690,7 +9718,7 @@ function indicatorYoYTrendChart() {
     paintReps('');
     const panel = el('div', {
       class: 'card absolute p-1.5',
-      style: { top: 'calc(100% + 6px)', right: '0', minWidth: '230px', maxHeight: '340px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._yoyScopesOpen ? 'block' : 'none' },
+      style: { top: 'calc(100% + 6px)', right: '0', minWidth: '230px', maxHeight: '70vh', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._yoyScopesOpen ? 'block' : 'none' },
     },
       rowBtn('co:', 'Company (everything on this page)'),
       // Type (All reps / Rookies / Vets) lives INSIDE this picker now (per
@@ -9706,23 +9734,33 @@ function indicatorYoYTrendChart() {
       secTitle('Reps'),
       el('div', { class: 'px-1.5 pb-1' }, repSearch),
       repList,
+      // ONE filters panel (per Isaac, Sep 24): Range and Exclusions fold in
+      // here so the header is just Filters + Metric.
+      ..._extraSections(),
       (_sApply = el('button', {
-        class: 'w-full rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95 mt-1',
-        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        class: 'w-full rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95 mt-1 sticky',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)', background: 'var(--card)', bottom: '0' },
         onclick: (e) => {
           e.stopPropagation();
           const parsed = _staged.map(k => { const i = k.indexOf(':'); return { t: k.slice(0, i), v: k.slice(i + 1) || undefined }; });
           state._indicatorYoYScopes = parsed.length ? parsed : [{ t: 'co' }];
           state._indicatorYoYTiers = _stTiers.length ? _stTiers : ['all'];
+          if (!_yoyPartner) {
+            state._indicatorYoYYears = _stYears.length ? _stYears : [curY];
+            state._indicatorYoYGran = _stGran;
+            state.indicatorExcl = { ..._stExcl };
+          }
           state._yoyScopesOpen = false;
           mountApp();
         },
       }, 'Apply')));
     const multi = _yoySelScopes.length > 1 || _yoySelScopes[0].t !== 'co' || _tierSplit;
     const _tierLab = _tierSplit ? _yoySelTiers.map(t => (YOY_TIERS.find(x => x[0] === t) || [])[1] || t).join(' + ') : '';
+    const _granLab = gran === 'year' ? 'Years' : (gran === 'month' ? 'Months' : 'Weeks') + ' \u00b7 ' + _yoySelYears.slice().sort().join('/');
+    const _nX = Object.values(indicatorExcl()).filter(Boolean).length;
     const label = (!multi ? 'Company'
       : _yoySelScopes.length === 1 ? _scopeLabelOf(_yoySelScopes[0])
-      : _yoySelScopes.length + ' selected') + (_tierLab ? ' · ' + _tierLab : '');
+      : _yoySelScopes.length + ' selected') + (_tierLab ? ' · ' + _tierLab : '') + (_yoyPartner ? '' : ' · ' + _granLab + (_nX ? ' · ' + _nX + ' excl' : ''));
     const btn = el('button', {
       class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer border flex items-center gap-1.5',
       style: multi
@@ -10118,7 +10156,7 @@ function indicatorYoYTrendChart() {
       el('h3', { class: 'text-sm font-bold' }, 'Performance Trends'),
       // Labels live INSIDE the buttons now (Scope / Type / Range / Metric —
       // per Isaac); the current value shows in each button's tooltip.
-      el('div', { class: 'flex items-center gap-2 flex-wrap' }, ...(comboWrap ? [comboWrap] : [scopesWrap, yearsWrap]), exclWrap, metricSel)),
+      el('div', { class: 'flex items-center gap-2 flex-wrap' }, ...(comboWrap ? [comboWrap, exclWrap] : [scopesWrap]), metricSel)),
     cvsWrap);
 }
 
