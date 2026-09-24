@@ -1248,7 +1248,10 @@ function mountApp() {
   // (auditors get no bar — their only tab is Sales).
   // The bar (rep-type toggle + tabs + date filter) freezes under the page
   // header on scroll, same pin as the Reporting toolbars (per Isaac, Sep 23).
-  const _pinBar = (bar) => (typeof reportingPinBar === 'function') ? reportingPinBar('subtabs', bar) : bar;
+  // Spacing (per Isaac, Sep 24): the bar sits a touch higher under the page
+  // header and leaves a clear gap above the Revenue Pacer — the gap lives on
+  // the pin SPACER (not the bar) so it survives the bar going fixed on scroll.
+  const _pinBar = (bar) => { const sp = (typeof reportingPinBar === 'function') ? reportingPinBar('subtabs', bar) : bar; sp.style.marginTop = '-8px'; sp.style.marginBottom = '20px'; bar.classList.remove('mb-4'); return sp; };
   if (INSIDE_SALES_TAB_KEYS.has(state.view)) {
     const subTabBar = insideSalesSubTabs();
     if (subTabBar) contentWrap.append(_pinBar(subTabBar));
