@@ -175,7 +175,10 @@ function openTvBoard() {
     const rowsAgent = rows.filter(s => !isHouse(s));
     const subsMy = subs.filter(s => !isHouse(s));
     const subsAcv = subsMy.filter(s => !isRenewal(s));   // ACV (per Isaac): renewals out as well
-    const my = subsMy.map(s => (typeof myBucketOf === 'function') ? myBucketOf(s) : null).filter(Boolean);
+    // MY % leaves renewals out too (per Isaac, Sep 24) — they show in the
+    // drill's Excluded column beside the house account.
+    const subsMyNR = subsMy.filter(s => !isRenewal(s));
+    const my = subsMyNR.map(s => (typeof myBucketOf === 'function') ? myBucketOf(s) : null).filter(Boolean);
     const multi = my.filter(b => b === 'multi').length;
     const apPool = rowsAgent.filter(s => s._crm);
     const ap = apPool.length ? apPool.filter(s => s._crmAutoPay).length / apPool.length : null;   // agent sales only
@@ -207,7 +210,7 @@ function openTvBoard() {
       avgContract: subsAcv.length ? rev(subsAcv) / subsAcv.length : 0,   // recurring NEW subs — house account, one-time and renewals out
       multiPct: my.length ? multi / my.length * 100 : 0, autoPay: ap, recMix: rowsAgent.length ? subsMy.length / rowsAgent.length * 100 : 0, reps, offices, latest, goal,
       splits: {
-        multi: { yes: subsMy.filter(s => (typeof myBucketOf === 'function' ? myBucketOf(s) : null) === 'multi'), no: subsMy.filter(s => (typeof myBucketOf === 'function' ? myBucketOf(s) : null) === 'twelve'), excluded: subs.filter(isHouse) },
+        multi: { yes: subsMyNR.filter(s => (typeof myBucketOf === 'function' ? myBucketOf(s) : null) === 'multi'), no: subsMyNR.filter(s => (typeof myBucketOf === 'function' ? myBucketOf(s) : null) === 'twelve'), excluded: subs.filter(s => isHouse(s) || isRenewal(s)) },
         autopay: { yes: apPool.filter(s => s._crmAutoPay), no: apPool.filter(s => !s._crmAutoPay), excluded: rows.filter(s => s._crm && isHouse(s)) },
         recmix: { yes: subsMy, no: rowsAgent.filter(s => isOts(s)), excluded: rows.filter(isHouse) },
         // Price-point drills (per Isaac): initial ≥ $99 / under, recurring ≥ $59 / under, ACV ≥ $700 / under.
@@ -345,7 +348,7 @@ function openTvBoard() {
         tile('Avg initial', money(d.avgInitial), 'subscriptions', () => openDrill('Avg initial · ' + money(d.avgInitial), 'Initial $99 and up', d.splits.initial.yes, 'Initial under $99', d.splits.initial.no, repNameOf, null, { of: (x) => Number(x.initial_amount) || 0, fmt: money, third: { label: 'Excluded · RIDD Account', rows: d.splits.initial.excluded } })),
         tile('Avg recurring', money(d.avgMonthly), 'per month', () => openDrill('Avg recurring · ' + money(d.avgMonthly), 'Recurring $59 and up', d.splits.recurring.yes, 'Recurring under $59', d.splits.recurring.no, repNameOf, null, { of: (x) => Number(x.monthly_amount) || 0, fmt: (n) => money(n) + '/mo', third: { label: 'Excluded · RIDD Account', rows: d.splits.recurring.excluded } })),
         tile('Avg ACV', money(d.avgContract), 'contract value per sale', () => openDrill('Avg ACV · ' + money(d.avgContract), 'ACV $700 and up', d.splits.acv.yes, 'ACV under $700', d.splits.acv.no, repNameOf, null, { of: (x) => Number(x.revenue_amount) || 0, fmt: money, third: { label: 'Excluded · RIDD Account, one-time, renewals', rows: d.splits.acv.excluded } })),
-        tile('Multi-year', pct(d.multiPct), '18 mo and up', () => openDrill('Multi-year · ' + pct(d.multiPct), 'Multi-year (18 mo+)', d.splits.multi.yes, '12-month', d.splits.multi.no, repNameOf, null, { of: (x) => Number(x.contract_months) || 0, fmt: (n) => n > 1 ? Math.round(n) + ' MO' : 'ONE-TIME', avg: false, third: { label: 'Excluded · RIDD Account', rows: d.splits.multi.excluded } })),
+        tile('Multi-year', pct(d.multiPct), '18 mo and up', () => openDrill('Multi-year · ' + pct(d.multiPct), 'Multi-year (18 mo+)', d.splits.multi.yes, '12-month', d.splits.multi.no, repNameOf, null, { of: (x) => Number(x.contract_months) || 0, fmt: (n) => n > 1 ? Math.round(n) + ' MO' : 'ONE-TIME', avg: false, third: { label: 'Excluded · RIDD Account, renewals', rows: d.splits.multi.excluded } })),
         tile('Auto pay', d.autoPay == null ? '—' : pct(d.autoPay * 100), 'of CRM sales', () => openDrill('Auto pay · ' + (d.autoPay == null ? '—' : pct(d.autoPay * 100)), 'On auto pay', d.splits.autopay.yes, 'Not on auto pay', d.splits.autopay.no, repNameOf, null, { of: (x) => Number(x.revenue_amount) || 0, fmt: money, avg: false, third: { label: 'Excluded · RIDD Account', rows: d.splits.autopay.excluded } })),
         tile('Rec mix', pct(d.recMix), 'recurring subs of all sales', () => openDrill('Rec mix · ' + pct(d.recMix), 'Recurring subscriptions', d.splits.recmix.yes, 'One-time services', d.splits.recmix.no, repNameOf, null, { of: (x) => Number(x.revenue_amount) || 0, fmt: money, avg: false, third: { label: 'Excluded · RIDD Account', rows: d.splits.recmix.excluded } }))));
 
