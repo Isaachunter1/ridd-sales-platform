@@ -65,7 +65,7 @@ function viewIndicators() {
   // gracefully to Branch mode otherwise.
   const rawSalesAvailable = Array.isArray(state._indicatorRawSales) && state._indicatorRawSales.length > 0;
   // Company rollup (RPS / RPC) is ADMIN-ONLY — heal the state for anyone else.
-  if (state.indicatorsGroupBy === 'company' && !isAdminRole(state.profile?.role)) state.indicatorsGroupBy = 'branch';
+  if (state.indicatorsGroupBy === 'company') state.indicatorsGroupBy = 'branch';   // Company rollup retired from the picker (per Isaac, Sep 24) — it's the offices summed two ways
   // Department grouping was retired from the filters panel (per Isaac). Heal
   // any saved preset or persisted session still holding it, otherwise the
   // page would sit in a mode the dropdown can no longer show or leave.
@@ -788,7 +788,6 @@ function viewIndicators() {
           },
             el('option', { value: 'branch', selected: _staged.group === 'branch' }, 'Branch / Office'),
             el('option', { value: 'teams', selected: _staged.group === 'teams' }, 'Teams'),
-            isAdminRole(state.profile?.role) ? el('option', { value: 'company', selected: _staged.group === 'company' }, 'Company (RIDD Pest Control / RIDD Pest Solutions)') : null,
           );
           const _selCls = { class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer w-full', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } };
           const _offices = [...new Set((state._indicatorRawSales || []).map(x => x.office).filter(Boolean))].sort();   // raw CRM strings — the leaderboard matches on these exactly
