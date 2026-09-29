@@ -195,6 +195,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/addons-dryrun"
+  to   = "/.netlify/functions/addons-dryrun"
+  status = 200
+
+[[redirects]]
   from = "/api/revhawk-sync-now"
   to   = "/.netlify/functions/revhawk-sync-now"
   status = 200
