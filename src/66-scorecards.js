@@ -1788,8 +1788,8 @@ function reportingArrServicedOnly() { const r = _adminRules(); return !(r && r.a
 function setReportingArrServicedOnly(b) { _setAdminRule('arrServicedOnly', !!b); }
 function reportingExclStalePending() { const r = _adminRules(); return !(r && r.exclStalePending === false); }   // default ON
 function setReportingExclStalePending(b) { _setAdminRule('exclStalePending', !!b); }
-function reportingStalePendingDays() { const r = _adminRules(); return (r && Number.isFinite(r.stalePendingDays) && r.stalePendingDays >= 1) ? r.stalePendingDays : 14; }
-function setReportingStalePendingDays(n) { _setAdminRule('stalePendingDays', Math.max(1, parseInt(n, 10) || 14)); }
+function reportingStalePendingDays() { const r = _adminRules(); return (r && Number.isFinite(r.stalePendingDays) && r.stalePendingDays >= 1) ? r.stalePendingDays : 2; }   // per Isaac: initial appt passed ≥ 2 days
+function setReportingStalePendingDays(n) { _setAdminRule('stalePendingDays', Math.max(1, parseInt(n, 10) || 2)); }
 function reportingUseCrmDeletedScan() { const r = _adminRules(); return !!(r && r.useCrmDeletedScan === true); }
 function setReportingUseCrmDeletedScan(b) { _setAdminRule('useCrmDeletedScan', !!b); state._crmDeletedIds = b ? (state._crmDeletedIdsRaw || []) : []; }
 function reportingArrExclPastDue() { const r = _adminRules(); return !!(r && r.arrExclPastDue === true); }

@@ -2013,8 +2013,11 @@ async function _loadCrmDeletedIds() {
 }
 function _stalePendingCustIds(rows) {
   if (!Array.isArray(rows) || !rows.some(r => 'initial_appt_date' in r)) return [];   // older snapshot without the field — do nothing
-  const days = (typeof reportingStalePendingDays === 'function') ? reportingStalePendingDays() : 14;
+  const days = (typeof reportingStalePendingDays === 'function') ? reportingStalePendingDays() : 2;
   const cut = new Date(); cut.setDate(cut.getDate() - days); const cutIso = cut.toISOString().slice(0, 10);
+  // No appointment at all: keep a 14-day window from the sale date (a fresh
+  // sale can take a few days to get its initial booked).
+  const cutNo = new Date(); cutNo.setDate(cutNo.getDate() - 14); const cutNoIso = cutNo.toISOString().slice(0, 10);
   const by = new Map();
   for (const r of rows) {
     const id = String(r.customer_id != null ? r.customer_id : ''); if (!id) continue;
@@ -2022,7 +2025,7 @@ function _stalePendingCustIds(rows) {
     const serviced = !!(r.initial_service || r.initial_serviced_date) || String(r.initial_status || '').toLowerCase() === 'completed';
     const appt = r.initial_appt_date ? String(r.initial_appt_date).slice(0, 10) : null;
     const sold = r.sold_date ? String(r.sold_date).slice(0, 10) : null;
-    const stale = active && !serviced && (appt ? appt < cutIso : (!!sold && sold < cutIso));
+    const stale = active && !serviced && (appt ? appt < cutIso : (!!sold && sold < cutNoIso));
     by.set(id, (by.has(id) ? by.get(id) : true) && stale);
   }
   return [...by].filter(([, v]) => v).map(([k]) => k);
@@ -2077,7 +2080,7 @@ async function loadReportingSubscriptions(uploadId) {
   // #145402, #154418, #162676, #174941, #179903 — all deleted in the CRM).
   // Stand-in until the nightly check / RevHawk catch deletions: a customer
   // whose EVERY sub is active, never serviced, and whose initial appointment
-  // date passed 14+ days ago (or has none and was sold 14+ days ago).
+  // date passed 2+ days ago (or has none and was sold 14+ days ago).
   state._stalePendingCustIds = _stalePendingCustIds(rows);
   const del = deletedCustIdSet();
   // Rows set aside as deleted-in-CRM (orphans + the manual list) are kept in
