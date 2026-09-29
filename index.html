@@ -180,6 +180,10 @@
   .dash-toolbar > select, .dash-toolbar > button:not(.dash-newsale), .dash-toolbar > div { flex: 0 0 auto; }
   /* In the sub-tab row (30-shell moves it there): no own margin, sits flush right. */
   .sales-subtabs .dash-toolbar { flex: 0 0 auto; margin: 0 0 4px auto !important; }
+  /* Donut legends scroll when they overflow — thin, always-visible bar so it reads as scrollable. */
+  .rpt-legend-scroll { scrollbar-width: thin; scrollbar-color: var(--border-2) transparent; }
+  .rpt-legend-scroll::-webkit-scrollbar { width: 6px; }
+  .rpt-legend-scroll::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 3px; }
   @media (max-width: 640px) {
     /* ── Calendar on phones (per Isaac — Google Calendar month feel) ──
        Agents become one horizontal chip strip; the month grid takes the

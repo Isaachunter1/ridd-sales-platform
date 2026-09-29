@@ -335,7 +335,8 @@ function reportingPieCard({ key, title, slices, formatValue, totalLabel, subline
             el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pt-2', style: { color: 'var(--text-subtle)' } }, totalLabel || 'Total'),
             el('div', { class: 'text-lg font-bold tabular-nums pt-2' }, formatter(overall)),
           ),
-          el('div', { class: 'flex flex-col gap-1.5 text-xs flex-1 overflow-hidden', style: { minHeight: '0' } },
+          // Scrolls when the rows don't fit (per Isaac, Sep 29) — was clipped.
+          el('div', { class: 'flex flex-col gap-1.5 text-xs flex-1 rpt-legend-scroll', style: { minHeight: '0', overflowY: 'auto', overflowX: 'hidden', paddingRight: '4px' } },
             ...topSlices.map((s, i) => {
               // Legend rows mirror the donut wedges: clicking either opens the
               // same drill table. Rows are the bigger, easier-to-hit target —
