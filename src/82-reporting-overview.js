@@ -744,7 +744,7 @@ function openArrStepsModal(scope, dataA) {
     if (on) { step(title, detail, keep, 'optional', serviceGate); steps[steps.length - 1].toggle = toggle; }
     else steps.push({ title, detail: detail + ' \u2014 OFF: shown for reference, not applied.', removed: cur.filter(r => !keep(r)), kept: cur, tag: 'optional · off', keep: () => true, off: true, toggle, serviceGate });
   };
-  optStep('Keep only subs that completed their initial service', 'Sold but not yet serviced \u2014 expected to start, but not captured customers yet (Pending ARR below).', r => !!r.initial_service, reportingArrServicedOnly(), setReportingArrServicedOnly, true);
+  optStep('Remove pending customers who haven\u2019t completed an initial service yet', 'Sold and still active, first visit not done \u2014 expected to start, but not captured customers yet (Pending ARR below). Step 1 only removes the dead ones: never serviced AND frozen / cancelled as Sold-Not-Started.', r => !!r.initial_service, reportingArrServicedOnly(), setReportingArrServicedOnly, true);
   const _pdDays = reportingAgingDays();
   optStep('Remove active subs past due \u2265 ' + _pdDays + ' days', 'Expected to pay, but not all of them will (Configurations aging threshold).', r => (Number(r.days_past_due) || 0) < _pdDays, reportingArrExclPastDue(), setReportingArrExclPastDue);
   // Pending ARR = passes every step EXCEPT the initial-service gate, and isn't serviced yet.
