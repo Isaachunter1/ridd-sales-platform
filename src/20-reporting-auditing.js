@@ -667,3 +667,53 @@ async function exportAuditingXlsx(accounts, scopeLabel) {
   toast('Exported ' + all.length + ' accounts · ' + noFlag.length + ' with no flag', 'success');
 }
 
+
+
+// ── Service fees credited to a user (per Isaac, Sep 29) ────────────────────
+// Service fees are never assigned to a rep. The FieldRoutes add-ons sync
+// flags every recurring ticket whose Service Fee line carries a Credit To
+// (subscription_revenue.fee_credited_count > 0). This is the to-do list:
+// open each account in FieldRoutes and clear Credit To on the fee line.
+// Goal: zero. Same one-line collapsible style as Marketing's Needs attention.
+function _loadFeeCreditAudit() {
+  if (state._feeAudit !== undefined || !supabase) return;
+  state._feeAudit = null;
+  (async () => {
+    try {
+      const { data, error } = await supabase.from('subscription_revenue')
+        .select('subscription_id, customer_id, base_service, fee_credited_count, fee_credited_employee_ids, lines, updated_at')
+        .gt('fee_credited_count', 0).order('updated_at', { ascending: false }).limit(2000);
+      state._feeAudit = error ? { error: error.message } : (data || []);
+    } catch (e) { state._feeAudit = { error: String(e.message || e) }; }
+    mountApp();
+  })();
+}
+function feeCreditAuditCard() {
+  _loadFeeCreditAudit();
+  const d = state._feeAudit;
+  const rows = Array.isArray(d) ? d : [];
+  const open = state._feeAuditOpen === true;
+  const empName = (id) => {
+    const p = (state.profiles || []).find(x => String(x.fieldroutes_employee_id || '') === String(id));
+    return p ? p.full_name : 'FR #' + id;
+  };
+  const status = d === undefined || d === null ? 'checking…'
+    : d.error ? 'waiting on the add-ons sync (migration 20260929_add_ons_lifecycle.sql)'
+    : !rows.length ? 'All clear — no service fees are credited to anyone.'
+    : rows.length + ' account' + (rows.length === 1 ? '' : 's') + ' with a service fee credited to someone — clear Credit To on the fee line in FieldRoutes';
+  const head = el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', onclick: () => { state._feeAuditOpen = !open; mountApp(); } },
+    el('span', { class: 'inline-block rounded-full', style: { width: '8px', height: '8px', background: Array.isArray(d) ? (rows.length ? '#DC2626' : 'var(--ok)') : '#D97706' } }),
+    el('span', { class: 'text-[11px] uppercase tracking-widest font-bold' }, 'To do · Service fees'),
+    el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, status),
+    rows.length ? el('span', { class: 'ml-auto text-sm font-black tabular-nums', style: { color: '#DC2626' } }, String(rows.length)) : null,
+    el('span', { class: rows.length ? 'text-[11px]' : 'ml-auto text-[11px]', style: { color: 'var(--text-muted)' } }, open ? '▴' : '▾'));
+  const list = open && rows.length ? el('div', { class: 'border-t', style: { borderColor: 'var(--border)' } }, ...rows.map((r, i) => {
+    const fees = (r.lines || []).filter(l => l.kind === 'fee' && l.credited_employee_id);
+    return el('div', { class: 'flex items-center gap-3 px-4 py-2 border-t text-xs', style: { borderColor: 'var(--border)' } },
+      el('span', { class: 'text-[10px] font-bold tabular-nums shrink-0', style: { color: 'var(--text-subtle)', width: '22px', textAlign: 'right' } }, (i + 1) + '.'),
+      el('span', { class: 'font-semibold shrink-0', style: { minWidth: '70px' } }, '#' + r.customer_id),
+      el('span', { class: 'shrink-0', style: { minWidth: '140px', color: 'var(--text-muted)' } }, (r.base_service || '') + ' · sub ' + r.subscription_id),
+      el('span', { class: 'flex-1 min-w-0' }, fees.map(l => l.name + ' ' + fmt.usd(Number(l.per_service) || 0) + ' credited to ' + empName(l.credited_employee_id)).join(' · ')));
+  })) : null;
+  return el('div', { class: 'card overflow-hidden' }, head, list);
+}

@@ -216,7 +216,10 @@ exports.handler = async (event) => {
       const addon_own_value = sum(l => l.kind === 'addon' && samePerson(l)), addon_other_value = sum(l => l.kind === 'addon' && !samePerson(l));
       revRows.push({ subscription_id: String(x.subscriptionID), customer_id: String(x.customerID || rt.customerID || ''), base_service: x.serviceType || null,
         sold_by_employee_id: soldBy || null, sold_by_profile_id: soldProf ? soldProf.id : null, contract_value: cv, recurring_services: n,
-        base_value, fee_value, addon_own_value, addon_other_value, commissionable_value: money2(base_value + addon_own_value), lines, active: true, updated_at: now });
+        base_value, fee_value, addon_own_value, addon_other_value, commissionable_value: money2(base_value + addon_own_value), lines, active: true, updated_at: now,
+        // Service fees are never credited to anyone (per Isaac) — flag any that are, for Auditing.
+        fee_credited_count: lines.filter(l => l.kind === 'fee' && l.credited_employee_id).length,
+        fee_credited_employee_ids: [...new Set(lines.filter(l => l.kind === 'fee' && l.credited_employee_id).map(l => l.credited_employee_id))] });
     }
     log.revenueRows = 0;
     for (const part of chunk(revRows, 500)) {

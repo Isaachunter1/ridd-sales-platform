@@ -42,3 +42,10 @@ create policy "sub revenue: read own or admin" on public.subscription_revenue
   for select to authenticated using (sold_by_profile_id = auth.uid() or public.is_admin()
     or exists (select 1 from jsonb_array_elements(lines) l where l->>'credited_profile_id' = auth.uid()::text));
 notify pgrst, 'reload schema';
+
+-- Service fees are never credited to anyone (per Isaac, Sep 29). The sync
+-- records any fee line that IS credited so Auditing can list them to fix.
+alter table public.subscription_revenue add column if not exists fee_credited_count int not null default 0;
+alter table public.subscription_revenue add column if not exists fee_credited_employee_ids text[] not null default '{}';
+create index if not exists subscription_revenue_fee_credited_idx on public.subscription_revenue (fee_credited_count) where fee_credited_count > 0;
+notify pgrst, 'reload schema';
