@@ -637,9 +637,14 @@ function reportingOverview() {
           { type: 'bar', label: unitSubs ? 'Serviced' : 'Serviced (new ARR)', data: dsSvc, backgroundColor: C.svc, borderWidth: 0 },
           { type: 'bar', label: unitSubs ? 'Churned' : 'Churned (ARR)', data: dsCxl, backgroundColor: C.cxl, borderWidth: 0 },
         ] : [
-          { type: 'bar', label: 'Sold', data: sold, backgroundColor: C.sold, borderWidth: 0, order: 3 },
-          { type: 'line', label: unitSubs ? 'Serviced' : 'Serviced (new ARR)', data: serviced, borderColor: C.svc, backgroundColor: C.svc, borderWidth: 2, tension: 0.3, pointRadius: 2, order: 1 },
-          { type: 'line', label: unitSubs ? 'Churned' : 'Churned (ARR)', data: churned, borderColor: C.cxl, backgroundColor: C.cxl, borderWidth: 2, tension: 0.3, pointRadius: 2, order: 2 },
+          // Per Isaac (Sep 29): Serviced = bars; Sold = green line, Churned =
+          // red line — the goal is Sold riding above Churned. The gap between
+          // the two lines is shaded green where Sold leads, red where it trails.
+          // (Dataset order stays sold / serviced / churned for the click drill.)
+          { type: 'line', label: 'Sold', data: sold, borderColor: C.sold, backgroundColor: C.sold, borderWidth: 2.5, tension: 0.3, pointRadius: 2, order: 1,
+            fill: { target: 2, above: 'rgba(22,163,74,.10)', below: 'rgba(220,38,38,.12)' } },
+          { type: 'bar', label: unitSubs ? 'Serviced' : 'Serviced (new ARR)', data: serviced, backgroundColor: C.svc, borderWidth: 0, order: 3 },
+          { type: 'line', label: unitSubs ? 'Churned' : 'Churned (ARR)', data: churned, borderColor: C.cxl, backgroundColor: C.cxl, borderWidth: 2.5, tension: 0.3, pointRadius: 2, order: 2, fill: false },
         ] },
         options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
           onClick: (evt, els) => {
