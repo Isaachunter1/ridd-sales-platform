@@ -60,16 +60,23 @@ exports.handler = async (event) => {
     // 1. Every customer id the mirror knows about.
     const token = await _bq.getAccessToken();
     const T = (n) => '`' + _bq.PROJECT + '.' + _bq.DATASET + '.' + n + '`';
-    const rows = await _bq.queryObjects(token, `SELECT DISTINCT fieldRoutes_customerID AS id FROM ${T('FieldRoutesCustomer')} WHERE fieldRoutes_customerID IS NOT NULL AND SAFE_CAST(fieldRoutes_customerID AS INT64) > 0`);
+    const rows = await _bq.queryObjects(token, `SELECT fieldRoutes_customerID AS id, MAX(GREATEST(IFNULL(updatedAt, TIMESTAMP '2000-01-01'), IFNULL(SAFE.PARSE_TIMESTAMP('%Y-%m-%d %H:%M:%S', fieldRoutes_dateUpdated), TIMESTAMP '2000-01-01'))) AS upd FROM ${T('FieldRoutesCustomer')} WHERE fieldRoutes_customerID IS NOT NULL AND SAFE_CAST(fieldRoutes_customerID AS INT64) > 0 GROUP BY 1`);
     const mirrorIds = rows.map(r => String(r.id)).filter(Boolean);
+    // Guard (Sep 29): a customer the mirror saw updated in the last 60 days
+    // cannot have been deleted long ago — an earlier scan wrongly flagged
+    // 2,355 live customers (Ethan alone lost 59 sales on the leaderboard).
+    const RECENT_MS = 60 * 86400000;
+    const recent = new Set(rows.filter(r => { const v = r.upd && (r.upd.value || r.upd); const t = v ? Date.parse(String(v).replace(' ', 'T')) || (Number(v) * 1000) : 0; return t && (Date.now() - t) < RECENT_MS; }).map(r => String(r.id)));
     console.log('[crm-deleted] mirror customers:', mirrorIds.length);
 
     // 2. Ask FieldRoutes which of them still exist. customer/search with an
     //    IN filter returns the ids it found; anything missing is gone.
     const alive = new Set();
     const checked = new Set();
-    let calls = 0, skipped = 0;
-    for (const part of chunk(mirrorIds, 1000)) {
+    let calls = 0, skipped = 0, lastError = null;
+    // 250 ids per call keeps the GET URL well under server limits (1,000
+    // ids made ~10k-char URLs — the likely reason every batch failed).
+    for (const part of chunk(mirrorIds, 250)) {
       try {
         const got = await fr('customer/search', { customerIDs: { operator: 'IN', value: part.map(Number) }, includeData: 0 });
         calls++;
@@ -78,23 +85,28 @@ exports.handler = async (event) => {
         // A whole batch of 1,000 real customers can't all be gone — treat an
         // empty / malformed answer as an API hiccup and leave those ids alone.
         if (!found || (!found.length && part.length > 25)) { skipped++; continue; }
+        // Sanity: if more than 10% of a batch is "missing" the answer is
+        // suspect (truncated / filtered search), not a wave of deletions.
+        const foundSet = new Set(found);
+        if (part.filter(id => !foundSet.has(id)).length > Math.max(5, part.length * 0.1)) { skipped++; lastError = 'batch with >10% missing ids skipped'; continue; }
         found.forEach(id => alive.add(id));
         part.forEach(id => checked.add(id));
       } catch (e) {
         skipped++;
+        lastError = String(e && e.message || e).slice(0, 200);
         console.warn('[crm-deleted] batch failed:', String(e && e.message || e).slice(0, 160));
       }
     }
-    const deleted = mirrorIds.filter(id => checked.has(id) && !alive.has(id));
+    const deleted = mirrorIds.filter(id => checked.has(id) && !alive.has(id) && !recent.has(id));
     console.log('[crm-deleted] calls', calls, 'rate-limited retries', fr.rateLimited, 'skipped batches', skipped, 'checked', checked.size, 'deleted', deleted.length);
 
     // 3. Merge with what we knew: ids from batches that were skipped tonight
     //    keep yesterday's verdict, so one flaky call never un-deletes anyone.
     const { data: prevRow } = await supabase.from('app_settings').select('value').eq('key', 'crm_deleted').maybeSingle();
     const prev = (prevRow && prevRow.value && Array.isArray(prevRow.value.ids)) ? prevRow.value.ids.map(String) : [];
-    const keep = prev.filter(id => !checked.has(id));
+    const keep = prev.filter(id => !checked.has(id) && !recent.has(id));
     const ids = [...new Set([...deleted, ...keep])].sort((a, b) => Number(a) - Number(b));
-    const value = { ids, scanned_at: new Date().toISOString(), mirror: mirrorIds.length, checked: checked.size, skipped_batches: skipped, calls };
+    const value = { ids, scanned_at: new Date().toISOString(), mirror: mirrorIds.length, checked: checked.size, skipped_batches: skipped, calls, last_error: lastError, guarded_recent: recent.size };
     const { error } = await supabase.from('app_settings').upsert({ key: 'crm_deleted', value }, { onConflict: 'key' });
     if (error) throw error;
     return { statusCode: 200, body: JSON.stringify({ ok: true, deleted: ids.length, checked: checked.size, calls, skipped, ms: Date.now() - started }) };

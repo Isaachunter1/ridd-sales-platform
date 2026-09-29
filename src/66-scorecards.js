@@ -1786,6 +1786,8 @@ function setReportingRecurringMode(m) {
 // revenue, not captured customers yet).
 function reportingArrServicedOnly() { const r = _adminRules(); return !(r && r.arrServicedOnly === false); }
 function setReportingArrServicedOnly(b) { _setAdminRule('arrServicedOnly', !!b); }
+function reportingUseCrmDeletedScan() { const r = _adminRules(); return !!(r && r.useCrmDeletedScan === true); }
+function setReportingUseCrmDeletedScan(b) { _setAdminRule('useCrmDeletedScan', !!b); state._crmDeletedIds = b ? (state._crmDeletedIdsRaw || []) : []; }
 function reportingArrExclPastDue() { const r = _adminRules(); return !!(r && r.arrExclPastDue === true); }
 function setReportingArrExclPastDue(b) { _setAdminRule('arrExclPastDue', !!b); }
 function reportingAgingDays() {

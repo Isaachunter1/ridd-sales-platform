@@ -2003,8 +2003,11 @@ async function _loadCrmDeletedIds() {
   try {
     const { data } = await supabase.from('app_settings').select('value').eq('key', 'crm_deleted').maybeSingle();
     const v = data && data.value;
-    state._crmDeletedIds = (v && Array.isArray(v.ids)) ? v.ids.map(x => String(x).trim()).filter(Boolean) : [];
-    state._crmDeletedMeta = v ? { scanned_at: v.scanned_at || null, checked: v.checked || 0, mirror: v.mirror || 0 } : null;
+    state._crmDeletedIdsRaw = (v && Array.isArray(v.ids)) ? v.ids.map(x => String(x).trim()).filter(Boolean) : [];
+    // Default OFF (Sep 29): the scan list wrongly held live customers, so it
+    // only applies when an admin turns it on in Configurations.
+    state._crmDeletedIds = (typeof reportingUseCrmDeletedScan === 'function' && reportingUseCrmDeletedScan()) ? state._crmDeletedIdsRaw : [];
+    state._crmDeletedMeta = v ? { scanned_at: v.scanned_at || null, checked: v.checked || 0, mirror: v.mirror || 0, skipped: v.skipped_batches || 0, last_error: v.last_error || null } : null;
   } catch (e) { state._crmDeletedIds = state._crmDeletedIds || []; }
   state._crmDeletedLoaded = true;
 }

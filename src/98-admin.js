@@ -444,7 +444,8 @@ function adminConfigurations() {
   const orphanCust = new Set(orphans.map(r => String(r.customer_id || ''))).size;
   const autoOrph = reportingAutoExcludeOrphans();
   const delIds = state.indicatorDeletedCustIds || [];
-  const crmDelN = (state._crmDeletedIds || []).length;
+  const crmDelN = (state._crmDeletedIdsRaw || state._crmDeletedIds || []).length;
+  const useScan = reportingUseCrmDeletedScan();
   const crmMeta = state._crmDeletedMeta;
   const reportingRules = card('Reporting rules', null,
     row('Recurring basis', el('span', { class: 'text-[11px] font-semibold' }, 'ARR > $0'), { tip: 'A subscription is recurring when its annual recurring revenue is above $0 — read straight from FieldRoutes, nothing to maintain.' }),
@@ -453,7 +454,7 @@ function adminConfigurations() {
     row('Active includes one-time', sw(reportingActiveInclOneTime(), () => { setReportingActiveInclOneTime(!reportingActiveInclOneTime()); mountApp(); }), { tip: 'Count one-time active subs in “Subscriptions Active”. Off = recurring only.' }),
     row('Deleted CRM accounts · auto-exclude', [
       orphans.length ? el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => openReportingDrillModal({ chartTitle: 'Subscriptions with no FieldRoutes customer record', sliceLabel: n(orphans.length) + ' subscriptions · deleted in the CRM', rows: orphans, formatValue: fmt.usd0 }) }, n(orphanCust) + ' detected →') : pill('0 detected'),
-      pill(n(crmDelN) + ' from nightly FieldRoutes check' + (crmMeta && crmMeta.scanned_at ? ' · ' + new Date(crmMeta.scanned_at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ' · not run yet')),
+      pill(n(crmDelN) + ' from nightly FieldRoutes check' + (crmMeta && crmMeta.scanned_at ? ' · ' + new Date(crmMeta.scanned_at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ' · not run yet') + (crmMeta && !crmMeta.checked ? ' · last run checked 0' : '') + (useScan ? '' : ' · not applied')),
       sw(autoOrph, () => {
         setReportingAutoExcludeOrphans(!autoOrph);
         if (Array.isArray(state.reportingSubscriptions)) {
@@ -464,6 +465,7 @@ function adminConfigurations() {
         }
         mountApp();
       })]),
+    row('Deleted CRM accounts · use nightly check', sw(useScan, () => { setReportingUseCrmDeletedScan(!useScan); toast('Reload to re-apply the list to loaded data', 'info'); mountApp(); }), { small: true, indent: true, tip: 'Off by default. When on, customers the nightly FieldRoutes check could not find are removed app-wide (leaderboard, reporting, retention). Turned off Sep 29 after the check flagged 2,355 live customers.' }),
     row('Deleted CRM accounts · manual IDs', [pill(n(delIds.length) + ' excluded'), txt(delIds.join(', '), (v) => {
       const ids = [...new Set(String(v || '').split(/[\s,;]+/).map(x => x.trim()).filter(x => /^\d+$/.test(x)))];
       state.indicatorDeletedCustIds = ids;
