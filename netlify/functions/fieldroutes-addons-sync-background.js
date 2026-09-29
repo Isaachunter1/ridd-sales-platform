@@ -144,8 +144,6 @@ exports.handler = async (event) => {
     const nowIso = new Date().toISOString();
     const money2 = (x) => Math.round((Number(x) || 0) * 100) / 100;
     const revRows = [];
-    // Initial-ticket charge per add-on, when an initial ticket carrying it has been read (groupTicketItems' initial_amount).
-    const initialAddonBySub = new Map(addOns.filter(a => Number(a.initial_amount) > 0).map(a => [a.subscription_id + '|' + a.service_name.toLowerCase(), Number(a.initial_amount)]));
     for (const x of Object.values(subs)) {
       const rt = x.recurringTicket && typeof x.recurringTicket === 'object' ? x.recurringTicket : tickets[recOf(x)];
       if (!rt) continue;
@@ -164,11 +162,9 @@ exports.handler = async (event) => {
         const fee = !isAddOn(name);
         const emp = String(it.creditTo || it.employeeID || '').trim();
         const prof = emp ? profByEmp.get(emp) : null;
-        // Add-on value (per Isaac, Sep 29): always the per-service charge × 11
-        // recurring + the add-on's charge on the initial ticket when it was
-        // sold on the initial (≈ × 12) — NOT the contract's service count.
-        const initAddon = fee ? 0 : money2((initialAddonBySub.get(String(x.subscriptionID) + '|' + name.toLowerCase())) || 0);
-        let value = fee ? money2(amt * n) : money2(amt * 11 + initAddon);
+        // Add-on value (per Isaac, Sep 29): always the per-service charge × 12,
+        // whether or not it was on the initial — never the contract's service count.
+        let value = fee ? money2(amt * n) : money2(amt * 12);
         if (fee && !feeSeen && initExtra > 0) { value = money2(value + initExtra); feeSeen = true; }
         lines.push({ name, kind: fee ? 'fee' : 'addon', per_service: money2(amt), value, credited_employee_id: emp || null, credited_profile_id: prof ? prof.id : null });
       }
