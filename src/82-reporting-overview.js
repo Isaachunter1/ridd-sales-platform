@@ -719,10 +719,16 @@ function openArrStepsModal(scope, dataA) {
     steps.push({ title, detail, removed, kept, tag });
     cur = kept;
   };
-  step('Remove excluded branches', 'Offices switched off in Reporting → Configurations → Branches.', r => !exclBranches.has((r.office_name || '').trim()), 'config');
+  // Order (per Isaac, Sep 29): take out what isn't active FIRST — never
+  // started, cancelled, not status Active — then the config exclusions, then
+  // what isn't recurring, then what hasn't been serviced yet.
+  step('Remove subs that never started', 'No initial service ever completed AND frozen/removed in the CRM or cancelled as Sold-Not-Started / No Initial — dead cards, not customers.', r => !reportingNeverStarted(r), 'app rule');
+  step('Remove cancelled subscriptions', 'Any cancel date on the subscription — whatever the reason. (Attrition rules about RORs and excluded reasons decide what counts as churn, not what is active.)', r => !r.subscription_date_canceled, 'app rule');
+  step('Keep only status = Active', 'Frozen, inactive, pending and every other CRM status leaves here.', r => (r.subscription_status || '').toLowerCase() === 'active', 'app rule');
+  // Excluded branches (Configurations) only appear as a step when one is set.
+  if (exclBranches.size) step('Remove excluded branches', 'Offices switched off in Reporting → Configurations → Branches.', r => !exclBranches.has((r.office_name || '').trim()), 'config');
   step('Remove hidden service types', 'Service types marked Hidden in Configurations (internal / test services).', r => !F.isHidden(r), 'config');
   step('Remove excluded lead sources', 'Sources excluded from all reporting in Configurations (e.g. Miscellaneous).', r => !excludedSources.has(reportingSourceOf(r)), 'config');
-  step('Remove subs that never started', 'No initial service ever completed AND frozen/removed in the CRM or cancelled as Sold-Not-Started / No Initial — dead cards, not customers.', r => !reportingNeverStarted(r), 'app rule');
   if (scope.dateStart || scope.dateEnd) {
     const inDate = new Set(reportingFilterByDate(cur, scope.dateStart, scope.dateEnd));
     step('Keep the selected time range', 'Time range on this tab: ' + scope.dateLabel + '. Subs sold outside it leave here.', r => inDate.has(r), 'filter');
@@ -732,8 +738,6 @@ function openArrStepsModal(scope, dataA) {
     step('Keep the selected office(s)', 'Office filter on this tab: ' + officeLabel(scope.office) + '.', r => inOffice.has(r), 'filter');
   }
   step('Remove non-recurring service types', 'One-time services and any service type not classed Recurring (Configurations → Services). Their value never counts toward ARR.', r => F.isRecurring(r), 'app rule');
-  step('Remove cancelled subscriptions', 'Any cancel date on the subscription — whatever the reason. (Attrition rules about RORs and excluded reasons decide what counts as churn, not what is active.)', r => !r.subscription_date_canceled, 'app rule');
-  step('Keep only status = Active', 'Frozen, inactive, pending and every other CRM status leaves here.', r => (r.subscription_status || '').toLowerCase() === 'active', 'app rule');
   const activeAll = cur;
   step('Keep only subs that completed their initial service', 'Sold but not yet serviced is PENDING ARR, shown below \u2014 revenue is not recurring until the first visit happens (per Isaac, Sep 24). What remains is the Active ARR book.', r => !!r.initial_service, 'app rule');
   const active = cur;
