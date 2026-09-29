@@ -3892,6 +3892,11 @@ function _armSplashWatchdog() {
     // clean load, so the sign-in itself becomes the refresh — remember the
     // hash so that reload is stamped like a banner refresh would be.
     if (!state.profile) { window.__riddNewVersion = hash; try { sessionStorage.setItem('ridd_reloaded_for', hash); } catch { /* private */ } return; }
+    // Mobile mis-tap audit (Sep 29): the banner pushes the whole page down
+    // ~40px. Appearing mid-scroll or mid-tap moved the row under a rep's
+    // thumb, so the tap landed on the element above. Wait for a quiet
+    // moment (no touch / scroll / key for 1.5s), like background repaints.
+    if (Date.now() - _lastUserActivity < 1500) { setTimeout(() => showBanner(hash), 1000); return; }
     _shownFor = hash;
     const bar = el('div', {
       id: 'newVersionBanner',

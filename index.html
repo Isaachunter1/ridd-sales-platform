@@ -1050,13 +1050,15 @@
   /* Phones: expand every button's HIT AREA to ≥44px (Apple's minimum tap
      target) without changing visual size — dozens of 22–26px icon buttons
      (calendar arrows, roster icons, ⓘ) were near-certain mis-taps. */
+  /* RETIRED (Sep 29, mobile mis-tap audit): invisible ::after "hit pads"
+     that grew every button to ≥44px beyond its visible box. Neighbouring
+     pads overlapped and the LATER sibling always won the tap — the root
+     cause of "I tap one tab and the one next to / under it opens" (spider
+     menu Sales→Loyalty, Total→New, Department→Individual, Standard→Loyalty).
+     A button's touch target is now exactly its visible box. position:
+     relative is kept so nothing that is laid out inside buttons moves. */
   @media (pointer: coarse) {
     button { position: relative; }
-    button::after { content: ''; position: absolute; left: 50%; top: 50%;
-      width: max(100%, 44px); height: max(100%, 44px);
-      transform: translate(-50%, -50%); }
-    /* keep the tooltip arrow (its ::after is decorative, not a hit pad) */
-    .ridd-tooltip::after { width: auto; height: auto; }
   }
   .overflow-x-auto, .overflow-auto, .overflow-y-auto { -webkit-overflow-scrolling: touch; }
   /* iOS zooms the whole page when focusing inputs under 16px — bump form
@@ -1207,15 +1209,8 @@
        elements keep their visual size via negative margin. */
     @media (max-width: 640px) {
       .pill-tabs button, button.text-\[10px\], button.text-\[11px\], button.text-\[9px\], td button, th button { position: relative; }
-      .pill-tabs button::after, button.text-\[10px\]::after, button.text-\[11px\]::after, button.text-\[9px\]::after, td button::after, th button::after { content: ''; position: absolute; left: -4px; right: -4px; top: -7px; bottom: -7px; }
-      /* Pills sit 2px apart — a sideways hit-area overlap made "New" land on "Renewals". Vertical only inside a pill group. */
-      .pill-tabs button::after { left: 0; right: 0; }
-      /* STACKED buttons (the spider menu tabs, full-width rows, table cells,
-         dropdown lists): a vertical overhang overlaps the neighbour below,
-         and the later sibling wins the tap — "I tap a tab and get the one
-         under it". No overhang there; the rows are already ≥ 28px and the
-         menu adds its own row height instead. */
-      .nav-menu button::after, button.w-full::after, td button::after, th button::after, .flex-col > button::after, .modal-overlay button::after { top: 0; bottom: 0; left: 0; right: 0; }
+      /* (Overhanging ::after hit pads retired Sep 29 — see the pointer:coarse
+         note above. Touch target = visible box.) */
       /* The control-box rule above pins every text-[11px] button to 28px
          with !important, which silently beat this min-height — so the
          spider-menu rows were still 28px on phones and a thumb on
