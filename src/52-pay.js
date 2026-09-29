@@ -37,7 +37,16 @@ function viewPay() {
     const d = new Date(s.sold_date + 'T00:00');
     return d >= period.start && d <= period.end && s.rep_id === repId;
   };
-  const periodSales = (isAdmin ? state.allSales : state.mySales).filter(inPeriod);
+  // PREVIEW (per Isaac, Sep 29): an admin can blank the stub down to ONE
+  // customer's sales — any period, treated as serviced + staged — to see how
+  // a new sale would pay out. View-only: nothing is written, and Run Pay
+  // Period / Run Backend are disabled while it is on.
+  // Defaults to the dummy account #68003 for admins "for now" (per Isaac) — Clear preview turns it off for the session.
+  if (isAdmin && state._payPreviewCust === undefined) state._payPreviewCust = '68003';
+  const _pv = isAdmin && state._payPreviewCust ? String(state._payPreviewCust).trim() : '';
+  const periodSales = _pv
+    ? (state.allSales || []).filter(s => String(s.customer_number || '').trim() === _pv).map(s => ({ ...s, audit_status: 'serviced', staged_for_payroll: true, _preview: true }))
+    : (isAdmin ? state.allSales : state.mySales).filter(inPeriod);
 
   // Buckets
   // "Pending Audit" surfaces every sale that still needs admin/auditor
@@ -282,22 +291,29 @@ function viewPay() {
       isAdmin && el('div', { class: 'flex items-center gap-2 flex-wrap' },
         el('button', {
           class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition hover:brightness-95',
-          style: { background: 'var(--accent)', color: 'var(--accent-text)', opacity: commissionable.length === 0 ? '.45' : '1', cursor: commissionable.length === 0 ? 'not-allowed' : 'pointer' },
-          disabled: commissionable.length === 0,
+          style: { background: 'var(--accent)', color: 'var(--accent-text)', opacity: (commissionable.length === 0 || _pv) ? '.45' : '1', cursor: (commissionable.length === 0 || _pv) ? 'not-allowed' : 'pointer' },
+          disabled: commissionable.length === 0 || !!_pv,
           onclick: () => processPayroll(commissionable, period),
         }, 'Run Pay Period →'),
         el('button', {
           class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition hover:brightness-95',
-          style: { background: '#5F6C5B', color: '#fff' },
-          onclick: () => processBackendPayroll(period, repId),
+          style: { background: '#5F6C5B', color: '#fff', opacity: _pv ? '.45' : '1', cursor: _pv ? 'not-allowed' : 'pointer' },
+          disabled: !!_pv,
+          onclick: () => { if (!_pv) processBackendPayroll(period, repId); },
         }, 'Run Backend →'),
         el('button', {
           class: 'px-2.5 py-1 rounded-lg text-[11px] font-medium border',
           style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
           onclick: () => downloadPayrollCsv(commissionable, period, viewedProfile),
         }, '↓ CSV'),
+        el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)', marginLeft: '6px' } }, 'Preview customer #'),
+        el('input', { type: 'text', value: _pv, placeholder: 'e.g. 68003', class: 'rounded-lg border px-2 py-1 text-[11px]', style: { width: '90px', borderColor: _pv ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)' },
+          onchange: (e) => { state._payPreviewCust = String(e.target.value || '').trim() || null; mountApp(); } }),
+        _pv ? el('button', { class: 'px-2 py-1 rounded-lg text-[11px] font-semibold border', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._payPreviewCust = null; mountApp(); } }, 'Clear preview') : null,
       ),
     ),
+    _pv ? el('div', { class: 'card px-4 py-2 text-[11px] font-semibold', style: { background: 'color-mix(in srgb, var(--accent) 12%, var(--card))', borderColor: 'var(--accent)' } },
+      'PREVIEW — showing only customer #' + _pv + ' (' + periodSales.length + ' sale' + (periodSales.length === 1 ? '' : 's') + ', any period), treated as serviced + staged so you can see how it pays. Nothing is saved; payroll runs are off.') : null,
 
     // ─── Layout (per Isaac): left = Pay Stub then Backend Pay; right = By
     // Source (accounts + revenue only) then Metrics. ───
@@ -922,7 +938,8 @@ function payAddOnsCard(repId) {
   const isAdmin = isAdminRole(state.profile?.role);
   const scopeAll = isAdmin && state._payAddOnsAll;
   const nameOf = (id) => { const p = (state.profiles || []).find(x => x.id === id); return p ? p.full_name : null; };
-  const rows = (all || []).filter(a => scopeAll || a.credited_profile_id === repId);
+  const _pvc = isAdmin && state._payPreviewCust ? String(state._payPreviewCust) : '';
+  const rows = (all || []).filter(a => (_pvc ? String(a.customer_id) === _pvc : (scopeAll || a.credited_profile_id === repId)));
   const today = new Date().toISOString().slice(0, 10);
   const fmtDate = (d) => { const x = String(d || '').slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(x) ? new Date(x + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : '—'; };
   const daysOf = (a) => { const s = Date.parse(String(a.added_at).slice(0, 10)), e = Date.parse(String(a.removed_at || today).slice(0, 10)); return isFinite(s) && isFinite(e) ? Math.max(0, Math.round((e - s) / 86400000)) : null; };
@@ -996,7 +1013,8 @@ function payRevenueCreditCard(repId) {
     let v = 0; for (const l of (r.lines || [])) if (l.kind === 'base' ? soldIt : (l.kind === 'addon' && (mine(l) || (soldIt && !l.credited_profile_id && l.credited_employee_id && l.credited_employee_id === r.sold_by_employee_id)))) v += Number(l.value) || 0;
     return Math.round(v * 100) / 100;
   };
-  const rows = Array.isArray(data) ? data.slice().sort((x, y) => Number(y.subscription_id) - Number(x.subscription_id)) : [];
+  const _pvc = isAdminRole(state.profile?.role) && state._payPreviewCust ? String(state._payPreviewCust) : '';
+  const rows = Array.isArray(data) ? data.filter(r => !_pvc || String(r.customer_id) === _pvc).sort((x, y) => Number(y.subscription_id) - Number(x.subscription_id)) : [];
   const tot = rows.reduce((t, r) => t + (Number(r.contract_value) || 0), 0);
   const fees = rows.reduce((t, r) => t + (Number(r.fee_value) || 0), 0);
   const cred = rows.reduce((t, r) => t + creditOf(r), 0);
