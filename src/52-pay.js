@@ -371,6 +371,9 @@ function viewPay() {
       // to what reps look at; hidden / unlisted sources flag in red).
       paySourceBreakdown(repId, { serviced: servicedStaged, below_minimums: belowStaged, pending }),
 
+      // ADD-ONS — ticket items on the base plan's recurring ticket, credited per line (per Isaac, Sep 29).
+      payAddOnsCard(repId),
+
       // METRICS — the rates behind the numbers
       block(
         hdr('Metrics'),
@@ -903,3 +906,51 @@ function downloadPayrollCsv(sales, period, viewedProfile) {
   URL.revokeObjectURL(url);
 }
 
+
+
+// ── Add-ons on the Pay tab (per Isaac, Sep 29) ────────────────────────────
+// Base plans are the subscriptions (as today); everything sold on top of a
+// base plan is an add-on line on its recurring ticket in FieldRoutes,
+// credited to one user. One row per add-on: which base plan it sits on, who
+// gets credit, when it was added, when it came off (line removed or the
+// subscription cancelled) and how long it lasted. Admins can flip to every
+// user; reps see their own (RLS).
+function payAddOnsCard(repId) {
+  const all = Array.isArray(state.addOns) ? state.addOns : null;
+  const isAdmin = isAdminRole(state.profile?.role);
+  const scopeAll = isAdmin && state._payAddOnsAll;
+  const nameOf = (id) => { const p = (state.profiles || []).find(x => x.id === id); return p ? p.full_name : null; };
+  const rows = (all || []).filter(a => scopeAll || a.credited_profile_id === repId);
+  const today = new Date().toISOString().slice(0, 10);
+  const fmtDate = (d) => { const x = String(d || '').slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(x) ? new Date(x + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : '—'; };
+  const daysOf = (a) => { const s = Date.parse(String(a.added_at).slice(0, 10)), e = Date.parse(String(a.removed_at || today).slice(0, 10)); return isFinite(s) && isFinite(e) ? Math.max(0, Math.round((e - s) / 86400000)) : null; };
+  const open = rows.filter(a => !a.removed_at), gone = rows.filter(a => a.removed_at);
+  const perSvc = open.reduce((t, a) => t + (Number(a.recurring_amount) || 0), 0);
+  const avgLife = gone.length ? Math.round(gone.reduce((t, a) => t + (daysOf(a) || 0), 0) / gone.length) : null;
+  const th = (t) => el('th', { class: 'px-2 py-1.5 text-left text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)' } }, t);
+  const td = (v, st) => el('td', { class: 'px-2 py-1.5 whitespace-nowrap tabular-nums', style: st || {} }, v == null || v === '' ? '—' : v);
+  const sorted = rows.slice().sort((x, y) => String(y.added_at).localeCompare(String(x.added_at)));
+  const shown = sorted.slice(0, state._payAddOnsMore ? 2000 : 50);
+  return el('div', { class: 'card overflow-hidden', style: { gridColumn: '1 / -1' } },
+    el('div', { class: 'px-4 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+      el('h3', { class: 'text-sm font-bold' }, 'Add-ons'),
+      el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } },
+        all == null ? 'waiting on the add-ons table (migration 20260922_add_ons.sql + 20260929_add_ons_lifecycle.sql)'
+          : open.length + ' active · ' + fmt.usd0(perSvc) + ' per service · ' + gone.length + ' removed' + (avgLife != null ? ' · removed ones lasted ' + avgLife + ' days on average' : '')),
+      isAdmin ? el('div', { class: 'ml-auto inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+        ...[[false, 'This user'], [true, 'All users']].map(([v, l]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold',
+          style: !!scopeAll === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
+          onclick: () => { state._payAddOnsAll = v; mountApp(); } }, l))) : null),
+    rows.length ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]' },
+      el('thead', {}, el('tr', {}, th('Customer'), th('Base plan'), th('Add-on'), th('Per service'), th('Credited to'), th('Added'), th('Removed'), th('Days on'), th('Paid invoices'))),
+      el('tbody', {}, ...shown.map(a => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        td('#' + a.customer_id), td(a.base_service), td(a.service_name, { fontWeight: '600' }),
+        td(fmt.usd0(Number(a.recurring_amount) || 0) + (Number(a.initial_amount) ? ' (+' + fmt.usd0(Number(a.initial_amount)) + ' initial)' : '')),
+        td(nameOf(a.credited_profile_id) || (a.credited_employee_id ? 'FR #' + a.credited_employee_id + ' (not linked)' : null)),
+        td(fmtDate(a.added_at)),
+        td(a.removed_at ? fmtDate(a.removed_at) + (a.removed_reason === 'subscription_cancelled' ? ' · cancelled' : a.removed_reason === 'item_removed' ? ' · removed' : '') : null, a.removed_at ? { color: '#A9441F' } : {}),
+        td(daysOf(a)),
+        td((a.invoices_paid || 0) + ' of 5' + (a.streak_status && a.streak_status !== 'accruing' ? ' · ' + a.streak_status : ''))))))) :
+      el('div', { class: 'px-4 py-6 text-[11px] text-center', style: { color: 'var(--text-muted)' } }, all == null ? '' : 'No add-ons credited ' + (scopeAll ? 'to anyone' : 'to this user') + ' yet.'),
+    rows.length > 50 && !state._payAddOnsMore ? el('button', { class: 'w-full px-4 py-2 text-[11px] font-semibold border-t', style: { borderColor: 'var(--border)', color: 'var(--accent)' }, onclick: () => { state._payAddOnsMore = true; mountApp(); } }, 'Show all ' + rows.length) : null);
+}

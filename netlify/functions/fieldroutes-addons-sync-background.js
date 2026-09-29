@@ -66,28 +66,55 @@ exports.handler = async (event) => {
     const { data: alRow } = await supabase.from('app_settings').select('value').eq('key', 'autolog').maybeSingle();
     const AL = Object.assign({ enabled: false, start: '2026-01-01', upsells: 'manual', upsell_services: [], addons_lookback_days: 3 }, (alRow && alRow.value) || {});
     if (!AL.enabled) return { statusCode: 200, body: 'autolog disabled — skipped' };
-    const isAddOn = makeIsAddOn(AL.upsell_services);
+    // Which recurring-ticket lines are add-ons: the admin's configured terms
+    // when set, otherwise every line EXCEPT fees / discounts / tax (per the
+    // 68003 dry run, Sep 29: Service Fee $4.87 rides every ticket and is not
+    // an add-on; Mosquito Seasonal and Rodent are).
+    const NOT_ADDON = /^(service fee|tax|nsf fee|late fee|finance charge|credit card fee)\b|discount/i;
+    const isAddOn = (Array.isArray(AL.upsell_services) && AL.upsell_services.length) ? makeIsAddOn(AL.upsell_services) : (name) => !NOT_ADDON.test(String(name || '').trim());
     const lookback = Math.max(1, Number(AL.addons_lookback_days) || 3);
     const since = new Date(Date.now() - lookback * 86400000).toISOString().slice(0, 10);
     const from = since > String(AL.start).slice(0, 10) ? since : String(AL.start).slice(0, 10);
+    // Full sweep (nightly, ?full=1): every active subscription, so removed
+    // items and cancelled subscriptions are caught. Otherwise only
+    // subscriptions FieldRoutes touched since `from` (adding a line to the
+    // recurring ticket bumps the subscription's dateUpdated — 68003, 9/22).
+    const full = !!(event && event.queryStringParameters && event.queryStringParameters.full);
+    log.mode = full ? 'full' : 'recent';
 
-    // 1. Ticket items added since `from`.
-    const search = await fr('ticketItem/search', { dateCreated: { operator: '>=', value: from } });
-    const ids = (search.ticketItemIDs || search.itemIDs || []).map(String);
-    if (!ids.length) return { statusCode: 200, body: 'no new ticket items' };
-    const items = [];
-    for (const part of chunk(ids, 1000)) { const got = await fr('ticketItem/get', { ticketItemIDs: part.map(Number) }); items.push(...listOf(got, 'ticketItems')); }
-    log.items = items.length;
+    // 1. Active subscriptions → their recurring (template) tickets.
+    const sq = full ? { active: 1 } : { active: 1, dateUpdated: { operator: '>=', value: from } };
+    const subIds = ((await fr('subscription/search', sq)).subscriptionIDs || []).map(String);
+    const subs = {};
+    for (const part of chunk(subIds, 1000)) { const got = await fr('subscription/get', { subscriptionIDs: part.map(Number) }); listOf(got, 'subscriptions').forEach(x => { subs[String(x.subscriptionID)] = x; }); }
+    // 2. subscription/get EMBEDS the recurring ticket, line items included
+    //    (68003 dry run, Sep 29) — read it straight off the subscription.
+    //    Only a sub that carries a bare ticket id falls back to ticket/get
+    //    (ticketItem/search returns nothing for template tickets).
+    const recOf = (x) => { const rt = x.recurringTicket; return rt && typeof rt === 'object' ? String(rt.ticketID || '') : String(rt || ''); };
+    const tickets = {}; const items = []; const needGet = [];
+    const take = (t) => {
+      tickets[String(t.ticketID)] = t;
+      const its = Array.isArray(t.items) ? t.items : Object.values(t.items || {});
+      its.forEach(it => items.push({ ...it, ticketID: t.ticketID, customerID: t.customerID, subscriptionID: t.subscriptionID, officeID: it.officeID || t.officeID }));
+    };
+    for (const x of Object.values(subs)) {
+      const rt = x.recurringTicket;
+      if (rt && typeof rt === 'object') take({ ...rt, subscriptionID: rt.subscriptionID || x.subscriptionID, customerID: rt.customerID || x.customerID });
+      else if (rt && String(rt) !== '0') needGet.push(String(rt));
+    }
+    for (const part of chunk(needGet, 1000)) { const got = await fr('ticket/get', { ticketIDs: part.map(Number) }); listOf(got, 'tickets').forEach(take); }
+    const recIds = Object.keys(tickets);
+    log.subscriptions = Object.keys(subs).length; log.tickets = recIds.length; log.items = items.length;
 
-    // 2. Their tickets (subscription / customer / initial-vs-recurring live there).
-    const ticketIds = [...new Set(items.map(i => String(i.ticketID || '')).filter(Boolean))];
-    const tickets = {};
-    for (const part of chunk(ticketIds, 1000)) { const got = await fr('ticket/get', { ticketIDs: part.map(Number) }); listOf(got, 'tickets').forEach(t => { tickets[String(t.ticketID)] = t; }); }
-
-    // 3. Fold into add-ons.
+    // 3. Fold into add-ons (one per subscription + add-on name).
     const addOns = groupTicketItems(items, { isAddOn, tickets });
+    for (const a of addOns) {
+      const sub = subs[a.subscription_id] || {};
+      a.base_service = sub.serviceType || sub.serviceDescription || null;
+      a.recurring_ticket_id = recOf(sub) || null;
+    }
     log.addOns = addOns.length;
-    if (!addOns.length) return { statusCode: 200, body: JSON.stringify({ ...log, ms: Date.now() - started }) };
 
     // 4. Resolve the credited employee → app profile (any of a person's branch ids).
     const [rosterQ, profQ, offQ, svcQ] = await Promise.all([
@@ -110,8 +137,9 @@ exports.handler = async (event) => {
 
     // 5. Upsert add_ons (existing rows keep their streak fields; only the
     //    descriptive columns refresh).
-    const keys = addOns.map(a => a.subscription_id);
-    const { data: have } = await supabase.from('add_ons').select('id, subscription_id, service_name, sale_id').in('subscription_id', keys);
+    const keys = [...new Set([...addOns.map(a => a.subscription_id), ...Object.keys(subs)])];
+    const have = [];
+    for (const part of chunk(keys, 500)) { const { data } = await supabase.from('add_ons').select('id, subscription_id, service_name, sale_id, removed_at').in('subscription_id', part); (data || []).forEach(r => have.push(r)); }
     const haveBy = new Map((have || []).map(r => [r.subscription_id + '|' + String(r.service_name).toLowerCase(), r]));
     const now = new Date().toISOString();
     for (const a of addOns) {
@@ -120,9 +148,10 @@ exports.handler = async (event) => {
       const typeLabel = typeOfEmp.get(String(a.credited_employee_id || '')) || '';
       const row = { ...a, credited_profile_id: prof ? prof.id : null,
         credited_role: /tech/i.test(typeLabel) ? 'technician' : /office/i.test(typeLabel) ? 'office_staff' : /sales/i.test(typeLabel) ? 'sales_rep' : (ROLE_OF_TYPE[typeLabel] || null),
-        updated_at: now };
+        updated_at: now, last_seen_at: now };
       const ex = haveBy.get(a.subscription_id + '|' + a.service_name.toLowerCase());
       if (ex) {
+        if (ex.removed_at) { row.removed_at = null; row.removed_reason = null; }   // put back on the ticket
         const { error } = await supabase.from('add_ons').update(row).eq('id', ex.id);
         if (error) console.warn('[fr-addons] update failed', ex.id, error.message); else log.updated++;
         continue;
@@ -131,7 +160,10 @@ exports.handler = async (event) => {
       if (error) { console.warn('[fr-addons] insert failed', a.subscription_id, a.service_name, error.message); continue; }
       log.inserted++;
       // 6. Automatic upsells: one `sales` row per add-on, attributed to the credited employee.
-      if (AL.upsells !== 'off' && prof) {   // upsells are always automatic (per Isaac, Sep 23) — the manual Log Sale path is retired
+      // Only add-ons created on/after the autolog start become upsell sales — the
+      // nightly full sweep also records every older line already on a recurring
+      // ticket, and those must not flood the queues as new sales.
+      if (AL.upsells !== 'off' && prof && String(a.added_at || '') >= String(AL.start).slice(0, 10)) {   // upsells are always automatic (per Isaac, Sep 23) — the manual Log Sale path is retired
         const t = tickets[a.initial_ticket_id || a.first_recurring_ticket_id] || {};
         const sale = upsellSaleRow({
           ticket_id: 'addon:' + ins.id, customer_id: a.customer_id, subscription_id: a.subscription_id, office_id: a.office_fr_id,
@@ -145,6 +177,32 @@ exports.handler = async (event) => {
         const { data: s, error: se } = await supabase.from('sales').insert(sale).select('id').single();
         if (se) console.warn('[fr-addons] sale insert failed', ins.id, se.message);
         else { log.sales++; await supabase.from('add_ons').update({ sale_id: s.id }).eq('id', ins.id); }
+      }
+    }
+    // 7. Removals. Any open add-on on a subscription we just read whose line
+    //    is no longer on the recurring ticket was removed today; on the
+    //    nightly full sweep, open add-ons on subscriptions that are no
+    //    longer active end on the subscription's cancel date.
+    const today = now.slice(0, 10);
+    const present = new Set(addOns.map(a => a.subscription_id + '|' + a.service_name.toLowerCase()));
+    log.removed = 0;
+    for (const r of have) {
+      if (r.removed_at) continue;
+      const k = r.subscription_id + '|' + String(r.service_name).toLowerCase();
+      if (subs[r.subscription_id] && !present.has(k)) {
+        await supabase.from('add_ons').update({ removed_at: today, removed_reason: 'item_removed', updated_at: now }).eq('id', r.id); log.removed++;
+      }
+    }
+    if (full) {
+      const { data: open } = await supabase.from('add_ons').select('id, subscription_id').is('removed_at', null);
+      const gone = (open || []).filter(r => !subs[r.subscription_id]);
+      const goneSubs = [...new Set(gone.map(r => r.subscription_id))];
+      const info = {};
+      for (const part of chunk(goneSubs, 1000)) { try { const got = await fr('subscription/get', { subscriptionIDs: part.map(Number) }); listOf(got, 'subscriptions').forEach(x => { info[String(x.subscriptionID)] = x; }); } catch (e) { console.warn('[fr-addons] cancel lookup failed', e.message); } }
+      for (const r of gone) {
+        const x = info[r.subscription_id]; if (!x) continue;   // unknown → leave it open rather than guess
+        const cx = String(x.dateCancelled || '').slice(0, 10);
+        await supabase.from('add_ons').update({ removed_at: /^\d{4}-\d{2}-\d{2}$/.test(cx) && !cx.startsWith('0000') ? cx : today, removed_reason: 'subscription_cancelled', updated_at: now }).eq('id', r.id); log.removed++;
       }
     }
     console.log('[fr-addons] done', JSON.stringify({ ...log, from, ms: Date.now() - started }));
