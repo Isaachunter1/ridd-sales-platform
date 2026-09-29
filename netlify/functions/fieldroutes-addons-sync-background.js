@@ -179,6 +179,52 @@ exports.handler = async (event) => {
         else { log.sales++; await supabase.from('add_ons').update({ sale_id: s.id }).eq('id', ins.id); }
       }
     }
+    // 6b. Revenue credit by account: split each subscription's contract
+    //     value into base plan / fees / add-ons (per Isaac, Sep 29).
+    //     services after the initial n = round((CV − initial charge) ÷ recurring
+    //     subtotal); whatever the initial ticket carries beyond its charge is
+    //     fees. Ties to FieldRoutes exactly on 68003 ($1,246.44 = 638 base +
+    //     58.44 fees + 330 Mosquito + 220 Rodent).
+    const money2 = (x) => Math.round((Number(x) || 0) * 100) / 100;
+    const revRows = [];
+    for (const x of Object.values(subs)) {
+      const rt = x.recurringTicket && typeof x.recurringTicket === 'object' ? x.recurringTicket : tickets[recOf(x)];
+      if (!rt) continue;
+      const cv = money2(x.contractValue), init = money2(x.initialServiceTotal ?? x.initialQuote);
+      const recSub = money2(rt.subTotal ?? x.recurringCharge), baseCharge = money2(rt.serviceCharge);
+      if (!(cv > 0) || !(recSub > 0)) continue;
+      const n = Math.max(0, Math.round((cv - init) / recSub));
+      const initExtra = money2(cv - init - n * recSub);
+      const soldBy = String(x.soldBy || '').trim();
+      const soldProf = soldBy ? profByEmp.get(soldBy) : null;
+      const lines = [{ name: x.serviceType || 'Base plan', kind: 'base', per_service: baseCharge, value: money2(init + baseCharge * n), credited_employee_id: soldBy || null, credited_profile_id: soldProf ? soldProf.id : null }];
+      const its = Array.isArray(rt.items) ? rt.items : Object.values(rt.items || {});
+      let feeSeen = false;
+      for (const it of its) {
+        const name = String(it.description || '').trim(); const amt = money2(it.amount) * (Number(it.quantity) || 1);
+        const fee = !isAddOn(name);
+        const emp = String(it.creditTo || it.employeeID || '').trim();
+        const prof = emp ? profByEmp.get(emp) : null;
+        let value = money2(amt * n);
+        if (fee && !feeSeen && initExtra > 0) { value = money2(value + initExtra); feeSeen = true; }
+        lines.push({ name, kind: fee ? 'fee' : 'addon', per_service: money2(amt), value, credited_employee_id: emp || null, credited_profile_id: prof ? prof.id : null });
+      }
+      if (!feeSeen && initExtra > 0) lines.push({ name: 'Initial extras', kind: 'fee', per_service: 0, value: initExtra, credited_employee_id: null, credited_profile_id: null });
+      const samePerson = (l) => (soldProf && l.credited_profile_id && l.credited_profile_id === soldProf.id) || (!!soldBy && l.credited_employee_id === soldBy);
+      const sum = (f) => money2(lines.filter(f).reduce((t, l) => t + l.value, 0));
+      const base_value = sum(l => l.kind === 'base'), fee_value = sum(l => l.kind === 'fee');
+      const addon_own_value = sum(l => l.kind === 'addon' && samePerson(l)), addon_other_value = sum(l => l.kind === 'addon' && !samePerson(l));
+      revRows.push({ subscription_id: String(x.subscriptionID), customer_id: String(x.customerID || rt.customerID || ''), base_service: x.serviceType || null,
+        sold_by_employee_id: soldBy || null, sold_by_profile_id: soldProf ? soldProf.id : null, contract_value: cv, recurring_services: n,
+        base_value, fee_value, addon_own_value, addon_other_value, commissionable_value: money2(base_value + addon_own_value), lines, active: true, updated_at: now });
+    }
+    log.revenueRows = 0;
+    for (const part of chunk(revRows, 500)) {
+      const { error } = await supabase.from('subscription_revenue').upsert(part, { onConflict: 'subscription_id' });
+      if (error) { console.warn('[fr-addons] subscription_revenue upsert failed:', error.message); break; }
+      log.revenueRows += part.length;
+    }
+
     // 7. Removals. Any open add-on on a subscription we just read whose line
     //    is no longer on the recurring ticket was removed today; on the
     //    nightly full sweep, open add-ons on subscriptions that are no

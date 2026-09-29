@@ -371,6 +371,8 @@ function viewPay() {
       // to what reps look at; hidden / unlisted sources flag in red).
       paySourceBreakdown(repId, { serviced: servicedStaged, below_minimums: belowStaged, pending }),
 
+      // REVENUE CREDIT BY ACCOUNT — total revenue on each account vs the piece this user is credited for (per Isaac, Sep 29).
+      payRevenueCreditCard(repId),
       // ADD-ONS — ticket items on the base plan's recurring ticket, credited per line (per Isaac, Sep 29).
       payAddOnsCard(repId),
 
@@ -953,4 +955,81 @@ function payAddOnsCard(repId) {
         td((a.invoices_paid || 0) + ' of 5' + (a.streak_status && a.streak_status !== 'accruing' ? ' · ' + a.streak_status : ''))))))) :
       el('div', { class: 'px-4 py-6 text-[11px] text-center', style: { color: 'var(--text-muted)' } }, all == null ? '' : 'No add-ons credited ' + (scopeAll ? 'to anyone' : 'to this user') + ' yet.'),
     rows.length > 50 && !state._payAddOnsMore ? el('button', { class: 'w-full px-4 py-2 text-[11px] font-semibold border-t', style: { borderColor: 'var(--border)', color: 'var(--accent)' }, onclick: () => { state._payAddOnsMore = true; mountApp(); } }, 'Show all ' + rows.length) : null);
+}
+
+
+// ── Revenue credit by account (per Isaac, Sep 29) ─────────────────────────
+// Every account the user sold (base plan) plus every account where they are
+// credited with an add-on. For each: the TOTAL revenue on the account
+// (FieldRoutes contract value, everything on it), then what comes off —
+// service fees, and add-ons credited to someone else — leaving the piece
+// this user gets credit for. Lines come from subscription_revenue, written
+// by the FieldRoutes add-ons sync. Fetched per user on demand.
+function _loadSubRevenue(repId) {
+  state._subRev = state._subRev || {};
+  if (state._subRev[repId] !== undefined || !supabase) return;
+  state._subRev[repId] = null;   // loading
+  (async () => {
+    try {
+      const cols = 'subscription_id, customer_id, base_service, sold_by_profile_id, sold_by_employee_id, contract_value, recurring_services, base_value, fee_value, addon_own_value, addon_other_value, commissionable_value, lines, active, updated_at';
+      const [a, b] = await Promise.all([
+        supabase.from('subscription_revenue').select(cols).eq('sold_by_profile_id', repId).limit(5000),
+        supabase.from('subscription_revenue').select(cols).contains('lines', JSON.stringify([{ credited_profile_id: repId }])).limit(5000),
+      ]);
+      if (a.error && b.error) { state._subRev[repId] = { error: a.error.message }; }
+      else {
+        const by = new Map(); [...(a.data || []), ...(b.data || [])].forEach(r => by.set(r.subscription_id, r));
+        state._subRev[repId] = [...by.values()];
+      }
+    } catch (e) { state._subRev[repId] = { error: String(e.message || e) }; }
+    mountApp();
+  })();
+}
+function payRevenueCreditCard(repId) {
+  _loadSubRevenue(repId);
+  const data = (state._subRev || {})[repId];
+  const money = (v) => fmt.usd(Number(v) || 0);
+  const creditOf = (r) => {
+    // This user's piece: the base plan if they sold it, plus every add-on line credited to them.
+    const mine = (l) => l.credited_profile_id === repId;
+    const soldIt = r.sold_by_profile_id === repId;
+    let v = 0; for (const l of (r.lines || [])) if (l.kind === 'base' ? soldIt : (l.kind === 'addon' && (mine(l) || (soldIt && !l.credited_profile_id && l.credited_employee_id && l.credited_employee_id === r.sold_by_employee_id)))) v += Number(l.value) || 0;
+    return Math.round(v * 100) / 100;
+  };
+  const rows = Array.isArray(data) ? data.slice().sort((x, y) => Number(y.subscription_id) - Number(x.subscription_id)) : [];
+  const tot = rows.reduce((t, r) => t + (Number(r.contract_value) || 0), 0);
+  const fees = rows.reduce((t, r) => t + (Number(r.fee_value) || 0), 0);
+  const cred = rows.reduce((t, r) => t + creditOf(r), 0);
+  const open = state._subRevOpen || (state._subRevOpen = {});
+  const th = (t) => el('th', { class: 'px-2 py-1.5 text-left text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)' } }, t);
+  const td = (v, st) => el('td', { class: 'px-2 py-1.5 whitespace-nowrap tabular-nums', style: st || {} }, v == null || v === '' ? '—' : v);
+  const shown = rows.slice(0, state._subRevMore ? 5000 : 50);
+  const body = [];
+  for (const r of shown) {
+    const other = (r.lines || []).filter(l => l.kind === 'addon' && !(l.credited_profile_id === repId || (r.sold_by_profile_id === repId && !l.credited_profile_id && l.credited_employee_id === r.sold_by_employee_id))).reduce((t, l) => t + (Number(l.value) || 0), 0);
+    const baseNotMine = r.sold_by_profile_id !== repId ? (Number(r.base_value) || 0) : 0;
+    body.push(el('tr', { class: 'border-t cursor-pointer', style: { borderColor: 'var(--border)' }, onclick: () => { open[r.subscription_id] = !open[r.subscription_id]; mountApp(); } },
+      td((open[r.subscription_id] ? '▾ ' : '▸ ') + '#' + r.customer_id), td(r.base_service), td(r.sold_by_profile_id === repId ? 'Sold it' : 'Add-on only'),
+      td(money(r.contract_value), { fontWeight: '600' }), td('−' + money(r.fee_value)), td(other || baseNotMine ? '−' + money(other + baseNotMine) : '—'),
+      td(money(creditOf(r)), { fontWeight: '700', color: 'var(--accent)' })));
+    if (open[r.subscription_id]) for (const l of (r.lines || [])) {
+      const mine = l.kind === 'base' ? r.sold_by_profile_id === repId : l.kind === 'addon' && (l.credited_profile_id === repId || (r.sold_by_profile_id === repId && !l.credited_profile_id && l.credited_employee_id === r.sold_by_employee_id));
+      const who = l.credited_profile_id ? (((state.profiles || []).find(p => p.id === l.credited_profile_id) || {}).full_name || 'linked user') : (l.credited_employee_id ? 'FR #' + l.credited_employee_id : '');
+      body.push(el('tr', { style: { background: 'var(--card-2)' } },
+        td(''), td((l.kind === 'base' ? 'Base · ' : l.kind === 'fee' ? 'Fee · ' : 'Add-on · ') + l.name, { paddingLeft: '18px' }),
+        td(l.kind === 'fee' ? 'not commissionable' : who), td(money(l.value) + ' (' + money(l.per_service) + '/service)'), td(''), td(''),
+        td(l.kind === 'fee' ? '—' : mine ? money(l.value) : 'other user', mine ? { color: 'var(--accent)', fontWeight: '600' } : { color: 'var(--text-muted)' })));
+    }
+  }
+  return el('div', { class: 'card overflow-hidden', style: { gridColumn: '1 / -1' } },
+    el('div', { class: 'px-4 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+      el('h3', { class: 'text-sm font-bold' }, 'Revenue credit by account'),
+      el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } },
+        data === undefined || data === null ? 'loading…' : data.error ? 'waiting on subscription_revenue (migration 20260929_add_ons_lifecycle.sql + the add-ons sync)' :
+          rows.length + ' accounts · total revenue ' + fmt.usd0(tot) + ' · service fees ' + fmt.usd0(fees) + ' · credited to this user ' + fmt.usd0(cred))),
+    rows.length ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]' },
+      el('thead', {}, el('tr', {}, th('Customer'), th('Base plan'), th('Role'), th('Total revenue'), th('Service fees'), th('Other users’ credit'), th('Credited to this user'))),
+      el('tbody', {}, ...body))) :
+      (Array.isArray(data) ? el('div', { class: 'px-4 py-6 text-[11px] text-center', style: { color: 'var(--text-muted)' } }, 'No accounts yet.') : null),
+    rows.length > 50 && !state._subRevMore ? el('button', { class: 'w-full px-4 py-2 text-[11px] font-semibold border-t', style: { borderColor: 'var(--border)', color: 'var(--accent)' }, onclick: () => { state._subRevMore = true; mountApp(); } }, 'Show all ' + rows.length) : null);
 }
