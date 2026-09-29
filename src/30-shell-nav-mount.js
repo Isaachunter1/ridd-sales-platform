@@ -974,12 +974,14 @@ function mountApp() {
           onclick: () => { if (typeof openHealthSheet === 'function') openHealthSheet(); else if (pullErr) { try { refreshIndicatorsFromCloud(true); toast('Retrying\u2026', 'success'); } catch (e) { /* poll retries */ } } },
           style: { color: c || 'var(--text-muted)', marginRight: '6px', alignSelf: 'center', textAlign: 'right', fontWeight: lvl === 'red' ? '700' : '' },
           title: pullErr ? 'THIS DEVICE can\u2019t reach the server (' + state._indPullError.msg + ') — showing older data. Tap to retry.'
-            : lvl === 'red' ? 'Data is over 4 hours old during selling hours — multiple syncs have failed. Check /api/sync-status and Netlify logs.'
+            : lvl === 'red' ? (crmDataAgeLevel() === 'red' ? 'RevHawk\u2019s copy of FieldRoutes hasn\u2019t updated in over 6 hours — the app keeps syncing but there\u2019s nothing new to pull. Check with RevHawk.' : 'Data is over 4 hours old during selling hours — multiple syncs have failed. Check /api/sync-status and Netlify logs.')
             : lvl === 'amber' && !lvl0 ? 'Problem with: ' + _bad.map(b => b.label).join(', ') + ' — tap for details'
-            : lvl === 'amber' ? 'Data is older than the hourly sync cadence — a run may have failed (check Netlify logs)'
-            : 'Syncs land hourly on the hour, 8am–11pm ET — tap for every data source',
+            : lvl === 'amber' ? (crmDataAgeLevel() ? 'RevHawk\u2019s copy of FieldRoutes is over 2 hours behind — new sales won\u2019t show until it catches up.' : 'Data is older than the sync cadence — a run may have failed (check Netlify logs)')
+            : SYNC_CADENCE_TEXT,
         },
           _phone ? 'Last sync ' : 'Last sync: ', el('span', { class: 'font-semibold', style: { color: c || 'var(--text)' } }, txt),
+          // CRM data age beside the sync time (per Isaac, Sep 29).
+          (typeof crmDataAsOfStr === 'function' && crmDataAsOfStr(_phone)) ? el('span', { style: { color: c || 'var(--text-muted)' } }, (_phone ? ' \u00b7 data ' : ' \u00b7 CRM data: '), el('span', { class: 'font-semibold', style: { color: c || 'var(--text)' } }, crmDataAsOfStr(_phone))) : null,
           pullErr ? (_phone ? ' \u00b7 OFFLINE' : ' \u00b7 CAN\u2019T REACH SERVER') : lvl === 'red' ? ' \u00b7 SYNC DOWN' : (lvl === 'amber' && !lvl0) ? ' \u00b7 ' + _bad.length + ' issue' + (_bad.length === 1 ? '' : 's') : lvl === 'amber' ? ' \u00b7 overdue' : '') : null;
       })();
   const pageHeader = el('header', {

@@ -908,7 +908,7 @@ function indicatorsSyncStampText() {
 // think they're out of sync when they're just in different time zones.
 // ONE description of where the numbers come from and how fresh they are
 // (provenance audit): every tooltip that talks about the sync quotes this.
-const SYNC_CADENCE_TEXT = 'FieldRoutes data reaches the app through the RevHawk mirror, which refreshes once a night (~2 AM MT). The app re-syncs from that mirror every hour during selling hours (8 AM–11 PM ET), so boards, Indicators and Reporting show CRM data as of the last nightly mirror; the Sales queues also pick up same-day accounts from a 15-minute FieldRoutes live pull when it is enabled.';
+const SYNC_CADENCE_TEXT = 'Last sync = the last time the app pulled from RevHawk\u2019s copy of FieldRoutes (every 30 minutes, 8 AM\u201311 PM ET). CRM data = how current that copy is \u2014 the newest FieldRoutes change RevHawk has picked up. If RevHawk stops refreshing, Last sync keeps moving but CRM data stands still, and the stamp turns amber.';
 function appSyncStampStr() {
   indicatorsSyncStampText();   // runs the self-heal on the stored timestamp
   if (!state.indicatorsUploadedAt) return '';
@@ -931,7 +931,47 @@ function indicatorsSyncOverdue() {
 }
 // Two-tier staleness: 'amber' (>100 min — one run missed) escalates to
 // 'red' (>4 h — multiple consecutive failures, someone should look NOW).
+// CRM data age (per Isaac, Sep 29 — the weekend stall): the sync worker's
+// heartbeat records how current RevHawk's copy is (`dataAsOf`). Read it
+// straight from storage every 5 minutes so every user's stamp can show it.
+async function loadCrmDataAsOf() {
+  try {
+    if (typeof DEMO !== 'undefined' && DEMO) return;
+    const { data } = await supabase.storage.from('reporting').download('indicators/sync-heartbeat.json');
+    if (!data) return;
+    const j = JSON.parse(await data.text());
+    const prev = state._crmDataAsOf;
+    state._crmDataAsOf = j.dataAsOf || null; state._syncRanAt = j.at || null;
+    if (prev !== state._crmDataAsOf && typeof scheduleBackgroundRemount === 'function') scheduleBackgroundRemount();
+  } catch (e) { /* best effort — the stamp falls back to the sync time */ }
+}
+if (!window._crmAsOfWired) { window._crmAsOfWired = true; setTimeout(loadCrmDataAsOf, 4000); setInterval(loadCrmDataAsOf, 5 * 60 * 1000); }
+function crmDataAgeLevel() {
+  if (!state._crmDataAsOf) return null;
+  const t = Date.parse(state._crmDataAsOf); if (isNaN(t)) return null;
+  const nowET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const h = nowET.getHours();
+  if (h < 9 || h >= 23) return null;                     // overnight — nothing new is expected
+  const age = Date.now() - t;
+  if (age > 6 * 3600000) return 'red';
+  if (age > 2 * 3600000) return 'amber';
+  return null;
+}
+function crmDataAsOfStr(short) {
+  if (!state._crmDataAsOf) return '';
+  const t = new Date(state._crmDataAsOf); if (isNaN(t)) return '';
+  const p = (typeof userTzPref === 'function') ? userTzPref() : 'auto';
+  const tz = (typeof _TZ_RAW_OFFSET !== 'undefined' && _TZ_RAW_OFFSET[p] != null) ? p : 'America/Denver';
+  const sameDay = new Date().toDateString() === t.toDateString();
+  try { return t.toLocaleString('en-US', Object.assign({ timeZone: tz, hour: 'numeric', minute: '2-digit' }, (short || sameDay) ? {} : { month: 'short', day: 'numeric' })); } catch (e) { return ''; }
+}
 function indicatorsSyncStaleness() {
+  const _crm = crmDataAgeLevel();
+  const _run = _indicatorsRunStaleness();
+  if (_crm === 'red' || _run === 'red') return 'red';
+  return _crm || _run;
+}
+function _indicatorsRunStaleness() {
   if (!state.indicatorsUploadedAt) return null;
   const t = new Date(state.indicatorsUploadedAt);
   if (isNaN(t)) return null;
