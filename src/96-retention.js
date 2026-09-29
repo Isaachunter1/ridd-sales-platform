@@ -61,6 +61,7 @@ function _retenScopeStepsBuild(rows) {
   const n = (v) => Number(v || 0).toLocaleString();
   const manual = new Set((state.indicatorDeletedCustIds || []).map(x => String(x).trim()).filter(Boolean));   // (folded into the orphan step — the manual list is empty today)
   const crmDel = new Set((state._crmDeletedIds || []).map(String));
+  if (reportingExclStalePending()) for (const id of (state._stalePendingCustIds || [])) crmDel.add(String(id));
   const crmMeta = state._crmDeletedMeta;
   const crmStamp = crmMeta && crmMeta.scanned_at ? ' Last FieldRoutes check: ' + new Date(crmMeta.scanned_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + '.' : ' FieldRoutes check has not run yet.';
   const cfgByName = new Map((state.reportingServiceConfig || []).map(c => [c.service_name, c]));
