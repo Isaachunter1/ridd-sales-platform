@@ -1177,11 +1177,13 @@ function reportingChartData(scopeRows, serviceConfig) {
   // Active ARR (per Isaac, Sep 24): only subs that have COMPLETED their
   // initial service — revenue isn't recurring until the first visit happens.
   // Sold-but-not-yet-serviced actives are the PENDING ARR shown beside it.
-  const _served = (r) => !!r.initial_service;
+  const _pdCut = (typeof reportingArrExclPastDue === 'function' && reportingArrExclPastDue()) ? reportingAgingDays() : null;
+  const _pastDue = (r) => _pdCut != null && (Number(r.days_past_due) || 0) >= _pdCut;
+  const _served = (r) => !!r.initial_service && !_pastDue(r);   // (step 9, when on: past-due subs leave the book)
   const activeArr = activeRecurring.reduce((s, r) => s + (_served(r) ? (Number(r.annual_recurring_value) || 0) : 0), 0);
-  const pendingArr = activeRecurring.reduce((s, r) => s + (!_served(r) ? (Number(r.annual_recurring_value) || 0) : 0), 0);
-  const pendingArrSubs = activeRecurring.filter(r => !_served(r)).length;
-  const activeArrSubs = activeRecurring.length - pendingArrSubs;
+  const pendingArr = activeRecurring.reduce((s, r) => s + (!r.initial_service ? (Number(r.annual_recurring_value) || 0) : 0), 0);
+  const pendingArrSubs = activeRecurring.filter(r => !r.initial_service).length;
+  const activeArrSubs = activeRecurring.filter(_served).length;
   // Rate over RECURRING subs (the card says "recurring subs only") — it used
   // to divide by every row incl. one-time services, so it read low.
   const cancelRate = recurringRows.length > 0

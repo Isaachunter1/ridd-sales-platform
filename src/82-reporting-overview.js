@@ -737,9 +737,16 @@ function openArrStepsModal(scope, dataA) {
   step('Remove non-recurring service types', 'One-time services and any service type not classed Recurring (Configurations → Services). Their value never counts toward ARR.', r => F.isRecurring(r), 'app rule');
   step('Keep only subs that completed their initial service', 'Sold but not yet serviced is PENDING ARR, shown below \u2014 revenue is not recurring until the first visit happens (per Isaac, Sep 24).', r => !!r.initial_service, 'app rule', true);
   step('Remove excluded branches', 'Offices switched off in Reporting → Configurations → Branches.', r => !exclBranches.has((r.office_name || '').trim()), 'config');
-  step('Keep only status = Active', 'Frozen, inactive, pending and every other CRM status leaves here. What remains is the Active ARR book.', r => (r.subscription_status || '').toLowerCase() === 'active', 'app rule');
+  step('Keep only status = Active', 'Frozen, inactive, pending and every other CRM status leaves here.', r => (r.subscription_status || '').toLowerCase() === 'active', 'app rule');
+  // Step 9 — OPTIONAL, off by default (per Isaac, Sep 29): past due >= the
+  // aging threshold. Off, it still shows what it WOULD take out.
+  const _pdOn = reportingArrExclPastDue(), _pdDays = reportingAgingDays();
+  const _pdKeep = (r) => (Number(r.days_past_due) || 0) < _pdDays;
+  const _pdWould = cur.filter(r => !_pdKeep(r));
+  if (_pdOn) step('Remove active subs past due \u2265 ' + _pdDays + ' days', 'Optional step (Configurations aging threshold). A closer read on ARR that is actually being collected.', _pdKeep, 'optional');
+  else steps.push({ title: 'Remove active subs past due \u2265 ' + _pdDays + ' days', detail: 'Optional step \u2014 OFF. Turn it on to leave these out of Active ARR; the numbers show what it would remove.', removed: _pdWould, kept: cur, tag: 'optional · off', keep: () => true, off: true });
   // Pending ARR = passes every step EXCEPT the initial-service gate, and isn't serviced yet.
-  const activeAll = raw.filter(r => !r.initial_service && steps.every(st => st.serviceGate || st.keep(r)));
+  const activeAll = raw.filter(r => !r.initial_service && steps.every(st => st.serviceGate || String(st.tag || '').indexOf('optional') === 0 || st.keep(r)));
   const active = cur;
   const pending = activeAll;
   const zeroArr = active.filter(r => arr(r) <= 0);
@@ -754,10 +761,14 @@ function openArrStepsModal(scope, dataA) {
     el('div', { class: 'w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-black shrink-0', style: { background: 'var(--card-2)' } }, String(i)),
     el('div', { class: 'flex-1 min-w-0' }, el('div', { class: 'text-sm font-semibold' }, st.title), el('div', { class: 'text-[11px] text-muted-' }, st.detail)),
     el('div', { class: 'text-right shrink-0 tabular-nums' },
-      clickable(el('div', { class: 'text-sm font-bold', style: { color: st.removed.length ? '#DC2626' : 'var(--text-subtle)' } }, st.removed.length ? '−' + n(st.removed.length) + ' subs' : '0'), drill(st.title, st.removed, 'removed by this step')),
-      clickable(el('div', { class: 'text-[10px] font-semibold', style: { color: st.removed.length ? '#DC2626' : 'var(--text-subtle)' } }, st.removed.length ? '−' + fmt.usd0(sumArr(st.removed)) + ' ARR' : ''), drill(st.title, st.removed, 'removed by this step')),
+      clickable(el('div', { class: 'text-sm font-bold', style: { color: st.removed.length && !st.off ? '#DC2626' : 'var(--text-subtle)' } }, st.removed.length ? (st.off ? 'would remove ' : '−') + n(st.removed.length) + ' subs' : '0'), drill(st.title, st.removed, 'removed by this step')),
+      clickable(el('div', { class: 'text-[10px] font-semibold', style: { color: st.removed.length && !st.off ? '#DC2626' : 'var(--text-subtle)' } }, st.removed.length ? (st.off ? '' : '−') + fmt.usd0(sumArr(st.removed)) + ' ARR' : ''), drill(st.title, st.removed, 'removed by this step')),
       clickable(el('div', { class: 'text-[10px] font-semibold', style: { color: 'var(--text-muted)' } }, n(st.kept.length) + ' remain · ' + fmt.usd0(sumArr(st.kept))), drill(st.title + ' · remaining', st.kept, 'still in after this step'))),
-    chip(st.tag));
+    st.tag && st.tag.indexOf('optional') === 0
+      ? el('button', { class: 'shrink-0', title: st.off ? 'Turn this step on' : 'Turn this step off', style: { width: '36px', height: '20px', borderRadius: '10px', background: st.off ? 'var(--border-2)' : 'var(--accent)', position: 'relative', border: 'none', cursor: 'pointer' },
+          onclick: (e) => { e.stopPropagation(); setReportingArrExclPastDue(!!st.off); overlay.remove(); document.removeEventListener('keydown', closeKey); mountApp(); setTimeout(() => openArrStepsModal(scope, null), 50); } },
+          el('div', { style: { position: 'absolute', top: '2px', left: st.off ? '2px' : '18px', width: '16px', height: '16px', borderRadius: '50%', background: '#fff', transition: 'left .15s' } }))
+      : chip(st.tag));
   const totalRow = (label, rows, sub, strong) => el('div', { class: 'flex items-center justify-between gap-3 py-2 border-t-2', style: { borderColor: 'var(--border-2)' } },
     el('div', {}, el('div', { class: 'text-sm font-black' }, label), sub ? el('div', { class: 'text-[11px] text-muted-' }, sub) : null),
     clickable(el('div', { class: 'text-right tabular-nums' }, el('div', { class: (strong ? 'text-lg' : 'text-base') + ' font-black' }, fmt.usd0(sumArr(rows))), el('div', { class: 'text-[10px] text-muted-' }, n(rows.length) + ' subscriptions')), drill(label, rows, 'included')));
@@ -777,6 +788,6 @@ function openArrStepsModal(scope, dataA) {
     totalRow('Active ARR', active, zeroArr.length ? n(zeroArr.length) + ' of these active subs carry $0 ARR in FieldRoutes and add nothing — click to see them' : 'Sum of ARR across serviced, active recurring subscriptions.', true),
     totalRow('Pending ARR', pending, 'Sold and active, initial service not completed yet \u2014 what Active ARR grows by once these are serviced (net of any that cancel first).', false),
     zeroArr.length ? clickable(el('div', { class: 'text-[10px] font-semibold text-right', style: { color: 'var(--text-muted)' } }, n(zeroArr.length) + ' active subs at $0 ARV →'), drill('Active subs with $0 ARV', zeroArr, 'active but contributing no ARR')) : null,
-    Math.abs(total - headline) > 1 ? el('div', { class: 'text-[10px] font-semibold', style: { color: '#B45309' } }, 'Note: the card shows ' + fmt.usd0(headline) + '; these steps total ' + fmt.usd0(total) + '. The difference means a rule changed since the page rendered — reload the tab.') : null));
+    (dataA && Math.abs(total - headline) > 1) ? el('div', { class: 'text-[10px] font-semibold', style: { color: '#B45309' } }, 'Note: the card shows ' + fmt.usd0(headline) + '; these steps total ' + fmt.usd0(total) + '. The difference means a rule changed since the page rendered — reload the tab.') : null));
   document.body.append(overlay);
 }

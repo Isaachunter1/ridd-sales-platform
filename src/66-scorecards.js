@@ -1779,6 +1779,10 @@ function setReportingRecurringMode(m) {
 }
 
 // ── Reporting rules (locally-persisted settings; defaults preserve behavior) ──
+// Optional Active ARR step 9 (per Isaac, Sep 29) — OFF by default: leave out
+// active subs carrying a balance past due >= the aging threshold (7 days).
+function reportingArrExclPastDue() { const r = _adminRules(); return !!(r && r.arrExclPastDue === true); }
+function setReportingArrExclPastDue(b) { _setAdminRule('arrExclPastDue', !!b); }
 function reportingAgingDays() {
   const r = _adminRules();
   if (r && Number.isFinite(r.agingDays) && r.agingDays >= 0) return r.agingDays;
