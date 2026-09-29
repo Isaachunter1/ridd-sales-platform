@@ -62,10 +62,11 @@ exports.handler = async (event) => {
     const T = (n) => '`' + _bq.PROJECT + '.' + _bq.DATASET + '.' + n + '`';
     const rows = await _bq.queryObjects(token, `SELECT fieldRoutes_customerID AS id, MAX(GREATEST(IFNULL(updatedAt, TIMESTAMP '2000-01-01'), IFNULL(SAFE.PARSE_TIMESTAMP('%Y-%m-%d %H:%M:%S', fieldRoutes_dateUpdated), TIMESTAMP '2000-01-01'))) AS upd FROM ${T('FieldRoutesCustomer')} WHERE fieldRoutes_customerID IS NOT NULL AND SAFE_CAST(fieldRoutes_customerID AS INT64) > 0 GROUP BY 1`);
     const mirrorIds = rows.map(r => String(r.id)).filter(Boolean);
-    // Guard (Sep 29): a customer the mirror saw updated in the last 60 days
-    // cannot have been deleted long ago — an earlier scan wrongly flagged
-    // 2,355 live customers (Ethan alone lost 59 sales on the leaderboard).
-    const RECENT_MS = 60 * 86400000;
+    // Guard (Sep 29): skip customers the mirror saw updated in the last 14
+    // days — an earlier scan wrongly flagged 2,355 live customers (Ethan lost
+    // 59 sales). Kept short because truly deleted accounts (e.g. Ethan's
+    // #179903, last touched 9/12) stop updating right after signup.
+    const RECENT_MS = 14 * 86400000;
     const recent = new Set(rows.filter(r => { const v = r.upd && (r.upd.value || r.upd); const t = v ? Date.parse(String(v).replace(' ', 'T')) || (Number(v) * 1000) : 0; return t && (Date.now() - t) < RECENT_MS; }).map(r => String(r.id)));
     console.log('[crm-deleted] mirror customers:', mirrorIds.length);
 
