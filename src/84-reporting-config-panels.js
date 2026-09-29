@@ -884,7 +884,7 @@ function _mktgMatrixCard(title, note, rows, cell, fmtFn, opts = {}) {
   const rowEl = (rk) => {
     const isGroup = opts.groupRows && opts.groupRows.has(rk);
     return el('tr', { class: 'border-t border-' + (isGroup ? ' font-bold' : ''), style: isGroup ? { background: 'var(--card-2)' } : {} },
-      _mktgTd(opts.label ? opts.label(rk) : rk, { left: true, bold: true, style: stickyL(isGroup ? 'var(--card-2)' : 'var(--card)') }),
+      (() => { const td = _mktgTd(opts.label ? opts.label(rk) : rk, { left: true, bold: true, style: { ...stickyL(isGroup ? 'var(--card-2)' : 'var(--card)'), ...(phone ? {} : { overflow: 'hidden', textOverflow: 'ellipsis' }) } }); td.title = String(opts.label ? opts.label(rk) : rk); return td; })(),
       ...monthIdx.map(i => { const v = cell(rk, i); return _mktgTd(v == null ? '—' : fmtFn(v, rk, i), { style: opts.cellStyle ? (opts.cellStyle(v, rk, i) || {}) : {} }); }),
       showTotal ? _mktgTd((() => { const t = totalOf(rk); return t == null ? '—' : fmtFn(t, rk, 'total'); })(), { bold: true }) : null);
   };
@@ -900,7 +900,12 @@ function _mktgMatrixCard(title, note, rows, cell, fmtFn, opts = {}) {
       // Description line under the title retired (per Isaac, Sep 2026) — the definition rides the title as a tooltip.
       el('div', {}, el('h3', { class: 'text-sm font-bold', title: note || '' }, title)),
       opts.headerExtra || null, monthPick),
-    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs frozen-table' },
+    // Fixed column grid on desktop (per Isaac, Sep 29): every matrix card
+    // uses the same first-column width and equal month columns, so Jan..Dec
+    // line up vertically from card to card instead of each table sizing
+    // itself to its own content.
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs frozen-table', style: phone ? {} : { tableLayout: 'fixed', minWidth: '1180px' } },
+      phone ? null : el('colgroup', {}, el('col', { style: { width: '260px' } }), ...monthIdx.map(() => el('col', {})), showTotal ? el('col', { style: { width: '110px' } }) : null),
       el('thead', { style: { position: 'sticky', top: 0, zIndex: 2, background: 'var(--card)' } }, el('tr', {}, thL, ...monthIdx.map(i => _mktgTh(MKTG_MONTHS[i])), showTotal ? _mktgTh('Total') : null)),
       el('tbody', {}, ...rows.map(rowEl)))));
 }
