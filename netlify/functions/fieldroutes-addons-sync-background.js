@@ -135,56 +135,13 @@ exports.handler = async (event) => {
     try { const got = await fr('office/get', {}); listOf(got, 'offices').forEach(o => { const id = officeByName.get(String(o.officeName || '').trim().toLowerCase()); if (id) officeByFr.set(String(o.officeID), id); }); } catch (e) { console.warn('[fr-addons] office lookup skipped:', e.message); }
     const svcByName = new Map((svcQ.data || []).map(s => [String(s.name || '').trim().toLowerCase(), s.id]));
 
-    // 5. Upsert add_ons (existing rows keep their streak fields; only the
-    //    descriptive columns refresh).
-    const keys = [...new Set([...addOns.map(a => a.subscription_id), ...Object.keys(subs)])];
-    const have = [];
-    for (const part of chunk(keys, 500)) { const { data } = await supabase.from('add_ons').select('id, subscription_id, service_name, sale_id, removed_at').in('subscription_id', part); (data || []).forEach(r => have.push(r)); }
-    const haveBy = new Map((have || []).map(r => [r.subscription_id + '|' + String(r.service_name).toLowerCase(), r]));
-    const now = new Date().toISOString();
-    for (const a of addOns) {
-      const prof = a.credited_employee_id ? profByEmp.get(String(a.credited_employee_id)) : null;
-      if (a.credited_employee_id && !prof) log.unmatchedEmployees++;
-      const typeLabel = typeOfEmp.get(String(a.credited_employee_id || '')) || '';
-      const row = { ...a, credited_profile_id: prof ? prof.id : null,
-        credited_role: /tech/i.test(typeLabel) ? 'technician' : /office/i.test(typeLabel) ? 'office_staff' : /sales/i.test(typeLabel) ? 'sales_rep' : (ROLE_OF_TYPE[typeLabel] || null),
-        updated_at: now, last_seen_at: now };
-      const ex = haveBy.get(a.subscription_id + '|' + a.service_name.toLowerCase());
-      if (ex) {
-        if (ex.removed_at) { row.removed_at = null; row.removed_reason = null; }   // put back on the ticket
-        const { error } = await supabase.from('add_ons').update(row).eq('id', ex.id);
-        if (error) console.warn('[fr-addons] update failed', ex.id, error.message); else log.updated++;
-        continue;
-      }
-      const { data: ins, error } = await supabase.from('add_ons').insert({ ...row, created_at: now }).select('id').single();
-      if (error) { console.warn('[fr-addons] insert failed', a.subscription_id, a.service_name, error.message); continue; }
-      log.inserted++;
-      // 6. Automatic upsells: one `sales` row per add-on, attributed to the credited employee.
-      // Only add-ons created on/after the autolog start become upsell sales — the
-      // nightly full sweep also records every older line already on a recurring
-      // ticket, and those must not flood the queues as new sales.
-      if (AL.upsells !== 'off' && prof && String(a.added_at || '') >= String(AL.start).slice(0, 10)) {   // upsells are always automatic (per Isaac, Sep 23) — the manual Log Sale path is retired
-        const t = tickets[a.initial_ticket_id || a.first_recurring_ticket_id] || {};
-        const sale = upsellSaleRow({
-          ticket_id: 'addon:' + ins.id, customer_id: a.customer_id, subscription_id: a.subscription_id, office_id: a.office_fr_id,
-          first_name: t.firstName || '', last_name: t.lastName || '', created: a.added_at, created_by: a.credited_employee_id,
-          created_by_type: row.credited_role === 'technician' ? '1' : row.credited_role === 'sales_rep' ? '2' : '0',
-          service: a.service_name, total: a.initial_amount + a.recurring_amount,
-        }, { repId: prof.id, officeId: officeByFr.get(String(a.office_fr_id)) ?? prof.office_id ?? null, serviceTypeId: svcByName.get(a.service_name.toLowerCase()) || null, now });
-        // TODO(pay rules): contract value for an add-on = initial + recurring × remaining services on the parent subscription; the sync
-        // only knows the two charges today, so revenue_amount is their sum until the reconcile worker prices it.
-        sale.add_on_id = ins.id;
-        const { data: s, error: se } = await supabase.from('sales').insert(sale).select('id').single();
-        if (se) console.warn('[fr-addons] sale insert failed', ins.id, se.message);
-        else { log.sales++; await supabase.from('add_ons').update({ sale_id: s.id }).eq('id', ins.id); }
-      }
-    }
     // 6b. Revenue credit by account: split each subscription's contract
     //     value into base plan / fees / add-ons (per Isaac, Sep 29).
     //     services after the initial n = round((CV − initial charge) ÷ recurring
     //     subtotal); whatever the initial ticket carries beyond its charge is
     //     fees. Ties to FieldRoutes exactly on 68003 ($1,246.44 = 638 base +
     //     58.44 fees + 330 Mosquito + 220 Rodent).
+    const nowIso = new Date().toISOString();
     const money2 = (x) => Math.round((Number(x) || 0) * 100) / 100;
     const revRows = [];
     for (const x of Object.values(subs)) {
@@ -216,7 +173,7 @@ exports.handler = async (event) => {
       const addon_own_value = sum(l => l.kind === 'addon' && samePerson(l)), addon_other_value = sum(l => l.kind === 'addon' && !samePerson(l));
       revRows.push({ subscription_id: String(x.subscriptionID), customer_id: String(x.customerID || rt.customerID || ''), base_service: x.serviceType || null,
         sold_by_employee_id: soldBy || null, sold_by_profile_id: soldProf ? soldProf.id : null, contract_value: cv, recurring_services: n,
-        base_value, fee_value, addon_own_value, addon_other_value, commissionable_value: money2(base_value + addon_own_value), lines, active: true, updated_at: now,
+        base_value, fee_value, addon_own_value, addon_other_value, commissionable_value: money2(base_value + addon_own_value), lines, active: true, updated_at: nowIso,
         // Service fees are never credited to anyone (per Isaac) — flag any that are, for Auditing.
         fee_credited_count: lines.filter(l => l.kind === 'fee' && l.credited_employee_id).length,
         fee_credited_employee_ids: [...new Set(lines.filter(l => l.kind === 'fee' && l.credited_employee_id).map(l => l.credited_employee_id))] });
@@ -228,6 +185,88 @@ exports.handler = async (event) => {
       log.revenueRows += part.length;
     }
 
+    // 6c. ONE row per rep per account (per Isaac, Sep 29). The base plan and
+    //     every add-on credited to the SAME person are one sales row: its
+    //     revenue_amount becomes the commissionable piece (base + their own
+    //     add-ons; never service fees, never add-ons credited to someone
+    //     else). An add-on credited to a different user (office staff or a
+    //     technician adding it later) becomes that user's own upsell row.
+    //     Only rows not yet paid out are touched.
+    const baseSale = new Map();
+    for (const part of chunk(revRows.map(r => r.subscription_id), 500)) {
+      const { data } = await supabase.from('sales').select('id, crm_subscription_id, rep_id, revenue_amount, sold_date, payroll_processed_at, total_revenue, addon_names')
+        .in('crm_subscription_id', part).eq('sale_kind', 'sale');
+      (data || []).forEach(r => { if (!baseSale.has(String(r.crm_subscription_id))) baseSale.set(String(r.crm_subscription_id), r); });
+    }
+    const lineValue = new Map();
+    log.baseFolded = 0;
+    for (const r of revRows) {
+      for (const l of r.lines) if (l.kind === 'addon') lineValue.set(r.subscription_id + '|' + l.name.toLowerCase(), l.value);
+      const b = baseSale.get(r.subscription_id); if (!b) continue;
+      const own = r.lines.filter(l => l.kind === 'addon' && ((l.credited_profile_id && l.credited_profile_id === b.rep_id) || (!l.credited_profile_id && l.credited_employee_id && l.credited_employee_id === r.sold_by_employee_id)));
+      const commissionable = money2(r.base_value + own.reduce((t, l) => t + l.value, 0));
+      const names = own.map(l => l.name).join(' + ') || null;
+      if (b.payroll_processed_at || String(b.sold_date || '') < String(AL.start).slice(0, 10)) continue;
+      if (Math.abs((Number(b.revenue_amount) || 0) - commissionable) < 0.01 && Math.abs((Number(b.total_revenue) || 0) - r.contract_value) < 0.01 && (b.addon_names || null) === names) continue;
+      const { error } = await supabase.from('sales').update({ revenue_amount: commissionable, total_revenue: r.contract_value, addon_names: names, commission_split: r.lines, updated_at: nowIso }).eq('id', b.id);
+      if (error) console.warn('[fr-addons] base sale split failed', b.id, error.message); else log.baseFolded++;
+    }
+
+    // 5. Upsert add_ons (existing rows keep their streak fields; only the
+    //    descriptive columns refresh).
+    const keys = [...new Set([...addOns.map(a => a.subscription_id), ...Object.keys(subs)])];
+    const have = [];
+    for (const part of chunk(keys, 500)) { const { data } = await supabase.from('add_ons').select('id, subscription_id, service_name, sale_id, removed_at').in('subscription_id', part); (data || []).forEach(r => have.push(r)); }
+    const haveBy = new Map((have || []).map(r => [r.subscription_id + '|' + String(r.service_name).toLowerCase(), r]));
+    const now = new Date().toISOString();
+    for (const a of addOns) {
+      const prof = a.credited_employee_id ? profByEmp.get(String(a.credited_employee_id)) : null;
+      if (a.credited_employee_id && !prof) log.unmatchedEmployees++;
+      const typeLabel = typeOfEmp.get(String(a.credited_employee_id || '')) || '';
+      const row = { ...a, credited_profile_id: prof ? prof.id : null,
+        credited_role: /tech/i.test(typeLabel) ? 'technician' : /office/i.test(typeLabel) ? 'office_staff' : /sales/i.test(typeLabel) ? 'sales_rep' : (ROLE_OF_TYPE[typeLabel] || null),
+        updated_at: now, last_seen_at: now };
+      const ex = haveBy.get(a.subscription_id + '|' + a.service_name.toLowerCase());
+      if (ex) {
+        if (ex.removed_at) { row.removed_at = null; row.removed_reason = null; }   // put back on the ticket
+        const bx = baseSale.get(a.subscription_id);
+        if (bx && prof && prof.id === bx.rep_id && !bx.payroll_processed_at && ex.sale_id !== bx.id) {
+          // Same person as the base plan → it lives on the base row; remove the separate upsell row this worker made, if unpaid.
+          if (ex.sale_id) await supabase.from('sales').delete().eq('id', ex.sale_id).eq('add_on_id', ex.id).is('payroll_processed_at', null);
+          row.sale_id = bx.id;
+        }
+        const { error } = await supabase.from('add_ons').update(row).eq('id', ex.id);
+        if (error) console.warn('[fr-addons] update failed', ex.id, error.message); else log.updated++;
+        continue;
+      }
+      const { data: ins, error } = await supabase.from('add_ons').insert({ ...row, created_at: now }).select('id').single();
+      if (error) { console.warn('[fr-addons] insert failed', a.subscription_id, a.service_name, error.message); continue; }
+      log.inserted++;
+      // 6. Automatic upsells: one `sales` row per add-on, attributed to the credited employee.
+      // Only add-ons created on/after the autolog start become upsell sales — the
+      // nightly full sweep also records every older line already on a recurring
+      // ticket, and those must not flood the queues as new sales.
+      const bx = baseSale.get(a.subscription_id);
+      if (bx && prof && prof.id === bx.rep_id && !bx.payroll_processed_at) {
+        // Same rep as the base plan → folded into the base sale row (6c), no separate upsell.
+        await supabase.from('add_ons').update({ sale_id: bx.id }).eq('id', ins.id);
+        continue;
+      }
+      if (AL.upsells !== 'off' && prof && String(a.added_at || '') >= String(AL.start).slice(0, 10)) {   // upsells are always automatic (per Isaac, Sep 23) — the manual Log Sale path is retired
+        const t = tickets[a.initial_ticket_id || a.first_recurring_ticket_id] || {};
+        const sale = upsellSaleRow({
+          ticket_id: 'addon:' + ins.id, customer_id: a.customer_id, subscription_id: a.subscription_id, office_id: a.office_fr_id,
+          first_name: t.firstName || '', last_name: t.lastName || '', created: a.added_at, created_by: a.credited_employee_id,
+          created_by_type: row.credited_role === 'technician' ? '1' : row.credited_role === 'sales_rep' ? '2' : '0',
+          service: a.service_name, total: lineValue.get(a.subscription_id + '|' + a.service_name.toLowerCase()) ?? (a.initial_amount + a.recurring_amount),
+        }, { repId: prof.id, officeId: officeByFr.get(String(a.office_fr_id)) ?? prof.office_id ?? null, serviceTypeId: svcByName.get(a.service_name.toLowerCase()) || null, now });
+        // Revenue = the add-on's per-service charge × the services left on the contract (6b), falling back to one charge.
+        sale.add_on_id = ins.id;
+        const { data: s, error: se } = await supabase.from('sales').insert(sale).select('id').single();
+        if (se) console.warn('[fr-addons] sale insert failed', ins.id, se.message);
+        else { log.sales++; await supabase.from('add_ons').update({ sale_id: s.id }).eq('id', ins.id); }
+      }
+    }
     // 7. Removals. Any open add-on on a subscription we just read whose line
     //    is no longer on the recurring ticket was removed today; on the
     //    nightly full sweep, open add-ons on subscriptions that are no

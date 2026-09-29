@@ -256,7 +256,7 @@ exports.handler = async (event) => {
     let fixed = 0;
     {
       try {
-        const { data: rows } = await supabase.from('sales').select('id, crm_subscription_id, initial_amount, monthly_amount, revenue_amount, notes')
+        const { data: rows } = await supabase.from('sales').select('id, crm_subscription_id, initial_amount, monthly_amount, revenue_amount, notes, commission_split')
           .gte('sold_date', START).not('crm_subscription_id', 'is', null).ilike('notes', '%auto-added from fieldroutes%')
           .order('crm_checked_at', { ascending: true, nullsFirst: true }).limit(400);
         const auto = (rows || []);
@@ -273,7 +273,8 @@ exports.handler = async (event) => {
             const patch = {};
             if (Math.abs((Number(row.initial_amount) || 0) - initial) >= 0.01) patch.initial_amount = initial;
             if (Math.abs((Number(row.monthly_amount) || 0) - monthly) >= 0.01) patch.monthly_amount = monthly;
-            if (cv > 0 && Math.abs((Number(row.revenue_amount) || 0) - cv) >= 0.01) patch.revenue_amount = cv;
+            // A row the add-ons sync split (base + own add-ons, fees out) keeps its commissionable revenue.
+            if (cv > 0 && !row.commission_split && Math.abs((Number(row.revenue_amount) || 0) - cv) >= 0.01) patch.revenue_amount = cv;
             patch.crm_checked_at = stampNow;
             const { error } = await supabase.from('sales').update(patch).eq('id', row.id);
             if (!error && Object.keys(patch).length > 1) fixed++;

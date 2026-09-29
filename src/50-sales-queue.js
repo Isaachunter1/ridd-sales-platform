@@ -742,12 +742,15 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                 ),
               ),
               !showBackend && cell(el('span', { class: 'text-muted- whitespace-nowrap' }, state.offices.find(o => o.id === s.office_id)?.name || '—')),
-              !showBackend && cell(el('span', { class: 'text-muted- max-w-[140px] truncate inline-block align-bottom', title: nameFromId(state.serviceTypes, s.service_type_id) }, nameFromId(state.serviceTypes, s.service_type_id))),
+              // Base plan + the add-ons credited to the same rep ride on ONE row (per Isaac, Sep 29).
+              !showBackend && cell((() => { const nm = nameFromId(state.serviceTypes, s.service_type_id) + (s.addon_names ? ' + ' + s.addon_names : ''); return el('span', { class: 'text-muted- max-w-[180px] truncate inline-block align-bottom', title: nm }, nm); })()),
               cell(el('span', { class: 'text-muted- whitespace-nowrap' }, ctName)),
               !showBackend && cell(el('span', { class: 'text-muted- whitespace-nowrap max-w-[110px] truncate inline-block align-bottom', title: nameFromId(state.sources, s.source_id) }, nameFromId(state.sources, s.source_id))),
               !showBackend && el('td', { class: 'px-2 py-2 text-right tabular-nums whitespace-nowrap' }, fmt.usd(s.initial_amount)),
               !showBackend && el('td', { class: 'px-2 py-2 text-right tabular-nums whitespace-nowrap text-muted-' }, fmt.usd(s.monthly_amount)),
-              el('td', { class: 'px-2 py-2 text-right tabular-nums font-semibold whitespace-nowrap' }, fmt.usd(s.revenue_amount)),
+              el('td', { class: 'px-2 py-2 text-right tabular-nums font-semibold whitespace-nowrap',
+                title: s.commission_split ? 'Commissionable ' + fmt.usd(s.revenue_amount) + ' of ' + fmt.usd(s.total_revenue) + ' on the account (service fees and add-ons credited to other users are out)' : '' },
+                fmt.usd(s.revenue_amount), s.commission_split && Number(s.total_revenue) > Number(s.revenue_amount) + 0.005 ? el('div', { class: 'text-[9px] font-normal', style: { color: 'var(--text-muted)' } }, 'of ' + fmt.usd(s.total_revenue)) : null),
               cell(el('span', { class: 'text-muted- tabular-nums whitespace-nowrap' }, fmt.dateShortYear(s.sold_date))),
               cell((() => {
                 // Service Date (per Isaac): the initial service completion

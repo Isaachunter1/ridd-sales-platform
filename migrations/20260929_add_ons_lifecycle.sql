@@ -49,3 +49,12 @@ alter table public.subscription_revenue add column if not exists fee_credited_co
 alter table public.subscription_revenue add column if not exists fee_credited_employee_ids text[] not null default '{}';
 create index if not exists subscription_revenue_fee_credited_idx on public.subscription_revenue (fee_credited_count) where fee_credited_count > 0;
 notify pgrst, 'reload schema';
+
+-- One row per rep per account (per Isaac, Sep 29): the base sale row carries
+-- the commissionable piece in revenue_amount (base plan + add-ons credited
+-- to the same rep; service fees and other users' add-ons out), the account's
+-- full contract value in total_revenue, and the lines it was built from.
+alter table public.sales add column if not exists total_revenue numeric(12,2);
+alter table public.sales add column if not exists addon_names text;
+alter table public.sales add column if not exists commission_split jsonb;
+notify pgrst, 'reload schema';
