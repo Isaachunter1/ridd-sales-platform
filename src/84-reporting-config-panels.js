@@ -1101,7 +1101,7 @@ function _mktgAcqRows(year, scopeBranches, type) {
   const asOf = today < lock ? today : lock;
   const inScope = new Set(scopeBranches);
   const lc = reportingServiceLifecycleMap();
-  const mk = () => ({ n: 0, rev: 0, elN: 0, elRev: 0 });
+  const mk = () => ({ n: 0, rev: 0, svN: 0, svRev: 0, elN: 0, elRev: 0 });
   const out = Array.from({ length: 12 }, mk);
   for (const r of rows) {
     const sd = r.sold_date; if (!sd || String(sd).slice(0, 4) !== String(year)) continue;
@@ -1116,7 +1116,12 @@ function _mktgAcqRows(year, scopeBranches, type) {
     const oneTime = lc.get(r.subscription) === 'onetime';
     const alive = oneTime ? !!(r.initial_service || r.initial_serviced_date)
       : cx ? cx > asOf : (String(r.subscription_status || '').trim().toLowerCase() === 'active' || asOf === lock);
-    const x = out[mi]; x.n++; x.rev += cv; if (alive) { x.elN++; x.elRev += cv; }
+    // Reps are paid on SERVICED revenue (initial completed) that is still
+    // active at the lock (per Isaac) — sold-but-never-serviced never pays.
+    const serviced = !!(r.initial_service || r.initial_serviced_date) || String(r.initial_status || '').toLowerCase() === 'completed';
+    const x = out[mi]; x.n++; x.rev += cv;
+    if (serviced) { x.svN++; x.svRev += cv; }
+    if (alive && (serviced || type !== 'Sales Rep')) { x.elN++; x.elRev += cv; }
   }
   return { m: out, lock, locked: today >= lock };
 }
@@ -1133,7 +1138,7 @@ function _mktgAcq() {
   const wg = (i) => scopeBranches.reduce((t, b) => t + (Number((m.wages[_mktgYm(y, i)] || {})[b]) || 0), 0);
   const inc = (i) => scopeBranches.reduce((t, b) => t + (Number((m.incentives[_mktgYm(y, i)] || {})[b]) || 0), 0);
   const R = (i) => rep.m[i], O = (i) => off.m[i];
-  const repCost = (i) => repPct * R(i).elRev, repBack = (i) => repPct * (R(i).rev - R(i).elRev);
+  const repPaid = (i) => repPct * R(i).svRev, repCost = (i) => repPct * R(i).elRev, repBack = (i) => repPct * (R(i).svRev - R(i).elRev);
   const offComm = (i) => offPct * O(i).rev, offCost = (i) => ad(i) + wg(i) + inc(i) + offComm(i);
   const sumOf = (f) => { let t = 0; for (let i = 0; i < 12; i++) t += f(i) || 0; return t; };
   const elLbl = rep.locked ? 'active Jan 31' : 'active today (locks Jan 31, ' + (y + 1) + ')';
@@ -1144,12 +1149,15 @@ function _mktgAcq() {
     // Sales Reps
     ['SALES REPS · accounts sold', (i) => R(i).n, fmt.int, 'sum'],
     ['Revenue sold', (i) => R(i).rev, _mktgUsd0, 'sum'],
-    ['Eligible accounts · ' + elLbl, (i) => R(i).elN, fmt.int, 'sum'],
+    ['Serviced accounts', (i) => R(i).svN, fmt.int, 'sum'],
+    ['Serviced revenue', (i) => R(i).svRev, _mktgUsd0, 'sum'],
+    ['Eligible accounts · serviced + ' + elLbl, (i) => R(i).elN, fmt.int, 'sum'],
     ['Eligible revenue', (i) => R(i).elRev, _mktgUsd0, 'sum'],
-    ['Eligible %', (i) => _mktgDiv(R(i).elRev, R(i).rev), _mktgPct, 'ratio', [(i) => R(i).elRev, (i) => R(i).rev]],
-    ['Commission paid (' + (repPct ? (repPct * 100).toFixed(1) + '%' : 'rate not set') + ' × eligible)', repCost, _mktgUsd0, 'sum'],
-    ['Commission taken back (cancelled before lock)', repBack, _mktgUsd0, 'sum'],
-    ['Rep CAC % of revenue sold', (i) => _mktgDiv(repCost(i), R(i).rev), _mktgPct, 'ratio', [repCost, (i) => R(i).rev]],
+    ['Eligible % of serviced', (i) => _mktgDiv(R(i).elRev, R(i).svRev), _mktgPct, 'ratio', [(i) => R(i).elRev, (i) => R(i).svRev]],
+    ['Commission on serviced (' + (repPct ? (repPct * 100).toFixed(1) + '%' : 'rate not set') + ')', repPaid, _mktgUsd0, 'sum'],
+    ['Commission taken back (serviced, cancelled before lock)', repBack, _mktgUsd0, 'sum'],
+    ['Net commission (× eligible)', repCost, _mktgUsd0, 'sum'],
+    ['Rep CAC % of serviced revenue', (i) => _mktgDiv(repCost(i), R(i).svRev), _mktgPct, 'ratio', [repCost, (i) => R(i).svRev]],
     ['Rep cost per eligible account', (i) => _mktgDiv(repCost(i), R(i).elN), _mktgUsd0, 'ratio', [repCost, (i) => R(i).elN]],
     // Office Staff
     ['OFFICE STAFF · accounts sold', (i) => O(i).n, fmt.int, 'sum'],
@@ -1168,7 +1176,7 @@ function _mktgAcq() {
     onchange: (e) => { state._mktCacScope = e.target.value; mountApp(); },
   }, ...[[MKTG_ALL, CFG.COMPANY_NAME + ' (all)'], ...(_mktgEntities().length > 1 ? _mktgEntities().map(k => [k, companyName(k)]) : [])].map(([v, l]) => el('option', { value: v, selected: scope === v }, l)),
     ...B.all.map(b => el('option', { value: b, selected: scope === b }, _mktgTC(b))));
-  const repTot = sumOf(repCost), repRev = sumOf((i) => R(i).rev), offTot = sumOf(offCost), offRev = sumOf((i) => O(i).rev);
+  const repTot = sumOf(repCost), repRev = sumOf((i) => R(i).svRev), offTot = sumOf(offCost), offRev = sumOf((i) => O(i).rev);
   const tile = (label, v, sub) => el('div', { class: 'card p-3 min-w-0' }, el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, label), el('div', { class: 'text-2xl font-black tabular-nums mt-1' }, v), sub ? el('div', { class: 'text-[10px] text-muted- mt-0.5' }, sub) : null);
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'card p-3 flex items-center gap-3 flex-wrap' },
@@ -1176,16 +1184,16 @@ function _mktgAcq() {
       el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-', style: { marginLeft: '8px' } }, 'Sales Rep weighted commission'), pctIn(s.repCommissionPct, (v) => { s.repCommissionPct = v; }),
       el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-', style: { marginLeft: '8px' } }, 'Office Staff weighted commission'), pctIn(s.officeCommissionPct, (v) => { s.officeCommissionPct = v; })),
     el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))' } },
-      tile('Sales Rep CAC', _mktgPct(_mktgDiv(repTot, repRev)), fmt.usd0(repTot) + ' on ' + fmt.usd0(repRev) + ' sold'),
+      tile('Sales Rep CAC', _mktgPct(_mktgDiv(repTot, repRev)), fmt.usd0(repTot) + ' net on ' + fmt.usd0(repRev) + ' serviced'),
       tile('Office Staff CAC', _mktgPct(_mktgDiv(offTot, offRev)), fmt.usd0(offTot) + ' on ' + fmt.usd0(offRev) + ' sold'),
-      tile('Rep revenue eligible', _mktgPct(_mktgDiv(sumOf((i) => R(i).elRev), repRev)), rep.locked ? 'locked Jan 31, ' + (y + 1) : 'projected · locks Jan 31, ' + (y + 1)),
-      tile('Rep commission taken back', fmt.usd0(sumOf(repBack)), 'cancelled before the lock')),
+      tile('Rep serviced revenue eligible', _mktgPct(_mktgDiv(sumOf((i) => R(i).elRev), repRev)), rep.locked ? 'locked Jan 31, ' + (y + 1) : 'projected · locks Jan 31, ' + (y + 1)),
+      tile('Rep commission taken back', fmt.usd0(sumOf(repBack)), 'serviced, cancelled before the lock')),
     _mktgMatrixCard('Acquisition cost · ' + (scope === MKTG_ALL ? CFG.COMPANY_NAME : B.byEntity[scope] ? companyName(scope) : _mktgTC(scope)),
-      'By sold month · new + upsell contract value (renewals and excluded sources out) · Sales Reps are paid only on accounts still active after Jan 31 of the next year · Office Staff cost is paid up front (QuickBooks ad spend, wages and incentives from Spend entry, plus commission on everything sold)',
+      'By sold month · new + upsell contract value (renewals and excluded sources out) · Sales Reps are paid on SERVICED revenue, kept only if the account is still active after Jan 31 of the next year · Office Staff cost is paid up front (QuickBooks ad spend, wages and incentives from Spend entry, plus commission on everything sold)',
       ROWS.map(r => r[0]),
       (rk, i) => byKey[rk][1](i),
       (v, rk) => byKey[rk][2](v),
-      { firstCol: 'Metric', groupRows: new Set(['SALES REPS · accounts sold', 'OFFICE STAFF · accounts sold', 'Rep CAC % of revenue sold', 'Office CAC % of revenue sold']),
+      { firstCol: 'Metric', groupRows: new Set(['SALES REPS · accounts sold', 'OFFICE STAFF · accounts sold', 'Rep CAC % of serviced revenue', 'Office CAC % of revenue sold']),
         total: (rk) => { const r = byKey[rk]; if (r[3] === 'sum') return sumOf(r[1]); let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += r[4][0](i) || 0; d += r[4][1](i) || 0; } return _mktgDiv(n, d); } }));
 }
 
