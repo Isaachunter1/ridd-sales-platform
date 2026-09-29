@@ -713,7 +713,7 @@ function feeCreditAuditCard() {
       el('span', { class: 'text-[10px] font-bold tabular-nums shrink-0', style: { color: 'var(--text-subtle)', width: '22px', textAlign: 'right' } }, (i + 1) + '.'),
       el('span', { class: 'font-semibold shrink-0', style: { minWidth: '70px' } }, '#' + r.customer_id),
       el('span', { class: 'shrink-0', style: { minWidth: '140px', color: 'var(--text-muted)' } }, (r.base_service || '') + ' · sub ' + r.subscription_id),
-      el('span', { class: 'flex-1 min-w-0' }, fees.map(l => l.name + ' ' + fmt.usd(Number(l.per_service) || 0) + ' credited to ' + empName(l.credited_employee_id)).join(' · ')));
+      el('span', { class: 'flex-1 min-w-0' }, fees.map(l => l.name + ' ' + fmt.usd(Number(l.per_service) || 0) + ' credited to ' + ((l.credited_profile_id && ((state.profiles || []).find(x => x.id === l.credited_profile_id) || {}).full_name) || empName(l.credited_employee_id))).join(' · ')));
   })) : null;
   return el('div', { class: 'card overflow-hidden' }, head, list);
 }
