@@ -1781,6 +1781,11 @@ function setReportingRecurringMode(m) {
 // ── Reporting rules (locally-persisted settings; defaults preserve behavior) ──
 // Optional Active ARR step 9 (per Isaac, Sep 29) — OFF by default: leave out
 // active subs carrying a balance past due >= the aging threshold (7 days).
+// Optional Active ARR step 8 (per Isaac, Sep 29) — ON by default: only subs
+// that completed their initial service count (sold-not-started is expected
+// revenue, not captured customers yet).
+function reportingArrServicedOnly() { const r = _adminRules(); return !(r && r.arrServicedOnly === false); }
+function setReportingArrServicedOnly(b) { _setAdminRule('arrServicedOnly', !!b); }
 function reportingArrExclPastDue() { const r = _adminRules(); return !!(r && r.arrExclPastDue === true); }
 function setReportingArrExclPastDue(b) { _setAdminRule('arrExclPastDue', !!b); }
 function reportingAgingDays() {

@@ -1179,7 +1179,8 @@ function reportingChartData(scopeRows, serviceConfig) {
   // Sold-but-not-yet-serviced actives are the PENDING ARR shown beside it.
   const _pdCut = (typeof reportingArrExclPastDue === 'function' && reportingArrExclPastDue()) ? reportingAgingDays() : null;
   const _pastDue = (r) => _pdCut != null && (Number(r.days_past_due) || 0) >= _pdCut;
-  const _served = (r) => !!r.initial_service && !_pastDue(r);   // (step 9, when on: past-due subs leave the book)
+  const _svcOnly = (typeof reportingArrServicedOnly === 'function') ? reportingArrServicedOnly() : true;
+  const _served = (r) => (!_svcOnly || !!r.initial_service) && !_pastDue(r);   // step 8 (serviced only, default on) + step 9 (past due, default off)
   const activeArr = activeRecurring.reduce((s, r) => s + (_served(r) ? (Number(r.annual_recurring_value) || 0) : 0), 0);
   const pendingArr = activeRecurring.reduce((s, r) => s + (!r.initial_service ? (Number(r.annual_recurring_value) || 0) : 0), 0);
   const pendingArrSubs = activeRecurring.filter(r => !r.initial_service).length;
@@ -1260,7 +1261,7 @@ function reportingChartData(scopeRows, serviceConfig) {
       recurring:        recurringRows.length,
       activeRecurring:  activeRecurring.length,
       activeSubs:       activeSubs.length,
-      activeArr, activeArrSubs, pendingArr, pendingArrSubs,
+      activeArr, activeArrSubs, pendingArr, pendingArrSubs, pendingInArr: !_svcOnly,
       uniqueCustomers:  new Set(scopeRows.map(r => r.customer_id).filter(Boolean)).size,
       // Customers with ≥1 ACTIVE sub — matches the Active Customers donut
       // (recurring + other-active). The old KPI used uniqueCustomers, which

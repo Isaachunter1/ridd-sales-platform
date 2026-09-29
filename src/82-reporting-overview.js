@@ -288,7 +288,7 @@ function reportingOverview() {
     return { rows, total: g.length };
   })();
   const COLUMN_CARDS = [
-    { key: 'arr',       label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: (dataA.stats.pendingArr > 0 ? '+ $' + Math.round(dataA.stats.pendingArr).toLocaleString() + ' pending \u00b7 ' + Number(dataA.stats.pendingArrSubs || 0).toLocaleString() + ' sold, not yet serviced' : 'serviced, active recurring subs'),                                        chartIds: ['rarr', 'rarrOffice'] },   // (One-Time Revenue donut folded into the One-Time Subscriptions toggle)
+    { key: 'arr',       label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: (dataA.stats.pendingArr > 0 ? (dataA.stats.pendingInArr ? 'incl. $' : '+ $') + Math.round(dataA.stats.pendingArr).toLocaleString() + (dataA.stats.pendingInArr ? ' not yet serviced' : ' pending') + ' \u00b7 ' + Number(dataA.stats.pendingArrSubs || 0).toLocaleString() + ' sold, not yet serviced' : 'serviced, active recurring subs'),                                        chartIds: ['rarr', 'rarrOffice'] },   // (One-Time Revenue donut folded into the One-Time Subscriptions toggle)
     { key: 'subs',      label: 'Subscriptions Serviced',  value: (_topFunnel ? _topFunnel.rows.length : (dataA.stats.servicedSubs != null ? dataA.stats.servicedSubs : dataA.stats.subs)).toLocaleString(), sub: 'received an initial service \u00b7 of ' + (_topFunnel ? _topFunnel.total : dataA.stats.subs).toLocaleString() + ' in FieldRoutes \u00b7 ' + dataA.stats.recurring.toLocaleString() + ' recurring', chartIds: ['sources', 'onetimeSubs', 'retiredSubs'] },
     { key: 'active',    label: 'Subscriptions Active',    value: (reportingActiveInclOneTime() ? dataA.stats.activeSubs : dataA.stats.activeRecurring).toLocaleString(), sub: reportingActiveInclOneTime() ? 'currently in service · incl. one-time' : 'currently in service · recurring', chartIds: ['activesubs', 'agreement'] },   // (Agreement Length Mix moved here from column 1, per Isaac)
     { key: 'customers', label: 'Customers Active',        value: (dataA.stats.activeCustomers != null ? dataA.stats.activeCustomers : dataA.stats.uniqueCustomers).toLocaleString(), sub: (dataA.stats.distinctActiveServices != null ? dataA.stats.distinctActiveServices : dataA.stats.distinctServices) + ' active services', chartIds: ['custDepth', 'tenure'] },   // (Active Customers donut retired, per Isaac; Services per Customer added)
@@ -735,16 +735,18 @@ function openArrStepsModal(scope, dataA) {
     step('Keep the selected office(s)', 'Office filter on this tab: ' + officeLabel(scope.office) + '.', r => inOffice.has(r), 'filter');
   }
   step('Remove non-recurring service types', 'One-time services and any service type not classed Recurring (Configurations → Services). Their value never counts toward ARR.', r => F.isRecurring(r), 'app rule');
-  step('Keep only subs that completed their initial service', 'Sold but not yet serviced is PENDING ARR, shown below \u2014 revenue is not recurring until the first visit happens (per Isaac, Sep 24).', r => !!r.initial_service, 'app rule', true);
   step('Remove excluded branches', 'Offices switched off in Reporting → Configurations → Branches.', r => !exclBranches.has((r.office_name || '').trim()), 'config');
   step('Keep only status = Active', 'Frozen, inactive, pending and every other CRM status leaves here.', r => (r.subscription_status || '').toLowerCase() === 'active', 'app rule');
-  // Step 9 — OPTIONAL, off by default (per Isaac, Sep 29): past due >= the
-  // aging threshold. Off, it still shows what it WOULD take out.
-  const _pdOn = reportingArrExclPastDue(), _pdDays = reportingAgingDays();
-  const _pdKeep = (r) => (Number(r.days_past_due) || 0) < _pdDays;
-  const _pdWould = cur.filter(r => !_pdKeep(r));
-  if (_pdOn) step('Remove active subs past due \u2265 ' + _pdDays + ' days', 'Optional step (Configurations aging threshold). A closer read on ARR that is actually being collected.', _pdKeep, 'optional');
-  else steps.push({ title: 'Remove active subs past due \u2265 ' + _pdDays + ' days', detail: 'Optional step \u2014 OFF. Turn it on to leave these out of Active ARR; the numbers show what it would remove.', removed: _pdWould, kept: cur, tag: 'optional · off', keep: () => true, off: true });
+  // Steps 8 + 9 are OPTIONAL (per Isaac, Sep 29) — expected revenue that
+  // isn't locked in: sold-but-not-serviced (ON by default) and past due
+  // (OFF by default). Off, a step still shows what it WOULD remove.
+  const optStep = (title, detail, keep, on, toggle, serviceGate) => {
+    if (on) { step(title, detail, keep, 'optional', serviceGate); steps[steps.length - 1].toggle = toggle; }
+    else steps.push({ title, detail: detail + ' \u2014 OFF: shown for reference, not applied.', removed: cur.filter(r => !keep(r)), kept: cur, tag: 'optional · off', keep: () => true, off: true, toggle, serviceGate });
+  };
+  optStep('Keep only subs that completed their initial service', 'Sold but not yet serviced \u2014 expected to start, but not captured customers yet (Pending ARR below).', r => !!r.initial_service, reportingArrServicedOnly(), setReportingArrServicedOnly, true);
+  const _pdDays = reportingAgingDays();
+  optStep('Remove active subs past due \u2265 ' + _pdDays + ' days', 'Expected to pay, but not all of them will (Configurations aging threshold).', r => (Number(r.days_past_due) || 0) < _pdDays, reportingArrExclPastDue(), setReportingArrExclPastDue);
   // Pending ARR = passes every step EXCEPT the initial-service gate, and isn't serviced yet.
   const activeAll = raw.filter(r => !r.initial_service && steps.every(st => st.serviceGate || String(st.tag || '').indexOf('optional') === 0 || st.keep(r)));
   const active = cur;
@@ -766,7 +768,7 @@ function openArrStepsModal(scope, dataA) {
       clickable(el('div', { class: 'text-[10px] font-semibold', style: { color: 'var(--text-muted)' } }, n(st.kept.length) + ' remain · ' + fmt.usd0(sumArr(st.kept))), drill(st.title + ' · remaining', st.kept, 'still in after this step'))),
     st.tag && st.tag.indexOf('optional') === 0
       ? el('button', { class: 'shrink-0', title: st.off ? 'Turn this step on' : 'Turn this step off', style: { width: '36px', height: '20px', borderRadius: '10px', background: st.off ? 'var(--border-2)' : 'var(--accent)', position: 'relative', border: 'none', cursor: 'pointer' },
-          onclick: (e) => { e.stopPropagation(); setReportingArrExclPastDue(!!st.off); overlay.remove(); document.removeEventListener('keydown', closeKey); mountApp(); setTimeout(() => openArrStepsModal(scope, null), 50); } },
+          onclick: (e) => { e.stopPropagation(); (st.toggle || setReportingArrExclPastDue)(!!st.off); overlay.remove(); document.removeEventListener('keydown', closeKey); mountApp(); setTimeout(() => openArrStepsModal(scope, null), 50); } },
           el('div', { style: { position: 'absolute', top: '2px', left: st.off ? '2px' : '18px', width: '16px', height: '16px', borderRadius: '50%', background: '#fff', transition: 'left .15s' } }))
       : chip(st.tag));
   const totalRow = (label, rows, sub, strong) => el('div', { class: 'flex items-center justify-between gap-3 py-2 border-t-2', style: { borderColor: 'var(--border-2)' } },
@@ -786,7 +788,7 @@ function openArrStepsModal(scope, dataA) {
     totalRow('Everything in FieldRoutes', raw, 'Every subscription in the synced snapshot, any status, any service type — the top of the funnel.', false),
     ...steps.map((st, i) => row(i + 1, st)),
     totalRow('Active ARR', active, zeroArr.length ? n(zeroArr.length) + ' of these active subs carry $0 ARR in FieldRoutes and add nothing — click to see them' : 'Sum of ARR across serviced, active recurring subscriptions.', true),
-    totalRow('Pending ARR', pending, 'Sold and active, initial service not completed yet \u2014 what Active ARR grows by once these are serviced (net of any that cancel first).', false),
+    totalRow('Pending ARR', pending, reportingArrServicedOnly() ? 'Sold and active, initial service not completed yet \u2014 what Active ARR grows by once these are serviced (net of any that cancel first).' : 'Sold, not yet serviced \u2014 already INCLUDED in Active ARR above (step 8 is off).', false),
     zeroArr.length ? clickable(el('div', { class: 'text-[10px] font-semibold text-right', style: { color: 'var(--text-muted)' } }, n(zeroArr.length) + ' active subs at $0 ARV →'), drill('Active subs with $0 ARV', zeroArr, 'active but contributing no ARR')) : null,
     (dataA && Math.abs(total - headline) > 1) ? el('div', { class: 'text-[10px] font-semibold', style: { color: '#B45309' } }, 'Note: the card shows ' + fmt.usd0(headline) + '; these steps total ' + fmt.usd0(total) + '. The difference means a rule changed since the page rendered — reload the tab.') : null));
   document.body.append(overlay);
