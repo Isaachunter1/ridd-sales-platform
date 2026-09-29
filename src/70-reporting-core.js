@@ -695,12 +695,18 @@ function reportingPinBar(key, bar) {
     const hdr = document.querySelector('header.page-header');
     const top = hdr ? Math.round(hdr.getBoundingClientRect().bottom) : 60;
     if (!sp.style.height) sp.style.height = b.offsetHeight + 'px';
-    const pin = sp.getBoundingClientRect().top < top;
+    // Pin at the exact scroll point where the bar's content would reach its
+    // pinned spot (header bottom + the 14px top padding). Pinning at the
+    // header's bottom instead made the content jump 14px down the moment it
+    // pinned, and flicker back and forth across that line while scrolling
+    // (per Isaac, Sep 29).
+    const PAD_TOP = 14;
+    const pin = sp.getBoundingClientRect().top < top + PAD_TOP;
     if (pin && !b._pinned) {
       b._pinned = true;
       const r = sp.getBoundingClientRect();
       // Same spacing as the Retention Attrition Steps header (per Isaac, Sep 23): 14px under the header rule, 8px below, page background.
-      Object.assign(b.style, { position: 'fixed', top: top + 'px', left: r.left + 'px', width: r.width + 'px', zIndex: '15', background: 'var(--bg)', paddingTop: '14px', paddingBottom: '8px' });
+      Object.assign(b.style, { position: 'fixed', top: top + 'px', left: r.left + 'px', width: r.width + 'px', zIndex: '15', background: 'var(--bg)', paddingTop: PAD_TOP + 'px', paddingBottom: '8px' });
     } else if (!pin && b._pinned) {
       b._pinned = false;
       Object.assign(b.style, { position: '', top: '', left: '', width: '', zIndex: '', background: '', paddingTop: '', paddingBottom: '' });
