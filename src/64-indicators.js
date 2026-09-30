@@ -2464,7 +2464,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   rawSales.forEach(s => {
     const rep = getCanonicalRepName(s.rep || 'Unknown');
     if (!repMap[rep]) repMap[rep] = { name: rep, office: s.office, officeRev: {}, recRev: {}, sales: [], cancels: 0, cancelEligible: 0, attrServRev: 0, attrCxlRev: 0, revenue: 0, newRevenue: 0, renewalRevenue: 0, multi: 0, twelve: 0, autoPay: 0, aged: 0 };
-    if (_indicatorIsRenewal(s)) repMap[rep].renewalRevenue += s.contractValue;
+    if (_indicatorIsRenewal(s)) { repMap[rep].renewalRevenue += s.contractValue; repMap[rep].renAcvRev = (repMap[rep].renAcvRev || 0) + (Number(s.contractValue) || 0); repMap[rep].renAcvN = (repMap[rep].renAcvN || 0) + 1; }
     else                        repMap[rep].newRevenue += s.contractValue;
     if (!_inLens(s)) return;
     if (s.office) repMap[rep].officeRev[s.office] = (repMap[rep].officeRev[s.office] || 0) + (Number(s.contractValue) || 0);
@@ -2630,7 +2630,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       count,
       team: getRepTeam(r.name),
       tier: getRepTier(r.name), // 'rookie' | 'vet' | ''
-      ...(() => { const a = indAcvSplit(r.sales); return { acv: a.acv, acvW: a.acvW, acvOts: a.acvOts, acvRen: a.acvRen, _acv: a }; })(),
+      // Renewal ACV reads every renewal the rep sold (the 4 Renewal sources),
+      // whatever the office New / Total / Renewal lens — the lens used to empty it.
+      ...(() => { const a = indAcvSplit(r.sales); a.renRev = r.renAcvRev || 0; a.renN = r.renAcvN || 0; a.acvRen = a.renN > 0 ? a.renRev / a.renN : 0; return { acv: a.acv, acvW: a.acvW, acvOts: a.acvOts, acvRen: a.acvRen, _acv: a }; })(),
       avgPest,
       avgInitial,
       myPct: ctTotal > 0 ? r.multi / ctTotal : 0,
@@ -3875,7 +3877,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     { key: 'acv',        label: 'ACV',      align: 'left', defaultDir: 'desc', title: 'Recurring new sales only — one-time services and renewals left out', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.usd(r.acv)) },
     { key: 'acvW', label: 'Weighted ACV', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'Every sale — one-time services and renewals included', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.acvW > 0 ? fmt.usd(r.acvW) : '\u2014') },
     { key: 'acvOts', label: 'One-Time ACV', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'One-time services only', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.acvOts > 0 ? fmt.usd(r.acvOts) : '\u2014') },
-    { key: 'acvRen', label: 'Renewal ACV', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'Renewal-source sales only', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.acvRen > 0 ? fmt.usd(r.acvRen) : '\u2014') },
+    { key: 'acvRen', label: 'Renewal ACV', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'Renewal-source sales only (Renewal - Loyalty / Inbound / Outbound / Service Pro Upsell)', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: indicatorExcl().renewal ? 'Renewals are excluded in Filters — untick Renewals to see this' : '' }, r.acvRen > 0 ? fmt.usd(r.acvRen) : (indicatorExcl().renewal ? 'excluded' : '\u2014')) },
     // Selling-day metrics — averages over days WITH ≥1 sale only.
     { key: 'auditPct', label: 'Audit %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap' },
         el('span', {
@@ -4000,6 +4002,33 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     mountApp();
   };
   const _lbSetOff = (arr) => { state._indLbColsOff = arr; _lbStore('ridd_lb_cols_off', arr); mountApp(); };
+  // Frozen columns (per Isaac, Sep 30): # + Rep stick to the left and the
+  // Best Day / Week / Month column sticks to the right while the rest scroll
+  // sideways — matters once someone ticks on more columns than fit.
+  const _lbFreeze = (t) => {
+    const nameAt = repCols.findIndex(c => c.key === 'name') + 1;       // +1 = the # column
+    const recAt = repCols.findIndex(c => RECORD_SORT_KEYS.has(c.key)) + 1;
+    const left = nameAt > 0 ? [0, nameAt] : [0];
+    const nCells = repCols.length + 1;
+    const clear = (bg) => !bg || bg === 'transparent' || /rgba\(0, 0, 0, 0\)/.test(bg);
+    requestAnimationFrame(() => {
+      if (!t.isConnected) return;
+      const rows = [...t.rows].filter(tr => tr.cells.length === nCells);
+      if (!rows.length) return;
+      const offs = []; let acc = 0;
+      for (const i of left) { offs.push(acc); acc += rows[0].cells[i].getBoundingClientRect().width; }
+      const cardBg = getComputedStyle(t.closest('.card') || document.body).backgroundColor;
+      for (const tr of rows) {
+        const head = tr.parentElement && tr.parentElement.tagName === 'THEAD';
+        let bg = getComputedStyle(tr).backgroundColor;
+        if (clear(bg)) bg = head ? getComputedStyle(tr.parentElement).backgroundColor : cardBg;
+        if (clear(bg)) bg = cardBg;
+        left.forEach((i, k) => { const c = tr.cells[i]; if (!c) return; const own = c.style.background || c.style.backgroundColor; Object.assign(c.style, { position: 'sticky', left: offs[k] + 'px', zIndex: head ? '4' : '2', background: own || bg }); if (k === left.length - 1) c.style.boxShadow = '1px 0 0 var(--border)'; });
+        if (recAt > 0 && recAt !== nameAt) { const c = tr.cells[recAt]; if (c) { const own = c.style.background || c.style.backgroundColor; Object.assign(c.style, { position: 'sticky', right: '0', zIndex: head ? '4' : '2', background: own || bg, boxShadow: '-1px 0 0 var(--border)' }); } }
+      }
+    });
+    return t;
+  };
   // Sorting by a column you just hid → fall back to Revenue (or the first shown).
   { const sk = state._indicatorRepSort && state._indicatorRepSort.key;
     const hid = sk && _lbPickable.some(c => c.key === sk && _lbOff.has(_lbColKey(c)));
@@ -4273,7 +4302,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       // scrolling kicks in (each row averages ~44px once the Best
       // Day/Week/Month two-line cells render, plus the ~32px header).
       el('div', { class: 'hidden sm:block scroll-x', style: { maxHeight: '520px', overflowY: 'auto' } },
-        el('table', { class: 'w-full text-[13px]' },   // larger now that columns can be trimmed (per Isaac, Sep 30)
+        _lbFreeze(el('table', { class: 'w-full text-[13px]' },   // larger now that columns can be trimmed (per Isaac, Sep 30)
           el('thead', {
             class: 'text-[10px] uppercase tracking-wider text-muted-',
             style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: 1 },
@@ -4494,7 +4523,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                     );
                   })];
                 })()),
-          ),
+          )),   // _lbFreeze
         ),
       ),
       // Mobile: stacked card per rep. Same data as the table, but laid out
