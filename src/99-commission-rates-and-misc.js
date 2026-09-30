@@ -271,6 +271,20 @@ function _isUpsellContract(sale) {
   const ct = (state.contractTypes || []).find(c => c.id === sale?.contract_type_id);
   return !!ct && /^(d2d |office )?upsell/i.test(String(ct.name || ''));
 }
+// Passed Audit % pool (per Isaac, Sep 30 — same idea as the Sales Rep Audit %):
+// EVERY account the rep sold in the pay period counts in the denominator —
+// passed, failed audit and not-audited-yet alike — not just the staged ones.
+// (A failed-audit account is held out of staging for review, so a staged-only
+// pool quietly left it out and inflated the %.) Pre-service cancels are out.
+// The numerator stays the FieldRoutes Passed Audit flag (upfront_collected).
+function passedAuditPool(repId, period) {
+  if (!period) return [];
+  return (state.allSales || []).filter(s => {
+    if (String(s.rep_id) !== String(repId) || s.audit_status === 'cancelled') return false;
+    const d = new Date(String(s.sold_date || '').slice(0, 10) + 'T00:00');
+    return !isNaN(d) && d >= period.start && d <= period.end;
+  });
+}
 function upfrontCollectedPct(sales) {
   // Rollout guard: until the "Charged Upfront" flag is actually in use
   // anywhere (old sales all default to false), the tier stays at 100% —

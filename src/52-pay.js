@@ -78,7 +78,7 @@ function viewPay() {
   // Charge-upfront tier (sheet O29-O31): the share of this period's staged
   // accounts where payment was collected upfront sets a multiplier on the
   // WHOLE upfront commission (100 / 95 / 90 / 85%).
-  const upfrontPct  = upfrontCollectedPct([...servicedStaged, ...belowStaged]);
+  const upfrontPct  = upfrontCollectedPct(_pv ? [...servicedStaged, ...belowStaged] : periodSales.filter(s => s.audit_status !== 'cancelled'));   // Passed Audit %: every account sold this period (passed / failed / no flag)
   const upfrontMult = upfrontTierPayPct(upfrontPct, repId);
   const salesPay   = sumCommission(servicedStaged) * upfrontMult;  // full commission × upfront tier
   const belowPay   = sumCommission(belowStaged) * upfrontMult;     // half commission × upfront tier
@@ -365,7 +365,7 @@ function viewPay() {
         }
         const lines = isPayLines(repId, [...servicedStaged, ...belowStaged], upfrontMult);
         return payExplainCard('How this stub is computed', lines,
-          'Live · passed-audit tier ' + Math.round(upfrontPct * 100) + '% of staged accounts → ×' + upfrontMult + ' on every line · ' + (Object.keys(payOverridesFor(repId)).length ? 'rep rate overrides applied' : 'default rates from Settings → Commissions') + ' · renewal sources pay flat $/account; below-minimums pay the configured share.');
+          'Live · passed-audit tier ' + Math.round(upfrontPct * 100) + '% of accounts sold this period (passed ÷ passed + failed + no flag) → ×' + upfrontMult + ' on every line · ' + (Object.keys(payOverridesFor(repId)).length ? 'rep rate overrides applied' : 'default rates from Settings → Commissions') + ' · renewal sources pay flat $/account; below-minimums pay the configured share.');
       })(),
 
       // BACKEND PAY — the quarter that contains this period
@@ -703,7 +703,7 @@ function processPayroll(sales, period) {
         const byRep = new Map(); sales.forEach(s => { if (!byRep.has(s.rep_id)) byRep.set(s.rep_id, []); byRep.get(s.rep_id).push(s); });
         for (const [rid, list] of byRep) {
           const prof = state.allProfiles.find(p => p.id === rid) || {};
-          const pct = upfrontCollectedPct(list), mult = upfrontTierPayPct(pct, rid);
+          const _pool = passedAuditPool(rid, period); const pct = upfrontCollectedPct(_pool.length ? _pool : list), mult = upfrontTierPayPct(pct, rid);
           const lines = isPayLines(rid, list, mult);
           const sales_pay = lines.filter(l => l.status === 'serviced').reduce((a, l) => a + l.amount, 0);
           const below_pay = lines.filter(l => l.status === 'below_minimums').reduce((a, l) => a + l.amount, 0);
@@ -761,7 +761,7 @@ function notifyPayrollRun(sales, period, kind) {
     } else {
       const serviced = repSales.filter(s => s.audit_status === 'serviced');
       const below    = repSales.filter(s => s.audit_status === 'below_minimums');
-      const _upM = upfrontTierPayPct(upfrontCollectedPct([...serviced, ...below]), repId);
+      const _pool = kind === 'backend' ? [] : passedAuditPool(repId, period); const _upM = upfrontTierPayPct(upfrontCollectedPct(_pool.length ? _pool : [...serviced, ...below]), repId);
       const salesPay = serviced.reduce((a, s) => a + getCommissionAmount(repId, s), 0) * _upM;
       const belowPay = below.reduce((a, s) => a + getCommissionAmount(repId, s), 0) * _upM;
       summary = {
