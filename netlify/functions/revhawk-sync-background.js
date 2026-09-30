@@ -947,7 +947,7 @@ exports.handler = async (event) => {
         if (!START) throw Object.assign(new Error('auto-add disabled (app_settings.autolog.enabled = false)'), { _skip: true });
         const AL_TYPES = new Set(Array.isArray(AL.types) && AL.types.length ? AL.types : ['Office Staff', 'Sales Rep', 'Technician']);
         const QUEUE_OF = { 'Office Staff': 'office', 'Sales Rep': 'd2d', 'Technician': 'tech' };
-        const EXCLUDED_SVCS = new Set(['ACH Chargeback', 'Early Cancellation Fee', 'German Roach Initial', 'Rodent Station Removal']);
+        const EXCLUDED_SVCS = await require('../lib/rules.js').loadNonSaleServices(supabase);   // FieldRoutes global + admin-Hidden service types (one source of truth)
         const masterOf = new Map();
         roster.forEach(e => String(e.employee_ids || e.employee_id || '').split(',').forEach(id => { const t = id.trim(); if (t) masterOf.set(t, String(e.employee_id)); }));
         const { data: profs2 } = await supabase.from('profiles').select('id, fieldroutes_employee_id, office_id').not('fieldroutes_employee_id', 'is', null);
@@ -1100,7 +1100,7 @@ exports.handler = async (event) => {
           // (pure, fixture-tested by tools/upsell-test.js) so the upsell
           // build can't drift the shape silently.
           const { makeIsAddOn, upsellCandidates, upsellSaleRow } = require('../lib/upsell-record.js');
-          const isAddOn = makeIsAddOn(AL3.upsell_services, AL3.addon_items);
+          const isAddOn = makeIsAddOn(AL3.upsell_services, AL3.addon_items, require('../lib/rules.js').notAddOnDefault);   // same fallback as the add-ons sync
           const tq = await runQuery(token, TICKET_SQL(START3));
           const tickets = [];
           for (const t of toObjects(tq.schema, tq.rows)) tickets.push(...upsellCandidates({ ...t, items: String(t.items || '[]') }, isAddOn));
@@ -1194,7 +1194,7 @@ exports.handler = async (event) => {
         const lookback = Number(process.env.INSIDE_GHOST_LOOKBACK_DAYS) || 45;
         const START = (process.env.INSIDE_GHOST_START || '').trim()
           || new Date(Date.now() - lookback * 86400000).toISOString().slice(0, 10);
-        const EXCLUDED_SVCS = new Set(['ACH Chargeback', 'Early Cancellation Fee', 'German Roach Initial', 'Rodent Station Removal']);
+        const EXCLUDED_SVCS = await require('../lib/rules.js').loadNonSaleServices(supabase);   // FieldRoutes global + admin-Hidden service types (one source of truth)
         const masterOf = new Map();
         roster.forEach(e => String(e.employee_ids || e.employee_id || '').split(',').forEach(id => { const t = id.trim(); if (t) masterOf.set(t, String(e.employee_id)); }));
         const { data: profs3 } = await supabase.from('profiles').select('id, fieldroutes_employee_id, role').not('fieldroutes_employee_id', 'is', null);

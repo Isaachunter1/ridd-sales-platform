@@ -38,7 +38,7 @@ function commissionCompute(emp, startMs, endMs, lockMs, opts) {
   const rows = [];
   for (const r of rows0) {
     const v = cv(r);
-    if (FR_GLOBAL_EXCLUDED_SERVICES.has(String(r.subscription || '').trim())) { _gate('global', v); continue; }
+    if (typeof reportingNonSaleService === 'function' ? reportingNonSaleService(r.subscription) : FR_GLOBAL_EXCLUDED_SERVICES.has(String(r.subscription || '').trim())) { _gate('global', v); continue; }   // FieldRoutes global + admin-Hidden service types
     if (_exclSrcSet.has(String(r.subscription_source || '').trim())) { _gate('source', v); continue; }
     if (typeof reportingSourceClass === 'function' && reportingSourceClass(r.subscription_source) === 'renewal') { _gate('renewal', v); continue; }
     const ist = String(r.initial_status || '').toLowerCase();

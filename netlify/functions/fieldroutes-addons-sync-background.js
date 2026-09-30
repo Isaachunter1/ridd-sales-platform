@@ -70,10 +70,9 @@ exports.handler = async (event) => {
     // when set, otherwise every line EXCEPT fees / discounts / tax (per the
     // 68003 dry run, Sep 29: Service Fee $4.87 rides every ticket and is not
     // an add-on; Mosquito Seasonal and Rodent are).
-    const NOT_ADDON = /^(service fee|tax|nsf fee|late fee|finance charge|credit card fee)\b|discount/i;
     // Per-item Commissionable switch (AL.addon_items, per Isaac Sep 30) wins;
     // unlisted items keep the old rule.
-    const isAddOn = makeIsAddOn(AL.upsell_services, AL.addon_items, (n) => !NOT_ADDON.test(n));
+    const isAddOn = makeIsAddOn(AL.upsell_services, AL.addon_items, require('../lib/rules.js').notAddOnDefault);
     const lookback = Math.max(1, Number(AL.addons_lookback_days) || 3);
     const since = new Date(Date.now() - lookback * 86400000).toISOString().slice(0, 10);
     const from = since > String(AL.start).slice(0, 10) ? since : String(AL.start).slice(0, 10);

@@ -16,7 +16,7 @@ const { createClient } = require('@supabase/supabase-js');
 const { applyFieldRoutesEnv, fieldRoutesBase, recordIntegrationStatus } = require('../lib/integrations.js');
 const { requireSyncSecret } = require('../lib/sync-gate.js');
 
-const EXCLUDED_SVCS = new Set(['ACH Chargeback', 'Early Cancellation Fee', 'German Roach Initial', 'Rodent Station Removal']);
+let EXCLUDED_SVCS = new Set(require('../lib/rules.js').FR_GLOBAL_EXCLUDED);   // refreshed per run with admin-Hidden service types
 const QUEUE_OF = { 'Office Staff': 'office', 'Sales Rep': 'd2d', 'Technician': 'tech' };
 const TYPE_LABEL = { '0': 'Office Staff', '1': 'Technician', '2': 'Sales Rep' };
 
@@ -64,6 +64,7 @@ exports.handler = async (event) => {
     const { data: alRow } = await supabase.from('app_settings').select('value').eq('key', 'autolog').maybeSingle();
     const AL = Object.assign({ enabled: false, start: '2026-01-01', types: ['Office Staff', 'Sales Rep', 'Technician'], require_appt: true, require_billing: true, require_signed: true }, (alRow && alRow.value) || {});
     if (!AL.enabled) return { statusCode: 200, body: 'autolog disabled — skipped' };
+    EXCLUDED_SVCS = await require('../lib/rules.js').loadNonSaleServices(supabase);
     const TYPES = new Set(Array.isArray(AL.types) && AL.types.length ? AL.types : Object.keys(QUEUE_OF));
     const since = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
     const START = String(AL.start || '2026-01-01').slice(0, 10);

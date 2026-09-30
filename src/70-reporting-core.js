@@ -86,6 +86,18 @@ function reportingSourceOf(r) {
 // Admin override lives in reporting_source_config.revenue_class (Configurations →
 // Lead Sources); when unset it falls back to the source NAME (the historical
 // rule): "…Renewal…" → renewal, "…Upsell…" → upsell, everything else → new.
+// Services that are never a sale / never pay (settings audit, Sep 30): the
+// FieldRoutes global exclusions + every service type marked Hidden in
+// Settings → Reporting rules → Service types. The server syncs read the
+// SAME two sources (netlify/lib/rules.js loadNonSaleServices).
+let _hidSvcRef = null, _hidSvcSet = null;
+function reportingNonSaleService(name) {
+  const n = String(name || '').trim();
+  if (typeof FR_GLOBAL_EXCLUDED_SERVICES !== 'undefined' && FR_GLOBAL_EXCLUDED_SERVICES.has(n)) return true;
+  const cfg = state.reportingServiceConfig || [];
+  if (_hidSvcRef !== cfg) { _hidSvcRef = cfg; _hidSvcSet = new Set(cfg.filter(c => c && c.is_hidden).map(c => String(c.service_name || '').trim())); }
+  return _hidSvcSet.has(n);
+}
 let _srcClassMap = null, _srcClassRef = null;
 function reportingSourceClass(sourceName) {
   const name = String(sourceName || '').trim();
