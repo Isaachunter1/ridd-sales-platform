@@ -1329,7 +1329,7 @@ function reportingFilterBar(scope, opts = {}) {
 
   const datePresets = [
     ['all',             'All time'],
-    ['ytd',             'Year to date'],
+    ['ytd',             'This year'],
     ['last_12_months',  'Last 12 months'],
     ['last_year',       'Last year'],
     ['custom',          'Custom range…'],

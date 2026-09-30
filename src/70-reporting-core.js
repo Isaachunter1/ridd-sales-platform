@@ -1041,7 +1041,7 @@ function reportingFilterByDate(rows, start, end) {
 // and the comparison table header so the reader knows the time scope.
 function reportingDateRangeLabel(preset, start, end) {
   if (preset === 'all' || !preset) return 'All time';
-  if (preset === 'ytd')            return 'Year to date';
+  if (preset === 'ytd')            return 'This year';
   if (preset === 'last_12_months') return 'Last 12 months';
   if (preset === 'last_year')      return 'Last year';
   if (preset === 'custom') {
