@@ -61,6 +61,7 @@ function reportingServiceConfigPanel() {
     // Optimistic local update so toggles feel instant.
     const idx = cfg.findIndex(c => c.service_name === name);
     if (idx >= 0) cfg[idx] = next; else cfg.push(next);
+    if (typeof _svcLifecycleMemo !== 'undefined') _svcLifecycleMemo.rev++;   // in-place edit → rebuild the lifecycle map
     if (DEMO) { saveDemoData(); return; }
     // Don't send recurring_override unless it's actually been set — keeps
     // hidden/category saves working even before reporting_recurring_override.sql
@@ -80,6 +81,7 @@ function reportingServiceConfigPanel() {
       // Revert local on failure so the UI doesn't lie.
       if (idx >= 0) cfg[idx] = existing;
       else cfg.splice(cfg.length - 1, 1);
+      if (typeof _svcLifecycleMemo !== 'undefined') _svcLifecycleMemo.rev++;
       mountApp();
     }
   };

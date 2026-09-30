@@ -1717,7 +1717,18 @@ function _refreshRepTypeMap() {
   if (typeof saveIndicatorState === 'function') saveIndicatorState();
 }
 
+// Memoized (Sep 30 fix): this used to rescan all ~100k subscriptions on EVERY
+// call, and Indicators' "Exclude one-time services" calls it once per sale —
+// Apply froze the page. Rebuilt only when the config / snapshot changes.
+const _svcLifecycleMemo = { cfg: null, len: -1, rows: null, rev: 0, seenRev: -1, map: null, rec: null };
 function reportingServiceLifecycleMap() {
+  const M = _svcLifecycleMemo, cfg0 = state.reportingServiceConfig || [], rows0 = state.reportingSubscriptions || [];
+  if (M.map && M.cfg === cfg0 && M.len === cfg0.length && M.rows === rows0 && M.seenRev === M.rev) return M.map;
+  M.cfg = cfg0; M.len = cfg0.length; M.rows = rows0; M.seenRev = M.rev; M.rec = null;
+  M.map = _buildServiceLifecycleMap();
+  return M.map;
+}
+function _buildServiceLifecycleMap() {
   const cfg = state.reportingServiceConfig || [];
   const byName = new Map(cfg.map(c => [c.service_name, c]));
   const arvAny = new Map(); // service → does any row have ARV > 0?
@@ -1746,8 +1757,10 @@ function reportingServiceLifecycleMap() {
 // Recurring view of the lifecycle map (recurring iff lifecycle === 'recurring').
 function reportingServiceRecurringMap() {
   const lc = reportingServiceLifecycleMap();
+  if (_svcLifecycleMemo.rec) return _svcLifecycleMemo.rec;
   const map = new Map();
   for (const [n, v] of lc) map.set(n, v === 'recurring');
+  _svcLifecycleMemo.rec = map;
   return map;
 }
 
