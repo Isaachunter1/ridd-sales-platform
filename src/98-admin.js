@@ -11,95 +11,145 @@
 function adminPermissions() {
   const overrides = (state._compExtras && state._compExtras.perms) || {};
   const effOf = (role) => ({ ...(PERM_DEFAULTS[role] || {}), ...(overrides[role] || {}) });
-  const setPerm = (role, permId, val) => {
+  // Per PERMISSION, pick which user types have it (per Isaac, Sep 30) —
+  // one multi-select per row instead of flipping one user type at a time.
+  // Same storage as before (perms / permScopes overrides per role).
+  const scopeOverrides = (state._compExtras && state._compExtras.permScopes) || {};
+  const anyChanged = Object.keys(overrides).length > 0 || Object.keys(scopeOverrides).length > 0;
+  const rl = (r) => ROLE_LABEL[r] || r;
+  // Families from the "Family - Role" labels: Sales Rep · Office Staff · Technician · Auditor.
+  const famOf = (r) => rl(r).split(' - ')[0];
+  const shortOf = (r) => { const p = rl(r).split(' - '); return p.length > 1 ? p.slice(1).join(' - ') : p[0]; };
+  const fams = [...new Set(PERM_ROLES.map(famOf))].map(f => ({ f, roles: PERM_ROLES.filter(r => famOf(r) === f) }));
+  // Batch write: every role in one save.
+  const setPermMany = (roles, permId, val) => {
     state._compExtras = state._compExtras || {};
     const perms = state._compExtras.perms = state._compExtras.perms || {};
-    const r = perms[role] = perms[role] || {};
-    const def = !!(PERM_DEFAULTS[role] || {})[permId];
-    if (!!val === def) delete r[permId];   // matches the default — store nothing
-    else r[permId] = val ? 1 : 0;
-    if (!Object.keys(r).length) delete perms[role];
+    for (const role of roles) {
+      const r = perms[role] = perms[role] || {};
+      const def = !!(PERM_DEFAULTS[role] || {})[permId];
+      if (!!val === def) delete r[permId]; else r[permId] = val ? 1 : 0;
+      if (!Object.keys(r).length) delete perms[role];
+    }
     saveIndicatorState();
-    logActivity('config_change', { detail: 'Permissions: ' + (ROLE_LABEL[role] || role) + ' \u00b7 ' + permId + ' \u2192 ' + (val ? 'visible' : 'hidden') });
+    logActivity('config_change', { detail: 'Permissions: ' + permId + ' → ' + (val ? 'on' : 'off') + ' for ' + roles.map(rl).join(', ') });
     mountApp();
   };
-  const resetRole = (role) => {
-    if (!overrides[role]) return;
-    delete state._compExtras.perms[role];
+  const setScope = (role, id, v) => {
+    const def = (PERM_SCOPE_DEFAULTS[role] || {})[id] || 'self';
+    state._compExtras = state._compExtras || {};
+    const ps = state._compExtras.permScopes = state._compExtras.permScopes || {};
+    const r = ps[role] = ps[role] || {};
+    if (v === def) delete r[id]; else r[id] = v;
+    if (!Object.keys(r).length) delete ps[role];
     saveIndicatorState();
-    logActivity('config_change', { detail: 'Permissions: ' + (ROLE_LABEL[role] || role) + ' reset to defaults' });
+    logActivity('config_change', { detail: 'Permissions reach: ' + rl(role) + ' · ' + id + ' → ' + v });
     mountApp();
   };
-  // One user type at a time, picked from a dropdown (per Isaac) — fits a
-  // phone and keeps growing as permissions are added. Rows: label left,
-  // switch / reach dropdown right. Same storage as before.
-  const role = PERM_ROLES.includes(state._permRole) ? state._permRole : PERM_ROLES[0];
-  const eff = effOf(role);
-  const scopeOverrides = (state._compExtras && state._compExtras.permScopes) || {};
-  const changed = !!overrides[role] || !!scopeOverrides[role];
-  const sw = (on, onToggle, overridden) => el('button', { class: 'shrink-0', title: overridden ? 'Changed from default' : '', style: { width: '36px', height: '20px', borderRadius: '10px', background: on ? 'var(--accent)' : 'var(--border-2)', position: 'relative', border: 'none', cursor: 'pointer', boxShadow: overridden ? '0 0 0 2px rgba(223,100,58,.25)' : 'none' }, onclick: onToggle },
-    el('div', { style: { position: 'absolute', top: '2px', left: on ? '18px' : '2px', width: '16px', height: '16px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.3)', transition: 'left .12s' } }));
-  const row = (label, control) => el('div', { class: 'flex items-center justify-between gap-3 py-1.5 border-t', style: { borderColor: 'var(--border)' } },
-    el('div', { class: 'text-sm font-semibold' }, label), control);
+  const scopeOf = (role, id) => ((scopeOverrides[role] && scopeOverrides[role][id]) || (PERM_SCOPE_DEFAULTS[role] || {})[id] || 'self');
+  const scopeDef = (role, id) => (PERM_SCOPE_DEFAULTS[role] || {})[id] || 'self';
+
+  // Dropdown shell: a button with a summary, a checklist panel under it.
+  const dropdown = (key, summary, changed, buildBody) => {
+    const open = state._permOpen === key;
+    const wrap = el('div', { class: 'relative shrink-0' });
+    const panel = el('div', { class: 'card absolute p-1.5', style: { top: 'calc(100% + 6px)', right: '0', width: '290px', maxWidth: 'calc(100vw - 32px)', maxHeight: '380px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: open ? 'block' : 'none' }, onclick: (e) => e.stopPropagation() }, open ? buildBody() : null);
+    const btn = el('button', {
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer flex items-center justify-between gap-2',
+      style: { borderColor: changed ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: '180px', maxWidth: '260px', textAlign: 'left' },
+      title: changed ? 'Changed from the defaults' : '',
+      onclick: (e) => { e.stopPropagation(); state._permOpen = open ? null : key; mountApp(); },
+    }, el('span', { class: 'truncate' }, summary), el('span', { style: { fontSize: '9px', opacity: .7 } }, '▾'));
+    wrap.append(btn, panel);
+    if (open) {
+      try { clampDropdownPanel(panel); } catch (err) { /* optional helper */ }
+      setTimeout(() => document.addEventListener('mousedown', function closer(ev) { if (!wrap.contains(ev.target)) { document.removeEventListener('mousedown', closer); if (state._permOpen === key) { state._permOpen = null; mountApp(); } } }), 0);
+    }
+    return wrap;
+  };
+  const summarize = (on) => {
+    if (!on.length) return 'Nobody';
+    if (on.length === PERM_ROLES.length) return 'All user types';
+    const full = fams.filter(g => g.roles.every(r => on.includes(r)));
+    const rest = on.filter(r => !full.some(g => g.roles.includes(r)));
+    const plural = (f) => ({ 'Sales Rep': 'Sales Reps', 'Technician': 'Technicians' })[f] || f;
+    const parts = [...full.map(g => g.roles.length > 1 ? 'All ' + plural(g.f) : g.f), ...rest.map(r => rl(r))];
+    if (parts.length <= 2) return parts.join(' + ');
+    const off = PERM_ROLES.filter(r => !on.includes(r));
+    const offFull = fams.filter(g => g.roles.every(r => off.includes(r)));
+    const offParts = [...offFull.map(g => g.roles.length > 1 ? plural(g.f) : g.f), ...off.filter(r => !offFull.some(g => g.roles.includes(r))).map(r => rl(r))];
+    return offParts.length <= 2 ? 'All except ' + offParts.join(' + ') : on.length + ' of ' + PERM_ROLES.length + ' user types';
+  };
+  const cb = (checked, onChange) => { const c = el('input', { type: 'checkbox', style: { accentColor: 'var(--accent)' }, onchange: (e) => onChange(e.target.checked) }); c.checked = checked; return c; };
+  const famHead = (label, control) => el('div', { class: 'flex items-center justify-between gap-2 px-2 pt-2 pb-1 text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label, control || null);
+
+  const permRow = (d) => {
+    const on = PERM_ROLES.filter(r => !!effOf(r)[d.id]);
+    const changed = PERM_ROLES.some(r => overrides[r] && overrides[r][d.id] !== undefined);
+    // Sensitive permissions (per Isaac, Sep 22): granting asks first.
+    const grant = (roles, val) => {
+      const adding = val ? roles.filter(r => !on.includes(r)) : [];
+      if (adding.length && d.sensitive && !confirm('Give ' + adding.map(rl).join(', ') + ' access to ' + d.sensitive + '?\n\nThis is sensitive information. Are you sure?')) return;
+      setPermMany(roles, d.id, val);
+    };
+    const body = () => el('div', {},
+      el('div', { class: 'flex items-center gap-1 px-1.5 pb-1.5 mb-1', style: { borderBottom: '1px solid var(--border)' } },
+        ...[['All', () => grant(PERM_ROLES, true)], ['None', () => grant(PERM_ROLES, false)]].map(([l, fn]) => el('button', { class: 'rounded-lg px-2 py-0.5 text-[10px] font-bold', style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: fn }, l)),
+        changed ? el('button', { class: 'ml-auto text-[10px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => { for (const r of PERM_ROLES) if (overrides[r]) delete overrides[r][d.id]; for (const r of Object.keys(overrides)) if (!Object.keys(overrides[r]).length) delete overrides[r]; saveIndicatorState(); mountApp(); } }, 'defaults') : null),
+      ...fams.flatMap(g => {
+        const allOn = g.roles.every(r => on.includes(r));
+        return [
+          famHead(g.f, g.roles.length > 1 ? el('label', { class: 'inline-flex items-center gap-1 normal-case tracking-normal cursor-pointer' }, cb(allOn, (v) => grant(g.roles, v)), 'all') : null),
+          ...g.roles.map(r => el('label', { class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer', style: { background: on.includes(r) ? 'var(--card-2)' : 'transparent', color: 'var(--text)' } },
+            cb(on.includes(r), (v) => grant([r], v)), el('span', { class: 'flex-1' }, g.roles.length > 1 ? shortOf(r) : rl(r)),
+            overrides[r] && overrides[r][d.id] !== undefined ? el('span', { class: 'text-[9px]', style: { color: 'var(--accent)' }, title: 'Changed from default' }, '●') : null)),
+        ];
+      }));
+    const label = d.sensitive
+      ? el('span', { class: 'inline-flex items-center gap-1.5 flex-wrap' }, d.label, el('span', { class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: 'rgba(220,38,38,.10)', color: '#B91C1C' }, title: 'Sensitive — ' + d.sensitive }, 'sensitive'))
+      : d.label;
+    return row(label, dropdown('p:' + d.id, summarize(on), changed, body));
+  };
+
+  const reachRow = (d) => {
+    const vals = PERM_ROLES.map(r => scopeOf(r, d.id));
+    const changed = PERM_ROLES.some(r => scopeOf(r, d.id) !== scopeDef(r, d.id));
+    const counts = {}; vals.forEach(v => { counts[v] = (counts[v] || 0) + 1; });
+    const summary = Object.keys(counts).length === 1 ? PERM_SCOPE_LABELS[vals[0]] + ' · everyone' : Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([v, n]) => PERM_SCOPE_LABELS[v] + ' ' + n).join(' · ');
+    const sel = (cur, onChange, hi) => el('select', { class: 'rounded-lg border px-1.5 py-0.5 text-[10px] font-semibold cursor-pointer', style: { borderColor: hi ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => onChange(e.target.value) },
+      ...(cur == null ? [el('option', { value: '', selected: true }, 'Mixed')] : []), ...PERM_SCOPES.map(sv => el('option', { value: sv, selected: sv === cur }, PERM_SCOPE_LABELS[sv])));
+    const body = () => el('div', {},
+      d.help ? el('div', { class: 'px-2 pb-1.5 mb-1 text-[10px]', style: { color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' } }, d.help) : null,
+      ...fams.flatMap(g => {
+        const gv = [...new Set(g.roles.map(r => scopeOf(r, d.id)))];
+        return [
+          famHead(g.f, g.roles.length > 1 ? sel(gv.length === 1 ? gv[0] : null, (v) => { if (!v) return; for (const r of g.roles) { const def = scopeDef(r, d.id); state._compExtras = state._compExtras || {}; const ps = state._compExtras.permScopes = state._compExtras.permScopes || {}; const o = ps[r] = ps[r] || {}; if (v === def) delete o[d.id]; else o[d.id] = v; if (!Object.keys(o).length) delete ps[r]; } saveIndicatorState(); logActivity('config_change', { detail: 'Permissions reach: all ' + g.f + ' · ' + d.id + ' → ' + v }); mountApp(); }) : null),
+          ...g.roles.map(r => el('div', { class: 'flex items-center justify-between gap-2 px-2.5 py-1 text-[11px] font-semibold' },
+            el('span', {}, g.roles.length > 1 ? shortOf(r) : rl(r)), sel(scopeOf(r, d.id), (v) => setScope(r, d.id, v), scopeOf(r, d.id) !== scopeDef(r, d.id)))),
+        ];
+      }));
+    return row(el('span', { title: d.help || '' }, d.label), dropdown('s:' + d.id, summary, changed, body));
+  };
+
+  const row = (label, control) => el('div', { class: 'flex items-center justify-between gap-x-3 gap-y-1 py-1.5 border-t flex-wrap', style: { borderColor: 'var(--border)' } },
+    el('div', { class: 'text-sm font-semibold min-w-0' }, label), control);
   const groupHead = (t) => el('div', { class: 'pt-3 pb-1 text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, t);
   const groups = [...new Set(PERM_DEFS.map(d => d.group))];
-  const picker = el('select', {
-    class: 'rounded-lg border px-2.5 py-1.5 text-sm font-semibold cursor-pointer',
-    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-    onchange: (e) => { state._permRole = e.target.value; mountApp(); },
-  }, ...PERM_ROLES.map(r => el('option', { value: r, selected: r === role }, ROLE_LABEL[r] || r)));
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'card p-4' },
       el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
-        el('div', { class: 'flex items-center gap-3 flex-wrap' },
-          el('h2', { class: 'text-lg font-bold' }, 'Permissions'), picker),
-        changed ? el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => {
-          if (overrides[role]) resetRole(role);
-          if (scopeOverrides[role]) { delete state._compExtras.permScopes[role]; saveIndicatorState(); mountApp(); }
-        } }, 'Reset to defaults') : el('span', { class: 'text-[11px] text-muted-' }, 'defaults')),
+        el('div', {},
+          el('h2', { class: 'text-lg font-bold' }, 'Permissions'),
+          el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Pick which user types get each one. Outlined = changed from the defaults. Admins always have everything.')),
+        anyChanged ? el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => {
+          if (!confirm('Reset every permission for every user type to the defaults?')) return;
+          state._compExtras.perms = {}; state._compExtras.permScopes = {};
+          saveIndicatorState(); logActivity('config_change', { detail: 'Permissions: all reset to defaults' }); mountApp();
+        } }, 'Reset all to defaults') : el('span', { class: 'text-[11px] text-muted-' }, 'defaults')),
       el('div', { class: 'mt-2' },
-        ...groups.flatMap(g => [
-          groupHead(g),
-          ...PERM_DEFS.filter(d => d.group === g).map(d => {
-            const on = !!eff[d.id];
-            const overridden = overrides[role] && overrides[role][d.id] !== undefined;
-            // Sensitive permissions (per Isaac, Sep 22): switching one ON asks
-            // "are you sure" and says what it exposes. Switching off never asks.
-            const toggle = () => {
-              if (!on && d.sensitive) {
-                const who = ROLE_LABEL[role] || role;
-                if (!confirm('Give every ' + who + ' access to ' + d.sensitive + '?\n\nThis is sensitive information. Are you sure?')) return;
-              }
-              setPerm(role, d.id, !on);
-            };
-            const label = d.sensitive
-              ? el('span', { class: 'inline-flex items-center gap-1.5' }, d.label, el('span', { class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: 'rgba(220,38,38,.10)', color: '#B91C1C' }, title: 'Sensitive \u2014 ' + d.sensitive }, 'sensitive'))
-              : d.label;
-            return row(label, sw(on, toggle, overridden));
-          }),
-        ]),
+        ...groups.flatMap(g => [groupHead(g), ...PERM_DEFS.filter(d => d.group === g).map(permRow)]),
         groupHead('Reach'),
-        ...PERM_SCOPE_DEFS.map(d => {
-          const def = (PERM_SCOPE_DEFAULTS[role] || {})[d.id] || 'self';
-          const cur = (scopeOverrides[role] && scopeOverrides[role][d.id]) || def;
-          const overridden = cur !== def;
-          return row(d.label, el('select', {
-            class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer',
-            style: { borderColor: overridden ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-            title: (d.help || '') + (overridden ? ' · changed from default (' + PERM_SCOPE_LABELS[def] + ')' : ''),
-            onchange: (e) => {
-              const v = e.target.value;
-              state._compExtras = state._compExtras || {};
-              const ps = state._compExtras.permScopes = state._compExtras.permScopes || {};
-              const r = ps[role] = ps[role] || {};
-              if (v === def) delete r[d.id]; else r[d.id] = v;
-              if (!Object.keys(r).length) delete ps[role];
-              saveIndicatorState();
-              logActivity('config_change', { detail: 'Permissions reach: ' + (ROLE_LABEL[role] || role) + ' · ' + d.id + ' → ' + v });
-              mountApp();
-            },
-          }, ...PERM_SCOPES.map(sv => el('option', { value: sv, selected: sv === cur }, PERM_SCOPE_LABELS[sv]))));
-        }))));
+        ...PERM_SCOPE_DEFS.map(reachRow))));
 }
 
 // ──────────────────────────────────────────────────────────────────────────
