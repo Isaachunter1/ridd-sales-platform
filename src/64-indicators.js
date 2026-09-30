@@ -4377,7 +4377,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       // Sized to comfortably show ~10 rows + the sticky header before
       // scrolling kicks in (each row averages ~44px once the Best
       // Day/Week/Month two-line cells render, plus the ~32px header).
-      el('div', { class: 'hidden sm:block scroll-x', style: { maxHeight: '520px', overflowY: 'auto' } },
+      el('div', { class: 'hidden sm:block scroll-x', style: { maxHeight: '680px', overflowY: 'auto' } },   // header + Total + top 10 before scrolling (per Isaac)
         _lbFreeze(el('table', { class: 'w-full text-[13px]' },   // larger now that columns can be trimmed (per Isaac, Sep 30)
           el('thead', {
             class: 'text-[10px] uppercase tracking-wider text-muted-',
@@ -4583,7 +4583,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   // Frozen under the sticky header + Total row (per Isaac): the
                   // rep scrolls the board and still sees themselves AND the
                   // company. `top` = the thead's live height, measured on mount.
-                  const _pinTr = myIdx >= 0 ? el('tr', {
+                  // Pinned own row retired (per Isaac, Sep 30): the player card at
+                  // the top already shows the rep — their name appears once, in rank.
+                  const _pinTr = false ? el('tr', {
                     class: 'border-t cursor-pointer transition hover:brightness-95',
                     style: { background: 'color-mix(in srgb, var(--accent) 10%, var(--card))', boxShadow: 'inset 3px 0 0 var(--accent), inset 0 -1px 0 var(--border-2)', position: 'sticky', top: '0px', zIndex: 2 },
                     title: 'You — your live spot on the board (rank #' + (myIdx + 1) + ')',
