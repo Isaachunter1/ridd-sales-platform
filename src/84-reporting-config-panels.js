@@ -1042,11 +1042,11 @@ function _mktgPnl() {
 // Buttons beside the Office dropdown on Metrics: open Lead providers / Lead
 // reconciliation; the active one (or ← CAC) returns to the CAC page.
 function _mktgMetricsButtons(inline) {
-  const v = ['perf', 'recon'].includes(state._mktProvView) ? state._mktProvView : 'cac';
+  const v = state._mktProvView === 'recon' ? 'recon' : 'cac';
   const b = (key, label) => el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold',
     style: v === key ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
     onclick: () => { state._mktProvView = v === key ? 'cac' : key; mountApp(); } }, label);
-  const btns = [v !== 'cac' ? b('cac', '\u2190 CAC') : null, b('perf', 'Lead providers'), b('recon', 'Lead reconciliation')];
+  const btns = [v !== 'cac' ? b('cac', '\u2190 Metrics') : null, b('recon', 'Lead reconciliation')];
   return inline ? el('div', { class: 'flex items-center gap-2', style: { marginLeft: '8px' } }, ...btns) : el('div', { class: 'flex items-center gap-2 flex-wrap' }, ...btns);
 }
 function _mktgCac() {
@@ -1432,9 +1432,10 @@ function reportingMarketingPnl() {
   const sub = ['pnl', 'providers', 'spend', 'projections'].includes(state._mktSub) ? state._mktSub : 'pnl';
   // Metrics (per Isaac, Sep 30): CAC on the page; Lead providers and Lead
   // reconciliation are buttons to the right of the Office dropdown.
-  const provView = ['perf', 'recon'].includes(state._mktProvView) ? state._mktProvView : 'cac';
+  // Lead providers now sits directly under the CAC table (per Isaac, Sep 30).
+  const provView = state._mktProvView === 'recon' ? 'recon' : 'cac';
   const body = sub === 'providers' ? (provView === 'recon' ? el('div', { class: 'flex flex-col gap-4' }, _mktgMetricsButtons(), mktgAttributionView())
-      : provView === 'perf' ? el('div', { class: 'flex flex-col gap-4' }, _mktgMetricsButtons(), _mktgProviders()) : _mktgCac())
+      : el('div', { class: 'flex flex-col gap-4' }, _mktgCac(), _mktgProviders()))
     : sub === 'spend' ? _mktgSpendEntry() : sub === 'projections' ? _mktgProjections() : _mktgPnl();
   // Needs attention (owner-only feed) lives on the Marketing tab (per Isaac, Sep 2026).
   return el('div', { class: 'flex flex-col gap-4' }, (typeof exceptionFeedCard === 'function') ? exceptionFeedCard() : null, _mktgYearBar(sub), body);
