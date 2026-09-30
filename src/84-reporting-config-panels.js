@@ -1107,7 +1107,11 @@ function _mktgProviders() {
   // anything provider-level = the Spend entry allocation (provider × office).
   const y = _mktgYearSel(), m = _mktgStore(), a = _mktgActuals(y), T = m.settings.targets, B = _mktgBranchList(y);
   const mode = state._mktMetricsBy === 'office' ? 'office' : 'provider';
-  const channels = [...new Set([...m.channels, ...a.sources.filter(s => reportingSourceClass(s) === 'new')])].sort();
+  // Facebook / Google Ads straight from the platforms (Windsor) — spend,
+  // clicks, impressions, platform leads by campaign → office.
+  if (typeof reportingLoadAdSpend === 'function') reportingLoadAdSpend(y);
+  const AP = (typeof adPlatformIndex === 'function') ? adPlatformIndex(y, B.all) : null;
+  const channels = [...new Set([...m.channels, ...a.sources.filter(s => reportingSourceClass(s) === 'new'), ...(AP ? [...AP.has] : [])])].sort();
   const scope = state._mktCacScope || MKTG_ALL;
   const scopeBranches = scope === MKTG_ALL ? null : (B.byEntity[scope] ? B.byEntity[scope] : [scope]);
   const provF = mode === 'office' && channels.includes(state._mktMetricsProv) ? state._mktMetricsProv : '';
@@ -1134,7 +1138,7 @@ function _mktgProviders() {
     const chs = chsOf(rk), bs = bsOf(rk), ym = _mktgYm(y, i);
     if (!chs) return bs.reduce((t, b) => t + qbo(b, i), 0);
     let t = 0;
-    for (const ch of chs) { if (!bs) { t += _mktgSpendChannelMonth(m, ym, ch); continue; } const C = (m.spend[ym] || {})[ch] || {}; for (const b of bs) t += Number(C[b]) || 0; }
+    for (const ch of chs) { if (AP && AP.has.has(ch)) { t += AP.cell([ch], bs, i, 'spend'); continue; } if (!bs) { t += _mktgSpendChannelMonth(m, ym, ch); continue; } const C = (m.spend[ym] || {})[ch] || {}; for (const b of bs) t += Number(C[b]) || 0; }
     return t;
   };
   const wg = (rk, i) => G.members(rk).reduce((t, b) => t + (Number((m.wages[_mktgYm(y, i)] || {})[b]) || 0), 0);
@@ -1150,7 +1154,10 @@ function _mktgProviders() {
   const opts = { groupRows: groups, firstCol: mode === 'provider' ? 'Provider' : 'Office',
     label: (rk) => groups.has(rk) ? _mktgGroupLabel(rk) : (mode === 'office' ? _mktgTC(rk) : rk) };
   const wt = (num) => ({ ...opts, groupRows: new Set(), total: (rk) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += num(rk, i); d += num(TOTAL, i); } return _mktgDiv(n, d); } });
-  const spNote = officeFull ? 'QuickBooks · Advertising & Marketing by branch' : 'Spend entry allocation (provider × office)';
+  const spNote = officeFull ? 'QuickBooks · Advertising & Marketing by branch' : (AP ? [...AP.has].join(' / ') + ' from the ad platforms (Windsor, campaign → office) · other providers from Spend entry' : 'Spend entry allocation (provider × office)');
+  const pf = (f) => (rk, i) => AP ? AP.cell(chsOf(rk), bsOf(rk), i, f) : 0;
+  const pSp = pf('spend'), pLd = pf('leads'), pCl = pf('clicks'), pIm = pf('impr');
+  const apNote = ' · Facebook + Google Ads as the platforms report them (Windsor)';
   const METRICS = [
     { key: 'rev',    group: 'Volume',     label: 'Revenue',        note: 'FieldRoutes · office staff · new + upsell · pending/serviced · by sold month', rows, cell: rev, fmt: _mktgUsd0, opts },
     { key: 'book',   group: 'Volume',     label: 'Jobs',           note: 'FieldRoutes · subscriptions sold (new + upsell · pending/serviced)', rows, cell: book, fmt: fmt.int, opts },
@@ -1165,6 +1172,12 @@ function _mktgProviders() {
     { key: 'spj',    group: 'Efficiency', label: 'Agency Spend / Job', note: 'ad spend ÷ jobs · goal under ' + fmt.usd0(T.spendPerJob), rows, cell: (rk, i) => _mktgDiv(sp(rk, i), book(rk, i)), fmt: _mktgUsd0, opts: { ...opts, total: ratioTotal(sp, book), cellStyle: gs(T.spendPerJob, (v, g) => v <= g) } },
     { key: 'adcac',  group: 'Efficiency', label: 'Agency CAC %',   note: 'ad spend ÷ revenue · goal ' + Math.round(T.adSpendCac * 100) + '%', rows, cell: (rk, i) => _mktgDiv(sp(rk, i), rev(rk, i)), fmt: _mktgPct, opts: { ...opts, total: ratioTotal(sp, rev), cellStyle: gs(T.adSpendCac, (v, g) => v <= g) } },
     officeFull ? { key: 'wgcac', group: 'Efficiency', label: 'Wages %', note: 'wages ÷ revenue · goal ' + Math.round(T.wagesCac * 100) + '%', rows, cell: (rk, i) => _mktgDiv(wg(rk, i), rev(rk, i)), fmt: _mktgPct, opts: { ...opts, total: ratioTotal(wg, rev), cellStyle: gs(T.wagesCac, (v, g) => v <= g) } } : null,
+    AP ? { key: 'pleads', group: 'Ad platforms', label: 'Platform leads', note: 'Meta leads + Google conversions' + apNote, rows, cell: pLd, fmt: fmt.int, opts } : null,
+    AP ? { key: 'pcpl', group: 'Ad platforms', label: 'Cost per platform lead', note: 'platform spend ÷ platform leads' + apNote, rows, cell: (rk, i) => _mktgDiv(pSp(rk, i), pLd(rk, i)), fmt: _mktgUsd0, opts: { ...opts, total: ratioTotal(pSp, pLd) } } : null,
+    AP ? { key: 'clicks', group: 'Ad platforms', label: 'Clicks', note: 'ad clicks' + apNote, rows, cell: pCl, fmt: fmt.int, opts } : null,
+    AP ? { key: 'cpc', group: 'Ad platforms', label: 'Cost per click', note: 'platform spend ÷ clicks' + apNote, rows, cell: (rk, i) => _mktgDiv(pSp(rk, i), pCl(rk, i)), fmt: (v) => '$' + (Math.round(v * 100) / 100).toFixed(2), opts: { ...opts, total: ratioTotal(pSp, pCl) } } : null,
+    AP ? { key: 'ctr', group: 'Ad platforms', label: 'CTR', note: 'clicks ÷ impressions' + apNote, rows, cell: (rk, i) => _mktgDiv(pCl(rk, i), pIm(rk, i)), fmt: (v) => v == null || !isFinite(v) ? '—' : (v * 100).toFixed(2) + '%', opts: { ...opts, total: ratioTotal(pCl, pIm) } } : null,
+    AP ? { key: 'plsale', group: 'Ad platforms', label: 'Platform lead → job %', note: 'FieldRoutes jobs ÷ platform leads' + apNote, rows, cell: (rk, i) => _mktgDiv(book(rk, i), pLd(rk, i)), fmt: _mktgPct, opts: { ...opts, total: ratioTotal(book, pLd) } } : null,
     leadsOk ? { key: 'cpl', group: 'Efficiency', label: 'Cost per lead', note: 'ad spend ÷ leads', rows, cell: (rk, i) => _mktgDiv(sp(rk, i), leads(rk, i)), fmt: _mktgUsd0, opts: { ...opts, total: ratioTotal(sp, leads) } } : null,
     { key: 'revW',   group: 'Mix',        label: 'Revenue weight', note: 'share of the month’s revenue', rows: leafRows, cell: (rk, i) => _mktgDiv(rev(rk, i), rev(TOTAL, i)), fmt: _mktgPct, opts: wt(rev) },
     { key: 'spendW', group: 'Mix',        label: 'Spend weight',   note: 'share of the month’s ad spend', rows: leafRows, cell: (rk, i) => _mktgDiv(sp(rk, i), sp(TOTAL, i)), fmt: _mktgPct, opts: wt(sp) },
@@ -1188,11 +1201,12 @@ function _mktgProviders() {
     el('span', { class: 'text-[10px] text-muted-' }, mode === 'provider' ? 'Market' : 'Provider'), filter,
     el('span', { class: 'text-[10px] text-muted-' }, 'Metric'), picker);
   const GOAL = { spj: { v: T.spendPerJob, better: 'low' }, roas: { v: T.roas, better: 'high' }, adcac: { v: T.adSpendCac, better: 'low' }, wgcac: { v: T.wagesCac, better: 'low' } };
-  const lowerIsBetter = ['cpl', 'spj', 'adcac', 'cac', 'cpj', 'wgcac'].includes(cur.key);
-  const rankBy = { rev, book, spend: sp, wages: wg, inc, tot, leads, cpl: sp, spj: sp, roas: sp, adcac: sp, cac: tot, cpj: tot, wgcac: wg, revW: rev, spendW: sp }[cur.key] || rev;
+  const lowerIsBetter = ['cpl', 'spj', 'adcac', 'cac', 'cpj', 'wgcac', 'pcpl', 'cpc'].includes(cur.key);
+  const rankBy = { rev, book, spend: sp, wages: wg, inc, tot, leads, cpl: sp, spj: sp, roas: sp, adcac: sp, cac: tot, cpj: tot, wgcac: wg, revW: rev, spendW: sp, pleads: pLd, pcpl: pSp, clicks: pCl, cpc: pSp, ctr: pIm, plsale: pLd }[cur.key] || rev;
   return el('div', { class: 'flex flex-col gap-4' },
     _mktgMatrixCard(cur.label + ' · by ' + mode + ' · ' + scopeLbl, cur.note, cur.rows, cur.cell, cur.fmt, { ...cur.opts, headerExtra: header }),
-    _mktgProvidersViz(cur, { y, channels: leafRows, rankBy, goal: GOAL[cur.key] || null, lowerIsBetter, noun: mode === 'provider' ? 'provider' : 'office', label: opts.label }));
+    _mktgProvidersViz(cur, { y, channels: leafRows, rankBy, goal: GOAL[cur.key] || null, lowerIsBetter, noun: mode === 'provider' ? 'provider' : 'office', label: opts.label }),
+    (typeof adCampaignsCard === 'function') ? adCampaignsCard(y, B.all) : null);
 }
 
 // ── Providers visuals (per Isaac, Sep 2026): two charts under the matrix,
@@ -1207,7 +1221,7 @@ function _mktgProvidersViz(cur, o) {
   const lastMonth = (y === now.getFullYear()) ? now.getMonth() : (y < now.getFullYear() ? 11 : -1);
   const total = (ch) => { if (cur.opts && cur.opts.total) return cur.opts.total(ch); let t = 0, any = false; for (let i = 0; i < 12; i++) { const v = cur.cell(ch, i); if (v != null && isFinite(v)) { t += v; any = true; } } return any ? t : null; };
   const rankVal = (ch) => { let t = 0; for (let i = 0; i < 12; i++) t += rankBy(ch, i) || 0; return t; };
-  const isRatio = !['rev', 'spend', 'leads', 'book', 'wages', 'inc', 'tot'].includes(cur.key);
+  const isRatio = !['rev', 'spend', 'leads', 'book', 'wages', 'inc', 'tot', 'pleads', 'clicks'].includes(cur.key);
   const isMix = cur.key === 'revW' || cur.key === 'spendW';
   const ytd = channels.map(ch => ({ ch, v: total(ch), rank: rankVal(ch) })).filter(x => x.v != null && isFinite(x.v) && (isRatio ? x.v > 0 || x.rank > 0 : x.v > 0));
   ytd.sort((a, b) => lowerIsBetter ? a.v - b.v : b.v - a.v);

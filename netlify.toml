@@ -146,6 +146,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/ad-spend"
+  to   = "/.netlify/functions/ad-spend"
+  status = 200
+
+[[redirects]]
   from = "/api/ghl-leads"
   to   = "/.netlify/functions/ghl-leads"
   status = 200
