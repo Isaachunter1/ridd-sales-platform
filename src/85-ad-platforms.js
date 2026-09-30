@@ -41,72 +41,117 @@ function adAutoOffices(r, branches) {
   for (const [ab, full] of Object.entries(AD_OFFICE_ALIASES)) if (text.includes(' ' + ab + ' ') || text.includes(norm(full))) { const b = find(full); if (b) hit.add(b); }
   return [...hit].sort();
 }
-// Account → office (Settings → Configurations → Ad accounts, per Isaac):
-// every campaign in the account goes to that office — the Google LSA
-// accounts are one office each. Key = platform|account id.
+// Account → branch (Settings → Connections → Ad accounts, per Isaac).
+// Assigned per ACCOUNT × PROVIDER (per Isaac, Sep 30): an account running
+// both Google PPC (Search) and LSA campaigns gets a line for each. Targets
+// are a multi-select — any offices (spend splits evenly between them) and/or
+// a whole company ("ENT:RPC" / "ENT:RPS") for accounts that can't be pinned
+// to an office (the Facebook brand accounts, the main Google Ads account).
+// A company target counts in that company's totals (and RIDD's), never in a
+// single office. Stored value: array of targets; [] = company-wide; absent
+// = auto (office named in each campaign). Legacy string values still read.
 function adAccountKey(r) { return r.platform + '|' + r.acct; }
+function adAcctProvKey(r) { return adAccountKey(r) + '|' + adProviderOf(r); }
 function adAccountOfficeMap() { const R = (typeof _adminRules === 'function') ? _adminRules() : null; return (R && R.adAccountOffice) || {}; }
 function setAdAccountOffice(key, val) {
   const m = Object.assign({}, adAccountOfficeMap());
   if (val == null) delete m[key]; else m[key] = val;
   _setAdminRule('adAccountOffice', m);
 }
-// Order: campaign override → account's office → office named in the
-// campaign. '' = company-wide, 'OFFICE' = that office, absent = next rule.
+function _adTargets(v) { if (v == null) return null; if (Array.isArray(v)) return v.slice(); return v === '' ? [] : [v]; }
+function adAccountTargets(r) {
+  const m = adAccountOfficeMap();
+  const v = m[adAcctProvKey(r)];
+  return v !== undefined ? _adTargets(v) : _adTargets(m[adAccountKey(r)]);
+}
+const AD_ENT = 'ENT:';
+function adEntityLabel(t) { const k = String(t).slice(AD_ENT.length); return 'All ' + ((typeof COMPANY_NAMES !== 'undefined' && COMPANY_NAMES[k]) || k); }
+function adTargetLabel(t) { return String(t).startsWith(AD_ENT) ? adEntityLabel(t) : (typeof _mktgTC === 'function' ? _mktgTC(t) : t); }
+// Order: campaign override → account × provider targets → office named in
+// the campaign. Returns targets (offices and/or ENT:<company>); [] = company-wide.
 function adOfficesOf(r, branches) {
   const o = adCampaignOfficeMap()[adCampaignKey(r)];
   if (o === '') return [];
   if (o) return [o];
-  const a = adAccountOfficeMap()[adAccountKey(r)];
-  if (a === '') return [];
-  if (a) return [a];
+  const a = adAccountTargets(r);
+  if (a) return a;
   return adAutoOffices(r, branches);
 }
 
-// Settings → Configurations: map each ad account ID to a branch.
+// Settings → Connections: map each ad account (× PPC / LSA) to branches.
 function reportingAdAccountsPanel() {
   const y = new Date().getFullYear();
   if (typeof reportingLoadAdSpend === 'function') reportingLoadAdSpend(y);
   const S = (state._adSpend || {})[y] || {};
-  const branches = (typeof _mktgBranchList === 'function') ? _mktgBranchList(y).all : [];
+  const BL = (typeof _mktgBranchList === 'function') ? _mktgBranchList(y) : { all: [], byEntity: {} };
+  const branches = BL.all;
+  const ents = Object.keys(BL.byEntity || {}).filter(k => (BL.byEntity[k] || []).length);
   const muted = { color: 'var(--text-muted)' };
   const admin = isAdminRole(state.profile?.role);
   const wrap = (body) => el('div', { class: 'card p-3', id: 'cfg-ad-accounts' },
     el('div', { class: 'flex items-center gap-3 flex-wrap mb-2' },
       el('div', { class: 'text-sm font-bold' }, 'Ad accounts → branch'),
-      el('div', { class: 'text-[11px]', style: muted }, 'Facebook + Google Ads accounts from Windsor. Pick a branch and every campaign in that account counts toward it on Marketing → Metrics. Auto = the branch named in each campaign (e.g. “RIDD Atlanta – General Search”); Company-wide = counted in company totals only. A single campaign can still be overridden on the Metrics campaigns card.')),
+      el('div', { class: 'text-[11px]', style: muted }, 'Facebook + Google Ads accounts from Windsor, one line per account and type (PPC / LSA). Pick one or more offices (spend splits evenly), or a whole company for accounts that can’t be pinned to an office — company spend counts in that company’s totals, not in any single office. Auto = the office named in each campaign. A single campaign can still be overridden on the Metrics campaigns card.')),
     body);
   if (!S.rows) return wrap(el('div', { class: 'text-[11px] py-3', style: S.error ? { color: '#DC2626' } : muted }, S.error ? 'Couldn’t pull the ad accounts: ' + S.error : 'Pulling ad accounts from Windsor…'));
   const by = new Map();
   for (const r of S.rows) {
-    const k = adAccountKey(r);
-    const x = by.get(k) || { k, r, platform: r.platform, acct: r.acct, name: r.acctName, spend: 0, camps: new Set(), provs: new Set(), auto: new Set() };
-    x.spend += r.spend || 0; x.camps.add(r.campaign); x.provs.add(adProviderOf(r));
+    const k = adAcctProvKey(r);
+    const x = by.get(k) || { k, ak: adAccountKey(r), r, platform: r.platform, acct: r.acct, name: r.acctName, prov: adProviderOf(r), spend: 0, camps: new Set(), auto: new Set() };
+    x.spend += r.spend || 0; x.camps.add(r.campaign);
     for (const o of adAutoOffices(r, branches)) x.auto.add(o);
     by.set(k, x);
   }
   const list = [...by.values()].sort((a, b) => a.platform.localeCompare(b.platform) || b.spend - a.spend);
-  const map = adAccountOfficeMap();
-  const unassigned = list.filter(x => map[x.k] == null && !x.auto.size);
+  const typeOf = (x) => x.platform === 'facebook' ? 'Facebook' : x.prov === 'Google Local Services' ? 'LSA' : 'PPC';
+  const unassigned = list.filter(x => adAccountTargets(x.r) == null && !x.auto.size);
   const th = (t) => el('th', { class: 'px-2 py-1.5 text-left text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap', style: muted }, t);
   const td = (v, st) => el('td', { class: 'px-2 py-1.5 whitespace-nowrap', style: st || {} }, v == null || v === '' ? '—' : v);
-  const sel = (x) => {
-    const o = map[x.k];
-    const autoLbl = 'Auto · ' + (x.auto.size ? [...x.auto].map(_mktgTC).join(' + ') : 'none found → company-wide');
-    if (!admin) return o === '' ? 'Company-wide' : o ? _mktgTC(o) : autoLbl;
-    return el('select', { class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: Object.assign({ borderColor: 'var(--border-2)', background: 'var(--card)', maxWidth: '260px' }, o == null && !x.auto.size ? { borderColor: '#DC2626' } : {}),
-      onchange: (e) => { const v = e.target.value; setAdAccountOffice(x.k, v === '__auto' ? null : v === '__cw' ? '' : v); mountApp(); } },
-      el('option', { value: '__auto', selected: o == null }, autoLbl),
-      el('option', { value: '__cw', selected: o === '' }, 'Company-wide (no branch)'),
-      ...branches.map(b => el('option', { value: b, selected: o === b }, _mktgTC(b))));
+  const summary = (x, t) => {
+    if (t == null) return 'Auto · ' + (x.auto.size ? [...x.auto].map(_mktgTC).join(' + ') : 'none found → company-wide');
+    if (!t.length) return 'Company-wide';
+    const e = t.filter(v => String(v).startsWith(AD_ENT)).map(adEntityLabel), o = t.filter(v => !String(v).startsWith(AD_ENT));
+    const parts = [...e, ...(o.length <= 2 ? o.map(_mktgTC) : [o.length + ' offices'])];
+    return parts.join(' + ');
+  };
+  const cbx = (checked, onChange) => { const c = el('input', { type: 'checkbox', style: { accentColor: 'var(--accent)' }, onchange: (ev) => onChange(ev.target.checked) }); c.checked = checked; return c; };
+  const picker = (x) => {
+    const t = adAccountTargets(x.r);
+    const label = summary(x, t);
+    if (!admin) return label;
+    const save = (v) => { setAdAccountOffice(x.k, v); if (x.k !== x.ak && adAccountOfficeMap()[x.ak] !== undefined) setAdAccountOffice(x.ak, null); mountApp(); };
+    const cur = t || [];
+    const toggle = (v, on) => { const n = new Set(cur); if (on) n.add(v); else n.delete(v); save([...n]); };
+    const key = 'ad:' + x.k, open = state._adAcctOpen === key;
+    const opt = (lbl, on, fn) => el('label', { class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer', style: { background: on ? 'var(--card-2)' : 'transparent', color: 'var(--text)' } }, cbx(on, fn), el('span', { class: 'flex-1' }, lbl));
+    const head = (t2) => el('div', { class: 'px-2 pt-2 pb-1 text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, t2);
+    const wrapEl = el('div', { class: 'relative' });
+    const panel = el('div', { class: 'card absolute p-1.5', style: { top: 'calc(100% + 6px)', right: '0', width: '260px', maxWidth: 'calc(100vw - 32px)', maxHeight: '360px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: open ? 'block' : 'none' }, onclick: (e) => e.stopPropagation() },
+      open ? el('div', {},
+        el('div', { class: 'flex items-center gap-1 px-1.5 pb-1.5 mb-1', style: { borderBottom: '1px solid var(--border)' } },
+          ...[['Auto', () => save(null), t == null], ['Company-wide', () => save([]), !!t && !t.length]].map(([l, fn, on]) => el('button', { class: 'rounded-lg px-2 py-0.5 text-[10px] font-bold', style: { background: on ? 'rgba(223,100,58,.12)' : 'var(--card-2)', color: on ? 'var(--accent)' : 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: fn }, l))),
+        ents.length > 1 ? head('Whole company') : null,
+        ...(ents.length > 1 ? ents.map(k => opt(adEntityLabel(AD_ENT + k), cur.includes(AD_ENT + k), (on) => toggle(AD_ENT + k, on))) : []),
+        ...ents.flatMap(k => [head(ents.length > 1 ? ((typeof COMPANY_NAMES !== 'undefined' && COMPANY_NAMES[k]) || k) + ' offices' : 'Offices'),
+          ...(BL.byEntity[k] || []).map(b => opt(_mktgTC(b), cur.includes(b), (on) => toggle(b, on)))])) : null);
+    const btn = el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer flex items-center justify-between gap-2',
+      style: { borderColor: t == null && !x.auto.size ? '#DC2626' : t != null ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '240px', minWidth: '240px', maxWidth: '240px', justifyContent: 'space-between', textAlign: 'left' }, title: label,
+      onclick: (e) => { e.stopPropagation(); state._adAcctOpen = open ? null : key; mountApp(); } },
+      el('span', { class: 'truncate' }, label), el('span', { style: { fontSize: '9px', opacity: .7 } }, '▾'));
+    wrapEl.append(btn, panel);
+    if (open) {
+      try { clampDropdownPanel(panel); } catch (err) { /* optional helper */ }
+      setTimeout(() => document.addEventListener('mousedown', function closer(ev) { if (!wrapEl.contains(ev.target)) { document.removeEventListener('mousedown', closer); if (state._adAcctOpen === key) { state._adAcctOpen = null; mountApp(); } } }), 0);
+    }
+    return wrapEl;
   };
   return wrap(el('div', {},
-    unassigned.length ? el('div', { class: 'text-[11px] mb-2', style: { color: '#DC2626' } }, unassigned.length + ' account' + (unassigned.length === 1 ? '' : 's') + ' (' + fmt.usd0(unassigned.reduce((t, x) => t + x.spend, 0)) + ' this year) have no branch yet — outlined in red.') : null,
-    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]' },
-      el('thead', {}, el('tr', {}, th('Platform'), th('Account ID'), th('Account name'), th('Provider'), th('Campaigns'), th(y + ' spend'), th('Branch'))),
+    unassigned.length ? el('div', { class: 'text-[11px] mb-2', style: { color: '#DC2626' } }, unassigned.length + ' account line' + (unassigned.length === 1 ? '' : 's') + ' (' + fmt.usd0(unassigned.reduce((t, x) => t + x.spend, 0)) + ' this year) have no branch yet — outlined in red.') : null,
+    el('div', { class: 'scroll-x', style: { paddingBottom: state._adAcctOpen ? '300px' : '0' } }, el('table', { class: 'w-full text-[11px]' },
+      el('thead', {}, el('tr', {}, th('Platform'), th('Type'), th('Account ID'), th('Account name'), th('Campaigns'), th(y + ' spend'), th('Branch'))),
       el('tbody', {}, ...list.map(x => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-        td(x.platform === 'facebook' ? 'Facebook' : 'Google Ads'), td(x.acct, { fontFamily: 'var(--font-mono, ui-monospace, monospace)' }), td(x.name),
-        td([...x.provs].join(', ')), td(x.camps.size), td(fmt.usd0(x.spend)), td(sel(x)))))))));
+        td(x.platform === 'facebook' ? 'Facebook' : 'Google Ads'), td(typeOf(x)), td(x.acct, { fontFamily: 'var(--font-mono, ui-monospace, monospace)' }), td(x.name),
+        td(x.camps.size), td(fmt.usd0(x.spend)), td(picker(x)))))))));
 }
 // Month × provider × office index for one year. A campaign on several
 // offices ("Myrtle Beach + Wilmington") splits evenly between them.
@@ -119,20 +164,27 @@ function adPlatformIndex(year, branches) {
   if (memo && memo.rows === rows && memo.mapSig === mapSig && memo.bs === branches.join(',')) return memo.idx;
   const ents = [];
   const has = new Set();
+  // A company target ("ENT:RPS") = that company's offices, counted whole
+  // only when the scope covers all of them (the company / RIDD rows).
+  const entBranches = (k) => branches.filter(b => typeof _mktgEntityOf === 'function' && _mktgEntityOf(b) === k);
   for (const r of rows) {
     if (String(r.ym).slice(0, 4) !== String(year)) continue;
     const mi = Number(String(r.ym).slice(5, 7)) - 1; if (!(mi >= 0 && mi < 12)) continue;
     const prov = adProviderOf(r); has.add(prov);
-    ents.push({ prov, mi, offices: adOfficesOf(r, branches), spend: r.spend || 0, clicks: r.clicks || 0, impr: r.impr || 0, leads: r.leads || 0 });
+    const tg = adOfficesOf(r, branches);
+    const pools = tg.filter(t => String(t).startsWith(AD_ENT)).map(t => entBranches(String(t).slice(AD_ENT.length))).filter(l => l.length);
+    ents.push({ prov, mi, offices: tg.filter(t => !String(t).startsWith(AD_ENT)), pools, spend: r.spend || 0, clicks: r.clicks || 0, impr: r.impr || 0, leads: r.leads || 0 });
   }
   const cell = (chs, bs, i, f) => {
     let t = 0;
     for (const e of ents) {
       if (e.mi !== i || (chs && !chs.includes(e.prov))) continue;
       if (!bs) { t += e[f]; continue; }
-      if (!e.offices.length) continue;
-      const n = e.offices.filter(o => bs.includes(o)).length;
-      if (n) t += e[f] * n / e.offices.length;
+      const parts = e.offices.length + e.pools.length;
+      if (!parts) continue;
+      let n = e.offices.filter(o => bs.includes(o)).length;
+      for (const pl of e.pools) if (pl.every(o => bs.includes(o))) n++;
+      if (n) t += e[f] * n / parts;
     }
     return t;
   };
@@ -166,8 +218,9 @@ function adCampaignsCard(year, branches) {
   const td = (v, st) => el('td', { class: 'px-2 py-1.5 whitespace-nowrap', style: st || {} }, v == null || v === '' ? '—' : v);
   const offSel = (x) => {
     const o = map[x.k];
-    const auto = adAutoOffices(x.r, branches);
-    const autoLbl = 'Auto · ' + (auto.length ? auto.map(_mktgTC).join(' + ') : 'company-wide');
+    const inh = adAccountTargets(x.r);   // the account line's branches, when set
+    const auto = inh != null ? inh : adAutoOffices(x.r, branches);
+    const autoLbl = (inh != null ? 'Account · ' : 'Auto · ') + (auto.length ? auto.map(adTargetLabel).join(' + ') : 'company-wide');
     if (!admin) return (o === '' ? 'Company-wide' : o ? _mktgTC(o) : autoLbl);
     return el('select', { class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', maxWidth: '240px' },
       onchange: (e) => { const v = e.target.value; setAdCampaignOffice(x.k, v === '__auto' ? null : v === '__cw' ? '' : v); mountApp(); } },
