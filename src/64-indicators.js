@@ -4039,11 +4039,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   const _lbOff = new Set([...state._indLbColsOff, ..._lbPickable.filter(c => c.defaultHidden && !_lbOnSet.has(_lbColKey(c))).map(_lbColKey)]);
   repCols = repCols.filter(c => c.key === 'name' || !_lbOff.has(_lbColKey(c)));
   const _lbStore = (k, arr) => { try { localStorage.setItem(k + '::' + ((state.profile && state.profile.id) || 'anon'), JSON.stringify(arr)); } catch (e) { /* storage blocked */ } };
-  const _lbSetShown = (key, show) => {
+  const _lbSetShown = (key, show, render = true) => {
     const def = _lbPickable.find(c => _lbColKey(c) === key);
     if (def && def.defaultHidden) { const n = new Set(state._indLbColsOn); if (show) n.add(key); else n.delete(key); state._indLbColsOn = [...n]; _lbStore('ridd_lb_cols_on', state._indLbColsOn); }
     else { const n = new Set(state._indLbColsOff); if (show) n.delete(key); else n.add(key); state._indLbColsOff = [...n]; _lbStore('ridd_lb_cols_off', state._indLbColsOff); }
-    mountApp();
+    if (render) mountApp();
   };
   const _lbSetOff = (arr) => { state._indLbColsOff = arr; _lbStore('ridd_lb_cols_off', arr); mountApp(); };
   // Frozen columns (per Isaac, Sep 30): # + Rep stick to the left and the
@@ -4062,13 +4062,16 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       const offs = []; let acc = 0;
       for (const i of left) { offs.push(acc); acc += rows[0].cells[i].getBoundingClientRect().width; }
       const cardBg = getComputedStyle(t.closest('.card') || document.body).backgroundColor;
+      // The sticky header (column names + Total row) must sit ABOVE the frozen
+      // body cells, or scrolling slides # / Rep / Best Day over it (per Isaac).
+      const th0 = t.tHead; if (th0) th0.style.zIndex = '5';
       for (const tr of rows) {
         const head = tr.parentElement && tr.parentElement.tagName === 'THEAD';
         let bg = getComputedStyle(tr).backgroundColor;
         if (clear(bg)) bg = head ? getComputedStyle(tr.parentElement).backgroundColor : cardBg;
         if (clear(bg)) bg = cardBg;
-        left.forEach((i, k) => { const c = tr.cells[i]; if (!c) return; const own = c.style.background || c.style.backgroundColor; Object.assign(c.style, { position: 'sticky', left: offs[k] + 'px', zIndex: head ? '4' : '2', background: own || bg }); if (k === left.length - 1) c.style.boxShadow = '1px 0 0 var(--border)'; });
-        if (recAt > 0 && recAt !== nameAt) { const c = tr.cells[recAt]; if (c) { const own = c.style.background || c.style.backgroundColor; Object.assign(c.style, { position: 'sticky', right: '0', zIndex: head ? '4' : '2', background: own || bg, boxShadow: '-1px 0 0 var(--border)' }); } }
+        left.forEach((i, k) => { const c = tr.cells[i]; if (!c) return; const own = c.style.background || c.style.backgroundColor; Object.assign(c.style, { position: 'sticky', left: offs[k] + 'px', zIndex: head ? '6' : '2', background: own || bg }); if (k === left.length - 1) c.style.boxShadow = '1px 0 0 var(--border)'; });
+        if (recAt > 0 && recAt !== nameAt) { const c = tr.cells[recAt]; if (c) { const own = c.style.background || c.style.backgroundColor; Object.assign(c.style, { position: 'sticky', right: '0', zIndex: head ? '6' : '2', background: own || bg, boxShadow: '-1px 0 0 var(--border)' }); } }
       }
     });
     return t;
@@ -4315,18 +4318,31 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             const items = _lbPickable.filter(c => { const k = _lbColKey(c); if (seen.has(k)) return false; seen.add(k); return true; });
             const cb = (on, fn) => { const c = el('input', { type: 'checkbox', style: { accentColor: 'var(--accent)' }, onchange: (e) => fn(e.target.checked) }); c.checked = on; return c; };
             const panel = el('div', { class: 'card absolute p-1.5', style: { top: 'calc(100% + 6px)', right: '0', width: '280px', maxWidth: 'calc(100vw - 32px)', maxHeight: '420px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)' }, onclick: (e) => e.stopPropagation() },
+              // Ticks are STAGED (per Isaac, Sep 30): the list doesn't redraw on
+              // every click (that jumped the page and the list's scroll); the
+              // board updates once, on Done or when you click away.
               el('div', { class: 'flex items-center gap-1 px-1.5 pb-1.5 mb-1', style: { borderBottom: '1px solid var(--border)' } },
-                el('button', { class: 'rounded-lg px-2 py-0.5 text-[10px] font-bold', style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: () => _lbSetOff([]) }, 'Reset')),
-              ...items.map(c => { const k = _lbColKey(c), on = !_lbOff.has(k), desc = _lbColDesc(k), infoOpen = state._lbColInfo === k;
+                el('button', { class: 'rounded-lg px-2 py-0.5 text-[10px] font-bold', style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: () => _lbSetOff([]) }, 'Reset'),
+                el('span', { class: 'flex-1' }),
+                el('button', { class: 'rounded-lg px-2.5 py-0.5 text-[10px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => { state._indLbColsOpen = false; mountApp(); } }, 'Done')),
+              ...items.map(c => { const k = _lbColKey(c), on = !_lbOff.has(k), desc = _lbColDesc(k);
                 // Desktop: hover the row for the tooltip. Phone (no hover): tap ⓘ
                 // to open the explanation right under the row; tap again to close.
-                return el('div', { class: 'rounded-lg', style: { background: on ? 'var(--card-2)' : 'transparent' }, title: desc },
+                // Both update in place — no page redraw.
+                const info = desc ? el('div', { class: 'px-3 pb-2 text-[11px]', style: { color: 'var(--text-muted)', lineHeight: '1.35', display: 'none' } }, desc) : null;
+                const row = el('div', { class: 'rounded-lg', style: { background: on ? 'var(--card-2)' : 'transparent' }, title: desc });
+                const infoBtn = desc ? el('button', { type: 'button', 'aria-label': 'What is ' + _lbColLabel(c) + '?', class: 'shrink-0 inline-flex items-center justify-center rounded-full text-[10px] font-bold', style: { width: '28px', height: '28px', color: 'var(--text-subtle)' },
+                  onclick: (e) => { e.preventDefault(); e.stopPropagation(); const show = info.style.display === 'none';
+                    panel.querySelectorAll('[data-lbinfo]').forEach(x => { x.style.display = 'none'; }); panel.querySelectorAll('[data-lbinfobtn]').forEach(x => { x.style.color = 'var(--text-subtle)'; });
+                    if (show) { info.style.display = 'block'; e.currentTarget.style.color = 'var(--accent)'; } } }, 'ⓘ') : null;
+                if (info) info.setAttribute('data-lbinfo', ''); if (infoBtn) infoBtn.setAttribute('data-lbinfobtn', '');
+                row.append(
                   el('div', { class: 'flex items-center gap-1' },
                     el('label', { class: 'flex-1 flex items-center gap-2 px-2.5 py-1 text-[11px] font-semibold cursor-pointer min-w-0', style: { color: 'var(--text)' } },
-                      cb(on, (v) => _lbSetShown(k, v)), el('span', { class: 'flex-1' }, _lbColLabel(c)), c.defaultHidden ? el('span', { class: 'text-[9px] whitespace-nowrap', style: { color: 'var(--text-subtle)' } }, 'off by default') : null),
-                    desc ? el('button', { type: 'button', 'aria-label': 'What is ' + _lbColLabel(c) + '?', class: 'shrink-0 inline-flex items-center justify-center rounded-full text-[10px] font-bold', style: { width: '28px', height: '28px', color: infoOpen ? 'var(--accent)' : 'var(--text-subtle)' },
-                      onclick: (e) => { e.preventDefault(); e.stopPropagation(); state._lbColInfo = infoOpen ? null : k; mountApp(); } }, 'ⓘ') : null),
-                  infoOpen ? el('div', { class: 'px-3 pb-2 text-[11px]', style: { color: 'var(--text-muted)', lineHeight: '1.35' } }, desc) : null); }));
+                      cb(on, (v) => { _lbSetShown(k, v, false); row.style.background = v ? 'var(--card-2)' : 'transparent'; }), el('span', { class: 'flex-1' }, _lbColLabel(c)), c.defaultHidden ? el('span', { class: 'text-[9px] whitespace-nowrap', style: { color: 'var(--text-subtle)' } }, 'off by default') : null),
+                    infoBtn));
+                if (info) row.append(info);
+                return row; }));
             const wrap = el('span', { style: { position: 'relative' }, 'data-dd': 'lbcols' }, btn, panel);
             try { clampDropdownPanel(panel); } catch (err) { /* optional helper */ }
             setTimeout(() => document.addEventListener('mousedown', function closer(ev) { if (!(ev.target.closest && ev.target.closest('[data-dd="lbcols"]'))) { document.removeEventListener('mousedown', closer); if (state._indLbColsOpen) { state._indLbColsOpen = false; mountApp(); } } }), 0);
