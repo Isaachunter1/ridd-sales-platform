@@ -640,6 +640,12 @@ function reportingOverview() {
     const _isRen = (r) => typeof reportingSourceClass === 'function' && reportingSourceClass(reportingSourceOf(r)) === 'renewal';
     const _pendSvc = (r) => { const ist = String(r.initial_status || '').toLowerCase(); return !ist || ist === 'pending' || ist === 'completed'; };
     for (const r of rows) {
+      // Churn is the BOOK (per Isaac): every real recurring cancel counts —
+      // renewals included — whatever the production toggles say.
+      const cd = keyOf(String(r.subscription_date_canceled || '').slice(0, 10));
+      if (cd && idx.has(cd) && isRealCancel(r)) { const i = idx.get(cd); churned[i] += unitSubs ? 1 : (Number(r.annual_recurring_value) || 0); cxlRows[i].push(r); }
+      // Sold / Serviced = new production: renewals (revenue we already had,
+      // re-contracted) and one-time services only when toggled on.
       if (!inclRen && _isRen(r)) continue;
       if (!inclOne && !_isRec(r)) continue;
       const sd = _pendSvc(r) ? keyOf(String(r.sold_date || '').slice(0, 10)) : null;
@@ -647,8 +653,6 @@ function reportingOverview() {
       const initDone = String(r.initial_status || '').toLowerCase() === 'completed' || !!r.initial_serviced_date;
       const svd = initDone ? keyOf(String(r.initial_serviced_date || r.initial_service || '').slice(0, 10)) : '';
       if (svd && idx.has(svd)) { const i = idx.get(svd); serviced[i] += unitSubs ? 1 : (Number(r.annual_recurring_value) || 0); svcRows[i].push(r); }
-      const cd = keyOf(String(r.subscription_date_canceled || '').slice(0, 10));
-      if (cd && idx.has(cd) && isRealCancel(r)) { const i = idx.get(cd); churned[i] += unitSubs ? 1 : (Number(r.annual_recurring_value) || 0); cxlRows[i].push(r); }
     }
     const sum = (a) => a.reduce((x, y) => x + y, 0);
     const id = 'rptPulse' + (office !== 'all' ? '_' + String(office).replace(/\W/g, '') : '');
@@ -724,8 +728,8 @@ function reportingOverview() {
       style: state[k] ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)', color: 'var(--text-muted)', background: 'var(--card)' },
       onclick: () => { state[k] = !state[k]; mountApp(); } }, (state[k] ? '✓ ' : '+ ') + l);
     const addToggles = el('div', { class: 'flex items-center gap-1.5' },
-      addBtn('_pulseInclOneTime', 'One-time', 'Add one-time services on top of recurring production'),
-      addBtn('_pulseInclRenewal', 'Renewals', 'Add renewal-source subscriptions on top of new production'));
+      addBtn('_pulseInclOneTime', 'One-time', 'Add one-time services to Sold / Serviced (never churn)'),
+      addBtn('_pulseInclRenewal', 'Renewals', 'Add renewal-source subscriptions to Sold / Serviced — revenue we already had, re-contracted. Renewals that cancel ALWAYS count in Churned.'));
     const stat = (label, v, color, kind) => el('button', { class: 'text-left cursor-pointer transition hover:brightness-95', title: 'See the ' + label.toLowerCase() + ' accounts, by office \u2014 and where churn came from', onclick: () => openWindow(kind) },
       el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
       el('div', { class: 'text-base font-black tabular-nums', style: { color } }, unitSubs ? fmt.int(v) : fmt.usd0(v)));
