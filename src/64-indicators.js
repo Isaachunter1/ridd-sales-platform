@@ -3966,6 +3966,29 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   if (state._indicatorRepSort && RECORD_SORT_KEYS.has(state._indicatorRepSort.key) && state._indicatorRepSort.key !== _lbRecordCol) {
     state._indicatorRepSort = { key: _lbRecordCol, dir: state._indicatorRepSort.dir };
   }
+  // Per-USER column picker (per Isaac, Sep 30): a "Columns" dropdown, every
+  // column ticked by default; untick to drop one from YOUR leaderboard. Saved
+  // with Presets (IND_PRESET_KEYS) and remembered on this device per login.
+  // Rep never hides; Best Day / Week / Month share one entry.
+  if (!Array.isArray(state._indLbColsOff)) {
+    let v = [];
+    try { const raw = localStorage.getItem('ridd_lb_cols_off::' + ((state.profile && state.profile.id) || 'anon')); const j = raw ? JSON.parse(raw) : null; if (Array.isArray(j)) v = j; } catch (e) { /* storage blocked */ }
+    state._indLbColsOff = v;
+  }
+  const _lbColKey = (c) => RECORD_SORT_KEYS.has(c.key) ? 'record' : c.key;
+  const _lbColLabel = (c) => RECORD_SORT_KEYS.has(c.key) ? 'Best Day / Week / Month' : c.label;
+  const _lbPickable = repCols.filter(c => c.key !== 'name');
+  const _lbOff = new Set(state._indLbColsOff);
+  repCols = repCols.filter(c => c.key === 'name' || !_lbOff.has(_lbColKey(c)));
+  const _lbSetOff = (arr) => {
+    state._indLbColsOff = arr;
+    try { localStorage.setItem('ridd_lb_cols_off::' + ((state.profile && state.profile.id) || 'anon'), JSON.stringify(arr)); } catch (e) { /* storage blocked */ }
+    mountApp();
+  };
+  // Sorting by a column you just hid → fall back to Revenue (or the first shown).
+  { const sk = state._indicatorRepSort && state._indicatorRepSort.key;
+    const hid = sk && _lbPickable.some(c => c.key === sk && _lbOff.has(_lbColKey(c)));
+    if (hid) { const fb = repCols.find(c => c.key === 'revenue') || repCols.find(c => c.key !== 'name' && c.key !== 'team'); state._indicatorRepSort = { key: fb ? fb.key : 'name', dir: 'desc' }; } }
 
   // Apply office + team + tier + name-search filters. Reps flipped to
   // Inactive in Manage Teams drop out unconditionally — they're already
@@ -4188,6 +4211,31 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 'Save this selection from the Presets ribbon on the left edge.'));
             _anchorPopover(panel, btn, 'left');
             return el('span', { style: { position: 'relative' } }, btn, panel);
+          })(),
+          // Columns — per-user show / hide (see _lbPickable above).
+          (() => {
+            const offN = _lbPickable.filter(c => _lbOff.has(_lbColKey(c))).length;
+            const open = !!state._indLbColsOpen;
+            const btn = el('button', {
+              class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
+              style: { borderColor: offN ? 'var(--accent)' : 'var(--border-2)', color: offN ? 'var(--accent)' : 'var(--text)' },
+              title: 'Choose which columns show on your leaderboard. Save a layout with the Presets ribbon.',
+              onclick: (e) => { e.stopPropagation(); state._indLbColsOpen = !open; mountApp(); },
+            }, offN ? 'Columns · ' + offN + ' hidden' : 'Columns');
+            if (!open) return el('span', { style: { position: 'relative' } }, btn);
+            const seen = new Set();
+            const items = _lbPickable.filter(c => { const k = _lbColKey(c); if (seen.has(k)) return false; seen.add(k); return true; });
+            const cb = (on, fn) => { const c = el('input', { type: 'checkbox', style: { accentColor: 'var(--accent)' }, onchange: (e) => fn(e.target.checked) }); c.checked = on; return c; };
+            const panel = el('div', { class: 'card absolute p-1.5', style: { top: 'calc(100% + 6px)', right: '0', width: '220px', maxWidth: 'calc(100vw - 32px)', maxHeight: '380px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)' }, onclick: (e) => e.stopPropagation() },
+              el('div', { class: 'flex items-center gap-1 px-1.5 pb-1.5 mb-1', style: { borderBottom: '1px solid var(--border)' } },
+                el('button', { class: 'rounded-lg px-2 py-0.5 text-[10px] font-bold', style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: () => _lbSetOff([]) }, 'Show all')),
+              ...items.map(c => { const k = _lbColKey(c), on = !_lbOff.has(k);
+                return el('label', { class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer', style: { background: on ? 'var(--card-2)' : 'transparent', color: 'var(--text)' } },
+                  cb(on, (v) => { const n = new Set(state._indLbColsOff); if (v) n.delete(k); else n.add(k); _lbSetOff([...n]); }), el('span', { class: 'flex-1' }, _lbColLabel(c))); }));
+            const wrap = el('span', { style: { position: 'relative' } }, btn, panel);
+            try { clampDropdownPanel(panel); } catch (err) { /* optional helper */ }
+            setTimeout(() => document.addEventListener('mousedown', function closer(ev) { if (!wrap.contains(ev.target)) { document.removeEventListener('mousedown', closer); if (state._indLbColsOpen) { state._indLbColsOpen = false; mountApp(); } } }), 0);
+            return wrap;
           })(),
 
           state.indicatorDept === 'office' ? el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
