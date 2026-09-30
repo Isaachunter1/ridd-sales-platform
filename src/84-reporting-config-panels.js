@@ -337,6 +337,15 @@ function reportingCancelConfigPanel() {
 // Paid lead channels (per Isaac, Sep 30) — set on Configurations → Lead
 // sources; Lead reconciliation offers only these as providers. Saved as an
 // admin rule (shared across admins).
+// Metrics provider per CRM lead source (per Isaac, Sep 30): roll several
+// CRM sources into one provider on Marketing → Metrics ("#49 FB" →
+// Facebook), or hide one from Metrics. Admin rule sourceProvider
+// { [source]: provider | '__hide' }; unset = the source is its own provider.
+const MKTG_HIDE = '__hide';
+function reportingSourceProviderMap() { const r = (typeof _adminRules === 'function') ? _adminRules() : null; return (r && r.sourceProvider && typeof r.sourceProvider === 'object') ? r.sourceProvider : {}; }
+function setReportingSourceProvider(source, val) { const m = Object.assign({}, reportingSourceProviderMap()); if (val == null || val === '') delete m[source]; else m[source] = val; _setAdminRule('sourceProvider', m); }
+function reportingProviderOf(source) { const v = reportingSourceProviderMap()[source]; return v === MKTG_HIDE ? null : (v || source); }
+function reportingHiddenProviders() { const m = reportingSourceProviderMap(); return new Set(Object.keys(m).filter(k => m[k] === MKTG_HIDE)); }
 function reportingPaidSources() { const r = (typeof _adminRules === 'function') ? _adminRules() : null; return new Set((r && Array.isArray(r.paidSources)) ? r.paidSources : []); }
 function setReportingPaidSource(source, on) { const s = reportingPaidSources(); if (on) s.add(source); else s.delete(source); _setAdminRule('paidSources', [...s].sort()); }
 function reportingSourceConfigPanel() {
@@ -364,6 +373,18 @@ function reportingSourceConfigPanel() {
   const regByName = new Map((state.sources || []).map(x => [String(x.name || '').trim(), x]));
   const frLinked = (state.sources || []).filter(x => x.fr_source_id);
   const frStampRaw = frLinked.reduce((m, x) => ((x.fr_synced_at || '') > m ? x.fr_synced_at : m), '');
+  // Metrics provider picker: itself / hide / roll into another provider.
+  const _pmap = reportingSourceProviderMap();
+  const _provOpts = [...new Set([...(typeof MKTG_DEFAULT_CHANNELS !== 'undefined' ? MKTG_DEFAULT_CHANNELS : []), ...(typeof AD_PROVIDERS !== 'undefined' ? AD_PROVIDERS : []), 'PestBooker', 'Organic',
+    ...Object.values(_pmap).filter(v => v && v !== MKTG_HIDE), ...allSources])].filter(Boolean).sort((a, b) => a.localeCompare(b));
+  const provSel = (source) => {
+    const v = _pmap[source] || '';
+    return el('select', { class: 'rounded border px-1.5 py-1 text-xs cursor-pointer', style: { borderColor: v ? 'var(--accent)' : 'var(--border-2)', background: 'transparent', color: v === MKTG_HIDE ? 'var(--text-muted)' : 'var(--text)', maxWidth: '170px' },
+      onchange: (e) => { setReportingSourceProvider(source, e.target.value || null); logActivity('config_change', { detail: 'Metrics provider: ' + source + ' → ' + (e.target.value || 'itself') }); mountApp(); } },
+      el('option', { value: '', selected: !v }, 'Itself'),
+      el('option', { value: MKTG_HIDE, selected: v === MKTG_HIDE }, 'Hide on Metrics'),
+      ..._provOpts.filter(o => o !== source).map(o => el('option', { value: o, selected: v === o }, '→ ' + o)));
+  };
   const chip = (txt, bg, fg, title) => el('span', { class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded whitespace-nowrap', style: { background: bg, color: fg }, title }, txt);
   const list = [...allSources].sort((a, b) => (counts.get(b) || 0) - (counts.get(a) || 0) || a.localeCompare(b));
 
@@ -414,6 +435,7 @@ function reportingSourceConfigPanel() {
                 el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Revenue Type'),
                 el('th', { class: 'text-left px-2 py-2 font-semibold', title: 'Paid lead channels — the only providers offered on Marketing → Metrics → Lead reconciliation' }, 'Paid channel'),
                 el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'In Reporting'),
+                el('th', { class: 'text-left px-2 py-2 font-semibold', title: 'Which provider row this source rolls into on Marketing → Metrics (e.g. “#49 FB” → Facebook), or Hide to leave it off Metrics.' }, 'Metrics provider'),
                 el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'FieldRoutes'),
                 el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Sales Log'),
                 el('th', { class: 'text-left pr-3 pl-2 py-2 font-semibold' }, 'Pay tab'),
@@ -469,6 +491,7 @@ function reportingSourceConfigPanel() {
                   el('td', { class: 'px-2 py-1.5 text-left' }, classSelect),
                   el('td', { class: 'px-2 py-1.5 text-left' }, paidBtn),
                   el('td', { class: 'px-2 py-1.5 text-left' }, pill),
+                  el('td', { class: 'px-2 py-1.5 text-left' }, provSel(source)),
                   (() => { const reg = regByName.get(source);
                     return el('td', { class: 'px-2 py-1.5 text-left' }, !reg ? chip('Not listed', 'var(--card-2)', 'var(--text-muted)', 'Seen in sales data but not in the source list')
                       : reg.fr_source_id ? chip('In CRM', 'rgba(95,108,91,.12)', '#5F6C5B', 'Mirrored from FieldRoutes (source ID ' + reg.fr_source_id + ')')
@@ -871,12 +894,15 @@ function _mktgActuals(year) {
     if (!reportingIsOfficeStaff(r)) continue;
     if (!gate(r)) continue;
     const off = String(r.office_name || 'UNKNOWN').toUpperCase();
-    branches.add(off); sources.add(src);
+    // Provider rows roll CRM sources up (Configurations → Lead sources →
+    // Metrics provider); a hidden source still counts in office totals.
+    const prov = reportingProviderOf(src);
+    branches.add(off); if (prov) sources.add(prov);
     const b = (branch[off] = branch[off] || Array.from({ length: 12 }, mk))[mi];
-    const s = (source[src] = source[src] || Array.from({ length: 12 }, mk))[mi];
-    const sb = (srcBranch[src + '|' + off] = srcBranch[src + '|' + off] || Array.from({ length: 12 }, mk))[mi];
+    const s = prov ? (source[prov] = source[prov] || Array.from({ length: 12 }, mk))[mi] : null;
+    const sb = prov ? (srcBranch[prov + '|' + off] = srcBranch[prov + '|' + off] || Array.from({ length: 12 }, mk))[mi] : null;
     const cv = Number(r.subscription_contract_value) || 0;
-    for (const x of [b, s, sb, total[mi]]) {
+    for (const x of [b, s, sb, total[mi]].filter(Boolean)) {
       if (cls === 'upsell') { x.upsells++; x.upRev += cv; }
       else { x.subs++; x.rev += cv; }
       x.bookings++;
@@ -1141,7 +1167,12 @@ function _mktgProviders() {
   if (typeof ghlLoadLeads === 'function') ghlLoadLeads();
   const GL = (typeof ghlLeadIndex === 'function') ? ghlLeadIndex(y) : null;
   const glProvs = GL ? [...GL.has].filter(([p, n]) => n >= 20 && p !== 'Unknown').map(([p]) => p) : [];
-  const channels = [...new Set([...m.channels, ...a.sources.filter(s => reportingSourceClass(s) === 'new'), ...(AP ? [...AP.has] : []), ...glProvs])].sort();
+  // Rows = providers: defaults + CRM sources (rolled up per Configurations →
+  // Lead sources → Metrics provider) + ad platforms + GoHighLevel. A source
+  // merged into another provider or set to Hide never gets its own row.
+  const _pm = reportingSourceProviderMap();
+  const _hideRow = (p) => _pm[p] === MKTG_HIDE || (_pm[p] && _pm[p] !== p);
+  const channels = [...new Set([...m.channels, ...a.sources.filter(s => reportingSourceClass(s) !== 'renewal'), ...(AP ? [...AP.has] : []), ...glProvs])].filter(p => !_hideRow(p)).sort();
   const scope = state._mktCacScope || MKTG_ALL;
   const scopeBranches = scope === MKTG_ALL ? null : (B.byEntity[scope] ? B.byEntity[scope] : [scope]);
   const provF = mode === 'office' && channels.includes(state._mktMetricsProv) ? state._mktMetricsProv : '';
