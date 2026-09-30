@@ -3936,7 +3936,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // New Rev (renewals stripped), and Renewal Rev — and drop Audit %, which
   // isn't meaningful for inside/office sales. D2D + Techs keep the single
   // Revenue column (renewals are ~zero there) and Audit %.
-  if ((state.indicatorDept || 'all') === 'office') repCols = repCols.filter(c => c.key !== 'auditPct');
+  // Audit % shows for EVERY Type now (per Isaac, Sep 30) — Office Staff used to drop it.
   // Revenue split (per Isaac, Sep 30) — same idea as the ACV split. Revenue
   // (labelled Total Revenue) stays the ranked column (Office Staff: the New / Total / Renewal switch);
   // these four are off by default in Columns and ignore that switch:
