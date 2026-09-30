@@ -9145,10 +9145,18 @@ function indicatorYoYTrendChart() {
   // Partners / team leads (per Isaac, Sep 2026): the admin chart, scoped —
   // Company plus the teams they reach and those teams' reps, defaulting to
   // their team(s). Plain reps keep the personal chart.
+  // Office Staff team leads (per Isaac, Sep 30 — Pere) see the whole Office
+  // Staff trend even without a D2D-style team: Company = all Office Staff
+  // (the Type is pinned to their own), plus their own line.
+  const _yoyOfficeLead = !isAdminRole(state.profile && state.profile?.role) && typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role);
   const _yoyPartner = !isAdminRole(state.profile && state.profile?.role)
-    && ((typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role)) || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role)))
-    && typeof myReachTeams === 'function' && myReachTeams().size > 0;
-  const _yoyReachTeams = _yoyPartner ? [...myReachTeams()].filter(Boolean).sort() : [];
+    && ((((typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role)) || _yoyOfficeLead)
+      && typeof myReachTeams === 'function' && myReachTeams().size > 0) || _yoyOfficeLead);
+  const _yoyReachTeams = _yoyPartner && typeof myReachTeams === 'function' ? [...myReachTeams()].filter(Boolean).sort() : [];
+  const _yoySigMe = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  const _yoyIsMe = (n) => (typeof isMyRepName === 'function' && isMyRepName(n)) || _yoySigMe(getCanonicalRepName(n)) === _yoySigMe(state.profile && state.profile.full_name);
+  const _yoyDefaultScopes = () => _yoyReachTeams.length ? _yoyReachTeams.map(t => ({ t: 'team', v: t })) : [{ t: 'co' }];
+  const _yoyCoLabel = state.indicatorDept === 'office' ? 'All Office Staff' : state.indicatorDept === 'techs' ? 'All Technicians' : 'Company';
   const _yoyRepOnly = !isAdminRole(state.profile && state.profile?.role) && !_yoyPartner;
   if (_yoyRepOnly) {
     const _sigY = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
@@ -9236,8 +9244,8 @@ function indicatorYoYTrendChart() {
     if (_yoyPartner) {
       // Only what a partner may see: Company, their teams, their teams' reps.
       const okTeam = new Set(_yoyReachTeams);
-      sel = sel.filter(sc => sc.t === 'co' || (sc.t === 'team' && okTeam.has(sc.v)) || (sc.t === 'rep' && okTeam.has(getRepTeam(sc.v) || '')));
-      if (!sel.length) return _yoyReachTeams.map(t => ({ t: 'team', v: t }));   // default: their team(s)
+      sel = sel.filter(sc => sc.t === 'co' || (sc.t === 'team' && okTeam.has(sc.v)) || (sc.t === 'rep' && (okTeam.has(getRepTeam(sc.v) || '') || _yoyIsMe(sc.v))));
+      if (!sel.length) return _yoyDefaultScopes();   // default: their team(s), else the whole department
       return sel;
     }
     // Admins (per Isaac, Sep 24): scope follows the page-header Filters —
@@ -9258,7 +9266,7 @@ function indicatorYoYTrendChart() {
   // their own overlay lines, keyed by the same dept buckets the page-level
   // Type toggle uses (_indicatorDeptOf → office / d2d / techs).
   const _YOY_DEPTS = [['office', 'Office Staff'], ['d2d', 'Sales Rep'], ['techs', 'Technician']];
-  const _scopeLabelOf = (sc) => sc.t === 'co' ? 'Company'
+  const _scopeLabelOf = (sc) => sc.t === 'co' ? _yoyCoLabel
     : sc.t === 'dept' ? ((_YOY_DEPTS.find(d => d[0] === sc.v) || [])[1] || String(sc.v || ''))
     : String(sc.v || '');
   const _scopeKey = (sc) => sc.t + ':' + (sc.v || '');
@@ -10061,7 +10069,9 @@ function indicatorYoYTrendChart() {
       class: 'card absolute p-1.5',
       style: { top: 'calc(100% + 6px)', right: '0', minWidth: '250px', maxHeight: '70vh', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._yoyComboOpen ? 'block' : 'none' },
     },
-      scopeRow('co:', 'Company'),
+      scopeRow('co:', _yoyCoLabel),
+      // Their own line when they're not already listed under a team.
+      ...(() => { const me = repNamesAll.find(n => _yoyIsMe(n)); return me && !_yoyReachTeams.includes(getRepTeam(me) || '') ? [scopeRow('rep:' + me, me + ' (me)')] : []; })(),
       ..._yoyReachTeams.flatMap(t => [
         secTitle(t + ' team'),
         scopeRow('team:' + t, t + ' (whole team)'),
@@ -10079,7 +10089,7 @@ function indicatorYoYTrendChart() {
         onclick: (e) => {
           e.stopPropagation();
           const parsed = _stScopes.map(k => { const i = k.indexOf(':'); return { t: k.slice(0, i), v: k.slice(i + 1) || undefined }; });
-          state._indicatorYoYScopes = parsed.length ? parsed : _yoyReachTeams.map(t => ({ t: 'team', v: t }));
+          state._indicatorYoYScopes = parsed.length ? parsed : _yoyDefaultScopes();
           state._indicatorYoYTiers = _stTiers.length ? _stTiers : ['all'];
           state._indicatorYoYYears = _stYears.length ? _stYears : [curY];
           state._indicatorYoYGran = _stGran;
