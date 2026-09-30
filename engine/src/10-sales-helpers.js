@@ -2,6 +2,38 @@
 // Shared by the app bundle (app.js) and the standalone engine build
 // (engine/dist/ridd-engine.js). Edit HERE; both pick it up.
 
+// ── Configurable account rules (per Isaac, Sep 30 audit) ──────────────────
+// One place for the thresholds that used to be hard-coded in ~50 spots:
+//   Last Resort    — initial price under $lastResortMin (default 99)
+//   Pest initial   — services left out of "Avg Pest / Pest Init" (default
+//                    Sentricon, German Roach, Interior Flea)
+//   Failed audit   — the FieldRoutes customer flag (default "Failed Audit");
+//                    the same flag Commission Rules holds auto-approval on.
+// Edited in Settings → Reporting rules → Indicators (adminRules). The
+// standalone engine build has no admin rules and keeps the defaults.
+function _acctRuleBag() { try { return (typeof _adminRules === 'function' && _adminRules()) || {}; } catch (e) { return {}; } }
+const LAST_RESORT_MIN_DEFAULT = 99;
+function lastResortMin() { const raw = _acctRuleBag().lastResortMin; const v = Number(raw); return raw != null && raw !== '' && Number.isFinite(v) && v >= 0 ? v : LAST_RESORT_MIN_DEFAULT; }
+function isLastResort(s) { return (Number(s && s.initialPrice) || 0) < lastResortMin(); }
+function lastResortLabel() { return '<$' + lastResortMin(); }
+const PEST_INITIAL_EXCL_DEFAULT = ['Sentricon', 'German Roach', 'Interior Flea'];
+function pestInitialExclList() { const l = _acctRuleBag().pestInitialExcl; return Array.isArray(l) ? l : PEST_INITIAL_EXCL_DEFAULT; }
+function _termsRe(list) {
+  const parts = list.map(t => String(t || '').trim()).filter(Boolean).map(t => t.split(/\s+/).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s*'));
+  return parts.length ? new RegExp(parts.join('|'), 'i') : /(?!)/;
+}
+const _pestReMemo = { k: null, re: null };
+function pestInitialExclRe() { const l = pestInitialExclList(); const k = l.join('\u0001'); if (_pestReMemo.k !== k) { _pestReMemo.k = k; _pestReMemo.re = _termsRe(l); } return _pestReMemo.re; }
+function pestInitialExclReason(sub) { const s = String(sub || ''); return pestInitialExclList().filter(t => _termsRe([t]).test(s)); }
+function auditFailFlag() {
+  const r = _acctRuleBag();
+  if (r.auditFailFlag != null) return String(r.auditFailFlag).trim();
+  const al = (typeof state !== 'undefined' && state) ? (state._autolog || state._autologCache) : null;
+  return String(al && al.audit_fail_flag != null ? al.audit_fail_flag : 'Failed Audit').trim();
+}
+const _failReMemo = { k: null, re: null };
+function auditFailRe() { const k = auditFailFlag(); if (_failReMemo.k !== k) { _failReMemo.k = k; _failReMemo.re = _termsRe(k ? [k] : []); } return _failReMemo.re; }
+
 function sumRev(rows) { return rows.reduce((a, s) => a + Number(s.revenue_amount || 0), 0); }
 
 // ──────────────────────────────────────────────────────────────────────────

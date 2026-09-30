@@ -24,7 +24,7 @@
 const CRM_VOCAB_DEFAULTS = Object.freeze({
   rorWindowDays: 3,
   reasons: {
-    ror:      /\bror\b|rescission/i,
+    ror:      /\bror\b|rescission|\b3[-\s]*day/i,   // same as Indicators' legacy _ROR_REASON_RE
     combined: /combined/i,
     renewal:  /renewal/i,
     sns:      /sold,?\s*not\s*started/i,   // sold, never received an initial (paperwork churn, not attrition)

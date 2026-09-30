@@ -54,6 +54,14 @@ const sandbox = {
   _cleanRepName: (n) => String(n || '').trim(),
 };
 vm.createContext(sandbox);
+// Configurable account rules (Last Resort / pest initial / failed-audit flag,
+// engine/src/10-sales-helpers.js) — defaults only here, which is what the
+// server derive hard-codes.
+{
+  const a = html.indexOf('// ── Configurable account rules'), b = html.indexOf('function sumRev(rows)');
+  if (a < 0 || b < a) throw new Error('account-rules block not found');
+  vm.runInContext(html.slice(a, b).replace(/^const /gm, 'var '), sandbox);
+}
 for (const fn of ['parseIndicatorsCsv', 'parseRawSalesReport', 'parsePreAggregated', 'reportingSnapshotToIndicatorsCsv']) {
   vm.runInContext(extractFn(fn), sandbox);
 }

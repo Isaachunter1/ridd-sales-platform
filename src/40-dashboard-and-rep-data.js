@@ -1721,7 +1721,7 @@ function _fmtTimeOfDay(t) {
 // Cached on the record so the leaderboard doesn't re-iterate per render.
 function _computeRecordMetrics(sales) {
   if (!sales || sales.length === 0) return { acv: 0, myPct: 0, avgPest: 0, avgInitial: 0, cancelPct: 0 };
-  const REP_AVG_PEST_EXCLUDE = /sentricon|german\s*roach|interior\s*flea/i;
+  const REP_AVG_PEST_EXCLUDE = pestInitialExclRe();
   const eligible = sales.filter(s => !REP_AVG_PEST_EXCLUDE.test(s.subscription || ''));
   const avgPest    = eligible.length > 0 ? eligible.reduce((a, s) => a + Number(s.initialPrice || 0), 0) / eligible.length : 0;
   const avgInitial = sales.reduce((a, s) => a + Number(s.initialPrice || 0), 0) / sales.length;
@@ -1847,7 +1847,7 @@ function computeCoachFlags() {
   const MIN_VOLUME_FOR_RATE_RULES   = 5;
   const MIN_VOLUME_FOR_AVG_WINDOW   = 5;
   const RECENT_WINDOW_DAYS     = 14;
-  const PEST_EXCLUDE_RE        = /sentricon|german\s*roach|interior\s*flea/i;
+  const PEST_EXCLUDE_RE        = pestInitialExclRe();
 
   const rawSales = indicatorSales();
   if (rawSales.length === 0) return [];
@@ -2371,7 +2371,7 @@ let _repLeaderboardSearchTimer = null;
 // install failures. Every cancel count, cancel rate, and cancel drill
 // outside Cancel Analysis should call _isReportableCancel(s) instead of
 // the raw `(s.cancelDate || s.active === 'No')` predicate.
-const _ROR_REASON_RE = /\b(ror|right\s*of\s*rescission|3[-\s]*day)/i;
+const _ROR_REASON_RE = /\bror\b|rescission|\b3[-\s]*day/i;   // same as CRM_VOCAB_DEFAULTS.reasons.ror
 // Vocabulary-aware (src/12-crm-vocab.js): a company that has TAGGED its cancel
 // reasons is matched by its list; otherwise the legacy pattern above applies.
 function _rorReasonHit(x) { return (typeof crmVocab === 'function' && crmVocab().reasons.ror) ? crmReasonIs('ror', x) : _ROR_REASON_RE.test(String(x || '')); }
@@ -3686,7 +3686,7 @@ function openIndicatorRepCard(rep, allReps = []) {
   // termite (Sentricon) and pure-spray packages (German Roach, Interior
   // Flea) from the average so the figure reflects door-knocked pest
   // sales, not maintenance work that comes in at a different price tier.
-  const REP_AVG_PEST_EXCLUDE = /sentricon|german\s*roach|interior\s*flea/i;
+  const REP_AVG_PEST_EXCLUDE = pestInitialExclRe();
 
   // Drill state — local to this modal instance
   let drillKey = null, drillSub = null;

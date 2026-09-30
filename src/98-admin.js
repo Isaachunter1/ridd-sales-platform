@@ -483,7 +483,8 @@ function adminConfigurations(part) {
   // ── Auto-log from FieldRoutes (app_settings.autolog) ──
   if (state._autolog === undefined) {
     state._autolog = null;
-    supabase.from('app_settings').select('value').eq('key', 'autolog').maybeSingle().then(({ data }) => {
+    supabase.from('app_settings').select('value, updated_at').eq('key', 'autolog').maybeSingle().then(({ data }) => {
+      (state._settingsSeen = state._settingsSeen || {}).autolog = (data && data.updated_at) || null;
       state._autolog = Object.assign({ enabled: false, start: '2026-01-01', types: ['Office Staff', 'Sales Rep', 'Technician'], auto_approve: true, lock_days: 90, lock_min_services: 2 }, (data && data.value) || {});
       mountApp();
     });
@@ -491,8 +492,19 @@ function adminConfigurations(part) {
   const AL = state._autolog;
   const saveAL = async (patch) => {
     Object.assign(AL, patch);
-    const { error } = await supabase.from('app_settings').upsert({ key: 'autolog', value: AL }, { onConflict: 'key' });
-    if (error) toast('Could not save: ' + error.message, 'error'); else { logActivity('config_change', { detail: 'Auto-log: ' + JSON.stringify(patch) }); toast('Saved — applies on the next sync', 'success'); }
+    if ('audit_fail_flag' in patch && typeof _setAdminRule === 'function') _setAdminRule('auditFailFlag', patch.audit_fail_flag);   // Audit % / comps read the same flag
+    // Compare-and-swap (per Sep 30 audit): if another admin saved Pay
+    // automation since this page loaded, re-read theirs, re-apply ONLY this
+    // edit on top, and save again — nobody's change is silently lost.
+    let r = await saveAppSettingCas('autolog', AL);
+    if (r.conflict) {
+      const { data } = await supabase.from('app_settings').select('value, updated_at').eq('key', 'autolog').maybeSingle();
+      state._autolog = Object.assign({}, (data && data.value) || {}, patch);
+      (state._settingsSeen = state._settingsSeen || {}).autolog = (data && data.updated_at) || null;
+      r = await saveAppSettingCas('autolog', state._autolog);
+    }
+    state._autologCache = state._autolog;
+    if (!r.ok) toast('Could not save: ' + ((r.error && r.error.message) || 'another admin is editing — reload and retry'), 'error'); else { logActivity('config_change', { detail: 'Auto-log: ' + JSON.stringify(patch) }); toast('Saved — applies on the next sync', 'success'); }
     mountApp();
   };
   const TYPE_LABELS = [['Office Staff', 'Inside Sales'], ['Sales Rep', 'D2D'], ['Technician', 'Technicians']];
@@ -586,6 +598,11 @@ function adminConfigurations(part) {
     row('MY % exclusions', svcPicker(myExcludeTerms(), (l) => { state.indicatorMyExclServiceTerms = l.length ? l : null; saveIndicatorState(); toast(l.length ? l.length + ' service' + (l.length === 1 ? '' : 's') + ' excluded from MY %' : 'Reset to the default (sentricon)', 'success'); mountApp(); }), { desc: 'Left out of both sides of MY %.', stack: true, tip: 'Services dropped from both sides of the MY % (multi-year) ratio — they still count everywhere else.' }),
     row('Excluded services', svcPicker(_exSvc, (l) => { state.indicatorExclServices = l; saveIndicatorState(); toast(l.length + ' service' + (l.length === 1 ? '' : 's') + ' left out of Indicators', 'success'); mountApp(); }), { desc: 'Left out of every Indicators number.', stack: true, tip: 'Services left out of every Indicators metric (fees, chargebacks, follow-ups, inspections, removals — not real new production). Starts from the built-in list.' }),
     row('Excluded teams', _chipPicker(_exTeams, _allTeams, (l) => { state.indicatorExclTeams = l; saveIndicatorState(); toast(l.length ? l.length + ' team' + (l.length === 1 ? '' : 's') + ' left out of Indicators' : 'No teams excluded', 'success'); mountApp(); }, '+ exclude team'), { desc: 'Reps on these teams drop out of Indicators.', stack: true, tip: 'Every sale by a rep on these teams drops out of every Indicators metric (boards, totals, charts). Competitions keep their own team exclusions.' }),
+    row('Last Resort · initial under', el('span', { class: 'inline-flex items-center gap-1 text-[11px]' }, '$', num(lastResortMin(), (v) => { const n = Number(v); _setAdminRule('lastResortMin', Number.isFinite(n) && n >= 0 && n !== LAST_RESORT_MIN_DEFAULT ? n : null); toast('Last Resort = initial under $' + lastResortMin(), 'success'); mountApp(); })),
+      { desc: 'Last Resort % and every competition’s Failed bucket.', tip: 'Sales whose initial price is under this are “Last Resort”: shown in Last Resort %, and out of every competition (PRA, King of the Hill, Top Gun, raffles). Default $' + LAST_RESORT_MIN_DEFAULT + '. 0 turns it off.' }),
+    row('Pest initial exclusions', svcPicker(pestInitialExclList(), (l) => { _setAdminRule('pestInitialExcl', l.length ? l : []); toast(l.length ? l.length + ' service' + (l.length === 1 ? '' : 's') + ' left out of Pest Init' : 'Nothing left out of Pest Init', 'success'); mountApp(); }),
+      { desc: 'Left out of Avg Pest / Pest Init (boards, player cards, raffles, exports).', stack: true, tip: 'Services matched by name (partial, any case). Default Sentricon, German Roach, Interior Flea.' + (Array.isArray(_adminRules() && _adminRules().pestInitialExcl) ? '' : ' (default)') }),
+    row('Failed-audit flag', el('span', { class: 'text-[11px] font-semibold' }, auditFailFlag() || '— none —'), { desc: 'Audit %, competitions’ Failed bucket and the pay hold all read this one flag. Edit it in Pay automation.' }),
     (typeof indicatorMetricRulesTable === 'function') ? indicatorMetricRulesTable() : null,
   );
 

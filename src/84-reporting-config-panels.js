@@ -1380,7 +1380,6 @@ function reportingMarketingGoalsPanel() {
   const row = (label, node, hint) => el('div', { class: 'flex items-center gap-4 gap-3 py-1.5 border-t', style: { borderColor: 'var(--border)' } },
     el('div', { class: 'min-w-0' }, el('div', { class: 'text-xs font-semibold' }, label), hint ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, hint) : null), node);
   const pctIn = (get, set) => num(Math.round(get() * 100), (v) => set(v / 100), { w: '70px' });
-  const isMonthly = (i) => s.isGoal * (s.seasonal[i] || 0), rnMonthly = (i) => s.renewalsGoal * (s.renewalSeasonal[i] || 0);
   const q = (arr, from) => arr.slice(from, from + 3).reduce((t, v) => t + v, 0);
   const seasonalTable = (title, arr, total, reps, key) => el('div', { class: 'mt-3' },
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-1', style: { color: 'var(--text-muted)' } }, title + ' · ' + (Math.round(arr.reduce((t, v) => t + v, 0) * 1000) / 10) + '% allocated'),
@@ -1389,14 +1388,10 @@ function reportingMarketingGoalsPanel() {
       el('tbody', {},
         el('tr', { class: 'border-t border-' }, _mktgTd('%', { left: true, bold: true }), ...arr.map((v, i) => el('td', { class: 'px-1 py-1 text-left' }, num(Math.round(v * 1000) / 10, (x) => { s[key][i] = x / 100; }, { w: '56px', step: '0.5' })))),
         el('tr', { class: 'border-t border-' }, _mktgTd('Quota', { left: true, bold: true }), ...arr.map((v, i) => _mktgTd(fmt.usd0(total * v)))),
-        el('tr', { class: 'border-t border-', style: { background: 'var(--card-2)' } }, _mktgTd('Per rep / qtr', { left: true, bold: true }), ...[0, 3, 6, 9].flatMap(f => [_mktgTd(fmt.usd0(total * q(arr, f) / Math.max(1, reps)), { bold: true }), _mktgTd(''), _mktgTd('')]))))));
+        reps > 0 ? el('tr', { class: 'border-t border-', style: { background: 'var(--card-2)' } }, _mktgTd('Per rep / qtr', { left: true, bold: true }), ...[0, 3, 6, 9].flatMap(f => [_mktgTd(fmt.usd0(total * q(arr, f) / Math.max(1, reps)), { bold: true }), _mktgTd(''), _mktgTd('')])) : null))));
   return el('div', { class: 'card p-5' },
-    el('h2', { class: 'text-base font-bold' }, '🎯 Marketing goals & quota'),
-    el('div', { class: 'text-[10px] mt-0.5 mb-2', style: { color: 'var(--text-muted)' } }, 'Drives the Marketing report’s Projections and CAC targets. Saved for every admin.'),
-    row('Inside Sales goal', num(s.isGoal, (v) => { s.isGoal = v; }), 'annual new revenue'),
-    row('Inside Sales reps', num(s.isReps, (v) => { s.isReps = v; }, { w: '70px' })),
-    row('Renewals goal', num(s.renewalsGoal, (v) => { s.renewalsGoal = v; }), 'annual renewal revenue'),
-    row('Loyalty reps', num(s.loyaltyReps, (v) => { s.loyaltyReps = v; }, { w: '70px' })),
+    el('h2', { class: 'text-base font-bold' }, '🎯 Marketing targets'),
+    el('div', { class: 'text-[10px] mt-0.5 mb-2', style: { color: 'var(--text-muted)' } }, 'Drives the Marketing report’s Projections and CAC targets. Saved for every admin. Team and rep goals are set in Settings → Goals.'),
     row('Ad spend % of revenue', pctIn(() => s.adSpendPct, (v) => { s.adSpendPct = v; }), 'projection rate'),
     row('Wages % of revenue', pctIn(() => s.wagesPct, (v) => { s.wagesPct = v; }), 'projection rate'),
     row('Incentives % of revenue', pctIn(() => s.incentivesPct, (v) => { s.incentivesPct = v; }), 'projection rate'),
@@ -1404,8 +1399,10 @@ function reportingMarketingGoalsPanel() {
     row('Target · wages CAC', pctIn(() => s.targets.wagesCac, (v) => { s.targets.wagesCac = v; }), 'wages ÷ revenue, at or under'),
     row('Target · ROAS', num(s.targets.roas, (v) => { s.targets.roas = v; }, { w: '70px', step: '0.1' }), 'revenue ÷ ad spend, at or over'),
     row('Target · ad spend per job', num(s.targets.spendPerJob, (v) => { s.targets.spendPerJob = v; }, { w: '90px' }), 'at or under'),
-    seasonalTable('Inside Sales seasonal allocation', s.seasonal, s.isGoal, s.isReps, 'seasonal'),
-    seasonalTable('Renewals seasonal allocation', s.renewalSeasonal, s.renewalsGoal, s.loyaltyReps, 'renewalSeasonal'));
+    // Seasonal allocation spreads the branch goals (Projections) across the
+    // year. Team / rep goals live in Settings → Goals only (per Sep 30 audit —
+    // the old Inside Sales / Renewals goal + rep inputs here fed nothing else).
+    seasonalTable('Seasonal allocation', s.seasonal, Object.values(s.branchGoals || {}).reduce((t, v) => t + (Number(v) || 0), 0), 0, 'seasonal'));
 }
 
 function reportingMarketingPnl() {

@@ -217,8 +217,8 @@ function viewIndicators() {
       const autoPayCount = ss.filter(s => s.autoPay && s.autoPay !== 'No').length;
       // Audit % = accounts NOT flagged "Failed Audit" ÷ all accounts. Without
       // this the range view left audit_pct undefined → the column rendered NaN%.
-      const auditFail = ss.filter(s => /failed\s*audit/i.test(s.customerFlags || '')).length;
-      const lastResort = ss.filter(s => (Number(s.initialPrice) || 0) < 99).length;
+      const auditFail = ss.filter(s => auditFailRe().test(s.customerFlags || '')).length;
+      const lastResort = ss.filter(s => isLastResort(s)).length;
       const reps = new Set(ss.map(s => s.rep).filter(Boolean)).size;
       // $20K PRA qualification — company-wide bar, home-column attribution
       // (see _praHome above). Each qualified rep counts in exactly one column.
@@ -988,7 +988,7 @@ function viewIndicators() {
                     const st = [];
                     st.push(['Spring Cleaning — Standings']);
                     st.push(['Scope', winLabel + ' · Door-to-Door only']);
-                    st.push(['Note', 'Standings include passed-audit + pending (assumed passing). Excluded = Failed Audit + Last Resort (<$99).']);
+                    st.push(['Note', 'Standings include passed-audit + pending (assumed passing). Excluded = Failed Audit + Last Resort (<$' + lastResortMin() + ').']);
                     st.push(['Pulled', new Date().toLocaleString()]);
                     st.push([]);
                     st.push(['Branch', 'Reps', 'Accounts', 'Revenue', 'Avg Pest Init', 'PRA', 'ACV', '24+ Mo %', 'Autopay %', 'Total Pts', 'Place', 'Bugs']);
@@ -1000,7 +1000,7 @@ function viewIndicators() {
                     st.push(['EXCLUDED (not counting)']);
                     st.push(['Accounts excluded', sc.excludedSummary.count]);
                     st.push(['Revenue excluded', Math.round(sc.excludedSummary.revenue)]);
-                    st.push(['— Last Resort (<$99)', sc.excludedSummary.lastResort]);
+                    st.push(['— Last Resort (<$' + lastResortMin() + ')', sc.excludedSummary.lastResort]);
                     st.push(['— Failed audit', sc.excludedSummary.failedAudit]);
                     st.push([]);
                     st.push(['PENDING (awaiting audit — still out there)']);
@@ -1017,8 +1017,8 @@ function viewIndicators() {
                     const counting = [acctHeader, ...sc.counting.map(acctRow)];
                     const pending  = [acctHeader, ...sc.pending.map(acctRow)];
                     // Split excluded into its two reasons, each on its own sheet.
-                    const lastResortRows = sc.excluded.filter(s => (Number(s.initialPrice) || 0) < 99);
-                    const failedAuditRows = sc.excluded.filter(s => (Number(s.initialPrice) || 0) >= 99);
+                    const lastResortRows = sc.excluded.filter(s => isLastResort(s));
+                    const failedAuditRows = sc.excluded.filter(s => !isLastResort(s));
                     const failedAudit = [acctHeader, ...failedAuditRows.map(acctRow)];
                     const lastResort  = [acctHeader, ...lastResortRows.map(acctRow)];
 
@@ -2051,12 +2051,7 @@ function buildAvgPestCompCard({ cf, allRawSales, rawSales, windowLabel, applyExc
   // those here. We return ALL applicable reasons (joined with " + ") so
   // an admin auditing the export can see the full story per row.
   const _excludeReason = (sale) => {
-    const reasons = [];
-    const sub = (sale.subscription || '').toLowerCase();
-    if (/sentricon/.test(sub))       reasons.push('Sentricon');
-    if (/german\s*roach/.test(sub))  reasons.push('German Roach');
-    if (/interior\s*flea/.test(sub)) reasons.push('Interior Flea');
-    return reasons.join(' + ');
+    return pestInitialExclReason(sale.subscription).join(' + ');   // Settings → Indicators → Pest initial exclusions
   };
   const exportAvgPestCsv = () => {
     if (avgInitialQualifiers.length === 0) return toast('No top-5 reps to export', 'warn');
@@ -2353,7 +2348,7 @@ function buildAvgPestCompCard({ cf, allRawSales, rawSales, windowLabel, applyExc
 // defined in the original (later) block — so activating the comp threw
 // "RAFFLE_EXCLUDE_RE is not defined". The later local duplicates shadow
 // these with identical values; both paths now resolve.
-const RAFFLE_EXCLUDE_RE = /sentricon|german\s*roach|interior\s*flea/i;
+const RAFFLE_EXCLUDE_RE = { test: (v) => pestInitialExclRe().test(String(v == null ? '' : v)) };
 const AVG_PEST_MIN_ACCOUNTS = 5;
 const ticketsForInitial = (amount) => {
   const v = Number(amount) || 0;
@@ -2491,7 +2486,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // the base. (Volume/revenue metrics above include those rows.)
     if (!_repCancelExcluded(s)) r.cancelEligible++;
     { const _ap = _attrRevParts(s); r.attrServRev += _ap.serv; r.attrCxlRev += _ap.cxl; }
-    if (/failed\s*audit/i.test(s.customerFlags || '')) r.auditFail = (r.auditFail || 0) + 1;
+    if (auditFailRe().test(s.customerFlags || '')) r.auditFail = (r.auditFail || 0) + 1;
     if (s.age > 0) r.aged++;
     // Serviced evidence — the same test the P/S gate uses (≥1 completed service or a serviced date).
     if ((Number(s.services) || 0) > 0 || !!s.servicedDate) r.servicedN = (r.servicedN || 0) + 1;
@@ -2516,7 +2511,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // Decorate every rep with derived metrics so we can sort on any of them.
   // `avg_pest` here mirrors the chart's per-rep formula — Sentricon, German
   // Roach, and Interior Flea are excluded.
-  const REP_AVG_PEST_EXCLUDE = /sentricon|german\s*roach|interior\s*flea/i;
+  const REP_AVG_PEST_EXCLUDE = pestInitialExclRe();
   // Sparkline runs off the FULL raw sales (not the range-filtered set) so
   // the 12-week trend column stays useful even when the page range is short
   // (e.g. "This Week" otherwise leaves the sparkline mostly empty). All
@@ -2674,7 +2669,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // window via a small filter bar above the cards (default: last 2 weeks
   // ending at the most recent sale).
   _profMark('ind:lb-reps');
-  const RAFFLE_EXCLUDE_RE = /sentricon|german\s*roach|interior\s*flea/i;
+  const RAFFLE_EXCLUDE_RE = pestInitialExclRe();
   const AVG_PEST_MIN_ACCOUNTS = 5;
   const ticketsForInitial = (amount) => {
     const v = Number(amount) || 0;
@@ -2750,7 +2745,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const MIN_VOLUME_FOR_RATE_RULES = 5;   // ignore reps with too few sales for rate stats
     const MIN_VOLUME_FOR_AVG_WINDOW = 5;   // both 14d windows must clear this
     const RECENT_WINDOW_DAYS    = 14;
-    const PEST_EXCLUDE_RE       = /sentricon|german\s*roach|interior\s*flea/i;
+    const PEST_EXCLUDE_RE       = pestInitialExclRe();
 
     // Teams excluded from Coach Mode flagging — Termite Pros operate on a
     // different cadence than the door-to-door teams (longer cycles, fewer
@@ -5378,8 +5373,8 @@ function parseRawSalesReport(lines, headerRow, headers, cols) {
     const multiYears = _myEligible.filter(s => s.contract >= 18).length;   // multi-year (18+ mo, includes 36/60)
     const twelveMonth = _myEligible.filter(s => s.contract === 12).length; // 12 month contracts
     const autoPayCount = ss.filter(s => s.autoPay && s.autoPay !== 'No').length;
-    const auditFail = ss.filter(s => /failed\s*audit/i.test(s.customerFlags || '')).length;
-    const lastResort = ss.filter(s => (Number(s.initialPrice) || 0) < 99).length;
+    const auditFail = ss.filter(s => auditFailRe().test(s.customerFlags || '')).length;
+    const lastResort = ss.filter(s => isLastResort(s)).length;
     const uniqueReps = new Set(ss.map(s => s.rep).filter(Boolean)).size;
 
     // Date label for this week
@@ -5780,7 +5775,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
       //
       // Avg Pest Initial uses a STRICTER exclusion than the branch table —
       // drops Sentricon, German Roach, AND Interior Flea subscriptions.
-      const REP_AVG_PEST_EXCLUDE = /sentricon|german\s*roach|interior\s*flea/i;
+      const REP_AVG_PEST_EXCLUDE = pestInitialExclRe();
       // Same metric semantics for any group with a `.sales` array — works
       // identically for one rep, a team's combined sales, or a branch's.
       const valueFor = (group, bucket) => {
@@ -5931,7 +5926,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
   // table acts as a per-week verification view. A "show cumulative" link
   // lives in the title row to clear the filter.
   const weekFilter = state._indicatorRepChartWeek;
-  const VERIFY_PEST_EXCLUDE = /sentricon|german\s*roach|interior\s*flea/i;
+  const VERIFY_PEST_EXCLUDE = pestInitialExclRe();
   const statsForRep = (rep) => {
     const sales = weekFilter != null ? rep.sales.filter(s => s.week === weekFilter) : rep.sales;
     const count = sales.length;
@@ -6343,7 +6338,7 @@ function buildTeamReportNode(teamName, ctx) {
   const teamLogo    = getTeamLogo(_brandKey);
   const teamColor   = getTeamColor(_brandKey);
   const companyLogo = state.companyLogo || '';
-  const PEST_EXCLUDE_RE = /sentricon|german\s*roach|interior\s*flea/i;
+  const PEST_EXCLUDE_RE = pestInitialExclRe();
   // PENDING/SERVICED revenue (per Isaac) — the PDF used to read the raw
   // dataset ungated, so its totals ran ~2% hot vs every on-screen board.
   // indicatorSales() applies the full canonical rulebook (FR Pending/
@@ -6994,7 +6989,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
   // these are D2D-only numbers (no upsells / inside sales).
   // Panels group by TEAM (not branch) — reps sell across branches but
   // belong to one team, so team rollups are the meaningful comparison.
-  const PDF_PEST_EXCLUDE = /sentricon|german\s*roach|interior\s*flea/i;
+  const PDF_PEST_EXCLUDE = pestInitialExclRe();
   // Troupe and Ganadores report SEPARATELY (they were merged as one crew
   // until Jul 2026 — per Isaac, keep them split like everywhere else).
   const PDF_TEAM_MERGE = {};
@@ -8460,7 +8455,7 @@ async function exportTiersXlsx() {
 // MY %). Reused by both the per-rep drill panel and the scope (Company /
 // Branch / Team) panel — anything with a list of sales can plot against this.
 function buildTrendMiniGrid(sales, chartBuckets, idPrefix, accentColor, overlay, opts = {}) {
-  const REP_AVG_PEST_EXCLUDE = /sentricon|german\s*roach|interior\s*flea/i;
+  const REP_AVG_PEST_EXCLUDE = pestInitialExclRe();
   const metrics = [
     { id: 'revenue',   label: 'Revenue',          isCurrency: true,  format: v => '$' + (Math.abs(v) >= 1000000 ? (v / 1000000).toFixed(2).replace(/0$/, '').replace(/\.0$/, '') + 'M' : Math.abs(v) >= 1000 ? Math.round(v/1000) + 'K' : v) },
     { id: 'count',     label: 'Sales',            isCurrency: false, format: v => String(v) },
@@ -8747,7 +8742,7 @@ function repLandingPlayerCard(opts) {
     const revenue = ytd.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
     const count = ytd.length;
     const sellDays = new Set(ytd.map(s => dateSoldToIso(s.dateSold)).filter(Boolean)).size;
-    const PEST_RE = /sentricon|german\s*roach|interior\s*flea/i;
+    const PEST_RE = pestInitialExclRe();
     const pest = ytd.filter(s => !PEST_RE.test(s.subscription || ''));
     const avgPest = pest.length ? pest.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / pest.length : 0;
     const multi = ytd.filter(s => myBucketOf(s) === 'multi').length;
@@ -8807,7 +8802,7 @@ function teamLandingPlayerCards(opts) {
     const teams = [...myReachTeams()].filter(Boolean).slice(0, 4);
     if (!teams.length) return [];
     const yr = String(new Date().getFullYear());
-    const PEST_RE = /sentricon|german\s*roach|interior\s*flea/i;
+    const PEST_RE = pestInitialExclRe();
     const pool = (state._indicatorRawSales || []).filter(s => s && s.rep && frPendingServiced(s));
     const teamOf = (s) => getRepTeam(getCanonicalRepName(s.rep)) || '';
     return teams.map((team, i) => {
@@ -9164,7 +9159,7 @@ function indicatorYoYTrendChart() {
     raw = raw.filter(x => x.rep && (isMyRepName(x.rep) || _sigY(getCanonicalRepName(x.rep)) === _mineY));
   }
   const curY = new Date().getFullYear(), prevY = curY - 1;
-  const PEST_RE = /sentricon|german\s*roach|interior\s*flea/i;
+  const PEST_RE = pestInitialExclRe();
 
   // Per (year, week-of-year) accumulators. Week 1 = the Sunday-anchored
   // week containing Jan 1 (same convention as the week labels everywhere).
@@ -9306,7 +9301,7 @@ function indicatorYoYTrendChart() {
       b.n++;
       const _myb = myBucketOf(s);
       if (_myb === 'multi') b.multi++; else if (_myb === 'twelve') b.twelve++;
-      if (/failed\s*audit/i.test(s.customerFlags || '')) b.fail++;
+      if (auditFailRe().test(s.customerFlags || '')) b.fail++;
       b.initSum += Number(s.initialPrice) || 0;
       if (!PEST_RE.test(s.subscription || '')) { b.pestSum += Number(s.initialPrice) || 0; b.pestN++; }
       if (_isReportableCancel(s)) {

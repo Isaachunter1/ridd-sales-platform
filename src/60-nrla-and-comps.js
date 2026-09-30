@@ -33,14 +33,14 @@ function openNrlaHelpModal() {
     ),
     el('div', { class: 'overflow-auto px-5 py-4' },
       block('Format', '4 seeding rounds, 1 playoff (semifinal) round, 1 championship round. Every round is a 2-day block, Sundays skipped. 2026 season: July 6 – July 18.'),
-      block('The metric', 'Win rounds by having a higher Per Rep Average than the team you\'re competing against. PRA = the round\'s QUALIFYING revenue (Passed + Pending audit accounts, Contract Value) ÷ reps competing. Failed Audit and Last Resort (<$99) revenue never counts toward the comp.'),
+      block('The metric', 'Win rounds by having a higher Per Rep Average than the team you\'re competing against. PRA = the round\'s QUALIFYING revenue (Passed + Pending audit accounts, Contract Value) ÷ reps competing. Failed Audit and Last Resort (<$' + lastResortMin() + ') revenue never counts toward the comp.'),
       block('What counts', 'Pending/Serviced accounts only. An account sold but never serviced — no appointment scheduled, cancelled at the door, or the initial appointment cancelled — is excluded from every number. Pending-audit accounts count as passing until flagged. Note: a brand-new sale may not show until the sync delivers its appointment — the synced data is always the source of truth.'),
       block('Round lock', 'A round\'s result is provisional (AUDITING badge) until every account in it has been audited — then it locks and shows FINAL. Audits landing as Failed pull that revenue out, so a tight matchup can flip before the lock.'),
       block('Seeding', 'After the seeding rounds, teams are ranked #1 through #8 by: 1. overall record · 2. head-to-head result · 3. total cumulative PRA.'),
       block('Playoffs', 'Semifinals: #1 vs #4, #2 vs #3, #5 vs #8, #6 vs #7. Championship round: semifinal winners meet in the 1st (and 5th) place matches, losers in the 3rd (and 7th) — every team plays for its final placement.'),
       block('Prize pool', 'Per rep, by final placement: 1st ®400K + Team Trip · 2nd ®325K · 3rd ®250K · 4th ®175K · 5th ®125K · 6th ®100K · 7th ®75K · 8th ®50K.'),
       block('Who counts', 'Sales-Rep (D2D) production only. Rosters (📋) are authoritative: a rostered rep counts for THAT team wherever they knock, and a team with a roster counts only its rostered reps. Roster size is the PRA denominator. Teams without a roster count everyone on the branch (denominator = reps who sold this season).'),
-      block('Revenue columns', 'Total Rev Sold = everything sold in the season windows. Passed = Passed Audit / No Audit · Pending = not audited yet · Failed = Failed Audit + Last Resort (<$99). Informational — rounds are won on PRA.'),
+      block('Revenue columns', 'Total Rev Sold = everything sold in the season windows. Passed = Passed Audit / No Audit · Pending = not audited yet · Failed = Failed Audit + Last Resort (<$' + lastResortMin() + '). Informational — rounds are won on PRA.'),
       block('Updates', 'Updates will be sent daily.'),
     ),
   );
@@ -619,7 +619,7 @@ function openNrlaTeamRepsModal(team, R, nameOf) {
             td(teamTotal > 0 ? ((r.total / teamTotal) * 100).toFixed(1) + '%' : '—', true, { color: BLUE, fontWeight: '700' }))))
         )),
       el('div', { class: 'px-5 py-2.5 text-[10px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } },
-        'Sold-Not-Started accounts (never serviced and no pending appointment — cancelled at the door, no appt scheduled, or appt cancelled) are excluded from every number. Passed = Passed/No Audit · Pending = not audited yet · Failed = Failed Audit + Last Resort (<$99).'));
+        'Sold-Not-Started accounts (never serviced and no pending appointment — cancelled at the door, no appt scheduled, or appt cancelled) are excluded from every number. Passed = Passed/No Audit · Pending = not audited yet · Failed = Failed Audit + Last Resort (<$' + lastResortMin() + ').'));
   };
   render();
   overlay.append(card);
@@ -733,7 +733,7 @@ function openNrlaAccountsModal(R, nameOf, opts) {
             el('th', { class: 'text-right px-2 py-2 font-bold' }, 'Contract Value'))),
         tbody)),
     el('div', { class: 'px-4 py-2 text-[10px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } },
-      'Pending/Serviced accounts only — the CRM rule (initial appointment Pending or Completed); everything else is out of the comp entirely. Failed = Failed Audit or Last Resort (<$99 initial); failed revenue never counts toward PRA.'));
+      'Pending/Serviced accounts only — the CRM rule (initial appointment Pending or Completed); everything else is out of the comp entirely. Failed = Failed Audit or Last Resort (<$' + lastResortMin() + ' initial); failed revenue never counts toward PRA.'));
   renderRows('');
   overlay.append(card);
   document.body.append(overlay);
@@ -1234,7 +1234,7 @@ function nrlaBoard(rawSales, opts) {
               el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Passed Rev ÷ Total Rev Sold — how much of the production has cleared audit' }, '% Passed'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold' + (RO ? '' : ' cursor-pointer hover:underline'), title: 'No audit flag yet — clears into Passed or Failed as audits land' + (RO ? '' : ' — click for the accounts (all teams)'),
                 onclick: RO ? undefined : () => openNrlaAccountsModal(R, nameOf, { team: null, scope, kind: 'pending' }) }, 'Pending Rev'),
-              el('th', { class: 'text-left px-2 py-2.5 font-bold' + (RO ? '' : ' cursor-pointer hover:underline'), title: 'Failed Audit + Last Resort (<$99 initial)' + (RO ? '' : ' — click for the accounts (all teams)'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold' + (RO ? '' : ' cursor-pointer hover:underline'), title: 'Failed Audit + Last Resort (<$' + lastResortMin() + ' initial)' + (RO ? '' : ' — click for the accounts (all teams)'),
                 onclick: RO ? undefined : () => openNrlaAccountsModal(R, nameOf, { team: null, scope, kind: 'failed' }) }, 'Failed Rev'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Average Contract Value: Total Rev Sold ÷ accounts sold' }, 'ACV'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Accounts sold in this scope (Pending/Serviced only)' }, 'Accts'),
@@ -1674,7 +1674,7 @@ function nrlaBoard(rawSales, opts) {
                       // must NOT read "Pending" here while the card has
                       // already written it off (card said 5, chips said 30).
                       let _st = (typeof _auditStatusOf === 'function') ? _auditStatusOf(x.customerFlags) : 'pending';
-                      if (_st === 'pending' && (Number(x.initialPrice) || 0) < 99) _st = 'lastresort';
+                      if (_st === 'pending' && isLastResort(x)) _st = 'lastresort';
                       const _stMeta = _st === 'passed' ? ['Passed', '#DF643A', 'rgba(223,100,58,.14)']
                         : _st === 'failed' ? ['Failed', '#B91C1C', 'rgba(220,38,38,.10)']
                         : _st === 'noaudit' ? ['No Audit', 'var(--text-muted)', 'var(--card-2)']
@@ -1837,7 +1837,7 @@ function mysteryBoxDayStats(day) {
     const o = byRep.get(nm) || { name: nm, rev: 0, n: 0, total: 0, totalN: 0, failed: 0, pending: 0, offRev: {} };
     o.total += cv; o.totalN++;
     if (s.office) o.offRev[s.office] = (o.offRev[s.office] || 0) + cv;
-    const isLR = (Number(s.initialPrice) || 0) < 99;
+    const isLR = isLastResort(s);
     const isFailAudit = (typeof SC_FAIL_RE !== 'undefined') && SC_FAIL_RE.test(s.customerFlags || '');
     if (isLR || isFailAudit) o.failed += cv;
     else if (typeof scAuditPassed === 'function' && scAuditPassed(s.customerFlags)) { o.rev += cv; o.n++; }
@@ -1868,10 +1868,10 @@ function openMbRepModal(rep, day) {
     if (typeof frPendingServiced === 'function' && !frPendingServiced(s)) continue;
     const cv = Number(s.contractValue) || 0;
     const init = Number(s.initialPrice) || 0;
-    const isLR = init < 99;
+    const isLR = init < lastResortMin();
     const isFailAudit = (typeof SC_FAIL_RE !== 'undefined') && SC_FAIL_RE.test(s.customerFlags || '');
     let bucket, why;
-    if (isLR || isFailAudit) { bucket = 'failed'; why = isFailAudit ? 'Failed audit' : 'Last Resort (<$99 initial)'; }
+    if (isLR || isFailAudit) { bucket = 'failed'; why = isFailAudit ? 'Failed audit' : 'Last Resort (<$' + lastResortMin() + ' initial)'; }
     else if (typeof scAuditPassed === 'function' && scAuditPassed(s.customerFlags)) { bucket = 'passed'; why = /passed/i.test(s.customerFlags || '') ? 'Passed audit' : 'No audit'; }
     else { bucket = 'pending'; why = 'Awaiting audit flag'; }
     rows.push({ s, cv, init, bucket, why });
@@ -1917,7 +1917,7 @@ function openMbRepModal(rep, day) {
                 el('div', { class: 'text-[10px] text-muted- tabular-nums' }, (s.customerId ? '#' + s.customerId : '') + (s.customerFlags ? ' · ' + s.customerFlags : ''))),
               el('td', { class: 'py-1.5 pr-2 hidden sm:table-cell' }, s.subscription || '—'),
               el('td', { class: 'py-1.5 pr-2 whitespace-nowrap text-muted- hidden sm:table-cell' }, s.dateSold || '—'),
-              el('td', { class: 'py-1.5 pr-2 text-right tabular-nums', style: init < 99 ? { color: B.failed.c, fontWeight: '700' } : {} }, fmt.usd0(init)),
+              el('td', { class: 'py-1.5 pr-2 text-right tabular-nums', style: init < lastResortMin() ? { color: B.failed.c, fontWeight: '700' } : {} }, fmt.usd0(init)),
               el('td', { class: 'py-1.5 pr-2 text-right tabular-nums font-bold' }, fmt.usd0(cv)),
               el('td', { class: 'py-1.5 text-right whitespace-nowrap' },
                 el('span', { class: 'text-[10px] font-black px-1.5 py-0.5 rounded', style: { color: B[bucket].c, background: B[bucket].bg }, title: why }, B[bucket].lab)))))))));
@@ -2656,7 +2656,7 @@ function kothYears(raw) {
 // account. passed = counts toward the crown; failed = Last Resort (<$99) or
 // a failed audit; pending = audit still open, which may yet clear.
 function kothBucket(s) {
-  if ((Number(s.initialPrice) || 0) < 99) return 'failed';                                   // Last Resort
+  if (isLastResort(s)) return 'failed';                                   // Last Resort
   if (typeof SC_FAIL_RE !== 'undefined' && SC_FAIL_RE.test(s.customerFlags || '')) return 'failed';
   if (typeof scAuditPassed === 'function' && scAuditPassed(s.customerFlags)) return 'passed';
   return 'pending';
@@ -2704,7 +2704,7 @@ function kothDayRows(raw, name, day) {
     const b = served ? kothBucket(s) : 'excluded';
     let why = 'Counts toward the crown';
     if (b === 'excluded') why = 'No appointment, no-show or canceled initial. Never serviced.';
-    else if ((Number(s.initialPrice) || 0) < 99) why = 'Last Resort, initial under $99';
+    else if (isLastResort(s)) why = 'Last Resort, initial under $' + lastResortMin() + '';
     else if (b === 'failed') why = 'Failed audit';
     else if (b === 'pending') why = 'Audit still open, waiting';
     out.push({
@@ -2825,7 +2825,7 @@ function kothSection(raw, cfg, isAdmin) {
         const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : '';
         if (!iso || iso < year + '-01-01' || iso > lockIso) return false;
         if (typeof frPendingServiced === 'function' && !frPendingServiced(s)) return false;
-        if ((Number(s.initialPrice) || 0) < 99) return false;
+        if (isLastResort(s)) return false;
         const fl = s.customerFlags || '';
         if (typeof SC_FAIL_RE !== 'undefined' && SC_FAIL_RE.test(fl)) return false;
         return typeof scAuditPassed === 'function' && !scAuditPassed(fl);   // audit still open
@@ -2873,7 +2873,7 @@ function kothSection(raw, cfg, isAdmin) {
                 : null)
           : el('div', { class: 'mt-4 text-sm font-bold', style: { opacity: '.85' } }, 'The hill is empty \u2014 no qualifying days yet.'),
         el('div', { class: 'text-[9px] font-bold uppercase mt-4', style: { letterSpacing: '.14em', opacity: '.75' } },
-          'Lock date: ' + fmtLock(lockIso) + ' \u00b7 Passed audit accounts only \u00b7 Last Resort (<$99) never counts \u00b7 Prize: ' + KOTH_PRIZE_LABEL),
+          'Lock date: ' + fmtLock(lockIso) + ' \u00b7 Passed audit accounts only \u00b7 Last Resort (<$' + lastResortMin() + ') never counts \u00b7 Prize: ' + KOTH_PRIZE_LABEL),
         // Spelled out because it surprises people: a rep's best day on the
         // leaderboard / player card can be HIGHER than their KOTH day, since
         // those count every account and this counts only passed audits.
@@ -3149,7 +3149,7 @@ function mysteryBoxSection(isAdmin) {
         el('div', { class: 'text-xs font-bold tabular-nums px-2 py-0.5 rounded', style: { background: qual2.length ? '#DF643A' : 'rgba(255,255,255,.15)', color: qual2.length ? '#323230' : 'var(--bg)' } }, qual2.length + ' earned')),
       (qual2.length || chase.length) ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
         el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
-          ...[['name', 'Rep'], ['n', 'Passed Accts', 'Accounts counting toward the box (passed audit / no audit)'], ['total', 'Total', 'Pending/Serviced revenue (the FieldRoutes gate) \u2014 Passed + Pending + Failed'], ['rev', 'Passed', 'Passed audit or no audit, $99+ initial \u2014 the only revenue that counts toward the box'], ['pending', 'Pending', 'No audit flag yet (not Last Resort) \u2014 moves to Passed or Failed as audits land'], ['failed', 'Failed', 'Failed audit + Last Resort (<$99) \u2014 does not count'], ['progress', 'To Go', 'Sort by % of goal']].map(([k, h, tip]) => {
+          ...[['name', 'Rep'], ['n', 'Passed Accts', 'Accounts counting toward the box (passed audit / no audit)'], ['total', 'Total', 'Pending/Serviced revenue (the FieldRoutes gate) \u2014 Passed + Pending + Failed'], ['rev', 'Passed', 'Passed audit or no audit, $' + lastResortMin() + '+ initial \u2014 the only revenue that counts toward the box'], ['pending', 'Pending', 'No audit flag yet (not Last Resort) \u2014 moves to Passed or Failed as audits land'], ['failed', 'Failed', 'Failed audit + Last Resort (<$' + lastResortMin() + ') \u2014 does not count'], ['progress', 'To Go', 'Sort by % of goal']].map(([k, h, tip]) => {
             const _mobileHide = (k === 'office' || k === 'n' || k === 'total' || k === 'pending' || k === 'failed') ? ' hidden sm:table-cell' : '';
             const _srt = state._mbSort || null;
             const active = _srt && _srt.key === k;
@@ -4014,7 +4014,7 @@ function viewNrlaPublic() {
         const _pendK = (raw || []).filter(s => {
           if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') return false;
           if (typeof frPendingServiced === 'function' && !frPendingServiced(s)) return false;
-          if ((Number(s.initialPrice) || 0) < 99) return false;
+          if (isLastResort(s)) return false;
           const fl = s.customerFlags || '';
           if (typeof SC_FAIL_RE !== 'undefined' && SC_FAIL_RE.test(fl)) return false;
           const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : '';
@@ -4350,7 +4350,7 @@ function viewNrlaPublic() {
 
 
 function springCleaningReason(s) {
-  if ((Number(s.initialPrice) || 0) < 99) return 'Last Resort (<$99 initial)';
+  if (isLastResort(s)) return 'Last Resort (<$' + lastResortMin() + ' initial)';
   if (!frPendingServiced(s)) return 'Not Pending/Serviced in the CRM (no appointment, no-show, canceled initial, or globally excluded service)';
   if (springServicedStatus(s) === 'late') return 'Not serviced by deadline';
   if (SC_FAIL_RE.test(s.customerFlags || '')) return 'Failed audit';
@@ -4376,7 +4376,7 @@ async function exportSpringCleaningXlsx(sales, branchList, winLabel) {
   const st = [];
   st.push(['Spring Cleaning — Standings']);
   st.push(['Scope', (winLabel || 'current window') + ' · Door-to-Door only']);
-  st.push(['Note', 'Standings include passed-audit + pending (assumed passing). Excluded = Failed Audit + Last Resort (<$99).']);
+  st.push(['Note', 'Standings include passed-audit + pending (assumed passing). Excluded = Failed Audit + Last Resort (<$' + lastResortMin() + ').']);
   st.push(['Pulled', new Date().toLocaleString()]);
   st.push([]);
   st.push(['Branch', 'Reps', 'Accounts', 'Revenue', 'Avg Pest Init', 'PRA', 'ACV', '24+ Mo %', 'Autopay %', 'Audit %', 'Total Pts', 'Place', 'Bugs']);
@@ -4388,7 +4388,7 @@ async function exportSpringCleaningXlsx(sales, branchList, winLabel) {
   st.push(['EXCLUDED (not counting)']);
   st.push(['Accounts excluded', sc.excludedSummary.count]);
   st.push(['Revenue excluded', Math.round(sc.excludedSummary.revenue)]);
-  st.push(['— Last Resort (<$99)', sc.excludedSummary.lastResort]);
+  st.push(['— Last Resort (<$' + lastResortMin() + ')', sc.excludedSummary.lastResort]);
   st.push(['— Failed audit', sc.excludedSummary.failedAudit]);
   st.push([]);
   st.push(['PENDING (awaiting audit — still out there)']);
@@ -4404,8 +4404,8 @@ async function exportSpringCleaningXlsx(sales, branchList, winLabel) {
   ];
   const counting = [acctHeader, ...sc.counting.map(acctRow)];
   const pending  = [acctHeader, ...sc.pending.map(acctRow)];
-  const lastResortRows  = sc.excluded.filter(s => (Number(s.initialPrice) || 0) < 99);
-  const failedAuditRows = sc.excluded.filter(s => (Number(s.initialPrice) || 0) >= 99);
+  const lastResortRows  = sc.excluded.filter(s => isLastResort(s));
+  const failedAuditRows = sc.excluded.filter(s => !isLastResort(s));
   const failedAudit = [acctHeader, ...failedAuditRows.map(acctRow)];
   const lastResort  = [acctHeader, ...lastResortRows.map(acctRow)];
 
@@ -4463,7 +4463,7 @@ async function exportSpringRepsXlsx() {
     // Qualifying = real production (≥$99, not SNS): counting/pending PLUS failed-
     // audit / not-serviced-by-deadline. Counting = the scored subset.
     for (const s of [...sc.counting, ...sc.pending]) { const e = ensure(s.office || 'UNKNOWN', s.rep || 'Unknown'); e.qual += 1; e.counting += 1; e.rev += Number(s.contractValue) || 0; }
-    for (const s of sc.excluded) { if ((Number(s.initialPrice) || 0) >= 99) ensure(s.office || 'UNKNOWN', s.rep || 'Unknown').qual += 1; }
+    for (const s of sc.excluded) { if (!isLastResort(s)) ensure(s.office || 'UNKNOWN', s.rep || 'Unknown').qual += 1; }
   });
 
   const rows = [['Branch', 'Rep', 'Total Accts', 'Qualifying Accts', 'Counting Accts', 'Passed Rev']];
@@ -4953,7 +4953,7 @@ function openSpringPendingModal(roundNum, roundLabelStr, pending) {
       el('div', {},
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Spring Cleaning · Round ' + roundNum + ' · ' + roundLabelStr),
         el('h2', { class: 'text-xl font-bold mt-0.5' }, list.length + ' pending audit' + (list.length === 1 ? '' : 's')),
-        el('p', { class: 'text-xs text-muted- mt-1' }, 'Door-to-Door, ≥$99, no Passed / No Audit / Failed flag yet (counted as assumed-passing). Flag these in FieldRoutes to settle the round.')),
+        el('p', { class: 'text-xs text-muted- mt-1' }, 'Door-to-Door, ≥$' + lastResortMin() + ', no Passed / No Audit / Failed flag yet (counted as assumed-passing). Flag these in FieldRoutes to settle the round.')),
       el('button', { class: 'text-2xl leading-none text-muted- px-2', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
     el('div', { class: 'overflow-auto px-5 pb-5', style: { borderTop: '1px solid var(--border)' } },
       list.length === 0
@@ -5001,7 +5001,7 @@ function openSpringCleaningHelpModal() {
           el('div', {}, 'The Sales Rep rep type only — Office Staff and Technicians are out entirely. Rep type comes from the Customer Report (Source is only a fallback for reps with no type on file). Branches can be sat out for the year via the "Competing" chips on the board.'),
           el('div', { class: 'mt-1' }, 'Set the round with the date filter at the top.')),
         section('Does an account count? (in order)',
-          metric('1 · Initial ≥ $99', 'Under $99 = "Last Resort" — out of every category (but still shows in Audit %).'),
+          metric('1 · Initial ≥ $' + lastResortMin() + '', 'Under $' + lastResortMin() + ' = "Last Resort" — out of every category (but still shows in Audit %).'),
           metric('2 · Not a pre-service cancel', 'If the account cancelled before its initial service ever ran (any cancel reason), it\'s excluded from EVERY metric — revenue, PRA, Audit %, all of it. A pre-service cancel never needed an audit, so it isn\'t counted anywhere.'),
           metric('3 · Serviced by the deadline', 'Sold in a round, it must be serviced (initial service completed) by the end of the FOLLOWING week. Weeks run Sun–Sat — e.g. sold the week of Jun 8 → serviced by Sat Jun 20. Past the deadline unserviced, or serviced late → out. Before the deadline, an unserviced account is still in play.'),
           metric('4 · Audit flag', 'Passed Audit or No Audit → counts. Failed Audit → out. No flag yet = pending, counted as assumed-passing until it\'s flagged.')),
@@ -5019,7 +5019,7 @@ function openSpringCleaningHelpModal() {
           el('div', { class: 'mt-1' }, 'Tiebreakers: a dead tie WITHIN a category means both teams take the same points and the next place is skipped (two teams at 100% AutoPay both score 1, the next team scores 3). A tie in TOTAL points goes to the higher Passed Audit %; if that\'s somehow tied too, higher Avg Pest Initial decides it.'),
           el('div', { class: 'mt-1' }, 'Place → Bugs: 1st = 6, 2nd = 5, 3rd = 4, 4th = 3, 5th = 2, 6th = 1, 7th = 0.')),
         section('Excluded entirely',
-          el('div', {}, 'Four ways an account drops out of every category: Last Resort (initial < $99), pre-service cancel (cancelled before any service), not serviced by the deadline, and Failed Audit.'),
+          el('div', {}, 'Four ways an account drops out of every category: Last Resort (initial < $' + lastResortMin() + '), pre-service cancel (cancelled before any service), not serviced by the deadline, and Failed Audit.'),
           el('div', { class: 'mt-1' }, 'The one exception is Audit %, where Last Resort and Failed Audit accounts still count by their actual flag. Click a round\'s red "audits pending" pill to see exactly which accounts still need a flag.')),
         section('Pending',
           el('div', {}, 'An account is "pending" when it clears every gate above but has no audit flag yet. Pending revenue counts toward standings (assumed-passing) until the flag lands — so the standings can still move as audits come in. A round locks as "Official" once its window is over and zero accounts are pending.')),
@@ -5084,7 +5084,7 @@ function openLastManStandingHelpModal(winLabel) {
     ),
     el('div', { class: 'overflow-auto px-5 py-4', style: { borderTop: '1px solid var(--border)' } },
       section('Who competes',
-        el('div', {}, 'Door-to-Door reps only. Sales count only if made on a Saturday and the account qualifies: ≥$99 initial and not a Failed Audit. Passed, No-Audit, and still-pending accounts all count — pending is assumed passing so the bracket can run before audits land.')),
+        el('div', {}, 'Door-to-Door reps only. Sales count only if made on a Saturday and the account qualifies: ≥$' + lastResortMin() + ' initial and not a Failed Audit. Passed, No-Audit, and still-pending accounts all count — pending is assumed passing so the bracket can run before audits land.')),
       section('Round 1 — the qualifier',
         el('div', {}, 'The first Saturday is a pure qualifier: every rep who lands a qualifying sale advances, no matter how small. Anyone with no qualifying sale that Saturday is out. Nobody is cut for being low in Round 1.')),
       section('Round 2 onward — the weekly cut',
@@ -5265,7 +5265,7 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
             }, d.label)),
             el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Passed/counting revenue (passed + no-audit + pending) — this is the scored revenue.' }, 'Passed Rev'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold', style: { opacity: '0.85' }, title: 'Total revenue sold (matches the CRM Pending/Serviced view). Not scored.' }, 'Total Rev'),
-            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Revenue NOT counting: failed audit + Last Resort (<$99) + not serviced by deadline' }, 'Failed Rev'),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Revenue NOT counting: failed audit + Last Resort (<$' + lastResortMin() + ') + not serviced by deadline' }, 'Failed Rev'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Pending-audit revenue (the un-flagged subset of Passed) — watch it clear as audits land' }, 'Pending Rev'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Total'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Place'),
@@ -6036,8 +6036,8 @@ function aggregateRawSalesByGroup(rawSales, getGroupKey, indicatorRowsForDates, 
     const multiYears = ss.filter(s => myBucketOf(s) === 'multi').length;
     const twelveMonth = ss.filter(s => myBucketOf(s) === 'twelve').length;
     const autoPayCount = ss.filter(s => s.autoPay && s.autoPay !== 'No').length;
-    const auditFail = ss.filter(s => /failed\s*audit/i.test(s.customerFlags || '')).length;
-    const lastResort = ss.filter(s => (Number(s.initialPrice) || 0) < 99).length;
+    const auditFail = ss.filter(s => auditFailRe().test(s.customerFlags || '')).length;
+    const lastResort = ss.filter(s => isLastResort(s)).length;
     const uniqueReps = new Set(ss.map(s => s.rep).filter(Boolean)).size;
     const meta = weekMeta[g.week] || {};
     return {
@@ -6086,8 +6086,8 @@ function aggregateRawSalesByBucket(rawSales, getGroupKey, buckets, applyExclusio
     const multiYears = ss.filter(s => myBucketOf(s) === 'multi').length;
     const twelveMonth = ss.filter(s => myBucketOf(s) === 'twelve').length;
     const autoPayCount = ss.filter(s => s.autoPay && s.autoPay !== 'No').length;
-    const auditFail = ss.filter(s => /failed\s*audit/i.test(s.customerFlags || '')).length;
-    const lastResort = ss.filter(s => (Number(s.initialPrice) || 0) < 99).length;
+    const auditFail = ss.filter(s => auditFailRe().test(s.customerFlags || '')).length;
+    const lastResort = ss.filter(s => isLastResort(s)).length;
     const uniqueReps = new Set(ss.map(s => s.rep).filter(Boolean)).size;
     return {
       week: g.week,
@@ -6111,7 +6111,7 @@ function aggregateRawSalesByBucket(rawSales, getGroupKey, buckets, applyExclusio
 // Subscription exclusions used at the team-aggregation level — the same
 // strict list rep-level analytics use, kept here so team rollups treat
 // non-pest accounts the same way.
-const TEAM_PEST_EXCLUDE = /sentricon|german\s*roach|interior\s*flea/i;
+const TEAM_PEST_EXCLUDE = { test: (v) => pestInitialExclRe().test(String(v == null ? '' : v)) };
 
 // Memoized per sales-array identity — indicatorSales() returns stable cached
 // arrays per dept, so flipping the dept toggle reuses prior aggregations

@@ -1067,7 +1067,7 @@ function indicatorMetricHelp(key) {
     multi_year_pct: 'Contracts longer than 12 months \u00f7 all contracts that are 12 months or longer.',
     auto_pay_pct:   'Subscriptions with autopay on file \u00f7 Subscriptions.',
     audit_pct:      'Subscriptions NOT flagged Failed Audit \u00f7 Subscriptions — passed, pending, and unaudited all count as good.',
-    last_resort_pct:'Subscriptions with an initial under $99 \u00f7 Subscriptions. Context only — not scored for Power Rank.',
+    last_resort_pct:'Subscriptions with an initial under $' + lastResortMin() + ' \u00f7 Subscriptions. Context only — not scored for Power Rank.',
     reps:           'Unique reps with at least one sale in the window. Context only — not scored for Power Rank.',
     reps20k:        'How many reps cleared $20,000 in total sales for the selected date range. A rep\u2019s sales are added up across every branch first, then the rep is placed in ONE column only \u2014 the branch where they sold the most \u2014 so a rep is never counted twice. This is also the denominator for PRA (Revenue \u00f7 Reps > $20K).',
     _points:        'Each column is ranked 1\u2013N on the seven scored rows (Subscriptions, Revenue, Avg Initial, ACV, PRA, Multi-Year %, Auto-Pay %); Power Rank is the sum of those ranks — lowest total wins.',
@@ -1719,7 +1719,7 @@ function lastManStandingBoard(windowed, winLabel, compOverride, ctlHost) {
     const e = wk[_cn] || (wk[_cn] = { total: 0, passed: 0, failed: 0, pending: 0 });
     const cv = Number(s.contractValue) || 0;
     let bucket;
-    if ((Number(s.initialPrice) || 0) < 99) bucket = 'failed';                             // Last Resort
+    if (isLastResort(s)) bucket = 'failed';                             // Last Resort
     else if (typeof lmsServicedStatus === 'function' && lmsServicedStatus(s) === 'late') bucket = 'failed';   // not serviced by Friday
     else if (typeof scAuditPassed === 'function' && scAuditPassed(s.customerFlags)) bucket = 'passed';
     else if (SC_FAIL_RE.test(s.customerFlags || '')) bucket = 'failed';
@@ -1867,7 +1867,7 @@ function lastManStandingBoard(windowed, winLabel, compOverride, ctlHost) {
         const d = _parseIndicatorDay(x);
         return d && !isNaN(d) && d.toISOString().slice(0, 10) === rd.iso;
       }).filter(x => {
-        if ((Number(x.initialPrice) || 0) < 99) return false;                                          // Last Resort — failed for good
+        if (isLastResort(x)) return false;                                          // Last Resort — failed for good
         if (typeof scAuditPassed === 'function' && scAuditPassed(x.customerFlags)) return false;       // already confirmed passing
         if (SC_FAIL_RE.test(x.customerFlags || '')) return false;                                      // failed audit — gone either way
         return true;

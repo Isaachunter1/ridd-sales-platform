@@ -72,7 +72,7 @@ function nrlaCompute(rawSales, compOverride) {
   // Pending is assumed passing until flagged — so a round's result can move
   // while audits land, which is why a round only LOCKS once every account in
   // it has been audited (pendingAudits === 0).
-  const _isFailedAcct = (s) => (Number(s.initialPrice) || 0) < 99 || SC_FAIL_RE.test(s.customerFlags || '');
+  const _isFailedAcct = (s) => isLastResort(s) || SC_FAIL_RE.test(s.customerFlags || '');
   const _isPendingAudit = (s) => !_isFailedAcct(s) && !scAuditPassed(s.customerFlags);
   const roundRev = windows.map(() => ({}));
   const roundRevDay = windows.map(() => ({}));     // team → [day1 qual rev, day2 qual rev]
@@ -126,7 +126,7 @@ function nrlaCompute(rawSales, compOverride) {
     const t = offOf(s);
     const st = seasonStats[t]; if (!st) continue;
     const cv = Number(s.contractValue) || 0;
-    const bucket = ((Number(s.initialPrice) || 0) < 99 || SC_FAIL_RE.test(s.customerFlags || '')) ? 'failed'
+    const bucket = (isLastResort(s) || SC_FAIL_RE.test(s.customerFlags || '')) ? 'failed'
       : (scAuditPassed(s.customerFlags) ? 'passed' : 'pending');
     st.total += cv; st[bucket] += cv; st.n += 1;
     accounts.push({
@@ -298,7 +298,7 @@ function kobeWeekCompute(raw, KOBE_FROM, KOBE_TO, BASE_YEAR) {
     // Failed audits + Last Resorts are OUT (per Isaac) — applies to the
     // baseline best week AND the live comp week alike. No-audit accounts
     // still count (only a FAILED flag excludes).
-    if ((Number(s.initialPrice) || 0) < 99) continue;
+    if (isLastResort(s)) continue;
     if (typeof SC_FAIL_RE !== 'undefined' && SC_FAIL_RE.test(s.customerFlags || '')) continue;
     const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : '';
     if (!iso) continue;
@@ -347,12 +347,12 @@ function kobeWeekCompute(raw, KOBE_FROM, KOBE_TO, BASE_YEAR) {
 //                    not-yet-audited blank both DON'T count)
 // Returns per-branch metrics + category places + total points + overall place
 // + bugs, plus the excluded set and an excluded-metrics summary.
-const SC_PEST_EXCLUDE = /sentricon|german\s*roach|interior\s*flea/i;
+const SC_PEST_EXCLUDE = { test: (v) => pestInitialExclRe().test(String(v == null ? '' : v)) };
 // The Flags column can hold several flags at once; match the exact audit
 // tokens so unrelated flags (or words like "compass"/"failed payment") can't
 // trip the audit gate.
 const SC_PASS_RE = /passed\s*audit/i;
-const SC_FAIL_RE = /failed\s*audit/i;
+const SC_FAIL_RE = { test: (v) => auditFailRe().test(String(v == null ? '' : v)) };   // configurable: auditFailFlag()
 // One-time services (subscription starts with "One Time …") — excluded from the
 // 24+ Month % denominator since a one-time job can never be a 24-month agreement.
 const SC_ONETIME_RE = /^\s*one[\s-]?time/i;
@@ -468,7 +468,7 @@ function _scIsSoldNotStarted(s) {
 //                (still being audited; revenue "out there" waiting to clear)
 //   'counting' — clears the floor AND is flagged pass
 function springCleaningStatus(s) {
-  if ((Number(s.initialPrice) || 0) < 99) return 'excluded';
+  if (isLastResort(s)) return 'excluded';
   if (!frPendingServiced(s)) return 'excluded';                 // FR Pending/Serviced gate — same base as the CRM report
   if (springServicedStatus(s) === 'late') return 'excluded';    // not serviced by the deadline
   if (scAuditPassed(s.customerFlags)) return 'counting';        // Passed Audit OR No Audit
@@ -522,7 +522,7 @@ function springCleaningCompute(sales, branchList) {
   // audit / pending sales still count the rep — those are real production.)
   const branchReps = new Map(); // office → Set(rep)
   for (const s of d2dSales) {
-    if ((Number(s.initialPrice) || 0) < 99) continue; // Last Resort — no PRA footprint
+    if (isLastResort(s)) continue; // Last Resort — no PRA footprint
     const b = s.office || 'UNKNOWN';
     if (!branchReps.has(b)) branchReps.set(b, new Set());
     if (s.rep) branchReps.get(b).add(s.rep);
@@ -639,8 +639,8 @@ function springCleaningCompute(sales, branchList) {
     count: excluded.length,
     revenue: sumRev(excluded),
     avgInitial: excluded.length ? sumInit(excluded) / excluded.length : 0,
-    lastResort:  excluded.filter(s => (Number(s.initialPrice) || 0) < 99).length,
-    failedAudit: excluded.filter(s => (Number(s.initialPrice) || 0) >= 99 && SC_FAIL_RE.test(s.customerFlags || '')).length,
+    lastResort:  excluded.filter(s => isLastResort(s)).length,
+    failedAudit: excluded.filter(s => !isLastResort(s) && SC_FAIL_RE.test(s.customerFlags || '')).length,
   };
   const pendingSummary = {
     count: pending.length,
@@ -659,7 +659,7 @@ function springCleaningCompute(sales, branchList) {
 // everything (passed + pending + failed); reps are ranked on Passed revenue.
 const TG_LASTRESORT_RE = /last\s*resort/i;
 function topGunBucket(s) {
-  const lastResort = (Number(s.initialPrice) || 0) < 99 || TG_LASTRESORT_RE.test(s.customerFlags || '');
+  const lastResort = isLastResort(s) || TG_LASTRESORT_RE.test(s.customerFlags || '');
   if (lastResort || SC_FAIL_RE.test(s.customerFlags || '')) return 'failed';
   if (scAuditPassed(s.customerFlags)) return 'passed';
   return 'pending';

@@ -67,7 +67,10 @@ exports.handler = async (event) => {
       result = (process.env.GCP_SA_EMAIL && (process.env.GCP_SA_PRIVATE_KEY || process.env.GCP_SA_JSON)) ? { ok: true, message: 'Service account present in Netlify env' } : { ok: false, message: 'GCP_SA_EMAIL / GCP_SA_PRIVATE_KEY not set in Netlify env' };
     }
     const status = Object.assign({}, (existing && existing.status) || {}, { last_test_at: new Date().toISOString(), last_test_ok: result.ok, last_test_message: result.message });
-    await admin.from('integrations').upsert({ id, config, secrets, status, updated_by: userRes.user.id, updated_at: new Date().toISOString() }, { onConflict: 'id' });
+    // A plain Test only records the result — it never persists the form's
+    // config/secrets (a test with enabled:true used to switch the sync on).
+    if (action === 'save') await admin.from('integrations').upsert({ id, config, secrets, status, updated_by: userRes.user.id, updated_at: new Date().toISOString() }, { onConflict: 'id' });
+    else if (existing) await admin.from('integrations').update({ status }).eq('id', id);
     return json(200, { ok: true, test: result });
   }
   return json(200, { ok: true });

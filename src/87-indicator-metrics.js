@@ -16,7 +16,7 @@ const IND_METRIC_DIMS = [
   ['ror',      '3-day RORs', 'Sales cancelled within the 3-day right of rescission'],
   ['pending',  'Not serviced yet', 'Sold, initial still Pending (no completed service)'],
 ];
-const _IND_PEST_EXCL = /sentricon|german\s*roach|interior\s*flea/i;
+const _IND_PEST_EXCL = { test: (v) => pestInitialExclRe().test(String(v == null ? '' : v)) };
 // fixed: dims the metric's formula already decides (shown, not editable).
 const IND_METRIC_DEFS = [
   { key: 'count',       label: 'Sales',          def: 'Count of sales.' },

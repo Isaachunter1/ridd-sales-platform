@@ -1822,7 +1822,7 @@ function reportingWaterfall() {
     const rows = _retenEff(pop);
     if (!rows.length) return null;
     const pad2 = (n) => String(n).padStart(2, '0');
-    const _isLR = (r) => Number(r.initial_price) < 99 && String(r.sold_date || r.initial_service || '') >= LAST_RESORT_START;
+    const _isLR = (r) => Number(r.initial_price) < lastResortMin() && String(r.sold_date || r.initial_service || '') >= LAST_RESORT_START;
     // Metric pills — MULTI-SELECT (per Isaac): overlay any mix of series.
     // Color = metric, dash = year. Baseline = avg monthly attrition across
     // the selected PRIOR years, all accounts.

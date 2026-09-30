@@ -82,8 +82,8 @@ function commissionCompute(emp, startMs, endMs, lockMs, opts) {
   // Quality stats — same conventions as the boards: APay = autopay field
   // present and not the literal "No"; Last Resort = initial under $99.
   const apayN = rows.filter(r => r.customer_auto_pay && r.customer_auto_pay !== 'No').length;
-  const lastResort = rows.filter(r => (Number(r.initial_price) || 0) < 99).length;
-  const ror = canceled.filter(r => { const s = Date.parse(r.sold_date), c = Date.parse(r.subscription_date_canceled); return !isNaN(s) && !isNaN(c) && (c - s) >= 0 && (c - s) / 86400000 <= 3; });
+  const lastResort = rows.filter(r => (Number(r.initial_price) || 0) < (typeof lastResortMin === 'function' ? lastResortMin() : 99)).length;
+  const ror = canceled.filter(r => { const s = Date.parse(r.sold_date), c = Date.parse(r.subscription_date_canceled); return !isNaN(s) && !isNaN(c) && (c - s) >= 0 && (c - s) / 86400000 <= (typeof crmRorWindowDays === 'function' ? crmRorWindowDays() : 3); });
   const afterLock = lockMs ? canceled.filter(r => { const c = Date.parse(r.subscription_date_canceled); return !isNaN(c) && c > lockMs; }) : [];
   const agingDays = (typeof reportingAgingDays === 'function') ? reportingAgingDays() : 7;
   const withBalance = rows.filter(r => (Number(r.days_past_due) || 0) >= agingDays && !r.subscription_date_canceled);
@@ -189,7 +189,7 @@ function commissionRenderCards(B, repName) {
     statRow('Accounts with Balance', B.withBalance + '  (' + pct(B.sold ? B.withBalance / B.sold * 100 : 0) + ')'),
     statRow('Multi-Year %', pct(B.myPct)),
     B.apayN != null ? statRow('AutoPay %', pct(B.sold ? B.apayN / B.sold * 100 : 0)) : null,
-    B.lastResort != null ? statRow('Last Resort (<$99 initial)', B.lastResort + '  (' + pct(B.sold ? B.lastResort / B.sold * 100 : 0) + ')', B.lastResort ? '#A9441F' : null) : null,
+    B.lastResort != null ? statRow('Last Resort (<$' + lastResortMin() + ' initial)', B.lastResort + '  (' + pct(B.sold ? B.lastResort / B.sold * 100 : 0) + ')', B.lastResort ? '#A9441F' : null) : null,
     B.reasonExcl != null && B.reasonExcl > 0 ? statRow('Cancels w/ excluded reason (not counted)', B.reasonExcl) : null,
     statRow('Total 3-Day Right of Rescission', B.ror),
     statRow('Accounts Canceled After Lock Date', B.afterLock),
@@ -375,7 +375,7 @@ function viewD2dDashboard() {
     const r = state._d2dLbRange;
     const rows = byRange(r);
     const byRep = new Map();
-    const PEST_EXCL = /sentricon|german\s*roach|interior\s*flea/i;   // Avg Pest Init formula (matches player cards)
+    const PEST_EXCL = pestInitialExclRe();   // Avg Pest Init formula (matches player cards)
     rows.forEach(s => {
       const nm = getCanonicalRepName(s.rep);
       if (!nm) return;
@@ -388,7 +388,7 @@ function viewD2dDashboard() {
       const _mo = Number(s.contract) || 0;
       const _myb = myBucketOf(s);
       if (_myb === 'multi') o.multi++; else if (_myb === 'twelve') o.twelve++;
-      if ((Number(s.initialPrice) || 0) < 99) o.lastResort++;   // Last Resort — same <$99 rule as Indicators/LMS
+      if (isLastResort(s)) o.lastResort++;   // Last Resort — same <$99 rule as Indicators/LMS
       // Retained $ (per Isaac): contract value still on the books — real
       // cancels only (RORs / sold-not-started / combined / renewals don't count against the rep).
       if (!(_subCancelledNow(s) && !_isExcludableCancel(s))) o.keptCv += Number(s.contractValue) || 0;
@@ -520,7 +520,7 @@ function viewD2dDashboard() {
       { key: 'acv',  label: 'ACV',          tot: (T) => num(fmt.usd0(T.n ? T.cv / T.n : 0), 'font-bold'), row: (o) => num(fmt.usd0(o.n ? o.cv / o.n : 0), 'text-muted-') },
       { key: 'my',   label: 'MY %',         title: 'Multi-year mix \u2014 18mo+ \u00f7 (12mo + 18mo+)', tot: (T) => num(pct(T.multi, T.multi + T.twelve), 'font-bold'), row: (o) => num(pct(o.multi, o.multi + o.twelve), 'text-muted-') },
       { key: 'apay', label: 'APay %',       tot: (T) => num(pct(T.apay, T.n), 'font-bold'), row: (o) => num(pct(o.apay, o.n), 'text-muted-') },
-      { key: 'lr',   label: 'Last Resort %', title: 'Accounts under $99 initial \u00f7 all accounts', tot: (T) => num(pct1(T.lastResort, T.n), 'font-bold'), row: (o) => num(pct1(o.lastResort, o.n), '', (o.n && o.lastResort / o.n >= 0.2) ? { color: '#DC2626', fontWeight: '600' } : {}) },
+      { key: 'lr',   label: 'Last Resort %', title: 'Accounts under $' + lastResortMin() + ' initial \u00f7 all accounts', tot: (T) => num(pct1(T.lastResort, T.n), 'font-bold'), row: (o) => num(pct1(o.lastResort, o.n), '', (o.n && o.lastResort / o.n >= 0.2) ? { color: '#DC2626', fontWeight: '600' } : {}) },
     ];
     const phone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })();
     const pick = phone ? (LB.find(c => c.key === state._d2dLbMobileCol) || LB[1]) : null;
@@ -774,9 +774,10 @@ function viewD2dUpfront() {
   // Unlocking is allowed (admin) but leaves the ledger of who locked what.
   if (state._commLocks === undefined && supabase && !DEMO) {
     state._commLocks = null; // loading
-    supabase.from('app_settings').select('value').eq('key', 'commission_locks').maybeSingle()
+    supabase.from('app_settings').select('value, updated_at').eq('key', 'commission_locks').maybeSingle()
       .then(({ data }) => {
         state._commLocks = (data && data.value && data.value.locks) || {};
+        (state._settingsSeen = state._settingsSeen || {}).commission_locks = (data && data.updated_at) || null;
         if (state.view === 'commission') mountApp();
       }).catch(() => { state._commLocks = {}; });
   }
@@ -784,9 +785,21 @@ function viewD2dUpfront() {
   const _lock = (state._commLocks || {})[_lockKey] || null;
   const _saveLocks = async (locks) => {
     state._commLocks = locks;
+    // Compare-and-swap: another admin locking a different period at the same
+    // time must not be overwritten — on a conflict, re-read, re-apply ONLY
+    // this period's change onto the latest, and try once more.
     try {
-      const { error } = await supabase.from('app_settings').upsert({ key: 'commission_locks', value: { locks } }, { onConflict: 'key' });
-      if (error) toast('Lock save failed: ' + error.message, 'error');
+      const mine = locks[_lockKey];
+      let r = await saveAppSettingCas('commission_locks', { locks });
+      if (r.conflict) {
+        const { data } = await supabase.from('app_settings').select('value, updated_at').eq('key', 'commission_locks').maybeSingle();
+        const latest = Object.assign({}, (data && data.value && data.value.locks) || {});
+        if (mine) latest[_lockKey] = mine; else delete latest[_lockKey];
+        (state._settingsSeen = state._settingsSeen || {}).commission_locks = (data && data.updated_at) || null;
+        state._commLocks = latest;
+        r = await saveAppSettingCas('commission_locks', { locks: latest });
+      }
+      if (!r.ok) toast('Lock save failed: ' + ((r.error && r.error.message) || (r.conflict ? 'another admin is editing locks — reload and retry' : 'unknown')), 'error');
     } catch (e2) { toast('Lock save failed: ' + ((e2 && e2.message) || e2), 'error'); }
     mountApp();
   };
