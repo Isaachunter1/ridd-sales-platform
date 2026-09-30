@@ -915,7 +915,7 @@ const _mktgX = (v) => v == null || !isFinite(v) ? '—' : v.toFixed(2) + 'x';
 const _mktgDiv = (a, b) => (b > 0 ? a / b : null);
 function _mktgYearBar(sub) {
   const y = _mktgYearSel();
-  const SUBS = [['pnl', 'P&L'], ['acq', 'Rep vs Office cost'], ['providers', 'Metrics'], ['spend', 'Spend entry'], ['projections', 'Projections']];
+  const SUBS = [['pnl', 'P&L'], ['providers', 'Metrics'], ['spend', 'Spend entry'], ['projections', 'Projections']];
   return el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
     el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
       ...SUBS.map(([v, l]) => el('button', {
@@ -1039,6 +1039,16 @@ function _mktgPnl() {
 }
 
 // ── CAC: monthly rollup ──
+// Buttons beside the Office dropdown on Metrics: open Lead providers / Lead
+// reconciliation; the active one (or ← CAC) returns to the CAC page.
+function _mktgMetricsButtons(inline) {
+  const v = ['perf', 'recon'].includes(state._mktProvView) ? state._mktProvView : 'cac';
+  const b = (key, label) => el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold',
+    style: v === key ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+    onclick: () => { state._mktProvView = v === key ? 'cac' : key; mountApp(); } }, label);
+  const btns = [v !== 'cac' ? b('cac', '\u2190 CAC') : null, b('perf', 'Lead providers'), b('recon', 'Lead reconciliation')];
+  return inline ? el('div', { class: 'flex items-center gap-2', style: { marginLeft: '8px' } }, ...btns) : el('div', { class: 'flex items-center gap-2 flex-wrap' }, ...btns);
+}
 function _mktgCac() {
   const y = _mktgYearSel(), m = _mktgStore(), a = _mktgActuals(y), B = _mktgBranchList(y), s = m.settings;
   // Scope (per Isaac): RIDD · RPC · RPS · or any single office.
@@ -1082,7 +1092,7 @@ function _mktgCac() {
   ];
   const byKey = Object.fromEntries(ROWS.map(r => [r[0], r]));
   return el('div', { class: 'flex flex-col gap-4' },
-    el('div', { class: 'flex items-center gap-2 flex-wrap' }, el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Office'), scopeSel),
+    el('div', { class: 'flex items-center gap-2 flex-wrap' }, el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Office'), scopeSel, _mktgMetricsButtons(true)),
     _mktgMatrixCard('CAC · ' + (scope === MKTG_ALL ? CFG.COMPANY_NAME : B.byEntity[scope] ? companyName(scope) : _mktgTC(scope)), 'FieldRoutes revenue & counts · QuickBooks ad spend (allocation for unbooked months) · wages / incentives from Spend entry · projection from Configurations', ROWS.map(r => r[0]),
       (rk, i) => byKey[rk][1](i),
       (v, rk) => byKey[rk][2](v),
@@ -1090,118 +1100,7 @@ function _mktgCac() {
         total: (rk) => { const r = byKey[rk]; if (r[3] === 'sum') { let t = 0; for (let i = 0; i < 12; i++) t += r[1](i) || 0; return t; } let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += r[4][0](i) || 0; d += r[4][1](i) || 0; } return _mktgDiv(n, d); } }));
 }
 
-// ── Acquisition cost: Sales Reps vs Office Staff (per Isaac, Sep 29) ──────
-// Sales Rep (D2D) commissions are paid ONLY on accounts still active after
-// January 31 of the year after they were sold; anything cancelled by then is
-// taken back out of the rep's commission. Office Staff cost is cash up front
-// (ad spend + wages + incentives + their commission on everything sold).
-// Rates are weighted averages entered here and saved for every admin.
-// Grouped by SOLD month. Before the lock date the Sales Rep "eligible" line
-// is a projection from accounts still active today.
-function _mktgAcqRows(year, scopeBranches, type) {
-  const rows = state.reportingSubscriptions || [];
-  const isExcl = reportingExcludedSources();
-  const lock = (year + 1) + '-01-31';
-  const today = new Date().toISOString().slice(0, 10);
-  const asOf = today < lock ? today : lock;
-  const inScope = new Set(scopeBranches);
-  const lc = reportingServiceLifecycleMap();
-  const mk = () => ({ n: 0, rev: 0, svN: 0, svRev: 0, elN: 0, elRev: 0 });
-  const out = Array.from({ length: 12 }, mk);
-  for (const r of rows) {
-    const sd = r.sold_date; if (!sd || String(sd).slice(0, 4) !== String(year)) continue;
-    const mi = Number(String(sd).slice(5, 7)) - 1; if (!(mi >= 0 && mi < 12)) continue;
-    if (String(r.sold_by_type || '').trim() !== type) continue;
-    const src = reportingSourceOf(r); if (isExcl.has(src)) continue;
-    if (reportingSourceClass(src) === 'renewal') continue;
-    const off = String(r.office_name || 'UNKNOWN').toUpperCase(); if (!inScope.has(off)) continue;
-    const cv = Number(r.subscription_contract_value) || 0;
-    const cx = r.subscription_date_canceled ? String(r.subscription_date_canceled).slice(0, 10) : null;
-    // A one-time job that was performed is revenue kept, not churn.
-    const oneTime = lc.get(r.subscription) === 'onetime';
-    const alive = oneTime ? !!(r.initial_service || r.initial_serviced_date)
-      : cx ? cx > asOf : (String(r.subscription_status || '').trim().toLowerCase() === 'active' || asOf === lock);
-    // Reps are paid on SERVICED revenue (initial completed) that is still
-    // active at the lock (per Isaac) — sold-but-never-serviced never pays.
-    const serviced = !!(r.initial_service || r.initial_serviced_date) || String(r.initial_status || '').toLowerCase() === 'completed';
-    const x = out[mi]; x.n++; x.rev += cv;
-    if (serviced) { x.svN++; x.svRev += cv; }
-    if (alive && (serviced || type !== 'Sales Rep')) { x.elN++; x.elRev += cv; }
-  }
-  return { m: out, lock, locked: today >= lock };
-}
-function _mktgAcq() {
-  const y = _mktgYearSel(), m = _mktgStore(), B = _mktgBranchList(y), s = m.settings;
-  const scope = state._mktCacScope || 'RIDD';
-  const scopeBranches = scope === MKTG_ALL ? B.all : (B.byEntity[scope] ? B.byEntity[scope] : [scope]);
-  const rep = _mktgAcqRows(y, scopeBranches, 'Sales Rep');
-  const off = _mktgAcqRows(y, scopeBranches, 'Office Staff');
-  const repPct = Number(s.repCommissionPct) || 0, offPct = Number(s.officeCommissionPct) || 0;
-  const SP = state.reportingIsSpend || {};
-  const qbo = (b, i) => { const M = SP[_mktgYm(y, i)] || {}; let t = 0; for (const acct in M) { const o = (typeof _mktgQboOffice === 'function') ? _mktgQboOffice(acct) : null; if (o === b) t += Number(M[acct]) || 0; } return t; };
-  const ad = (i) => scopeBranches.reduce((t, b) => t + qbo(b, i), 0);
-  const wg = (i) => scopeBranches.reduce((t, b) => t + (Number((m.wages[_mktgYm(y, i)] || {})[b]) || 0), 0);
-  const inc = (i) => scopeBranches.reduce((t, b) => t + (Number((m.incentives[_mktgYm(y, i)] || {})[b]) || 0), 0);
-  const R = (i) => rep.m[i], O = (i) => off.m[i];
-  const repPaid = (i) => repPct * R(i).svRev, repCost = (i) => repPct * R(i).elRev, repBack = (i) => repPct * (R(i).svRev - R(i).elRev);
-  const offComm = (i) => offPct * O(i).rev, offCost = (i) => ad(i) + wg(i) + inc(i) + offComm(i);
-  const sumOf = (f) => { let t = 0; for (let i = 0; i < 12; i++) t += f(i) || 0; return t; };
-  const elLbl = rep.locked ? 'active Jan 31' : 'active today (locks Jan 31, ' + (y + 1) + ')';
-  const pctIn = (val, set) => el('input', { type: 'number', step: '0.1', value: val ? String(Math.round(val * 1000) / 10) : '', placeholder: 'enter %',
-    class: 'rounded-lg border px-2 py-1 text-[11px]', style: { width: '80px', borderColor: 'var(--border-2)', background: 'var(--card)' },
-    onchange: (e) => { const x = parseFloat(e.target.value); set(isNaN(x) ? null : x / 100); _mktgSave(); mountApp(); } });
-  const ROWS = [
-    // Sales Reps
-    ['SALES REPS · accounts sold', (i) => R(i).n, fmt.int, 'sum'],
-    ['Revenue sold', (i) => R(i).rev, _mktgUsd0, 'sum'],
-    ['Serviced accounts', (i) => R(i).svN, fmt.int, 'sum'],
-    ['Serviced revenue', (i) => R(i).svRev, _mktgUsd0, 'sum'],
-    ['Eligible accounts · serviced + ' + elLbl, (i) => R(i).elN, fmt.int, 'sum'],
-    ['Eligible revenue', (i) => R(i).elRev, _mktgUsd0, 'sum'],
-    ['Eligible % of serviced', (i) => _mktgDiv(R(i).elRev, R(i).svRev), _mktgPct, 'ratio', [(i) => R(i).elRev, (i) => R(i).svRev]],
-    ['Commission on serviced (' + (repPct ? (repPct * 100).toFixed(1) + '%' : 'rate not set') + ')', repPaid, _mktgUsd0, 'sum'],
-    ['Commission taken back (serviced, cancelled before lock)', repBack, _mktgUsd0, 'sum'],
-    ['Net commission (× eligible)', repCost, _mktgUsd0, 'sum'],
-    ['Rep CAC % of serviced revenue', (i) => _mktgDiv(repCost(i), R(i).svRev), _mktgPct, 'ratio', [repCost, (i) => R(i).svRev]],
-    ['Rep cost per eligible account', (i) => _mktgDiv(repCost(i), R(i).elN), _mktgUsd0, 'ratio', [repCost, (i) => R(i).elN]],
-    // Office Staff
-    ['OFFICE STAFF · accounts sold', (i) => O(i).n, fmt.int, 'sum'],
-    ['Revenue sold ', (i) => O(i).rev, _mktgUsd0, 'sum'],
-    ['Still active · ' + (off.locked ? 'Jan 31' : 'today'), (i) => O(i).elRev, _mktgUsd0, 'sum'],
-    ['Ad spend + wages + incentives', (i) => ad(i) + wg(i) + inc(i), _mktgUsd0, 'sum'],
-    ['Commission (' + (offPct ? (offPct * 100).toFixed(1) + '%' : 'rate not set') + ' × sold, paid up front)', offComm, _mktgUsd0, 'sum'],
-    ['Total up-front cost', offCost, _mktgUsd0, 'sum'],
-    ['Office CAC % of revenue sold', (i) => _mktgDiv(offCost(i), O(i).rev), _mktgPct, 'ratio', [offCost, (i) => O(i).rev]],
-    ['Office CAC % of revenue still active', (i) => _mktgDiv(offCost(i), O(i).elRev), _mktgPct, 'ratio', [offCost, (i) => O(i).elRev]],
-    ['Office cost per account', (i) => _mktgDiv(offCost(i), O(i).n), _mktgUsd0, 'ratio', [offCost, (i) => O(i).n]],
-  ];
-  const byKey = Object.fromEntries(ROWS.map(r => [r[0], r]));
-  const scopeSel = el('select', {
-    class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer font-semibold', style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
-    onchange: (e) => { state._mktCacScope = e.target.value; mountApp(); },
-  }, ...[[MKTG_ALL, CFG.COMPANY_NAME + ' (all)'], ...(_mktgEntities().length > 1 ? _mktgEntities().map(k => [k, companyName(k)]) : [])].map(([v, l]) => el('option', { value: v, selected: scope === v }, l)),
-    ...B.all.map(b => el('option', { value: b, selected: scope === b }, _mktgTC(b))));
-  const repTot = sumOf(repCost), repRev = sumOf((i) => R(i).svRev), offTot = sumOf(offCost), offRev = sumOf((i) => O(i).rev);
-  const tile = (label, v, sub) => el('div', { class: 'card p-3 min-w-0' }, el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, label), el('div', { class: 'text-2xl font-black tabular-nums mt-1' }, v), sub ? el('div', { class: 'text-[10px] text-muted- mt-0.5' }, sub) : null);
-  return el('div', { class: 'flex flex-col gap-4' },
-    el('div', { class: 'card p-3 flex items-center gap-3 flex-wrap' },
-      el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Office'), scopeSel,
-      el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-', style: { marginLeft: '8px' } }, 'Sales Rep weighted commission'), pctIn(s.repCommissionPct, (v) => { s.repCommissionPct = v; }),
-      el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-', style: { marginLeft: '8px' } }, 'Office Staff weighted commission'), pctIn(s.officeCommissionPct, (v) => { s.officeCommissionPct = v; })),
-    el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))' } },
-      tile('Sales Rep CAC', _mktgPct(_mktgDiv(repTot, repRev)), fmt.usd0(repTot) + ' net on ' + fmt.usd0(repRev) + ' serviced'),
-      tile('Office Staff CAC', _mktgPct(_mktgDiv(offTot, offRev)), fmt.usd0(offTot) + ' on ' + fmt.usd0(offRev) + ' sold'),
-      tile('Rep serviced revenue eligible', _mktgPct(_mktgDiv(sumOf((i) => R(i).elRev), repRev)), rep.locked ? 'locked Jan 31, ' + (y + 1) : 'projected · locks Jan 31, ' + (y + 1)),
-      tile('Rep commission taken back', fmt.usd0(sumOf(repBack)), 'serviced, cancelled before the lock')),
-    _mktgMatrixCard('Acquisition cost · ' + (scope === MKTG_ALL ? CFG.COMPANY_NAME : B.byEntity[scope] ? companyName(scope) : _mktgTC(scope)),
-      'By sold month · new + upsell contract value (renewals and excluded sources out) · Sales Reps are paid on SERVICED revenue, kept only if the account is still active after Jan 31 of the next year · Office Staff cost is paid up front (QuickBooks ad spend, wages and incentives from Spend entry, plus commission on everything sold)',
-      ROWS.map(r => r[0]),
-      (rk, i) => byKey[rk][1](i),
-      (v, rk) => byKey[rk][2](v),
-      { firstCol: 'Metric', groupRows: new Set(['SALES REPS · accounts sold', 'OFFICE STAFF · accounts sold', 'Rep CAC % of serviced revenue', 'Office CAC % of revenue sold']),
-        total: (rk) => { const r = byKey[rk]; if (r[3] === 'sum') return sumOf(r[1]); let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += r[4][0](i) || 0; d += r[4][1](i) || 0; } return _mktgDiv(n, d); } }));
-}
-
+// (Rep vs Office cost tab retired Sep 30 — the Sales Rep eligibility math lives on D2D Sales → Pay, src/94-commission-view.js.)
 // ── Providers: lead partner × month ──
 function _mktgProviders() {
   const y = _mktgYearSel(), m = _mktgStore(), a = _mktgActuals(y), T = m.settings.targets;
@@ -1529,12 +1428,14 @@ function reportingMarketingPnl() {
   reportingLoadQboSpend();
   // CAC moved under Metrics (was Providers), per Isaac, Sep 30.
   if (state._mktSub === 'cac') { state._mktSub = 'providers'; state._mktProvView = 'cac'; }
-  const sub = ['pnl', 'acq', 'providers', 'spend', 'projections'].includes(state._mktSub) ? state._mktSub : 'pnl';
-  // Providers has two views (per Isaac, Sep 30): performance matrices and the lead reconciliation (last-touch attribution).
-  const provView = ['cac', 'perf', 'recon'].includes(state._mktProvView) ? state._mktProvView : 'cac';
-  const provTabs = el('div', { class: 'inline-flex rounded-lg border overflow-hidden self-start', style: { borderColor: 'var(--border-2)' } },
-    ...[['cac', 'CAC'], ['perf', 'Providers'], ['recon', 'Lead reconciliation']].map(([v, l]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold', style: provView === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._mktProvView = v; mountApp(); } }, l)));
-  const body = sub === 'cac' ? _mktgCac() : sub === 'acq' ? _mktgAcq() : sub === 'providers' ? el('div', { class: 'flex flex-col gap-4' }, provTabs, provView === 'recon' ? mktgAttributionView() : provView === 'cac' ? _mktgCac() : _mktgProviders()) : sub === 'spend' ? _mktgSpendEntry() : sub === 'projections' ? _mktgProjections() : _mktgPnl();
+  if (state._mktSub === 'acq') state._mktSub = 'providers';
+  const sub = ['pnl', 'providers', 'spend', 'projections'].includes(state._mktSub) ? state._mktSub : 'pnl';
+  // Metrics (per Isaac, Sep 30): CAC on the page; Lead providers and Lead
+  // reconciliation are buttons to the right of the Office dropdown.
+  const provView = ['perf', 'recon'].includes(state._mktProvView) ? state._mktProvView : 'cac';
+  const body = sub === 'providers' ? (provView === 'recon' ? el('div', { class: 'flex flex-col gap-4' }, _mktgMetricsButtons(), mktgAttributionView())
+      : provView === 'perf' ? el('div', { class: 'flex flex-col gap-4' }, _mktgMetricsButtons(), _mktgProviders()) : _mktgCac())
+    : sub === 'spend' ? _mktgSpendEntry() : sub === 'projections' ? _mktgProjections() : _mktgPnl();
   // Needs attention (owner-only feed) lives on the Marketing tab (per Isaac, Sep 2026).
   return el('div', { class: 'flex flex-col gap-4' }, (typeof exceptionFeedCard === 'function') ? exceptionFeedCard() : null, _mktgYearBar(sub), body);
 }

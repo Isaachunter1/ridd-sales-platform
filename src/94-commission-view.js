@@ -3,14 +3,86 @@
 // │ Part of the app.js bundle (tools/bundle.js concatenates src/*.js in name order).
 // └────────────────────────────────────────────────────────────────────────
 function viewCommission() {
-  // D2D Pay — wiped clean (per Isaac, Sep 2026) to be rebuilt from scratch.
-  // The old Upfront stub + Backend calculator (viewD2dUpfront /
-  // commissionCalculator / commissionMyPay) are still in the file and in
-  // git history; nothing routes to them until the new design lands.
-  return el('div', { class: 'flex flex-col gap-4 w-full' },
-    el('div', { class: 'card p-10 text-center text-sm text-muted-' },
-      el('div', { class: 'font-display text-lg mb-1', style: { color: 'var(--text)' } }, 'Pay'),
-      'D2D pay is being rebuilt. Nothing to show here yet.'));
+  // D2D Pay (per Isaac, Sep 30): the backbone of the Sales Rep commission —
+  // reps are paid on SERVICED revenue that is still active after January 31
+  // of the year after it was sold. Moved here from Marketing's retired
+  // "Rep vs Office cost" tab. Pay rates / ladders layer on top of this.
+  return el('div', { class: 'flex flex-col gap-4 w-full' }, d2dEligibilityCard());
+}
+
+// Sales Rep eligibility by sold month: sold → serviced → eligible (serviced
+// AND still active at the Jan 31 lock; projected from today until then).
+function d2dEligibility(year, empIds) {
+  const rows = state.reportingSubscriptions || [];
+  const isExcl = (typeof reportingExcludedSources === 'function') ? reportingExcludedSources() : new Set();
+  const lc = (typeof reportingServiceLifecycleMap === 'function') ? reportingServiceLifecycleMap() : new Map();
+  const lock = (year + 1) + '-01-31';
+  const today = new Date().toISOString().slice(0, 10);
+  const asOf = today < lock ? today : lock;
+  const mk = () => ({ n: 0, rev: 0, svN: 0, svRev: 0, elN: 0, elRev: 0 });
+  const out = Array.from({ length: 12 }, mk);
+  for (const r of rows) {
+    const sd = String(r.sold_date || ''); if (sd.slice(0, 4) !== String(year)) continue;
+    const mi = Number(sd.slice(5, 7)) - 1; if (!(mi >= 0 && mi < 12)) continue;
+    if (String(r.sold_by_type || '').trim() !== 'Sales Rep') continue;
+    if (empIds && !empIds.has(String(r.sold_by_id || '').trim())) continue;
+    const src = reportingSourceOf(r); if (isExcl.has(src)) continue;
+    if (typeof reportingSourceClass === 'function' && reportingSourceClass(src) === 'renewal') continue;
+    const cv = Number(r.subscription_contract_value) || 0;
+    const serviced = !!(r.initial_service || r.initial_serviced_date) || String(r.initial_status || '').toLowerCase() === 'completed';
+    const cx = r.subscription_date_canceled ? String(r.subscription_date_canceled).slice(0, 10) : null;
+    const oneTime = lc.get(r.subscription) === 'onetime';
+    const alive = oneTime ? serviced : cx ? cx > asOf : (String(r.subscription_status || '').trim().toLowerCase() === 'active' || asOf === lock);
+    const x = out[mi]; x.n++; x.rev += cv;
+    if (serviced) { x.svN++; x.svRev += cv; if (alive) { x.elN++; x.elRev += cv; } }
+  }
+  return { m: out, lock, locked: today >= lock };
+}
+function d2dEligibilityCard() {
+  if (!isAdminRole(state.profile?.role)) return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'D2D pay is being rebuilt. Nothing to show here yet.');
+  if (state.frRoster == null && !state._frRosterLoading && typeof loadFieldRoutesRoster === 'function') loadFieldRoutesRoster().then(() => { if (state.view === 'commission') mountApp(); });
+  const activeId = state.reportingActiveUploadId;
+  if (activeId && state.reportingSubscriptionsLoadedFor !== activeId && typeof loadReportingSubscriptions === 'function' && !state._d2dSnapLoading) {
+    state._d2dSnapLoading = true;
+    loadReportingSubscriptions(activeId).then(rows => { state._d2dSnapLoading = false; if (rows) { state.reportingSubscriptions = rows; state.reportingSubscriptionsLoadedFor = activeId; } mountApp(); });
+  }
+  if (!(state.reportingSubscriptions || []).length) return el('div', { class: 'card p-8 text-center text-[11px] text-muted-' }, 'Loading the CRM snapshot…');
+  const reps = (state.frRoster || []).filter(e => e.type_label === 'Sales Rep').map(e => ({ id: String(e.employee_id), name: (typeof _frEmpName === 'function' ? _frEmpName(e) : ((e.fname || '') + ' ' + (e.lname || '')).trim()), ids: new Set(String(e.employee_ids || e.employee_id || '').split(',').map(x => x.trim()).filter(Boolean)) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const nowY = new Date().getFullYear();
+  if (!state._d2dEligYear) state._d2dEligYear = nowY;
+  const y = state._d2dEligYear;
+  const rep = reps.find(r => r.id === state._d2dEligRep) || null;
+  const E = d2dEligibility(y, rep ? rep.ids : null);
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const sum = (k) => E.m.reduce((t, x) => t + x[k], 0);
+  const pct = (a, b) => b > 0 ? Math.round(a / b * 1000) / 10 + '%' : '—';
+  const elLbl = E.locked ? 'serviced + active Jan 31, ' + (y + 1) : 'serviced + active today (locks Jan 31, ' + (y + 1) + ')';
+  const ROWS = [
+    ['Accounts sold', (x) => x.n.toLocaleString(), sum('n').toLocaleString()],
+    ['Revenue sold', (x) => fmt.usd0(x.rev), fmt.usd0(sum('rev'))],
+    ['Serviced accounts', (x) => x.svN.toLocaleString(), sum('svN').toLocaleString()],
+    ['Serviced revenue', (x) => fmt.usd0(x.svRev), fmt.usd0(sum('svRev'))],
+    ['Eligible accounts · ' + elLbl, (x) => x.elN.toLocaleString(), sum('elN').toLocaleString()],
+    ['Eligible revenue', (x) => fmt.usd0(x.elRev), fmt.usd0(sum('elRev')), true],
+    ['Eligible % of serviced', (x) => pct(x.elRev, x.svRev), pct(sum('elRev'), sum('svRev')), true],
+  ];
+  const sel = (val, opts, on) => el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', background: 'var(--card)' }, onchange: (e) => on(e.target.value) },
+    ...opts.map(([v, l]) => el('option', { value: v, selected: String(val) === String(v) }, l)));
+  const th = (t) => el('th', { class: 'px-2 py-1.5 text-left text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)' } }, t);
+  const td = (v, bold) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap' + (bold ? ' font-bold' : '') }, v);
+  return el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-4 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+      el('h3', { class: 'text-sm font-bold' }, 'Commission eligibility · ' + (rep ? rep.name : 'All sales reps')),
+      sel(rep ? rep.id : '', [['', 'All sales reps'], ...reps.map(r => [r.id, r.name])], (v) => { state._d2dEligRep = v || null; mountApp(); }),
+      sel(y, [nowY - 2, nowY - 1, nowY].map(v => [v, 'Sold in ' + v]), (v) => { state._d2dEligYear = Number(v); mountApp(); }),
+      el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Paid only on serviced revenue still active after Jan 31 of the following year' + (E.locked ? '' : ' · projected until then'))),
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]', style: { tableLayout: 'fixed', minWidth: '1180px' } },
+      el('colgroup', {}, el('col', { style: { width: '300px' } }), ...MON.map(() => el('col', {})), el('col', { style: { width: '110px' } })),
+      el('thead', {}, el('tr', {}, th('Metric'), ...MON.map(th), th('Total'))),
+      el('tbody', {}, ...ROWS.map(([label, f, tot, hi]) => el('tr', { class: 'border-t', style: Object.assign({ borderColor: 'var(--border)' }, hi ? { background: 'var(--card-2)' } : {}) },
+        el('td', { class: 'px-2 py-1.5 font-semibold', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, title: label }, label),
+        ...E.m.map(x => td(f(x), hi)), td(tot, true)))))));
 }
 
 // ── Rep-facing view: your OWN published commission, read-only. Reps can't read
