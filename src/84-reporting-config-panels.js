@@ -967,7 +967,7 @@ function _mktgCac() {
   const wg = (i) => scopeBranches.reduce((t, b) => t + (Number((m.wages[_mktgYm(y, i)] || {})[b]) || 0), 0);
   const inc = (i) => scopeBranches.reduce((t, b) => t + (Number((m.incentives[_mktgYm(y, i)] || {})[b]) || 0), 0);
   const tot = (i) => ad(i) + wg(i) + inc(i);
-  const proj = (i) => { let t = 0; for (const b of scopeBranches) t += (Number(s.branchGoals[b]) || 0) * (s.seasonal[i] || 0); return t; };
+  const proj = (i) => { let t = 0; for (const b of scopeBranches) t += (Number(s.branchGoals[b]) || 0) * (_mktgSeasonal()[i] || 0); return t; };
   const scopeSel = el('select', {
     class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer font-semibold',
     style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
@@ -1317,7 +1317,7 @@ function _mktgProjections() {
   const y = _mktgYearSel(), m = _mktgStore(), s = m.settings, B = _mktgBranchList(y), a = _mktgActuals(y);
   const { rows, groups, members } = _mktgGroupRows(B);
   const goal = (b) => Number(s.branchGoals[b]) || 0;
-  const pRev = (rk, i) => members(rk).reduce((t, b) => t + goal(b) * (s.seasonal[i] || 0), 0);
+  const pRev = (rk, i) => members(rk).reduce((t, b) => t + goal(b) * (_mktgSeasonal()[i] || 0), 0);
   const pAd  = (rk, i) => pRev(rk, i) * s.adSpendPct;
   const pWg  = (rk, i) => pRev(rk, i) * s.wagesPct;
   const pInc = (rk, i) => pRev(rk, i) * s.incentivesPct;
@@ -1363,7 +1363,7 @@ function _mktgProjections() {
           _mktgTd(fmt.usd0(channels.reduce((t, ch) => t + [0,1,2,3,4,5,6,7,8,9,10,11].reduce((u, i) => u + chProj(ch, i), 0), 0)), { bold: true }))))));
   return el('div', { class: 'flex flex-col gap-4' },
     goalsCard,
-    _mktgMatrixCard('Projected revenue', 'branch goal × seasonal allocation (Configurations)', rows, pRev, _mktgUsd0, opts),
+    _mktgMatrixCard('Projected revenue', 'branch goal × the monthly allocation in Settings → Goals', rows, pRev, _mktgUsd0, opts),
     _mktgMatrixCard('Actual vs projected', 'FieldRoutes actual ÷ projected', rows, (rk, i) => { const p = pRev(rk, i); return p > 0 ? aRev(rk, i) / p : null; }, _mktgPct, { ...opts, cellStyle: (v) => v == null ? {} : { color: v >= 1 ? '#5F6C5B' : v >= 0.8 ? '#A9441F' : '#DC2626', fontWeight: '600' }, total: (rk) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += aRev(rk, i); d += pRev(rk, i); } return _mktgDiv(n, d); } }),
     _mktgMatrixCard('Projected ad spend', 'projected revenue × ' + Math.round(s.adSpendPct * 100) + '%', rows, pAd, _mktgUsd0, opts),
     _mktgMatrixCard('Projected wages', 'projected revenue × ' + Math.round(s.wagesPct * 100) + '%', rows, pWg, _mktgUsd0, opts),
@@ -1372,37 +1372,35 @@ function _mktgProjections() {
     chCard);
 }
 
-// ── Configurations card: quota + projection rates + targets ──
+// Month weights for the branch-goal projections (per Isaac, Sep 30): the
+// shape of the company's NEW monthly goal in Settings → Goals — one seasonal
+// curve for the whole app. Falls back to the old marketing curve until a
+// Goals allocation exists.
+function _mktgSeasonal() {
+  const g = (typeof deptGoalObj === 'function') ? deptGoalObj('office') : null;
+  const arr = g && Array.isArray(g.monthly_new) && g.monthly_new.length === 12 ? g.monthly_new.map(v => Number(v) || 0) : null;
+  const tot = arr ? arr.reduce((a, b) => a + b, 0) : 0;
+  if (tot > 0) return arr.map(v => v / tot);
+  return _mktgStore().settings.seasonal;
+}
+// ── Configurations card: projection rates + targets ──
 function reportingMarketingGoalsPanel() {
   const m = _mktgStore(), s = m.settings;
-  const num = (v, onSave, opts = {}) => el('input', { type: 'number', step: opts.step || '1', value: v == null ? '' : String(v), class: 'rounded-lg border px-2.5 py-1 text-[11px] text-left', style: { width: opts.w || '110px', borderColor: 'var(--border-2)' },
+  const num = (v, onSave, opts = {}) => el('input', { type: 'number', step: opts.step || '1', value: v == null ? '' : String(v), class: 'rounded-lg border px-2.5 py-1 text-[11px] text-right tabular-nums shrink-0', style: { width: '96px', borderColor: 'var(--border-2)' },
     onchange: (e) => { const x = parseFloat(e.target.value); onSave(isNaN(x) ? 0 : x); _mktgSave(); mountApp(); } });
-  const row = (label, node, hint) => el('div', { class: 'flex items-center gap-4 gap-3 py-1.5 border-t', style: { borderColor: 'var(--border)' } },
+  const row = (label, node, hint) => el('div', { class: 'flex items-center justify-between gap-3 py-1.5 border-t', style: { borderColor: 'var(--border)' } },
     el('div', { class: 'min-w-0' }, el('div', { class: 'text-xs font-semibold' }, label), hint ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, hint) : null), node);
-  const pctIn = (get, set) => num(Math.round(get() * 100), (v) => set(v / 100), { w: '70px' });
-  const q = (arr, from) => arr.slice(from, from + 3).reduce((t, v) => t + v, 0);
-  const seasonalTable = (title, arr, total, reps, key) => el('div', { class: 'mt-3' },
-    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-1', style: { color: 'var(--text-muted)' } }, title + ' · ' + (Math.round(arr.reduce((t, v) => t + v, 0) * 1000) / 10) + '% allocated'),
-    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px] frozen-table' },
-      el('thead', {}, el('tr', {}, _mktgTh('', false), ...MKTG_MONTHS.map(mn => _mktgTh(mn)))),
-      el('tbody', {},
-        el('tr', { class: 'border-t border-' }, _mktgTd('%', { left: true, bold: true }), ...arr.map((v, i) => el('td', { class: 'px-1 py-1 text-left' }, num(Math.round(v * 1000) / 10, (x) => { s[key][i] = x / 100; }, { w: '56px', step: '0.5' })))),
-        el('tr', { class: 'border-t border-' }, _mktgTd('Quota', { left: true, bold: true }), ...arr.map((v, i) => _mktgTd(fmt.usd0(total * v)))),
-        reps > 0 ? el('tr', { class: 'border-t border-', style: { background: 'var(--card-2)' } }, _mktgTd('Per rep / qtr', { left: true, bold: true }), ...[0, 3, 6, 9].flatMap(f => [_mktgTd(fmt.usd0(total * q(arr, f) / Math.max(1, reps)), { bold: true }), _mktgTd(''), _mktgTd('')])) : null))));
+  const pctIn = (get, set) => num(Math.round(get() * 100), (v) => set(v / 100));
   return el('div', { class: 'card p-5' },
     el('h2', { class: 'text-base font-bold' }, '🎯 Marketing targets'),
-    el('div', { class: 'text-[10px] mt-0.5 mb-2', style: { color: 'var(--text-muted)' } }, 'Drives the Marketing report’s Projections and CAC targets. Saved for every admin. Team and rep goals are set in Settings → Goals.'),
+    el('div', { class: 'text-[10px] mt-0.5 mb-2', style: { color: 'var(--text-muted)' } }, 'Drives the Marketing report’s Projections and CAC targets. Saved for every admin. Team and rep goals — and the monthly allocation projections follow — are set in Settings → Goals.'),
     row('Ad spend % of revenue', pctIn(() => s.adSpendPct, (v) => { s.adSpendPct = v; }), 'projection rate'),
     row('Wages % of revenue', pctIn(() => s.wagesPct, (v) => { s.wagesPct = v; }), 'projection rate'),
     row('Incentives % of revenue', pctIn(() => s.incentivesPct, (v) => { s.incentivesPct = v; }), 'projection rate'),
     row('Target · ad spend CAC', pctIn(() => s.targets.adSpendCac, (v) => { s.targets.adSpendCac = v; }), 'ad spend ÷ revenue, at or under'),
     row('Target · wages CAC', pctIn(() => s.targets.wagesCac, (v) => { s.targets.wagesCac = v; }), 'wages ÷ revenue, at or under'),
-    row('Target · ROAS', num(s.targets.roas, (v) => { s.targets.roas = v; }, { w: '70px', step: '0.1' }), 'revenue ÷ ad spend, at or over'),
-    row('Target · ad spend per job', num(s.targets.spendPerJob, (v) => { s.targets.spendPerJob = v; }, { w: '90px' }), 'at or under'),
-    // Seasonal allocation spreads the branch goals (Projections) across the
-    // year. Team / rep goals live in Settings → Goals only (per Sep 30 audit —
-    // the old Inside Sales / Renewals goal + rep inputs here fed nothing else).
-    seasonalTable('Seasonal allocation', s.seasonal, Object.values(s.branchGoals || {}).reduce((t, v) => t + (Number(v) || 0), 0), 0, 'seasonal'));
+    row('Target · ROAS', num(s.targets.roas, (v) => { s.targets.roas = v; }, { step: '0.1' }), 'revenue ÷ ad spend, at or over'),
+    row('Target · ad spend per job', num(s.targets.spendPerJob, (v) => { s.targets.spendPerJob = v; }), 'at or under'));
 }
 
 function reportingMarketingPnl() {
