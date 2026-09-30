@@ -192,34 +192,62 @@ function _attrStats(rows) {
   return { leads: leadRows.length, closes: closes.length, closeValue: closes.reduce((t, l) => t + (Number(l.sale.subscription_contract_value) || 0), 0), fixes: rows.filter(_attrIsFix).length };
 }
 
-// ── upload ──
-async function _attrUpload(provider, file) {
-  if (!provider) { toast('Pick the provider first', 'error'); return; }
+// ── upload (one file or a batch) ──
+// Batch (per Isaac, Sep 30): pick several provider reports at once. Each
+// file's provider is guessed from its file name (a source name inside it,
+// longest match wins) or falls back to the provider picked in the bar; the
+// confirm step shows every file with its provider + columns, and "Add all"
+// saves them together so last touch and the Organic check run across the
+// full set in one pass.
+function _attrGuessProvider(fileName, sources) {
+  const f = String(fileName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  let best = '';
+  for (const s of sources || []) { const k = String(s).toLowerCase().replace(/[^a-z0-9]/g, ''); if (k.length >= 3 && f.includes(k) && k.length > best.replace(/[^a-z0-9]/gi, '').length) best = s; }
+  return best;
+}
+async function _attrUpload(files, sources) {
+  const list = Array.from(files || []); if (!list.length) return;
   try { await loadXlsxLibOnce(); } catch { toast('Could not load Excel library — check your connection', 'error'); return; }
-  const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, { type: 'array', cellDates: false });
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
-  if (!rows.length) { toast('No rows found in ' + file.name, 'error'); return; }
-  const headers = Object.keys(rows[0]);
-  state._attrPending = { provider, fileName: file.name, headers, rows, map: _attrGuessMap(headers) };
+  state._attrPending = state._attrPending || [];
+  for (const file of list) {
+    try {
+      const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', raw: true });
+      if (!rows.length) { toast('No rows found in ' + file.name, 'error'); continue; }
+      const headers = Object.keys(rows[0]);
+      state._attrPending.push({ key: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), provider: _attrGuessProvider(file.name, sources) || state._attrUpProv || '', fileName: file.name, headers, rows, map: _attrGuessMap(headers) });
+    } catch (e) { toast('Could not read ' + file.name + ': ' + (e.message || e), 'error'); }
+  }
   mountApp();
 }
+function _attrPendingProblem(P) {
+  if (!P.provider) return 'pick the provider';
+  if (!P.map.date) return 'map the lead date column';
+  if (!P.map.phone && !P.map.email && !P.map.last && !P.map.name) return 'map phone, email or name';
+  return null;
+}
 function _attrCommitPending() {
-  const P = state._attrPending; if (!P) return;
-  const g = (r, k) => P.map[k] ? r[P.map[k]] : '';
-  const leads = P.rows.map(r => {
-    const name = String(g(r, 'name') || [g(r, 'first'), g(r, 'last')].filter(Boolean).join(' ')).trim();
-    return { date: _attrDate(g(r, 'date')), name, first: String(g(r, 'first') || ''), last: String(g(r, 'last') || ''), phone: String(g(r, 'phone') || ''), email: String(g(r, 'email') || ''), zip: String(g(r, 'zip') || ''), leadId: String(g(r, 'id') || '') };
-  }).filter(l => l.phone || l.email || l.name);
-  const dates = leads.map(l => l.date).filter(Boolean).sort();
-  state._attr.files.push({ id: Date.now().toString(36), provider: P.provider, fileName: P.fileName, uploadedAt: new Date().toISOString(), uploadedBy: state.profile && state.profile.full_name, from: dates[0] || null, to: dates[dates.length - 1] || null, leads });
+  const list = state._attrPending || []; if (!list.length) return;
+  const bad = list.map(P => [P, _attrPendingProblem(P)]).find(([, p]) => p);
+  if (bad) { toast(bad[0].fileName + ': ' + bad[1], 'error'); return; }
+  const added = [];
+  for (const P of list) {
+    const g = (r, k) => P.map[k] ? r[P.map[k]] : '';
+    const leads = P.rows.map(r => {
+      const name = String(g(r, 'name') || [g(r, 'first'), g(r, 'last')].filter(Boolean).join(' ')).trim();
+      return { date: _attrDate(g(r, 'date')), name, first: String(g(r, 'first') || ''), last: String(g(r, 'last') || ''), phone: String(g(r, 'phone') || ''), email: String(g(r, 'email') || ''), zip: String(g(r, 'zip') || ''), leadId: String(g(r, 'id') || '') };
+    }).filter(l => l.phone || l.email || l.name);
+    const dates = leads.map(l => l.date).filter(Boolean).sort();
+    const f = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), provider: P.provider, fileName: P.fileName, uploadedAt: new Date().toISOString(), uploadedBy: state.profile && state.profile.full_name, from: dates[0] || null, to: dates[dates.length - 1] || null, leads };
+    state._attr.files.push(f); added.push(f);
+  }
   state._attrPending = null;
   _attrSave();
-  const fid = state._attr.files[state._attr.files.length - 1].id;
-  const st = _attrStats(_attrReconcile().filter(l => l.fileId === fid));
-  state._attrLastUpload = { provider: P.provider, fileName: P.fileName, ...st };
-  toast(P.provider + ': ' + st.leads.toLocaleString() + ' leads · ' + st.closes.toLocaleString() + ' closes · ' + st.fixes.toLocaleString() + ' fixes', 'success'); mountApp();
+  const rec = _attrReconcile();
+  const per = added.map(f => ({ provider: f.provider, fileName: f.fileName, ...(_attrStats(rec.filter(l => l.fileId === f.id))) }));
+  const tot = per.reduce((t, x) => ({ leads: t.leads + x.leads, closes: t.closes + x.closes, closeValue: t.closeValue + x.closeValue, fixes: t.fixes + x.fixes }), { leads: 0, closes: 0, closeValue: 0, fixes: 0 });
+  state._attrLastUpload = { per, ...tot, organicFixes: rec.filter(l => l.status === 'toorganic').length };
+  toast(per.length + ' file' + (per.length === 1 ? '' : 's') + ': ' + tot.leads.toLocaleString() + ' leads · ' + tot.closes.toLocaleString() + ' closes · ' + (tot.fixes + state._attrLastUpload.organicFixes).toLocaleString() + ' fixes', 'success'); mountApp();
 }
 
 async function _attrExport(rows) {
@@ -244,24 +272,35 @@ function mktgAttributionView() {
   const primary = { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' };
   // Upload bar
   const provSel = el('select', { class: btn, style: { borderColor: 'var(--border-2)', background: 'var(--card)' }, onchange: (e) => { state._attrUpProv = e.target.value; } },
-    el('option', { value: '' }, 'Provider (CRM source)…'), ...sources.map(s => el('option', { value: s, selected: state._attrUpProv === s }, s)));
-  const fileIn = el('input', { type: 'file', accept: '.csv,.xlsx,.xls', style: { display: 'none' }, onchange: (e) => { const f = e.target.files && e.target.files[0]; if (f) _attrUpload(state._attrUpProv, f); e.target.value = ''; } });
+    el('option', { value: '' }, 'Default provider (else from file name)…'), ...sources.map(s => el('option', { value: s, selected: state._attrUpProv === s }, s)));
+  const fileIn = el('input', { type: 'file', multiple: true, accept: '.csv,.xlsx,.xls', style: { display: 'none' }, onchange: (e) => { const fs = e.target.files; if (fs && fs.length) _attrUpload(fs, sources); e.target.value = ''; } });
   const upload = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
     el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Upload leads'), provSel, fileIn,
-    el('button', { class: btn, style: primary, onclick: () => { if (!state._attrUpProv) { toast('Pick the provider first', 'error'); return; } fileIn.click(); } }, '↑ Choose CSV / Excel'),
+    el('button', { class: btn, style: primary, onclick: () => fileIn.click() }, '↑ Choose files (one or many)'),
     el('span', { class: 'text-[10px]', style: muted }, 'Last touch wins across every provider uploaded · a lead counts toward a sale made within ' + ATTR_WINDOW_DAYS + ' days after it · matched by phone, then email, then last name + ZIP'));
-  // Column mapping step
-  const P = state._attrPending;
-  const mapping = P ? el('div', { class: 'card p-4 flex flex-col gap-3', style: { borderColor: 'var(--accent)' } },
-    el('div', { class: 'text-sm font-bold' }, 'Confirm columns · ' + P.fileName + ' · ' + P.rows.length.toLocaleString() + ' rows → ' + P.provider),
-    el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' } },
-      ...ATTR_FIELDS.map(([k, label]) => el('label', { class: 'flex flex-col gap-1 text-[10px] uppercase tracking-wider font-semibold', style: muted }, label,
-        el('select', { class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', textTransform: 'none', letterSpacing: 'normal' }, onchange: (e) => { if (e.target.value) P.map[k] = e.target.value; else delete P.map[k]; mountApp(); } },
-          el('option', { value: '' }, '— none —'), ...P.headers.map(h => el('option', { value: h, selected: P.map[k] === h }, h)))))),
-    el('div', { class: 'text-[10px]', style: muted }, 'First row: ' + ATTR_FIELDS.filter(([k]) => P.map[k]).map(([k, lbl]) => lbl + ' = ' + String(P.rows[0][P.map[k]] ?? '')).join(' · ')),
-    el('div', { class: 'flex gap-2' },
-      el('button', { class: btn, style: primary, onclick: () => { if (!P.map.date) { toast('Map the lead date column — last touch needs it', 'error'); return; } if (!P.map.phone && !P.map.email && !P.map.last && !P.map.name) { toast('Map at least phone, email or name', 'error'); return; } _attrCommitPending(); } }, 'Add ' + P.rows.length.toLocaleString() + ' leads'),
-      el('button', { class: btn, style: { borderColor: 'var(--border-2)' }, onclick: () => { state._attrPending = null; mountApp(); } }, 'Cancel'))) : null;
+  // Confirm step — every file waiting to be added, each with its provider + columns.
+  const PL = state._attrPending || [];
+  const selStyle = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', textTransform: 'none', letterSpacing: 'normal' };
+  const mapping = PL.length ? el('div', { class: 'card p-4 flex flex-col gap-3', style: { borderColor: 'var(--accent)' } },
+    el('div', { class: 'flex items-center gap-2 flex-wrap' },
+      el('div', { class: 'text-sm font-bold' }, 'Confirm ' + PL.length + ' file' + (PL.length === 1 ? '' : 's') + ' · ' + PL.reduce((t, P) => t + P.rows.length, 0).toLocaleString() + ' rows'),
+      el('button', { class: btn + ' ml-auto', style: primary, onclick: () => _attrCommitPending() }, 'Add all'),
+      el('button', { class: btn, style: { borderColor: 'var(--border-2)' }, onclick: () => { state._attrPending = null; mountApp(); } }, 'Cancel all')),
+    ...PL.map(P => {
+      const prob = _attrPendingProblem(P);
+      return el('div', { class: 'border rounded-lg p-3 flex flex-col gap-2', style: { borderColor: prob ? '#DC2626' : 'var(--border)' } },
+        el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          el('span', { class: 'text-[12px] font-bold' }, P.fileName), el('span', { class: 'text-[11px]', style: muted }, P.rows.length.toLocaleString() + ' rows →'),
+          el('select', { class: btn, style: { borderColor: P.provider ? 'var(--border-2)' : '#DC2626', background: 'var(--card)' }, onchange: (e) => { P.provider = e.target.value; mountApp(); } },
+            el('option', { value: '' }, 'Provider…'), ...sources.map(x => el('option', { value: x, selected: P.provider === x }, x))),
+          prob ? el('span', { class: 'text-[11px] font-semibold', style: { color: '#DC2626' } }, 'Needs: ' + prob) : el('span', { class: 'text-[11px]', style: { color: 'var(--ok)' } }, 'Ready'),
+          el('button', { class: 'ml-auto text-[11px] font-semibold', style: { color: '#A9441F' }, onclick: () => { state._attrPending = PL.filter(x => x !== P); if (!state._attrPending.length) state._attrPending = null; mountApp(); } }, 'Remove')),
+        el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' } },
+          ...ATTR_FIELDS.map(([k, label]) => el('label', { class: 'flex flex-col gap-1 text-[9px] uppercase tracking-wider font-semibold', style: muted }, label,
+            el('select', { class: 'rounded-lg border px-2 py-1 text-[11px]', style: selStyle, onchange: (e) => { if (e.target.value) P.map[k] = e.target.value; else delete P.map[k]; mountApp(); } },
+              el('option', { value: '' }, '— none —'), ...P.headers.map(h => el('option', { value: h, selected: P.map[k] === h }, h)))))),
+        el('div', { class: 'text-[10px]', style: muted }, 'First row: ' + ATTR_FIELDS.filter(([k]) => P.map[k]).map(([k, lbl]) => lbl + ' = ' + (k === 'date' ? (_attrDate(P.rows[0][P.map[k]]) || '⚠ unreadable date') : String(P.rows[0][P.map[k]] ?? ''))).join(' · ')));
+    })) : null;
   const leadsAll = A.files.length ? _attrReconcile() : [];
   // Uploaded files
   const filesCard = A.files.length ? el('div', { class: 'card overflow-hidden' },
@@ -335,10 +374,12 @@ function mktgAttributionView() {
         el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } }, td2('Total', { fontWeight: '700' }), td2(tot.leads.toLocaleString(), { fontWeight: '700' }), td2(tot.closes.toLocaleString(), { fontWeight: '700' }),
           td2(tot.leads ? (Math.round(tot.closes / tot.leads * 1000) / 10) + '%' : '—', { fontWeight: '700' }), td2(fmt.usd0(tot.closeValue), { fontWeight: '700' }), td2(tot.fixes.toLocaleString(), { fontWeight: '700', color: tot.fixes ? '#DC2626' : 'var(--ok)' })))));
   const U = state._attrLastUpload;
-  const lastUp = U ? el('div', { class: 'card px-4 py-2 flex items-center gap-3 text-[12px]', style: { borderColor: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 8%, var(--card))' } },
-    el('span', { class: 'font-bold' }, 'Just uploaded · ' + U.provider), el('span', { style: muted }, U.fileName),
-    el('span', { class: 'font-semibold' }, U.leads.toLocaleString() + ' leads · ' + U.closes.toLocaleString() + ' closes (' + fmt.usd0(U.closeValue) + ') · ' + U.fixes.toLocaleString() + ' fixes'),
-    el('button', { class: 'ml-auto text-[11px]', style: muted, onclick: () => { state._attrLastUpload = null; mountApp(); } }, '✕')) : null;
+  const lastUp = U && U.per ? el('div', { class: 'card px-4 py-2 flex flex-col gap-1 text-[12px]', style: { borderColor: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 8%, var(--card))' } },
+    el('div', { class: 'flex items-center gap-3' },
+      el('span', { class: 'font-bold' }, 'Just uploaded · ' + U.per.length + ' file' + (U.per.length === 1 ? '' : 's')),
+      el('span', { class: 'font-semibold' }, U.leads.toLocaleString() + ' leads · ' + U.closes.toLocaleString() + ' closes (' + fmt.usd0(U.closeValue) + ') · ' + U.fixes.toLocaleString() + ' fixes + ' + (U.organicFixes || 0).toLocaleString() + ' to Organic'),
+      el('button', { class: 'ml-auto text-[11px]', style: muted, onclick: () => { state._attrLastUpload = null; mountApp(); } }, '✕')),
+    ...(U.per.length > 1 ? U.per.map(x => el('div', { class: 'text-[11px]', style: muted }, x.provider + ' · ' + x.fileName + ' — ' + x.leads.toLocaleString() + ' leads · ' + x.closes.toLocaleString() + ' closes · ' + x.fixes.toLocaleString() + ' fixes')) : [])) : null;
   return el('div', { class: 'flex flex-col gap-4' }, upload, mapping, lastUp, summary,
     el('div', { class: 'flex items-center gap-2 flex-wrap' }, el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Provider'), provPick, closeLine),
     tiles, table, filesCard);
