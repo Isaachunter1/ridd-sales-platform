@@ -4035,6 +4035,13 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     }).filter(r => r.count > 0);
   }
 
+  // Metric rules (Settings → Configurations → Indicators → Metric rules):
+  // any metric an admin changed for this user type recomputes from its own
+  // pool; untouched metrics keep today's numbers.
+  if (typeof indMetricOverride === 'function' && Object.keys(indMetricRules()).length) {
+    const _dv = state.indicatorDept || 'all';
+    boardReps = boardReps.map(r => { const p = indMetricOverride(r, _dv); return Object.keys(p).length ? Object.assign({}, r, p) : r; });
+  }
   // Sort by the selected column
   const sortKey = state._indicatorRepSort.key;
   const sortDir = state._indicatorRepSort.dir;

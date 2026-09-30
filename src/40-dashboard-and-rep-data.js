@@ -3718,18 +3718,24 @@ function openIndicatorRepCard(rep, allReps = []) {
           return { name: r.name, recs: computeIndicatorRecords(sr) };
         })
       : [];
-    const count = scopedRep.sales?.length || 0;
-    const acv = count > 0 ? scopedRep.revenue / count : 0;
+    // Metric rules (Configurations → Indicators) — same overrides as the board.
+    if (typeof indMetricOverride === 'function' && Object.keys(indMetricRules()).length) {
+      const _p = indMetricOverride(scopedRep, state.indicatorDept || 'all');
+      if (Object.keys(_p).length) scopedRep = Object.assign({}, scopedRep, _p, { _mo: _p });
+    }
+    const _mo = scopedRep._mo || {};
+    const count = _mo.count != null ? _mo.count : (scopedRep.sales?.length || 0);
+    const acv = _mo.acv != null ? _mo.acv : (count > 0 ? scopedRep.revenue / count : 0);
     const ctTotal = (scopedRep.twelve || 0) + (scopedRep.multi || 0);
-    const myPct = ctTotal > 0 ? scopedRep.multi / ctTotal : 0;
-    const autoPayPct = count > 0 ? (scopedRep.autoPay || 0) / count : 0;
+    const myPct = _mo.myPct != null ? _mo.myPct : (ctTotal > 0 ? scopedRep.multi / ctTotal : 0);
+    const autoPayPct = _mo.autoPayPct != null ? _mo.autoPayPct : (count > 0 ? (scopedRep.autoPay || 0) / count : 0);
     // Avg Initial: simple mean of every sale's initialPrice.
     // Avg Pest Initial: same mean but with Sentricon / German Roach /
     // Interior Flea filtered out (mirrors the comp + leaderboard).
     const allSales      = scopedRep.sales || [];
     const pestEligible  = allSales.filter(s => !REP_AVG_PEST_EXCLUDE.test(s.subscription || ''));
-    const avgInitial    = allSales.length     > 0 ? allSales.reduce((a, s) => a + Number(s.initialPrice || 0), 0)    / allSales.length     : 0;
-    const avgPest       = pestEligible.length > 0 ? pestEligible.reduce((a, s) => a + Number(s.initialPrice || 0), 0) / pestEligible.length : 0;
+    const avgInitial    = _mo.avgInitial != null ? _mo.avgInitial : (allSales.length     > 0 ? allSales.reduce((a, s) => a + Number(s.initialPrice || 0), 0)    / allSales.length     : 0);
+    const avgPest       = _mo.avgPest != null ? _mo.avgPest : (pestEligible.length > 0 ? pestEligible.reduce((a, s) => a + Number(s.initialPrice || 0), 0) / pestEligible.length : 0);
     // Personal PRA — denominators are SELLING days (days with ≥1 sale), so
     // days off don't drag the averages down.
     const sellDays = new Set(allSales.map(s => dateSoldToIso(s.dateSold)).filter(Boolean)).size;
@@ -3737,7 +3743,7 @@ function openIndicatorRepCard(rep, allReps = []) {
       { key: 'sales',      label: 'Sales',      value: fmt.int(count) },
       { key: 'revenue',    label: 'Revenue',    value: fmt.usd0(scopedRep.revenue || 0) },
       { key: 'revPerDay',  label: 'Production/Day',
-        value: sellDays > 0 ? fmt.usd0((scopedRep.revenue || 0) / sellDays) + ' / ' + Math.round(count / sellDays) : '—' },   // whole accounts/day — decimals clipped the tile (per Isaac)
+        value: _mo.revPerDay != null ? fmt.usd0(_mo.revPerDay) + (_mo.acctsPerDay != null ? ' / ' + Math.round(_mo.acctsPerDay) : '') : sellDays > 0 ? fmt.usd0((scopedRep.revenue || 0) / sellDays) + ' / ' + Math.round(count / sellDays) : '—' },   // whole accounts/day — decimals clipped the tile (per Isaac)
       { key: 'acv',        label: 'ACV',        value: fmt.usd(acv) },
       // Sales Rep dept → Avg Pest Initial (excludes Sentricon / German Roach /
       // Interior Flea). Office Staff, Technician, and All → plain Avg Initial.
@@ -3746,16 +3752,18 @@ function openIndicatorRepCard(rep, allReps = []) {
         : { key: 'avgInitial', label: 'Avg Initial',      value: avgInitial > 0 ? fmt.usd(avgInitial) : '—' }),
       { key: 'myPct',      label: 'MY %',       value: (myPct * 100).toFixed(1) + '%' },
       { key: 'autoPay',    label: 'Auto Pay',   value: (autoPayPct * 100).toFixed(1) + '%' },
-      { key: 'cancels',    label: 'Cancels',    value: fmt.int(scopedRep.cancels || 0) },
+      { key: 'cancels',    label: 'Cancels',    value: fmt.int(_mo.cancels != null ? _mo.cancels : (scopedRep.cancels || 0)) },
       // Ninth tile (per Isaac): the SAME attrition the leaderboard's Attrition %
       // column shows — cancelled $ ÷ serviced $, 3-day RORs + one-time out of
       // both sides (_attrRevParts) — so the card and the board never disagree.
       // Tenth tile (per Isaac, Sep 22): Sold/Serviced — moved here from the
       // Retention tab. Serviced (≥1 completed service or a serviced date) ÷ the
       // Sold count above; same number as the leaderboard's Serviced % column.
-      (() => { const svc = allSales.filter(x => (Number(x.services) || 0) > 0 || !!x.servicedDate).length;
+      (() => { if (_mo.servicedPct != null) return { key: 'soldSvc', label: 'Sold/Serviced', value: (_mo.servicedPct * 100).toFixed(1) + '%', sub: fmt.int(_mo.servicedN || 0) + ' serviced', title: 'Metric rules applied (Configurations → Indicators)' };
+        const svc = allSales.filter(x => (Number(x.services) || 0) > 0 || !!x.servicedDate).length;
         return { key: 'soldSvc', label: 'Sold/Serviced', value: count > 0 ? ((svc / count) * 100).toFixed(1) + '%' : '\u2014', sub: fmt.int(svc) + ' of ' + fmt.int(count), title: 'Serviced accounts \u00f7 sold \u00b7 same as the leaderboard\u2019s Serviced %' }; })(),
       (() => { let serv = 0, cxl = 0; for (const x of allSales) { const p = _attrRevParts(x); serv += p.serv; cxl += p.cxl; }
+        if (_mo.attrPct != null) { serv = 1; cxl = _mo.attrPct; }
         return { key: 'cancelPct', label: 'Attrition %', sub: 'excl. 3-day ROR', title: 'Cancelled $ \u00f7 serviced $ \u00b7 3-day RORs + one-time services removed from both sides \u00b7 same number as the leaderboard\u2019s Attrition %', value: serv > 0 ? ((cxl / serv) * 100).toFixed(1) + '%' : '\u2014' }; })(),
     ];
   }

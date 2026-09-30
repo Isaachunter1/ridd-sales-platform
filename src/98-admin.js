@@ -579,6 +579,7 @@ function adminConfigurations() {
     row('MY % exclusions', svcPicker(myExcludeTerms(), (l) => { state.indicatorMyExclServiceTerms = l.length ? l : null; saveIndicatorState(); toast(l.length ? l.length + ' service' + (l.length === 1 ? '' : 's') + ' excluded from MY %' : 'Reset to the default (sentricon)', 'success'); mountApp(); }), { stack: true, tip: 'Services dropped from both sides of the MY % (multi-year) ratio — they still count everywhere else.' }),
     row('Excluded services', svcPicker(_exSvc, (l) => { state.indicatorExclServices = l; saveIndicatorState(); toast(l.length + ' service' + (l.length === 1 ? '' : 's') + ' left out of Indicators', 'success'); mountApp(); }), { stack: true, tip: 'Services left out of every Indicators metric (fees, chargebacks, follow-ups, inspections, removals — not real new production). Starts from the built-in list.' }),
     row('Excluded teams', _chipPicker(_exTeams, _allTeams, (l) => { state.indicatorExclTeams = l; saveIndicatorState(); toast(l.length ? l.length + ' team' + (l.length === 1 ? '' : 's') + ' left out of Indicators' : 'No teams excluded', 'success'); mountApp(); }, '+ exclude team'), { stack: true, tip: 'Every sale by a rep on these teams drops out of every Indicators metric (boards, totals, charts). Competitions keep their own team exclusions.' }),
+    (typeof indicatorMetricRulesTable === 'function') ? indicatorMetricRulesTable() : null,
   );
 
   // ── 5. Lists — collapsed one-liners ──
