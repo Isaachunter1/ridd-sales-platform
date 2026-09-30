@@ -7,7 +7,71 @@ function viewCommission() {
   // reps are paid on SERVICED revenue that is still active after January 31
   // of the year after it was sold. Moved here from Marketing's retired
   // "Rep vs Office cost" tab. Pay rates / ladders layer on top of this.
-  return el('div', { class: 'flex flex-col gap-4 w-full' }, d2dEligibilityCard());
+  return el('div', { class: 'flex flex-col gap-4 w-full' }, d2dEligibilityCard(), d2dPayStub());
+}
+
+// Backend pay stub for the rep picked on the eligibility card (per Isaac —
+// same lines as the backend paystub): serviced accounts sold in the year →
+// pest / bundle / ancillary commission, overrides, multi-year → Total
+// Commission → attrition adjustment (estimated % until Jan 31 of the next
+// year, then the actual canceled accounts) → Final Commission → deductions
+// → Net Due → bi-weekly.
+function d2dPayStub() {
+  if (!isAdminRole(state.profile?.role) || !(state.reportingSubscriptions || []).length) return null;
+  const emp = (state.frRoster || []).find(e => String(e.employee_id) === String(state._d2dEligRep || ''));
+  if (!emp) return el('div', { class: 'card p-6 text-center text-[11px] text-muted-' }, 'Pick a sales rep above to see their backend pay stub.');
+  const y = state._d2dEligYear || new Date().getFullYear();
+  const lock = (y + 1) + '-01-31';
+  const today = new Date().toISOString().slice(0, 10);
+  const locked = today >= lock;
+  const R = commissionCompute(emp, Date.parse(y + '-01-01'), Date.parse(y + '-12-31') + 86399000, Date.parse(lock) + 86399000,
+    { servicedOnly: true, salesRepOnly: true, attrition: true, asOf: locked ? lock : today, locked });
+  const man = commissionManual(emp.employee_id);
+  const cfg = commissionConfig();
+  const name = (typeof _frEmpName === 'function') ? _frEmpName(emp) : ((emp.fname || '') + ' ' + (emp.lname || '')).trim();
+  const pct = (n) => (Math.round((n || 0) * 100) / 100).toFixed(2) + '%';
+  const money = (n) => '$' + (Math.round((n || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const { breakdown, stats, explain } = commissionRenderCards(R, name);
+  const saveRates = (patch) => { const c = commissionConfig(); c.repRates = Object.assign({}, c.repRates); c.repRates[emp.employee_id] = Object.assign({}, c.repRates[emp.employee_id], patch); saveCommissionConfig(c); mountApp(); };
+  const clearOverride = () => { const c = commissionConfig(); c.repRates = Object.assign({}, c.repRates); delete c.repRates[emp.employee_id]; saveCommissionConfig(c); mountApp(); };
+  const saveMan = (patch) => { setCommissionManual(emp.employee_id, Object.assign({}, man, patch)); mountApp(); };
+  const lbl = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold block mb-1' }, t);
+  const numField = (label, val, onCommit, o = {}) => el('label', { class: 'block' }, lbl(label),
+    el('input', { type: 'number', step: o.step || '0.01', value: (val == null ? '' : val), placeholder: o.ph || '',
+      class: 'w-full rounded-lg border px-2.5 py-1 text-[11px] text-left tabular-nums', style: { borderColor: 'var(--border-2)' },
+      onchange: (e) => onCommit(e.target.value) }));
+  const typeDef = commissionRulesForType(emp.type_label || 'Sales Rep');
+  const ratesPanel = el('div', { class: 'card p-4' },
+    el('div', { class: 'flex items-center gap-2 mb-1' },
+      el('div', { class: 'text-sm font-bold' }, 'Rates · ' + name),
+      R.overridden ? el('button', { class: 'text-[11px] rounded px-2.5 py-1 border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: clearOverride }, 'Reset to Sales Rep default') : null),
+    el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Sales Rep default: Pest ' + pct(typeDef.pest * 100) + ' · Bundle ×' + typeDef.bundleMult + ' · Ancillary ×' + typeDef.ancMult + '. Edit only to override this rep.'),
+    el('div', { class: 'grid grid-cols-3 gap-3' },
+      numField('Final Commission %', Math.round(R.pestRate * 10000) / 100, v => saveRates({ pest: (parseFloat(v) || 0) / 100 }), { step: '0.5' }),
+      numField('Bundle Multiplier', R.bundleMult, v => saveRates({ bundleMult: parseFloat(v) || 0 }), { step: '0.1' }),
+      numField('Ancillary Multiplier', R.ancMult, v => saveRates({ ancMult: parseFloat(v) || 0 }), { step: '0.1' })),
+    el('div', { class: 'text-[11px] mt-2', style: { color: R.overridden ? 'var(--accent)' : 'var(--text-muted)' } },
+      (R.overridden ? '✎ Rep override · ' : 'Default · ') + 'Bundle ' + pct(R.bundleRate * 100) + ' · Ancillary ' + pct(R.ancRate * 100)));
+  const manualPanel = el('div', { class: 'card p-4' },
+    el('div', { class: 'text-sm font-bold mb-3' }, 'Overrides, attrition & deductions'),
+    el('div', { class: 'grid grid-cols-2 sm:grid-cols-3 gap-3' },
+      numField('Overrides', man.overrides, v => saveMan({ overrides: v })),
+      numField('Est. Attrition %', man.attrPct, v => saveMan({ attrPct: v }), { step: '0.5', ph: cfg.attritionPct + ' (default)' }),
+      numField('Pay Periods', man.payPeriods == null ? 26 : man.payPeriods, v => saveMan({ payPeriods: v }), { step: '1' }),
+      numField('Rent', man.rent, v => saveMan({ rent: v })),
+      numField('Paid YTD', man.paidYtd, v => saveMan({ paidYtd: v })),
+      numField('Other +/-', man.other, v => saveMan({ other: v })),
+      numField('Audit Deduction', man.audit, v => saveMan({ audit: v }))),
+    el('div', { class: 'text-[11px] text-muted- mt-2' }, 'Deductions are entered as positive numbers — the stub subtracts them. Pay Periods = the bi-weekly checks left to spread Net Due over.'));
+  const basis = el('div', { class: 'card p-3 text-xs', style: { borderLeft: '3px solid var(--accent)' } },
+    el('b', { style: { color: 'var(--text)' } }, 'Backend pay stub · sold in ' + y + '. '),
+    el('span', { class: 'text-muted-' }, 'Revenue = serviced accounts only (excluded sources, renewals and billing artifacts out). ' +
+      (locked ? 'Locked Jan 31, ' + (y + 1) + ': attrition is the actual commission on the ' + R.lostN + ' account' + (R.lostN === 1 ? '' : 's') + ' canceled by the lock.'
+        : 'Until Jan 31, ' + (y + 1) + ' the attrition line is an estimate (' + pct(R.attrPct) + ' of Total Commission). Actual so far: ' + R.lostN + ' canceled · ' + money(R.lostComm) + ' commission (' + pct(R.totalCommission ? R.lostComm / R.totalCommission * 100 : 0) + ').')),
+    R.unclRev > 0 ? el('div', { class: 'mt-1', style: { color: '#A9441F' } }, money(R.unclRev) + ' of revenue is on services without a pest / bundle / ancillary category, so it isn’t paid yet — map them in Settings → Commissions.') : null);
+  return el('div', { class: 'flex flex-col lg:flex-row gap-5 items-start' },
+    el('div', { class: 'flex flex-col gap-4 w-full lg:w-[440px] lg:shrink-0' }, breakdown, stats, explain),
+    el('div', { class: 'flex flex-col gap-4 flex-1 w-full min-w-0' }, basis, ratesPanel, manualPanel));
 }
 
 // Sales Rep eligibility by sold month: sold → serviced → eligible (serviced
@@ -289,7 +353,7 @@ function commissionCalculator() {
     el('div', { class: 'text-[11px] text-muted- mb-3' },
       typeLabel + ' default: Pest ' + pct(typeDef.pest * 100) + ' · Anc ×' + typeDef.ancMult + ' · Bundle ×' + typeDef.bundleMult + '. Edit below only to override this rep (negotiated deal). Defaults are set in Settings → Commissions.'),
     el('div', { class: 'grid grid-cols-3 gap-3' },
-      numField('Pest Commission %', R.pestRate * 100, v => saveRates({ pest: (parseFloat(v) || 0) / 100 }), { step: '0.5' }),
+      numField('Pest Commission %', Math.round(R.pestRate * 10000) / 100, v => saveRates({ pest: (parseFloat(v) || 0) / 100 }), { step: '0.5' }),
       numField('Ancillary Multiplier', R.ancMult, v => saveRates({ ancMult: parseFloat(v) || 0 }), { step: '0.1' }),
       numField('Bundle Multiplier', R.bundleMult, v => saveRates({ bundleMult: parseFloat(v) || 0 }), { step: '0.1' })),
     el('div', { class: 'text-[11px] mt-2', style: { color: R.overridden ? 'var(--accent)' : 'var(--text-muted)' } },

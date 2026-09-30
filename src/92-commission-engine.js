@@ -4,7 +4,13 @@
 // └────────────────────────────────────────────────────────────────────────
 // Compute the full breakdown for one roster employee over [startMs,endMs],
 // with lockMs deciding which cancels are "after lock" (excluded from attrition).
-function commissionCompute(emp, startMs, endMs, lockMs) {
+// opts (D2D Pay stub): { servicedOnly, salesRepOnly, attrition, asOf, locked }
+//   servicedOnly — only accounts whose initial service ran (the D2D pay basis)
+//   attrition    — apply the attrition adjustment: an ESTIMATED % of Total
+//                  Commission until the Jan 31 lock, then the ACTUAL commission
+//                  on accounts that canceled by the lock.
+function commissionCompute(emp, startMs, endMs, lockMs, opts) {
+  opts = opts || {};
   const cfg = commissionConfig();
   const empIds = new Set(String(emp.employee_ids || emp.employee_id || '').split(',').map(s => s.trim()).filter(Boolean));
   const cv = (r) => Number(r.subscription_contract_value) || 0;
@@ -15,6 +21,7 @@ function commissionCompute(emp, startMs, endMs, lockMs) {
     if (isNaN(sd)) return false;
     if (startMs && sd < startMs) return false;
     if (endMs && sd > endMs) return false;
+    if (opts.salesRepOnly && String(r.sold_by_type || '').trim() !== 'Sales Rep') return false;
     return true;
   });
   // ── Canonical gates — the SAME configurations the rest of the app runs on,
@@ -26,7 +33,7 @@ function commissionCompute(emp, startMs, endMs, lockMs) {
   //     account never became real; blank status = legacy snapshot, passes)
   // Gated rows are counted + shown, never silently dropped.
   const _exclSrcSet = (typeof reportingExcludedSources === 'function') ? reportingExcludedSources() : new Set();
-  const gates = { global: { n: 0, rev: 0 }, source: { n: 0, rev: 0 }, renewal: { n: 0, rev: 0 }, sns: { n: 0, rev: 0 } };
+  const gates = { global: { n: 0, rev: 0 }, source: { n: 0, rev: 0 }, renewal: { n: 0, rev: 0 }, sns: { n: 0, rev: 0 }, unserv: { n: 0, rev: 0 } };
   const _gate = (k, v) => { gates[k].n++; gates[k].rev += v; };
   const rows = [];
   for (const r of rows0) {
@@ -36,6 +43,7 @@ function commissionCompute(emp, startMs, endMs, lockMs) {
     if (typeof reportingSourceClass === 'function' && reportingSourceClass(r.subscription_source) === 'renewal') { _gate('renewal', v); continue; }
     const ist = String(r.initial_status || '').toLowerCase();
     if (ist && ist !== 'pending' && ist !== 'completed') { _gate('sns', v); continue; }
+    if (opts.servicedOnly && !(r.initial_service || r.initial_serviced_date || ist === 'completed')) { _gate('unserv', v); continue; }
     rows.push(r);
   }
   let pestRev = 0, bundleRev = 0, ancRev = 0, exclRev = 0, unclRev = 0;
@@ -85,7 +93,26 @@ function commissionCompute(emp, startMs, endMs, lockMs) {
   const overrides = Number(m.overrides) || 0, rent = Number(m.rent) || 0, paidYtd = Number(m.paidYtd) || 0;
   const other = Number(m.other) || 0, audit = Number(m.audit) || 0, payPeriods = Number(m.payPeriods) || 26;
   const totalCommission = pestComm + bundleComm + ancComm + overrides + multiYearAmt;
-  const netDue = totalCommission - rent - paidYtd - other - audit;
+  // Attrition adjustment (D2D Pay stub). Actual = commission on accounts no
+  // longer active at asOf (same "alive" rule as the eligibility card).
+  const _lc = (typeof reportingServiceLifecycleMap === 'function') ? reportingServiceLifecycleMap() : new Map();
+  const asOf = opts.asOf || new Date().toISOString().slice(0, 10);
+  const _rateOf = (c) => c === 'pest' ? pestRate : c === 'bundle' ? bundleRate : c === 'ancillary' ? ancRate : 0;
+  let lostRev = 0, lostComm = 0, lostN = 0;
+  for (const r of rows) {
+    if (_lc.get(r.subscription) === 'onetime') continue;
+    const cx = r.subscription_date_canceled ? String(r.subscription_date_canceled).slice(0, 10) : null;
+    const alive = cx ? cx > asOf : (String(r.subscription_status || '').trim().toLowerCase() === 'active' || !!opts.locked);
+    if (alive) continue;
+    const c = catOf(r); lostN++;
+    if (_rateOf(c)) { lostRev += cv(r); lostComm += cv(r) * _rateOf(c); }
+  }
+  const _ap = m.attrPct;
+  const attrPct = (_ap != null && _ap !== '' && !isNaN(Number(_ap))) ? Number(_ap) : (Number(cfg.attritionPct) || 0);
+  const attrMode = !opts.attrition ? null : opts.locked ? 'actual' : 'estimate';
+  const attrAdj = attrMode === 'actual' ? lostComm : attrMode === 'estimate' ? totalCommission * attrPct / 100 : 0;
+  const finalCommission = totalCommission - attrAdj;
+  const netDue = finalCommission - rent - paidYtd - other - audit;
   const biWeekly = payPeriods ? netDue / payPeriods : netDue;
   // ── INPUTS (P0-3 in AUDIT.md): everything the numbers above were built
   // from, in a plain serialisable shape, so a published stub can answer
@@ -97,8 +124,9 @@ function commissionCompute(emp, startMs, endMs, lockMs) {
     rates: { pest: pestRate, bundle: bundleRate, ancillary: ancRate, ancMult, bundleMult, overridden: !!rt.overridden },
     multiYear: { hiPct: MY.hiPct, loPct: MY.loPct, rate18: MY.rate18, rate24: MY.rate24, penalty: MY.penalty },
     manual: { overrides, rent, paidYtd, other, audit, payPeriods },
+    attrition: attrMode ? { mode: attrMode, pct: attrPct, asOf, lostN, lostRev, lostComm } : null,
     rules: { agingDays, excludedSources: [..._exclSrcSet].sort(), excludedCancelReasons: [..._exclReasons].sort() },
-    gated: { global: gates.global.n, source: gates.source.n, renewal: gates.renewal.n, sns: gates.sns.n },
+    gated: { global: gates.global.n, source: gates.source.n, renewal: gates.renewal.n, sns: gates.sns.n, unserv: gates.unserv.n },
     // One line per counted sale — id, service, category, $, term, sold, cancel.
     sales: rows.map(r => ({ id: r.subscription_id != null ? String(r.subscription_id) : null, cust: r.customer_id != null ? String(r.customer_id) : null, svc: String(r.subscription || ''), cat: catOf(r), cv: cv(r), term: Number(r.agreement_length) || 0, sold: String(r.sold_date || '').slice(0, 10), cxl: r.subscription_date_canceled ? String(r.subscription_date_canceled).slice(0, 10) : null, reason: r.subscription_date_canceled ? (_reasonOf(r) || null) : null })),
   };
@@ -108,6 +136,7 @@ function commissionCompute(emp, startMs, endMs, lockMs) {
     pestRate, bundleRate, ancRate, ancMult, bundleMult, overridden: rt.overridden, pestComm, bundleComm, ancComm,
     rev18, rev24, myPct, multiYearAmt, MY,
     overrides, rent, paidYtd, other, audit, payPeriods, totalCommission, netDue, biWeekly,
+    attrMode, attrPct, attrAdj, finalCommission, lostN, lostRev, lostComm,
     sold, canceled: canceled.length, ror: ror.length, afterLock: afterLock.length,
     withBalance: withBalance.length, finalAttrCount, finalAttrition: sold > 0 ? finalAttrCount / sold * 100 : 0,
     rawMatched: rows0.length, gates, reasonExcl: reasonExcl.length, apayN, lastResort,
@@ -120,6 +149,8 @@ function commissionCompute(emp, startMs, endMs, lockMs) {
 function commissionRenderCards(B, repName) {
   const money = (n) => { const v = Math.round((n || 0) * 100) / 100; return (v < 0 ? '-' : '') + '$' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
   const pct = (n) => (Math.round((n || 0) * 100) / 100).toFixed(2) + '%';
+  const dash = (n) => Math.abs(n || 0) < 0.005 ? '\u2014' : money(n);
+  const paren = (n) => Math.abs(n || 0) < 0.005 ? '\u2014' : '(' + money(Math.abs(n)) + ')';
   const ROW = (label, valNode, kind) => el('div', {
     class: 'flex items-center justify-between gap-3 px-3 py-2 text-sm',
     style: { borderTop: '1px solid var(--border)',
@@ -130,20 +161,23 @@ function commissionRenderCards(B, repName) {
     el('div', { class: 'px-3 py-2 font-display text-xl', style: { background: 'var(--text)', color: 'var(--bg)' } }, 'Backend Breakdown'),
     ROW('Sales Rep', repName),
     ROW('Pest Revenue', money(B.pestRev), 'rev'),
-    ROW('Pest Commission (' + pct(B.pestRate * 100) + ')', money(B.pestComm), 'comm'),
+    ROW('Final Commission %', pct(B.pestRate * 100)),
+    ROW('Personal Pest Commission', money(B.pestComm), 'comm'),
     ROW('Bundle Revenue', money(B.bundleRev), 'rev'),
-    ROW('Bundle Commission (' + pct(B.bundleRate * 100) + ')', money(B.bundleComm), 'comm'),
-    ROW('Ancillary Revenue', money(B.ancRev), 'rev'),
-    ROW('Ancillary Commission (' + pct(B.ancRate * 100) + ')', money(B.ancComm), 'comm'),
-    ROW('Overrides', money(B.overrides), 'comm'),
-    ROW('Multi-Year Bonus/Deduction', money(B.multiYearAmt), 'comm'),
+    ROW('Personal Bundle Commission (' + pct(B.bundleRate * 100) + ')', money(B.bundleComm), 'comm'),
+    ROW('Ancillary Revenue', dash(B.ancRev), 'rev'),
+    ROW('Personal Ancillary Commission (' + pct(B.ancRate * 100) + ')', dash(B.ancComm), 'comm'),
+    ROW('Overrides', dash(B.overrides), 'comm'),
+    ROW('Multi-Year Bonus/Deduction', dash(B.multiYearAmt), 'comm'),
     ROW('Total Commission', money(B.totalCommission), 'total'),
-    ROW('Rent', money(-B.rent)),
-    ROW('Paid Year-to-Date', money(-B.paidYtd)),
-    ROW('Other Additions/Deductions', money(-B.other)),
-    ROW('Audit Deduction', money(-B.audit)),
+    B.attrMode ? ROW(B.attrMode === 'actual' ? 'Attrition Adjustment (actual · ' + B.lostN + ' canceled by lock)' : 'Estimated Attrition Adjustment (' + pct(B.attrPct) + ')', paren(B.attrAdj)) : null,
+    B.attrMode ? ROW('Final Commission', money(B.finalCommission), 'total') : null,
+    ROW('Deductions: Rent', paren(B.rent)),
+    ROW('Deductions: Paid Year-to-Date', paren(B.paidYtd)),
+    ROW('Deductions: Other Additions/Deductions', paren(B.other)),
+    B.audit ? ROW('Deductions: Audit', paren(B.audit)) : null,
     ROW('Net Due', money(B.netDue), 'total'),
-    ROW('Bi-Weekly Pay (÷ ' + B.payPeriods + ')', money(B.biWeekly), 'total'),
+    ROW('Bi-Weekly Pay Amount (Pay Periods ' + B.payPeriods + ')', money(B.biWeekly), 'total'),
     el('div', { class: 'px-3 py-2 text-sm flex items-center justify-between', style: { background: 'rgba(95,108,91,.08)', borderTop: '1px solid var(--border)' } },
       el('span', { class: 'font-semibold' }, 'Total Payable Rev'), el('span', { class: 'tabular-nums font-semibold' }, money(B.payableRev))));
   const statRow = (label, val, tone) => el('div', { class: 'flex items-center justify-between px-3 py-1.5 text-sm', style: { borderTop: '1px solid var(--border)' } },
@@ -187,9 +221,11 @@ function commissionRenderCards(B, repName) {
       line('Sold window', (I.window && I.window.start ? I.window.start + ' \u2192 ' + (I.window.end || 'today') : 'all') + (I.window && I.window.lock ? ' \u00b7 lock ' + I.window.lock : '')),
       line('Rep type \u00b7 rates', I.employee.type + ' \u00b7 pest ' + pctS(I.rates.pest) + ' \u00b7 bundle ' + pctS(I.rates.bundle) + ' \u00b7 ancillary ' + pctS(I.rates.ancillary) + (I.rates.overridden ? ' (rep override)' : '')),
       line('Multi-year rule', '\u2265 ' + I.multiYear.hiPct + '% MY \u2192 +' + I.multiYear.rate18 + '% / +' + I.multiYear.rate24 + '% \u00b7 < ' + I.multiYear.loPct + '% \u2192 \u2212' + I.multiYear.penalty + '%'),
-      line('Gated out (not paid)', n(I.gated.global) + ' global \u00b7 ' + n(I.gated.source) + ' excluded source \u00b7 ' + n(I.gated.renewal) + ' renewal \u00b7 ' + n(I.gated.sns) + ' sold-not-started'),
+      line('Gated out (not paid)', n(I.gated.global) + ' global \u00b7 ' + n(I.gated.source) + ' excluded source \u00b7 ' + n(I.gated.renewal) + ' renewal \u00b7 ' + n(I.gated.sns) + ' sold-not-started' + (I.gated.unserv ? ' \u00b7 ' + n(I.gated.unserv) + ' not serviced yet' : '')),
       line('Cancel reasons not counted', (I.rules.excludedCancelReasons || []).join(', ') || 'none'),
       line('Manual entries', 'overrides ' + money(I.manual.overrides) + ' \u00b7 rent ' + money(I.manual.rent) + ' \u00b7 paid YTD ' + money(I.manual.paidYtd) + ' \u00b7 other ' + money(I.manual.other) + ' \u00b7 audit ' + money(I.manual.audit) + ' \u00b7 \u00f7 ' + I.manual.payPeriods),
+      I.attrition ? line('Attrition', I.attrition.mode === 'actual' ? 'actual: ' + n(I.attrition.lostN) + ' canceled by ' + I.attrition.asOf + ' \u00b7 ' + money(I.attrition.lostRev) + ' rev \u00b7 ' + money(I.attrition.lostComm) + ' commission'
+        : 'estimated ' + I.attrition.pct + '% until the lock \u00b7 actual so far: ' + n(I.attrition.lostN) + ' canceled \u00b7 ' + money(I.attrition.lostComm) + ' commission') : null,
       line('Engine', I.engine),
       toggle, rowsEl);
   })();
@@ -201,6 +237,7 @@ function commissionSnapshot(R, emp, period) {
   const keys = ['pestRev', 'bundleRev', 'ancRev', 'payableRev', 'pestRate', 'ancRate', 'bundleRate',
     'pestComm', 'bundleComm', 'ancComm', 'overrides', 'multiYearAmt', 'totalCommission',
     'rent', 'paidYtd', 'other', 'audit', 'netDue', 'biWeekly', 'payPeriods',
+    'attrMode', 'attrPct', 'attrAdj', 'finalCommission', 'lostN', 'lostRev', 'lostComm',
     'sold', 'canceled', 'withBalance', 'myPct', 'ror', 'afterLock', 'finalAttrition',
     'rawMatched', 'gates', 'reasonExcl', 'apayN', 'lastResort'];
   const o = { name: _frEmpName(emp), period, at: new Date().toISOString() };
