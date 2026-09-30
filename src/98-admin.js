@@ -456,18 +456,9 @@ function adminConfigurations() {
     row('Deleted CRM accounts', [
       orphans.length ? el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => openReportingDrillModal({ chartTitle: 'Subscriptions with no FieldRoutes customer record', sliceLabel: n(orphans.length) + ' subscriptions · deleted in the CRM', rows: orphans, formatValue: fmt.usd0 }) }, n(orphanCust) + ' detected →') : pill('0 detected'),
       pill(n(crmDelN) + ' from nightly FieldRoutes check' + (crmMeta && crmMeta.scanned_at ? ' · ' + new Date(crmMeta.scanned_at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ' · not run yet') + (crmMeta && !crmMeta.checked ? ' · last run checked 0' : '') + (useScan ? '' : ' · not applied')),
-      sw(autoOrph, () => {
-        setReportingAutoExcludeOrphans(!autoOrph);
-        if (Array.isArray(state.reportingSubscriptions)) {
-          const ids = new Set(state._orphanCustIds || []);
-          state.reportingSubscriptions = !autoOrph
-            ? state.reportingSubscriptions.filter(r => !ids.has(String(r.customer_id != null ? r.customer_id : '')))
-            : state.reportingSubscriptions.concat(orphans.filter(r => !state.reportingSubscriptions.includes(r)));
-        }
-        mountApp();
-      })]),
-    sub2('Use nightly check', sw(useScan, () => { setReportingUseCrmDeletedScan(!useScan); toast('Reload to re-apply the list to loaded data', 'info'); mountApp(); }), { small: true, indent: true, tip: 'Off by default. When on, customers the nightly FieldRoutes check could not find are removed app-wide (leaderboard, reporting, retention). Turned off Sep 29 after the check flagged 2,355 live customers.' }),
-    sub2('Stale pending', [pill(n((state._stalePendingCustIds || []).length) + ' customers'), el('span', { class: 'text-[11px] text-muted-' }, 'initial appt passed ≥'), num(reportingStalePendingDays(), (v) => { setReportingStalePendingDays(v); toast('Reload to re-apply', 'info'); mountApp(); }), el('span', { class: 'text-[11px] text-muted-' }, 'days'), sw(reportingExclStalePending(), () => { setReportingExclStalePending(!reportingExclStalePending()); toast('Reload to re-apply', 'info'); mountApp(); })], { small: true, indent: true, tip: 'Accounts deleted in FieldRoutes right after signup stay Active + Pending in the mirror forever. Customers whose every subscription is active, never serviced, and whose initial appointment passed this many days ago (or has no appointment and was sold 14+ days ago) are treated as deleted app-wide. On by default.' }),
+      sw(autoOrph, () => { setReportingAutoExcludeOrphans(!autoOrph); mountApp(); })]),
+    sub2('Use nightly check', sw(useScan, () => { setReportingUseCrmDeletedScan(!useScan); mountApp(); }), { small: true, indent: true, tip: 'Off by default. When on, customers the nightly FieldRoutes check could not find are removed app-wide (leaderboard, reporting, retention). Turned off Sep 29 after the check flagged 2,355 live customers.' }),
+    sub2('Stale pending', [pill(n((state._stalePendingCustIds || []).length) + ' customers'), el('span', { class: 'text-[11px] text-muted-' }, 'initial appt passed ≥'), num(reportingStalePendingDays(), (v) => { setReportingStalePendingDays(v); mountApp(); }), el('span', { class: 'text-[11px] text-muted-' }, 'days'), sw(reportingExclStalePending(), () => { setReportingExclStalePending(!reportingExclStalePending()); mountApp(); })], { small: true, indent: true, tip: 'Accounts deleted in FieldRoutes right after signup stay Active + Pending in the mirror forever. Customers whose every subscription is active, never serviced, and whose initial appointment passed this many days ago (or has no appointment and was sold 14+ days ago) are treated as deleted app-wide. On by default.' }),
   );
 
   // (Attrition steps card retired Sep 23 per Isaac — the Retention tab's own

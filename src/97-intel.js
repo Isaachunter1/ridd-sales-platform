@@ -14,7 +14,7 @@
 function _intelRows() {
   const snap = state.reportingSubscriptions;
   if (!Array.isArray(snap) || !snap.length) return [];
-  const stamp = state.reportingSubscriptionsLoadedFor + '|' + snap.length + '|' + (state._compExtras && state._compExtras.adminRules ? JSON.stringify(state._compExtras.adminRules).length : 0);
+  const stamp = state.reportingSubscriptionsLoadedFor + '|' + snap.length + '|' + (state._compExtras && state._compExtras.adminRules ? JSON.stringify(state._compExtras.adminRules) : '') + '|' + (state._reportingCancelConfigStamp || 0) + '|' + (state.reportingServiceConfig || []).length;
   if (state._intelMemo && state._intelMemo.stamp === stamp) return state._intelMemo.rows;
   const recurring = reportingServiceRecurringMap();
   const excl = reportingExcludedCancelReasons();

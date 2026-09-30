@@ -50,7 +50,7 @@ function retenBranchesOff() {
 // re-render with nothing changed costs nothing.
 const _retenScopeMemo = new WeakMap();
 function retenScopeSteps(rows) {
-  const key = JSON.stringify([_adminRules() || null, state._retenWhatIf || null, state.reportingSubTab, (state.reportingServiceConfig || []).map(c => c.service_name + ':' + (c.lifecycle || '') + ':' + (c.is_recurring == null ? '' : c.is_recurring)).join('|'), (state.reportingSourceConfig || []).length, (state.indicatorDeletedCustIds || []).length]);
+  const key = JSON.stringify([_adminRules() || null, state._retenWhatIf || null, state.reportingSubTab, (state.reportingServiceConfig || []).map(c => c.service_name + ':' + (c.lifecycle || '') + ':' + (c.is_recurring == null ? '' : c.is_recurring)).join('|'), (state.reportingSourceConfig || []).map(c => c.source + ':' + (c.revenue_class || '') + ':' + (c.included === false ? 0 : 1)).join('|'), state._reportingCancelConfigStamp || 0, (state._crmDeletedIds || []).length, (state._stalePendingCustIds || []).length, (state._ghostSubIds || []).length, (state.reportingSubscriptions || []).length]);   // every rule the book depends on (settings audit, Sep 30)
   const hit = _retenScopeMemo.get(rows);
   if (hit && hit.key === key) return hit.res;
   const res = _retenScopeStepsBuild(rows);

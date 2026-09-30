@@ -1217,7 +1217,7 @@ function buildAskDataContext() {
     const today = bizTodayIso(), y = today.slice(0, 4);
     const sum = (rows) => Math.round(rows.reduce((a, s) => a + Number(s.revenue_amount || 0), 0));
     const since = (iso) => pool.filter(s => s.sold_date >= iso);
-    const renewalIds = new Set((state.sources || []).filter(s => s.is_renewal).map(s => s.id));
+    const renewalIds = new Set((state.sources || []).filter(s => sourceIsRenewal(s)).map(s => s.id));
     const isRen = (s) => s._crmRenewal ?? renewalIds.has(s.source_id);
     const ytd = since(y + '-01-01');
     out.insideSales = {

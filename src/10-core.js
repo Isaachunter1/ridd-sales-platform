@@ -761,6 +761,11 @@ function saveIndicatorState() {
     if (typeof state._indicatorRepIncludeRor === 'boolean') _ar.repIncludeRor = state._indicatorRepIncludeRor;
     if (typeof state._indicatorRepIncludeOneTime === 'boolean') _ar.repIncludeOneTime = state._indicatorRepIncludeOneTime;
     if (typeof state._indicatorRepIncludeRenewals === 'boolean') _ar.repIncludeRenewals = state._indicatorRepIncludeRenewals;
+    // Configurations → Indicators exclusions are COMPANY rules (per the Sep 30
+    // settings audit — they were device-only before): shared like the rest.
+    _ar.indMyExclTerms = Array.isArray(state.indicatorMyExclServiceTerms) ? state.indicatorMyExclServiceTerms : null;
+    _ar.indExclServices = Array.isArray(state.indicatorExclServices) ? state.indicatorExclServices : null;
+    _ar.indExclTeams = Array.isArray(state.indicatorExclTeams) ? state.indicatorExclTeams : [];
   } catch (e) { /* mirror is best-effort */ }
   // Settings ALWAYS save first, with their own try/catch, so a quota failure
   // on the bulk CSV save can't roll back team/rep edits. Without this split,
@@ -1104,6 +1109,7 @@ async function loadIndicatorConfigFromSupabase() {
     // from the server intentionally overwrite local values so a "reset"
     // from another admin shows up here too.
     const hasServerData = data && (
+      (data.competitions && data.competitions.extras && Object.keys(data.competitions.extras).length > 0) ||
       (Array.isArray(data.teams) && data.teams.length > 0) ||
       Object.keys(data.rep_teams || {}).length > 0 ||
       Object.keys(data.rep_tiers || {}).length > 0
@@ -1163,6 +1169,9 @@ async function loadIndicatorConfigFromSupabase() {
             if (typeof _ar.repIncludeRor === 'boolean') state._indicatorRepIncludeRor = _ar.repIncludeRor;
             if (typeof _ar.repIncludeOneTime === 'boolean') state._indicatorRepIncludeOneTime = _ar.repIncludeOneTime;
             if (typeof _ar.repIncludeRenewals === 'boolean') state._indicatorRepIncludeRenewals = _ar.repIncludeRenewals;
+            if ('indMyExclTerms' in _ar) state.indicatorMyExclServiceTerms = _ar.indMyExclTerms;
+            if ('indExclServices' in _ar) state.indicatorExclServices = _ar.indExclServices;
+            if ('indExclTeams' in _ar) state.indicatorExclTeams = _ar.indExclTeams;
           }
         } catch (e) { /* fallback: local values */ }
         if (Array.isArray(data.competitions.pillOrder)) state._compPillOrder = data.competitions.pillOrder;
@@ -1187,6 +1196,11 @@ async function loadIndicatorConfigFromSupabase() {
       // The server copy is now our baseline — record it so this browser
       // counts as CLEAN until the user actually changes something here.
       _indCfgRecordSynced(data.updated_at);
+      // Another admin's change (teams, aliases, rules) must reach cached boards
+      // without a reload: bump the cache revision and repaint.
+      if (typeof _indCfgRev !== 'undefined') _indCfgRev++;
+      if (typeof _applyLiveDataRules === 'function') _applyLiveDataRules();
+      if (typeof scheduleBackgroundRemount === 'function') scheduleBackgroundRemount();
       return;
     }
     // Server row is empty (fresh install). If THIS browser has team data
@@ -2042,6 +2056,35 @@ function _ghostCopySubs(rows) {
   for (const [, rs] of by) { if (rs.length < 2 || !rs.some(live)) continue; for (const r of rs) if (!live(r)) out.push(r); }
   return out;
 }
+// Deleted-in-CRM rules (Configurations → Reporting rules → Deleted CRM
+// accounts): orphans, nightly scan, stale pending, ghost copies. Pure over
+// the loaded rows; re-run by _applyLiveDataRules() whenever the rules change.
+function _filterDeletedRows(rows) {
+  state._stalePendingCustIds = _stalePendingCustIds(rows);
+  // Ghost copies (per Isaac, Sep 30 — #53790, #178588, #154001, #177531): an
+  // Active subscription with NO appointment and NO services that sits beside
+  // a real (Pending / serviced) Active subscription of the SAME service on
+  // the same customer. It was re-entered and the first one deleted in
+  // FieldRoutes; the mirror still carries it as Active. Dropped app-wide
+  // (same Stale-pending switch) so it can't inflate active counts / ARR or
+  // show as a CRM "duplicate".
+  const ghostSubs = (typeof reportingExclStalePending === 'function' && !reportingExclStalePending()) ? [] : _ghostCopySubs(rows);
+  state._ghostSubIds = ghostSubs.map(r => String(r.subscription_id));
+  const _ghostSet = new Set(ghostSubs);
+  const del = deletedCustIdSet();
+  // Rows set aside as deleted-in-CRM (orphans + the manual list) are kept in
+  // state so the Retention tab can start from the whole snapshot and show
+  // this exclusion as a step of its own.
+  const _isDel = (r) => _ghostSet.has(r) || del.has(String(r.customer_id != null ? r.customer_id : ''));
+  state._deletedSubs = (del.size || _ghostSet.size) ? rows.filter(_isDel) : [];
+  return (del.size || _ghostSet.size) ? rows.filter(r => !_isDel(r)) : rows;
+}
+function _applyLiveDataRules() {
+  if (!Array.isArray(state._snapshotAllRows) || !state._snapshotAllRows.length) return;
+  state._crmDeletedIds = (typeof reportingUseCrmDeletedScan === 'function' && reportingUseCrmDeletedScan()) ? (state._crmDeletedIdsRaw || []) : [];
+  state.reportingSubscriptions = _filterDeletedRows(state._snapshotAllRows);
+  if (typeof _indCfgRev !== 'undefined') _indCfgRev++;
+}
 async function loadReportingSubscriptions(uploadId) {
   const raw = await _loadReportingSubscriptionsRaw(uploadId);
   const noPhantom = stripPhantomOffices(raw);
@@ -2093,24 +2136,10 @@ async function loadReportingSubscriptions(uploadId) {
   // Stand-in until the nightly check / RevHawk catch deletions: a customer
   // whose EVERY sub is active, never serviced, and whose initial appointment
   // date passed 2+ days ago (or has none and was sold 14+ days ago).
-  state._stalePendingCustIds = _stalePendingCustIds(rows);
-  // Ghost copies (per Isaac, Sep 30 — #53790, #178588, #154001, #177531): an
-  // Active subscription with NO appointment and NO services that sits beside
-  // a real (Pending / serviced) Active subscription of the SAME service on
-  // the same customer. It was re-entered and the first one deleted in
-  // FieldRoutes; the mirror still carries it as Active. Dropped app-wide
-  // (same Stale-pending switch) so it can't inflate active counts / ARR or
-  // show as a CRM "duplicate".
-  const ghostSubs = (typeof reportingExclStalePending === 'function' && !reportingExclStalePending()) ? [] : _ghostCopySubs(rows);
-  state._ghostSubIds = ghostSubs.map(r => String(r.subscription_id));
-  const _ghostSet = new Set(ghostSubs);
-  const del = deletedCustIdSet();
-  // Rows set aside as deleted-in-CRM (orphans + the manual list) are kept in
-  // state so the Retention tab can start from the whole snapshot and show
-  // this exclusion as a step of its own.
-  const _isDel = (r) => _ghostSet.has(r) || del.has(String(r.customer_id != null ? r.customer_id : ''));
-  state._deletedSubs = (del.size || _ghostSet.size) ? rows.filter(_isDel) : [];
-  return (del.size || _ghostSet.size) ? rows.filter(r => !_isDel(r)) : rows;
+  // Everything after the loader's own cleanup is kept, so the deleted-account
+  // rules below can be re-applied LIVE when an admin changes them (no reload).
+  state._snapshotAllRows = rows;
+  return _filterDeletedRows(rows);
 }
 // Streamed snapshot download with live progress, stall detection and retries.
 // supabase-js .download() is one opaque await — if the connection stalls

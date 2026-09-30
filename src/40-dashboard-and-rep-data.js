@@ -498,7 +498,7 @@ function viewDashboard() {
   const approved = windowSales.filter(s => !EXCLUDE_DASH.has(s.audit_status));
 
   // Renewal split via source.is_renewal
-  const renewalIds = new Set(state.sources.filter(s => s.is_renewal).map(s => s.id));
+  const renewalIds = new Set(state.sources.filter(s => sourceIsRenewal(s)).map(s => s.id));
   const isRenewal  = (sale) => sale._crmRenewal ?? renewalIds.has(sale.source_id);
   const approvedNew     = approved.filter(s => !isRenewal(s));
   const approvedRenewal = approved.filter(s =>  isRenewal(s));
@@ -738,7 +738,7 @@ function goalYtdRevenue(isAdmin) {
     if (EXCLUDE_GOAL.has(s.audit_status)) return false;
     return new Date(s.sold_date + 'T00:00') >= yearStart;
   });
-  const renewalIds = new Set(state.sources.filter(s => s.is_renewal).map(s => s.id));
+  const renewalIds = new Set(state.sources.filter(s => sourceIsRenewal(s)).map(s => s.id));
   const isR = s => s._crmRenewal ?? renewalIds.has(s.source_id);
   return {
     total: sumRev(ytd),
@@ -853,7 +853,7 @@ function computeLeaderboard(tab = 'total', range = null) {
   // first: explicit role → linked CRM roster row (admins have the full
   // roster) → own CRM type (self) → name-signature map from the shared
   // dataset (available to every role).
-  const renewalIds = new Set(state.sources.filter(s => s.is_renewal).map(s => s.id));
+  const renewalIds = new Set(state.sources.filter(s => sourceIsRenewal(s)).map(s => s.id));
   const isRenewalSale = s => s._crmRenewal ?? renewalIds.has(s.source_id);
 
   // Sales to aggregate — counts every sale that isn't cancelled/nsf/not_payable/reschedule.
@@ -1311,7 +1311,7 @@ function deletedCustIdSet() {
 function reportingAutoExcludeOrphans() {
   const r = _adminRules(); if (r && typeof r.autoExclOrphans === 'boolean') return r.autoExclOrphans;
   return true; }
-function setReportingAutoExcludeOrphans(b) { _setAdminRule('autoExclOrphans', !!b); }
+function setReportingAutoExcludeOrphans(b) { _setAdminRule('autoExclOrphans', !!b); if (typeof _applyLiveDataRules === 'function') _applyLiveDataRules(); }
 // Rows the sync flagged as having no CRM customer record. Kept aside (not in
 // the working snapshot) so Settings can list them for review.
 function orphanSubRows() { return state._orphanSubs || []; }
@@ -5638,7 +5638,7 @@ function dashboardGoalCard(range, opts) {
     const daysLeft = daysLeftInGoalPeriod(getGoalForContext());
     const { newRevenue, renewalRevenue } = (() => {
       const EX = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
-      const rIds = new Set((state.sources || []).filter(x => x.is_renewal).map(x => x.id));
+      const rIds = new Set((state.sources || []).filter(x => sourceIsRenewal(x)).map(x => x.id));
       const isR = (x) => x._crmRenewal ?? rIds.has(x.source_id);
       let n = 0, r = 0;
       for (const x of dashboardSales()) {
@@ -5690,7 +5690,7 @@ function dashboardGoalCard(range, opts) {
     const _mtd = (() => {
       const EX = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
       const m0 = new Date(now2.getFullYear(), now2.getMonth(), 1);
-      const rIds = new Set((state.sources || []).filter(x => x.is_renewal).map(x => x.id));
+      const rIds = new Set((state.sources || []).filter(x => sourceIsRenewal(x)).map(x => x.id));
       const isR = (x) => x._crmRenewal ?? rIds.has(x.source_id);
       const t = { new: 0, renewal: 0 };
       for (const x of dashboardSales()) { if (EX.has(x.audit_status)) continue; const d = new Date(x.sold_date + 'T00:00'); if (isNaN(d) || d < m0) continue; t[isR(x) ? 'renewal' : 'new'] += Number(x.revenue_amount || 0); }
@@ -5749,7 +5749,7 @@ function dashboardGoalCard(range, opts) {
       // Goals are NEW-revenue goals (per Isaac) — split each rep's YTD so
       // the bar races new business only; renewal production shows as a
       // muted "+$X renewal" so it isn't invisible, just not goal credit.
-      const _renIds = new Set((state.sources || []).filter(s => s.is_renewal).map(s => s.id));
+      const _renIds = new Set((state.sources || []).filter(s => sourceIsRenewal(s)).map(s => s.id));
       const _isRenS = (s) => s._crmRenewal ?? _renIds.has(s.source_id);
       // Quarterly quota (per Isaac, Sep 23): each rep's share of THIS quarter
       // = annual goal × the quarter's weight in the seasonal shape (the same

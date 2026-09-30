@@ -182,7 +182,7 @@ const CRM_ZIP_STATE = { AL: [350, 369], AK: [995, 999], AZ: [850, 865], AR: [716
 function crmZipState(zip) { const m = /^(\d{3})\d{2}/.exec(String(zip || '').trim()); if (!m) return null; const p = Number(m[1]); for (const k in CRM_ZIP_STATE) { const [a, b] = CRM_ZIP_STATE[k]; if (p >= a && p <= b) return k; } return null; }
 function crmReconciliationChecks(subs) {
   const out = { location: [], source: [], cancel: [], status: [], dupes: [], seller: [], noReason: [] };
-  const isActive = (r) => /active/i.test(String(r.subscription_status || ''));
+  const isActive = (r) => /^\s*active\s*$/i.test(String(r.subscription_status || ''));
   const dupKey = new Map();
   const flag = (r, why) => Object.assign({}, r, { _flagReason: why });
   const newest = (a, b) => String(b.sold_date || '').localeCompare(String(a.sold_date || ''));

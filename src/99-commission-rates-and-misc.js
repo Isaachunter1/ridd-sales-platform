@@ -148,7 +148,18 @@ function ensurePaySettings() {
 function isRenewalSource(sale) {
   if (!sale?.source_id) return false;
   const src = state.sources.find(o => o.id === sale.source_id);
-  return !!src?.is_renewal;
+  return sourceIsRenewal(src);
+}
+// ONE renewal rule for pay, dashboards and reporting (settings audit, Sep 30):
+// the source's Revenue Type in Configurations → Lead sources (admin override,
+// else the name — "…Renewal…"). The old sources.is_renewal flag only mirrored
+// the name and ignored the override, so Office Staff pay and reporting could
+// disagree about the same source.
+function sourceIsRenewal(src) {
+  if (!src) return false;
+  const nm = String(src.name || '').trim();
+  if (typeof reportingSourceClass === 'function' && nm) return reportingSourceClass(nm) === 'renewal';
+  return !!src.is_renewal;
 }
 
 // ── Per-rep overrides (per Isaac): Settings → Commissions holds the
@@ -777,7 +788,9 @@ function adminSlack() {
   };
   if (s.paystub_dm_enabled == null) s.paystub_dm_enabled = true;
 
-  const persist = () => saveDemoData();
+  // Saves to the shared pay_settings row (it only saved locally before —
+  // settings audit, Sep 30). Debounced so typing a webhook isn't a write per key.
+  const persist = () => { saveDemoData(); clearTimeout(state._slackSaveT); state._slackSaveT = setTimeout(() => { if (typeof saveAppSettings === 'function') saveAppSettings(); }, 700); };
 
   const profiles = state.allProfiles.length ? state.allProfiles : [state.profile];
 

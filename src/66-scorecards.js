@@ -1787,21 +1787,20 @@ function setReportingRecurringMode(m) {
 function reportingArrServicedOnly() { const r = _adminRules(); return !(r && r.arrServicedOnly === false); }
 function setReportingArrServicedOnly(b) { _setAdminRule('arrServicedOnly', !!b); }
 function reportingExclStalePending() { const r = _adminRules(); return !(r && r.exclStalePending === false); }   // default ON
-function setReportingExclStalePending(b) { _setAdminRule('exclStalePending', !!b); }
+function setReportingExclStalePending(b) { _setAdminRule('exclStalePending', !!b);  if (typeof _applyLiveDataRules === 'function') _applyLiveDataRules(); }
 function reportingStalePendingDays() { const r = _adminRules(); return (r && Number.isFinite(r.stalePendingDays) && r.stalePendingDays >= 1) ? r.stalePendingDays : 2; }   // per Isaac: initial appt passed ≥ 2 days
-function setReportingStalePendingDays(n) { _setAdminRule('stalePendingDays', Math.max(1, parseInt(n, 10) || 2)); }
+function setReportingStalePendingDays(n) { _setAdminRule('stalePendingDays', Math.max(1, parseInt(n, 10) || 2));  if (typeof _applyLiveDataRules === 'function') _applyLiveDataRules(); }
 function reportingUseCrmDeletedScan() { const r = _adminRules(); return !!(r && r.useCrmDeletedScan === true); }
-function setReportingUseCrmDeletedScan(b) { _setAdminRule('useCrmDeletedScan', !!b); state._crmDeletedIds = b ? (state._crmDeletedIdsRaw || []) : []; }
+function setReportingUseCrmDeletedScan(b) { _setAdminRule('useCrmDeletedScan', !!b); state._crmDeletedIds = b ? (state._crmDeletedIdsRaw || []) : [];  if (typeof _applyLiveDataRules === 'function') _applyLiveDataRules(); }
 function reportingArrExclPastDue() { const r = _adminRules(); return !!(r && r.arrExclPastDue === true); }
 function setReportingArrExclPastDue(b) { _setAdminRule('arrExclPastDue', !!b); }
 function reportingAgingDays() {
   const r = _adminRules();
   if (r && Number.isFinite(r.agingDays) && r.agingDays >= 0) return r.agingDays;
-  try { const v = parseInt(localStorage.getItem('ridd_rpt_aging_days') || '7', 10); return Number.isFinite(v) && v >= 0 ? v : 7; } catch { return 7; } }
+  return 7; }   // company rule — no per-device fallback (settings audit, Sep 30)
 function setReportingAgingDays(n) {
   const v = Math.max(0, parseInt(n, 10) || 0);
-  _setAdminRule('agingDays', v);
-  try { localStorage.setItem('ridd_rpt_aging_days', String(v)); } catch {} }
+  _setAdminRule('agingDays', v); }
 // Reinstatement grace (per Isaac, Sep 24): an account cancelled and turned
 // back on within this many days never churned; beyond it, the cancel stands
 // as churn (we missed the revenue) and the reactivation is a win-back.
@@ -1811,7 +1810,7 @@ function reportingExcludeRorChurn() {
   if (state._retenWhatIf && typeof state._retenWhatIf.ror === 'boolean' && state.reportingSubTab === 'waterfall') return state._retenWhatIf.ror;
   const r = _adminRules();
   if (r && typeof r.exclRorChurn === 'boolean') return r.exclRorChurn;
-  try { return localStorage.getItem('ridd_rpt_excl_ror') === '1'; } catch { return false; } }
+  return false; }
 function setReportingExcludeRorChurn(b) {
   _setAdminRule('exclRorChurn', !!b);
   try { localStorage.setItem('ridd_rpt_excl_ror', b ? '1' : '0'); } catch {} }
@@ -1830,7 +1829,7 @@ function setRetenExclRenewalSubs(b)   { _setAdminRule('retenExclRenewals', !!b);
 function retenExclZeroPay()       {
   if (state._retenWhatIf && typeof state._retenWhatIf.zero === 'boolean' && state.reportingSubTab === 'waterfall') return state._retenWhatIf.zero;
   const r = _adminRules(); if (r && typeof r.retenExclZeroPay === 'boolean') return r.retenExclZeroPay;
-  try { return localStorage.getItem('ridd_reten_excl_zeropay') !== '0'; } catch { return true; } }
+  return true; }
 function setRetenExclZeroPay(b)       { _setAdminRule('retenExclZeroPay', !!b); try { localStorage.setItem('ridd_reten_excl_zeropay', b ? '1' : '0'); } catch {} }
 // Step 6 of the workbook, in full (per Isaac): "take out all subscriptions
 // that have only received 1 service" - a one-visit account is not yet a
@@ -1840,12 +1839,12 @@ function setRetenExclZeroPay(b)       { _setAdminRule('retenExclZeroPay', !!b); 
 function retenExclOneSvc()  {
   if (state._retenWhatIf && typeof state._retenWhatIf.oneSvc === 'boolean' && state.reportingSubTab === 'waterfall') return state._retenWhatIf.oneSvc;
   const r = _adminRules(); if (r && typeof r.retenExclOneSvc === 'boolean') return r.retenExclOneSvc;
-  try { return localStorage.getItem('ridd_reten_excl_onesvc') !== '0'; } catch { return true; } }
+  return true; }
 function setRetenExclOneSvc(b)  { _setAdminRule('retenExclOneSvc', !!b); try { localStorage.setItem('ridd_reten_excl_onesvc', b ? '1' : '0'); } catch {} }
 function retenExclFrozenOneSvc()  {
   if (state._retenWhatIf && typeof state._retenWhatIf.frozenOneSvc === 'boolean' && state.reportingSubTab === 'waterfall') return state._retenWhatIf.frozenOneSvc;
   const r = _adminRules(); if (r && typeof r.retenExclFrozenOneSvc === 'boolean') return r.retenExclFrozenOneSvc;
-  try { return localStorage.getItem('ridd_reten_excl_frozen1') !== '0'; } catch { return true; } }
+  return true; }
 function setRetenExclFrozenOneSvc(b)  { _setAdminRule('retenExclFrozenOneSvc', !!b); try { localStorage.setItem('ridd_reten_excl_frozen1', b ? '1' : '0'); } catch {} }
 // Step 1 (per Isaac, Sep 2026): subs CLOSED with one of these cancellation
 // reasons leave the retention book entirely - they are not customers lost
@@ -1936,11 +1935,11 @@ function reportingActiveInclOneTime() { return false; }
 function setReportingActiveInclOneTime(b) { _setAdminRule('activeInclOneTime', !!b); try { localStorage.setItem('ridd_rpt_active_onetime', b ? '1' : '0'); } catch {} }
 function reportingExcludedBranches() {
   const r = _adminRules(); if (r && Array.isArray(r.excludedBranches)) return new Set(r.excludedBranches);
-  try { return new Set(JSON.parse(localStorage.getItem('ridd_rpt_excl_branches') || '[]')); } catch { return new Set(); } }
+  return new Set(); }
 function setReportingExcludedBranches(arr) { _setAdminRule('excludedBranches', [...arr]); try { localStorage.setItem('ridd_rpt_excl_branches', JSON.stringify([...arr])); } catch {} }
 function reportingBranchRenames() {
   const r = _adminRules(); if (r && r.branchRenames && typeof r.branchRenames === 'object') return r.branchRenames;
-  try { return JSON.parse(localStorage.getItem('ridd_rpt_branch_renames') || '{}') || {}; } catch { return {}; } }
+  return {}; }
 function setReportingBranchRename(from, to) { try { const m = { ...reportingBranchRenames() }; if (to && to !== from) m[from] = to; else delete m[from]; _setAdminRule('branchRenames', m); localStorage.setItem('ridd_rpt_branch_renames', JSON.stringify(m)); } catch {} }
 function reportingAllBranches() { const s = new Set(); for (const r of (state.reportingSubscriptions || [])) { const o = (r.office_name || '').trim(); if (o) s.add(o); } return [...s].sort(); }
 function _reporting3dayRor(r) {

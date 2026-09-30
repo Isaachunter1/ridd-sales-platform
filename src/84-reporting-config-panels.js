@@ -394,6 +394,8 @@ function reportingSourceConfigPanel() {
     const next = { ...existing, ...patch, updated_by: state.profile?.id || null };
     const idx = cfg.findIndex(c => c.source === source);
     if (idx >= 0) cfg[idx] = next; else cfg.push(next);
+    state.reportingSourceConfig = cfg.slice();   // new identity → reportingSourceClass rebuilds now, not on reload
+    if (typeof _indCfgRev !== 'undefined') _indCfgRev++;
     if (DEMO) { saveDemoData(); return; }
     // Don't send revenue_class unless it's actually been set — keeps the
     // Included toggle working even before reporting_source_config gains the
