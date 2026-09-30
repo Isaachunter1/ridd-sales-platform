@@ -71,7 +71,9 @@ exports.handler = async (event) => {
     // 68003 dry run, Sep 29: Service Fee $4.87 rides every ticket and is not
     // an add-on; Mosquito Seasonal and Rodent are).
     const NOT_ADDON = /^(service fee|tax|nsf fee|late fee|finance charge|credit card fee)\b|discount/i;
-    const isAddOn = (Array.isArray(AL.upsell_services) && AL.upsell_services.length) ? makeIsAddOn(AL.upsell_services) : (name) => !NOT_ADDON.test(String(name || '').trim());
+    // Per-item Commissionable switch (AL.addon_items, per Isaac Sep 30) wins;
+    // unlisted items keep the old rule.
+    const isAddOn = makeIsAddOn(AL.upsell_services, AL.addon_items, (n) => !NOT_ADDON.test(n));
     const lookback = Math.max(1, Number(AL.addons_lookback_days) || 3);
     const since = new Date(Date.now() - lookback * 86400000).toISOString().slice(0, 10);
     const from = since > String(AL.start).slice(0, 10) ? since : String(AL.start).slice(0, 10);
@@ -106,6 +108,25 @@ exports.handler = async (event) => {
     for (const part of chunk(needGet, 1000)) { const got = await fr('ticket/get', { ticketIDs: part.map(Number) }); listOf(got, 'tickets').forEach(take); }
     const recIds = Object.keys(tickets);
     log.subscriptions = Object.keys(subs).length; log.tickets = recIds.length; log.items = items.length;
+    // Catalog of every ticket item name seen on recurring tickets (per Isaac,
+    // Sep 30) → app_settings.addon_item_catalog, listed in Configurations →
+    // Upsells with a Commissionable switch each. Full sweeps refresh counts.
+    try {
+      const seen = {};
+      for (const it of items) {
+        const nm = String(it.description || it.name || '').trim(); if (!nm) continue;
+        const amt = (Number(it.amount) || 0) * (Number(it.quantity) || 1);
+        const x = seen[nm] || (seen[nm] = { n: 0, total: 0 }); x.n++; x.total += amt;
+      }
+      const { data: catRow } = await supabase.from('app_settings').select('value').eq('key', 'addon_item_catalog').maybeSingle();
+      const cat = Object.assign({}, (catRow && catRow.value && catRow.value.items) || {});
+      const at = new Date().toISOString();
+      for (const [nm, x] of Object.entries(seen)) {
+        const prev = cat[nm] || {};
+        cat[nm] = { n: full ? x.n : Math.max(prev.n || 0, x.n), avg: Math.round(x.total / x.n * 100) / 100, last_seen: at, first_seen: prev.first_seen || at };
+      }
+      await supabase.from('app_settings').upsert({ key: 'addon_item_catalog', value: { items: cat, at, full: full ? at : ((catRow && catRow.value && catRow.value.full) || null) } }, { onConflict: 'key' });
+    } catch (e) { console.warn('[fr-addons] catalog skipped:', e.message); }
 
     // 3. Fold into add-ons (one per subscription + add-on name).
     const addOns = groupTicketItems(items, { isAddOn, tickets });
@@ -169,7 +190,9 @@ exports.handler = async (event) => {
         lines.push({ name, kind: fee ? 'fee' : 'addon', per_service: money2(amt), value, credited_employee_id: emp || null, credited_profile_id: prof ? prof.id : null });
       }
       if (!feeSeen && initExtra > 0) lines.push({ name: 'Initial extras', kind: 'fee', per_service: 0, value: initExtra, credited_employee_id: null, credited_profile_id: null });
-      const samePerson = (l) => (soldProf && l.credited_profile_id && l.credited_profile_id === soldProf.id) || (!!soldBy && l.credited_employee_id === soldBy);
+      // An eligible line nobody is credited with (e.g. a discount) rides the
+      // base seller's revenue — added to or subtracted from the account.
+      const samePerson = (l) => !l.credited_employee_id || (soldProf && l.credited_profile_id && l.credited_profile_id === soldProf.id) || (!!soldBy && l.credited_employee_id === soldBy);
       const sum = (f) => money2(lines.filter(f).reduce((t, l) => t + l.value, 0));
       const base_value = sum(l => l.kind === 'base'), fee_value = sum(l => l.kind === 'fee');
       const addon_own_value = sum(l => l.kind === 'addon' && samePerson(l)), addon_other_value = sum(l => l.kind === 'addon' && !samePerson(l));
@@ -205,7 +228,7 @@ exports.handler = async (event) => {
     for (const r of revRows) {
       for (const l of r.lines) if (l.kind === 'addon') lineValue.set(r.subscription_id + '|' + l.name.toLowerCase(), l.value);
       const b = baseSale.get(r.subscription_id); if (!b) continue;
-      const own = r.lines.filter(l => l.kind === 'addon' && ((l.credited_profile_id && l.credited_profile_id === b.rep_id) || (!l.credited_profile_id && l.credited_employee_id && l.credited_employee_id === r.sold_by_employee_id)));
+      const own = r.lines.filter(l => l.kind === 'addon' && (!l.credited_employee_id || (l.credited_profile_id && l.credited_profile_id === b.rep_id) || (!l.credited_profile_id && l.credited_employee_id === r.sold_by_employee_id)));
       const commissionable = money2(r.base_value + own.reduce((t, l) => t + l.value, 0));
       const names = own.map(l => l.name).join(' + ') || null;
       if (b.payroll_processed_at || String(b.sold_date || '') < String(AL.start).slice(0, 10)) continue;
@@ -254,7 +277,7 @@ exports.handler = async (event) => {
         await supabase.from('add_ons').update({ sale_id: bx.id }).eq('id', ins.id);
         continue;
       }
-      if (AL.upsells !== 'off' && prof && String(a.added_at || '') >= String(AL.start).slice(0, 10)) {   // upsells are always automatic (per Isaac, Sep 23) — the manual Log Sale path is retired
+      if (AL.upsells !== 'off' && prof && (Number(a.recurring_amount) || 0) > 0 && String(a.added_at || '') >= String(AL.start).slice(0, 10)) {   // a negative eligible line (discount) never becomes its own upsell sale   // upsells are always automatic (per Isaac, Sep 23) — the manual Log Sale path is retired
         const t = tickets[a.initial_ticket_id || a.first_recurring_ticket_id] || {};
         const sale = upsellSaleRow({
           ticket_id: 'addon:' + ins.id, customer_id: a.customer_id, subscription_id: a.subscription_id, office_id: a.office_fr_id,

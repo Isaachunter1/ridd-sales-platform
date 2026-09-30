@@ -13,9 +13,14 @@
 // Which line items count as an upsell: the admin's configured service
 // terms (substring, case-insensitive) or, with none configured, anything
 // named add-on / upsell.
-function makeIsAddOn(upsellServices) {
+// itemMap (per Isaac, Sep 30): { [ticket item name, lower-case]: true|false }
+// — the admin's per-item Commissionable switch (Configurations → Upsells).
+// A listed item always wins; unlisted items fall back to the terms / name rule.
+function makeIsAddOn(upsellServices, itemMap, fallback) {
   const terms = (Array.isArray(upsellServices) ? upsellServices : []).map(x => String(x).toLowerCase()).filter(Boolean);
-  return (name) => { const n = String(name || '').toLowerCase(); return terms.length ? terms.some(t => n.includes(t)) : /add[- ]?on|upsell/.test(n); };
+  const map = itemMap && typeof itemMap === 'object' ? itemMap : {};
+  const rule = (n) => terms.length ? terms.some(t => n.includes(t)) : (fallback ? fallback(n) : /add[- ]?on|upsell/.test(n));
+  return (name) => { const n = String(name || '').trim().toLowerCase(); return typeof map[n] === 'boolean' ? map[n] : rule(n); };
 }
 
 // One candidate per qualifying line item. `items` may be a JSON string, an

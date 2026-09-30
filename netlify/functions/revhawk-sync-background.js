@@ -1100,7 +1100,7 @@ exports.handler = async (event) => {
           // (pure, fixture-tested by tools/upsell-test.js) so the upsell
           // build can't drift the shape silently.
           const { makeIsAddOn, upsellCandidates, upsellSaleRow } = require('../lib/upsell-record.js');
-          const isAddOn = makeIsAddOn(AL3.upsell_services);
+          const isAddOn = makeIsAddOn(AL3.upsell_services, AL3.addon_items);
           const tq = await runQuery(token, TICKET_SQL(START3));
           const tickets = [];
           for (const t of toObjects(tq.schema, tq.rows)) tickets.push(...upsellCandidates({ ...t, items: String(t.items || '[]') }, isAddOn));

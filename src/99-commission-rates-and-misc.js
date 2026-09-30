@@ -839,6 +839,7 @@ function adminSlack() {
     el('div', { class: 'flex items-center justify-between mb-1' },
       el('h2', { class: 'text-xl font-bold' }, 'Slack'),
     ),
+    (typeof slackTypesCard === 'function') ? slackTypesCard() : null,
 
     // ── 1. Architecture banner ──
     el('div', { class: 'card p-5', style: { background: 'var(--card-2)' } },

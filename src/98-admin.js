@@ -527,7 +527,7 @@ function adminConfigurations() {
       row('Failed-audit flag holds auto-approval', txt(AL.audit_fail_flag == null ? 'Failed Audit' : AL.audit_fail_flag, (v) => saveAL({ audit_fail_flag: String(v || '').trim() }), { placeholder: 'FieldRoutes customer flag', width: '180px' }), { indent: true, small: true, tip: 'Accounts carrying this flag stay in Upfront Sales for manual review instead of auto-approving. Clear the flag (or re-flag Passed) in FieldRoutes and the next sync continues the automated upfront-pay flow. Blank = no hold.' }),
       sub('Upsells'),
       row('Upsells', el('span', { class: 'text-[11px] font-semibold' }, 'Automatic \u2014 add-on ticket items in FieldRoutes'), { tip: 'Every add-on sold as a ticket item in FieldRoutes (Invoices \u2192 Add Ticket Item) becomes an upsell sale for the rep it is assigned to (or the person who added it). No manual logging (per Isaac).' }),
-      row('Add-on services', svcPicker(AL.upsell_services || [], (l) => saveAL({ upsell_services: l })), { indent: true, small: true, tip: 'Which service types count as add-ons. Empty = any service whose name contains “add-on” or “upsell”.' }),
+      addonItemsTable(AL, saveAL, sw, pill),
       sub('Backend lock'),
       row('Auto-approve upfront commission', sw(!!AL.auto_approve, () => saveAL({ auto_approve: !AL.auto_approve })), { tip: 'Approved automatically once the Upfront Commission Approval guard rails for the rep type hold (and no Failed Audit flag). Off = an auditor clicks Approve.' }),
       // Backend lock guard rails per rep type (per Isaac, Sep 23): the account
@@ -562,14 +562,7 @@ function adminConfigurations() {
     ]));
 
   // ── 4. Indicators ──
-  // ── Slack notifications per rep type (pay_settings.slack_types) ──
-  const SL = Object.assign({}, SLACK_TYPE_DEFAULTS, (state.appSettings && state.appSettings.slack_types) || {});
-  const saveSL = (k, v) => { state.appSettings.slack_types = Object.assign({}, SL, { [k]: v }); saveAppSettings(); logActivity('config_change', { detail: 'Slack ' + k + ': ' + (v ? 'on' : 'off') }); toast('Saved', 'success'); mountApp(); };
-  const slackCfg = card('Slack notifications', pill([['office', 'Inside Sales'], ['d2d', 'D2D'], ['tech', 'Technicians']].filter(([k]) => SL[k] !== false).map(([, l]) => l).join(' · ') || 'off'),
-    row('Inside Sales', sw(SL.office !== false, () => saveSL('office', !(SL.office !== false))), { tip: 'Office staff and loyalty reps can wire a Slack Member ID in ⚙ My Settings and get DMs (audit results, pay stubs and more). Default on.' }),
-    row('D2D sales reps', sw(SL.d2d === true, () => saveSL('d2d', !(SL.d2d === true))), { tip: 'Sales reps, partners and team leads. Off hides the Slack section from their settings and mutes DMs to them. Default off.' }),
-    row('Technicians', sw(SL.tech === true, () => saveSL('tech', !(SL.tech === true))), { tip: 'All technician roles. Default off.' }),
-  );
+  // (Slack notifications per rep type moved to the Slack tab, per Isaac Sep 30 — slackTypesCard().)
 
   const indicators = card('Indicators', null,
     row('MY % exclusions', svcPicker(myExcludeTerms(), (l) => { state.indicatorMyExclServiceTerms = l.length ? l : null; saveIndicatorState(); toast(l.length ? l.length + ' service' + (l.length === 1 ? '' : 's') + ' excluded from MY %' : 'Reset to the default (sentricon)', 'success'); mountApp(); }), { stack: true }),
@@ -593,7 +586,6 @@ function adminConfigurations() {
       configInfoBtn('How reporting works', howItWorks())),
     reportingRules,
     autolog,
-    slackCfg,
     indicators,
     listCard('service', 'Service Types', svcCount, reportingServiceConfigPanel),
     listCard('source', 'Sources', '', reportingSourceConfigPanel),
@@ -2275,4 +2267,90 @@ function adminDataSources() {
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'flex items-center gap-2' }, el('h2', { class: 'text-lg font-bold' }, 'API Keys'), state._integrationsErr ? pill(false, 'run migrations/20260923_integrations.sql') : null),
     frCard, rvCard, sbCard, diCard);
+}
+
+// ── Upsells → ticket items (per Isaac, Sep 30) ───────────────────────────
+// Every ticket item FieldRoutes has on a recurring ticket (catalogued by the
+// add-ons sync), each with a Commissionable switch. Commissionable items are
+// "Eligible Revenue": their value (per-service charge × 12) is added to — or,
+// for a negative line like a discount, subtracted from — the account's
+// commissionable ARV; everything else (service fees, tax) is left out.
+// Stored as autolog.addon_items { [name lower-case]: true|false }.
+const ADDON_NOT_DEFAULT = /^(service fee|tax|nsf fee|late fee|finance charge|credit card fee)\b|discount/i;
+function _addonAutoRule(AL, name) {
+  const n = String(name || '').trim().toLowerCase();
+  const terms = (AL.upsell_services || []).map(x => String(x).toLowerCase()).filter(Boolean);
+  return terms.length ? terms.some(t => n.includes(t)) : !ADDON_NOT_DEFAULT.test(n);
+}
+function _loadAddonCatalog() {
+  if (state._addonCatalog !== undefined) return;
+  state._addonCatalog = null;
+  supabase.from('app_settings').select('value').eq('key', 'addon_item_catalog').maybeSingle().then(async ({ data }) => {
+    let items = (data && data.value && data.value.items) || {};
+    let at = data && data.value && data.value.at;
+    // Before the first catalogue run: names from the revenue split lines.
+    if (!Object.keys(items).length) {
+      try {
+        const { data: rv } = await supabase.from('subscription_revenue').select('lines').limit(5000);
+        for (const r of rv || []) for (const l of (r.lines || [])) {
+          if (!l || l.kind === 'base' || !l.name || l.name === 'Initial extras') continue;
+          const x = items[l.name] || (items[l.name] = { n: 0, avg: 0, _t: 0 }); x.n++; x._t += Number(l.per_service) || 0; x.avg = Math.round(x._t / x.n * 100) / 100;
+        }
+        at = null;
+      } catch (e) { /* table may not exist yet */ }
+    }
+    state._addonCatalog = { items, at };
+    mountApp();
+  });
+}
+function addonItemsTable(AL, saveAL, sw, pill) {
+  _loadAddonCatalog();
+  const C = state._addonCatalog;
+  const map = AL.addon_items || {};
+  const muted = { color: 'var(--text-muted)' };
+  const th = (t, cls) => el('th', { class: (cls || 'text-left') + ' px-2 py-1.5 text-[10px] uppercase tracking-wider font-semibold', style: muted }, t);
+  if (!C) return el('div', { class: 'text-[11px] py-2', style: muted }, 'Loading ticket items…');
+  const q = String(state._addonItemQ || '').toLowerCase();
+  const names = Object.keys(C.items).sort((a, b) => (C.items[b].n || 0) - (C.items[a].n || 0) || a.localeCompare(b));
+  const list = names.filter(nm => !q || nm.toLowerCase().includes(q));
+  const setItem = (nm, v) => { const m = Object.assign({}, map); const k = nm.trim().toLowerCase(); if (v == null) delete m[k]; else m[k] = v; saveAL({ addon_items: m }); };
+  const eligibleN = names.filter(nm => { const v = map[nm.trim().toLowerCase()]; return typeof v === 'boolean' ? v : _addonAutoRule(AL, nm); }).length;
+  const open = state._addonItemsOpen !== false;
+  return el('div', { class: 'rounded-lg border mb-2', style: { borderColor: 'var(--border)' } },
+    el('div', { class: 'flex items-center gap-2 flex-wrap px-2 py-2', style: { background: 'var(--card-2)' } },
+      el('button', { class: 'text-[11px] font-bold', onclick: () => { state._addonItemsOpen = !open; mountApp(); } }, (open ? '▾ ' : '▸ ') + 'Ticket items · Eligible Revenue'),
+      pill(eligibleN + ' of ' + names.length + ' commissionable'),
+      el('span', { class: 'text-[10px] flex-1', style: { color: 'var(--text-subtle)' } }, 'Commissionable items are Eligible Revenue: per-service charge × 12 added to the account’s commissionable ARV (a negative line such as a discount subtracts). Off = left out, like service fees. Items nobody is credited with ride the base seller.' + (C.at ? ' · catalog ' + new Date(C.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ' · full list fills in after tonight’s 2am sweep')),
+      el('input', { type: 'search', placeholder: 'Filter items…', value: state._addonItemQ || '', class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', width: '160px' },
+        oninput: (e) => { state._addonItemQ = e.target.value; clearTimeout(state._addonQT); state._addonQT = setTimeout(mountApp, 250); } })),
+    !open ? null : !names.length ? el('div', { class: 'px-3 py-4 text-[11px]', style: muted }, 'No ticket items yet — the add-ons sync lists them after its next run.') :
+      el('div', { style: { maxHeight: '360px', overflowY: 'auto' } }, el('table', { class: 'text-xs', style: { width: '100%', borderCollapse: 'collapse' } },
+        el('thead', { style: { position: 'sticky', top: 0, background: 'var(--card)', zIndex: 1 } }, el('tr', {}, th('Ticket item'), th('On recurring tickets', 'text-right'), th('Avg per service', 'text-right'), th('Commissionable', 'text-center'), th(''))),
+        el('tbody', {}, ...list.map(nm => {
+          const x = C.items[nm] || {}; const k = nm.trim().toLowerCase(); const set = typeof map[k] === 'boolean'; const on = set ? map[k] : _addonAutoRule(AL, nm);
+          return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+            el('td', { class: 'px-2 py-1.5 font-semibold' }, nm),
+            el('td', { class: 'px-2 py-1.5 text-right tabular-nums' }, Number(x.n || 0).toLocaleString()),
+            el('td', { class: 'px-2 py-1.5 text-right tabular-nums', style: (x.avg || 0) < 0 ? { color: '#DC2626' } : {} }, fmt.usd(x.avg || 0)),
+            el('td', { class: 'px-2 py-1.5 text-center' }, sw(on, () => setItem(nm, !on))),
+            el('td', { class: 'px-2 py-1.5 text-[10px]', style: { color: 'var(--text-subtle)' } }, set ? el('button', { class: 'underline', onclick: () => setItem(nm, null) }, 'reset to auto') : 'auto'));
+        })))));
+}
+
+// Slack notifications per rep type (pay_settings.slack_types) — lives on
+// Settings → Slack (moved from Configurations, per Isaac Sep 30).
+function slackTypesCard() {
+  const SL = Object.assign({}, SLACK_TYPE_DEFAULTS, (state.appSettings && state.appSettings.slack_types) || {});
+  const saveSL = (k, v) => { state.appSettings.slack_types = Object.assign({}, SL, { [k]: v }); saveAppSettings(); logActivity('config_change', { detail: 'Slack ' + k + ': ' + (v ? 'on' : 'off') }); toast('Saved', 'success'); mountApp(); };
+  const sw = (on, onToggle) => el('button', { class: 'shrink-0', style: { width: '36px', height: '20px', borderRadius: '10px', background: on ? 'var(--accent)' : 'var(--border-2)', position: 'relative', border: 'none', cursor: 'pointer' }, onclick: onToggle },
+    el('div', { style: { position: 'absolute', top: '2px', left: on ? '18px' : '2px', width: '16px', height: '16px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.3)', transition: 'left .12s' } }));
+  const row = (label, control, tip) => el('div', { class: 'flex items-center justify-between gap-3 py-1.5 border-t', style: { borderColor: 'var(--border)' }, title: tip || '' },
+    el('div', { class: 'text-sm font-semibold' + (tip ? ' cursor-help' : '') }, label), control);
+  const on = [['office', 'Inside Sales'], ['d2d', 'D2D'], ['tech', 'Technicians']].filter(([k]) => SL[k] !== false && !(k !== 'office' && SL[k] !== true)).map(([, l]) => l).join(' · ') || 'off';
+  return el('div', { class: 'card p-4' },
+    el('div', { class: 'flex items-center justify-between gap-3 mb-1' }, el('div', { class: 'text-sm font-bold' }, 'Slack notifications by rep type'),
+      el('span', { class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, on)),
+    row('Inside Sales', sw(SL.office !== false, () => saveSL('office', !(SL.office !== false))), 'Office staff and loyalty reps can wire a Slack Member ID in ⚙ My Settings and get DMs (audit results, pay stubs and more). Default on.'),
+    row('D2D sales reps', sw(SL.d2d === true, () => saveSL('d2d', !(SL.d2d === true))), 'Sales reps, partners and team leads. Off hides the Slack section from their settings and mutes DMs to them. Default off.'),
+    row('Technicians', sw(SL.tech === true, () => saveSL('tech', !(SL.tech === true))), 'All technician roles. Default off.'));
 }
