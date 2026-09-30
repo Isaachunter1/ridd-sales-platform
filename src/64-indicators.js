@@ -4075,8 +4075,12 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         // while the rest of the row stays (per Isaac — Pere's row).
         const pinTop = !head && tr.style.position === 'sticky' ? ((t.tHead ? t.tHead.getBoundingClientRect().height : 0) + 'px') : null;
         if (pinTop) { tr.style.top = pinTop; tr.style.zIndex = '3'; bg = tr.style.background || bg; }
-        left.forEach((i, k) => { const c = tr.cells[i]; if (!c) return; const own = c.style.background || c.style.backgroundColor; Object.assign(c.style, { position: 'sticky', left: offs[k] + 'px', zIndex: head ? '6' : pinTop ? '4' : '2', background: own || bg }); if (pinTop) c.style.top = pinTop; if (k === left.length - 1) c.style.boxShadow = '1px 0 0 var(--border)'; });
-        if (recAt > 0 && recAt !== nameAt) { const c = tr.cells[recAt]; if (c) { const own = c.style.background || c.style.backgroundColor; Object.assign(c.style, { position: 'sticky', right: '0', zIndex: head ? '6' : pinTop ? '4' : '2', background: own || bg, boxShadow: '-1px 0 0 var(--border)' }); if (pinTop) c.style.top = pinTop; } }
+        // A frozen cell paints over its row's inset lines (the Total row's
+        // top / bottom rule, the pinned row's stripe) — carry them onto the cell.
+        const rowLines = (tr.style.boxShadow || '').split(/,(?![^(]*\))/).map(x => x.trim()).filter(x => /^inset\s+0\s+-?\d+px\s+0/.test(x)).join(', ');
+        const withLines = (extra) => [rowLines, extra].filter(Boolean).join(', ');
+        left.forEach((i, k) => { const c = tr.cells[i]; if (!c) return; const own = c.style.background || c.style.backgroundColor; Object.assign(c.style, { position: 'sticky', left: offs[k] + 'px', zIndex: head ? '6' : pinTop ? '4' : '2', background: own || bg }); if (pinTop) c.style.top = pinTop; c.style.boxShadow = withLines(k === left.length - 1 ? '1px 0 0 var(--border)' : (k === 0 && pinTop ? 'inset 3px 0 0 var(--accent)' : '')); });
+        if (recAt > 0 && recAt !== nameAt) { const c = tr.cells[recAt]; if (c) { const own = c.style.background || c.style.backgroundColor; Object.assign(c.style, { position: 'sticky', right: '0', zIndex: head ? '6' : pinTop ? '4' : '2', background: own || bg, boxShadow: withLines('-1px 0 0 var(--border)') }); if (pinTop) c.style.top = pinTop; } }
       }
     });
     return t;
@@ -4537,7 +4541,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 class: _canOpenTot ? 'cursor-pointer transition hover:brightness-95' : '',
                 title: _canOpenTot ? 'Open the combined player card for every rep shown' : '',
                 onclick: _canOpenTot ? _openTot : undefined,
-                style: { background: 'var(--card-2)', boxShadow: 'inset 0 -2px 0 var(--border-2), inset 0 1px 0 var(--border)' } },
+                style: { background: 'var(--card-2)', boxShadow: 'inset 0 -1px 0 var(--border), inset 0 1px 0 var(--border)' } },   // same weight as every other row line (per Isaac)
                 el('td', { class: 'pl-5 pr-2 py-2 text-base leading-none', style: { fontFamily: 'Georgia, "Times New Roman", serif' } }, '\ud835\udd7d'),
                 ...repCols.map(c => {
                   if (c.key === 'name') return el('td', { class: 'px-2 py-2' },
