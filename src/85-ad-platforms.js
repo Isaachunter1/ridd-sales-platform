@@ -41,12 +41,72 @@ function adAutoOffices(r, branches) {
   for (const [ab, full] of Object.entries(AD_OFFICE_ALIASES)) if (text.includes(' ' + ab + ' ') || text.includes(norm(full))) { const b = find(full); if (b) hit.add(b); }
   return [...hit].sort();
 }
-// Override: '' = company-wide, 'OFFICE' = that office, absent = auto.
+// Account → office (Settings → Configurations → Ad accounts, per Isaac):
+// every campaign in the account goes to that office — the Google LSA
+// accounts are one office each. Key = platform|account id.
+function adAccountKey(r) { return r.platform + '|' + r.acct; }
+function adAccountOfficeMap() { const R = (typeof _adminRules === 'function') ? _adminRules() : null; return (R && R.adAccountOffice) || {}; }
+function setAdAccountOffice(key, val) {
+  const m = Object.assign({}, adAccountOfficeMap());
+  if (val == null) delete m[key]; else m[key] = val;
+  _setAdminRule('adAccountOffice', m);
+}
+// Order: campaign override → account's office → office named in the
+// campaign. '' = company-wide, 'OFFICE' = that office, absent = next rule.
 function adOfficesOf(r, branches) {
   const o = adCampaignOfficeMap()[adCampaignKey(r)];
   if (o === '') return [];
   if (o) return [o];
+  const a = adAccountOfficeMap()[adAccountKey(r)];
+  if (a === '') return [];
+  if (a) return [a];
   return adAutoOffices(r, branches);
+}
+
+// Settings → Configurations: map each ad account ID to a branch.
+function reportingAdAccountsPanel() {
+  const y = new Date().getFullYear();
+  if (typeof reportingLoadAdSpend === 'function') reportingLoadAdSpend(y);
+  const S = (state._adSpend || {})[y] || {};
+  const branches = (typeof _mktgBranchList === 'function') ? _mktgBranchList(y).all : [];
+  const muted = { color: 'var(--text-muted)' };
+  const admin = isAdminRole(state.profile?.role);
+  const wrap = (body) => el('div', { class: 'card p-3', id: 'cfg-ad-accounts' },
+    el('div', { class: 'flex items-center gap-3 flex-wrap mb-2' },
+      el('div', { class: 'text-sm font-bold' }, 'Ad accounts → branch'),
+      el('div', { class: 'text-[11px]', style: muted }, 'Facebook + Google Ads accounts from Windsor. Pick a branch and every campaign in that account counts toward it on Marketing → Metrics. Auto = the branch named in each campaign (e.g. “RIDD Atlanta – General Search”); Company-wide = counted in company totals only. A single campaign can still be overridden on the Metrics campaigns card.')),
+    body);
+  if (!S.rows) return wrap(el('div', { class: 'text-[11px] py-3', style: S.error ? { color: '#DC2626' } : muted }, S.error ? 'Couldn’t pull the ad accounts: ' + S.error : 'Pulling ad accounts from Windsor…'));
+  const by = new Map();
+  for (const r of S.rows) {
+    const k = adAccountKey(r);
+    const x = by.get(k) || { k, r, platform: r.platform, acct: r.acct, name: r.acctName, spend: 0, camps: new Set(), provs: new Set(), auto: new Set() };
+    x.spend += r.spend || 0; x.camps.add(r.campaign); x.provs.add(adProviderOf(r));
+    for (const o of adAutoOffices(r, branches)) x.auto.add(o);
+    by.set(k, x);
+  }
+  const list = [...by.values()].sort((a, b) => a.platform.localeCompare(b.platform) || b.spend - a.spend);
+  const map = adAccountOfficeMap();
+  const unassigned = list.filter(x => map[x.k] == null && !x.auto.size);
+  const th = (t) => el('th', { class: 'px-2 py-1.5 text-left text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap', style: muted }, t);
+  const td = (v, st) => el('td', { class: 'px-2 py-1.5 whitespace-nowrap', style: st || {} }, v == null || v === '' ? '—' : v);
+  const sel = (x) => {
+    const o = map[x.k];
+    const autoLbl = 'Auto · ' + (x.auto.size ? [...x.auto].map(_mktgTC).join(' + ') : 'none found → company-wide');
+    if (!admin) return o === '' ? 'Company-wide' : o ? _mktgTC(o) : autoLbl;
+    return el('select', { class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: Object.assign({ borderColor: 'var(--border-2)', background: 'var(--card)', maxWidth: '260px' }, o == null && !x.auto.size ? { borderColor: '#DC2626' } : {}),
+      onchange: (e) => { const v = e.target.value; setAdAccountOffice(x.k, v === '__auto' ? null : v === '__cw' ? '' : v); mountApp(); } },
+      el('option', { value: '__auto', selected: o == null }, autoLbl),
+      el('option', { value: '__cw', selected: o === '' }, 'Company-wide (no branch)'),
+      ...branches.map(b => el('option', { value: b, selected: o === b }, _mktgTC(b))));
+  };
+  return wrap(el('div', {},
+    unassigned.length ? el('div', { class: 'text-[11px] mb-2', style: { color: '#DC2626' } }, unassigned.length + ' account' + (unassigned.length === 1 ? '' : 's') + ' (' + fmt.usd0(unassigned.reduce((t, x) => t + x.spend, 0)) + ' this year) have no branch yet — outlined in red.') : null,
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]' },
+      el('thead', {}, el('tr', {}, th('Platform'), th('Account ID'), th('Account name'), th('Provider'), th('Campaigns'), th(y + ' spend'), th('Branch'))),
+      el('tbody', {}, ...list.map(x => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        td(x.platform === 'facebook' ? 'Facebook' : 'Google Ads'), td(x.acct, { fontFamily: 'var(--font-mono, ui-monospace, monospace)' }), td(x.name),
+        td([...x.provs].join(', ')), td(x.camps.size), td(fmt.usd0(x.spend)), td(sel(x)))))))));
 }
 // Month × provider × office index for one year. A campaign on several
 // offices ("Myrtle Beach + Wilmington") splits evenly between them.
@@ -54,7 +114,7 @@ function adPlatformIndex(year, branches) {
   const S = state._adSpend && state._adSpend[year];
   const rows = S && S.rows;
   if (!rows || !rows.length) return null;
-  const mapSig = JSON.stringify(adCampaignOfficeMap());
+  const mapSig = JSON.stringify(adCampaignOfficeMap()) + JSON.stringify(adAccountOfficeMap());
   const memo = state._adIdxMemo;
   if (memo && memo.rows === rows && memo.mapSig === mapSig && memo.bs === branches.join(',')) return memo.idx;
   const ents = [];
