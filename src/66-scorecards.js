@@ -1930,9 +1930,9 @@ function retenPopulationExcluded(r) {
   if (retenExclFrozenOneSvc() && /frozen/i.test(String(r.subscription_status || '')) && svc <= 1 && !retenOneSvcExemptTerms().some(t => String(r.subscription || '').toLowerCase().includes(t))) return 'frozen, 1 service';
   return null;
 }
-function reportingActiveInclOneTime() {
-  const r = _adminRules(); if (r && typeof r.activeInclOneTime === 'boolean') return r.activeInclOneTime;
-  try { return localStorage.getItem('ridd_rpt_active_onetime') === '1'; } catch { return false; } }
+// Always off (per Isaac, Sep 30): "Subscriptions Active" is recurring only —
+// one-time subs never count. No longer configurable.
+function reportingActiveInclOneTime() { return false; }
 function setReportingActiveInclOneTime(b) { _setAdminRule('activeInclOneTime', !!b); try { localStorage.setItem('ridd_rpt_active_onetime', b ? '1' : '0'); } catch {} }
 function reportingExcludedBranches() {
   const r = _adminRules(); if (r && Array.isArray(r.excludedBranches)) return new Set(r.excludedBranches);

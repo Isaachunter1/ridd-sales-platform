@@ -395,10 +395,8 @@ function adminConfigurations() {
     el('div', { class: 'text-muted- leading-relaxed' }, def));
   const howItWorks = () => el('div', { class: 'flex flex-col gap-1.5' },
     defRow('Data source', 'A live mirror of FieldRoutes (RevHawk), re-synced hourly during the day — no manual uploads.'),
-    defRow('Recurring basis', 'A subscription is recurring when its annual recurring revenue (ARR) is above $0 — read from FieldRoutes, self-maintaining.'),
     defRow('Aging threshold', 'A sub counts as aging / at-risk when its days past due is greater than or equal to this number (default 7).'),
-    defRow('Active includes one-time', 'Count one-time active subs in “Subscriptions Active”; off = recurring only.'),
-    defRow('Deleted CRM accounts', 'Customer IDs deleted inside FieldRoutes. The warehouse keeps their rows, so they are excluded from every dataset — automatically when the sync flags them, plus any IDs you list.'),
+    defRow('Deleted CRM accounts', 'Customer IDs deleted inside FieldRoutes. The warehouse keeps their rows, so they are excluded from every dataset — automatically when the sync flags them.'),
     defRow('Commission Rules', 'The hourly sync (and the 15-minute FieldRoutes live pull) creates one sale per CRM subscription sold by a linked rep (Inside Sales, D2D, Technicians) the moment it exists. Each row shows whether it is commission-eligible — initial appointment on the books, billing on file, signed agreement — and auto-approval waits for the required ones. It then moves Upfront → Pending Backend Lock → Archived / History from the account’s live state. Revenue is frozen at first sight; the Log Sale form is for upsells only. Payroll runs stay the admin’s click.'),
     defRow('Indicators · MY % exclusions', 'Service terms left out of the MY % (multi-year) calculation on Indicators.'),
     defRow('Marketing / IS', 'Counts Office-Staff-sold accounts only; Renewal sources are excluded from new-business pace.'),
@@ -447,12 +445,15 @@ function adminConfigurations() {
   const crmDelN = (state._crmDeletedIdsRaw || state._crmDeletedIds || []).length;
   const useScan = reportingUseCrmDeletedScan();
   const crmMeta = state._crmDeletedMeta;
+  // Nested option under the row above (per Isaac): indented behind a guide
+  // line with a ↳ marker, smaller + lighter than a top-level rule.
+  const sub2 = (label, control, o = {}) => el('div', { class: 'flex items-center justify-between gap-3 py-1.5', style: { marginLeft: '10px', paddingLeft: '14px', borderLeft: '2px solid var(--border-2)' }, title: o.tip || '' },
+    el('div', { class: 'text-[11px] font-semibold' + (o.tip ? ' cursor-help' : ''), style: { color: 'var(--text-muted)' } }, '↳ ' + label),
+    el('div', { class: 'flex items-center gap-2 shrink-0' }, ...[].concat(control).filter(Boolean)));
   const reportingRules = card('Reporting rules', null,
-    row('Recurring basis', el('span', { class: 'text-[11px] font-semibold' }, 'ARR > $0'), { tip: 'A subscription is recurring when its annual recurring revenue is above $0 — read straight from FieldRoutes, nothing to maintain.' }),
     row('Reinstatement grace', [el('span', { class: 'text-[11px] text-muted-' }, 'reactivated within'), num(reportingReinstateGraceDays(), (v) => { setReportingReinstateGraceDays(v); mountApp(); }), el('span', { class: 'text-[11px] text-muted-' }, 'days = never churned')], { tip: 'A cancelled account that is active again within this many days is treated as retained. Reactivated later than this, the cancel stands as churn (revenue was missed) and the reactivation counts as a win-back. Needs the reactivation date from the CRM feed; until it arrives, an active account with an old cancel date is treated as reinstated in time.' }),
     row('Aging threshold', [el('span', { class: 'text-[11px] text-muted-' }, 'days past due ≥'), num(reportingAgingDays(), (v) => { setReportingAgingDays(v); mountApp(); })], { tip: 'A sub counts as aging / at-risk when its days past due is greater than or equal to this number.' }),
-    row('Active includes one-time', sw(reportingActiveInclOneTime(), () => { setReportingActiveInclOneTime(!reportingActiveInclOneTime()); mountApp(); }), { tip: 'Count one-time active subs in “Subscriptions Active”. Off = recurring only.' }),
-    row('Deleted CRM accounts · auto-exclude', [
+    row('Deleted CRM accounts', [
       orphans.length ? el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => openReportingDrillModal({ chartTitle: 'Subscriptions with no FieldRoutes customer record', sliceLabel: n(orphans.length) + ' subscriptions · deleted in the CRM', rows: orphans, formatValue: fmt.usd0 }) }, n(orphanCust) + ' detected →') : pill('0 detected'),
       pill(n(crmDelN) + ' from nightly FieldRoutes check' + (crmMeta && crmMeta.scanned_at ? ' · ' + new Date(crmMeta.scanned_at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ' · not run yet') + (crmMeta && !crmMeta.checked ? ' · last run checked 0' : '') + (useScan ? '' : ' · not applied')),
       sw(autoOrph, () => {
@@ -465,15 +466,8 @@ function adminConfigurations() {
         }
         mountApp();
       })]),
-    row('Deleted CRM accounts · use nightly check', sw(useScan, () => { setReportingUseCrmDeletedScan(!useScan); toast('Reload to re-apply the list to loaded data', 'info'); mountApp(); }), { small: true, indent: true, tip: 'Off by default. When on, customers the nightly FieldRoutes check could not find are removed app-wide (leaderboard, reporting, retention). Turned off Sep 29 after the check flagged 2,355 live customers.' }),
-    row('Deleted CRM accounts · stale pending', [pill(n((state._stalePendingCustIds || []).length) + ' customers'), el('span', { class: 'text-[11px] text-muted-' }, 'initial appt passed ≥'), num(reportingStalePendingDays(), (v) => { setReportingStalePendingDays(v); toast('Reload to re-apply', 'info'); mountApp(); }), el('span', { class: 'text-[11px] text-muted-' }, 'days'), sw(reportingExclStalePending(), () => { setReportingExclStalePending(!reportingExclStalePending()); toast('Reload to re-apply', 'info'); mountApp(); })], { small: true, indent: true, tip: 'Accounts deleted in FieldRoutes right after signup stay Active + Pending in the mirror forever. Customers whose every subscription is active, never serviced, and whose initial appointment passed this many days ago (or has no appointment and was sold 14+ days ago) are treated as deleted app-wide. On by default.' }),
-    row('Deleted CRM accounts · manual IDs', [pill(n(delIds.length) + ' excluded'), txt(delIds.join(', '), (v) => {
-      const ids = [...new Set(String(v || '').split(/[\s,;]+/).map(x => x.trim()).filter(x => /^\d+$/.test(x)))];
-      state.indicatorDeletedCustIds = ids;
-      const del = deletedCustIdSet();
-      if (del.size && Array.isArray(state.reportingSubscriptions)) state.reportingSubscriptions = state.reportingSubscriptions.filter(r => !del.has(String(r.customer_id != null ? r.customer_id : '')));
-      saveIndicatorState(); toast(ids.length + ' deleted account' + (ids.length === 1 ? '' : 's') + ' excluded app-wide', 'success'); mountApp();
-    }, { placeholder: 'customer IDs, comma-separated' })], { small: true, indent: true }),
+    sub2('Use nightly check', sw(useScan, () => { setReportingUseCrmDeletedScan(!useScan); toast('Reload to re-apply the list to loaded data', 'info'); mountApp(); }), { small: true, indent: true, tip: 'Off by default. When on, customers the nightly FieldRoutes check could not find are removed app-wide (leaderboard, reporting, retention). Turned off Sep 29 after the check flagged 2,355 live customers.' }),
+    sub2('Stale pending', [pill(n((state._stalePendingCustIds || []).length) + ' customers'), el('span', { class: 'text-[11px] text-muted-' }, 'initial appt passed ≥'), num(reportingStalePendingDays(), (v) => { setReportingStalePendingDays(v); toast('Reload to re-apply', 'info'); mountApp(); }), el('span', { class: 'text-[11px] text-muted-' }, 'days'), sw(reportingExclStalePending(), () => { setReportingExclStalePending(!reportingExclStalePending()); toast('Reload to re-apply', 'info'); mountApp(); })], { small: true, indent: true, tip: 'Accounts deleted in FieldRoutes right after signup stay Active + Pending in the mirror forever. Customers whose every subscription is active, never serviced, and whose initial appointment passed this many days ago (or has no appointment and was sold 14+ days ago) are treated as deleted app-wide. On by default.' }),
   );
 
   // (Attrition steps card retired Sep 23 per Isaac — the Retention tab's own

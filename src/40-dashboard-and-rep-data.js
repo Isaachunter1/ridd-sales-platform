@@ -1284,7 +1284,7 @@ function myBucketOf(s) {
 // (Settings → Configurations) is the source of truth — excluded from EVERY
 // dataset so app numbers align with the CRM exactly.
 function deletedCustIdSet() {
-  const set = new Set((state.indicatorDeletedCustIds || []).map(x => String(x).trim()).filter(Boolean));
+  const set = new Set();   // (manual deleted-ID list retired per Isaac, Sep 30 — deletions come from the sync's checks only)
   // Auto-detected orphans: subscriptions whose customer id has NO customer
   // record in FieldRoutes any more (deleted in the CRM). Flagged by the sync
   // as customer_missing; excluded here unless an admin turns the rule off.
