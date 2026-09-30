@@ -4070,8 +4070,13 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         let bg = getComputedStyle(tr).backgroundColor;
         if (clear(bg)) bg = head ? getComputedStyle(tr.parentElement).backgroundColor : cardBg;
         if (clear(bg)) bg = cardBg;
-        left.forEach((i, k) => { const c = tr.cells[i]; if (!c) return; const own = c.style.background || c.style.backgroundColor; Object.assign(c.style, { position: 'sticky', left: offs[k] + 'px', zIndex: head ? '6' : '2', background: own || bg }); if (k === left.length - 1) c.style.boxShadow = '1px 0 0 var(--border)'; });
-        if (recAt > 0 && recAt !== nameAt) { const c = tr.cells[recAt]; if (c) { const own = c.style.background || c.style.backgroundColor; Object.assign(c.style, { position: 'sticky', right: '0', zIndex: head ? '6' : '2', background: own || bg, boxShadow: '-1px 0 0 var(--border)' }); } }
+        // The signed-in rep's pinned row is itself sticky (top = header
+        // height): its frozen cells need the same top, or they scroll away
+        // while the rest of the row stays (per Isaac — Pere's row).
+        const pinTop = !head && tr.style.position === 'sticky' ? ((t.tHead ? t.tHead.getBoundingClientRect().height : 0) + 'px') : null;
+        if (pinTop) { tr.style.top = pinTop; tr.style.zIndex = '3'; bg = tr.style.background || bg; }
+        left.forEach((i, k) => { const c = tr.cells[i]; if (!c) return; const own = c.style.background || c.style.backgroundColor; Object.assign(c.style, { position: 'sticky', left: offs[k] + 'px', zIndex: head ? '6' : pinTop ? '4' : '2', background: own || bg }); if (pinTop) c.style.top = pinTop; if (k === left.length - 1) c.style.boxShadow = '1px 0 0 var(--border)'; });
+        if (recAt > 0 && recAt !== nameAt) { const c = tr.cells[recAt]; if (c) { const own = c.style.background || c.style.backgroundColor; Object.assign(c.style, { position: 'sticky', right: '0', zIndex: head ? '6' : pinTop ? '4' : '2', background: own || bg, boxShadow: '-1px 0 0 var(--border)' }); if (pinTop) c.style.top = pinTop; } }
       }
     });
     return t;
