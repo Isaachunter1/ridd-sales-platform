@@ -564,8 +564,21 @@ function adminConfigurations() {
   // ── 4. Indicators ──
   // (Slack notifications per rep type moved to the Slack tab, per Isaac Sep 30 — slackTypesCard().)
 
+  // Indicators exclusions (per Isaac, Sep 30): MY %, services left out
+  // entirely, and whole teams left out of every Indicators metric.
+  const _chipPicker = (vals, options, onChange, addLabel) => el('div', { class: 'flex items-center gap-1.5 flex-wrap justify-end' },
+    ...vals.map(t => el('span', { class: 'inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full', style: { background: 'rgba(223,100,58,.10)', color: 'var(--text)' } }, t,
+      el('button', { class: 'text-[11px] leading-none', style: { color: 'var(--text-muted)' }, onclick: () => onChange(vals.filter(x => x !== t)) }, '×'))),
+    el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', maxWidth: '180px' },
+      onchange: (e) => { const v = e.target.value; if (v) onChange([...vals, v]); } },
+      el('option', { value: '' }, addLabel), ...options.filter(o => !vals.includes(o)).map(o => el('option', { value: o }, o))));
+  const _exSvc = Array.isArray(state.indicatorExclServices) ? state.indicatorExclServices : [..._IND_EXCLUDED_SERVICES];
+  const _allTeams = (typeof distinctTeams === 'function' ? distinctTeams() : []).filter(t => t && t !== 'Excluded').sort();
+  const _exTeams = Array.isArray(state.indicatorExclTeams) ? state.indicatorExclTeams : [];
   const indicators = card('Indicators', null,
-    row('MY % exclusions', svcPicker(myExcludeTerms(), (l) => { state.indicatorMyExclServiceTerms = l.length ? l : null; saveIndicatorState(); toast(l.length ? l.length + ' service' + (l.length === 1 ? '' : 's') + ' excluded from MY %' : 'Reset to the default (sentricon)', 'success'); mountApp(); }), { stack: true }),
+    row('MY % exclusions', svcPicker(myExcludeTerms(), (l) => { state.indicatorMyExclServiceTerms = l.length ? l : null; saveIndicatorState(); toast(l.length ? l.length + ' service' + (l.length === 1 ? '' : 's') + ' excluded from MY %' : 'Reset to the default (sentricon)', 'success'); mountApp(); }), { stack: true, tip: 'Services dropped from both sides of the MY % (multi-year) ratio — they still count everywhere else.' }),
+    row('Excluded services', svcPicker(_exSvc, (l) => { state.indicatorExclServices = l; saveIndicatorState(); toast(l.length + ' service' + (l.length === 1 ? '' : 's') + ' left out of Indicators', 'success'); mountApp(); }), { stack: true, tip: 'Services left out of every Indicators metric (fees, chargebacks, follow-ups, inspections, removals — not real new production). Starts from the built-in list.' }),
+    row('Excluded teams', _chipPicker(_exTeams, _allTeams, (l) => { state.indicatorExclTeams = l; saveIndicatorState(); toast(l.length ? l.length + ' team' + (l.length === 1 ? '' : 's') + ' left out of Indicators' : 'No teams excluded', 'success'); mountApp(); }, '+ exclude team'), { stack: true, tip: 'Every sale by a rep on these teams drops out of every Indicators metric (boards, totals, charts). Competitions keep their own team exclusions.' }),
   );
 
   // ── 5. Lists — collapsed one-liners ──

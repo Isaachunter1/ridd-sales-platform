@@ -1218,12 +1218,25 @@ const _IND_EXCLUDED_SERVICES = new Set([
   'sentricon station removal', 'tech follow up', 'box elder treatment', 'german roach follow up',
   'initial interior', 'inspection', 'late fee', 'paid in full',
 ]);
-function _indicatorServiceExcluded(s) {
-  const n = String(s && s.subscription || '').toLowerCase().replace(/\(hidden\)/g, '').replace(/\s+/g, ' ').trim();
-  if (_IND_EXCLUDED_SERVICES.has(n)) return true;
-  const ci = n.indexOf(':'); // strip a leading office prefix, e.g. "salt lake: box elder treatment"
-  return ci >= 0 && _IND_EXCLUDED_SERVICES.has(n.slice(ci + 1).trim());
+// Editable in Settings → Configurations → Indicators (per Isaac, Sep 30):
+// state.indicatorExclServices (null = the default list above).
+function indicatorExcludedServices() {
+  const v = state.indicatorExclServices;
+  if (Array.isArray(v)) { if (!_indSvcMemo.src || _indSvcMemo.src !== v) { _indSvcMemo.src = v; _indSvcMemo.set = new Set(v.map(x => String(x).toLowerCase().replace(/\(hidden\)/g, '').replace(/\s+/g, ' ').trim()).filter(Boolean)); } return _indSvcMemo.set; }
+  return _IND_EXCLUDED_SERVICES;
 }
+const _indSvcMemo = { src: null, set: null };
+function _indicatorServiceExcluded(s) {
+  const EX = indicatorExcludedServices();
+  const n = String(s && s.subscription || '').toLowerCase().replace(/\(hidden\)/g, '').replace(/\s+/g, ' ').trim();
+  if (EX.has(n)) return true;
+  const ci = n.indexOf(':'); // strip a leading office prefix, e.g. "salt lake: box elder treatment"
+  return ci >= 0 && EX.has(n.slice(ci + 1).trim());
+}
+// Teams left out of Indicators entirely (per Isaac, Sep 30) — every sale by a
+// rep on one of these teams drops from every Indicators metric. Separate from
+// a competition's own excluded teams.
+function indicatorExcludedTeams() { return new Set(Array.isArray(state.indicatorExclTeams) ? state.indicatorExclTeams : []); }
 const INDICATOR_DEPTS = [
   ['all',    'All'],
   ['d2d',    'Sales Rep'],
@@ -1317,7 +1330,8 @@ function indicatorSales() {
   // or a filter changes.
   const cfg = _indCfgRev + '|' + (state.indicatorsComps ? 1 : 0)
     + '|' + _acct + '#' + _exclSvc.join('~') + '#' + _inclSvc.join('~') + '#' + _inclSrcArr.join('~') + '#' + _exclSrcArr.join('~')
-    + '#' + (state.indicatorDeletedCustIds || []).join('~') + '#x' + indicatorExclKey();
+    + '#' + (state.indicatorDeletedCustIds || []).join('~') + '#x' + indicatorExclKey()
+    + '#t' + (state.indicatorExclTeams || []).join('~') + '#s' + (Array.isArray(state.indicatorExclServices) ? state.indicatorExclServices.join('~') : 'def');
   if (_indSalesCache.src !== src || _indSalesCache.cfg !== cfg) {
     _indSalesCache.src = src; _indSalesCache.cfg = cfg; _indSalesCache.byKey.clear();
   }
@@ -1344,6 +1358,9 @@ function indicatorSales() {
   const _inclSrcSet = _inclSrcArr.length ? new Set(_inclSrcArr) : null;
   const _exclSrcSet = _exclSrcArr.length ? new Set(_exclSrcArr) : null;
   const _delSet = deletedCustIdSet();
+  const _exTeams = indicatorExcludedTeams();
+  const _teamMemo = new Map();
+  const _teamOfRep = (r) => { const k = String(r || ''); if (!_teamMemo.has(k)) _teamMemo.set(k, (typeof getRepTeam === 'function' ? getRepTeam(k) : '') || ''); return _teamMemo.get(k); };
   let all = src.filter(s => {
     // Deleted-in-CRM orphans (see deletedCustIdSet above) never count.
     if (_delSet.size && _delSet.has(String(s.customerId != null ? s.customerId : ''))) return false;
@@ -1353,6 +1370,8 @@ function indicatorSales() {
     if (FR_GLOBAL_EXCLUDED_SERVICES.has(String(s.subscription || '').trim())) return false;
     // Filters panel: exclude one-time services / 3-day RORs / renewals.
     if (_indExclDrop(s)) return false;
+    // Excluded teams (Configurations → Indicators).
+    if (_exTeams.size && _exTeams.has(_teamOfRep(s.rep))) return false;
     // Account status. Default "Pending / Serviced" now uses FIELDROUTES' OWN
     // definition: the account's initial-appointment status is Pending or
     // Completed. Verified against the CRM's Sales Leaderboard to the penny
@@ -1448,6 +1467,7 @@ function openCrmReconcileModal() {
       if (ist !== 'pending' && ist !== 'completed') return 'initial appt status “' + (s.initialStatus || '—') + '” (not Pending/Completed)';
     } else if (_scIsSoldNotStarted(s)) return 'Sold-Not-Started (legacy heuristic)';
     if (_indicatorServiceExcluded(s)) return 'excluded service “' + s.subscription + '” (Settings → Configurations)';
+    { const _tm = (typeof getRepTeam === 'function') ? getRepTeam(s.rep) : ''; if (_tm && indicatorExcludedTeams().has(_tm)) return 'excluded team “' + _tm + '” (Settings → Configurations → Indicators)'; }
     const _s = String(s.source || '').trim();
     if (_exclSrc.has(_s)) return 'excluded source “' + (_s || '—') + '” (Settings → Configurations)';
     const _sub = String(s.subscription || '').trim();

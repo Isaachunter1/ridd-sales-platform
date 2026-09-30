@@ -450,6 +450,8 @@ const INDICATOR_SETTINGS_FIELDS = [
   '_indicatorDismissedDupes',
   '_indicatorRepAlias',
   'indicatorMyExclServiceTerms',   // services dropped from BOTH sides of MY% (default: Sentricon)
+  'indicatorExclTeams',            // teams left out of Indicators entirely (Configurations → Indicators)
+  'indicatorExclServices',         // services left out of Indicators entirely (null = built-in list)
   // indicatorsGroupBy + indicatorsRangePreset intentionally NOT persisted — the
   // tab always opens on Branch / All reps / This Year; the toggles change them
   // for the current session only, and a refresh returns to the defaults.
