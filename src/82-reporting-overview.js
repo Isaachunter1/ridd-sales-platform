@@ -272,8 +272,10 @@ function reportingOverview() {
     + (dataA.stats.subs != null ? '. Hidden service types (Configurations tab) are always excluded.' : '');
   const CARD_HELP = {
     customers: 'Distinct Customer IDs that have AT LEAST ONE active subscription. A customer with 3 active subs counts once; a customer whose subs are all Frozen/cancelled is not counted.\n\n' + scopeNote,
-    subs:      'COUNT of every subscription in FieldRoutes whose initial service is marked Completed \u2014 Active AND Frozen, recurring AND one-time, BEFORE the hidden-type / excluded-source / excluded-branch rules. This is the same number as step 1 on the Retention tab and matches a raw FieldRoutes pull filtered to \u201creceived an initial service\u201d. The sub-line shows every row in the snapshot. \u201cRecurring\u201d = Annual Recurring Value > $0 (or manually flagged recurring in Configurations).\n\n' + scopeNote,
-    active:    'COUNT of subscriptions that are BOTH:\n• Status = "Active" (exactly), AND\n• have NO cancellation date (a date there means frozen/lapsed),\nAND are recurring (ARV > $0 or flagged recurring). Frozen subs are excluded.\n\n' + scopeNote,
+    subs:      'NEW subscriptions whose initial service falls in the selected time range (renewal sources out; office scope applies). The big number is RECURRING (ARV > $0 or flagged recurring in Configurations); the sub-line adds the one-time services and the total. Pick a time range above to see any cohort.\n\n' + scopeNote,
+    _subsOld:  'COUNT of every subscription in FieldRoutes whose initial service is marked Completed \u2014 Active AND Frozen, recurring AND one-time, BEFORE the hidden-type / excluded-source / excluded-branch rules. This is the same number as step 1 on the Retention tab and matches a raw FieldRoutes pull filtered to \u201creceived an initial service\u201d. The sub-line shows every row in the snapshot. \u201cRecurring\u201d = Annual Recurring Value > $0 (or manually flagged recurring in Configurations).\n\n' + scopeNote,
+    active:    'Of the NEW RECURRING subscriptions serviced in the selected time range (the Subscriptions Serviced number), how many are still Active today — status Active and no cancellation date. The sub-line is the share still active.\n\n' + scopeNote,
+    _activeOld: 'COUNT of subscriptions that are BOTH:\n• Status = "Active" (exactly), AND\n• have NO cancellation date (a date there means frozen/lapsed),\nAND are recurring (ARV > $0 or flagged recurring). Frozen subs are excluded.\n\n' + scopeNote,
     arr:       'SUM of Annual Recurring Value across the Active recurring subscriptions above (same Active + recurring filter). Frozen and one-time subs contribute $0.\n\n' + scopeNote,
     cancels:   'COUNT of subscriptions that have a cancellation date AND are recurring (one-time cancels are NOT counted — they\'re not real attrition; 3-day RORs ARE counted). Rate = these ÷ all visible subs in scope.\n\n' + scopeNote,
   };
@@ -287,10 +289,24 @@ function reportingOverview() {
     const rows = g.filter(r => !!r.initial_service);
     return { rows, total: g.length };
   })();
+  // NEW-subscription cohort (per Isaac, Sep 30): subs whose initial service
+  // falls in the selected time range (office scope applies), renewal sources
+  // out. Serviced splits recurring vs one-time; Active = how many of those
+  // NEW RECURRING serviced subs are still active today.
+  const _cohort = (() => {
+    const recMap = reportingServiceRecurringMap();
+    const isRec = (r) => reportingRecurringMode() === 'arv' ? (Number(r.annual_recurring_value) || 0) > 0 : !!recMap.get(r.subscription);
+    const rows = (scopeA || []).filter(r => r.initial_service && !(typeof reportingSourceClass === 'function' && reportingSourceClass(reportingSourceOf(r)) === 'renewal'));
+    const rec = rows.filter(isRec), one = rows.filter(r => !isRec(r));
+    const act = rec.filter(r => String(r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled);
+    return { rows, rec, one, act };
+  })();
+  const _rangeLbl = scope.dateStart || scope.dateEnd ? (scope.dateLabel || 'the selected range') : 'all time';
+  const _pctS = (a, b) => b ? (Math.round(a / b * 1000) / 10) + '%' : '—';
   const COLUMN_CARDS = [
     { key: 'arr',       label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: (dataA.stats.pendingArr > 0 ? (dataA.stats.pendingInArr ? 'incl. $' : '+ $') + Math.round(dataA.stats.pendingArr).toLocaleString() + (dataA.stats.pendingInArr ? ' not yet serviced' : ' pending') + ' \u00b7 ' + Number(dataA.stats.pendingArrSubs || 0).toLocaleString() + ' sold, not yet serviced' : 'serviced, active recurring subs'),                                        chartIds: ['rarr', 'rarrOffice'] },   // (One-Time Revenue donut folded into the One-Time Subscriptions toggle)
-    { key: 'subs',      label: 'Subscriptions Serviced',  value: (_topFunnel ? _topFunnel.rows.length : (dataA.stats.servicedSubs != null ? dataA.stats.servicedSubs : dataA.stats.subs)).toLocaleString(), sub: 'received an initial service \u00b7 of ' + (_topFunnel ? _topFunnel.total : dataA.stats.subs).toLocaleString() + ' in FieldRoutes \u00b7 ' + dataA.stats.recurring.toLocaleString() + ' recurring', chartIds: ['sources', 'onetimeSubs', 'retiredSubs'] },
-    { key: 'active',    label: 'Subscriptions Active',    value: (reportingActiveInclOneTime() ? dataA.stats.activeSubs : dataA.stats.activeRecurring).toLocaleString(), sub: reportingActiveInclOneTime() ? 'currently in service · incl. one-time' : 'currently in service · recurring', chartIds: ['activesubs', 'agreement'] },   // (Agreement Length Mix moved here from column 1, per Isaac)
+    { key: 'subs',      label: 'Subscriptions Serviced',  value: _cohort.rec.length.toLocaleString(), sub: 'new recurring · ' + _cohort.one.length.toLocaleString() + ' one-time · ' + _cohort.rows.length.toLocaleString() + ' total · ' + _rangeLbl, chartIds: ['sources', 'onetimeSubs', 'retiredSubs'] },
+    { key: 'active',    label: 'Subscriptions Active',    value: _cohort.act.length.toLocaleString(), sub: _pctS(_cohort.act.length, _cohort.rec.length) + ' of the ' + _cohort.rec.length.toLocaleString() + ' new recurring still active', chartIds: ['activesubs', 'agreement'] },   // (Agreement Length Mix moved here from column 1, per Isaac)
     { key: 'customers', label: 'Customers Active',        value: (dataA.stats.activeCustomers != null ? dataA.stats.activeCustomers : dataA.stats.uniqueCustomers).toLocaleString(), sub: (dataA.stats.distinctActiveServices != null ? dataA.stats.distinctActiveServices : dataA.stats.distinctServices) + ' active services', chartIds: ['custDepth', 'tenure'] },   // (Active Customers donut retired, per Isaac; Services per Customer added)
     { key: 'cancels',   label: 'Subscriptions Cancelled', value: dataA.stats.realCancels.toLocaleString(),                   sub: dataA.stats.cancelRate.toFixed(2) + '% rate · recurring subs only',  chartIds: ['cancels', 'aging'] },
   ];
@@ -368,6 +384,9 @@ function reportingOverview() {
     cardArr.clickLabel = 'Click for the step-by-step \u2192';
     cardArr.clickTitle = 'Everything in FieldRoutes \u2192 Active ARR, one rule at a time';
   }
+  // Serviced / Active drill into the NEW cohort itself (per Isaac, Sep 30).
+  cardDrills.subs = { rows: _cohort.rows, label: 'new subscriptions serviced · ' + _rangeLbl + ' (' + _cohort.rec.length + ' recurring + ' + _cohort.one.length + ' one-time)' };
+  cardDrills.active = { rows: _cohort.act, label: 'new recurring serviced · ' + _rangeLbl + ' · still active' };
   for (const c of COLUMN_CARDS) {
     if (c.onClick) continue;                 // 'customers' already wired above
     const d = cardDrills[c.key];
