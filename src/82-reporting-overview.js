@@ -599,28 +599,44 @@ function reportingOverview() {
   const pulseCard = (() => {
     // Window: today / yesterday (one day, broken out by branch) or the last
     // 7 / 30 / 90 days (one bar per day). Per Isaac, Sep 2026.
+    // Longer windows (per Isaac, Sep 30): This year / Last year / Custom range
+    // bucket by MONTH (a custom range under ~3 months stays daily).
     const spanRaw = state._rtPulseSpan;
     const single = spanRaw === 'today' || spanRaw === 'yesterday';
-    const span = single ? 1 : ([7, 30, 90].includes(Number(spanRaw)) ? Number(spanRaw) : 30);
     const rows = reportingFilterByOffice(scope.visible, office);
     const { isRealCancel } = reportingFilters();
     const today = new Date();
     if (spanRaw === 'yesterday') today.setDate(today.getDate() - 1);
     const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    const longMode = spanRaw === 'thisyear' || spanRaw === 'lastyear' || spanRaw === 'custom';
+    let rFrom = null, rTo = null;
+    if (spanRaw === 'thisyear') { rFrom = today.getFullYear() + '-01-01'; rTo = iso(today); }
+    else if (spanRaw === 'lastyear') { rFrom = (today.getFullYear() - 1) + '-01-01'; rTo = (today.getFullYear() - 1) + '-12-31'; }
+    else if (spanRaw === 'custom') {
+      if (!state._rtPulseFrom) state._rtPulseFrom = today.getFullYear() + '-01-01';
+      if (!state._rtPulseTo) state._rtPulseTo = iso(today);
+      rFrom = state._rtPulseFrom; rTo = state._rtPulseTo; if (rTo < rFrom) { const t = rFrom; rFrom = rTo; rTo = t; }
+    }
+    const monthly = longMode && (Date.parse(rTo) - Date.parse(rFrom)) / 86400000 > 92;
     const days = [];
-    for (let i = span - 1; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); days.push(iso(d)); }
+    if (longMode && monthly) { let y = Number(rFrom.slice(0, 4)), m = Number(rFrom.slice(5, 7)); const ey = Number(rTo.slice(0, 4)), em = Number(rTo.slice(5, 7)); while (y < ey || (y === ey && m <= em)) { days.push(y + '-' + String(m).padStart(2, '0')); m++; if (m > 12) { m = 1; y++; } } }
+    else if (longMode) { for (let d = new Date(rFrom + 'T00:00'); iso(d) <= rTo; d.setDate(d.getDate() + 1)) days.push(iso(d)); }
+    else { const n = single ? 1 : ([7, 30, 90].includes(Number(spanRaw)) ? Number(spanRaw) : 30); for (let i = n - 1; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); days.push(iso(d)); } }
+    const span = days.length;
     const idx = new Map(days.map((d, i) => [d, i]));
+    // A date → its bucket (month key in monthly mode), only inside the window.
+    const keyOf = (d) => { if (!d) return null; if (longMode && (d < rFrom || d > rTo)) return null; return monthly ? d.slice(0, 7) : d; };
     // Unit (per Isaac, Sep 23): Revenue (default: sold = contract value, serviced / churned = ARR) or Subs (counts). Toggle in the header.
     const unitSubs = state._pulseUnit === 'subs';
     const sold = new Array(span).fill(0), serviced = new Array(span).fill(0), churned = new Array(span).fill(0);
     const soldRows = days.map(() => []), svcRows = days.map(() => []), cxlRows = days.map(() => []);
     for (const r of rows) {
-      const sd = String(r.sold_date || '').slice(0, 10);
+      const sd = keyOf(String(r.sold_date || '').slice(0, 10));
       if (idx.has(sd)) { const i = idx.get(sd); sold[i] += unitSubs ? 1 : (Number(r.subscription_contract_value) || 0); soldRows[i].push(r); }
       const initDone = String(r.initial_status || '').toLowerCase() === 'completed' || !!r.initial_serviced_date;
-      const svd = initDone ? String(r.initial_serviced_date || r.initial_service || '').slice(0, 10) : '';
+      const svd = initDone ? keyOf(String(r.initial_serviced_date || r.initial_service || '').slice(0, 10)) : '';
       if (svd && idx.has(svd)) { const i = idx.get(svd); serviced[i] += unitSubs ? 1 : (Number(r.annual_recurring_value) || 0); svcRows[i].push(r); }
-      const cd = String(r.subscription_date_canceled || '').slice(0, 10);
+      const cd = keyOf(String(r.subscription_date_canceled || '').slice(0, 10));
       if (cd && idx.has(cd) && isRealCancel(r)) { const i = idx.get(cd); churned[i] += unitSubs ? 1 : (Number(r.annual_recurring_value) || 0); cxlRows[i].push(r); }
     }
     const sum = (a) => a.reduce((x, y) => x + y, 0);
@@ -634,9 +650,10 @@ function reportingOverview() {
       const cvsEl = document.getElementById(id); if (!cvsEl) return;
       if (_chartInstances[id]) { _chartInstances[id].destroy(); delete _chartInstances[id]; }
       const txt = isDark ? '#C9C9BE' : '#555', grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
-      const lbl = days.map(d => { const dt = new Date(d + 'T00:00'); return (dt.getMonth() + 1) + '/' + dt.getDate(); });
+      const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const lbl = days.map(d => { if (monthly) return MON[Number(d.slice(5, 7)) - 1] + " '" + d.slice(2, 4); const dt = new Date(d + 'T00:00'); return (dt.getMonth() + 1) + '/' + dt.getDate(); });
       // Long-form date (per Isaac): "Wednesday, September 6th, 2026" — tooltip title and the drill header.
-      const longDate = (i) => { const dt = new Date(days[i] + 'T00:00'); const n = dt.getDate(); const sfx = (n % 10 === 1 && n !== 11) ? 'st' : (n % 10 === 2 && n !== 12) ? 'nd' : (n % 10 === 3 && n !== 13) ? 'rd' : 'th'; return dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long' }) + ' ' + n + sfx + ', ' + dt.getFullYear(); };
+      const longDate = (i) => { if (monthly) { const dt = new Date(days[i] + '-01T00:00'); return dt.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }); } const dt = new Date(days[i] + 'T00:00'); const n = dt.getDate(); const sfx = (n % 10 === 1 && n !== 11) ? 'st' : (n % 10 === 2 && n !== 12) ? 'nd' : (n % 10 === 3 && n !== 13) ? 'rd' : 'th'; return dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long' }) + ' ' + n + sfx + ', ' + dt.getFullYear(); };
       // Single day: one grouped bar per branch (sold / serviced / churned)
       // instead of a lone bar — the day's story is WHERE it happened.
       let labels = lbl, dsSold = sold, dsSvc = serviced, dsCxl = churned;
@@ -687,8 +704,8 @@ function reportingOverview() {
     // (per Isaac — tap Churned to see the day's/window's lost accounts,
     // where they came from and what each branch lost).
     const flat = (arr) => arr.reduce((a, x) => a.concat(x), []);
-    const winLabel = single ? (spanRaw === 'today' ? 'Today' : 'Yesterday') : 'Last ' + span + ' days';
-    const winLong = single ? (() => { const dt = new Date(days[0] + 'T00:00'); return dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }); })() : winLabel + ' \u00b7 ' + days[0] + ' \u2192 ' + days[days.length - 1];
+    const winLabel = single ? (spanRaw === 'today' ? 'Today' : 'Yesterday') : spanRaw === 'thisyear' ? 'This year' : spanRaw === 'lastyear' ? 'Last year' : spanRaw === 'custom' ? rFrom + ' → ' + rTo : 'Last ' + span + ' days';
+    const winLong = single ? (() => { const dt = new Date(days[0] + 'T00:00'); return dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }); })() : longMode ? winLabel + ' \u00b7 ' + rFrom + ' \u2192 ' + rTo : winLabel + ' \u00b7 ' + days[0] + ' \u2192 ' + days[days.length - 1];
     const openWindow = (kind) => openPulseDayDrill(winLabel, winLong, { sold: flat(soldRows), svc: flat(svcRows), cxl: flat(cxlRows) }, kind);
     const unitBtn = (v, l) => el('button', { type: 'button', 'data-active': String((state._pulseUnit === 'subs') === (v === 'subs')), onclick: () => { state._pulseUnit = v; mountApp(); } }, l);
     const unitToggle = el('div', { class: 'pill-tabs' }, unitBtn('rev', 'Revenue'), unitBtn('subs', 'Subs'));
@@ -698,9 +715,9 @@ function reportingOverview() {
     return el('div', { class: 'card p-4' },
       el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-2' },
         el('div', {},
-          el('h3', { class: 'text-sm font-bold', title: (single ? 'By office: contract value SOLD (green) · ARR of accounts that received their first service (teal) · ARR that CHURNED (red). Click a bar for the day.' : 'Each day: contract value SOLD (green bars) · ARR of accounts that received their first service (teal) · ARR that CHURNED (red). Click a bar or point for the accounts.') }, 'Daily Pulse' + (office !== 'all' ? ' · ' + officeLabel(office) : ''))),
+          el('h3', { class: 'text-sm font-bold', title: (single ? 'By office: contract value SOLD (green) · ARR of accounts that received their first service (teal) · ARR that CHURNED (red). Click a bar for the day.' : 'Each day: contract value SOLD (green bars) · ARR of accounts that received their first service (teal) · ARR that CHURNED (red). Click a bar or point for the accounts.') }, 'Daily Pulse' + (monthly ? ' · by month' : '') + (office !== 'all' ? ' · ' + officeLabel(office) : ''))),
         el('div', { class: 'flex items-center gap-4 flex-wrap' },
-          stat('Sold · ' + (single ? (spanRaw === 'today' ? 'today' : 'yesterday') : span + 'd'), sum(sold), C.sold, 'sold'), stat('Serviced', sum(serviced), C.svc, 'svc'), stat('Churned', sum(churned), C.cxl, 'cxl'),
+          stat('Sold · ' + (single ? (spanRaw === 'today' ? 'today' : 'yesterday') : spanRaw === 'thisyear' ? 'this yr' : spanRaw === 'lastyear' ? 'last yr' : spanRaw === 'custom' ? 'range' : span + 'd'), sum(sold), C.sold, 'sold'), stat('Serviced', sum(serviced), C.svc, 'svc'), stat('Churned', sum(churned), C.cxl, 'cxl'),
           // Net = Sold − Churned for the selected window (per Isaac, Sep 22).
           (() => { const n = sum(sold) - sum(churned); return el('div', { class: 'text-left', title: 'Sold − Churned for this window' },
             el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Net'),
@@ -708,8 +725,11 @@ function reportingOverview() {
           el('select', {
             class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
             style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-            onchange: (e) => { const v = e.target.value; state._rtPulseSpan = (v === 'today' || v === 'yesterday') ? v : Number(v); mountApp(); },
-          }, ...[['today', 'Today'], ['yesterday', 'Yesterday'], [7, 'Last 7 days'], [30, 'Last 30 days'], [90, 'Last 90 days']].map(([v, l]) => el('option', { value: String(v), selected: single ? spanRaw === v : span === v }, l))),
+            onchange: (e) => { const v = e.target.value; state._rtPulseSpan = /^\d+$/.test(v) ? Number(v) : v; mountApp(); },
+          }, ...[['today', 'Today'], ['yesterday', 'Yesterday'], [7, 'Last 7 days'], [30, 'Last 30 days'], [90, 'Last 90 days'], ['thisyear', 'This year'], ['lastyear', 'Last year'], ['custom', 'Custom range…']].map(([v, l]) => el('option', { value: String(v), selected: (single || longMode) ? spanRaw === v : span === v }, l))),
+          spanRaw === 'custom' ? el('div', { class: 'flex items-center gap-1' },
+            ...[['_rtPulseFrom', rFrom], ['_rtPulseTo', rTo]].map(([k, v], j) => [j ? el('span', { class: 'text-[11px] text-muted-' }, '→') : null,
+              el('input', { type: 'date', value: v, class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { state[k] = e.target.value; mountApp(); } })]).flat().filter(Boolean)) : null,
           unitToggle)),
       cvsWrap);
   })();
