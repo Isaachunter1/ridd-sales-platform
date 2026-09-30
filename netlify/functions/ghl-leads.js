@@ -134,7 +134,7 @@ exports.handler = async (event) => {
 
   return {
     statusCode: 200,
-    headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=1800' },
+    headers: { 'content-type': 'application/json', 'cache-control': 'private, max-age=1800' },
     body: JSON.stringify({ leadsBySource, bySourceMonth, contacts: contactsOut, total, pages, partial, done, nextAfter: done ? null : searchAfter, note, sampleKeys, pulledAt: new Date().toISOString() }),
   };
 };
