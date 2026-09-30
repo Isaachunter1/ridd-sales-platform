@@ -617,9 +617,12 @@ function reportingOverview() {
       if (!state._rtPulseTo) state._rtPulseTo = iso(today);
       rFrom = state._rtPulseFrom; rTo = state._rtPulseTo; if (rTo < rFrom) { const t = rFrom; rFrom = rTo; rTo = t; }
     }
-    const monthly = longMode && (Date.parse(rTo) - Date.parse(rFrom)) / 86400000 > 92;
+    const monthly = longMode && (spanRaw !== 'custom' || (Date.parse(rTo) - Date.parse(rFrom)) / 86400000 > 92);   // This / Last year always by month
     const days = [];
-    if (longMode && monthly) { let y = Number(rFrom.slice(0, 4)), m = Number(rFrom.slice(5, 7)); const ey = Number(rTo.slice(0, 4)), em = Number(rTo.slice(5, 7)); while (y < ey || (y === ey && m <= em)) { days.push(y + '-' + String(m).padStart(2, '0')); m++; if (m > 12) { m = 1; y++; } } }
+    // This year by month runs Jan → Dec (per Isaac): the months still ahead
+    // show empty, so flipping to Last year lines up month for month.
+    const bucketTo = spanRaw === 'thisyear' ? today.getFullYear() + '-12-31' : rTo;
+    if (longMode && monthly) { let y = Number(rFrom.slice(0, 4)), m = Number(rFrom.slice(5, 7)); const ey = Number(bucketTo.slice(0, 4)), em = Number(bucketTo.slice(5, 7)); while (y < ey || (y === ey && m <= em)) { days.push(y + '-' + String(m).padStart(2, '0')); m++; if (m > 12) { m = 1; y++; } } }
     else if (longMode) { for (let d = new Date(rFrom + 'T00:00'); iso(d) <= rTo; d.setDate(d.getDate() + 1)) days.push(iso(d)); }
     else { const n = single ? 1 : ([7, 30, 90].includes(Number(spanRaw)) ? Number(spanRaw) : 30); for (let i = n - 1; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); days.push(iso(d)); } }
     const span = days.length;
@@ -657,7 +660,9 @@ function reportingOverview() {
       const svd = initDone ? keyOf(String(r.initial_serviced_date || r.initial_service || '').slice(0, 10)) : '';
       if (svd && idx.has(svd)) { const i = idx.get(svd); serviced[i] += unitSubs ? 1 : (Number(r.annual_recurring_value) || 0); svcRows[i].push(r); }
     }
-    const sum = (a) => a.reduce((x, y) => x + y, 0);
+    const sum = (a) => a.reduce((x, y) => x + (y || 0), 0);
+    // Months that haven't happened yet draw nothing (not a drop to zero).
+    if (monthly && spanRaw === 'thisyear') { const curM = iso(today).slice(0, 7); days.forEach((d, i) => { if (d > curM) { sold[i] = null; serviced[i] = null; churned[i] = null; } }); }
     const id = 'rptPulse' + (office !== 'all' ? '_' + String(office).replace(/\W/g, '') : '');
     const cvsWrap = el('div', { style: { position: 'relative', height: '260px', width: '100%' } }, el('canvas', { id }));
     const isDark = state.theme === 'dark';
