@@ -2033,6 +2033,15 @@ function _stalePendingCustIds(rows) {
   }
   return [...by].filter(([, v]) => v).map(([k]) => k);
 }
+function _ghostCopySubs(rows) {
+  const act = (r) => String(r.subscription_status || '').trim().toLowerCase() === 'active';
+  const live = (r) => /completed|pending/i.test(String(r.initial_status || '')) || (Number(r.subscription_completed_services) || 0) > 0 || !!r.initial_serviced_date;
+  const by = new Map();
+  for (const r of rows) { if (!act(r)) continue; const k = String(r.customer_id) + '|' + String(r.subscription || '').trim().toLowerCase(); (by.get(k) || by.set(k, []).get(k)).push(r); }
+  const out = [];
+  for (const [, rs] of by) { if (rs.length < 2 || !rs.some(live)) continue; for (const r of rs) if (!live(r)) out.push(r); }
+  return out;
+}
 async function loadReportingSubscriptions(uploadId) {
   const raw = await _loadReportingSubscriptionsRaw(uploadId);
   const noPhantom = stripPhantomOffices(raw);
@@ -2085,12 +2094,23 @@ async function loadReportingSubscriptions(uploadId) {
   // whose EVERY sub is active, never serviced, and whose initial appointment
   // date passed 2+ days ago (or has none and was sold 14+ days ago).
   state._stalePendingCustIds = _stalePendingCustIds(rows);
+  // Ghost copies (per Isaac, Sep 30 — #53790, #178588, #154001, #177531): an
+  // Active subscription with NO appointment and NO services that sits beside
+  // a real (Pending / serviced) Active subscription of the SAME service on
+  // the same customer. It was re-entered and the first one deleted in
+  // FieldRoutes; the mirror still carries it as Active. Dropped app-wide
+  // (same Stale-pending switch) so it can't inflate active counts / ARR or
+  // show as a CRM "duplicate".
+  const ghostSubs = (typeof reportingExclStalePending === 'function' && !reportingExclStalePending()) ? [] : _ghostCopySubs(rows);
+  state._ghostSubIds = ghostSubs.map(r => String(r.subscription_id));
+  const _ghostSet = new Set(ghostSubs);
   const del = deletedCustIdSet();
   // Rows set aside as deleted-in-CRM (orphans + the manual list) are kept in
   // state so the Retention tab can start from the whole snapshot and show
   // this exclusion as a step of its own.
-  state._deletedSubs = del.size ? rows.filter(r => del.has(String(r.customer_id != null ? r.customer_id : ''))) : [];
-  return del.size ? rows.filter(r => !del.has(String(r.customer_id != null ? r.customer_id : ''))) : rows;
+  const _isDel = (r) => _ghostSet.has(r) || del.has(String(r.customer_id != null ? r.customer_id : ''));
+  state._deletedSubs = (del.size || _ghostSet.size) ? rows.filter(_isDel) : [];
+  return (del.size || _ghostSet.size) ? rows.filter(r => !_isDel(r)) : rows;
 }
 // Streamed snapshot download with live progress, stall detection and retries.
 // supabase-js .download() is one opaque await — if the connection stalls

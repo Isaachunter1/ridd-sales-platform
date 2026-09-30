@@ -220,7 +220,19 @@ function crmReconciliationChecks(subs) {
     if (/sold,?\s*not\s*started/i.test(reason) && initialDone(r)) out.cancel.push(flag(r, 'Sold, Not Started but the initial was completed' + ((Number(r.subscription_completed_services) || 0) > 0 ? ' (' + r.subscription_completed_services + ' service' + (Number(r.subscription_completed_services) === 1 ? '' : 's') + ')' : '')));
     else if (/expired\s*subscription/i.test(reason)) out.cancel.push(flag(r, '"Expired Subscription" is a retired cancel reason'));
   }
-  for (const [, rs] of dupKey) if (rs.length > 1) rs.forEach(r => out.dupes.push(flag(r, String(r.subscription || '') + ' is Active ' + rs.length + '\u00d7 on customer ' + r.customer_id)));
+  // Duplicates (per Isaac, Sep 30 — #53790): name each subscription ID and
+  // its state. A copy that never got an appointment or a service is almost
+  // always a subscription DELETED in FieldRoutes that the RevHawk mirror
+  // still carries as Active (it won't be on the customer card) — say so,
+  // and only list that ghost, not the real subscription.
+  const _ghost = (r) => !initialDone(r) && !/pending/i.test(String(r.initial_status || ''));
+  for (const [, rs] of dupKey) {
+    if (rs.length < 2) continue;
+    const ghosts = rs.filter(_ghost), real = rs.filter(r => !_ghost(r));
+    const desc = (r) => '#' + (r.subscription_id || '?') + ' (sold ' + String(r.sold_date || '').slice(0, 10) + ', initial ' + (r.initial_status || '—') + ')';
+    if (ghosts.length && real.length) ghosts.forEach(r => out.dupes.push(flag(r, String(r.subscription || '') + ' ' + desc(r) + ' never got an appointment and sits beside the real ' + real.map(desc).join(', ') + ' — most likely deleted in FieldRoutes but still Active in the data feed. Not on the customer card? Nothing to fix in FieldRoutes; it drops out once the feed catches up.')));
+    else rs.forEach(r => out.dupes.push(flag(r, String(r.subscription || '') + ' is Active ' + rs.length + '\u00d7 on customer ' + r.customer_id + ': ' + rs.map(desc).join(' · ') + ' — cancel or merge the extra one in FieldRoutes')));
+  }
   for (const k in out) out[k].sort(newest);
   return out;
 }
