@@ -139,13 +139,28 @@ sub AS (
     WHERE fieldRoutes_subscriptionID IS NOT NULL AND fieldRoutes_subscriptionID != ''
   ) WHERE rn = 1
 ),
-cxl AS (
-  SELECT sid, TRIM(reason) AS reason FROM (
-    SELECT fieldRoutesSubscriptionId AS sid, fieldRoutes_cancellationReason AS reason,
-      ROW_NUMBER() OVER (PARTITION BY fieldRoutesSubscriptionId ORDER BY fieldRoutes_date DESC) rn
-    FROM \`${PROJECT}.${DATASET}.FieldRoutesCancellationNote\`
-    WHERE fieldRoutes_cancellationReason IS NOT NULL AND fieldRoutes_cancellationReason != ''
+-- Cancel reason = what FieldRoutes shows today (per Isaac, Sep 30):
+--   · the most recently WRITTEN note wins (dateAdded), not the latest note
+--     date — the 2025 re-tag of old cancels added new notes back-dated to the
+--     cancel date, so "latest date" kept the retired label (Lost Job,
+--     Financial, Bad Service, Out of Contract - …);
+--   · a renamed reason (same ID, new label) shows its current label.
+cxlNotes AS (
+  SELECT fieldRoutesSubscriptionId AS sid, TRIM(fieldRoutes_cancellationReason) AS reason,
+    NULLIF(fieldRoutes_cancellationReasonID, '') AS rid, fieldRoutes_date AS d,
+    COALESCE(NULLIF(fieldRoutes_dateAdded, '0000-00-00 00:00:00'), fieldRoutes_date) AS written
+  FROM \`${PROJECT}.${DATASET}.FieldRoutesCancellationNote\`
+  WHERE fieldRoutes_cancellationReason IS NOT NULL AND fieldRoutes_cancellationReason != ''
+),
+cxlLabel AS (
+  SELECT rid, reason FROM (
+    SELECT rid, reason, ROW_NUMBER() OVER (PARTITION BY rid ORDER BY written DESC) rn FROM cxlNotes WHERE rid IS NOT NULL
   ) WHERE rn = 1
+),
+cxl AS (
+  SELECT n.sid, COALESCE(l.reason, n.reason) AS reason FROM (
+    SELECT sid, rid, reason, ROW_NUMBER() OVER (PARTITION BY sid ORDER BY written DESC, d DESC) rn FROM cxlNotes
+  ) n LEFT JOIN cxlLabel l ON l.rid = n.rid WHERE n.rn = 1
 ),
 appt AS (
   -- Completion date of each subscription's INITIAL appointment — i.e. when the
