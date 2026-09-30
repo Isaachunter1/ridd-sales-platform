@@ -119,7 +119,7 @@ function viewAdmin() {
       ['pricing', 'Commissions',    '💵'],
       ['comps',   'Competitions',   '🏆'],
       ['config',  'Configurations', '🧮'],
-      ['data',    'Data sources',   '🔌'],
+      ['data',    'API Keys',       '🔑'],
       ['goals',   'Goals',          '🎯'],
       ['perms',   'Permissions',    '🔐'],
       ['slack',   'Slack',          '💬'],
@@ -599,8 +599,10 @@ function adminConfigurations() {
     listCard('service', 'Service Types', svcCount, reportingServiceConfigPanel),
     listCard('source', 'Sources', '', reportingSourceConfigPanel),
     listCard('cancel', 'Cancel reasons', cxlCount, reportingCancelConfigPanel),
-    // The FieldRoutes source mirror (formerly its own Settings tab, per Isaac).
-    el('div', { class: 'card p-4' }, adminSources()),
+    // (The FieldRoutes source mirror is now columns in the Sources table above, per Isaac Sep 30.)
+    // Marketing data sources (per Isaac, Sep 30): ad account IDs → branch, GoHighLevel sources → provider.
+    typeof reportingAdAccountsPanel === 'function' ? listCard('adacc', 'Ad accounts → branch', 'Facebook + Google', reportingAdAccountsPanel) : null,
+    typeof reportingGhlSourcesPanel === 'function' ? listCard('ghl', 'GoHighLevel sources → provider', (state._ghl && state._ghl.rows && state._ghl.rows.length) ? n(state._ghl.rows.length) + ' contacts' : 'sync', reportingGhlSourcesPanel) : null,
   );
 }
 
@@ -2272,6 +2274,6 @@ function adminDataSources() {
       el('span', { class: 'text-[11px] text-muted-' }, diOpen ? '▲' : '▼')),
     diOpen ? el('div', { class: 'px-5 pb-5 flex flex-col gap-4' }, dataIntegrityPanel(), adminDataHygiene()) : null);
   return el('div', { class: 'flex flex-col gap-4' },
-    el('div', { class: 'flex items-center gap-2' }, el('h2', { class: 'text-lg font-bold' }, 'Data sources'), state._integrationsErr ? pill(false, 'run migrations/20260923_integrations.sql') : null),
+    el('div', { class: 'flex items-center gap-2' }, el('h2', { class: 'text-lg font-bold' }, 'API Keys'), state._integrationsErr ? pill(false, 'run migrations/20260923_integrations.sql') : null),
     frCard, rvCard, sbCard, diCard);
 }

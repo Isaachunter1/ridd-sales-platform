@@ -39,12 +39,27 @@ exports.handler = async (event) => {
       if (!sub || !key || !tok) result = { ok: false, message: 'Subdomain, key and token are all required' };
       else {
         try {
+          // office/search lists the offices this key can read (office/get
+          // with no IDs returns none — the old "0 offices visible"); then
+          // office/get names them so a per-office key is obvious.
+          const base = 'https://' + sub + '.' + dom + '/api/';
           const q = new URLSearchParams({ authenticationKey: key, authenticationToken: tok });
-          const res = await fetch('https://' + sub + '.' + dom + '/api/office/get?' + q.toString());
+          const res = await fetch(base + 'office/search?' + q.toString());
           const txt = await res.text(); let j = null; try { j = JSON.parse(txt); } catch (e) { /* html error page */ }
           if (!j) result = { ok: false, message: 'Not a FieldRoutes API response (HTTP ' + res.status + ') — check the subdomain' };
           else if (j.success === false || (j.errorMessage && j.errorMessage !== '')) result = { ok: false, message: j.errorMessage || 'FieldRoutes rejected the key' };
-          else { const n = Array.isArray(j.offices) ? j.offices.length : (j.officeIDs ? j.officeIDs.length : null); result = { ok: true, message: 'Connected' + (n != null ? ' · ' + n + ' office' + (n === 1 ? '' : 's') + ' visible' : ''), offices: n }; }
+          else {
+            const ids = Array.isArray(j.officeIDs) ? j.officeIDs : [];
+            let names = [];
+            if (ids.length) {
+              try {
+                const q2 = new URLSearchParams({ authenticationKey: key, authenticationToken: tok, officeIDs: JSON.stringify(ids.slice(0, 100)) });
+                const g = await (await fetch(base + 'office/get?' + q2.toString())).json();
+                names = (g && Array.isArray(g.offices) ? g.offices : []).map(o => o.officeName).filter(Boolean);
+              } catch (e) { /* names are a nicety */ }
+            }
+            result = { ok: true, message: 'Connected · ' + ids.length + ' office' + (ids.length === 1 ? '' : 's') + ' visible' + (names.length ? ' (' + names.slice(0, 20).join(', ') + (names.length > 20 ? ', …' : '') + ')' : ''), offices: ids.length, officeNames: names };
+          }
         } catch (e) { result = { ok: false, message: String((e && e.message) || e) }; }
       }
     }

@@ -358,6 +358,13 @@ function reportingSourceConfigPanel() {
   }
   const registrySources = (state.sources || []).map(x => String(x.name || '').trim()).filter(Boolean);
   const allSources = new Set([...cfgBySource.keys(), ...counts.keys(), ...registrySources]);
+  // One Sources table (per Isaac, Sep 30): the FieldRoutes source mirror
+  // (in CRM · Sales Log visibility · Pay tab) merged in beside the reporting
+  // controls — was a second "All Sources" table under it.
+  const regByName = new Map((state.sources || []).map(x => [String(x.name || '').trim(), x]));
+  const frLinked = (state.sources || []).filter(x => x.fr_source_id);
+  const frStampRaw = frLinked.reduce((m, x) => ((x.fr_synced_at || '') > m ? x.fr_synced_at : m), '');
+  const chip = (txt, bg, fg, title) => el('span', { class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded whitespace-nowrap', style: { background: bg, color: fg }, title }, txt);
   const list = [...allSources].sort((a, b) => (counts.get(b) || 0) - (counts.get(a) || 0) || a.localeCompare(b));
 
   const updateSourceConfig = async (source, patch) => {
@@ -390,9 +397,11 @@ function reportingSourceConfigPanel() {
   return el('div', { class: 'card p-3', id: 'cfg-sources' },
     el('div', { class: 'flex items-center gap-2 mb-3' },
       el('h2', { class: 'text-base font-bold' }, 'Lead Sources'),
+      el('span', { class: 'text-[10px] ml-auto', style: { color: 'var(--text-subtle)' } }, (state.sources || []).filter(x => x.is_active !== false).length + ' on the Sales Log · ' + frLinked.length + ' from FieldRoutes' + (frStampRaw ? ' · CRM checked ' + new Date(frStampRaw).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET' : '')),
       configInfoBtn('Lead Sources',
         'Two controls per source. Revenue Type classifies it as New, Renewal, or Upsell — the single rule the Inside Sales pace and P&L read (renewals are excluded from new-business pace; upsells bucket separately). Defaults follow the source name. ' +
-        'In Reporting excludes a source from all snapshot reporting (Overview, Geographic, Rep Performance, Waterfall, Inside Sales) — e.g. Miscellaneous drops out everywhere at once. Counts are total subs per source in the current snapshot.'),
+        'In Reporting excludes a source from all snapshot reporting (Overview, Geographic, Rep Performance, Waterfall, Inside Sales) — e.g. Miscellaneous drops out everywhere at once. Counts are total subs per source in the current snapshot. ' +
+        'FieldRoutes / Sales Log mirror the CRM source list (hourly): add or hide a source in FieldRoutes and it lands here; visible ones feed the Sales Log dropdown. Pay tab hides a source from the Pay tab’s By Source grid (its sales still pay).'),
     ),
     list.length === 0
       ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'Lead sources appear here after you upload a snapshot.')
@@ -404,7 +413,10 @@ function reportingSourceConfigPanel() {
                 el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Subs'),
                 el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Revenue Type'),
                 el('th', { class: 'text-left px-2 py-2 font-semibold', title: 'Paid lead channels — the only providers offered on Marketing → Metrics → Lead reconciliation' }, 'Paid channel'),
-                el('th', { class: 'text-left pr-3 pl-2 py-2 font-semibold' }, 'In Reporting'),
+                el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'In Reporting'),
+                el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'FieldRoutes'),
+                el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Sales Log'),
+                el('th', { class: 'text-left pr-3 pl-2 py-2 font-semibold' }, 'Pay tab'),
               ),
             ),
             el('tbody', {},
@@ -456,7 +468,20 @@ function reportingSourceConfigPanel() {
                   el('td', { class: 'px-2 py-1.5 text-left tabular-nums text-muted-' }, (counts.get(source) || 0).toLocaleString()),
                   el('td', { class: 'px-2 py-1.5 text-left' }, classSelect),
                   el('td', { class: 'px-2 py-1.5 text-left' }, paidBtn),
-                  el('td', { class: 'pr-3 pl-2 py-1.5 text-left' }, pill),
+                  el('td', { class: 'px-2 py-1.5 text-left' }, pill),
+                  (() => { const reg = regByName.get(source);
+                    return el('td', { class: 'px-2 py-1.5 text-left' }, !reg ? chip('Not listed', 'var(--card-2)', 'var(--text-muted)', 'Seen in sales data but not in the source list')
+                      : reg.fr_source_id ? chip('In CRM', 'rgba(95,108,91,.12)', '#5F6C5B', 'Mirrored from FieldRoutes (source ID ' + reg.fr_source_id + ')')
+                      : chip('Not in CRM', 'rgba(220,38,38,.10)', '#DC2626', 'Not in the FieldRoutes source list — hidden from the Sales Log automatically')); })(),
+                  (() => { const reg = regByName.get(source);
+                    return el('td', { class: 'px-2 py-1.5 text-left text-[11px]', style: { color: reg && reg.is_active !== false ? 'var(--text)' : 'var(--text-muted)' }, title: 'Managed in FieldRoutes' }, !reg ? '—' : reg.is_active === false ? 'Hidden' : 'Visible'); })(),
+                  (() => { const reg = regByName.get(source);
+                    if (!reg || typeof payHiddenSources !== 'function') return el('td', { class: 'pr-3 pl-2 py-1.5' }, '—');
+                    const off = !!payHiddenSources()[reg.id];
+                    return el('td', { class: 'pr-3 pl-2 py-1.5 text-left' }, el('button', { class: 'text-[11px] font-bold rounded-full px-2.5 py-1 border whitespace-nowrap',
+                      style: off ? { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' } : { background: 'rgba(61,122,102,.16)', color: '#5F6C5B', borderColor: 'rgba(61,122,102,.3)' },
+                      title: off ? 'Hidden from the Pay tab’s By Source grid — sales on it still pay. Click to show.' : 'Shown on the Pay tab’s By Source grid. Click to hide.',
+                      onclick: () => togglePayHiddenSource(reg.id) }, off ? 'Hidden on Pay' : 'On Pay')); })(),
                 );
                 return row;
               }),
