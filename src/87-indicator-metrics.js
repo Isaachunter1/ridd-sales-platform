@@ -24,7 +24,7 @@ const IND_METRIC_DEFS = [
   { key: 'sellingDays', label: 'Days w/ Sale',   def: 'Distinct sold dates.' },
   { key: 'acctsPerDay', label: 'Accts/Day',      def: 'Sales ÷ days with a sale.' },
   { key: 'revPerDay',   label: '$/Day',          def: 'Revenue ÷ days with a sale.' },
-  { key: 'acv',         label: 'ACV',            def: 'Revenue ÷ sales.' },
+  { key: 'acv',         label: 'ACV',            def: 'Contract value ÷ sales, recurring new only (one-time services and renewals are always out — see Weighted / One-Time / Renewal ACV on the leaderboard).', fixed: { oneTime: false, renewals: false } },
   { key: 'avgInitial',  label: 'Avg Init',       def: 'Mean initial price.' },
   { key: 'avgPest',     label: 'Pest Init',      def: 'Mean initial price, Sentricon / German Roach / Interior Flea left out.' },
   { key: 'myPct',       label: 'MY %',           def: 'Multi-year (18+ mo) ÷ (12-mo + multi-year). Other terms and the MY % excluded services are out of both sides.', fixed: { oneTime: false } },
@@ -86,7 +86,7 @@ function indMetricOverride(rep, deptView) {
       case 'sellingDays': patch.sellingDays = days(ss); break;
       case 'acctsPerDay': { const k = days(ss); patch.acctsPerDay = k ? n / k : 0; break; }
       case 'revPerDay': { const k = days(ss); patch.revPerDay = k ? rev(ss) / k : 0; break; }
-      case 'acv': patch.acv = n ? rev(ss) / n : 0; break;
+      case 'acv': patch.acv = (typeof indAcvSplit === 'function') ? indAcvSplit(ss).acv : (n ? rev(ss) / n : 0); break;
       case 'avgInitial': patch.avgInitial = mean(ss); break;
       case 'avgPest': patch.avgPest = mean(ss.filter(s => !_IND_PEST_EXCL.test(s.subscription || ''))); break;
       case 'myPct': { let m = 0, t = 0; for (const s of ss) { const b = typeof myBucketOf === 'function' ? myBucketOf(s) : null; if (b === 'multi') m++; else if (b === 'twelve') t++; } patch.myPct = (m + t) ? m / (m + t) : 0; patch.multi = m; patch.twelve = t; break; }

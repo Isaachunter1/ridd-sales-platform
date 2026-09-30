@@ -1201,6 +1201,25 @@ function _indIsOneTimeSale(s) {
   const lc = (typeof reportingServiceLifecycleMap === 'function') ? reportingServiceLifecycleMap().get(nm) : null;
   return lc === 'onetime';
 }
+// ACV split (per Isaac + Pere, Sep 30): one-time services dragged ACV down.
+//   ACV            = recurring NEW sales only (no one-time, no renewals)
+//   Weighted ACV   = every sale
+//   One-Time ACV   = one-time services only
+//   Renewal ACV    = renewal-source sales only
+// Contract value ÷ sales in each bucket; a renewal one-time counts as renewal.
+function indAcvSplit(sales) {
+  const o = { allRev: 0, allN: 0, coreRev: 0, coreN: 0, otsRev: 0, otsN: 0, renRev: 0, renN: 0 };
+  for (const s of sales || []) {
+    const v = Number(s && s.contractValue) || 0;
+    o.allRev += v; o.allN++;
+    if (_indicatorIsRenewal(s)) { o.renRev += v; o.renN++; }
+    else if (_indIsOneTimeSale(s)) { o.otsRev += v; o.otsN++; }
+    else { o.coreRev += v; o.coreN++; }
+  }
+  const d = (a, b) => b > 0 ? a / b : 0;
+  o.acv = d(o.coreRev, o.coreN); o.acvW = d(o.allRev, o.allN); o.acvOts = d(o.otsRev, o.otsN); o.acvRen = d(o.renRev, o.renN);
+  return o;
+}
 function _indExclDrop(s) {
   const x = indicatorExcl();
   if (x.oneTime && _indIsOneTimeSale(s)) return true;
@@ -3725,7 +3744,7 @@ function openIndicatorRepCard(rep, allReps = []) {
     }
     const _mo = scopedRep._mo || {};
     const count = _mo.count != null ? _mo.count : (scopedRep.sales?.length || 0);
-    const acv = _mo.acv != null ? _mo.acv : (count > 0 ? scopedRep.revenue / count : 0);
+    const acv = _mo.acv != null ? _mo.acv : indAcvSplit(scopedRep.sales).acv;   // recurring new only (same as the leaderboard)
     const ctTotal = (scopedRep.twelve || 0) + (scopedRep.multi || 0);
     const myPct = _mo.myPct != null ? _mo.myPct : (ctTotal > 0 ? scopedRep.multi / ctTotal : 0);
     const autoPayPct = _mo.autoPayPct != null ? _mo.autoPayPct : (count > 0 ? (scopedRep.autoPay || 0) / count : 0);

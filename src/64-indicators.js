@@ -2630,7 +2630,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       count,
       team: getRepTeam(r.name),
       tier: getRepTier(r.name), // 'rookie' | 'vet' | ''
-      acv: count > 0 ? r.revenue / count : 0,
+      ...(() => { const a = indAcvSplit(r.sales); return { acv: a.acv, acvW: a.acvW, acvOts: a.acvOts, acvRen: a.acvRen, _acv: a }; })(),
       avgPest,
       avgInitial,
       myPct: ctTotal > 0 ? r.multi / ctTotal : 0,
@@ -3872,7 +3872,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // clicking surfaces reps with the biggest week-over-week jump (or drop).
     { key: 'avgPest',    label: 'Pest Init', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgPest > 0 ? fmt.usd(r.avgPest) : '—') },
     { key: 'avgInitial', label: 'Avg Init',      align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgInitial > 0 ? fmt.usd(r.avgInitial) : '—') },
-    { key: 'acv',        label: 'ACV',      align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.usd(r.acv)) },
+    { key: 'acv',        label: 'ACV',      align: 'left', defaultDir: 'desc', title: 'Recurring new sales only — one-time services and renewals left out', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.usd(r.acv)) },
+    { key: 'acvW', label: 'Weighted ACV', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'Every sale — one-time services and renewals included', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.acvW > 0 ? fmt.usd(r.acvW) : '\u2014') },
+    { key: 'acvOts', label: 'One-Time ACV', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'One-time services only', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.acvOts > 0 ? fmt.usd(r.acvOts) : '\u2014') },
+    { key: 'acvRen', label: 'Renewal ACV', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'Renewal-source sales only', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.acvRen > 0 ? fmt.usd(r.acvRen) : '\u2014') },
     // Selling-day metrics — averages over days WITH ≥1 sale only.
     { key: 'auditPct', label: 'Audit %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap' },
         el('span', {
@@ -3975,16 +3978,28 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     try { const raw = localStorage.getItem('ridd_lb_cols_off::' + ((state.profile && state.profile.id) || 'anon')); const j = raw ? JSON.parse(raw) : null; if (Array.isArray(j)) v = j; } catch (e) { /* storage blocked */ }
     state._indLbColsOff = v;
   }
+  // Columns that start hidden (Weighted / One-Time / Renewal ACV): shown only
+  // once a user ticks them — stored in _indLbColsOn.
+  if (!Array.isArray(state._indLbColsOn)) {
+    let v = [];
+    try { const raw = localStorage.getItem('ridd_lb_cols_on::' + ((state.profile && state.profile.id) || 'anon')); const j = raw ? JSON.parse(raw) : null; if (Array.isArray(j)) v = j; } catch (e) { /* storage blocked */ }
+    state._indLbColsOn = v;
+  }
   const _lbColKey = (c) => RECORD_SORT_KEYS.has(c.key) ? 'record' : c.key;
   const _lbColLabel = (c) => RECORD_SORT_KEYS.has(c.key) ? 'Best Day / Week / Month' : c.label;
   const _lbPickable = repCols.filter(c => c.key !== 'name');
-  const _lbOff = new Set(state._indLbColsOff);
+  const _lbOnSet = new Set(state._indLbColsOn);
+  // _lbOff = every column NOT showing (user-unticked + default-hidden not ticked on).
+  const _lbOff = new Set([...state._indLbColsOff, ..._lbPickable.filter(c => c.defaultHidden && !_lbOnSet.has(_lbColKey(c))).map(_lbColKey)]);
   repCols = repCols.filter(c => c.key === 'name' || !_lbOff.has(_lbColKey(c)));
-  const _lbSetOff = (arr) => {
-    state._indLbColsOff = arr;
-    try { localStorage.setItem('ridd_lb_cols_off::' + ((state.profile && state.profile.id) || 'anon'), JSON.stringify(arr)); } catch (e) { /* storage blocked */ }
+  const _lbStore = (k, arr) => { try { localStorage.setItem(k + '::' + ((state.profile && state.profile.id) || 'anon'), JSON.stringify(arr)); } catch (e) { /* storage blocked */ } };
+  const _lbSetShown = (key, show) => {
+    const def = _lbPickable.find(c => _lbColKey(c) === key);
+    if (def && def.defaultHidden) { const n = new Set(state._indLbColsOn); if (show) n.add(key); else n.delete(key); state._indLbColsOn = [...n]; _lbStore('ridd_lb_cols_on', state._indLbColsOn); }
+    else { const n = new Set(state._indLbColsOff); if (show) n.delete(key); else n.add(key); state._indLbColsOff = [...n]; _lbStore('ridd_lb_cols_off', state._indLbColsOff); }
     mountApp();
   };
+  const _lbSetOff = (arr) => { state._indLbColsOff = arr; _lbStore('ridd_lb_cols_off', arr); mountApp(); };
   // Sorting by a column you just hid → fall back to Revenue (or the first shown).
   { const sk = state._indicatorRepSort && state._indicatorRepSort.key;
     const hid = sk && _lbPickable.some(c => c.key === sk && _lbOff.has(_lbColKey(c)));
@@ -4214,7 +4229,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           })(),
           // Columns — per-user show / hide (see _lbPickable above).
           (() => {
-            const offN = _lbPickable.filter(c => _lbOff.has(_lbColKey(c))).length;
+            const offN = _lbPickable.filter(c => !c.defaultHidden && _lbOff.has(_lbColKey(c))).length;
             const open = !!state._indLbColsOpen;
             const btn = el('button', {
               class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
@@ -4228,10 +4243,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             const cb = (on, fn) => { const c = el('input', { type: 'checkbox', style: { accentColor: 'var(--accent)' }, onchange: (e) => fn(e.target.checked) }); c.checked = on; return c; };
             const panel = el('div', { class: 'card absolute p-1.5', style: { top: 'calc(100% + 6px)', right: '0', width: '220px', maxWidth: 'calc(100vw - 32px)', maxHeight: '380px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)' }, onclick: (e) => e.stopPropagation() },
               el('div', { class: 'flex items-center gap-1 px-1.5 pb-1.5 mb-1', style: { borderBottom: '1px solid var(--border)' } },
-                el('button', { class: 'rounded-lg px-2 py-0.5 text-[10px] font-bold', style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: () => _lbSetOff([]) }, 'Show all')),
+                el('button', { class: 'rounded-lg px-2 py-0.5 text-[10px] font-bold', style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: () => _lbSetOff([]) }, 'Reset')),
               ...items.map(c => { const k = _lbColKey(c), on = !_lbOff.has(k);
                 return el('label', { class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer', style: { background: on ? 'var(--card-2)' : 'transparent', color: 'var(--text)' } },
-                  cb(on, (v) => { const n = new Set(state._indLbColsOff); if (v) n.delete(k); else n.add(k); _lbSetOff([...n]); }), el('span', { class: 'flex-1' }, _lbColLabel(c))); }));
+                  cb(on, (v) => _lbSetShown(k, v)), el('span', { class: 'flex-1' }, _lbColLabel(c)), c.defaultHidden ? el('span', { class: 'text-[9px]', style: { color: 'var(--text-subtle)' } }, 'off by default') : null); }));
             const wrap = el('span', { style: { position: 'relative' }, 'data-dd': 'lbcols' }, btn, panel);
             try { clampDropdownPanel(panel); } catch (err) { /* optional helper */ }
             setTimeout(() => document.addEventListener('mousedown', function closer(ev) { if (!(ev.target.closest && ev.target.closest('[data-dd="lbcols"]'))) { document.removeEventListener('mousedown', closer); if (state._indLbColsOpen) { state._indLbColsOpen = false; mountApp(); } } }), 0);
@@ -4337,6 +4352,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 T.attrCxlRev += Number(r.attrCxlRev) || 0;
                 wAudit += (Number(r.auditPct) || 0) * c;
                 T.servicedN += Number(r.servicedN) || 0; T.soldAll += Number(r.soldAll) || 0;
+                if (r._acv) for (const f of ['allRev', 'allN', 'coreRev', 'coreN', 'otsRev', 'otsN', 'renRev', 'renN']) T[f] = (T[f] || 0) + (r._acv[f] || 0);
                 wMy    += (Number(r.myPct) || 0) * c;
                 wAuto  += (Number(r.autoPayPct) || 0) * c;
                 if (r.avgPest > 0)    { wPest += r.avgPest * c;    nPest += c; }
@@ -4354,7 +4370,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 renewalRevenue: fmt.usd0(T.renewalRevenue),
                 auditPct: pct(wAudit),
                 servicedPct: T.soldAll > 0 ? ((T.servicedN / T.soldAll) * 100).toFixed(1) + '%' : '—',
-                acv: T.count > 0 ? fmt.usd(T.revenue / T.count) : '—',
+                acv: T.coreN > 0 ? fmt.usd(T.coreRev / T.coreN) : '—',
+                acvW: T.allN > 0 ? fmt.usd(T.allRev / T.allN) : '—',
+                acvOts: T.otsN > 0 ? fmt.usd(T.otsRev / T.otsN) : '—',
+                acvRen: T.renN > 0 ? fmt.usd(T.renRev / T.renN) : '—',
                 // Days = AVERAGE selling days per rep (per Isaac) — a summed
                 // rep-day count read as a nonsense "total". $/Day and Accts/Day
                 // still divide by the rep-day sum, so they stay per-rep-day.
@@ -4377,7 +4396,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 servicedPct: fmt.int(T.servicedN) + ' serviced of ' + fmt.int(T.soldAll) + ' sold across the reps shown',
                 myPct: 'Sales-weighted average across the reps shown',
                 autoPayPct: 'Sales-weighted average across the reps shown',
-                acv: 'Total revenue ÷ total sales',
+                acv: 'Recurring new revenue ÷ recurring new sales (one-time + renewals out)',
+                acvW: 'All revenue ÷ all sales',
+                acvOts: 'One-time revenue ÷ one-time sales',
+                acvRen: 'Renewal revenue ÷ renewal sales',
                 sellingDays: 'Average days with at least one sale per rep shown',
                 revPerDay: 'Total revenue ÷ total rep selling days',
                 acctsPerDay: 'Total sales ÷ total rep selling days',
