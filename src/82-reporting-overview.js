@@ -630,8 +630,19 @@ function reportingOverview() {
     const unitSubs = state._pulseUnit === 'subs';
     const sold = new Array(span).fill(0), serviced = new Array(span).fill(0), churned = new Array(span).fill(0);
     const soldRows = days.map(() => []), svcRows = days.map(() => []), cxlRows = days.map(() => []);
+    // Production only (per Isaac, Sep 30 — reconciled to the FieldRoutes
+    // Sales Report): Sold = initial Pending or Completed (FieldRoutes'
+    // "Pending / Serviced"); one-time services and renewal sources are OUT by
+    // default, each a toggle to add back as extra production.
+    const inclOne = !!state._pulseInclOneTime, inclRen = !!state._pulseInclRenewal;
+    const _recMap = reportingServiceRecurringMap();
+    const _isRec = (r) => reportingRecurringMode() === 'arv' ? (Number(r.annual_recurring_value) || 0) > 0 : !!_recMap.get(r.subscription);
+    const _isRen = (r) => typeof reportingSourceClass === 'function' && reportingSourceClass(reportingSourceOf(r)) === 'renewal';
+    const _pendSvc = (r) => { const ist = String(r.initial_status || '').toLowerCase(); return !ist || ist === 'pending' || ist === 'completed'; };
     for (const r of rows) {
-      const sd = keyOf(String(r.sold_date || '').slice(0, 10));
+      if (!inclRen && _isRen(r)) continue;
+      if (!inclOne && !_isRec(r)) continue;
+      const sd = _pendSvc(r) ? keyOf(String(r.sold_date || '').slice(0, 10)) : null;
       if (idx.has(sd)) { const i = idx.get(sd); sold[i] += unitSubs ? 1 : (Number(r.subscription_contract_value) || 0); soldRows[i].push(r); }
       const initDone = String(r.initial_status || '').toLowerCase() === 'completed' || !!r.initial_serviced_date;
       const svd = initDone ? keyOf(String(r.initial_serviced_date || r.initial_service || '').slice(0, 10)) : '';
@@ -709,6 +720,12 @@ function reportingOverview() {
     const openWindow = (kind) => openPulseDayDrill(winLabel, winLong, { sold: flat(soldRows), svc: flat(svcRows), cxl: flat(cxlRows) }, kind);
     const unitBtn = (v, l) => el('button', { type: 'button', 'data-active': String((state._pulseUnit === 'subs') === (v === 'subs')), onclick: () => { state._pulseUnit = v; mountApp(); } }, l);
     const unitToggle = el('div', { class: 'pill-tabs' }, unitBtn('rev', 'Revenue'), unitBtn('subs', 'Subs'));
+    const addBtn = (k, l, tip) => el('button', { type: 'button', class: 'rounded-full border px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap', title: tip,
+      style: state[k] ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)', color: 'var(--text-muted)', background: 'var(--card)' },
+      onclick: () => { state[k] = !state[k]; mountApp(); } }, (state[k] ? '✓ ' : '+ ') + l);
+    const addToggles = el('div', { class: 'flex items-center gap-1.5' },
+      addBtn('_pulseInclOneTime', 'One-time', 'Add one-time services on top of recurring production'),
+      addBtn('_pulseInclRenewal', 'Renewals', 'Add renewal-source subscriptions on top of new production'));
     const stat = (label, v, color, kind) => el('button', { class: 'text-left cursor-pointer transition hover:brightness-95', title: 'See the ' + label.toLowerCase() + ' accounts, by office \u2014 and where churn came from', onclick: () => openWindow(kind) },
       el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
       el('div', { class: 'text-base font-black tabular-nums', style: { color } }, unitSubs ? fmt.int(v) : fmt.usd0(v)));
@@ -730,7 +747,7 @@ function reportingOverview() {
           spanRaw === 'custom' ? el('div', { class: 'flex items-center gap-1' },
             ...[['_rtPulseFrom', rFrom], ['_rtPulseTo', rTo]].map(([k, v], j) => [j ? el('span', { class: 'text-[11px] text-muted-' }, '→') : null,
               el('input', { type: 'date', value: v, class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { state[k] = e.target.value; mountApp(); } })]).flat().filter(Boolean)) : null,
-          unitToggle)),
+          addToggles, unitToggle)),
       cvsWrap);
   })();
 
