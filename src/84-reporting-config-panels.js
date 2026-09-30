@@ -334,6 +334,11 @@ function reportingCancelConfigPanel() {
 // set so every tab drops them at once. Toggles persist to
 // reporting_source_config. (Marketing tab uses a separate data source and is
 // unaffected.)
+// Paid lead channels (per Isaac, Sep 30) — set on Configurations → Lead
+// sources; Lead reconciliation offers only these as providers. Saved as an
+// admin rule (shared across admins).
+function reportingPaidSources() { const r = (typeof _adminRules === 'function') ? _adminRules() : null; return new Set((r && Array.isArray(r.paidSources)) ? r.paidSources : []); }
+function setReportingPaidSource(source, on) { const s = reportingPaidSources(); if (on) s.add(source); else s.delete(source); _setAdminRule('paidSources', [...s].sort()); }
 function reportingSourceConfigPanel() {
   const cfg  = state.reportingSourceConfig || [];
   const subs = state.reportingSubscriptions || [];
@@ -398,6 +403,7 @@ function reportingSourceConfigPanel() {
                 el('th', { class: 'text-left pl-3 pr-2 py-2 font-semibold' }, 'Lead Source'),
                 el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Subs'),
                 el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Revenue Type'),
+                el('th', { class: 'text-left px-2 py-2 font-semibold', title: 'Paid lead channels — the only providers offered on Marketing → Metrics → Lead reconciliation' }, 'Paid channel'),
                 el('th', { class: 'text-left pr-3 pl-2 py-2 font-semibold' }, 'In Reporting'),
               ),
             ),
@@ -440,10 +446,16 @@ function reportingSourceConfigPanel() {
                   el('option', { value: 'renewal', selected: setClass === 'renewal' }, 'Renewal'),
                   el('option', { value: 'upsell',  selected: setClass === 'upsell' },  'Upsell'),
                 );
+                // Paid channel (per Isaac, Sep 30): only these show as providers on Lead reconciliation.
+                const isPaid = reportingPaidSources().has(source);
+                const paidBtn = el('button', { class: 'text-[11px] font-bold rounded-full px-2.5 py-1 border cursor-pointer whitespace-nowrap',
+                  style: isPaid ? { background: '#5F6C5B', color: '#fff', borderColor: '#5F6C5B' } : { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
+                  onclick: () => { setReportingPaidSource(source, !isPaid); mountApp(); } }, isPaid ? '$ Paid' : 'Not paid');
                 row.append(
                   el('td', { class: 'pl-3 pr-2 py-1.5 font-medium' }, source),
                   el('td', { class: 'px-2 py-1.5 text-left tabular-nums text-muted-' }, (counts.get(source) || 0).toLocaleString()),
                   el('td', { class: 'px-2 py-1.5 text-left' }, classSelect),
+                  el('td', { class: 'px-2 py-1.5 text-left' }, paidBtn),
                   el('td', { class: 'pr-3 pl-2 py-1.5 text-left' }, pill),
                 );
                 return row;
