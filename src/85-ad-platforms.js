@@ -125,7 +125,7 @@ function reportingAdAccountsPanel() {
     const key = 'ad:' + x.k, open = state._adAcctOpen === key;
     const opt = (lbl, on, fn) => el('label', { class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer', style: { background: on ? 'var(--card-2)' : 'transparent', color: 'var(--text)' } }, cbx(on, fn), el('span', { class: 'flex-1' }, lbl));
     const head = (t2) => el('div', { class: 'px-2 pt-2 pb-1 text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, t2);
-    const wrapEl = el('div', { class: 'relative' });
+    const wrapEl = el('div', { class: 'relative', 'data-dd': key });
     const panel = el('div', { class: 'card absolute p-1.5', style: { top: 'calc(100% + 6px)', right: '0', width: '260px', maxWidth: 'calc(100vw - 32px)', maxHeight: '360px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: open ? 'block' : 'none' }, onclick: (e) => e.stopPropagation() },
       open ? el('div', {},
         el('div', { class: 'flex items-center gap-1 px-1.5 pb-1.5 mb-1', style: { borderBottom: '1px solid var(--border)' } },
@@ -141,7 +141,7 @@ function reportingAdAccountsPanel() {
     wrapEl.append(btn, panel);
     if (open) {
       try { clampDropdownPanel(panel); } catch (err) { /* optional helper */ }
-      setTimeout(() => document.addEventListener('mousedown', function closer(ev) { if (!wrapEl.contains(ev.target)) { document.removeEventListener('mousedown', closer); if (state._adAcctOpen === key) { state._adAcctOpen = null; mountApp(); } } }), 0);
+      setTimeout(() => document.addEventListener('mousedown', function closer(ev) { if (!(ev.target.closest && ev.target.closest('[data-dd="' + key + '"]'))) { document.removeEventListener('mousedown', closer); if (state._adAcctOpen === key) { state._adAcctOpen = null; mountApp(); } } }), 0);
     }
     return wrapEl;
   };

@@ -52,7 +52,7 @@ function adminPermissions() {
   // Dropdown shell: a button with a summary, a checklist panel under it.
   const dropdown = (key, summary, changed, buildBody) => {
     const open = state._permOpen === key;
-    const wrap = el('div', { class: 'relative shrink-0' });
+    const wrap = el('div', { class: 'relative shrink-0', 'data-dd': key });
     const panel = el('div', { class: 'card absolute p-1.5', style: { top: 'calc(100% + 6px)', right: '0', width: '290px', maxWidth: 'calc(100vw - 32px)', maxHeight: '380px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: open ? 'block' : 'none' }, onclick: (e) => e.stopPropagation() }, open ? buildBody() : null);
     const btn = el('button', {
       class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer flex items-center justify-between gap-2',
@@ -63,7 +63,7 @@ function adminPermissions() {
     wrap.append(btn, panel);
     if (open) {
       try { clampDropdownPanel(panel); } catch (err) { /* optional helper */ }
-      setTimeout(() => document.addEventListener('mousedown', function closer(ev) { if (!wrap.contains(ev.target)) { document.removeEventListener('mousedown', closer); if (state._permOpen === key) { state._permOpen = null; mountApp(); } } }), 0);
+      setTimeout(() => document.addEventListener('mousedown', function closer(ev) { if (!(ev.target.closest && ev.target.closest('[data-dd="' + key + '"]'))) { document.removeEventListener('mousedown', closer); if (state._permOpen === key) { state._permOpen = null; mountApp(); } } }), 0);
     }
     return wrap;
   };

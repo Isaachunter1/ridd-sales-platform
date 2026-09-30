@@ -3856,7 +3856,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             : '';
           return el('td', { class: 'px-2 py-2 whitespace-nowrap', title },
             el('div', { class: 'text-muted-' }, r.team || '\u2014'),
-            el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, label || ''));
+            el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, label || ''));
         } },
     ]),
     // Column order per Isaac (Sep 21): Sales · Days w/ Sale · Accts/Day · $/Day · Revenue · Pest Init · Avg Init · ACV · Audit % · MY % · APay % · Attrition %.
@@ -3896,7 +3896,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         r.bestDay > 0
           ? el('div', {},
               el('div', { class: 'font-semibold' }, fmt.usd0(r.bestDay)),
-              el('div', { class: 'text-[10px] text-muted-' }, r.bestDayDate || ''),
+              el('div', { class: 'text-[11px] text-muted-' }, r.bestDayDate || ''),
             )
           : '—',
       ) },
@@ -3904,7 +3904,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         r.bestWeek > 0
           ? el('div', {},
               el('div', { class: 'font-semibold' }, fmt.usd0(r.bestWeek)),
-              el('div', { class: 'text-[10px] text-muted-' }, r.bestWeekStart || ''),
+              el('div', { class: 'text-[11px] text-muted-' }, r.bestWeekStart || ''),
             )
           : '—',
       ) },
@@ -3912,7 +3912,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         r.bestMonth > 0
           ? el('div', {},
               el('div', { class: 'font-semibold' }, fmt.usd0(r.bestMonth)),
-              el('div', { class: 'text-[10px] text-muted-' }, r.bestMonthKey
+              el('div', { class: 'text-[11px] text-muted-' }, r.bestMonthKey
                 ? new Date(r.bestMonthKey + '-01').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
                 : ''),
             )
@@ -4232,9 +4232,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               ...items.map(c => { const k = _lbColKey(c), on = !_lbOff.has(k);
                 return el('label', { class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer', style: { background: on ? 'var(--card-2)' : 'transparent', color: 'var(--text)' } },
                   cb(on, (v) => { const n = new Set(state._indLbColsOff); if (v) n.delete(k); else n.add(k); _lbSetOff([...n]); }), el('span', { class: 'flex-1' }, _lbColLabel(c))); }));
-            const wrap = el('span', { style: { position: 'relative' } }, btn, panel);
+            const wrap = el('span', { style: { position: 'relative' }, 'data-dd': 'lbcols' }, btn, panel);
             try { clampDropdownPanel(panel); } catch (err) { /* optional helper */ }
-            setTimeout(() => document.addEventListener('mousedown', function closer(ev) { if (!wrap.contains(ev.target)) { document.removeEventListener('mousedown', closer); if (state._indLbColsOpen) { state._indLbColsOpen = false; mountApp(); } } }), 0);
+            setTimeout(() => document.addEventListener('mousedown', function closer(ev) { if (!(ev.target.closest && ev.target.closest('[data-dd="lbcols"]'))) { document.removeEventListener('mousedown', closer); if (state._indLbColsOpen) { state._indLbColsOpen = false; mountApp(); } } }), 0);
             return wrap;
           })(),
 
@@ -4258,9 +4258,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       // scrolling kicks in (each row averages ~44px once the Best
       // Day/Week/Month two-line cells render, plus the ~32px header).
       el('div', { class: 'hidden sm:block scroll-x', style: { maxHeight: '520px', overflowY: 'auto' } },
-        el('table', { class: 'w-full text-xs' },
+        el('table', { class: 'w-full text-[13px]' },   // larger now that columns can be trimmed (per Isaac, Sep 30)
           el('thead', {
-            class: 'text-[9px] uppercase tracking-wider text-muted-',
+            class: 'text-[10px] uppercase tracking-wider text-muted-',
             style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: 1 },
           },
             el('tr', {},
