@@ -149,8 +149,31 @@ function _attrReconcile() {
     const k = l.provider + '|' + (l.sale.subscription_id || l.custId);
     if (seen.has(k)) l.dupe = true; else seen.add(k);
   }
-  return leads;
+  // 5. LAST PAID TOUCH, ELSE ORGANIC (per Isaac, Sep 30). Every uploaded
+  //    provider is a paid channel. A new office-staff sale inside the dates
+  //    the uploads cover that NO paid lead points at is Organic: flag it
+  //    when FieldRoutes has it on a paid provider (that provider's report
+  //    doesn't have them) or on no source at all.
+  const credited = new Set(); for (const [k] of bySale) credited.add(k);
+  const cover = new Map();   // provider → [from, to + window]
+  for (const f of files) { if (!f.from || !f.to) continue; const c = cover.get(f.provider) || [f.from, f.to]; cover.set(f.provider, [f.from < c[0] ? f.from : c[0], f.to > c[1] ? f.to : c[1]]); }
+  const allFrom = [...cover.values()].map(c => c[0]).sort()[0], allTo = [...cover.values()].map(c => c[1]).sort().slice(-1)[0];
+  const organic = [];
+  if (allFrom) for (const r of state.reportingSubscriptions || []) {
+    const sd = String(r.sold_date || '').slice(0, 10); if (!sd) continue;
+    const k = String(r.subscription_id || (r.customer_id + '|' + r.sold_date)); if (credited.has(k)) continue;
+    if (typeof reportingIsOfficeStaff === 'function' && !reportingIsOfficeStaff(r)) continue;
+    const src = reportingSourceOf(r);
+    if (typeof reportingSourceClass === 'function' && reportingSourceClass(src) !== 'new') continue;
+    const cv = cover.get(src);
+    const inPaid = cv && sd >= cv[0] && sd <= _attrAddDays(cv[1], ATTR_WINDOW_DAYS);
+    const inAny = sd >= allFrom && sd <= _attrAddDays(allTo, ATTR_WINDOW_DAYS);
+    if (inPaid || (inAny && _attrIsUnset(src))) organic.push({ provider: ATTR_ORGANIC, date: '', name: [r.first_name, r.last_name].filter(Boolean).join(' '), custId: String(r.customer_id), sale: r, isWinner: true, currentSource: src,
+      status: 'toorganic', why: inPaid ? src + '’s report has no lead for them' : 'no paid lead' });
+  }
+  return leads.concat(organic);
 }
+const ATTR_ORGANIC = 'Organic';
 const ATTR_STATUS = {
   correct:    ['Sourced correctly', 'var(--ok)'],
   nosource:   ['No source — set it', '#DC2626'],
@@ -159,8 +182,15 @@ const ATTR_STATUS = {
   existing:   ['Already a customer', 'var(--text-muted)'],
   nosale:     ['In CRM, no new sale', 'var(--text-muted)'],
   nomatch:    ['Not in CRM', 'var(--text-muted)'],
+  toorganic:  ['No paid lead — set to Organic', '#DC2626'],
 };
-const _attrIsFix = (l) => (l.status === 'nosource' || l.status === 'missourced') && !l.dupe;
+const _attrIsFix = (l) => (l.status === 'nosource' || l.status === 'missourced' || l.status === 'toorganic') && !l.dupe;
+// Leads / closes / fixes for a set of rows (closes = sales credited by last paid touch, once per sale).
+function _attrStats(rows) {
+  const leadRows = rows.filter(l => l.status !== 'toorganic');
+  const closes = leadRows.filter(l => l.sale && l.isWinner && !l.dupe);
+  return { leads: leadRows.length, closes: closes.length, closeValue: closes.reduce((t, l) => t + (Number(l.sale.subscription_contract_value) || 0), 0), fixes: rows.filter(_attrIsFix).length };
+}
 
 // ── upload ──
 async function _attrUpload(provider, file) {
@@ -185,13 +215,17 @@ function _attrCommitPending() {
   const dates = leads.map(l => l.date).filter(Boolean).sort();
   state._attr.files.push({ id: Date.now().toString(36), provider: P.provider, fileName: P.fileName, uploadedAt: new Date().toISOString(), uploadedBy: state.profile && state.profile.full_name, from: dates[0] || null, to: dates[dates.length - 1] || null, leads });
   state._attrPending = null;
-  _attrSave(); toast(leads.length.toLocaleString() + ' ' + P.provider + ' leads added', 'success'); mountApp();
+  _attrSave();
+  const fid = state._attr.files[state._attr.files.length - 1].id;
+  const st = _attrStats(_attrReconcile().filter(l => l.fileId === fid));
+  state._attrLastUpload = { provider: P.provider, fileName: P.fileName, ...st };
+  toast(P.provider + ': ' + st.leads.toLocaleString() + ' leads · ' + st.closes.toLocaleString() + ' closes · ' + st.fixes.toLocaleString() + ' fixes', 'success'); mountApp();
 }
 
 async function _attrExport(rows) {
   try { await loadXlsxLibOnce(); } catch { toast('Could not load Excel library', 'error'); return; }
   const H = ['Customer #', 'Customer', 'Subscription #', 'Service', 'Sold', 'Current source', 'Should be', 'Lead provider', 'Lead date', 'Lead name', 'Lead phone', 'Lead email', 'Matched by', 'All providers touched', 'Status'];
-  const data = rows.map(l => [l.custId || '', l.sale ? [l.sale.first_name, l.sale.last_name].filter(Boolean).join(' ') : '', l.sale ? l.sale.subscription_id : '', l.sale ? l.sale.subscription : '', l.sale ? String(l.sale.sold_date).slice(0, 10) : '', l.sale ? reportingSourceOf(l.sale) : '', _attrIsFix(l) ? l.provider : l.status === 'otherwon' ? l.winner : '', l.provider, l.date, l.name, l.phone, l.email, l.matchHow || '', (l.touches || [l.provider]).join(', '), (ATTR_STATUS[l.status] || [l.status])[0]]);
+  const data = rows.map(l => [l.custId || '', l.sale ? [l.sale.first_name, l.sale.last_name].filter(Boolean).join(' ') : '', l.sale ? l.sale.subscription_id : '', l.sale ? l.sale.subscription : '', l.sale ? String(l.sale.sold_date).slice(0, 10) : '', l.sale ? reportingSourceOf(l.sale) : '', _attrIsFix(l) ? (l.status === 'toorganic' ? ATTR_ORGANIC : l.provider) : l.status === 'otherwon' ? l.winner : '', l.provider, l.date, l.name, l.phone, l.email, l.matchHow || '', (l.touches || [l.provider]).join(', '), (ATTR_STATUS[l.status] || [l.status])[0]]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([H, ...data]), 'Lead reconciliation');
   XLSX.writeFile(wb, 'RIDD-lead-reconciliation-' + new Date().toISOString().slice(0, 10) + '.xlsx');
@@ -228,20 +262,22 @@ function mktgAttributionView() {
     el('div', { class: 'flex gap-2' },
       el('button', { class: btn, style: primary, onclick: () => { if (!P.map.date) { toast('Map the lead date column — last touch needs it', 'error'); return; } if (!P.map.phone && !P.map.email && !P.map.last && !P.map.name) { toast('Map at least phone, email or name', 'error'); return; } _attrCommitPending(); } }, 'Add ' + P.rows.length.toLocaleString() + ' leads'),
       el('button', { class: btn, style: { borderColor: 'var(--border-2)' }, onclick: () => { state._attrPending = null; mountApp(); } }, 'Cancel'))) : null;
+  const leadsAll = A.files.length ? _attrReconcile() : [];
   // Uploaded files
   const filesCard = A.files.length ? el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-4 py-2 border-b text-[10px] uppercase tracking-widest font-semibold', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } }, 'Uploaded lead files'),
     ...A.files.map(f => el('div', { class: 'flex items-center gap-3 px-4 py-1.5 border-t text-[11px]', style: { borderColor: 'var(--border)' } },
       el('span', { class: 'font-semibold', style: { minWidth: '140px' } }, f.provider), el('span', { class: 'flex-1 min-w-0 truncate' }, f.fileName),
-      el('span', { style: muted }, (f.leads || []).length.toLocaleString() + ' leads · ' + (f.from || '?') + ' → ' + (f.to || '?') + ' · uploaded ' + new Date(f.uploadedAt).toLocaleDateString() + (f.uploadedBy ? ' by ' + f.uploadedBy : '')),
+      (() => { const st = _attrStats(leadsAll.filter(l => l.fileId === f.id)); return el('span', { class: 'font-semibold' }, st.leads.toLocaleString() + ' leads · ' + st.closes.toLocaleString() + ' closes · ' + st.fixes.toLocaleString() + ' fixes'); })(),
+      el('span', { style: muted }, (f.from || '?') + ' → ' + (f.to || '?') + ' · uploaded ' + new Date(f.uploadedAt).toLocaleDateString() + (f.uploadedBy ? ' by ' + f.uploadedBy : '')),
       el('button', { class: 'text-[11px] font-semibold', style: { color: '#A9441F' }, onclick: () => { if (!confirm('Remove ' + f.fileName + '?')) return; A.files = A.files.filter(x => x.id !== f.id); _attrSave(); mountApp(); } }, 'Remove')))) : null;
   if (!A.files.length) return el('div', { class: 'flex flex-col gap-4' }, upload, mapping,
     el('div', { class: 'card p-6 text-[11px] text-center', style: muted }, 'Upload a provider’s lead report (CSV or Excel) to reconcile it against FieldRoutes.'));
-  const leads = _attrReconcile();
+  const leads = leadsAll;
   const provFilter = state._attrProv || 'all';
   const inProv = leads.filter(l => provFilter === 'all' || l.provider === provFilter);
   const count = (st) => inProv.filter(l => l.status === st && !l.dupe).length;
-  const provs = [...new Set(leads.map(l => l.provider))].sort();
+  const provs = [...new Set(leads.map(l => l.provider))].filter(p => p !== ATTR_ORGANIC).sort();
   const provPick = el('select', { class: btn, style: { borderColor: 'var(--border-2)', background: 'var(--card)' }, onchange: (e) => { state._attrProv = e.target.value; mountApp(); } },
     el('option', { value: 'all', selected: provFilter === 'all' }, 'All providers'), ...provs.map(p => el('option', { value: p, selected: provFilter === p }, p)));
   const stFilter = state._attrStatus || 'fix';
@@ -251,16 +287,17 @@ function mktgAttributionView() {
   const fixN = inProv.filter(_attrIsFix).length;
   const tiles = el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' } },
     tile('fix', 'To change in FieldRoutes', fixN, fixN ? '#DC2626' : 'var(--ok)'),
-    tile('all', 'Leads', inProv.length),
+    tile('all', 'Leads', inProv.filter(l => l.status !== 'toorganic').length),
     tile('correct', 'Sourced correctly', count('correct'), 'var(--ok)'),
     tile('nosource', 'No source', count('nosource'), '#DC2626'),
     tile('missourced', 'Mis-sourced', count('missourced'), '#DC2626'),
+    tile('toorganic', 'Should be Organic', count('toorganic'), '#DC2626'),
     tile('otherwon', 'Last touch elsewhere', count('otherwon'), '#B45309'),
     tile('existing', 'Already customers', count('existing')),
     tile('nosale', 'No sale', count('nosale') + count('nomatch')));
-  const sold = inProv.filter(l => l.sale && l.isWinner && !l.dupe);
+  const sold = inProv.filter(l => l.sale && l.isWinner && !l.dupe && l.status !== 'toorganic');
   const closeLine = el('div', { class: 'text-[11px]', style: muted },
-    'Sales credited by last touch: ' + sold.length.toLocaleString() + ' · ' + fmt.usd0(sold.reduce((t, l) => t + (Number(l.sale.subscription_contract_value) || 0), 0)) + ' contract value · lead → sale ' + (inProv.length ? Math.round(sold.length / inProv.length * 1000) / 10 : 0) + '%');
+    'Sales credited by last touch: ' + sold.length.toLocaleString() + ' · ' + fmt.usd0(sold.reduce((t, l) => t + (Number(l.sale.subscription_contract_value) || 0), 0)) + ' contract value · lead → sale ' + (_attrStats(inProv).leads ? Math.round(sold.filter(l => l.status !== 'toorganic').length / _attrStats(inProv).leads * 1000) / 10 : 0) + '%');
   const list = inProv.filter(l => stFilter === 'all' ? true : stFilter === 'fix' ? _attrIsFix(l) : stFilter === 'nosale' ? (l.status === 'nosale' || l.status === 'nomatch') : l.status === stFilter)
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
   const th = (t) => el('th', { class: 'px-2 py-1.5 text-left text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap', style: muted }, t);
@@ -278,12 +315,31 @@ function mktgAttributionView() {
         td(l.date), td(l.provider), td(l.name || l.phone || l.email),
         td(l.custId ? '#' + l.custId : null), td(l.sale ? l.sale.subscription + ' #' + l.sale.subscription_id : null), td(l.sale ? String(l.sale.sold_date).slice(0, 10) : null),
         td(l.sale ? reportingSourceOf(l.sale) : null, _attrIsFix(l) ? red : {}),
-        td(_attrIsFix(l) ? l.provider : l.status === 'otherwon' ? l.winner : null, _attrIsFix(l) ? { fontWeight: '700' } : {}),
-        td(l.matchHow), td((l.touches || []).length > 1 ? l.touches.join(', ') : null),
+        td(_attrIsFix(l) ? (l.status === 'toorganic' ? ATTR_ORGANIC : l.provider) : l.status === 'otherwon' ? l.winner : null, _attrIsFix(l) ? { fontWeight: '700' } : {}),
+        td(l.status === 'toorganic' ? l.why : l.matchHow), td((l.touches || []).length > 1 ? l.touches.join(', ') : null),
         td((ATTR_STATUS[l.status] || [l.status])[0] + (l.dupe ? ' (repeat lead)' : ''), { color: (ATTR_STATUS[l.status] || [])[1] || 'var(--text)', fontWeight: '600' })))))) :
       el('div', { class: 'px-4 py-6 text-[11px] text-center', style: muted }, stFilter === 'fix' ? 'Nothing to change — every credited sale is sourced correctly.' : 'No rows.'),
     list.length > shown.length ? el('button', { class: 'w-full px-4 py-2 text-[11px] font-semibold border-t', style: { borderColor: 'var(--border)', color: 'var(--accent)' }, onclick: () => { state._attrMore = true; mountApp(); } }, 'Show all ' + list.length.toLocaleString()) : null);
-  return el('div', { class: 'flex flex-col gap-4' }, upload, mapping,
+  // Leads / closes / fixes by provider (per Isaac) — last paid touch, else Organic.
+  const byProv = [...provs, ATTR_ORGANIC].map(p => ({ p, ...(_attrStats(leads.filter(l => l.provider === p))) })).filter(x => x.leads || x.fixes);
+  const tot = _attrStats(leads);
+  const th2 = (t) => el('th', { class: 'px-3 py-1.5 text-left text-[9px] uppercase tracking-wider font-semibold', style: muted }, t);
+  const td2 = (v, st) => el('td', { class: 'px-3 py-1.5 tabular-nums', style: st || {} }, v);
+  const summary = el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-4 py-2 border-b text-[10px] uppercase tracking-widest font-semibold', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } }, 'Leads · closes · fixes by provider — last paid touch gets the close; no paid touch = Organic'),
+    el('table', { class: 'w-full text-[11px]' }, el('thead', {}, el('tr', {}, th2('Provider'), th2('Leads'), th2('Closes'), th2('Close rate'), th2('Closed contract value'), th2('Fixes in FieldRoutes'))),
+      el('tbody', {}, ...byProv.map(x => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        td2(x.p, { fontWeight: '600' }), td2(x.p === ATTR_ORGANIC ? '—' : x.leads.toLocaleString()), td2(x.p === ATTR_ORGANIC ? '—' : x.closes.toLocaleString()),
+        td2(x.p === ATTR_ORGANIC || !x.leads ? '—' : (Math.round(x.closes / x.leads * 1000) / 10) + '%'), td2(x.p === ATTR_ORGANIC ? '—' : fmt.usd0(x.closeValue)),
+        td2(x.fixes.toLocaleString(), x.fixes ? { color: '#DC2626', fontWeight: '700' } : { color: 'var(--ok)' }))),
+        el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } }, td2('Total', { fontWeight: '700' }), td2(tot.leads.toLocaleString(), { fontWeight: '700' }), td2(tot.closes.toLocaleString(), { fontWeight: '700' }),
+          td2(tot.leads ? (Math.round(tot.closes / tot.leads * 1000) / 10) + '%' : '—', { fontWeight: '700' }), td2(fmt.usd0(tot.closeValue), { fontWeight: '700' }), td2(tot.fixes.toLocaleString(), { fontWeight: '700', color: tot.fixes ? '#DC2626' : 'var(--ok)' })))));
+  const U = state._attrLastUpload;
+  const lastUp = U ? el('div', { class: 'card px-4 py-2 flex items-center gap-3 text-[12px]', style: { borderColor: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 8%, var(--card))' } },
+    el('span', { class: 'font-bold' }, 'Just uploaded · ' + U.provider), el('span', { style: muted }, U.fileName),
+    el('span', { class: 'font-semibold' }, U.leads.toLocaleString() + ' leads · ' + U.closes.toLocaleString() + ' closes (' + fmt.usd0(U.closeValue) + ') · ' + U.fixes.toLocaleString() + ' fixes'),
+    el('button', { class: 'ml-auto text-[11px]', style: muted, onclick: () => { state._attrLastUpload = null; mountApp(); } }, '✕')) : null;
+  return el('div', { class: 'flex flex-col gap-4' }, upload, mapping, lastUp, summary,
     el('div', { class: 'flex items-center gap-2 flex-wrap' }, el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Provider'), provPick, closeLine),
     tiles, table, filesCard);
 }
