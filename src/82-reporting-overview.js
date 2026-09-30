@@ -635,6 +635,7 @@ function reportingOverview() {
     // "Pending / Serviced"); one-time services and renewal sources are OUT by
     // default, each a toggle to add back as extra production.
     const inclOne = !!state._pulseInclOneTime, inclRen = !!state._pulseInclRenewal;
+    const _ex = { notStarted: { n: 0, v: 0 }, ren: { n: 0, v: 0 }, one: { n: 0, v: 0 } };   // what Sold left out, for the ⓘ
     const _recMap = reportingServiceRecurringMap();
     const _isRec = (r) => reportingRecurringMode() === 'arv' ? (Number(r.annual_recurring_value) || 0) > 0 : !!_recMap.get(r.subscription);
     const _isRen = (r) => typeof reportingSourceClass === 'function' && reportingSourceClass(reportingSourceOf(r)) === 'renewal';
@@ -646,8 +647,10 @@ function reportingOverview() {
       if (cd && idx.has(cd) && isRealCancel(r)) { const i = idx.get(cd); churned[i] += unitSubs ? 1 : (Number(r.annual_recurring_value) || 0); cxlRows[i].push(r); }
       // Sold / Serviced = new production: renewals (revenue we already had,
       // re-contracted) and one-time services only when toggled on.
-      if (!inclRen && _isRen(r)) continue;
-      if (!inclOne && !_isRec(r)) continue;
+      const _sdk = keyOf(String(r.sold_date || '').slice(0, 10)), _inWin = _sdk && idx.has(_sdk);
+      if (_inWin && !_pendSvc(r)) { _ex.notStarted.n++; _ex.notStarted.v += Number(r.subscription_contract_value) || 0; }
+      if (!inclRen && _isRen(r)) { if (_inWin && _pendSvc(r)) { _ex.ren.n++; _ex.ren.v += Number(r.subscription_contract_value) || 0; } continue; }
+      if (!inclOne && !_isRec(r)) { if (_inWin && _pendSvc(r)) { _ex.one.n++; _ex.one.v += Number(r.subscription_contract_value) || 0; } continue; }
       const sd = _pendSvc(r) ? keyOf(String(r.sold_date || '').slice(0, 10)) : null;
       if (idx.has(sd)) { const i = idx.get(sd); sold[i] += unitSubs ? 1 : (Number(r.subscription_contract_value) || 0); soldRows[i].push(r); }
       const initDone = String(r.initial_status || '').toLowerCase() === 'completed' || !!r.initial_serviced_date;
@@ -709,8 +712,9 @@ function reportingOverview() {
               // Long-form date in the tooltip title (per Isaac): "Wednesday, September 6th, 2026".
               title: (items) => { const i = items && items[0] ? items[0].dataIndex : -1; return i < 0 ? '' : single ? (labels[i] + ' · ' + longDate(0)) : longDate(i); },
               label: (c) => ' ' + c.dataset.label + ': ' + (unitSubs ? Math.round(c.parsed.y).toLocaleString() : '$' + Math.round(c.parsed.y).toLocaleString()),
-              // Net = Sold − Churned for the hovered day / branch (per Isaac, Sep 22).
-              footer: (items) => { const i = items && items[0] ? items[0].dataIndex : -1; if (i < 0) return ''; const n = (Number(dsSold[i]) || 0) - (Number(dsCxl[i]) || 0); return ' Net: ' + (n < 0 ? '−' : '') + (unitSubs ? '' : '$') + Math.round(Math.abs(n)).toLocaleString(); } } } },
+              // Net = Serviced − Churned (per Isaac, Sep 30): what the recurring
+              // book actually gained — sold-but-not-started isn't in the book yet.
+              footer: (items) => { const i = items && items[0] ? items[0].dataIndex : -1; if (i < 0) return ''; const n = (Number(dsSvc[i]) || 0) - (Number(dsCxl[i]) || 0); return ' Net (serviced − churned): ' + (n < 0 ? '−' : '') + (unitSubs ? '' : '$') + Math.round(Math.abs(n)).toLocaleString(); } } } },
           scales: { x: { ticks: { color: txt, maxTicksLimit: span > 30 ? 15 : 31 }, grid: { display: false } },
                     y: { beginAtZero: true, ticks: { color: txt, callback: v => unitSubs ? v : '$' + (v >= 1000 ? Math.round(v / 1000) + 'k' : v) }, grid: { color: grid } } } },
       });
@@ -730,17 +734,46 @@ function reportingOverview() {
     const addToggles = el('div', { class: 'flex items-center gap-1.5' },
       addBtn('_pulseInclOneTime', 'One-time', 'Add one-time services to Sold / Serviced (never churn)'),
       addBtn('_pulseInclRenewal', 'Renewals', 'Add renewal-source subscriptions to Sold / Serviced — revenue we already had, re-contracted. Renewals that cancel ALWAYS count in Churned.'));
+    // ⓘ math breakdown for the selected window (per Isaac, Sep 30).
+    const pulseInfo = (() => {
+      const f = (v) => unitSubs ? fmt.int(v) : fmt.usd0(v);
+      const subsW = (n) => fmt.int(n) + (n === 1 ? ' sub' : ' subs');
+      const fv = (o) => subsW(o.n) + ' · ' + fmt.usd0(o.v);
+      const S1 = sum(sold), S2 = sum(serviced), S3 = sum(churned), N = S2 - S3;
+      const cnt = (a) => a.reduce((t, x) => t + x.length, 0);
+      const desc = [
+        'Window: ' + winLong + (office !== 'all' ? ' · ' + officeLabel(office) : ' · all offices') + ' · ' + (unitSubs ? 'counting subscriptions' : 'dollars') + (monthly ? ' · one bar per month' : ' · one bar per day'),
+        '',
+        'SOLD = ' + f(S1) + ' (' + subsW(cnt(soldRows)) + ')',
+        '  Subscriptions SOLD in the window (sold date) whose initial appointment is Pending or Completed — FieldRoutes’ “Pending / Serviced” Sales Report.' + (unitSubs ? '' : ' Value = contract value (12-month basis).'),
+        '  Left out: ' + fv(_ex.notStarted) + ' never started (No Appointment / Cancelled / No Show initial)'
+          + (inclRen ? '' : ' · ' + fv(_ex.ren) + ' renewals (revenue we already had, re-contracted — “+ Renewals” adds them)')
+          + (inclOne ? '' : ' · ' + fv(_ex.one) + ' one-time services (“+ One-time” adds them)') + '.',
+        '',
+        'SERVICED = ' + f(S2) + ' (' + subsW(cnt(svcRows)) + ')',
+        '  Subscriptions whose FIRST service was completed in the window (initial service date) — the ARR that actually entered the book. Same renewal / one-time rules as Sold.' + (unitSubs ? '' : ' Value = annual recurring value.'),
+        '',
+        'CHURNED = ' + f(S3) + ' (' + subsW(cnt(cxlRows)) + ')',
+        '  Recurring subscriptions CANCELLED in the window (cancel date) — renewals included, always, whatever the toggles. One-time services never count, and cancel reasons excluded in Configurations (e.g. combined into another subscription) don’t either.' + (unitSubs ? '' : ' Value = annual recurring value.'),
+        '',
+        'NET = Serviced − Churned = ' + f(S2) + ' − ' + f(S3) + ' = ' + (N < 0 ? '−' : '') + f(Math.abs(N)),
+        '  What the recurring book gained. Sold minus Serviced (' + (S1 - S2 < 0 ? '−' : '') + f(Math.abs(S1 - S2)) + ') is timing (sold but not yet serviced, or serviced this window from an earlier sale)' + (unitSubs ? '.' : ' plus initial charges, which are in contract value but not in ARR.'),
+      ].join('\n');
+      const b = el('span', { class: 'inline-flex items-center justify-center rounded-full text-[9px] font-bold ml-1.5', style: { width: '14px', height: '14px', background: 'var(--card-2)', color: 'var(--text-muted)', cursor: 'help', verticalAlign: 'middle' } }, 'ⓘ');
+      if (typeof attachExplainer === 'function') attachExplainer(b, { title: 'Daily Pulse · the math', desc });
+      return b;
+    })();
     const stat = (label, v, color, kind) => el('button', { class: 'text-left cursor-pointer transition hover:brightness-95', title: 'See the ' + label.toLowerCase() + ' accounts, by office \u2014 and where churn came from', onclick: () => openWindow(kind) },
       el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
       el('div', { class: 'text-base font-black tabular-nums', style: { color } }, unitSubs ? fmt.int(v) : fmt.usd0(v)));
     return el('div', { class: 'card p-4' },
       el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-2' },
         el('div', {},
-          el('h3', { class: 'text-sm font-bold', title: (single ? 'By office: contract value SOLD (green) · ARR of accounts that received their first service (teal) · ARR that CHURNED (red). Click a bar for the day.' : 'Each day: contract value SOLD (green bars) · ARR of accounts that received their first service (teal) · ARR that CHURNED (red). Click a bar or point for the accounts.') }, 'Daily Pulse' + (monthly ? ' · by month' : '') + (office !== 'all' ? ' · ' + officeLabel(office) : ''))),
+          el('h3', { class: 'text-sm font-bold', title: (single ? 'By office: contract value SOLD (green) · ARR of accounts that received their first service (teal) · ARR that CHURNED (red). Click a bar for the day.' : 'Each day: contract value SOLD (green bars) · ARR of accounts that received their first service (teal) · ARR that CHURNED (red). Click a bar or point for the accounts.') }, 'Daily Pulse' + (monthly ? ' · by month' : '') + (office !== 'all' ? ' · ' + officeLabel(office) : ''), pulseInfo)),
         el('div', { class: 'flex items-center gap-4 flex-wrap' },
           stat('Sold · ' + (single ? (spanRaw === 'today' ? 'today' : 'yesterday') : spanRaw === 'thisyear' ? 'this yr' : spanRaw === 'lastyear' ? 'last yr' : spanRaw === 'custom' ? 'range' : span + 'd'), sum(sold), C.sold, 'sold'), stat('Serviced', sum(serviced), C.svc, 'svc'), stat('Churned', sum(churned), C.cxl, 'cxl'),
-          // Net = Sold − Churned for the selected window (per Isaac, Sep 22).
-          (() => { const n = sum(sold) - sum(churned); return el('div', { class: 'text-left', title: 'Sold − Churned for this window' },
+          // Net = Serviced − Churned for the window (per Isaac, Sep 30).
+          (() => { const n = sum(serviced) - sum(churned); return el('div', { class: 'text-left', title: 'Serviced − Churned for this window: what the recurring book gained' },
             el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Net'),
             el('div', { class: 'text-base font-black tabular-nums', style: { color: n >= 0 ? C.sold : C.cxl } }, (n < 0 ? '−' : '') + (unitSubs ? fmt.int(Math.abs(n)) : fmt.usd0(Math.abs(n))))); })(),
           el('select', {
