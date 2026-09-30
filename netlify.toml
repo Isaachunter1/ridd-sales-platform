@@ -47,6 +47,10 @@
 [functions."addons-scheduled"]
   schedule = "*/15 * * * *"
 
+# GoHighLevel contacts → Supabase + reporting/ghl/leads.json.gz (per Isaac, Sep 30) — hourly at :40.
+[functions."ghl-scheduled"]
+  schedule = "40 * * * *"  # hourly GoHighLevel contacts sync
+
 # Technician route stats (per Isaac) — hourly at :20, 6am–11pm ET.
 [functions."tech-stats-scheduled"]
   schedule = "20 * * * *"
@@ -143,6 +147,11 @@
 [[redirects]]
   from = "/api/marketing-spend"
   to   = "/.netlify/functions/marketing-spend"
+  status = 200
+
+[[redirects]]
+  from = "/api/ghl-sync-now"
+  to   = "/.netlify/functions/ghl-sync-now"
   status = 200
 
 [[redirects]]

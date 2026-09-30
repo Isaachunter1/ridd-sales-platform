@@ -1111,7 +1111,12 @@ function _mktgProviders() {
   // clicks, impressions, platform leads by campaign → office.
   if (typeof reportingLoadAdSpend === 'function') reportingLoadAdSpend(y);
   const AP = (typeof adPlatformIndex === 'function') ? adPlatformIndex(y, B.all) : null;
-  const channels = [...new Set([...m.channels, ...a.sources.filter(s => reportingSourceClass(s) === 'new'), ...(AP ? [...AP.has] : [])])].sort();
+  // GoHighLevel leads (last paid touch, else own source) — replaces the
+  // hand-entered lead counts once the sync has run.
+  if (typeof ghlLoadLeads === 'function') ghlLoadLeads();
+  const GL = (typeof ghlLeadIndex === 'function') ? ghlLeadIndex(y) : null;
+  const glProvs = GL ? [...GL.has].filter(([p, n]) => n >= 20 && p !== 'Unknown').map(([p]) => p) : [];
+  const channels = [...new Set([...m.channels, ...a.sources.filter(s => reportingSourceClass(s) === 'new'), ...(AP ? [...AP.has] : []), ...glProvs])].sort();
   const scope = state._mktCacScope || MKTG_ALL;
   const scopeBranches = scope === MKTG_ALL ? null : (B.byEntity[scope] ? B.byEntity[scope] : [scope]);
   const provF = mode === 'office' && channels.includes(state._mktMetricsProv) ? state._mktMetricsProv : '';
@@ -1121,6 +1126,9 @@ function _mktgProviders() {
   // Each row → the providers (null = all) and offices (null = all) it covers.
   const chsOf = (rk) => mode === 'provider' ? (rk === TOTAL ? channels : [rk]) : (provF ? [provF] : null);
   const bsOf = (rk) => mode === 'provider' ? scopeBranches : G.members(rk);
+  // Company row by office also counts what has no office (company-wide
+  // campaigns, leads whose ZIP isn't a FieldRoutes office).
+  const bsWide = (rk) => mode === 'office' && rk === MKTG_ALL ? null : bsOf(rk);
   const zero = { rev: 0, upRev: 0, bookings: 0 };
   const act = (rk, i) => {
     const chs = chsOf(rk), bs = bsOf(rk), t = { rev: 0, upRev: 0, bookings: 0 };
@@ -1138,14 +1146,16 @@ function _mktgProviders() {
     const chs = chsOf(rk), bs = bsOf(rk), ym = _mktgYm(y, i);
     if (!chs) return bs.reduce((t, b) => t + qbo(b, i), 0);
     let t = 0;
-    for (const ch of chs) { if (AP && AP.has.has(ch)) { t += AP.cell([ch], bs, i, 'spend'); continue; } if (!bs) { t += _mktgSpendChannelMonth(m, ym, ch); continue; } const C = (m.spend[ym] || {})[ch] || {}; for (const b of bs) t += Number(C[b]) || 0; }
+    for (const ch of chs) { if (AP && AP.has.has(ch)) { t += AP.cell([ch], bsWide(rk), i, 'spend'); continue; } if (!bs) { t += _mktgSpendChannelMonth(m, ym, ch); continue; } const C = (m.spend[ym] || {})[ch] || {}; for (const b of bs) t += Number(C[b]) || 0; }
     return t;
   };
   const wg = (rk, i) => G.members(rk).reduce((t, b) => t + (Number((m.wages[_mktgYm(y, i)] || {})[b]) || 0), 0);
   const inc = (rk, i) => G.members(rk).reduce((t, b) => t + (Number((m.incentives[_mktgYm(y, i)] || {})[b]) || 0), 0);
   const tot = (rk, i) => sp(rk, i) + wg(rk, i) + inc(rk, i);
-  const leadsOk = mode === 'provider' && !scopeBranches;   // leads are entered per provider, not per office
-  const leads = (rk, i) => chsOf(rk).reduce((t, ch) => t + (Number((m.leads[_mktgYm(y, i)] || {})[ch]) || 0), 0);
+  const leadsOk = !!GL || (mode === 'provider' && !scopeBranches);   // hand-entered leads are per provider only; GoHighLevel leads carry an office (ZIP)
+  const leads = GL ? (rk, i) => GL.cell(chsOf(rk), bsWide(rk), i)
+    : (rk, i) => chsOf(rk).reduce((t, ch) => t + (Number((m.leads[_mktgYm(y, i)] || {})[ch]) || 0), 0);
+  const leadNote = GL ? 'GoHighLevel · credit = last paid touch for the person, else the lead’s own source · office from the lead’s ZIP' : 'hand-entered (Spend entry)';
   const ratioTotal = (num, den) => (rk) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += num(rk, i); d += den(rk, i); } return _mktgDiv(n, d); };
   const gs = (goal, better) => (v) => v == null ? {} : { color: better(v, goal) ? '#5F6C5B' : '#DC2626', fontWeight: '600' };
   const rows = mode === 'provider' ? [...channels, TOTAL] : G.rows;
@@ -1155,7 +1165,7 @@ function _mktgProviders() {
     label: (rk) => groups.has(rk) ? _mktgGroupLabel(rk) : (mode === 'office' ? _mktgTC(rk) : rk) };
   const wt = (num) => ({ ...opts, groupRows: new Set(), total: (rk) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += num(rk, i); d += num(TOTAL, i); } return _mktgDiv(n, d); } });
   const spNote = officeFull ? 'QuickBooks · Advertising & Marketing by branch' : (AP ? [...AP.has].join(' / ') + ' from the ad platforms (Windsor, campaign → office) · other providers from Spend entry' : 'Spend entry allocation (provider × office)');
-  const pf = (f) => (rk, i) => AP ? AP.cell(chsOf(rk), bsOf(rk), i, f) : 0;
+  const pf = (f) => (rk, i) => AP ? AP.cell(chsOf(rk), bsWide(rk), i, f) : 0;
   const pSp = pf('spend'), pLd = pf('leads'), pCl = pf('clicks'), pIm = pf('impr');
   const apNote = ' · Facebook + Google Ads as the platforms report them (Windsor)';
   const METRICS = [
@@ -1165,7 +1175,8 @@ function _mktgProviders() {
     officeFull ? { key: 'wages', group: 'Volume', label: 'Wages',      note: 'hand-entered (Spend entry)', rows, cell: wg, fmt: _mktgUsd0, opts } : null,
     officeFull ? { key: 'inc',   group: 'Volume', label: 'Incentives', note: 'hand-entered (Spend entry)', rows, cell: inc, fmt: _mktgUsd0, opts } : null,
     officeFull ? { key: 'tot',   group: 'Volume', label: 'Total spend', note: 'ad spend + wages + incentives', rows, cell: tot, fmt: _mktgUsd0, opts } : null,
-    leadsOk ? { key: 'leads', group: 'Volume', label: 'Leads', note: 'hand-entered (Spend entry)', rows, cell: leads, fmt: fmt.int, opts } : null,
+    leadsOk ? { key: 'leads', group: 'Volume', label: 'Leads', note: leadNote, rows, cell: leads, fmt: fmt.int, opts } : null,
+    leadsOk ? { key: 'l2j', group: 'Efficiency', label: 'Lead → job %', note: 'FieldRoutes jobs ÷ leads · ' + leadNote, rows, cell: (rk, i) => _mktgDiv(book(rk, i), leads(rk, i)), fmt: _mktgPct, opts: { ...opts, total: ratioTotal(book, leads) } } : null,
     { key: 'roas',   group: 'Efficiency', label: 'ROAS',           note: 'revenue ÷ ad spend · goal ' + T.roas + '+', rows, cell: (rk, i) => _mktgDiv(rev(rk, i), sp(rk, i)), fmt: _mktgX, opts: { ...opts, total: ratioTotal(rev, sp), cellStyle: gs(T.roas, (v, g) => v >= g) } },
     officeFull ? { key: 'cac', group: 'Efficiency', label: 'CAC', note: 'total spend ÷ revenue', rows, cell: (rk, i) => _mktgDiv(tot(rk, i), rev(rk, i)), fmt: _mktgPct, opts: { ...opts, total: ratioTotal(tot, rev) } } : null,
     officeFull ? { key: 'cpj', group: 'Efficiency', label: 'Cost/Job', note: 'total spend ÷ jobs', rows, cell: (rk, i) => _mktgDiv(tot(rk, i), book(rk, i)), fmt: _mktgUsd0, opts: { ...opts, total: ratioTotal(tot, book) } } : null,
@@ -1178,7 +1189,7 @@ function _mktgProviders() {
     AP ? { key: 'cpc', group: 'Ad platforms', label: 'Cost per click', note: 'platform spend ÷ clicks' + apNote, rows, cell: (rk, i) => _mktgDiv(pSp(rk, i), pCl(rk, i)), fmt: (v) => '$' + (Math.round(v * 100) / 100).toFixed(2), opts: { ...opts, total: ratioTotal(pSp, pCl) } } : null,
     AP ? { key: 'ctr', group: 'Ad platforms', label: 'CTR', note: 'clicks ÷ impressions' + apNote, rows, cell: (rk, i) => _mktgDiv(pCl(rk, i), pIm(rk, i)), fmt: (v) => v == null || !isFinite(v) ? '—' : (v * 100).toFixed(2) + '%', opts: { ...opts, total: ratioTotal(pCl, pIm) } } : null,
     AP ? { key: 'plsale', group: 'Ad platforms', label: 'Platform lead → job %', note: 'FieldRoutes jobs ÷ platform leads' + apNote, rows, cell: (rk, i) => _mktgDiv(book(rk, i), pLd(rk, i)), fmt: _mktgPct, opts: { ...opts, total: ratioTotal(book, pLd) } } : null,
-    leadsOk ? { key: 'cpl', group: 'Efficiency', label: 'Cost per lead', note: 'ad spend ÷ leads', rows, cell: (rk, i) => _mktgDiv(sp(rk, i), leads(rk, i)), fmt: _mktgUsd0, opts: { ...opts, total: ratioTotal(sp, leads) } } : null,
+    leadsOk ? { key: 'cpl', group: 'Efficiency', label: 'Cost per lead', note: 'ad spend ÷ leads · ' + leadNote, rows, cell: (rk, i) => _mktgDiv(sp(rk, i), leads(rk, i)), fmt: _mktgUsd0, opts: { ...opts, total: ratioTotal(sp, leads) } } : null,
     { key: 'revW',   group: 'Mix',        label: 'Revenue weight', note: 'share of the month’s revenue', rows: leafRows, cell: (rk, i) => _mktgDiv(rev(rk, i), rev(TOTAL, i)), fmt: _mktgPct, opts: wt(rev) },
     { key: 'spendW', group: 'Mix',        label: 'Spend weight',   note: 'share of the month’s ad spend', rows: leafRows, cell: (rk, i) => _mktgDiv(sp(rk, i), sp(TOTAL, i)), fmt: _mktgPct, opts: wt(sp) },
   ].filter(Boolean);
@@ -1202,7 +1213,7 @@ function _mktgProviders() {
     el('span', { class: 'text-[10px] text-muted-' }, 'Metric'), picker);
   const GOAL = { spj: { v: T.spendPerJob, better: 'low' }, roas: { v: T.roas, better: 'high' }, adcac: { v: T.adSpendCac, better: 'low' }, wgcac: { v: T.wagesCac, better: 'low' } };
   const lowerIsBetter = ['cpl', 'spj', 'adcac', 'cac', 'cpj', 'wgcac', 'pcpl', 'cpc'].includes(cur.key);
-  const rankBy = { rev, book, spend: sp, wages: wg, inc, tot, leads, cpl: sp, spj: sp, roas: sp, adcac: sp, cac: tot, cpj: tot, wgcac: wg, revW: rev, spendW: sp, pleads: pLd, pcpl: pSp, clicks: pCl, cpc: pSp, ctr: pIm, plsale: pLd }[cur.key] || rev;
+  const rankBy = { rev, book, spend: sp, wages: wg, inc, tot, leads, cpl: sp, spj: sp, roas: sp, adcac: sp, cac: tot, cpj: tot, wgcac: wg, revW: rev, spendW: sp, pleads: pLd, pcpl: pSp, clicks: pCl, cpc: pSp, ctr: pIm, plsale: pLd, l2j: leads }[cur.key] || rev;
   return el('div', { class: 'flex flex-col gap-4' },
     _mktgMatrixCard(cur.label + ' · by ' + mode + ' · ' + scopeLbl, cur.note, cur.rows, cur.cell, cur.fmt, { ...cur.opts, headerExtra: header }),
     _mktgProvidersViz(cur, { y, channels: leafRows, rankBy, goal: GOAL[cur.key] || null, lowerIsBetter, noun: mode === 'provider' ? 'provider' : 'office', label: opts.label }),

@@ -146,6 +146,9 @@ function _attrReconcile() {
     if (!l.isWinner) { l.status = 'otherwon'; continue; }
     l.status = cur === l.provider ? 'correct' : _attrIsUnset(cur) ? 'nosource' : 'missourced';
   }
+  // GoHighLevel check (per Isaac): every provider lead SHOULD be in GHL —
+  // flag the ones that never made it (null = GHL not loaded yet).
+  if (typeof ghlHasContact === 'function') for (const l of leads) l.inGhl = ghlHasContact(l.phone, l.email);
   // One credited lead per provider per sale (a provider sending the same person twice counts once).
   const seen = new Set();
   for (const l of leads) {
@@ -188,6 +191,7 @@ const ATTR_STATUS = {
   nomatch:    ['Not in CRM', 'var(--text-muted)'],
   toorganic:  ['No paid lead — set to Organic', '#DC2626'],
   d2d:        ['Door to Door in CRM — kept', 'var(--text-muted)'],
+  noghl:      ['Not in GoHighLevel', '#B45309'],
 };
 const _attrIsFix = (l) => (l.status === 'nosource' || l.status === 'missourced' || l.status === 'toorganic') && !l.dupe;
 // Leads / closes / fixes for a set of rows (closes = sales credited by last paid touch, once per sale).
@@ -292,6 +296,7 @@ async function _attrExport(rows) {
 
 // ── the view ──
 function mktgAttributionView() {
+  if (typeof ghlLoadLeads === 'function') ghlLoadLeads();
   _attrLoad();
   const A = state._attr;
   const muted = { color: 'var(--text-muted)' };
@@ -374,13 +379,14 @@ function mktgAttributionView() {
     tile('missourced', 'Mis-sourced', count('missourced'), '#DC2626'),
     tile('toorganic', 'Should be Organic', count('toorganic'), '#DC2626'),
     tile('otherwon', 'Last touch elsewhere', count('otherwon'), '#B45309'),
+    inProv.some(l => l.inGhl != null) ? tile('noghl', 'Not in GoHighLevel', inProv.filter(l => l.inGhl === false).length, '#B45309') : null,
     tile('d2d', 'Door to Door (kept)', inProv.filter(l => l.status === 'd2d').length),
     tile('existing', 'Already customers', count('existing')),
     tile('nosale', 'No sale', count('nosale') + count('nomatch')));
   const sold = inProv.filter(l => l.sale && l.isWinner && !l.dupe && l.status !== 'toorganic' && l.status !== 'd2d');
   const closeLine = el('div', { class: 'text-[11px]', style: muted },
     'Sales credited by last touch: ' + sold.length.toLocaleString() + ' · ' + fmt.usd0(sold.reduce((t, l) => t + (Number(l.sale.subscription_contract_value) || 0), 0)) + ' contract value · lead → sale ' + (_attrStats(inProv).leads ? Math.round(sold.filter(l => l.status !== 'toorganic').length / _attrStats(inProv).leads * 1000) / 10 : 0) + '%');
-  const list = inProv.filter(l => stFilter === 'all' ? true : stFilter === 'fix' ? _attrIsFix(l) : stFilter === 'nosale' ? (l.status === 'nosale' || l.status === 'nomatch') : l.status === stFilter)
+  const list = inProv.filter(l => stFilter === 'all' ? true : stFilter === 'fix' ? _attrIsFix(l) : stFilter === 'nosale' ? (l.status === 'nosale' || l.status === 'nomatch') : stFilter === 'noghl' ? l.inGhl === false : l.status === stFilter)
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
   const th = (t) => el('th', { class: 'px-2 py-1.5 text-left text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap', style: muted }, t);
   const td = (v, st) => el('td', { class: 'px-2 py-1.5 whitespace-nowrap', style: st || {} }, v == null || v === '' ? '—' : v);
