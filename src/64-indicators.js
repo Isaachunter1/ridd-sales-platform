@@ -2457,9 +2457,21 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // counting even when the CSV still references the old spelling.
   const parseNum = (s) => parseFloat(String(s || '').replace(/[$,%]/g,'').replace(/,/g,'').trim()) || 0;
   const repMap = {};
+  // Office revenue lens (New / Total / Renewal) applies HERE, at the source
+  // (per Isaac, Sep 30): every per-rep metric — MY %, ACV, Avg Init, APay %,
+  // Serviced %, Attrition, cancels, records — is computed from the SAME
+  // sales the Sales / Revenue columns count, so the board matches the
+  // player card. (It used to filter only sales + revenue afterwards, so
+  // MY % etc. still included renewals.) New Rev / Renewal Rev stay the
+  // full split.
+  const _lensMode = state.indicatorDept === 'office' ? (state._indRepRevMode || 'new') : 'total';
+  const _inLens = (s) => { if (_lensMode === 'total') return true; const ren = (typeof _indicatorIsRenewal === 'function') && _indicatorIsRenewal(s); return _lensMode === 'renewal' ? ren : !ren; };
   rawSales.forEach(s => {
     const rep = getCanonicalRepName(s.rep || 'Unknown');
     if (!repMap[rep]) repMap[rep] = { name: rep, office: s.office, officeRev: {}, recRev: {}, sales: [], cancels: 0, cancelEligible: 0, attrServRev: 0, attrCxlRev: 0, revenue: 0, newRevenue: 0, renewalRevenue: 0, multi: 0, twelve: 0, autoPay: 0, aged: 0 };
+    if (_indicatorIsRenewal(s)) repMap[rep].renewalRevenue += s.contractValue;
+    else                        repMap[rep].newRevenue += s.contractValue;
+    if (!_inLens(s)) return;
     if (s.office) repMap[rep].officeRev[s.office] = (repMap[rep].officeRev[s.office] || 0) + (Number(s.contractValue) || 0);
     // Per-CRM-record split: raw rep spelling + employee id + office. When a
     // person exists as multiple FieldRoutes employee records, each line here
@@ -2469,10 +2481,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const r = repMap[rep];
     r.sales.push(s);
     r.revenue += s.contractValue;
-    // New vs renewal split (renewal sources are named "Renewal - …"). D2D has
-    // none, so newRevenue == revenue there; office staff carry both.
-    if (_indicatorIsRenewal(s)) r.renewalRevenue += s.contractValue;
-    else                        r.newRevenue += s.contractValue;
+    // (New vs renewal revenue split is tallied above, before the lens.)
     const _myb = myBucketOf(s);
     if (_myb === 'multi') r.multi++; else if (_myb === 'twelve') r.twelve++;
     if (s.autoPay && s.autoPay !== 'No') r.autoPay++;
@@ -2498,7 +2507,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const _inRaw = new Set(rawSales);
     (state._indicatorRawSales || []).forEach(s => {
       if (_inRaw.has(s) || !s.cancelDate || !_is3DayROR(s)) return;
-      if (!inRepScope(s)) return;
+      if (!inRepScope(s) || !_inLens(s)) return;
       if (applyExclusion && isRepExcluded(s.rep)) return;
       const r = repMap[getCanonicalRepName(s.rep || 'Unknown')];
       if (r) { r.cancels++; r.cancelEligible++; }
@@ -2524,7 +2533,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     ? (() => { const ws = new Date(_globalLatestDate); ws.setDate(ws.getDate() - ws.getDay()); return ws; })()
     : null;
   const _fullWeeklyByRep = _fullWk.byRep;
-  const allReps = Object.values(repMap).map(r => {
+  const allReps = Object.values(repMap).filter(r => r.sales.length > 0).map(r => {
     const count = r.sales.length;
     // MY % = multi-year contracts (anything other than 12 months) / all contract sales (12 + multi)
     const ctTotal = r.twelve + r.multi;
