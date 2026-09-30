@@ -653,7 +653,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
     pif:      'Paid in Full — the "Paid In Full" button on the customer card in FieldRoutes. Synced automatically; no backend hold and full commission pays out.',
     commercial: 'Commercial account — the Commercial Account toggle on the customer card in FieldRoutes. Synced automatically; pays the commercial rate.',
     comm:     'Commission paid — stamped by payroll when this sale goes out on a pay run.',
-    upfront:  'Charged Upfront — payment was collected at signing. Makes the sale commissionable on the sale date and feeds the Charge Upfront % tier.',
+    upfront:  'Passed Audit — the office flagged this account Passed Audit in FieldRoutes (signed agreement, autopay on file, charged upfront). Makes the sale commissionable on the sale date and feeds the Passed Audit % pay tier.',
     status:   'Audit status. New sales sit in Pending until audited, then Approved, Cancelled, NSF, Rejected, and so on.',
     audit:    'The office audit flag on the customer card in FieldRoutes: Passed Audit, Failed Audit, or not audited yet. Synced automatically — set it in the CRM, not here.',
     crm:      'Automatic checks against FieldRoutes: revenue matches, initial appointment scheduled, billing on file, agreement signed. Green = confirmed in the CRM.',
@@ -684,7 +684,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
             // toggle PIF / Upfront right here; COMM. is read-only — it is
             // stamped by payroll.
             headerCell('PIF',     { extraClass: 'text-center', align: 'center', help: H.pif }),
-            headerCell('Upfront', { extraClass: 'text-center', align: 'center', help: H.upfront }),
+            headerCell('Passed Audit', { extraClass: 'text-center', align: 'center', help: H.upfront }),
             headerCell('Comm.', { extraClass: 'text-center', align: 'center', help: H.commercial }),
             headerCell('Status',      { sortableKey: 'audit_status', help: H.status }),
             headerCell('Audit',       { sortableKey: 'crm_audit', extraClass: 'text-center', align: 'center', help: H.audit }),
@@ -764,7 +764,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                 return el('span', { class: 'tabular-nums whitespace-nowrap text-muted-', title: 'No initial appointment on the subscription yet \u00b7 ' + c.why, style: { color: 'var(--text-subtle)' } }, 'not scheduled');
               })()),
               el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, 'paid_in_full', isAdmin, 'Paid in Full — the "Paid In Full" button on the FieldRoutes customer card')),
-              el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, 'upfront_collected', isAdmin, 'Charged Upfront — payment collected at signing (feeds the Charge Upfront % tier)')),
+              el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, 'upfront_collected', isAdmin, 'Passed Audit — flagged in FieldRoutes (feeds the Passed Audit % pay tier)')),
               el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, 'is_commercial', false, 'Commercial Account toggle on the FieldRoutes customer card — pays the commercial rate')),
               // Status + the payroll stamp under it (per Isaac: the paid flag
               // lives here, not in its own column).
@@ -825,7 +825,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                 // Office audit (FieldRoutes customer flag, per Isaac Sep 17 2026):
                 // Passed feeds the Charge Upfront % tier; Failed holds
                 // auto-approval for manual review until the office re-flags.
-                if (s.crm_audit === 'passed') lcChips.push(chip('✓ Audit', 'rgba(95,108,91,.16)', '#5F6C5B', 'Passed Audit flag in FieldRoutes — counts toward the Charge Upfront % tier'));
+                if (s.crm_audit === 'passed') lcChips.push(chip('✓ Audit', 'rgba(95,108,91,.16)', '#5F6C5B', 'Passed Audit flag in FieldRoutes — counts toward the Passed Audit % pay tier'));
                 else if (s.crm_audit === 'failed') lcChips.push(chip('✗ Audit', 'rgba(220,38,38,.12)', '#B91C1C', 'Failed Audit flag in FieldRoutes — auto-approval is on hold. Review it here, or fix it in the CRM and the next sync resumes the flow.'));
                 if (s.crm_days_past_due != null) {
                   lcChips.push(Number(s.crm_days_past_due) > 0
@@ -978,14 +978,14 @@ function commissionableDate(s) {
   const serviced = s.crm_serviced_at ? String(s.crm_serviced_at).slice(0, 10) : null;
   const paid = s.crm_first_paid_at ? String(s.crm_first_paid_at).slice(0, 10) : null;
   if (s.upfront_collected) {
-    if (cancelled && !serviced) return { date: null, short: 'pre-svc cancel', why: 'Charged upfront but cancelled before the initial service — not commissionable' };
-    return { date: String(s.sold_date || '').slice(0, 10) || null, short: '—', why: 'Charged upfront — commissionable on the sale date' };
+    if (cancelled && !serviced) return { date: null, short: 'pre-svc cancel', why: 'Passed audit but cancelled before the initial service — not commissionable' };
+    return { date: String(s.sold_date || '').slice(0, 10) || null, short: '—', why: 'Passed audit — commissionable on the sale date' };
   }
   if (serviced && paid) { const d = serviced > paid ? serviced : paid; return { date: d, short: '', why: 'Initial service completed ' + serviced + ' · first payment ' + paid + ' — commissionable on the later of the two' }; }
   if (serviced && !paid) return { date: null, short: 'awaiting payment', why: 'Initial service completed ' + serviced + ' but no payment received yet' };
   if (!serviced && paid) return { date: null, short: 'awaiting service', why: 'Payment received ' + paid + ' but the initial service hasn’t been completed yet' };
   if (cancelled) return { date: null, short: 'cancelled', why: 'Cancelled before service and payment — not commissionable' };
-  return { date: null, short: 'not yet', why: 'Not charged upfront — becomes commissionable once the initial service is completed AND a payment is received' };
+  return { date: null, short: 'not yet', why: 'Not passed audit yet — becomes commissionable once the initial service is completed AND a payment is received' };
 }
 // Sheet-style flag box (per Isaac): PIF / Comm. / Upfront. Admin-editable
 // boolean columns save straight to the sale; read-only ones just display.
@@ -1690,7 +1690,7 @@ function openNewSaleModal(defaultRepId, existingSale = null, opts = {}) {
     el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5' },
       checkboxCard('Paid in Full', 'No hold on backend — full commission is paid upfront (auto-detected from CRM; override here)', (v) => { modalState.paid_in_full = v; updateFooter(); }, modalState.paid_in_full),
       checkboxCard('Commercial', 'Commercial property — pays the commercial rate (base − 3.5pts). $2k+ ACV rows are flagged in the queue for this check.', (v) => { modalState.is_commercial = v; updateFooter(); }, modalState.is_commercial),
-      checkboxCard('Charged Upfront', 'Payment collected at signing — feeds the Charge Upfront % tier on the Pay tab (70%+ collected pays 100% of commission; lower tiers pay 95 / 90 / 85%).', (v) => { modalState.upfront_collected = v; updateFooter(); }, modalState.upfront_collected),
+      checkboxCard('Passed Audit', 'The office flagged this account Passed Audit in FieldRoutes (signed agreement, autopay on file, charged upfront) — feeds the Passed Audit % tier on the Pay tab (70%+ passed pays 100% of commission; lower tiers pay 95 / 90 / 85%).', (v) => { modalState.upfront_collected = v; updateFooter(); }, modalState.upfront_collected),
     ),
 
     mk('Notes',

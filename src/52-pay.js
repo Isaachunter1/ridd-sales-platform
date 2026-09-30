@@ -361,11 +361,11 @@ function viewPay() {
         if (stored && stored.inputs && Array.isArray(stored.inputs.lines)) {
           const t = stored.totals || {};
           return payExplainCard('How this stub was paid', stored.inputs.lines,
-            'Paid run recorded ' + fmt.dateShortYear(String(stored.run_at).slice(0, 10)) + ' · charge-upfront tier ' + Math.round((stored.inputs.upfront_pct || 0) * 100) + '% → ×' + (stored.inputs.upfront_mult ?? 1) + ' · sales pay ' + fmt.usd(t.sales_pay || 0) + ' · below minimums ' + fmt.usd(t.below_pay || 0) + (stored.inputs.rep_overrides && Object.keys(stored.inputs.rep_overrides).length ? ' · rep rate overrides applied' : ' · default rates'));
+            'Paid run recorded ' + fmt.dateShortYear(String(stored.run_at).slice(0, 10)) + ' · passed-audit tier ' + Math.round((stored.inputs.upfront_pct || 0) * 100) + '% → ×' + (stored.inputs.upfront_mult ?? 1) + ' · sales pay ' + fmt.usd(t.sales_pay || 0) + ' · below minimums ' + fmt.usd(t.below_pay || 0) + (stored.inputs.rep_overrides && Object.keys(stored.inputs.rep_overrides).length ? ' · rep rate overrides applied' : ' · default rates'));
         }
         const lines = isPayLines(repId, [...servicedStaged, ...belowStaged], upfrontMult);
         return payExplainCard('How this stub is computed', lines,
-          'Live · charge-upfront tier ' + Math.round(upfrontPct * 100) + '% of staged accounts → ×' + upfrontMult + ' on every line · ' + (Object.keys(payOverridesFor(repId)).length ? 'rep rate overrides applied' : 'default rates from Settings → Commissions') + ' · renewal sources pay flat $/account; below-minimums pay the configured share.');
+          'Live · passed-audit tier ' + Math.round(upfrontPct * 100) + '% of staged accounts → ×' + upfrontMult + ' on every line · ' + (Object.keys(payOverridesFor(repId)).length ? 'rep rate overrides applied' : 'default rates from Settings → Commissions') + ' · renewal sources pay flat $/account; below-minimums pay the configured share.');
       })(),
 
       // BACKEND PAY — the quarter that contains this period
@@ -397,8 +397,8 @@ function viewPay() {
         hdr('Metrics'),
         row('Upfront %', pctS(BASE_PCT, 2)),
         row('Close Rate %', closeRateCell),
-        row('Charge Upfront %', upfrontPct == null ? '100.00%' : pctS(upfrontPct * 100, 2)),
-        row('Upfront Tier', tierLabel === '—' ? '70% +' : tierLabel),
+        row('Passed Audit %', upfrontPct == null ? '100.00%' : pctS(upfrontPct * 100, 2)),
+        row('Passed Audit Tier', tierLabel === '—' ? '70% +' : tierLabel),
         row('Upfront Pay %', pctS(upfrontMult * 100, 2)),
         row('PIF Modifier', signedPct(Number(s.pif_modifier ?? 5))),
         row('Commercial Modifier', signedPct(commercialRate - BASE_PCT)),
