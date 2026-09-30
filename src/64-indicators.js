@@ -4005,6 +4005,33 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   }
   const _lbColKey = (c) => RECORD_SORT_KEYS.has(c.key) ? 'record' : c.key;
   const _lbColLabel = (c) => RECORD_SORT_KEYS.has(c.key) ? 'Best Day / Week / Month' : c.label;
+  // What each column means (per Isaac, Sep 30) — hover on desktop, tap ⓘ on
+  // a phone. Written for reps, not analysts.
+  const _lbColDesc = (k) => ({
+    team: 'The rep’s team and office.',
+    count: 'How many sales you made in the date range (after the Filters exclusions).',
+    sellingDays: 'How many days you made at least one sale.',
+    acctsPerDay: 'Sales ÷ days you sold — days off don’t count against you.',
+    revPerDay: 'Revenue ÷ days you sold — days off don’t count against you.',
+    revenue: 'Total contract value of your sales — what the board ranks by.' + ((state.indicatorDept || 'all') === 'office' ? ' Office Staff: follows the New / Total / Renewal switch.' : ''),
+    totalRevenue: 'Every sale: new, one-time and renewals.',
+    newRevenue: 'Everything except renewals (one-time services included).',
+    renewalRevenue: 'Renewals only (Renewal - Loyalty / Inbound / Outbound / Service Pro Upsell).',
+    otsRevenue: 'One-time services only.',
+    recRevenue: 'New recurring revenue: New Revenue minus one-time services.',
+    avgPest: 'Average initial price, leaving out ' + ((typeof pestInitialExclList === 'function' ? pestInitialExclList() : []).join(', ') || 'nothing') + '.',
+    avgInitial: 'Average initial price across every sale.',
+    acv: 'Average contract value of recurring new sales — one-time services and renewals left out.',
+    acvW: 'Average contract value of every sale, one-time and renewals included.',
+    acvOts: 'Average contract value of one-time services only.',
+    acvRen: 'Average contract value of renewals only.',
+    auditPct: 'Share of your sales that did NOT fail audit (passed, no audit yet, or pending).',
+    servicedPct: 'Share of your sales that have had their first service.',
+    myPct: 'Multi-year (18+ month) contracts ÷ 12-month + multi-year contracts.',
+    autoPayPct: 'Share of your sales with autopay on file.',
+    attrPct: 'Cancelled revenue ÷ serviced revenue — how much of what you sold has been lost.',
+    record: 'Your best single day, week or month in the range (pick which in the column header).',
+  })[k] || '';
   const _lbPickable = repCols.filter(c => c.key !== 'name');
   const _lbOnSet = new Set(state._indLbColsOn);
   // _lbOff = every column NOT showing (user-unticked + default-hidden not ticked on).
@@ -4286,12 +4313,19 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             const seen = new Set();
             const items = _lbPickable.filter(c => { const k = _lbColKey(c); if (seen.has(k)) return false; seen.add(k); return true; });
             const cb = (on, fn) => { const c = el('input', { type: 'checkbox', style: { accentColor: 'var(--accent)' }, onchange: (e) => fn(e.target.checked) }); c.checked = on; return c; };
-            const panel = el('div', { class: 'card absolute p-1.5', style: { top: 'calc(100% + 6px)', right: '0', width: '220px', maxWidth: 'calc(100vw - 32px)', maxHeight: '380px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)' }, onclick: (e) => e.stopPropagation() },
+            const panel = el('div', { class: 'card absolute p-1.5', style: { top: 'calc(100% + 6px)', right: '0', width: '280px', maxWidth: 'calc(100vw - 32px)', maxHeight: '420px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)' }, onclick: (e) => e.stopPropagation() },
               el('div', { class: 'flex items-center gap-1 px-1.5 pb-1.5 mb-1', style: { borderBottom: '1px solid var(--border)' } },
                 el('button', { class: 'rounded-lg px-2 py-0.5 text-[10px] font-bold', style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: () => _lbSetOff([]) }, 'Reset')),
-              ...items.map(c => { const k = _lbColKey(c), on = !_lbOff.has(k);
-                return el('label', { class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer', style: { background: on ? 'var(--card-2)' : 'transparent', color: 'var(--text)' } },
-                  cb(on, (v) => _lbSetShown(k, v)), el('span', { class: 'flex-1' }, _lbColLabel(c)), c.defaultHidden ? el('span', { class: 'text-[9px]', style: { color: 'var(--text-subtle)' } }, 'off by default') : null); }));
+              ...items.map(c => { const k = _lbColKey(c), on = !_lbOff.has(k), desc = _lbColDesc(k), infoOpen = state._lbColInfo === k;
+                // Desktop: hover the row for the tooltip. Phone (no hover): tap ⓘ
+                // to open the explanation right under the row; tap again to close.
+                return el('div', { class: 'rounded-lg', style: { background: on ? 'var(--card-2)' : 'transparent' }, title: desc },
+                  el('div', { class: 'flex items-center gap-1' },
+                    el('label', { class: 'flex-1 flex items-center gap-2 px-2.5 py-1 text-[11px] font-semibold cursor-pointer min-w-0', style: { color: 'var(--text)' } },
+                      cb(on, (v) => _lbSetShown(k, v)), el('span', { class: 'flex-1' }, _lbColLabel(c)), c.defaultHidden ? el('span', { class: 'text-[9px] whitespace-nowrap', style: { color: 'var(--text-subtle)' } }, 'off by default') : null),
+                    desc ? el('button', { type: 'button', 'aria-label': 'What is ' + _lbColLabel(c) + '?', class: 'shrink-0 inline-flex items-center justify-center rounded-full text-[10px] font-bold', style: { width: '28px', height: '28px', color: infoOpen ? 'var(--accent)' : 'var(--text-subtle)' },
+                      onclick: (e) => { e.preventDefault(); e.stopPropagation(); state._lbColInfo = infoOpen ? null : k; mountApp(); } }, 'ⓘ') : null),
+                  infoOpen ? el('div', { class: 'px-3 pb-2 text-[11px]', style: { color: 'var(--text-muted)', lineHeight: '1.35' } }, desc) : null); }));
             const wrap = el('span', { style: { position: 'relative' }, 'data-dd': 'lbcols' }, btn, panel);
             try { clampDropdownPanel(panel); } catch (err) { /* optional helper */ }
             setTimeout(() => document.addEventListener('mousedown', function closer(ev) { if (!(ev.target.closest && ev.target.closest('[data-dd="lbcols"]'))) { document.removeEventListener('mousedown', closer); if (state._indLbColsOpen) { state._indLbColsOpen = false; mountApp(); } } }), 0);
