@@ -1019,6 +1019,13 @@ function reportingFilterByOffice(rows, office) {
 function reportingDateBounds(preset, customStart, customEnd) {
   const today = new Date();
   const iso = (d) => d.toISOString().slice(0, 10);
+  // Short windows (per Isaac, Sep 30 — they drive the Daily Pulse too), in
+  // local days so "Today" is today where the viewer is.
+  const loc = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const back = (n) => { const d = new Date(today); d.setDate(d.getDate() - n); return loc(d); };
+  if (preset === 'today') return { start: loc(today), end: loc(today) };
+  if (preset === 'yesterday') return { start: back(1), end: back(1) };
+  if (preset === 'last_7' || preset === 'last_30' || preset === 'last_90') return { start: back(Number(preset.slice(5)) - 1), end: loc(today) };
   if (preset === 'ytd') {
     return { start: today.getFullYear() + '-01-01', end: iso(today) };
   }
@@ -1053,6 +1060,9 @@ function reportingFilterByDate(rows, start, end) {
 // and the comparison table header so the reader knows the time scope.
 function reportingDateRangeLabel(preset, start, end) {
   if (preset === 'all' || !preset) return 'All time';
+  if (preset === 'today')          return 'Today';
+  if (preset === 'yesterday')      return 'Yesterday';
+  if (/^last_(7|30|90)$/.test(preset)) return 'Last ' + preset.slice(5) + ' days';
   if (preset === 'ytd')            return 'This year';
   if (preset === 'last_12_months') return 'Last 12 months';
   if (preset === 'last_year')      return 'Last year';

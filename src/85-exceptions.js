@@ -95,7 +95,7 @@ function exceptionFeedItems(scope) {
     spikes.sort((a, b) => (b[1] - b[2]) - (a[1] - a[2]));
     for (const [k, v, base] of spikes.slice(0, 4)) {
       items.push({ sev: 'red', tag: 'Attrition', text: k + ': ' + fmt.usd0(v) + ' ARR churned in 7 days' + (base ? ' vs ' + fmt.usd0(base) + '/wk average' : ' (none in the prior 4 weeks)'),
-        action: _adm ? 'Daily Pulse' : 'Indicators', onClick: go('reporting', { _rtPulseSpan: 7 }, 'overview') });
+        action: _adm ? 'Daily Pulse' : 'Indicators', onClick: go('reporting', { reportingDateRange: 'last_7' }, 'overview') });
     }
 
     // 4. Failed audits in the last 30 days (D2D), by rep.

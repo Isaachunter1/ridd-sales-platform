@@ -601,7 +601,10 @@ function reportingOverview() {
     // 7 / 30 / 90 days (one bar per day). Per Isaac, Sep 2026.
     // Longer windows (per Isaac, Sep 30): This year / Last year / Custom range
     // bucket by MONTH (a custom range under ~3 months stays daily).
-    const spanRaw = state._rtPulseSpan;
+    // Window follows the Time range at the top of Reporting (per Isaac,
+    // Sep 30 — the Pulse's own dropdown is gone).
+    const _preset = state.reportingDateRange || 'all';
+    const spanRaw = ({ today: 'today', yesterday: 'yesterday', last_7: 7, last_30: 30, last_90: 90, ytd: 'thisyear', last_year: 'lastyear' })[_preset] || 'custom';
     const single = spanRaw === 'today' || spanRaw === 'yesterday';
     const rows = reportingFilterByOffice(scope.visible, office);
     const { isRealCancel } = reportingFilters();
@@ -613,9 +616,11 @@ function reportingOverview() {
     if (spanRaw === 'thisyear') { rFrom = today.getFullYear() + '-01-01'; rTo = iso(today); }
     else if (spanRaw === 'lastyear') { rFrom = (today.getFullYear() - 1) + '-01-01'; rTo = (today.getFullYear() - 1) + '-12-31'; }
     else if (spanRaw === 'custom') {
-      if (!state._rtPulseFrom) state._rtPulseFrom = today.getFullYear() + '-01-01';
-      if (!state._rtPulseTo) state._rtPulseTo = iso(today);
-      rFrom = state._rtPulseFrom; rTo = state._rtPulseTo; if (rTo < rFrom) { const t = rFrom; rFrom = rTo; rTo = t; }
+      // All time / Last 12 months / Custom: the top bar's bounds; an open
+      // start = the earliest sale, an open end = today.
+      rFrom = scope.dateStart || null; rTo = scope.dateEnd || iso(today);
+      if (!rFrom) { let m = null; for (const r of rows) { const d = String(r.sold_date || '').slice(0, 10); if (d && (!m || d < m)) m = d; } rFrom = m || (today.getFullYear() + '-01-01'); }
+      if (rTo < rFrom) { const t = rFrom; rFrom = rTo; rTo = t; }
     }
     const monthly = longMode && (spanRaw !== 'custom' || (Date.parse(rTo) - Date.parse(rFrom)) / 86400000 > 92);   // This / Last year always by month
     const days = [];
@@ -728,7 +733,7 @@ function reportingOverview() {
     // (per Isaac — tap Churned to see the day's/window's lost accounts,
     // where they came from and what each branch lost).
     const flat = (arr) => arr.reduce((a, x) => a.concat(x), []);
-    const winLabel = single ? (spanRaw === 'today' ? 'Today' : 'Yesterday') : spanRaw === 'thisyear' ? 'This year' : spanRaw === 'lastyear' ? 'Last year' : spanRaw === 'custom' ? rFrom + ' → ' + rTo : 'Last ' + span + ' days';
+    const winLabel = single ? (spanRaw === 'today' ? 'Today' : 'Yesterday') : spanRaw === 'thisyear' ? 'This year' : spanRaw === 'lastyear' ? 'Last year' : spanRaw === 'custom' ? (_preset === 'custom' ? rFrom + ' → ' + rTo : scope.dateLabel) : 'Last ' + span + ' days';
     const winLong = single ? (() => { const dt = new Date(days[0] + 'T00:00'); return dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }); })() : longMode ? winLabel + ' \u00b7 ' + rFrom + ' \u2192 ' + rTo : winLabel + ' \u00b7 ' + days[0] + ' \u2192 ' + days[days.length - 1];
     const openWindow = (kind) => openPulseDayDrill(winLabel, winLong, { sold: flat(soldRows), svc: flat(svcRows), cxl: flat(cxlRows) }, kind);
     const unitBtn = (v, l) => el('button', { type: 'button', 'data-active': String((state._pulseUnit === 'subs') === (v === 'subs')), onclick: () => { state._pulseUnit = v; mountApp(); } }, l);
@@ -775,14 +780,6 @@ function reportingOverview() {
           (() => { const n = sum(serviced) - sum(churned); return el('div', { class: 'text-left', title: 'Serviced − Churned for this window: what the recurring book gained' },
             el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Net'),
             el('div', { class: 'text-base font-black tabular-nums', style: { color: n >= 0 ? C.sold : C.cxl } }, (n < 0 ? '−' : '') + (unitSubs ? fmt.int(Math.abs(n)) : fmt.usd0(Math.abs(n))))); })(),
-          el('select', {
-            class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
-            style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-            onchange: (e) => { const v = e.target.value; state._rtPulseSpan = /^\d+$/.test(v) ? Number(v) : v; mountApp(); },
-          }, ...[['today', 'Today'], ['yesterday', 'Yesterday'], [7, 'Last 7 days'], [30, 'Last 30 days'], [90, 'Last 90 days'], ['thisyear', 'This year'], ['lastyear', 'Last year'], ['custom', 'Custom range…']].map(([v, l]) => el('option', { value: String(v), selected: (single || longMode) ? spanRaw === v : span === v }, l))),
-          spanRaw === 'custom' ? el('div', { class: 'flex items-center gap-1' },
-            ...[['_rtPulseFrom', rFrom], ['_rtPulseTo', rTo]].map(([k, v], j) => [j ? el('span', { class: 'text-[11px] text-muted-' }, '→') : null,
-              el('input', { type: 'date', value: v, class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { state[k] = e.target.value; mountApp(); } })]).flat().filter(Boolean)) : null,
           unitToggle)),
       cvsWrap);
   })();

@@ -2847,7 +2847,7 @@ const state = {
   reportingOffice: 'all',          // office_name filter for Overview ('all' = no filter)
   reportingCompareMode: false,     // when true, Overview splits into A vs B
   reportingCompareOffice: 'all',   // second office for compare mode
-  reportingDateRange: 'all',       // 'all' | 'ytd' | 'last_12_months' | 'last_year' | 'custom'
+  reportingDateRange: 'all',       // 'all' | 'today' | 'yesterday' | 'last_7' | 'last_30' | 'last_90' | 'ytd' | 'last_12_months' | 'last_year' | 'custom'
   reportingDateStart: '',          // ISO yyyy-mm-dd (only used when range='custom')
   reportingDateEnd: '',            // ISO yyyy-mm-dd (only used when range='custom')
   reportingWaterfallMode: 'subscription', // 'subscription' | 'arv' | 'contract' | 'rep'
