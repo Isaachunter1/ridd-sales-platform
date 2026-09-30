@@ -985,13 +985,18 @@ function _mktgYearBar(sub) {
       ...SUBS.map(([v, l]) => el('button', {
         class: 'px-2.5 py-1 text-[11px] font-semibold transition',
         style: sub === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
-        onclick: () => { state._mktSub = v; mountApp(); },
+        onclick: () => { state._mktSub = v; state._mktProvView = 'cac'; mountApp(); },
       }, l))),
     el('div', { class: 'inline-flex items-center gap-1 ' },
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = y - 1; mountApp(); } }, '‹'),
       el('span', { class: 'text-sm font-black tabular-nums px-1' }, String(y)),
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = y + 1; mountApp(); } }, '›')),
-    _mktgQboConnectBtn());
+    _mktgQboConnectBtn(),
+    // Lead reconciliation lives in the top bar (per Isaac, Sep 30), right-justified.
+    (() => { const on = sub === 'providers' && state._mktProvView === 'recon';
+      return el('button', { class: 'ml-auto rounded-lg border px-2.5 py-1 text-[11px] font-semibold',
+        style: on ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+        onclick: () => { if (on) state._mktProvView = 'cac'; else { state._mktSub = 'providers'; state._mktProvView = 'recon'; } mountApp(); } }, on ? '← Metrics' : 'Lead reconciliation'); })());
 }
 
 // One-click QuickBooks connect (admin): a plain navigation to the connect
@@ -1136,11 +1141,11 @@ function _mktgCac() {
   ];
   const byKey = Object.fromEntries(ROWS.map(r => [r[0], r]));
   return el('div', { class: 'flex flex-col gap-4' },
-    el('div', { class: 'flex items-center gap-2 flex-wrap' }, el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Office'), scopeSel, _mktgMetricsButtons(true)),
     _mktgMatrixCard('CAC · ' + (scope === MKTG_ALL ? CFG.COMPANY_NAME : B.byEntity[scope] ? companyName(scope) : _mktgTC(scope)), 'FieldRoutes revenue & counts · QuickBooks ad spend (allocation for unbooked months) · wages / incentives from Spend entry · projection from Configurations', ROWS.map(r => r[0]),
       (rk, i) => byKey[rk][1](i),
       (v, rk) => byKey[rk][2](v),
       { firstCol: 'Metric', groupRows: new Set(['Total new sales', 'Total new revenue', 'Total spend']),
+        headerExtra: el('div', { class: 'ml-auto flex items-center gap-2' }, el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Office'), scopeSel),
         total: (rk) => { const r = byKey[rk]; if (r[3] === 'sum') { let t = 0; for (let i = 0; i < 12; i++) t += r[1](i) || 0; return t; } let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += r[4][0](i) || 0; d += r[4][1](i) || 0; } return _mktgDiv(n, d); } }));
 }
 
@@ -1265,7 +1270,7 @@ function _mktgProviders() {
     : sel(provF, [el('option', { value: '', selected: !provF }, 'All providers'), ...channels.map(c => el('option', { value: c, selected: provF === c }, c))], (v) => { state._mktMetricsProv = v || null; mountApp(); });
   const scopeLbl = mode === 'provider' ? (scope === MKTG_ALL ? CFG.COMPANY_NAME : B.byEntity[scope] ? companyName(scope) : _mktgTC(scope)) : (provF || 'all providers');
   const header = el('div', { class: 'ml-auto flex items-center gap-2 flex-wrap' }, toggle,
-    el('span', { class: 'text-[10px] text-muted-' }, mode === 'provider' ? 'Market' : 'Provider'), filter,
+    el('span', { class: 'text-[10px] text-muted-' }, mode === 'provider' ? 'Office' : 'Provider'), filter,
     el('span', { class: 'text-[10px] text-muted-' }, 'Metric'), picker);
   const GOAL = { spj: { v: T.spendPerJob, better: 'low' }, roas: { v: T.roas, better: 'high' }, adcac: { v: T.adSpendCac, better: 'low' }, wgcac: { v: T.wagesCac, better: 'low' } };
   const lowerIsBetter = ['cpl', 'spj', 'adcac', 'cac', 'cpj', 'wgcac', 'pcpl', 'cpc'].includes(cur.key);
@@ -1560,7 +1565,7 @@ function reportingMarketingPnl() {
   // reconciliation are buttons to the right of the Office dropdown.
   // Lead providers now sits directly under the CAC table (per Isaac, Sep 30).
   const provView = state._mktProvView === 'recon' ? 'recon' : 'cac';
-  const body = sub === 'providers' ? (provView === 'recon' ? el('div', { class: 'flex flex-col gap-4' }, _mktgMetricsButtons(), mktgAttributionView())
+  const body = sub === 'providers' ? (provView === 'recon' ? el('div', { class: 'flex flex-col gap-4' }, mktgAttributionView())
       : el('div', { class: 'flex flex-col gap-4' }, _mktgCac(), _mktgProviders()))
     : sub === 'spend' ? _mktgSpendEntry() : sub === 'projections' ? _mktgProjections() : _mktgPnl();
   // Needs attention (owner-only feed) lives on the Marketing tab (per Isaac, Sep 2026).
