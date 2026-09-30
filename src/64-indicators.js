@@ -2465,7 +2465,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const rep = getCanonicalRepName(s.rep || 'Unknown');
     if (!repMap[rep]) repMap[rep] = { name: rep, office: s.office, officeRev: {}, recRev: {}, sales: [], cancels: 0, cancelEligible: 0, attrServRev: 0, attrCxlRev: 0, revenue: 0, newRevenue: 0, renewalRevenue: 0, multi: 0, twelve: 0, autoPay: 0, aged: 0 };
     if (_indicatorIsRenewal(s)) { repMap[rep].renewalRevenue += s.contractValue; repMap[rep].renAcvRev = (repMap[rep].renAcvRev || 0) + (Number(s.contractValue) || 0); repMap[rep].renAcvN = (repMap[rep].renAcvN || 0) + 1; }
-    else                        repMap[rep].newRevenue += s.contractValue;
+    else {
+      repMap[rep].newRevenue += s.contractValue;
+      if (_indIsOneTimeSale(s)) repMap[rep].otsRevenue = (repMap[rep].otsRevenue || 0) + (Number(s.contractValue) || 0);
+    }
     if (!_inLens(s)) return;
     if (s.office) repMap[rep].officeRev[s.office] = (repMap[rep].officeRev[s.office] || 0) + (Number(s.contractValue) || 0);
     // Per-CRM-record split: raw rep spelling + employee id + office. When a
@@ -2630,6 +2633,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       count,
       team: getRepTeam(r.name),
       tier: getRepTier(r.name), // 'rookie' | 'vet' | ''
+      totalRevenue: (r.newRevenue || 0) + (r.renewalRevenue || 0),
+      otsRevenue: r.otsRevenue || 0,
+      recRevenue: Math.max(0, (r.newRevenue || 0) - (r.otsRevenue || 0)),
       // Renewal ACV reads every renewal the rep sold (the 4 Renewal sources),
       // whatever the office New / Total / Renewal lens — the lens used to empty it.
       ...(() => { const a = indAcvSplit(r.sales); a.renRev = r.renAcvRev || 0; a.renN = r.renAcvN || 0; a.acvRen = a.renN > 0 ? a.renRev / a.renN : 0; return { acv: a.acv, acvW: a.acvW, acvOts: a.acvOts, acvRen: a.acvRen, _acv: a }; })(),
@@ -3930,17 +3936,27 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // New Rev (renewals stripped), and Renewal Rev — and drop Audit %, which
   // isn't meaningful for inside/office sales. D2D + Techs keep the single
   // Revenue column (renewals are ~zero there) and Audit %.
-  if ((state.indicatorDept || 'all') === 'office') {
-    repCols = repCols.filter(c => c.key !== 'auditPct');
-    const usdCol = (key, label, bold) => ({
-      key, label, align: 'left', defaultDir: 'desc',
-      cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' + (bold ? ' font-semibold' : '') }, fmt.usd0(r[key] || 0)),
+  if ((state.indicatorDept || 'all') === 'office') repCols = repCols.filter(c => c.key !== 'auditPct');
+  // Revenue split (per Isaac, Sep 30) — same idea as the ACV split. Revenue
+  // stays the ranked column (Office Staff: the New / Total / Renewal switch);
+  // these five are off by default in Columns and ignore that switch:
+  //   Total Revenue     = everything
+  //   New Revenue       = everything but renewals (one-time included)
+  //   Renewal Revenue   = renewals only
+  //   One-Time Revenue  = one-time services only (non-renewal)
+  //   Recurring Revenue = New Revenue minus one-time
+  {
+    const usdCol = (key, label, title) => ({
+      key, label, align: 'left', defaultDir: 'desc', defaultHidden: true, title,
+      cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, (r[key] || 0) > 0 ? fmt.usd0(r[key]) : '\u2014'),
     });
     const ri = repCols.findIndex(c => c.key === 'revenue');
-    if (ri >= 0) repCols.splice(ri, 1,
-      usdCol('revenue', 'Revenue', true),
-      usdCol('newRevenue', 'New Rev', false),
-      usdCol('renewalRevenue', 'Renewal Rev', false),
+    if (ri >= 0) repCols.splice(ri + 1, 0,
+      usdCol('totalRevenue', 'Total Revenue', 'Every sale — new, one-time and renewals'),
+      usdCol('newRevenue', 'New Revenue', 'Everything except renewals (one-time services included)'),
+      usdCol('renewalRevenue', 'Renewal Revenue', 'Renewal sources only (Renewal - Loyalty / Inbound / Outbound / Service Pro Upsell)'),
+      usdCol('otsRevenue', 'One-Time Revenue', 'One-time services only'),
+      usdCol('recRevenue', 'Recurring Revenue', 'New revenue minus one-time services'),
     );
   }
 
@@ -4375,6 +4391,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 T.revenue += Number(r.revenue) || 0;
                 T.newRevenue += Number(r.newRevenue) || 0;
                 T.renewalRevenue += Number(r.renewalRevenue) || 0;
+                T.totalRevenue = (T.totalRevenue || 0) + (Number(r.totalRevenue) || 0);
+                T.otsRevenue = (T.otsRevenue || 0) + (Number(r.otsRevenue) || 0);
+                T.recRevenue = (T.recRevenue || 0) + (Number(r.recRevenue) || 0);
                 T.sellingDays += Number(r.sellingDays) || 0;
                 T.cancels += Number(r.cancels) || 0;
                 T.attrServRev += Number(r.attrServRev) || 0;
@@ -4397,6 +4416,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 revenue: fmt.usd0(T.revenue),
                 newRevenue: fmt.usd0(T.newRevenue),
                 renewalRevenue: fmt.usd0(T.renewalRevenue),
+                totalRevenue: fmt.usd0(T.totalRevenue || 0),
+                otsRevenue: fmt.usd0(T.otsRevenue || 0),
+                recRevenue: fmt.usd0(T.recRevenue || 0),
                 auditPct: pct(wAudit),
                 servicedPct: T.soldAll > 0 ? ((T.servicedN / T.soldAll) * 100).toFixed(1) + '%' : '—',
                 acv: T.coreN > 0 ? fmt.usd(T.coreRev / T.coreN) : '—',
