@@ -60,7 +60,13 @@ function viewReporting() {
     _guarded(() =>
     isMarketing                            ? reportingMarketingPnl() :
     state.reportingSubTab === 'is'         ? reportingMarketingPnl() :
-    state.reportingSubTab === 'config'     ? el('div', { class: 'flex flex-col gap-4' }, reportingSetupCard(), reportingAuditExportCard(), el('div', { class: 'grid grid-cols-1 lg:grid-cols-3 gap-4 items-start' }, reportingServiceConfigPanel(), reportingSourceConfigPanel(), reportingCancelConfigPanel()), (typeof reportingAdAccountsPanel === 'function' && isAdminRole(state.profile?.role)) ? reportingAdAccountsPanel() : null, (typeof reportingGhlSourcesPanel === 'function' && isAdminRole(state.profile?.role)) ? reportingGhlSourcesPanel() : null, reportingCrmVocabPanel(), reportingOpsBaselinePanel(), reportingMarketingGoalsPanel(), reportingSetupLink()) :
+    // Reporting → Configuration retired (settings audit, Sep 30): every
+    // setting it held lives in ONE place now — Settings.
+    state.reportingSubTab === 'config'     ? el('div', { class: 'card p-6 flex flex-col gap-3 items-start' },
+        el('div', { class: 'text-sm font-bold' }, 'Reporting settings moved to Settings'),
+        el('div', { class: 'text-xs text-muted-' }, 'Service types, cancel reasons, CRM vocabulary and Indicators are under Settings → Reporting rules; lead sources, ad accounts, GoHighLevel and marketing targets under Settings → Marketing & lead sources.'),
+        el('div', { class: 'flex gap-2 flex-wrap' },
+          ...[['config', 'Reporting rules'], ['marketing', 'Marketing & lead sources'], ['data', 'Connections']].map(([k, l]) => el('button', { class: 'rounded-lg border px-3 text-[12px] font-semibold', style: { borderColor: 'var(--border-2)', minHeight: '40px' }, onclick: () => { state.view = 'admin'; state.adminSection = k; mountApp(); } }, l + ' →')))) :
     state.reportingSubTab === 'uploads'    ? reportingUploadsPanel() :
     state.reportingSubTab === 'putis'      ? reportingPutis() :
     state.reportingSubTab === 'geographic' ? reportingGeographic() :

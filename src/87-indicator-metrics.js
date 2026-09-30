@@ -109,8 +109,8 @@ function indicatorMetricRulesTable() {
     const on = indMetricRule(key, dept, dim);
     const changed = !fixed && on !== _indMetricDefault(key, dept, dim);
     return el('button', { type: 'button', disabled: fixed, title: (fixed ? (dept === 'office' && dim === 'renewals' ? 'Office Staff: the leaderboard’s New / Total / Renewal toggle decides renewals' : 'Set by the metric’s own formula') : (on ? 'Included — click to leave out' : 'Left out — click to include')) + ' · ' + tip,
-      class: 'rounded-full border px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap',
-      style: Object.assign(on ? { background: 'rgba(95,108,91,.14)', color: '#5F6C5B', borderColor: 'rgba(95,108,91,.35)' } : { background: 'transparent', color: 'var(--text-subtle)', borderColor: 'var(--border-2)', textDecoration: 'line-through' },
+      class: 'rounded-full border px-2.5 text-[10px] font-semibold whitespace-nowrap', 
+      style: Object.assign({ minHeight: '30px' }, on ? { background: 'rgba(95,108,91,.14)', color: '#5F6C5B', borderColor: 'rgba(95,108,91,.35)' } : { background: 'transparent', color: 'var(--text-subtle)', borderColor: 'var(--border-2)', textDecoration: 'line-through' },
         fixed ? { opacity: '.5', cursor: 'default' } : { cursor: 'pointer' }, changed ? { boxShadow: '0 0 0 1.5px var(--accent)' } : {}),
       onclick: () => { if (fixed) return; setIndMetricRule(key, dept, dim, !on); saveIndicatorState(); mountApp(); } }, label);
   };

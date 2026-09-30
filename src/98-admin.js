@@ -114,32 +114,43 @@ function viewAdmin() {
   // Non-admins reach this page only through Settings → Permissions, and see
   // only the sections they were granted (Permissions / Admin never).
   const _allowed = (k) => canOpenAdminSection(k);
+  // Settings IA (settings audit, Sep 30): grouped by how an admin thinks
+  // about the business, not by code module. Section keys are unchanged so
+  // saved links / permissions keep working.
   const _groupsAll = [
-    { label: 'Settings', items: [
-      ['pricing', 'Commissions',    '💵'],
-      ['comps',   'Competitions',   '🏆'],
-      ['config',  'Configurations', '🧮'],
-      ['data',    'API Keys',       '🔑'],
-      ['goals',   'Goals',          '🎯'],
-      ['perms',   'Permissions',    '🔐'],
-      ['slack',   'Slack',          '💬'],
-      ['teams',   'Teams',          '🤝'],
-      ['users',   'Users',          '👥'],
-      ['usage',   'Usage',          '📈'],
+    { label: 'People & access', items: [
+      ['users',     'Users',                'Logins, roles, rep links'],
+      ['teams',     'Teams',                'Rosters, tiers, colors'],
+      ['perms',     'Permissions',          'What each role can see and do'],
+    ] },
+    { label: 'Pay & goals', items: [
+      ['pricing',   'Commissions & payroll', 'Rates by rep type · when sales pay and lock'],
+      ['goals',     'Goals',                'Company and rep targets'],
+      ['comps',     'Competitions',         'Schedule and calendar'],
+    ] },
+    { label: 'Rules', items: [
+      ['config',    'Reporting rules',      'Book, churn, services, cancel reasons, Indicators'],
+      ['marketing', 'Marketing & lead sources', 'Sources, paid channels, ad accounts, GoHighLevel, targets'],
+    ] },
+    { label: 'System', items: [
+      ['slack',     'Notifications',        'Slack channels and DMs'],
+      ['data',      'Connections',          'FieldRoutes, data health, setup'],
+      ['usage',     'Usage',                'Who uses the app'],
     ] },
   ];
   const groups = _groupsAll.map(g => ({ label: g.label, items: g.items.filter(([k]) => _allowed(k)) })).filter(g => g.items.length);
   if (!_allowed(state.adminSection)) { const first = groups[0] && groups[0].items[0]; state.adminSection = first ? first[0] : 'users'; }
 
   const navBtn = ([k, label, icon]) => el('button', {
-    class: 'flex items-center gap-3 px-2.5 py-1 rounded-lg text-[11px] font-medium transition text-left w-full',
+    class: 'flex items-center gap-3 px-2.5 py-1.5 rounded-lg text-[12px] font-medium transition text-left w-full',
     style: state.adminSection === k
       ? { background: 'var(--bg-subtle)', color: 'var(--text)', fontWeight: '600' }
       : { color: 'var(--text-muted)' },
     onmouseenter: (e) => { if (state.adminSection !== k) e.currentTarget.style.background = 'var(--bg-subtle)'; },
     onmouseleave: (e) => { if (state.adminSection !== k) e.currentTarget.style.background = 'transparent'; },
     onclick: () => { state.adminSection = k; mountApp(); },
-  }, el('span', {}, label));
+  }, el('span', { class: 'flex flex-col min-w-0' }, el('span', {}, label),
+    icon ? el('span', { class: 'text-[10px] font-normal truncate', style: { color: 'var(--text-subtle)' } }, icon) : null));
 
   // Desktop keeps the 220px sidebar; phones swap it for a compact section
   // dropdown + Sign out row so the content gets the full width (the sidebar
@@ -167,7 +178,8 @@ function viewAdmin() {
     goals:   adminGoals,
     users:   adminReps,
     teams:   adminTeams,
-    config:  adminConfigurations,
+    config:  () => adminConfigurations('reporting'),
+    marketing: () => adminConfigurations('marketing'),
     perms:   adminPermissions,
     uploads: adminUploads,
     sources: adminSources,
@@ -175,7 +187,7 @@ function viewAdmin() {
     comps:   adminCompetitionSchedule,
     usage:   adminUsage,
     data:    adminDataSources,
-    pricing: adminCommissions,   // "Commissions" — CRM commission rules by rep type
+    pricing: () => el('div', { class: 'flex flex-col gap-4' }, adminCommissions(), adminConfigurations('autolog')),   // rates + pay automation in ONE place
     backup:  adminBackup,
   };
   const view = _allowed(state.adminSection) ? (sectionRenderers[state.adminSection] || adminReps) : (() => el('div', { class: 'card p-6 text-sm text-muted-' }, 'Nothing here for your role yet \u2014 ask an admin to grant a Settings page in Permissions.'));
@@ -183,7 +195,8 @@ function viewAdmin() {
 
   const mobileNav = el('div', { class: 'sm:hidden flex items-center gap-2' },
     el('select', {
-      class: 'flex-1 rounded-xl px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
+      class: 'flex-1 rounded-xl px-3 text-[13px] font-semibold cursor-pointer',
+      style: { minHeight: '44px' },
       onchange: (e) => { state.adminSection = e.target.value; mountApp(); },
     },
       ...groups.map(g => el('optgroup', { label: g.label },
@@ -194,8 +207,8 @@ function viewAdmin() {
         }))),
     ),
     el('button', {
-      class: 'rounded-xl px-2.5 py-1 text-[11px] font-semibold border shrink-0',
-      style: { color: '#DC2626', borderColor: 'var(--border-2)' },
+      class: 'rounded-xl px-3 text-[12px] font-semibold border shrink-0',
+      style: { color: '#DC2626', borderColor: 'var(--border-2)', minHeight: '44px' },
       onclick: async () => {
         if (typeof DEMO !== 'undefined' && DEMO) { location.href = location.pathname; return; }
         await supabase.auth.signOut();
@@ -366,7 +379,8 @@ function adminTeams() {
 // Global Configurations — service lifecycle, lead sources, and cancel-reason
 // rules. Moved here from the Reporting gear so it's one shared place; these
 // rules now drive BOTH Reporting and the Indicators tab.
-function adminConfigurations() {
+function adminConfigurations(part) {
+  part = part || 'reporting';
   // The config panels show per-row counts (subs per service/source, cancels per
   // reason) sourced from state.reportingSubscriptions. Those rows are lazy-loaded
   // by the Reporting tab — but a user landing straight on Settings → Configurations
@@ -403,12 +417,17 @@ function adminConfigurations() {
   );
 
   // ── tiny controls ──
-  const sw = (on, onToggle) => el('button', { class: 'shrink-0', style: { width: '36px', height: '20px', borderRadius: '10px', background: on ? 'var(--accent)' : 'var(--border-2)', position: 'relative', border: 'none', cursor: 'pointer' }, onclick: onToggle },
-    el('div', { style: { position: 'absolute', top: '2px', left: on ? '18px' : '2px', width: '16px', height: '16px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.3)', transition: 'left .12s' } }));
+  const sw = (on, onToggle) => el('button', { type: 'button', class: 'shrink-0', role: 'switch', 'aria-checked': String(!!on), style: { width: '44px', height: '32px', padding: '6px 4px', background: 'transparent', border: 'none', cursor: 'pointer' }, onclick: onToggle },
+    el('span', { style: { display: 'block', position: 'relative', width: '36px', height: '20px', borderRadius: '10px', background: on ? 'var(--accent)' : 'var(--border-2)' } },
+      el('span', { style: { position: 'absolute', top: '2px', left: on ? '18px' : '2px', width: '16px', height: '16px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.3)', transition: 'left .12s' } })));
   const sub = (t) => el('div', { class: 'text-[10px] uppercase tracking-widest font-bold pt-3 pb-1', style: { color: 'var(--text-subtle)' } }, t);
-  const row = (label, control, o = {}) => el('div', { class: 'flex items-center justify-between gap-3 py-1.5 border-t', style: { borderColor: 'var(--border)', paddingLeft: o.indent ? '18px' : '0' }, title: o.tip || '' },
-    el('div', { class: (o.small ? 'text-xs' : 'text-sm') + ' font-semibold' + (o.tip ? ' cursor-help' : ''), style: o.muted ? { color: 'var(--text-muted)' } : {} }, label),
-    el('div', { class: 'flex items-center gap-2 shrink-0' }, ...[].concat(control).filter(Boolean)));
+  // Rows wrap on phones (controls drop under the label instead of pushing
+  // off-screen); o.desc is a visible one-liner, o.tip stays a hover detail.
+  const row = (label, control, o = {}) => el('div', { class: 'flex items-center justify-between gap-x-3 gap-y-1 py-1.5 border-t flex-wrap', style: { borderColor: 'var(--border)', paddingLeft: o.indent ? '18px' : '0' }, title: o.tip || '' },
+    el('div', { class: 'min-w-0', style: { flex: o.stack ? '1 1 100%' : '1 1 200px' } },
+      el('div', { class: (o.small ? 'text-xs' : 'text-sm') + ' font-semibold' + (o.tip ? ' cursor-help' : ''), style: o.muted ? { color: 'var(--text-muted)' } : {} }, label),
+      o.desc ? el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)', lineHeight: '1.35' } }, o.desc) : null),
+    el('div', { class: 'flex items-center gap-2 flex-wrap justify-end', style: o.stack ? { flex: '1 1 100%', justifyContent: 'flex-start' } : {} }, ...[].concat(control).filter(Boolean)));
   const sel = (value, opts, onChange, w) => el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: w || '0' }, onchange: (e) => onChange(e.target.value) },
     ...opts.map(([v, l]) => el('option', { value: v, selected: v === value }, l)));
   const txt = (value, onSave, o = {}) => el('input', { type: 'text', value, placeholder: o.placeholder || '', class: 'rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: o.width || '260px' },
@@ -422,7 +441,7 @@ function adminConfigurations() {
     const covered = (name) => cur.some(t => name.toLowerCase().includes(t));
     return el('div', { class: 'flex items-center gap-1.5 flex-wrap justify-end' },
       ...terms.map(t => el('span', { class: 'inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full', style: { background: 'rgba(223,100,58,.10)', color: 'var(--text)' } }, t,
-        el('button', { class: 'text-[11px] leading-none', style: { color: 'var(--text-muted)' }, onclick: () => onChange(terms.filter(x => x !== t)) }, '×'))),
+        el('button', { class: 'text-[13px] leading-none', 'aria-label': 'Remove ' + t, style: { color: 'var(--text-muted)', minWidth: '28px', minHeight: '28px', margin: '-6px -8px -6px 0' }, onclick: () => onChange(terms.filter(x => x !== t)) }, '×'))),
       el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', maxWidth: '180px' },
         onchange: (e) => { const v = e.target.value; if (v) onChange([...terms, v.toLowerCase()]); } },
         el('option', { value: '' }, '+ add service'),
@@ -447,12 +466,12 @@ function adminConfigurations() {
   const crmMeta = state._crmDeletedMeta;
   // Nested option under the row above (per Isaac): indented behind a guide
   // line with a ↳ marker, smaller + lighter than a top-level rule.
-  const sub2 = (label, control, o = {}) => el('div', { class: 'flex items-center justify-between gap-3 py-1.5', style: { marginLeft: '10px', paddingLeft: '14px', borderLeft: '2px solid var(--border-2)' }, title: o.tip || '' },
-    el('div', { class: 'text-[11px] font-semibold' + (o.tip ? ' cursor-help' : ''), style: { color: 'var(--text-muted)' } }, '↳ ' + label),
-    el('div', { class: 'flex items-center gap-2 shrink-0' }, ...[].concat(control).filter(Boolean)));
-  const reportingRules = card('Reporting rules', null,
-    row('Reinstatement grace', [el('span', { class: 'text-[11px] text-muted-' }, 'reactivated within'), num(reportingReinstateGraceDays(), (v) => { setReportingReinstateGraceDays(v); mountApp(); }), el('span', { class: 'text-[11px] text-muted-' }, 'days = never churned')], { tip: 'A cancelled account that is active again within this many days is treated as retained. Reactivated later than this, the cancel stands as churn (revenue was missed) and the reactivation counts as a win-back. Needs the reactivation date from the CRM feed; until it arrives, an active account with an old cancel date is treated as reinstated in time.' }),
-    row('Aging threshold', [el('span', { class: 'text-[11px] text-muted-' }, 'days past due ≥'), num(reportingAgingDays(), (v) => { setReportingAgingDays(v); mountApp(); })], { tip: 'A sub counts as aging / at-risk when its days past due is greater than or equal to this number.' }),
+  const sub2 = (label, control, o = {}) => el('div', { class: 'flex items-center justify-between gap-x-3 gap-y-1 py-1.5 flex-wrap', style: { marginLeft: '10px', paddingLeft: '14px', borderLeft: '2px solid var(--border-2)' }, title: o.tip || '' },
+    el('div', { class: 'text-[11px] font-semibold' + (o.tip ? ' cursor-help' : ''), style: { color: 'var(--text-muted)', flex: '1 1 140px' } }, '↳ ' + label),
+    el('div', { class: 'flex items-center gap-2 flex-wrap justify-end' }, ...[].concat(control).filter(Boolean)));
+  const reportingRules = card('Customer book & churn', null,
+    row('Reinstatement grace', [el('span', { class: 'text-[11px] text-muted-' }, 'reactivated within'), num(reportingReinstateGraceDays(), (v) => { setReportingReinstateGraceDays(v); mountApp(); }), el('span', { class: 'text-[11px] text-muted-' }, 'days = never churned')], { desc: 'Cancelled then reactivated within this window = never churned.', tip: 'A cancelled account that is active again within this many days is treated as retained. Reactivated later than this, the cancel stands as churn (revenue was missed) and the reactivation counts as a win-back. Needs the reactivation date from the CRM feed; until it arrives, an active account with an old cancel date is treated as reinstated in time.' }),
+    row('Aging threshold', [el('span', { class: 'text-[11px] text-muted-' }, 'days past due ≥'), num(reportingAgingDays(), (v) => { setReportingAgingDays(v); mountApp(); })], { desc: 'Days past due before an account counts as at-risk.', tip: 'A sub counts as aging / at-risk when its days past due is greater than or equal to this number.' }),
     row('Deleted CRM accounts', [
       orphans.length ? el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => openReportingDrillModal({ chartTitle: 'Subscriptions with no FieldRoutes customer record', sliceLabel: n(orphans.length) + ' subscriptions · deleted in the CRM', rows: orphans, formatValue: fmt.usd0 }) }, n(orphanCust) + ' detected →') : pill('0 detected'),
       pill(n(crmDelN) + ' from nightly FieldRoutes check' + (crmMeta && crmMeta.scanned_at ? ' · ' + new Date(crmMeta.scanned_at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ' · not run yet') + (crmMeta && !crmMeta.checked ? ' · last run checked 0' : '') + (useScan ? '' : ' · not applied')),
@@ -480,10 +499,10 @@ function adminConfigurations() {
     mountApp();
   };
   const TYPE_LABELS = [['Office Staff', 'Inside Sales'], ['Sales Rep', 'D2D'], ['Technician', 'Technicians']];
-  const autolog = card('Commission Rules', AL ? pill(AL.enabled ? 'on · every sync' : 'off') : pill('loading…'),
+  const autolog = card('Pay automation · when a sale is created, approved and locked', AL ? pill(AL.enabled ? 'on · every sync' : 'off') : pill('loading…'),
     ...(!AL ? [] : [
       sub('What gets logged'),
-      row('Create sales from CRM subscriptions', sw(!!AL.enabled, () => saveAL({ enabled: !AL.enabled })), { tip: 'Every sync creates one sale per FieldRoutes subscription — recurring plans AND one-time services — sold by a linked rep, with the revenue frozen at first sight. Off = reps log by hand.' }),
+      row('Create sales from CRM subscriptions', sw(!!AL.enabled, () => saveAL({ enabled: !AL.enabled })), { desc: 'Every sync turns new FieldRoutes subscriptions sold by linked reps into sales.', tip: 'Every sync creates one sale per FieldRoutes subscription — recurring plans AND one-time services — sold by a linked rep, with the revenue frozen at first sight. Off = reps log by hand.' }),
       row('Rep types', el('div', { class: 'flex items-center gap-3', title: 'Untick a type and the sync stops creating sales (and pay) for those reps from the next run on; sales already logged stay.' }, ...TYPE_LABELS.map(([k, l]) => {
         const on = (AL.types || []).includes(k);
         return el('label', { class: 'inline-flex items-center gap-1 text-[11px] font-semibold cursor-pointer' },
@@ -520,7 +539,7 @@ function adminConfigurations() {
       row('Upsells', el('span', { class: 'text-[11px] font-semibold' }, 'Automatic \u2014 add-on ticket items in FieldRoutes'), { tip: 'Every add-on sold as a ticket item in FieldRoutes (Invoices \u2192 Add Ticket Item) becomes an upsell sale for the rep it is assigned to (or the person who added it). No manual logging (per Isaac).' }),
       addonItemsTable(AL, saveAL, sw, pill),
       sub('Backend lock'),
-      row('Auto-approve upfront commission', sw(!!AL.auto_approve, () => saveAL({ auto_approve: !AL.auto_approve })), { tip: 'Approved automatically once the Upfront Commission Approval guard rails for the rep type hold (and no Failed Audit flag). Off = an auditor clicks Approve.' }),
+      row('Auto-approve upfront commission', sw(!!AL.auto_approve, () => saveAL({ auto_approve: !AL.auto_approve })), { desc: 'Approve upfront pay automatically once the rules below hold.', tip: 'Approved automatically once the Upfront Commission Approval guard rails for the rep type hold (and no Failed Audit flag). Off = an auditor clicks Approve.' }),
       // Backend lock guard rails per rep type (per Isaac, Sep 23): the account
       // stays pending until every indication holds. AL.backend[office|tech].
       (() => {
@@ -559,7 +578,7 @@ function adminConfigurations() {
   // entirely, and whole teams left out of every Indicators metric.
   const _chipPicker = (vals, options, onChange, addLabel) => el('div', { class: 'flex items-center gap-1.5 flex-wrap justify-end' },
     ...vals.map(t => el('span', { class: 'inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full', style: { background: 'rgba(223,100,58,.10)', color: 'var(--text)' } }, t,
-      el('button', { class: 'text-[11px] leading-none', style: { color: 'var(--text-muted)' }, onclick: () => onChange(vals.filter(x => x !== t)) }, '×'))),
+      el('button', { class: 'text-[13px] leading-none', 'aria-label': 'Remove ' + t, style: { color: 'var(--text-muted)', minWidth: '28px', minHeight: '28px', margin: '-6px -8px -6px 0' }, onclick: () => onChange(vals.filter(x => x !== t)) }, '×'))),
     el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', maxWidth: '180px' },
       onchange: (e) => { const v = e.target.value; if (v) onChange([...vals, v]); } },
       el('option', { value: '' }, addLabel), ...options.filter(o => !vals.includes(o)).map(o => el('option', { value: o }, o))));
@@ -567,9 +586,9 @@ function adminConfigurations() {
   const _allTeams = (typeof distinctTeams === 'function' ? distinctTeams() : []).filter(t => t && t !== 'Excluded').sort();
   const _exTeams = Array.isArray(state.indicatorExclTeams) ? state.indicatorExclTeams : [];
   const indicators = card('Indicators', null,
-    row('MY % exclusions', svcPicker(myExcludeTerms(), (l) => { state.indicatorMyExclServiceTerms = l.length ? l : null; saveIndicatorState(); toast(l.length ? l.length + ' service' + (l.length === 1 ? '' : 's') + ' excluded from MY %' : 'Reset to the default (sentricon)', 'success'); mountApp(); }), { stack: true, tip: 'Services dropped from both sides of the MY % (multi-year) ratio — they still count everywhere else.' }),
-    row('Excluded services', svcPicker(_exSvc, (l) => { state.indicatorExclServices = l; saveIndicatorState(); toast(l.length + ' service' + (l.length === 1 ? '' : 's') + ' left out of Indicators', 'success'); mountApp(); }), { stack: true, tip: 'Services left out of every Indicators metric (fees, chargebacks, follow-ups, inspections, removals — not real new production). Starts from the built-in list.' }),
-    row('Excluded teams', _chipPicker(_exTeams, _allTeams, (l) => { state.indicatorExclTeams = l; saveIndicatorState(); toast(l.length ? l.length + ' team' + (l.length === 1 ? '' : 's') + ' left out of Indicators' : 'No teams excluded', 'success'); mountApp(); }, '+ exclude team'), { stack: true, tip: 'Every sale by a rep on these teams drops out of every Indicators metric (boards, totals, charts). Competitions keep their own team exclusions.' }),
+    row('MY % exclusions', svcPicker(myExcludeTerms(), (l) => { state.indicatorMyExclServiceTerms = l.length ? l : null; saveIndicatorState(); toast(l.length ? l.length + ' service' + (l.length === 1 ? '' : 's') + ' excluded from MY %' : 'Reset to the default (sentricon)', 'success'); mountApp(); }), { desc: 'Left out of both sides of MY %.', stack: true, tip: 'Services dropped from both sides of the MY % (multi-year) ratio — they still count everywhere else.' }),
+    row('Excluded services', svcPicker(_exSvc, (l) => { state.indicatorExclServices = l; saveIndicatorState(); toast(l.length + ' service' + (l.length === 1 ? '' : 's') + ' left out of Indicators', 'success'); mountApp(); }), { desc: 'Left out of every Indicators number.', stack: true, tip: 'Services left out of every Indicators metric (fees, chargebacks, follow-ups, inspections, removals — not real new production). Starts from the built-in list.' }),
+    row('Excluded teams', _chipPicker(_exTeams, _allTeams, (l) => { state.indicatorExclTeams = l; saveIndicatorState(); toast(l.length ? l.length + ' team' + (l.length === 1 ? '' : 's') + ' left out of Indicators' : 'No teams excluded', 'success'); mountApp(); }, '+ exclude team'), { desc: 'Reps on these teams drop out of Indicators.', stack: true, tip: 'Every sale by a rep on these teams drops out of every Indicators metric (boards, totals, charts). Competitions keep their own team exclusions.' }),
     (typeof indicatorMetricRulesTable === 'function') ? indicatorMetricRulesTable() : null,
   );
 
@@ -585,21 +604,28 @@ function adminConfigurations() {
   const svcCount = (() => { try { const m = reportingServiceRecurringMap(); return n(m.size) + ' services'; } catch (e) { return ''; } })();
   const cxlCount = (() => { try { return n(reportingExcludedCancelReasons().size) + ' excluded'; } catch (e) { return ''; } })();
 
-  return el('div', { class: 'flex flex-col gap-4' },
-    el('div', { class: 'flex items-center gap-2' },
-      el('h2', { class: 'text-lg font-bold' }, 'Configurations'),
-      configInfoBtn('How reporting works', howItWorks())),
-    reportingRules,
-    autolog,
-    indicators,
-    listCard('service', 'Service Types', svcCount, reportingServiceConfigPanel),
-    listCard('source', 'Sources', '', reportingSourceConfigPanel),
-    listCard('cancel', 'Cancel reasons', cxlCount, reportingCancelConfigPanel),
-    // (The FieldRoutes source mirror is now columns in the Sources table above, per Isaac Sep 30.)
-    // Marketing data sources (per Isaac, Sep 30): ad account IDs → branch, GoHighLevel sources → provider.
+  const head = (title, desc, extra) => el('div', {},
+    el('div', { class: 'flex items-center gap-2' }, el('h2', { class: 'text-lg font-bold' }, title), extra || null),
+    desc ? el('p', { class: 'text-xs text-muted- mt-0.5' }, desc) : null);
+  const advanced = (...items) => el('div', { class: 'flex flex-col gap-3' },
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-bold pt-2', style: { color: 'var(--text-subtle)' } }, 'Advanced'), ...items.filter(Boolean));
+  // Pay automation lives with Commissions (Settings → Commissions & payroll).
+  if (part === 'autolog') return autolog;
+  if (part === 'marketing') return el('div', { class: 'flex flex-col gap-4' },
+    head('Marketing & lead sources', 'What each FieldRoutes lead source is (new / renewal / upsell, paid or not, which provider it rolls into), how ad accounts and GoHighLevel leads map in, and the marketing targets.'),
+    listCard('source', 'Lead sources', '', reportingSourceConfigPanel),
     typeof reportingAdAccountsPanel === 'function' ? listCard('adacc', 'Ad accounts → branch', 'Facebook + Google', reportingAdAccountsPanel) : null,
     typeof reportingGhlSourcesPanel === 'function' ? listCard('ghl', 'GoHighLevel sources → provider', (state._ghl && state._ghl.rows && state._ghl.rows.length) ? n(state._ghl.rows.length) + ' contacts' : 'sync', reportingGhlSourcesPanel) : null,
-  );
+    typeof reportingMarketingGoalsPanel === 'function' ? listCard('mgoals', 'Marketing goals & targets', 'CAC · ROAS · spend mix', reportingMarketingGoalsPanel) : null);
+  return el('div', { class: 'flex flex-col gap-4' },
+    head('Reporting rules', 'How the customer book, churn and the Indicators leaderboard are counted — every tab reads these.', configInfoBtn('How reporting works', howItWorks())),
+    reportingRules,
+    indicators,
+    listCard('service', 'Service types', svcCount, reportingServiceConfigPanel),
+    listCard('cancel', 'Cancel reasons', cxlCount, reportingCancelConfigPanel),
+    advanced(
+      typeof reportingCrmVocabPanel === 'function' ? listCard('vocab', 'CRM vocabulary', 'seller types · reasons · ROR window', reportingCrmVocabPanel) : null,
+      typeof reportingOpsBaselinePanel === 'function' ? listCard('ops', 'Operations baseline', 'benchmarks', reportingOpsBaselinePanel) : null));
 }
 
 // Global Admin — toggles between two views:
@@ -1474,7 +1500,7 @@ function adminCommissions() {
     ...COMMISSION_REP_TYPES.map(t => {
       const on = type === t;
       return el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold transition whitespace-nowrap',
-        style: { borderBottom: on ? '2px solid var(--accent)' : '2px solid transparent', color: on ? 'var(--text)' : 'var(--text-muted)', marginBottom: '-1px' },
+        style: { borderBottom: on ? '2px solid var(--accent)' : '2px solid transparent', color: on ? 'var(--text)' : 'var(--text-muted)', marginBottom: '-1px', minHeight: '40px' },
         onclick: () => { state._commRulesTab = t; mountApp(); } }, t === 'Sales Rep' ? 'Sales Reps' : t === 'Technician' ? 'Technicians' : t);
     }));
 
@@ -1527,15 +1553,27 @@ function adminCommissions() {
       ? el('div', { class: 'card p-10 text-center' },
           el('div', { class: 'text-sm font-semibold mb-1' }, 'No Technician commission rules yet'),
           el('div', { class: 'text-xs text-muted-' }, 'Rules for Technicians haven’t been set up. They’ll be added here later.'))
-      : adminD2dPayscales();   // Sales Reps: the four payscale ladders + per-rep assignment (per Isaac)
+      : el('div', { class: 'flex flex-col gap-4' }, adminD2dPayscales(), (() => {
+          // Backend pay-stub rules (settings audit, Sep 30): the D2D Pay tab's
+          // stub reads these (rates, multi-year, attrition, service categories)
+          // but their editors were never shown — values were frozen.
+          const open = !!state._commAdvOpen;
+          const attr = el('div', { class: 'card p-4' },
+            el('div', { class: 'text-sm font-bold mb-1' }, 'Estimated attrition'),
+            el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Held back from Total Commission on the D2D pay stub until the Jan 31 lock; after it, the actual canceled accounts replace the estimate. A rep can be set differently on their stub.'),
+            el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-3' }, numField('Attrition %', cfg.attritionPct, v => { const c = commissionConfig(); c.attritionPct = Math.max(0, parseFloat(v) || 0); saveCommissionConfig(c); mountApp(); }, { step: '0.5' })));
+          return el('div', { class: 'flex flex-col gap-3' },
+            el('button', { class: 'text-left text-[11px] font-bold uppercase tracking-widest', style: { color: 'var(--text-subtle)', minHeight: '40px' }, onclick: () => { state._commAdvOpen = !open; mountApp(); } }, (open ? '▾ ' : '▸ ') + 'Advanced · backend pay stub (rates, multi-year, attrition, service categories)'),
+            ...(open ? [ratesPanel, myPanel, attr, svcPanel] : []));
+        })());   // Sales Reps: the four payscale ladders + per-rep assignment (per Isaac)
 
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', {},
-      el('h2', { class: 'text-lg font-bold' }, 'Commissions'),
+      el('h2', { class: 'text-lg font-bold' }, 'Commissions & payroll'),
       el('p', { class: 'text-xs text-muted-' }, isOfficeStaff
-        ? 'Inside Sales pay rules for Office Staff — these drive the Pay tab and the Commission Calculator. Sales Reps and Technicians use the CRM pest/bundle model on their tabs.'
+        ? 'Inside Sales pay rules for Office Staff — these drive the Pay tab. Pay automation (when sales are created, approved and locked) is below.'
         : type === 'Sales Rep'
-          ? 'Sales Rep payscales \u2014 the Rookie / Veteran / Elite / Pro ladders (rate by retained revenue). Pick a rep to put them on a ladder or give them their own.'
+          ? 'Sales Rep payscales \u2014 the Rookie / Veteran / Elite / Pro ladders (rate by retained revenue). Pick a rep to put them on a ladder or give them their own. Backend pay-stub rules are under Advanced.'
           : 'Commission rules by rep type. The Commission Calculator uses these; a specific rep can still be overridden there.')),
     tabs,
     body);
@@ -2270,7 +2308,7 @@ function adminDataSources() {
       el('span', { class: 'text-[11px] text-muted-' }, diOpen ? '▲' : '▼')),
     diOpen ? el('div', { class: 'px-5 pb-5 flex flex-col gap-4' }, dataIntegrityPanel(), adminDataHygiene()) : null);
   return el('div', { class: 'flex flex-col gap-4' },
-    el('div', { class: 'flex items-center gap-2' }, el('h2', { class: 'text-lg font-bold' }, 'API Keys'), state._integrationsErr ? pill(false, 'run migrations/20260923_integrations.sql') : null),
+    el('div', { class: 'flex items-center gap-2' }, el('h2', { class: 'text-lg font-bold' }, 'Connections'), state._integrationsErr ? pill(false, 'run migrations/20260923_integrations.sql') : null),
     frCard, rvCard, sbCard, diCard);
 }
 
@@ -2350,8 +2388,9 @@ function addonItemsTable(AL, saveAL, sw, pill) {
 function slackTypesCard() {
   const SL = Object.assign({}, SLACK_TYPE_DEFAULTS, (state.appSettings && state.appSettings.slack_types) || {});
   const saveSL = (k, v) => { state.appSettings.slack_types = Object.assign({}, SL, { [k]: v }); saveAppSettings(); logActivity('config_change', { detail: 'Slack ' + k + ': ' + (v ? 'on' : 'off') }); toast('Saved', 'success'); mountApp(); };
-  const sw = (on, onToggle) => el('button', { class: 'shrink-0', style: { width: '36px', height: '20px', borderRadius: '10px', background: on ? 'var(--accent)' : 'var(--border-2)', position: 'relative', border: 'none', cursor: 'pointer' }, onclick: onToggle },
-    el('div', { style: { position: 'absolute', top: '2px', left: on ? '18px' : '2px', width: '16px', height: '16px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.3)', transition: 'left .12s' } }));
+  const sw = (on, onToggle) => el('button', { type: 'button', class: 'shrink-0', role: 'switch', 'aria-checked': String(!!on), style: { width: '44px', height: '32px', padding: '6px 4px', background: 'transparent', border: 'none', cursor: 'pointer' }, onclick: onToggle },
+    el('span', { style: { display: 'block', position: 'relative', width: '36px', height: '20px', borderRadius: '10px', background: on ? 'var(--accent)' : 'var(--border-2)' } },
+      el('span', { style: { position: 'absolute', top: '2px', left: on ? '18px' : '2px', width: '16px', height: '16px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.3)', transition: 'left .12s' } })));
   const row = (label, control, tip) => el('div', { class: 'flex items-center justify-between gap-3 py-1.5 border-t', style: { borderColor: 'var(--border)' }, title: tip || '' },
     el('div', { class: 'text-sm font-semibold' + (tip ? ' cursor-help' : '') }, label), control);
   const on = [['office', 'Inside Sales'], ['d2d', 'D2D'], ['tech', 'Technicians']].filter(([k]) => SL[k] !== false && !(k !== 'office' && SL[k] !== true)).map(([, l]) => l).join(' · ') || 'off';

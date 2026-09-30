@@ -850,37 +850,16 @@ function adminSlack() {
 
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'flex items-center justify-between mb-1' },
-      el('h2', { class: 'text-xl font-bold' }, 'Slack'),
+      el('h2', { class: 'text-xl font-bold' }, 'Notifications · Slack'),
     ),
     (typeof slackTypesCard === 'function') ? slackTypesCard() : null,
 
-    // ── 1. Architecture banner ──
-    el('div', { class: 'card p-5', style: { background: 'var(--card-2)' } },
-      el('h3', { class: 'text-sm font-bold mb-2 flex items-center gap-2' },
-        el('span', {}, '📡'), 'How Slack integration works',
-      ),
-      el('div', { class: 'text-xs flex flex-col gap-1.5', style: { color: 'var(--text-muted)' } },
-        el('div', {}, statusPill('live'),   ' — Channel posts use webhook URLs you configure below. Browser POSTs straight to Slack.'),
-        el('div', {}, statusPill('server'), ' — DM features use the bot token. Deploy ', el('code', { style: { color: 'var(--accent)' } }, 'netlify/functions/slack-paystub.js'), ' and set ', el('code', { style: { color: 'var(--accent)' } }, 'SLACK_BOT_TOKEN'), ' in Netlify env. Demo mode logs to Admin → Activity Log.'),
-        el('div', {}, statusPill('cron'),   ' — Scheduled posts need an external cron host (Netlify Scheduled Functions, GitHub Actions). Settings persist; trigger is external.'),
-      ),
-    ),
-
+    // (Architecture banner removed — implementation detail; settings audit, Sep 30)
     // ── 2. Connection — Bot Token + Channels ──
     el('div', { class: 'card p-5' },
       el('h3', { class: 'text-sm font-bold mb-3' }, 'Connection'),
 
-      subsection({ first: true, title: 'Bot Token', statusKind: 'server',
-        hint: 'Required for DMs. The browser never reads this at runtime — add the value to your Netlify env as SLACK_BOT_TOKEN. Field below is for reference.',
-      },
-        el('input', {
-          type: 'password',
-          class: 'w-full rounded-lg border px-2.5 py-1 text-[11px] font-mono',
-          placeholder: 'xoxb-...',
-          value: s.slack_bot_token,
-          oninput: (e) => { s.slack_bot_token = e.target.value; persist(); },
-        }),
-      ),
+/* (Bot Token removed — nothing read it; settings audit, Sep 30) */
 
       subsection({ title: 'Channels', statusKind: 'live',
         hint: 'Each row is a Slack channel + its incoming webhook URL. Test posts straight from your browser — no server needed.',
@@ -978,38 +957,9 @@ function adminSlack() {
         ),
       ),
 
-      subsection({ icon: '📋', title: 'Weekly Digest', statusKind: 'cron',
-        hint: 'End-of-week leaderboard summary. Settings persist here; the schedule is fired by your cron host.',
-      },
-        el('div', { class: 'flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3' },
-          el('label', { class: 'flex items-center gap-2 text-sm shrink-0' },
-            el('input', {
-              type: 'checkbox', class: 'accent-lime w-4 h-4',
-              checked: s.weekly_digest?.enabled || false,
-              onchange: (e) => { if (!s.weekly_digest) s.weekly_digest = {}; s.weekly_digest.enabled = e.target.checked; persist(); },
-            }),
-            'Enabled',
-          ),
-          el('select', {
-            class: 'rounded-lg border px-2.5 py-1 text-[11px]',
-            onchange: (e) => { if (!s.weekly_digest) s.weekly_digest = {}; s.weekly_digest.day = e.target.value; persist(); },
-          },
-            ...['Friday', 'Saturday', 'Sunday', 'Monday'].map(d =>
-              el('option', { value: d, selected: (s.weekly_digest?.day || 'Friday') === d }, d)),
-          ),
-          el('input', {
-            type: 'time', class: 'rounded-lg border px-3 py-2 text-sm',
-            value: s.weekly_digest?.time || '17:00',
-            onchange: (e) => { if (!s.weekly_digest) s.weekly_digest = {}; s.weekly_digest.time = e.target.value; persist(); },
-          }),
-        ),
-      ),
+/* (Weekly Digest removed — nothing read it; settings audit, Sep 30) */
 
-      subsection({ icon: '🏅', title: 'Competition Updates', statusKind: 'live',
-        hint: 'Auto-post when a rep completes a bingo square or hits a milestone.',
-      },
-        channelToggleBlock('comp_updates', { enabled: false, channel: '' }, 'Enabled'),
-      ),
+/* (Competition Updates removed — nothing read it; settings audit, Sep 30) */
     ),
 
     // ── 4. Direct Messages — Pay Stub DMs + Daily Update ──
@@ -1066,39 +1016,7 @@ function adminSlack() {
         ),
       ),
 
-      subsection({ icon: '📊', title: 'Daily Update', statusKind: 'cron',
-        hint: 'DM each rep their daily/weekly/monthly/yearly totals. Schedule fired by cron host.',
-      },
-        el('div', { class: 'flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 mb-3' },
-          el('label', { class: 'flex items-center gap-2 text-sm shrink-0' },
-            el('input', {
-              type: 'checkbox', class: 'accent-lime w-4 h-4',
-              checked: s.daily_update.enabled,
-              onchange: (e) => { s.daily_update.enabled = e.target.checked; persist(); },
-            }),
-            'Enabled',
-          ),
-          el('input', {
-            type: 'time',
-            class: 'rounded-lg border px-3 py-2 text-sm',
-            value: s.daily_update.send_time,
-            onchange: (e) => { s.daily_update.send_time = e.target.value; persist(); },
-          }),
-        ),
-        el('div', { class: 'flex flex-wrap gap-x-4 gap-y-2' },
-          ...[['include_week', 'Week total'], ['include_month', 'Month total'], ['include_year', 'Year total']].map(([k, label]) =>
-            el('label', { class: 'flex items-center gap-2 text-sm' },
-              el('input', {
-                type: 'checkbox',
-                class: 'accent-lime w-4 h-4',
-                checked: s.daily_update[k],
-                onchange: (e) => { s.daily_update[k] = e.target.checked; persist(); },
-              }),
-              label,
-            )
-          ),
-        ),
-      ),
+/* (Daily Update removed — nothing read it; settings audit, Sep 30) */
     ),
 
     // ── 5. Rep Slack User IDs ──
