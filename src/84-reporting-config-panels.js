@@ -915,7 +915,7 @@ const _mktgX = (v) => v == null || !isFinite(v) ? '—' : v.toFixed(2) + 'x';
 const _mktgDiv = (a, b) => (b > 0 ? a / b : null);
 function _mktgYearBar(sub) {
   const y = _mktgYearSel();
-  const SUBS = [['pnl', 'P&L'], ['cac', 'CAC'], ['acq', 'Rep vs Office cost'], ['providers', 'Providers'], ['spend', 'Spend entry'], ['projections', 'Projections']];
+  const SUBS = [['pnl', 'P&L'], ['acq', 'Rep vs Office cost'], ['providers', 'Metrics'], ['spend', 'Spend entry'], ['projections', 'Projections']];
   return el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
     el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
       ...SUBS.map(([v, l]) => el('button', {
@@ -1527,12 +1527,14 @@ function reportingMarketingGoalsPanel() {
 function reportingMarketingPnl() {
   reportingLoadGhlLeads();
   reportingLoadQboSpend();
-  const sub = ['pnl', 'cac', 'acq', 'providers', 'spend', 'projections'].includes(state._mktSub) ? state._mktSub : 'pnl';
+  // CAC moved under Metrics (was Providers), per Isaac, Sep 30.
+  if (state._mktSub === 'cac') { state._mktSub = 'providers'; state._mktProvView = 'cac'; }
+  const sub = ['pnl', 'acq', 'providers', 'spend', 'projections'].includes(state._mktSub) ? state._mktSub : 'pnl';
   // Providers has two views (per Isaac, Sep 30): performance matrices and the lead reconciliation (last-touch attribution).
-  const provView = state._mktProvView === 'recon' ? 'recon' : 'perf';
+  const provView = ['cac', 'perf', 'recon'].includes(state._mktProvView) ? state._mktProvView : 'cac';
   const provTabs = el('div', { class: 'inline-flex rounded-lg border overflow-hidden self-start', style: { borderColor: 'var(--border-2)' } },
-    ...[['perf', 'Performance'], ['recon', 'Lead reconciliation']].map(([v, l]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold', style: provView === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._mktProvView = v; mountApp(); } }, l)));
-  const body = sub === 'cac' ? _mktgCac() : sub === 'acq' ? _mktgAcq() : sub === 'providers' ? el('div', { class: 'flex flex-col gap-4' }, provTabs, provView === 'recon' ? mktgAttributionView() : _mktgProviders()) : sub === 'spend' ? _mktgSpendEntry() : sub === 'projections' ? _mktgProjections() : _mktgPnl();
+    ...[['cac', 'CAC'], ['perf', 'Providers'], ['recon', 'Lead reconciliation']].map(([v, l]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold', style: provView === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._mktProvView = v; mountApp(); } }, l)));
+  const body = sub === 'cac' ? _mktgCac() : sub === 'acq' ? _mktgAcq() : sub === 'providers' ? el('div', { class: 'flex flex-col gap-4' }, provTabs, provView === 'recon' ? mktgAttributionView() : provView === 'cac' ? _mktgCac() : _mktgProviders()) : sub === 'spend' ? _mktgSpendEntry() : sub === 'projections' ? _mktgProjections() : _mktgPnl();
   // Needs attention (owner-only feed) lives on the Marketing tab (per Isaac, Sep 2026).
   return el('div', { class: 'flex flex-col gap-4' }, (typeof exceptionFeedCard === 'function') ? exceptionFeedCard() : null, _mktgYearBar(sub), body);
 }

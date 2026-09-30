@@ -2102,7 +2102,11 @@ async function loadReportingSubscriptions(uploadId) {
 // sync actually landed, each poll is a ~200-byte round trip instead of a
 // multi-MB download.
 async function _downloadSnapshotBlob(path, onPct, opts) {
-  const STALL_MS = 20000, TRIES = 3;
+  // 45s (was 20s): on a slow connection the first bytes can take 25s+ to
+  // arrive (Sep 30 — office network at ~70 KB/s), and a 20s watchdog
+  // aborted every try → 'CAN'T REACH SERVER' with the data stuck at the
+  // last good pull. Still aborts a truly dead socket.
+  const STALL_MS = 45000, TRIES = 3;
   const o = opts || {};
   const url = CFG.SUPABASE_URL + '/storage/v1/object/reporting/' + String(path).split('/').map(encodeURIComponent).join('/');
   const { data: { session } = {} } = await supabase.auth.getSession();
