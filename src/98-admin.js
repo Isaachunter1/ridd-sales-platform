@@ -2304,8 +2304,14 @@ function _loadAddonCatalog() {
     // Before the first catalogue run: names from the revenue split lines.
     if (!Object.keys(items).length) {
       try {
-        const { data: rv } = await supabase.from('subscription_revenue').select('lines').limit(5000);
-        for (const r of rv || []) for (const l of (r.lines || [])) {
+        // Supabase caps a read at 1,000 rows — page through every account.
+        const rv = [];
+        for (let off = 0; off < 60000; off += 1000) {
+          const { data: pg } = await supabase.from('subscription_revenue').select('lines').eq('active', true).range(off, off + 999);
+          if (pg) rv.push(...pg);
+          if (!pg || pg.length < 1000) break;
+        }
+        for (const r of rv) for (const l of (r.lines || [])) {
           if (!l || l.kind === 'base' || !l.name || l.name === 'Initial extras') continue;
           const x = items[l.name] || (items[l.name] = { n: 0, avg: 0, _t: 0 }); x.n++; x._t += Number(l.per_service) || 0; x.avg = Math.round(x._t / x.n * 100) / 100;
         }
@@ -2323,9 +2329,8 @@ function addonItemsTable(AL, saveAL, sw, pill) {
   const muted = { color: 'var(--text-muted)' };
   const th = (t, cls) => el('th', { class: (cls || 'text-left') + ' px-2 py-1.5 text-[10px] uppercase tracking-wider font-semibold', style: muted }, t);
   if (!C) return el('div', { class: 'text-[11px] py-2', style: muted }, 'Loading ticket items…');
-  const q = String(state._addonItemQ || '').toLowerCase();
   const names = Object.keys(C.items).sort((a, b) => (C.items[b].n || 0) - (C.items[a].n || 0) || a.localeCompare(b));
-  const list = names.filter(nm => !q || nm.toLowerCase().includes(q));
+  const list = names;
   const setItem = (nm, v) => { const m = Object.assign({}, map); const k = nm.trim().toLowerCase(); if (v == null) delete m[k]; else m[k] = v; saveAL({ addon_items: m }); };
   const eligibleN = names.filter(nm => { const v = map[nm.trim().toLowerCase()]; return typeof v === 'boolean' ? v : _addonAutoRule(AL, nm); }).length;
   const open = state._addonItemsOpen !== false;
@@ -2334,17 +2339,15 @@ function addonItemsTable(AL, saveAL, sw, pill) {
       el('button', { class: 'text-[11px] font-bold', onclick: () => { state._addonItemsOpen = !open; mountApp(); } }, (open ? '▾ ' : '▸ ') + 'Ticket items · Eligible Revenue'),
       pill(eligibleN + ' of ' + names.length + ' commissionable'),
       el('span', { class: 'text-[10px] flex-1', style: { color: 'var(--text-subtle)' } }, 'Commissionable items are Eligible Revenue: per-service charge × 12 added to the account’s commissionable ARV (a negative line such as a discount subtracts). Off = left out, like service fees. Items nobody is credited with ride the base seller.' + (C.at ? ' · catalog ' + new Date(C.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ' · full list fills in after tonight’s 2am sweep')),
-      el('input', { type: 'search', placeholder: 'Filter items…', value: state._addonItemQ || '', class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', width: '160px' },
-        oninput: (e) => { state._addonItemQ = e.target.value; clearTimeout(state._addonQT); state._addonQT = setTimeout(mountApp, 250); } })),
+),
     !open ? null : !names.length ? el('div', { class: 'px-3 py-4 text-[11px]', style: muted }, 'No ticket items yet — the add-ons sync lists them after its next run.') :
       el('div', { style: { maxHeight: '360px', overflowY: 'auto' } }, el('table', { class: 'text-xs', style: { width: '100%', borderCollapse: 'collapse' } },
-        el('thead', { style: { position: 'sticky', top: 0, background: 'var(--card)', zIndex: 1 } }, el('tr', {}, th('Ticket item'), th('On recurring tickets', 'text-right'), th('Avg per service', 'text-right'), th('Commissionable', 'text-center'), th(''))),
+        el('thead', { style: { position: 'sticky', top: 0, background: 'var(--card)', zIndex: 1 } }, el('tr', {}, th('Ticket item'), th('On recurring tickets', 'text-right'), th('Commissionable', 'text-center'), th(''))),
         el('tbody', {}, ...list.map(nm => {
           const x = C.items[nm] || {}; const k = nm.trim().toLowerCase(); const set = typeof map[k] === 'boolean'; const on = set ? map[k] : _addonAutoRule(AL, nm);
           return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
             el('td', { class: 'px-2 py-1.5 font-semibold' }, nm),
             el('td', { class: 'px-2 py-1.5 text-right tabular-nums' }, Number(x.n || 0).toLocaleString()),
-            el('td', { class: 'px-2 py-1.5 text-right tabular-nums', style: (x.avg || 0) < 0 ? { color: '#DC2626' } : {} }, fmt.usd(x.avg || 0)),
             el('td', { class: 'px-2 py-1.5 text-center' }, sw(on, () => setItem(nm, !on))),
             el('td', { class: 'px-2 py-1.5 text-[10px]', style: { color: 'var(--text-subtle)' } }, set ? el('button', { class: 'underline', onclick: () => setItem(nm, null) }, 'reset to auto') : 'auto'));
         })))));
