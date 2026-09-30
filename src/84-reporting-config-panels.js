@@ -836,7 +836,7 @@ function _mktgActuals(year) {
     return _ist ? (_ist === 'pending' || _ist === 'completed') : !(!r.initial_service && r.subscription_date_canceled);
   };
   const mk = () => ({ rev: 0, subs: 0, upRev: 0, upsells: 0, bookings: 0, serviced: 0, cancels: 0 });
-  const branch = {}, source = {}, total = Array.from({ length: 12 }, mk);
+  const branch = {}, source = {}, srcBranch = {}, total = Array.from({ length: 12 }, mk);
   const branches = new Set(), sources = new Set();
   for (const r of rows) {
     const sd = r.sold_date; if (!sd || String(sd).slice(0, 4) !== String(year)) continue;
@@ -849,8 +849,9 @@ function _mktgActuals(year) {
     branches.add(off); sources.add(src);
     const b = (branch[off] = branch[off] || Array.from({ length: 12 }, mk))[mi];
     const s = (source[src] = source[src] || Array.from({ length: 12 }, mk))[mi];
+    const sb = (srcBranch[src + '|' + off] = srcBranch[src + '|' + off] || Array.from({ length: 12 }, mk))[mi];
     const cv = Number(r.subscription_contract_value) || 0;
-    for (const x of [b, s, total[mi]]) {
+    for (const x of [b, s, sb, total[mi]]) {
       if (cls === 'upsell') { x.upsells++; x.upRev += cv; }
       else { x.subs++; x.rev += cv; }
       x.bookings++;
@@ -858,7 +859,7 @@ function _mktgActuals(year) {
       if (r.subscription_date_canceled) x.cancels++;
     }
   }
-  return { branch, source, total, branches: [...branches].sort(), sources: [...sources].sort() };
+  return { branch, source, srcBranch, total, branches: [...branches].sort(), sources: [...sources].sort() };
 }
 function _mktgBranchList(year) {
   const a = _mktgActuals(year);
@@ -927,7 +928,7 @@ const _mktgX = (v) => v == null || !isFinite(v) ? '—' : v.toFixed(2) + 'x';
 const _mktgDiv = (a, b) => (b > 0 ? a / b : null);
 function _mktgYearBar(sub) {
   const y = _mktgYearSel();
-  const SUBS = [['pnl', 'P&L'], ['providers', 'Metrics'], ['spend', 'Spend entry'], ['projections', 'Projections']];
+  const SUBS = [['providers', 'Metrics'], ['pnl', 'P&L'], ['spend', 'Spend entry'], ['projections', 'Projections']];
   return el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
     el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
       ...SUBS.map(([v, l]) => el('button', {
@@ -1025,27 +1026,7 @@ function _mktgPnl() {
       }, ...Object.entries(SPEND).map(([k, v]) => el('option', { value: k, selected: k === key }, v.label)));
       return _mktgMatrixCard('Spend · ' + M.label, M.note, rows, M.cell, _mktgUsd0, { ...opts, headerExtra: picker });
     })(),
-    // Efficiency (per Isaac): ROAS · CAC · Ad spend % of CAC · Wages % of
-    // CAC in ONE table with a dropdown, instead of four stacked matrices.
-    (() => {
-      const METRICS = {
-        roas:   { label: 'ROAS',              note: 'new revenue ÷ ad spend · goal ' + T.roas + '+',                                  cell: (rk, i) => _mktgDiv(rev(rk, i), ad(rk, i)), fmt: _mktgX,   total: ratioTotal(rev, ad), style: goalStyle(T.roas, (v, g) => v >= g) },
-        cac:    { label: 'CAC',               note: 'total spend ÷ new revenue',                                                      cell: (rk, i) => _mktgDiv(tot(rk, i), rev(rk, i)), fmt: _mktgPct, total: ratioTotal(tot, rev) },
-        adcac:  { label: 'Agency CAC %',      note: 'ad spend ÷ new revenue · goal ' + Math.round(T.adSpendCac * 100) + '%',         cell: (rk, i) => _mktgDiv(ad(rk, i), rev(rk, i)),  fmt: _mktgPct, total: ratioTotal(ad, rev),  style: goalStyle(T.adSpendCac, (v, g) => v <= g) },
-        wgcac:  { label: 'Wages %',           note: 'wages ÷ new revenue · goal ' + Math.round(T.wagesCac * 100) + '%',              cell: (rk, i) => _mktgDiv(wg(rk, i), rev(rk, i)),  fmt: _mktgPct, total: ratioTotal(wg, rev),  style: goalStyle(T.wagesCac, (v, g) => v <= g) },
-        // Cost per job (per Isaac): total spend ÷ subscriptions sold (new +
-        // upsell, pending/serviced) — the same rows New revenue is built on.
-        cpj:    { label: 'Cost/Job',          note: 'total spend ÷ subscriptions (new + upsell · pending/serviced · by sold month)',    cell: (rk, i) => _mktgDiv(tot(rk, i), jobs(rk, i)), fmt: _mktgUsd0, total: ratioTotal(tot, jobs) },
-      };
-      const key = METRICS[state._mktEffMetric] ? state._mktEffMetric : 'roas';
-      const M = METRICS[key];
-      const picker = el('select', {
-        class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer ml-auto',
-        style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-        onchange: (e) => { state._mktEffMetric = e.target.value; mountApp(); },
-      }, ...['roas', 'cac', 'cpj', 'adcac', 'wgcac'].map(k => [k, METRICS[k]]).map(([k, v]) => el('option', { value: k, selected: k === key }, v.label)));   // order per Isaac: ROAS · CAC · Cost/Job · Agency CAC % · Wages %
-      return _mktgMatrixCard('Efficiency · ' + M.label, M.note, rows, M.cell, M.fmt, { ...opts, total: M.total, cellStyle: M.style, headerExtra: picker });
-    })(),
+    // (Efficiency moved to Metrics, per Isaac Sep 30 — ROAS / CAC / Cost/Job / Agency CAC % / Wages % are metrics on the By office view there.)
     // (QuickBooks booked vs allocated card dropped — ad spend is QuickBooks-only now.)
   );
 }
@@ -1115,51 +1096,103 @@ function _mktgCac() {
 // (Rep vs Office cost tab retired Sep 30 — the Sales Rep eligibility math lives on D2D Sales → Pay, src/94-commission-view.js.)
 // ── Providers: lead partner × month ──
 function _mktgProviders() {
-  const y = _mktgYearSel(), m = _mktgStore(), a = _mktgActuals(y), T = m.settings.targets;
+  // Metrics matrix (per Isaac, Sep 30): the P&L Efficiency table moved here
+  // and folded into this one card. Toggle By provider / By office:
+  //   · By provider — rows = lead sources; the Office picker scopes them to
+  //     one market (RIDD · entity · office), so each provider can be read
+  //     market by market.
+  //   · By office — rows = offices (entity + company totals, as on the P&L);
+  //     the Provider picker narrows every office to one provider.
+  // Ad spend: office rows with no provider picked = QuickBooks (as the P&L);
+  // anything provider-level = the Spend entry allocation (provider × office).
+  const y = _mktgYearSel(), m = _mktgStore(), a = _mktgActuals(y), T = m.settings.targets, B = _mktgBranchList(y);
+  const mode = state._mktMetricsBy === 'office' ? 'office' : 'provider';
   const channels = [...new Set([...m.channels, ...a.sources.filter(s => reportingSourceClass(s) === 'new')])].sort();
-  const rows = [...channels, 'RIDD'];
-  const groups = new Set(['RIDD']);
-  const srcRow = (ch) => a.source[ch];
-  const rev = (ch, i) => ch === 'RIDD' ? channels.reduce((t, c) => t + rev(c, i), 0) : (srcRow(ch) ? srcRow(ch)[i].rev + srcRow(ch)[i].upRev : 0);
-  const book = (ch, i) => ch === 'RIDD' ? channels.reduce((t, c) => t + book(c, i), 0) : (srcRow(ch) ? srcRow(ch)[i].bookings : 0);
-  const sp = (ch, i) => ch === 'RIDD' ? channels.reduce((t, c) => t + sp(c, i), 0) : _mktgSpendChannelMonth(m, _mktgYm(y, i), ch);
-  const leads = (ch, i) => ch === 'RIDD' ? channels.reduce((t, c) => t + leads(c, i), 0) : (Number((m.leads[_mktgYm(y, i)] || {})[ch]) || 0);
-  const opts = { groupRows: groups, firstCol: 'Source' };
+  const scope = state._mktCacScope || MKTG_ALL;
+  const scopeBranches = scope === MKTG_ALL ? null : (B.byEntity[scope] ? B.byEntity[scope] : [scope]);
+  const provF = mode === 'office' && channels.includes(state._mktMetricsProv) ? state._mktMetricsProv : '';
+  const G = _mktgGroupRows(B);
+  const officeFull = mode === 'office' && !provF;
+  const TOTAL = MKTG_ALL;
+  // Each row → the providers (null = all) and offices (null = all) it covers.
+  const chsOf = (rk) => mode === 'provider' ? (rk === TOTAL ? channels : [rk]) : (provF ? [provF] : null);
+  const bsOf = (rk) => mode === 'provider' ? scopeBranches : G.members(rk);
+  const zero = { rev: 0, upRev: 0, bookings: 0 };
+  const act = (rk, i) => {
+    const chs = chsOf(rk), bs = bsOf(rk), t = { rev: 0, upRev: 0, bookings: 0 };
+    const add = (x) => { if (!x) return; t.rev += x.rev; t.upRev += x.upRev; t.bookings += x.bookings; };
+    if (!chs) for (const b of bs) add((a.branch[b] || [])[i] || zero);
+    else if (!bs) for (const ch of chs) add((a.source[ch] || [])[i] || zero);
+    else for (const ch of chs) for (const b of bs) add((a.srcBranch[ch + '|' + b] || [])[i] || zero);
+    return t;
+  };
+  const SP = state.reportingIsSpend || {};
+  const qbo = (b, i) => { const M = SP[_mktgYm(y, i)] || {}; let t = 0; for (const acct in M) { const off = (typeof _mktgQboOffice === 'function') ? _mktgQboOffice(acct) : null; if (off === b) t += Number(M[acct]) || 0; } return t; };
+  const rev = (rk, i) => { const x = act(rk, i); return x.rev + x.upRev; };
+  const book = (rk, i) => act(rk, i).bookings;
+  const sp = (rk, i) => {
+    const chs = chsOf(rk), bs = bsOf(rk), ym = _mktgYm(y, i);
+    if (!chs) return bs.reduce((t, b) => t + qbo(b, i), 0);
+    let t = 0;
+    for (const ch of chs) { if (!bs) { t += _mktgSpendChannelMonth(m, ym, ch); continue; } const C = (m.spend[ym] || {})[ch] || {}; for (const b of bs) t += Number(C[b]) || 0; }
+    return t;
+  };
+  const wg = (rk, i) => G.members(rk).reduce((t, b) => t + (Number((m.wages[_mktgYm(y, i)] || {})[b]) || 0), 0);
+  const inc = (rk, i) => G.members(rk).reduce((t, b) => t + (Number((m.incentives[_mktgYm(y, i)] || {})[b]) || 0), 0);
+  const tot = (rk, i) => sp(rk, i) + wg(rk, i) + inc(rk, i);
+  const leadsOk = mode === 'provider' && !scopeBranches;   // leads are entered per provider, not per office
+  const leads = (rk, i) => chsOf(rk).reduce((t, ch) => t + (Number((m.leads[_mktgYm(y, i)] || {})[ch]) || 0), 0);
   const ratioTotal = (num, den) => (rk) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += num(rk, i); d += den(rk, i); } return _mktgDiv(n, d); };
   const gs = (goal, better) => (v) => v == null ? {} : { color: better(v, goal) ? '#5F6C5B' : '#DC2626', fontWeight: '600' };
-  // One card, one metric picker (per Isaac, Sep 2026) — the ten source ×
-  // month matrices were the same table ten times over. Volume metrics
-  // carry the RIDD total row; the two weight views are shares, so no total.
-  const wt = (num) => ({ firstCol: 'Source', total: (ch) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += num(ch, i); d += num('RIDD', i); } return _mktgDiv(n, d); } });
+  const rows = mode === 'provider' ? [...channels, TOTAL] : G.rows;
+  const leafRows = mode === 'provider' ? channels : B.all;
+  const groups = mode === 'provider' ? new Set([TOTAL]) : G.groups;
+  const opts = { groupRows: groups, firstCol: mode === 'provider' ? 'Provider' : 'Office',
+    label: (rk) => groups.has(rk) ? _mktgGroupLabel(rk) : (mode === 'office' ? _mktgTC(rk) : rk) };
+  const wt = (num) => ({ ...opts, groupRows: new Set(), total: (rk) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += num(rk, i); d += num(TOTAL, i); } return _mktgDiv(n, d); } });
+  const spNote = officeFull ? 'QuickBooks · Advertising & Marketing by branch' : 'Spend entry allocation (provider × office)';
   const METRICS = [
-    { key: 'rev',     group: 'Volume',     label: 'Revenue',          note: 'FieldRoutes · new + upsell revenue by subscription source', rows, cell: rev, fmt: _mktgUsd0, opts },
-    { key: 'spend',   group: 'Volume',     label: 'Ad spend',         note: 'hand-entered allocation (Spend entry), summed across branches', rows, cell: sp, fmt: _mktgUsd0, opts },
-    { key: 'leads',   group: 'Volume',     label: 'Leads',            note: 'hand-entered (Spend entry)', rows, cell: leads, fmt: fmt.int, opts },
-    { key: 'book',    group: 'Volume',     label: 'Bookings',         note: 'FieldRoutes · accounts sold by source', rows, cell: book, fmt: fmt.int, opts },
-    { key: 'cpl',     group: 'Efficiency', label: 'Cost per lead',    note: 'ad spend ÷ leads', rows, cell: (ch, i) => _mktgDiv(sp(ch, i), leads(ch, i)), fmt: _mktgUsd0, opts: { ...opts, total: ratioTotal(sp, leads) } },
-    { key: 'spj',     group: 'Efficiency', label: 'Agency Spend / Job', note: 'ad spend ÷ bookings · goal under ' + fmt.usd0(T.spendPerJob), rows, cell: (ch, i) => _mktgDiv(sp(ch, i), book(ch, i)), fmt: _mktgUsd0, opts: { ...opts, total: ratioTotal(sp, book), cellStyle: gs(T.spendPerJob, (v, g) => v <= g) } },
-    { key: 'roas',    group: 'Efficiency', label: 'ROAS',             note: 'revenue ÷ ad spend · goal ' + T.roas + '+', rows, cell: (ch, i) => _mktgDiv(rev(ch, i), sp(ch, i)), fmt: _mktgX, opts: { ...opts, total: ratioTotal(rev, sp), cellStyle: gs(T.roas, (v, g) => v >= g) } },
-    { key: 'cac',     group: 'Efficiency', label: 'Agency CAC',        note: 'ad spend ÷ revenue (no wages) · goal ' + Math.round(T.adSpendCac * 100) + '%', rows, cell: (ch, i) => _mktgDiv(sp(ch, i), rev(ch, i)), fmt: _mktgPct, opts: { ...opts, total: ratioTotal(sp, rev), cellStyle: gs(T.adSpendCac, (v, g) => v <= g) } },
-    { key: 'revW',    group: 'Mix',        label: 'Revenue weight',   note: 'share of the month’s revenue', rows: channels, cell: (ch, i) => _mktgDiv(rev(ch, i), rev('RIDD', i)), fmt: _mktgPct, opts: wt(rev) },
-    { key: 'spendW',  group: 'Mix',        label: 'Spend weight',     note: 'share of the month’s ad spend', rows: channels, cell: (ch, i) => _mktgDiv(sp(ch, i), sp('RIDD', i)), fmt: _mktgPct, opts: wt(sp) },
-  ];
+    { key: 'rev',    group: 'Volume',     label: 'Revenue',        note: 'FieldRoutes · office staff · new + upsell · pending/serviced · by sold month', rows, cell: rev, fmt: _mktgUsd0, opts },
+    { key: 'book',   group: 'Volume',     label: 'Jobs',           note: 'FieldRoutes · subscriptions sold (new + upsell · pending/serviced)', rows, cell: book, fmt: fmt.int, opts },
+    { key: 'spend',  group: 'Volume',     label: 'Ad spend',       note: spNote, rows, cell: sp, fmt: _mktgUsd0, opts },
+    officeFull ? { key: 'wages', group: 'Volume', label: 'Wages',      note: 'hand-entered (Spend entry)', rows, cell: wg, fmt: _mktgUsd0, opts } : null,
+    officeFull ? { key: 'inc',   group: 'Volume', label: 'Incentives', note: 'hand-entered (Spend entry)', rows, cell: inc, fmt: _mktgUsd0, opts } : null,
+    officeFull ? { key: 'tot',   group: 'Volume', label: 'Total spend', note: 'ad spend + wages + incentives', rows, cell: tot, fmt: _mktgUsd0, opts } : null,
+    leadsOk ? { key: 'leads', group: 'Volume', label: 'Leads', note: 'hand-entered (Spend entry)', rows, cell: leads, fmt: fmt.int, opts } : null,
+    { key: 'roas',   group: 'Efficiency', label: 'ROAS',           note: 'revenue ÷ ad spend · goal ' + T.roas + '+', rows, cell: (rk, i) => _mktgDiv(rev(rk, i), sp(rk, i)), fmt: _mktgX, opts: { ...opts, total: ratioTotal(rev, sp), cellStyle: gs(T.roas, (v, g) => v >= g) } },
+    officeFull ? { key: 'cac', group: 'Efficiency', label: 'CAC', note: 'total spend ÷ revenue', rows, cell: (rk, i) => _mktgDiv(tot(rk, i), rev(rk, i)), fmt: _mktgPct, opts: { ...opts, total: ratioTotal(tot, rev) } } : null,
+    officeFull ? { key: 'cpj', group: 'Efficiency', label: 'Cost/Job', note: 'total spend ÷ jobs', rows, cell: (rk, i) => _mktgDiv(tot(rk, i), book(rk, i)), fmt: _mktgUsd0, opts: { ...opts, total: ratioTotal(tot, book) } } : null,
+    { key: 'spj',    group: 'Efficiency', label: 'Agency Spend / Job', note: 'ad spend ÷ jobs · goal under ' + fmt.usd0(T.spendPerJob), rows, cell: (rk, i) => _mktgDiv(sp(rk, i), book(rk, i)), fmt: _mktgUsd0, opts: { ...opts, total: ratioTotal(sp, book), cellStyle: gs(T.spendPerJob, (v, g) => v <= g) } },
+    { key: 'adcac',  group: 'Efficiency', label: 'Agency CAC %',   note: 'ad spend ÷ revenue · goal ' + Math.round(T.adSpendCac * 100) + '%', rows, cell: (rk, i) => _mktgDiv(sp(rk, i), rev(rk, i)), fmt: _mktgPct, opts: { ...opts, total: ratioTotal(sp, rev), cellStyle: gs(T.adSpendCac, (v, g) => v <= g) } },
+    officeFull ? { key: 'wgcac', group: 'Efficiency', label: 'Wages %', note: 'wages ÷ revenue · goal ' + Math.round(T.wagesCac * 100) + '%', rows, cell: (rk, i) => _mktgDiv(wg(rk, i), rev(rk, i)), fmt: _mktgPct, opts: { ...opts, total: ratioTotal(wg, rev), cellStyle: gs(T.wagesCac, (v, g) => v <= g) } } : null,
+    leadsOk ? { key: 'cpl', group: 'Efficiency', label: 'Cost per lead', note: 'ad spend ÷ leads', rows, cell: (rk, i) => _mktgDiv(sp(rk, i), leads(rk, i)), fmt: _mktgUsd0, opts: { ...opts, total: ratioTotal(sp, leads) } } : null,
+    { key: 'revW',   group: 'Mix',        label: 'Revenue weight', note: 'share of the month’s revenue', rows: leafRows, cell: (rk, i) => _mktgDiv(rev(rk, i), rev(TOTAL, i)), fmt: _mktgPct, opts: wt(rev) },
+    { key: 'spendW', group: 'Mix',        label: 'Spend weight',   note: 'share of the month’s ad spend', rows: leafRows, cell: (rk, i) => _mktgDiv(sp(rk, i), sp(TOTAL, i)), fmt: _mktgPct, opts: wt(sp) },
+  ].filter(Boolean);
+  // Revenue is the default table (per Isaac); a metric that doesn't exist in
+  // the current view (e.g. Wages by provider) falls back to it.
   const cur = METRICS.find(x => x.key === state._mktProvMetric) || METRICS[0];
+  const sel = (val, options, on, extra) => el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer', style: Object.assign({ borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, extra || {}), onchange: (e) => on(e.target.value) }, ...options);
   const groupsL = [...new Set(METRICS.map(x => x.group))];
-  const picker = el('select', {
-    class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
-    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-    onchange: (e) => { state._mktProvMetric = e.target.value; mountApp(); },
-  }, ...groupsL.map(g => el('optgroup', { label: g }, ...METRICS.filter(x => x.group === g).map(x => el('option', { value: x.key, selected: x.key === cur.key }, x.label)))));
-  // Goal + direction per metric (for the bar colouring and the goal line).
-  const GOAL = { spj: { v: T.spendPerJob, better: 'low' }, roas: { v: T.roas, better: 'high' }, cac: { v: T.adSpendCac, better: 'low' } };
-  const lowerIsBetter = cur.key === 'cpl' || cur.key === 'spj' || cur.key === 'cac';
-  // What ranks a provider for the trend chart's "top" cut: the metric's own
-  // volume, or for a ratio the side that drives it (spend for cost ratios,
-  // revenue for ROAS / CAC).
-  const rankBy = { rev, spend: sp, leads, book, cpl: sp, spj: sp, roas: sp, cac: sp, revW: rev, spendW: sp }[cur.key] || rev;
+  const picker = sel(cur.key, groupsL.map(g => el('optgroup', { label: g }, ...METRICS.filter(x => x.group === g).map(x => el('option', { value: x.key, selected: x.key === cur.key }, x.label)))), (v) => { state._mktProvMetric = v; mountApp(); });
+  const toggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+    ...[['provider', 'By provider'], ['office', 'By office']].map(([v, l]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold',
+      style: mode === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)', background: 'var(--card)' },
+      onclick: () => { state._mktMetricsBy = v; mountApp(); } }, l)));
+  const scopeOpts = [[MKTG_ALL, CFG.COMPANY_NAME + ' (all offices)'], ...(_mktgEntities().length > 1 ? _mktgEntities().map(k => [k, companyName(k)]) : []), ...B.all.map(b => [b, _mktgTC(b)])];
+  const filter = mode === 'provider'
+    ? sel(scope, scopeOpts.map(([v, l]) => el('option', { value: v, selected: scope === v }, l)), (v) => { state._mktCacScope = v; mountApp(); })
+    : sel(provF, [el('option', { value: '', selected: !provF }, 'All providers'), ...channels.map(c => el('option', { value: c, selected: provF === c }, c))], (v) => { state._mktMetricsProv = v || null; mountApp(); });
+  const scopeLbl = mode === 'provider' ? (scope === MKTG_ALL ? CFG.COMPANY_NAME : B.byEntity[scope] ? companyName(scope) : _mktgTC(scope)) : (provF || 'all providers');
+  const header = el('div', { class: 'ml-auto flex items-center gap-2 flex-wrap' }, toggle,
+    el('span', { class: 'text-[10px] text-muted-' }, mode === 'provider' ? 'Market' : 'Provider'), filter,
+    el('span', { class: 'text-[10px] text-muted-' }, 'Metric'), picker);
+  const GOAL = { spj: { v: T.spendPerJob, better: 'low' }, roas: { v: T.roas, better: 'high' }, adcac: { v: T.adSpendCac, better: 'low' }, wgcac: { v: T.wagesCac, better: 'low' } };
+  const lowerIsBetter = ['cpl', 'spj', 'adcac', 'cac', 'cpj', 'wgcac'].includes(cur.key);
+  const rankBy = { rev, book, spend: sp, wages: wg, inc, tot, leads, cpl: sp, spj: sp, roas: sp, adcac: sp, cac: tot, cpj: tot, wgcac: wg, revW: rev, spendW: sp }[cur.key] || rev;
   return el('div', { class: 'flex flex-col gap-4' },
-    _mktgMatrixCard(cur.label, cur.note, cur.rows, cur.cell, cur.fmt, { ...cur.opts, headerExtra: el('div', { class: 'ml-auto flex items-center gap-2' }, el('span', { class: 'text-[10px] text-muted-' }, 'Metric'), picker) }),
-    _mktgProvidersViz(cur, { y, channels, rankBy, goal: GOAL[cur.key] || null, lowerIsBetter }));
+    _mktgMatrixCard(cur.label + ' · by ' + mode + ' · ' + scopeLbl, cur.note, cur.rows, cur.cell, cur.fmt, { ...cur.opts, headerExtra: header }),
+    _mktgProvidersViz(cur, { y, channels: leafRows, rankBy, goal: GOAL[cur.key] || null, lowerIsBetter, noun: mode === 'provider' ? 'provider' : 'office', label: opts.label }));
 }
 
 // ── Providers visuals (per Isaac, Sep 2026): two charts under the matrix,
@@ -1174,7 +1207,7 @@ function _mktgProvidersViz(cur, o) {
   const lastMonth = (y === now.getFullYear()) ? now.getMonth() : (y < now.getFullYear() ? 11 : -1);
   const total = (ch) => { if (cur.opts && cur.opts.total) return cur.opts.total(ch); let t = 0, any = false; for (let i = 0; i < 12; i++) { const v = cur.cell(ch, i); if (v != null && isFinite(v)) { t += v; any = true; } } return any ? t : null; };
   const rankVal = (ch) => { let t = 0; for (let i = 0; i < 12; i++) t += rankBy(ch, i) || 0; return t; };
-  const isRatio = !(cur.key === 'rev' || cur.key === 'spend' || cur.key === 'leads' || cur.key === 'book');
+  const isRatio = !['rev', 'spend', 'leads', 'book', 'wages', 'inc', 'tot'].includes(cur.key);
   const isMix = cur.key === 'revW' || cur.key === 'spendW';
   const ytd = channels.map(ch => ({ ch, v: total(ch), rank: rankVal(ch) })).filter(x => x.v != null && isFinite(x.v) && (isRatio ? x.v > 0 || x.rank > 0 : x.v > 0));
   ytd.sort((a, b) => lowerIsBetter ? a.v - b.v : b.v - a.v);
@@ -1198,15 +1231,15 @@ function _mktgProvidersViz(cur, o) {
   const hA = Math.max(160, 26 * ytd.length + 40);
   const rankCard = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, cur.label + ' by provider \u00b7 ' + y + (lastMonth >= 0 && lastMonth < 11 ? ' YTD' : '')),
+      el('div', {}, el('h3', { class: 'text-sm font-bold' }, cur.label + ' by ' + (o.noun || 'provider') + ' \u00b7 ' + y + (lastMonth >= 0 && lastMonth < 11 ? ' YTD' : '')),
         el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, (lowerIsBetter ? 'lower is better' : 'higher is better') + (goal ? ' \u00b7 goal ' + fmtV(goal.v) + ' (line) \u00b7 green meets it, red misses' : '') + ' \u00b7 click a bar to spotlight it in the trend')),
       focus ? el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktProvFocus = null; mountApp(); } }, 'Clear spotlight \u00b7 ' + focus) : null),
     ytd.length ? el('div', { class: 'p-3', style: { height: hA + 'px' } }, el('canvas', { id: idA }))
       : el('div', { class: 'px-4 py-8 text-center text-[11px]', style: { color: 'var(--text-muted)' } }, 'Nothing to chart yet for ' + cur.label.toLowerCase() + ' \u2014 ' + (isRatio ? 'enter ad spend on the Spend entry tab.' : 'no data in ' + y + '.')));
   const trendCard = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-4 py-3 border-b', style: { borderColor: 'var(--border)' } },
-      el('h3', { class: 'text-sm font-bold' }, cur.label + ' by month \u00b7 ' + (focus ? focus + ' vs the top providers' : 'top ' + lineChans.length + ' providers')),
-      el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'ranked by ' + ({ rev: 'revenue', spend: 'ad spend', leads: 'leads', book: 'bookings', cpl: 'ad spend', spj: 'ad spend', roas: 'ad spend', cac: 'ad spend', revW: 'revenue', spendW: 'ad spend' }[cur.key] || 'revenue') + ' in ' + y + (goal ? ' \u00b7 goal dashed' : '') + (isRatio ? ' \u00b7 a month with no spend or no result is left blank' : ''))),
+      el('h3', { class: 'text-sm font-bold' }, cur.label + ' by month \u00b7 ' + (focus ? focus + ' vs the top ' + (o.noun || 'provider') + 's' : 'top ' + lineChans.length + ' ' + (o.noun || 'provider') + 's')),
+      el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'ranked by ' + ({ rev: 'revenue', spend: 'ad spend', leads: 'leads', book: 'jobs', wages: 'wages', inc: 'incentives', tot: 'total spend', cpl: 'ad spend', spj: 'ad spend', roas: 'ad spend', adcac: 'ad spend', cac: 'total spend', cpj: 'total spend', wgcac: 'wages', revW: 'revenue', spendW: 'ad spend' }[cur.key] || 'revenue') + ' in ' + y + (goal ? ' \u00b7 goal dashed' : '') + (isRatio ? ' \u00b7 a month with no spend or no result is left blank' : ''))),
     lineChans.length && monthsShown.length ? el('div', { class: 'p-3', style: { height: '280px' } }, el('canvas', { id: idB }))
       : el('div', { class: 'px-4 py-8 text-center text-[11px]', style: { color: 'var(--text-muted)' } }, 'No months to chart yet.'));
 
@@ -1441,7 +1474,7 @@ function reportingMarketingPnl() {
   // CAC moved under Metrics (was Providers), per Isaac, Sep 30.
   if (state._mktSub === 'cac') { state._mktSub = 'providers'; state._mktProvView = 'cac'; }
   if (state._mktSub === 'acq') state._mktSub = 'providers';
-  const sub = ['pnl', 'providers', 'spend', 'projections'].includes(state._mktSub) ? state._mktSub : 'pnl';
+  const sub = ['pnl', 'providers', 'spend', 'projections'].includes(state._mktSub) ? state._mktSub : 'providers';   // Metrics opens first (per Isaac)
   // Metrics (per Isaac, Sep 30): CAC on the page; Lead providers and Lead
   // reconciliation are buttons to the right of the Office dropdown.
   // Lead providers now sits directly under the CAC table (per Isaac, Sep 30).
