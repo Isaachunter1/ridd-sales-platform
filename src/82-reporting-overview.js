@@ -637,7 +637,7 @@ function reportingOverview() {
     // Sales Report): Sold = initial Pending or Completed (FieldRoutes'
     // "Pending / Serviced"); one-time services and renewal sources are OUT by
     // default, each a toggle to add back as extra production.
-    const inclOne = !!state._pulseInclOneTime, inclRen = !!state._pulseInclRenewal;
+    const inclOne = false, inclRen = false;   // toggles retired (per Isaac, Sep 30): Sold / Serviced = new recurring production only
     const _ex = { notStarted: { n: 0, v: 0 }, ren: { n: 0, v: 0 }, one: { n: 0, v: 0 } };   // what Sold left out, for the ⓘ
     const _recMap = reportingServiceRecurringMap();
     const _isRec = (r) => reportingRecurringMode() === 'arv' ? (Number(r.annual_recurring_value) || 0) > 0 : !!_recMap.get(r.subscription);
@@ -733,12 +733,6 @@ function reportingOverview() {
     const openWindow = (kind) => openPulseDayDrill(winLabel, winLong, { sold: flat(soldRows), svc: flat(svcRows), cxl: flat(cxlRows) }, kind);
     const unitBtn = (v, l) => el('button', { type: 'button', 'data-active': String((state._pulseUnit === 'subs') === (v === 'subs')), onclick: () => { state._pulseUnit = v; mountApp(); } }, l);
     const unitToggle = el('div', { class: 'pill-tabs' }, unitBtn('rev', 'Revenue'), unitBtn('subs', 'Subs'));
-    const addBtn = (k, l, tip) => el('button', { type: 'button', class: 'rounded-full border px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap', title: tip,
-      style: state[k] ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)', color: 'var(--text-muted)', background: 'var(--card)' },
-      onclick: () => { state[k] = !state[k]; mountApp(); } }, (state[k] ? '✓ ' : '+ ') + l);
-    const addToggles = el('div', { class: 'flex items-center gap-1.5' },
-      addBtn('_pulseInclOneTime', 'One-time', 'Add one-time services to Sold / Serviced (never churn)'),
-      addBtn('_pulseInclRenewal', 'Renewals', 'Add renewal-source subscriptions to Sold / Serviced — revenue we already had, re-contracted. Renewals that cancel ALWAYS count in Churned.'));
     // ⓘ math breakdown for the selected window (per Isaac, Sep 30).
     const pulseInfo = (() => {
       const f = (v) => unitSubs ? fmt.int(v) : fmt.usd0(v);
@@ -752,14 +746,14 @@ function reportingOverview() {
         'SOLD = ' + f(S1) + ' (' + subsW(cnt(soldRows)) + ')',
         '  Subscriptions SOLD in the window (sold date) whose initial appointment is Pending or Completed — FieldRoutes’ “Pending / Serviced” Sales Report.' + (unitSubs ? '' : ' Value = contract value (12-month basis).'),
         '  Left out: ' + fv(_ex.notStarted) + ' never started (No Appointment / Cancelled / No Show initial)'
-          + (inclRen ? '' : ' · ' + fv(_ex.ren) + ' renewals (revenue we already had, re-contracted — “+ Renewals” adds them)')
-          + (inclOne ? '' : ' · ' + fv(_ex.one) + ' one-time services (“+ One-time” adds them)') + '.',
+          + ' · ' + fv(_ex.ren) + ' renewals (revenue we already had, re-contracted)'
+          + ' · ' + fv(_ex.one) + ' one-time services (not recurring).',
         '',
         'SERVICED = ' + f(S2) + ' (' + subsW(cnt(svcRows)) + ')',
-        '  Subscriptions whose FIRST service was completed in the window (initial service date) — the ARR that actually entered the book. Same renewal / one-time rules as Sold.' + (unitSubs ? '' : ' Value = annual recurring value.'),
+        '  Subscriptions whose FIRST service was completed in the window (initial service date) — the ARR that actually entered the book. Renewals and one-time services left out, same as Sold.' + (unitSubs ? '' : ' Value = annual recurring value.'),
         '',
         'CHURNED = ' + f(S3) + ' (' + subsW(cnt(cxlRows)) + ')',
-        '  Recurring subscriptions CANCELLED in the window (cancel date) — renewals included, always, whatever the toggles. One-time services never count, and cancel reasons excluded in Configurations (e.g. combined into another subscription) don’t either.' + (unitSubs ? '' : ' Value = annual recurring value.'),
+        '  Recurring subscriptions CANCELLED in the window (cancel date) — renewals included. One-time services never count, and cancel reasons excluded in Configurations (e.g. combined into another subscription) don’t either.' + (unitSubs ? '' : ' Value = annual recurring value.'),
         '',
         'NET = Serviced − Churned = ' + f(S2) + ' − ' + f(S3) + ' = ' + (N < 0 ? '−' : '') + f(Math.abs(N)),
         '  What the recurring book gained. Sold minus Serviced (' + (S1 - S2 < 0 ? '−' : '') + f(Math.abs(S1 - S2)) + ') is timing (sold but not yet serviced, or serviced this window from an earlier sale)' + (unitSubs ? '.' : ' plus initial charges, which are in contract value but not in ARR.'),
@@ -789,7 +783,7 @@ function reportingOverview() {
           spanRaw === 'custom' ? el('div', { class: 'flex items-center gap-1' },
             ...[['_rtPulseFrom', rFrom], ['_rtPulseTo', rTo]].map(([k, v], j) => [j ? el('span', { class: 'text-[11px] text-muted-' }, '→') : null,
               el('input', { type: 'date', value: v, class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { state[k] = e.target.value; mountApp(); } })]).flat().filter(Boolean)) : null,
-          addToggles, unitToggle)),
+          unitToggle)),
       cvsWrap);
   })();
 
