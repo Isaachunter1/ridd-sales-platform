@@ -1633,9 +1633,15 @@ exports.handler = async (event) => {
             if (cancelled) { upd.lock_status = 'chargeback'; upd.audit_2_at = stamp; }
             else if (s.queue_type === 'd2d') {
               // Sales Reps (per Isaac, Sep 23): every account sold in a year locks on
-              // Jan 31 of the FOLLOWING year, always — services completed don't matter.
+              // Jan 31 of the FOLLOWING year, always. Plus (Sep 30) any indications
+              // set in the Sales Reps column of Backend lock — AL2.backend.d2d;
+              // all default OFF, so the Jan 31 rule alone applies until set.
               const sy = Number(String(s.sold_date || '').slice(0, 4)) || new Date(today).getFullYear();
-              if (today >= Date.UTC(sy + 1, 0, 31)) { upd.lock_status = 'lock'; upd.audit_2_at = stamp; }
+              const _bd = (AL2.backend || {}).d2d || {};
+              const dDays = Math.max(0, Number(_bd.min_days) || 0), dSvc = Math.max(0, Number(_bd.min_services) || 0), dDpd = Math.max(0, Number(_bd.max_dpd) || 0);
+              const dAfter = Math.max(0, completed - (serviced ? 1 : 0));
+              const dOk = ageDays >= dDays && dAfter >= dSvc && !(dDpd > 0 && dpd >= dDpd) && (!_bd.autopay || hasBilling) && (!_bd.signed || signed || oneTime);
+              if (today >= Date.UTC(sy + 1, 0, 31) && dOk) { upd.lock_status = 'lock'; upd.audit_2_at = stamp; }
             }
             else {
               // Inside Sales / Technicians backend (per Isaac, Sep 23): the
