@@ -30,10 +30,10 @@ const _attrAddDays = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setD
 // Column auto-detect from the header row.
 const ATTR_FIELDS = [
   ['date', 'Lead date', /date|created|received|submitted|time/i],
-  ['name', 'Full name', /^(full ?name|name|customer|customer name|contact|contact name|lead name)$/i],
+  ['name', 'Full name', /^(full ?name|name|customer|customer name|contact|contact name|lead name|caller|caller name|consumer name|homeowner|homeowner name)$/i],
   ['first', 'First name', /first/i],
   ['last', 'Last name', /last|surname/i],
-  ['phone', 'Phone', /phone|mobile|cell|tel/i],
+  ['phone', 'Phone', /phone|mobile|cell|tel|caller ?id|caller ?number|\bani\b/i],
   ['email', 'Email', /e-?mail/i],
   ['zip', 'ZIP', /zip|postal/i],
   ['id', 'Lead ID', /lead ?id|^id$|reference|ref/i],
@@ -54,7 +54,7 @@ async function _attrLoad() {
     if (error || !data) { state._attr = { files: [] }; }
     else {
       const txt = await new Response(data.stream().pipeThrough(new DecompressionStream('gzip'))).text();
-      const j = JSON.parse(txt); state._attr = { files: Array.isArray(j.files) ? j.files : [] };
+      const j = JSON.parse(txt); state._attr = { files: Array.isArray(j.files) ? j.files : [], maps: (j.maps && typeof j.maps === 'object') ? j.maps : {}, reconciledKey: j.reconciledKey || null, reconciledAt: j.reconciledAt || null, reconciledBy: j.reconciledBy || null };
     }
   } catch (e) { state._attr = { files: [] }; }
   mountApp();
@@ -62,7 +62,7 @@ async function _attrLoad() {
 async function _attrSave() {
   if (!supabase || (typeof DEMO !== 'undefined' && DEMO)) return;
   try {
-    const blob = await new Response(new Blob([JSON.stringify({ files: state._attr.files, savedAt: new Date().toISOString() })]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
+    const blob = await new Response(new Blob([JSON.stringify({ files: state._attr.files, maps: state._attr.maps || {}, reconciledKey: state._attr.reconciledKey || null, reconciledAt: state._attr.reconciledAt || null, reconciledBy: state._attr.reconciledBy || null, savedAt: new Date().toISOString() })]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
     const { error } = await supabase.storage.from('reporting').upload(ATTR_PATH, blob, { contentType: 'application/gzip', upsert: true });
     if (error) toast('Could not save uploads: ' + error.message, 'error');
   } catch (e) { toast('Could not save uploads: ' + (e.message || e), 'error'); }
@@ -211,15 +211,31 @@ async function _attrUpload(files, sources) {
   state._attrPending = state._attrPending || [];
   for (const file of list) {
     try {
+      // EVERY tab of a workbook is its own upload (per Isaac, Sep 30): DoLead's
+      // disposition report has a Calls tab and a Forms tab with different
+      // column names, so each tab gets its own column mapping.
       const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', raw: true });
-      if (!rows.length) { toast('No rows found in ' + file.name, 'error'); continue; }
-      const headers = Object.keys(rows[0]);
-      state._attrPending.push({ key: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), provider: _attrGuessProvider(file.name, sources) || state._attrUpProv || '', fileName: file.name, headers, rows, map: _attrGuessMap(headers) });
+      const provider = _attrGuessProvider(file.name, sources) || state._attrUpProv || '';
+      let any = false;
+      for (const sheet of wb.SheetNames) {
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheet], { defval: '', raw: true });
+        if (!rows.length) continue;
+        any = true;
+        const headers = Object.keys(rows[0]);
+        const multi = wb.SheetNames.length > 1;
+        // A mapping confirmed before for this provider + these same columns is reused.
+        const saved = provider && state._attr && state._attr.maps ? state._attr.maps[_attrMapKey(provider, headers)] : null;
+        state._attrPending.push({ key: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), provider, fileName: multi ? file.name + ' · ' + sheet : file.name, sheet, headers, rows,
+          map: saved ? Object.fromEntries(Object.entries(saved).filter(([, h]) => headers.includes(h))) : _attrGuessMap(headers), remembered: !!saved });
+      }
+      if (!any) toast('No rows found in ' + file.name, 'error');
     } catch (e) { toast('Could not read ' + file.name + ': ' + (e.message || e), 'error'); }
   }
   mountApp();
 }
+// Column mappings are remembered per provider + set of column names, so the
+// same report (or the same DoLead tab) maps itself next time.
+function _attrMapKey(provider, headers) { return String(provider) + '|' + [...headers].map(h => String(h).trim().toLowerCase()).sort().join('\u0001'); }
 function _attrPendingProblem(P) {
   if (!P.provider) return 'pick the provider';
   if (!P.map.date) return 'map the lead date column';
@@ -240,14 +256,24 @@ function _attrCommitPending() {
     const dates = leads.map(l => l.date).filter(Boolean).sort();
     const f = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), provider: P.provider, fileName: P.fileName, uploadedAt: new Date().toISOString(), uploadedBy: state.profile && state.profile.full_name, from: dates[0] || null, to: dates[dates.length - 1] || null, leads };
     state._attr.files.push(f); added.push(f);
+    state._attr.maps = state._attr.maps || {};
+    state._attr.maps[_attrMapKey(P.provider, P.headers)] = { ...P.map };
   }
   state._attrPending = null;
+  // No reconciliation yet (per Isaac, Sep 30): add every report first, then
+  // press "Reconcile all reports" so last touch runs across the full set.
   _attrSave();
-  const rec = _attrReconcile();
-  const per = added.map(f => ({ provider: f.provider, fileName: f.fileName, ...(_attrStats(rec.filter(l => l.fileId === f.id))) }));
-  const tot = per.reduce((t, x) => ({ leads: t.leads + x.leads, closes: t.closes + x.closes, closeValue: t.closeValue + x.closeValue, fixes: t.fixes + x.fixes }), { leads: 0, closes: 0, closeValue: 0, fixes: 0 });
-  state._attrLastUpload = { per, ...tot, organicFixes: rec.filter(l => l.status === 'toorganic').length };
-  toast(per.length + ' file' + (per.length === 1 ? '' : 's') + ': ' + tot.leads.toLocaleString() + ' leads · ' + tot.closes.toLocaleString() + ' closes · ' + (tot.fixes + state._attrLastUpload.organicFixes).toLocaleString() + ' fixes', 'success'); mountApp();
+  toast(added.length + ' report' + (added.length === 1 ? '' : 's') + ' added (' + added.reduce((t, f) => t + f.leads.length, 0).toLocaleString() + ' leads) — press Reconcile when every report is in', 'success'); mountApp();
+}
+const _attrFilesKey = (files) => (files || []).map(f => f.id).sort().join(',');
+function _attrRunReconcile() {
+  const A = state._attr; if (!A || !A.files.length) return;
+  A.reconciledKey = _attrFilesKey(A.files); A.reconciledAt = new Date().toISOString(); A.reconciledBy = state.profile && state.profile.full_name;
+  state._attrStatus = 'fix';
+  _attrSave();
+  const rec = _attrReconcile(); const st = _attrStats(rec);
+  toast('Reconciled ' + A.files.length + ' reports: ' + st.leads.toLocaleString() + ' leads · ' + st.closes.toLocaleString() + ' closes · ' + st.fixes.toLocaleString() + ' fixes', 'success');
+  mountApp();
 }
 
 async function _attrExport(rows) {
@@ -291,9 +317,9 @@ function mktgAttributionView() {
       return el('div', { class: 'border rounded-lg p-3 flex flex-col gap-2', style: { borderColor: prob ? '#DC2626' : 'var(--border)' } },
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
           el('span', { class: 'text-[12px] font-bold' }, P.fileName), el('span', { class: 'text-[11px]', style: muted }, P.rows.length.toLocaleString() + ' rows →'),
-          el('select', { class: btn, style: { borderColor: P.provider ? 'var(--border-2)' : '#DC2626', background: 'var(--card)' }, onchange: (e) => { P.provider = e.target.value; mountApp(); } },
+          el('select', { class: btn, style: { borderColor: P.provider ? 'var(--border-2)' : '#DC2626', background: 'var(--card)' }, onchange: (e) => { P.provider = e.target.value; const sv = P.provider && state._attr && state._attr.maps ? state._attr.maps[_attrMapKey(P.provider, P.headers)] : null; if (sv) { P.map = Object.fromEntries(Object.entries(sv).filter(([, h]) => P.headers.includes(h))); P.remembered = true; } mountApp(); } },
             el('option', { value: '' }, 'Provider…'), ...sources.map(x => el('option', { value: x, selected: P.provider === x }, x))),
-          prob ? el('span', { class: 'text-[11px] font-semibold', style: { color: '#DC2626' } }, 'Needs: ' + prob) : el('span', { class: 'text-[11px]', style: { color: 'var(--ok)' } }, 'Ready'),
+          prob ? el('span', { class: 'text-[11px] font-semibold', style: { color: '#DC2626' } }, 'Needs: ' + prob) : el('span', { class: 'text-[11px]', style: { color: 'var(--ok)' } }, 'Ready' + (P.remembered ? ' · columns remembered from last time' : '')),
           el('button', { class: 'ml-auto text-[11px] font-semibold', style: { color: '#A9441F' }, onclick: () => { state._attrPending = PL.filter(x => x !== P); if (!state._attrPending.length) state._attrPending = null; mountApp(); } }, 'Remove')),
         el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' } },
           ...ATTR_FIELDS.map(([k, label]) => el('label', { class: 'flex flex-col gap-1 text-[9px] uppercase tracking-wider font-semibold', style: muted }, label,
@@ -301,17 +327,28 @@ function mktgAttributionView() {
               el('option', { value: '' }, '— none —'), ...P.headers.map(h => el('option', { value: h, selected: P.map[k] === h }, h)))))),
         el('div', { class: 'text-[10px]', style: muted }, 'First row: ' + ATTR_FIELDS.filter(([k]) => P.map[k]).map(([k, lbl]) => lbl + ' = ' + (k === 'date' ? (_attrDate(P.rows[0][P.map[k]]) || '⚠ unreadable date') : String(P.rows[0][P.map[k]] ?? ''))).join(' · ')));
     })) : null;
-  const leadsAll = A.files.length ? _attrReconcile() : [];
+  const reconciled = !!A.files.length && A.reconciledKey === _attrFilesKey(A.files);
+  const leadsAll = reconciled ? _attrReconcile() : [];
+  // The Reconcile step: nothing is matched until every report is in and this is pressed.
+  const provsIn = [...new Set(A.files.map(f => f.provider))].sort();
+  const dates = A.files.flatMap(f => [f.from, f.to]).filter(Boolean).sort();
+  const reconcileCard = A.files.length ? el('div', { class: 'card p-4 flex items-center gap-3 flex-wrap', style: reconciled ? {} : { borderColor: 'var(--accent)' } },
+    el('div', { class: 'flex flex-col gap-0.5 min-w-0' },
+      el('div', { class: 'text-sm font-bold' }, reconciled ? 'Reconciled · ' + A.files.length + ' report' + (A.files.length === 1 ? '' : 's') : A.files.length + ' report' + (A.files.length === 1 ? '' : 's') + ' ready to reconcile'),
+      el('div', { class: 'text-[11px]', style: muted }, provsIn.join(', ') + ' · leads ' + (dates[0] || '?') + ' → ' + (dates[dates.length - 1] || '?') + ' · ' + A.files.reduce((t, f) => t + (f.leads || []).length, 0).toLocaleString() + ' leads'
+        + (reconciled ? ' · run ' + new Date(A.reconciledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + (A.reconciledBy ? ' by ' + A.reconciledBy : '') : A.reconciledKey ? ' · reports changed since the last reconcile' : ''))),
+    el('button', { class: btn + ' ml-auto', style: reconciled ? { borderColor: 'var(--border-2)' } : primary, onclick: () => _attrRunReconcile() }, reconciled ? '↻ Re-run reconcile' : 'Reconcile all reports →')) : null;
   // Uploaded files
   const filesCard = A.files.length ? el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-4 py-2 border-b text-[10px] uppercase tracking-widest font-semibold', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } }, 'Uploaded lead files'),
     ...A.files.map(f => el('div', { class: 'flex items-center gap-3 px-4 py-1.5 border-t text-[11px]', style: { borderColor: 'var(--border)' } },
       el('span', { class: 'font-semibold', style: { minWidth: '140px' } }, f.provider), el('span', { class: 'flex-1 min-w-0 truncate' }, f.fileName),
-      (() => { const st = _attrStats(leadsAll.filter(l => l.fileId === f.id)); return el('span', { class: 'font-semibold' }, st.leads.toLocaleString() + ' leads · ' + st.closes.toLocaleString() + ' closes · ' + st.fixes.toLocaleString() + ' fixes'); })(),
+      (() => { if (!reconciled) return el('span', { class: 'font-semibold' }, (f.leads || []).length.toLocaleString() + ' leads'); const st = _attrStats(leadsAll.filter(l => l.fileId === f.id)); return el('span', { class: 'font-semibold' }, st.leads.toLocaleString() + ' leads · ' + st.closes.toLocaleString() + ' closes · ' + st.fixes.toLocaleString() + ' fixes'); })(),
       el('span', { style: muted }, (f.from || '?') + ' → ' + (f.to || '?') + ' · uploaded ' + new Date(f.uploadedAt).toLocaleDateString() + (f.uploadedBy ? ' by ' + f.uploadedBy : '')),
       el('button', { class: 'text-[11px] font-semibold', style: { color: '#A9441F' }, onclick: () => { if (!confirm('Remove ' + f.fileName + '?')) return; A.files = A.files.filter(x => x.id !== f.id); _attrSave(); mountApp(); } }, 'Remove')))) : null;
   if (!A.files.length) return el('div', { class: 'flex flex-col gap-4' }, upload, mapping,
-    el('div', { class: 'card p-6 text-[11px] text-center', style: muted }, 'Upload a provider’s lead report (CSV or Excel) to reconcile it against FieldRoutes.'));
+    el('div', { class: 'card p-6 text-[11px] text-center', style: muted }, 'Upload every provider’s lead report (CSV or Excel), then press Reconcile to match them all against FieldRoutes.'));
+  if (!reconciled) return el('div', { class: 'flex flex-col gap-4' }, upload, mapping, reconcileCard, filesCard);
   const leads = leadsAll;
   const provFilter = state._attrProv || 'all';
   const inProv = leads.filter(l => provFilter === 'all' || l.provider === provFilter);
@@ -373,14 +410,14 @@ function mktgAttributionView() {
         td2(x.fixes.toLocaleString(), x.fixes ? { color: '#DC2626', fontWeight: '700' } : { color: 'var(--ok)' }))),
         el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } }, td2('Total', { fontWeight: '700' }), td2(tot.leads.toLocaleString(), { fontWeight: '700' }), td2(tot.closes.toLocaleString(), { fontWeight: '700' }),
           td2(tot.leads ? (Math.round(tot.closes / tot.leads * 1000) / 10) + '%' : '—', { fontWeight: '700' }), td2(fmt.usd0(tot.closeValue), { fontWeight: '700' }), td2(tot.fixes.toLocaleString(), { fontWeight: '700', color: tot.fixes ? '#DC2626' : 'var(--ok)' })))));
-  const U = state._attrLastUpload;
+  const U = null;
   const lastUp = U && U.per ? el('div', { class: 'card px-4 py-2 flex flex-col gap-1 text-[12px]', style: { borderColor: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 8%, var(--card))' } },
     el('div', { class: 'flex items-center gap-3' },
       el('span', { class: 'font-bold' }, 'Just uploaded · ' + U.per.length + ' file' + (U.per.length === 1 ? '' : 's')),
       el('span', { class: 'font-semibold' }, U.leads.toLocaleString() + ' leads · ' + U.closes.toLocaleString() + ' closes (' + fmt.usd0(U.closeValue) + ') · ' + U.fixes.toLocaleString() + ' fixes + ' + (U.organicFixes || 0).toLocaleString() + ' to Organic'),
       el('button', { class: 'ml-auto text-[11px]', style: muted, onclick: () => { state._attrLastUpload = null; mountApp(); } }, '✕')),
     ...(U.per.length > 1 ? U.per.map(x => el('div', { class: 'text-[11px]', style: muted }, x.provider + ' · ' + x.fileName + ' — ' + x.leads.toLocaleString() + ' leads · ' + x.closes.toLocaleString() + ' closes · ' + x.fixes.toLocaleString() + ' fixes')) : [])) : null;
-  return el('div', { class: 'flex flex-col gap-4' }, upload, mapping, lastUp, summary,
+  return el('div', { class: 'flex flex-col gap-4' }, upload, mapping, reconcileCard, summary,
     el('div', { class: 'flex items-center gap-2 flex-wrap' }, el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Provider'), provPick, closeLine),
     tiles, table, filesCard);
 }
