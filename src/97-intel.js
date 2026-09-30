@@ -130,11 +130,7 @@ function intelSellerRisk() {
 // ── 2. Retained revenue (leaderboards) ───────────────────────────────────
 // For the D2D board: share of contract value in the range that has NOT
 // cancelled (real cancels only). Reads the same raw rows the board uses.
-function intelRetainedShare(rows) {
-  let cv = 0, kept = 0;
-  rows.forEach(s => { const v = Number(s.contractValue) || 0; cv += v; if (!(typeof _subCancelledNow === 'function' ? _subCancelledNow(s) : (s.cancelDate || s.active === 'No')) || (typeof _isExcludableCancel === 'function' && _isExcludableCancel(s))) kept += v; });
-  return { cv, kept, rate: cv ? kept / cv : null };
-}
+// (intelRetainedShare removed — unreferenced; settings audit, Sep 30)
 
 // ── 3. Source unit economics (Putis Shid) ───────────────────────────────
 // Per source, last 12 months: new accounts, avg ARR, 12-month retention,
@@ -143,79 +139,10 @@ function intelRetainedShare(rows) {
 // app_settings.source_spend, monthly $) → CAC and LTV:CAC. Ad-platform
 // spend can't be mapped to a FieldRoutes source automatically, so this is
 // deliberately manual until the mapping exists.
-function intelSourceEconomicsCard() {
-  const rows = _intelRows();
-  if (!rows.length) return null;
-  if (state._sourceSpend === undefined) {
-    state._sourceSpend = null;
-    supabase.from('app_settings').select('value').eq('key', 'source_spend').maybeSingle().then(({ data }) => { state._sourceSpend = (data && data.value) || {}; mountApp(); });
-  }
-  const spend = state._sourceSpend || {};
-  const saveSpend = async (src, v) => {
-    const next = { ...spend }; if (v > 0) next[src] = v; else delete next[src];
-    state._sourceSpend = next;
-    const { error } = await supabase.from('app_settings').upsert({ key: 'source_spend', value: next }, { onConflict: 'key' });
-    if (error) toast('Could not save: ' + error.message, 'error'); else mountApp();
-  };
-  const since = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
-  const recent = rows.filter(x => x.sold >= since);
-  const g = new Map(); recent.forEach(x => { (g.get(x.source) || g.set(x.source, []).get(x.source)).push(x); });
-  const ents = [...g.entries()].map(([src, list]) => {
-    const r12 = _intelRetain(list, 365), r3 = _intelRetain(list, 90);
-    const avgArv = list.length ? list.reduce((a, x) => a + x.arv, 0) / list.length : 0;
-    const churn = r12.rate == null ? (r3.rate == null ? null : Math.min(1, (1 - r3.rate) * 4)) : 1 - r12.rate;   // annualise 90-day when 12-mo not judgeable yet
-    const life = churn == null ? null : (churn <= 0 ? 8 : Math.min(8, 1 / churn));
-    const ltv = life == null ? null : avgArv * life;
-    const monthly = Number(spend[src]) || 0;
-    const cac = monthly > 0 && list.length ? (monthly * 12) / list.length : null;
-    return { src, n: list.length, arv: list.reduce((a, x) => a + x.arv, 0), avgArv, r3: r3.rate, r12: r12.rate, est: r12.rate == null, life, ltv, monthly, cac, ratio: cac && ltv ? ltv / cac : null };
-  }).sort((a, b) => b.n - a.n);
-  const pct = (v) => v == null ? '—' : Math.round(v * 100) + '%';
-  const th = (t, right) => el('th', { class: 'px-3 py-2 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0 } }, t);
-  const td = (v, o = {}) => el('td', { class: 'px-3 py-1.5 tabular-nums whitespace-nowrap ' + (o.right ? 'text-right' : '') + (o.bold ? ' font-semibold' : ''), style: o.style || {} }, v);
-  return el('div', { class: 'card p-4 flex flex-col gap-3' },
-    el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
-      el('div', {}, el('div', { class: 'text-sm font-bold', title: 'New recurring accounts in the last 12 months by source \u00b7 LTV = avg ARR \u00d7 (1 \u00f7 annual churn, max 8 yrs) \u00b7 type monthly spend to get CAC \u00b7 ~ = 12-month retention annualised from 90-day' }, 'Source economics'))),
-    // Source column frozen while the numbers swipe (per Isaac).
-    el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '460px' } }, el('table', { class: 'w-full text-xs frozen-table' },
-      el('thead', {}, el('tr', {}, th('Source'), th('New accts', true), th('Avg ARR', true), th('Ret 90d', true), th('Ret 12mo', true), th('Lifetime', true), th('LTV', true), th('Spend / mo', true), th('CAC', true), th('LTV : CAC', true))),
-      el('tbody', {}, ...ents.map(e => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-        td(e.src, { bold: true }), td(e.n.toLocaleString(), { right: true }), td(fmt.usd0(e.avgArv), { right: true }),
-        td(pct(e.r3), { right: true }), td((e.est ? '~' : '') + pct(e.r12 == null ? (e.r3 == null ? null : 1 - Math.min(1, (1 - e.r3) * 4)) : e.r12), { right: true }),
-        td(e.life == null ? '—' : e.life.toFixed(1) + ' yrs', { right: true }), td(e.ltv == null ? '—' : fmt.usd0(e.ltv), { right: true, bold: true }),
-        el('td', { class: 'px-3 py-1 text-right' }, el('input', { type: 'number', min: '0', step: '100', value: e.monthly || '', placeholder: '$', class: 'rounded-lg border px-2 py-0.5 text-[11px] tabular-nums text-right', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '84px' }, onchange: (ev) => saveSpend(e.src, Number(ev.target.value) || 0) })),
-        td(e.cac == null ? '—' : fmt.usd0(e.cac), { right: true }),
-        td(e.ratio == null ? '—' : e.ratio.toFixed(1) + '×', { right: true, bold: true, style: e.ratio == null ? {} : { color: e.ratio >= 3 ? '#5F6C5B' : e.ratio >= 1.5 ? '#A9441F' : '#DC2626' } })))))));
-}
+// (intelSourceEconomicsCard removed — unreferenced; settings audit, Sep 30)
 
 // ── 4. Add-on performance (pricing intelligence) ────────────────────────
 // Reads upsell rows (sale_kind = 'upsell') once the FieldRoutes add-on
 // switch is on: per item — sold, avg price, who sells it, and whether
 // accounts WITH the add-on retain better than the book without it.
-function intelAddonCard() {
-  const ups = ((state.allSales || []).concat(...Object.values(state.queueSales || {}))).filter(s => s.sale_kind === 'upsell');
-  const rows = _intelRows();
-  const byCust = new Map(); rows.forEach(x => { if (x.customer) (byCust.get(x.customer) || byCust.set(x.customer, []).get(x.customer)).push(x); });
-  const g = new Map();
-  ups.forEach(s => { const k = nameFromId(state.serviceTypes, s.service_type_id) || s.crm_subscription || 'Add-on'; (g.get(k) || g.set(k, []).get(k)).push(s); });
-  const items = [...g.entries()].map(([k, list]) => {
-    const rev = list.reduce((a, s) => a + (Number(s.revenue_amount) || 0), 0);
-    const custs = new Set(list.map(s => String(s.customer_number || '')).filter(Boolean));
-    const withRows = []; custs.forEach(c => (byCust.get(c) || []).forEach(x => withRows.push(x)));
-    const sellers = new Map(); list.forEach(s => { const n = ((state.allProfiles || []).find(p => p.id === s.rep_id) || {}).full_name || '—'; sellers.set(n, (sellers.get(n) || 0) + 1); });
-    const top = [...sellers.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([n, c]) => n + ' (' + c + ')').join(', ');
-    return { k, n: list.length, rev, avg: list.length ? rev / list.length : 0, custs: custs.size, ret: _intelRetain(withRows, 90).rate, top };
-  }).sort((a, b) => b.rev - a.rev);
-  const baseRet = _intelRetain(rows.filter(x => x.sold >= new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10)), 90).rate;
-  const pct = (v) => v == null ? '—' : Math.round(v * 100) + '%';
-  const th = (t, right) => el('th', { class: 'px-3 py-2 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
-  const td = (v, o = {}) => el('td', { class: 'px-3 py-1.5 tabular-nums whitespace-nowrap ' + (o.right ? 'text-right' : '') + (o.bold ? ' font-semibold' : '') }, v);
-  return el('div', { class: 'card p-4 flex flex-col gap-3' },
-    el('div', {}, el('div', { class: 'text-sm font-bold' }, 'Add-on performance'),
-      el('div', { class: 'text-[11px] text-muted-' }, items.length ? 'Every add-on sold as a FieldRoutes ticket item · 90-day retention of accounts with the add-on vs ' + pct(baseRet) + ' for the book' : 'Fills in once add-ons are sold as ticket items in FieldRoutes and Upsells is set to Automatic in Configurations.')),
-    items.length ? el('div', { style: { overflow: 'auto' } }, el('table', { class: 'w-full text-xs' },
-      el('thead', {}, el('tr', {}, th('Add-on'), th('Sold', true), th('Revenue', true), th('Avg price', true), th('Accounts', true), th('Ret 90d w/ add-on', true), th('Top sellers'))),
-      el('tbody', {}, ...items.map(e => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-        td(e.k, { bold: true }), td(String(e.n), { right: true }), td(fmt.usd0(e.rev), { right: true }), td(fmt.usd0(e.avg), { right: true }), td(String(e.custs), { right: true }),
-        td(pct(e.ret), { right: true, bold: true }), td(e.top)))))) : null);
-}
+// (intelAddonCard removed — unreferenced; settings audit, Sep 30)

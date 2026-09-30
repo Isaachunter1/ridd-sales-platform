@@ -1773,10 +1773,7 @@ function reportingRecurringMode() {
   // list no longer decides what counts as recurring.
   return 'arv';
 }
-function setReportingRecurringMode(m) {
-  _setAdminRule('recurringMode', m === 'arv' ? 'arv' : 'lifecycle');
-  try { localStorage.setItem('ridd_reporting_recurring_mode', m === 'arv' ? 'arv' : 'lifecycle'); } catch {}
-}
+// (setReportingRecurringMode removed — unreferenced; settings audit, Sep 30)
 
 // ── Reporting rules (locally-persisted settings; defaults preserve behavior) ──
 // Optional Active ARR step 9 (per Isaac, Sep 29) — OFF by default: leave out
@@ -1932,7 +1929,7 @@ function retenPopulationExcluded(r) {
 // Always off (per Isaac, Sep 30): "Subscriptions Active" is recurring only —
 // one-time subs never count. No longer configurable.
 function reportingActiveInclOneTime() { return false; }
-function setReportingActiveInclOneTime(b) { _setAdminRule('activeInclOneTime', !!b); try { localStorage.setItem('ridd_rpt_active_onetime', b ? '1' : '0'); } catch {} }
+// (setReportingActiveInclOneTime removed — unreferenced; settings audit, Sep 30)
 function reportingExcludedBranches() {
   const r = _adminRules(); if (r && Array.isArray(r.excludedBranches)) return new Set(r.excludedBranches);
   return new Set(); }

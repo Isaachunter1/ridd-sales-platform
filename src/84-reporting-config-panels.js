@@ -345,7 +345,7 @@ const MKTG_HIDE = '__hide';
 function reportingSourceProviderMap() { const r = (typeof _adminRules === 'function') ? _adminRules() : null; return (r && r.sourceProvider && typeof r.sourceProvider === 'object') ? r.sourceProvider : {}; }
 function setReportingSourceProvider(source, val) { const m = Object.assign({}, reportingSourceProviderMap()); if (val == null || val === '') delete m[source]; else m[source] = val; _setAdminRule('sourceProvider', m); }
 function reportingProviderOf(source) { const v = reportingSourceProviderMap()[source]; return v === MKTG_HIDE ? null : (v || source); }
-function reportingHiddenProviders() { const m = reportingSourceProviderMap(); return new Set(Object.keys(m).filter(k => m[k] === MKTG_HIDE)); }
+// (reportingHiddenProviders removed — unreferenced; settings audit, Sep 30)
 function reportingPaidSources() { const r = (typeof _adminRules === 'function') ? _adminRules() : null; return new Set((r && Array.isArray(r.paidSources)) ? r.paidSources : []); }
 function setReportingPaidSource(source, on) { const s = reportingPaidSources(); if (on) s.add(source); else s.delete(source); _setAdminRule('paidSources', [...s].sort()); }
 function reportingSourceConfigPanel() {
@@ -592,144 +592,16 @@ function isProjectionAt(period, field, ytdYear, ytdMonth0) {
 // (P&L row) when set, else annual goal × seasonal curve. The annual goal is
 // editable here and persisted LOCALLY (browser) so it works even when the
 // optional reporting_is_manual table isn't set up — no "save failed" toast.
-function isAnnualGoalFor(yr) {
-  const y = String(yr);
-  if (state._isAnnualGoal && state._isAnnualGoal[y] != null) return state._isAnnualGoal[y];
-  // Synced copy first (adminRules) — an annual goal typed on one laptop is
-  // company truth, not a browser preference.
-  const _ar = (typeof _adminRules === 'function') ? _adminRules() : null;
-  if (_ar && _ar.isAnnualGoal && _ar.isAnnualGoal[y] != null) return _ar.isAnnualGoal[y];
-  try { const v = localStorage.getItem('ridd_is_annual_goal_' + y); if (v != null && v !== '') return Number(v); } catch (e) {}
-  return IS_ANNUAL_GOAL[y] != null ? IS_ANNUAL_GOAL[y] : null;
-}
-function setAnnualGoalFor(yr, value) {
-  const y = String(yr);
-  if (!state._isAnnualGoal) state._isAnnualGoal = {};
-  const num = (value === '' || value == null) ? null : Number(value);
-  state._isAnnualGoal[y] = num;
-  try {
-    const _ar = (typeof _adminRules === 'function' && _adminRules()) || {};
-    const m = { ...(_ar.isAnnualGoal || {}) };
-    if (num == null) delete m[y]; else m[y] = num;
-    _setAdminRule('isAnnualGoal', m);
-  } catch (e) { /* local fallback below */ }
-  try { if (num == null) localStorage.removeItem('ridd_is_annual_goal_' + y); else localStorage.setItem('ridd_is_annual_goal_' + y, String(num)); } catch (e) {}
-}
+// (isAnnualGoalFor removed — unreferenced; settings audit, Sep 30)
+// (setAnnualGoalFor removed — unreferenced; settings audit, Sep 30)
 
 // P&L assumptions — spend modeled as a % of revenue, editable per year and
 // persisted locally. Stored as fractions (0.18 = 18%). Defaults mirror the
 // PROJECTIONS-tab config (ad spend 36%, wages 15.5%, incentives 1%).
 const IS_ASSUMPTION_DEFAULTS = { ad_spend_pct: 0.36, wages_pct: 0.155, incentive_pct: 0.01 };
-function isAssumptionFor(yr, key) {
-  const y = String(yr);
-  if (state._isAssumptions && state._isAssumptions[y] && state._isAssumptions[y][key] != null) return state._isAssumptions[y][key];
-  const _ar = (typeof _adminRules === 'function') ? _adminRules() : null;
-  if (_ar && _ar.isAssumptions && _ar.isAssumptions[y] && _ar.isAssumptions[y][key] != null) return _ar.isAssumptions[y][key];
-  try { const v = localStorage.getItem('ridd_is_assume_' + y + '_' + key); if (v != null && v !== '') return Number(v); } catch (e) {}
-  return IS_ASSUMPTION_DEFAULTS[key];
-}
-function setAssumptionFor(yr, key, pctValue) {
-  const y = String(yr);
-  if (!state._isAssumptions) state._isAssumptions = {};
-  if (!state._isAssumptions[y]) state._isAssumptions[y] = {};
-  const num = (pctValue == null || pctValue === '') ? null : Number(pctValue) / 100; // input is a percent
-  state._isAssumptions[y][key] = num;
-  try {
-    const _ar = (typeof _adminRules === 'function' && _adminRules()) || {};
-    const m = { ...(_ar.isAssumptions || {}) };
-    m[y] = { ...(m[y] || {}) };
-    if (num == null) delete m[y][key]; else m[y][key] = num;
-    _setAdminRule('isAssumptions', m);
-  } catch (e) { /* local fallback below */ }
-  try { if (num == null) localStorage.removeItem('ridd_is_assume_' + y + '_' + key); else localStorage.setItem('ridd_is_assume_' + y + '_' + key, String(num)); } catch (e) {}
-}
-function reportingIsPacer() {
-  const rows = state.reportingSubscriptions || [];
-  const MAN = state.reportingIsManual || {};
-  const now = new Date(), yr = now.getFullYear(), curM = now.getMonth();
-  const NA = -999999;
-  const isExcl = reportingExcludedSources();
-  // Actual = total CONTRACT VALUE of NEW Office-Staff (inside sales) sales whose
-  // initial is PENDING or SERVICED. Excludes renewals, upsells, Sales-Rep (D2D)
-  // accounts, and sold-not-started / cancelled-before-initial deadwood.
-  // Bucketed by sold date.
-  const act = Array(12).fill(0);
-  for (const r of rows) {
-    const sd = r.sold_date; if (!sd || !String(sd).startsWith(yr + '-')) continue;
-    const src = (r.subscription_source || '').trim();
-    if (isExcl.has(src || 'Unspecified')) continue;
-    if (reportingSourceClass(src) !== 'new') continue;      // NEW only — exclude renewals AND upsells
-    if (!reportingIsOfficeStaff(r)) continue;               // Office Staff (rep type) only — excludes Sales Reps
-    // FieldRoutes' own Pending/Serviced gate — initial appt Pending or
-    // Completed, same rule as Indicators (per Isaac). Blank status = legacy
-    // snapshot → fall back to the old sold-not-started heuristic.
-    const _ist = String(r.initial_status || '').toLowerCase();
-    if (_ist ? (_ist !== 'pending' && _ist !== 'completed') : (!r.initial_service && r.subscription_date_canceled)) continue;
-    act[Number(String(sd).slice(5, 7)) - 1] += Number(r.subscription_contract_value) || 0;
-  }
-  // Annual goal: whatever's in the box (persisted locally), else the model goal.
-  const annual = isAnnualGoalFor(yr);
-  // Monthly goal = the annual goal box (top-right) × the seasonal allocation.
-  // A hand-entered monthly override still wins if one was ever set.
-  const goalAt = (m) => {
-    const v = MAN[yr + '-' + String(m + 1).padStart(2, '0')]?.projected_revenue;
-    if (v != null && Number(v) !== NA) return Number(v);
-    return annual != null ? annual * IS_SEASONAL[m] : null;
-  };
-  const usd0 = (v) => v == null ? '—' : '$' + Math.round(v).toLocaleString();
-  const ytdAct = act.slice(0, curM + 1).reduce((s, v) => s + v, 0);
-  let ytdGoal = 0, anyGoal = false;
-  for (let m = 0; m <= curM; m++) { const g = goalAt(m); if (g != null) { ytdGoal += g; anyGoal = true; } }
-  const ytdPace = anyGoal && ytdGoal > 0 ? ytdAct / ytdGoal : null;
-  const annPct = annual ? ytdAct / annual : null;
-  const expCum = IS_PACER_CUM[curM];
-  const paceColor = (p) => p == null ? 'var(--text-muted)' : p >= 1 ? '#DF643A' : p >= 0.85 ? '#A9441F' : '#DC2626';
-  const paceBg = (p) => p == null ? 'transparent' : p >= 1 ? 'rgba(223,100,58,.15)' : p >= 0.85 ? 'rgba(223,100,58,.12)' : 'rgba(220,38,38,.10)';
-  const pctS = (p) => p == null ? '—' : Math.round(p * 100) + '%';
-
-  const kpi = (label, val, sub, color) => el('div', { class: 'flex-1', style: { minWidth: '130px' } },
-    el('div', { class: 'text-[10px] uppercase tracking-wider', style: { color: 'var(--text-subtle)' } }, label),
-    el('div', { class: 'text-xl font-black', style: color ? { color } : {} }, val),
-    sub ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, sub) : null);
-
-  const goalInput = el('input', {
-    type: 'text', inputmode: 'numeric', placeholder: 'e.g. 4,000,000',
-    value: annual != null ? annual.toLocaleString() : '',
-    class: 'w-28 text-right text-[11px] rounded border px-2.5 py-1',
-    style: { background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--text)' },
-    onchange: (e) => {
-      const v = e.target.value.replace(/[$,\s]/g, '');
-      if (v !== '' && isNaN(Number(v))) { toast('Enter a number', 'error'); return; }
-      setAnnualGoalFor(yr, v);   // local persist — recomputes every monthly goal
-      mountApp();
-    },
-  });
-
-  const cells = REPORTING_MONTH_ABBR.map((lbl, m) => {
-    const g = goalAt(m), a = act[m];
-    const isCur = m === curM, fut = m > curM;
-    const pace = (!fut && g > 0) ? a / g : null;
-    return el('div', { class: 'rounded-lg p-2 text-center', style: { background: fut ? 'var(--card-2)' : paceBg(pace), opacity: fut ? .65 : 1, minWidth: 0 } },
-      el('div', { class: 'text-[10px] font-bold uppercase' }, lbl + (isCur ? ' · MTD' : '')),
-      el('div', { class: 'text-sm font-black', style: { color: fut ? 'var(--text-muted)' : paceColor(pace) } }, fut ? '—' : pctS(pace)),
-      el('div', { class: 'text-[10px] tabular-nums' }, fut ? '' : usd0(a)),
-      el('div', { class: 'text-[9px] tabular-nums', style: { color: 'var(--text-subtle)' } }, g != null ? 'goal ' + usd0(g) : 'no goal'));
-  });
-
-  return el('div', { class: 'card p-4' },
-    el('div', { class: 'flex items-start justify-between gap-2 flex-wrap mb-3' },
-      el('div', {},
-        el('h3', { class: 'text-base font-bold mb-1' }, 'Inside Sales Pacer'),
-        el('div', { class: 'text-[11px] text-muted-' }, 'New Office-Staff contract value vs goal · pending or serviced initials only (renewals, upsells, Sales Reps & sold-not-started excluded) · monthly goal = your Projected Revenue cells, else seasonal curve × annual goal')),
-      el('div', { class: 'flex items-center gap-2' },
-        el('span', { class: 'text-[10px] uppercase tracking-wider', style: { color: 'var(--text-subtle)' } }, 'Annual goal $'), goalInput)),
-    el('div', { class: 'flex gap-4 flex-wrap mb-3' },
-      kpi('YTD Actual', usd0(ytdAct)),
-      kpi('YTD Goal', anyGoal ? usd0(ytdGoal) : '—'),
-      kpi('YTD Pace', pctS(ytdPace), ytdPace != null ? 'of goal through ' + REPORTING_MONTH_ABBR[curM] : 'set an annual goal →', paceColor(ytdPace)),
-      kpi('% of Annual Goal', annPct != null ? (annPct * 100).toFixed(1) + '%' : '—', 'pacer expects ' + Math.round(expCum * 100) + '% by end of ' + REPORTING_MONTH_ABBR[curM], annPct != null ? paceColor(annPct / expCum) : null)),
-    el('div', { class: 'grid gap-1.5', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(84px, 1fr))' } }, ...cells));
-}
+// (isAssumptionFor removed — unreferenced; settings audit, Sep 30)
+// (setAssumptionFor removed — unreferenced; settings audit, Sep 30)
+// (reportingIsPacer removed — unreferenced; settings audit, Sep 30)
 
 // Consolidated Marketing tab = the Inside Sales P&L, topped with the two charts
 // the CMO wanted: marketing spend vs IS revenue, and GHL leads by source.
@@ -993,7 +865,6 @@ function _mktgYearBar(sub) {
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = y - 1; mountApp(); } }, '‹'),
       el('span', { class: 'text-sm font-black tabular-nums px-1' }, String(y)),
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = y + 1; mountApp(); } }, '›')),
-    _mktgQboConnectBtn(),
     // Lead reconciliation lives in the top bar (per Isaac, Sep 30), right-justified.
     (() => { const on = sub === 'providers' && state._mktProvView === 'recon';
       return el('button', { class: 'ml-auto rounded-lg border px-2.5 py-1 text-[11px] font-semibold',
@@ -1004,26 +875,7 @@ function _mktgYearBar(sub) {
 // One-click QuickBooks connect (admin): a plain navigation to the connect
 // function (the session token rides in the query — a redirect can't carry
 // a header). Intuit bounces back to /?qbo=connected#marketing.
-function _mktgQboConnectBtn() {
-  // Retired (per Isaac): QuickBooks now comes through Windsor, so there's
-  // nothing to connect from the app. Kept as a no-op so callers stay simple.
-  return null;
-  // eslint-disable-next-line no-unreachable
-  if (!isAdminRole(state.profile?.role)) return null;
-  const connected = state._isSpendSource === 'QuickBooks';
-  return el('button', {
-    class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95 whitespace-nowrap',
-    style: connected ? { borderColor: 'var(--border-2)', color: 'var(--text-muted)', background: 'var(--card)' } : { background: '#2CA01C', color: '#fff', borderColor: '#2CA01C' },
-    title: connected ? 'QuickBooks is connected — click to reconnect / switch company' : 'Authorize the app to read RIDD\u2019s QuickBooks P&L (Advertising & Marketing by branch)',
-    onclick: async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session || !session.access_token) { toast('Sign in again first', 'warn'); return; }
-        location.href = '/api/qbo-connect?t=' + encodeURIComponent(session.access_token);
-      } catch (e) { toast('Could not start the QuickBooks connect: ' + ((e && e.message) || e), 'error'); }
-    },
-  }, connected ? '\u2713 QuickBooks connected' : 'Connect QuickBooks');
-}
+// (_mktgQboConnectBtn removed — unreferenced; settings audit, Sep 30)
 // Result of the connect round-trip (?qbo=connected|error&msg=…).
 (() => {
   try {
@@ -1580,91 +1432,7 @@ const reportingMonthLbl = (ym) => { const [y, m] = ym.split('-'); return REPORTI
 // Year-over-year: grouped bars = monthly marketing spend (is-spend.json) for this
 // year vs last; two lines = monthly new recurring revenue (ARR) for committed-sold
 // Office-Staff accounts, this year vs last. X-axis is calendar months Jan→Dec.
-function reportingMktgSpendRevChart() {
-  const id = 'mktgSpendRev';
-  const rows = state.reportingSubscriptions || [];
-  const SP = state.reportingIsSpend || {};
-  const isExcl = reportingExcludedSources();
-  const nowY = new Date().getFullYear();
-  const curY = String(nowY), prevY = String(nowY - 1);
-  // SAME revenue series as the Inside Sales Pacer (per Isaac): new
-  // office-staff CONTRACT revenue, Pending/Serviced gate — no autopay
-  // requirement, no ARR. The two charts must tell one story.
-  const revByYM = {};
-  for (const r of rows) {
-    const sd = r.sold_date; if (!sd) continue;
-    const src = (r.subscription_source || '').trim();
-    if (isExcl.has(src || 'Unspecified')) continue;
-    if (reportingSourceClass(src) !== 'new') continue;  // NEW business only (exclude renewals + upsells)
-    if (!reportingIsOfficeStaff(r)) continue;
-    const _ist = String(r.initial_status || '').toLowerCase();
-    if (_ist ? (_ist !== 'pending' && _ist !== 'completed') : (!r.initial_service && r.subscription_date_canceled)) continue;
-    const ym = sd.slice(0, 7);
-    revByYM[ym] = (revByYM[ym] || 0) + (Number(r.subscription_contract_value) || 0);
-  }
-  const spendByYM = {};
-  for (const ym in SP) { let s = 0; for (const ch in SP[ym]) s += SP[ym][ch] || 0; spendByYM[ym] = s; }
-  const monthKeys = (y) => Array.from({ length: 12 }, (_, i) => y + '-' + String(i + 1).padStart(2, '0'));
-  // Only plot spend for months we actually have (reliable, branch-categorized)
-  // data for — months with no trustworthy spend render as a gap, not a $0 bar.
-  const spendCur  = monthKeys(curY).map(k => (k in spendByYM) ? spendByYM[k] : null);
-  const spendPrev = monthKeys(prevY).map(k => (k in spendByYM) ? spendByYM[k] : null);
-  const revCur    = monthKeys(curY).map(k => revByYM[k] || 0);
-  const revPrev   = monthKeys(prevY).map(k => revByYM[k] || 0);
-  const hasPrev   = spendPrev.some(v => v > 0) || revPrev.some(v => v > 0);
-  const lbl = REPORTING_MONTH_ABBR;
-  const cvsWrap = el('div', { style: { position: 'relative', height: '240px', width: '100%' } });
-  const cvs = el('canvas', { id }); cvsWrap.append(cvs);
-  setTimeout(() => {
-    if (typeof Chart === 'undefined') return;
-    const cvsEl = document.getElementById(id); if (!cvsEl) return;
-    if (_chartInstances[id]) { _chartInstances[id].destroy(); delete _chartInstances[id]; }
-    const isDark = state.theme === 'dark';
-    const txt = isDark ? '#C9C9BE' : '#555', grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
-    const barCur = isDark ? '#E6E6DC' : '#323230', barPrev = isDark ? '#6b6b63' : '#B8B8AE';
-    const datasets = [
-      { type: 'bar', label: 'Spend ' + curY, data: spendCur, backgroundColor: barCur, order: 3 },
-      ...(hasPrev ? [{ type: 'bar', label: 'Spend ' + prevY, data: spendPrev, backgroundColor: barPrev, order: 3 }] : []),
-      { type: 'line', label: 'IS Rev ' + curY, data: revCur, borderColor: '#DF643A', backgroundColor: '#DF643A', borderWidth: 2, tension: 0.3, fill: false, pointRadius: 2, order: 1 },
-      ...(hasPrev ? [{ type: 'line', label: 'IS Rev ' + prevY, data: revPrev, borderColor: '#DF643A', backgroundColor: '#DF643A', borderWidth: 2, borderDash: [5, 4], tension: 0.3, fill: false, pointRadius: 2, order: 2 }] : []),
-    ];
-    _chartInstances[id] = new Chart(cvsEl.getContext('2d'), {
-      data: { labels: lbl, datasets },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 } } } }, scales: { x: { ticks: { color: txt }, grid: { color: grid } }, y: { beginAtZero: true, ticks: { color: txt, callback: v => '$' + (v >= 1000 ? (v / 1000) + 'k' : v) }, grid: { color: grid } } } },
-    });
-  }, 50);
-  const _spendStamp = state._isSpendSource === 'QuickBooks'
-    ? 'QuickBooks · pulled ' + (state._isSpendPulledAt ? new Date(state._isSpendPulledAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'just now')
-    : state._isSpendSource === 'none' ? '\u26a0 QuickBooks feed unavailable' : 'loading spend\u2026';
-  const _spendRefresh = el('button', {
-    class: 'text-[11px] font-semibold px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
-    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text-muted)' },
-    title: 'Re-pull marketing spend from QuickBooks now (bypasses the 1-hour cache)',
-    onclick: async (e) => {
-      const b = e.currentTarget; b.disabled = true; b.textContent = '\u23f3 pulling\u2026';
-      try {
-        const h = await _apiAuthHeaders();
-        const r = await fetch('/api/qbo-spend?_=' + Date.now(), { headers: h });
-        const j = r.ok ? await r.json() : null;
-        if (j && j.bySourceMonth && Object.keys(j.bySourceMonth).length) {
-          state.reportingIsSpend = j.bySourceMonth; state._isSpendSource = 'QuickBooks'; state._isSpendPulledAt = j.pulledAt;
-          toast('QuickBooks spend refreshed', 'success');
-        } else toast('QuickBooks pull failed \u2014 check the qbo-spend function logs', 'error');
-      } catch (err) { toast('QuickBooks pull failed: ' + ((err && err.message) || err), 'error'); }
-      mountApp();
-    },
-  }, '\u21bb QuickBooks');
-  return el('div', { class: 'card p-4' },
-    el('div', { class: 'flex items-center justify-between gap-2 flex-wrap mb-1' },
-      el('h3', { class: 'text-base font-bold' }, 'Marketing Spend vs Inside Sales Revenue'),
-      el('div', { class: 'flex items-center gap-2 flex-wrap' },
-        el('span', { class: 'text-[10px]', style: { color: state._isSpendSource === 'none' ? '#A9441F' : 'var(--text-subtle)' } }, _spendStamp),
-        _mktgQboConnectBtn(),
-        _spendRefresh)),
-    el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Year-over-year by month · bars = marketing spend (months with verified QuickBooks data only) · lines = new contract revenue, office-staff sold, Pending/Serviced — same series as the pacer · ' + curY + ' solid vs ' + prevY + ' dashed'),
-    cvsWrap,
-  );
-}
+// (reportingMktgSpendRevChart removed — unreferenced; settings audit, Sep 30)
 
 // Light source normalizer for GHL lead tags (mirrors the old marketing page).
 function reportingCanonSource(raw) {
@@ -1687,92 +1455,7 @@ function reportingCanonSource(raw) {
 // GHL leads by DAY, stacked by source. Date presets: today / this week /
 // this month / custom. Built from the per-lead contacts (with dates) the
 // function now returns, so short recent ranges work even on a partial pull.
-function reportingMktgLeadsChart() {
-  const id = 'mktgLeads';
-  const L = state.reportingGhlLeads;
-  const loadingMore = !!state._ghlLoading || (!state._ghlDone && !!state._ghlCursor);
-  const refreshBtn = el('button', {
-    class: 'text-[11px] font-semibold px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
-    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text-muted)' },
-    title: 'Re-pull leads from GoHighLevel',
-    onclick: () => reportingRefreshGhlLeads(),
-  }, loadingMore ? '⏳ loading…' : '↻ refresh');
-
-  const pad = n => String(n).padStart(2, '0');
-  const isoOf = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
-  const today = new Date(), todayIso = isoOf(today);
-  const RANGES = [['today', 'Today'], ['week', 'This Week'], ['month', 'This Month'], ['custom', 'Custom']];
-  let range = state.mktgLeadsRange;
-  if (!RANGES.some(r => r[0] === range)) { try { range = localStorage.getItem('ridd_mktg_leads_range'); } catch {} }
-  if (!RANGES.some(r => r[0] === range)) range = 'month';
-  let start, end;
-  if (range === 'today') { start = end = todayIso; }
-  else if (range === 'week') { const d = new Date(today); d.setDate(d.getDate() - d.getDay()); start = isoOf(d); end = todayIso; }
-  else if (range === 'month') { start = isoOf(new Date(today.getFullYear(), today.getMonth(), 1)); end = todayIso; }
-  else {
-    try { state.mktgLeadsFrom = state.mktgLeadsFrom || localStorage.getItem('ridd_mktg_leads_from'); state.mktgLeadsTo = state.mktgLeadsTo || localStorage.getItem('ridd_mktg_leads_to'); } catch {}
-    start = state.mktgLeadsFrom || isoOf(new Date(today.getFullYear(), today.getMonth(), 1));
-    end = state.mktgLeadsTo || todayIso;
-  }
-
-  const filterSel = el('select', {
-    class: 'text-[11px] rounded-lg border px-1.5 py-1',
-    style: { background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--text)' },
-    onchange: (e) => { state.mktgLeadsRange = e.target.value; try { localStorage.setItem('ridd_mktg_leads_range', e.target.value); } catch {} mountApp(); },
-  }, ...RANGES.map(([v, lab]) => el('option', { value: v }, lab)));
-  filterSel.value = range;
-  const dInput = (val, set) => el('input', { type: 'date', value: val, class: 'text-[11px] rounded-lg border px-1.5 py-1', style: { background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--text)' }, onchange: (e) => { set(e.target.value); mountApp(); } });
-  const customInputs = range === 'custom' ? el('div', { class: 'flex items-center gap-1' },
-    dInput(start, v => { state.mktgLeadsFrom = v; try { localStorage.setItem('ridd_mktg_leads_from', v); } catch {} }),
-    el('span', { class: 'text-[10px] text-muted-' }, '→'),
-    dInput(end, v => { state.mktgLeadsTo = v; try { localStorage.setItem('ridd_mktg_leads_to', v); } catch {} })) : null;
-  const rangeLabel = (RANGES.find(r => r[0] === range) || [])[1] || '';
-
-  const card = (inner) => el('div', { class: 'card p-4' },
-    el('div', { class: 'flex items-start justify-between gap-2 flex-wrap' },
-      el('div', {},
-        el('h3', { class: 'text-base font-bold mb-1' }, 'Leads by Source'),
-        el('div', { class: 'text-[11px] text-muted- mb-3' }, 'GoHighLevel leads by day, stacked by source · ' + rangeLabel + (loadingMore ? ' · loading…' : ''))),
-      el('div', { class: 'flex items-center gap-2 flex-wrap' }, filterSel, customInputs, refreshBtn)),
-    inner);
-
-  const C = (L && Array.isArray(L.contacts)) ? L.contacts : null;
-  if (!C || !C.length) {
-    return card(el('div', { class: 'p-8 text-center text-xs text-muted- italic' },
-      loadingMore ? 'Loading GoHighLevel leads…'
-        : (state.reportingGhlLeads == null ? 'Connecting to GoHighLevel…' : 'No lead detail yet — hit ↻ refresh to pull it from GoHighLevel.')));
-  }
-
-  const inRange = C.filter(c => c.d && c.d >= start && c.d <= end);
-  const days = []; { let d = new Date(start + 'T00:00'), e = new Date(end + 'T00:00'); let guard = 0; while (d <= e && guard++ < 800) { days.push(isoOf(d)); d.setDate(d.getDate() + 1); } }
-  const dayIdx = {}; days.forEach((d, i) => dayIdx[d] = i);
-  const srcTot = {};
-  inRange.forEach(c => { const s = reportingCanonSource(c.s); srcTot[s] = (srcTot[s] || 0) + 1; });
-  const ranked = Object.keys(srcTot).sort((a, b) => srcTot[b] - srcTot[a]);
-  const top = ranked.slice(0, 8), rest = new Set(ranked.slice(8));
-  const series = [...top, ...(rest.size ? ['Other'] : [])];
-  const data = {}; series.forEach(s => data[s] = days.map(() => 0));
-  inRange.forEach(c => { let s = reportingCanonSource(c.s); if (rest.has(s)) s = 'Other'; const di = dayIdx[c.d]; if (data[s] && di != null) data[s][di]++; });
-  const lbl = days.map(d => { const p = d.split('-'); return REPORTING_MONTH_ABBR[Number(p[1]) - 1] + ' ' + Number(p[2]); });
-
-  const cvsWrap = el('div', { style: { position: 'relative', height: '240px', width: '100%' } });
-  const cvs = el('canvas', { id }); cvsWrap.append(cvs);
-  setTimeout(() => {
-    if (typeof Chart === 'undefined') return;
-    const cvsEl = document.getElementById(id); if (!cvsEl) return;
-    if (_chartInstances[id]) { _chartInstances[id].destroy(); delete _chartInstances[id]; }
-    const isDark = state.theme === 'dark';
-    const txt = isDark ? '#C9C9BE' : '#555', grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
-    const datasets = series.map((s, i) => ({ label: s, data: data[s], backgroundColor: REPORTING_PALETTE[i % REPORTING_PALETTE.length], stack: 's' }));
-    _chartInstances[id] = new Chart(cvsEl.getContext('2d'), {
-      type: 'bar', data: { labels: lbl, datasets },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 } } }, tooltip: { callbacks: { footer: items => 'Total: ' + items.reduce((s, it) => s + (it.parsed.y || 0), 0).toLocaleString() + ' leads' } } }, scales: { x: { stacked: true, ticks: { color: txt, autoSkip: true, maxRotation: 0 }, grid: { color: grid } }, y: { stacked: true, beginAtZero: true, ticks: { color: txt, precision: 0 }, grid: { color: grid } } } },
-    });
-  }, 50);
-  return card(el('div', {},
-    el('div', { class: 'text-[11px] text-muted- mb-2' }, inRange.length.toLocaleString() + ' leads · ' + start + (start === end ? '' : ' → ' + end)),
-    cvsWrap));
-}
+// (reportingMktgLeadsChart removed — unreferenced; settings audit, Sep 30)
 
 // ── Lead attribution ─────────────────────────────────────────────────────
 // Match an imported leads CSV (phone + email + source) against the loaded
@@ -1808,181 +1491,7 @@ function parseLeadsCsv(text) {
   return out;
 }
 
-function reportingLeadAttribution() {
-  // Prefer a separately-uploaded leads CSV; otherwise, if the loaded snapshot
-  // carries a lead-source column, synthesize the leads straight from it — no
-  // separate upload needed.
-  let leads = state.reportingLeadRows;
-  let fromSnapshot = false, fromGhl = false;
-  if (!leads || !leads.length) {
-    const withLS = (state.reportingSubscriptions || []).filter(r => r.lead_source && String(r.lead_source).trim());
-    if (withLS.length) {
-      leads = withLS.map(r => {
-        const l = (r.last_name || '').trim(), f = (r.first_name || '').trim();
-        return { phone: r.phone, email: r.email, source: r.lead_source, name: (l && f) ? (l + ', ' + f) : (l || f || r.customer_id || '') };
-      });
-      fromSnapshot = true;
-    }
-  }
-  // No CSV and no lead-source column → fall back to the GoHighLevel leads we
-  // already pull in: match those contacts (phone/email) to sold customers.
-  if (!leads || !leads.length) {
-    const gc = (state.reportingGhlLeads && state.reportingGhlLeads.contacts) || [];
-    if (gc.length) {
-      leads = gc.map(c => ({ phone: c.p, email: c.e, source: c.s, name: '' }));
-      fromGhl = true;
-    }
-  }
-  const fileInput = el('input', {
-    type: 'file', accept: '.csv,.txt', style: { display: 'none' },
-    onchange: (e) => {
-      const f = e.target.files[0]; if (!f) return;
-      const rd = new FileReader();
-      rd.onload = (ev) => {
-        try {
-          const rows = parseLeadsCsv(ev.target.result);
-          if (!rows.length) { toast('No leads found — need a phone or email column', 'warn'); return; }
-          state.reportingLeadRows = rows; state.reportingLeadFile = f.name || ''; state.reportingLeadFilter = 'all'; state.reportingLeadLimit = 200;
-          logActivity('config_change', { detail: 'Lead attribution CSV: ' + (f.name || '') + ' · ' + rows.length + ' leads' });
-          mountApp();
-          toast(rows.length.toLocaleString() + ' leads loaded', 'success');
-        } catch (err) { toast('Parse error: ' + err.message, 'error'); }
-      };
-      rd.readAsText(f);
-    },
-  });
-  const uploadBtn = el('button', {
-    class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition hover:brightness-95',
-    style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-    title: 'CSV with phone + email columns (and a source column)',
-    onclick: () => fileInput.click(),
-  }, fileInput, state.reportingLeadRows ? '📁 Re-upload leads' : '📁 Upload leads CSV');
-  const clearBtn = state.reportingLeadRows ? el('button', {
-    class: 'text-[11px] font-semibold', style: { color: 'var(--text-muted)' },
-    onclick: () => { state.reportingLeadRows = null; state.reportingLeadFile = null; mountApp(); },
-  }, 'Clear') : null;
-  const subtitle = fromGhl
-    ? 'Matching your GoHighLevel leads (phone + email) to sold customers, then checking the GHL source against the CRM tag — no upload needed.'
-    : fromSnapshot
-      ? 'Reading the lead source straight from the reporting snapshot and checking it against the CRM tag.'
-      : 'Match a leads CSV (phone + email) to sold customers, then check the CSV source against the CRM tag.';
-  const head = el('div', { class: 'flex items-start justify-between gap-3 flex-wrap mb-2' },
-    el('div', {},
-      el('h3', { class: 'text-base font-bold' }, 'Lead Attribution'),
-      el('div', { class: 'text-[11px] text-muted-' }, subtitle)),
-    el('div', { class: 'flex items-center gap-2' },
-      state.reportingLeadRows && state.reportingLeadFile ? el('span', { class: 'text-[11px] text-muted-' }, state.reportingLeadFile) : null, clearBtn, uploadBtn));
-
-  if (!leads || !leads.length) {
-    return el('div', { class: 'card p-4' }, head,
-      el('div', { class: 'p-6 text-center text-xs text-muted- italic' },
-        (state._ghlLoading || (!state._ghlDone && state._ghlCursor))
-          ? 'Loading your GoHighLevel leads… attribution will appear automatically once they finish pulling in.'
-          : 'No lead source available yet. This pulls from GoHighLevel automatically — or add a "Lead Source" column to your Customer Report export, or upload a leads CSV. Phone matches on the last 10 digits.'));
-  }
-
-  // Customer contact index from the loaded snapshot (needs phone/email columns).
-  const subs = state.reportingSubscriptions || [];
-  const custName = (r) => { const l = (r.last_name || '').trim(), f = (r.first_name || '').trim(); return (l && f) ? (l + ', ' + f) : (l || f || r.customer_id || '—'); };
-  const byPhone = new Map(), byEmail = new Map(), byCust = new Map();
-  for (const r of subs) {
-    const cid = r.customer_id || ('p:' + _leadNormPhone(r.phone) + '|e:' + _leadNormEmail(r.email));
-    const info = { name: custName(r), source: (r.subscription_source || '').trim(), sold_date: r.sold_date || '' };
-    const cur = byCust.get(cid);
-    if (!cur || (info.sold_date && (!cur.sold_date || info.sold_date < cur.sold_date))) byCust.set(cid, info);
-    const np = _leadNormPhone(r.phone); if (np && !byPhone.has(np)) byPhone.set(np, cid);
-    const ne = _leadNormEmail(r.email); if (ne && !byEmail.has(ne)) byEmail.set(ne, cid);
-  }
-  const hasContact = byPhone.size > 0 || byEmail.size > 0;
-
-  // Match each lead by phone, then email.
-  const results = leads.map(L => {
-    const np = _leadNormPhone(L.phone), ne = _leadNormEmail(L.email);
-    let cid = null, via = null;
-    if (np && byPhone.has(np)) { cid = byPhone.get(np); via = 'phone'; }
-    else if (ne && byEmail.has(ne)) { cid = byEmail.get(ne); via = 'email'; }
-    const cust = cid ? byCust.get(cid) : null;
-    const leadSrc = (L.source || '').trim();
-    let srcOk = null;
-    if (cust && leadSrc && cust.source) {
-      srcOk = reportingCanonSource(leadSrc).toLowerCase() === reportingCanonSource(cust.source).toLowerCase();
-    }
-    return { lead: L, matched: !!cust, via, cust, leadSrc, srcOk };
-  });
-  const nMatched = results.filter(r => r.matched).length;
-  const nMis = results.filter(r => r.srcOk === false).length;
-  const rate = results.length ? Math.round(100 * nMatched / results.length) : 0;
-
-  // Filter pills.
-  const filt = state.reportingLeadFilter || 'all';
-  const pills = [['all', 'All ' + results.length], ['matched', 'Matched ' + nMatched], ['unmatched', 'No match ' + (results.length - nMatched)], ['mismatch', 'Source mismatch ' + nMis]];
-  const pillBar = el('div', { class: 'flex items-center gap-1.5 flex-wrap mb-3' }, ...pills.map(([k, lab]) => el('button', {
-    class: 'text-[11px] font-semibold rounded-full px-2.5 py-1 border cursor-pointer transition',
-    style: filt === k ? { background: 'var(--accent)', color: '#3A1D12', borderColor: 'var(--accent)' } : { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
-    onclick: () => { state.reportingLeadFilter = k; state.reportingLeadLimit = 200; mountApp(); },
-  }, lab)));
-
-  const shown0 = results.filter(r => filt === 'all' ? true : filt === 'matched' ? r.matched : filt === 'unmatched' ? !r.matched : r.srcOk === false);
-  const limit = state.reportingLeadLimit || 200;
-  const shown = shown0.slice(0, limit);
-
-  const exportCsv = () => {
-    const head2 = ['Lead Name', 'Lead Phone', 'Lead Email', 'Lead Source', 'Matched', 'Via', 'Customer', 'CRM Source', 'Source OK'];
-    const lines = [head2.map(csvEsc).join(',')];
-    for (const r of results) lines.push([
-      csvEsc(r.lead.name), csvEsc(r.lead.phone), csvEsc(r.lead.email), csvEsc(r.leadSrc),
-      r.matched ? 'yes' : 'no', csvEsc(r.via || ''), csvEsc(r.cust ? r.cust.name : ''), csvEsc(r.cust ? r.cust.source : ''),
-      r.srcOk == null ? '' : (r.srcOk ? 'match' : 'MISMATCH'),
-    ].join(','));
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = el('a', { href: url, download: 'lead-attribution-' + new Date().toISOString().slice(0, 10) + '.csv' });
-    document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-  };
-
-  const cellCls = 'px-2 py-1.5 whitespace-nowrap';
-  const table = el('div', { class: 'rounded-lg border overflow-auto', style: { borderColor: 'var(--border)', maxHeight: '420px' } },
-    el('table', { class: 'w-full text-[11px]' },
-      el('thead', { class: 'text-[9px] uppercase tracking-wider sticky top-0', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
-        el('tr', {},
-          el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Lead'),
-          el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Lead Source'),
-          el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Match'),
-          el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Customer (CRM)'),
-          el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'CRM Source'),
-          el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Source'))),
-      el('tbody', {}, ...shown.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-        el('td', { class: cellCls },
-          el('div', { class: 'font-medium' }, r.lead.name || r.lead.phone || r.lead.email || '—'),
-          (r.lead.name && (r.lead.phone || r.lead.email)) ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, r.lead.phone || r.lead.email) : null),
-        el('td', { class: cellCls + ' text-muted-' }, r.leadSrc || '—'),
-        el('td', { class: cellCls },
-          r.matched
-            ? el('span', { class: 'text-[10px] font-bold', style: { color: '#DF643A' } }, '✓ ' + r.via)
-            : el('span', { class: 'text-[10px] font-semibold', style: { color: 'var(--text-subtle)' } }, '—')),
-        el('td', { class: cellCls }, r.cust ? r.cust.name : '—'),
-        el('td', { class: cellCls + ' text-muted-' }, r.cust ? (r.cust.source || '—') : '—'),
-        el('td', { class: cellCls },
-          r.srcOk == null ? el('span', { style: { color: 'var(--text-subtle)' } }, '—')
-            : r.srcOk ? el('span', { style: { color: '#DF643A', fontWeight: '700' } }, '✓')
-              : el('span', { class: 'px-1.5 py-0.5 rounded text-[10px] font-bold', style: { background: 'rgba(220,38,38,.12)', color: '#B91C1C' } }, '✕ mismatch')))))));
-
-  const moreBar = shown0.length > shown.length ? el('div', { class: 'flex justify-center pt-2' },
-    el('button', { class: 'text-[11px] font-semibold rounded-full px-2.5 py-1 border cursor-pointer', style: { background: 'var(--accent)', color: '#3A1D12', borderColor: 'var(--accent)' },
-      onclick: () => { state.reportingLeadLimit = (state.reportingLeadLimit || 200) + 400; mountApp(); } }, 'Show ' + Math.min(400, shown0.length - shown.length) + ' more (' + shown.length.toLocaleString() + ' of ' + shown0.length.toLocaleString() + ')')) : null;
-
-  return el('div', { class: 'card p-4' }, head,
-    !hasContact ? el('div', { class: 'card p-3 mb-3 text-[11px]', style: { background: 'rgba(223,100,58,.12)' } },
-      '⚠ The loaded Customer Report snapshot has no phone or email columns, so nothing can match. Re-export it with Phone Number and Email columns and re-upload the snapshot.') : null,
-    el('div', { class: 'grid gap-2 mb-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(90px, 1fr))' } },
-      ...[['Leads', results.length.toLocaleString()], ['Matched', nMatched.toLocaleString() + ' · ' + rate + '%'], ['Source mismatches', nMis.toLocaleString()]].map(([l, v]) =>
-        el('div', { class: 'rounded-lg p-2 text-center', style: { background: 'var(--card-2)' } },
-          el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, l),
-          el('div', { class: 'text-base font-bold tabular-nums' }, v)))),
-    el('div', { class: 'flex items-center justify-between gap-2 flex-wrap' }, pillBar,
-      el('button', { class: 'text-[11px] font-semibold rounded-lg px-2.5 py-1 border cursor-pointer', style: { background: 'var(--card-2)', color: 'var(--text)', borderColor: 'var(--border)' }, onclick: exportCsv }, '↓ Export results')),
-    table, moreBar);
-}
+// (reportingLeadAttribution removed — unreferenced; settings audit, Sep 30)
 
 
 // ── CRM vocabulary panel (Configurations) ─────────────────────────────

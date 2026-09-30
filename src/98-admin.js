@@ -181,14 +181,11 @@ function viewAdmin() {
     config:  () => adminConfigurations('reporting'),
     marketing: () => adminConfigurations('marketing'),
     perms:   adminPermissions,
-    uploads: adminUploads,
-    sources: adminSources,
     slack:   adminSlack,
     comps:   adminCompetitionSchedule,
     usage:   adminUsage,
     data:    adminDataSources,
     pricing: () => el('div', { class: 'flex flex-col gap-4' }, adminCommissions(), adminConfigurations('autolog')),   // rates + pay automation in ONE place
-    backup:  adminBackup,
   };
   const view = _allowed(state.adminSection) ? (sectionRenderers[state.adminSection] || adminReps) : (() => el('div', { class: 'card p-6 text-sm text-muted-' }, 'Nothing here for your role yet \u2014 ask an admin to grant a Settings page in Permissions.'));
   const body = el('div', { class: 'flex-1 min-w-0' }, view());
@@ -635,46 +632,7 @@ function adminConfigurations(part) {
 //     week. Reporting snapshots are switchable/deletable; indicators history
 //     is read-only (kept for record-break comparisons).
 //   • App Activity — the full activity log (every logged action).
-function adminUploads() {
-  if (!state._adminSubTab) state._adminSubTab = 'history';
-  const tab = state._adminSubTab;
-
-  const toggle = el('div', { class: 'flex items-center gap-1 p-1 rounded-lg', style: { background: 'var(--card-2)', width: 'fit-content' } },
-    // Data Integrity + Data Hygiene merged into ONE tab (per Isaac) - both
-    // were "what is the data doing wrong", split for no real reason.
-    ...[['history', 'Upload History'], ['activity', 'App Activity'], ['archive', 'Monthly Archive'], ['integrity', 'Data Integrity']].map(([k, label]) => el('button', {
-      class: 'px-2.5 py-1 rounded-md text-[11px] font-semibold transition',
-      style: tab === k
-        ? { background: 'var(--card)', color: 'var(--text)', boxShadow: 'var(--shadow-sm)' }
-        : { background: 'transparent', color: 'var(--text-muted)' },
-      onclick: () => { state._adminSubTab = k; mountApp(); },
-    }, label)),
-  );
-
-  return el('div', { class: 'flex flex-col gap-4' },
-    el('div', {},
-      el('h2', { class: 'text-lg font-bold' }, 'Admin'),
-      el('p', { class: 'text-xs text-muted- mt-0.5' },
-        'Snapshot history (synced from RevHawk) plus the app activity log.'),
-    ),
-    // RevHawk live data is now one click — the ↻ sync icon in the top-bar
-    // header refreshes both Reporting and Indicators. (Auto-syncs nightly too.)
-    el('div', { class: 'card p-3' },
-      el('div', { class: 'text-sm font-semibold mb-0.5' }, 'RevHawk live data'),
-      el('div', { class: 'text-[11px] text-muted-' },
-        'Syncs automatically every hour on the hour during the day (8am–11pm ET) and rebuilds Reporting + Indicators each run. Resync (in the ⚙ menu) kicks the same job by hand — use it sparingly, each run is a full BigQuery scan that costs real quota.')),
-    toggle,
-    tab === 'activity'
-      ? adminBackup()
-      : tab === 'archive'
-        ? monthlyArchivePanel()
-        // The old 'hygiene' key still lands here, so a stale _adminSubTab
-        // does not silently fall through to Upload History.
-        : (tab === 'integrity' || tab === 'hygiene')
-          ? el('div', { class: 'flex flex-col gap-4' }, dataIntegrityPanel(), adminDataHygiene())
-          : reportingUploadsPanel(),
-  );
-}
+// (adminUploads removed — unreferenced; settings audit, Sep 30)
 
 // ── 🧪 DATA INTEGRITY — every judgment call the app makes, quantified. ──
 // Bridging a CRM means fallbacks and text-matching; this panel makes each
@@ -801,146 +759,14 @@ function dataIntegrityPanel() {
 // closed month (snapshots/metrics-YYYY-MM.json.gz): company, per-office,
 // per-department, and per-rep sales/revenue metrics. These files are never
 // pruned, so history survives the app's 3-year data fence.
-function monthlyArchivePanel() {
-  const host = el('div', { class: 'flex flex-col gap-3' });
-  host.append(el('div', { class: 'text-xs text-muted-' },
-    'One snapshot per closed month, written automatically by the nightly sync. History here outlives the 3-year live dataset — use it for year-over-year lookbacks.'));
-  const listWrap = el('div', { class: 'card p-3 text-xs text-muted-' }, 'Loading archive…');
-  const detailWrap = el('div', {});
-  host.append(listWrap, detailWrap);
-  const money0 = (v) => '$' + Math.round(v || 0).toLocaleString();
-  const showSnap = async (name) => {
-    detailWrap.innerHTML = '';
-    detailWrap.append(el('div', { class: 'card p-3 text-xs text-muted-' }, 'Loading ' + name + '…'));
-    try {
-      const { data: blob, error } = await supabase.storage.from('reporting').download('snapshots/' + name);
-      if (error) throw new Error(error.message);
-      const text = (typeof DecompressionStream !== 'undefined')
-        ? await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text()
-        : await blob.text();
-      const snap = JSON.parse(text);
-      const th = (lab, left) => el('th', { class: (left ? 'text-left pl-3 pr-2' : 'text-right px-2') + ' py-1.5 text-[9px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, lab);
-      const td = (v, left, bold) => el('td', { class: (left ? 'text-left pl-3 pr-2' : 'text-right px-2') + ' py-1.5 tabular-nums' + (bold ? ' font-bold' : '') }, v);
-      const row = (name2, m, bold) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-        td(name2, true, bold), td(fmt.int(m.sales), false, bold), td(money0(m.revenue), false, bold),
-        td('$' + (m.acv || 0).toLocaleString(), false), td('$' + (m.avgInitial || 0).toLocaleString(), false),
-        td(((m.myPct || 0) * 100).toFixed(1) + '%', false), td(((m.autoPayPct || 0) * 100).toFixed(1) + '%', false),
-        td(fmt.int(m.cancelsRaw || 0), false), td(fmt.int(m.reps || 0), false));
-      const section = (title, entries) => [
-        el('tr', {}, el('td', { colspan: 9, class: 'pl-3 py-1.5 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--accent)', background: 'var(--card-2)' } }, title)),
-        ...entries.sort((a, b) => (b[1].revenue || 0) - (a[1].revenue || 0)).map(([k, m]) => row(k, m)),
-      ];
-      detailWrap.innerHTML = '';
-      detailWrap.append(el('div', { class: 'card overflow-hidden' },
-        el('div', { class: 'px-4 py-2.5 flex items-center justify-between border-b flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
-          el('div', { class: 'text-sm font-bold' }, '📚 ' + snap.period),
-          el('div', { class: 'flex items-center gap-2' },
-            el('span', {
-              class: 'text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded',
-              style: { background: 'rgba(223,100,58,.14)', color: '#DF643A' },
-              title: 'Written once, on the first nightly run after the month closed, and never rewritten. Later changes to these accounts do not move these numbers.',
-            }, 'Locked'),
-            el('span', { class: 'text-[10px] text-muted-' }, 'captured ' + new Date(snap.generatedAt).toLocaleDateString()),
-            el('button', {
-              class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
-              style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-              onclick: () => {
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
-                a.download = 'metrics-' + snap.period + '.json';
-                a.click();
-              },
-            }, '⬇ JSON'))),
-        el('div', { class: 'scroll-x', style: { maxHeight: '480px', overflowY: 'auto' } },
-          el('table', { class: 'w-full text-[11px]' },
-            el('thead', {}, el('tr', {}, th('Scope', true), th('Sales'), th('Revenue'), th('ACV'), th('Avg Init'), th('MY %'), th('APay'), th('Cancels*'), th('Reps'))),
-            el('tbody', {},
-              row('RIDD · Company', snap.company, true),
-              ...section('By Office', Object.entries(snap.byOffice || {})),
-              ...section('By Department', Object.entries(snap.byDept || {}))))),
-        el('div', { class: 'px-4 py-2 text-[10px]', style: { color: 'var(--text-subtle)', borderTop: '1px solid var(--border)' } },
-          '*Cancels = raw cancel dates as of capture time (attrition matures after month close). Per-rep totals are inside the JSON download.')));
-    } catch (e) {
-      detailWrap.innerHTML = '';
-      detailWrap.append(el('div', { class: 'card p-3 text-xs', style: { color: '#DC2626' } }, 'Could not load ' + name + ' — ' + (e.message || e)));
-    }
-  };
-  (async () => {
-    try {
-      const { data, error } = await supabase.storage.from('reporting').list('snapshots', { limit: 1000 });
-      if (error) throw new Error(error.message);
-      const files = (data || []).filter(f => /^metrics-\d{4}-\d{2}\.json\.gz$/.test(f.name)).sort((a, b) => b.name.localeCompare(a.name));
-      listWrap.innerHTML = '';
-      if (!files.length) {
-        listWrap.append(el('span', {}, 'No snapshots yet — the next nightly sync backfills every closed month in the dataset automatically.'));
-        return;
-      }
-      // One dropdown instead of a wall of chips - this list only grows.
-      listWrap.className = 'card p-3 flex items-center gap-2 flex-wrap';
-      const _perOf = (f) => f.name.replace('metrics-', '').replace('.json.gz', '');
-      const _label = (per) => new Date(per + '-01T00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-      listWrap.append(
-        el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, 'Month'),
-        el('select', {
-          class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
-          style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-          onchange: (e) => showSnap(e.target.value),
-        }, ...files.map((f, i) => el('option', { value: f.name, selected: i === 0 },
-          _label(_perOf(f)) + (i === 0 ? '  (latest)' : '')))),
-        el('span', { class: 'text-[11px] text-muted-' },
-          files.length + ' month' + (files.length === 1 ? '' : 's') + ' archived, back to ' + _label(_perOf(files[files.length - 1]))));
-      showSnap(files[0].name);   // newest closed month opens by default
-    } catch (e) {
-      listWrap.innerHTML = '';
-      listWrap.append(el('span', { style: { color: '#DC2626' } }, 'Archive list failed — ' + (e.message || e)));
-    }
-  })();
-  return host;
-}
+// (monthlyArchivePanel removed — unreferenced; settings audit, Sep 30)
 
 // Indicators upload history — each row is one Indicators CSV import. The most
 // recent is the live data behind the Indicators tab; older entries are kept
 // for "records broken since last upload" comparisons. Read-only (no per-row
 // activate/delete — there's a single live indicators dataset, not switchable
 // snapshots like the reporting side).
-function indicatorsUploadsPanel() {
-  const snaps = [...(state._indicatorSnapshots || [])].reverse(); // newest first
-  const liveAt = state.indicatorsUploadedAt || null;
-  return el('div', { class: 'card p-4' },
-    el('h2', { class: 'text-lg font-bold mb-1' }, 'Indicators Uploads'),
-    el('p', { class: 'text-xs text-muted- mb-4' },
-      'Each row is an Indicators CSV import. The newest is the live data behind the Indicators tab; older imports are retained for record-break comparisons.'),
-    snaps.length === 0
-      ? el('div', { class: 'p-8 text-center text-sm text-muted-' },
-          'No indicators uploads yet. Upload the Indicators CSV from the Indicators tab.')
-      : el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', maxHeight: '440px', overflowY: 'auto' } },
-          el('table', { class: 'w-full text-sm' },
-            el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)', position: 'sticky', top: '0', zIndex: '10' } },
-              el('tr', {},
-                el('th', { class: 'text-left pl-4 pr-2 py-2.5 font-semibold' }, 'Filename'),
-                el('th', { class: 'text-left px-2 py-2.5 font-semibold' }, 'Uploaded'),
-                el('th', { class: 'text-right pr-4 pl-2 py-2.5 font-semibold', style: { width: '90px' } }, ''),
-              ),
-            ),
-            el('tbody', {},
-              ...snaps.map((s, i) => {
-                const isLive = i === 0 && (!liveAt || s.uploadedAt === liveAt);
-                return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: isLive ? 'rgba(223,100,58,.08)' : 'transparent' } },
-                  el('td', { class: 'pl-4 pr-2 py-2.5' },
-                    el('div', { class: 'font-medium' }, s.fileName || '(no filename)'),
-                    isLive && el('div', { class: 'text-[10px] uppercase tracking-wider font-semibold mt-0.5', style: { color: 'var(--accent)' } }, 'Active'),
-                  ),
-                  el('td', { class: 'px-2 py-2.5 text-xs text-muted-' },
-                    s.uploadedAt ? new Date(s.uploadedAt).toLocaleString() : ''),
-                  el('td', { class: 'pr-4 pl-2 py-2.5 text-right text-xs text-muted-' },
-                    isLive ? 'current' : timeAgo(s.uploadedAt)),
-                );
-              }),
-            ),
-          ),
-        ),
-  );
-}
+// (indicatorsUploadsPanel removed — unreferenced; settings audit, Sep 30)
 
 // ── Placeholder settings sections (filled in later as needed) ──
 function adminGoals() {
@@ -1020,46 +846,11 @@ function adminGoals() {
   );
 }
 
-function goalRepCountField(label, val, onCommit) {
-  return el('label', { class: 'block' },
-    el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold block mb-1' }, label),
-    el('input', { type: 'number', min: '1', step: '1', value: val,
-      class: 'w-full rounded-lg border px-2.5 py-1 text-[11px] font-bold text-left', style: { borderColor: 'var(--border-2)' },
-      onchange: (e) => onCommit(e.target.value) }));
-}
+// (goalRepCountField removed — unreferenced; settings audit, Sep 30)
 
 // Quarterly rollup with per-rep quota (quarterly amount ÷ rep count) — matches
 // the Inside Sales / Loyalty quota blocks in the RIDD quota sheet.
-function goalQuarterlyCard(g, dept) {
-  dept = dept || GOAL_DEPTS[0];
-  const usd = (n) => '$' + Math.round(n || 0).toLocaleString();
-  const block = (title, qAmts, reps) => {
-    const yr = qAmts.reduce((a, b) => a + (b || 0), 0);
-    const td = (v, bold) => el('td', { class: 'px-3 py-1.5 text-left tabular-nums' + (bold ? ' font-bold' : '') }, v);
-    return el('div', { class: 'mb-1' },
-      el('div', { class: 'text-xs font-bold uppercase tracking-wider px-3 py-1.5', style: { background: 'var(--text)', color: 'var(--bg)' } }, title + ' · ' + reps + ' reps'),
-      // Fixed column layout, identical in both blocks, so Q1–Total line up vertically across Inside Sales and Loyalty (per Isaac, Sep 22).
-      el('table', { class: 'w-full text-xs', style: { tableLayout: 'fixed' } },
-        el('colgroup', {}, el('col', { style: { width: '22%' } }), ...[1, 2, 3, 4, 5].map(() => el('col', { style: { width: '15.6%' } }))),
-        el('thead', { class: 'text-[10px] uppercase tracking-wider text-left', style: { color: 'var(--text-muted)' } },
-          el('tr', {}, el('th', { class: 'text-left px-3 py-2 font-semibold' }, ''), ...['Q1','Q2','Q3','Q4','Total'].map(q => el('th', { class: 'text-left px-3 py-2 font-semibold' }, q)))),
-        el('tbody', {},
-          el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-            el('td', { class: 'px-3 py-1.5 text-left font-semibold' }, 'Quarterly %'),
-            ...qAmts.map(a => td(yr > 0 ? Math.round(a / yr * 100) + '%' : '0%')), td('100%')),
-          el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-            el('td', { class: 'px-3 py-1.5 text-left font-semibold' }, 'Quarterly amount'),
-            ...qAmts.map(a => td(usd(a))), td(usd(yr), true)),
-          el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: 'rgba(223,100,58,.06)' } },
-            el('td', { class: 'px-3 py-1.5 text-left font-semibold' }, 'Per-rep quota'),
-            ...qAmts.map(a => td(usd(reps > 0 ? a / reps : 0), true)), td(usd(reps > 0 ? yr / reps : 0), true)))));
-  };
-  return el('div', { class: 'card p-4' },
-    el('h3', { class: 'text-sm font-bold mb-3' }, 'Quarterly quotas'),
-    el('div', { class: 'rounded-lg border overflow-x-auto', style: { borderColor: 'var(--border)' } },
-      block(dept.blocks.a, g.quarterly_new, g.is_reps),
-      block(dept.blocks.b, g.quarterly_renewal, g.loyalty_reps)));
-}
+// (goalQuarterlyCard removed — unreferenced; settings audit, Sep 30)
 
 // Monthly allocation grid — New + Renewal editable per month, Total computed.
 // This is what the IS pacer / dashboard / Marketing read for projections.
@@ -1200,163 +991,13 @@ function goalTargetCard(label, target, actual, onInput, readOnly = false) {
   );
 }
 
-function quarterlyMilestonesCard(title, goalObj, key, annualTarget, persist, readOnly = false) {
-  const qLabels = ['Q1', 'Q2', 'Q3', 'Q4'];
-  const arr = goalObj[key];
-
-  // If read-only, recompute from new + renewal each quarter
-  if (readOnly && goalObj.quarterly_new && goalObj.quarterly_renewal) {
-    for (let i = 0; i < 4; i++) {
-      arr[i] = (goalObj.quarterly_new[i] || 0) + (goalObj.quarterly_renewal[i] || 0);
-    }
-  }
-
-  const sum = arr.reduce((a, b) => a + b, 0);
-  const match = Math.round(sum) === Math.round(annualTarget);
-
-  return el('div', { class: 'card p-5' },
-    el('div', { class: 'flex items-center gap-3 mb-3 flex-wrap' },
-      el('h3', { class: 'text-sm font-bold' }, title),
-      el('div', { class: 'text-xs' },
-        el('span', { class: 'text-muted-' }, 'Sum: '),
-        el('strong', {}, fmt.usd0(sum)),
-        match
-          ? el('span', { class: 'ml-1.5', style: { color: 'var(--accent)' } }, '✓')
-          : el('span', { class: 'text-amber-500 ml-1.5' }, '≠ ' + fmt.usd0(annualTarget)),
-      ),
-    ),
-    el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-3' },
-      ...qLabels.map((label, i) => el('label', { class: 'block' },
-        el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- block mb-1 font-semibold' }, label),
-        readOnly
-          ? el('div', { class: 'rounded-lg border px-3 py-2 text-sm text-left font-semibold tabular-nums', style: { background: 'var(--bg-subtle)', color: 'var(--text-muted)' } },
-              '$' + Math.round(arr[i]).toLocaleString(),
-            )
-          : el('div', { class: 'relative' },
-              el('span', { class: 'absolute left-3 top-1/2 -translate-y-1/2 text-muted- text-sm' }, '$'),
-              el('input', {
-                type: 'text',
-                inputmode: 'numeric',
-                class: 'w-full rounded-lg border pl-7 pr-3 py-2 text-sm text-left',
-                value: Math.round(arr[i]),
-                onchange: (e) => {
-                  arr[i] = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0;
-                  // Recompute total quarterly from new + renewal
-                  if (goalObj.quarterly_new && goalObj.quarterly_renewal) {
-                    for (let j = 0; j < 4; j++) {
-                      goalObj.quarterly[j] = (goalObj.quarterly_new[j] || 0) + (goalObj.quarterly_renewal[j] || 0);
-                    }
-                    goalObj.amount = goalObj.quarterly.reduce((a, b) => a + b, 0);
-                  }
-                  persist(); mountApp();
-                },
-              }),
-            ),
-      )),
-    ),
-  );
-}
+// (quarterlyMilestonesCard removed — unreferenced; settings audit, Sep 30)
 
 // Sources admin — add a new lead/renewal source, hide one without losing
 // the history it produced. Hidden sources drop out of the Sales Log
 // dropdown but still resolve on existing sales (so old rows keep showing
 // their source name). No delete on purpose — hide is the safe equivalent.
-function adminSources() {
-  // Always alphabetical regardless of visibility — hidden rows just dim
-  // in place so an admin's eye doesn't have to track the row jumping
-  // sections when they toggle.
-  const sorted = [...state.sources].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-
-  // FieldRoutes mirror facts — the RevHawk sync stamps every CRM-linked row
-  // each run, so the newest fr_synced_at is "when we last checked the CRM".
-  const frLinked = state.sources.filter(s => s.fr_source_id);
-  const frStampRaw = frLinked.reduce((m, s) => ((s.fr_synced_at || '') > m ? s.fr_synced_at : m), '');
-  const frStamp = frStampRaw
-    ? new Date(frStampRaw).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET'
-    : null;
-  const frChip = (s) => s.fr_source_id
-    ? el('span', {
-        class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ml-2 align-middle whitespace-nowrap',
-        style: { background: 'rgba(95,108,91,.12)', color: '#5F6C5B', border: '1px solid rgba(95,108,91,.25)' },
-        title: 'Mirrored from FieldRoutes (source ID ' + s.fr_source_id + '). Add or hide it in FieldRoutes and the change lands here within ~30 min.',
-      }, 'FieldRoutes')
-    : el('span', {
-        class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ml-2 align-middle whitespace-nowrap',
-        style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.25)' },
-        title: 'Not found in the FieldRoutes source list — hidden from the Sales Log automatically. Past sales that used it are unaffected.',
-      }, 'Not in CRM');
-
-  return el('div', { class: 'flex flex-col gap-5' },
-    el('h2', { class: 'text-xl font-bold' }, 'Sources'),
-    el('p', { class: 'text-xs text-muted-' },
-      'Read-only mirror of the FieldRoutes source list, refreshed by the hourly sync — add or hide sources in FieldRoutes and verify here. ' +
-      'Every CRM source is shown, visible and hidden alike; visible ones feed the Source dropdown on the Sales Log. ' +
-      'Anything no longer in FieldRoutes is hidden automatically (past sales keep showing whatever they were logged with).'),
-
-    // List
-    el('div', { class: 'card overflow-hidden' },
-      el('div', { class: 'flex items-center justify-between px-4 py-3 border-b border-' },
-        el('h3', { class: 'text-sm font-bold' }, 'All Sources'),
-        el('div', { class: 'text-[11px] text-muted- text-right' },
-          state.sources.filter(s => s.is_active !== false).length + ' visible · ' +
-          state.sources.filter(s => s.is_active === false).length + ' hidden · ' +
-          frLinked.length + ' from FieldRoutes',
-          frStamp
-            ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Last CRM check ' + frStamp)
-            : el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'CRM sync pending — runs hourly'),
-        ),
-      ),
-      el('table', { class: 'w-full text-sm' },
-        el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
-          el('tr', { style: { background: 'var(--card-2)' } },
-            el('th', { class: 'text-left pl-4 pr-2 py-2 font-semibold' }, 'Source'),
-            el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Type'),
-            el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Visibility'),
-            el('th', { class: 'text-left pr-4 pl-2 py-2 font-semibold' }, 'Pay tab'),
-          ),
-        ),
-        el('tbody', {},
-          ...(sorted.length === 0
-            ? [el('tr', {}, el('td', { class: 'px-4 py-6 text-center text-xs text-muted- italic', colspan: 4 }, 'No sources yet — the FieldRoutes sync fills this in automatically (runs every 30 min).'))]
-            : sorted.map(s => {
-                const isHidden = s.is_active === false;
-                return el('tr', {
-                  class: 'border-t border-',
-                  style: isHidden ? { opacity: '0.55' } : {},
-                },
-                  el('td', { class: 'pl-4 pr-2 py-2.5 font-medium' }, s.name, frChip(s)),
-                  el('td', { class: 'px-2 py-2.5' },
-                    s.is_renewal
-                      ? el('span', { class: 'text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: 'rgba(223,100,58,.16)', color: '#DF643A' } }, 'Renewal')
-                      : el('span', { class: 'text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' } }, 'New'),
-                  ),
-                  el('td', { class: 'px-2 py-2.5 text-left' },
-                    el('span', {
-                      class: 'inline-block rounded-lg px-3 py-1.5 text-[11px] font-bold',
-                      style: isHidden
-                        ? { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }
-                        : { background: 'rgba(223,100,58,.16)', color: '#DF643A', border: '1px solid rgba(223,100,58,.3)' },
-                      title: 'Managed in FieldRoutes — hide or show it there and it updates here within ~30 min.',
-                    }, isHidden ? 'Hidden' : 'Visible'),
-                  ),
-                  el('td', { class: 'pr-4 pl-2 py-2.5 text-left' }, (() => {
-                    const off = !!payHiddenSources()[s.id];
-                    return el('button', {
-                      class: 'inline-block rounded-lg px-3 py-1.5 text-[11px] font-bold transition hover:brightness-95',
-                      style: off
-                        ? { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }
-                        : { background: 'rgba(61,122,102,.16)', color: '#5F6C5B', border: '1px solid rgba(61,122,102,.3)' },
-                      title: off ? 'Hidden from the Pay tab\u2019s By Source grid \u2014 sales on it still pay and show flagged. Click to show.' : 'Shown on the Pay tab\u2019s By Source grid. Click to hide.',
-                      onclick: () => togglePayHiddenSource(s.id),
-                    }, off ? 'Hidden on Pay' : 'On Pay');
-                  })()),
-                );
-              })),
-        ),
-      ),
-    ),
-  );
-}
+// (adminSources removed — unreferenced; settings audit, Sep 30)
 
 // ── Sales Rep payscales (per Isaac, Sep 2026) ────────────────────────────
 // Four ladders — Rookie / Veteran / Elite / Pro — each a list of tiers
@@ -1769,251 +1410,7 @@ function adminPricingSimple() {
           : 'Click a default to edit; saves when you tab or click away. Modifiers are points relative to Upfront %. Pick a rep above to give them different numbers.'));
 }
 
-function adminPricing(opts = {}) {
-  // Seeds sheet-aligned defaults (incl. renewal flat pay, backend rates,
-  // close-rate tiers) and runs the one-time 7%→sheet-rates migration.
-  // opts.embedded → omit the standalone "Pricing" heading so this can be
-  // dropped inside the Office Staff tab of Settings → Commissions.
-  const s = ensurePaySettings();
-
-  // Commission rates per contract type (exclude Commercial + Paid in Full — those are separate overrides)
-  const validCtIds = new Set(state.contractTypes.map(ct => ct.id));
-  if (!s.contract_commissions) {
-    s.contract_commissions = state.contractTypes.map(ct => ({ contract_type_id: ct.id, name: ct.name, rate: 7.0 }));
-  } else {
-    s.contract_commissions = s.contract_commissions.filter(cc => validCtIds.has(cc.contract_type_id));
-  }
-
-  // Below minimums multiplier (applied to the contract rate)
-  s.below_min_multiplier = s.below_min_multiplier ?? 50; // 50% = half commission
-
-  // Commercial + Paid in Full override rates (override the contract type base rate when checked)
-  s.commercial_multiplier = s.commercial_multiplier ?? 50;   // % of the rep's own upfront rate
-  s.paid_in_full_rate = s.paid_in_full_rate ?? 7.0;
-
-  const persist = () => { saveDemoData(); saveAppSettings(); };
-
-  return el('div', { class: 'flex flex-col gap-5 max-w-4xl w-full commission-config' },
-    opts.embedded ? null : el('h2', { class: 'text-xl font-bold' }, 'Pricing'),
-
-    // ── Status-based pay rules ──
-    el('div', { class: 'card p-5' },
-      el('h3', { class: 'text-sm font-bold mb-1' }, 'Pay by Status'),
-      el('p', { class: 'text-xs text-muted- mb-3' }, 'How audit status affects commission payout.'),
-      el('div', { class: 'flex flex-col gap-2' },
-        el('div', { class: 'flex items-center gap-4 py-2 border-b', style: { borderColor: 'var(--border)' } },
-          el('div', {},
-            el('div', { class: 'text-sm font-semibold' }, 'Serviced'),
-            el('div', { class: 'text-xs text-muted-' }, 'Full commission — account has been audited and serviced'),
-          ),
-          el('div', { class: 'text-sm font-bold', style: { color: 'var(--accent)' } }, '100%'),
-        ),
-        el('div', { class: 'flex items-center gap-4 py-2 border-b', style: { borderColor: 'var(--border)' } },
-          el('div', {},
-            el('div', { class: 'text-sm font-semibold' }, 'Below Minimums'),
-            el('div', { class: 'text-xs text-muted-' }, 'Reduced commission — account audited but below service minimums'),
-          ),
-          el('div', { class: 'flex items-center gap-1' },
-            el('input', {
-              type: 'text',
-              inputmode: 'numeric',
-              class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold w-16 text-left',
-              value: s.below_min_multiplier,
-              onchange: e => { s.below_min_multiplier = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
-            }),
-            el('span', { class: 'text-sm text-muted-' }, '%'),
-          ),
-        ),
-        el('div', { class: 'flex items-center gap-4 py-2' },
-          el('div', {},
-            el('div', { class: 'text-sm font-semibold' }, 'NSF / Cancelled / Not Payable'),
-            el('div', { class: 'text-xs text-muted-' }, 'No commission paid'),
-          ),
-          el('div', { class: 'text-sm font-bold text-muted-' }, '0%'),
-        ),
-      ),
-    ),
-
-    // ── Paid in Full (sheet O32: contract base + flat modifier) ──
-    el('div', { class: 'card p-5' },
-      el('div', { class: 'flex items-center gap-4' },
-        el('div', {},
-          el('h3', { class: 'text-sm font-bold' }, 'Paid in Full Modifier'),
-          el('p', { class: 'text-xs text-muted- mt-0.5' },
-            'Added on top of the contract-type base when Paid in Full is checked \u2014 base 7% + 5 = 12% on any term. PIF accounts still earn the multi-year + close-rate backend at quarter end.'),
-        ),
-        el('div', { class: 'flex items-center gap-1 shrink-0 ml-4' },
-          el('span', { class: 'text-sm text-muted-' }, '+'),
-          el('input', {
-            type: 'text', inputmode: 'numeric',
-            class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold w-16 text-left',
-            value: s.pif_modifier ?? 5,
-            onchange: e => { s.pif_modifier = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
-          }),
-          el('span', { class: 'text-sm text-muted-' }, 'pts'),
-        ),
-      ),
-    ),
-
-    // ── Commercial override ──
-    el('div', { class: 'card p-5' },
-      el('div', { class: 'flex items-center gap-4' },
-        el('div', {},
-          el('h3', { class: 'text-sm font-bold' }, 'Commercial Override'),
-          el('p', { class: 'text-xs text-muted- mt-0.5' }, 'When the "Commercial" box is checked on a sale, the rep earns this share of THEIR OWN upfront % (a 7% rep at 50% pays 3.5%; an 8% rep pays 4%). Typically for accounts with ACV > $2,000 on commercial properties.'),
-        ),
-        el('div', { class: 'flex items-center gap-1 shrink-0 ml-4' },
-          el('input', {
-            type: 'text', inputmode: 'numeric',
-            class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold w-16 text-left',
-            value: s.commercial_multiplier,
-            onchange: e => { s.commercial_multiplier = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
-          }),
-          el('span', { class: 'text-sm text-muted-' }, '% of rep upfront'),
-        ),
-      ),
-    ),
-
-    // ── Charge Upfront Tier (sheet O29-O31) ──
-    el('div', { class: 'card p-5' },
-      el('h3', { class: 'text-sm font-bold mb-1' }, 'Charge Upfront Tier'),
-      el('p', { class: 'text-xs text-muted- mb-3' },
-        'The share of a rep\u2019s commissionable accounts (serviced + below-min; renewals and upsells don\u2019t count) marked \u201cCharged Upfront\u201d sets what percent of their WHOLE upfront commission pays out.'),
-      el('div', { class: 'flex flex-col' },
-        ...(s.upfront_tiers || []).map((t, i) => el('div', { class: 'flex items-center gap-4 py-1.5 text-xs', style: { borderTop: i ? '1px solid var(--border)' : 'none' } },
-          el('span', { class: 'flex items-center gap-1 text-muted-' },
-            '\u2265',
-            el('input', {
-              type: 'text', inputmode: 'numeric',
-              class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold w-14 text-left',
-              value: t.min,
-              onchange: e => { t.min = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
-            }),
-            '% collected upfront'),
-          el('span', { class: 'flex items-center gap-1' },
-            'pays',
-            el('input', {
-              type: 'text', inputmode: 'numeric',
-              class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold w-14 text-left',
-              value: t.pay,
-              onchange: e => { t.pay = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
-            }),
-            el('b', {}, '%'), ' of upfront pay')))),
-    ),
-
-    // ── Commission by Contract Type ──
-    el('div', { class: 'card p-5' },
-      el('h3', { class: 'text-sm font-bold mb-1' }, 'Commission by Contract Type'),
-      el('p', { class: 'text-xs text-muted- mb-3' },
-        'Base upfront commission rate per contract type. The per-rep Commission Bump (in Users) is added on top.',
-      ),
-      el('div', { class: 'flex flex-col gap-2' },
-        el('div', { class: 'grid grid-cols-[1.5fr_1fr] gap-2 text-[10px] uppercase tracking-widest text-muted- font-semibold px-1' },
-          el('div', {}, 'Contract Type'),
-          el('div', {}, 'Base Rate'),
-        ),
-        ...s.contract_commissions.map(cc => el('div', { class: 'grid grid-cols-[1.5fr_1fr] gap-2 items-center' },
-          el('div', { class: 'text-sm py-2 px-1' }, cc.name),
-          el('div', { class: 'relative' },
-            el('input', {
-              type: 'text',
-              inputmode: 'numeric',
-              class: 'w-full rounded-lg border pl-3 pr-7 py-2 text-sm',
-              value: cc.rate,
-              onchange: e => { cc.rate = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
-            }),
-            el('span', { class: 'absolute right-3 top-1/2 -translate-y-1/2 text-muted- text-sm' }, '%'),
-          ),
-        )),
-      ),
-    ),
-
-    // ── Renewal Pay (flat $/account by contract term) ──
-    el('div', { class: 'card p-5' },
-      el('h3', { class: 'text-sm font-bold mb-1' }, 'Renewal Pay'),
-      el('p', { class: 'text-xs text-muted- mb-3' },
-        'Sources tagged "Renewal" in Settings → Sources pay a flat amount per serviced account instead of a % of revenue. Below Minimums pays half. Any new source you add is standard (%) unless you tag it as a renewal.',
-      ),
-      el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-3' },
-        ...[
-          ['m12', '12 Months'], ['m18', '18 Months'], ['m24', '24 Months'], ['pif', 'Paid in Full'],
-        ].map(([key, label]) => el('div', {},
-          el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-1' }, label),
-          el('div', { class: 'relative' },
-            el('span', { class: 'absolute left-3 top-1/2 -translate-y-1/2 text-muted- text-sm' }, '$'),
-            el('input', {
-              type: 'text', inputmode: 'numeric',
-              class: 'w-full rounded-lg border pl-7 pr-3 py-2 text-sm text-left',
-              value: s.renewal_flat[key],
-              onchange: e => { s.renewal_flat[key] = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
-            }),
-          ),
-        )),
-      ),
-    ),
-
-    // ── Backend Pay rates ──
-    el('div', { class: 'card p-5' },
-      el('h3', { class: 'text-sm font-bold mb-1' }, 'Backend Pay'),
-      el('p', { class: 'text-xs text-muted- mb-3' },
-        'Quarter-end backend rates. Multi-year applies to 18/24-month contracts from standard sources; renewal backend applies to serviced revenue from renewal sources. Paid-in-Full accounts earn no backend.',
-      ),
-      el('div', { class: 'grid grid-cols-1 sm:grid-cols-3 gap-3' },
-        ...[
-          ['multi_year_rate_18',   '18-Month Backend'],
-          ['multi_year_rate_24',   '24-Month Backend'],
-          ['renewal_backend_rate', 'Renewal Backend'],
-        ].map(([key, label]) => el('div', {},
-          el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-1' }, label),
-          el('div', { class: 'relative' },
-            el('input', {
-              type: 'text', inputmode: 'numeric',
-              class: 'w-full rounded-lg border pl-3 pr-7 py-2 text-sm text-left',
-              value: s[key],
-              onchange: e => { s[key] = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
-            }),
-            el('span', { class: 'absolute right-3 top-1/2 -translate-y-1/2 text-muted- text-sm' }, '%'),
-          ),
-        )),
-      ),
-    ),
-
-    // ── Close Rate Bonus tiers ──
-    el('div', { class: 'card p-5' },
-      el('h3', { class: 'text-sm font-bold mb-1' }, 'Close Rate Bonus'),
-      el('p', { class: 'text-xs text-muted- mb-3' },
-        'Quarter-end bonus on subscription revenue (12/18/24/PIF from standard sources). The highest tier the rep’s close rate reaches wins; below every tier pays $0.',
-      ),
-      el('div', { class: 'flex flex-col gap-2' },
-        el('div', { class: 'grid grid-cols-[1fr_1fr] gap-2 text-[10px] uppercase tracking-widest text-muted- font-semibold px-1' },
-          el('div', {}, 'Close Rate ≥'),
-          el('div', {}, 'Bonus Rate'),
-        ),
-        ...s.close_rate_tiers.map(t => el('div', { class: 'grid grid-cols-[1fr_1fr] gap-2 items-center' },
-          el('div', { class: 'relative' },
-            el('input', {
-              type: 'text', inputmode: 'numeric',
-              class: 'w-full rounded-lg border pl-3 pr-7 py-2 text-sm text-left',
-              value: t.min_close_rate,
-              onchange: e => { t.min_close_rate = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
-            }),
-            el('span', { class: 'absolute right-3 top-1/2 -translate-y-1/2 text-muted- text-sm' }, '%'),
-          ),
-          el('div', { class: 'relative' },
-            el('input', {
-              type: 'text', inputmode: 'numeric',
-              class: 'w-full rounded-lg border pl-3 pr-7 py-2 text-sm text-left',
-              value: t.rate,
-              onchange: e => { t.rate = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
-            }),
-            el('span', { class: 'absolute right-3 top-1/2 -translate-y-1/2 text-muted- text-sm' }, '%'),
-          ),
-        )),
-      ),
-    ),
-
-  );
-}
+// (adminPricing removed — unreferenced; settings audit, Sep 30)
 
 
 
