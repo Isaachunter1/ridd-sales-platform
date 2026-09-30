@@ -700,7 +700,11 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
         el('h3', { class: 'text-sm font-bold' + (opts.compact ? ' truncate' : '') }, (opts.title || ({ book: 'Recurring Book', margins: 'Margins', unit: 'Unit Economics' })[part] || 'P&L Indicators') + (opts.compact ? '' : ' · ' + periodLabel)),
         null),
       opts.headerExtra || null),
-    el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse' } },
+    // Fixed column grid (per Isaac, Sep 30): the same label width and equal
+    // branch columns on every branch card, so Atlanta … RIDD line up from
+    // Recurring Book to Margins to Unit Economics.
+    el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: (260 + cols.reduce((t, c) => t + (pctOn(c.key) ? 2 : 1), 0) * 96) + 'px' } },
+      el('colgroup', {}, el('col', { style: { width: '260px' } }), ...cols.flatMap(c => pctOn(c.key) ? [el('col', {}), el('col', {})] : [el('col', {})])),
       el('thead', {}, el('tr', {}, th('', '', true), ...cols.flatMap(c => {
         const on = pctOn(c.key);
         const h = th(c.label + (withPct && !opts.onlyCol ? (on ? ' ▾' : ' ▸') : ''), withPct && !opts.onlyCol ? (on ? 'Click to hide the % of revenue column' : 'Click to show % of revenue for ' + c.label) : '');
@@ -1139,7 +1143,7 @@ function reportingPutis() {
   for (const part of ['book', 'margins', 'unit']) wrap.insertBefore(putisIndicatorsCard(M, scKey, scBranches, cardOpts(part)), anchor);
   wrap.append(putisIndicatorsCard(M, scKey, scBranches, cardOpts('pnl')));
   // Data-advantage cards (per Isaac): source unit economics + add-on performance.
-  try { const a = intelSourceEconomicsCard(); if (a) wrap.append(a); const b = intelAddonCard(); if (b) wrap.append(b); } catch (e) { console.warn('[putis] intel cards skipped', e); }
+  // (Source economics + Add-on performance cards removed from the P&L tab, per Isaac Sep 30.)
 
   return wrap;
 }

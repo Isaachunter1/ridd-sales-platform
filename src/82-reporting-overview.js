@@ -721,7 +721,7 @@ function reportingOverview() {
               // book actually gained — sold-but-not-started isn't in the book yet.
               footer: (items) => { const i = items && items[0] ? items[0].dataIndex : -1; if (i < 0) return ''; const n = (Number(dsSvc[i]) || 0) - (Number(dsCxl[i]) || 0); return ' Net (serviced − churned): ' + (n < 0 ? '−' : '') + (unitSubs ? '' : '$') + Math.round(Math.abs(n)).toLocaleString(); } } } },
           scales: { x: { ticks: { color: txt, maxTicksLimit: span > 30 ? 15 : 31 }, grid: { display: false } },
-                    y: { beginAtZero: true, ticks: { color: txt, callback: v => unitSubs ? v : '$' + (v >= 1000 ? Math.round(v / 1000) + 'k' : v) }, grid: { color: grid } } } },
+                    y: { beginAtZero: true, ticks: { color: txt, callback: v => unitSubs ? v : (Math.abs(v) >= 1e6 ? '$' + (Math.round(v / 1e5) / 10).toString().replace(/\.0$/, '') + 'M' : Math.abs(v) >= 1000 ? '$' + Math.round(v / 1000) + 'k' : '$' + v) }, grid: { color: grid } } } },
       });
     }, 50);
     // The three headline numbers open the same drill for the WHOLE window
