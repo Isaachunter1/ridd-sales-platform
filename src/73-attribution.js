@@ -137,9 +137,13 @@ function _attrReconcile() {
       const before = c.subs.some(r => String(r.sold_date || '') < String(l.date || '9999'));
       l.status = before ? 'existing' : 'nosale'; continue;
     }
-    if (!l.isWinner) { l.status = 'otherwon'; continue; }
     const cur = reportingSourceOf(l.sale);
     l.currentSource = cur;
+    // Door to Door in the CRM stays Door to Door (per Isaac): mostly current
+    // D2D customers who found a paid channel to ask a question. Kept separate
+    // — never a fix, never a provider close.
+    if (typeof crmSourceIs === 'function' && crmSourceIs('d2d', cur)) { l.status = 'd2d'; continue; }
+    if (!l.isWinner) { l.status = 'otherwon'; continue; }
     l.status = cur === l.provider ? 'correct' : _attrIsUnset(cur) ? 'nosource' : 'missourced';
   }
   // One credited lead per provider per sale (a provider sending the same person twice counts once).
@@ -183,12 +187,13 @@ const ATTR_STATUS = {
   nosale:     ['In CRM, no new sale', 'var(--text-muted)'],
   nomatch:    ['Not in CRM', 'var(--text-muted)'],
   toorganic:  ['No paid lead — set to Organic', '#DC2626'],
+  d2d:        ['Door to Door in CRM — kept', 'var(--text-muted)'],
 };
 const _attrIsFix = (l) => (l.status === 'nosource' || l.status === 'missourced' || l.status === 'toorganic') && !l.dupe;
 // Leads / closes / fixes for a set of rows (closes = sales credited by last paid touch, once per sale).
 function _attrStats(rows) {
   const leadRows = rows.filter(l => l.status !== 'toorganic');
-  const closes = leadRows.filter(l => l.sale && l.isWinner && !l.dupe);
+  const closes = leadRows.filter(l => l.sale && l.isWinner && !l.dupe && l.status !== 'd2d');
   return { leads: leadRows.length, closes: closes.length, closeValue: closes.reduce((t, l) => t + (Number(l.sale.subscription_contract_value) || 0), 0), fixes: rows.filter(_attrIsFix).length };
 }
 
@@ -369,9 +374,10 @@ function mktgAttributionView() {
     tile('missourced', 'Mis-sourced', count('missourced'), '#DC2626'),
     tile('toorganic', 'Should be Organic', count('toorganic'), '#DC2626'),
     tile('otherwon', 'Last touch elsewhere', count('otherwon'), '#B45309'),
+    tile('d2d', 'Door to Door (kept)', inProv.filter(l => l.status === 'd2d').length),
     tile('existing', 'Already customers', count('existing')),
     tile('nosale', 'No sale', count('nosale') + count('nomatch')));
-  const sold = inProv.filter(l => l.sale && l.isWinner && !l.dupe && l.status !== 'toorganic');
+  const sold = inProv.filter(l => l.sale && l.isWinner && !l.dupe && l.status !== 'toorganic' && l.status !== 'd2d');
   const closeLine = el('div', { class: 'text-[11px]', style: muted },
     'Sales credited by last touch: ' + sold.length.toLocaleString() + ' · ' + fmt.usd0(sold.reduce((t, l) => t + (Number(l.sale.subscription_contract_value) || 0), 0)) + ' contract value · lead → sale ' + (_attrStats(inProv).leads ? Math.round(sold.filter(l => l.status !== 'toorganic').length / _attrStats(inProv).leads * 1000) / 10 : 0) + '%');
   const list = inProv.filter(l => stFilter === 'all' ? true : stFilter === 'fix' ? _attrIsFix(l) : stFilter === 'nosale' ? (l.status === 'nosale' || l.status === 'nomatch') : l.status === stFilter)
