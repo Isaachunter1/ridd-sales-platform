@@ -56,8 +56,8 @@ function adminPermissions() {
     const panel = el('div', { class: 'card absolute p-1.5', style: { top: 'calc(100% + 6px)', right: '0', width: '290px', maxWidth: 'calc(100vw - 32px)', maxHeight: '380px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: open ? 'block' : 'none' }, onclick: (e) => e.stopPropagation() }, open ? buildBody() : null);
     const btn = el('button', {
       class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer flex items-center justify-between gap-2',
-      style: { borderColor: changed ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: '180px', maxWidth: '260px', textAlign: 'left' },
-      title: changed ? 'Changed from the defaults' : '',
+      style: { borderColor: changed ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '240px', minWidth: '240px', maxWidth: '240px', justifyContent: 'space-between', textAlign: 'left' },
+      title: summary + (changed ? ' · changed from the defaults' : ''),
       onclick: (e) => { e.stopPropagation(); state._permOpen = open ? null : key; mountApp(); },
     }, el('span', { class: 'truncate' }, summary), el('span', { style: { fontSize: '9px', opacity: .7 } }, '▾'));
     wrap.append(btn, panel);
@@ -97,9 +97,8 @@ function adminPermissions() {
         ...[['All', () => grant(PERM_ROLES, true)], ['None', () => grant(PERM_ROLES, false)]].map(([l, fn]) => el('button', { class: 'rounded-lg px-2 py-0.5 text-[10px] font-bold', style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: fn }, l)),
         changed ? el('button', { class: 'ml-auto text-[10px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => { for (const r of PERM_ROLES) if (overrides[r]) delete overrides[r][d.id]; for (const r of Object.keys(overrides)) if (!Object.keys(overrides[r]).length) delete overrides[r]; saveIndicatorState(); mountApp(); } }, 'defaults') : null),
       ...fams.flatMap(g => {
-        const allOn = g.roles.every(r => on.includes(r));
         return [
-          famHead(g.f, g.roles.length > 1 ? el('label', { class: 'inline-flex items-center gap-1 normal-case tracking-normal cursor-pointer' }, cb(allOn, (v) => grant(g.roles, v)), 'all') : null),
+          famHead(g.f),
           ...g.roles.map(r => el('label', { class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer', style: { background: on.includes(r) ? 'var(--card-2)' : 'transparent', color: 'var(--text)' } },
             cb(on.includes(r), (v) => grant([r], v)), el('span', { class: 'flex-1' }, g.roles.length > 1 ? shortOf(r) : rl(r)),
             overrides[r] && overrides[r][d.id] !== undefined ? el('span', { class: 'text-[9px]', style: { color: 'var(--accent)' }, title: 'Changed from default' }, '●') : null)),
@@ -121,9 +120,8 @@ function adminPermissions() {
     const body = () => el('div', {},
       d.help ? el('div', { class: 'px-2 pb-1.5 mb-1 text-[10px]', style: { color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' } }, d.help) : null,
       ...fams.flatMap(g => {
-        const gv = [...new Set(g.roles.map(r => scopeOf(r, d.id)))];
         return [
-          famHead(g.f, g.roles.length > 1 ? sel(gv.length === 1 ? gv[0] : null, (v) => { if (!v) return; for (const r of g.roles) { const def = scopeDef(r, d.id); state._compExtras = state._compExtras || {}; const ps = state._compExtras.permScopes = state._compExtras.permScopes || {}; const o = ps[r] = ps[r] || {}; if (v === def) delete o[d.id]; else o[d.id] = v; if (!Object.keys(o).length) delete ps[r]; } saveIndicatorState(); logActivity('config_change', { detail: 'Permissions reach: all ' + g.f + ' · ' + d.id + ' → ' + v }); mountApp(); }) : null),
+          famHead(g.f),
           ...g.roles.map(r => el('div', { class: 'flex items-center justify-between gap-2 px-2.5 py-1 text-[11px] font-semibold' },
             el('span', {}, g.roles.length > 1 ? shortOf(r) : rl(r)), sel(scopeOf(r, d.id), (v) => setScope(r, d.id, v), scopeOf(r, d.id) !== scopeDef(r, d.id)))),
         ];
