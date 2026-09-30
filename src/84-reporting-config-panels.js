@@ -1528,7 +1528,11 @@ function reportingMarketingPnl() {
   reportingLoadGhlLeads();
   reportingLoadQboSpend();
   const sub = ['pnl', 'cac', 'acq', 'providers', 'spend', 'projections'].includes(state._mktSub) ? state._mktSub : 'pnl';
-  const body = sub === 'cac' ? _mktgCac() : sub === 'acq' ? _mktgAcq() : sub === 'providers' ? _mktgProviders() : sub === 'spend' ? _mktgSpendEntry() : sub === 'projections' ? _mktgProjections() : _mktgPnl();
+  // Providers has two views (per Isaac, Sep 30): performance matrices and the lead reconciliation (last-touch attribution).
+  const provView = state._mktProvView === 'recon' ? 'recon' : 'perf';
+  const provTabs = el('div', { class: 'inline-flex rounded-lg border overflow-hidden self-start', style: { borderColor: 'var(--border-2)' } },
+    ...[['perf', 'Performance'], ['recon', 'Lead reconciliation']].map(([v, l]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold', style: provView === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._mktProvView = v; mountApp(); } }, l)));
+  const body = sub === 'cac' ? _mktgCac() : sub === 'acq' ? _mktgAcq() : sub === 'providers' ? el('div', { class: 'flex flex-col gap-4' }, provTabs, provView === 'recon' ? mktgAttributionView() : _mktgProviders()) : sub === 'spend' ? _mktgSpendEntry() : sub === 'projections' ? _mktgProjections() : _mktgPnl();
   // Needs attention (owner-only feed) lives on the Marketing tab (per Isaac, Sep 2026).
   return el('div', { class: 'flex flex-col gap-4' }, (typeof exceptionFeedCard === 'function') ? exceptionFeedCard() : null, _mktgYearBar(sub), body);
 }

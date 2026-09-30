@@ -1,0 +1,289 @@
+// ┌─ src/73-attribution.js ──────────────────────────────────────────────────
+// │ Lead reconciliation (per Isaac, Sep 30) — Marketing → Providers.
+// │ Upload each lead provider's lead report; the app matches every lead to
+// │ the CRM (phone → email → last name + ZIP) and applies LAST-TOUCH
+// │ attribution across every provider uploaded: when a customer was a lead
+// │ with several providers, the latest lead on or before the sale wins.
+// │ Output: who is correctly sourced, who has no source, who is mis-sourced,
+// │ who was already a customer, and a to-do list of the exact FieldRoutes
+// │ subscriptions whose source must change (exportable). Replaces pulling
+// │ reports + XLOOKUPs by hand.
+// │ Uploads persist for every admin in storage: reporting/attribution/leads.json.gz
+// └──────────────────────────────────────────────────────────────────────────
+const ATTR_PATH = 'attribution/leads.json.gz';
+const ATTR_WINDOW_DAYS = 60;   // a sale counts for a lead when sold within 60 days after the lead (3 days grace before)
+
+const _attrDigits = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d.length >= 10 ? d.slice(-10) : ''; };
+const _attrEmail = (v) => { const e = String(v || '').trim().toLowerCase(); return /@/.test(e) ? e : ''; };
+const _attrWord = (v) => String(v || '').trim().toLowerCase().replace(/[^a-z]/g, '');
+const _attrZip = (v) => { const m = /(\d{5})/.exec(String(v || '')); return m ? m[1] : ''; };
+function _attrDate(v) {
+  if (v == null || v === '') return '';
+  if (typeof v === 'number' && v > 20000 && v < 80000) { const d = new Date(Math.round((v - 25569) * 86400000)); return d.toISOString().slice(0, 10); }   // Excel serial
+  const s = String(v).trim();
+  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s); if (m) return m[1] + '-' + m[2].padStart(2, '0') + '-' + m[3].padStart(2, '0');
+  m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(s); if (m) { const y = m[3].length === 2 ? '20' + m[3] : m[3]; return y + '-' + m[1].padStart(2, '0') + '-' + m[2].padStart(2, '0'); }
+  const t = Date.parse(s); return isFinite(t) ? new Date(t).toISOString().slice(0, 10) : '';
+}
+const _attrAddDays = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+
+// Column auto-detect from the header row.
+const ATTR_FIELDS = [
+  ['date', 'Lead date', /date|created|received|submitted|time/i],
+  ['name', 'Full name', /^(full ?name|name|customer|customer name|contact|contact name|lead name)$/i],
+  ['first', 'First name', /first/i],
+  ['last', 'Last name', /last|surname/i],
+  ['phone', 'Phone', /phone|mobile|cell|tel/i],
+  ['email', 'Email', /e-?mail/i],
+  ['zip', 'ZIP', /zip|postal/i],
+  ['id', 'Lead ID', /lead ?id|^id$|reference|ref/i],
+];
+function _attrGuessMap(headers) {
+  const map = {};
+  for (const [k, , re] of ATTR_FIELDS) { const h = headers.find(x => re.test(String(x || '').trim()) && !Object.values(map).includes(x)); if (h) map[k] = h; }
+  return map;
+}
+
+// ── persistence (shared across admins) ──
+async function _attrLoad() {
+  if (state._attr !== undefined) return;
+  if (!supabase || (typeof DEMO !== 'undefined' && DEMO)) { state._attr = { files: [] }; return; }
+  state._attr = null;
+  try {
+    const { data, error } = await supabase.storage.from('reporting').download(ATTR_PATH + '?t=' + Date.now());
+    if (error || !data) { state._attr = { files: [] }; }
+    else {
+      const txt = await new Response(data.stream().pipeThrough(new DecompressionStream('gzip'))).text();
+      const j = JSON.parse(txt); state._attr = { files: Array.isArray(j.files) ? j.files : [] };
+    }
+  } catch (e) { state._attr = { files: [] }; }
+  mountApp();
+}
+async function _attrSave() {
+  if (!supabase || (typeof DEMO !== 'undefined' && DEMO)) return;
+  try {
+    const blob = await new Response(new Blob([JSON.stringify({ files: state._attr.files, savedAt: new Date().toISOString() })]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
+    const { error } = await supabase.storage.from('reporting').upload(ATTR_PATH, blob, { contentType: 'application/gzip', upsert: true });
+    if (error) toast('Could not save uploads: ' + error.message, 'error');
+  } catch (e) { toast('Could not save uploads: ' + (e.message || e), 'error'); }
+}
+
+// ── the CRM side: one index over the reporting snapshot ──
+function _attrCrmIndex() {
+  const subs = state.reportingSubscriptions || [];
+  if (state._attrIdx && state._attrIdx.src === subs) return state._attrIdx;
+  const cust = new Map(), byPhone = new Map(), byEmail = new Map(), byNameZip = new Map();
+  for (const r of subs) {
+    const id = String(r.customer_id != null ? r.customer_id : ''); if (!id) continue;
+    let c = cust.get(id);
+    if (!c) { c = { id, first: r.first_name || '', last: r.last_name || '', phone: _attrDigits(r.phone), email: _attrEmail(r.email), zip: _attrZip(r.zip_code), office: r.office_name || '', subs: [] }; cust.set(id, c); }
+    c.subs.push(r);
+    if (c.phone) byPhone.set(c.phone, id);
+    if (c.email) byEmail.set(c.email, id);
+    if (c.zip && _attrWord(c.last)) byNameZip.set(_attrWord(c.last) + '|' + c.zip, id);
+  }
+  state._attrIdx = { src: subs, cust, byPhone, byEmail, byNameZip };
+  return state._attrIdx;
+}
+function _attrIsUnset(src) {
+  const s = String(src || '').trim();
+  if (!s || /^(unspecified|n\/?a|none|unknown|-)$/i.test(s)) return true;
+  return (typeof crmSourceIs === 'function') && crmSourceIs('unset', s);
+}
+
+// ── reconcile: every lead from every upload, last touch across providers ──
+function _attrReconcile() {
+  const files = (state._attr && state._attr.files) || [];
+  const idx = _attrCrmIndex();
+  const leads = [];
+  for (const f of files) for (const l of f.leads || []) leads.push({ ...l, provider: f.provider, fileId: f.id });
+  // 1. Match each lead to a customer: phone, then email, then last name + ZIP.
+  for (const l of leads) {
+    const p = _attrDigits(l.phone), e = _attrEmail(l.email);
+    const last = _attrWord(l.last || (String(l.name || '').trim().split(/\s+/).slice(-1)[0] || '')), zip = _attrZip(l.zip);
+    let id = null, how = null;
+    if (p && idx.byPhone.has(p)) { id = idx.byPhone.get(p); how = 'phone'; }
+    else if (e && idx.byEmail.has(e)) { id = idx.byEmail.get(e); how = 'email'; }
+    else if (last && zip && idx.byNameZip.has(last + '|' + zip)) { id = idx.byNameZip.get(last + '|' + zip); how = 'name + ZIP'; }
+    l.custId = id; l.matchHow = how;
+  }
+  // 2. The sale each lead points at: the first new (non-renewal) subscription
+  //    sold from 3 days before the lead to ATTR_WINDOW_DAYS after it.
+  const saleOf = (l) => {
+    const c = idx.cust.get(l.custId); if (!c || !l.date) return null;
+    const lo = _attrAddDays(l.date, -3), hi = _attrAddDays(l.date, ATTR_WINDOW_DAYS);
+    const cands = c.subs.filter(r => { const sd = String(r.sold_date || '').slice(0, 10); return sd >= lo && sd <= hi && (typeof reportingSourceClass !== 'function' || reportingSourceClass(reportingSourceOf(r)) !== 'renewal'); })
+      .sort((a, b) => String(a.sold_date).localeCompare(String(b.sold_date)));
+    return cands[0] || null;
+  };
+  for (const l of leads) l.sale = l.custId ? saleOf(l) : null;
+  // 3. Last touch per sale: the latest lead on or before the sale date wins.
+  const bySale = new Map();
+  for (const l of leads) if (l.sale) { const k = String(l.sale.subscription_id || (l.custId + '|' + l.sale.sold_date)); (bySale.get(k) || bySale.set(k, []).get(k)).push(l); }
+  for (const [, ls] of bySale) {
+    const sd = String(ls[0].sale.sold_date).slice(0, 10);
+    const eligible = ls.filter(x => x.date <= _attrAddDays(sd, 1));
+    const pool = (eligible.length ? eligible : ls).slice();
+    pool.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(a.provider).localeCompare(String(b.provider)));
+    const win = pool[0];
+    const touches = [...new Set(ls.map(y => y.provider))];
+    for (const x of ls) { x.winner = win.provider; x.isWinner = x.provider === win.provider; x.touches = touches; }
+  }
+  // 4. Classify.
+  for (const l of leads) {
+    const c = l.custId ? idx.cust.get(l.custId) : null;
+    if (!c) { l.status = 'nomatch'; continue; }
+    if (!l.sale) {
+      const before = c.subs.some(r => String(r.sold_date || '') < String(l.date || '9999'));
+      l.status = before ? 'existing' : 'nosale'; continue;
+    }
+    if (!l.isWinner) { l.status = 'otherwon'; continue; }
+    const cur = reportingSourceOf(l.sale);
+    l.currentSource = cur;
+    l.status = cur === l.provider ? 'correct' : _attrIsUnset(cur) ? 'nosource' : 'missourced';
+  }
+  // One credited lead per provider per sale (a provider sending the same person twice counts once).
+  const seen = new Set();
+  for (const l of leads) {
+    if (!l.sale || !l.isWinner) continue;
+    const k = l.provider + '|' + (l.sale.subscription_id || l.custId);
+    if (seen.has(k)) l.dupe = true; else seen.add(k);
+  }
+  return leads;
+}
+const ATTR_STATUS = {
+  correct:    ['Sourced correctly', 'var(--ok)'],
+  nosource:   ['No source — set it', '#DC2626'],
+  missourced: ['Mis-sourced — change it', '#DC2626'],
+  otherwon:   ['Credit to another provider (last touch)', '#B45309'],
+  existing:   ['Already a customer', 'var(--text-muted)'],
+  nosale:     ['In CRM, no new sale', 'var(--text-muted)'],
+  nomatch:    ['Not in CRM', 'var(--text-muted)'],
+};
+const _attrIsFix = (l) => (l.status === 'nosource' || l.status === 'missourced') && !l.dupe;
+
+// ── upload ──
+async function _attrUpload(provider, file) {
+  if (!provider) { toast('Pick the provider first', 'error'); return; }
+  try { await loadXlsxLibOnce(); } catch { toast('Could not load Excel library — check your connection', 'error'); return; }
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array', cellDates: false });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
+  if (!rows.length) { toast('No rows found in ' + file.name, 'error'); return; }
+  const headers = Object.keys(rows[0]);
+  state._attrPending = { provider, fileName: file.name, headers, rows, map: _attrGuessMap(headers) };
+  mountApp();
+}
+function _attrCommitPending() {
+  const P = state._attrPending; if (!P) return;
+  const g = (r, k) => P.map[k] ? r[P.map[k]] : '';
+  const leads = P.rows.map(r => {
+    const name = String(g(r, 'name') || [g(r, 'first'), g(r, 'last')].filter(Boolean).join(' ')).trim();
+    return { date: _attrDate(g(r, 'date')), name, first: String(g(r, 'first') || ''), last: String(g(r, 'last') || ''), phone: String(g(r, 'phone') || ''), email: String(g(r, 'email') || ''), zip: String(g(r, 'zip') || ''), leadId: String(g(r, 'id') || '') };
+  }).filter(l => l.phone || l.email || l.name);
+  const dates = leads.map(l => l.date).filter(Boolean).sort();
+  state._attr.files.push({ id: Date.now().toString(36), provider: P.provider, fileName: P.fileName, uploadedAt: new Date().toISOString(), uploadedBy: state.profile && state.profile.full_name, from: dates[0] || null, to: dates[dates.length - 1] || null, leads });
+  state._attrPending = null;
+  _attrSave(); toast(leads.length.toLocaleString() + ' ' + P.provider + ' leads added', 'success'); mountApp();
+}
+
+async function _attrExport(rows) {
+  try { await loadXlsxLibOnce(); } catch { toast('Could not load Excel library', 'error'); return; }
+  const H = ['Customer #', 'Customer', 'Subscription #', 'Service', 'Sold', 'Current source', 'Should be', 'Lead provider', 'Lead date', 'Lead name', 'Lead phone', 'Lead email', 'Matched by', 'All providers touched', 'Status'];
+  const data = rows.map(l => [l.custId || '', l.sale ? [l.sale.first_name, l.sale.last_name].filter(Boolean).join(' ') : '', l.sale ? l.sale.subscription_id : '', l.sale ? l.sale.subscription : '', l.sale ? String(l.sale.sold_date).slice(0, 10) : '', l.sale ? reportingSourceOf(l.sale) : '', _attrIsFix(l) ? l.provider : l.status === 'otherwon' ? l.winner : '', l.provider, l.date, l.name, l.phone, l.email, l.matchHow || '', (l.touches || [l.provider]).join(', '), (ATTR_STATUS[l.status] || [l.status])[0]]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([H, ...data]), 'Lead reconciliation');
+  XLSX.writeFile(wb, 'RIDD-lead-reconciliation-' + new Date().toISOString().slice(0, 10) + '.xlsx');
+}
+
+// ── the view ──
+function mktgAttributionView() {
+  _attrLoad();
+  const A = state._attr;
+  const muted = { color: 'var(--text-muted)' };
+  if (A === undefined || A === null) return el('div', { class: 'card p-6 text-[11px] text-center', style: muted }, 'Loading lead uploads…');
+  if (!(state.reportingSubscriptions || []).length) return el('div', { class: 'card p-6 text-[11px] text-center', style: muted }, 'Waiting for the CRM snapshot to load…');
+  const sources = [...new Set([...(state.reportingSourceConfig || []).map(c => c.source), ...(state.reportingSubscriptions || []).map(r => reportingSourceOf(r))])]
+    .filter(s => s && !_attrIsUnset(s) && (typeof reportingSourceClass !== 'function' || reportingSourceClass(s) === 'new') && !(typeof crmSourceIs === 'function' && crmSourceIs('d2d', s))).sort();
+  const btn = 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold';
+  const primary = { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' };
+  // Upload bar
+  const provSel = el('select', { class: btn, style: { borderColor: 'var(--border-2)', background: 'var(--card)' }, onchange: (e) => { state._attrUpProv = e.target.value; } },
+    el('option', { value: '' }, 'Provider (CRM source)…'), ...sources.map(s => el('option', { value: s, selected: state._attrUpProv === s }, s)));
+  const fileIn = el('input', { type: 'file', accept: '.csv,.xlsx,.xls', style: { display: 'none' }, onchange: (e) => { const f = e.target.files && e.target.files[0]; if (f) _attrUpload(state._attrUpProv, f); e.target.value = ''; } });
+  const upload = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
+    el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Upload leads'), provSel, fileIn,
+    el('button', { class: btn, style: primary, onclick: () => { if (!state._attrUpProv) { toast('Pick the provider first', 'error'); return; } fileIn.click(); } }, '↑ Choose CSV / Excel'),
+    el('span', { class: 'text-[10px]', style: muted }, 'Last touch wins across every provider uploaded · a lead counts toward a sale made within ' + ATTR_WINDOW_DAYS + ' days after it · matched by phone, then email, then last name + ZIP'));
+  // Column mapping step
+  const P = state._attrPending;
+  const mapping = P ? el('div', { class: 'card p-4 flex flex-col gap-3', style: { borderColor: 'var(--accent)' } },
+    el('div', { class: 'text-sm font-bold' }, 'Confirm columns · ' + P.fileName + ' · ' + P.rows.length.toLocaleString() + ' rows → ' + P.provider),
+    el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' } },
+      ...ATTR_FIELDS.map(([k, label]) => el('label', { class: 'flex flex-col gap-1 text-[10px] uppercase tracking-wider font-semibold', style: muted }, label,
+        el('select', { class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', textTransform: 'none', letterSpacing: 'normal' }, onchange: (e) => { if (e.target.value) P.map[k] = e.target.value; else delete P.map[k]; mountApp(); } },
+          el('option', { value: '' }, '— none —'), ...P.headers.map(h => el('option', { value: h, selected: P.map[k] === h }, h)))))),
+    el('div', { class: 'text-[10px]', style: muted }, 'First row: ' + ATTR_FIELDS.filter(([k]) => P.map[k]).map(([k, lbl]) => lbl + ' = ' + String(P.rows[0][P.map[k]] ?? '')).join(' · ')),
+    el('div', { class: 'flex gap-2' },
+      el('button', { class: btn, style: primary, onclick: () => { if (!P.map.date) { toast('Map the lead date column — last touch needs it', 'error'); return; } if (!P.map.phone && !P.map.email && !P.map.last && !P.map.name) { toast('Map at least phone, email or name', 'error'); return; } _attrCommitPending(); } }, 'Add ' + P.rows.length.toLocaleString() + ' leads'),
+      el('button', { class: btn, style: { borderColor: 'var(--border-2)' }, onclick: () => { state._attrPending = null; mountApp(); } }, 'Cancel'))) : null;
+  // Uploaded files
+  const filesCard = A.files.length ? el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-4 py-2 border-b text-[10px] uppercase tracking-widest font-semibold', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } }, 'Uploaded lead files'),
+    ...A.files.map(f => el('div', { class: 'flex items-center gap-3 px-4 py-1.5 border-t text-[11px]', style: { borderColor: 'var(--border)' } },
+      el('span', { class: 'font-semibold', style: { minWidth: '140px' } }, f.provider), el('span', { class: 'flex-1 min-w-0 truncate' }, f.fileName),
+      el('span', { style: muted }, (f.leads || []).length.toLocaleString() + ' leads · ' + (f.from || '?') + ' → ' + (f.to || '?') + ' · uploaded ' + new Date(f.uploadedAt).toLocaleDateString() + (f.uploadedBy ? ' by ' + f.uploadedBy : '')),
+      el('button', { class: 'text-[11px] font-semibold', style: { color: '#A9441F' }, onclick: () => { if (!confirm('Remove ' + f.fileName + '?')) return; A.files = A.files.filter(x => x.id !== f.id); _attrSave(); mountApp(); } }, 'Remove')))) : null;
+  if (!A.files.length) return el('div', { class: 'flex flex-col gap-4' }, upload, mapping,
+    el('div', { class: 'card p-6 text-[11px] text-center', style: muted }, 'Upload a provider’s lead report (CSV or Excel) to reconcile it against FieldRoutes.'));
+  const leads = _attrReconcile();
+  const provFilter = state._attrProv || 'all';
+  const inProv = leads.filter(l => provFilter === 'all' || l.provider === provFilter);
+  const count = (st) => inProv.filter(l => l.status === st && !l.dupe).length;
+  const provs = [...new Set(leads.map(l => l.provider))].sort();
+  const provPick = el('select', { class: btn, style: { borderColor: 'var(--border-2)', background: 'var(--card)' }, onchange: (e) => { state._attrProv = e.target.value; mountApp(); } },
+    el('option', { value: 'all', selected: provFilter === 'all' }, 'All providers'), ...provs.map(p => el('option', { value: p, selected: provFilter === p }, p)));
+  const stFilter = state._attrStatus || 'fix';
+  const tile = (key, label, n, color) => el('button', { class: 'card p-3 text-left min-w-0', style: stFilter === key ? { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px var(--accent)' } : {}, onclick: () => { state._attrStatus = key; mountApp(); } },
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: muted }, label),
+    el('div', { class: 'text-2xl font-black tabular-nums mt-1', style: { color: color || 'var(--text)' } }, n.toLocaleString()));
+  const fixN = inProv.filter(_attrIsFix).length;
+  const tiles = el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' } },
+    tile('fix', 'To change in FieldRoutes', fixN, fixN ? '#DC2626' : 'var(--ok)'),
+    tile('all', 'Leads', inProv.length),
+    tile('correct', 'Sourced correctly', count('correct'), 'var(--ok)'),
+    tile('nosource', 'No source', count('nosource'), '#DC2626'),
+    tile('missourced', 'Mis-sourced', count('missourced'), '#DC2626'),
+    tile('otherwon', 'Last touch elsewhere', count('otherwon'), '#B45309'),
+    tile('existing', 'Already customers', count('existing')),
+    tile('nosale', 'No sale', count('nosale') + count('nomatch')));
+  const sold = inProv.filter(l => l.sale && l.isWinner && !l.dupe);
+  const closeLine = el('div', { class: 'text-[11px]', style: muted },
+    'Sales credited by last touch: ' + sold.length.toLocaleString() + ' · ' + fmt.usd0(sold.reduce((t, l) => t + (Number(l.sale.subscription_contract_value) || 0), 0)) + ' contract value · lead → sale ' + (inProv.length ? Math.round(sold.length / inProv.length * 1000) / 10 : 0) + '%');
+  const list = inProv.filter(l => stFilter === 'all' ? true : stFilter === 'fix' ? _attrIsFix(l) : stFilter === 'nosale' ? (l.status === 'nosale' || l.status === 'nomatch') : l.status === stFilter)
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const th = (t) => el('th', { class: 'px-2 py-1.5 text-left text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap', style: muted }, t);
+  const td = (v, st) => el('td', { class: 'px-2 py-1.5 whitespace-nowrap', style: st || {} }, v == null || v === '' ? '—' : v);
+  const shown = list.slice(0, state._attrMore ? 20000 : 200);
+  const red = { color: '#DC2626', fontWeight: '600' };
+  const table = el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-4 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+      el('h3', { class: 'text-sm font-bold' }, stFilter === 'fix' ? 'Accounts to change in FieldRoutes' : 'Leads · ' + (stFilter === 'all' ? 'all' : (ATTR_STATUS[stFilter] || [stFilter])[0])),
+      el('span', { class: 'text-[11px]', style: muted }, list.length.toLocaleString() + ' rows'),
+      el('button', { class: btn + ' ml-auto', style: { borderColor: 'var(--border-2)' }, onclick: () => _attrExport(list) }, '↓ Excel')),
+    list.length ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]' },
+      el('thead', {}, el('tr', {}, th('Lead date'), th('Provider'), th('Lead'), th('Customer #'), th('Subscription'), th('Sold'), th('Current source'), th('Should be'), th('Matched by'), th('Touched by'), th('Status'))),
+      el('tbody', {}, ...shown.map(l => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        td(l.date), td(l.provider), td(l.name || l.phone || l.email),
+        td(l.custId ? '#' + l.custId : null), td(l.sale ? l.sale.subscription + ' #' + l.sale.subscription_id : null), td(l.sale ? String(l.sale.sold_date).slice(0, 10) : null),
+        td(l.sale ? reportingSourceOf(l.sale) : null, _attrIsFix(l) ? red : {}),
+        td(_attrIsFix(l) ? l.provider : l.status === 'otherwon' ? l.winner : null, _attrIsFix(l) ? { fontWeight: '700' } : {}),
+        td(l.matchHow), td((l.touches || []).length > 1 ? l.touches.join(', ') : null),
+        td((ATTR_STATUS[l.status] || [l.status])[0] + (l.dupe ? ' (repeat lead)' : ''), { color: (ATTR_STATUS[l.status] || [])[1] || 'var(--text)', fontWeight: '600' })))))) :
+      el('div', { class: 'px-4 py-6 text-[11px] text-center', style: muted }, stFilter === 'fix' ? 'Nothing to change — every credited sale is sourced correctly.' : 'No rows.'),
+    list.length > shown.length ? el('button', { class: 'w-full px-4 py-2 text-[11px] font-semibold border-t', style: { borderColor: 'var(--border)', color: 'var(--accent)' }, onclick: () => { state._attrMore = true; mountApp(); } }, 'Show all ' + list.length.toLocaleString()) : null);
+  return el('div', { class: 'flex flex-col gap-4' }, upload, mapping,
+    el('div', { class: 'flex items-center gap-2 flex-wrap' }, el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Provider'), provPick, closeLine),
+    tiles, table, filesCard);
+}
