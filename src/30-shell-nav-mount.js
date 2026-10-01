@@ -125,7 +125,7 @@ function insideSalesTabsFor(role) {
 // Inside Sales (office) ⇄ D2D Sales (the commission calculator). Reps never
 // see it — their rep type decides which half IS their Sales tab.
 function salesModeToggle(mode) {
-  if (!isAdminRole(state.profile?.role)) return null;
+  if (!isAdminRole(state.profile?.role) && !isDeveloperRole(state.profile?.role)) return null;   // developers walk all three worlds too
   const btn = (m, label) => el('button', {
     class: 'sales-mode-btn px-2.5 py-1 text-[11px] font-bold transition',
     style: mode === m ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
@@ -733,7 +733,7 @@ function mountApp() {
   // D2D Sales only. Switching between them stays an admin function (the
   // toggle already renders admin-only); this guard enforces it on deep
   // links and stale resumes too. Competitions stays open to everyone.
-  if (!isAdmin && !isAuditor && state.profile) {
+  if (!isAdmin && !isAuditor && state.profile && !isDeveloperRole(state.profile.role)) {
     const _grp = repTypeGroup(state.profile);
     const _isTabNotComp = INSIDE_SALES_TAB_KEYS.has(state.view) && state.view !== 'competitions';
     const _isD2dTab = D2D_SALES_TAB_KEYS.has(state.view);
@@ -780,7 +780,8 @@ function mountApp() {
   const _repGrp = isRepOnly ? repTypeGroup(state.profile) : null;
   const isOfficeStaff = isRepOnly && _repGrp === 'office';
   const isTechType = isRepOnly && _repGrp === 'tech';
-  const isSalesRepType = isRepOnly && !isOfficeStaff && !isTechType;
+  const _isDev = isRepOnly && isDeveloperRole(state.profile?.role);
+  const isSalesRepType = isRepOnly && !isOfficeStaff && !isTechType && !_isDev;
   // Tab visibility now reads the Settings → Permissions matrix (userCan);
   // defaults match the old hardcoded list exactly.
   const _tabOk = (v) => !VIEW_TAB_PERM[v] || userCan(VIEW_TAB_PERM[v]);
@@ -792,14 +793,15 @@ function mountApp() {
     || (isTechType && TECH_TAB_KEYS.has(v) && _tabOk(v))                // Technicians: Dashboard + Sales queue
     || (isSalesRepType && D2D_SALES_TAB_KEYS.has(v) && _tabOk(v))       // Sales Reps: the D2D Sales group
     || (isOfficeStaff && INSIDE_SALES_TAB_KEYS.has(v) && _tabOk(v))
-    || (isOfficeStaff && LOYALTY_TAB_KEYS.has(v) && _tabOk(v));            // Office staff: the Loyalty group
+    || (isOfficeStaff && LOYALTY_TAB_KEYS.has(v) && _tabOk(v))
+    || (_isDev && (INSIDE_SALES_TAB_KEYS.has(v) || D2D_SALES_TAB_KEYS.has(v) || TECH_TAB_KEYS.has(v) || LOYALTY_TAB_KEYS.has(v)) && _tabOk(v));   // Developer: every world            // Office staff: the Loyalty group
   if (isRepOnly && !repCanSee(state.view)) {
     // Home per rep type (per Isaac): Sales Reps land in their D2D Sales
     // group; office staff on their Sales world; others keep Indicators.
     const _home = isTechType ? 'techs'
       : isSalesRepType
       ? (D2D_SALES_TAB_KEYS.has(state._lastD2dTab) ? state._lastD2dTab : 'd2d_dashboard')
-      : isOfficeStaff ? 'sales' : 'indicators';
+      : isOfficeStaff ? 'sales' : _isDev ? 'dashboard' : 'indicators';
     state.view = _home;
     history.replaceState(null, '', VIEW_TO_HASH[_home] || '#' + _home);
   }
@@ -824,7 +826,7 @@ function mountApp() {
     // Rep accounts: everyone gets Competitions + rep-lite Indicators.
     // Office Staff get the Inside Sales group; Sales Reps get "Sales" —
     // their commission home, the D2D counterpart to Inside Sales.
-    ...(isOfficeStaff ? [['inside_sales', 'Sales', iconSales()]]
+    ...((isOfficeStaff || _isDev) ? [['inside_sales', 'Sales', iconSales()]]
       : isTechType ? [['techs', 'Sales', iconSales()]]
       : [['d2d_group', 'Sales', iconDollar()]]),
     ...(canOpenLoyalty() ? [['loyalty_group', 'Loyalty', iconHeart()]] : []),

@@ -175,7 +175,7 @@ async function callAdminSetPassword(payload) {
 // overrides are edited in Settings → Permissions (checkbox matrix) and ride
 // the synced config row (competitions.extras.perms), so a change reaches
 // every user on every device — no deploy per role tweak.
-const PERM_ROLES = ['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead', 'office_staff', 'tech_regional', 'tech_branch', 'tech_senior_lead', 'tech_pro', 'auditor'];
+const PERM_ROLES = ['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead', 'office_staff', 'tech_regional', 'tech_branch', 'tech_senior_lead', 'tech_pro', 'auditor', 'developer'];
 // Technician access profiles (per Isaac, Sep 22): explicit roles instead of inferring from the CRM type.
 const TECH_ROLES = new Set(['tech_regional', 'tech_branch', 'tech_senior_lead', 'tech_pro']);
 const TECH_MANAGER_ROLES = new Set(['tech_regional', 'tech_branch']);
@@ -222,7 +222,8 @@ const PERM_DEFS = [
   { id: 'set_goals',        label: 'Settings · Goals',    group: 'Settings', sensitive: 'company and per-rep revenue goals' },
   { id: 'set_comps',        label: 'Settings · Competitions', group: 'Settings' },
   { id: 'set_commissions',  label: 'Settings · Commissions',  group: 'Settings', sensitive: 'commission rates and pay rules' },
-  { id: 'set_config',       label: 'Settings · Configurations', group: 'Settings', sensitive: 'the rules behind every reporting number' },
+  { id: 'set_config',       label: 'Settings · Reporting rules', group: 'Settings', sensitive: 'the rules behind every reporting number' },
+  { id: 'set_marketing',    label: 'Settings · Marketing & lead sources', group: 'Settings', sensitive: 'ad spend, cost per lead and marketing targets' },
   { id: 'set_slack',        label: 'Settings · Slack',    group: 'Settings' },
   { id: 'set_usage',        label: 'Settings · Usage',    group: 'Settings', sensitive: 'what every user looks at in the app' },
   { id: 'ind_card',         label: 'My Player Card',      group: 'Indicators sections' },
@@ -259,9 +260,19 @@ const PERM_DEFAULTS = {
   tech_branch:      { view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1, ..._PERM_TECH_TABS },
   tech_regional:    { view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1, ..._PERM_TECH_TABS },
   auditor:         { tab_sales: 1, view_pricing: 1 },   // auditors live in the Sales queue — grant extras here as needed
+  // Developer (per Isaac, Oct 1): the tech guy sees every LAYER of the app —
+  // all three Sales worlds, Loyalty, Competitions, Indicators, the read-only
+  // Reporting tabs and the non-sensitive Settings pages — but no P&L,
+  // Marketing (spend), pay stubs, commission rules, goals, users, usage or
+  // Connections (keys). Reporting's P&L + Marketing tabs are admin-only for
+  // every non-admin already. Tune in Settings → Permissions like any role.
+  developer:       { view_comps: 1, view_indicators: 1, view_reporting: 1, view_pricing: 1, view_tv: 1,
+                     tab_dashboard: 1, tab_sales: 1, tab_scorecards: 1, tab_calendar: 1, tab_hof: 1, tab_loyalty: 1,
+                     ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1,
+                     view_settings: 1, set_teams: 1, set_comps: 1, set_config: 1, set_slack: 1 },
 };
 // Settings pages → the permission that opens each (Permissions itself is admin-only, always).
-const ADMIN_SECTION_PERM = { users: 'set_users', teams: 'set_teams', goals: 'set_goals', comps: 'set_comps', pricing: 'set_commissions', config: 'set_config', marketing: 'set_config', slack: 'set_slack', usage: 'set_usage' };   // 'data' (Data sources) is admin-only, never delegated
+const ADMIN_SECTION_PERM = { users: 'set_users', teams: 'set_teams', goals: 'set_goals', comps: 'set_comps', pricing: 'set_commissions', config: 'set_config', marketing: 'set_marketing', slack: 'set_slack', usage: 'set_usage' };   // 'data' (Data sources) is admin-only, never delegated
 // Sub-tab view key → its Sales-tab permission (all three groups).
 const VIEW_TAB_PERM = { dashboard: 'tab_dashboard', sales: 'tab_sales', pay: 'tab_pay', scorecards: 'tab_scorecards', calendar: 'tab_calendar', hall_of_fame: 'tab_hof',
   d2d_dashboard: 'tab_dashboard', d2d_sales: 'tab_sales', commission: 'tab_pay', techs: 'tab_dashboard', tech_sales: 'tab_sales', tab_pay: 'tab_pay', tech_pay: 'tab_pay', loyalty_dashboard: 'tab_loyalty', loyalty_renewals: 'tab_loyalty', loyalty_health: 'tab_loyalty' };
@@ -329,6 +340,7 @@ const PERM_SCOPE_DEFAULTS = {
   tech_branch:      { drill_scope: 'dept', sales_scope: 'team' },
   tech_regional:    { drill_scope: 'all', sales_scope: 'all' },
   auditor:         { drill_scope: 'none' },
+  developer:       { drill_scope: 'all', sales_scope: 'all' },
 };
 // Data-reach defaults = today's behaviour: every role sees every leaderboard
 // row; reps see only their own sales on the Sales tab.
@@ -351,6 +363,7 @@ const SELLER_ROLES  = ['rep', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'r
 const isAdminRole   = (r) => ADMIN_ROLES.includes(r);
 const isSellerRole  = (r) => SELLER_ROLES.includes(r);
 const isAuditorRole = (r) => r === 'auditor';
+const isDeveloperRole = (r) => r === 'developer';   // see PERM_DEFAULTS.developer
 // Rep - Partner: a D2D rep who LEADS a team. Same permissions as a Sales
 // Rep everywhere, plus: they can open the player cards of reps on THEIR
 // team (leaderboard + records) — never the whole company.
@@ -383,6 +396,7 @@ const ROLE_LABEL = {
   admin_rep:  'Admin',   // one "Admin" label (per Isaac) — admin_rep still sells under the hood
   admin:      'Admin',
   auditor:    'Auditor',
+  developer:  'Developer',
 };
 const roleLabel = (r) => ROLE_LABEL[r] || r || '';
 // Owner admin (per Isaac, Sep 2026): exactly one profile has is_owner —

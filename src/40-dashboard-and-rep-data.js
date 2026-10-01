@@ -201,6 +201,7 @@ function repTypeGroup(p) {
   if (!p) return null;
   if (isAdminRole(p.role)) return 'admin';
   if (isAuditorRole(p.role)) return 'auditor';
+  if (isDeveloperRole(p.role)) return 'developer';
   if (_EXPLICIT_ROLES.has(p.role)) return isOfficeStaffProfile(p) ? 'office' : 'd2d';
   if (isTechProfile(p)) return 'tech';
   if (isOfficeStaffProfile(p)) return 'office';

@@ -1437,7 +1437,7 @@ function adminReps() {
           style: { position: 'absolute', top: 'calc(100% + 6px)', right: '0', minWidth: '190px', padding: '6px', display: 'none', zIndex: '50', boxShadow: 'var(--shadow-lg)' },
         },
           el('div', { class: 'px-3 pt-1.5 pb-2 text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'View the app as\u2026'),
-          ...['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead', 'office_staff', 'tech_regional', 'tech_branch', 'tech_senior_lead', 'tech_pro', 'auditor'].map(v => [v, ROLE_LABEL[v]]).map(([v, label]) => el('button', {
+          ...['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead', 'office_staff', 'tech_regional', 'tech_branch', 'tech_senior_lead', 'tech_pro', 'auditor', 'developer'].map(v => [v, ROLE_LABEL[v]]).map(([v, label]) => el('button', {
             class: 'w-full text-left px-2.5 py-1 rounded-lg text-[11px] font-medium transition',
             style: { color: 'var(--text)' },
             onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; },
@@ -2362,7 +2362,7 @@ function openUserEditor(existing = null, prefill = null) {
       const _lockRole = !_owner && _targetAdmin;
       const roleSelect = el('select', { name: 'role', class: 'w-full rounded-lg border px-3 py-2 text-sm', disabled: _lockRole,   // same box as the text inputs (per Isaac, Sep 22)
         title: _lockRole ? 'Only the Admin - Owner can change an admin\u2019s access' : '' },
-        ...['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead', 'office_staff', 'tech_regional', 'tech_branch', 'tech_senior_lead', 'tech_pro'].map(v => el('option', { value: v, selected: seedRole === v }, ROLE_LABEL[v])),
+        ...['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead', 'office_staff', 'tech_regional', 'tech_branch', 'tech_senior_lead', 'tech_pro', 'developer'].map(v => el('option', { value: v, selected: seedRole === v }, ROLE_LABEL[v])),
         // ONE Admin option (per Isaac): an account already on admin_rep keeps
         // that value (it still sells / shows on boards); new picks are 'admin'.
         el('option', { value: seedRole === 'admin_rep' ? 'admin_rep' : 'admin', selected: seedRole === 'admin' || seedRole === 'admin_rep', disabled: !_owner && seedRole !== 'admin' && seedRole !== 'admin_rep' }, 'Admin'),
