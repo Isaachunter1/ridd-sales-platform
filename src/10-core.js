@@ -262,14 +262,14 @@ const PERM_DEFAULTS = {
   auditor:         { tab_sales: 1, view_pricing: 1 },   // auditors live in the Sales queue — grant extras here as needed
   // Developer (per Isaac, Oct 1): the tech guy sees every LAYER of the app —
   // all three Sales worlds, Loyalty, Competitions, Indicators, the read-only
-  // Reporting tabs and the non-sensitive Settings pages — but no P&L,
-  // Marketing (spend), pay stubs, commission rules, goals, users, usage or
-  // Connections (keys). Reporting's P&L + Marketing tabs are admin-only for
-  // every non-admin already. Tune in Settings → Permissions like any role.
+  // Reporting tabs and the non-sensitive Settings pages. P&L + Marketing show
+  // their full UI on SAMPLE numbers (devSampleData, src/80) — never QuickBooks
+  // or ad spend; no pay stubs, commission rules, goals, users, usage or
+  // Connections (keys). Tune in Settings → Permissions like any role.
   developer:       { view_comps: 1, view_indicators: 1, view_reporting: 1, view_pricing: 1, view_tv: 1,
                      tab_dashboard: 1, tab_sales: 1, tab_scorecards: 1, tab_calendar: 1, tab_hof: 1, tab_loyalty: 1,
                      ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1,
-                     view_settings: 1, set_teams: 1, set_comps: 1, set_config: 1, set_slack: 1 },
+                     view_settings: 1, set_teams: 1, set_comps: 1, set_config: 1, set_marketing: 1, set_slack: 1 },
 };
 // Settings pages → the permission that opens each (Permissions itself is admin-only, always).
 const ADMIN_SECTION_PERM = { users: 'set_users', teams: 'set_teams', goals: 'set_goals', comps: 'set_comps', pricing: 'set_commissions', config: 'set_config', marketing: 'set_marketing', slack: 'set_slack', usage: 'set_usage' };   // 'data' (Data sources) is admin-only, never delegated

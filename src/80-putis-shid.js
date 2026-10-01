@@ -39,6 +39,64 @@ const PUTIS_GROUP = {
   'depreciation': 'da', 'amortization': 'da', 'depreciation expense': 'da',
 };
 const PUTIS_GA_LINES = ['Insurance', 'Legal Fees', 'Office Expenses', 'Office Wages', 'Postage and Delivery', 'Recruiting', 'Rent & Lease', 'Travel'];
+// ── Developer sample finance (per Isaac, Oct 1) ───────────────────────────
+// The Developer role sees the P&L and Marketing UIs, never QuickBooks: every
+// QuickBooks / ad-spend loader hands a developer these deliberately tiny,
+// made-up numbers instead of calling the server (which is admin-only anyway).
+// Same shapes as /api/qbo-spend (?full=1) and /api/ad-spend.
+function devSampleData() { return typeof isDeveloperRole === 'function' && state.profile && isDeveloperRole(state.profile.role); }
+function _devMonths() {
+  const out = [], now = new Date(); let y = now.getFullYear() - 1, m = 1;
+  while (y < now.getFullYear() || (y === now.getFullYear() && m <= now.getMonth() + 1)) { out.push(y + '-' + String(m).padStart(2, '0')); m++; if (m > 12) { m = 1; y++; } }
+  return out;
+}
+function devSampleLedger() {
+  const months = {}, jobs = { months: {} }, balance = {};
+  _devMonths().forEach((ym, i) => {
+    const L = (months[ym] = {}), J = (jobs.months[ym] = {}), k = 1 + (i % 6) / 10;
+    PUTIS_BRANCHES.forEach((b, j) => {
+      const s = (n) => Math.round(n * k * (1 + j / 20));
+      L['Sales:' + b + ' Sales'] = s(1200);
+      L['Chemicals and Job Supplies:' + b + ' Chemicals'] = s(90);
+      L['Auto and Fuel:' + b + ' Fuel'] = s(60);
+      L['Technician Labor Wages:' + b + ' Wages'] = s(240);
+      L['Other COGS:' + b + ' Merchant Fees'] = s(25);
+      L['Advertising & Marketing:' + b + ' Marketing'] = s(110);
+      L['Incentive Costs:' + b + ' Incentives'] = s(15);
+      L['Selling Expenses:' + b + ' Commissions'] = s(95);
+      L['Housing:' + b + ' Housing'] = s(20);
+      L['Insurance:' + b + ' Insurance'] = s(30);
+      L['Office Wages:' + b + ' Office Wages'] = s(45);
+      L['Rent & Lease:' + b + ' Rent'] = s(25);
+      J[b.toUpperCase()] = s(12);
+    });
+    L['Interest Paid:Interest'] = 8; L['Depreciation:Depreciation'] = 12; L['Software:Software'] = 18;
+    balance[ym] = { assets: 9000, currentAssets: 4000, cash: 2500, ar: 900, liabilities: 3000, currentLiabilities: 1200, ap: 400 };
+  });
+  return { months, jobs, balance, debt: { accounts: [] }, pulledAt: new Date().toISOString(), sample: true };
+}
+function devSampleQboSpend() {
+  const by = {};
+  _devMonths().forEach((ym, i) => { const B = (by[ym] = {}); PUTIS_BRANCHES.forEach((b, j) => { B[b + ' Marketing'] = Math.round(110 * (1 + (i % 6) / 10) * (1 + j / 20)); }); B['Corporate Marketing'] = 40; });
+  return by;
+}
+function devSampleAdSpend(year) {
+  const rows = [];
+  for (const ym of _devMonths().filter(x => x.slice(0, 4) === String(year))) {
+    PUTIS_BRANCHES.forEach((b, j) => {
+      rows.push({ platform: 'facebook', acct: 'sample-fb', acctName: 'Sample Facebook', campaign: 'Sample | ' + b, ym, spend: 40 + j * 3, clicks: 30 + j, impr: 900 + j * 20, leads: 2 + (j % 3) });
+      rows.push({ platform: 'google_ads', acct: 'sample-g', acctName: 'Sample Google Ads', campaign: 'Sample ' + b + ' - Search', ym, spend: 35 + j * 2, clicks: 20 + j, impr: 600 + j * 15, leads: 1 + (j % 2) });
+      rows.push({ platform: 'google_ads', acct: 'sample-g', acctName: 'Sample Google Ads', campaign: 'LocalServicesCampaign:' + b, type: 'LOCAL_SERVICES', ym, spend: 20 + j, clicks: 0, impr: 0, leads: 1 });
+    });
+  }
+  return rows;
+}
+// "Sample data" ribbon shown on the P&L / Marketing screens for a developer.
+function devSampleBanner() {
+  if (!devSampleData()) return null;
+  return el('div', { class: 'card px-4 py-2 text-[11px] font-semibold', style: { background: 'rgba(223,100,58,.10)', color: 'var(--accent)' } },
+    'Sample data — Developer view. QuickBooks, P&L and ad-spend numbers here are made up; the real figures are admin-only.');
+}
 function putisBranchOf(leaf) {
   const L = String(leaf || '').trim().toLowerCase();
   for (const b of PUTIS_BRANCHES) if (L.startsWith(b.toLowerCase())) return b;
@@ -137,6 +195,8 @@ function putisFieldRoutes() {
   } catch (e) { return {}; }
 }
 function reportingLoadLedger(force) {
+  if (devSampleData()) { if (!state.reportingLedger || !state.reportingLedger.sample) { state.reportingLedger = devSampleLedger(); state._ledgerErr = null; state._ledgerLoading = false; } return; }
+  if (state.reportingLedger && state.reportingLedger.sample) { state.reportingLedger = null; state._ledgerLoading = false; }   // back from "View as Developer" → real data again
   if (force) { state.reportingLedger = null; state._ledgerLoading = false; }
   if (state.reportingLedger != null || state._ledgerLoading) return;
   state._ledgerLoading = true;
@@ -987,7 +1047,7 @@ function putisComparativeCard(M, ym, branches, title, headerExtra, opts = {}) {
 }
 
 function reportingPutis() {
-  if (!isAdminRole(state.profile?.role)) return emptyCard('Admins only.');
+  if (!isAdminRole(state.profile?.role) && !devSampleData()) return emptyCard('Admins only.');   // developer: sample ledger
   reportingLoadLedger();
   const M = putisMonthly();
   const wrap = el('div', { class: 'flex flex-col gap-4' });
@@ -1157,7 +1217,7 @@ function reportingSubTabs() {
     ['marketing',  'Marketing'],
     ['ops',        'Operations'],
     ['putis',      'P&L'],
-  ].filter(([k]) => isAdminRole(state.profile?.role) || !['marketing', 'putis'].includes(k));   // granted non-admins: read-only tabs only
+  ].filter(([k]) => isAdminRole(state.profile?.role) || devSampleData() || !['marketing', 'putis'].includes(k));   // developer: the UI, with sample data   // granted non-admins: read-only tabs only
   const go = (k) => { const t = tabs.find(([kk]) => kk === k); if (t && t[2]) { window.open(t[2], '_blank', 'noopener'); return; } state.reportingSubTab = k; mountApp(); };
   const cur = tabs.some(([k]) => k === state.reportingSubTab && !tabs.find(([kk]) => kk === k)[2]) ? state.reportingSubTab : tabs[0][0];
   // Desktop: the tab strip. Phones: one dropdown (the strip had grown past

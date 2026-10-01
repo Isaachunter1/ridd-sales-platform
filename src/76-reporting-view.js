@@ -10,7 +10,7 @@ function viewReporting() {
   if (!state.reportingSubTab) state.reportingSubTab = 'overview';
   // A non-admin granted Reporting (Settings → Permissions) gets the read-only
   // tabs; Marketing / P&L (spend, QuickBooks) and Configurations / Uploads stay admin.
-  if (!_adminHere && ['marketing', 'putis', 'config', 'uploads'].includes(state.reportingSubTab)) state.reportingSubTab = 'overview';
+  if (!_adminHere && (devSampleData() ? ['config', 'uploads'] : ['marketing', 'putis', 'config', 'uploads']).includes(state.reportingSubTab)) state.reportingSubTab = 'overview';
 
   // Lazy-load subscription rows for the active snapshot on first visit.
   // Re-checks on each render in case the user just switched snapshots.
@@ -56,6 +56,7 @@ function viewReporting() {
   return el('div', { class: 'flex flex-col gap-4' },
     // (Active Snapshot bar retired — per Isaac; the header stamp already says when the data synced.)
     reportingSubTabs(),
+    ['marketing', 'putis', 'is'].includes(state.reportingSubTab) ? devSampleBanner() : null,
     reportingMethodologyBar(),
     _guarded(() =>
     isMarketing                            ? reportingMarketingPnl() :

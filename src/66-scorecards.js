@@ -2298,7 +2298,7 @@ async function syncFromRevHawk(btn) {
     // refresh it inline; it’s quick and independent. Best-effort.
     state._mkBust = Date.now();
     state._mkSpend = state._mkLeads = state._mkQbo = null;
-    try {
+    if (!(typeof devSampleData === 'function' && devSampleData())) try {
       const qr = await fetch('/api/qbo-spend?_=' + state._mkBust, { headers: await _apiAuthHeaders() });
       const qj = qr.ok ? await qr.json() : null;
       if (qj && qj.bySourceMonth && Object.keys(qj.bySourceMonth).length) {

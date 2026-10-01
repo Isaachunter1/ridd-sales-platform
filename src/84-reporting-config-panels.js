@@ -661,6 +661,8 @@ function reportingRefreshGhlLeads() {
 // Marketing tab): /api/qbo-spend → Advertising & Marketing by branch account
 // by month; falls back to the static is-spend.json if QBO isn't configured.
 function reportingLoadQboSpend(force) {
+  if (devSampleData()) { if (state._isSpendSource !== 'Sample') { state.reportingIsSpend = devSampleQboSpend(); state._isSpendSource = 'Sample'; state._isSpendPulledAt = new Date().toISOString(); state._isSpendLoading = false; } return; }
+  if (state._isSpendSource === 'Sample') { state.reportingIsSpend = null; state._isSpendSource = null; state._isSpendLoading = false; }
   if (force) { state.reportingIsSpend = null; state._isSpendLoading = false; }
   if (state.reportingIsSpend != null || state._isSpendLoading) return;
   state._isSpendLoading = true;

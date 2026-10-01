@@ -11,6 +11,8 @@ const AD_PROVIDERS = ['Facebook', 'Google Ads', 'Google Local Services'];
 
 function reportingLoadAdSpend(year, force) {
   state._adSpend = state._adSpend || {};
+  if (typeof devSampleData === 'function' && devSampleData()) { if (!state._adSpend[year] || !state._adSpend[year].sample) state._adSpend[year] = { rows: devSampleAdSpend(year), pulledAt: new Date().toISOString(), errors: [], sample: true }; return; }
+  if (state._adSpend[year] && state._adSpend[year].sample) { delete state._adSpend[year]; force = true; }
   const cur = state._adSpend[year];
   if (!force && cur && (cur.rows || cur.loading || (cur.failAt && Date.now() - cur.failAt < 120000))) return;
   state._adSpend[year] = { loading: true, rows: cur && cur.rows ? cur.rows : null };

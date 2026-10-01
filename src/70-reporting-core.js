@@ -1402,6 +1402,9 @@ async function _apiAuthHeaders(extra) {
 }
 function _mkFetch(key, url) {
   const slot = state[key] || (state[key] = { data: null, err: null, at: 0, inflight: false });
+  // Developer: QuickBooks spend is sample data; the other admin-only feeds stay empty.
+  if (typeof devSampleData === 'function' && devSampleData()) { if (!slot.devSample) { slot.at = Date.now(); slot.devSample = true; slot.data = /qbo-spend/.test(url) ? { bySourceMonth: devSampleQboSpend(), sample: true } : null; slot.err = /qbo-spend/.test(url) ? null : 'admin-only'; } return slot; }
+  if (slot.devSample) { slot.devSample = false; slot.data = null; slot.err = null; slot.at = 0; }
   if (slot.inflight || (slot.at && Date.now() - slot.at < MK_CACHE_MS)) return slot;
   slot.inflight = true;
   _apiAuthHeaders({ accept: 'application/json' })
