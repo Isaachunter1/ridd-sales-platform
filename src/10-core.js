@@ -1300,6 +1300,7 @@ async function _indicatorConfigUpsertNow() {
     const { data: casRes, error: casErr } = await supabase
       .rpc('save_indicator_config', { payload, based_on: _basedOn });
     if (!casErr && casRes && casRes.ok) {
+      state._tierPending = {};
       _indCfgRecordSynced(casRes.server_updated_at || payload.updated_at);
       _mirrorNrlaRostersToRows();              // stage-1 dual-write (additive, never blocks)
       return true;
@@ -1311,6 +1312,24 @@ async function _indicatorConfigUpsertNow() {
       console.warn('[ridd] config write rejected by CAS — server moved past this browser; adopting server copy');
       const _preHash = _indCfgFingerprint();
       try { await loadIndicatorConfigFromSupabase(); if (typeof mountApp === 'function') mountApp(); } catch { /* next poll heals */ }
+      // Tier tags this admin just set must not be lost to that race (per Isaac,
+      // Oct 2 — N/A tags reverted): put them back on top of the server copy
+      // and save once more. One retry only, so two devices can't ping-pong.
+      const _tp = state._tierPending;
+      if (_tp && Object.keys(_tp).length && !state._tierReapplying) {
+        state._tierReapplying = true;
+        try {
+          state._indicatorRepTier = state._indicatorRepTier || {}; state._indicatorRepTierYear = state._indicatorRepTierYear || {};
+          for (const k of Object.keys(_tp)) {
+            if (_tp[k]) { state._indicatorRepTier[k] = _tp[k]; state._indicatorRepTierYear[k] = new Date().getFullYear(); }
+            else { delete state._indicatorRepTier[k]; delete state._indicatorRepTierYear[k]; }
+          }
+          if (typeof _invalidateRepSigIndex === 'function') { _invalidateRepSigIndex(state._indicatorRepTier); _invalidateRepSigIndex(state._indicatorRepTierYear); }
+          await _indicatorConfigUpsertNow();
+          if (typeof mountApp === 'function') mountApp();
+        } finally { state._tierReapplying = false; }
+        return true;
+      }
       // Only bother the admin when adopting the server copy actually CHANGED
       // something locally — background housekeeping saves (auto-reactivation,
       // boot syncs) hit this race with nothing at stake, and the old red

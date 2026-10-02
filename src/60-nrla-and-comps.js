@@ -5594,6 +5594,14 @@ const REP_TIERS = [
 function setRepTier(repName, tier) {
   if (!state._indicatorRepTier) state._indicatorRepTier = {};
   if (!state._indicatorRepTierYear) state._indicatorRepTierYear = {};
+  // One tag per PERSON (per Isaac, Oct 2 — N/A tags kept flipping back): the
+  // same human can sit in the map under two spellings ("Hunter, Isaac" from
+  // sales data, "Isaac Hunter" from Settings → Users). Setting one left the
+  // other behind, and whichever screen read the stale spelling showed the old
+  // tier. Clear every spelling of this name first, then write the one tag.
+  const _sg = (typeof _repNameSig === 'function') ? _repNameSig(repName) : '';
+  if (_sg) for (const m of [state._indicatorRepTier, state._indicatorRepTierYear]) for (const k of Object.keys(m)) if (k !== repName && _repNameSig(k) === _sg) delete m[k];
+  (state._tierPending = state._tierPending || {})[repName] = tier || '';   // survives a rejected save — see _indicatorConfigUpsertNow
   if (!tier) { delete state._indicatorRepTier[repName]; delete state._indicatorRepTierYear[repName]; }
   else       { state._indicatorRepTier[repName] = tier; state._indicatorRepTierYear[repName] = new Date().getFullYear(); }
   _invalidateRepSigIndex(state._indicatorRepTier);
