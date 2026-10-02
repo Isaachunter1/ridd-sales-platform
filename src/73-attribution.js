@@ -183,10 +183,18 @@ function _attrReconcileRun(files, G) {
   if (G && G.leads) {
     const paid = (typeof ghlPaidSet === 'function') ? ghlPaidSet() : new Set();
     const lo = _attrAddDays(since, -ATTR_WINDOW_DAYS);
-    const have = new Map();   // provider|contact → [dates]
-    const note = (prov, k, d) => { if (!k) return; const key = prov + '|' + k; (have.get(key) || have.set(key, []).get(key)).push(d); };
-    for (const l of leads) { note(l.provider, _attrDigits(l.phone), l.date); note(l.provider, _attrEmail(l.email), l.date); }
-    const near = (prov, k, d) => { if (!k) return false; const ds = have.get(prov + '|' + k); return !!ds && ds.some(x => x && Math.abs(Date.parse(x) - Date.parse(d)) <= 3 * 86400000); };
+    const have = new Map();   // provider|contact → [lead]
+    const note = (prov, k, l) => { if (!k) return; const key = prov + '|' + k; (have.get(key) || have.set(key, []).get(key)).push(l); };
+    for (const l of leads) { note(l.provider, _attrDigits(l.phone), l); note(l.provider, _attrEmail(l.email), l); }
+    // The same provider + person within 3 days is ONE lead for the counts, but
+    // its date still matters for last touch (Deidra Soto, Oct 2: ElectGen's
+    // report row was 8/11, its GoHighLevel records 8/12 — after a Facebook
+    // touch on 8/11). So a merged record leaves its date/time on the kept lead.
+    const near = (prov, k, d, t) => {
+      if (!k) return false; const ls = have.get(prov + '|' + k); if (!ls) return false;
+      const hit = ls.find(x => x.date && Math.abs(Date.parse(x.date) - Date.parse(d)) <= 3 * 86400000); if (!hit) return false;
+      (hit.alts = hit.alts || []).push([d, t || '']); return true;
+    };
     // Opportunities first: each is one lead with its OWN source and time, so a
     // second provider reaching an existing contact is seen (the contact row
     // only ever carries the source that created it).
@@ -195,18 +203,18 @@ function _attrReconcileRun(files, G) {
       if (!o[0] || o[0] < lo) continue;
       const prov = o[1] >= 0 ? ghlProviderOf(lab[o[1]]) : null;
       if (!prov || !paid.has(prov)) continue;
-      if (near(prov, o[2], o[0]) || near(prov, o[3], o[0])) continue;
-      leads.push({ date: o[0], t: o[4] || '', name: '', first: '', last: '', phone: o[2] || '', email: o[3] || '', zip: '', leadId: '', provider: prov, fileId: 'ghl', via: 'ghl', inGhl: true });
-      note(prov, o[2], o[0]); note(prov, o[3], o[0]);
+      if (near(prov, o[2], o[0], o[4]) || near(prov, o[3], o[0], o[4])) continue;
+      const nl = { date: o[0], t: o[4] || '', name: '', first: '', last: '', phone: o[2] || '', email: o[3] || '', zip: '', leadId: '', provider: prov, fileId: 'ghl', via: 'ghl', inGhl: true };
+      leads.push(nl); note(prov, o[2], nl); note(prov, o[3], nl);
     }
     for (const g of G.leads) {
       if (!g.d || g.d < lo) continue;
       if (!ghlFrom || g.d < ghlFrom) ghlFrom = g.d; if (!ghlTo || g.d > ghlTo) ghlTo = g.d;
       const prov = g.how === 'earlier paid touch' ? g.own : g.prov;
       if (!prov || !paid.has(prov)) continue;
-      if (near(prov, g.p, g.d) || near(prov, g.e, g.d)) continue;
-      leads.push({ date: g.d, t: g.t || '', name: '', first: '', last: '', phone: g.p || '', email: g.e || '', zip: '', leadId: '', provider: prov, fileId: 'ghl', via: 'ghl', inGhl: true });
-      note(prov, g.p, g.d); note(prov, g.e, g.d);
+      if (near(prov, g.p, g.d, g.t) || near(prov, g.e, g.d, g.t)) continue;
+      const nl = { date: g.d, t: g.t || '', name: '', first: '', last: '', phone: g.p || '', email: g.e || '', zip: '', leadId: '', provider: prov, fileId: 'ghl', via: 'ghl', inGhl: true };
+      leads.push(nl); note(prov, g.p, nl); note(prov, g.e, nl);
     }
   }
   // 1. Match each lead to a customer: phone, then email, then last name + ZIP.
@@ -234,20 +242,24 @@ function _attrReconcileRun(files, G) {
   for (const l of leads) if (l.sale) { const k = String(l.sale.subscription_id || (l.custId + '|' + l.sale.sold_date)); (bySale.get(k) || bySale.set(k, []).get(k)).push(l); }
   for (const [, ls] of bySale) {
     const sd = String(ls[0].sale.sold_date).slice(0, 10);
-    const eligible = ls.filter(x => x.date <= _attrAddDays(sd, 1));
-    const pool = (eligible.length ? eligible : ls).slice();
-    pool.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.t || '').localeCompare(String(a.t || '')) || String(a.provider).localeCompare(String(b.provider)));
+    // Each lead's LAST touch on or before the sale (its own date, or a merged
+    // duplicate's) is what competes — a touch after the sale never counts.
+    const hi = _attrAddDays(sd, 1);
+    const eff = (x) => { let best = null; for (const c of [[x.date, x.t || '']].concat(x.alts || [])) { if (!c[0] || c[0] > hi) continue; if (!best || c[0] > best[0] || (c[0] === best[0] && c[1] > best[1])) best = c; } return best; };
+    let pool = ls.map(x => ({ x, e: eff(x) })).filter(o => o.e);
+    if (!pool.length) pool = ls.map(x => ({ x, e: [x.date, x.t || ''] }));
+    pool.sort((a, b) => String(b.e[0]).localeCompare(String(a.e[0])) || String(b.e[1]).localeCompare(String(a.e[1])) || String(a.x.provider).localeCompare(String(b.x.provider)));
     let win = pool[0], rule = 'last touch';
     // Priority window (ElectGen, 7 days): a lead from that provider inside its
     // window before the sale takes the sale, whatever touched after it.
     const PR = attrPriority();
-    const pri = pool.filter(x => PR[x.provider] && x.date >= _attrAddDays(sd, -Number(PR[x.provider])) && x.date <= _attrAddDays(sd, 1));
-    if (pri.length && pri[0].provider !== win.provider) { win = pri[0]; rule = win.provider + ' ' + PR[win.provider] + '-day window'; }
-    else if (pri.length) rule = win.provider + ' ' + PR[win.provider] + '-day window';
+    const pri = pool.filter(o => PR[o.x.provider] && o.e[0] >= _attrAddDays(sd, -Number(PR[o.x.provider])) && o.e[0] <= hi);
+    if (pri.length && pri[0].x.provider !== win.x.provider) { win = pri[0]; rule = win.x.provider + ' ' + PR[win.x.provider] + '-day window'; }
+    else if (pri.length) rule = win.x.provider + ' ' + PR[win.x.provider] + '-day window';
     const touches = [...new Set(ls.map(y => y.provider))];
     // Latest lead per channel before the sale — the dates shown beside "Current source" and "Should be".
-    const lastBy = {}; for (const x of pool) if (x.date && (!lastBy[x.provider] || x.date > lastBy[x.provider])) lastBy[x.provider] = x.date;
-    for (const x of ls) { x.winner = win.provider; x.winDate = win.date; x.lastBy = lastBy; x.isWinner = x.provider === win.provider; x.touches = touches; x.rule = rule; }
+    const lastBy = {}; for (const o of pool) if (o.e[0] && (!lastBy[o.x.provider] || o.e[0] > lastBy[o.x.provider])) lastBy[o.x.provider] = o.e[0];
+    for (const x of ls) { x.winner = win.x.provider; x.winDate = win.e[0]; x.winT = win.e[1]; x.lastBy = lastBy; x.isWinner = x.provider === win.x.provider; x.touches = touches; x.rule = rule; }
   }
   // 4. Classify.
   for (const l of leads) {
@@ -373,10 +385,11 @@ function _attrTrail(l) {
   }
   const paid = (typeof ghlPaidSet === 'function') ? ghlPaidSet() : new Set();
   ev.sort((a, b) => String(a.d).localeCompare(String(b.d)) || (a.kind === 'sale' ? 1 : b.kind === 'sale' ? -1 : String(a.t || '').localeCompare(String(b.t || ''))));
-  let credited = false;
-  for (const e of ev) {
-    e.paid = e.kind === 'lead' && paid.has(e.ch);
-    if (e.kind === 'lead' && !credited && l.sale && l.winner && e.ch === l.winner && e.d === l.winDate) { e.win = true; credited = true; }
+  for (const e of ev) e.paid = e.kind === 'lead' && paid.has(e.ch);
+  if (l.sale && l.winner) {
+    const cands = ev.filter(e => e.kind === 'lead' && e.ch === l.winner && e.d === l.winDate);
+    const w = (l.winT && cands.find(e => (e.t || '') === l.winT)) || cands[cands.length - 1];
+    if (w) w.win = true;
   }
   return ev;
 }
