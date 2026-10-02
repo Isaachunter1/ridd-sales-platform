@@ -857,23 +857,20 @@ const _mktgX = (v) => v == null || !isFinite(v) ? '—' : v.toFixed(2) + 'x';
 const _mktgDiv = (a, b) => (b > 0 ? a / b : null);
 function _mktgYearBar(sub) {
   const y = _mktgYearSel();
-  const SUBS = [['providers', 'Metrics'], ['pnl', 'P&L'], ['spend', 'Spend entry'], ['projections', 'Projections']];
+  // Attribution (lead reconciliation) is a tab of its own (per Isaac, Oct 2) — it lived behind a button on the right.
+  const SUBS = [['providers', 'Metrics'], ['recon', 'Attribution'], ['pnl', 'P&L'], ['spend', 'Spend entry'], ['projections', 'Projections']];
+  const _recon = sub === 'providers' && state._mktProvView === 'recon';
   return el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
     el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
       ...SUBS.map(([v, l]) => el('button', {
         class: 'px-2.5 py-1 text-[11px] font-semibold transition',
-        style: sub === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
-        onclick: () => { state._mktSub = v; state._mktProvView = 'cac'; mountApp(); },
+        style: (v === 'recon' ? _recon : (sub === v && !_recon)) ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
+        onclick: () => { if (v === 'recon') { state._mktSub = 'providers'; state._mktProvView = 'recon'; } else { state._mktSub = v; state._mktProvView = 'cac'; } mountApp(); },
       }, l))),
     el('div', { class: 'inline-flex items-center gap-1 ' },
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = y - 1; mountApp(); } }, '‹'),
       el('span', { class: 'text-sm font-black tabular-nums px-1' }, String(y)),
-      el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = y + 1; mountApp(); } }, '›')),
-    // Lead reconciliation lives in the top bar (per Isaac, Sep 30), right-justified.
-    (() => { const on = sub === 'providers' && state._mktProvView === 'recon';
-      return el('button', { class: 'ml-auto rounded-lg border px-2.5 py-1 text-[11px] font-semibold',
-        style: on ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-        onclick: () => { if (on) state._mktProvView = 'cac'; else { state._mktSub = 'providers'; state._mktProvView = 'recon'; } mountApp(); } }, on ? '← Metrics' : 'Lead reconciliation'); })());
+      el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = y + 1; mountApp(); } }, '›')));
 }
 
 // One-click QuickBooks connect (admin): a plain navigation to the connect
