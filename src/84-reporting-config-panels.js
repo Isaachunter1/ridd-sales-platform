@@ -1310,7 +1310,7 @@ function _mktgSpendEntry() {
         _mktgTd(ch, { left: true, bold: true }),
         el('td', { class: 'px-1 py-1 text-left' }, inp((m.leads[ym] || {})[ch], (v) => { m.leads[ym] = m.leads[ym] || {}; if (v > 0) m.leads[ym][ch] = v; else delete m.leads[ym][ch]; })),
         _mktgTd(ghlFor(ch) == null ? '—' : fmt.int(ghlFor(ch)), { style: { color: 'var(--text-muted)' } })))))));
-  return el('div', { class: 'flex flex-col gap-4' }, matrix, leadsCard);
+  return el('div', { class: 'flex flex-col gap-4' }, (typeof mktgSpendUploadCard === 'function') ? mktgSpendUploadCard(B, y) : null, matrix, leadsCard);
 }
 
 // ── Projections ──
