@@ -289,6 +289,61 @@ const _attrShould = (l) => l.status === 'toorganic' ? [ATTR_ORGANIC, ''] : (l.sa
 // When the sale's CURRENT FieldRoutes source last sent a lead before the sale ('' = that channel never did).
 const _attrCurDate = (l) => { if (!l.sale || !l.lastBy) return ''; const cur = reportingSourceOf(l.sale); return l.lastBy[cur] || l.lastBy[(typeof reportingProviderOf === 'function' && reportingProviderOf(cur)) || cur] || ''; };
 // Leads / closes / fixes for a set of rows (closes = sales credited by last paid touch, once per sale).
+// ── Paper trail for one row (per Isaac): EVERYTHING we hold for that person,
+// oldest first — every GoHighLevel record (whatever its source), every
+// uploaded report row, and every FieldRoutes sale — so the credit can be
+// checked by eye. Matched on the lead's and the customer's phone / email.
+function _attrTrail(l) {
+  const c = l.custId ? _attrCrmIndex().cust.get(String(l.custId)) : null;
+  const phones = new Set([_attrDigits(l.phone), c && c.phone].filter(Boolean));
+  const emails = new Set([_attrEmail(l.email), c && c.email].filter(Boolean));
+  const ev = [];
+  const G = state._ghl;
+  if (G && G.rows && _attrUseGhl()) {
+    const lab = G.labels || [], nm = (i) => i >= 0 ? lab[i] : '';
+    const pv = (x) => { if (!x) return ''; const p = ghlProviderOf(x); return p === GHL_NOT_LEAD ? 'not a lead' : (p || x); };
+    for (const r of G.rows) {
+      if (!((r[4] && phones.has(r[4])) || (r[5] && emails.has(r[5])))) continue;
+      const src = nm(r[1]), fa = nm(r[2]), la = nm(r[3]);
+      const ch = pv(la) && pv(la) !== 'not a lead' && pv(la) !== 'Organic' ? pv(la) : (pv(src) || pv(la) || pv(fa) || 'no source');
+      ev.push({ d: r[0], kind: 'lead', ch, from: 'GoHighLevel', note: ['source: ' + (src || 'blank'), fa ? 'first attribution: ' + fa : '', la ? 'last attribution: ' + la : ''].filter(Boolean).join(' · ') });
+    }
+  }
+  for (const f of ((state._attr && state._attr.files) || [])) for (const x of f.leads || []) {
+    const p = _attrDigits(x.phone), e = _attrEmail(x.email);
+    if ((p && phones.has(p)) || (e && emails.has(e))) ev.push({ d: x.date || '', kind: 'lead', ch: f.provider, from: 'Report', note: f.fileName || '' });
+  }
+  if (c) for (const r of c.subs) {
+    const sd = String(r.sold_date || '').slice(0, 10); if (!sd) continue;
+    const mine = l.sale && String(r.subscription_id) === String(l.sale.subscription_id);
+    ev.push({ d: sd, kind: 'sale', mine, ch: reportingSourceOf(r), from: 'FieldRoutes', note: 'SOLD ' + (r.subscription || 'subscription') + ' #' + (r.subscription_id || '?') + ' · ' + (r.subscription_status || 'status ?') + (r.sold_by ? ' · ' + r.sold_by : '') });
+  }
+  const paid = (typeof ghlPaidSet === 'function') ? ghlPaidSet() : new Set();
+  ev.sort((a, b) => String(a.d).localeCompare(String(b.d)) || (a.kind === 'sale' ? 1 : -1));
+  let credited = false;
+  for (const e of ev) {
+    e.paid = e.kind === 'lead' && paid.has(e.ch);
+    if (e.kind === 'lead' && !credited && l.sale && l.winner && e.ch === l.winner && e.d === l.winDate) { e.win = true; credited = true; }
+  }
+  return ev;
+}
+function _attrTrailNode(l, cols) {
+  const muted = { color: 'var(--text-muted)' };
+  const ev = _attrTrail(l);
+  const cell = (v, st) => el('td', { class: 'px-2 py-1 whitespace-nowrap', style: st || {} }, v || '—');
+  const verdict = l.sale && l.winner ? 'Credit: ' + l.winner + (l.winDate ? ' (lead ' + l.winDate + ')' : '') + ' · rule: ' + (l.rule || 'last touch') + ' · FieldRoutes currently says ' + reportingSourceOf(l.sale)
+    : l.status === 'toorganic' ? 'No paid lead found before this sale — Organic' : 'No sale tied to this lead';
+  return el('tr', { 'data-attr-trail': '1' }, el('td', { colspan: String(cols), class: 'px-4 py-3', style: { background: 'var(--border-2)' } },
+    el('div', { class: 'text-[11px] font-bold mb-1' }, 'Paper trail · ' + ev.length + ' record' + (ev.length === 1 ? '' : 's')),
+    el('div', { class: 'text-[11px] mb-2', style: muted }, verdict),
+    ev.length ? el('table', { class: 'text-[11px]' },
+      el('thead', {}, el('tr', {}, ...['Date', 'Channel', 'From', 'Detail', ''].map(h => el('th', { class: 'px-2 py-1 text-left text-[9px] uppercase tracking-wider font-semibold', style: muted }, h)))),
+      el('tbody', {}, ...ev.map(e => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        cell(e.d), cell(e.ch, { fontWeight: e.kind === 'sale' || e.paid ? '700' : '400', color: e.kind === 'sale' ? 'var(--accent)' : e.paid ? 'var(--text)' : 'var(--text-muted)' }),
+        cell(e.from, muted), cell(e.note, e.kind === 'sale' ? { fontWeight: '600' } : muted),
+        cell(e.win ? '← gets the credit' : e.kind === 'sale' && e.mine ? '← this sale' : e.kind === 'lead' && !e.paid ? 'not a paid channel' : '', e.win ? { color: 'var(--ok)', fontWeight: '700' } : muted))))) :
+      el('div', { class: 'text-[11px]', style: muted }, 'Nothing on file for this phone / email.')));
+}
 function _attrStats(rows) {
   const leadRows = rows.filter(l => l.status !== 'toorganic');
   const closes = leadRows.filter(l => l.sale && l.isWinner && !l.dupe && l.status !== 'd2d' && l.status !== 'kept');
@@ -539,14 +594,16 @@ function mktgAttributionView() {
       el('button', { class: btn + ' ml-auto', style: { borderColor: 'var(--border-2)' }, onclick: () => _attrExport(list) }, '↓ Excel')),
     list.length ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]' },
       el('thead', {}, el('tr', {}, th('Lead'), th('Phone #'), th('Customer #'), th('Date Sold'), th('Current Source'), th('Current Lead Date'), th('Correct Source'), th('Correct Lead Date'), th('Matched By'), th('Channel Touches'), th('Reconciled From'), th('Rule'), th('Status'))),
-      el('tbody', {}, ...shown.map(l => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+      el('tbody', {}, ...shown.map(l => { const tr = el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
         td(l.name || l.email), td(fmtPh(l.phone || (l.sale && l.sale.phone))),
         td(l.custId ? '#' + l.custId : null), td(l.sale ? String(l.sale.sold_date).slice(0, 10) : null),
         td(l.sale ? reportingSourceOf(l.sale) : null, _attrIsFix(l) ? red : {}), td(_attrCurDate(l), muted),
         td(_attrShould(l)[0], _attrIsFix(l) ? { fontWeight: '700' } : {}), td(_attrShould(l)[1]),
-        td(l.status === 'toorganic' ? l.why : l.matchHow), td((l.touches || []).length > 1 ? l.touches.join(', ') : null),
+        td(l.status === 'toorganic' ? l.why : l.matchHow), el('td', { class: 'px-2 py-1.5 whitespace-nowrap' }, el('button', { class: 'underline', style: { color: 'var(--accent)', minHeight: '24px' }, title: 'Show every record we have for this person',
+          onclick: () => { const nx = tr.nextSibling; if (nx && nx.getAttribute && nx.getAttribute('data-attr-trail')) { nx.remove(); return; } tr.after(_attrTrailNode(l, 13)); } },
+          ((l.touches || []).length ? l.touches.join(', ') : 'view') + ' ▾')),
         td(l.via === 'ghl' ? 'GoHighLevel' : l.via === 'file' ? 'Report' : null), td(l.sale && l.isWinner && l.rule ? l.rule : null, l.rule && l.rule !== 'last touch' ? { color: '#B45309', fontWeight: '600' } : {}),
-        td((ATTR_STATUS[l.status] || [l.status])[0] + (l.dupe ? ' (repeat lead)' : ''), { color: (ATTR_STATUS[l.status] || [])[1] || 'var(--text)', fontWeight: '600' })))))) :
+        td((ATTR_STATUS[l.status] || [l.status])[0] + (l.dupe ? ' (repeat lead)' : ''), { color: (ATTR_STATUS[l.status] || [])[1] || 'var(--text)', fontWeight: '600' })); return tr; })))) :
       el('div', { class: 'px-4 py-6 text-[11px] text-center', style: muted }, stFilter === 'fix' ? 'Nothing to change — every credited sale is sourced correctly.' : 'No rows.'),
     list.length > shown.length ? el('button', { class: 'w-full px-4 py-2 text-[11px] font-semibold border-t', style: { borderColor: 'var(--border)', color: 'var(--accent)' }, onclick: () => { state._attrMore = true; mountApp(); } }, 'Show all ' + list.length.toLocaleString()) : null);
   // Leads / closes / fixes by provider (per Isaac) — last paid touch, else Organic.
