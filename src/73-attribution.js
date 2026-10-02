@@ -529,16 +529,16 @@ function mktgAttributionView() {
   const td = (v, st) => el('td', { class: 'px-2 py-1.5 whitespace-nowrap', style: st || {} }, v == null || v === '' ? '—' : v);
   const shown = list.slice(0, state._attrMore ? 20000 : 200);
   const red = { color: '#DC2626', fontWeight: '600' };
-  const saleView = ['fix', 'nosource', 'missourced', 'toorganic', 'correct', 'otherwon', 'd2d', 'kept'].includes(stFilter);
+  const fmtPh = (v) => { const d = _attrDigits(v); return d ? '(' + d.slice(0, 3) + ') ' + d.slice(3, 6) + '-' + d.slice(6) : null; };
   const table = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-4 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
       el('h3', { class: 'text-sm font-bold' }, stFilter === 'fix' ? 'Accounts to change in FieldRoutes' : 'Leads · ' + (stFilter === 'all' ? 'all' : (ATTR_STATUS[stFilter] || [stFilter])[0])),
       el('span', { class: 'text-[11px]', style: muted }, list.length.toLocaleString() + ' rows'),
       el('button', { class: btn + ' ml-auto', style: { borderColor: 'var(--border-2)' }, onclick: () => _attrExport(list) }, '↓ Excel')),
     list.length ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]' },
-      el('thead', {}, el('tr', {}, th('Lead'), th('Customer #'), th('Sold'), th('Current source'), th('Its last lead'), th(saleView ? 'Should be' : 'Lead channel'), th('Lead date'), th('Matched by'), th('Touched by'), th('Lead from'), th('Rule'), th('Status'))),
+      el('thead', {}, el('tr', {}, th('Lead'), th('Phone #'), th('Customer #'), th('Date Sold'), th('Current Source'), th('Current Lead Date'), th('Correct Source'), th('Correct Lead Date'), th('Matched By'), th('Channel Touches'), th('Reconciled From'), th('Rule'), th('Status'))),
       el('tbody', {}, ...shown.map(l => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-        td(l.name || l.phone || l.email),
+        td(l.name || l.email), td(fmtPh(l.phone || (l.sale && l.sale.phone))),
         td(l.custId ? '#' + l.custId : null), td(l.sale ? String(l.sale.sold_date).slice(0, 10) : null),
         td(l.sale ? reportingSourceOf(l.sale) : null, _attrIsFix(l) ? red : {}), td(_attrCurDate(l), muted),
         td(_attrShould(l)[0], _attrIsFix(l) ? { fontWeight: '700' } : {}), td(_attrShould(l)[1]),
