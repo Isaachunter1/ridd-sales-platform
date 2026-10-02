@@ -41,7 +41,12 @@ function setAttrPriority(provider, days) {
 function _attrUseGhl() { const A = state._attr; return !A || A.useGhl !== false; }
 function _attrActiveOnly() { const A = state._attr; return !A || A.activeOnly !== false; }
 // Active subscription = FieldRoutes status Active with no cancel date (same test the rest of Reporting uses).
-function _attrSubActive(r) { return String(r.subscription_status || '').trim().toLowerCase() === 'active' && !r.subscription_date_canceled; }
+// …and it must have at least a scheduled or completed appointment (per Isaac):
+// initial Pending (scheduled) or Completed, a serviced date, a booked initial
+// appointment, or any completed service. An active sub with nothing on the
+// books is not a real sale yet.
+function _attrHasAppt(r) { return /completed|pending/i.test(String(r.initial_status || '')) || !!r.initial_serviced_date || !!r.initial_appt_date || (Number(r.subscription_completed_services) || 0) > 0; }
+function _attrSubActive(r) { return String(r.subscription_status || '').trim().toLowerCase() === 'active' && !r.subscription_date_canceled && _attrHasAppt(r); }
 function _attrSince() { const A = state._attr; return (A && /^\d{4}-\d{2}-\d{2}$/.test(A.since || '')) ? A.since : new Date().getFullYear() + '-01-01'; }
 
 const _attrDigits = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d.length >= 10 ? d.slice(-10) : ''; };
@@ -445,9 +450,9 @@ function mktgAttributionView() {
       el('span', { style: Gst && (Gst.missing || Gst.error) ? { color: '#DC2626' } : muted },
         Gst == null ? 'loading…' : Gst.missing ? 'no GoHighLevel sync file yet — run the sync in Settings → Marketing & lead sources' : Gst.error ? 'could not load: ' + Gst.error
           : ghlReady ? GL.leads.length.toLocaleString() + ' leads · synced ' + (Gst.at ? new Date(Gst.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '?') + (Gst.backfillDone ? '' : ' · history still backfilling') : 'no leads in the sync file'),
-      el('label', { class: 'ml-auto inline-flex items-center gap-2 font-semibold cursor-pointer', title: 'Only reconcile sales whose subscription is still Active in FieldRoutes (not cancelled or frozen).' },
+      el('label', { class: 'ml-auto inline-flex items-center gap-2 font-semibold cursor-pointer', title: 'Only reconcile sales whose subscription is still Active in FieldRoutes (not cancelled or frozen) AND has at least a scheduled or completed appointment.' },
         (() => { const c = el('input', { type: 'checkbox', style: { accentColor: 'var(--accent)' }, onchange: (e) => { A.activeOnly = e.target.checked; state._attrMemo = null; _attrSave(); mountApp(); } }); c.checked = _attrActiveOnly(); return c; })(),
-        'Active subscriptions only'),
+        'Active with an appointment only'),
       el('span', { class: 'inline-flex items-center gap-2' }, el('span', { style: muted }, 'Sales sold since'),
         el('input', { type: 'date', value: _attrSince(), class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { A.since = e.target.value || null; state._attrMemo = null; _attrSave(); mountApp(); } }))),
     el('div', { class: 'flex items-center gap-2 flex-wrap text-[11px]' },
@@ -476,7 +481,7 @@ function mktgAttributionView() {
   const reconcileCard = hasFeed ? el('div', { class: 'card p-4 flex items-center gap-3 flex-wrap', style: reconciled ? {} : { borderColor: 'var(--accent)' } },
     el('div', { class: 'flex flex-col gap-0.5 min-w-0' },
       el('div', { class: 'text-sm font-bold' }, reconciled ? 'Reconciled · ' + feedLbl : feedLbl + ' ready to reconcile'),
-      el('div', { class: 'text-[11px]', style: muted }, provsIn.join(', ') + ' · ' + (_attrActiveOnly() ? 'active subscriptions' : 'all sales') + ' since ' + _attrSince() + (A.files.length ? ' · uploaded leads ' + (dates[0] || '?') + ' → ' + (dates[dates.length - 1] || '?') + ' (' + A.files.reduce((t, f) => t + (f.leads || []).length, 0).toLocaleString() + ')' : '')
+      el('div', { class: 'text-[11px]', style: muted }, provsIn.join(', ') + ' · ' + (_attrActiveOnly() ? 'active subscriptions with an appointment' : 'all sales') + ' since ' + _attrSince() + (A.files.length ? ' · uploaded leads ' + (dates[0] || '?') + ' → ' + (dates[dates.length - 1] || '?') + ' (' + A.files.reduce((t, f) => t + (f.leads || []).length, 0).toLocaleString() + ')' : '')
         + (reconciled ? ' · run ' + new Date(A.reconciledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + (A.reconciledBy ? ' by ' + A.reconciledBy : '') : A.reconciledKey ? ' · reports changed since the last reconcile' : ''))),
     el('button', { class: btn + ' ml-auto', style: reconciled ? { borderColor: 'var(--border-2)' } : primary, onclick: () => _attrRunReconcile() }, reconciled ? '↻ Re-run reconcile' : 'Reconcile against FieldRoutes →')) : null;
   // Uploaded files
