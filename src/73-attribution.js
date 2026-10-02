@@ -197,7 +197,9 @@ function _attrReconcileRun(files, G) {
     if (pri.length && pri[0].provider !== win.provider) { win = pri[0]; rule = win.provider + ' ' + PR[win.provider] + '-day window'; }
     else if (pri.length) rule = win.provider + ' ' + PR[win.provider] + '-day window';
     const touches = [...new Set(ls.map(y => y.provider))];
-    for (const x of ls) { x.winner = win.provider; x.isWinner = x.provider === win.provider; x.touches = touches; x.rule = rule; }
+    // Latest lead per channel before the sale — the dates shown beside "Current source" and "Should be".
+    const lastBy = {}; for (const x of pool) if (x.date && (!lastBy[x.provider] || x.date > lastBy[x.provider])) lastBy[x.provider] = x.date;
+    for (const x of ls) { x.winner = win.provider; x.winDate = win.date; x.lastBy = lastBy; x.isWinner = x.provider === win.provider; x.touches = touches; x.rule = rule; }
   }
   // 4. Classify.
   for (const l of leads) {
@@ -275,6 +277,10 @@ const ATTR_STATUS = {
 // A fix = a lead proves the source. "No lead found" is absence of evidence, so it is a review list, not a fix.
 const _attrIsFix = (l) => (l.status === 'nosource' || l.status === 'missourced') && !l.dupe;
 const _attrHasShould = (l) => _attrIsFix(l) || l.status === 'toorganic';
+// Channel + lead date this row points at: the winning channel and the date of its lead when there is a sale, else the lead itself.
+const _attrShould = (l) => l.status === 'toorganic' ? [ATTR_ORGANIC, ''] : (l.sale && l.winner) ? [l.winner, l.winDate || ''] : [l.provider, l.date || ''];
+// When the sale's CURRENT FieldRoutes source last sent a lead before the sale ('' = that channel never did).
+const _attrCurDate = (l) => { if (!l.sale || !l.lastBy) return ''; const cur = reportingSourceOf(l.sale); return l.lastBy[cur] || l.lastBy[(typeof reportingProviderOf === 'function' && reportingProviderOf(cur)) || cur] || ''; };
 // Leads / closes / fixes for a set of rows (closes = sales credited by last paid touch, once per sale).
 function _attrStats(rows) {
   const leadRows = rows.filter(l => l.status !== 'toorganic');
@@ -369,8 +375,8 @@ function _attrRunReconcile() {
 
 async function _attrExport(rows) {
   try { await loadXlsxLibOnce(); } catch { toast('Could not load Excel library', 'error'); return; }
-  const H = ['Customer #', 'Customer', 'Subscription #', 'Service', 'Sold', 'Current source', 'Should be', 'Lead provider', 'Lead date', 'Lead name', 'Lead phone', 'Lead email', 'Matched by', 'All providers touched', 'Lead from', 'Rule', 'Status'];
-  const data = rows.map(l => [l.custId || '', l.sale ? [l.sale.first_name, l.sale.last_name].filter(Boolean).join(' ') : '', l.sale ? l.sale.subscription_id : '', l.sale ? l.sale.subscription : '', l.sale ? String(l.sale.sold_date).slice(0, 10) : '', l.sale ? reportingSourceOf(l.sale) : '', _attrHasShould(l) ? (l.status === 'toorganic' ? ATTR_ORGANIC : l.provider) : l.status === 'otherwon' ? l.winner : '', l.provider, l.date, l.name, l.phone, l.email, l.matchHow || '', (l.touches || [l.provider]).join(', '), l.via === 'ghl' ? 'GoHighLevel' : l.via === 'file' ? 'Report' : '', (l.sale && l.isWinner && l.rule) || '', (ATTR_STATUS[l.status] || [l.status])[0]]);
+  const H = ['Customer #', 'Customer', 'Subscription #', 'Service', 'Sold', 'Current source', 'Current source last lead', 'Should be', 'Should-be lead date', 'Lead provider', 'Lead date', 'Lead name', 'Lead phone', 'Lead email', 'Matched by', 'All providers touched', 'Lead from', 'Rule', 'Status'];
+  const data = rows.map(l => [l.custId || '', l.sale ? [l.sale.first_name, l.sale.last_name].filter(Boolean).join(' ') : '', l.sale ? l.sale.subscription_id : '', l.sale ? l.sale.subscription : '', l.sale ? String(l.sale.sold_date).slice(0, 10) : '', l.sale ? reportingSourceOf(l.sale) : '', _attrCurDate(l), _attrHasShould(l) ? (l.status === 'toorganic' ? ATTR_ORGANIC : l.provider) : l.status === 'otherwon' ? l.winner : '', (_attrHasShould(l) || l.status === 'otherwon') ? _attrShould(l)[1] : '', l.provider, l.date, l.name, l.phone, l.email, l.matchHow || '', (l.touches || [l.provider]).join(', '), l.via === 'ghl' ? 'GoHighLevel' : l.via === 'file' ? 'Report' : '', (l.sale && l.isWinner && l.rule) || '', (ATTR_STATUS[l.status] || [l.status])[0]]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([H, ...data]), 'Lead reconciliation');
   XLSX.writeFile(wb, 'RIDD-lead-reconciliation-' + new Date().toISOString().slice(0, 10) + '.xlsx');
@@ -518,18 +524,19 @@ function mktgAttributionView() {
   const td = (v, st) => el('td', { class: 'px-2 py-1.5 whitespace-nowrap', style: st || {} }, v == null || v === '' ? '—' : v);
   const shown = list.slice(0, state._attrMore ? 20000 : 200);
   const red = { color: '#DC2626', fontWeight: '600' };
+  const saleView = ['fix', 'nosource', 'missourced', 'toorganic', 'correct', 'otherwon', 'd2d', 'kept'].includes(stFilter);
   const table = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-4 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
       el('h3', { class: 'text-sm font-bold' }, stFilter === 'fix' ? 'Accounts to change in FieldRoutes' : 'Leads · ' + (stFilter === 'all' ? 'all' : (ATTR_STATUS[stFilter] || [stFilter])[0])),
       el('span', { class: 'text-[11px]', style: muted }, list.length.toLocaleString() + ' rows'),
       el('button', { class: btn + ' ml-auto', style: { borderColor: 'var(--border-2)' }, onclick: () => _attrExport(list) }, '↓ Excel')),
     list.length ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]' },
-      el('thead', {}, el('tr', {}, th('Lead date'), th('Provider'), th('Lead'), th('Customer #'), th('Subscription'), th('Sold'), th('Current source'), th('Should be'), th('Matched by'), th('Touched by'), th('Lead from'), th('Rule'), th('Status'))),
+      el('thead', {}, el('tr', {}, th('Lead'), th('Customer #'), th('Sold'), th('Current source'), th('Its last lead'), th(saleView ? 'Should be' : 'Lead channel'), th('Lead date'), th('Matched by'), th('Touched by'), th('Lead from'), th('Rule'), th('Status'))),
       el('tbody', {}, ...shown.map(l => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-        td(l.date), td(l.provider), td(l.name || l.phone || l.email),
-        td(l.custId ? '#' + l.custId : null), td(l.sale ? l.sale.subscription + ' #' + l.sale.subscription_id : null), td(l.sale ? String(l.sale.sold_date).slice(0, 10) : null),
-        td(l.sale ? reportingSourceOf(l.sale) : null, _attrIsFix(l) ? red : {}),
-        td(_attrHasShould(l) ? (l.status === 'toorganic' ? ATTR_ORGANIC : l.provider) : l.status === 'otherwon' ? l.winner : null, _attrIsFix(l) ? { fontWeight: '700' } : {}),
+        td(l.name || l.phone || l.email),
+        td(l.custId ? '#' + l.custId : null), td(l.sale ? String(l.sale.sold_date).slice(0, 10) : null),
+        td(l.sale ? reportingSourceOf(l.sale) : null, _attrIsFix(l) ? red : {}), td(_attrCurDate(l), muted),
+        td(_attrShould(l)[0], _attrIsFix(l) ? { fontWeight: '700' } : {}), td(_attrShould(l)[1]),
         td(l.status === 'toorganic' ? l.why : l.matchHow), td((l.touches || []).length > 1 ? l.touches.join(', ') : null),
         td(l.via === 'ghl' ? 'GoHighLevel' : l.via === 'file' ? 'Report' : null), td(l.sale && l.isWinner && l.rule ? l.rule : null, l.rule && l.rule !== 'last touch' ? { color: '#B45309', fontWeight: '600' } : {}),
         td((ATTR_STATUS[l.status] || [l.status])[0] + (l.dupe ? ' (repeat lead)' : ''), { color: (ATTR_STATUS[l.status] || [])[1] || 'var(--text)', fontWeight: '600' })))))) :
