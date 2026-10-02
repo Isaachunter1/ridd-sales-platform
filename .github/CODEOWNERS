@@ -1,4 +1,18 @@
-# Every change to this repo needs Isaac's review. GitHub auto-requests it on
-# each pull request; with the `main` branch ruleset (require PR + 1 approval),
-# nothing deploys without that approval.
-*   @Isaachunter1
+# Who has to approve what (per Isaac, Oct 2).
+#
+# The app's screens and logic (src/, engine/, styles, images) have NO owner:
+# a developer's pull request that only touches those merges and deploys
+# without waiting on anyone.
+#
+# The paths below run on the SERVER or during the BUILD, where the keys that
+# reach QuickBooks, Windsor and the database live. A change to any of them
+# needs Isaac's approval before it can merge (ruleset: "Require review from
+# Code Owners"). That is the guardrail that keeps the P&L / QuickBooks data
+# closed to anyone who can ship code.
+/netlify/            @Isaachunter1
+/netlify.toml        @Isaachunter1
+/tools/              @Isaachunter1
+/package.json        @Isaachunter1
+/package-lock.json   @Isaachunter1
+/migrations/         @Isaachunter1
+/.github/            @Isaachunter1
