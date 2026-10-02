@@ -56,8 +56,28 @@ function _attrSubActive(r) { return String(r.subscription_status || '').trim().t
 // the house account ("RIDD Account - Office") instead of a rep. Those keep the
 // booker as their source even when a paid lead exists — an abandoned cart a
 // rep then closed has a real rep on it and is NOT one of these.
+const ATTR_BOOKED_DEFAULT = ['PestBooker'];
+function attrBooked() { const r = (typeof _adminRules === 'function') ? _adminRules() : null; const v = r && r.attrBooked; return Array.isArray(v) ? v : ATTR_BOOKED_DEFAULT; }
+function setAttrBooked(source, on) {
+  if (_attrRulesLocked()) return;
+  const set = new Set(attrBooked()); if (on) set.add(source); else set.delete(source);
+  _setAdminRule('attrBooked', [...set].sort()); state._attrMemo = null;
+}
+// One source's attribution rule, as Settings → Lead Sources shows it:
+// '' = standard last touch · 'keep' = never overwrite · 'booked' = keep when
+// booked online on the house account · 'pri:N' = N-day priority window.
+function attrRuleOf(source) { const p = attrPriority()[source]; return p ? 'pri:' + p : attrKeep().includes(source) ? 'keep' : attrBooked().includes(source) ? 'booked' : ''; }
+function setAttrRule(source, rule) {
+  if (_attrRulesLocked()) return;
+  if (attrPriority()[source]) setAttrPriority(source, null);
+  if (attrKeep().includes(source)) setAttrKeep(source, false);
+  if (attrBooked().includes(source)) setAttrBooked(source, false);
+  if (rule === 'keep') setAttrKeep(source, true);
+  else if (rule === 'booked') setAttrBooked(source, true);
+  else if (/^pri:/.test(rule)) setAttrPriority(source, Number(rule.slice(4)) || 7);
+}
 function _attrKeepBooked() { const A = state._attr; return !A || A.keepBooked !== false; }
-function _attrSelfBooked(r) { return /pest ?booker/i.test(String(reportingSourceOf(r) || '')) && /^\s*account,\s*ridd\b|ridd account/i.test(String(r.sold_by || '')); }
+function _attrSelfBooked(r) { const src = String(reportingSourceOf(r) || '').trim().toLowerCase(); return attrBooked().some(x => String(x).trim().toLowerCase() === src) && /^\s*account,\s*ridd\b|ridd account/i.test(String(r.sold_by || '')); }
 function _attrSince() { const A = state._attr; return (A && /^\d{4}-\d{2}-\d{2}$/.test(A.since || '')) ? A.since : new Date().getFullYear() + '-01-01'; }
 
 const _attrDigits = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d.length >= 10 ? d.slice(-10) : ''; };
@@ -142,7 +162,7 @@ function _attrIsUnset(src) {
 function _attrReconcile() {
   const files = (state._attr && state._attr.files) || [];
   const G = _attrUseGhl() && typeof ghlLeads === 'function' ? ghlLeads() : null;
-  const sig = files.map(f => f.id).join(',') + '|' + JSON.stringify(attrPriority()) + '|' + attrKeep().join(',') + '|' + _attrSince() + '|' + (_attrActiveOnly() ? 'act' : 'all') + (_attrKeepBooked() ? 'b' : '') + '|' + (typeof ghlSourceMap === 'function' ? JSON.stringify(ghlSourceMap()) : '') + '|' + (typeof reportingSourceProviderMap === 'function' ? JSON.stringify(reportingSourceProviderMap()) : '');
+  const sig = files.map(f => f.id).join(',') + '|' + JSON.stringify(attrPriority()) + '|' + attrKeep().join(',') + '|' + attrBooked().join(',') + '|' + _attrSince() + '|' + (_attrActiveOnly() ? 'act' : 'all') + (_attrKeepBooked() ? 'b' : '') + '|' + (typeof ghlSourceMap === 'function' ? JSON.stringify(ghlSourceMap()) : '') + '|' + (typeof reportingSourceProviderMap === 'function' ? JSON.stringify(reportingSourceProviderMap()) : '');
   const M = state._attrMemo;
   if (M && M.sig === sig && M.G === G && M.subs === state.reportingSubscriptions && M.cfg === state.reportingSourceConfig) return M.out;
   const out = _attrReconcileRun(files, G);

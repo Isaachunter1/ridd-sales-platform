@@ -437,7 +437,8 @@ function reportingSourceConfigPanel() {
                 el('th', { class: 'text-left pl-3 pr-2 py-2 font-semibold' }, 'Lead Source'),
                 el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Subs'),
                 el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Revenue Type'),
-                el('th', { class: 'text-left px-2 py-2 font-semibold', title: 'Paid lead channels — the only providers offered on Marketing → Metrics → Lead reconciliation' }, 'Paid channel'),
+                el('th', { class: 'text-left px-2 py-2 font-semibold', title: 'Paid lead channels — the only channels that can earn a sale on Marketing → Attribution. Facebook, Google Ads and Google Local Services are always paid.' }, 'Paid channel'),
+                el('th', { class: 'text-left px-2 py-2 font-semibold', title: 'How Marketing → Attribution treats a sale with this source. Last touch: the last paid lead before the sale wins. Priority window: this channel wins when it sent a lead within N days before the sale, even if another touched after. Never overwrite: the sale keeps this source. Keep when booked online: keeps this source only when the sale sits on the RIDD Account - Office house account.' }, 'Attribution rule'),
                 el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'In Reporting'),
                 el('th', { class: 'text-left px-2 py-2 font-semibold', title: 'Which provider row this source rolls into on Marketing → Metrics (e.g. “#49 FB” → Facebook), or Hide to leave it off Metrics.' }, 'Metrics provider'),
                 el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'FieldRoutes'),
@@ -485,8 +486,17 @@ function reportingSourceConfigPanel() {
                   el('option', { value: 'upsell',  selected: setClass === 'upsell' },  'Upsell'),
                 );
                 // Paid channel (per Isaac, Sep 30): only these show as providers on Lead reconciliation.
-                const isPaid = reportingPaidSources().has(source);
-                const paidBtn = el('button', { class: 'text-[11px] font-bold rounded-full px-2.5 py-1 border cursor-pointer whitespace-nowrap',
+                const _adPaid = (typeof AD_PROVIDERS !== 'undefined') && AD_PROVIDERS.includes(source);   // ad platforms are always paid
+                const isPaid = _adPaid || reportingPaidSources().has(source);
+                const _rule = (typeof attrRuleOf === 'function') ? attrRuleOf(source) : '';
+                const _priDays = [3, 7, 14, 30]; if (/^pri:/.test(_rule) && !_priDays.includes(Number(_rule.slice(4)))) _priDays.push(Number(_rule.slice(4)));
+                const ruleSel = el('select', { class: 'rounded border px-1.5 py-1 text-xs cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'transparent', color: _rule ? 'var(--accent)' : 'var(--text)', fontWeight: _rule ? '700' : '400' },
+                  onchange: (e) => { if (typeof setAttrRule === 'function') setAttrRule(source, e.target.value); mountApp(); } },
+                  el('option', { value: '', selected: _rule === '' }, isPaid ? 'Last touch' : 'Standard'),
+                  ...((isPaid || /^pri:/.test(_rule)) ? _priDays.sort((a, b) => a - b).map(d => el('option', { value: 'pri:' + d, selected: _rule === 'pri:' + d }, 'Priority window · ' + d + ' days')) : []),
+                  el('option', { value: 'keep', selected: _rule === 'keep' }, 'Never overwrite'),
+                  el('option', { value: 'booked', selected: _rule === 'booked' }, 'Keep when booked online'));
+                const paidBtn = _adPaid ? el('span', { class: 'text-[11px] font-bold rounded-full px-2.5 py-1 border whitespace-nowrap inline-block', title: 'Ad platform — always a paid channel', style: { background: '#5F6C5B', color: '#fff', borderColor: '#5F6C5B' } }, '$ Paid') : el('button', { class: 'text-[11px] font-bold rounded-full px-2.5 py-1 border cursor-pointer whitespace-nowrap',
                   style: isPaid ? { background: '#5F6C5B', color: '#fff', borderColor: '#5F6C5B' } : { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
                   onclick: () => { setReportingPaidSource(source, !isPaid); mountApp(); } }, isPaid ? '$ Paid' : 'Not paid');
                 row.append(
@@ -494,6 +504,7 @@ function reportingSourceConfigPanel() {
                   el('td', { class: 'px-2 py-1.5 text-left tabular-nums text-muted-' }, (counts.get(source) || 0).toLocaleString()),
                   el('td', { class: 'px-2 py-1.5 text-left' }, classSelect),
                   el('td', { class: 'px-2 py-1.5 text-left' }, paidBtn),
+                  el('td', { class: 'px-2 py-1.5 text-left' }, ruleSel),
                   el('td', { class: 'px-2 py-1.5 text-left' }, pill),
                   el('td', { class: 'px-2 py-1.5 text-left' }, provSel(source)),
                   (() => { const reg = regByName.get(source);
