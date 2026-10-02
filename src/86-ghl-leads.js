@@ -58,7 +58,7 @@ async function ghlLoadLeads(force) {
     else {
       const txt = await new Response(data.stream().pipeThrough(new DecompressionStream('gzip'))).text();
       const j = JSON.parse(txt);
-      state._ghl = { at: j.at, backfillDone: !!j.backfillDone, labels: j.labels || [], rows: j.rows || [] };
+      state._ghl = { at: j.at, backfillDone: !!j.backfillDone, labels: j.labels || [], rows: j.rows || [], opps: j.opps || [], oppBackfillDone: !!j.oppBackfillDone };
     }
   } catch (e) { state._ghl = { error: String((e && e.message) || e), rows: [], labels: [] }; }
   mountApp();
@@ -129,7 +129,7 @@ function ghlLeads() {
     else if (own && paid.has(own)) credit = own;
     else if (t) { let best = null; for (const x of t) if (x[0] <= r[0] && (!best || x[0] >= best[0])) best = x; if (best) { credit = best[1]; how = 'earlier paid touch'; } }
     if (!credit) credit = own || 'Unknown';
-    leads.push({ d: r[0], mi: Number(r[0].slice(5, 7)) - 1, y: r[0].slice(0, 4), prov: credit, own: own || 'Unknown', how, office: zipOff.get(r[6]) || null, p: r[4], e: r[5] });
+    leads.push({ d: r[0], mi: Number(r[0].slice(5, 7)) - 1, y: r[0].slice(0, 4), prov: credit, own: own || 'Unknown', how, office: zipOff.get(r[6]) || null, p: r[4], e: r[5], t: r[7] || '' });
   });
   const out = { leads, notLead, people: nextId, phones: byPhone, emails: byEmail };
   state._ghlMemo = { rows: G.rows, sig, zipOff, out };

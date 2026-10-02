@@ -48,6 +48,76 @@ async function search(headers, body) {
   } finally { clearTimeout(t); }
 }
 
+// ── Opportunities (per Isaac, Oct 2): a contact carries ONE source — whoever
+// created it — but every new lead for that person lands as its own pipeline
+// opportunity with its own source and timestamp. Last-touch attribution needs
+// those, so we keep them in reporting/ghl/opps.json.gz (id → compact row),
+// merged every run. Needs the "View Opportunities" scope on the token; without
+// it this pass logs the error and the rest of the sync carries on.
+const OPP_PAGE = 100;
+async function oppSearch(headers, qs) {
+  const ac = new AbortController(); const t = setTimeout(() => ac.abort(), FETCH_MS);
+  try {
+    const r = await fetch(BASE + '/opportunities/search?' + new URLSearchParams(qs).toString(), { headers, signal: ac.signal });
+    const txt = await r.text(); let j = null; try { j = JSON.parse(txt); } catch (e) {}
+    return { ok: r.ok, status: r.status, j, txt };
+  } finally { clearTimeout(t); }
+}
+function oppRow(o) {
+  const c = (o.contact && typeof o.contact === 'object') ? o.contact : {};
+  return [o.createdAt || o.dateAdded || '', String(o.source == null ? '' : o.source).trim(), phone10(c.phone), String(c.email || '').trim().toLowerCase(), String(o.status || ''), String(o.contactId || c.id || '')];
+}
+async function syncOpps(sb, headers, loc, st, CUTOFF, started, log) {
+  let store = {};
+  try {
+    const { data } = await sb.storage.from('reporting').download('ghl/opps.json.gz?t=' + Date.now());
+    if (data) { const j = JSON.parse(zlib.gunzipSync(Buffer.from(await data.arrayBuffer())).toString()); if (j && j.byId) store = j.byId; }
+  } catch (e) { /* first run — no file yet */ }
+  const o = st.opp = st.opp || {};
+  let useOrder = o.noOrder ? false : true, pulled = 0;
+  const page = async (cursor) => {
+    const qs = { location_id: loc, limit: String(OPP_PAGE) };
+    if (useOrder) qs.order = 'added_desc';
+    if (cursor && cursor.startAfter) { qs.startAfter = String(cursor.startAfter); qs.startAfterId = String(cursor.startAfterId || ''); }
+    let res = await oppSearch(headers, qs);
+    if (!res.ok && useOrder && (res.status === 400 || res.status === 422)) { useOrder = false; o.noOrder = true; delete qs.order; res = await oppSearch(headers, qs); }
+    return res;
+  };
+  const walk = async (cursor, stopBefore, budgetEnd, onCursor) => {
+    for (let p = 0; p < 3000 && Date.now() < budgetEnd; p++) {
+      const res = await page(cursor);
+      if (!res.ok) { log.errors.push('opportunities ' + res.status + ' ' + String(res.txt).slice(0, 160)); return 'error'; }
+      const os = (res.j && res.j.opportunities) || [];
+      if (!os.length) return 'end';
+      for (const x of os) if (x && x.id) store[String(x.id)] = oppRow(x);
+      pulled += os.length;
+      const meta = (res.j && res.j.meta) || {};
+      const oldest = Math.min(...os.map(x => Date.parse(x.createdAt || x.dateAdded || 0) || Infinity));
+      if (useOrder && isFinite(oldest) && oldest < stopBefore) return 'reached';
+      if (!meta.startAfter || !meta.startAfterId || os.length < OPP_PAGE) return 'end';
+      cursor = { startAfter: meta.startAfter, startAfterId: meta.startAfterId };
+      if (onCursor) onCursor(cursor);
+    }
+    return 'budget';
+  };
+  const half = started + SYNC_BUDGET_MS / 2 + 60000, end = started + SYNC_BUDGET_MS;
+  // Incremental: newest first until we pass what the last run saw.
+  if (o.mark) { const r = await walk(null, Date.parse(o.mark) - 2 * 86400000, half); if (r !== 'error') o.mark = new Date().toISOString(); }
+  // Backfill: resume the walk back to the cutoff.
+  if (!o.backfillDone) {
+    if (!o.mark) o.mark = new Date().toISOString();
+    const r = await walk(o.backfillAfter || null, CUTOFF, end, (c) => { o.backfillAfter = c; });
+    if (r === 'reached' || r === 'end') { o.backfillDone = true; delete o.backfillAfter; }
+  }
+  log.opps = pulled; o.count = Object.keys(store).length;
+  if (pulled) {
+    const gz = zlib.gzipSync(Buffer.from(JSON.stringify({ v: 1, at: new Date().toISOString(), byId: store })));
+    const { error } = await sb.storage.from('reporting').upload('ghl/opps.json.gz', gz, { contentType: 'application/gzip', upsert: true });
+    if (error) log.errors.push('opps upload: ' + error.message);
+  }
+  return store;
+}
+
 exports.handler = async (event) => {
   const _gate = requireSyncSecret(event); if (_gate) return _gate;
   const token = process.env.GHL_PRIVATE_TOKEN, loc = process.env.GHL_LOCATION_ID;
@@ -111,6 +181,8 @@ exports.handler = async (event) => {
       if (st.backfillDone) delete st.backfillAfter;
     }
   } catch (e) { log.errors.push(String(e.message || e)); }
+  let oppStore = {};
+  try { oppStore = await syncOpps(sb, headers, loc, st, CUTOFF, started, log); } catch (e) { log.errors.push('opps: ' + String(e.message || e)); }
   st.lastRunAt = new Date().toISOString(); st.lastRun = log;
   await saveState();
 
@@ -118,16 +190,25 @@ exports.handler = async (event) => {
   try {
     const labels = [], li = new Map();
     const L = (s) => { if (!s) return -1; if (!li.has(s)) { li.set(s, labels.length); labels.push(s); } return li.get(s); };
-    const rows = [];
+    const rows = [], byContact = new Map();
+    const hhmm = (iso) => { const m = /T(\d{2}:\d{2})/.exec(String(iso || '')); return m ? m[1] : ''; };
     const from = new Date(CUTOFF).toISOString();
     for (let off = 0; off < 1000000; off += 1000) {
-      const { data, error } = await sb.from('ghl_contacts').select('date_added,source,first_attr,last_attr,phone10,email,postal_code')
+      const { data, error } = await sb.from('ghl_contacts').select('id,date_added,source,first_attr,last_attr,phone10,email,postal_code')
         .gte('date_added', from).order('date_added', { ascending: true }).order('id', { ascending: true }).range(off, off + 999);
       if (error) throw new Error('read: ' + error.message);
-      for (const r of data || []) rows.push([String(r.date_added || '').slice(0, 10), L(r.source), L(r.first_attr), L(r.last_attr), r.phone10 || '', r.email || '', String(r.postal_code || '').slice(0, 5)]);
+      for (const r of data || []) { rows.push([String(r.date_added || '').slice(0, 10), L(r.source), L(r.first_attr), L(r.last_attr), r.phone10 || '', r.email || '', String(r.postal_code || '').slice(0, 5), hhmm(r.date_added)]); if (r.id) byContact.set(String(r.id), [r.phone10 || '', r.email || '']); }
       if (!data || data.length < 1000) break;
     }
-    const gz = zlib.gzipSync(Buffer.from(JSON.stringify({ v: 1, at: new Date().toISOString(), backfillDone: !!st.backfillDone, labels, rows })));
+    // One row per opportunity: [date, source label, phone, email, HH:MM (UTC), status].
+    const opps = [];
+    for (const id of Object.keys(oppStore || {})) {
+      const o = oppStore[id]; const iso = String(o[0] || ''); if (!iso || Date.parse(iso) < CUTOFF) continue;
+      const c = byContact.get(o[5]) || ['', ''];
+      const ph = o[2] || c[0], em = o[3] || c[1]; if (!ph && !em) continue;
+      opps.push([iso.slice(0, 10), L(o[1]), ph, em, hhmm(iso), o[4] || '']);
+    }
+    const gz = zlib.gzipSync(Buffer.from(JSON.stringify({ v: 2, at: new Date().toISOString(), backfillDone: !!st.backfillDone, oppBackfillDone: !!(st.opp && st.opp.backfillDone), labels, rows, opps })));
     const { error } = await sb.storage.from('reporting').upload('ghl/leads.json.gz', gz, { contentType: 'application/gzip', upsert: true });
     if (error) throw new Error('upload: ' + error.message);
     console.log('[ghl-sync] ok', JSON.stringify(log), 'file rows', rows.length, 'bytes', gz.length);

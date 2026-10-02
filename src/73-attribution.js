@@ -156,13 +156,25 @@ function _attrReconcileRun(files, G) {
     const note = (prov, k, d) => { if (!k) return; const key = prov + '|' + k; (have.get(key) || have.set(key, []).get(key)).push(d); };
     for (const l of leads) { note(l.provider, _attrDigits(l.phone), l.date); note(l.provider, _attrEmail(l.email), l.date); }
     const near = (prov, k, d) => { if (!k) return false; const ds = have.get(prov + '|' + k); return !!ds && ds.some(x => x && Math.abs(Date.parse(x) - Date.parse(d)) <= 3 * 86400000); };
+    // Opportunities first: each is one lead with its OWN source and time, so a
+    // second provider reaching an existing contact is seen (the contact row
+    // only ever carries the source that created it).
+    const lab = (state._ghl && state._ghl.labels) || [];
+    for (const o of ((state._ghl && state._ghl.opps) || [])) {
+      if (!o[0] || o[0] < lo) continue;
+      const prov = o[1] >= 0 ? ghlProviderOf(lab[o[1]]) : null;
+      if (!prov || !paid.has(prov)) continue;
+      if (near(prov, o[2], o[0]) || near(prov, o[3], o[0])) continue;
+      leads.push({ date: o[0], t: o[4] || '', name: '', first: '', last: '', phone: o[2] || '', email: o[3] || '', zip: '', leadId: '', provider: prov, fileId: 'ghl', via: 'ghl', inGhl: true });
+      note(prov, o[2], o[0]); note(prov, o[3], o[0]);
+    }
     for (const g of G.leads) {
       if (!g.d || g.d < lo) continue;
       if (!ghlFrom || g.d < ghlFrom) ghlFrom = g.d; if (!ghlTo || g.d > ghlTo) ghlTo = g.d;
       const prov = g.how === 'earlier paid touch' ? g.own : g.prov;
       if (!prov || !paid.has(prov)) continue;
       if (near(prov, g.p, g.d) || near(prov, g.e, g.d)) continue;
-      leads.push({ date: g.d, name: '', first: '', last: '', phone: g.p || '', email: g.e || '', zip: '', leadId: '', provider: prov, fileId: 'ghl', via: 'ghl', inGhl: true });
+      leads.push({ date: g.d, t: g.t || '', name: '', first: '', last: '', phone: g.p || '', email: g.e || '', zip: '', leadId: '', provider: prov, fileId: 'ghl', via: 'ghl', inGhl: true });
       note(prov, g.p, g.d); note(prov, g.e, g.d);
     }
   }
@@ -193,7 +205,7 @@ function _attrReconcileRun(files, G) {
     const sd = String(ls[0].sale.sold_date).slice(0, 10);
     const eligible = ls.filter(x => x.date <= _attrAddDays(sd, 1));
     const pool = (eligible.length ? eligible : ls).slice();
-    pool.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(a.provider).localeCompare(String(b.provider)));
+    pool.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.t || '').localeCompare(String(a.t || '')) || String(a.provider).localeCompare(String(b.provider)));
     let win = pool[0], rule = 'last touch';
     // Priority window (ElectGen, 7 days): a lead from that provider inside its
     // window before the sale takes the sale, whatever touched after it.
@@ -306,7 +318,15 @@ function _attrTrail(l) {
       if (!((r[4] && phones.has(r[4])) || (r[5] && emails.has(r[5])))) continue;
       const src = nm(r[1]), fa = nm(r[2]), la = nm(r[3]);
       const ch = pv(la) && pv(la) !== 'not a lead' && pv(la) !== 'Organic' ? pv(la) : (pv(src) || pv(la) || pv(fa) || 'no source');
-      ev.push({ d: r[0], kind: 'lead', ch, from: 'GoHighLevel', note: ['source: ' + (src || 'blank'), fa ? 'first attribution: ' + fa : '', la ? 'last attribution: ' + la : ''].filter(Boolean).join(' · ') });
+      ev.push({ d: r[0], t: r[7] || '', kind: 'lead', ch, from: 'GoHighLevel contact', note: ['source: ' + (src || 'blank'), fa ? 'first attribution: ' + fa : '', la ? 'last attribution: ' + la : ''].filter(Boolean).join(' · ') });
+    }
+  }
+  if (G && G.opps && _attrUseGhl()) {
+    const lab = G.labels || [];
+    for (const o of G.opps) {
+      if (!((o[2] && phones.has(o[2])) || (o[3] && emails.has(o[3])))) continue;
+      const src = o[1] >= 0 ? lab[o[1]] : ''; const p = src ? ghlProviderOf(src) : '';
+      ev.push({ d: o[0], t: o[4] || '', kind: 'lead', ch: p === GHL_NOT_LEAD ? 'not a lead' : (p || 'no source'), from: 'GoHighLevel opportunity', note: 'source: ' + (src || 'blank') + (o[5] ? ' · ' + o[5] : '') + (o[4] ? ' · ' + o[4] + ' UTC' : '') });
     }
   }
   for (const f of ((state._attr && state._attr.files) || [])) for (const x of f.leads || []) {
@@ -319,7 +339,7 @@ function _attrTrail(l) {
     ev.push({ d: sd, kind: 'sale', mine, ch: 'SALE', from: 'FieldRoutes', note: 'source entered by rep: ' + reportingSourceOf(r) + ' (not a lead) · ' + (r.subscription || 'subscription') + ' #' + (r.subscription_id || '?') + ' · ' + (r.subscription_status || 'status ?') + (r.sold_by ? ' · ' + r.sold_by : '') });
   }
   const paid = (typeof ghlPaidSet === 'function') ? ghlPaidSet() : new Set();
-  ev.sort((a, b) => String(a.d).localeCompare(String(b.d)) || (a.kind === 'sale' ? 1 : -1));
+  ev.sort((a, b) => String(a.d).localeCompare(String(b.d)) || (a.kind === 'sale' ? 1 : b.kind === 'sale' ? -1 : String(a.t || '').localeCompare(String(b.t || ''))));
   let credited = false;
   for (const e of ev) {
     e.paid = e.kind === 'lead' && paid.has(e.ch);
