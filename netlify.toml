@@ -96,7 +96,7 @@
 # THE single security-header block for /* — there used to be two, and
 # Netlify comma-joins duplicate headers ("DENY, SAMEORIGIN"), which browsers
 # handle unpredictably. SAMEORIGIN / 'self' (not DENY/'none') because the
-# in-app Marketing tab iframes /marketing.html; cross-site framing is still
+# app may frame its own pages; cross-site framing is still
 # blocked. HSTS pinned explicitly — one year, subdomains included.
 [[headers]]
   for = "/*"
