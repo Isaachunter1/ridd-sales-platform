@@ -316,7 +316,7 @@ function _attrTrail(l) {
   if (c) for (const r of c.subs) {
     const sd = String(r.sold_date || '').slice(0, 10); if (!sd) continue;
     const mine = l.sale && String(r.subscription_id) === String(l.sale.subscription_id);
-    ev.push({ d: sd, kind: 'sale', mine, ch: reportingSourceOf(r), from: 'FieldRoutes', note: 'SOLD ' + (r.subscription || 'subscription') + ' #' + (r.subscription_id || '?') + ' · ' + (r.subscription_status || 'status ?') + (r.sold_by ? ' · ' + r.sold_by : '') });
+    ev.push({ d: sd, kind: 'sale', mine, ch: 'SALE', from: 'FieldRoutes', note: 'source entered by rep: ' + reportingSourceOf(r) + ' (not a lead) · ' + (r.subscription || 'subscription') + ' #' + (r.subscription_id || '?') + ' · ' + (r.subscription_status || 'status ?') + (r.sold_by ? ' · ' + r.sold_by : '') });
   }
   const paid = (typeof ghlPaidSet === 'function') ? ghlPaidSet() : new Set();
   ev.sort((a, b) => String(a.d).localeCompare(String(b.d)) || (a.kind === 'sale' ? 1 : -1));
@@ -336,12 +336,13 @@ function _attrTrailNode(l, cols) {
   return el('tr', { 'data-attr-trail': '1' }, el('td', { colspan: String(cols), class: 'px-4 py-3', style: { background: 'var(--border-2)' } },
     el('div', { class: 'text-[11px] font-bold mb-1' }, 'Paper trail · ' + ev.length + ' record' + (ev.length === 1 ? '' : 's')),
     el('div', { class: 'text-[11px] mb-2', style: muted }, verdict),
+    (l.sale && l.winner && !ev.some(e => e.kind === 'lead' && (e.ch === reportingSourceOf(l.sale) || (typeof reportingProviderOf === 'function' && e.ch === reportingProviderOf(reportingSourceOf(l.sale)))))) ? el('div', { class: 'text-[11px] mb-2', style: { color: '#B45309', fontWeight: '600' } }, 'No ' + reportingSourceOf(l.sale) + ' lead on file for this person — that source was only typed on the sale.') : null,
     ev.length ? el('table', { class: 'text-[11px]' },
-      el('thead', {}, el('tr', {}, ...['Date', 'Channel', 'From', 'Detail', ''].map(h => el('th', { class: 'px-2 py-1 text-left text-[9px] uppercase tracking-wider font-semibold', style: muted }, h)))),
+      el('thead', {}, el('tr', {}, ...['Date', 'Lead channel', 'From', 'Detail', ''].map(h => el('th', { class: 'px-2 py-1 text-left text-[9px] uppercase tracking-wider font-semibold', style: muted }, h)))),
       el('tbody', {}, ...ev.map(e => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
         cell(e.d), cell(e.ch, { fontWeight: e.kind === 'sale' || e.paid ? '700' : '400', color: e.kind === 'sale' ? 'var(--accent)' : e.paid ? 'var(--text)' : 'var(--text-muted)' }),
         cell(e.from, muted), cell(e.note, e.kind === 'sale' ? { fontWeight: '600' } : muted),
-        cell(e.win ? '← gets the credit' : e.kind === 'sale' && e.mine ? '← this sale' : e.kind === 'lead' && !e.paid ? 'not a paid channel' : '', e.win ? { color: 'var(--ok)', fontWeight: '700' } : muted))))) :
+        cell(e.win ? '← last paid lead before the sale — gets the credit' : e.kind === 'sale' && e.mine ? '← this sale' : e.kind === 'lead' && !e.paid ? 'not a paid channel' : '', e.win ? { color: 'var(--ok)', fontWeight: '700' } : muted))))) :
       el('div', { class: 'text-[11px]', style: muted }, 'Nothing on file for this phone / email.')));
 }
 function _attrStats(rows) {
