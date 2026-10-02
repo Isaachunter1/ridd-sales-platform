@@ -30,6 +30,9 @@ function setAttrPriority(provider, days) {
   _setAdminRule('attrPriority', m); state._attrMemo = null;
 }
 function _attrUseGhl() { const A = state._attr; return !A || A.useGhl !== false; }
+function _attrActiveOnly() { const A = state._attr; return !A || A.activeOnly !== false; }
+// Active subscription = FieldRoutes status Active with no cancel date (same test the rest of Reporting uses).
+function _attrSubActive(r) { return String(r.subscription_status || '').trim().toLowerCase() === 'active' && !r.subscription_date_canceled; }
 function _attrSince() { const A = state._attr; return (A && /^\d{4}-\d{2}-\d{2}$/.test(A.since || '')) ? A.since : new Date().getFullYear() + '-01-01'; }
 
 const _attrDigits = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d.length >= 10 ? d.slice(-10) : ''; };
@@ -73,7 +76,7 @@ async function _attrLoad() {
     if (error || !data) { state._attr = { files: [] }; }
     else {
       const txt = await new Response(data.stream().pipeThrough(new DecompressionStream('gzip'))).text();
-      const j = JSON.parse(txt); state._attr = { files: Array.isArray(j.files) ? j.files : [], maps: (j.maps && typeof j.maps === 'object') ? j.maps : {}, reconciledKey: j.reconciledKey || null, reconciledAt: j.reconciledAt || null, reconciledBy: j.reconciledBy || null, useGhl: j.useGhl !== false, since: j.since || null };
+      const j = JSON.parse(txt); state._attr = { files: Array.isArray(j.files) ? j.files : [], maps: (j.maps && typeof j.maps === 'object') ? j.maps : {}, reconciledKey: j.reconciledKey || null, reconciledAt: j.reconciledAt || null, reconciledBy: j.reconciledBy || null, useGhl: j.useGhl !== false, activeOnly: j.activeOnly !== false, since: j.since || null };
     }
   } catch (e) { state._attr = { files: [] }; }
   mountApp();
@@ -81,7 +84,7 @@ async function _attrLoad() {
 async function _attrSave() {
   if (!supabase || (typeof DEMO !== 'undefined' && DEMO)) return;
   try {
-    const blob = await new Response(new Blob([JSON.stringify({ files: state._attr.files, maps: state._attr.maps || {}, useGhl: state._attr.useGhl !== false, since: state._attr.since || null, reconciledKey: state._attr.reconciledKey || null, reconciledAt: state._attr.reconciledAt || null, reconciledBy: state._attr.reconciledBy || null, savedAt: new Date().toISOString() })]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
+    const blob = await new Response(new Blob([JSON.stringify({ files: state._attr.files, maps: state._attr.maps || {}, useGhl: state._attr.useGhl !== false, activeOnly: state._attr.activeOnly !== false, since: state._attr.since || null, reconciledKey: state._attr.reconciledKey || null, reconciledAt: state._attr.reconciledAt || null, reconciledBy: state._attr.reconciledBy || null, savedAt: new Date().toISOString() })]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
     const { error } = await supabase.storage.from('reporting').upload(ATTR_PATH, blob, { contentType: 'application/gzip', upsert: true });
     if (error) toast('Could not save uploads: ' + error.message, 'error');
   } catch (e) { toast('Could not save uploads: ' + (e.message || e), 'error'); }
@@ -114,7 +117,7 @@ function _attrIsUnset(src) {
 function _attrReconcile() {
   const files = (state._attr && state._attr.files) || [];
   const G = _attrUseGhl() && typeof ghlLeads === 'function' ? ghlLeads() : null;
-  const sig = files.map(f => f.id).join(',') + '|' + JSON.stringify(attrPriority()) + '|' + _attrSince() + '|' + (typeof ghlSourceMap === 'function' ? JSON.stringify(ghlSourceMap()) : '') + '|' + (typeof reportingSourceProviderMap === 'function' ? JSON.stringify(reportingSourceProviderMap()) : '');
+  const sig = files.map(f => f.id).join(',') + '|' + JSON.stringify(attrPriority()) + '|' + _attrSince() + '|' + (_attrActiveOnly() ? 'act' : 'all') + '|' + (typeof ghlSourceMap === 'function' ? JSON.stringify(ghlSourceMap()) : '') + '|' + (typeof reportingSourceProviderMap === 'function' ? JSON.stringify(reportingSourceProviderMap()) : '');
   const M = state._attrMemo;
   if (M && M.sig === sig && M.G === G && M.subs === state.reportingSubscriptions && M.cfg === state.reportingSourceConfig) return M.out;
   const out = _attrReconcileRun(files, G);
@@ -124,6 +127,7 @@ function _attrReconcile() {
 function _attrReconcileRun(files, G) {
   const idx = _attrCrmIndex();
   const since = _attrSince();
+  const actOnly = _attrActiveOnly();
   const leads = [];
   for (const f of files) for (const l of f.leads || []) leads.push({ ...l, provider: f.provider, fileId: f.id, via: 'file' });
   // GoHighLevel feed: one lead per GHL record on a PAID channel (its own last
@@ -162,7 +166,7 @@ function _attrReconcileRun(files, G) {
   const saleOf = (l) => {
     const c = idx.cust.get(l.custId); if (!c || !l.date) return null;
     const lo = _attrAddDays(l.date, -3), hi = _attrAddDays(l.date, ATTR_WINDOW_DAYS);
-    const cands = c.subs.filter(r => { const sd = String(r.sold_date || '').slice(0, 10); return sd >= lo && sd <= hi && (typeof reportingSourceClass !== 'function' || reportingSourceClass(reportingSourceOf(r)) !== 'renewal'); })
+    const cands = c.subs.filter(r => { const sd = String(r.sold_date || '').slice(0, 10); return sd >= lo && sd <= hi && (!actOnly || _attrSubActive(r)) && (typeof reportingSourceClass !== 'function' || reportingSourceClass(reportingSourceOf(r)) !== 'renewal'); })
       .sort((a, b) => String(a.sold_date).localeCompare(String(b.sold_date)));
     return cands[0] || null;
   };
@@ -229,6 +233,7 @@ function _attrReconcileRun(files, G) {
   const organic = [];
   if (allFrom) for (const r of state.reportingSubscriptions || []) {
     const sd = String(r.sold_date || '').slice(0, 10); if (!sd || sd < since) continue;
+    if (actOnly && !_attrSubActive(r)) continue;
     const k = String(r.subscription_id || (r.customer_id + '|' + r.sold_date)); if (credited.has(k)) continue;
     if (typeof reportingIsOfficeStaff === 'function' && !reportingIsOfficeStaff(r)) continue;
     const src = reportingSourceOf(r);
@@ -419,7 +424,10 @@ function mktgAttributionView() {
       el('span', { style: Gst && (Gst.missing || Gst.error) ? { color: '#DC2626' } : muted },
         Gst == null ? 'loading…' : Gst.missing ? 'no GoHighLevel sync file yet — run the sync in Settings → Marketing & lead sources' : Gst.error ? 'could not load: ' + Gst.error
           : ghlReady ? GL.leads.length.toLocaleString() + ' leads · synced ' + (Gst.at ? new Date(Gst.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '?') + (Gst.backfillDone ? '' : ' · history still backfilling') : 'no leads in the sync file'),
-      el('span', { class: 'ml-auto inline-flex items-center gap-2' }, el('span', { style: muted }, 'Sales sold since'),
+      el('label', { class: 'ml-auto inline-flex items-center gap-2 font-semibold cursor-pointer', title: 'Only reconcile sales whose subscription is still Active in FieldRoutes (not cancelled or frozen).' },
+        (() => { const c = el('input', { type: 'checkbox', style: { accentColor: 'var(--accent)' }, onchange: (e) => { A.activeOnly = e.target.checked; state._attrMemo = null; _attrSave(); mountApp(); } }); c.checked = _attrActiveOnly(); return c; })(),
+        'Active subscriptions only'),
+      el('span', { class: 'inline-flex items-center gap-2' }, el('span', { style: muted }, 'Sales sold since'),
         el('input', { type: 'date', value: _attrSince(), class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { A.since = e.target.value || null; state._attrMemo = null; _attrSave(); mountApp(); } }))),
     el('div', { class: 'flex items-center gap-2 flex-wrap text-[11px]' },
       el('span', { class: 'font-semibold', title: 'A provider paid per job: it gets the sale when it sent a lead within this many days before the sale, even if another channel touched after.' }, 'Priority window'),
@@ -438,7 +446,7 @@ function mktgAttributionView() {
   const reconcileCard = hasFeed ? el('div', { class: 'card p-4 flex items-center gap-3 flex-wrap', style: reconciled ? {} : { borderColor: 'var(--accent)' } },
     el('div', { class: 'flex flex-col gap-0.5 min-w-0' },
       el('div', { class: 'text-sm font-bold' }, reconciled ? 'Reconciled · ' + feedLbl : feedLbl + ' ready to reconcile'),
-      el('div', { class: 'text-[11px]', style: muted }, provsIn.join(', ') + ' · sales since ' + _attrSince() + (A.files.length ? ' · uploaded leads ' + (dates[0] || '?') + ' → ' + (dates[dates.length - 1] || '?') + ' (' + A.files.reduce((t, f) => t + (f.leads || []).length, 0).toLocaleString() + ')' : '')
+      el('div', { class: 'text-[11px]', style: muted }, provsIn.join(', ') + ' · ' + (_attrActiveOnly() ? 'active subscriptions' : 'all sales') + ' since ' + _attrSince() + (A.files.length ? ' · uploaded leads ' + (dates[0] || '?') + ' → ' + (dates[dates.length - 1] || '?') + ' (' + A.files.reduce((t, f) => t + (f.leads || []).length, 0).toLocaleString() + ')' : '')
         + (reconciled ? ' · run ' + new Date(A.reconciledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + (A.reconciledBy ? ' by ' + A.reconciledBy : '') : A.reconciledKey ? ' · reports changed since the last reconcile' : ''))),
     el('button', { class: btn + ' ml-auto', style: reconciled ? { borderColor: 'var(--border-2)' } : primary, onclick: () => _attrRunReconcile() }, reconciled ? '↻ Re-run reconcile' : 'Reconcile against FieldRoutes →')) : null;
   // Uploaded files
