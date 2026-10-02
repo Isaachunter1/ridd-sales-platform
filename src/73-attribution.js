@@ -26,7 +26,7 @@ const ATTR_PRIORITY_DEFAULT = { ElectGen: 7 };
 // Sources a lead never overwrites (like Door to Door): the sale keeps its
 // FieldRoutes source even when a paid lead exists. Editable on the screen
 // (adminRules.attrKeep).
-const ATTR_KEEP_DEFAULT = ['Upsell - Service Pro', 'PestBooker', 'Referral'];
+const ATTR_KEEP_DEFAULT = ['Upsell - Service Pro', 'Referral'];   // PestBooker is a booking tool — a paid lead can sit behind it, so it is NOT protected
 function attrKeep() { const r = (typeof _adminRules === 'function') ? _adminRules() : null; const v = r && r.attrKeep; return Array.isArray(v) ? v : ATTR_KEEP_DEFAULT; }
 function setAttrKeep(source, on) {
   const set = new Set(attrKeep()); if (on) set.add(source); else set.delete(source);
