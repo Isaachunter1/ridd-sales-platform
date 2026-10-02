@@ -51,13 +51,6 @@ function _attrActiveOnly() { const A = state._attr; return !A || A.activeOnly !=
 // books is not a real sale yet.
 function _attrHasAppt(r) { return /completed|pending/i.test(String(r.initial_status || '')) || !!r.initial_serviced_date || !!r.initial_appt_date || (Number(r.subscription_completed_services) || 0) > 0; }
 function _attrSubActive(r) { return String(r.subscription_status || '').trim().toLowerCase() === 'active' && !r.subscription_date_canceled && _attrHasAppt(r); }
-// Booked online by the customer themselves (per Isaac, Oct 2): source is the
-// online booker (PestBooker, or the older Click-To-Buy) AND the sale sits on
-// the house account ("RIDD Account - Office") instead of a rep. Those keep the
-// booker as their source even when a paid lead exists — an abandoned cart a
-// rep then closed has a real rep on it and is NOT one of these.
-function _attrKeepBooked() { const A = state._attr; return !A || A.keepBooked !== false; }
-function _attrSelfBooked(r) { return /pest ?booker|click[- ]?to[- ]?buy/i.test(String(reportingSourceOf(r) || '')) && /^\s*account,\s*ridd\b|ridd account/i.test(String(r.sold_by || '')); }
 function _attrSince() { const A = state._attr; return (A && /^\d{4}-\d{2}-\d{2}$/.test(A.since || '')) ? A.since : new Date().getFullYear() + '-01-01'; }
 
 const _attrDigits = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d.length >= 10 ? d.slice(-10) : ''; };
@@ -101,7 +94,7 @@ async function _attrLoad() {
     if (error || !data) { state._attr = { files: [] }; }
     else {
       const txt = await new Response(data.stream().pipeThrough(new DecompressionStream('gzip'))).text();
-      const j = JSON.parse(txt); state._attr = { files: Array.isArray(j.files) ? j.files : [], maps: (j.maps && typeof j.maps === 'object') ? j.maps : {}, reconciledKey: j.reconciledKey || null, reconciledAt: j.reconciledAt || null, reconciledBy: j.reconciledBy || null, useGhl: j.useGhl !== false, activeOnly: j.activeOnly !== false, keepBooked: j.keepBooked !== false, since: j.since || null };
+      const j = JSON.parse(txt); state._attr = { files: Array.isArray(j.files) ? j.files : [], maps: (j.maps && typeof j.maps === 'object') ? j.maps : {}, reconciledKey: j.reconciledKey || null, reconciledAt: j.reconciledAt || null, reconciledBy: j.reconciledBy || null, useGhl: j.useGhl !== false, activeOnly: j.activeOnly !== false, since: j.since || null };
     }
   } catch (e) { state._attr = { files: [] }; }
   mountApp();
@@ -109,7 +102,7 @@ async function _attrLoad() {
 async function _attrSave() {
   if (!supabase || (typeof DEMO !== 'undefined' && DEMO)) return;
   try {
-    const blob = await new Response(new Blob([JSON.stringify({ files: state._attr.files, maps: state._attr.maps || {}, useGhl: state._attr.useGhl !== false, activeOnly: state._attr.activeOnly !== false, keepBooked: state._attr.keepBooked !== false, since: state._attr.since || null, reconciledKey: state._attr.reconciledKey || null, reconciledAt: state._attr.reconciledAt || null, reconciledBy: state._attr.reconciledBy || null, savedAt: new Date().toISOString() })]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
+    const blob = await new Response(new Blob([JSON.stringify({ files: state._attr.files, maps: state._attr.maps || {}, useGhl: state._attr.useGhl !== false, activeOnly: state._attr.activeOnly !== false, since: state._attr.since || null, reconciledKey: state._attr.reconciledKey || null, reconciledAt: state._attr.reconciledAt || null, reconciledBy: state._attr.reconciledBy || null, savedAt: new Date().toISOString() })]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
     const { error } = await supabase.storage.from('reporting').upload(ATTR_PATH, blob, { contentType: 'application/gzip', upsert: true });
     if (error) toast('Could not save uploads: ' + error.message, 'error');
   } catch (e) { toast('Could not save uploads: ' + (e.message || e), 'error'); }
@@ -142,7 +135,7 @@ function _attrIsUnset(src) {
 function _attrReconcile() {
   const files = (state._attr && state._attr.files) || [];
   const G = _attrUseGhl() && typeof ghlLeads === 'function' ? ghlLeads() : null;
-  const sig = files.map(f => f.id).join(',') + '|' + JSON.stringify(attrPriority()) + '|' + attrKeep().join(',') + '|' + _attrSince() + '|' + (_attrActiveOnly() ? 'act' : 'all') + (_attrKeepBooked() ? 'b' : '') + '|' + (typeof ghlSourceMap === 'function' ? JSON.stringify(ghlSourceMap()) : '') + '|' + (typeof reportingSourceProviderMap === 'function' ? JSON.stringify(reportingSourceProviderMap()) : '');
+  const sig = files.map(f => f.id).join(',') + '|' + JSON.stringify(attrPriority()) + '|' + attrKeep().join(',') + '|' + _attrSince() + '|' + (_attrActiveOnly() ? 'act' : 'all') + '|' + (typeof ghlSourceMap === 'function' ? JSON.stringify(ghlSourceMap()) : '') + '|' + (typeof reportingSourceProviderMap === 'function' ? JSON.stringify(reportingSourceProviderMap()) : '');
   const M = state._attrMemo;
   if (M && M.sig === sig && M.G === G && M.subs === state.reportingSubscriptions && M.cfg === state.reportingSourceConfig) return M.out;
   const out = _attrReconcileRun(files, G);
@@ -152,7 +145,7 @@ function _attrReconcile() {
 function _attrReconcileRun(files, G) {
   const idx = _attrCrmIndex();
   const since = _attrSince();
-  const actOnly = _attrActiveOnly(), keepBooked = _attrKeepBooked();
+  const actOnly = _attrActiveOnly();
   const KEEP = new Set(attrKeep().map(x => String(x).trim().toLowerCase()));
   const leads = [];
   for (const f of files) for (const l of f.leads || []) leads.push({ ...l, provider: f.provider, fileId: f.id, via: 'file' });
@@ -245,7 +238,6 @@ function _attrReconcileRun(files, G) {
     // — never a fix, never a provider close.
     if (typeof crmSourceIs === 'function' && crmSourceIs('d2d', cur)) { l.status = 'd2d'; continue; }
     if (KEEP.has(String(cur || '').trim().toLowerCase())) { l.status = 'kept'; continue; }
-    if (keepBooked && _attrSelfBooked(l.sale)) { l.status = 'booked'; continue; }
     if (!l.isWinner) { l.status = 'otherwon'; continue; }
     const curProv = (typeof reportingProviderOf === 'function') ? reportingProviderOf(cur) : cur;   // "#49 FB" in the CRM = Facebook
     l.status = (cur === l.provider || curProv === l.provider) ? 'correct' : _attrIsUnset(cur) ? 'nosource' : 'missourced';
@@ -301,7 +293,6 @@ const ATTR_STATUS = {
   nomatch:    ['Not in CRM', 'var(--text-muted)'],
   toorganic:  ['No paid lead — set to Organic', '#DC2626'],
   kept:       ['Protected source — kept', 'var(--text-muted)'],
-  booked:     ['Booked online by the customer — kept', 'var(--text-muted)'],
   d2d:        ['Door to Door in CRM — kept', 'var(--text-muted)'],
   noghl:      ['Not in GoHighLevel', '#B45309'],
 };
@@ -380,7 +371,7 @@ function _attrTrailNode(l, cols) {
 }
 function _attrStats(rows) {
   const leadRows = rows.filter(l => l.status !== 'toorganic');
-  const closes = leadRows.filter(l => l.sale && l.isWinner && !l.dupe && l.status !== 'd2d' && l.status !== 'kept' && l.status !== 'booked');
+  const closes = leadRows.filter(l => l.sale && l.isWinner && !l.dupe && l.status !== 'd2d' && l.status !== 'kept');
   return { leads: leadRows.length, closes: closes.length, closeValue: closes.reduce((t, l) => t + (Number(l.sale.subscription_contract_value) || 0), 0), fixes: rows.filter(_attrIsFix).length };
 }
 
@@ -544,9 +535,6 @@ function mktgAttributionView() {
       el('label', { class: 'ml-auto inline-flex items-center gap-2 font-semibold cursor-pointer', title: 'Only reconcile sales whose subscription is still Active in FieldRoutes (not cancelled or frozen) AND has at least a scheduled or completed appointment.' },
         (() => { const c = el('input', { type: 'checkbox', style: { accentColor: 'var(--accent)' }, onchange: (e) => { A.activeOnly = e.target.checked; state._attrMemo = null; _attrSave(); mountApp(); } }); c.checked = _attrActiveOnly(); return c; })(),
         'Active with an appointment only'),
-      el('label', { class: 'inline-flex items-center gap-2 font-semibold cursor-pointer', title: 'A sale the customer booked themselves online (source PestBooker / Click-To-Buy, on the RIDD house account with no rep) keeps that source even when a paid lead exists. An abandoned cart a rep closed is not one of these.' },
-        (() => { const c = el('input', { type: 'checkbox', style: { accentColor: 'var(--accent)' }, onchange: (e) => { A.keepBooked = e.target.checked; state._attrMemo = null; _attrSave(); mountApp(); } }); c.checked = _attrKeepBooked(); return c; })(),
-        'Online bookings keep PestBooker'),
       el('span', { class: 'inline-flex items-center gap-2' }, el('span', { style: muted }, 'Sales sold since'),
         el('input', { type: 'date', value: _attrSince(), class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { A.since = e.target.value || null; state._attrMemo = null; _attrSave(); mountApp(); } }))),
     el('div', { class: 'flex items-center gap-2 flex-wrap text-[11px]' },
@@ -612,10 +600,9 @@ function mktgAttributionView() {
     inProv.some(l => l.inGhl != null) ? tile('noghl', 'Not in GoHighLevel', inProv.filter(l => l.inGhl === false).length, '#B45309') : null,
     tile('d2d', 'Door to Door (kept)', inProv.filter(l => l.status === 'd2d').length),
     tile('kept', 'Protected source (kept)', inProv.filter(l => l.status === 'kept').length),
-    tile('booked', 'Booked online (kept)', inProv.filter(l => l.status === 'booked').length),
     tile('existing', 'Already customers', count('existing')),
     tile('nosale', 'No sale', count('nosale') + count('nomatch')));
-  const sold = inProv.filter(l => l.sale && l.isWinner && !l.dupe && l.status !== 'toorganic' && l.status !== 'd2d' && l.status !== 'kept' && l.status !== 'booked');
+  const sold = inProv.filter(l => l.sale && l.isWinner && !l.dupe && l.status !== 'toorganic' && l.status !== 'd2d' && l.status !== 'kept');
   const closeLine = el('div', { class: 'text-[11px]', style: muted },
     'Sales credited by last touch: ' + sold.length.toLocaleString() + ' · ' + fmt.usd0(sold.reduce((t, l) => t + (Number(l.sale.subscription_contract_value) || 0), 0)) + ' contract value · lead → sale ' + (_attrStats(inProv).leads ? Math.round(sold.filter(l => l.status !== 'toorganic').length / _attrStats(inProv).leads * 1000) / 10 : 0) + '%');
   const list = inProv.filter(l => stFilter === 'all' ? true : stFilter === 'fix' ? _attrIsFix(l) : stFilter === 'nosale' ? (l.status === 'nosale' || l.status === 'nomatch') : stFilter === 'noghl' ? l.inGhl === false : l.status === stFilter)
