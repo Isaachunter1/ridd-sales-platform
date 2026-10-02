@@ -29,11 +29,15 @@ const ATTR_PRIORITY_DEFAULT = { ElectGen: 7 };
 const ATTR_KEEP_DEFAULT = ['6 Brothers', 'Referral', 'Sellify', 'Upsell - Service Pro'];   // Sellify / 6 Brothers never send leads through GoHighLevel, so a missing lead proves nothing   // PestBooker is a booking tool — a paid lead can sit behind it, so it is NOT protected
 function attrKeep() { const r = (typeof _adminRules === 'function') ? _adminRules() : null; const v = r && r.attrKeep; return Array.isArray(v) ? v : ATTR_KEEP_DEFAULT; }
 function setAttrKeep(source, on) {
+  if (_attrRulesLocked()) return;
   const set = new Set(attrKeep()); if (on) set.add(source); else set.delete(source);
   _setAdminRule('attrKeep', [...set].sort()); state._attrMemo = null;
 }
 function attrPriority() { const r = (typeof _adminRules === 'function') ? _adminRules() : null; const v = r && r.attrPriority; return (v && typeof v === 'object') ? v : ATTR_PRIORITY_DEFAULT; }
+// The rules are shared settings: only admins can change them (the server rejects anyone else).
+function _attrRulesLocked() { if (isAdminRole(state.profile && state.profile.role)) return false; toast('Only an admin can change the attribution rules', 'error'); return true; }
 function setAttrPriority(provider, days) {
+  if (_attrRulesLocked()) return;
   const m = Object.assign({}, attrPriority());
   if (days == null) delete m[provider]; else m[provider] = Math.max(1, Math.round(Number(days) || 7));
   _setAdminRule('attrPriority', m); state._attrMemo = null;

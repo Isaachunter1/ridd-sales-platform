@@ -56,7 +56,8 @@ function viewReporting() {
   return el('div', { class: 'flex flex-col gap-4' },
     // (Active Snapshot bar retired — per Isaac; the header stamp already says when the data synced.)
     reportingSubTabs(),
-    ['marketing', 'putis', 'is'].includes(state.reportingSubTab) ? devSampleBanner() : null,
+    // Attribution is real for a developer (FieldRoutes + GoHighLevel only — no QuickBooks in it), so no sample ribbon there.
+    (['marketing', 'putis', 'is'].includes(state.reportingSubTab) && !(state.reportingSubTab === 'marketing' && state._mktSub === 'providers' && state._mktProvView === 'recon')) ? devSampleBanner() : null,
     reportingMethodologyBar(),
     _guarded(() =>
     isMarketing                            ? reportingMarketingPnl() :
