@@ -1773,20 +1773,25 @@ function adminDataSources() {
   // charcoal on white — for outside flows that need an image URL
   // (the Gmail API signature flow). Collapsed; tucked at the bottom.
   const baOpen = state._dsBrandOpen === true;
-  const logoUrl = location.origin + '/ridd-logo.png';
+  const brandAsset = (file, desc, bg, h) => {
+    const url = location.origin + '/' + file;
+    return el('div', { class: 'flex items-center gap-4 flex-wrap' },
+      el('div', { class: 'rounded-lg border overflow-hidden', style: { borderColor: 'var(--border)', background: bg, padding: bg === '#FFFFFF' ? '12px' : '0' } },
+        el('img', { src: '/' + file, alt: 'RIDD logo', style: { height: h, display: 'block' } })),
+      el('div', { class: 'flex flex-col gap-2 min-w-0' },
+        el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, desc),
+        el('code', { class: 'text-[11px]', style: { wordBreak: 'break-all' } }, url),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { try { navigator.clipboard.writeText(url); toast('Logo URL copied', 'success'); } catch (e) { toast('Copy failed — select the URL above', 'warn'); } } }, 'Copy URL'),
+          el('a', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, href: '/' + file, download: file }, 'Download PNG'))));
+  };
   const baCard = el('div', { class: 'card overflow-hidden' },
     el('button', { class: 'w-full flex items-center justify-between gap-3 px-5 py-3 text-left', onclick: () => { state._dsBrandOpen = !baOpen; mountApp(); } },
-      el('div', {}, el('div', { class: 'text-sm font-bold' }, 'Brand assets'), el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'The RIDD logo as a hosted PNG, for email signatures and API flows.')),
+      el('div', {}, el('div', { class: 'text-sm font-bold' }, 'Brand assets'), el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'The RIDD logo as hosted PNGs, for email signatures, profile pictures and API flows.')),
       el('span', { class: 'text-[11px] text-muted-' }, baOpen ? '▲' : '▼')),
-    baOpen ? el('div', { class: 'px-5 pb-5 flex items-center gap-4 flex-wrap' },
-      el('div', { class: 'rounded-lg border p-3', style: { borderColor: 'var(--border)', background: '#FFFFFF' } },
-        el('img', { src: '/ridd-logo.png', alt: 'RIDD logo', style: { height: '44px', display: 'block' } })),
-      el('div', { class: 'flex flex-col gap-2 min-w-0' },
-        el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'PNG · charcoal on white · 888 × 252'),
-        el('code', { class: 'text-[11px]', style: { wordBreak: 'break-all' } }, logoUrl),
-        el('div', { class: 'flex items-center gap-2 flex-wrap' },
-          el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { try { navigator.clipboard.writeText(logoUrl); toast('Logo URL copied', 'success'); } catch (e) { toast('Copy failed — select the URL above', 'warn'); } } }, 'Copy URL'),
-          el('a', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, href: '/ridd-logo.png', download: 'ridd-logo.png' }, 'Download PNG')))) : null);
+    baOpen ? el('div', { class: 'px-5 pb-5 flex flex-col gap-4' },
+      brandAsset('ridd-logo.png', 'PNG · charcoal on white · 888 × 252', '#FFFFFF', '44px'),
+      brandAsset('ridd-logo-dark.png', 'PNG · cream on charcoal, padded · 1191 × 966', '#2D2C2A', '96px')) : null);
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'flex items-center gap-2' }, el('h2', { class: 'text-lg font-bold' }, 'Connections'), state._integrationsErr ? pill(false, 'run migrations/20260923_integrations.sql') : null),
     frCard, rvCard, sbCard, diCard, baCard);
