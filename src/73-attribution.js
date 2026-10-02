@@ -26,7 +26,7 @@ const ATTR_PRIORITY_DEFAULT = { ElectGen: 7 };
 // Sources a lead never overwrites (like Door to Door): the sale keeps its
 // FieldRoutes source even when a paid lead exists. Editable on the screen
 // (adminRules.attrKeep).
-const ATTR_KEEP_DEFAULT = ['Upsell - Service Pro', 'Referral'];   // PestBooker is a booking tool — a paid lead can sit behind it, so it is NOT protected
+const ATTR_KEEP_DEFAULT = ['6 Brothers', 'Referral', 'Sellify', 'Upsell - Service Pro'];   // Sellify / 6 Brothers never send leads through GoHighLevel, so a missing lead proves nothing   // PestBooker is a booking tool — a paid lead can sit behind it, so it is NOT protected
 function attrKeep() { const r = (typeof _adminRules === 'function') ? _adminRules() : null; const v = r && r.attrKeep; return Array.isArray(v) ? v : ATTR_KEEP_DEFAULT; }
 function setAttrKeep(source, on) {
   const set = new Set(attrKeep()); if (on) set.add(source); else set.delete(source);
@@ -252,6 +252,7 @@ function _attrReconcileRun(files, G) {
   if (allFrom) for (const r of state.reportingSubscriptions || []) {
     const sd = String(r.sold_date || '').slice(0, 10); if (!sd || sd < since) continue;
     if (actOnly && !_attrSubActive(r)) continue;
+    if (KEEP.has(String(reportingSourceOf(r) || '').trim().toLowerCase())) continue;
     const k = String(r.subscription_id || (r.customer_id + '|' + r.sold_date)); if (credited.has(k)) continue;
     if (typeof reportingIsOfficeStaff === 'function' && !reportingIsOfficeStaff(r)) continue;
     const src = reportingSourceOf(r);
@@ -274,13 +275,14 @@ const ATTR_STATUS = {
   existing:   ['Already a customer', 'var(--text-muted)'],
   nosale:     ['In CRM, no new sale', 'var(--text-muted)'],
   nomatch:    ['Not in CRM', 'var(--text-muted)'],
-  toorganic:  ['No lead found — review (Organic?)', '#B45309'],
+  toorganic:  ['No paid lead — set to Organic', '#DC2626'],
   kept:       ['Protected source — kept', 'var(--text-muted)'],
   d2d:        ['Door to Door in CRM — kept', 'var(--text-muted)'],
   noghl:      ['Not in GoHighLevel', '#B45309'],
 };
-// A fix = a lead proves the source. "No lead found" is absence of evidence, so it is a review list, not a fix.
-const _attrIsFix = (l) => (l.status === 'nosource' || l.status === 'missourced') && !l.dupe;
+// A fix = a lead proves the source, OR a paid source with no lead anywhere in GoHighLevel / the reports
+// (per Isaac: reps ask on inbound calls and pick a channel — with no lead behind it, it is Organic).
+const _attrIsFix = (l) => (l.status === 'nosource' || l.status === 'missourced' || l.status === 'toorganic') && !l.dupe;
 const _attrHasShould = (l) => _attrIsFix(l) || l.status === 'toorganic';
 // Channel + lead date this row points at: the winning channel and the date of its lead when there is a sale, else the lead itself.
 const _attrShould = (l) => l.status === 'toorganic' ? [ATTR_ORGANIC, ''] : (l.sale && l.winner) ? [l.winner, l.winDate || ''] : [l.provider, l.date || ''];
@@ -513,7 +515,7 @@ function mktgAttributionView() {
     tile('correct', 'Sourced correctly', count('correct'), 'var(--ok)'),
     tile('nosource', 'No source', count('nosource'), '#DC2626'),
     tile('missourced', 'Mis-sourced', count('missourced'), '#DC2626'),
-    tile('toorganic', 'No lead found · review', count('toorganic'), '#B45309'),
+    tile('toorganic', 'No lead · set Organic', count('toorganic'), '#DC2626'),
     tile('otherwon', 'Last touch elsewhere', count('otherwon'), '#B45309'),
     inProv.some(l => l.inGhl != null) ? tile('noghl', 'Not in GoHighLevel', inProv.filter(l => l.inGhl === false).length, '#B45309') : null,
     tile('d2d', 'Door to Door (kept)', inProv.filter(l => l.status === 'd2d').length),

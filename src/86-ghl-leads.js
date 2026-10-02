@@ -25,7 +25,9 @@ const GHL_AUTO_RULES = [
   [/baton/, 'Baton'],
   [/pest ?net/, 'Pest Net'],
   [/pest ?booker/, 'PestBooker'],
-  [/organic|direct traffic|social media|referral|ridd form|website/, 'Organic'],
+  [/clicki/, 'Referral'],                       // old referral tool (per Isaac)
+  [/click[- ]?to[- ]?buy/, 'Click-To-Buy'],    // the old online booker, before PestBooker
+  [/organic|direct traffic|social media|referral|ridd form|website|vip marketing|pest lead form/, 'Organic'],
 ];
 function ghlSourceMap() { const R = (typeof _adminRules === 'function') ? _adminRules() : null; return (R && R.ghlSourceMap) || {}; }
 function setGhlSourceMap(label, val) { const m = Object.assign({}, ghlSourceMap()); if (val == null) delete m[label]; else m[label] = val; _setAdminRule('ghlSourceMap', m); }
