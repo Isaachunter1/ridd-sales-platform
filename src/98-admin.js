@@ -1769,9 +1769,27 @@ function adminDataSources() {
       el('div', {}, el('div', { class: 'text-sm font-bold' }, 'Data integrity'), el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Every judgment call the bridge makes — fallbacks, name matching, cancel tagging — with the rows behind each count.')),
       el('span', { class: 'text-[11px] text-muted-' }, diOpen ? '▲' : '▼')),
     diOpen ? el('div', { class: 'px-5 pb-5 flex flex-col gap-4' }, dataIntegrityPanel(), adminDataHygiene()) : null);
+  // Brand assets (per Isaac, Oct 2): the RIDD wordmark as a hosted PNG —
+  // charcoal on transparent — for outside flows that need an image URL
+  // (the Gmail API signature flow). Collapsed; tucked at the bottom.
+  const baOpen = state._dsBrandOpen === true;
+  const logoUrl = location.origin + '/ridd-logo.png';
+  const baCard = el('div', { class: 'card overflow-hidden' },
+    el('button', { class: 'w-full flex items-center justify-between gap-3 px-5 py-3 text-left', onclick: () => { state._dsBrandOpen = !baOpen; mountApp(); } },
+      el('div', {}, el('div', { class: 'text-sm font-bold' }, 'Brand assets'), el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'The RIDD logo as a hosted PNG, for email signatures and API flows.')),
+      el('span', { class: 'text-[11px] text-muted-' }, baOpen ? '▲' : '▼')),
+    baOpen ? el('div', { class: 'px-5 pb-5 flex items-center gap-4 flex-wrap' },
+      el('div', { class: 'rounded-lg border p-3', style: { borderColor: 'var(--border)', background: '#FDF1D3' } },
+        el('img', { src: '/ridd-logo.png', alt: 'RIDD logo', style: { height: '44px', display: 'block' } })),
+      el('div', { class: 'flex flex-col gap-2 min-w-0' },
+        el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'PNG · charcoal on a transparent background · 888 × 252'),
+        el('code', { class: 'text-[11px]', style: { wordBreak: 'break-all' } }, logoUrl),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { try { navigator.clipboard.writeText(logoUrl); toast('Logo URL copied', 'success'); } catch (e) { toast('Copy failed — select the URL above', 'warn'); } } }, 'Copy URL'),
+          el('a', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, href: '/ridd-logo.png', download: 'ridd-logo.png' }, 'Download PNG')))) : null);
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'flex items-center gap-2' }, el('h2', { class: 'text-lg font-bold' }, 'Connections'), state._integrationsErr ? pill(false, 'run migrations/20260923_integrations.sql') : null),
-    frCard, rvCard, sbCard, diCard);
+    frCard, rvCard, sbCard, diCard, baCard);
 }
 
 // ── Upsells → ticket items (per Isaac, Sep 30) ───────────────────────────
