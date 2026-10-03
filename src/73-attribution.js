@@ -121,7 +121,7 @@ async function _attrLoad() {
     if (error || !data) { state._attr = { files: [] }; }
     else {
       const txt = await new Response(data.stream().pipeThrough(new DecompressionStream('gzip'))).text();
-      const j = JSON.parse(txt); state._attr = { files: Array.isArray(j.files) ? j.files : [], maps: (j.maps && typeof j.maps === 'object') ? j.maps : {}, reconciledKey: j.reconciledKey || null, reconciledAt: j.reconciledAt || null, reconciledBy: j.reconciledBy || null, useGhl: j.useGhl !== false, activeOnly: j.activeOnly !== false, keepBooked: j.keepBooked !== false, since: j.since || null };
+      const j = JSON.parse(txt); state._attr = { files: Array.isArray(j.files) ? j.files : [], maps: (j.maps && typeof j.maps === 'object') ? j.maps : {}, reconciledKey: j.reconciledKey || null, reconciledAt: j.reconciledAt || null, reconciledBy: j.reconciledBy || null, useGhl: j.useGhl !== false, activeOnly: j.activeOnly !== false, keepBooked: j.keepBooked !== false, done: (j.done && typeof j.done === 'object') ? j.done : {}, since: j.since || null };
     }
   } catch (e) { state._attr = { files: [] }; }
   mountApp();
@@ -129,7 +129,7 @@ async function _attrLoad() {
 async function _attrSave() {
   if (!supabase || (typeof DEMO !== 'undefined' && DEMO)) return;
   try {
-    const blob = await new Response(new Blob([JSON.stringify({ files: state._attr.files, maps: state._attr.maps || {}, useGhl: state._attr.useGhl !== false, activeOnly: state._attr.activeOnly !== false, keepBooked: state._attr.keepBooked !== false, since: state._attr.since || null, reconciledKey: state._attr.reconciledKey || null, reconciledAt: state._attr.reconciledAt || null, reconciledBy: state._attr.reconciledBy || null, savedAt: new Date().toISOString() })]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
+    const blob = await new Response(new Blob([JSON.stringify({ files: state._attr.files, maps: state._attr.maps || {}, useGhl: state._attr.useGhl !== false, activeOnly: state._attr.activeOnly !== false, keepBooked: state._attr.keepBooked !== false, done: state._attr.done || {}, since: state._attr.since || null, reconciledKey: state._attr.reconciledKey || null, reconciledAt: state._attr.reconciledAt || null, reconciledBy: state._attr.reconciledBy || null, savedAt: new Date().toISOString() })]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
     const { error } = await supabase.storage.from('reporting').upload(ATTR_PATH, blob, { contentType: 'application/gzip', upsert: true });
     if (error) toast('Could not save uploads: ' + error.message, 'error');
   } catch (e) { toast('Could not save uploads: ' + (e.message || e), 'error'); }
@@ -339,8 +339,41 @@ const ATTR_STATUS = {
 };
 // A fix = a lead proves the source, OR a paid source with no lead anywhere in GoHighLevel / the reports
 // (per Isaac: reps ask on inbound calls and pick a channel — with no lead behind it, it is Organic).
-const _attrIsFix = (l) => (l.status === 'nosource' || l.status === 'missourced' || l.status === 'toorganic') && !l.dupe;
-const _attrHasShould = (l) => _attrIsFix(l) || l.status === 'toorganic';
+const _attrRawFix = (l) => (l.status === 'nosource' || l.status === 'missourced' || l.status === 'toorganic') && !l.dupe;
+// "Done" ticks (per Isaac, Oct 3): a row the admin has already changed in
+// FieldRoutes leaves the fix list at once, instead of lingering until the
+// CRM data catches up. Keyed by subscription + the source it was changed to,
+// so a different verdict later brings the row back.
+function _attrDoneMap() { const A = state._attr; if (!A) return {}; return (A.done && typeof A.done === 'object') ? A.done : (A.done = {}); }
+const _attrSubKey = (l) => l.sale ? String(l.sale.subscription_id || (l.custId + '|' + l.sale.sold_date)) : '';
+function _attrDoneFor(l) { const k = _attrSubKey(l); const d = k && _attrDoneMap()[k]; return !!d && d.to === (l.status === 'toorganic' ? ATTR_ORGANIC : l.provider); }
+function _attrSetDone(l, on) {
+  const k = _attrSubKey(l); if (!k) return; const m = _attrDoneMap();
+  if (on) m[k] = { to: l.status === 'toorganic' ? ATTR_ORGANIC : l.provider, at: new Date().toISOString().slice(0, 10), by: (state.profile && state.profile.full_name) || '' }; else delete m[k];
+  clearTimeout(state._attrSaveT); state._attrSaveT = setTimeout(() => { _attrSave(); }, 1200);
+}
+const _attrIsFix = (l) => _attrRawFix(l) && !_attrDoneFor(l);
+const _attrHasShould = (l) => _attrRawFix(l);
+// Subscription → the channel attribution says it belongs to, for every sale
+// whose FieldRoutes source is wrong. Marketing → Metrics reads this so
+// closes / revenue / CAC by provider are right before FieldRoutes is fixed.
+// null until the lead feeds have loaded.
+function attrSourceOverrides() {
+  if (typeof ghlLoadLeads === 'function') ghlLoadLeads();
+  _attrLoad();
+  const A = state._attr; if (!A) return null;
+  if (_attrUseGhl() && state._ghl == null) return null;
+  const rows = _attrReconcile(); if (!rows || !rows.length) return null;
+  const M = state._attrOvMemo; if (M && M.rows === rows) return M.map;
+  const map = new Map();
+  for (const l of rows) {
+    if (!l.sale || l.dupe || !l.sale.subscription_id) continue;
+    if (l.status === 'toorganic') map.set(String(l.sale.subscription_id), ATTR_ORGANIC);
+    else if (l.isWinner && (l.status === 'missourced' || l.status === 'nosource')) map.set(String(l.sale.subscription_id), l.provider);
+  }
+  state._attrOvMemo = { rows, map };
+  return map;
+}
 // Channel + lead date this row points at: the winning channel and the date of its lead when there is a sale, else the lead itself.
 const _attrShould = (l) => l.status === 'toorganic' ? [ATTR_ORGANIC, ''] : (l.sale && l.winner) ? [l.winner, l.winDate || ''] : [l.provider, l.date || ''];
 // When the sale's CURRENT FieldRoutes source last sent a lead before the sale ('' = that channel never did).
@@ -599,18 +632,9 @@ function mktgAttributionView() {
       el('select', { class: btn, style: { borderColor: 'var(--border-2)', background: 'var(--card)' }, onchange: (e) => { if (e.target.value) { setAttrKeep(e.target.value, true); mountApp(); } } },
         el('option', { value: '' }, '+ source'), ...allSrc.filter(x => !attrKeep().includes(x)).map(x => el('option', { value: x }, x))),
       el('span', { style: muted }, 'these sources stay as they are in FieldRoutes.')));
-  const reconciled = hasFeed && A.reconciledKey === _attrFilesKey(A.files);
-  const leadsAll = reconciled ? _attrReconcile() : [];
-  // The Reconcile step: nothing is matched until every report is in and this is pressed.
-  const provsIn = [...(useGhl && ghlReady ? ['GoHighLevel'] : []), ...new Set(A.files.map(f => f.provider))];
-  const dates = A.files.flatMap(f => [f.from, f.to]).filter(Boolean).sort();
-  const feedLbl = (useGhl && ghlReady ? 'GoHighLevel' + (A.files.length ? ' + ' : '') : '') + (A.files.length ? A.files.length + ' report' + (A.files.length === 1 ? '' : 's') : '');
-  const reconcileCard = hasFeed ? el('div', { class: 'card p-4 flex items-center gap-3 flex-wrap', style: reconciled ? {} : { borderColor: 'var(--accent)' } },
-    el('div', { class: 'flex flex-col gap-0.5 min-w-0' },
-      el('div', { class: 'text-sm font-bold' }, reconciled ? 'Reconciled · ' + feedLbl : feedLbl + ' ready to reconcile'),
-      el('div', { class: 'text-[11px]', style: muted }, provsIn.join(', ') + ' · ' + (_attrActiveOnly() ? 'active subscriptions with an appointment' : 'all sales') + ' since ' + _attrSince() + (A.files.length ? ' · uploaded leads ' + (dates[0] || '?') + ' → ' + (dates[dates.length - 1] || '?') + ' (' + A.files.reduce((t, f) => t + (f.leads || []).length, 0).toLocaleString() + ')' : '')
-        + (reconciled ? ' · run ' + new Date(A.reconciledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + (A.reconciledBy ? ' by ' + A.reconciledBy : '') : A.reconciledKey ? ' · reports changed since the last reconcile' : ''))),
-    el('button', { class: btn + ' ml-auto', style: reconciled ? { borderColor: 'var(--border-2)' } : primary, onclick: () => _attrRunReconcile() }, reconciled ? '↻ Re-run reconcile' : 'Reconcile against FieldRoutes →')) : null;
+  // No Reconcile step any more (per Isaac, Oct 3): the numbers recompute on their own whenever the feeds change.
+  const reconciled = hasFeed;
+  const leadsAll = hasFeed ? _attrReconcile() : [];
   // Uploaded files
   const filesCard = A.files.length ? el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-4 py-2 border-b text-[10px] uppercase tracking-widest font-semibold', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } }, 'Uploaded lead files'),
@@ -620,85 +644,128 @@ function mktgAttributionView() {
       el('span', { style: muted }, (f.from || '?') + ' → ' + (f.to || '?') + ' · uploaded ' + new Date(f.uploadedAt).toLocaleDateString() + (f.uploadedBy ? ' by ' + f.uploadedBy : '')),
       el('button', { class: 'text-[11px] font-semibold', style: { color: '#A9441F' }, onclick: () => { if (!confirm('Remove ' + f.fileName + '?')) return; A.files = A.files.filter(x => x.id !== f.id); _attrSave(); mountApp(); } }, 'Remove')))) : null;
   if (!hasFeed) return el('div', { class: 'flex flex-col gap-4' }, feedCard, upload, mapping,
-    el('div', { class: 'card p-6 text-[11px] text-center', style: muted }, Gst == null ? 'Loading GoHighLevel leads…' : 'No lead feed yet. Turn on GoHighLevel above (once its sync has run) or upload a provider’s lead report, then press Reconcile.'));
-  if (!reconciled) return el('div', { class: 'flex flex-col gap-4' }, feedCard, reconcileCard, upload, mapping, filesCard);
+    el('div', { class: 'card p-6 text-[11px] text-center', style: muted }, Gst == null ? 'Loading GoHighLevel leads…' : 'No lead feed yet. Turn on GoHighLevel above (once its sync has run) or upload a provider’s lead report.'));
   const leads = leadsAll;
+  // ── Setup (feeds, rules, backup uploads) — tucked away; the rules also live in Settings → Lead Sources ──
+  const setupOpen = !!state._attrSetup || PL.length > 0;
+  const setupBar = el('button', { class: 'card px-4 py-2 flex items-center gap-3 flex-wrap text-left w-full', onclick: () => { state._attrSetup = !setupOpen; mountApp(); } },
+    el('span', { class: 'text-[11px] font-bold' }, (setupOpen ? '▾' : '▸') + ' Setup'),
+    el('span', { class: 'text-[11px]', style: muted }, (useGhl && ghlReady ? 'GoHighLevel · ' + GL.leads.length.toLocaleString() + ' leads · synced ' + (Gst.at ? new Date(Gst.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '?') : 'GoHighLevel off')
+      + (A.files.length ? ' · ' + A.files.length + ' backup report' + (A.files.length === 1 ? '' : 's') : '')
+      + ' · ' + (_attrActiveOnly() ? 'active with an appointment' : 'all sales') + ' since ' + _attrSince()
+      + ' · last paid touch wins' + (Object.keys(PR).length ? ' (' + Object.keys(PR).sort().map(k => k + ' ' + PR[k] + '-day window').join(', ') + ')' : '')),
+    el('span', { class: 'ml-auto text-[11px]', style: muted }, setupOpen ? 'Hide' : 'Feeds, rules and backup uploads'));
+  // ── Filters: provider · when sold · rep ──
   const provFilter = state._attrProv || 'all';
-  const inProv = leads.filter(l => provFilter === 'all' || l.provider === provFilter);
+  const range = ['7', '30', 'all'].includes(state._attrRange) ? state._attrRange : '7';
+  const repFilter = state._attrRep || '';
+  const today = new Date().toISOString().slice(0, 10);
+  const cutoff = range === 'all' ? '' : _attrAddDays(today, -Number(range));
+  const whenOf = (l) => l.sale ? String(l.sale.sold_date).slice(0, 10) : String(l.date || '');
+  const inRange = (l) => !cutoff || whenOf(l) >= cutoff;
+  const repOf = (l) => l.sale ? String(l.sale.sold_by || 'No rep') : '';
+  const inProvAll = leads.filter(l => provFilter === 'all' || l.provider === provFilter || (l.status === 'toorganic' && l.currentSource === provFilter));
+  const inProv = inProvAll.filter(l => inRange(l) && (!repFilter || repOf(l) === repFilter));
   const count = (st) => inProv.filter(l => l.status === st && !l.dupe).length;
   const provs = [...new Set(leads.map(l => l.provider))].filter(p => p !== ATTR_ORGANIC).sort();
   const provPick = el('select', { class: btn, style: { borderColor: 'var(--border-2)', background: 'var(--card)' }, onchange: (e) => { state._attrProv = e.target.value; mountApp(); } },
     el('option', { value: 'all', selected: provFilter === 'all' }, 'All providers'), ...provs.map(p => el('option', { value: p, selected: provFilter === p }, p)));
+  const fixIn = (days) => { const c = days ? _attrAddDays(today, -days) : ''; return inProvAll.filter(l => _attrIsFix(l) && (!c || whenOf(l) >= c)).length; };
+  const rangePick = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+    ...[['7', 'Sold last 7 days', fixIn(7)], ['30', 'Last 30 days', fixIn(30)], ['all', 'All since ' + _attrSince(), fixIn(0)]].map(([v, lbl, n]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold',
+      style: range === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)', background: 'var(--card)' },
+      title: n + ' to change', onclick: () => { state._attrRange = v; state._attrMore = false; mountApp(); } }, lbl + ' · ' + n.toLocaleString())));
+  const repChip = repFilter ? el('button', { class: btn, style: { borderColor: 'var(--accent)', color: 'var(--accent)' }, onclick: () => { state._attrRep = ''; mountApp(); } }, repFilter + ' ×') : null;
   const stFilter = state._attrStatus || 'fix';
-  const tile = (key, label, n, color) => el('button', { class: 'card p-3 text-left min-w-0', style: stFilter === key ? { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px var(--accent)' } : {}, onclick: () => { state._attrStatus = key; mountApp(); } },
+  const tile = (key, label, n, color) => el('button', { class: 'card p-3 text-left min-w-0', style: stFilter === key ? { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px var(--accent)' } : {}, onclick: () => { state._attrStatus = key; state._attrMore = false; mountApp(); } },
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: muted }, label),
     el('div', { class: 'text-2xl font-black tabular-nums mt-1', style: { color: color || 'var(--text)' } }, n.toLocaleString()));
   const fixN = inProv.filter(_attrIsFix).length;
+  const doneN = inProv.filter(l => _attrRawFix(l) && _attrDoneFor(l)).length;
+  const MORE_KEYS = ['all', 'otherwon', 'noghl', 'd2d', 'kept', 'booked', 'existing', 'nosale', 'done'];
+  const moreOpen = !!state._attrTilesMore || MORE_KEYS.includes(stFilter);
   const tiles = el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' } },
     tile('fix', 'To change in FieldRoutes', fixN, fixN ? '#DC2626' : 'var(--ok)'),
-    tile('all', 'Leads', inProv.filter(l => l.status !== 'toorganic').length),
     tile('correct', 'Sourced correctly', count('correct'), 'var(--ok)'),
-    tile('nosource', 'No source', count('nosource'), '#DC2626'),
-    tile('missourced', 'Mis-sourced', count('missourced'), '#DC2626'),
+    tile('missourced', 'Mis-sourced', count('missourced') + count('nosource'), '#DC2626'),
     tile('toorganic', 'No lead · set Organic', count('toorganic'), '#DC2626'),
+    el('button', { class: 'card p-3 text-left min-w-0', onclick: () => { state._attrTilesMore = !moreOpen; if (moreOpen && MORE_KEYS.includes(stFilter)) state._attrStatus = 'fix'; mountApp(); } },
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: muted }, moreOpen ? 'Fewer' : 'More'),
+      el('div', { class: 'text-[11px] mt-2', style: muted }, moreOpen ? 'Hide the detail tiles' : 'All leads, kept sources, no sale, marked done…')));
+  const tilesMore = moreOpen ? el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' } },
+    tile('done', 'Marked done · waiting on sync', doneN),
+    tile('all', 'Leads', inProv.filter(l => l.status !== 'toorganic').length),
     tile('otherwon', 'Last touch elsewhere', count('otherwon'), '#B45309'),
     inProv.some(l => l.inGhl != null) ? tile('noghl', 'Not in GoHighLevel', inProv.filter(l => l.inGhl === false).length, '#B45309') : null,
     tile('d2d', 'Door to Door (kept)', inProv.filter(l => l.status === 'd2d').length),
     tile('kept', 'Protected source (kept)', inProv.filter(l => l.status === 'kept').length),
     tile('booked', 'Booked online (kept)', inProv.filter(l => l.status === 'booked').length),
     tile('existing', 'Already customers', count('existing')),
-    tile('nosale', 'No sale', count('nosale') + count('nomatch')));
-  const sold = inProv.filter(l => l.sale && l.isWinner && !l.dupe && l.status !== 'toorganic' && l.status !== 'd2d' && l.status !== 'kept' && l.status !== 'booked');
-  const closeLine = el('div', { class: 'text-[11px]', style: muted },
-    'Sales credited by last touch: ' + sold.length.toLocaleString() + ' · ' + fmt.usd0(sold.reduce((t, l) => t + (Number(l.sale.subscription_contract_value) || 0), 0)) + ' contract value · lead → sale ' + (_attrStats(inProv).leads ? Math.round(sold.filter(l => l.status !== 'toorganic').length / _attrStats(inProv).leads * 1000) / 10 : 0) + '%');
-  const list = inProv.filter(l => stFilter === 'all' ? true : stFilter === 'fix' ? _attrIsFix(l) : stFilter === 'nosale' ? (l.status === 'nosale' || l.status === 'nomatch') : stFilter === 'noghl' ? l.inGhl === false : l.status === stFilter)
-    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  const th = (t) => el('th', { class: 'px-2 py-1.5 text-left text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap', style: muted }, t);
+    tile('nosale', 'No sale', count('nosale') + count('nomatch'))) : null;
+  const list = inProv.filter(l => stFilter === 'all' ? true : stFilter === 'fix' ? _attrIsFix(l) : stFilter === 'done' ? (_attrRawFix(l) && _attrDoneFor(l)) : stFilter === 'missourced' ? ((l.status === 'missourced' || l.status === 'nosource') && !l.dupe) : stFilter === 'nosale' ? (l.status === 'nosale' || l.status === 'nomatch') : stFilter === 'noghl' ? l.inGhl === false : l.status === stFilter)
+    .sort((a, b) => whenOf(b).localeCompare(whenOf(a)));
+  const th = (t, tt) => el('th', { class: 'px-2 py-1.5 text-left text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap', style: muted, title: tt || '' }, t);
   const td = (v, st) => el('td', { class: 'px-2 py-1.5 whitespace-nowrap', style: st || {} }, v == null || v === '' ? '—' : v);
   const shown = list.slice(0, state._attrMore ? 20000 : 200);
   const red = { color: '#DC2626', fontWeight: '600' };
   const fmtPh = (v) => { const d = _attrDigits(v); return d ? '(' + d.slice(0, 3) + ') ' + d.slice(3, 6) + '-' + d.slice(6) : null; };
+  const titleOf = stFilter === 'fix' ? 'Accounts to change in FieldRoutes' : stFilter === 'done' ? 'Marked done — waiting for FieldRoutes to sync' : 'Leads · ' + (stFilter === 'all' ? 'all' : stFilter === 'missourced' ? 'Mis-sourced' : (ATTR_STATUS[stFilter] || [stFilter])[0]);
   const table = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-4 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-      el('h3', { class: 'text-sm font-bold' }, stFilter === 'fix' ? 'Accounts to change in FieldRoutes' : 'Leads · ' + (stFilter === 'all' ? 'all' : (ATTR_STATUS[stFilter] || [stFilter])[0])),
-      el('span', { class: 'text-[11px]', style: muted }, list.length.toLocaleString() + ' rows'),
+      el('h3', { class: 'text-sm font-bold' }, titleOf),
+      el('span', { class: 'text-[11px]', style: muted }, list.length.toLocaleString() + ' rows' + (stFilter === 'fix' ? ' · tick a row once you have changed it in FieldRoutes' : '')),
       el('button', { class: btn + ' ml-auto', style: { borderColor: 'var(--border-2)' }, onclick: () => _attrExport(list) }, '↓ Excel')),
     list.length ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]' },
-      el('thead', {}, el('tr', {}, th('Lead'), th('Phone #'), th('Customer #'), th('Date Sold'), th('Current Source'), th('Current Lead Date'), th('Correct Source'), th('Correct Lead Date'), th('Matched By'), th('Channel Touches'), th('Reconciled From'), th('Rule'), th('Status'))),
+      el('thead', {}, el('tr', {}, th('Done', 'Tick once you have changed the source in FieldRoutes — the row leaves this list now instead of waiting for the sync'), th('Lead'), th('Phone #'), th('Customer #'), th('Date Sold'), th('Sold By'), th('Current Source'), th('Current Lead Date'), th('Correct Source'), th('Correct Lead Date'), th('Matched By'), th('Channel Touches'), th('Reconciled From'), th('Rule'), th('Status'))),
       el('tbody', {}, ...shown.map(l => { const tr = el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        el('td', { class: 'px-2 py-1.5' }, _attrRawFix(l) ? (() => { const c = el('input', { type: 'checkbox', 'aria-label': 'Mark changed in FieldRoutes', style: { accentColor: 'var(--accent)', width: '16px', height: '16px', cursor: 'pointer' },
+          onchange: (e) => { _attrSetDone(l, e.target.checked); tr.style.opacity = e.target.checked ? '.4' : '1'; } }); c.checked = _attrDoneFor(l); return c; })() : null),
         td(l.name || l.email), td(fmtPh(l.phone || (l.sale && l.sale.phone))),
-        td(l.custId ? '#' + l.custId : null), td(l.sale ? String(l.sale.sold_date).slice(0, 10) : null),
+        td(l.custId ? '#' + l.custId : null), td(l.sale ? String(l.sale.sold_date).slice(0, 10) : null), td(l.sale ? (l.sale.sold_by || null) : null, muted),
         td(l.sale ? reportingSourceOf(l.sale) : null, _attrIsFix(l) ? red : {}), td(_attrCurDate(l), muted),
         td(_attrShould(l)[0], _attrIsFix(l) ? { fontWeight: '700' } : {}), td(_attrShould(l)[1]),
         td(l.status === 'toorganic' ? l.why : l.matchHow), el('td', { class: 'px-2 py-1.5 whitespace-nowrap' }, el('button', { class: 'underline', style: { color: 'var(--accent)', minHeight: '24px' }, title: 'Show every record we have for this person',
-          onclick: () => { const nx = tr.nextSibling; if (nx && nx.getAttribute && nx.getAttribute('data-attr-trail')) { nx.remove(); return; } tr.after(_attrTrailNode(l, 13)); } },
+          onclick: () => { const nx = tr.nextSibling; if (nx && nx.getAttribute && nx.getAttribute('data-attr-trail')) { nx.remove(); return; } tr.after(_attrTrailNode(l, 15)); } },
           ((l.touches || []).length ? l.touches.join(', ') : 'view') + ' ▾')),
         td(l.via === 'ghl' ? 'GoHighLevel' : l.via === 'file' ? 'Report' : null), td(l.sale && l.isWinner && l.rule ? l.rule : null, l.rule && l.rule !== 'last touch' ? { color: '#B45309', fontWeight: '600' } : {}),
         td((ATTR_STATUS[l.status] || [l.status])[0] + (l.dupe ? ' (repeat lead)' : ''), { color: (ATTR_STATUS[l.status] || [])[1] || 'var(--text)', fontWeight: '600' })); return tr; })))) :
-      el('div', { class: 'px-4 py-6 text-[11px] text-center', style: muted }, stFilter === 'fix' ? 'Nothing to change — every credited sale is sourced correctly.' : 'No rows.'),
+      el('div', { class: 'px-4 py-6 text-[11px] text-center', style: muted }, stFilter === 'fix' ? (range === 'all' ? 'Nothing to change — every credited sale is sourced correctly.' : 'Nothing to change for sales in this window. Switch to “All” above for the backlog.') : 'No rows.'),
     list.length > shown.length ? el('button', { class: 'w-full px-4 py-2 text-[11px] font-semibold border-t', style: { borderColor: 'var(--border)', color: 'var(--accent)' }, onclick: () => { state._attrMore = true; mountApp(); } }, 'Show all ' + list.length.toLocaleString()) : null);
-  // Leads / closes / fixes by provider (per Isaac) — last paid touch, else Organic.
-  const byProv = [...provs, ATTR_ORGANIC].map(p => ({ p, ...(_attrStats(leads.filter(l => l.provider === p))) })).filter(x => x.leads || x.fixes);
-  const tot = _attrStats(leads);
+  // ── Who is mis-sourcing (per Isaac, Oct 3): per rep, how many of their sales carry the wrong source ──
+  const judged = inProvAll.filter(l => inRange(l) && l.sale && !l.dupe && ((l.isWinner && ['correct', 'missourced', 'nosource'].includes(l.status)) || l.status === 'toorganic'));
+  const byRep = new Map();
+  for (const l of judged) {
+    const k = repOf(l); const R = byRep.get(k) || { rep: k, n: 0, wrong: 0, pat: {} }; R.n++;
+    if (l.status !== 'correct') { R.wrong++; const p = reportingSourceOf(l.sale) + ' → ' + _attrShould(l)[0]; R.pat[p] = (R.pat[p] || 0) + 1; }
+    byRep.set(k, R);
+  }
+  const repWrong = [...byRep.values()].filter(R => R.wrong > 0).sort((a, b) => b.wrong - a.wrong || b.n - a.n);
+  const repRows = repWrong.slice(0, state._attrRepsAll ? 500 : 10);
   const th2 = (t) => el('th', { class: 'px-3 py-1.5 text-left text-[9px] uppercase tracking-wider font-semibold', style: muted }, t);
   const td2 = (v, st) => el('td', { class: 'px-3 py-1.5 tabular-nums', style: st || {} }, v);
+  const repCard = repRows.length ? el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-4 py-2 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+      el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: muted }, 'Who is mis-sourcing · ' + (range === 'all' ? 'since ' + _attrSince() : 'sold in the last ' + range + ' days')),
+      el('span', { class: 'text-[11px]', style: muted }, 'click a rep to see their accounts')),
+    el('table', { class: 'w-full text-[11px]' }, el('thead', {}, el('tr', {}, th2('Sold by'), th2('Sales checked'), th2('Wrong source'), th2('% wrong'), th2('Most common'))),
+      el('tbody', {}, ...repRows.map(R => { const top = Object.entries(R.pat).sort((a, b) => b[1] - a[1])[0];
+        return el('tr', { class: 'border-t cursor-pointer', style: Object.assign({ borderColor: 'var(--border)' }, repFilter === R.rep ? { background: 'rgba(223,100,58,.08)' } : {}), onclick: () => { state._attrRep = repFilter === R.rep ? '' : R.rep; state._attrStatus = 'fix'; mountApp(); } },
+          td2(R.rep, { fontWeight: '600' }), td2(R.n.toLocaleString()), td2(R.wrong.toLocaleString(), { color: '#DC2626', fontWeight: '700' }), td2(Math.round(R.wrong / R.n * 100) + '%'), td2(top ? top[0] + ' (' + top[1] + ')' : '—', muted)); }))),
+    (!state._attrRepsAll && repWrong.length > 10) ? el('button', { class: 'w-full px-4 py-2 text-[11px] font-semibold border-t', style: { borderColor: 'var(--border)', color: 'var(--accent)' }, onclick: () => { state._attrRepsAll = true; mountApp(); } }, 'Show all ' + repWrong.length + ' reps') : null) : null;
+  // Leads / closes / fixes by provider (per Isaac) — last paid touch, else Organic. Always the full period.
+  const byProv = [...provs, ATTR_ORGANIC].map(p => ({ p, ...(_attrStats(leads.filter(l => l.provider === p))) })).filter(x => x.leads || x.fixes);
+  const tot = _attrStats(leads);
   const summary = el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'px-4 py-2 border-b text-[10px] uppercase tracking-widest font-semibold', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } }, 'Leads · closes · fixes by provider — last paid touch gets the close (priority window first); no paid touch = Organic'),
-    el('table', { class: 'w-full text-[11px]' }, el('thead', {}, el('tr', {}, th2('Provider'), th2('Leads'), th2('Closes'), th2('Close rate'), th2('Closed contract value'), th2('Fixes in FieldRoutes'))),
+    el('div', { class: 'px-4 py-2 border-b text-[10px] uppercase tracking-widest font-semibold', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } }, 'By provider · since ' + _attrSince() + ' — last paid touch gets the close (priority window first); no paid touch = Organic'),
+    el('table', { class: 'w-full text-[11px]' }, el('thead', {}, el('tr', {}, th2('Provider'), th2('Leads'), th2('Closes'), th2('Close rate'), th2('Closed contract value'), th2('Left to change'))),
       el('tbody', {}, ...byProv.map(x => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
         td2(x.p, { fontWeight: '600' }), td2(x.p === ATTR_ORGANIC ? '—' : x.leads.toLocaleString()), td2(x.p === ATTR_ORGANIC ? '—' : x.closes.toLocaleString()),
         td2(x.p === ATTR_ORGANIC || !x.leads ? '—' : (Math.round(x.closes / x.leads * 1000) / 10) + '%'), td2(x.p === ATTR_ORGANIC ? '—' : fmt.usd0(x.closeValue)),
         td2(x.fixes.toLocaleString(), x.fixes ? { color: '#DC2626', fontWeight: '700' } : { color: 'var(--ok)' }))),
         el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } }, td2('Total', { fontWeight: '700' }), td2(tot.leads.toLocaleString(), { fontWeight: '700' }), td2(tot.closes.toLocaleString(), { fontWeight: '700' }),
           td2(tot.leads ? (Math.round(tot.closes / tot.leads * 1000) / 10) + '%' : '—', { fontWeight: '700' }), td2(fmt.usd0(tot.closeValue), { fontWeight: '700' }), td2(tot.fixes.toLocaleString(), { fontWeight: '700', color: tot.fixes ? '#DC2626' : 'var(--ok)' })))));
-  const U = null;
-  const lastUp = U && U.per ? el('div', { class: 'card px-4 py-2 flex flex-col gap-1 text-[12px]', style: { borderColor: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 8%, var(--card))' } },
-    el('div', { class: 'flex items-center gap-3' },
-      el('span', { class: 'font-bold' }, 'Just uploaded · ' + U.per.length + ' file' + (U.per.length === 1 ? '' : 's')),
-      el('span', { class: 'font-semibold' }, U.leads.toLocaleString() + ' leads · ' + U.closes.toLocaleString() + ' closes (' + fmt.usd0(U.closeValue) + ') · ' + U.fixes.toLocaleString() + ' fixes + ' + (U.organicFixes || 0).toLocaleString() + ' to Organic'),
-      el('button', { class: 'ml-auto text-[11px]', style: muted, onclick: () => { state._attrLastUpload = null; mountApp(); } }, '✕')),
-    ...(U.per.length > 1 ? U.per.map(x => el('div', { class: 'text-[11px]', style: muted }, x.provider + ' · ' + x.fileName + ' — ' + x.leads.toLocaleString() + ' leads · ' + x.closes.toLocaleString() + ' closes · ' + x.fixes.toLocaleString() + ' fixes')) : [])) : null;
-  return el('div', { class: 'flex flex-col gap-4' }, feedCard, reconcileCard, upload, mapping, summary,
-    el('div', { class: 'flex items-center gap-2 flex-wrap' }, el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Provider'), provPick, closeLine),
-    tiles, table, filesCard);
+  return el('div', { class: 'flex flex-col gap-4' },
+    setupBar, ...(setupOpen ? [feedCard, upload, mapping, filesCard] : []),
+    el('div', { class: 'flex items-center gap-2 flex-wrap' }, rangePick, provPick, repChip),
+    tiles, tilesMore, table, repCard, summary);
 }

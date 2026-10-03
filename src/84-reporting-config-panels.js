@@ -775,10 +775,19 @@ function _mktgActuals(year) {
   const mk = () => ({ rev: 0, subs: 0, upRev: 0, upsells: 0, bookings: 0, serviced: 0, cancels: 0 });
   const branch = {}, source = {}, srcBranch = {}, total = Array.from({ length: 12 }, mk);
   const branches = new Set(), sources = new Set();
+  const OV = (state._mktSrcMode !== 'fr' && typeof attrSourceOverrides === 'function') ? attrSourceOverrides() : null;
+  let moved = 0;
   for (const r of rows) {
     const sd = r.sold_date; if (!sd || String(sd).slice(0, 4) !== String(year)) continue;
     const mi = Number(String(sd).slice(5, 7)) - 1; if (!(mi >= 0 && mi < 12)) continue;
-    const src = reportingSourceOf(r); if (isExcl.has(src)) continue;
+    let src = reportingSourceOf(r);
+    // Attributed source (per Isaac, Oct 3): where last-touch attribution says
+    // this sale's FieldRoutes source is wrong, count it under the channel
+    // that earned it — so revenue, closes and CAC by provider are right
+    // before anyone fixes FieldRoutes.
+    const _ov = OV && r.subscription_id != null ? OV.get(String(r.subscription_id)) : null;
+    if (_ov && _ov !== src) { src = _ov; moved++; }
+    if (isExcl.has(src)) continue;
     const cls = reportingSourceClass(src); if (cls === 'renewal') continue;
     if (!reportingIsOfficeStaff(r)) continue;
     if (!gate(r)) continue;
@@ -799,7 +808,7 @@ function _mktgActuals(year) {
       if (r.subscription_date_canceled) x.cancels++;
     }
   }
-  return { branch, source, srcBranch, total, branches: [...branches].sort(), sources: [...sources].sort() };
+  return { branch, source, srcBranch, total, branches: [...branches].sort(), sources: [...sources].sort(), moved, attributed: !!OV };
 }
 function _mktgBranchList(year) {
   const a = _mktgActuals(year);
@@ -1141,7 +1150,13 @@ function _mktgProviders() {
     ? sel(scope, scopeOpts.map(([v, l]) => el('option', { value: v, selected: scope === v }, l)), (v) => { state._mktCacScope = v; mountApp(); })
     : sel(provF, [el('option', { value: '', selected: !provF }, 'All providers'), ...channels.map(c => el('option', { value: c, selected: provF === c }, c))], (v) => { state._mktMetricsProv = v || null; mountApp(); });
   const scopeLbl = mode === 'provider' ? (scope === MKTG_ALL ? CFG.COMPANY_NAME : B.byEntity[scope] ? companyName(scope) : _mktgTC(scope)) : (provF || 'all providers');
-  const header = el('div', { class: 'ml-auto flex items-center gap-2 flex-wrap' }, toggle,
+  const srcMode = state._mktSrcMode === 'fr' ? 'fr' : 'attr';
+  const srcToggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' },
+    title: srcMode === 'attr' ? (a.attributed ? a.moved.toLocaleString() + ' sales this year are counted under the channel last-touch attribution gives them instead of the source typed in FieldRoutes.' : 'Lead feeds still loading — showing FieldRoutes sources for now.') : 'Sales counted under the source typed in FieldRoutes.' },
+    ...[['attr', 'Attributed source' + (srcMode === 'attr' && a.attributed ? ' · ' + a.moved.toLocaleString() + ' moved' : '')], ['fr', 'FieldRoutes source']].map(([v, l]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold',
+      style: srcMode === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)', background: 'var(--card)' },
+      onclick: () => { state._mktSrcMode = v; mountApp(); } }, l)));
+  const header = el('div', { class: 'ml-auto flex items-center gap-2 flex-wrap' }, srcToggle, toggle,
     el('span', { class: 'text-[10px] text-muted-' }, mode === 'provider' ? 'Office' : 'Provider'), filter,
     el('span', { class: 'text-[10px] text-muted-' }, 'Metric'), picker);
   const GOAL = { spj: { v: T.spendPerJob, better: 'low' }, roas: { v: T.roas, better: 'high' }, adcac: { v: T.adSpendCac, better: 'low' }, wgcac: { v: T.wagesCac, better: 'low' } };
