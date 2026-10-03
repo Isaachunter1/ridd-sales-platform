@@ -1242,7 +1242,31 @@ function reportingChartData(scopeRows, serviceConfig) {
     if (/sentricon/i.test(String(r.subscription || ''))) custSentricon.set(r.customer_id, (custSentricon.get(r.customer_id) || 0) + 1);
     if (!custOffice.has(r.customer_id)) custOffice.set(r.customer_id, r.office_name || 'Unspecified');
   }
-  const custBucket = (cid) => { const n = activePerCust.get(cid) || 0, sn = custSentricon.get(cid) || 0; return sn === 0 ? REPORTING_DEPTH_ORDER[0] : (n === sn ? REPORTING_DEPTH_ORDER[2] : REPORTING_DEPTH_ORDER[1]); };
+  // The bucket reads the customer's WHOLE account, not just the rows the
+  // filters left in scope (per Isaac, Oct 3 — customer 133085 has Pest 4 AND
+  // Sentricon; a date / source filter hid the Pest 4 row and they showed as
+  // "Sentricon only"). In FieldRoutes a customer's services are separate
+  // subscription IDs tied together by the customer ID, so every active
+  // recurring subscription under that customer ID counts, in or out of scope.
+  const _allSubs = state.reportingSubscriptions || [];
+  let _acct = state._custAcctMemo;
+  if (!_acct || _acct.src !== _allSubs || _acct.mode !== reportingRecurringMode() || _acct.rec !== recurringByName) {
+    const all = new Map(), sen = new Map();
+    for (const r of _allSubs) {
+      if (!r.customer_id || !isActive(r)) continue;
+      const isSen = /sentricon/i.test(String(r.subscription || ''));
+      if (!isSen && !isRecurring(r)) continue;   // an active one-time job is not "a pest plan"
+      const k = String(r.customer_id);
+      all.set(k, (all.get(k) || 0) + 1);
+      if (isSen) sen.set(k, (sen.get(k) || 0) + 1);
+    }
+    _acct = state._custAcctMemo = { src: _allSubs, mode: reportingRecurringMode(), rec: recurringByName, all, sen };
+  }
+  const custBucket = (cid) => {
+    const k = String(cid);
+    const sn = Math.max(_acct.sen.get(k) || 0, custSentricon.get(cid) || 0), n = Math.max(_acct.all.get(k) || 0, activePerCust.get(cid) || 0);
+    return sn === 0 ? REPORTING_DEPTH_ORDER[0] : (n === sn ? REPORTING_DEPTH_ORDER[2] : REPORTING_DEPTH_ORDER[1]);
+  };
   const depthCount = new Map(), custOfficeCount = new Map();
   for (const [cid, n] of activePerCust) {
     const b = custBucket(cid); depthCount.set(b, (depthCount.get(b) || 0) + 1);
