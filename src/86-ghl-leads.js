@@ -17,7 +17,7 @@ const GHL_AUTO_RULES = [
   [/^crm\b|crm workflow|crm ui/, GHL_NOT_LEAD],
   [/do ?leads?/, 'DoLead'],
   [/local services|\blsa\b/, 'Google Local Services'],
-  [/paid social|facebook|instagram|\bmeta\b|^fb\b|fbclid/, 'Facebook'],
+  [/paid social|facebook|instagram|\bmeta\b|\bfb\b|fbclid/, 'Facebook'],   // "$39 FB", "FB - $39", "FB Detroit"
   [/google ads|paid search|gclid|adwords|^google$|^gaw/, 'Google Ads'],
   [/service direct/, 'Service Direct'],
   [/\bangi\b|homeadvisor/, 'Angi'],

@@ -1037,7 +1037,13 @@ function _mktgProviders() {
   // hand-entered lead counts once the sync has run.
   if (typeof ghlLoadLeads === 'function') ghlLoadLeads();
   const GL = (typeof ghlLeadIndex === 'function') ? ghlLeadIndex(y) : null;
-  const glProvs = GL ? [...GL.has].filter(([p, n]) => n >= 20 && p !== 'Unknown').map(([p]) => p) : [];
+  // Rows are FieldRoutes sources (per Isaac, Oct 2): a GoHighLevel label only
+  // gets a row when a FieldRoutes source (or a spend channel) carries that
+  // exact name — "$39 FB" is a lead label, never a source a job is booked
+  // under, so it must map to Facebook (Settings → GoHighLevel sources), not
+  // sit in its own $0 row.
+  const _frNames = new Set([...a.sources, ...m.channels, ...((state.sources || []).filter(x => x && x.fr_source_id).map(x => x.name).filter(Boolean))].map(x => String(x).trim().toLowerCase()));
+  const glProvs = GL ? [...GL.has].filter(([p, n]) => n >= 20 && p !== 'Unknown' && _frNames.has(String(p).trim().toLowerCase()) && reportingSourceClass(p) !== 'renewal').map(([p]) => p) : [];
   // Rows = providers: defaults + CRM sources (rolled up per Configurations →
   // Lead sources → Metrics provider) + ad platforms + GoHighLevel. A source
   // merged into another provider or set to Hide never gets its own row.
