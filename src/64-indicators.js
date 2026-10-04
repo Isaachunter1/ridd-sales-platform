@@ -3245,13 +3245,22 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       : kind === 'week' ? 'Week of ' + rec.weekStart
       : kind === 'month' ? fmtMonth(rec.month) : kind === 'year' ? String(rec.year || '') : '';
 
-    const _recPhoneCell = (value, name, detail) => el('td', { class: 'p-3 align-top' },
-      el('div', { class: 'flex items-baseline justify-between gap-3' },
-        el('div', { class: 'text-base font-bold tabular-nums' }, value),
-        name ? el('div', { class: 'text-base font-bold text-right min-w-0', style: { color: 'var(--accent)', lineHeight: '1.15' } }, name) : null),
-      el('div', { class: 'text-[10px] text-muted- mt-1 tabular-nums' }, detail));
+    // Phone row (per Isaac, Oct 4 — "sleeker"): no Scope column and no table
+    // header. Each record is one full-width line, laid out like a leaderboard
+    // row — WHO on the left (small scope label, the winner's name under it),
+    // the record on the right (big number, the sales · reps · date line under it).
+    let _recRowLabel = '';
+    const _recPhoneCell = (value, name, detail) => el('td', { class: 'px-5 py-3 align-top' },
+      el('div', { class: 'flex items-center justify-between gap-3' },
+        el('div', { class: 'min-w-0' },
+          el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold text-muted-' }, _recRowLabel),
+          el('div', { class: 'text-sm font-bold mt-0.5', style: { lineHeight: '1.2' } }, name || (_recRowLabel === 'Company' ? 'RIDD' : '\u2014'))),
+        el('div', { class: 'text-right shrink-0' },
+          el('div', { class: 'font-bold tabular-nums', style: { fontSize: '19px', lineHeight: '1.1', color: value ? 'var(--accent)' : 'var(--text-subtle)' } }, value || '\u2014'),
+          detail ? el('div', { class: 'text-[10px] text-muted- mt-1 tabular-nums' }, detail) : null)));
     function recCell(rec, opts = {}) {
       if (!rec || rec.revenue === 0) {
+        if (_recPhone) return _recPhoneCell('', '', opts.kind === 'year' ? 'No data' : '');
         return el('td', { class: 'p-3 text-muted- italic text-xs' }, opts.kind === 'year' ? 'No data' : '—');
       }
       const groupLine = rec.group
@@ -3286,6 +3295,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
 
     function praCell(rec, opts = {}) {
       if (!rec || !rec.pra || rec.reps === 0) {
+        if (_recPhone) return _recPhoneCell('', '', '');
         return el('td', { class: 'p-3 text-muted- italic text-xs' }, '—');
       }
       const groupLine = rec.group
@@ -3302,13 +3312,14 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     function summaryRow(label, rollup, expandKey, groupKind) {
       const isOpen = expanded === expandKey;
       const clickable = !!expandKey;
+      _recRowLabel = label;
       return el('tr', {
         class: 'border-t border-' + (clickable ? ' cursor-pointer hover:brightness-95 transition' : ''),
         style: isOpen ? { background: 'rgba(223,100,58,.08)' } : {},
         onclick: clickable ? () => { state._aggRecordsExpanded = isOpen ? null : expandKey; mountApp(); } : undefined,
       },
         // Scope column stays frozen while the record columns scroll (per Isaac).
-        el('td', { class: 'pl-5 pr-3 py-3 align-top', style: { position: 'sticky', left: '0', zIndex: '1', background: isOpen ? 'var(--card-2)' : 'var(--card)', boxShadow: '1px 0 0 var(--border)' } },
+        _recPhone ? null : el('td', { class: 'pl-5 pr-3 py-3 align-top', style: { position: 'sticky', left: '0', zIndex: '1', background: isOpen ? 'var(--card-2)' : 'var(--card)', boxShadow: '1px 0 0 var(--border)' } },
           // No caret (per Isaac) — the row is still clickable; the header
           // copy already says so.
           el('div', { class: 'flex items-center gap-1.5' },
@@ -3636,7 +3647,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       ),
       el('div', { class: 'scroll-x' },
         el('table', { class: 'w-full text-xs records-table' },
-          el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
+          _recPhone ? null : el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
             el('tr', {},
               el('th', { class: 'text-left pl-5 pr-3 py-2 w-32', style: { position: 'sticky', left: '0', zIndex: '2', background: 'var(--card)', boxShadow: '1px 0 0 var(--border)' } }, 'Scope'),
               ...(_recPhone
@@ -3734,7 +3745,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   let _tierCardSection = null;
   (() => {
     // Skip the whole build when the card won't be shown (perf): Office Staff never get it, and a rep without the Class Metrics permission doesn't either.
-    if (state.indicatorDept === 'office' || (!isAdminRole(state.profile?.role) && !userCan('ind_class'))) return;
+    if (state.indicatorDept === 'office' || state.indicatorDept === 'techs' || (!isAdminRole(state.profile?.role) && !userCan('ind_class'))) return;
     const tierBuckets = { rookie: [], vet: [] };
     let untagged = 0;
     const untaggedReps = [];   // for the badge drill-down (per Isaac)
