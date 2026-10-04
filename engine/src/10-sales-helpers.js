@@ -79,6 +79,20 @@ const _IND_TECH_SOURCES = new Set(['upsell - service pro', 'upsell - termite pro
 // found in the report fall back to classifying each sale by its Source. Cached
 // per rep, reset whenever the config/upload changes (_indCfgRev).
 const _repDeptCache = new Map(); let _repDeptCacheRev = -1;
+// Name-signatures of everyone with at least one sale under a Sales Rep CRM record.
+let _indDoorSigMemo = { raw: null, set: null };
+function _indDoorRepSigs() {
+  const raw = state._indicatorRawSales || [];
+  if (_indDoorSigMemo.raw !== raw || !_indDoorSigMemo.set) {
+    const set = new Set(), seen = new Set();
+    for (const x of raw) {
+      if (!x || !x.rep || seen.has(x.rep) || String(x.repType || '').trim().toLowerCase() !== 'sales rep') continue;
+      seen.add(x.rep); set.add(_repTypeNameSig(getCanonicalRepName(x.rep)));
+    }
+    _indDoorSigMemo = { raw, set };
+  }
+  return _indDoorSigMemo.set;
+}
 function _indicatorDeptOf(s) {
   if (!s) return 'office';
   // Per-sale CRM employee type ("Sales Rep Type" — carried by the snapshot)
@@ -86,7 +100,16 @@ function _indicatorDeptOf(s) {
   // uses, so office staff can never leak into the Sales Rep view (or vice
   // versa). Older datasets without the column fall through to the map/source.
   const own = String(s.repType || '').trim().toLowerCase();
-  if (own) return own === 'sales rep' ? 'd2d' : own === 'technician' ? 'techs' : 'office';
+  if (own) {
+    if (own === 'sales rep') return 'd2d';
+    // Second barrier (per Isaac, Oct 4): a rep who did BOTH this year can have
+    // door sales booked under their Office Staff / Technician CRM record. When
+    // the sale's source is Door to Door AND that person also has a Sales Rep
+    // record, it is door-to-door production. Reps with no Sales Rep record
+    // are left alone — an inside rep closing a door lead stays an office sale.
+    if (String(s.source || '').trim().toLowerCase() === 'door to door' && s.rep && _indDoorRepSigs().has(_repTypeNameSig(getCanonicalRepName(s.rep)))) return 'd2d';
+    return own === 'technician' ? 'techs' : 'office';
+  }
   const rep = s.rep || '';
   if (_repDeptCacheRev !== _indCfgRev) { _repDeptCache.clear(); _repDeptCacheRev = _indCfgRev; }
   let dept = _repDeptCache.get(rep);

@@ -40,12 +40,29 @@ const IND_WORLD = { dashboard: 'office', d2d_dashboard: 'd2d', techs: 'techs' };
 // shows up under the wrong rep type just because one of its reps booked an
 // office sale. When office / tech reps get teams of their own, the Top Team
 // row, the Sales Mix Teams view and the Team filter come back by themselves.
-function indRepDeptByName(name) {
-  try {
-    const t = (state._indicatorRepTypeBySig || {})[_repTypeNameSig(getCanonicalRepName(name))];
-    if (!t) return '';
-    return crmSellerIs('office_staff', t) ? 'office' : crmSellerIs('technician', t) ? 'techs' : 'd2d';
-  } catch (e) { return ''; }
+// A team's rep type = whichever type sold most of its members' production
+// (worked out from the sales themselves, Oct 4): a rep who knocked doors in
+// the summer and moved inside afterwards keeps his door team without dragging
+// that team onto the Office Staff dashboard.
+function _indTeamDepts() {
+  const raw = state._indicatorRawSales || [];
+  const map = (typeof _activeTeamMap === 'function' && _activeTeamMap()) || null;
+  const rev = (typeof _indCfgRev !== 'undefined') ? _indCfgRev : 0;
+  const M = _indTeamDepts._m;
+  if (M && M.raw === raw && M.map === map && M.rev === rev) return M.out;
+  const tally = {}, repTeam = new Map();
+  for (const s of raw) {
+    if (!s || !s.rep) continue;
+    let t = repTeam.get(s.rep);
+    if (t === undefined) { t = (typeof getRepTeam === 'function' && getRepTeam(s.rep)) || ''; repTeam.set(s.rep, t); }
+    if (!t) continue;
+    const d = (typeof _indicatorDeptOf === 'function') ? _indicatorDeptOf(s) : 'd2d';
+    const o = tally[t] || (tally[t] = {}); o[d] = (o[d] || 0) + 1;
+  }
+  const out = {};
+  for (const t in tally) { let best = '', n = -1; for (const d in tally[t]) if (tally[t][d] > n) { n = tally[t][d]; best = d; } out[t] = best; }
+  _indTeamDepts._m = { raw, map, rev, out };
+  return out;
 }
 function _indTeamWorld() { const d = state.indicatorDept; return (d === 'office' || d === 'techs') ? d : ''; }
 // The team a rep counts under on the CURRENT dashboard ('' = none).
@@ -53,24 +70,15 @@ function indWorldTeamOf(rep) {
   const t = (typeof getRepTeam === 'function' && getRepTeam(rep)) || '';
   const w = _indTeamWorld();
   if (!t || !w) return t;
-  const M = indWorldTeamOf._m && indWorldTeamOf._m.seq === window._riddSeq ? indWorldTeamOf._m : (indWorldTeamOf._m = { seq: window._riddSeq, map: new Map() });
-  let d = M.map.get(rep);
-  if (d === undefined) { d = indRepDeptByName(rep); M.map.set(rep, d); }
-  return d === w ? t : '';
+  return _indTeamDepts()[t] === w ? t : '';
 }
 // Does the current dashboard have any teams of its own?
 function indWorldHasTeams() {
   const w = _indTeamWorld();
   if (!w) return true;
-  const M = indWorldHasTeams._m;
-  if (M && M.seq === window._riddSeq && M.w === w) return M.v;
-  let v = false;
-  try {
-    const map = (typeof _activeTeamMap === 'function' && _activeTeamMap()) || {};
-    for (const k in map) { if (map[k] && !(typeof isTeamExcluded === 'function' && isTeamExcluded(map[k])) && indRepDeptByName(k) === w) { v = true; break; } }
-  } catch (e) { v = false; }
-  indWorldHasTeams._m = { seq: window._riddSeq, w, v };
-  return v;
+  const D = _indTeamDepts();
+  for (const t in D) if (D[t] === w && !(typeof isTeamExcluded === 'function' && isTeamExcluded(t))) return true;
+  return false;
 }
 function isIndicatorsView(v) { v = v || state.view; return v === 'indicators' || !!IND_WORLD[v]; }
 // Where an old "Indicators" link / bookmark lands now.
