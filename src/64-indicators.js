@@ -3208,7 +3208,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
 
     function recCell(rec, opts = {}) {
       if (!rec || rec.revenue === 0) {
-        return el('td', { class: 'p-3 text-muted- italic text-xs' }, '—');
+        return el('td', { class: 'p-3 text-muted- italic text-xs' }, opts.kind === 'year' ? 'No data' : '—');
       }
       const groupLine = rec.group
         ? el('div', { class: 'text-[10px] font-semibold mt-0.5', style: { color: 'var(--accent)' } }, opts.groupKind === 'branch' ? titleCase(rec.group) : rec.group)
@@ -3594,7 +3594,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 : [el('th', { class: 'text-left p-2' }, 'Best Day'),
                    el('th', { class: 'text-left p-2' }, 'Best Week'),
                    el('th', { class: 'text-left p-2' }, 'Best Month'),
-                   el('th', { class: 'text-left p-2', title: 'Biggest calendar year in the window — set the Year dropdown to All time to compare years' }, 'Best Year'),
+                   el('th', { class: 'text-left p-2', title: 'Biggest calendar year in the window. Only 2026 onward counts — earlier years show No data.' }, 'Best Year'),
                    el('th', { class: 'text-left p-2', title: byMetric === 'count'
                      ? 'Highest sales ÷ active reps on a single day at this scope'
                      : 'Highest revenue ÷ active reps on a single day at this scope' }, 'Best PRA Day')]),

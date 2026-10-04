@@ -1948,7 +1948,8 @@ function aggregateRecords(sales, by = 'revenue') {
     bestDay:   pick(finalize(byDay)),
     bestWeek:  pick(finalize(byWeek)),
     bestMonth: pick(finalize(byMonth)),
-    bestYear:  pick(finalize(byYear)),
+    // Best Year only counts 2026 onward (per Isaac, Oct 4): earlier years in the CRM aren't trusted for a year total.
+    bestYear:  pick(finalize(byYear).filter(r => Number(r.year) >= 2026)),
   };
 }
 
