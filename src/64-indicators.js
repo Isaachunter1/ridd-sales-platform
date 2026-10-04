@@ -3714,9 +3714,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       : _repOffice(r).toUpperCase() === _scopeVal.toUpperCase();
     // Partners / team leads (per Isaac): RIDD (all D2D) + the team(s) they
     // lead only — no other teams, no offices.
-    const _cmReach = (!isAdminRole(state.profile?.role)
-      && ((typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role)) || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role)))
-      && typeof myReachTeams === 'function') ? myReachTeams() : null;
+    // Every other rep (per Isaac, Oct 4): RIDD only — no team or office breakdowns.
+    // Admins and developers keep the full list.
+    const _cmFull = isAdminRole(state.profile?.role) || (typeof isDeveloperRole === 'function' && isDeveloperRole(state.profile?.role));
+    const _cmLead = (typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role)) || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role));
+    const _cmReach = _cmFull ? null : ((_cmLead && typeof myReachTeams === 'function') ? (myReachTeams() || new Set()) : new Set());
     const _teamOpts = [...new Set(Object.values(repMap).map(r => getRepTeam(r.name) || '').filter(Boolean))].sort()
       .filter(t => !_cmReach || _cmReach.has(t));
     const _officeOpts = _cmReach ? [] : [...new Set(Object.values(repMap).map(_repOffice).filter(Boolean))].sort();
@@ -3898,7 +3900,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       el('span', { class: 'text-xs font-semibold', style: { color: 'var(--text-muted)' } }, count + ' rep' + (count === 1 ? '' : 's')),
     );
 
-    const scopePicker = el('select', {
+    // Nothing to pick (a rep who only sees RIDD): a plain label, not a one-item dropdown.
+    const scopePicker = (_cmReach && !_teamOpts.length) ? el('span', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } }, 'RIDD') : el('select', {
       class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
       style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
       title: 'Break the Rookie / Vet cohorts down by team or office',
