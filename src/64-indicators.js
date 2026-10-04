@@ -3096,7 +3096,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // 'YYYY' = that calendar year, 'all' = all time. Picked from the Year
     // dropdown on the card.
     const _recPhone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })();
-    const _recYear = _recPhone ? (state._aggRecordsYear || '') : '';   // the Year dropdown is phone-only; desktop keeps following the page range
+    const _recYear = state._aggRecordsYear || '';
     const recSales = !_recYear ? rawSales : (allRawSales || []).filter(s => {
       if (applyExclusion && isRepExcluded(s.rep)) return false;
       if (_recYear === 'all') return true;
@@ -3272,6 +3272,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           : [recCell(rollup.bestDay,   { kind: 'day',   groupKind }),
              recCell(rollup.bestWeek,  { kind: 'week',  groupKind }),
              recCell(rollup.bestMonth, { kind: 'month', groupKind }),
+             recCell(rollup.bestYear,  { kind: 'year',  groupKind }),
              praCell(rollup.bestPRA, { groupKind })]),
       );
     }
@@ -3510,7 +3511,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       );
 
       return el('tr', { class: 'border-t border-', style: { background: 'rgba(223,100,58,.04)' } },
-        el('td', { class: 'p-0', colspan: 5 },
+        el('td', { class: 'p-0', colspan: 6 },
           el('div', { class: 'p-3' },
             el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' },
               scopeLabel + ' · ' + (byMetric === 'count' ? 'sales' : 'revenue') + ' mode'
@@ -3579,6 +3580,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               _recSel(_recPeriod, [['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['year', 'Year'], ['pra', 'PRA day']], (v) => { state._aggRecordsPeriod = v; }))
           : el('div', { class: 'flex items-center gap-3 flex-wrap' },
               windowLabel && !_recYear && el('span', { class: 'text-[10px] tabular-nums px-2 py-0.5 rounded font-semibold', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, windowLabel),
+              _recSel(_recYear, [['', _recPageLbl], ..._recYears.filter(y => y !== _recPageLbl).map(y => [y, y]), ['all', 'All time']], (v) => { state._aggRecordsYear = v; }),
               metricToggle,
             ),
       ),
@@ -3592,6 +3594,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 : [el('th', { class: 'text-left p-2' }, 'Best Day'),
                    el('th', { class: 'text-left p-2' }, 'Best Week'),
                    el('th', { class: 'text-left p-2' }, 'Best Month'),
+                   el('th', { class: 'text-left p-2', title: 'Biggest calendar year in the window — set the Year dropdown to All time to compare years' }, 'Best Year'),
                    el('th', { class: 'text-left p-2', title: byMetric === 'count'
                      ? 'Highest sales ÷ active reps on a single day at this scope'
                      : 'Highest revenue ÷ active reps on a single day at this scope' }, 'Best PRA Day')]),
