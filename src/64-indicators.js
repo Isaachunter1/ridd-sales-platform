@@ -3206,6 +3206,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       : kind === 'week' ? 'Week of ' + rec.weekStart
       : kind === 'month' ? fmtMonth(rec.month) : kind === 'year' ? String(rec.year || '') : '';
 
+    const _recPhoneCell = (value, name, detail) => el('td', { class: 'p-3 align-top' },
+      el('div', { class: 'flex items-baseline justify-between gap-3' },
+        el('div', { class: 'text-base font-bold tabular-nums' }, value),
+        name ? el('div', { class: 'text-base font-bold text-right min-w-0', style: { color: 'var(--accent)', lineHeight: '1.15' } }, name) : null),
+      el('div', { class: 'text-[10px] text-muted- mt-1 tabular-nums' }, detail));
     function recCell(rec, opts = {}) {
       if (!rec || rec.revenue === 0) {
         return el('td', { class: 'p-3 text-muted- italic text-xs' }, opts.kind === 'year' ? 'No data' : '—');
@@ -3221,6 +3226,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       const primary   = byMetric === 'count' ? fmt.int(rec.count)    : fmt.usd0(rec.revenue);
       const metricBit = byMetric === 'count' ? fmt.usd0(rec.revenue) : (rec.count + ' sale' + (rec.count === 1 ? '' : 's'));
       const repsBit   = rec.reps ? ' · ' + rec.reps + ' rep' + (rec.reps === 1 ? '' : 's') : '';
+      // Phone (per Isaac, Oct 4): one column leaves room — the winner's NAME
+      // sits big on the right, level with the number, and the detail line
+      // runs the full width underneath.
+      if (_recPhone) return _recPhoneCell(primary, rec.group ? (opts.groupKind === 'branch' ? titleCase(rec.group) : rec.group) : '', metricBit + repsBit + ' · ' + labelFor(rec, opts.kind));
       return el('td', { class: 'p-3 align-top' },
         el('div', { class: 'text-base font-bold tabular-nums' }, primary),
         el('div', { class: 'text-[10px] text-muted- mt-0.5 tabular-nums' }, metricBit + repsBit + ' · ' + labelFor(rec, opts.kind)),
@@ -3243,6 +3252,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       const groupLine = rec.group
         ? el('div', { class: 'text-[10px] font-semibold mt-0.5', style: { color: 'var(--accent)' } }, opts.groupKind === 'branch' ? titleCase(rec.group) : rec.group)
         : null;
+      if (_recPhone) return _recPhoneCell(fmtPRA(rec.pra), rec.group ? (opts.groupKind === 'branch' ? titleCase(rec.group) : rec.group) : '', praSecondary(rec));
       return el('td', { class: 'p-3 align-top' },
         el('div', { class: 'text-base font-bold tabular-nums' }, fmtPRA(rec.pra)),
         el('div', { class: 'text-[10px] text-muted- mt-0.5 tabular-nums' }, praSecondary(rec)),

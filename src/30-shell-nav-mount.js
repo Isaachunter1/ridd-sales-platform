@@ -1289,6 +1289,10 @@ function mountApp() {
       let _phone = false; try { _phone = window.matchMedia('(max-width: 640px)').matches; } catch (e) { /* desktop */ }
       if (_phone) {
         const sel = bar.querySelector('.sales-tab-select'); if (sel) sel.style.flex = '1 1 100%';
+        // Even spacing (per Isaac, Oct 4): the gap under the second row matches the 12px gap between the two rows.
+        bar.style.setProperty('margin-bottom', '0', 'important');
+        bar.style.setProperty('row-gap', '12px', 'important');
+        const _fb = node.querySelector('#indFixedBar'); if (_fb) { _fb.style.paddingTop = '12px'; _fb.style.paddingBottom = '12px'; }
         ctl.classList.remove('ml-auto', 'gap-2', 'flex-wrap');
         Object.assign(ctl.style, { flex: '1 1 100%', flexWrap: 'nowrap', gap: '6px', justifyContent: 'space-between', paddingBottom: '0', minWidth: '0' });
         const qr = ctl.querySelector('[data-quick-range]');
