@@ -104,6 +104,7 @@ function manageTeamsPanel(opts) {
     // (e.g. "show me Avanti's rookies") or use them separately. '' = all,
     // 'untagged' = reps with no tier set.
     const tierSelect = state._indicatorManageTierFilter || '';
+    const teamView = state._indicatorManageTeamView || '';   // '' = every team, a team name, or '(unassigned)'
     // Active/Inactive filter — '' = all, 'active' = only Active reps,
     // 'inactive' = only reps the admin flipped Inactive in this modal.
     const activeSelect = state._indicatorManageActiveFilter || '';
@@ -112,7 +113,8 @@ function manageTeamsPanel(opts) {
     const typeSelect = state._indicatorManageTypeFilter || '';
     // Branch filter — '' = all, else a primary-office name. Lets the admin
     // view the roster one branch at a time.
-    const branchSelect = state._indicatorManageBranchFilter || '';
+    state._indicatorManageBranchFilter = '';   // the Office filter is gone — never leave an old pick silently applied
+    const branchSelect = '';
 
     // Counts per team for the summary chips. Aliased (merged-into-
     // another-rep) reps are excluded so the chip counts reflect unique
@@ -126,10 +128,11 @@ function manageTeamsPanel(opts) {
       counts[t] = (counts[t] || 0) + 1;
     });
     // Counts per tier for the second filter row — same exclusion.
-    const tierCounts = { rookie: 0, vet: 0, na: 0, untagged: 0 };
+    const tierCounts = { rookie: 0, vet: 0, na: 0, untagged: 0, auto: 0 };
     reps.forEach(r => {
       if (isAlias(r)) return;
       const t = getRepTier(r);
+      if (repTierIsAuto(r)) tierCounts.auto++;   // a guessed tier nobody has confirmed
       if (t === 'rookie') tierCounts.rookie++;
       else if (t === 'vet') tierCounts.vet++;
       else if (t === 'na') tierCounts.na++;
@@ -208,10 +211,12 @@ function manageTeamsPanel(opts) {
     const branchesPresent = Object.keys(branchCounts).sort();
 
     let filteredReps = reps;
-    // (Team filter retired — the list is grouped by team instead.)
+    // Team view: only that team's reps (the list is still grouped by team, so just its section shows).
+    if (teamView) filteredReps = filteredReps.filter(r => (getRepTeam(r) || '(unassigned)') === teamView);
     if (tierSelect) {
       filteredReps = filteredReps.filter(r => {
         const t = getRepTier(r);
+        if (tierSelect === 'auto') return repTierIsAuto(r);
         if (tierSelect === 'untagged') return !t;
         return t === tierSelect;
       });
@@ -421,6 +426,7 @@ function manageTeamsPanel(opts) {
       tierChip('vet',      'Vet',      '#DF643A', tierCounts.vet),
       tierChip('na',       'N/A',      '#8A8A88', tierCounts.na),
       tierChip('untagged', 'Untagged', '#9B6B2C', tierCounts.untagged),
+      tierChip('auto',     'Unconfirmed', '#B45309', tierCounts.auto),
     );
 
     // ── Active / Inactive status chips ──
@@ -920,20 +926,7 @@ function manageTeamsPanel(opts) {
           el('option', { value: '__new__' }, '+ New team…'),
         );
 
-        const tierMeta = repTierMeta(currentTier);
-        const tierSel = el('select', {
-          class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
-          style: {
-            borderColor: 'var(--border-2)',
-            background: tierMeta ? 'rgba(223,100,58,.08)' : 'var(--card-2)',
-            color: tierMeta ? tierMeta.color : 'var(--text)',
-            fontWeight: tierMeta ? '700' : '400',
-          },
-          onchange: (e) => { setRepTier(repName, e.target.value); render(); },
-        },
-          el('option', { value: '', selected: !currentTier }, '— Tier —'),
-          ...REP_TIERS.map(t => el('option', { value: t.id, selected: currentTier === t.id }, t.label)),
-        );
+        const tierSel = repTierSelect(repName, render);
 
         const office = primaryOffice(repName);
         const active = isRepActive(repName);
@@ -1133,6 +1126,7 @@ function manageTeamsPanel(opts) {
         { value: 'vet', label: 'Vet · ' + tierCounts.vet },
         { value: 'na', label: 'N/A · ' + tierCounts.na },
         { value: 'untagged', label: 'Untagged · ' + tierCounts.untagged },
+        { value: 'auto', label: 'Unconfirmed · ' + tierCounts.auto },
       ], (v) => { state._indicatorManageTierFilter = v; render(); }),
       mkFilter('Status', activeSelect, [
         { value: '', label: 'All' },
@@ -1146,11 +1140,13 @@ function manageTeamsPanel(opts) {
         ...repTypesPresent.filter(t => t !== 'Sales Rep').map(t => ({ value: t, label: t + ' only' })),
         ...(repTypesPresent.includes('Sales Rep') ? [{ value: 'Sales Rep', label: 'Sales Rep (CRM-matched)' }] : []),
       ], (v) => { state._indicatorManageTypeFilter = v; render(); }),
-      mkFilter('Office', branchSelect, [
+      // Team — view one team at a time (per Isaac, Oct 4; replaces the Office filter).
+      mkFilter('Team', teamView, [
         { value: '', label: 'All' },
-        ...branchesPresent.map(b => ({ value: b, label: titleCase(b) + ' · ' + branchCounts[b] })),
-      ], (v) => { state._indicatorManageBranchFilter = v; render(); }),
-      (teamSelect || tierSelect || activeSelect || branchSelect)
+        ...Object.keys(counts).filter(t => t !== '(unassigned)').sort((a, b) => a.localeCompare(b)).map(t => ({ value: t, label: t + ' \u00b7 ' + counts[t] })),
+        ...(counts['(unassigned)'] ? [{ value: '(unassigned)', label: 'Unassigned \u00b7 ' + counts['(unassigned)'] }] : []),
+      ], (v) => { state._indicatorManageTeamView = v; if (v && v !== '(unassigned)') { if (!(state._mtOpenTeams instanceof Set)) state._mtOpenTeams = new Set(); state._mtOpenTeams.clear(); state._mtOpenTeams.add(v); } if (v === '(unassigned)') state._mtNeedsOpen = true; render(); }),
+      (teamView || tierSelect || activeSelect || branchSelect)
         ? el('span', { class: 'text-[10px] text-muted- italic' }, 'Showing ' + filteredReps.length + ' of ' + reps.length)
         : null,
     );

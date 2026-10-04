@@ -5610,6 +5610,25 @@ function setRepTier(repName, tier) {
   saveDemoData();
 }
 function repTierMeta(tierId) { return REP_TIERS.find(t => t.id === tierId); }
+// A tier nobody has SET — it is the sales-history guess (first selling year =
+// Rookie, earlier years = Vet). Right most of the time, but an experienced
+// rep in their first season here reads Rookie until someone confirms a tier.
+function repTierIsAuto(name) { return !!name && !_repKeyedLookup(state._indicatorRepTier || {}, name) && !!getRepTier(name); }
+// The one tier dropdown (Manage Teams, Settings → Users, the New User form).
+// A guessed tier shows as "Rookie · auto" in a dashed, muted box; picking
+// any tier — including the same one — confirms it.
+function repTierSelect(repKey, after, cls) {
+  const cur = getRepTier(repKey), auto = repTierIsAuto(repKey), meta = repTierMeta(cur);
+  return el('select', {
+    class: cls || 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
+    title: auto ? 'Guessed from sales history (first selling year = Rookie). Pick a tier to confirm it.' : '',
+    style: auto ? { borderColor: 'var(--border-2)', borderStyle: 'dashed', background: 'transparent', color: 'var(--text-muted)', fontWeight: '400' }
+      : { borderColor: 'var(--border-2)', background: meta ? 'rgba(223,100,58,.08)' : 'var(--card-2)', color: meta ? meta.color : 'var(--text)', fontWeight: meta ? '700' : '400' },
+    onchange: (e) => { const v = e.target.value; if (v === '__auto') return; setRepTier(repKey, v); if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {}); if (after) after(); },
+  },
+    auto ? el('option', { value: '__auto', selected: true }, ((meta && meta.label) || cur) + ' \u00b7 auto') : el('option', { value: '', selected: !cur }, '\u2014 Tier \u2014'),
+    ...REP_TIERS.map(t => el('option', { value: t.id, selected: !auto && cur === t.id }, t.label)));
+}
 
 // Active/inactive flag — defaults to active. Reserved for competitions/PRA
 // gating later; today it's purely informational and shown in Manage Teams.

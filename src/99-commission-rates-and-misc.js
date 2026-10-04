@@ -1703,19 +1703,7 @@ function adminReps() {
   // Tier cell. Currently writes the manual Rookie/Vet tag (shared with Manage
   // Teams). TODO: once FieldRoutes carries a rookie/vet designation, source this
   // read-only from the roster instead of the manual tag.
-  const tierCell = (x) => {
-    const key = repKeyForPerson(x);
-    const curTier = getRepTier(key);
-    const tierMeta = (typeof repTierMeta === 'function') ? repTierMeta(curTier) : null;
-    const tierSel = el('select', {
-      class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
-      style: { borderColor: 'var(--border-2)', background: tierMeta ? 'rgba(223,100,58,.08)' : 'var(--card-2)', color: tierMeta ? tierMeta.color : 'var(--text)', fontWeight: tierMeta ? '700' : '400' },
-      onchange: (e) => { setRepTier(key, e.target.value); mountApp(); },
-    },
-      el('option', { value: '', selected: !curTier }, '— Tier —'),
-      ...REP_TIERS.map(t => el('option', { value: t.id, selected: curTier === t.id }, t.label)));
-    return el('td', { class: 'px-3 py-3' }, tierSel);
-  };
+  const tierCell = (x) => el('td', { class: 'px-3 py-3' }, repTierSelect(repKeyForPerson(x), mountApp));
 
   // Avatar that opens a photo picker on click (app users only) — saves straight
   // from the table without opening the editor. Hover shows an accent ring + 📷.
@@ -2428,6 +2416,19 @@ function openUserEditor(existing = null, prefill = null) {
         roleSelect.addEventListener('change', _showTeam);
         setTimeout(_showTeam, 0);   // after the form (and its name field) is in the page
         wrapper.append(teamSection);
+        // Tier, set at onboarding (per Isaac, Oct 4): an experienced rep in their
+        // first season here would otherwise read as an auto Rookie until
+        // someone spots it in Manage Teams.
+        const tierHost = el('div', {});
+        const drawTier = () => { tierHost.innerHTML = ''; const n = _nm(); tierHost.append(n ? repTierSelect(_keyFor(n), drawTier, 'w-full rounded-lg border px-3 py-2 text-sm') : el('p', { class: 'text-[11px] text-muted-' }, 'Enter the name first.')); };
+        const tierSection = el('div', { class: 'flex flex-col gap-1.5' },
+          el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- block font-semibold' }, 'Tier'),
+          tierHost,
+          el('p', { class: 'text-[11px] text-muted-' }, 'Rookie or Vet. Left alone it is guessed from sales history (first selling year = Rookie) and shows as \u201cauto\u201d until someone confirms it.'));
+        const _showTier = () => { const on = ['rep_sales', 'rep_partner', 'rep_team_lead'].includes(roleSelect.value); tierSection.style.display = on ? '' : 'none'; if (on) drawTier(); };
+        roleSelect.addEventListener('change', _showTier);
+        setTimeout(() => { _showTier(); const f = teamSel.closest('form') || document; const ni = f.querySelector('[name="full_name"]'); if (ni) ni.addEventListener('change', () => { _showTier(); _showTeam(); }); }, 0);
+        wrapper.append(tierSection);
         if (!(existing && existing.id)) {
           const ledNote = el('p', { class: 'text-[11px] text-muted-' }, 'Teams this partner leads can be picked once the user is saved (open them again from the Users list).');
           const _showLed = () => { ledNote.style.display = (roleSelect.value === 'rep_partner' || roleSelect.value === 'rep_team_lead') ? '' : 'none'; };
