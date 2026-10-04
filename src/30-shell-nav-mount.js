@@ -1267,7 +1267,20 @@ function mountApp() {
   // fixed filter bar (first row) — two separately pinned bars would sit on
   // top of each other under the page header.
   const _indBarCol = (() => { const fb = node.querySelector && node.querySelector('#indFixedBar'); return fb && fb.firstElementChild && fb.firstElementChild.firstElementChild; })();
-  const _placeBar = (bar) => { if (!bar) return; if (_indBarCol) { bar.classList.remove('mb-4'); _indBarCol.insertBefore(bar, _indBarCol.firstChild); } else contentWrap.append(_pinBar(bar)); };
+  const _placeBar = (bar) => {
+    if (!bar) return;
+    if (!_indBarCol) { contentWrap.append(_pinBar(bar)); return; }
+    bar.classList.remove('mb-4');
+    // Presets · Filters · trophy ride on the SAME row as the tabs, right-justified (per Isaac, Oct 4).
+    const ctl = _indBarCol.firstElementChild;
+    _indBarCol.insertBefore(bar, _indBarCol.firstChild);
+    if (ctl && ctl !== bar) {
+      ctl.classList.remove('justify-between'); ctl.classList.add('ml-auto');
+      ctl.style.justifyContent = 'flex-end'; ctl.style.paddingBottom = '6px';
+      [...ctl.children].forEach(c => c.classList.remove('ml-auto'));
+      bar.append(ctl);
+    }
+  };
   const _pinBar = (bar) => { const sp = (typeof reportingPinBar === 'function') ? reportingPinBar('subtabs', bar) : bar; sp.style.marginTop = '-8px'; sp.style.marginBottom = '20px'; bar.classList.remove('mb-4'); return sp; };
   if (INSIDE_SALES_TAB_KEYS.has(state.view)) {
     const subTabBar = insideSalesSubTabs();

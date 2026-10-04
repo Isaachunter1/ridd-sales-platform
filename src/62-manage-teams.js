@@ -1405,6 +1405,15 @@ function indPresetRibbon() {
   };
   const _matches = (p) => { try { return JSON.stringify(p.snap) === JSON.stringify(_snapNow()); } catch { return false; } };
   const open = !!state._indPresetsOpen;
+  // Keep the panel on screen wherever the Presets button sits (right-justified on the Sales dashboards).
+  const _clampPanel = () => {
+    try {
+      panel.style.transform = '';
+      const r = panel.getBoundingClientRect(), vw = document.documentElement.clientWidth, pad = 12;
+      const dx = r.right > vw - pad ? (vw - pad - r.right) : r.left < pad ? (pad - r.left) : 0;
+      if (dx) panel.style.transform = 'translateX(' + Math.round(dx) + 'px)';
+    } catch (e) { /* layout nicety only */ }
+  };
   // FieldRoutes-style ribbon (per Isaac): a slim VERTICAL handle pinned to
   // the page's left edge, titled "Presets"; clicking it expands the saved-
   // preset drawer beside it.
@@ -1423,6 +1432,7 @@ function indPresetRibbon() {
       const nowOpen = panel.style.display !== 'block';
       state._indPresetsOpen = nowOpen;
       panel.style.display = nowOpen ? 'block' : 'none';
+      if (nowOpen) _clampPanel();
       Object.assign(tab.style, nowOpen
         ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
         : { background: '', color: 'var(--text)', borderColor: 'var(--border-2)' });
@@ -1437,7 +1447,7 @@ function indPresetRibbon() {
   const caret = el('span');   // (caret retired — per Isaac, no ▾ on dropdown buttons)
   const panel = el('div', {
     class: 'card',
-    style: { position: 'absolute', left: '0', top: 'calc(100% + 6px)', zIndex: 39, width: 'min(300px, calc(100vw - 32px))', maxHeight: '62vh', overflowY: 'auto', boxShadow: 'var(--shadow-lg)', padding: '10px', display: open ? 'block' : 'none' },
+    style: { position: 'absolute', left: '0', top: 'calc(100% + 6px)', zIndex: 39, width: 'min(300px, calc(100vw - 32px))', minWidth: 'min(300px, calc(100vw - 32px))', maxWidth: 'none', maxHeight: '62vh', overflowY: 'auto', boxShadow: 'var(--shadow-lg)', padding: '10px', display: open ? 'block' : 'none' },
   },
     // When the preset you applied has been CHANGED on the page, a Save
     // button pops in to overwrite it in place (per Isaac) — Save as New
@@ -1516,6 +1526,10 @@ function indPresetRibbon() {
           },
         }, '\ud83d\uddd1'));
     }));
+  // Keep the panel on screen wherever the Presets button sits (it is
+  // right-justified on the Sales dashboards): nudge it back inside the
+  // viewport once it has a real position.
+  if (open) requestAnimationFrame(() => _clampPanel());
   return el('div', { style: { position: 'relative' } }, tab, panel);
 }
 
