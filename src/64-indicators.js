@@ -3092,6 +3092,24 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     if (state._aggRecordsGroupExpanded.rep === undefined) state._aggRecordsGroupExpanded.rep = null;
     const expanded = state._aggRecordsExpanded;
     const byMetric = state._aggRecordsMetric;
+    // The card's own window (per Isaac, Oct 4): '' = follow the page range,
+    // 'YYYY' = that calendar year, 'all' = all time. Picked from the Year
+    // dropdown on the card.
+    const _recPhone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })();
+    const _recYear = _recPhone ? (state._aggRecordsYear || '') : '';   // the Year dropdown is phone-only; desktop keeps following the page range
+    const recSales = !_recYear ? rawSales : (allRawSales || []).filter(s => {
+      if (applyExclusion && isRepExcluded(s.rep)) return false;
+      if (_recYear === 'all') return true;
+      const d = _parseIndicatorDay(s); return !!d && String(d.getFullYear()) === _recYear;
+    });
+    const _recYears = (() => {
+      const M = window._indRecYears; if (M && M.src === allRawSales) return M.years;
+      const ys = new Set(); for (const s of (allRawSales || [])) { const d = _parseIndicatorDay(s); if (d) ys.add(d.getFullYear()); }
+      const years = [...ys].filter(y => y > 2000 && y <= new Date().getFullYear()).sort((a, b) => b - a).map(String);
+      window._indRecYears = { src: allRawSales, years }; return years;
+    })();
+    // Phones show ONE record column, picked from a dropdown (Day / Week / Month / Year / PRA day).
+    const _recPeriod = ['day', 'week', 'month', 'year', 'pra'].includes(state._aggRecordsPeriod) ? state._aggRecordsPeriod : 'day';
     const groupExpanded = state._aggRecordsGroupExpanded;
 
     // Min-rep thresholds keep "Best PRA Day" honest: a day where a single
@@ -3107,15 +3125,15 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // except the sales set, the metric and the team/alias config. Keyed on
     // the indicatorSales() array identity (it's cached per dept+filters),
     // the leaderboard scope, the metric and _indCfgRev.
-    const _recKeyMemo = [allRawSales.length, applyExclusion ? 1 : 0, isRange ? (rangeBounds ? rangeBounds.start + '..' + rangeBounds.end : 'r') : 'w', byMetric, (typeof _indCfgRev !== 'undefined') ? _indCfgRev : 0, state.indicatorDept || 'all'].join('|');
+    const _recKeyMemo = [allRawSales.length, applyExclusion ? 1 : 0, isRange ? (rangeBounds ? rangeBounds.start + '..' + rangeBounds.end : 'r') : 'w', byMetric, (typeof _indCfgRev !== 'undefined') ? _indCfgRev : 0, state.indicatorDept || 'all', _recYear].join('|');
     const _recMemo = (window._indRecordsMemo && window._indRecordsMemo.src === allRawSales && window._indRecordsMemo.key === _recKeyMemo) ? window._indRecordsMemo.val : null;
     const _recCompute = () => {
-    const company = aggregateRecords(rawSales, byMetric);
-    const companyPRA = bestPRADayRecord(rawSales, PRA_MIN_COMPANY, byMetric);
+    const company = aggregateRecords(recSales, byMetric);
+    const companyPRA = bestPRADayRecord(recSales, PRA_MIN_COMPANY, byMetric);
 
     const groupBests = (groupKeyFn, praMin) => {
       const groups = {};
-      for (const s of rawSales) {
+      for (const s of recSales) {
         const k = groupKeyFn(s);
         if (!k) continue;
         if (!groups[k]) groups[k] = [];
@@ -3135,11 +3153,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
 
     // Per-group sales maps so the sub-drill (each individual branch/team
     // inside the parent drill) can compute its own top 10 days/weeks/
-    // months/PRA days without re-iterating the full rawSales each time.
+    // months/PRA days without re-iterating the full recSales each time.
     const salesByBranch = {};
     const salesByTeam   = {};
     const salesByRep    = {};
-    for (const s of rawSales) {
+    for (const s of recSales) {
       if (s.office) {
         if (!salesByBranch[s.office]) salesByBranch[s.office] = [];
         salesByBranch[s.office].push(s);
@@ -3164,14 +3182,15 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // Top winner per category, used for the summary rows. Comparator
     // honors the active metric so toggling Revenue ↔ Sales picks new winners.
     const topOf = (groups) => {
-      let bestDay = null, bestWeek = null, bestMonth = null, bestPRA = null;
+      let bestDay = null, bestWeek = null, bestMonth = null, bestYear = null, bestPRA = null;
       for (const g of groups) {
         if (g.bestDay   && (!bestDay   || g.bestDay[byMetric]   > bestDay[byMetric]))   bestDay   = { group: g.name, ...g.bestDay };
         if (g.bestWeek  && (!bestWeek  || g.bestWeek[byMetric]  > bestWeek[byMetric]))  bestWeek  = { group: g.name, ...g.bestWeek };
         if (g.bestMonth && (!bestMonth || g.bestMonth[byMetric] > bestMonth[byMetric])) bestMonth = { group: g.name, ...g.bestMonth };
+        if (g.bestYear  && (!bestYear  || g.bestYear[byMetric]  > bestYear[byMetric]))  bestYear  = { group: g.name, ...g.bestYear };
         if (g.bestPRA   && (!bestPRA   || g.bestPRA.pra         > bestPRA.pra))         bestPRA   = { group: g.name, ...g.bestPRA };
       }
-      return { bestDay, bestWeek, bestMonth, bestPRA };
+      return { bestDay, bestWeek, bestMonth, bestYear, bestPRA };
     };
     const branch = topOf(branchAll);
     const team   = topOf(teamAll);
@@ -3185,7 +3204,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const titleCase = (s) => (s || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
     const labelFor = (rec, kind) => kind === 'day' ? rec.date
       : kind === 'week' ? 'Week of ' + rec.weekStart
-      : kind === 'month' ? fmtMonth(rec.month) : '';
+      : kind === 'month' ? fmtMonth(rec.month) : kind === 'year' ? String(rec.year || '') : '';
 
     function recCell(rec, opts = {}) {
       if (!rec || rec.revenue === 0) {
@@ -3247,10 +3266,13 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold' + (isOpen ? '' : ' text-muted-'), style: isOpen ? { color: 'var(--accent)' } : {} }, label),
           ),
         ),
-        recCell(rollup.bestDay,   { kind: 'day',   groupKind }),
-        recCell(rollup.bestWeek,  { kind: 'week',  groupKind }),
-        recCell(rollup.bestMonth, { kind: 'month', groupKind }),
-        praCell(rollup.bestPRA, { groupKind }),
+        ...(_recPhone
+          ? [_recPeriod === 'pra' ? praCell(rollup.bestPRA, { groupKind })
+              : recCell(_recPeriod === 'week' ? rollup.bestWeek : _recPeriod === 'month' ? rollup.bestMonth : _recPeriod === 'year' ? rollup.bestYear : rollup.bestDay, { kind: _recPeriod, groupKind })]
+          : [recCell(rollup.bestDay,   { kind: 'day',   groupKind }),
+             recCell(rollup.bestWeek,  { kind: 'week',  groupKind }),
+             recCell(rollup.bestMonth, { kind: 'month', groupKind }),
+             praCell(rollup.bestPRA, { groupKind })]),
       );
     }
 
@@ -3300,11 +3322,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         topMonths = top10(monthL, byMetric);
         topPRA    = top10(praL, 'pra');
       } else {
-        const tops = topRecords(rawSales, 10, byMetric);
+        const tops = topRecords(recSales, 10, byMetric);
         topDays   = tops.topDays;
         topWeeks  = tops.topWeeks;
         topMonths = tops.topMonths;
-        topPRA    = topPRADays(rawSales, 10, praMin, byMetric);
+        topPRA    = topPRADays(recSales, 10, praMin, byMetric);
       }
 
       // Category-aware label for the date/period cell.
@@ -3520,6 +3542,15 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       ...(expanded === 'rep'     ? [expansionRow('rep')]     : []),
     ];
 
+    // Compact dropdown used in the card header.
+    const _recSel = (val, opts, on) => el('select', { class: 'rounded-lg border text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', padding: '4px 6px', maxWidth: '104px' },
+      onchange: (e) => { on(e.target.value); mountApp(); } }, ...opts.map(([v, l]) => el('option', { value: v, selected: v === val }, l)));
+    // What the page range reads as in the Year dropdown: the year when the page is on a whole year, else the range's own name.
+    const _recPageLbl = (() => {
+      const pr = state.indicatorsRangePreset || 'this_year';
+      const ym = /^year:(\d{4})$/.exec(pr);
+      return ym ? ym[1] : pr === 'this_year' ? String(new Date().getFullYear()) : pr === 'last_year' ? String(new Date().getFullYear() - 1) : pr === 'all_time' ? 'All time' : indicatorPresetLabel(pr);
+    })();
     const metricToggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
       ...[
         { id: 'revenue', label: 'Revenue' },
@@ -3537,24 +3568,33 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       el('div', { class: 'px-5 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
         el('div', { class: 'flex items-center gap-3 flex-wrap' },
           el('h3', { class: 'text-base font-bold' }, 'Records'),
-          el('span', { class: 'text-[11px] text-muted-' }, 'Click any row to see the top 10 per category'),
+          _recPhone ? null : el('span', { class: 'text-[11px] text-muted-' }, 'Click any row to see the top 10 per category'),
         ),
-        el('div', { class: 'flex items-center gap-3 flex-wrap' },
-          windowLabel && el('span', { class: 'text-[10px] tabular-nums px-2 py-0.5 rounded font-semibold', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, windowLabel),
-          metricToggle,
-        ),
+        _recPhone
+          // Phone (per Isaac, Oct 4): no description, no date-range line — three
+          // compact dropdowns beside the title: Year · Revenue/Sales · record.
+          ? el('div', { class: 'flex items-center gap-1.5', style: { flexWrap: 'nowrap' } },
+              _recSel(_recYear, [['', _recPageLbl], ..._recYears.filter(y => y !== _recPageLbl).map(y => [y, y]), ['all', 'All time']], (v) => { state._aggRecordsYear = v; }),
+              _recSel(byMetric, [['revenue', 'Revenue'], ['count', 'Sales']], (v) => { state._aggRecordsMetric = v; }),
+              _recSel(_recPeriod, [['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['year', 'Year'], ['pra', 'PRA day']], (v) => { state._aggRecordsPeriod = v; }))
+          : el('div', { class: 'flex items-center gap-3 flex-wrap' },
+              windowLabel && !_recYear && el('span', { class: 'text-[10px] tabular-nums px-2 py-0.5 rounded font-semibold', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, windowLabel),
+              metricToggle,
+            ),
       ),
       el('div', { class: 'scroll-x' },
         el('table', { class: 'w-full text-xs records-table' },
           el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
             el('tr', {},
               el('th', { class: 'text-left pl-5 pr-3 py-2 w-32', style: { position: 'sticky', left: '0', zIndex: '2', background: 'var(--card)', boxShadow: '1px 0 0 var(--border)' } }, 'Scope'),
-              el('th', { class: 'text-left p-2' }, 'Best Day'),
-              el('th', { class: 'text-left p-2' }, 'Best Week'),
-              el('th', { class: 'text-left p-2' }, 'Best Month'),
-              el('th', { class: 'text-left p-2', title: byMetric === 'count'
-                ? 'Highest sales ÷ active reps on a single day at this scope'
-                : 'Highest revenue ÷ active reps on a single day at this scope' }, 'Best PRA Day'),
+              ...(_recPhone
+                ? [el('th', { class: 'text-left p-2' }, { day: 'Best Day', week: 'Best Week', month: 'Best Month', year: 'Best Year', pra: 'Best PRA Day' }[_recPeriod])]
+                : [el('th', { class: 'text-left p-2' }, 'Best Day'),
+                   el('th', { class: 'text-left p-2' }, 'Best Week'),
+                   el('th', { class: 'text-left p-2' }, 'Best Month'),
+                   el('th', { class: 'text-left p-2', title: byMetric === 'count'
+                     ? 'Highest sales ÷ active reps on a single day at this scope'
+                     : 'Highest revenue ÷ active reps on a single day at this scope' }, 'Best PRA Day')]),
             ),
           ),
           el('tbody', {}, ...tbodyRows),

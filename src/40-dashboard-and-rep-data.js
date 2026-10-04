@@ -1916,7 +1916,7 @@ function _recordEligible(s) {
   return (typeof frPendingServiced !== 'function') || frPendingServiced(s);
 }
 function aggregateRecords(sales, by = 'revenue') {
-  const byDay = {}, byWeek = {}, byMonth = {};
+  const byDay = {}, byWeek = {}, byMonth = {}, byYear = {};
   for (const s of sales) {
     if (!_recordEligible(s)) continue;
     const d = _parseIndicatorDay(s);
@@ -1931,6 +1931,9 @@ function aggregateRecords(sales, by = 'revenue') {
     if (!byMonth[monthKey]) byMonth[monthKey] = { month: monthKey, count: 0, revenue: 0, _reps: new Set() };
     byDay[dayKey].count++;     byDay[dayKey].revenue     += v;     if (s.rep) byDay[dayKey]._reps.add(s.rep);
     byWeek[weekKey].count++;   byWeek[weekKey].revenue   += v;     if (s.rep) byWeek[weekKey]._reps.add(s.rep);
+    const yearKey = String(d.getFullYear());
+    if (!byYear[yearKey]) byYear[yearKey] = { year: yearKey, count: 0, revenue: 0, _reps: new Set() };
+    byYear[yearKey].count++; byYear[yearKey].revenue += v; if (s.rep) byYear[yearKey]._reps.add(s.rep);
     byMonth[monthKey].count++; byMonth[monthKey].revenue += v;     if (s.rep) byMonth[monthKey]._reps.add(s.rep);
   }
   // Materialize the Set into a plain `reps` count and drop the temp
@@ -1945,6 +1948,7 @@ function aggregateRecords(sales, by = 'revenue') {
     bestDay:   pick(finalize(byDay)),
     bestWeek:  pick(finalize(byWeek)),
     bestMonth: pick(finalize(byMonth)),
+    bestYear:  pick(finalize(byYear)),
   };
 }
 
