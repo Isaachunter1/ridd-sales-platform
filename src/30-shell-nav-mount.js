@@ -1270,7 +1270,8 @@ function mountApp() {
   const _placeBar = (bar) => {
     if (!bar) return;
     if (!_indBarCol) { contentWrap.append(_pinBar(bar)); return; }
-    bar.classList.remove('mb-4');
+    bar.classList.remove('mb-4', 'border-b');   // no rule under the tab row here (per Isaac, Oct 4) — the header rule above it stays
+    bar.style.borderBottom = 'none';
     // Presets · Filters · trophy ride on the SAME row as the tabs, right-justified (per Isaac, Oct 4).
     const ctl = _indBarCol.firstElementChild;
     _indBarCol.insertBefore(bar, _indBarCol.firstChild);
