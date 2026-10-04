@@ -4957,13 +4957,11 @@ function mobileBottomNav() {
     ['dashboard', 'Dashboard', iconDashboard],
     ['sales', 'Sales', iconSales],
     ['nrla', 'Comps', iconTrophy],
-    ['indicators', 'Trends', iconChart],
   ] : [
     // Sales-Rep accounts: Sales (their commission home) + Competitions +
     // rep-lite Indicators.
     [(typeof D2D_SALES_TAB_KEYS !== 'undefined' && D2D_SALES_TAB_KEYS.has(state._lastD2dTab) ? state._lastD2dTab : 'd2d_dashboard'), 'Sales', iconDollar],
     ['nrla', 'Competitions', iconTrophy],
-    ['indicators', 'Indicators', iconChart],
   ]) : [
     ['dashboard', 'Dashboard', iconDashboard],
     ['sales', 'Sales', iconSales],
@@ -4992,7 +4990,6 @@ function mobileBottomNav() {
           // it's leadership-only data.
           ['scorecards','Scorecards',iconClipboard],
           ['hall_of_fame','Hall of Fame',iconCrown],
-          ...(isAdmin ? [['indicators','Indicators',iconChart]] : []),
           ...(isAdmin ? [['reporting','Reporting',iconPie]] : []),
           ...(isAdmin ? [['admin','Settings',iconGear]] : [])
         ].map(([k,label,iconFn]) => el('button', {

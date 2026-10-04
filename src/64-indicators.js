@@ -2,6 +2,43 @@
 // │ Indicators tab: branch/team/rep tables, power ranking, leaderboard, records, class metrics.
 // │ Part of the app.js bundle (tools/bundle.js concatenates src/*.js in name order).
 // └────────────────────────────────────────────────────────────────────────
+// ── Indicators IS the Sales dashboard (per Isaac, Oct 4). The three Sales
+// worlds — Office Staff, D2D Sales, Technicians — each open on Indicators
+// preset to that rep type; the standalone Indicators tab is gone. Admins get
+// the three views through the Sales rep-type toggle; a rep only ever sees
+// their own. Office Staff keep the revenue-goal pacer on top.
+const IND_WORLD = { dashboard: 'office', d2d_dashboard: 'd2d', techs: 'techs' };
+function isIndicatorsView(v) { v = v || state.view; return v === 'indicators' || !!IND_WORLD[v]; }
+// Where an old "Indicators" link / bookmark lands now.
+function indHomeView() {
+  const p = state.profile || {};
+  if (isAdminRole(p.role) || (typeof isDeveloperRole === 'function' && isDeveloperRole(p.role))) return IND_WORLD[state._indWorld] ? state._indWorld : 'd2d_dashboard';
+  const g = (typeof repTypeGroup === 'function') ? repTypeGroup(p) : 'd2d';
+  return g === 'office' ? 'dashboard' : g === 'tech' ? 'techs' : 'd2d_dashboard';
+}
+function viewWorldDashboard() {
+  const dept = IND_WORLD[state.view];
+  if (dept && state._indWorld !== state.view) {
+    // Entering a world (or switching between them): preset the filters to it.
+    if (!state._indDeptDefaulted) { state.indicatorAcctStatus = 'pending_serviced'; state.indicatorsRangePreset = state.indicatorsRangePreset || 'this_year'; state.indicatorsGroupBy = state.indicatorsGroupBy || 'branch'; }
+    state._indDeptDefaulted = true;
+    state._indWorld = state.view;
+    state.indicatorDept = dept;
+    if (dept !== 'd2d' && state.indicatorsGroupBy === 'teams') state.indicatorsGroupBy = 'branch';   // teams are a D2D grouping
+  }
+  const node = viewIndicators();
+  if (dept === 'office' && typeof dashboardGoalCard === 'function') {
+    try {
+      const goal = dashboardGoalCard(getDateRange(state.dashDateRange));
+      if (goal) {
+        goal.setAttribute('data-section', 'goal-pacer');
+        const barHost = [...node.children].find(c => c.querySelector && c.querySelector('#indFixedBar'));
+        if (barHost) barHost.after(goal); else node.prepend(goal);
+      }
+    } catch (e) { console.warn('[ridd] goal card skipped', e); }
+  }
+  return node;
+}
 function viewIndicators() {
   if (!state.indicatorsData) state.indicatorsData = null;
   // Weekly mode retired — the preset dropdown (This Year default) drives the

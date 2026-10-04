@@ -2060,7 +2060,7 @@ async function autoDeriveIndicatorsFromSnapshot() {
     if (typeof captureIndicatorSnapshot === 'function') captureIndicatorSnapshot();
     saveDemoData();
     if (typeof syncIndicatorsToCloud === 'function') await syncIndicatorsToCloud();
-    if (state.view === 'indicators') mountApp();
+    if (typeof isIndicatorsView === 'function' ? isIndicatorsView() : state.view === 'indicators') mountApp();
   } catch (e) { console.warn('[ridd] auto-derive indicators failed', e); state._indicatorsBuiltFromUploadId = null; }
 }
 

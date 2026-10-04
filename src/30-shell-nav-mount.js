@@ -426,7 +426,8 @@ function openMySettingsModal() {
 // on every render. Fixed bars (and their spacers) are locked in place.
 function _userLayoutKey() {
   const uid = (state.profile && state.profile.id) || 'anon';
-  return 'ridd_layout_v1::' + uid + '::' + state.view;
+  // The three world dashboards are all Indicators — one saved layout, the one reps already had on the Indicators tab.
+  return 'ridd_layout_v1::' + uid + '::' + ((typeof IND_WORLD !== 'undefined' && IND_WORLD[state.view]) ? 'indicators' : state.view);
 }
 function _userLayoutPrefs() {
   try {
@@ -761,6 +762,11 @@ function mountApp() {
     state.view = 'indicators';
     history.replaceState(null, '', VIEW_TO_HASH.indicators || '#indicators');
   }
+  // Indicators lives inside Sales now (per Isaac, Oct 4): an old Indicators
+  // link / bookmark / saved view opens the Dashboard of the user's own
+  // world. Auditors keep the standalone view (they have no Sales dashboard).
+  const _normInd = () => { if (state.view === 'indicators' && !isAuditor && typeof indHomeView === 'function') { state.view = indHomeView(); history.replaceState(null, '', VIEW_TO_HASH[state.view] || '#' + state.view); } };
+  _normInd();
   const ADMIN_ONLY_VIEWS = new Set(['reporting', 'marketing', 'admin']);
   // Permissions can open Reporting / Settings to a non-admin (per Isaac, Sep 22).
   const _grantedView = (v) => (v === 'reporting' && userCan('view_reporting')) || (v === 'admin' && canOpenSettings());
@@ -768,6 +774,7 @@ function mountApp() {
     state.view = 'indicators';
     history.replaceState(null, '', VIEW_TO_HASH.indicators || '#indicators');
   }
+  _normInd();
   // Route guard — rep accounts, shaped by their CRM rep TYPE:
   //   · Sales Rep (or unknown type) → Competitions + Indicators (rep-lite:
   //                                   power-ranking metrics + Rep Leaderboard)
@@ -805,6 +812,7 @@ function mountApp() {
     state.view = _home;
     history.replaceState(null, '', VIEW_TO_HASH[_home] || '#' + _home);
   }
+  _normInd();
   // Auditor tab access reads the Permissions matrix (all off by default —
   // grant Indicators/Competitions/etc. from Settings → Permissions).
   if (isAuditor) {
@@ -831,7 +839,7 @@ function mountApp() {
       : [['d2d_group', 'Sales', iconDollar()]]),
     ...(canOpenLoyalty() ? [['loyalty_group', 'Loyalty', iconHeart()]] : []),
     ...(userCan('view_comps') && featureOn('competitions') ? [['nrla', 'Competitions', iconTrophy()]] : []),
-    ...(userCan('view_indicators') ? [['indicators', 'Indicators', iconChart()]] : []),
+    // (Indicators entry removed Oct 4 — it is the Dashboard inside Sales now.)
     ...(userCan('view_reporting') ? [['reporting', 'Reporting', iconPie()]] : []),   // granted in Settings → Permissions
   ] : [
     // Auditors only have the Sales tab, so call the entry what it is.
@@ -842,7 +850,7 @@ function mountApp() {
     // Competitions — every comp (NRLA, Spring Cleaning, Top Gun, …) on its
     // own tab, visible to EVERYONE. Read-only for non-admins.
     ...((isAuditor && !userCan('view_comps')) || !featureOn('competitions') ? [] : [['nrla', 'Competitions', iconTrophy()]]),
-    ...(isAdmin || (isAuditor && userCan('view_indicators')) ? [['indicators', 'Indicators', iconChart()]] : []),
+    ...((isAuditor && userCan('view_indicators')) ? [['indicators', 'Indicators', iconChart()]] : []),   // admins: it's the Sales dashboard now
     ...(isAdmin || userCan('view_reporting') ? [['reporting',     'Reporting',     iconPie()]]       : []),
   ];
   // Registered modules (riddmarket etc.) join the nav for whoever they allow.
@@ -1191,7 +1199,7 @@ function mountApp() {
 
   // Render the view's body
   const view = {
-    dashboard:    viewDashboard,
+    dashboard:    viewWorldDashboard,     // Indicators preset to Office Staff (+ revenue-goal pacer)
     sales:        viewSales,
     pay:          viewPay,
     calendar:     viewCalendar,
@@ -1207,9 +1215,9 @@ function mountApp() {
     reporting:    viewReporting,
     marketing:    viewMarketing,
     commission:   viewCommission,
-    d2d_dashboard: viewD2dDashboard,
+    d2d_dashboard: viewWorldDashboard,    // Indicators preset to D2D Sales
     d2d_sales:    viewSales,
-    techs:        viewTechs,
+    techs:        viewWorldDashboard,     // Indicators preset to Technicians
     tech_sales:   viewSales,
     tech_pay:     viewTechPay,
     admin:        viewAdmin,
@@ -1255,17 +1263,22 @@ function mountApp() {
   // Spacing (per Isaac, Sep 24): the bar sits a touch higher under the page
   // header and leaves a clear gap above the Revenue Pacer — the gap lives on
   // the pin SPACER (not the bar) so it survives the bar going fixed on scroll.
+  // On an Indicators dashboard the sub-tab bar rides INSIDE Indicators' own
+  // fixed filter bar (first row) — two separately pinned bars would sit on
+  // top of each other under the page header.
+  const _indBarCol = (() => { const fb = node.querySelector && node.querySelector('#indFixedBar'); return fb && fb.firstElementChild && fb.firstElementChild.firstElementChild; })();
+  const _placeBar = (bar) => { if (!bar) return; if (_indBarCol) { bar.classList.remove('mb-4'); _indBarCol.insertBefore(bar, _indBarCol.firstChild); } else contentWrap.append(_pinBar(bar)); };
   const _pinBar = (bar) => { const sp = (typeof reportingPinBar === 'function') ? reportingPinBar('subtabs', bar) : bar; sp.style.marginTop = '-8px'; sp.style.marginBottom = '20px'; bar.classList.remove('mb-4'); return sp; };
   if (INSIDE_SALES_TAB_KEYS.has(state.view)) {
     const subTabBar = insideSalesSubTabs();
-    if (subTabBar) contentWrap.append(_pinBar(subTabBar));
+    _placeBar(subTabBar);
   } else if (D2D_SALES_TAB_KEYS.has(state.view)) {
     // D2D Sales group — its own sub-tab bar (admin toggle rides in front).
     const subTabBar = d2dSalesSubTabs();
-    if (subTabBar) contentWrap.append(_pinBar(subTabBar));
+    _placeBar(subTabBar);
   } else if (TECH_TAB_KEYS.has(state.view)) {
     const subTabBar = d2dSalesSubTabs('techs');
-    if (subTabBar) contentWrap.append(_pinBar(subTabBar));
+    _placeBar(subTabBar);
   } else if (LOYALTY_TAB_KEYS.has(state.view)) {
     contentWrap.append(_pinBar(loyaltySubTabs()));
   }
