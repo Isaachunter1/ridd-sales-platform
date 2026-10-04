@@ -1281,6 +1281,18 @@ function mountApp() {
       ctl.style.justifyContent = 'flex-end'; ctl.style.paddingBottom = '6px';
       [...ctl.children].forEach(c => c.classList.remove('ml-auto'));
       bar.append(ctl);
+      // Phones (per Isaac, Oct 4): the tab dropdown takes a full row of its own,
+      // then Today/Week/Month/Year · Presets · Filters · trophy share ONE row —
+      // the range buttons stretch, nothing wraps or gets squeezed off the edge.
+      let _phone = false; try { _phone = window.matchMedia('(max-width: 640px)').matches; } catch (e) { /* desktop */ }
+      if (_phone) {
+        const sel = bar.querySelector('.sales-tab-select'); if (sel) sel.style.flex = '1 1 100%';
+        ctl.classList.remove('ml-auto', 'gap-2', 'flex-wrap');
+        Object.assign(ctl.style, { flex: '1 1 100%', flexWrap: 'nowrap', gap: '6px', justifyContent: 'space-between', paddingBottom: '0', minWidth: '0' });
+        const qr = ctl.querySelector('[data-quick-range]');
+        if (qr) { Object.assign(qr.style, { display: 'flex', flex: '1 1 auto', minWidth: '0' }); [...qr.children].forEach(b => { b.style.flex = '1 1 0'; b.style.padding = '5px 2px'; }); }
+        [...ctl.children].forEach(c => { if (c !== qr) { c.style.flex = '0 0 auto'; c.classList.remove('flex-wrap'); if (c.style) { c.style.flexWrap = 'nowrap'; c.style.gap = '6px'; } } });
+      }
     }
   };
   const _pinBar = (bar) => { const sp = (typeof reportingPinBar === 'function') ? reportingPinBar('subtabs', bar) : bar; sp.style.marginTop = '-8px'; sp.style.marginBottom = '20px'; bar.classList.remove('mb-4'); return sp; };
