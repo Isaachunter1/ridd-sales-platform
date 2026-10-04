@@ -2406,6 +2406,35 @@ function openUserEditor(existing = null, prefill = null) {
         }, 'Make this user the Admin - Owner');
         wrapper.append(el('div', { class: 'flex' }, xfer));
       }
+      // ── Team (per Isaac, Oct 4): the team this person SELLS on, shown while
+      // onboarding so a new rep lands on the right team. Same map Manage Teams
+      // writes (keyed by the sales-data spelling of the name, current team year).
+      {
+        const _nm = () => { const f = teamSel.closest('form') || document; const i = f.querySelector('[name="full_name"]'); return String((i && i.value) || existing?.full_name || prefill?.full_name || '').trim(); };
+        const _keyFor = (name) => { const sg = _repNameSig(name); const hit = Object.keys(_activeTeamMap() || {}).find(k => _repNameSig(k) === sg); return hit || name; };
+        const teamSel = el('select', { class: 'w-full rounded-lg border px-3 py-2 text-sm', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+          onchange: (e) => { const n = _nm(); if (!n) { toast('Enter the name first', 'error'); e.target.value = ''; return; } setRepTeam(_keyFor(n), e.target.value); if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {}); toast(e.target.value ? n + ' is on ' + e.target.value : n + ' removed from their team', 'success'); } });
+        const drawTeamSel = () => {
+          const cur = getRepTeam(_keyFor(_nm())) || '';
+          teamSel.innerHTML = '';
+          teamSel.append(el('option', { value: '', selected: !cur }, cur ? 'No team' : 'Not on a team yet — pick one'), ...allTeamNames().map(t => el('option', { value: t, selected: t === cur }, t)));
+          teamSel.style.borderColor = cur ? 'var(--border-2)' : '#DC2626';
+        };
+        const teamSection = el('div', { class: 'flex flex-col gap-1.5' },
+          el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- block font-semibold' }, 'Team · ' + _teamYearKey()),
+          teamSel,
+          el('p', { class: 'text-[11px] text-muted-' }, 'The team this person sells on. Saves as you pick — the same assignment as Indicators → Manage Teams.'));
+        const _showTeam = () => { const on = SELLER_ROLES.includes(roleSelect.value) && allTeamNames().length > 0; teamSection.style.display = on ? '' : 'none'; if (on) drawTeamSel(); };
+        roleSelect.addEventListener('change', _showTeam);
+        setTimeout(_showTeam, 0);   // after the form (and its name field) is in the page
+        wrapper.append(teamSection);
+        if (!(existing && existing.id)) {
+          const ledNote = el('p', { class: 'text-[11px] text-muted-' }, 'Teams this partner leads can be picked once the user is saved (open them again from the Users list).');
+          const _showLed = () => { ledNote.style.display = (roleSelect.value === 'rep_partner' || roleSelect.value === 'rep_team_lead') ? '' : 'none'; };
+          roleSelect.addEventListener('change', _showLed); _showLed();
+          wrapper.append(ledNote);
+        }
+      }
       // ── Teams led — right under the role, only once Partner (or Team
       // Lead) is picked. Drives leaderboard + player-card reach.
       if (existing && existing.id) {
