@@ -3745,7 +3745,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   let _tierCardSection = null;
   (() => {
     // Skip the whole build when the card won't be shown (perf): Office Staff never get it, and a rep without the Class Metrics permission doesn't either.
-    if (state.indicatorDept === 'office' || state.indicatorDept === 'techs' || (!isAdminRole(state.profile?.role) && !userCan('ind_class'))) return;
+    if (state.indicatorDept === 'office' || (!isAdminRole(state.profile?.role) && !userCan('ind_class'))) return;
+    // Technicians (per Isaac, Oct 4): no Rookie / Vet — the same metrics for
+    // ALL technicians in one column, fenced to technician production.
+    const _cmTech = state.indicatorDept === 'techs';
+    const _cmDept = _cmTech ? 'techs' : 'd2d';
     const tierBuckets = { rookie: [], vet: [] };
     let untagged = 0;
     const untaggedReps = [];   // for the badge drill-down (per Isaac)
@@ -3771,15 +3775,15 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const _cmLead = (typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role)) || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role));
     const _cmReach = _cmFull ? null : ((_cmLead && typeof myReachTeams === 'function') ? (myReachTeams() || new Set()) : new Set());
     const _teamOpts = [...new Set(Object.values(repMap).map(r => getRepTeam(r.name) || '').filter(Boolean))].sort()
-      .filter(t => !_cmReach || _cmReach.has(t));
+      .filter(t => !_cmTech && (!_cmReach || _cmReach.has(t)));
     const _officeOpts = _cmReach ? [] : [...new Set(Object.values(repMap).map(_repOffice).filter(Boolean))].sort();
     // A partner can't sit on a scope outside their reach.
-    if (_cmReach && _scopeKind !== 'all' && !(_scopeKind === 'team' && _cmReach.has(_scopeVal))) { state._classScope = 'all'; _scope = 'all'; _scopeKind = 'all'; _scopeVal = ''; }
+    if ((_cmTech && _scopeKind === 'team') || (_cmReach && _scopeKind !== 'all' && !(_scopeKind === 'team' && _cmReach.has(_scopeVal)))) { state._classScope = 'all'; _scope = 'all'; _scopeKind = 'all'; _scopeVal = ''; }
     const _scopedNames = new Set();
     Object.values(repMap).forEach(r => {
       if (!_inScope(r)) return;
       _scopedNames.add(r.name);
-      const d2dSales = (r.sales || []).filter(s => (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) === 'd2d' : true));
+      const d2dSales = (r.sales || []).filter(s => (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) === _cmDept : true));
       if (!d2dSales.length) return;
       allBucket.push({ ...r, sales: d2dSales });
       const t = getRepTier(r.name);
@@ -3839,7 +3843,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // reps still selling, which is exactly the story the manager needs.
     // Same D2D fence as the cohorts above — "% of co." means percent of
     // DOOR-TO-DOOR production, not company-wide across departments.
-    const _d2dAll = (rawSales || []).filter(s => (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) === 'd2d' : true)
+    const _d2dAll = (rawSales || []).filter(s => (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) === _cmDept : true)
       && (_scopeKind === 'all' || _scopedNames.has(getCanonicalRepName(s.rep))));
     const companyTotalSold    = _d2dAll.length;
     const companyTotalRevenue = _d2dAll.reduce((a, s) => a + Number(s.contractValue || 0), 0);
@@ -3932,6 +3936,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         rSub = pctOfCo(rVal, companyTotalRevenue);
         vSub = pctOfCo(vVal, companyTotalRevenue);
       }
+      if (_cmTech) return el('div', { class: 'flex items-center justify-between gap-3 px-5 py-2', style: { borderTop: '1px solid var(--border)' } },
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
+        el('div', { class: 'font-black tabular-nums text-base' }, fmtVal[key](alls[key])));
       return el('div', { class: 'grid items-center gap-2 px-3 py-1.5', style: { gridTemplateColumns: 'minmax(88px,1.1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)', borderTop: '1px solid var(--border)' } },
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
         sideCell(fmtVal[key](rVal), ROOKIE_COLOR, rLead, rSub),
@@ -3958,25 +3965,25 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       title: 'Break the Rookie / Vet cohorts down by team or office',
       onchange: (e) => { state._classScope = e.target.value; mountApp(); },
     },
-      el('option', { value: 'all', selected: _scope === 'all' }, _cmReach ? 'RIDD' : 'All D2D'),
+      el('option', { value: 'all', selected: _scope === 'all' }, _cmTech ? 'All technicians' : _cmReach ? 'RIDD' : 'All D2D'),
       _teamOpts.length ? el('optgroup', { label: 'Teams' }, ..._teamOpts.map(t => el('option', { value: 'team:' + t, selected: _scope === 'team:' + t }, t))) : null,
       _officeOpts.length ? el('optgroup', { label: 'Offices' }, ..._officeOpts.map(o => el('option', { value: 'office:' + o, selected: _scope === 'office:' + o }, _mktgTC(o)))) : null);
     const tierCard = el('div', { class: 'card overflow-hidden', 'data-section': 'class-metrics' },
       // Header: title left, scope dropdown top-right (per Isaac). The
       // "N untagged" chip is gone — untagged reps surface in Manage Teams.
       el('div', { class: 'px-5 py-3 border-b flex items-center justify-between gap-2 flex-wrap', style: { borderColor: 'var(--border)' } },
-        el('h3', { class: 'text-base font-bold', title: 'Tiers auto-set from sales history \u2014 first season selling = Rookie, returning reps = Vet. Manage Teams tags override. PRA divides by the Reps > $20K row; PRA \u00b7 Serviced divides by Reps W/ Serviced.' }, 'Class Metrics'),
-        scopePicker,
+        el('h3', { class: 'text-base font-bold', title: 'Tiers auto-set from sales history \u2014 first season selling = Rookie, returning reps = Vet. Manage Teams tags override. PRA divides by the Reps > $20K row; PRA \u00b7 Serviced divides by Reps W/ Serviced.' }, _cmTech ? 'Technician Metrics' : 'Class Metrics'),
+        _cmTech ? el('div', { class: 'flex items-center gap-2' }, el('span', { class: 'text-xs font-semibold', style: { color: 'var(--text-muted)' } }, alls.reps + ' tech' + (alls.reps === 1 ? '' : 's')), scopePicker) : scopePicker,
       ),
-      el('div', { class: 'grid items-center gap-2 px-3', style: { gridTemplateColumns: 'minmax(88px,1.1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)' } },
+      _cmTech ? null : el('div', { class: 'grid items-center gap-2 px-3', style: { gridTemplateColumns: 'minmax(88px,1.1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)' } },
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, 'Class'),
         headerCell('Rookie', ROOKIE_COLOR, rookie.reps),
         headerCell('Vet', VET_COLOR, vet.reps),
         headerCell('All', ALL_COLOR, alls.reps),
       ),
-      (rookie.reps === 0 && vet.reps === 0)
+      (_cmTech ? alls.reps === 0 : (rookie.reps === 0 && vet.reps === 0))
         ? el('div', { class: 'p-6 text-center text-xs italic', style: { color: 'var(--text-muted)' } },
-            'No tagged reps in this window. Tag reps as Rookie or Vet in Manage Teams.')
+            _cmTech ? 'No technician sales in this window.' : 'No tagged reps in this window. Tag reps as Rookie or Vet in Manage Teams.')
         : el('div', {}, ...ROW_SECTIONS.flatMap(([sec, defs]) => [
             el('div', { class: 'px-3 py-1 text-[9px] uppercase tracking-widest font-bold', style: { background: 'var(--card-2)', color: 'var(--text-subtle)', borderTop: '1px solid var(--border)' } }, sec),
             ...defs.map(([key, label]) => tierRow(label, key)),
