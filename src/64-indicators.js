@@ -4126,8 +4126,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const _rl = (state.indicatorDept || 'all') === 'office' ? (state._indRepRevMode || 'new') : 'total';
     if (ri >= 0) repCols[ri] = Object.assign({}, repCols[ri], { label: _rl === 'new' ? 'Revenue (New)' : _rl === 'renewal' ? 'Revenue (Renewals)' : 'Total Revenue' });
     if (ri >= 0) repCols.splice(ri + 1, 0,
-      usdCol('newRevenue', 'New Revenue', 'Everything except renewals (one-time services included)'),
-      usdCol('renewalRevenue', 'Renewal Revenue', 'Renewal sources only (Renewal - Loyalty / Inbound / Outbound / Service Pro Upsell)'),
+      // New / Renewal revenue columns are Office Staff only (per Isaac, Oct 4).
+      ...((state.indicatorDept || 'all') === 'office' ? [usdCol('newRevenue', 'New Revenue', 'Everything except renewals (one-time services included)'),
+      usdCol('renewalRevenue', 'Renewal Revenue', 'Renewal sources only (Renewal - Loyalty / Inbound / Outbound / Service Pro Upsell)')] : []),
       usdCol('otsRevenue', 'One-Time Revenue', 'One-time services only'),
       usdCol('recRevenue', 'Recurring Revenue', 'New revenue minus one-time services'),
     );
@@ -4388,13 +4389,16 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // Stash the full roster for the Top-15 PDF (Manage Teams → Reports).
   state._indLbAllReps = allReps;
   _profMark('ind:leaderboard-compute');
+  // Phone (per Isaac, Oct 4): New / Total / Renewal, Pick and Columns all share the title row — tighter buttons, "Pick reps" reads "Pick".
+  const _lbPhone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })();
+  const _lbBtnPad = _lbPhone ? 'px-1.5' : 'px-2.5';
   sections.push(
     // overflow-visible while the Filters menu is open so the dropdown isn't
     // clipped at the card edge (per Isaac).
     el('div', { class: 'card' + (state._repCancelMenuOpen ? '' : ' overflow-hidden'), 'data-section': 'rep-leaderboard' },
       // Mobile (per Isaac): title + Filters share the top row, the search
       // box gets the whole bottom row, the rep count drops (lb-head CSS).
-      el('div', { class: 'lb-head px-5 py-3 border-b flex items-center justify-between flex-wrap gap-3', style: { borderColor: 'var(--border)' } },
+      el('div', { class: 'lb-head px-5 py-3 border-b flex items-center justify-between flex-wrap gap-3', style: _lbPhone ? { borderColor: 'var(--border)', paddingLeft: '12px', paddingRight: '12px', columnGap: '6px' } : { borderColor: 'var(--border)' } },
         el('div', { class: 'lb-title flex items-center gap-3 flex-wrap' },
           el('h3', { class: 'text-base font-bold' }, 'Leaderboard'),
           el('span', { class: 'lb-count text-xs text-muted-' },
@@ -4430,11 +4434,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           // Rep picker — check specific reps to build a downline view.
           (() => {
             const btn = el('button', {
-              class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
+              class: 'rounded-lg border ' + _lbBtnPad + ' py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
               style: { borderColor: repPick ? 'var(--accent)' : 'var(--border-2)', color: repPick ? 'var(--accent)' : 'var(--text)' },
               title: 'Pick specific reps (a downline). Save the selection with the Presets ribbon on the left edge.',
               onclick: (e) => { e.stopPropagation(); state._indRepPickOpen = !state._indRepPickOpen; mountApp(); },
-            }, repPick ? (repPick.size + ' reps picked') : 'Pick reps');
+            }, repPick ? (repPick.size + (_lbPhone ? ' picked' : ' reps picked')) : (_lbPhone ? 'Pick' : 'Pick reps'));
             if (!state._indRepPickOpen) return el('span', { style: { position: 'relative' } }, btn);
             const setPick = (arr) => {
               state._indicatorRepPick = (arr && arr.length) ? arr : null;
@@ -4488,11 +4492,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             const offN = _lbPickable.filter(c => !c.defaultHidden && _lbOff.has(_lbColKey(c))).length;
             const open = !!state._indLbColsOpen;
             const btn = el('button', {
-              class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
+              class: 'rounded-lg border ' + _lbBtnPad + ' py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
               style: { borderColor: offN ? 'var(--accent)' : 'var(--border-2)', color: offN ? 'var(--accent)' : 'var(--text)' },
               title: 'Choose which columns show on your leaderboard. Save a layout with the Presets ribbon.',
               onclick: (e) => { e.stopPropagation(); state._indLbColsOpen = !open; mountApp(); },
-            }, offN ? 'Columns · ' + offN + ' hidden' : 'Columns');
+            }, offN ? 'Columns · ' + offN + (_lbPhone ? '' : ' hidden') : 'Columns');
             if (!open) return el('span', { style: { position: 'relative' } }, btn);
             const seen = new Set();
             const items = _lbPickable.filter(c => { const k = _lbColKey(c); if (seen.has(k)) return false; seen.add(k); return true; });
@@ -4529,9 +4533,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             return wrap;
           })(),
 
-          state.indicatorDept === 'office' ? el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+          state.indicatorDept === 'office' ? el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: _lbPhone ? { borderColor: 'var(--border-2)', order: '1', flex: '0 0 auto' } : { borderColor: 'var(--border-2)' } },
             ...[['new', 'New'], ['total', 'Total'], ['renewal', 'Renewal']].map(([v, l]) => el('button', {
-              class: 'px-2.5 py-1 text-[11px] font-bold transition cursor-pointer',
+              class: _lbBtnPad + ' py-1 text-[11px] font-bold transition cursor-pointer',
               style: (state._indRepRevMode || 'new') === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
               title: v === 'new' ? 'New business only (default)' : v === 'renewal' ? 'Renewal-source revenue only' : 'Everything',
               onclick: () => { state._indRepRevMode = v; mountApp(); },
@@ -9691,8 +9695,9 @@ function indicatorYoYTrendChart() {
   // Office staff can split the revenue metric into Total / New / Renewal.
   // Revenue splits into Total / New / Renewal for EVERY user type (per Isaac,
   // Sep 2026) — sales reps default to Total and won't notice a difference.
-  const isOffice = true;
-  const revType = (metric === 'revenue') ? (state._indicatorYoYRevType || 'total') : 'total';
+  // …reversed Oct 4 (per Isaac): New / Renewal revenue are Office Staff only; everyone else gets Total Revenue alone.
+  const isOffice = state.indicatorDept === 'office';
+  const revType = (metric === 'revenue' && isOffice) ? (state._indicatorYoYRevType || 'total') : 'total';
   const valOf = (a, matchedHorizon) => {
     if (!a) return null;
     switch (metric) {
@@ -9733,7 +9738,7 @@ function indicatorYoYTrendChart() {
       if (v === 'pra' && _yoyAllReps) continue;   // ÷1 for a single rep — meaningless
       if (v === 'revenue' && isOffice) {
         opts.push(['revenue|total', 'Total Revenue'], ['revenue|new', 'New Revenue'], ['revenue|renewal', 'Renewal Revenue']);
-      } else opts.push([v, lab]);
+      } else opts.push([v, v === 'revenue' ? 'Total Revenue' : lab]);
     }
     const cur = (metric === 'revenue' && isOffice) ? 'revenue|' + revType : metric;
     const selEl = el('select', {
