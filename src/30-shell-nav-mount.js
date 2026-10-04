@@ -990,10 +990,12 @@ function mountApp() {
             : lvl === 'amber' ? (crmDataAgeLevel() ? 'RevHawk\u2019s copy of FieldRoutes is over 2 hours behind — new sales won\u2019t show until it catches up.' : 'Data is older than the sync cadence — a run may have failed (check Netlify logs)')
             : SYNC_CADENCE_TEXT,
         },
-          _phone ? 'Last sync ' : 'Last sync: ', el('span', { class: 'font-semibold', style: { color: c || 'var(--text)' } }, txt),
-          // CRM data age beside the sync time (per Isaac, Sep 29).
-          (typeof crmDataAsOfStr === 'function' && crmDataAsOfStr(_phone)) ? el('span', { style: { color: c || 'var(--text-muted)' } }, (_phone ? ' \u00b7 data ' : ' \u00b7 CRM data: '), el('span', { class: 'font-semibold', style: { color: c || 'var(--text)' } }, crmDataAsOfStr(_phone))) : null,
-          pullErr ? (_phone ? ' \u00b7 OFFLINE' : ' \u00b7 CAN\u2019T REACH SERVER') : lvl === 'red' ? ' \u00b7 SYNC DOWN' : (lvl === 'amber' && !lvl0) ? ' \u00b7 ' + _bad.length + ' issue' + (_bad.length === 1 ? '' : 's') : lvl === 'amber' ? ' \u00b7 overdue' : '') : null;
+          // ONE figure (per Isaac, Oct 4): when data last came INTO the app — the
+          // newest FieldRoutes change the app holds. No "last sync" time and no
+          // status words: a stale time says it's down, the colour backs it up,
+          // and the detail is a tap away. Falls back to the sync time only
+          // when the data-as-of stamp isn't available yet.
+          (() => { const d = (typeof crmDataAsOfStr === 'function') ? crmDataAsOfStr(false) : ''; return [_phone ? 'Data ' : 'Last data: ', el('span', { class: 'font-semibold', style: { color: c || 'var(--text)' } }, d || txt)]; })()) : null;
       })();
   const pageHeader = el('header', {
     class: 'page-header px-4 sm:px-6 py-4',
