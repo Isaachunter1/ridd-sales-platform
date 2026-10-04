@@ -212,7 +212,7 @@ function defaultViewFor(p) {
   return g === 'tech' ? 'techs'
     : g === 'd2d' ? 'd2d_dashboard'
     : g === 'auditor' ? 'sales'
-    : g === 'office' ? 'sales'   // office staff open straight into the Sales tab (per Isaac)
+    : g === 'office' ? 'dashboard'   // everyone opens on their Sales dashboard (per Isaac, Oct 4)
     : 'dashboard';
 }
 function isTechProfile(p) {

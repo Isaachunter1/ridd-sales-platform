@@ -2967,6 +2967,7 @@ function toggleTheme() {
 const RESUME_KEY = 'ridd_resume_v1';
 const RESUME_WINDOW_MS = 5 * 60 * 1000;   // "last place" survives a 5-min backgrounding
 function _saveResume() {
+  if (window._riddNoResumeSave) return;   // a View-as switch is reloading — don't note the admin's tab for the preview to resume
   try {
     if (!state.view) return;
     localStorage.setItem(RESUME_KEY, JSON.stringify({
@@ -3673,6 +3674,14 @@ function _applyViewAsOverlay() {
   // mySales is derived from profile.id at load — re-derive under the overlay.
   if (Array.isArray(state.allSales)) state.mySales = state.allSales.filter(s => s.rep_id === state.profile.id);
 }
+// A preview starts where that user would: their Sales dashboard. Drop the
+// admin's current tab (#settings…) and the "resume last tab" note, or the
+// reload lands the preview on whatever screen the admin happened to be on.
+function _viewAsFreshStart() {
+  window._riddNoResumeSave = true;
+  try { localStorage.removeItem(RESUME_KEY); } catch { /* private mode */ }
+  try { history.replaceState(null, '', location.pathname + location.search); } catch { /* ignore */ }
+}
 function setViewAsProfile(profile) {
   const real = state._realProfile || state.profile;
   if (!real || !isAdminRole(real.role) || !profile || !profile.id) return;
@@ -3681,6 +3690,7 @@ function setViewAsProfile(profile) {
     sessionStorage.setItem(VIEW_AS_KEY, profile.role || 'rep_sales');
     sessionStorage.setItem('ridd_view_as_return', state.view || 'admin');
   } catch { /* private mode */ }
+  _viewAsFreshStart();
   location.reload();
 }
 function setViewAsRole(role) {
@@ -3700,6 +3710,7 @@ function setViewAsRole(role) {
     else { sessionStorage.removeItem(VIEW_AS_KEY); back = sessionStorage.getItem('ridd_view_as_return') || 'admin'; sessionStorage.removeItem('ridd_view_as_return'); }
   } catch { /* private mode etc. — preview just won't survive a reload */ }
   if (!role) { try { history.replaceState(null, '', (typeof VIEW_TO_HASH !== 'undefined' && VIEW_TO_HASH[back]) || '#' + back); } catch { /* ignore */ } }
+  else _viewAsFreshStart();
   location.reload();
 }
 
