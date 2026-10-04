@@ -821,6 +821,8 @@ function getBranchColor(name) {
 // system clock (today/this year). "This Year" is the default since most
 // reporting cuts the year as the baseline window.
 const INDICATOR_RANGE_PRESETS = [
+  { id: 'today',       label: 'Today' },
+  { id: 'yesterday',   label: 'Yesterday' },
   { id: 'this_week',   label: 'This Week' },
   { id: 'last_week',   label: 'Last Week' },
   { id: 'this_month',  label: 'This Month' },
@@ -867,7 +869,11 @@ function indicatorRangeBounds(preset, custom) {
   const year = today.getFullYear();
   const ym = /^year:(\d{4})$/.exec(preset || '');
   if (ym) return { start: `${ym[1]}-01-01`, end: `${ym[1]}-12-31` };
+  // Today / Yesterday use the LOCAL calendar day (an evening sale must not land on tomorrow).
+  const _loc = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   switch (preset) {
+    case 'today':      return { start: _loc(today), end: _loc(today) };
+    case 'yesterday':  { const y = new Date(today); y.setDate(y.getDate() - 1); return { start: _loc(y), end: _loc(y) }; }
     case 'last_year':  return { start: `${year - 1}-01-01`, end: `${year - 1}-12-31` };
     case 'all_time':   return { start: '2000-01-01', end: todayIso };
     case 'this_week':  { const ws = startOfWeek(today); return { start: iso(ws), end: todayIso }; }

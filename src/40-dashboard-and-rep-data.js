@@ -248,357 +248,9 @@ function techUpsellRows() {
   _techBridgeCache = { src: raw, out };
   return out;
 }
-function viewTechs() {
-  const isAdmin = isAdminRole(state.profile?.role);
-  if (!isAdmin && !isTechProfile(state.profile)) {
-    return emptyCard('The Technicians tab is for Service Pros and admins. If you should have access, ask an admin to link your account to your CRM technician profile (Settings → Users).');
-  }
-  const range = getDateRange(state._techRange || 'today');
-  const all = techUpsellRows();
-  const inRange = all.filter(s => {
-    const iso = (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || '';
-    if (!iso) return false;
-    const d = new Date(iso + 'T00:00');
-    return !isNaN(d) && d >= range.start && d <= range.end;
-  });
-  const revenue = inRange.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
-  // Leaderboard: every SELLER of a Service Pro upsell in range, by CRM
-  // name — techs without app accounts rank too (same rule as Inside Sales).
-  // Overhauled (per Isaac, Sep 2026): avatars, office, avg + biggest upsell,
-  // top service, revenue bars, a top-3 podium and a click-to-expand list.
-  const byTech = new Map();
-  inRange.forEach(s => {
-    const nm = flipLastFirst(getCanonicalRepName(s.rep || '—'));
-    if (FR_SYSTEM_NAME_RE.test(nm)) return;
-    let t = byTech.get(nm); if (!t) { t = { nm, n: 0, rev: 0, best: 0, office: '', svc: {}, rows: [] }; byTech.set(nm, t); }
-    const cv = Number(s.contractValue) || 0;
-    t.n++; t.rev += cv; if (cv > t.best) t.best = cv;
-    if (!t.office && s.office) t.office = String(s.office).split(',')[0].trim();
-    const sv = String(s.subscription || '').trim(); if (sv) t.svc[sv] = (t.svc[sv] || 0) + 1;
-    t.rows.push(s);
-  });
-  const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
-  // ── Route stats (per Isaac): jobs scheduled / completed / completion
-  // rate / production / reservices / interior / time on site, per tech in
-  // the range — from indicators/tech-stats.json.gz (hourly). Techs with a
-  // route but no upsell still make the board.
-  if (!state.techStats && typeof refreshTechStatsFromCloud === 'function') refreshTechStatsFromCloud();
-  const _ts = state.techStats || null;
-  const _startIso = range.start.toISOString().slice(0, 10), _endIso = range.end.toISOString().slice(0, 10);
-  const _todayIso = new Date().toISOString().slice(0, 10);
-  const routeByName = new Map();
-  (_ts ? _ts.rows : []).forEach(r => {
-    if (r.d < _startIso || r.d > _endIso) return;
-    const key = _sig(r.n);
-    const o = routeByName.get(key) || { name: r.n.replace(/\s+/g, ' ').trim(), office: (_ts.officeNames || {})[r.o] || '', sch: 0, done: 0, pend: 0, pastPend: 0, cxl: 0, prod: 0, prodn: 0, resvc: 0, init: 0, intr: 0, signed: 0, resched: 0, mins: 0, minsn: 0, days: new Set(), svc: {} };
-    o.sch += r.sch; o.done += r.done; o.pend += r.pend; if (r.d < _todayIso) o.pastPend += r.pend; o.cxl += r.cxl;
-    o.prod += r.prod; o.prodn += r.prodn; o.resvc += r.resvc; o.init += r.init; o.intr += r.intr; o.signed += r.signed; o.resched += r.resched;
-    if (r.mins != null) { o.mins += r.mins; o.minsn += r.minsn; }
-    if (r.done) o.days.add(r.d);
-    (r.svcs || []).forEach(sv => { o.svc[sv] = (o.svc[sv] || 0) + 1; });
-    routeByName.set(key, o);
-  });
-  routeByName.forEach((o, key) => {
-    let t = byTech.get([...byTech.keys()].find(k => _sig(k) === key));
-    if (!t) { t = { nm: o.name, n: 0, rev: 0, best: 0, office: o.office, svc: {}, rows: [] }; byTech.set(o.name, t); }
-    if (!t.office && o.office) t.office = o.office;
-    t.route = o;
-    if (!Object.keys(t.svc).length) t.svc = o.svc;
-  });
-  const board = [...byTech.values()].sort((a, b) => b.rev - a.rev || ((b.route ? b.route.prod : 0) - (a.route ? a.route.prod : 0)));
-  board.forEach(t => { t.topSvc = Object.entries(t.svc).sort((x, y) => y[1] - x[1])[0]?.[0] || ''; });
-  const maxRev = board.length ? Math.max(...board.map(t => t.rev)) || 1 : 1;
-  const R = [...routeByName.values()].reduce((a, o) => ({ sch: a.sch + o.sch, done: a.done + o.done, pastPend: a.pastPend + o.pastPend, prod: a.prod + o.prod, resvc: a.resvc + o.resvc, mins: a.mins + o.mins, minsn: a.minsn + o.minsn, techs: a.techs + (o.done ? 1 : 0) }), { sch: 0, done: 0, pastPend: 0, prod: 0, resvc: 0, mins: 0, minsn: 0, techs: 0 });
-  // Completion rate = completed ÷ (completed + still-pending jobs whose day
-  // has passed) — today's open jobs aren't misses yet.
-  const rateOf = (o) => { const base = o.done + (o.pastPend || 0); return base ? o.done / base : null; };
-  const pctS = (v) => v == null ? '—' : Math.round(v * 100) + '%';
-  const rateColor = (v) => v == null ? {} : v >= 0.95 ? { color: '#5F6C5B' } : v < 0.85 ? { color: '#DC2626' } : {};
-  const hasRoutes = routeByName.size > 0;
-  const tsAge = _ts && _ts.generatedAt ? Math.round((Date.now() - new Date(_ts.generatedAt).getTime()) / 60000) : null;
-  const _profByName = new Map((state.allProfiles || []).filter(p => p && p.full_name).map(p => [_sig(p.full_name), p]));
-  const meSig = _sig(state.profile?.full_name);
-  const avatarFor = (nm, size) => {
-    const p = _profByName.get(_sig(nm));
-    const parts = nm.split(/\s+/).filter(Boolean);
-    const initials = (parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : (parts[0] || '?').slice(0, 2)).toUpperCase();
-    if (p && p.avatar_url) return avatarNode(p.avatar_url, initials, size === 'lg' ? 'w-16 h-16 text-lg' : size === 'md' ? 'w-12 h-12 text-sm' : 'w-8 h-8 text-[10px]');
-    const px = size === 'lg' ? 64 : size === 'md' ? 48 : 32;
-    return el('span', { class: 'inline-flex items-center justify-center rounded-full font-black shrink-0', style: { width: px + 'px', height: px + 'px', fontSize: Math.round(px * .34) + 'px', background: 'rgba(95,108,91,.16)', color: '#5F6C5B', border: '1px solid rgba(95,108,91,.4)' } }, initials);
-  };
-  const officeLabel = (o) => (typeof branchAlias === 'function' ? branchAlias(o || '') : String(o || '')).toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
-  const showDate = !['today', 'yesterday'].includes(state._techRange || 'today');
-  const rangeSel = el('select', {
-    class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
-    onchange: (e) => { state._techRange = e.target.value; mountApp(); },
-  }, ...[['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'This Week'], ['month', 'This Month'], ['year', 'This Year'], ['all', 'All Time']]
-    .map(([v, l]) => { const o = el('option', { value: v }, l); if ((state._techRange || 'today') === v) o.selected = true; return o; }));
-  const myUpsells = (state.mySales || []).filter(s => {
-    const src2 = state.sources.find(o => o.id === s.source_id);
-    return src2 && TECH_UPSELL_SRC_RE.test(String(src2.name || ''));
-  });
-  const kpi = (label, value, sub) => el('div', { class: 'min-w-0 flex flex-col justify-center px-2 sm:px-4 text-center' },
-    el('div', { class: 'text-[9px] sm:text-[10px] text-muted- uppercase tracking-widest font-semibold truncate' }, label),
-    el('div', { class: 'font-display text-2xl sm:text-4xl mt-1.5 tabular-nums truncate leading-none' }, value),
-    sub ? el('div', { class: 'text-[11px] text-muted- tabular-nums mt-1 truncate' }, sub) : null);
-  const biggest = inRange.length ? inRange.reduce((a, b) => ((Number(b.contractValue) || 0) > (Number(a.contractValue) || 0) ? b : a)) : null;
-  const top3 = board.slice(0, 3);
-  const podium = top3.length >= 2 ? (() => {
-    const order = top3.length === 3 ? [top3[1], top3[0], top3[2]] : [top3[0], top3[1]];
-    return el('div', { class: 'card p-4 sm:p-5' }, el('div', { class: 'flex items-end gap-3' }, ...order.map(t => {
-      const rank = top3.indexOf(t) + 1, first = rank === 1;
-      return el('div', {
-        class: 'flex-1 min-w-0 rounded-xl border p-3 sm:p-5 flex flex-col items-center text-center cursor-pointer transition hover:brightness-95',
-        style: { borderColor: first ? 'var(--accent)' : 'var(--border)', background: first ? 'rgba(223,100,58,.07)' : 'var(--card-2)', alignSelf: first ? 'stretch' : 'flex-end' },
-        onclick: () => { state._techLbOpen = t.nm; mountApp(); },
-      },
-        el('div', { class: 'font-display leading-none', style: { fontSize: first ? '28px' : '18px', color: first ? 'var(--accent)' : 'var(--text-muted)' } }, '#' + rank),
-        el('div', { class: 'mt-2' }, avatarFor(t.nm, first ? 'lg' : 'md')),
-        el('div', { class: 'font-bold mt-2 truncate w-full' + (first ? ' text-base' : ' text-sm') }, t.nm),
-        el('div', { class: 'text-[10px] text-muted- mt-0.5 truncate w-full' }, officeLabel(t.office) || '—'),
-        el('div', { class: 'font-display tabular-nums mt-2 leading-none', style: { fontSize: first ? '30px' : '22px' } }, fmt.usd0(t.rev)),
-        el('div', { class: 'text-[11px] text-muted- tabular-nums mt-1' }, t.n + ' upsell' + (t.n === 1 ? '' : 's') + (t.n ? ' · ' + fmt.usd0(t.rev / t.n) + ' avg' : '')),
-        t.route ? el('div', { class: 'text-[10px] text-muted- tabular-nums mt-0.5' }, t.route.done + '/' + t.route.sch + ' jobs · ' + pctS(rateOf(t.route)) + (t.route.prod ? ' · ' + fmt.usd0(t.route.prod) + ' prod' : '')) : null);
-    })));
-  })() : null;
-  const num = (v, cls, style) => el('td', { class: 'px-3 py-2.5 text-right tabular-nums whitespace-nowrap ' + (cls || ''), style: style || {} }, v);
-  const detailRow = (t) => el('tr', { style: { background: 'var(--card-2)' } }, el('td', { colspan: '13', class: 'px-4 py-2' },
-    el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-1' }, t.nm + ' · ' + t.n + ' upsell' + (t.n === 1 ? '' : 's')),
-    el('table', { class: 'w-full text-xs' },
-      el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' }, el('tr', {},
-        el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Date'), el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Customer'),
-        el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Service'), el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Office'),
-        el('th', { class: 'text-right px-2 py-1 font-semibold' }, 'Value'))),
-      el('tbody', {}, ...[...t.rows].sort((x, y) => String(dateSoldToIso(y.dateSold) || '').localeCompare(String(dateSoldToIso(x.dateSold) || ''))).slice(0, 200).map(sr => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-        el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums whitespace-nowrap' }, dateSoldToIso(sr.dateSold) || '—'),
-        el('td', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap' }, String(sr.customer || '—')),
-        el('td', { class: 'px-2 py-1.5 text-muted- whitespace-nowrap' }, String(sr.subscription || '—')),
-        el('td', { class: 'px-2 py-1.5 text-muted- whitespace-nowrap' }, officeLabel(sr.office)),
-        el('td', { class: 'px-2 py-1.5 text-right tabular-nums font-semibold' }, fmt.usd0(Number(sr.contractValue) || 0))))))));
-  const phone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })();
-  const latest = [...inRange].sort((x, y) => String(dateSoldToIso(y.dateSold) || '').localeCompare(String(dateSoldToIso(x.dateSold) || ''))).slice(0, 60);
-  return el('div', { class: 'flex flex-col gap-5 w-full' },
-    (typeof repTodayStrip === 'function') ? repTodayStrip() : null,
-    el('div', { class: 'flex items-center gap-2 flex-wrap dash-toolbar justify-end' },   // date range right-justified; rides in the sub-tab row on phones (30-shell)
-      // (+ Log Upsell retired per Isaac, Sep 2026 — upsells sync from FieldRoutes.)
-      rangeSel,
-      // (ⓘ info button retired per Isaac, Sep 23.)
-    ),
-    hasRoutes ? el('div', { class: 'card p-4 sm:p-5 grid kpi-multi kpi-multi-4 grid-cols-2 sm:grid-cols-4', title: tsAge != null ? 'Route stats from FieldRoutes · refreshed ' + tsAge + ' min ago' : '' },
-      kpi('Jobs on Routes', fmt.int(R.sch), R.techs + ' tech' + (R.techs === 1 ? '' : 's') + ' completing'),
-      kpi('Completed', fmt.int(R.done), R.resvc ? R.resvc + ' reservice' + (R.resvc === 1 ? '' : 's') : ''),
-      kpi('Completion Rate', pctS(rateOf(R)), R.pastPend ? R.pastPend + ' still open past their day' : 'completed ÷ due'),
-      kpi('Production', fmt.usd0(R.prod), R.minsn ? Math.round(R.mins / R.minsn) + ' min avg on site' : '')) : null,
-    el('div', { class: 'card p-4 sm:p-5 grid kpi-multi kpi-multi-4 grid-cols-2 sm:grid-cols-4' },
-      kpi('Upsells', fmt.int(inRange.length), [...byTech.values()].filter(t => t.n > 0).length + ' tech' + ([...byTech.values()].filter(t => t.n > 0).length === 1 ? '' : 's') + ' selling'),
-      kpi('Upsell Revenue', fmt.usd0(revenue)),
-      kpi('Avg Upsell', inRange.length ? fmt.usd0(revenue / inRange.length) : '—'),
-      kpi('Biggest Upsell', biggest ? fmt.usd0(Number(biggest.contractValue) || 0) : '—', biggest ? flipLastFirst(getCanonicalRepName(biggest.rep || '')) + ' · ' + String(biggest.subscription || '') : '')),
-    podium,
-    el('div', { class: 'card overflow-hidden' },
-      el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between' },
-        el('h2', { class: 'font-display text-lg' }, 'Service Pro Leaderboard'),
-        el('span', { class: 'text-xs text-muted-' }, board.length + ' techs')),
-      board.length === 0
-        ? el('div', { class: 'p-10 text-center text-sm text-muted-' }, hasRoutes ? 'No routes or upsells in this window.' : 'No Service Pro upsells in this window yet — first one on the board takes #1.')
-        : el('div', { class: phone ? '' : 'scroll-x', style: board.length > 6 ? { maxHeight: '440px', overflowY: 'auto' } : {} },
-            el('table', { class: 'w-full text-xs' },
-              el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: '2' } },
-                el('tr', {},
-                  el('th', { class: 'text-left pl-4 pr-2 py-2 w-8' }, '#'),
-                  el('th', { class: 'text-left px-2 py-2' }, 'Technician'),
-                  el('th', { class: 'text-right px-3 py-2' }, 'Upsells'),
-                  el('th', { class: 'text-right px-3 py-2' }, 'Revenue'),
-                  ...(hasRoutes ? [
-                    el('th', { class: 'text-right px-3 py-2', title: 'Jobs on the tech’s routes in this range (scheduled + completed)' }, 'Jobs'),
-                    el('th', { class: 'text-right px-3 py-2', title: 'Completed · completion rate (today’s open jobs don’t count against it yet)' }, 'Done'),
-                  ] : []),
-                  ...(phone ? [] : [
-                    ...(hasRoutes ? [
-                      el('th', { class: 'text-right px-3 py-2', title: 'Production value of completed, productive jobs (reservices excluded)' }, 'Production'),
-                      el('th', { class: 'text-right px-3 py-2', title: 'Average minutes on site (check-in to check-out)' }, 'On Site'),
-                      el('th', { class: 'text-right px-3 py-2', title: 'Reservices completed' }, 'Resvc'),
-                      el('th', { class: 'text-right px-3 py-2', title: 'Completed jobs with the interior serviced' }, 'Interior'),
-                    ] : []),
-                    el('th', { class: 'text-right px-3 py-2' }, 'Avg Upsell'),
-                    el('th', { class: 'text-left px-3 py-2' }, 'Top Service')]))),
-              el('tbody', {},
-                ...board.slice(0, 50).flatMap((r, i) => {
-                  const isMe = _sig(r.nm) === meSig, isOpen = state._techLbOpen === r.nm, first = i === 0;
-                  return [el('tr', {
-                    class: 'border-t border- cursor-pointer transition hover:brightness-95',
-                    style: isMe ? { background: 'rgba(223,100,58,.08)' } : (isOpen ? { background: 'var(--card-2)' } : {}),
-                    title: isOpen ? 'Hide upsells' : 'Show ' + r.nm + '’s upsells',
-                    onclick: () => { state._techLbOpen = isOpen ? null : r.nm; mountApp(); },
-                  },
-                    el('td', { class: 'pl-4 pr-2 py-2 font-bold tabular-nums' + (first ? ' text-base' : ' text-muted-'), style: first ? { color: 'var(--accent)' } : {} }, i + 1),
-                    el('td', { class: 'px-2 py-2' }, el('div', { class: 'flex items-center gap-2.5' }, avatarFor(r.nm, 'sm'),
-                      el('div', { class: 'min-w-0' },
-                        el('div', { class: 'font-semibold whitespace-nowrap leading-tight' }, r.nm, isMe ? el('span', { class: 'text-[9px] font-bold uppercase tracking-wider ml-1.5 px-1.5 py-0.5 rounded', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, 'You') : null),
-                        el('div', { class: 'text-[10px] text-muted- mt-0.5 whitespace-nowrap' }, officeLabel(r.office) || '—')))),
-                    num(r.n ? fmt.int(r.n) : '—', r.n ? '' : 'text-muted-'),
-                    el('td', { class: 'px-3 py-2 text-right tabular-nums whitespace-nowrap', style: { minWidth: '110px' } },
-                      el('div', { class: r.rev ? 'font-bold' : 'text-muted-' }, r.rev ? fmt.usd0(r.rev) : '—'),
-                      r.rev ? el('div', { class: 'rounded-full mt-1 ml-auto', style: { height: '4px', width: Math.max(4, Math.round(r.rev / maxRev * 100)) + '%', background: 'var(--accent)', opacity: String(0.45 + 0.55 * (r.rev / maxRev)) } }) : null),
-                    ...(hasRoutes ? [
-                      num(r.route ? fmt.int(r.route.sch) : '—', r.route ? '' : 'text-muted-'),
-                      el('td', { class: 'px-3 py-2 text-right tabular-nums whitespace-nowrap' },
-                        r.route ? el('span', { class: 'font-semibold', style: rateColor(rateOf(r.route)) }, fmt.int(r.route.done) + ' · ' + pctS(rateOf(r.route))) : el('span', { class: 'text-muted-' }, '—')),
-                    ] : []),
-                    ...(phone ? [] : [
-                      ...(hasRoutes ? [
-                        num(r.route && r.route.prod ? fmt.usd0(r.route.prod) : '—', r.route && r.route.prod ? 'font-semibold' : 'text-muted-'),
-                        num(r.route && r.route.minsn ? Math.round(r.route.mins / r.route.minsn) + 'm' : '—', 'text-muted-'),
-                        num(r.route ? fmt.int(r.route.resvc) : '—', 'text-muted-'),
-                        num(r.route && r.route.done ? Math.round(r.route.intr / r.route.done * 100) + '%' : '—', 'text-muted-'),
-                      ] : []),
-                      num(r.n ? fmt.usd0(r.rev / r.n) : '—', 'text-muted-'),
-                      el('td', { class: 'px-3 py-2 text-left text-muted- whitespace-nowrap overflow-hidden', style: { maxWidth: '200px', textOverflow: 'ellipsis' } }, r.topSvc || '—')])),
-                    isOpen ? detailRow(r) : null].filter(Boolean);
-                }))))),
-    latest.length ? el('div', { class: 'card overflow-hidden' },
-      el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between' },
-        el('h2', { class: 'font-display text-lg' }, 'Latest Upsells'),
-        el('span', { class: 'text-xs text-muted-' }, fmt.int(inRange.length))),
-      el('div', { style: { maxHeight: '360px', overflowY: 'auto' } }, el('table', { class: 'w-full text-xs' },
-        el('tbody', {}, ...latest.map(sr => el('tr', { class: 'border-t border-' },
-          showDate ? el('td', { class: 'pl-4 pr-2 py-2 text-muted- tabular-nums whitespace-nowrap' }, dateSoldToIso(sr.dateSold) || '—') : null,
-          el('td', { class: (showDate ? 'px-2' : 'pl-4 pr-2') + ' py-2 whitespace-nowrap' }, el('span', { class: 'flex items-center gap-2' }, avatarFor(flipLastFirst(getCanonicalRepName(sr.rep || '')), 'sm'), el('span', { class: 'font-semibold' }, flipLastFirst(getCanonicalRepName(sr.rep || '')).split(' ')[0]))),
-          el('td', { class: 'px-2 py-2 font-semibold whitespace-nowrap' }, String(sr.customer || '—')),
-          el('td', { class: 'px-2 py-2 text-muted- whitespace-nowrap overflow-hidden', style: { maxWidth: '180px', textOverflow: 'ellipsis' } }, String(sr.subscription || '—')),
-          el('td', { class: 'pr-4 pl-2 py-2 text-right tabular-nums font-semibold' }, fmt.usd0(Number(sr.contractValue) || 0))))))))
-      : null,
-    !isAdmin && el('div', { class: 'card overflow-hidden' },
-      el('div', { class: 'px-4 py-3 border-b border-' }, el('h2', { class: 'text-base font-bold' }, 'My Logged Upsells')),
-      myUpsells.length === 0
-        ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'Nothing logged yet — tap + Log Upsell after your next one.')
-        : el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs' },
-            el('tbody', {}, ...myUpsells.slice(0, 25).map(s => el('tr', { class: 'border-t border-' },
-              el('td', { class: 'pl-4 pr-2 py-2 tabular-nums text-muted-' }, s.sold_date),
-              el('td', { class: 'px-2 py-2 font-semibold' }, s.customer_name || '—'),
-              el('td', { class: 'px-2 py-2 text-muted-' }, nameFromId(state.serviceTypes, s.service_type_id)),
-              el('td', { class: 'pl-2 pr-4 py-2 text-right tabular-nums font-semibold' }, fmt.usd0(s.revenue_amount))))))),
-    ));
-}
+// (viewTechs removed Oct 4 — the Sales dashboards are Indicators now; see viewWorldDashboard in 64-indicators.js.)
 
-function viewDashboard() {
-  const isAdmin = isAdminRole(state.profile?.role);
-  const range = getDateRange(state.dashDateRange);
-  // Scope: LIVE CRM office-staff sales + app-logged upsells for everyone
-  // (see warRoomCrmSales above). Dashboard is a "what's the room doing"
-  // view, not a personal scoreboard. Sales tab + Pay tab still scope to
-  // state.mySales so reps can't see other reps' deal detail.
-  const salesScope = dashboardSales();
-  const windowSales = salesScope.filter(s => {
-    const d = new Date(s.sold_date + 'T00:00');
-    return d >= range.start && d <= range.end;
-  });
-  // Count every sale that isn't cancelled/nsf/not_payable/reschedule.
-  // Pending and below-min sales still count toward total revenue on the dashboard.
-  const EXCLUDE_DASH = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
-  const approved = windowSales.filter(s => !EXCLUDE_DASH.has(s.audit_status));
-
-  // Renewal split via source.is_renewal
-  const renewalIds = new Set(state.sources.filter(s => sourceIsRenewal(s)).map(s => s.id));
-  const isRenewal  = (sale) => sale._crmRenewal ?? renewalIds.has(sale.source_id);
-  const approvedNew     = approved.filter(s => !isRenewal(s));
-  const approvedRenewal = approved.filter(s =>  isRenewal(s));
-
-  const totalSalesCount  = approved.length;
-  const newSalesCount    = approvedNew.length;
-  const renewalCount     = approvedRenewal.length;
-
-  const totalRevenue     = sumRev(approved);
-  const newRevenue       = sumRev(approvedNew);
-  const renewalRevenue   = sumRev(approvedRenewal);
-
-  // Revenue goal
-  const goal = getGoalForContext();
-  const ytd  = goalYtdRevenue(isAdmin);
-  const goalProgress = goal.amount > 0 ? Math.min(1, ytd[state.dashGoalTab] / goal.amount) : 0;
-  const daysLeft = daysLeftInGoalPeriod(goal);
-
-  // (Board look pulled off this dashboard per Isaac — it stays on D2D / Techs.)
-  return el('div', { class: 'flex flex-col gap-5 w-full' },
-
-    // ─── Top row: + New Sale + date filter + office view ───
-    el('div', { class: 'flex items-center gap-2 flex-wrap dash-toolbar justify-end' },   // date filter right-justified (per Isaac, Sep 22); on phones it rides in the sub-tab row (30-shell)
-      // + New Sale stretches to fill the row on every screen (per Isaac);
-      // Today / info keep their natural size on the right (dash-toolbar CSS).
-      // (+ New Sale retired per Isaac, Sep 2026 — sales sync from FieldRoutes.)
-      // Date filter
-      el('select', {
-        class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
-        onchange: e => {
-          state.dashDateRange = e.target.value;
-          if (state.dashDateRange === 'custom') {
-            if (!state.dashCustomStart) state.dashCustomStart = new Date().toISOString().slice(0, 10);
-            if (!state.dashCustomEnd)   state.dashCustomEnd   = new Date().toISOString().slice(0, 10);
-          }
-          mountApp();
-        },
-      },
-        el('option', { value: 'today',      selected: state.dashDateRange === 'today' },      'Today'),
-        el('option', { value: 'yesterday',  selected: state.dashDateRange === 'yesterday' },  'Yesterday'),
-        el('option', { value: 'week',       selected: state.dashDateRange === 'week' },       'This Week'),
-        el('option', { value: 'last_week',  selected: state.dashDateRange === 'last_week' },  'Last Week'),
-        el('option', { value: 'month',      selected: state.dashDateRange === 'month' },      'This Month'),
-        el('option', { value: 'last_month', selected: state.dashDateRange === 'last_month' }, 'Last Month'),
-        el('option', { value: 'year',       selected: state.dashDateRange === 'year' },       'This Year'),
-        el('option', { value: 'last_year',  selected: state.dashDateRange === 'last_year' },  'Last Year'),
-        el('option', { value: 'all',        selected: state.dashDateRange === 'all' },        'All Time'),
-        el('option', { value: 'custom',     selected: state.dashDateRange === 'custom' },     'Custom…'),
-      ),
-
-      // Custom range inputs
-      state.dashDateRange === 'custom' && el('div', { class: 'flex items-center gap-2' },
-        el('input', { type: 'date', class: 'rounded-xl px-2.5 py-1 text-[11px]', value: state.dashCustomStart || '', onchange: e => { state.dashCustomStart = e.target.value; mountApp(); } }),
-        el('span', { class: 'text-muted- text-xs' }, '→'),
-        el('input', { type: 'date', class: 'rounded-xl px-2.5 py-1 text-[11px]', value: state.dashCustomEnd || '', onchange: e => { state.dashCustomEnd = e.target.value; mountApp(); } }),
-      ),
-
-      // (ⓘ info button retired per Isaac, Sep 23.)
-    ),
-
-    // ─── Revenue Goal card — 3 bars: Total, New, Renewal ───
-    dashboardGoalCard(range),
-
-    // ─── Office stats (per Isaac): replaces the old 🏢 Office toggle — a
-    // collapsed bar under the revenue pacer that expands into a per-office
-    // table (sales / new / renewals / revenue / new revenue / reps). ───
-    dashOfficeStats(approved, isRenewal),
-
-    // ─── KPI cards: one combined Sales card + one combined Revenue card.
-    // Three stats sit side by side inside each card (instead of three
-    // separate cards) so the dashboard stays compact — especially on
-    // mobile, where the old layout stacked six full-width cards. ───
-    kpiTripleCard([
-      ['Total Sales', fmt.int(totalSalesCount), () => { state.view = 'sales'; mountApp(); }],
-      ['New Sales',   fmt.int(newSalesCount),   () => { state.view = 'sales'; mountApp(); }],
-      ['Renewals',    fmt.int(renewalCount),    () => { state.view = 'sales'; state._salesQueueFilter = 'history'; mountApp(); }],
-    ]),
-    // Revenue tiles drill to the exact rows behind the number (per the
-    // provenance audit: "why is this $X?" — the window's sales, minus
-    // cancelled / NSF / not payable / reschedule / rejected, split by the
-    // renewal source flag). Rows are mapped to the reporting drill's shape.
-    kpiTripleCard([
-      ['Total Revenue',   fmt.usd0(totalRevenue),   () => dashRevenueDrill('Total Revenue', approved, totalRevenue, range)],
-      ['New Revenue',     fmt.usd0(newRevenue),     () => dashRevenueDrill('New Revenue (excl. renewals)', approvedNew, newRevenue, range)],
-      ['Renewal Revenue', fmt.usd0(renewalRevenue), () => dashRevenueDrill('Renewal Revenue', approvedRenewal, renewalRevenue, range)],
-    ]),
-    // (Reconcile export link removed per Isaac — the CSV logic lives in git history if ever needed.)
-
-    // ─── Split: Today's Sales (30%) | Leaderboard (70%) ───
-    // Mobile stacks LEADERBOARD first (per Isaac) — CSS order flips below
-    // the lg breakpoint; desktop keeps feed-left / leaderboard-right.
-    // Both cards stretch to the same height (per Isaac): the grid rows
-    // stretch, each card is a flex column, and the scroll region fills it.
-    el('div', { class: 'grid grid-cols-1 lg:grid-cols-[3fr_7fr] gap-4 items-stretch' },
-      el('div', { class: 'order-2 lg:order-1 min-w-0 flex flex-col' }, todaysSalesPanel(windowSales, range)),
-      el('div', { class: 'order-1 lg:order-2 min-w-0 flex flex-col' }, leaderboardSection(range)),
-    ),
-  );
-}
+// (viewDashboard removed Oct 4 — the Sales dashboards are Indicators now; see viewWorldDashboard in 64-indicators.js.)
 
 
 // One card, three stats side by side, divided by hairlines. Replaces the
@@ -2423,16 +2075,29 @@ function _parseSlashDate(str) {
 }
 function _is3DayROR(s) {
   if (!s) return false;
-  if (_rorReasonHit(s.cancelReason || '')) return true;
-  // Date-based fallback: cancel within 3 days of sale, regardless of
-  // what's typed in the reason field — confirmed rule: a quick cancel is
-  // ROR even when the reason is mistagged (those get cleaned up in
-  // FieldRoutes instead).
-  const sold   = _parseSlashDate(s.dateSold);
-  const cancel = _parseSlashDate(s.cancelDate);
-  if (!sold || !cancel) return false;
-  const diff = Math.round((cancel.getTime() - sold.getTime()) / 86400000);
-  return diff >= 0 && diff <= ((typeof crmRorWindowDays === 'function') ? crmRorWindowDays() : 3);
+  // Asked several times per sale on every render — remembered for the length
+  // of ONE render (the rules behind it can change between renders). Kept
+  // inside the function so it stays self-contained for the attrition tests.
+  const _q = (typeof window !== 'undefined' && window._riddSeq) || 0;
+  let _M = null;
+  if (_q && typeof s === 'object') {
+    _M = _is3DayROR._m; if (!_M || _M.seq !== _q) _M = _is3DayROR._m = { seq: _q, map: new WeakMap() };
+    const c = _M.map.get(s); if (c !== undefined) return c;
+  }
+  const _v = (() => {
+    if (_rorReasonHit(s.cancelReason || '')) return true;
+    // Date-based fallback: cancel within 3 days of sale, regardless of
+    // what's typed in the reason field — confirmed rule: a quick cancel is
+    // ROR even when the reason is mistagged (those get cleaned up in
+    // FieldRoutes instead).
+    const sold   = _parseSlashDate(s.dateSold);
+    const cancel = _parseSlashDate(s.cancelDate);
+    if (!sold || !cancel) return false;
+    const diff = Math.round((cancel.getTime() - sold.getTime()) / 86400000);
+    return diff >= 0 && diff <= ((typeof crmRorWindowDays === 'function') ? crmRorWindowDays() : 3);
+  })();
+  if (_M) _M.map.set(s, _v);
+  return _v;
 }
 function _isCombinedSub(s) {
   return !!s && _combinedReasonHit(s.cancelReason || '');

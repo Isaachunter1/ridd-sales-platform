@@ -632,6 +632,7 @@ function _ensureEditBanner() {
 }
 
 function mountApp() {
+  window._riddSeq = (window._riddSeq || 0) + 1;   // one render = one tick (per-render memos key on it)
   // Competitions landing paints the whole page orange (set again below
   // by the landing renderer when it's the view being drawn).
   try { document.body.classList.remove('comp-landing'); } catch (e) { /* pre-DOM */ }
@@ -1328,7 +1329,8 @@ function mountApp() {
 
   // Big-number overflow guard — synchronous, so oversized figures never
   // paint full-size for a frame before shrinking.
-  try { fitCardNumbers(); } catch (e) { /* never block a render */ }
+  // After the paint, not before it: measuring forces a full layout of the page.
+  requestAnimationFrame(() => { try { fitCardNumbers(); } catch (e) { /* never block a render */ } });
   // RENDER STABILITY (per Isaac): background remounts used to yank the page
   // back to the top. Same view → restore the exact scroll spot; a real
   // navigation still starts at the top like it should.
@@ -1348,9 +1350,9 @@ function mountApp() {
 // inside a card after each render and shrinks just the overflowing ones
 // until they fit (floor 11px). Reset-first so growing the window restores
 // full size. Wired to mountApp + debounced window resize.
-function fitCardNumbers() {
+function fitCardNumbers(root) {
   try {
-    const els = document.querySelectorAll('.card .font-display, .stat-tile .font-display');
+    const els = (root && root.querySelectorAll ? root : document).querySelectorAll('.card .font-display, .stat-tile .font-display');
     // Pass 1: undo anything a previous pass shrank (so resizes can re-grow).
     els.forEach(n => {
       if (n.dataset.fitPrev != null) { n.style.fontSize = n.dataset.fitPrev; delete n.dataset.fitPrev; }

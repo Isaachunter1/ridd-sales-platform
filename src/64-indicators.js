@@ -7,6 +7,32 @@
 // preset to that rep type; the standalone Indicators tab is gone. Admins get
 // the three views through the Sales rep-type toggle; a rep only ever sees
 // their own. Office Staff keep the revenue-goal pacer on top.
+// ── Lazy sections (perf, Oct 4) ── Indicators is every rep's landing page
+// now, and building the whole page up front took 4–7 s on the full dataset.
+// A heavy below-the-fold card is handed over as a placeholder and only BUILT
+// when it scrolls within reach — so the first paint is the top of the page,
+// and a card nobody scrolls to (or has hidden) costs nothing. The placeholder
+// keeps the card's last height so the page doesn't jump.
+const _indLazyH = new Map();
+function indLazy(key, build, attrs, estHeight) {
+  // Edit mode decorates real sections, and old browsers have no observer: build now.
+  if (state._editMode || typeof IntersectionObserver !== 'function') { try { return build(); } catch (e) { console.warn('[ridd] section failed', key, e); return null; } }
+  const ph = el('div', Object.assign({ class: 'card', 'data-lazy': key,
+    style: { minHeight: (_indLazyH.get(key) || estHeight || 240) + 'px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-subtle)', fontSize: '11px' } }, attrs || {}), 'Loading…');
+  let done = false, io = null;
+  const go = () => {
+    if (done || !ph.isConnected) return; done = true; if (io) io.disconnect();
+    let node = null;
+    try { node = build(); } catch (e) { console.warn('[ridd] section failed', key, e); }
+    if (!node) { ph.remove(); return; }
+    if (ph.style.order) node.style.order = ph.style.order;
+    ph.replaceWith(node);
+    requestAnimationFrame(() => { try { if (node.isConnected) { _indLazyH.set(key, node.offsetHeight); if (typeof fitCardNumbers === 'function') fitCardNumbers(node); } } catch (e) { /* nicety */ } });
+  };
+  io = new IntersectionObserver((es) => { if (es.some(e => e.isIntersecting)) go(); }, { rootMargin: '500px 0px' });
+  io.observe(ph);
+  return ph;
+}
 const IND_WORLD = { dashboard: 'office', d2d_dashboard: 'd2d', techs: 'techs' };
 function isIndicatorsView(v) { v = v || state.view; return v === 'indicators' || !!IND_WORLD[v]; }
 // Where an old "Indicators" link / bookmark lands now.
@@ -722,6 +748,16 @@ function viewIndicators() {
             el('div', { class: 'flex flex-col gap-2' },
               el('div', { class: 'flex items-center justify-between gap-2 flex-wrap' },
               // Presets button — left-justified on the Filters row (per Isaac).
+              // One-tap range (per Isaac, Oct 4): the page opens on This Year, but in
+              // season a rep mostly wants TODAY — so the four ranges people flip
+              // between sit right on the bar instead of inside Filters.
+              el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' }, 'data-quick-range': '1' },
+                ...[['today', 'Today'], ['this_week', 'Week'], ['this_month', 'Month'], ['this_year', 'Year']].map(([id, lbl]) => el('button', {
+                  class: 'px-2.5 py-1 text-[11px] font-semibold',
+                  style: state.indicatorsRangePreset === id ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)', background: 'var(--card)' },
+                  title: (INDICATOR_RANGE_PRESETS.find(x => x.id === id) || {}).label || lbl,
+                  onclick: () => { if (state.indicatorsRangePreset === id) return; state.indicatorsRangePreset = id; state.indicatorsCustomStart = ''; state.indicatorsCustomEnd = ''; if (typeof trackAction === 'function') trackAction('quick_range', 'indicators', { range: id }); mountApp(); },
+                }, lbl))),
               indPresetRibbon(),
               el('div', { class: 'flex items-center justify-end gap-2 flex-wrap ml-auto' },
         // (🔧 edit mode moved to the GLOBAL top bar — it now drives section
@@ -1342,7 +1378,7 @@ function viewIndicators() {
     _isPartner && !_focusedComp && userCan('ind_card') && !(_repLayoutPrefs().hidden || []).includes('card') && partnerLandingCard(),
     // Sales reps: Your Performance Trends sits right under the player card,
     // ahead of the Indicators table + Power Ranking (per Isaac).
-    _repSalesLayout && !_focusedComp && userCan('ind_yoy') && !(_repLayoutPrefs().hidden || []).includes('yoy') && indicatorYoYTrendChart(),
+    _repSalesLayout && !_focusedComp && userCan('ind_yoy') && !(_repLayoutPrefs().hidden || []).includes('yoy') && indLazy('yoy', () => indicatorYoYTrendChart(), null, 380),
 
     // ── Main metrics table (click metric name to sort branches) ──
     // Rep accounts get the focused view (Performance Trends + Rep
@@ -1687,7 +1723,7 @@ function viewIndicators() {
     // (so This Week / Last Week actually graph), ≤180 days stays weekly,
     // longer ranges roll up to months — same rules as getChartBuckets.
     // Day/month axes aggregate straight from the raw sales.
-    (!_repLite || userCan('ind_power_chart')) && !_focusedComp && (() => {
+    (!_repLite || userCan('ind_power_chart')) && !_focusedComp && indLazy('power-charts', () => {
       let chartData = isRange ? data : allData;
       let chartWeeks = isRange ? weeks : allWeeks;
       let chartLabels = null;
@@ -1751,9 +1787,9 @@ function viewIndicators() {
         // Partners get the YoY/Performance Trends chart inside their
         // personalized stack (yoy builder) — rendering it here too would
         // double it up.
-        !_repLite && indicatorYoYTrendChart(),
+        !_repLite && indLazy('yoy', () => indicatorYoYTrendChart(), null, 380),
       );
-    })(),
+    }, null, 720),
 
     // ════════════════════════════════════════════════════════════════
     // REP-LEVEL ANALYTICS (computed from raw sales if available)
@@ -1767,7 +1803,7 @@ function viewIndicators() {
           const builders = {
             // Every section is gated by the Settings → Permissions matrix.
             card:  () => (!_isPartner && userCan('ind_card')) ? [repLandingPlayerCard()] : [],   // analyst layout pins it at page top instead
-            yoy:   () => (!_repSalesLayout && userCan('ind_yoy')) ? [indicatorYoYTrendChart()] : [],   // sales reps: pinned under the player card instead
+            yoy:   () => (!_repSalesLayout && userCan('ind_yoy')) ? [indLazy('yoy', () => indicatorYoYTrendChart(), null, 380)] : [],   // sales reps: pinned under the player card instead
             trend: () => userCan('ind_trend') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-indsection') === 'repTrend') : [],
             board: () => userCan('ind_board') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'rep-leaderboard') : [],
             records: () => userCan('ind_records') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'agg-records') : [],
@@ -3604,6 +3640,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   _profMark('ind:lb-chart-prep');
   let _tierCardSection = null;
   (() => {
+    // Skip the whole build when the card won't be shown (perf): Office Staff never get it, and a rep without the Class Metrics permission doesn't either.
+    if (state.indicatorDept === 'office' || (!isAdminRole(state.profile?.role) && !userCan('ind_class'))) return;
     const tierBuckets = { rookie: [], vet: [] };
     let untagged = 0;
     const untaggedReps = [];   // for the badge drill-down (per Isaac)
@@ -4799,7 +4837,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   if (state.indicatorsComps && getActiveComp().scoring === 'avg_pest_initial') {
     _profMark('ind:leaderboard-dom'); sections.push(buildD2DCompSection()); _profMark('ind:comps');
   }
-  sections.push(buildAggregateRecordsCard()); _profMark('ind:records');
+  sections.push(indLazy('agg-records', () => buildAggregateRecordsCard(), { 'data-section': 'agg-records' }, 320)); _profMark('ind:records');
   // Rookie vs Vet lives directly under the Records card (built earlier).
   if (_tierCardSection && state.indicatorDept !== 'office') sections.push(_tierCardSection); _profMark('ind:class-metrics');
 
