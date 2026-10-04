@@ -34,6 +34,44 @@ function indLazy(key, build, attrs, estHeight) {
   return ph;
 }
 const IND_WORLD = { dashboard: 'office', d2d_dashboard: 'd2d', techs: 'techs' };
+// ── Teams belong to a rep type (per Isaac, Oct 4). Teams today are D2D
+// teams. On the Office Staff / Technicians dashboards a team only counts
+// when a rep OF THAT TYPE is assigned to it — so a door-to-door team never
+// shows up under the wrong rep type just because one of its reps booked an
+// office sale. When office / tech reps get teams of their own, the Top Team
+// row, the Sales Mix Teams view and the Team filter come back by themselves.
+function indRepDeptByName(name) {
+  try {
+    const t = (state._indicatorRepTypeBySig || {})[_repTypeNameSig(getCanonicalRepName(name))];
+    if (!t) return '';
+    return crmSellerIs('office_staff', t) ? 'office' : crmSellerIs('technician', t) ? 'techs' : 'd2d';
+  } catch (e) { return ''; }
+}
+function _indTeamWorld() { const d = state.indicatorDept; return (d === 'office' || d === 'techs') ? d : ''; }
+// The team a rep counts under on the CURRENT dashboard ('' = none).
+function indWorldTeamOf(rep) {
+  const t = (typeof getRepTeam === 'function' && getRepTeam(rep)) || '';
+  const w = _indTeamWorld();
+  if (!t || !w) return t;
+  const M = indWorldTeamOf._m && indWorldTeamOf._m.seq === window._riddSeq ? indWorldTeamOf._m : (indWorldTeamOf._m = { seq: window._riddSeq, map: new Map() });
+  let d = M.map.get(rep);
+  if (d === undefined) { d = indRepDeptByName(rep); M.map.set(rep, d); }
+  return d === w ? t : '';
+}
+// Does the current dashboard have any teams of its own?
+function indWorldHasTeams() {
+  const w = _indTeamWorld();
+  if (!w) return true;
+  const M = indWorldHasTeams._m;
+  if (M && M.seq === window._riddSeq && M.w === w) return M.v;
+  let v = false;
+  try {
+    const map = (typeof _activeTeamMap === 'function' && _activeTeamMap()) || {};
+    for (const k in map) { if (map[k] && !(typeof isTeamExcluded === 'function' && isTeamExcluded(map[k])) && indRepDeptByName(k) === w) { v = true; break; } }
+  } catch (e) { v = false; }
+  indWorldHasTeams._m = { seq: window._riddSeq, w, v };
+  return v;
+}
 function isIndicatorsView(v) { v = v || state.view; return v === 'indicators' || !!IND_WORLD[v]; }
 // Where an old "Indicators" link / bookmark lands now.
 function indHomeView() {
@@ -51,6 +89,7 @@ function viewWorldDashboard() {
     state._indWorld = state.view;
     state.indicatorDept = dept;
     if (dept !== 'd2d' && state.indicatorsGroupBy === 'teams') state.indicatorsGroupBy = 'branch';   // teams are a D2D grouping
+    if (!indWorldHasTeams()) state._indicatorRepTeamFilter = '';   // a D2D team filter doesn't follow you onto a dashboard with no teams
   }
   const node = viewIndicators();
   if (dept === 'office' && typeof dashboardGoalCard === 'function') {
@@ -860,7 +899,7 @@ function viewIndicators() {
             onchange: e => { _staged.group = e.target.value; _markDirty(); },
           },
             el('option', { value: 'branch', selected: _staged.group === 'branch' }, 'Branch / Office'),
-            el('option', { value: 'teams', selected: _staged.group === 'teams' }, 'Teams'),
+            state.indicatorDept === 'office' || state.indicatorDept === 'techs' ? null : el('option', { value: 'teams', selected: _staged.group === 'teams' }, 'Teams'),
           );
           const _selCls = { class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer w-full', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } };
           const _offices = [...new Set((state._indicatorRawSales || []).map(x => x.office).filter(Boolean))].sort();   // raw CRM strings — the leaderboard matches on these exactly
@@ -891,7 +930,7 @@ function viewIndicators() {
                   _fRow('Date',   hl(dateSel,   isRange && state.indicatorsRangePreset !== 'this_year')),
                   _fRow('Group',  hl(groupSel,  groupBy !== 'branch')),
                   _repLite ? null : _fRow('Office', hl(officeSel, !!state._indicatorRepOfficeFilter)),
-                  _repLite ? null : _fRow('Team',   hl(teamSel,   !!state._indicatorRepTeamFilter)),
+                  (_repLite || !indWorldHasTeams()) ? null : _fRow('Team',   hl(teamSel,   !!state._indicatorRepTeamFilter)),
                   (_repLite || !tierSel) ? null : _fRow('Tier', hl(tierSel, !!state._indicatorRepTierFilter)),
                 ];
               })(),
@@ -3146,7 +3185,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       });
     };
     const branchAll = groupBests(s => s.office,           PRA_MIN_BRANCH);
-    const teamAll   = groupBests(s => getRepTeam(s.rep),  PRA_MIN_TEAM);
+    const teamAll   = groupBests(s => indWorldTeamOf(s.rep),  PRA_MIN_TEAM);
     // Rep scope (per Isaac): each rep's own best day/week/month. PRA floor
     // is 1 by definition — a rep's PRA day IS their best solo day.
     const repAll    = groupBests(s => getCanonicalRepName(s.rep), 1);
@@ -3162,7 +3201,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         if (!salesByBranch[s.office]) salesByBranch[s.office] = [];
         salesByBranch[s.office].push(s);
       }
-      const t = getRepTeam(s.rep);
+      const t = indWorldTeamOf(s.rep);
       if (t) {
         if (!salesByTeam[t]) salesByTeam[t] = [];
         salesByTeam[t].push(s);
@@ -3547,8 +3586,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       ...(expanded === 'company' ? [expansionRow('company')] : []),
       summaryRow('Top Office', branch,        'branch',  'branch'),
       ...(expanded === 'branch'  ? [expansionRow('branch')]  : []),
-      summaryRow('Top Team',   team,          'team',    'team'),
-      ...(expanded === 'team'    ? [expansionRow('team')]    : []),
+      // No Top Team row on a dashboard whose rep type has no teams (Office Staff / Technicians today).
+      ...(indWorldHasTeams() ? [summaryRow('Top Team',   team,          'team',    'team'),
+      ...(expanded === 'team'    ? [expansionRow('team')]    : [])] : []),
       summaryRow('Top Rep',    rep,           'rep',     'rep'),
       ...(expanded === 'rep'     ? [expansionRow('rep')]     : []),
     ];
@@ -4917,10 +4957,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // (the pool is already scoped to their reach), or Offices. No Teams view.
   const mixGroup = _mixPartnerish
     ? (state._indicatorMixGroup === 'office' ? 'office' : 'subscription')
-    : (['office', 'team'].includes(state._indicatorMixGroup) ? state._indicatorMixGroup : 'subscription');
+    : ((state._indicatorMixGroup === 'office' || (state._indicatorMixGroup === 'team' && indWorldHasTeams())) ? state._indicatorMixGroup : 'subscription');
   const _mixTC = (o) => String(o || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
   const officeKeyOf = (s) => _mixTC(s.office || 'Unknown');
-  const teamKeyOf   = (s) => (typeof getRepTeam === 'function' && getRepTeam(s.rep)) || 'Unassigned';
+  const teamKeyOf   = (s) => indWorldTeamOf(s.rep) || 'Unassigned';
   // Partners / team leads (per Isaac, Sep 2026): the mix is THEIR team's —
   // every view here (Subscriptions / Offices / Teams) reads from the sales
   // of the team(s) they lead, not the whole company.
@@ -4935,7 +4975,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     ? _mixScoped.filter(s => (mixGroup === 'office' ? officeKeyOf(s) : teamKeyOf(s)) === drill.key)
     : _mixScoped;
   const mixGroupTabs = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
-    ...(_mixPartnerish ? [['subscription', 'Subscriptions'], ['office', 'Offices']] : [['subscription', 'Subscriptions'], ['office', 'Offices'], ['team', 'Teams']]).map(([v, l]) => el('button', {
+    ...((_mixPartnerish || !indWorldHasTeams()) ? [['subscription', 'Subscriptions'], ['office', 'Offices']] : [['subscription', 'Subscriptions'], ['office', 'Offices'], ['team', 'Teams']]).map(([v, l]) => el('button', {
       class: 'px-2.5 py-1 text-[11px] font-semibold transition',
       style: mixGroup === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
       onclick: () => { state._indicatorMixGroup = v; state._indicatorMixDrill = null; mountApp(); },
