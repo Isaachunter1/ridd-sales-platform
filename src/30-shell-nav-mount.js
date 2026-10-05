@@ -427,7 +427,7 @@ function openMySettingsModal() {
 function _userLayoutKey() {
   const uid = (state.profile && state.profile.id) || 'anon';
   // The three world dashboards are all Indicators — one saved layout, the one reps already had on the Indicators tab.
-  return 'ridd_layout_v1::' + uid + '::' + ((typeof IND_WORLD !== 'undefined' && IND_WORLD[state.view]) ? 'indicators' : state.view);
+  return 'ridd_layout_v1::' + uid + '::' + ((typeof IND_WORLD !== 'undefined' && IND_WORLD[state.view]) ? 'indicators2' : state.view);   // 'indicators2' (Oct 5): the page order was reworked, so layouts saved against the old order start fresh
 }
 function _userLayoutPrefs() {
   try {

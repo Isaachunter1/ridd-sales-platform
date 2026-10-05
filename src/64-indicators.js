@@ -16,8 +16,8 @@
 const _indLazyH = new Map();
 function indLazy(key, build, attrs, estHeight) {
   // Edit mode decorates real sections, and old browsers have no observer: build now.
-  if (state._editMode || typeof IntersectionObserver !== 'function') { try { return build(); } catch (e) { console.warn('[ridd] section failed', key, e); return null; } }
-  const ph = el('div', Object.assign({ class: 'card', 'data-lazy': key,
+  if (state._editMode || typeof IntersectionObserver !== 'function') { try { const n0 = build(); if (n0 && n0.setAttribute) n0.setAttribute('data-lazykey', key); return n0; } catch (e) { console.warn('[ridd] section failed', key, e); return null; } }
+  const ph = el('div', Object.assign({ class: 'card', 'data-lazy': key, 'data-lazykey': key,
     style: { minHeight: (_indLazyH.get(key) || estHeight || 240) + 'px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-subtle)', fontSize: '11px' } }, attrs || {}), 'Loading…');
   let done = false, io = null;
   const go = () => {
@@ -26,6 +26,7 @@ function indLazy(key, build, attrs, estHeight) {
     try { node = build(); } catch (e) { console.warn('[ridd] section failed', key, e); }
     if (!node) { ph.remove(); return; }
     if (ph.style.order) node.style.order = ph.style.order;
+    if (node.setAttribute) node.setAttribute('data-lazykey', key);
     ph.replaceWith(node);
     requestAnimationFrame(() => { try { if (node.isConnected) { _indLazyH.set(key, node.offsetHeight); if (typeof fitCardNumbers === 'function') fitCardNumbers(node); } } catch (e) { /* nicety */ } });
   };
@@ -79,6 +80,36 @@ function indWorldHasTeams() {
   const D = _indTeamDepts();
   for (const t in D) if (D[t] === w && !(typeof isTeamExcluded === 'function' && isTeamExcluded(t))) return true;
   return false;
+}
+// ── Page order per dashboard (per Isaac, Oct 5). Sales Reps: Leaderboard
+// first, then the Indicators table, its graph, Performance Trends, Records,
+// Class Metrics, Sales Mix. A dashboard with no entry keeps its built order.
+// Anything not named (player card, comp card) keeps its place around them.
+const IND_SECTION_ORDER = {
+  d2d: ['rep-leaderboard', 'ind-table', 'power-charts', 'yoy', 'repTrend', 'agg-records', 'class-metrics', 'sales-mix'],
+};
+function indApplySectionOrder(page) {
+  try {
+    const order = IND_SECTION_ORDER[state.indicatorDept];
+    if (!order || state.indicatorsComps || !page || !page.children) return page;
+    const keyOf = (n) => (n.getAttribute && (n.getAttribute('data-section') || n.getAttribute('data-lazykey') || n.getAttribute('data-indsection'))) || '';
+    const kids = [...page.children];
+    const rank = (n) => order.indexOf(keyOf(n));
+    const ranked = kids.filter(n => rank(n) >= 0).sort((a, b) => rank(a) - rank(b));
+    if (ranked.length < 2) return page;
+    const isBar = (n) => !!(n.querySelector && (n.querySelector('#indFixedBar') || n.querySelector('#indBarSpacer')));
+    const firstRanked = kids.findIndex(n => rank(n) >= 0);
+    const lead = ranked[0];
+    const seq = [
+      ...kids.filter(isBar),
+      lead,                                                                             // first named section leads the page
+      ...kids.filter((n, i) => i < firstRanked && !isBar(n) && rank(n) < 0),           // e.g. the player card
+      ...ranked.slice(1),
+      ...kids.filter((n, i) => i > firstRanked && !isBar(n) && rank(n) < 0),
+    ];
+    seq.forEach(n => page.append(n));
+  } catch (e) { console.warn('[ridd] section order skipped', e); }
+  return page;
 }
 function isIndicatorsView(v) { v = v || state.view; return v === 'indicators' || !!IND_WORLD[v]; }
 // Where an old "Indicators" link / bookmark lands now.
@@ -722,7 +753,7 @@ function viewIndicators() {
     && (['spring_cleaning', 'avg_pest_initial', 'top_gun', 'last_man_standing', 'nrla'].includes(getActiveComp().scoring || '')
         || isLastManStandingComp() || isNrlaComp());
 
-  return el('div', { class: 'flex flex-col gap-5 w-full' },
+  const _page = el('div', { class: 'flex flex-col gap-5 w-full' },
 
     // ── Fixed filter bar — pinned just below the page header at all times,
     // so the user can change week / range / scope from anywhere on the page.
@@ -1532,7 +1563,7 @@ function viewIndicators() {
         if (chosen === 'ridd' || chosen === 'all') sortedBranches = [];
         else sortedBranches = [chosen];
       }
-      return el('div', { class: 'card overflow-hidden' },
+      return el('div', { class: 'card overflow-hidden', 'data-section': 'ind-table' },
         _branchSel,
         el('div', { class: 'scroll-x' },
           // Real table display (the phone CSS turns card tables into blocks
@@ -1866,6 +1897,7 @@ function viewIndicators() {
         })()
       : _repSections)),
   );
+  return indApplySectionOrder(_page);
 }
 
 // ── Weekly recap (#9) — in-app, no Slack dependency. ─────────────────────
