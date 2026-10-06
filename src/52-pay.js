@@ -80,8 +80,10 @@ function viewPay() {
   // WHOLE upfront commission (100 / 95 / 90 / 85%).
   const upfrontPct  = upfrontCollectedPct(_pv ? [...servicedStaged, ...belowStaged] : periodSales.filter(s => s.audit_status !== 'cancelled'));   // Passed Audit %: every account sold this period (passed / failed / no flag)
   const upfrontMult = upfrontTierPayPct(upfrontPct, repId);
-  const salesPay   = sumCommission(servicedStaged) * upfrontMult;  // full commission × upfront tier
-  const belowPay   = sumCommission(belowStaged) * upfrontMult;     // half commission × upfront tier
+  const salesPay   = sumUpfrontPay(repId, servicedStaged, upfrontMult);  // base commission × upfront tier + flat add-on pay
+  const belowPay   = sumUpfrontPay(repId, belowStaged, upfrontMult);     // half commission × upfront tier + flat add-on pay
+  const addonPayPeriod = [...servicedStaged, ...belowStaged].reduce((a, s) => a + getAddonCommission(repId, s), 0);   // the add-on slice of the two lines above
+  const addonRevPeriod = [...servicedStaged, ...belowStaged].reduce((a, s) => a + saleAddonSplit(s).addon, 0);
 
   // Close rate bonus (sheet O17): tiered — ≥60% pays 3% of subscription
   // revenue, ≥50% pays 2%, below that $0. Subscription revenue = serviced
@@ -333,6 +335,7 @@ function viewPay() {
         row('Est. Backend Pay', $(payPeriodBackendPay)),
         row('Below Minimums', $(belowPay), { tone: 'sand' }),
         row('Sales Pay', $(salesPay), { tone: 'green' }),
+        addonRevPeriod > 0 ? row('   · incl. Add-on Pay (' + pctS(Number(addonPayRules().office_rate), 2) + ' of ' + $(addonRevPeriod) + ')', $(addonPayPeriod)) : null,
         row('Other Pay', $(otherPayTotal), { tone: 'green' }),
         ...periodAdjustments.map(a => row('   · ' + (a.label || 'Other'), isAdmin
           ? el('span', { class: 'inline-flex items-center gap-2 tabular-nums' }, $(Number(a.amount || 0)),
@@ -404,6 +407,7 @@ function viewPay() {
         row('Commercial Modifier', signedPct(commercialRate - BASE_PCT)),
         row('OTS Modifier', otsRate == null ? '—' : signedPct(otsRate - BASE_PCT)),
         row('Upsell Modifier', upsellRate == null ? '—' : signedPct(upsellRate - BASE_PCT)),
+        row('Add-on Upfront %', pctS(Number(addonPayRules().office_rate), 2)),
         row('Below Min Pay Modifier', pctS(Number(s.below_min_multiplier ?? 50), 2)),
         row('Close Rate Bonus %', pctS(closeRateTierPct(closeRate, s), 2)),
         row('18 Mo Backend Bonus %', pctS(Number(s.multi_year_rate_18), 2)),
@@ -762,8 +766,8 @@ function notifyPayrollRun(sales, period, kind) {
       const serviced = repSales.filter(s => s.audit_status === 'serviced');
       const below    = repSales.filter(s => s.audit_status === 'below_minimums');
       const _pool = kind === 'backend' ? [] : passedAuditPool(repId, period); const _upM = upfrontTierPayPct(upfrontCollectedPct(_pool.length ? _pool : [...serviced, ...below]), repId);
-      const salesPay = serviced.reduce((a, s) => a + getCommissionAmount(repId, s), 0) * _upM;
-      const belowPay = below.reduce((a, s) => a + getCommissionAmount(repId, s), 0) * _upM;
+      const salesPay = sumUpfrontPay(repId, serviced, _upM);
+      const belowPay = sumUpfrontPay(repId, below, _upM);
       summary = {
         serviced: serviced.length,
         below: below.length,

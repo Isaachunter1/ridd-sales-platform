@@ -82,7 +82,10 @@ function techOfficeName(id) { const o = (state.offices || []).find(x => x.id ===
 
 // One rep's quarter: gross from qualified sales, deductions from the ledger.
 function techCommissionSummary(sales, ledger, rate) {
-  const rows = sales.map(s => { const g = techSaleGates(s); const cv = techSaleCv(s); return { s, g, cv, comm: g.ok ? Math.round(cv * rate * 100) / 100 : 0, kind: s.sale_kind === 'upsell' ? 'upsell' : 'personal' }; });
+  // Base plans pay the technician rate; add-ons (an upsell row tied to an add_ons record) pay the add-on rate
+  // (adminRules.addonPay.tech_rate — 25% each today, set separately so they can diverge; per Isaac, Oct 6).
+  const _addonRate = (typeof addonPayRules === 'function') ? (Number(addonPayRules().tech_rate) || 0) / 100 : rate;
+  const rows = sales.map(s => { const g = techSaleGates(s); const cv = techSaleCv(s); const isAddon = s.sale_kind === 'upsell' && s.add_on_id != null; return { s, g, cv, addon: isAddon, comm: g.ok ? Math.round(cv * (isAddon ? _addonRate : rate) * 100) / 100 : 0, kind: s.sale_kind === 'upsell' ? 'upsell' : 'personal' }; });
   const sum = (arr, f) => arr.reduce((a, r) => a + f(r), 0);
   const part = (kind) => { const r = kind ? rows.filter(x => x.kind === kind) : rows; return { n: r.length, q: r.filter(x => x.g.ok).length, cv: sum(r, x => x.cv), qcv: sum(r.filter(x => x.g.ok), x => x.cv), comm: sum(r, x => x.comm) }; };
   const L = (kind) => (ledger || []).filter(l => l.kind === kind);

@@ -220,12 +220,67 @@ function renewalFlatFor(sale, s) {
 // Sources flow through automatically: standard % unless tagged Renewal.
 function getCommissionAmount(repId, sale) {
   const s = effectivePaySettings(repId);
+  const addonPay = getAddonCommission(repId, sale);   // add-ons: flat upfront % (Oct 2026) — never the base rate, never backend
   if (isRenewalSource(sale)) {
     let amt = renewalFlatFor(sale, s);
     if (sale?.audit_status === 'below_minimums') amt *= (s.below_min_multiplier ?? 50) / 100;
-    return amt;
+    return amt + addonPay;
   }
-  return Number(sale?.revenue_amount || 0) * getCommissionRate(repId, sale);
+  return saleAddonSplit(sale).base * getCommissionRate(repId, sale) + addonPay;
+}
+// ── Base plan vs add-ons (per Isaac, Oct 6 2026) ─────────────────────────
+// RIDD sells five base plans (Pest, Rodent, Mosquito, Termite, Mole) and
+// everything else as an add-on ticket item. Pay follows that split:
+//   Inside Sales  base plan = the standard structure, unchanged (upfront % +
+//                 backend + close-rate bonus) · add-ons = a flat % upfront only
+//   D2D Sales     base plan = the rep's own tiered rate · add-ons = a share of it
+//   Technicians   base plan and add-ons = a flat % each
+// Rates live in adminRules.addonPay (Configurations → Auto-log → Upsells).
+const ADDON_PAY_DEFAULTS = { office_rate: 10, d2d_share: 50, tech_rate: 25 };
+function addonPayRules() {
+  const r = (typeof _adminRules === 'function') ? _adminRules() : null;
+  return Object.assign({}, ADDON_PAY_DEFAULTS, (r && r.addonPay) || {});
+}
+function setAddonPayRules(patch) { _setAdminRule('addonPay', Object.assign({}, addonPayRules(), patch)); }
+// One sales row → how much of its commissionable revenue is the BASE plan and
+// how much is ADD-ONS credited to the same rep. The add-ons sync writes the
+// split on the row (commission_split lines; revenue_amount = base + the rep's
+// own add-ons, fees excluded). An add-on sold on its own is an 'upsell' row
+// tied to an add_ons record — all add-on. Rows with no split are all base.
+function saleAddonSplit(sale) {
+  const rev = Number(sale?.revenue_amount || 0);
+  if (!sale) return { base: 0, addon: 0 };
+  if (sale.sale_kind === 'upsell' && sale.add_on_id != null) return { base: 0, addon: rev };
+  const lines = Array.isArray(sale.commission_split) ? sale.commission_split : null;
+  if (lines && lines.some(l => l && l.kind === 'base') && lines.some(l => l && l.kind === 'addon')) {
+    const baseV = lines.filter(l => l && l.kind === 'base').reduce((a, l) => a + (Number(l.value) || 0), 0);
+    const base = Math.max(0, Math.min(rev, baseV));
+    return { base, addon: Math.max(0, Math.round((rev - base) * 100) / 100) };
+  }
+  return { base: rev, addon: 0 };
+}
+// Inside Sales add-on pay for one row: add-on revenue × the flat upfront %.
+function getAddonCommission(repId, sale) {
+  const a = saleAddonSplit(sale).addon;
+  return a > 0 ? a * (Number(addonPayRules().office_rate) || 0) / 100 : 0;
+}
+// Upfront pay for a set of staged rows: the base-plan commission rides the
+// charge-upfront tier multiplier; add-on pay is flat and does not.
+function sumUpfrontPay(repId, sales, mult) {
+  let t = 0;
+  for (const s of (sales || [])) { const add = getAddonCommission(repId, s); t += (getCommissionAmount(repId, s) - add) * (mult == null ? 1 : mult) + add; }
+  return t;
+}
+// Add-on helpers shared by the D2D engine + dashboards (state.addOns = the add_ons table).
+function addOnAnnualValue(a) { return Math.round((Number(a && a.recurring_amount) || 0) * 12 * 100) / 100; }   // per-service charge × 12, same as the sync's line value
+function addOnsBySubscription() {
+  const all = Array.isArray(state.addOns) ? state.addOns : [];
+  const M = addOnsBySubscription._m;
+  if (M && M.src === all) return M.map;
+  const map = new Map();
+  for (const a of all) { if (!a || a.removed_at) continue; const k = String(a.subscription_id || ''); if (!k) continue; if (!map.has(k)) map.set(k, []); map.get(k).push(a); }
+  addOnsBySubscription._m = { src: all, map };
+  return map;
 }
 
 // Per-sale backend pay in dollars (quarter-end). Sheet rules: standard
@@ -234,7 +289,7 @@ function getCommissionAmount(repId, sale) {
 // in the same sheet columns the multi-year formula sums).
 function getBackendAmount(sale) {
   const s = effectivePaySettings(sale && sale.rep_id);
-  const rev = Number(sale?.revenue_amount || 0);
+  const rev = saleAddonSplit(sale).base;   // backend is earned on the base plan only — add-ons are upfront-only (Oct 2026)
   // (PIF used to skip backend — the sheet's multi-year sums include PIF
   // rows, so PIF earns 18/24-month backend like everything else now.)
   if (isRenewalSource(sale)) return rev * (Number(s.renewal_backend_rate) / 100);
@@ -313,7 +368,7 @@ function subscriptionRevenueOf(sales) {
   return sales.reduce((a, s) => {
     if (isRenewalSource(s)) return a;   // (commercial rows COUNT — sheet's E:G sums include them)
     const m = Number(s.contract_months);
-    if (s.paid_in_full || m === 12 || m === 18 || m === 24) return a + Number(s.revenue_amount || 0);
+    if (s.paid_in_full || m === 12 || m === 18 || m === 24) return a + saleAddonSplit(s).base;   // base plan only — the close-rate bonus doesn't ride add-ons
     return a;
   }, 0);
 }

@@ -13,7 +13,15 @@ function commissionCompute(emp, startMs, endMs, lockMs, opts) {
   opts = opts || {};
   const cfg = commissionConfig();
   const empIds = new Set(String(emp.employee_ids || emp.employee_id || '').split(',').map(s => s.trim()).filter(Boolean));
-  const cv = (r) => Number(r.subscription_contract_value) || 0;
+  // Base plan vs add-ons (per Isaac, Oct 6 2026): a subscription's contract
+  // value includes its add-on ticket items. The base plan pays the rep's own
+  // rate; add-ons credited to the rep pay a SHARE of that rate (half), and an
+  // add-on credited to someone else is not this rep's revenue at all. With no
+  // add-ons on file (or outside the app bundle) nothing changes.
+  const _aoBySub = (typeof addOnsBySubscription === 'function') ? addOnsBySubscription() : null;
+  const _aoVal = (a) => (typeof addOnAnnualValue === 'function') ? addOnAnnualValue(a) : 0;
+  const _aoOn = (r) => { if (!_aoBySub || r.subscription_id == null) return 0; const L = _aoBySub.get(String(r.subscription_id)); return L ? L.reduce((t, a) => t + _aoVal(a), 0) : 0; };
+  const cv = (r) => Math.max(0, (Number(r.subscription_contract_value) || 0) - _aoOn(r));
   const catOf = (r) => cfg.serviceCategories[r.subscription] || 'unclassified';
   const rows0 = (state.reportingSubscriptions || []).filter(r => {
     if (!empIds.has(String(r.sold_by_id || '').trim())) return false;
@@ -58,6 +66,18 @@ function commissionCompute(emp, startMs, endMs, lockMs, opts) {
   const pestRate = rt.pest, bundleRate = rt.bundleRate, ancRate = rt.ancRate, ancMult = rt.ancMult, bundleMult = rt.bundleMult;
   const pestComm = pestRev * pestRate, bundleComm = bundleRev * bundleRate, ancComm = ancRev * ancRate;
   const payableRev = pestRev + bundleRev + ancRev;
+  // Add-ons credited to this rep, dated by when the add-on went on (their own
+  // accounts or anyone else's). Removed add-ons don't count.
+  let addonRev = 0, addonN = 0;
+  if (_aoBySub) for (const L of _aoBySub.values()) for (const a of L) {
+    if (!empIds.has(String(a.credited_employee_id || '').trim())) continue;
+    const ad = Date.parse(String(a.added_at || '').slice(0, 10));
+    if (isNaN(ad) || (startMs && ad < startMs) || (endMs && ad > endMs)) continue;
+    addonRev += _aoVal(a); addonN++;
+  }
+  const addonShare = (typeof addonPayRules === 'function') ? (Number(addonPayRules().d2d_share) || 0) / 100 : 0.5;
+  const addonRate = pestRate * addonShare;   // "half their normal commission rate"
+  const addonComm = addonRev * addonRate;
   // Multi-year: term from agreement_length, only on commissionable categories.
   let rev18 = 0, rev24 = 0, myRev = 0;
   for (const r of rows) {
@@ -92,7 +112,7 @@ function commissionCompute(emp, startMs, endMs, lockMs, opts) {
   const m = commissionManual(emp.employee_id);
   const overrides = Number(m.overrides) || 0, rent = Number(m.rent) || 0, paidYtd = Number(m.paidYtd) || 0;
   const other = Number(m.other) || 0, audit = Number(m.audit) || 0, payPeriods = Number(m.payPeriods) || 26;
-  const totalCommission = pestComm + bundleComm + ancComm + overrides + multiYearAmt;
+  const totalCommission = pestComm + bundleComm + ancComm + addonComm + overrides + multiYearAmt;
   // Attrition adjustment (D2D Pay stub). Actual = commission on accounts no
   // longer active at asOf (same "alive" rule as the eligibility card).
   const _lc = (typeof reportingServiceLifecycleMap === 'function') ? reportingServiceLifecycleMap() : new Map();
@@ -122,6 +142,7 @@ function commissionCompute(emp, startMs, endMs, lockMs, opts) {
     window: { start: startMs ? new Date(startMs).toISOString().slice(0, 10) : null, end: endMs ? new Date(endMs).toISOString().slice(0, 10) : null, lock: lockMs ? new Date(lockMs).toISOString().slice(0, 10) : null },
     employee: { id: String(emp.employee_id || ''), ids: [...empIds], type: typeLabel },
     rates: { pest: pestRate, bundle: bundleRate, ancillary: ancRate, ancMult, bundleMult, overridden: !!rt.overridden },
+    addons: addonN ? { n: addonN, rev: addonRev, share: addonShare, rate: addonRate, comm: addonComm } : null,
     multiYear: { hiPct: MY.hiPct, loPct: MY.loPct, rate18: MY.rate18, rate24: MY.rate24, penalty: MY.penalty },
     manual: { overrides, rent, paidYtd, other, audit, payPeriods },
     attrition: attrMode ? { mode: attrMode, pct: attrPct, asOf, lostN, lostRev, lostComm } : null,
@@ -134,6 +155,7 @@ function commissionCompute(emp, startMs, endMs, lockMs, opts) {
     inputs,
     rows, pestRev, bundleRev, ancRev, exclRev, unclRev, unclassified, payableRev,
     pestRate, bundleRate, ancRate, ancMult, bundleMult, overridden: rt.overridden, pestComm, bundleComm, ancComm,
+    addonRev, addonN, addonRate, addonComm,
     rev18, rev24, myPct, multiYearAmt, MY,
     overrides, rent, paidYtd, other, audit, payPeriods, totalCommission, netDue, biWeekly,
     attrMode, attrPct, attrAdj, finalCommission, lostN, lostRev, lostComm,
@@ -167,6 +189,8 @@ function commissionRenderCards(B, repName) {
     ROW('Personal Bundle Commission (' + pct(B.bundleRate * 100) + ')', money(B.bundleComm), 'comm'),
     ROW('Ancillary Revenue', dash(B.ancRev), 'rev'),
     ROW('Personal Ancillary Commission (' + pct(B.ancRate * 100) + ')', dash(B.ancComm), 'comm'),
+    B.addonRev ? ROW('Add-on Revenue (' + (B.addonN || 0) + ')', money(B.addonRev), 'rev') : null,
+    B.addonRev ? ROW('Add-on Commission (' + pct((B.addonRate || 0) * 100) + ' \u2014 half rate)', money(B.addonComm), 'comm') : null,
     ROW('Overrides', dash(B.overrides), 'comm'),
     ROW('Multi-Year Bonus/Deduction', dash(B.multiYearAmt), 'comm'),
     ROW('Total Commission', money(B.totalCommission), 'total'),
@@ -235,7 +259,7 @@ function commissionRenderCards(B, repName) {
 // Plain serializable summary of a computed run — what we publish for the rep.
 function commissionSnapshot(R, emp, period) {
   const keys = ['pestRev', 'bundleRev', 'ancRev', 'payableRev', 'pestRate', 'ancRate', 'bundleRate',
-    'pestComm', 'bundleComm', 'ancComm', 'overrides', 'multiYearAmt', 'totalCommission',
+    'pestComm', 'bundleComm', 'ancComm', 'addonRev', 'addonN', 'addonRate', 'addonComm', 'overrides', 'multiYearAmt', 'totalCommission',
     'rent', 'paidYtd', 'other', 'audit', 'netDue', 'biWeekly', 'payPeriods',
     'attrMode', 'attrPct', 'attrAdj', 'finalCommission', 'lostN', 'lostRev', 'lostComm',
     'sold', 'canceled', 'withBalance', 'myPct', 'ror', 'afterLock', 'finalAttrition',

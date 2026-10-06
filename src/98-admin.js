@@ -595,6 +595,12 @@ function adminConfigurations(part) {
       sub('Upsells'),
       row('Upsells', el('span', { class: 'text-[11px] font-semibold' }, 'Automatic \u2014 add-on ticket items in FieldRoutes'), { tip: 'Every add-on sold as a ticket item in FieldRoutes (Invoices \u2192 Add Ticket Item) becomes an upsell sale for the rep it is assigned to (or the person who added it). No manual logging (per Isaac).' }),
       addonItemsTable(AL, saveAL, sw, pill),
+      // Add-on commission by rep type (per Isaac, Oct 6). Base plans keep each type's normal structure.
+      ...(() => { const R = addonPayRules(); const pctIn = (k, tip) => txt(String(R[k]), (v) => { const n = parseFloat(String(v).replace(/[^0-9.]/g, '')); if (!isNaN(n)) { setAddonPayRules({ [k]: n }); logActivity('config_change', { detail: 'Add-on pay ' + k + ': ' + n + '%' }); toast('Saved', 'success'); mountApp(); } }, { placeholder: '%', width: '70px' });
+        return [
+          row('Add-on pay \u2014 Inside Sales', pctIn('office_rate'), { desc: '% of the add-on\u2019s value, paid upfront only. No backend, no close-rate bonus.', indent: true }),
+          row('Add-on pay \u2014 D2D Sales', pctIn('d2d_share'), { desc: '% OF the rep\u2019s own commission rate (50 = half their normal rate).', indent: true }),
+          row('Add-on pay \u2014 Technicians', pctIn('tech_rate'), { desc: '% of the add-on\u2019s value.', indent: true }) ]; })(),
       sub('Backend lock'),
       row('Auto-approve upfront commission', sw(!!AL.auto_approve, () => saveAL({ auto_approve: !AL.auto_approve })), { desc: 'Approve upfront pay automatically once the rules below hold.', tip: 'Approved automatically once the Upfront Commission Approval guard rails for the rep type hold (and no Failed Audit flag). Off = an auditor clicks Approve.' }),
       // Backend lock guard rails per rep type (per Isaac, Sep 23): the account
