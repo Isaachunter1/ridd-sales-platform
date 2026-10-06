@@ -67,12 +67,17 @@ function commissionCompute(emp, startMs, endMs, lockMs, opts) {
   const pestComm = pestRev * pestRate, bundleComm = bundleRev * bundleRate, ancComm = ancRev * ancRate;
   const payableRev = pestRev + bundleRev + ancRev;
   // Add-ons credited to this rep, dated by when the add-on went on (their own
-  // accounts or anyone else's). Removed add-ons don't count.
-  let addonRev = 0, addonN = 0;
-  if (_aoBySub) for (const L of _aoBySub.values()) for (const a of L) {
-    if (!empIds.has(String(a.credited_employee_id || '').trim())) continue;
+  // accounts or anyone else's). Same lock rule as the accounts themselves
+  // (per Isaac, Oct 6): the add-on has to still be ON at the lock date — one
+  // that came off before the lock earns nothing; one that comes off after
+  // the lock is already earned. Before the lock passes, only add-ons still on count.
+  let addonRev = 0, addonN = 0, addonLostN = 0;
+  if (_aoBySub && Array.isArray(state.addOns)) for (const a of state.addOns) {
+    if (!a || !empIds.has(String(a.credited_employee_id || '').trim())) continue;
     const ad = Date.parse(String(a.added_at || '').slice(0, 10));
     if (isNaN(ad) || (startMs && ad < startMs) || (endMs && ad > endMs)) continue;
+    const off = a.removed_at ? Date.parse(String(a.removed_at).slice(0, 10)) : null;
+    if (off != null && !(lockMs && off > lockMs)) { addonLostN++; continue; }
     addonRev += _aoVal(a); addonN++;
   }
   const addonShare = (typeof addonPayRules === 'function') ? (Number(addonPayRules().d2d_share) || 0) / 100 : 0.5;
@@ -142,7 +147,7 @@ function commissionCompute(emp, startMs, endMs, lockMs, opts) {
     window: { start: startMs ? new Date(startMs).toISOString().slice(0, 10) : null, end: endMs ? new Date(endMs).toISOString().slice(0, 10) : null, lock: lockMs ? new Date(lockMs).toISOString().slice(0, 10) : null },
     employee: { id: String(emp.employee_id || ''), ids: [...empIds], type: typeLabel },
     rates: { pest: pestRate, bundle: bundleRate, ancillary: ancRate, ancMult, bundleMult, overridden: !!rt.overridden },
-    addons: addonN ? { n: addonN, rev: addonRev, share: addonShare, rate: addonRate, comm: addonComm } : null,
+    addons: (addonN || addonLostN) ? { n: addonN, rev: addonRev, share: addonShare, rate: addonRate, comm: addonComm, cameOffBeforeLock: addonLostN } : null,
     multiYear: { hiPct: MY.hiPct, loPct: MY.loPct, rate18: MY.rate18, rate24: MY.rate24, penalty: MY.penalty },
     manual: { overrides, rent, paidYtd, other, audit, payPeriods },
     attrition: attrMode ? { mode: attrMode, pct: attrPct, asOf, lostN, lostRev, lostComm } : null,
@@ -155,7 +160,7 @@ function commissionCompute(emp, startMs, endMs, lockMs, opts) {
     inputs,
     rows, pestRev, bundleRev, ancRev, exclRev, unclRev, unclassified, payableRev,
     pestRate, bundleRate, ancRate, ancMult, bundleMult, overridden: rt.overridden, pestComm, bundleComm, ancComm,
-    addonRev, addonN, addonRate, addonComm,
+    addonRev, addonN, addonRate, addonComm, addonLostN,
     rev18, rev24, myPct, multiYearAmt, MY,
     overrides, rent, paidYtd, other, audit, payPeriods, totalCommission, netDue, biWeekly,
     attrMode, attrPct, attrAdj, finalCommission, lostN, lostRev, lostComm,
@@ -189,7 +194,7 @@ function commissionRenderCards(B, repName) {
     ROW('Personal Bundle Commission (' + pct(B.bundleRate * 100) + ')', money(B.bundleComm), 'comm'),
     ROW('Ancillary Revenue', dash(B.ancRev), 'rev'),
     ROW('Personal Ancillary Commission (' + pct(B.ancRate * 100) + ')', dash(B.ancComm), 'comm'),
-    B.addonRev ? ROW('Add-on Revenue (' + (B.addonN || 0) + ')', money(B.addonRev), 'rev') : null,
+    (B.addonRev || B.addonLostN) ? ROW('Add-on Revenue (' + (B.addonN || 0) + ' on' + (B.addonLostN ? ', ' + B.addonLostN + ' came off before the lock' : '') + ')', money(B.addonRev), 'rev') : null,
     B.addonRev ? ROW('Add-on Commission (' + pct((B.addonRate || 0) * 100) + ' \u2014 half rate)', money(B.addonComm), 'comm') : null,
     ROW('Overrides', dash(B.overrides), 'comm'),
     ROW('Multi-Year Bonus/Deduction', dash(B.multiYearAmt), 'comm'),
@@ -259,7 +264,7 @@ function commissionRenderCards(B, repName) {
 // Plain serializable summary of a computed run — what we publish for the rep.
 function commissionSnapshot(R, emp, period) {
   const keys = ['pestRev', 'bundleRev', 'ancRev', 'payableRev', 'pestRate', 'ancRate', 'bundleRate',
-    'pestComm', 'bundleComm', 'ancComm', 'addonRev', 'addonN', 'addonRate', 'addonComm', 'overrides', 'multiYearAmt', 'totalCommission',
+    'pestComm', 'bundleComm', 'ancComm', 'addonRev', 'addonN', 'addonRate', 'addonComm', 'addonLostN', 'overrides', 'multiYearAmt', 'totalCommission',
     'rent', 'paidYtd', 'other', 'audit', 'netDue', 'biWeekly', 'payPeriods',
     'attrMode', 'attrPct', 'attrAdj', 'finalCommission', 'lostN', 'lostRev', 'lostComm',
     'sold', 'canceled', 'withBalance', 'myPct', 'ror', 'afterLock', 'finalAttrition',

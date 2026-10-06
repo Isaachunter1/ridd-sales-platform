@@ -236,7 +236,12 @@ function getCommissionAmount(repId, sale) {
 //   D2D Sales     base plan = the rep's own tiered rate · add-ons = a share of it
 //   Technicians   base plan and add-ons = a flat % each
 // Rates live in adminRules.addonPay (Configurations → Auto-log → Upsells).
-const ADDON_PAY_DEFAULTS = { office_rate: 10, d2d_share: 50, tech_rate: 25 };
+// lock_invoices (per Isaac, Oct 6): an Inside Sales / Technician add-on LOCKS
+// once this many invoices carrying it have been paid; if it comes off (or
+// the account cancels) before that, the upfront pay is owed back. D2D
+// add-ons don't count invoices — they follow the season lock date instead
+// (the add-on must still be on the account at the lock).
+const ADDON_PAY_DEFAULTS = { office_rate: 10, d2d_share: 50, tech_rate: 25, lock_invoices: 4 };
 function addonPayRules() {
   const r = (typeof _adminRules === 'function') ? _adminRules() : null;
   return Object.assign({}, ADDON_PAY_DEFAULTS, (r && r.addonPay) || {});
@@ -262,7 +267,24 @@ function saleAddonSplit(sale) {
 // Inside Sales add-on pay for one row: add-on revenue × the flat upfront %.
 function getAddonCommission(repId, sale) {
   const a = saleAddonSplit(sale).addon;
-  return a > 0 ? a * (Number(addonPayRules().office_rate) || 0) / 100 : 0;
+  if (!(a > 0)) return 0;
+  // An add-on that dropped before it locked earns nothing on a row that hasn't been paid yet.
+  // (Already-paid rows keep their history; the Pay tab's Add-ons card lists what is owed back.)
+  if (sale && sale.add_on_id != null && !sale.payroll_processed_at && typeof addOnOfSale === 'function') {
+    const ao = addOnOfSale(sale);
+    if (ao && addOnDropped(ao)) return 0;
+  }
+  return a * (Number(addonPayRules().office_rate) || 0) / 100;
+}
+// Where an add-on stands on the stay-on rule.
+function addOnDropped(a) { return !!a && a.streak_status !== 'locked' && (a.streak_status === 'broken' || a.streak_status === 'clawback' || !!a.removed_at); }
+function addOnLockLabel(a) {
+  if (!a) return '';
+  const need = Math.max(1, Number(addonPayRules().lock_invoices) || 4);
+  if (a.credited_role === 'sales_rep') return a.removed_at ? 'Came off \u2014 must be on at the lock date' : 'On \u2014 pays if still on at the lock date';
+  if (a.streak_status === 'locked' || (Number(a.invoices_paid) || 0) >= need) return 'Locked';
+  if (addOnDropped(a)) return 'Dropped at ' + (a.invoices_paid || 0) + ' of ' + need + (a.streak_status === 'clawback' ? ' \u2014 owed back' : '');
+  return (a.invoices_paid || 0) + ' of ' + need + ' paid';
 }
 // Upfront pay for a set of staged rows: the base-plan commission rides the
 // charge-upfront tier multiplier; add-on pay is flat and does not.

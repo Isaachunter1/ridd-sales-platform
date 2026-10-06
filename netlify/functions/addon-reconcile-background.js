@@ -18,6 +18,7 @@ const { applyFieldRoutesEnv, fieldRoutesBase } = require('../lib/integrations.js
 const { requireSyncSecret } = require('../lib/sync-gate.js');
 const { _bq } = require('./revhawk-sync-background.js');
 const { streakOf } = require('../lib/add-on-streak.js');
+const { loadAdminRules } = require('../lib/rules.js');
 
 const chunk = (arr, n) => { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; };
 function frBase() { return fieldRoutesBase(); }
@@ -93,8 +94,19 @@ FROM ${T('FieldRoutesSubscription')} WHERE fieldRoutes_subscriptionID IN (${part
       } catch (e) { console.warn('[addon-reconcile] ticketItem lookup unavailable — item presence unverified:', e.message); itemsByTicket.clear(); }
     }
 
-    // 4. Streaks.
+    // 4. Streaks. Lock rule (per Isaac, Oct 6): Inside Sales / Technician
+    //    add-ons lock after adminRules.addonPay.lock_invoices paid invoices
+    //    (default 4). D2D add-ons never lock by count — the D2D pay stub
+    //    applies the season lock date (still on the account at the lock).
     const now = new Date().toISOString();
+    const AR = await loadAdminRules(supabase);
+    const LOCK_N = Math.max(1, parseInt((AR.addonPay && AR.addonPay.lock_invoices), 10) || 4);
+    // Upfront already paid? The linked sales row's payroll stamp says so.
+    const paidSale = new Set();
+    for (const part of chunk([...new Set(open.map(a => a.sale_id).filter(x => x != null))], 500)) {
+      const { data } = await supabase.from('sales').select('id, payroll_processed_at').in('id', part).not('payroll_processed_at', 'is', null);
+      (data || []).forEach(r => paidSale.add(String(r.id)));
+    }
     for (const a of open) {
       const st = subStatus.get(String(a.subscription_id)) || {};
       const invoices = (bySub.get(String(a.subscription_id)) || []).map(t => {
@@ -104,9 +116,11 @@ FROM ${T('FieldRoutesSubscription')} WHERE fieldRoutes_subscriptionID IN (${part
         return { ticket_id: t.ticket_id, invoice_date: t.invoice_date, active: t.active !== '-1' && t.active !== '0',
                  paid: (Number(t.balance) || 0) <= 0 && (Number(t.total) || 0) > 0, paid_at: t.paid_at || null, amount: Number(t.total) || 0, has_add_on: hasAddOn };
       });
-      const r = streakOf({ added_at: a.added_at, subscription_active: st.active !== '0' && st.active !== '-1' && !st.cancelled_at, subscription_cancelled_at: st.cancelled_at || null }, invoices);
+      const r = streakOf({ added_at: a.added_at, subscription_active: st.active !== '0' && st.active !== '-1' && !st.cancelled_at, subscription_cancelled_at: st.cancelled_at || null }, invoices,
+        { lockAt: a.credited_role === 'sales_rep' ? 100000 : LOCK_N });
       let status = r.status;
-      if (status === 'broken' && a.backend_paid_at) status = 'clawback';           // paid, then broke → pay run claws back
+      // Paid, then dropped before it locked → owed back. Add-on pay is upfront now, so "paid" = the linked sales row went through payroll (or a pay run stamped the add-on).
+      if (status === 'broken' && (a.backend_paid_at || a.upfront_paid_at || (a.sale_id != null && paidSale.has(String(a.sale_id))))) status = 'clawback';
       if (a.streak_status === 'locked' && status === 'accruing') status = 'locked';  // never un-lock on a data hiccup
       const patch = { invoices_paid: r.paid, invoices: r.qualifying, streak_status: status, last_reconciled_at: now, updated_at: now,
         locked_at: status === 'locked' ? (a.locked_at || r.lockedAt || now.slice(0, 10)) : a.locked_at,

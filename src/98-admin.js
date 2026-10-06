@@ -600,7 +600,8 @@ function adminConfigurations(part) {
         return [
           row('Add-on pay \u2014 Inside Sales', pctIn('office_rate'), { desc: '% of the add-on\u2019s value, paid upfront only. No backend, no close-rate bonus.', indent: true }),
           row('Add-on pay \u2014 D2D Sales', pctIn('d2d_share'), { desc: '% OF the rep\u2019s own commission rate (50 = half their normal rate).', indent: true }),
-          row('Add-on pay \u2014 Technicians', pctIn('tech_rate'), { desc: '% of the add-on\u2019s value.', indent: true }) ]; })(),
+          row('Add-on pay \u2014 Technicians', pctIn('tech_rate'), { desc: '% of the add-on\u2019s value.', indent: true }),
+          row('Add-on locks after', txt(String(R.lock_invoices), (v) => { const n = parseInt(String(v).replace(/[^0-9]/g, ''), 10); if (n > 0) { setAddonPayRules({ lock_invoices: n }); logActivity('config_change', { detail: 'Add-on lock: ' + n + ' paid invoices' }); toast('Saved', 'success'); mountApp(); } }, { placeholder: '4', width: '70px' }), { desc: 'Paid invoices carrying the add-on before it locks (Inside Sales and Technicians). Dropped sooner = the upfront pay is owed back. D2D add-ons use the season lock date instead.', indent: true }) ]; })(),
       sub('Backend lock'),
       row('Auto-approve upfront commission', sw(!!AL.auto_approve, () => saveAL({ auto_approve: !AL.auto_approve })), { desc: 'Approve upfront pay automatically once the rules below hold.', tip: 'Approved automatically once the Upfront Commission Approval guard rails for the rep type hold (and no Failed Audit flag). Off = an auditor clicks Approve.' }),
       // Backend lock guard rails per rep type (per Isaac, Sep 23): the account

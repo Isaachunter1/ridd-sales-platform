@@ -965,7 +965,7 @@ function payAddOnsCard(repId) {
           style: !!scopeAll === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
           onclick: () => { state._payAddOnsAll = v; mountApp(); } }, l))) : null),
     rows.length ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]' },
-      el('thead', {}, el('tr', {}, th('Customer'), th('Base plan'), th('Add-on'), th('Per service'), th('Credited to'), th('Added'), th('Removed'), th('Days on'), th('Paid invoices'))),
+      el('thead', {}, el('tr', {}, th('Customer'), th('Base plan'), th('Add-on'), th('Per service'), th('Credited to'), th('Added'), th('Removed'), th('Days on'), th('Lock'))),
       el('tbody', {}, ...shown.map(a => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
         td('#' + a.customer_id), td(a.base_service), td(a.service_name, { fontWeight: '600' }),
         td(fmt.usd0(Number(a.recurring_amount) || 0) + (Number(a.initial_amount) ? ' (+' + fmt.usd0(Number(a.initial_amount)) + ' initial)' : '')),
@@ -973,7 +973,7 @@ function payAddOnsCard(repId) {
         td(fmtDate(a.added_at)),
         td(a.removed_at ? fmtDate(a.removed_at) + (a.removed_reason === 'subscription_cancelled' ? ' · cancelled' : a.removed_reason === 'item_removed' ? ' · removed' : '') : null, a.removed_at ? { color: '#A9441F' } : {}),
         td(daysOf(a)),
-        td((a.invoices_paid || 0) + ' of 5' + (a.streak_status && a.streak_status !== 'accruing' ? ' · ' + a.streak_status : ''))))))) :
+        td(addOnLockLabel(a), addOnDropped(a) ? { color: '#B91C1C', fontWeight: '600' } : (a.streak_status === 'locked' ? { color: '#5F6C5B', fontWeight: '600' } : {}))))))) :
       el('div', { class: 'px-4 py-6 text-[11px] text-center', style: { color: 'var(--text-muted)' } }, all == null ? '' : 'No add-ons credited ' + (scopeAll ? 'to anyone' : 'to this user') + ' yet.'),
     rows.length > 50 && !state._payAddOnsMore ? el('button', { class: 'w-full px-4 py-2 text-[11px] font-semibold border-t', style: { borderColor: 'var(--border)', color: 'var(--accent)' }, onclick: () => { state._payAddOnsMore = true; mountApp(); } }, 'Show all ' + rows.length) : null);
 }
