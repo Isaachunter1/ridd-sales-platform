@@ -106,11 +106,12 @@ function viewSales() {
 
   // Sortable column headers — click toggles asc/desc, arrow indicator on
   // the active column. Default: newest first by created_at (FIFO inverted).
-  if (!state._salesSort) state._salesSort = { key: 'created_at', dir: 'desc' };
+  // Default on every queue (per Isaac, Oct 6): Sold Date, newest first —
+  // until the user clicks a column, which takes over as usual. (Was created-at,
+  // oldest-first on the pending queue.)
+  if (!state._salesSort || (!state._salesSortTouched && state._salesSort.key === 'created_at')) state._salesSort = { key: 'sold_date', dir: 'desc' };
   const sortKey = state._salesSort.key;
-  // Pending audit queue works OLDEST-FIRST by default (a pipeline, not a
-  // feed) — until the user clicks a column, which takes over as usual.
-  const sortDir = (queueFilter === 'upfront' && !state._salesSortTouched && sortKey === 'created_at') ? 'asc' : state._salesSort.dir;
+  const sortDir = state._salesSort.dir;
   const sortVal = (s, key) => {
     switch (key) {
       case 'customer_name':   return (s.customer_name || '').toLowerCase();
@@ -147,7 +148,8 @@ function viewSales() {
     const vb = sortVal(b, sortKey);
     if (va < vb) return sortDir === 'asc' ? -1 : 1;
     if (va > vb) return sortDir === 'asc' ? 1 : -1;
-    return 0;
+    // Same value (e.g. several sales on one sold date): most recently logged first.
+    return (new Date(b.created_at || b.sold_date).getTime() || 0) - (new Date(a.created_at || a.sold_date).getTime() || 0);
   });
 
   // Queue toggle is always the first row, regardless of which queue is active.
@@ -239,16 +241,26 @@ function viewSales() {
   const _sumRev = (list) => list.reduce((a, s) => a + (Number(s.revenue_amount) || 0), 0);
   const _yr = String(new Date().getFullYear());
   const _ytd = source.filter(s => String(s.sold_date || '').slice(0, 4) === _yr);
-  const _tile = (label, list, accent) => el('div', { class: 'flex-1 min-w-0 px-3 py-2 text-center', style: { borderLeft: '1px solid var(--border)' } },
-    el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
-    el('div', { class: 'text-base font-black tabular-nums', style: accent ? { color: 'var(--accent)' } : {} }, fmt.usd0(_sumRev(list))),
-    el('div', { class: 'text-[10px] tabular-nums text-muted-' }, list.length.toLocaleString() + ' sale' + (list.length === 1 ? '' : 's')));
-  const totalsStrip = isAdmin ? el('div', { class: 'card flex items-stretch overflow-x-auto sales-totals-strip' },
-    _tile(_yr + ' sold', _ytd, true),
+  // Phones (per Isaac, Oct 6): all five on ONE short row — label over the
+  // number, no count line (the queue pills right below carry the counts).
+  const _phoneT = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
+  const _tile = (label, list, accent, short) => {
+    const rev = _sumRev(list), cnt = list.length.toLocaleString() + ' sale' + (list.length === 1 ? '' : 's');
+    if (_phoneT) return el('div', { class: 'min-w-0 text-center', title: cnt, style: { flex: '1 1 0', padding: '5px 2px', borderLeft: '1px solid var(--border)' } },
+      el('div', { class: 'uppercase font-semibold truncate', style: { fontSize: '8px', letterSpacing: '.08em', color: 'var(--text-subtle)' } }, short || label),
+      el('div', { class: 'font-black tabular-nums', style: Object.assign({ fontSize: '13px', lineHeight: '1.25' }, accent ? { color: 'var(--accent)' } : {}) }, (rev >= 100000 && fmt.usdShort) ? fmt.usdShort(rev) : fmt.usd0(rev)));
+    return el('div', { class: 'flex-1 min-w-0 px-3 py-2 text-center', style: { borderLeft: '1px solid var(--border)' } },
+      el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
+      el('div', { class: 'text-base font-black tabular-nums', style: accent ? { color: 'var(--accent)' } : {} }, fmt.usd0(rev)),
+      el('div', { class: 'text-[10px] tabular-nums text-muted-' }, cnt));
+  };
+  const totalsStrip = isAdmin ? el('div', { class: _phoneT ? 'card flex items-stretch overflow-hidden' : 'card flex items-stretch overflow-x-auto sales-totals-strip' },
+    _tile(_yr + ' sold', _ytd, true, "'" + _yr.slice(2) + ' Sold'),
     _tile('Upfront', source.filter(isUpfrontPending)),
-    _tile('Backend lock', source.filter(isBackendPending)),
+    _tile('Backend lock', source.filter(isBackendPending), false, 'Backend'),
     _tile('Archived', source.filter(isCancelled)),
     _tile('History', source.filter(isHistory))) : null;
+  if (totalsStrip && _phoneT && totalsStrip.firstChild) totalsStrip.firstChild.style.borderLeft = '0';
   const queueRow = el('div', { class: 'flex flex-col gap-3' }, totalsStrip, el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' }, queueToggle));
   // Phones (per Isaac): dropdowns share the top row (reps / sources /
   // statuses fit three across), the search bar spans the row below.
@@ -442,7 +454,8 @@ function unloggedSalesBlock(isAdmin) {
 // status + auditor dropdowns inline so they can audit on a phone. We keep this
 // deliberately spare — no sort headers, no filter chips, no horizontal scroll.
 function salesCardsMobile(rows, { isAdmin = false, queueFilter = 'upfront' } = {}) {
-  return el('div', { class: 'flex flex-col gap-2 sm:hidden' },
+  // Compact cards (per Isaac, Oct 6): two lines per sale — about half the old height.
+  return el('div', { class: 'flex flex-col sm:hidden', style: { gap: '6px' } },
     ...rows.map(s => {
       const rep = state.allProfiles.find(p => p.id === s.rep_id) || state.profile;
       const repFirst = (rep?.full_name || '').split(' ')[0];
@@ -452,38 +465,32 @@ function salesCardsMobile(rows, { isAdmin = false, queueFilter = 'upfront' } = {
         ? reportingBackendMatch(s.customer_number)
         : null;
       return el('div', {
-        class: 'card p-4 transition active:brightness-95',
+        class: 'card transition active:brightness-95',
+        style: { padding: '8px 12px' },
         onclick: (e) => {
           if (e.target.closest('select, button, input, textarea, a')) return;
           openNewSaleModal(null, s);
         },
       },
-        // Top row: customer + status chip
-        el('div', { class: 'flex items-start justify-between gap-3 mb-1' },
-          el('div', { class: 'min-w-0 flex-1' },
-            el('div', { class: 'font-semibold text-sm truncate', title: s.customer_name }, s.customer_name),
-            el('div', { class: 'text-[11px] text-muted- mt-0.5' },
-              [
-                s.customer_number ? '#' + s.customer_number : null,
-                'sold ' + fmt.dateShort(s.sold_date),
-                s.crm_serviced_at ? '\u2713 serviced ' + fmt.dateShort(String(s.crm_serviced_at).slice(0, 10)) : s.crm_initial_appt_at ? 'service ' + fmt.dateShort(String(s.crm_initial_appt_at).slice(0, 10)) : 'not scheduled',
-              ].filter(Boolean).join(' · '),
-            ),
-          ),
+        // Line 1: customer · revenue · status chip
+        el('div', { class: 'flex items-center gap-2' },
+          el('div', { class: 'font-semibold text-sm truncate min-w-0 flex-1', title: s.customer_name }, s.customer_name),
+          el('span', { class: 'tabular-nums font-bold text-sm whitespace-nowrap' }, fmt.usd(s.revenue_amount)),
           statusChip(s.audit_status),
         ),
-        // Middle row: rep (admin only) · contract · revenue
-        el('div', { class: 'flex items-center justify-between gap-3 mt-2 text-xs' },
-          el('div', { class: 'flex items-center gap-2 min-w-0' },
-            isAdmin && avatarNode(rep?.avatar_url, rep?.initials, 'w-5 h-5 text-[8px]'),
-            isAdmin && el('span', { class: 'text-[11px] font-medium truncate' }, repFirst),
-            el('span', { class: 'text-muted- whitespace-nowrap' }, ctName),
-          ),
-          el('span', { class: 'tabular-nums font-bold whitespace-nowrap' }, fmt.usd(s.revenue_amount)),
+        // Line 2: # · sold · service on the left; rep (admin) · contract on the right
+        el('div', { class: 'flex items-center justify-between gap-2 text-[11px] text-muted-', style: { marginTop: '2px' } },
+          el('span', { class: 'truncate min-w-0' },
+            [
+              s.customer_number ? '#' + s.customer_number : null,
+              'sold ' + fmt.dateShort(s.sold_date),
+              s.crm_serviced_at ? '\u2713 ' + fmt.dateShort(String(s.crm_serviced_at).slice(0, 10)) : s.crm_initial_appt_at ? 'svc ' + fmt.dateShort(String(s.crm_initial_appt_at).slice(0, 10)) : 'not scheduled',
+            ].filter(Boolean).join(' \u00b7 ')),
+          el('span', { class: 'whitespace-nowrap shrink-0' }, (isAdmin && repFirst ? repFirst + ' \u00b7 ' : '') + ctName),
         ),
         // Backend queue: live account state cross-referenced from the snapshot.
         (queueFilter === 'backend' && (state.reportingSubscriptions || []).length) && el('div', {
-          class: 'flex items-center gap-2 mt-2 text-[11px] flex-wrap',
+          class: 'flex items-center gap-2 mt-1 text-[11px] flex-wrap',
         },
           rptM
             ? el('span', {
@@ -497,12 +504,11 @@ function salesCardsMobile(rows, { isAdmin = false, queueFilter = 'upfront' } = {
         ),
         // Optional note preview
         noteTxt && el('div', {
-          class: 'mt-2 text-[11px] italic text-muted- line-clamp-2',
-          style: { display: '-webkit-box', WebkitLineClamp: '2', WebkitBoxOrient: 'vertical', overflow: 'hidden' },
+          class: 'mt-1 text-[11px] italic text-muted- truncate',
         }, noteTxt),
         // Admin-only inline audit controls. On Backend Lock queue, surface the
         // second-pass dropdowns instead so the reviewer can decide right here.
-        isAdmin && el('div', { class: 'flex items-center gap-2 mt-3 flex-wrap' },
+        isAdmin && el('div', { class: 'flex items-center gap-2 mt-1.5 flex-wrap' },
           queueFilter === 'backend'
             ? [auditor2Select(s.id), lockStatusSelect(s.id)]
             : [statusSelect(s.id), auditorSelect(s.id)],

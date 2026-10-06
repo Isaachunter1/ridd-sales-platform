@@ -85,9 +85,27 @@ function indWorldHasTeams() {
 // first, then the Indicators table, its graph, Performance Trends, Records,
 // Class Metrics, Sales Mix. A dashboard with no entry keeps its built order.
 // Anything not named (player card, comp card) keeps its place around them.
-const IND_SECTION_ORDER = {
-  d2d: ['rep-leaderboard', 'ind-table', 'power-charts', 'yoy', 'repTrend', 'agg-records', 'class-metrics', 'sales-mix'],
-};
+const _IND_ORDER_STD = ['rep-leaderboard', 'ind-table', 'power-charts', 'yoy', 'repTrend', 'agg-records', 'class-metrics', 'sales-mix'];
+// Same order on all three dashboards (per Isaac, Oct 6). Office Staff keep the revenue-goal pacer above it.
+const IND_SECTION_ORDER = { d2d: _IND_ORDER_STD, office: _IND_ORDER_STD, techs: _IND_ORDER_STD };
+// The dashboards open on TODAY (per Isaac, Oct 6) — the Today / Week / Month / Year chips are one tap away.
+const IND_DEFAULT_RANGE = 'today';
+// Profile photo for a leaderboard row (per Isaac, Oct 6) — the rep's app photo, else their initials.
+function indRepAvatar(name, px) {
+  try {
+    const all = state.allProfiles || [];
+    let M = indRepAvatar._m;
+    if (!M || M.src !== all) { const map = new Map(); for (const p of all) { const k = _repTypeNameSig(p.full_name); if (k && (!map.has(k) || p.avatar_url)) map.set(k, p); } M = indRepAvatar._m = { src: all, map }; }
+    const p = M.map.get(_repTypeNameSig(typeof getCanonicalRepName === 'function' ? getCanonicalRepName(name) : name)) || null;
+    const parts = String(name || '').split(',').map(x => x.trim()).filter(Boolean);
+    const words = (parts.length > 1 ? parts[1] + ' ' + parts[0] : String(name || '')).split(/\s+/).filter(Boolean);
+    const ini = ((words[0] || '?')[0] + (words.length > 1 ? words[words.length - 1][0] : '')).toUpperCase();
+    const node = avatarNode((p && p.avatar_url) || null, (p && p.initials) || ini, 'text-[10px]');
+    const sz = (px || 28) + 'px';   // sized inline — not every w-/h- utility is in the stylesheet
+    node.style.width = sz; node.style.height = sz; node.style.minWidth = sz;
+    return node;
+  } catch (e) { return null; }
+}
 function indApplySectionOrder(page) {
   try {
     const order = IND_SECTION_ORDER[state.indicatorDept];
@@ -123,7 +141,7 @@ function viewWorldDashboard() {
   const dept = IND_WORLD[state.view];
   if (dept && state._indWorld !== state.view) {
     // Entering a world (or switching between them): preset the filters to it.
-    if (!state._indDeptDefaulted) { state.indicatorAcctStatus = 'pending_serviced'; state.indicatorsRangePreset = state.indicatorsRangePreset || 'this_year'; state.indicatorsGroupBy = state.indicatorsGroupBy || 'branch'; }
+    if (!state._indDeptDefaulted) { state.indicatorAcctStatus = 'pending_serviced'; state.indicatorsRangePreset = state.indicatorsRangePreset || IND_DEFAULT_RANGE; state.indicatorsGroupBy = state.indicatorsGroupBy || 'branch'; }
     state._indDeptDefaulted = true;
     state._indWorld = state.view;
     state.indicatorDept = dept;
@@ -166,7 +184,7 @@ function viewIndicators() {
   // labeled set so saved demos don't crash on load.
   const VALID_PRESETS = new Set(INDICATOR_RANGE_PRESETS.map(p => p.id));
   if (!state.indicatorsRangePreset || (!VALID_PRESETS.has(state.indicatorsRangePreset) && !/^year:\d{4}$/.test(state.indicatorsRangePreset))) {
-    state.indicatorsRangePreset = 'this_year';
+    state.indicatorsRangePreset = IND_DEFAULT_RANGE;
   }
   if (state.indicatorsCustomStart == null) state.indicatorsCustomStart = '';
   if (state.indicatorsCustomEnd   == null) state.indicatorsCustomEnd   = '';
@@ -718,7 +736,7 @@ function viewIndicators() {
     state._indDeptDefaulted = true;
     state.indicatorDept = 'd2d';
     state.indicatorAcctStatus = 'pending_serviced';
-    state.indicatorsRangePreset = 'this_year';
+    state.indicatorsRangePreset = IND_DEFAULT_RANGE;
     state.indicatorsCustomStart = '';
     state.indicatorsCustomEnd = '';
     state.indicatorsGroupBy = 'branch';
@@ -966,7 +984,7 @@ function viewIndicators() {
                   _metricLocked ? null : _fRow('Metric', hl(metricSel, (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced')),
                   _fRow('Exclude', hl(exclSel, !!indicatorExclKey())),
                   _repLite ? null : _fRow('Type',   hl(typeSel,   (state.indicatorDept || 'all') !== 'all')),
-                  _fRow('Date',   hl(dateSel,   isRange && state.indicatorsRangePreset !== 'this_year')),
+                  _fRow('Date',   hl(dateSel,   isRange && state.indicatorsRangePreset !== IND_DEFAULT_RANGE)),
                   _fRow('Group',  hl(groupSel,  groupBy !== 'branch')),
                   _repLite ? null : _fRow('Office', hl(officeSel, !!state._indicatorRepOfficeFilter)),
                   (_repLite || !indWorldHasTeams()) ? null : _fRow('Team',   hl(teamSel,   !!state._indicatorRepTeamFilter)),
@@ -1008,7 +1026,7 @@ function viewIndicators() {
             !!indicatorExclKey(),
             !_repLite && !!state._indicatorRepOfficeFilter, !_repLite && !!state._indicatorRepTeamFilter, !_repLite && !!state._indicatorRepTierFilter,
             !_repLite && (state.indicatorDept || 'all') !== 'all',
-            isRange && state.indicatorsRangePreset !== 'this_year',
+            isRange && state.indicatorsRangePreset !== IND_DEFAULT_RANGE,
             groupBy !== 'branch',
           ].filter(Boolean).length;
           const bindCloser = () => setTimeout(() => {
@@ -4066,14 +4084,15 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     { key: 'name',       label: 'Rep',      align: 'left',  defaultDir: 'asc',  cell: r => {
         const meta = repTierMeta(r.tier);
         // Tier pill under the name (per Isaac) — a narrower Rep column so the table stops scrolling sideways.
-        return el('td', { class: 'px-2 py-2', style: { maxWidth: '150px' } },
-          el('div', {},
+        return el('td', { class: 'px-2 py-2', style: { maxWidth: '190px' } },
+          el('div', { class: 'flex items-center gap-2' }, indRepAvatar(r.name, 30),
+          el('div', { class: 'min-w-0' },
             el('div', { class: 'font-semibold truncate', title: r.name }, r.name),
             meta && el('span', {
               class: 'inline-block text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded mt-0.5',
               style: { background: meta.color + '22', color: meta.color },
             }, meta.label),
-          ),
+          )),
         );
       } },
     // Team + Office don't apply to office staff (they're not on D2D team
@@ -4899,6 +4918,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           },
             el('div', { class: 'flex items-center gap-2' },
               el('span', { class: 'font-black tabular-nums text-xs', style: { color: 'var(--accent)' } }, '#' + (myIdx + 1)),
+              indRepAvatar(me.name, 26),
               el('span', { class: 'font-bold truncate text-sm' }, me.name),
               el('span', { class: 'text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, 'You'),
               el('span', { class: 'text-xl leading-none font-black tabular-nums ml-auto shrink-0' }, fmt.usd0(me.revenue || 0))),
@@ -4942,6 +4962,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 // Rank + name on the left, THE number — revenue — big on the right
                 el('div', { class: 'flex items-center gap-2' },
                   el('span', { class: 'font-black tabular-nums shrink-0 text-xs', style: { color: i === 0 ? 'var(--accent)' : 'var(--text-muted)' } }, '#' + (i + 1)),
+                  indRepAvatar(r.name, 26),
                   el('span', { class: 'font-bold truncate text-sm' }, r.name),
                   tierMeta && el('span', {
                     class: 'text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0',
