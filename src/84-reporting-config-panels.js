@@ -1454,7 +1454,7 @@ function reportingMarketingPnl() {
       : el('div', { class: 'flex flex-col gap-4' }, _mktgCac(), _mktgProviders()))
     : sub === 'demand' ? _mktgDemand() : sub === 'spend' ? _mktgSpendEntry() : sub === 'projections' ? _mktgProjections() : _mktgPnl();
   // Needs attention (owner-only feed) lives on the Marketing tab (per Isaac, Sep 2026).
-  return el('div', { class: 'flex flex-col gap-4' }, (typeof exceptionFeedCard === 'function') ? exceptionFeedCard() : null, _mktgYearBar(sub), body);
+  return el('div', { class: 'flex flex-col gap-4' }, (typeof exceptionFeedCard === 'function') ? exceptionFeedCard() : null, (() => { try { return mktgLeadFlowTask(); } catch (e) { return null; } })(), _mktgYearBar(sub), body);
 }
 
 const REPORTING_MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];

@@ -784,6 +784,11 @@ function feeCreditAuditCard() {
 // the accounts (with CSV export). Each task is a rule the app already knows, pointed at "what needs fixing in
 // FieldRoutes". Add a task by adding an entry to auditSubTasks().
 function auditTaskCard(t) {
+  // A task that cannot run yet (a setting is missing) says so in amber instead of showing a misleading zero.
+  if (t.warn) return el('div', { class: 'card overflow-hidden' }, el('div', { class: 'w-full flex items-center gap-2 px-4 py-2.5' },
+    el('span', { class: 'inline-block rounded-full shrink-0', style: { width: '8px', height: '8px', background: '#D97706' } }),
+    el('span', { class: 'text-[11px] uppercase tracking-widest font-bold shrink-0' }, 'To do · ' + t.title),
+    el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, t.warn)));
   const n = t.rows.length;
   const open = n ? () => openReportingDrillModal({ chartTitle: 'Auditing · ' + t.title, sliceLabel: n.toLocaleString() + ' ' + (n === 1 ? t.noun : t.noun + 's'), rows: t.rows, formatValue: fmt.usd0 }) : null;
   return el('div', { class: 'card overflow-hidden' },
@@ -798,7 +803,7 @@ function auditSubTasks() {
   const rows = state.reportingSubscriptions || [];
   if (!rows.length) return [];
   const M = auditSubTasks._m;
-  const key = rows.length + '|' + JSON.stringify((state.reportingServiceConfig || []).map(c => c.service_name + ':' + (c.lifecycle || '')));
+  const key = rows.length + '|' + JSON.stringify((state.reportingServiceConfig || []).map(c => c.service_name + ':' + (c.lifecycle || ''))) + '|' + Object.keys((typeof commissionConfig === 'function' && commissionConfig().serviceCategories) || {}).length;
   if (M && M.src === rows && M.key === key) return M.tasks;
   const isActive = (r) => String(r.subscription_status || '').trim().toLowerCase() === 'active' && !r.subscription_date_canceled;
   const s = (n) => n === 1 ? '' : 's';
@@ -836,6 +841,44 @@ function auditSubTasks() {
   tasks.push({ title: 'Door to Door source on an office or technician sale', noun: 'subscription', tone: 'check', rows: mis,
     ok: 'All clear — every Door to Door sale this year was sold by someone who knocks doors.',
     todo: (n) => n + ' sale' + s(n) + ' in ' + yr + ' sourced Door to Door by an office or technician user who has never sold as a Sales Rep — fix the source in FieldRoutes.' });
+  // 4. Service types with no commission category: a Sales Rep sale this year on a service the D2D calculator has no
+  //    rule for, so it pays $0 until the service is classified (Settings → Commissions).
+  const cats = (typeof commissionConfig === 'function') ? (commissionConfig().serviceCategories || {}) : {};
+  const notSale = (name) => (typeof reportingNonSaleService === 'function') ? reportingNonSaleService(name) : false;
+  if (!Object.keys(cats).length) tasks.push({ title: 'Service types with no commission category', warn: 'The commission category list is empty, so every Sales Rep sale is unclassified. Run migrations/20261006_sales_rep_full_rate.sql, then this task lists what is left.' });
+  else {
+    const un = rows.filter(r => String(r.sold_date || '').slice(0, 4) === yr && String(r.sold_by_type || '').trim() === 'Sales Rep' && !r.subscription_date_canceled && !cats[r.subscription] && !notSale(r.subscription))
+      .map(r => ({ ...r, _flagReason: 'Service type "' + (r.subscription || 'blank') + '" has no commission category — pays $0 until it is classified' }));
+    const names = new Set(un.map(r => r.subscription));
+    tasks.push({ title: 'Service types with no commission category', noun: 'subscription', rows: un,
+      ok: 'All clear — every service type a Sales Rep sold this year has a commission category.',
+      todo: (n) => n + ' Sales Rep sale' + s(n) + ' in ' + yr + ' across ' + names.size + ' service type' + s(names.size) + ' with no commission category — classify ' + (names.size === 1 ? 'it' : 'them') + ' in Settings \u2192 Commissions.' });
+  }
+  // 5. Sales with no seller type: FieldRoutes has no Office Staff / Sales Rep / Technician type for whoever sold it,
+  //    so the sale lands on no dashboard and in no pay queue.
+  const noType = rows.filter(r => String(r.sold_date || '').slice(0, 4) === yr && !String(r.sold_by_type || '').trim() && !notSale(r.subscription))
+    .map(r => ({ ...r, _flagReason: 'No seller type in FieldRoutes for ' + (String(r.sold_by || '').trim() || (r.sold_by_id != null && String(r.sold_by_id) !== '0' ? 'employee #' + r.sold_by_id : 'a blank Sold By')) }));
+  tasks.push({ title: 'Sales with no seller type', noun: 'subscription', rows: noType,
+    ok: 'All clear — every sale this year has a seller with a type.',
+    todo: (n) => n + ' sale' + s(n) + ' in ' + yr + ' sold by someone with no Office Staff / Sales Rep / Technician type — set Sold By (or the employee\u2019s type) in FieldRoutes.' });
+  // 6. Sold but never started: sold more than 14 days ago (within the last year), not cancelled, and the initial
+  //    service still has not been completed.
+  const dayMs = 86400000, nowMs = Date.now();
+  const stale = rows.filter(r => { if (r.subscription_date_canceled || notSale(r.subscription)) return false;
+      const sd = Date.parse(String(r.sold_date || '').slice(0, 10)); if (isNaN(sd)) return false; const age = (nowMs - sd) / dayMs; if (age < 14 || age > 365) return false;
+      if (String(r.subscription_status || '').trim().toLowerCase() !== 'active') return false;
+      return !r.initial_service && !r.initial_serviced_date && String(r.initial_status || '').trim().toLowerCase() !== 'completed'; })
+    .map(r => { const age = Math.round((nowMs - Date.parse(String(r.sold_date).slice(0, 10))) / dayMs); const ist = String(r.initial_status || '').trim();
+      return { ...r, _flagReason: 'Sold ' + age + ' days ago, initial service ' + (ist ? 'is ' + ist : 'has no appointment') + ' — schedule it or close the subscription' }; });
+  tasks.push({ title: 'Sold but never started', noun: 'subscription', rows: stale,
+    ok: 'All clear — nothing sold more than two weeks ago is still waiting on its first service.',
+    todo: (n) => n + ' active subscription' + s(n) + ' sold more than 14 days ago with no completed initial service — schedule the first visit or close ' + (n === 1 ? 'it' : 'them') + '.' });
+  // 7. Cancelled with no reason: these fall into "Unspecified" and blur the churn reasons.
+  const noReason = rows.filter(r => r.subscription_date_canceled && String(r.subscription_date_canceled).slice(0, 4) === yr && /^(unspecified\.?)?$/i.test(String(r.subscription_cancellation_reason || '').trim()))
+    .map(r => ({ ...r, _flagReason: 'Cancelled ' + String(r.subscription_date_canceled).slice(0, 10) + ' with no cancellation reason' }));
+  tasks.push({ title: 'Cancelled with no reason', noun: 'subscription', tone: 'check', rows: noReason,
+    ok: 'All clear — every cancel this year has a reason.',
+    todo: (n) => n + ' cancel' + s(n) + ' in ' + yr + ' with no reason given — add the reason in FieldRoutes so churn reports can use ' + (n === 1 ? 'it' : 'them') + '.' });
   auditSubTasks._m = { src: rows, key, tasks };
   return tasks;
 }
