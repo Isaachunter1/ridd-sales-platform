@@ -119,6 +119,7 @@ function insideSalesTabsFor(role) {
   let tabs = INSIDE_SALES_TABS.filter(([k]) => viewFeatureOn(k));   // feature switches (RIDD_CONFIG.FEATURES)
   // Settings → Permissions decides the sub-tabs per role (defaults = the old hardcoded lists).
   if (!isAdminRole(role)) tabs = tabs.filter(([k]) => !VIEW_TAB_PERM[k] || userCan(VIEW_TAB_PERM[k]));
+  if (role === 'office_staff') tabs = tabs.filter(([k]) => k !== 'scorecards');   // no scorecard for the non-selling office role (per Isaac, Oct 6)
   return tabs;
 }
 // Admin-only segmented toggle between the two halves of "Sales":

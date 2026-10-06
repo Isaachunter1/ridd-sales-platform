@@ -69,9 +69,10 @@ function viewScorecards() {
   const roster = canScoreRoster
     ? allProfiles.filter(p => !isAdminRole(p.role) && !isAuditorRole(p.role)
         && typeof isOfficeStaffProfile === 'function' && isOfficeStaffProfile(p)
+        && scorecardEligible(p)   // Inside Sales + Loyalty reps only — "Office Staff - Office" users don't get a card (per Isaac, Oct 6)
         && (isAllDepts || scorecardDeptOf(p) === dept))
         .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
-    : allProfiles.filter(p => p.id === state.profile?.id);
+    : allProfiles.filter(p => p.id === state.profile?.id && scorecardEligible(p));
 
   // ── Header strip ──────────────────────────────────────────────────
   const container = el('div', { class: 'flex flex-col gap-4' });

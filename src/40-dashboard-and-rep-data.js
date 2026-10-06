@@ -5407,7 +5407,8 @@ function dashboardGoalCard(range, opts) {
     // ── Department ⇄ Individual toggle — Individual shows every rep's YTD
     // against the personal goal they set (⚙ My Settings) or an admin set
     // for them, with the same year-pace marker as the department bars. ──
-    const goalMode = LOY ? 'reps' : (state.dashGoalMode === 'reps' ? 'reps' : 'dept');
+    // opts.streams (Oct 6): another dashboard hands in its own stream(s) — D2D Sales and Technicians reuse this card with their own revenue + goal, no Individual view.
+    const goalMode = opts.streams ? 'dept' : LOY ? 'reps' : (state.dashGoalMode === 'reps' ? 'reps' : 'dept');
     // Toggle stays pinned right on phones too (per Isaac): the longer
     // Individual title gets flex-1 / min-w-0 so it wraps instead of
     // shoving the toggle around.
@@ -5661,7 +5662,7 @@ function dashboardGoalCard(range, opts) {
       const projYear = sp > 0.02 ? s.actual / sp : null;
       // Month figures — hover only.
       const monTarget = _monthTargetOf(s.monthly, s.target, _m3);
-      const mtdActual = _mtd[s.key];
+      const mtdActual = s.mtd != null ? s.mtd : _mtd[s.key];
       const daysDoneM = _sellingDaysBetween(new Date(_y3, _m3, 1), now2), daysTotM = _sellingDaysInMonth(_y3, _m3) || 1;
       const daysLeftM = _sellingDaysBetween(_tom3, new Date(_y3, _m3, _dimOf(_y3, _m3)));
       const needMonth = monTarget > 0 && daysLeftM > 0 ? Math.max(0, (monTarget - mtdActual) / daysLeftM) : null;
@@ -5694,24 +5695,27 @@ function dashboardGoalCard(range, opts) {
           _stat(_winLabel, (winHit ? '✓ ' : '') + (_phoneP ? _kUsd(s.win) : fmt.usd0(s.win)) + (goalWin > 0 ? (_phoneP ? '/' + _kUsd(goalWin) : ' / ' + _shortUsd(goalWin)) : ''), winHit ? _GREEN : (!_winOpen && goalWin > 0 ? _RED : null),
             goalWin > 0 ? (winHit ? 'Goal for ' + _winLabel.toLowerCase() + ' hit — ' + fmt.usd0(s.win - goalWin) + ' over.' : fmt.usd0(goalWin - s.win) + (_winOpen ? ' to go' : ' short') + ' against ' + fmt.usd0(goalWin) + ' — the month’s allocation spread over its selling days.') : '')));
     };
-    const _streams = [
+    const _streams = opts.streams || [
       { key: 'new', label: 'New', color: '#DF643A', actual: ytdDept.new, target: newTarget, monthly: g.monthly_new, win: newRevenue },
       { key: 'renewal', label: 'Renewal', color: '#5F6C5B', actual: ytdDept.renewal, target: renewalTarget, monthly: g.monthly_renewal, win: renewalRevenue },
     ];
+    const _one = _streams.length === 1;
+    const _totalShown = opts.streams ? _streams.reduce((a, x) => a + (Number(x.actual) || 0), 0) : totalActual;
     return el('div', { class: 'card rev-goal-card', style: { padding: _phoneP ? '14px' : '18px 20px' } },
       el('div', { class: 'flex items-center justify-between gap-2 mb-3' },
         el('div', { class: 'flex items-baseline gap-2 flex-1 min-w-0 flex-wrap' },
-          el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Revenue Pacer'),
-          el('span', { class: 'text-[11px] tabular-nums', style: { color: 'var(--text-muted)' }, title: 'New ' + fmt.usd0(ytdDept.new) + ' (' + newPctOfTotal.toFixed(0) + '%) + Renewal ' + fmt.usd0(ytdDept.renewal) + ' (' + renewalPctOfTotal.toFixed(0) + '%)' },
-            (_phoneP ? _shortUsd(totalActual) : fmt.usd0(totalActual) + ' total') + ' · ' + daysLeft + ' days left')),
-        el('div', { class: 'inline-flex rounded-lg border overflow-hidden shrink-0 ml-auto', style: { borderColor: 'var(--border-2)' } },
+          el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, opts.title || 'Revenue Pacer'),
+          el('span', { class: 'text-[11px] tabular-nums', style: { color: 'var(--text-muted)' }, title: opts.streams ? '' : 'New ' + fmt.usd0(ytdDept.new) + ' (' + newPctOfTotal.toFixed(0) + '%) + Renewal ' + fmt.usd0(ytdDept.renewal) + ' (' + renewalPctOfTotal.toFixed(0) + '%)' },
+            (_one ? '' : (_phoneP ? _shortUsd(_totalShown) : fmt.usd0(_totalShown) + ' total') + ' · ') + daysLeft + ' days left'),
+          opts.hint ? el('span', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' } }, opts.hint) : null),
+        opts.streams ? null : el('div', { class: 'inline-flex rounded-lg border overflow-hidden shrink-0 ml-auto', style: { borderColor: 'var(--border-2)' } },
           ...[['dept', 'Department'], ['reps', 'Individual']].map(([v, l]) => el('button', {
             class: 'px-2.5 py-1 text-[11px] font-semibold transition',
             style: goalMode === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
             title: v === 'reps' ? 'Each rep\'s YTD revenue vs their individual goal' : 'Department totals vs the company goal',
             onclick: () => { state.dashGoalMode = v; mountApp(); },
           }, l)))),
-      el('div', { class: 'grid', style: { gridTemplateColumns: _wideP ? 'repeat(2, minmax(0, 1fr))' : 'minmax(0, 1fr)', columnGap: '32px', rowGap: '18px' } }, ..._streams.map(_stream)));
+      el('div', { class: 'grid', style: { gridTemplateColumns: (_wideP && !_one) ? 'repeat(2, minmax(0, 1fr))' : 'minmax(0, 1fr)', columnGap: '32px', rowGap: '18px' } }, ..._streams.map(_stream)));
 }
 
 // Loyalty rep? Role first (rep_loyalty / lead), else the FieldRoutes rep type / profile rep_type.

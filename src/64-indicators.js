@@ -137,6 +137,47 @@ function indHomeView() {
   const g = (typeof repTypeGroup === 'function') ? repTypeGroup(p) : 'd2d';
   return g === 'office' ? 'dashboard' : g === 'tech' ? 'techs' : 'd2d_dashboard';
 }
+// ── Revenue pacer for D2D Sales / Technicians (per Isaac, Oct 6 — admins
+// only for now). Same card as Office Staff, one stream: ALL sales-rep (or
+// all technician) revenue on this dashboard, against the department goal
+// set in Settings → Goals. Reads the same pool the dashboard shows.
+function worldDeptCurve(dept) {
+  // Last year's actual month-by-month share for this rep type — the default seasonal shape for its goal.
+  try {
+    const y = new Date().getFullYear() - 1, by = Array(12).fill(0); let tot = 0;
+    for (const s of (state._indicatorRawSales || [])) {
+      if (_indicatorDeptOf(s) !== dept || !frPendingServiced(s)) continue;
+      const d = _parseIndicatorDay(s); if (!d || d.getFullYear() !== y) continue;
+      const v = Number(s.contractValue) || 0; by[d.getMonth()] += v; tot += v;
+    }
+    if (tot > 0 && by.filter(v => v > 0).length >= 6) return by.map(v => v / tot);
+  } catch (e) { /* fall through */ }
+  return (typeof IS_SEASONAL !== 'undefined') ? IS_SEASONAL.slice() : Array(12).fill(1 / 12);
+}
+function worldRevenuePacer(dept) {
+  const gid = dept === 'techs' ? 'tech' : 'd2d';
+  const g = (typeof deptGoalObj === 'function' ? deptGoalObj(gid) : null) || {};
+  const now = new Date(), y = now.getFullYear(), m = now.getMonth(), dd = now.getDate();
+  let ytd = 0, mtd = 0, tod = 0;
+  for (const s of indicatorSales()) {
+    if (_indicatorDeptOf(s) !== dept) continue;
+    const d = _parseIndicatorDay(s); if (!d || d.getFullYear() !== y) continue;
+    const v = Number(s.contractValue) || 0; ytd += v;
+    if (d.getMonth() === m) { mtd += v; if (d.getDate() === dd) tod += v; }
+  }
+  const monthly = (Array.isArray(g.monthly) && g.monthly.length === 12 && g.monthly.some(v => Number(v) > 0)) ? g.monthly.map(Number) : null;
+  const target = monthly ? monthly.reduce((a, b) => a + (b || 0), 0) : (Number(g.amount) || 0);
+  const label = dept === 'techs' ? 'Technician' : 'Sales Rep';
+  const range = { start: new Date(y, m, dd), end: new Date(y, m, dd, 23, 59, 59) };
+  const _keep = state.dashDateRange; state.dashDateRange = 'today';   // this pacer's third number is always Today
+  try {
+    return dashboardGoalCard(range, {
+      title: label + ' Revenue Pacer',
+      hint: target > 0 ? '' : 'No goal set \u2014 add one in Settings \u2192 Goals \u2192 ' + (dept === 'techs' ? 'Technicians' : 'Door to Door'),
+      streams: [{ key: 'all', label, color: '#DF643A', actual: ytd, target, monthly: monthly || (target > 0 ? worldDeptCurve(dept).map(f => f * target) : null), win: tod, mtd }],
+    });
+  } finally { state.dashDateRange = _keep; }
+}
 function viewWorldDashboard() {
   const dept = IND_WORLD[state.view];
   if (dept && state._indWorld !== state.view) {
@@ -149,9 +190,10 @@ function viewWorldDashboard() {
     if (!indWorldHasTeams()) state._indicatorRepTeamFilter = '';   // a D2D team filter doesn't follow you onto a dashboard with no teams
   }
   const node = viewIndicators();
-  if (dept === 'office' && typeof dashboardGoalCard === 'function') {
+  const _adminPacer = (dept === 'd2d' || dept === 'techs') && isAdminRole(state.profile?.role) && !state.indicatorsComps;
+  if ((dept === 'office' || _adminPacer) && typeof dashboardGoalCard === 'function') {
     try {
-      const goal = dashboardGoalCard(getDateRange(state.dashDateRange));
+      const goal = dept === 'office' ? dashboardGoalCard(getDateRange(state.dashDateRange)) : worldRevenuePacer(dept);
       if (goal) {
         goal.setAttribute('data-section', 'goal-pacer');
         const barHost = [...node.children].find(c => c.querySelector && c.querySelector('#indFixedBar'));
@@ -11159,6 +11201,9 @@ const SCORECARD_DEPTS = [
   { id: 'loyalty',      label: 'Loyalty' },
 ];
 
+// Scorecards are for Inside Sales and Loyalty reps (and their leads). The
+// non-selling "Office Staff - Office" role is office staff but has no card.
+function scorecardEligible(p) { return !!p && p.role !== 'office_staff'; }
 function scorecardDeptOf(p) {
   if (!p) return 'inside_sales';
   if (p.rep_type === 'loyalty_rep' || p.role === 'rep_loyalty' || p.role === 'rep_loyalty_lead') return 'loyalty';

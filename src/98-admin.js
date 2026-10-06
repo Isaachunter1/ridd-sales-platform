@@ -833,6 +833,36 @@ function dataIntegrityPanel() {
 // snapshots like the reporting side).
 // (indicatorsUploadsPanel removed — unreferenced; settings audit, Sep 30)
 
+// ── Department revenue goal (per Isaac, Oct 6) — the annual number + monthly
+// allocation the D2D Sales / Technicians Revenue Pacer races. Stored on the
+// department's own goal object (app_settings company_goal_d2d / _tech).
+function deptRevenueGoalCard(dept) {
+  const g = deptGoalObj(dept.id);
+  const world = dept.id === 'tech' ? 'techs' : 'd2d';
+  const M = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const has = Array.isArray(g.monthly) && g.monthly.length === 12;
+  const annual = has ? g.monthly.reduce((a, b) => a + (Number(b) || 0), 0) : (Number(g.amount) || 0);
+  const persist = () => { g.amount = (g.monthly || []).reduce((a, b) => a + (Number(b) || 0), 0); saveDemoData(); saveDeptGoal(dept.id); };
+  const spread = (total) => { const c = (typeof worldDeptCurve === 'function') ? worldDeptCurve(world) : Array(12).fill(1 / 12); g.monthly = c.map(f => Math.round(total * f)); persist(); mountApp(); };
+  const num = (v) => parseFloat(String(v).replace(/[^0-9.]/g, '')) || 0;
+  const inCls = 'text-left text-[11px] rounded border px-1.5 py-1 tabular-nums';
+  return el('div', { class: 'card p-5' },
+    el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-3' },
+      el('div', {},
+        el('h3', { class: 'text-sm font-bold' }, dept.label + ' revenue goal'),
+        el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Drives the Revenue Pacer on the ' + (dept.id === 'tech' ? 'Technicians' : 'D2D Sales') + ' dashboard. Enter the year and it is spread across the months by last year\u2019s actual sales pattern; edit any month after.')),
+      el('div', { class: 'flex items-center gap-2' },
+        el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, 'Annual goal'),
+        el('input', { type: 'text', inputmode: 'decimal', value: annual ? '$' + Math.round(annual).toLocaleString() : '', placeholder: '$0', class: inCls + ' font-bold', style: { borderColor: 'var(--border-2)', width: '130px' },
+          onchange: (e) => spread(num(e.target.value)) }),
+        has ? el('button', { class: 'text-[11px] rounded px-2.5 py-1 border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Re-spread the annual goal by last year\u2019s pattern', onclick: () => spread(annual) }, '\u21bb Reset months') : null)),
+    has ? el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(86px, 1fr))' } },
+      ...M.map((lbl, m) => el('label', { class: 'flex flex-col gap-1' },
+        el('span', { class: 'text-[10px] uppercase tracking-wider font-semibold', style: { color: m === new Date().getMonth() ? 'var(--accent)' : 'var(--text-muted)' } }, lbl + (annual > 0 ? ' \u00b7 ' + ((Number(g.monthly[m]) || 0) / annual * 100).toFixed(0) + '%' : '')),
+        el('input', { type: 'text', inputmode: 'decimal', value: '$' + Math.round(Number(g.monthly[m]) || 0).toLocaleString(), class: inCls, style: { borderColor: 'var(--border-2)', width: '100%', minWidth: '0' },
+          onchange: (e) => { g.monthly[m] = num(e.target.value); persist(); mountApp(); } }))))
+      : el('div', { class: 'text-[11px] italic', style: { color: 'var(--text-subtle)' } }, 'No goal yet \u2014 type the annual number above.'));
+}
 // ── Placeholder settings sections (filled in later as needed) ──
 function adminGoals() {
   // One set of goals per department (per Isaac, Sep 22): Office Staff is the
@@ -848,9 +878,8 @@ function adminGoals() {
       ...GOAL_DEPTS.map(d => el('button', { class: 'px-3 py-1.5 text-[11px] font-bold transition', style: d.id === dept.id ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._goalDept = d.id; mountApp(); } }, d.label)));
     return el('div', { class: 'flex flex-col gap-5' },
       el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' }, el('h2', { class: 'text-xl font-bold' }, 'Goals'), tabs),
-      dept.id === 'tech'
-        ? el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Technician goals are being built out with the COO.')
-        : d2dRepGoalsCard(_partnerOnly));
+      _partnerOnly ? null : deptRevenueGoalCard(dept),
+      dept.id === 'tech' ? null : d2dRepGoalsCard(_partnerOnly));
   }
   const g = deptGoalObj(dept.id);
   g.amount         = g.amount         ?? 0;
