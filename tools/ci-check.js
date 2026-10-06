@@ -172,6 +172,15 @@ try {
       String((e.stdout || '') + (e.stderr || '')).split('\n').slice(0, 8).join('\n'));
 }
 
+console.log('\n[11] Semantic layer fixtures (tools/semantic-test.js)');
+try {
+  const out = require('child_process').execFileSync(process.execPath, [path.join(__dirname, 'semantic-test.js')], { stdio: 'pipe' }).toString().trim();
+  ok(out.split('\n').pop());
+} catch (e) {
+  bad('Semantic layer fixtures FAILED — a metric definition in src/69-semantic.js changed',
+      String((e.stdout || '') + (e.stderr || '')).split('\n').slice(0, 8).join('\n'));
+}
+
 // ── verdict ─────────────────────────────────────────────────────────────
 if (failures) {
   console.error('\nCI: FAIL — ' + failures + ' problem(s). Deploy blocked; previous version stays live.');

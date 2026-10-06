@@ -1217,6 +1217,7 @@ function reportingSubTabs() {
     ['marketing',  'Marketing'],
     ['ops',        'Operations'],
     ['putis',      'P&L'],
+    ['definitions', 'Definitions'],   // the semantic layer: how every number is built (src/69-semantic.js)
   ].filter(([k]) => isAdminRole(state.profile?.role) || devSampleData() || !['marketing', 'putis'].includes(k));   // developer: the UI, with sample data   // granted non-admins: read-only tabs only
   const go = (k) => { const t = tabs.find(([kk]) => kk === k); if (t && t[2]) { window.open(t[2], '_blank', 'noopener'); return; } state.reportingSubTab = k; mountApp(); };
   const cur = tabs.some(([k]) => k === state.reportingSubTab && !tabs.find(([kk]) => kk === k)[2]) ? state.reportingSubTab : tabs[0][0];

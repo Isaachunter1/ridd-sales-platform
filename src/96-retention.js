@@ -122,12 +122,8 @@ function _retenOfficial() {
 // Trailing 12 months: cancels in the last 365 days ÷ the book exactly a year
 // ago. The always-comparable operating number (YTD isn't, until December).
 function retenTrailing12(book) {
-  const today = new Date();
-  const start = new Date(today); start.setFullYear(start.getFullYear() - 1);
-  const st = start.toISOString().slice(0, 10), en = today.toISOString().slice(0, 10);
-  const boy = book.filter(r => r.initial_service < st && (!r._effCancel || r._effCancel >= st));
-  const counted = boy.filter(r => r._effCancel && r._effCancel >= st && r._effCancel <= en);
-  return { rate: boy.length ? counted.length / boy.length : null, c: counted.length, boy: boy.length, st, en, rows: { boy, counted } };
+  const A = semMetric('trailing12_attrition')(book);
+  return { rate: A.value, c: A.n, boy: A.d, st: A.st, en: A.en, rows: A.rows };
 }
 // Branch picker on the Attrition Steps bar (per Isaac, Sep 2026 — moved up
 // out of step 3). Same state as before: state._retenWhatIf.branches holds
@@ -218,12 +214,13 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
   const excl = reportingExcludedCancelReasons();
   const cancelSteps = (yr) => {
     const st = yr + '-01-01', en = yr + '-12-31';
-    const boy = book.filter(r => r.initial_service < st && (!r._effCancel || r._effCancel >= st));
+    const A = semMetric('annual_attrition')(book, yr);   // the definition lives in the semantic layer
+    const boy = A.rows.boy;
     const raw = boy.filter(r => r.subscription_date_canceled && r.subscription_date_canceled >= st && r.subscription_date_canceled <= en);
     const exclRows = raw.filter(r => excl.has(_normCancelReason(reportingCancelReasonOf(r))));
     const rorRows = raw.filter(r => !excl.has(_normCancelReason(reportingCancelReasonOf(r))) && reportingExcludeRorChurn() && _reporting3dayRor(r));
-    const countedRows = boy.filter(r => r._effCancel && r._effCancel >= st && r._effCancel <= en);
-    return { boy: boy.length, raw: raw.length, exclN: exclRows.length, rorN: rorRows.length, counted: countedRows.length, rate: boy.length ? countedRows.length / boy.length : null,
+    const countedRows = A.rows.counted;
+    return { boy: boy.length, raw: raw.length, exclN: exclRows.length, rorN: rorRows.length, counted: countedRows.length, rate: A.value,
       rows: { boy, raw, excl: exclRows, ror: rorRows, counted: countedRows } };
   };
   // Cohort read (per Isaac, Sep 22): Blended = the book on Jan 1 followed
@@ -602,30 +599,8 @@ function reportingWaterfall() {
   // same effective-cancel rules as the table itself, so counts reconcile. ──
   // Shared prep — recurring + serviced subs with the EFFECTIVE cancel date
   // (excluded reasons / 3-day ROR don't count), identical to the waterfall.
-  const _retenEffCache = new Map();
-  const _retenEff = (pop) => {
-    // Memoized per population array + rules — four cards + drills share one
-    // pass instead of each re-cloning the 65k-row book.
-    const _rulesKey = (retenExclRenewalSubs() ? 'R' : '') + (retenExclZeroPay() ? 'Z' : '') + (retenExclFrozenOneSvc() ? 'F' : '') + (retenExclOneSvc() ? 'O' : '') + (reportingExcludeRorChurn() ? 'r' : '') + '|' + [...retenPopExclReasons()].join(',') + '|' + retenOneSvcExemptTerms().join(',') + '|' + reportingExcludedCancelReasons().size + '|' + JSON.stringify(state._retenWhatIf || null);
-    const hit = _retenEffCache.get(pop);
-    if (hit && hit._rulesKey === _rulesKey) return hit;
-    const recurringByName = reportingServiceRecurringMap();
-    const excludedReasons = reportingExcludedCancelReasons();
-    const out = pop
-      .filter(r => !!recurringByName.get(r.subscription))
-      .filter(r => !!r.initial_service && r.initial_service >= '2000-01-01')   // garbage dates can't blow up the year walks
-      .filter(r => !retenPopulationExcluded(r))   // workbook Steps 4–6 (Configurations → Reporting rules)
-      .map(r => {
-        const realCancel = r.subscription_date_canceled
-          && !excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r)))
-          && !(reportingExcludeRorChurn() && _reporting3dayRor(r))
-          ? r.subscription_date_canceled : null;
-        return { ...r, initial_service: r.origin_initial_service || r.initial_service, _effCancel: realCancel };
-      });
-    out._rulesKey = _rulesKey;
-    _retenEffCache.set(pop, out);
-    return out;
-  };
+  // The retention book is a semantic-layer entity now (src/69-semantic.js) — one definition, shared by every card.
+  const _retenEff = semRetentionBook;
   const MONTHS_S = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   // Period-aware drill: a YEAR (blended table rows) or a single MONTH
   // (seasonality cells). Same book/churn construction either way.
@@ -845,7 +820,8 @@ function reportingWaterfall() {
     const colTotal = (y) => cohorts.filter(c => c <= y).reduce((a, c) => a + val(cell(c, y)), 0);
     // Blended attrition per year-end column: cohorts that existed at the prior
     // year-end, followed to this year-end.
-    const blended = (y) => { const prior = cohorts.filter(c => c < y); const boy = prior.reduce((a, c) => a + val(cell(c, y - 1)), 0); const eoy = prior.reduce((a, c) => a + val(cell(c, y)), 0); return boy ? 1 - eoy / boy : null; };
+    const blended = (y) => { if (!isArr) return semMetric('annual_attrition')(rows, y).value;   // Subs: the same definition as the Attrition Steps tiles
+      const prior = cohorts.filter(c => c < y); const boy = prior.reduce((a, c) => a + val(cell(c, y - 1)), 0); const eoy = prior.reduce((a, c) => a + val(cell(c, y)), 0); return boy ? 1 - eoy / boy : null; };
     const th = (t, o = {}) => el('th', { class: 'px-2.5 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (o.left ? 'text-left' : 'text-right'), style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0, left: o.corner ? 0 : undefined, zIndex: o.corner ? 3 : 2 } }, t);
     const td = (t, o = {}) => el('td', { class: 'px-2.5 py-1.5 tabular-nums whitespace-nowrap ' + (o.left ? 'text-left font-semibold' : 'text-right') + (o.bold ? ' font-black' : ''), style: { color: o.muted ? 'var(--text-subtle)' : undefined, background: o.sticky ? (o.bg || 'var(--card)') : (o.bg || undefined), position: o.sticky ? 'sticky' : undefined, left: o.sticky ? 0 : undefined, zIndex: o.sticky ? 1 : undefined, boxShadow: o.sticky ? '1px 0 0 var(--border)' : undefined, cursor: o.onclick ? 'pointer' : undefined }, onclick: o.onclick }, t);
     // ── What the cohorts LEAVE OUT (per Isaac, Oct 6): every subscription in
@@ -2347,31 +2323,24 @@ function reportingWaterfall() {
     const _cx = dim === 'contract';
     const _cxOf = (label, t) => {
       const term = /^(12|18|24) mo$/.test(label) ? Number(label.slice(0, 2)) : null;
-      const nowMs = Date.now(), MO = 2629800000;
-      let s12n = 0, s12k = 0, fn = 0, fk = 0, dq = 0; const lives = [];
-      for (const r of t.rows) {
-        const a = Date.parse(String(r.initial_service || '').slice(0, 10)); if (isNaN(a)) continue;
-        const age = (nowMs - a) / MO; const c = r._effCancel ? Date.parse(String(r._effCancel).slice(0, 10)) : NaN;
-        const life = isNaN(c) ? null : Math.max(0, (c - a) / MO);
-        if (age >= 12) { s12n++; if (life == null || life >= 12) s12k++; }
-        if (term && age >= term + 1) { fn++; if (life == null || life >= term) fk++; }
-        if (life != null) { lives.push(life); if (/delinquent/i.test(String(reportingCancelReasonOf(r) || ''))) dq++; }
-      }
-      lives.sort((x, y) => x - y);
-      return { s12: pct(s12k, s12n), fin: term ? pct(fk, fn) : '\u2014', med: lives.length ? lives[Math.floor(lives.length / 2)].toFixed(1) + ' mo' : '\u2014', dq: pct(dq, lives.length), tip12: fmt.int(s12k) + ' of ' + fmt.int(s12n) + ' accounts at least 12 months old', tipFin: term ? fmt.int(fk) + ' of ' + fmt.int(fn) + ' accounts past the end of their term' : '' };
+      const S = semMetric('survival_at')(t.rows, 12, Date.now()), F = term ? semMetric('finished_term_rate')(t.rows, term, Date.now()) : null;
+      const M = semMetric('median_cancel_life')(t.rows), D = semMetric('delinquent_share')(t.rows);
+      return { s12: pct(S.n, S.d), fin: F ? pct(F.n, F.d) : '\u2014', med: M.value != null ? M.value.toFixed(1) + ' mo' : '\u2014', dq: pct(D.n, D.d), tip12: fmt.int(S.n) + ' of ' + fmt.int(S.d) + ' accounts at least 12 months old', tipFin: F ? fmt.int(F.n) + ' of ' + fmt.int(F.d) + ' accounts past the end of their term' : '' };
     };
     const row = (label, t, bold) => {
-      const attr = t.subs > 0 ? t.cancelled / t.subs : null;
+      // Every number in the row is a semantic-layer metric over the group's rows.
+      const A = semMetric('attrition_rate')(t.rows), K = semMetric('retention_rate')(t.rows), $A = semMetric('arr_attrition_rate')(t.rows);
+      const attr = A.value;
       const X = _cx ? _cxOf(label, t) : null;
       return el('tr', { class: 'border-t cursor-pointer transition hover:brightness-95' + (bold ? ' font-bold' : ''), style: { borderColor: 'var(--border)', background: bold ? 'var(--card-2)' : '' }, title: 'Click for the counted cancels',
         onclick: () => t.rows.length && openReportingDrillModal({ chartTitle: (dim === 'source' ? 'Attrition by Source · ' : dim === 'rep' ? 'Attrition by Rep · ' : dim === 'contract' ? 'Attrition by Contract Length · ' : dim === 'service' ? 'Attrition by Service Type · ' : 'Attrition by Rep Type · ') + label, sliceLabel: fmt.int(t.cxlRows.length) + ' counted cancels of ' + fmt.int(t.subs), rows: t.cxlRows, formatValue: (v) => fmt.usd0(v), summary: _attrDrillSummary(label, t) }) },
         el('td', { class: 'px-3 py-2 whitespace-nowrap' + (bold ? '' : ' font-semibold') }, label),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(t.subs)),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(t.active)),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(t.cancelled)),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold', style: attr != null && attr >= 0.15 ? { color: '#DC2626' } : attr != null && attr < 0.08 ? { color: '#DF643A' } : {} }, pct(t.cancelled, t.subs)),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, pct(t.active, t.subs)),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, pct(t.arvCxl, t.arv)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(A.d)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(A.active)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(A.n)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold', style: attr != null && attr >= 0.15 ? { color: '#DC2626' } : attr != null && attr < 0.08 ? { color: '#DF643A' } : {} }, pct(A.n, A.d)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, pct(K.n, K.d)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, pct($A.n, $A.d)),
         ...(X ? [el('td', { class: 'px-3 py-2 text-left tabular-nums', title: X.tip12 }, X.s12), el('td', { class: 'px-3 py-2 text-left tabular-nums', title: X.tipFin }, X.fin), el('td', { class: 'px-3 py-2 text-left tabular-nums' }, X.med), el('td', { class: 'px-3 py-2 text-left tabular-nums' }, X.dq)] : []));
     };
     return el('div', { class: 'card overflow-hidden' },
@@ -2554,57 +2523,34 @@ function reportingWaterfall() {
     // Both groups are then read the same way: still a customer today, and
     // still a customer 12 / 24 months after the decision point (only counting
     // customers whose decision point is at least that old). Sentricon excluded.
-    const now = new Date();
+    const nowMs = Date.now();
     const grp = state._rtRenewGroup === 'year' ? 'year' : 'type';
-    const MS_MO = 86400000 * 30.4375;
-    const _dt = (x) => { if (!x) return null; const d = new Date(String(x).slice(0, 10) + 'T00:00'); return isNaN(d) ? null : d; };
-    const _aliveR = (r) => /active/i.test(String(r.subscription_status || ''));
     const _sentR = (r) => /sentricon/i.test(String(r.subscription || ''));
     const _typeOf = (r) => { const src = String(r.subscription_source || '').trim(); const m = src.match(/renewal\s*[-–]\s*(.+)$/i) || src.match(/^(.+?)\s+renewal$/i); return m ? m[1].trim() : (src || 'Renewal'); };
-    const cust = new Map();
-    for (const r of popA) {
-      if (!r.customer_id || _sentR(r)) continue;
-      if (!((Number(r.subscription_completed_services) || 0) > 0)) continue;
-      const k = String(r.customer_id);
-      let c = cust.get(k); if (!c) { c = { subs: [], start: null, alive: false, end: null, ren: null, first: null, arv: 0 }; cust.set(k, c); }
-      c.subs.push(r);
-      const st = _dt(r.initial_service) || _dt(r.sold_date);
-      if (st && (!c.start || st < c.start)) c.start = st;
-      if (_aliveR(r)) { c.alive = true; c.arv += Number(r.annual_recurring_value) || 0; }
-      else { const cd = _dt(r.subscription_date_canceled); if (cd && (!c.end || cd > c.end)) c.end = cd; }
-      const sd = _dt(r.sold_date);
-      if (reportingSourceClass(r.subscription_source) === 'renewal') { if (sd && (!c.ren || sd < c.ren.at)) c.ren = { at: sd, row: r }; }
-      else if (sd && (Number(r.agreement_length) || 0) >= 12 && (!c.first || sd < c.first.at)) c.first = { at: sd, row: r };
-    }
-    const mk = () => ({ n: 0, here: 0, left: 0, arv: 0, tenure: [], ageAt: [], after: [], h12n: 0, h12k: 0, h24n: 0, h24k: 0, rows: [], leftRows: [] });
-    const add = (o, c, anchor) => {
-      const endAt = c.alive ? now : (c.end || now);
-      o.n++; o.rows.push(...c.subs);
-      if (c.alive) { o.here++; o.arv += c.arv; } else { o.left++; o.leftRows.push(...c.subs); }
-      if (c.start) { o.tenure.push(Math.max(0, (endAt - c.start) / MS_MO)); o.ageAt.push(Math.max(0, (anchor - c.start) / MS_MO)); }
-      o.after.push(Math.max(0, (endAt - anchor) / MS_MO));
-      for (const [H, nk, kk] of [[12, 'h12n', 'h12k'], [24, 'h24n', 'h24k']]) {
-        if ((now - anchor) / MS_MO < H) continue;
-        o[nk]++; if (c.alive || (endAt - anchor) / MS_MO >= H) o[kk]++;
-      }
+    // Entity: the customer life (semantic layer) — serviced, non-Sentricon subscriptions linked by customer.
+    const lives = semCustomerLives(popA, { include: (r) => !_sentR(r) && (Number(r.subscription_completed_services) || 0) > 0 });
+    const renAnchor = (c) => c.firstRenewal.at, endAnchor = (c) => c.firstContract.end;
+    // One group's numbers — every one a semantic-layer metric over the group's customers.
+    const stat = (L, anchorOf) => {
+      const K = semMetric('customer_retention')(L), H12 = semMetric('customer_survival_after')(L, anchorOf, 12, nowMs), H24 = semMetric('customer_survival_after')(L, anchorOf, 24, nowMs);
+      const T = semMetric('customer_tenure');
+      const gone = L.filter(c => !c.alive);
+      return { n: K.d, here: K.n, left: K.d - K.n, h12n: H12.d, h12k: H12.n, h24n: H24.d, h24k: H24.n,
+        tenure: T(L, nowMs).value, ageAt: T(L, nowMs, null, anchorOf).value, after: T(L, nowMs, anchorOf).value,
+        rows: L.flatMap(c => c.subs), leftRows: gone.flatMap(c => c.subs) };
     };
-    const groups = new Map(); const all = mk(); const m2m = mk(); let noLink = 0;
-    for (const c of cust.values()) {
-      if (c.ren) {
+    const gL = new Map(); const allL = [], m2mL = []; let noLink = 0;
+    for (const c of lives.values()) {
+      if (c.firstRenewal) {
         if (c.subs.length < 2) noLink++;
-        const k = grp === 'year' ? String(c.ren.at.getFullYear()) : _typeOf(c.ren.row);
-        if (!groups.has(k)) groups.set(k, mk());
-        add(groups.get(k), c, c.ren.at); add(all, c, c.ren.at);
-        continue;
-      }
-      if (!c.first) continue;
-      const end = new Date(c.first.at); end.setMonth(end.getMonth() + (Number(c.first.row.agreement_length) || 0));
-      if (end > now) continue;                         // first contract not finished yet — no decision to judge
-      if (!c.alive && c.end && c.end <= end) continue; // left before the contract ended — never reached the decision
-      add(m2m, c, end);
+        const k = grp === 'year' ? String(new Date(c.firstRenewal.at).getFullYear()) : _typeOf(c.firstRenewal.row);
+        if (!gL.has(k)) gL.set(k, []);
+        gL.get(k).push(c); allL.push(c);
+      } else if (semReachedContractEnd(c, nowMs)) m2mL.push(c);
     }
+    const groups = new Map([...gL].map(([k, L]) => [k, stat(L, renAnchor)]));
+    const all = stat(allL, renAnchor), m2m = stat(m2mL, endAnchor);
     if (!all.n && !m2m.n) return null;
-    const avg = (xs) => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
     const pct = (n, d) => d ? (n / d * 100).toFixed(1) + '%' : '—';
     const mo = (v) => v == null ? '—' : v.toFixed(1) + ' mo';
     const th = (t, right, help) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' }, title: help || '' }, t);
@@ -2619,12 +2565,12 @@ function reportingWaterfall() {
         td(pct(o.here, o.n), { bold: true, color: keep != null && base != null ? (keep >= base ? '#15803D' : '#DC2626') : undefined }),
         td(pct(o.h12k, o.h12n), { title: fmt.int(o.h12k) + ' of ' + fmt.int(o.h12n) + ' customers whose decision point is at least 12 months old' }),
         td(pct(o.h24k, o.h24n), { title: fmt.int(o.h24k) + ' of ' + fmt.int(o.h24n) + ' customers whose decision point is at least 24 months old' }),
-        td(mo(avg(o.ageAt))), td(mo(avg(o.after))), td(mo(avg(o.tenure)), { bold: true }));
+        td(mo(o.ageAt)), td(mo(o.after)), td(mo(o.tenure), { bold: true }));
     };
     const keys = [...groups.keys()].sort((x, y) => grp === 'year' ? String(y).localeCompare(String(x)) : groups.get(y).n - groups.get(x).n);
     const btn = (on, l, fn) => el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95', style: on ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: fn }, l);
     // The headline: the answer in one line.
-    const tA = avg(all.tenure), tB = avg(m2m.tenure);
+    const tA = all.tenure, tB = m2m.tenure;
     const head = (all.n && m2m.n && tA != null && tB != null)
       ? 'Customers who renewed have stayed ' + tA.toFixed(1) + ' months on average, against ' + tB.toFixed(1) + ' for customers who reached contract end and did not renew. ' + pct(all.here, all.n) + ' of renewers are still customers, against ' + pct(m2m.here, m2m.n) + '.'
       : null;
