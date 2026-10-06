@@ -2342,8 +2342,27 @@ function reportingWaterfall() {
       : [...ORDER.filter(k => byType[k]), ...Object.keys(byType).filter(k => !ORDER.includes(k)).sort()];
     const pct = (a, b) => b > 0 ? (a / b * 100).toFixed(1) + '%' : '\u2014';
     const th = (lab, right) => el('th', { class: (right ? 'text-left' : 'text-left') + ' px-3 py-2 whitespace-nowrap' }, lab);
+    // Contract Length carries what the old 12 vs 18 vs 24 card showed (per Isaac, Oct 6): survival to 12 months,
+    // share that finished the term, how long the cancels lasted, and how many of them were delinquent.
+    const _cx = dim === 'contract';
+    const _cxOf = (label, t) => {
+      const term = /^(12|18|24) mo$/.test(label) ? Number(label.slice(0, 2)) : null;
+      const nowMs = Date.now(), MO = 2629800000;
+      let s12n = 0, s12k = 0, fn = 0, fk = 0, dq = 0; const lives = [];
+      for (const r of t.rows) {
+        const a = Date.parse(String(r.initial_service || '').slice(0, 10)); if (isNaN(a)) continue;
+        const age = (nowMs - a) / MO; const c = r._effCancel ? Date.parse(String(r._effCancel).slice(0, 10)) : NaN;
+        const life = isNaN(c) ? null : Math.max(0, (c - a) / MO);
+        if (age >= 12) { s12n++; if (life == null || life >= 12) s12k++; }
+        if (term && age >= term + 1) { fn++; if (life == null || life >= term) fk++; }
+        if (life != null) { lives.push(life); if (/delinquent/i.test(String(reportingCancelReasonOf(r) || ''))) dq++; }
+      }
+      lives.sort((x, y) => x - y);
+      return { s12: pct(s12k, s12n), fin: term ? pct(fk, fn) : '\u2014', med: lives.length ? lives[Math.floor(lives.length / 2)].toFixed(1) + ' mo' : '\u2014', dq: pct(dq, lives.length), tip12: fmt.int(s12k) + ' of ' + fmt.int(s12n) + ' accounts at least 12 months old', tipFin: term ? fmt.int(fk) + ' of ' + fmt.int(fn) + ' accounts past the end of their term' : '' };
+    };
     const row = (label, t, bold) => {
       const attr = t.subs > 0 ? t.cancelled / t.subs : null;
+      const X = _cx ? _cxOf(label, t) : null;
       return el('tr', { class: 'border-t cursor-pointer transition hover:brightness-95' + (bold ? ' font-bold' : ''), style: { borderColor: 'var(--border)', background: bold ? 'var(--card-2)' : '' }, title: 'Click for the counted cancels',
         onclick: () => t.rows.length && openReportingDrillModal({ chartTitle: (dim === 'source' ? 'Attrition by Source · ' : dim === 'rep' ? 'Attrition by Rep · ' : dim === 'contract' ? 'Attrition by Contract Length · ' : dim === 'service' ? 'Attrition by Service Type · ' : 'Attrition by Rep Type · ') + label, sliceLabel: fmt.int(t.cxlRows.length) + ' counted cancels of ' + fmt.int(t.subs), rows: t.cxlRows, formatValue: (v) => fmt.usd0(v), summary: _attrDrillSummary(label, t) }) },
         el('td', { class: 'px-3 py-2 whitespace-nowrap' + (bold ? '' : ' font-semibold') }, label),
@@ -2352,7 +2371,8 @@ function reportingWaterfall() {
         el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(t.cancelled)),
         el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold', style: attr != null && attr >= 0.15 ? { color: '#DC2626' } : attr != null && attr < 0.08 ? { color: '#DF643A' } : {} }, pct(t.cancelled, t.subs)),
         el('td', { class: 'px-3 py-2 text-left tabular-nums' }, pct(t.active, t.subs)),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, pct(t.arvCxl, t.arv)));
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, pct(t.arvCxl, t.arv)),
+        ...(X ? [el('td', { class: 'px-3 py-2 text-left tabular-nums', title: X.tip12 }, X.s12), el('td', { class: 'px-3 py-2 text-left tabular-nums', title: X.tipFin }, X.fin), el('td', { class: 'px-3 py-2 text-left tabular-nums' }, X.med), el('td', { class: 'px-3 py-2 text-left tabular-nums' }, X.dq)] : []));
     };
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
@@ -2369,7 +2389,7 @@ function reportingWaterfall() {
       !total.subs ? el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'No accounts in this cohort under the current rules.') :
       el('div', { style: { overflow: 'auto', maxHeight: (dim === 'source' || dim === 'rep' || dim === 'service') ? '460px' : 'none' } }, el('table', { class: 'w-full text-xs' },
         el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: 0, zIndex: 1 } }, el('tr', { style: { background: 'var(--card-2)' } },
-          th(dim === 'source' ? 'Source' : dim === 'service' ? 'Service Type' : dim === 'contract' ? 'Contract Length' : dim === 'rep' ? 'Rep' : 'Rep Type'), th('Subs', 1), th('Active', 1), th('Cancelled', 1), th('Attrition %', 1), th('Retention %', 1), th('ARR Attrition %', 1))),
+          th(dim === 'source' ? 'Source' : dim === 'service' ? 'Service Type' : dim === 'contract' ? 'Contract Length' : dim === 'rep' ? 'Rep' : 'Rep Type'), th('Subs', 1), th('Active', 1), th('Cancelled', 1), th('Attrition %', 1), th('Retention %', 1), th('ARR Attrition %', 1), ...(_cx ? [th('Here at 12 mo', 1), th('Finished term', 1), th('Median life of cancels', 1), th('Delinquent % of cancels', 1)] : []))),
         el('tbody', {},
           ...keys.map(k => row(k, byType[k])),
           row('RIDD \u00b7 Total', total, true)))),
@@ -2517,86 +2537,119 @@ function reportingWaterfall() {
   // the same horizons measured from contract end, so the comparison is
   // fair. Sentricon excluded.
   const renewalRetentionCard = (() => {
-    // Rebuilt simple (per Isaac, Sep 2026): the same shape as the Attrition
-    // by table — one row per renewal type (or the year the renewal was
-    // sold), Subs / Active / Cancelled / Attrition % / Retention % / ARR
-    // Attrition %, plus the two tenure reads he cares about: the customer's
-    // age when they renewed and their age today. A Month-to-month row
-    // (reached contract end, never renewed) sits underneath for contrast.
+    // Rebuilt at the CUSTOMER level (per Isaac, Oct 6 2026). A renewal is a
+    // NEW subscription on a customer who was already with us on another plan
+    // (the old plan is cancelled as the renewal starts), so judging the
+    // renewal subscription alone hides the real question: do customers who
+    // renew STAY LONGER than customers who reach the same point and don't?
+    // Every subscription is linked by customer_id into one customer life:
+    //   start  = their first service (or first sale)
+    //   end    = the day their LAST subscription ended (still a customer
+    //            while any subscription is active)
+    //   Renewed       = bought at least one renewal-source subscription;
+    //                   decision point = the day the first renewal was sold
+    //   Did not renew = reached the end of their first contract still a
+    //                   customer and never bought a renewal;
+    //                   decision point = that contract end
+    // Both groups are then read the same way: still a customer today, and
+    // still a customer 12 / 24 months after the decision point (only counting
+    // customers whose decision point is at least that old). Sentricon excluded.
     const now = new Date();
     const grp = state._rtRenewGroup === 'year' ? 'year' : 'type';
-    const firstSale = new Map();
-    for (const r of popA) { if (!r.customer_id || !r.sold_date) continue; const k = String(r.customer_id); if (!firstSale.has(k) || r.sold_date < firstSale.get(k)) firstSale.set(k, r.sold_date); }
+    const MS_MO = 86400000 * 30.4375;
+    const _dt = (x) => { if (!x) return null; const d = new Date(String(x).slice(0, 10) + 'T00:00'); return isNaN(d) ? null : d; };
     const _aliveR = (r) => /active/i.test(String(r.subscription_status || ''));
     const _sentR = (r) => /sentricon/i.test(String(r.subscription || ''));
-    const _endOf = (r) => { const m = Number(r.agreement_length) || 0; const d = r.sold_date ? new Date(r.sold_date) : null; if (!d || isNaN(d) || m < 12) return null; const e = new Date(d); e.setMonth(e.getMonth() + m); return e; };
-    const _renReasonR = (r) => /^renewal\b/i.test(_normCancelReason(r.subscription_cancellation_reason));
-    const _yearOf = (r) => { const d = r.sold_date ? new Date(r.sold_date) : null; return d && !isNaN(d) ? String(d.getFullYear()) : '—'; };
     const _typeOf = (r) => { const src = String(r.subscription_source || '').trim(); const m = src.match(/renewal\s*[-–]\s*(.+)$/i) || src.match(/^(.+?)\s+renewal$/i); return m ? m[1].trim() : (src || 'Renewal'); };
-    const monthsBetween = (a, b) => (b - a) / (86400000 * 30.4375);
-    const mk = () => ({ subs: 0, active: 0, cancelled: 0, arv: 0, arvCxl: 0, ageAt: [], ageNow: [], rows: [], cxlRows: [] });
-    const add = (o, r, startDate) => {
-      const alive = _aliveR(r);
-      const cd = r.subscription_date_canceled ? new Date(r.subscription_date_canceled) : null;
-      const cancelled = !!(cd && !isNaN(cd) && !alive);
-      const arv = Number(r.annual_recurring_value) || 0;
-      o.subs++; o.arv += arv; o.rows.push(r);
-      if (cancelled) { o.cancelled++; o.arvCxl += arv; o.cxlRows.push(r); } else o.active++;
-      const fs = firstSale.get(String(r.customer_id)); const fsd = fs ? new Date(fs) : null;
-      if (fsd && !isNaN(fsd)) { o.ageAt.push(Math.max(0, monthsBetween(fsd, startDate))); o.ageNow.push(Math.max(0, monthsBetween(fsd, cancelled ? cd : now))); }
-    };
-    const groups = new Map(); const all = mk(); const m2m = mk(); let m2mReached = 0, m2mRenewedAway = 0;
+    const cust = new Map();
     for (const r of popA) {
+      if (!r.customer_id || _sentR(r)) continue;
       if (!((Number(r.subscription_completed_services) || 0) > 0)) continue;
-      if (_sentR(r)) continue;
-      if (reportingSourceClass(r.subscription_source) === 'renewal') {
-        const sd = r.sold_date ? new Date(r.sold_date) : null; if (!sd || isNaN(sd)) continue;
-        const k = grp === 'year' ? _yearOf(r) : _typeOf(r);
+      const k = String(r.customer_id);
+      let c = cust.get(k); if (!c) { c = { subs: [], start: null, alive: false, end: null, ren: null, first: null, arv: 0 }; cust.set(k, c); }
+      c.subs.push(r);
+      const st = _dt(r.initial_service) || _dt(r.sold_date);
+      if (st && (!c.start || st < c.start)) c.start = st;
+      if (_aliveR(r)) { c.alive = true; c.arv += Number(r.annual_recurring_value) || 0; }
+      else { const cd = _dt(r.subscription_date_canceled); if (cd && (!c.end || cd > c.end)) c.end = cd; }
+      const sd = _dt(r.sold_date);
+      if (reportingSourceClass(r.subscription_source) === 'renewal') { if (sd && (!c.ren || sd < c.ren.at)) c.ren = { at: sd, row: r }; }
+      else if (sd && (Number(r.agreement_length) || 0) >= 12 && (!c.first || sd < c.first.at)) c.first = { at: sd, row: r };
+    }
+    const mk = () => ({ n: 0, here: 0, left: 0, arv: 0, tenure: [], ageAt: [], after: [], h12n: 0, h12k: 0, h24n: 0, h24k: 0, rows: [], leftRows: [] });
+    const add = (o, c, anchor) => {
+      const endAt = c.alive ? now : (c.end || now);
+      o.n++; o.rows.push(...c.subs);
+      if (c.alive) { o.here++; o.arv += c.arv; } else { o.left++; o.leftRows.push(...c.subs); }
+      if (c.start) { o.tenure.push(Math.max(0, (endAt - c.start) / MS_MO)); o.ageAt.push(Math.max(0, (anchor - c.start) / MS_MO)); }
+      o.after.push(Math.max(0, (endAt - anchor) / MS_MO));
+      for (const [H, nk, kk] of [[12, 'h12n', 'h12k'], [24, 'h24n', 'h24k']]) {
+        if ((now - anchor) / MS_MO < H) continue;
+        o[nk]++; if (c.alive || (endAt - anchor) / MS_MO >= H) o[kk]++;
+      }
+    };
+    const groups = new Map(); const all = mk(); const m2m = mk(); let noLink = 0;
+    for (const c of cust.values()) {
+      if (c.ren) {
+        if (c.subs.length < 2) noLink++;
+        const k = grp === 'year' ? String(c.ren.at.getFullYear()) : _typeOf(c.ren.row);
         if (!groups.has(k)) groups.set(k, mk());
-        add(groups.get(k), r, sd); add(all, r, sd);
+        add(groups.get(k), c, c.ren.at); add(all, c, c.ren.at);
         continue;
       }
-      const end = _endOf(r); if (!end || end > now) continue;
-      const cd = r.subscription_date_canceled ? new Date(r.subscription_date_canceled) : null;
-      const cancel = (cd && !_aliveR(r) && !isNaN(cd)) ? cd : null;
-      if (cancel && cancel <= end) continue;
-      m2mReached++;
-      if (cancel && _renReasonR(r)) { m2mRenewedAway++; continue; }
-      add(m2m, r, end);
+      if (!c.first) continue;
+      const end = new Date(c.first.at); end.setMonth(end.getMonth() + (Number(c.first.row.agreement_length) || 0));
+      if (end > now) continue;                         // first contract not finished yet — no decision to judge
+      if (!c.alive && c.end && c.end <= end) continue; // left before the contract ended — never reached the decision
+      add(m2m, c, end);
     }
-    if (!all.subs && !m2mReached) return null;
+    if (!all.n && !m2m.n) return null;
     const avg = (xs) => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
     const pct = (n, d) => d ? (n / d * 100).toFixed(1) + '%' : '—';
     const mo = (v) => v == null ? '—' : v.toFixed(1) + ' mo';
     const th = (t, right, help) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' }, title: help || '' }, t);
     const td = (t, o = {}) => el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap ' + (o.left ? 'text-left font-semibold' : 'text-right') + (o.bold ? ' font-black' : ''), style: { color: o.color, cursor: o.onclick ? 'pointer' : undefined }, onclick: o.onclick, title: o.title || '' }, t);
-    const row = (label, o, strong) => {
-      const attr = o.subs ? o.cancelled / o.subs : null;
+    const open = (title, n, rs) => rs.length ? () => openReportingDrillModal({ chartTitle: 'Renewal Retention · ' + title, sliceLabel: fmt.int(n) + ' customer' + (n === 1 ? '' : 's') + ' · every subscription they have had', rows: rs, formatValue: (v) => fmt.usd0(v) }) : undefined;
+    const row = (label, o, strong, vs) => {
+      const keep = o.n ? o.here / o.n : null, base = vs && vs.n ? vs.here / vs.n : null;
       return el('tr', { class: 'border-t', style: { borderColor: strong ? 'var(--border-2)' : 'var(--border)', background: strong ? 'var(--card-2)' : undefined, borderTopWidth: strong ? '2px' : undefined } },
-        td(label, { left: true, bold: strong, title: 'Click for every account in the row', onclick: o.rows.length ? () => openReportingDrillModal({ chartTitle: 'Renewal Retention · ' + label, sliceLabel: fmt.int(o.rows.length) + ' accounts', rows: o.rows, formatValue: (v) => fmt.usd0(v) }) : undefined }),
-        td(fmt.int(o.subs), { bold: strong }), td(fmt.int(o.active)),
-        td(fmt.int(o.cancelled), { title: 'Click for the cancels', onclick: o.cxlRows.length ? () => openReportingDrillModal({ chartTitle: 'Renewal Retention · ' + label + ' · cancelled', sliceLabel: fmt.int(o.cxlRows.length) + ' counted cancels of ' + fmt.int(o.subs), rows: o.cxlRows, formatValue: (v) => fmt.usd0(v) }) : undefined }),
-        td(pct(o.cancelled, o.subs), { bold: true, color: attr != null && attr >= 0.15 ? '#DC2626' : attr != null && attr < 0.08 ? '#DF643A' : undefined }),
-        td(pct(o.active, o.subs)), td(pct(o.arvCxl, o.arv)),
-        td(mo(avg(o.ageAt))), td(mo(avg(o.ageNow))));
+        td(label, { left: true, bold: strong, title: 'Click for every customer in the row', onclick: open(label, o.n, o.rows) }),
+        td(fmt.int(o.n), { bold: strong }), td(fmt.int(o.here)),
+        td(fmt.int(o.left), { title: 'Click for the customers who left', onclick: open(label + ' · left', o.left, o.leftRows) }),
+        td(pct(o.here, o.n), { bold: true, color: keep != null && base != null ? (keep >= base ? '#15803D' : '#DC2626') : undefined }),
+        td(pct(o.h12k, o.h12n), { title: fmt.int(o.h12k) + ' of ' + fmt.int(o.h12n) + ' customers whose decision point is at least 12 months old' }),
+        td(pct(o.h24k, o.h24n), { title: fmt.int(o.h24k) + ' of ' + fmt.int(o.h24n) + ' customers whose decision point is at least 24 months old' }),
+        td(mo(avg(o.ageAt))), td(mo(avg(o.after))), td(mo(avg(o.tenure)), { bold: true }));
     };
-    const keys = [...groups.keys()].sort((x, y) => grp === 'year' ? String(y).localeCompare(String(x)) : groups.get(y).subs - groups.get(x).subs);
+    const keys = [...groups.keys()].sort((x, y) => grp === 'year' ? String(y).localeCompare(String(x)) : groups.get(y).n - groups.get(x).n);
     const btn = (on, l, fn) => el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95', style: on ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: fn }, l);
+    // The headline: the answer in one line.
+    const tA = avg(all.tenure), tB = avg(m2m.tenure);
+    const head = (all.n && m2m.n && tA != null && tB != null)
+      ? 'Customers who renewed have stayed ' + tA.toFixed(1) + ' months on average, against ' + tB.toFixed(1) + ' for customers who reached contract end and did not renew. ' + pct(all.here, all.n) + ' of renewers are still customers, against ' + pct(m2m.here, m2m.n) + '.'
+      : null;
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
         el('div', {},
-          el('div', { class: 'font-display text-lg', title: 'Renewal subscriptions with a completed service, by ' + (grp === 'year' ? 'the year the renewal was sold' : 'renewal type') + ' · same population and cancel rules as this tab · Sentricon excluded. Age at renewal = months as a customer when the renewal was sold; Age today = months as a customer now (or at cancel). Month-to-month = reached contract end and kept going without renewing.' }, 'Renewal Retention' + (office !== 'all' ? ' · ' + officeLabel(office) : ''))),
+          el('div', { class: 'font-display text-lg', title: 'Counted by CUSTOMER, not subscription: every subscription a customer has had is linked into one life. Still a customer = any active subscription. Sentricon excluded.' }, 'Renewal Retention' + (office !== 'all' ? ' · ' + officeLabel : '')),
+          head ? el('div', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } }, head) : null),
         el('div', { class: 'flex items-center gap-1' }, btn(grp === 'type', 'By type', () => { state._rtRenewGroup = 'type'; mountApp(); }), btn(grp === 'year', 'By year', () => { state._rtRenewGroup = 'year'; mountApp(); }))),
       el('div', { class: 'scroll-x' },
         el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
           el('thead', {}, el('tr', {},
-            th(grp === 'year' ? 'Renewal year' : 'Renewal type'), th('Subs', 1), th('Active', 1), th('Cancelled', 1), th('Attrition %', 1), th('Retention %', 1), th('ARR Attrition %', 1),
-            th('Age at renewal', 1, 'Average months as a customer when the renewal was sold'), th('Age today', 1, 'Average months as a customer now (at cancel for cancelled accounts)'))),
+            th(grp === 'year' ? 'Renewed in' : 'Renewal type'), th('Customers', 1), th('Still customers', 1), th('Left', 1), th('Still here %', 1),
+            th('Here +12 mo', 1, 'Still a customer 12 months after the decision point (renewal sold, or first contract end)'),
+            th('Here +24 mo', 1, 'Still a customer 24 months after the decision point'),
+            th('Tenure at decision', 1, 'Average months as a customer when they renewed (or when the first contract ended)'),
+            th('Stayed after', 1, 'Average months as a customer since the decision point (to today, or to the day they left)'),
+            th('Total tenure', 1, 'Average months as a customer, first service to today (or to the day their last subscription ended)'))),
           el('tbody', {},
-            ...keys.map(k => row(grp === 'year' ? k : 'Renewal - ' + k, groups.get(k))),
-            row('All renewals', all, true),
-            el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, el('td', { class: 'px-3 pt-3 pb-1 text-[10px] uppercase tracking-widest font-semibold', colspan: '9', style: { color: 'var(--text-subtle)' } }, 'Did not renew · ' + fmt.int(m2mReached) + ' reached contract end · ' + fmt.int(m2mRenewedAway) + ' renewed into a new sub · the rest rode month-to-month')),
-            row('Month-to-month', m2m, true)))));
+            ...keys.map(k => row(grp === 'year' ? k : 'Renewal - ' + k, groups.get(k), false, m2m)),
+            row('All customers who renewed', all, true, m2m),
+            el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, el('td', { class: 'px-3 pt-3 pb-1 text-[10px] uppercase tracking-widest font-semibold', colspan: '10', style: { color: 'var(--text-subtle)' } }, 'The comparison · reached the end of their first contract still a customer and never renewed')),
+            row('Did not renew', m2m, true)))),
+      el('div', { class: 'px-4 py-2 text-[10px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } },
+        'Decision point = the day the first renewal was sold, or the first contract’s end date for customers who never renewed.' + (noLink ? ' ' + fmt.int(noLink) + ' renewal customer' + (noLink === 1 ? ' has' : 's have') + ' no earlier subscription in this view, so their tenure starts at the renewal.' : '')));
   })();
 
   // (Renewal Timing card retired per Isaac, Sep 2026.)
@@ -2764,8 +2817,7 @@ function reportingWaterfall() {
   })();
   // Contract Length (12 vs 18 vs 24) rides at the bottom of Retention now
   // (per Isaac, Sep 23) instead of being its own section.
-  let contractLen = null;
-  try { contractLen = reportingContractLength(); } catch (e) { console.warn('[retention] contract length card skipped', e); }
+  const contractLen = null;   // folded into Attrition Indicators → Contract Length (per Isaac, Oct 6)
   return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, body, _shell('Attrition Indicators', attritionByCard), _shell('Renewal Retention', renewalRetentionCard), contractLen);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
 }
 
