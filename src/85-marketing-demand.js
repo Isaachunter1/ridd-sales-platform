@@ -48,8 +48,11 @@ function _mktgDemand() {
     tile(cps ? fmt.usd0(cps.value) : '—', 'Cost per sale', cps ? 'spend ÷ ' + fmt.int(cps.d) + ' converted paid leads' : noSpend),
     tile(waste ? usdK(waste.value) : '—', 'Wasted spend', waste ? fmt.int(waste.n) + ' paid leads did not convert' : noSpend));
   // Weekly series (weeks start Sunday), by the week the LEAD came in.
+  // The weekly chart can be narrowed to one provider (per Isaac, Oct 6).
+  const _provCount = new Map(); for (const x of L) { const k = x.lead.prov || 'Unknown'; _provCount.set(k, (_provCount.get(k) || 0) + 1); }
+  const wkProv = _provCount.has(state._mktDemandProv) ? state._mktDemandProv : '';
   const wk = new Map();
-  for (const x of L) { if (!x.week) continue; let w = wk.get(x.week); if (!w) { w = { n: 0, c: 0 }; wk.set(x.week, w); } w.n++; if (x.converted) w.c++; }
+  for (const x of L) { if (!x.week) continue; if (wkProv && (x.lead.prov || 'Unknown') !== wkProv) continue; let w = wk.get(x.week); if (!w) { w = { n: 0, c: 0 }; wk.set(x.week, w); } w.n++; if (x.converted) w.c++; }
   const weeks = [...wk.keys()].sort();
   const wkLabel = (iso) => { const d = new Date(iso + 'T00:00'); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
   // By provider: every provider with enough leads to read a rate from.
@@ -65,10 +68,6 @@ function _mktgDemand() {
     const mk = (id, cfg) => { const c = document.getElementById(id); if (!c) return; if (_chartInstances[id]) { _chartInstances[id].destroy(); delete _chartInstances[id]; } _chartInstances[id] = new Chart(c.getContext('2d'), cfg); };
     const xAxis = { grid: { display: false }, ticks: { color: txt, font: { size: 10 }, maxTicksLimit: 9, maxRotation: 0 } };
     const line = (label, data, color) => ({ label, data, borderColor: color, backgroundColor: color, borderWidth: 2, tension: 0.3, pointRadius: 0, pointHoverRadius: 5 });
-    mk(idA, { type: 'line', data: { labels: weeks.map(wkLabel), datasets: [line('Leads', weeks.map(w => wk.get(w).n), MKTG_DEMAND_C.leads), line('Converted leads', weeks.map(w => wk.get(w).c), MKTG_DEMAND_C.conv)] },
-      options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
-        plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 }, usePointStyle: true } }, tooltip: { callbacks: { title: (c) => 'Week of ' + c[0].label, label: (c) => ' ' + c.dataset.label + ': ' + fmt.int(c.parsed.y) } } },
-        scales: { x: xAxis, y: { beginAtZero: true, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, precision: 0 } } } } });
     mk(idB, { type: 'line', data: { labels: weeks.map(wkLabel), datasets: [line('Conversion rate', weeks.map(w => { const x = wk.get(w); return x.n ? Math.round(x.c / x.n * 1000) / 10 : null; }), MKTG_DEMAND_C.leads)] },
       options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
         plugins: { legend: { display: false }, tooltip: { callbacks: { title: (c) => 'Week of ' + c[0].label, label: (c) => { const x = wk.get(weeks[c.dataIndex]); return ' ' + c.parsed.y + '% · ' + fmt.int(x.c) + ' of ' + fmt.int(x.n) + ' leads'; } } } },
@@ -108,9 +107,15 @@ function _mktgDemand() {
     el('div', {}, el('div', { class: 'text-lg font-bold' }, 'Growth & marketing · ' + y),
       el('div', { class: 'text-xs', style: { color: 'var(--text-muted)' } }, 'Company-wide. Leads from GoHighLevel, sales matched in FieldRoutes on phone or email, spend from QuickBooks.' + matchNote)),
     tiles,
-    el('div', { style: { display: 'grid', gap: '16px', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))' } },
-      card('Weekly lead demand', 'Leads that came in each week, and how many of them have converted so far.', weeks.length ? canvas(idA, 300) : el('div', { class: 'p-6 text-xs', style: { color: 'var(--text-muted)' } }, 'No leads in ' + y + '.')),
-      card('Weekly conversion rate', 'By the week the lead came in. The latest weeks read low until those leads have had time to close.', weeks.length ? canvas(idB, 300) : el('div', { class: 'p-6 text-xs', style: { color: 'var(--text-muted)' } }, 'No leads in ' + y + '.'))),
+    el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+        el('div', {}, el('div', { class: 'text-sm font-bold' }, 'Weekly conversion rate' + (wkProv ? ' · ' + wkProv : '')),
+          el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'By the week the lead came in. The latest weeks read low until those leads have had time to close. Hover a week for the counts.')),
+        el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, title: 'Show the weekly rate for one provider',
+          onchange: (e) => { state._mktDemandProv = e.target.value; mountApp(); } },
+          el('option', { value: '', selected: !wkProv }, 'All providers'),
+          ...[..._provCount.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => el('option', { value: k, selected: wkProv === k }, k + ' (' + fmt.int(n) + ')')))),
+      weeks.length ? canvas(idB, 320) : el('div', { class: 'p-6 text-xs', style: { color: 'var(--text-muted)' } }, 'No leads in ' + y + (wkProv ? ' for ' + wkProv : '') + '.')),
     card('Conversion rate by provider', 'Providers with at least ' + MIN + ' leads in ' + y + ', best first. Click a bar for its leads and where each one stands in GoHighLevel.', provs.length ? canvas(idC, Math.max(160, provs.length * 30 + 50)) : el('div', { class: 'p-6 text-xs', style: { color: 'var(--text-muted)' } }, 'No provider has ' + MIN + ' leads yet.')),
     // (Provider list table removed per Isaac, Oct 6: the bars carry it; hover a bar for leads, converted, spend and cost.)
     flowCard,
