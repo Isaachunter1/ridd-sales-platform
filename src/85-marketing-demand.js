@@ -82,25 +82,6 @@ function _mktgDemand() {
         scales: { x: { beginAtZero: true, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => v + '%' } }, y: { grid: { display: false }, ticks: { color: txt, font: { size: 11 } } } } },
       plugins: [endLabels] });
   }, 50);
-  // Lead flow check (per Isaac, Oct 6): GoHighLevel is the source of truth for leads. The ad platforms' own lead counts
-  // are a second opinion: if a platform reports many more leads than GoHighLevel holds, leads are not flowing in.
-  if (typeof reportingLoadAdSpend === 'function') reportingLoadAdSpend(y);
-  const _B = _mktgBranchList(y);
-  const AP = (typeof adPlatformIndex === 'function') ? adPlatformIndex(y, _B.all) : null;
-  const flowCard = (() => {
-    if (!AP) return null;
-    const rowsF = [...AP.has].map(pv => { let plat = 0; for (let i = 0; i < 12; i++) plat += AP.cell([pv], null, i, 'leads') || 0; const g = (byP.get(pv) || { n: 0 }).n; return { pv, plat, g }; }).filter(r => r.plat > 0 || r.g > 0).sort((a, b) => b.plat - a.plat);
-    if (!rowsF.length) return null;
-    const th = (t, right) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
-    return card('Lead flow check · ' + y, 'GoHighLevel is where every lead should land. This compares it with what each ad platform says it delivered. A platform reporting far more than GoHighLevel holds means leads are being lost on the way in.',
-      el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-        el('thead', {}, el('tr', {}, th('Provider'), th('Platform says', true), th('In GoHighLevel', true), th('Difference', true), th('Captured', true))),
-        el('tbody', {}, ...rowsF.map(r => { const cap = r.plat > 0 ? r.g / r.plat : null; const low = cap != null && cap < 0.8;
-          return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-            el('td', { class: 'px-3 py-2 font-semibold' }, r.pv), el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(r.plat)), el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(r.g)),
-            el('td', { class: 'px-3 py-2 text-right tabular-nums' }, (r.g - r.plat > 0 ? '+' : r.g - r.plat < 0 ? '−' : '') + fmt.int(Math.abs(r.g - r.plat))),
-            el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold', style: low ? { color: '#DC2626' } : {} }, cap == null ? '—' : (cap * 100).toFixed(0) + '%' + (low ? ' ⚠' : ''))); })))));
-  })();
   const canvas = (id, h) => el('div', { class: 'p-3', style: { height: h + 'px' } }, el('canvas', { id }));
   const matchNote = crm ? '' : ' Sales are not loaded yet, so nothing shows as converted — run a sync.';
   return el('div', { class: 'flex flex-col gap-4' },
@@ -120,7 +101,7 @@ function _mktgDemand() {
     // Revenue by provider (rank + monthly trend) — moved here from Metrics (per Isaac, Oct 6). FieldRoutes revenue by the provider that earned the sale.
     (() => { try { return _mktgProviders(true); } catch (e) { console.warn('[demand] revenue by provider skipped', e); return null; } })(),
     // (Provider list table removed per Isaac, Oct 6: the bars carry it; hover a bar for leads, converted, spend and cost.)
-    flowCard,
+    // (Lead flow check table moved into the Lead flow gaps bar at the top of Marketing; click the bar to open it. Per Isaac, Oct 6.)
     null);   // (QuickBooks spend-by-provider mapping card removed from the page per Isaac, Oct 6; names still map to providers automatically)
 }
 
@@ -264,7 +245,8 @@ function openMktgProviderDrill(provider, list, year) {
 
 // ── Marketing task: lead flow gaps (per Isaac, Oct 6) ────────────────────
 // One line at the top of every Marketing sub-tab: any ad platform whose own lead count is well above what GoHighLevel
-// holds for it this year (GoHighLevel captured under 80%). Click to open Demand, where the Lead flow check has the numbers.
+// holds for it this year (GoHighLevel captured under 80%). Click the bar and the full Lead flow check opens right under it
+// (GoHighLevel is the source of truth for leads; the ad platforms' own counts are the second opinion).
 const MKTG_FLOW_MIN = 0.8;
 function mktgLeadFlowTask() {
   const y = _mktgYearSel();
@@ -274,16 +256,29 @@ function mktgLeadFlowTask() {
   const AP = (typeof adPlatformIndex === 'function') ? adPlatformIndex(y, _mktgBranchList(y).all) : null;
   if (!G || !AP) return null;
   const ghlN = new Map(); for (const l of G.leads) if (l.y === String(y)) ghlN.set(l.prov, (ghlN.get(l.prov) || 0) + 1);
-  const gaps = [...AP.has].map(pv => { let plat = 0; for (let i = 0; i < 12; i++) plat += AP.cell([pv], null, i, 'leads') || 0; const g = ghlN.get(pv) || 0; return { pv, plat, g, cap: plat > 0 ? g / plat : null }; })
-    .filter(r => r.plat >= 20 && r.cap != null && r.cap < MKTG_FLOW_MIN).sort((a, b) => a.cap - b.cap);
-  const n = gaps.length;
+  const all = [...AP.has].map(pv => { let plat = 0; for (let i = 0; i < 12; i++) plat += AP.cell([pv], null, i, 'leads') || 0; const g = ghlN.get(pv) || 0; return { pv, plat, g, cap: plat > 0 ? g / plat : null }; })
+    .filter(r => r.plat > 0 || r.g > 0).sort((a, b) => b.plat - a.plat);
+  const gaps = all.filter(r => r.plat >= 20 && r.cap != null && r.cap < MKTG_FLOW_MIN).sort((a, b) => a.cap - b.cap);
+  const n = gaps.length, open = !!state._mktFlowOpen;
+  const th = (t, right) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
+  const table = !open ? null : el('div', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+    el('div', { class: 'px-4 py-2 text-[11px]', style: { color: 'var(--text-muted)' } }, 'Lead flow check for ' + y + '. GoHighLevel is where every lead should land. This compares it with what each ad platform says it delivered. A platform reporting far more than GoHighLevel holds means leads are being lost on the way in.'),
+    all.length ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, th('Provider'), th('Platform says', true), th('In GoHighLevel', true), th('Difference', true), th('Captured', true))),
+      el('tbody', {}, ...all.map(r => { const low = r.cap != null && r.cap < MKTG_FLOW_MIN;
+        return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          el('td', { class: 'px-3 py-2 font-semibold' }, r.pv), el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(r.plat)), el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(r.g)),
+          el('td', { class: 'px-3 py-2 text-right tabular-nums' }, (r.g - r.plat > 0 ? '+' : r.g - r.plat < 0 ? '−' : '') + fmt.int(Math.abs(r.g - r.plat))),
+          el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold', style: low ? { color: '#DC2626' } : {} }, r.cap == null ? '—' : (r.cap * 100).toFixed(0) + '%' + (low ? ' ⚠' : ''))); }))))
+      : el('div', { class: 'px-4 py-3 text-xs', style: { color: 'var(--text-muted)' } }, 'No ad platform has reported leads for ' + y + ' yet.'));
   return el('div', { class: 'card overflow-hidden' },
-    el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', title: 'Jump to the Lead flow check on Metrics', onclick: () => { state._mktSub = 'providers'; state._mktProvView = 'cac'; mountApp(); setTimeout(() => { const h = [...document.querySelectorAll('.text-sm.font-bold')].find(x => /^Lead flow check/.test(x.textContent)); if (h) h.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 300); } },
+    el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', title: open ? 'Hide the lead flow check' : 'Show the lead flow check', onclick: () => { state._mktFlowOpen = !open; mountApp(); } },
       el('span', { class: 'inline-block rounded-full shrink-0', style: { width: '8px', height: '8px', background: n ? '#DC2626' : 'var(--ok)' } }),
       el('span', { class: 'text-[11px] uppercase tracking-widest font-bold shrink-0' }, 'To do · Lead flow gaps'),
       el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, n
         ? gaps.map(r => r.pv + ': GoHighLevel has ' + fmt.int(r.g) + ' of the ' + fmt.int(r.plat) + ' leads the platform reports (' + (r.cap * 100).toFixed(0) + '%)').join(' · ') + '. Check the form or integration that sends these leads in.'
         : 'All clear — GoHighLevel holds at least ' + (MKTG_FLOW_MIN * 100).toFixed(0) + '% of the leads each ad platform reports for ' + y + '.'),
       n ? el('span', { class: 'ml-auto text-sm font-black tabular-nums', style: { color: '#DC2626' } }, String(n)) : null,
-      el('span', { class: n ? 'text-[11px]' : 'ml-auto text-[11px]', style: { color: 'var(--text-muted)' } }, '\u2192')));
+      el('span', { class: n ? 'text-[11px]' : 'ml-auto text-[11px]', style: { color: 'var(--text-muted)' } }, open ? '▴' : '▾')),
+    table);
 }
