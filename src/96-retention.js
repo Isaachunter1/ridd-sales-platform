@@ -883,7 +883,7 @@ function reportingWaterfall() {
         const g = grid.get(y); (g[b] = g[b] || []).push({ ...r, _flagReason: why }); any++;
       }
       renderBlended._excl = { src: scoped, key: _mk, grid, any };
-      if (!any) return null;
+      if (!any) return () => null;
       const ys = [...grid.keys()].sort((a, b) => (a || 9999) - (b || 9999));
       const used = BUCKETS.filter(([k]) => ys.some(y => (grid.get(y)[k] || []).length));
       const rowsOf = (y, k) => (grid.get(y) || {})[k] || [];
@@ -891,27 +891,34 @@ function reportingWaterfall() {
       const colOf = (k) => ys.flatMap(y => rowsOf(y, k));
       const open = (title, rs) => rs.length ? () => openReportingDrillModal({ chartTitle: 'Excluded from the cohorts \u00b7 ' + title, sliceLabel: rs.length.toLocaleString() + ' subscription' + (rs.length === 1 ? '' : 's'), rows: rs, formatValue: fmt.usd0 }) : undefined;
       const cellTd = (rs, title, o = {}) => td(rs.length ? num(val(rs)) : '', Object.assign({ onclick: open(title, rs) }, o));
-      return el('div', { class: 'card overflow-hidden' },
-        el('div', { class: 'px-4 py-3 border-b', style: { borderColor: 'var(--border)' } },
-          el('h3', { class: 'text-sm font-bold' }, 'Excluded from the Cohorts' + (office !== 'all' ? ' \u00b7 ' + office : '')),
-          el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Every subscription the waterfall above leaves out, by the rule that dropped it \u2014 In cohort + Excluded is the whole book for this branch pick. Year = first-service year, or the year sold when it was never serviced. Click any number for the accounts.')),
-        el('div', { style: { overflow: 'auto', maxHeight: '60vh' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-          el('thead', {}, el('tr', {}, th('Year', { left: true, corner: true }), th('In cohort'), th('Excluded'), ...used.map(([, l]) => th(l)))),
-          el('tbody', {},
-            ...ys.map(y => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-              td(y ? String(y) : 'No date', { left: true, sticky: true }),
-              td(y && byCohort.get(y) ? num(val(byCohort.get(y))) : '', { muted: true }),
-              cellTd(allOf(y), (y || 'no date') + ' \u00b7 all excluded', { bold: true }),
-              ...used.map(([k, l]) => cellTd(rowsOf(y, k), (y || 'no date') + ' \u00b7 ' + l)))),
-            el('tr', { class: 'border-t-2 font-black', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
-              td('Total', { left: true, sticky: true, bg: 'var(--card-2)' }), td(num(val(rows)), { bold: true }),
-              cellTd(ys.flatMap(allOf), 'all years', { bold: true }),
-              ...used.map(([k, l]) => cellTd(colOf(k), 'all years \u00b7 ' + l, { bold: true })))))));
+      // Shown INSIDE the cohort drill (per Isaac, Oct 6) — one year for a cohort's drill, every year for the Total's.
+      return (onlyYear) => {
+        const yy = onlyYear == null ? ys : ys.filter(y => y === onlyYear);
+        if (!yy.length || !yy.some(y => allOf(y).length)) return null;
+        const cols = onlyYear == null ? used : used.filter(([k]) => rowsOf(onlyYear, k).length);
+        return el('div', { class: 'card overflow-hidden' },
+          el('div', { class: 'px-3 py-2 border-b', style: { borderColor: 'var(--border)' } },
+            el('div', { class: 'text-xs font-bold' }, 'Excluded from ' + (onlyYear == null ? 'the cohorts' : 'the ' + onlyYear + ' cohort')),
+            el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Subscriptions the waterfall leaves out, by the rule that dropped them. In cohort + Excluded is the whole book. Click a number for those accounts.')),
+          el('div', { style: { overflow: 'auto', maxHeight: '40vh' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+            el('thead', {}, el('tr', {}, th('Year', { left: true, corner: true }), th('In cohort'), th('Excluded'), ...cols.map(([, l]) => th(l)))),
+            el('tbody', {},
+              ...yy.map(y => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+                td(y ? String(y) : 'No date', { left: true, sticky: true }),
+                td(y && byCohort.get(y) ? num(val(byCohort.get(y))) : '', { muted: true }),
+                cellTd(allOf(y), (y || 'no date') + ' \u00b7 all excluded', { bold: true }),
+                ...cols.map(([k, l]) => cellTd(rowsOf(y, k), (y || 'no date') + ' \u00b7 ' + l)))),
+              onlyYear != null ? null : el('tr', { class: 'border-t-2 font-black', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
+                td('Total', { left: true, sticky: true, bg: 'var(--card-2)' }), td(num(val(rows)), { bold: true }),
+                cellTd(ys.flatMap(allOf), 'all years', { bold: true }),
+                ...cols.map(([k, l]) => cellTd(colOf(k), 'all years \u00b7 ' + l, { bold: true })))))));
+      };
     })();
-    const drillRows = (title, rs) => rs.length ? () => openReportingDrillModal({ chartTitle: 'Cohort waterfall · ' + title, sliceLabel: rs.length.toLocaleString() + ' subscription' + (rs.length === 1 ? '' : 's'), rows: rs, formatValue: fmt.usd0 }) : undefined;
+    const drillRows = (title, rs, summary) => rs.length ? () => openReportingDrillModal({ chartTitle: 'Cohort waterfall · ' + title, sliceLabel: rs.length.toLocaleString() + ' subscription' + (rs.length === 1 ? '' : 's'), rows: rs, formatValue: fmt.usd0, summary: summary ? summary() : null }) : undefined;
     return el('div', { class: 'flex flex-col gap-4' }, el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-        el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Cohort Waterfall' + (office !== 'all' ? ' · ' + office : ''))),
+        el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Cohort Waterfall' + (office !== 'all' ? ' · ' + office : '')),
+          el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Click a cohort\u2019s size for its accounts and what was excluded from it; click the Total for every year.')),
         el('div', { class: 'inline-flex', style: { border: '1px solid var(--border-2)' } },
           ...[[false, 'Subs'], [true, 'ARR']].map(([v, l]) => el('button', {
             class: 'px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
@@ -933,7 +940,7 @@ function reportingWaterfall() {
                 el('span', {}, num(cv)),
                 el('span', { class: 'text-[10px] font-semibold', style: { color: g == null ? 'var(--text-subtle)' : g >= 0 ? '#15803D' : '#B91C1C' } },
                   g == null ? '\u2014' : (g >= 0 ? '+' : '\u2212') + Math.abs(g * 100).toFixed(1) + '%' + (ytd ? ' YTD' : ''))),
-                { bold: true, onclick: drillRows(c + ' cohort', all) });
+                { bold: true, onclick: drillRows(c + ' cohort', all, () => exclTable(c)) });
             })(),
             ...years.map(y => { if (y < c) return td('', {}); const rs = cell(c, y);
               // Cell = share of the cohort lost IN this year (per Isaac, Sep 22): alive at the
@@ -946,11 +953,11 @@ function reportingWaterfall() {
               // Both reads in the cell (per Isaac): what's still active, and the % lost that year underneath.
               return td(el('div', { class: 'flex flex-col items-end leading-tight' }, el('span', {}, num(val(rs))), el('span', { class: 'text-[10px] font-semibold', style: { color: a == null ? 'var(--text-subtle)' : a > 0 ? '#B91C1C' : 'var(--text-subtle)' } }, a == null ? '\u2014' : '\u2212' + (a * 100).toFixed(1) + '%')), { title: num(val(lost)) + ' of ' + num(val(prevRs)) + ' lost in ' + (y >= thisYear ? y + ' to date' : y) + ' \u00b7 ' + num(val(rs)) + ' still active', onclick: lost.length ? drillRows(c + ' cohort \u00b7 cancelled in ' + y + ' (' + num(val(lost)) + ' of ' + num(val(prevRs)) + ')', lost) : undefined, bg: COHORT_AGE_BG[Math.min(y - c, COHORT_AGE_BG.length - 1)] }); })); }),
           el('tr', { class: 'border-t-2 font-black', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
-            td('Total', { left: true, sticky: true, bg: 'var(--card-2)' }), td(num(val(rows)), { bold: true }),
+            td('Total', { left: true, sticky: true, bg: 'var(--card-2)' }), td(num(val(rows)), { bold: true, onclick: drillRows('all cohorts', rows, () => exclTable(null)) }),
             ...years.map(y => td(num(colTotal(y)), { bold: true }))),
           el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
             td('Blended attrition', { left: true, sticky: true, muted: true }), td('', {}),
-            ...years.map(y => { const a = blended(y); return td(a == null ? '—' : (a * 100).toFixed(1) + '%', { bold: true, muted: a == null, onclick: a == null ? undefined : () => openAttritionDrill(scoped, y) }); })))))), exclTable);
+            ...years.map(y => { const a = blended(y); return td(a == null ? '—' : (a * 100).toFixed(1) + '%', { bold: true, muted: a == null, onclick: a == null ? undefined : () => openAttritionDrill(scoped, y) }); })))))));
   };
   // ── SEASONALITY — monthly churn rate, months × years. Finds the "do we
   // bleed customers at certain points of the year" pattern. Cell = churn ÷
@@ -2300,6 +2307,7 @@ function reportingWaterfall() {
     // card-level chips any more; cancels are the book's counted cancels.
     const TYPE_LABEL = (r) => {
       if (dim === 'source') return String(r.subscription_source || '').trim() || 'Unspecified';
+      if (dim === 'service') return String(r.subscription || '').trim() || 'Unspecified';   // attrition by service type (per Isaac, Oct 6)
       if (dim === 'contract') { const m = Number(r.agreement_length) || 0; return m === 12 ? '12 mo' : m === 18 ? '18 mo' : m === 24 ? '24 mo' : m > 24 ? '24+ mo' : m > 0 ? 'Under 12 mo' : 'No term'; }
       // Rep: the CRM name when the warehouse has it. RevHawk's employee
       // mirror only carries ACTIVE FieldRoutes employees (verified Sep 2026:
@@ -2329,7 +2337,7 @@ function reportingWaterfall() {
     const ORDER = dim === 'contract' ? ['12 mo', '18 mo', '24 mo', '24+ mo', 'Under 12 mo', 'No term'] : ['Door to Door', 'Office Staff', 'Technician'];
     // Rep: fold reps under 20 subs into "Other reps" so the table reads; biggest first.
     if (dim === 'rep') { const MINR = 20; const other = mk(); for (const k of Object.keys(byType)) { if (byType[k].subs < MINR) { const g = byType[k]; for (const f of ['subs', 'active', 'cancelled', 'arv', 'arvCxl']) other[f] += g[f]; other.rows.push(...g.rows); other.cxlRows.push(...g.cxlRows); delete byType[k]; } } if (other.subs) byType['Other reps (under ' + MINR + ' subs)'] = other; }
-    const keys = (dim === 'source' || dim === 'rep')
+    const keys = (dim === 'source' || dim === 'rep' || dim === 'service')
       ? Object.keys(byType).sort((a, b) => (a.startsWith('Other reps') ? 1 : b.startsWith('Other reps') ? -1 : 0) || byType[b].subs - byType[a].subs || a.localeCompare(b))   // biggest first
       : [...ORDER.filter(k => byType[k]), ...Object.keys(byType).filter(k => !ORDER.includes(k)).sort()];
     const pct = (a, b) => b > 0 ? (a / b * 100).toFixed(1) + '%' : '\u2014';
@@ -2337,7 +2345,7 @@ function reportingWaterfall() {
     const row = (label, t, bold) => {
       const attr = t.subs > 0 ? t.cancelled / t.subs : null;
       return el('tr', { class: 'border-t cursor-pointer transition hover:brightness-95' + (bold ? ' font-bold' : ''), style: { borderColor: 'var(--border)', background: bold ? 'var(--card-2)' : '' }, title: 'Click for the counted cancels',
-        onclick: () => t.rows.length && openReportingDrillModal({ chartTitle: (dim === 'source' ? 'Attrition by Source · ' : dim === 'rep' ? 'Attrition by Rep · ' : dim === 'contract' ? 'Attrition by Contract Length · ' : 'Attrition by Rep Type · ') + label, sliceLabel: fmt.int(t.cxlRows.length) + ' counted cancels of ' + fmt.int(t.subs), rows: t.cxlRows, formatValue: (v) => fmt.usd0(v), summary: _attrDrillSummary(label, t) }) },
+        onclick: () => t.rows.length && openReportingDrillModal({ chartTitle: (dim === 'source' ? 'Attrition by Source · ' : dim === 'rep' ? 'Attrition by Rep · ' : dim === 'contract' ? 'Attrition by Contract Length · ' : dim === 'service' ? 'Attrition by Service Type · ' : 'Attrition by Rep Type · ') + label, sliceLabel: fmt.int(t.cxlRows.length) + ' counted cancels of ' + fmt.int(t.subs), rows: t.cxlRows, formatValue: (v) => fmt.usd0(v), summary: _attrDrillSummary(label, t) }) },
         el('td', { class: 'px-3 py-2 whitespace-nowrap' + (bold ? '' : ' font-semibold') }, label),
         el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(t.subs)),
         el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(t.active)),
@@ -2349,7 +2357,7 @@ function reportingWaterfall() {
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
         el('div', {},
-          el('div', { class: 'font-display text-lg', title: (dim === 'source' ? 'Where the account CAME FROM \u00b7 ' : dim === 'contract' ? 'Agreement length on the subscription \u00b7 ' : dim === 'rep' ? 'The rep who sold it \u00b7 \u201cFormer rep #id\u201d = inactive in FieldRoutes, so the CRM export carries no name \u00b7 ' : 'Who SOLD the account \u00b7 ') + (_rtYear === 'all' ? 'all years in the book' : 'sold in ' + _rtYear + ', cancels to date') + ' \u00b7 same population and cancel rules as this tab' + (office !== 'all' ? ' \u00b7 ' + officeLabel : '') + '.' }, dim === 'source' ? 'Attrition by Source' : dim === 'contract' ? 'Attrition by Contract Length' : dim === 'rep' ? 'Attrition by Rep' : 'Attrition by Rep Type')),
+          el('div', { class: 'font-display text-lg', title: (dim === 'source' ? 'Where the account CAME FROM \u00b7 ' : dim === 'service' ? 'The service type on the subscription \u00b7 ' : dim === 'contract' ? 'Agreement length on the subscription \u00b7 ' : dim === 'rep' ? 'The rep who sold it \u00b7 \u201cFormer rep #id\u201d = inactive in FieldRoutes, so the CRM export carries no name \u00b7 ' : 'Who SOLD the account \u00b7 ') + (_rtYear === 'all' ? 'all years in the book' : 'sold in ' + _rtYear + ', cancels to date') + ' \u00b7 same population and cancel rules as this tab' + (office !== 'all' ? ' \u00b7 ' + officeLabel : '') + '.' }, dim === 'source' ? 'Attrition by Source' : dim === 'contract' ? 'Attrition by Contract Length' : dim === 'rep' ? 'Attrition by Rep' : 'Attrition by Rep Type')),
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
           el('select', {
             class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
@@ -2359,9 +2367,9 @@ function reportingWaterfall() {
             el('option', { value: 'all', selected: _rtYear === 'all' }, 'All years'),
             ..._rtYears.map(y => el('option', { value: String(y), selected: _rtYear === y }, 'Sold ' + y))))),
       !total.subs ? el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'No accounts in this cohort under the current rules.') :
-      el('div', { style: { overflow: 'auto', maxHeight: (dim === 'source' || dim === 'rep') ? '460px' : 'none' } }, el('table', { class: 'w-full text-xs' },
+      el('div', { style: { overflow: 'auto', maxHeight: (dim === 'source' || dim === 'rep' || dim === 'service') ? '460px' : 'none' } }, el('table', { class: 'w-full text-xs' },
         el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: 0, zIndex: 1 } }, el('tr', { style: { background: 'var(--card-2)' } },
-          th(dim === 'source' ? 'Source' : dim === 'contract' ? 'Contract Length' : dim === 'rep' ? 'Rep' : 'Rep Type'), th('Subs', 1), th('Active', 1), th('Cancelled', 1), th('Attrition %', 1), th('Retention %', 1), th('ARR Attrition %', 1))),
+          th(dim === 'source' ? 'Source' : dim === 'service' ? 'Service Type' : dim === 'contract' ? 'Contract Length' : dim === 'rep' ? 'Rep' : 'Rep Type'), th('Subs', 1), th('Active', 1), th('Cancelled', 1), th('Attrition %', 1), th('Retention %', 1), th('ARR Attrition %', 1))),
         el('tbody', {},
           ...keys.map(k => row(k, byType[k])),
           row('RIDD \u00b7 Total', total, true)))),
@@ -2737,7 +2745,7 @@ function reportingWaterfall() {
   requestAnimationFrame(() => { syncPin(); setTimeout(syncPin, 200); });
   _profMark('ret:pin');
   const attritionByCard = (() => {
-    const DIMS = [['source', 'Source'], ['rep', 'Rep'], ['contract', 'Contract Length'], ['type', 'Rep Type']];
+    const DIMS = [['source', 'Source'], ['service', 'Service Type'], ['rep', 'Rep'], ['contract', 'Contract Length'], ['type', 'Rep Type']];
     const dim = DIMS.some(d => d[0] === state._rtAttrDim) ? state._rtAttrDim : 'source';
     const card = dim === 'source' ? sourceAttritionCard : _attritionByCard(dim);
     if (!card) return null;
