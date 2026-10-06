@@ -1168,7 +1168,7 @@ function _mktgProviders(vizOnly) {
   // (The two charts under this table moved to Marketing → Demand as Revenue by provider, per Isaac, Oct 6.)
   return el('div', { class: 'flex flex-col gap-4' },
     _mktgMatrixCard(cur.label + ' · by ' + mode + ' · ' + scopeLbl, cur.note, cur.rows, cur.cell, cur.fmt, { ...cur.opts, headerExtra: header }),
-    (typeof adCampaignsCard === 'function') ? adCampaignsCard(y, B.all) : null);
+    null);   // (Ad platform campaigns card moved off Metrics to Spend entry, per Isaac, Oct 6)
 }
 
 // ── Providers visuals (per Isaac, Sep 2026): two charts under the matrix,
@@ -1345,7 +1345,9 @@ function _mktgSpendEntry() {
         _mktgTd(ch, { left: true, bold: true }),
         el('td', { class: 'px-1 py-1 text-left' }, inp((m.leads[ym] || {})[ch], (v) => { m.leads[ym] = m.leads[ym] || {}; if (v > 0) m.leads[ym][ch] = v; else delete m.leads[ym][ch]; })),
         _mktgTd(ghlFor(ch) == null ? '—' : fmt.int(ghlFor(ch)), { style: { color: 'var(--text-muted)' } })))))));
-  return el('div', { class: 'flex flex-col gap-4' }, (typeof mktgSpendUploadCard === 'function') ? mktgSpendUploadCard(B, y) : null, matrix, leadsCard);
+  return el('div', { class: 'flex flex-col gap-4' }, (typeof mktgSpendUploadCard === 'function') ? mktgSpendUploadCard(B, y) : null, matrix, leadsCard,
+    // Campaign → office mapping for Facebook / Google spend (moved here from Metrics, per Isaac, Oct 6).
+    (() => { try { if (typeof reportingLoadAdSpend === 'function') reportingLoadAdSpend(y); return (typeof adCampaignsCard === 'function') ? adCampaignsCard(y, B.all) : null; } catch (e) { return null; } })());
 }
 
 // ── Projections ──
