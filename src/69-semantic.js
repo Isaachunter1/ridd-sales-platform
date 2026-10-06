@@ -220,6 +220,73 @@ const SEM_ENTITIES = [
   { id: 'customer_life', label: 'Customer life', key: 'FieldRoutes customerID', meaning: 'Every subscription a customer has had, linked into one life: first service to the day their last subscription ended. A renewal is a new subscription on the same life, not a new customer.', built: 'semCustomerLives() — groups subscriptions by customer.' },
 ];
 
+// ── ENTITY: the lead, and whether it converted ──────────────────────────
+// A lead is one GoHighLevel contact record credited to a provider (last paid
+// touch, else its own source — src/86-ghl-leads.js). It CONVERTED when the
+// same person (phone or email) bought a new, non-renewal subscription in
+// FieldRoutes from 1 day before to `windowDays` after the lead came in.
+// One sale converts ONE lead: when a person has several lead records, the
+// latest one on or before the sale gets the credit.
+const SEM_LEAD_WINDOW_DAYS = 90;
+function semLeadConversions(leads, crm, windowDays) {
+  const W = (windowDays == null ? SEM_LEAD_WINDOW_DAYS : windowDays) * 86400000, DAY = 86400000;
+  const out = leads.map(l => ({ lead: l, ms: _semMs(l.d), converted: false, sale: null }));
+  if (!crm) return out;
+  const byCust = new Map();
+  for (const x of out) {
+    if (x.ms == null) continue;
+    const id = (x.lead.p && crm.byPhone.get(x.lead.p)) || (x.lead.e && crm.byEmail.get(x.lead.e)) || null;
+    if (!id) continue;
+    x.customer = id;
+    if (!byCust.has(id)) byCust.set(id, []);
+    byCust.get(id).push(x);
+  }
+  for (const [id, L] of byCust) {
+    const c = crm.cust.get(id); if (!c) continue;
+    L.sort((a, b) => a.ms - b.ms);
+    for (const r of c.subs) {
+      if (reportingSourceClass(reportingSourceOf(r)) === 'renewal') continue;
+      const sd = _semMs(r.sold_date); if (sd == null) continue;
+      let best = null;
+      for (const x of L) { if (x.converted) continue; if (x.ms <= sd + DAY && sd - x.ms <= W) best = x; }
+      if (best) { best.converted = true; best.sale = r; }
+    }
+  }
+  return out;
+}
+SEM_RULES.lead_window = { label: 'Lead conversion window', where: 'src/69-semantic.js (SEM_LEAD_WINDOW_DAYS)', now: () => 'a sale counts for a lead when it is sold within ' + SEM_LEAD_WINDOW_DAYS + ' days of the lead' };
+SEM_RULES.lead_sources = { label: 'Which GoHighLevel labels are leads, and whose', where: 'Settings → Configurations → GoHighLevel sources', now: () => 'current customers, door-to-door and CRM workflow records are not leads; each remaining label maps to a provider' };
+SEM_RULES.marketing_spend = { label: 'Marketing spend', where: 'QuickBooks (Advertising & Marketing accounts), pulled automatically', now: () => 'booked spend by branch account and month' };
+SEM_ENTITIES.push({ id: 'lead', label: 'Lead', key: 'GoHighLevel contact record', meaning: 'One inbound contact, credited to the provider that earned it. It is converted when the same person (matched on phone or email) buys a new subscription within the conversion window. One sale converts one lead.', built: 'ghlLeads() for the credit, semLeadConversions() for the match to FieldRoutes.' });
+_semDefine('lead_conversion_rate', {
+  label: 'Lead conversion rate', entity: 'Lead', unit: 'rate', rules: ['lead_sources', 'lead_window', 'renewal_sources'],
+  meaning: 'Of the leads that came in, the share that became a sale. Leads from the last few weeks read low because they have not had time to close yet.',
+  formula: 'converted leads ÷ leads',
+  used: ['Marketing → Demand (tile, weekly chart, by provider)'],
+  compute: (L) => { let n = 0; for (const x of L) if (x.converted) n++; return { value: semPct(n, L.length), n, d: L.length }; },
+});
+_semDefine('cost_per_lead', {
+  label: 'Cost per lead', entity: 'Lead', unit: 'usd', rules: ['marketing_spend', 'lead_sources'],
+  meaning: 'What one paid lead cost. Organic and referral leads are left out of the count because nothing was spent to get them.',
+  formula: 'marketing spend ÷ leads credited to a paid provider',
+  used: ['Marketing → Demand'],
+  compute: (spend, L) => { const d = L.filter(x => x.paid).length; return { value: d > 0 ? spend / d : null, n: spend, d }; },
+});
+_semDefine('cost_per_sale', {
+  label: 'Cost per sale', entity: 'Lead', unit: 'usd', rules: ['marketing_spend', 'lead_sources', 'lead_window'],
+  meaning: 'What it cost in marketing to get one sale from a paid lead.',
+  formula: 'marketing spend ÷ converted leads credited to a paid provider',
+  used: ['Marketing → Demand'],
+  compute: (spend, L) => { const d = L.filter(x => x.paid && x.converted).length; return { value: d > 0 ? spend / d : null, n: spend, d }; },
+});
+_semDefine('wasted_spend', {
+  label: 'Wasted spend', entity: 'Lead', unit: 'usd', rules: ['marketing_spend', 'lead_sources', 'lead_window'],
+  meaning: 'The share of marketing spend that bought leads which did not turn into a sale.',
+  formula: 'cost per lead × paid leads that did not convert',
+  used: ['Marketing → Demand'],
+  compute: (spend, L) => { const P = L.filter(x => x.paid); const miss = P.filter(x => !x.converted).length; return { value: P.length ? spend * miss / P.length : null, n: miss, d: P.length }; },
+});
+
 // Known places where two screens still answer the same question differently.
 // Listed on the Definitions page until each is moved onto one metric.
 const SEM_OPEN_DIFFERENCES = [
