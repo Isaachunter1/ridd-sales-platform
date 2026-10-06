@@ -56,6 +56,7 @@ function _mktgDemand() {
   const MIN = 20; const byP = new Map();
   for (const x of L) { const k = x.lead.prov || 'Unknown'; let p = byP.get(k); if (!p) { p = { n: 0, c: 0 }; byP.set(k, p); } p.n++; if (x.converted) p.c++; }
   const provs = [...byP.entries()].filter(([, p]) => p.n >= MIN).map(([k, p]) => ({ k, n: p.n, c: p.c, r: p.c / p.n })).sort((a, b) => b.r - a.r);
+  const QP = qboSpendByProvider(y);   // QuickBooks charges by payee → provider (null until the refresh has run)
   const idA = 'mktDemandA', idB = 'mktDemandB', idC = 'mktDemandC';
   const isDark = state.theme === 'dark';
   const txt = isDark ? '#C9C9BE' : '#555', grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
@@ -91,7 +92,66 @@ function _mktgDemand() {
       card('Weekly conversion rate', 'By the week the lead came in. The latest weeks read low until those leads have had time to close.', weeks.length ? canvas(idB, 300) : el('div', { class: 'p-6 text-xs', style: { color: 'var(--text-muted)' } }, 'No leads in ' + y + '.'))),
     card('Conversion rate by provider', 'Providers with at least ' + MIN + ' leads in ' + y + ', best first.', provs.length ? canvas(idC, Math.max(160, provs.length * 30 + 50)) : el('div', { class: 'p-6 text-xs', style: { color: 'var(--text-muted)' } }, 'No provider has ' + MIN + ' leads yet.')),
     el('div', { class: 'card overflow-hidden' }, el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-      el('thead', {}, el('tr', {}, ...['Provider', 'Leads', 'Converted', 'Conversion rate'].map((t, i) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold ' + (i ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t)))),
+      el('thead', {}, el('tr', {}, ...['Provider', 'Leads', 'Converted', 'Conversion rate', ...(QP ? ['Spend', 'Cost per lead', 'Cost per sale'] : [])].map((t, i) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold ' + (i ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t)))),
       el('tbody', {}, ...[...byP.entries()].sort((a, b) => b[1].n - a[1].n).map(([k, p]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-        el('td', { class: 'px-3 py-2 font-semibold' }, k + (paid.has(k) ? '' : ' · not paid')), el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(p.n)), el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(p.c)), el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, pct1(p.n ? p.c / p.n : null)))))))));
+        el('td', { class: 'px-3 py-2 font-semibold' }, k + (paid.has(k) ? '' : ' · not paid')), el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(p.n)), el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(p.c)), el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, pct1(p.n ? p.c / p.n : null)),
+        ...(QP ? (() => { const sp = QP.byProv.get(k) || 0; return [el('td', { class: 'px-3 py-2 text-right tabular-nums' }, sp ? fmt.usd0(sp) : ''), el('td', { class: 'px-3 py-2 text-right tabular-nums' }, sp && p.n ? fmt.usd0(sp / p.n) : ''), el('td', { class: 'px-3 py-2 text-right tabular-nums' }, sp && p.c ? fmt.usd0(sp / p.c) : '')]; })() : []))))))),
+    _mktgPayeeCard(y, [...byP.keys()].filter(k => paid.has(k))));
+}
+
+// ── QuickBooks spend by provider (per Isaac, Oct 6) ──────────────────────
+// QuickBooks books every marketing charge under a Name (Google, Facebook,
+// PESTNET.COM …). Each Name maps to a lead provider: the same auto rules the
+// GoHighLevel labels use, or an admin's pick (adminRules.qboPayeeMap). The
+// branch split still comes from the controller's allocation after close.
+const QBO_PAYEE_SKIP = '__skip';
+function qboPayeeMap() { const R = (typeof _adminRules === 'function') ? _adminRules() : null; return (R && R.qboPayeeMap) || {}; }
+function setQboPayee(payee, val) { const m = Object.assign({}, qboPayeeMap()); const k = String(payee).trim().toLowerCase(); if (val == null || val === '') delete m[k]; else m[k] = val; _setAdminRule('qboPayeeMap', m); }
+// → provider name, QBO_PAYEE_SKIP (not marketing spend on leads), or '' (not mapped yet).
+function qboPayeeProvider(payee) {
+  const k = String(payee || '').trim().toLowerCase(); if (!k) return '';
+  const o = qboPayeeMap()[k]; if (o) return o;
+  const a = (typeof ghlAutoProvider === 'function') ? ghlAutoProvider(k.replace(/\.com\b/, '')) : '';
+  return (a && a !== GHL_NOT_LEAD && a !== 'Organic' && a !== 'Referral') ? a : '';
+}
+// One year of QuickBooks spend rolled up: by provider, what is unmapped, and every payee with its total.
+function qboSpendByProvider(year) {
+  const P = state.reportingIsSpendPayee; if (!P || !P.months) return null;
+  const byProv = new Map(), payees = new Map(); let unmapped = 0, skipped = 0, total = 0, journal = 0;
+  for (let i = 0; i < 12; i++) {
+    const ym = _mktgYm(year, i); journal += Number((P.journal || {})[ym]) || 0;
+    const M = P.months[ym]; if (!M) continue;
+    for (const name in M) { const amt = Number(M[name]) || 0; if (!amt) continue; payees.set(name, (payees.get(name) || 0) + amt);
+      const pv = qboPayeeProvider(name);
+      if (pv === QBO_PAYEE_SKIP) { skipped += amt; continue; }
+      total += amt;
+      if (!pv) unmapped += amt; else byProv.set(pv, (byProv.get(pv) || 0) + amt); }
+  }
+  return { byProv, payees, unmapped, skipped, total, journal, memo: P.memo || {}, pulledAt: P.pulledAt };
+}
+// The mapping card: every QuickBooks payee this year, biggest first, with the provider it counts toward.
+function _mktgPayeeCard(year, providers) {
+  const Q = qboSpendByProvider(year);
+  const head = (t, s) => el('div', { class: 'px-4 py-3 border-b', style: { borderColor: 'var(--border)' } }, el('div', { class: 'text-sm font-bold' }, t), el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, s));
+  if (!Q) return el('div', { class: 'card overflow-hidden' }, head('QuickBooks spend by provider', 'Arrives with the next QuickBooks refresh (it runs nightly, and whenever the cached copy is more than a few hours old). Until then cost per lead is company-wide only.'));
+  const canEdit = isAdminRole(state.profile && state.profile.role);
+  const opts = [...new Set([...providers, ...(typeof MKTG_DEFAULT_CHANNELS !== 'undefined' ? MKTG_DEFAULT_CHANNELS : []), ...Q.byProv.keys()])].filter(Boolean).sort();
+  const rows = [...Q.payees.entries()].sort((a, b) => b[1] - a[1]);
+  const th = (t, right) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
+  return el('div', { class: 'card overflow-hidden' },
+    head('QuickBooks spend by provider · ' + year, fmt.usd0(Q.total) + ' in marketing charges, ' + (Q.unmapped > 0 ? fmt.usd0(Q.unmapped) + ' not mapped to a provider yet' : 'all mapped') + '. Each QuickBooks name counts toward the provider picked here; journal entries (the branch allocation at close) are left out so nothing is counted twice.'),
+    el('div', { style: { overflow: 'auto', maxHeight: '420px' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+      el('thead', { style: { position: 'sticky', top: 0 } }, el('tr', {}, th('QuickBooks name'), th('Example description'), th('Spend', true), th('Counts toward'))),
+      el('tbody', {}, ...rows.map(([name, amt]) => { const pv = qboPayeeProvider(name), manual = !!qboPayeeMap()[String(name).trim().toLowerCase()];
+        return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, name),
+          el('td', { class: 'px-3 py-2', style: { color: 'var(--text-muted)' } }, Q.memo[name] || ''),
+          el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.usd0(amt)),
+          el('td', { class: 'px-3 py-2' }, canEdit
+            ? el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: pv ? 'var(--border-2)' : '#DC2626', background: 'var(--card)', color: 'var(--text)' }, title: manual ? 'Picked by an admin' : (pv ? 'Matched automatically by name' : 'Not mapped yet'),
+                onchange: (e) => { setQboPayee(name, e.target.value); _mktgDemand._m = null; mountApp(); } },
+                el('option', { value: '', selected: !pv }, manual ? '↺ Back to automatic' : 'Not mapped'),
+                ...opts.map(o => el('option', { value: o, selected: pv === o }, o)),
+                el('option', { value: QBO_PAYEE_SKIP, selected: pv === QBO_PAYEE_SKIP }, 'Not lead spend (leave out)'))
+            : el('span', {}, pv === QBO_PAYEE_SKIP ? 'Left out' : (pv || 'Not mapped')))); })))));
 }
