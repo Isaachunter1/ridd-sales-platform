@@ -1027,7 +1027,8 @@ function _mktgCac() {
 
 // (Rep vs Office cost tab retired Sep 30 — the Sales Rep eligibility math lives on D2D Sales → Pay, src/94-commission-view.js.)
 // ── Providers: lead partner × month ──
-function _mktgProviders() {
+// vizOnly (per Isaac, Oct 6): Marketing → Demand asks for just the Revenue-by-provider charts, company-wide.
+function _mktgProviders(vizOnly) {
   // Metrics matrix (per Isaac, Sep 30): the P&L Efficiency table moved here
   // and folded into this one card. Toggle By provider / By office:
   //   · By provider — rows = lead sources; the Office picker scopes them to
@@ -1038,7 +1039,7 @@ function _mktgProviders() {
   // Ad spend: office rows with no provider picked = QuickBooks (as the P&L);
   // anything provider-level = the Spend entry allocation (provider × office).
   const y = _mktgYearSel(), m = _mktgStore(), a = _mktgActuals(y), T = m.settings.targets, B = _mktgBranchList(y);
-  const mode = state._mktMetricsBy === 'office' ? 'office' : 'provider';
+  const mode = vizOnly ? 'provider' : (state._mktMetricsBy === 'office' ? 'office' : 'provider');
   // Facebook / Google Ads straight from the platforms (Windsor) — spend,
   // clicks, impressions, platform leads by campaign → office.
   if (typeof reportingLoadAdSpend === 'function') reportingLoadAdSpend(y);
@@ -1060,7 +1061,7 @@ function _mktgProviders() {
   const _pm = reportingSourceProviderMap();
   const _hideRow = (p) => _pm[p] === MKTG_HIDE || (_pm[p] && _pm[p] !== p);
   const channels = [...new Set([...m.channels, ...a.sources.filter(s => reportingSourceClass(s) !== 'renewal'), ...(AP ? [...AP.has] : []), ...glProvs])].filter(p => !_hideRow(p)).sort();
-  const scope = state._mktCacScope || MKTG_ALL;
+  const scope = vizOnly ? MKTG_ALL : (state._mktCacScope || MKTG_ALL);
   const scopeBranches = scope === MKTG_ALL ? null : (B.byEntity[scope] ? B.byEntity[scope] : [scope]);
   const provF = mode === 'office' && channels.includes(state._mktMetricsProv) ? state._mktMetricsProv : '';
   const G = _mktgGroupRows(B);
@@ -1163,9 +1164,10 @@ function _mktgProviders() {
   const GOAL = { spj: { v: T.spendPerJob, better: 'low' }, roas: { v: T.roas, better: 'high' }, adcac: { v: T.adSpendCac, better: 'low' }, wgcac: { v: T.wagesCac, better: 'low' } };
   const lowerIsBetter = ['cpl', 'spj', 'adcac', 'cac', 'cpj', 'wgcac', 'pcpl', 'cpc'].includes(cur.key);
   const rankBy = { rev, book, spend: sp, wages: wg, inc, tot, leads, cpl: sp, spj: sp, roas: sp, adcac: sp, cac: tot, cpj: tot, wgcac: wg, revW: rev, spendW: sp, pleads: pLd, pcpl: pSp, clicks: pCl, cpc: pSp, ctr: pIm, plsale: pLd, l2j: leads }[cur.key] || rev;
+  if (vizOnly) { const R = METRICS.find(x => x.key === 'rev') || METRICS[0]; return _mktgProvidersViz(R, { y, channels: leafRows, rankBy: rev, goal: null, lowerIsBetter: false, noun: 'provider', label: opts.label }); }
+  // (The two charts under this table moved to Marketing → Demand as Revenue by provider, per Isaac, Oct 6.)
   return el('div', { class: 'flex flex-col gap-4' },
     _mktgMatrixCard(cur.label + ' · by ' + mode + ' · ' + scopeLbl, cur.note, cur.rows, cur.cell, cur.fmt, { ...cur.opts, headerExtra: header }),
-    _mktgProvidersViz(cur, { y, channels: leafRows, rankBy, goal: GOAL[cur.key] || null, lowerIsBetter, noun: mode === 'provider' ? 'provider' : 'office', label: opts.label }),
     (typeof adCampaignsCard === 'function') ? adCampaignsCard(y, B.all) : null);
 }
 

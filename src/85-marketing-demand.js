@@ -117,6 +117,8 @@ function _mktgDemand() {
           ...[..._provCount.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => el('option', { value: k, selected: wkProv === k }, k + ' (' + fmt.int(n) + ')')))),
       weeks.length ? canvas(idB, 320) : el('div', { class: 'p-6 text-xs', style: { color: 'var(--text-muted)' } }, 'No leads in ' + y + (wkProv ? ' for ' + wkProv : '') + '.')),
     card('Conversion rate by provider', 'Providers with at least ' + MIN + ' leads in ' + y + ', best first. Click a bar for its leads and where each one stands in GoHighLevel.', provs.length ? canvas(idC, Math.max(160, provs.length * 30 + 50)) : el('div', { class: 'p-6 text-xs', style: { color: 'var(--text-muted)' } }, 'No provider has ' + MIN + ' leads yet.')),
+    // Revenue by provider (rank + monthly trend) — moved here from Metrics (per Isaac, Oct 6). FieldRoutes revenue by the provider that earned the sale.
+    (() => { try { return _mktgProviders(true); } catch (e) { console.warn('[demand] revenue by provider skipped', e); return null; } })(),
     // (Provider list table removed per Isaac, Oct 6: the bars carry it; hover a bar for leads, converted, spend and cost.)
     flowCard,
     _mktgPayeeCard(y, [...byP.keys()].filter(k => paid.has(k))));
