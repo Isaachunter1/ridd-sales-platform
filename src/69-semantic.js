@@ -223,21 +223,21 @@ _semDefine('customer_retention', {
   label: 'Still a customer %', entity: 'Customer life', unit: 'rate', rules: ['renewal_sources'],
   meaning: 'Of a group of customers, the share who still have at least one active subscription today.',
   formula: 'customers with any active subscription ÷ customers in the group',
-  used: ['Retention → Renewal Retention (Still here %)'],
+  used: ['Retention → Renewal Retention (Retention %)'],
   compute: (lives) => { let n = 0; for (const c of lives) if (c.alive) n++; return { value: semPct(n, lives.length), n, d: lives.length }; },
 });
 _semDefine('customer_survival_after', {
   label: 'Still a customer N months after a decision point', entity: 'Customer life', unit: 'rate', rules: ['renewal_sources'],
   meaning: 'Measured from a decision point (the day a renewal was sold, or the day the first contract ended). Of the customers whose decision point is at least N months old, the share who were still customers N months after it.',
   formula: '(still a customer, or left N months or more after the decision point) ÷ customers whose decision point is at least N months old',
-  used: ['Retention → Renewal Retention (Here +12 mo, Here +24 mo)'],
+  used: ['Retention → Renewal Retention (Retained +12 mo, Retained +24 mo)'],
   compute: (lives, anchorOf, months, nowMs) => { let d = 0, n = 0; for (const c of lives) { const a = anchorOf(c); if (a == null || (nowMs - a) / SEM_MO_MS < months) continue; d++; if (c.alive || (semCustomerEnd(c, nowMs) - a) / SEM_MO_MS >= months) n++; } return { value: semPct(n, d), n, d }; },
 });
 _semDefine('customer_tenure', {
   label: 'Customer tenure', entity: 'Customer life', unit: 'months', rules: ['renewal_sources'],
   meaning: 'How long a customer has been with RIDD across every plan they have had: first service to today, or to the day their last subscription ended.',
   formula: 'average of (end of life − first service), in months',
-  used: ['Retention → Renewal Retention (Total tenure, Tenure at decision, Stayed after)'],
+  used: ['Retention → Renewal Retention (Total tenure, Tenure at renewal, Stayed after)'],
   // from / to pick the two ends: default = whole life. Returns the average.
   compute: (lives, nowMs, from, to) => { let s = 0, n = 0; for (const c of lives) { const a = from ? from(c) : c.start, b = to ? to(c) : semCustomerEnd(c, nowMs); if (a == null || b == null) continue; s += Math.max(0, (b - a) / SEM_MO_MS); n++; } return { value: n ? s / n : null, n, d: n }; },
 });
