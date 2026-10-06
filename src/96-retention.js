@@ -894,8 +894,15 @@ function reportingWaterfall() {
     // semantic-layer dimension. A dimension row reads: how many of that group are in the book and their lifetime
     // attrition; then, per year, how many were active at year-end and the share of that year's opening book that left.
     const wfDim = SEM_DIMENSIONS[state._rtWfDim] ? state._rtWfDim : 'year';
-    const dimRows = () => semGroupBy(rows, wfDim).map(g => {
+    // Cohort picker for dimension rows (per Isaac, Oct 6): "All years" = the whole book per group; a year = only the
+    // subscriptions first serviced that year, so each row is that group's cohort and reads exactly like a cohort-year row.
+    const wfCohort = (wfDim !== 'year' && cohorts.includes(Number(state._rtWfCohort))) ? Number(state._rtWfCohort) : null;
+    const wfBase = wfCohort == null ? rows : (byCohort.get(wfCohort) || []);
+    const prevCohortBy = (wfCohort != null && SEM_DIMENSIONS[wfDim]) ? (() => { const m = new Map(); for (const r of (byCohort.get(wfCohort - 1) || [])) { const k = SEM_DIMENSIONS[wfDim].of(r); m.set(k, (m.get(k) || 0) + (isArr ? (Number(r.annual_recurring_value) || 0) : 1)); } return m; })() : null;
+    const dimRows = () => semGroupBy(wfBase, wfDim).map(g => {
       const all = g.rows;
+      const firstY = wfCohort != null ? wfCohort : all.reduce((m, r) => { const y = yearOf(r.initial_service); return y >= 2000 && y < m ? y : m; }, 9999);
+      const ageBg = (y) => COHORT_AGE_BG[Math.max(0, Math.min(y - firstY, COHORT_AGE_BG.length - 1))];
       const A = semMetric(isArr ? 'arr_attrition_rate' : 'attrition_rate')(all);
       const cxl = all.filter(r => r._effCancel);
       const sumArr = (rs) => rs.reduce((a, r) => a + (Number(r.annual_recurring_value) || 0), 0);
@@ -912,27 +919,44 @@ function reportingWaterfall() {
         td(g.label, { left: true, sticky: true }),
         td(el('div', { class: 'flex flex-col items-end leading-tight', title: num(val(all)) + ' in the book \u00b7 ' + (A.value == null ? 'no' : (A.value * 100).toFixed(1) + '%') + ' have cancelled (all time). Click for the cancels and the breakdown.' },
           el('span', {}, num(val(all))),
-          el('span', { class: 'text-[10px] font-semibold', style: { color: A.value == null ? 'var(--text-subtle)' : A.value >= 0.15 ? '#B91C1C' : 'var(--text-subtle)' } }, A.value == null ? '\u2014' : '\u2212' + (A.value * 100).toFixed(1) + '%')),
+          wfCohort != null
+            ? (() => { const pv = prevCohortBy.get(g.label) || 0, gr = pv > 0 ? val(all) / pv - 1 : null; const ytd = wfCohort >= thisYear;
+                return el('span', { class: 'text-[10px] font-semibold', title: gr == null ? 'Nothing in the ' + (wfCohort - 1) + ' cohort to compare with' : num(val(all)) + ' vs ' + num(pv) + ' in the ' + (wfCohort - 1) + ' cohort', style: { color: gr == null ? 'var(--text-subtle)' : gr >= 0 ? '#15803D' : '#B91C1C' } }, gr == null ? '\u2014' : (gr >= 0 ? '+' : '\u2212') + Math.abs(gr * 100).toFixed(1) + '%' + (ytd ? ' YTD' : '')); })()
+            : el('span', { class: 'text-[10px] font-semibold', style: { color: A.value == null ? 'var(--text-subtle)' : A.value >= 0.15 ? '#B91C1C' : 'var(--text-subtle)' } }, A.value == null ? '\u2014' : '\u2212' + (A.value * 100).toFixed(1) + '%')),
           { bold: true, onclick: all.length ? () => openReportingDrillModal({ chartTitle: 'Cohort waterfall \u00b7 ' + SEM_DIMENSIONS[wfDim].label + ' \u00b7 ' + g.label, sliceLabel: cxl.length.toLocaleString() + ' counted cancels of ' + all.length.toLocaleString(), rows: cxl, formatValue: fmt.usd0, summary: summary() }) : undefined }),
         ...years.map(y => { const en = endOf(y);
           const alive = all.filter(r => r.initial_service <= en && (!r._effCancel || r._effCancel > en));
+          if (wfCohort != null) {
+            // One cohort: the cohort-year read — alive at year-end, and the share of the prior year-end (the whole cohort in its first year) that left.
+            if (y < wfCohort) return td('', {});
+            const pen = (y - 1) + '-12-31';
+            const prevRs = y === wfCohort ? all : all.filter(r => r.initial_service <= pen && (!r._effCancel || r._effCancel > pen));
+            const lost = prevRs.filter(r => r._effCancel && r._effCancel <= en && (y === wfCohort || r._effCancel > pen));
+            const a = val(prevRs) > 0 ? 1 - val(alive) / val(prevRs) : null;
+            return td(el('div', { class: 'flex flex-col items-end leading-tight' }, el('span', {}, num(val(alive))), el('span', { class: 'text-[10px] font-semibold', style: { color: a == null ? 'var(--text-subtle)' : a > 0 ? '#B91C1C' : 'var(--text-subtle)' } }, a == null ? '\u2014' : '\u2212' + (a * 100).toFixed(1) + '%')),
+              { title: num(val(lost)) + ' of ' + num(val(prevRs)) + ' lost in ' + (y >= thisYear ? y + ' to date' : y) + ' \u00b7 ' + num(val(alive)) + ' still active', onclick: lost.length ? drillRows(g.label + ' \u00b7 ' + wfCohort + ' cohort \u00b7 cancelled in ' + y, lost) : undefined, bg: ageBg(y) });
+          }
           const Y = semMetric('annual_attrition')(all, y);
           if (!alive.length && !Y.d) return td('', {});
           const a = val(Y.rows.boy) > 0 ? val(Y.rows.counted) / val(Y.rows.boy) : null;
           return td(el('div', { class: 'flex flex-col items-end leading-tight' }, el('span', {}, num(val(alive))), el('span', { class: 'text-[10px] font-semibold', style: { color: a == null ? 'var(--text-subtle)' : a > 0 ? '#B91C1C' : 'var(--text-subtle)' } }, a == null ? '\u2014' : '\u2212' + (a * 100).toFixed(1) + '%')),
             { title: a == null ? num(val(alive)) + ' active at the end of ' + y + ' \u00b7 nothing in the book on Jan 1 to measure' : num(val(Y.rows.counted)) + ' of the ' + num(val(Y.rows.boy)) + ' in the book on Jan 1 left in ' + (y >= thisYear ? y + ' to date' : y) + ' \u00b7 ' + num(val(alive)) + ' active at year-end',
-              onclick: Y.rows.counted.length ? drillRows(g.label + ' \u00b7 lost in ' + y, Y.rows.counted) : undefined, bg: a == null ? undefined : `rgba(220,38,38,${Math.min(0.28, a * 0.6).toFixed(3)})` }); }));
+              onclick: Y.rows.counted.length ? drillRows(g.label + ' \u00b7 lost in ' + y, Y.rows.counted) : undefined, bg: ageBg(y) }); }));
     });
     const rowsSel = el('select', { class: 'px-2.5 py-1 text-[11px] font-bold cursor-pointer', style: { border: '1px solid var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, title: 'What each row of the waterfall is',
       onchange: (e) => { state._rtWfDim = e.target.value; mountApp(); } },
       el('option', { value: 'year', selected: wfDim === 'year' }, 'Rows: Cohort year'),
       ...Object.entries(SEM_DIMENSIONS).map(([k, d]) => el('option', { value: k, selected: wfDim === k }, 'Rows: ' + d.label)));
+    const cohortSel = wfDim === 'year' ? null : el('select', { class: 'px-2.5 py-1 text-[11px] font-bold cursor-pointer', style: { border: '1px solid var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, title: 'Show every year together, or only the subscriptions first serviced in one year',
+      onchange: (e) => { state._rtWfCohort = e.target.value === 'all' ? null : Number(e.target.value); mountApp(); } },
+      el('option', { value: 'all', selected: wfCohort == null }, 'Cohort: All years'),
+      ...cohorts.slice().reverse().map(c => el('option', { value: String(c), selected: wfCohort === c }, 'Cohort: ' + c)));
     const drillRows = (title, rs, summary) => rs.length ? () => openReportingDrillModal({ chartTitle: 'Cohort waterfall · ' + title, sliceLabel: rs.length.toLocaleString() + ' subscription' + (rs.length === 1 ? '' : 's'), rows: rs, formatValue: fmt.usd0, summary: summary ? summary() : null }) : undefined;
     return el('div', { class: 'flex flex-col gap-4' }, el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
         el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Cohort Waterfall' + (office !== 'all' ? ' · ' + office : '')),
-          el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, wfDim === 'year' ? 'Click a cohort\u2019s size for its accounts and what was excluded from it; click the Total for every year.' : 'Each row is one ' + SEM_DIMENSIONS[wfDim].label.toLowerCase() + '. Under the size: the share that has ever cancelled. Each year: active at year-end, and the share of that January\u2019s book that left. Click any number for the accounts.')),
-        el('div', { class: 'flex items-center gap-2 flex-wrap' }, rowsSel, el('div', { class: 'inline-flex', style: { border: '1px solid var(--border-2)' } },
+          el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, wfDim === 'year' ? 'Click a cohort\u2019s size for its accounts and what was excluded from it; click the Total for every year.' : (wfCohort != null ? 'Each row is one ' + SEM_DIMENSIONS[wfDim].label.toLowerCase() + ' within the ' + wfCohort + ' cohort (first serviced in ' + wfCohort + '). Under the size: growth against the ' + (wfCohort - 1) + ' cohort. Each year: still active, and the share lost that year. Click any number for the accounts.' : 'Each row is one ' + SEM_DIMENSIONS[wfDim].label.toLowerCase() + '. Under the size: the share that has ever cancelled. Each year: active at year-end, and the share of that January\u2019s book that left. Click any number for the accounts.'))),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' }, rowsSel, cohortSel, el('div', { class: 'inline-flex', style: { border: '1px solid var(--border-2)' } },
           ...[[false, 'Subs'], [true, 'ARR']].map(([v, l]) => el('button', {
             class: 'px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
             style: !!state._rtWaterfallArr === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card)', color: 'var(--text-muted)' },
@@ -940,7 +964,7 @@ function reportingWaterfall() {
           }, l)))),
         null),
       el('div', { style: { overflow: 'auto', maxHeight: '70vh' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-        el('thead', {}, el('tr', {}, th(wfDim === 'year' ? 'Year' : SEM_DIMENSIONS[wfDim].label, { left: true, corner: true }), th((isArr ? 'ARR' : 'Subs') + (wfDim === 'year' ? ' \u00b7 YoY' : ' \u00b7 Attrition')), ...years.map(y => th(String(y))))),
+        el('thead', {}, el('tr', {}, th(wfDim === 'year' ? 'Year' : SEM_DIMENSIONS[wfDim].label, { left: true, corner: true }), th((isArr ? 'ARR' : 'Subs') + (wfDim === 'year' || wfCohort != null ? ' \u00b7 YoY' : ' \u00b7 Attrition')), ...years.map(y => th(String(y))))),
         el('tbody', {},
           ...(wfDim !== 'year' ? dimRows() : []),
           ...(wfDim !== 'year' ? [] : cohorts).map(c => { const all = byCohort.get(c) || []; return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
@@ -967,9 +991,9 @@ function reportingWaterfall() {
               // Both reads in the cell (per Isaac): what's still active, and the % lost that year underneath.
               return td(el('div', { class: 'flex flex-col items-end leading-tight' }, el('span', {}, num(val(rs))), el('span', { class: 'text-[10px] font-semibold', style: { color: a == null ? 'var(--text-subtle)' : a > 0 ? '#B91C1C' : 'var(--text-subtle)' } }, a == null ? '\u2014' : '\u2212' + (a * 100).toFixed(1) + '%')), { title: num(val(lost)) + ' of ' + num(val(prevRs)) + ' lost in ' + (y >= thisYear ? y + ' to date' : y) + ' \u00b7 ' + num(val(rs)) + ' still active', onclick: lost.length ? drillRows(c + ' cohort \u00b7 cancelled in ' + y + ' (' + num(val(lost)) + ' of ' + num(val(prevRs)) + ')', lost) : undefined, bg: COHORT_AGE_BG[Math.min(y - c, COHORT_AGE_BG.length - 1)] }); })); }),
           el('tr', { class: 'border-t-2 font-black', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
-            td('Total', { left: true, sticky: true, bg: 'var(--card-2)' }), td(num(val(rows)), { bold: true, onclick: drillRows('all cohorts', rows, () => exclTable(null)) }),
-            ...years.map(y => td(num(colTotal(y)), { bold: true }))),
-          el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+            td(wfCohort != null ? wfCohort + ' cohort' : 'Total', { left: true, sticky: true, bg: 'var(--card-2)' }), wfCohort != null ? td(num(val(wfBase)), { bold: true, onclick: drillRows(wfCohort + ' cohort', wfBase, () => exclTable(wfCohort)) }) : td(num(val(rows)), { bold: true, onclick: drillRows('all cohorts', rows, () => exclTable(null)) }),
+            ...years.map(y => wfCohort != null ? td(y < wfCohort ? '' : num(val(cell(wfCohort, y))), { bold: true }) : td(num(colTotal(y)), { bold: true }))),
+          wfCohort != null ? null : el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
             td('Blended attrition', { left: true, sticky: true, muted: true }), td('', {}),
             ...years.map(y => { const a = blended(y); return td(a == null ? '—' : (a * 100).toFixed(1) + '%', { bold: true, muted: a == null, onclick: a == null ? undefined : () => openAttritionDrill(scoped, y) }); })))))));
   };
