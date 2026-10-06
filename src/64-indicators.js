@@ -853,8 +853,37 @@ function viewIndicators() {
                   style: state.indicatorsRangePreset === id ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)', background: 'var(--card)' },
                   title: (INDICATOR_RANGE_PRESETS.find(x => x.id === id) || {}).label || lbl,
                   onclick: () => { if (state.indicatorsRangePreset === id) return; state.indicatorsRangePreset = id; state.indicatorsCustomStart = ''; state.indicatorsCustomEnd = ''; if (typeof trackAction === 'function') trackAction('quick_range', 'indicators', { range: id }); mountApp(); },
-                }, lbl))),
-              indPresetRibbon(),
+                }, lbl)),
+                // Every other range (per Isaac, Oct 6): the date lives ONLY here now —
+                // it is out of the Filters panel. The fifth segment opens the rest
+                // (Yesterday, last week / month, a past year, Custom) and wears the
+                // name of the range when one of those is picked.
+                (() => {
+                  const QUICK = ['today', 'this_week', 'this_month', 'this_year'];
+                  const cur = state.indicatorsRangePreset;
+                  const other = isRange && !QUICK.includes(cur);
+                  const opts = indicatorPresetOptions().filter(o => !QUICK.includes(o.id));
+                  const sel = el('select', {
+                    'aria-label': 'More date ranges',
+                    style: { position: 'absolute', inset: '0', width: '100%', height: '100%', opacity: '0', cursor: 'pointer' },
+                    onchange: (e) => {
+                      const v = e.target.value; if (!v || v === cur) return;
+                      state.indicatorsRangePreset = v;
+                      if (v === 'custom') { const wk = indicatorRangeBounds('this_week'); state.indicatorsCustomStart = wk.start; state.indicatorsCustomEnd = wk.end; }
+                      else { state.indicatorsCustomStart = ''; state.indicatorsCustomEnd = ''; }
+                      if (typeof trackAction === 'function') trackAction('quick_range', 'indicators', { range: v });
+                      mountApp();
+                    },
+                  },
+                    el('option', { value: '', selected: !other, disabled: true }, 'More ranges\u2026'),
+                    ...opts.map(o => el('option', { value: o.id, selected: other && o.id === cur }, o.label)));
+                  return el('span', {
+                    class: 'px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap', 'data-range-more': '1',
+                    title: 'More date ranges',
+                    style: Object.assign({ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '3px', borderLeft: '1px solid var(--border-2)' },
+                      other ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)', background: 'var(--card)' }),
+                  }, other ? String(indicatorPresetLabel(cur) || '').replace(/\u2026$/, '') : 'More', el('span', { style: { fontSize: '8px', opacity: '.8' } }, '\u25BE'), sel);
+                })()),
               el('div', { class: 'flex items-center justify-end gap-2 flex-wrap ml-auto' },
         // (🔧 edit mode moved to the GLOBAL top bar — it now drives section
         // layout on every tab plus the row editing here.)
@@ -882,6 +911,9 @@ function viewIndicators() {
             team: state._indicatorRepTeamFilter || '',
             tier: state._indicatorRepTierFilter || '',
           };
+          // Honest badge (per Isaac, Oct 6): on a Sales dashboard the rep type is the page, not a filter, and the date has its own buttons — neither counts.
+          const _fWorld = (typeof IND_WORLD !== 'undefined') && !!IND_WORLD[state.view];
+          const _fDeptDefault = 'd2d';
           let _applyBtn = null;
           const _markDirty = () => {
             if (!_applyBtn) return;
@@ -973,7 +1005,7 @@ function viewIndicators() {
             ..._tiers.filter(p => p.id === 'rookie' || p.id === 'vet').map(p => el('option', { value: p.id, selected: _staged.tier === p.id }, p.id === 'rookie' ? 'Rookies' : 'Vets'))) : null;
           const panel = el('div', {
             class: 'card',
-            style: { position: 'absolute', right: '0', top: 'calc(100% + 6px)', zIndex: '60', minWidth: '250px', padding: '12px', boxShadow: 'var(--shadow-lg)', display: state._indFiltersOpen ? 'block' : 'none' },
+            style: { position: 'absolute', right: '0', top: 'calc(100% + 6px)', zIndex: '60', minWidth: 'min(290px, calc(100vw - 32px))', maxHeight: '78vh', overflowY: 'auto', padding: '12px', boxShadow: 'var(--shadow-lg)', display: state._indFiltersOpen ? 'block' : 'none' },
           },
             el('div', { class: 'flex flex-col gap-3' },
               // Off-default filters get an orange outline so the badge count
@@ -981,10 +1013,13 @@ function viewIndicators() {
               ...(() => {
                 const hl = (node, on) => { if (node && on) { node.style.borderColor = 'var(--accent)'; node.style.boxShadow = '0 0 0 2px rgba(223,100,58,.25)'; } return node; };
                 return [
+                  _fRow('Saved views', indPresetRibbon({ inline: true })),
                   _metricLocked ? null : _fRow('Metric', hl(metricSel, (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced')),
                   _fRow('Exclude', hl(exclSel, !!indicatorExclKey())),
-                  _repLite ? null : _fRow('Type',   hl(typeSel,   (state.indicatorDept || 'all') !== 'all')),
-                  _fRow('Date',   hl(dateSel,   isRange && state.indicatorsRangePreset !== IND_DEFAULT_RANGE)),
+                  // Type is the Office Staff / D2D / Technicians switch on the Sales dashboards — only the stand-alone page still picks it here.
+                  (_repLite || _fWorld) ? null : _fRow('Type',   hl(typeSel,   (state.indicatorDept || 'all') !== _fDeptDefault)),
+                  // Date moved OUT to the bar (Today / Week / Month / Year / More). Only the legacy weekly view keeps a picker here.
+                  isRange ? null : _fRow('Date', dateSel),
                   _fRow('Group',  hl(groupSel,  groupBy !== 'branch')),
                   _repLite ? null : _fRow('Office', hl(officeSel, !!state._indicatorRepOfficeFilter)),
                   (_repLite || !indWorldHasTeams()) ? null : _fRow('Team',   hl(teamSel,   !!state._indicatorRepTeamFilter)),
@@ -1025,8 +1060,7 @@ function viewIndicators() {
             (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced',
             !!indicatorExclKey(),
             !_repLite && !!state._indicatorRepOfficeFilter, !_repLite && !!state._indicatorRepTeamFilter, !_repLite && !!state._indicatorRepTierFilter,
-            !_repLite && (state.indicatorDept || 'all') !== 'all',
-            isRange && state.indicatorsRangePreset !== IND_DEFAULT_RANGE,
+            !_repLite && !_fWorld && (state.indicatorDept || 'all') !== _fDeptDefault,
             groupBy !== 'branch',
           ].filter(Boolean).length;
           const bindCloser = () => setTimeout(() => {
@@ -1041,7 +1075,7 @@ function viewIndicators() {
           const btn = el('button', {
             class: 'relative rounded-xl px-2.5 py-1 text-[11px] font-semibold border transition hover:brightness-95 shrink-0',
             style: { borderColor: nonDefault ? 'var(--accent)' : 'var(--border-2)', color: 'var(--text)' },
-            title: 'Filters — Metric, Exclude, Type, Date, Group',
+            title: 'Filters — saved views, Metric, Exclude, Group, Office, Team, Tier',
             onclick: (e) => {
               e.stopPropagation();
               const open = panel.style.display === 'block';
@@ -1268,6 +1302,35 @@ function viewIndicators() {
         })(),
         ), // close right-hand cluster
         ), // close toolbar row (Presets left · cluster right)
+        // What is applied, as removable chips (per Isaac, Oct 6) — only shows when
+        // something is on, so you can see what is narrowing the numbers and
+        // clear one filter without opening the panel.
+        (() => {
+          const _tc = (o) => String(o || '').split(' ').map(w => w[0] ? w[0].toUpperCase() + w.slice(1).toLowerCase() : '').join(' ');
+          const world = (typeof IND_WORLD !== 'undefined') && !!IND_WORLD[state.view];
+          const x = indicatorExcl();
+          const chips = [];
+          const add = (label, clear) => chips.push([label, clear]);
+          if ((state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced') add('Total Revenue', () => { state.indicatorAcctStatus = 'pending_serviced'; });
+          if (x.oneTime) add('No one-time services', () => { state.indicatorExcl = { ...indicatorExcl(), oneTime: false }; });
+          if (x.ror) add('No 3-day RORs', () => { state.indicatorExcl = { ...indicatorExcl(), ror: false }; });
+          if (x.renewal) add('No renewals', () => { state.indicatorExcl = { ...indicatorExcl(), renewal: false }; });
+          if (!_repLite && !world && (state.indicatorDept || 'all') !== 'd2d') add(({ all: 'All rep types', office: 'Office Staff', techs: 'Technicians' })[state.indicatorDept || 'all'] || 'Type', () => { state.indicatorDept = 'd2d'; });
+          if (groupBy !== 'branch') add('Grouped by ' + (groupBy === 'teams' ? 'team' : groupBy), () => { state.indicatorsGroupBy = 'branch'; });
+          if (!_repLite && state._indicatorRepOfficeFilter) add(_tc(state._indicatorRepOfficeFilter), () => { state._indicatorRepOfficeFilter = ''; });
+          if (!_repLite && state._indicatorRepTeamFilter) add(state._indicatorRepTeamFilter === '__unassigned__' ? 'No team' : state._indicatorRepTeamFilter, () => { state._indicatorRepTeamFilter = ''; });
+          if (!_repLite && state._indicatorRepTierFilter) add(state._indicatorRepTierFilter === 'rookie' ? 'Rookies' : state._indicatorRepTierFilter === 'vet' ? 'Vets' : state._indicatorRepTierFilter, () => { state._indicatorRepTierFilter = ''; });
+          if (!chips.length) return null;
+          const chip = (label, clear, quiet) => el('button', {
+            class: 'inline-flex items-center gap-1 rounded-lg border px-2 py-0.5 text-[11px] font-semibold cursor-pointer transition hover:brightness-95 whitespace-nowrap',
+            style: quiet ? { borderColor: 'var(--border-2)', color: 'var(--text-muted)', background: 'transparent' } : { borderColor: 'var(--accent)', color: 'var(--text)', background: 'rgba(223,100,58,.08)' },
+            title: quiet ? 'Clear every filter' : 'Remove this filter',
+            onclick: () => { clear(); mountApp(); },
+          }, label, quiet ? null : el('span', { style: { color: 'var(--accent)', fontWeight: '800' } }, '\u00d7'));
+          return el('div', { class: 'flex items-center gap-1.5 flex-wrap', 'data-filter-chips': '1' },
+            ...chips.map(([l, c]) => chip(l, c)),
+            chips.length > 1 ? chip('Clear all', () => chips.forEach(([, c]) => c()), true) : null);
+        })(),
         // Custom date pickers — own row inside the sticky filter bar's
         // flex-col, only visible when Custom is selected.
         isRange && state.indicatorsRangePreset === 'custom' && el('div', { class: 'flex items-center gap-1 justify-end flex-wrap' },

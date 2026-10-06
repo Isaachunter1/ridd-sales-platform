@@ -1389,7 +1389,7 @@ function _indPresetsSave(list) {
   try { localStorage.setItem(_indPresetsKey(), JSON.stringify(list)); } catch { /* private mode */ }
   if (typeof pushUserPrefsSoon === 'function') pushUserPrefsSoon();
 }
-function indPresetRibbon() {
+function indPresetRibbon(opts) {
   const presets = _indPresetsLoad();
   const _snapNow = () => {
     const s = {};
@@ -1525,6 +1525,13 @@ function indPresetRibbon() {
   // Keep the panel on screen wherever the Presets button sits (it is
   // right-justified on the Sales dashboards): nudge it back inside the
   // viewport once it has a real position.
+  // Inline (per Isaac, Oct 6): the saved views live INSIDE the Filters panel
+  // now — no separate Presets button — so hand back the list itself.
+  if (opts && opts.inline) {
+    panel.classList.remove('card');
+    Object.assign(panel.style, { position: 'static', display: 'block', width: '100%', minWidth: '0', maxHeight: '190px', boxShadow: 'none', padding: '0', border: '0', background: 'transparent', transform: '' });
+    return panel;
+  }
   if (open) requestAnimationFrame(() => _clampPanel());
   return el('div', { style: { position: 'relative' } }, tab, panel);
 }
