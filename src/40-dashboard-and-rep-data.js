@@ -5619,241 +5619,99 @@ function dashboardGoalCard(range, opts) {
               })));
     }
 
-    return el('div', { class: 'card p-5 rev-goal-card' },
-      goalHeader,
-      el('div', { class: 'flex flex-col gap-4' },
-
-        // ── Total Revenue: distribution bar ──
-        el('div', {},
-          el('div', { class: 'flex items-center justify-between mb-1' },
-            el('div', { class: 'flex items-center gap-2' },
-              el('span', { class: 'text-sm font-semibold' }, 'Total Revenue'),
-              el('span', { class: 'text-[11px] text-muted-' }, '· ' + daysLeft + ' days left'),
-            ),
-            el('span', { class: 'text-sm font-bold tabular-nums' }, fmt.usd0(totalActual)),
-          ),
-          // Stacked bar
-          el('div', { class: 'goal-track flex overflow-hidden', style: { position: 'relative' } },
-            el('div', {
-              style: { background: '#DF643A', height: '100%', width: newPctOfTotal.toFixed(1) + '%', transition: 'width .3s', borderRadius: '0' },
-              title: 'New: ' + fmt.usd0(ytdDept.new) + ' (' + newPctOfTotal.toFixed(1) + '%)',
-            }),
-            el('div', {
-              style: { background: '#5F6C5B', height: '100%', width: renewalPctOfTotal.toFixed(1) + '%', transition: 'width .3s', borderRadius: '0' },
-              title: 'Renewal: ' + fmt.usd0(ytdDept.renewal) + ' (' + renewalPctOfTotal.toFixed(1) + '%)',
-            }),
-          ),
-          // Legend
-          el('div', { class: 'flex items-center gap-4 mt-1.5' },
-            el('div', { class: 'flex items-center gap-1.5' },
-              el('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: '#DF643A' } }),
-              el('span', { class: 'text-[11px]' }, 'New'),
-              el('span', { class: 'text-[11px] font-semibold tabular-nums' }, fmt.usd0(ytdDept.new)),
-              el('span', { class: 'text-[10px] text-muted-' }, '(' + newPctOfTotal.toFixed(0) + '%)'),
-            ),
-            el('div', { class: 'flex items-center gap-1.5' },
-              el('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: '#5F6C5B' } }),
-              el('span', { class: 'text-[11px]' }, 'Renewal'),
-              el('span', { class: 'text-[11px] font-semibold tabular-nums' }, fmt.usd0(ytdDept.renewal)),
-              el('span', { class: 'text-[10px] text-muted-' }, '(' + renewalPctOfTotal.toFixed(0) + '%)'),
-            ),
-          ),
-        ),
-
-        // Slight divider so "what's earned" (Total Revenue distribution
-        // above) reads separately from "tracking toward target" (the
-        // New / Renewal progress bars below).
-        el('div', { style: { height: '1px', background: 'var(--border)', margin: '2px 0' } }),
-
-        // ── New Revenue + Renewal Revenue: progress bars toward target ──
-        ...progressBars.map(bar => {
-          const pct = bar.target > 0 ? Math.min(1, bar.actual / bar.target) : 0;
-          const _monthly = bar.label.startsWith('New') ? g.monthly_new : g.monthly_renewal;
-          const _bucket = bar.label.startsWith('New') ? 'new' : 'renewal';
-          // Pace vs the SEASONAL plan (not even time) — see _shapeOf above.
-          const seasonalPctBar = _seasonalPctAt(_shapeOf(_monthly), now2);
-          const barMarkerPct = Math.min(100, seasonalPctBar * 100);
-          const paceDiff = bar.target > 0 ? (((bar.actual / bar.target) - seasonalPctBar) / (seasonalPctBar || 0.01) * 100) : 0;
-          const paceAhead = paceDiff >= 0;
-          // Catch-up (per Isaac): $/selling-day for the rest of the MONTH to
-          // land this month's allocation, and for the rest of the YEAR to
-          // land the annual goal. Projection: this month's run-rate carried
-          // to month end, and YTD ÷ seasonal share carried to year end.
-          const _mi2 = now2.getMonth(), _y2 = now2.getFullYear();
-          const monTarget = _monthTargetOf(_monthly, bar.target, _mi2);
-          const mtdActual = _mtd[_bucket];
-          const daysDoneM = _sellingDaysBetween(new Date(_y2, _mi2, 1), now2);
-          const daysTotM = _sellingDaysInMonth(_y2, _mi2) || 1;
-          const _tom = new Date(_y2, _mi2, now2.getDate() + 1);
-          const daysLeftM = _sellingDaysBetween(_tom, new Date(_y2, _mi2, _dimOf(_y2, _mi2)));
-          const daysLeftY = _sellingDaysBetween(_tom, new Date(_y2, 11, 31));
-          const needMonth = monTarget > 0 && daysLeftM > 0 ? Math.max(0, (monTarget - mtdActual) / daysLeftM) : null;
-          const needYear = bar.target > 0 && daysLeftY > 0 ? Math.max(0, (bar.target - bar.actual) / daysLeftY) : null;
-          const projMonth = daysDoneM > 0 ? mtdActual / daysDoneM * daysTotM : null;
-          const projYear = seasonalPctBar > 0.02 ? bar.actual / seasonalPctBar : null;
-          const monName = now2.toLocaleDateString('en-US', { month: 'short' });
-          const _hit = (v, t) => v != null && t > 0 && v >= t;
-          // Phones (per Isaac): the four outlook lines are too wordy — the
-          // bar, the %, the pace chip and the day goal carry the story there.
-          const outlook = el('div', { class: 'hidden sm:flex items-center gap-x-3 gap-y-1 flex-wrap mt-1 text-[10px] tabular-nums', style: { color: 'var(--text-muted)' } },
-            needMonth != null ? el('span', { title: fmt.usd0(Math.max(0, monTarget - mtdActual)) + ' left on ' + monName + ' (' + fmt.usd0(monTarget) + ' allocation, ' + fmt.usd0(mtdActual) + ' sold) ÷ ' + daysLeftM + ' selling days left this month' },
-              needMonth > 0 ? el('span', {}, 'Need ', el('b', { style: { color: bar.color } }, fmt.usd0(needMonth) + '/day'), ' rest of ' + monName) : el('span', {}, '✓ ' + monName + ' allocation hit')) : null,
-            needYear != null ? el('span', { title: fmt.usd0(Math.max(0, bar.target - bar.actual)) + ' left on the annual goal ÷ ' + daysLeftY + ' selling days left this year' },
-              needYear > 0 ? el('span', {}, 'Need ', el('b', { style: { color: bar.color } }, fmt.usd0(needYear) + '/day'), ' rest of year') : el('span', {}, '✓ annual goal hit')) : null,
-            projMonth != null && monTarget > 0 ? el('span', { title: 'This month’s run-rate (' + fmt.usd0(mtdActual) + ' over ' + daysDoneM + ' of ' + daysTotM + ' selling days) carried to month end' },
-              'Projected ' + monName + ' ', el('b', { style: { color: _hit(projMonth, monTarget) ? '#5F6C5B' : '#DC2626' } }, fmt.usd0(projMonth)), ' of ' + fmt.usd0(monTarget)) : null,
-            projYear != null && bar.target > 0 ? el('span', { title: 'YTD ÷ the seasonal share of the year that should be sold by today (' + (seasonalPctBar * 100).toFixed(1) + '%)' },
-              'Projected year ', el('b', { style: { color: _hit(projYear, bar.target) ? '#5F6C5B' : '#DC2626' } }, fmt.usd0(projYear)), ' of ' + fmt.usd0(bar.target)) : null,
-          );
-          let needLine = null, needLineMob = null;
-          if (Array.isArray(_monthly) && _monthly.length === 12 && bar.target > 0) {
-            const _mi = now2.getMonth();
-            const _dim = new Date(now2.getFullYear(), _mi + 1, 0).getDate();
-            // Weekday goal (per Isaac): THIS month's seasonal target ÷ ALL
-            // of its weekdays (company holidays off) — a fixed daily
-            // number for the whole month. Weekends are bonus revenue on
-            // top; no year-deficit catch-up baked in.
-            let _weekdaysInMonth = 0;
-            for (let _d = 1; _d <= _dim; _d++) {
-              const _dt = new Date(now2.getFullYear(), _mi, _d);
-              const _dow = _dt.getDay();
-              if (_dow === 0 || _dow === 6) continue;
-              const _iso2 = _dt.getFullYear() + '-' + String(_mi + 1).padStart(2, '0') + '-' + String(_d).padStart(2, '0');
-              if (typeof companyHolidayFor === 'function' && companyHolidayFor(_iso2)) continue;
-              _weekdaysInMonth++;
-            }
-            const _monTarget = Number(_monthly[_mi]) || 0;
-            const _monLabel = now2.toLocaleDateString('en-US', { month: 'long' });
-            if (_monTarget > 0 && _weekdaysInMonth > 0) {
-              const _dayGoal = _monTarget / _weekdaysInMonth;
-              const _wgTitle = _monLabel + ' target ' + fmt.usd0(_monTarget) + ' ÷ ' + _weekdaysInMonth + ' weekdays (holidays off) · weekends are bonus';
-              // Rides inline to the right of the goal amount (per Isaac).
-              needLine = el('span', { class: 'text-xs tabular-nums font-semibold whitespace-nowrap hidden sm:inline', style: { color: 'var(--text-muted)' }, title: _wgTitle },
-                '· weekday goal ', el('span', { style: { color: bar.color, fontWeight: '700' } }, fmt.usd0(_dayGoal) + '/day'));
-              needLineMob = el('span', { class: 'text-[10px] tabular-nums font-semibold', style: { color: 'var(--text-muted)' }, title: _wgTitle },
-                fmt.usd0(_dayGoal) + '/day goal');
-            }
-          }
-          return el('div', {},
-            // ONE line on every screen size (label + % left, money + pace
-            // chip right; the chip drops before the money wraps).
-            el('div', { class: 'flex items-center justify-between mb-1 gap-2', style: { flexWrap: 'nowrap', minWidth: 0 } },
-              el('div', { class: 'flex items-center gap-1.5 shrink-0' },
-                el('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: bar.color } }),
-                el('span', { class: 'text-sm font-semibold whitespace-nowrap' }, bar.label),
-                el('span', { class: 'text-sm font-bold whitespace-nowrap hidden sm:inline', style: { color: bar.color } }, fmt.pct(pct)),
-                // Goal rides next to the % (per Isaac)
-                el('span', { class: 'text-xs tabular-nums font-bold whitespace-nowrap hidden sm:inline', style: { color: 'var(--text-muted)' } }, 'of ' + fmt.usd0(bar.target)),
-                needLine,
-              ),
-              el('div', { class: 'flex items-center gap-2 min-w-0 justify-end' },
-                el('span', { class: 'text-xs tabular-nums whitespace-nowrap font-semibold' }, fmt.usd0(bar.actual)),
-                el('span', {
-                  class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap hidden sm:inline',
-                  style: {
-                    background: paceAhead ? 'rgba(223,100,58,.12)' : 'rgba(220,38,38,.08)',
-                    color: paceAhead ? '#DF643A' : '#DC2626',
-                  },
-                }, (paceAhead ? '+' : '') + paceDiff.toFixed(1) + '%'),
-              ),
-            ),
-            // Mobile: % + goal + pace chip on their own tiny line under the
-            // label row instead of forcing a mid-row wrap.
-            el('div', { class: 'flex items-center gap-2 mb-1 sm:hidden' },
-              el('span', { class: 'text-xs font-bold', style: { color: bar.color } }, fmt.pct(pct)),
-              el('span', { class: 'text-[11px] tabular-nums font-bold', style: { color: 'var(--text-muted)' } }, 'of ' + fmt.usd0(bar.target)),
-              el('span', {
-                class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full',
-                style: {
-                  background: paceAhead ? 'rgba(223,100,58,.12)' : 'rgba(220,38,38,.08)',
-                  color: paceAhead ? '#DF643A' : '#DC2626',
-                },
-              }, (paceAhead ? '+' : '') + paceDiff.toFixed(1) + '% vs year pace'),
-              needLineMob,
-            ),
-            el('div', { class: 'goal-track', style: { position: 'relative' } },
-              el('div', { style: { background: bar.color, height: '100%', borderRadius: '0', transition: 'width .3s', width: (pct * 100).toFixed(2) + '%' } }),
-              el('div', {
-                style: {
-                  position: 'absolute', top: '-3px', bottom: '-3px',
-                  left: barMarkerPct.toFixed(1) + '%',
-                  width: '2px', background: '#DC2626', borderRadius: '0',
-                },
-                title: 'Seasonal pace — ' + (seasonalPctBar * 100).toFixed(1) + '% of the year’s goal should be sold by today (Goals tab monthly allocation)',
-              }),
-            ),
-            el('div', { class: 'goal-ticks mt-1' },
-              ...goalTicks(bar.target).map(t => el('span', {}, t)),
-            ),
-            outlook,
-          );
-        }),
-
-        // ── Period strip (per Isaac): follows the date filter at the top.
-        // Open windows (Today / This week / This month / Quarter / Year /
-        // a custom range ending today or later) pace against the goal for
-        // that window and say what's needed per selling day to close it.
-        // Closed windows (Yesterday / Last week / Last month / Last year /
-        // a past custom range) are a result — hit, or missed by $X — with
-        // no pace judgement.
-        (() => {
-          const kind = state.dashDateRange || 'today';
-          const rs = range.start, re = range.end;
-          const today0 = new Date(now2.getFullYear(), now2.getMonth(), now2.getDate());
-          const natEnd = kind === 'today' ? today0
-            : kind === 'week' ? (() => { const d = new Date(today0); d.setDate(d.getDate() + (6 - d.getDay())); return d; })()
-            : kind === 'month' ? new Date(now2.getFullYear(), now2.getMonth() + 1, 0)
-            : kind === 'quarter' ? new Date(now2.getFullYear(), Math.floor(now2.getMonth() / 3) * 3 + 3, 0)
-            : kind === 'year' ? new Date(now2.getFullYear(), 11, 31)
-            : new Date(re.getFullYear(), re.getMonth(), re.getDate());
-          const open = natEnd >= today0 && re >= today0;
-          const label = ({ today: 'Today', yesterday: 'Yesterday', week: 'This week', last_week: 'Last week', month: 'This month', last_month: 'Last month', quarter: 'This quarter', year: 'This year', last_year: 'Last year' })[kind]
-            || (rs.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' – ' + re.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-          const winEnd = open ? natEnd : re;
-          const rowsP = [
-            { label: 'New', color: '#DF643A', actual: newRevenue, monthly: g.monthly_new, annual: newTarget },
-            { label: 'Renewal', color: '#5F6C5B', actual: renewalRevenue, monthly: g.monthly_renewal, annual: renewalTarget },
-          ].map(r => {
-            const goalWin = _goalBetween(r.monthly, r.annual, rs, winEnd);            // whole window (through its natural end)
-            const goalSoFar = open ? _goalBetween(r.monthly, r.annual, rs, today0) : goalWin;   // what should be in by today
-            const tom = new Date(today0); tom.setDate(tom.getDate() + 1);
-            const left = open ? _sellingDaysBetween(tom, winEnd) : 0;
-            const need = open && left > 0 ? Math.max(0, (goalWin - r.actual) / left) : null;
-            return { ...r, goalWin, goalSoFar, left, need };
-          });
-          if (!rowsP.some(r => r.goalWin > 0)) return null;
-          const line = (r) => {
-            const pctW = r.goalWin > 0 ? Math.min(1, r.actual / r.goalWin) : 0;
-            const soFarPct = r.goalWin > 0 ? Math.min(100, r.goalSoFar / r.goalWin * 100) : 0;
-            const diff = r.actual - r.goalWin;
-            const verdict = !open
-              ? el('span', { class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap', style: diff >= 0 ? { background: 'rgba(95,108,91,.10)', color: '#5F6C5B' } : { background: 'rgba(220,38,38,.08)', color: '#DC2626' } }, diff >= 0 ? '✓ hit · +' + fmt.usd0(diff) : 'missed by ' + fmt.usd0(-diff))
-              : kind === 'today'
-                ? el('span', { class: 'text-[10px] font-semibold whitespace-nowrap', style: { color: r.actual >= r.goalWin ? '#5F6C5B' : 'var(--text-muted)' } }, r.actual >= r.goalWin ? '✓ day goal hit' : fmt.usd0(Math.max(0, r.goalWin - r.actual)) + ' to go today')
-                : r.need != null
-                  ? el('span', { class: 'text-[10px] font-semibold whitespace-nowrap', style: { color: r.need > 0 ? 'var(--text-muted)' : '#5F6C5B' }, title: fmt.usd0(Math.max(0, r.goalWin - r.actual)) + ' left ÷ ' + r.left + ' selling days left in the window' }, r.need > 0 ? 'need ' + fmt.usd0(r.need) + '/day · ' + r.left + ' days left' : '✓ window goal hit')
-                  : el('span', { class: 'text-[10px] font-semibold whitespace-nowrap', style: { color: r.actual >= r.goalWin ? '#5F6C5B' : '#DC2626' } }, r.actual >= r.goalWin ? '✓ hit' : fmt.usd0(r.goalWin - r.actual) + ' short, no selling days left');
-            return el('div', { class: 'min-w-0' },
-              el('div', { class: 'flex items-center justify-between gap-2 mb-1 min-w-0' },
-                el('div', { class: 'flex items-center gap-1.5 min-w-0' },
-                  el('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: r.color, flexShrink: 0 } }),
-                  el('span', { class: 'text-xs font-semibold whitespace-nowrap' }, r.label),
-                  el('span', { class: 'text-xs tabular-nums font-bold whitespace-nowrap' }, fmt.usd0(r.actual)),
-                  el('span', { class: 'text-[10px] tabular-nums text-muted- whitespace-nowrap' }, 'of ' + fmt.usd0(r.goalWin))),
-                verdict),
-              el('div', { class: 'goal-track', style: { position: 'relative', height: '6px' } },
-                el('div', { style: { background: r.color, height: '100%', width: (pctW * 100).toFixed(1) + '%', transition: 'width .3s' } }),
-                open && kind !== 'today' && r.goalWin > 0 ? el('div', { title: 'Where today sits in the window — ' + fmt.usd0(r.goalSoFar) + ' should be in by now', style: { position: 'absolute', top: '-2px', bottom: '-2px', left: soFarPct.toFixed(1) + '%', width: '2px', background: 'var(--text)', opacity: '.6' } }) : null));
-          };
-          return el('div', {},
-            el('div', { style: { height: '1px', background: 'var(--border)', margin: '2px 0 10px' } }),
-            el('div', { class: 'flex items-center justify-between mb-2' },
-              el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label + (open ? ' · pace' : ' · result')),
-              el('span', { class: 'text-[10px] text-muted-', title: 'Window goal = the Goals tab’s monthly allocation spread over that month’s selling days (Mon–Fri, holidays off), summed across the window. Weekends are bonus.' }, open ? 'goal through ' + winEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'follows the date filter')),
-            el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3' }, ...rowsP.map(line)));
-        })(),
-      ),
-    );
+    // ── Department pacer, simplified (per Isaac, Oct 6). One block per
+    // stream that answers three things and nothing else: are we on pace,
+    // what do we need per day, how is today going. Dropped from view: the
+    // Total stacked bar + legend, the axis ticks, the weekday-goal caption
+    // and the four-sentence outlook line. The month figures (need per day
+    // for the rest of the month, projected month) moved into the hover
+    // text; the separate Today section folded into each block.
+    const _shortUsd = (v) => { v = Number(v) || 0; return v >= 1e6 ? '$' + (v / 1e6).toFixed(v % 1e5 === 0 ? 1 : 2) + 'M' : v >= 1e5 ? '$' + Math.round(v / 1e3) + 'K' : fmt.usd0(v); };
+    const _kUsd = (v) => { v = Number(v) || 0; return v >= 1e6 ? _shortUsd(v) : v >= 1000 ? '$' + (v / 1000).toFixed(1) + 'K' : fmt.usd0(v); };   // phone: fits three stats across
+    const _phoneP = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })();
+    const _wideP = (() => { try { return window.matchMedia('(min-width: 1024px)').matches; } catch (e) { return true; } })();   // New and Renewal side by side when there is room
+    const _y3 = now2.getFullYear(), _m3 = now2.getMonth();
+    const _today0 = new Date(_y3, _m3, now2.getDate());
+    const _tom3 = new Date(_y3, _m3, now2.getDate() + 1);
+    const _monName = now2.toLocaleDateString('en-US', { month: 'short' });
+    // The window stat follows the date filter (Today unless another range is picked).
+    const _kind = state.dashDateRange || 'today';
+    const _natEnd = _kind === 'today' ? _today0
+      : _kind === 'week' ? (() => { const d = new Date(_today0); d.setDate(d.getDate() + (6 - d.getDay())); return d; })()
+      : _kind === 'month' ? new Date(_y3, _m3 + 1, 0)
+      : _kind === 'quarter' ? new Date(_y3, Math.floor(_m3 / 3) * 3 + 3, 0)
+      : _kind === 'year' ? new Date(_y3, 11, 31)
+      : new Date(range.end.getFullYear(), range.end.getMonth(), range.end.getDate());
+    const _winOpen = _natEnd >= _today0 && range.end >= _today0;
+    const _winEnd = _winOpen ? _natEnd : range.end;
+    const _winLabel = ({ today: 'Today', yesterday: 'Yesterday', week: 'This week', last_week: 'Last week', month: 'This month', last_month: 'Last month', quarter: 'This quarter', year: 'This year', last_year: 'Last year' })[_kind]
+      || (range.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' – ' + range.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+    const _GREEN = '#5F6C5B', _RED = '#DC2626';
+    const _stat = (label, value, color, tip) => el('div', { class: 'min-w-0', title: tip || '' },
+      el('div', { class: 'uppercase font-semibold truncate', style: { fontSize: '9px', letterSpacing: '.1em', color: 'var(--text-subtle)' } }, label),
+      el('div', { class: 'font-bold tabular-nums truncate', style: { fontSize: _phoneP ? '13px' : '15px', lineHeight: '1.3', color: color || 'var(--text)' } }, value));
+    const _stream = (s) => {
+      const sp = _seasonalPctAt(_shapeOf(s.monthly), now2);                     // share of the year that should be sold by today
+      const pct = s.target > 0 ? Math.min(1, s.actual / s.target) : 0;
+      const paceDiff = s.target > 0 ? ((s.actual / s.target) - sp) / (sp || 0.01) * 100 : 0;
+      const gap = s.actual - s.target * sp;                                       // dollars ahead (+) or behind (−) the seasonal plan
+      const ahead = paceDiff >= 0;
+      const daysLeftY = _sellingDaysBetween(_tom3, new Date(_y3, 11, 31));
+      const needYear = s.target > 0 && daysLeftY > 0 ? Math.max(0, (s.target - s.actual) / daysLeftY) : null;
+      const projYear = sp > 0.02 ? s.actual / sp : null;
+      // Month figures — hover only.
+      const monTarget = _monthTargetOf(s.monthly, s.target, _m3);
+      const mtdActual = _mtd[s.key];
+      const daysDoneM = _sellingDaysBetween(new Date(_y3, _m3, 1), now2), daysTotM = _sellingDaysInMonth(_y3, _m3) || 1;
+      const daysLeftM = _sellingDaysBetween(_tom3, new Date(_y3, _m3, _dimOf(_y3, _m3)));
+      const needMonth = monTarget > 0 && daysLeftM > 0 ? Math.max(0, (monTarget - mtdActual) / daysLeftM) : null;
+      const projMonth = daysDoneM > 0 ? mtdActual / daysDoneM * daysTotM : null;
+      // Window (Today by default).
+      const goalWin = _goalBetween(s.monthly, s.target, range.start, _winEnd);
+      const winHit = goalWin > 0 && s.win >= goalWin;
+      const chip = s.target > 0 ? el('span', {
+        class: 'font-bold whitespace-nowrap shrink-0', title: (ahead ? fmt.usd0(gap) + ' ahead of' : fmt.usd0(-gap) + ' behind') + ' where the seasonal plan says we should be today (' + (sp * 100).toFixed(1) + '% of the goal)',
+        style: { fontSize: '11px', padding: '2px 8px', background: ahead ? 'rgba(95,108,91,.12)' : 'rgba(220,38,38,.08)', color: ahead ? _GREEN : _RED },
+      }, (ahead ? '▲ ' : '▼ ') + Math.abs(paceDiff).toFixed(0) + '%' + (_phoneP ? '' : (ahead ? ' ahead of pace' : ' behind pace'))) : null;
+      return el('div', { class: 'min-w-0' },
+        el('div', { class: 'flex items-center justify-between gap-2', style: { minWidth: 0, marginBottom: '6px' } },
+          el('div', { class: 'flex items-baseline gap-2 min-w-0' },
+            el('span', { style: { width: '8px', height: '8px', borderRadius: '50%', background: s.color, flexShrink: 0, alignSelf: 'center' } }),
+            el('span', { class: 'text-sm font-bold whitespace-nowrap' }, s.label + (_phoneP ? '' : ' Revenue')),
+            el('span', { class: 'font-black tabular-nums whitespace-nowrap', style: { fontSize: _phoneP ? '15px' : '18px', lineHeight: '1' } }, _phoneP ? _shortUsd(s.actual) : fmt.usd0(s.actual)),
+            s.target > 0 ? el('span', { class: 'text-[11px] tabular-nums whitespace-nowrap truncate', style: { color: 'var(--text-muted)' } }, 'of ' + _shortUsd(s.target) + ' · ' + Math.round(s.actual / s.target * 100) + '%') : null),
+          chip),
+        el('div', { class: 'goal-track', style: { position: 'relative' } },
+          el('div', { style: { background: s.color, height: '100%', borderRadius: '0', transition: 'width .3s', width: (pct * 100).toFixed(2) + '%' } }),
+          s.target > 0 ? el('div', { title: 'Seasonal pace — ' + fmt.usd0(s.target * sp) + ' should be sold by today', style: { position: 'absolute', top: '-3px', bottom: '-3px', left: Math.min(100, sp * 100).toFixed(1) + '%', width: '2px', background: 'var(--text)', opacity: '.65' } }) : null),
+        el('div', { class: 'grid', style: { gridTemplateColumns: _phoneP ? 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.35fr)' : 'repeat(3, minmax(0, 1fr))', gap: _phoneP ? '8px' : '12px', marginTop: '8px' } },
+          _stat('Need per day', needYear == null ? '—' : needYear > 0 ? fmt.usd0(needYear) : '✓ goal hit', needYear === 0 ? _GREEN : null,
+            needYear == null ? '' : fmt.usd0(Math.max(0, s.target - s.actual)) + ' left on the annual goal ÷ ' + daysLeftY + ' selling days left this year (Mon–Fri, holidays off).'
+              + (needMonth != null ? ' To land ' + _monName + ' alone: ' + (needMonth > 0 ? fmt.usd0(needMonth) + '/day over ' + daysLeftM + ' selling days.' : 'already hit.') : '')),
+          _stat('On track for', projYear == null ? '—' : _shortUsd(projYear), projYear == null || !(s.target > 0) ? null : projYear >= s.target ? _GREEN : _RED,
+            projYear == null ? 'Too early in the year to project' : 'Year-end at today’s pace against the seasonal plan: ' + fmt.usd0(projYear) + ' of ' + fmt.usd0(s.target) + '.'
+              + (projMonth != null && monTarget > 0 ? ' ' + _monName + ' is running at ' + fmt.usd0(projMonth) + ' of ' + fmt.usd0(monTarget) + '.' : '')),
+          _stat(_winLabel, (winHit ? '✓ ' : '') + (_phoneP ? _kUsd(s.win) : fmt.usd0(s.win)) + (goalWin > 0 ? (_phoneP ? '/' + _kUsd(goalWin) : ' / ' + _shortUsd(goalWin)) : ''), winHit ? _GREEN : (!_winOpen && goalWin > 0 ? _RED : null),
+            goalWin > 0 ? (winHit ? 'Goal for ' + _winLabel.toLowerCase() + ' hit — ' + fmt.usd0(s.win - goalWin) + ' over.' : fmt.usd0(goalWin - s.win) + (_winOpen ? ' to go' : ' short') + ' against ' + fmt.usd0(goalWin) + ' — the month’s allocation spread over its selling days.') : '')));
+    };
+    const _streams = [
+      { key: 'new', label: 'New', color: '#DF643A', actual: ytdDept.new, target: newTarget, monthly: g.monthly_new, win: newRevenue },
+      { key: 'renewal', label: 'Renewal', color: '#5F6C5B', actual: ytdDept.renewal, target: renewalTarget, monthly: g.monthly_renewal, win: renewalRevenue },
+    ];
+    return el('div', { class: 'card rev-goal-card', style: { padding: _phoneP ? '14px' : '18px 20px' } },
+      el('div', { class: 'flex items-center justify-between gap-2 mb-3' },
+        el('div', { class: 'flex items-baseline gap-2 flex-1 min-w-0 flex-wrap' },
+          el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Revenue Pacer'),
+          el('span', { class: 'text-[11px] tabular-nums', style: { color: 'var(--text-muted)' }, title: 'New ' + fmt.usd0(ytdDept.new) + ' (' + newPctOfTotal.toFixed(0) + '%) + Renewal ' + fmt.usd0(ytdDept.renewal) + ' (' + renewalPctOfTotal.toFixed(0) + '%)' },
+            (_phoneP ? _shortUsd(totalActual) : fmt.usd0(totalActual) + ' total') + ' · ' + daysLeft + ' days left')),
+        el('div', { class: 'inline-flex rounded-lg border overflow-hidden shrink-0 ml-auto', style: { borderColor: 'var(--border-2)' } },
+          ...[['dept', 'Department'], ['reps', 'Individual']].map(([v, l]) => el('button', {
+            class: 'px-2.5 py-1 text-[11px] font-semibold transition',
+            style: goalMode === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
+            title: v === 'reps' ? 'Each rep\'s YTD revenue vs their individual goal' : 'Department totals vs the company goal',
+            onclick: () => { state.dashGoalMode = v; mountApp(); },
+          }, l)))),
+      el('div', { class: 'grid', style: { gridTemplateColumns: _wideP ? 'repeat(2, minmax(0, 1fr))' : 'minmax(0, 1fr)', columnGap: '32px', rowGap: '18px' } }, ..._streams.map(_stream)));
 }
 
 // Loyalty rep? Role first (rep_loyalty / lead), else the FieldRoutes rep type / profile rep_type.
