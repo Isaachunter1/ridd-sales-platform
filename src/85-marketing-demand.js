@@ -77,10 +77,29 @@ function _mktgDemand() {
       chart.getDatasetMeta(0).data.forEach((bar, i) => ctx.fillText((provs[i].r * 100).toFixed(1) + '%', bar.x + 6, bar.y)); ctx.restore(); } };
     mk(idC, { type: 'bar', data: { labels: provs.map(p => p.k), datasets: [{ label: 'Conversion rate', data: provs.map(p => Math.round(p.r * 1000) / 10), backgroundColor: MKTG_DEMAND_C.leads, borderWidth: 0, borderRadius: 3, barThickness: 16 }] },
       options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, layout: { padding: { right: 44 } },
-        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => { const p = provs[c.dataIndex]; return ' ' + (p.r * 100).toFixed(1) + '% · ' + fmt.int(p.c) + ' of ' + fmt.int(p.n) + ' leads'; } } } },
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => { const p = provs[c.dataIndex]; const sp = QP ? (QP.byProv.get(p.k) || 0) : 0; const L1 = ' ' + (p.r * 100).toFixed(1) + '% · ' + fmt.int(p.c) + ' of ' + fmt.int(p.n) + ' leads'; return sp ? [L1, ' ' + fmt.usd0(sp) + ' spend · ' + fmt.usd0(sp / p.n) + ' per lead' + (p.c ? ' · ' + fmt.usd0(sp / p.c) + ' per sale' : '')] : L1; } } } },
         scales: { x: { beginAtZero: true, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => v + '%' } }, y: { grid: { display: false }, ticks: { color: txt, font: { size: 11 } } } } },
       plugins: [endLabels] });
   }, 50);
+  // Lead flow check (per Isaac, Oct 6): GoHighLevel is the source of truth for leads. The ad platforms' own lead counts
+  // are a second opinion: if a platform reports many more leads than GoHighLevel holds, leads are not flowing in.
+  if (typeof reportingLoadAdSpend === 'function') reportingLoadAdSpend(y);
+  const _B = _mktgBranchList(y);
+  const AP = (typeof adPlatformIndex === 'function') ? adPlatformIndex(y, _B.all) : null;
+  const flowCard = (() => {
+    if (!AP) return null;
+    const rowsF = [...AP.has].map(pv => { let plat = 0; for (let i = 0; i < 12; i++) plat += AP.cell([pv], null, i, 'leads') || 0; const g = (byP.get(pv) || { n: 0 }).n; return { pv, plat, g }; }).filter(r => r.plat > 0 || r.g > 0).sort((a, b) => b.plat - a.plat);
+    if (!rowsF.length) return null;
+    const th = (t, right) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
+    return card('Lead flow check · ' + y, 'GoHighLevel is where every lead should land. This compares it with what each ad platform says it delivered. A platform reporting far more than GoHighLevel holds means leads are being lost on the way in.',
+      el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+        el('thead', {}, el('tr', {}, th('Provider'), th('Platform says', true), th('In GoHighLevel', true), th('Difference', true), th('Captured', true))),
+        el('tbody', {}, ...rowsF.map(r => { const cap = r.plat > 0 ? r.g / r.plat : null; const low = cap != null && cap < 0.8;
+          return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+            el('td', { class: 'px-3 py-2 font-semibold' }, r.pv), el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(r.plat)), el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(r.g)),
+            el('td', { class: 'px-3 py-2 text-right tabular-nums' }, (r.g - r.plat > 0 ? '+' : r.g - r.plat < 0 ? '−' : '') + fmt.int(Math.abs(r.g - r.plat))),
+            el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold', style: low ? { color: '#DC2626' } : {} }, cap == null ? '—' : (cap * 100).toFixed(0) + '%' + (low ? ' ⚠' : ''))); })))));
+  })();
   const canvas = (id, h) => el('div', { class: 'p-3', style: { height: h + 'px' } }, el('canvas', { id }));
   const matchNote = crm ? '' : ' Sales are not loaded yet, so nothing shows as converted — run a sync.';
   return el('div', { class: 'flex flex-col gap-4' },
@@ -91,11 +110,8 @@ function _mktgDemand() {
       card('Weekly lead demand', 'Leads that came in each week, and how many of them have converted so far.', weeks.length ? canvas(idA, 300) : el('div', { class: 'p-6 text-xs', style: { color: 'var(--text-muted)' } }, 'No leads in ' + y + '.')),
       card('Weekly conversion rate', 'By the week the lead came in. The latest weeks read low until those leads have had time to close.', weeks.length ? canvas(idB, 300) : el('div', { class: 'p-6 text-xs', style: { color: 'var(--text-muted)' } }, 'No leads in ' + y + '.'))),
     card('Conversion rate by provider', 'Providers with at least ' + MIN + ' leads in ' + y + ', best first.', provs.length ? canvas(idC, Math.max(160, provs.length * 30 + 50)) : el('div', { class: 'p-6 text-xs', style: { color: 'var(--text-muted)' } }, 'No provider has ' + MIN + ' leads yet.')),
-    el('div', { class: 'card overflow-hidden' }, el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-      el('thead', {}, el('tr', {}, ...['Provider', 'Leads', 'Converted', 'Conversion rate', ...(QP ? ['Spend', 'Cost per lead', 'Cost per sale'] : [])].map((t, i) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold ' + (i ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t)))),
-      el('tbody', {}, ...[...byP.entries()].sort((a, b) => b[1].n - a[1].n).map(([k, p]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-        el('td', { class: 'px-3 py-2 font-semibold' }, k + (paid.has(k) ? '' : ' · not paid')), el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(p.n)), el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(p.c)), el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, pct1(p.n ? p.c / p.n : null)),
-        ...(QP ? (() => { const sp = QP.byProv.get(k) || 0; return [el('td', { class: 'px-3 py-2 text-right tabular-nums' }, sp ? fmt.usd0(sp) : ''), el('td', { class: 'px-3 py-2 text-right tabular-nums' }, sp && p.n ? fmt.usd0(sp / p.n) : ''), el('td', { class: 'px-3 py-2 text-right tabular-nums' }, sp && p.c ? fmt.usd0(sp / p.c) : '')]; })() : []))))))),
+    // (Provider list table removed per Isaac, Oct 6: the bars carry it; hover a bar for leads, converted, spend and cost.)
+    flowCard,
     _mktgPayeeCard(y, [...byP.keys()].filter(k => paid.has(k))));
 }
 
