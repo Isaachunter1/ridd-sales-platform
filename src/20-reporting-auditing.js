@@ -778,3 +778,64 @@ function feeCreditAuditCard() {
   })) : null;
   return el('div', { class: 'card overflow-hidden' }, head, list);
 }
+
+// ── Auditing tasks built from the subscription book (per Isaac, Oct 6) ───
+// Same shape as the service-fee and add-on checks: a coloured dot, what is wrong, how many, and a click through to
+// the accounts (with CSV export). Each task is a rule the app already knows, pointed at "what needs fixing in
+// FieldRoutes". Add a task by adding an entry to auditSubTasks().
+function auditTaskCard(t) {
+  const n = t.rows.length;
+  const open = n ? () => openReportingDrillModal({ chartTitle: 'Auditing · ' + t.title, sliceLabel: n.toLocaleString() + ' ' + (n === 1 ? t.noun : t.noun + 's'), rows: t.rows, formatValue: fmt.usd0 }) : null;
+  return el('div', { class: 'card overflow-hidden' },
+    el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', style: { cursor: open ? 'pointer' : 'default' }, title: open ? 'Click for the accounts' : '', onclick: () => { if (open) open(); } },
+      el('span', { class: 'inline-block rounded-full shrink-0', style: { width: '8px', height: '8px', background: n ? (t.tone === 'check' ? '#D97706' : '#DC2626') : 'var(--ok)' } }),
+      el('span', { class: 'text-[11px] uppercase tracking-widest font-bold shrink-0' }, 'To do · ' + t.title),
+      el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, n ? t.todo(n) : t.ok),
+      n ? el('span', { class: 'ml-auto text-sm font-black tabular-nums', style: { color: t.tone === 'check' ? '#D97706' : '#DC2626' } }, n.toLocaleString()) : null,
+      n ? el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, '→') : null));
+}
+function auditSubTasks() {
+  const rows = state.reportingSubscriptions || [];
+  if (!rows.length) return [];
+  const M = auditSubTasks._m;
+  const key = rows.length + '|' + JSON.stringify((state.reportingServiceConfig || []).map(c => c.service_name + ':' + (c.lifecycle || '')));
+  if (M && M.src === rows && M.key === key) return M.tasks;
+  const isActive = (r) => String(r.subscription_status || '').trim().toLowerCase() === 'active' && !r.subscription_date_canceled;
+  const s = (n) => n === 1 ? '' : 's';
+  const tasks = [];
+  // 1. One-time (or retired) services that are still open after the work was done.
+  tasks.push({ title: 'One-time services still active', noun: 'subscription', rows: reportingFlaggedActive(rows, isActive),
+    ok: 'All clear — no one-time or retired service is sitting open.',
+    todo: (n) => n + ' active subscription' + s(n) + ' on a one-time or retired service that has already been serviced — close ' + (n === 1 ? 'it' : 'them') + ' in FieldRoutes so the active count is right.' });
+  // 2. Renewed, but the plan it replaced was never closed (same kind of plan, both active) — the customer may be billed twice.
+  const fam = (x) => String(x || '').trim().split(/\s+/)[0].toLowerCase();
+  const dup = [];
+  try {
+    const lives = semCustomerLives(rows, { include: (r) => !/sentricon/i.test(String(r.subscription || '')) });
+    const cutoff = Date.now() - 14 * 86400000;
+    for (const c of lives.values()) {
+      if (!c.firstRenewal || c.firstRenewal.at > cutoff || !isActive(c.firstRenewal.row)) continue;
+      const ren = c.firstRenewal.row, renIso = String(ren.sold_date || '').slice(0, 10);
+      for (const r of c.subs) {
+        if (r === ren || !isActive(r) || reportingSourceClass(r.subscription_source) === 'renewal') continue;
+        if (String(r.sold_date || '').slice(0, 10) >= renIso || fam(r.subscription) !== fam(ren.subscription)) continue;
+        dup.push({ ...r, _flagReason: 'Renewed ' + renIso + ' into ' + (ren.subscription || 'a new plan') + ' (sub ' + ren.subscription_id + ') — this older plan is still active' });
+      }
+    }
+  } catch (e) { console.warn('[auditing] renewal-duplicate task skipped', e); }
+  tasks.push({ title: 'Renewed, old plan still active', noun: 'subscription', tone: 'check', rows: dup,
+    ok: 'All clear — no renewed customer still has the plan it replaced open.',
+    todo: (n) => n + ' older plan' + s(n) + ' still active on a customer who has since renewed into the same kind of plan — check for double billing and close the old one.' });
+  // 3. Sourced "Door to Door" but sold by someone who has never sold as a Sales Rep this year — usually a mis-picked source.
+  const yr = String(new Date().getFullYear());
+  const d2dSellers = new Set();
+  for (const r of rows) if (String(r.sold_date || '').slice(0, 4) === yr && String(r.sold_by_type || '').trim() === 'Sales Rep' && r.sold_by_id != null) d2dSellers.add(String(r.sold_by || '').trim().toLowerCase());
+  const mis = rows.filter(r => String(r.sold_date || '').slice(0, 4) === yr && String(r.subscription_source || '').trim().toLowerCase() === 'door to door'
+    && ['Office Staff', 'Technician'].includes(String(r.sold_by_type || '').trim()) && !d2dSellers.has(String(r.sold_by || '').trim().toLowerCase()))
+    .map(r => ({ ...r, _flagReason: 'Source is Door to Door, but sold by ' + String(r.sold_by_type).trim() + ' ' + (String(r.sold_by || '').trim() || '#' + r.sold_by_id) + ', who has no Sales Rep sales in ' + yr }));
+  tasks.push({ title: 'Door to Door source on an office or technician sale', noun: 'subscription', tone: 'check', rows: mis,
+    ok: 'All clear — every Door to Door sale this year was sold by someone who knocks doors.',
+    todo: (n) => n + ' sale' + s(n) + ' in ' + yr + ' sourced Door to Door by an office or technician user who has never sold as a Sales Rep — fix the source in FieldRoutes.' });
+  auditSubTasks._m = { src: rows, key, tasks };
+  return tasks;
+}
