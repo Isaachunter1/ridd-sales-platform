@@ -395,6 +395,14 @@ function renderMonthGrid(anchor, today, meId, repById) {
   while (cells.length % 7 !== 0) cells.push(null);
   const todayIso = isoDate(today);
   const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  // The month's standard shifts = its two most-used time windows (a window needs
+  // at least 10% of the month's assignments to count); everything else is "Other".
+  const _stdWins = (() => {
+    const pre = anchor.getFullYear() + '-' + String(anchor.getMonth() + 1).padStart(2, '0') + '-';
+    const n = {}; let tot = 0;
+    for (const sh of deptShifts()) { if (!String(sh.date || '').startsWith(pre) || !calendarAssignVisible(sh)) continue; const t = calShiftTimes(sh); const k = t.st + '|' + t.en; n[k] = (n[k] || 0) + 1; tot++; }
+    return Object.entries(n).filter(([, c]) => c >= tot * 0.1).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k]) => k).sort();
+  })();
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'grid grid-cols-7 border-b text-[11px] font-semibold uppercase tracking-wider text-muted-', style: { borderColor: 'var(--border)' } },
       ...dayNames.map(n => el('div', { class: 'p-2.5 text-center' }, n)),
@@ -443,44 +451,55 @@ function renderMonthGrid(anchor, today, meId, repById) {
               onclick: (e) => { e.stopPropagation(); openNewShiftModal(iso); },
             }, '+'),
           ),
-          // One line per AGENT with their REAL window (per Isaac: slot
-          // grouping hid odd schedules - an agent whose times were adjusted
-          // still displayed under the slot's generic label). Sorted by
-          // start, colored per agent, click opens the same slot modal.
+          // Grouped by SHIFT (per Isaac, Oct 6): one block per standard shift
+          // (the two most common windows this month — 7–3 and 9–5 today) with
+          // the names inside and "+N more" past three, then an "Other" block
+          // that lists anyone on a different window WITH their times, so an
+          // adjusted schedule still shows. Replaces one line per agent.
           ...(() => {
             const vis = _shiftVisibleOn(iso);
             const rows = deptShifts()
               .filter(sh => sh.date === iso && vis(sh) && calendarAssignVisible(sh))
               .sort((a, b) => String(a.start || a.slot_start || '').localeCompare(String(b.start || b.slot_start || ''))
                 || calendarRepShort(a.rep_id, repById).localeCompare(calendarRepShort(b.rep_id, repById)));
-            const CAP = 7;
+            const winOf = (a) => { const t = calShiftTimes(a); return t.st + '|' + t.en; };
+            const winLabel = (k) => { const [st, en] = k.split('|'); return calShortTime(st) + '–' + calShortTime(en); };
             // Coverage: reps per slot vs the department floor.
             const minReps = calendarMinReps();
             const perSlot = {}; rows.forEach(a => { const k = calShiftTimes(a).slotId; perSlot[k] = (perSlot[k] || 0) + 1; });
             const short = minReps > 0 && Object.keys(perSlot).length > 0 && Object.values(perSlot).some(n => n < minReps);
             const out = [];
             if (rows.length) out.push(el('div', { class: 'text-[9px] font-bold tabular-nums pointer-events-none',
-              style: { color: short ? '#DC2626' : 'var(--text-subtle)', position: 'absolute', top: '6px', right: isAdmin ? '28px' : '6px' }, title: short ? 'Below the ' + minReps + '-rep floor on a shift' : rows.length + ' on' }, (short ? '\u26a0 ' : '') + rows.length));
-            out.push(...rows.slice(0, CAP).map(a => {
-              const c = calendarAgentColor(a.rep_id);
-              const mine = a.rep_id === meId;
-              const openReq = openShiftReqFor(a.id);
+              style: { color: short ? '#DC2626' : 'var(--text-subtle)', position: 'absolute', top: '6px', right: isAdmin ? '28px' : '6px' }, title: short ? 'Below the ' + minReps + '-rep floor on a shift' : rows.length + ' on' }, (short ? '⚠ ' : '') + rows.length));
+            const phone = _calPhone();
+            const NAMES = 3;
+            const nameOf = (a) => (a.rep_id === meId ? 'You' : calendarRepShort(a.rep_id, repById));
+            const block = (label, list, o) => {
+              const mine = list.some(a => a.rep_id === meId);
+              const open = list.filter(a => openShiftReqFor(a.id)).length;
+              const under = !o.other && minReps > 0 && list.length < minReps;
+              // Me first, then the rest in name order.
+              const ordered = list.slice().sort((a, b) => (b.rep_id === meId) - (a.rep_id === meId));
+              const shown = ordered.slice(0, NAMES), more = ordered.length - shown.length;
+              const tip = label + ' · ' + list.map(a => calendarRepShort(a.rep_id, repById) + (o.other ? ' ' + winLabel(winOf(a)) : '') + (openShiftReqFor(a.id) ? ' (open)' : '')).join(', ');
               return el('button', {
                 'data-slot-bar': 'true',
-                class: 'cal-chip w-full text-left rounded-md px-1.5 py-1 text-[10px] font-semibold flex items-center gap-1 transition hover:brightness-95 overflow-hidden',
-                style: openReq
-                  ? { background: 'transparent', color: '#A9441F', border: '1.5px dashed #DF643A' }
-                  : mine
-                  ? { background: 'var(--accent)', color: 'var(--accent-text)' }
-                  : { background: c + '14', color: 'var(--text)', borderLeft: '3px solid ' + c },
-                title: calendarRepShort(a.rep_id, repById) + ' \u00b7 ' + calShortTime(calShiftTimes(a).st) + ' \u2013 ' + calShortTime(calShiftTimes(a).en),
-                onclick: (e) => { e.stopPropagation(); if (_calPhone()) openDaySheet(iso); else openSlotModal(iso, calShiftTimes(a).slotId); },
+                class: 'cal-chip w-full text-left rounded-md px-1.5 py-1 flex flex-col transition hover:brightness-95 overflow-hidden',
+                style: { background: mine ? 'rgba(223,100,58,.10)' : 'var(--card-2)', borderLeft: '3px solid ' + (mine ? 'var(--accent)' : o.color), gap: '1px' },
+                title: tip,
+                onclick: (e) => { e.stopPropagation(); if (phone || o.other) openDaySheet(iso); else openSlotModal(iso, calShiftTimes(list[0]).slotId); },
               },
-                el('span', { class: 'cal-chip-name truncate' }, (openReq ? 'OPEN \u00b7 ' : '') + calendarRepShort(a.rep_id, repById)),
-                el('span', { class: 'cal-chip-time ml-auto tabular-nums shrink-0', style: { color: mine && !openReq ? 'var(--accent-text)' : 'var(--text-muted)', fontWeight: '600' } },
-                  calShortTime(calShiftTimes(a).st) + '\u2013' + calShortTime(calShiftTimes(a).en)));
-            }));
-            if (rows.length > CAP) out.push(el('div', { class: 'text-[9px] text-muted- px-1 pointer-events-none' }, '+' + (rows.length - CAP) + ' more'));
+                el('div', { class: 'flex items-center gap-1 text-[10px] font-bold tabular-nums whitespace-nowrap' },
+                  el('span', {}, label),
+                  el('span', { class: 'ml-auto', style: { color: under ? '#DC2626' : 'var(--text-muted)', fontWeight: '700' } }, String(list.length)),
+                  open ? el('span', { style: { color: '#A9441F', fontWeight: '800' }, title: open + ' open shift' + (open === 1 ? '' : 's') + ' to pick up' }, '· ' + open + ' open') : null),
+                phone ? null : el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-muted)', fontWeight: '500', lineHeight: '1.25' } },
+                  ...shown.flatMap((a, i2) => [i2 ? ', ' : '', el('span', { style: a.rep_id === meId ? { color: 'var(--accent)', fontWeight: '800' } : openShiftReqFor(a.id) ? { color: '#A9441F', fontStyle: 'italic' } : {} }, nameOf(a) + (o.other ? ' ' + winLabel(winOf(a)) : ''))]),
+                  more > 0 ? el('span', { style: { fontWeight: '700' } }, ' +' + more + ' more') : null));
+            };
+            const std = rows.filter(a => _stdWins.includes(winOf(a))), other = rows.filter(a => !_stdWins.includes(winOf(a)));
+            _stdWins.forEach((k, n) => { const list = std.filter(a => winOf(a) === k); if (list.length) out.push(block(winLabel(k), list, { color: ['#5F6C5B', '#B5733A'][n] || 'var(--border-2)' })); });
+            if (other.length) out.push(block('Other', other, { other: true, color: 'var(--text-subtle)' }));
             return out;
           })(),
         );
