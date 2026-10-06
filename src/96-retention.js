@@ -848,8 +848,68 @@ function reportingWaterfall() {
     const blended = (y) => { const prior = cohorts.filter(c => c < y); const boy = prior.reduce((a, c) => a + val(cell(c, y - 1)), 0); const eoy = prior.reduce((a, c) => a + val(cell(c, y)), 0); return boy ? 1 - eoy / boy : null; };
     const th = (t, o = {}) => el('th', { class: 'px-2.5 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (o.left ? 'text-left' : 'text-right'), style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0, left: o.corner ? 0 : undefined, zIndex: o.corner ? 3 : 2 } }, t);
     const td = (t, o = {}) => el('td', { class: 'px-2.5 py-1.5 tabular-nums whitespace-nowrap ' + (o.left ? 'text-left font-semibold' : 'text-right') + (o.bold ? ' font-black' : ''), style: { color: o.muted ? 'var(--text-subtle)' : undefined, background: o.sticky ? (o.bg || 'var(--card)') : (o.bg || undefined), position: o.sticky ? 'sticky' : undefined, left: o.sticky ? 0 : undefined, zIndex: o.sticky ? 1 : undefined, boxShadow: o.sticky ? '1px 0 0 var(--border)' : undefined, cursor: o.onclick ? 'pointer' : undefined }, onclick: o.onclick }, t);
+    // ── What the cohorts LEAVE OUT (per Isaac, Oct 6): every subscription in
+    // scope that never enters a cohort, by year and by the rule that dropped
+    // it. Same rules, same order as _retenEff, so cohort + excluded = the
+    // whole book. Year = first-service year, else the year it was sold.
+    const exclTable = (() => {
+      const recurringByName = reportingServiceRecurringMap();
+      // First the Attrition Steps scope rules (never serviced, deleted, one-time, hidden, excluded source, retired …),
+      // then the retention-population rules — so In cohort + Excluded = everything in FieldRoutes for the branch pick.
+      const _ground = scoped === popA ? groundA : (popB && scoped === popB) ? groundB : null;
+      const _steps = _ground ? (retenScopeSteps(_ground).steps || []).filter(st => st.active && st.removed && st.removed.length) : [];
+      const _STEP_LBL = { initial: 'Never serviced', orphans: 'Deleted in FieldRoutes', onetime: 'One-time service', hidden: 'Hidden service', sources: 'Excluded source', retired: 'Retired service', status: 'Account status' };
+      const BUCKETS = [..._steps.map(st => ['step:' + st.key, _STEP_LBL[st.key] || String(st.title || st.key).replace(/^Remove\s+/i, '')]),
+        ['onetime', 'Not a recurring service'], ['unserviced', 'No service date'], ['reason', 'Excluded cancel reason'], ['renewal', 'Renewal sub'], ['zero', '$0 paying'], ['undertwo', 'Under 2 services'], ['frozen', 'Frozen, 1 service']];
+      const bucketOf = (why) => /^closed by/i.test(why) ? 'reason' : /renewal/i.test(why) ? 'renewal' : /\$0/.test(why) ? 'zero' : /under 2/i.test(why) ? 'undertwo' : /frozen/i.test(why) ? 'frozen' : 'reason';
+      // Remembered per book + rules, like _retenEff — the Subs / ARR flip and re-renders reuse it.
+      const _mk = rows._rulesKey || '';
+      const _hit = (renderBlended._excl && renderBlended._excl.src === scoped && renderBlended._excl.key === _mk) ? renderBlended._excl : null;
+      const grid = _hit ? _hit.grid : new Map();   // year -> bucket -> rows
+      let any = _hit ? _hit.any : 0;
+      const _yr = (r) => yearOf(r.origin_initial_service || r.initial_service) >= 2000 ? yearOf(r.origin_initial_service || r.initial_service) : (yearOf(r.sold_date) >= 2000 ? yearOf(r.sold_date) : 0);
+      if (!_hit) for (const st of _steps) for (const r of st.removed) {
+        const y = _yr(r); if (!grid.has(y)) grid.set(y, {});
+        const g = grid.get(y), k = 'step:' + st.key; (g[k] = g[k] || []).push({ ...r, _flagReason: (_STEP_LBL[st.key] || st.key).toLowerCase() }); any++;
+      }
+      for (const r of (_hit ? [] : scoped)) {
+        let b = null, why = '';
+        if (!recurringByName.get(r.subscription)) { b = 'onetime'; why = 'one-time / non-recurring service'; }
+        else if (!r.initial_service || r.initial_service < '2000-01-01') { b = 'unserviced'; why = 'never serviced'; }
+        else { const w = retenPopulationExcluded(r); if (w) { b = bucketOf(w); why = w; } }
+        if (!b) continue;
+        const y = _yr(r);
+        if (!grid.has(y)) grid.set(y, {});
+        const g = grid.get(y); (g[b] = g[b] || []).push({ ...r, _flagReason: why }); any++;
+      }
+      renderBlended._excl = { src: scoped, key: _mk, grid, any };
+      if (!any) return null;
+      const ys = [...grid.keys()].sort((a, b) => (a || 9999) - (b || 9999));
+      const used = BUCKETS.filter(([k]) => ys.some(y => (grid.get(y)[k] || []).length));
+      const rowsOf = (y, k) => (grid.get(y) || {})[k] || [];
+      const allOf = (y) => used.flatMap(([k]) => rowsOf(y, k));
+      const colOf = (k) => ys.flatMap(y => rowsOf(y, k));
+      const open = (title, rs) => rs.length ? () => openReportingDrillModal({ chartTitle: 'Excluded from the cohorts \u00b7 ' + title, sliceLabel: rs.length.toLocaleString() + ' subscription' + (rs.length === 1 ? '' : 's'), rows: rs, formatValue: fmt.usd0 }) : undefined;
+      const cellTd = (rs, title, o = {}) => td(rs.length ? num(val(rs)) : '', Object.assign({ onclick: open(title, rs) }, o));
+      return el('div', { class: 'card overflow-hidden' },
+        el('div', { class: 'px-4 py-3 border-b', style: { borderColor: 'var(--border)' } },
+          el('h3', { class: 'text-sm font-bold' }, 'Excluded from the Cohorts' + (office !== 'all' ? ' \u00b7 ' + office : '')),
+          el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Every subscription the waterfall above leaves out, by the rule that dropped it \u2014 In cohort + Excluded is the whole book for this branch pick. Year = first-service year, or the year sold when it was never serviced. Click any number for the accounts.')),
+        el('div', { style: { overflow: 'auto', maxHeight: '60vh' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+          el('thead', {}, el('tr', {}, th('Year', { left: true, corner: true }), th('In cohort'), th('Excluded'), ...used.map(([, l]) => th(l)))),
+          el('tbody', {},
+            ...ys.map(y => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+              td(y ? String(y) : 'No date', { left: true, sticky: true }),
+              td(y && byCohort.get(y) ? num(val(byCohort.get(y))) : '', { muted: true }),
+              cellTd(allOf(y), (y || 'no date') + ' \u00b7 all excluded', { bold: true }),
+              ...used.map(([k, l]) => cellTd(rowsOf(y, k), (y || 'no date') + ' \u00b7 ' + l)))),
+            el('tr', { class: 'border-t-2 font-black', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
+              td('Total', { left: true, sticky: true, bg: 'var(--card-2)' }), td(num(val(rows)), { bold: true }),
+              cellTd(ys.flatMap(allOf), 'all years', { bold: true }),
+              ...used.map(([k, l]) => cellTd(colOf(k), 'all years \u00b7 ' + l, { bold: true })))))));
+    })();
     const drillRows = (title, rs) => rs.length ? () => openReportingDrillModal({ chartTitle: 'Cohort waterfall · ' + title, sliceLabel: rs.length.toLocaleString() + ' subscription' + (rs.length === 1 ? '' : 's'), rows: rs, formatValue: fmt.usd0 }) : undefined;
-    return el('div', { class: 'card overflow-hidden' },
+    return el('div', { class: 'flex flex-col gap-4' }, el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
         el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Cohort Waterfall' + (office !== 'all' ? ' · ' + office : ''))),
         el('div', { class: 'inline-flex', style: { border: '1px solid var(--border-2)' } },
@@ -860,11 +920,21 @@ function reportingWaterfall() {
           }, l))),
         null),
       el('div', { style: { overflow: 'auto', maxHeight: '70vh' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-        el('thead', {}, el('tr', {}, th('Year', { left: true, corner: true }), th(isArr ? 'ARR' : 'Subs'), ...years.map(y => th(String(y))))),
+        el('thead', {}, el('tr', {}, th('Year', { left: true, corner: true }), th(isArr ? 'ARR \u00b7 YoY' : 'Subs \u00b7 YoY'), ...years.map(y => th(String(y))))),
         el('tbody', {},
           ...cohorts.map(c => { const all = byCohort.get(c) || []; return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
             td(String(c), { left: true, sticky: true }),
-            td(num(val(all)), { bold: true, onclick: drillRows(c + ' cohort', all) }),
+            // Cohort size with YoY growth vs the prior year's cohort underneath (per Isaac, Oct 6).
+            (() => {
+              const prev = byCohort.get(c - 1) || []; const pv = val(prev), cv = val(all);
+              const g = pv > 0 ? cv / pv - 1 : null;
+              const ytd = c >= thisYear;
+              return td(el('div', { class: 'flex flex-col items-end leading-tight', title: g == null ? 'No cohort the year before to compare with' : (num(cv) + ' vs ' + num(pv) + ' in ' + (c - 1) + (ytd ? ' \u2014 ' + c + ' is year to date against a full ' + (c - 1) : '')) },
+                el('span', {}, num(cv)),
+                el('span', { class: 'text-[10px] font-semibold', style: { color: g == null ? 'var(--text-subtle)' : g >= 0 ? '#15803D' : '#B91C1C' } },
+                  g == null ? '\u2014' : (g >= 0 ? '+' : '\u2212') + Math.abs(g * 100).toFixed(1) + '%' + (ytd ? ' YTD' : ''))),
+                { bold: true, onclick: drillRows(c + ' cohort', all) });
+            })(),
             ...years.map(y => { if (y < c) return td('', {}); const rs = cell(c, y);
               // Cell = share of the cohort lost IN this year (per Isaac, Sep 22): alive at the
               // prior year-end (the whole cohort in its first year) minus alive now, over the
@@ -880,7 +950,7 @@ function reportingWaterfall() {
             ...years.map(y => td(num(colTotal(y)), { bold: true }))),
           el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
             td('Blended attrition', { left: true, sticky: true, muted: true }), td('', {}),
-            ...years.map(y => { const a = blended(y); return td(a == null ? '—' : (a * 100).toFixed(1) + '%', { bold: true, muted: a == null, onclick: a == null ? undefined : () => openAttritionDrill(scoped, y) }); }))))));
+            ...years.map(y => { const a = blended(y); return td(a == null ? '—' : (a * 100).toFixed(1) + '%', { bold: true, muted: a == null, onclick: a == null ? undefined : () => openAttritionDrill(scoped, y) }); })))))), exclTable);
   };
   // ── SEASONALITY — monthly churn rate, months × years. Finds the "do we
   // bleed customers at certain points of the year" pattern. Cell = churn ÷
