@@ -1248,7 +1248,7 @@ function adminCommissions() {
 
   const ratesPanel = el('div', { class: 'card p-4' },
     el('div', { class: 'text-sm font-bold mb-1' }, 'Commission rates · ' + type),
-    el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Default for every ' + type + '. Pest % is the base; Ancillary and Bundle are multiples of it. Company default: 20% · 0.5× · 0.8×.'),
+    el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Default for every ' + type + '. Pest % is the base; Ancillary and Bundle are multiples of it. Company default: 20% · 0.5× · 1× (every service type pays the full rate; add-ons pay half).'),
     el('div', { class: 'grid grid-cols-3 gap-3' },
       numField('Pest Commission %', rules.pest * 100, v => saveTypeRule({ pest: (parseFloat(v) || 0) / 100 }), { step: '0.5' }),
       numField('Ancillary Multiplier', rules.ancMult, v => saveTypeRule({ ancMult: parseFloat(v) || 0 }), { step: '0.1' }),

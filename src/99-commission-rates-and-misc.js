@@ -274,7 +274,9 @@ function getAddonCommission(repId, sale) {
     const ao = addOnOfSale(sale);
     if (ao && addOnDropped(ao)) return 0;
   }
-  return a * (Number(addonPayRules().office_rate) || 0) / 100;
+  // Below Minimums halves whatever the rule would pay — the add-on slice included (per Isaac, Oct 6).
+  const _bm = (sale && sale.audit_status === 'below_minimums') ? (Number(effectivePaySettings(repId).below_min_multiplier ?? 50) / 100) : 1;
+  return a * (Number(addonPayRules().office_rate) || 0) / 100 * _bm;
 }
 // Where an add-on stands on the stay-on rule.
 function addOnDropped(a) { return !!a && a.streak_status !== 'locked' && (a.streak_status === 'broken' || a.streak_status === 'clawback' || !!a.removed_at); }

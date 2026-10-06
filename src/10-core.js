@@ -1622,7 +1622,7 @@ async function saveCompanyLogo(dataUrl) {
 const COMMISSION_MY_DEFAULT = { hiPct: 75, loPct: 55, rate18: 2, rate24: 3, penalty: 5 };
 // Default rate model (matches the Retool backend): Pest % is the base; Ancillary
 // and Bundle are MULTIPLES of the pest rate.
-const COMMISSION_RATE_DEFAULT = { pest: 0.20, ancMult: 0.5, bundleMult: 0.8 };
+const COMMISSION_RATE_DEFAULT = { pest: 0.20, ancMult: 0.5, bundleMult: 1 };   // per Isaac, Oct 6 2026: every commissionable service type pays the rep's FULL rate; add-ons (ticket items) pay half
 const COMMISSION_REP_TYPES = ['Office Staff', 'Sales Rep', 'Technician'];
 function commissionConfig() {
   const c = state.commissionConfig || {};

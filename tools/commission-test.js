@@ -88,17 +88,17 @@ eq('ancRev', R.ancRev, 500);
 eq('exclRev (category exclude)', R.exclRev, 300);
 eq('unclRev (unclassified)', R.unclRev, 400);
 eq('payableRev', R.payableRev, 8500);
-// Rates: pest 20%, bundle 20%×0.8 = 16%, ancillary 20%×0.5 = 10%
+// Rates: pest 20%, bundle 20%×1 = 20% (full rate on every service type, Oct 6 2026), ancillary 20%×0.5 = 10%
 eq('pestComm 6000×20%', R.pestComm, 1200);
-eq('bundleComm 2000×16%', R.bundleComm, 320);
+eq('bundleComm 2000×20%', R.bundleComm, 400);
 eq('ancComm 500×10%', R.ancComm, 50);
 // Multi-year: 24mo → 2000, 18mo → 500; myPct = 2500/8500 = 29.41% < 55 → penalty 5% of payable = −425
 eq('myPct', R.myPct, 2500 / 8500 * 100);
 eq('multiYearAmt (penalty band)', R.multiYearAmt, -425);
-// totals: 1200+320+50 + overrides 100 − 425 = 1245 ; net = 1245 − 50 − 200 − 0 − 25 = 970 ; ÷10 = 97
-eq('totalCommission', R.totalCommission, 1245);
-eq('netDue', R.netDue, 970);
-eq('biWeekly', R.biWeekly, 97);
+// totals: 1200+400+50 + overrides 100 − 425 = 1325 ; net = 1325 − 50 − 200 − 0 − 25 = 1050 ; ÷10 = 105
+eq('totalCommission', R.totalCommission, 1325);
+eq('netDue', R.netDue, 1050);
+eq('biWeekly', R.biWeekly, 105);
 // Attrition: cancels 12,13,14 count (15 excluded reason) → 3; ROR 1 (12); after lock 1 (14); final = 3−1−1 = 1 of 10 = 10%
 eq('canceled (excl. reason removed)', R.canceled, 3);
 eq('reasonExcl', R.reasonExcl, 1);
