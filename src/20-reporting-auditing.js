@@ -688,19 +688,80 @@ function _loadFeeCreditAudit() {
     mountApp();
   })();
 }
+// ── To do · Add-ons with no rep (per Isaac, Oct 6) ───────────────────────
+// An add-on (a recurring-ticket line that is not a fee) with Commission To left on N/A pays nobody. When it went
+// on within ADDON_NOREP_DAYS of the subscription being sold, it was almost certainly part of that sale and should
+// be credited to the rep who sold it — those are listed first, with the seller named.
+const ADDON_NOREP_DAYS = 30;
+function _loadAddOnNoRepAudit() {
+  if (state._aoNoRep !== undefined || !supabase) return;
+  state._aoNoRep = null;
+  (async () => {
+    try {
+      const { data, error } = await supabase.from('add_ons').select('id, customer_id, subscription_id, service_name, base_service, credited_employee_id, credited_profile_id, added_at, recurring_amount, initial_amount, removed_at').is('removed_at', null).order('added_at', { ascending: false }).limit(5000);
+      state._aoNoRep = error ? { error: error.message } : (data || []);
+    } catch (e) { state._aoNoRep = { error: String(e.message || e) }; }
+    mountApp();
+  })();
+}
+function addOnNoRepAuditCard() {
+  _loadAddOnNoRepAudit();
+  const d = state._aoNoRep;
+  const noRep = (a) => { const v = String(a.credited_employee_id == null ? '' : a.credited_employee_id).trim(); return !a.credited_profile_id && (!v || v === '0' || v.startsWith('-')); };
+  const subs = state.reportingSubscriptions || [];
+  const M = addOnNoRepAuditCard._m && addOnNoRepAuditCard._m.src === subs ? addOnNoRepAuditCard._m.map : (() => { const m = new Map(); for (const r of subs) if (r.subscription_id != null) m.set(String(r.subscription_id), r); addOnNoRepAuditCard._m = { src: subs, map: m }; return m; })();
+  const rows = (Array.isArray(d) ? d : []).filter(noRep).map(a => {
+    const sub = M.get(String(a.subscription_id)) || null;
+    const sold = sub ? String(sub.sold_date || '').slice(0, 10) : '';
+    const days = sold && a.added_at ? Math.round((Date.parse(String(a.added_at).slice(0, 10)) - Date.parse(sold)) / 86400000) : null;
+    const seller = sub ? ((typeof flipLastFirst === 'function' ? flipLastFirst(String(sub.sold_by || '').trim()) : String(sub.sold_by || '').trim())) : '';
+    return { a, sold, days, seller, likely: days != null && days >= -1 && days <= ADDON_NOREP_DAYS };
+  }).sort((x, y) => (y.likely - x.likely) || String(y.a.added_at).localeCompare(String(x.a.added_at)));
+  const likelyN = rows.filter(r => r.likely).length;
+  const open = state._aoNoRepOpen === true;
+  const status = d === undefined || d === null ? 'checking…'
+    : d.error ? 'waiting on the add-ons sync (migration 20260922_add_ons.sql)'
+    : !rows.length ? 'All clear — every add-on on an account is credited to a rep.'
+    : rows.length + ' add-on' + (rows.length === 1 ? '' : 's') + ' with no rep' + (likelyN ? ' — ' + likelyN + ' went on within ' + ADDON_NOREP_DAYS + ' days of the sale and probably belong' + (likelyN === 1 ? 's' : '') + ' to the seller' : '') + '. Set Commission To on the line in FieldRoutes.';
+  const head = el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', onclick: () => { state._aoNoRepOpen = !open; mountApp(); } },
+    el('span', { class: 'inline-block rounded-full', style: { width: '8px', height: '8px', background: Array.isArray(d) ? (likelyN ? '#DC2626' : rows.length ? '#D97706' : 'var(--ok)') : '#D97706' } }),
+    el('span', { class: 'text-[11px] uppercase tracking-widest font-bold' }, 'To do · Add-ons with no rep'),
+    el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, status),
+    rows.length ? el('span', { class: 'ml-auto text-sm font-black tabular-nums', style: { color: likelyN ? '#DC2626' : '#D97706' } }, String(rows.length)) : null,
+    el('span', { class: rows.length ? 'text-[11px]' : 'ml-auto text-[11px]', style: { color: 'var(--text-muted)' } }, open ? '▴' : '▾'));
+  const list = open && rows.length ? el('div', { class: 'border-t', style: { borderColor: 'var(--border)' } }, ...rows.slice(0, 500).map((r, i) =>
+    el('div', { class: 'flex items-center gap-3 px-4 py-2 border-t text-xs', style: { borderColor: 'var(--border)' } },
+      el('span', { class: 'text-[10px] font-bold tabular-nums shrink-0', style: { color: 'var(--text-subtle)', width: '22px', textAlign: 'right' } }, (i + 1) + '.'),
+      el('span', { class: 'font-semibold shrink-0', style: { minWidth: '70px' } }, '#' + r.a.customer_id),
+      el('span', { class: 'shrink-0', style: { minWidth: '150px', color: 'var(--text-muted)' } }, (r.a.base_service || '') + ' · sub ' + r.a.subscription_id),
+      el('span', { class: 'shrink-0 font-semibold', style: { minWidth: '170px' } }, r.a.service_name + ' ' + fmt.usd(Number(r.a.recurring_amount) || 0) + ' / service'),
+      el('span', { class: 'flex-1 min-w-0', style: { color: r.likely ? '#DC2626' : 'var(--text-muted)' } },
+        'added ' + String(r.a.added_at || '').slice(0, 10) + (r.days == null ? ' · sale date not found' : r.days <= 0 ? ' · the same day as the sale' : ' · ' + r.days + ' day' + (r.days === 1 ? '' : 's') + ' after the sale') + (r.likely && r.seller ? ' · sold by ' + r.seller + ', probably theirs' : r.seller ? ' · account sold by ' + r.seller : ''))))) : null;
+  return el('div', { class: 'card overflow-hidden' }, head, list);
+}
 function feeCreditAuditCard() {
   _loadFeeCreditAudit();
   const d = state._feeAudit;
-  const rows = Array.isArray(d) ? d : [];
+  // FieldRoutes' own system accounts (FR-System-…, FieldRoutes Admin, PestRoutes Admin) are fine on a service
+  // fee (per Isaac, Oct 6): nobody is paid commission through them. Only a fee credited to a real person is flagged.
+  if (state.frRoster == null && !state._frRosterLoading && typeof loadFieldRoutesRoster === 'function') loadFieldRoutesRoster().then(() => { if (state.reportingSubTab === 'auditing') mountApp(); });
+  const _rosterById = (() => { const m = new Map(); for (const e of (state.frRoster || [])) for (const id of String(e.employee_ids || e.employee_id || '').split(',').map(x => x.trim()).filter(Boolean)) m.set(id, e); return m; })();
+  const _rosterName = (e) => e ? ((typeof _frEmpName === 'function' && _frEmpName(e)) || [e.first_name, e.last_name].filter(Boolean).join(' ') || e.name || '') : '';
+  const isFrSystem = (id) => { const e = _rosterById.get(String(id)); if (!e) return false; return /field\s*routes|pest\s*routes|^fr[-\s]?system/i.test(_rosterName(e)) || /@(fieldroutes|pestroutes)\.com/i.test(String(e.email || '')); };
+  // A fee is flagged only when it is credited to a real person we can name: an id of -1 / 0 is FieldRoutes' "N/A
+  // Commission To", and an id that is not in the employee list is a FieldRoutes system account or someone long gone.
+  const _isPerson = (id) => { const v = String(id == null ? '' : id).trim(); return !!v && v !== '0' && !v.startsWith('-') && _rosterById.has(v) && !isFrSystem(v); };
+  const _flagged = (r) => (r.lines || []).filter(l => l.kind === 'fee' && _isPerson(l.credited_employee_id));
+  const rows = (Array.isArray(d) ? d : []).filter(r => _flagged(r).length);
   const open = state._feeAuditOpen === true;
   const empName = (id) => {
     const p = (state.profiles || []).find(x => String(x.fieldroutes_employee_id || '') === String(id));
-    return p ? p.full_name : 'FR #' + id;
+    return p ? p.full_name : (_rosterName(_rosterById.get(String(id))) || 'FR #' + id);
   };
-  const status = d === undefined || d === null ? 'checking…'
+  const status = d === undefined || d === null || state.frRoster == null ? 'checking…'
     : d.error ? 'waiting on the add-ons sync (migration 20260929_add_ons_lifecycle.sql)'
-    : !rows.length ? 'All clear — no service fees are credited to anyone.'
-    : rows.length + ' account' + (rows.length === 1 ? '' : 's') + ' with a service fee credited to someone — clear Credit To on the fee line in FieldRoutes';
+    : !rows.length ? 'All clear — no service fee is credited to a person.'
+    : rows.length + ' account' + (rows.length === 1 ? '' : 's') + ' with a service fee credited to a person — set Commission To back to N/A (or a FieldRoutes account) on the fee line';
   const head = el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', onclick: () => { state._feeAuditOpen = !open; mountApp(); } },
     el('span', { class: 'inline-block rounded-full', style: { width: '8px', height: '8px', background: Array.isArray(d) ? (rows.length ? '#DC2626' : 'var(--ok)') : '#D97706' } }),
     el('span', { class: 'text-[11px] uppercase tracking-widest font-bold' }, 'To do · Service fees'),
@@ -708,7 +769,7 @@ function feeCreditAuditCard() {
     rows.length ? el('span', { class: 'ml-auto text-sm font-black tabular-nums', style: { color: '#DC2626' } }, String(rows.length)) : null,
     el('span', { class: rows.length ? 'text-[11px]' : 'ml-auto text-[11px]', style: { color: 'var(--text-muted)' } }, open ? '▴' : '▾'));
   const list = open && rows.length ? el('div', { class: 'border-t', style: { borderColor: 'var(--border)' } }, ...rows.map((r, i) => {
-    const fees = (r.lines || []).filter(l => l.kind === 'fee' && l.credited_employee_id);
+    const fees = _flagged(r);
     return el('div', { class: 'flex items-center gap-3 px-4 py-2 border-t text-xs', style: { borderColor: 'var(--border)' } },
       el('span', { class: 'text-[10px] font-bold tabular-nums shrink-0', style: { color: 'var(--text-subtle)', width: '22px', textAlign: 'right' } }, (i + 1) + '.'),
       el('span', { class: 'font-semibold shrink-0', style: { minWidth: '70px' } }, '#' + r.customer_id),

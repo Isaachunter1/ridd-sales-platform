@@ -180,7 +180,8 @@ exports.handler = async (event) => {
       for (const it of its) {
         const name = String(it.description || '').trim(); const amt = money2(it.amount) * (Number(it.quantity) || 1);
         const fee = !isAddOn(name);
-        const emp = String(it.creditTo || it.employeeID || '').trim();
+        // FieldRoutes sends -1 (or 0) for "N/A Commission To" — that is nobody, not an employee (per Isaac, Oct 6).
+        const _raw = String(it.creditTo || it.employeeID || '').trim(); const emp = (_raw && _raw !== '0' && !_raw.startsWith('-')) ? _raw : '';
         const prof = emp ? profByEmp.get(emp) : null;
         // Add-on value (per Isaac, Sep 29): always the per-service charge × 12,
         // whether or not it was on the initial — never the contract's service count.

@@ -77,7 +77,7 @@ function viewReporting() {
     // 'services' retired as a top tab; 'health'/'nextbest' fold into
     // Retention — legacy persisted values land there too.
     (state.reportingSubTab === 'health' || state.reportingSubTab === 'nextbest' || state.reportingSubTab === 'services') ? reportingWaterfall() :
-    state.reportingSubTab === 'auditing'   ? el('div', { class: 'flex flex-col gap-4' }, feeCreditAuditCard(), reportingAuditing()) :
+    state.reportingSubTab === 'auditing'   ? el('div', { class: 'flex flex-col gap-4' }, feeCreditAuditCard(), addOnNoRepAuditCard(), reportingAuditing()) :
     state.reportingSubTab === 'ops'        ? reportingOpsHub() :
                                               reportingOverview()),
   );
