@@ -108,6 +108,35 @@ function semLifeMonths(r) { const a = _semMs(r.initial_service), c = r._effCance
 function semAgeMonths(r, nowMs) { const a = _semMs(r.initial_service); return a == null ? null : ((nowMs == null ? Date.now() : nowMs) - a) / SEM_MO_MS; }
 function semIsDelinquent(r) { return /delinquent/i.test(String(reportingCancelReasonOf(r) || '')); }
 
+// ── DIMENSIONS ──────────────────────────────────────────────────────────
+// The ways a set of subscriptions can be split. One definition per split, so
+// "by rep" means the same thing on every screen. order = a fixed row order
+// (otherwise biggest first); minRows folds tiny groups into one "Other" row.
+const SEM_DIMENSIONS = {
+  contract: { label: 'Contract Length', meaning: 'The agreement length on the subscription, in months.', order: ['12 mo', '18 mo', '24 mo', '24+ mo', 'Under 12 mo', 'No term'],
+    of: (r) => { const m = Number(r.agreement_length) || 0; return m === 12 ? '12 mo' : m === 18 ? '18 mo' : m === 24 ? '24 mo' : m > 24 ? '24+ mo' : m > 0 ? 'Under 12 mo' : 'No term'; } },
+  service:  { label: 'Service Type', meaning: 'The FieldRoutes service type on the subscription.', of: (r) => String(r.subscription || '').trim() || 'Unspecified' },
+  source:   { label: 'Source', meaning: 'Where the account came from: the lead source on the subscription.', of: (r) => String(r.subscription_source || '').trim() || 'Unspecified' },
+  type:     { label: 'Rep Type', meaning: 'Who sold it: Door to Door, Office Staff or Technician, from the seller\u2019s FieldRoutes type.', order: ['Door to Door', 'Office Staff', 'Technician'],
+    of: (r) => { const t = String(r.sold_by_type || '').trim(); const role = crmSellerRole(t); if (role) return CRM_SELLER_LABELS[role]; return t ? (t.charAt(0).toUpperCase() + t.slice(1).toLowerCase()) : 'Unknown'; } },
+  // A rep who has left FieldRoutes has an id on the subscription but no name in the export \u2192 "Former rep #id".
+  rep:      { label: 'Rep', meaning: 'The rep who sold it. A rep no longer active in FieldRoutes shows as \u201cFormer rep #id\u201d; reps with under 20 subscriptions roll into one Other row.', minRows: 20, otherLabel: 'Other reps (under 20 subs)',
+    of: (r) => { const raw = String(r.sold_by || '').trim(); const nm = (typeof flipLastFirst === 'function') ? flipLastFirst(raw) : raw; if (nm) return nm; const id = String(r.sold_by_id || '').trim(); return id && id !== '0' ? 'Former rep #' + id : 'Unknown'; } },
+};
+// rows → [{ label, rows }] in display order for one dimension.
+function semGroupBy(rows, dimId) {
+  const D = SEM_DIMENSIONS[dimId]; if (!D) return [];
+  const m = new Map();
+  for (const r of rows) { const k = D.of(r); let g = m.get(k); if (!g) { g = []; m.set(k, g); } g.push(r); }
+  let other = null;
+  if (D.minRows) for (const [k, g] of [...m]) if (g.length < D.minRows) { (other = other || []).push(...g); m.delete(k); }
+  let out = [...m].map(([label, rows]) => ({ label, rows }));
+  if (D.order) out.sort((a, b) => { const ia = D.order.indexOf(a.label), ib = D.order.indexOf(b.label); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.label.localeCompare(b.label); });
+  else out.sort((a, b) => b.rows.length - a.rows.length || a.label.localeCompare(b.label));
+  if (other) out.push({ label: D.otherLabel || 'Other', rows: other });
+  return out;
+}
+
 // ── METRICS ─────────────────────────────────────────────────────────────
 // compute(...) takes entity rows and returns { value, n, d, ... } — value is
 // a FRACTION (0–1) for rates, months for durations. n / d are the counts the
@@ -120,28 +149,28 @@ _semDefine('attrition_rate', {
   label: 'Attrition %', entity: 'Retention book', unit: 'rate', rules: ['recurring_services', 'population', 'excluded_reasons', 'ror'],
   meaning: 'Of the subscriptions in a group, the share that have cancelled for a reason that counts as churn.',
   formula: 'counted cancels ÷ subscriptions in the group',
-  used: ['Retention → Attrition Indicators (every grouping)'],
+  used: ['Retention → Cohort Waterfall (rows by Contract Length, Service Type, Source, Rep Type or Rep: the % under each row\u2019s size)'],
   compute: (rows) => { let c = 0; for (const r of rows) if (r._effCancel) c++; return { value: semPct(c, rows.length), n: c, d: rows.length, active: rows.length - c }; },
 });
 _semDefine('retention_rate', {
   label: 'Retention %', entity: 'Retention book', unit: 'rate', rules: ['recurring_services', 'population', 'excluded_reasons', 'ror'],
   meaning: 'The share of a group still active. Always 100% minus Attrition %.',
   formula: 'active subscriptions ÷ subscriptions in the group',
-  used: ['Retention → Attrition Indicators'],
+  used: ['Retention → Cohort Waterfall (row drill)'],
   compute: (rows) => { const a = SEM_METRICS.attrition_rate.compute(rows); return { value: semPct(a.active, a.d), n: a.active, d: a.d }; },
 });
 _semDefine('arr_attrition_rate', {
   label: 'ARR Attrition %', entity: 'Retention book', unit: 'rate', rules: ['recurring_services', 'population', 'excluded_reasons', 'ror'],
   meaning: 'Attrition weighted by dollars: the share of a group’s annual recurring revenue that sat on subscriptions which cancelled.',
   formula: 'ARR on counted cancels ÷ ARR on every subscription in the group',
-  used: ['Retention → Attrition Indicators'],
+  used: ['Retention → Cohort Waterfall (rows by a dimension, ARR view)'],
   compute: (rows) => { let c = 0, t = 0; for (const r of rows) { const v = _semArr(r); t += v; if (r._effCancel) c += v; } return { value: semPct(c, t), n: c, d: t }; },
 });
 _semDefine('annual_attrition', {
   label: 'Annual attrition', entity: 'Retention book', unit: 'rate', rules: ['recurring_services', 'population', 'excluded_reasons', 'ror'],
   meaning: 'Of the subscriptions that were active on January 1, the share that cancelled during that year. Sales made during the year never enter, so growth cannot hide churn. The current year is year to date.',
   formula: 'counted cancels dated in the year ÷ the book on January 1 (first serviced before Jan 1, not yet cancelled)',
-  used: ['Retention → Attrition Steps (headline tiles)', 'Retention → Cohort Waterfall (Blended attrition row)'],
+  used: ['Retention → Attrition Steps (headline tiles)', 'Retention → Cohort Waterfall (Blended attrition row, and every year cell when rows are a dimension)'],
   compute: (book, year) => {
     const st = year + '-01-01', en = year + '-12-31';
     const boy = book.filter(r => r.initial_service < st && (!r._effCancel || r._effCancel >= st));
@@ -166,28 +195,28 @@ _semDefine('survival_at', {
   label: 'Still here at N months', entity: 'Retention book', unit: 'rate', rules: ['recurring_services', 'population', 'excluded_reasons', 'ror'],
   meaning: 'Of the subscriptions old enough to be judged (first serviced at least N months ago), the share that lasted at least N months.',
   formula: '(still active, or cancelled at N months or later) ÷ subscriptions first serviced at least N months ago',
-  used: ['Retention → Attrition Indicators → Contract Length (Here at 12 mo)'],
+  used: ['Retention → Cohort Waterfall → rows by Contract Length → row drill (Here at 12 mo)'],
   compute: (rows, months, nowMs) => { let d = 0, n = 0; for (const r of rows) { const age = semAgeMonths(r, nowMs); if (age == null || age < months) continue; d++; const life = semLifeMonths(r); if (life == null || life >= months) n++; } return { value: semPct(n, d), n, d }; },
 });
 _semDefine('finished_term_rate', {
   label: 'Finished the term', entity: 'Retention book', unit: 'rate', rules: ['recurring_services', 'population', 'excluded_reasons', 'ror'],
   meaning: 'Of the subscriptions whose contract term has ended (plus one month of grace), the share that lasted the whole term.',
   formula: '(still active, or cancelled at the term length or later) ÷ subscriptions first serviced at least term + 1 months ago',
-  used: ['Retention → Attrition Indicators → Contract Length (Finished term)'],
+  used: ['Retention → Cohort Waterfall → rows by Contract Length → row drill (Finished term)'],
   compute: (rows, term, nowMs) => { let d = 0, n = 0; for (const r of rows) { const age = semAgeMonths(r, nowMs); if (age == null || age < term + 1) continue; d++; const life = semLifeMonths(r); if (life == null || life >= term) n++; } return { value: semPct(n, d), n, d }; },
 });
 _semDefine('median_cancel_life', {
   label: 'Median life of cancels', entity: 'Retention book', unit: 'months', rules: ['recurring_services', 'population', 'excluded_reasons', 'ror'],
   meaning: 'How long the subscriptions that cancelled had lasted, at the midpoint: half left sooner, half later.',
   formula: 'median of (counted cancel date − first service), in months',
-  used: ['Retention → Attrition Indicators → Contract Length'],
+  used: ['Retention → Cohort Waterfall → rows by Contract Length → row drill'],
   compute: (rows) => { const L = []; for (const r of rows) { const v = semLifeMonths(r); if (v != null) L.push(v); } L.sort((a, b) => a - b); return { value: L.length ? L[Math.floor(L.length / 2)] : null, n: L.length, d: L.length }; },
 });
 _semDefine('delinquent_share', {
   label: 'Delinquent % of cancels', entity: 'Retention book', unit: 'rate', rules: ['recurring_services', 'population', 'excluded_reasons', 'ror'],
   meaning: 'Of the counted cancels in a group, the share whose cancel reason is Delinquent.',
   formula: 'counted cancels with a Delinquent reason ÷ counted cancels',
-  used: ['Retention → Attrition Indicators → Contract Length'],
+  used: ['Retention → Cohort Waterfall → rows by Contract Length → row drill'],
   compute: (rows) => { let d = 0, n = 0; for (const r of rows) { if (!r._effCancel || _semMs(r._effCancel) == null || _semMs(r.initial_service) == null) continue; d++; if (semIsDelinquent(r)) n++; } return { value: semPct(n, d), n, d }; },
 });
 _semDefine('customer_retention', {
@@ -291,10 +320,9 @@ _semDefine('wasted_spend', {
 // Known places where two screens still answer the same question differently.
 // Listed on the Definitions page until each is moved onto one metric.
 const SEM_OPEN_DIFFERENCES = [
-  { what: 'How long a cancelled account lasted', a: 'Attrition Indicators → Contract Length and the semantic layer: first service → cancel', b: 'Attrition Indicators → Source (Avg life) and the Lifetime card: sold date → cancel', effect: 'The sold-date version runs longer by the gap between sale and first service.' },
-  { what: 'Is this cancel delinquent?', a: 'Semantic layer: the mapped cancel reason contains "delinquent"', b: 'Attrition Indicators → Source: the raw FieldRoutes reason contains "delinquen"', effect: 'A reason remapped in Settings is counted by one and missed by the other.' },
-  { what: 'Is this account still here?', a: 'Retention book: no counted cancel (an excluded-reason cancel still counts as here)', b: 'Renewal Retention (customer life) and the Source ROR / Delinquent pool: FieldRoutes status is Active', effect: 'An account cancelled for an excluded reason is active in one read and gone in the other.' },
-  { what: 'Monthly churn', a: 'Seasonality: cancels ÷ the book at the start of that month', b: 'LTV card: its own monthly churn over a trailing 24 months', effect: 'Two monthly rates built separately that should be one.' },
+  { what: 'How long a cancelled account lasted', a: 'Semantic layer (median life of cancels): first service \u2192 cancel', b: 'The Lifetime card and the tiles inside a waterfall row drill: sold date \u2192 cancel', effect: 'The sold-date version runs longer by the gap between sale and first service.' },
+  { what: 'Is this account still here?', a: 'Retention book: no counted cancel (an excluded-reason cancel still counts as here)', b: 'Renewal Retention (customer life): FieldRoutes status is Active', effect: 'An account cancelled for an excluded reason is active in one read and gone in the other.' },
+  { what: 'Monthly churn', a: 'Seasonality: cancels \u00f7 the book at the start of that month', b: 'LTV card: its own monthly churn over a trailing 24 months', effect: 'Two monthly rates built separately that should be one.' },
 ];
 
 // ── Reporting → Definitions ─────────────────────────────────────────────
@@ -326,6 +354,10 @@ function viewSemanticDefinitions() {
         el('thead', {}, el('tr', {}, ...['Rule', 'In force now', 'Change it in'].map(t => el('th', { class: 'px-3 py-2 text-left text-[10px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t)))),
         el('tbody', {}, ...Object.entries(SEM_RULES).filter(([, r]) => hit(r.label, r.where)).map(([, r]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
           el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, r.label), el('td', { class: 'px-3 py-2' }, safe(r.now)), el('td', { class: 'px-3 py-2', style: { color: 'var(--text-muted)' } }, r.where))))))),
+    section('Dimensions', 'The ways a number can be split. The same split means the same thing everywhere.',
+      el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+        el('tbody', {}, ...Object.values(SEM_DIMENSIONS).filter(d => hit(d.label, d.meaning)).map(d => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, d.label), el('td', { class: 'px-3 py-2' }, d.meaning))))))),
     section('Entities', 'The things we count. Each is built once and every metric reads the same one.',
       ...SEM_ENTITIES.filter(e => hit(e.label, e.meaning)).map(e => el('div', { class: 'rounded-xl p-3', style: { border: '1px solid var(--border)' } },
         el('div', { class: 'flex items-baseline justify-between gap-2 flex-wrap' }, el('div', { class: 'text-sm font-bold' }, e.label), el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'one row per ' + e.key)),

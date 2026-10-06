@@ -890,22 +890,60 @@ function reportingWaterfall() {
                 ...cols.map(([k, l]) => cellTd(colOf(k), 'all years \u00b7 ' + l, { bold: true })))))));
       };
     })();
+    // ── Rows picker (per Isaac, Oct 6): the same year columns, with the rows split by cohort year (default) or by a
+    // semantic-layer dimension. A dimension row reads: how many of that group are in the book and their lifetime
+    // attrition; then, per year, how many were active at year-end and the share of that year's opening book that left.
+    const wfDim = SEM_DIMENSIONS[state._rtWfDim] ? state._rtWfDim : 'year';
+    const dimRows = () => semGroupBy(rows, wfDim).map(g => {
+      const all = g.rows;
+      const A = semMetric(isArr ? 'arr_attrition_rate' : 'attrition_rate')(all);
+      const cxl = all.filter(r => r._effCancel);
+      const sumArr = (rs) => rs.reduce((a, r) => a + (Number(r.annual_recurring_value) || 0), 0);
+      const t = { subs: all.length, active: all.length - cxl.length, cancelled: cxl.length, arv: sumArr(all), arvCxl: sumArr(cxl), rows: all, cxlRows: cxl };
+      const summary = () => {
+        const extra = wfDim === 'contract' ? (() => { const term = /^(12|18|24) mo$/.test(g.label) ? Number(g.label.slice(0, 2)) : null; const p1 = (m) => m.d ? (m.n / m.d * 100).toFixed(1) + '%' : '\u2014';
+          const S = semMetric('survival_at')(all, 12, Date.now()), F = term ? semMetric('finished_term_rate')(all, term, Date.now()) : null, M = semMetric('median_cancel_life')(all), D = semMetric('delinquent_share')(all);
+          const chip = (l, v) => el('div', { class: 'flex-1 px-3 py-2 rounded-xl', style: { background: 'var(--card-2)', minWidth: '120px' } }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, l), el('div', { class: 'text-lg font-black tabular-nums leading-tight' }, v));
+          return el('div', { class: 'flex gap-2 flex-wrap mb-2' }, chip('Here at 12 mo', p1(S)), chip('Finished term', F ? p1(F) : '\u2014'), chip('Median life of cancels', M.value != null ? M.value.toFixed(1) + ' mo' : '\u2014'), chip('Delinquent % of cancels', p1(D))); })() : null;
+        const base = _attrDrillSummary(g.label, t);
+        return extra ? el('div', {}, extra, base) : base;
+      };
+      return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        td(g.label, { left: true, sticky: true }),
+        td(el('div', { class: 'flex flex-col items-end leading-tight', title: num(val(all)) + ' in the book \u00b7 ' + (A.value == null ? 'no' : (A.value * 100).toFixed(1) + '%') + ' have cancelled (all time). Click for the cancels and the breakdown.' },
+          el('span', {}, num(val(all))),
+          el('span', { class: 'text-[10px] font-semibold', style: { color: A.value == null ? 'var(--text-subtle)' : A.value >= 0.15 ? '#B91C1C' : 'var(--text-subtle)' } }, A.value == null ? '\u2014' : '\u2212' + (A.value * 100).toFixed(1) + '%')),
+          { bold: true, onclick: all.length ? () => openReportingDrillModal({ chartTitle: 'Cohort waterfall \u00b7 ' + SEM_DIMENSIONS[wfDim].label + ' \u00b7 ' + g.label, sliceLabel: cxl.length.toLocaleString() + ' counted cancels of ' + all.length.toLocaleString(), rows: cxl, formatValue: fmt.usd0, summary: summary() }) : undefined }),
+        ...years.map(y => { const en = endOf(y);
+          const alive = all.filter(r => r.initial_service <= en && (!r._effCancel || r._effCancel > en));
+          const Y = semMetric('annual_attrition')(all, y);
+          if (!alive.length && !Y.d) return td('', {});
+          const a = val(Y.rows.boy) > 0 ? val(Y.rows.counted) / val(Y.rows.boy) : null;
+          return td(el('div', { class: 'flex flex-col items-end leading-tight' }, el('span', {}, num(val(alive))), el('span', { class: 'text-[10px] font-semibold', style: { color: a == null ? 'var(--text-subtle)' : a > 0 ? '#B91C1C' : 'var(--text-subtle)' } }, a == null ? '\u2014' : '\u2212' + (a * 100).toFixed(1) + '%')),
+            { title: a == null ? num(val(alive)) + ' active at the end of ' + y + ' \u00b7 nothing in the book on Jan 1 to measure' : num(val(Y.rows.counted)) + ' of the ' + num(val(Y.rows.boy)) + ' in the book on Jan 1 left in ' + (y >= thisYear ? y + ' to date' : y) + ' \u00b7 ' + num(val(alive)) + ' active at year-end',
+              onclick: Y.rows.counted.length ? drillRows(g.label + ' \u00b7 lost in ' + y, Y.rows.counted) : undefined, bg: a == null ? undefined : `rgba(220,38,38,${Math.min(0.28, a * 0.6).toFixed(3)})` }); }));
+    });
+    const rowsSel = el('select', { class: 'px-2.5 py-1 text-[11px] font-bold cursor-pointer', style: { border: '1px solid var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, title: 'What each row of the waterfall is',
+      onchange: (e) => { state._rtWfDim = e.target.value; mountApp(); } },
+      el('option', { value: 'year', selected: wfDim === 'year' }, 'Rows: Cohort year'),
+      ...Object.entries(SEM_DIMENSIONS).map(([k, d]) => el('option', { value: k, selected: wfDim === k }, 'Rows: ' + d.label)));
     const drillRows = (title, rs, summary) => rs.length ? () => openReportingDrillModal({ chartTitle: 'Cohort waterfall · ' + title, sliceLabel: rs.length.toLocaleString() + ' subscription' + (rs.length === 1 ? '' : 's'), rows: rs, formatValue: fmt.usd0, summary: summary ? summary() : null }) : undefined;
     return el('div', { class: 'flex flex-col gap-4' }, el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
         el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Cohort Waterfall' + (office !== 'all' ? ' · ' + office : '')),
-          el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Click a cohort\u2019s size for its accounts and what was excluded from it; click the Total for every year.')),
-        el('div', { class: 'inline-flex', style: { border: '1px solid var(--border-2)' } },
+          el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, wfDim === 'year' ? 'Click a cohort\u2019s size for its accounts and what was excluded from it; click the Total for every year.' : 'Each row is one ' + SEM_DIMENSIONS[wfDim].label.toLowerCase() + '. Under the size: the share that has ever cancelled. Each year: active at year-end, and the share of that January\u2019s book that left. Click any number for the accounts.')),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' }, rowsSel, el('div', { class: 'inline-flex', style: { border: '1px solid var(--border-2)' } },
           ...[[false, 'Subs'], [true, 'ARR']].map(([v, l]) => el('button', {
             class: 'px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
             style: !!state._rtWaterfallArr === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card)', color: 'var(--text-muted)' },
             onclick: () => { state._rtWaterfallArr = v; mountApp(); },
-          }, l))),
+          }, l)))),
         null),
       el('div', { style: { overflow: 'auto', maxHeight: '70vh' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-        el('thead', {}, el('tr', {}, th('Year', { left: true, corner: true }), th(isArr ? 'ARR \u00b7 YoY' : 'Subs \u00b7 YoY'), ...years.map(y => th(String(y))))),
+        el('thead', {}, el('tr', {}, th(wfDim === 'year' ? 'Year' : SEM_DIMENSIONS[wfDim].label, { left: true, corner: true }), th((isArr ? 'ARR' : 'Subs') + (wfDim === 'year' ? ' \u00b7 YoY' : ' \u00b7 Attrition')), ...years.map(y => th(String(y))))),
         el('tbody', {},
-          ...cohorts.map(c => { const all = byCohort.get(c) || []; return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          ...(wfDim !== 'year' ? dimRows() : []),
+          ...(wfDim !== 'year' ? [] : cohorts).map(c => { const all = byCohort.get(c) || []; return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
             td(String(c), { left: true, sticky: true }),
             // Cohort size with YoY growth vs the prior year's cohort underneath (per Isaac, Oct 6).
             (() => {
@@ -2269,230 +2307,8 @@ function reportingWaterfall() {
         mini('By year sold', group(yearOf), { col: 'Year', sortKey: true }),
         mini('Why they left', byReason, { col: 'Reason', cxlOnly: true })));
   };
-  const _attritionByCard = (dim) => {
-    // Sold-year cohort filter (per Isaac - the card had no time dimension
-    // and read as "some year"). 'all' = the whole book in the snapshot;
-    // a year = accounts SOLD that year, cancels any time since.
-    const _yearOf = (r) => { const d = r.sold_date ? new Date(r.sold_date) : null; return d && !isNaN(d) ? d.getFullYear() : null; };
-    const _rtYears = [...new Set(popA.map(_yearOf).filter(Boolean))].sort((a, b) => b - a);
-    if (state._rtAttrYear !== 'all' && !_rtYears.includes(state._rtAttrYear)) state._rtAttrYear = 'all';
-    const _rtYear = state._rtAttrYear || 'all';
-    // The population IS the retention book (per Isaac, Sep 2026): every
-    // step and toggle on the Attrition Steps card decides what is in here —
-    // renewals, RORs, one-time, under-2-services, excluded reasons. No
-    // card-level chips any more; cancels are the book's counted cancels.
-    const TYPE_LABEL = (r) => {
-      if (dim === 'source') return String(r.subscription_source || '').trim() || 'Unspecified';
-      if (dim === 'service') return String(r.subscription || '').trim() || 'Unspecified';   // attrition by service type (per Isaac, Oct 6)
-      if (dim === 'contract') { const m = Number(r.agreement_length) || 0; return m === 12 ? '12 mo' : m === 18 ? '18 mo' : m === 24 ? '24 mo' : m > 24 ? '24+ mo' : m > 0 ? 'Under 12 mo' : 'No term'; }
-      // Rep: the CRM name when the warehouse has it. RevHawk's employee
-      // mirror only carries ACTIVE FieldRoutes employees (verified Sep 2026:
-      // every row active=1), so anyone who has since left has an id on the
-      // sub but no name — those show as "Former rep #id" rather than one
-      // giant Unknown bucket, and pick up their name automatically the day
-      // the mirror includes inactive employees.
-      if (dim === 'rep') { const nm = (typeof flipLastFirst === 'function' ? flipLastFirst(String(r.sold_by || '').trim()) : String(r.sold_by || '').trim()); if (nm) return nm; const id = String(r.sold_by_id || '').trim(); return id && id !== '0' ? 'Former rep #' + id : 'Unknown'; }
-      const t = String(r.sold_by_type || '').trim();
-      const role = crmSellerRole(t);
-      if (role) return CRM_SELLER_LABELS[role];
-      return t ? (t.charAt(0).toUpperCase() + t.slice(1).toLowerCase()) : 'Unknown';
-    };
-    const mk = () => ({ subs: 0, active: 0, cancelled: 0, arv: 0, arvCxl: 0, rows: [], cxlRows: [] });
-    const byType = {}; const total = mk();
-    for (const r of _retenEff(popA)) {
-      if (_rtYear !== 'all' && _yearOf(r) !== _rtYear) continue;
-      const g = byType[TYPE_LABEL(r)] = byType[TYPE_LABEL(r)] || mk();
-      const arv = Number(r.annual_recurring_value) || 0;
-      for (const t of [g, total]) {
-        t.subs++; t.arv += arv; t.rows.push(r);
-        if (r._effCancel) { t.cancelled++; t.arvCxl += arv; t.cxlRows.push(r); }
-        else t.active++;
-      }
-    }
-    if (!total.subs && _rtYear === 'all') return null;
-    const ORDER = dim === 'contract' ? ['12 mo', '18 mo', '24 mo', '24+ mo', 'Under 12 mo', 'No term'] : ['Door to Door', 'Office Staff', 'Technician'];
-    // Rep: fold reps under 20 subs into "Other reps" so the table reads; biggest first.
-    if (dim === 'rep') { const MINR = 20; const other = mk(); for (const k of Object.keys(byType)) { if (byType[k].subs < MINR) { const g = byType[k]; for (const f of ['subs', 'active', 'cancelled', 'arv', 'arvCxl']) other[f] += g[f]; other.rows.push(...g.rows); other.cxlRows.push(...g.cxlRows); delete byType[k]; } } if (other.subs) byType['Other reps (under ' + MINR + ' subs)'] = other; }
-    const keys = (dim === 'source' || dim === 'rep' || dim === 'service')
-      ? Object.keys(byType).sort((a, b) => (a.startsWith('Other reps') ? 1 : b.startsWith('Other reps') ? -1 : 0) || byType[b].subs - byType[a].subs || a.localeCompare(b))   // biggest first
-      : [...ORDER.filter(k => byType[k]), ...Object.keys(byType).filter(k => !ORDER.includes(k)).sort()];
-    const pct = (a, b) => b > 0 ? (a / b * 100).toFixed(1) + '%' : '\u2014';
-    const th = (lab, right) => el('th', { class: (right ? 'text-left' : 'text-left') + ' px-3 py-2 whitespace-nowrap' }, lab);
-    // Contract Length carries what the old 12 vs 18 vs 24 card showed (per Isaac, Oct 6): survival to 12 months,
-    // share that finished the term, how long the cancels lasted, and how many of them were delinquent.
-    const _cx = dim === 'contract';
-    const _cxOf = (label, t) => {
-      const term = /^(12|18|24) mo$/.test(label) ? Number(label.slice(0, 2)) : null;
-      const S = semMetric('survival_at')(t.rows, 12, Date.now()), F = term ? semMetric('finished_term_rate')(t.rows, term, Date.now()) : null;
-      const M = semMetric('median_cancel_life')(t.rows), D = semMetric('delinquent_share')(t.rows);
-      return { s12: pct(S.n, S.d), fin: F ? pct(F.n, F.d) : '\u2014', med: M.value != null ? M.value.toFixed(1) + ' mo' : '\u2014', dq: pct(D.n, D.d), tip12: fmt.int(S.n) + ' of ' + fmt.int(S.d) + ' accounts at least 12 months old', tipFin: F ? fmt.int(F.n) + ' of ' + fmt.int(F.d) + ' accounts past the end of their term' : '' };
-    };
-    const row = (label, t, bold) => {
-      // Every number in the row is a semantic-layer metric over the group's rows.
-      const A = semMetric('attrition_rate')(t.rows), K = semMetric('retention_rate')(t.rows), $A = semMetric('arr_attrition_rate')(t.rows);
-      const attr = A.value;
-      const X = _cx ? _cxOf(label, t) : null;
-      return el('tr', { class: 'border-t cursor-pointer transition hover:brightness-95' + (bold ? ' font-bold' : ''), style: { borderColor: 'var(--border)', background: bold ? 'var(--card-2)' : '' }, title: 'Click for the counted cancels',
-        onclick: () => t.rows.length && openReportingDrillModal({ chartTitle: (dim === 'source' ? 'Attrition by Source · ' : dim === 'rep' ? 'Attrition by Rep · ' : dim === 'contract' ? 'Attrition by Contract Length · ' : dim === 'service' ? 'Attrition by Service Type · ' : 'Attrition by Rep Type · ') + label, sliceLabel: fmt.int(t.cxlRows.length) + ' counted cancels of ' + fmt.int(t.subs), rows: t.cxlRows, formatValue: (v) => fmt.usd0(v), summary: _attrDrillSummary(label, t) }) },
-        el('td', { class: 'px-3 py-2 whitespace-nowrap' + (bold ? '' : ' font-semibold') }, label),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(A.d)),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(A.active)),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(A.n)),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold', style: attr != null && attr >= 0.15 ? { color: '#DC2626' } : attr != null && attr < 0.08 ? { color: '#DF643A' } : {} }, pct(A.n, A.d)),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, pct(K.n, K.d)),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, pct($A.n, $A.d)),
-        ...(X ? [el('td', { class: 'px-3 py-2 text-left tabular-nums', title: X.tip12 }, X.s12), el('td', { class: 'px-3 py-2 text-left tabular-nums', title: X.tipFin }, X.fin), el('td', { class: 'px-3 py-2 text-left tabular-nums' }, X.med), el('td', { class: 'px-3 py-2 text-left tabular-nums' }, X.dq)] : []));
-    };
-    return el('div', { class: 'card overflow-hidden' },
-      el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
-        el('div', {},
-          el('div', { class: 'font-display text-lg', title: (dim === 'source' ? 'Where the account CAME FROM \u00b7 ' : dim === 'service' ? 'The service type on the subscription \u00b7 ' : dim === 'contract' ? 'Agreement length on the subscription \u00b7 ' : dim === 'rep' ? 'The rep who sold it \u00b7 \u201cFormer rep #id\u201d = inactive in FieldRoutes, so the CRM export carries no name \u00b7 ' : 'Who SOLD the account \u00b7 ') + (_rtYear === 'all' ? 'all years in the book' : 'sold in ' + _rtYear + ', cancels to date') + ' \u00b7 same population and cancel rules as this tab' + (office !== 'all' ? ' \u00b7 ' + officeLabel : '') + '.' }, dim === 'source' ? 'Attrition by Source' : dim === 'contract' ? 'Attrition by Contract Length' : dim === 'rep' ? 'Attrition by Rep' : 'Attrition by Rep Type')),
-        el('div', { class: 'flex items-center gap-2 flex-wrap' },
-          el('select', {
-            class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
-            style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
-            onchange: (e) => { state._rtAttrYear = e.target.value === 'all' ? 'all' : Number(e.target.value); mountApp(); },
-          },
-            el('option', { value: 'all', selected: _rtYear === 'all' }, 'All years'),
-            ..._rtYears.map(y => el('option', { value: String(y), selected: _rtYear === y }, 'Sold ' + y))))),
-      !total.subs ? el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'No accounts in this cohort under the current rules.') :
-      el('div', { style: { overflow: 'auto', maxHeight: (dim === 'source' || dim === 'rep' || dim === 'service') ? '460px' : 'none' } }, el('table', { class: 'w-full text-xs' },
-        el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: 0, zIndex: 1 } }, el('tr', { style: { background: 'var(--card-2)' } },
-          th(dim === 'source' ? 'Source' : dim === 'service' ? 'Service Type' : dim === 'contract' ? 'Contract Length' : dim === 'rep' ? 'Rep' : 'Rep Type'), th('Subs', 1), th('Active', 1), th('Cancelled', 1), th('Attrition %', 1), th('Retention %', 1), th('ARR Attrition %', 1), ...(_cx ? [th('Here at 12 mo', 1), th('Finished term', 1), th('Median life of cancels', 1), th('Delinquent % of cancels', 1)] : []))),
-        el('tbody', {},
-          ...keys.map(k => row(k, byType[k])),
-          row('RIDD \u00b7 Total', total, true)))),
-      el('div', { class: 'px-4 py-2 text-[10px] text-muted- border-t', style: { borderColor: 'var(--border)' } }, 'Same book as Attrition Steps — switch a step or a reason up there and this table follows.'));
-  };
-  // (The four Attrition-by tables — Source / Rep / Contract Length / Rep
-  // Type — are ONE card with a dimension dropdown, per Isaac, Sep 2026.
-  // Only the picked dimension is built. See attritionByCard below.)
-  // -- Attrition by Source (per Isaac, Sep 2026: the old Attrition-by-Source
-  // table and the Source Quality Ledger folded into one). Population = the
-  // retention book, so the steps card decides what is in; cancels are the
-  // book's counted cancels. Two columns are deliberately measured on the
-  // FULL serviced pool for the source, because they describe the source
-  // even though those subs leave the book: ROR % (buyer's remorse) and
-  // Delinquent % (never really paid). Sortable; small sources fold into
-  // "Other" so the table reads.
-  const sourceAttritionCard = (() => {
-    const MS_D = 86400000;
-    const _yearOf = (r) => { const d = r.sold_date ? new Date(r.sold_date) : null; return d && !isNaN(d) ? d.getFullYear() : null; };
-    const _rtYear = state._rtAttrYear || 'all';
-    const _srcOf = (r) => String(r.subscription_source || '').trim() || 'Unspecified';
-    const _aliveS = (r) => /active/i.test(String(r.subscription_status || ''));
-    const _isDelinq = (r) => /delinquen/i.test(_normCancelReason(r.subscription_cancellation_reason));
-    const mk = () => ({ subs: 0, active: 0, cxl: 0, arvSold: 0, arrKept: 0, lives: [], rows: [], cxlRows: [], pool: 0, poolCxl: 0, ror: 0, delinq: 0 });
-    const bySrc = new Map();
-    const get = (k) => { let g = bySrc.get(k); if (!g) { g = mk(); bySrc.set(k, g); } return g; };
-    // 1. the book
-    for (const r of _retenEff(popA)) {
-      if (_rtYear !== 'all' && _yearOf(r) !== _rtYear) continue;
-      const g = get(_srcOf(r));
-      const arv = Number(r.annual_recurring_value) || 0;
-      g.subs++; g.arvSold += arv; g.rows.push(r);
-      if (r._effCancel) {
-        g.cxl++; g.cxlRows.push(r);
-        const sd = r.sold_date ? new Date(r.sold_date) : null, cd = new Date(r._effCancel);
-        if (sd && !isNaN(sd) && !isNaN(cd) && cd >= sd) g.lives.push((cd - sd) / MS_D);
-      } else { g.active++; g.arrKept += arv; }
-    }
-    // 2. the full serviced pool — ROR and delinquent rates per source
-    for (const r of popA) {
-      if (_rtYear !== 'all' && _yearOf(r) !== _rtYear) continue;
-      if (!((Number(r.subscription_completed_services) || 0) > 0)) continue;
-      const g = get(_srcOf(r));
-      g.pool++;
-      const cxl = r.subscription_date_canceled && !_aliveS(r);
-      if (!cxl) continue;
-      g.poolCxl++;
-      if (_reporting3dayRor(r) || _isRorReason(_normCancelReason(r.subscription_cancellation_reason))) g.ror++;
-      if (_isDelinq(r)) g.delinq++;
-    }
-    const total = mk();
-    for (const g of bySrc.values()) { for (const k of ['subs', 'active', 'cxl', 'arvSold', 'arrKept', 'pool', 'poolCxl', 'ror', 'delinq']) total[k] += g[k]; total.lives.push(...g.lives); total.rows.push(...g.rows); total.cxlRows.push(...g.cxlRows); }
-    if (!total.subs && _rtYear === 'all') return null;
-    const MIN = 0;   // every source on its own row (per Isaac, Sep 23 — no "Other (small sources)" fold)
-    const other = mk(); const named = [];
-    for (const [k, g] of bySrc) {
-      if (g.subs >= MIN) named.push([k, g]);
-      else { for (const f of ['subs', 'active', 'cxl', 'arvSold', 'arrKept', 'pool', 'poolCxl', 'ror', 'delinq']) other[f] += g[f]; other.lives.push(...g.lives); other.rows.push(...g.rows); other.cxlRows.push(...g.cxlRows); }
-    }
-    const _med = (a) => { if (!a.length) return null; const t = [...a].sort((x, y) => x - y); return t[Math.floor((t.length - 1) / 2)]; };
-    const COLS = [
-      { key: 'source',  label: 'Source',       left: true, get: ([k]) => k.toLowerCase(), str: true },
-      { key: 'subs',    label: 'Subs',         get: ([, g]) => g.subs, tip: 'Subscriptions from this source in the retention book' },
-      { key: 'active',  label: 'Active',       get: ([, g]) => g.active },
-      { key: 'cxl',     label: 'Cancelled',    get: ([, g]) => g.cxl, tip: 'Counted cancels (the book’s rules)' },
-      { key: 'attr',    label: 'Attrition %',  get: ([, g]) => g.subs ? g.cxl / g.subs : -1, tip: 'Cancelled ÷ subs' },
-      { key: 'kept',    label: 'ARR retained', get: ([, g]) => g.arrKept, tip: 'Annual recurring value of the active subs' },
-      { key: 'perSub',  label: '$ Kept / Sub', get: ([, g]) => g.subs ? g.arrKept / g.subs : 0, tip: 'Retained ARR ÷ every sub the source produced — the quality headline' },
-      { key: 'ror',     label: 'ROR %',        get: ([, g]) => g.pool ? g.ror / g.pool : -1, tip: '3-day right-of-rescission cancels ÷ every serviced sub from the source (full pool, not just the book)' },
-      { key: 'delinq',  label: 'Delinq %',     get: ([, g]) => g.pool ? g.delinq / g.pool : -1, tip: 'Died delinquent / collections ÷ every serviced sub from the source (full pool)' },
-      { key: 'life',    label: 'Med. life',    get: ([, g]) => _med(g.lives) ?? -1, tip: 'Median sold → cancel for the counted cancels' },
-      { key: 'arv',     label: 'Avg ARV',      get: ([, g]) => g.subs ? g.arvSold / g.subs : 0 },
-    ];
-    if (!state._rtSrcSort) state._rtSrcSort = { key: 'subs', dir: 'desc' };
-    const sort = state._rtSrcSort;
-    const col = COLS.find(c => c.key === sort.key) || COLS[1];
-    named.sort((a, b) => { const av = col.get(a), bv = col.get(b); const d = col.str ? String(av).localeCompare(String(bv)) : av - bv; return sort.dir === 'asc' ? d : -d; });
-    if (other.subs) named.push(['Other (small sources)', other]);
-    const pct = (n, d) => d > 0 ? (n / d * 100).toFixed(1) + '%' : '—';
-    const th = (c) => el('th', {
-      class: 'px-3 py-2 whitespace-nowrap text-left cursor-pointer select-none' + (sort.key === c.key ? ' font-black' : ''),
-      style: sort.key === c.key ? { color: 'var(--accent)' } : {}, title: (c.tip ? c.tip + ' · ' : '') + 'click to sort',
-      onclick: () => { state._rtSrcSort = sort.key === c.key ? { key: c.key, dir: sort.dir === 'asc' ? 'desc' : 'asc' } : { key: c.key, dir: c.str ? 'asc' : 'desc' }; mountApp(); },
-    }, c.label + (sort.key === c.key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''));
-    const td = (t, o = {}) => el('td', { class: 'px-3 py-2 whitespace-nowrap text-left tabular-nums' + (o.bold ? ' font-bold' : ''), style: o.style || {} }, t);
-    const row = ([k, g], bold) => {
-      const attr = g.subs ? g.cxl / g.subs : null;
-      const med = _med(g.lives);
-      return el('tr', { class: 'border-t cursor-pointer transition hover:brightness-95' + (bold ? ' font-bold' : ''), style: { borderColor: 'var(--border)', background: bold ? 'var(--card-2)' : '' }, title: 'Click for the counted cancels',
-        onclick: () => g.cxlRows.length && openReportingDrillModal({ chartTitle: 'Attrition by Source · ' + k, sliceLabel: fmt.int(g.cxlRows.length) + ' counted cancels of ' + fmt.int(g.subs), rows: g.cxlRows, formatValue: (v) => fmt.usd0(v) }) },
-        el('td', { class: 'px-3 py-2 whitespace-nowrap' + (bold ? '' : ' font-semibold') }, k),
-        td(fmt.int(g.subs)), td(fmt.int(g.active)), td(fmt.int(g.cxl)),
-        td(pct(g.cxl, g.subs), { bold: true, style: attr != null && attr >= 0.15 ? { color: '#DC2626' } : attr != null && attr < 0.08 ? { color: '#DF643A' } : {} }),
-        td(fmt.usd0(g.arrKept)), td(g.subs ? fmt.usd0(g.arrKept / g.subs) : '—', { bold: true }),
-        td(pct(g.ror, g.pool), { style: g.pool && g.ror / g.pool >= 0.05 ? { color: '#DC2626', fontWeight: '700' } : {} }),
-        td(pct(g.delinq, g.pool), { style: g.pool && g.delinq / g.pool >= 0.10 ? { color: '#DC2626', fontWeight: '700' } : {} }),
-        td(med == null ? '—' : (med / 30.44).toFixed(1) + ' mo'),
-        td(g.subs ? fmt.usd0(g.arvSold / g.subs) : '—'));
-    };
-    const _rtYears = [...new Set(popA.map(_yearOf).filter(Boolean))].sort((a, b) => b - a);
-    return el('div', { class: 'card overflow-hidden' },
-      el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
-        el('div', {},
-          el('div', { class: 'font-display text-lg', title: 'Where the account CAME FROM · ' + (_rtYear === 'all' ? 'all years in the book' : 'sold in ' + _rtYear) + (office !== 'all' ? ' · ' + officeLabel(office) : '') + ' · ROR % and Delinq % are measured on every serviced sub from the source, the rest on the retention book. Click a column to sort, a row for the cancels.' }, 'Attrition by Source')),
-        el('div', { class: 'flex items-center gap-2 flex-wrap' },
-          el('select', {
-            class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
-            style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
-            onchange: (e) => { state._rtAttrYear = e.target.value === 'all' ? 'all' : Number(e.target.value); mountApp(); },
-          },
-            el('option', { value: 'all', selected: _rtYear === 'all' }, 'All years'),
-            ..._rtYears.map(y => el('option', { value: String(y), selected: _rtYear === y }, 'Sold ' + y))))),
-      !total.subs ? el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'No accounts in this cohort under the current rules.') :
-      el('div', { style: { overflow: 'auto', maxHeight: '520px' } }, el('table', { class: 'w-full text-xs' },
-        el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: 0, zIndex: 1 } }, el('tr', { style: { background: 'var(--card-2)' } }, ...COLS.map(th))),
-        el('tbody', {}, ...named.map(x => row(x, false)), row(['RIDD · Total', total], true)))),
-      el('div', { class: 'px-4 py-2 text-[10px] text-muted- border-t', style: { borderColor: 'var(--border)' } }, 'Same book as Attrition Steps — switch a step or a reason up there and this table follows. Sources under ' + MIN + ' subs fold into Other.'));
-  })();
-
-  // ("True Attrition" bar retired per Isaac, Sep 2026.)
-
-  // -- Customer Lifetime (per Isaac) -- how long cancelled customers lasted,
-  // sold date -> cancel date, as a month-of-life histogram (the "when do we
-  // lose them" curve) and a by-reason lifetime table. Same population rules
-  // as this tab; the noise classes (3-day ROR, one-time, renewals) exclude
-  // by default via the chips, and the card follows the Attrition year picker.
-  // Red bars = the collections cliff (months 2-5); amber = the 12-month
-  // contract-end window (months 11-13).
-
-
-  // -- Renewal Retention (per Isaac) -- do renewed accounts stick better
-  // than accounts left month-to-month? NOT renewals vs new sales (renewals
-  // only happen within 2 months of term end, so new accounts are not a fair
-  // baseline). Fair frame: of accounts that REACHED contract end, compare
+  // (Attrition Indicators card retired per Isaac, Oct 6: its groupings — Contract Length, Service Type, Source,
+  // Rep Type, Rep — are a 'Rows' picker on the Cohort Waterfall now.)
   // the ones that renewed against the ones riding month-to-month.
   // -- Renewal Retention (per Isaac, rebuilt Sep 2026 as one plain table) --
   // Rows = each renewal type, all renewals, and the accounts that reached
@@ -2743,27 +2559,9 @@ function reportingWaterfall() {
   }
   requestAnimationFrame(() => { syncPin(); setTimeout(syncPin, 200); });
   _profMark('ret:pin');
-  const attritionByCard = (() => {
-    const DIMS = [['source', 'Source'], ['service', 'Service Type'], ['rep', 'Rep'], ['contract', 'Contract Length'], ['type', 'Rep Type']];
-    const dim = DIMS.some(d => d[0] === state._rtAttrDim) ? state._rtAttrDim : 'source';
-    const card = dim === 'source' ? sourceAttritionCard : _attritionByCard(dim);
-    if (!card) return null;
-    // Title reads "Attrition Indicators"; the dimension picker sits on the
-    // right beside the year picker (per Isaac, Sep 2026). No description line.
-    const title = card.querySelector('.font-display');
-    if (title) title.textContent = 'Attrition Indicators';
-    const dimSel = el('select', {
-      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
-      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-      onchange: (e) => { state._rtAttrDim = e.target.value; mountApp(); },
-    }, ...DIMS.map(([v, l]) => el('option', { value: v, selected: dim === v }, l)));
-    const right = title && title.parentElement && title.parentElement.nextElementSibling;
-    if (right && right.classList.contains('flex')) right.prepend(dimSel); else if (title) title.after(dimSel);
-    return card;
-  })();
   // Contract Length (12 vs 18 vs 24) rides at the bottom of Retention now
   // (per Isaac, Sep 23) instead of being its own section.
   const contractLen = null;   // folded into Attrition Indicators → Contract Length (per Isaac, Oct 6)
-  return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, body, _shell('Attrition Indicators', attritionByCard), _shell('Renewal Retention', renewalRetentionCard), contractLen);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
+  return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, body, _shell('Renewal Retention', renewalRetentionCard), contractLen);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
 }
 
