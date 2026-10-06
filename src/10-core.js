@@ -334,7 +334,7 @@ const PERM_SCOPE_DEFAULTS = {
   rep_team_lead:   { drill_scope: 'team' },
   rep_office_lead: { drill_scope: 'dept' },
   rep_loyalty_lead: { drill_scope: 'dept' },
-  office_staff:    { drill_scope: 'dept' },
+  office_staff:    { drill_scope: 'all', board_scope: 'all' },   // Office Staff - Office walks all three dashboards and opens any rep's player card (per Isaac, Oct 6); Reporting stays off (no view_reporting)
   tech_pro:         { drill_scope: 'self', sales_scope: 'self' },
   tech_senior_lead: { drill_scope: 'team', sales_scope: 'team' },
   tech_branch:      { drill_scope: 'dept', sales_scope: 'team' },
