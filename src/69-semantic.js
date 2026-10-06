@@ -286,34 +286,34 @@ function semLeadConversions(leads, crm, windowDays) {
 SEM_RULES.lead_window = { label: 'Lead conversion window', where: 'src/69-semantic.js (SEM_LEAD_WINDOW_DAYS)', now: () => 'a sale counts for a lead when it is sold within ' + SEM_LEAD_WINDOW_DAYS + ' days of the lead' };
 SEM_RULES.lead_sources = { label: 'Which GoHighLevel labels are leads, and whose', where: 'Settings → Configurations → GoHighLevel sources', now: () => 'current customers, door-to-door and CRM workflow records are not leads; each remaining label maps to a provider' };
 SEM_RULES.marketing_spend = { label: 'Marketing spend', where: 'QuickBooks (Advertising & Marketing accounts), pulled automatically', now: () => 'booked spend by branch account and month' };
-SEM_RULES.spend_by_provider = { label: 'Which provider a QuickBooks charge belongs to', where: 'Reporting \u2192 Marketing \u2192 Demand \u2192 QuickBooks spend by provider', now: () => 'each QuickBooks name maps to a provider (automatic by name, or an admin\u2019s pick); journal entries are left out' };
+SEM_RULES.spend_by_provider = { label: 'Which provider a QuickBooks charge belongs to', where: 'automatic, by QuickBooks name', now: () => 'each QuickBooks name maps to a provider (automatic by name, or an admin\u2019s pick); journal entries are left out' };
 SEM_ENTITIES.push({ id: 'lead', label: 'Lead', key: 'GoHighLevel contact record', meaning: 'One inbound contact, credited to the provider that earned it. It is converted when the same person (matched on phone or email) buys a new subscription within the conversion window. One sale converts one lead.', built: 'ghlLeads() for the credit, semLeadConversions() for the match to FieldRoutes.' });
 _semDefine('lead_conversion_rate', {
   label: 'Lead conversion rate', entity: 'Lead', unit: 'rate', rules: ['lead_sources', 'lead_window', 'renewal_sources'],
   meaning: 'Of the leads that came in, the share that became a sale. Leads from the last few weeks read low because they have not had time to close yet.',
   formula: 'converted leads ÷ leads',
-  used: ['Marketing → Demand (tile, weekly chart, by provider)'],
+  used: ['Marketing → Metrics (tile, weekly chart, by provider)'],
   compute: (L) => { let n = 0; for (const x of L) if (x.converted) n++; return { value: semPct(n, L.length), n, d: L.length }; },
 });
 _semDefine('cost_per_lead', {
   label: 'Cost per lead', entity: 'Lead', unit: 'usd', rules: ['marketing_spend', 'lead_sources'],
   meaning: 'What one paid lead cost. Organic and referral leads are left out of the count because nothing was spent to get them.',
   formula: 'marketing spend ÷ leads credited to a paid provider',
-  used: ['Marketing → Demand'],
+  used: ['Marketing → Metrics'],
   compute: (spend, L) => { const d = L.filter(x => x.paid).length; return { value: d > 0 ? spend / d : null, n: spend, d }; },
 });
 _semDefine('cost_per_sale', {
   label: 'Cost per sale', entity: 'Lead', unit: 'usd', rules: ['marketing_spend', 'lead_sources', 'lead_window'],
   meaning: 'What it cost in marketing to get one sale from a paid lead.',
   formula: 'marketing spend ÷ converted leads credited to a paid provider',
-  used: ['Marketing → Demand'],
+  used: ['Marketing → Metrics'],
   compute: (spend, L) => { const d = L.filter(x => x.paid && x.converted).length; return { value: d > 0 ? spend / d : null, n: spend, d }; },
 });
 _semDefine('wasted_spend', {
   label: 'Wasted spend', entity: 'Lead', unit: 'usd', rules: ['marketing_spend', 'lead_sources', 'lead_window'],
   meaning: 'The share of marketing spend that bought leads which did not turn into a sale.',
   formula: 'cost per lead × paid leads that did not convert',
-  used: ['Marketing → Demand'],
+  used: ['Marketing → Metrics'],
   compute: (spend, L) => { const P = L.filter(x => x.paid); const miss = P.filter(x => !x.converted).length; return { value: P.length ? spend * miss / P.length : null, n: miss, d: P.length }; },
 });
 

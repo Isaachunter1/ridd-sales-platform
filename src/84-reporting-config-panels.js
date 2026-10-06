@@ -879,7 +879,7 @@ const _mktgDiv = (a, b) => (b > 0 ? a / b : null);
 function _mktgYearBar(sub) {
   const y = _mktgYearSel();
   // Attribution (lead reconciliation) is a tab of its own (per Isaac, Oct 2) — it lived behind a button on the right.
-  const SUBS = [['providers', 'Metrics'], ['demand', 'Demand'], ['recon', 'Attribution'], ['pnl', 'P&L'], ['spend', 'Spend entry'], ['projections', 'Projections']];
+  const SUBS = [['providers', 'Metrics'], ['recon', 'Attribution'], ['pnl', 'P&L'], ['spend', 'Spend entry'], ['projections', 'Projections']];
   const _recon = sub === 'providers' && state._mktProvView === 'recon';
   return el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
     el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
@@ -1447,14 +1447,15 @@ function reportingMarketingPnl() {
   // CAC moved under Metrics (was Providers), per Isaac, Sep 30.
   if (state._mktSub === 'cac') { state._mktSub = 'providers'; state._mktProvView = 'cac'; }
   if (state._mktSub === 'acq') state._mktSub = 'providers';
-  const sub = ['pnl', 'providers', 'spend', 'projections', 'demand'].includes(state._mktSub) ? state._mktSub : 'providers';   // Metrics opens first (per Isaac)
+  if (state._mktSub === 'demand') state._mktSub = 'providers';   // Demand folded into Metrics (per Isaac, Oct 6)
+  const sub = ['pnl', 'providers', 'spend', 'projections'].includes(state._mktSub) ? state._mktSub : 'providers';   // Metrics opens first (per Isaac)
   // Metrics (per Isaac, Sep 30): CAC on the page; Lead providers and Lead
   // reconciliation are buttons to the right of the Office dropdown.
   // Lead providers now sits directly under the CAC table (per Isaac, Sep 30).
   const provView = state._mktProvView === 'recon' ? 'recon' : 'cac';
   const body = sub === 'providers' ? (provView === 'recon' ? el('div', { class: 'flex flex-col gap-4' }, mktgAttributionView())
-      : el('div', { class: 'flex flex-col gap-4' }, _mktgCac(), _mktgProviders()))
-    : sub === 'demand' ? _mktgDemand() : sub === 'spend' ? _mktgSpendEntry() : sub === 'projections' ? _mktgProjections() : _mktgPnl();
+      : el('div', { class: 'flex flex-col gap-4' }, (() => { try { return _mktgDemand(); } catch (e) { console.warn('[marketing] demand section skipped', e); return null; } })(), _mktgCac(), _mktgProviders()))
+    : sub === 'spend' ? _mktgSpendEntry() : sub === 'projections' ? _mktgProjections() : _mktgPnl();
   // Needs attention (owner-only feed) lives on the Marketing tab (per Isaac, Sep 2026).
   return el('div', { class: 'flex flex-col gap-4' }, (typeof exceptionFeedCard === 'function') ? exceptionFeedCard() : null, (() => { try { return mktgLeadFlowTask(); } catch (e) { return null; } })(), _mktgYearBar(sub), body);
 }

@@ -122,7 +122,8 @@ async function pullMarketingPayees(startYear) {
   const now = new Date();
   const from = `${startYear}-01-01`, to = now.toISOString().slice(0, 10);
   const fields = 'generalledger__item__tx_date,generalledger__item__account_name,generalledger__item__name,generalledger__item__vendor_name,generalledger__item__memo,generalledger__item__txn_type,generalledger__item__subt_nat_amount';
-  const filter = encodeURIComponent(JSON.stringify([['generalledger__item__account_name', 'contains', 'Advertising & Marketing']]));
+  // Filter on one plain word: an ampersand or space inside the filter value can be mangled on the way to Windsor and match nothing.
+  const filter = encodeURIComponent(JSON.stringify([['generalledger__item__account_name', 'contains', 'Advertising']]));
   const url = `https://connectors.windsor.ai/quickbooks?api_key=${encodeURIComponent(key)}&date_from=${from}&date_to=${to}&fields=${fields}&filter=${filter}&_renderer=json`;
   const r = await fetchT(url, { headers: { accept: 'application/json' } });
   if (!r.ok || !r.json) throw new Error(`Windsor marketing detail ${r.status}: ${(r.text || '').slice(0, 200)}`);

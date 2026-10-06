@@ -767,5 +767,5 @@ function mktgAttributionView() {
   return el('div', { class: 'flex flex-col gap-4' },
     setupBar, ...(setupOpen ? [feedCard, upload, mapping, filesCard] : []),
     el('div', { class: 'flex items-center gap-2 flex-wrap' }, rangePick, provPick, repChip),
-    tiles, tilesMore, table, repCard, summary);
+    tiles, tilesMore, table);   // (Who is mis-sourcing + By provider tables removed from the page per Isaac, Oct 6)
 }

@@ -121,7 +121,7 @@ function _mktgDemand() {
     (() => { try { return _mktgProviders(true); } catch (e) { console.warn('[demand] revenue by provider skipped', e); return null; } })(),
     // (Provider list table removed per Isaac, Oct 6: the bars carry it; hover a bar for leads, converted, spend and cost.)
     flowCard,
-    _mktgPayeeCard(y, [...byP.keys()].filter(k => paid.has(k))));
+    null);   // (QuickBooks spend-by-provider mapping card removed from the page per Isaac, Oct 6; names still map to providers automatically)
 }
 
 // ── QuickBooks spend by provider (per Isaac, Oct 6) ──────────────────────
@@ -278,7 +278,7 @@ function mktgLeadFlowTask() {
     .filter(r => r.plat >= 20 && r.cap != null && r.cap < MKTG_FLOW_MIN).sort((a, b) => a.cap - b.cap);
   const n = gaps.length;
   return el('div', { class: 'card overflow-hidden' },
-    el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', title: 'Open Demand for the Lead flow check', onclick: () => { state._mktSub = 'demand'; state._mktProvView = 'cac'; mountApp(); } },
+    el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', title: 'Jump to the Lead flow check on Metrics', onclick: () => { state._mktSub = 'providers'; state._mktProvView = 'cac'; mountApp(); setTimeout(() => { const h = [...document.querySelectorAll('.text-sm.font-bold')].find(x => /^Lead flow check/.test(x.textContent)); if (h) h.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 300); } },
       el('span', { class: 'inline-block rounded-full shrink-0', style: { width: '8px', height: '8px', background: n ? '#DC2626' : 'var(--ok)' } }),
       el('span', { class: 'text-[11px] uppercase tracking-widest font-bold shrink-0' }, 'To do · Lead flow gaps'),
       el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, n
