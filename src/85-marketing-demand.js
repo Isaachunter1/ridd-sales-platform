@@ -77,6 +77,8 @@ function _mktgDemand() {
       chart.getDatasetMeta(0).data.forEach((bar, i) => ctx.fillText((provs[i].r * 100).toFixed(1) + '%', bar.x + 6, bar.y)); ctx.restore(); } };
     mk(idC, { type: 'bar', data: { labels: provs.map(p => p.k), datasets: [{ label: 'Conversion rate', data: provs.map(p => Math.round(p.r * 1000) / 10), backgroundColor: MKTG_DEMAND_C.leads, borderWidth: 0, borderRadius: 3, barThickness: 16 }] },
       options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, layout: { padding: { right: 44 } },
+        onClick: (evt, els) => { if (!els || !els.length) return; const pk = provs[els[0].index].k; openMktgProviderDrill(pk, L.filter(x => (x.lead.prov || 'Unknown') === pk), y); },
+        onHover: (evt, els) => { const t = evt.native && evt.native.target; if (t) t.style.cursor = els && els.length ? 'pointer' : 'default'; },
         plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => { const p = provs[c.dataIndex]; const sp = QP ? (QP.byProv.get(p.k) || 0) : 0; const L1 = ' ' + (p.r * 100).toFixed(1) + '% · ' + fmt.int(p.c) + ' of ' + fmt.int(p.n) + ' leads'; return sp ? [L1, ' ' + fmt.usd0(sp) + ' spend · ' + fmt.usd0(sp / p.n) + ' per lead' + (p.c ? ' · ' + fmt.usd0(sp / p.c) + ' per sale' : '')] : L1; } } } },
         scales: { x: { beginAtZero: true, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => v + '%' } }, y: { grid: { display: false }, ticks: { color: txt, font: { size: 11 } } } } },
       plugins: [endLabels] });
@@ -109,7 +111,7 @@ function _mktgDemand() {
     el('div', { style: { display: 'grid', gap: '16px', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))' } },
       card('Weekly lead demand', 'Leads that came in each week, and how many of them have converted so far.', weeks.length ? canvas(idA, 300) : el('div', { class: 'p-6 text-xs', style: { color: 'var(--text-muted)' } }, 'No leads in ' + y + '.')),
       card('Weekly conversion rate', 'By the week the lead came in. The latest weeks read low until those leads have had time to close.', weeks.length ? canvas(idB, 300) : el('div', { class: 'p-6 text-xs', style: { color: 'var(--text-muted)' } }, 'No leads in ' + y + '.'))),
-    card('Conversion rate by provider', 'Providers with at least ' + MIN + ' leads in ' + y + ', best first.', provs.length ? canvas(idC, Math.max(160, provs.length * 30 + 50)) : el('div', { class: 'p-6 text-xs', style: { color: 'var(--text-muted)' } }, 'No provider has ' + MIN + ' leads yet.')),
+    card('Conversion rate by provider', 'Providers with at least ' + MIN + ' leads in ' + y + ', best first. Click a bar for its leads and where each one stands in GoHighLevel.', provs.length ? canvas(idC, Math.max(160, provs.length * 30 + 50)) : el('div', { class: 'p-6 text-xs', style: { color: 'var(--text-muted)' } }, 'No provider has ' + MIN + ' leads yet.')),
     // (Provider list table removed per Isaac, Oct 6: the bars carry it; hover a bar for leads, converted, spend and cost.)
     flowCard,
     _mktgPayeeCard(y, [...byP.keys()].filter(k => paid.has(k))));
@@ -170,4 +172,85 @@ function _mktgPayeeCard(year, providers) {
                 ...opts.map(o => el('option', { value: o, selected: pv === o }, o)),
                 el('option', { value: QBO_PAYEE_SKIP, selected: pv === QBO_PAYEE_SKIP }, 'Not lead spend (leave out)'))
             : el('span', {}, pv === QBO_PAYEE_SKIP ? 'Left out' : (pv || 'Not mapped')))); })))));
+}
+
+// ── Provider drilldown (per Isaac, Oct 6): every GoHighLevel lead credited to one provider, with where it stands —
+// its GoHighLevel opportunity status and pipeline stage, and whether the same person became a sale in FieldRoutes.
+// GoHighLevel opportunities by person (phone / email), built once per loaded file.
+function _mktgOppIndex() {
+  const G = state._ghl; if (!G || !G.opps) return null;
+  if (_mktgOppIndex._m && _mktgOppIndex._m.src === G.opps) return _mktgOppIndex._m;
+  const byPhone = new Map(), byEmail = new Map(); const stages = G.stages || [];
+  for (const o of G.opps) { const rec = { d: o[0], status: String(o[5] || '').toLowerCase(), stage: (o[6] != null && o[6] >= 0 && stages[o[6]]) || '' };
+    if (o[2]) { if (!byPhone.has(o[2])) byPhone.set(o[2], []); byPhone.get(o[2]).push(rec); }
+    if (o[3]) { if (!byEmail.has(o[3])) byEmail.set(o[3], []); byEmail.get(o[3]).push(rec); } }
+  return (_mktgOppIndex._m = { src: G.opps, byPhone, byEmail, hasStages: stages.length > 0 });
+}
+// The opportunity that belongs to a lead: the first one opened on or after the lead came in, else the person's latest.
+function _mktgOppFor(lead, IX) {
+  if (!IX) return null;
+  const L = (lead.p && IX.byPhone.get(lead.p)) || (lead.e && IX.byEmail.get(lead.e)); if (!L || !L.length) return null;
+  let after = null, last = null;
+  for (const o of L) { if (!last || o.d > last.d) last = o; if (o.d >= lead.d && (!after || o.d < after.d)) after = o; }
+  return after || last;
+}
+function openMktgProviderDrill(provider, list, year) {
+  const IX = _mktgOppIndex();
+  const STATUS = { open: 'Open', won: 'Won', lost: 'Lost', abandoned: 'Abandoned' };
+  const rows = list.map(x => { const o = _mktgOppFor(x.lead, IX); const s = x.sale;
+    return { d: x.lead.d, phone: x.lead.p || '', email: x.lead.e || '', own: x.lead.own || '', how: x.lead.how || '', office: x.lead.office || '',
+      status: o ? (STATUS[o.status] || (o.status ? o.status.charAt(0).toUpperCase() + o.status.slice(1) : 'Open')) : 'No opportunity', stage: o ? o.stage : '',
+      converted: !!x.converted, cust: s ? [String(s.first_name || '').trim(), String(s.last_name || '').trim()].filter(Boolean).join(' ') : '', svc: s ? String(s.subscription || '') : '', sold: s ? String(s.sold_date || '').slice(0, 10) : '', subStatus: s ? String(s.subscription_status || '') : '' }; })
+    .sort((a, b) => (a.d < b.d ? 1 : a.d > b.d ? -1 : 0));
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  let filt = null;   // { k: 'status' | 'stage' | 'conv', v }
+  const tally = (key) => { const m = new Map(); for (const r of rows) { const k = r[key] || '—'; m.set(k, (m.get(k) || 0) + 1); } return [...m].sort((a, b) => b[1] - a[1]); };
+  const conv = rows.filter(r => r.converted).length;
+  const body = el('div', {});
+  const SHOW = 400;
+  const paint = () => {
+    const shown = rows.filter(r => !filt || (filt.k === 'conv' ? r.converted === filt.v : (r[filt.k] || '—') === filt.v));
+    const chip = (label, n, f) => { const on = filt && f && filt.k === f.k && filt.v === f.v;
+      return el('button', { class: 'rounded-xl px-3 py-2 text-left transition hover:brightness-95', style: { background: on ? 'var(--accent)' : 'var(--card-2)', color: on ? 'var(--accent-text)' : 'var(--text)', minWidth: '104px', border: '1px solid var(--border)' }, title: f ? 'Click to show only these leads' : '', onclick: () => { filt = on || !f ? null : f; paint(); } },
+        el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { opacity: '.75' } }, label), el('div', { class: 'text-lg font-black tabular-nums leading-tight' }, fmt.int(n)),
+        el('div', { class: 'text-[10px] tabular-nums', style: { opacity: '.75' } }, rows.length ? (n / rows.length * 100).toFixed(1) + '%' : '')); };
+    const lab = (t) => el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold mt-3 mb-1', style: { color: 'var(--text-subtle)' } }, t);
+    const th = (t) => el('th', { class: 'px-3 py-2 text-left text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0 } }, t);
+    const td = (t, o = {}) => el('td', { class: 'px-3 py-1.5 whitespace-nowrap' + (o.bold ? ' font-semibold' : ''), style: { color: o.color } }, t);
+    const stCol = (s) => s === 'Won' ? '#15803D' : s === 'Lost' || s === 'Abandoned' ? '#B91C1C' : s === 'No opportunity' ? 'var(--text-subtle)' : undefined;
+    body.replaceChildren(...[
+      el('div', { class: 'px-6 pb-4' },
+        lab('Outcome in FieldRoutes (this is what the conversion rate counts)'),
+        el('div', { class: 'flex gap-2 flex-wrap' }, chip('All leads', rows.length, null), chip('Became a sale', conv, { k: 'conv', v: true }), chip('No sale yet', rows.length - conv, { k: 'conv', v: false })),
+        lab('Status in GoHighLevel'),
+        el('div', { class: 'flex gap-2 flex-wrap' }, ...tally('status').map(([k, n]) => chip(k, n, { k: 'status', v: k }))),
+        IX && IX.hasStages ? lab('Pipeline stage in GoHighLevel') : null,
+        IX && IX.hasStages ? el('div', { class: 'flex gap-2 flex-wrap' }, ...tally('stage').slice(0, 12).map(([k, n]) => chip(k === '—' ? 'No stage' : k, n, { k: 'stage', v: k }))) : el('div', { class: 'text-[11px] mt-2', style: { color: 'var(--text-muted)' } }, 'Pipeline stages arrive with the next GoHighLevel sync after this update is deployed.')),
+      el('div', { class: 'overflow-auto', style: { borderTop: '1px solid var(--border)', maxHeight: '46vh' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+        el('thead', {}, el('tr', {}, ...['Lead date', 'Phone', 'Email', 'GoHighLevel source', 'Credited by', 'GHL status', 'GHL stage', 'FieldRoutes sale', 'Sold', 'Service', 'Account'].map(th))),
+        el('tbody', {}, ...shown.slice(0, SHOW).map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          td(r.d), td(r.phone ? r.phone.replace(/^(\d{3})(\d{3})(\d{4})$/, '($1) $2-$3') : ''), td(r.email), td(r.own), td(r.how), td(r.status, { bold: true, color: stCol(r.status) }), td(r.stage),
+          td(r.converted ? (r.cust || 'Yes') : 'No', { bold: r.converted, color: r.converted ? '#15803D' : 'var(--text-subtle)' }), td(r.sold), td(r.svc), td(r.subStatus)))))),
+      shown.length > SHOW ? el('div', { class: 'px-6 py-2 text-[11px]', style: { color: 'var(--text-muted)' } }, 'Showing the newest ' + SHOW + ' of ' + fmt.int(shown.length) + '. Export for all of them.') : null].filter(Boolean));
+  };
+  const exportCsv = () => { const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const lines = [['Lead date', 'Phone', 'Email', 'GoHighLevel source', 'Credited by', 'GHL status', 'GHL stage', 'Became a sale', 'Customer', 'Sold', 'Service', 'Account status'].join(',')];
+    for (const r of rows) lines.push([r.d, r.phone, r.email, r.own, r.how, r.status, r.stage, r.converted ? 'Yes' : 'No', r.cust, r.sold, r.svc, r.subStatus].map(esc).join(','));
+    const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' })); const a = el('a', { href: url, download: ('ridd-leads-' + provider + '-' + year).replace(/[^a-z0-9]+/gi, '-').toLowerCase() + '.csv' }); document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url); };
+  paint();
+  overlay.append(el('div', { class: 'card w-full my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)', overflowY: 'auto' } },
+    el('div', { class: 'flex items-start justify-between p-6 pb-2' },
+      el('div', {}, el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Leads in GoHighLevel · ' + year),
+        el('h2', { class: 'text-xl font-bold mt-0.5' }, provider),
+        el('div', { class: 'text-xs mt-1', style: { color: 'var(--text-muted)' } }, fmt.int(rows.length) + ' leads credited to this provider · ' + fmt.int(conv) + ' became a sale (' + (rows.length ? (conv / rows.length * 100).toFixed(1) : '0') + '%). Click a tile to filter.')),
+      el('div', { class: 'flex items-center gap-2 shrink-0' },
+        el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold border cursor-pointer', style: { background: 'var(--card-2)', color: 'var(--text)', borderColor: 'var(--border)' }, onclick: exportCsv }, '↓ Export CSV'),
+        el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, 'aria-label': 'Close', onclick: close }, '×'))),
+    body));
+  document.body.append(overlay);
+  if (typeof trackAction === 'function') trackAction('drill', 'Marketing demand · provider', { rows: rows.length });
 }

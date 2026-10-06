@@ -65,7 +65,19 @@ async function oppSearch(headers, qs) {
 }
 function oppRow(o) {
   const c = (o.contact && typeof o.contact === 'object') ? o.contact : {};
-  return [o.createdAt || o.dateAdded || '', String(o.source == null ? '' : o.source).trim(), phone10(c.phone), String(c.email || '').trim().toLowerCase(), String(o.status || ''), String(o.contactId || c.id || '')];
+  // [6] = pipeline stage id (per Isaac, Oct 6: the Demand drill shows where each lead sits in GoHighLevel).
+  return [o.createdAt || o.dateAdded || '', String(o.source == null ? '' : o.source).trim(), phone10(c.phone), String(c.email || '').trim().toLowerCase(), String(o.status || ''), String(o.contactId || c.id || ''), String(o.pipelineStageId || '')];
+}
+// Pipeline stage id → "Pipeline · Stage" (one small call per run; a failure just leaves stages blank).
+async function stageNames(headers, loc) {
+  const ac = new AbortController(); const t = setTimeout(() => ac.abort(), FETCH_MS);
+  try {
+    const r = await fetch(BASE + '/opportunities/pipelines?' + new URLSearchParams({ locationId: loc }).toString(), { headers, signal: ac.signal });
+    const j = await r.json().catch(() => null); const out = {};
+    const many = ((j && j.pipelines) || []).length > 1;
+    for (const p of (j && j.pipelines) || []) for (const s of (p.stages || [])) if (s && s.id) out[String(s.id)] = (many && p.name ? p.name + ' \u00b7 ' : '') + (s.name || '');
+    return out;
+  } catch (e) { return {}; } finally { clearTimeout(t); }
 }
 async function syncOpps(sb, headers, loc, st, CUTOFF, started, log) {
   let store = {};
@@ -74,6 +86,8 @@ async function syncOpps(sb, headers, loc, st, CUTOFF, started, log) {
     if (data) { const j = JSON.parse(zlib.gunzipSync(Buffer.from(await data.arrayBuffer())).toString()); if (j && j.byId) store = j.byId; }
   } catch (e) { /* first run — no file yet */ }
   const o = st.opp = st.opp || {};
+  // One-time re-walk so opportunities stored before the stage column pick it up.
+  if (!o.stageV) { o.stageV = 1; o.backfillDone = false; delete o.backfillAfter; }
   let useOrder = o.noOrder ? false : true, pulled = 0;
   const page = async (cursor) => {
     const qs = { location_id: loc, limit: String(OPP_PAGE) };
@@ -200,15 +214,17 @@ exports.handler = async (event) => {
       for (const r of data || []) { rows.push([String(r.date_added || '').slice(0, 10), L(r.source), L(r.first_attr), L(r.last_attr), r.phone10 || '', r.email || '', String(r.postal_code || '').slice(0, 5), hhmm(r.date_added)]); if (r.id) byContact.set(String(r.id), [r.phone10 || '', r.email || '']); }
       if (!data || data.length < 1000) break;
     }
-    // One row per opportunity: [date, source label, phone, email, HH:MM (UTC), status].
+    // One row per opportunity: [date, source label, phone, email, HH:MM (UTC), status, stage index (into `stages`, -1 = none)].
+    const stageMap = await stageNames(headers, loc); const stages = []; const stageIx = new Map();
+    const SI = (id) => { const nm = stageMap[String(id || '')]; if (!nm) return -1; if (!stageIx.has(nm)) { stageIx.set(nm, stages.length); stages.push(nm); } return stageIx.get(nm); };
     const opps = [];
     for (const id of Object.keys(oppStore || {})) {
       const o = oppStore[id]; const iso = String(o[0] || ''); if (!iso || Date.parse(iso) < CUTOFF) continue;
       const c = byContact.get(o[5]) || ['', ''];
       const ph = o[2] || c[0], em = o[3] || c[1]; if (!ph && !em) continue;
-      opps.push([iso.slice(0, 10), L(o[1]), ph, em, hhmm(iso), o[4] || '']);
+      opps.push([iso.slice(0, 10), L(o[1]), ph, em, hhmm(iso), o[4] || '', SI(o[6])]);
     }
-    const gz = zlib.gzipSync(Buffer.from(JSON.stringify({ v: 2, at: new Date().toISOString(), backfillDone: !!st.backfillDone, oppBackfillDone: !!(st.opp && st.opp.backfillDone), labels, rows, opps })));
+    const gz = zlib.gzipSync(Buffer.from(JSON.stringify({ v: 2, at: new Date().toISOString(), backfillDone: !!st.backfillDone, oppBackfillDone: !!(st.opp && st.opp.backfillDone), labels, rows, opps, stages })));
     const { error } = await sb.storage.from('reporting').upload('ghl/leads.json.gz', gz, { contentType: 'application/gzip', upsert: true });
     if (error) throw new Error('upload: ' + error.message);
     console.log('[ghl-sync] ok', JSON.stringify(log), 'file rows', rows.length, 'bytes', gz.length);

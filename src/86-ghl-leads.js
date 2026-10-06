@@ -58,7 +58,7 @@ async function ghlLoadLeads(force) {
     else {
       const txt = await new Response(data.stream().pipeThrough(new DecompressionStream('gzip'))).text();
       const j = JSON.parse(txt);
-      state._ghl = { at: j.at, backfillDone: !!j.backfillDone, labels: j.labels || [], rows: j.rows || [], opps: j.opps || [], oppBackfillDone: !!j.oppBackfillDone };
+      state._ghl = { at: j.at, backfillDone: !!j.backfillDone, labels: j.labels || [], rows: j.rows || [], opps: j.opps || [], stages: j.stages || [], oppBackfillDone: !!j.oppBackfillDone };
     }
   } catch (e) { state._ghl = { error: String((e && e.message) || e), rows: [], labels: [] }; }
   mountApp();
