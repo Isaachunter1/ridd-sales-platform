@@ -722,7 +722,7 @@ function addOnNoRepAuditCard() {
   const status = d === undefined || d === null ? 'checking…'
     : d.error ? 'waiting on the add-ons sync (migration 20260922_add_ons.sql)'
     : !rows.length ? 'All clear — every add-on on an account is credited to a rep.'
-    : rows.length + ' add-on' + (rows.length === 1 ? '' : 's') + ' with no rep' + (likelyN ? ' — ' + likelyN + ' went on within ' + ADDON_NOREP_DAYS + ' days of the sale and probably belong' + (likelyN === 1 ? 's' : '') + ' to the seller' : '') + '. Set Commission To on the line in FieldRoutes.';
+    : rows.length + ' add-on' + (rows.length === 1 ? '' : 's') + ' with no rep' + (likelyN ? ' — ' + likelyN + ' went on within ' + ADDON_NOREP_DAYS + ' days of the sale and probably belong' + (likelyN === 1 ? 's' : '') + ' to the seller' : '') + '. No commission is paid on these until Commission To is set on the line in FieldRoutes.';
   const head = el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', onclick: () => { state._aoNoRepOpen = !open; mountApp(); } },
     el('span', { class: 'inline-block rounded-full', style: { width: '8px', height: '8px', background: Array.isArray(d) ? (likelyN ? '#DC2626' : rows.length ? '#D97706' : 'var(--ok)') : '#D97706' } }),
     el('span', { class: 'text-[11px] uppercase tracking-widest font-bold' }, 'To do · Add-ons with no rep'),

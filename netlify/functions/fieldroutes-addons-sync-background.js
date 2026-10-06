@@ -192,7 +192,9 @@ exports.handler = async (event) => {
       if (!feeSeen && initExtra > 0) lines.push({ name: 'Initial extras', kind: 'fee', per_service: 0, value: initExtra, credited_employee_id: null, credited_profile_id: null });
       // An eligible line nobody is credited with (e.g. a discount) rides the
       // base seller's revenue — added to or subtracted from the account.
-      const samePerson = (l) => !l.credited_employee_id || (soldProf && l.credited_profile_id && l.credited_profile_id === soldProf.id) || (!!soldBy && l.credited_employee_id === soldBy);
+      // An add-on with Commission To left on N/A is credited to NOBODY and pays nobody until it is assigned (per Isaac,
+      // Oct 6): no riding with the seller. It lands in addon_other_value and is listed on Auditing → Add-ons with no rep.
+      const samePerson = (l) => !!l.credited_employee_id && ((soldProf && l.credited_profile_id && l.credited_profile_id === soldProf.id) || (!!soldBy && l.credited_employee_id === soldBy));
       const sum = (f) => money2(lines.filter(f).reduce((t, l) => t + l.value, 0));
       const base_value = sum(l => l.kind === 'base'), fee_value = sum(l => l.kind === 'fee');
       const addon_own_value = sum(l => l.kind === 'addon' && samePerson(l)), addon_other_value = sum(l => l.kind === 'addon' && !samePerson(l));
@@ -228,7 +230,7 @@ exports.handler = async (event) => {
     for (const r of revRows) {
       for (const l of r.lines) if (l.kind === 'addon') lineValue.set(r.subscription_id + '|' + l.name.toLowerCase(), l.value);
       const b = baseSale.get(r.subscription_id); if (!b) continue;
-      const own = r.lines.filter(l => l.kind === 'addon' && (!l.credited_employee_id || (l.credited_profile_id && l.credited_profile_id === b.rep_id) || (!l.credited_profile_id && l.credited_employee_id === r.sold_by_employee_id)));
+      const own = r.lines.filter(l => l.kind === 'addon' && !!l.credited_employee_id && ((l.credited_profile_id && l.credited_profile_id === b.rep_id) || (!l.credited_profile_id && l.credited_employee_id === r.sold_by_employee_id)));
       const commissionable = money2(r.base_value + own.reduce((t, l) => t + l.value, 0));
       const names = own.map(l => l.name).join(' + ') || null;
       if (b.payroll_processed_at || String(b.sold_date || '') < String(AL.start).slice(0, 10)) continue;
@@ -244,6 +246,23 @@ exports.handler = async (event) => {
     for (const part of chunk(keys, 500)) { const { data } = await supabase.from('add_ons').select('id, subscription_id, service_name, sale_id, removed_at').in('subscription_id', part); (data || []).forEach(r => have.push(r)); }
     const haveBy = new Map((have || []).map(r => [r.subscription_id + '|' + String(r.service_name).toLowerCase(), r]));
     const now = new Date().toISOString();
+    // One `sales` upsell row for an add-on credited to someone (dated the day the add-on went on, not the day it was
+    // assigned — what matters is how long it stays on the account). Used when the add-on is first seen AND when an
+    // add-on that sat unassigned gets a rep later.
+    const makeUpsell = async (addOnId, a, row, prof) => {
+      if (!(AL.upsells !== 'off' && prof && (Number(a.recurring_amount) || 0) > 0 && String(a.added_at || '') >= String(AL.start).slice(0, 10))) return;   // a negative eligible line (discount) never becomes its own upsell sale
+      const t = tickets[a.initial_ticket_id || a.first_recurring_ticket_id] || {};
+      const sale = upsellSaleRow({
+        ticket_id: 'addon:' + addOnId, customer_id: a.customer_id, subscription_id: a.subscription_id, office_id: a.office_fr_id,
+        first_name: t.firstName || '', last_name: t.lastName || '', created: a.added_at, created_by: a.credited_employee_id,
+        created_by_type: row.credited_role === 'technician' ? '1' : row.credited_role === 'sales_rep' ? '2' : '0',
+        service: a.service_name, total: lineValue.get(a.subscription_id + '|' + a.service_name.toLowerCase()) ?? (a.initial_amount + a.recurring_amount),
+      }, { repId: prof.id, officeId: officeByFr.get(String(a.office_fr_id)) ?? prof.office_id ?? null, serviceTypeId: svcByName.get(a.service_name.toLowerCase()) || null, now });
+      sale.add_on_id = addOnId;
+      const { data: sIns, error: se } = await supabase.from('sales').insert(sale).select('id').single();
+      if (se) console.warn('[fr-addons] sale insert failed', addOnId, se.message);
+      else { log.sales++; await supabase.from('add_ons').update({ sale_id: sIns.id }).eq('id', addOnId); }
+    };
     for (const a of addOns) {
       const prof = a.credited_employee_id ? profByEmp.get(String(a.credited_employee_id)) : null;
       if (a.credited_employee_id && !prof) log.unmatchedEmployees++;
@@ -262,6 +281,9 @@ exports.handler = async (event) => {
         }
         const { error } = await supabase.from('add_ons').update(row).eq('id', ex.id);
         if (error) console.warn('[fr-addons] update failed', ex.id, error.message); else log.updated++;
+        // Assigned AFTER it was first seen (it sat on N/A): it has no sale row yet and did not fold into an unpaid
+        // base sale above → give the credited rep their upsell row now, so it becomes payable.
+        if (!error && prof && !ex.sale_id && row.sale_id == null) { log.lateAssigned = (log.lateAssigned || 0) + 1; await makeUpsell(ex.id, a, row, prof); }
         continue;
       }
       const { data: ins, error } = await supabase.from('add_ons').insert({ ...row, created_at: now }).select('id').single();
@@ -277,20 +299,7 @@ exports.handler = async (event) => {
         await supabase.from('add_ons').update({ sale_id: bx.id }).eq('id', ins.id);
         continue;
       }
-      if (AL.upsells !== 'off' && prof && (Number(a.recurring_amount) || 0) > 0 && String(a.added_at || '') >= String(AL.start).slice(0, 10)) {   // a negative eligible line (discount) never becomes its own upsell sale   // upsells are always automatic (per Isaac, Sep 23) — the manual Log Sale path is retired
-        const t = tickets[a.initial_ticket_id || a.first_recurring_ticket_id] || {};
-        const sale = upsellSaleRow({
-          ticket_id: 'addon:' + ins.id, customer_id: a.customer_id, subscription_id: a.subscription_id, office_id: a.office_fr_id,
-          first_name: t.firstName || '', last_name: t.lastName || '', created: a.added_at, created_by: a.credited_employee_id,
-          created_by_type: row.credited_role === 'technician' ? '1' : row.credited_role === 'sales_rep' ? '2' : '0',
-          service: a.service_name, total: lineValue.get(a.subscription_id + '|' + a.service_name.toLowerCase()) ?? (a.initial_amount + a.recurring_amount),
-        }, { repId: prof.id, officeId: officeByFr.get(String(a.office_fr_id)) ?? prof.office_id ?? null, serviceTypeId: svcByName.get(a.service_name.toLowerCase()) || null, now });
-        // Revenue = the add-on's per-service charge × the services left on the contract (6b), falling back to one charge.
-        sale.add_on_id = ins.id;
-        const { data: s, error: se } = await supabase.from('sales').insert(sale).select('id').single();
-        if (se) console.warn('[fr-addons] sale insert failed', ins.id, se.message);
-        else { log.sales++; await supabase.from('add_ons').update({ sale_id: s.id }).eq('id', ins.id); }
-      }
+      await makeUpsell(ins.id, a, row, prof);
     }
     // 7. Removals. Any open add-on on a subscription we just read whose line
     //    is no longer on the recurring ticket was removed today; on the
