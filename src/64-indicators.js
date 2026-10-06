@@ -791,7 +791,10 @@ function viewIndicators() {
     // ever sees Sales Rep stats, office staff only Office Staff — the Type
     // filter doesn't render for them at all.
     state._indDeptDefaulted = true;
-    state.indicatorDept = (typeof repTypeGroup === 'function' && repTypeGroup(state.profile) === 'tech') ? 'techs'
+    // …except the roles that carry the world switch (canWalkWorlds): on a world dashboard they see THAT world's type.
+    const _walk = (typeof canWalkWorlds === 'function') && canWalkWorlds(state.profile?.role) && IND_WORLD[state.view];
+    state.indicatorDept = _walk ? IND_WORLD[state.view]
+      : (typeof repTypeGroup === 'function' && repTypeGroup(state.profile) === 'tech') ? 'techs'
       : isOfficeStaffRole(state.profile?.role) ? 'office' : 'd2d';
     // Performance Trends defaults to the SIGNED-IN rep (they can re-scope to
     // company/branch/team with the pickers). Waits for the dataset so the

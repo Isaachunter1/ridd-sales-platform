@@ -126,7 +126,7 @@ function insideSalesTabsFor(role) {
 // Inside Sales (office) ⇄ D2D Sales (the commission calculator). Reps never
 // see it — their rep type decides which half IS their Sales tab.
 function salesModeToggle(mode) {
-  if (!isAdminRole(state.profile?.role) && !isDeveloperRole(state.profile?.role)) return null;   // developers walk all three worlds too
+  if (!canWalkWorlds(state.profile?.role)) return null;   // admins, developers and Office Staff - Office walk all three worlds
   const btn = (m, label) => el('button', {
     class: 'sales-mode-btn px-2.5 py-1 text-[11px] font-bold transition',
     style: mode === m ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
@@ -181,7 +181,8 @@ function insideSalesSubTabs() {
 // admin Inside/D2D/Techs toggle riding in front.
 function d2dSalesSubTabs(mode) {
   const tabs = (mode === 'techs' ? TECH_TABS : D2D_SALES_TABS).filter(([k]) => viewFeatureOn(k))
-    .filter(([k]) => isAdminRole(state.profile?.role) || !VIEW_TAB_PERM[k] || userCan(VIEW_TAB_PERM[k]));   // Settings → Permissions
+    .filter(([k]) => isAdminRole(state.profile?.role) || !VIEW_TAB_PERM[k] || userCan(VIEW_TAB_PERM[k]))   // Settings → Permissions
+    .filter(([k]) => state.profile?.role !== 'office_staff' || k === 'd2d_dashboard' || k === 'techs');   // Office Staff - Office: the other worlds' dashboards only
   const go = (k) => { state.view = k; state._navChosen = true; history.replaceState(null, '', VIEW_TO_HASH[k] || '#' + k); mountApp(); };
   const tabBar = el('div', { class: 'hidden sm:flex items-center flex-wrap gap-x-1 gap-y-0' },
     ...tabs.map(([k, label]) => {
@@ -736,7 +737,12 @@ function mountApp() {
   // D2D Sales only. Switching between them stays an admin function (the
   // toggle already renders admin-only); this guard enforces it on deep
   // links and stale resumes too. Competitions stays open to everyone.
-  if (!isAdmin && !isAuditor && state.profile && !isDeveloperRole(state.profile.role)) {
+  // Office Staff - Office may open the OTHER worlds' dashboards only (deep links to their Sales / Pay bounce to the dashboard).
+  if (state.profile && state.profile.role === 'office_staff') {
+    if (D2D_SALES_TAB_KEYS.has(state.view) && state.view !== 'd2d_dashboard') { state.view = 'd2d_dashboard'; history.replaceState(null, '', VIEW_TO_HASH.d2d_dashboard || '#d2d_dashboard'); }
+    else if (TECH_TAB_KEYS.has(state.view) && state.view !== 'techs') { state.view = 'techs'; history.replaceState(null, '', VIEW_TO_HASH.techs || '#techs'); }
+  }
+  if (!isAdmin && !isAuditor && state.profile && !canWalkWorlds(state.profile.role)) {
     const _grp = repTypeGroup(state.profile);
     const _isTabNotComp = INSIDE_SALES_TAB_KEYS.has(state.view) && state.view !== 'competitions';
     const _isD2dTab = D2D_SALES_TAB_KEYS.has(state.view);
@@ -803,6 +809,7 @@ function mountApp() {
     || (isSalesRepType && D2D_SALES_TAB_KEYS.has(v) && _tabOk(v))       // Sales Reps: the D2D Sales group
     || (isOfficeStaff && INSIDE_SALES_TAB_KEYS.has(v) && _tabOk(v))
     || (isOfficeStaff && LOYALTY_TAB_KEYS.has(v) && _tabOk(v))
+    || (isRepOnly && state.profile?.role === 'office_staff' && (v === 'd2d_dashboard' || v === 'techs'))   // Office Staff - Office: the other worlds' dashboards (per Isaac, Oct 6)
     || (_isDev && (INSIDE_SALES_TAB_KEYS.has(v) || D2D_SALES_TAB_KEYS.has(v) || TECH_TAB_KEYS.has(v) || LOYALTY_TAB_KEYS.has(v)) && _tabOk(v));   // Developer: every world            // Office staff: the Loyalty group
   if (isRepOnly && !repCanSee(state.view)) {
     // Home per rep type (per Isaac): Sales Reps land in their D2D Sales

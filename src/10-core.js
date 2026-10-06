@@ -364,6 +364,10 @@ const isAdminRole   = (r) => ADMIN_ROLES.includes(r);
 const isSellerRole  = (r) => SELLER_ROLES.includes(r);
 const isAuditorRole = (r) => r === 'auditor';
 const isDeveloperRole = (r) => r === 'developer';   // see PERM_DEFAULTS.developer
+// Who gets the Office Staff / D2D Sales / Technicians switch at the top of Sales: admins, developers, and the
+// non-selling "Office Staff - Office" role (per Isaac, Oct 6 — e.g. Cameron). Outside their own world that
+// role sees the Dashboard only: no Sales queue, no Pay.
+const canWalkWorlds = (r) => isAdminRole(r) || r === 'developer' || r === 'office_staff';
 // Rep - Partner: a D2D rep who LEADS a team. Same permissions as a Sales
 // Rep everywhere, plus: they can open the player cards of reps on THEIR
 // team (leaderboard + records) — never the whole company.
