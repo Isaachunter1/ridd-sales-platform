@@ -3,10 +3,10 @@
 // │ management system, from the hourly sync's compact file
 // │ (reporting/ghl/leads.json.gz). Each GHL source / attribution label maps
 // │ to a provider (Settings → Configurations → GoHighLevel sources); a lead's
-// │ credit is the LAST PAID TOUCH across every GHL record for that person
-// │ (same phone or email), else the lead's own source — so a PestBooker
-// │ abandoned cart with a Facebook touch before it is a Facebook lead, and
-// │ without one it's a PestBooker lead.
+// │ credit is its own LAST TOUCH (per Isaac, Oct 7 — last touch, not last
+// │ PAID touch): the record's last attribution when GoHighLevel has one, else
+// │ its source. Paid or not makes no difference, and a lead never borrows an
+// │ earlier paid touch from another record of the same person.
 // │ Part of the app.js bundle (tools/bundle.js concatenates src/*.js in name order).
 // └────────────────────────────────────────────────────────────────────────
 const GHL_PATH = 'ghl/leads.json.gz';
@@ -110,24 +110,16 @@ function ghlLeads() {
     if (e && !byEmail.has(e)) byEmail.set(e, id);
     pid[k] = id;
   });
-  // Paid touches per person (date, provider), from source + both attributions.
-  const touches = new Map();
-  G.rows.forEach((r, k) => {
-    for (const i of [r[1], r[2], r[3]]) { const pv = pOf(i); if (pv && paid.has(pv)) { const t = touches.get(pid[k]) || []; t.push([r[0], pv]); touches.set(pid[k], t); } }
-  });
   const leads = [];
   const notLead = new Map();
   G.rows.forEach((r, k) => {
     const own = pOf(r[1]);
     if (own === GHL_NOT_LEAD) { notLead.set(lab[r[1]], (notLead.get(lab[r[1]]) || 0) + 1); return; }
-    const t = touches.get(pid[k]);
     let credit = null, how = 'source';
-    // The lead's own last attribution counts first when it's paid; then the
-    // person's latest paid touch on or before this lead.
+    // LAST TOUCH (per Isaac, Oct 7): the record's own last attribution wins,
+    // paid or not; with none, its source.
     const la = pOf(r[3]);
-    if (la && paid.has(la)) { credit = la; how = 'last touch'; }
-    else if (own && paid.has(own)) credit = own;
-    else if (t) { let best = null; for (const x of t) if (x[0] <= r[0] && (!best || x[0] >= best[0])) best = x; if (best) { credit = best[1]; how = 'earlier paid touch'; } }
+    if (la && la !== GHL_NOT_LEAD) { credit = la; how = 'last touch'; }
     if (!credit) credit = own || 'Unknown';
     leads.push({ d: r[0], mi: Number(r[0].slice(5, 7)) - 1, y: r[0].slice(0, 4), prov: credit, own: own || 'Unknown', how, office: zipOff.get(r[6]) || null, p: r[4], e: r[5], t: r[7] || '' });
   });
@@ -161,7 +153,7 @@ function reportingGhlSourcesPanel() {
   const btn = 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold';
   const head = el('div', { class: 'flex items-center gap-3 flex-wrap mb-2' },
     el('div', { class: 'text-sm font-bold' }, 'GoHighLevel sources → provider'),
-    el('div', { class: 'text-[11px] flex-1', style: muted, title: '' }, 'Every source and attribution GoHighLevel records, mapped to a provider. A lead is credited to the last PAID touch for that person (any of their GHL records, same phone or email); with no paid touch it keeps its own source (e.g. PestBooker). Not a new lead = left out of lead counts (door-to-door, CRM workflows, current customers). Paid channels = Lead sources config + Facebook / Google.'),
+    el('div', { class: 'text-[11px] flex-1', style: muted, title: '' }, 'Every source and attribution GoHighLevel records, mapped to a provider. A lead is credited to its last touch: its last attribution in GoHighLevel when there is one, otherwise its source. Paid or not makes no difference. Not a new lead = left out of lead counts (door-to-door, CRM workflows, current customers). Paid channels = Lead sources config + Facebook / Google.'),
     G && G.at ? el('span', { class: 'text-[10px]', style: muted }, 'synced ' + new Date(G.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + (G.backfillDone ? '' : ' · history still loading')) : null,
     admin ? el('button', { class: btn, style: { borderColor: 'var(--border-2)' }, onclick: () => ghlSyncNow() }, '↻ Sync now') : null,
     el('button', { class: btn, style: { borderColor: 'var(--border-2)' }, onclick: () => { state._ghl = undefined; ghlLoadLeads(true); } }, 'Reload'));

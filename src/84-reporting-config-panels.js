@@ -438,7 +438,7 @@ function reportingSourceConfigPanel() {
                 el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Subs'),
                 el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Revenue Type'),
                 el('th', { class: 'text-left px-2 py-2 font-semibold', title: 'Paid lead channels — the only channels that can earn a sale on Marketing → Attribution. Facebook, Google Ads and Google Local Services are always paid.' }, 'Paid channel'),
-                el('th', { class: 'text-left px-2 py-2 font-semibold', title: 'How Marketing → Attribution treats a sale with this source. Last touch: the last paid lead before the sale wins. Priority window: this channel wins when it sent a lead within N days before the sale, even if another touched after. Never overwrite: the sale keeps this source. Keep when booked online: keeps this source only when the sale sits on the RIDD Account - Office house account.' }, 'Attribution rule'),
+                el('th', { class: 'text-left px-2 py-2 font-semibold', title: 'How Marketing → Attribution treats a sale with this source. Last touch: the last lead before the sale wins, paid or not. Priority window: this channel wins when it sent a lead within N days before the sale, even if another touched after. Never overwrite: the sale keeps this source. Keep when booked online: keeps this source only when the sale sits on the RIDD Account - Office house account.' }, 'Attribution rule'),
                 el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'In Reporting'),
                 el('th', { class: 'text-left px-2 py-2 font-semibold', title: 'Which provider row this source rolls into on Marketing → Metrics (e.g. “#49 FB” → Facebook), or Hide to leave it off Metrics.' }, 'Metrics provider'),
                 el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'FieldRoutes'),
@@ -1044,7 +1044,7 @@ function _mktgProviders(vizOnly) {
   // clicks, impressions, platform leads by campaign → office.
   if (typeof reportingLoadAdSpend === 'function') reportingLoadAdSpend(y);
   const AP = (typeof adPlatformIndex === 'function') ? adPlatformIndex(y, B.all) : null;
-  // GoHighLevel leads (last paid touch, else own source) — replaces the
+  // GoHighLevel leads (last touch, else own source) — replaces the
   // hand-entered lead counts once the sync has run.
   if (typeof ghlLoadLeads === 'function') ghlLoadLeads();
   const GL = (typeof ghlLeadIndex === 'function') ? ghlLeadIndex(y) : null;
@@ -1099,7 +1099,7 @@ function _mktgProviders(vizOnly) {
   const leadsOk = !!GL || (mode === 'provider' && !scopeBranches);   // hand-entered leads are per provider only; GoHighLevel leads carry an office (ZIP)
   const leads = GL ? (rk, i) => GL.cell(chsOf(rk), bsWide(rk), i)
     : (rk, i) => chsOf(rk).reduce((t, ch) => t + (Number((m.leads[_mktgYm(y, i)] || {})[ch]) || 0), 0);
-  const leadNote = GL ? 'GoHighLevel · credit = last paid touch for the person, else the lead’s own source · office from the lead’s ZIP' : 'hand-entered (Spend entry)';
+  const leadNote = GL ? 'GoHighLevel · credit = the lead’s last touch (paid or not), else its source · office from the lead’s ZIP' : 'hand-entered (Spend entry)';
   const ratioTotal = (num, den) => (rk) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += num(rk, i); d += den(rk, i); } return _mktgDiv(n, d); };
   const gs = (goal, better) => (v) => v == null ? {} : { color: better(v, goal) ? '#5F6C5B' : '#DC2626', fontWeight: '600' };
   const rows = mode === 'provider' ? [...channels, TOTAL] : G.rows;

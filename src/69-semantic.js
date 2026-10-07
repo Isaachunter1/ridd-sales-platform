@@ -250,8 +250,8 @@ const SEM_ENTITIES = [
 ];
 
 // ── ENTITY: the lead, and whether it converted ──────────────────────────
-// A lead is one GoHighLevel contact record credited to a provider (last paid
-// touch, else its own source — src/86-ghl-leads.js). It CONVERTED when the
+// A lead is one GoHighLevel contact record credited to a provider (its last
+// touch, paid or not, else its own source — src/86-ghl-leads.js). It CONVERTED when the
 // same person (phone or email) bought a new, non-renewal subscription in
 // FieldRoutes from 1 day before to `windowDays` after the lead came in.
 // One sale converts ONE lead: when a person has several lead records, the

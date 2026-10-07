@@ -17,7 +17,10 @@ const ATTR_WINDOW_DAYS = 60;   // a sale counts for a lead when sold within 60 d
 // GHL source / attribution (Facebook and Google included). Provider lead
 // reports uploaded here are the BACKUP: they add leads GHL never got and
 // de-duplicate against GHL (same provider + same phone/email within 3 days).
-// RULE: last touch — the last paid lead channel on or before the sale wins.
+// RULE: last touch — the last lead channel on or before the sale wins, PAID OR
+// NOT (per Isaac, Oct 7, after talking with the GoHighLevel admin: a paid form
+// fill followed a month later by a Google Business Profile or website form is
+// credited to that later touch).
 // ONE EXCEPTION, the priority window: a provider on a cost-per-job deal
 // (ElectGen, 7 days) wins the sale whenever it sent a lead within its window
 // before the sale, even if another channel touched after. Editable on the
@@ -176,8 +179,8 @@ function _attrReconcileRun(files, G) {
   const KEEP = new Set(attrKeep().map(x => String(x).trim().toLowerCase()));
   const leads = [];
   for (const f of files) for (const l of f.leads || []) leads.push({ ...l, provider: f.provider, fileId: f.id, via: 'file' });
-  // GoHighLevel feed: one lead per GHL record on a PAID channel (its own last
-  // attribution, else its own source). Skipped when an uploaded report already
+  // GoHighLevel feed: one lead per GHL record on ANY channel, paid or not (its
+  // own last attribution, else its own source). Skipped when an uploaded report already
   // has that provider + person within 3 days (the report row carries the name).
   let ghlFrom = null, ghlTo = null;
   if (G && G.leads) {
@@ -202,7 +205,7 @@ function _attrReconcileRun(files, G) {
     for (const o of ((state._ghl && state._ghl.opps) || [])) {
       if (!o[0] || o[0] < lo) continue;
       const prov = o[1] >= 0 ? ghlProviderOf(lab[o[1]]) : null;
-      if (!prov || !paid.has(prov)) continue;
+      if (!prov || prov === GHL_NOT_LEAD || prov === 'Unknown') continue;
       if (near(prov, o[2], o[0], o[4]) || near(prov, o[3], o[0], o[4])) continue;
       const nl = { date: o[0], t: o[4] || '', name: '', first: '', last: '', phone: o[2] || '', email: o[3] || '', zip: '', leadId: '', provider: prov, fileId: 'ghl', via: 'ghl', inGhl: true };
       leads.push(nl); note(prov, o[2], nl); note(prov, o[3], nl);
@@ -210,8 +213,8 @@ function _attrReconcileRun(files, G) {
     for (const g of G.leads) {
       if (!g.d || g.d < lo) continue;
       if (!ghlFrom || g.d < ghlFrom) ghlFrom = g.d; if (!ghlTo || g.d > ghlTo) ghlTo = g.d;
-      const prov = g.how === 'earlier paid touch' ? g.own : g.prov;
-      if (!prov || !paid.has(prov)) continue;
+      const prov = g.prov;
+      if (!prov || prov === GHL_NOT_LEAD || prov === 'Unknown') continue;
       if (near(prov, g.p, g.d, g.t) || near(prov, g.e, g.d, g.t)) continue;
       const nl = { date: g.d, t: g.t || '', name: '', first: '', last: '', phone: g.p || '', email: g.e || '', zip: '', leadId: '', provider: prov, fileId: 'ghl', via: 'ghl', inGhl: true };
       leads.push(nl); note(prov, g.p, nl); note(prov, g.e, nl);
@@ -262,6 +265,7 @@ function _attrReconcileRun(files, G) {
     for (const x of ls) { x.winner = win.x.provider; x.winDate = win.e[0]; x.winT = win.e[1]; x.lastBy = lastBy; x.isWinner = x.provider === win.x.provider; x.touches = touches; x.rule = rule; }
   }
   // 4. Classify.
+  const PAIDSET = (typeof ghlPaidSet === 'function') ? ghlPaidSet() : new Set();
   for (const l of leads) {
     const c = l.custId ? idx.cust.get(l.custId) : null;
     if (!c) { l.status = 'nomatch'; continue; }
@@ -280,7 +284,11 @@ function _attrReconcileRun(files, G) {
     if (keepBooked && _attrSelfBooked(l.sale)) { l.status = 'booked'; continue; }
     if (!l.isWinner) { l.status = 'otherwon'; continue; }
     const curProv = (typeof reportingProviderOf === 'function') ? reportingProviderOf(cur) : cur;   // "#49 FB" in the CRM = Facebook
-    l.status = (cur === l.provider || curProv === l.provider) ? 'correct' : _attrIsUnset(cur) ? 'nosource' : 'missourced';
+    // An unpaid touch won and FieldRoutes already has an unpaid source: close enough, not a fix
+    // (Website vs Organic vs Google Business Profile is not worth a correction). It IS a fix when
+    // FieldRoutes still credits a paid channel, or has no source at all.
+    const unpaidBoth = !PAIDSET.has(l.provider) && !_attrIsUnset(cur) && !PAIDSET.has(cur) && !PAIDSET.has(curProv);
+    l.status = (cur === l.provider || curProv === l.provider || unpaidBoth) ? 'correct' : _attrIsUnset(cur) ? 'nosource' : 'missourced';
   }
   // GoHighLevel check (per Isaac): every provider lead SHOULD be in GHL —
   // flag the ones that never made it (null = GHL not loaded yet).
@@ -317,7 +325,7 @@ function _attrReconcileRun(files, G) {
     const inPaid = cv && sd >= cv[0] && sd <= _attrAddDays(cv[1], ATTR_WINDOW_DAYS);
     const inAny = sd >= allFrom && sd <= _attrAddDays(allTo, ATTR_WINDOW_DAYS);
     if (inPaid || (inAny && _attrIsUnset(src))) organic.push({ provider: ATTR_ORGANIC, date: '', name: [r.first_name, r.last_name].filter(Boolean).join(' '), custId: String(r.customer_id), sale: r, isWinner: true, currentSource: src,
-      status: 'toorganic', why: inPaid ? 'no ' + src + ' lead found for them' : 'no paid lead' });
+      status: 'toorganic', why: inPaid ? 'no ' + src + ' lead found for them' : 'no lead' });
   }
   // Leads older than the "sales since" date that never became a sale in range are noise — drop them.
   return leads.filter(l => l.sale ? String(l.sale.sold_date).slice(0, 10) >= since : (l.date || '') >= since).concat(organic);
@@ -331,7 +339,7 @@ const ATTR_STATUS = {
   existing:   ['Already a customer', 'var(--text-muted)'],
   nosale:     ['In CRM, no new sale', 'var(--text-muted)'],
   nomatch:    ['Not in CRM', 'var(--text-muted)'],
-  toorganic:  ['No paid lead — set to Organic', '#DC2626'],
+  toorganic:  ['No lead — set to Organic', '#DC2626'],
   kept:       ['Protected source — kept', 'var(--text-muted)'],
   booked:     ['Booked online by the customer — kept', 'var(--text-muted)'],
   d2d:        ['Door to Door in CRM — kept', 'var(--text-muted)'],
@@ -378,7 +386,7 @@ function attrSourceOverrides() {
 const _attrShould = (l) => l.status === 'toorganic' ? [ATTR_ORGANIC, ''] : (l.sale && l.winner) ? [l.winner, l.winDate || ''] : [l.provider, l.date || ''];
 // When the sale's CURRENT FieldRoutes source last sent a lead before the sale ('' = that channel never did).
 const _attrCurDate = (l) => { if (!l.sale || !l.lastBy) return ''; const cur = reportingSourceOf(l.sale); return l.lastBy[cur] || l.lastBy[(typeof reportingProviderOf === 'function' && reportingProviderOf(cur)) || cur] || ''; };
-// Leads / closes / fixes for a set of rows (closes = sales credited by last paid touch, once per sale).
+// Leads / closes / fixes for a set of rows (closes = sales credited by last touch, once per sale).
 // ── Paper trail for one row (per Isaac): EVERYTHING we hold for that person,
 // oldest first — every GoHighLevel record (whatever its source), every
 // uploaded report row, and every FieldRoutes sale — so the credit can be
@@ -431,7 +439,7 @@ function _attrTrailNode(l, cols) {
   const ev = _attrTrail(l);
   const cell = (v, st) => el('td', { class: 'px-2 py-1 whitespace-nowrap', style: st || {} }, v || '—');
   const verdict = l.sale && l.winner ? 'Credit: ' + l.winner + (l.winDate ? ' (lead ' + l.winDate + ')' : '') + ' · rule: ' + (l.rule || 'last touch') + ' · FieldRoutes currently says ' + reportingSourceOf(l.sale)
-    : l.status === 'toorganic' ? 'No paid lead found before this sale — Organic' : 'No sale tied to this lead';
+    : l.status === 'toorganic' ? 'No lead found before this sale — Organic' : 'No sale tied to this lead';
   return el('tr', { 'data-attr-trail': '1' }, el('td', { colspan: String(cols), class: 'px-4 py-3', style: { background: 'var(--border-2)' } },
     el('div', { class: 'text-[11px] font-bold mb-1' }, 'Paper trail · ' + ev.length + ' record' + (ev.length === 1 ? '' : 's')),
     el('div', { class: 'text-[11px] mb-2', style: muted }, verdict),
@@ -441,7 +449,7 @@ function _attrTrailNode(l, cols) {
       el('tbody', {}, ...ev.map(e => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
         cell(e.d), cell(e.ch, { fontWeight: e.kind === 'sale' || e.paid ? '700' : '400', color: e.kind === 'sale' ? 'var(--accent)' : e.paid ? 'var(--text)' : 'var(--text-muted)' }),
         cell(e.from, muted), cell(e.note, e.kind === 'sale' ? { fontWeight: '600' } : muted),
-        cell(e.win ? '← last paid lead before the sale — gets the credit' : e.kind === 'sale' && e.mine ? '← this sale' : e.kind === 'lead' && !e.paid ? 'not a paid channel' : '', e.win ? { color: 'var(--ok)', fontWeight: '700' } : muted))))) :
+        cell(e.win ? '← last lead before the sale — gets the credit' : e.kind === 'sale' && e.mine ? '← this sale' : '', e.win ? { color: 'var(--ok)', fontWeight: '700' } : muted))))) :
       el('div', { class: 'text-[11px]', style: muted }, 'Nothing on file for this phone / email.')));
 }
 function _attrStats(rows) {
@@ -599,7 +607,7 @@ function mktgAttributionView() {
   const feedCard = el('div', { class: 'card p-4 flex flex-col gap-3' },
     el('div', { class: 'flex items-center gap-3 flex-wrap' },
       el('div', { class: 'text-sm font-bold' }, 'Lead feeds'),
-      el('span', { class: 'text-[11px]', style: muted }, 'Last touch: the last paid lead channel on or before the sale gets the sale. No paid lead = Organic.')),
+      el('span', { class: 'text-[11px]', style: muted }, 'Last touch: the last lead channel on or before the sale gets the sale, paid or not. No lead at all = Organic.')),
     el('div', { class: 'flex items-center gap-3 flex-wrap text-[11px]' },
       el('label', { class: 'inline-flex items-center gap-2 font-semibold cursor-pointer' },
         (() => { const c = el('input', { type: 'checkbox', style: { accentColor: 'var(--accent)' }, onchange: (e) => { A.useGhl = e.target.checked; state._attrMemo = null; _attrSave(); mountApp(); } }); c.checked = useGhl; return c; })(),
@@ -624,7 +632,7 @@ function mktgAttributionView() {
         el('option', { value: '' }, '+ provider'), ...sources.filter(x => !(x in PR)).map(x => el('option', { value: x }, x))),
       el('span', { style: muted }, 'wins the sale when its lead came within the window before the sale, even if another channel touched after.')),
     el('div', { class: 'flex items-center gap-2 flex-wrap text-[11px]' },
-      el('span', { class: 'font-semibold', title: 'A sale with one of these FieldRoutes sources keeps it, even when a paid lead exists. Door to Door is always kept.' }, 'Never overwrite'),
+      el('span', { class: 'font-semibold', title: 'A sale with one of these FieldRoutes sources keeps it, even when a lead exists. Door to Door is always kept.' }, 'Never overwrite'),
       el('span', { class: 'rounded-full px-2 py-0.5 font-semibold', style: { background: 'var(--border-2)' } }, 'Door to Door'),
       ...attrKeep().map(k => el('span', { class: 'inline-flex items-center gap-1 rounded-full px-2 py-0.5', style: { background: 'var(--border-2)' } },
         el('span', { class: 'font-semibold' }, k),
@@ -653,7 +661,7 @@ function mktgAttributionView() {
     el('span', { class: 'text-[11px]', style: muted }, (useGhl && ghlReady ? 'GoHighLevel · ' + GL.leads.length.toLocaleString() + ' leads · synced ' + (Gst.at ? new Date(Gst.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '?') : 'GoHighLevel off')
       + (A.files.length ? ' · ' + A.files.length + ' backup report' + (A.files.length === 1 ? '' : 's') : '')
       + ' · ' + (_attrActiveOnly() ? 'active with an appointment' : 'all sales') + ' since ' + _attrSince()
-      + ' · last paid touch wins' + (Object.keys(PR).length ? ' (' + Object.keys(PR).sort().map(k => k + ' ' + PR[k] + '-day window').join(', ') + ')' : '')),
+      + ' · last touch wins, paid or not' + (Object.keys(PR).length ? ' (' + Object.keys(PR).sort().map(k => k + ' ' + PR[k] + '-day window').join(', ') + ')' : '')),
     el('span', { class: 'ml-auto text-[11px]', style: muted }, setupOpen ? 'Hide' : 'Feeds, rules and backup uploads'));
   // ── Filters: provider · when sold · rep ──
   const provFilter = state._attrProv || 'all';
