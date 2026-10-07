@@ -26,6 +26,9 @@ const ATTR_WINDOW_DAYS = 60;   // a sale counts for a lead when sold within 60 d
 // before the sale, even if another channel touched after. Editable on the
 // Attribution screen; saved for every admin (adminRules.attrPriority).
 const ATTR_PRIORITY_DEFAULT = { ElectGen: 7 };
+// RETIRED going forward (per Isaac, Oct 7): the priority window still decides sales sold through
+// this date (September is being paid to ElectGen under it); every sale after it is plain last touch.
+const ATTR_PRIORITY_UNTIL = '2026-09-30';
 // Sources a lead never overwrites (like Door to Door): the sale keeps its
 // FieldRoutes source even when a paid lead exists. Editable on the screen
 // (adminRules.attrKeep).
@@ -213,7 +216,9 @@ function _attrReconcileRun(files, G) {
     for (const g of G.leads) {
       if (!g.d || g.d < lo) continue;
       if (!ghlFrom || g.d < ghlFrom) ghlFrom = g.d; if (!ghlTo || g.d > ghlTo) ghlTo = g.d;
-      const prov = g.prov;
+      // The contact record is the FIRST touch (its own source, on the day it was created); every later
+      // touch is one of the opportunities above. Only a contact with no opportunity uses its credited source.
+      const prov = g.how === 'opportunity source' ? g.own : g.prov;
       if (!prov || prov === GHL_NOT_LEAD || prov === 'Unknown') continue;
       if (near(prov, g.p, g.d, g.t) || near(prov, g.e, g.d, g.t)) continue;
       const nl = { date: g.d, t: g.t || '', name: '', first: '', last: '', phone: g.p || '', email: g.e || '', zip: '', leadId: '', provider: prov, fileId: 'ghl', via: 'ghl', inGhl: true };
@@ -255,7 +260,7 @@ function _attrReconcileRun(files, G) {
     let win = pool[0], rule = 'last touch';
     // Priority window (ElectGen, 7 days): a lead from that provider inside its
     // window before the sale takes the sale, whatever touched after it.
-    const PR = attrPriority();
+    const PR = sd <= ATTR_PRIORITY_UNTIL ? attrPriority() : {};
     const pri = pool.filter(o => PR[o.x.provider] && o.e[0] >= _attrAddDays(sd, -Number(PR[o.x.provider])) && o.e[0] <= hi);
     if (pri.length && pri[0].x.provider !== win.x.provider) { win = pri[0]; rule = win.x.provider + ' ' + PR[win.x.provider] + '-day window'; }
     else if (pri.length) rule = win.x.provider + ' ' + PR[win.x.provider] + '-day window';
@@ -607,7 +612,7 @@ function mktgAttributionView() {
   const feedCard = el('div', { class: 'card p-4 flex flex-col gap-3' },
     el('div', { class: 'flex items-center gap-3 flex-wrap' },
       el('div', { class: 'text-sm font-bold' }, 'Lead feeds'),
-      el('span', { class: 'text-[11px]', style: muted }, 'Last touch: the last lead channel on or before the sale gets the sale, paid or not. No lead at all = Organic.')),
+      el('span', { class: 'text-[11px]', style: muted }, 'Last touch: the last lead channel on or before the sale gets the sale, paid or not, read from the GoHighLevel opportunity source. No lead at all = Organic.')),
     el('div', { class: 'flex items-center gap-3 flex-wrap text-[11px]' },
       el('label', { class: 'inline-flex items-center gap-2 font-semibold cursor-pointer' },
         (() => { const c = el('input', { type: 'checkbox', style: { accentColor: 'var(--accent)' }, onchange: (e) => { A.useGhl = e.target.checked; state._attrMemo = null; _attrSave(); mountApp(); } }); c.checked = useGhl; return c; })(),
@@ -624,7 +629,7 @@ function mktgAttributionView() {
       el('span', { class: 'inline-flex items-center gap-2' }, el('span', { style: muted }, 'Sales sold since'),
         el('input', { type: 'date', value: _attrSince(), class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { A.since = e.target.value || null; state._attrMemo = null; _attrSave(); mountApp(); } }))),
     el('div', { class: 'flex items-center gap-2 flex-wrap text-[11px]' },
-      el('span', { class: 'font-semibold', title: 'A provider paid per job: it gets the sale when it sent a lead within this many days before the sale, even if another channel touched after.' }, 'Priority window'),
+      el('span', { class: 'font-semibold', title: 'A provider paid per job: it gets the sale when it sent a lead within this many days before the sale, even if another channel touched after. Retired: it only applies to sales sold through Sep 30, 2026. Later sales are plain last touch.' }, 'Priority window (sales through Sep 30 only)'),
       ...Object.keys(PR).sort().map(pv => el('span', { class: 'inline-flex items-center gap-1 rounded-full px-2 py-0.5', style: { background: 'rgba(223,100,58,.10)' } },
         el('span', { class: 'font-semibold' }, pv), numIn(PR[pv], (v) => { setAttrPriority(pv, v); mountApp(); }), el('span', { style: muted }, 'days'),
         el('button', { class: 'text-[13px] leading-none', 'aria-label': 'Remove ' + pv, style: { color: 'var(--text-muted)', minWidth: '24px', minHeight: '24px' }, onclick: () => { setAttrPriority(pv, null); mountApp(); } }, '×'))),
@@ -661,7 +666,7 @@ function mktgAttributionView() {
     el('span', { class: 'text-[11px]', style: muted }, (useGhl && ghlReady ? 'GoHighLevel · ' + GL.leads.length.toLocaleString() + ' leads · synced ' + (Gst.at ? new Date(Gst.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '?') : 'GoHighLevel off')
       + (A.files.length ? ' · ' + A.files.length + ' backup report' + (A.files.length === 1 ? '' : 's') : '')
       + ' · ' + (_attrActiveOnly() ? 'active with an appointment' : 'all sales') + ' since ' + _attrSince()
-      + ' · last touch wins, paid or not' + (Object.keys(PR).length ? ' (' + Object.keys(PR).sort().map(k => k + ' ' + PR[k] + '-day window').join(', ') + ')' : '')),
+      + ' · last touch wins, paid or not' + (Object.keys(PR).length ? ' (' + Object.keys(PR).sort().map(k => k + ' ' + PR[k] + '-day window').join(', ') + ', sales through Sep 30 only)' : '')),
     el('span', { class: 'ml-auto text-[11px]', style: muted }, setupOpen ? 'Hide' : 'Feeds, rules and backup uploads'));
   // ── Filters: provider · when sold · rep ──
   const provFilter = state._attrProv || 'all';

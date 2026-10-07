@@ -3,8 +3,9 @@
 // │ management system, from the hourly sync's compact file
 // │ (reporting/ghl/leads.json.gz). Each GHL source / attribution label maps
 // │ to a provider (Settings → Configurations → GoHighLevel sources); a lead's
-// │ credit is its own LAST TOUCH (per Isaac, Oct 7 — last touch, not last
-// │ PAID touch): the record's last attribution when GoHighLevel has one, else
+// │ credit is its LAST TOUCH (per Isaac, Oct 7 — last touch, not last PAID
+// │ touch): the source on the person's latest OPPORTUNITY (contact source is
+// │ only ever the first touch), else the contact's last attribution, else
 // │ its source. Paid or not makes no difference, and a lead never borrows an
 // │ earlier paid touch from another record of the same person.
 // │ Part of the app.js bundle (tools/bundle.js concatenates src/*.js in name order).
@@ -96,7 +97,7 @@ function ghlLeads() {
   const sig = JSON.stringify(ghlSourceMap()) + '|' + [...paid].sort().join(',');
   const zipOff = _ghlZipOffice();
   const memo = state._ghlMemo;
-  if (memo && memo.rows === G.rows && memo.sig === sig && memo.zipOff === zipOff) return memo.out;
+  if (memo && memo.rows === G.rows && memo.opps === G.opps && memo.sig === sig && memo.zipOff === zipOff) return memo.out;
   const lab = G.labels;
   const pOf = (i) => i >= 0 ? ghlProviderOf(lab[i]) : null;
   // People: same phone or email = one person.
@@ -110,21 +111,33 @@ function ghlLeads() {
     if (e && !byEmail.has(e)) byEmail.set(e, id);
     pid[k] = id;
   });
+  // Latest opportunity with a real source per phone / email → [date, time, provider].
+  const oppLast = new Map();
+  for (const o of (G.opps || [])) {
+    const pv = o[1] >= 0 ? ghlProviderOf(lab[o[1]]) : null;
+    if (!o[0] || !pv || pv === GHL_NOT_LEAD) continue;
+    for (const k of [o[2] && 'p' + o[2], o[3] && 'e' + o[3]]) { if (!k) continue; const c = oppLast.get(k); if (!c || o[0] > c[0] || (o[0] === c[0] && (o[4] || '') >= c[1])) oppLast.set(k, [o[0], o[4] || '', pv]); }
+  }
   const leads = [];
   const notLead = new Map();
   G.rows.forEach((r, k) => {
     const own = pOf(r[1]);
     if (own === GHL_NOT_LEAD) { notLead.set(lab[r[1]], (notLead.get(lab[r[1]]) || 0) + 1); return; }
     let credit = null, how = 'source';
-    // LAST TOUCH (per Isaac, Oct 7): the record's own last attribution wins,
-    // paid or not; with none, its source.
+    // LAST TOUCH = OPPORTUNITY SOURCE (per Isaac, Oct 7, from the GoHighLevel
+    // admin): the contact's source never changes after the first touch, but
+    // each opportunity carries the source of the touch that opened it. So the
+    // person's latest opportunity with a source wins, paid or not. No
+    // opportunity on file: the contact's last attribution, then its source.
+    const op = (r[4] && oppLast.get('p' + r[4])) || (r[5] && oppLast.get('e' + r[5])) || null;
     const la = pOf(r[3]);
-    if (la && la !== GHL_NOT_LEAD) { credit = la; how = 'last touch'; }
+    if (op) { credit = op[2]; how = 'opportunity source'; }
+    else if (la && la !== GHL_NOT_LEAD) { credit = la; how = 'last touch'; }
     if (!credit) credit = own || 'Unknown';
     leads.push({ d: r[0], mi: Number(r[0].slice(5, 7)) - 1, y: r[0].slice(0, 4), prov: credit, own: own || 'Unknown', how, office: zipOff.get(r[6]) || null, p: r[4], e: r[5], t: r[7] || '' });
   });
   const out = { leads, notLead, people: nextId, phones: byPhone, emails: byEmail };
-  state._ghlMemo = { rows: G.rows, sig, zipOff, out };
+  state._ghlMemo = { rows: G.rows, opps: G.opps, sig, zipOff, out };
   return out;
 }
 // Month × provider × office counts for one year (Metrics).
@@ -153,7 +166,7 @@ function reportingGhlSourcesPanel() {
   const btn = 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold';
   const head = el('div', { class: 'flex items-center gap-3 flex-wrap mb-2' },
     el('div', { class: 'text-sm font-bold' }, 'GoHighLevel sources → provider'),
-    el('div', { class: 'text-[11px] flex-1', style: muted, title: '' }, 'Every source and attribution GoHighLevel records, mapped to a provider. A lead is credited to its last touch: its last attribution in GoHighLevel when there is one, otherwise its source. Paid or not makes no difference. Not a new lead = left out of lead counts (door-to-door, CRM workflows, current customers). Paid channels = Lead sources config + Facebook / Google.'),
+    el('div', { class: 'text-[11px] flex-1', style: muted, title: '' }, 'Every source and attribution GoHighLevel records, mapped to a provider. A lead is credited to its last touch, which is the source on the person’s latest opportunity (the contact source only ever shows the first touch). With no opportunity on file it falls back to the contact’s last attribution, then its source. Paid or not makes no difference. Not a new lead = left out of lead counts (door-to-door, CRM workflows, current customers). Paid channels = Lead sources config + Facebook / Google.'),
     G && G.at ? el('span', { class: 'text-[10px]', style: muted }, 'synced ' + new Date(G.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + (G.backfillDone ? '' : ' · history still loading')) : null,
     admin ? el('button', { class: btn, style: { borderColor: 'var(--border-2)' }, onclick: () => ghlSyncNow() }, '↻ Sync now') : null,
     el('button', { class: btn, style: { borderColor: 'var(--border-2)' }, onclick: () => { state._ghl = undefined; ghlLoadLeads(true); } }, 'Reload'));

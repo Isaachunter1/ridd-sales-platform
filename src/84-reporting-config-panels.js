@@ -493,7 +493,7 @@ function reportingSourceConfigPanel() {
                 const ruleSel = el('select', { class: 'rounded border px-1.5 py-1 text-xs cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'transparent', color: _rule ? 'var(--accent)' : 'var(--text)', fontWeight: _rule ? '700' : '400' },
                   onchange: (e) => { if (typeof setAttrRule === 'function') setAttrRule(source, e.target.value); mountApp(); } },
                   el('option', { value: '', selected: _rule === '' }, isPaid ? 'Last touch' : 'Standard'),
-                  ...((isPaid || /^pri:/.test(_rule)) ? _priDays.sort((a, b) => a - b).map(d => el('option', { value: 'pri:' + d, selected: _rule === 'pri:' + d }, 'Priority window · ' + d + ' days')) : []),
+                  ...((isPaid || /^pri:/.test(_rule)) ? _priDays.sort((a, b) => a - b).map(d => el('option', { value: 'pri:' + d, selected: _rule === 'pri:' + d }, 'Priority window · ' + d + ' days (sales through Sep 30)')) : []),
                   el('option', { value: 'keep', selected: _rule === 'keep' }, 'Never overwrite'),
                   el('option', { value: 'booked', selected: _rule === 'booked' }, 'Keep when booked online'));
                 const paidBtn = _adPaid ? el('span', { class: 'text-[11px] font-bold rounded-full px-2.5 py-1 border whitespace-nowrap inline-block', title: 'Ad platform — always a paid channel', style: { background: '#5F6C5B', color: '#fff', borderColor: '#5F6C5B' } }, '$ Paid') : el('button', { class: 'text-[11px] font-bold rounded-full px-2.5 py-1 border cursor-pointer whitespace-nowrap',
@@ -1099,7 +1099,7 @@ function _mktgProviders(vizOnly) {
   const leadsOk = !!GL || (mode === 'provider' && !scopeBranches);   // hand-entered leads are per provider only; GoHighLevel leads carry an office (ZIP)
   const leads = GL ? (rk, i) => GL.cell(chsOf(rk), bsWide(rk), i)
     : (rk, i) => chsOf(rk).reduce((t, ch) => t + (Number((m.leads[_mktgYm(y, i)] || {})[ch]) || 0), 0);
-  const leadNote = GL ? 'GoHighLevel · credit = the lead’s last touch (paid or not), else its source · office from the lead’s ZIP' : 'hand-entered (Spend entry)';
+  const leadNote = GL ? 'GoHighLevel · credit = the latest opportunity source (last touch, paid or not), else the contact’s source · office from the lead’s ZIP' : 'hand-entered (Spend entry)';
   const ratioTotal = (num, den) => (rk) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += num(rk, i); d += den(rk, i); } return _mktgDiv(n, d); };
   const gs = (goal, better) => (v) => v == null ? {} : { color: better(v, goal) ? '#5F6C5B' : '#DC2626', fontWeight: '600' };
   const rows = mode === 'provider' ? [...channels, TOTAL] : G.rows;
