@@ -125,25 +125,33 @@ function insideSalesTabsFor(role) {
 // Admin-only segmented toggle between the two halves of "Sales":
 // Inside Sales (office) ⇄ D2D Sales (the commission calculator). Reps never
 // see it — their rep type decides which half IS their Sales tab.
+// ONE button (per Isaac, Oct 7): it shows the user type whose dashboard is open and each click steps to the
+// next one — Office Staff → D2D Sales → Technicians → All. It opens on the viewer's own type. "All" (every
+// user type on one dashboard) is for admins and developers; Office Staff - Office steps through the first three.
+function canSeeAllWorld(r) { return isAdminRole(r) || (typeof isDeveloperRole === 'function' && isDeveloperRole(r)); }
 function salesModeToggle(mode) {
-  if (!canWalkWorlds(state.profile?.role)) return null;   // admins, developers and Office Staff - Office walk all three worlds
-  const btn = (m, label) => el('button', {
-    class: 'sales-mode-btn px-2.5 py-1 text-[11px] font-bold transition',
-    style: mode === m ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
-    onclick: () => {
-      if (m === mode) return;
-      const target = m === 'd2d'
-        ? (D2D_SALES_TAB_KEYS.has(state._lastD2dTab) ? state._lastD2dTab : 'd2d_dashboard')
-        : m === 'techs'
-          ? 'techs'
-          : (INSIDE_SALES_TAB_KEYS.has(state._lastIsTab) && state._lastIsTab !== 'competitions' ? state._lastIsTab : 'dashboard');
-      state.view = target;
-      history.replaceState(null, '', VIEW_TO_HASH[target] || '#' + target);
-      mountApp();
-    },
-  }, label);
-  return el('div', { class: 'sales-mode-toggle inline-flex rounded-lg border overflow-hidden mr-2 shrink-0', style: { borderColor: 'var(--border-2)' } },
-    btn('inside', 'Office Staff'), btn('d2d', 'D2D Sales'), btn('techs', 'Technicians'));   // 'Office Staff' matches FieldRoutes (per Isaac)
+  const role = state.profile?.role;
+  if (!canWalkWorlds(role)) return null;   // admins, developers and Office Staff - Office walk the worlds
+  const opts = [['inside', 'Office Staff'], ['d2d', 'D2D Sales'], ['techs', 'Technicians']];   // 'Office Staff' matches FieldRoutes (per Isaac)
+  if (canSeeAllWorld(role)) opts.push(['all', 'All']);
+  const i = Math.max(0, opts.findIndex(o => o[0] === mode));
+  const next = opts[(i + 1) % opts.length];
+  const go = (m) => {
+    const target = m === 'd2d'
+      ? (D2D_SALES_TAB_KEYS.has(state._lastD2dTab) ? state._lastD2dTab : 'd2d_dashboard')
+      : m === 'techs' ? 'techs'
+      : m === 'all' ? 'all_dashboard'
+      : (INSIDE_SALES_TAB_KEYS.has(state._lastIsTab) && state._lastIsTab !== 'competitions' ? state._lastIsTab : 'dashboard');
+    state.view = target;
+    history.replaceState(null, '', VIEW_TO_HASH[target] || '#' + target);
+    mountApp();
+  };
+  return el('button', {
+    class: 'sales-mode-toggle sales-mode-btn inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-bold transition mr-2 shrink-0 whitespace-nowrap',
+    style: { borderColor: 'var(--accent)', background: 'var(--accent)', color: 'var(--accent-text)', justifyContent: 'center' },
+    title: 'Showing ' + opts[i][1] + '. Click for ' + next[1] + ' (' + opts.map(o => o[1]).join(' → ') + ').',
+    onclick: () => go(next[0]),
+  }, opts[i][1], el('span', { style: { opacity: '.75', fontSize: '11px' } }, '⇄'));
 }
 function insideSalesSubTabs() {
   const tabs = insideSalesTabsFor(state.profile?.role);
@@ -180,7 +188,7 @@ function insideSalesSubTabs() {
 // D2D counterpart — same bar, same mobile dropdown consolidation, with the
 // admin Inside/D2D/Techs toggle riding in front.
 function d2dSalesSubTabs(mode) {
-  const tabs = (mode === 'techs' ? TECH_TABS : D2D_SALES_TABS).filter(([k]) => viewFeatureOn(k))
+  const tabs = (mode === 'all' ? [['all_dashboard', 'Dashboard']] : mode === 'techs' ? TECH_TABS : D2D_SALES_TABS).filter(([k]) => viewFeatureOn(k))
     .filter(([k]) => isAdminRole(state.profile?.role) || !VIEW_TAB_PERM[k] || userCan(VIEW_TAB_PERM[k]))   // Settings → Permissions
     .filter(([k]) => state.profile?.role !== 'office_staff' || k === 'd2d_dashboard' || k === 'techs');   // Office Staff - Office: the other worlds' dashboards only
   const go = (k) => { state.view = k; state._navChosen = true; history.replaceState(null, '', VIEW_TO_HASH[k] || '#' + k); mountApp(); };
@@ -204,7 +212,7 @@ function d2dSalesSubTabs(mode) {
       onchange: (e) => go(e.target.value),
     }, ...tabs.map(([k, label]) => el('option', { value: k, selected: state.view === k }, label))));
   return el('div', { class: 'sales-subtabs flex items-center flex-wrap gap-x-1 gap-y-0 border-b mb-4', style: { borderColor: 'var(--border)' } },
-    salesModeToggle(mode === 'techs' ? 'techs' : 'd2d'),
+    salesModeToggle(mode === 'all' ? 'all' : mode === 'techs' ? 'techs' : 'd2d'),
     tabBar,
     tabSelect);
 }
@@ -738,6 +746,11 @@ function mountApp() {
   // toggle already renders admin-only); this guard enforces it on deep
   // links and stale resumes too. Competitions stays open to everyone.
   // Office Staff - Office may open the OTHER worlds' dashboards only (deep links to their Sales / Pay bounce to the dashboard).
+  // The All dashboard is for admins and developers; anyone else lands on their own home.
+  if (state.view === 'all_dashboard' && state.profile && !canSeeAllWorld(state.profile.role)) {
+    state.view = isAuditor ? 'sales' : (typeof indHomeView === 'function' ? indHomeView() : 'dashboard');
+    history.replaceState(null, '', VIEW_TO_HASH[state.view] || '#' + state.view);
+  }
   if (state.profile && state.profile.role === 'office_staff') {
     if (D2D_SALES_TAB_KEYS.has(state.view) && state.view !== 'd2d_dashboard') { state.view = 'd2d_dashboard'; history.replaceState(null, '', VIEW_TO_HASH.d2d_dashboard || '#d2d_dashboard'); }
     else if (TECH_TAB_KEYS.has(state.view) && state.view !== 'techs') { state.view = 'techs'; history.replaceState(null, '', VIEW_TO_HASH.techs || '#techs'); }
@@ -810,7 +823,7 @@ function mountApp() {
     || (isOfficeStaff && INSIDE_SALES_TAB_KEYS.has(v) && _tabOk(v))
     || (isOfficeStaff && LOYALTY_TAB_KEYS.has(v) && _tabOk(v))
     || (isRepOnly && state.profile?.role === 'office_staff' && (v === 'd2d_dashboard' || v === 'techs'))   // Office Staff - Office: the other worlds' dashboards (per Isaac, Oct 6)
-    || (_isDev && (INSIDE_SALES_TAB_KEYS.has(v) || D2D_SALES_TAB_KEYS.has(v) || TECH_TAB_KEYS.has(v) || LOYALTY_TAB_KEYS.has(v)) && _tabOk(v));   // Developer: every world            // Office staff: the Loyalty group
+    || (_isDev && (INSIDE_SALES_TAB_KEYS.has(v) || D2D_SALES_TAB_KEYS.has(v) || TECH_TAB_KEYS.has(v) || LOYALTY_TAB_KEYS.has(v) || v === 'all_dashboard') && _tabOk(v));   // Developer: every world            // Office staff: the Loyalty group
   if (isRepOnly && !repCanSee(state.view)) {
     // Home per rep type (per Isaac): Sales Reps land in their D2D Sales
     // group; office staff on their Sales world; others keep Indicators.
@@ -894,7 +907,7 @@ function mountApp() {
     ),
     // Nav items
     ...navItems.map(([k, label, icon]) => {
-      const active = k === 'inside_sales' ? INSIDE_SALES_TAB_KEYS.has(state.view)
+      const active = k === 'inside_sales' ? (INSIDE_SALES_TAB_KEYS.has(state.view) || state.view === 'all_dashboard')
         : k === 'd2d_group' ? D2D_SALES_TAB_KEYS.has(state.view)
         : k === 'loyalty_group' ? LOYALTY_TAB_KEYS.has(state.view)
         : state.view === k;
@@ -1228,6 +1241,7 @@ function mountApp() {
     commission:   viewCommission,
     d2d_dashboard: viewWorldDashboard,    // Indicators preset to D2D Sales
     d2d_sales:    viewSales,
+    all_dashboard: viewWorldDashboard,    // Indicators with every user type (admins / developers)
     techs:        viewWorldDashboard,     // Indicators preset to Technicians
     tech_sales:   viewSales,
     tech_pay:     viewTechPay,
@@ -1320,6 +1334,8 @@ function mountApp() {
   } else if (TECH_TAB_KEYS.has(state.view)) {
     const subTabBar = d2dSalesSubTabs('techs');
     _placeBar(subTabBar);
+  } else if (state.view === 'all_dashboard') {
+    _placeBar(d2dSalesSubTabs('all'));
   } else if (LOYALTY_TAB_KEYS.has(state.view)) {
     contentWrap.append(_pinBar(loyaltySubTabs()));
   }
@@ -1334,7 +1350,7 @@ function mountApp() {
 
   // Floating action button — hidden on admin/settings, indicators, and calendar
   // (those tabs aren't sales-input contexts)
-  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'nrla', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'd2d_dashboard', 'd2d_sales', 'techs', 'tech_sales', 'tech_pay', 'auditing']);
+  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'nrla', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'd2d_dashboard', 'd2d_sales', 'techs', 'all_dashboard', 'tech_sales', 'tech_pay', 'auditing']);
   document.querySelector('.fab')?.remove();
   // + FAB is OFFICE STAFF only (per Isaac) — admins don't log sales from a
   // floating button, and the retired AI speed-dial no longer replaces it.

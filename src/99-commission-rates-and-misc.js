@@ -1226,6 +1226,7 @@ const USAGE_SCREEN_NAMES = {
   dashboard: 'Inside Sales · Dashboard', sales: 'Inside Sales · Sales', pay: 'Inside Sales · Pay', scorecards: 'Scorecards', calendar: 'Calendar',
   hall_of_fame: 'Hall of Fame', competitions: 'Competitions', nrla: 'Competitions', queues: 'Queues',
   d2d_dashboard: 'D2D · Dashboard', d2d_sales: 'D2D · Sales', commission: 'D2D · Pay',
+  all_dashboard: 'All user types · Dashboard',
   techs: 'Technicians · Dashboard', tech_sales: 'Technicians · Sales', tech_pay: 'Technicians · Pay',
   indicators: 'Indicators', reporting: 'Reporting', marketing: 'Marketing', admin: 'Settings', auditing: 'Auditing', pricing: 'Pricing',
 };

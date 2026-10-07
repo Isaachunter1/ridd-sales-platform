@@ -34,7 +34,7 @@ function indLazy(key, build, attrs, estHeight) {
   io.observe(ph);
   return ph;
 }
-const IND_WORLD = { dashboard: 'office', d2d_dashboard: 'd2d', techs: 'techs' };
+const IND_WORLD = { dashboard: 'office', d2d_dashboard: 'd2d', techs: 'techs', all_dashboard: 'all' };   // all_dashboard (per Isaac, Oct 7): every user type on one dashboard, admins and developers only
 // ── Teams belong to a rep type (per Isaac, Oct 4). Teams today are D2D
 // teams. On the Office Staff / Technicians dashboards a team only counts
 // when a rep OF THAT TYPE is assigned to it — so a door-to-door team never
