@@ -2049,7 +2049,43 @@ function linkRenewalChains(rows) {
       links++;
     }
   }
+  // SECOND PASS — closes with NO cancel reason (per Isaac, Oct 8). The data feed has no reason for ~2,900 older
+  // cancels (FieldRoutes does). When such a sub was closed right as a renewal-source sub was sold to the same
+  // customer (renewal sold from 7 days before the close to 7 days after), it is that renewal's old plan — checked
+  // against Isaac's FieldRoutes sheet: 54 of 55 sampled were renewals there. The old sub gets the renewal's own
+  // label as its reason (flagged cancel_reason_inferred) so every rule that reads the reason treats it as a renewal,
+  // and the renewal is chained to it like any other. A blank close with no renewal beside it is left alone.
+  const NEAR = 7 * DAY; let inferred = 0;
+  for (const subs of byCust.values()) {
+    if (subs.length < 2) continue;
+    const news = subs.filter(r => isRenewalSource(r) && r.sold_date && !r.is_renewal_cont);
+    if (!news.length) continue;
+    const olds = subs.filter(r => r.subscription_date_canceled && !String(r.subscription_cancellation_reason || '').trim() && !/active/i.test(String(r.subscription_status || '')) && !r.renewed_into);
+    if (!olds.length) continue;
+    const used = new Set();
+    for (const n of news.sort((x, y) => String(x.sold_date).localeCompare(String(y.sold_date)))) {
+      const ns = t(n.sold_date); if (isNaN(ns)) continue;
+      let best = null, bestGap = Infinity;
+      for (const o of olds) {
+        if (o === n || used.has(o) || !(String(o.sold_date || '') < String(n.sold_date))) continue;
+        const oc = t(o.subscription_date_canceled); if (isNaN(oc)) continue;
+        const gap = Math.abs(ns - oc); if (gap > NEAR) continue;
+        if (gap < bestGap) { best = o; bestGap = gap; }
+      }
+      if (!best) continue;
+      used.add(best);
+      best.subscription_cancellation_reason = String(n.subscription_source).trim();
+      best.cancel_reason_inferred = true;
+      n.is_renewal_cont = true;
+      n.origin_initial_service = best.origin_initial_service || best.initial_service || null;
+      n.origin_sold_date = best.origin_sold_date || best.sold_date || null;
+      n.renewal_prev_arv = Number(best.annual_recurring_value) || 0;
+      best.renewed_into = n.subscription_id || true;
+      links++; inferred++;
+    }
+  }
   state._renewalLinks = links;
+  state._renewalReasonsInferred = inferred;
   return rows;
 }
 async function _loadCrmDeletedIds() {
