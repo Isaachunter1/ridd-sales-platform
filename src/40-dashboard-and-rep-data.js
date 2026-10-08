@@ -3442,6 +3442,12 @@ function openIndicatorRepCard(rep, allReps = []) {
         : { key: 'avgInitial', label: 'Avg Initial',      value: avgInitial > 0 ? fmt.usd(avgInitial) : '—' }),
       { key: 'myPct',      label: 'MY %',       value: (myPct * 100).toFixed(1) + '%' },
       { key: 'autoPay',    label: 'Auto Pay',   value: (autoPayPct * 100).toFixed(1) + '%' },
+      // Audit % (per Isaac, Oct 8 — asked for by the office lead): accounts NOT flagged Failed Audit ÷ all
+      // accounts, every user type, same number as the leaderboard. Click it for the accounts behind it.
+      (() => { let f = 0, p = 0; for (const x of allSales) { const b = auditBucketOf(x); if (b === 'failed') f++; else if (b === 'pending') p++; }
+        const n = allSales.length;
+        return { key: 'audit', label: 'Audit %', value: n > 0 ? ((n - f) / n * 100).toFixed(1) + '%' : '\u2014', sub: fmt.int(f) + ' failed \u00b7 ' + fmt.int(p) + ' awaiting',
+          title: 'Accounts NOT flagged Failed Audit \u00f7 all accounts \u00b7 passed, no-audit and awaiting all count as good \u00b7 same as the leaderboard\u2019s Audit % \u00b7 click for the accounts' }; })(),
       { key: 'cancels',    label: 'Cancels',    value: fmt.int(_mo.cancels != null ? _mo.cancels : (scopedRep.cancels || 0)) },
       // Ninth tile (per Isaac): the SAME attrition the leaderboard's Attrition %
       // column shows — cancelled $ ÷ serviced $, 3-day RORs + one-time out of
@@ -3462,6 +3468,13 @@ function openIndicatorRepCard(rep, allReps = []) {
   // can update them — see scopedStats above)
 
   const drillSubs = {
+    audit: [
+      { id: null,      label: 'Not passing' },
+      { id: 'failed',  label: 'Failed audit' },
+      { id: 'pending', label: 'Awaiting audit' },
+      { id: 'passed',  label: 'Passed / no audit' },
+      { id: 'all',     label: 'All' },
+    ],
     autoPay: [
       { id: null,  label: 'All' },
       { id: 'on',  label: 'On Auto Pay' },
@@ -3512,6 +3525,12 @@ function openIndicatorRepCard(rep, allReps = []) {
           if (drillSub === 'off') return !on;
           return true;
         }).sort((a, b) => (b.dateSold || '').localeCompare(a.dateSold || ''));
+      case 'audit': {
+        // Opens on the accounts that are NOT passing (failed first, then still awaiting) — the ones to chase.
+        const rank = { failed: 0, pending: 1, passed: 2 };
+        return all.filter(s => { const b = auditBucketOf(s); return drillSub === 'all' ? true : drillSub ? b === drillSub : b !== 'passed'; })
+          .sort((a, b) => (rank[auditBucketOf(a)] - rank[auditBucketOf(b)]) || (b.dateSold || '').localeCompare(a.dateSold || ''));
+      }
       case 'soldSvc':
         // Sold/Serviced drill: the NOT-yet-serviced accounts (the gap), newest first — the ones to chase.
         return all.filter(s => !((Number(s.services) || 0) > 0 || !!s.servicedDate))
@@ -3531,7 +3550,7 @@ function openIndicatorRepCard(rep, allReps = []) {
 
   function exportDrillCsv(drillSales) {
     if (drillSales.length === 0) return toast('Nothing to export', 'warn');
-    const headers = ['customer','customer_id','subscription','sold_date','contract_months','initial','contract_value','recurring','auto_pay','status','cancel_date','cancel_reason'];
+    const headers = ['customer','customer_id','subscription','sold_date','contract_months','initial','contract_value','recurring','auto_pay','status','cancel_date','cancel_reason','audit'];
     const lines = [headers.join(',')];
     drillSales.forEach(s => lines.push([
       csvEsc(s.customer || ''),
@@ -3546,6 +3565,7 @@ function openIndicatorRepCard(rep, allReps = []) {
       csvEsc(s.status || ''),
       csvEsc(s.cancelDate || ''),
       csvEsc(s.cancelReason || ''),
+      auditBucketOf(s) === 'pending' ? 'awaiting' : auditBucketOf(s),
     ].join(',')));
     const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
     const url  = URL.createObjectURL(blob);
@@ -3561,7 +3581,9 @@ function openIndicatorRepCard(rep, allReps = []) {
     // auto-fit grid: 9 tiles flow 3-up on phones and up to 9-up on wide
     // desktops without needing a grid-cols-9 utility in the static CSS.
     // 3 × 3 on phones, 5 + 4 on desktop (wider tiles, two rows — per Isaac); columns come from .rep-stats-grid in index.html.
-    return el('div', { class: 'grid gap-2 sm:gap-3 mb-5 rep-stats-grid' },
+    // 11 tiles since Audit % (Oct 8): 6 + 5 on desktop instead of 5 + 5 + a stray one; phones stay 3-up.
+    let _wide = false; try { _wide = window.matchMedia('(min-width: 640px)').matches; } catch (e) { /* phones */ }
+    return el('div', { class: 'grid gap-2 sm:gap-3 mb-5 rep-stats-grid', style: (_wide && scopedStats.length === 11) ? { gridTemplateColumns: 'repeat(6, minmax(0, 1fr))' } : {} },
       ...scopedStats.map(stat => {
         const selected = drillKey === stat.key;
         return el('div', {
@@ -4294,6 +4316,7 @@ function openIndicatorRepCard(rep, allReps = []) {
                     (drillKey === 'avgInitial' || drillKey === 'avgPest') ? 'Initial' : 'Value'),
                   (drillKey === 'cancels' || drillKey === 'cancelPct')
                     ? el('th', { class: 'text-left px-2 py-2' }, 'Reason')
+                    : drillKey === 'audit' ? el('th', { class: 'text-center px-2 py-2' }, 'Audit')
                     : el('th', { class: 'text-center px-2 py-2' }, 'Auto Pay'),
                 ),
               ),
@@ -4318,6 +4341,10 @@ function openIndicatorRepCard(rep, allReps = []) {
                     el('td', { class: 'px-2 py-2 text-right tabular-nums font-semibold' }, headlineValue),
                     (drillKey === 'cancels' || drillKey === 'cancelPct')
                       ? el('td', { class: 'px-2 py-2 text-muted-' }, s.cancelReason || '—')
+                      : drillKey === 'audit' ? (() => { const b = auditBucketOf(s);
+                          return el('td', { class: 'px-2 py-2 text-center', title: s.customerFlags || 'No flags on the account' }, el('span', { class: 'text-[10px] font-semibold px-2 py-0.5 rounded whitespace-nowrap',
+                            style: b === 'failed' ? { background: 'rgba(220,38,38,.12)', color: '#B91C1C' } : b === 'pending' ? { background: 'rgba(180,83,9,.14)', color: '#B45309' } : { background: 'rgba(95,108,91,.16)', color: '#5F6C5B' } },
+                            b === 'failed' ? 'Failed' : b === 'pending' ? 'Awaiting' : 'Passed')); })()
                       : el('td', { class: 'px-2 py-2 text-center' },
                           el('span', {
                             class: 'text-[10px] font-semibold px-2 py-0.5 rounded',

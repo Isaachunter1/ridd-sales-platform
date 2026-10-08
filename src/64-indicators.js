@@ -5197,13 +5197,21 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
 // ── Sales Mix table — shared by the Indicators page (grouped by
 // Subscription / Office / Team) and the rep player cards (scoped to one
 // rep's accounts). Same columns whatever the grouping: Count, % Mix,
-// Revenue, ACV, Avg Init, MY %, Auto-pay, Attr %. ──
+// Revenue, ACV, Avg Init, MY %, Auto-pay, Audit %, Attr %. ──
+// Audit bucket of one account (per Isaac, Oct 8 — player cards + Sales Mix): 'failed' = carries the Failed-audit
+// flag (Settings), 'passed' = flagged Passed Audit or No Audit, 'pending' = neither yet. Audit % everywhere is
+// accounts NOT failed ÷ all accounts, the same number as the leaderboard's Audit % column.
+function auditBucketOf(s) {
+  const f = (s && s.customerFlags) || '';
+  if (typeof auditFailRe === 'function' && auditFailRe().test(f)) return 'failed';
+  return (typeof scAuditPassed === 'function' && scAuditPassed(f)) ? 'passed' : 'pending';
+}
 function indicatorSubscriptionMixCard(subSales, opts = {}) {
   const keyOf = opts.keyOf || ((s) => s.subscription || 'Unknown');
   const subMix = {};
   subSales.forEach(s => {
     const sub = keyOf(s);
-    if (!subMix[sub]) subMix[sub] = { count: 0, revenue: 0, cancels: 0, initSum: 0, multi: 0, twelve: 0, apOn: 0 };
+    if (!subMix[sub]) subMix[sub] = { count: 0, revenue: 0, cancels: 0, initSum: 0, multi: 0, twelve: 0, apOn: 0, auditFail: 0 };
     const m = subMix[sub];
     m.count++;
     m.revenue += s.contractValue;
@@ -5211,6 +5219,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
     const _myb = myBucketOf(s);
     if (_myb === 'multi') m.multi++; else if (_myb === 'twelve') m.twelve++;
     if (s.autoPay && s.autoPay !== 'No') m.apOn++;
+    if (auditBucketOf(s) === 'failed') m.auditFail++;
     if (typeof _isReportableCancel === 'function' ? _isReportableCancel(s) : !!s.cancelDate) m.cancels++;
   });
   const totalSubCount = subSales.length; // includes Unknown
@@ -5231,16 +5240,17 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
 
   // Blended totals across ALL accounts (the reference row on top).
   const T = (() => {
-    let _rev = 0, _init = 0, _mu = 0, _tw = 0, _ap = 0, _cx = 0;
+    let _rev = 0, _init = 0, _mu = 0, _tw = 0, _ap = 0, _cx = 0, _af = 0;
     subSales.forEach(s => {
       _rev += s.contractValue; _init += Number(s.initialPrice) || 0;
       const _myb = myBucketOf(s);
       if (_myb === 'multi') _mu++; else if (_myb === 'twelve') _tw++;
       if (s.autoPay && s.autoPay !== 'No') _ap++;
+      if (auditBucketOf(s) === 'failed') _af++;
       if (typeof _isReportableCancel === 'function' ? _isReportableCancel(s) : !!s.cancelDate) _cx++;
     });
     const _n = totalSubCount;
-    return { n: _n, rev: _rev, init: _init, my: (_mu + _tw) > 0 ? _mu / (_mu + _tw) : null, ap: _ap, attr: _n > 0 ? _cx / _n : 0 };
+    return { n: _n, rev: _rev, init: _init, my: (_mu + _tw) > 0 ? _mu / (_mu + _tw) : null, ap: _ap, af: _af, attr: _n > 0 ? _cx / _n : 0 };
   })();
   const attrColor = (a) => a >= 0.10 ? '#DC2626' : a >= 0.05 ? '#A9441F' : '#DF643A';
   // Metric columns — one definition drives the desktop table AND the phone
@@ -5258,6 +5268,8 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
       row: (s) => el('div', { class: 'w-12 text-right tabular-nums text-muted- shrink-0' }, s.myPct == null ? '—' : (s.myPct * 100).toFixed(0) + '%') },
     { key: 'apay', label: 'APay', w: 'w-14', title: 'Auto-pay share', total: () => el('div', { class: 'w-14 text-right tabular-nums shrink-0 font-bold' }, T.n > 0 ? (T.ap / T.n * 100).toFixed(0) + '%' : '—'),
       row: (s) => el('div', { class: 'w-14 text-right tabular-nums text-muted- shrink-0' }, s.count > 0 ? (s.apOn / s.count * 100).toFixed(0) + '%' : '—') },
+    { key: 'audit', label: 'Audit %', w: 'w-14', title: 'Accounts NOT flagged Failed Audit \u00f7 all accounts (passed, no-audit and awaiting all count as good). Same as the leaderboard\u2019s Audit %.', total: () => el('div', { class: 'w-14 text-right tabular-nums shrink-0 font-bold', style: T.af > 0 ? { color: '#DC2626' } : {} }, T.n > 0 ? ((T.n - T.af) / T.n * 100).toFixed(0) + '%' : '\u2014'),
+      row: (s) => el('div', { class: 'w-14 text-right tabular-nums shrink-0 ' + (s.auditFail > 0 ? 'font-semibold' : 'text-muted-'), style: s.auditFail > 0 ? { color: '#DC2626' } : {}, title: s.auditFail > 0 ? fmt.int(s.auditFail) + ' failed audit' : '' }, s.count > 0 ? ((s.count - s.auditFail) / s.count * 100).toFixed(0) + '%' : '\u2014') },
     { key: 'attr', label: 'Attr %', w: 'w-14', title: 'Reportable cancels ÷ accounts (RORs, SNS, combined, one-time and renewals excluded)', total: () => el('div', { class: 'w-14 text-right tabular-nums font-black shrink-0', style: { color: attrColor(T.attr) } }, (T.attr * 100).toFixed(1) + '%'),
       row: (s) => el('div', { class: 'w-14 text-right tabular-nums font-semibold shrink-0', style: { color: attrColor(s.attr) } }, (s.attr * 100).toFixed(1) + '%') },
   ];
@@ -5270,7 +5282,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
     const firstCol = (cls, txt, title) => el('div', { class: (narrow ? '' : 'w-[200px] sm:w-[240px]') + ' shrink-0 ' + cls, title: title || undefined, style: narrow ? { width: '112px', minWidth: '112px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } : { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1 } }, txt);
     const topSubscriptions = visibleSubs();
     const maxShare = topSubscriptions.reduce((m, s) => Math.max(m, s.share), 0.0001);
-    body.replaceChildren(el('div', { class: narrow ? '' : 'scroll-x' }, el('div', { style: narrow ? {} : { minWidth: '860px' } },
+    body.replaceChildren(el('div', { class: narrow ? '' : 'scroll-x' }, el('div', { style: narrow ? {} : { minWidth: '930px' } },
       el('div', { class: 'flex items-center gap-3 text-[10px] uppercase tracking-wider text-muted- font-semibold pb-1.5' },
         firstCol('', opts.firstCol || 'Subscription'),
         el('div', { class: 'flex-1 text-right pr-2' }, 'Total'),
