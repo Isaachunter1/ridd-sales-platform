@@ -19,12 +19,38 @@ function reportingLoadAdSpend(year, force) {
   _apiAuthHeaders({ accept: 'application/json' })
     .then(h => fetch('/api/ad-spend?year=' + year + (force ? '&_=' + Date.now() : ''), { headers: h }))
     .then(r => r.ok ? r.json() : r.json().catch(() => ({})).then(j => { throw new Error(j.error || ('HTTP ' + r.status)); }))
-    .then(j => { state._adSpend[year] = { rows: j.rows || [], pulledAt: j.pulledAt, errors: j.errors || [] }; mountApp(); })
+    .then(j => { state._adSpend[year] = { rows: j.rows || [], geo: j.geo || [], pulledAt: j.pulledAt, errors: j.errors || [] }; mountApp(); })
     .catch(e => { state._adSpend[year] = { failAt: Date.now(), error: String((e && e.message) || e), rows: cur && cur.rows ? cur.rows : null }; mountApp(); });
 }
 function adProviderOf(r) {
   if (r.platform === 'facebook') return 'Facebook';
   return (r.type === 'LOCAL_SERVICES' || /^LocalServicesCampaign/i.test(r.campaign)) ? 'Google Local Services' : 'Google Ads';
+}
+// Google metro → branch (per Isaac, Oct 9). Defaults below; any metro can be re-pointed on the Spend tab
+// (adminRules.adMetroBranch). A metro with no branch is spread over the campaign's other metros pro rata.
+const AD_METRO_DEFAULTS = [[/atlanta/i, 'Atlanta'], [/charleston, sc/i, 'Charleston'], [/norfolk|richmond/i, 'Virginia Beach'], [/myrtle beach|wilmington/i, 'Myrtle Beach'],
+  [/raleigh|greenville-new bern/i, 'Raleigh'], [/panama city|pensacola|walton/i, 'Destin'], [/detroit/i, 'Detroit'], [/joplin/i, 'Joplin'], [/little rock/i, 'Little Rock'], [/salt lake/i, 'Salt Lake']];
+function adMetroMap() { const R = (typeof _adminRules === 'function') ? _adminRules() : null; return (R && R.adMetroBranch) || {}; }
+function adMetroBranch(metro, branches) {
+  const set = adMetroMap()[metro];
+  const find = (name) => branches.find(b => String(b).toLowerCase() === String(name).toLowerCase()) || '';
+  if (set === '') return '';
+  if (set) return find(set) || set;
+  for (const [re, to] of AD_METRO_DEFAULTS) if (re.test(metro)) return find(to);
+  return '';
+}
+// One Google campaign-month → { BRANCH: $ } from the location report, scaled to the campaign's spend; null if no geo.
+function adGeoSplit(r, branches) {
+  if (r.platform !== 'google') return null;
+  const S = (state._adSpend || {})[Number(String(r.ym).slice(0, 4))] || {};
+  const geo = (S.geo || []).filter(g => g.ym === r.ym && g.acct === r.acct && g.campaign === r.campaign);
+  if (!geo.length) return null;
+  const by = {}, metros = []; let mapped = 0, unm = 0;
+  for (const g of geo) { const b = adMetroBranch(g.metro, branches); metros.push({ metro: g.metro, spend: g.spend, b }); if (b) { by[b] = (by[b] || 0) + g.spend; mapped += g.spend; } else unm += g.spend; }
+  if (!mapped) return null;
+  const f = r.spend / mapped;   // unmapped metros + rounding spread pro rata
+  for (const b in by) by[b] = by[b] * f;
+  return { by, metros, unmapped: unm };
 }
 function adCampaignKey(r) { return r.platform + '|' + r.acct + '|' + r.campaign; }
 function adCampaignOfficeMap() { const R = (typeof _adminRules === 'function') ? _adminRules() : null; return (R && R.adCampaignOffice) || {}; }

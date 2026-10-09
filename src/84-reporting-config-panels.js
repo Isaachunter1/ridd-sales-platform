@@ -1295,7 +1295,7 @@ function _mktgAdSpendMonth(ym, branches) {
   const y = Number(String(ym).slice(0, 4));
   if (typeof reportingLoadAdSpend === 'function') reportingLoadAdSpend(y);
   const S = (state._adSpend || {})[y] || {};
-  const out = { has: new Set(), cells: {}, open: [], loading: !S.rows, error: S.error || '' };
+  const out = { has: new Set(), cells: {}, open: [], geo: [], loading: !S.rows, error: S.error || '' };
   if (!S.rows) return out;
   const by = new Map();
   for (const r of S.rows) {
@@ -1303,6 +1303,9 @@ function _mktgAdSpendMonth(ym, branches) {
     const prov = adProviderOf(r); out.has.add(prov);
     const offs = adOfficesOf(r, branches).filter(t => !String(t).startsWith(AD_ENT) && branches.includes(t));
     if (offs.length) { const part = r.spend / offs.length; for (const b of offs) { const c = out.cells[prov] = out.cells[prov] || {}; c[b] = (c[b] || 0) + part; } continue; }
+    // One campaign across several branches (Brand Search, PMAX): Google's location report splits it by metro.
+    const G = typeof adGeoSplit === 'function' ? adGeoSplit(r, branches) : null;
+    if (G) { const c = out.cells[prov] = out.cells[prov] || {}; for (const b in G.by) c[b] = (c[b] || 0) + G.by[b]; out.geo.push({ r, prov, G }); continue; }
     const k = adCampaignKey(r); const x = by.get(k) || { k, r, prov, spend: 0 }; x.spend += r.spend; by.set(k, x);
   }
   out.open = [...by.values()].sort((a, b) => b.spend - a.spend);
@@ -1368,6 +1371,21 @@ function _mktgControllerTable() {
           td(x.prov), td((x.r.acctName ? x.r.acctName + ' · ' : '') + x.r.acct), td(x.r.campaign, { st: { maxWidth: '380px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }), td(usd2(x.spend), { r: true, b: true }),
           // One branch, or several split evenly (per Isaac, Oct 9).
           el('td', { class: 'px-4 py-1' }, isAdminRole(state.profile?.role) ? spuBranchPicker(BL.all, [], (picked) => { setAdCampaignOffice(x.k, picked.length === 1 ? picked[0] : picked); mountApp(); }, { empty: 'Pick branches…', save: 'Save · split evenly' }) : '—'))))))) : null,
+    // Google campaigns split by the searcher's metro (location report) — metro → branch, editable.
+    AD.geo.length ? (() => { const metros = new Map(); for (const x of AD.geo) for (const g of x.G.metros) { const v = metros.get(g.metro) || { spend: 0, b: g.b }; v.spend += g.spend; metros.set(g.metro, v); }
+      const unm = AD.geo.reduce((t, x) => t + x.G.unmapped, 0);
+      return el('details', { class: 'px-5 py-3 border-t', style: { borderColor: 'var(--border)' }, open: unm > 0 },
+        el('summary', { class: 'text-[11px] font-semibold cursor-pointer' }, 'Split by Google’s location report · ' + AD.geo.map(x => x.r.campaign + ' ' + usd2(x.r.spend)).join(' · ') + (unm ? ' · ' + usd2(unm) + ' in metros with no branch, spread pro rata' : '')),
+        el('div', { class: 'text-[11px] mt-1 mb-2', style: { color: 'var(--text-muted)' } }, 'One Google campaign serving several branches is split by where the searchers were (metro). Point each metro at its branch; it is remembered for every month.'),
+        el('div', { class: 'grid gap-x-4 gap-y-1', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' } }, ...[...metros.entries()].sort((a, b) => b[1].spend - a[1].spend).map(([mt, v]) =>
+          el('div', { class: 'flex items-center gap-2 text-[11px]' },
+            el('span', { class: 'truncate', style: { flex: '1', minWidth: '0', color: v.b ? undefined : '#DC2626', fontWeight: v.b ? undefined : '600' }, title: mt }, mt),
+            el('span', { class: 'tabular-nums', style: { color: 'var(--text-muted)' } }, usd2(v.spend)),
+            isAdminRole(state.profile?.role) ? el('select', { class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', maxWidth: '160px' },
+              onchange: (e) => { const all = Object.assign({}, adMetroMap()); if (e.target.value === '__auto') delete all[mt]; else all[mt] = e.target.value; _setAdminRule('adMetroBranch', all); mountApp(); } },
+              el('option', { value: '__auto', selected: !(mt in adMetroMap()) }, v.b ? 'Auto · ' + _mktgTC(v.b) : 'Pick a branch…'),
+              ...BL.all.map(b => el('option', { value: b, selected: adMetroMap()[mt] === b }, _mktgTC(b))),
+              el('option', { value: '', selected: adMetroMap()[mt] === '' }, 'No branch (spread)')) : el('span', {}, v.b ? _mktgTC(v.b) : '—'))))); })() : null,
     // Campaigns already given branches by hand — change or reset them here.
     (() => { const map = adCampaignOfficeMap(); const keys = Object.keys(map).filter(k => map[k] !== '' && map[k] != null); if (!keys.length || !isAdminRole(state.profile?.role)) return null;
       return el('details', { class: 'px-5 py-3 border-t', style: { borderColor: 'var(--border)' } },

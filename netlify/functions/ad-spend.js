@@ -4,7 +4,8 @@
 // the QuickBooks spend feed uses). Admin / admin_rep only.
 //
 //   GET /api/ad-spend?year=2026
-//   → { year, rows: [{ ym, platform, acct, acctName, campaign, type, spend, clicks, impr, leads }], pulledAt }
+//   → { year, rows: [{ ym, platform, acct, acctName, campaign, type, spend, clicks, impr, leads }],
+//       geo: [{ ym, acct, campaign, metro, spend }] (Google only), pulledAt }
 //
 // leads = Meta "Leads" (actions_lead) · Google "Conversions" — as each
 // platform reports them (not GoHighLevel / FieldRoutes).
@@ -37,6 +38,26 @@ async function pull(key, connector, from, to) {
   } finally { clearTimeout(t); }
 }
 
+// Google Ads spend by the searcher's metro (per Isaac, Oct 9 — one account / one campaign serving several
+// branches, e.g. Brand Search and PMAX): Google's location report, monthly by campaign × metro. The app maps
+// each metro to a branch; this only relays it.
+async function pullGeo(key, from, to) {
+  const url = `${WINDSOR}/google_ads?api_key=${encodeURIComponent(key)}&date_from=${from}&date_to=${to}&fields=year_month,account_id,campaign,metro,spend&_renderer=json`;
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 9000);
+  try {
+    const r = await fetch(url, { headers: { accept: 'application/json' }, signal: ctl.signal });
+    if (!r.ok) throw new Error(`Windsor google_ads geo ${r.status}`);
+    const j = await r.json();
+    const out = [];
+    for (const x of (j && (j.data || j.result)) || []) {
+      const spend = Number(x.spend) || 0; if (!spend) continue;
+      const [yy, mm] = String(x.year_month || '').split('|'); if (!yy || !mm) continue;
+      out.push({ ym: yy + '-' + String(mm).padStart(2, '0'), acct: String(x.account_id || ''), campaign: String(x.campaign || ''), metro: String(x.metro || ''), spend: Math.round(spend * 100) / 100 });
+    }
+    return out;
+  } finally { clearTimeout(t); }
+}
+
 exports.handler = async (event) => {
   const { requireRole } = require('../lib/auth-gate.js');
   const gate = await requireRole(event, ['admin', 'admin_rep']);
@@ -47,13 +68,14 @@ exports.handler = async (event) => {
   const year = Math.min(nowY, Math.max(2020, Number((event.queryStringParameters || {}).year) || nowY));
   const from = year + '-01-01';
   const to = year === nowY ? new Date().toISOString().slice(0, 10) : year + '-12-31';
-  const res = await Promise.allSettled([pull(key, 'facebook', from, to), pull(key, 'google_ads', from, to)]);
-  const rows = [], errors = [];
-  res.forEach((r, i) => { if (r.status === 'fulfilled') rows.push(...r.value); else errors.push((i ? 'google_ads' : 'facebook') + ': ' + String(r.reason && r.reason.message || r.reason)); });
+  const res = await Promise.allSettled([pull(key, 'facebook', from, to), pull(key, 'google_ads', from, to), pullGeo(key, from, to)]);
+  const rows = [], errors = []; let geo = [];
+  res.slice(0, 2).forEach((r, i) => { if (r.status === 'fulfilled') rows.push(...r.value); else errors.push((i ? 'google_ads' : 'facebook') + ': ' + String(r.reason && r.reason.message || r.reason)); });
+  if (res[2].status === 'fulfilled') geo = res[2].value; else errors.push('google_ads geo: ' + String(res[2].reason && res[2].reason.message || res[2].reason));
   if (!rows.length && errors.length) return { statusCode: 502, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ error: errors.join(' · ') }) };
   return {
     statusCode: 200,
     headers: { 'content-type': 'application/json', 'cache-control': 'private, max-age=1800' },
-    body: JSON.stringify({ year, rows, errors, pulledAt: new Date().toISOString() }),
+    body: JSON.stringify({ year, rows, geo, errors, pulledAt: new Date().toISOString() }),
   };
 };
