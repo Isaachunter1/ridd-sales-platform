@@ -824,6 +824,8 @@ function _mktgBranchList(year) {
   // rpc / rps kept for any caller that still reads them (RIDD's two entities).
   return { byEntity, all, rpc: byEntity.RPC || [], rps: byEntity.RPS || [] };
 }
+// One provider's QuickBooks spend for a month (payees mapped to providers — Marketing → Metrics).
+function _mktgQboProvMonth(ym, ch) { const P = state.reportingIsSpendPayee; const M = P && P.months && P.months[ym]; if (!M || typeof qboPayeeProvider !== 'function') return 0; let t = 0; for (const name in M) if (qboPayeeProvider(name) === ch) t += Number(M[name]) || 0; return t; }
 const _mktgSpendBranchMonth = (m, ym, b) => { let t = 0; const M = m.spend[ym] || {}; for (const ch in M) t += Number(M[ch][b]) || 0; return t; };
 const _mktgSpendChannelMonth = (m, ym, ch) => { let t = 0; const C = (m.spend[ym] || {})[ch] || {}; for (const b in C) t += Number(C[b]) || 0; return t; };
 const _mktgYearSel = () => { if (!state._mktYear) state._mktYear = new Date().getFullYear(); return state._mktYear; };
@@ -1090,7 +1092,10 @@ function _mktgProviders(vizOnly) {
     const chs = chsOf(rk), bs = bsOf(rk), ym = _mktgYm(y, i);
     if (!chs) return bs.reduce((t, b) => t + qbo(b, i), 0);
     let t = 0;
-    for (const ch of chs) { if (AP && AP.has.has(ch)) { t += AP.cell([ch], bsWide(rk), i, 'spend'); continue; } if (!bs) { t += _mktgSpendChannelMonth(m, ym, ch); continue; } const C = (m.spend[ym] || {})[ch] || {}; for (const b of bs) t += Number(C[b]) || 0; }
+    // Spend comes from QuickBooks (per Isaac, Oct 9 — the Spend tab is only the worksheet for getting the QuickBooks
+    // allocation right, never a data source): ad platforms from Windsor, every other provider from its QuickBooks
+    // payees. QuickBooks doesn't split a provider by branch, so a branch-scoped provider cell has no spend.
+    for (const ch of chs) { if (AP && AP.has.has(ch)) { t += AP.cell([ch], bsWide(rk), i, 'spend'); continue; } if (!bs) t += _mktgQboProvMonth(ym, ch); }
     return t;
   };
   const wg = (rk, i) => G.members(rk).reduce((t, b) => t + (Number((m.wages[_mktgYm(y, i)] || {})[b]) || 0), 0);
@@ -1274,7 +1279,8 @@ function _mktgProvidersViz(cur, o) {
 // ── Spend entry: the controller allocation (branch × channel) for one month ──
 // Spend entry = the spend report uploads only (per Isaac, Oct 9). The hand-entry allocation sheet, the leads
 // table and the campaign mapping card are gone; uploads still fill the same branch × channel sheet the
-// Metrics and P&L tabs read (marketing.spend), so nothing downstream changes.
+// Spend tab is a WORKSHEET only (per Isaac, Oct 9): it feeds nothing else in the app — Metrics / P&L / CAC read
+// QuickBooks (and the ad platforms).
 function _mktgSpendEntry() {
   const y = _mktgYearSel(), B = _mktgBranchList(y);
   return el('div', { class: 'flex flex-col gap-4' }, (typeof mktgSpendUploadCard === 'function') ? mktgSpendUploadCard(B, y) : null, (typeof mktgSpendChecklist === 'function') ? mktgSpendChecklist() : null, _mktgControllerTable());
