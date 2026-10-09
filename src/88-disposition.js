@@ -113,12 +113,21 @@ function _dispRun(F) {
     if (uniq.length > 1 && new Set(uniq.map(o => o.prov).filter(Boolean)).size > 1) flags.push(uniq.length + ' opportunities from ' + [...new Set(uniq.map(o => o.prov).filter(Boolean))].join(', '));
     // The one-word answer the provider wants back.
     const st = sale ? String(sale.subscription_status || '') : '';
-    const disposition = sale ? (/active/i.test(st) ? 'Sold' : 'Sold – ' + (st || 'cancelled').toLowerCase())
+    // Sold only counts once the initial is completed. A sale whose initial is booked is Pending; one that was
+    // never serviced (no appointment, cancelled, no-show, frozen) goes back to follow-up — GoHighLevel should
+    // have it in Needs Follow Up so the automations keep working it until there's a yes or a no.
+    const ini = sale ? String(sale.initial_status || '').trim() : '';
+    const done = !!sale && (/completed/i.test(ini) || !!sale.initial_serviced_date || (Number(sale.subscription_completed_services) || 0) > 0);
+    const booked = !!sale && !done && /active/i.test(st) && /pending/i.test(ini);
+    const appt = sale && sale.initial_appt_date ? String(sale.initial_appt_date).slice(0, 10) : '';
+    const svcState = !sale ? '' : done ? 'Completed' + (sale.initial_serviced_date ? ' ' + String(sale.initial_serviced_date).slice(0, 10) : '') : booked ? 'Scheduled' + (appt ? ' ' + appt : '') : (ini || 'No appointment');
+    if (sale && !done && !booked && !(opp && /follow/i.test(opp.stage))) flags.push('Initial never completed – should be in Needs Follow Up in GoHighLevel');
+    const disposition = sale ? (done ? (/active/i.test(st) ? 'Sold' : 'Sold – cancelled after service') : booked ? 'Pending – initial scheduled' + (appt ? ' ' + appt : '') : 'Needs follow-up – not serviced (' + (ini || 'no appointment').toLowerCase() + ')')
       : existing ? 'Existing customer'
       : opp ? (opp.status === 'won' ? 'Won in GoHighLevel – no FieldRoutes sale' : opp.status === 'lost' ? 'Lost' : opp.status === 'abandoned' ? 'Abandoned' : 'Open' + (opp.stage ? ' – ' + opp.stage : ''))
       : inGhl ? 'In GoHighLevel – no opportunity' : inGhl === false ? 'Not in GoHighLevel' : 'Not found';
     return { r, i, date, name, phone, email, disposition, flags,
-      fr: { found: !!c, id: custId || '', how, existing, sold: sale ? String(sale.sold_date).slice(0, 10) : '', service: sale ? (sale.subscription || '') : '', status: st, value: sale ? (Number(sale.subscription_contract_value) || 0) : 0, source: saleSrc, office: (sale && sale.office_name) || (c && c.office) || '' },
+      fr: { found: !!c, id: custId || '', how, existing, sold: sale ? String(sale.sold_date).slice(0, 10) : '', service: sale ? (sale.subscription || '') : '', status: st, initial: svcState, value: sale ? (Number(sale.subscription_contract_value) || 0) : 0, source: saleSrc, office: (sale && sale.office_name) || (c && c.office) || '' },
       ghl: { found: inGhl, status: opp ? opp.status : '', stage: opp ? opp.stage : '', source: opp ? opp.label : '', date: opp ? opp.d : '', n: uniq.length } };
   });
   return out;
@@ -130,7 +139,7 @@ function _dispExport(F, rows) {
     'In FieldRoutes': x.fr.found ? 'Yes' : 'No',
     'FieldRoutes customer ID': x.fr.id,
     'Matched on': x.fr.how,
-    'Sold date': x.fr.sold, 'Service': x.fr.service, 'Account status': x.fr.status, 'Contract value': x.fr.value || '',
+    'Sold date': x.fr.sold, 'Service': x.fr.service, 'Initial': x.fr.initial || '', 'Account status': x.fr.status, 'Contract value': x.fr.value || '',
     'Branch': x.fr.office ? _mktgTC(x.fr.office) : '',
     'In GoHighLevel': x.ghl.found == null ? '' : x.ghl.found ? 'Yes' : 'No',
     'GHL status': x.ghl.status, 'GHL stage': x.ghl.stage,
@@ -170,7 +179,7 @@ function mktgDispositionView() {
     const shown = rows.filter(x => !filt || (filt === 'flag' ? x.flags.length : x.disposition.startsWith(filt)));
     const th = (t) => el('th', { class: 'px-2 py-1.5 text-left text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0 } }, t);
     const td = (t, st) => el('td', { class: 'px-2 py-1 whitespace-nowrap', style: st || {} }, t == null || t === '' ? '—' : t);
-    const dCol = (d) => /^Sold$/.test(d) ? '#15803D' : /^Sold –|Lost|Abandoned|Not in/.test(d) ? '#B91C1C' : /^Open/.test(d) ? '#B45309' : 'var(--text)';
+    const dCol = (d) => /^Sold$/.test(d) ? '#15803D' : /^Sold –|^Needs|Lost|Abandoned|Not in/.test(d) ? '#B91C1C' : /^(Open|Pending)/.test(d) ? '#B45309' : 'var(--text)';
     const fbtn = (label, v) => el('button', { class: 'rounded-lg border px-2 py-0.5 text-[11px] font-semibold', style: filt === v ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)' }, onclick: () => { state._dispFilt = filt === v ? null : { key: F.key, v }; mountApp(); } }, label);
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-5 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
@@ -186,18 +195,18 @@ function mktgDispositionView() {
       !ready ? el('div', { class: 'px-5 pb-4 text-[11px]', style: { color: '#DC2626' } }, 'Pick the provider, the lead date column, and phone, email or name.') :
       el('div', { class: 'flex flex-col' },
         el('div', { class: 'px-5 pb-3 flex gap-2 flex-wrap' },
-          tile('Leads', rows.length), tile('In FieldRoutes', cnt(x => x.fr.found)), tile('Sold', cnt(x => /^Sold/.test(x.disposition)), '#15803D'),
+          tile('Leads', rows.length), tile('In FieldRoutes', cnt(x => x.fr.found)), tile('Sold', cnt(x => /^Sold/.test(x.disposition)), '#15803D'), tile('Pending', cnt(x => /^Pending/.test(x.disposition)), '#B45309'), tile('Needs follow-up', cnt(x => /^Needs/.test(x.disposition)), '#B91C1C'),
           tile('Open in GHL', cnt(x => /^Open/.test(x.disposition)), '#B45309'), tile('Lost / abandoned', cnt(x => /^(Lost|Abandoned)/.test(x.disposition))),
           tile('Existing customers', cnt(x => x.fr.existing)), tile('Not in GHL', cnt(x => x.ghl.found === false), '#B91C1C'),
           tile('Duplicates', cnt(x => x.flags.some(f => /^Duplicate/.test(f)))), tile('Any flag', cnt(x => x.flags.length), '#B91C1C')),
-        el('div', { class: 'px-5 pb-2 flex gap-2 flex-wrap items-center text-[11px]' }, el('span', { style: muted }, 'Show:'), fbtn('Sold', 'Sold'), fbtn('Open', 'Open'), fbtn('Lost', 'Lost'), fbtn('Existing customers', 'Existing'), fbtn('Not in GHL', 'Not in'), fbtn('Flagged', 'flag'),
+        el('div', { class: 'px-5 pb-2 flex gap-2 flex-wrap items-center text-[11px]' }, el('span', { style: muted }, 'Show:'), fbtn('Sold', 'Sold'), fbtn('Pending', 'Pending'), fbtn('Needs follow-up', 'Needs'), fbtn('Open', 'Open'), fbtn('Lost', 'Lost'), fbtn('Existing customers', 'Existing'), fbtn('Not in GHL', 'Not in'), fbtn('Flagged', 'flag'),
           filt ? el('span', { style: muted }, fmt.int(shown.length) + ' shown') : null),
         el('div', { class: 'overflow-auto', style: { maxHeight: '52vh', borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-[11px]', style: { borderCollapse: 'collapse' } },
-          el('thead', {}, el('tr', {}, ...['Row', 'Lead date', 'Name', 'Phone', 'Disposition', 'FieldRoutes', 'Sold', 'Service', 'Sale source', 'GHL status', 'GHL stage', 'Flags'].map(th))),
+          el('thead', {}, el('tr', {}, ...['Row', 'Lead date', 'Name', 'Phone', 'Disposition', 'FieldRoutes', 'Sold', 'Service', 'Initial', 'Sale source', 'GHL status', 'GHL stage', 'Flags'].map(th))),
           el('tbody', {}, ...shown.slice(0, 500).map(x => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
             td(String(x.i + 2), muted), td(x.date), td(x.name), td(x.phone ? x.phone.replace(/^(\d{3})(\d{3})(\d{4})$/, '($1) $2-$3') : x.email),
             td(x.disposition, { fontWeight: '700', color: dCol(x.disposition) }),
-            td(x.fr.found ? '#' + x.fr.id + ' · ' + x.fr.how : 'No', x.fr.found ? {} : muted), td(x.fr.sold), td(x.fr.service), td(x.fr.source),
+            td(x.fr.found ? '#' + x.fr.id + ' · ' + x.fr.how : 'No', x.fr.found ? {} : muted), td(x.fr.sold), td(x.fr.service), td(x.fr.initial, /^Completed/.test(x.fr.initial || '') ? {} : x.fr.initial ? { color: '#B45309' } : {}), td(x.fr.source),
             td(x.ghl.status), td(x.ghl.stage), td(x.flags.join(' · '), x.flags.length ? { color: '#B91C1C', fontWeight: '600', whiteSpace: 'normal', minWidth: '260px' } : muted)))))),
         shown.length > 500 ? el('div', { class: 'px-5 py-2 text-[11px]', style: muted }, 'Showing 500 of ' + fmt.int(shown.length) + ' — the download has every row.') : null));
   });
