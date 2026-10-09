@@ -1277,7 +1277,42 @@ function _mktgProvidersViz(cur, o) {
 // Metrics and P&L tabs read (marketing.spend), so nothing downstream changes.
 function _mktgSpendEntry() {
   const y = _mktgYearSel(), B = _mktgBranchList(y);
-  return el('div', { class: 'flex flex-col gap-4' }, (typeof mktgSpendUploadCard === 'function') ? mktgSpendUploadCard(B, y) : null);
+  return el('div', { class: 'flex flex-col gap-4' }, (typeof mktgSpendUploadCard === 'function') ? mktgSpendUploadCard(B, y) : null, _mktgControllerTable());
+}
+// Controller allocation (per Isaac, Oct 9): the sheet handed to the controller — one row per branch × provider
+// that has spend in the month, with branch subtotals, a grand total and a CSV download.
+function _mktgControllerTable() {
+  const m = _mktgStore();
+  const yms = Object.keys(m.spend || {}).filter(ym => Object.values(m.spend[ym] || {}).some(c => Object.values(c || {}).some(v => Number(v) > 0))).sort().reverse();
+  if (!yms.length) return el('div', { class: 'card p-5 text-xs', style: { color: 'var(--text-muted)' } }, 'No spend yet — upload a report above and the controller allocation fills in here.');
+  if (!yms.includes(state._mktCtrlMonth)) state._mktCtrlMonth = yms[0];
+  const ym = state._mktCtrlMonth;
+  const byB = new Map();
+  for (const ch in (m.spend[ym] || {})) for (const b in (m.spend[ym][ch] || {})) { const v = Number(m.spend[ym][ch][b]) || 0; if (v <= 0) continue; (byB.get(b) || byB.set(b, []).get(b)).push({ ch, v }); }
+  const branches = [...byB.entries()].map(([b, rows]) => ({ b, rows: rows.sort((p, q) => q.v - p.v), tot: rows.reduce((t, r) => t + r.v, 0) })).sort((p, q) => q.tot - p.tot);
+  const grand = branches.reduce((t, x) => t + x.tot, 0);
+  const usd2 = (v) => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const th = (t, r) => el('th', { class: 'px-4 py-2 text-[10px] uppercase tracking-wider font-semibold ' + (r ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
+  const td = (t, o = {}) => el('td', { class: 'px-4 py-1.5' + (o.r ? ' text-right tabular-nums' : '') + (o.b ? ' font-bold' : ''), style: o.st || {} }, t);
+  const exportCsv = () => { const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const lines = [['Branch', 'Provider', 'Amount'].join(',')];
+    for (const x of branches) { for (const r of x.rows) lines.push([_mktgTC(x.b), r.ch, r.v.toFixed(2)].map(esc).join(',')); lines.push([_mktgTC(x.b) + ' total', '', x.tot.toFixed(2)].map(esc).join(',')); }
+    lines.push(['Total', '', grand.toFixed(2)].map(esc).join(','));
+    const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' })); const a2 = el('a', { href: url, download: 'RIDD-marketing-spend-by-branch-' + ym + '.csv' }); document.body.append(a2); a2.click(); a2.remove(); URL.revokeObjectURL(url); };
+  return el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-5 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+      el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Controller allocation · ' + reportingMonthLbl(ym)),
+        el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Every branch with spend this month, by provider, from the uploaded reports. ' + fmt.int(branches.length) + ' branch' + (branches.length === 1 ? '' : 'es') + ' · ' + usd2(grand) + '.')),
+      el('div', { class: 'ml-auto flex items-center gap-2' },
+        el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { state._mktCtrlMonth = e.target.value; mountApp(); } },
+          ...yms.map(v => el('option', { value: v, selected: v === ym }, reportingMonthLbl(v)))),
+        el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: exportCsv }, '⬇ Download (.csv)'))),
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, th('Branch'), th('Provider'), th('Amount', true))),
+      el('tbody', {}, ...branches.flatMap(x => [
+        ...x.rows.map((r, i) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, td(i === 0 ? _mktgTC(x.b) : '', { b: true }), td(r.ch), td(usd2(r.v), { r: true }))),
+        el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } }, td(_mktgTC(x.b) + ' total', { b: true }), td(''), td(usd2(x.tot), { r: true, b: true }))]),
+        el('tr', { style: { borderTop: '2px solid var(--text)' } }, td('Total', { b: true }), td(''), td(usd2(grand), { r: true, b: true }))))));
 }
 
 // ── Projections ──
