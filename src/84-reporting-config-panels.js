@@ -1504,7 +1504,7 @@ function reportingMarketingPnl() {
       : el('div', { class: 'flex flex-col gap-4' }, (() => { try { return _mktgDemand(); } catch (e) { console.warn('[marketing] demand section skipped', e); return null; } })(), _mktgCac(), _mktgProviders()))
     : sub === 'spend' ? _mktgSpendEntry() : sub === 'disp' ? ((typeof mktgDispositionView === 'function') ? mktgDispositionView() : null) : sub === 'projections' ? _mktgProjections() : _mktgPnl();
   // Needs attention (owner-only feed) lives on the Marketing tab (per Isaac, Sep 2026).
-  return el('div', { class: 'flex flex-col gap-4' }, (typeof exceptionFeedCard === 'function') ? exceptionFeedCard() : null, (() => { try { return mktgLeadFlowTask(); } catch (e) { return null; } })(), _mktgYearBar(sub), body);
+  return el('div', { class: 'flex flex-col gap-4' }, (typeof exceptionFeedCard === 'function') ? exceptionFeedCard() : null, (() => { try { return mktgLeadFlowTask(); } catch (e) { return null; } })(), (() => { try { return typeof mktgZipFixTask === 'function' ? mktgZipFixTask() : null; } catch (e) { return null; } })(), _mktgYearBar(sub), body);
 }
 
 const REPORTING_MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];

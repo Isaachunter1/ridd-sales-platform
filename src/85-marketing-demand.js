@@ -282,3 +282,72 @@ function mktgLeadFlowTask() {
       el('span', { class: n ? 'text-[11px]' : 'ml-auto text-[11px]', style: { color: 'var(--text-muted)' } }, open ? '▴' : '▾')),
     table);
 }
+
+// ── Marketing task: CRM ZIP / office fixes (per Isaac, Oct 9) ────────────
+// A ZIP belongs to one market. Active accounts that disagree with that in FieldRoutes — coded to another office
+// than the ZIP's market, a state that doesn't match the ZIP, or a ZIP that isn't 5 digits — are listed here to fix in
+// the CRM. (The ZIP report and the Geographic tab already normalize them, so this is clean-up, not a blocker.)
+function _zipFixRows() {
+  const subs = state.reportingSubscriptions || [];
+  if (_zipFixRows._m && _zipFixRows._m.src === subs) return _zipFixRows._m.rows;
+  const isAct = (r) => String(r.subscription_status || '').trim().toLowerCase() === 'active';
+  const z5 = (r) => String(r.zip_code == null ? '' : r.zip_code).trim().slice(0, 5);
+  const off = new Map(), st = new Map();   // zip → Map(office → [active, all]) / Map(state → n)
+  for (const r of subs) {
+    const z = z5(r); if (!/^\d{5}$/.test(z)) continue;
+    const o = String(r.office_name || '').trim();
+    if (o) { const m = off.get(z) || off.set(z, new Map()).get(z); const v = m.get(o) || [0, 0]; v[1]++; if (isAct(r)) v[0]++; m.set(o, v); }
+    const s2 = String(r.state || '').trim().toUpperCase(); if (s2) { const m = st.get(z) || st.set(z, new Map()).get(z); m.set(s2, (m.get(s2) || 0) + 1); }
+  }
+  const top = (m, cmp) => m ? [...m.entries()].sort(cmp)[0] : null;
+  const market = new Map(), zState = new Map();
+  for (const [z, m] of off) market.set(z, top(m, (a, b) => (b[1][0] - a[1][0]) || (b[1][1] - a[1][1]))[0]);
+  for (const [z, m] of st) zState.set(z, top(m, (a, b) => b[1] - a[1])[0]);
+  const byCust = new Map();
+  for (const r of subs) {
+    if (!isAct(r)) continue;
+    const id = String(r.customer_id == null ? '' : r.customer_id); if (!id) continue;
+    const raw = String(r.zip_code == null ? '' : r.zip_code).trim(), z = z5(r), issues = [];
+    const o = String(r.office_name || '').trim(), s2 = String(r.state || '').trim().toUpperCase();
+    if (!/^\d{5}$/.test(z)) issues.push(raw ? 'ZIP isn’t 5 digits (“' + raw + '”)' : 'No ZIP');
+    else {
+      if (!/^\d{5}(-\d{4})?$/.test(raw)) issues.push('ZIP typed as “' + raw + '”');
+      const mk = market.get(z); if (mk && o && o !== mk) issues.push('Office ' + o + ' — ZIP ' + z + ' is ' + mk);
+      const zs = zState.get(z); if (zs && s2 && s2 !== zs) issues.push('State ' + s2 + ' — ZIP ' + z + ' is in ' + zs);
+    }
+    if (!issues.length) continue;
+    const cur = byCust.get(id) || { id, name: [r.first_name, r.last_name].filter(Boolean).join(' '), zip: raw, state: s2, office: o, fix: market.get(z) || '', issues: new Set() };
+    issues.forEach(i => cur.issues.add(i)); byCust.set(id, cur);
+  }
+  const rows = [...byCust.values()].map(x => Object.assign(x, { issues: [...x.issues] })).sort((a, b) => a.zip.localeCompare(b.zip));
+  _zipFixRows._m = { src: subs, rows };
+  return rows;
+}
+function mktgZipFixTask() {
+  if (!(state.reportingSubscriptions || []).length) return null;
+  const rows = _zipFixRows(), n = rows.length, open = !!state._mktZipFixOpen;
+  const th = (t) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold text-left', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
+  const td = (t, st2) => el('td', { class: 'px-3 py-1.5 whitespace-nowrap', style: st2 || {} }, t == null || t === '' ? '—' : t);
+  const exportCsv = () => { const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const lines = [['Customer ID', 'Name', 'ZIP in CRM', 'State in CRM', 'Office in CRM', 'ZIP market', 'Fix'].join(',')];
+    for (const r of rows) lines.push([r.id, r.name, r.zip, r.state, r.office, r.fix, r.issues.join('; ')].map(esc).join(','));
+    const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' })); const a = el('a', { href: url, download: 'ridd-crm-zip-fixes-' + new Date().toISOString().slice(0, 10) + '.csv' }); document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url); };
+  const table = !open ? null : el('div', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+    el('div', { class: 'px-4 py-2 text-[11px] flex items-center gap-3 flex-wrap', style: { color: 'var(--text-muted)' } },
+      el('span', {}, 'Active accounts whose ZIP, state or office disagree in FieldRoutes. A ZIP’s market is the office with the most active accounts in it. The ZIP report and the Geographic tab already correct for these — fix them in the CRM so the data matches.'),
+      n ? el('button', { class: 'ml-auto rounded-lg px-2.5 py-1 text-[11px] font-semibold border', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: exportCsv }, '↓ Export CSV') : null),
+    n ? el('div', { class: 'scroll-x', style: { maxHeight: '50vh', overflowY: 'auto' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, th('Customer'), th('Name'), th('ZIP'), th('State'), th('Office in CRM'), th('ZIP market'), th('Fix'))),
+      el('tbody', {}, ...rows.slice(0, 500).map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        td('#' + r.id, { fontWeight: '700' }), td(r.name), td(r.zip), td(r.state), td(r.office), td(r.fix, { fontWeight: '600' }), td(r.issues.join(' · '), { color: '#B91C1C', whiteSpace: 'normal', minWidth: '260px' })))))) : null);
+  return el('div', { class: 'card overflow-hidden' },
+    el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', onclick: () => { state._mktZipFixOpen = !open; mountApp(); } },
+      el('span', { class: 'inline-block rounded-full shrink-0', style: { width: '8px', height: '8px', background: n ? '#DC2626' : 'var(--ok)' } }),
+      el('span', { class: 'text-[11px] uppercase tracking-widest font-bold shrink-0' }, 'To do · CRM ZIP fixes'),
+      el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, n
+        ? fmt.int(n) + ' active account' + (n === 1 ? '' : 's') + ' with a ZIP, state or office that doesn’t match its market — fix in FieldRoutes.'
+        : 'All clear — every active account’s ZIP, state and office line up.'),
+      n ? el('span', { class: 'ml-auto text-sm font-black tabular-nums', style: { color: '#DC2626' } }, fmt.int(n)) : null,
+      el('span', { class: n ? 'text-[11px]' : 'ml-auto text-[11px]', style: { color: 'var(--text-muted)' } }, open ? '▴' : '▾')),
+    table);
+}
