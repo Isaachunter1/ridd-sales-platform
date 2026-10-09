@@ -48,7 +48,30 @@ function _spuAutoOffice(val, branches, m) {
   if (best) return best;
   const z = /^\D*(\d{5})(?:-\d{4})?\D*$/.exec(String(val));
   if (z && typeof _ghlZipOffice === 'function') { const o = _ghlZipOffice().get(z[1]); if (o && branches.includes(o)) return o; }
+  // A city (DoLead reports, per Isaac Oct 9): the branch that services most of our customers in that city.
+  const c = _spuCityOffice(val); if (c && branches.includes(c)) return c;
   return SPU_SPLIT;
+}
+// City → branch from FieldRoutes customers (city + state when the value has a state, e.g. "Conway, SC").
+// Cities where we have no customers come back empty and are picked by hand once (remembered).
+const _SPU_STATES = /\b(AL|AR|FL|GA|MI|MO|NC|SC|TN|UT|VA)\b/;
+function _spuCityOffice(val) {
+  const subs = state.reportingSubscriptions || [];
+  let M = _spuCityOffice._m;
+  if (!M || M.src !== subs) {
+    const cnt = new Map();
+    const add = (k, o) => { const c = cnt.get(k) || new Map(); c.set(o, (c.get(o) || 0) + 1); cnt.set(k, c); };
+    for (const r of subs) { const city = String(r.city || '').trim().toLowerCase(); const o = String(r.office_name || '').trim().toUpperCase(); if (!city || !o) continue;
+      add(city, o); const st = String(r.state || '').trim().toUpperCase(); if (st) add(city + '|' + st, o); }
+    const map = new Map(); for (const [k, c] of cnt) { let best = null, n = -1; for (const [o, v] of c) if (v > n) { best = o; n = v; } map.set(k, best); }
+    M = _spuCityOffice._m = { src: subs, map, has: cnt.size > 0 };
+  }
+  if (!M.has) return '';
+  const raw = String(val || '').trim(); if (!raw || /^\d/.test(raw)) return '';
+  const st = (_SPU_STATES.exec(raw.toUpperCase()) || [])[1] || '';
+  const city = raw.replace(/\(.*?\)/g, '').split(/,|\s-\s/)[0].replace(_SPU_STATES, '').replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!city) return '';
+  return (st && M.map.get(city + '|' + st)) || M.map.get(city) || '';
 }
 // Office weights for one channel-month: that channel's GoHighLevel leads by
 // office, else its FieldRoutes sales, else all new sales.
@@ -177,7 +200,13 @@ function _spuCommit(P, branches) {
   if (!groups.length) { toast('Nothing to add — check the amount and date columns', 'error'); return; }
   // Remember everything picked here for the next file.
   m.spendLocMeta = (m.spendLocMeta && typeof m.spendLocMeta === 'object') ? m.spendLocMeta : {};   // { key: { ch, col } } — which provider / column an ID came from (Configurations list)
-  for (const k in (P.locMap || {})) { m.spendLocMap[k] = P.locMap[k]; m.spendLocMeta[k] = { ch: P.cols.prov ? 'Several providers' : P.channel, col: P.cols.loc || '' }; }
+  const _meta = { ch: P.cols.prov ? 'Several providers' : P.channel, col: P.cols.loc || '' };
+  for (const k in (P.locMap || {})) { m.spendLocMap[k] = P.locMap[k]; m.spendLocMeta[k] = _meta; }
+  // Every other ID / city in the file is saved too with the branch it went to (per Isaac, Oct 9), so the
+  // Configurations list has the full set; ZIP codes are left out (they look themselves up every time).
+  if (P.cols.loc) for (const r of P.rows) { const val = String(r[P.cols.loc] == null ? '' : r[P.cols.loc]).trim(); const k = _spuKey(val);
+    if (!k || m.spendLocMap[k] || /^\d{5}(-\d{4})?$/.test(val)) continue;
+    const to = _spuAutoOffice(val, branches, m); if (to && to !== SPU_SPLIT) { m.spendLocMap[k] = to; m.spendLocMeta[k] = _meta; } }
   for (const k in (P.provMap || {})) m.spendProvMap[k] = P.provMap[k];
   if (P.cols.prov) for (const [val] of A.provs) { const k = _spuKey(val), ch = _spuChanOf(val, P, m); if (k && ch && !m.spendProvMap[k]) m.spendProvMap[k] = ch; }
   m.spendTemplates[_spuSig(P.headers)] = { cols: Object.assign({}, P.cols), channel: P.cols.prov ? '' : P.channel, noLoc: P.noLoc, from: P.fileName, at: new Date().toISOString() };
@@ -230,7 +259,8 @@ function mktgSpendUploadCard(B, year) {
     const _sample = (h) => { const seen = []; for (const r of P.rows) { const v = String(r[h] == null ? '' : r[h]).trim(); if (v && !seen.includes(v)) seen.push(v); if (seen.length >= 3) break; } return seen.map(v => v.length > 14 ? v.slice(0, 13) + '…' : v).join(', '); };
     const colOpts = (none) => [['', none], ...P.headers.map((h, i) => [h, _letter(i) + ' · ' + (/^__EMPTY/.test(h) ? '(no header)' : h) + (_sample(h) ? '  (e.g. ' + _sample(h) + ')' : '')])];
     const overlap = m.spendUploads.filter(u => groups.some(g => g.ch === u.channel && g.C.months.some(ym => u.cells && u.cells[ym])));
-    const locRows = P.cols.loc ? [...C.locs.entries()].sort((x, y) => y[1].amt - x[1].amt) : [];
+    const _known = (v) => !!m.spendLocMap[_spuKey(v)] || /^\d{5}(-\d{4})?$/.test(String(v).trim());
+    const locRows = P.cols.loc ? [...C.locs.entries()].sort((x, y) => (_known(x[0]) - _known(y[0])) || (y[1].amt - x[1].amt)) : [];   // new values first
     const shownLocs = locRows.slice(0, 80);
     const provRows = P.cols.prov ? [...A.provs.entries()].sort((x, y) => y[1].amt - x[1].amt) : [];
     const chanOpts = [['', 'Pick a channel…'], ...m.channels.map(c => [c, c]), [SPU_SKIP, 'Skip (not marketing spend)']];
@@ -266,7 +296,9 @@ function mktgSpendUploadCard(B, year) {
         lab(String(P.cols.loc) + ' → branch (' + locRows.length + ' value' + (locRows.length === 1 ? '' : 's') + ') · pick a branch for each · remembered for next time'),
         grid(shownLocs.map(([val, L]) => {
           const k = _spuKey(val), cur = (P.locMap && P.locMap[k]) || _spuAutoOffice(val, branches, m);
+          const isNew = !m.spendLocMap[k] && !/^\d{5}(-\d{4})?$/.test(val);   // never mapped before — check it
           return el('div', { class: 'flex items-center gap-2 text-[11px]' },
+            isNew ? el('span', { class: 'rounded px-1 text-[9px] font-black uppercase', style: { background: 'rgba(223,100,58,.15)', color: 'var(--accent)' }, title: 'First time this value shows up — check its branch' }, 'New') : null,
             el('span', { class: 'truncate', style: { flex: '1', minWidth: '0' }, title: val }, val || '(blank)'),
             el('span', { class: 'tabular-nums', style: muted }, fmt.usd0(L.amt)),
             sel(cur, officeOpts, (v) => { P.locMap = P.locMap || {}; P.locMap[k] = v; }));

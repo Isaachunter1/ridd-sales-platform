@@ -111,7 +111,7 @@ cust AS (
   -- 177915, per Isaac). Latest updatedAt wins.
   SELECT fieldRoutes_customerID AS cid,
     fieldRoutes_lname AS lname, fieldRoutes_fname AS fname,
-    fieldRoutes_county AS county, fieldRoutes_state AS state,
+    fieldRoutes_county AS county, fieldRoutes_state AS state, fieldRoutes_city AS city,
     fieldRoutes_zip AS zip, fieldRoutes_phone1 AS phone,
     fieldRoutes_email AS email, fieldRoutes_aPay AS apay,
     fieldRoutes_responsibleBalanceAge AS dpd,
@@ -259,6 +259,7 @@ SELECT
   s.fieldRoutes_source AS subscription_source,
   CAST(NULL AS STRING) AS country,
   cust.state AS state,
+  cust.city AS city,   -- per Isaac, Oct 9: spend reports that only give a city (DoLead) map to the branch serving it
   cust.zip AS zip_code,
   SAFE_CAST(cust.dpd AS INT64) AS days_past_due,
   SAFE_CAST(cust.resp_balance AS FLOAT64) AS responsible_balance,
