@@ -103,6 +103,7 @@ function _spuGuessCols(headers, rows) {
 }
 // A location value → office: remembered choice, else an office name inside the
 // value ("FB | Detroit | RPS" → DETROIT), else a ZIP's office, else split.
+const SPU_MARKET_BRANCH = [[/\brichmond\b/, 'Virginia Beach'], [/\bwalton\b/, 'Destin'], [/\bwilmington\b/, 'Myrtle Beach']];
 function _spuAutoOffice(val, branches, m) {
   const k = _spuKey(val); if (!k) return SPU_SPLIT;
   if (m.spendLocMap[k]) return m.spendLocMap[k];
@@ -110,6 +111,8 @@ function _spuAutoOffice(val, branches, m) {
   let best = '';
   for (const b of branches) { const bk = String(b).toLowerCase().replace(/[^a-z0-9]/g, ''); if (bk.length >= 3 && flat.includes(bk) && bk.length > best.replace(/[^a-z0-9]/gi, '').length) best = b; }
   if (best) return best;
+  // Markets served from another branch (per Isaac, Oct 9).
+  for (const [re, to] of SPU_MARKET_BRANCH) if (re.test(k)) { const hit = branches.find(x => String(x).toLowerCase() === to.toLowerCase()); if (hit) return hit; }
   const z = /^\D*(\d{5})(?:-\d{4})?\D*$/.exec(String(val));
   if (z && typeof _ghlZipOffice === 'function') { const o = _ghlZipOffice().get(z[1]); if (o && branches.includes(o)) return o; }
   // A city (DoLead reports, per Isaac Oct 9): the branch that services most of our customers in that city.
