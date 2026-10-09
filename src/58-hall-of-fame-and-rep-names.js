@@ -14,10 +14,13 @@
 // Office Staff count new business only (renewals are a different motion), as
 // the old department records did. House / system accounts never hold records.
 const HOF_DEPT_LABEL = { office: 'Office Staff', d2d: 'Sales Rep', techs: 'Technician' };
-function _hofData(dept) {
+// year: '' = all time, else 'YYYY' (per Isaac, Oct 9 — records by year).
+function _hofData(dept, year) {
   const raw = state._indicatorRawSales || [];
+  year = year ? String(year) : '';
   const M = _hofData._m || (_hofData._m = {});
-  if (M[dept] && M[dept].raw === raw) return M[dept].out;
+  const mk = dept + '|' + year;
+  if (M[mk] && M[mk].raw === raw) return M[mk].out;
   const reps = new Map();
   const pad = (n) => String(n).padStart(2, '0');
   for (const s of raw) {
@@ -27,21 +30,21 @@ function _hofData(dept) {
     const name = (typeof getCanonicalRepName === 'function') ? getCanonicalRepName(s.rep) : s.rep;
     if (!name || (typeof FR_SYSTEM_NAME_RE !== 'undefined' && FR_SYSTEM_NAME_RE.test(name)) || /^account,?\s+ridd\b/i.test(name)) continue;   // the house account ("Account, RIDD") never holds a record
     const iso = (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || '';
-    if (!iso) continue;
+    if (!iso || (year && iso.slice(0, 4) !== year)) continue;
     const d = new Date(iso + 'T00:00'); if (isNaN(d)) continue;
     const ws = new Date(d); ws.setDate(d.getDate() - d.getDay());
     const wk = ws.getFullYear() + '-' + pad(ws.getMonth() + 1) + '-' + pad(ws.getDate());
     const cv = Number(s.contractValue) || 0;
     let r = reps.get(name); if (!r) { r = { name, day: {}, week: {}, month: {}, renDay: {}, early: null, late: null }; reps.set(name, r); }
     // Office Staff renewals (per Isaac, Oct 9): their own record — most renewals in one day — and kept out of every other record.
-    if (isRen) { const o = r.renDay[iso] || (r.renDay[iso] = { k: iso, rev: 0, n: 0 }); o.n++; o.rev += cv; continue; }
-    for (const [k, key] of [['day', iso], ['week', wk], ['month', iso.slice(0, 7)]]) { const o = r[k][key] || (r[k][key] = { k: key, rev: 0, n: 0 }); o.rev += cv; o.n++; }
+    if (isRen) { const o = r.renDay[iso] || (r.renDay[iso] = { k: iso, rev: 0, n: 0, rows: [] }); o.n++; o.rev += cv; o.rows.push(s); continue; }
+    for (const [k, key] of [['day', iso], ['week', wk], ['month', iso.slice(0, 7)]]) { const o = r[k][key] || (r[k][key] = { k: key, rev: 0, n: 0, rows: [] }); o.rev += cv; o.n++; o.rows.push(s); }
     // Time of day: Office Staff on the call center's Mountain clock; door and tech sales in the selling office's local time.
     // A raw 12:00 AM is a date with no time on it, not a midnight sale — skipped.
     let t = null;
     { const m = /\s(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?/i.exec(String(s.dateSold || '')); if (m) { let h = Number(m[1]); const mn = Number(m[2]); const ap = (m[3] || '').toUpperCase(); if (ap === 'PM' && h !== 12) h += 12; if (ap === 'AM' && h === 12) h = 0;
       if (h >= 0 && h < 24 && !(h === 0 && mn === 0)) { h = (h + (dept === 'office' ? 1 : (typeof _saleHourOffset === 'function' ? _saleHourOffset(s.office) : 0)) + 24) % 24; t = { hour: h, minute: mn }; } } }
-    if (t) { const mm = t.hour * 60 + t.minute; const rec = { mm, t, iso, cv, sub: s.subscription || '', office: s.office || '' };
+    if (t) { const mm = t.hour * 60 + t.minute; const rec = { mm, t, iso, cv, sub: s.subscription || '', office: s.office || '', rows: [s] };
       if (!r.early || mm < r.early.mm) r.early = rec; if (!r.late || mm > r.late.mm) r.late = rec; }
   }
   const best = (obj) => { let b = null; for (const k in obj) if (!b || obj[k].rev > b.rev) b = obj[k]; return b; };
@@ -58,7 +61,7 @@ function _hofData(dept) {
   const ranked = {};
   for (const k in CATS) ranked[k] = list.filter(CATS[k].has).sort(CATS[k].sort);
   const out = { list, ranked, CATS };
-  M[dept] = { raw, out };
+  M[mk] = { raw, out };
   return out;
 }
 function viewHallOfFame(dept) {
@@ -67,7 +70,46 @@ function viewHallOfFame(dept) {
   const title = 'Hall of Fame · ' + (HOF_DEPT_LABEL[dept] || '');
   if (!raw.length) return el('div', { class: 'flex flex-col gap-4 w-full' }, el('h1', { class: 'text-3xl font-bold' }, title),
     el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Loading the sales history… the records fill in as soon as it lands.'));
-  const D = _hofData(dept);
+  // Year pick (per Isaac, Oct 9): All time or one year, shared by the three user types.
+  const years = (() => { const ys = new Set(); for (const x of raw) { const i = (typeof dateSoldToIso === 'function' && dateSoldToIso(x.dateSold)) || ''; if (i) ys.add(i.slice(0, 4)); } return [...ys].sort().reverse(); })();
+  if (state._hofYear && !years.includes(state._hofYear)) state._hofYear = '';
+  const year = state._hofYear || '';
+  const D = _hofData(dept, year);
+  const isAdmin = isAdminRole(state.profile?.role);
+  // Admin drilldown (per Isaac, Oct 9): the accounts behind a record, to check they are real.
+  const drill = (k, x) => {
+    const b = x[k]; if (!b || !b.rows) return;
+    const rows = b.rows.slice().sort((p, q) => String(p.dateSold || '').localeCompare(String(q.dateSold || '')));
+    const overlay = el('div', { class: 'modal-overlay' });
+    const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', onKey);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    const th = (t, r) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (r ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0 } }, t);
+    const td = (t, o = {}) => el('td', { class: 'px-3 py-1.5 whitespace-nowrap' + (o.r ? ' text-right tabular-nums' : '') + (o.b ? ' font-semibold' : ''), style: o.c ? { color: o.c } : {} }, t == null || t === '' ? '\u2014' : t);
+    const COLS = ['Customer', 'Customer ID', 'Subscription', 'Sold', 'Contract value', 'Initial', 'Status', 'Services', 'Cancelled', 'Source', 'Office'];
+    const cells = (r) => [r.customer, r.customerId, r.subscription, r.dateSold, fmt.usd0(Number(r.contractValue) || 0), fmt.usd0(Number(r.initialPrice) || 0), r.status || (r.active === 'No' ? 'Inactive' : r.active), r.services, r.cancelDate, r.source, r.office];
+    const exportCsv = () => { const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+      const lines = [COLS.join(',')]; for (const r of rows) lines.push(cells(r).map(esc).join(','));
+      const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' })); const a = el('a', { href: url, download: ('ridd-hall-of-fame-' + x.name + '-' + k).replace(/[^a-z0-9]+/gi, '-').toLowerCase() + '.csv' }); document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url); };
+    const v = val(k, x);
+    overlay.append(el('div', { class: 'card w-full my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)', maxWidth: '1100px' } },
+      el('div', { class: 'flex items-start justify-between p-5 pb-3' },
+        el('div', {}, el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Hall of Fame \u00b7 ' + (HOF_DEPT_LABEL[dept] || '') + ' \u00b7 ' + D.CATS[k].label),
+          el('h2', { class: 'text-xl font-bold mt-0.5' }, x.name + ' \u00b7 ' + v.big),
+          el('div', { class: 'text-xs mt-1', style: { color: 'var(--text-muted)' } }, v.sub + ' \u00b7 ' + fmt.int(rows.length) + ' account' + (rows.length === 1 ? '' : 's') + ' behind this record')),
+        el('div', { class: 'flex items-center gap-2 shrink-0' },
+          el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold border cursor-pointer', style: { background: 'var(--card-2)', color: 'var(--text)', borderColor: 'var(--border)' }, onclick: exportCsv }, '\u2193 Export CSV'),
+          el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, 'aria-label': 'Close', onclick: close }, '\u00d7'))),
+      el('div', { class: 'overflow-auto', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+        el('thead', {}, el('tr', {}, ...COLS.map((c, i) => th(c, i === 4 || i === 5 || i === 7)))),
+        el('tbody', {}, ...rows.map(r => { const c = cells(r); return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          td(c[0], { b: true }), td(c[1]), td(c[2]), td(c[3]), td(c[4], { r: true, b: true }), td(c[5], { r: true }), td(c[6]), td(c[7], { r: true }), td(c[8], { c: c[8] ? '#B91C1C' : undefined }), td(c[9]), td(c[10])); }))))));
+    document.body.append(overlay);
+    if (typeof trackAction === 'function') trackAction('drill', 'Hall of Fame', { cat: k, rows: rows.length });
+  };
+  // Merge the admin click onto an element's attrs (adds to its class).
+  const clickable = (k, x, attrs) => (isAdmin && x) ? Object.assign({}, attrs, { class: (attrs.class || '') + ' cursor-pointer transition hover:brightness-95', title: 'See the accounts behind this record', onclick: () => drill(k, x) }) : attrs;
   const muted = { color: 'var(--text-muted)' };
   const fmtDate = (kind, k) => {
     if (!k) return '';
@@ -85,7 +127,7 @@ function viewHallOfFame(dept) {
   const KEYS = dept === 'office' ? ['day', 'week', 'month', 'early', 'late', 'ren'] : ['day', 'week', 'month', 'early', 'late'];
   const holderCard = (k) => {
     const top = D.ranked[k][0];
-    return el('div', { class: 'card p-4 flex flex-col gap-2' },
+    return el('div', clickable(k, top, { class: 'card p-4 flex flex-col gap-2' }),
       el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: muted }, D.CATS[k].label + (k === 'early' || k === 'late' ? ' · ' + zone : '')),
       top ? el('div', { class: 'flex items-center gap-2' }, indRepAvatar(top.name, 32), el('div', { class: 'text-sm font-semibold truncate' }, top.name)) : el('div', { class: 'text-sm', style: muted }, 'No record yet'),
       top ? (() => { const v = val(k, top); return el('div', { class: 'pt-2 border-t', style: { borderColor: 'var(--border)' } },
@@ -95,7 +137,7 @@ function viewHallOfFame(dept) {
   const topList = (k) => el('div', { class: 'card p-4' },
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-2', style: muted }, D.CATS[k].label + ' · top 5'),
     D.ranked[k].length ? el('div', { class: 'flex flex-col' }, ...D.ranked[k].slice(0, 5).map((x, i) => { const v = val(k, x);
-      return el('div', { class: 'flex items-center gap-2 py-1.5' + (i ? ' border-t' : ''), style: { borderColor: 'var(--border)' } },
+      return el('div', clickable(k, x, { class: 'flex items-center gap-2 py-1.5 rounded' + (i ? ' border-t' : ''), style: { borderColor: 'var(--border)' } }),
         el('span', { class: 'text-xs font-black tabular-nums w-5 shrink-0', style: { color: i === 0 ? 'var(--accent)' : 'var(--text-muted)' } }, String(i + 1)),
         indRepAvatar(x.name, 24),
         el('div', { class: 'flex-1 min-w-0' }, el('div', { class: 'text-xs font-semibold truncate' }, x.name), el('div', { class: 'text-[10px] truncate', style: muted }, v.sub)),
@@ -114,7 +156,7 @@ function viewHallOfFame(dept) {
       el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' } },
         ...KEYS.map(k => { if (!D.CATS[k].has(x)) return el('div', { class: 'rounded-lg border p-3', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: muted }, D.CATS[k].label), el('div', { class: 'text-sm mt-1', style: muted }, '—'));
           const v = val(k, x); const rank = D.ranked[k].indexOf(x) + 1;
-          return el('div', { class: 'rounded-lg border p-3', style: { borderColor: rank === 1 ? 'var(--accent)' : 'var(--border)', background: 'var(--card-2)' } },
+          return el('div', clickable(k, x, { class: 'rounded-lg border p-3', style: { borderColor: rank === 1 ? 'var(--accent)' : 'var(--border)', background: 'var(--card-2)' } }),
             el('div', { class: 'flex items-center justify-between gap-1' }, el('span', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: muted }, D.CATS[k].label),
               el('span', { class: 'text-[10px] font-black tabular-nums', style: { color: rank <= 5 ? 'var(--accent)' : 'var(--text-muted)' }, title: 'Rank among ' + fmt.int(D.ranked[k].length) + ' reps' }, '#' + rank)),
             el('div', { class: 'text-lg font-black tabular-nums mt-1' }, v.big),
@@ -125,8 +167,11 @@ function viewHallOfFame(dept) {
     class: 'rounded-xl border px-3 py-1.5 text-xs', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '100%', maxWidth: '300px' },
     oninput: (e) => { state[qKey] = e.target.value; drawResults(); } });
   return el('div', { class: 'flex flex-col gap-6 w-full' },
-    el('div', {}, el('h1', { class: 'text-3xl font-bold' }, title),
-      el('div', { class: 'text-xs mt-1', style: muted }, 'Every ' + (HOF_DEPT_LABEL[dept] || '').toLowerCase() + ' sale in the CRM history, Pending / Serviced' + (dept === 'office' ? ', new business only (renewals have their own record)' : '') + '. Times are ' + (dept === 'office' ? 'Mountain (the call center clock)' : 'the selling office’s local time') + '.')),
+    el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' }, el('div', {}, el('h1', { class: 'text-3xl font-bold' }, title + (year ? ' \u00b7 ' + year : '')),
+      el('div', { class: 'text-xs mt-1', style: muted }, 'Every ' + (HOF_DEPT_LABEL[dept] || '').toLowerCase() + ' sale in the CRM history, Pending / Serviced' + (dept === 'office' ? ', new business only (renewals have their own record)' : '') + '. Times are ' + (dept === 'office' ? 'Mountain (the call center clock)' : 'the selling office’s local time') + '.' + (isAdmin ? ' Click any record to see the accounts behind it.' : ''))),
+      el('select', { class: 'rounded-xl border px-3 py-1.5 text-xs font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, 'aria-label': 'Year',
+        onchange: (e) => { state._hofYear = e.target.value; mountApp(); } },
+        el('option', { value: '', selected: !year }, 'All time'), ...years.map(y => el('option', { value: y, selected: y === year }, y)))),
     el('div', {},
       el('h2', { class: 'text-lg font-semibold mb-3' }, 'Company Records'),
       el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' } }, ...KEYS.map(holderCard))),
