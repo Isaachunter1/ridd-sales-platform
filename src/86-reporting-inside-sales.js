@@ -839,7 +839,9 @@ function reportingGeoAggregate(rows, F) {
     const st     = r.state    || 'Unknown';
     const zip    = r.zip_code || 'Unknown';
     const county = r.county   || 'Unknown';
-    const zipKey    = st + '|' + zip;
+    // One bucket per 5-digit ZIP (per Isaac, Oct 9): a mistyped state or a ZIP+4 no longer splits a ZIP in two.
+    const zip5      = String(zip).trim().slice(0, 5);
+    const zipKey    = /^\d{5}$/.test(zip5) ? zip5 : st + '|' + zip;
     const countyKey = st + '|' + county;
     const offName = (r.office_name || 'Unknown').trim() || 'Unknown';
     if (!byState.has(st))           byState.set(st, seed());
@@ -864,8 +866,8 @@ function reportingGeoAggregate(rows, F) {
     // Stamp the bucket's display state + zip on first sight (constant
     // across all members of the bucket).
     const zb = byZip.get(zipKey);
-    if (!zb.state) zb.state = st;
-    if (!zb.zip)   zb.zip = zip;
+    zb.stN = zb.stN || new Map(); zb.stN.set(st, (zb.stN.get(st) || 0) + 1);
+    if (!zb.zip)   zb.zip = /^\d{5}$/.test(zip5) ? zip5 : zip;
     const cb = byCounty.get(countyKey);
     if (!cb.state)  cb.state = st;
     if (!cb.county) cb.county = county;
@@ -880,8 +882,9 @@ function reportingGeoAggregate(rows, F) {
     active: m.active,
     avgContract: m.subs > 0 ? m.contract / m.subs : 0,
     cancelRate:  m.subs > 0 ? m.cancellations / m.subs : 0,
-    // Office this area belongs to = the branch that services most of its subs.
-    office: (() => { const c = new Map(); for (const r of m.rows) { const o = r.office_name; if (o) c.set(o, (c.get(o) || 0) + 1); } return [...c.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || ''; })(),
+    // Office this area belongs to = the branch with the most ACTIVE subs there, then the most subs (per Isaac,
+    // Oct 9 — a ZIP is in one market; an old cancel coded to another office doesn't move it).
+    office: (() => { const c = new Map(), a = new Map(); for (const r of m.rows) { const o = r.office_name; if (!o) continue; c.set(o, (c.get(o) || 0) + 1); if (String(r.subscription_status || '').trim().toLowerCase() === 'active') a.set(o, (a.get(o) || 0) + 1); } return [...c.keys()].sort((x, y) => ((a.get(y) || 0) - (a.get(x) || 0)) || (c.get(y) - c.get(x)))[0] || ''; })(),
     avgTenure:   m.tenureN > 0 ? m.tenureMo / m.tenureN : 0,          // months
     ltv:         m.customers.size > 0 ? m.ltvRev / m.customers.size : 0, // realized recurring $ per customer
     twoYrPct:    m.tenureN > 0 ? m.twoYr / m.tenureN : 0,
@@ -899,7 +902,9 @@ function reportingGeoAggregate(rows, F) {
     const f = finalize(m);
     // m.zip is the original CSV zip_code value (or 'Unknown' fallback)
     // — NOT the state|zip bucket key we built above for grouping.
-    zips.push({ zip: m.zip, state: m.state, ...f, attritionEligible: f.subs >= ATTRITION_MIN_SUBS });
+    // The ZIP's state = the one most of its accounts carry (a typo on one account doesn't move it).
+    const zState = m.stN ? [...m.stN.entries()].sort((a, b) => b[1] - a[1])[0][0] : m.state;
+    zips.push({ zip: m.zip, state: zState, ...f, attritionEligible: f.subs >= ATTRITION_MIN_SUBS });
   }
 
   const counties = [];
@@ -1066,7 +1071,7 @@ function exportReportingGeoCsv(items, kind, scopeTag) {
     for (const it of items) {
       const z = String(it.zip || '').trim().slice(0, 5);
       const cur = byZip.get(z) || { zip: z, active: 0, rows: [] };
-      cur.active += Number(it.active) || 0; cur.rows = cur.rows.concat(it.rows || []); byZip.set(z, cur);
+      cur.active += Number(it.active) || 0; cur.rows = cur.rows.concat(it.rows || []); if (!cur.office || (Number(it.active) || 0) > (cur._a || 0)) { cur.office = it.office; cur._a = Number(it.active) || 0; } byZip.set(z, cur);
     }
     items = [...byZip.values()].sort((a, b) => b.active - a.active);
   }
@@ -1075,13 +1080,13 @@ function exportReportingGeoCsv(items, kind, scopeTag) {
     // office with the most ACTIVE accounts there, then the most accounts overall. A stray account coded to
     // another office (an old cancel, a typo) no longer adds a second market. No-ZIP rows are left out.
     if (kind !== 'county' && !/^\d{5}$/.test(String(it.zip || ''))) continue;
-    const act = new Map(), all = new Map();
-    for (const r of (it.rows || [])) {
-      const o = r.office_name; if (!o) continue;
-      all.set(o, (all.get(o) || 0) + 1);
-      if (String(r.subscription_status || '').trim().toLowerCase() === 'active') act.set(o, (act.get(o) || 0) + 1);
+    if (!(Number(it.active) > 0)) continue;   // only areas with ACTIVE customers (per Isaac) — that's what providers target
+    let offices = it.office || '';
+    if (!offices) {   // items without a precomputed market: same rule as the breakdown
+      const act = new Map(), all = new Map();
+      for (const r of (it.rows || [])) { const o = r.office_name; if (!o) continue; all.set(o, (all.get(o) || 0) + 1); if (String(r.subscription_status || '').trim().toLowerCase() === 'active') act.set(o, (act.get(o) || 0) + 1); }
+      offices = [...all.keys()].sort((a, b) => ((act.get(b) || 0) - (act.get(a) || 0)) || (all.get(b) - all.get(a)) || a.localeCompare(b))[0] || '';
     }
-    const offices = [...all.keys()].sort((a, b) => ((act.get(b) || 0) - (act.get(a) || 0)) || (all.get(b) - all.get(a)) || a.localeCompare(b))[0] || '';
     n++;
     lines.push([
       csvEsc(kind === 'county' ? (it.county || 'Unknown') : it.zip),

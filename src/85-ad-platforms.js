@@ -28,7 +28,7 @@ function adProviderOf(r) {
 }
 // Google metro → branch (per Isaac, Oct 9). Defaults below; any metro can be re-pointed on the Spend tab
 // (adminRules.adMetroBranch). A metro with no branch is spread over the campaign's other metros pro rata.
-const AD_METRO_DEFAULTS = [[/atlanta/i, 'Atlanta'], [/charleston, sc/i, 'Charleston'], [/norfolk|richmond/i, 'Virginia Beach'], [/myrtle beach|wilmington/i, 'Myrtle Beach'],
+const AD_METRO_DEFAULTS = [[/atlanta/i, 'Atlanta'], [/charleston, sc|savannah/i, 'Charleston'], [/norfolk|richmond/i, 'Virginia Beach'], [/myrtle beach|wilmington/i, 'Myrtle Beach'],
   [/raleigh|greenville-new bern/i, 'Raleigh'], [/panama city|pensacola|walton/i, 'Destin'], [/detroit/i, 'Detroit'], [/joplin/i, 'Joplin'], [/little rock/i, 'Little Rock'], [/salt lake/i, 'Salt Lake']];
 function adMetroMap() { const R = (typeof _adminRules === 'function') ? _adminRules() : null; return (R && R.adMetroBranch) || {}; }
 function adMetroBranch(metro, branches) {
