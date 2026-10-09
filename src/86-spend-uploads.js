@@ -82,13 +82,18 @@ function _spuSplit(amount, w) {
 function _spuCompute(P, branches, m) {
   const cells = {}, raw = {};   // raw[ym] = { located: {B: amt}, split: amt }
   const locs = new Map();       // location value → { amt, n }
-  let skipped = 0, noDate = 0, n = 0;
+  let skipped = 0, noDate = 0, n = 0, outside = 0, outsideN = 0;
   for (const r of P.rows) {
     const amt = _spuNum(r[P.cols.amount]); if (!amt) continue;
     const first = String(r[P.headers[0]] == null ? '' : r[P.headers[0]]);
     if (/^\s*(grand\s+)?totals?\b/i.test(first)) continue;   // a totals row would double the file
-    // A month picked for the upload (per Isaac, Oct 9) puts the WHOLE file in that month, whatever its dates say.
-    let ym = P.forceMonth ? P.forceMonth : P.cols.date ? String(_attrDate(r[P.cols.date]) || '').slice(0, 7) : '';
+    // The month picked for the upload (per Isaac, Oct 9): with a date column only that month's rows count (a
+    // report covering several months contributes just its September rows); rows with no date, or a file with
+    // no date column, go to the picked month.
+    const dYm = P.cols.date ? String(_attrDate(r[P.cols.date]) || '').slice(0, 7) : '';
+    let ym = '';
+    if (P.forceMonth) { if (dYm && dYm !== P.forceMonth) { outside += amt; outsideN++; continue; } ym = P.forceMonth; }
+    else ym = dYm;
     if (!ym) { if (P.month) ym = P.month; else { noDate += amt; continue; } }
     n++;
     const R = raw[ym] = raw[ym] || { located: {}, split: 0 };
@@ -108,7 +113,7 @@ function _spuCompute(P, branches, m) {
     for (const b in c) { c[b] = Math.round(c[b] * 100) / 100; total += c[b]; }
     if (!Object.keys(c).length) delete cells[ym];
   }
-  return { cells, total: Math.round(total * 100) / 100, months: Object.keys(cells).sort(), unalloc, skipped, noDate, locs, n, hows: [...hows] };
+  return { cells, total: Math.round(total * 100) / 100, months: Object.keys(cells).sort(), unalloc, skipped, noDate, outside, outsideN, locs, n, hows: [...hows] };
 }
 // One file → one result per channel. With a provider column, each row goes to the channel its value maps to.
 function _spuComputeAll(P, branches, m) {
@@ -219,7 +224,10 @@ function mktgSpendUploadCard(B, year) {
     const months = [...new Set(groups.flatMap(g => g.C.months))].sort();
     const unalloc = groups.reduce((t, g) => t + g.C.unalloc, 0);
     const unmappedAmt = [...A.unmapped.values()].reduce((t, v) => t + v, 0);
-    const colOpts = (none) => [['', none], ...P.headers.map(h => [h, h])];
+    // Column options read like the spreadsheet: letter · header · a few sample values (per Isaac, Oct 9 — "column D").
+    const _letter = (i) => { let t = ''; i++; while (i > 0) { const r2 = (i - 1) % 26; t = String.fromCharCode(65 + r2) + t; i = Math.floor((i - 1) / 26); } return t; };
+    const _sample = (h) => { const seen = []; for (const r of P.rows) { const v = String(r[h] == null ? '' : r[h]).trim(); if (v && !seen.includes(v)) seen.push(v); if (seen.length >= 3) break; } return seen.map(v => v.length > 14 ? v.slice(0, 13) + '…' : v).join(', '); };
+    const colOpts = (none) => [['', none], ...P.headers.map((h, i) => [h, _letter(i) + ' · ' + (/^__EMPTY/.test(h) ? '(no header)' : h) + (_sample(h) ? '  (e.g. ' + _sample(h) + ')' : '')])];
     const overlap = m.spendUploads.filter(u => groups.some(g => g.ch === u.channel && g.C.months.some(ym => u.cells && u.cells[ym])));
     const locRows = P.cols.loc ? [...C.locs.entries()].sort((x, y) => y[1].amt - x[1].amt) : [];
     const shownLocs = locRows.slice(0, 80);
@@ -238,13 +246,13 @@ function mktgSpendUploadCard(B, year) {
         // The month this upload is for (per Isaac, Oct 9): pick one and the whole file books to it; or keep the file's own dates.
         (() => { const now = new Date(); const opts = []; for (let i = 0; i < 18; i++) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); opts.push([_mktgYm(d.getFullYear(), d.getMonth()), MKTG_MONTHS[d.getMonth()] + ' ' + d.getFullYear()]); }
           return el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Month'),
-            sel(P.forceMonth || '', [['', P.cols.date ? 'Use the dates in the file' : 'Pick a month…'], ...opts], (v) => { P.forceMonth = v; })); })(),
+            sel(P.forceMonth || '', [['', P.cols.date ? 'Every month in the file' : 'Pick a month…'], ...opts], (v) => { P.forceMonth = v; })); })(),
         (P.cols.date && !P.forceMonth && C.noDate) ? el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Rows with no date go to'),
           sel(P.month, [['', 'Pick a month…'], ...[year - 1, year].flatMap(y => MKTG_MONTHS.map((mn, i) => [_mktgYm(y, i), mn + ' ' + y]))], (v) => { P.month = v; })) : null,
         el('label', { class: 'inline-flex items-center gap-1.5', title: 'A column naming the provider / vendor on each row (QuickBooks payee, an aggregator report…). Leave it off when the whole file is one provider.' },
           el('span', { class: 'font-semibold' }, 'Provider'), sel(P.cols.prov || '', colOpts('Whole file is one provider'), (v) => { P.cols.prov = v; P.provMap = {}; })),
         !P.cols.prov ? el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Channel'), sel(P.channel, [['', 'Pick a channel…'], ...m.channels.map(c => [c, c])], (v) => { P.channel = v; })) : null,
-        el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Branch'), sel(P.cols.loc, colOpts('No branch / location column'), (v) => { P.cols.loc = v; P.locMap = {}; })),
+        el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold', title: 'The column that says which branch / location each row belongs to — a branch ID, office name, market, campaign or ZIP. Each value in it is mapped to a branch below, once.' }, 'Branch column'), sel(P.cols.loc, colOpts('No branch / location column'), (v) => { P.cols.loc = v; P.locMap = {}; })),
         !P.cols.loc ? el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Goes to'), sel(P.noLoc, officeOpts.filter(o => o[0] !== SPU_SKIP), (v) => { P.noLoc = v; })) : null),
       provRows.length ? el('div', { class: 'flex flex-col gap-1' },
         lab('Provider → channel (' + provRows.length + ') · remembered for next time'),
@@ -254,7 +262,7 @@ function mktgSpendUploadCard(B, year) {
             el('span', { class: 'tabular-nums', style: muted }, fmt.usd0(L.amt)),
             sel(cur, chanOpts, (v) => { P.provMap = P.provMap || {}; P.provMap[k] = v; })); }))) : null,
       locRows.length ? el('div', { class: 'flex flex-col gap-1' },
-        lab('Location → branch (' + locRows.length + ') · remembered for next time'),
+        lab(String(P.cols.loc) + ' → branch (' + locRows.length + ' value' + (locRows.length === 1 ? '' : 's') + ') · pick a branch for each · remembered for next time'),
         grid(shownLocs.map(([val, L]) => {
           const k = _spuKey(val), cur = (P.locMap && P.locMap[k]) || _spuAutoOffice(val, branches, m);
           return el('div', { class: 'flex items-center gap-2 text-[11px]' },
@@ -270,6 +278,7 @@ function mktgSpendUploadCard(B, year) {
         unalloc ? el('span', { style: { color: '#DC2626', fontWeight: '600' } }, fmt.usd0(unalloc) + ' could not be split (no leads or sales that month) — pick a branch') : null,
         (C.noDate && !P.month && !P.forceMonth) ? el('span', { style: { color: '#DC2626', fontWeight: '600' } }, fmt.usd0(C.noDate) + ' has no date — pick the month above') : null,
         C.skipped ? el('span', { style: muted }, fmt.usd0(C.skipped) + ' skipped') : null,
+        C.outside ? el('span', { style: muted }, fmt.int(C.outsideN) + ' row' + (C.outsideN === 1 ? '' : 's') + ' dated outside ' + reportingMonthLbl(P.forceMonth) + ' left out (' + fmt.usd0(C.outside) + ')') : null,
         overlap.length ? el('span', { style: { color: '#B45309', fontWeight: '600' } }, 'Already have ' + overlap.length + ' upload' + (overlap.length === 1 ? '' : 's') + ' for these channels and months — this ADDS to them. Remove the old one below if this replaces it.') : null,
         el('span', { class: 'ml-auto inline-flex gap-2' },
           el('button', { class: 'rounded-lg border px-2.5 py-1 font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._spendPending = state._spendPending.filter(x => x !== P); mountApp(); } }, 'Discard'),
