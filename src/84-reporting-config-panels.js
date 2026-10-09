@@ -879,7 +879,7 @@ const _mktgDiv = (a, b) => (b > 0 ? a / b : null);
 function _mktgYearBar(sub) {
   const y = _mktgYearSel();
   // Attribution (lead reconciliation) is a tab of its own (per Isaac, Oct 2) — it lived behind a button on the right.
-  const SUBS = [['providers', 'Metrics'], ['recon', 'Attribution'], ['pnl', 'P&L'], ['spend', 'Spend entry'], ['projections', 'Projections']];
+  const SUBS = [['providers', 'Metrics'], ['recon', 'Attribution'], ['pnl', 'P&L'], ['spend', 'Spend'], ['projections', 'Projections']];
   const _recon = sub === 'providers' && state._mktProvView === 'recon';
   return el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
     el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
@@ -1277,7 +1277,7 @@ function _mktgProvidersViz(cur, o) {
 // Metrics and P&L tabs read (marketing.spend), so nothing downstream changes.
 function _mktgSpendEntry() {
   const y = _mktgYearSel(), B = _mktgBranchList(y);
-  return el('div', { class: 'flex flex-col gap-4' }, (typeof mktgSpendUploadCard === 'function') ? mktgSpendUploadCard(B, y) : null, _mktgControllerTable());
+  return el('div', { class: 'flex flex-col gap-4' }, (typeof mktgSpendUploadCard === 'function') ? mktgSpendUploadCard(B, y) : null, (typeof mktgSpendChecklist === 'function') ? mktgSpendChecklist() : null, _mktgControllerTable());
 }
 // Controller allocation (per Isaac, Oct 9): the sheet handed to the controller — one row per branch × provider
 // that has spend in the month, with branch subtotals, a grand total and a CSV download.
@@ -1302,14 +1302,20 @@ function _mktgAdSpendMonth(ym, branches) {
   out.open = [...by.values()].sort((a, b) => b.spend - a.spend);
   return out;
 }
-function _mktgControllerTable() {
+// The month the Spend tab works on (checklist + controller allocation share it): last pick, else the newest month
+// with spend, else last month. Returns { ym, yms } (yms = the picker's months, newest first).
+function _mktgCtrlMonth() {
   const m = _mktgStore();
   const now = new Date();
   const yUp = Object.keys(m.spend || {}).filter(ym => Object.values(m.spend[ym] || {}).some(c => Object.values(c || {}).some(v => Number(v) > 0)));
   const recent = []; for (let i = 0; i < 18; i++) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); recent.push(_mktgYm(d.getFullYear(), d.getMonth())); }
   const yms = [...new Set([...recent, ...yUp])].sort().reverse();
   if (!yms.includes(state._mktCtrlMonth)) state._mktCtrlMonth = yUp.sort().reverse()[0] || recent[1];
-  const ym = state._mktCtrlMonth;
+  return { ym: state._mktCtrlMonth, yms };
+}
+function _mktgControllerTable() {
+  const m = _mktgStore();
+  const { ym, yms } = _mktgCtrlMonth();
   const BL = _mktgBranchList(Number(ym.slice(0, 4)));
   const AD = _mktgAdSpendMonth(ym, BL.all);
   const byB = new Map();

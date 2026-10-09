@@ -138,6 +138,7 @@ async function _spuUpload(files) {
   const list = Array.from(files || []); if (!list.length) return;
   try { await loadXlsxLibOnce(); } catch { toast('Could not load Excel library — check your connection', 'error'); return; }
   const m = _spuStore();
+  const preset = state._spuPreset || null; state._spuPreset = null;   // set by an Upload button on the checklist
   state._spendPending = state._spendPending || [];
   for (const file of list) {
     try {
@@ -154,7 +155,8 @@ async function _spuUpload(files) {
         if (!cols.amount && wb.SheetNames.length > 1) continue;   // a tab with no money column in a multi-tab workbook is not a spend sheet
         any = true;
         state._spendPending.push({ key: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), fileName: wb.SheetNames.length > 1 ? file.name + ' · ' + sheet : file.name,
-          headers, rows, cols, channel: (T && T.channel) || _attrGuessProvider(file.name + ' ' + sheet, m.channels) || '', month: state._mktEntryMonth || '', noLoc: (T && T.noLoc) || SPU_SPLIT, locMap: {}, provMap: {}, recognized: T ? (T.from || 'an earlier report') : '' });
+          headers, rows, cols, channel: (preset && preset.channel) || (T && T.channel) || _attrGuessProvider(file.name + ' ' + sheet, m.channels) || '', month: state._mktEntryMonth || '', forceMonth: (preset && preset.month) || '', noLoc: (T && T.noLoc) || SPU_SPLIT, locMap: {}, provMap: {}, recognized: T ? (T.from || 'an earlier report') : '' });
+        if (preset && preset.channel) cols.prov = '';   // uploaded from a provider's checklist row: the whole file is that provider
       }
       if (!any) toast('No spend rows found in ' + file.name, 'error');
     } catch (e) { toast('Could not read ' + file.name + ': ' + (e.message || e), 'error'); }
@@ -304,4 +306,78 @@ function mktgSpendUploadCard(B, year) {
     })))) : null;
   return el('div', { class: 'card overflow-hidden' }, head, ...pending, list, memo,
     el('div', { class: 'px-5 py-2 text-[11px]', style: muted }, 'A channel-month covered by uploaded reports is set from the reports (it replaces numbers typed into the sheet for that channel and month).'));
+}
+
+// ── Spend checklist (per Isaac, Oct 9) ───────────────────────────────────
+// Every provider sending leads in GoHighLevel that month (plus any provider
+// with spend), so none gets forgotten. Each one is: from the ad platforms
+// (Facebook / Google — automatic), uploaded, entered and split evenly across
+// the branches, or checked off as no spend this month. Same month as the
+// Controller allocation below.
+const SPU_SKIP_PROVS = /^(organic|referral|unknown|direct|door to door|current customer|pestbooker|click-to-buy)$/i;
+function _spuEven(ch, ym, amount, branches) {
+  const m = _spuStore(); if (!(amount > 0)) return; if (!branches.length) { toast('No branches loaded yet — try again once the sales data has loaded', 'error'); return; }
+  const cells = {}; const per = Math.floor(amount / branches.length * 100) / 100; let used = 0;
+  for (const b of branches) { cells[b] = per; used += per; }
+  cells[branches[0]] = Math.round((cells[branches[0]] + amount - used) * 100) / 100;
+  m.spendUploads.push({ id: 'even-' + ch + '-' + ym + '-' + Date.now().toString(36), fileName: 'Entered · split evenly across ' + branches.length + ' branches', channel: ch, at: new Date().toISOString(), by: (state.profile && state.profile.full_name) || '', total: Math.round(amount * 100) / 100, n: 1, cells: { [ym]: cells } });
+  _spuRebuild(m, ch, [ym]); _mktgSave(); toast(fmt.usd0(amount) + ' of ' + ch + ' split evenly across ' + branches.length + ' branches', 'success'); mountApp();
+}
+function mktgSpendChecklist() {
+  const m = _spuStore();
+  m.spendCheck = (m.spendCheck && typeof m.spendCheck === 'object') ? m.spendCheck : {};   // { ym: { provider: 'none' } }
+  const ym = (typeof _mktgCtrlMonth === 'function') ? _mktgCtrlMonth().ym : state._mktCtrlMonth;
+  if (typeof ghlLoadLeads === 'function') ghlLoadLeads();
+  const BL = _mktgBranchList(Number(ym.slice(0, 4)));
+  const muted = { color: 'var(--text-muted)' };
+  // Providers: GoHighLevel leads that month (credited provider), plus anything already carrying spend.
+  const leads = new Map();
+  const G = (typeof ghlLeads === 'function') ? ghlLeads() : null;
+  if (G && G.leads) for (const l of G.leads) { if (String(l.d).slice(0, 7) !== ym) continue; const p = l.prov; if (!p || p === GHL_NOT_LEAD || SPU_SKIP_PROVS.test(p)) continue; leads.set(p, (leads.get(p) || 0) + 1); }
+  const spendOf = (p) => { const c = (m.spend[ym] || {})[p] || {}; return Object.values(c).reduce((t, v) => t + (Number(v) || 0), 0); };
+  const AD = (typeof _mktgAdSpendMonth === 'function') ? _mktgAdSpendMonth(ym, BL.all) : { has: new Set() };
+  const provs = new Set([...leads.keys(), ...Object.keys(m.spend[ym] || {}).filter(p => spendOf(p) > 0), ...AD.has]);
+  const checks = m.spendCheck[ym] || {};
+  const rows = [...provs].map(p => {
+    const auto = AD.has.has(p) || (typeof AD_PROVIDERS !== 'undefined' && AD_PROVIDERS.includes(p));
+    const amt = spendOf(p);
+    const st = auto ? 'auto' : amt > 0 ? 'done' : checks[p] === 'none' ? 'none' : 'todo';
+    return { p, n: leads.get(p) || 0, auto, amt, st };
+  }).sort((a, b) => ({ todo: 0, done: 1, none: 2, auto: 3 }[a.st] - { todo: 0, done: 1, none: 2, auto: 3 }[b.st]) || b.n - a.n);
+  const todo = rows.filter(r => r.st === 'todo').length;
+  const fileIn = el('input', { type: 'file', multiple: true, accept: '.csv,.xlsx,.xls,.tsv', class: 'hidden', onchange: (e) => { _spuUpload(e.target.files); e.target.value = ''; } });
+  const upload = (p) => { state._spuPreset = { channel: p, month: ym }; fileIn.click(); };
+  const pill = (t, bg, fg) => el('span', { class: 'rounded-full px-2 py-0.5 text-[10px] font-bold whitespace-nowrap', style: { background: bg, color: fg } }, t);
+  const stPill = (r) => r.st === 'auto' ? pill('Automatic · ad platform', 'rgba(42,120,194,.12)', '#2A78C2') : r.st === 'done' ? pill('✓ ' + fmt.usd0(r.amt), 'rgba(95,108,91,.16)', '#5F6C5B') : r.st === 'none' ? pill('✓ No spend', 'var(--card-2)', 'var(--text-muted)') : pill('To do', 'rgba(220,38,38,.10)', '#B91C1C');
+  const btn = (t, on, primary) => el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap' + (primary ? '' : ' border'), style: primary ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: on }, t);
+  const setNone = (p, on) => { m.spendCheck[ym] = m.spendCheck[ym] || {}; if (on) m.spendCheck[ym][p] = 'none'; else delete m.spendCheck[ym][p]; _mktgSave(); mountApp(); };
+  const evenKey = '_spuEvenOpen';
+  const actions = (r) => {
+    if (r.st === 'auto') return el('span', { class: 'text-[11px]', style: muted }, 'Pulled from the platform — map any unassigned campaigns in the table below');
+    if (r.st === 'none') return btn('Undo', () => setNone(r.p, false));
+    if (state[evenKey] === r.p) {
+      const inp = el('input', { type: 'number', min: '0', step: '0.01', placeholder: 'Total for the month', class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', width: '150px' } });
+      return el('span', { class: 'inline-flex items-center gap-2 flex-wrap' }, inp,
+        btn('Split evenly across ' + BL.all.length + ' branches', () => { const v = parseFloat(inp.value); if (!(v > 0)) { toast('Enter the amount first', 'error'); return; } state[evenKey] = null; _spuEven(r.p, ym, v, BL.all); }, true),
+        btn('Cancel', () => { state[evenKey] = null; mountApp(); }));
+    }
+    return el('span', { class: 'inline-flex items-center gap-2 flex-wrap' },
+      btn(r.st === 'done' ? 'Upload more' : 'Upload breakout', () => upload(r.p), r.st !== 'done'),
+      btn('Enter & split evenly', () => { state[evenKey] = r.p; mountApp(); }),
+      r.st === 'todo' ? btn('No spend', () => setNone(r.p, true)) : null);
+  };
+  const th = (t) => el('th', { class: 'px-4 py-2 text-left text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
+  return el('div', { class: 'card overflow-hidden' }, fileIn,
+    el('div', { class: 'px-5 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+      el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Spend checklist · ' + reportingMonthLbl(ym)),
+        el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Every provider that sent leads into GoHighLevel this month, plus anything already carrying spend. Upload a provider’s breakout by location, enter one total to split evenly across the branches, or mark No spend. Change the month in the Controller allocation below.')),
+      el('span', { class: 'ml-auto' }, todo ? pill(todo + ' to do', 'rgba(220,38,38,.10)', '#B91C1C') : pill('✓ All providers covered', 'rgba(95,108,91,.16)', '#5F6C5B'))),
+    rows.length ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, th('Provider'), th('GHL leads'), th('Status'), th(''))),
+      el('tbody', {}, ...rows.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, r.p),
+        el('td', { class: 'px-4 py-2 tabular-nums', style: muted }, r.n ? fmt.int(r.n) : '—'),
+        el('td', { class: 'px-4 py-2' }, stPill(r)),
+        el('td', { class: 'px-4 py-2' }, actions(r)))))))
+      : el('div', { class: 'px-5 py-4 text-[11px]', style: muted }, G ? 'No paid providers with leads in GoHighLevel this month.' : 'Loading GoHighLevel leads…'));
 }
