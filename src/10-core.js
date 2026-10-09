@@ -3159,8 +3159,10 @@ async function boot() {
       }
     } catch { /* private mode — skip */ }
   }
-  const hv2 = applyHash();
-  if (hv2) { state.view = hv2; state._navChosen = true; }
+  let _freshLogin = false; try { _freshLogin = sessionStorage.getItem('ridd_fresh_login') === '1'; sessionStorage.removeItem('ridd_fresh_login'); } catch { /* private mode */ }
+  const hv2 = _freshLogin ? null : applyHash();
+  if (_freshLogin) { state.view = 'dashboard'; try { history.replaceState(null, '', VIEW_TO_HASH.dashboard || '#dashboard'); } catch { /* keep */ } }   // Sales tab; the role guards send reps to their own Sales home
+  else if (hv2) { state.view = hv2; state._navChosen = true; }
   else if (_applyResume()) { state._navChosen = true; /* re-opened within the window → land on the last tab */ }
   await loadAndRender();
   // Put them back at the scroll position they left (best-effort — data
@@ -4522,7 +4524,10 @@ function mountAuth(opts = {}) {
           // every time (no dependence on the SDK's auth-change event firing).
           // A newer deploy found while on the login screen comes up here too
           // (per Isaac: the sign-in IS the refresh — no banner on login).
-          setTimeout(() => { if (window.__riddNewVersion) location.reload(); else location.replace(window.location.pathname + (window.location.hash || '')); }, 250);
+          // A fresh sign-in always opens on the Sales tab (per Isaac, Oct 9) — not the tab in the old URL
+          // (#reporting etc.) and not the last-place resume. The flag is read once in boot().
+          try { sessionStorage.setItem('ridd_fresh_login', '1'); localStorage.removeItem(RESUME_KEY); } catch { /* private mode */ }
+          setTimeout(() => { if (window.__riddNewVersion) { try { history.replaceState(null, '', window.location.pathname + window.location.search); } catch { /* keep */ } location.reload(); } else location.replace(window.location.pathname + window.location.search); }, 250);
           return;
         } else if (mode === 'forgot') {
           // Only say "sent" for a REAL user (per Isaac, Sep 22): the server
