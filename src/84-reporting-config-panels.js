@@ -1281,16 +1281,46 @@ function _mktgSpendEntry() {
 }
 // Controller allocation (per Isaac, Oct 9): the sheet handed to the controller — one row per branch × provider
 // that has spend in the month, with branch subtotals, a grand total and a CSV download.
+// Facebook / Google Ads / Google LSA come straight from the platforms (Windsor), per Isaac Oct 9: each campaign
+// books to the branch its campaign override, its account line or its name points at (split evenly when it
+// points at several). Spend that points at no branch (company-wide accounts, unnamed campaigns) is listed
+// under the table to be given a branch — the pick is remembered per campaign.
+function _mktgAdSpendMonth(ym, branches) {
+  const y = Number(String(ym).slice(0, 4));
+  if (typeof reportingLoadAdSpend === 'function') reportingLoadAdSpend(y);
+  const S = (state._adSpend || {})[y] || {};
+  const out = { has: new Set(), cells: {}, open: [], loading: !S.rows, error: S.error || '' };
+  if (!S.rows) return out;
+  const by = new Map();
+  for (const r of S.rows) {
+    if (String(r.ym) !== String(ym) || !(Number(r.spend) > 0)) continue;
+    const prov = adProviderOf(r); out.has.add(prov);
+    const offs = adOfficesOf(r, branches).filter(t => !String(t).startsWith(AD_ENT) && branches.includes(t));
+    if (offs.length) { const part = r.spend / offs.length; for (const b of offs) { const c = out.cells[prov] = out.cells[prov] || {}; c[b] = (c[b] || 0) + part; } continue; }
+    const k = adCampaignKey(r); const x = by.get(k) || { k, r, prov, spend: 0 }; x.spend += r.spend; by.set(k, x);
+  }
+  out.open = [...by.values()].sort((a, b) => b.spend - a.spend);
+  return out;
+}
 function _mktgControllerTable() {
   const m = _mktgStore();
-  const yms = Object.keys(m.spend || {}).filter(ym => Object.values(m.spend[ym] || {}).some(c => Object.values(c || {}).some(v => Number(v) > 0))).sort().reverse();
-  if (!yms.length) return el('div', { class: 'card p-5 text-xs', style: { color: 'var(--text-muted)' } }, 'No spend yet — upload a report above and the controller allocation fills in here.');
-  if (!yms.includes(state._mktCtrlMonth)) state._mktCtrlMonth = yms[0];
+  const now = new Date();
+  const yUp = Object.keys(m.spend || {}).filter(ym => Object.values(m.spend[ym] || {}).some(c => Object.values(c || {}).some(v => Number(v) > 0)));
+  const recent = []; for (let i = 0; i < 18; i++) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); recent.push(_mktgYm(d.getFullYear(), d.getMonth())); }
+  const yms = [...new Set([...recent, ...yUp])].sort().reverse();
+  if (!yms.includes(state._mktCtrlMonth)) state._mktCtrlMonth = yUp.sort().reverse()[0] || recent[1];
   const ym = state._mktCtrlMonth;
+  const BL = _mktgBranchList(Number(ym.slice(0, 4)));
+  const AD = _mktgAdSpendMonth(ym, BL.all);
   const byB = new Map();
-  for (const ch in (m.spend[ym] || {})) for (const b in (m.spend[ym][ch] || {})) { const v = Number(m.spend[ym][ch][b]) || 0; if (v <= 0) continue; (byB.get(b) || byB.set(b, []).get(b)).push({ ch, v }); }
+  const add = (b, ch, v) => { if (!(v > 0)) return; (byB.get(b) || byB.set(b, []).get(b)).push({ ch, v: Math.round(v * 100) / 100 }); };
+  // Uploaded reports, except a channel the platform already reports for this month (no double count).
+  for (const ch in (m.spend[ym] || {})) { if (AD.has.has(ch)) continue; for (const b in (m.spend[ym][ch] || {})) add(b, ch, Number(m.spend[ym][ch][b]) || 0); }
+  for (const ch in AD.cells) for (const b in AD.cells[ch]) add(b, ch, AD.cells[ch][b]);
+  const dupUploads = Object.keys(m.spend[ym] || {}).filter(ch => AD.has.has(ch) && Object.values(m.spend[ym][ch] || {}).some(v => Number(v) > 0));
   const branches = [...byB.entries()].map(([b, rows]) => ({ b, rows: rows.sort((p, q) => q.v - p.v), tot: rows.reduce((t, r) => t + r.v, 0) })).sort((p, q) => q.tot - p.tot);
   const grand = branches.reduce((t, x) => t + x.tot, 0);
+  const openAmt = AD.open.reduce((t, x) => t + x.spend, 0);
   const usd2 = (v) => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const th = (t, r) => el('th', { class: 'px-4 py-2 text-[10px] uppercase tracking-wider font-semibold ' + (r ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
   const td = (t, o = {}) => el('td', { class: 'px-4 py-1.5' + (o.r ? ' text-right tabular-nums' : '') + (o.b ? ' font-bold' : ''), style: o.st || {} }, t);
@@ -1298,11 +1328,12 @@ function _mktgControllerTable() {
     const lines = [['Branch', 'Provider', 'Amount'].join(',')];
     for (const x of branches) { for (const r of x.rows) lines.push([_mktgTC(x.b), r.ch, r.v.toFixed(2)].map(esc).join(',')); lines.push([_mktgTC(x.b) + ' total', '', x.tot.toFixed(2)].map(esc).join(',')); }
     lines.push(['Total', '', grand.toFixed(2)].map(esc).join(','));
+    for (const x of AD.open) lines.push(['Needs a branch', x.prov + ' · ' + x.r.campaign, x.spend.toFixed(2)].map(esc).join(','));
     const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' })); const a2 = el('a', { href: url, download: 'RIDD-marketing-spend-by-branch-' + ym + '.csv' }); document.body.append(a2); a2.click(); a2.remove(); URL.revokeObjectURL(url); };
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
       el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Controller allocation · ' + reportingMonthLbl(ym)),
-        el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Every branch with spend this month, by provider, from the uploaded reports. ' + fmt.int(branches.length) + ' branch' + (branches.length === 1 ? '' : 'es') + ' · ' + usd2(grand) + '.')),
+        el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Every branch with spend this month, by provider. Facebook and Google come straight from the ad platforms; everything else from the uploaded reports. ' + fmt.int(branches.length) + ' branch' + (branches.length === 1 ? '' : 'es') + ' · ' + usd2(grand) + (openAmt ? ' · ' + usd2(openAmt) + ' still needs a branch (below)' : '') + '.')),
       el('div', { class: 'ml-auto flex items-center gap-2' },
         el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { state._mktCtrlMonth = e.target.value; mountApp(); } },
           ...yms.map(v => el('option', { value: v, selected: v === ym }, reportingMonthLbl(v)))),
@@ -1312,7 +1343,20 @@ function _mktgControllerTable() {
       el('tbody', {}, ...branches.flatMap(x => [
         ...x.rows.map((r, i) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, td(i === 0 ? _mktgTC(x.b) : '', { b: true }), td(r.ch), td(usd2(r.v), { r: true }))),
         el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } }, td(_mktgTC(x.b) + ' total', { b: true }), td(''), td(usd2(x.tot), { r: true, b: true }))]),
-        el('tr', { style: { borderTop: '2px solid var(--text)' } }, td('Total', { b: true }), td(''), td(usd2(grand), { r: true, b: true }))))));
+        el('tr', { style: { borderTop: '2px solid var(--text)' } }, td('Total', { b: true }), td(''), td(usd2(grand), { r: true, b: true }))))),
+    AD.loading ? el('div', { class: 'px-5 py-2 text-[11px] border-t', style: { borderColor: 'var(--border)', color: AD.error ? '#DC2626' : 'var(--text-muted)' } }, AD.error ? 'Couldn’t pull Facebook / Google: ' + AD.error : 'Pulling Facebook and Google spend…') : null,
+    dupUploads.length ? el('div', { class: 'px-5 py-2 text-[11px] border-t', style: { borderColor: 'var(--border)', color: '#B45309' } }, 'Uploaded ' + dupUploads.join(', ') + ' spend for this month is left out — the platform numbers are used instead, so it isn’t counted twice.') : null,
+    // Spend that points at no branch yet: pick one per campaign (remembered).
+    AD.open.length ? el('div', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+      el('div', { class: 'px-5 pt-3 pb-1 text-[11px] font-bold', style: { color: '#DC2626' } }, 'Needs a branch · ' + usd2(openAmt) + ' across ' + AD.open.length + ' campaign' + (AD.open.length === 1 ? '' : 's')),
+      el('div', { class: 'px-5 pb-2 text-[11px]', style: { color: 'var(--text-muted)' } }, 'Facebook / Google campaigns whose account or name doesn’t point at one branch. Pick a branch and it is remembered for every month; whole accounts can be set in Settings → Connections → Ad accounts.'),
+      el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+        el('thead', {}, el('tr', {}, th('Provider'), th('Account'), th('Campaign'), th('Amount', true), th('Branch'))),
+        el('tbody', {}, ...AD.open.map(x => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          td(x.prov), td((x.r.acctName ? x.r.acctName + ' · ' : '') + x.r.acct), td(x.r.campaign, { st: { maxWidth: '380px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }), td(usd2(x.spend), { r: true, b: true }),
+          el('td', { class: 'px-4 py-1' }, isAdminRole(state.profile?.role) ? el('select', { class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+            onchange: (e) => { if (e.target.value) { setAdCampaignOffice(x.k, e.target.value); mountApp(); } } },
+            el('option', { value: '', selected: true }, 'Pick a branch…'), ...BL.all.map(b => el('option', { value: b }, _mktgTC(b)))) : '—'))))))) : null);
 }
 
 // ── Projections ──
