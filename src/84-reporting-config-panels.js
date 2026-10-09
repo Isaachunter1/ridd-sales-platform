@@ -1360,9 +1360,17 @@ function _mktgControllerTable() {
         el('thead', {}, el('tr', {}, th('Provider'), th('Account'), th('Campaign'), th('Amount', true), th('Branch'))),
         el('tbody', {}, ...AD.open.map(x => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
           td(x.prov), td((x.r.acctName ? x.r.acctName + ' · ' : '') + x.r.acct), td(x.r.campaign, { st: { maxWidth: '380px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }), td(usd2(x.spend), { r: true, b: true }),
-          el('td', { class: 'px-4 py-1' }, isAdminRole(state.profile?.role) ? el('select', { class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-            onchange: (e) => { if (e.target.value) { setAdCampaignOffice(x.k, e.target.value); mountApp(); } } },
-            el('option', { value: '', selected: true }, 'Pick a branch…'), ...BL.all.map(b => el('option', { value: b }, _mktgTC(b)))) : '—'))))))) : null);
+          // One branch, or several split evenly (per Isaac, Oct 9).
+          el('td', { class: 'px-4 py-1' }, isAdminRole(state.profile?.role) ? spuBranchPicker(BL.all, [], (picked) => { setAdCampaignOffice(x.k, picked.length === 1 ? picked[0] : picked); mountApp(); }, { empty: 'Pick branches…', save: 'Save · split evenly' }) : '—'))))))) : null,
+    // Campaigns already given branches by hand — change or reset them here.
+    (() => { const map = adCampaignOfficeMap(); const keys = Object.keys(map).filter(k => map[k] !== '' && map[k] != null); if (!keys.length || !isAdminRole(state.profile?.role)) return null;
+      return el('details', { class: 'px-5 py-3 border-t', style: { borderColor: 'var(--border)' } },
+        el('summary', { class: 'text-[11px] font-semibold cursor-pointer' }, 'Campaign branches set by hand (' + keys.length + ')'),
+        el('div', { class: 'flex flex-col gap-1 mt-2' }, ...keys.sort().map(k => { const v = map[k]; const cur = Array.isArray(v) ? v : [v]; const parts = k.split('|');
+          return el('div', { class: 'flex items-center gap-3 text-[11px]' },
+            el('span', { class: 'truncate', style: { flex: '1', minWidth: '0' }, title: k }, parts.slice(2).join('|') + ' · ' + parts[1]),
+            spuBranchPicker(BL.all, cur, (picked) => { setAdCampaignOffice(k, picked.length === 1 ? picked[0] : picked); mountApp(); }, { save: 'Save · split evenly' }),
+            el('button', { class: 'underline', style: { color: 'var(--text-muted)' }, onclick: () => { setAdCampaignOffice(k, null); mountApp(); } }, 'Reset')); }))); })());
 }
 
 // ── Projections ──

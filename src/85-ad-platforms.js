@@ -74,6 +74,7 @@ function adTargetLabel(t) { return String(t).startsWith(AD_ENT) ? adEntityLabel(
 function adOfficesOf(r, branches) {
   const o = adCampaignOfficeMap()[adCampaignKey(r)];
   if (o === '') return [];
+  if (Array.isArray(o)) return o.slice();   // several branches, split evenly (per Isaac, Oct 9)
   if (o) return [o];
   const a = adAccountTargets(r);
   if (a) return a;

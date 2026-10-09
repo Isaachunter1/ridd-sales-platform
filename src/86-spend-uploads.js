@@ -367,7 +367,8 @@ function mktgSpendChecklist() {
     if (state[evenKey] === r.p) {
       const inp = el('input', { type: 'number', min: '0', step: '0.01', placeholder: 'Total for the month', class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', width: '150px' } });
       return el('span', { class: 'inline-flex items-center gap-2 flex-wrap' }, inp,
-        btn('Split evenly across ' + BL.all.length + ' branches', () => { const v = parseFloat(inp.value); if (!(v > 0)) { toast('Enter the amount first', 'error'); return; } state[evenKey] = null; _spuEven(r.p, ym, v, BL.all); }, true),
+        // Which branches share it (per Isaac, Oct 9): all by default, or pick some.
+        spuBranchPicker(BL.all, (m.spendEvenBranches && m.spendEvenBranches[r.p]) || BL.all, (picked) => { const v = parseFloat(inp.value); if (!(v > 0)) { toast('Enter the amount first', 'error'); return; } m.spendEvenBranches = m.spendEvenBranches || {}; m.spendEvenBranches[r.p] = picked; state[evenKey] = null; _spuEven(r.p, ym, v, picked); }, { save: 'Split evenly' }),
         btn('Cancel', () => { state[evenKey] = null; mountApp(); }));
     }
     return el('span', { class: 'inline-flex items-center gap-2 flex-wrap' },
@@ -389,4 +390,28 @@ function mktgSpendChecklist() {
         el('td', { class: 'px-4 py-2' }, stPill(r)),
         el('td', { class: 'px-4 py-2' }, actions(r)))))))
       : el('div', { class: 'px-5 py-4 text-[11px]', style: muted }, G ? 'No paid providers with leads in GoHighLevel this month.' : 'Loading GoHighLevel leads…'));
+}
+
+// Branch picker (per Isaac, Oct 9 — "sometimes it's not across ALL locations"): a button that opens a checklist of
+// branches with All / None; Save hands back the picked ones. Used to split a campaign or a provider total evenly.
+function spuBranchPicker(branches, selected, onSave, opts) {
+  opts = opts || {};
+  const wrap = el('span', { class: 'relative inline-block' });
+  const picked = new Set(selected || []);
+  const label = () => picked.size === 0 ? (opts.empty || 'Pick branches…') : picked.size === branches.length ? 'All ' + branches.length + ' branches' : picked.size === 1 ? _mktgTC([...picked][0]) : picked.size + ' branches';
+  const panel = el('div', { class: 'card p-2 flex flex-col gap-1', style: { position: 'absolute', right: '0', top: 'calc(100% + 4px)', zIndex: '60', minWidth: '220px', maxHeight: '320px', overflowY: 'auto', display: 'none', boxShadow: 'var(--shadow-lg)' } });
+  const btn = el('button', { class: 'rounded-lg border px-2 py-0.5 text-[11px] whitespace-nowrap', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onclick: (e) => { e.stopPropagation(); paint(); panel.style.display = panel.style.display === 'none' ? 'flex' : 'none'; } }, label() + ' ▾');
+  const paint = () => {
+    const mini = (t, on) => el('button', { class: 'text-[10px] font-semibold underline', style: { color: 'var(--accent)' }, onclick: (e) => { e.stopPropagation(); on(); paint(); } }, t);
+    panel.replaceChildren(
+      el('div', { class: 'flex items-center gap-3 px-1 pb-1 border-b', style: { borderColor: 'var(--border)' } }, mini('All', () => branches.forEach(b => picked.add(b))), mini('None', () => picked.clear()),
+        el('span', { class: 'ml-auto text-[10px]', style: { color: 'var(--text-muted)' } }, picked.size + ' picked')),
+      ...branches.map(b => el('label', { class: 'flex items-center gap-2 px-1 py-0.5 text-[11px] cursor-pointer' },
+        el('input', { type: 'checkbox', checked: picked.has(b), onchange: (e) => { if (e.target.checked) picked.add(b); else picked.delete(b); const n = panel.querySelector('.ml-auto'); if (n) n.textContent = picked.size + ' picked'; } }), _mktgTC(b))),
+      el('button', { class: 'mt-1 rounded-lg px-2 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+        onclick: (e) => { e.stopPropagation(); if (!picked.size) { toast('Pick at least one branch', 'error'); return; } panel.style.display = 'none'; onSave([...picked].sort()); } }, opts.save || 'Save · split evenly'));
+  };
+  document.addEventListener('mousedown', function closer(ev) { if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; } if (!wrap.contains(ev.target)) panel.style.display = 'none'; });
+  wrap.append(btn, panel);
+  return wrap;
 }
