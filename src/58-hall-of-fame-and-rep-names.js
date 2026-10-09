@@ -23,7 +23,7 @@ function _hofData(dept) {
   for (const s of raw) {
     if (!s || !s.rep || (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== dept)) continue;
     if (typeof frPendingServiced === 'function' && !frPendingServiced(s)) continue;
-    if (dept === 'office' && typeof _indicatorIsRenewal === 'function' && _indicatorIsRenewal(s)) continue;
+    const isRen = dept === 'office' && typeof _indicatorIsRenewal === 'function' && _indicatorIsRenewal(s);
     const name = (typeof getCanonicalRepName === 'function') ? getCanonicalRepName(s.rep) : s.rep;
     if (!name || (typeof FR_SYSTEM_NAME_RE !== 'undefined' && FR_SYSTEM_NAME_RE.test(name)) || /^account,?\s+ridd\b/i.test(name)) continue;   // the house account ("Account, RIDD") never holds a record
     const iso = (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || '';
@@ -32,7 +32,9 @@ function _hofData(dept) {
     const ws = new Date(d); ws.setDate(d.getDate() - d.getDay());
     const wk = ws.getFullYear() + '-' + pad(ws.getMonth() + 1) + '-' + pad(ws.getDate());
     const cv = Number(s.contractValue) || 0;
-    let r = reps.get(name); if (!r) { r = { name, day: {}, week: {}, month: {}, early: null, late: null }; reps.set(name, r); }
+    let r = reps.get(name); if (!r) { r = { name, day: {}, week: {}, month: {}, renDay: {}, early: null, late: null }; reps.set(name, r); }
+    // Office Staff renewals (per Isaac, Oct 9): their own record — most renewals in one day — and kept out of every other record.
+    if (isRen) { const o = r.renDay[iso] || (r.renDay[iso] = { k: iso, rev: 0, n: 0 }); o.n++; o.rev += cv; continue; }
     for (const [k, key] of [['day', iso], ['week', wk], ['month', iso.slice(0, 7)]]) { const o = r[k][key] || (r[k][key] = { k: key, rev: 0, n: 0 }); o.rev += cv; o.n++; }
     // Time of day: Office Staff on the call center's Mountain clock; door and tech sales in the selling office's local time.
     // A raw 12:00 AM is a date with no time on it, not a midnight sale — skipped.
@@ -43,13 +45,15 @@ function _hofData(dept) {
       if (!r.early || mm < r.early.mm) r.early = rec; if (!r.late || mm > r.late.mm) r.late = rec; }
   }
   const best = (obj) => { let b = null; for (const k in obj) if (!b || obj[k].rev > b.rev) b = obj[k]; return b; };
-  const list = [...reps.values()].map(r => ({ name: r.name, day: best(r.day), week: best(r.week), month: best(r.month), early: r.early, late: r.late }));
+  const bestN = (obj) => { let b = null; for (const k in obj) if (!b || obj[k].n > b.n || (obj[k].n === b.n && obj[k].rev > b.rev)) b = obj[k]; return b; };
+  const list = [...reps.values()].map(r => ({ name: r.name, day: best(r.day), week: best(r.week), month: best(r.month), ren: bestN(r.renDay), early: r.early, late: r.late }));
   const CATS = {
     day:   { label: 'Best Day',     sort: (a, b) => b.day.rev - a.day.rev,     has: (x) => !!x.day },
     week:  { label: 'Best Week',    sort: (a, b) => b.week.rev - a.week.rev,   has: (x) => !!x.week },
     month: { label: 'Best Month',   sort: (a, b) => b.month.rev - a.month.rev, has: (x) => !!x.month },
     early: { label: 'Earliest Sale', sort: (a, b) => a.early.mm - b.early.mm,  has: (x) => !!x.early },
     late:  { label: 'Latest Sale',   sort: (a, b) => b.late.mm - a.late.mm,    has: (x) => !!x.late },
+    ren:   { label: 'Most Renewals in a Day', sort: (a, b) => (b.ren.n - a.ren.n) || (b.ren.rev - a.ren.rev), has: (x) => !!x.ren },
   };
   const ranked = {};
   for (const k in CATS) ranked[k] = list.filter(CATS[k].has).sort(CATS[k].sort);
@@ -75,9 +79,10 @@ function viewHallOfFame(dept) {
   // One category value, formatted the same everywhere on the page.
   const val = (k, x) => {
     if (k === 'early' || k === 'late') { const e = x[k]; return { big: _fmtTimeOfDay(e.t), sub: fmtDate('day', e.iso) + (e.sub ? ' · ' + e.sub : '') }; }
+    if (k === 'ren') { const r = x.ren; return { big: fmt.int(r.n), sub: fmt.usd0(r.rev) + ' \u00b7 ' + fmtDate('day', r.k) }; }
     const r = x[k]; return { big: fmt.usd0(r.rev), sub: fmt.int(r.n) + ' sale' + (r.n === 1 ? '' : 's') + ' · ' + fmtDate(k, r.k) };
   };
-  const KEYS = ['day', 'week', 'month', 'early', 'late'];
+  const KEYS = dept === 'office' ? ['day', 'week', 'month', 'early', 'late', 'ren'] : ['day', 'week', 'month', 'early', 'late'];
   const holderCard = (k) => {
     const top = D.ranked[k][0];
     return el('div', { class: 'card p-4 flex flex-col gap-2' },
@@ -121,7 +126,7 @@ function viewHallOfFame(dept) {
     oninput: (e) => { state[qKey] = e.target.value; drawResults(); } });
   return el('div', { class: 'flex flex-col gap-6 w-full' },
     el('div', {}, el('h1', { class: 'text-3xl font-bold' }, title),
-      el('div', { class: 'text-xs mt-1', style: muted }, 'Every ' + (HOF_DEPT_LABEL[dept] || '').toLowerCase() + ' sale in the CRM history, Pending / Serviced' + (dept === 'office' ? ', new business only' : '') + '. Times are ' + (dept === 'office' ? 'Mountain (the call center clock)' : 'the selling office’s local time') + '.')),
+      el('div', { class: 'text-xs mt-1', style: muted }, 'Every ' + (HOF_DEPT_LABEL[dept] || '').toLowerCase() + ' sale in the CRM history, Pending / Serviced' + (dept === 'office' ? ', new business only (renewals have their own record)' : '') + '. Times are ' + (dept === 'office' ? 'Mountain (the call center clock)' : 'the selling office’s local time') + '.')),
     el('div', {},
       el('h2', { class: 'text-lg font-semibold mb-3' }, 'Company Records'),
       el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' } }, ...KEYS.map(holderCard))),
