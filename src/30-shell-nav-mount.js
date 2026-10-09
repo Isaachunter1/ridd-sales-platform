@@ -125,18 +125,19 @@ function insideSalesTabsFor(role) {
 // Admin-only segmented toggle between the two halves of "Sales":
 // Inside Sales (office) ⇄ D2D Sales (the commission calculator). Reps never
 // see it — their rep type decides which half IS their Sales tab.
-// ONE button (per Isaac, Oct 7): it shows the user type whose dashboard is open and each click steps to the
-// next one — Office Staff → D2D Sales → Technicians → All. It opens on the viewer's own type. "All" (every
-// user type on one dashboard) is for admins and developers; Office Staff - Office steps through the first three.
+// User type picker (per Isaac, Oct 9): every option visible and one tap away — Office Staff · D2D Sales ·
+// Technicians, plus All (every user type on one dashboard) for admins and developers. Office Staff - Office
+// gets the first three. It stays on the bar rather than inside Filters because it switches the whole section
+// (its Sales / Pay tabs too), not just the numbers. (Replaces the Oct 7 single click-to-cycle button.)
 function canSeeAllWorld(r) { return isAdminRole(r) || (typeof isDeveloperRole === 'function' && isDeveloperRole(r)); }
 function salesModeToggle(mode) {
   const role = state.profile?.role;
   if (!canWalkWorlds(role)) return null;   // admins, developers and Office Staff - Office walk the worlds
-  const opts = [['inside', 'Office Staff'], ['d2d', 'D2D Sales'], ['techs', 'Technicians']];   // 'Office Staff' matches FieldRoutes (per Isaac)
-  if (canSeeAllWorld(role)) opts.push(['all', 'All']);
-  const i = Math.max(0, opts.findIndex(o => o[0] === mode));
-  const next = opts[(i + 1) % opts.length];
+  let narrow = false; try { narrow = window.matchMedia('(max-width: 640px)').matches; } catch (e) { /* desktop */ }
+  const opts = [['inside', 'Office Staff', 'Office'], ['d2d', 'D2D Sales', 'D2D'], ['techs', 'Technicians', 'Techs']];   // 'Office Staff' matches FieldRoutes (per Isaac)
+  if (canSeeAllWorld(role)) opts.push(['all', 'All', 'All']);
   const go = (m) => {
+    if (m === mode) return;
     const target = m === 'd2d'
       ? (D2D_SALES_TAB_KEYS.has(state._lastD2dTab) ? state._lastD2dTab : 'd2d_dashboard')
       : m === 'techs' ? 'techs'
@@ -146,12 +147,13 @@ function salesModeToggle(mode) {
     history.replaceState(null, '', VIEW_TO_HASH[target] || '#' + target);
     mountApp();
   };
-  return el('button', {
-    class: 'sales-mode-toggle sales-mode-btn inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-bold transition mr-2 shrink-0 whitespace-nowrap',
-    style: { borderColor: 'var(--accent)', background: 'var(--accent)', color: 'var(--accent-text)', justifyContent: 'center' },
-    title: 'Showing ' + opts[i][1] + '. Click for ' + next[1] + ' (' + opts.map(o => o[1]).join(' → ') + ').',
-    onclick: () => go(next[0]),
-  }, opts[i][1], el('span', { style: { opacity: '.75', fontSize: '11px' } }, '⇄'));
+  return el('div', { class: 'sales-mode-toggle inline-flex rounded-lg border overflow-hidden mr-2 shrink-0', style: { borderColor: 'var(--border-2)' } },
+    ...opts.map(([m, label, short], i) => el('button', {
+      class: 'sales-mode-btn px-2.5 py-1 text-[11px] font-bold transition whitespace-nowrap',
+      style: Object.assign(i ? { borderLeft: '1px solid var(--border-2)' } : {}, mode === m ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)', background: 'var(--card)' }),
+      title: m === 'all' ? 'Every user type on one dashboard' : label,
+      onclick: () => go(m),
+    }, narrow && opts.length > 3 ? short : label)));
 }
 function insideSalesSubTabs() {
   const tabs = insideSalesTabsFor(state.profile?.role);

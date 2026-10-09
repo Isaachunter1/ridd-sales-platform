@@ -893,7 +893,8 @@ function viewIndicators() {
               // season a rep mostly wants TODAY — so the four ranges people flip
               // between sit right on the bar instead of inside Filters.
               el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' }, 'data-quick-range': '1' },
-                ...[['today', 'Today'], ['this_week', 'Week'], ['this_month', 'Month'], ['this_year', 'Year']].map(([id, lbl]) => el('button', {
+                // Today only on the bar (per Isaac, Oct 9); Week / Month / Year moved to the top of More.
+                ...[['today', 'Today']].map(([id, lbl]) => el('button', {
                   class: 'px-2.5 py-1 text-[11px] font-semibold',
                   style: state.indicatorsRangePreset === id ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)', background: 'var(--card)' },
                   title: (INDICATOR_RANGE_PRESETS.find(x => x.id === id) || {}).label || lbl,
@@ -904,10 +905,12 @@ function viewIndicators() {
                 // (Yesterday, last week / month, a past year, Custom) and wears the
                 // name of the range when one of those is picked.
                 (() => {
-                  const QUICK = ['today', 'this_week', 'this_month', 'this_year'];
+                  const QUICK = ['today'];
                   const cur = state.indicatorsRangePreset;
                   const other = isRange && !QUICK.includes(cur);
-                  const opts = indicatorPresetOptions().filter(o => !QUICK.includes(o.id));
+                  const _TOP = ['this_week', 'this_month', 'this_year'];
+                  const _all = indicatorPresetOptions().filter(o => !QUICK.includes(o.id));
+                  const opts = [..._TOP.map(id => _all.find(o => o.id === id)).filter(Boolean), ..._all.filter(o => !_TOP.includes(o.id))];
                   const sel = el('select', {
                     'aria-label': 'More date ranges',
                     style: { position: 'absolute', inset: '0', width: '100%', height: '100%', opacity: '0', cursor: 'pointer' },
