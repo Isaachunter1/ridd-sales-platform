@@ -187,7 +187,7 @@ function viewWorldDashboard() {
     state._indWorld = state.view;
     state.indicatorDept = dept;
     if (dept !== 'd2d' && state.indicatorsGroupBy === 'teams') state.indicatorsGroupBy = 'branch';   // teams are a D2D grouping
-    if (!indWorldHasTeams()) state._indicatorRepTeamFilter = '';   // a D2D team filter doesn't follow you onto a dashboard with no teams
+    if (!indWorldHasTeams() && !isAdminRole(state.profile?.role)) state._indicatorRepTeamFilter = '';   // (admins keep their team pick across user types — per Isaac, Oct 9) a D2D team filter doesn't follow you onto a dashboard with no teams
   }
   const node = viewIndicators();
   const _adminPacer = (dept === 'd2d' || dept === 'techs') && isAdminRole(state.profile?.role) && !state.indicatorsComps;
@@ -1070,7 +1070,8 @@ function viewIndicators() {
                   isRange ? null : _fRow('Date', dateSel),
                   _fRow('Group',  hl(groupSel,  groupBy !== 'branch')),
                   _repLite ? null : _fRow('Office', hl(officeSel, !!state._indicatorRepOfficeFilter)),
-                  (_repLite || !indWorldHasTeams()) ? null : _fRow('Team',   hl(teamSel,   !!state._indicatorRepTeamFilter)),
+                  // Admins get the Team pick on every user type (per Isaac, Oct 9) — every team is listed, so one team can be looked at from any dashboard.
+                  (_repLite || !(indWorldHasTeams() || isAdminRole(state.profile?.role))) ? null : _fRow('Team',   hl(teamSel,   !!state._indicatorRepTeamFilter)),
                   (_repLite || !tierSel) ? null : _fRow('Tier', hl(tierSel, !!state._indicatorRepTierFilter)),
                 ];
               })(),
