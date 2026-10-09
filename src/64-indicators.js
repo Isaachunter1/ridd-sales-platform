@@ -984,8 +984,8 @@ function viewIndicators() {
               style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
               onchange: e => { _staged.acct = e.target.value; _markDirty(); },
             },
-              el('option', { value: 'pending_serviced', selected: _staged.acct === 'pending_serviced' }, 'Pending / Serviced Revenue'),
-              el('option', { value: 'all', selected: _staged.acct === 'all' }, 'Total Revenue'),
+              el('option', { value: 'pending_serviced', selected: _staged.acct === 'pending_serviced' }, 'Pending / Serviced'),
+              el('option', { value: 'all', selected: _staged.acct === 'all' }, 'Sold'),   // labels per Isaac, Oct 9
             );
           // Exclude — one-time services / 3-day RORs / renewals (per Isaac),
           // same switches as the Performance Trends card (shared state).
@@ -1359,7 +1359,7 @@ function viewIndicators() {
           const x = indicatorExcl();
           const chips = [];
           const add = (label, clear) => chips.push([label, clear]);
-          if ((state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced') add('Total Revenue', () => { state.indicatorAcctStatus = 'pending_serviced'; });
+          if ((state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced') add('Sold', () => { state.indicatorAcctStatus = 'pending_serviced'; });
           if (x.oneTime) add('No one-time services', () => { state.indicatorExcl = { ...indicatorExcl(), oneTime: false }; });
           if (x.ror) add('No 3-day RORs', () => { state.indicatorExcl = { ...indicatorExcl(), ror: false }; });
           if (x.renewal) add('No renewals', () => { state.indicatorExcl = { ...indicatorExcl(), renewal: false }; });
