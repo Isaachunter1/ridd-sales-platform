@@ -3446,7 +3446,7 @@ function openIndicatorRepCard(rep, allReps = []) {
       // accounts, every user type, same number as the leaderboard. Click it for the accounts behind it.
       (() => { let f = 0, p = 0; for (const x of allSales) { const b = auditBucketOf(x); if (b === 'failed') f++; else if (b === 'pending') p++; }
         const n = allSales.length;
-        return { key: 'audit', label: 'Audit %', value: n > 0 ? ((n - f) / n * 100).toFixed(1) + '%' : '\u2014', sub: fmt.int(f) + ' failed \u00b7 ' + fmt.int(p) + ' awaiting',
+        return { key: 'audit', label: 'Audit %', value: n > 0 ? ((n - f) / n * 100).toFixed(1) + '%' : '\u2014', color: auditPctColor(n > 0 ? (n - f) / n : null), sub: fmt.int(f) + ' failed \u00b7 ' + fmt.int(p) + ' awaiting',
           title: 'Accounts NOT flagged Failed Audit \u00f7 all accounts \u00b7 passed, no-audit and awaiting all count as good \u00b7 same as the leaderboard\u2019s Audit % \u00b7 click for the accounts' }; })(),
       { key: 'cancels',    label: 'Cancels',    value: fmt.int(_mo.cancels != null ? _mo.cancels : (scopedRep.cancels || 0)) },
       // Ninth tile (per Isaac): the SAME attrition the leaderboard's Attrition %
@@ -3606,6 +3606,7 @@ function openIndicatorRepCard(rep, allReps = []) {
             // 100px tile at text-lg (per Isaac) — step down sooner.
             class: (String(stat.value).length > 11 ? 'text-xs' : String(stat.value).length > 8 ? 'text-sm' : 'text-lg')
               + ' font-bold tabular-nums mt-1 whitespace-nowrap overflow-hidden',
+            style: stat.color ? { color: stat.color } : {},
           }, stat.value),
           stat.sub ? el('div', { class: 'text-[9px] whitespace-nowrap overflow-hidden', style: { color: 'var(--text-subtle)' } }, stat.sub) : null,
         );

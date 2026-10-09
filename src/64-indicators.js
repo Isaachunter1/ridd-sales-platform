@@ -5206,6 +5206,8 @@ function auditBucketOf(s) {
   if (typeof auditFailRe === 'function' && auditFailRe().test(f)) return 'failed';
   return (typeof scAuditPassed === 'function' && scAuditPassed(f)) ? 'passed' : 'pending';
 }
+// Audit % font colour (per Isaac, Oct 9): above 80% green, 60–80% black, below 60% red.
+function auditPctColor(p) { return p == null ? 'var(--text-subtle)' : p > 0.8 ? '#15803D' : p >= 0.6 ? 'var(--text)' : '#DC2626'; }
 function indicatorSubscriptionMixCard(subSales, opts = {}) {
   const keyOf = opts.keyOf || ((s) => s.subscription || 'Unknown');
   const subMix = {};
@@ -5268,8 +5270,8 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
       row: (s) => el('div', { class: 'w-12 text-right tabular-nums text-muted- shrink-0' }, s.myPct == null ? '—' : (s.myPct * 100).toFixed(0) + '%') },
     { key: 'apay', label: 'APay', w: 'w-14', title: 'Auto-pay share', total: () => el('div', { class: 'w-14 text-right tabular-nums shrink-0 font-bold' }, T.n > 0 ? (T.ap / T.n * 100).toFixed(0) + '%' : '—'),
       row: (s) => el('div', { class: 'w-14 text-right tabular-nums text-muted- shrink-0' }, s.count > 0 ? (s.apOn / s.count * 100).toFixed(0) + '%' : '—') },
-    { key: 'audit', label: 'Audit %', w: 'w-14', title: 'Accounts NOT flagged Failed Audit \u00f7 all accounts (passed, no-audit and awaiting all count as good). Same as the leaderboard\u2019s Audit %.', total: () => el('div', { class: 'w-14 text-right tabular-nums shrink-0 font-bold', style: T.af > 0 ? { color: '#DC2626' } : {} }, T.n > 0 ? ((T.n - T.af) / T.n * 100).toFixed(0) + '%' : '\u2014'),
-      row: (s) => el('div', { class: 'w-14 text-right tabular-nums shrink-0 ' + (s.auditFail > 0 ? 'font-semibold' : 'text-muted-'), style: s.auditFail > 0 ? { color: '#DC2626' } : {}, title: s.auditFail > 0 ? fmt.int(s.auditFail) + ' failed audit' : '' }, s.count > 0 ? ((s.count - s.auditFail) / s.count * 100).toFixed(0) + '%' : '\u2014') },
+    { key: 'audit', label: 'Audit %', w: 'w-14', title: 'Accounts NOT flagged Failed Audit \u00f7 all accounts (passed, no-audit and awaiting all count as good). Same as the leaderboard\u2019s Audit %.', total: () => el('div', { class: 'w-14 text-right tabular-nums shrink-0 font-bold', style: { color: auditPctColor(T.n > 0 ? (T.n - T.af) / T.n : null) } }, T.n > 0 ? ((T.n - T.af) / T.n * 100).toFixed(0) + '%' : '\u2014'),
+      row: (s) => el('div', { class: 'w-14 text-right tabular-nums shrink-0 font-semibold', style: { color: auditPctColor(s.count > 0 ? (s.count - s.auditFail) / s.count : null) }, title: s.auditFail > 0 ? fmt.int(s.auditFail) + ' failed audit' : '' }, s.count > 0 ? ((s.count - s.auditFail) / s.count * 100).toFixed(0) + '%' : '\u2014') },
     { key: 'attr', label: 'Attr %', w: 'w-14', title: 'Reportable cancels ÷ accounts (RORs, SNS, combined, one-time and renewals excluded)', total: () => el('div', { class: 'w-14 text-right tabular-nums font-black shrink-0', style: { color: attrColor(T.attr) } }, (T.attr * 100).toFixed(1) + '%'),
       row: (s) => el('div', { class: 'w-14 text-right tabular-nums font-semibold shrink-0', style: { color: attrColor(s.attr) } }, (s.attr * 100).toFixed(1) + '%') },
   ];
