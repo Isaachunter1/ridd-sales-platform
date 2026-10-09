@@ -231,8 +231,10 @@ function _spuCompute(P, branches, m) {
     }
     // Referral credits (Baton): each to the branch it came from; ones outside our markets pro rata on the cost.
     if (P.useCredits && P.credits) {
+      // Calls are taken centrally (per Isaac, Oct 9), so by default the credit is shared pro rata to each branch's
+      // Baton cost; "by ZIP" puts each credit on the branch whose area the referral came from instead.
       const K = _spuCreditsFor(P, ym, branches, m); credit[ym] = K;
-      for (const b in K.by) c[b] = (c[b] || 0) - K.by[b];
+      if (P.creditByZip) { for (const b in K.by) c[b] = (c[b] || 0) - K.by[b]; } else { K.spread = K.total; K.by = {}; }
       if (K.spread) { const base = Object.keys(c).reduce((t, b) => t + Math.max(0, raw[ym].located[b] || 0), 0) || 1; for (const b of Object.keys(c)) c[b] -= K.spread * Math.max(0, raw[ym].located[b] || 0) / base; }
     }
     // Tie to the statement (per Isaac): scale the month to the total typed in.
@@ -309,7 +311,7 @@ async function _spuUpload(files) {
         const ctrl = typeof _mktgCtrlMonth === 'function' ? _mktgCtrlMonth().ym : '';
         cands.push({ T, P: { key: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), fileName: wb.SheetNames.length > 1 ? file.name + ' · ' + sheet : file.name, sig,
           headers, rows, cols, channel: ch0, month: state._mktEntryMonth || '', forceMonth: (preset && preset.month) || (grid ? ctrl : ''), noLoc: (T && T.noLoc) || SPU_SPLIT, locMap: {}, provMap: {}, recognized: T ? (T.from || 'an earlier report') : '',
-          grid, byMonth: grid, fillDown: grid ? (T && 'fillDown' in T ? !!T.fillDown : true) : false, rowFilter } });
+          grid, byMonth: grid, creditByZip: !!(T && T.creditByZip), fillDown: grid ? (T && 'fillDown' in T ? !!T.fillDown : true) : false, rowFilter } });
         if (preset && preset.channel) cols.prov = '';   // uploaded from a provider's checklist row: the whole file is that provider
       }
       // A workbook with a tab mapped before: open only the mapped tab(s) — the rest (raw data, notes) were not spend.
@@ -343,7 +345,7 @@ function _spuCommit(P, branches) {
   for (const k in (P.provMap || {})) m.spendProvMap[k] = P.provMap[k];
   if (P.cols.prov) for (const [val] of A.provs) { const k = _spuKey(val), ch = _spuChanOf(val, P, m); if (k && ch && !m.spendProvMap[k]) m.spendProvMap[k] = ch; }
   m.spendTemplates[P.sig || _spuSig(P.headers)] = Object.assign({ cols: Object.assign({}, P.cols), channel: P.cols.prov ? '' : P.channel, noLoc: P.noLoc, from: P.fileName, at: new Date().toISOString() },
-    P.grid ? { fillDown: !!P.fillDown, rowFilter: P.rowFilter || null } : {});
+    P.grid ? { fillDown: !!P.fillDown, rowFilter: P.rowFilter || null, creditByZip: !!P.creditByZip } : {});
   let total = 0;
   for (const g of groups) {
     m.spendUploads.push({ id: P.key + (groups.length > 1 ? '|' + g.ch : ''), fileName: P.fileName + (groups.length > 1 ? ' · ' + g.ch : ''), channel: g.ch, at: new Date().toISOString(), by: (state.profile && state.profile.full_name) || '', total: g.C.total, n: g.C.n, cells: g.C.cells });
@@ -431,10 +433,12 @@ function mktgSpendUploadCard(B, year) {
         (P.grid && P.cols.loc) ? el('label', { class: 'inline-flex items-center gap-1.5', title: 'A branch name in a merged cell covers the rows under it.' },
           el('input', { type: 'checkbox', checked: !!P.fillDown, onchange: (e) => { P.fillDown = e.target.checked; mountApp(); } }), el('span', { class: 'font-semibold' }, 'Fill branch down')) : null,
         P.credits ? (() => { const K = (C.credit || {})[P.forceMonth] || _spuCreditsFor(P, P.forceMonth, branches, m);
-          return el('label', { class: 'inline-flex items-center gap-1.5', title: 'Referrals RIDD sent to Baton earn back ' + Math.round(BATON_SENT_SHARE * 100) + '% of the bid. Each credit goes to the branch whose ZIP / city it came from; ones outside our markets are spread across the branches pro rata.' },
+          return el('label', { class: 'inline-flex items-center gap-1.5', title: 'Referrals RIDD sent to Baton earn back ' + Math.round(BATON_SENT_SHARE * 100) + '% of the bid. Calls are handled centrally, so by default the credit is shared in proportion to each branch’s Baton cost.' },
             el('input', { type: 'checkbox', checked: !!P.useCredits, onchange: (e) => { P.useCredits = e.target.checked; mountApp(); } }),
             el('span', { class: 'font-semibold' }, 'Subtract credits for referrals sent'),
-            el('span', { style: { color: '#15803D', fontWeight: '600' } }, '−' + fmt.usd(K.total) + ' · ' + fmt.int(K.n) + ' referrals' + (K.spread ? ' · ' + fmt.usd0(K.spread) + ' outside our markets spread pro rata' : ''))); })() : null,
+            el('span', { style: { color: '#15803D', fontWeight: '600' } }, '−' + fmt.usd(K.total) + ' · ' + fmt.int(K.n) + ' referrals'),
+            P.useCredits ? sel(P.creditByZip ? 'zip' : 'pro', [['pro', 'shared by each branch’s Baton cost'], ['zip', 'by where the referral came from (ZIP)']], (v) => { P.creditByZip = v === 'zip'; }) : null,
+            (P.useCredits && P.creditByZip && K.spread) ? el('span', { style: muted }, fmt.usd0(K.spread) + ' outside our markets spread pro rata') : null); })() : null,
         P.grid ? el('label', { class: 'inline-flex items-center gap-1.5', title: 'Type the net from the provider’s statement (Baton: Net Bought − Net Sold) and the branch split is scaled to match it to the cent.' },
           el('span', { class: 'font-semibold' }, 'Match statement total'), el('span', { style: muted }, '$'),
           el('input', { type: 'number', step: '0.01', value: P.statementTotal ? String(P.statementTotal) : '', placeholder: 'optional', class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '96px' },
