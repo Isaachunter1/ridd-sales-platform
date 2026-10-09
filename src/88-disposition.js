@@ -78,17 +78,30 @@ function _dispRun(F) {
     let custId = null, how = '';
     if (phone && idx.byPhone.has(phone)) { custId = idx.byPhone.get(phone); how = 'phone'; }
     else if (email && idx.byEmail.has(email)) { custId = idx.byEmail.get(email); how = 'email'; }
-    else if (last && zip && idx.byNameZip.has(last + '|' + zip)) { custId = idx.byNameZip.get(last + '|' + zip); how = 'name + ZIP'; }
+    else if (last && zip && idx.byNameZip.has(last + '|' + zip)) {
+      // Last name + ZIP alone matches family members and neighbours (Laketa vs Crystal Bailey) — the first name has to agree too.
+      const f1 = _attrWord(g(r, 'first') || name.split(/\s+/)[0] || ''), cand = idx.byNameZip.get(last + '|' + zip), cf = _attrWord((idx.cust.get(cand) || {}).first || '');
+      if (f1 && cf && (f1 === cf || (f1.length >= 3 && cf.length >= 3 && (f1.startsWith(cf) || cf.startsWith(f1))))) { custId = cand; how = 'name + ZIP'; }
+    }
     const c = custId ? idx.cust.get(custId) : null;
-    let sale = null, existing = false;
+    let sale = null, existing = false, former = '';
     if (c) {
       const lo = date ? _attrAddDays(date, -1) : '', hi = date ? _attrAddDays(date, DISP_SALE_WINDOW) : '9999';
       const isRen = (s) => typeof reportingSourceClass === 'function' && reportingSourceClass(reportingSourceOf(s)) === 'renewal';
-      existing = !!date && c.subs.some(s => String(s.sold_date || '') && String(s.sold_date).slice(0, 10) < lo && !isRen(s));
+      // Existing customer = a subscription sold before the lead that was still active on the lead date
+      // (active now, or cancelled on/after the lead date). A past customer with nothing active is a real lead.
+      const before = date ? c.subs.filter(s => { const sd = String(s.sold_date || '').slice(0, 10); return sd && sd < lo; }) : [];
+      const activeOn = (s) => { const cx = String(s.subscription_date_canceled || '').slice(0, 10); return cx ? cx >= date : /active/i.test(String(s.subscription_status || '')) && !/inactive/i.test(String(s.subscription_status || '')); };
+      existing = before.some(activeOn);
+      if (!existing && before.length) {
+        const cx = before.map(s => String(s.subscription_date_canceled || '').slice(0, 10)).filter(Boolean).sort().pop();
+        former = cx ? cx.slice(0, 7) : 'yes';
+      }
       sale = c.subs.filter(s => { const sd = String(s.sold_date || '').slice(0, 10); return sd && (!date || (sd >= lo && sd <= hi)) && !isRen(s); }).sort((a, b) => String(a.sold_date).localeCompare(String(b.sold_date)))[0] || null;
     }
     const saleSrc = sale ? reportingSourceOf(sale) : '';
-    if (existing) flags.push('Already a customer before this lead');
+    if (existing) flags.push('Already an active customer before this lead');
+    else if (former) flags.push('Former customer' + (former !== 'yes' ? ' (cancelled ' + former + ')' : '') + ' – counted as a lead');
     if (sale && prov && saleSrc !== prov && provOf(saleSrc) !== prov) flags.push('Sale sourced as “' + saleSrc + '” in FieldRoutes');
     // GoHighLevel.
     const inGhl = typeof ghlHasContact === 'function' ? ghlHasContact(phone, email) : null;
