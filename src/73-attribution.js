@@ -396,6 +396,14 @@ const _attrCurDate = (l) => { if (!l.sale || !l.lastBy) return ''; const cur = r
 // oldest first — every GoHighLevel record (whatever its source), every
 // uploaded report row, and every FieldRoutes sale — so the credit can be
 // checked by eye. Matched on the lead's and the customer's phone / email.
+// Timestamps for the paper trail (per Isaac, Oct 9). GoHighLevel gives date + HH:MM in UTC; FieldRoutes sold_at is
+// RIDD's company clock, UTC−7 year-round (verified Sep 18 against the RevHawk mirror — see the TV board).
+function _attrUtcMs(d, hm) { if (!d || !hm || !/^\d{1,2}:\d{2}/.test(String(hm))) return null; const t = Date.parse(String(d).slice(0, 10) + 'T' + String(hm).padStart(5, '0').slice(0, 5) + ':00Z'); return isFinite(t) ? t : null; }
+function _attrSaleMs(r) { const m = String((r && r.sold_at) || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/); if (!m) return null; return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) + 7 * 3600000; }
+function _attrTz() { return (typeof warRoomTz === 'function') ? warRoomTz() : 'America/Denver'; }
+function _attrFmtTs(ms) { if (ms == null) return null; const tz = _attrTz(); const d = new Date(ms);
+  const day = d.toLocaleDateString('en-CA', { timeZone: tz }); const time = d.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' });
+  const z = (typeof _TZ_SHORT !== 'undefined' && _TZ_SHORT[tz]) || ''; return { day, time: time + (z ? ' ' + z : '') }; }
 function _attrTrail(l) {
   const c = l.custId ? _attrCrmIndex().cust.get(String(l.custId)) : null;
   const phones = new Set([_attrDigits(l.phone), c && c.phone].filter(Boolean));
@@ -409,7 +417,7 @@ function _attrTrail(l) {
       if (!((r[4] && phones.has(r[4])) || (r[5] && emails.has(r[5])))) continue;
       const src = nm(r[1]), fa = nm(r[2]), la = nm(r[3]);
       const ch = pv(la) && pv(la) !== 'not a lead' && pv(la) !== 'Organic' ? pv(la) : (pv(src) || pv(la) || pv(fa) || 'no source');
-      ev.push({ d: r[0], t: r[7] || '', kind: 'lead', ch, from: 'GoHighLevel contact', note: ['source: ' + (src || 'blank'), fa ? 'first attribution: ' + fa : '', la ? 'last attribution: ' + la : ''].filter(Boolean).join(' · ') });
+      ev.push({ d: r[0], t: r[7] || '', ts: _attrUtcMs(r[0], r[7]), kind: 'lead', ch, from: 'GoHighLevel contact', note: ['source: ' + (src || 'blank'), fa ? 'first attribution: ' + fa : '', la ? 'last attribution: ' + la : ''].filter(Boolean).join(' · ') });
     }
   }
   if (G && G.opps && _attrUseGhl()) {
@@ -417,7 +425,7 @@ function _attrTrail(l) {
     for (const o of G.opps) {
       if (!((o[2] && phones.has(o[2])) || (o[3] && emails.has(o[3])))) continue;
       const src = o[1] >= 0 ? lab[o[1]] : ''; const p = src ? ghlProviderOf(src) : '';
-      ev.push({ d: o[0], t: o[4] || '', kind: 'lead', ch: p === GHL_NOT_LEAD ? 'not a lead' : (p || 'no source'), from: 'GoHighLevel opportunity', note: 'source: ' + (src || 'blank') + (o[5] ? ' · ' + o[5] : '') + (o[4] ? ' · ' + o[4] + ' UTC' : '') });
+      ev.push({ d: o[0], t: o[4] || '', ts: _attrUtcMs(o[0], o[4]), kind: 'lead', ch: p === GHL_NOT_LEAD ? 'not a lead' : (p || 'no source'), from: 'GoHighLevel opportunity', note: 'source: ' + (src || 'blank') + (o[5] ? ' · ' + o[5] : '') });
     }
   }
   for (const f of ((state._attr && state._attr.files) || [])) for (const x of f.leads || []) {
@@ -427,10 +435,11 @@ function _attrTrail(l) {
   if (c) for (const r of c.subs) {
     const sd = String(r.sold_date || '').slice(0, 10); if (!sd) continue;
     const mine = l.sale && String(r.subscription_id) === String(l.sale.subscription_id);
-    ev.push({ d: sd, kind: 'sale', mine, ch: 'SALE', from: 'FieldRoutes', note: 'source entered by rep: ' + reportingSourceOf(r) + ' (not a lead) · ' + (r.subscription || 'subscription') + ' #' + (r.subscription_id || '?') + ' · ' + (r.subscription_status || 'status ?') + (r.sold_by ? ' · ' + r.sold_by : '') });
+    ev.push({ d: sd, ts: _attrSaleMs(r), kind: 'sale', mine, ch: 'SALE', from: 'FieldRoutes', note: 'source entered by rep: ' + reportingSourceOf(r) + ' (not a lead) · ' + (r.subscription || 'subscription') + ' #' + (r.subscription_id || '?') + ' · ' + (r.subscription_status || 'status ?') + (r.sold_by ? ' · ' + r.sold_by : '') });
   }
   const paid = (typeof ghlPaidSet === 'function') ? ghlPaidSet() : new Set();
-  ev.sort((a, b) => String(a.d).localeCompare(String(b.d)) || (a.kind === 'sale' ? 1 : b.kind === 'sale' ? -1 : String(a.t || '').localeCompare(String(b.t || ''))));
+  // Real instants where we have them (per Isaac, Oct 9): GoHighLevel stamps are UTC, FieldRoutes sold_at is the company clock (UTC−7).
+  ev.sort((a, b) => (a.ts != null && b.ts != null) ? a.ts - b.ts : (String(a.d).localeCompare(String(b.d)) || (a.kind === 'sale' ? 1 : b.kind === 'sale' ? -1 : String(a.t || '').localeCompare(String(b.t || '')))));
   for (const e of ev) e.paid = e.kind === 'lead' && paid.has(e.ch);
   if (l.sale && l.winner) {
     const cands = ev.filter(e => e.kind === 'lead' && e.ch === l.winner && e.d === l.winDate);
@@ -450,9 +459,9 @@ function _attrTrailNode(l, cols) {
     el('div', { class: 'text-[11px] mb-2', style: muted }, verdict),
     (l.sale && l.winner && !ev.some(e => e.kind === 'lead' && (e.ch === reportingSourceOf(l.sale) || (typeof reportingProviderOf === 'function' && e.ch === reportingProviderOf(reportingSourceOf(l.sale)))))) ? el('div', { class: 'text-[11px] mb-2', style: { color: '#B45309', fontWeight: '600' } }, 'No ' + reportingSourceOf(l.sale) + ' lead on file for this person — that source was only typed on the sale.') : null,
     ev.length ? el('table', { class: 'text-[11px]' },
-      el('thead', {}, el('tr', {}, ...['Date', 'Lead channel', 'From', 'Detail', ''].map(h => el('th', { class: 'px-2 py-1 text-left text-[9px] uppercase tracking-wider font-semibold', style: muted }, h)))),
+      el('thead', {}, el('tr', {}, ...['Date', 'Time', 'Lead channel', 'From', 'Detail', ''].map(h => el('th', { class: 'px-2 py-1 text-left text-[9px] uppercase tracking-wider font-semibold', style: muted }, h)))),
       el('tbody', {}, ...ev.map(e => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-        cell(e.d), cell(e.ch, { fontWeight: e.kind === 'sale' || e.paid ? '700' : '400', color: e.kind === 'sale' ? 'var(--accent)' : e.paid ? 'var(--text)' : 'var(--text-muted)' }),
+        ...(() => { const f = _attrFmtTs(e.ts); return [cell(f ? f.day : e.d), cell(f ? f.time : (e.kind === 'sale' ? 'no time' : 'no time on file'), f ? { fontVariantNumeric: 'tabular-nums' } : muted)]; })(), cell(e.ch, { fontWeight: e.kind === 'sale' || e.paid ? '700' : '400', color: e.kind === 'sale' ? 'var(--accent)' : e.paid ? 'var(--text)' : 'var(--text-muted)' }),
         cell(e.from, muted), cell(e.note, e.kind === 'sale' ? { fontWeight: '600' } : muted),
         cell(e.win ? '← last lead before the sale — gets the credit' : e.kind === 'sale' && e.mine ? '← this sale' : '', e.win ? { color: 'var(--ok)', fontWeight: '700' } : muted))))) :
       el('div', { class: 'text-[11px]', style: muted }, 'Nothing on file for this phone / email.')));
