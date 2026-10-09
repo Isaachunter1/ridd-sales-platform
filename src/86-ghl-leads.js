@@ -132,7 +132,10 @@ function ghlLeads() {
     const op = (r[4] && oppLast.get('p' + r[4])) || (r[5] && oppLast.get('e' + r[5])) || null;
     const la = pOf(r[3]);
     if (op) { credit = op[2]; how = 'opportunity source'; }
-    else if (la && la !== GHL_NOT_LEAD) { credit = la; how = 'last touch'; }
+    // A lead VENDOR's contact (DoLead, ElectGen, Angi…) keeps the vendor even when GoHighLevel's attribution says
+    // Facebook / Google (per Isaac, Oct 9): those vendors run their own Meta ads, so the click tag rides in on a
+    // lead we bought from the vendor — our ad spend didn't produce it.
+    else if (la && la !== GHL_NOT_LEAD && !(own && own !== GHL_NOT_LEAD && paid.has(own) && !AD_PROVIDERS.includes(own) && AD_PROVIDERS.includes(la))) { credit = la; how = 'last touch'; }
     if (!credit) credit = own || 'Unknown';
     leads.push({ d: r[0], mi: Number(r[0].slice(5, 7)) - 1, y: r[0].slice(0, 4), prov: credit, own: own || 'Unknown', how, office: zipOff.get(r[6]) || null, p: r[4], e: r[5], t: r[7] || '' });
   });

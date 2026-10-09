@@ -416,7 +416,9 @@ function _attrTrail(l) {
     for (const r of G.rows) {
       if (!((r[4] && phones.has(r[4])) || (r[5] && emails.has(r[5])))) continue;
       const src = nm(r[1]), fa = nm(r[2]), la = nm(r[3]);
-      const ch = pv(la) && pv(la) !== 'not a lead' && pv(la) !== 'Organic' ? pv(la) : (pv(src) || pv(la) || pv(fa) || 'no source');
+      const _paid = (typeof ghlPaidSet === 'function') ? ghlPaidSet() : new Set(), _ad = (x) => typeof AD_PROVIDERS !== 'undefined' && AD_PROVIDERS.includes(x);
+      const _vendorKeeps = _paid.has(pv(src)) && !_ad(pv(src)) && _ad(pv(la));   // vendor lead with a Meta / Google click tag (per Isaac, Oct 9)
+      const ch = !_vendorKeeps && pv(la) && pv(la) !== 'not a lead' && pv(la) !== 'Organic' ? pv(la) : (pv(src) || pv(la) || pv(fa) || 'no source');
       ev.push({ d: r[0], t: r[7] || '', ts: _attrUtcMs(r[0], r[7]), kind: 'lead', ch, from: 'GoHighLevel contact', note: ['source: ' + (src || 'blank'), fa ? 'first attribution: ' + fa : '', la ? 'last attribution: ' + la : ''].filter(Boolean).join(' · ') });
     }
   }
