@@ -153,6 +153,15 @@ function exceptionFeedItems(scope) {
     mk('Seller', pl(rec.seller.length, 'active subscription with no Sold By rep', 'active subscriptions with no Sold By rep'), rec.seller);
     mk('No reason', pl(rec.noReason.length, 'cancelled subscription with no cancel reason', 'cancelled subscriptions with no cancel reason'), rec.noReason);
   }
+  // Marketing to-dos (per Isaac, Oct 9 — both live under Needs attention now): lead flow gaps and CRM ZIP fixes.
+  // Review opens the detail table right inside this card.
+  if (_adm) {
+    const det = (k) => () => { state._excDetail = state._excDetail === k ? null : k; mountApp(); };
+    try { const F = typeof mktgLeadFlowTask === 'function' ? mktgLeadFlowTask({ info: true }) : null;
+      if (F && F.n) items.push({ sev: 'red', tag: 'Lead flow', count: F.n, text: F.text + '. Check the form or integration that sends these leads in.', action: state._excDetail === 'flow' ? 'Hide' : 'Review', onClick: det('flow') }); } catch (e) { /* noop */ }
+    try { const Z = typeof mktgZipFixTask === 'function' ? mktgZipFixTask({ info: true }) : null;
+      if (Z && Z.n) items.push({ sev: 'amber', tag: 'ZIP', count: Z.n, text: 'active account' + (Z.n === 1 ? '' : 's') + ' coded to another office than its ZIP’s market, or with no valid ZIP — fix in FieldRoutes', action: state._excDetail === 'zipfix' ? 'Hide' : 'Review', onClick: det('zipfix') }); } catch (e) { /* noop */ }
+  }
   return items;
 }
 
@@ -259,7 +268,8 @@ function exceptionFeedCard() {
     i.count != null ? el('span', { class: 'text-sm font-black tabular-nums shrink-0', style: { minWidth: '52px', textAlign: 'right', color: i.sev === 'red' ? '#DC2626' : 'var(--text)' } }, Number(i.count).toLocaleString()) : null,
     el('span', { class: 'flex-1 min-w-0', style: { overflowWrap: 'anywhere' } }, i.text),
     el('button', { class: 'text-[11px] font-bold whitespace-nowrap shrink-0', style: { color: 'var(--accent)' }, onclick: i.onClick }, i.action + ' →')))) : null;
-  return el('div', { class: 'card overflow-hidden' }, head, rows);
+  const detail = open && state._excDetail ? (() => { try { return state._excDetail === 'flow' ? mktgLeadFlowTask({ embed: true }) : state._excDetail === 'zipfix' ? mktgZipFixTask({ embed: true }) : null; } catch (e) { return null; } })() : null;
+  return el('div', { class: 'card overflow-hidden' }, head, rows, detail);
 }
 
 // ── Rep "today" strip (AUDIT P3-4) ────────────────────────────────────────

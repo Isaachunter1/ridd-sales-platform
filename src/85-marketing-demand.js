@@ -248,7 +248,8 @@ function openMktgProviderDrill(provider, list, year) {
 // holds for it this year (GoHighLevel captured under 80%). Click the bar and the full Lead flow check opens right under it
 // (GoHighLevel is the source of truth for leads; the ad platforms' own counts are the second opinion).
 const MKTG_FLOW_MIN = 0.8;
-function mktgLeadFlowTask() {
+function mktgLeadFlowTask(opts) {
+  opts = opts || {};
   const y = _mktgYearSel();
   if (typeof reportingLoadAdSpend === 'function') reportingLoadAdSpend(y);
   if (typeof ghlLoadLeads === 'function') ghlLoadLeads();
@@ -259,7 +260,8 @@ function mktgLeadFlowTask() {
   const all = [...AP.has].map(pv => { let plat = 0; for (let i = 0; i < 12; i++) plat += AP.cell([pv], null, i, 'leads') || 0; const g = ghlN.get(pv) || 0; return { pv, plat, g, cap: plat > 0 ? g / plat : null }; })
     .filter(r => r.plat > 0 || r.g > 0).sort((a, b) => b.plat - a.plat);
   const gaps = all.filter(r => r.plat >= 20 && r.cap != null && r.cap < MKTG_FLOW_MIN).sort((a, b) => a.cap - b.cap);
-  const n = gaps.length, open = !!state._mktFlowOpen;
+  const n = gaps.length, open = opts.embed ? true : !!state._mktFlowOpen;
+  if (opts.info) return { n, text: gaps.map(r => r.pv + ': GoHighLevel has ' + fmt.int(r.g) + ' of the ' + fmt.int(r.plat) + ' leads the platform reports (' + (r.cap * 100).toFixed(0) + '%)').join(' · ') };
   const th = (t, right) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
   const table = !open ? null : el('div', { class: 'border-t', style: { borderColor: 'var(--border)' } },
     el('div', { class: 'px-4 py-2 text-[11px]', style: { color: 'var(--text-muted)' } }, 'Lead flow check for ' + y + '. GoHighLevel is where every lead should land. This compares it with what each ad platform says it delivered. A platform reporting far more than GoHighLevel holds means leads are being lost on the way in.'),
@@ -271,6 +273,7 @@ function mktgLeadFlowTask() {
           el('td', { class: 'px-3 py-2 text-right tabular-nums' }, (r.g - r.plat > 0 ? '+' : r.g - r.plat < 0 ? '−' : '') + fmt.int(Math.abs(r.g - r.plat))),
           el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold', style: low ? { color: '#DC2626' } : {} }, r.cap == null ? '—' : (r.cap * 100).toFixed(0) + '%' + (low ? ' ⚠' : ''))); }))))
       : el('div', { class: 'px-4 py-3 text-xs', style: { color: 'var(--text-muted)' } }, 'No ad platform has reported leads for ' + y + ' yet.'));
+  if (opts.embed) return table;
   return el('div', { class: 'card overflow-hidden' },
     el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', title: open ? 'Hide the lead flow check' : 'Show the lead flow check', onclick: () => { state._mktFlowOpen = !open; mountApp(); } },
       el('span', { class: 'inline-block rounded-full shrink-0', style: { width: '8px', height: '8px', background: n ? '#DC2626' : 'var(--ok)' } }),
@@ -313,7 +316,7 @@ function _zipFixRows() {
     else {
       if (!/^\d{5}(-\d{4})?$/.test(raw)) issues.push('ZIP typed as “' + raw + '”');
       const mk = market.get(z); if (mk && o && o !== mk) issues.push('Office ' + o + ' — ZIP ' + z + ' is ' + mk);
-      const zs = zState.get(z); if (zs && s2 && s2 !== zs) issues.push('State ' + s2 + ' — ZIP ' + z + ' is in ' + zs);
+      // (State vs ZIP is already its own Needs attention item — Location — so it isn't repeated here.)
     }
     if (!issues.length) continue;
     const cur = byCust.get(id) || { id, name: [r.first_name, r.last_name].filter(Boolean).join(' '), zip: raw, state: s2, office: o, fix: market.get(z) || '', issues: new Set() };
@@ -323,9 +326,11 @@ function _zipFixRows() {
   _zipFixRows._m = { src: subs, rows };
   return rows;
 }
-function mktgZipFixTask() {
+function mktgZipFixTask(opts) {
+  opts = opts || {};
   if (!(state.reportingSubscriptions || []).length) return null;
-  const rows = _zipFixRows(), n = rows.length, open = !!state._mktZipFixOpen;
+  const rows = _zipFixRows(), n = rows.length, open = opts.embed ? true : !!state._mktZipFixOpen;
+  if (opts.info) return { n };
   const th = (t) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold text-left', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
   const td = (t, st2) => el('td', { class: 'px-3 py-1.5 whitespace-nowrap', style: st2 || {} }, t == null || t === '' ? '—' : t);
   const exportCsv = () => { const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
@@ -334,18 +339,19 @@ function mktgZipFixTask() {
     const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' })); const a = el('a', { href: url, download: 'ridd-crm-zip-fixes-' + new Date().toISOString().slice(0, 10) + '.csv' }); document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url); };
   const table = !open ? null : el('div', { class: 'border-t', style: { borderColor: 'var(--border)' } },
     el('div', { class: 'px-4 py-2 text-[11px] flex items-center gap-3 flex-wrap', style: { color: 'var(--text-muted)' } },
-      el('span', {}, 'Active accounts whose ZIP, state or office disagree in FieldRoutes. A ZIP’s market is the office with the most active accounts in it. The ZIP report and the Geographic tab already correct for these — fix them in the CRM so the data matches.'),
+      el('span', {}, 'Active accounts coded to another office than their ZIP’s market, or with a missing / malformed ZIP, in FieldRoutes. A ZIP’s market is the office with the most active accounts in it. The ZIP report and the Geographic tab already correct for these — fix them in the CRM so the data matches.'),
       n ? el('button', { class: 'ml-auto rounded-lg px-2.5 py-1 text-[11px] font-semibold border', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: exportCsv }, '↓ Export CSV') : null),
     n ? el('div', { class: 'scroll-x', style: { maxHeight: '50vh', overflowY: 'auto' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('Customer'), th('Name'), th('ZIP'), th('State'), th('Office in CRM'), th('ZIP market'), th('Fix'))),
       el('tbody', {}, ...rows.slice(0, 500).map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
         td('#' + r.id, { fontWeight: '700' }), td(r.name), td(r.zip), td(r.state), td(r.office), td(r.fix, { fontWeight: '600' }), td(r.issues.join(' · '), { color: '#B91C1C', whiteSpace: 'normal', minWidth: '260px' })))))) : null);
+  if (opts.embed) return table;
   return el('div', { class: 'card overflow-hidden' },
     el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', onclick: () => { state._mktZipFixOpen = !open; mountApp(); } },
       el('span', { class: 'inline-block rounded-full shrink-0', style: { width: '8px', height: '8px', background: n ? '#DC2626' : 'var(--ok)' } }),
       el('span', { class: 'text-[11px] uppercase tracking-widest font-bold shrink-0' }, 'To do · CRM ZIP fixes'),
       el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, n
-        ? fmt.int(n) + ' active account' + (n === 1 ? '' : 's') + ' with a ZIP, state or office that doesn’t match its market — fix in FieldRoutes.'
+        ? fmt.int(n) + ' active account' + (n === 1 ? '' : 's') + ' coded to another office than its ZIP’s market, or with no valid ZIP — fix in FieldRoutes.'
         : 'All clear — every active account’s ZIP, state and office line up.'),
       n ? el('span', { class: 'ml-auto text-sm font-black tabular-nums', style: { color: '#DC2626' } }, fmt.int(n)) : null,
       el('span', { class: n ? 'text-[11px]' : 'ml-auto text-[11px]', style: { color: 'var(--text-muted)' } }, open ? '▴' : '▾')),
