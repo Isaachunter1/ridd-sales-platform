@@ -400,8 +400,21 @@ function spuBranchPicker(branches, selected, onSave, opts) {
   const wrap = el('span', { class: 'relative inline-block' });
   const picked = new Set(selected || []);
   const label = () => picked.size === 0 ? (opts.empty || 'Pick branches…') : picked.size === branches.length ? 'All ' + branches.length + ' branches' : picked.size === 1 ? _mktgTC([...picked][0]) : picked.size + ' branches';
-  const panel = el('div', { class: 'card p-2 flex flex-col gap-1', style: { position: 'absolute', right: '0', top: 'calc(100% + 4px)', zIndex: '60', minWidth: '220px', maxHeight: '320px', overflowY: 'auto', display: 'none', boxShadow: 'var(--shadow-lg)' } });
-  const btn = el('button', { class: 'rounded-lg border px-2 py-0.5 text-[11px] whitespace-nowrap', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onclick: (e) => { e.stopPropagation(); paint(); panel.style.display = panel.style.display === 'none' ? 'flex' : 'none'; } }, label() + ' ▾');
+  // The panel floats over the page (fixed, on <body>) so a table's scroll box can't clip it and the page still
+  // scrolls with it open (per Isaac, Oct 9); it follows its button and opens upward when there's no room below.
+  const panel = el('div', { class: 'card p-2 flex flex-col gap-1', style: { position: 'fixed', zIndex: '80', minWidth: '220px', overflowY: 'auto', display: 'none', boxShadow: 'var(--shadow-lg)' } });
+  const place = () => {
+    if (!wrap.isConnected) { close(); return; }
+    const r = btn.getBoundingClientRect(), vh = window.innerHeight, vw = window.innerWidth;
+    const below = vh - r.bottom - 12, above = r.top - 12, up = below < 260 && above > below;
+    panel.style.maxHeight = Math.max(160, Math.min(360, up ? above : below)) + 'px';
+    panel.style.left = Math.max(8, Math.min(r.right - 220, vw - 232)) + 'px';
+    if (up) { panel.style.top = ''; panel.style.bottom = (vh - r.top + 4) + 'px'; } else { panel.style.bottom = ''; panel.style.top = (r.bottom + 4) + 'px'; }
+  };
+  const onMove = () => place();
+  const close = () => { panel.style.display = 'none'; panel.remove(); window.removeEventListener('scroll', onMove, true); window.removeEventListener('resize', onMove); };
+  const open = () => { paint(); document.body.append(panel); panel.style.display = 'flex'; place(); window.addEventListener('scroll', onMove, true); window.addEventListener('resize', onMove); };
+  const btn = el('button', { class: 'rounded-lg border px-2 py-0.5 text-[11px] whitespace-nowrap', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onclick: (e) => { e.stopPropagation(); if (panel.style.display === 'none') open(); else close(); } }, label() + ' \u25BE');
   const paint = () => {
     const mini = (t, on) => el('button', { class: 'text-[10px] font-semibold underline', style: { color: 'var(--accent)' }, onclick: (e) => { e.stopPropagation(); on(); paint(); } }, t);
     panel.replaceChildren(
@@ -410,10 +423,10 @@ function spuBranchPicker(branches, selected, onSave, opts) {
       ...branches.map(b => el('label', { class: 'flex items-center gap-2 px-1 py-0.5 text-[11px] cursor-pointer' },
         el('input', { type: 'checkbox', checked: picked.has(b), onchange: (e) => { if (e.target.checked) picked.add(b); else picked.delete(b); const n = panel.querySelector('.ml-auto'); if (n) n.textContent = picked.size + ' picked'; } }), _mktgTC(b))),
       el('button', { class: 'mt-1 rounded-lg px-2 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-        onclick: (e) => { e.stopPropagation(); if (!picked.size) { toast('Pick at least one branch', 'error'); return; } panel.style.display = 'none'; onSave([...picked].sort()); } }, opts.save || 'Save · split evenly'));
+        onclick: (e) => { e.stopPropagation(); if (!picked.size) { toast('Pick at least one branch', 'error'); return; } close(); onSave([...picked].sort()); } }, opts.save || 'Save · split evenly'));
   };
-  document.addEventListener('mousedown', function closer(ev) { if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; } if (!wrap.contains(ev.target)) panel.style.display = 'none'; });
-  wrap.append(btn, panel);
+  document.addEventListener('mousedown', function closer(ev) { if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); close(); return; } if (!wrap.contains(ev.target) && !panel.contains(ev.target)) close(); });
+  wrap.append(btn);
   return wrap;
 }
 
