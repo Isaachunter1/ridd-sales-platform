@@ -51,6 +51,35 @@ function _spuRows(P) {
   P._rc = { key, rows: out };
   return out;
 }
+// Baton pays back half the bid on every valid referral RIDD sends (Sep 2026: 225 valid, $10,195.35 of bids,
+// $5,097.68 credited — exactly 50%; matches the Net Spend tab and the account statement).
+const BATON_SENT_SHARE = 0.5;
+function _spuBatonCredits(rows) {
+  const n = new Map(); for (const r of rows) { const t = String(r.toCompanyId || '').replace(/\.0+$/, ''); if (t) n.set(t, (n.get(t) || 0) + 1); }
+  const ours = [...n.entries()].sort((a, b) => b[1] - a[1])[0];   // referrals we receive all go to our own company id
+  if (!ours) return [];
+  const out = [];
+  for (const r of rows) {
+    if (String(r.fromCompanyId || '').replace(/\.0+$/, '') !== ours[0]) continue;
+    if (!/^(true|1|yes)$/i.test(String(r.isValid).trim())) continue;
+    const bid = _spuNum(r.bidAmount); if (!bid) continue;
+    const ym = (r.Year && r.Month) ? String(r.Year).replace(/\.0+$/, '') + '-' + String(r.Month).replace(/\.0+$/, '').padStart(2, '0') : String(r.dateSubmitted || '').slice(0, 7);
+    const zip = String(r.postalCode == null ? '' : r.postalCode).replace(/\.0+$/, '').padStart(5, '0').slice(0, 5);
+    out.push({ ym, zip: /^\d{5}$/.test(zip) && zip !== '00000' ? zip : '', city: String(r.location || '').trim(), amt: Math.round(bid * BATON_SENT_SHARE * 1000) / 1000 });
+  }
+  return out;
+}
+// Credits for one month → { byBranch, total, n, spread } — ZIP first, then city; the rest is spread pro rata later.
+function _spuCreditsFor(P, ym, branches, m) {
+  const by = {}; let total = 0, n = 0, spread = 0;
+  for (const c of P.credits || []) {
+    if (c.ym !== ym) continue; n++; total += c.amt;
+    let b = c.zip ? _spuAutoOffice(c.zip, branches, m) : SPU_SPLIT;
+    if (!b || b === SPU_SPLIT || b === SPU_SKIP) b = c.city ? _spuAutoOffice(c.city, branches, m) : SPU_SPLIT;
+    if (!b || b === SPU_SPLIT || b === SPU_SKIP) spread += c.amt; else by[b] = (by[b] || 0) + c.amt;
+  }
+  return { by, total, n, spread };
+}
 const _SPU_MON = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 // A sheet laid out as a grid (title rows, merged cells, months across the top) → rows keyed by column letter,
 // each tagged with its section's month → column map read from the header row above it.
@@ -193,17 +222,27 @@ function _spuCompute(P, branches, m) {
     const to = (P.locMap && P.locMap[_spuKey(val)]) || _spuAutoOffice(val, branches, m);
     if (to === SPU_SKIP) skipped += amt; else if (to === SPU_SPLIT) R.split += amt; else R.located[to] = (R.located[to] || 0) + amt;
   }
-  let total = 0, unalloc = 0; const hows = new Set();
+  let total = 0, unalloc = 0; const hows = new Set(); const credit = {};
   for (const ym of Object.keys(raw)) {
     const c = cells[ym] = Object.assign({}, raw[ym].located);
     if (raw[ym].split) {
       const W = _spuWeights(P.channel, ym, branches), parts = _spuSplit(raw[ym].split, W.w);
       if (parts) { hows.add(W.how); for (const b in parts) c[b] = (c[b] || 0) + parts[b]; } else unalloc += raw[ym].split;
     }
-    for (const b in c) { c[b] = Math.round(c[b] * 100) / 100; total += c[b]; }
+    // Referral credits (Baton): each to the branch it came from; ones outside our markets pro rata on the cost.
+    if (P.useCredits && P.credits) {
+      const K = _spuCreditsFor(P, ym, branches, m); credit[ym] = K;
+      for (const b in K.by) c[b] = (c[b] || 0) - K.by[b];
+      if (K.spread) { const base = Object.keys(c).reduce((t, b) => t + Math.max(0, raw[ym].located[b] || 0), 0) || 1; for (const b of Object.keys(c)) c[b] -= K.spread * Math.max(0, raw[ym].located[b] || 0) / base; }
+    }
+    // Tie to the statement (per Isaac): scale the month to the total typed in.
+    if (P.statementTotal && P.forceMonth === ym) { const sum = Object.values(c).reduce((t, v) => t + v, 0); if (sum) { const f = P.statementTotal / sum; for (const b in c) c[b] *= f; } }
+    for (const b in c) c[b] = Math.round(c[b] * 100) / 100;
+    if (P.statementTotal && P.forceMonth === ym) { const ks = Object.keys(c); if (ks.length) { const big = ks.reduce((x, y) => c[y] > c[x] ? y : x); c[big] = Math.round((c[big] + P.statementTotal - ks.reduce((t, k) => t + c[k], 0)) * 100) / 100; } }
+    for (const b in c) total += c[b];
     if (!Object.keys(c).length) delete cells[ym];
   }
-  return { cells, total: Math.round(total * 100) / 100, months: Object.keys(cells).sort(), unalloc, skipped, noDate, outside, outsideN, locs, n, hows: [...hows] };
+  return { cells, credit, total: Math.round(total * 100) / 100, months: Object.keys(cells).sort(), unalloc, skipped, noDate, outside, outsideN, locs, n, hows: [...hows] };
 }
 // One file → one result per channel. With a provider column, each row goes to the channel its value maps to.
 function _spuComputeAll(P, branches, m) {
@@ -238,12 +277,14 @@ async function _spuUpload(files) {
   for (const file of list) {
     try {
       const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
-      const cands = [];
+      const cands = []; let credits = null;
       for (const sheet of wb.SheetNames) {
         const ws = wb.Sheets[sheet];
         let rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
         if (!rows.length) continue;
         let headers = Object.keys(rows[0]), sig = _spuSig(headers), grid = false;
+        // Baton's referral-level tab: the referrals RIDD SENT earn a credit back — kept (month, ZIP, city, credit only) to net against the grid.
+        if (['fromCompanyId', 'toCompanyId', 'bidAmount'].every(h => headers.includes(h))) { credits = (credits || []).concat(_spuBatonCredits(rows)); continue; }
         // No real header row (titles, merged cells, months across the top — Baton's Net Spend tab): read it as a grid.
         if (headers.filter(h => /^__EMPTY/.test(h)).length >= headers.length / 2) {
           const g = _spuGridRows(ws);
@@ -275,6 +316,7 @@ async function _spuUpload(files) {
       // Otherwise a month-grid tab (Baton's Net Spend) wins over the raw-data tabs beside it.
       const known = cands.filter(c => c.T), grids = cands.filter(c => c.P.grid);
       const use = wb.SheetNames.length > 1 ? (known.length ? known : grids.length ? grids : cands) : cands;
+      if (credits) for (const c of use) if (c.P.grid) { c.P.credits = credits; c.P.useCredits = true; }
       for (const c of use) state._spendPending.push(c.P);
       const any = use.length > 0;
       if (!any) toast('No spend rows found in ' + file.name, 'error');
@@ -387,7 +429,16 @@ function mktgSpendUploadCard(B, year) {
           P.rowFilter ? el('span', {}, '=') : null,
           P.rowFilter ? el('input', { value: P.rowFilter.val, class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '90px' }, onchange: (e) => { P.rowFilter = { col: P.rowFilter.col, val: e.target.value }; mountApp(); } }) : null) : null,
         (P.grid && P.cols.loc) ? el('label', { class: 'inline-flex items-center gap-1.5', title: 'A branch name in a merged cell covers the rows under it.' },
-          el('input', { type: 'checkbox', checked: !!P.fillDown, onchange: (e) => { P.fillDown = e.target.checked; mountApp(); } }), el('span', { class: 'font-semibold' }, 'Fill branch down')) : null),
+          el('input', { type: 'checkbox', checked: !!P.fillDown, onchange: (e) => { P.fillDown = e.target.checked; mountApp(); } }), el('span', { class: 'font-semibold' }, 'Fill branch down')) : null,
+        P.credits ? (() => { const K = (C.credit || {})[P.forceMonth] || _spuCreditsFor(P, P.forceMonth, branches, m);
+          return el('label', { class: 'inline-flex items-center gap-1.5', title: 'Referrals RIDD sent to Baton earn back ' + Math.round(BATON_SENT_SHARE * 100) + '% of the bid. Each credit goes to the branch whose ZIP / city it came from; ones outside our markets are spread across the branches pro rata.' },
+            el('input', { type: 'checkbox', checked: !!P.useCredits, onchange: (e) => { P.useCredits = e.target.checked; mountApp(); } }),
+            el('span', { class: 'font-semibold' }, 'Subtract credits for referrals sent'),
+            el('span', { style: { color: '#15803D', fontWeight: '600' } }, '−' + fmt.usd(K.total) + ' · ' + fmt.int(K.n) + ' referrals' + (K.spread ? ' · ' + fmt.usd0(K.spread) + ' outside our markets spread pro rata' : ''))); })() : null,
+        P.grid ? el('label', { class: 'inline-flex items-center gap-1.5', title: 'Type the net from the provider’s statement (Baton: Net Bought − Net Sold) and the branch split is scaled to match it to the cent.' },
+          el('span', { class: 'font-semibold' }, 'Match statement total'), el('span', { style: muted }, '$'),
+          el('input', { type: 'number', step: '0.01', value: P.statementTotal ? String(P.statementTotal) : '', placeholder: 'optional', class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '96px' },
+            onchange: (e) => { const v = parseFloat(e.target.value); P.statementTotal = isFinite(v) && v ? v : 0; mountApp(); } })) : null),
       provRows.length ? el('div', { class: 'flex flex-col gap-1' },
         lab('Provider → channel (' + provRows.length + ') · remembered for next time'),
         grid(provRows.slice(0, 80).map(([val, L]) => { const k = _spuKey(val), cur = _spuChanOf(val, P, m);
