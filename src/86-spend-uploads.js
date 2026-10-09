@@ -176,7 +176,8 @@ function _spuCommit(P, branches) {
   const groups = A.groups.filter(g => g.C.months.length);
   if (!groups.length) { toast('Nothing to add — check the amount and date columns', 'error'); return; }
   // Remember everything picked here for the next file.
-  for (const k in (P.locMap || {})) m.spendLocMap[k] = P.locMap[k];
+  m.spendLocMeta = (m.spendLocMeta && typeof m.spendLocMeta === 'object') ? m.spendLocMeta : {};   // { key: { ch, col } } — which provider / column an ID came from (Configurations list)
+  for (const k in (P.locMap || {})) { m.spendLocMap[k] = P.locMap[k]; m.spendLocMeta[k] = { ch: P.cols.prov ? 'Several providers' : P.channel, col: P.cols.loc || '' }; }
   for (const k in (P.provMap || {})) m.spendProvMap[k] = P.provMap[k];
   if (P.cols.prov) for (const [val] of A.provs) { const k = _spuKey(val), ch = _spuChanOf(val, P, m); if (k && ch && !m.spendProvMap[k]) m.spendProvMap[k] = ch; }
   m.spendTemplates[_spuSig(P.headers)] = { cols: Object.assign({}, P.cols), channel: P.cols.prov ? '' : P.channel, noLoc: P.noLoc, from: P.fileName, at: new Date().toISOString() };
@@ -414,4 +415,63 @@ function spuBranchPicker(branches, selected, onSave, opts) {
   document.addEventListener('mousedown', function closer(ev) { if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; } if (!wrap.contains(ev.target)) panel.style.display = 'none'; });
   wrap.append(btn, panel);
   return wrap;
+}
+
+// ── Configurations → Provider IDs → branch (per Isaac, Oct 9) ─────────────
+// One place to look up (and fix) every ID the app maps to a branch: Google LSA
+// and Google Ads / Facebook campaigns and accounts (set on Spend → Needs a
+// branch, or Ad accounts), and the branch / location IDs from uploaded provider
+// reports such as Angi. IDs can be added here ahead of a report too.
+function reportingProviderIdsPanel() {
+  const m = _spuStore();
+  m.spendLocMeta = (m.spendLocMeta && typeof m.spendLocMeta === 'object') ? m.spendLocMeta : {};
+  const y = new Date().getFullYear();
+  const branches = _mktgBranchList(y).all;
+  const admin = isAdminRole(state.profile?.role);
+  const muted = { color: 'var(--text-muted)' };
+  const q = String(state._provIdQ || '').trim().toLowerCase();
+  const rows = [];
+  const camp = (typeof adCampaignOfficeMap === 'function') ? adCampaignOfficeMap() : {};
+  for (const k in camp) { const [plat, acct, ...rest] = k.split('|'); const c = rest.join('|'); const v = camp[k];
+    rows.push({ kind: 'camp', key: k, prov: plat === 'facebook' ? 'Facebook' : /^LocalServicesCampaign/i.test(c) ? 'Google Local Services' : 'Google Ads', id: acct, detail: /^LocalServicesCampaign/i.test(c) ? 'LSA account' : c, to: v === '' ? [] : Array.isArray(v) ? v : [v] }); }
+  const acc = (typeof adAccountOfficeMap === 'function') ? adAccountOfficeMap() : {};
+  for (const k in acc) { const [plat, acctId, prov] = k.split('|'); const v = acc[k];
+    rows.push({ kind: 'acct', key: k, prov: prov || (plat === 'facebook' ? 'Facebook' : 'Google'), id: acctId, detail: 'Whole account', to: v === '' ? [] : Array.isArray(v) ? v : [v] }); }
+  for (const k in m.spendLocMap) { const meta = m.spendLocMeta[k] || {}; const v = m.spendLocMap[k];
+    rows.push({ kind: 'loc', key: k, prov: meta.ch || 'Uploaded reports', id: k, detail: meta.col ? 'column “' + meta.col + '”' : 'report location', to: v === SPU_SPLIT ? ['split'] : v === SPU_SKIP ? ['skip'] : [v] }); }
+  const shown = rows.filter(r => !q || (r.prov + ' ' + r.id + ' ' + r.detail + ' ' + r.to.join(' ')).toLowerCase().includes(q));
+  const byProv = new Map(); for (const r of shown) (byProv.get(r.prov) || byProv.set(r.prov, []).get(r.prov)).push(r);
+  const lbl = (t) => t === 'split' ? 'Split by leads' : t === 'skip' ? 'Skip (not spend)' : _mktgTC(t);
+  const save = (r, picked) => {
+    if (r.kind === 'camp') setAdCampaignOffice(r.key, picked.length === 1 ? picked[0] : picked);
+    else if (r.kind === 'acct') setAdAccountOffice(r.key, picked);
+    else { m.spendLocMap[r.key] = picked[0]; _mktgSave(); }
+    mountApp();
+  };
+  const remove = (r) => { if (r.kind === 'camp') setAdCampaignOffice(r.key, null); else if (r.kind === 'acct') setAdAccountOffice(r.key, null); else { delete m.spendLocMap[r.key]; delete m.spendLocMeta[r.key]; _mktgSave(); } mountApp(); };
+  // Add an ID ahead of a report (e.g. a new Angi branch ID).
+  const provs = [...new Set([...(m.channels || []), ...rows.filter(r => r.kind === 'loc').map(r => r.prov)])].filter(p => !/^Several|^Uploaded/.test(p)).sort();
+  const addId = el('input', { type: 'text', placeholder: 'ID (e.g. Angi branch ID)', class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', width: '170px' } });
+  const addProv = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } }, ...provs.map(p => el('option', { value: p }, p)));
+  const addBr = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } }, el('option', { value: '' }, 'Branch…'), ...branches.map(b => el('option', { value: b }, _mktgTC(b))));
+  const addRow = admin ? el('div', { class: 'flex items-center gap-2 flex-wrap mb-3' },
+    el('span', { class: 'text-[11px] font-semibold' }, 'Add an ID'), addProv, addId, addBr,
+    el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => {
+      const k = _spuKey(addId.value); if (!k || !addBr.value) { toast('Enter the ID and pick a branch', 'error'); return; }
+      m.spendLocMap[k] = addBr.value; m.spendLocMeta[k] = { ch: addProv.value, col: '' }; _mktgSave(); toast('Saved ' + addId.value.trim() + ' → ' + _mktgTC(addBr.value), 'success'); mountApp(); } }, 'Save')) : null;
+  const search = el('input', { type: 'search', placeholder: 'Search an ID, provider or branch…', value: state._provIdQ || '', class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', width: '260px' },
+    oninput: (e) => { state._provIdQ = e.target.value; clearTimeout(state._provIdT); state._provIdT = setTimeout(() => { mountApp(); const i = document.querySelector('#cfg-provids input[type=search]'); if (i) { i.focus(); const n = i.value.length; try { i.setSelectionRange(n, n); } catch (err) { /* */ } } }, 250); } });
+  return el('div', { id: 'cfg-provids', class: 'flex flex-col gap-3' },
+    el('div', { class: 'text-[11px]', style: muted }, 'Every provider ID the app sends to a branch: Google LSA and Google Ads / Facebook campaigns and accounts (set on Marketing → Spend), and the branch / location IDs from uploaded reports like Angi. Saved for every admin. Change a branch here, remove a wrong one, or add an ID before its first report.'),
+    el('div', { class: 'flex items-center gap-3 flex-wrap' }, search, el('span', { class: 'text-[11px]', style: muted }, fmt.int(rows.length) + ' IDs saved')),
+    addRow,
+    shown.length ? el('div', { class: 'flex flex-col gap-4' }, ...[...byProv.entries()].sort((a2, b2) => a2[0].localeCompare(b2[0])).map(([prov, list]) => el('div', {},
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-bold mb-1' }, prov + ' · ' + list.length),
+      el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]', style: { borderCollapse: 'collapse' } },
+        el('tbody', {}, ...list.sort((a2, b2) => String(a2.id).localeCompare(String(b2.id))).map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          el('td', { class: 'px-2 py-1 font-semibold tabular-nums whitespace-nowrap' }, r.id),
+          el('td', { class: 'px-2 py-1', style: Object.assign({ maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, muted), title: r.detail }, r.detail),
+          el('td', { class: 'px-2 py-1' }, admin && !(r.kind === 'loc' && (r.to[0] === 'split' || r.to[0] === 'skip')) ? spuBranchPicker(branches, r.to, (picked) => save(r, r.kind === 'loc' ? picked.slice(0, 1) : picked), { save: r.kind === 'loc' ? 'Save (first branch)' : 'Save · split evenly' }) : el('span', { class: 'font-semibold' }, r.to.length ? r.to.map(lbl).join(' + ') : 'Company-wide')),
+          admin ? el('td', { class: 'px-2 py-1 text-right' }, el('button', { class: 'underline', style: muted, onclick: () => remove(r) }, 'Remove')) : null)))))))) 
+      : el('div', { class: 'text-[11px] py-2', style: muted }, q ? 'Nothing matches.' : 'No IDs saved yet.'));
 }

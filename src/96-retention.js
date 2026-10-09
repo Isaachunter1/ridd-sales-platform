@@ -2026,6 +2026,12 @@ function reportingWaterfall() {
         if (!data.some(v => v != null)) return;
         const col = k === 'all' ? _colorFor(y) : SEG_COLORS[k];
         datasets.push({ label: lbl + ' ' + y, data, borderColor: col, backgroundColor: col, borderDash: _dashFor(y), borderWidth: y === curY ? 3 : 2 });
+        // The month in progress (per Isaac, Oct 9): its rate so far as a lone dot, not joined to the line — the
+        // line picks it up once the month closes.
+        if (y === curY) { const v = f(curY, curM); if (v != null) {
+          const pt = MONTH_LBL.map((_, i) => i === curM - 1 ? v : null);
+          datasets.push({ label: lbl + ' ' + y + ' \u00b7 ' + MONTH_LBL[curM - 1] + ' so far', data: pt, borderColor: col, backgroundColor: isDark ? '#1f1f1d' : '#ffffff', borderWidth: 2, showLine: false, pointRadius: 5, pointHoverRadius: 7, _partial: true });
+        } }
       });
     });
     const id = 'retAttrTrends' + (label ? '_' + String(label).replace(/\W/g, '') : '');
@@ -2038,9 +2044,10 @@ function reportingWaterfall() {
       const txt = isDark ? '#C9C9BE' : '#555', grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
       _chartInstances[id] = new Chart(cvsEl.getContext('2d'), {
         type: 'line',
-        data: { labels: MONTH_LBL, datasets: datasets.map(d => ({ ...d, borderWidth: d.borderWidth || 2, tension: 0.3, fill: false, pointRadius: 2, spanGaps: false })) },
+        data: { labels: MONTH_LBL, datasets: datasets.map(d => ({ ...d, borderWidth: d.borderWidth || 2, tension: 0.3, fill: false, pointRadius: d.pointRadius != null ? d.pointRadius : 2, spanGaps: false })) },
         options: { responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 } } } },
+          plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 }, filter: (it, data) => !(data.datasets[it.datasetIndex] || {})._partial } },
+            tooltip: { callbacks: { label: (c) => ' ' + c.dataset.label + ': ' + (c.parsed.y == null ? '—' : c.parsed.y.toFixed(2) + '%') } } },
           scales: { x: { ticks: { color: txt }, grid: { color: grid } },
                     y: { beginAtZero: true, ticks: { color: txt, callback: v => v + '%' }, grid: { color: grid } } } },
       });

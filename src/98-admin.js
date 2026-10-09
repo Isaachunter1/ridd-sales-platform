@@ -684,6 +684,7 @@ function adminConfigurations(part) {
     head('Marketing & lead sources', 'What each FieldRoutes lead source is (new / renewal / upsell, paid or not, which provider it rolls into), how ad accounts and GoHighLevel leads map in, and the marketing targets.'),
     listCard('source', 'Lead sources', '', reportingSourceConfigPanel),
     typeof reportingAdAccountsPanel === 'function' ? listCard('adacc', 'Ad accounts → branch', 'Facebook + Google', reportingAdAccountsPanel) : null,
+    typeof reportingProviderIdsPanel === 'function' ? listCard('provids', 'Provider IDs → branch', 'LSA · Angi · campaigns', reportingProviderIdsPanel) : null,   // per Isaac, Oct 9
     typeof reportingGhlSourcesPanel === 'function' ? listCard('ghl', 'GoHighLevel sources → provider', (state._ghl && state._ghl.rows && state._ghl.rows.length) ? n(state._ghl.rows.length) + ' contacts' : 'sync', reportingGhlSourcesPanel) : null,
     typeof reportingMarketingGoalsPanel === 'function' ? listCard('mgoals', 'Marketing goals & targets', 'CAC · ROAS · spend mix', reportingMarketingGoalsPanel) : null);
   return el('div', { class: 'flex flex-col gap-4' },
