@@ -29,7 +29,62 @@ function _spuCpl(ch) { const m = _mktgStore(); const v = Number(m.spendCpl && m.
 function _spuRowAmt(P, r, ch) {
   const cpl = ch ? _spuCpl(ch) : 0;
   if (cpl) return Object.values(r).some(v => String(v == null ? '' : v).trim()) ? cpl : 0;
+  // A month-grid report (Baton): each row's section has its own month → column map; the picked month picks the column.
+  if (P.byMonth && r.__months) { const c = P.forceMonth ? r.__months[P.forceMonth] : ''; return c ? _spuNum(r[c]) : 0; }
   return _spuNum(r[P.cols.amount]);
+}
+// The rows a report contributes: the branch column filled down through merged cells, then only rows whose
+// filter column holds the filter value (Baton: the "Amount" line under each service area).
+function _spuRows(P) {
+  const loc = P.cols && P.cols.loc, f = P.rowFilter && P.rowFilter.col ? P.rowFilter : null;
+  if (!(P.fillDown && loc) && !f) return P.rows;
+  const key = [loc, P.fillDown ? 1 : 0, f ? f.col + '=' + f.val : ''].join('|');
+  if (P._rc && P._rc.key === key) return P._rc.rows;
+  const out = []; let last = '';
+  for (const r of P.rows) {
+    let x = r;
+    if (P.fillDown && loc) { const v = String(r[loc] == null ? '' : r[loc]).trim(); if (v) last = r[loc]; else if (last) { x = Object.assign({}, r, { [loc]: last }); if (r.__months) Object.defineProperty(x, '__months', { value: r.__months, enumerable: false }); } }
+    if (f && String(x[f.col] == null ? '' : x[f.col]).trim().toLowerCase() !== String(f.val).trim().toLowerCase()) continue;
+    if (loc && /^(grand\s+)?totals?\b/i.test(String(x[loc] || '').trim())) continue;
+    out.push(x);
+  }
+  P._rc = { key, rows: out };
+  return out;
+}
+const _SPU_MON = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+// A sheet laid out as a grid (title rows, merged cells, months across the top) → rows keyed by column letter,
+// each tagged with its section's month → column map read from the header row above it.
+function _spuGridRows(ws) {
+  if (!ws || !ws['!ref']) return null;
+  const rg = XLSX.utils.decode_range(ws['!ref']);
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 'A', defval: '', raw: true, blankrows: false });
+  // Month header rows: 6+ cells that are dates or month names (year from the date, else the 4-digit year above).
+  const headAt = new Map(); let lastYear = 0;
+  for (let R = rg.s.r; R <= rg.e.r; R++) {
+    const cells = [];
+    for (let C = rg.s.c; C <= rg.e.c; C++) { const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })]; if (cell) cells.push([C, cell]); }
+    for (const [, cell] of cells) if (cell.t === 'n' && Number.isInteger(cell.v) && cell.v >= 2000 && cell.v <= 2100) lastYear = cell.v;
+    const map = {}; let n = 0;
+    for (const [C, cell] of cells) {
+      let y = 0, mo = 0;
+      if (cell.t === 'n' && cell.v > 30000 && cell.v < 80000 && /[a-z]/i.test(String(cell.w || ''))) { const d = XLSX.SSF.parse_date_code(cell.v); if (d) { y = d.y; mo = d.m; } }
+      else if (cell.t === 'd' && cell.v instanceof Date) { y = cell.v.getFullYear(); mo = cell.v.getMonth() + 1; }
+      else if (cell.t === 's') { const t = String(cell.v).trim(), i = _SPU_MON.indexOf(t.slice(0, 3).toLowerCase()); if (i >= 0 && t.length <= 9) { mo = i + 1; y = lastYear; } }
+      if (mo && y) { map[y + '-' + String(mo).padStart(2, '0')] = XLSX.utils.encode_col(C); n++; }
+    }
+    if (n >= 6) headAt.set(R, map);
+  }
+  if (!headAt.size) return null;
+  const out = []; let months = null;
+  for (const r of rows) {
+    const R = r.__rowNum__;
+    if (headAt.has(R)) { months = headAt.get(R); continue; }
+    if (!months) continue;
+    const x = {}; for (const k of Object.keys(r)) x[k] = r[k];
+    Object.defineProperty(x, '__months', { value: months, enumerable: false });
+    out.push(x);
+  }
+  return out;
 }
 const _spuNum = (v) => { if (typeof v === 'number') return isFinite(v) ? v : 0; const s = String(v == null ? '' : v).trim(); if (!s) return 0; const neg = /^\(.*\)$/.test(s) || /^-/.test(s); const n = parseFloat(s.replace(/[^0-9.]/g, '')); return isFinite(n) ? (neg ? -n : n) : 0; };
 const _spuKey = (v) => String(v == null ? '' : v).trim().toLowerCase();
@@ -115,7 +170,7 @@ function _spuCompute(P, branches, m) {
   const cells = {}, raw = {};   // raw[ym] = { located: {B: amt}, split: amt }
   const locs = new Map();       // location value → { amt, n }
   let skipped = 0, noDate = 0, n = 0, outside = 0, outsideN = 0;
-  for (const r of P.rows) {
+  for (const r of _spuRows(P)) {
     const amt = _spuRowAmt(P, r, P.channel); if (!amt) continue;
     const first = String(r[P.headers[0]] == null ? '' : r[P.headers[0]]);
     if (/^\s*(grand\s+)?totals?\b/i.test(first)) continue;   // a totals row would double the file
@@ -151,7 +206,7 @@ function _spuCompute(P, branches, m) {
 function _spuComputeAll(P, branches, m) {
   if (!P.cols.prov) return { groups: P.channel ? [{ ch: P.channel, C: _spuCompute(P, branches, m) }] : [], unmapped: new Map(), provs: new Map() };
   const by = new Map(), unmapped = new Map(), provs = new Map();
-  for (const r of P.rows) {
+  for (const r of _spuRows(P)) {
     const val = String(r[P.cols.prov] == null ? '' : r[P.cols.prov]).trim();
     const ch = _spuChanOf(val, P, m);
     const amt = _spuRowAmt(P, r, ch && ch !== SPU_SKIP ? ch : ''); if (!amt) continue;
@@ -180,22 +235,45 @@ async function _spuUpload(files) {
   for (const file of list) {
     try {
       const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
-      let any = false;
+      const cands = [];
       for (const sheet of wb.SheetNames) {
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheet], { defval: '', raw: true });
+        const ws = wb.Sheets[sheet];
+        let rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
         if (!rows.length) continue;
-        const headers = Object.keys(rows[0]);
-        const cols = _spuGuessCols(headers, rows);
+        let headers = Object.keys(rows[0]), sig = _spuSig(headers), grid = false;
+        // No real header row (titles, merged cells, months across the top — Baton's Net Spend tab): read it as a grid.
+        if (headers.filter(h => /^__EMPTY/.test(h)).length >= headers.length / 2) {
+          const g = _spuGridRows(ws);
+          if (g && g.length) { const rg = XLSX.utils.decode_range(ws['!ref']); headers = []; for (let C = rg.s.c; C <= rg.e.c; C++) headers.push(XLSX.utils.encode_col(C)); rows = g; grid = true; sig = 'grid:' + String(sheet).trim().toLowerCase() + ':' + headers.length; }
+          else if (wb.SheetNames.length > 1) continue;
+        }
+        const cols = grid ? { amount: '', date: '', loc: '', prov: '' } : _spuGuessCols(headers, rows);
+        let rowFilter = null;
+        if (grid) {
+          // The label column ("Amount" on the money line) and the branch column (most distinct names).
+          let best = null; for (const h of headers) { const n = rows.filter(r => /^amount$/i.test(String(r[h]).trim())).length; if (n >= 3 && (!best || n > best.n)) best = { h, n }; }
+          if (best) rowFilter = { col: best.h, val: 'Amount' };
+          let bl = null; for (const h of headers) { if (best && h === best.h) continue; const set = new Set(rows.map(r => String(r[h]).trim()).filter(v => v && !/^[-$\d.,()%\s]+$/.test(v))); if (!bl || set.size > bl.n) bl = { h, n: set.size }; }
+          if (bl && bl.n) cols.loc = bl.h;
+        }
         // Seen this layout before → use the columns / channel / default office picked last time.
-        const T = m.spendTemplates[_spuSig(headers)];
+        const T = m.spendTemplates[sig];
         if (T && T.cols) for (const c of ['amount', 'date', 'loc', 'prov']) if (T.cols[c] === '' || headers.includes(T.cols[c])) cols[c] = T.cols[c] || '';
+        if (T && grid && 'rowFilter' in T) rowFilter = T.rowFilter;
         const ch0 = (preset && preset.channel) || (T && T.channel) || _attrGuessProvider(file.name + ' ' + sheet, m.channels) || '';
-        if (!cols.amount && wb.SheetNames.length > 1 && !_spuCpl(ch0)) continue;   // a tab with no money column in a multi-tab workbook is not a spend sheet
-        any = true;
-        state._spendPending.push({ key: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), fileName: wb.SheetNames.length > 1 ? file.name + ' · ' + sheet : file.name,
-          headers, rows, cols, channel: ch0, month: state._mktEntryMonth || '', forceMonth: (preset && preset.month) || '', noLoc: (T && T.noLoc) || SPU_SPLIT, locMap: {}, provMap: {}, recognized: T ? (T.from || 'an earlier report') : '' });
+        if (!grid && !cols.amount && wb.SheetNames.length > 1 && !_spuCpl(ch0)) continue;   // a tab with no money column in a multi-tab workbook is not a spend sheet
+        const ctrl = typeof _mktgCtrlMonth === 'function' ? _mktgCtrlMonth().ym : '';
+        cands.push({ T, P: { key: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), fileName: wb.SheetNames.length > 1 ? file.name + ' · ' + sheet : file.name, sig,
+          headers, rows, cols, channel: ch0, month: state._mktEntryMonth || '', forceMonth: (preset && preset.month) || (grid ? ctrl : ''), noLoc: (T && T.noLoc) || SPU_SPLIT, locMap: {}, provMap: {}, recognized: T ? (T.from || 'an earlier report') : '',
+          grid, byMonth: grid, fillDown: grid ? (T && 'fillDown' in T ? !!T.fillDown : true) : false, rowFilter } });
         if (preset && preset.channel) cols.prov = '';   // uploaded from a provider's checklist row: the whole file is that provider
       }
+      // A workbook with a tab mapped before: open only the mapped tab(s) — the rest (raw data, notes) were not spend.
+      // Otherwise a month-grid tab (Baton's Net Spend) wins over the raw-data tabs beside it.
+      const known = cands.filter(c => c.T), grids = cands.filter(c => c.P.grid);
+      const use = wb.SheetNames.length > 1 ? (known.length ? known : grids.length ? grids : cands) : cands;
+      for (const c of use) state._spendPending.push(c.P);
+      const any = use.length > 0;
       if (!any) toast('No spend rows found in ' + file.name, 'error');
     } catch (e) { toast('Could not read ' + file.name + ': ' + (e.message || e), 'error'); }
   }
@@ -214,12 +292,13 @@ function _spuCommit(P, branches) {
   for (const k in (P.locMap || {})) { m.spendLocMap[k] = P.locMap[k]; m.spendLocMeta[k] = _meta; }
   // Every other ID / city in the file is saved too with the branch it went to (per Isaac, Oct 9), so the
   // Configurations list has the full set; ZIP codes are left out (they look themselves up every time).
-  if (P.cols.loc) for (const r of P.rows) { const val = String(r[P.cols.loc] == null ? '' : r[P.cols.loc]).trim(); const k = _spuKey(val);
+  if (P.cols.loc) for (const r of _spuRows(P)) { const val = String(r[P.cols.loc] == null ? '' : r[P.cols.loc]).trim(); const k = _spuKey(val);
     if (!k || m.spendLocMap[k] || /^\d{5}(-\d{4})?$/.test(val)) continue;
     const to = _spuAutoOffice(val, branches, m); if (to && to !== SPU_SPLIT) { m.spendLocMap[k] = to; m.spendLocMeta[k] = _meta; } }
   for (const k in (P.provMap || {})) m.spendProvMap[k] = P.provMap[k];
   if (P.cols.prov) for (const [val] of A.provs) { const k = _spuKey(val), ch = _spuChanOf(val, P, m); if (k && ch && !m.spendProvMap[k]) m.spendProvMap[k] = ch; }
-  m.spendTemplates[_spuSig(P.headers)] = { cols: Object.assign({}, P.cols), channel: P.cols.prov ? '' : P.channel, noLoc: P.noLoc, from: P.fileName, at: new Date().toISOString() };
+  m.spendTemplates[P.sig || _spuSig(P.headers)] = Object.assign({ cols: Object.assign({}, P.cols), channel: P.cols.prov ? '' : P.channel, noLoc: P.noLoc, from: P.fileName, at: new Date().toISOString() },
+    P.grid ? { fillDown: !!P.fillDown, rowFilter: P.rowFilter || null } : {});
   let total = 0;
   for (const g of groups) {
     m.spendUploads.push({ id: P.key + (groups.length > 1 ? '|' + g.ch : ''), fileName: P.fileName + (groups.length > 1 ? ' · ' + g.ch : ''), channel: g.ch, at: new Date().toISOString(), by: (state.profile && state.profile.full_name) || '', total: g.C.total, n: g.C.n, cells: g.C.cells });
@@ -283,6 +362,9 @@ function mktgSpendUploadCard(B, year) {
         P.recognized ? el('span', { class: 'rounded-full px-2 py-0.5 text-[10px] font-bold', style: { background: 'rgba(95,108,91,.16)', color: '#5F6C5B' } }, '✓ Recognized — same layout as ' + P.recognized + '; columns and mapping filled in') : null),
       el('div', { class: 'flex items-center gap-3 flex-wrap text-[11px]' },
         (!P.cols.prov && _spuCpl(P.channel)) ? el('span', { class: 'rounded-full px-2 py-0.5 text-[10px] font-bold', style: { background: 'rgba(42,120,194,.12)', color: '#2A78C2' } }, 'Billed per lead: ' + fmt.usd(_spuCpl(P.channel)) + ' × ' + fmt.int(groups.reduce((t, g) => t + g.C.n, 0)) + ' leads')
+          : P.byMonth ? (() => { const r0 = _spuRows(P).find(r => r.__months && P.forceMonth && r.__months[P.forceMonth]); const c = r0 ? r0.__months[P.forceMonth] : '';
+              return c ? el('span', { class: 'rounded-full px-2 py-0.5 text-[10px] font-bold', style: { background: 'rgba(42,120,194,.12)', color: '#2A78C2' }, title: 'This report has a column per month; the Month you pick decides which column is read.' }, 'Amount: column ' + c + ' (' + reportingMonthLbl(P.forceMonth) + ')')
+                : el('span', { style: { color: '#DC2626', fontWeight: '600' } }, P.forceMonth ? 'No ' + reportingMonthLbl(P.forceMonth) + ' column in this report' : 'Pick the month →'); })()
           : el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Amount'), sel(P.cols.amount, colOpts('Pick a column…'), (v) => { P.cols.amount = v; })),
         el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Date'), sel(P.cols.date, colOpts('No date column'), (v) => { P.cols.date = v; })),
         // The month this upload is for (per Isaac, Oct 9): pick one and the whole file books to it; or keep the file's own dates.
@@ -296,7 +378,13 @@ function mktgSpendUploadCard(B, year) {
         !P.cols.prov ? el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Channel'), sel(P.channel, [['', 'Pick a channel…'], ...m.channels.map(c => [c, c])], (v) => { P.channel = v; })) : null,
         (!P.cols.prov && P.channel) ? _spuCplInput(P.channel) : null,
         el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold', title: 'The column that says which branch / location each row belongs to — a branch ID, office name, market, campaign or ZIP. Each value in it is mapped to a branch below, once.' }, 'Branch column'), sel(P.cols.loc, colOpts('No branch / location column'), (v) => { P.cols.loc = v; P.locMap = {}; })),
-        !P.cols.loc ? el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Goes to'), sel(P.noLoc, officeOpts.filter(o => o[0] !== SPU_SKIP), (v) => { P.noLoc = v; })) : null),
+        !P.cols.loc ? el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Goes to'), sel(P.noLoc, officeOpts.filter(o => o[0] !== SPU_SKIP), (v) => { P.noLoc = v; })) : null,
+        P.grid ? el('label', { class: 'inline-flex items-center gap-1.5', title: 'Only read rows whose label says this (Baton: the Amount line, not the referral count).' }, el('span', { class: 'font-semibold' }, 'Only rows where'),
+          sel(P.rowFilter ? P.rowFilter.col : '', colOpts('Every row'), (v) => { P.rowFilter = v ? { col: v, val: (P.rowFilter && P.rowFilter.val) || 'Amount' } : null; }),
+          P.rowFilter ? el('span', {}, '=') : null,
+          P.rowFilter ? el('input', { value: P.rowFilter.val, class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '90px' }, onchange: (e) => { P.rowFilter = { col: P.rowFilter.col, val: e.target.value }; mountApp(); } }) : null) : null,
+        (P.grid && P.cols.loc) ? el('label', { class: 'inline-flex items-center gap-1.5', title: 'A branch name in a merged cell covers the rows under it.' },
+          el('input', { type: 'checkbox', checked: !!P.fillDown, onchange: (e) => { P.fillDown = e.target.checked; mountApp(); } }), el('span', { class: 'font-semibold' }, 'Fill branch down')) : null),
       provRows.length ? el('div', { class: 'flex flex-col gap-1' },
         lab('Provider → channel (' + provRows.length + ') · remembered for next time'),
         grid(provRows.slice(0, 80).map(([val, L]) => { const k = _spuKey(val), cur = _spuChanOf(val, P, m);
