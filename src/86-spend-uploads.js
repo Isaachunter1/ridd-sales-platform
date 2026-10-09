@@ -87,7 +87,8 @@ function _spuCompute(P, branches, m) {
     const amt = _spuNum(r[P.cols.amount]); if (!amt) continue;
     const first = String(r[P.headers[0]] == null ? '' : r[P.headers[0]]);
     if (/^\s*(grand\s+)?totals?\b/i.test(first)) continue;   // a totals row would double the file
-    let ym = P.cols.date ? String(_attrDate(r[P.cols.date]) || '').slice(0, 7) : '';
+    // A month picked for the upload (per Isaac, Oct 9) puts the WHOLE file in that month, whatever its dates say.
+    let ym = P.forceMonth ? P.forceMonth : P.cols.date ? String(_attrDate(r[P.cols.date]) || '').slice(0, 7) : '';
     if (!ym) { if (P.month) ym = P.month; else { noDate += amt; continue; } }
     n++;
     const R = raw[ym] = raw[ym] || { located: {}, split: 0 };
@@ -232,7 +233,11 @@ function mktgSpendUploadCard(B, year) {
       el('div', { class: 'flex items-center gap-3 flex-wrap text-[11px]' },
         el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Amount'), sel(P.cols.amount, colOpts('Pick a column…'), (v) => { P.cols.amount = v; })),
         el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Date'), sel(P.cols.date, colOpts('No date column'), (v) => { P.cols.date = v; })),
-        (!P.cols.date || C.noDate) ? el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, P.cols.date ? 'Rows with no date go to' : 'Month'),
+        // The month this upload is for (per Isaac, Oct 9): pick one and the whole file books to it; or keep the file's own dates.
+        (() => { const now = new Date(); const opts = []; for (let i = 0; i < 18; i++) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); opts.push([_mktgYm(d.getFullYear(), d.getMonth()), MKTG_MONTHS[d.getMonth()] + ' ' + d.getFullYear()]); }
+          return el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Month'),
+            sel(P.forceMonth || '', [['', P.cols.date ? 'Use the dates in the file' : 'Pick a month…'], ...opts], (v) => { P.forceMonth = v; })); })(),
+        (P.cols.date && !P.forceMonth && C.noDate) ? el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Rows with no date go to'),
           sel(P.month, [['', 'Pick a month…'], ...[year - 1, year].flatMap(y => MKTG_MONTHS.map((mn, i) => [_mktgYm(y, i), mn + ' ' + y]))], (v) => { P.month = v; })) : null,
         el('label', { class: 'inline-flex items-center gap-1.5', title: 'A column naming the provider / vendor on each row (QuickBooks payee, an aggregator report…). Leave it off when the whole file is one provider.' },
           el('span', { class: 'font-semibold' }, 'Provider'), sel(P.cols.prov || '', colOpts('Whole file is one provider'), (v) => { P.cols.prov = v; P.provMap = {}; })),
@@ -261,7 +266,7 @@ function mktgSpendUploadCard(B, year) {
         groups.length > 1 ? el('span', { style: muted }, groups.map(g => g.ch + ' ' + fmt.usd0(g.C.total)).join(' · ')) : (months.length ? el('span', { style: muted }, Object.entries(C.months.reduce((o, ym) => { for (const bb in C.cells[ym]) o[bb] = (o[bb] || 0) + C.cells[ym][bb]; return o; }, {})).sort((x, y) => y[1] - x[1]).slice(0, 6).map(([bb, v]) => _mktgTC(bb) + ' ' + fmt.usd0(v)).join(' · ')) : null),
         unmappedAmt ? el('span', { style: { color: '#DC2626', fontWeight: '600' } }, fmt.usd0(unmappedAmt) + ' from ' + A.unmapped.size + ' provider' + (A.unmapped.size === 1 ? '' : 's') + ' with no channel yet — pick one (or Skip) above') : null,
         unalloc ? el('span', { style: { color: '#DC2626', fontWeight: '600' } }, fmt.usd0(unalloc) + ' could not be split (no leads or sales that month) — pick a branch') : null,
-        (C.noDate && !P.month) ? el('span', { style: { color: '#DC2626', fontWeight: '600' } }, fmt.usd0(C.noDate) + ' has no date — pick a month') : null,
+        (C.noDate && !P.month && !P.forceMonth) ? el('span', { style: { color: '#DC2626', fontWeight: '600' } }, fmt.usd0(C.noDate) + ' has no date — pick the month above') : null,
         C.skipped ? el('span', { style: muted }, fmt.usd0(C.skipped) + ' skipped') : null,
         overlap.length ? el('span', { style: { color: '#B45309', fontWeight: '600' } }, 'Already have ' + overlap.length + ' upload' + (overlap.length === 1 ? '' : 's') + ' for these channels and months — this ADDS to them. Remove the old one below if this replaces it.') : null,
         el('span', { class: 'ml-auto inline-flex gap-2' },
