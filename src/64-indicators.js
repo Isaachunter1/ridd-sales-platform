@@ -908,7 +908,7 @@ function viewIndicators() {
                   const QUICK = ['today'];
                   const cur = state.indicatorsRangePreset;
                   const other = isRange && !QUICK.includes(cur);
-                  const _TOP = ['this_week', 'this_month', 'this_year'];
+                  const _TOP = ['yesterday', 'this_week', 'this_month', 'this_year'];   // Yesterday first (per Isaac, Oct 9)
                   const _all = indicatorPresetOptions().filter(o => !QUICK.includes(o.id));
                   const opts = [..._TOP.map(id => _all.find(o => o.id === id)).filter(Boolean), ..._all.filter(o => !_TOP.includes(o.id))];
                   const sel = el('select', {
