@@ -5011,31 +5011,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 fmt.int(tCount) + ' sales' + (tRevPerDay > 0 ? ' · ' + fmt.usd0(tRevPerDay) + '/day' : ''))),
           )];
         })(),
-        // (Mobile pinned "You" card removed per Isaac, Oct 9: every rep's own player card already sits at the top of their page.)
-        ...((() => {
-          return [];
-          const _meSig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
-          const mySig = _meSig(state.profile && state.profile.full_name);
-          let myIdx = displayReps.findIndex(r => isMyRepName(r.name));
-          if (myIdx < 0) myIdx = mySig ? displayReps.findIndex(r => _meSig(r.name) === mySig) : -1;
-          if (myIdx < 0) return [];
-          const me = displayReps[myIdx];
-          return [el('div', {
-            class: 'rounded-xl border px-3 py-2 flex flex-col cursor-pointer',
-            style: { borderColor: 'var(--accent)', background: 'rgba(223,100,58,.08)', borderLeftWidth: '3px' },
-            onclick: () => openIndicatorRepCard(me._orig || me, allReps),
-          },
-            el('div', { class: 'flex items-center gap-2' },
-              el('span', { class: 'font-black tabular-nums text-xs', style: { color: 'var(--accent)' } }, '#' + (myIdx + 1)),
-              indRepAvatar(me.name, 26),
-              el('span', { class: 'font-bold truncate text-sm' }, me.name),
-              el('span', { class: 'text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, 'You'),
-              el('span', { class: 'text-xl leading-none font-black tabular-nums ml-auto shrink-0' }, fmt.usd0(me.revenue || 0))),
-            el('div', { class: 'flex items-baseline justify-between gap-2 mt-0.5' },
-              el('span', { class: 'text-[11px] font-bold', style: { color: 'var(--accent)' } }, 'View my player card →'),
-              el('span', { class: 'text-[11px] text-muted-' },
-                fmt.int(me.count || 0) + ' sales' + (me.revPerDay > 0 ? ' · ' + fmt.usd0(me.revPerDay) + '/day' : ''))))];
-        })()),
+        // (Mobile pinned "You" card removed per Isaac, Oct 9: each rep's own player card already sits at the top of their page.)
         ...(displayReps.length === 0
           ? [el('div', { class: 'text-center text-xs text-muted- italic py-6' }, 'No reps match the current filters.')]
           : (state._repLbShowAll ? displayReps : displayReps.slice(0, 10)).map((r, i) => {   // mobile: top 10 (per Isaac)
