@@ -134,7 +134,7 @@ function salesModeToggle(mode) {
   const role = state.profile?.role;
   if (!canWalkWorlds(role)) return null;   // admins, developers and Office Staff - Office walk the worlds
   let narrow = false; try { narrow = window.matchMedia('(max-width: 640px)').matches; } catch (e) { /* desktop */ }
-  const opts = [['inside', 'Office Staff', 'Office'], ['d2d', 'D2D Sales', 'D2D'], ['techs', 'Technicians', 'Techs']];   // 'Office Staff' matches FieldRoutes (per Isaac)
+  const opts = [['inside', 'Office Staff', 'Office'], ['d2d', 'Sales Rep', 'Sales Rep'], ['techs', 'Technician', 'Tech']];   // FieldRoutes' seller types: Office Staff · Sales Rep · Technician (per Isaac, Oct 9)
   if (canSeeAllWorld(role)) opts.push(['all', 'All', 'All']);
   const go = (m) => {
     if (m === mode) return;
@@ -151,7 +151,7 @@ function salesModeToggle(mode) {
     ...opts.map(([m, label, short], i) => el('button', {
       class: 'sales-mode-btn px-2.5 py-1 text-[11px] font-bold transition whitespace-nowrap',
       style: Object.assign(i ? { borderLeft: '1px solid var(--border-2)' } : {}, mode === m ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)', background: 'var(--card)' }),
-      title: m === 'all' ? 'Every user type on one dashboard' : label,
+      title: m === 'all' ? 'Every user type on one dashboard' : undefined,
       onclick: () => go(m),
     }, narrow && opts.length > 3 ? short : label)));
 }
@@ -1158,7 +1158,13 @@ function mountApp() {
   // would make THIS wrapper the sticky's scroll container (a 60px+ blank
   // band above the quote, and the quote painting over the first program on
   // phones) — so that view clips instead of scrolls.
-  const contentWrap = el('div', { class: 'content-wrap py-4 sm:py-6 w-full max-w-[1600px] mx-auto ' + (state.view === 'pricing' ? 'overflow-x-clip-' : 'overflow-x-auto') + (_viewChanged ? ' view-enter' : '') });
+  // No rise between the user-type dashboards (per Isaac, Oct 9 — "the screen moves and glitches"): they are one
+  // page with a different rep type, and the rise animation (a transform) dragged the pinned date / Filters bar
+  // along with it, since a fixed bar inside a transformed parent moves with the parent.
+  const _isWorld = (v) => typeof IND_WORLD !== 'undefined' && !!IND_WORLD[v];
+  const _worldHop = _viewChanged && _isWorld(state.view) && _isWorld(state._prevAnimView);
+  state._prevAnimView = state.view;
+  const contentWrap = el('div', { class: 'content-wrap py-4 sm:py-6 w-full max-w-[1600px] mx-auto ' + (state.view === 'pricing' ? 'overflow-x-clip-' : 'overflow-x-auto') + (_viewChanged && !_worldHop ? ' view-enter' : '') });
   // (Mobile freshness line retired — the header stamp shows on phones now, per Isaac.)
   usagePing('view', state.view);
   main.append(pageHeader, contentWrap);

@@ -173,7 +173,7 @@ function worldRevenuePacer(dept) {
   try {
     return dashboardGoalCard(range, {
       title: label + ' Revenue Pacer',
-      hint: target > 0 ? '' : 'No goal set \u2014 add one in Settings \u2192 Goals \u2192 ' + (dept === 'techs' ? 'Technicians' : 'Door to Door'),
+      hint: target > 0 ? '' : 'No goal set \u2014 add one in Settings \u2192 Goals \u2192 ' + (dept === 'techs' ? 'Technician' : 'Sales Rep'),
       streams: [{ key: 'all', label, color: '#DF643A', actual: ytd, target, monthly: monthly || (target > 0 ? worldDeptCurve(dept).map(f => f * target) : null), win: tod, mtd }],
     });
   } finally { state.dashDateRange = _keep; }
