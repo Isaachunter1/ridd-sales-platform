@@ -418,31 +418,32 @@ function mktgSpendChecklist() {
     }
     return el('span', { class: 'inline-flex items-center gap-2 flex-wrap' },
       btn(r.st === 'done' ? 'Upload more' : _spuCpl(r.p) ? 'Upload lead report' : 'Upload breakout', () => upload(r.p), r.st !== 'done'),
-      btn('Enter & split evenly', () => { state[evenKey] = r.p; mountApp(); }),
+      _spuCpl(r.p) ? null : btn('Enter & split evenly', () => { state[evenKey] = r.p; mountApp(); }),
       r.st === 'todo' ? btn('No spend', () => setNone(r.p, true)) : null);
   };
   const th = (t) => el('th', { class: 'px-4 py-2 text-left text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
   return el('div', { class: 'card overflow-hidden' }, fileIn,
     el('div', { class: 'px-5 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
       el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Spend checklist · ' + reportingMonthLbl(ym)),
-        el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Every provider that sent leads into GoHighLevel this month, plus anything already carrying spend. Upload a provider’s breakout by location, enter one total to split evenly across the branches, or mark No spend. Change the month in the Controller allocation below.')),
+        el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Every provider that sent leads into GoHighLevel this month, plus anything already carrying spend. A provider that bills per lead (DoLead): enter its fixed cost per lead, then Upload lead report — each row of the report is billed at that price. Otherwise upload a provider’s breakout by location, enter one total to split evenly across the branches, or mark No spend. Change the month in the Controller allocation below.')),
       el('span', { class: 'ml-auto' }, todo ? pill(todo + ' to do', 'rgba(220,38,38,.10)', '#B91C1C') : pill('✓ All providers covered', 'rgba(95,108,91,.16)', '#5F6C5B'))),
     rows.length ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-      el('thead', {}, el('tr', {}, th('Provider'), th('GHL leads'), th('Status'), th(''))),
+      el('thead', {}, el('tr', {}, th('Provider'), th('GHL leads'), th('Fixed cost per lead'), th('Status'), th(''))),
       el('tbody', {}, ...rows.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
         el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, r.p, _spuCpl(r.p) ? el('span', { class: 'ml-1.5 text-[10px] font-semibold', style: { color: '#2A78C2' } }, fmt.usd(_spuCpl(r.p)) + '/lead') : null),
         el('td', { class: 'px-4 py-2 tabular-nums', style: muted }, r.n ? fmt.int(r.n) : '—'),
+        el('td', { class: 'px-4 py-2 whitespace-nowrap' }, r.auto ? el('span', { style: muted }, '—') : _spuCplInput(r.p, true)),
         el('td', { class: 'px-4 py-2' }, stPill(r)),
         el('td', { class: 'px-4 py-2' }, actions(r)))))))
       : el('div', { class: 'px-5 py-4 text-[11px]', style: muted }, G ? 'No paid providers with leads in GoHighLevel this month.' : 'Loading GoHighLevel leads…'));
 }
 
 // "$ __ per lead" for a provider: saved on change; blank clears it (back to the amount column).
-function _spuCplInput(ch) {
+function _spuCplInput(ch, bare) {
   const m = _spuStore(), cur = _spuCpl(ch);
   return el('label', { class: 'inline-flex items-center gap-1.5', title: 'A provider that bills a fixed price per lead: every row of its report counts as one lead at this price, no amount column needed. Remembered for every future upload.' },
-    el('span', { class: 'font-semibold' }, 'Fixed cost per lead'), el('span', { style: { color: 'var(--text-muted)' } }, '$'),
-    el('input', { type: 'number', min: '0', step: '0.01', value: cur ? String(cur) : '', placeholder: 'none', class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '72px' },
+    bare ? null : el('span', { class: 'font-semibold' }, 'Fixed cost per lead'), el('span', { style: { color: 'var(--text-muted)' } }, '$'),
+    el('input', { type: 'number', min: '0', step: '0.01', value: cur ? String(cur) : '', placeholder: 'per lead', class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '72px' },
       onchange: (e) => { const v = parseFloat(e.target.value); if (v > 0) m.spendCpl[ch] = Math.round(v * 100) / 100; else delete m.spendCpl[ch]; _mktgSave(); toast(v > 0 ? ch + ' billed at ' + fmt.usd(v) + ' per lead from now on' : ch + ' back to the amount column', 'success'); mountApp(); } }));
 }
 
