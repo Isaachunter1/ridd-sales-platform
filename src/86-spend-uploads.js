@@ -314,7 +314,7 @@ function mktgSpendUploadCard(B, year) {
 // (Facebook / Google — automatic), uploaded, entered and split evenly across
 // the branches, or checked off as no spend this month. Same month as the
 // Controller allocation below.
-const SPU_SKIP_PROVS = /^(organic|referral|unknown|direct|door to door|current customer|pestbooker|click-to-buy)$/i;
+const SPU_SKIP_PROVS = /^(organic|referral|unknown|direct|door to door|current customer|pestbooker|click-to-buy|gbp|google business( profile)?|main office( number)?|phone|website)$/i;   // free channels: nothing to pay
 function _spuEven(ch, ym, amount, branches) {
   const m = _spuStore(); if (!(amount > 0)) return; if (!branches.length) { toast('No branches loaded yet — try again once the sales data has loaded', 'error'); return; }
   const cells = {}; const per = Math.floor(amount / branches.length * 100) / 100; let used = 0;
