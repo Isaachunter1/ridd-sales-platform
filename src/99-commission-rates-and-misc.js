@@ -1586,7 +1586,7 @@ function adminReps() {
         class: 'px-2.5 py-1 rounded-xl font-semibold text-[11px] transition hover:brightness-95',
         style: { background: 'var(--accent)', color: 'var(--accent-text)', height: '28px' },
         onclick: () => openUserEditor(),
-      }, '+ New user'));
+      }, '+ User'));   // shorter label (per Isaac, Oct 9) so it fits beside the status toggle on phones
   // (the two action controls are re-homed into the status row below)
   const _eyeWrap = _actionsRow.children[0], _newUserBtn = _actionsRow.children[1];
 
@@ -1668,8 +1668,8 @@ function adminReps() {
     return wrap;
   })();
   _actionsRow.remove();
-  host.append(el('div', { class: 'flex items-center flex-wrap gap-2' },
-    el('div', { class: 'inline-flex rounded-xl border overflow-hidden shrink-0', style: { borderColor: 'var(--border-2)', height: '28px' } },
+  // Phones (per Isaac, Oct 9): row 1 = status toggle + "+ User"; row 2 = the search across the width, Filters and 👁 at its end.
+  const _statusToggle = el('div', { class: 'inline-flex rounded-xl border overflow-hidden shrink-0', style: { borderColor: 'var(--border-2)', height: '28px' } },
       ...[
         { id: 'active', label: 'Active', count: aCount },
         { id: 'inactive', label: 'Inactive', count: inTab.length - aCount },
@@ -1679,10 +1679,10 @@ function adminReps() {
         style: activeFilter === t.id ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'transparent', color: 'var(--text)' },
         onclick: () => { state._adminUserActiveFilter = t.id; mountApp(); },
       }, el('span', {}, t.label),
-        el('span', { class: 'text-[10px] tabular-nums px-1.5 py-0.5 rounded', style: activeFilter === t.id ? { background: 'rgba(0,0,0,.15)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' } }, t.count.toLocaleString())))),
-    el('input', {
+        el('span', { class: 'text-[10px] tabular-nums px-1.5 py-0.5 rounded', style: activeFilter === t.id ? { background: 'rgba(0,0,0,.15)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' } }, t.count.toLocaleString()))));
+  const _searchInp = el('input', {
       id: 'admin-user-search',
-      class: 'rounded-xl border px-2.5 py-1 text-[11px] flex-1 min-w-0', style: { borderColor: 'var(--border-2)', minWidth: '180px' },
+      class: 'rounded-xl border px-2.5 py-1 text-[11px] flex-1 min-w-0', style: { borderColor: 'var(--border-2)', minWidth: _phoneU ? '0' : '180px', height: '28px' },
       placeholder: 'Search ' + REP_TYPE_TAB_LABEL[typeTab] + '…', value: state._adminUserSearch,
       // The debounced mountApp() rebuilds the whole page, which replaces
       // this input and dropped focus mid-word - typing felt like the page
@@ -1699,7 +1699,11 @@ function adminReps() {
           if (inp) { inp.focus(); const n = inp.value.length; try { inp.setSelectionRange(n, n); } catch (err) { /* non-text input */ } }
         }, 200);
       },
-    }),
+    });
+  if (_phoneU) host.append(el('div', { class: 'flex flex-col gap-2' },
+    el('div', { class: 'flex items-center gap-2' }, _statusToggle, el('div', { class: 'ml-auto shrink-0' }, _newUserBtn)),
+    el('div', { class: 'flex items-center gap-2 w-full' }, _searchInp, _filtersWrap, _eyeWrap)));
+  else host.append(el('div', { class: 'flex items-center flex-wrap gap-2' }, _statusToggle, _searchInp,
     // Right-hand cluster (per Isaac): search sits left, actions pinned right.
     el('div', { class: 'flex items-center gap-2 shrink-0 ml-auto' }, _newUserBtn, _filtersWrap, _eyeWrap)));
 
