@@ -1272,82 +1272,12 @@ function _mktgProvidersViz(cur, o) {
 }
 
 // ── Spend entry: the controller allocation (branch × channel) for one month ──
+// Spend entry = the spend report uploads only (per Isaac, Oct 9). The hand-entry allocation sheet, the leads
+// table and the campaign mapping card are gone; uploads still fill the same branch × channel sheet the
+// Metrics and P&L tabs read (marketing.spend), so nothing downstream changes.
 function _mktgSpendEntry() {
-  const y = _mktgYearSel(), m = _mktgStore(), B = _mktgBranchList(y);
-  if (state._mktEntryMonth == null || !String(state._mktEntryMonth).startsWith(y + '-')) {
-    const now = new Date(); state._mktEntryMonth = (now.getFullYear() === y) ? _mktgYm(y, now.getMonth()) : _mktgYm(y, 0);
-  }
-  const ym = state._mktEntryMonth;
-  const channels = m.channels;
-  const inp = (val, onSave, opts = {}) => el('input', {
-    type: 'number', step: '0.01', min: '0', placeholder: '0', value: val != null && val !== 0 ? String(val) : '',
-    class: 'rounded-lg border px-2.5 py-1 text-[11px] text-left', style: { width: opts.w || '96px', borderColor: 'var(--border-2)' },
-    onchange: (e) => { const v = parseFloat(e.target.value); onSave(isNaN(v) ? 0 : Math.round(v * 100) / 100); _mktgSave(); mountApp(); },
-  });
-  const cellSet = (ch, b, v) => { m.spend[ym] = m.spend[ym] || {}; m.spend[ym][ch] = m.spend[ym][ch] || {}; if (v > 0) m.spend[ym][ch][b] = v; else delete m.spend[ym][ch][b]; };
-  const monthSel = el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onchange: (e) => { state._mktEntryMonth = e.target.value; mountApp(); } },
-    ...MKTG_MONTHS.map((mn, i) => el('option', { value: _mktgYm(y, i), selected: _mktgYm(y, i) === ym }, mn + ' ' + y)));
-  const addChannel = el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' },
-    onclick: () => { const n = prompt('New channel / lead partner name (must match the FieldRoutes source name to join revenue):'); if (n && n.trim() && !m.channels.includes(n.trim())) { m.channels.push(n.trim()); _mktgSave(); mountApp(); } } }, '+ Channel');
-  const addBranch = el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' },
-    onclick: () => { const n = prompt('Branch name (as it appears in FieldRoutes, e.g. TAMPA):'); if (n && n.trim()) { const k = n.trim().toUpperCase(); m.settings.branchGoals[k] = m.settings.branchGoals[k] || 0; _mktgSave(); mountApp(); } } }, '+ Branch');
-  // Copy last month's allocation as a starting point.
-  const copyPrev = el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' },
-    title: 'Copy the previous month’s allocation, wages, incentives and leads into this month (only fills blanks)',
-    onclick: () => {
-      const [yy, mm] = ym.split('-').map(Number); const prev = mm === 1 ? _mktgYm(yy - 1, 11) : _mktgYm(yy, mm - 2);
-      let n = 0;
-      for (const ch in (m.spend[prev] || {})) for (const b in m.spend[prev][ch]) { if (!((m.spend[ym] || {})[ch] || {})[b]) { cellSet(ch, b, Number(m.spend[prev][ch][b]) || 0); n++; } }
-      for (const k of ['wages', 'incentives', 'leads']) { m[k][ym] = m[k][ym] || {}; for (const b in (m[k][prev] || {})) if (m[k][ym][b] == null) { m[k][ym][b] = m[k][prev][b]; n++; } }
-      _mktgSave(); toast('Copied ' + n + ' value' + (n === 1 ? '' : 's') + ' from ' + reportingMonthLbl(prev), 'success'); mountApp();
-    } }, 'Copy last month');
-  // Export the controller sheet (branch × channel + total) as CSV.
-  const exportBtn = el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-    onclick: () => {
-      const esc = (v) => { const s2 = v == null ? '' : String(v); return /[",\n]/.test(s2) ? '"' + s2.replace(/"/g, '""') + '"' : s2; };
-      const lines = [['Branch', ...channels, 'Total', 'Wages', 'Incentives'].map(esc).join(',')];
-      B.all.forEach(b => lines.push([_mktgTC(b), ...channels.map(ch => (((m.spend[ym] || {})[ch] || {})[b] || 0).toFixed(2)), _mktgSpendBranchMonth(m, ym, b).toFixed(2), (Number((m.wages[ym] || {})[b]) || 0).toFixed(2), (Number((m.incentives[ym] || {})[b]) || 0).toFixed(2)].map(esc).join(',')));
-      lines.push(['Total', ...channels.map(ch => _mktgSpendChannelMonth(m, ym, ch).toFixed(2)), B.all.reduce((t, b) => t + _mktgSpendBranchMonth(m, ym, b), 0).toFixed(2), '', ''].map(esc).join(','));
-      const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-      const a2 = document.createElement('a'); a2.href = URL.createObjectURL(blob); a2.download = 'RIDD-marketing-spend-' + ym + '.csv'; a2.click();
-    } }, '⬇ Controller sheet (.csv)');
-  const th = (t, right) => _mktgTh(t, right !== false);
-  const matrix = el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'px-5 py-3 border-b flex items-center gap-4 gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Ad spend allocation · ' + reportingMonthLbl(ym)),
-        el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'branch × channel · this is the sheet the controller books from · saved for every admin')),
-      el('div', { class: 'flex items-center gap-2 flex-wrap' }, monthSel, copyPrev, addChannel, addBranch, exportBtn)),
-    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs frozen-table' },
-      el('thead', {}, el('tr', {}, th('Office', false), ...channels.map(ch => th(ch)), th('Total'), th('Wages'), th('Incentives'))),
-      el('tbody', {},
-        ...B.all.map(b => el('tr', { class: 'border-t border-' },
-          _mktgTd(_mktgTC(b), { left: true, bold: true, style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }),
-          ...channels.map(ch => el('td', { class: 'px-1 py-1 text-left' }, inp(((m.spend[ym] || {})[ch] || {})[b], (v) => cellSet(ch, b, v), { w: '88px' }))),
-          _mktgTd(fmt.usd0(_mktgSpendBranchMonth(m, ym, b)), { bold: true }),
-          el('td', { class: 'px-1 py-1 text-left' }, inp((m.wages[ym] || {})[b], (v) => { m.wages[ym] = m.wages[ym] || {}; if (v > 0) m.wages[ym][b] = v; else delete m.wages[ym][b]; })),
-          el('td', { class: 'px-1 py-1 text-left' }, inp((m.incentives[ym] || {})[b], (v) => { m.incentives[ym] = m.incentives[ym] || {}; if (v > 0) m.incentives[ym][b] = v; else delete m.incentives[ym][b]; })))),
-        el('tr', { class: 'border-t font-bold', style: { background: 'var(--card-2)' } },
-          _mktgTd('Total', { left: true, bold: true, style: { position: 'sticky', left: 0, background: 'var(--card-2)', zIndex: 1 } }),
-          ...channels.map(ch => _mktgTd(fmt.usd0(_mktgSpendChannelMonth(m, ym, ch)))),
-          _mktgTd(fmt.usd0(B.all.reduce((t, b) => t + _mktgSpendBranchMonth(m, ym, b), 0)), { bold: true }),
-          _mktgTd(fmt.usd0(B.all.reduce((t, b) => t + (Number((m.wages[ym] || {})[b]) || 0), 0))),
-          _mktgTd(fmt.usd0(B.all.reduce((t, b) => t + (Number((m.incentives[ym] || {})[b]) || 0), 0))))))));
-  // Leads by channel for the month (GHL prefill when it has the source).
-  const GHL = ((state.reportingGhlLeads && state.reportingGhlLeads.bySourceMonth) || {})[ym] || {};
-  const ghlFor = (ch) => { const k = Object.keys(GHL).find(s2 => String(s2).trim().toLowerCase() === ch.toLowerCase()); return k ? Number(GHL[k]) || 0 : null; };
-  const leadsCard = el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
-      el('h3', { class: 'text-sm font-bold' }, 'Leads · ' + reportingMonthLbl(ym)),
-      el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'hand-entered per channel · GoHighLevel count shown as a hint where it has the source')),
-    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs frozen-table' },
-      el('thead', {}, el('tr', {}, th('Channel', false), th('Leads'), th('GHL says'))),
-      el('tbody', {}, ...channels.map(ch => el('tr', { class: 'border-t border-' },
-        _mktgTd(ch, { left: true, bold: true }),
-        el('td', { class: 'px-1 py-1 text-left' }, inp((m.leads[ym] || {})[ch], (v) => { m.leads[ym] = m.leads[ym] || {}; if (v > 0) m.leads[ym][ch] = v; else delete m.leads[ym][ch]; })),
-        _mktgTd(ghlFor(ch) == null ? '—' : fmt.int(ghlFor(ch)), { style: { color: 'var(--text-muted)' } })))))));
-  return el('div', { class: 'flex flex-col gap-4' }, (typeof mktgSpendUploadCard === 'function') ? mktgSpendUploadCard(B, y) : null, matrix, leadsCard,
-    // Campaign → office mapping for Facebook / Google spend (moved here from Metrics, per Isaac, Oct 6).
-    (() => { try { if (typeof reportingLoadAdSpend === 'function') reportingLoadAdSpend(y); return (typeof adCampaignsCard === 'function') ? adCampaignsCard(y, B.all) : null; } catch (e) { return null; } })());
+  const y = _mktgYearSel(), B = _mktgBranchList(y);
+  return el('div', { class: 'flex flex-col gap-4' }, (typeof mktgSpendUploadCard === 'function') ? mktgSpendUploadCard(B, y) : null);
 }
 
 // ── Projections ──

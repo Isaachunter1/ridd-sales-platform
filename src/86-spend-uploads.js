@@ -16,16 +16,26 @@ function _spuStore() {
   const m = _mktgStore();
   m.spendUploads = Array.isArray(m.spendUploads) ? m.spendUploads : [];   // [{ id, fileName, channel, at, by, total, n, cells: { ym: { BRANCH: amt } } }]
   m.spendLocMap = (m.spendLocMap && typeof m.spendLocMap === 'object') ? m.spendLocMap : {};   // { 'location value' (lowercase): BRANCH | SPU_SPLIT | SPU_SKIP }
+  // Remembered mappings (per Isaac, Oct 9): a provider/vendor value → channel, and each report LAYOUT (its column
+  // headers) → the columns, channel and default office picked last time — so the next file of the same kind maps itself.
+  m.spendProvMap = (m.spendProvMap && typeof m.spendProvMap === 'object') ? m.spendProvMap : {};   // { 'vendor value' (lowercase): channel | SPU_SKIP }
+  m.spendTemplates = (m.spendTemplates && typeof m.spendTemplates === 'object') ? m.spendTemplates : {};   // { headerSig: { cols, channel, noLoc, from, at } }
   return m;
 }
 const _spuNum = (v) => { if (typeof v === 'number') return isFinite(v) ? v : 0; const s = String(v == null ? '' : v).trim(); if (!s) return 0; const neg = /^\(.*\)$/.test(s) || /^-/.test(s); const n = parseFloat(s.replace(/[^0-9.]/g, '')); return isFinite(n) ? (neg ? -n : n) : 0; };
 const _spuKey = (v) => String(v == null ? '' : v).trim().toLowerCase();
+const _spuSig = (headers) => (headers || []).map(h => String(h).trim().toLowerCase()).filter(h => h && !/^__empty/.test(h)).sort().join('|');
+// A provider/vendor value → channel: this file's pick, else remembered, else a channel name inside the value.
+function _spuChanOf(val, P, m) {
+  const k = _spuKey(val); if (!k) return '';
+  return (P.provMap && P.provMap[k]) || m.spendProvMap[k] || (typeof _attrGuessProvider === 'function' ? _attrGuessProvider(val, m.channels) : '') || '';
+}
 function _spuGuessCols(headers, rows) {
   const pick = (res) => { for (const re of res) { const h = headers.find(x => re.test(String(x))); if (h) return h; } return ''; };
   const numeric = (h) => { let n = 0, k = 0; for (const r of rows.slice(0, 40)) { if (r[h] === '' || r[h] == null) continue; k++; if (_spuNum(r[h]) !== 0 || /^[\s$]*0/.test(String(r[h]))) n++; } return k > 0 && n / k >= 0.7; };
   let amount = '';
   for (const re of [/spend/i, /cost/i, /amount/i, /charge/i, /billed|invoice/i, /total/i, /price|fee/i]) { const h = headers.find(x => re.test(String(x)) && !/per|cpl|cpc|cpm|avg|rate|%/i.test(String(x)) && numeric(x)); if (h) { amount = h; break; } }
-  return { amount, date: pick([/^date$/i, /date|day/i, /month|period/i, /created|time/i]), loc: pick([/office|branch/i, /location|market|territory|region/i, /campaign/i, /account/i, /city/i, /zip|postal/i, /state/i]) };
+  return { amount, date: pick([/^date$/i, /date|day/i, /month|period/i, /created|time/i]), loc: pick([/office|branch/i, /location|market|territory|region/i, /campaign/i, /account/i, /city/i, /zip|postal/i, /state/i]), prov: pick([/vendor|payee|provider|publisher|platform/i]) };
 }
 // A location value → office: remembered choice, else an office name inside the
 // value ("FB | Detroit | RPS" → DETROIT), else a ZIP's office, else split.
@@ -99,6 +109,21 @@ function _spuCompute(P, branches, m) {
   }
   return { cells, total: Math.round(total * 100) / 100, months: Object.keys(cells).sort(), unalloc, skipped, noDate, locs, n, hows: [...hows] };
 }
+// One file → one result per channel. With a provider column, each row goes to the channel its value maps to.
+function _spuComputeAll(P, branches, m) {
+  if (!P.cols.prov) return { groups: P.channel ? [{ ch: P.channel, C: _spuCompute(P, branches, m) }] : [], unmapped: new Map(), provs: new Map() };
+  const by = new Map(), unmapped = new Map(), provs = new Map();
+  for (const r of P.rows) {
+    const amt = _spuNum(r[P.cols.amount]); if (!amt) continue;
+    const val = String(r[P.cols.prov] == null ? '' : r[P.cols.prov]).trim();
+    const pv = provs.get(val) || { amt: 0, n: 0 }; pv.amt += amt; pv.n++; provs.set(val, pv);
+    const ch = _spuChanOf(val, P, m);
+    if (ch === SPU_SKIP) continue;
+    if (!ch) { unmapped.set(val, (unmapped.get(val) || 0) + amt); continue; }
+    (by.get(ch) || by.set(ch, []).get(ch)).push(r);
+  }
+  return { groups: [...by.entries()].map(([ch, rows]) => ({ ch, C: _spuCompute(Object.assign({}, P, { channel: ch, rows }), branches, m) })), unmapped, provs };
+}
 // Rebuild the controller sheet for one channel's months from every upload of that channel.
 function _spuRebuild(m, channel, yms) {
   for (const ym of yms) {
@@ -122,10 +147,13 @@ async function _spuUpload(files) {
         if (!rows.length) continue;
         const headers = Object.keys(rows[0]);
         const cols = _spuGuessCols(headers, rows);
+        // Seen this layout before → use the columns / channel / default office picked last time.
+        const T = m.spendTemplates[_spuSig(headers)];
+        if (T && T.cols) for (const c of ['amount', 'date', 'loc', 'prov']) if (T.cols[c] === '' || headers.includes(T.cols[c])) cols[c] = T.cols[c] || '';
         if (!cols.amount && wb.SheetNames.length > 1) continue;   // a tab with no money column in a multi-tab workbook is not a spend sheet
         any = true;
         state._spendPending.push({ key: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), fileName: wb.SheetNames.length > 1 ? file.name + ' · ' + sheet : file.name,
-          headers, rows, cols, channel: _attrGuessProvider(file.name + ' ' + sheet, m.channels) || '', month: state._mktEntryMonth || '', noLoc: SPU_SPLIT, locMap: {} });
+          headers, rows, cols, channel: (T && T.channel) || _attrGuessProvider(file.name + ' ' + sheet, m.channels) || '', month: state._mktEntryMonth || '', noLoc: (T && T.noLoc) || SPU_SPLIT, locMap: {}, provMap: {}, recognized: T ? (T.from || 'an earlier report') : '' });
       }
       if (!any) toast('No spend rows found in ' + file.name, 'error');
     } catch (e) { toast('Could not read ' + file.name + ': ' + (e.message || e), 'error'); }
@@ -134,16 +162,30 @@ async function _spuUpload(files) {
 }
 function _spuCommit(P, branches) {
   const m = _spuStore();
-  const C = _spuCompute(P, branches, m);
-  if (!P.channel) { toast('Pick the channel for ' + P.fileName, 'error'); return; }
-  if (!C.months.length) { toast('Nothing to add — check the amount and date columns', 'error'); return; }
-  for (const k in (P.locMap || {})) m.spendLocMap[k] = P.locMap[k];   // remember the office picks
-  m.spendUploads.push({ id: P.key, fileName: P.fileName, channel: P.channel, at: new Date().toISOString(), by: (state.profile && state.profile.full_name) || '', total: C.total, n: C.n, cells: C.cells });
-  _spuRebuild(m, P.channel, C.months);
+  const A = _spuComputeAll(P, branches, m);
+  if (!P.cols.prov && !P.channel) { toast('Pick the channel for ' + P.fileName, 'error'); return; }
+  if (A.unmapped.size) { toast('Pick a channel (or Skip) for every provider in ' + P.fileName, 'error'); return; }
+  const groups = A.groups.filter(g => g.C.months.length);
+  if (!groups.length) { toast('Nothing to add — check the amount and date columns', 'error'); return; }
+  // Remember everything picked here for the next file.
+  for (const k in (P.locMap || {})) m.spendLocMap[k] = P.locMap[k];
+  for (const k in (P.provMap || {})) m.spendProvMap[k] = P.provMap[k];
+  if (P.cols.prov) for (const [val] of A.provs) { const k = _spuKey(val), ch = _spuChanOf(val, P, m); if (k && ch && !m.spendProvMap[k]) m.spendProvMap[k] = ch; }
+  m.spendTemplates[_spuSig(P.headers)] = { cols: Object.assign({}, P.cols), channel: P.cols.prov ? '' : P.channel, noLoc: P.noLoc, from: P.fileName, at: new Date().toISOString() };
+  let total = 0;
+  for (const g of groups) {
+    m.spendUploads.push({ id: P.key + (groups.length > 1 ? '|' + g.ch : ''), fileName: P.fileName + (groups.length > 1 ? ' · ' + g.ch : ''), channel: g.ch, at: new Date().toISOString(), by: (state.profile && state.profile.full_name) || '', total: g.C.total, n: g.C.n, cells: g.C.cells });
+    _spuRebuild(m, g.ch, g.C.months); total += g.C.total;
+  }
   state._spendPending = (state._spendPending || []).filter(x => x !== P);
   _mktgSave();
-  toast('Added ' + fmt.usd0(C.total) + ' of ' + P.channel + ' spend across ' + C.months.length + ' month' + (C.months.length === 1 ? '' : 's'), 'success');
+  toast('Added ' + fmt.usd0(total) + ' of spend' + (groups.length > 1 ? ' across ' + groups.length + ' channels' : ' to ' + groups[0].ch) + ' · mapping remembered for the next ' + (groups.length > 1 ? 'report like this' : groups[0].ch + ' report'), 'success');
   mountApp();
+}
+function _spuForget(kind, key) {
+  const m = _spuStore();
+  const map = kind === 'loc' ? m.spendLocMap : kind === 'prov' ? m.spendProvMap : m.spendTemplates;
+  delete map[key]; _mktgSave(); mountApp();
 }
 function _spuRemove(id) {
   const m = _spuStore();
@@ -163,48 +205,86 @@ function mktgSpendUploadCard(B, year) {
   const fileIn = el('input', { type: 'file', multiple: true, accept: '.csv,.xlsx,.xls,.tsv', class: 'hidden', onchange: (e) => { _spuUpload(e.target.files); e.target.value = ''; } });
   const head = el('div', { class: 'px-5 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
     el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Upload spend reports'),
-      el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Drop any provider’s spend report (CSV or Excel, one or many). Pick the channel and columns, map locations to offices once, and it fills the allocation sheet below.')),
+      el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Drop any spend report (CSV or Excel, one or many). Map it once — the columns, the provider and the branch — and the app remembers: the next report with the same layout, provider names or locations fills itself in.')),
     el('label', { class: 'ml-auto rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, '↑ Choose files', fileIn));
   const pending = (state._spendPending || []).map(P => {
-    const C = _spuCompute(P, branches, m);
+    const A = _spuComputeAll(P, branches, m);
+    // Locations are listed across the whole file (whatever channel each row goes to).
+    const C = _spuCompute(Object.assign({}, P, { channel: P.channel || (A.groups[0] && A.groups[0].ch) || '' }), branches, m);
+    const groups = A.groups.filter(g => g.C.months.length);
+    const total = groups.reduce((t, g) => t + g.C.total, 0);
+    const months = [...new Set(groups.flatMap(g => g.C.months))].sort();
+    const unalloc = groups.reduce((t, g) => t + g.C.unalloc, 0);
+    const unmappedAmt = [...A.unmapped.values()].reduce((t, v) => t + v, 0);
     const colOpts = (none) => [['', none], ...P.headers.map(h => [h, h])];
-    const overlap = m.spendUploads.filter(u => u.channel === P.channel && C.months.some(ym => u.cells && u.cells[ym]));
-    const locRows = P.cols.loc ? [...C.locs.entries()].sort((a, b) => b[1].amt - a[1].amt) : [];
+    const overlap = m.spendUploads.filter(u => groups.some(g => g.ch === u.channel && g.C.months.some(ym => u.cells && u.cells[ym])));
+    const locRows = P.cols.loc ? [...C.locs.entries()].sort((x, y) => y[1].amt - x[1].amt) : [];
     const shownLocs = locRows.slice(0, 80);
+    const provRows = P.cols.prov ? [...A.provs.entries()].sort((x, y) => y[1].amt - x[1].amt) : [];
+    const chanOpts = [['', 'Pick a channel…'], ...m.channels.map(c => [c, c]), [SPU_SKIP, 'Skip (not marketing spend)']];
+    const ready = groups.length && !unalloc && !unmappedAmt && (P.cols.prov || P.channel);
+    const grid = (rows) => el('div', { class: 'grid gap-x-4 gap-y-1', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' } }, ...rows);
+    const lab = (t) => el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: muted }, t);
     return el('div', { class: 'px-5 py-4 border-b flex flex-col gap-3', style: { borderColor: 'var(--border)' } },
       el('div', { class: 'flex items-center gap-2 flex-wrap text-[11px]' },
-        el('span', { class: 'font-bold text-xs' }, P.fileName), el('span', { style: muted }, P.rows.length.toLocaleString() + ' rows')),
+        el('span', { class: 'font-bold text-xs' }, P.fileName), el('span', { style: muted }, P.rows.length.toLocaleString() + ' rows'),
+        P.recognized ? el('span', { class: 'rounded-full px-2 py-0.5 text-[10px] font-bold', style: { background: 'rgba(95,108,91,.16)', color: '#5F6C5B' } }, '✓ Recognized — same layout as ' + P.recognized + '; columns and mapping filled in') : null),
       el('div', { class: 'flex items-center gap-3 flex-wrap text-[11px]' },
-        el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Channel'), sel(P.channel, [['', 'Pick a channel…'], ...m.channels.map(c => [c, c])], (v) => { P.channel = v; })),
         el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Amount'), sel(P.cols.amount, colOpts('Pick a column…'), (v) => { P.cols.amount = v; })),
         el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Date'), sel(P.cols.date, colOpts('No date column'), (v) => { P.cols.date = v; })),
         (!P.cols.date || C.noDate) ? el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, P.cols.date ? 'Rows with no date go to' : 'Month'),
           sel(P.month, [['', 'Pick a month…'], ...[year - 1, year].flatMap(y => MKTG_MONTHS.map((mn, i) => [_mktgYm(y, i), mn + ' ' + y]))], (v) => { P.month = v; })) : null,
-        el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Location'), sel(P.cols.loc, colOpts('No location column'), (v) => { P.cols.loc = v; P.locMap = {}; })),
+        el('label', { class: 'inline-flex items-center gap-1.5', title: 'A column naming the provider / vendor on each row (QuickBooks payee, an aggregator report…). Leave it off when the whole file is one provider.' },
+          el('span', { class: 'font-semibold' }, 'Provider'), sel(P.cols.prov || '', colOpts('Whole file is one provider'), (v) => { P.cols.prov = v; P.provMap = {}; })),
+        !P.cols.prov ? el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Channel'), sel(P.channel, [['', 'Pick a channel…'], ...m.channels.map(c => [c, c])], (v) => { P.channel = v; })) : null,
+        el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Branch'), sel(P.cols.loc, colOpts('No branch / location column'), (v) => { P.cols.loc = v; P.locMap = {}; })),
         !P.cols.loc ? el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Goes to'), sel(P.noLoc, officeOpts.filter(o => o[0] !== SPU_SKIP), (v) => { P.noLoc = v; })) : null),
+      provRows.length ? el('div', { class: 'flex flex-col gap-1' },
+        lab('Provider → channel (' + provRows.length + ') · remembered for next time'),
+        grid(provRows.slice(0, 80).map(([val, L]) => { const k = _spuKey(val), cur = _spuChanOf(val, P, m);
+          return el('div', { class: 'flex items-center gap-2 text-[11px]' },
+            el('span', { class: 'truncate', style: { flex: '1', minWidth: '0', color: cur ? undefined : '#DC2626', fontWeight: cur ? undefined : '600' }, title: val }, val || '(blank)'),
+            el('span', { class: 'tabular-nums', style: muted }, fmt.usd0(L.amt)),
+            sel(cur, chanOpts, (v) => { P.provMap = P.provMap || {}; P.provMap[k] = v; })); }))) : null,
       locRows.length ? el('div', { class: 'flex flex-col gap-1' },
-        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: muted }, 'Location → office (' + locRows.length + ') · remembered for next time'),
-        el('div', { class: 'grid gap-x-4 gap-y-1', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' } },
-          ...shownLocs.map(([val, L]) => {
-            const k = _spuKey(val), cur = (P.locMap && P.locMap[k]) || _spuAutoOffice(val, branches, m);
-            return el('div', { class: 'flex items-center gap-2 text-[11px]' },
-              el('span', { class: 'truncate', style: { flex: '1', minWidth: '0' }, title: val }, val || '(blank)'),
-              el('span', { class: 'tabular-nums', style: muted }, fmt.usd0(L.amt)),
-              sel(cur, officeOpts, (v) => { P.locMap = P.locMap || {}; P.locMap[k] = v; }));
-          })),
+        lab('Location → branch (' + locRows.length + ') · remembered for next time'),
+        grid(shownLocs.map(([val, L]) => {
+          const k = _spuKey(val), cur = (P.locMap && P.locMap[k]) || _spuAutoOffice(val, branches, m);
+          return el('div', { class: 'flex items-center gap-2 text-[11px]' },
+            el('span', { class: 'truncate', style: { flex: '1', minWidth: '0' }, title: val }, val || '(blank)'),
+            el('span', { class: 'tabular-nums', style: muted }, fmt.usd0(L.amt)),
+            sel(cur, officeOpts, (v) => { P.locMap = P.locMap || {}; P.locMap[k] = v; }));
+        })),
         locRows.length > shownLocs.length ? el('div', { class: 'text-[11px]', style: muted }, '+ ' + (locRows.length - shownLocs.length) + ' smaller locations mapped automatically (office name or ZIP in the value, else split by leads).') : null) : null,
       el('div', { class: 'flex items-center gap-3 flex-wrap text-[11px]' },
-        el('span', { class: 'font-semibold' }, C.months.length ? fmt.usd0(C.total) + ' · ' + C.months.map(reportingMonthLbl).join(', ') : 'Nothing to add yet'),
-        C.months.length ? el('span', { style: muted }, Object.entries(C.months.reduce((o, ym) => { for (const b in C.cells[ym]) o[b] = (o[b] || 0) + C.cells[ym][b]; return o; }, {})).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([b, v]) => _mktgTC(b) + ' ' + fmt.usd0(v)).join(' · ')) : null,
-        C.hows.length ? el('span', { style: muted }, 'split by ' + C.hows.join(' / ')) : null,
-        C.unalloc ? el('span', { style: { color: '#DC2626', fontWeight: '600' } }, fmt.usd0(C.unalloc) + ' could not be split (no leads or sales that month) — pick an office') : null,
+        el('span', { class: 'font-semibold' }, months.length ? fmt.usd0(total) + ' · ' + months.map(reportingMonthLbl).join(', ') : 'Nothing to add yet'),
+        groups.length > 1 ? el('span', { style: muted }, groups.map(g => g.ch + ' ' + fmt.usd0(g.C.total)).join(' · ')) : (months.length ? el('span', { style: muted }, Object.entries(C.months.reduce((o, ym) => { for (const bb in C.cells[ym]) o[bb] = (o[bb] || 0) + C.cells[ym][bb]; return o; }, {})).sort((x, y) => y[1] - x[1]).slice(0, 6).map(([bb, v]) => _mktgTC(bb) + ' ' + fmt.usd0(v)).join(' · ')) : null),
+        unmappedAmt ? el('span', { style: { color: '#DC2626', fontWeight: '600' } }, fmt.usd0(unmappedAmt) + ' from ' + A.unmapped.size + ' provider' + (A.unmapped.size === 1 ? '' : 's') + ' with no channel yet — pick one (or Skip) above') : null,
+        unalloc ? el('span', { style: { color: '#DC2626', fontWeight: '600' } }, fmt.usd0(unalloc) + ' could not be split (no leads or sales that month) — pick a branch') : null,
         (C.noDate && !P.month) ? el('span', { style: { color: '#DC2626', fontWeight: '600' } }, fmt.usd0(C.noDate) + ' has no date — pick a month') : null,
         C.skipped ? el('span', { style: muted }, fmt.usd0(C.skipped) + ' skipped') : null,
-        overlap.length ? el('span', { style: { color: '#B45309', fontWeight: '600' } }, 'Already have ' + overlap.length + ' ' + P.channel + ' upload' + (overlap.length === 1 ? '' : 's') + ' for these months — this ADDS to them. Remove the old one below if this replaces it.') : null,
+        overlap.length ? el('span', { style: { color: '#B45309', fontWeight: '600' } }, 'Already have ' + overlap.length + ' upload' + (overlap.length === 1 ? '' : 's') + ' for these channels and months — this ADDS to them. Remove the old one below if this replaces it.') : null,
         el('span', { class: 'ml-auto inline-flex gap-2' },
           el('button', { class: 'rounded-lg border px-2.5 py-1 font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._spendPending = state._spendPending.filter(x => x !== P); mountApp(); } }, 'Discard'),
-          el('button', { class: 'rounded-lg px-3 py-1 font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)', opacity: (P.channel && C.months.length && !C.unalloc) ? '1' : '.5' }, onclick: () => { if (C.unalloc) { toast('Pick an office for the spend that could not be split', 'error'); return; } _spuCommit(P, branches); } }, 'Add to allocation'))));
+          el('button', { class: 'rounded-lg px-3 py-1 font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)', opacity: ready ? '1' : '.5' },
+            onclick: () => { if (unalloc) { toast('Pick a branch for the spend that could not be split', 'error'); return; } _spuCommit(P, branches); } }, 'Add to sheet'))));
   });
+  // What the app has learned (per Isaac, Oct 9): every remembered pick, with Forget.
+  const memo = (() => {
+    const T = Object.entries(m.spendTemplates), PV = Object.entries(m.spendProvMap), LC = Object.entries(m.spendLocMap);
+    if (!T.length && !PV.length && !LC.length) return null;
+    const lbl = (v) => v === SPU_SKIP ? 'Skip' : v === SPU_SPLIT ? 'Split by leads' : (branches.includes(v) ? _mktgTC(v) : v);
+    const row = (a2, b2, kind, key) => el('div', { class: 'flex items-center gap-2 text-[11px] py-0.5' },
+      el('span', { class: 'truncate', style: { flex: '1', minWidth: '0' }, title: a2 }, a2), el('span', { class: 'font-semibold truncate', style: { maxWidth: '45%' } }, b2),
+      el('button', { class: 'underline shrink-0', style: { color: 'var(--text-muted)' }, title: 'Forget this mapping', onclick: () => _spuForget(kind, key) }, 'Forget'));
+    const sect = (title, rows) => rows.length ? el('div', { class: 'flex flex-col' }, el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-1', style: muted }, title), ...rows) : null;
+    return el('details', { class: 'px-5 py-3 border-t', style: { borderColor: 'var(--border)' } },
+      el('summary', { class: 'text-[11px] font-semibold cursor-pointer' }, 'Remembered mappings · ' + T.length + ' report layout' + (T.length === 1 ? '' : 's') + ' · ' + PV.length + ' provider' + (PV.length === 1 ? '' : 's') + ' · ' + LC.length + ' location' + (LC.length === 1 ? '' : 's')),
+      el('div', { class: 'grid gap-4 mt-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' } },
+        sect('Report layouts', T.map(([k, t]) => row(t.from || 'Report', [t.channel || (t.cols && t.cols.prov ? 'by ' + t.cols.prov : ''), t.cols && t.cols.amount].filter(Boolean).join(' · '), 'tpl', k))),
+        sect('Provider → channel', PV.sort().map(([k, v]) => row(k, lbl(v), 'prov', k))),
+        sect('Location → branch', LC.sort().map(([k, v]) => row(k, lbl(v), 'loc', k)))));
+  })();
   const ups = m.spendUploads.slice().sort((a, b) => String(b.at).localeCompare(String(a.at)));
   const list = ups.length ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]' },
     el('thead', {}, el('tr', {}, ...['Report', 'Channel', 'Months', 'Spend', 'Offices', 'Added', ''].map(h => el('th', { class: 'px-3 py-1.5 text-left text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap', style: muted }, h)))),
@@ -217,6 +297,6 @@ function mktgSpendUploadCard(B, year) {
         el('td', { class: 'px-3 py-1.5 whitespace-nowrap', style: muted }, new Date(u.at).toLocaleDateString([], { month: 'short', day: 'numeric' }) + (u.by ? ' · ' + u.by : '')),
         el('td', { class: 'px-3 py-1.5 text-right' }, el('button', { class: 'underline', style: { color: '#DC2626', minHeight: '24px' }, title: 'Remove this report and take its spend back out of the sheet', onclick: () => _spuRemove(u.id) }, 'Remove')));
     })))) : null;
-  return el('div', { class: 'card overflow-hidden' }, head, ...pending, list,
+  return el('div', { class: 'card overflow-hidden' }, head, ...pending, list, memo,
     el('div', { class: 'px-5 py-2 text-[11px]', style: muted }, 'A channel-month covered by uploaded reports is set from the reports (it replaces numbers typed into the sheet for that channel and month).'));
 }
