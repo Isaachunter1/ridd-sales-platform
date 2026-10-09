@@ -127,7 +127,7 @@ function _dispRun(F) {
       : opp ? (opp.status === 'won' ? 'Won in GoHighLevel – no FieldRoutes sale' : opp.status === 'lost' ? 'Lost' : opp.status === 'abandoned' ? 'Abandoned' : 'Open' + (opp.stage ? ' – ' + opp.stage : ''))
       : inGhl ? 'In GoHighLevel – no opportunity' : inGhl === false ? 'Not in GoHighLevel' : 'Not found';
     return { r, i, date, name, phone, email, disposition, flags,
-      fr: { found: !!c, id: custId || '', how, existing, sold: sale ? String(sale.sold_date).slice(0, 10) : '', service: sale ? (sale.subscription || '') : '', status: st, initial: svcState, value: sale ? (Number(sale.subscription_contract_value) || 0) : 0, source: saleSrc, office: (sale && sale.office_name) || (c && c.office) || '' },
+      fr: { found: !!c, id: custId || '', how, existing, sold: sale ? String(sale.sold_date).slice(0, 10) : '', service: sale ? (sale.subscription || '') : '', status: st, initial: svcState, done, value: sale ? (Number(sale.subscription_contract_value) || 0) : 0, source: saleSrc, office: (sale && sale.office_name) || (c && c.office) || '' },
       ghl: { found: inGhl, status: opp ? opp.status : '', stage: opp ? opp.stage : '', source: opp ? opp.label : '', date: opp ? opp.d : '', n: uniq.length } };
   });
   return out;
@@ -161,15 +161,18 @@ function mktgDispositionView() {
   const head = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
       el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Lead disposition'),
-        el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Upload a provider’s lead report. Each lead is matched to FieldRoutes (customer? sold? still active?) and GoHighLevel (status and stage), and you download their report back with the disposition columns added. Problems found on the way — duplicate leads, leads that never reached GoHighLevel, sales typed under another source — are flagged.')),
-      el('label', { class: 'ml-auto rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, '↑ Upload lead report', fileIn)));
+        el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Upload one or more providers’ lead reports. Each lead is matched to FieldRoutes (customer? sold? still active?) and GoHighLevel (status and stage), and you download their report back with the disposition columns added. Problems found on the way — duplicate leads, leads that never reached GoHighLevel, sales typed under another source, the same person sent by two providers — are flagged. With two or more reports open, “Reconcile across reports” shows who each sale belongs to (the provider whose lead came last before the sale). Reports stay open until you refresh the page.')),
+      el('label', { class: 'ml-auto rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, '↑ Upload lead reports', fileIn)));
   if (!(state.reportingSubscriptions || []).length) return el('div', { class: 'flex flex-col gap-4' }, head, el('div', { class: 'card p-6 text-[11px] text-center', style: muted }, 'Waiting for the FieldRoutes data to load…'));
+  const _ready = (F) => !!(F.provider && F.map.date && (F.map.phone || F.map.email || F.map.last || F.map.name));
+  const runs = new Map(files.filter(_ready).map(F => [F, _dispRun(F)]));
+  _dispCrossFlag(runs);
   const cards = files.map(F => {
     const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', maxWidth: '200px' };
     const sel = (val, opts, on) => el('select', { class: 'rounded-lg border px-2 py-1 text-[11px]', style: selSt, onchange: (e) => { on(e.target.value); mountApp(); } }, ...opts.map(([v, t]) => el('option', { value: v, selected: v === val }, t)));
     const colOpts = [['', '—'], ...F.headers.map(h => [h, h])];
-    const ready = F.provider && F.map.date && (F.map.phone || F.map.email || F.map.last || F.map.name);
-    const rows = ready ? _dispRun(F) : [];
+    const ready = _ready(F);
+    const rows = runs.get(F) || [];
     const cnt = (fn) => rows.filter(fn).length;
     const tile = (label, n, color) => el('div', { class: 'rounded-xl px-3 py-2', style: { background: 'var(--card-2)', minWidth: '110px' } },
       el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: muted }, label),
@@ -198,7 +201,7 @@ function mktgDispositionView() {
           tile('Leads', rows.length), tile('In FieldRoutes', cnt(x => x.fr.found)), tile('Sold', cnt(x => /^Sold/.test(x.disposition)), '#15803D'), tile('Pending', cnt(x => /^Pending/.test(x.disposition)), '#B45309'), tile('Needs follow-up', cnt(x => /^Needs/.test(x.disposition)), '#B91C1C'),
           tile('Open in GHL', cnt(x => /^Open/.test(x.disposition)), '#B45309'), tile('Lost / abandoned', cnt(x => /^(Lost|Abandoned)/.test(x.disposition))),
           tile('Existing customers', cnt(x => x.fr.existing)), tile('Not in GHL', cnt(x => x.ghl.found === false), '#B91C1C'),
-          tile('Duplicates', cnt(x => x.flags.some(f => /^Duplicate/.test(f)))), tile('Any flag', cnt(x => x.flags.length), '#B91C1C')),
+          tile('Duplicates', cnt(x => x.flags.some(f => /^Duplicate/.test(f)))), runs.size > 1 ? tile('Also sent by another provider', cnt(x => x.flags.some(f => /^Also sent by/.test(f))), '#B45309') : null, tile('Any flag', cnt(x => x.flags.length), '#B91C1C')),
         el('div', { class: 'px-5 pb-2 flex gap-2 flex-wrap items-center text-[11px]' }, el('span', { style: muted }, 'Show:'), fbtn('Sold', 'Sold'), fbtn('Pending', 'Pending'), fbtn('Needs follow-up', 'Needs'), fbtn('Open', 'Open'), fbtn('Lost', 'Lost'), fbtn('Existing customers', 'Existing'), fbtn('Not in GHL', 'Not in'), fbtn('Flagged', 'flag'),
           filt ? el('span', { style: muted }, fmt.int(shown.length) + ' shown') : null),
         el('div', { class: 'overflow-auto', style: { maxHeight: '52vh', borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-[11px]', style: { borderCollapse: 'collapse' } },
@@ -210,6 +213,95 @@ function mktgDispositionView() {
             td(x.ghl.status), td(x.ghl.stage), td(x.flags.join(' · '), x.flags.length ? { color: '#B91C1C', fontWeight: '600', whiteSpace: 'normal', minWidth: '260px' } : muted)))))),
         shown.length > 500 ? el('div', { class: 'px-5 py-2 text-[11px]', style: muted }, 'Showing 500 of ' + fmt.int(shown.length) + ' — the download has every row.') : null));
   });
-  return el('div', { class: 'flex flex-col gap-4' }, head, ...cards,
+  return el('div', { class: 'flex flex-col gap-4' }, head, runs.size > 1 ? _dispReconcileCard(runs) : null, ...cards,
     !files.length ? el('div', { class: 'card p-6 text-[11px] text-center', style: muted }, 'No report open. Upload a provider’s lead report (CSV or Excel) to build its disposition.') : null);
+}
+
+// ── Across reports ─────────────────────────────────────────────────────────
+// The same person in more than one provider's report. Joined on the FieldRoutes
+// customer when there is one, otherwise on phone / email.
+function _dispPersonKeys(x) { const k = []; if (x.fr.id) k.push('c' + x.fr.id); if (x.phone) k.push('p' + x.phone); if (x.email) k.push('e' + x.email); return k; }
+function _dispCrossFlag(runs) {
+  const by = new Map();
+  for (const [F, rows] of runs) for (const x of rows) for (const k of _dispPersonKeys(x)) (by.get(k) || by.set(k, []).get(k)).push({ prov: F.provider, x });
+  for (const [F, rows] of runs) for (const x of rows) {
+    const other = new Map();
+    for (const k of _dispPersonKeys(x)) for (const o of by.get(k) || []) if (o.prov !== F.provider && o.x.date) {
+      if (!other.has(o.prov) || o.x.date > other.get(o.prov)) other.set(o.prov, o.x.date);
+    }
+    for (const [p, d] of other) x.flags.push('Also sent by ' + p + ' (' + d + ')');
+  }
+}
+
+// Every completed sale found through the reports → which provider's lead came last before it.
+function _dispReconcile(runs) {
+  const leadsByCust = new Map();
+  const prov = new Map();   // provider → summary
+  const P = (p) => prov.get(p) || prov.set(p, { prov: p, leads: 0, shared: 0, sold: 0, credited: 0, value: 0, lostTo: 0, frAgree: 0, ghlAgree: 0 }).get(p);
+  for (const [F, rows] of runs) for (const x of rows) {
+    const S = P(F.provider); S.leads++;
+    if (x.flags.some(f => /^Also sent by/.test(f))) S.shared++;
+    if (x.fr.id && x.date) (leadsByCust.get(x.fr.id) || leadsByCust.set(x.fr.id, []).get(x.fr.id)).push({ prov: F.provider, x });
+  }
+  const sales = [];
+  for (const [cid, ls] of leadsByCust) {
+    const s0 = ls.find(l => l.x.fr.sold && l.x.fr.done); if (!s0) continue;
+    const sold = s0.x.fr.sold;
+    const lo = _attrAddDays(sold, -DISP_SALE_WINDOW), hi = _attrAddDays(sold, 1);
+    const before = ls.filter(l => l.x.date >= lo && l.x.date <= hi);
+    if (!before.length) continue;
+    const latest = new Map(); for (const l of before) if (!latest.has(l.prov) || l.x.date > latest.get(l.prov).x.date) latest.set(l.prov, l);
+    const cand = [...latest.values()].sort((a, b) => b.x.date.localeCompare(a.x.date));
+    const tie = cand.filter(l => l.x.date === cand[0].x.date);
+    const credit = tie.length > 1 ? tie.map(l => l.prov).sort().join(' / ') : cand[0].prov;
+    const fr = s0.x.fr, frSrc = fr.source || '';
+    const frProv = (typeof reportingProviderOf === 'function' ? reportingProviderOf(frSrc) : frSrc) || frSrc;
+    const ghlLab = s0.x.ghl.source || '', gp = ghlLab && typeof ghlProviderOf === 'function' ? ghlProviderOf(ghlLab) : '';
+    const ghlProv = gp && gp !== GHL_NOT_LEAD ? gp : '';
+    for (const l of cand) { const S = P(l.prov); S.sold++; }
+    for (const l of tie) { const S = P(l.prov); S.credited += 1 / tie.length; S.value += (fr.value || 0) / tie.length; if (frSrc === l.prov || frProv === l.prov) S.frAgree += 1 / tie.length; if (ghlProv === l.prov) S.ghlAgree += 1 / tie.length; }
+    for (const l of cand) if (!tie.includes(l)) P(l.prov).lostTo++;
+    sales.push({ cid, name: s0.x.name, sold, service: fr.service, value: fr.value || 0, office: fr.office, credit,
+      leads: cand.map(l => l.prov + ' ' + l.x.date).join(' · '), n: cand.length, frSrc, ghl: ghlLab ? ghlLab + (ghlProv && ghlProv !== ghlLab ? ' (' + ghlProv + ')' : '') : '',
+      frOk: !!tie.find(l => frSrc === l.prov || frProv === l.prov), ghlOk: !!tie.find(l => ghlProv === l.prov) });
+  }
+  sales.sort((a, b) => b.sold.localeCompare(a.sold));
+  return { sales, provs: [...prov.values()].sort((a, b) => b.credited - a.credited) };
+}
+
+function _dispReconcileCard(runs) {
+  const R = _dispReconcile(runs), muted = { color: 'var(--text-muted)' };
+  const open = !!state._dispRecOpen, only = state._dispRecOnly || '';
+  const th = (t, r) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (r ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0 } }, t);
+  const td = (t, st, r) => el('td', { class: 'px-2 py-1 whitespace-nowrap' + (r ? ' text-right tabular-nums' : ''), style: st || {} }, t == null || t === '' ? '—' : t);
+  const pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '—';
+  const n1 = (v) => Number.isInteger(v) ? fmt.int(v) : v.toFixed(1);
+  const shown = R.sales.filter(s => !only || (only === 'multi' ? s.n > 1 : only === 'fr' ? !s.frOk : !s.ghlOk));
+  const btn = (label, v) => el('button', { class: 'rounded-lg border px-2 py-0.5 text-[11px] font-semibold', style: only === v ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)' }, onclick: () => { state._dispRecOnly = only === v ? '' : v; mountApp(); } }, label);
+  const dl = () => {
+    const ws1 = XLSX.utils.json_to_sheet(R.provs.map(p => ({ Provider: p.prov, Leads: p.leads, 'Also sent by another provider': p.shared, 'Sales they touched': p.sold, 'Sales credited (last lead before sale)': +p.credited.toFixed(2), 'Credited contract value': Math.round(p.value), 'Touched but a later provider got it': p.lostTo, 'FieldRoutes source agrees': +p.frAgree.toFixed(2), 'GoHighLevel opportunity agrees': +p.ghlAgree.toFixed(2) })));
+    const ws2 = XLSX.utils.json_to_sheet(R.sales.map(s => ({ 'FieldRoutes customer ID': s.cid, Name: s.name, 'Sold date': s.sold, Service: s.service, 'Contract value': s.value, Branch: s.office ? _mktgTC(s.office) : '', 'Credited to': s.credit, 'Provider leads before the sale': s.leads, 'FieldRoutes sale source': s.frSrc, 'GoHighLevel opportunity source': s.ghl, 'FieldRoutes agrees': s.frOk ? 'Yes' : 'No', 'GoHighLevel agrees': s.ghlOk ? 'Yes' : 'No' })));
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws1, 'By provider'); XLSX.utils.book_append_sheet(wb, ws2, 'Sales');
+    XLSX.writeFile(wb, 'Lead report reconciliation.xlsx');
+  };
+  return el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap cursor-pointer', onclick: () => { state._dispRecOpen = !open; mountApp(); } },
+      el('div', {}, el('h3', { class: 'text-sm font-bold' }, (open ? '▾ ' : '▸ ') + 'Reconcile across reports'),
+        el('div', { class: 'text-[11px] mt-0.5', style: muted }, fmt.int(R.sales.length) + ' completed sales found through ' + runs.size + ' reports. Each sale goes to the provider whose lead came last in the ' + DISP_SALE_WINDOW + ' days before it; same-day leads from two providers split it.')),
+      el('button', { class: 'ml-auto rounded-lg px-3 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: (e) => { e.stopPropagation(); dl(); } }, '⬇ Download reconciliation (.xlsx)')),
+    !open ? null : el('div', { class: 'flex flex-col' },
+      el('div', { class: 'overflow-auto', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-[11px]', style: { borderCollapse: 'collapse' } },
+        el('thead', {}, el('tr', {}, th('Provider'), th('Leads', 1), th('Also sent by another', 1), th('Sales touched', 1), th('Sales credited', 1), th('Credited value', 1), th('Lost to a later lead', 1), th('FieldRoutes agrees', 1), th('GHL agrees', 1))),
+        el('tbody', {}, ...R.provs.map(p => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          td(p.prov, { fontWeight: '700' }), td(fmt.int(p.leads), null, 1), td(fmt.int(p.shared) + ' · ' + pct(p.shared, p.leads), p.shared ? { color: '#B45309' } : muted, 1), td(fmt.int(p.sold), null, 1),
+          td(n1(p.credited), { fontWeight: '700', color: '#15803D' }, 1), td(fmt.usd0(p.value), null, 1), td(fmt.int(p.lostTo), p.lostTo ? { color: '#B91C1C' } : muted, 1),
+          td(pct(p.frAgree, p.credited), null, 1), td(pct(p.ghlAgree, p.credited), null, 1)))))),
+      el('div', { class: 'px-5 py-2 flex gap-2 flex-wrap items-center text-[11px]', style: { borderTop: '1px solid var(--border)' } }, el('span', { style: muted }, 'Sales:'),
+        btn('Sent by 2+ providers', 'multi'), btn('FieldRoutes disagrees', 'fr'), btn('GoHighLevel disagrees', 'ghl'), el('span', { style: muted }, fmt.int(shown.length) + ' shown')),
+      el('div', { class: 'overflow-auto', style: { maxHeight: '46vh', borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-[11px]', style: { borderCollapse: 'collapse' } },
+        el('thead', {}, el('tr', {}, ...['Sold', 'Customer', 'Service', 'Value', 'Credited to', 'Provider leads before the sale', 'FieldRoutes source', 'GHL opportunity source'].map(t => th(t, t === 'Value')))),
+        el('tbody', {}, ...shown.slice(0, 500).map(s => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          td(s.sold), td(s.name + ' · #' + s.cid), td(s.service), td(fmt.usd0(s.value), null, 1), td(s.credit, { fontWeight: '700' }),
+          td(s.leads, s.n > 1 ? { color: '#B45309', fontWeight: '600' } : muted), td(s.frSrc, s.frOk ? {} : { color: '#B91C1C', fontWeight: '600' }), td(s.ghl, s.ghlOk ? {} : { color: '#B91C1C', fontWeight: '600' })))))),
+      shown.length > 500 ? el('div', { class: 'px-5 py-2 text-[11px]', style: muted }, 'Showing 500 of ' + fmt.int(shown.length) + ' — the download has every sale.') : null));
 }
