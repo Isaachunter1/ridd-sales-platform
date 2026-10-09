@@ -20,7 +20,16 @@ function _spuStore() {
   // headers) → the columns, channel and default office picked last time — so the next file of the same kind maps itself.
   m.spendProvMap = (m.spendProvMap && typeof m.spendProvMap === 'object') ? m.spendProvMap : {};   // { 'vendor value' (lowercase): channel | SPU_SKIP }
   m.spendTemplates = (m.spendTemplates && typeof m.spendTemplates === 'object') ? m.spendTemplates : {};   // { headerSig: { cols, channel, noLoc, from, at } }
+  // Fixed cost per lead (per Isaac, Oct 9 — DoLead bills $60 a lead): a provider with a price here is billed that
+  // price for every row of its uploaded lead report; the sheet needs no amount column.
+  m.spendCpl = (m.spendCpl && typeof m.spendCpl === 'object') ? m.spendCpl : {};   // { channel: dollars per lead }
   return m;
+}
+function _spuCpl(ch) { const m = _mktgStore(); const v = Number(m.spendCpl && m.spendCpl[ch]); return v > 0 ? v : 0; }
+function _spuRowAmt(P, r, ch) {
+  const cpl = ch ? _spuCpl(ch) : 0;
+  if (cpl) return Object.values(r).some(v => String(v == null ? '' : v).trim()) ? cpl : 0;
+  return _spuNum(r[P.cols.amount]);
 }
 const _spuNum = (v) => { if (typeof v === 'number') return isFinite(v) ? v : 0; const s = String(v == null ? '' : v).trim(); if (!s) return 0; const neg = /^\(.*\)$/.test(s) || /^-/.test(s); const n = parseFloat(s.replace(/[^0-9.]/g, '')); return isFinite(n) ? (neg ? -n : n) : 0; };
 const _spuKey = (v) => String(v == null ? '' : v).trim().toLowerCase();
@@ -107,7 +116,7 @@ function _spuCompute(P, branches, m) {
   const locs = new Map();       // location value → { amt, n }
   let skipped = 0, noDate = 0, n = 0, outside = 0, outsideN = 0;
   for (const r of P.rows) {
-    const amt = _spuNum(r[P.cols.amount]); if (!amt) continue;
+    const amt = _spuRowAmt(P, r, P.channel); if (!amt) continue;
     const first = String(r[P.headers[0]] == null ? '' : r[P.headers[0]]);
     if (/^\s*(grand\s+)?totals?\b/i.test(first)) continue;   // a totals row would double the file
     // The month picked for the upload (per Isaac, Oct 9): with a date column only that month's rows count (a
@@ -143,10 +152,10 @@ function _spuComputeAll(P, branches, m) {
   if (!P.cols.prov) return { groups: P.channel ? [{ ch: P.channel, C: _spuCompute(P, branches, m) }] : [], unmapped: new Map(), provs: new Map() };
   const by = new Map(), unmapped = new Map(), provs = new Map();
   for (const r of P.rows) {
-    const amt = _spuNum(r[P.cols.amount]); if (!amt) continue;
     const val = String(r[P.cols.prov] == null ? '' : r[P.cols.prov]).trim();
-    const pv = provs.get(val) || { amt: 0, n: 0 }; pv.amt += amt; pv.n++; provs.set(val, pv);
     const ch = _spuChanOf(val, P, m);
+    const amt = _spuRowAmt(P, r, ch && ch !== SPU_SKIP ? ch : ''); if (!amt) continue;
+    const pv = provs.get(val) || { amt: 0, n: 0 }; pv.amt += amt; pv.n++; provs.set(val, pv);
     if (ch === SPU_SKIP) continue;
     if (!ch) { unmapped.set(val, (unmapped.get(val) || 0) + amt); continue; }
     (by.get(ch) || by.set(ch, []).get(ch)).push(r);
@@ -180,10 +189,11 @@ async function _spuUpload(files) {
         // Seen this layout before → use the columns / channel / default office picked last time.
         const T = m.spendTemplates[_spuSig(headers)];
         if (T && T.cols) for (const c of ['amount', 'date', 'loc', 'prov']) if (T.cols[c] === '' || headers.includes(T.cols[c])) cols[c] = T.cols[c] || '';
-        if (!cols.amount && wb.SheetNames.length > 1) continue;   // a tab with no money column in a multi-tab workbook is not a spend sheet
+        const ch0 = (preset && preset.channel) || (T && T.channel) || _attrGuessProvider(file.name + ' ' + sheet, m.channels) || '';
+        if (!cols.amount && wb.SheetNames.length > 1 && !_spuCpl(ch0)) continue;   // a tab with no money column in a multi-tab workbook is not a spend sheet
         any = true;
         state._spendPending.push({ key: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), fileName: wb.SheetNames.length > 1 ? file.name + ' · ' + sheet : file.name,
-          headers, rows, cols, channel: (preset && preset.channel) || (T && T.channel) || _attrGuessProvider(file.name + ' ' + sheet, m.channels) || '', month: state._mktEntryMonth || '', forceMonth: (preset && preset.month) || '', noLoc: (T && T.noLoc) || SPU_SPLIT, locMap: {}, provMap: {}, recognized: T ? (T.from || 'an earlier report') : '' });
+          headers, rows, cols, channel: ch0, month: state._mktEntryMonth || '', forceMonth: (preset && preset.month) || '', noLoc: (T && T.noLoc) || SPU_SPLIT, locMap: {}, provMap: {}, recognized: T ? (T.from || 'an earlier report') : '' });
         if (preset && preset.channel) cols.prov = '';   // uploaded from a provider's checklist row: the whole file is that provider
       }
       if (!any) toast('No spend rows found in ' + file.name, 'error');
@@ -272,7 +282,8 @@ function mktgSpendUploadCard(B, year) {
         el('span', { class: 'font-bold text-xs' }, P.fileName), el('span', { style: muted }, P.rows.length.toLocaleString() + ' rows'),
         P.recognized ? el('span', { class: 'rounded-full px-2 py-0.5 text-[10px] font-bold', style: { background: 'rgba(95,108,91,.16)', color: '#5F6C5B' } }, '✓ Recognized — same layout as ' + P.recognized + '; columns and mapping filled in') : null),
       el('div', { class: 'flex items-center gap-3 flex-wrap text-[11px]' },
-        el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Amount'), sel(P.cols.amount, colOpts('Pick a column…'), (v) => { P.cols.amount = v; })),
+        (!P.cols.prov && _spuCpl(P.channel)) ? el('span', { class: 'rounded-full px-2 py-0.5 text-[10px] font-bold', style: { background: 'rgba(42,120,194,.12)', color: '#2A78C2' } }, 'Billed per lead: ' + fmt.usd(_spuCpl(P.channel)) + ' × ' + fmt.int(groups.reduce((t, g) => t + g.C.n, 0)) + ' leads')
+          : el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Amount'), sel(P.cols.amount, colOpts('Pick a column…'), (v) => { P.cols.amount = v; })),
         el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Date'), sel(P.cols.date, colOpts('No date column'), (v) => { P.cols.date = v; })),
         // The month this upload is for (per Isaac, Oct 9): pick one and the whole file books to it; or keep the file's own dates.
         (() => { const now = new Date(); const opts = []; for (let i = 0; i < 18; i++) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); opts.push([_mktgYm(d.getFullYear(), d.getMonth()), MKTG_MONTHS[d.getMonth()] + ' ' + d.getFullYear()]); }
@@ -283,6 +294,7 @@ function mktgSpendUploadCard(B, year) {
         el('label', { class: 'inline-flex items-center gap-1.5', title: 'A column naming the provider / vendor on each row (QuickBooks payee, an aggregator report…). Leave it off when the whole file is one provider.' },
           el('span', { class: 'font-semibold' }, 'Provider'), sel(P.cols.prov || '', colOpts('Whole file is one provider'), (v) => { P.cols.prov = v; P.provMap = {}; })),
         !P.cols.prov ? el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Channel'), sel(P.channel, [['', 'Pick a channel…'], ...m.channels.map(c => [c, c])], (v) => { P.channel = v; })) : null,
+        (!P.cols.prov && P.channel) ? _spuCplInput(P.channel) : null,
         el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold', title: 'The column that says which branch / location each row belongs to — a branch ID, office name, market, campaign or ZIP. Each value in it is mapped to a branch below, once.' }, 'Branch column'), sel(P.cols.loc, colOpts('No branch / location column'), (v) => { P.cols.loc = v; P.locMap = {}; })),
         !P.cols.loc ? el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Goes to'), sel(P.noLoc, officeOpts.filter(o => o[0] !== SPU_SKIP), (v) => { P.noLoc = v; })) : null),
       provRows.length ? el('div', { class: 'flex flex-col gap-1' },
@@ -405,7 +417,7 @@ function mktgSpendChecklist() {
         btn('Cancel', () => { state[evenKey] = null; mountApp(); }));
     }
     return el('span', { class: 'inline-flex items-center gap-2 flex-wrap' },
-      btn(r.st === 'done' ? 'Upload more' : 'Upload breakout', () => upload(r.p), r.st !== 'done'),
+      btn(r.st === 'done' ? 'Upload more' : _spuCpl(r.p) ? 'Upload lead report' : 'Upload breakout', () => upload(r.p), r.st !== 'done'),
       btn('Enter & split evenly', () => { state[evenKey] = r.p; mountApp(); }),
       r.st === 'todo' ? btn('No spend', () => setNone(r.p, true)) : null);
   };
@@ -418,11 +430,20 @@ function mktgSpendChecklist() {
     rows.length ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('Provider'), th('GHL leads'), th('Status'), th(''))),
       el('tbody', {}, ...rows.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-        el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, r.p),
+        el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, r.p, _spuCpl(r.p) ? el('span', { class: 'ml-1.5 text-[10px] font-semibold', style: { color: '#2A78C2' } }, fmt.usd(_spuCpl(r.p)) + '/lead') : null),
         el('td', { class: 'px-4 py-2 tabular-nums', style: muted }, r.n ? fmt.int(r.n) : '—'),
         el('td', { class: 'px-4 py-2' }, stPill(r)),
         el('td', { class: 'px-4 py-2' }, actions(r)))))))
       : el('div', { class: 'px-5 py-4 text-[11px]', style: muted }, G ? 'No paid providers with leads in GoHighLevel this month.' : 'Loading GoHighLevel leads…'));
+}
+
+// "$ __ per lead" for a provider: saved on change; blank clears it (back to the amount column).
+function _spuCplInput(ch) {
+  const m = _spuStore(), cur = _spuCpl(ch);
+  return el('label', { class: 'inline-flex items-center gap-1.5', title: 'A provider that bills a fixed price per lead: every row of its report counts as one lead at this price, no amount column needed. Remembered for every future upload.' },
+    el('span', { class: 'font-semibold' }, 'Fixed cost per lead'), el('span', { style: { color: 'var(--text-muted)' } }, '$'),
+    el('input', { type: 'number', min: '0', step: '0.01', value: cur ? String(cur) : '', placeholder: 'none', class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '72px' },
+      onchange: (e) => { const v = parseFloat(e.target.value); if (v > 0) m.spendCpl[ch] = Math.round(v * 100) / 100; else delete m.spendCpl[ch]; _mktgSave(); toast(v > 0 ? ch + ' billed at ' + fmt.usd(v) + ' per lead from now on' : ch + ' back to the amount column', 'success'); mountApp(); } }));
 }
 
 // Branch picker (per Isaac, Oct 9 — "sometimes it's not across ALL locations"): a button that opens a checklist of
