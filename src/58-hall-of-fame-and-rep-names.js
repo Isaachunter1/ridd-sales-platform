@@ -2,133 +2,132 @@
 // │ Hall of Fame + canonical rep-name cleaning / aliasing used by Indicators and comps.
 // │ Part of the app.js bundle (tools/bundle.js concatenates src/*.js in name order).
 // └────────────────────────────────────────────────────────────────────────
-function viewHallOfFame() {
-  // ACTIVE OFFICE STAFF only — this is the Inside Sales hall; D2D reps have
-  // their own boards on Indicators/Competitions.
-  const profiles = (state.allProfiles.length ? state.allProfiles : [state.profile])
-    .filter(p => p && isSellerRole(p.role) && p.is_active !== false && isOfficeStaffProfile(p));
-  const byRep = groupBy(dashboardSales(), s => s.rep_id);
-
-  // Compute records for every rep + overall company records
-  const repCards = profiles.map(p => {
-    const records = computeRepRecords(p.id, byRep[p.id] || []);
-    return { profile: p, ...records };
-  });
-
-  // All-time company best day/week/month
-  const companyBest = {
-    bestDay:   repCards.reduce((a, r) => r.bestDay.revenue   > (a?.revenue || 0) ? { rep: r.profile, ...r.bestDay }   : a, null),
-    bestWeek:  repCards.reduce((a, r) => r.bestWeek.revenue  > (a?.revenue || 0) ? { rep: r.profile, ...r.bestWeek }  : a, null),
-    bestMonth: repCards.reduce((a, r) => r.bestMonth.revenue > (a?.revenue || 0) ? { rep: r.profile, ...r.bestMonth } : a, null),
+// ── HALL OF FAME (rebuilt per Isaac, Oct 9) — one page for each user type:
+// Office Staff (Sales → Hall of Fame), Sales Rep and Technician (their own
+// Hall of Fame tab). Read from the shared CRM dataset (every sale FieldRoutes
+// has, the same rows the dashboards use, Pending / Serviced only), so a record
+// is the same number the leaderboard would show for that day / week / month.
+//   Company Records — the single best rep Day / Week / Month, plus the
+//     EARLIEST and LATEST time of day anyone sold (from the sale timestamps).
+//   Personal Bests — top 5 reps in each category, and a search to pull up any
+//     rep's own bests with their rank.
+// Office Staff count new business only (renewals are a different motion), as
+// the old department records did. House / system accounts never hold records.
+const HOF_DEPT_LABEL = { office: 'Office Staff', d2d: 'Sales Rep', techs: 'Technician' };
+function _hofData(dept) {
+  const raw = state._indicatorRawSales || [];
+  const M = _hofData._m || (_hofData._m = {});
+  if (M[dept] && M[dept].raw === raw) return M[dept].out;
+  const reps = new Map();
+  const pad = (n) => String(n).padStart(2, '0');
+  for (const s of raw) {
+    if (!s || !s.rep || (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== dept)) continue;
+    if (typeof frPendingServiced === 'function' && !frPendingServiced(s)) continue;
+    if (dept === 'office' && typeof _indicatorIsRenewal === 'function' && _indicatorIsRenewal(s)) continue;
+    const name = (typeof getCanonicalRepName === 'function') ? getCanonicalRepName(s.rep) : s.rep;
+    if (!name || (typeof FR_SYSTEM_NAME_RE !== 'undefined' && FR_SYSTEM_NAME_RE.test(name)) || /^account,?\s+ridd\b/i.test(name)) continue;   // the house account ("Account, RIDD") never holds a record
+    const iso = (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || '';
+    if (!iso) continue;
+    const d = new Date(iso + 'T00:00'); if (isNaN(d)) continue;
+    const ws = new Date(d); ws.setDate(d.getDate() - d.getDay());
+    const wk = ws.getFullYear() + '-' + pad(ws.getMonth() + 1) + '-' + pad(ws.getDate());
+    const cv = Number(s.contractValue) || 0;
+    let r = reps.get(name); if (!r) { r = { name, day: {}, week: {}, month: {}, early: null, late: null }; reps.set(name, r); }
+    for (const [k, key] of [['day', iso], ['week', wk], ['month', iso.slice(0, 7)]]) { const o = r[k][key] || (r[k][key] = { k: key, rev: 0, n: 0 }); o.rev += cv; o.n++; }
+    // Time of day: Office Staff on the call center's Mountain clock; door and tech sales in the selling office's local time.
+    // A raw 12:00 AM is a date with no time on it, not a midnight sale — skipped.
+    let t = null;
+    { const m = /\s(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?/i.exec(String(s.dateSold || '')); if (m) { let h = Number(m[1]); const mn = Number(m[2]); const ap = (m[3] || '').toUpperCase(); if (ap === 'PM' && h !== 12) h += 12; if (ap === 'AM' && h === 12) h = 0;
+      if (h >= 0 && h < 24 && !(h === 0 && mn === 0)) { h = (h + (dept === 'office' ? 1 : (typeof _saleHourOffset === 'function' ? _saleHourOffset(s.office) : 0)) + 24) % 24; t = { hour: h, minute: mn }; } } }
+    if (t) { const mm = t.hour * 60 + t.minute; const rec = { mm, t, iso, cv, sub: s.subscription || '', office: s.office || '' };
+      if (!r.early || mm < r.early.mm) r.early = rec; if (!r.late || mm > r.late.mm) r.late = rec; }
+  }
+  const best = (obj) => { let b = null; for (const k in obj) if (!b || obj[k].rev > b.rev) b = obj[k]; return b; };
+  const list = [...reps.values()].map(r => ({ name: r.name, day: best(r.day), week: best(r.week), month: best(r.month), early: r.early, late: r.late }));
+  const CATS = {
+    day:   { label: 'Best Day',     sort: (a, b) => b.day.rev - a.day.rev,     has: (x) => !!x.day },
+    week:  { label: 'Best Week',    sort: (a, b) => b.week.rev - a.week.rev,   has: (x) => !!x.week },
+    month: { label: 'Best Month',   sort: (a, b) => b.month.rev - a.month.rev, has: (x) => !!x.month },
+    early: { label: 'Earliest Sale', sort: (a, b) => a.early.mm - b.early.mm,  has: (x) => !!x.early },
+    late:  { label: 'Latest Sale',   sort: (a, b) => b.late.mm - a.late.mm,    has: (x) => !!x.late },
   };
-
-  // ── DEPARTMENT RECORDS — best day / week / month of TOTAL production
-  // per department (and the whole company), from the shared CRM dataset.
-  // Etched in stone (per Isaac): the number to beat next. Live-computed,
-  // so a record broken today shows the moment the sync lands.
-  const deptRecords = (() => {
-    const raw = state._indicatorRawSales || [];
-    if (!raw.length || typeof _indicatorDeptOf !== 'function') return null;
-    const GROUPS = [['all', '🏢 RIDD — Whole Company'], ['office', '☎️ Office Staff · new only'], ['d2d', '🚪 Sales Reps (D2D)'], ['techs', '🔧 Technicians']];
-    const acc = {};
-    GROUPS.forEach(([g]) => acc[g] = { day: {}, week: {}, month: {} });
-    raw.forEach(s => {
-      const iso = (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || '';
-      if (!iso) return;
-      const cv = Number(s.contractValue) || 0;
-      const d = new Date(iso + 'T00:00');
-      if (isNaN(d)) return;
-      const ws = new Date(d); ws.setDate(d.getDate() - d.getDay());
-      const wk = ws.getFullYear() + '-' + String(ws.getMonth() + 1).padStart(2, '0') + '-' + String(ws.getDate()).padStart(2, '0');
-      const mo = iso.slice(0, 7);
-      const dept = _indicatorDeptOf(s);
-      // Inside Sales records are NEW business only (per Isaac) — renewal
-      // production (Renewal - Outbound / Inbound / Loyalty / Service Pro
-      // Upsell) is a different motion and would drown the record board.
-      // RIDD company-wide still counts everything.
-      const isRen = (typeof _indicatorIsRenewal === 'function') && _indicatorIsRenewal(s);
-      [dept, 'all'].forEach(g => {
-        const a = acc[g]; if (!a) return;
-        if (g === 'office' && isRen) return;
-        a.day[iso] = (a.day[iso] || 0) + cv;
-        a.week[wk] = (a.week[wk] || 0) + cv;
-        a.month[mo] = (a.month[mo] || 0) + cv;
-      });
-    });
-    const best = (obj) => { let k = null, v = 0; for (const kk in obj) if (obj[kk] > v) { v = obj[kk]; k = kk; } return k ? { k, v } : null; };
-    return GROUPS.map(([g, label]) => ({ g, label, day: best(acc[g].day), week: best(acc[g].week), month: best(acc[g].month) }))
-      .filter(r => r.day);
-  })();
-  const _todayIso2 = (typeof bizTodayIso === 'function') ? bizTodayIso() : new Date().toISOString().slice(0, 10);
-  const _fmtRecDate = (kind, k) => {
+  const ranked = {};
+  for (const k in CATS) ranked[k] = list.filter(CATS[k].has).sort(CATS[k].sort);
+  const out = { list, ranked, CATS };
+  M[dept] = { raw, out };
+  return out;
+}
+function viewHallOfFame(dept) {
+  dept = dept || 'office';
+  const raw = state._indicatorRawSales || [];
+  const title = 'Hall of Fame · ' + (HOF_DEPT_LABEL[dept] || '');
+  if (!raw.length) return el('div', { class: 'flex flex-col gap-4 w-full' }, el('h1', { class: 'text-3xl font-bold' }, title),
+    el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Loading the sales history… the records fill in as soon as it lands.'));
+  const D = _hofData(dept);
+  const muted = { color: 'var(--text-muted)' };
+  const fmtDate = (kind, k) => {
+    if (!k) return '';
     if (kind === 'month') { const [y, m] = k.split('-'); return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }); }
     const d = new Date(k + 'T00:00');
     return (kind === 'week' ? 'Week of ' : '') + d.toLocaleDateString('en-US', { weekday: kind === 'day' ? 'short' : undefined, month: 'short', day: 'numeric', year: 'numeric' });
   };
-  const _recFresh = (kind, k) => {
-    if (kind === 'day') return k === _todayIso2;
-    if (kind === 'month') return k === _todayIso2.slice(0, 7);
-    const d = new Date(_todayIso2 + 'T00:00'); const ws = new Date(d); ws.setDate(d.getDate() - d.getDay());
-    return k === ws.getFullYear() + '-' + String(ws.getMonth() + 1).padStart(2, '0') + '-' + String(ws.getDate()).padStart(2, '0');
+  const zone = dept === 'office' ? 'MT' : 'local';
+  // One category value, formatted the same everywhere on the page.
+  const val = (k, x) => {
+    if (k === 'early' || k === 'late') { const e = x[k]; return { big: _fmtTimeOfDay(e.t), sub: fmtDate('day', e.iso) + (e.sub ? ' · ' + e.sub : '') }; }
+    const r = x[k]; return { big: fmt.usd0(r.rev), sub: fmt.int(r.n) + ' sale' + (r.n === 1 ? '' : 's') + ' · ' + fmtDate(k, r.k) };
   };
-  const deptRecordRow = (label, kind, rec) => rec && el('div', { class: 'flex items-center justify-between gap-2 py-1.5 border-t border-' },
-    el('div', {},
-      el('div', { class: 'text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, label),
-      el('div', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-muted)' } }, _fmtRecDate(kind, rec.k))),
-    el('div', { class: 'text-right' },
-      el('div', { class: 'text-base font-black tabular-nums' }, fmt.usd0(rec.v)),
-      _recFresh(kind, rec.k) && el('div', { class: 'text-[9px] font-black uppercase tracking-widest', style: { color: 'var(--accent)' } }, '🔥 set ' + (kind === 'day' ? 'today' : 'this ' + kind))));
-
+  const KEYS = ['day', 'week', 'month', 'early', 'late'];
+  const holderCard = (k) => {
+    const top = D.ranked[k][0];
+    return el('div', { class: 'card p-4 flex flex-col gap-2' },
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: muted }, D.CATS[k].label + (k === 'early' || k === 'late' ? ' · ' + zone : '')),
+      top ? el('div', { class: 'flex items-center gap-2' }, indRepAvatar(top.name, 32), el('div', { class: 'text-sm font-semibold truncate' }, top.name)) : el('div', { class: 'text-sm', style: muted }, 'No record yet'),
+      top ? (() => { const v = val(k, top); return el('div', { class: 'pt-2 border-t', style: { borderColor: 'var(--border)' } },
+        el('div', { class: 'text-2xl font-black tabular-nums', style: { color: 'var(--accent)' } }, v.big),
+        el('div', { class: 'text-[11px]', style: muted }, v.sub)); })() : null);
+  };
+  const topList = (k) => el('div', { class: 'card p-4' },
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-2', style: muted }, D.CATS[k].label + ' · top 5'),
+    D.ranked[k].length ? el('div', { class: 'flex flex-col' }, ...D.ranked[k].slice(0, 5).map((x, i) => { const v = val(k, x);
+      return el('div', { class: 'flex items-center gap-2 py-1.5' + (i ? ' border-t' : ''), style: { borderColor: 'var(--border)' } },
+        el('span', { class: 'text-xs font-black tabular-nums w-5 shrink-0', style: { color: i === 0 ? 'var(--accent)' : 'var(--text-muted)' } }, String(i + 1)),
+        indRepAvatar(x.name, 24),
+        el('div', { class: 'flex-1 min-w-0' }, el('div', { class: 'text-xs font-semibold truncate' }, x.name), el('div', { class: 'text-[10px] truncate', style: muted }, v.sub)),
+        el('span', { class: 'text-sm font-black tabular-nums shrink-0' }, v.big)); }))
+      : el('div', { class: 'text-xs', style: muted }, 'Nothing yet.'));
+  // Search a rep: their own bests with their rank in each category.
+  const qKey = '_hofSearch_' + dept;
+  const results = el('div', { class: 'flex flex-col gap-3' });
+  const drawResults = () => {
+    const q = String(state[qKey] || '').trim().toLowerCase();
+    if (!q) { results.replaceChildren(el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))' } }, ...KEYS.map(topList))); return; }
+    const hits = D.list.filter(x => x.name.toLowerCase().includes(q)).sort((a, b) => (b.month ? b.month.rev : 0) - (a.month ? a.month.rev : 0)).slice(0, 6);
+    if (!hits.length) { results.replaceChildren(el('div', { class: 'card p-6 text-center text-xs', style: muted }, 'No ' + (HOF_DEPT_LABEL[dept] || '') + ' rep matches “' + state[qKey] + '”.')); return; }
+    results.replaceChildren(...hits.map(x => el('div', { class: 'card p-4' },
+      el('div', { class: 'flex items-center gap-3 mb-3' }, indRepAvatar(x.name, 36), el('div', { class: 'text-base font-bold' }, x.name)),
+      el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' } },
+        ...KEYS.map(k => { if (!D.CATS[k].has(x)) return el('div', { class: 'rounded-lg border p-3', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: muted }, D.CATS[k].label), el('div', { class: 'text-sm mt-1', style: muted }, '—'));
+          const v = val(k, x); const rank = D.ranked[k].indexOf(x) + 1;
+          return el('div', { class: 'rounded-lg border p-3', style: { borderColor: rank === 1 ? 'var(--accent)' : 'var(--border)', background: 'var(--card-2)' } },
+            el('div', { class: 'flex items-center justify-between gap-1' }, el('span', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: muted }, D.CATS[k].label),
+              el('span', { class: 'text-[10px] font-black tabular-nums', style: { color: rank <= 5 ? 'var(--accent)' : 'var(--text-muted)' }, title: 'Rank among ' + fmt.int(D.ranked[k].length) + ' reps' }, '#' + rank)),
+            el('div', { class: 'text-lg font-black tabular-nums mt-1' }, v.big),
+            el('div', { class: 'text-[10px]', style: muted }, v.sub)); })))));
+  };
+  drawResults();
+  const search = el('input', { type: 'search', placeholder: 'Search a rep’s bests…', value: state[qKey] || '',
+    class: 'rounded-xl border px-3 py-1.5 text-xs', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '100%', maxWidth: '300px' },
+    oninput: (e) => { state[qKey] = e.target.value; drawResults(); } });
   return el('div', { class: 'flex flex-col gap-6 w-full' },
+    el('div', {}, el('h1', { class: 'text-3xl font-bold' }, title),
+      el('div', { class: 'text-xs mt-1', style: muted }, 'Every ' + (HOF_DEPT_LABEL[dept] || '').toLowerCase() + ' sale in the CRM history, Pending / Serviced' + (dept === 'office' ? ', new business only' : '') + '. Times are ' + (dept === 'office' ? 'Mountain (the call center clock)' : 'the selling office’s local time') + '.')),
     el('div', {},
-      el('h1', { class: 'text-3xl font-bold' }, 'Hall of Fame'),
-    ),
-
-    // ── Department records — total production, all-time in the dataset ──
-    deptRecords && el('div', {},
-      el('h2', { class: 'text-lg font-semibold mb-3' }, 'Department Records'),
-      el('div', { class: 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3' },
-        ...deptRecords.map(r => el('div', { class: 'card p-4' },
-          el('div', { class: 'text-xs font-black mb-1' }, r.label),
-          deptRecordRow('Best Day', 'day', r.day),
-          deptRecordRow('Best Week', 'week', r.week),
-          deptRecordRow('Best Month', 'month', r.month))))),
-
-    // Company records podium
-    companyBest.bestDay && el('div', {},
       el('h2', { class: 'text-lg font-semibold mb-3' }, 'Company Records'),
-      el('div', { class: 'grid grid-cols-1 md:grid-cols-3 gap-3' },
-        companyRecordCard('Best Day',   companyBest.bestDay,   'day'),
-        companyRecordCard('Best Week',  companyBest.bestWeek,  'week'),
-        companyRecordCard('Best Month', companyBest.bestMonth, 'month'),
-      ),
-    ),
-
-    // Per-rep records
+      el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' } }, ...KEYS.map(holderCard))),
     el('div', {},
-      el('h2', { class: 'text-lg font-semibold mb-3' }, 'Personal Bests'),
-      el('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-3' },
-        repCards
-          .filter(r => r.bestDay.revenue > 0)
-          .sort((a, b) => b.bestDay.revenue - a.bestDay.revenue)
-          .map(r => el('div', { class: 'card p-5' },
-            el('div', { class: 'flex items-center gap-3 mb-4' },
-              avatarNode(r.profile.avatar_url, r.profile.initials, 'w-12 h-12 text-xs'),
-              el('div', { class: 'flex-1' },
-                el('div', { class: 'text-base font-bold' }, r.profile.full_name),
-                el('div', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, 'Personal bests'),
-              ),
-            ),
-            el('div', { class: 'grid grid-cols-3 gap-3 text-center' },
-              recordStat('Best Day',   r.bestDay.revenue,   r.bestDay.count,   r.bestDay.date),
-              recordStat('Best Week',  r.bestWeek.revenue,  r.bestWeek.count,  r.bestWeek.weekStart),
-              recordStat('Best Month', r.bestMonth.revenue, r.bestMonth.count, r.bestMonth.month),
-            ),
-          )),
-      ),
-      repCards.every(r => r.bestDay.revenue === 0) && el('div', { class: 'card p-8 text-center text-muted- text-sm' }, 'No records yet — start logging sales and the Hall of Fame will fill in.'),
-    ),
-  );
+      el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-3' }, el('h2', { class: 'text-lg font-semibold' }, 'Personal Bests'), search),
+      results));
 }
 
 function companyRecordCard(title, rec, kind) {

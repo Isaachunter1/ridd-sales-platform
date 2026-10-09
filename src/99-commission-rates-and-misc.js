@@ -1227,6 +1227,7 @@ const USAGE_SCREEN_NAMES = {
   hall_of_fame: 'Hall of Fame', competitions: 'Competitions', nrla: 'Competitions', queues: 'Queues',
   d2d_dashboard: 'D2D · Dashboard', d2d_sales: 'D2D · Sales', commission: 'D2D · Pay',
   all_dashboard: 'All user types · Dashboard',
+  d2d_hof: 'D2D · Hall of Fame', tech_hof: 'Technicians · Hall of Fame',
   techs: 'Technicians · Dashboard', tech_sales: 'Technicians · Sales', tech_pay: 'Technicians · Pay',
   indicators: 'Indicators', reporting: 'Reporting', marketing: 'Marketing', admin: 'Settings', auditing: 'Auditing', pricing: 'Pricing',
 };

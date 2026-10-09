@@ -26,7 +26,7 @@ function featureOn(key) {
   return f[key] !== false;
 }
 // Sub-tab / view keys → the feature that owns them.
-const VIEW_FEATURE = { pay: 'pay', commission: 'pay', hall_of_fame: 'hall_of_fame', scorecards: 'scorecards', calendar: 'calendar', nrla: 'competitions', competitions: 'competitions' };
+const VIEW_FEATURE = { pay: 'pay', commission: 'pay', hall_of_fame: 'hall_of_fame', d2d_hof: 'hall_of_fame', tech_hof: 'hall_of_fame', scorecards: 'scorecards', calendar: 'calendar', nrla: 'competitions', competitions: 'competitions' };
 function viewFeatureOn(viewKey) { const f = VIEW_FEATURE[viewKey]; return !f || featureOn(f); }
 const hasConfig = CFG.SUPABASE_PUBLISHABLE_KEY && !CFG.SUPABASE_PUBLISHABLE_KEY.includes('PASTE_');
 const DEMO = new URLSearchParams(location.search).has('demo') || location.hash === '#demo';
@@ -241,9 +241,9 @@ const PERM_DEFS = [
 // non-selling office role everything but Pay; auditors just Sales. Pricing is
 // open to everyone (as it is now); TV Display to office staff; Reporting and
 // Settings to nobody but admins until switched on here.
-const _PERM_D2D_TABS    = { tab_dashboard: 1, tab_sales: 1, tab_pay: 1, view_pricing: 1 };
+const _PERM_D2D_TABS    = { tab_dashboard: 1, tab_sales: 1, tab_pay: 1, tab_hof: 1, view_pricing: 1 };
 const _PERM_OFFICE_TABS = { tab_dashboard: 1, tab_sales: 1, tab_pay: 1, tab_scorecards: 1, tab_calendar: 1, tab_hof: 1, view_pricing: 1, view_tv: 1, tab_loyalty: 1 };   // Loyalty tab (per Isaac, Sep 23): office staff only
-const _PERM_TECH_TABS   = { tab_dashboard: 1, tab_sales: 1, tab_pay: 1, view_pricing: 1, view_tv: 1 };
+const _PERM_TECH_TABS   = { tab_dashboard: 1, tab_sales: 1, tab_pay: 1, tab_hof: 1, view_pricing: 1, view_tv: 1 };
 const PERM_DEFAULTS = {
   rep_sales:       { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ..._PERM_D2D_TABS },   // no Indicators table / Power Ranking for sales reps (per Isaac, Sep 2026)
   rep_office:      { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ..._PERM_OFFICE_TABS },
@@ -274,7 +274,7 @@ const PERM_DEFAULTS = {
 // Settings pages → the permission that opens each (Permissions itself is admin-only, always).
 const ADMIN_SECTION_PERM = { users: 'set_users', teams: 'set_teams', goals: 'set_goals', comps: 'set_comps', pricing: 'set_commissions', config: 'set_config', marketing: 'set_marketing', slack: 'set_slack', usage: 'set_usage' };   // 'data' (Data sources) is admin-only, never delegated
 // Sub-tab view key → its Sales-tab permission (all three groups).
-const VIEW_TAB_PERM = { dashboard: 'tab_dashboard', sales: 'tab_sales', pay: 'tab_pay', scorecards: 'tab_scorecards', calendar: 'tab_calendar', hall_of_fame: 'tab_hof',
+const VIEW_TAB_PERM = { dashboard: 'tab_dashboard', sales: 'tab_sales', pay: 'tab_pay', scorecards: 'tab_scorecards', calendar: 'tab_calendar', hall_of_fame: 'tab_hof', d2d_hof: 'tab_hof', tech_hof: 'tab_hof',
   d2d_dashboard: 'tab_dashboard', d2d_sales: 'tab_sales', commission: 'tab_pay', techs: 'tab_dashboard', all_dashboard: 'tab_dashboard', tech_sales: 'tab_sales', tab_pay: 'tab_pay', tech_pay: 'tab_pay', loyalty_dashboard: 'tab_loyalty', loyalty_renewals: 'tab_loyalty', loyalty_health: 'tab_loyalty' };
 // Loyalty tab (per Isaac, Sep 24): every office rep, loyalty rep and loyalty / office lead — always; others via Settings → Permissions.
 function canOpenLoyalty(profile) { const p = profile || state.profile; return !!p && (isAdminRole(p.role) || ['rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead', 'office_staff'].includes(String(p.role || '')) || userCan('tab_loyalty', p)); }
@@ -4846,6 +4846,8 @@ const TAB_TITLES = {
   calendar:     'CALENDAR',
   competitions: 'COMPETITIONS',
   hall_of_fame: 'HALL OF FAME',
+  d2d_hof:      'HALL OF FAME',
+  tech_hof:     'HALL OF FAME',
   loyalty_dashboard: 'LOYALTY',
   loyalty_renewals: 'LOYALTY',
   loyalty_health: 'LOYALTY',
@@ -4867,7 +4869,7 @@ const TAB_TITLES = {
 
 // #history is kept as a legacy alias — it lands the user on Sales tab with
 // the History queue pill pre-selected (see boot/hashchange handlers below).
-const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#d2ddash':'d2d_dashboard', '#d2dupfront':'commission', '#d2dsales':'d2d_sales', '#techs':'techs', '#alldash':'all_dashboard', '#techsales':'tech_sales', '#techpay':'tech_pay', '#admin':'admin', '#loyaltydash':'loyalty_dashboard', '#renewals':'loyalty_renewals', '#health':'loyalty_health' };
+const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#d2ddash':'d2d_dashboard', '#d2dupfront':'commission', '#d2dsales':'d2d_sales', '#techs':'techs', '#d2dhof':'d2d_hof', '#techhof':'tech_hof', '#alldash':'all_dashboard', '#techsales':'tech_sales', '#techpay':'tech_pay', '#admin':'admin', '#loyaltydash':'loyalty_dashboard', '#renewals':'loyalty_renewals', '#health':'loyalty_health' };
 const VIEW_TO_HASH = Object.fromEntries(Object.entries(HASH_MAP).map(([h,v])=>[v,h]));
 
 // Only ring the bell when a sale's audit_status flips to one of these,

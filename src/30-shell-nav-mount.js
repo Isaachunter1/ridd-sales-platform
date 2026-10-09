@@ -55,6 +55,7 @@ const D2D_SALES_TABS = [
   ['d2d_dashboard', 'Dashboard'],
   ['d2d_sales',     'Sales'],
   ['commission',    'Pay'],
+  ['d2d_hof',       'Hall of Fame'],   // per Isaac, Oct 9
 ];
 const D2D_SALES_TAB_KEYS = new Set(D2D_SALES_TABS.map(([k]) => k));
 // ── TECHNICIAN GROUP (per Isaac, Sep 2026) — same shape: Dashboard + the
@@ -63,6 +64,7 @@ const TECH_TABS = [
   ['techs',      'Dashboard'],
   ['tech_sales', 'Sales'],
   ['tech_pay',   'Pay'],
+  ['tech_hof',   'Hall of Fame'],   // per Isaac, Oct 9
 ];
 const TECH_TAB_KEYS = new Set(TECH_TABS.map(([k]) => k));
 // ── LOYALTY GROUP (per Isaac, Sep 23) — the loyalty team's working tabs:
@@ -1236,7 +1238,9 @@ function mountApp() {
     pay:          viewPay,
     calendar:     viewCalendar,
     competitions: viewCompetitions,
-    hall_of_fame: viewHallOfFame,
+    hall_of_fame: () => viewHallOfFame('office'),
+    d2d_hof:      () => viewHallOfFame('d2d'),
+    tech_hof:     () => viewHallOfFame('techs'),
     loyalty_dashboard: viewLoyaltyDashboard,
     loyalty_renewals: viewLoyaltyRenewals,
     loyalty_health: viewLoyaltyHealth,
