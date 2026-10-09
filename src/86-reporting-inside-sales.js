@@ -1055,16 +1055,34 @@ function exportReportingGeoCsv(items, kind, scopeTag) {
   if (!items || !items.length) { toast('Nothing to export', 'warn'); return; }
   const firstCol = kind === 'county' ? 'county' : 'zip';
   // Per Isaac: the export is a lean list — ZIP (or county), office, active subs.
+  // `office` is ONE market per row.
   const headers = [firstCol, 'office', 'active_subscriptions'];
   const lines = [headers.join(',')];
+  let n = 0;
+  // The breakdown can hold one ZIP on several lines (one per office, or ZIP+4 spellings): merge to one line per
+  // 5-digit ZIP before picking its market.
+  if (kind !== 'county') {
+    const byZip = new Map();
+    for (const it of items) {
+      const z = String(it.zip || '').trim().slice(0, 5);
+      const cur = byZip.get(z) || { zip: z, active: 0, rows: [] };
+      cur.active += Number(it.active) || 0; cur.rows = cur.rows.concat(it.rows || []); byZip.set(z, cur);
+    }
+    items = [...byZip.values()].sort((a, b) => b.active - a.active);
+  }
   for (const it of items) {
-    // Distinct office names contributing to this ZIP/county, in volume order.
-    const offCounts = new Map();
+    // One market per ZIP (per Isaac, Oct 9 — providers target by it, and a ZIP is never in two markets): the
+    // office with the most ACTIVE accounts there, then the most accounts overall. A stray account coded to
+    // another office (an old cancel, a typo) no longer adds a second market. No-ZIP rows are left out.
+    if (kind !== 'county' && !/^\d{5}$/.test(String(it.zip || ''))) continue;
+    const act = new Map(), all = new Map();
     for (const r of (it.rows || [])) {
       const o = r.office_name; if (!o) continue;
-      offCounts.set(o, (offCounts.get(o) || 0) + 1);
+      all.set(o, (all.get(o) || 0) + 1);
+      if (String(r.subscription_status || '').trim().toLowerCase() === 'active') act.set(o, (act.get(o) || 0) + 1);
     }
-    const offices = [...offCounts.entries()].sort((a, b) => b[1] - a[1]).map(([o]) => o).join('; ');
+    const offices = [...all.keys()].sort((a, b) => ((act.get(b) || 0) - (act.get(a) || 0)) || (all.get(b) - all.get(a)) || a.localeCompare(b))[0] || '';
+    n++;
     lines.push([
       csvEsc(kind === 'county' ? (it.county || 'Unknown') : it.zip),
       csvEsc(offices),
@@ -1077,6 +1095,6 @@ function exportReportingGeoCsv(items, kind, scopeTag) {
   const a = el('a', { href: url, download: 'ridd-accounts-by-' + firstCol + '-' + scopeTag + '-' + date + '.csv' });
   document.body.append(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
-  toast('Exported ' + items.length.toLocaleString() + ' ' + (kind === 'county' ? 'counties' : 'ZIPs'), 'success');
+  toast('Exported ' + n.toLocaleString() + ' ' + (kind === 'county' ? 'counties' : 'ZIPs'), 'success');
 }
 
