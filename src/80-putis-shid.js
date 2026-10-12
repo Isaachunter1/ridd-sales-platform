@@ -18,6 +18,7 @@
 //   Cost per job   = each COGS line ÷ completed FieldRoutes appointments in the
 //                    month (RevHawk, cached beside the ledger as `jobs`)
 // ═══════════════════════════════════════════════════════════════════════════
+const PUTIS_LEASE_RE = /\blease\b|\blease liabilit|right[- ]of[- ]use|\brou\b/i;   // lease liabilities ≠ debt
 const PUTIS_MINOR_COLS = ['Tampa', 'Corporate'];   // collapsed on the P&L branch cards until opened
 const PUTIS_BRANCHES = ['Atlanta', 'Charleston', 'Destin', 'Detroit', 'Joplin', 'Little Rock', 'Myrtle Beach', 'Raleigh', 'Salt Lake', 'Virginia Beach', 'Tampa'];
 const PUTIS_GROUP = {
@@ -414,7 +415,8 @@ function putisAugment(d, M, ym, branches, company) {
   if (!company) return d;
   const B = state.reportingLedger && state.reportingLedger.balance && state.reportingLedger.balance[ym];
   if (!B) return d;
-  d.ltDebt = B.ltDebt; d.totalLiab = B.liabilities; d.cash = B.cash; d.netDebt = B.ltDebt - B.cash;
+  const _lease = (() => { const A = state.reportingLedger && state.reportingLedger.debt && state.reportingLedger.debt.accounts; let t = 0; if (A) for (const k in A) if (PUTIS_LEASE_RE.test(k)) t += Number(A[k]) || 0; return t; })();
+  d.ltDebt = Math.max(0, B.ltDebt - _lease); d.totalLiab = B.liabilities; d.cash = B.cash; d.netDebt = d.ltDebt - B.cash;
   // Trailing twelve closed months ending at ym (annualised if the feed is shorter).
   let [y, m] = ym.split('-').map(Number); const yms = [];
   for (let i = 0; i < 12; i++) { yms.push(y + '-' + String(m).padStart(2, '0')); if (--m < 1) { m = 12; y--; } }
@@ -424,10 +426,10 @@ function putisAugment(d, M, ym, branches, company) {
     const t = putisDeriveMonths(M, closed, branches);
     const k = 12 / closed.length;
     const ttmRev = t.revenue * k, ttmAdj = t.adjEbitda * k;
-    d.debtToRev = ttmRev > 0 ? B.ltDebt / ttmRev : null;
+    d.debtToRev = ttmRev > 0 ? d.ltDebt / ttmRev : null;
     d.leverage = ttmAdj > 0 ? d.netDebt / ttmAdj : null;
   }
-  d.debtToArr = d.arrEom > 0 ? B.ltDebt / d.arrEom : null;
+  d.debtToArr = d.arrEom > 0 ? d.ltDebt / d.arrEom : null;
   return d;
 }
 const PUTIS_COL_TIPS = {
@@ -597,11 +599,13 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
   // any long-term liability not booked to a named loan), so the columns
   // always add up to the balance-sheet total (per Isaac).
   const debtBy = debtAccts && Object.keys(debtAccts).length ? (() => {
-    const byBranch = {}; let named = 0;
+    const byBranch = {}; let named = 0, lease = 0;
     const _ovr = (_adminRules() && _adminRules().debtAcctBranch) || {};
-    for (const name in debtAccts) { const n = name.toLowerCase(); const b = _ovr[name] ? (_ovr[name] === 'Corporate' ? null : _ovr[name]) : (PUTIS_BRANCHES.find(x => n.includes(x.toLowerCase())) || (n.includes('utah') ? 'Salt Lake' : null)); if (b) { byBranch[b] = (byBranch[b] || 0) + debtAccts[name]; named += debtAccts[name]; } else { byBranch.Corporate = (byBranch.Corporate || 0) + debtAccts[name]; } }
+    // Lease liabilities (the long-term lease liability, per Isaac Oct 12) are not debt — not a branch's and not
+    // Corporate's. Left out of every column and of the total.
+    for (const name in debtAccts) { const n = name.toLowerCase(); if (PUTIS_LEASE_RE.test(n)) { lease += debtAccts[name]; continue; } const b = _ovr[name] ? (_ovr[name] === 'Corporate' ? null : _ovr[name]) : (PUTIS_BRANCHES.find(x => n.includes(x.toLowerCase())) || (n.includes('utah') ? 'Salt Lake' : null)); if (b) { byBranch[b] = (byBranch[b] || 0) + debtAccts[name]; named += debtAccts[name]; } else { byBranch.Corporate = (byBranch.Corporate || 0) + debtAccts[name]; } }
     const BS = state.reportingLedger.balance || {}; const bsKeys = Object.keys(BS).sort(); const latest = bsKeys.length ? BS[bsKeys[bsKeys.length - 1]] : null;
-    const total = latest && latest.ltDebt > 0 ? latest.ltDebt : Object.values(byBranch).reduce((a, v) => a + v, 0);
+    const total = latest && latest.ltDebt > 0 ? Math.max(0, latest.ltDebt - lease) : Object.values(byBranch).reduce((a, v) => a + v, 0);
     byBranch.Corporate = Math.max(0, total - named);   // whatever isn't a branch-named loan
     return (key) => { const set = cols.find(c => c.key === key).set; if (key === 'RIDD') return total; let t = 0, any = false; for (const b of set) if (byBranch[b] != null) { t += byBranch[b]; any = true; } return any ? t : null; };
   })() : null;
