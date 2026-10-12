@@ -260,15 +260,7 @@ const PUTIS_ROWS = [
   { id: 'adjEbitda',    label: 'Adjusted EBITDA',  kind: 'usd', bold: true, signed: true, tip: 'EBITDA before the cost of selling — EBITDA + selling expense (commissions + marketing + incentives). What the service business earns on its own, separate from growth spend. The sheet’s F14 + F11 × F3.' },
   { id: 'netIncome',    label: 'Net Income',       kind: 'usd', bold: true, signed: true, tip: 'EBITDA minus interest paid and depreciation/amortization.' },
   // ── FieldRoutes book (point-in-time at month end) ──
-  // ── Balance sheet (company only — QuickBooks has no per-branch balance sheet) ──
-  { head: 'Debt · QuickBooks balance sheet', company: true },
-  { id: 'ltDebt',       label: 'Long-term debt',   kind: 'usd', point: true, bold: true, company: true, lowGood: true, tip: 'Long-term liabilities at month end — total liabilities minus current liabilities on the QuickBooks balance sheet (the term debt). Balance-sheet history starts Dec 2025.' },
-  { id: 'totalLiab',    label: 'Total liabilities', kind: 'usd', point: true, company: true, lowGood: true, tip: 'Every liability at month end — A/P, credit cards, accrued/other current liabilities and long-term debt.' },
-  { id: 'cash',         label: 'Cash',             kind: 'usd', point: true, company: true, tip: 'Bank-account balances at month end.' },
-  { id: 'netDebt',      label: 'Net debt',         kind: 'usd', point: true, company: true, lowGood: true, tip: 'Long-term debt minus cash.' },
-  { id: 'debtToRev',    label: 'Debt / TTM revenue', kind: 'x', point: true, company: true, lowGood: true, tip: 'Long-term debt ÷ trailing-twelve-month booked revenue (annualised when fewer than 12 closed months are in the feed). 1.0x = one year of revenue owed.' },
-  { id: 'debtToArr',    label: 'Debt / ARR',       kind: 'x', point: true, company: true, lowGood: true, tip: 'Long-term debt ÷ month-end active ARR (FieldRoutes). The recurring-revenue lender view.' },
-  { id: 'leverage',     label: 'Net debt / TTM adj. EBITDA', kind: 'x', point: true, company: true, lowGood: true, tip: 'Net debt ÷ trailing-twelve-month adjusted EBITDA (annualised when fewer than 12 closed months). The standard PE leverage multiple; blank when TTM adjusted EBITDA is not positive.' },
+  // (Debt · balance-sheet rows removed from the P&L, per Isaac, Oct 12.)
 ];
 // ── Reconcile the retention book against a hand-built FieldRoutes export ──
 // Isaac runs the same rules by hand in a spreadsheet; this diffs his final
@@ -702,10 +694,6 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
     lineT('ACV (ARR ÷ active accounts)', (d, k) => { const f = fr(k); return f.active ? f.arr / f.active : null; }),
     lineT('Revenue ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.revenue / f.active : null; }, { tip: 'Booked revenue for the period ÷ accounts on the books at period end.' }),
     lineT('EBITDA ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.ebitda / f.active : null; }, { signed: true, tip: 'EBITDA for the period ÷ accounts on the books at period end.' }),
-    ...(debtBy ? [
-      lineT('Term debt (today)', (d, k) => debtBy(k), { bold: true, tip: 'Long-term liability accounts on the QuickBooks balance sheet, current balance, filed to the branch named in the account (e.g. "Mizzen Loan - Atlanta"); un-branched loan accounts sit under Corporate. RIDD = every loan account.' }),
-      lineT('Debt ÷ ARR', (d, k) => { const f = fr(k); const x = debtBy(k); return f.arr > 0 && x != null ? x / f.arr : null; }, { x: true, tip: 'Term debt ÷ active ARR at period end — years of recurring revenue owed.' }),
-    ] : []),
     'MARGINS',
     lineT('Product cost (M&S)', d => d.msPct, { pct: true }),
     lineT('Auto & fuel', d => d.autoPct, { pct: true }),
