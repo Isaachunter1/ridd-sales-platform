@@ -454,6 +454,12 @@ function techPayConfigView() {
 
 // ── Reporting → Operations hub ─────────────────────────────────────────────
 function reportingOpsHub() {
+  // Cleared for now (per Isaac, Oct 12) — the tab stays, the content comes back when it's rebuilt. The old
+  // hub (Ops stats · Commissions · Overrides · Production pay · Configuration) is below, unreached.
+  if (!state._opsHubPreview) return el('div', { class: 'card p-10 flex flex-col items-center justify-center text-center gap-2', style: { minHeight: '320px' } },
+    el('div', { class: 'text-3xl' }, '🚧'),
+    el('div', { class: 'text-lg font-bold' }, 'Under construction'),
+    el('div', { class: 'text-xs', style: { color: 'var(--text-muted)' } }, 'Operations reporting is being rebuilt.'));
   const SUBS = [['stats', 'Ops stats'], ['commissions', 'Commissions'], ['overrides', 'Overrides'], ['production', 'Production pay'], ['config', 'Configuration']];
   const sub = SUBS.some(([v]) => v === state._opsSub) ? state._opsSub : 'stats';
   const body = sub === 'commissions' ? techCommissionsView(null) : sub === 'overrides' ? techOverridesView(null) : sub === 'production' ? techProductionPayView(null) : sub === 'config' ? techPayConfigView() : reportingOps();
