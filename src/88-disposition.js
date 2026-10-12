@@ -19,6 +19,15 @@ const DISP_SALE_WINDOW = 90;   // a sale counts for the lead when sold from 1 da
 function _dispMaps() { const R = (typeof _adminRules === 'function') ? _adminRules() : null; return (R && R.dispMaps) || {}; }
 function _dispMapKey(provider, headers) { return String(provider || '') + '|' + [...headers].map(h => String(h).trim().toLowerCase()).sort().join('\u0001'); }
 
+// The phone column has to hold phone numbers (DoLead's Calls tab: "phone_details.started_at" is a timestamp,
+// "phone" is the number) — pick the phone-named column whose values are mostly 10+ digits.
+function _dispFixPhone(map, headers, rows) {
+  const score = (h) => { let n = 0, k = 0; for (const r of rows.slice(0, 50)) { const v = r[h]; if (v === '' || v == null) continue; k++; if (/^\+?[\d\s().-]{10,}$/.test(String(v).trim()) && _attrDigits(v)) n++; } return k ? n / k : 0; };
+  if (map.phone && score(map.phone) >= 0.6) return map;
+  const best = headers.filter(h => /phone|mobile|cell|caller|number/i.test(h)).map(h => [h, score(h)]).sort((a, b) => b[1] - a[1])[0];
+  if (best && best[1] >= 0.6) map.phone = best[0]; else if (map.phone && score(map.phone) < 0.2) delete map.phone;
+  return map;
+}
 async function _dispUpload(files) {
   const list = Array.from(files || []); if (!list.length) return;
   try { await loadXlsxLibOnce(); } catch { toast('Could not load Excel library — check your connection', 'error'); return; }
@@ -33,8 +42,8 @@ async function _dispUpload(files) {
         if (!rows.length) continue;
         const headers = Object.keys(rows[0]);
         const saved = provider ? _dispMaps()[_dispMapKey(provider, headers)] : null;
-        state._dispFiles.push({ key: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), provider, fileName: wb.SheetNames.length > 1 ? file.name + ' · ' + sheet : file.name, sheet, headers, rows,
-          map: saved ? Object.fromEntries(Object.entries(saved).filter(([, h]) => headers.includes(h))) : _attrGuessMap(headers), remembered: !!saved });
+        state._dispFiles.push({ key: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), provider, fileName: wb.SheetNames.length > 1 ? file.name + ' · ' + sheet : file.name, sheet, src: file.name + '|' + file.size + '|' + file.lastModified, headers, rows,
+          map: saved ? Object.fromEntries(Object.entries(saved).filter(([, h]) => headers.includes(h))) : _dispFixPhone(_attrGuessMap(headers), headers, rows), remembered: !!saved });
       }
     } catch (e) { toast('Could not read ' + file.name + ': ' + (e.message || e), 'error'); }
   }
@@ -133,22 +142,43 @@ function _dispRun(F) {
   return out;
 }
 
-function _dispExport(F, rows) {
-  const data = rows.map(x => Object.assign({}, x.r, {
+// The columns handed back to the provider (per Isaac, Oct 12 — DoLead: existing customer, where the lead sits in
+// GoHighLevel, and whether it closed in FieldRoutes), to the right of their own columns.
+function _dispOutRow(F, x) {
+  const r = Object.assign({}, x.r);
+  // Their own date column comes back as a date, not an Excel serial number.
+  const dc = F.map && F.map.date;
+  if (dc && typeof r[dc] === 'number' && r[dc] > 20000 && r[dc] < 80000) { const d = new Date(Math.round((r[dc] - 25569) * 86400000)); r[dc] = d.toISOString().slice(0, 16).replace('T', ' '); }
+  const closed = /^Sold/.test(x.disposition);
+  return Object.assign(r, {
     'Disposition': x.disposition,
-    'In FieldRoutes': x.fr.found ? 'Yes' : 'No',
-    'FieldRoutes customer ID': x.fr.id,
-    'Matched on': x.fr.how,
+    'Existing customer': x.fr.existing ? 'Yes' : 'No',
+    'GHL status': x.ghl.status || (x.ghl.found === false ? 'Not in GoHighLevel' : ''), 'GHL stage': x.ghl.stage,
+    'Closed': closed ? 'Yes' : 'No',
     'Sold date': x.fr.sold, 'Service': x.fr.service, 'Initial': x.fr.initial || '', 'Account status': x.fr.status, 'Contract value': x.fr.value || '',
     'Branch': x.fr.office ? _mktgTC(x.fr.office) : '',
-    'In GoHighLevel': x.ghl.found == null ? '' : x.ghl.found ? 'Yes' : 'No',
-    'GHL status': x.ghl.status, 'GHL stage': x.ghl.stage,
+    'FieldRoutes customer ID': x.fr.id, 'Matched on': x.fr.how,
     'Flags': x.flags.join('; '),
-  }));
-  const ws = XLSX.utils.json_to_sheet(data);
-  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Disposition');
+  });
+}
+const _dispSafeName = (n) => String(n || 'Sheet').replace(/[\\/?*\[\]:]/g, ' ').slice(0, 31) || 'Sheet';
+function _dispExport(F, rows) {
+  const ws = XLSX.utils.json_to_sheet(rows.map(x => _dispOutRow(F, x)));
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, _dispSafeName(F.sheet || 'Disposition'));
   XLSX.writeFile(wb, String(F.fileName).replace(/\.(csv|xlsx?|tsv)(\s·.*)?$/i, '') .replace(/[^a-z0-9 _.-]+/gi, '-') + ' - disposition.xlsx');
   if (typeof trackAction === 'function') trackAction('export', 'Disposition', { rows: rows.length });
+}
+// Every tab of one uploaded workbook back as one workbook (Forms + Calls), each with the disposition columns.
+function _dispExportBook(files, runs) {
+  const wb = XLSX.utils.book_new(); let n = 0;
+  for (const F of files) {
+    const rows = runs.get(F);
+    const ws = rows ? XLSX.utils.json_to_sheet(rows.map(x => _dispOutRow(F, x))) : XLSX.utils.json_to_sheet(F.rows);
+    XLSX.utils.book_append_sheet(wb, ws, _dispSafeName(F.sheet)); n += rows ? rows.length : 0;
+  }
+  const base = String(files[0].fileName).replace(/\s·.*$/, '').replace(/\.(csv|xlsx?|tsv)$/i, '').replace(/[^a-z0-9 _.-]+/gi, '-');
+  XLSX.writeFile(wb, base + ' - disposition.xlsx');
+  if (typeof trackAction === 'function') trackAction('export', 'Disposition workbook', { rows: n });
 }
 
 function mktgDispositionView() {
@@ -189,10 +219,12 @@ function mktgDispositionView() {
         el('span', { class: 'font-bold text-xs' }, F.fileName), el('span', { class: 'text-[11px]', style: muted }, fmt.int(F.rows.length) + ' rows'),
         F.remembered ? el('span', { class: 'text-[10px] font-bold', style: { color: '#5F6C5B' } }, '✓ columns remembered') : null,
         el('span', { class: 'ml-auto inline-flex gap-2' },
-          ready ? el('button', { class: 'rounded-lg px-3 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => _dispExport(F, rows) }, '⬇ Download with disposition (.xlsx)') : null,
+          (() => { const sib = F.src ? files.filter(f => f.src === F.src) : [F];
+            if (sib.length > 1) return sib.some(f => runs.has(f)) ? el('button', { class: 'rounded-lg px-3 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, title: 'Every tab of this workbook, each with the disposition columns to the right', onclick: () => _dispExportBook(sib, runs) }, '⬇ Download workbook · ' + sib.length + ' tabs (.xlsx)') : null;
+            return ready ? el('button', { class: 'rounded-lg px-3 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => _dispExport(F, rows) }, '⬇ Download with disposition (.xlsx)') : null; })(),
           el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._dispFiles = state._dispFiles.filter(x => x !== F); mountApp(); } }, 'Close'))),
       el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap text-[11px]' },
-        el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Provider'), sel(F.provider, [['', 'Pick…'], ...provs.map(p => [p, p])], (v) => { F.provider = v; })),
+        el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Provider'), sel(F.provider, [['', 'Pick…'], ...provs.map(p => [p, p])], (v) => { F.provider = v; if (F.src) for (const f of files) if (f.src === F.src && !f.provider) f.provider = v; })),
         ...ATTR_FIELDS.filter(([k]) => k !== 'id').map(([k, label]) => el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, label), sel(F.map[k] || '', colOpts, (v) => { if (v) F.map[k] = v; else delete F.map[k]; }))),
         ready ? el('button', { class: 'underline', style: muted, title: 'Use these columns automatically next time this provider sends this report', onclick: () => { const all = Object.assign({}, _dispMaps(), { [_dispMapKey(F.provider, F.headers)]: F.map }); _setAdminRule('dispMaps', all); F.remembered = true; toast('Columns remembered for ' + F.provider, 'success'); mountApp(); } }, 'Remember columns') : null),
       !ready ? el('div', { class: 'px-5 pb-4 text-[11px]', style: { color: '#DC2626' } }, 'Pick the provider, the lead date column, and phone, email or name.') :
