@@ -128,7 +128,7 @@ async function pullMarketingPayees(startYear) {
   const r = await fetchT(url, { headers: { accept: 'application/json' } });
   if (!r.ok || !r.json) throw new Error(`Windsor marketing detail ${r.status}: ${(r.text || '').slice(0, 200)}`);
   const rows = Array.isArray(r.json) ? r.json : (r.json.data || r.json.result || []);
-  const months = {}, journal = {}, memo = {}; let n = 0;
+  const months = {}, journal = {}, memo = {}, lines = {}; let n = 0;
   const cents = (x) => Math.round(x * 100) / 100;
   for (const row of rows) {
     const acct = String(row.generalledger__item__account_name || '').trim();
@@ -142,9 +142,13 @@ async function pullMarketingPayees(startYear) {
     (months[ym] = months[ym] || {});
     months[ym][payee] = cents((months[ym][payee] || 0) + amt);
     if (m && !memo[payee]) memo[payee] = m.slice(0, 60);
+    // Every expense line too (per Isaac, Oct 12 — the Spend tab allocates QuickBooks spend line by line):
+    // [day, payee, memo, amount, account leaf]. The memo carries the card descriptor, e.g. the last four of
+    // the Google Ads account a charge belongs to (PPC vs Local Services).
+    (lines[ym] = lines[ym] || []).push([String(row.generalledger__item__tx_date || '').slice(8, 10), payee, m.slice(0, 90), cents(amt), acct.replace(/^advertising\s*&\s*marketing\s*:?\s*/i, '')]);
     n++;
   }
-  return { months, journal, memo, rows: n, pulledAt: new Date().toISOString() };
+  return { months, journal, memo, lines, rows: n, pulledAt: new Date().toISOString() };
 }
 
 exports.handler = async (event) => {

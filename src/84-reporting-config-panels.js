@@ -991,7 +991,10 @@ function _mktgCac() {
   // Ad spend: QuickBooks booked per branch, falling back to the hand-entered allocation for unbooked months.
   const SP = state.reportingIsSpend || {};
   const qbo = (b, i) => { const M = SP[_mktgYm(y, i)] || {}; let t = 0; for (const acct in M) { const off = (typeof _mktgQboOffice === 'function') ? _mktgQboOffice(acct) : null; if (off === b) t += Number(M[acct]) || 0; } return t; };
-  const ad = (i) => scopeBranches.reduce((t, b) => t + qbo(b, i), 0);   // QuickBooks only
+  // QuickBooks only: the month's marketing lines allocated by office (Spend tab); a month without line detail
+  // falls back to what is booked on the branch accounts.
+  const ad = (i) => { const o = typeof spqOfficeTotals === 'function' ? spqOfficeTotals(_mktgYm(y, i)) : null;
+    return o ? scopeBranches.reduce((t, b) => t + (Number(o[b]) || 0), 0) : scopeBranches.reduce((t, b) => t + qbo(b, i), 0); };
   const wg = (i) => scopeBranches.reduce((t, b) => t + (Number((m.wages[_mktgYm(y, i)] || {})[b]) || 0), 0);
   const inc = (i) => scopeBranches.reduce((t, b) => t + (Number((m.incentives[_mktgYm(y, i)] || {})[b]) || 0), 0);
   const tot = (i) => ad(i) + wg(i) + inc(i);
@@ -1287,6 +1290,9 @@ function _mktgProvidersViz(cur, o) {
 // QuickBooks (and the ad platforms).
 function _mktgSpendEntry() {
   const y = _mktgYearSel(), B = _mktgBranchList(y);
+  // Rebuilt on QuickBooks lines (per Isaac, Oct 12) — see src/86-spend-qbo.js. The old upload-first checklist +
+  // controller table stay in the code below, unreached.
+  if (typeof mktgSpendQboView === 'function') return mktgSpendQboView();
   return el('div', { class: 'flex flex-col gap-4' }, (typeof mktgSpendUploadCard === 'function') ? mktgSpendUploadCard(B, y) : null, (typeof mktgSpendChecklist === 'function') ? mktgSpendChecklist() : null, _mktgControllerTable());
 }
 // Controller allocation (per Isaac, Oct 9): the sheet handed to the controller — one row per branch × provider
