@@ -572,6 +572,15 @@ function reportingRenewals(srcRows, opts) {
   // Per Isaac (Sep 23): any recurring plan that can go back under contract —
   // everything except Sentricon and one-time services. Term runs from the
   // SIGNED AGREEMENT date (fallback: initial service when no e-sign stamp).
+  // Customer life (per Isaac, Oct 12): the churn spike sits at months 11–12
+  // of a customer's life, so the call queue keys off the customer's FIRST
+  // service across every subscription, not just this plan's term.
+  const firstStart = {};
+  rows.forEach(r => {
+    const st = String(r.origin_initial_service || r.initial_service || '').slice(0, 10);
+    if (!r.customer_id || !/^\d{4}-\d{2}-\d{2}$/.test(st)) return;
+    if (!firstStart[r.customer_id] || st < firstStart[r.customer_id]) firstStart[r.customer_id] = st;
+  });
   const expiring = [], past = [];
   let renewedN = 0, renewedArr = 0;
   rows.forEach(r => {
@@ -598,7 +607,8 @@ function reportingRenewals(srcRows, opts) {
       endMonth: (() => { const e = new Date(d.getFullYear(), d.getMonth() + len - 1, 1); return e.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }).replace(' ', ' \u2019'); })(),
       autopay: (() => { const _ap = String(r.customer_auto_pay || '').trim(); return !!_ap && !/^no$/i.test(_ap); })(),
       pastDue: Number(r.days_past_due) || 0,
-      unsigned: String(r.contract_state || 'none') !== 'signed',   // term start fell back to the initial service — verify the document
+      unsigned: String(r.contract_state || 'none') !== 'signed',
+      life: (() => { const fs = firstStart[r.customer_id]; const f = fs ? new Date(fs + 'T00:00') : d; return Math.max(mo, (now - f) / 2629800000); })(),   // term start fell back to the initial service — verify the document
     };
     if (mo >= len - 2 && mo < len) expiring.push(rec);
     else if (mo >= len) past.push(rec);
@@ -633,7 +643,7 @@ function reportingRenewals(srcRows, opts) {
   ];
   const stageOf = (x) => {
     const r = String(logOf(x).result || '');
-    if (r === 'Contacting' || r === 'No Answer' || r === 'Follow Up') return 'Contacting';
+    if (r === 'Contacting' || r === 'No Answer' || r === 'Follow Up' || /^Callback/.test(r)) return 'Contacting';
     if (r === 'Renewed' || r === 'Resigned') return 'Renewed';
     if (r === 'Not Interested') return 'Not Interested';
     return 'Eligible';
@@ -762,9 +772,10 @@ function reportingRenewals(srcRows, opts) {
     onchange: (e) => { state._renewalMinAcv = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; mountApp(); } });
   const sortSel = el('select', { class: selCls, style: selSty, title: 'Order of the Eligible column', onchange: (e) => { state._renewalSort = e.target.value; mountApp(); } },
     ...[['soonest', 'Soonest term end'], ['newest_out', 'Most recently out of contract'], ['oldest_out', 'Longest out of contract'], ['acv', 'Highest ACV']].map(([v, l]) => el('option', { value: v, selected: fSort === v }, l)));
+  if (!state._renewalBoard) return _renewalQueueView({ allRecs, crmRenewed, logOf, stageOf, search, branchSel, acvIn, q, fBranch, fMinAcv, compact: !!opts.compact, exportBoard: exportAll });
   if (opts.compact) {
     return el('div', { class: 'flex flex-col gap-3' },
-      el('div', { class: 'flex items-center gap-2 flex-wrap' }, search, winSel, branchSel, acvIn, sortSel,
+      el('div', { class: 'flex items-center gap-2 flex-wrap' }, _renewalModeBtn(), search, winSel, branchSel, acvIn, sortSel,
         el('span', { class: 'text-[11px] tabular-nums ml-auto', style: { color: 'var(--text-muted)' } }, cols.Eligible.filter(matchQ).length.toLocaleString() + ' eligible · ' + fmt.usd0(arrOf(cols.Eligible.filter(matchQ))) + ' ARR'),
         exportAll),
       el('div', { class: 'grid gap-3 renewal-board', style: { gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' } }, ...STAGES.map(column)));
@@ -776,12 +787,215 @@ function reportingRenewals(srcRows, opts) {
           el('h2', { class: 'text-lg font-bold' }, '🔁 Renewals pipeline'),
           el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
             'Eligible = inside the final 2 months of the contract (start date + contract length) or past term and still month-to-month, never renewed before (any Renewal-source sub on the account rules it out), and not Sentricon. Refreshes from the CRM sync. Drag a card between stages or use the stage picker on it; attempts and notes save instantly for everyone.')),
-        el('div', { class: 'flex items-center gap-2 flex-wrap' }, search, winSel, branchSel, acvIn, sortSel, exportAll)),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' }, _renewalModeBtn(), search, winSel, branchSel, acvIn, sortSel, exportAll)),
       el('div', { class: 'flex gap-x-4 gap-y-1 flex-wrap mt-2 text-[11px] tabular-nums', style: { color: 'var(--text-muted)' } },
         el('span', {}, el('b', {}, allRecs.length.toLocaleString()), ' eligible contracts · ', el('b', {}, fmt.usd0(arrOf(allRecs))), ' ARR in play'),
         el('span', {}, el('b', {}, worked.toLocaleString()), ' worked · ', el('b', { style: { color: 'var(--ok)' } }, renewedManual.toLocaleString()), ' renewed by the team' + (worked ? ' (' + (renewedManual / worked * 100).toFixed(0) + '%)' : '')),
         crmRenewed.length ? el('span', {}, el('b', {}, crmRenewed.length.toLocaleString()), ' renewed via a Renewal source in the CRM · ', el('b', {}, fmt.usd0(arrOf(crmRenewed))), ' ARR') : null)),
     el('div', { class: 'grid gap-3 renewal-board', style: { gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' } }, ...STAGES.map(column)));
+}
+
+// ── RENEWAL CALL QUEUE (per Isaac, Oct 12) ─────────────────────────────
+// Reps get one ordered list of who to call next instead of a stage board.
+// The churn report shows the biggest loss at months 11–12 of customer life
+// (the first contract ending), and renewals can be signed 2 months before
+// the term ends — so first-contract accounts inside that window go first,
+// then other contracts ending, then the newly month-to-month, and long
+// month-to-month customers (who mostly stay anyway) last.
+// Outcomes save to renewal_worklog.result: '' (to call) · Contacting (no
+// answer, attempts++) · 'Callback YYYY-MM-DD' · Renewed · Not Interested.
+// The board is still one click away for managers.
+const RENEWAL_TIERS = [
+  { key: 0, label: 'Callback due',             short: 'Callback',    color: '#7C3AED', bg: 'rgba(124,58,237,.10)', blurb: 'Promised a callback for today or earlier' },
+  { key: 1, label: 'First contract ending',    short: 'Month 11–12', color: '#DC2626', bg: 'rgba(220,38,38,.10)',  blurb: 'Final 2 months of the first agreement — the churn spike at months 11–12 of customer life' },
+  { key: 2, label: 'Contract ending',          short: 'Ending',      color: '#A9441F', bg: 'rgba(169,68,31,.10)',  blurb: 'Final 2 months of a longer or later agreement' },
+  { key: 3, label: 'Just out of contract',     short: 'Just M2M',    color: '#B45309', bg: 'rgba(180,83,9,.10)',   blurb: 'Term ended in the last 3 months — now month-to-month' },
+  { key: 4, label: 'Long-term month-to-month', short: 'Long M2M',    color: '#5F6C5B', bg: 'rgba(95,108,91,.10)',  blurb: 'Out of contract 3+ months — usually loyal; call once the list above is clear' },
+];
+const RENEWAL_FIRST_LIFE_MAX = 14;   // months of customer life that still count as the first contract
+function _renewalYmd(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function _renewalToday() { return _renewalYmd(new Date()); }
+function _renewalLocalDay(iso) { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? String(iso).slice(0, 10) : _renewalYmd(d); }
+function _renewalCallback(g) { const m = /^Callback\s+(\d{4}-\d{2}-\d{2})/.exec(String((g && g.result) || '')); return m ? m[1] : ''; }
+function _renewalTierOf(x, g, today) {
+  const cb = _renewalCallback(g);
+  if (cb && cb <= today) return 0;
+  if (x.pastBy < 0) return x.life <= RENEWAL_FIRST_LIFE_MAX ? 1 : 2;
+  return x.pastBy < 3 ? 3 : 4;
+}
+function _renewalModeBtn() {
+  const board = !!state._renewalBoard;
+  return el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+    title: board ? 'Back to the call queue' : 'Stage board (manager view)',
+    onclick: () => { state._renewalBoard = !board; mountApp(); } }, board ? '☰ Call queue' : '▦ Board view');
+}
+function _renewalQueueView(o) {
+  const today = _renewalToday();
+  const me = (state.profile && state.profile.full_name) || '';
+  const tab = String(state._renewalQTab || 'queue');
+  const fTier = state._renewalTier == null ? '' : String(state._renewalTier);
+  const base = (x) => (!o.q || String(x.name).toLowerCase().includes(o.q) || String(x.id).includes(o.q) || String(x.phone || '').includes(o.q) || String(x.office).toLowerCase().includes(o.q))
+    && (!o.fBranch || String(x.office) === o.fBranch) && (!(o.fMinAcv > 0) || x.arv >= o.fMinAcv);
+  const queue = [], snoozed = [], done = [];
+  o.allRecs.forEach(x => {
+    const g = o.logOf(x), st = o.stageOf(x);
+    if (st === 'Renewed' || st === 'Not Interested') { done.push(x); return; }
+    const cb = _renewalCallback(g);
+    if (cb && cb > today) { snoozed.push(x); return; }
+    x._tier = _renewalTierOf(x, g, today);
+    x._triedToday = (Number(g.attempts) || 0) > 0 && _renewalLocalDay(g.updated_at) === today && !cb;
+    queue.push(x);
+  });
+  // Order: tried-today sinks to the bottom of the whole queue → tier →
+  // within a tier: soonest term end (ending tiers), most recently out of
+  // contract (just M2M), biggest ARR (long M2M) — fewer attempts first on ties.
+  queue.sort((a, b) => (a._triedToday ? 1 : 0) - (b._triedToday ? 1 : 0) || a._tier - b._tier
+    || (a._tier <= 2 ? a.toGo - b.toGo : a._tier === 3 ? a.pastBy - b.pastBy : b.arv - a.arv)
+    || (Number(o.logOf(a).attempts) || 0) - (Number(o.logOf(b).attempts) || 0) || b.arv - a.arv);
+  const qAll = queue.filter(base);
+  const tierN = {}; RENEWAL_TIERS.forEach(t => { tierN[t.key] = { n: 0, arr: 0 }; });
+  qAll.forEach(x => { tierN[x._tier].n++; tierN[x._tier].arr += x.arv; });
+  const qShown = fTier === '' ? qAll : qAll.filter(x => String(x._tier) === fTier);
+  snoozed.sort((a, b) => _renewalCallback(o.logOf(a)).localeCompare(_renewalCallback(o.logOf(b))));
+  const doneAll = done.concat(o.crmRenewed);
+  doneAll.sort((a, b) => String(o.logOf(b).updated_at || b.since || '').localeCompare(String(o.logOf(a).updated_at || a.since || '')));
+  // Today's scoreboard — every worklog row touched today.
+  const LOG = state._renewalLog || {};
+  let tCalls = 0, tRenewed = 0, mCalls = 0, mRenewed = 0;
+  Object.values(LOG).forEach(g => {
+    if (!g || _renewalLocalDay(g.updated_at) !== today) return;
+    const ren = g.result === 'Renewed' || g.result === 'Resigned';
+    tCalls++; if (ren) tRenewed++;
+    if (me && g.worked_by === me) { mCalls++; if (ren) mRenewed++; }
+  });
+
+  const save = (x, patch, msg) => { _renewalLogSave(x.id, patch); if (msg) toast(msg, 'success'); state._renewalCbOpen = null; mountApp(); };
+  const btn = (label, title, onclick, sty) => el('button', { class: 'rounded-lg border px-2 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95 whitespace-nowrap', title,
+    style: Object.assign({ borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, sty || {}), onclick: (e) => { e.stopPropagation(); onclick(); } }, label);
+  const actions = (x, big) => {
+    const g = o.logOf(x);
+    const att = Number(g.attempts) || 0;
+    const cbOpen = state._renewalCbOpen === String(x.id);
+    const sz = big ? { fontSize: '12px', padding: '6px 12px' } : {};
+    const cbIn = cbOpen ? el('span', { class: 'inline-flex items-center gap-1', onclick: (e) => e.stopPropagation() },
+      el('input', { type: 'date', min: today, value: _renewalCallback(g) || '', class: 'rounded-lg border px-1.5 py-0.5 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+        onchange: (e) => { if (e.target.value) save(x, { result: 'Callback ' + e.target.value, attempts: att + 1 }, 'Callback set for ' + e.target.value); } }),
+      btn('✕', 'Cancel', () => { state._renewalCbOpen = null; mountApp(); })) : null;
+    return el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
+      btn('📵 No answer', 'Log an attempt — they drop to the bottom for today and come back tomorrow', () => save(x, { attempts: att + 1, result: 'Contacting' }), sz),
+      cbOpen ? cbIn : btn('📅 Callback', 'Spoke with them — pick the day to call back; they leave the queue until then', () => { state._renewalCbOpen = String(x.id); mountApp(); }, sz),
+      btn('✅ Renewed', 'Signed a new agreement', () => save(x, { result: 'Renewed', attempts: att + 1 }, x.name + ' renewed'), Object.assign({ color: 'var(--ok)', borderColor: 'rgba(22,163,74,.45)' }, sz)),
+      btn('❌ Not interested', 'Declined — off the list for everyone', () => save(x, { result: 'Not Interested', attempts: att + 1 }), Object.assign({ color: '#DC2626', borderColor: 'rgba(220,38,38,.35)' }, sz)));
+  };
+  const tierChip = (t) => el('span', { class: 'text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md shrink-0', style: { background: t.bg, color: t.color }, title: t.blurb }, t.short);
+  const why = (x) => {
+    const lifeTxt = 'month ' + Math.floor(x.life + 1) + ' of life';
+    if (x._tier === 0) return 'callback due ' + _renewalCallback(o.logOf(x)) + ' · ' + (x.pastBy < 0 ? 'term ends ' + x.endMonth : 'month-to-month');
+    if (x.pastBy < 0) return 'term ends ' + x.endMonth + ' · ' + lifeTxt + ' · ' + x.len + '-mo agreement';
+    return 'term ended ' + x.endMonth + ' · month-to-month ' + x.pastBy.toFixed(1) + ' mo · ' + lifeTxt;
+  };
+  const flags = (x) => [x.unsigned ? '⚠ no signed agreement' : '', x.autopay ? '' : 'no autopay', x.pastDue > 0 ? x.pastDue + 'd past due' : ''].filter(Boolean).join(' · ');
+  const phoneA = (x, big) => x.phone ? el('a', { href: 'tel:' + String(x.phone).replace(/[^0-9+]/g, ''), class: (big ? 'text-base' : 'text-[12px]') + ' font-black tabular-nums whitespace-nowrap', style: { color: 'var(--accent)' }, onclick: (e) => e.stopPropagation() }, '📞 ' + x.phone)
+    : el('span', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, 'no phone on file');
+  const notesIn = (x) => { const g = o.logOf(x); return el('input', { class: 'rounded-lg border px-2 py-1 text-[11px] w-full', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, placeholder: 'notes for the next rep…', value: g.notes || '', onclick: (e) => e.stopPropagation(), onchange: (e) => _renewalLogSave(x.id, { notes: e.target.value }) }); };
+  const lastTouch = (x) => { const g = o.logOf(x); const n = Number(g.attempts) || 0; return n ? ('📞 ' + n + ' attempt' + (n > 1 ? 's' : '') + (g.worked_by ? ' · last ' + g.worked_by.split(' ')[0] : '') + (g.updated_at ? ' ' + _renewalLocalDay(g.updated_at) : '')) : 'not called yet'; };
+
+  const nextUp = (x) => {
+    const t = RENEWAL_TIERS[x._tier];
+    return el('div', { class: 'rounded-2xl border p-4 flex flex-col gap-2', style: { borderColor: t.color, background: t.bg } },
+      el('div', { class: 'flex items-center justify-between gap-2 flex-wrap' },
+        el('div', { class: 'text-[10px] font-black uppercase tracking-wider', style: { color: t.color } }, 'Next call · ' + t.label),
+        el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, lastTouch(x))),
+      el('div', { class: 'flex items-end justify-between gap-3 flex-wrap' },
+        el('div', { class: 'min-w-0' },
+          el('div', { class: 'text-lg font-black truncate' }, x.name),
+          el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, '#' + x.id + ' · ' + _titleCaseWords(x.office) + ' · ' + x.svc + ' · ' + fmt.usd0(x.arv) + ' ARR'),
+          el('div', { class: 'text-[12px] font-bold mt-0.5', style: { color: t.color } }, why(x)),
+          flags(x) ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, flags(x)) : null),
+        phoneA(x, true)),
+      actions(x, true),
+      notesIn(x));
+  };
+  const LIMIT = state._renewalQMore ? 100000 : 60;
+  const row = (x, i) => {
+    const t = RENEWAL_TIERS[x._tier];
+    const open = state._renewalOpenCard === String(x.id);
+    return el('div', { class: 'rounded-xl border px-3 py-2 flex flex-col gap-1.5 cursor-pointer', style: { borderColor: 'var(--border)', background: 'var(--card)', opacity: x._triedToday ? '.6' : '1' },
+      onclick: () => { state._renewalOpenCard = open ? null : String(x.id); mountApp(); } },
+      el('div', { class: 'flex items-center gap-2 flex-wrap' },
+        el('span', { class: 'text-[10px] font-bold tabular-nums w-6 shrink-0', style: { color: 'var(--text-subtle)' } }, String(i + 1)),
+        tierChip(t),
+        el('div', { class: 'min-w-0 flex-1', style: { minWidth: '160px' } },
+          el('div', { class: 'text-xs font-bold truncate' }, x.name + (x._triedToday ? ' · tried today' : '')),
+          el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-muted)' } }, why(x))),
+        el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-subtle)', maxWidth: '200px' } }, _titleCaseWords(x.office) + ' · ' + x.svc),
+        el('div', { class: 'text-[11px] font-bold tabular-nums w-16 text-right shrink-0' }, fmt.usd0(x.arv)),
+        phoneA(x)),
+      open ? el('div', { class: 'flex flex-col gap-1.5 pt-1.5 border-t', style: { borderColor: 'var(--border)' }, onclick: (e) => e.stopPropagation() },
+        el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '#' + x.id + (flags(x) ? ' · ' + flags(x) : '') + ' · ' + lastTouch(x)),
+        actions(x), notesIn(x))
+        : (o.logOf(x).notes ? el('div', { class: 'text-[10px] truncate pl-8', style: { color: 'var(--text-muted)' } }, '✎ ' + o.logOf(x).notes) : null));
+  };
+  const plainRow = (x, right) => el('div', { class: 'rounded-xl border px-3 py-2 flex items-center gap-2 flex-wrap', style: { borderColor: 'var(--border)', background: 'var(--card)' } },
+    el('div', { class: 'min-w-0 flex-1', style: { minWidth: '160px' } },
+      el('div', { class: 'text-xs font-bold truncate' }, x.name),
+      el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-muted)' } }, '#' + x.id + ' · ' + _titleCaseWords(x.office) + ' · ' + x.svc + (o.logOf(x).notes ? ' · ✎ ' + o.logOf(x).notes : ''))),
+    el('div', { class: 'text-[11px] font-bold tabular-nums' }, fmt.usd0(x.arv)), phoneA(x), right);
+
+  const tabBtn = (k, label, n) => el('button', { class: 'rounded-lg px-3 py-1 text-[11px] font-bold cursor-pointer', style: tab === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text)' },
+    onclick: () => { state._renewalQTab = k; mountApp(); } }, label + ' · ' + n.toLocaleString());
+  const tierBar = el('div', { class: 'flex gap-1.5 flex-wrap' },
+    el('button', { class: 'rounded-lg border px-2 py-1 text-[10px] font-bold cursor-pointer', style: { borderColor: fTier === '' ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onclick: () => { state._renewalTier = null; mountApp(); } }, 'All · ' + qAll.length.toLocaleString()),
+    ...RENEWAL_TIERS.filter(t => tierN[t.key].n).map(t => el('button', { class: 'rounded-lg border px-2 py-1 text-[10px] font-bold cursor-pointer', title: t.blurb + ' · ' + fmt.usd0(tierN[t.key].arr) + ' ARR',
+      style: { borderColor: fTier === String(t.key) ? t.color : 'var(--border-2)', background: fTier === String(t.key) ? t.bg : 'var(--card)', color: t.color },
+      onclick: () => { state._renewalTier = t.key; mountApp(); } }, t.label + ' · ' + tierN[t.key].n.toLocaleString())));
+  const exportQ = el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+    onclick: () => _reportingCsvDownload('renewal-call-queue-' + today + '.csv',
+      ['Rank', 'Priority', 'Customer ID', 'Customer Name', 'Phone', 'Office Name', 'Subscription Type', 'ARV', 'Contract', 'Customer Life (mo)', 'Term End', 'Months To Term End', 'Months Past Term', 'Auto Pay', 'Days Past Due', 'Attempts', 'Last Rep', 'Notes'],
+      qShown.map((x, i) => { const g = o.logOf(x); return [i + 1, RENEWAL_TIERS[x._tier].label, x.id, x.name, x.phone, x.office, x.svc, Math.round(x.arv), x.len, x.life.toFixed(1), x.endMonth, x.pastBy < 0 ? x.toGo.toFixed(1) : '', x.pastBy >= 0 ? x.pastBy.toFixed(1) : '', x.autopay ? 'Yes' : 'No', x.pastDue, g.attempts || 0, g.worked_by || '', g.notes || '']; })) }, '⬇ Export queue');
+
+  let body;
+  if (tab === 'callbacks') {
+    const L = snoozed.filter(base);
+    body = L.length ? el('div', { class: 'flex flex-col gap-1.5' }, ...L.map(x => plainRow(x, el('span', { class: 'inline-flex items-center gap-1.5' },
+      el('span', { class: 'text-[11px] font-bold', style: { color: '#7C3AED' } }, '📅 ' + _renewalCallback(o.logOf(x))),
+      btn('Call now', 'Put back in the queue today', () => save(x, { result: 'Contacting' }))))))
+      : el('div', { class: 'text-[12px] text-center py-8', style: { color: 'var(--text-subtle)' } }, 'No callbacks scheduled.');
+  } else if (tab === 'done') {
+    const L = doneAll.filter(base);
+    body = L.length ? el('div', { class: 'flex flex-col gap-1.5' }, ...L.slice(0, LIMIT).map(x => {
+      const g = o.logOf(x), ren = x.crm || /Renewed|Resigned/.test(g.result || '');
+      return plainRow(x, el('span', { class: 'inline-flex items-center gap-1.5' },
+        el('span', { class: 'text-[10px] font-black uppercase', style: { color: ren ? 'var(--ok)' : '#DC2626' } }, x.crm ? 'Renewed in CRM' : (ren ? 'Renewed' : 'Not interested') + (g.worked_by ? ' · ' + g.worked_by.split(' ')[0] : '') + (g.updated_at ? ' ' + _renewalLocalDay(g.updated_at) : '')),
+        x.crm ? null : btn('↩ Undo', 'Put back in the queue', () => save(x, { result: '' }))));
+    }), L.length > LIMIT ? btn('Show all ' + L.length.toLocaleString(), '', () => { state._renewalQMore = true; mountApp(); }) : null)
+      : el('div', { class: 'text-[12px] text-center py-8', style: { color: 'var(--text-subtle)' } }, 'Nothing closed out yet.');
+  } else {
+    const first = qShown[0], rest = qShown.slice(1);
+    body = first ? el('div', { class: 'flex flex-col gap-2' },
+      first._triedToday ? el('div', { class: 'text-[12px] font-bold text-center py-2', style: { color: 'var(--ok)' } }, '🎉 Everyone in this list has been tried today — what is left are second attempts.') : null,
+      nextUp(first),
+      rest.length ? el('div', { class: 'text-[10px] font-black uppercase tracking-wider mt-1', style: { color: 'var(--text-subtle)' } }, 'Then') : null,
+      ...rest.slice(0, LIMIT).map((x, i) => row(x, i + 1)),
+      rest.length > LIMIT ? btn('Show all ' + rest.length.toLocaleString(), '', () => { state._renewalQMore = true; mountApp(); }) : null)
+      : el('div', { class: 'text-[12px] text-center py-8', style: { color: 'var(--text-subtle)' } }, o.q ? 'Nobody matches “' + o.q + '”.' : 'Queue is clear — nice work.');
+  }
+  const header = el('div', { class: 'flex flex-col gap-2' },
+    el('div', { class: 'flex items-center gap-2 flex-wrap' },
+      tabBtn('queue', '📞 Call queue', qAll.length), tabBtn('callbacks', '📅 Callbacks', snoozed.filter(base).length), tabBtn('done', '✓ Done', doneAll.filter(base).length),
+      el('span', { class: 'text-[11px] tabular-nums ml-auto', style: { color: 'var(--text-muted)' } },
+        'Today: ', el('b', {}, String(mCalls)), ' calls · ', el('b', { style: { color: 'var(--ok)' } }, String(mRenewed)), ' renewed (you) · team ', el('b', {}, String(tCalls)), ' / ', el('b', { style: { color: 'var(--ok)' } }, String(tRenewed)))),
+    el('div', { class: 'flex items-center gap-2 flex-wrap' }, o.search, o.branchSel, o.acvIn, exportQ, _renewalModeBtn()),
+    tab === 'queue' ? tierBar : null);
+  if (o.compact) return el('div', { class: 'flex flex-col gap-3' }, header, body);
+  return el('div', { class: 'flex flex-col gap-4' },
+    el('div', { class: 'card p-4 flex flex-col gap-3' },
+      el('div', {},
+        el('h2', { class: 'text-lg font-bold' }, '🔁 Renewal call queue'),
+        el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
+          'Who to call, in order. First contracts ending (months 11–12 of customer life, where churn spikes) come first — renewals can be signed in the final 2 months of the agreement — then other contracts ending, then customers who just went month-to-month, and long-term month-to-month last. No answer drops a customer to the bottom for today; a callback takes them off the list until that day. Never renewed before · no Sentricon.')),
+      header),
+    body);
 }
 
 // ── Renewal disposition log — shared across agents. Supabase table
