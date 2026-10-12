@@ -18,6 +18,7 @@
 //   Cost per job   = each COGS line ÷ completed FieldRoutes appointments in the
 //                    month (RevHawk, cached beside the ledger as `jobs`)
 // ═══════════════════════════════════════════════════════════════════════════
+const PUTIS_MINOR_COLS = ['Tampa', 'Corporate'];   // collapsed on the P&L branch cards until opened
 const PUTIS_BRANCHES = ['Atlanta', 'Charleston', 'Destin', 'Detroit', 'Joplin', 'Little Rock', 'Myrtle Beach', 'Raleigh', 'Salt Lake', 'Virginia Beach', 'Tampa'];
 const PUTIS_GROUP = {
   'sales': 'revenue',
@@ -584,6 +585,10 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
   const bookAtEnd = U.eom && U.eom[endYm];   // month-end book for the period; falls back to today
   let cols = [...branches.map(b => ({ key: b, label: b, set: [b] })), { key: 'RIDD', label: 'RIDD', set: branches }];
   if (opts.onlyCol) cols = cols.filter(c => c.key === opts.onlyCol);   // phones: one column at a time
+  // Tampa and Corporate are collapsed by default (per Isaac, Oct 12) — still in the RIDD total; the corner of the
+  // header row opens them.
+  const _minor = !opts.onlyCol ? cols.filter(c => PUTIS_MINOR_COLS.includes(c.key)).map(c => c.key) : [];
+  if (_minor.length && !state._putisShowMinor) cols = cols.filter(c => !_minor.includes(c.key));
   const D = Object.fromEntries(cols.map(c => [c.key, putisDeriveMonths(M, yms, c.set)]));
   const UM = Object.fromEntries(cols.map(c => [c.key, putisMetrics(M, U, yms, c.set)]));
   const fr = (key) => {
@@ -765,7 +770,9 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
     // Recurring Book to Margins to Unit Economics.
     el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: (260 + cols.reduce((t, c) => t + (pctOn(c.key) ? 2 : 1), 0) * 96) + 'px' } },
       el('colgroup', {}, el('col', { style: { width: '260px' } }), ...cols.flatMap(c => pctOn(c.key) ? [el('col', {}), el('col', {})] : [el('col', {})])),
-      el('thead', {}, el('tr', {}, th('', '', true), ...cols.flatMap(c => {
+      el('thead', {}, el('tr', {}, (() => { const h = th(_minor.length ? (state._putisShowMinor ? '▾ Hide ' : '▸ Show ') + _minor.join(' · ') : '', '', true);
+          if (_minor.length) { h.classList.add('cursor-pointer', 'select-none'); h.style.color = 'var(--accent)'; h.title = (state._putisShowMinor ? 'Collapse ' : 'Expand ') + _minor.join(' and ') + ' (always included in RIDD)'; h.onclick = () => { state._putisShowMinor = !state._putisShowMinor; mountApp(); }; }
+          return h; })(), ...cols.flatMap(c => {
         const on = pctOn(c.key);
         const h = th(c.label + (withPct && !opts.onlyCol ? (on ? ' ▾' : ' ▸') : ''), withPct && !opts.onlyCol ? (on ? 'Click to hide the % of revenue column' : 'Click to show % of revenue for ' + c.label) : '');
         h.style.borderLeft = '1px solid var(--border)';
