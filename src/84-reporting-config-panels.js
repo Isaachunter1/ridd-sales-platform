@@ -766,6 +766,7 @@ function _mktgSave() {
 const _mktgYm = (y, i) => y + '-' + String(i + 1).padStart(2, '0');
 const _mktgTC = (o) => String(o || '').split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w).join(' ');
 // FieldRoutes actuals for one calendar year: per branch/month + per source/month.
+const MKTG_UPSELL_SINCE = '2026-10-12';   // office-staff add-ons go live — upsells count from here
 function _mktgActuals(year) {
   const rows = state.reportingSubscriptions || [];
   const isExcl = reportingExcludedSources();
@@ -801,6 +802,9 @@ function _mktgActuals(year) {
     const s = prov ? (source[prov] = source[prov] || Array.from({ length: 12 }, mk))[mi] : null;
     const sb = prov ? (srcBranch[prov + '|' + off] = srcBranch[prov + '|' + off] || Array.from({ length: 12 }, mk))[mi] : null;
     const cv = Number(r.subscription_contract_value) || 0;
+    // Upsells start the day the office-staff add-on feature launched (per Isaac, Oct 12): an upsell-sourced
+    // sale before then isn't an upsell and isn't new business either, so it is left out of the CAC numbers.
+    if (cls === 'upsell' && String(sd).slice(0, 10) < MKTG_UPSELL_SINCE) continue;
     for (const x of [b, s, sb, total[mi]].filter(Boolean)) {
       if (cls === 'upsell') { x.upsells++; x.upRev += cv; }
       else { x.subs++; x.rev += cv; }
@@ -1019,7 +1023,7 @@ function _mktgCac() {
   ];
   const byKey = Object.fromEntries(ROWS.map(r => [r[0], r]));
   return el('div', { class: 'flex flex-col gap-4' },
-    _mktgMatrixCard('CAC · ' + (scope === MKTG_ALL ? CFG.COMPANY_NAME : B.byEntity[scope] ? companyName(scope) : _mktgTC(scope)), 'FieldRoutes revenue & counts · QuickBooks ad spend (allocation for unbooked months) · wages / incentives from Spend entry · projection from Configurations', ROWS.map(r => r[0]),
+    _mktgMatrixCard('CAC · ' + (scope === MKTG_ALL ? CFG.COMPANY_NAME : B.byEntity[scope] ? companyName(scope) : _mktgTC(scope)), 'Revenue & counts: FieldRoutes (office staff, sold month) · Ad spend: QuickBooks · Wages / incentives: hand-entered · Upsells from Oct 12, 2026 (add-on launch) · projection from Configurations', ROWS.map(r => r[0]),
       (rk, i) => byKey[rk][1](i),
       (v, rk) => byKey[rk][2](v),
       { firstCol: 'Metric', groupRows: new Set(['Total new sales', 'Total new revenue', 'Total spend']),
