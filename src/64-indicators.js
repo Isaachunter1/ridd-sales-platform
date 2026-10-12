@@ -3305,7 +3305,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // 'YYYY' = that calendar year, 'all' = all time. Picked from the Year
     // dropdown on the card.
     const _recPhone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })();
-    const _recYear = state._aggRecordsYear || '';
+    // Records are an annual thing (per Isaac, Oct 12): the card defaults to the current calendar year across every
+    // rep, whatever range the page is on; pick another year or All time from its dropdown.
+    const _recYear = (state._aggRecordsYear && state._aggRecordsYear !== '') ? state._aggRecordsYear : String(new Date().getFullYear());
     const recSales = !_recYear ? rawSales : (allRawSales || []).filter(s => {
       if (applyExclusion && isRepExcluded(s.rep)) return false;
       if (_recYear === 'all') return true;
@@ -3777,12 +3779,6 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // Compact dropdown used in the card header.
     const _recSel = (val, opts, on) => el('select', { class: 'rounded-lg border text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', padding: '4px 6px', maxWidth: '104px' },
       onchange: (e) => { on(e.target.value); mountApp(); } }, ...opts.map(([v, l]) => el('option', { value: v, selected: v === val }, l)));
-    // What the page range reads as in the Year dropdown: the year when the page is on a whole year, else the range's own name.
-    const _recPageLbl = (() => {
-      const pr = state.indicatorsRangePreset || 'this_year';
-      const ym = /^year:(\d{4})$/.exec(pr);
-      return ym ? ym[1] : pr === 'this_year' ? String(new Date().getFullYear()) : pr === 'last_year' ? String(new Date().getFullYear() - 1) : pr === 'all_time' ? 'All time' : indicatorPresetLabel(pr);
-    })();
     const metricToggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
       ...[
         { id: 'revenue', label: 'Revenue' },
@@ -3806,12 +3802,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           // Phone (per Isaac, Oct 4): no description, no date-range line — three
           // compact dropdowns beside the title: Year · Revenue/Sales · record.
           ? el('div', { class: 'flex items-center gap-1.5', style: { flexWrap: 'nowrap' } },
-              _recSel(_recYear, [['', _recPageLbl], ..._recYears.filter(y => y !== _recPageLbl).map(y => [y, y]), ['all', 'All time']], (v) => { state._aggRecordsYear = v; }),
+              _recSel(_recYear, [...[...new Set([String(new Date().getFullYear()), ..._recYears])].map(y => [y, y]), ['all', 'All time']], (v) => { state._aggRecordsYear = v; }),
               _recSel(byMetric, [['revenue', 'Revenue'], ['count', 'Sales']], (v) => { state._aggRecordsMetric = v; }),
               _recSel(_recPeriod, [['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['year', 'Year'], ['pra', 'PRA day']], (v) => { state._aggRecordsPeriod = v; }))
           : el('div', { class: 'flex items-center gap-3 flex-wrap' },
-              windowLabel && !_recYear && el('span', { class: 'text-[10px] tabular-nums px-2 py-0.5 rounded font-semibold', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, windowLabel),
-              _recSel(_recYear, [['', _recPageLbl], ..._recYears.filter(y => y !== _recPageLbl).map(y => [y, y]), ['all', 'All time']], (v) => { state._aggRecordsYear = v; }),
+              _recSel(_recYear, [...[...new Set([String(new Date().getFullYear()), ..._recYears])].map(y => [y, y]), ['all', 'All time']], (v) => { state._aggRecordsYear = v; }),
               metricToggle,
             ),
       ),
