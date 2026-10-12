@@ -345,7 +345,34 @@ function retenReconcile(fileRows, pop, book, _retenEff, ground) {
     };
     row._why = why; fileOnly.push(row);
   }
-  return { fileCount: fileMap.size, bookCount: book.length, matched, appOnly, fileOnly, top };
+  // Start year, row by row (per Isaac, Oct 12): the file's Initial Service year vs the app's cohort year.
+  const yOf = (v) => { const m = /(\d{4})-\d{2}-\d{2}/.exec(String(v || '')) || /\d{1,2}\/\d{1,2}\/(\d{4})/.exec(String(v || '')); return m ? Number(m[1]) : null; };
+  const years = new Map(); const bump = (y, k) => { if (y == null) return; const o = years.get(y) || years.set(y, { file: 0, app: 0 }).get(y); o[k]++; };
+  fileRows.forEach(o => bump(yOf(o['initial service']), 'file')); book.forEach(r => bump(yOf(r.initial_service), 'app'));
+  const yearShift = [];
+  for (const [k, o] of fileMap) { const r = bookMap.get(k); if (!r) continue; const fy = yOf(o['initial service']), ay = yOf(r.initial_service);
+    if (fy && ay && fy !== ay) yearShift.push({ ...r, _why: (r.is_renewal_cont && yOf(r.origin_initial_service) === ay ? 'renewal folded into the customer\u2019s original year' : 'start date differs') + ' · file ' + fy + ' → app ' + ay }); }
+  // Cancellation reasons the file has and the app doesn't (RevHawk carries no cancellation note for these).
+  const fill = {}; let fillN = 0;
+  const allByKey = new Map(); (ground || pop).forEach(r => { const k = ak(r); (allByKey.get(k) || allByKey.set(k, []).get(k)).push(r); });
+  for (const o of fileRows) {
+    const reason = String(o['subscription cancellation reason'] || '').trim(); if (!reason) continue;
+    const cd = String(o['subscription date canceled'] || '').slice(0, 10); if (!/^\d{4}-\d{2}-\d{2}$/.test(cd)) continue;
+    const rs = allByKey.get(fk(o)) || [];
+    const r = rs.find(x => String(x.subscription_date_canceled || '').slice(0, 10) === cd) || null;
+    if (r && (!String(r.subscription_cancellation_reason || '').trim() || r.cancel_reason_inferred)) { fill[retenReasonKey(r.customer_id, r.subscription, cd)] = reason; fillN++; }
+  }
+  return { fileCount: fileMap.size, bookCount: book.length, matched, appOnly, fileOnly, top, years: [...years.entries()].sort((a, b) => a[0] - b[0]), yearShift, fill, fillN };
+}
+// Cancellation reasons taken from an uploaded FieldRoutes report — kept in settings, applied at load to subs
+// that came through with no reason. Key: customer | subscription | cancel date.
+function retenReasonKey(cid, sub, cd) { return String(cid || '').trim() + '|' + String(sub || '').trim().toLowerCase() + '|' + String(cd || '').slice(0, 10); }
+function retenFileReasons() { const R = (typeof _adminRules === 'function') ? _adminRules() : null; return (R && R.cancelReasonFile) || {}; }
+function retenApplyFileReasons(rows) {
+  const F = retenFileReasons(); if (!rows || !Object.keys(F).length) return 0; let n = 0;
+  for (const r of rows) { if (!r.subscription_date_canceled) continue; const cur = String(r.subscription_cancellation_reason || '').trim(); if (cur && !r.cancel_reason_inferred) continue;
+    const v = F[retenReasonKey(r.customer_id, r.subscription, r.subscription_date_canceled)]; if (v && v !== cur) { r.subscription_cancellation_reason = v; r.cancel_reason_from_file = true; r.cancel_reason_inferred = false; n++; } }
+  return n;
 }
 function openRetenReconcileModal(res) {
   const n = (v) => Number(v || 0).toLocaleString();
@@ -386,6 +413,21 @@ function openRetenReconcileModal(res) {
         el('div', { class: 'text-[11px] text-muted-' }, 'App: ' + n(res.top.appCount) + ' with a completed initial (of ' + n(res.top.groundCount) + ' in the whole snapshot) · your file ' + n(res.top.fileCount))),
       groupTable('Only in the app (top)', res.top.appOnly, 'In the app with a completed initial but not in your pull.'),
       groupTable('Only in your file (top)', res.top.fileOnly, 'In your pull but the app has no completed initial for it — or does not have the row at all.')) : null,
+    // Cohort sizes side by side, and the rows that land in a different start year.
+    res.years && res.years.length ? el('div', { class: 'flex flex-col gap-1.5 p-3 rounded-xl', style: { background: 'var(--card-2)' } },
+      el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Cohort sizes · start year'),
+      el('table', { class: 'w-full text-xs' }, el('thead', {}, el('tr', {}, ...['Year', 'Your file', 'App', 'Difference'].map((t, i) => el('th', { class: 'py-1 text-[10px] uppercase tracking-wider ' + (i ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)' } }, t)))),
+        el('tbody', {}, ...res.years.map(([y, o]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, el('td', { class: 'py-1' }, String(y)), el('td', { class: 'py-1 text-right tabular-nums' }, n(o.file)), el('td', { class: 'py-1 text-right tabular-nums' }, n(o.app)),
+          el('td', { class: 'py-1 text-right tabular-nums font-semibold', style: { color: o.app === o.file ? 'var(--text-muted)' : '#B45309' } }, (o.app - o.file > 0 ? '+' : '') + n(o.app - o.file)))))),
+      groupTable('Same subscription, different start year', res.yearShift || [], 'In both, but counted in another cohort year. "Renewal folded…" goes away with Renewals: own year on the waterfall.')) : null,
+    res.fillN ? el('div', { class: 'flex items-center justify-between gap-3 p-3 rounded-xl', style: { background: 'rgba(42,120,194,.08)' } },
+      el('div', { class: 'text-[11px]' }, el('div', { class: 'font-bold text-xs' }, n(res.fillN) + ' cancellation reasons your file has that the app doesn\u2019t'),
+        'RevHawk has no cancellation note for these, so the app can\u2019t tell a renewal or combined close from a real cancel. Use your file\u2019s reasons — saved, applied on every load.'),
+      el('button', { class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold whitespace-nowrap', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => {
+        const all = Object.assign({}, retenFileReasons(), res.fill); _setAdminRule('cancelReasonFile', all);
+        const k = retenApplyFileReasons(state._snapshotAllRows || state.reportingSubscriptions || []);
+        if (typeof _applyLiveDataRules === 'function') _applyLiveDataRules(); else state.reportingSubscriptions = (state.reportingSubscriptions || []).slice();
+        toast(n(k) + ' cancellation reasons filled from your file — re-run the compare to see the new numbers', 'success'); overlay.remove(); mountApp(); } }, 'Use these reasons')) : null,
     el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Retention book · after every step'),
     groupTable('Only in the app', res.appOnly, 'Rows the app keeps that your file dropped — grouped by what the row looks like, so you can spot which of your steps removed them.'),
     groupTable('Only in your file', res.fileOnly, 'Rows you kept that the app removed — grouped by the app step that removed them (or missing from the snapshot).')));

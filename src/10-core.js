@@ -2165,6 +2165,8 @@ async function loadReportingSubscriptions(uploadId) {
   // Ground-zero bookkeeping (per Isaac): the Retention tab walks down from
   // EVERYTHING in FieldRoutes, so remember what the loader itself dropped.
   state._snapshotLoadDrops = { raw: Array.isArray(raw) ? raw.length : 0, phantom: (Array.isArray(raw) ? raw.length : 0) - (Array.isArray(noPhantom) ? noPhantom.length : 0), dupes: (Array.isArray(noPhantom) ? noPhantom.length : 0) - (Array.isArray(deduped) ? deduped.length : 0) };
+  // Cancellation reasons from an uploaded FieldRoutes report fill the blanks before renewal chains are linked.
+  if (typeof retenApplyFileReasons === 'function') { try { retenApplyFileReasons(deduped); } catch (e) { /* settings not loaded yet */ } }
   const rows = linkRenewalChains(deduped);
   // Reinstated accounts (per Isaac, Sep 24): a sub that was cancelled and
   // then turned back on is ACTIVE in FieldRoutes but still carries the old

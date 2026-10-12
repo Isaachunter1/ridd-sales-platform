@@ -283,9 +283,22 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
         el('span', { class: 'inline-flex' }, retenBranchDropdown(retenGroundZero())),
         whatIf ? el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: (e) => { e.stopPropagation(); state._retenWhatIf = null; mountApp(); } }, 'Reset to official') : null,
         (() => {
-          const inp = el('input', { type: 'file', accept: '.csv,text/csv', style: { display: 'none' } });
-          inp.addEventListener('change', () => {
+          const inp = el('input', { type: 'file', accept: '.csv,text/csv,.xlsx,.xls', style: { display: 'none' } });
+          inp.addEventListener('change', async () => {
             const f = inp.files && inp.files[0]; if (!f) return;
+            // Excel too (per Isaac, Oct 12 — his book is an .xlsx): first tab with Customer ID + Subscription columns.
+            if (/\.xlsx?$/i.test(f.name)) {
+              try { await loadXlsxLibOnce(); const wb = XLSX.read(await f.arrayBuffer(), { type: 'array', cellDates: true });
+                let rows = null;
+                for (const sn of wb.SheetNames) { const raw = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: '', raw: true }); if (!raw.length) continue;
+                  const norm = raw.map(o => { const x = {}; for (const k in o) { const v = o[k]; x[String(k).trim().toLowerCase()] = v instanceof Date ? v.toISOString().slice(0, 10) : String(v == null ? '' : v).trim(); } return x; })
+                    .filter(x => x['customer id'] && x['subscription']);
+                  if (norm.length) { rows = norm; break; } }
+                if (!rows) { toast('No tab with Customer ID and Subscription columns', 'error'); inp.value = ''; return; }
+                openRetenReconcileModal(retenReconcile(rows, pop, book, _retenEff, g0));
+              } catch (e) { toast('Could not read that file: ' + (e && e.message || e), 'error'); }
+              inp.value = ''; return;
+            }
             const rd = new FileReader();
             rd.onload = () => { try { const rows = retenParseCsv(rd.result); if (!rows.length || !('customer id' in rows[0]) || !('subscription' in rows[0])) { toast('CSV needs Customer ID and Subscription columns', 'error'); return; } openRetenReconcileModal(retenReconcile(rows, pop, book, _retenEff, g0)); } catch (e) { toast('Could not read that CSV: ' + (e && e.message || e), 'error'); } };
             rd.readAsText(f);
@@ -843,7 +856,7 @@ function reportingWaterfall() {
       const _hit = (renderBlended._excl && renderBlended._excl.src === scoped && renderBlended._excl.key === _mk) ? renderBlended._excl : null;
       const grid = _hit ? _hit.grid : new Map();   // year -> bucket -> rows
       let any = _hit ? _hit.any : 0;
-      const _yr = (r) => yearOf(r.origin_initial_service || r.initial_service) >= 2000 ? yearOf(r.origin_initial_service || r.initial_service) : (yearOf(r.sold_date) >= 2000 ? yearOf(r.sold_date) : 0);
+      const _yr = (r) => yearOf(retenCohortStart(r)) >= 2000 ? yearOf(retenCohortStart(r)) : (yearOf(r.sold_date) >= 2000 ? yearOf(r.sold_date) : 0);
       if (!_hit) for (const st of _steps) for (const r of st.removed) {
         const y = _yr(r); if (!grid.has(y)) grid.set(y, {});
         const g = grid.get(y), k = 'step:' + st.key; (g[k] = g[k] || []).push({ ...r, _flagReason: (_STEP_LBL[st.key] || st.key).toLowerCase() }); any++;
@@ -956,7 +969,13 @@ function reportingWaterfall() {
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
         el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Cohort Waterfall' + (office !== 'all' ? ' · ' + office : '')),
           el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, wfDim === 'year' ? 'Click a cohort\u2019s size for its accounts and what was excluded from it; click the Total for every year.' : (wfCohort != null ? 'Each row is one ' + SEM_DIMENSIONS[wfDim].label.toLowerCase() + ' within the ' + wfCohort + ' cohort (first serviced in ' + wfCohort + '). Under the size: growth against the ' + (wfCohort - 1) + ' cohort. Each year: still active, and the share lost that year. Click any number for the accounts.' : 'Each row is one ' + SEM_DIMENSIONS[wfDim].label.toLowerCase() + '. Under the size: the share that has ever cancelled. Each year: active at year-end, and the share of that January\u2019s book that left. Click any number for the accounts.'))),
-        el('div', { class: 'flex items-center gap-2 flex-wrap' }, rowsSel, cohortSel, el('div', { class: 'inline-flex', style: { border: '1px solid var(--border-2)' } },
+        el('div', { class: 'flex items-center gap-2 flex-wrap' }, rowsSel, cohortSel,
+          isAdminRole(state.profile?.role) ? el('select', { class: 'px-2.5 py-1 text-[11px] font-bold cursor-pointer', style: { border: '1px solid var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+            title: 'Which cohort a renewal subscription belongs to. Own year = the year the renewal was serviced (the FieldRoutes report / your book). Original year = folded back into the customer\u2019s first start year.',
+            onchange: (e) => { setRetenChainRenewalCohort(e.target.value === 'chain'); mountApp(); } },
+            el('option', { value: 'own', selected: !retenChainRenewalCohort() }, 'Renewals: own year'),
+            el('option', { value: 'chain', selected: retenChainRenewalCohort() }, 'Renewals: original year')) : null,
+          el('div', { class: 'inline-flex', style: { border: '1px solid var(--border-2)' } },
           ...[[false, 'Subs'], [true, 'ARR']].map(([v, l]) => el('button', {
             class: 'px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
             style: !!state._rtWaterfallArr === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card)', color: 'var(--text-muted)' },

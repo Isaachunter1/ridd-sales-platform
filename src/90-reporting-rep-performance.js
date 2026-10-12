@@ -123,7 +123,7 @@ function buildReportingWaterfall(rows, mode, cohortYear) {
         ? r.subscription_date_canceled : null;
       // A renewal continuation keeps the relationship's ORIGINAL first-service
       // date, so cohorts and tenure don't restart when a customer changes plans.
-      return { ...r, initial_service: r.origin_initial_service || r.initial_service, _effCancel: realCancel };
+      return { ...r, initial_service: retenCohortStart(r), _effCancel: realCancel };
     });
   const initYears = rows
     .map(r => r.initial_service ? new Date(r.initial_service + 'T00:00').getFullYear() : null)

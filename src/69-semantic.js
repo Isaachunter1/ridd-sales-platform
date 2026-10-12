@@ -43,7 +43,7 @@ const SEM_RULES = {
 // Memoized per population array + rules.
 const _semBookCache = new WeakMap();
 function semRetentionBook(pop) {
-  const key = (retenExclRenewalSubs() ? 'R' : '') + (retenExclZeroPay() ? 'Z' : '') + (retenExclFrozenOneSvc() ? 'F' : '') + (retenExclOneSvc() ? 'O' : '') + (reportingExcludeRorChurn() ? 'r' : '') + '|' + [...retenPopExclReasons()].join(',') + '|' + retenOneSvcExemptTerms().join(',') + '|' + reportingExcludedCancelReasons().size + '|' + JSON.stringify(state._retenWhatIf || null);
+  const key = ((typeof retenChainRenewalCohort === 'function' && retenChainRenewalCohort()) ? 'C' : '') + (retenExclRenewalSubs() ? 'R' : '') + (retenExclZeroPay() ? 'Z' : '') + (retenExclFrozenOneSvc() ? 'F' : '') + (retenExclOneSvc() ? 'O' : '') + (reportingExcludeRorChurn() ? 'r' : '') + '|' + [...retenPopExclReasons()].join(',') + '|' + retenOneSvcExemptTerms().join(',') + '|' + reportingExcludedCancelReasons().size + '|' + JSON.stringify(state._retenWhatIf || null);
   const hit = _semBookCache.get(pop);
   if (hit && hit._rulesKey === key) return hit;
   const recurringByName = reportingServiceRecurringMap();
@@ -57,7 +57,7 @@ function semRetentionBook(pop) {
         && !excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r)))
         && !(reportingExcludeRorChurn() && _reporting3dayRor(r))
         ? r.subscription_date_canceled : null;
-      return { ...r, initial_service: r.origin_initial_service || r.initial_service, _effCancel: realCancel };
+      return { ...r, initial_service: typeof retenCohortStart === 'function' ? retenCohortStart(r) : (r.origin_initial_service || r.initial_service), _effCancel: realCancel };
     });
   out._rulesKey = key;
   _semBookCache.set(pop, out);

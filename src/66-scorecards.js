@@ -1837,6 +1837,12 @@ function retenExclRenewalSubs()   {
   const r = _adminRules(); if (r && typeof r.retenExclRenewals === 'boolean') return r.retenExclRenewals;
   return false; }   // default OFF since Sep 2026: the renewal IS the live book; the old sub closed "Renewal - …" is what leaves (retenPopExclReasons)
 function setRetenExclRenewalSubs(b)   { _setAdminRule('retenExclRenewals', !!b); try { localStorage.setItem('ridd_reten_excl_renewals', b ? '1' : '0'); } catch {} }
+// Renewal cohort year (per Isaac, Oct 12 — his book): a renewal subscription starts its OWN cohort in the year it
+// was serviced, like the FieldRoutes report. ON = the renewal is folded back into the customer's original start year.
+function retenChainRenewalCohort() { const r = _adminRules(); return !!(r && r.retenChainRenewals === true); }
+function setRetenChainRenewalCohort(b) { _setAdminRule('retenChainRenewals', !!b); }
+// The year a subscription's cohort starts — the one place that decides it.
+function retenCohortStart(r) { return (retenChainRenewalCohort() && r.origin_initial_service) || r.initial_service; }
 function retenExclZeroPay()       {
   if (state._retenWhatIf && typeof state._retenWhatIf.zero === 'boolean' && state.reportingSubTab === 'waterfall') return state._retenWhatIf.zero;
   const r = _adminRules(); if (r && typeof r.retenExclZeroPay === 'boolean') return r.retenExclZeroPay;
