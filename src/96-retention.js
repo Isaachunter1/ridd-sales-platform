@@ -1545,7 +1545,23 @@ function reportingWaterfall() {
           view === 'timeline' ? yoyBtn : null,
           viewToggle,
           )),
-      view === 'timeline' ? (yoyOn ? yoyEl() : timelineEl()) : tableEl());
+      view === 'timeline' ? (yoyOn ? yoyEl() : timelineEl()) : tableEl(),
+      // Tie-out to the Cohort Waterfall (per Isaac, Oct 12): same book, same cancels — the waterfall follows each
+      // start year, this grid follows the whole book month by month. Book on Jan 1 + started this year − active
+      // now = lost this year; this grid leaves out only subs acquired and lost inside the same month.
+      (!R && view === 'table') ? (() => {
+        const st = curY + '-01-01', ymNow = curY + '-' + pad2(curM);
+        const boy = rows.filter(r => r.initial_service < st && (!r._effCancel || r._effCancel >= st)).length;
+        const started = rows.filter(r => r.initial_service >= st).length;
+        const activeNow = rows.filter(r => !r._effCancel).length;
+        const lost = boy + started - activeNow;
+        let inGrid = 0; for (let m = 1; m <= curM; m++) inGrid += cancelsByYm[curY + '-' + pad2(m)] || 0;
+        const sameMonth = rows.filter(r => r._effCancel && String(r._effCancel).slice(0, 4) === String(curY) && String(r.initial_service).slice(0, 7) === String(r._effCancel).slice(0, 7)).length;
+        return el('div', { class: 'px-4 py-2 border-t text-[11px]', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } },
+          el('span', { class: 'font-semibold', style: { color: 'var(--text)' } }, 'Ties to the Cohort Waterfall · ' + curY + ': '),
+          fmt.int(boy) + ' on the book Jan 1 + ' + fmt.int(started) + ' started − ' + fmt.int(activeNow) + ' active now = ' + fmt.int(lost) + ' lost. ',
+          'This grid counts ' + fmt.int(inGrid) + ' of them; the other ' + fmt.int(Math.max(0, lost - inGrid)) + ' were acquired and lost in the same month' + (sameMonth ? ' (' + fmt.int(sameMonth) + ')' : '') + ', which monthly churn leaves out. The waterfall’s ' + curY + ' row is only the ' + fmt.int(started) + ' that started this year; the rest of the lost accounts started in earlier years.');
+      })() : null);
   };
 
   // ── START-MONTH COHORTS — the retention side: do customers signed in

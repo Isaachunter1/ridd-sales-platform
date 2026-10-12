@@ -74,8 +74,8 @@ function reportingGeographic() {
     { key: 'subs',            label: 'Subscriptions',  fmt: (v) => Math.round(v).toLocaleString() },
     { key: 'revenue',         label: 'Revenue',        fmt: (v) => '$' + Math.round(v).toLocaleString() },
     { key: 'acv',             label: 'ACV',            fmt: (v) => '$' + Math.round(v).toLocaleString() },
-    { key: 'attrition',       label: 'Attrition Rate', fmt: (v) => (v * 100).toFixed(1) + '%' },
-    { key: 'retention',       label: 'Retention Rate', fmt: (v) => (v * 100).toFixed(1) + '%' },
+    { key: 'attrition',       label: 'Lifetime Attrition', fmt: (v) => (v * 100).toFixed(1) + '%' },
+    { key: 'retention',       label: 'Lifetime Retention', fmt: (v) => (v * 100).toFixed(1) + '%' },
     { key: 'service',         label: 'Service Types',  fmt: (v) => v || '—' },
   ];
   const isRetention = metricKey === 'retention';

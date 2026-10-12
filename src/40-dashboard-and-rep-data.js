@@ -4527,7 +4527,10 @@ function openIndicatorRepCard(rep, allReps = []) {
               el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } },
                 'True attrition \u00b7 excl. ROR + OTS + renewals \u00b7 aging counts as churn'),
               el('div', { class: 'text-[10px] text-muted- mt-0.5' },
-                '(cancelled ' + money(tCxl) + ' + aging ' + money(tAging) + ') \u00f7 ' + money(tSvc) + ' serviced')),
+                '(cancelled ' + money(tCxl) + ' + aging ' + money(tAging) + ') \u00f7 ' + money(tSvc) + ' serviced'),
+              // Same basis as Reporting → Retention (aging is still an active account there), per Isaac Oct 12.
+              el('div', { class: 'text-[10px] mt-0.5' }, el('span', { class: 'font-semibold' }, 'Cancelled only: ' + pctS(tCxl / tSvc) + ' · ' + fmt.int(nCxl) + ' of ' + fmt.int(nSvc) + ' accounts'),
+                el('span', { class: 'text-muted-' }, ' — aging counted as still active, the way the Retention tab reads it'))),
             el('div', { class: 'text-xl font-black tabular-nums', style: { color: rate >= 0.15 ? bad : rate < 0.08 ? good : '#A9441F' } }, pctS(rate))),
           el('div', { class: 'w-full rounded-full overflow-hidden flex mt-2', style: { height: '10px', background: 'var(--card)' } },
             seg(kept, good, 'Retained'),

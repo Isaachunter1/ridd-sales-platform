@@ -772,7 +772,7 @@ function reportingGeoTipHtml(name, o, colorLabel, colorDisplay) {
     + '<div style="margin-top:4px;display:grid;grid-template-columns:auto auto;gap:1px 10px;font-variant-numeric:tabular-nums">'
     + line('Customers', n(o.customers)) + line('Subs', n(o.subs))
     + line('Active ARR', usd(o.arv)) + line('ACV', usd(o.avgContract))
-    + line('Cancels', n(o.cancellations)) + line('Attrition', attr)
+    + line('Cancels', n(o.cancellations)) + line('Lifetime attrition', attr)
     + line('Avg tenure', o.avgTenure ? o.avgTenure.toFixed(1) + ' mo' : '—') + line('2yr+', pct(o.twoYrPct))
     + line('Sentricon', pct(o.sentriconPct)) + line('LTV / cust', usd(o.ltv))
     + '</div>';

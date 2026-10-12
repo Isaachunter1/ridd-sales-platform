@@ -525,8 +525,8 @@ function openReportingAreaStatsModal({ area, peers, kind }) {
     { label: 'Total ARV',        val: (a) => a.arv,         fmt: (v) => fmt.usd0(v),  better: 'high' },
     { label: 'Contract revenue', val: (a) => a.contract,    fmt: (v) => fmt.usd0(v),  better: 'high' },
     { label: 'ACV',              val: (a) => a.avgContract, fmt: (v) => fmt.usd0(v),  better: 'high' },
-    { label: 'Retention',        val: (a) => a.attritionEligible ? (1 - a.cancelRate) : null, fmt: (v) => (v * 100).toFixed(1) + '%', better: 'high' },
-    { label: 'Attrition',        val: (a) => a.attritionEligible ? a.cancelRate : null,       fmt: (v) => (v * 100).toFixed(1) + '%', better: 'low' },
+    { label: 'Lifetime retention', val: (a) => a.attritionEligible ? (1 - a.cancelRate) : null, fmt: (v) => (v * 100).toFixed(1) + '%', better: 'high' },
+    { label: 'Lifetime attrition', val: (a) => a.attritionEligible ? a.cancelRate : null,       fmt: (v) => (v * 100).toFixed(1) + '%', better: 'low' },
   ];
   const rowsEls = [];
   const pcts = [];
