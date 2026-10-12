@@ -215,7 +215,9 @@ function crmReconciliationChecks(subs) {
     // Status / duplicates / seller / no reason
     const cxlDate = String(r.subscription_date_canceled || '').trim();
     const cxlReason = String(r.subscription_cancellation_reason || '').trim();
-    if (isActive(r) && (cxlDate || cxlReason)) out.status.push(flag(r, 'Active but ' + (cxlDate ? 'cancelled ' + cxlDate : 'has a cancel reason') + (cxlReason ? ' \u00b7 ' + cxlReason : '')));
+    // (No "Active but has a cancel reason / date" check any more — per Isaac, Oct 12: those are reactivated,
+    // renewed or still-open subs, and an active sub is active. Reinstated subs already drop the old cancel date
+    // at load, so they never count as churn.)
     if (isActive(r)) { const k = String(r.customer_id) + '|' + String(r.subscription || '').trim().toLowerCase(); (dupKey.get(k) || dupKey.set(k, []).get(k)).push(r); }
     if (isActive(r) && !String(r.sold_by || '').trim()) out.seller.push(flag(r, 'Active with no Sold By'));
     if (!isActive(r) && cxlDate && !cxlReason) out.noReason.push(flag(r, 'Cancelled ' + cxlDate + ' with no reason'));
