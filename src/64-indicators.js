@@ -893,26 +893,14 @@ function viewIndicators() {
               // season a rep mostly wants TODAY — so the four ranges people flip
               // between sit right on the bar instead of inside Filters.
               el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' }, 'data-quick-range': '1' },
-                // Today only on the bar (per Isaac, Oct 9); Week / Month / Year moved to the top of More.
-                ...[['today', 'Today']].map(([id, lbl]) => el('button', {
-                  class: 'px-2.5 py-1 text-[11px] font-semibold',
-                  style: state.indicatorsRangePreset === id ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)', background: 'var(--card)' },
-                  title: (INDICATOR_RANGE_PRESETS.find(x => x.id === id) || {}).label || lbl,
-                  onclick: () => { if (state.indicatorsRangePreset === id) return; state.indicatorsRangePreset = id; state.indicatorsCustomStart = ''; state.indicatorsCustomEnd = ''; if (typeof trackAction === 'function') trackAction('quick_range', 'indicators', { range: id }); mountApp(); },
-                }, lbl)),
-                // Every other range (per Isaac, Oct 6): the date lives ONLY here now —
-                // it is out of the Filters panel. The fifth segment opens the rest
-                // (Yesterday, last week / month, a past year, Custom) and wears the
-                // name of the range when one of those is picked.
+                // ONE date button (per Isaac, Oct 12): it wears the current range's name; tap to pick another.
                 (() => {
-                  const QUICK = ['today'];
                   const cur = state.indicatorsRangePreset;
-                  const other = isRange && !QUICK.includes(cur);
-                  const _TOP = ['yesterday', 'this_week', 'this_month', 'this_year'];   // Yesterday first (per Isaac, Oct 9)
-                  const _all = indicatorPresetOptions().filter(o => !QUICK.includes(o.id));
+                  const _TOP = ['today', 'yesterday', 'this_week', 'this_month', 'this_year'];
+                  const _all = indicatorPresetOptions();
                   const opts = [..._TOP.map(id => _all.find(o => o.id === id)).filter(Boolean), ..._all.filter(o => !_TOP.includes(o.id))];
                   const sel = el('select', {
-                    'aria-label': 'More date ranges',
+                    'aria-label': 'Date range',
                     style: { position: 'absolute', inset: '0', width: '100%', height: '100%', opacity: '0', cursor: 'pointer' },
                     onchange: (e) => {
                       const v = e.target.value; if (!v || v === cur) return;
@@ -923,14 +911,12 @@ function viewIndicators() {
                       mountApp();
                     },
                   },
-                    el('option', { value: '', selected: !other, disabled: true }, 'More ranges\u2026'),
-                    ...opts.map(o => el('option', { value: o.id, selected: other && o.id === cur }, o.label)));
+                    ...opts.map(o => el('option', { value: o.id, selected: o.id === cur }, o.label)));
                   return el('span', {
                     class: 'px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap', 'data-range-more': '1',
-                    title: 'More date ranges',
-                    style: Object.assign({ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '3px', borderLeft: '1px solid var(--border-2)' },
-                      other ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)', background: 'var(--card)' }),
-                  }, other ? String(indicatorPresetLabel(cur) || '').replace(/\u2026$/, '') : 'More', el('span', { style: { fontSize: '8px', opacity: '.8' } }, '\u25BE'), sel);
+                    title: 'Date range',
+                    style: { position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px', color: 'var(--text)', background: 'var(--card)' },
+                  }, String((cur === 'this_year' && !isRange ? 'This year' : indicatorPresetLabel(cur)) || 'Date range').replace(/\u2026$/, ''), el('span', { style: { fontSize: '8px', opacity: '.8' } }, '\u25BE'), sel);
                 })()),
               el('div', { class: 'flex items-center justify-end gap-2 flex-wrap ml-auto' },
         // (🔧 edit mode moved to the GLOBAL top bar — it now drives section
@@ -2667,6 +2653,16 @@ function _fullWeeklyByRepCached(fullRawSales) {
   return _fullWeeklyCache;
 }
 
+// One-day range (Today, Yesterday, a one-day custom pick): per-day averages (Days w/ Sale, Accts/Day, $/Day) say
+// nothing over a single day — 1 day, accounts = sales, $/day = revenue — so they step aside (per Isaac, Oct 12)
+// and come back on any range of two days or more.
+function indOneDayRange() {
+  const pr = state.indicatorsRangePreset;
+  if (pr === 'today' || pr === 'yesterday') return true;
+  if (pr === 'custom') return !!state.indicatorsCustomStart && state.indicatorsCustomStart === state.indicatorsCustomEnd;
+  return false;
+}
+const IND_PER_DAY_COLS = new Set(['sellingDays', 'acctsPerDay', 'revPerDay']);
 function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksUnfiltered, allDataUnfiltered, windowLabel) {
   // We need the raw sales data — stored alongside aggregated rows.
   // Department-scoped so the rep leaderboard matches the toggle selection.
@@ -4394,6 +4390,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // _lbOff = every column NOT showing (user-unticked + default-hidden not ticked on).
   const _lbOff = new Set([...state._indLbColsOff, ..._lbPickable.filter(c => c.defaultHidden && !_lbOnSet.has(_lbColKey(c))).map(_lbColKey)]);
   repCols = repCols.filter(c => c.key === 'name' || !_lbOff.has(_lbColKey(c)));
+  if (indOneDayRange()) repCols = repCols.filter(c => !IND_PER_DAY_COLS.has(c.key));
   const _lbStore = (k, arr) => { try { localStorage.setItem(k + '::' + ((state.profile && state.profile.id) || 'anon'), JSON.stringify(arr)); } catch (e) { /* storage blocked */ } };
   const _lbSetShown = (key, show, render = true) => {
     const def = _lbPickable.find(c => _lbColKey(c) === key);
@@ -5003,11 +5000,16 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               el('span', { class: 'text-[10px] text-muted-' }, displayReps.length + ' reps'),
               el('span', { class: 'text-xl leading-none font-black tabular-nums ml-auto shrink-0' }, fmt.usd0(tRev))),
             el('div', { class: 'flex items-baseline justify-between gap-2 mt-0.5' },
-              el('span', { class: 'text-[10px]' },
-                el('span', { style: { color: 'var(--text-muted)' } }, 'Avg Days w/ a Sale: '),
-                el('span', { class: 'font-semibold tabular-nums', title: 'Average days with at least one sale per rep shown' }, tAvgDays)),
+              indOneDayRange()
+                // One day: how many of the reps shown got on the board, and the average sale.
+                ? el('span', { class: 'text-[10px]' },
+                    el('span', { style: { color: 'var(--text-muted)' } }, 'Reps with a sale: '),
+                    el('span', { class: 'font-semibold tabular-nums' }, fmt.int(displayReps.filter(r => (Number(r.count) || 0) > 0).length) + ' of ' + fmt.int(displayReps.length)))
+                : el('span', { class: 'text-[10px]' },
+                    el('span', { style: { color: 'var(--text-muted)' } }, 'Avg Days w/ a Sale: '),
+                    el('span', { class: 'font-semibold tabular-nums', title: 'Average days with at least one sale per rep shown' }, tAvgDays)),
               el('span', { class: 'shrink-0 text-[11px] text-muted-' },
-                fmt.int(tCount) + ' sales' + (tRevPerDay > 0 ? ' · ' + fmt.usd0(tRevPerDay) + '/day' : ''))),
+                fmt.int(tCount) + ' sales' + (indOneDayRange() ? (tCount ? ' · ' + fmt.usd0(tRev / tCount) + '/sale' : '') : (tRevPerDay > 0 ? ' · ' + fmt.usd0(tRevPerDay) + '/day' : '')))),
           )];
         })(),
         // (Mobile pinned "You" card removed per Isaac, Oct 9: each rep's own player card already sits at the top of their page.)
@@ -5065,9 +5067,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 // Second line: Days w/ a Sale on the left, sales · $/day on the
                 // right (per Isaac — the stat used to sit a full line lower).
                 el('div', { class: 'flex items-baseline justify-between gap-2 mt-0.5' },
-                  el('span', { class: 'text-[10px]' }, iv('Days w/ a Sale:', fmt.int(r.sellingDays || 0))),
+                  indOneDayRange()
+                    ? el('span', { class: 'text-[10px]' }, iv('Avg sale:', r.count ? fmt.usd0((Number(r.revenue) || 0) / r.count) : '—'))
+                    : el('span', { class: 'text-[10px]' }, iv('Days w/ a Sale:', fmt.int(r.sellingDays || 0))),
                   el('span', { class: 'shrink-0 text-[11px] text-muted-' },
-                    fmt.int(r.count) + ' sales' + (r.revPerDay > 0 ? ' · ' + fmt.usd0(r.revPerDay) + '/day' : '')),
+                    fmt.int(r.count) + ' sales' + (!indOneDayRange() && r.revPerDay > 0 ? ' · ' + fmt.usd0(r.revPerDay) + '/day' : '')),
                 ),
               );
             }).concat(displayReps.length > 10 ? [el('button', {
