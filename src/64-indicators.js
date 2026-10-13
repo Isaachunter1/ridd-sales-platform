@@ -3304,8 +3304,14 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // Records are an annual thing (per Isaac, Oct 12): the card defaults to the current calendar year across every
     // rep, whatever range the page is on; pick another year or All time from its dropdown.
     const _recYear = (state._aggRecordsYear && state._aggRecordsYear !== '') ? state._aggRecordsYear : String(new Date().getFullYear());
-    const recSales = !_recYear ? rawSales : (allRawSales || []).filter(s => {
+    // Audit filter (per Isaac, Oct 13): 'all' = every sale incl. Failed Audit (default), 'nofail' = drop Failed
+    // Audit, 'passed' = only accounts flagged Passed Audit.
+    const _recAudit = ['all', 'nofail', 'passed'].includes(state._aggRecordsAudit) ? state._aggRecordsAudit : 'all';
+    const _recAuditOk = (s) => { if (_recAudit === 'all') return true; const f = String(s.customerFlags || '');
+      return _recAudit === 'passed' ? /passed\s*audit/i.test(f) : !auditFailRe().test(f); };
+    const recSales = !_recYear ? rawSales.filter(_recAuditOk) : (allRawSales || []).filter(s => {
       if (applyExclusion && isRepExcluded(s.rep)) return false;
+      if (!_recAuditOk(s)) return false;
       if (_recYear === 'all') return true;
       const d = _parseIndicatorDay(s); return !!d && String(d.getFullYear()) === _recYear;
     });
@@ -3332,7 +3338,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // except the sales set, the metric and the team/alias config. Keyed on
     // the indicatorSales() array identity (it's cached per dept+filters),
     // the leaderboard scope, the metric and _indCfgRev.
-    const _recKeyMemo = [allRawSales.length, applyExclusion ? 1 : 0, isRange ? (rangeBounds ? rangeBounds.start + '..' + rangeBounds.end : 'r') : 'w', byMetric, (typeof _indCfgRev !== 'undefined') ? _indCfgRev : 0, state.indicatorDept || 'all', _recYear].join('|');
+    const _recKeyMemo = [allRawSales.length, applyExclusion ? 1 : 0, isRange ? (rangeBounds ? rangeBounds.start + '..' + rangeBounds.end : 'r') : 'w', byMetric, (typeof _indCfgRev !== 'undefined') ? _indCfgRev : 0, state.indicatorDept || 'all', _recYear, _recAudit].join('|');
     const _recMemo = (window._indRecordsMemo && window._indRecordsMemo.src === allRawSales && window._indRecordsMemo.key === _recKeyMemo) ? window._indRecordsMemo.val : null;
     const _recCompute = () => {
     const company = aggregateRecords(recSales, byMetric);
@@ -3669,11 +3675,15 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             const _sorted = groups.slice().sort((a, b) => (b.bestDay?.[byMetric] || 0) - (a.bestDay?.[byMetric] || 0));
             const _LIM = 10;
             if (!state._recSubShowAll) state._recSubShowAll = {};
+            // Search under the top 10 (per Isaac, Oct 13): the top 10 stay put; typing a name lists the matches below.
+            if (!state._recSubQ) state._recSubQ = {};
+            const _q = String(state._recSubQ[scope] || '').trim().toLowerCase();
             const _openIdx = _sorted.findIndex(g => groupExpanded[scope] === g.name);
-            const _all = !!state._recSubShowAll[scope] || _openIdx >= _LIM;
+            const _all = !!state._recSubShowAll[scope] || (_openIdx >= _LIM && !_q);
             const _vis = _all ? _sorted : _sorted.slice(0, _LIM);
+            const _hits = _q ? _sorted.filter(g => String(g.name || '').toLowerCase().includes(_q) && !_vis.includes(g)) : [];
             const _more = _sorted.length - _LIM;
-            const _rows = _vis.map(g => {
+            const _row = (g) => {
               const isOpen = groupExpanded[scope] === g.name;
               const subSales = (scope === 'branch' ? salesByBranch : scope === 'rep' ? salesByRep : salesByTeam)[g.name] || [];
               const subTops = isOpen ? topRecords(subSales, 10, byMetric) : null;
@@ -3727,12 +3737,20 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   ),
                 ),
               );
-            });
-            if (_more > 0) _rows.push(el('button', {
+            };
+            const _rows = _vis.map(_row);
+            if (_more > 0 && !_q) _rows.push(el('button', {
               class: 'rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition hover:brightness-95 self-center mt-1',
               style: { borderColor: 'var(--border-2)', color: 'var(--text)', background: 'var(--card)' },
               onclick: () => { state._recSubShowAll[scope] = !_all; mountApp(); },
             }, _all ? 'Show top ' + _LIM : 'Show ' + _more + ' more'));
+            const _noun = scope === 'branch' ? 'branch' : scope === 'rep' ? 'rep' : 'team';
+            const _inp = el('input', { type: 'search', value: state._recSubQ[scope] || '', placeholder: 'Search for another ' + _noun + '…',
+              class: 'rounded-lg border px-2.5 py-1.5 text-[11px] w-full mt-2', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', maxWidth: '320px' },
+              oninput: (e) => { state._recSubQ[scope] = e.target.value; clearTimeout(state._recSubQT); state._recSubQT = setTimeout(() => { mountApp(); requestAnimationFrame(() => { const n = document.querySelector('[data-rec-search="' + scope + '"]'); if (n) { n.focus(); const v = n.value; n.setSelectionRange(v.length, v.length); } }); }, 250); } });
+            _inp.setAttribute('data-rec-search', scope);
+            _rows.push(_inp);
+            if (_q) _rows.push(...(_hits.length ? _hits.slice(0, 25).map(_row) : [el('div', { class: 'text-[11px] text-muted- px-1' }, 'No other ' + _noun + ' matches “' + _q + '”' + (_vis.some(g => String(g.name || '').toLowerCase().includes(_q)) ? ' — they’re in the top ' + _LIM + ' above.' : '.'))]));
             return _rows;
           })(),
         ),
@@ -3788,6 +3806,12 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       }, m.label)),
     );
 
+    const _recAuditToggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' }, title: 'Which accounts count toward the records' },
+      ...[['all', 'All sales', 'Every sale, including Failed Audit accounts'], ['nofail', 'No failed audits', 'Leave out accounts flagged Failed Audit'], ['passed', 'Passed audit only', 'Only accounts flagged Passed Audit']].map(([id, label, tip]) => el('button', {
+        class: 'px-2.5 py-1 text-[11px] font-semibold transition', title: tip,
+        style: _recAudit === id ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'transparent', color: 'var(--text)' },
+        onclick: () => { state._aggRecordsAudit = id; mountApp(); },
+      }, label)));
     return el('div', { class: 'card overflow-hidden', 'data-section': 'agg-records' },
       el('div', { class: 'px-5 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
         el('div', { class: 'flex items-center gap-3 flex-wrap' },
@@ -3800,10 +3824,12 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           ? el('div', { class: 'flex items-center gap-1.5', style: { flexWrap: 'nowrap' } },
               _recSel(_recYear, [...[...new Set([String(new Date().getFullYear()), ..._recYears])].map(y => [y, y]), ['all', 'All time']], (v) => { state._aggRecordsYear = v; }),
               _recSel(byMetric, [['revenue', 'Revenue'], ['count', 'Sales']], (v) => { state._aggRecordsMetric = v; }),
+              _recSel(_recAudit, [['all', 'All audits'], ['nofail', 'No failed'], ['passed', 'Passed only']], (v) => { state._aggRecordsAudit = v; }),
               _recSel(_recPeriod, [['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['year', 'Year'], ['pra', 'PRA day']], (v) => { state._aggRecordsPeriod = v; }))
           : el('div', { class: 'flex items-center gap-3 flex-wrap' },
               _recSel(_recYear, [...[...new Set([String(new Date().getFullYear()), ..._recYears])].map(y => [y, y]), ['all', 'All time']], (v) => { state._aggRecordsYear = v; }),
               metricToggle,
+              _recAuditToggle,
             ),
       ),
       el('div', { class: 'scroll-x' },
