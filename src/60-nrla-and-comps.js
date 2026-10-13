@@ -2500,7 +2500,7 @@ function kobeWeekSection(raw, KOBE_FROM, KOBE_TO, FINAL_REPS) {
           el('div', { class: 'font-display text-2xl leading-none', style: { color: MAMBA } }, earnedN || '0'),
           el('div', { class: 'text-[9px] font-black uppercase', style: { letterSpacing: '.18em', opacity: '.7' } }, 'earned kobe week'),
           el('div', { class: 'inline-flex rounded-lg overflow-hidden mt-2', style: { border: '1px solid rgba(255,255,255,.3)' }, title: 'Which accounts count toward the best week, the Kobe week and the last full week' },
-            ...[['all', 'All serviced', 'Every Pending / Serviced sale, including Failed Audit and not-yet-audited accounts'], ['passed', 'Passed audit only', 'Only accounts flagged Passed Audit (or No Audit) \u2014 the comp rule']].map(([id, label, tip]) => el('button', {
+            ...[['all', 'Serviced', 'Every Pending / Serviced sale, including Failed Audit and not-yet-audited accounts'], ['passed', 'Passed Audit', 'Only accounts flagged Passed Audit (or No Audit) \u2014 the comp rule']].map(([id, label, tip]) => el('button', {
               class: 'px-2.5 py-1 text-[11px] font-semibold transition', title: tip,
               style: _kAudit === id ? { background: MAMBA, color: '#fff' } : { background: 'transparent', color: '#fff' },
               onclick: () => { state._kobeAudit = id; mountApp(); },
@@ -2629,7 +2629,7 @@ function kobeWeekSection(raw, KOBE_FROM, KOBE_TO, FINAL_REPS) {
         },
           el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, r.name,
             r.earned ? el('span', { class: 'text-[10px] font-black px-1.5 py-0.5 rounded ml-2', style: { background: MAMBA, color: '#fff' } }, '\ud83d\udc0d EARNED') : null,
-            (r.earned !== _kOtherEarned.has(r.name)) ? el('span', { class: 'text-[10px] font-bold px-1.5 py-0.5 rounded ml-1.5', style: { border: '1px solid ' + MAMBA, color: MAMBA }, title: 'Earns on one basis but not the other' }, r.earned ? 'only on ' + (_kAudit === 'all' ? 'all serviced' : 'passed audit') : 'earns on ' + (_kAudit === 'all' ? 'passed audit' : 'all serviced')) : null),
+            (r.earned !== _kOtherEarned.has(r.name)) ? el('span', { class: 'text-[10px] font-bold px-1.5 py-0.5 rounded ml-1.5', style: { border: '1px solid ' + MAMBA, color: MAMBA }, title: 'Earns on one basis but not the other' }, r.earned ? 'only on ' + (_kAudit === 'all' ? 'Serviced' : 'Passed Audit') : 'earns on ' + (_kAudit === 'all' ? 'Passed Audit' : 'Serviced')) : null),
           el('td', { class: 'px-3 py-2 whitespace-nowrap text-muted-' }, _kTeamOf(r)),
           el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.usd0(r.bestRev),
             el('div', { class: 'text-[10px] font-semibold whitespace-nowrap', style: { color: 'var(--text-subtle)' } }, wkLbl(r.bestWk))),

@@ -3810,7 +3810,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     );
 
     const _recAuditToggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' }, title: 'Which accounts count toward the records' },
-      ...[['all', 'All sales', 'Every sale, including Failed Audit accounts'], ['passed', 'Passed audit only', 'Only accounts flagged Passed Audit']].map(([id, label, tip]) => el('button', {
+      ...[['all', 'Serviced', 'Every Pending / Serviced sale, including Failed Audit accounts'], ['passed', 'Passed Audit', 'Only accounts flagged Passed Audit']].map(([id, label, tip]) => el('button', {
         class: 'px-2.5 py-1 text-[11px] font-semibold transition', title: tip,
         style: _recAudit === id ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'transparent', color: 'var(--text)' },
         onclick: () => { state._aggRecordsAudit = id; mountApp(); },
