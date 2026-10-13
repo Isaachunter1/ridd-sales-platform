@@ -5907,7 +5907,7 @@ function parseRawSalesReport(lines, headerRow, headers, cols) {
 
   // Find the earliest date → week 0 start (round to Monday)
   const validDates = sales.filter(s => s.date).map(s => s.date.getTime());
-  const minDate = new Date(Math.min(...validDates));
+  const minDate = new Date(validDates.reduce((m, t) => (t < m ? t : m), Infinity));   // reduce, not Math.min(...dates) — Safari's call stack can't take ~90k args
   const weekStart = new Date(minDate);
   weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Sunday start
   weekStart.setHours(0, 0, 0, 0);

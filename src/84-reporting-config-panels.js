@@ -726,7 +726,7 @@ function _mktgGroupLabel(rk) { return rk === MKTG_ALL ? CFG.COMPANY_NAME : compa
 function _mktgGroupRows(B) {
   const ents = _mktgEntities(), multi = ents.length > 1;
   const rows = [], groups = new Set([MKTG_ALL]);
-  for (const k of ents) { const bs = B.byEntity[k] || []; if (!bs.length && multi) continue; rows.push(...bs); if (multi) { rows.push(k); groups.add(k); } }
+  for (const k of ents) { const bs = B.byEntity[k] || []; if (!bs.length && multi) continue; for (const x of bs) rows.push(x); if (multi) { rows.push(k); groups.add(k); } }
   rows.push(MKTG_ALL);
   const members = (rk) => rk === MKTG_ALL ? B.all : (groups.has(rk) ? (B.byEntity[rk] || []) : [rk]);
   return { rows, groups, members };

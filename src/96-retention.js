@@ -1769,7 +1769,7 @@ function reportingWaterfall() {
           const c = (typeof va === 'string' || typeof vb === 'string') ? String(va).localeCompare(String(vb)) : (va - vb);
           return _sort.dir === 'asc' ? c : -c;
         });
-        out.push(...buf); buf = [];
+        for (const x of buf) out.push(x); buf = [];
       };
       segs.forEach(g => { if (g.section) { flush(); out.push(g); } else buf.push(g); });
       flush();
@@ -2126,7 +2126,7 @@ function reportingWaterfall() {
     // month-of-life histogram: every month out to the longest life in the
     // book (per Isaac, Sep 2026 — no 24+ bucket; the strip scrolls / drags
     // / swipes sideways instead).
-    const lastMo = Math.max(24, ...rowsL.map(x => Math.floor(x.t / 30)));
+    const lastMo = rowsL.reduce((m, x) => Math.max(m, Math.floor(x.t / 30)), 24);   // reduce, not Math.max(...rows) — Safari stack limit
     const buckets = Array.from({ length: lastMo + 1 }, () => []);
     for (const x of rowsL) buckets[Math.floor(x.t / 30)].push(x.r);
     const maxB = Math.max(...buckets.map(b => b.length), 1);

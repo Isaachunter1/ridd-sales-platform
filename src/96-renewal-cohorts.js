@@ -30,13 +30,13 @@ function retenRenewalCohortCard(pop) {
     const firstEnded = c.firstContract ? c.firstContract.end <= nowMs : true;
     const k = under ? (renewed ? 'renCon' : 'first') : (renewed ? 'renM2M' : 'm2m');
     const g = by.get(yr) || (by.set(yr, { yr, n: 0, past: 0, pastRen: 0, rows: { first: [], renCon: [], renM2M: [], m2m: [] }, cnt: { first: 0, renCon: 0, renM2M: 0, m2m: 0 } }).get(yr));
-    g.n++; g.cnt[k]++; g.rows[k].push(...(act.length ? act : c.subs));
+    g.n++; g.cnt[k]++; for (const r of (act.length ? act : c.subs)) g.rows[k].push(r);
     if (firstEnded) { g.past++; if (renewed) g.pastRen++; }
   }
   const years = [...by.values()].sort((a, b) => a.yr - b.yr);
   if (!years.length) return null;
   const tot = { yr: 'All', n: 0, past: 0, pastRen: 0, cnt: { first: 0, renCon: 0, renM2M: 0, m2m: 0 }, rows: { first: [], renCon: [], renM2M: [], m2m: [] } };
-  years.forEach(g => { tot.n += g.n; tot.past += g.past; tot.pastRen += g.pastRen; KEYS.forEach(k => { tot.cnt[k] += g.cnt[k]; tot.rows[k].push(...g.rows[k]); }); });
+  years.forEach(g => { tot.n += g.n; tot.past += g.past; tot.pastRen += g.pastRen; KEYS.forEach(k => { tot.cnt[k] += g.cnt[k]; for (const r of g.rows[k]) tot.rows[k].push(r); /* loop, not push(...rows): Safari overflows the call stack */ }); });
   const pct = (a, d) => d ? (a / d * 100).toFixed(1) + '%' : '—';
   const n = (v) => Number(v || 0).toLocaleString();
   const drill = (title, rows) => rows && rows.length ? () => openReportingDrillModal({ chartTitle: 'Renewals by cohort · ' + title, sliceLabel: n(rows.length) + ' subscriptions', rows, formatValue: fmt.usd0 }) : null;

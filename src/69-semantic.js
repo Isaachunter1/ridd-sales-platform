@@ -129,7 +129,7 @@ function semGroupBy(rows, dimId) {
   const m = new Map();
   for (const r of rows) { const k = D.of(r); let g = m.get(k); if (!g) { g = []; m.set(k, g); } g.push(r); }
   let other = null;
-  if (D.minRows) for (const [k, g] of [...m]) if (g.length < D.minRows) { (other = other || []).push(...g); m.delete(k); }
+  if (D.minRows) for (const [k, g] of [...m]) if (g.length < D.minRows) { other = other || []; for (const x of g) other.push(x); m.delete(k); }
   let out = [...m].map(([label, rows]) => ({ label, rows }));
   if (D.order) out.sort((a, b) => { const ia = D.order.indexOf(a.label), ib = D.order.indexOf(b.label); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.label.localeCompare(b.label); });
   else out.sort((a, b) => b.rows.length - a.rows.length || a.label.localeCompare(b.label));

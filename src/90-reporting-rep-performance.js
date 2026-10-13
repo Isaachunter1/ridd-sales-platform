@@ -139,7 +139,7 @@ function buildReportingWaterfall(rows, mode, cohortYear) {
     const cy = Number(cohortYear);
     rows = rows.filter(r => r.initial_service && new Date(r.initial_service + 'T00:00').getFullYear() === cy);
   }
-  const minYear = cohorted ? Number(cohortYear) : Math.min(...initYears);
+  const minYear = cohorted ? Number(cohortYear) : initYears.reduce((m, y) => (y < m ? y : m), Infinity);
   const maxYear = today.getFullYear();
   const years = [];
   for (let y = minYear; y <= maxYear; y++) years.push(y);
