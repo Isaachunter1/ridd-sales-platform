@@ -84,23 +84,13 @@ function viewCalendar() {
       el('div', { class: 'text-sm font-semibold ml-2', style: { color: 'var(--text)' } },
         calendarWindowLabel(anchor, state.calendarView)),
       el('div', { class: 'flex-1' }),
-      isAdmin && el('label', { class: 'flex items-center gap-1.5 text-[11px] text-muted-', title: 'Coverage floor \u2014 a day with fewer reps than this on a shift shows red in the month view' },
-        'Min / shift',
-        el('input', {
-          type: 'number', min: '0', step: '1', value: calendarMinReps() || '',
-          class: 'rounded-lg border px-2 py-1 text-[11px] w-14 tabular-nums',
-          style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-          onchange: (e) => { if (!state.calendarMinReps) state.calendarMinReps = {}; state.calendarMinReps[currentDepartment()] = Math.max(0, parseInt(e.target.value) || 0); saveDemoData(); mountApp(); },
-        })),
+      // (Min / shift input removed per Isaac, Oct 13; the coverage floor is off — see calendarMinReps.)
       isAdmin && el('button', {
         class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => openNewShiftModal(isoDate(today)),
       }, '+ New shift'),
-      el('div', { class: 'cal-legend flex items-center gap-3 text-xs text-muted-' },
-        legendDot('var(--accent)', 'Includes you'),
-        legendDot('var(--card-2)', 'Others only'),
-      ),
+      // (Includes you / Others only legend removed per Isaac, Oct 13.)
     ),
 
     // ── Incoming swaps ──
@@ -543,6 +533,10 @@ function pickUpOpenShift(req, redraw) {
 // Department-level coverage floor (admin sets it once in the toolbar): a
 // day whose slot has fewer reps than this reads red in the month grid.
 function calendarMinReps() {
+  // Coverage floor retired with its input (per Isaac, Oct 13) — with no control left, a stale saved floor would keep
+  // painting days red that nobody can change, so the month view no longer colors by it.
+  return 0;
+  // eslint-disable-next-line no-unreachable
   const m = state.calendarMinReps || {};
   const v = Number(m[currentDepartment()]);
   return Number.isFinite(v) && v > 0 ? v : 0;
