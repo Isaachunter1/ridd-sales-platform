@@ -1906,6 +1906,12 @@ function _renewalLinked(r) {
 // frequency (0) and a stray few-dollar charge is one-time work (per Isaac,
 // Oct 13 — #24464 Mosquito 8 Seasonal, $4.87 charge, one visit).
 function _retenPaying(r) { return (Number(r.annual_recurring_value) || 0) > 0 || (String(r.recurring_frequency == null ? '' : r.recurring_frequency).trim() === '-1' && (Number(r.recurring_charge) || 0) > 0); }
+// A CODED "3 Day ROR" counts when the seller could give one: a sales rep's
+// sale always; an office-staff / technician sale only if sold before 2026 —
+// the no-ROR rule for office sales started this year (per Isaac, Oct 13), so
+// earlier ones were allowed and stay RORs.
+const ROR_OFFICE_RULE_FROM = '2026-01-01';
+function _rorCodedOk(r) { return _rorSellerOk(r) || String((r && (r.sold_date || r.initial_service)) || '').slice(0, 10) < ROR_OFFICE_RULE_FROM; }
 function _isRorReason(x) { return crmReasonIs('ror', x); }   // → src/12-crm-vocab.js (RIDD default: “3 Day ROR” / rescission)
 const RETEN_POP_EXCL_REASONS_DEFAULT = ['3 Day ROR', 'Combined Subscriptions', 'Renewal - Outbound', 'Renewal - Loyalty', 'Renewal - Service Pro Upsell', 'Renewal - Inbound'];
 // These three getters are called PER ROW inside 77k-row filters, so they
@@ -1966,7 +1972,7 @@ function retenIsRorSub(r) {
   if (!r.subscription_date_canceled) return false;
   // Timing-based catch (cancelled within 3 days, reason miscoded) is a
   // separate toggle on the Retention tab — the hand sheet only uses the reason.
-  return (_isRorReason(_normCancelReason(reportingCancelReasonOf(r))) && _rorSellerOk(r)) || (_retenWhatIf('popRorTiming', true) && _reporting3dayRor(r));
+  return (_isRorReason(_normCancelReason(reportingCancelReasonOf(r))) && _rorCodedOk(r)) || (_retenWhatIf('popRorTiming', true) && _reporting3dayRor(r));
 }
 function retenPopulationExcluded(r) {
   const popSet = retenPopExclReasons();

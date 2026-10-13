@@ -195,7 +195,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
   const rorTimingOn = _retenWhatIf('popRorTiming', true);
   const closedBy = (r, kind) => r.subscription_date_canceled && popSet.has(_normCancelReason(reportingCancelReasonOf(r))) && crmReasonIs(kind, reportingCancelReasonOf(r));   // kind: 'combined' | 'renewal' (src/12-crm-vocab.js)
   const rorCoded = (r) => !!r.subscription_date_canceled && _isRorReason(_normCancelReason(reportingCancelReasonOf(r)));
-  const rorByReason = (r) => rorCoded(r) && _rorSellerOk(r);   // office staff / technician sales never get an ROR (per Isaac, Oct 13)
+  const rorByReason = (r) => rorCoded(r) && _rorCodedOk(r);   // office staff / technician sales get no ROR from 2026 (per Isaac, Oct 13)
   const s2r = s2.filter(r => !(rorOn && rorByReason(r)));                       // minus RORs coded as such (the sheet's rule)
   const step1a = s2r.filter(r => !(rorOn && rorTimingOn && _reporting3dayRor(r)));   // minus RORs caught by timing (app extra)
   const step1b = step1a.filter(r => !closedBy(r, 'combined'));                  // minus combined
@@ -340,13 +340,13 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     (() => {
       // Coded "3 Day ROR" on an office-staff / technician sale (per Isaac, Oct 13):
       // those sales never get a rescission, so they stay in as real cancels — fix the reason in FieldRoutes.
-      const badRor = rorOn ? s2.filter(r => rorCoded(r) && !_rorSellerOk(r)) : [];
-      const node = step(next(), 'Remove 3-day RORs coded in the CRM', 'Subscriptions cancelled with the reason \u201c3 Day ROR\u201d on a door-to-door sales rep\u2019s sale \u2014 the customer used the three-day right of rescission. Office staff and technician sales never get a rescission, so a \u201c3 Day ROR\u201d on one of those stays in as a real cancel. The contract was legally undone before service began, so this was never a customer and is neither retained nor churned.', s2.length - s2r.length, 'popRor', null, notIn(s2, s2r), s2r);
+      const badRor = rorOn ? s2.filter(r => rorCoded(r) && !_rorCodedOk(r)) : [];
+      const node = step(next(), 'Remove 3-day RORs coded in the CRM', 'Subscriptions cancelled with the reason \u201c3 Day ROR\u201d on a door-to-door sales rep\u2019s sale \u2014 the customer used the three-day right of rescission. From 2026 office staff and technician sales get no rescission, so a \u201c3 Day ROR\u201d on one of those sold this year stays in as a real cancel (earlier years allowed it, so those still count as RORs). The contract was legally undone before service began, so this was never a customer and is neither retained nor churned.', s2.length - s2r.length, 'popRor', null, notIn(s2, s2r), s2r);
       if (badRor.length) node.children[1].append(el('button', {
         class: 'mt-1.5 rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.3)' },
         title: 'Coded “3 Day ROR” but sold by office staff or a technician — no rescission right, so these count as real cancels. Fix the reason in the CRM.',
         onclick: (e) => { e.stopPropagation(); openReportingDrillModal({ chartTitle: 'Attrition steps · ROR coded on a non-rep sale', sliceLabel: n(badRor.length) + ' subscription' + (badRor.length === 1 ? '' : 's') + ' · office staff / technician sales coded “3 Day ROR”', rows: badRor, formatValue: fmt.usd0 }); },
-      }, '⚑ ' + n(badRor.length) + ' coded on office / tech sales — kept as cancels'));
+      }, '⚑ ' + n(badRor.length) + ' coded on 2026 office / tech sales — kept as cancels'));
       return node;
     })(),
     (() => {
