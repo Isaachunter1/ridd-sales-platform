@@ -362,6 +362,18 @@ function calShortTime(hhmm) {
 // ordinary shift rows through the horizon - the SAME rows the grid, slot
 // modal, swaps and holiday logic already speak, so nothing downstream
 // changes. One-off edits stay exactly that: click a day on the grid.
+// "HH:MM" (24h) ⇄ "9:00 AM". The parser takes what people type or paste: 9 · 9a · 9:30 · 930 · 9:30pm · 15:00 · 3 PM.
+// Without AM/PM, 1–6 reads as PM (an office shift) and 7–11 as AM.
+function calTimeLabel(hhmm) { const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || '')); if (!m) return ''; let h = +m[1]; const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12; return h + ':' + m[2] + ' ' + ap; }
+function calParseTime(txt) {
+  const t = String(txt || '').trim().toLowerCase().replace(/\./g, '').replace(/\s+/g, ''); if (!t) return null;
+  const m = /^(\d{1,2})(?::?(\d{2}))?(a|am|p|pm)?$/.exec(t); if (!m) return null;
+  let h = +m[1], mi = m[2] ? +m[2] : 0; const ap = m[3] ? m[3][0] : null;
+  if (mi > 59 || h > 23) return null;
+  if (ap) { if (h < 1 || h > 12) return null; if (ap === 'p' && h !== 12) h += 12; if (ap === 'a' && h === 12) h = 0; }
+  else if (h >= 1 && h <= 6) h += 12;
+  return String(h).padStart(2, '0') + ':' + String(mi).padStart(2, '0');
+}
 function openAgentScheduleModal(rep) {
   if (!calendarCanManage(state.profile?.role) || !rep) return;
   const dept = calendarAgentDept(rep);
@@ -406,23 +418,34 @@ function openAgentScheduleModal(rep) {
     hoursEl.textContent = fmtHrs(Math.round(total * 10) / 10);
     hoursEl.style.color = total > 0 ? 'var(--text)' : 'var(--text-subtle)';
   };
+  // Typed times (per Isaac, Oct 13): plain text boxes instead of the browser's time wheel (which had no Done
+  // button), so a time can be typed or pasted — "9", "9:30a", "3pm", "15:00" all work — with a dropdown of
+  // half-hour times to pick from. ⧉ copies a day's times to every other ticked day.
+  const dl = el('datalist', { id: 'cal-time-opts' }, ...[...Array(48)].map((_, i) => el('option', { value: calTimeLabel(String(Math.floor(i / 2)).padStart(2, '0') + ':' + (i % 2 ? '30' : '00')) })));
+  const timeIn = (v) => el('input', { type: 'text', list: 'cal-time-opts', value: calTimeLabel(v), placeholder: '9:00 AM', autocomplete: 'off', spellcheck: 'false',
+    class: 'rounded-lg border px-2 py-1 text-xs tabular-nums', style: { borderColor: 'var(--border-2)', width: '96px' } });
   const rowEls = days.map(d => {
     const cb = el('input', { type: 'checkbox', style: { cursor: 'pointer' } }); cb.checked = d.on;
-    const st = el('input', { type: 'time', value: d.start, class: 'rounded-lg border px-2 py-1 text-xs', style: { borderColor: 'var(--border-2)' } });
-    const en = el('input', { type: 'time', value: d.end, class: 'rounded-lg border px-2 py-1 text-xs', style: { borderColor: 'var(--border-2)' } });
+    const st = timeIn(d.start), en = timeIn(d.end);
     d._st = st; d._en = en;
-    const sync = () => { d.on = cb.checked; d.start = st.value || d.start; d.end = en.value || d.end; st.disabled = en.disabled = !d.on; st.style.opacity = en.style.opacity = d.on ? '1' : '.4'; updHours(); };
-    cb.onchange = sync; st.onchange = sync; en.onchange = sync;
+    const read = (inp, key) => { const v = calParseTime(inp.value); if (v) { d[key] = v; inp.value = calTimeLabel(v); inp.style.borderColor = 'var(--border-2)'; } else if (inp.value.trim()) inp.style.borderColor = '#DC2626'; else inp.value = calTimeLabel(d[key]); };
+    const sync = () => { d.on = cb.checked; read(st, 'start'); read(en, 'end'); st.disabled = en.disabled = !d.on; st.style.opacity = en.style.opacity = d.on ? '1' : '.4'; updHours(); };
+    cb.onchange = sync; st.onchange = sync; en.onchange = sync; st.onblur = sync; en.onblur = sync;
+    const onEnter = (e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } };
+    st.onkeydown = onEnter; en.onkeydown = onEnter;
+    const copy = el('button', { class: 'rounded-md border px-1.5 py-0.5 text-[11px]', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Copy these times to every other ticked day',
+      onclick: () => { sync(); days.forEach(o => { if (o === d || !o.on) return; o.start = d.start; o.end = d.end; if (o._st) o._st.value = calTimeLabel(d.start); if (o._en) o._en.value = calTimeLabel(d.end); }); updHours(); toast('Copied ' + calTimeLabel(d.start) + ' – ' + calTimeLabel(d.end) + ' to the ticked days', 'success'); } }, '⧉');
     setTimeout(sync, 0);
     return el('div', { class: 'flex items-center gap-2' },
       el('label', { class: 'flex items-center gap-2 text-sm font-medium cursor-pointer', style: { width: '120px' } }, cb, d.name),
-      st, el('span', { class: 'text-xs text-muted-' }, '→'), en);
+      st, el('span', { class: 'text-xs text-muted-' }, '→'), en, copy);
   });
+  rowEls.unshift(dl);
   const _tpls = calendarSettings().templates.filter(t => t && t.start && t.end);
   const tplRow = _tpls.length ? el('div', { class: 'flex items-center gap-1.5 flex-wrap mb-1' },
     el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-muted)' } }, 'Use shift'),
     ..._tpls.map(t => el('button', { class: 'rounded-lg border px-2 py-0.5 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, title: 'Set every ticked day to ' + fmtTime(t.start) + ' – ' + fmtTime(t.end),
-      onclick: () => { days.forEach(d => { if (!d.on) return; d.start = t.start; d.end = t.end; if (d._st) d._st.value = t.start; if (d._en) d._en.value = t.end; }); updHours(); } }, t.name || (fmtTime(t.start) + '–' + fmtTime(t.end))))) : null;
+      onclick: () => { days.forEach(d => { if (!d.on) return; d.start = t.start; d.end = t.end; if (d._st) d._st.value = calTimeLabel(t.start); if (d._en) d._en.value = calTimeLabel(t.end); }); updHours(); } }, t.name || (fmtTime(t.start) + '–' + fmtTime(t.end))))) : null;
   body.append(...(tplRow ? [tplRow] : []), ...rowEls,
     el('div', { class: 'flex items-center justify-between gap-2 mt-2 px-1 py-2 rounded-lg', style: { background: 'var(--card-2)' } },
       el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold', style: { paddingLeft: '4px' } }, 'Hours / week'),
