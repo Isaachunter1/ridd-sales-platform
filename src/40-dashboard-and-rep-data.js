@@ -3757,8 +3757,11 @@ function openIndicatorRepCard(rep, allReps = []) {
                   el('span', {
                     class: 'text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full',
                     style: { color: _audit[1], background: _audit[2] },
-                    title: 'Audit status',
-                  }, _audit[0]),
+                    title: 'Audit status' + (x.customerFlags ? ' · flags: ' + x.customerFlags : ''),
+                  }, 'Audit · ' + _audit[0]),
+                  // Account status beside it (per Isaac, Oct 13) so audit and account state read separately.
+                  x.status ? el('span', { class: 'text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full', title: 'Account status in FieldRoutes',
+                    style: /cancel|inactive|frozen/i.test(String(x.status)) ? { color: '#B91C1C', background: 'rgba(220,38,38,.12)' } : { color: 'var(--text-muted)', background: 'var(--card-2)' } }, String(x.status)) : null,
                   el('span', { class: 'font-bold' }, fmt.usd0(x.contractValue))));
             }));
         })());
