@@ -1913,6 +1913,18 @@ function _renewalLinked(r) {
   const me = String(r.subscription_id);
   return (_renLinkMemo.idx.get(c) || []).some(([id, d, oc]) => id !== me && d > sold && (!oc || oc >= grace));
 }
+// $89 a visit, 4 visits, showed $0 ARR and fell out of the book).
+// Only an "As Needed" plan (frequency -1) qualifies: a $0 plan with no
+// frequency (0) and a stray few-dollar charge is one-time work (per Isaac,
+// Oct 13 — #24464 Mosquito 8 Seasonal, $4.87 charge, one visit).
+function _retenPaying(r) { return (Number(r.annual_recurring_value) || 0) > 0 || (String(r.recurring_frequency == null ? '' : r.recurring_frequency).trim() === '-1' && (Number(r.recurring_charge) || 0) > 0); }
+// A CODED "3 Day ROR" counts when the seller could give one: a sales rep's
+// sale always; an office-staff / technician sale only if sold before 2026 —
+// the no-ROR rule for office sales started this year (per Isaac, Oct 13), so
+// earlier ones were allowed and stay RORs.
+const ROR_OFFICE_RULE_FROM = '2026-01-01';
+// Reverted per Isaac, Oct 13: a coded "3 Day ROR" counts for every seller type again.
+function _rorCodedOk(r) { return true; }
 function _isRorReason(x) { return crmReasonIs('ror', x); }   // → src/12-crm-vocab.js (RIDD default: “3 Day ROR” / rescission)
 const RETEN_POP_EXCL_REASONS_DEFAULT = ['3 Day ROR', 'Combined Subscriptions', 'Renewal - Outbound', 'Renewal - Loyalty', 'Renewal - Service Pro Upsell', 'Renewal - Inbound'];
 // These three getters are called PER ROW inside 77k-row filters, so they
