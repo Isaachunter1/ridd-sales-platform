@@ -283,10 +283,24 @@ function calendarCanManage(role) {
 // A swap request that is still in flight: waiting on the other rep, or
 // accepted by them and now waiting on a team lead / admin.
 function swapOpen(r) { return r && (r.status === 'pending' || r.status === 'awaiting_lead'); }
+// Calendar → Settings (per Isaac, Oct 13), shared through calendar_store:
+//   roster[profileId] = { on: true|false, dept: 'inside_sales'|'loyalty' }  — who is on the calendar and where
+//   templates = [{ id, name, start, end }]                                  — named shifts for the schedule builder
+//   swapNeedsLead = true|false                                              — a lead signs off on accepted swaps
+function calendarSettings() {
+  const c = state.calendarSettings && typeof state.calendarSettings === 'object' ? state.calendarSettings : (state.calendarSettings = {});
+  if (!c.roster || typeof c.roster !== 'object') c.roster = {};
+  if (!Array.isArray(c.templates)) c.templates = [];
+  if (typeof c.swapNeedsLead !== 'boolean') c.swapNeedsLead = true;
+  return c;
+}
+function calendarRosterOf(p) { return (p && calendarSettings().roster[p.id]) || {}; }
 function calendarEligibleProfiles(fallback) {
   const all = state.allProfiles.length ? state.allProfiles : [fallback].filter(Boolean);
-  const staff = all.filter(p => p && p.is_active !== false && isSellerRole(p.role) && isOfficeStaffProfile(p));
-  return staff.length ? staff : all.filter(p => p && p.is_active !== false);
+  // Settings override the default (active office staff): "on" adds anyone active, "off" takes someone off.
+  const staff = all.filter(p => { if (!p || p.is_active === false) return false; const ro = calendarRosterOf(p);
+    if (ro.on === false) return false; if (ro.on === true) return true; return isSellerRole(p.role) && isOfficeStaffProfile(p); });
+  return staff.length ? staff : all.filter(p => p && p.is_active !== false && calendarRosterOf(p).on !== false);
 }
 // ── AGENT LAYER — the calendar is built around individual agents now ─────
 // Department is derived from the PROFILE (per Isaac: "based on user type"),
@@ -294,6 +308,7 @@ function calendarEligibleProfiles(fallback) {
 // office-staff profile under Inside Sales. The dropdown up top is a view
 // scope, not a filing decision.
 function calendarAgentDept(p) {
+  const _ov = calendarRosterOf(p).dept; if (_ov === 'inside_sales' || _ov === 'loyalty') return _ov;   // Calendar → Settings override
   // Same loyalty rule everywhere (Pay, Scorecards, Calendar): CRM rep_type or the loyalty access roles.
   return (typeof scorecardDeptOf === 'function' ? scorecardDeptOf(p) : ((p && p.rep_type === 'loyalty_rep') ? 'loyalty' : 'inside_sales'));
 }
@@ -395,6 +410,7 @@ function openAgentScheduleModal(rep) {
     const cb = el('input', { type: 'checkbox', style: { cursor: 'pointer' } }); cb.checked = d.on;
     const st = el('input', { type: 'time', value: d.start, class: 'rounded-lg border px-2 py-1 text-xs', style: { borderColor: 'var(--border-2)' } });
     const en = el('input', { type: 'time', value: d.end, class: 'rounded-lg border px-2 py-1 text-xs', style: { borderColor: 'var(--border-2)' } });
+    d._st = st; d._en = en;
     const sync = () => { d.on = cb.checked; d.start = st.value || d.start; d.end = en.value || d.end; st.disabled = en.disabled = !d.on; st.style.opacity = en.style.opacity = d.on ? '1' : '.4'; updHours(); };
     cb.onchange = sync; st.onchange = sync; en.onchange = sync;
     setTimeout(sync, 0);
@@ -402,7 +418,12 @@ function openAgentScheduleModal(rep) {
       el('label', { class: 'flex items-center gap-2 text-sm font-medium cursor-pointer', style: { width: '120px' } }, cb, d.name),
       st, el('span', { class: 'text-xs text-muted-' }, '→'), en);
   });
-  body.append(...rowEls,
+  const _tpls = calendarSettings().templates.filter(t => t && t.start && t.end);
+  const tplRow = _tpls.length ? el('div', { class: 'flex items-center gap-1.5 flex-wrap mb-1' },
+    el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-muted)' } }, 'Use shift'),
+    ..._tpls.map(t => el('button', { class: 'rounded-lg border px-2 py-0.5 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, title: 'Set every ticked day to ' + fmtTime(t.start) + ' – ' + fmtTime(t.end),
+      onclick: () => { days.forEach(d => { if (!d.on) return; d.start = t.start; d.end = t.end; if (d._st) d._st.value = t.start; if (d._en) d._en.value = t.end; }); updHours(); } }, t.name || (fmtTime(t.start) + '–' + fmtTime(t.end))))) : null;
+  body.append(tplRow, ...rowEls,
     el('div', { class: 'flex items-center justify-between gap-2 mt-2 px-1 py-2 rounded-lg', style: { background: 'var(--card-2)' } },
       el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold', style: { paddingLeft: '4px' } }, 'Hours / week'),
       hoursEl),

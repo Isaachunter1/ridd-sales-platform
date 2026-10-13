@@ -3661,7 +3661,7 @@ async function loadLookups() {
 // is fingerprint-detected and pushed, debounced. Reps can write too: shift
 // swaps are rep actions.
 let _calCloudFp = null, _calPushT = null, _calLoaded = false;
-const _calFp = () => { try { return JSON.stringify([state.shifts, state.shiftSwapRequests, state.calendarMinReps || {}]); } catch { return ''; } };
+const _calFp = () => { try { return JSON.stringify([state.shifts, state.shiftSwapRequests, state.calendarMinReps || {}, state.calendarSettings || {}]); } catch { return ''; } };
 async function loadCalendarFromCloud() {
   if (DEMO || !supabase || !state.profile) return;
   try {
@@ -3671,6 +3671,7 @@ async function loadCalendarFromCloud() {
     if (d && Array.isArray(d.shifts)) state.shifts = d.shifts;
     if (d && Array.isArray(d.swaps))  state.shiftSwapRequests = d.swaps;
     if (d && d.minReps && typeof d.minReps === 'object') state.calendarMinReps = d.minReps;
+    if (d && d.settings && typeof d.settings === 'object') state.calendarSettings = d.settings;   // Calendar → Settings (Oct 13)
     _calCloudFp = _calFp();
     _calLoaded = true;     // pushes only start once the server copy is in — no stale clobbers
   } catch (e) { console.warn('[ridd] calendar cloud load skipped', e); }
@@ -3685,7 +3686,7 @@ function _calendarCloudAutoSync() {
     try {
       const { error } = await supabase.from('calendar_store').upsert({
         id: 1,
-        data: { shifts: state.shifts || [], swaps: state.shiftSwapRequests || [], minReps: state.calendarMinReps || {} },
+        data: { shifts: state.shifts || [], swaps: state.shiftSwapRequests || [], minReps: state.calendarMinReps || {}, settings: state.calendarSettings || {} },
         updated_by: state.profile.id,
         updated_at: new Date().toISOString(),
       });

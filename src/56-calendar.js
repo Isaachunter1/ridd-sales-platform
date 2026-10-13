@@ -31,6 +31,8 @@ function viewCalendar() {
   // the shift actually moves.
   const approvals = isAdmin ? state.shiftSwapRequests.filter(r => r.status === 'awaiting_lead' && inDept(r)) : [];
 
+  // Calendar → Settings (per Isaac, Oct 13): leads and admins manage the roster, schedules and rules here.
+  if (state._calSettingsOpen && isAdmin && typeof viewCalendarSettings === 'function') return viewCalendarSettings();
   return el('div', { class: 'flex flex-col gap-5 w-full' },
 
     // ── Toolbar ──
@@ -90,6 +92,8 @@ function viewCalendar() {
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => openNewShiftModal(isoDate(today)),
       }, '+ New shift'),
+      isAdmin && el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        title: 'Who is on the calendar, their standing schedules, shift templates and swap rules', onclick: () => { state._calSettingsOpen = true; mountApp(); } }, '⚙ Settings'),
       // (Includes you / Others only legend removed per Isaac, Oct 13.)
     ),
 
@@ -616,7 +620,7 @@ function resolveSwap(requestId, decision) {
   if (decision === 'accepted') {
     // The other rep said yes. A team lead / admin accepting IS the
     // approval; anyone else parks it for a lead to sign off.
-    if (calendarCanManage(me.role)) { apply(); msg = 'Shift transferred'; kind = 'success'; }
+    if (calendarCanManage(me.role) || (typeof calendarSettings === 'function' && calendarSettings().swapNeedsLead === false)) { apply(); msg = 'Shift transferred'; kind = 'success'; }   // Settings can drop the lead sign-off
     else { req.status = 'awaiting_lead'; req.accepted_at = new Date().toISOString(); msg = 'Accepted — waiting on team lead approval'; kind = 'success'; }
   } else if (decision === 'approved') {
     if (!calendarCanManage(me.role)) { toast('Only a team lead or admin can approve swaps', 'warn'); return; }
