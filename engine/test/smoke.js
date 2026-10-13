@@ -11,7 +11,7 @@ for (let i = 0; i < 600; i++) {
   const d = new Date(2026, 2 + Math.floor(i / 60), 1 + (i % 28));
   sales.push({ rep: reps[i % reps.length], repType: 'Sales Rep', office: ['Atlanta', 'Destin', 'Raleigh'][i % 3],
     dateSold: (d.getMonth() + 1) + '/' + d.getDate() + '/' + d.getFullYear(), contractValue: 600 + (i % 90) * 7, initialPrice: 99 + (i % 3) * 50,
-    subscription: i % 11 === 0 ? 'Sentricon' : 'Pest 4', customerFlags: i % 3 ? 'Passed Audit' : '', status: 'Serviced', services: i % 2 ? 1 : 0,
+    subscription: i % 11 === 0 ? 'Sentricon' : 'Pest 4', customerFlags: i % 4 ? 'Passed Audit' : '', status: 'Serviced', services: i % 2 ? 1 : 0,
     initialStatus: 'Completed', customerId: String(1000 + i), source: 'Door to Door', autoPay: i % 5 ? 'Yes' : 'No' });
 }
 const eng = E.createEngine({ sales, config: { competitions: { active: 'nrla', repAlias: { 'Karson  Murray': 'Murray, Karson' } }, rep_tiers: { 'Grayek, Reggie': 'rookie' } } });

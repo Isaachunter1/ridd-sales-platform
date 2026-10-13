@@ -292,6 +292,7 @@ function kobeWeekCompute(raw, KOBE_FROM, KOBE_TO, BASE_YEAR) {
   };
   const base = new Map();    // rep -> { wk: rev } (weeks BEFORE the window)
   const cur = new Map();     // rep -> { total, byDay: {} } (inside the window)
+  const post = new Map();    // rep -> { wk: rev } (weeks AFTER the window — the second chance)
   for (const s of (raw || [])) {
     if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') continue;
     if (typeof frPendingServiced === 'function' && !frPendingServiced(s)) continue;
@@ -299,7 +300,11 @@ function kobeWeekCompute(raw, KOBE_FROM, KOBE_TO, BASE_YEAR) {
     // baseline best week AND the live comp week alike. No-audit accounts
     // still count (only a FAILED flag excludes).
     if (isLastResort(s)) continue;
-    if (typeof SC_FAIL_RE !== 'undefined' && SC_FAIL_RE.test(s.customerFlags || '')) continue;
+    // PASSED-AUDIT revenue only (per Isaac, Oct 13) — the best week, the Kobe
+    // week and the last-full-week second chance all count accounts flagged
+    // "Passed Audit" (or "No Audit" — not required). Not-yet-audited and
+    // failed accounts don't count.
+    if (typeof scAuditPassed === 'function' ? !scAuditPassed(s.customerFlags || '') : (typeof SC_FAIL_RE !== 'undefined' && SC_FAIL_RE.test(s.customerFlags || ''))) continue;
     const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : '';
     if (!iso) continue;
     const nm = getCanonicalRepName(s.rep);
@@ -320,7 +325,18 @@ function kobeWeekCompute(raw, KOBE_FROM, KOBE_TO, BASE_YEAR) {
       b[wk] = (b[wk] || 0) + cv;
       base.set(nm, b);
     }
+    // Second chance (per Isaac, Oct 13): weeks AFTER the comp window, same
+    // year — a rep's LAST full Sun–Sat week of the season counts as a Kobe
+    // week too, so reps who stay out later get another shot.
+    if (!BASE_YEAR && iso > KOBE_TO && iso.slice(0, 4) === KOBE_FROM.slice(0, 4)) {
+      const wk = weekKeyOf(iso);
+      if (wk) { const p = post.get(nm) || {}; p[wk] = (p[wk] || 0) + cv; post.set(nm, p); }
+    }
   }
+  // A week is FULL once its Saturday has passed; and it must start after the
+  // comp window (a week overlapping the window is the Kobe week itself).
+  const _todayIso = new Date().toISOString().slice(0, 10);
+  const _wkEnd = (wk) => { const d = new Date(wk + 'T00:00'); d.setDate(d.getDate() + 6); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
   const reps = [];
   const names = new Set([...base.keys(), ...cur.keys()]);
   names.forEach(nm => {
@@ -334,7 +350,12 @@ function kobeWeekCompute(raw, KOBE_FROM, KOBE_TO, BASE_YEAR) {
     // baseline doesn't make a small target.
     const _min = (typeof getRepTier === 'function' && getRepTier(nm) === 'rookie') ? 7000 : 10000;
     const target = Math.max(bestRev, _min);
-    reps.push({ name: nm, bestWk, bestRev, target, cur: c.total, byDay: c.byDay, earned: c.total > target });
+    const pw = post.get(nm) || {};
+    const lastWk = Object.keys(pw).filter(wk => wk > KOBE_TO && _wkEnd(wk) < _todayIso && pw[wk] > 0).sort().pop() || null;
+    const lastRev = lastWk ? pw[lastWk] : 0;
+    const earnedKobe = c.total > target, earnedLast = lastRev > target;
+    reps.push({ name: nm, bestWk, bestRev, target, cur: c.total, byDay: c.byDay, lastWk, lastRev,
+      earned: earnedKobe || earnedLast, earnedVia: earnedKobe ? 'kobe' : earnedLast ? 'last' : null, v: 2 });
   });
   return reps;
 }

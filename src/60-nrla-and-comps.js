@@ -2493,7 +2493,7 @@ function kobeWeekSection(raw, KOBE_FROM, KOBE_TO, FINAL_REPS) {
           el('div', { class: 'font-display text-2xl leading-none', style: { color: MAMBA } }, earnedN || '0'),
           el('div', { class: 'text-[9px] font-black uppercase', style: { letterSpacing: '.18em', opacity: '.7' } }, 'earned kobe week'))),
       el('div', { class: 'text-[11px] font-bold mt-3', style: { opacity: '.85' } },
-        'Beat your best week of the summer \u00b7 Minimum target: Rookies $7K / Vets $10K \u00b7 Reward: a custom framed \u201c24\u201d jersey with your name, signed live at the gala'))));
+        'Beat your best week of the summer (passed-audit revenue) \u00b7 Second chance: your last full Sun\u2013Sat week of the season counts too \u00b7 Minimum target: Rookies $7K / Vets $10K \u00b7 Reward: a custom framed \u201c24\u201d jersey with your name, signed live at the gala'))));
   // ── Personal pacer hero (signed-in rep) ──
   if (mine) {
     const _tgt = mine.target || mine.bestRev;
@@ -2575,7 +2575,8 @@ function kobeWeekSection(raw, KOBE_FROM, KOBE_TO, FINAL_REPS) {
             _kTh('name', 'Rep', ''),
             _kTh('team', 'Team', ''),
             _kTh('best', 'Best Week', ' text-right'),
-            _kTh('cur', 'This Week', ' text-right'),
+            _kTh('cur', 'Kobe Week', ' text-right'),
+            _kTh('last', 'Last Full Week', ' text-right', 'Second chance: the rep\u2019s last full Sun\u2013Sat week after the comp window, against the same target'),
             _kTh('tobeat', 'To Beat', ' text-right hidden sm:table-cell'),
             _kTh('pace', 'Pace/Day', ' text-right hidden sm:table-cell', 'What\u2019s left \u00f7 remaining comp days'),
             _kTh('pct', 'Progress', '', null),
@@ -2589,9 +2590,10 @@ function kobeWeekSection(raw, KOBE_FROM, KOBE_TO, FINAL_REPS) {
             case 'team':   return _kTeamOf(r);
             case 'best':   return r.bestRev || 0;
             case 'cur':    return r.cur || 0;
+            case 'last':   return r.lastRev || 0;
             case 'tobeat': return Math.max(0, tgt - (r.cur || 0));
             case 'pace':   return Math.max(0, tgt - (r.cur || 0));
-            case 'pct':    return tgt > 0 ? (r.cur || 0) / tgt : 0;
+            case 'pct':    return tgt > 0 ? Math.max(r.cur || 0, r.lastRev || 0) / tgt : 0;
             default:       return r.name;
           }
         };
@@ -2604,7 +2606,7 @@ function kobeWeekSection(raw, KOBE_FROM, KOBE_TO, FINAL_REPS) {
         const _rTgt = r.target || r.bestRev;
         const remaining = Math.max(0, _rTgt - r.cur);
         const perDay = (remaining > 0 && daysLeft > 0) ? remaining / daysLeft : 0;
-        const pct = Math.min(100, r.cur / _rTgt * 100);
+        const pct = Math.min(100, Math.max(r.cur || 0, r.lastRev || 0) / _rTgt * 100);   // the better of the two shots
         const _q = String(state._kobeSearch || '').trim().toLowerCase();
         return el('tr', {
           class: 'border-t', 'data-kobe': r.name.toLowerCase(),
@@ -2616,7 +2618,9 @@ function kobeWeekSection(raw, KOBE_FROM, KOBE_TO, FINAL_REPS) {
           el('td', { class: 'px-3 py-2 whitespace-nowrap text-muted-' }, _kTeamOf(r)),
           el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.usd0(r.bestRev),
             el('div', { class: 'text-[10px] font-semibold whitespace-nowrap', style: { color: 'var(--text-subtle)' } }, wkLbl(r.bestWk))),
-          el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, fmt.usd0(r.cur)),
+          el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold', style: r.earnedVia === 'kobe' ? { color: '#DF643A' } : {} }, fmt.usd0(r.cur)),
+          el('td', { class: 'px-3 py-2 text-right tabular-nums', style: r.earnedVia === 'last' ? { color: '#DF643A', fontWeight: '700' } : {} }, r.lastWk ? fmt.usd0(r.lastRev || 0) : '\u2014',
+            r.lastWk ? el('div', { class: 'text-[10px] font-semibold whitespace-nowrap', style: { color: 'var(--text-subtle)' } }, wkLbl(r.lastWk)) : null),
           el('td', { class: 'px-3 py-2 text-right tabular-nums hidden sm:table-cell', style: remaining ? {} : { color: '#DF643A', fontWeight: '700' } }, remaining ? fmt.usd0(remaining) : '\u2713'),
           el('td', { class: 'px-3 py-2 text-right tabular-nums hidden sm:table-cell', style: { color: perDay ? MAMBA : 'var(--text-subtle)', fontWeight: perDay ? '700' : '400' } }, perDay ? fmt.usd0(perDay) : '\u2014'),
           el('td', { class: 'px-3 py-2' },
@@ -4009,8 +4013,16 @@ function viewNrlaPublic() {
       // AUTO-FREEZE (per Isaac): once the window closes and every counted
       // account's audit has settled, the final board snapshots into the
       // synced extras and renders from there.
-      let _kFinal = (sel.final && Array.isArray(sel.final.reps) && sel.final.reps.length) ? sel.final.reps : null;   // an EMPTY frozen board is a bad freeze — ignore it and compute live
-      if (!_kFinal && isAdmin && new Date().toISOString().slice(0, 10) > sel.kobeTo) {
+      // A frozen board only counts if it was taken under the current rules
+      // (v2: passed-audit only + last-full-week second chance, per Isaac
+      // Oct 13) and somebody actually had Kobe-week revenue — the Sep 1 2026
+      // freeze had $0 for every rep. Anything else is ignored and the board
+      // computes live.
+      let _kFinal = (sel.final && Array.isArray(sel.final.reps) && sel.final.reps.length && sel.final.reps.some(r => r && r.v === 2) && sel.final.reps.some(r => (r.cur || 0) > 0)) ? sel.final.reps : null;
+      // Freeze only once the SEASON is over (no D2D sales in the last 14 days):
+      // the last-full-week second chance keeps moving while reps are selling.
+      const _kSeasonOver = (() => { const cut = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10); return !(raw || []).some(s => { if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') return false; const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : ''; return iso && iso >= cut; }); })();
+      if (!_kFinal && isAdmin && _kSeasonOver && new Date().toISOString().slice(0, 10) > sel.kobeTo) {
         const _pendK = (raw || []).filter(s => {
           if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') return false;
           if (typeof frPendingServiced === 'function' && !frPendingServiced(s)) return false;
@@ -4023,7 +4035,7 @@ function viewNrlaPublic() {
         if (_pendK === 0) {
           try {
             const _repsK = kobeWeekCompute(raw, sel.kobeFrom, sel.kobeTo);
-            if (!_repsK.length) throw new Error('empty board — nothing to freeze');
+            if (!_repsK.length || !_repsK.some(r => (r.cur || 0) > 0)) throw new Error('empty board — nothing to freeze');
             sel.final = { at: new Date().toISOString(), reps: JSON.parse(JSON.stringify(_repsK)) };
             _cXtra[sel.id] = { ..._cXtra[sel.id], final: sel.final };
             logActivity('comp_change', { detail: 'Kobe Week: final board AUTO-frozen (window over, audits settled)' });
