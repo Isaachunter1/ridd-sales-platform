@@ -284,6 +284,9 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     el('div', { class: 'px-5 py-3 flex flex-col gap-2 cursor-pointer', onclick: () => { state._retenMethodOpen = !open; mountApp(); } },
       el('div', { class: 'flex items-center gap-2 flex-wrap' },
         el('h3', { class: 'text-sm font-bold flex-1 min-w-0' }, (open ? '▾ ' : '▸ ') + 'Attrition Steps'),
+        // Insights › (per Isaac, Oct 13) — beside the branch button (moved up a row, same day).
+        el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: state._retenInsightsOpen ? 'var(--accent)' : 'var(--border-2)', background: state._retenInsightsOpen ? 'var(--accent)' : 'var(--card)', color: state._retenInsightsOpen ? 'var(--accent-text)' : 'var(--text)' },
+          title: 'Compare branches: who loses more, why, and when', onclick: (e) => { e.stopPropagation(); state._retenInsightsOpen = !state._retenInsightsOpen; mountApp(); } }, state._retenInsightsOpen ? 'Insights ▾' : 'Insights ›'),
         el('span', { class: 'inline-flex' }, retenBranchDropdown(retenGroundZero())),
         whatIf ? el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: (e) => { e.stopPropagation(); state._retenWhatIf = null; mountApp(); } }, 'Reset to official') : null,
         (() => {
@@ -311,9 +314,6 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
         })(),
         infoBtn ? el('span', { class: 'inline-flex', onclick: (e) => e.stopPropagation() }, infoBtn) : null),
       el('div', { class: 'flex items-center justify-end gap-4 tabular-nums reten-tiles' },
-        // Insights › (per Isaac, Oct 13): how the picked branch compares with the others, and why.
-        el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { marginRight: 'auto', borderColor: state._retenInsightsOpen ? 'var(--accent)' : 'var(--border-2)', background: state._retenInsightsOpen ? 'var(--accent)' : 'var(--card)', color: state._retenInsightsOpen ? 'var(--accent-text)' : 'var(--text)' },
-          title: 'Compare branches: who loses more, why, and when', onclick: (e) => { e.stopPropagation(); state._retenInsightsOpen = !state._retenInsightsOpen; mountApp(); } }, state._retenInsightsOpen ? 'Insights ▾' : 'Insights ›'),
         // Last year's full-year attrition first (per Isaac) — same rules, whole year, drillable to the counted cancels.
         (() => { const fn = drill((year - 1) + ' \u00b7 counted cancels', prev.rows.counted, 'counted as churn'); return el('div', { class: 'text-right', title: n(prev.counted) + ' counted cancels in ' + (year - 1) + ' \u00f7 ' + n(prev.boy) + ' on the books Jan 1, ' + (year - 1) }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, (year - 1) + ' attrition'), el('div', { class: 'text-base font-black', style: fn ? { cursor: 'pointer' } : {}, onclick: fn ? (e) => { e.stopPropagation(); fn(); } : null }, pct(prev.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.prev)) : null)); })(),
         el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' YTD attrition'), el('div', { class: 'text-base font-black' }, pct(cur.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.cur)) : null)),
