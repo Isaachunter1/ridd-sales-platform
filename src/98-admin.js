@@ -1835,7 +1835,7 @@ function adminDataSources() {
     baOpen ? el('div', { class: 'px-5 pb-5 flex flex-col gap-4' },
       brandAsset('ridd-logo.png', 'PNG · charcoal on white · 888 × 252', '#FFFFFF', '44px'),
       brandAsset('ridd-logo-dark.png', 'PNG · cream on charcoal, padded · 1191 × 966', '#2D2C2A', '96px'),
-      brandAsset('ridd-mark-v2.gif', 'GIF · animated RIDD mark v2, orange on transparent — the email-signature version: pixels in over ~2.7s, holds the full mark 10s, loops · 245 × 340', '#FFFFFF', '96px')) : null);
+      brandAsset('ridd-mark-v2.gif', 'GIF · animated RIDD mark v2, orange on transparent — the email-signature version: full logo 10s, then the spider dissolves (~2.6s) while RIDD stays, loops · 245 × 340', '#FFFFFF', '96px')) : null);
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'flex items-center gap-2' }, el('h2', { class: 'text-lg font-bold' }, 'Connections'), state._integrationsErr ? pill(false, 'run migrations/20260923_integrations.sql') : null),
     frCard, rvCard, sbCard, diCard, baCard);
