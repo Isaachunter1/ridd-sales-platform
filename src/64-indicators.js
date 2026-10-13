@@ -3304,11 +3304,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // Records are an annual thing (per Isaac, Oct 12): the card defaults to the current calendar year across every
     // rep, whatever range the page is on; pick another year or All time from its dropdown.
     const _recYear = (state._aggRecordsYear && state._aggRecordsYear !== '') ? state._aggRecordsYear : String(new Date().getFullYear());
-    // Audit filter (per Isaac, Oct 13): 'all' = every sale incl. Failed Audit (default), 'nofail' = drop Failed
-    // Audit, 'passed' = only accounts flagged Passed Audit.
-    const _recAudit = ['all', 'nofail', 'passed'].includes(state._aggRecordsAudit) ? state._aggRecordsAudit : 'all';
-    const _recAuditOk = (s) => { if (_recAudit === 'all') return true; const f = String(s.customerFlags || '');
-      return _recAudit === 'passed' ? /passed\s*audit/i.test(f) : !auditFailRe().test(f); };
+    // Audit filter (per Isaac, Oct 13): 'all' = every sale incl. Failed Audit (default), 'passed' = only accounts
+    // flagged Passed Audit.
+    const _recAudit = state._aggRecordsAudit === 'passed' ? 'passed' : 'all';
+    const _recAuditOk = (s) => _recAudit === 'all' || /passed\s*audit/i.test(String(s.customerFlags || ''));
     const recSales = !_recYear ? rawSales.filter(_recAuditOk) : (allRawSales || []).filter(s => {
       if (applyExclusion && isRepExcluded(s.rep)) return false;
       if (!_recAuditOk(s)) return false;
@@ -3807,7 +3806,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     );
 
     const _recAuditToggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' }, title: 'Which accounts count toward the records' },
-      ...[['all', 'All sales', 'Every sale, including Failed Audit accounts'], ['nofail', 'No failed audits', 'Leave out accounts flagged Failed Audit'], ['passed', 'Passed audit only', 'Only accounts flagged Passed Audit']].map(([id, label, tip]) => el('button', {
+      ...[['all', 'All sales', 'Every sale, including Failed Audit accounts'], ['passed', 'Passed audit only', 'Only accounts flagged Passed Audit']].map(([id, label, tip]) => el('button', {
         class: 'px-2.5 py-1 text-[11px] font-semibold transition', title: tip,
         style: _recAudit === id ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'transparent', color: 'var(--text)' },
         onclick: () => { state._aggRecordsAudit = id; mountApp(); },
@@ -3824,7 +3823,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           ? el('div', { class: 'flex items-center gap-1.5', style: { flexWrap: 'nowrap' } },
               _recSel(_recYear, [...[...new Set([String(new Date().getFullYear()), ..._recYears])].map(y => [y, y]), ['all', 'All time']], (v) => { state._aggRecordsYear = v; }),
               _recSel(byMetric, [['revenue', 'Revenue'], ['count', 'Sales']], (v) => { state._aggRecordsMetric = v; }),
-              _recSel(_recAudit, [['all', 'All audits'], ['nofail', 'No failed'], ['passed', 'Passed only']], (v) => { state._aggRecordsAudit = v; }),
+              _recSel(_recAudit, [['all', 'All audits'], ['passed', 'Passed only']], (v) => { state._aggRecordsAudit = v; }),
               _recSel(_recPeriod, [['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['year', 'Year'], ['pra', 'PRA day']], (v) => { state._aggRecordsPeriod = v; }))
           : el('div', { class: 'flex items-center gap-3 flex-wrap' },
               _recSel(_recYear, [...[...new Set([String(new Date().getFullYear()), ..._recYears])].map(y => [y, y]), ['all', 'All time']], (v) => { state._aggRecordsYear = v; }),
