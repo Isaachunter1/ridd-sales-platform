@@ -919,6 +919,17 @@ function auditSubTasks() {
   tasks.push({ tag: 'Not started', title: 'Sold but never started', noun: 'subscription', rows: stale,
     ok: 'All clear — nothing sold more than two weeks ago is still waiting on its first service.',
     todo: (n) => n + ' active subscription' + s(n) + ' sold more than 14 days ago with no completed initial service — schedule the first visit or close ' + (n === 1 ? 'it' : 'them') + '.' });
+  // 6b. No signed agreement (per Isaac, Oct 13): active recurring sales this year, sold 2+ days ago, whose agreement
+  //     was never e-signed in FieldRoutes (sent and unsigned, or never sent). One-time services don't need one.
+  const unsigned = rows.filter(r => { if (!isActive(r) || notSale(r.subscription) || /one[\s-]?time/i.test(String(r.subscription || ''))) return false;
+      const sd = String(r.sold_date || '').slice(0, 10); if (sd.slice(0, 4) !== yr) return false;
+      const age = (nowMs - Date.parse(sd)) / dayMs; if (isNaN(age) || age < 2) return false;
+      return String(r.contract_state || 'none') !== 'signed'; })
+    .sort((x, y) => String(y.sold_date).localeCompare(String(x.sold_date)))
+    .map(r => ({ ...r, _flagReason: 'Customer #' + r.customer_id + ' · sold ' + String(r.sold_date).slice(0, 10) + ' · agreement ' + (String(r.contract_state) === 'sent' ? 'sent, not signed' : 'never sent') }));
+  tasks.push({ tag: 'Agreement', title: 'No signed agreement', noun: 'subscription', tone: 'check', rows: unsigned,
+    ok: 'All clear — every active sale this year has a signed agreement.',
+    todo: (n) => n.toLocaleString() + ' active sale' + s(n) + ' in ' + yr + ' with no signed agreement (' + unsigned.filter(r => String(r.contract_state) === 'sent').length.toLocaleString() + ' sent and waiting) — resend it from Documents in FieldRoutes and get it signed.' });
   // 7. Cancelled with no reason (per Isaac, Oct 13 — the list he works through in FieldRoutes). Only cancels that
   //    count in the retention book: every year, the first service was completed, not a one-time / non-sale service,
   //    and not a 3-day order reversal (cancelled within 3 days of the sale with under 2 services). Deleted customers
