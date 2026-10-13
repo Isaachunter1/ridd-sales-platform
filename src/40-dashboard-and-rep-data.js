@@ -1264,11 +1264,19 @@ function openCrmReconcileModal() {
   // and let the card's range picker do the narrowing.
   try {
     if (typeof indicatorSales === 'function') {
-      const pool = indicatorSales() || [];
-      const byName = new Map(); for (const x of pool) { const k = getCanonicalRepName(x.rep); (byName.get(k) || byName.set(k, []).get(k)).push(x); }
+      // Every department's sales (the world dashboards switch state.indicatorDept while they render, so at click
+      // time it can point at another department — that is what kept a Sales Rep's card on the board's one-day slice);
+      // then keep the departments the board itself showed for this rep.
+      const _pd = state.indicatorDept; let pool = [];
+      try { state.indicatorDept = 'all'; pool = indicatorSales() || []; } finally { state.indicatorDept = _pd; }
+      if (typeof _indicatorDeptOf === 'function' && (rep.sales || []).length) { const ds = new Set(rep.sales.map(_indicatorDeptOf)); pool = pool.filter(x => ds.has(_indicatorDeptOf(x))); }
+      // Match on the name's words in any order ("Beaird, Ethan" = "Ethan Beaird"), canonical or raw — the board and
+      // the pool don't always spell a rep the same way, and a miss silently kept the board's one-day slice.
+      const sig = (v) => String(v || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+      const byName = new Map(); for (const x of pool) { const ks = new Set([sig(getCanonicalRepName(x.rep)), sig(x.rep)]); for (const k of ks) (byName.get(k) || byName.set(k, []).get(k)).push(x); }
       const resource = (r) => {
         const names = Array.isArray(r._members) ? r._members.map(m => m.name) : [r.name];
-        const full = names.flatMap(nm => byName.get(nm) || []);
+        const full = [...new Set(names.flatMap(nm => byName.get(sig(nm)) || byName.get(sig(getCanonicalRepName(nm))) || []))];
         return full.length >= (r.sales || []).length ? _scopeRep(Object.assign({}, r, { sales: full }), () => true) : r;
       };
       rep = resource(rep);
