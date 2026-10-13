@@ -891,24 +891,9 @@ function nrlaBoard(rawSales, opts) {
   const cfgBar = null;   // retired — dates moved to the Comp Window bar below
   const compWinBar = el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
     lbl('Comp Window'),
-    RO
-      ? el('span', { class: 'text-[11px] font-bold tabular-nums' }, (cfg.start || '—') + ' → ' + (cfg.end || '—'))
-      : el('span', { class: 'inline-flex items-center gap-1.5 whitespace-nowrap' },
-          el('input', {
-            type: 'date', value: cfg.start || '',
-            class: 'rounded border px-1.5 py-1 text-xs',
-            style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: '0' },
-            title: 'First day of Seeding Round 1 (rounds are 2-day blocks, Sundays skipped)',
-            onchange: (e) => { cfg.start = e.target.value; save('start date → ' + (e.target.value || 'unset')); },
-          }),
-          el('span', { class: 'text-muted-' }, '→'),
-          el('input', {
-            type: 'date', value: cfg.end || '',
-            class: 'rounded border px-1.5 py-1 text-xs',
-            style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: '0' },
-            title: 'Last day of the Championship round — rounds auto-fill the window, last two become semifinal + championship. Update the two dates each year and the season lays itself out.',
-            onchange: (e) => { cfg.end = e.target.value; save('end date → ' + (e.target.value || 'unset')); },
-          })),
+    // Dates are set in Settings → Competitions (per Isaac, Oct 13).
+    el('span', { class: 'text-[11px] font-bold tabular-nums' }, (cfg.start || '—') + ' → ' + (cfg.end || '—')),
+    (typeof compSettingsLink === 'function') ? compSettingsLink(!RO && isAdminRole(state.profile?.role)) : null,
     el('div', { class: 'ml-auto' },
       el('div', { class: 'flex items-center gap-2' },
           RO ? null : el('button', {
@@ -951,17 +936,7 @@ function nrlaBoard(rawSales, opts) {
               } catch (e) { toast('Report failed: ' + (e && e.message || e), 'error'); }
             },
           }, '⬇'),
-          RO ? null : el('button', {
-            class: 'text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
-            style: { borderColor: '#B91C1C', color: '#B91C1C', background: 'transparent', whiteSpace: 'nowrap' },
-            title: 'Reset the season window — both dates clear and the board goes blank until you set new ones (which then stick until the next reset). Rosters, matchups, and archives are untouched.',
-            onclick: () => {
-              if (!confirm('Reset the NRLA season window? Both dates clear and the board goes blank until you set new ones. Rosters, matchups, and archives are untouched.')) return;
-              cfg.start = '';
-              cfg.end = '';
-              save('NRLA: season window RESET (dates cleared)');
-            },
-          }, '\u21ba Reset'),
+
           el('button', {
             class: 'inline-flex items-center justify-center rounded-full text-xs font-bold cursor-pointer',
             style: { width: '22px', height: '22px', background: PINK, color: '#fff' },
@@ -2366,7 +2341,8 @@ const KOTH_LOCK_ISO = kothLockIso(KOTH_SEASON_YEAR);
 const KOTH_PRIZE_LABEL = '2,000,000 RIDDCOIN';
 // 📄 Kobe Week — Best Weeks PDF (per Isaac): one table of every active
 // rep's best Sun–Sat week (the number they have to beat), biggest first.
-async function downloadKobeBestWeeksPdf(reps, from, to) {
+async function downloadKobeBestWeeksPdf(reps, from, to, audit) {
+  const _basis = audit === 'all' ? 'SERVICED' : 'PASSED AUDIT';
   try { await loadPdfLibsOnce(); } catch { toast('Could not load PDF libraries — check your connection', 'error'); return; }
   const wkLbl = (wk) => {
     const d = new Date(wk + 'T00:00');
@@ -2420,7 +2396,7 @@ async function downloadKobeBestWeeksPdf(reps, from, to) {
       el('div', { style: { borderBottom: '4px solid #E0402A', paddingBottom: '8px', marginBottom: '14px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' } },
         el('div', {},
           el('div', { style: { fontSize: '34px', fontWeight: '900', letterSpacing: '-0.02em', lineHeight: '.95', textTransform: 'uppercase', color: '#fff' } }, 'KOBE WEEK'),
-          el('div', { style: { fontSize: '11px', fontWeight: '800', letterSpacing: '.18em', textTransform: 'uppercase', color: '#A9441F', marginTop: '4px' } }, 'BEST WEEKS \u00b7 ' + from.slice(5).replace('-', '/') + ' \u2013 ' + to.slice(5).replace('-', '/'))),
+          el('div', { style: { fontSize: '11px', fontWeight: '800', letterSpacing: '.18em', textTransform: 'uppercase', color: '#A9441F', marginTop: '4px' } }, 'BEST WEEKS \u00b7 ' + _basis + ' \u00b7 ' + from.slice(5).replace('-', '/') + ' \u2013 ' + to.slice(5).replace('-', '/'))),
         el('div', { style: { textAlign: 'right' } },
           el('div', { style: { fontSize: '20px' } }, '\ud83d\udc0d'),
           el('div', { style: { fontSize: '8.5px', color: '#8a8a8a', fontWeight: '700', marginTop: '2px' } },
@@ -2453,7 +2429,7 @@ async function downloadKobeBestWeeksPdf(reps, from, to) {
       if (imgH <= pageH) pdf.addImage(imgData, 'PNG', 0, 0, pageW, imgH);
       else { const sW = (pageW * pageH) / imgH; pdf.addImage(imgData, 'PNG', (pageW - sW) / 2, 0, sW, pageH); }
     }
-    pdf.save('RIDD-KobeWeek-BestWeeks-' + new Date().toISOString().slice(0, 10) + '.pdf');
+    pdf.save('RIDD-KobeWeek-BestWeeks-' + (audit === 'all' ? 'Serviced-' : 'PassedAudit-') + new Date().toISOString().slice(0, 10) + '.pdf');
     toast('Downloaded best weeks for ' + reps.length + ' reps across ' + teams.length + ' teams', 'success');
   } catch (err) {
     console.error('[ridd] Kobe best-weeks PDF failed', err);
@@ -2499,12 +2475,6 @@ function kobeWeekSection(raw, KOBE_FROM, KOBE_TO, FINAL_REPS) {
         el('div', { class: 'text-right' },
           el('div', { class: 'font-display text-2xl leading-none', style: { color: MAMBA } }, earnedN || '0'),
           el('div', { class: 'text-[9px] font-black uppercase', style: { letterSpacing: '.18em', opacity: '.7' } }, 'earned kobe week'),
-          el('div', { class: 'inline-flex rounded-lg overflow-hidden mt-2', style: { border: '1px solid rgba(255,255,255,.3)' }, title: 'Which accounts count toward the best week, the Kobe week and the last full week' },
-            ...[['all', 'Serviced', 'Every Pending / Serviced sale, including Failed Audit and not-yet-audited accounts'], ['passed', 'Passed Audit', 'Only accounts flagged Passed Audit (or No Audit) \u2014 the comp rule']].map(([id, label, tip]) => el('button', {
-              class: 'px-2.5 py-1 text-[11px] font-semibold transition', title: tip,
-              style: _kAudit === id ? { background: MAMBA, color: '#fff' } : { background: 'transparent', color: '#fff' },
-              onclick: () => { state._kobeAudit = id; mountApp(); },
-            }, label))),
           (() => { const flip = board.filter(r => r.earned !== _kOtherEarned.has(r.name)).length; return el('div', { class: 'text-[10px] font-bold mt-1', style: { opacity: '.75' } }, flip ? flip + ' rep' + (flip === 1 ? '' : 's') + ' change on the other basis' : 'Same winners on both bases'); })())),
       el('div', { class: 'text-[11px] font-bold mt-3', style: { opacity: '.85' } },
         'Beat your best week of the summer (passed-audit revenue) \u00b7 Second chance: your last full Sun\u2013Sat week of the season counts too \u00b7 Minimum target: Rookies $7K / Vets $10K \u00b7 Reward: a custom framed \u201c24\u201d jersey with your name, signed live at the gala'))));
@@ -3942,6 +3912,8 @@ function viewNrlaPublic() {
     // comp config; defaults to the 2026 flyer window (Aug 3–8).
     if (typeof sel.kobeFrom !== 'string') sel.kobeFrom = KOBE_FROM;
     if (typeof sel.kobeTo !== 'string') sel.kobeTo = KOBE_TO;
+    // Settings → Competitions owns the window (per Isaac, Oct 13).
+    { const _w = (typeof compSettingsWindow === 'function') ? compSettingsWindow('kobe_week') : null; if (_w) { sel.kobeFrom = _w.start; sel.kobeTo = _w.end; } }
     const saveKobe = (detail) => {
       // sel is a virtual pill rebuilt every render — persist the window in
       // the synced _compExtras map so it survives.
@@ -3963,9 +3935,8 @@ function viewNrlaPublic() {
     const _kSelYr = state._kobeYear || '';
     wrap.append(el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
       el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Comp Window'),
-      ...(isAdmin
-        ? [kIn('kobeFrom', 'start'), el('span', { class: 'text-muted-' }, '→'), kIn('kobeTo', 'end')]
-        : [el('span', { class: 'text-[11px] font-bold tabular-nums' }, (sel.kobeFrom || '—') + ' → ' + (sel.kobeTo || '—'))]),
+      el('span', { class: 'text-[11px] font-bold tabular-nums' }, (sel.kobeFrom || '—') + ' → ' + (sel.kobeTo || '—')),
+      (typeof compSettingsLink === 'function') ? compSettingsLink(isAdmin) : null,
       el('select', {
         class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold cursor-pointer',
         style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
@@ -3976,29 +3947,25 @@ function viewNrlaPublic() {
         // any other year is the lookback.
         el('option', { value: '', selected: !_kSelYr }, (sel.kobeFrom || KOBE_FROM).slice(0, 4)),
         ..._kYears.filter(y => y !== (sel.kobeFrom || KOBE_FROM).slice(0, 4)).map(y => el('option', { value: y, selected: _kSelYr === y }, y))),
+      // Serviced / Passed Audit (per Isaac, Oct 13) — left of Best Weeks;
+      // drives the board AND the Best Weeks export.
+      el('div', { class: 'inline-flex rounded-lg border overflow-hidden ml-auto', style: { borderColor: 'var(--border-2)' }, title: 'Which accounts count toward the best week, the Kobe week and the last full week' },
+        ...[['all', 'Serviced', 'Every Pending / Serviced sale, including Failed Audit and not-yet-audited accounts'], ['passed', 'Passed Audit', 'Only accounts flagged Passed Audit (or No Audit) \u2014 the comp rule']].map(([id, label, tip]) => el('button', {
+          class: 'px-2.5 py-1 text-[11px] font-semibold transition', title: tip,
+          style: (state._kobeAudit === 'all' ? 'all' : 'passed') === id ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'transparent', color: 'var(--text)' },
+          onclick: () => { state._kobeAudit = id; mountApp(); },
+        }, label))),
       isAdmin ? el('button', {
-        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95 border ml-auto',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95 border',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         title: 'PDF: every active rep\u2019s best Sun\u2013Sat week of the season (the number they have to beat), biggest first',
         onclick: () => {
-          const _reps = kobeWeekCompute(raw, sel.kobeFrom || KOBE_FROM, sel.kobeTo || KOBE_TO)
+          const _aud = state._kobeAudit === 'all' ? 'all' : 'passed';
+          const _reps = kobeWeekCompute(raw, sel.kobeFrom || KOBE_FROM, sel.kobeTo || KOBE_TO, undefined, _aud)
             .filter(r => (typeof isRepActive !== 'function') || isRepActive(r.name));
-          downloadKobeBestWeeksPdf(_reps, sel.kobeFrom || KOBE_FROM, sel.kobeTo || KOBE_TO);
+          downloadKobeBestWeeksPdf(_reps, sel.kobeFrom || KOBE_FROM, sel.kobeTo || KOBE_TO, _aud);
         },
-      }, '\u2b07 Best Weeks') : null,
-      isAdmin ? el('button', {
-        class: 'text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
-        style: { borderColor: '#B91C1C', color: '#B91C1C', background: 'transparent', whiteSpace: 'nowrap' },
-        title: 'Reset the comp window — dates clear until you set new ones, which then stick until the next reset',
-        onclick: () => {
-          if (!confirm('Reset the Kobe Week comp window? Dates clear until you set new ones.')) return;
-          sel.kobeFrom = '';
-          sel.kobeTo = '';
-          delete sel.final;   // new season = new snapshot
-          if (_cXtra[sel.id]) delete _cXtra[sel.id].final;
-          saveKobe('comp window RESET (dates cleared)');
-        },
-      }, '\u21ba Reset') : null));
+      }, '\u2b07 Best Weeks') : null));
     if (_kSelYr) {
       const yReps = kobeWeekCompute(raw, (Number(_kSelYr) + 1) + '-01-01', (Number(_kSelYr) + 1) + '-01-02', _kSelYr)
         .sort((a, b) => b.bestRev - a.bestRev);
@@ -4154,12 +4121,7 @@ function viewNrlaPublic() {
     }, '+') : null;
     // ↺ Reset — same treatment as Spring Cleaning (per Isaac): clears the
     // ENTIRE season; new days entered afterward stick until the next reset.
-    const clearBtn = isAdmin ? el('button', {
-      class: 'text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95 ml-auto',
-      style: { borderColor: '#B91C1C', color: '#B91C1C', background: 'transparent', whiteSpace: 'nowrap' },
-      title: 'Reset the competition — ALL comp days clear and the board goes empty until you add days or generate a season',
-      onclick: () => { if (confirm('Reset Last Man Standing? All comp days clear and the board goes empty until you add days or generate a season.')) saveDays([]); },
-    }, '\u21ba Reset') : null;
+    const clearBtn = null;   // (↺ Reset removed per Isaac, Oct 13 — dates are set in Settings → Competitions)
     // ⏳/📸 board controls land in this span (filled by lastManStandingBoard).
     const _lmsBarCtl = el('span', { class: 'inline-flex items-center gap-2' });
     wrap.append(el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
@@ -4222,7 +4184,11 @@ function viewNrlaPublic() {
     return wrap;
   }
   // ── Other comps use the session Comp Window date range, same as before ──
-  const cf = state._indicatorCompFilter || (state._indicatorCompFilter = { start: '', end: '' });
+  // Settings → Competitions owns the window (per Isaac, Oct 13); no dates
+  // set there = all dates.
+  const _sw = (typeof compSettingsWindow === 'function') ? compSettingsWindow(sel.id) : null;
+  const cf = _sw ? { start: _sw.start, end: _sw.end } : { start: '', end: '' };
+  state._indicatorCompFilter = { start: cf.start, end: cf.end };   // anything else reading the session window (headers, exports) agrees
   const applyWin = () => { const sx = window.scrollX, sy = window.scrollY; setTimeout(() => { mountApp(); requestAnimationFrame(() => window.scrollTo(sx, sy)); }, 0); };
   const dateInput = (key) => el('input', {
     type: 'date', value: cf[key] || '',
@@ -4254,8 +4220,8 @@ function viewNrlaPublic() {
             el('span', { class: 'text-[10px] font-black', style: { color: 'var(--text-subtle)' } }, 'R' + (i + 1)),
             _scRoundInput(r, 'start', i), el('span', { class: 'text-muted-' }, '–'), _scRoundInput(r, 'end', i))),
         ]
-      : [dateInput('start'), el('span', { class: 'text-muted-' }, '→'), dateInput('end'),
-          el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } }, '· date range for this competition')]));
+      : [el('span', { class: 'text-[11px] font-bold tabular-nums' }, cf.start ? cf.start + ' \u2192 ' + cf.end : 'All dates'),
+          (typeof compSettingsLink === 'function') ? compSettingsLink(isAdmin) : null]));
   wrap.append(compWinBar);
   const bounds = _scSel
     ? (_scAllDates.length ? { s: new Date(_scAllDates[0] + 'T00:00'), e: new Date(_scAllDates[_scAllDates.length - 1] + 'T23:59') } : null)
@@ -4289,19 +4255,7 @@ function viewNrlaPublic() {
         title: 'Reps & offices — who competes, which market each rep counts toward, and which offices are in the comp',
         onclick: () => openSpringRepMarketModal(windowed, offices),
       }, '👥') : null,
-      isAdmin ? el('button', {
-        class: 'text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
-        style: { borderColor: '#B91C1C', color: '#B91C1C', background: 'transparent', whiteSpace: 'nowrap' },
-        title: 'Reset the ENTIRE competition — every round\u2019s dates clear and the board goes blank until new dates are entered',
-        onclick: () => {
-          if (!confirm('Reset Spring Cleaning? ALL round dates clear and the board goes blank. New dates you enter afterward stick until the next reset.')) return;
-          sel.rounds = SPRING_DEFAULT_ROUNDS.map(() => ({ start: '', end: '' }));
-          sel.scHistory = {};   // a reset starts a NEW season — old freezes go with it
-          logActivity('comp_change', { detail: 'Spring Cleaning: competition RESET — all round dates cleared' });
-          saveDemoData();
-          mountApp();
-        },
-      }, '\u21ba Reset') : null,
+
       el('button', {
         class: 'rounded-full flex items-center justify-center font-black cursor-pointer transition hover:brightness-95 border',
         style: { width: '26px', height: '26px', borderColor: 'var(--border-2)', color: 'var(--text)', fontSize: '13px' },
@@ -4327,18 +4281,7 @@ function viewNrlaPublic() {
         title: 'Export Top Gun (Standings + all accounts by class)',
         onclick: () => exportTopGunXlsx(windowedD2d, proSet),
       }, '↓ Export'),
-      isAdmin ? el('button', {
-        class: 'text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
-        style: { borderColor: '#B91C1C', color: '#B91C1C', whiteSpace: 'nowrap' },
-        title: 'Reset the competition window — dates clear (All dates) until you set new ones, which then stick until the next reset',
-        onclick: () => {
-          if (!confirm('Reset the Top Gun comp window? Dates clear to All dates until you set new ones.')) return;
-          state._indicatorCompFilter = { start: '', end: '' };
-          logActivity('comp_change', { detail: 'Top Gun: comp window RESET (all dates)' });
-          saveDemoData();
-          mountApp();
-        },
-      }, '\u21ba Reset') : null,
+
       el('button', {
         class: 'rounded-full flex items-center justify-center font-black cursor-pointer transition hover:brightness-95 border',
         style: { width: '26px', height: '26px', borderColor: 'var(--border-2)', color: 'var(--text)', fontSize: '13px' },

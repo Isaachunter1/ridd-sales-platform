@@ -251,6 +251,8 @@ function nrlaConfig(comp) {
   // is a deliberate ↺ Reset and must stay empty (no self-heal fighting it).
   if (typeof n.start !== 'string') n.start = '2026-07-06';
   if (typeof n.end !== 'string') n.end = '2026-07-18';
+  // Settings → Competitions owns the season dates (per Isaac, Oct 13) when set.
+  if (typeof compSettingsWindow === 'function') { const w = compSettingsWindow(c.id || 'nrla'); if (w) { n.start = w.start; n.end = w.end; } }
   n.seedRounds = Math.min(12, Math.max(1, Math.round(Number(n.seedRounds) || 4)));   // fallback when no end date is set
   if (!Array.isArray(n.teamOrder)) n.teamOrder = null;   // 🎲 shuffled matchup order
   n.groups = Number(n.groups) === 1 ? 1 : 2;              // two groups by # of reps (poster) or one table

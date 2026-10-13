@@ -488,6 +488,26 @@ function compOccurrences(cfg, horizonDays = 548) {
   }
   return out;
 }
+// The board window for a competition, from Settings → Competitions (per
+// Isaac, Oct 13: every year he sets each comp's dates HERE, and the boards
+// follow). The occurrence that started most recently (so last summer's comp
+// stays on the board until this year's starts), else the next one coming.
+// null when the comp has no dates set.
+function compSettingsWindow(compId) {
+  const cfg = compScheduleStore()[compId];
+  if (!cfg || !cfg.start) return null;
+  const occ = compOccurrences(cfg);
+  if (!occ.length) return null;
+  const t = new Date(); t.setHours(12, 0, 0, 0);
+  const started = occ.filter(o => o.start <= t);
+  const o = started.length ? started[started.length - 1] : occ[0];
+  return { start: _csIso(o.start), end: _csIso(o.end) };
+}
+// "Set in Settings" pointer for the boards' read-only Comp Window bars.
+function compSettingsLink(isAdmin) {
+  return isAdmin ? el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' }, title: 'Competition dates are set once a year in Settings \u2192 Competitions',
+    onclick: () => { state.view = 'admin'; state.adminSection = 'comps'; history.replaceState(null, '', (typeof VIEW_TO_HASH !== 'undefined' && VIEW_TO_HASH['admin']) || '#admin'); mountApp(); } }, 'Set dates in Settings \u2192') : null;
+}
 function adminCompetitionSchedule() {
   if (!isAdminRole(state.profile?.role)) return emptyCard('Admins only.');
   const sc = compScheduleStore();
@@ -611,6 +631,7 @@ function adminCompetitionSchedule() {
 
   return el('div', { class: 'flex flex-col gap-4' },
     el('h2', { class: 'text-lg font-bold' }, 'Competitions'),
+    el('div', { class: 'text-[12px] -mt-2', style: { color: 'var(--text-muted)' } }, 'Set each competition\u2019s start and end here once a year \u2014 the boards (Kobe Week, NRLA, Top Gun and the other date-window comps) run on these dates. Spring Cleaning rounds and Last Man Standing comp days are still set on their own boards.'),
     table, calendar);
 }
 
