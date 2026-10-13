@@ -66,7 +66,10 @@ exports.handler = async (event) => {
     // days — an earlier scan wrongly flagged 2,355 live customers (Ethan lost
     // 59 sales). Kept short because truly deleted accounts (e.g. Ethan's
     // #179903, last touched 9/12) stop updating right after signup.
-    const RECENT_MS = 14 * 86400000;
+    // Shortened to 3 days (Oct 13): the 2,355 false flags came from the active-only search above, now fixed, and the
+    // >10%-missing batch guard still stops a bad answer. A customer deleted this week (#181422, deleted Oct 12) should
+    // leave the book within days, not two weeks.
+    const RECENT_MS = 3 * 86400000;
     const recent = new Set(rows.filter(r => { const v = r.upd && (r.upd.value || r.upd); const t = v ? Date.parse(String(v).replace(' ', 'T')) || (Number(v) * 1000) : 0; return t && (Date.now() - t) < RECENT_MS; }).map(r => String(r.id)));
     console.log('[crm-deleted] mirror customers:', mirrorIds.length);
 
@@ -79,7 +82,10 @@ exports.handler = async (event) => {
     // ids made ~10k-char URLs — the likely reason every batch failed).
     for (const part of chunk(mirrorIds, 250)) {
       try {
-        const got = await fr('customer/search', { customerIDs: { operator: 'IN', value: part.map(Number) }, includeData: 0 });
+        // status IN [0,1] (Oct 13): without it customer/search only returns ACTIVE customers, so every batch with
+        // inactive (cancelled) customers came back >10% "missing" and was skipped — 376 of 377 batches on Oct 13,
+        // 750 of 94,534 ids actually checked. Deleted customers are the only ones it should not return.
+        const got = await fr('customer/search', { customerIDs: { operator: 'IN', value: part.map(Number) }, status: { operator: 'IN', value: [0, 1] }, includeData: 0 });
         calls++;
         const found = Array.isArray(got.customerIDs) ? got.customerIDs.map(String)
           : (got.customerIDs && typeof got.customerIDs === 'object') ? Object.keys(got.customerIDs) : null;
