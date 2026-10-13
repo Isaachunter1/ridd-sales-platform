@@ -1820,21 +1820,22 @@ function adminDataSources() {
     const url = location.origin + '/' + file;
     return el('div', { class: 'flex items-center gap-4 flex-wrap' },
       el('div', { class: 'rounded-lg border overflow-hidden', style: { borderColor: 'var(--border)', background: bg, padding: bg === '#FFFFFF' ? '12px' : '0' } },
-        el('img', { src: '/' + file, alt: 'RIDD logo', style: { height: h, display: 'block' } })),
+        el('img', { src: '/' + file, alt: 'RIDD logo', style: { height: h, display: 'block' }, onerror: (e) => { e.target.replaceWith(el('div', { class: 'text-[11px] px-3 py-2', style: { color: 'var(--text-muted)' } }, file + ' not uploaded yet')); } })),
       el('div', { class: 'flex flex-col gap-2 min-w-0' },
         el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, desc),
         el('code', { class: 'text-[11px]', style: { wordBreak: 'break-all' } }, url),
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
           el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { try { navigator.clipboard.writeText(url); toast('Logo URL copied', 'success'); } catch (e) { toast('Copy failed — select the URL above', 'warn'); } } }, 'Copy URL'),
-          el('a', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, href: '/' + file, download: file }, 'Download PNG'))));
+          el('a', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, href: '/' + file, download: file }, 'Download ' + (/\.svg$/i.test(file) ? 'SVG' : 'PNG')))));
   };
   const baCard = el('div', { class: 'card overflow-hidden' },
     el('button', { class: 'w-full flex items-center justify-between gap-3 px-5 py-3 text-left', onclick: () => { state._dsBrandOpen = !baOpen; mountApp(); } },
-      el('div', {}, el('div', { class: 'text-sm font-bold' }, 'Brand assets'), el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'The RIDD logo as hosted PNGs, for email signatures, profile pictures and API flows.')),
+      el('div', {}, el('div', { class: 'text-sm font-bold' }, 'Brand assets'), el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'The RIDD logo as hosted PNGs and SVG, for email signatures, profile pictures and API flows.')),
       el('span', { class: 'text-[11px] text-muted-' }, baOpen ? '▲' : '▼')),
     baOpen ? el('div', { class: 'px-5 pb-5 flex flex-col gap-4' },
       brandAsset('ridd-logo.png', 'PNG · charcoal on white · 888 × 252', '#FFFFFF', '44px'),
-      brandAsset('ridd-logo-dark.png', 'PNG · cream on charcoal, padded · 1191 × 966', '#2D2C2A', '96px')) : null);
+      brandAsset('ridd-logo-dark.png', 'PNG · cream on charcoal, padded · 1191 × 966', '#2D2C2A', '96px'),
+      brandAsset('mini-ridd.svg', 'SVG · mini RIDD mark · vector, scales to any size (per Isaac, Oct 13)', '#FFFFFF', '56px')) : null);
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'flex items-center gap-2' }, el('h2', { class: 'text-lg font-bold' }, 'Connections'), state._integrationsErr ? pill(false, 'run migrations/20260923_integrations.sql') : null),
     frCard, rvCard, sbCard, diCard, baCard);
