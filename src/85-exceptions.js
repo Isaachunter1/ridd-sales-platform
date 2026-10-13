@@ -151,7 +151,12 @@ function exceptionFeedItems(scope) {
     mk('Status', pl(rec.status.length, 'subscription still Active but carrying a cancel date or reason', 'subscriptions still Active but carrying a cancel date or reason'), rec.status);
     mk('Duplicates', pl(rec.dupes.length, 'active subscription duplicated on the same customer', 'active subscriptions duplicated on the same customer (same service twice)'), rec.dupes);
     mk('Seller', pl(rec.seller.length, 'active subscription with no Sold By rep', 'active subscriptions with no Sold By rep'), rec.seller);
-    mk('No reason', pl(rec.noReason.length, 'cancelled subscription with no cancel reason', 'cancelled subscriptions with no cancel reason'), rec.noReason);
+    // Same rule as the Auditing task (per Isaac, Oct 13): serviced cancels the retention book counts — never-serviced,
+    // 3-day reversals, one-time and deleted customers left out — so both tabs show one number.
+    let _nr = rec.noReason;
+    try { const T = typeof auditSubTasks === 'function' ? auditSubTasks().find(t => t.tag === 'No reason') : null;
+      if (T && T.rows) { const ids = new Set(subs.map(r => String(r.subscription_id))); _nr = T.rows.filter(r => ids.has(String(r.subscription_id))); } } catch (e) { /* fall back */ }
+    mk('No reason', pl(_nr.length, 'serviced cancel with no cancel reason', 'serviced cancels with no cancel reason'), _nr);
   }
   // Marketing to-dos (per Isaac, Oct 9 — both live under Needs attention now): lead flow gaps and CRM ZIP fixes.
   // Review opens the detail table right inside this card.

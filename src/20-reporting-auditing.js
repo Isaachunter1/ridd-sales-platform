@@ -704,7 +704,7 @@ function _loadAddOnNoRepAudit() {
     mountApp();
   })();
 }
-function addOnNoRepAuditCard() {
+function addOnNoRepAuditCard(opts) {
   _loadAddOnNoRepAudit();
   const d = state._aoNoRep;
   const noRep = (a) => { const v = String(a.credited_employee_id == null ? '' : a.credited_employee_id).trim(); return !a.credited_profile_id && (!v || v === '0' || v.startsWith('-')); };
@@ -718,7 +718,7 @@ function addOnNoRepAuditCard() {
     return { a, sold, days, seller, likely: days != null && days >= -1 && days <= ADDON_NOREP_DAYS };
   }).sort((x, y) => (y.likely - x.likely) || String(y.a.added_at).localeCompare(String(x.a.added_at)));
   const likelyN = rows.filter(r => r.likely).length;
-  const open = state._aoNoRepOpen === true;
+  const open = opts && opts.item ? state._auditDetail === 'addon' : state._aoNoRepOpen === true;
   const status = d === undefined || d === null ? 'checking…'
     : d.error ? 'waiting on the add-ons sync (migration 20260922_add_ons.sql)'
     : !rows.length ? 'All clear — every add-on on an account is credited to a rep.'
@@ -737,9 +737,10 @@ function addOnNoRepAuditCard() {
       el('span', { class: 'shrink-0 font-semibold', style: { minWidth: '170px' } }, r.a.service_name + ' ' + fmt.usd(Number(r.a.recurring_amount) || 0) + ' / service'),
       el('span', { class: 'flex-1 min-w-0', style: { color: r.likely ? '#DC2626' : 'var(--text-muted)' } },
         'added ' + String(r.a.added_at || '').slice(0, 10) + (r.days == null ? ' · sale date not found' : r.days <= 0 ? ' · the same day as the sale' : ' · ' + r.days + ' day' + (r.days === 1 ? '' : 's') + ' after the sale') + (r.likely && r.seller ? ' · sold by ' + r.seller + ', probably theirs' : r.seller ? ' · account sold by ' + r.seller : ''))))) : null;
+  if (opts && opts.item) return { key: 'addon', tag: 'Add-ons', sev: !Array.isArray(d) ? 'amber' : likelyN ? 'red' : rows.length ? 'amber' : 'ok', count: Array.isArray(d) ? rows.length : null, text: status, detail: list, title: 'Add-ons with no rep' };
   return el('div', { class: 'card overflow-hidden' }, head, list);
 }
-function feeCreditAuditCard() {
+function feeCreditAuditCard(opts) {
   _loadFeeCreditAudit();
   const d = state._feeAudit;
   // FieldRoutes' own system accounts (FR-System-…, FieldRoutes Admin, PestRoutes Admin) are fine on a service
@@ -753,7 +754,7 @@ function feeCreditAuditCard() {
   const _isPerson = (id) => { const v = String(id == null ? '' : id).trim(); return !!v && v !== '0' && !v.startsWith('-') && _rosterById.has(v) && !isFrSystem(v); };
   const _flagged = (r) => (r.lines || []).filter(l => l.kind === 'fee' && _isPerson(l.credited_employee_id));
   const rows = (Array.isArray(d) ? d : []).filter(r => _flagged(r).length);
-  const open = state._feeAuditOpen === true;
+  const open = opts && opts.item ? state._auditDetail === 'fee' : state._feeAuditOpen === true;
   const empName = (id) => {
     const p = (state.profiles || []).find(x => String(x.fieldroutes_employee_id || '') === String(id));
     return p ? p.full_name : (_rosterName(_rosterById.get(String(id))) || 'FR #' + id);
@@ -776,6 +777,7 @@ function feeCreditAuditCard() {
       el('span', { class: 'shrink-0', style: { minWidth: '140px', color: 'var(--text-muted)' } }, (r.base_service || '') + ' · sub ' + r.subscription_id),
       el('span', { class: 'flex-1 min-w-0' }, fees.map(l => l.name + ' ' + fmt.usd(Number(l.per_service) || 0) + ' credited to ' + ((l.credited_profile_id && ((state.profiles || []).find(x => x.id === l.credited_profile_id) || {}).full_name) || empName(l.credited_employee_id))).join(' · ')));
   })) : null;
+  if (opts && opts.item) return { key: 'fee', tag: 'Service fees', sev: !Array.isArray(d) || state.frRoster == null ? 'amber' : rows.length ? 'red' : 'ok', count: Array.isArray(d) && state.frRoster != null ? rows.length : null, text: status, detail: list, title: 'Service fees credited to a person' };
   return el('div', { class: 'card overflow-hidden' }, head, list);
 }
 
@@ -799,6 +801,50 @@ function auditTaskCard(t) {
       n ? el('span', { class: 'ml-auto text-sm font-black tabular-nums', style: { color: t.tone === 'check' ? '#D97706' : '#DC2626' } }, n.toLocaleString()) : null,
       n ? el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, '→') : null));
 }
+// ── Auditing tasks as one dropdown list (per Isaac, Oct 13 — same look as Needs attention on Marketing) ──
+function auditTaskItems() {
+  const items = [];
+  try { items.push(feeCreditAuditCard({ item: true })); } catch (e) { console.warn('[auditing] fee task', e); }
+  try { items.push(addOnNoRepAuditCard({ item: true })); } catch (e) { console.warn('[auditing] add-on task', e); }
+  for (const t of auditSubTasks()) {
+    if (t.warn) { items.push({ key: t.title, tag: t.tag || 'Setup', title: t.title, sev: 'amber', count: null, text: t.warn }); continue; }
+    const n = t.rows.length;
+    items.push({ key: t.title, tag: t.tag || t.title, title: t.title, sev: n ? (t.tone === 'check' ? 'amber' : 'red') : 'ok', count: n, text: n ? t.todo(n) : t.ok,
+      onClick: n ? () => openReportingDrillModal({ chartTitle: 'Auditing · ' + t.title, sliceLabel: n.toLocaleString() + ' ' + (n === 1 ? t.noun : t.noun + 's'), rows: t.rows, formatValue: fmt.usd0 }) : null });
+  }
+  return items.filter(Boolean);
+}
+function auditTasksCard() {
+  const all = auditTaskItems();
+  const RANK = { red: 0, amber: 1, ok: 2 };
+  const todo = all.filter(i => i.sev !== 'ok').sort((a, b) => RANK[a.sev] - RANK[b.sev]);
+  const clear = all.filter(i => i.sev === 'ok');
+  const open = state._auditTasksOpen !== false;
+  const reds = todo.filter(i => i.sev === 'red').length;
+  const head = el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', onclick: () => { state._auditTasksOpen = !open; mountApp(); } },
+    el('span', { class: 'inline-block rounded-full', style: { width: '8px', height: '8px', background: !todo.length ? 'var(--ok)' : reds ? '#DC2626' : '#D97706' } }),
+    el('span', { class: 'text-[11px] uppercase tracking-widest font-bold' }, 'Auditing tasks'),
+    el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, !todo.length ? 'All clear — nothing to fix in FieldRoutes.' : todo.length + ' to do' + (open ? '' : ' · ' + todo.slice(0, 3).map(i => i.tag).join(', ') + (todo.length > 3 ? '…' : '')) + (clear.length ? ' · ' + clear.length + ' clear' : '')),
+    el('span', { class: 'ml-auto text-[11px]', style: { color: 'var(--text-muted)' } }, open ? '▴' : '▾'));
+  if (!open) return el('div', { class: 'card overflow-hidden' }, head);
+  const row = (i, idx) => {
+    const hasDetail = i.detail !== undefined;
+    const showing = hasDetail && state._auditDetail === i.key;
+    const click = hasDetail ? () => { state._auditDetail = showing ? null : i.key; mountApp(); } : i.onClick;
+    const red = i.sev === 'red';
+    return [el('div', { class: 'flex items-center gap-3 px-4 py-2 border-t text-xs', style: { borderColor: 'var(--border)' }, title: i.title || '' },
+      el('span', { class: 'text-[10px] font-bold tabular-nums shrink-0', style: { color: 'var(--text-subtle)', width: '18px', textAlign: 'right' } }, String(idx + 1) + '.'),
+      el('span', { class: 'text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded shrink-0', style: { background: red ? 'rgba(220,38,38,.12)' : 'rgba(217,119,6,.14)', color: red ? '#DC2626' : '#B45309', minWidth: '72px', textAlign: 'center' } }, i.tag),
+      el('span', { class: 'text-sm font-black tabular-nums shrink-0', style: { minWidth: '52px', textAlign: 'right', color: red ? '#DC2626' : 'var(--text)' } }, i.count != null ? Number(i.count).toLocaleString() : '…'),
+      el('span', { class: 'flex-1 min-w-0', style: { overflowWrap: 'anywhere' } }, i.text),
+      click && (i.count == null || i.count > 0) ? el('button', { class: 'text-[11px] font-bold whitespace-nowrap shrink-0', style: { color: 'var(--accent)' }, onclick: click }, (showing ? 'Hide' : 'Review') + ' →') : null),
+      showing ? i.detail : null];
+  };
+  return el('div', { class: 'card overflow-hidden' }, head,
+    todo.length ? el('div', { class: 'border-t', style: { borderColor: 'var(--border)' } }, ...todo.flatMap(row)) : null,
+    clear.length ? el('div', { class: 'px-4 py-2 border-t text-[11px]', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } },
+      el('span', { style: { color: 'var(--ok)', fontWeight: 700 } }, '✓ All clear: '), clear.map(i => i.title || i.tag).join(' · ')) : null);
+}
 function auditSubTasks() {
   const rows = state.reportingSubscriptions || [];
   if (!rows.length) return [];
@@ -809,7 +855,7 @@ function auditSubTasks() {
   const s = (n) => n === 1 ? '' : 's';
   const tasks = [];
   // 1. One-time (or retired) services that are still open after the work was done.
-  tasks.push({ title: 'One-time services still active', noun: 'subscription', rows: reportingFlaggedActive(rows, isActive),
+  tasks.push({ tag: 'One-time', title: 'One-time services still active', noun: 'subscription', rows: reportingFlaggedActive(rows, isActive),
     ok: 'All clear — no one-time or retired service is sitting open.',
     todo: (n) => n + ' active subscription' + s(n) + ' on a one-time or retired service that has already been serviced — close ' + (n === 1 ? 'it' : 'them') + ' in FieldRoutes so the active count is right.' });
   // 2. Renewed, but the plan it replaced was never closed (same kind of plan, both active) — the customer may be billed twice.
@@ -828,7 +874,7 @@ function auditSubTasks() {
       }
     }
   } catch (e) { console.warn('[auditing] renewal-duplicate task skipped', e); }
-  tasks.push({ title: 'Renewed, old plan still active', noun: 'subscription', tone: 'check', rows: dup,
+  tasks.push({ tag: 'Renewal', title: 'Renewed, old plan still active', noun: 'subscription', tone: 'check', rows: dup,
     ok: 'All clear — no renewed customer still has the plan it replaced open.',
     todo: (n) => n + ' older plan' + s(n) + ' still active on a customer who has since renewed into the same kind of plan — check for double billing and close the old one.' });
   // 3. Sourced "Door to Door" but sold by someone who has never sold as a Sales Rep this year — usually a mis-picked source.
@@ -838,19 +884,19 @@ function auditSubTasks() {
   const mis = rows.filter(r => String(r.sold_date || '').slice(0, 4) === yr && String(r.subscription_source || '').trim().toLowerCase() === 'door to door'
     && ['Office Staff', 'Technician'].includes(String(r.sold_by_type || '').trim()) && !d2dSellers.has(String(r.sold_by || '').trim().toLowerCase()))
     .map(r => ({ ...r, _flagReason: 'Source is Door to Door, but sold by ' + String(r.sold_by_type).trim() + ' ' + (String(r.sold_by || '').trim() || '#' + r.sold_by_id) + ', who has no Sales Rep sales in ' + yr }));
-  tasks.push({ title: 'Door to Door source on an office or technician sale', noun: 'subscription', tone: 'check', rows: mis,
+  tasks.push({ tag: 'D2D source', title: 'Door to Door source on an office or technician sale', noun: 'subscription', tone: 'check', rows: mis,
     ok: 'All clear — every Door to Door sale this year was sold by someone who knocks doors.',
     todo: (n) => n + ' sale' + s(n) + ' in ' + yr + ' sourced Door to Door by an office or technician user who has never sold as a Sales Rep — fix the source in FieldRoutes.' });
   // 4. Service types with no commission category: a Sales Rep sale this year on a service the D2D calculator has no
   //    rule for, so it pays $0 until the service is classified (Settings → Commissions).
   const cats = (typeof commissionConfig === 'function') ? (commissionConfig().serviceCategories || {}) : {};
   const notSale = (name) => (typeof reportingNonSaleService === 'function') ? reportingNonSaleService(name) : false;
-  if (!Object.keys(cats).length) tasks.push({ title: 'Service types with no commission category', warn: 'The commission category list is empty, so every Sales Rep sale is unclassified. Run migrations/20261006_sales_rep_full_rate.sql, then this task lists what is left.' });
+  if (!Object.keys(cats).length) tasks.push({ tag: 'Commission', title: 'Service types with no commission category', warn: 'The commission category list is empty, so every Sales Rep sale is unclassified. Run migrations/20261006_sales_rep_full_rate.sql, then this task lists what is left.' });
   else {
     const un = rows.filter(r => String(r.sold_date || '').slice(0, 4) === yr && String(r.sold_by_type || '').trim() === 'Sales Rep' && !r.subscription_date_canceled && !cats[r.subscription] && !notSale(r.subscription))
       .map(r => ({ ...r, _flagReason: 'Service type "' + (r.subscription || 'blank') + '" has no commission category — pays $0 until it is classified' }));
     const names = new Set(un.map(r => r.subscription));
-    tasks.push({ title: 'Service types with no commission category', noun: 'subscription', rows: un,
+    tasks.push({ tag: 'Commission', title: 'Service types with no commission category', noun: 'subscription', rows: un,
       ok: 'All clear — every service type a Sales Rep sold this year has a commission category.',
       todo: (n) => n + ' Sales Rep sale' + s(n) + ' in ' + yr + ' across ' + names.size + ' service type' + s(names.size) + ' with no commission category — classify ' + (names.size === 1 ? 'it' : 'them') + ' in Settings \u2192 Commissions.' });
   }
@@ -858,7 +904,7 @@ function auditSubTasks() {
   //    so the sale lands on no dashboard and in no pay queue.
   const noType = rows.filter(r => String(r.sold_date || '').slice(0, 4) === yr && !String(r.sold_by_type || '').trim() && !notSale(r.subscription))
     .map(r => ({ ...r, _flagReason: 'No seller type in FieldRoutes for ' + (String(r.sold_by || '').trim() || (r.sold_by_id != null && String(r.sold_by_id) !== '0' ? 'employee #' + r.sold_by_id : 'a blank Sold By')) }));
-  tasks.push({ title: 'Sales with no seller type', noun: 'subscription', rows: noType,
+  tasks.push({ tag: 'Seller type', title: 'Sales with no seller type', noun: 'subscription', rows: noType,
     ok: 'All clear — every sale this year has a seller with a type.',
     todo: (n) => n + ' sale' + s(n) + ' in ' + yr + ' sold by someone with no Office Staff / Sales Rep / Technician type — set Sold By (or the employee\u2019s type) in FieldRoutes.' });
   // 6. Sold but never started: sold more than 14 days ago (within the last year), not cancelled, and the initial
@@ -870,15 +916,28 @@ function auditSubTasks() {
       return !r.initial_service && !r.initial_serviced_date && String(r.initial_status || '').trim().toLowerCase() !== 'completed'; })
     .map(r => { const age = Math.round((nowMs - Date.parse(String(r.sold_date).slice(0, 10))) / dayMs); const ist = String(r.initial_status || '').trim();
       return { ...r, _flagReason: 'Sold ' + age + ' days ago, initial service ' + (ist ? 'is ' + ist : 'has no appointment') + ' — schedule it or close the subscription' }; });
-  tasks.push({ title: 'Sold but never started', noun: 'subscription', rows: stale,
+  tasks.push({ tag: 'Not started', title: 'Sold but never started', noun: 'subscription', rows: stale,
     ok: 'All clear — nothing sold more than two weeks ago is still waiting on its first service.',
     todo: (n) => n + ' active subscription' + s(n) + ' sold more than 14 days ago with no completed initial service — schedule the first visit or close ' + (n === 1 ? 'it' : 'them') + '.' });
-  // 7. Cancelled with no reason: these fall into "Unspecified" and blur the churn reasons.
-  const noReason = rows.filter(r => r.subscription_date_canceled && String(r.subscription_date_canceled).slice(0, 4) === yr && /^(unspecified\.?)?$/i.test(String(r.subscription_cancellation_reason || '').trim()))
-    .map(r => ({ ...r, _flagReason: 'Cancelled ' + String(r.subscription_date_canceled).slice(0, 10) + ' with no cancellation reason' }));
-  tasks.push({ title: 'Cancelled with no reason', noun: 'subscription', tone: 'check', rows: noReason,
-    ok: 'All clear — every cancel this year has a reason.',
-    todo: (n) => n + ' cancel' + s(n) + ' in ' + yr + ' with no reason given — add the reason in FieldRoutes so churn reports can use ' + (n === 1 ? 'it' : 'them') + '.' });
+  // 7. Cancelled with no reason (per Isaac, Oct 13 — the list he works through in FieldRoutes). Only cancels that
+  //    count in the retention book: every year, the first service was completed, not a one-time / non-sale service,
+  //    and not a 3-day order reversal (cancelled within 3 days of the sale with under 2 services). Deleted customers
+  //    and ghost copies are already out of the book (_filterDeletedRows). Newest cancels first.
+  const _d = (x) => Date.parse(String(x || '').slice(0, 10));
+  const noReason = rows.filter(r => {
+      if (!r.subscription_date_canceled || !/^(unspecified\.?)?$/i.test(String(r.subscription_cancellation_reason || '').trim())) return false;
+      if (notSale(r.subscription) || /one[\s-]?time/i.test(String(r.subscription || ''))) return false;
+      const done = Number(r.completed_services) || 0;
+      if (!(r.initial_service || r.initial_serviced_date) || String(r.initial_status || 'completed').trim().toLowerCase() !== 'completed' || done < 1) return false;
+      const gap = (_d(r.subscription_date_canceled) - _d(r.sold_date)) / dayMs;
+      if (!isNaN(gap) && gap <= 3 && done < 2) return false;
+      return true; })
+    .sort((x, y) => String(y.subscription_date_canceled).localeCompare(String(x.subscription_date_canceled)))
+    .map(r => ({ ...r, _flagReason: 'Customer #' + r.customer_id + ' · cancelled ' + String(r.subscription_date_canceled).slice(0, 10) + ' after ' + (Number(r.completed_services) || 0) + ' service' + s(Number(r.completed_services) || 0) + ' — no cancellation reason' }));
+  const nrYr = noReason.filter(r => String(r.subscription_date_canceled).slice(0, 4) === yr).length;
+  tasks.push({ tag: 'No reason', title: 'Cancelled with no reason', noun: 'subscription', tone: 'check', rows: noReason,
+    ok: 'All clear — every serviced cancel has a reason.',
+    todo: (n) => n.toLocaleString() + ' serviced cancel' + s(n) + ' with no reason (' + nrYr.toLocaleString() + ' in ' + yr + ') — search the customer # in FieldRoutes and add the reason so the retention book and churn reasons are right. Never-serviced, 3-day reversals and deleted customers are already left out.' });
   auditSubTasks._m = { src: rows, key, tasks };
   return tasks;
 }
