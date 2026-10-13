@@ -15,12 +15,30 @@ function _calSetAgentShifts(rep, iso) {
   const dept = calendarAgentDept(rep);
   return (state.shifts || []).filter(s => s.rep_id === rep.id && s.date === iso && shiftDept(s) === dept && (!companyHolidayFor(iso) || s.holiday_ok));
 }
+// Remove = off the calendar completely (per Isaac, Oct 13): off the roster AND every shift from today forward deleted,
+// with any open swap / pick-up request on those shifts. Past shifts stay as history.
+function _calSetRemove(p) {
+  const t0 = isoDate(new Date());
+  const mine = (state.shifts || []).filter(s => s.rep_id === p.id && s.date >= t0);
+  if (!confirm('Remove ' + (p.full_name || 'this agent') + ' from the calendar? ' + (mine.length ? 'Their ' + mine.length + ' upcoming shift' + (mine.length === 1 ? '' : 's') + ' will be deleted. ' : '') + 'Past shifts are kept as history.')) return;
+  const ids = new Set(mine.map(s => s.id));
+  state.shifts = (state.shifts || []).filter(s => !ids.has(s.id));
+  state.shiftSwapRequests = (state.shiftSwapRequests || []).filter(r => !ids.has(r.shift_id) || !(r.status === 'pending' || r.status === 'awaiting_lead'));
+  const cs = calendarSettings(); cs.roster[p.id] = Object.assign({}, cs.roster[p.id] || {}, { on: false });
+  toast((p.full_name || 'Agent') + ' removed' + (ids.size ? ' · ' + ids.size + ' upcoming shift' + (ids.size === 1 ? '' : 's') + ' deleted' : ''), 'success');
+  _calSetSave();
+}
 function viewCalendarSettings() {
   const cs = calendarSettings();
   const all = (state.allProfiles || []).filter(p => p && p.is_active !== false);
   const onCal = calendarEligibleProfiles(state.profile);
   const onIds = new Set(onCal.map(p => p.id));
   const offCal = all.filter(p => !onIds.has(p.id) && calendarRosterOf(p).on === false);
+  // On the calendar but not on the roster: people with shifts from today on who aren't (or are no longer) active office
+  // staff — the calendar still draws their shifts, so they're listed here to keep or remove (per Isaac, Oct 13).
+  const _t0iso = isoDate(new Date());
+  const strayIds = [...new Set((state.shifts || []).filter(s => s.date >= _t0iso && !onIds.has(s.rep_id)).map(s => s.rep_id))];
+  const strays = strayIds.map(id => (state.allProfiles || []).find(p => p.id === id) || { id, full_name: '(removed user)' });
   const addable = all.filter(p => !onIds.has(p.id) && calendarRosterOf(p).on !== false).sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || '')));
   const deptName = (id) => (DEPARTMENTS.find(d => d.id === id) || {}).name || id;
   const sel = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
@@ -55,7 +73,7 @@ function viewCalendarSettings() {
           el('td', { class: 'py-1.5 px-2 text-[11px] tabular-nums text-right font-bold' }, w.hrs ? w.hrs + 'h' : '—'),
           el('td', { class: 'py-1.5 pl-2 text-right whitespace-nowrap' },
             btn('Edit schedule', () => openAgentScheduleModal(p), null, 'Set ' + (p.full_name || 'this agent') + '’s repeating week'), ' ',
-            btn('Remove', () => { if (confirm('Take ' + (p.full_name || 'this agent') + ' off the calendar? Their shifts stay on the books until you clear them.')) setRoster(p, { on: false }); }, { color: '#DC2626', borderColor: 'rgba(220,38,38,.35)' })));
+            btn('Remove', () => _calSetRemove(p), { color: '#DC2626', borderColor: 'rgba(220,38,38,.35)' })));
       }));
   });
   const addSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px]', style: sel },
@@ -69,6 +87,15 @@ function viewCalendarSettings() {
         ...dayNames.map(d => el('th', { class: 'px-1 font-semibold text-center' }, d)), el('th', { class: 'px-2 font-semibold text-right' }, 'Hrs / wk'), el('th', {}))),
       el('tbody', {}, ...teamRows))),
     el('div', { class: 'flex items-center gap-2 flex-wrap' }, addSel),
+    strays.length ? el('div', { class: 'rounded-xl border p-3 flex flex-col gap-1.5', style: { borderColor: 'rgba(217,119,6,.45)', background: 'rgba(217,119,6,.06)' } },
+      el('div', { class: 'text-[12px] font-bold' }, '⚠ On the calendar but not on this list'),
+      el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'These people have upcoming shifts but aren’t active office staff (inactive, a different user type, or no longer in the app). Keep them on the calendar or remove them and their shifts.'),
+      ...strays.map(p => { const n = (state.shifts || []).filter(s => s.rep_id === p.id && s.date >= _t0iso).length;
+        return el('div', { class: 'flex items-center gap-2 flex-wrap text-[12px]' },
+          el('span', { class: 'font-semibold' }, p.full_name || p.email || 'User'),
+          el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, n + ' upcoming shift' + (n === 1 ? '' : 's') + (p.is_active === false ? ' · inactive user' : p.role ? ' · ' + p.role : '')),
+          p.is_active === false || !p.role ? null : btn('Keep on calendar', () => setRoster(p, { on: true, dept: currentDepartment() })),
+          btn('Remove', () => _calSetRemove(p), { color: '#DC2626', borderColor: 'rgba(220,38,38,.35)' })); })) : null,
     offCal.length ? el('div', { class: 'text-[11px] flex items-center gap-1.5 flex-wrap', style: { color: 'var(--text-muted)' } }, 'Off the calendar:',
       ...offCal.map(p => btn('↩ ' + (p.full_name || p.email), () => setRoster(p, { on: undefined }), null, 'Put back on the calendar'))) : null);
 
