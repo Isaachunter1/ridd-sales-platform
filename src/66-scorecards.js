@@ -1879,8 +1879,9 @@ function setRetenExclFrozenOneSvc(b)  { _setAdminRule('retenExclFrozenOneSvc', !
 // is Door to Door. Used by both ROR steps (coded reason and timing).
 function _rorSellerOk(r) {
   const t = String((r && r.sold_by_type) || '').trim();
-  if (t) return crmSellerIs('sales_rep', t);
-  return crmSourceIs('d2d', String((r && r.subscription_source) || ''));
+  // (Reverted per Isaac, Oct 13: back to the original timing rule — blank
+  // seller types get the benefit of the doubt.)
+  return t ? crmSellerIs('sales_rep', t) : true;
 }
 // Renewals are linked at the CUSTOMER level (per Isaac, Oct 13): a plan closed
 // with a Renewal reason is only set aside when the same customer has another
@@ -1914,7 +1915,8 @@ function _retenPaying(r) { return (Number(r.annual_recurring_value) || 0) > 0 ||
 // the no-ROR rule for office sales started this year (per Isaac, Oct 13), so
 // earlier ones were allowed and stay RORs.
 const ROR_OFFICE_RULE_FROM = '2026-01-01';
-function _rorCodedOk(r) { return _rorSellerOk(r) || String((r && (r.sold_date || r.initial_service)) || '').slice(0, 10) < ROR_OFFICE_RULE_FROM; }
+// Reverted per Isaac, Oct 13: a coded "3 Day ROR" counts for every seller type again.
+function _rorCodedOk(r) { return true; }
 function _isRorReason(x) { return crmReasonIs('ror', x); }   // → src/12-crm-vocab.js (RIDD default: “3 Day ROR” / rescission)
 const RETEN_POP_EXCL_REASONS_DEFAULT = ['3 Day ROR', 'Combined Subscriptions', 'Renewal - Outbound', 'Renewal - Loyalty', 'Renewal - Service Pro Upsell', 'Renewal - Inbound'];
 // These three getters are called PER ROW inside 77k-row filters, so they
