@@ -24,6 +24,7 @@ function _riChannel(r) { return /door\s*to\s*door/i.test(String(r.subscription_s
 function _riStats(base, counted) {
   const S = { base: base.length, cancels: counted.length, rate: base.length ? counted.length / base.length : null, reasons: {}, life: {}, cells: {}, ap: 0, multi: 0, d2d: 0, arv: 0, arvN: 0, activeNow: 0, pastDue: 0, cancelRows: counted, baseRows: base };
   RI_LIFE.forEach(b => { S.life[b.k] = 0; });
+  S.band = [0, 0, 0, 0];   // cancels by life month: 0–6, 6–12, 12–18, 18–24
   const cset = new Set(counted);
   for (const r of base) {
     if (_riAutopay(r)) S.ap++;
@@ -39,10 +40,12 @@ function _riStats(base, counted) {
     const life = semLifeMonths(r);
     const b = RI_LIFE.find(x => life != null && life >= x.lo && life < x.hi) || RI_LIFE[RI_LIFE.length - 1];
     S.life[b.k]++;
+    if (life != null && life >= 0 && life < 24) S.band[Math.floor(life / 6)]++;
   }
   const pct = (a, d) => d ? a / d : null;
   S.apPct = pct(S.ap, S.base); S.multiPct = pct(S.multi, S.base); S.d2dPct = pct(S.d2d, S.base); S.arvAvg = S.arvN ? S.arv / S.arvN : null; S.pastDuePct = pct(S.pastDue, S.activeNow);
   S.earlyPct = pct(S.life.m0 + S.life.m3, S.cancels);
+  S.bandPct = S.band.map(v => pct(v, S.cancels));
   return S;
 }
 // Company + every branch, on the full retention book (all branches in), memoized on the book.
@@ -140,17 +143,24 @@ function retenInsightsCard() {
   };
 
   // ── League table (always) ──
-  const cols = [[D.isBranchYr ? 'Branch · cohort year' : 'Branch', 'left'], [D.mode === 't12' ? 'T12 attrition' : /^cohort/.test(D.mode) ? 'Lost to date' : D.isBranchYr ? 'Lost in 1st 12 mo' : 'Attrition', 'right'], ['vs company', 'right'], ['Expected for its mix', 'right'], ['Cancels', 'right'], [/^cohort/.test(D.mode) || D.isBranchYr ? 'Cohort size' : D.mode === 't12' ? 'Book a year ago' : 'Book on Jan 1', 'right'], ['Autopay', 'right'], ['Multi-year', 'right'], ['Lost in months 0–6', 'right'], ['Past due 30+', 'right']];
+  // Life-month bands (share of the cancels): only the ones this window can reach —
+  // a branch's year N is measured over 12 months, a cohort only as old as it is.
+  const RI_BANDS = [[0, 'Lost in months 0–6'], [6, 'Lost in months 6–12'], [12, 'Lost in months 12–18'], [18, 'Lost in months 18–24']];
+  const _cohY = /^cohort:(\d{4})/.exec(D.mode || ''); const _cohAge = _cohY ? (Date.now() - new Date(+_cohY[1], 0, 1).getTime()) / (30.44 * 864e5) : null;
+  const bands = RI_BANDS.map((x, i) => ({ i, lo: x[0], label: x[1] })).filter(x => D.isBranchYr ? x.lo < 12 : _cohAge != null ? x.lo < _cohAge : true);
+  const cols = [[D.isBranchYr ? 'Branch · cohort year' : 'Branch', 'left'], [/^cohort/.test(D.mode) || D.isBranchYr ? 'Cohort size' : D.mode === 't12' ? 'Book a year ago' : 'Book on Jan 1', 'right'], ['Cancels', 'right'], [D.mode === 't12' ? 'T12 attrition' : /^cohort/.test(D.mode) ? 'Lost to date' : D.isBranchYr ? 'Lost in 1st 12 mo' : 'Attrition', 'right'], ['vs company', 'right'], ['Expected for its mix', 'right'], ['Multi-year', 'right'], ...bands.map(x => [x.label, 'right']), ['Past due 30+', 'right']];
   const th = (l, a) => el('th', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap', style: { textAlign: a } }, l);
   const td = (v, a, sty) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap', style: Object.assign({ textAlign: a }, sty || {}) }, v);
   const row = (b, isCo) => el('tr', { class: 'border-t' + (isCo ? '' : ' cursor-pointer hover:brightness-95'), style: { borderColor: 'var(--border)', background: B && b === B ? 'rgba(223,100,58,.08)' : isCo ? 'var(--card-2)' : '', fontWeight: isCo ? '700' : '' },
       onclick: isCo ? null : () => { state._retenInsBranch = state._retenInsBranch === b.name ? null : b.name; mountApp(); }, title: isCo ? '' : 'Click to compare this branch with the company' },
     td((b.rank ? '#' + b.rank + ' ' : '') + (isCo ? (D.isBranchYr ? 'All branches' : 'Company') : tc(b.name)) + (!isCo && D.isBranchYr && b.cohortYear ? ' · ' + b.cohortYear : '') + (b.base < RI_MIN_BASE && !isCo ? ' (small)' : ''), 'left'),
+    td(n(b.base), 'right'), td(n(b.cancels), 'right'),
     td(pct(b.rate), 'right', { fontWeight: '700' }),
     td(isCo ? '—' : pts((b.rate || 0) - (C.rate || 0)), 'right', isCo ? {} : { color: (b.rate || 0) > (C.rate || 0) ? bad : good }),
     td(isCo ? '—' : pct(b.expected), 'right', { color: 'var(--text-muted)' }),
-    td(n(b.cancels), 'right'), td(n(b.base), 'right'),
-    td(pct(b.apPct, 0), 'right'), td(pct(b.multiPct, 0), 'right'), td(pct(b.earlyPct, 0), 'right'), td(pct(b.pastDuePct, 0), 'right'));
+    td(pct(b.multiPct, 0), 'right'),
+    ...bands.map(x => td(pct((b.bandPct || [])[x.i], 0), 'right', { color: 'var(--text-muted)' })),
+    td(pct(b.pastDuePct, 0), 'right'));
   const league = el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]' },
     el('thead', { class: 'text-[9px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } }, el('tr', {}, ...cols.map(([l, a]) => th(l, a)))),
     el('tbody', {}, row(C, true), ...D.branches.map(b => row(b, false)),
@@ -238,6 +248,6 @@ function retenInsightsCard() {
           + (B ? '' : (offN ? 'Leave exactly one branch ticked in 🏢, or c' : 'Pick one branch in 🏢 (or c') + 'lick a branch below' + (offN ? '' : ')') + ' to see why it differs from the company.'))),
       el('button', { class: 'text-[11px] font-bold', style: { color: 'var(--text-muted)' }, onclick: () => { state._retenInsightsOpen = false; mountApp(); } }, 'Close ✕')),
     focusBlock,
-    sec('All branches', '"Expected for its mix" = what the branch would lose at the other branches’ rate for each contract length and channel it sells. Above it = underperforming on a like-for-like book. Ranked best → worst; branches under ' + RI_MIN_BASE + ' accounts are listed but not ranked.', league),
+    sec('All branches', '"Expected for its mix" = what the branch would lose at the other branches’ rate for each contract length and channel it sells. Above it = underperforming on a like-for-like book. Ranked best → worst; branches under ' + RI_MIN_BASE + ' accounts are listed but not ranked. "Lost in months" = the share of the branch’s cancels that came in that stretch of the customer’s life.', league),
     relLines.length ? sec('Patterns across branches', null, ...relLines) : null);
 }

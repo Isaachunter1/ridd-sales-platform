@@ -27,7 +27,10 @@ function retenGroundZero() {
   const ren = reportingBranchRenames(); const renKey = JSON.stringify(ren);
   const m = _retenGroundMemo;
   if (m.out && m.subs === subs && m.del === del && m.ren === renKey) return m.out;
-  let base = del.length ? subs.concat(del) : subs;
+  // Deleted-in-FieldRoutes rows are NOT added back (per Isaac, Oct 13): the
+  // loader already drops them app-wide, so they were never part of the book
+  // and the old "Remove accounts deleted" step is gone.
+  let base = subs;
   if (Object.keys(ren).length) base = base.map(r => { const o = (r.office_name || '').trim(); return ren[o] ? { ...r, office_name: ren[o] } : r; });
   m.subs = subs; m.del = del; m.ren = renKey; m.out = base;
   return base;
@@ -80,14 +83,13 @@ function _retenScopeStepsBuild(rows) {
   // Step 1 is LOCKED (per Isaac): a subscription that never received its
   // initial service cannot retain or churn, so the funnel starts from the
   // subs with a completed initial — the same pull he takes from FieldRoutes.
-  run('initial', 'Remove subscriptions that have not received an initial service yet', 'Subscriptions whose initial service is not yet marked Completed in FieldRoutes — still pending, never started, or cancelled before the first visit. These have not become customers yet: they cannot retain and they cannot churn, so counting them either way would distort the rate. They are removed here and the funnel starts from everyone who has actually been serviced. Always applied.', r => !r.initial_service, true);
+  run('initial', 'Remove subscriptions that have not received an initial service yet', 'Subscriptions whose initial service is not yet marked Completed in FieldRoutes — still pending, never started, or cancelled before the first visit. These have not become customers yet: they cannot retain and they cannot churn, so counting them either way would distort the rate. They are removed here and the funnel starts from everyone who has actually been serviced. Always applied.', r => !r.initial_service || r.initial_service < '2000-01-01', true);   // (the old "Keep every account status" step only dropped bad pre-2000 dates — folded in here per Isaac, Oct 13)
   // (The branch pick is no longer a step — per Isaac, Sep 21. It scopes
   // "Everything in FieldRoutes" itself, from the 🏢 dropdown on the bar; see
   // _retenOfficeSlice.)
   // Configuration rules run next, LOCKED (per Isaac, Sep 2026 — every
   // number on the Overview already has them applied, so the steps must
   // too or the two tabs drift). Change them in Reporting → Configurations.
-  run('orphans', 'Remove accounts deleted in FieldRoutes', 'Customers that have been deleted inside FieldRoutes. The app\u2019s mirror keeps every row it ever synced, so a nightly check asks FieldRoutes which customer ids still exist and anything FieldRoutes no longer returns is removed here, along with subscriptions that have no customer record at all and any ids listed manually in Configurations. If the CRM no longer has the account, it is not part of the book.' + crmStamp, r => { const id = String(r.customer_id != null ? r.customer_id : ''); return (reportingAutoExcludeOrphans() && (!!r.customer_missing || crmDel.has(id))) || manual.has(id); }, true);
   // Always-on steps come first (per Isaac, Sep 2026): the locked ones the
   // sheet does every time, then the toggles.
   const lifecycleByName = reportingServiceLifecycleMap();
@@ -99,7 +101,6 @@ function _retenScopeStepsBuild(rows) {
   // Excluded lead sources run AFTER one-time types (per Isaac, Sep 21).
   run('sources', 'Remove excluded lead sources', 'Subscriptions whose lead source is switched off in Configurations \u2192 Lead sources' + (exclSrc.size ? ': ' + [...exclSrc].join(', ') : ' (none today)') + '. These sources are internal or bookkeeping channels rather than real customer acquisition (upsells recorded as new subs, internal saves, test and unknown sources), so the accounts behind them are not part of the retention book.', r => exclSrc.has(reportingSourceOf(r)), true);
   run('retired', 'Remove retired service types', 'Service types marked Retired in Configurations \u2014 plans RIDD no longer sells or services. A retired plan that ended was closed by the company, not lost by the customer, so it is kept out of the book rather than counted as churn.', r => !recurringByName.get(r.subscription), true);
-  run('status', 'Keep every account status', 'Active, Frozen and cancelled subscriptions all stay in \u2014 nothing is removed here for status. Dropping cancelled accounts at this point would hide the churn the rate is meant to measure; a cancel is counted by its cancel date in the steps that follow.', r => !(!!r.initial_service && r.initial_service >= '2000-01-01'), true);
   return { steps, out: cur };
 }
 const _retenOfficeMemo = { g: null, by: new Map() };
@@ -330,26 +331,6 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       clickable(el('div', { class: 'text-lg font-black tabular-nums' }, n(g0.length)), drill('Everything in FieldRoutes', g0, 'the whole snapshot'))),
     ...scopeSteps.map(st => {
       const node = step(next(), st.title, st.detail, st.removed.length, st.locked ? null : st.key, null, st.removed, st.left);
-      if (st.key === 'orphans' && isAdminRole(state.profile?.role)) {
-        // Admin: run the FieldRoutes deleted-customer check now instead of
-        // waiting for the 4am pass (P1-8).
-        const btn = el('button', {
-          class: 'mt-1.5 rounded-lg border px-2.5 py-0.5 text-[11px] font-bold transition hover:brightness-95',
-          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-          title: 'Ask FieldRoutes which customer ids still exist (~90 API calls, about two minutes), then reload Retention',
-          onclick: async (e) => {
-            e.stopPropagation(); btn.disabled = true; btn.textContent = 'Starting\u2026';
-            try {
-              const h = await _apiAuthHeaders({ 'Content-Type': 'application/json' });
-              const r = await fetch('/api/crm-deleted-scan-now', { method: 'POST', headers: h });
-              const j = await r.json().catch(() => ({}));
-              if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
-              toast(j.message || 'FieldRoutes check started', 'success'); btn.textContent = 'Running \u2014 reload in ~2 min';
-            } catch (err) { toast('Could not start the check: ' + (err && err.message || err), 'error'); btn.disabled = false; btn.textContent = '\u21bb Run FieldRoutes check now'; }
-          },
-        }, '\u21bb Run FieldRoutes check now');
-        node.children[1].append(btn);
-      }
       return node;
     }),
     // (one-time / retired / status steps now run in the locked scope chain above)
