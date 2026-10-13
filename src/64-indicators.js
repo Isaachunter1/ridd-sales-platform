@@ -3663,8 +3663,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       // one branch and one team open at the same time.
       const subDrillSection = !isGroup ? null : el('div', { class: 'mt-4' },
         el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' },
-          'By ' + (scope === 'branch' ? 'branch' : scope === 'rep' ? 'rep' : 'team')
-            + ' · click any ' + (scope === 'branch' ? 'branch' : scope === 'rep' ? 'rep' : 'team')
+          scope === 'rep' ? 'By rep · search a rep to see their own top 10 per category' :
+          'By ' + (scope === 'branch' ? 'branch' : 'team')
+            + ' · click any ' + (scope === 'branch' ? 'branch' : 'team')
             + ' to see their own top 10 per category'),
         el('div', { class: 'flex flex-col gap-1.5' },
           ...(() => {
@@ -3679,8 +3680,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             const _q = String(state._recSubQ[scope] || '').trim().toLowerCase();
             const _openIdx = _sorted.findIndex(g => groupExpanded[scope] === g.name);
             const _all = !!state._recSubShowAll[scope] || (_openIdx >= _LIM && !_q);
-            const _vis = _all ? _sorted : _sorted.slice(0, _LIM);
-            const _hits = _q ? _sorted.filter(g => String(g.name || '').toLowerCase().includes(_q) && !_vis.includes(g)) : [];
+            // Rep scope (per Isaac, Oct 13): no list at all — just the search box; matches (and an open rep) show under it.
+            const _searchOnly = scope === 'rep';
+            const _vis = _searchOnly ? [] : (_all ? _sorted : _sorted.slice(0, _LIM));
+            const _hits = _q ? _sorted.filter(g => String(g.name || '').toLowerCase().includes(_q) && !_vis.includes(g))
+              : (_searchOnly && _openIdx >= 0 ? [_sorted[_openIdx]] : []);
             const _more = _sorted.length - _LIM;
             const _row = (g) => {
               const isOpen = groupExpanded[scope] === g.name;
@@ -3738,18 +3742,18 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               );
             };
             const _rows = _vis.map(_row);
-            if (_more > 0 && !_q) _rows.push(el('button', {
+            if (_more > 0 && !_q && !_searchOnly) _rows.push(el('button', {
               class: 'rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition hover:brightness-95 self-center mt-1',
               style: { borderColor: 'var(--border-2)', color: 'var(--text)', background: 'var(--card)' },
               onclick: () => { state._recSubShowAll[scope] = !_all; mountApp(); },
             }, _all ? 'Show top ' + _LIM : 'Show ' + _more + ' more'));
             const _noun = scope === 'branch' ? 'branch' : scope === 'rep' ? 'rep' : 'team';
-            const _inp = el('input', { type: 'search', value: state._recSubQ[scope] || '', placeholder: 'Search for another ' + _noun + '…',
+            const _inp = el('input', { type: 'search', value: state._recSubQ[scope] || '', placeholder: (_searchOnly ? 'Search for a ' : 'Search for another ') + _noun + '…',
               class: 'rounded-lg border px-2.5 py-1.5 text-[11px] w-full mt-2', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', maxWidth: '320px' },
               oninput: (e) => { state._recSubQ[scope] = e.target.value; clearTimeout(state._recSubQT); state._recSubQT = setTimeout(() => { mountApp(); requestAnimationFrame(() => { const n = document.querySelector('[data-rec-search="' + scope + '"]'); if (n) { n.focus(); const v = n.value; n.setSelectionRange(v.length, v.length); } }); }, 250); } });
             _inp.setAttribute('data-rec-search', scope);
             _rows.push(_inp);
-            if (_q) _rows.push(...(_hits.length ? _hits.slice(0, 25).map(_row) : [el('div', { class: 'text-[11px] text-muted- px-1' }, 'No other ' + _noun + ' matches “' + _q + '”' + (_vis.some(g => String(g.name || '').toLowerCase().includes(_q)) ? ' — they’re in the top ' + _LIM + ' above.' : '.'))]));
+            if (_q || _hits.length) _rows.push(...(_hits.length ? _hits.slice(0, 25).map(_row) : [el('div', { class: 'text-[11px] text-muted- px-1' }, 'No ' + (_searchOnly ? '' : 'other ') + _noun + ' matches “' + _q + '”' + (_vis.some(g => String(g.name || '').toLowerCase().includes(_q)) ? ' — they’re in the top ' + _LIM + ' above.' : '.'))]));
             return _rows;
           })(),
         ),
