@@ -1870,6 +1870,39 @@ function setRetenExclFrozenOneSvc(b)  { _setAdminRule('retenExclFrozenOneSvc', !
 // sub; Renewal-* = the old sub was replaced by the renewal, which stays).
 // "ROR" as a WORD (3 Day ROR, ROR, right of rescission) — a bare /ror/
 // also matched "Subscription ERROR" and pulled real cancels into the ROR step.
+// Only a door-to-door SALES REP sale can carry a 3-day right of rescission
+// (per Isaac, Oct 13) — office staff and technician sales never do. A seller
+// with no employee record left (blank type) counts only when the lead source
+// is Door to Door. Used by both ROR steps (coded reason and timing).
+function _rorSellerOk(r) {
+  const t = String((r && r.sold_by_type) || '').trim();
+  if (t) return crmSellerIs('sales_rep', t);
+  return crmSourceIs('d2d', String((r && r.subscription_source) || ''));
+}
+// Renewals are linked at the CUSTOMER level (per Isaac, Oct 13): a plan closed
+// with a Renewal reason is only set aside when the same customer has another
+// subscription added from 45 days before that cancel onward — the plan the
+// customer renewed into, which carries the book forward. A renewal-coded close
+// with no later plan on the customer is a real loss and stays a cancel.
+const _renLinkMemo = { src: null, idx: null };
+function _renewalLinked(r) {
+  const all = state.reportingSubscriptions || [];
+  if (_renLinkMemo.src !== all) {
+    const idx = new Map();
+    const add = (x) => { const c = String(x.customer_id != null ? x.customer_id : ''); if (!c) return; const d = String(x.sold_date || x.initial_service || '').slice(0, 10); if (!d) return; (idx.get(c) || idx.set(c, []).get(c)).push([String(x.subscription_id), d]); };
+    all.forEach(add); (state._deletedSubs || []).forEach(add);
+    _renLinkMemo.src = all; _renLinkMemo.idx = idx;
+  }
+  const c = String(r.customer_id != null ? r.customer_id : ''); const cx = String(r.subscription_date_canceled || '').slice(0, 10);
+  if (!c || !cx) return false;
+  const from = new Date(cx + 'T00:00'); from.setDate(from.getDate() - 45); const f = from.toISOString().slice(0, 10);
+  const me = String(r.subscription_id);
+  return (_renLinkMemo.idx.get(c) || []).some(([id, d]) => id !== me && d >= f);
+}
+// Paying = recurring value, OR a per-visit charge on an "As Needed" style plan
+// that FieldRoutes values at $0 a year (per Isaac, Oct 13 — #35448 Pest 3 at
+// $89 a visit, 4 visits, showed $0 ARR and fell out of the book).
+function _retenPaying(r) { return (Number(r.annual_recurring_value) || 0) > 0 || (Number(r.recurring_charge) || 0) > 0; }
 function _isRorReason(x) { return crmReasonIs('ror', x); }   // → src/12-crm-vocab.js (RIDD default: “3 Day ROR” / rescission)
 const RETEN_POP_EXCL_REASONS_DEFAULT = ['3 Day ROR', 'Combined Subscriptions', 'Renewal - Outbound', 'Renewal - Loyalty', 'Renewal - Service Pro Upsell', 'Renewal - Inbound'];
 // These three getters are called PER ROW inside 77k-row filters, so they
@@ -1930,14 +1963,14 @@ function retenIsRorSub(r) {
   if (!r.subscription_date_canceled) return false;
   // Timing-based catch (cancelled within 3 days, reason miscoded) is a
   // separate toggle on the Retention tab — the hand sheet only uses the reason.
-  return _isRorReason(_normCancelReason(reportingCancelReasonOf(r))) || (_retenWhatIf('popRorTiming', true) && _reporting3dayRor(r));
+  return (_isRorReason(_normCancelReason(reportingCancelReasonOf(r))) && _rorSellerOk(r)) || (_retenWhatIf('popRorTiming', true) && _reporting3dayRor(r));
 }
 function retenPopulationExcluded(r) {
   const popSet = retenPopExclReasons();
   if ([...popSet].some(_isRorReason) && retenIsRorSub(r)) return 'closed by 3 Day ROR';
-  if (r.subscription_date_canceled && popSet.has(_normCancelReason(reportingCancelReasonOf(r)))) return 'closed by ' + String(reportingCancelReasonOf(r) || '').trim();
+  if (r.subscription_date_canceled && popSet.has(_normCancelReason(reportingCancelReasonOf(r))) && !_isRorReason(_normCancelReason(reportingCancelReasonOf(r))) && !(crmReasonIs('renewal', reportingCancelReasonOf(r)) && !_renewalLinked(r))) return 'closed by ' + String(reportingCancelReasonOf(r) || '').trim();
   if (retenExclRenewalSubs() && reportingSourceClass(r.subscription_source) === 'renewal') return 'renewal sub';
-  if (retenExclZeroPay() && (Number(r.annual_recurring_value) || 0) <= 0) return '$0 paying';
+  if (retenExclZeroPay() && !_retenPaying(r)) return '$0 paying';
   const svc = Number(r.subscription_completed_services) || 0;
   if (retenExclOneSvc() && svc <= 1 && !_retenOneSvcExempt(r)) return 'under 2 services';
   // Frozen after a single visit is a dead-on-arrival account in ANY year
@@ -1978,8 +2011,7 @@ function _reporting3dayRorByDates(r) {
   // and technician sales don't get one, so a quick cancel there is a real
   // cancel (or a miscoded reason to fix), never an ROR exclusion. Blank
   // sold-by types keep the old behavior (legacy rows, benefit of the doubt).
-  const _t = String(r.sold_by_type || '').trim();
-  if (_t && !crmSellerIs('sales_rep', _t)) return false;   // seller-type vocabulary (src/12-crm-vocab.js)
+  if (!_rorSellerOk(r)) return false;   // sales-rep sales only; blank seller type → Door to Door source only (per Isaac, Oct 13)
   const d = (new Date(r.subscription_date_canceled) - new Date(r.sold_date)) / 86400000;
   return d >= 0 && d <= crmRorWindowDays();   // rescission window is state law — configurable, RIDD = 3
 }
