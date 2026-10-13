@@ -1,0 +1,201 @@
+// ┌─ src/96-retention-insights.js ────────────────────────────────────────────
+// │ Retention → Attrition Steps → Insights › (per Isaac, Oct 13)
+// │ How one branch's attrition compares with the rest of the company, and WHY
+// │ it differs: which cancel reasons carry the gap, when in the customer's
+// │ life it happens, how much is the branch's mix (contract length, channel)
+// │ versus how it performs on a like-for-like book, and the account traits
+// │ (autopay, multi-year, past due, price) that travel with high attrition.
+// │ Same book and same Trailing-12 definition as the headline tile, so every
+// │ number here ties to the tiles above.
+// └────────────────────────────────────────────────────────────────────────
+const RI_LIFE = [
+  { k: 'm0', lo: 0, hi: 3, label: 'Months 0–3', note: 'onboarding / first bills' },
+  { k: 'm3', lo: 3, hi: 6, label: 'Months 3–6', note: 'collections cliff' },
+  { k: 'm6', lo: 6, hi: 10, label: 'Months 6–10', note: 'mid-contract' },
+  { k: 'm10', lo: 10, hi: 14, label: 'Months 10–14', note: 'first contract ending' },
+  { k: 'm14', lo: 14, hi: 24, label: 'Months 14–24', note: 'second year' },
+  { k: 'm24', lo: 24, hi: 1e9, label: 'Month 24+', note: 'long-term' },
+];
+const RI_MIN_BASE = 150;   // smaller branches are listed but kept out of rankings and correlations
+const _riMemo = { book: null, key: '', out: null };
+function _riAutopay(r) { const v = String(r.customer_auto_pay == null ? '' : r.customer_auto_pay).trim(); return !!v && !/^(no|0|false|none)$/i.test(v); }
+function _riTerm(r) { const n = Number(r.agreement_length) || 0; return n >= 24 ? '24+' : n >= 18 ? '18' : n >= 12 ? '12' : 'other'; }
+function _riChannel(r) { return /door\s*to\s*door/i.test(String(r.subscription_source || '')) ? 'D2D' : 'Inside'; }
+function _riStats(base, counted) {
+  const S = { base: base.length, cancels: counted.length, rate: base.length ? counted.length / base.length : null, reasons: {}, life: {}, cells: {}, ap: 0, multi: 0, d2d: 0, arv: 0, arvN: 0, activeNow: 0, pastDue: 0, cancelRows: counted, baseRows: base };
+  RI_LIFE.forEach(b => { S.life[b.k] = 0; });
+  const cset = new Set(counted);
+  for (const r of base) {
+    if (_riAutopay(r)) S.ap++;
+    if ((Number(r.agreement_length) || 0) >= 18) S.multi++;
+    if (_riChannel(r) === 'D2D') S.d2d++;
+    const v = Number(r.annual_recurring_value) || 0; if (v > 0) { S.arv += v; S.arvN++; }
+    const cell = _riTerm(r) + '|' + _riChannel(r); const c = S.cells[cell] || (S.cells[cell] = { base: 0, cancels: 0 }); c.base++; if (cset.has(r)) c.cancels++;
+    if (!r._effCancel) { S.activeNow++; if ((Number(r.days_past_due) || 0) >= 30) S.pastDue++; }
+  }
+  for (const r of counted) {
+    const k = String(reportingCancelReasonOf(r) || 'Unspecified').trim() || 'Unspecified';
+    S.reasons[k] = (S.reasons[k] || 0) + 1;
+    const life = semLifeMonths(r);
+    const b = RI_LIFE.find(x => life != null && life >= x.lo && life < x.hi) || RI_LIFE[RI_LIFE.length - 1];
+    S.life[b.k]++;
+  }
+  const pct = (a, d) => d ? a / d : null;
+  S.apPct = pct(S.ap, S.base); S.multiPct = pct(S.multi, S.base); S.d2dPct = pct(S.d2d, S.base); S.arvAvg = S.arvN ? S.arv / S.arvN : null; S.pastDuePct = pct(S.pastDue, S.activeNow);
+  S.earlyPct = pct(S.life.m0 + S.life.m3, S.cancels);
+  return S;
+}
+// Company + every branch, on the full retention book (all branches in), memoized on the book.
+function retenBranchInsightsData() {
+  if (typeof retenGroundZero !== 'function' || typeof semRetentionBook !== 'function') return null;
+  const ground = retenGroundZero();
+  const pop = retenScopeSteps(ground).out;
+  const book = semRetentionBook(pop);
+  const key = String(book.length) + '|' + new Date().toISOString().slice(0, 10);
+  if (_riMemo.book === book && _riMemo.key === key) return _riMemo.out;
+  const T = semMetric('trailing12_attrition')(book);
+  const baseAll = T.rows.boy, countedAll = T.rows.counted;
+  const company = _riStats(baseAll, countedAll);
+  const byB = new Map(), cByB = new Map();
+  for (const r of baseAll) { const o = String(r.office_name || '—').trim(); (byB.get(o) || byB.set(o, []).get(o)).push(r); }
+  for (const r of countedAll) { const o = String(r.office_name || '—').trim(); (cByB.get(o) || cByB.set(o, []).get(o)).push(r); }
+  const branches = [...byB.entries()].map(([name, base]) => Object.assign(_riStats(base, cByB.get(name) || []), { name }))
+    .sort((a, b) => (b.base >= RI_MIN_BASE) - (a.base >= RI_MIN_BASE) || (a.rate || 0) - (b.rate || 0));
+  // Mix-adjusted expectation: each branch's own contract-length × channel mix at the COMPANY's rate for each cell.
+  const cellRate = {}; for (const k in company.cells) { const c = company.cells[k]; cellRate[k] = c.base ? c.cancels / c.base : 0; }
+  branches.forEach(b => { let e = 0; for (const k in b.cells) e += b.cells[k].base * (cellRate[k] != null ? cellRate[k] : (company.rate || 0)); b.expected = b.base ? e / b.base : null; });
+  const ranked = branches.filter(b => b.base >= RI_MIN_BASE);
+  ranked.forEach((b, i) => { b.rank = i + 1; });
+  // Across-branch relationships (Pearson r) between a trait of the book and the branch's attrition.
+  const corr = (f) => { const xs = ranked.map(f), ys = ranked.map(b => b.rate); const ok = xs.map((x, i) => x != null && ys[i] != null); const X = xs.filter((_, i) => ok[i]), Y = ys.filter((_, i) => ok[i]); const n = X.length; if (n < 5) return null;
+    const mx = X.reduce((a, v) => a + v, 0) / n, my = Y.reduce((a, v) => a + v, 0) / n; let sxy = 0, sxx = 0, syy = 0; for (let i = 0; i < n; i++) { sxy += (X[i] - mx) * (Y[i] - my); sxx += (X[i] - mx) ** 2; syy += (Y[i] - my) ** 2; } return sxx && syy ? sxy / Math.sqrt(sxx * syy) : null; };
+  const rels = [
+    { k: 'ap', label: 'autopay share', f: b => b.apPct },
+    { k: 'multi', label: 'multi-year (18–24 mo) share', f: b => b.multiPct },
+    { k: 'd2d', label: 'door-to-door share', f: b => b.d2dPct },
+    { k: 'arv', label: 'average annual price', f: b => b.arvAvg },
+    { k: 'pd', label: 'share of active accounts 30+ days past due', f: b => b.pastDuePct },
+  ].map(x => Object.assign(x, { r: corr(x.f) })).filter(x => x.r != null);
+  const out = { company, branches, ranked, rels, st: T.st, en: T.en };
+  _riMemo.book = book; _riMemo.key = key; _riMemo.out = out;
+  return out;
+}
+// The focus branch: exactly one branch left in the 🏢 picker, else the one clicked in the table here.
+function _riFocusName(D) {
+  const off = (typeof retenBranchesOff === 'function') ? retenBranchesOff() : new Set();
+  const inB = D.branches.filter(b => !off.has(b.name));
+  if (off.size && inB.length === 1) return inB[0].name;
+  if (state._retenInsBranch && D.branches.some(b => b.name === state._retenInsBranch)) return state._retenInsBranch;
+  return null;
+}
+function retenInsightsCard() {
+  let D; try { D = retenBranchInsightsData(); } catch (e) { console.warn('[insights]', e); D = null; }
+  if (!D || !D.company.base) return null;
+  const C = D.company;
+  const pct = (v, d) => v == null ? '—' : (v * 100).toFixed(d == null ? 1 : d) + '%';
+  const pts = (v) => v == null ? '—' : (v >= 0 ? '+' : '−') + Math.abs(v * 100).toFixed(1) + ' pts';
+  const n = (v) => Number(v || 0).toLocaleString();
+  const bad = '#DC2626', good = '#15803D';
+  const tc = (s) => (typeof _titleCaseWords === 'function' ? _titleCaseWords(s) : s);
+  const focus = _riFocusName(D);
+  const B = focus ? D.branches.find(b => b.name === focus) : null;
+  const drill = (title, rows) => rows && rows.length ? () => openReportingDrillModal({ chartTitle: 'Insights · ' + title, sliceLabel: n(rows.length) + ' subscriptions', rows, formatValue: fmt.usd0 }) : null;
+  const sec = (title, sub, ...kids) => el('div', { class: 'flex flex-col gap-2' },
+    el('div', {}, el('div', { class: 'text-[11px] uppercase tracking-widest font-bold' }, title), sub ? el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, sub) : null), ...kids);
+  // A diverging bar: the branch's points above (red) or below (green) the company.
+  const gapBar = (label, d, extra, onClick) => {
+    const w = Math.min(100, Math.abs(d || 0) / 0.10 * 100);   // 10 pts fills one side of the track
+    return el('div', { class: 'flex items-center gap-2 text-[11px]' + (onClick ? ' cursor-pointer hover:brightness-95' : ''), onclick: onClick || null, title: onClick ? 'Click for the accounts' : '' },
+      el('span', { class: 'truncate', style: { width: '210px', flexShrink: 0 } }, label),
+      el('div', { style: { position: 'relative', flex: '1', height: '10px', background: 'var(--card-2)', borderRadius: '3px', minWidth: '120px' } },
+        el('div', { style: { position: 'absolute', left: '50%', top: '-2px', bottom: '-2px', width: '1px', background: 'var(--border-2)' } }),
+        el('div', { style: { position: 'absolute', top: '0', bottom: '0', borderRadius: '3px', background: d > 0 ? bad : good, left: d > 0 ? '50%' : (50 - w / 2) + '%', width: (w / 2) + '%' } })),
+      el('span', { class: 'tabular-nums font-bold', style: { width: '74px', textAlign: 'right', color: d > 0 ? bad : good } }, pts(d)),
+      extra ? el('span', { class: 'tabular-nums', style: { width: '170px', color: 'var(--text-muted)' } }, extra) : null);
+  };
+
+  // ── League table (always) ──
+  const cols = [['Branch', 'left'], ['T12 attrition', 'right'], ['vs company', 'right'], ['Expected for its mix', 'right'], ['Cancels', 'right'], ['Book a year ago', 'right'], ['Autopay', 'right'], ['Multi-year', 'right'], ['Lost in months 0–6', 'right'], ['Past due 30+', 'right']];
+  const th = (l, a) => el('th', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap', style: { textAlign: a } }, l);
+  const td = (v, a, sty) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap', style: Object.assign({ textAlign: a }, sty || {}) }, v);
+  const row = (b, isCo) => el('tr', { class: 'border-t' + (isCo ? '' : ' cursor-pointer hover:brightness-95'), style: { borderColor: 'var(--border)', background: B && b === B ? 'rgba(223,100,58,.08)' : isCo ? 'var(--card-2)' : '', fontWeight: isCo ? '700' : '' },
+      onclick: isCo ? null : () => { state._retenInsBranch = state._retenInsBranch === b.name ? null : b.name; mountApp(); }, title: isCo ? '' : 'Click to compare this branch with the company' },
+    td((b.rank ? '#' + b.rank + ' ' : '') + (isCo ? 'Company' : tc(b.name)) + (b.base < RI_MIN_BASE && !isCo ? ' (small)' : ''), 'left'),
+    td(pct(b.rate), 'right', { fontWeight: '700' }),
+    td(isCo ? '—' : pts((b.rate || 0) - (C.rate || 0)), 'right', isCo ? {} : { color: (b.rate || 0) > (C.rate || 0) ? bad : good }),
+    td(isCo ? '—' : pct(b.expected), 'right', { color: 'var(--text-muted)' }),
+    td(n(b.cancels), 'right'), td(n(b.base), 'right'),
+    td(pct(b.apPct, 0), 'right'), td(pct(b.multiPct, 0), 'right'), td(pct(b.earlyPct, 0), 'right'), td(pct(b.pastDuePct, 0), 'right'));
+  const league = el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]' },
+    el('thead', { class: 'text-[9px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } }, el('tr', {}, ...cols.map(([l, a]) => th(l, a)))),
+    el('tbody', {}, row(C, true), ...D.branches.map(b => row(b, false)))));
+
+  // ── Patterns across branches ──
+  const relLines = D.rels.filter(x => Math.abs(x.r) >= 0.45).sort((a, b) => Math.abs(b.r) - Math.abs(a.r)).map(x =>
+    el('div', { class: 'text-[11px]' }, '• Branches with a higher ', el('b', {}, x.label), x.r < 0 ? ' tend to have LOWER attrition' : ' tend to have HIGHER attrition', el('span', { style: { color: 'var(--text-muted)' } }, ' (r = ' + x.r.toFixed(2) + ' across ' + D.ranked.length + ' branches)')));
+
+  let focusBlock = null;
+  if (B) {
+    // Compared with the OTHER branches (per Isaac: "how that branch is comparing to other branches"), not a company
+    // total that includes the branch itself.
+    const R = _riStats(C.baseRows.filter(r => String(r.office_name || '—').trim() !== B.name), C.cancelRows.filter(r => String(r.office_name || '—').trim() !== B.name));
+    { const cr = {}; for (const k in R.cells) { const c = R.cells[k]; cr[k] = c.base ? c.cancels / c.base : 0; } let e = 0; for (const k in B.cells) e += B.cells[k].base * (cr[k] != null ? cr[k] : (R.rate || 0)); B.expectedVsRest = B.base ? e / B.base : null; }
+    const gap = (B.rate || 0) - (R.rate || 0), mixGap = (B.expectedVsRest || 0) - (R.rate || 0), perfGap = (B.rate || 0) - (B.expectedVsRest || 0);
+    // Reasons: each reason's share of the book lost, branch minus the other branches — the bars sum to the total gap.
+    const keys = [...new Set(Object.keys(B.reasons).concat(Object.keys(R.reasons)))];
+    const rs = keys.map(k => ({ k, b: (B.reasons[k] || 0) / B.base, c: (R.reasons[k] || 0) / R.base, n: B.reasons[k] || 0 })).map(x => Object.assign(x, { d: x.b - x.c })).sort((a, b) => Math.abs(b.d) - Math.abs(a.d));
+    const topR = rs.slice(0, 8);
+    const lifeRows = RI_LIFE.map(L => ({ L, b: (B.life[L.k] || 0) / B.base, c: (R.life[L.k] || 0) / R.base, n: B.life[L.k] || 0 })).map(x => Object.assign(x, { d: x.b - x.c }));
+    const worstLife = lifeRows.slice().sort((a, b) => b.d - a.d)[0];
+    const worstR = rs.filter(x => x.d > 0)[0], bestR = rs.filter(x => x.d < 0)[0];
+    // Like-for-like: the branch vs the other branches inside each contract × channel cell.
+    const cellRows = Object.keys(B.cells).map(k => { const b = B.cells[k], c = R.cells[k] || { base: 0, cancels: 0 }; return { k, base: b.base, b: b.base ? b.cancels / b.base : null, c: c.base ? c.cancels / c.base : null }; })
+      .filter(x => x.base >= 40).sort((a, b) => b.base - a.base);
+    const trait = (label, bv, cv, higherIsWorse, fmtv) => {
+      const worse = bv != null && cv != null && (higherIsWorse ? bv > cv * 1.05 : bv < cv * 0.95);
+      const better = bv != null && cv != null && (higherIsWorse ? bv < cv * 0.95 : bv > cv * 1.05);
+      return el('div', { class: 'rounded-xl border px-3 py-2', style: { borderColor: worse ? 'rgba(220,38,38,.4)' : better ? 'rgba(22,163,74,.4)' : 'var(--border)' } },
+        el('div', { class: 'text-[10px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)' } }, label),
+        el('div', { class: 'text-base font-black tabular-nums', style: { color: worse ? bad : better ? good : 'var(--text)' } }, fmtv(bv)),
+        el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, 'other branches ' + fmtv(cv)));
+    };
+    // Plain-English read: the three things that explain most of this branch's difference.
+    const say = [];
+    say.push(tc(B.name) + ' lost ' + pct(B.rate) + ' of its book over the last 12 months versus ' + pct(R.rate) + ' at the other branches (' + pts(gap) + ')' + (B.rank ? ', #' + B.rank + ' of ' + D.ranked.length + ' branches.' : '.'));
+    if (Math.abs(mixGap) >= 0.01) say.push('Its mix accounts for ' + pts(mixGap) + ' (' + (mixGap > 0 ? 'more' : 'fewer') + ' of the contract lengths and channels that churn more at the other branches); the other ' + pts(perfGap) + ' is how the branch performs on a like-for-like book.');
+    else say.push('Its contract-length and channel mix is close to the other branches’, so the difference (' + pts(perfGap) + ') is performance on a like-for-like book.');
+    if (worstR) say.push('The biggest driver is ' + worstR.k + ': ' + pct(worstR.b) + ' of the book lost to it vs ' + pct(worstR.c) + ' at the other branches (' + pts(worstR.d) + ').' + (bestR ? ' Best relative showing: ' + bestR.k + ' (' + pts(bestR.d) + ').' : ''));
+    if (worstLife && worstLife.d > 0.005) say.push('By timing, the excess sits in ' + worstLife.L.label.toLowerCase() + ' (' + worstLife.L.note + '): ' + pts(worstLife.d) + ' above the other branches.');
+    if (B.apPct != null && R.apPct != null && Math.abs(B.apPct - R.apPct) >= 0.05) say.push((B.apPct < R.apPct ? 'Autopay is lower' : 'Autopay is higher') + ' than the other branches (' + pct(B.apPct, 0) + ' vs ' + pct(R.apPct, 0) + ')' + (D.rels.find(x => x.k === 'ap' && x.r < -0.45) ? ' — and across branches, lower autopay goes with higher attrition.' : '.'));
+    focusBlock = el('div', { class: 'flex flex-col gap-4' },
+      el('div', { class: 'rounded-xl p-3 flex flex-col gap-1', style: { background: gap > 0 ? 'rgba(220,38,38,.06)' : 'rgba(22,163,74,.07)' } },
+        el('div', { class: 'text-sm font-black' }, tc(B.name) + ' vs the other branches'),
+        ...say.map(t => el('div', { class: 'text-[12px]' }, t))),
+      el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' } },
+        trait('Trailing-12 attrition', B.rate, R.rate, true, v => pct(v)),
+        trait('Expected for its mix', B.expectedVsRest, R.rate, true, v => pct(v)),
+        trait('Autopay', B.apPct, R.apPct, false, v => pct(v, 0)),
+        trait('Multi-year (18–24 mo)', B.multiPct, R.multiPct, false, v => pct(v, 0)),
+        trait('Door-to-door share', B.d2dPct, R.d2dPct, true, v => pct(v, 0)),
+        trait('Avg annual price', B.arvAvg, R.arvAvg, false, v => v == null ? '—' : fmt.usd0(v)),
+        trait('Active 30+ days past due', B.pastDuePct, R.pastDuePct, true, v => pct(v, 1)),
+        trait('Cancels in months 0–6', B.earlyPct, R.earlyPct, true, v => pct(v, 0))),
+      sec('What the gap is made of — by cancel reason', 'Share of the book lost to each reason, branch minus the other branches. The bars add up to the total gap. Click one for the branch’s accounts.',
+        ...topR.map(x => gapBar(x.k, x.d, pct(x.b) + ' vs ' + pct(x.c) + ' · ' + n(x.n) + ' lost', drill(tc(B.name) + ' · ' + x.k, B.cancelRows.filter(r => (String(reportingCancelReasonOf(r) || 'Unspecified').trim() || 'Unspecified') === x.k))))),
+      sec('When they leave — by month of customer life', 'Share of the book lost at each stage of the customer’s life, branch minus the other branches.',
+        ...lifeRows.map(x => gapBar(x.L.label + ' · ' + x.L.note, x.d, pct(x.b) + ' vs ' + pct(x.c) + ' · ' + n(x.n) + ' lost', drill(tc(B.name) + ' · ' + x.L.label, B.cancelRows.filter(r => { const l = semLifeMonths(r); return l != null && l >= x.L.lo && l < x.L.hi; }))))),
+      sec('Like for like — same contract length and channel', 'Attrition inside each slice of the book, branch vs the other branches. Gaps here are performance, not mix.',
+        ...cellRows.map(x => gapBar(x.k.replace('|', ' mo · ').replace('other mo', 'Other term') + ' (' + n(x.base) + ' accts)', (x.b || 0) - (x.c || 0), pct(x.b) + ' vs ' + pct(x.c)))));
+  }
+  const offN = (typeof retenBranchesOff === 'function') ? retenBranchesOff().size : 0;
+  return el('div', { class: 'card p-4 flex flex-col gap-4' },
+    el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
+      el('div', {},
+        el('h3', { class: 'text-sm font-bold' }, '🔎 Branch insights'),
+        el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Trailing 12 months (' + D.st + ' → ' + D.en + '), same book and rules as the tiles above. '
+          + (B ? '' : (offN ? 'Leave exactly one branch ticked in 🏢, or c' : 'Pick one branch in 🏢 (or c') + 'lick a branch below' + (offN ? '' : ')') + ' to see why it differs from the company.'))),
+      el('button', { class: 'text-[11px] font-bold', style: { color: 'var(--text-muted)' }, onclick: () => { state._retenInsightsOpen = false; mountApp(); } }, 'Close ✕')),
+    focusBlock,
+    sec('All branches', '"Expected for its mix" = what the branch would lose at the other branches’ rate for each contract length and channel it sells. Above it = underperforming on a like-for-like book. Ranked best → worst; branches under ' + RI_MIN_BASE + ' accounts are listed but not ranked.', league),
+    relLines.length ? sec('Patterns across branches', null, ...relLines) : null);
+}

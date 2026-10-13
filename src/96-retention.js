@@ -307,6 +307,9 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
         })(),
         infoBtn ? el('span', { class: 'inline-flex', onclick: (e) => e.stopPropagation() }, infoBtn) : null),
       el('div', { class: 'flex items-center justify-end gap-4 tabular-nums reten-tiles' },
+        // Insights › (per Isaac, Oct 13): how the picked branch compares with the others, and why.
+        el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { marginRight: 'auto', borderColor: state._retenInsightsOpen ? 'var(--accent)' : 'var(--border-2)', background: state._retenInsightsOpen ? 'var(--accent)' : 'var(--card)', color: state._retenInsightsOpen ? 'var(--accent-text)' : 'var(--text)' },
+          title: 'Compare branches: who loses more, why, and when', onclick: (e) => { e.stopPropagation(); state._retenInsightsOpen = !state._retenInsightsOpen; mountApp(); } }, state._retenInsightsOpen ? 'Insights ▾' : 'Insights ›'),
         // Last year's full-year attrition first (per Isaac) — same rules, whole year, drillable to the counted cancels.
         (() => { const fn = drill((year - 1) + ' \u00b7 counted cancels', prev.rows.counted, 'counted as churn'); return el('div', { class: 'text-right', title: n(prev.counted) + ' counted cancels in ' + (year - 1) + ' \u00f7 ' + n(prev.boy) + ' on the books Jan 1, ' + (year - 1) }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, (year - 1) + ' attrition'), el('div', { class: 'text-base font-black', style: fn ? { cursor: 'pointer' } : {}, onclick: fn ? (e) => { e.stopPropagation(); fn(); } : null }, pct(prev.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.prev)) : null)); })(),
         el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' YTD attrition'), el('div', { class: 'text-base font-black' }, pct(cur.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.cur)) : null)),
@@ -2628,6 +2631,7 @@ function reportingWaterfall() {
   // Contract Length (12 vs 18 vs 24) rides at the bottom of Retention now
   // (per Isaac, Sep 23) instead of being its own section.
   const contractLen = null;   // folded into Attrition Indicators → Contract Length (per Isaac, Oct 6)
-  return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, body, _shell('Renewal Retention', renewalRetentionCard), contractLen);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
+  const insights = state._retenInsightsOpen && typeof retenInsightsCard === 'function' ? _pm('ret:insights', () => retenInsightsCard()) : null;
+  return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, insights, body, _shell('Renewal Retention', renewalRetentionCard), contractLen);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
 }
 
