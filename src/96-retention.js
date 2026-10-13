@@ -2632,6 +2632,6 @@ function reportingWaterfall() {
   // (per Isaac, Sep 23) instead of being its own section.
   const contractLen = null;   // folded into Attrition Indicators → Contract Length (per Isaac, Oct 6)
   const insights = state._retenInsightsOpen && typeof retenInsightsCard === 'function' ? _pm('ret:insights', () => retenInsightsCard()) : null;
-  return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, insights, body, _shell('Renewal Retention', renewalRetentionCard), contractLen);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
+  return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, insights, body, _shell('Renewal Retention', renewalRetentionCard), (typeof retenRenewalCohortCard === 'function' ? _pm('ret:rencohort', () => retenRenewalCohortCard(popA)) : null), contractLen);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
 }
 
