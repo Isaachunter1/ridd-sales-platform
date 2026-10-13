@@ -1884,39 +1884,35 @@ function _rorSellerOk(r) {
   return t ? crmSellerIs('sales_rep', t) : true;
 }
 // Renewals are linked at the CUSTOMER level (per Isaac, Oct 13): a plan closed
-// with a Renewal reason is only set aside when the same customer has another
-// subscription added from 45 days before that cancel onward — the plan the
-// customer renewed into, which carries the book forward. A renewal-coded close
-// with no later plan on the customer is a real loss and stays a cancel.
+// with a Renewal reason is set aside when the same customer has another
+// RECURRING plan sold after it that was still running when it closed — the
+// plan the customer renewed into. Renewals are often sold months before the
+// old plan is closed (#98858: renewal sold Nov 5, old plan closed Feb 5), so
+// there is no look-back limit. Whatever happens to the renewed plan later
+// (e.g. it cancels for Finances) is counted on that plan. A Renewal-coded close
+// with nothing carrying forward is a real loss and stays a cancel.
 const _renLinkMemo = { src: null, idx: null };
 function _renewalLinked(r) {
   const all = state.reportingSubscriptions || [];
   if (_renLinkMemo.src !== all) {
+    const rec = (typeof reportingServiceRecurringMap === 'function') ? reportingServiceRecurringMap() : null;
     const idx = new Map();
-    const add = (x) => { const c = String(x.customer_id != null ? x.customer_id : ''); if (!c) return; const d = String(x.sold_date || x.initial_service || '').slice(0, 10); if (!d) return; (idx.get(c) || idx.set(c, []).get(c)).push([String(x.subscription_id), d]); };
+    const add = (x) => {
+      if (rec && !rec.get(x.subscription)) return;   // one-time / retired work never carries a customer forward
+      const c = String(x.customer_id != null ? x.customer_id : ''); if (!c) return;
+      const d = String(x.sold_date || x.initial_service || '').slice(0, 10); if (!d) return;
+      (idx.get(c) || idx.set(c, []).get(c)).push([String(x.subscription_id), d, String(x.subscription_date_canceled || '').slice(0, 10)]);
+    };
     all.forEach(add); (state._deletedSubs || []).forEach(add);
     _renLinkMemo.src = all; _renLinkMemo.idx = idx;
   }
   const c = String(r.customer_id != null ? r.customer_id : ''); const cx = String(r.subscription_date_canceled || '').slice(0, 10);
+  const sold = String(r.sold_date || r.initial_service || '').slice(0, 10);
   if (!c || !cx) return false;
-  const from = new Date(cx + 'T00:00'); from.setDate(from.getDate() - 45); const f = from.toISOString().slice(0, 10);
+  const g = new Date(cx + 'T00:00'); g.setDate(g.getDate() - 7); const grace = g.toISOString().slice(0, 10);
   const me = String(r.subscription_id);
-  return (_renLinkMemo.idx.get(c) || []).some(([id, d]) => id !== me && d >= f);
+  return (_renLinkMemo.idx.get(c) || []).some(([id, d, oc]) => id !== me && d > sold && (!oc || oc >= grace));
 }
-// Paying = recurring value, OR a per-visit charge on an "As Needed" style plan
-// that FieldRoutes values at $0 a year (per Isaac, Oct 13 — #35448 Pest 3 at
-// $89 a visit, 4 visits, showed $0 ARR and fell out of the book).
-// Only an "As Needed" plan (frequency -1) qualifies: a $0 plan with no
-// frequency (0) and a stray few-dollar charge is one-time work (per Isaac,
-// Oct 13 — #24464 Mosquito 8 Seasonal, $4.87 charge, one visit).
-function _retenPaying(r) { return (Number(r.annual_recurring_value) || 0) > 0 || (String(r.recurring_frequency == null ? '' : r.recurring_frequency).trim() === '-1' && (Number(r.recurring_charge) || 0) > 0); }
-// A CODED "3 Day ROR" counts when the seller could give one: a sales rep's
-// sale always; an office-staff / technician sale only if sold before 2026 —
-// the no-ROR rule for office sales started this year (per Isaac, Oct 13), so
-// earlier ones were allowed and stay RORs.
-const ROR_OFFICE_RULE_FROM = '2026-01-01';
-// Reverted per Isaac, Oct 13: a coded "3 Day ROR" counts for every seller type again.
-function _rorCodedOk(r) { return true; }
 function _isRorReason(x) { return crmReasonIs('ror', x); }   // → src/12-crm-vocab.js (RIDD default: “3 Day ROR” / rescission)
 const RETEN_POP_EXCL_REASONS_DEFAULT = ['3 Day ROR', 'Combined Subscriptions', 'Renewal - Outbound', 'Renewal - Loyalty', 'Renewal - Service Pro Upsell', 'Renewal - Inbound'];
 // These three getters are called PER ROW inside 77k-row filters, so they
