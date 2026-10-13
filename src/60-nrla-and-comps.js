@@ -3951,13 +3951,13 @@ function viewNrlaPublic() {
       // drives the board AND the Best Weeks export.
       el('div', { class: 'inline-flex rounded-lg border overflow-hidden ml-auto', style: { borderColor: 'var(--border-2)' }, title: 'Which accounts count toward the best week, the Kobe week and the last full week' },
         ...[['all', 'Serviced', 'Every Pending / Serviced sale, including Failed Audit and not-yet-audited accounts'], ['passed', 'Passed Audit', 'Only accounts flagged Passed Audit (or No Audit) \u2014 the comp rule']].map(([id, label, tip]) => el('button', {
-          class: 'px-2.5 py-1 text-[11px] font-semibold transition', title: tip,
-          style: (state._kobeAudit === 'all' ? 'all' : 'passed') === id ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'transparent', color: 'var(--text)' },
+          class: 'px-2.5 text-[11px] font-bold transition', title: tip,
+          style: Object.assign({ height: '26px', lineHeight: '26px' }, (state._kobeAudit === 'all' ? 'all' : 'passed') === id ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'transparent', color: 'var(--text)' }),
           onclick: () => { state._kobeAudit = id; mountApp(); },
         }, label))),
       isAdmin ? el('button', {
-        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95 border',
-        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        class: 'rounded-lg px-2.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95 border',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)', height: '28px', boxSizing: 'border-box', display: 'inline-flex', alignItems: 'center' },   // same height as the Serviced / Passed Audit toggle (26px + its 1px border)
         title: 'PDF: every active rep\u2019s best Sun\u2013Sat week of the season (the number they have to beat), biggest first',
         onclick: () => {
           const _aud = state._kobeAudit === 'all' ? 'all' : 'passed';
