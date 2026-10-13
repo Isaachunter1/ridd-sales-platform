@@ -660,6 +660,7 @@ function adminSlack() {
   const persist = () => { saveDemoData(); clearTimeout(state._slackSaveT); state._slackSaveT = setTimeout(() => { if (typeof saveAppSettings === 'function') saveAppSettings(); }, 700); };
 
   const profiles = state.allProfiles.length ? state.allProfiles : [state.profile];
+  const _slackAdmin = isAdminRole(state.profile?.role);   // admins see webhook URLs; View-as Developer shows the masked version
 
   // Status pills surface the wiring state of each card so the UI doesn't lie
   // about which feature actually fires. live = browser webhook;
@@ -739,13 +740,18 @@ function adminSlack() {
               value: ch.name,
               oninput: (e) => { ch.name = e.target.value; persist(); },
             }),
-            el('input', {
-              class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px] font-mono',
-              style: { minWidth: '240px' },
-              placeholder: 'https://hooks.slack.com/services/...',
-              value: ch.webhook,
-              oninput: (e) => { ch.webhook = e.target.value; persist(); },
-            }),
+            // Webhook URLs are secrets — anyone holding one can post into the
+            // channel. Non-admins (Developer) see a saved one masked and can't
+            // edit or remove it (per Isaac, Oct 13); admins see and edit as before.
+            (!_slackAdmin && ch.webhook)
+              ? el('span', { class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px] font-mono', style: { minWidth: '240px', color: 'var(--text-muted)', borderColor: 'var(--border)' }, title: 'Webhook saved — only an admin can view or change it' }, '\u2022\u2022\u2022\u2022\u2022\u2022 webhook saved (admin only)')
+              : el('input', {
+                  class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px] font-mono',
+                  style: { minWidth: '240px' },
+                  placeholder: 'https://hooks.slack.com/services/...',
+                  value: ch.webhook,
+                  oninput: (e) => { ch.webhook = e.target.value; persist(); },
+                }),
             el('button', {
               class: 'px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition',
               style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
@@ -761,7 +767,7 @@ function adminSlack() {
                 toast(res.ok ? 'Posted to ' + ch.name : 'Failed: ' + res.error, res.ok ? 'success' : 'error');
               },
             }, 'Test'),
-            el('button', {
+            (!_slackAdmin && ch.webhook) ? null : el('button', {
               class: 'text-xs text-muted- hover:text-red-500 transition px-2',
               onclick: () => { s.slack_channels.splice(i, 1); persist(); mountApp(); },
               title: 'Remove',
