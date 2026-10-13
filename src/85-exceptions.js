@@ -224,7 +224,9 @@ function crmReconciliationChecks(subs) {
     // renewed or still-open subs, and an active sub is active. Reinstated subs already drop the old cancel date
     // at load, so they never count as churn.)
     if (isActive(r)) { const k = String(r.customer_id) + '|' + String(r.subscription || '').trim().toLowerCase(); (dupKey.get(k) || dupKey.set(k, []).get(k)).push(r); }
-    if (isActive(r) && !String(r.sold_by || '').trim()) out.seller.push(flag(r, 'Active with no Sold By'));
+    // Seller (per Isaac, Oct 13): only a sub with NO Sold By at all. A blank name with a rep id is a rep who has left —
+    // FieldRoutes dropped them from the employee list (3,287 active subs) — and that sale is still theirs; nothing to fix.
+    if (isActive(r) && !String(r.sold_by || '').trim() && /^(|0|-\d+)$/.test(String(r.sold_by_id == null ? '' : r.sold_by_id).trim())) out.seller.push(flag(r, 'Active with no Sold By'));
     if (!isActive(r) && cxlDate && !cxlReason) out.noReason.push(flag(r, 'Cancelled ' + cxlDate + ' with no reason'));
     // Source
     const t = TYPE(r), src = SRC(r);
