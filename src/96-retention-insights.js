@@ -58,8 +58,24 @@ function retenBranchInsightsData() {
   if (_riMemo.book === book && _riMemo.key === key) return _riMemo.out;
   let baseAll, countedAll, st, en, label;
   const mm = /^(year|cohort):(\d{4})$/.exec(mode);
+  const bm = /^branchyr:(\d)$/.exec(mode);
+  // Branch's own year N (per Isaac, Oct 13 — apples to apples): every branch's Nth FULL calendar year of selling (the
+  // year after its first month of sales, unless that month was January), each measured the same way — lost within
+  // the first 12 months of the customer's life, counting only customers at least 12 months old.
+  const branchYear = {};
+  if (bm) {
+    const firstMo = {};
+    for (const r of book) { const o = String(r.office_name || '—').trim(); const ym = String(r.initial_service || '').slice(0, 7); if (/^20\d\d-\d\d$/.test(ym) && (!firstMo[o] || ym < firstMo[o])) firstMo[o] = ym; }
+    for (const o in firstMo) { const y = Number(firstMo[o].slice(0, 4)), m = Number(firstMo[o].slice(5, 7)); branchYear[o] = (m === 1 ? y : y + 1) + Number(bm[1]) - 1; }
+  }
   if (mm && mm[1] === 'year') { const A = semMetric('annual_attrition')(book, Number(mm[2])); baseAll = A.rows.boy; countedAll = A.rows.counted; st = A.st; en = A.en; label = mm[2] + (Number(mm[2]) === new Date().getFullYear() ? ' to date' : '') + ' · book on Jan 1, lost during the year'; }
   else if (mm) { const y = mm[2]; baseAll = book.filter(r => String(r.initial_service || '').slice(0, 4) === y); countedAll = baseAll.filter(r => r._effCancel); st = y + '-01-01'; en = new Date().toISOString().slice(0, 10); label = y + ' cohort · first serviced in ' + y + ', lost to date'; }
+  else if (bm) {
+    const cut = new Date(); cut.setFullYear(cut.getFullYear() - 1); const cutIso = cut.toISOString().slice(0, 10);
+    baseAll = book.filter(r => { const o = String(r.office_name || '—').trim(); return branchYear[o] && String(r.initial_service || '').slice(0, 4) === String(branchYear[o]) && String(r.initial_service) <= cutIso; });
+    countedAll = baseAll.filter(r => { if (!r._effCancel) return false; const l = semLifeMonths(r); return l != null && l < 12; });
+    st = ''; en = ''; label = 'Each branch’s year ' + bm[1] + ' · lost in the first 12 months';
+  }
   else { const T = semMetric('trailing12_attrition')(book); baseAll = T.rows.boy; countedAll = T.rows.counted; st = T.st; en = T.en; label = 'Trailing 12 months (' + st + ' → ' + en + ')'; }
   const years = [...new Set(book.map(r => String(r.initial_service || '').slice(0, 4)).filter(y => /^20\d\d$/.test(y)))].sort().reverse();
   const company = _riStats(baseAll, countedAll);
@@ -83,7 +99,9 @@ function retenBranchInsightsData() {
     { k: 'arv', label: 'average annual price', f: b => b.arvAvg },
     { k: 'pd', label: 'share of active accounts 30+ days past due', f: b => b.pastDuePct },
   ].map(x => Object.assign(x, { r: corr(x.f) })).filter(x => x.r != null);
-  const out = { company, branches, ranked, rels, st, en, label, mode, years };
+  branches.forEach(b => { b.cohortYear = branchYear[b.name] || null; });
+  const notReady = bm ? Object.keys(branchYear).filter(o => !branches.some(b => b.name === o)).map(o => ({ name: o, year: branchYear[o] })) : [];
+  const out = { company, branches, ranked, rels, st, en, label, mode, years, isBranchYr: !!bm, notReady };
   _riMemo.book = book; _riMemo.key = key; _riMemo.out = out;
   return out;
 }
@@ -122,12 +140,12 @@ function retenInsightsCard() {
   };
 
   // ── League table (always) ──
-  const cols = [['Branch', 'left'], [D.mode === 't12' ? 'T12 attrition' : /^cohort/.test(D.mode) ? 'Lost to date' : 'Attrition', 'right'], ['vs company', 'right'], ['Expected for its mix', 'right'], ['Cancels', 'right'], [/^cohort/.test(D.mode) ? 'Cohort size' : D.mode === 't12' ? 'Book a year ago' : 'Book on Jan 1', 'right'], ['Autopay', 'right'], ['Multi-year', 'right'], ['Lost in months 0–6', 'right'], ['Past due 30+', 'right']];
+  const cols = [[D.isBranchYr ? 'Branch · cohort year' : 'Branch', 'left'], [D.mode === 't12' ? 'T12 attrition' : /^cohort/.test(D.mode) ? 'Lost to date' : D.isBranchYr ? 'Lost in 1st 12 mo' : 'Attrition', 'right'], ['vs company', 'right'], ['Expected for its mix', 'right'], ['Cancels', 'right'], [/^cohort/.test(D.mode) || D.isBranchYr ? 'Cohort size' : D.mode === 't12' ? 'Book a year ago' : 'Book on Jan 1', 'right'], ['Autopay', 'right'], ['Multi-year', 'right'], ['Lost in months 0–6', 'right'], ['Past due 30+', 'right']];
   const th = (l, a) => el('th', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap', style: { textAlign: a } }, l);
   const td = (v, a, sty) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap', style: Object.assign({ textAlign: a }, sty || {}) }, v);
   const row = (b, isCo) => el('tr', { class: 'border-t' + (isCo ? '' : ' cursor-pointer hover:brightness-95'), style: { borderColor: 'var(--border)', background: B && b === B ? 'rgba(223,100,58,.08)' : isCo ? 'var(--card-2)' : '', fontWeight: isCo ? '700' : '' },
       onclick: isCo ? null : () => { state._retenInsBranch = state._retenInsBranch === b.name ? null : b.name; mountApp(); }, title: isCo ? '' : 'Click to compare this branch with the company' },
-    td((b.rank ? '#' + b.rank + ' ' : '') + (isCo ? 'Company' : tc(b.name)) + (b.base < RI_MIN_BASE && !isCo ? ' (small)' : ''), 'left'),
+    td((b.rank ? '#' + b.rank + ' ' : '') + (isCo ? (D.isBranchYr ? 'All branches' : 'Company') : tc(b.name)) + (!isCo && D.isBranchYr && b.cohortYear ? ' · ' + b.cohortYear : '') + (b.base < RI_MIN_BASE && !isCo ? ' (small)' : ''), 'left'),
     td(pct(b.rate), 'right', { fontWeight: '700' }),
     td(isCo ? '—' : pts((b.rate || 0) - (C.rate || 0)), 'right', isCo ? {} : { color: (b.rate || 0) > (C.rate || 0) ? bad : good }),
     td(isCo ? '—' : pct(b.expected), 'right', { color: 'var(--text-muted)' }),
@@ -135,13 +153,17 @@ function retenInsightsCard() {
     td(pct(b.apPct, 0), 'right'), td(pct(b.multiPct, 0), 'right'), td(pct(b.earlyPct, 0), 'right'), td(pct(b.pastDuePct, 0), 'right'));
   const league = el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]' },
     el('thead', { class: 'text-[9px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } }, el('tr', {}, ...cols.map(([l, a]) => th(l, a)))),
-    el('tbody', {}, row(C, true), ...D.branches.map(b => row(b, false)))));
+    el('tbody', {}, row(C, true), ...D.branches.map(b => row(b, false)),
+      ...(D.notReady || []).map(x => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } },
+        el('td', { class: 'px-2 py-1.5 whitespace-nowrap' }, tc(x.name) + ' · ' + x.year), el('td', { colspan: cols.length - 1, class: 'px-2 py-1.5 text-[11px]' }, 'Year ' + D.mode.slice(-1) + ' isn’t 12 months old yet — nothing to compare'))))));
 
   // ── Patterns across branches ──
   const relLines = D.rels.filter(x => Math.abs(x.r) >= 0.45).sort((a, b) => Math.abs(b.r) - Math.abs(a.r)).map(x =>
     el('div', { class: 'text-[11px]' }, '• Branches with a higher ', el('b', {}, x.label), x.r < 0 ? ' tend to have LOWER attrition' : ' tend to have HIGHER attrition', el('span', { style: { color: 'var(--text-muted)' } }, ' (r = ' + x.r.toFixed(2) + ' across ' + D.ranked.length + ' branches)')));
 
   let focusBlock = null;
+  const _nr = focus && !B && (D.notReady || []).find(x => x.name === focus);
+  if (_nr) focusBlock = el('div', { class: 'rounded-xl p-3 text-[12px]', style: { background: 'var(--card-2)' } }, tc(_nr.name) + '\u2019s year ' + D.mode.slice(-1) + ' is ' + _nr.year + ' — those customers aren\u2019t 12 months old yet, so there\u2019s no like-for-like first-year number for it. Pick an earlier year or another window.');
   if (B) {
     // Compared with the OTHER branches (per Isaac: "how that branch is comparing to other branches"), not a company
     // total that includes the branch itself.
@@ -168,7 +190,8 @@ function retenInsightsCard() {
     };
     // Plain-English read: the three things that explain most of this branch's difference.
     const say = [];
-    say.push(tc(B.name) + ' lost ' + pct(B.rate) + ' of its book (' + D.label.split(' · ')[0].replace(/ \(.*\)/, '') + ') versus ' + pct(R.rate) + ' at the other branches (' + pts(gap) + ')' + (B.rank ? ', #' + B.rank + ' of ' + D.ranked.length + ' branches.' : '.'));
+    if (D.isBranchYr) say.push(tc(B.name) + '\u2019s year ' + D.mode.slice(-1) + ' (' + (B.cohortYear || '—') + ', ' + n(B.base) + ' customers) lost ' + pct(B.rate) + ' in their first 12 months, versus ' + pct(R.rate) + ' for the other branches\u2019 own year ' + D.mode.slice(-1) + ' (' + n(R.base) + ' customers across ' + (D.branches.length - 1) + ' branches) — ' + pts(gap) + (B.rank ? ', #' + B.rank + ' of ' + D.ranked.length + '.' : '.'));
+    else say.push(tc(B.name) + ' lost ' + pct(B.rate) + ' of its ' + n(B.base) + ' accounts (' + D.label.split(' · ')[0].replace(/ \(.*\)/, '') + ') versus ' + pct(R.rate) + ' of ' + n(R.base) + ' at the other branches (' + pts(gap) + ')' + (B.rank ? ', #' + B.rank + ' of ' + D.ranked.length + ' branches.' : '.'));
     if (Math.abs(mixGap) >= 0.01) say.push('Its mix accounts for ' + pts(mixGap) + ' (' + (mixGap > 0 ? 'more' : 'fewer') + ' of the contract lengths and channels that churn more at the other branches); the other ' + pts(perfGap) + ' is how the branch performs on a like-for-like book.');
     else say.push('Its contract-length and channel mix is close to the other branches’, so the difference (' + pts(perfGap) + ') is performance on a like-for-like book.');
     if (worstR) say.push('The biggest driver is ' + worstR.k + ': ' + pct(worstR.b) + ' of the book lost to it vs ' + pct(worstR.c) + ' at the other branches (' + pts(worstR.d) + ').' + (bestR ? ' Best relative showing: ' + bestR.k + ' (' + pts(bestR.d) + ').' : ''));
@@ -179,7 +202,12 @@ function retenInsightsCard() {
         el('div', { class: 'text-sm font-black' }, tc(B.name) + ' vs the other branches'),
         ...say.map(t => el('div', { class: 'text-[12px]' }, t))),
       el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' } },
-        trait(D.mode === 't12' ? 'Trailing-12 attrition' : /^cohort/.test(D.mode) ? 'Cohort lost to date' : 'Attrition that year', B.rate, R.rate, true, v => pct(v)),
+        trait(D.mode === 't12' ? 'Trailing-12 attrition' : /^cohort/.test(D.mode) ? 'Cohort lost to date' : D.isBranchYr ? 'Lost in first 12 months' : 'Attrition that year', B.rate, R.rate, true, v => pct(v)),
+        // Size of what's being compared (per Isaac, Oct 13) — so a small cohort isn't read like a big one.
+        el('div', { class: 'rounded-xl border px-3 py-2', style: { borderColor: 'var(--border)' } },
+          el('div', { class: 'text-[10px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)' } }, /^cohort/.test(D.mode) || D.isBranchYr ? 'Cohort size' : 'Accounts compared'),
+          el('div', { class: 'text-base font-black tabular-nums' }, n(B.base) + (D.isBranchYr && B.cohortYear ? ' · ' + B.cohortYear : '')),
+          el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, 'other branches ' + n(R.base))),
         trait('Expected for its mix', B.expectedVsRest, R.rate, true, v => pct(v)),
         trait('Autopay', B.apPct, R.apPct, false, v => pct(v, 0)),
         trait('Multi-year (18–24 mo)', B.multiPct, R.multiPct, false, v => pct(v, 0)),
@@ -204,6 +232,7 @@ function retenInsightsCard() {
             onchange: (e) => { state._retenInsMode = e.target.value; mountApp(); } },
             el('option', { value: 't12', selected: D.mode === 't12' }, 'Trailing 12 months'),
             el('optgroup', { label: 'Calendar year (book on Jan 1)' }, ...D.years.map(y => el('option', { value: 'year:' + y, selected: D.mode === 'year:' + y }, y))),
+            el('optgroup', { label: 'Branch’s own year (lost in first 12 months)' }, ...[1, 2, 3].map(n => el('option', { value: 'branchyr:' + n, selected: D.mode === 'branchyr:' + n }, 'Year ' + n + ' of each branch'))),
             el('optgroup', { label: 'Start-year cohort (lost to date)' }, ...D.years.map(y => el('option', { value: 'cohort:' + y, selected: D.mode === 'cohort:' + y }, y + ' cohort'))))),
         el('div', { class: 'text-[11px] mt-1', style: { color: 'var(--text-muted)' } }, D.label + ', same book and rules as the tiles above. '
           + (B ? '' : (offN ? 'Leave exactly one branch ticked in 🏢, or c' : 'Pick one branch in 🏢 (or c') + 'lick a branch below' + (offN ? '' : ')') + ' to see why it differs from the company.'))),
