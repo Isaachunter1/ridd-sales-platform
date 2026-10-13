@@ -272,7 +272,7 @@ const PERM_DEFAULTS = {
                      view_settings: 1, set_teams: 1, set_comps: 1, set_config: 1, set_marketing: 1, set_slack: 1 },
 };
 // Settings pages → the permission that opens each (Permissions itself is admin-only, always).
-const ADMIN_SECTION_PERM = { users: 'set_users', teams: 'set_teams', goals: 'set_goals', comps: 'set_comps', pricing: 'set_commissions', config: 'set_config', marketing: 'set_marketing', slack: 'set_slack', usage: 'set_usage' };   // 'data' (Data sources) is admin-only, never delegated
+const ADMIN_SECTION_PERM = { calendar: 'tab_calendar', users: 'set_users', teams: 'set_teams', goals: 'set_goals', comps: 'set_comps', pricing: 'set_commissions', config: 'set_config', marketing: 'set_marketing', slack: 'set_slack', usage: 'set_usage' };   // 'data' (Data sources) is admin-only, never delegated
 // Sub-tab view key → its Sales-tab permission (all three groups).
 const VIEW_TAB_PERM = { dashboard: 'tab_dashboard', sales: 'tab_sales', pay: 'tab_pay', scorecards: 'tab_scorecards', calendar: 'tab_calendar', hall_of_fame: 'tab_hof', d2d_hof: 'tab_hof', tech_hof: 'tab_hof',
   d2d_dashboard: 'tab_dashboard', d2d_sales: 'tab_sales', commission: 'tab_pay', techs: 'tab_dashboard', all_dashboard: 'tab_dashboard', tech_sales: 'tab_sales', tab_pay: 'tab_pay', tech_pay: 'tab_pay', loyalty_dashboard: 'tab_loyalty', loyalty_renewals: 'tab_loyalty', loyalty_health: 'tab_loyalty' };

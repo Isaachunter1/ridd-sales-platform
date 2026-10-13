@@ -1234,7 +1234,7 @@ const USAGE_SCREEN_NAMES = {
 const USAGE_SUB_NAMES = {
   upfront: 'Upfront Sales', backend: 'Pending Backend Lock', cancels: 'Archived', history: 'History',
   overview: 'Overview', geographic: 'Geographic', waterfall: 'Retention', auditing: 'Auditing', marketing: 'Marketing', putis: 'P&L', ops: 'Operations', definitions: 'Definitions',
-  uploads: 'Admin', pricing: 'Commissions', comps: 'Competitions', config: 'Configurations', goals: 'Goals', perms: 'Permissions', slack: 'Slack', teams: 'Teams', users: 'Users', usage: 'Usage', sources: 'Sources',
+  uploads: 'Admin', pricing: 'Commissions', comps: 'Competitions', calendar: 'Calendar', config: 'Configurations', goals: 'Goals', perms: 'Permissions', slack: 'Slack', teams: 'Teams', users: 'Users', usage: 'Usage', sources: 'Sources',
 };
 function usageScreenName(view, sub) {
   const base = USAGE_SCREEN_NAMES[view] || (view ? String(view).replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase()) : '\u2014');

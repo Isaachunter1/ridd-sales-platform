@@ -170,6 +170,7 @@ function viewAdmin() {
       ['users',     'Users',                'Logins, roles, rep links'],
       ['teams',     'Teams',                'Rosters, tiers, colors'],
       ['perms',     'Permissions',          'What each role can see and do'],
+      ['calendar',  'Calendar',             'Team schedules, shift templates, swap rules'],   // per Isaac, Oct 13
     ] },
     { label: 'Pay & goals', items: [
       ['pricing',   'Commissions & payroll', 'Rates by rep type · when sales pay and lock'],
@@ -231,6 +232,7 @@ function viewAdmin() {
     perms:   adminPermissions,
     slack:   adminSlack,
     comps:   adminCompetitionSchedule,
+    calendar: () => (typeof calendarCanManage === 'function' && calendarCanManage(state.profile && state.profile.role)) ? viewCalendarSettings({ embedded: true }) : el('div', { class: 'card p-6 text-sm text-muted-' }, 'Calendar settings are for team leads and admins.'),
     usage:   adminUsage,
     data:    adminDataSources,
     pricing: () => el('div', { class: 'flex flex-col gap-4' }, adminCommissions(), adminConfigurations('autolog')),   // rates + pay automation in ONE place

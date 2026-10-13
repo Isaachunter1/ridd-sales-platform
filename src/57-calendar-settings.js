@@ -28,7 +28,8 @@ function _calSetRemove(p) {
   toast((p.full_name || 'Agent') + ' removed' + (ids.size ? ' · ' + ids.size + ' upcoming shift' + (ids.size === 1 ? '' : 's') + ' deleted' : ''), 'success');
   _calSetSave();
 }
-function viewCalendarSettings() {
+function viewCalendarSettings(opts) {
+  opts = opts || {};
   const cs = calendarSettings();
   const all = (state.allProfiles || []).filter(p => p && p.is_active !== false);
   const onCal = calendarEligibleProfiles(state.profile);
@@ -58,35 +59,58 @@ function viewCalendarSettings() {
       out[d.getDay()] = sh.length ? sh.map(s => { const { st, en } = calShiftTimes(s); return calShortTime(st) + '–' + calShortTime(en); }).join(', ') : ''; }
     return { days: out, hrs: Math.round(hrs * 10) / 10 }; };
 
-  // ── 1. Team ──
+  // ── 1+2. Team & schedule — one table (per Isaac, Oct 13): every agent on the calendar, their department, the week's
+  // shifts (pick the week with the arrows; click a day to edit it), hours that week, Edit schedule and Remove. ──
+  const ws = _calSetWeekStart();
+  const days = [...Array(7)].map((_, i) => { const d = new Date(ws); d.setDate(ws.getDate() + i); return d; });
+  const shiftTxt = (sh) => sh.map(s => { const { st, en } = calShiftTimes(s); return calShortTime(st) + '–' + calShortTime(en); }).join(', ');
+  const nCols = 11;
   const teamRows = DEPARTMENTS.flatMap(d => {
     const list = onCal.filter(p => calendarAgentDept(p) === d.id).sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || '')));
-    return [el('tr', {}, el('td', { colspan: 11, class: 'pt-3 pb-1 text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-muted)' } }, d.name + ' · ' + list.length))]
-      .concat(list.map(p => { const w = standing(p);
-        return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-          el('td', { class: 'py-1.5 pr-2' }, el('div', { class: 'flex items-center gap-2' },
-            el('span', { class: 'inline-block rounded-full shrink-0', style: { width: '9px', height: '9px', background: calendarAgentColor(p.id) } }),
-            el('span', { class: 'font-semibold whitespace-nowrap' }, p.full_name || p.email || 'Agent'))),
-          el('td', { class: 'py-1.5 pr-2' }, el('select', { class: 'rounded-lg border px-1.5 py-0.5 text-[11px]', style: sel, title: 'Department this agent is scheduled under',
-            onchange: (e) => setRoster(p, { dept: e.target.value }) }, ...DEPARTMENTS.map(x => el('option', { value: x.id, selected: calendarAgentDept(p) === x.id }, x.name)))),
-          ...dayNames.map((_, i) => el('td', { class: 'py-1.5 px-1 text-[10px] tabular-nums whitespace-nowrap text-center', style: { color: w.days[i] ? 'var(--text)' : 'var(--text-subtle)' } }, w.days[i] || '—')),
-          el('td', { class: 'py-1.5 px-2 text-[11px] tabular-nums text-right font-bold' }, w.hrs ? w.hrs + 'h' : '—'),
-          el('td', { class: 'py-1.5 pl-2 text-right whitespace-nowrap' },
-            btn('Edit schedule', () => openAgentScheduleModal(p), null, 'Set ' + (p.full_name || 'this agent') + '’s repeating week'), ' ',
-            btn('Remove', () => _calSetRemove(p), { color: '#DC2626', borderColor: 'rgba(220,38,38,.35)' })));
-      }));
+    const heads = days.map(() => 0);
+    const rows = list.map(p => { let hrs = 0;
+      const cells = days.map((dd, i) => { const iso = isoDate(dd); const sh = _calSetAgentShifts(p, iso);
+        if (sh.length) { heads[i]++; sh.forEach(s => { const { st, en } = calShiftTimes(s); hrs += Math.max(0, (_toMin(en) - _toMin(st)) / 60); }); }
+        return el('td', { class: 'py-1.5 px-1 text-center text-[10px] tabular-nums whitespace-nowrap cursor-pointer hover:brightness-95', title: 'Open ' + iso,
+          style: sh.length ? { background: 'color-mix(in srgb, ' + calendarAgentColor(p.id) + ' 16%, var(--card))', color: 'var(--text)', borderRadius: '6px' } : { color: 'var(--text-subtle)' },
+          onclick: () => { if (typeof openDaySheet === 'function') openDaySheet(iso); } }, sh.length ? shiftTxt(sh) : '—'); });
+      hrs = Math.round(hrs * 10) / 10;
+      return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        el('td', { class: 'py-1.5 pr-2' }, el('div', { class: 'flex items-center gap-2' },
+          el('span', { class: 'inline-block rounded-full shrink-0', style: { width: '9px', height: '9px', background: calendarAgentColor(p.id) } }),
+          el('span', { class: 'font-semibold whitespace-nowrap' }, p.full_name || p.email || 'Agent'))),
+        el('td', { class: 'py-1.5 pr-2' }, el('select', { class: 'rounded-lg border px-1.5 py-0.5 text-[11px]', style: sel, title: 'Department this agent is scheduled under',
+          onchange: (e) => setRoster(p, { dept: e.target.value }) }, ...DEPARTMENTS.map(x => el('option', { value: x.id, selected: calendarAgentDept(p) === x.id }, x.name)))),
+        ...cells,
+        el('td', { class: 'py-1.5 px-2 text-[11px] tabular-nums text-right font-bold' }, hrs ? hrs + 'h' : '—'),
+        el('td', { class: 'py-1.5 pl-2 text-right whitespace-nowrap' },
+          btn('Edit schedule', () => openAgentScheduleModal(p), null, 'Set ' + (p.full_name || 'this agent') + '’s repeating week'), ' ',
+          btn('Remove', () => _calSetRemove(p), { color: '#DC2626', borderColor: 'rgba(220,38,38,.35)' })));
+    });
+    if (!list.length) return [];
+    return [el('tr', {}, el('td', { colspan: nCols, class: 'pt-3 pb-1 text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-muted)' } }, d.name + ' · ' + list.length))]
+      .concat(rows, [el('tr', { class: 'border-t', style: { borderColor: 'var(--border-2)' } },
+        el('td', { colspan: 2, class: 'py-1 pr-2 text-[10px] uppercase tracking-wider font-bold', style: { color: 'var(--text-muted)' } }, 'On shift'),
+        ...heads.map(n => el('td', { class: 'py-1 text-center font-black tabular-nums text-[11px]', style: { color: n ? 'var(--text)' : '#DC2626' } }, String(n))),
+        el('td', { colspan: 2 }))]);
   });
   const addSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px]', style: sel },
     el('option', { value: '' }, addable.length ? 'Add someone to the calendar…' : 'Everyone active is on the calendar'),
     ...addable.map(p => el('option', { value: p.id }, (p.full_name || p.email || p.id) + (p.role ? ' · ' + p.role : ''))));
   addSel.onchange = () => { const p = addable.find(x => x.id === addSel.value); if (p) setRoster(p, { on: true, dept: currentDepartment() }); };
-  const team = section('Team on the calendar', 'Active office staff are on by default. Add anyone else who works shifts, move someone between departments, or take them off. The days show what is booked for the next 7 days.',
+  const team = section('Team & schedule', 'Everyone on the calendar and their shifts for the week. Active office staff are on by default — add anyone else who works shifts, move someone between departments, or remove them. Click a day to add, move or remove shifts.',
+    el('div', { class: 'flex items-center gap-2 flex-wrap' },
+      btn('‹', () => { const d = new Date(ws); d.setDate(d.getDate() - 7); state._calSetWeek = isoDate(d); mountApp(); }),
+      btn('This week', () => { state._calSetWeek = null; mountApp(); }),
+      btn('›', () => { const d = new Date(ws); d.setDate(d.getDate() + 7); state._calSetWeek = isoDate(d); mountApp(); }),
+      el('span', { class: 'text-[12px] font-semibold ml-1' }, calendarWindowLabel(ws, 'week')),
+      el('div', { class: 'flex-1' }), addSel),
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
       el('thead', { class: 'text-[9px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } }, el('tr', {},
         el('th', { class: 'text-left pr-2 font-semibold' }, 'Agent'), el('th', { class: 'text-left pr-2 font-semibold' }, 'Department'),
-        ...dayNames.map(d => el('th', { class: 'px-1 font-semibold text-center' }, d)), el('th', { class: 'px-2 font-semibold text-right' }, 'Hrs / wk'), el('th', {}))),
+        ...days.map(d => { const hol = companyHolidayFor(isoDate(d)); return el('th', { class: 'px-1 font-semibold text-center whitespace-nowrap', title: hol || '' }, dayNames[d.getDay()] + ' ' + (d.getMonth() + 1) + '/' + d.getDate() + (hol ? ' 🎉' : '')); }),
+        el('th', { class: 'px-2 font-semibold text-right' }, 'Hrs'), el('th', {}))),
       el('tbody', {}, ...teamRows))),
-    el('div', { class: 'flex items-center gap-2 flex-wrap' }, addSel),
     strays.length ? el('div', { class: 'rounded-xl border p-3 flex flex-col gap-1.5', style: { borderColor: 'rgba(217,119,6,.45)', background: 'rgba(217,119,6,.06)' } },
       el('div', { class: 'text-[12px] font-bold' }, '⚠ On the calendar but not on this list'),
       el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'These people have upcoming shifts but aren’t active office staff (inactive, a different user type, or no longer in the app). Keep them on the calendar or remove them and their shifts.'),
@@ -98,31 +122,6 @@ function viewCalendarSettings() {
           btn('Remove', () => _calSetRemove(p), { color: '#DC2626', borderColor: 'rgba(220,38,38,.35)' })); })) : null,
     offCal.length ? el('div', { class: 'text-[11px] flex items-center gap-1.5 flex-wrap', style: { color: 'var(--text-muted)' } }, 'Off the calendar:',
       ...offCal.map(p => btn('↩ ' + (p.full_name || p.email), () => setRoster(p, { on: undefined }), null, 'Put back on the calendar'))) : null);
-
-  // ── 2. Who's working (week roster) ──
-  const ws = _calSetWeekStart();
-  const days = [...Array(7)].map((_, i) => { const d = new Date(ws); d.setDate(ws.getDate() + i); return d; });
-  const deptAgents = onCal.filter(p => calendarAgentDept(p) === currentDepartment()).sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || '')));
-  const heads = days.map(d => 0);
-  const rosterRows = deptAgents.map(p => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-    el('td', { class: 'py-1.5 pr-2 font-semibold whitespace-nowrap' }, p.full_name || 'Agent'),
-    ...days.map((d, i) => { const iso = isoDate(d); const sh = _calSetAgentShifts(p, iso); if (sh.length) heads[i]++;
-      return el('td', { class: 'py-1.5 px-1 text-center text-[10px] tabular-nums whitespace-nowrap cursor-pointer hover:brightness-95', title: 'Open ' + iso,
-        style: sh.length ? { background: 'color-mix(in srgb, ' + calendarAgentColor(p.id) + ' 16%, var(--card))', color: 'var(--text)', borderRadius: '6px' } : { color: 'var(--text-subtle)' },
-        onclick: () => { if (typeof openDaySheet === 'function') openDaySheet(iso); } },
-        sh.length ? sh.map(s => { const { st, en } = calShiftTimes(s); return calShortTime(st) + '–' + calShortTime(en); }).join(', ') : '—'); })));
-  const roster = section('Who’s working · ' + deptName(currentDepartment()), 'Every agent’s shifts for the week. Click a day to add, move or remove shifts.',
-    el('div', { class: 'flex items-center gap-2' },
-      btn('‹', () => { const d = new Date(ws); d.setDate(d.getDate() - 7); state._calSetWeek = isoDate(d); mountApp(); }),
-      btn('This week', () => { state._calSetWeek = null; mountApp(); }),
-      btn('›', () => { const d = new Date(ws); d.setDate(d.getDate() + 7); state._calSetWeek = isoDate(d); mountApp(); }),
-      el('span', { class: 'text-[12px] font-semibold ml-1' }, calendarWindowLabel(ws, 'week'))),
-    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
-      el('thead', { class: 'text-[9px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } }, el('tr', {}, el('th', { class: 'text-left pr-2 font-semibold' }, 'Agent'),
-        ...days.map(d => { const hol = companyHolidayFor(isoDate(d)); return el('th', { class: 'px-1 font-semibold text-center', title: hol || '' }, dayNames[d.getDay()] + ' ' + (d.getMonth() + 1) + '/' + d.getDate() + (hol ? ' 🎉' : '')); }))),
-      el('tbody', {}, ...rosterRows,
-        el('tr', { class: 'border-t-2', style: { borderColor: 'var(--border-2)' } }, el('td', { class: 'py-1.5 pr-2 text-[10px] uppercase tracking-wider font-bold', style: { color: 'var(--text-muted)' } }, 'On shift'),
-          ...heads.map(n => el('td', { class: 'py-1.5 text-center font-black tabular-nums', style: { color: n ? 'var(--text)' : '#DC2626' } }, String(n))))))));
 
   // ── 3. Shift templates ──
   const tplRows = cs.templates.map((t, i) => el('div', { class: 'flex items-center gap-2 flex-wrap' },
@@ -145,11 +144,10 @@ function viewCalendarSettings() {
     el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Company holidays (no one is scheduled unless you add them on the day): New Year’s Day, Memorial Day, Independence Day, Labor Day, Thanksgiving, Black Friday, Christmas Eve, Christmas Day.'));
 
   return el('div', { class: 'flex flex-col gap-4 w-full' },
-    el('div', { class: 'flex items-center gap-2 flex-wrap' },
-      btn('‹ Back to calendar', () => { state._calSettingsOpen = false; mountApp(); }),
-      el('h2', { class: 'text-lg font-bold ml-1' }, '⚙ Calendar settings'),
-      el('div', { class: 'flex-1' }),
-      el('select', { class: 'rounded-xl border px-2.5 py-1 text-[11px] font-semibold cursor-pointer', style: sel, title: 'Department for the Who’s working roster', onchange: (e) => { state.calendarDepartment = e.target.value; saveDemoData(); mountApp(); } },
-        ...DEPARTMENTS.map(d => el('option', { value: d.id, selected: currentDepartment() === d.id }, d.name)))),
-    team, roster, templates, rules);
+    // Inside Settings → Calendar (per Isaac, Oct 13) the page header is the section title; on the calendar it's a back link.
+    opts.embedded ? el('div', {}, el('h2', { class: 'text-lg font-bold' }, 'Calendar'), el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Who is on the calendar and when they work, shift templates and swap rules. Also on the Calendar tab under ⚙ Settings.'))
+      : el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          btn('‹ Back to calendar', () => { state._calSettingsOpen = false; mountApp(); }),
+          el('h2', { class: 'text-lg font-bold ml-1' }, '⚙ Calendar settings')),
+    team, templates, rules);
 }
