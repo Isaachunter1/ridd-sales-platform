@@ -282,15 +282,22 @@ SELECT
   -- else a customer-level doc signed on/after the day the sub was added).
   -- FieldRoutes' own "Signed Agreement = Yes" (per Isaac, Sep 23) is the
   -- agreement attached to the subscription (contractAdded) — 44k of 44.6k
-  -- active subs carry it, only 26k have an e-sign document. Either counts.
+  -- active subs carry it, only 26k have an e-sign document.
+  -- Oct 13 (per Isaac — #183728 Benita Elcock showed signed with four UNSIGNED
+  -- Pest 6 agreements): contractAdded is stamped when an agreement is
+  -- GENERATED, signed or not — every 2026 sub has one. E-sign moved into
+  -- FieldRoutes in 2026 (88% of 2026 subs have an e-sign doc vs ~5% before), so
+  -- from 2026 on only a COMPLETED e-sign document counts; contractAdded still
+  -- stands in for the older (pre-e-sign) agreements.
   CAST(COALESCE(sigsub.signed_on,
            IF(sigcust.signed_on >= DATE_SUB(SAFE.PARSE_DATE('%Y-%m-%d', NULLIF(LEFT(s.fieldRoutes_dateAdded,10),'0000-00-00')), INTERVAL 1 DAY),
               sigcust.signed_on, NULL),
-           SAFE.PARSE_DATE('%Y-%m-%d', NULLIF(LEFT(s.fieldRoutes_contractAdded,10),'0000-00-00'))) AS STRING) AS contract_signed_at,
+           IF(LEFT(s.fieldRoutes_dateAdded,10) < '2026-01-01', SAFE.PARSE_DATE('%Y-%m-%d', NULLIF(LEFT(s.fieldRoutes_contractAdded,10),'0000-00-00')), NULL)) AS STRING) AS contract_signed_at,
   CASE
     WHEN sigsub.signed_on IS NOT NULL
       OR sigcust.signed_on >= DATE_SUB(SAFE.PARSE_DATE('%Y-%m-%d', NULLIF(LEFT(s.fieldRoutes_dateAdded,10),'0000-00-00')), INTERVAL 1 DAY)
-      OR SAFE.PARSE_DATE('%Y-%m-%d', NULLIF(LEFT(s.fieldRoutes_contractAdded,10),'0000-00-00')) IS NOT NULL THEN 'signed'
+      OR (LEFT(s.fieldRoutes_dateAdded,10) < '2026-01-01'
+          AND SAFE.PARSE_DATE('%Y-%m-%d', NULLIF(LEFT(s.fieldRoutes_contractAdded,10),'0000-00-00')) IS NOT NULL) THEN 'signed'
     WHEN COALESCE(sigsub.wip,0) > 0 OR COALESCE(sigcust.wip,0) > 0 THEN 'sent'
     ELSE 'none' END AS contract_state
 FROM sub s
