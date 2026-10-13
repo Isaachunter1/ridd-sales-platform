@@ -1023,7 +1023,12 @@ function manageTeamsPanel(opts) {
       // its reps; the team's settings (rename / color / logo / exclude) live
       // inside the open section. Search expands every section.
       const _needsN = state._mtUntaggedFirstCount || 0;
-      const needs = filteredReps.slice(0, _needsN), rest = filteredReps.slice(_needsN);
+      // Merged duplicate names (e.g. "Daniel Wright" → "Wright, Daniel") are kept out of the team lists (per Isaac,
+      // Oct 13) — they're folded into one collapsed "Merged names" section at the bottom, where Unmerge still undoes a
+      // wrong merge.
+      const _isAl = (r) => !!getRepAliasTarget(r);
+      const merged = filteredReps.filter(_isAl);
+      const needs = filteredReps.slice(0, _needsN).filter(r => !_isAl(r)), rest = filteredReps.slice(_needsN).filter(r => !_isAl(r));
       const byTeam = new Map();
       rest.forEach(r => { const t = getRepTeam(r) || '(unassigned)'; if (!byTeam.has(t)) byTeam.set(t, []); byTeam.get(t).push(r); });
       const teamOrder = [...byTeam.keys()].sort((a, b) => byTeam.get(b).length - byTeam.get(a).length || a.localeCompare(b));
@@ -1064,6 +1069,15 @@ function manageTeamsPanel(opts) {
           el('span', { class: 'text-[11px] text-muted-' }, open ? '▲' : '▼')));
         out.push(body('data-team-body', open, [ (open && teamSelect === t && detailPanel) ? detailPanel : null, ...rows.map(r => buildRow(r)) ]));
       });
+      if (merged.length) {
+        const mOpen = state._mtMergedOpen === true;
+        out.push(el('div', { 'data-merged-head': '1', class: 'flex items-center gap-2 px-5 py-1.5 text-[10px] uppercase tracking-widest font-bold border-b border-t cursor-pointer hover:brightness-95',
+          style: { color: 'var(--text-muted)', borderColor: 'var(--border)', background: 'var(--card-2)' }, title: 'Duplicate spellings rolled into one rep — their sales count under the name they point to',
+          onclick: (e) => { const on = state._mtMergedOpen !== true; state._mtMergedOpen = on; const b = e.currentTarget.nextElementSibling; if (b) b.style.display = on ? '' : 'none'; e.currentTarget.lastElementChild.textContent = on ? '\u25b2' : '\u25bc'; } },
+          el('span', { class: 'flex-1' }, merged.length + ' merged name' + (merged.length === 1 ? '' : 's') + ' · duplicates rolled into one rep'),
+          el('span', {}, mOpen ? '\u25b2' : '\u25bc')));
+        out.push(body('data-merged-body', mOpen, merged.map(r => buildRow(r))));
+      }
       return out;
       })(),
       filteredReps.length === 0 && el('div', { class: 'px-5 py-6 text-center text-sm text-muted- italic' },
@@ -1085,6 +1099,7 @@ function manageTeamsPanel(opts) {
       const hasMatch = (bodyEl) => !!bodyEl && [...bodyEl.querySelectorAll('[data-rep]')].some(r => r.style.display !== 'none');
       repList.querySelectorAll('[data-team-head]').forEach(h => { const b = h.nextElementSibling; setSection(h, b, q ? hasMatch(b) : openSet.has(h.getAttribute('data-team-head'))); });
       { const h = repList.querySelector('[data-needs-head]'); if (h) setSection(h, h.nextElementSibling, q ? hasMatch(h.nextElementSibling) : state._mtNeedsOpen === true); }
+      { const h = repList.querySelector('[data-merged-head]'); if (h) setSection(h, h.nextElementSibling, q ? hasMatch(h.nextElementSibling) : state._mtMergedOpen === true); }
     };
     applyRepSearch();
 
