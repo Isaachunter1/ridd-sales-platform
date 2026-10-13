@@ -51,10 +51,17 @@ function retenBranchInsightsData() {
   const ground = retenGroundZero();
   const pop = retenScopeSteps(ground).out;
   const book = semRetentionBook(pop);
-  const key = String(book.length) + '|' + new Date().toISOString().slice(0, 10);
+  // Window (per Isaac, Oct 13): 't12' = trailing 12 months · 'year:YYYY' = the book on Jan 1 followed through that year
+  // · 'cohort:YYYY' = everything first serviced in that year, and how much of it has been lost to date.
+  const mode = String(state._retenInsMode || 't12');
+  const key = String(book.length) + '|' + new Date().toISOString().slice(0, 10) + '|' + mode;
   if (_riMemo.book === book && _riMemo.key === key) return _riMemo.out;
-  const T = semMetric('trailing12_attrition')(book);
-  const baseAll = T.rows.boy, countedAll = T.rows.counted;
+  let baseAll, countedAll, st, en, label;
+  const mm = /^(year|cohort):(\d{4})$/.exec(mode);
+  if (mm && mm[1] === 'year') { const A = semMetric('annual_attrition')(book, Number(mm[2])); baseAll = A.rows.boy; countedAll = A.rows.counted; st = A.st; en = A.en; label = mm[2] + (Number(mm[2]) === new Date().getFullYear() ? ' to date' : '') + ' · book on Jan 1, lost during the year'; }
+  else if (mm) { const y = mm[2]; baseAll = book.filter(r => String(r.initial_service || '').slice(0, 4) === y); countedAll = baseAll.filter(r => r._effCancel); st = y + '-01-01'; en = new Date().toISOString().slice(0, 10); label = y + ' cohort · first serviced in ' + y + ', lost to date'; }
+  else { const T = semMetric('trailing12_attrition')(book); baseAll = T.rows.boy; countedAll = T.rows.counted; st = T.st; en = T.en; label = 'Trailing 12 months (' + st + ' → ' + en + ')'; }
+  const years = [...new Set(book.map(r => String(r.initial_service || '').slice(0, 4)).filter(y => /^20\d\d$/.test(y)))].sort().reverse();
   const company = _riStats(baseAll, countedAll);
   const byB = new Map(), cByB = new Map();
   for (const r of baseAll) { const o = String(r.office_name || '—').trim(); (byB.get(o) || byB.set(o, []).get(o)).push(r); }
@@ -76,7 +83,7 @@ function retenBranchInsightsData() {
     { k: 'arv', label: 'average annual price', f: b => b.arvAvg },
     { k: 'pd', label: 'share of active accounts 30+ days past due', f: b => b.pastDuePct },
   ].map(x => Object.assign(x, { r: corr(x.f) })).filter(x => x.r != null);
-  const out = { company, branches, ranked, rels, st: T.st, en: T.en };
+  const out = { company, branches, ranked, rels, st, en, label, mode, years };
   _riMemo.book = book; _riMemo.key = key; _riMemo.out = out;
   return out;
 }
@@ -115,7 +122,7 @@ function retenInsightsCard() {
   };
 
   // ── League table (always) ──
-  const cols = [['Branch', 'left'], ['T12 attrition', 'right'], ['vs company', 'right'], ['Expected for its mix', 'right'], ['Cancels', 'right'], ['Book a year ago', 'right'], ['Autopay', 'right'], ['Multi-year', 'right'], ['Lost in months 0–6', 'right'], ['Past due 30+', 'right']];
+  const cols = [['Branch', 'left'], [D.mode === 't12' ? 'T12 attrition' : /^cohort/.test(D.mode) ? 'Lost to date' : 'Attrition', 'right'], ['vs company', 'right'], ['Expected for its mix', 'right'], ['Cancels', 'right'], [/^cohort/.test(D.mode) ? 'Cohort size' : D.mode === 't12' ? 'Book a year ago' : 'Book on Jan 1', 'right'], ['Autopay', 'right'], ['Multi-year', 'right'], ['Lost in months 0–6', 'right'], ['Past due 30+', 'right']];
   const th = (l, a) => el('th', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap', style: { textAlign: a } }, l);
   const td = (v, a, sty) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap', style: Object.assign({ textAlign: a }, sty || {}) }, v);
   const row = (b, isCo) => el('tr', { class: 'border-t' + (isCo ? '' : ' cursor-pointer hover:brightness-95'), style: { borderColor: 'var(--border)', background: B && b === B ? 'rgba(223,100,58,.08)' : isCo ? 'var(--card-2)' : '', fontWeight: isCo ? '700' : '' },
@@ -161,7 +168,7 @@ function retenInsightsCard() {
     };
     // Plain-English read: the three things that explain most of this branch's difference.
     const say = [];
-    say.push(tc(B.name) + ' lost ' + pct(B.rate) + ' of its book over the last 12 months versus ' + pct(R.rate) + ' at the other branches (' + pts(gap) + ')' + (B.rank ? ', #' + B.rank + ' of ' + D.ranked.length + ' branches.' : '.'));
+    say.push(tc(B.name) + ' lost ' + pct(B.rate) + ' of its book (' + D.label.split(' · ')[0].replace(/ \(.*\)/, '') + ') versus ' + pct(R.rate) + ' at the other branches (' + pts(gap) + ')' + (B.rank ? ', #' + B.rank + ' of ' + D.ranked.length + ' branches.' : '.'));
     if (Math.abs(mixGap) >= 0.01) say.push('Its mix accounts for ' + pts(mixGap) + ' (' + (mixGap > 0 ? 'more' : 'fewer') + ' of the contract lengths and channels that churn more at the other branches); the other ' + pts(perfGap) + ' is how the branch performs on a like-for-like book.');
     else say.push('Its contract-length and channel mix is close to the other branches’, so the difference (' + pts(perfGap) + ') is performance on a like-for-like book.');
     if (worstR) say.push('The biggest driver is ' + worstR.k + ': ' + pct(worstR.b) + ' of the book lost to it vs ' + pct(worstR.c) + ' at the other branches (' + pts(worstR.d) + ').' + (bestR ? ' Best relative showing: ' + bestR.k + ' (' + pts(bestR.d) + ').' : ''));
@@ -172,7 +179,7 @@ function retenInsightsCard() {
         el('div', { class: 'text-sm font-black' }, tc(B.name) + ' vs the other branches'),
         ...say.map(t => el('div', { class: 'text-[12px]' }, t))),
       el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' } },
-        trait('Trailing-12 attrition', B.rate, R.rate, true, v => pct(v)),
+        trait(D.mode === 't12' ? 'Trailing-12 attrition' : /^cohort/.test(D.mode) ? 'Cohort lost to date' : 'Attrition that year', B.rate, R.rate, true, v => pct(v)),
         trait('Expected for its mix', B.expectedVsRest, R.rate, true, v => pct(v)),
         trait('Autopay', B.apPct, R.apPct, false, v => pct(v, 0)),
         trait('Multi-year (18–24 mo)', B.multiPct, R.multiPct, false, v => pct(v, 0)),
@@ -192,7 +199,13 @@ function retenInsightsCard() {
     el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
       el('div', {},
         el('h3', { class: 'text-sm font-bold' }, '🔎 Branch insights'),
-        el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Trailing 12 months (' + D.st + ' → ' + D.en + '), same book and rules as the tiles above. '
+        el('div', { class: 'flex items-center gap-2 flex-wrap mt-1' },
+          el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, title: 'Which window the comparison reads',
+            onchange: (e) => { state._retenInsMode = e.target.value; mountApp(); } },
+            el('option', { value: 't12', selected: D.mode === 't12' }, 'Trailing 12 months'),
+            el('optgroup', { label: 'Calendar year (book on Jan 1)' }, ...D.years.map(y => el('option', { value: 'year:' + y, selected: D.mode === 'year:' + y }, y))),
+            el('optgroup', { label: 'Start-year cohort (lost to date)' }, ...D.years.map(y => el('option', { value: 'cohort:' + y, selected: D.mode === 'cohort:' + y }, y + ' cohort'))))),
+        el('div', { class: 'text-[11px] mt-1', style: { color: 'var(--text-muted)' } }, D.label + ', same book and rules as the tiles above. '
           + (B ? '' : (offN ? 'Leave exactly one branch ticked in 🏢, or c' : 'Pick one branch in 🏢 (or c') + 'lick a branch below' + (offN ? '' : ')') + ' to see why it differs from the company.'))),
       el('button', { class: 'text-[11px] font-bold', style: { color: 'var(--text-muted)' }, onclick: () => { state._retenInsightsOpen = false; mountApp(); } }, 'Close ✕')),
     focusBlock,
