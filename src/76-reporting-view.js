@@ -568,11 +568,30 @@ function reportingRenewals(srcRows, opts) {
   rows.forEach(r => {
     if (!r.customer_id) return;
     if (RENEWAL_SRC_RE.test(String(r.subscription_source || ''))) renewedCust.add(r.customer_id);
-    // Also renewed (Oct 13 check): an old plan closed with a Renewal cancel
-    // reason (incl. the reasons inferred by linkRenewalChains) or chained into
-    // a renewal — 21 customers re-signed under a non-Renewal source this way.
-    else if (r.renewed_into || r.is_renewal_cont || (r.subscription_date_canceled && /^renewal/i.test(String(reportingCancelReasonOf(r) || '').trim()))) renewedCust.add(r.customer_id);
+    else if (r.renewed_into || r.is_renewal_cont) renewedCust.add(r.customer_id);
   });
+  // A plan closed with a Renewal cancel reason but no Renewal-source plan on
+  // the account (21 customers, Oct 13). Per Isaac, two cases:
+  //   · the new plan was sold right at the close (45 days before → 60 after,
+  //     same window as linkRenewalChains) → a renewal sold under the wrong
+  //     source: counts as renewed, and is listed so the source gets fixed;
+  //   · the customer signed back up later → a fresh contract, still eligible.
+  const misSourced = [];
+  { const DAY = 86400000, tt = (d) => { const x = new Date(String(d || '').slice(0, 10) + 'T00:00'); return isNaN(x) ? NaN : x.getTime(); };
+    const subsOf = new Map();
+    rows.forEach(r => { if (r.customer_id) (subsOf.get(r.customer_id) || subsOf.set(r.customer_id, []).get(r.customer_id)).push(r); });
+    subsOf.forEach((subs, cid) => {
+      if (renewedCust.has(cid)) return;
+      subs.forEach(o => {
+        if (renewedCust.has(cid) || !o.subscription_date_canceled || !/^renewal/i.test(String(reportingCancelReasonOf(o) || '').trim())) return;
+        const oc = tt(o.subscription_date_canceled); if (isNaN(oc)) return;
+        const n = subs.find(x => x !== o && !isNaN(tt(x.sold_date)) && tt(x.sold_date) - oc >= -45 * DAY && tt(x.sold_date) - oc <= 60 * DAY);
+        if (!n) return;
+        renewedCust.add(cid);
+        misSourced.push({ id: cid, name: _custDisplayName(n), office: n.office_name || '—', closed: String(o.subscription_date_canceled).slice(0, 10), sold: String(n.sold_date).slice(0, 10), source: n.subscription_source || '(none)', svc: n.subscription || '' });
+      });
+    });
+  }
   // Per Isaac (Sep 23): any recurring plan that can go back under contract —
   // everything except Sentricon and one-time services. Term runs from the
   // SIGNED AGREEMENT date (fallback: initial service when no e-sign stamp).
@@ -590,12 +609,18 @@ function reportingRenewals(srcRows, opts) {
   rows.forEach(r => {
     if (!isActive(r)) return;
     if (_isSentricon(r)) return;
+    // No recurring revenue = nothing to renew (per Isaac, Oct 13).
+    if (!((Number(r.annual_recurring_value) || 0) > 0)) return;
+    if (/one[\s-]?time/i.test(String(r.subscription || ''))) return;
     const len = Number(r.agreement_length) || 0;
-    if (len <= 1) return;
+    // No contract length on file but paying a recurring charge (47 plans,
+    // Oct 13) → never under contract, treated as month-to-month and eligible.
+    const noContract = len === 0;
+    if (len === 1) return;
     const d = new Date(String(r.contract_signed_at || r.initial_service) + 'T00:00');
     if (isNaN(d)) return;
     const mo = (now - d) / 2629800000;
-    const inWindow = mo >= len - 2;
+    const inWindow = noContract || mo >= len - 2;
     if (inWindow && renewedCust.has(r.customer_id)) {
       renewedN++; renewedArr += Number(r.annual_recurring_value) || 0;
       return;
@@ -604,7 +629,7 @@ function reportingRenewals(srcRows, opts) {
       id: r.customer_id, name: _custDisplayName(r), office: r.office_name || '—', state: r.state || '',
       phone: r.phone || '', email: r.email || '',
       svc: r.subscription, arv: Number(r.annual_recurring_value) || 0, len, mo,
-      toGo: len - mo, pastBy: mo - len,
+      toGo: len - mo, pastBy: mo - len, noContract,
       // Last month of the term (per Isaac, Sep 23 — shown instead of "ends in
       // X mo"): an 18-month agreement first serviced Mar ’25 bills through
       // Aug ’26, i.e. start + (length − 1) months.
@@ -614,7 +639,8 @@ function reportingRenewals(srcRows, opts) {
       unsigned: String(r.contract_state || 'none') !== 'signed',
       life: (() => { const fs = firstStart[r.customer_id]; const f = fs ? new Date(fs + 'T00:00') : d; return Math.max(mo, (now - f) / 2629800000); })(),   // term start fell back to the initial service — verify the document
     };
-    if (mo >= len - 2 && mo < len) expiring.push(rec);
+    if (noContract) past.push(rec);
+    else if (mo >= len - 2 && mo < len) expiring.push(rec);
     else if (mo >= len) past.push(rec);
   });
   // One call per CUSTOMER (per Isaac, Oct 13 — subscriptions strung together
@@ -793,7 +819,7 @@ function reportingRenewals(srcRows, opts) {
     onchange: (e) => { state._renewalMinAcv = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; mountApp(); } });
   const sortSel = el('select', { class: selCls, style: selSty, title: 'Order of the Eligible column', onchange: (e) => { state._renewalSort = e.target.value; mountApp(); } },
     ...[['soonest', 'Soonest term end'], ['newest_out', 'Most recently out of contract'], ['oldest_out', 'Longest out of contract'], ['acv', 'Highest ACV']].map(([v, l]) => el('option', { value: v, selected: fSort === v }, l)));
-  if (!state._renewalBoard) return _renewalQueueView({ allRecs, crmRenewed, logOf, stageOf, search, branchSel, acvIn, q, fBranch, fMinAcv, compact: !!opts.compact, exportBoard: exportAll });
+  if (!state._renewalBoard) return _renewalQueueView({ allRecs, crmRenewed, misSourced, logOf, stageOf, search, branchSel, acvIn, q, fBranch, fMinAcv, compact: !!opts.compact, exportBoard: exportAll });
   if (opts.compact) {
     return el('div', { class: 'flex flex-col gap-3' },
       el('div', { class: 'flex items-center gap-2 flex-wrap' }, _renewalModeBtn(), search, winSel, branchSel, acvIn, sortSel,
@@ -841,6 +867,7 @@ function _renewalCallback(g) { const m = /^Callback\s+(\d{4}-\d{2}-\d{2})/.exec(
 function _renewalTierOf(x, g, today) {
   const cb = _renewalCallback(g);
   if (cb && cb <= today) return 0;
+  if (x.noContract) return 4;
   if (x.pastBy < 0) return x.life <= RENEWAL_FIRST_LIFE_MAX ? 1 : 2;
   return x.pastBy < 3 ? 3 : 4;
 }
@@ -911,7 +938,8 @@ function _renewalQueueView(o) {
   const tierChip = (t) => el('span', { class: 'text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md shrink-0', style: { background: t.bg, color: t.color }, title: t.blurb }, t.short);
   const why = (x) => {
     const lifeTxt = 'month ' + Math.floor(x.life + 1) + ' of life';
-    if (x._tier === 0) return 'callback due ' + _renewalCallback(o.logOf(x)) + ' · ' + (x.pastBy < 0 ? 'term ends ' + x.endMonth : 'month-to-month');
+    if (x._tier === 0) return 'callback due ' + _renewalCallback(o.logOf(x)) + ' · ' + (x.pastBy < 0 && !x.noContract ? 'term ends ' + x.endMonth : 'month-to-month');
+    if (x.noContract) return 'no contract on file · month-to-month · ' + lifeTxt;
     if (x.pastBy < 0) return 'term ends ' + x.endMonth + ' · ' + lifeTxt + ' · ' + x.len + '-mo agreement';
     return 'term ended ' + x.endMonth + ' · month-to-month ' + x.pastBy.toFixed(1) + ' mo · ' + lifeTxt;
   };
@@ -1007,7 +1035,12 @@ function _renewalQueueView(o) {
       el('span', { class: 'text-[11px] tabular-nums ml-auto', style: { color: 'var(--text-muted)' } },
         'Today: ', el('b', {}, String(mCalls)), ' calls · ', el('b', { style: { color: 'var(--ok)' } }, String(mRenewed)), ' renewed (you) · team ', el('b', {}, String(tCalls)), ' / ', el('b', { style: { color: 'var(--ok)' } }, String(tRenewed)))),
     el('div', { class: 'flex items-center gap-2 flex-wrap' }, o.search, o.branchSel, o.acvIn, exportQ, _renewalModeBtn()),
-    tab === 'queue' ? tierBar : null);
+    tab === 'queue' ? tierBar : null,
+    (o.misSourced || []).length ? el('details', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } },
+      el('summary', { class: 'cursor-pointer font-bold' }, '⚠ ' + o.misSourced.length + ' renewal' + (o.misSourced.length > 1 ? 's' : '') + ' sold under a non-Renewal source — fix the source in FieldRoutes (kept off the queue)'),
+      el('div', { class: 'flex flex-col gap-0.5 mt-1' },
+        ...o.misSourced.map(m => el('div', { class: 'tabular-nums' }, '#' + m.id + ' · ' + m.name + ' · ' + _titleCaseWords(m.office) + ' · old plan closed as Renewal ' + m.closed + ' · new plan sold ' + m.sold + ' as “' + m.source + '”')),
+        btn('⬇ Export list', '', () => _reportingCsvDownload('renewals-wrong-source-' + today + '.csv', ['Customer ID', 'Customer Name', 'Office Name', 'Old Plan Closed', 'New Plan Sold', 'Current Source', 'Subscription Type'], o.misSourced.map(m => [m.id, m.name, m.office, m.closed, m.sold, m.source, m.svc]))))) : null);
   if (o.compact) return el('div', { class: 'flex flex-col gap-3' }, header, body);
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'card p-4 flex flex-col gap-3' },
