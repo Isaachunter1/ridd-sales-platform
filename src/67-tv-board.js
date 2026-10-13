@@ -186,8 +186,15 @@ function openTvBoard() {
     // row's own crm_contract_state (auto-logged sales), else the snapshot
     // row for that subscription (by id, then customer # + service).
     const _snapByCustSvc = (() => { const m = new Map(); for (const r of (state.reportingSubscriptions || [])) if (r.customer_id != null) m.set(String(r.customer_id) + '|' + String(r.subscription || '').trim().toLowerCase(), r); return m; })();
+    // The app's own sales row for a CRM-feed sale (per Isaac, Oct 13): the live
+    // pull stamps crm_contract_state there and re-checks it every run, so a
+    // sale from an hour ago is known before the snapshot has it.
+    const _twin = (() => { const bySub = new Map(), byCust = new Map(); for (const x of (state.allSales || [])) { if (!x.crm_contract_state) continue; if (x.crm_subscription_id != null) bySub.set(String(x.crm_subscription_id), x); if (x.customer_number != null) { byCust.set(String(x.customer_number) + '|' + String(x.crm_subscription || '').trim().toLowerCase(), x); byCust.set(String(x.customer_number), x); } } return { bySub, byCust }; })();
     const signedOf = (s) => {
       if (s.crm_contract_state) return String(s.crm_contract_state) === 'signed';
+      const tw = (s.crm_subscription_id != null && _twin.bySub.get(String(s.crm_subscription_id)))
+        || (s.customer_number != null && (_twin.byCust.get(String(s.customer_number) + '|' + String(s._crmService || s.service_name || '').trim().toLowerCase()) || _twin.byCust.get(String(s.customer_number))));   // signing is per customer, so the customer # alone is enough
+      if (tw) return String(tw.crm_contract_state) === 'signed';
       const snap = (s.crm_subscription_id != null && _snapBySub.get(String(s.crm_subscription_id)))
         || (s.customer_number != null && _snapByCustSvc.get(String(s.customer_number) + '|' + String(s._crmService || s.service_name || '').trim().toLowerCase()));
       return snap ? String(snap.contract_state || 'none') === 'signed' : null;
@@ -370,7 +377,7 @@ function openTvBoard() {
         tile('Avg ACV', money(d.avgContract), 'contract value per sale', () => openDrill('Avg ACV · ' + money(d.avgContract), 'ACV $700 and up', d.splits.acv.yes, 'ACV under $700', d.splits.acv.no, repNameOf, null, { of: (x) => Number(x.revenue_amount) || 0, fmt: money, third: { label: 'Excluded · RIDD Account, one-time, renewals', rows: d.splits.acv.excluded } })),
         tile('Multi-year', pct(d.multiPct), '18 mo and up', () => openDrill('Multi-year · ' + pct(d.multiPct), 'Multi-year (18 mo+)', d.splits.multi.yes, '12-month', d.splits.multi.no, repNameOf, null, { of: (x) => Number(x.contract_months) || 0, fmt: (n) => n > 1 ? Math.round(n) + ' MO' : 'ONE-TIME', avg: false, third: { label: 'Excluded · RIDD Account, renewals', rows: d.splits.multi.excluded } })),
         tile('Auto pay', d.autoPay == null ? '—' : pct(d.autoPay * 100), 'of CRM sales', () => openDrill('Auto pay · ' + (d.autoPay == null ? '—' : pct(d.autoPay * 100)), 'On auto pay', d.splits.autopay.yes, 'Not on auto pay', d.splits.autopay.no, repNameOf, null, { of: (x) => Number(x.revenue_amount) || 0, fmt: money, avg: false, third: { label: 'Excluded · RIDD Account', rows: d.splits.autopay.excluded } })),
-        tile('Signed agreement', d.signedPct == null ? '—' : pct(d.signedPct), 'every agent sale', () => openDrill('Signed agreement · ' + (d.signedPct == null ? '—' : pct(d.signedPct)), 'Signed', d.splits.signed.yes, 'Not signed', d.splits.signed.no, repNameOf, null, { of: (x) => Number(x.revenue_amount) || 0, fmt: money, avg: false, third: { label: 'Excluded · RIDD Account, not synced yet', rows: d.splits.signed.excluded } })),
+        tile('Signed agreement', d.signedPct == null ? '—' : pct(d.signedPct), 'every agent sale', () => openDrill('Signed agreement · ' + (d.signedPct == null ? '—' : pct(d.signedPct)), 'Signed', d.splits.signed.yes, 'Not signed', d.splits.signed.no, repNameOf, null, { of: (x) => Number(x.revenue_amount) || 0, fmt: money, avg: false, third: { label: 'Excluded · RIDD Account, not in FieldRoutes yet', rows: d.splits.signed.excluded } })),
         tile('Rec mix', pct(d.recMix), 'recurring subs of all sales', () => openDrill('Rec mix · ' + pct(d.recMix), 'Recurring subscriptions', d.splits.recmix.yes, 'One-time services', d.splits.recmix.no, repNameOf, null, { of: (x) => Number(x.revenue_amount) || 0, fmt: money, avg: false, third: { label: 'Excluded · RIDD Account', rows: d.splits.recmix.excluded } }))));
 
     // Rep drill hero (per Isaac): the picture blown up, the day's numbers big.

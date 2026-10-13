@@ -252,6 +252,36 @@ exports.handler = async (event) => {
       }
     } catch (e) { console.warn('[fr-live] appointment refresh skipped:', e.message); }
 
+    // 3a-2. Signed-agreement refresh (per Isaac, Oct 13): a sale is stamped at
+    // the moment the pull first sees it — almost always BEFORE the customer
+    // signs — so re-check the last two days' unsigned rows every run and flip
+    // them to signed the moment FieldRoutes has a COMPLETED e-sign document.
+    let signFlipped = 0;
+    if (_anySigned) {
+      try {
+        const known = ids.filter(id => haveSub.has(id));
+        if (known.length) {
+          const { data: cur } = await supabase.from('sales').select('id, crm_subscription_id, customer_number, crm_contract_state').in('crm_subscription_id', known);
+          const open = (cur || []).filter(r => String(r.crm_contract_state || '') !== 'signed' && r.customer_number);
+          const done = new Set();
+          for (const part of chunk([...new Set(open.map(r => String(r.customer_number)))], 500)) {
+            const got = await fr('contract/search', { customerIDs: part.map(Number), documentState: 'COMPLETED' });
+            const cids = got.contractIDs || got.documentIDs || [];
+            for (const cpart of chunk(cids.map(String), 1000)) {
+              const det = await fr('contract/get', { contractIDs: cpart.map(Number) });
+              const list = Array.isArray(det.contracts) ? det.contracts : Object.values(det.contracts || det.documents || {});
+              list.forEach(c => { if (String(c.documentState || c.state || 'COMPLETED').toUpperCase() === 'COMPLETED') done.add(String(c.customerID)); });
+            }
+          }
+          for (const r of open) {
+            if (!done.has(String(r.customer_number))) continue;
+            const { error } = await supabase.from('sales').update({ crm_contract_state: 'signed', crm_checked_at: new Date().toISOString() }).eq('id', r.id);
+            if (!error) signFlipped++;
+          }
+        }
+      } catch (e) { console.warn('[fr-live] signed refresh skipped:', e.message); }
+    }
+
     // 3b. True-up: auto-added rows whose Initial / Monthly / Revenue drifted
     // from FieldRoutes (e.g. the old derived Monthly) get the CRM's numbers.
     // Runs over the 400 auto-added rows checked longest ago (all of this
@@ -285,7 +315,7 @@ exports.handler = async (event) => {
         }
       } catch (e) { console.warn('[fr-live] true-up skipped:', e.message); }
     }
-    const msg = '[fr-live] ' + ids.length + ' subs since ' + from + ' across ' + ((fr.officeIDs || []).length || 'the key’s home') + ' office(s) · +' + added + ' logged · ' + fixed + ' trued up · ' + apptFlipped + ' appt status changed · ' + skippedNoRep + ' seller(s) with no app account · ' + skippedType + ' skipped by type · ' + skippedNotYet + ' logged but not yet eligible (appt/billing/signed) · ' + svcCreated + ' service type(s) created · ' + (Date.now() - started) + 'ms';
+    const msg = '[fr-live] ' + ids.length + ' subs since ' + from + ' across ' + ((fr.officeIDs || []).length || 'the key’s home') + ' office(s) · +' + added + ' logged · ' + fixed + ' trued up · ' + apptFlipped + ' appt status changed · ' + signFlipped + ' newly signed · ' + skippedNoRep + ' seller(s) with no app account · ' + skippedType + ' skipped by type · ' + skippedNotYet + ' logged but not yet eligible (appt/billing/signed) · ' + svcCreated + ' service type(s) created · ' + (Date.now() - started) + 'ms';
     console.log(msg + (fr.rateLimited ? ' · ' + fr.rateLimited + ' rate-limited retr' + (fr.rateLimited === 1 ? 'y' : 'ies') : ''));
     await recordIntegrationStatus(supabase, 'fieldroutes', { last_run_at: new Date().toISOString(), last_run_ok: true, last_run_message: msg.replace('[fr-live] ', ''), last_run_ms: Date.now() - started, rate_limited: fr.rateLimited || 0 });
     return { statusCode: 200, body: msg };
