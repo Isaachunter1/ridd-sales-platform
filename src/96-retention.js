@@ -379,12 +379,9 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       return node;
     })(),
     step(next(), 'Remove subs with no ARR', 'Subscriptions that bill nothing: $0 annual recurring value and no per-visit charge on an \u201cAs Needed\u201d plan. (An \u201cAs Needed\u201d plan shows $0 ARR in FieldRoutes but still charges each visit \u2014 those are paying customers and stay in.) Attrition is measured on recurring revenue, and a sub that bills nothing can neither be kept nor lost in dollar terms, so it is removed rather than diluting the rate.', step1.length - step2.length, 'zero', null, notIn(step1, step2), step2),
-    step(next(), 'Remove prior-year subs that never received a 2nd treatment', 'Subscriptions from prior years that only ever received a single service. A recurring plan that never had a second visit never became an ongoing customer relationship, so it is removed rather than counted as churn. Only prior-year subs are judged this way \u2014 ' + year + ' one-visit accounts (' + n(oneSvcAll.filter(r => soldThisYear(r)).length) + ') stay: they are just young.', step2.length - step2b.length, 'oneSvc', null, notIn(step2, step2b), step2b),
-    (() => {
-      const kept = step2b.filter(r => svcOf(r) <= 1 && sentricon(r) && !soldThisYear(r));
-      return step(next(), 'Keep Sentricon one-visit subs', 'Exemption to the step above: ' + retenOneSvcExemptTerms().join(', ') + ' is annual — one visit a year IS the service — so those subs stay in the book. Switch off to remove them too.', 0, 'oneSvcExempt', n(kept.length) + ' kept', null, null, kept);
-    })(),
-    step(next(), 'Remove ' + year + ' subs frozen after one treatment', 'Accounts sold this year that took one visit and already cancelled \u2014 the same never-became-a-customer logic as the prior-year step, applied to this year\u2019s subs only once they have actually cancelled. Active ' + year + ' one-visit accounts (' + n(oneSvcKept.length) + ') stay — they are just young.', step2b.length - step3.length, 'frozenOneSvc', null, notIn(step2b, step3), step3),
+    // (The one-visit steps — prior-year never-2nd-treatment, the Sentricon exemption,
+    // and this-year frozen-after-one — were retired per Isaac, Oct 13: cancelling
+    // after the initial is real churn.)
     total('Retention book', n(book.length), 'Subscriptions the rest of this tab counts', book),
     // ── 9 · Excluded cancel reasons — configured RIGHT HERE (per Isaac) so
     // the card shows exactly what counts. A checked reason means a sub that

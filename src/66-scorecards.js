@@ -1854,12 +1854,15 @@ function setRetenExclZeroPay(b)       { _setAdminRule('retenExclZeroPay', !!b); 
 // legitimate customer, so its cancel is not legitimate attrition. Broader
 // than the frozen-only rule below (which stays for when this is OFF).
 // Default ON, matching the hand report like the other Steps toggles.
-function retenExclOneSvc()  {
+// RETIRED (per Isaac, Oct 13): a customer who took the initial and then
+// cancelled made a real commitment and is real churn — and Sentricon (one
+// visit a year) no longer needs an exemption. Both one-visit rules are off.
+function retenExclOneSvc()  { return false;
   if (state._retenWhatIf && typeof state._retenWhatIf.oneSvc === 'boolean' && state.reportingSubTab === 'waterfall') return state._retenWhatIf.oneSvc;
   const r = _adminRules(); if (r && typeof r.retenExclOneSvc === 'boolean') return r.retenExclOneSvc;
   return true; }
 function setRetenExclOneSvc(b)  { _setAdminRule('retenExclOneSvc', !!b); try { localStorage.setItem('ridd_reten_excl_onesvc', b ? '1' : '0'); } catch {} }
-function retenExclFrozenOneSvc()  {
+function retenExclFrozenOneSvc()  { return false;   // retired with retenExclOneSvc (per Isaac, Oct 13)
   if (state._retenWhatIf && typeof state._retenWhatIf.frozenOneSvc === 'boolean' && state.reportingSubTab === 'waterfall') return state._retenWhatIf.frozenOneSvc;
   const r = _adminRules(); if (r && typeof r.retenExclFrozenOneSvc === 'boolean') return r.retenExclFrozenOneSvc;
   return true; }
