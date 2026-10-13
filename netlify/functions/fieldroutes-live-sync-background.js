@@ -28,6 +28,7 @@ async function fr(endpoint, params) {
     authenticationToken: process.env.FIELDROUTES_AUTH_TOKEN || '',
   });
   for (const [k, v] of Object.entries(params || {})) q.set(k, typeof v === 'string' ? v : JSON.stringify(v));
+  if (Array.isArray(fr.officeIDs) && fr.officeIDs.length && !(params && 'officeIDs' in params) && !/^office\//.test(endpoint)) q.set('officeIDs', JSON.stringify(fr.officeIDs));
   // FieldRoutes rate limit (429 / "too many requests"): back off and retry
   // twice before giving up, and count it so the log says why a run was thin.
   let res, txt;
@@ -55,6 +56,7 @@ exports.handler = async (event) => {
   if (!SUPABASE_URL || !SERVICE_ROLE) return { statusCode: 500, body: 'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY required' };
   // Credentials come from Settings → Data sources (public.integrations) first, Netlify env as the fallback.
   try { await applyFieldRoutesEnv(createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })); } catch (e) { /* env fallback */ }
+  if (frBase() && process.env.FIELDROUTES_AUTH_KEY) { fr.officeIDs = await require('../lib/integrations.js').frOfficeIds(fr); console.log('[fieldroutes] offices visible:', fr.officeIDs.length); }
   if (!frBase() || !process.env.FIELDROUTES_AUTH_KEY || !process.env.FIELDROUTES_AUTH_TOKEN) {
     console.log('[fr-live] FieldRoutes API env not set — skipping');
     return { statusCode: 200, body: 'fieldroutes env not set — skipped' };
@@ -283,7 +285,7 @@ exports.handler = async (event) => {
         }
       } catch (e) { console.warn('[fr-live] true-up skipped:', e.message); }
     }
-    const msg = '[fr-live] ' + ids.length + ' subs since ' + from + ' · +' + added + ' logged · ' + fixed + ' trued up · ' + apptFlipped + ' appt status changed · ' + skippedNoRep + ' seller(s) with no app account · ' + skippedType + ' skipped by type · ' + skippedNotYet + ' logged but not yet eligible (appt/billing/signed) · ' + svcCreated + ' service type(s) created · ' + (Date.now() - started) + 'ms';
+    const msg = '[fr-live] ' + ids.length + ' subs since ' + from + ' across ' + ((fr.officeIDs || []).length || 'the key’s home') + ' office(s) · +' + added + ' logged · ' + fixed + ' trued up · ' + apptFlipped + ' appt status changed · ' + skippedNoRep + ' seller(s) with no app account · ' + skippedType + ' skipped by type · ' + skippedNotYet + ' logged but not yet eligible (appt/billing/signed) · ' + svcCreated + ' service type(s) created · ' + (Date.now() - started) + 'ms';
     console.log(msg + (fr.rateLimited ? ' · ' + fr.rateLimited + ' rate-limited retr' + (fr.rateLimited === 1 ? 'y' : 'ies') : ''));
     await recordIntegrationStatus(supabase, 'fieldroutes', { last_run_at: new Date().toISOString(), last_run_ok: true, last_run_message: msg.replace('[fr-live] ', ''), last_run_ms: Date.now() - started, rate_limited: fr.rateLimited || 0 });
     return { statusCode: 200, body: msg };

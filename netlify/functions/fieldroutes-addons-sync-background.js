@@ -37,6 +37,7 @@ function frBase() { return fieldRoutesBase(); }
 async function fr(endpoint, params) {
   const q = new URLSearchParams({ authenticationKey: process.env.FIELDROUTES_AUTH_KEY || '', authenticationToken: process.env.FIELDROUTES_AUTH_TOKEN || '' });
   for (const [k, v] of Object.entries(params || {})) q.set(k, typeof v === 'string' ? v : JSON.stringify(v));
+  if (Array.isArray(fr.officeIDs) && fr.officeIDs.length && !(params && 'officeIDs' in params) && !/^office\//.test(endpoint)) q.set('officeIDs', JSON.stringify(fr.officeIDs));
   let res, txt;
   for (let attempt = 0; ; attempt++) {
     res = await fetch(frBase() + endpoint + '?' + q.toString()); txt = await res.text();
@@ -59,6 +60,7 @@ exports.handler = async (event) => {
   if (!SUPABASE_URL || !SERVICE_ROLE) return { statusCode: 500, body: 'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY required' };
   // Credentials come from Settings → Data sources (public.integrations) first, Netlify env as the fallback.
   try { await applyFieldRoutesEnv(createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })); } catch (e) { /* env fallback */ }
+  if (frBase() && process.env.FIELDROUTES_AUTH_KEY) { fr.officeIDs = await require('../lib/integrations.js').frOfficeIds(fr); console.log('[fieldroutes] offices visible:', fr.officeIDs.length); }
   if (!frBase() || !process.env.FIELDROUTES_AUTH_KEY || !process.env.FIELDROUTES_AUTH_TOKEN) return { statusCode: 200, body: 'fieldroutes env not set — skipped' };
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
   const log = { items: 0, addOns: 0, inserted: 0, updated: 0, sales: 0, unmatchedEmployees: 0 };

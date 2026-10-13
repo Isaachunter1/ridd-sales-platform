@@ -25,6 +25,7 @@ function frBase() { return fieldRoutesBase(); }
 async function fr(endpoint, params) {
   const q = new URLSearchParams({ authenticationKey: process.env.FIELDROUTES_AUTH_KEY || '', authenticationToken: process.env.FIELDROUTES_AUTH_TOKEN || '' });
   for (const [k, v] of Object.entries(params || {})) q.set(k, typeof v === 'string' ? v : JSON.stringify(v));
+  if (Array.isArray(fr.officeIDs) && fr.officeIDs.length && !(params && 'officeIDs' in params) && !/^office\//.test(endpoint)) q.set('officeIDs', JSON.stringify(fr.officeIDs));
   const res = await fetch(frBase() + endpoint + '?' + q.toString()); const txt = await res.text();
   let json; try { json = JSON.parse(txt); } catch (e) { throw new Error(endpoint + ': non-JSON (' + res.status + ')'); }
   if (json.success === false || (json.errorMessage && json.errorMessage !== '')) throw new Error(endpoint + ': ' + (json.errorMessage || 'request failed'));
@@ -78,6 +79,7 @@ FROM ${T('FieldRoutesSubscription')} WHERE fieldRoutes_subscriptionID IN (${part
 
     // 3. Item presence via FieldRoutes (best effort).
     try { await applyFieldRoutesEnv(createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })); } catch (e) { /* env fallback */ }
+    if (frBase() && process.env.FIELDROUTES_AUTH_KEY) { fr.officeIDs = await require('../lib/integrations.js').frOfficeIds(fr); console.log('[fieldroutes] offices visible:', fr.officeIDs.length); }
     const canAskFr = !!(frBase() && process.env.FIELDROUTES_AUTH_KEY && process.env.FIELDROUTES_AUTH_TOKEN);
     const itemsByTicket = new Map();   // ticket_id → [item description]
     if (canAskFr) {

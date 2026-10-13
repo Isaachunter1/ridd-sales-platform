@@ -39,4 +39,12 @@ async function recordIntegrationStatus(admin, id, patch) {
     if (row) await admin.from('integrations').update({ status }).eq('id', id);
   } catch (e) { /* best effort */ }
 }
-module.exports = { loadIntegration, applyFieldRoutesEnv, fieldRoutesBase, recordIntegrationStatus };
+// Every office the key can read (per Isaac, Oct 13). FieldRoutes answers a search for the key's HOME office only unless
+// officeIDs is passed: the live pull saw 5 subscriptions since Oct 11 while FieldRoutes had ~170, and the deleted-
+// customer scan rejected 376/377 batches as ">10% missing". Workers call this once and their fr() adds officeIDs
+// to every call (office/* endpoints excepted). Empty on failure — calls then behave exactly as before.
+async function frOfficeIds(frFn) {
+  try { const j = await frFn('office/search', {}); return (Array.isArray(j.officeIDs) ? j.officeIDs : Object.values(j.officeIDs || {})).map(Number).filter(n => n > 0); }
+  catch (e) { console.warn('[fieldroutes] office/search failed:', e && e.message); return []; }
+}
+module.exports = { loadIntegration, applyFieldRoutesEnv, fieldRoutesBase, recordIntegrationStatus, frOfficeIds };
