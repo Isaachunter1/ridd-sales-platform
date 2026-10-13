@@ -568,6 +568,10 @@ function reportingRenewals(srcRows, opts) {
   rows.forEach(r => {
     if (!r.customer_id) return;
     if (RENEWAL_SRC_RE.test(String(r.subscription_source || ''))) renewedCust.add(r.customer_id);
+    // Also renewed (Oct 13 check): an old plan closed with a Renewal cancel
+    // reason (incl. the reasons inferred by linkRenewalChains) or chained into
+    // a renewal — 21 customers re-signed under a non-Renewal source this way.
+    else if (r.renewed_into || r.is_renewal_cont || (r.subscription_date_canceled && /^renewal/i.test(String(reportingCancelReasonOf(r) || '').trim()))) renewedCust.add(r.customer_id);
   });
   // Per Isaac (Sep 23): any recurring plan that can go back under contract —
   // everything except Sentricon and one-time services. Term runs from the
@@ -613,6 +617,23 @@ function reportingRenewals(srcRows, opts) {
     if (mo >= len - 2 && mo < len) expiring.push(rec);
     else if (mo >= len) past.push(rec);
   });
+  // One call per CUSTOMER (per Isaac, Oct 13 — subscriptions strung together
+  // at the customer level): a customer with two contract plans in play shows
+  // once, keyed to the plan whose term ends soonest, with the plans' ARR summed.
+  const _oneCust = (L) => {
+    const by = new Map();
+    L.forEach(x => {
+      const k = String(x.id); const cur = by.get(k);
+      if (!cur) { by.set(k, Object.assign({}, x, { plans: 1 })); return; }
+      const keep = x.toGo < cur.toGo ? Object.assign({}, x) : cur;
+      keep.arv = cur.arv + x.arv; keep.plans = cur.plans + 1;
+      if (keep.svc.indexOf(' + ') < 0 || keep.plans > 1) keep.svc = [...new Set(String(cur.svc).split(' + ').concat([x.svc]))].join(' + ');
+      by.set(k, keep);
+    });
+    return [...by.values()];
+  };
+  { const merged = _oneCust(expiring.concat(past)); expiring.length = 0; past.length = 0;
+    merged.forEach(x => (x.pastBy < 0 ? expiring : past).push(x)); }
   expiring.sort((a, b) => a.toGo - b.toGo || b.arv - a.arv);
   past.sort((a, b) => b.arv - a.arv);
   const arrOf = (L) => L.reduce((a, x) => a + x.arv, 0);
