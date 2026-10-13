@@ -4580,17 +4580,21 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
 
   const offices = [...new Set(allReps.map(r => r.office).filter(Boolean))].sort();
 
+  // Top 20 + Show more (per Isaac, Oct 13). Every row still renders so the in-place name search finds anyone;
+  // rows past #20 are just hidden until Show more (or a search) reveals them.
+  const LB_TOP = 20;
+  const _lbApplyVis = () => {
+    const q = String(state._indicatorRepNameSearch || '').trim().toLowerCase();
+    document.querySelectorAll('[data-replb]').forEach(row => {
+      const n = row.getAttribute('data-replb') || '', rk = Number(row.getAttribute('data-lbrank') || 0);
+      row.style.display = q ? (n.includes(q) ? '' : 'none') : (rk >= LB_TOP && !state._repLbShowAll ? 'none' : '');
+    });
+    document.querySelectorAll('[data-lbmore]').forEach(b => { b.style.display = q ? 'none' : ''; });
+  };
   // Re-apply an active name search after the render mounts, so it survives
   // tier/office pill changes (which DO re-render) without a per-keystroke one.
-  if (state._indicatorRepNameSearch && state._indicatorRepNameSearch.trim()) {
-    setTimeout(() => {
-      const q = state._indicatorRepNameSearch.trim().toLowerCase();
-      document.querySelectorAll('[data-replb]').forEach(row => {
-        const n = row.getAttribute('data-replb') || '';
-        row.style.display = (!q || n.includes(q)) ? '' : 'none';
-      });
-    }, 0);
-  }
+  // Runs as a microtask — after this render is in the DOM, before the browser paints — so hidden rows never flash.
+  if (!state._repLbShowAll || (state._indicatorRepNameSearch && state._indicatorRepNameSearch.trim())) Promise.resolve().then(_lbApplyVis);
 
   // Stash the full roster for the Top-15 PDF (Manage Teams → Reports).
   state._indLbAllReps = allReps;
@@ -4630,11 +4634,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             onchange: (e) => { if (e.target.value.trim() && typeof trackAction === 'function') trackAction('search:leaderboard', null, { len: e.target.value.trim().length }); },
             oninput: (e) => {
               state._indicatorRepNameSearch = e.target.value;
-              const q = e.target.value.trim().toLowerCase();
-              document.querySelectorAll('[data-replb]').forEach(row => {
-                const n = row.getAttribute('data-replb') || '';
-                row.style.display = (!q || n.includes(q)) ? '' : 'none';
-              });
+              _lbApplyVis();
             },
           }),
           // Rep picker — check specific reps to build a downline view.
@@ -4977,16 +4977,23 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   ) : null;
                   if (_pinTr) requestAnimationFrame(() => { try { const th = _pinTr.closest('table').querySelector('thead'); if (th) _pinTr.style.top = th.getBoundingClientRect().height + 'px'; } catch (e) { /* not mounted */ } });
                   const pinned = _pinTr ? [_pinTr] : [];
+                  const _hideMore = !state._repLbShowAll && !String(state._indicatorRepNameSearch || '').trim();
+                  const _moreTr = displayReps.length > LB_TOP ? el('tr', { 'data-lbmore': '1', class: 'border-t border-' },
+                    el('td', { colspan: repCols.length + 1, class: 'px-5 py-2 text-center' },
+                      el('button', { class: 'rounded-lg border px-3 py-1 text-[11px] font-bold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text)', background: 'var(--card)' },
+                        onclick: (e) => { e.stopPropagation(); state._repLbShowAll = !state._repLbShowAll; mountApp(); } },
+                        state._repLbShowAll ? 'Show top ' + LB_TOP : 'Show more · ' + (displayReps.length - LB_TOP) + ' more reps'))) : null;
                   return [...pinned, ...displayReps.map((r, i) => {
                     return el('tr', {
-                      'data-replb': (r.name || '').toLowerCase(),
+                      'data-replb': (r.name || '').toLowerCase(), 'data-lbrank': String(i),
                       class: 'border-t border- cursor-pointer transition hover:brightness-95',
+                      style: i >= LB_TOP && _hideMore ? { display: 'none' } : {},
                       onclick: () => openIndicatorRepCard(r._orig || r, allReps),
                     },
                       el('td', { class: 'pl-5 pr-2 py-2 font-bold tabular-nums', style: i === 0 ? { color: 'var(--accent)' } : {} }, i + 1),
                       ...repCols.map(c => c.cell(r)),
                     );
-                  })];
+                  }), ...(_moreTr ? [_moreTr] : [])];
                 })()),
           )),   // _lbFreeze
         ),
@@ -5040,7 +5047,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         // (Mobile pinned "You" card removed per Isaac, Oct 9: each rep's own player card already sits at the top of their page.)
         ...(displayReps.length === 0
           ? [el('div', { class: 'text-center text-xs text-muted- italic py-6' }, 'No reps match the current filters.')]
-          : (state._repLbShowAll ? displayReps : displayReps.slice(0, 10)).map((r, i) => {   // mobile: top 10 (per Isaac)
+          : displayReps.map((r, i) => {   // mobile: top 20, rest hidden until Show more (per Isaac, Oct 13)
               const tierMeta = repTierMeta(r.tier);
               const teamColor = r.team ? getTeamColor(r.team) : null;
               // Multi-branch reps (per Isaac): primary office = where they
@@ -5061,7 +5068,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 el('span', { class: 'font-semibold tabular-nums', style: danger ? { color: '#DC2626' } : {} }, value));
               const dot = () => el('span', { style: { color: 'var(--text-subtle)' } }, ' · ');
               return el('div', {
-                'data-replb': (r.name || '').toLowerCase(),
+                'data-replb': (r.name || '').toLowerCase(), 'data-lbrank': String(i),
                 class: 'rounded-xl border px-3 py-2 flex flex-col cursor-pointer transition hover:brightness-95',
                 style: {
                   borderColor: 'var(--border)',
@@ -5099,11 +5106,12 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                     fmt.int(r.count) + ' sales' + (!indOneDayRange() && r.revPerDay > 0 ? ' · ' + fmt.usd0(r.revPerDay) + '/day' : '')),
                 ),
               );
-            }).concat(displayReps.length > 10 ? [el('button', {
+            }).concat(displayReps.length > LB_TOP ? [el('button', {
+              'data-lbmore': '1',
               class: 'rounded-xl border px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
-              style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+              style: Object.assign({ borderColor: 'var(--border-2)', color: 'var(--text)' }, String(state._indicatorRepNameSearch || '').trim() ? { display: 'none' } : {}),
               onclick: (e) => { e.stopPropagation(); state._repLbShowAll = !state._repLbShowAll; mountApp(); },
-            }, state._repLbShowAll ? 'Show top 10' : 'Show all ' + displayReps.length + ' reps')] : [])),
+            }, state._repLbShowAll ? 'Show top ' + LB_TOP : 'Show more · ' + (displayReps.length - LB_TOP) + ' more reps')] : [])),
       ),
     ),
   );
