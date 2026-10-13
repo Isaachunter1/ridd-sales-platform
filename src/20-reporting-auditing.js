@@ -924,6 +924,15 @@ function auditSubTasks() {
   tasks.push({ tag: 'Renewal source', title: 'Renewals sold under a non-Renewal source', noun: 'subscription', tone: 'check', rows: misSrc,
     ok: 'All clear — every renewal carries a Renewal source.',
     todo: (n) => n + ' renewal' + s(n) + ' sold under a non-Renewal source (the old plan closed as Renewal, the new one sold right beside it) — set the source to the right Renewal source in FieldRoutes.' });
+  // 6c. Active recurring plan, paying, but no contract length (per Isaac, Oct 13): it can't come up for renewal, so
+  //     it's kept off the Renewals queue and listed here. Sentricon, one-time and $0 plans are left out.
+  const noLen = rows.filter(r => isActive(r) && !notSale(r.subscription) && !/sentricon|one[\s-]?time/i.test(String(r.subscription || ''))
+      && (Number(r.annual_recurring_value) || 0) > 0 && !((Number(r.agreement_length) || 0) > 0))
+    .sort((x, y) => (Number(y.annual_recurring_value) || 0) - (Number(x.annual_recurring_value) || 0))
+    .map(r => ({ ...r, _flagReason: 'Customer #' + r.customer_id + ' · ' + (r.subscription || 'plan') + ' · ' + fmt.usd0(Number(r.annual_recurring_value) || 0) + '/yr with no contract length — set the agreement length in FieldRoutes' }));
+  tasks.push({ tag: 'Contract', title: 'Active plan with no contract length', noun: 'subscription', tone: 'check', rows: noLen,
+    ok: 'All clear — every paying recurring plan has a contract length.',
+    todo: (n) => n + ' active paying plan' + s(n) + ' with no contract length (' + fmt.usd0(noLen.reduce((a, r) => a + (Number(r.annual_recurring_value) || 0), 0)) + '/yr) — set the agreement length in FieldRoutes so ' + (n === 1 ? 'it comes' : 'they come') + ' up for renewal.' });
   // 6b. No signed agreement (per Isaac, Oct 13): active recurring sales this year, sold 2+ days ago, whose agreement
   //     was never e-signed in FieldRoutes (sent and unsigned, or never sent). One-time services don't need one.
   const unsigned = rows.filter(r => { if (!isActive(r) || notSale(r.subscription) || /one[\s-]?time/i.test(String(r.subscription || ''))) return false;

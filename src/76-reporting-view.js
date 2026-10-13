@@ -622,10 +622,10 @@ function reportingRenewals(srcRows, opts) {
     if (!((Number(r.annual_recurring_value) || 0) > 0)) return;
     if (/one[\s-]?time/i.test(String(r.subscription || ''))) return;
     const len = Number(r.agreement_length) || 0;
-    // No contract length on file but paying a recurring charge (47 plans,
-    // Oct 13) → never under contract, treated as month-to-month and eligible.
-    const noContract = len === 0;
-    if (len === 1) return;
+    // No contract length on file (per Isaac, Oct 13): left off the call queue — they're an Auditing task
+    // ("Active plan with no contract length") to fix in FieldRoutes.
+    const noContract = false;
+    if (len <= 1) return;
     const d = new Date(String(r.contract_signed_at || r.initial_service) + 'T00:00');
     if (isNaN(d)) return;
     const mo = (now - d) / 2629800000;
