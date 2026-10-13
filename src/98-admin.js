@@ -50,14 +50,14 @@ function adminPermissions() {
   const scopeDef = (role, id) => (PERM_SCOPE_DEFAULTS[role] || {})[id] || 'self';
 
   // Dropdown shell: a button with a summary, a checklist panel under it.
-  const dropdown = (key, summary, changed, buildBody) => {
+  const dropdown = (key, summary, changed, buildBody, desc) => {
     const open = state._permOpen === key;
     const wrap = el('div', { class: 'relative shrink-0', 'data-dd': key });
     const panel = el('div', { class: 'card absolute p-1.5', style: { top: 'calc(100% + 6px)', right: '0', width: '290px', maxWidth: 'calc(100vw - 32px)', maxHeight: '380px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: open ? 'block' : 'none' }, onclick: (e) => e.stopPropagation() }, open ? buildBody() : null);
     const btn = el('button', {
       class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer flex items-center justify-between gap-2',
       style: { borderColor: changed ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '240px', minWidth: '240px', maxWidth: '240px', justifyContent: 'space-between', textAlign: 'left' },
-      title: summary + (changed ? ' · changed from the defaults' : ''),
+      title: (desc || summary) + (changed ? ' · changed from the defaults' : ''),
       onclick: (e) => { e.stopPropagation(); state._permOpen = open ? null : key; mountApp(); },
     }, el('span', { class: 'truncate' }, summary), el('span', { style: { fontSize: '9px', opacity: .7 } }, '▾'));
     wrap.append(btn, panel);
@@ -67,7 +67,10 @@ function adminPermissions() {
     }
     return wrap;
   };
-  const summarize = (on) => {
+  // The button shows a plain count (per Isaac, Oct 13: '13/14 users'); the
+  // wordy description moves to the hover tooltip.
+  const summarize = (on) => on.length + '/' + PERM_ROLES.length + ' users';
+  const describe = (on) => {
     if (!on.length) return 'Nobody';
     if (on.length === PERM_ROLES.length) return 'All user types';
     const full = fams.filter(g => g.roles.every(r => on.includes(r)));
@@ -107,7 +110,7 @@ function adminPermissions() {
     const label = d.sensitive
       ? el('span', { class: 'inline-flex items-center gap-1.5 flex-wrap' }, d.label, el('span', { class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: 'rgba(220,38,38,.10)', color: '#B91C1C' }, title: 'Sensitive — ' + d.sensitive }, 'sensitive'))
       : d.label;
-    return row(label, dropdown('p:' + d.id, summarize(on), changed, body));
+    return row(label, dropdown('p:' + d.id, summarize(on), changed, body, describe(on)));
   };
 
   const reachRow = (d) => {
