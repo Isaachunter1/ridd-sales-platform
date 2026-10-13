@@ -641,6 +641,114 @@ function _ensureEditBanner() {
     }, 'Done')));
 }
 
+// ── VIEW CACHE (performance pass, Oct 13) ─────────────────────────────────
+// Every mountApp() used to rebuild the whole page — header, nav, tables,
+// charts and every calculation behind them — even when you just came back
+// to a screen you'd left a moment ago (Dashboard ~0.4–0.6s, D2D ~0.5–0.75s,
+// Sales ~1.2s / 36k elements). Now the finished page of a read-mostly
+// screen is kept when you leave it, and coming back re-attaches it as-is
+// (scroll position included) IF nothing it depends on has changed:
+//   · the fingerprint covers every value in `state` (primitives by value,
+//     arrays / maps / big objects by identity + size), so a data refresh,
+//     filter change, role / view-as switch or new profile all miss;
+//   · any save (saveDemoData / saveAppSettings / _setAdminRule) bumps
+//     _riddMutRev, the settings rev (_indCfgRev) is in the key too;
+//   · the calendar day and phone/desktop width are in the key;
+//   · entries expire after 3 minutes, a page still showing "Loading…" is
+//     never kept, and in-place re-renders (clicks on the same screen) always
+//     rebuild exactly as before.
+// Pay, commission, settings, renewals (presence), competitions (live timers)
+// and the calendar are NOT cached — they always rebuild.
+const _VC_VIEWS = new Set(['dashboard', 'd2d_dashboard', 'techs', 'all_dashboard', 'reporting', 'marketing', 'sales', 'd2d_sales', 'tech_sales', 'scorecards', 'loyalty_dashboard', 'loyalty_health']);
+const _VC_TTL = 180000, _VC_MAX = 6;
+const _vc = new Map();   // view → { shell, fp, at, scrollY, builders }
+// Navigation bookkeeping + values every render rewrites (measured on live):
+// not inputs to what a screen shows.
+const _VC_SKIP = new Set(['view', '_lastAnimView', '_prevAnimView', '_lastIsTab', '_lastD2dTab', '_lastLoyaltyTab', '_lastModuleView', '_indLbAllReps', '_compsLanding', '_navChosen']);
+const _vcIds = new WeakMap(); let _vcN = 1;
+const _vcId = (o) => { let v = _vcIds.get(o); if (!v) { v = _vcN++; _vcIds.set(o, v); } return v; };
+const _vcPrim = (v) => v == null || (typeof v !== 'object' && typeof v !== 'function');
+function _vcFp(view) {
+  // World dashboards set the department / world from the view itself.
+  const world = typeof IND_WORLD !== 'undefined' && IND_WORLD[view];
+  let w = 0; try { w = window.innerWidth <= 640 ? 1 : window.innerWidth <= 900 ? 2 : 3; } catch (e) { /* no window */ }
+  const out = [view, new Date().toDateString(), w, window._riddMutRev || 0, typeof _indCfgRev !== 'undefined' ? _indCfgRev : ''];
+  for (const k of Object.keys(state)) {
+    if (_VC_SKIP.has(k) || (world && (k === 'indicatorDept' || k === '_indWorld'))) continue;
+    const v = state[k];
+    if (typeof v === 'function') continue;
+    if (_vcPrim(v)) { out.push(k + '=' + v); continue; }
+    if (Array.isArray(v)) { out.push(k + '=A' + _vcId(v) + ':' + v.length); continue; }
+    if (v instanceof Map || v instanceof Set) { out.push(k + '=M' + _vcId(v) + ':' + v.size); continue; }
+    const ks = Object.keys(v);
+    out.push(k + '=' + (ks.length <= 40 && ks.every(x => _vcPrim(v[x])) ? ks.map(x => x + ':' + v[x]).join('&') : 'O' + _vcId(v) + ':' + ks.length));
+  }
+  return out.join('|');
+}
+function _vcStore(view, shell) {
+  try {
+    if (!_VC_VIEWS.has(view) || !shell) return;
+    const cw = shell.querySelector('.content-wrap');
+    if (!cw || /Loading…|Loading\.\.\.|Loading snapshot/.test(cw.textContent || '')) { _vc.delete(view); return; }
+    _vc.delete(view);
+    _vc.set(view, { shell, fp: _vcFp(view), at: Date.now(), scrollY: 0, builders: Object.assign({}, typeof _indSectionBuilders !== 'undefined' ? _indSectionBuilders : {}) });
+    while (_vc.size > _VC_MAX) _vc.delete(_vc.keys().next().value);
+  } catch (e) { _vc.delete(view); }
+}
+function _vcClear() { _vc.clear(); }
+// The + FAB (office staff only) — shared by a full render and a cache hit.
+function _mountFab() {
+  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'nrla', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'd2d_dashboard', 'd2d_sales', 'techs', 'all_dashboard', 'tech_sales', 'tech_pay', 'auditing']);
+  document.querySelector('.fab')?.remove();
+  // + FAB is OFFICE STAFF only (per Isaac) — admins don't log sales from a
+  // floating button, and the retired AI speed-dial no longer replaces it.
+  const _showFab = state.profile && !isAdminRole(state.profile?.role) && (typeof isOfficeStaffProfile === 'function' && isOfficeStaffProfile(state.profile));
+  if (!FAB_HIDDEN_VIEWS.has(state.view) && _showFab && manualUpsellsOn()) {
+    // Icon-only FAB — a lone + reads instantly and stops covering table
+    // rows / the pinned leaderboard footer on phones.
+    const fab = el('button', {
+      class: 'fab',
+      title: 'New Sale',
+      style: { width: '56px', height: '56px', borderRadius: '0', padding: '0', justifyContent: 'center' },
+      onclick: () => openNewSaleModal(),
+    },
+      el('span', { class: 'text-3xl leading-none', style: { marginTop: '-2px' } }, '+'),
+    );
+    document.body.append(fab);
+  }
+}
+// Returning to a cached screen: re-attach it and replay only the cheap
+// bookkeeping a full render does. Returns true when it handled the mount.
+function _vcTryRestore(keepY) {
+  if (_lastMountedView && _lastMountedView !== state.view && _vc.has(_lastMountedView)) _vc.get(_lastMountedView).scrollY = keepY;
+  if (_lastMountedView === state.view || !_VC_VIEWS.has(state.view)) return false;
+  const hit = _vc.get(state.view);
+  if (!hit) return false;
+  if (Date.now() - hit.at > _VC_TTL || hit.fp !== _vcFp(state.view)) { _vc.delete(state.view); return false; }
+  const t0 = performance.now();
+  const _isWorld = (v) => typeof IND_WORLD !== 'undefined' && !!IND_WORLD[v];
+  const worldHop = _isWorld(state.view) && _isWorld(state._prevAnimView);
+  state._lastAnimView = state.view; state._prevAnimView = state.view;
+  if (INSIDE_SALES_TAB_KEYS.has(state.view)) state._lastIsTab = state.view;
+  if (D2D_SALES_TAB_KEYS.has(state.view)) state._lastD2dTab = state.view;
+  if (LOYALTY_TAB_KEYS.has(state.view)) state._lastLoyaltyTab = state.view;
+  if (hit.builders && typeof _indSectionBuilders !== 'undefined') Object.assign(_indSectionBuilders, hit.builders);
+  const cw = hit.shell.querySelector('.content-wrap');
+  if (cw) { cw.classList.remove('view-enter'); if (!worldHop) { void cw.offsetWidth; cw.classList.add('view-enter'); } }
+  usagePing('view', state.view);
+  mount(hit.shell);
+  try { _mountFab(); } catch (e) { /* never block a render */ }
+  try {
+    const _sub = state.view === 'reporting' ? (state.reportingSubTab || 'overview') : /^(sales|d2d_sales|tech_sales)$/.test(state.view) ? (state._salesQueueFilter || 'upfront') : null;
+    _trkView(state.view, _sub, Math.round(performance.now() - t0));
+  } catch (e) { /* noop */ }
+  const y = hit.scrollY || 0;
+  requestAnimationFrame(() => { try { fitCardNumbers(); } catch (e) { /* noop */ } window.scrollTo(0, y); });
+  _lastMountedView = state.view;
+  _vc.delete(state.view); _vc.set(state.view, hit);   // most recently used
+  return true;
+}
+
 function mountApp() {
   window._riddSeq = (window._riddSeq || 0) + 1;   // one render = one tick (per-render memos key on it)
   // Hall of Fame retired (per Isaac, Oct 13 — Records covers it): an old link or saved view opens that world's dashboard.
@@ -850,6 +958,9 @@ function mountApp() {
       history.replaceState(null, '', VIEW_TO_HASH.sales || '#sales');
     }
   }
+
+  // Coming back to a screen whose inputs haven't changed: re-attach it.
+  if (_vcTryRestore(_mountKeepY)) return;
 
   // ── Single-column layout. The grid icon in the header is the nav menu. ──
   const shell = el('div', { class: 'min-h-screen flex flex-col' });
@@ -1153,6 +1264,9 @@ function mountApp() {
   // in-place re-renders (filters, toggles) stay instant and steady.
   const _viewChanged = state._lastAnimView !== state.view;
   state._lastAnimView = state.view;
+  // Charts grow in when you open a screen, not on every in-place re-render
+  // (perf pass, Oct 13 — a toggle or background refresh replayed every chart from zero).
+  try { if (window.Chart && Chart.defaults) { if (!window._riddChartAnim) window._riddChartAnim = Chart.defaults.animation; Chart.defaults.animation = _viewChanged ? window._riddChartAnim : false; } } catch (e) { /* charts optional */ }
   // Competitions always opens on its landing page (per Isaac).
   if (_viewChanged && state.view === 'nrla') state._compsLanding = true;
   // Pay always opens on the CURRENT pay period (per Isaac).
@@ -1269,7 +1383,7 @@ function mountApp() {
     state._lastModuleView = _mod.id;
     let node; try { node = _mod.render(ctx); } catch (e) { console.error('[ridd] module render failed', _mod.id, e); node = emptyCard((_mod.label || _mod.id) + ' failed to render — check the console.'); }
     if (!(node instanceof Node)) node = emptyCard('Module returned nothing.');
-    node.classList.add('fade-in');
+    if (_viewChanged) node.classList.add('fade-in');   // in-place re-renders don't fade (perf pass, Oct 13)
     contentWrap.append(node);
     return;
   }
@@ -1291,7 +1405,10 @@ function mountApp() {
     const _sub = state.view === 'reporting' ? (state.reportingSubTab || 'overview') : /^(sales|d2d_sales|tech_sales)$/.test(state.view) ? (state._salesQueueFilter || 'upfront') : state.view === 'admin' ? (state.adminSection || null) : null;
     _trkView(state.view, _sub, Math.round(performance.now() - _t0));
   } catch (e) { /* noop */ }
-  node.classList.add('fade-in');
+  // Fade only when the screen changes (perf pass, Oct 13): every in-place
+  // re-render — a sort, a toggle, the 2-minute background refresh — used to
+  // fade the whole page from transparent, which read as flicker.
+  if (_viewChanged) node.classList.add('fade-in');
   // Per-user layout (🔧): reorder / hide sections on every tab.
   try { applyUserLayout(node); } catch (e) { console.warn('[ridd] user layout skipped', e); }
   try { _ensureEditBanner(); } catch (e) { /* never block a render */ }
@@ -1364,24 +1481,7 @@ function mountApp() {
 
   // Floating action button — hidden on admin/settings, indicators, and calendar
   // (those tabs aren't sales-input contexts)
-  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'nrla', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'd2d_dashboard', 'd2d_sales', 'techs', 'all_dashboard', 'tech_sales', 'tech_pay', 'auditing']);
-  document.querySelector('.fab')?.remove();
-  // + FAB is OFFICE STAFF only (per Isaac) — admins don't log sales from a
-  // floating button, and the retired AI speed-dial no longer replaces it.
-  const _showFab = state.profile && !isAdminRole(state.profile?.role) && (typeof isOfficeStaffProfile === 'function' && isOfficeStaffProfile(state.profile));
-  if (!FAB_HIDDEN_VIEWS.has(state.view) && _showFab && manualUpsellsOn()) {
-    // Icon-only FAB — a lone + reads instantly and stops covering table
-    // rows / the pinned leaderboard footer on phones.
-    const fab = el('button', {
-      class: 'fab',
-      title: 'New Sale',
-      style: { width: '56px', height: '56px', borderRadius: '0', padding: '0', justifyContent: 'center' },
-      onclick: () => openNewSaleModal(),
-    },
-      el('span', { class: 'text-3xl leading-none', style: { marginTop: '-2px' } }, '+'),
-    );
-    document.body.append(fab);
-  }
+  try { _mountFab(); } catch (e) { /* never block a render */ }
 
   // Big-number overflow guard — synchronous, so oversized figures never
   // paint full-size for a frame before shrinking.
@@ -1395,6 +1495,7 @@ function mountApp() {
     requestAnimationFrame(() => window.scrollTo(kx, ky));
   }
   _lastMountedView = state.view;
+  _vcStore(state.view, shell);
   _profEnd();
 }
 

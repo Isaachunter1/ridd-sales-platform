@@ -73,12 +73,27 @@ function _sandboxBuilder() {
   return p;
 }
 const _SANDBOX_TABLE_WRITES = new Set(['insert', 'update', 'upsert', 'delete']);
+// View cache (perf pass, Oct 13): ANY database write marks every cached
+// screen stale, so a screen re-attached from the cache can never show data
+// from before an edit — even code that patches a record in place. Usage /
+// error telemetry is excluded (it writes on every page view).
+const _VC_QUIET_TABLES = new Set(['usage_events', 'app_events', 'client_errors']);
+function _vcWatchWrites(table, qb) {
+  if (_VC_QUIET_TABLES.has(table)) return qb;
+  return new Proxy(qb, {
+    get(qt, m) {
+      const v = qt[m];
+      if (_SANDBOX_TABLE_WRITES.has(m) && typeof v === 'function') return (...a) => { window._riddMutRev = (window._riddMutRev || 0) + 1; return v.apply(qt, a); };
+      return typeof v === 'function' ? v.bind(qt) : v;
+    },
+  });
+}
 const _SANDBOX_STORAGE_WRITES = new Set(['upload', 'update', 'uploadToSignedUrl', 'remove', 'move', 'copy', 'createSignedUploadUrl']);
 const supabase = _sbReal && new Proxy(_sbReal, {
   get(t, prop) {
     if (prop === 'from') return (table) => {
       const qb = t.from(table);
-      if (!sandboxOn()) return qb;
+      if (!sandboxOn()) return _vcWatchWrites(table, qb);
       return new Proxy(qb, {
         get(qt, m) {
           if (_SANDBOX_TABLE_WRITES.has(m)) return () => _sandboxBuilder();
@@ -87,7 +102,7 @@ const supabase = _sbReal && new Proxy(_sbReal, {
         },
       });
     };
-    if (prop === 'rpc') return (...args) => sandboxOn() ? _sandboxBuilder() : t.rpc(...args);
+    if (prop === 'rpc') return (...args) => { if (sandboxOn()) return _sandboxBuilder(); window._riddMutRev = (window._riddMutRev || 0) + 1; return t.rpc(...args); };
     if (prop === 'storage') {
       const st = t.storage;
       if (!sandboxOn()) return st;
@@ -1834,6 +1849,7 @@ async function removePayAdjustment(id) {
   return true;
 }
 async function saveAppSettings() {
+  window._riddMutRev = (window._riddMutRev || 0) + 1;   // view cache: any saved change makes cached screens stale
   if (DEMO || !supabase || !state.profile || !isAdminRole(state.profile?.role)) return;
   try {
     const r = await saveAppSettingCas('pay_settings', state.appSettings, async () => {
@@ -2483,6 +2499,7 @@ function loadPersistedDemoState() {
 }
 
 function saveDemoData() {
+  window._riddMutRev = (window._riddMutRev || 0) + 1;   // view cache: any saved change makes cached screens stale
   // Indicator CSV uploads should persist in production too (not just demo).
   // Keep them in their own localStorage key so this isn't gated by DEMO.
   saveIndicatorState();

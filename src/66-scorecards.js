@@ -1776,6 +1776,7 @@ function reportingServiceRecurringMap() {
 // remains a per-device fallback for pre-migration devices only.
 function _adminRules() { return (state._compExtras && state._compExtras.adminRules) || null; }
 function _setAdminRule(key, val) {
+  window._riddMutRev = (window._riddMutRev || 0) + 1;   // view cache: any saved change makes cached screens stale
   state._compExtras = state._compExtras || {};
   const r = state._compExtras.adminRules = state._compExtras.adminRules || {};
   r[key] = val;
