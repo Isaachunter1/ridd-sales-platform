@@ -1258,6 +1258,23 @@ function openCrmReconcileModal() {
     resBox.textContent = report;
     if (copyBtn) { copyBtn.style.display = ''; copyBtn.onclick = () => { navigator.clipboard.writeText(report); copyBtn.textContent = 'Copied ✓'; setTimeout(() => { copyBtn.textContent = 'Copy report'; }, 1500); }; }
   };
+  // The card's own date range drives everything (per Isaac, Oct 13). The rep handed in by the leaderboard only carries
+  // the sales inside the BOARD's range (e.g. Today), so the card's Year-to-date / All-time picks showed today's sales.
+  // Re-source this rep (and the peers used for record ranks) from the full sales pool — same filters, every date —
+  // and let the card's range picker do the narrowing.
+  try {
+    if (typeof indicatorSales === 'function') {
+      const pool = indicatorSales() || [];
+      const byName = new Map(); for (const x of pool) { const k = getCanonicalRepName(x.rep); (byName.get(k) || byName.set(k, []).get(k)).push(x); }
+      const resource = (r) => {
+        const names = Array.isArray(r._members) ? r._members.map(m => m.name) : [r.name];
+        const full = names.flatMap(nm => byName.get(nm) || []);
+        return full.length >= (r.sales || []).length ? _scopeRep(Object.assign({}, r, { sales: full }), () => true) : r;
+      };
+      rep = resource(rep);
+      if (Array.isArray(allReps) && allReps.length) allReps = allReps.map(resource);
+    }
+  } catch (e) { /* keep what the caller passed */ }
   const overlay = el('div', { class: 'modal-overlay' });
   const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
   document.addEventListener('keydown', _escClose);
