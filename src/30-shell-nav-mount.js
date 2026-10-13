@@ -646,6 +646,8 @@ function mountApp() {
   // Hall of Fame retired (per Isaac, Oct 13 — Records covers it): an old link or saved view opens that world's dashboard.
   // Loyalty Dashboard retired the same day — Loyalty opens on Renewals.
   { const _hof = { hall_of_fame: 'dashboard', d2d_hof: 'd2d_dashboard', tech_hof: 'techs', loyalty_dashboard: 'loyalty_renewals' }[state.view]; if (_hof) state.view = _hof; }
+  // Leaving the renewal queue releases the customer this rep had up (presence claim).
+  if (!['loyalty_renewals', 'queues', 'reporting'].includes(state.view) && state._renewalClaimSent && typeof _renewalClaimTrack === 'function') _renewalClaimTrack(null);
   // Competitions landing paints the whole page orange (set again below
   // by the landing renderer when it's the view being drawn).
   try { document.body.classList.remove('comp-landing'); } catch (e) { /* pre-DOM */ }
