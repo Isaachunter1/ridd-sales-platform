@@ -927,13 +927,13 @@ function auditSubTasks() {
   const noReason = rows.filter(r => {
       if (!r.subscription_date_canceled || !/^(unspecified\.?)?$/i.test(String(r.subscription_cancellation_reason || '').trim())) return false;
       if (notSale(r.subscription) || /one[\s-]?time/i.test(String(r.subscription || ''))) return false;
-      const done = Number(r.completed_services) || 0;
+      const done = Number(r.subscription_completed_services != null ? r.subscription_completed_services : r.completed_services) || 0;
       if (!(r.initial_service || r.initial_serviced_date) || String(r.initial_status || 'completed').trim().toLowerCase() !== 'completed' || done < 1) return false;
       const gap = (_d(r.subscription_date_canceled) - _d(r.sold_date)) / dayMs;
       if (!isNaN(gap) && gap <= 3 && done < 2) return false;
       return true; })
     .sort((x, y) => String(y.subscription_date_canceled).localeCompare(String(x.subscription_date_canceled)))
-    .map(r => ({ ...r, _flagReason: 'Customer #' + r.customer_id + ' · cancelled ' + String(r.subscription_date_canceled).slice(0, 10) + ' after ' + (Number(r.completed_services) || 0) + ' service' + s(Number(r.completed_services) || 0) + ' — no cancellation reason' }));
+    .map(r => ({ ...r, _flagReason: 'Customer #' + r.customer_id + ' · cancelled ' + String(r.subscription_date_canceled).slice(0, 10) + ' after ' + (Number(r.subscription_completed_services != null ? r.subscription_completed_services : r.completed_services) || 0) + ' service' + s(Number(r.subscription_completed_services != null ? r.subscription_completed_services : r.completed_services) || 0) + ' — no cancellation reason' }));
   const nrYr = noReason.filter(r => String(r.subscription_date_canceled).slice(0, 4) === yr).length;
   tasks.push({ tag: 'No reason', title: 'Cancelled with no reason', noun: 'subscription', tone: 'check', rows: noReason,
     ok: 'All clear — every serviced cancel has a reason.',
