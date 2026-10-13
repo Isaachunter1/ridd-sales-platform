@@ -1902,7 +1902,10 @@ function _renewalLinked(r) {
 // Paying = recurring value, OR a per-visit charge on an "As Needed" style plan
 // that FieldRoutes values at $0 a year (per Isaac, Oct 13 — #35448 Pest 3 at
 // $89 a visit, 4 visits, showed $0 ARR and fell out of the book).
-function _retenPaying(r) { return (Number(r.annual_recurring_value) || 0) > 0 || (Number(r.recurring_charge) || 0) > 0; }
+// Only an "As Needed" plan (frequency -1) qualifies: a $0 plan with no
+// frequency (0) and a stray few-dollar charge is one-time work (per Isaac,
+// Oct 13 — #24464 Mosquito 8 Seasonal, $4.87 charge, one visit).
+function _retenPaying(r) { return (Number(r.annual_recurring_value) || 0) > 0 || (String(r.recurring_frequency == null ? '' : r.recurring_frequency).trim() === '-1' && (Number(r.recurring_charge) || 0) > 0); }
 function _isRorReason(x) { return crmReasonIs('ror', x); }   // → src/12-crm-vocab.js (RIDD default: “3 Day ROR” / rescission)
 const RETEN_POP_EXCL_REASONS_DEFAULT = ['3 Day ROR', 'Combined Subscriptions', 'Renewal - Outbound', 'Renewal - Loyalty', 'Renewal - Service Pro Upsell', 'Renewal - Inbound'];
 // These three getters are called PER ROW inside 77k-row filters, so they
