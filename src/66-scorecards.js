@@ -1841,7 +1841,7 @@ function setRetenExclRenewalSubs(b)   { _setAdminRule('retenExclRenewals', !!b);
 // Renewal cohort year (per Isaac, Oct 12): a renewal is the SAME customer, so it counts in the year we acquired
 // them — the customer's original start year (default). OFF = the renewal starts its own cohort in the year it was
 // serviced, the way a raw FieldRoutes report reads.
-function retenChainRenewalCohort() { const r = _adminRules(); return !(r && r.retenChainRenewals === false); }
+function retenChainRenewalCohort() { return true; }   // always the year acquired (per Isaac, Oct 13 — the 'own year' option is retired)
 function setRetenChainRenewalCohort(b) { _setAdminRule('retenChainRenewals', !!b); }
 // The year a subscription's cohort starts — the one place that decides it.
 function retenCohortStart(r) { return (retenChainRenewalCohort() && r.origin_initial_service) || r.initial_service; }

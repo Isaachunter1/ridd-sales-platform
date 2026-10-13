@@ -975,11 +975,7 @@ function reportingWaterfall() {
         el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Cohort Waterfall' + (office !== 'all' ? ' · ' + office : '')),
           el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, wfDim === 'year' ? 'Click a cohort\u2019s size for its accounts and what was excluded from it; click the Total for every year.' : (wfCohort != null ? 'Each row is one ' + SEM_DIMENSIONS[wfDim].label.toLowerCase() + ' within the ' + wfCohort + ' cohort (first serviced in ' + wfCohort + '). Under the size: growth against the ' + (wfCohort - 1) + ' cohort. Each year: still active, and the share lost that year. Click any number for the accounts.' : 'Each row is one ' + SEM_DIMENSIONS[wfDim].label.toLowerCase() + '. Under the size: the share that has ever cancelled. Each year: active at year-end, and the share of that January\u2019s book that left. Click any number for the accounts.'))),
         el('div', { class: 'flex items-center gap-2 flex-wrap' }, rowsSel, cohortSel,
-          isAdminRole(state.profile?.role) ? el('select', { class: 'px-2.5 py-1 text-[11px] font-bold cursor-pointer', style: { border: '1px solid var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-            title: 'Which cohort a renewal subscription belongs to. Year acquired (default) = the year we first won the customer. Own year = the year the renewal itself was serviced, the way a raw FieldRoutes report reads.',
-            onchange: (e) => { setRetenChainRenewalCohort(e.target.value === 'chain'); mountApp(); } },
-            el('option', { value: 'chain', selected: retenChainRenewalCohort() }, 'Renewals: year acquired'),
-            el('option', { value: 'own', selected: !retenChainRenewalCohort() }, 'Renewals: own year (FieldRoutes report)')) : null,
+          // (Renewal cohort picker removed per Isaac, Oct 13: a renewal ALWAYS counts in the year we acquired the customer.)
           el('div', { class: 'inline-flex', style: { border: '1px solid var(--border-2)' } },
           ...[[false, 'Subs'], [true, 'ARR']].map(([v, l]) => el('button', {
             class: 'px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
