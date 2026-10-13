@@ -2135,6 +2135,75 @@ function reportingWaterfall() {
     for (const x of rowsL) buckets[Math.floor(x.t / 30)].push(x.r);
     const maxB = Math.max(...buckets.map(b => b.length), 1);
     const BAR_W = 26;   // px per month — 24 months ≈ one card width, the rest scrolls
+    // ── Month insights (per Isaac, Oct 13): clicking a month explains WHY that
+    // month loses customers — its cancel reasons and customer traits set
+    // against every OTHER month of life — above the account list.
+    const _lifeInsights = (i, b) => {
+      const inM = new Set(b);
+      const rest = rowsL.filter(x => !inM.has(x.r)).map(x => x.r);
+      const pct = (a, d) => d ? a / d : 0;
+      const P = (v) => (v * 100).toFixed(0) + '%';
+      const pts = (d) => (d >= 0 ? '+' : '\u2212') + Math.abs(d * 100).toFixed(0) + ' pts';
+      const avgMonth = rowsL.length / buckets.length;
+      const reasonOf = (r) => String(r.subscription_cancellation_reason || '').trim() ? reportingCancelReasonOf(r) : '(no reason logged)';
+      const tally = (rows, f) => { const m = new Map(); rows.forEach(r => { const k = f(r); m.set(k, (m.get(k) || 0) + 1); }); return m; };
+      // Over / under-index: share in this month vs share in every other month.
+      const lifts = (f, minN) => {
+        const a = tally(b, f), o = tally(rest, f);
+        return [...a.entries()].filter(([, n]) => n >= minN).map(([k, n]) => ({ k, n, sa: n / b.length, so: (o.get(k) || 0) / (rest.length || 1) }))
+          .map(x => ({ ...x, d: x.sa - x.so })).sort((x, y) => y.d - x.d);
+      };
+      const minN = Math.max(3, Math.round(b.length * 0.02));
+      const rs = lifts(reasonOf, minN);
+      const isAp = (r) => { const v = String(r.customer_auto_pay == null ? '' : r.customer_auto_pay).trim(); return !!v && !/^(no|0|false|none)$/i.test(v); };
+      const len = (r) => Number(r.agreement_length) || 0;
+      const lifeD = (r) => (new Date(r._effCancel) - new Date(r.sold_date)) / 86400000;
+      const traits = [
+        ['On autopay', isAp],
+        ['12-month contract', (r) => len(r) > 1 && len(r) < 18],
+        ['18–24+ month contract', (r) => len(r) >= 18],
+        ['Left inside their contract', (r) => len(r) > 1 && lifeD(r) < len(r) * 30.44],
+        ['Door-to-door sale', (r) => /door\s*to\s*door/i.test(String(r.subscription_source || ''))],
+        ['Sold by a sales rep', (r) => /sales\s*rep/i.test(String(r.sold_by_type || ''))],
+        ['Still owes a balance', (r) => (Number(r.responsible_balance) || 0) > 0],
+        ['Had 2+ services', (r) => (Number(r.subscription_completed_services) || 0) >= 2],
+      ].map(([label, f]) => { const a = pct(b.filter(f).length, b.length), o = pct(rest.filter(f).length, rest.length); return { label, a, o, d: a - o }; });
+      const arv = (rows) => rows.reduce((t, r) => t + (Number(r.annual_recurring_value) || 0), 0) / (rows.length || 1);
+      const brs = lifts((r) => String(r.office_name || '\u2014'), minN).filter(x => x.d > 0.02).slice(0, 3);
+      const svs = lifts((r) => String(r.subscription || '\u2014'), minN).filter(x => x.d > 0.02).slice(0, 3);
+      // Plain-English read: the reasons and traits that most set this month apart.
+      const say = [];
+      const upR = rs.filter(x => x.d >= 0.03).slice(0, 2);
+      if (upR.length) say.push(upR.map(x => '\u201c' + x.k + '\u201d is ' + P(x.sa) + ' of this month\u2019s cancels vs ' + P(x.so) + ' in other months').join('; ') + '.');
+      const bigT = traits.filter(t => Math.abs(t.d) >= 0.05).sort((x, y) => Math.abs(y.d) - Math.abs(x.d)).slice(0, 2);
+      bigT.forEach(t => say.push(t.label + ': ' + P(t.a) + ' of these cancels vs ' + P(t.o) + ' elsewhere (' + pts(t.d) + ').'));
+      if (i >= 2 && i <= 5 && rs.some(x => /delinq|collect|financ|non.?pay/i.test(x.k) && x.d > 0)) say.push('This is the collections cliff: payment-driven reasons over-index here.');
+      if (i >= 11 && i <= 13) say.push('Contract-end window: customers whose first agreement just ran out are free to leave.');
+      if (!say.length) say.push('No reason or trait stands out much here \u2014 this month looks like the rest of the book.');
+      const H = (t) => el('div', { class: 'text-[10px] uppercase tracking-widest font-bold mt-3 mb-1', style: { color: 'var(--text-muted)' } }, t);
+      const bar = (d) => el('span', { style: { display: 'inline-block', height: '6px', width: Math.min(60, Math.abs(d) * 300) + 'px', background: d > 0 ? '#DC2626' : '#15803D', verticalAlign: 'middle', marginLeft: '6px' } });
+      const rowT = (cells, bold) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', fontWeight: bold ? '700' : '' } }, ...cells.map((c, j) => el('td', { class: 'px-2 py-1 tabular-nums' + (j ? ' text-right whitespace-nowrap' : ''), style: j === 3 ? { color: 'var(--text-muted)' } : {} }, c)));
+      const tbl = (head, rows) => el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-[11px]' },
+        el('thead', {}, el('tr', { class: 'text-[9px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } }, ...head.map((h, j) => el('th', { class: 'px-2 py-1 font-semibold ' + (j ? 'text-right' : 'text-left') }, h)))),
+        el('tbody', {}, ...rows)));
+      const reasonRows = rs.filter(x => Math.abs(x.d) >= 0.01).slice(0, 6).concat(rs.filter(x => x.d <= -0.02).slice(-2)).filter((x, k, a) => a.indexOf(x) === k)
+        .map(x => rowT([x.k, fmt.int(x.n), P(x.sa), P(x.so), el('span', { style: { color: x.d > 0 ? '#DC2626' : '#15803D', fontWeight: '700' } }, pts(x.d), bar(x.d))]));
+      const traitRows = traits.map(t => rowT([t.label, P(t.a), P(t.o), '', el('span', { style: { color: Math.abs(t.d) < 0.02 ? 'var(--text-muted)' : t.d > 0 ? '#B45309' : '#1D4ED8', fontWeight: '700' } }, pts(t.d))]))
+        .concat([rowT(['Average ARR', fmt.usd0(arv(b)), fmt.usd0(arv(rest)), '', ''])]);
+      return el('div', { class: 'rounded-xl p-4', style: { background: 'var(--card-2)' } },
+        el('div', { class: 'text-sm font-bold' }, 'Month ' + i + ' of customer life: ' + fmt.int(b.length) + ' cancels \u00b7 ' + P(b.length / rowsL.length) + ' of all cancels \u00b7 '
+          + (avgMonth ? (b.length / avgMonth).toFixed(1) + '\u00d7 an average month' : '')),
+        el('ul', { class: 'mt-2 text-[12px] flex flex-col gap-1', style: { listStyle: 'disc', paddingLeft: '18px' } }, ...say.map(t => el('li', {}, t))),
+        H('Why they left \u00b7 reasons vs every other month'),
+        reasonRows.length ? tbl(['Reason', 'Cancels', 'This month', 'Other months', 'Gap'], reasonRows) : el('div', { class: 'text-[11px] text-muted-' }, 'Too few cancels to compare reasons.'),
+        H('Who left \u00b7 traits vs every other month'),
+        tbl(['Trait', 'This month', 'Other months', '', 'Gap'], traitRows),
+        (brs.length || svs.length) ? H('Over-represented this month') : null,
+        (brs.length || svs.length) ? el('div', { class: 'text-[11px] flex flex-col gap-0.5' },
+          brs.length ? el('div', {}, el('b', {}, 'Branches: '), brs.map(x => x.k + ' ' + P(x.sa) + ' (vs ' + P(x.so) + ')').join(' \u00b7 ')) : null,
+          svs.length ? el('div', {}, el('b', {}, 'Services: '), svs.map(x => x.k + ' ' + P(x.sa) + ' (vs ' + P(x.so) + ')').join(' \u00b7 ')) : null) : null,
+        el('div', { class: 'text-[10px] mt-3', style: { color: 'var(--text-muted)' } }, 'Shares are of the cancels in that month vs the cancels in every other month, same filters as the chart. Reasons need at least ' + minN + ' cancels to list.'));
+    };
     const barL = (b, i) => el('button', {
       class: 'flex flex-col shrink-0 cursor-pointer transition hover:brightness-110',
       style: { width: BAR_W + 'px', background: 'transparent', border: 'none', padding: '0 2px', height: '100%' },
@@ -2142,6 +2211,7 @@ function reportingWaterfall() {
       onclick: () => b.length && openReportingDrillModal({
         chartTitle: 'Cancelled in month ' + i + ' of customer life',
         sliceLabel: fmt.int(b.length) + ' account' + (b.length === 1 ? '' : 's'),
+        summary: (() => { try { return _lifeInsights(i, b); } catch (e) { console.warn('[ridd] month insights', e); return null; } })(),
         rows: b, formatValue: (v) => fmt.usd0(v) }),
     }, el('div', {
       style: {
@@ -2241,7 +2311,7 @@ function reportingWaterfall() {
             'Sold date → cancel date for cancelled accounts · '
             + (_yrL === 'all' ? 'all years in the book' : 'sold ' + _yrL)
             + (office !== 'all' ? ' · ' + officeLabel(office) : '')
-            + ' · click a bar or a reason to see the accounts.')),
+            + ' · click a month for why customers leave then, or a reason for its accounts.')),
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
           statL('Median life', fmt.int(medAll) + 'd', moTxt(medAll)),
           statL('Average', fmt.int(Math.round(avgAll)) + 'd', moTxt(avgAll)),
