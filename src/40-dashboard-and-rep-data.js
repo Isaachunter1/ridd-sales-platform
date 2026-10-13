@@ -4634,6 +4634,21 @@ function openIndicatorRepCard(rep, allReps = []) {
   }
 
   // ── Render & re-render ──────────────────────────────────────────────────
+  // Every sale in the card's date range (per Isaac, Oct 13) — always at the bottom, newest first, sortable, same
+  // columns as the account drills. Follows the range picker at the top of the card.
+  function salesListBlock() {
+    const list = (scopedRep.sales || []).slice().sort((a, b) => (b.dateSold || '').localeCompare(a.dateSold || ''));
+    const preset = (typeof CARD_SCOPE_PRESETS !== 'undefined' && CARD_SCOPE_PRESETS.find(p => p.id === cardScope)) || null;
+    const total = list.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
+    return el('div', { class: 'card overflow-hidden mt-5' },
+      el('div', { class: 'px-4 py-2.5 border-b flex items-center justify-between gap-2 flex-wrap', style: { borderColor: 'var(--border)' } },
+        el('div', { class: 'text-sm font-bold' }, 'Sales · ' + (preset ? preset.label : 'selected range')),
+        el('div', { class: 'flex items-center gap-2' },
+          el('span', { class: 'text-[11px] tabular-nums', style: { color: 'var(--text-muted)' } }, list.length.toLocaleString() + ' sale' + (list.length === 1 ? '' : 's') + ' · ' + fmt.usd0(total)),
+          list.length ? el('button', { class: 'px-2.5 py-1 rounded border text-[11px] font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: () => exportDrillCsv(list) }, '↓ Export') : null)),
+      list.length ? el('div', { style: { maxHeight: '480px', overflowY: 'auto' } }, accountsTable(list))
+        : el('div', { class: 'p-4 text-center text-xs italic', style: { color: 'var(--text-muted)' } }, 'No sales in this range.'));
+  }
   function renderBody() {
     applyScope();  // refresh scopedRep / scopedAllRepRecords / scopedStats
     modal.innerHTML = '';
@@ -4651,6 +4666,7 @@ function openIndicatorRepCard(rep, allReps = []) {
         ? el('div', { class: 'mb-5' }, indicatorSubscriptionMixCard(scopedRep.sales, { subtitleSuffix: ' · ' + (rep.name || 'this rep') }))
         : topSubsBlock(),
       drillBlock() || el('div', {}),
+      salesListBlock(),
     );
     // When the records leaderboard is open, scroll the current rep's row
     // into view inside the leaderboard's scroll container so the user

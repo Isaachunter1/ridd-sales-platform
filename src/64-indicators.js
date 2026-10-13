@@ -4431,6 +4431,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // Frozen columns (per Isaac, Sep 30): # + Rep stick to the left and the
   // Best Day / Week / Month column sticks to the right while the rest scroll
   // sideways — matters once someone ticks on more columns than fit.
+  // Whole-row hover (per Isaac, Oct 13): the frozen Rep / Best Day cells carry their own background, so a brightness
+  // filter on the row only lit those two. Paint every cell of the hovered row instead (beats the inline frozen bg).
+  if (!document.getElementById('lb-row-hover-css')) { const st = document.createElement('style'); st.id = 'lb-row-hover-css';
+    st.textContent = 'tr[data-replb]:hover > td { background-color: color-mix(in srgb, var(--text) 6%, var(--card)) !important; filter: none !important; }'; document.head.appendChild(st); }
   const _lbFreeze = (t) => {
     const nameAt = repCols.findIndex(c => c.key === 'name') + 1;       // +1 = the # column
     const recAt = repCols.findIndex(c => RECORD_SORT_KEYS.has(c.key)) + 1;
