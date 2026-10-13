@@ -423,7 +423,7 @@ function openAgentScheduleModal(rep) {
     el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-muted)' } }, 'Use shift'),
     ..._tpls.map(t => el('button', { class: 'rounded-lg border px-2 py-0.5 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, title: 'Set every ticked day to ' + fmtTime(t.start) + ' – ' + fmtTime(t.end),
       onclick: () => { days.forEach(d => { if (!d.on) return; d.start = t.start; d.end = t.end; if (d._st) d._st.value = t.start; if (d._en) d._en.value = t.end; }); updHours(); } }, t.name || (fmtTime(t.start) + '–' + fmtTime(t.end))))) : null;
-  body.append(tplRow, ...rowEls,
+  body.append(...(tplRow ? [tplRow] : []), ...rowEls,
     el('div', { class: 'flex items-center justify-between gap-2 mt-2 px-1 py-2 rounded-lg', style: { background: 'var(--card-2)' } },
       el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold', style: { paddingLeft: '4px' } }, 'Hours / week'),
       hoursEl),
