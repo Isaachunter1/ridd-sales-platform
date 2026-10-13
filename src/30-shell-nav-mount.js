@@ -45,7 +45,6 @@ const INSIDE_SALES_TABS = [
   // 'competitions' sub-tab hidden — comps live on the top-level Competitions
   // tab now. The VIEW stays reachable (deep links / legacy hash) via the key
   // set below, it just doesn't render a sub-tab button anymore.
-  ['hall_of_fame', 'Hall of Fame'],
 ];
 const INSIDE_SALES_TAB_KEYS = new Set([...INSIDE_SALES_TABS.map(([k]) => k), 'competitions']);
 // ── D2D SALES GROUP (per Isaac) — the door-to-door mirror of the Inside
@@ -55,7 +54,6 @@ const D2D_SALES_TABS = [
   ['d2d_dashboard', 'Dashboard'],
   ['d2d_sales',     'Sales'],
   ['commission',    'Pay'],
-  ['d2d_hof',       'Hall of Fame'],   // per Isaac, Oct 9
 ];
 const D2D_SALES_TAB_KEYS = new Set(D2D_SALES_TABS.map(([k]) => k));
 // ── TECHNICIAN GROUP (per Isaac, Sep 2026) — same shape: Dashboard + the
@@ -64,7 +62,6 @@ const TECH_TABS = [
   ['techs',      'Dashboard'],
   ['tech_sales', 'Sales'],
   ['tech_pay',   'Pay'],
-  ['tech_hof',   'Hall of Fame'],   // per Isaac, Oct 9
 ];
 const TECH_TAB_KEYS = new Set(TECH_TABS.map(([k]) => k));
 // ── LOYALTY GROUP (per Isaac, Sep 23) — the loyalty team's working tabs:
@@ -647,6 +644,8 @@ function _ensureEditBanner() {
 
 function mountApp() {
   window._riddSeq = (window._riddSeq || 0) + 1;   // one render = one tick (per-render memos key on it)
+  // Hall of Fame retired (per Isaac, Oct 13 — Records covers it): an old link or saved view opens that world's dashboard.
+  { const _hof = { hall_of_fame: 'dashboard', d2d_hof: 'd2d_dashboard', tech_hof: 'techs' }[state.view]; if (_hof) state.view = _hof; }
   // Competitions landing paints the whole page orange (set again below
   // by the landing renderer when it's the view being drawn).
   try { document.body.classList.remove('comp-landing'); } catch (e) { /* pre-DOM */ }
@@ -1238,9 +1237,10 @@ function mountApp() {
     pay:          viewPay,
     calendar:     viewCalendar,
     competitions: viewCompetitions,
-    hall_of_fame: () => viewHallOfFame('office'),
-    d2d_hof:      () => viewHallOfFame('d2d'),
-    tech_hof:     () => viewHallOfFame('techs'),
+    // Hall of Fame retired (per Isaac, Oct 13 — the Records table covers it). Old links land on that world's dashboard.
+    hall_of_fame: () => { state.view = 'dashboard'; return viewWorldDashboard(); },
+    d2d_hof:      () => { state.view = 'd2d_dashboard'; return viewWorldDashboard(); },
+    tech_hof:     () => { state.view = 'techs'; return viewWorldDashboard(); },
     loyalty_dashboard: viewLoyaltyDashboard,
     loyalty_renewals: viewLoyaltyRenewals,
     loyalty_health: viewLoyaltyHealth,
