@@ -539,6 +539,29 @@ function reportingNextBest() {
             list.length > 300 ? el('tr', {}, el('td', { class: 'px-3 py-3 text-center text-[11px] italic', colspan: 6, style: { color: 'var(--text-subtle)' } }, 'Showing top 300 by expected value — export the CSV for all ' + list.length.toLocaleString() + '.')) : null)))));
 }
 
+// Renewals sold under a non-Renewal source (per Isaac, Oct 13): a plan closed with a Renewal cancel reason and a new
+// plan sold on the account 45 days before → 60 days after the close. They count as renewed (off the call queue) and
+// are listed on Auditing so the source gets fixed in FieldRoutes. `skip` = customers already renewed by source/chain.
+function renewalMisSourcedRows(rows, skip) {
+  const out = [], DAY = 86400000, tt = (d) => { const x = new Date(String(d || '').slice(0, 10) + 'T00:00'); return isNaN(x) ? NaN : x.getTime(); };
+  const RSRC = /^renewal\s*-/i;
+  const subsOf = new Map(), srcRenewed = new Set();
+  (rows || []).forEach(r => { if (!r.customer_id) return; (subsOf.get(r.customer_id) || subsOf.set(r.customer_id, []).get(r.customer_id)).push(r);
+    if (RSRC.test(String(r.subscription_source || '')) || r.renewed_into || r.is_renewal_cont) srcRenewed.add(r.customer_id); });
+  subsOf.forEach((subs, cid) => {
+    if ((skip && skip.has(cid)) || srcRenewed.has(cid)) return;
+    for (const o of subs) {
+      if (!o.subscription_date_canceled || !/^renewal/i.test(String(reportingCancelReasonOf(o) || '').trim())) continue;
+      const oc = tt(o.subscription_date_canceled); if (isNaN(oc)) continue;
+      const n = subs.find(x => x !== o && !isNaN(tt(x.sold_date)) && tt(x.sold_date) - oc >= -45 * DAY && tt(x.sold_date) - oc <= 60 * DAY);
+      if (!n) continue;
+      out.push({ ...n, id: cid, name: _custDisplayName(n), office: n.office_name || '—', closed: String(o.subscription_date_canceled).slice(0, 10), sold: String(n.sold_date).slice(0, 10), source: n.subscription_source || '(none)', svc: n.subscription || '',
+        _flagReason: 'Customer #' + cid + ' · old plan closed as Renewal ' + String(o.subscription_date_canceled).slice(0, 10) + ' · new plan sold ' + String(n.sold_date).slice(0, 10) + ' as “' + (n.subscription_source || 'no source') + '” — set it to the right Renewal source' });
+      break;
+    }
+  });
+  return out;
+}
 function reportingRenewals(srcRows, opts) {
   opts = opts || {};
   let rows;
@@ -576,22 +599,8 @@ function reportingRenewals(srcRows, opts) {
   //     same window as linkRenewalChains) → a renewal sold under the wrong
   //     source: counts as renewed, and is listed so the source gets fixed;
   //   · the customer signed back up later → a fresh contract, still eligible.
-  const misSourced = [];
-  { const DAY = 86400000, tt = (d) => { const x = new Date(String(d || '').slice(0, 10) + 'T00:00'); return isNaN(x) ? NaN : x.getTime(); };
-    const subsOf = new Map();
-    rows.forEach(r => { if (r.customer_id) (subsOf.get(r.customer_id) || subsOf.set(r.customer_id, []).get(r.customer_id)).push(r); });
-    subsOf.forEach((subs, cid) => {
-      if (renewedCust.has(cid)) return;
-      subs.forEach(o => {
-        if (renewedCust.has(cid) || !o.subscription_date_canceled || !/^renewal/i.test(String(reportingCancelReasonOf(o) || '').trim())) return;
-        const oc = tt(o.subscription_date_canceled); if (isNaN(oc)) return;
-        const n = subs.find(x => x !== o && !isNaN(tt(x.sold_date)) && tt(x.sold_date) - oc >= -45 * DAY && tt(x.sold_date) - oc <= 60 * DAY);
-        if (!n) return;
-        renewedCust.add(cid);
-        misSourced.push({ id: cid, name: _custDisplayName(n), office: n.office_name || '—', closed: String(o.subscription_date_canceled).slice(0, 10), sold: String(n.sold_date).slice(0, 10), source: n.subscription_source || '(none)', svc: n.subscription || '' });
-      });
-    });
-  }
+  const misSourced = renewalMisSourcedRows(rows, renewedCust);   // also listed on Auditing (per Isaac, Oct 13)
+  misSourced.forEach(m => renewedCust.add(m.id));
   // Per Isaac (Sep 23): any recurring plan that can go back under contract —
   // everything except Sentricon and one-time services. Term runs from the
   // SIGNED AGREEMENT date (fallback: initial service when no e-sign stamp).
@@ -883,7 +892,7 @@ function _renewalQueueView(o) {
   const tab = String(state._renewalQTab || 'queue');
   const fTier = state._renewalTier == null ? '' : String(state._renewalTier);
   const base = (x) => (!o.q || String(x.name).toLowerCase().includes(o.q) || String(x.id).includes(o.q) || String(x.phone || '').includes(o.q) || String(x.office).toLowerCase().includes(o.q))
-    && (!o.fBranch || String(x.office) === o.fBranch) && (!(o.fMinAcv > 0) || x.arv >= o.fMinAcv);
+    && (!o.fBranch || String(x.office) === o.fBranch);
   const queue = [], snoozed = [], done = [];
   o.allRecs.forEach(x => {
     const g = o.logOf(x), st = o.stageOf(x);
@@ -894,16 +903,15 @@ function _renewalQueueView(o) {
     x._triedToday = (Number(g.attempts) || 0) > 0 && _renewalLocalDay(g.updated_at) === today && !cb;
     queue.push(x);
   });
-  // Order: tried-today sinks to the bottom of the whole queue → tier →
-  // within a tier: soonest term end (ending tiers), most recently out of
-  // contract (just M2M), biggest ARR (long M2M) — fewer attempts first on ties.
-  queue.sort((a, b) => (a._triedToday ? 1 : 0) - (b._triedToday ? 1 : 0) || a._tier - b._tier
-    || (a._tier <= 2 ? a.toGo - b.toGo : a._tier === 3 ? a.pastBy - b.pastBy : b.arv - a.arv)
-    || (Number(o.logOf(a).attempts) || 0) - (Number(o.logOf(b).attempts) || 0) || b.arv - a.arv);
+  // Order (per Isaac, Oct 13): newest customers first — fewest months of customer life — so the month 11–12
+  // first-contract accounts lead and long-tenured month-to-month customers fall to the end. A callback that is due
+  // today stays on top (it was promised); anyone already tried today sinks to the bottom.
+  queue.sort((a, b) => (a._triedToday ? 1 : 0) - (b._triedToday ? 1 : 0) || (a._tier === 0 ? 0 : 1) - (b._tier === 0 ? 0 : 1)
+    || a.life - b.life || b.arv - a.arv);
   const qAll = queue.filter(base);
   const tierN = {}; RENEWAL_TIERS.forEach(t => { tierN[t.key] = { n: 0, arr: 0 }; });
   qAll.forEach(x => { tierN[x._tier].n++; tierN[x._tier].arr += x.arv; });
-  const qShown = fTier === '' ? qAll : qAll.filter(x => String(x._tier) === fTier);
+  const qShown = qAll;
   snoozed.sort((a, b) => _renewalCallback(o.logOf(a)).localeCompare(_renewalCallback(o.logOf(b))));
   const doneAll = done.concat(o.crmRenewed);
   doneAll.sort((a, b) => String(o.logOf(b).updated_at || b.since || '').localeCompare(String(o.logOf(a).updated_at || a.since || '')));
@@ -973,7 +981,6 @@ function _renewalQueueView(o) {
       onclick: () => { state._renewalOpenCard = open ? null : String(x.id); mountApp(); } },
       el('div', { class: 'flex items-center gap-2 flex-wrap' },
         el('span', { class: 'text-[10px] font-bold tabular-nums w-6 shrink-0', style: { color: 'var(--text-subtle)' } }, String(i + 1)),
-        tierChip(t),
         el('div', { class: 'min-w-0 flex-1', style: { minWidth: '160px' } },
           el('div', { class: 'text-xs font-bold truncate' }, x.name + (x._triedToday ? ' · tried today' : '')),
           el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-muted)' } }, why(x))),
@@ -1034,20 +1041,14 @@ function _renewalQueueView(o) {
       tabBtn('queue', '📞 Call queue', qAll.length), tabBtn('callbacks', '📅 Callbacks', snoozed.filter(base).length), tabBtn('done', '✓ Done', doneAll.filter(base).length),
       el('span', { class: 'text-[11px] tabular-nums ml-auto', style: { color: 'var(--text-muted)' } },
         'Today: ', el('b', {}, String(mCalls)), ' calls · ', el('b', { style: { color: 'var(--ok)' } }, String(mRenewed)), ' renewed (you) · team ', el('b', {}, String(tCalls)), ' / ', el('b', { style: { color: 'var(--ok)' } }, String(tRenewed)))),
-    el('div', { class: 'flex items-center gap-2 flex-wrap' }, o.search, o.branchSel, o.acvIn, exportQ, _renewalModeBtn()),
-    tab === 'queue' ? tierBar : null,
-    (o.misSourced || []).length ? el('details', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } },
-      el('summary', { class: 'cursor-pointer font-bold' }, '⚠ ' + o.misSourced.length + ' renewal' + (o.misSourced.length > 1 ? 's' : '') + ' sold under a non-Renewal source — fix the source in FieldRoutes (kept off the queue)'),
-      el('div', { class: 'flex flex-col gap-0.5 mt-1' },
-        ...o.misSourced.map(m => el('div', { class: 'tabular-nums' }, '#' + m.id + ' · ' + m.name + ' · ' + _titleCaseWords(m.office) + ' · old plan closed as Renewal ' + m.closed + ' · new plan sold ' + m.sold + ' as “' + m.source + '”')),
-        btn('⬇ Export list', '', () => _reportingCsvDownload('renewals-wrong-source-' + today + '.csv', ['Customer ID', 'Customer Name', 'Office Name', 'Old Plan Closed', 'New Plan Sold', 'Current Source', 'Subscription Type'], o.misSourced.map(m => [m.id, m.name, m.office, m.closed, m.sold, m.source, m.svc]))))) : null);
+    el('div', { class: 'flex items-center gap-2 flex-wrap' }, o.search, o.branchSel, exportQ, _renewalModeBtn()));
   if (o.compact) return el('div', { class: 'flex flex-col gap-3' }, header, body);
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'card p-4 flex flex-col gap-3' },
       el('div', {},
         el('h2', { class: 'text-lg font-bold' }, '🔁 Renewal call queue'),
         el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
-          'Who to call, in order. First contracts ending (months 11–12 of customer life, where churn spikes) come first — renewals can be signed in the final 2 months of the agreement — then other contracts ending, then customers who just went month-to-month, and long-term month-to-month last. No answer drops a customer to the bottom for today; a callback takes them off the list until that day. Never renewed before · no Sentricon.')),
+          'Who to call, newest customers first — the fewest months since their first service — so first contracts ending (months 11–12, where churn spikes) lead and long-term month-to-month customers come last. Renewals can be signed in the final 2 months of the agreement. No answer drops a customer to the bottom for today; a callback takes them off the list until that day. Never renewed before · no Sentricon.')),
       header),
     body);
 }

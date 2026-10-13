@@ -68,7 +68,6 @@ const TECH_TAB_KEYS = new Set(TECH_TABS.map(([k]) => k));
 // Renewals pipeline (the shared drag-and-drop board) and Customer Health.
 // Office staff only (Permissions → Loyalty); admins always.
 const LOYALTY_TABS = [
-  ['loyalty_dashboard', 'Dashboard'],
   ['loyalty_renewals', 'Renewals'],
   ['loyalty_health',   'Customer Health'],
 ];
@@ -645,7 +644,8 @@ function _ensureEditBanner() {
 function mountApp() {
   window._riddSeq = (window._riddSeq || 0) + 1;   // one render = one tick (per-render memos key on it)
   // Hall of Fame retired (per Isaac, Oct 13 — Records covers it): an old link or saved view opens that world's dashboard.
-  { const _hof = { hall_of_fame: 'dashboard', d2d_hof: 'd2d_dashboard', tech_hof: 'techs' }[state.view]; if (_hof) state.view = _hof; }
+  // Loyalty Dashboard retired the same day — Loyalty opens on Renewals.
+  { const _hof = { hall_of_fame: 'dashboard', d2d_hof: 'd2d_dashboard', tech_hof: 'techs', loyalty_dashboard: 'loyalty_renewals' }[state.view]; if (_hof) state.view = _hof; }
   // Competitions landing paints the whole page orange (set again below
   // by the landing renderer when it's the view being drawn).
   try { document.body.classList.remove('comp-landing'); } catch (e) { /* pre-DOM */ }
@@ -928,7 +928,7 @@ function mountApp() {
             : k === 'd2d_group'
               ? (D2D_SALES_TAB_KEYS.has(state._lastD2dTab) ? state._lastD2dTab : 'd2d_dashboard')
               : k === 'loyalty_group'
-                ? (LOYALTY_TAB_KEYS.has(state._lastLoyaltyTab) ? state._lastLoyaltyTab : 'loyalty_dashboard')
+                ? (LOYALTY_TAB_KEYS.has(state._lastLoyaltyTab) ? state._lastLoyaltyTab : 'loyalty_renewals')
                 : k;
           state.view = target;
           history.replaceState(null, '', VIEW_TO_HASH[target] || '#' + target);

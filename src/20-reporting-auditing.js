@@ -919,6 +919,11 @@ function auditSubTasks() {
   tasks.push({ tag: 'Not started', title: 'Sold but never started', noun: 'subscription', rows: stale,
     ok: 'All clear — nothing sold more than two weeks ago is still waiting on its first service.',
     todo: (n) => n + ' active subscription' + s(n) + ' sold more than 14 days ago with no completed initial service — schedule the first visit or close ' + (n === 1 ? 'it' : 'them') + '.' });
+  // 6a. Renewal sold under a non-Renewal source (per Isaac, Oct 13 — moved here from the Renewals queue).
+  const misSrc = (typeof renewalMisSourcedRows === 'function') ? renewalMisSourcedRows(rows).sort((x, y) => String(y.sold).localeCompare(String(x.sold))) : [];
+  tasks.push({ tag: 'Renewal source', title: 'Renewals sold under a non-Renewal source', noun: 'subscription', tone: 'check', rows: misSrc,
+    ok: 'All clear — every renewal carries a Renewal source.',
+    todo: (n) => n + ' renewal' + s(n) + ' sold under a non-Renewal source (the old plan closed as Renewal, the new one sold right beside it) — set the source to the right Renewal source in FieldRoutes.' });
   // 6b. No signed agreement (per Isaac, Oct 13): active recurring sales this year, sold 2+ days ago, whose agreement
   //     was never e-signed in FieldRoutes (sent and unsigned, or never sent). One-time services don't need one.
   const unsigned = rows.filter(r => { if (!isActive(r) || notSale(r.subscription) || /one[\s-]?time/i.test(String(r.subscription || ''))) return false;

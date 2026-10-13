@@ -4871,7 +4871,7 @@ const TAB_TITLES = {
 
 // #history is kept as a legacy alias — it lands the user on Sales tab with
 // the History queue pill pre-selected (see boot/hashchange handlers below).
-const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'dashboard', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#d2ddash':'d2d_dashboard', '#d2dupfront':'commission', '#d2dsales':'d2d_sales', '#techs':'techs', '#d2dhof':'d2d_dashboard', '#techhof':'techs', '#alldash':'all_dashboard', '#techsales':'tech_sales', '#techpay':'tech_pay', '#admin':'admin', '#loyaltydash':'loyalty_dashboard', '#renewals':'loyalty_renewals', '#health':'loyalty_health' };
+const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'dashboard', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#d2ddash':'d2d_dashboard', '#d2dupfront':'commission', '#d2dsales':'d2d_sales', '#techs':'techs', '#d2dhof':'d2d_dashboard', '#techhof':'techs', '#alldash':'all_dashboard', '#techsales':'tech_sales', '#techpay':'tech_pay', '#admin':'admin', '#loyaltydash':'loyalty_renewals', '#renewals':'loyalty_renewals', '#health':'loyalty_health' };
 const VIEW_TO_HASH = Object.fromEntries(Object.entries(HASH_MAP).map(([h,v])=>[v,h]));
 
 // Only ring the bell when a sale's audit_status flips to one of these,
