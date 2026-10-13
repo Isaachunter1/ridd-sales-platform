@@ -43,7 +43,10 @@ function upsellCandidates(ticket, isAddOn) {
     const price = Number(it.total ?? it.amount ?? it.price ?? it.charge ?? 0) || 0;
     const amount = Math.round(price * (it.total != null ? 1 : qty) * 100) / 100;
     if (amount <= 0) return;
-    const by = String(it.employeeID || it.soldBy || it.salesRep || it.assignedTo || ticket.created_by || '').trim();
+    // Credit = the line's Commission To (Oct 13 — an office rep who adds an add-on and sets Commission To to
+    // themselves gets the upsell, not the account's original Sales Rep). Falls back only when no creditTo key exists.
+    const by = Object.prototype.hasOwnProperty.call(it, 'creditTo') ? require('./add-on-streak.js').lineCreditOf(it)
+      : String(it.employeeID || it.soldBy || it.salesRep || it.assignedTo || ticket.created_by || '').trim();
     out.push({ ...ticket, ticket_id: String(ticket.ticket_id) + ':' + idx, service: name, total: amount, created_by: by });
   });
   return out;
