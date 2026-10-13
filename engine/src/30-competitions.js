@@ -283,7 +283,10 @@ function nrlaCompute(rawSales, compOverride) {
 // beat across the remaining comp days.
 const KOBE_FROM = '2026-08-03';
 const KOBE_TO   = '2026-08-08';
-function kobeWeekCompute(raw, KOBE_FROM, KOBE_TO, BASE_YEAR) {
+// AUDIT (per Isaac, Oct 13 — same toggle as Records): 'passed' (default) =
+// Passed Audit / No Audit accounts only; 'all' = every Pending/Serviced sale,
+// failed or not-yet-audited included.
+function kobeWeekCompute(raw, KOBE_FROM, KOBE_TO, BASE_YEAR, AUDIT) {
   const weekKeyOf = (iso) => {
     const d = new Date(iso + 'T00:00');
     if (isNaN(d)) return null;
@@ -304,7 +307,7 @@ function kobeWeekCompute(raw, KOBE_FROM, KOBE_TO, BASE_YEAR) {
     // week and the last-full-week second chance all count accounts flagged
     // "Passed Audit" (or "No Audit" — not required). Not-yet-audited and
     // failed accounts don't count.
-    if (typeof scAuditPassed === 'function' ? !scAuditPassed(s.customerFlags || '') : (typeof SC_FAIL_RE !== 'undefined' && SC_FAIL_RE.test(s.customerFlags || ''))) continue;
+    if (AUDIT !== 'all' && (typeof scAuditPassed === 'function' ? !scAuditPassed(s.customerFlags || '') : (typeof SC_FAIL_RE !== 'undefined' && SC_FAIL_RE.test(s.customerFlags || '')))) continue;
     const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : '';
     if (!iso) continue;
     const nm = getCanonicalRepName(s.rep);
