@@ -986,7 +986,7 @@ function auditSubTasks() {
     replaced.sort((x, y) => String(y.subscription_date_canceled).localeCompare(String(x.subscription_date_canceled)));
     tasks.push({ tag: 'Replaced', title: 'Cancelled, then replaced by a new plan within 45 days', noun: 'subscription', tone: 'check', rows: replaced,
       ok: 'All clear — no cancels were replaced by a new plan.',
-      todo: (n) => n.toLocaleString() + ' cancel' + s(n) + ' where the customer got a new plan within 45 days, not coded as a renewal — likely uncoded renewals or re-entries. Today each counts as churn; recode the reason to a Renewal in FieldRoutes if it was one.' });
+      todo: (n) => n.toLocaleString() + ' cancel' + s(n) + ' where the customer got a new plan within 45 days, not coded as a renewal — likely uncoded renewals or re-entries. Retention now links these like renewals (step "Link cancels replaced within 45 days"), so they no longer count as churn — still recode the reason to a Renewal in FieldRoutes if it was one.' });
   }
   auditSubTasks._m = { src: rows, key, tasks };
   return tasks;

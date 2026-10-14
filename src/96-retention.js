@@ -116,7 +116,7 @@ function _retenOfficeSlice(office) {
 }
 function _retenOfficial() {
   const saved = state._retenWhatIf; state._retenWhatIf = null;
-  const o = { initial: true, orphans: reportingAutoExcludeOrphans(), branches: true, hidden: true, sources: reportingExcludedSources().size > 0, popRor: [...retenPopExclReasons()].some(_isRorReason), popRorTiming: true, popRorServiced: true, popCombined: [...retenPopExclReasons()].some(x => /combined/.test(x)), popRenew: [...retenPopExclReasons()].some(x => !_isRorReason(x) && !/combined/.test(x)), zero: retenExclZeroPay(), oneSvc: retenExclOneSvc(), oneSvcExempt: true, frozenOneSvc: retenExclFrozenOneSvc(), exclReasons: reportingExcludedCancelReasons().size > 0, ror: reportingExcludeRorChurn() };
+  const o = { initial: true, orphans: reportingAutoExcludeOrphans(), branches: true, hidden: true, sources: reportingExcludedSources().size > 0, popRor: [...retenPopExclReasons()].some(_isRorReason), popRorTiming: true, popRorServiced: true, popNoStart: true, popReplaced: true, popCombined: [...retenPopExclReasons()].some(x => /combined/.test(x)), popRenew: [...retenPopExclReasons()].some(x => !_isRorReason(x) && !/combined/.test(x)), zero: retenExclZeroPay(), oneSvc: retenExclOneSvc(), oneSvcExempt: true, frozenOneSvc: retenExclFrozenOneSvc(), exclReasons: reportingExcludedCancelReasons().size > 0, ror: reportingExcludeRorChurn() };
   state._retenWhatIf = saved;
   return o;
 }
@@ -198,12 +198,16 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
   const rorByReason = (r) => rorCoded(r) && _rorCodedOk(r);   // office staff / technician sales get no ROR from 2026 (per Isaac, Oct 13)
   const s2r = s2.filter(r => !(rorOn && rorByReason(r)));                       // minus RORs coded as such (the sheet's rule)
   const step1a = s2r.filter(r => !(rorOn && rorTimingOn && _reporting3dayRor(r)));   // minus RORs caught by timing (app extra)
-  const step1b = step1a.filter(r => !closedBy(r, 'combined'));                  // minus combined
+  const noStartOn = _retenWhatIf('popNoStart', true);
+  const stepNS = step1a.filter(r => !(noStartOn && retenNotStartedSub(r)));   // minus “never started” cancels (all have a completed initial)
+  const step1b = stepNS.filter(r => !closedBy(r, 'combined'));                  // minus combined
   const renLinked = (r) => closedBy(r, 'renewal') && _renewalLinked(r);          // renewal pieced to the customer's next plan
   const renUnlinked = step1b.filter(r => closedBy(r, 'renewal') && !_renewalLinked(r));   // renewal-coded but no later plan = real loss
   const step1 = step1b.filter(r => !renLinked(r));                             // minus renewals linked at the customer level
   const byReason1 = {}; step1b.forEach(r => { if (renLinked(r)) { const k = String(reportingCancelReasonOf(r) || '').trim(); byReason1[k] = (byReason1[k] || 0) + 1; } });
-  const step2 = step1.filter(r => !(retenExclZeroPay() && !_retenPaying(r)));   // (a per-visit charge counts as paying)
+  const replOn = _retenWhatIf('popReplaced', true);
+  const stepRp = step1.filter(r => !(replOn && _replacedLinked(r)));            // minus cancels replaced by a new plan within 45 days
+  const step2 = stepRp.filter(r => !(retenExclZeroPay() && !_retenPaying(r)));   // (a per-visit charge counts as paying)
   const svcOf = (r) => Number(r.subscription_completed_services) || 0;
   const sentricon = (r) => retenOneSvcExemptTerms().some(t => String(r.subscription || '').toLowerCase().includes(t));
   const soldThisYear = (r) => { const d = r.sold_date ? new Date(r.sold_date) : (r.initial_service ? new Date(r.initial_service) : null); return d && !isNaN(d) && d.getFullYear() >= year; };
@@ -279,11 +283,18 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
   const open = state._retenMethodOpen === true;   // collapsed by default (per Isaac)
   const whatIf = retenWhatIfActive();
   const card = el('div', { class: 'card overflow-hidden', style: whatIf ? { outline: '2px solid var(--accent)' } : {} },
-    // Two rows (per Isaac, Sep 2026): title + controls right-justified on
-    // the first, the three attrition numbers across the second.
+    // One row (per Isaac, Oct 14): title, the four attrition numbers, then
+    // the controls — wraps on narrow screens.
     el('div', { class: 'px-5 py-3 flex flex-col gap-2 cursor-pointer', onclick: () => { state._retenMethodOpen = !open; mountApp(); } },
       el('div', { class: 'flex items-center gap-2 flex-wrap' },
         el('h3', { class: 'text-sm font-bold flex-1 min-w-0' }, (open ? '▾ ' : '▸ ') + 'Attrition Steps'),
+        // The four attrition numbers sit left of Insights on the same row (per Isaac, Oct 14).
+      el('div', { class: 'flex items-center gap-4 tabular-nums reten-tiles mr-2' },
+        // Last year's full-year attrition first (per Isaac) — same rules, whole year, drillable to the counted cancels.
+        (() => { const fn = drill((year - 1) + ' \u00b7 counted cancels', prev.rows.counted, 'counted as churn'); return el('div', { class: 'text-right', title: n(prev.counted) + ' counted cancels in ' + (year - 1) + ' \u00f7 ' + n(prev.boy) + ' on the books Jan 1, ' + (year - 1) }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, (year - 1) + ' attrition'), el('div', { class: 'text-base font-black', style: fn ? { cursor: 'pointer' } : {}, onclick: fn ? (e) => { e.stopPropagation(); fn(); } : null }, pct(prev.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.prev)) : null)); })(),
+        el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' YTD attrition'), el('div', { class: 'text-base font-black' }, pct(cur.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.cur)) : null)),
+        el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' projected attrition'), el('div', { class: 'text-base font-black' }, pct(projected), el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'seasonal pace'))),
+        (() => { const t = retenTrailing12(book); const fn = drill('Trailing 12 months · counted cancels', t.rows.counted, 'counted as churn'); return el('div', { class: 'text-right', title: n(t.c) + ' cancels ' + t.st + ' → ' + t.en + ' ÷ ' + n(t.boy) + ' on the books a year ago' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Trailing 12 months'), el('div', { class: 'text-base font-black', style: fn ? { cursor: 'pointer' } : {}, onclick: fn ? (e) => { e.stopPropagation(); fn(); } : null }, pct(t.rate))); })()),
         // Insights › (per Isaac, Oct 13) — beside the branch button (moved up a row, same day).
         el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: state._retenInsightsOpen ? 'var(--accent)' : 'var(--border-2)', background: state._retenInsightsOpen ? 'var(--accent)' : 'var(--card)', color: state._retenInsightsOpen ? 'var(--accent-text)' : 'var(--text)' },
           title: 'Compare branches: who loses more, why, and when', onclick: (e) => { e.stopPropagation(); state._retenInsightsOpen = !state._retenInsightsOpen; mountApp(); } }, state._retenInsightsOpen ? 'Insights ▾' : 'Insights ›'),
@@ -312,13 +323,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
           });
           return el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, title: 'Upload a FieldRoutes Customer Report (CSV) and diff it against the app', onclick: (e) => { e.stopPropagation(); inp.click(); } }, '\u21c4 Reconcile', inp);
         })(),
-        infoBtn ? el('span', { class: 'inline-flex', onclick: (e) => e.stopPropagation() }, infoBtn) : null),
-      el('div', { class: 'flex items-center justify-end gap-4 tabular-nums reten-tiles' },
-        // Last year's full-year attrition first (per Isaac) — same rules, whole year, drillable to the counted cancels.
-        (() => { const fn = drill((year - 1) + ' \u00b7 counted cancels', prev.rows.counted, 'counted as churn'); return el('div', { class: 'text-right', title: n(prev.counted) + ' counted cancels in ' + (year - 1) + ' \u00f7 ' + n(prev.boy) + ' on the books Jan 1, ' + (year - 1) }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, (year - 1) + ' attrition'), el('div', { class: 'text-base font-black', style: fn ? { cursor: 'pointer' } : {}, onclick: fn ? (e) => { e.stopPropagation(); fn(); } : null }, pct(prev.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.prev)) : null)); })(),
-        el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' YTD attrition'), el('div', { class: 'text-base font-black' }, pct(cur.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.cur)) : null)),
-        el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' projected attrition'), el('div', { class: 'text-base font-black' }, pct(projected), el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'seasonal pace'))),
-        (() => { const t = retenTrailing12(book); const fn = drill('Trailing 12 months · counted cancels', t.rows.counted, 'counted as churn'); return el('div', { class: 'text-right', title: n(t.c) + ' cancels ' + t.st + ' → ' + t.en + ' ÷ ' + n(t.boy) + ' on the books a year ago' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Trailing 12 months'), el('div', { class: 'text-base font-black', style: fn ? { cursor: 'pointer' } : {}, onclick: fn ? (e) => { e.stopPropagation(); fn(); } : null }, pct(t.rate))); })())));
+        infoBtn ? el('span', { class: 'inline-flex', onclick: (e) => e.stopPropagation() }, infoBtn) : null)));
 
   if (!open) return card;
   const loadDrops = state._snapshotLoadDrops || null;
@@ -368,6 +373,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       const kept = (rorOn && rorTimingOn && _retenWhatIf('popRorServiced', true)) ? s2r.filter(r => _reporting3dayRorByDates(r) && svcOf(r) > 1) : [];
       return step(next(), 'Keep timing-RORs with 2+ completed appointments', 'Exemption to the step above: a subscription cancelled within three days of its sale date but with two or more completed appointments was really serviced \u2014 the sold or cancel date in FieldRoutes is wrong, not the customer. These stay in the book; if the cancel reason is a renewal, the renewals step below counts them as retained, otherwise they are a real cancel counted by date. Switch off to treat them as RORs. Open the list to fix the dates in the CRM.', 0, rorOn && rorTimingOn ? 'popRorServiced' : null, n(kept.length) + ' kept', null, null, kept);
     })(),
+    step(next(), 'Remove cancels coded \u201cnever started\u201d', 'Subscriptions cancelled as \u201cSold, Not Started (No Initial)\u201d or \u201cInitial Appointment Canceled\u201d. The reason says the customer never began, so the plan leaves the book instead of sitting in it as retained. Every one listed here DOES have a completed initial in FieldRoutes (step 1 already took out the ones that never started) \u2014 so either the reason or the appointment is wrong. Open the list and fix them in the CRM: recode the reason if they started, or correct the appointment if they did not.', step1a.length - stepNS.length, 'popNoStart', null, notIn(step1a, stepNS), stepNS),
     step(next(), 'Remove combined subscriptions', 'Subscriptions cancelled with the reason \u201cCombined Subscriptions\u201d \u2014 the plan was merged into another subscription on the same account, which carries on. The customer is still with RIDD, so counting the closed line as churn would double-count a customer who never left.', step1a.length - step1b.length, 'popCombined', null, notIn(step1a, step1b), step1b),
     (() => {
       const node = step(next(), 'Link renewals to the customer', 'Renewals are pieced together at the customer level, not removed as customers. A plan closed with a Renewal reason (Outbound, Loyalty, Service Pro Upsell, Inbound) is the old half of a renewal: when the same customer has another plan sold after it that was still running when it closed (renewals are often sold months ahead), the old plan is folded into it \u2014 the new plan carries the customer\u2019s original start date, so the customer is counted once, as retained. Whatever happens to the renewed plan later \u2014 say it cancels for Finances \u2014 is counted on that plan. A Renewal-coded cancel with nothing carrying forward is a real loss and stays a cancel.' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), step1b.length - step1.length, 'popRenew', null, notIn(step1b, step1), step1);
@@ -378,11 +384,34 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       }, '⚑ ' + n(renUnlinked.length) + ' with no renewed plan — kept as cancels'));
       return node;
     })(),
-    step(next(), 'Remove subs with no ARR', 'Subscriptions that bill nothing: $0 annual recurring value and no per-visit charge on an \u201cAs Needed\u201d plan. (An \u201cAs Needed\u201d plan shows $0 ARR in FieldRoutes but still charges each visit \u2014 those are paying customers and stay in.) Attrition is measured on recurring revenue, and a sub that bills nothing can neither be kept nor lost in dollar terms, so it is removed rather than diluting the rate.', step1.length - step2.length, 'zero', null, notIn(step1, step2), step2),
+    step(next(), 'Link cancels replaced within 45 days', 'A plan cancelled for an ordinary reason (not a Renewal, Combined or ROR) when the same customer has another recurring plan sold from 7 days before to 45 days after the cancel that was still running past it. The customer never left \u2014 it was an uncoded renewal or a re-entry \u2014 so, like renewals, the closed plan is set aside and the new plan carries the customer. Whatever happens to the new plan later counts on that plan. The same list is on Auditing \u2192 \u201cCancelled, then replaced\u201d; recode the reason to a Renewal in FieldRoutes where that is what happened.', step1.length - stepRp.length, 'popReplaced', null, notIn(step1, stepRp), stepRp),
+    step(next(), 'Remove subs with no ARR', 'Subscriptions that bill nothing: $0 annual recurring value and no per-visit charge on an \u201cAs Needed\u201d plan. (An \u201cAs Needed\u201d plan shows $0 ARR in FieldRoutes but still charges each visit \u2014 those are paying customers and stay in.) Attrition is measured on recurring revenue, and a sub that bills nothing can neither be kept nor lost in dollar terms, so it is removed rather than diluting the rate.', stepRp.length - step2.length, 'zero', null, notIn(stepRp, step2), step2),
     // (The one-visit steps — prior-year never-2nd-treatment, the Sentricon exemption,
     // and this-year frozen-after-one — were retired per Isaac, Oct 13: cancelling
     // after the initial is real churn.)
     total('Retention book', n(book.length), 'Subscriptions the rest of this tab counts', book),
+    // Tie-out (per Isaac, Oct 14 — "every account down to the book is accounted
+    // for"): everything in FieldRoutes minus what the steps above removed must
+    // equal the book. Anything that fell out without a step shows here in red.
+    (() => {
+      const key = (r) => String(r.subscription_id) + '|' + String(r.customer_id);
+      const removedLists = [...scopeSteps.map(st => st.removed), notIn(s2, s2r), notIn(s2r, step1a), notIn(step1a, stepNS), notIn(stepNS, step1b), notIn(step1b, step1), notIn(step1, stepRp), notIn(stepRp, step2)];
+      const gone = new Set(); let removedN = 0;
+      for (const L of removedLists) for (const r of L) { const k = key(r); if (!gone.has(k)) { gone.add(k); removedN++; } }
+      const inBook = new Set(book.map(key));
+      const ground = new Set(g0.map(key));
+      const unaccounted = g0.filter(r => !inBook.has(key(r)) && !gone.has(key(r)));
+      const extra = book.filter(r => !ground.has(key(r)));
+      const ok = !unaccounted.length && !extra.length;
+      const msg = ok
+        ? '✓ Ties out: ' + n(g0.length) + ' in FieldRoutes − ' + n(removedN) + ' removed by the steps above = ' + n(book.length) + ' in the book.'
+        : '⚑ Does not tie out: ' + n(g0.length) + ' in FieldRoutes − ' + n(removedN) + ' removed by the steps = ' + n(g0.length - removedN) + ', but the book has ' + n(book.length) + '.'
+          + (unaccounted.length ? ' ' + n(unaccounted.length) + ' subscription' + (unaccounted.length === 1 ? '' : 's') + ' left the book without a step — click to see them.' : '')
+          + (extra.length ? ' ' + n(extra.length) + ' in the book are not in FieldRoutes.' : '');
+      const node = el('div', { class: 'text-[11px] font-semibold py-1.5', style: { color: ok ? '#16A34A' : '#DC2626' } }, msg);
+      if (unaccounted.length) clickable(node, drill('Left the book without a step', unaccounted, 'not removed by any step above'));
+      return node;
+    })(),
     // ── 9 · Excluded cancel reasons — configured RIGHT HERE (per Isaac) so
     // the card shows exactly what counts. A checked reason means a sub that
     // cancelled for it stays in the book as RETAINED (not a lost customer).

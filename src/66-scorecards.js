@@ -1914,6 +1914,41 @@ function _renewalLinked(r) {
   const me = String(r.subscription_id);
   return (_renLinkMemo.idx.get(c) || []).some(([id, d, oc]) => id !== me && d > sold && (!oc || oc >= grace));
 }
+// "Never started" cancels (per Isaac, Oct 14): a plan closed as "Sold, Not
+// Started (No Initial)" or "Initial Appointment Canceled" says the customer
+// never began — so it leaves the book (not kept as retained). Every one that
+// reaches the population steps HAS a completed initial (step 1), so the reason
+// or the appointment is wrong in FieldRoutes — the step lists them to fix.
+function _isNotStartedReason(x) { return /not started|no initial|initial appointment cancel/i.test(String(x || '')); }
+function retenNotStartedSub(r) { return !!r.subscription_date_canceled && _isNotStartedReason(reportingCancelReasonOf(r)); }
+// Replaced within 45 days (per Isaac, Oct 14 — linked like renewals): a plan
+// cancelled for a normal reason when the same customer has another RECURRING
+// plan sold from 7 days before to 45 days after the cancel that was still
+// running past it. The customer never left — it was an uncoded renewal or a
+// re-entry. Renewal, combined and ROR reasons are handled by their own steps.
+const _replLinkMemo = { src: null, idx: null };
+function _replacedLinked(r) {
+  if (!r.subscription_date_canceled) return false;
+  const why = String(reportingCancelReasonOf(r) || '');
+  if (crmReasonIs('renewal', why) || crmReasonIs('combined', why) || _isRorReason(why)) return false;
+  const all = state.reportingSubscriptions || [];
+  if (_replLinkMemo.src !== all) {
+    const rec = (typeof reportingServiceRecurringMap === 'function') ? reportingServiceRecurringMap() : null;
+    const idx = new Map();
+    for (const x of all) {
+      if (rec && !rec.get(x.subscription)) continue;
+      const c = String(x.customer_id != null ? x.customer_id : ''); if (!c) continue;
+      const d = String(x.sold_date || x.initial_service || '').slice(0, 10); if (!d) continue;
+      (idx.get(c) || idx.set(c, []).get(c)).push([String(x.subscription_id), d, String(x.subscription_date_canceled || '').slice(0, 10)]);
+    }
+    _replLinkMemo.src = all; _replLinkMemo.idx = idx;
+  }
+  const c = String(r.customer_id != null ? r.customer_id : ''); if (!c) return false;
+  const cx = String(r.subscription_date_canceled).slice(0, 10);
+  const sh = (days) => { const d = new Date(cx + 'T00:00'); d.setDate(d.getDate() + days); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+  const lo = sh(-7), hi = sh(45), me = String(r.subscription_id);
+  return (_replLinkMemo.idx.get(c) || []).some(([id, d, oc]) => id !== me && d >= lo && d <= hi && (!oc || oc > cx));
+}
 // $89 a visit, 4 visits, showed $0 ARR and fell out of the book).
 // Only an "As Needed" plan (frequency -1) qualifies: a $0 plan with no
 // frequency (0) and a stray few-dollar charge is one-time work (per Isaac,
@@ -1991,7 +2026,9 @@ function retenIsRorSub(r) {
 function retenPopulationExcluded(r) {
   const popSet = retenPopExclReasons();
   if ([...popSet].some(_isRorReason) && retenIsRorSub(r)) return 'closed by 3 Day ROR';
+  if (_retenWhatIf('popNoStart', true) && retenNotStartedSub(r)) return 'closed as never started';
   if (r.subscription_date_canceled && popSet.has(_normCancelReason(reportingCancelReasonOf(r))) && !_isRorReason(_normCancelReason(reportingCancelReasonOf(r))) && !(crmReasonIs('renewal', reportingCancelReasonOf(r)) && !_renewalLinked(r))) return 'closed by ' + String(reportingCancelReasonOf(r) || '').trim();
+  if (_retenWhatIf('popReplaced', true) && _replacedLinked(r)) return 'replaced by a new plan within 45 days';
   if (retenExclRenewalSubs() && reportingSourceClass(r.subscription_source) === 'renewal') return 'renewal sub';
   if (retenExclZeroPay() && !_retenPaying(r)) return '$0 paying';
   const svc = Number(r.subscription_completed_services) || 0;
