@@ -282,6 +282,17 @@ function openTvBoard() {
   // greenAt: at/over it is green (greenOver = strictly over); in between yellow.
   const BAND = { red: '#F87171', yellow: '#FACC15', green: '#4ADE80' };
   const band = (v, redBelow, greenAt, strict) => { const n = Number(v); if (v == null || !isFinite(n)) return null; return n < redBelow ? BAND.red : (strict ? n > greenAt : n >= greenAt) ? BAND.green : BAND.yellow; };
+  // Split a drill's sales at the tile's band lines — green, yellow, red columns.
+  const bandCols = (rows, of, redBelow, greenAt, strict, f) => {
+    const g = [], y = [], r = [];
+    for (const x of rows) { const n = of(x); if (n < redBelow) r.push(x); else if (strict ? n > greenAt : n >= greenAt) g.push(x); else y.push(x); }
+    const byAmt = (a, b) => of(b) - of(a);
+    return [
+      { label: (strict ? 'Over ' : '') + f(greenAt) + (strict ? '' : ' and up'), rows: g.sort(byAmt), color: BAND.green },
+      { label: f(redBelow) + ' \u2013 ' + f(greenAt), rows: y.sort(byAmt), color: BAND.yellow },
+      { label: 'Under ' + f(redBelow), rows: r.sort(byAmt), color: BAND.red },
+    ];
+  };
   const tile = (label, value, sub, drill, color) => el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, borderLeft: color ? '3px solid ' + color : '1px solid ' + T.hair, padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '0', cursor: drill ? 'pointer' : 'default' }, title: drill ? 'Tap to see what is behind this number' : '', onclick: drill || null },
     eyebrow(label), figure(value, 'clamp(22px, 2.2vw, 34px)', color));   // (descriptions dropped per Isaac — the room knows what these are)
   // Drill panel (per Isaac): what is pulling a % up or down — the sales
@@ -301,8 +312,8 @@ function openTvBoard() {
     back.addEventListener('click', (e) => { if (e.target === back) close(); });
     const esc = (e) => { if (e.key === 'Escape') { close(); e.stopPropagation(); } };
     document.addEventListener('keydown', esc, true);
-    const list = (label, xs, hot) => el('div', { style: { minWidth: '0', display: 'flex', flexDirection: 'column' } },
-      el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' } }, eyebrow(label, { color: hot ? T.ember : T.ink }), eyebrow(xs.length + ' sale' + (xs.length === 1 ? '' : 's') + summary(xs))),
+    const list = (label, xs, hot, color) => el('div', { style: { minWidth: '0', display: 'flex', flexDirection: 'column' } },
+      el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px', borderTop: color ? '3px solid ' + color : 'none', paddingTop: color ? '8px' : '0' } }, eyebrow(label, { color: color || (hot ? T.ember : T.ink) }), eyebrow(xs.length + ' sale' + (xs.length === 1 ? '' : 's') + summary(xs))),
       el('div', { style: { overflow: 'auto', maxHeight: '60vh' } },
         ...(xs.length ? xs.map((x, i) => el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '12px', alignItems: 'baseline', padding: '9px 0', borderTop: i ? '1px solid ' + T.hair : 'none' } },
           el('div', { style: { minWidth: '0' } },
@@ -310,14 +321,17 @@ function openTvBoard() {
               x.customer_number ? el('span', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.06em', textTransform: 'none', marginLeft: '10px' }, title: 'Customer ID' }, '#' + x.customer_number) : null),
             el('div', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.04em', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
               el('span', { style: { color: T.ink } }, (Number(x.contract_months) > 1 ? Number(x.contract_months) + ' MO' : 'ONE-TIME')), '  ·  ' + (x._crmService || x.service_name || '—') + (sourceOf(x) ? '  ·  ' + sourceOf(x) : '') + (saleAt(x) ? '  ·  ' + ago(saleAt(x)) : ''))),
-          figure(amtFmt(amtOf(x)), '16px')))
+          figure(amtFmt(amtOf(x)), '16px', color)))
         : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'None.')])));
     back.append(el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, color: T.ink, width: 'min(1200px, 94vw)', padding: '26px 30px', display: 'flex', flexDirection: 'column', gap: '18px' } },
       el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
         hero ? el('div', {}) : el('div', { style: { fontFamily: HEAD, fontSize: '32px', letterSpacing: '.02em', textTransform: 'uppercase' } }, title),
         el('button', { style: { width: '36px', height: '36px', background: 'transparent', border: '1px solid ' + T.hair, color: T.dim, cursor: 'pointer', fontSize: '18px' }, onclick: close }, '\u00d7')),
       hero || null,
-      no ? el('div', { style: { display: 'grid', gridTemplateColumns: metric && metric.third ? '1fr 1fr 1fr' : '1fr 1fr', gap: '28px' } }, list(yesLabel, yes, true), list(noLabel, no, false), metric && metric.third ? list(metric.third.label, metric.third.rows, false) : null)
+      // Columns follow the tile's red / yellow / green bands (per Isaac, Oct 14):
+      // dollar tiles split three ways at the band lines; yes / no tiles color green / red.
+      (metric && metric.bands) ? el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(' + (metric.bands.length + (metric.third ? 1 : 0)) + ', minmax(0, 1fr))', gap: '24px' } }, ...metric.bands.map(b => list(b.label, b.rows, false, b.color)), metric.third ? list(metric.third.label, metric.third.rows, false) : null) :
+      no ? el('div', { style: { display: 'grid', gridTemplateColumns: metric && metric.third ? '1fr 1fr 1fr' : '1fr 1fr', gap: '28px' } }, list(yesLabel, yes, true, metric && metric.yesColor), list(noLabel, no, false, metric && metric.noColor), metric && metric.third ? list(metric.third.label, metric.third.rows, false) : null)
          : list(yesLabel, [...yes].sort((a, b) => saleKey(b) - saleKey(a)), true)));
     // In fullscreen the browser only paints the fullscreen element's
     // subtree — a layer on <body> opens invisibly (Pere's TV, per Isaac,
@@ -412,13 +426,13 @@ function openTvBoard() {
         // Layout (per Isaac, Sep 24): [Avg initial | Avg recurring] · Avg ACV /
         // Multi-year · Rec mix / Signed agreement · Auto pay.
         el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', minWidth: '0', minHeight: '0', height: '100%', alignItems: 'stretch' } },   // two square cards, full row height
-          tile('Avg initial', money(d.avgInitial), 'subscriptions', () => openDrill('Avg initial · ' + money(d.avgInitial), 'Initial $' + lastResortMin() + ' and up', d.splits.initial.yes, 'Initial under $' + lastResortMin() + '', d.splits.initial.no, repNameOf, null, { of: (x) => Number(x.initial_amount) || 0, fmt: money, third: { label: 'Excluded · RIDD Account', rows: d.splits.initial.excluded } }), band(d.avgInitial, 80, 100)),
-          tile('Avg recurring', money(d.avgMonthly), 'per month', () => openDrill('Avg recurring · ' + money(d.avgMonthly), 'Recurring $59 and up', d.splits.recurring.yes, 'Recurring under $59', d.splits.recurring.no, repNameOf, null, { of: (x) => Number(x.monthly_amount) || 0, fmt: (n) => money(n) + '/mo', third: { label: 'Excluded · RIDD Account', rows: d.splits.recurring.excluded } }), band(d.avgMonthly, 60, 70))),
-        tile('Avg ACV', money(d.avgContract), 'contract value per sale', () => openDrill('Avg ACV · ' + money(d.avgContract), 'ACV $700 and up', d.splits.acv.yes, 'ACV under $700', d.splits.acv.no, repNameOf, null, { of: (x) => Number(x.revenue_amount) || 0, fmt: money, third: { label: 'Excluded · RIDD Account, one-time, renewals', rows: d.splits.acv.excluded } }), band(d.avgContract, 700, 800, true)),
-        tile('Multi-year', pct(d.multiPct), '18 mo and up', () => openDrill('Multi-year · ' + pct(d.multiPct), 'Multi-year (18 mo+)', d.splits.multi.yes, '12-month', d.splits.multi.no, repNameOf, null, { of: (x) => Number(x.contract_months) || 0, fmt: (n) => n > 1 ? Math.round(n) + ' MO' : 'ONE-TIME', avg: false, third: { label: 'Excluded · RIDD Account, renewals', rows: d.splits.multi.excluded } }), band(d.multiPct, 50, 60, true)),
-        tile('Rec mix', pct(d.recMix), 'recurring subs of all sales', () => openDrill('Rec mix · ' + pct(d.recMix), 'Recurring subscriptions', d.splits.recmix.yes, 'One-time services', d.splits.recmix.no, repNameOf, null, { of: (x) => Number(x.revenue_amount) || 0, fmt: money, avg: false, third: { label: 'Excluded · RIDD Account', rows: d.splits.recmix.excluded } }), band(d.recMix, 80, 90, true)),
-        tile('Signed agreement', d.signedPct == null ? '—' : pct(d.signedPct), 'every agent sale', () => openDrill('Signed agreement · ' + (d.signedPct == null ? '—' : pct(d.signedPct)), 'Signed', d.splits.signed.yes, 'Not signed', d.splits.signed.no, repNameOf, null, { of: (x) => Number(x.revenue_amount) || 0, fmt: money, avg: false, third: { label: 'Excluded · RIDD Account, not in FieldRoutes yet', rows: d.splits.signed.excluded } }), band(d.signedPct, 100, 100)),   // per Isaac: under 100% red, 100% green
-        tile('Auto pay', d.autoPay == null ? '—' : pct(d.autoPay * 100), 'of CRM sales', () => openDrill('Auto pay · ' + (d.autoPay == null ? '—' : pct(d.autoPay * 100)), 'On auto pay', d.splits.autopay.yes, 'Not on auto pay', d.splits.autopay.no, repNameOf, null, { of: (x) => Number(x.revenue_amount) || 0, fmt: money, avg: false, third: { label: 'Excluded · RIDD Account', rows: d.splits.autopay.excluded } }), band(d.autoPay == null ? null : d.autoPay * 100, 100, 100))));   // per Isaac: under 100% red, 100% green
+          tile('Avg initial', money(d.avgInitial), 'subscriptions', () => openDrill('Avg initial · ' + money(d.avgInitial), 'Initial $' + lastResortMin() + ' and up', d.splits.initial.yes, 'Initial under $' + lastResortMin() + '', d.splits.initial.no, repNameOf, null, { of: (x) => Number(x.initial_amount) || 0, fmt: money, third: { label: 'Excluded · RIDD Account', rows: d.splits.initial.excluded }, bands: bandCols([...d.splits.initial.yes, ...d.splits.initial.no], (x) => Number(x.initial_amount) || 0, 80, 100, false, money) }), band(d.avgInitial, 80, 100)),
+          tile('Avg recurring', money(d.avgMonthly), 'per month', () => openDrill('Avg recurring · ' + money(d.avgMonthly), 'Recurring $59 and up', d.splits.recurring.yes, 'Recurring under $59', d.splits.recurring.no, repNameOf, null, { of: (x) => Number(x.monthly_amount) || 0, fmt: (n) => money(n) + '/mo', third: { label: 'Excluded · RIDD Account', rows: d.splits.recurring.excluded }, bands: bandCols([...d.splits.recurring.yes, ...d.splits.recurring.no], (x) => Number(x.monthly_amount) || 0, 60, 70, false, (n) => money(n) + '/mo') }), band(d.avgMonthly, 60, 70))),
+        tile('Avg ACV', money(d.avgContract), 'contract value per sale', () => openDrill('Avg ACV · ' + money(d.avgContract), 'ACV $700 and up', d.splits.acv.yes, 'ACV under $700', d.splits.acv.no, repNameOf, null, { of: (x) => Number(x.revenue_amount) || 0, fmt: money, third: { label: 'Excluded · RIDD Account, one-time, renewals', rows: d.splits.acv.excluded }, bands: bandCols([...d.splits.acv.yes, ...d.splits.acv.no], (x) => Number(x.revenue_amount) || 0, 700, 800, true, money) }), band(d.avgContract, 700, 800, true)),
+        tile('Multi-year', pct(d.multiPct), '18 mo and up', () => openDrill('Multi-year · ' + pct(d.multiPct), 'Multi-year (18 mo+)', d.splits.multi.yes, '12-month', d.splits.multi.no, repNameOf, null, { of: (x) => Number(x.contract_months) || 0, fmt: (n) => n > 1 ? Math.round(n) + ' MO' : 'ONE-TIME', avg: false, third: { label: 'Excluded · RIDD Account, renewals', rows: d.splits.multi.excluded }, yesColor: BAND.green, noColor: BAND.red }), band(d.multiPct, 50, 60, true)),
+        tile('Rec mix', pct(d.recMix), 'recurring subs of all sales', () => openDrill('Rec mix · ' + pct(d.recMix), 'Recurring subscriptions', d.splits.recmix.yes, 'One-time services', d.splits.recmix.no, repNameOf, null, { of: (x) => Number(x.revenue_amount) || 0, fmt: money, avg: false, third: { label: 'Excluded · RIDD Account', rows: d.splits.recmix.excluded }, yesColor: BAND.green, noColor: BAND.red }), band(d.recMix, 80, 90, true)),
+        tile('Signed agreement', d.signedPct == null ? '—' : pct(d.signedPct), 'every agent sale', () => openDrill('Signed agreement · ' + (d.signedPct == null ? '—' : pct(d.signedPct)), 'Signed', d.splits.signed.yes, 'Not signed', d.splits.signed.no, repNameOf, null, { of: (x) => Number(x.revenue_amount) || 0, fmt: money, avg: false, third: { label: 'Excluded · RIDD Account, not in FieldRoutes yet', rows: d.splits.signed.excluded }, yesColor: BAND.green, noColor: BAND.red }), band(d.signedPct, 100, 100)),   // per Isaac: under 100% red, 100% green
+        tile('Auto pay', d.autoPay == null ? '—' : pct(d.autoPay * 100), 'of CRM sales', () => openDrill('Auto pay · ' + (d.autoPay == null ? '—' : pct(d.autoPay * 100)), 'On auto pay', d.splits.autopay.yes, 'Not on auto pay', d.splits.autopay.no, repNameOf, null, { of: (x) => Number(x.revenue_amount) || 0, fmt: money, avg: false, third: { label: 'Excluded · RIDD Account', rows: d.splits.autopay.excluded }, yesColor: BAND.green, noColor: BAND.red }), band(d.autoPay == null ? null : d.autoPay * 100, 100, 100))));   // per Isaac: under 100% red, 100% green
 
     // Rep drill hero (per Isaac): the picture blown up, the day's numbers big.
     const repHero = (r, rank) => {
