@@ -585,14 +585,19 @@ function openTvBoard() {
             // Two-row grid (per Isaac, Oct 14) so the second line lines up under the first:
             // time under the name, the account's add-ons right under the service type.
             (() => {
-              const ao = addOnsFor(s), unassigned = ao.filter(a => !a.credited_profile_id);
+              // Red = credited to NOBODY in FieldRoutes (Commission To blank / N/A). A rep whose
+              // FieldRoutes login isn't linked to an app account still counts as assigned (per Isaac,
+              // Oct 14 — Dylan Kozian's Snake on #107904). Older tv_add_ons() without the employee
+              // column falls back to the app profile.
+              const _credited = (a) => { const e = String(a.credited_employee_id == null ? '' : a.credited_employee_id).trim(); return ('credited_employee_id' in a) ? (!!e && e !== '0' && e !== '-1') : !!a.credited_profile_id; };
+              const ao = addOnsFor(s), unassigned = ao.filter(a => !_credited(a));
               const cell = (col, row, child, extra) => el('div', { style: { gridColumn: col, gridRow: String(row), minWidth: '0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', ...(extra || {}) } }, child);
               const small = { fontFamily: MONO, fontSize: '10px', color: T.dim, letterSpacing: '.06em', marginTop: '2px' };
               const term = Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME';
               const aoSpan = !ao.length
                 ? el('span', { style: { letterSpacing: '.08em' } }, 'ADDONS +0')   // no add-ons: ADDONS +0 in the dim gray (per Isaac, Oct 14)
                 : el('span', { style: { fontWeight: '700', color: unassigned.length ? BAND.red : BAND.green, letterSpacing: '.08em' },
-                    title: ao.map(a => (a.service_name || 'Add-on') + (a.credited_profile_id ? '' : ' — not assigned to a rep')).join('\n') },
+                    title: ao.map(a => (a.service_name || 'Add-on') + (_credited(a) ? '' : ' — not assigned to a rep')).join('\n') },
                     'ADDONS +' + ao.length + '  ·  ' + ao.map(a => String(a.service_name || 'Add-on').toUpperCase()).join(', '));   // red alone says it's unassigned (per Isaac, Oct 14)
               // NAME | #id | service | term | source; second line: the time under the name, the add-ons under the service (per Isaac, Oct 14).
               const big = { fontFamily: VOICE, fontWeight: 600, fontSize: 'clamp(12px, .95vw, 15px)', color: T.ink };
