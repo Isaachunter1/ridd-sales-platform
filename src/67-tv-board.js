@@ -59,7 +59,7 @@ function openTvBoard() {
   // date picker). Old saved values (week / month / year) map to the new ids.
   { const _old = { week: 'this_week', month: 'this_month', year: 'this_year' }; if (_old[state._tvRange]) state._tvRange = _old[state._tvRange]; }
   const RANGES = ((typeof indicatorPresetOptions === 'function') ? indicatorPresetOptions() : [{ id: 'today', label: 'Today' }, { id: 'this_week', label: 'This Week' }, { id: 'this_month', label: 'This Month' }, { id: 'this_year', label: 'This Year' }])
-    .filter(o => o.id !== 'custom').map(o => [o.id, o.label]);
+    .filter(o => !['custom', 'all_time', 'last_year'].includes(o.id)).map(o => [o.id, o.label]);   // All time + Last year off the board (per Isaac, Oct 14)
   if (!RANGES.some(r => r[0] === state._tvRange)) state._tvRange = 'today';
   const _KEY_RANGES = ['today', 'this_week', 'this_month', 'this_year'];   // keys 1–4, as before
 
