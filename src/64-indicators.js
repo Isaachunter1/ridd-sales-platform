@@ -10507,6 +10507,9 @@ function indicatorYoYTrendChart() {
           legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 11 }, usePointStyle: true, filter: (item) => !/^YTD /.test(item.text) && !/ · live$/.test(item.text) && !/ · trend$/.test(item.text) } },
           tooltip: {
             backgroundColor: '#323230', padding: 10, cornerRadius: 8,
+            // The trendline stays on the chart but out of the hover box (per
+            // Isaac, Oct 14) — last year's same week shows there instead.
+            filter: (it) => !/ · trend$/.test(String((it.dataset && it.dataset.label) || '')),
             callbacks: {
               // Each line carries the actual Sun–Sat date range being
               // compared, e.g. "2026 (6/7–6/13): $812,440".
@@ -10521,6 +10524,24 @@ function indicatorYoYTrendChart() {
                 const f = (d) => (d.getMonth() + 1) + '/' + d.getDate();
                 const live = y === curY && todayMid >= s && todayMid <= e2 ? ' · week in progress' : '';
                 return ctx.dataset.label + ' (' + f(s) + '–' + f(e2) + '): ' + fmtVal(ctx.parsed.y) + live;
+              },
+              // Last year's figure for the same period (per Isaac, Oct 14) when
+              // the prior-year line isn't already in the box; nothing when
+              // there's no prior-year data for that week.
+              beforeFooter: (items) => {
+                const i = items[0]?.dataIndex;
+                if (i == null || i >= weeksAxis.length) return '';
+                if (items.some(it => parseInt(String((it.dataset && it.dataset.label) || ''), 10) === prevY && !/ · (trend|live)$/.test(String(it.dataset.label)))) return '';
+                const p = prevVals[i];
+                if (p == null || !isFinite(p)) return '';
+                if (gran !== 'week') return String(prevY) + ': ' + fmtVal(p);
+                const w = i + 1;
+                const jan1 = new Date(prevY, 0, 1);
+                const anchor = new Date(jan1); anchor.setDate(anchor.getDate() - anchor.getDay());
+                const s = new Date(anchor); s.setDate(s.getDate() + (w - 1) * 7);
+                const e2 = new Date(s); e2.setDate(e2.getDate() + 6);
+                const f = (d) => (d.getMonth() + 1) + '/' + d.getDate();
+                return String(prevY) + ' (' + f(s) + '–' + f(e2) + '): ' + fmtVal(p);
               },
               footer: (items) => {
                 const i = items[0]?.dataIndex;
