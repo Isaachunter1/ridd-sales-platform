@@ -22,23 +22,38 @@ function tvRawWithLive() {
   if (!live || !live.length || !base.length) return base;
   if (_tvLiveMergeCache.base === base && _tvLiveMergeCache.live === live) return _tvLiveMergeCache.out;
   const toIso = (d) => (typeof dateSoldToIso === 'function' && dateSoldToIso(d)) || String(d || '').slice(0, 10);
-  const key = (r) => String(r.customerId != null ? r.customerId : '') + '|' + String(r.subscription || '').trim().toLowerCase() + '|' + toIso(r.dateSold);
-  const liveBy = new Map(live.map(r => [key(r), r]));
-  const FRESH = ['active', 'status', 'initialStatus', 'autoPay', 'contractValue', 'initialPrice', 'contract', 'recurring', 'source', 'cancelDate'];
-  const seen = new Set();
-  const out = base.map(r => {
-    const k = key(r), lv = liveBy.get(k); if (!lv) return r;
-    seen.add(k);
-    const o = Object.assign({}, r);
-    FRESH.forEach(f => { if (lv[f] != null && lv[f] !== '') o[f] = lv[f]; });
-    o.services = Math.max(Number(r.services) || 0, Number(lv.services) || 0);
-    return o;
-  });
-  live.forEach(lv => {
-    const k = key(lv); if (seen.has(k)) return; seen.add(k);
-    const office = (typeof branchAlias === 'function') ? branchAlias(lv.office) : lv.office;
-    out.push(Object.assign({ customer: '', cancelReason: '', customerFlags: '', servicedDate: '', age: 0 }, lv, { office, _live: true }));
-  });
+  const day = (r) => String(r.customerId != null ? r.customerId : '') + '|' + toIso(r.dateSold);
+  const svc = (r) => String(r.subscription || '').trim().toLowerCase();
+  // The live pull lists EVERY subscription added in its window, so for a
+  // customer + day it has, its rows are the truth: the dataset's rows for that
+  // customer + day are replaced one-for-one (per Isaac, Oct 14 — #184028 showed
+  // twice after its plan was changed from Pest Mosquito 4 Seasonal to Pest 4:
+  // the dataset still had the old service, the live pull the new one).
+  const liveByDay = new Map();
+  live.forEach(lv => { const k = day(lv); (liveByDay.get(k) || liveByDay.set(k, []).get(k)).push(lv); });
+  const FRESH = ['subscription', 'active', 'status', 'initialStatus', 'autoPay', 'contractValue', 'initialPrice', 'contract', 'recurring', 'source', 'cancelDate'];
+  const baseByDay = new Map();
+  const out = [];
+  base.forEach(r => { const k = day(r); if (liveByDay.has(k)) (baseByDay.get(k) || baseByDay.set(k, []).get(k)).push(r); else out.push(r); });
+  for (const [k, lvs] of liveByDay) {
+    const pool = (baseByDay.get(k) || []).slice();
+    // Same service first, then whatever dataset row is left for that customer + day.
+    const pair = new Map();
+    lvs.forEach(lv => { const i = pool.findIndex(r => svc(r) === svc(lv)); if (i >= 0) pair.set(lv, pool.splice(i, 1)[0]); });
+    lvs.forEach(lv => { if (!pair.has(lv) && pool.length) pair.set(lv, pool.shift()); });
+    for (const lv of lvs) {
+      const r = pair.get(lv);
+      if (r) {
+        const o = Object.assign({}, r);
+        FRESH.forEach(f => { if (lv[f] != null && lv[f] !== '') o[f] = lv[f]; });
+        o.services = Math.max(Number(r.services) || 0, Number(lv.services) || 0);
+        out.push(o);
+      } else {
+        const office = (typeof branchAlias === 'function') ? branchAlias(lv.office) : lv.office;
+        out.push(Object.assign({ customer: '', cancelReason: '', customerFlags: '', servicedDate: '', age: 0 }, lv, { office, _live: true }));
+      }
+    }
+  }
   _tvLiveMergeCache = { base, live, out };
   return out;
 }
@@ -458,10 +473,10 @@ function openTvBoard() {
           : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'No sales in this window yet.')])))], { cursor: 'pointer', position: 'relative', padding: '0', onclick: () => { state._tvHeroOffices = false; render(); } })
       : panel([
         el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } }, eyebrow(d.range.label + ' · new revenue'), eyebrow(d.newCount + ' sale' + (d.newCount === 1 ? '' : 's') + (d.renewalCount ? '  |  ' + d.renewalCount + ' renewal' + (d.renewalCount === 1 ? '' : 's') : ''))),
-        el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '22px', flexWrap: 'wrap', marginTop: '6px' } },
+        el('div', { style: { display: 'flex', alignItems: 'center', gap: '22px', flexWrap: 'wrap', marginTop: '6px' } },   // Yesterday sits level with the big number (per Isaac, Oct 14)
           el('div', { class: fresh ? 'tv-pulse' : '', style: { fontFamily: HEAD, fontSize: 'clamp(64px, 6.8vw, 124px)', lineHeight: '.95', letterSpacing: '.01em', color: T.ember, fontVariantNumeric: 'tabular-nums' } }, money(d.revenue)),
           // Prior period at a quarter of the size (per Isaac): yesterday / last week / last month / last year, to date.
-          el('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px', paddingBottom: '6px' } },
+          el('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
             eyebrow(d.prior.label),
             el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '10px' } },
               figure(money(d.priorRevenue), 'clamp(16px, 1.7vw, 31px)', T.dim),
@@ -579,17 +594,21 @@ function openTvBoard() {
                 : el('span', { style: { fontWeight: '700', color: unassigned.length ? BAND.red : BAND.green, letterSpacing: '.08em' },
                     title: ao.map(a => (a.service_name || 'Add-on') + (a.credited_profile_id ? '' : ' — not assigned to a rep')).join('\n') },
                     'ADDONS +' + ao.length + '  ·  ' + ao.map(a => String(a.service_name || 'Add-on').toUpperCase()).join(', ') + (unassigned.length ? '  ·  ' + unassigned.length + ' UNASSIGNED' : ''));
-              // Line 1: NAME | #id | service | source. Line 2: time under the name; add-ons, then the term, under the service (per Isaac, Oct 14).
-              return el('div', { style: { display: 'grid', gridTemplateColumns: 'auto auto auto auto minmax(0, auto) auto minmax(0, 1fr)', alignItems: 'baseline', minWidth: '0', overflow: 'hidden' } },
-                cell('1', 1, el('span', { style: { fontFamily: HEAD, fontSize: 'clamp(17px, 1.35vw, 22px)', letterSpacing: '.02em', textTransform: 'uppercase' } }, (r ? r.name : (s._crmRep || 'Rep')))),
+              // One line (per Isaac, Oct 14, once the halves were equal): NAME | #id | service | add-ons | term | source; the time under the name.
+              const big = { fontFamily: VOICE, fontWeight: 600, fontSize: 'clamp(12px, .95vw, 15px)', color: T.ink };
+              return el('div', { style: { display: 'grid', gridTemplateColumns: 'auto auto auto auto max-content auto minmax(0, max-content) auto max-content auto minmax(0, 1fr)', alignItems: 'baseline', minWidth: '0', overflow: 'hidden' } },
+                cell('1', 1, el('span', { style: { fontFamily: HEAD, fontSize: 'clamp(17px, 1.35vw, 22px)', letterSpacing: '.02em', textTransform: 'uppercase' } }, (r ? r.name : (s._crmRep || 'Rep'))), { minWidth: 'max-content' }),
                 cell('2', 1, s.customer_number ? sep() : null),
-                cell('3', 1, s.customer_number ? el('span', { style: { fontFamily: MONO, fontSize: 'clamp(11px, .85vw, 13px)', color: T.dim, letterSpacing: '.06em' }, title: 'Customer ID' }, '#' + s.customer_number) : null),
+                cell('3', 1, s.customer_number ? el('span', { style: { fontFamily: MONO, fontSize: 'clamp(11px, .85vw, 13px)', color: T.dim, letterSpacing: '.06em' }, title: 'Customer ID' }, '#' + s.customer_number) : null, { minWidth: 'max-content' }),
                 cell('4', 1, sep()),
-                cell('5', 1, el('span', { style: { fontFamily: VOICE, fontWeight: 600, fontSize: 'clamp(12px, .95vw, 15px)', color: T.ink } }, s._crmService || s.service_name || '—')),
-                cell('6', 1, src ? sep() : null),
-                cell('7', 1, src ? el('span', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.04em' } }, src) : null),
-                cell('1 / 4', 2, at ? when(at) : '—', small),
-                cell('5 / 8', 2, el('div', { style: { display: 'flex', minWidth: '0' } }, el('span', { style: { minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis' } }, aoSpan), el('span', { style: { color: T.hair, padding: '0 8px', flex: 'none' } }, '|'), el('span', { style: { color: T.ink, fontWeight: '700', letterSpacing: '.08em', flex: 'none' } }, term)), small));   // a long add-on list ellipsizes; the term always shows
+                cell('5', 1, el('span', { style: big }, s._crmService || s.service_name || '—'), { minWidth: 'max-content' }),   // the service never truncates
+                cell('6', 1, sep()),
+                cell('7', 1, el('span', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim } }, aoSpan)),   // a long add-on list ellipsizes first
+                cell('8', 1, sep()),
+                cell('9', 1, el('span', { style: big }, term), { minWidth: 'max-content' }),
+                cell('10', 1, src ? sep() : null),
+                cell('11', 1, src ? el('span', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.04em' } }, src) : null),
+                cell('1 / 4', 2, at ? when(at) : '—', small));
             })(),
             figure(money(s.revenue_amount), 'clamp(17px, 1.5vw, 24px)', T.ink));
         }) : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'Nothing yet.')]))], { flex: '1' });
