@@ -44,8 +44,6 @@ function retenRenewalCohortCard(pop) {
   const pct = (a, d) => d ? (a / d * 100).toFixed(1) + '%' : '—';
   const n = (v) => Number(v || 0).toLocaleString();
   const drill = (title, rows) => rows && rows.length ? () => openReportingDrillModal({ chartTitle: 'Renewals by cohort · ' + title, sliceLabel: n(rows.length) + ' subscriptions', rows, formatValue: fmt.usd0 }) : null;
-  const bar = (g) => el('div', { style: { display: 'flex', height: '8px', borderRadius: '4px', overflow: 'hidden', minWidth: '120px', background: 'var(--card-2)' } },
-    ...KEYS.map(k => el('div', { title: LABEL[k] + ' ' + pct(g.cnt[k], g.n), style: { width: (g.n ? g.cnt[k] / g.n * 100 : 0) + '%', background: k === 'first' ? '#9CA3AF' : k === 'none' ? '#CBD5E1' : COLOR[k] } })));
   const td = (v, sty, fn) => el('td', { class: 'px-2 py-1.5 text-right tabular-nums whitespace-nowrap' + (fn ? ' cursor-pointer hover:underline' : ''), style: sty || {}, onclick: fn || null, title: fn ? 'Click for the accounts' : '' }, v);
   const row = (g, isTot) => el('tr', { class: 'border-t', style: { borderColor: isTot ? 'var(--border-2)' : 'var(--border)', fontWeight: isTot ? '700' : '' } },
     el('td', { class: 'px-2 py-1.5 font-semibold' }, String(g.yr)),
@@ -53,12 +51,10 @@ function retenRenewalCohortCard(pop) {
     ...KEYS.map(k => td(el('span', {}, n(g.cnt[k]), el('span', { style: { color: 'var(--text-muted)', fontWeight: '400' } }, ' · ' + pct(g.cnt[k], g.n))), { color: COLOR[k] }, drill(g.yr + ' · ' + LABEL[k], g.rows[k]))),
     td(pct(g.cnt.first + g.cnt.renCon, g.n), { fontWeight: '700' }),
     td(pct(g.cnt.renCon + g.cnt.renM2M, g.n)),
-    td(g.past ? pct(g.pastRen, g.past) : '—', { color: 'var(--text-muted)' }),
-    el('td', { class: 'px-2 py-1.5' }, bar(g)));
+    td(g.past ? pct(g.pastRen, g.past) : '—', { color: 'var(--text-muted)' }));
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-4 py-3 border-b', style: { borderColor: 'var(--border)' } },
-      el('h3', { class: 'text-sm font-bold' }, '🔁 Renewals by cohort'),
-      el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Customers still active today, by the year they started (first service). Under contract = an active plan still inside its agreement; month-to-month = active with no agreement running. No contract = every active plan is set up in FieldRoutes with no agreement (length 0) — done on purpose, so they are pulled out of month-to-month. Renewed = they have bought a renewal (Renewal source, a chained renewal, or one sold under the wrong source). Sentricon and one-time services left out. Click a number for the accounts.')),
+      el('h3', { class: 'text-sm font-bold' }, 'Renewals by cohort')),
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
       el('thead', { class: 'text-[9px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } }, el('tr', {},
         el('th', { class: 'px-2 py-1.5 text-left font-semibold' }, 'Cohort'),
@@ -66,7 +62,6 @@ function retenRenewalCohortCard(pop) {
         ...KEYS.map(k => el('th', { class: 'px-2 py-1.5 text-right font-semibold' }, LABEL[k])),
         el('th', { class: 'px-2 py-1.5 text-right font-semibold' }, 'Under contract'),
         el('th', { class: 'px-2 py-1.5 text-right font-semibold' }, 'Renewed'),
-        el('th', { class: 'px-2 py-1.5 text-right font-semibold', title: 'Of the active customers whose first contract has ended, the share who renewed' }, 'Renewed · past 1st term'),
-        el('th', {}))),
+        el('th', { class: 'px-2 py-1.5 text-right font-semibold', title: 'Of the active customers whose first contract has ended, the share who renewed' }, 'Renewed · past 1st term'))),
       el('tbody', {}, ...years.map(g => row(g, false)), row(tot, true)))));
 }
