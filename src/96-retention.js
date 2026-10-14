@@ -252,6 +252,39 @@ function retenPolicyBridgeBlock(pop) {
       'Official ' + (yr - 1) + ' attrition ' + pct(z.prev) + ' vs ' + pct(a.prev) + ' raw (' + pts(a.prev, z.prev) + '); ' + yr + ' YTD ' + pct(z.cur) + ' vs ' + pct(a.cur) + ' raw (' + pts(a.cur, z.cur) + '). The last row is the official rate shown in the tiles.'));
 }
 
+// Renewals entered wrong in FieldRoutes (per Isaac, Oct 14). For every
+// Renewal-source plan, look at the customer's plan before it (the one closed
+// nearest the renewal): closed with a non-Renewal reason → recode it; closed as
+// Combined → check it; never closed → close it; no earlier plan at all → the
+// source is probably wrong. Plus renewals sold under a non-Renewal source
+// (renewalMisSourcedRows). Each row's _flagReason says what to fix.
+function retenRenewalsEnteredWrong(rows) {
+  const all = Array.isArray(rows) ? rows : [];
+  const memo = retenRenewalsEnteredWrong._m;
+  if (memo && memo.src === all) return memo.out;
+  const d10 = (x) => String(x || '').slice(0, 10);
+  const byCust = new Map();
+  for (const r of all) { const c = String(r.customer_id || ''); if (c) (byCust.get(c) || byCust.set(c, []).get(c)).push(r); }
+  const out = [];
+  for (const r of all) {
+    if (!/^renewal\s*-/i.test(String(r.subscription_source || '').trim())) continue;
+    const c = String(r.customer_id || ''), sold = d10(r.sold_date || r.initial_service); if (!c || !sold) continue;
+    const older = (byCust.get(c) || []).filter(o => o !== r && d10(o.sold_date || o.initial_service) && d10(o.sold_date || o.initial_service) < sold);
+    const tag = 'Customer #' + c + ' · renewal ' + (r.subscription || '') + ' sold ' + sold + ' (' + (r.subscription_source || '') + ')';
+    if (!older.length) { out.push({ ...r, _flagReason: tag + ' — no earlier plan on this customer: likely a new sale under a Renewal source, fix the source' }); continue; }
+    const closed = older.filter(o => o.subscription_date_canceled);
+    if (!closed.length) { const o = older[older.length - 1]; out.push({ ...o, _flagReason: tag + ' — old plan ' + (o.subscription || '') + ' is still active: close it with the Renewal reason' }); continue; }
+    const t = new Date(sold + 'T00:00').getTime();
+    const o = closed.slice().sort((a, b) => Math.abs(new Date(d10(a.subscription_date_canceled) + 'T00:00') - t) - Math.abs(new Date(d10(b.subscription_date_canceled) + 'T00:00') - t))[0];
+    const why = String(reportingCancelReasonOf(o) || '').trim();
+    if (crmReasonIs('renewal', why)) continue;
+    out.push({ ...o, _flagReason: tag + ' — old plan ' + (o.subscription || '') + ' closed ' + d10(o.subscription_date_canceled) + ' as “' + (why || 'no reason') + '”' + (crmReasonIs('combined', why) ? ': check it, recode to the Renewal reason if it was a renewal' : ': recode it to the Renewal reason') });
+  }
+  if (typeof renewalMisSourcedRows === 'function') for (const m of renewalMisSourcedRows(all)) out.push({ ...m, _flagReason: m._flagReason || ('Customer #' + m.customer_id + ' · renewal sold under a non-Renewal source — fix the source') });
+  retenRenewalsEnteredWrong._m = { src: all, out };
+  return out;
+}
+
 function retenMethodCard(pop, _retenEff, ground, infoBtn) {
   const year = new Date().getFullYear();
   const yStart = year + '-01-01', pStart = (year - 1) + '-01-01';
@@ -449,6 +482,15 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
         title: 'Cancelled with a Renewal reason but the customer has no newer plan — counted as a real cancel. Fix the reason in the CRM if it was not a renewal.',
         onclick: (e) => { e.stopPropagation(); openReportingDrillModal({ chartTitle: 'Attrition steps · Renewal reason, no renewed plan', sliceLabel: n(renUnlinked.length) + ' subscription' + (renUnlinked.length === 1 ? '' : 's') + ' · no newer plan on the customer', rows: renUnlinked, formatValue: fmt.usd0 }); },
       }, '⚑ ' + n(renUnlinked.length) + ' with no renewed plan — kept as cancels'));
+      // Renewals entered wrong (per Isaac, Oct 14 — same red flag as the miscoded RORs):
+      // a Renewal-source plan whose old plan was closed with another reason, never
+      // closed, or doesn't exist; and renewals sold under a non-Renewal source.
+      const wrong = retenRenewalsEnteredWrong(g0);
+      if (wrong.length) node.children[1].append(el('button', {
+        class: 'mt-1.5 ml-1.5 rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.3)' },
+        title: 'Renewals entered wrong in FieldRoutes — the Flag column on each row says what to fix',
+        onclick: (e) => { e.stopPropagation(); openReportingDrillModal({ chartTitle: 'Attrition steps · Renewals entered wrong in the CRM', sliceLabel: n(wrong.length) + ' subscription' + (wrong.length === 1 ? '' : 's') + ' · the Flag column says what to fix', rows: wrong, formatValue: fmt.usd0 }); },
+      }, '⚑ ' + n(wrong.length) + ' renewals entered wrong — fix in the CRM'));
       return node;
     })(),
     step(next(), 'Link cancels replaced within 30 days', 'A plan cancelled for an ordinary reason (not a Renewal, Combined or ROR) when the same customer has another recurring plan sold from 7 days before to 30 days after the cancel that was still running past it. The customer never left \u2014 it was an uncoded renewal or a re-entry \u2014 so, like renewals, the closed plan is set aside and the new plan carries the customer. Whatever happens to the new plan later counts on that plan. The same list is on Auditing \u2192 \u201cCancelled, then replaced\u201d; recode the reason to a Renewal in FieldRoutes where that is what happened.', step1.length - stepRp.length, 'popReplaced', null, notIn(step1, stepRp), stepRp),
