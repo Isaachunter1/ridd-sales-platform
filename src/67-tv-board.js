@@ -488,7 +488,7 @@ function openTvBoard() {
     // someone can go assign it.
     const _feeLike = /\bfee\b|\btax\b|discount|surcharge/i;
     const _aoBySub = new Map(), _aoByCust = new Map();
-    for (const a of (Array.isArray(state.addOns) ? state.addOns : [])) {
+    for (const a of (Array.isArray(state._tvAddOns) ? state._tvAddOns : Array.isArray(state.addOns) ? state.addOns : [])) {
       if (!a || a.removed_at || _feeLike.test(String(a.service_name || ''))) continue;
       if (a.subscription_id) (_aoBySub.get(String(a.subscription_id)) || _aoBySub.set(String(a.subscription_id), []).get(String(a.subscription_id))).push(a);
       if (a.customer_id) (_aoByCust.get(String(a.customer_id)) || _aoByCust.set(String(a.customer_id), []).get(String(a.customer_id))).push(a);
@@ -551,8 +551,22 @@ function openTvBoard() {
   if (state.reportingActiveUploadId && state.reportingSubscriptionsLoadedFor !== state.reportingActiveUploadId && typeof loadReportingSubscriptions === 'function') {
     loadReportingSubscriptions(state.reportingActiveUploadId).then(rows => { if (rows && state.reportingActiveUploadId) { state.reportingSubscriptions = rows; state.reportingSubscriptionsLoadedFor = state.reportingActiveUploadId; _snapBySub.clear(); for (const r of rows) if (r.subscription_id != null && r.sold_at) _snapBySub.set(String(r.subscription_id), r); render(); } }).catch(() => {});
   }
+  // Add-ons for the Latest sales flags (per Isaac, Oct 14): the tv_add_ons
+  // function (migrations/20261014_tv_add_ons.sql) returns every open add-on —
+  // names, dates and who it is credited to, no money — to any signed-in user,
+  // so a TV on an office lead's login still sees unassigned ones. Until the
+  // migration runs it falls back to state.addOns (own rows, or all for admins).
+  const pullAddOns = async () => {
+    try {
+      const since = new Date(); since.setDate(since.getDate() - 400);
+      const { data, error } = await supabase.rpc('tv_add_ons', { since: since.toISOString().slice(0, 10) });
+      if (!error && Array.isArray(data)) state._tvAddOns = data;
+    } catch (e) { /* fall back to state.addOns */ }
+  };
+  pullAddOns().then(() => { try { render(); } catch (e) { /* keep the board up */ } });
   // Refresh the CRM pool in the background so the board keeps up with the sync.
   const pullFresh = async () => {
+    await pullAddOns();
     try { if (typeof refreshIndicatorsFromCloud === 'function') await refreshIndicatorsFromCloud(true); } catch (e) { /* poll retries */ }
     try { if (typeof refreshSalesData === 'function') await refreshSalesData(); } catch (e) { /* poll retries */ }
     try { render(); } catch (e) { /* keep the board up */ }
