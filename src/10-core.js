@@ -2131,10 +2131,17 @@ function _stalePendingCustIds(rows) {
     const serviced = !!(r.initial_service || r.initial_serviced_date) || String(r.initial_status || '').toLowerCase() === 'completed';
     const appt = r.initial_appt_date ? String(r.initial_appt_date).slice(0, 10) : null;
     const sold = r.sold_date ? String(r.sold_date).slice(0, 10) : null;
-    const stale = active && !serviced && (appt ? appt < cutIso : (!!sold && sold < cutNoIso));
+    // A frozen / cancelled plan that was ALSO never serviced doesn't make the
+    // customer real (per Isaac, Oct 14 — #162269: Active Pest Rodent 6 never
+    // booked, plus a frozen never-serviced Pest Rodent 4 sold the next day).
+    // Any serviced plan, or an active plan still inside its window, keeps them.
+    const stale = active ? (!serviced && (appt ? appt < cutIso : (!!sold && sold < cutNoIso))) : !serviced;
     by.set(id, (by.has(id) ? by.get(id) : true) && stale);
   }
-  return [...by].filter(([, v]) => v).map(([k]) => k);
+  // Only customers with at least one ACTIVE plan are ghosts — an all-frozen,
+  // never-serviced card is already dropped by reportingNeverStarted.
+  const hasActive = new Set(rows.filter(r => String(r.subscription_status || '').trim().toLowerCase() === 'active').map(r => String(r.customer_id)));
+  return [...by].filter(([k, v]) => v && hasActive.has(k)).map(([k]) => k);
 }
 function _ghostCopySubs(rows) {
   const act = (r) => String(r.subscription_status || '').trim().toLowerCase() === 'active';
