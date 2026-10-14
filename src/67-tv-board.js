@@ -593,7 +593,7 @@ function openTvBoard() {
                 ? el('span', { style: { letterSpacing: '.08em' } }, 'ADDONS +0')   // no add-ons: ADDONS +0 in the dim gray (per Isaac, Oct 14)
                 : el('span', { style: { fontWeight: '700', color: unassigned.length ? BAND.red : BAND.green, letterSpacing: '.08em' },
                     title: ao.map(a => (a.service_name || 'Add-on') + (a.credited_profile_id ? '' : ' — not assigned to a rep')).join('\n') },
-                    'ADDONS +' + ao.length + '  ·  ' + ao.map(a => String(a.service_name || 'Add-on').toUpperCase()).join(', ') + (unassigned.length ? '  ·  ' + unassigned.length + ' UNASSIGNED' : ''));
+                    'ADDONS +' + ao.length + '  ·  ' + ao.map(a => String(a.service_name || 'Add-on').toUpperCase()).join(', '));   // red alone says it's unassigned (per Isaac, Oct 14)
               // One line (per Isaac, Oct 14, once the halves were equal): NAME | #id | service | add-ons | term | source; the time under the name.
               const big = { fontFamily: VOICE, fontWeight: 600, fontSize: 'clamp(12px, .95vw, 15px)', color: T.ink };
               return el('div', { style: { display: 'grid', gridTemplateColumns: 'auto auto auto auto max-content auto minmax(0, max-content) auto max-content auto minmax(0, 1fr)', alignItems: 'baseline', minWidth: '0', overflow: 'hidden' } },
