@@ -174,6 +174,83 @@ function retenBranchDropdown(g0) {
   wrap.append(btn, panel);
   return wrap;
 }
+// ── Raw → official bridge (per Isaac, Oct 14) ───────────────────────────────
+// Every judgment step lowers attrition, so the card shows what each one is
+// worth: attrition with NO policy adjustments, then each RIDD policy switched
+// on in step order, ending at the official rate. Each is stated as company
+// policy — anyone who disagrees switches that step OFF above. Computed on
+// demand (it rebuilds the book once per policy) and cached per snapshot.
+const _retenBridgeMemo = new WeakMap();
+function retenPolicyBridge(pop) {
+  const rulesKey = JSON.stringify([_adminRules() || null, (state.reportingCancelConfig || []).length, state._reportingCancelConfigStamp || 0, [...retenBranchesOff()].sort()]);
+  const hit = _retenBridgeMemo.get(pop); if (hit && hit.key === rulesKey) return hit.rows;
+  const saved = state._retenWhatIf;
+  const yr = new Date().getFullYear();
+  const rows = [];
+  try {
+    state._retenWhatIf = null;
+    const off = _retenOfficial();
+    const offReasons = {}; for (const k of reportingExcludedCancelReasons()) offReasons[k] = false;
+    const cfg = { popRor: false, popRorTiming: false, popRorServiced: false, popNoStart: false, popCombined: false, popRenew: false, popReplaced: false, zero: false, reasons: offReasons };
+    const seq = [
+      ['Raw — no policy adjustments', null],
+      ['Remove 3-day RORs coded in the CRM', 'popRor'],
+      ['Remove 3-day RORs caught by timing', 'popRorTiming'],
+      ['Keep timing-RORs with 2+ completed appointments', 'popRorServiced'],
+      ['Remove cancels coded “never started”', 'popNoStart'],
+      ['Remove combined subscriptions', 'popCombined'],
+      ['Link renewals to the customer', 'popRenew'],
+      ['Link cancels replaced within 45 days', 'popReplaced'],
+      ['Remove subs with no ARR', 'zero'],
+      ['Don’t count these cancel reasons', 'reasons'],
+    ];
+    const t12 = semMetric('trailing12_attrition');
+    const A = semMetric('annual_attrition');
+    for (const [label, k] of seq) {
+      let applied = true;
+      if (k === 'reasons') { applied = Object.keys(offReasons).length > 0; delete cfg.reasons; }
+      else if (k) { applied = off[k] !== false; cfg[k] = off[k] !== false; }
+      state._retenWhatIf = { ...cfg };
+      const book = semRetentionBook(pop);
+      rows.push({ label, applied, book: book.length, prev: A(book, yr - 1).value, cur: A(book, yr).value, t12: t12(book).value });
+    }
+  } finally { state._retenWhatIf = saved; }
+  _retenBridgeMemo.set(pop, { key: rulesKey, rows });
+  return rows;
+}
+function retenPolicyBridgeBlock(pop) {
+  const open = state._retenBridgeOpen === true;
+  const yr = new Date().getFullYear();
+  const pct = (v) => v == null ? '—' : (v * 100).toFixed(1) + '%';
+  const pts = (a, b) => (a == null || b == null) ? '' : ((b - a) * 100 >= 0 ? '+' : '−') + Math.abs((b - a) * 100).toFixed(1) + ' pts';
+  const head = el('div', { class: 'flex items-center justify-between gap-3 py-2 border-t cursor-pointer', style: { borderColor: 'var(--border)' }, onclick: (e) => { e.stopPropagation(); state._retenBridgeOpen = !open; mountApp(); } },
+    el('div', {},
+      el('div', { class: 'text-sm font-black' }, (open ? '▾ ' : '▸ ') + 'Raw → official attrition'),
+      el('div', { class: 'text-[11px] text-muted-' }, 'What each RIDD policy above is worth. The scope steps (never serviced, one-time, hidden, excluded sources, retired) define the book and always apply; everything after them is a judgment call stated as RIDD policy. This starts from attrition with none of those policies, switches them on one at a time in step order, and ends at the official rate. Anyone who disagrees with a policy can switch that step OFF above and see the rate without it.')));
+  if (!open) return head;
+  let rows;
+  try { rows = retenPolicyBridge(pop); } catch (e) { return el('div', {}, head, el('div', { class: 'text-[11px] py-2', style: { color: '#DC2626' } }, 'Could not build the bridge: ' + (e && e.message || e))); }
+  const th = (t, right) => el('th', { class: 'py-1.5 px-2 text-[9px] uppercase tracking-widest font-semibold' + (right ? ' text-right' : ' text-left'), style: { color: 'var(--text-subtle)' } }, t);
+  const td = (v, o = {}) => el('td', { class: 'py-1.5 px-2 text-[11px]' + (o.right ? ' text-right tabular-nums' : ''), style: o.style || {} }, v);
+  const cell = (v, prev) => el('div', { class: 'leading-tight' }, el('div', { class: 'font-bold' }, pct(v)), prev !== undefined ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, pts(prev, v)) : null);
+  const body = rows.map((r, i) => {
+    const p = i ? rows[i - 1] : null, last = i === rows.length - 1;
+    return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: (i === 0 || last) ? 'var(--card-2)' : '' } },
+      td(el('span', { class: (i === 0 || last) ? 'font-black' : 'font-semibold' }, (i ? 'then: ' : '') + r.label + (r.applied ? '' : ' (off today)'))),
+      td(r.book.toLocaleString(), { right: true }),
+      td(cell(r.prev, p ? p.prev : undefined), { right: true }),
+      td(cell(r.cur, p ? p.cur : undefined), { right: true }),
+      td(cell(r.t12, p ? p.t12 : undefined), { right: true }));
+  });
+  const a = rows[0], z = rows[rows.length - 1];
+  return el('div', {}, head,
+    el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full' },
+      el('thead', {}, el('tr', {}, th('Policy'), th('Book', true), th((yr - 1) + ' attrition', true), th(yr + ' YTD', true), th('Trailing 12 mo', true))),
+      el('tbody', {}, ...body))),
+    el('div', { class: 'text-[11px] font-semibold py-1.5', style: { color: 'var(--text-muted)' } },
+      'Official ' + (yr - 1) + ' attrition ' + pct(z.prev) + ' vs ' + pct(a.prev) + ' raw (' + pts(a.prev, z.prev) + '); ' + yr + ' YTD ' + pct(z.cur) + ' vs ' + pct(a.cur) + ' raw (' + pts(a.cur, z.cur) + '). The last row is the official rate shown in the tiles.'));
+}
+
 function retenMethodCard(pop, _retenEff, ground, infoBtn) {
   const year = new Date().getFullYear();
   const yStart = year + '-01-01', pStart = (year - 1) + '-01-01';
@@ -269,7 +346,10 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     el('div', { class: 'w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-black shrink-0', style: { background: 'var(--card-2)', color: 'var(--text)' } }, String(num)),
     el('div', { class: 'flex-1 min-w-0' },
       el('div', { class: 'text-sm font-semibold' }, title),
-      el('div', { class: 'text-[11px] text-muted-' }, detail)),
+      el('div', { class: 'text-[11px] text-muted-' }, detail),
+      // Judgment steps are stated as RIDD policy (per Isaac, Oct 14): anyone who
+      // disagrees switches the step OFF and sees attrition without it.
+      chipKey ? el('div', { class: 'text-[10px] font-semibold mt-0.5', style: { color: 'var(--text-subtle)' } }, 'RIDD policy \u2014 switch it OFF (right) to see attrition without it.') : null),
     el('div', { class: 'text-right shrink-0 tabular-nums' },
       removed != null ? clickable(el('div', { class: 'text-sm font-bold', style: { color: removed ? '#DC2626' : 'var(--text-subtle)' } }, removed ? '−' + n(removed) : '0'), drill(title, rowsRemoved, 'removed at this step')) : null,
       fixedNote ? clickable(el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, fixedNote), drill(title, noteRows, 'kept by this step')) : null,
@@ -412,6 +492,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       if (unaccounted.length) clickable(node, drill('Left the book without a step', unaccounted, 'not removed by any step above'));
       return node;
     })(),
+    retenPolicyBridgeBlock(pop),
     // ── 9 · Excluded cancel reasons — configured RIGHT HERE (per Isaac) so
     // the card shows exactly what counts. A checked reason means a sub that
     // cancelled for it stays in the book as RETAINED (not a lost customer).
