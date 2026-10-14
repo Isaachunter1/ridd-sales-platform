@@ -5284,22 +5284,22 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
   // Metric columns — one definition drives the desktop table AND the phone
   // view, where a dropdown picks the single column to show (per Isaac).
   const COLS = [
-    { key: 'share', label: '% Mix', w: 'w-14', total: () => el('div', { class: 'w-14 text-right tabular-nums font-bold shrink-0', style: { color: 'var(--accent)' } }, '100%'),
-      row: (s) => el('div', { class: 'w-14 text-right tabular-nums font-bold shrink-0', style: { color: 'var(--accent)' } }, (s.share * 100).toFixed(1) + '%') },
-    { key: 'revenue', label: 'Revenue', w: 'w-24', total: () => el('div', { class: 'w-24 text-right tabular-nums shrink-0 font-black' }, fmt.usd0(T.rev)),
-      row: (s) => el('div', { class: 'w-24 text-right tabular-nums shrink-0 font-semibold' }, fmt.usd0(s.revenue)) },
-    { key: 'acv', label: 'ACV', w: 'w-16', total: () => el('div', { class: 'w-16 text-right tabular-nums shrink-0 font-bold' }, T.n > 0 ? fmt.usd0(T.rev / T.n) : '—'),
-      row: (s) => el('div', { class: 'w-16 text-right tabular-nums text-muted- shrink-0' }, s.acv > 0 ? fmt.usd0(s.acv) : '—') },
-    { key: 'avgInit', label: 'Avg Init', w: 'w-16', title: 'Average initial price', total: () => el('div', { class: 'w-16 text-right tabular-nums shrink-0 font-bold' }, T.n > 0 ? fmt.usd0(T.init / T.n) : '—'),
-      row: (s) => el('div', { class: 'w-16 text-right tabular-nums text-muted- shrink-0' }, s.avgInit > 0 ? fmt.usd0(s.avgInit) : '—') },
-    { key: 'my', label: 'MY %', w: 'w-12', title: 'Multi-year share of contract sales', total: () => el('div', { class: 'w-12 text-right tabular-nums shrink-0 font-bold' }, T.my == null ? '—' : (T.my * 100).toFixed(0) + '%'),
-      row: (s) => el('div', { class: 'w-12 text-right tabular-nums text-muted- shrink-0' }, s.myPct == null ? '—' : (s.myPct * 100).toFixed(0) + '%') },
-    { key: 'apay', label: 'APay', w: 'w-14', title: 'Auto-pay share', total: () => el('div', { class: 'w-14 text-right tabular-nums shrink-0 font-bold' }, T.n > 0 ? (T.ap / T.n * 100).toFixed(0) + '%' : '—'),
-      row: (s) => el('div', { class: 'w-14 text-right tabular-nums text-muted- shrink-0' }, s.count > 0 ? (s.apOn / s.count * 100).toFixed(0) + '%' : '—') },
-    { key: 'audit', label: 'Audit %', w: 'w-14', title: 'Accounts NOT flagged Failed Audit \u00f7 all accounts (passed, no-audit and awaiting all count as good). Same as the leaderboard\u2019s Audit %.', total: () => el('div', { class: 'w-14 text-right tabular-nums shrink-0 font-bold', style: { color: auditPctColor(T.n > 0 ? (T.n - T.af) / T.n : null) } }, T.n > 0 ? ((T.n - T.af) / T.n * 100).toFixed(0) + '%' : '\u2014'),
-      row: (s) => el('div', { class: 'w-14 text-right tabular-nums shrink-0 font-semibold', style: { color: auditPctColor(s.count > 0 ? (s.count - s.auditFail) / s.count : null) }, title: s.auditFail > 0 ? fmt.int(s.auditFail) + ' failed audit' : '' }, s.count > 0 ? ((s.count - s.auditFail) / s.count * 100).toFixed(0) + '%' : '\u2014') },
-    { key: 'attr', label: 'Attr %', w: 'w-14', title: 'Reportable cancels ÷ accounts (RORs, SNS, combined, one-time and renewals excluded)', total: () => el('div', { class: 'w-14 text-right tabular-nums font-black shrink-0', style: { color: attrColor(T.attr) } }, (T.attr * 100).toFixed(1) + '%'),
-      row: (s) => el('div', { class: 'w-14 text-right tabular-nums font-semibold shrink-0', style: { color: attrColor(s.attr) } }, (s.attr * 100).toFixed(1) + '%') },
+    { key: 'share', label: '% Mix', w: 'w-14', total: () => el('div', { class: 'w-14 text-left tabular-nums font-bold shrink-0', style: { color: 'var(--accent)' } }, '100%'),
+      row: (s) => el('div', { class: 'w-14 text-left tabular-nums font-bold shrink-0', style: { color: 'var(--accent)' } }, (s.share * 100).toFixed(1) + '%') },
+    { key: 'revenue', label: 'Revenue', w: 'w-24', total: () => el('div', { class: 'w-24 text-left tabular-nums shrink-0 font-black' }, fmt.usd0(T.rev)),
+      row: (s) => el('div', { class: 'w-24 text-left tabular-nums shrink-0 font-semibold' }, fmt.usd0(s.revenue)) },
+    { key: 'acv', label: 'ACV', w: 'w-16', total: () => el('div', { class: 'w-16 text-left tabular-nums shrink-0 font-bold' }, T.n > 0 ? fmt.usd0(T.rev / T.n) : '—'),
+      row: (s) => el('div', { class: 'w-16 text-left tabular-nums text-muted- shrink-0' }, s.acv > 0 ? fmt.usd0(s.acv) : '—') },
+    { key: 'avgInit', label: 'Avg Init', w: 'w-16', title: 'Average initial price', total: () => el('div', { class: 'w-16 text-left tabular-nums shrink-0 font-bold' }, T.n > 0 ? fmt.usd0(T.init / T.n) : '—'),
+      row: (s) => el('div', { class: 'w-16 text-left tabular-nums text-muted- shrink-0' }, s.avgInit > 0 ? fmt.usd0(s.avgInit) : '—') },
+    { key: 'my', label: 'MY %', w: 'w-12', title: 'Multi-year share of contract sales', total: () => el('div', { class: 'w-12 text-left tabular-nums shrink-0 font-bold' }, T.my == null ? '—' : (T.my * 100).toFixed(0) + '%'),
+      row: (s) => el('div', { class: 'w-12 text-left tabular-nums text-muted- shrink-0' }, s.myPct == null ? '—' : (s.myPct * 100).toFixed(0) + '%') },
+    { key: 'apay', label: 'APay', w: 'w-14', title: 'Auto-pay share', total: () => el('div', { class: 'w-14 text-left tabular-nums shrink-0 font-bold' }, T.n > 0 ? (T.ap / T.n * 100).toFixed(0) + '%' : '—'),
+      row: (s) => el('div', { class: 'w-14 text-left tabular-nums text-muted- shrink-0' }, s.count > 0 ? (s.apOn / s.count * 100).toFixed(0) + '%' : '—') },
+    { key: 'audit', label: 'Audit %', w: 'w-14', title: 'Accounts NOT flagged Failed Audit \u00f7 all accounts (passed, no-audit and awaiting all count as good). Same as the leaderboard\u2019s Audit %.', total: () => el('div', { class: 'w-14 text-left tabular-nums shrink-0 font-bold', style: { color: auditPctColor(T.n > 0 ? (T.n - T.af) / T.n : null) } }, T.n > 0 ? ((T.n - T.af) / T.n * 100).toFixed(0) + '%' : '\u2014'),
+      row: (s) => el('div', { class: 'w-14 text-left tabular-nums shrink-0 font-semibold', style: { color: auditPctColor(s.count > 0 ? (s.count - s.auditFail) / s.count : null) }, title: s.auditFail > 0 ? fmt.int(s.auditFail) + ' failed audit' : '' }, s.count > 0 ? ((s.count - s.auditFail) / s.count * 100).toFixed(0) + '%' : '\u2014') },
+    { key: 'attr', label: 'Attr %', w: 'w-14', title: 'Reportable cancels ÷ accounts (RORs, SNS, combined, one-time and renewals excluded)', total: () => el('div', { class: 'w-14 text-left tabular-nums font-black shrink-0', style: { color: attrColor(T.attr) } }, (T.attr * 100).toFixed(1) + '%'),
+      row: (s) => el('div', { class: 'w-14 text-left tabular-nums font-semibold shrink-0', style: { color: attrColor(s.attr) } }, (s.attr * 100).toFixed(1) + '%') },
   ];
   const narrow = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
   const body = el('div');
@@ -5314,7 +5314,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
       el('div', { class: 'flex items-center gap-3 text-[10px] uppercase tracking-wider text-muted- font-semibold pb-1.5' },
         firstCol('', opts.firstCol || 'Subscription'),
         el('div', { class: 'flex-1 text-right pr-2' }, 'Total'),
-        ...cols.map(c => el('div', { class: c.w + ' text-right shrink-0', title: c.title || undefined }, c.label))),
+        ...cols.map(c => el('div', { class: c.w + ' text-left shrink-0', title: c.title || undefined }, c.label))),
       topSubscriptions.length === 0
         ? el('div', { class: 'text-xs text-muted- italic py-3 text-center' }, 'No accounts here.')
         : el('div', { class: 'flex flex-col' },
