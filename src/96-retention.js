@@ -2592,7 +2592,7 @@ function reportingWaterfall() {
     // still a customer 12 / 24 months after the decision point (only counting
     // customers whose decision point is at least that old). Sentricon excluded.
     const nowMs = Date.now();
-    const grp = state._rtRenewGroup === 'year' ? 'year' : 'type';
+    const grp = 'type';   // By year retired per Isaac, Oct 14 — Renewals by cohort covers the year view
     const _sentR = (r) => /sentricon/i.test(String(r.subscription || ''));
     const _typeOf = (r) => { const src = String(r.subscription_source || '').trim(); const m = src.match(/renewal\s*[-–]\s*(.+)$/i) || src.match(/^(.+?)\s+renewal$/i); return m ? m[1].trim() : (src || 'Renewal'); };
     // Entity: the customer life (semantic layer) — serviced, non-Sentricon subscriptions linked by customer.
@@ -2636,7 +2636,6 @@ function reportingWaterfall() {
         td(mo(o.ageAt)), td(mo(o.after)), td(mo(o.tenure), { bold: true }));
     };
     const keys = [...groups.keys()].sort((x, y) => grp === 'year' ? String(y).localeCompare(String(x)) : groups.get(y).n - groups.get(x).n);
-    const btn = (on, l, fn) => el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95', style: on ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: fn }, l);
     // The headline: the answer in one line.
     const tA = all.tenure, tB = m2m.tenure;
     const head = (all.n && m2m.n && tA != null && tB != null)
@@ -2647,7 +2646,7 @@ function reportingWaterfall() {
         el('div', {},
           el('div', { class: 'font-display text-lg', title: 'Counted by CUSTOMER, not subscription: every subscription a customer has had is linked into one life. Still a customer = any active subscription. Sentricon excluded.' }, 'Renewal Retention' + (office !== 'all' ? ' · ' + officeLabel : '')),
           head ? el('div', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } }, head) : null),
-        el('div', { class: 'flex items-center gap-1' }, btn(grp === 'type', 'By type', () => { state._rtRenewGroup = 'type'; mountApp(); }), btn(grp === 'year', 'By year', () => { state._rtRenewGroup = 'year'; mountApp(); }))),
+        null),
       el('div', { class: 'scroll-x' },
         el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
           el('thead', {}, el('tr', {},
