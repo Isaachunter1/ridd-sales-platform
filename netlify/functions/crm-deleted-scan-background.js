@@ -79,7 +79,7 @@ exports.handler = async (event) => {
     //    IN filter returns the ids it found; anything missing is gone.
     const alive = new Set();
     const checked = new Set();
-    let calls = 0, skipped = 0, lastError = null;
+    let calls = 0, skipped = 0, confirmed = 0, lastError = null;
     // 250 ids per call keeps the GET URL well under server limits (1,000
     // ids made ~10k-char URLs — the likely reason every batch failed).
     for (const part of chunk(mirrorIds, 250)) {
@@ -97,7 +97,30 @@ exports.handler = async (event) => {
         // Sanity: if more than 10% of a batch is "missing" the answer is
         // suspect (truncated / filtered search), not a wave of deletions.
         const foundSet = new Set(found);
-        if (part.filter(id => !foundSet.has(id)).length > Math.max(5, part.length * 0.1)) { skipped++; lastError = 'batch with >10% missing ids skipped'; continue; }
+        const missing = part.filter(id => !foundSet.has(id));
+        // >10% missing used to skip the whole batch — 61 of 379 batches on
+        // Oct 14, ~15k customers never checked, and those are exactly the
+        // batches where deletions cluster. Now the missing ids get a second,
+        // independent check (customer/get, which returns every status): any
+        // id it DOES return is alive; an id neither endpoint returns is gone.
+        // If the confirm call errors or comes back empty, the batch is still
+        // skipped, so one bad answer can never mark live customers deleted.
+        if (missing.length > Math.max(5, part.length * 0.1)) {
+          const back = new Set();
+          let ok = true;
+          for (const mp of chunk(missing, 100)) {
+            try {
+              const g = await fr('customer/get', { customerIDs: mp.map(Number) });
+              calls++;
+              const list = Array.isArray(g.customers) ? g.customers : Object.values(g.customers || {});
+              list.forEach(c => back.add(String(c.customerID)));
+            } catch (e) { ok = false; lastError = 'confirm failed: ' + String(e && e.message || e).slice(0, 160); break; }
+          }
+          // customer/get returned none of a large missing set: treat as an API problem, not a wave of deletions.
+          if (!ok || (!back.size && missing.length > part.length * 0.5)) { skipped++; if (ok) lastError = 'batch with >50% missing and no confirm hits skipped'; continue; }
+          back.forEach(id => alive.add(id));
+          confirmed++;
+        }
         found.forEach(id => alive.add(id));
         part.forEach(id => checked.add(id));
       } catch (e) {
@@ -107,7 +130,7 @@ exports.handler = async (event) => {
       }
     }
     const deleted = mirrorIds.filter(id => checked.has(id) && !alive.has(id) && !recent.has(id));
-    console.log('[crm-deleted] calls', calls, 'rate-limited retries', fr.rateLimited, 'skipped batches', skipped, 'checked', checked.size, 'deleted', deleted.length);
+    console.log('[crm-deleted] calls', calls, 'rate-limited retries', fr.rateLimited, 'skipped batches', skipped, 'confirmed batches', confirmed, 'checked', checked.size, 'deleted', deleted.length);
 
     // 3. Merge with what we knew: ids from batches that were skipped tonight
     //    keep yesterday's verdict, so one flaky call never un-deletes anyone.
@@ -115,7 +138,7 @@ exports.handler = async (event) => {
     const prev = (prevRow && prevRow.value && Array.isArray(prevRow.value.ids)) ? prevRow.value.ids.map(String) : [];
     const keep = prev.filter(id => !checked.has(id) && !recent.has(id));
     const ids = [...new Set([...deleted, ...keep])].sort((a, b) => Number(a) - Number(b));
-    const value = { ids, scanned_at: new Date().toISOString(), mirror: mirrorIds.length, checked: checked.size, skipped_batches: skipped, calls, last_error: lastError, guarded_recent: recent.size };
+    const value = { ids, scanned_at: new Date().toISOString(), mirror: mirrorIds.length, checked: checked.size, skipped_batches: skipped, confirmed_batches: confirmed, calls, last_error: lastError, guarded_recent: recent.size };
     const { error } = await supabase.from('app_settings').upsert({ key: 'crm_deleted', value }, { onConflict: 'key' });
     if (error) throw error;
     return { statusCode: 200, body: JSON.stringify({ ok: true, deleted: ids.length, checked: checked.size, calls, skipped, ms: Date.now() - started }) };
