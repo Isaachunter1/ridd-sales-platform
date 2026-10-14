@@ -72,7 +72,6 @@ function viewReporting() {
     state.reportingSubTab === 'uploads'    ? reportingUploadsPanel() :
     state.reportingSubTab === 'putis'      ? reportingPutis() :
     state.reportingSubTab === 'geographic' ? reportingGeographic() :
-    state.reportingSubTab === 'definitions' ? viewSemanticDefinitions() :
     state.reportingSubTab === 'waterfall'  ? reportingWaterfall() :
     // 'services' retired as a top tab; 'health'/'nextbest' fold into
     // Retention — legacy persisted values land there too.

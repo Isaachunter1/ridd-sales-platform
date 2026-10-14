@@ -702,6 +702,8 @@ function adminConfigurations(part) {
     indicators,
     listCard('service', 'Service types', svcCount, reportingServiceConfigPanel),
     listCard('cancel', 'Cancel reasons', cxlCount, reportingCancelConfigPanel),
+    // Definitions moved here from its own Reporting tab (per Isaac, Oct 14).
+    typeof viewSemanticDefinitions === 'function' ? listCard('defs', 'Definitions', 'how every number is built', () => viewSemanticDefinitions({ embedded: true })) : null,
     advanced(
       typeof reportingCrmVocabPanel === 'function' ? listCard('vocab', 'CRM vocabulary', 'seller types · reasons · ROR window', reportingCrmVocabPanel) : null,
       typeof reportingOpsBaselinePanel === 'function' ? listCard('ops', 'Operations baseline', 'benchmarks', reportingOpsBaselinePanel) : null));

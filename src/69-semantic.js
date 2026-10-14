@@ -12,7 +12,7 @@
 // │             function. A screen asks for a metric by name (semMetric(id))
 // │             instead of working it out again.
 // │
-// │ Reporting → Definitions renders this registry, so anyone can see how a
+// │ Settings → Reporting rules → Definitions renders this registry, so anyone can see how a
 // │ number is built and which screens show it. Add a metric HERE first, then
 // │ use it; do not add new rate math inside a view.
 // │ Part of the app.js bundle (tools/bundle.js concatenates src/*.js in name order).
@@ -325,8 +325,9 @@ const SEM_OPEN_DIFFERENCES = [
   { what: 'Monthly churn', a: 'Seasonality: cancels \u00f7 the book at the start of that month', b: 'LTV card: its own monthly churn over a trailing 24 months', effect: 'Two monthly rates built separately that should be one.' },
 ];
 
-// ── Reporting → Definitions ─────────────────────────────────────────────
-function viewSemanticDefinitions() {
+// ── Settings → Reporting rules → Definitions ─────────────────────────────────────────────
+function viewSemanticDefinitions(opts) {
+  const embedded = !!(opts && opts.embedded);   // inside Settings → Reporting rules (per Isaac, Oct 14) — no page title
   const q = String(state._semSearch || '').trim().toLowerCase();
   const hit = (...xs) => !q || xs.some(x => String(x || '').toLowerCase().includes(q));
   const chip = (t) => el('span', { class: 'inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold', style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)', marginRight: '4px', marginBottom: '4px' } }, t);
@@ -345,7 +346,7 @@ function viewSemanticDefinitions() {
     lab('Shown on'), el('div', { class: 'text-xs' }, (m.used || []).join(' · ') || 'Not on a screen yet'));
   return el('div', { class: 'flex flex-col gap-4 w-full' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
-      el('div', {}, el('h1', { class: 'text-2xl font-bold' }, 'Definitions'),
+      el('div', {}, embedded ? null : el('h1', { class: 'text-2xl font-bold' }, 'Definitions'),
         el('div', { class: 'text-xs', style: { color: 'var(--text-muted)' } }, 'How every number is built: the rules in force, the things we count, and each metric’s formula. A screen listed under a metric reads that exact definition.')),
       el('input', { class: 'rounded-lg border px-3 py-1.5 text-xs', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: '220px' }, placeholder: 'Search definitions…', value: state._semSearch || '',
         oninput: (e) => { state._semSearch = e.target.value; clearTimeout(viewSemanticDefinitions._t); viewSemanticDefinitions._t = setTimeout(() => { mountApp(); const i = document.querySelector('input[placeholder^="Search definitions"]'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 250); } })),
