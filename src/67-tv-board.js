@@ -329,7 +329,7 @@ function openTvBoard() {
       avgInitial: subsMy.length ? subsMy.reduce((a, s) => a + (Number(s.initial_amount) || 0), 0) / subsMy.length : 0,   // house account out
       avgMonthly: subsMy.length ? subsMy.reduce((a, s) => a + (Number(s.monthly_amount) || 0), 0) / subsMy.length : 0,   // house account out
       avgContract: subsAcv.length ? rev(subsAcv) / subsAcv.length : 0,   // recurring NEW subs — house account, one-time and renewals out
-      multiPct: my.length ? multi / my.length * 100 : 0, autoPay: ap, signedPct, recMix: (() => { const nr = rowsAgent.filter(s => !isRenewal(s)); return nr.length ? subsMyNR.length / nr.length * 100 : 0; })(),   // renewals out (per Isaac, Oct 14) reps, offices, latest, goal,
+      multiPct: my.length ? multi / my.length * 100 : 0, autoPay: ap, signedPct, recMix: (() => { const nr = rowsAgent.filter(s => !isRenewal(s)); return nr.length ? subsMyNR.length / nr.length * 100 : 0; })(),   /* renewals out (per Isaac, Oct 14) */ reps, offices, latest, goal,
       splits: {
         multi: { yes: subsMyNR.filter(s => (typeof myBucketOf === 'function' ? myBucketOf(s) : null) === 'multi'), no: subsMyNR.filter(s => (typeof myBucketOf === 'function' ? myBucketOf(s) : null) === 'twelve'), excluded: subs.filter(s => isHouse(s) || isRenewal(s)) },
         signed: { yes: sgYes, no: sgNo, excluded: sgExcl },
@@ -594,21 +594,20 @@ function openTvBoard() {
                 : el('span', { style: { fontWeight: '700', color: unassigned.length ? BAND.red : BAND.green, letterSpacing: '.08em' },
                     title: ao.map(a => (a.service_name || 'Add-on') + (a.credited_profile_id ? '' : ' — not assigned to a rep')).join('\n') },
                     'ADDONS +' + ao.length + '  ·  ' + ao.map(a => String(a.service_name || 'Add-on').toUpperCase()).join(', '));   // red alone says it's unassigned (per Isaac, Oct 14)
-              // One line (per Isaac, Oct 14, once the halves were equal): NAME | #id | service | add-ons | term | source; the time under the name.
+              // NAME | #id | service | term | source; second line: the time under the name, the add-ons under the service (per Isaac, Oct 14).
               const big = { fontFamily: VOICE, fontWeight: 600, fontSize: 'clamp(12px, .95vw, 15px)', color: T.ink };
-              return el('div', { style: { display: 'grid', gridTemplateColumns: 'auto auto auto auto max-content auto minmax(0, max-content) auto max-content auto minmax(0, 1fr)', alignItems: 'baseline', minWidth: '0', overflow: 'hidden' } },
+              return el('div', { style: { display: 'grid', gridTemplateColumns: 'auto auto auto auto max-content auto max-content auto minmax(0, 1fr)', alignItems: 'baseline', minWidth: '0', overflow: 'hidden' } },
                 cell('1', 1, el('span', { style: { fontFamily: HEAD, fontSize: 'clamp(17px, 1.35vw, 22px)', letterSpacing: '.02em', textTransform: 'uppercase' } }, (r ? r.name : (s._crmRep || 'Rep'))), { minWidth: 'max-content' }),
                 cell('2', 1, s.customer_number ? sep() : null),
                 cell('3', 1, s.customer_number ? el('span', { style: { fontFamily: MONO, fontSize: 'clamp(11px, .85vw, 13px)', color: T.dim, letterSpacing: '.06em' }, title: 'Customer ID' }, '#' + s.customer_number) : null, { minWidth: 'max-content' }),
                 cell('4', 1, sep()),
                 cell('5', 1, el('span', { style: big }, s._crmService || s.service_name || '—'), { minWidth: 'max-content' }),   // the service never truncates
                 cell('6', 1, sep()),
-                cell('7', 1, el('span', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim } }, aoSpan)),   // a long add-on list ellipsizes first
-                cell('8', 1, sep()),
-                cell('9', 1, el('span', { style: big }, term), { minWidth: 'max-content' }),
-                cell('10', 1, src ? sep() : null),
-                cell('11', 1, src ? el('span', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.04em' } }, src) : null),
-                cell('1 / 4', 2, at ? when(at) : '—', small));
+                cell('7', 1, el('span', { style: big }, term), { minWidth: 'max-content' }),
+                cell('8', 1, src ? sep() : null),
+                cell('9', 1, src ? el('span', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.04em' } }, src) : null),
+                cell('1 / 4', 2, at ? when(at) : '—', small),
+                cell('5 / 10', 2, aoSpan, small));   // add-ons right under the service type (per Isaac, Oct 14)
             })(),
             figure(money(s.revenue_amount), 'clamp(17px, 1.5vw, 24px)', T.ink));
         }) : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'Nothing yet.')]))], { flex: '1' });
