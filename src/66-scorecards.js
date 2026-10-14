@@ -1767,6 +1767,16 @@ function _buildServiceLifecycleMap() {
 }
 
 // Recurring view of the lifecycle map (recurring iff lifecycle === 'recurring').
+// Retention's recurring test (per Isaac, Oct 14 — the "Remove retired service
+// types" step is gone): a RETIRED plan is one RIDD no longer sells, but the
+// customers still on it (Commercial Hotel Service, Pest Control Quarterly …)
+// are paying customers, so the retention book keeps them and their cancels count.
+function retenRecurringMap() {
+  const lc = reportingServiceLifecycleMap();
+  const map = new Map();
+  for (const [n, v] of lc) map.set(n, v === 'recurring' || v === 'retired');
+  return map;
+}
 function reportingServiceRecurringMap() {
   const lc = reportingServiceLifecycleMap();
   if (_svcLifecycleMemo.rec) return _svcLifecycleMemo.rec;

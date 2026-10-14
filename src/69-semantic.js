@@ -46,7 +46,7 @@ function semRetentionBook(pop) {
   const key = ((typeof retenChainRenewalCohort === 'function' && retenChainRenewalCohort()) ? 'C' : '') + (retenExclRenewalSubs() ? 'R' : '') + (retenExclZeroPay() ? 'Z' : '') + (retenExclFrozenOneSvc() ? 'F' : '') + (retenExclOneSvc() ? 'O' : '') + (reportingExcludeRorChurn() ? 'r' : '') + '|' + [...retenPopExclReasons()].join(',') + '|' + retenOneSvcExemptTerms().join(',') + '|' + reportingExcludedCancelReasons().size + '|' + JSON.stringify(state._retenWhatIf || null);
   const hit = _semBookCache.get(pop);
   if (hit && hit._rulesKey === key) return hit;
-  const recurringByName = reportingServiceRecurringMap();
+  const recurringByName = (typeof retenRecurringMap === 'function') ? retenRecurringMap() : reportingServiceRecurringMap();   // retired plans stay in the book
   const excludedReasons = reportingExcludedCancelReasons();
   const out = pop
     .filter(r => !!recurringByName.get(r.subscription))

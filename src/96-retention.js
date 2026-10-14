@@ -100,7 +100,8 @@ function _retenScopeStepsBuild(rows) {
   run('hidden', 'Remove hidden service types', 'Service types marked Hidden in Configurations \u2192 Service types: late fees, inspections, admin and billing items. These are line items on an account, not a pest-control plan a customer can keep or cancel, so they are removed before anything is counted.', r => !!(cfgByName.get(r.subscription) || {}).is_hidden, true);
   // Excluded lead sources run AFTER one-time types (per Isaac, Sep 21).
   run('sources', 'Remove excluded lead sources', 'Subscriptions whose lead source is switched off in Configurations \u2192 Lead sources' + (exclSrc.size ? ': ' + [...exclSrc].join(', ') : ' (none today)') + '. These sources are internal or bookkeeping channels rather than real customer acquisition (upsells recorded as new subs, internal saves, test and unknown sources), so the accounts behind them are not part of the retention book.', r => exclSrc.has(reportingSourceOf(r)), true);
-  run('retired', 'Remove retired service types', 'Service types marked Retired in Configurations \u2014 plans RIDD no longer sells or services. A retired plan that ended was closed by the company, not lost by the customer, so it is kept out of the book rather than counted as churn.', r => !recurringByName.get(r.subscription), true);
+  // ("Remove retired service types" retired per Isaac, Oct 14 — customers still on a plan RIDD no longer sells are
+  // paying customers, so they stay in the book; retenRecurringMap counts retired types as recurring.)
   return { steps, out: cur };
 }
 const _retenOfficeMemo = { g: null, by: new Map() };
@@ -254,7 +255,7 @@ function retenPolicyBridgeBlock(pop) {
 function retenMethodCard(pop, _retenEff, ground, infoBtn) {
   const year = new Date().getFullYear();
   const yStart = year + '-01-01', pStart = (year - 1) + '-01-01';
-  const recurringByName = reportingServiceRecurringMap();
+  const recurringByName = retenRecurringMap();
   // `ground` = everything FieldRoutes has for this office (retenGroundZero);
   // `pop` = what is left after the scope steps (what the tab reads).
   const g0 = Array.isArray(ground) ? ground : pop;
@@ -962,7 +963,7 @@ function reportingWaterfall() {
     // it. Same rules, same order as _retenEff, so cohort + excluded = the
     // whole book. Year = first-service year, else the year it was sold.
     const exclTable = (() => {
-      const recurringByName = reportingServiceRecurringMap();
+      const recurringByName = retenRecurringMap();
       // First the Attrition Steps scope rules (never serviced, deleted, one-time, hidden, excluded source, retired …),
       // then the retention-population rules — so In cohort + Excluded = everything in FieldRoutes for the branch pick.
       const _ground = scoped === popA ? groundA : (popB && scoped === popB) ? groundB : null;
