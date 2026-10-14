@@ -226,6 +226,10 @@ function openTvBoard() {
       if (tw) return String(tw.crm_contract_state) === 'signed';
       const snap = (s.crm_subscription_id != null && _snapBySub.get(String(s.crm_subscription_id)))
         || (s.customer_number != null && _snapByCustSvc.get(String(s.customer_number) + '|' + String(s._crmService || s.service_name || '').trim().toLowerCase()));
+      // Signed in the last two days per the live pull (app_settings.crm_signed_recent) —
+      // covers CRM sales with no app row (one-time jobs, sellers with no account).
+      const recent = state._crmSignedRecent;
+      if (recent && s.customer_number != null && recent.has(String(s.customer_number))) return true;
       return snap ? String(snap.contract_state || 'none') === 'signed' : null;
     };
     const sgKnown = rowsAgent.filter(s => signedOf(s) != null);
@@ -556,6 +560,12 @@ function openTvBoard() {
   // names, dates and who it is credited to, no money — to any signed-in user,
   // so a TV on an office lead's login still sees unassigned ones. Until the
   // migration runs it falls back to state.addOns (own rows, or all for admins).
+  const pullSignedRecent = async () => {
+    try { const { data } = await supabase.from('app_settings').select('value').eq('key', 'crm_signed_recent').maybeSingle();
+      const ids = data && data.value && Array.isArray(data.value.customer_ids) ? data.value.customer_ids : null;
+      if (ids) state._crmSignedRecent = new Set(ids.map(String)); } catch (e) { /* snapshot only */ }
+  };
+  pullSignedRecent().then(() => { try { render(); } catch (e) { /* keep the board up */ } });
   const pullAddOns = async () => {
     try {
       const since = new Date(); since.setDate(since.getDate() - 400);
@@ -566,7 +576,7 @@ function openTvBoard() {
   pullAddOns().then(() => { try { render(); } catch (e) { /* keep the board up */ } });
   // Refresh the CRM pool in the background so the board keeps up with the sync.
   const pullFresh = async () => {
-    await pullAddOns();
+    await pullAddOns(); await pullSignedRecent();
     try { if (typeof refreshIndicatorsFromCloud === 'function') await refreshIndicatorsFromCloud(true); } catch (e) { /* poll retries */ }
     try { if (typeof refreshSalesData === 'function') await refreshSalesData(); } catch (e) { /* poll retries */ }
     try { render(); } catch (e) { /* keep the board up */ }

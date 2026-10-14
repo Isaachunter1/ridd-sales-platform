@@ -284,6 +284,7 @@ exports.handler = async (event) => {
     // signs — so re-check the last two days' unsigned rows every run and flip
     // them to signed the moment FieldRoutes has a COMPLETED e-sign document.
     let signFlipped = 0;
+    const signedRecent = new Set(signedCust);   // every customer seen signed this run (first sight + re-check)
     if (_anySigned) {
       try {
         const known = ids.filter(id => haveSub.has(id));
@@ -306,6 +307,7 @@ exports.handler = async (event) => {
             }
           }
           } catch (e) { console.warn('[fr-live] contract re-check skipped:', e.message); }
+          done.forEach(id => signedRecent.add(id));
           console.log('[fr-live] signed re-check: ' + open.length + ' unsigned row(s) · ' + viaNotes + ' customer(s) with a signed-contract note · ' + done.size + ' signed in total');
           for (const r of open) {
             if (!done.has(String(r.customer_number))) continue;
@@ -314,6 +316,18 @@ exports.handler = async (event) => {
           }
         }
       } catch (e) { console.warn('[fr-live] signed refresh skipped:', e.message); }
+    }
+    // Publish who signed (per Isaac, Oct 14 — #178104's One Time German Roach was
+    // signed at 2:24 PM, but one-time / no-account sales are never logged as
+    // app sales, so the TV only had the day-old snapshot to go on). The TV reads
+    // this list for CRM sales with no app row. Written only when it changes.
+    if (_anySigned) {
+      try {
+        const idsNow = [...signedRecent].sort();
+        const { data: cur } = await supabase.from('app_settings').select('value').eq('key', 'crm_signed_recent').maybeSingle();
+        const prev = (cur && cur.value && Array.isArray(cur.value.customer_ids)) ? cur.value.customer_ids : [];
+        if (prev.join(',') !== idsNow.join(',')) await supabase.from('app_settings').upsert({ key: 'crm_signed_recent', value: { at: new Date().toISOString(), since: from, customer_ids: idsNow } });
+      } catch (e) { console.warn('[fr-live] signed list not published:', e.message); }
     }
 
     // 3b. True-up: auto-added rows whose Initial / Monthly / Revenue drifted
