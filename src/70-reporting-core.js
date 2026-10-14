@@ -757,7 +757,8 @@ function reportingPinBar(key, bar) {
 function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, summary }) {
   if (typeof trackAction === 'function') trackAction('drill', String(chartTitle || '').split(' · ')[0].slice(0, 60), { rows: (rows || []).length });
   const overlay = el('div', { class: 'modal-overlay' });
-  const closeKey = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', closeKey); } };
+  let closeMenu = null;   // set while a column filter menu is open
+  const closeKey = (e) => { if (e.key === 'Escape') { if (closeMenu) { closeMenu(); return; } overlay.remove(); document.removeEventListener('keydown', closeKey); } };
   document.addEventListener('keydown', closeKey);
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) { overlay.remove(); document.removeEventListener('keydown', closeKey); }
@@ -817,6 +818,33 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
 
   let sortKey = 'arv';   // default: largest ARR first
   let sortDir = 'desc';
+  // ── Excel-style column filters (per Isaac, Oct 14): click a header for
+  // sort A→Z / Z→A plus a checklist of every value in the column — untick
+  // values to hide them, (Select all) to bring them back. Values are matched
+  // as SHOWN in the cell, so the list reads like the table. Several columns
+  // can be filtered at once; the count line and Export CSV follow the filter.
+  const money0 = (v) => '$' + Math.round(Number(v) || 0).toLocaleString();
+  const DISP = {
+    customer: r => customerName(r), office: r => r.office_name || '', rep: r => r.sold_by || '',
+    state: r => (r.state || '').toUpperCase(), zip: r => String(r.zip_code || ''), county: r => r.county || '',
+    subscription: r => r.subscription || '', source: r => r.subscription_source || '', status: r => r.subscription_status || '',
+    svcs: r => String(Number(r.subscription_completed_services) || 0), flag: r => r._flagReason || '',
+    arv: r => r.annual_recurring_value != null ? money0(r.annual_recurring_value) : '',
+    initialPrice: r => r.initial_price != null && r.initial_price !== '' ? money0(r.initial_price) : '',
+    recurring: r => { const v = _drillRecurring(r); return v ? money0(v) : ''; },
+    term: r => Number(r.agreement_length) ? r.agreement_length + ' mo' : '',
+    appts: r => String(Number(r.subscription_completed_services) || 0), autopay: r => _drillAutopay(r) ? 'Yes' : 'No',
+    sold: r => r.sold_date ? fmtDate(r.sold_date) : '', initial: r => r.initial_service ? fmtDate(r.initial_service) : '',
+    pastdue: r => r.days_past_due ? r.days_past_due + 'd' : '', balance: r => (Number(r.responsible_balance) || 0) > 0 ? money0(r.responsible_balance) : '',
+    canceled: r => r.subscription_date_canceled ? fmtDate(r.subscription_date_canceled) : '', reason: r => r.subscription_cancellation_reason || '',
+  };
+  const BLANK = '(Blanks)';
+  const colByKey = Object.fromEntries(cols.map(c => [c.key, c]));
+  const dispOf = (c, r) => { const v = DISP[c.key] ? DISP[c.key](r) : String(c.get(r)); return v === '' || v == null ? BLANK : String(v); };
+  const filters = new Map();   // column key → Set of HIDDEN display values
+  const passesExcept = (r, skip) => { for (const [k, hid] of filters) { if (k === skip) continue; if (hid.has(dispOf(colByKey[k], r))) return false; } return true; };
+  let filteredCache = null;
+  const filteredRows = () => filteredCache || (filteredCache = filters.size ? rows.filter(r => passesExcept(r, null)) : rows);
   // Render is WINDOWED: a big slice (e.g. the whole snapshot behind the
   // Subscriptions card) is tens of thousands of rows × 11 cells — building
   // that many DOM nodes at once freezes then crashes the tab. We render a page
@@ -828,7 +856,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
   const computeSorted = () => {
     const col = cols.find(c => c.key === sortKey) || cols[0];
     const dir = sortDir === 'asc' ? 1 : -1;
-    return [...rows].sort((a, b) => {
+    return [...filteredRows()].sort((a, b) => {
       const av = col.get(a), bv = col.get(b);
       if (av < bv) return -1 * dir;
       if (av > bv) return 1 * dir;
@@ -907,22 +935,75 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
   const resort = () => { sortedCache = null; renderLimit = RENDER_PAGE; renderRows(); };
 
   const headRow = el('tr', {});
+  const countLine = el('div', { class: 'text-xs text-muted- mt-1' });
+  const paintCount = () => {
+    const f = filteredRows();
+    const base = (f.length === rows.length ? rows.length.toLocaleString() + ' row' + (rows.length === 1 ? '' : 's') : f.length.toLocaleString() + ' of ' + rows.length.toLocaleString() + ' rows (filtered)');
+    const tc = f.reduce((t, r) => t + (Number(r.subscription_contract_value) || 0), 0), ta = f.reduce((t, r) => t + (Number(r.annual_recurring_value) || 0), 0);
+    countLine.replaceChildren(base + ' · ' + formatter(tc) + ' contract' + (ta > 0 ? ' · ' + formatter(ta) + ' ARV' : '') + ' · click a column to sort or filter',
+      ...(filters.size ? [el('button', { class: 'ml-2 underline font-semibold', style: { color: 'var(--accent)', background: 'transparent', border: 'none', cursor: 'pointer' }, onclick: () => { filters.clear(); applyFilters(); } }, 'Clear all filters')] : []));
+  };
+  const applyFilters = () => { filteredCache = null; paintHeaders(); paintCount(); resort(); };
+  const openMenu = (c, th) => {
+    if (closeMenu) closeMenu();
+    const hidden = new Set(filters.get(c.key) || []);
+    // Values available given the OTHER columns' filters (like Excel).
+    const seen = new Map();
+    for (const r of rows) { if (!passesExcept(r, c.key)) continue; const d = dispOf(c, r); const e = seen.get(d); if (e) e.n++; else seen.set(d, { n: 1, o: c.get(r) }); }
+    const vals = [...seen.entries()].sort((a, b) => a[0] === BLANK ? 1 : b[0] === BLANK ? -1 : (a[1].o < b[1].o ? -1 : a[1].o > b[1].o ? 1 : a[0].localeCompare(b[0])));
+    const MAXV = 1000;
+    let q = '';
+    const list = el('div', { style: { maxHeight: '260px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '8px', padding: '4px 0', background: 'var(--card)' } });
+    const visible = () => vals.filter(([d]) => !q || d.toLowerCase().includes(q));
+    const paintList = () => {
+      const vis = visible(), shown = vis.slice(0, MAXV);
+      const allOn = vis.every(([d]) => !hidden.has(d));
+      const line = (label, checked, onToggle, count, bold) => { const cb = el('input', { type: 'checkbox' }); cb.checked = checked; cb.onchange = onToggle;
+        return el('label', { class: 'flex items-center gap-2 px-2 py-0.5 text-[11px] cursor-pointer hover:brightness-95', style: { fontWeight: bold ? '700' : '400' } }, cb, el('span', { class: 'flex-1 truncate', title: label }, label), count != null ? el('span', { class: 'tabular-nums', style: { color: 'var(--text-subtle)' } }, count.toLocaleString()) : null); };
+      list.replaceChildren(...[
+        line(q ? '(Select all search results)' : '(Select all)', allOn, () => { if (allOn) vis.forEach(([d]) => hidden.add(d)); else vis.forEach(([d]) => hidden.delete(d)); paintList(); }, null, true),
+        ...shown.map(([d, e]) => line(d, !hidden.has(d), () => { if (hidden.has(d)) hidden.delete(d); else hidden.add(d); paintList(); }, e.n)),
+        vis.length > MAXV ? el('div', { class: 'px-2 py-1 text-[10px]', style: { color: 'var(--text-subtle)' } }, (vis.length - MAXV).toLocaleString() + ' more — type to search') : null,
+        !vis.length ? el('div', { class: 'px-2 py-1 text-[11px]', style: { color: 'var(--text-subtle)' } }, 'No matches') : null].filter(Boolean));
+    };
+    const search = el('input', { type: 'text', placeholder: 'Search ' + c.label.toLowerCase() + '…', class: 'w-full rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      oninput: (e) => { q = e.target.value.trim().toLowerCase(); paintList(); } });
+    const isNum = c.type === 'num';
+    const sortBtn = (dir, label) => el('button', { class: 'w-full text-left px-2 py-1 rounded text-[11px] font-semibold hover:brightness-95', style: { background: sortKey === c.key && sortDir === dir ? 'var(--card-2)' : 'transparent', color: 'var(--text)', border: 'none', cursor: 'pointer' },
+      onclick: () => { sortKey = c.key; sortDir = dir; done(); paintHeaders(); resort(); } }, label);
+    const btn = (label, primary, fn) => el('button', { class: 'rounded-lg px-3 py-1 text-[11px] font-bold', style: primary ? { background: 'var(--accent)', color: 'var(--accent-text, #3A1D12)', border: 'none', cursor: 'pointer' } : { background: 'var(--card-2)', color: 'var(--text)', border: '1px solid var(--border)', cursor: 'pointer' }, onclick: fn }, label);
+    const menu = el('div', { class: 'rounded-xl p-2 flex flex-col gap-1.5', style: { position: 'fixed', zIndex: '2100', boxShadow: '0 12px 32px rgba(0,0,0,.25)', width: '260px', background: 'var(--card)', border: '1px solid var(--border-2)', textTransform: 'none', letterSpacing: 'normal' }, onclick: (e) => e.stopPropagation() },
+      sortBtn('asc', isNum ? 'Sort smallest → largest' : 'Sort A → Z'),
+      sortBtn('desc', isNum ? 'Sort largest → smallest' : 'Sort Z → A'),
+      filters.has(c.key) ? el('button', { class: 'w-full text-left px-2 py-1 rounded text-[11px] font-semibold', style: { background: 'transparent', color: 'var(--accent)', border: 'none', cursor: 'pointer' }, onclick: () => { filters.delete(c.key); done(); applyFilters(); } }, 'Clear filter from ' + c.label) : null,
+      el('div', { style: { borderTop: '1px solid var(--border)', margin: '2px 0' } }),
+      search, list,
+      el('div', { class: 'flex justify-end gap-2 pt-1' },
+        btn('Cancel', false, () => done()),
+        btn('OK', true, () => { if (hidden.size) filters.set(c.key, hidden); else filters.delete(c.key); done(); applyFilters(); })));
+    const outside = (e) => { if (!menu.contains(e.target)) done(); };
+    const done = () => { menu.remove(); document.removeEventListener('mousedown', outside, true); closeMenu = null; };
+    closeMenu = done;
+    paintList();
+    card.append(menu);
+    const rc = th.getBoundingClientRect();
+    menu.style.top = Math.min(rc.bottom + 4, window.innerHeight - menu.offsetHeight - 8) + 'px';
+    menu.style.left = Math.max(8, Math.min(rc.left, window.innerWidth - 268)) + 'px';
+    setTimeout(() => document.addEventListener('mousedown', outside, true), 0);
+    search.focus();
+  };
   const paintHeaders = () => {
     headRow.replaceChildren(...cols.map(c => {
       const active = c.key === sortKey;
-      const arrow = '';
+      const filtered = filters.has(c.key);
       if (c.noSort) return el('th', { class: 'text-right px-3 py-2 font-semibold whitespace-nowrap' }, c.label);
-      return el('th', {
+      const th = el('th', {
         class: (c.align === 'right' ? 'text-right' : 'text-left') + ' px-3 py-2 font-semibold cursor-pointer select-none whitespace-nowrap hover:text-default transition',
-        style: active ? { color: 'var(--accent)', fontWeight: '800' } : undefined,
-        title: 'Sort by ' + c.label,
-        onclick: () => {
-          if (sortKey === c.key) { sortDir = sortDir === 'asc' ? 'desc' : 'asc'; }
-          else { sortKey = c.key; sortDir = c.type === 'num' ? 'desc' : 'asc'; }
-          paintHeaders();
-          resort();
-        },
-      }, c.label + arrow);
+        style: (active || filtered) ? { color: 'var(--accent)', fontWeight: '800' } : undefined,
+        title: 'Sort or filter ' + c.label,
+      }, c.label + (active ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '') + (filtered ? ' ⧩' : ' ▾'));
+      th.onclick = (e) => { e.stopPropagation(); openMenu(c, th); };
+      return th;
     }));
   };
 
@@ -967,9 +1048,6 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
     URL.revokeObjectURL(url);
   };
 
-  paintHeaders();
-  renderRows();
-
   const card = el('div', {
     class: 'card w-full w-full my-8 overflow-hidden flex flex-col',
     style: { maxHeight: 'calc(100vh - 64px)' },
@@ -978,11 +1056,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
       el('div', {},
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, chartTitle),
         el('h2', { class: 'text-xl font-bold mt-0.5' }, sliceLabel),
-        el('div', { class: 'text-xs text-muted- mt-1' },
-          rows.length.toLocaleString() + ' row' + (rows.length === 1 ? '' : 's') +
-          ' · ' + formatter(totalContract) + ' contract' +
-          (totalArv > 0 ? ' · ' + formatter(totalArv) + ' ARV' : '') +
-          ' · click a column to sort'),
+        countLine,
       ),
       el('div', { class: 'flex items-center gap-2 shrink-0' },
         rows.length > 0 && el('button', {
@@ -1014,6 +1088,9 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
     moreBar,
   );
 
+  paintHeaders();
+  paintCount();
+  renderRows();
   overlay.append(card);
   document.body.append(overlay);
 }
