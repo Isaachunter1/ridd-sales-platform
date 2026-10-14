@@ -44,7 +44,7 @@ function retenRenewalCohortCard(pop) {
   const pct = (a, d) => d ? (a / d * 100).toFixed(1) + '%' : '—';
   const n = (v) => Number(v || 0).toLocaleString();
   const drill = (title, rows) => rows && rows.length ? () => openReportingDrillModal({ chartTitle: 'Renewals by cohort · ' + title, sliceLabel: n(rows.length) + ' subscriptions', rows, formatValue: fmt.usd0 }) : null;
-  const td = (v, sty, fn) => el('td', { class: 'px-2 py-1.5 text-right tabular-nums whitespace-nowrap' + (fn ? ' cursor-pointer hover:underline' : ''), style: sty || {}, onclick: fn || null, title: fn ? 'Click for the accounts' : '' }, v);
+  const td = (v, sty, fn) => el('td', { class: 'px-2 py-1.5 text-left tabular-nums whitespace-nowrap' + (fn ? ' cursor-pointer hover:underline' : ''), style: sty || {}, onclick: fn || null, title: fn ? 'Click for the accounts' : '' }, v);
   const row = (g, isTot) => el('tr', { class: 'border-t', style: { borderColor: isTot ? 'var(--border-2)' : 'var(--border)', fontWeight: isTot ? '700' : '' } },
     el('td', { class: 'px-2 py-1.5 font-semibold' }, String(g.yr)),
     td(n(g.n)),
@@ -58,10 +58,10 @@ function retenRenewalCohortCard(pop) {
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
       el('thead', { class: 'text-[9px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } }, el('tr', {},
         el('th', { class: 'px-2 py-1.5 text-left font-semibold' }, 'Cohort'),
-        el('th', { class: 'px-2 py-1.5 text-right font-semibold' }, 'Active customers'),
-        ...KEYS.map(k => el('th', { class: 'px-2 py-1.5 text-right font-semibold' }, LABEL[k])),
-        el('th', { class: 'px-2 py-1.5 text-right font-semibold' }, 'Under contract'),
-        el('th', { class: 'px-2 py-1.5 text-right font-semibold' }, 'Renewed'),
-        el('th', { class: 'px-2 py-1.5 text-right font-semibold', title: 'Of the active customers whose first contract has ended, the share who renewed' }, 'Renewed · past 1st term'))),
+        el('th', { class: 'px-2 py-1.5 text-left font-semibold' }, 'Active customers'),
+        ...KEYS.map(k => el('th', { class: 'px-2 py-1.5 text-left font-semibold' }, LABEL[k])),
+        el('th', { class: 'px-2 py-1.5 text-left font-semibold' }, 'Under contract'),
+        el('th', { class: 'px-2 py-1.5 text-left font-semibold' }, 'Renewed'),
+        el('th', { class: 'px-2 py-1.5 text-left font-semibold', title: 'Of the active customers whose first contract has ended, the share who renewed' }, 'Renewed · past 1st term'))),
       el('tbody', {}, ...years.map(g => row(g, false)), row(tot, true)))));
 }

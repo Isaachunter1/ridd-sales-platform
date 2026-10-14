@@ -2627,8 +2627,8 @@ function reportingWaterfall() {
     if (!all.n && !m2m.n) return null;
     const pct = (n, d) => d ? (n / d * 100).toFixed(1) + '%' : '—';
     const mo = (v) => v == null ? '—' : v.toFixed(1) + ' mo';
-    const th = (t, right, help) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' }, title: help || '' }, t);
-    const td = (t, o = {}) => el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap ' + (o.left ? 'text-left font-semibold' : 'text-right') + (o.bold ? ' font-black' : ''), style: { color: o.color, cursor: o.onclick ? 'pointer' : undefined }, onclick: o.onclick, title: o.title || '' }, t);
+    const th = (t, right, help) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap text-left', /* left-justified (per Isaac, Oct 14) */ style: { color: 'var(--text-muted)', background: 'var(--card-2)' }, title: help || '' }, t);
+    const td = (t, o = {}) => el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap text-left' + (o.left ? ' font-semibold' : '') + (o.bold ? ' font-black' : ''), style: { color: o.color, cursor: o.onclick ? 'pointer' : undefined }, onclick: o.onclick, title: o.title || '' }, t);
     const open = (title, n, rs) => rs.length ? () => openReportingDrillModal({ chartTitle: 'Renewal Retention · ' + title, sliceLabel: fmt.int(n) + ' customer' + (n === 1 ? '' : 's') + ' · every subscription they have had', rows: rs, formatValue: (v) => fmt.usd0(v) }) : undefined;
     const row = (label, o, strong, vs) => {
       const keep = o.n ? o.here / o.n : null, base = vs && vs.n ? vs.here / vs.n : null;
