@@ -316,8 +316,14 @@ function viewSales() {
           // or admins can audit on a phone without horizontal-scrolling a
           // 13-column table.
           salesCardsMobile(filtered, { isAdmin, queueFilter }),
+          // Upfront queue (per Isaac, Oct 14): sales from Oct 12 on — when office add-ons started — read as the
+          // TV's Latest-sales rows with their add-ons and initial date; anything older keeps the table below.
+          (queueFilter === 'upfront' && filtered.some(s => String(s.sold_date || '') >= SALES_FEED_START))
+            ? el('div', { class: 'hidden sm:block mb-5' }, salesFeed(filtered.filter(s => String(s.sold_date || '') >= SALES_FEED_START), { isAdmin })) : null,
+          (queueFilter === 'upfront' && !filtered.some(s => String(s.sold_date || '') < SALES_FEED_START)) ? null :
           el('div', { class: 'hidden sm:block' },
-            salesTable(filtered, { isAdmin, sortKey, sortDir,
+            queueFilter === 'upfront' && filtered.some(s => String(s.sold_date || '') >= SALES_FEED_START) ? el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted- mb-2' }, 'Before ' + fmt.dateShortYear(SALES_FEED_START)) : null,
+            salesTable(queueFilter === 'upfront' ? filtered.filter(s => String(s.sold_date || '') < SALES_FEED_START) : filtered, { isAdmin, sortKey, sortDir,
               // Pending Backend Lock surfaces the second-pass review controls
               // (Audit 2 + Lock dropdown) plus any enriched columns from an
               // uploaded backend report so admins can decide row-by-row.
@@ -684,7 +690,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
             !showBackend && headerCell('Monthly',     { sortableKey: 'monthly_amount', align: 'right', help: H.monthly }),
             headerCell('Revenue',     { sortableKey: 'revenue_amount', align: 'right', help: H.revenue }),
             headerCell('Sold Date',   { sortableKey: 'sold_date', help: H.sold }),
-            headerCell('Service Date', { sortableKey: 'service_date', title: 'The initial appointment in FieldRoutes: the scheduled date until it happens, then the completed date with a \u2713. Commissionable status doesn\u2019t wait on this \u2014 a sale charged upfront is commissionable on the sale date.' }),
+            headerCell('Initial Date', { sortableKey: 'service_date', title: 'The initial appointment in FieldRoutes: the scheduled date until it happens, then the completed date with a \u2713. Commissionable status doesn\u2019t wait on this \u2014 a sale charged upfront is commissionable on the sale date.' }),
             // Three flags, sheet-style (per Isaac): PIF · COMM. (commission
             // paid out) · Upfront (payment collected at signing). Admins
             // toggle PIF / Upfront right here; COMM. is read-only — it is
@@ -1959,3 +1965,99 @@ function currentPayPeriodId(year) {
   return now.getFullYear() > year ? periods.length : 1;
 }
 
+
+// ── Sales feed (per Isaac, Oct 14) ───────────────────────────────────────────
+// The TV board's Latest-sales rows on the Sales tab: NAME | #id | service |
+// term | source on the first line; sold date, the account's ADD-ONS (ticket
+// items, from Oct 12 when office add-ons started) and the INITIAL date on the
+// second; revenue, status and the CRM checks on the right. Add-ons are
+// green when FieldRoutes credits someone (Commission To) and red when it
+// credits nobody — whether or not that person has an app account.
+const SALES_FEED_START = '2026-10-12';
+let _salesAoPull = 0;
+function salesFeedAddOnsPull() {
+  if (Date.now() - _salesAoPull < 5 * 60000 || typeof supabase === 'undefined' || !supabase || (typeof DEMO !== 'undefined' && DEMO)) return;
+  _salesAoPull = Date.now();
+  // tv_add_ons(): every add-on with who FieldRoutes credits, readable on any login (reps' own RLS only shows theirs).
+  Promise.resolve(supabase.rpc('tv_add_ons', { since: SALES_FEED_START })).then(({ data, error }) => {
+    if (!error && Array.isArray(data)) { state._tvAddOns = data; if (state.view && /sales/.test(state.view)) mountApp(); }
+  }).catch(() => { /* falls back to state.addOns */ });
+}
+function saleAddOnsFor(sale) {
+  const all = Array.isArray(state._tvAddOns) ? state._tvAddOns : (Array.isArray(state.addOns) ? state.addOns : []);
+  const fee = /\bfee\b|\btax\b|discount|surcharge/i;
+  const sub = String(sale.crm_subscription_id || ''), cust = String(sale.customer_number || ''), day = String(sale.sold_date || '').slice(0, 10);
+  const d0 = day ? new Date(day + 'T00:00').getTime() : null;
+  const seen = new Set(), out = [];
+  for (const a of all) {
+    if (!a || a.removed_at || fee.test(String(a.service_name || ''))) continue;
+    const onSub = sub && String(a.subscription_id || '') === sub;
+    const sameDay = !onSub && cust && String(a.customer_id || '') === cust && d0 != null && Math.abs(new Date(String(a.added_at || '').slice(0, 10) + 'T00:00').getTime() - d0) <= 86400000;
+    if (!onSub && !sameDay) continue;
+    const k = String(a.subscription_id) + '|' + String(a.service_name || '').toLowerCase(); if (seen.has(k)) continue; seen.add(k);
+    out.push(a);
+  }
+  return out;
+}
+function saleAddOnCredited(a) {
+  if (!('credited_employee_id' in a)) return !!a.credited_profile_id;
+  const e = String(a.credited_employee_id == null ? '' : a.credited_employee_id).trim();
+  return !!e && e !== '0' && !e.startsWith('-');
+}
+// Initial date (was "Service Date"): completed ✓ / scheduled 📅 / past-and-not-done ⚠ / not scheduled.
+function saleInitialDateNode(s, small) {
+  const c = (typeof commissionableDate === 'function') ? commissionableDate(s) : { why: '' };
+  const svc = s.crm_serviced_at ? String(s.crm_serviced_at).slice(0, 10) : null;
+  const sched = s.crm_initial_appt_at ? String(s.crm_initial_appt_at).slice(0, 10) : null;
+  const cls = 'tabular-nums whitespace-nowrap' + (small ? '' : ' font-medium');
+  if (svc) return el('span', { class: cls, title: 'Initial service completed ' + svc + ' · ' + c.why, style: { color: 'var(--ok)' } }, (small ? 'INITIAL ' : '') + '✓ ' + fmt.dateShortYear(svc));
+  if (sched) { const past = sched < new Date().toISOString().slice(0, 10); return el('span', { class: cls, title: (past ? 'Initial appointment was scheduled for ' + sched + ' but is not marked completed in FieldRoutes' : 'Initial appointment scheduled for ' + sched) + ' · ' + c.why, style: past ? { color: '#B45309' } : {} }, (small ? 'INITIAL ' : '') + (past ? '⚠ ' : '\u{1F4C5} ') + fmt.dateShortYear(sched)); }
+  return el('span', { class: cls, title: 'No initial appointment on the subscription yet · ' + c.why, style: { color: 'var(--text-subtle)' } }, (small ? 'INITIAL ' : '') + 'not scheduled');
+}
+function salesFeed(rows, { isAdmin = false } = {}) {
+  salesFeedAddOnsPull();
+  const sep = () => el('span', { style: { color: 'var(--border-2)', padding: '0 9px' } }, '|');
+  const ok = '#15803D', bad = '#DC2626';
+  const sorted = [...rows].sort((a, b) => String(b.sold_date || '').localeCompare(String(a.sold_date || '')) || String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  return el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'flex items-baseline justify-between px-4 pt-4 pb-2' },
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Latest sales'),
+      el('div', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, rows.length + ' since ' + fmt.dateShortYear(SALES_FEED_START))),
+    ...sorted.map((s, i) => {
+      const rep = (state.allProfiles || []).find(p => p.id === s.rep_id);
+      const svcName = (typeof nameFromId === 'function' ? nameFromId(state.serviceTypes, s.service_type_id) : '') || s.crm_subscription || '—';
+      const src = typeof nameFromId === 'function' ? nameFromId(state.sources, s.source_id) : '';
+      const term = Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME';
+      const ao = saleAddOnsFor(s), unassigned = ao.filter(a => !saleAddOnCredited(a));
+      const aoNode = !ao.length
+        ? el('span', { style: { color: 'var(--text-subtle)', letterSpacing: '.06em' } }, 'ADDONS +0')
+        : el('span', { style: { color: unassigned.length ? bad : ok, fontWeight: '700', letterSpacing: '.06em' },
+            title: ao.map(a => (a.service_name || 'Add-on') + (saleAddOnCredited(a) ? ' · credited in FieldRoutes' : ' — Commission To is N/A in FieldRoutes')).join('\n') },
+            'ADDONS +' + ao.length + '  ·  ' + ao.map(a => String(a.service_name || 'Add-on').toUpperCase()).join(', '));
+      const cell = (col, row, child, extra) => el('div', { style: { gridColumn: col, gridRow: String(row), minWidth: '0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', ...(extra || {}) } }, child);
+      const small = { fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' };
+      return el('div', {
+        class: 'grid items-center gap-4 px-4 py-2.5 cursor-pointer transition hover:brightness-95',
+        style: { gridTemplateColumns: 'minmax(0, 1fr) auto auto', borderTop: '1px solid var(--border)' },
+        onclick: (e) => { if (e.target.closest('select, button, input, textarea, a')) return; openNewSaleModal(null, s); },
+      },
+        el('div', { style: { display: 'grid', gridTemplateColumns: 'max-content auto max-content auto max-content auto max-content auto minmax(0, 1fr)', alignItems: 'baseline', minWidth: '0', overflow: 'hidden' } },
+          cell('1', 1, el('span', { class: 'font-black uppercase', style: { fontSize: '15px', letterSpacing: '.02em' } }, rep ? rep.full_name : (s.customer_name ? '—' : 'Rep')), { minWidth: 'max-content' }),
+          cell('2', 1, s.customer_number ? sep() : null),
+          cell('3', 1, s.customer_number ? el('span', { class: 'tabular-nums text-muted-', style: { fontSize: '12px' }, title: s.customer_name || '' }, '#' + s.customer_number) : null, { minWidth: 'max-content' }),
+          cell('4', 1, sep()),
+          cell('5', 1, el('span', { class: 'font-semibold', style: { fontSize: '13px' } }, svcName), { minWidth: 'max-content' }),
+          cell('6', 1, sep()),
+          cell('7', 1, el('span', { class: 'font-semibold', style: { fontSize: '13px' } }, term), { minWidth: 'max-content' }),
+          cell('8', 1, src ? sep() : null),
+          cell('9', 1, src ? el('span', { class: 'text-muted-', style: { fontSize: '11px' } }, src) : null),
+          cell('1 / 4', 2, el('span', { class: 'tabular-nums' }, 'Sold ' + fmt.dateShortYear(s.sold_date)), small),
+          cell('5 / 6', 2, aoNode, small),
+          cell('7 / 10', 2, saleInitialDateNode(s, true), small)),
+        el('div', { class: 'text-right tabular-nums font-semibold', style: { fontSize: '17px' },
+          title: s.commission_split ? 'Commissionable ' + fmt.usd(s.revenue_amount) + ' of ' + fmt.usd(s.total_revenue) + ' on the account' : '' },
+          fmt.usd0 ? fmt.usd0(s.revenue_amount) : fmt.usd(s.revenue_amount),
+          s.commission_split && Number(s.total_revenue) > Number(s.revenue_amount) + 0.005 ? el('div', { class: 'text-[9px] font-normal text-muted-' }, 'of ' + fmt.usd(s.total_revenue)) : null),
+        el('div', { class: 'flex items-center gap-2' }, statusSelect(s.id), (typeof saleAuditChip === 'function') ? saleAuditChip(s) : null));
+    }));
+}
