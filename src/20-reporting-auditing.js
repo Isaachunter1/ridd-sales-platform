@@ -950,7 +950,7 @@ function auditSubTasks() {
   //    and ghost copies are already out of the book (_filterDeletedRows). Newest cancels first.
   const _d = (x) => Date.parse(String(x || '').slice(0, 10));
   const noReason = rows.filter(r => {
-      if (!r.subscription_date_canceled || !/^(unspecified\.?)?$/i.test(String(r.subscription_cancellation_reason || '').trim())) return false;
+      if (!r.subscription_date_canceled || String(r.subscription_cancellation_reason || '').trim()) return false;   // blank only — “Unspecified” IS a reason (per Isaac, Oct 14)
       if (notSale(r.subscription) || /one[\s-]?time/i.test(String(r.subscription || ''))) return false;
       const done = Number(r.subscription_completed_services != null ? r.subscription_completed_services : r.completed_services) || 0;
       if (!(r.initial_service || r.initial_serviced_date) || String(r.initial_status || 'completed').trim().toLowerCase() !== 'completed' || done < 1) return false;
@@ -963,6 +963,31 @@ function auditSubTasks() {
   tasks.push({ tag: 'No reason', title: 'Cancelled with no reason', noun: 'subscription', tone: 'check', rows: noReason,
     ok: 'All clear — every serviced cancel has a reason.',
     todo: (n) => n.toLocaleString() + ' serviced cancel' + s(n) + ' with no reason (' + nrYr.toLocaleString() + ' in ' + yr + ') — search the customer # in FieldRoutes and add the reason so the retention book and churn reasons are right. Never-serviced, 3-day reversals and deleted customers are already left out.' });
+  // 8. Cancelled, then replaced by a new plan within 45 days (per Isaac, Oct 14): the same customer has a
+  //    newer recurring plan sold from 7 days before to 45 days after the cancel, still running past it, and
+  //    the cancel was NOT coded as a renewal (those are already linked to the customer's oldest plan). Likely
+  //    uncoded renewals or re-entries — review them before deciding to link them like renewals.
+  {
+    const cfgM = new Map((state.reportingServiceConfig || []).map(c => [c.service_name, c]));
+    const recur = (r) => { const c = cfgM.get(r.subscription); return !!c && (c.lifecycle || 'recurring') !== 'onetime' && c.lifecycle !== 'retired' && !c.is_hidden; };
+    const d10 = (x) => String(x || '').slice(0, 10);
+    const byCust = new Map();
+    for (const r of rows) { if (!recur(r)) continue; const c = String(r.customer_id || ''); if (!c) continue; (byCust.get(c) || byCust.set(c, []).get(c)).push(r); }
+    const shift = (iso, days) => { const d = new Date(iso + 'T00:00'); d.setDate(d.getDate() + days); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+    const replaced = [];
+    for (const r of rows) {
+      if (!r.subscription_date_canceled || !recur(r) || !r.initial_service) continue;
+      const why = String(r.subscription_cancellation_reason || '').trim();
+      if (/^renewal\b/i.test(why) || /combined subscriptions|3\s*day\s*ror/i.test(why)) continue;
+      const cx = d10(r.subscription_date_canceled), lo = shift(cx, -7), hi = shift(cx, 45);
+      const o = (byCust.get(String(r.customer_id)) || []).find(x => x !== r && d10(x.sold_date || x.initial_service) >= lo && d10(x.sold_date || x.initial_service) <= hi && (!x.subscription_date_canceled || d10(x.subscription_date_canceled) > cx));
+      if (o) replaced.push({ ...r, _flagReason: 'Customer #' + r.customer_id + ' · cancelled ' + cx + ' (' + (why || 'no reason') + ') · new plan ' + (o.subscription || '') + ' #' + o.subscription_id + ' sold ' + d10(o.sold_date || o.initial_service) + (o.subscription_date_canceled ? ' (cancelled ' + d10(o.subscription_date_canceled) + ')' : ' (active)') });
+    }
+    replaced.sort((x, y) => String(y.subscription_date_canceled).localeCompare(String(x.subscription_date_canceled)));
+    tasks.push({ tag: 'Replaced', title: 'Cancelled, then replaced by a new plan within 45 days', noun: 'subscription', tone: 'check', rows: replaced,
+      ok: 'All clear — no cancels were replaced by a new plan.',
+      todo: (n) => n.toLocaleString() + ' cancel' + s(n) + ' where the customer got a new plan within 45 days, not coded as a renewal — likely uncoded renewals or re-entries. Today each counts as churn; recode the reason to a Renewal in FieldRoutes if it was one.' });
+  }
   auditSubTasks._m = { src: rows, key, tasks };
   return tasks;
 }
