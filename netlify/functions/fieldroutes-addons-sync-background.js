@@ -28,7 +28,7 @@
 //      SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY. Silently skips without them.
 
 const { createClient } = require('@supabase/supabase-js');
-const { applyFieldRoutesEnv, fieldRoutesBase } = require('../lib/integrations.js');
+const { applyFieldRoutesEnv, fieldRoutesBase, recordIntegrationStatus } = require('../lib/integrations.js');
 const { requireSyncSecret } = require('../lib/sync-gate.js');
 const { makeIsAddOn, upsellSaleRow } = require('../lib/upsell-record.js');
 const { groupTicketItems, lineCreditOf } = require('../lib/add-on-streak.js');
@@ -51,6 +51,10 @@ async function fr(endpoint, params) {
 }
 const chunk = (arr, n) => { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; };
 const listOf = (got, key) => Array.isArray(got[key]) ? got[key] : Object.values(got[key] || {});
+// Ids per FieldRoutes GET (per Isaac, Oct 14). Since the workers read every office
+// (Oct 13) a recent run covers ~9k subscriptions instead of ~700, and 1,000 ids
+// plus the office list per URL is the size that failed in the deleted scan.
+const ID_BATCH = 250;
 const ROLE_OF_TYPE = { '0': 'office_staff', '1': 'technician', '2': 'sales_rep' };
 
 exports.handler = async (event) => {
@@ -88,8 +92,11 @@ exports.handler = async (event) => {
     // 1. Active subscriptions → their recurring (template) tickets.
     const sq = full ? { active: 1 } : { active: 1, dateUpdated: { operator: '>=', value: from } };
     const subIds = ((await fr('subscription/search', sq)).subscriptionIDs || []).map(String);
+    // Run status on the FieldRoutes integration row (Settings → Data sources), so a
+    // run that dies part-way is visible instead of silent (no run recorded since Oct 13).
+    await recordIntegrationStatus(supabase, 'fieldroutes', { addons_last_start_at: new Date().toISOString(), addons_stage: 'reading ' + subIds.length + ' subscriptions (' + log.mode + ')' });
     const subs = {};
-    for (const part of chunk(subIds, 1000)) { const got = await fr('subscription/get', { subscriptionIDs: part.map(Number) }); listOf(got, 'subscriptions').forEach(x => { subs[String(x.subscriptionID)] = x; }); }
+    for (const part of chunk(subIds, ID_BATCH)) { const got = await fr('subscription/get', { subscriptionIDs: part.map(Number) }); listOf(got, 'subscriptions').forEach(x => { subs[String(x.subscriptionID)] = x; }); }
     // 2. subscription/get EMBEDS the recurring ticket, line items included
     //    (68003 dry run, Sep 29) — read it straight off the subscription.
     //    Only a sub that carries a bare ticket id falls back to ticket/get
@@ -106,7 +113,7 @@ exports.handler = async (event) => {
       if (rt && typeof rt === 'object') take({ ...rt, subscriptionID: rt.subscriptionID || x.subscriptionID, customerID: rt.customerID || x.customerID });
       else if (rt && String(rt) !== '0') needGet.push(String(rt));
     }
-    for (const part of chunk(needGet, 1000)) { const got = await fr('ticket/get', { ticketIDs: part.map(Number) }); listOf(got, 'tickets').forEach(take); }
+    for (const part of chunk(needGet, ID_BATCH)) { const got = await fr('ticket/get', { ticketIDs: part.map(Number) }); listOf(got, 'tickets').forEach(take); }
     const recIds = Object.keys(tickets);
     log.subscriptions = Object.keys(subs).length; log.tickets = recIds.length; log.items = items.length;
     // Catalog of every ticket item name seen on recurring tickets (per Isaac,
@@ -330,9 +337,11 @@ exports.handler = async (event) => {
       }
     }
     console.log('[fr-addons] done', JSON.stringify({ ...log, from, ms: Date.now() - started }));
+    await recordIntegrationStatus(supabase, 'fieldroutes', { addons_last_run_at: new Date().toISOString(), addons_ok: true, addons_stage: 'done', addons_message: JSON.stringify({ ...log, ms: Date.now() - started }).slice(0, 400) });
     return { statusCode: 200, body: JSON.stringify({ ...log, from, ms: Date.now() - started }) };
   } catch (e) {
     console.error('[fr-addons] failed', e);
+    await recordIntegrationStatus(supabase, 'fieldroutes', { addons_last_run_at: new Date().toISOString(), addons_ok: false, addons_stage: 'failed', addons_message: String((e && e.message) || e).slice(0, 300) });
     return { statusCode: 500, body: 'fr-addons failed: ' + (e.message || e) };
   }
 };

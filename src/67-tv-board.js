@@ -573,23 +573,23 @@ function openTvBoard() {
               const ao = addOnsFor(s), unassigned = ao.filter(a => !a.credited_profile_id);
               const cell = (col, row, child, extra) => el('div', { style: { gridColumn: col, gridRow: String(row), minWidth: '0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', ...(extra || {}) } }, child);
               const small = { fontFamily: MONO, fontSize: '10px', color: T.dim, letterSpacing: '.06em', marginTop: '2px' };
-              return el('div', { style: { display: 'grid', gridTemplateColumns: 'auto auto auto auto minmax(0, auto) auto auto auto minmax(0, 1fr)', alignItems: 'baseline', minWidth: '0', overflow: 'hidden' } },
+              const term = Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME';
+              const aoSpan = !ao.length
+                ? el('span', { style: { letterSpacing: '.08em' } }, 'ADDONS +0')   // no add-ons: ADDONS +0 in the dim gray (per Isaac, Oct 14)
+                : el('span', { style: { fontWeight: '700', color: unassigned.length ? BAND.red : BAND.green, letterSpacing: '.08em' },
+                    title: ao.map(a => (a.service_name || 'Add-on') + (a.credited_profile_id ? '' : ' — not assigned to a rep')).join('\n') },
+                    'ADDONS +' + ao.length + '  ·  ' + ao.map(a => String(a.service_name || 'Add-on').toUpperCase()).join(', ') + (unassigned.length ? '  ·  ' + unassigned.length + ' UNASSIGNED' : ''));
+              // Line 1: NAME | #id | service | source. Line 2: time under the name; add-ons, then the term, under the service (per Isaac, Oct 14).
+              return el('div', { style: { display: 'grid', gridTemplateColumns: 'auto auto auto auto minmax(0, auto) auto minmax(0, 1fr)', alignItems: 'baseline', minWidth: '0', overflow: 'hidden' } },
                 cell('1', 1, el('span', { style: { fontFamily: HEAD, fontSize: 'clamp(17px, 1.35vw, 22px)', letterSpacing: '.02em', textTransform: 'uppercase' } }, (r ? r.name : (s._crmRep || 'Rep')))),
-                // Customer ID first (per Isaac, Sep 22): NAME | #id | service | term | source.
                 cell('2', 1, s.customer_number ? sep() : null),
                 cell('3', 1, s.customer_number ? el('span', { style: { fontFamily: MONO, fontSize: 'clamp(11px, .85vw, 13px)', color: T.dim, letterSpacing: '.06em' }, title: 'Customer ID' }, '#' + s.customer_number) : null),
                 cell('4', 1, sep()),
                 cell('5', 1, el('span', { style: { fontFamily: VOICE, fontWeight: 600, fontSize: 'clamp(12px, .95vw, 15px)', color: T.ink } }, s._crmService || s.service_name || '—')),
-                cell('6', 1, sep()),
-                cell('7', 1, el('span', { style: { fontFamily: VOICE, fontWeight: 600, fontSize: 'clamp(12px, .95vw, 15px)', color: T.ink } }, (Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME'))),
-                cell('8', 1, src ? sep() : null),
-                cell('9', 1, src ? el('span', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.04em' } }, src) : null),
+                cell('6', 1, src ? sep() : null),
+                cell('7', 1, src ? el('span', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.04em' } }, src) : null),
                 cell('1 / 4', 2, at ? when(at) : '—', small),
-                // No add-ons reads ADDONS +0 in the dim gray (per Isaac, Oct 14).
-                !ao.length ? cell('5 / 10', 2, el('span', { style: { letterSpacing: '.08em' } }, 'ADDONS +0'), small) : cell('5 / 10', 2,
-                  el('span', { style: { fontWeight: '700', color: unassigned.length ? BAND.red : BAND.green, letterSpacing: '.08em' },
-                    title: ao.map(a => (a.service_name || 'Add-on') + (a.credited_profile_id ? '' : ' — not assigned to a rep')).join('\n') },
-                    'ADDONS +' + ao.length + '  \u00b7  ' + ao.map(a => String(a.service_name || 'Add-on').toUpperCase()).join(', ') + (unassigned.length ? '  ·  ' + unassigned.length + ' UNASSIGNED' : '')), small));
+                cell('5 / 8', 2, el('div', { style: { display: 'flex', minWidth: '0' } }, el('span', { style: { minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis' } }, aoSpan), el('span', { style: { color: T.hair, padding: '0 8px', flex: 'none' } }, '|'), el('span', { style: { color: T.ink, fontWeight: '700', letterSpacing: '.08em', flex: 'none' } }, term)), small));   // a long add-on list ellipsizes; the term always shows
             })(),
             figure(money(s.revenue_amount), 'clamp(17px, 1.5vw, 24px)', T.ink));
         }) : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'Nothing yet.')]))], { flex: '1' });
