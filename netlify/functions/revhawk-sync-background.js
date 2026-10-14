@@ -166,10 +166,9 @@ cxl AS (
 -- FieldRoutesCancellationNote, but FieldRoutes still logged the cancel as a
 -- "Subscription Cancel" note (type 16) carrying the reason — e.g. customer
 -- 24543's Mosquito 12, cancelled 11/1/2021 as Combined Subscriptions, showed
--- blank. Match the note to the sub by "[Canceled: … Subscription - <id>]" in
--- its text; failing that, a note on the same customer written from a day
--- before to three days after the cancel that names no other subscription —
--- used only when every such note agrees on the reason.
+-- blank. Candidates: notes naming the sub ("[Canceled: … Subscription - <id>]")
+-- and notes on the same customer that name no other subscription; the one
+-- written nearest the cancel date wins (see cxf).
 n16 AS (
   SELECT fieldRoutes_customerID AS cid, TRIM(fieldRoutes_cancellationReason) AS reason,
     NULLIF(fieldRoutes_cancellationReasonID, '') AS rid, fieldRoutes_notes AS txt,
@@ -187,17 +186,20 @@ cxfCand AS (
   WHERE s.fieldRoutes_dateCancelled IS NOT NULL AND s.fieldRoutes_dateCancelled != '' AND s.fieldRoutes_dateCancelled NOT LIKE '0000%'
 ),
 cxf AS (
+  -- The reason in force is the note written NEAREST the cancel (per Isaac,
+  -- Oct 14 — #40448 / #36303: an "Initial Appointment Canceled" note from the
+  -- first visit named the sub, but the plan was cancelled months later as
+  -- Delinquent). A note inside the -1 / +3 day window wins; a note naming the
+  -- sub but written outside it is used only when nothing is in the window.
   SELECT sid, reason FROM (
-    SELECT sid, reason, ROW_NUMBER() OVER (PARTITION BY sid ORDER BY written DESC) rn FROM cxfCand WHERE by_text
+    SELECT c.sid, c.reason,
+      ROW_NUMBER() OVER (PARTITION BY c.sid ORDER BY
+        IF(c.written BETWEEN DATETIME_SUB(cx, INTERVAL 1 DAY) AND DATETIME_ADD(cx, INTERVAL 3 DAY), 0, 1),
+        ABS(DATETIME_DIFF(c.written, cx, MINUTE)), IF(c.by_text, 0, 1)) AS rn
+    FROM (SELECT c.*, SAFE.PARSE_DATETIME('%Y-%m-%d %H:%M:%S', LEFT(s.fieldRoutes_dateCancelled,19)) AS cx
+          FROM cxfCand c JOIN sub s ON s.id = c.sid) c
+    WHERE c.by_text OR (NOT c.names_a_sub AND c.written BETWEEN DATETIME_SUB(cx, INTERVAL 1 DAY) AND DATETIME_ADD(cx, INTERVAL 3 DAY))
   ) WHERE rn = 1
-  UNION ALL
-  SELECT c.sid, ANY_VALUE(c.reason) AS reason
-  FROM cxfCand c JOIN sub s ON s.id = c.sid
-  WHERE NOT c.names_a_sub
-    AND c.written BETWEEN DATETIME_SUB(SAFE.PARSE_DATETIME('%Y-%m-%d %H:%M:%S', LEFT(s.fieldRoutes_dateCancelled,19)), INTERVAL 1 DAY)
-                      AND DATETIME_ADD(SAFE.PARSE_DATETIME('%Y-%m-%d %H:%M:%S', LEFT(s.fieldRoutes_dateCancelled,19)), INTERVAL 3 DAY)
-    AND c.sid NOT IN (SELECT sid FROM cxfCand WHERE by_text)
-  GROUP BY c.sid HAVING COUNT(DISTINCT c.reason) = 1
 ),
 appt AS (
   -- Completion date of each subscription's INITIAL appointment — i.e. when the
