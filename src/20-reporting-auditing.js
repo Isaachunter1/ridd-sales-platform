@@ -857,7 +857,7 @@ function auditSubTasks() {
   // 1. One-time (or retired) services that are still open after the work was done.
   tasks.push({ tag: 'One-time', title: 'One-time services still active', noun: 'subscription', rows: reportingFlaggedActive(rows, isActive),
     ok: 'All clear — no one-time or retired service is sitting open.',
-    todo: (n) => n + ' active subscription' + s(n) + ' on a one-time or retired service that has already been serviced — close ' + (n === 1 ? 'it' : 'them') + ' in FieldRoutes so the active count is right.' });
+    todo: (n) => n + ' active subscription' + s(n) + ' on a one-time or retired service that has already been serviced — close ' + (n === 1 ? 'it' : 'them') + ' in FieldRoutes so the active count is right. One-time German roach (2-week follow-up) and rodent (60-day follow-up) jobs are left open until the follow-up is done or its window, plus a week, has passed.' });
   // 2. Renewed, but the plan it replaced was never closed (same kind of plan, both active) — the customer may be billed twice.
   const fam = (x) => String(x || '').trim().split(/\s+/)[0].toLowerCase();
   const dup = [];

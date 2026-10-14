@@ -17,10 +17,28 @@ function reportingFlaggedActive(rows, isActive) {
     const completed = Number(r.subscription_completed_services) || 0;
     let reason = null;
     if (kind === 'retired') reason = 'Retired service — should be closed';
-    else if (kind === 'onetime' && completed >= 1) reason = 'One-time already serviced (' + completed + ') — should be closed';
+    else if (kind === 'onetime' && completed >= 1 && !_oneTimeFollowUpPending(r, completed)) reason = 'One-time already serviced (' + completed + ') — should be closed';
     if (reason) out.push({ ...r, _flagReason: reason });
   }
   return out;
+}
+// One-time jobs that come with a follow-up visit (per Isaac, Oct 14) stay open
+// until it is done: German roach — a follow-up 2 weeks after the initial;
+// rodent — 60 days after. Kept while only the initial is completed and the
+// follow-up window (plus a week's grace to get it on the schedule) hasn't
+// passed; once the follow-up is completed, or the window is long gone, the
+// plan should be closed and is flagged again.
+const ONE_TIME_FOLLOW_UP_DAYS = [[/german\s*roach|\broach/i, 14], [/rodent|\brats?\b|\bmice\b|\bmouse\b/i, 60]];
+function _oneTimeFollowUpDays(r) {
+  const name = String(r.subscription || '');
+  for (const [re, d] of ONE_TIME_FOLLOW_UP_DAYS) if (re.test(name)) return d;
+  return null;
+}
+function _oneTimeFollowUpPending(r, completed) {
+  const days = _oneTimeFollowUpDays(r); if (days == null || completed >= 2) return false;
+  const start = String(r.initial_service || '').slice(0, 10); if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return false;
+  const due = new Date(start + 'T00:00'); due.setDate(due.getDate() + days + 7);
+  return new Date() <= due;
 }
 
 // Cancellation reasons the admin has marked as NOT counting toward attrition
