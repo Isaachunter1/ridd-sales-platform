@@ -969,8 +969,9 @@ function reportingWaterfall() {
       const _steps = _ground ? (retenScopeSteps(_ground).steps || []).filter(st => st.active && st.removed && st.removed.length) : [];
       const _STEP_LBL = { initial: 'Never serviced', orphans: 'Deleted in FieldRoutes', onetime: 'One-time service', hidden: 'Hidden service', sources: 'Excluded source', retired: 'Retired service', status: 'Account status' };
       const BUCKETS = [..._steps.map(st => ['step:' + st.key, _STEP_LBL[st.key] || String(st.title || st.key).replace(/^Remove\s+/i, '')]),
-        ['onetime', 'Not a recurring service'], ['unserviced', 'No service date'], ['reason', 'Excluded cancel reason'], ['renewal', 'Renewal sub'], ['zero', '$0 paying'], ['undertwo', 'Under 2 services'], ['frozen', 'Frozen, 1 service']];
-      const bucketOf = (why) => /^closed by/i.test(why) ? 'reason' : /renewal/i.test(why) ? 'renewal' : /\$0/.test(why) ? 'zero' : /under 2/i.test(why) ? 'undertwo' : /frozen/i.test(why) ? 'frozen' : 'reason';
+        // Then the Attrition Steps population rules, in step order (per Isaac, Oct 14 — read left to right like the steps read top to bottom).
+        ['onetime', 'Not a recurring service'], ['unserviced', 'No service date'], ['ror', '3-day ROR'], ['nostart', 'Coded never started'], ['combined', 'Combined'], ['renewal', 'Renewal linked'], ['replaced', 'Replaced within 30 days'], ['rensub', 'Renewal sub'], ['zero', 'No ARR'], ['undertwo', 'Under 2 services'], ['frozen', 'Frozen, 1 service'], ['other', 'Other']];
+      const bucketOf = (why) => /3 day ror/i.test(why) ? 'ror' : /never started/i.test(why) ? 'nostart' : /^closed by/i.test(why) ? (/combined/i.test(why) ? 'combined' : 'renewal') : /replaced/i.test(why) ? 'replaced' : /renewal sub/i.test(why) ? 'rensub' : /\$0/.test(why) ? 'zero' : /under 2/i.test(why) ? 'undertwo' : /frozen/i.test(why) ? 'frozen' : 'other';
       // Remembered per book + rules, like _retenEff — the Subs / ARR flip and re-renders reuse it.
       const _mk = rows._rulesKey || '';
       const _hit = (renderBlended._excl && renderBlended._excl.src === scoped && renderBlended._excl.key === _mk) ? renderBlended._excl : null;
@@ -1008,19 +1009,24 @@ function reportingWaterfall() {
         return el('div', { class: 'card overflow-hidden' },
           el('div', { class: 'px-3 py-2 border-b', style: { borderColor: 'var(--border)' } },
             el('div', { class: 'text-xs font-bold' }, 'Excluded from ' + (onlyYear == null ? 'the cohorts' : 'the ' + onlyYear + ' cohort')),
-            el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Subscriptions the waterfall leaves out, by the rule that dropped them. In cohort + Excluded is the whole book. Click a number for those accounts.')),
+            el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Left to right like the Attrition Steps: every subscription, what was taken out and why (same rules, same order), and what is left in the cohort. Total subs \u2212 Excluded = In cohort. Click a number for those accounts.')),
           el('div', { style: { overflow: 'auto', maxHeight: '40vh' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-            el('thead', {}, el('tr', {}, th('Year', { left: true, corner: true }), th('In cohort'), th('Excluded'), ...cols.map(([, l]) => th(l)))),
+            // Left to right like the Attrition Steps top to bottom (per Isaac, Oct 14): total subs → excluded → why → in cohort.
+            el('thead', {}, el('tr', {}, th('Year', { left: true, corner: true }), th('Total subs', { left: true }), th('Excluded', { left: true }), ...cols.map(([, l]) => th(l, { left: true })), th('In cohort', { left: true }))),
             el('tbody', {},
-              ...yy.map(y => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-                td(y ? String(y) : 'No date', { left: true, sticky: true }),
-                td(y && byCohort.get(y) ? num(val(byCohort.get(y))) : '', { muted: true }),
-                cellTd(allOf(y), (y || 'no date') + ' \u00b7 all excluded', { bold: true }),
-                ...cols.map(([k, l]) => cellTd(rowsOf(y, k), (y || 'no date') + ' \u00b7 ' + l)))),
+              ...yy.map(y => { const inC = (y && byCohort.get(y)) || []; const ex = allOf(y);
+                return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+                  td(y ? String(y) : 'No date', { left: true, sticky: true }),
+                  td(num(val(inC) + val(ex)), { left: true, bold: true }),
+                  cellTd(ex, (y || 'no date') + ' \u00b7 all excluded', { bold: true, left: true }),
+                  ...cols.map(([k, l]) => cellTd(rowsOf(y, k), (y || 'no date') + ' \u00b7 ' + l, { left: true })),
+                  td(inC.length ? num(val(inC)) : '', { left: true, bold: true })); }),
               onlyYear != null ? null : el('tr', { class: 'border-t-2 font-black', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
-                td('Total', { left: true, sticky: true, bg: 'var(--card-2)' }), td(num(val(rows)), { bold: true }),
-                cellTd(ys.flatMap(allOf), 'all years', { bold: true }),
-                ...cols.map(([k, l]) => cellTd(colOf(k), 'all years \u00b7 ' + l, { bold: true })))))));
+                td('Total', { left: true, sticky: true, bg: 'var(--card-2)' }),
+                td(num(val(rows) + val(ys.flatMap(allOf))), { bold: true, left: true }),
+                cellTd(ys.flatMap(allOf), 'all years', { bold: true, left: true }),
+                ...cols.map(([k, l]) => cellTd(colOf(k), 'all years \u00b7 ' + l, { bold: true, left: true })),
+                td(num(val(rows)), { bold: true, left: true }))))));
       };
     })();
     // ── Rows picker (per Isaac, Oct 6): the same year columns, with the rows split by cohort year (default) or by a
