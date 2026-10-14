@@ -195,12 +195,12 @@ function retenPolicyBridge(pop) {
     const seq = [
       ['Raw — no policy adjustments', null],
       ['Remove 3-day RORs coded in the CRM', 'popRor'],
-      ['Remove 3-day RORs caught by timing', 'popRorTiming'],
-      ['Keep timing-RORs with 2+ completed appointments', 'popRorServiced'],
       ['Remove cancels coded “never started”', 'popNoStart'],
       ['Remove combined subscriptions', 'popCombined'],
       ['Link renewals to the customer', 'popRenew'],
       ['Link cancels replaced within 45 days', 'popReplaced'],
+      ['Remove 3-day RORs caught by timing', 'popRorTiming'],
+      ['Keep timing-RORs with 2+ completed appointments', 'popRorServiced'],
       ['Remove subs with no ARR', 'zero'],
       ['Don’t count these cancel reasons', 'reasons'],
     ];
@@ -273,10 +273,14 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
   const closedBy = (r, kind) => r.subscription_date_canceled && popSet.has(_normCancelReason(reportingCancelReasonOf(r))) && crmReasonIs(kind, reportingCancelReasonOf(r));   // kind: 'combined' | 'renewal' (src/12-crm-vocab.js)
   const rorCoded = (r) => !!r.subscription_date_canceled && _isRorReason(_normCancelReason(reportingCancelReasonOf(r)));
   const rorByReason = (r) => rorCoded(r) && _rorCodedOk(r);   // office staff / technician sales get no ROR from 2026 (per Isaac, Oct 13)
+  // Order (per Isaac, Oct 14 — a clean story): trust what was CODED first (ROR,
+  // never started, combined, renewals), then the two inferences (replaced within
+  // 45 days, RORs by timing + its 2+ appointment exemption), then the $0 catch-all.
+  // The final book is the same in any order; the order decides which step gets
+  // credit, so the fix-it lists and the raw → official bridge read cleanly.
   const s2r = s2.filter(r => !(rorOn && rorByReason(r)));                       // minus RORs coded as such (the sheet's rule)
-  const step1a = s2r.filter(r => !(rorOn && rorTimingOn && _reporting3dayRor(r)));   // minus RORs caught by timing (app extra)
   const noStartOn = _retenWhatIf('popNoStart', true);
-  const stepNS = step1a.filter(r => !(noStartOn && retenNotStartedSub(r)));   // minus “never started” cancels (all have a completed initial)
+  const stepNS = s2r.filter(r => !(noStartOn && retenNotStartedSub(r)));      // minus “never started” cancels (all have a completed initial)
   const step1b = stepNS.filter(r => !closedBy(r, 'combined'));                  // minus combined
   const renLinked = (r) => closedBy(r, 'renewal') && _renewalLinked(r);          // renewal pieced to the customer's next plan
   const renUnlinked = step1b.filter(r => closedBy(r, 'renewal') && !_renewalLinked(r));   // renewal-coded but no later plan = real loss
@@ -284,7 +288,8 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
   const byReason1 = {}; step1b.forEach(r => { if (renLinked(r)) { const k = String(reportingCancelReasonOf(r) || '').trim(); byReason1[k] = (byReason1[k] || 0) + 1; } });
   const replOn = _retenWhatIf('popReplaced', true);
   const stepRp = step1.filter(r => !(replOn && _replacedLinked(r)));            // minus cancels replaced by a new plan within 45 days
-  const step2 = stepRp.filter(r => !(retenExclZeroPay() && !_retenPaying(r)));   // (a per-visit charge counts as paying)
+  const step1a = stepRp.filter(r => !(rorOn && rorTimingOn && _reporting3dayRor(r)));   // minus RORs caught by timing (whatever is left)
+  const step2 = step1a.filter(r => !(retenExclZeroPay() && !_retenPaying(r)));   // (a per-visit charge counts as paying)
   const svcOf = (r) => Number(r.subscription_completed_services) || 0;
   const sentricon = (r) => retenOneSvcExemptTerms().some(t => String(r.subscription || '').toLowerCase().includes(t));
   const soldThisYear = (r) => { const d = r.sold_date ? new Date(r.sold_date) : (r.initial_service ? new Date(r.initial_service) : null); return d && !isNaN(d) && d.getFullYear() >= year; };
@@ -434,11 +439,23 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       }, '⚑ ' + n(badRor.length) + ' coded on 2026 office / tech sales — kept as cancels'));
       return node;
     })(),
+    step(next(), 'Remove cancels coded \u201cnever started\u201d', 'Subscriptions cancelled as \u201cSold, Not Started (No Initial)\u201d or \u201cInitial Appointment Canceled\u201d. The reason says the customer never began, so the plan leaves the book instead of sitting in it as retained. Every one listed here DOES have a completed initial in FieldRoutes (step 1 already took out the ones that never started) \u2014 so either the reason or the appointment is wrong. Open the list and fix them in the CRM: recode the reason if they started, or correct the appointment if they did not.', s2r.length - stepNS.length, 'popNoStart', null, notIn(s2r, stepNS), stepNS),
+    step(next(), 'Remove combined subscriptions', 'Subscriptions cancelled with the reason \u201cCombined Subscriptions\u201d \u2014 the plan was merged into another subscription on the same account, which carries on. The customer is still with RIDD, so counting the closed line as churn would double-count a customer who never left.', stepNS.length - step1b.length, 'popCombined', null, notIn(stepNS, step1b), step1b),
     (() => {
-      const removed = notIn(s2r, step1a);
+      const node = step(next(), 'Link renewals to the customer', 'Renewals are pieced together at the customer level, not removed as customers. A plan closed with a Renewal reason (Outbound, Loyalty, Service Pro Upsell, Inbound) is the old half of a renewal: when the same customer has another plan sold after it that was still running when it closed (renewals are often sold months ahead), the old plan is folded into it \u2014 the new plan carries the customer\u2019s original start date, so the customer is counted once, as retained. Whatever happens to the renewed plan later \u2014 say it cancels for Finances \u2014 is counted on that plan. A Renewal-coded cancel with nothing carrying forward is a real loss and stays a cancel.' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), step1b.length - step1.length, 'popRenew', null, notIn(step1b, step1), step1);
+      if (renUnlinked.length) node.children[1].append(el('button', {
+        class: 'mt-1.5 rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.3)' },
+        title: 'Cancelled with a Renewal reason but the customer has no newer plan — counted as a real cancel. Fix the reason in the CRM if it was not a renewal.',
+        onclick: (e) => { e.stopPropagation(); openReportingDrillModal({ chartTitle: 'Attrition steps · Renewal reason, no renewed plan', sliceLabel: n(renUnlinked.length) + ' subscription' + (renUnlinked.length === 1 ? '' : 's') + ' · no newer plan on the customer', rows: renUnlinked, formatValue: fmt.usd0 }); },
+      }, '⚑ ' + n(renUnlinked.length) + ' with no renewed plan — kept as cancels'));
+      return node;
+    })(),
+    step(next(), 'Link cancels replaced within 45 days', 'A plan cancelled for an ordinary reason (not a Renewal, Combined or ROR) when the same customer has another recurring plan sold from 7 days before to 45 days after the cancel that was still running past it. The customer never left \u2014 it was an uncoded renewal or a re-entry \u2014 so, like renewals, the closed plan is set aside and the new plan carries the customer. Whatever happens to the new plan later counts on that plan. The same list is on Auditing \u2192 \u201cCancelled, then replaced\u201d; recode the reason to a Renewal in FieldRoutes where that is what happened.', step1.length - stepRp.length, 'popReplaced', null, notIn(step1, stepRp), stepRp),
+    (() => {
+      const removed = notIn(stepRp, step1a);
       // RORs caught by TIMING whose reason isn't coded "3 Day ROR" — fix these in FieldRoutes.
       const miscoded = removed;
-      const node = step(next(), 'Remove 3-day RORs caught by timing', 'Door-to-door subscriptions cancelled within three days of the sale whatever reason was typed in FieldRoutes, unless the step below keeps them. Timing makes these rescissions in substance \u2014 the rep or office simply coded a different reason \u2014 so they are treated the same as the coded RORs above. Switch it off to count only the reason as coded.', s2r.length - step1a.length, rorOn ? 'popRorTiming' : null, rorOn ? null : 'needs the ROR step on', removed, step1a);
+      const node = step(next(), 'Remove 3-day RORs caught by timing', 'Door-to-door subscriptions cancelled within three days of the sale, whatever other reason was typed in FieldRoutes. This runs after the coded steps above, so a cancel already coded never started, combined or renewal is claimed there first; what is left here is a quick cancel with an ordinary reason, unless the step below keeps it. Timing makes these rescissions in substance \u2014 the rep or office simply coded a different reason \u2014 so they are treated the same as the coded RORs above. Switch it off to count only the reason as coded.', stepRp.length - step1a.length, rorOn ? 'popRorTiming' : null, rorOn ? null : 'needs the ROR step on', removed, step1a);
       if (miscoded.length) node.children[1].append(el('button', {
         class: 'mt-1.5 rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.3)' },
         title: 'Cancelled within 3 days of the sale but the reason in FieldRoutes is not “3 Day ROR” — open the list and correct them in the CRM',
@@ -450,22 +467,10 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       // Timing-RORs that were serviced twice or more (per Isaac, Sep 21): the
       // dates say ROR, the appointments say customer. Kept by default; the
       // list is here so the CRM can be cleaned up over time.
-      const kept = (rorOn && rorTimingOn && _retenWhatIf('popRorServiced', true)) ? s2r.filter(r => _reporting3dayRorByDates(r) && svcOf(r) > 1) : [];
+      const kept = (rorOn && rorTimingOn && _retenWhatIf('popRorServiced', true)) ? stepRp.filter(r => _reporting3dayRorByDates(r) && svcOf(r) > 1) : [];
       return step(next(), 'Keep timing-RORs with 2+ completed appointments', 'Exemption to the step above: a subscription cancelled within three days of its sale date but with two or more completed appointments was really serviced \u2014 the sold or cancel date in FieldRoutes is wrong, not the customer. These stay in the book; if the cancel reason is a renewal, the renewals step below counts them as retained, otherwise they are a real cancel counted by date. Switch off to treat them as RORs. Open the list to fix the dates in the CRM.', 0, rorOn && rorTimingOn ? 'popRorServiced' : null, n(kept.length) + ' kept', null, null, kept);
     })(),
-    step(next(), 'Remove cancels coded \u201cnever started\u201d', 'Subscriptions cancelled as \u201cSold, Not Started (No Initial)\u201d or \u201cInitial Appointment Canceled\u201d. The reason says the customer never began, so the plan leaves the book instead of sitting in it as retained. Every one listed here DOES have a completed initial in FieldRoutes (step 1 already took out the ones that never started) \u2014 so either the reason or the appointment is wrong. Open the list and fix them in the CRM: recode the reason if they started, or correct the appointment if they did not.', step1a.length - stepNS.length, 'popNoStart', null, notIn(step1a, stepNS), stepNS),
-    step(next(), 'Remove combined subscriptions', 'Subscriptions cancelled with the reason \u201cCombined Subscriptions\u201d \u2014 the plan was merged into another subscription on the same account, which carries on. The customer is still with RIDD, so counting the closed line as churn would double-count a customer who never left.', step1a.length - step1b.length, 'popCombined', null, notIn(step1a, step1b), step1b),
-    (() => {
-      const node = step(next(), 'Link renewals to the customer', 'Renewals are pieced together at the customer level, not removed as customers. A plan closed with a Renewal reason (Outbound, Loyalty, Service Pro Upsell, Inbound) is the old half of a renewal: when the same customer has another plan sold after it that was still running when it closed (renewals are often sold months ahead), the old plan is folded into it \u2014 the new plan carries the customer\u2019s original start date, so the customer is counted once, as retained. Whatever happens to the renewed plan later \u2014 say it cancels for Finances \u2014 is counted on that plan. A Renewal-coded cancel with nothing carrying forward is a real loss and stays a cancel.' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), step1b.length - step1.length, 'popRenew', null, notIn(step1b, step1), step1);
-      if (renUnlinked.length) node.children[1].append(el('button', {
-        class: 'mt-1.5 rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.3)' },
-        title: 'Cancelled with a Renewal reason but the customer has no newer plan — counted as a real cancel. Fix the reason in the CRM if it was not a renewal.',
-        onclick: (e) => { e.stopPropagation(); openReportingDrillModal({ chartTitle: 'Attrition steps · Renewal reason, no renewed plan', sliceLabel: n(renUnlinked.length) + ' subscription' + (renUnlinked.length === 1 ? '' : 's') + ' · no newer plan on the customer', rows: renUnlinked, formatValue: fmt.usd0 }); },
-      }, '⚑ ' + n(renUnlinked.length) + ' with no renewed plan — kept as cancels'));
-      return node;
-    })(),
-    step(next(), 'Link cancels replaced within 45 days', 'A plan cancelled for an ordinary reason (not a Renewal, Combined or ROR) when the same customer has another recurring plan sold from 7 days before to 45 days after the cancel that was still running past it. The customer never left \u2014 it was an uncoded renewal or a re-entry \u2014 so, like renewals, the closed plan is set aside and the new plan carries the customer. Whatever happens to the new plan later counts on that plan. The same list is on Auditing \u2192 \u201cCancelled, then replaced\u201d; recode the reason to a Renewal in FieldRoutes where that is what happened.', step1.length - stepRp.length, 'popReplaced', null, notIn(step1, stepRp), stepRp),
-    step(next(), 'Remove subs with no ARR', 'Subscriptions that bill nothing: $0 annual recurring value and no per-visit charge on an \u201cAs Needed\u201d plan. (An \u201cAs Needed\u201d plan shows $0 ARR in FieldRoutes but still charges each visit \u2014 those are paying customers and stay in.) Attrition is measured on recurring revenue, and a sub that bills nothing can neither be kept nor lost in dollar terms, so it is removed rather than diluting the rate.', stepRp.length - step2.length, 'zero', null, notIn(stepRp, step2), step2),
+    step(next(), 'Remove subs with no ARR', 'Subscriptions that bill nothing: $0 annual recurring value and no per-visit charge on an \u201cAs Needed\u201d plan. (An \u201cAs Needed\u201d plan shows $0 ARR in FieldRoutes but still charges each visit \u2014 those are paying customers and stay in.) Attrition is measured on recurring revenue, and a sub that bills nothing can neither be kept nor lost in dollar terms, so it is removed rather than diluting the rate.', step1a.length - step2.length, 'zero', null, notIn(step1a, step2), step2),
     // (The one-visit steps — prior-year never-2nd-treatment, the Sentricon exemption,
     // and this-year frozen-after-one — were retired per Isaac, Oct 13: cancelling
     // after the initial is real churn.)
@@ -475,7 +480,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     // equal the book. Anything that fell out without a step shows here in red.
     (() => {
       const key = (r) => String(r.subscription_id) + '|' + String(r.customer_id);
-      const removedLists = [...scopeSteps.map(st => st.removed), notIn(s2, s2r), notIn(s2r, step1a), notIn(step1a, stepNS), notIn(stepNS, step1b), notIn(step1b, step1), notIn(step1, stepRp), notIn(stepRp, step2)];
+      const removedLists = [...scopeSteps.map(st => st.removed), notIn(s2, s2r), notIn(s2r, stepNS), notIn(stepNS, step1b), notIn(step1b, step1), notIn(step1, stepRp), notIn(stepRp, step1a), notIn(step1a, step2)];
       const gone = new Set(); let removedN = 0;
       for (const L of removedLists) for (const r of L) { const k = key(r); if (!gone.has(k)) { gone.add(k); removedN++; } }
       const inBook = new Set(book.map(key));
