@@ -53,16 +53,11 @@ exports.handler = async (event) => {
     //      the last applied-payment date when one exists.
     const minFrom = open.map(a => a.added_at).sort()[0];
     const tickets = [];
-    for (const part of chunk(subIds, 5000)) {
-      const rows = await _bq.queryObjects(token, `
-SELECT t.fieldRoutes_ticketID AS ticket_id, t.fieldRoutes_subscriptionID AS sub_id, t.fieldRoutes_customerID AS cid,
-       LEFT(t.fieldRoutes_invoiceDate, 10) AS invoice_date, t.fieldRoutes_active AS active,
-       SAFE_CAST(t.fieldRoutes_total AS FLOAT64) AS total, SAFE_CAST(t.fieldRoutes_balance AS FLOAT64) AS balance,
-       (SELECT MAX(LEFT(p.fieldRoutes_dateApplied, 10)) FROM ${T('FieldRoutesAppliedPayment')} p WHERE p.fieldRoutes_ticketID = t.fieldRoutes_ticketID) AS paid_at
-FROM ${T('FieldRoutesTicket')} t
-WHERE t.fieldRoutes_subscriptionID IN (${part.map(x => "'" + String(x).replace(/'/g, '') + "'").join(',')})
-  AND LEFT(t.fieldRoutes_invoiceDate, 10) >= '${minFrom}'
-  AND t.fieldRoutes_templateType = 'NA'`);
+    // Mapped by appointment / customer + service (netlify/lib/invoice-map.js): RevHawk never fills the
+    // ticket's subscription id, so the old WHERE fieldRoutes_subscriptionID IN (…) found no invoices at all.
+    const { ticketsForSubsSql } = require('../lib/invoice-map.js');
+    for (const part of chunk(subIds, 2000)) {
+      const rows = await _bq.queryObjects(token, ticketsForSubsSql(T, part, minFrom));
       tickets.push(...rows);
     }
     // (FieldRoutesAppliedPayment.fieldRoutes_ticketID / fieldRoutes_dateApplied confirmed against the RevHawk schema, Sep 22.)

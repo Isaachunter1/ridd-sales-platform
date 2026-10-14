@@ -630,12 +630,16 @@ function adminConfigurations(part) {
         // following year, plus whatever indications are set here — defaults
         // off, so today's rule (Jan 31 only) holds until an admin adds one.
         const D2D_DEF = { min_days: 0, min_services: 0, max_dpd: 0, autopay: false, signed: false };
-        const get = (k, f) => { const b = BK[k] || {}; if (b[f] != null) return b[f]; if (k === 'd2d') return D2D_DEF[f]; return f === 'min_days' ? (AL.lock_days ?? 90) : f === 'min_services' ? Math.max(0, (AL.lock_min_services ?? 2) - 1) : f === 'max_dpd' ? 7 : true; };
+        const get = (k, f) => { const b = BK[k] || {}; if (b[f] != null) return b[f]; if (f === 'paid_invoices') return 4; if (k === 'd2d') return D2D_DEF[f]; return f === 'min_days' ? (AL.lock_days ?? 90) : f === 'min_services' ? Math.max(0, (AL.lock_min_services ?? 2) - 1) : f === 'max_dpd' ? 7 : true; };
         const set = (k, f, v) => saveAL({ backend: Object.assign({}, BK, { [k]: Object.assign({}, BK[k] || {}, { [f]: v }) }) });
         const TYPES = [['office', 'Inside Sales'], ['tech', 'Technicians'], ['d2d', 'Sales Reps (D2D)']];
         const th = (t, cls) => el('th', { class: (cls || 'text-left') + ' px-2 py-1.5 text-[10px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)' } }, t);
         const ROWS = [
           ['_jan31',       'Not before Jan 31 of the following year',   'fixed',  'Sales Reps only (fixed rule): an account sold in a year never locks before Jan 31 of the next year. Cancelled before then = chargeback.'],
+          // Inside Sales (per Isaac, Oct 14): N paid invoices on the subscription — the initial's invoice counts — and
+          // nothing else; the indications below no longer apply to Inside Sales. Add-ons lock on their own after the
+          // same number of paid invoices with the add-on on them (Add-on locks after, above).
+          ['paid_invoices', 'Paid invoices on the plan \u2265 (initial counts)', 'office', 'Inside Sales only: invoices on the subscription dated on/after the sale with a $0 balance (voided and $0 tickets don\u2019t count). This is the whole Inside Sales rule.'],
           ['min_days',     'Days since sale \u2265',                    'num',    'How old the sale must be before the backend can lock.'],
           ['min_services', 'Services completed after the initial \u2265', 'num',   'Regular appointments completed since the initial service (the initial itself does not count).'],
           ['max_dpd',      'No balance past due \u2265 (days)',           'num',    'A balance past due this many days or more holds the backend. 0 = ignore balances.'],
@@ -649,6 +653,8 @@ function adminConfigurations(part) {
               el('td', { class: 'px-2 py-1.5 font-semibold' }, label),
               ...TYPES.map(([k]) => el('td', { class: 'px-2 py-1.5 text-center' },
                 kind === 'fixed' ? (k === 'd2d' ? pill('Always') : el('span', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, '—')) :
+                kind === 'office' ? (k === 'office' ? num(get(k, f), (v) => set(k, f, Math.max(1, parseInt(v, 10) || 4))) : el('span', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, '—')) :
+                k === 'office' ? el('span', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' }, title: 'Inside Sales locks on paid invoices only (per Isaac, Oct 14)' }, '—') :
                 kind === 'num' ? num(get(k, f), (v) => set(k, f, Math.max(0, parseInt(v, 10) || 0))) : sw(!!get(k, f), () => set(k, f, !get(k, f))))))))));
       })(),
     ]));

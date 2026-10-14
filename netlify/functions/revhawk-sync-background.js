@@ -1673,6 +1673,42 @@ exports.handler = async (event) => {
         const _aaFrom = /^\d{4}-\d{2}-\d{2}$/.test(String(AL2.auto_approve_from || '')) ? String(AL2.auto_approve_from) : '';
         const _autoApproveOn = (s) => (_aaQ ? _aaQ.has(String(s.queue_type || 'office')) : !!AL2.auto_approve)
           && (!_aaFrom || String(s.sold_date || '').slice(0, 10) >= _aaFrom);
+        // Inside Sales backend lock (per Isaac, Oct 14): N paid invoices on the subscription
+        // (the initial's invoice counts), and nothing else. Counted from RevHawk tickets
+        // mapped to the plan (netlify/lib/invoice-map.js) and stamped on the sale as
+        // crm_paid_invoices once a day per sale (each count scans the ticket tables).
+        const OFFICE_PAID_N = Math.max(1, parseInt((((AL2.backend || {}).office) || {}).paid_invoices, 10) || 4);
+        const paidBySale = new Map();
+        try {
+          const offIds = (crmSales || []).filter(s => (s.queue_type || 'office') === 'office' && (s.lock_status || 'pending') === 'pending' && s.payroll_processed_at).map(s => s.id);
+          const cached = [];
+          for (let i = 0; i < offIds.length; i += 500) {
+            const { data: pc, error: pe } = await supabase.from('sales').select('id, crm_subscription_id, sold_date, crm_paid_invoices, crm_paid_invoices_at').in('id', offIds.slice(i, i + 500));
+            if (pe) throw new Error(pe.message);
+            cached.push(...(pc || []));
+          }
+          const DAY = 20 * 3600000;
+          const due = cached.filter(x => !x.crm_paid_invoices_at || (today - Date.parse(x.crm_paid_invoices_at)) > DAY);
+          cached.forEach(x => { if (x.crm_paid_invoices != null) paidBySale.set(x.id, Number(x.crm_paid_invoices)); });
+          if (due.length) {
+            const { ticketsForSubsSql, paidCountFrom } = require('../lib/invoice-map.js');
+            const tokP = await getAccessToken();
+            const TT = (n) => '`' + PROJECT + '.' + DATASET + '.' + n + '`';
+            const minSold = due.map(x => String(x.sold_date || '').slice(0, 10)).filter(Boolean).sort()[0] || '2026-01-01';
+            for (let i = 0; i < due.length; i += 2000) {
+              const part = due.slice(i, i + 2000);
+              const r = await runQuery(tokP, ticketsForSubsSql(TT, part.map(x => x.crm_subscription_id), minSold), { compact: true });
+              const bySubT = new Map();
+              for (const t of ((r && r.objects) || [])) { const k = String(t.sub_id); (bySubT.get(k) || bySubT.set(k, []).get(k)).push(t); }
+              for (const x of part) {
+                const n = paidCountFrom(bySubT.get(String(x.crm_subscription_id)) || [], x.sold_date);
+                paidBySale.set(x.id, n);
+                await supabase.from('sales').update({ crm_paid_invoices: n, crm_paid_invoices_at: stamp }).eq('id', x.id);
+              }
+            }
+            console.log('[revhawk-sync] paid invoices counted for ' + due.length + ' Inside Sales sale(s)');
+          }
+        } catch (pe) { console.warn('[revhawk-sync] paid-invoice count skipped (run migrations/20261014c_sales_paid_invoices.sql?):', String((pe && pe.message) || pe).slice(0, 200)); }
         const lockDays = Math.max(0, Number(AL2.lock_days) || 90);
         const minSvc = Math.max(0, Number(AL2.lock_min_services) || 0);
         for (const s of (crmSales || [])) {
@@ -1723,8 +1759,13 @@ exports.handler = async (event) => {
               const dOk = ageDays >= dDays && dAfter >= dSvc && !(dDpd > 0 && dpd >= dDpd) && (!_bd.autopay || hasBilling) && (!_bd.signed || signed || oneTime);
               if (today >= Date.UTC(sy + 1, 0, 31) && dOk) { upd.lock_status = 'lock'; upd.audit_2_at = stamp; }
             }
+            else if ((s.queue_type || 'office') === 'office') {
+              // Inside Sales (per Isaac, Oct 14): locks at N paid invoices (initial included), nothing else.
+              const n = paidBySale.get(s.id);
+              if (n != null && n >= OFFICE_PAID_N) { upd.lock_status = 'lock'; upd.audit_2_at = stamp; }
+            }
             else {
-              // Inside Sales / Technicians backend (per Isaac, Sep 23): the
+              // Technicians backend (per Isaac, Sep 23 — Inside Sales moved to paid invoices Oct 14): the
               // account stays PENDING until every configured indication
               // holds — Configurations → Commission Rules → Backend lock,
               // AL2.backend[office|tech] = { min_days, min_services (completed
