@@ -16,8 +16,14 @@ function openTvBoard() {
   const HEAD = "'Anton', 'Archivo', ui-sans-serif, system-ui, sans-serif";
   const VOICE = "'Archivo', ui-sans-serif, system-ui, sans-serif";
   const EXCLUDED = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
-  const RANGES = [['today', 'Today'], ['week', 'This week'], ['month', 'This month'], ['year', 'This year']];
+  // Same ranges as the main dashboard's date filter (per Isaac, Oct 14) — every
+  // preset plus each year in the data; Custom is left off (a wall board has no
+  // date picker). Old saved values (week / month / year) map to the new ids.
+  { const _old = { week: 'this_week', month: 'this_month', year: 'this_year' }; if (_old[state._tvRange]) state._tvRange = _old[state._tvRange]; }
+  const RANGES = ((typeof indicatorPresetOptions === 'function') ? indicatorPresetOptions() : [{ id: 'today', label: 'Today' }, { id: 'this_week', label: 'This Week' }, { id: 'this_month', label: 'This Month' }, { id: 'this_year', label: 'This Year' }])
+    .filter(o => o.id !== 'custom').map(o => [o.id, o.label]);
   if (!RANGES.some(r => r[0] === state._tvRange)) state._tvRange = 'today';
+  const _KEY_RANGES = ['today', 'this_week', 'this_month', 'this_year'];   // keys 1–4, as before
 
   const overlay = el('div', { style: { position: 'fixed', inset: '0', background: T.void, color: T.ink, zIndex: '9999', overflow: 'hidden', fontFamily: VOICE } });
   let timers = [];
@@ -36,7 +42,7 @@ function openTvBoard() {
   };
   const onKey = (e) => {
     if (e.key === 'Escape') { if (!document.fullscreenElement) cleanup(); return; }
-    if (e.key === '1' || e.key === '2' || e.key === '3' || e.key === '4') { state._tvRange = RANGES[Number(e.key) - 1][0]; render(); }
+    if (e.key === '1' || e.key === '2' || e.key === '3' || e.key === '4') { state._tvRange = _KEY_RANGES[Number(e.key) - 1]; render(); }
     if (e.key === 'f' || e.key === 'F') toggleFs();
     // R: take a waiting build now (deploys otherwise land on the board overnight).
     if (e.key === 'r' || e.key === 'R') { try { sessionStorage.setItem('ridd_reopen_tv', '1'); } catch { /* private */ } location.reload(); }
@@ -55,22 +61,45 @@ function openTvBoard() {
   const isOts = (s) => s._crm ? (!/sentricon/i.test(String(s._crmService || '')) && !(Number(s.contract_months) > 1)) : new Set([4, 5]).has(Number(s.contract_type_id));
   const isSellingDay = (d) => { const w = d.getDay(); if (w === 0 || w === 6) return false; return !(typeof companyHolidayFor === 'function' && companyHolidayFor(iso(d))); };
 
+  // Every window on the board's LOCAL calendar (an evening sale stays on its
+  // own day). Current periods run to today; past ones are whole periods.
+  const _d = (y, m, dd) => new Date(y, m, dd);
   const rangeOf = () => {
-    const now = new Date(); const today = iso(now);
-    if (state._tvRange === 'week') { const s = new Date(now); s.setDate(s.getDate() - s.getDay()); return { start: iso(s), end: today, label: 'This week' }; }   // Sunday → today (Sun–Sat weeks, same as the rest of the app)
-    if (state._tvRange === 'month') { return { start: iso(new Date(now.getFullYear(), now.getMonth(), 1)), end: today, label: now.toLocaleDateString('en-US', { month: 'long' }) }; }
-    if (state._tvRange === 'year') { return { start: now.getFullYear() + '-01-01', end: today, label: String(now.getFullYear()) }; }
-    return { start: today, end: today, label: 'Today' };
+    const now = new Date(); const Y = now.getFullYear(), M = now.getMonth(), D = now.getDate(); const today = iso(now);
+    const id = state._tvRange; const lbl = (RANGES.find(r => r[0] === id) || [id, 'Today'])[1];
+    const ym = /^year:(\d{4})$/.exec(id || '');
+    if (ym) return { start: ym[1] + '-01-01', end: ym[1] + '-12-31', label: ym[1] };
+    switch (id) {
+      case 'yesterday':  { const y = _d(Y, M, D - 1); return { start: iso(y), end: iso(y), label: 'Yesterday' }; }
+      case 'this_week':  return { start: iso(_d(Y, M, D - now.getDay())), end: today, label: 'This week' };   // Sunday → today (Sun–Sat weeks)
+      case 'last_week':  return { start: iso(_d(Y, M, D - now.getDay() - 7)), end: iso(_d(Y, M, D - now.getDay() - 1)), label: 'Last week' };
+      case 'this_month': return { start: iso(_d(Y, M, 1)), end: today, label: now.toLocaleDateString('en-US', { month: 'long' }) };
+      case 'last_month': return { start: iso(_d(Y, M - 1, 1)), end: iso(_d(Y, M, 0)), label: _d(Y, M - 1, 1).toLocaleDateString('en-US', { month: 'long' }) };
+      case 'this_year':  return { start: Y + '-01-01', end: today, label: String(Y) };
+      case 'last_year':  return { start: (Y - 1) + '-01-01', end: (Y - 1) + '-12-31', label: String(Y - 1) };
+      case 'all_time':   return { start: '2000-01-01', end: today, label: 'All time' };
+      default:           return { start: today, end: today, label: lbl === 'Today' ? 'Today' : lbl };
+    }
   };
-  // The comparable slice of the PRIOR period (per Isaac): yesterday; last
-  // week Sunday → same weekday; last month 1st → same day; last year
-  // Jan 1 → same date. To-date, so mid-period the comparison is fair.
+  // The comparable PRIOR period (per Isaac): current periods compare to the
+  // prior period TO DATE (fair mid-period); whole past periods to the whole
+  // period before. All time has nothing to compare against.
   const priorRangeOf = () => {
-    const now = new Date(); const shift = (d, fn) => { const x = new Date(d); fn(x); return x; };
-    if (state._tvRange === 'week') { const s = shift(now, x => x.setDate(x.getDate() - x.getDay() - 7)); const e = shift(now, x => x.setDate(x.getDate() - 7)); return { start: iso(s), end: iso(e), label: 'Last week to date' }; }
-    if (state._tvRange === 'month') { const s = new Date(now.getFullYear(), now.getMonth() - 1, 1); const e = new Date(now.getFullYear(), now.getMonth() - 1, Math.min(now.getDate(), new Date(now.getFullYear(), now.getMonth(), 0).getDate())); return { start: iso(s), end: iso(e), label: s.toLocaleDateString('en-US', { month: 'long' }) + ' to date' }; }
-    if (state._tvRange === 'year') { const e = shift(now, x => x.setFullYear(x.getFullYear() - 1)); return { start: (now.getFullYear() - 1) + '-01-01', end: iso(e), label: (now.getFullYear() - 1) + ' to date' }; }
-    const y = shift(now, x => x.setDate(x.getDate() - 1)); return { start: iso(y), end: iso(y), label: 'Yesterday' };
+    const now = new Date(); const Y = now.getFullYear(), M = now.getMonth(), D = now.getDate();
+    const id = state._tvRange;
+    const ym = /^year:(\d{4})$/.exec(id || '');
+    if (ym) { const y = Number(ym[1]) - 1; return { start: y + '-01-01', end: y + '-12-31', label: String(y) }; }
+    switch (id) {
+      case 'yesterday':  { const y = _d(Y, M, D - 2); return { start: iso(y), end: iso(y), label: 'Day before' }; }
+      case 'this_week':  return { start: iso(_d(Y, M, D - now.getDay() - 7)), end: iso(_d(Y, M, D - 7)), label: 'Last week to date' };
+      case 'last_week':  return { start: iso(_d(Y, M, D - now.getDay() - 14)), end: iso(_d(Y, M, D - now.getDay() - 8)), label: 'Week before' };
+      case 'this_month': { const e = _d(Y, M - 1, Math.min(D, _d(Y, M, 0).getDate())); return { start: iso(_d(Y, M - 1, 1)), end: iso(e), label: e.toLocaleDateString('en-US', { month: 'long' }) + ' to date' }; }
+      case 'last_month': return { start: iso(_d(Y, M - 2, 1)), end: iso(_d(Y, M - 1, 0)), label: _d(Y, M - 2, 1).toLocaleDateString('en-US', { month: 'long' }) };
+      case 'this_year':  { const e = _d(Y - 1, M, D); return { start: (Y - 1) + '-01-01', end: iso(e), label: (Y - 1) + ' to date' }; }
+      case 'last_year':  return { start: (Y - 2) + '-01-01', end: (Y - 2) + '-12-31', label: String(Y - 2) };
+      case 'all_time':   return { start: '9999-01-01', end: '9999-01-01', label: 'No prior period' };
+      default:           { const y = _d(Y, M, D - 1); return { start: iso(y), end: iso(y), label: 'Yesterday' }; }
+    }
   };
   // Goal for the window: the Goals tab's monthly allocation (new + renewal,
   // else the annual spread evenly) over the month's selling days.
@@ -303,6 +332,8 @@ function openTvBoard() {
   const ago = (v) => { const d = new Date(v); if (isNaN(d)) return ''; const m = Math.max(0, Math.round((Date.now() - d) / 60000)); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' hr ago' : Math.round(m / 1440) + ' d ago'; };
 
   const render = () => {
+    // A timed repaint waits while the range dropdown is open, so it can't snap shut mid-pick.
+    { const ae = document.activeElement; if (ae && ae.tagName === 'SELECT' && overlay.contains(ae)) return; }
     if (document.querySelector('[data-tv-drill]')) return;   // someone is reading a drill — repaint when it closes
     const d = compute();
     const keys = new Set(d.rows.map(s => s.id));
@@ -330,7 +361,12 @@ function openTvBoard() {
         // One stamp (per Isaac): the board's last refresh, in Mountain time.
         eyebrow(new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: BOARD_TZ }).replace(',', ' ·') + '  ·  ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: BOARD_TZ }) + ' MT')),
       el('div', { style: { display: 'flex', alignItems: 'center', gap: '18px' } },
-        el('div', { style: { display: 'flex', gap: '6px' } }, ...RANGES.map(([id, l]) => pill(id, l))),
+        // Date range dropdown (per Isaac, Oct 14) — the main dashboard's ranges.
+        el('select', { title: 'Date range (keys 1–4: Today · This week · This month · This year)',
+          style: { fontFamily: MONO, fontSize: '11px', letterSpacing: '.18em', textTransform: 'uppercase', padding: '9px 30px 9px 12px', background: T.void, color: T.ink, border: '1px solid ' + T.ink, borderRadius: '0', cursor: 'pointer', appearance: 'none', WebkitAppearance: 'none',
+            backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2710%27 height=%276%27%3E%3Cpath d=%27M0 0l5 6 5-6z%27 fill=%27%23F4F6F8%27/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' },
+          onchange: (e) => { state._tvRange = e.target.value; e.target.blur(); render(); } },
+          ...RANGES.map(([id, l]) => el('option', { value: id, selected: state._tvRange === id }, l))),
         // (header clock retired per Isaac — the stamp on the left carries date + time)
         // (Resync button retired per Isaac, Sep 18 — the snapshot lands every 30 min, the live feed every 15, the board pulls every 5.)
         iconBtn(inFs ? 'Exit fullscreen (F)' : 'Fullscreen (F)', inFs ? '<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>' : '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>', toggleFs),
