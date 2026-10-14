@@ -738,13 +738,14 @@ function reportingPinBar(key, bar) {
     // header's bottom instead made the content jump 14px down the moment it
     // pinned, and flicker back and forth across that line while scrolling
     // (per Isaac, Sep 29).
-    const PAD_TOP = 14;
+    const PAD_TOP = key === 'rpttabs' ? 6 : 14;   // the tab row sits tight under the header (per Isaac, Oct 14)
+    const PAD_BOT = key === 'rpttabs' ? 0 : 8;
     const pin = sp.getBoundingClientRect().top < top + PAD_TOP;
     if (pin && !b._pinned) {
       b._pinned = true;
       const r = sp.getBoundingClientRect();
       // Same spacing as the Retention Attrition Steps header (per Isaac, Sep 23): 14px under the header rule, 8px below, page background.
-      Object.assign(b.style, { position: 'fixed', top: top + 'px', left: r.left + 'px', width: r.width + 'px', zIndex: '15', background: 'var(--bg)', paddingTop: PAD_TOP + 'px', paddingBottom: '8px' });
+      Object.assign(b.style, { position: 'fixed', top: top + 'px', left: r.left + 'px', width: r.width + 'px', zIndex: '15', background: 'var(--bg)', paddingTop: PAD_TOP + 'px', paddingBottom: PAD_BOT + 'px' });
     } else if (!pin && b._pinned) {
       b._pinned = false;
       Object.assign(b.style, { position: '', top: '', left: '', width: '', zIndex: '', background: '', paddingTop: '', paddingBottom: '' });
