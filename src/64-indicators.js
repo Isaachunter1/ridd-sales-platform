@@ -3486,10 +3486,15 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       const isOpen = expanded === expandKey;
       const clickable = !!expandKey;
       _recRowLabel = label;
+      // Hover lights the WHOLE row (per Isaac, Oct 14) — a brightness filter only
+      // showed on the frozen Scope cell (the one with its own background).
+      const _hov = (on) => (e) => { if (isOpen) return; const tr = e.currentTarget; tr.style.background = on ? 'var(--card-2)' : ''; const c0 = tr.firstElementChild; if (c0 && c0.style.position === 'sticky') c0.style.background = on ? 'var(--card-2)' : 'var(--card)'; };
       return el('tr', {
-        class: 'border-t border-' + (clickable ? ' cursor-pointer hover:brightness-95 transition' : ''),
+        class: 'border-t border-' + (clickable ? ' cursor-pointer transition' : ''),
         style: isOpen ? { background: 'rgba(223,100,58,.08)' } : {},
         onclick: clickable ? () => { state._aggRecordsExpanded = isOpen ? null : expandKey; mountApp(); } : undefined,
+        onmouseenter: clickable ? _hov(true) : undefined,
+        onmouseleave: clickable ? _hov(false) : undefined,
       },
         // Scope column stays frozen while the record columns scroll (per Isaac).
         _recPhone ? null : el('td', { class: 'pl-5 pr-3 py-3 align-top', style: { position: 'sticky', left: '0', zIndex: '1', background: isOpen ? 'var(--card-2)' : 'var(--card)', boxShadow: '1px 0 0 var(--border)' } },
