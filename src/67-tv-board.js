@@ -13,6 +13,8 @@
 // autopay; one it doesn't have yet (sold minutes ago) is added. Everything
 // downstream (Pending/Serviced gate, excluded sources and services, the rep
 // bridge) runs exactly as it does for the dataset's own rows.
+// Signed agreement data is paused on the TV until FieldRoutes' signed-contract endpoint is in (see signedOf).
+const TV_SIGNED_PAUSED = true;
 let _tvLiveMergeCache = { base: null, live: null, out: null };
 function tvRawWithLive() {
   const base = state._indicatorRawSales || [];
@@ -262,7 +264,7 @@ function openTvBoard() {
     // pull stamps crm_contract_state there and re-checks it every run, so a
     // sale from an hour ago is known before the snapshot has it.
     const _twin = (() => { const bySub = new Map(), byCust = new Map(); for (const x of (state.allSales || [])) { if (!x.crm_contract_state) continue; if (x.crm_subscription_id != null) bySub.set(String(x.crm_subscription_id), x); if (x.customer_number != null) { byCust.set(String(x.customer_number) + '|' + String(x.crm_subscription || '').trim().toLowerCase(), x); byCust.set(String(x.customer_number), x); } } return { bySub, byCust }; })();
-    const signedOf = (s) => {
+    const _signedFromData = (s) => {
       if (s.crm_contract_state) return String(s.crm_contract_state) === 'signed';
       const tw = (s.crm_subscription_id != null && _twin.bySub.get(String(s.crm_subscription_id)))
         || (s.customer_number != null && (_twin.byCust.get(String(s.customer_number) + '|' + String(s._crmService || s.service_name || '').trim().toLowerCase()) || _twin.byCust.get(String(s.customer_number))));   // signing is per customer, so the customer # alone is enough
@@ -275,6 +277,11 @@ function openTvBoard() {
       if (recent && s.customer_number != null && recent.has(String(s.customer_number))) return true;
       return snap ? String(snap.contract_state || 'none') === 'signed' : null;
     };
+    // PAUSED (per Isaac, Oct 14): FieldRoutes is building the endpoint that
+    // says reliably who signed, so until it lands every agent sale reads "No"
+    // (tile shows 0%) — house account / 6 Brothers still sit in Excluded.
+    // All the lookup logic above stays; flip TV_SIGNED_PAUSED to false to use it.
+    const signedOf = (s) => TV_SIGNED_PAUSED ? false : _signedFromData(s);
     const sgKnown = rowsAgent.filter(s => signedOf(s) != null);
     const sgYes = sgKnown.filter(s => signedOf(s) === true), sgNo = sgKnown.filter(s => signedOf(s) === false);
     const sgExcl = rows.filter(s => isHouse(s) || signedOf(s) == null);
