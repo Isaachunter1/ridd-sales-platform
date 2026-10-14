@@ -329,12 +329,12 @@ function openTvBoard() {
       avgInitial: subsMy.length ? subsMy.reduce((a, s) => a + (Number(s.initial_amount) || 0), 0) / subsMy.length : 0,   // house account out
       avgMonthly: subsMy.length ? subsMy.reduce((a, s) => a + (Number(s.monthly_amount) || 0), 0) / subsMy.length : 0,   // house account out
       avgContract: subsAcv.length ? rev(subsAcv) / subsAcv.length : 0,   // recurring NEW subs — house account, one-time and renewals out
-      multiPct: my.length ? multi / my.length * 100 : 0, autoPay: ap, signedPct, recMix: rowsAgent.length ? subsMy.length / rowsAgent.length * 100 : 0, reps, offices, latest, goal,
+      multiPct: my.length ? multi / my.length * 100 : 0, autoPay: ap, signedPct, recMix: (() => { const nr = rowsAgent.filter(s => !isRenewal(s)); return nr.length ? subsMyNR.length / nr.length * 100 : 0; })(),   // renewals out (per Isaac, Oct 14) reps, offices, latest, goal,
       splits: {
         multi: { yes: subsMyNR.filter(s => (typeof myBucketOf === 'function' ? myBucketOf(s) : null) === 'multi'), no: subsMyNR.filter(s => (typeof myBucketOf === 'function' ? myBucketOf(s) : null) === 'twelve'), excluded: subs.filter(s => isHouse(s) || isRenewal(s)) },
         signed: { yes: sgYes, no: sgNo, excluded: sgExcl },
         autopay: { yes: apPool.filter(s => s._crmAutoPay), no: apPool.filter(s => !s._crmAutoPay), excluded: rows.filter(s => s._crm && isHouse(s)) },
-        recmix: { yes: subsMy, no: rowsAgent.filter(s => isOts(s)), excluded: rows.filter(isHouse) },
+        recmix: { yes: subsMyNR, no: rowsAgent.filter(s => isOts(s) && !isRenewal(s)), excluded: rows.filter(s => isHouse(s) || isRenewal(s)) },   // renewals sit in Excluded (per Isaac, Oct 14)
         // Price-point drills (per Isaac): initial ≥ $99 / under, recurring ≥ $59 / under, ACV ≥ $700 / under.
         initial: { yes: subsMy.filter(s => (Number(s.initial_amount) || 0) >= lastResortMin()), no: subsMy.filter(s => (Number(s.initial_amount) || 0) < lastResortMin()), excluded: subs.filter(isHouse) },
         recurring: { yes: subsMy.filter(s => (Number(s.monthly_amount) || 0) >= 59), no: subsMy.filter(s => (Number(s.monthly_amount) || 0) < 59), excluded: subs.filter(isHouse) },
