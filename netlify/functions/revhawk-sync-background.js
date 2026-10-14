@@ -172,12 +172,14 @@ cxl AS (
 n16 AS (
   SELECT fieldRoutes_customerID AS cid, TRIM(fieldRoutes_cancellationReason) AS reason,
     NULLIF(fieldRoutes_cancellationReasonID, '') AS rid, fieldRoutes_notes AS txt,
-    SAFE.PARSE_DATETIME('%Y-%m-%d %H:%M:%S', fieldRoutes_dateAdded) AS written
+    SAFE.PARSE_DATETIME('%Y-%m-%d %H:%M:%S', fieldRoutes_dateAdded) AS written,
+    -- the note's own date = the cancel it describes (a 2025 re-tag of a 2023 cancel is dated 2023)
+    COALESCE(SAFE.PARSE_DATETIME('%Y-%m-%d %H:%M:%S', fieldRoutes_date), SAFE.PARSE_DATETIME('%Y-%m-%d %H:%M:%S', fieldRoutes_dateAdded)) AS dated
   FROM \`${PROJECT}.${DATASET}.FieldRoutesNote\`
   WHERE fieldRoutes_typeID = '16' AND fieldRoutes_cancellationReason IS NOT NULL AND TRIM(fieldRoutes_cancellationReason) != ''
 ),
 cxfCand AS (
-  SELECT s.id AS sid, COALESCE(l.reason, n.reason) AS reason, n.written,
+  SELECT s.id AS sid, COALESCE(l.reason, n.reason) AS reason, n.written, n.dated,
     REGEXP_CONTAINS(COALESCE(n.txt, ''), CONCAT(r'Subscription - ', s.fieldRoutes_subscriptionID, r'\]')) AS by_text,
     REGEXP_CONTAINS(COALESCE(n.txt, ''), r'Subscription - \d+\]') AS names_a_sub
   FROM sub s
@@ -186,19 +188,22 @@ cxfCand AS (
   WHERE s.fieldRoutes_dateCancelled IS NOT NULL AND s.fieldRoutes_dateCancelled != '' AND s.fieldRoutes_dateCancelled NOT LIKE '0000%'
 ),
 cxf AS (
-  -- The reason in force is the note written NEAREST the cancel (per Isaac,
-  -- Oct 14 — #40448 / #36303: an "Initial Appointment Canceled" note from the
-  -- first visit named the sub, but the plan was cancelled months later as
-  -- Delinquent). A note inside the -1 / +3 day window wins; a note naming the
-  -- sub but written outside it is used only when nothing is in the window.
+  -- The reason in force (per Isaac, Oct 14): a note DATED at the cancel (-1 /
+  -- +3 days) wins, and among those the most recently WRITTEN — FieldRoutes'
+  -- 2025 re-tag of old cancels (e.g. #52154 "Paid Cancellation Fee" → Finances)
+  -- adds new notes dated back to the cancel, same rule as the primary table.
+  -- #40448 / #36303: a first-visit "Initial Appointment Canceled" note named
+  -- the sub but was dated months earlier, so it loses to the real cancel. A
+  -- note naming the sub but dated outside the window is used only when nothing
+  -- is in it.
   SELECT sid, reason FROM (
     SELECT c.sid, c.reason,
       ROW_NUMBER() OVER (PARTITION BY c.sid ORDER BY
-        IF(c.written BETWEEN DATETIME_SUB(cx, INTERVAL 1 DAY) AND DATETIME_ADD(cx, INTERVAL 3 DAY), 0, 1),
-        ABS(DATETIME_DIFF(c.written, cx, MINUTE)), IF(c.by_text, 0, 1)) AS rn
+        IF(c.dated BETWEEN DATETIME_SUB(cx, INTERVAL 1 DAY) AND DATETIME_ADD(cx, INTERVAL 3 DAY), 0, 1),
+        c.written DESC, IF(c.by_text, 0, 1)) AS rn
     FROM (SELECT c.*, SAFE.PARSE_DATETIME('%Y-%m-%d %H:%M:%S', LEFT(s.fieldRoutes_dateCancelled,19)) AS cx
           FROM cxfCand c JOIN sub s ON s.id = c.sid) c
-    WHERE c.by_text OR (NOT c.names_a_sub AND c.written BETWEEN DATETIME_SUB(cx, INTERVAL 1 DAY) AND DATETIME_ADD(cx, INTERVAL 3 DAY))
+    WHERE c.by_text OR (NOT c.names_a_sub AND c.dated BETWEEN DATETIME_SUB(cx, INTERVAL 1 DAY) AND DATETIME_ADD(cx, INTERVAL 3 DAY))
   ) WHERE rn = 1
 ),
 appt AS (
