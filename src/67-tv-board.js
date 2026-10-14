@@ -567,18 +567,29 @@ function openTvBoard() {
           // Compact rows so more of the day fits without scrolling.
           const sep = () => el('span', { style: { color: T.hair, padding: '0 10px', fontFamily: MONO } }, '|');
           return el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '14px', alignItems: 'center', padding: '7px 0', borderTop: i ? '1px solid ' + T.hair : 'none' } },
-            el('div', { style: { minWidth: '0' } },
-              el('div', { style: { display: 'flex', alignItems: 'baseline', minWidth: '0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
-                el('span', { style: { fontFamily: HEAD, fontSize: 'clamp(17px, 1.35vw, 22px)', letterSpacing: '.02em', textTransform: 'uppercase' } }, (r ? r.name : (s._crmRep || 'Rep'))),
+            // Two-row grid (per Isaac, Oct 14) so the second line lines up under the first:
+            // time under the name, the account's add-ons right under the service type.
+            (() => {
+              const ao = addOnsFor(s), unassigned = ao.filter(a => !a.credited_profile_id);
+              const cell = (col, row, child, extra) => el('div', { style: { gridColumn: col, gridRow: String(row), minWidth: '0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', ...(extra || {}) } }, child);
+              const small = { fontFamily: MONO, fontSize: '10px', color: T.dim, letterSpacing: '.06em', marginTop: '2px' };
+              return el('div', { style: { display: 'grid', gridTemplateColumns: 'auto auto auto auto minmax(0, auto) auto auto auto minmax(0, 1fr)', alignItems: 'baseline', minWidth: '0', overflow: 'hidden' } },
+                cell('1', 1, el('span', { style: { fontFamily: HEAD, fontSize: 'clamp(17px, 1.35vw, 22px)', letterSpacing: '.02em', textTransform: 'uppercase' } }, (r ? r.name : (s._crmRep || 'Rep')))),
                 // Customer ID first (per Isaac, Sep 22): NAME | #id | service | term | source.
-                s.customer_number ? sep() : null, s.customer_number ? el('span', { style: { fontFamily: MONO, fontSize: 'clamp(11px, .85vw, 13px)', color: T.dim, letterSpacing: '.06em' }, title: 'Customer ID' }, '#' + s.customer_number) : null,
-                sep(), el('span', { style: { fontFamily: VOICE, fontWeight: 600, fontSize: 'clamp(12px, .95vw, 15px)', color: T.ink } }, s._crmService || s.service_name || '—'),
-                sep(), el('span', { style: { fontFamily: VOICE, fontWeight: 600, fontSize: 'clamp(12px, .95vw, 15px)', color: T.ink } }, (Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME')),
-                src ? sep() : null, src ? el('span', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.04em' } }, src) : null),
-              el('div', { style: { fontFamily: MONO, fontSize: '10px', color: T.dim, letterSpacing: '.06em', marginTop: '2px', whiteSpace: 'nowrap' } }, at ? when(at) : '—',
-                (() => { const ao = addOnsFor(s); if (!ao.length) return null; const unassigned = ao.filter(a => !a.credited_profile_id);
-                  return el('span', { style: { marginLeft: '10px', fontWeight: '700', color: unassigned.length ? BAND.red : BAND.green, letterSpacing: '.08em' },
-                    title: ao.map(a => (a.service_name || 'Add-on') + (a.credited_profile_id ? '' : ' — not assigned to a rep')).join('\n') }, 'ADDONS +' + ao.length + (unassigned.length ? ' \u00b7 ' + unassigned.length + ' UNASSIGNED' : '')); })())),
+                cell('2', 1, s.customer_number ? sep() : null),
+                cell('3', 1, s.customer_number ? el('span', { style: { fontFamily: MONO, fontSize: 'clamp(11px, .85vw, 13px)', color: T.dim, letterSpacing: '.06em' }, title: 'Customer ID' }, '#' + s.customer_number) : null),
+                cell('4', 1, sep()),
+                cell('5', 1, el('span', { style: { fontFamily: VOICE, fontWeight: 600, fontSize: 'clamp(12px, .95vw, 15px)', color: T.ink } }, s._crmService || s.service_name || '—')),
+                cell('6', 1, sep()),
+                cell('7', 1, el('span', { style: { fontFamily: VOICE, fontWeight: 600, fontSize: 'clamp(12px, .95vw, 15px)', color: T.ink } }, (Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME'))),
+                cell('8', 1, src ? sep() : null),
+                cell('9', 1, src ? el('span', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.04em' } }, src) : null),
+                cell('1 / 4', 2, at ? when(at) : '—', small),
+                ao.length ? cell('5 / 10', 2,
+                  el('span', { style: { fontWeight: '700', color: unassigned.length ? BAND.red : BAND.green, letterSpacing: '.08em' },
+                    title: ao.map(a => (a.service_name || 'Add-on') + (a.credited_profile_id ? '' : ' — not assigned to a rep')).join('\n') },
+                    'ADDONS +' + ao.length + '  \u00b7  ' + ao.map(a => String(a.service_name || 'Add-on').toUpperCase()).join(', ') + (unassigned.length ? '  ·  ' + unassigned.length + ' UNASSIGNED' : '')), small) : null);
+            })(),
             figure(money(s.revenue_amount), 'clamp(17px, 1.5vw, 24px)', T.ink));
         }) : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'Nothing yet.')]))], { flex: '1' });
     const body = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr)', gap: '18px', padding: '20px 36px 24px', flex: '1', minHeight: '0' } },
