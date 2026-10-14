@@ -1154,7 +1154,7 @@ function reportingPutis() {
     const sp = document.getElementById('putisBarSpacer'), bar = document.getElementById('putisBar');
     if (!sp || !bar) return;
     const hdr = document.querySelector('.page-header');
-    const headerH = hdr ? Math.round(hdr.getBoundingClientRect().bottom) : 60;
+    const headerH = typeof reportingPinTop === 'function' ? reportingPinTop() : (hdr ? Math.round(hdr.getBoundingClientRect().bottom) : 60);
     if (!sp.style.height) sp.style.height = bar.offsetHeight + 'px';
     const pin = sp.getBoundingClientRect().top < headerH;
     if (pin && !bar._pinned) {
@@ -1307,7 +1307,10 @@ function reportingSubTabs() {
       style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
       onchange: (e) => { const k = e.target.value; go(k); if (tabs.find(([kk]) => kk === k)[2]) e.target.value = cur; },
     }, ...tabs.map(([k, label]) => el('option', { value: k, selected: cur === k }, label))));
-  return el('div', {}, strip, pick);
+  // Frozen at the top on scroll (per Isaac, Oct 14): the tab row — with the
+  // tab's filters in it — stays under the page header on every Reporting tab.
+  const row = el('div', { style: { background: 'var(--bg)' } }, strip, pick);
+  return (typeof reportingPinBar === 'function') ? reportingPinBar('rpttabs', row) : row;
 }
 
 // Common "do we have data to show" gate. Returns either an early-return

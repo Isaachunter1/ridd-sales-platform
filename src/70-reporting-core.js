@@ -712,6 +712,16 @@ function _drillAutopay(r) { const a = String(r.customer_auto_pay || '').trim().t
 // pattern as Retention / P&L (main is overflow-x:hidden, so position:sticky
 // can't work; we flip to position:fixed and leave a spacer in the flow).
 // Phones never pin (the bar is a third of the screen there).
+// Where a pinned Reporting bar sits: under the page header, and under the
+// frozen sub-tab row once that has pinned (per Isaac, Oct 14 — the tab row
+// with its filters stays at the top on every Reporting tab).
+function reportingPinTop(skipTabs) {
+  const hdr = document.querySelector('header.page-header');
+  const top = hdr ? Math.round(hdr.getBoundingClientRect().bottom) : 60;
+  if (skipTabs) return top;
+  const tb = document.getElementById('pinBar-rpttabs');
+  return (tb && tb.isConnected && tb._pinned) ? Math.round(tb.getBoundingClientRect().bottom) : top;
+}
 function reportingPinBar(key, bar) {
   const spId = 'pinSp-' + key, barId = 'pinBar-' + key;
   bar.id = barId;
@@ -721,8 +731,7 @@ function reportingPinBar(key, bar) {
     if (!sp || !b || !b.isConnected) return;
     // Phones pin too (per Isaac, Sep 2026) — the Office / Time range bar
     // stays under the header while the Overview scrolls.
-    const hdr = document.querySelector('header.page-header');
-    const top = hdr ? Math.round(hdr.getBoundingClientRect().bottom) : 60;
+    const top = reportingPinTop(key === 'rpttabs');
     if (!sp.style.height) sp.style.height = b.offsetHeight + 'px';
     // Pin at the exact scroll point where the bar's content would reach its
     // pinned spot (header bottom + the 14px top padding). Pinning at the
@@ -739,7 +748,7 @@ function reportingPinBar(key, bar) {
     } else if (!pin && b._pinned) {
       b._pinned = false;
       Object.assign(b.style, { position: '', top: '', left: '', width: '', zIndex: '', background: '', paddingTop: '', paddingBottom: '' });
-    } else if (pin) { const r = sp.getBoundingClientRect(); b.style.left = r.left + 'px'; b.style.width = r.width + 'px'; }
+    } else if (pin) { const r = sp.getBoundingClientRect(); b.style.left = r.left + 'px'; b.style.width = r.width + 'px'; b.style.top = top + 'px'; }
   };
   window._rptPinSyncs = window._rptPinSyncs || {};
   window._rptPinSyncs[key] = sync;

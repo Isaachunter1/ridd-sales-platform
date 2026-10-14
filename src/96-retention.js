@@ -2781,7 +2781,7 @@ function reportingWaterfall() {
   // header, and leave a spacer of its height behind so nothing jumps.
   const frozen = el('div', { id: 'retenFrozen', class: 'flex flex-col gap-3', style: { marginTop: '-4px', background: 'var(--bg)', paddingTop: '6px', paddingBottom: '8px' } }, joined);
   const spacer = el('div', { id: 'retenFrozenSpacer', style: { display: 'none' } });
-  const _pinTop = () => { try { const h = document.querySelector('header.page-header'); return h ? Math.round(h.getBoundingClientRect().bottom) : 60; } catch (e) { return 60; } };
+  const _pinTop = () => { try { if (typeof reportingPinTop === 'function') return reportingPinTop(); const h = document.querySelector('header.page-header'); return h ? Math.round(h.getBoundingClientRect().bottom) : 60; } catch (e) { return 60; } };
   const syncPin = () => {
     const f = document.getElementById('retenFrozen'), sp = document.getElementById('retenFrozenSpacer');
     if (!f || !sp || !f.isConnected) return;
