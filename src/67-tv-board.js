@@ -5,6 +5,42 @@
 // │ ember spent once — on the number. Same CRM-backed pool as the War Room.
 // │ Part of the app.js bundle (tools/bundle.js concatenates src/*.js in name order).
 // └────────────────────────────────────────────────────────────────────────
+// ── Live feed (per Isaac, Oct 14: "move the tv display to the 15 minute pull —
+// as live as possible"). The FieldRoutes live pull publishes every
+// subscription added in the last two days to app_settings.crm_live_recent, in
+// the Indicators feed's raw-row shape. Merged over the RevHawk dataset for the
+// board only: a sale the dataset already has gets the live status / amounts /
+// autopay; one it doesn't have yet (sold minutes ago) is added. Everything
+// downstream (Pending/Serviced gate, excluded sources and services, the rep
+// bridge) runs exactly as it does for the dataset's own rows.
+let _tvLiveMergeCache = { base: null, live: null, out: null };
+function tvRawWithLive() {
+  const base = state._indicatorRawSales || [];
+  const live = state._crmLiveRecent && Array.isArray(state._crmLiveRecent.rows) ? state._crmLiveRecent.rows : null;
+  if (!live || !live.length || !base.length) return base;
+  if (_tvLiveMergeCache.base === base && _tvLiveMergeCache.live === live) return _tvLiveMergeCache.out;
+  const toIso = (d) => (typeof dateSoldToIso === 'function' && dateSoldToIso(d)) || String(d || '').slice(0, 10);
+  const key = (r) => String(r.customerId != null ? r.customerId : '') + '|' + String(r.subscription || '').trim().toLowerCase() + '|' + toIso(r.dateSold);
+  const liveBy = new Map(live.map(r => [key(r), r]));
+  const FRESH = ['active', 'status', 'initialStatus', 'autoPay', 'contractValue', 'initialPrice', 'contract', 'recurring', 'source', 'cancelDate'];
+  const seen = new Set();
+  const out = base.map(r => {
+    const k = key(r), lv = liveBy.get(k); if (!lv) return r;
+    seen.add(k);
+    const o = Object.assign({}, r);
+    FRESH.forEach(f => { if (lv[f] != null && lv[f] !== '') o[f] = lv[f]; });
+    o.services = Math.max(Number(r.services) || 0, Number(lv.services) || 0);
+    return o;
+  });
+  live.forEach(lv => {
+    const k = key(lv); if (seen.has(k)) return; seen.add(k);
+    const office = (typeof branchAlias === 'function') ? branchAlias(lv.office) : lv.office;
+    out.push(Object.assign({ customer: '', cancelReason: '', customerFlags: '', servicedDate: '', age: 0 }, lv, { office, _live: true }));
+  });
+  _tvLiveMergeCache = { base, live, out };
+  return out;
+}
+
 function openTvBoard() {
   // Desktop only (per Isaac): the board is a wall display, never a phone view.
   try { if (window.matchMedia('(max-width: 900px)').matches) { if (typeof toast === 'function') toast('TV Display is desktop-only \u2014 open it on a computer.', 'info'); return; } } catch (e) { /* noop */ }
@@ -173,7 +209,12 @@ function openTvBoard() {
 
   const compute = () => {
     const range = rangeOf();
-    const pool = (typeof dashboardSales === 'function' ? dashboardSales() : (state.allSales || [])) || [];
+    // The board's pool runs on the dataset + the live pull (tvRawWithLive above).
+    let pool;
+    { const keep = state._indicatorRawSales, merged = tvRawWithLive();
+      if (merged !== keep) state._indicatorRawSales = merged;
+      try { pool = (typeof dashboardSales === 'function' ? dashboardSales() : (state.allSales || [])) || []; }
+      finally { if (merged !== keep && state._indicatorRawSales === merged) state._indicatorRawSales = keep; } }
     // Only subscriptions with an initial appointment ON THE BOOKS (per Isaac,
     // Sep 22): crm_initial_status Pending or Completed, as the sync stamps it.
     // 'None' / cancelled initials stay off the board until FieldRoutes has an
@@ -568,6 +609,12 @@ function openTvBoard() {
       if (ids) state._crmSignedRecent = new Set(ids.map(String)); } catch (e) { /* snapshot only */ }
   };
   pullSignedRecent().then(() => { try { render(); } catch (e) { /* keep the board up */ } });
+  const pullLiveRecent = async () => {
+    try { const { data } = await supabase.from('app_settings').select('value').eq('key', 'crm_live_recent').maybeSingle();
+      const v = data && data.value;
+      if (v && Array.isArray(v.rows) && (!state._crmLiveRecent || state._crmLiveRecent.at !== v.at)) state._crmLiveRecent = v; } catch (e) { /* dataset only */ }
+  };
+  pullLiveRecent().then(() => { try { render(); } catch (e) { /* keep the board up */ } });
   const pullAddOns = async () => {
     try {
       const since = new Date(); since.setDate(since.getDate() - 400);
@@ -578,7 +625,7 @@ function openTvBoard() {
   pullAddOns().then(() => { try { render(); } catch (e) { /* keep the board up */ } });
   // Refresh the CRM pool in the background so the board keeps up with the sync.
   const pullFresh = async () => {
-    await pullAddOns(); await pullSignedRecent();
+    await pullAddOns(); await pullSignedRecent(); await pullLiveRecent();
     try { if (typeof refreshIndicatorsFromCloud === 'function') await refreshIndicatorsFromCloud(true); } catch (e) { /* poll retries */ }
     try { if (typeof refreshSalesData === 'function') await refreshSalesData(); } catch (e) { /* poll retries */ }
     try { render(); } catch (e) { /* keep the board up */ }

@@ -17,6 +17,13 @@ const { applyFieldRoutesEnv, fieldRoutesBase, recordIntegrationStatus } = requir
 const { requireSyncSecret } = require('../lib/sync-gate.js');
 
 let EXCLUDED_SVCS = new Set(require('../lib/rules.js').FR_GLOBAL_EXCLUDED);   // refreshed per run with admin-Hidden service types
+// Branch names exactly as the nightly RevHawk sync writes them (its
+// OFFICE_NAMES baseline), so a live row and the dataset's row for the same
+// sale land on the same branch; FieldRoutes' own office name is the fallback.
+const BRANCH_NAMES = {
+  '1': 'Salt Lake', '6': 'Charleston', '7': 'Myrtle Beach', '10': 'Destin', '13': 'Atlanta',
+  '15': 'Virginia Beach', '16': 'Raleigh', '18': 'Detroit', '19': 'Joplin', '20': 'Little Rock',
+};
 const QUEUE_OF = { 'Office Staff': 'office', 'Sales Rep': 'd2d', 'Technician': 'tech' };
 const TYPE_LABEL = { '0': 'Office Staff', '1': 'Technician', '2': 'Sales Rep' };
 
@@ -115,6 +122,8 @@ exports.handler = async (event) => {
       const list = Array.isArray(got.subscriptions) ? got.subscriptions : Object.values(got.subscriptions || {});
       subs.push(...list);
     }
+    // Every sub seen this run (fresh + already logged), for the TV's live feed below.
+    const liveSubs = new Map(subs.map(s => [String(s.subscriptionID), s]));
     const custIds = [...new Set(subs.map(s => String(s.customerID || '')).filter(Boolean))];
     const custById = new Map();
     for (const part of chunk(custIds, 1000)) {
@@ -145,7 +154,7 @@ exports.handler = async (event) => {
       catch (e) { console.warn('[fr-live] signed-note lookup unavailable:', e.message); }
     }
     const [rosterQ, profQ, offQ, svcQ, srcQ, ctQ] = await Promise.all([
-      supabase.from('fieldroutes_employees').select('employee_id, employee_ids, type_label'),
+      supabase.from('fieldroutes_employees').select('employee_id, employee_ids, type_label, fname, lname'),
       supabase.from('profiles').select('id, fieldroutes_employee_id, office_id').not('fieldroutes_employee_id', 'is', null),
       supabase.from('offices').select('id, name'),
       supabase.from('service_types').select('id, name'),
@@ -153,11 +162,12 @@ exports.handler = async (event) => {
       supabase.from('contract_types').select('id, name'),
     ]);
     // employee id (any of a person's branch ids) → profile + CRM type
-    const masterOf = new Map(), typeOfEmp = new Map();
+    const masterOf = new Map(), typeOfEmp = new Map(), nameOfEmp = new Map();
     (rosterQ.data || []).forEach(e => {
       const idsAll = String(e.employee_ids || e.employee_id || '').split(',').map(x => x.trim()).filter(Boolean);
-      idsAll.forEach(id => { masterOf.set(id, String(e.employee_id)); typeOfEmp.set(id, e.type_label || null); });
-      typeOfEmp.set(String(e.employee_id), e.type_label || null);
+      const nm = [String(e.lname || '').trim(), String(e.fname || '').trim()].filter(Boolean).join(', ');   // "Last, First" like the snapshot
+      idsAll.forEach(id => { masterOf.set(id, String(e.employee_id)); typeOfEmp.set(id, e.type_label || null); if (nm) nameOfEmp.set(id, nm); });
+      typeOfEmp.set(String(e.employee_id), e.type_label || null); if (nm) nameOfEmp.set(String(e.employee_id), nm);
     });
     const profByEmp = new Map();
     (profQ.data || []).forEach(p => { const pid = String(p.fieldroutes_employee_id || '').trim(); if (pid) { profByEmp.set(pid, p); const m = masterOf.get(pid) || pid; if (!profByEmp.has(m)) profByEmp.set(m, p); } });
@@ -167,11 +177,12 @@ exports.handler = async (event) => {
       if (hit) idsAll.forEach(id => { if (!profByEmp.has(id)) profByEmp.set(id, hit); });
     });
     const officeByFrId = new Map();   // FieldRoutes officeID → app office id (by name, via the offices table's names)
+    const officeNameByFrId = new Map();   // FieldRoutes officeID → CRM office name (the TV live feed)
     const officeByName = new Map((offQ.data || []).map(o => [norm(o.name), o.id]));
     try {
       const og = await fr('office/get', {});
       const list = Array.isArray(og.offices) ? og.offices : Object.values(og.offices || {});
-      list.forEach(o => { const id = officeByName.get(norm(o.officeName)); if (id) officeByFrId.set(String(o.officeID), id); });
+      list.forEach(o => { if (o.officeName) officeNameByFrId.set(String(o.officeID), String(o.officeName)); const id = officeByName.get(norm(o.officeName)); if (id) officeByFrId.set(String(o.officeID), id); });
     } catch (e) { console.warn('[fr-live] office lookup skipped:', e.message); }
     const svcByName = new Map((svcQ.data || []).map(o => [norm(o.name), o.id]));
     const srcByName = new Map((srcQ.data || []).map(o => [norm(o.name), o.id]));
@@ -269,6 +280,7 @@ exports.handler = async (event) => {
           const got = await fr('subscription/get', { subscriptionIDs: part.map(Number) });
           const list = Array.isArray(got.subscriptions) ? got.subscriptions : Object.values(got.subscriptions || {});
           for (const s of list) {
+            liveSubs.set(String(s.subscriptionID), s);
             const row = curBy.get(String(s.subscriptionID)); if (!row) continue;
             const next = hasAppt(s) ? String(s.initialStatusText || s.initialStatus || 'Pending') : 'None';
             if (String(row.crm_initial_status || '') === next) continue;
@@ -330,6 +342,69 @@ exports.handler = async (event) => {
       } catch (e) { console.warn('[fr-live] signed list not published:', e.message); }
     }
 
+    // 3a-3. Live feed for the TV board (per Isaac, Oct 14: "move the tv display
+    // to the 15 minute pull — as live as possible"). Every subscription added
+    // in the window — including the one-time jobs, renewals and sellers with
+    // no app account that never become app sales rows — in the same shape as
+    // the Indicators feed's raw rows, plus the subscription id. The TV adds the
+    // ones the RevHawk dataset doesn't have yet and refreshes the rest.
+    // No customer names (app_settings is readable company-wide) — ids only.
+    // Written only when it changes.
+    let livePublished = 0;
+    try {
+      // Customers we haven't loaded yet (subs already logged in an earlier run).
+      const needCust = [...new Set([...liveSubs.values()].map(s => String(s.customerID || '')).filter(id => id && !custById.has(id)))];
+      for (const part of chunk(needCust, 1000)) {
+        const got = await fr('customer/get', { customerIDs: part.map(Number) });
+        const list = Array.isArray(got.customers) ? got.customers : Object.values(got.customers || {});
+        list.forEach(c => custById.set(String(c.customerID), c));
+      }
+      const mmddyyyy = (str) => { const m = String(str || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}:\d{2}(?::\d{2})?))?/); return m ? (m[2] + '/' + m[3] + '/' + m[1] + (m[4] ? ' ' + m[4] : '')) : ''; };
+      const rows = [];
+      for (const s of liveSubs.values()) {
+        const added = String(s.dateAdded || '');
+        if (!added || added.startsWith('0000') || added.slice(0, 10) < from) continue;
+        const cust = custById.get(String(s.customerID)) || {};
+        const custOff = Number(cust.officeID) > 0 ? String(cust.officeID) : null;   // branch = the CUSTOMER's office (same rule as the nightly sync)
+        const offId = custOff || String(s.officeID || '');
+        const soldById = String(s.soldBy || '').trim();
+        const done = String(s.completedAppointmentIDs || '').split(',').map(x => x.trim()).filter(x => x && x !== '0').length;
+        const cancelled = String(s.dateCancelled || '');
+        const activeText = String(s.activeText || (String(s.active) === '1' ? 'Active' : String(s.active) === '0' ? 'Inactive' : String(s.active) === '-1' ? 'Frozen' : ''));
+        rows.push({
+          subscriptionId: String(s.subscriptionID),
+          customerId: String(s.customerID || ''),
+          office: String(BRANCH_NAMES[offId] || officeNameByFrId.get(offId) || ('Office ' + offId)).toUpperCase(),
+          subscription: String(s.serviceType || '').trim(),
+          active: activeText,
+          status: activeText,
+          dateSold: mmddyyyy(added),
+          soldAt: added.slice(0, 19),
+          cancelDate: cancelled && !cancelled.startsWith('0000') ? cancelled.slice(0, 10) : '',
+          initialStatus: (String(s.initialAppointmentID || '').trim() && String(s.initialAppointmentID) !== '0') ? String(s.initialStatusText || s.initialStatus || 'Pending') : 'No Appointment',
+          services: done,
+          source: String(s.source || '').trim(),
+          contract: Number(s.agreementLength) || 0,
+          initialPrice: Number(s.initialServiceTotal) || 0,
+          contractValue: Number(s.contractValue) || 0,
+          recurring: Number(s.annualRecurringValue) || 0,
+          monthly: Number(s.recurringCharge) || 0,
+          autoPay: String(cust.aPay || cust.autoPay || '').trim(),
+          signed: signedRecent.has(String(s.customerID)),
+          rep: nameOfEmp.get(soldById) || nameOfEmp.get(masterOf.get(soldById) || '') || '',
+          repId: soldById,
+          repType: typeOfEmp.get(soldById) || typeOfEmp.get(masterOf.get(soldById) || '') || '',
+        });
+      }
+      rows.sort((a, b) => a.subscriptionId.localeCompare(b.subscriptionId));
+      const { data: cur } = await supabase.from('app_settings').select('value').eq('key', 'crm_live_recent').maybeSingle();
+      const prevRows = (cur && cur.value && Array.isArray(cur.value.rows)) ? cur.value.rows : null;
+      if (JSON.stringify(prevRows) !== JSON.stringify(rows)) {
+        const { error } = await supabase.from('app_settings').upsert({ key: 'crm_live_recent', value: { at: new Date().toISOString(), since: from, rows } });
+        if (!error) livePublished = rows.length;
+      }
+    } catch (e) { console.warn('[fr-live] TV live feed not published:', e.message); }
+
     // 3b. True-up: auto-added rows whose Initial / Monthly / Revenue drifted
     // from FieldRoutes (e.g. the old derived Monthly) get the CRM's numbers.
     // Runs over the 400 auto-added rows checked longest ago (all of this
@@ -363,7 +438,7 @@ exports.handler = async (event) => {
         }
       } catch (e) { console.warn('[fr-live] true-up skipped:', e.message); }
     }
-    const msg = '[fr-live] ' + ids.length + ' subs since ' + from + ' across ' + ((fr.officeIDs || []).length || 'the key’s home') + ' office(s) · +' + added + ' logged · ' + fixed + ' trued up · ' + apptFlipped + ' appt status changed · ' + signFlipped + ' newly signed · ' + skippedNoRep + ' seller(s) with no app account · ' + skippedType + ' skipped by type · ' + skippedNotYet + ' logged but not yet eligible (appt/billing/signed) · ' + svcCreated + ' service type(s) created · ' + (Date.now() - started) + 'ms';
+    const msg = '[fr-live] ' + ids.length + ' subs since ' + from + ' across ' + ((fr.officeIDs || []).length || 'the key’s home') + ' office(s) · +' + added + ' logged · ' + fixed + ' trued up · ' + apptFlipped + ' appt status changed · ' + signFlipped + ' newly signed · ' + (livePublished ? livePublished + ' live row(s) published · ' : '') + skippedNoRep + ' seller(s) with no app account · ' + skippedType + ' skipped by type · ' + skippedNotYet + ' logged but not yet eligible (appt/billing/signed) · ' + svcCreated + ' service type(s) created · ' + (Date.now() - started) + 'ms';
     console.log(msg + (fr.rateLimited ? ' · ' + fr.rateLimited + ' rate-limited retr' + (fr.rateLimited === 1 ? 'y' : 'ies') : ''));
     await recordIntegrationStatus(supabase, 'fieldroutes', { last_run_at: new Date().toISOString(), last_run_ok: true, last_run_message: msg.replace('[fr-live] ', ''), last_run_ms: Date.now() - started, rate_limited: fr.rateLimited || 0 });
     return { statusCode: 200, body: msg };
