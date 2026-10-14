@@ -996,14 +996,13 @@ function auditSubTasks() {
   // least a 12-month agreement. They're sold as no-contract, so once the initial
   // service is done the agreement length must be set to 12 in FieldRoutes.
   {
-    const live = (r) => /active/i.test(String(r.subscription_status || '')) && !r.subscription_date_canceled;
     const sentNoTerm = rows.filter(r => /sentricon/i.test(String(r.subscription || '')) && !/install/i.test(String(r.subscription || ''))
-      && live(r) && (!!r.initial_service || String(r.initial_status || '').toLowerCase() === 'completed')
+      && (!!r.initial_service || String(r.initial_status || '').toLowerCase() === 'completed')
       && !((Number(r.agreement_length) || 0) >= 12))
-      .map(r => ({ ...r, _flagReason: 'Customer #' + r.customer_id + ' \u00b7 ' + (r.subscription || 'Sentricon') + ' \u00b7 serviced ' + String(r.initial_service || '').slice(0, 10) + ' \u00b7 contract ' + ((Number(r.agreement_length) || 0) ? r.agreement_length + ' mo' : 'none') + ' \u2014 set to 12' }));
+      .map(r => ({ ...r, _flagReason: 'Customer #' + r.customer_id + ' \u00b7 ' + (r.subscription || 'Sentricon') + ' \u00b7 ' + (/active/i.test(String(r.subscription_status || '')) && !r.subscription_date_canceled ? 'active' : 'frozen') + ' \u00b7 serviced ' + String(r.initial_service || '').slice(0, 10) + ' \u00b7 contract ' + ((Number(r.agreement_length) || 0) ? r.agreement_length + ' mo' : 'none') + ' \u2014 set to 12' }));
     tasks.push({ tag: 'Sentricon', title: 'Sentricon with no 12-month contract', noun: 'subscription', tone: 'check', rows: sentNoTerm,
       ok: 'All clear \u2014 every serviced Sentricon is on a 12-month (or longer) contract.',
-      todo: (n) => n.toLocaleString() + ' active Sentricon plan' + s(n) + ' with its initial service done but no contract or under 12 months \u2014 set the agreement length to 12 in FieldRoutes.' });
+      todo: (n) => n.toLocaleString() + ' Sentricon plan' + s(n) + ' (active or frozen) with its initial service done but no contract or under 12 months \u2014 set the agreement length to 12 in FieldRoutes.' });
   }
   // 9. State doesn't match the ZIP (per Isaac, Oct 14): reporting already uses the
   //    ZIP's state; these are the customers to correct in FieldRoutes.
