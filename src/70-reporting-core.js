@@ -787,15 +787,17 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
     { key: 'customer',     label: 'Customer',        align: 'left',  type: 'str', get: r => customerName(r).toLowerCase() },
     { key: 'office',       label: 'Office',          align: 'left',  type: 'str', get: r => (r.office_name || '').toLowerCase() },
     { key: 'rep',          label: 'Sold by',         align: 'left',  type: 'str', get: r => String(r.sold_by || '').toLowerCase() },
+    // (State and County dropped per Isaac, Oct 14 — ZIP stays; both are still in the CSV.)
     ...(hasLoc ? [
-      { key: 'state',      label: 'State',           align: 'left',  type: 'str', get: r => (r.state || '').toUpperCase() },
       { key: 'zip',        label: 'ZIP',             align: 'left',  type: 'str', get: r => String(r.zip_code || '') },
-      { key: 'county',     label: 'County',          align: 'left',  type: 'str', get: r => (r.county || '').toLowerCase() },
     ] : []),
     { key: 'subscription', label: 'Subscription',    align: 'left',  type: 'str', get: r => (r.subscription || '').toLowerCase() },
     { key: 'source',       label: 'Source',          align: 'left',  type: 'str', get: r => (r.subscription_source || '').toLowerCase() },
     { key: 'status',       label: 'Status',          align: 'left',  type: 'str', get: r => (r.subscription_status || '').toLowerCase() },
-    ...(hasFlags ? [{ key: 'svcs', label: 'Svcs', align: 'right', type: 'num', get: r => Number(r.subscription_completed_services) || 0 }] : []),
+    // Cancel date + reason sit right after Status (per Isaac, Oct 14) so they
+    // show without scrolling. (Svcs dropped — the same number as Appts.)
+    { key: 'canceled',     label: 'Canceled',        align: 'left',  type: 'str', get: r => r.subscription_date_canceled || '' },
+    { key: 'reason',       label: 'Cancel Reason',   align: 'left',  type: 'str', get: r => String(r.subscription_cancellation_reason || '').toLowerCase() },
     ...(hasFlags ? [{ key: 'flag', label: 'Flag', align: 'left',  type: 'str', get: r => (r._flagReason || '').toLowerCase() }] : []),
     // Money + tenure block (per Isaac, Sep 2026): ARR (FieldRoutes' annual
     // recurring value), contract, initial $, recurring $ per service (from
@@ -811,9 +813,6 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
     { key: 'initial',      label: 'Initial Service', align: 'left',  type: 'str', get: r => r.initial_service || '' },
     { key: 'pastdue',      label: 'Past Due',        align: 'right', type: 'num', get: r => Number(r.days_past_due) || 0 },
     { key: 'balance',      label: 'Balance',         align: 'right', type: 'num', get: r => Number(r.responsible_balance) || 0 },
-    { key: 'canceled',     label: 'Canceled',        align: 'left',  type: 'str', get: r => r.subscription_date_canceled || '' },
-    // Cancel reason is its own column (per Isaac, Sep 2026) — Contract $ left to make room.
-    { key: 'reason',       label: 'Cancel Reason',   align: 'left',  type: 'str', get: r => String(r.subscription_cancellation_reason || '').toLowerCase() },
   ];
 
   let sortKey = 'arv';   // default: largest ARR first
@@ -872,13 +871,12 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
     ),
     el('td', { class: 'px-3 py-2' }, r.office_name || '—'),
     el('td', { class: 'px-3 py-2' }, r.sold_by ? el('div', {}, el('div', {}, r.sold_by), r.sold_by_type ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, r.sold_by_type) : null) : '—'),
-    hasLoc && el('td', { class: 'px-3 py-2 font-semibold' }, r.state || '—'),
     hasLoc && el('td', { class: 'px-3 py-2 tabular-nums' }, r.zip_code || '—'),
-    hasLoc && el('td', { class: 'px-3 py-2' }, r.county || '—'),
     el('td', { class: 'px-3 py-2' }, r.subscription || '—'),
     el('td', { class: 'px-3 py-2' }, r.subscription_source || '—'),
     el('td', { class: 'px-3 py-2' }, r.subscription_status || '—'),
-    hasFlags && el('td', { class: 'px-3 py-2 text-right tabular-nums' }, String(Number(r.subscription_completed_services) || 0)),
+    el('td', { class: 'px-3 py-2 whitespace-nowrap' }, r.subscription_date_canceled ? fmtDate(r.subscription_date_canceled) : '—'),
+    el('td', { class: 'px-3 py-2', style: { minWidth: '140px', maxWidth: '240px', whiteSpace: 'normal', lineHeight: '1.3' } }, r.subscription_cancellation_reason || '—'),
     hasFlags && el('td', { class: 'px-3 py-2' },
       r._flagReason
         ? el('span', { class: 'text-[11px] font-semibold', style: { color: '#DC2626' } }, r._flagReason)
@@ -897,8 +895,6 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
       style: { color: (Number(r.days_past_due) || 0) > 0 ? '#DC2626' : 'var(--text-muted)' },
     }, r.days_past_due ? r.days_past_due + 'd' : '—'),
     el('td', { class: 'px-3 py-2 text-right tabular-nums', style: { color: (Number(r.responsible_balance) || 0) > 0 ? '#DC2626' : 'var(--text-muted)' } }, (Number(r.responsible_balance) || 0) > 0 ? '$' + Math.round(Number(r.responsible_balance)).toLocaleString() : '—'),
-    el('td', { class: 'px-3 py-2 whitespace-nowrap' }, r.subscription_date_canceled ? fmtDate(r.subscription_date_canceled) : '—'),
-    el('td', { class: 'px-3 py-2', style: { minWidth: '140px', maxWidth: '240px', whiteSpace: 'normal', lineHeight: '1.3' } }, r.subscription_cancellation_reason || '—'),
   );
 
   const tbody = el('tbody', {});
