@@ -2213,11 +2213,32 @@ async function loadReportingSubscriptions(uploadId) {
   }
   state._snapshotReinstated = _reinstated; state._snapshotWinbacks = _winbacks;
   // Blank / "un" / "unknown" states all group under ?? on the Geographic tab.
-  if (typeof _normStateCode === 'function') for (const r of rows) {
-    r.state = _normStateCode(r.state);
-    // The ZIP decides when the typed state disagrees (per Isaac, Oct 14); Auditing lists them.
-    const zs = typeof _stateFromZip === 'function' ? _stateFromZip(r.zip_code) : null;
-    if (zs && zs !== r.state) { r.state_crm = r.state || '(blank)'; r.state = zs; }
+  if (typeof _normStateCode === 'function') {
+    // Typed state vs the ZIP's state (per Isaac, Oct 14). Either can be the
+    // typo: #139941 is ZIP 30310 (GA) saved as FL, but Myrtle Beach / Virginia
+    // Beach customers with a mistyped ZIP (25906, 24854 …) landed in West
+    // Virginia when the ZIP always won. The branch breaks the tie: each
+    // office's states come from its customers whose state and ZIP agree, and
+    // whichever of the two is one of the office's states wins. A typed value
+    // that isn't a US state code (AC, AA, "Connecticut") always yields to the
+    // ZIP. Every disagreement is kept on state_crm / zip_state for Auditing.
+    const zipSt = (r) => (typeof _stateFromZip === 'function' ? _stateFromZip(r.zip_code) : null);
+    const VALID = new Set((typeof _ZIP3_STATE !== 'undefined' ? _ZIP3_STATE : []).map(x => x[2]));
+    const offCount = new Map();
+    for (const r of rows) {
+      r.state = _normStateCode(r.state);
+      const z = zipSt(r), o = String(r.office_name || '').trim();
+      if (z && z === r.state && o) { const m = offCount.get(o) || offCount.set(o, new Map()).get(o); m.set(z, (m.get(z) || 0) + 1); }
+    }
+    const offStates = new Map();
+    for (const [o, m] of offCount) { const tot = [...m.values()].reduce((a, b) => a + b, 0); offStates.set(o, new Set([...m].filter(([, n]) => n / tot >= 0.02).map(([st]) => st))); }
+    for (const r of rows) {
+      const z = zipSt(r); if (!z || z === r.state) continue;
+      const typed = r.state, home = offStates.get(String(r.office_name || '').trim()) || new Set();
+      const typedOk = !!typed && VALID.has(typed);
+      const pick = !typedOk ? z : (home.has(z) && !home.has(typed)) ? z : typed;
+      r.state_crm = typed || '(blank)'; r.zip_state = z; r.state = pick;
+    }
   }
   // Same guard as the sync: a sub sold in the last 7 days whose customer row
   // hasn't landed yet is a feed lag, not a deleted account (Julia Phillips,

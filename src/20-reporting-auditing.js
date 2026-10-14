@@ -997,10 +997,11 @@ function auditSubTasks() {
   {
     const seen = new Set(), bad = [];
     for (const r of rows) { if (!r.state_crm || seen.has(String(r.customer_id))) continue; seen.add(String(r.customer_id));
-      bad.push({ ...r, _flagReason: 'Customer #' + r.customer_id + ' \u00b7 FieldRoutes says ' + r.state_crm + ', ZIP ' + String(r.zip_code || '').slice(0, 5) + ' is ' + r.state }); }
+      const zipWrong = r.state !== r.zip_state;
+      bad.push({ ...r, _flagReason: 'Customer #' + r.customer_id + ' \u00b7 state ' + r.state_crm + ', ZIP ' + String(r.zip_code || '').slice(0, 5) + ' is ' + r.zip_state + ' \u2014 ' + (zipWrong ? 'the ZIP looks wrong (kept ' + r.state + ', the branch\u2019s state)' : 'the state looks wrong (reporting uses ' + r.state + ')') }); }
     tasks.push({ tag: 'State', title: 'State doesn\u2019t match the ZIP', noun: 'customer', tone: 'check', rows: bad,
       ok: 'All clear \u2014 every customer\u2019s state matches their ZIP.',
-      todo: (n) => n.toLocaleString() + ' customer' + s(n) + ' whose state in FieldRoutes doesn\u2019t match the ZIP (e.g. \u201cAC\u201d, \u201cAA\u201d, or the wrong state). Reporting already maps them by ZIP; fix the state on the customer in FieldRoutes.' });
+      todo: (n) => n.toLocaleString() + ' customer' + s(n) + ' whose state in FieldRoutes doesn\u2019t match the ZIP (e.g. \u201cAC\u201d, \u201cAA\u201d, or the wrong state). Reporting picks whichever matches the branch (each row says which looks wrong); fix that field on the customer in FieldRoutes.' });
   }
   auditSubTasks._m = { src: rows, key, tasks };
   return tasks;
