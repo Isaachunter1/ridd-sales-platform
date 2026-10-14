@@ -450,7 +450,7 @@ function openTvBoard() {
             el('div', { style: { height: '4px', background: T.surface2 } }, el('div', { style: { height: '100%', width: (d.offices[0].revenue ? o.revenue / d.offices[0].revenue * 100 : 0) + '%', background: i === 0 ? T.ember : T.dim } }))))
           : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'No sales in this window yet.')])))], { cursor: 'pointer', position: 'relative', padding: '0', onclick: () => { state._tvHeroOffices = false; render(); } })
       : panel([
-        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } }, eyebrow(d.range.label + ' · new revenue'), eyebrow(d.newCount + ' sale' + (d.newCount === 1 ? '' : 's') + '')),
+        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } }, eyebrow(d.range.label + ' · new revenue'), eyebrow(d.newCount + ' sale' + (d.newCount === 1 ? '' : 's') + (d.renewalCount ? '  |  ' + d.renewalCount + ' renewal' + (d.renewalCount === 1 ? '' : 's') : ''))),
         el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '22px', flexWrap: 'wrap', marginTop: '6px' } },
           el('div', { class: fresh ? 'tv-pulse' : '', style: { fontFamily: HEAD, fontSize: 'clamp(64px, 6.8vw, 124px)', lineHeight: '.95', letterSpacing: '.01em', color: T.ember, fontVariantNumeric: 'tabular-nums' } }, money(d.revenue)),
           // Prior period at a quarter of the size (per Isaac): yesterday / last week / last month / last year, to date.
@@ -462,7 +462,7 @@ function openTvBoard() {
         // Total and renewal, minimally (per Isaac) — the headline stays NEW.
         el('div', { style: { display: 'flex', gap: '28px', marginTop: '10px', flexWrap: 'wrap' } },
           el('div', {}, eyebrow('Total'), figure(money(d.totalRevenue), 'clamp(16px, 1.4vw, 22px)', T.ink)),
-          el('div', {}, eyebrow('Renewal'), figure(money(d.renewalRevenue) + (d.renewalCount ? '  ·  ' + d.renewalCount : ''), 'clamp(16px, 1.4vw, 22px)', T.dim))),
+          el('div', {}, eyebrow('Renewal'), figure(money(d.renewalRevenue), 'clamp(16px, 1.4vw, 22px)', T.dim))),
         el('div', { style: { marginTop: 'auto', paddingTop: '12px' } },
           el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '8px' } },
             eyebrow(d.goal > 0 ? d.range.label + ' goal ' + money(d.goal) : 'No goal set'),
