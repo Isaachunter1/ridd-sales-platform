@@ -1659,12 +1659,20 @@ exports.handler = async (event) => {
         const _upFlag = String(AL2.upfront_flag ?? 'Passed Audit').trim().toLowerCase();
         const _upfrontOf = (r) => !!_upFlag && !!r && String(r.customer_flags || '').split(',').some(f => f.trim().toLowerCase() === _upFlag);
         const { data: crmSales, error: csErr } = await supabase.from('sales')
-          .select('id, crm_subscription_id, sold_date, audit_status, lock_status, payroll_processed_at, backend_payroll_processed_at, contract_months, notes, crm_audit, queue_type')
+          .select('id, crm_subscription_id, sold_date, audit_status, lock_status, payroll_processed_at, backend_payroll_processed_at, contract_months, notes, crm_audit, queue_type, crm_contract_state')
           .not('crm_subscription_id', 'is', null)
           .or('audit_status.eq.pending,lock_status.eq.pending');
         if (csErr) throw new Error(csErr.message);
         const stamp = new Date().toISOString();
         const today = Date.now();
+        // Auto-approve scope (per Isaac, Oct 14): Office Staff only, sales from Oct 12 on, while
+        // the flow is built out — then Sales Reps and Technicians get their own rules.
+        // autolog.auto_approve_queues (['office', 'd2d', 'tech']) + auto_approve_from (YYYY-MM-DD)
+        // govern when set; otherwise the old company-wide auto_approve switch applies.
+        const _aaQ = Array.isArray(AL2.auto_approve_queues) ? new Set(AL2.auto_approve_queues.map(String)) : null;
+        const _aaFrom = /^\d{4}-\d{2}-\d{2}$/.test(String(AL2.auto_approve_from || '')) ? String(AL2.auto_approve_from) : '';
+        const _autoApproveOn = (s) => (_aaQ ? _aaQ.has(String(s.queue_type || 'office')) : !!AL2.auto_approve)
+          && (!_aaFrom || String(s.sold_date || '').slice(0, 10) >= _aaFrom);
         const lockDays = Math.max(0, Number(AL2.lock_days) || 90);
         const minSvc = Math.max(0, Number(AL2.lock_min_services) || 0);
         for (const s of (crmSales || [])) {
@@ -1674,7 +1682,10 @@ exports.handler = async (event) => {
           const serviced = !!r.initial_serviced_date;
           const completed = Number(r.subscription_completed_services) || 0;
           const dpd = Number(r.days_past_due) || 0;
-          const signed = String(r.contract_state || 'none') === 'signed';
+          // Signed = the snapshot's e-sign document OR the sale row's own stamp, which the
+          // 15-minute live pull sets from FieldRoutes' "signed contract" note (per Isaac,
+          // Oct 14 — the e-sign document lags same-day, the note doesn't).
+          const signed = String(r.contract_state || 'none') === 'signed' || String(s.crm_contract_state || '') === 'signed';
           const oneTime = (Number(s.contract_months) || 0) <= 0;
           const hasAppt = ['pending', 'completed'].includes(String(r.initial_status || '').trim().toLowerCase());
           const hasBilling = (() => { const a = String(r.customer_auto_pay || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); })();
@@ -1694,7 +1705,7 @@ exports.handler = async (event) => {
           const upd = {};
           if (s.audit_status === 'pending' && !s.payroll_processed_at) {
             if (cancelled && (!serviced || upfront)) { upd.audit_status = 'cancelled'; upd.audited_at = stamp; upd.notes = ((s.notes || '') + (upfront && serviced ? ' · Auto: cancelled in CRM (charged upfront)' : ' · Auto: cancelled in CRM before service')).trim(); }
-            else if (AL2.auto_approve && eligible && (serviced || upfront) && dpd <= 0 && s.crm_audit !== 'failed') { upd.audit_status = 'serviced'; upd.audited_at = stamp; }
+            else if (_autoApproveOn(s) && eligible && (serviced || upfront) && dpd <= 0 && s.crm_audit !== 'failed') { upd.audit_status = 'serviced'; upd.audited_at = stamp; }
           }
           const lock = s.lock_status || 'pending';
           if (lock === 'pending' && s.payroll_processed_at && ['approved', 'serviced'].includes(upd.audit_status || s.audit_status)) {

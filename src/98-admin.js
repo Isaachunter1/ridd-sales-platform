@@ -612,7 +612,16 @@ function adminConfigurations(part) {
           row('Add-on pay \u2014 Technicians', pctIn('tech_rate'), { desc: '% of the add-on\u2019s value.', indent: true }),
           row('Add-on locks after', txt(String(R.lock_invoices), (v) => { const n = parseInt(String(v).replace(/[^0-9]/g, ''), 10); if (n > 0) { setAddonPayRules({ lock_invoices: n }); logActivity('config_change', { detail: 'Add-on lock: ' + n + ' paid invoices' }); toast('Saved', 'success'); mountApp(); } }, { placeholder: '4', width: '70px' }), { desc: 'Paid invoices carrying the add-on before it locks (Inside Sales and Technicians). Dropped sooner = the upfront pay is owed back. D2D add-ons use the season lock date instead.', indent: true }) ]; })(),
       sub('Backend lock'),
-      row('Auto-approve upfront commission', sw(!!AL.auto_approve, () => saveAL({ auto_approve: !AL.auto_approve })), { desc: 'Approve upfront pay automatically once the rules below hold.', tip: 'Approved automatically once the Upfront Commission Approval guard rails for the rep type hold (and no Failed Audit flag). Off = an auditor clicks Approve.' }),
+      // Per rep type + a start date (per Isaac, Oct 14): Office Staff from Oct 12 while the flow is built out.
+      (() => {
+        const Q = Array.isArray(AL.auto_approve_queues) ? AL.auto_approve_queues : (AL.auto_approve ? ['office', 'd2d', 'tech'] : []);
+        const tog = (q) => { const next = Q.includes(q) ? Q.filter(x => x !== q) : Q.concat(q); saveAL({ auto_approve_queues: next, auto_approve: next.length > 0 }); };
+        const lab = (t) => el('span', { class: 'text-[11px] text-muted-' }, t);
+        return row('Auto-approve upfront commission by rep type', [lab('Office'), sw(Q.includes('office'), () => tog('office')), lab('Sales Reps'), sw(Q.includes('d2d'), () => tog('d2d')), lab('Techs'), sw(Q.includes('tech'), () => tog('tech')),
+          lab('sold on/after'), txt(AL.auto_approve_from || '', (v) => { const t = String(v || '').trim(); if (!t || /^\d{4}-\d{2}-\d{2}$/.test(t)) saveAL({ auto_approve_from: t }); }, { placeholder: 'YYYY-MM-DD', width: '100px' })],
+          { desc: 'Approve upfront pay automatically for these rep types once the rules below hold.', tip: 'Runs with the RevHawk sync. A rep type that is off waits for an auditor to click Approve. Sales sold before the date are left for an auditor.' });
+      })(),
+      false && row('Auto-approve upfront commission', sw(!!AL.auto_approve, () => saveAL({ auto_approve: !AL.auto_approve })), { desc: 'Approve upfront pay automatically once the rules below hold.', tip: 'Approved automatically once the Upfront Commission Approval guard rails for the rep type hold (and no Failed Audit flag). Off = an auditor clicks Approve.' }),
       // Backend lock guard rails per rep type (per Isaac, Sep 23): the account
       // stays pending until every indication holds. AL.backend[office|tech].
       (() => {
