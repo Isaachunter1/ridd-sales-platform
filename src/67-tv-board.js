@@ -441,7 +441,7 @@ function openTvBoard() {
         iconBtn('Close (Esc)', '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>', cleanup)));
 
     // Hero: THE number (ember, Anton, once) + goal bar + the stat tiles.
-    const hero = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gap: '18px', padding: '18px 36px 0', alignItems: 'stretch', flex: '0 0 auto' } },
+    const hero = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '18px', padding: '18px 36px 0', alignItems: 'stretch', flex: '0 0 auto' } },
       state._tvHeroOffices ? panel([el('div', { style: { position: 'absolute', inset: '20px 24px', display: 'flex', flexDirection: 'column', minHeight: '0' } },
         // Tap-swapped view (per Isaac): the window's NEW revenue by branch,
         // in the SAME footprint as the number (the list scrolls inside).
@@ -593,7 +593,7 @@ function openTvBoard() {
             })(),
             figure(money(s.revenue_amount), 'clamp(17px, 1.5vw, 24px)', T.ink));
         }) : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'Nothing yet.')]))], { flex: '1' });
-    const body = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr)', gap: '18px', padding: '20px 36px 24px', flex: '1', minHeight: '0' } },
+    const body = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr)', gap: '18px', padding: '20px 36px 24px', flex: '1', minHeight: '0' } },
       board,
       latestEl);   // (By branch retired per Isaac — the column is the latest sales.)
 
