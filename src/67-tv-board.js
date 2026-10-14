@@ -430,7 +430,7 @@ function openTvBoard() {
         eyebrow(new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: BOARD_TZ }).replace(',', ' ·') + '  ·  ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: BOARD_TZ }) + ' MT')),
       el('div', { style: { display: 'flex', alignItems: 'center', gap: '18px' } },
         // Date range dropdown (per Isaac, Oct 14) — the main dashboard's ranges.
-        el('select', { title: 'Date range (keys 1–4: Today · This week · This month · This year)',
+        el('select', { class: 'tv-range', title: 'Date range (keys 1–4: Today · This week · This month · This year)',
           style: { fontFamily: MONO, fontSize: '11px', letterSpacing: '.18em', textTransform: 'uppercase', padding: '9px 30px 9px 12px', background: T.void, color: T.ink, border: '1px solid ' + T.ink, borderRadius: '0', cursor: 'pointer', appearance: 'none', WebkitAppearance: 'none',
             backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2710%27 height=%276%27%3E%3Cpath d=%27M0 0l5 6 5-6z%27 fill=%27%23F4F6F8%27/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' },
           onchange: (e) => { state._tvRange = e.target.value; e.target.blur(); render(); } },
