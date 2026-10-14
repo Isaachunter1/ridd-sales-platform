@@ -151,7 +151,18 @@ function dashboardSales() {
       && _dashSalesCache.day === ((typeof bizTodayIso === 'function') ? bizTodayIso() : _dashSalesCache.day)) return _dashSalesCache.out;
   const upsellCt  = new Set((state.contractTypes || []).filter(c => /upsell/i.test(String(c.name || ''))).map(c => c.id));
   const upsellSrc = new Set((state.sources || []).filter(o => /upsell/i.test(String(o.name || ''))).map(o => o.id));
-  const ups = (state.allSales || []).filter(s => upsellCt.has(s.contract_type_id) || upsellSrc.has(s.source_id));
+  // A sale is only an extra "upsell" row when the CRM pool doesn't already
+  // carry it (per Isaac, Oct 14 — Jackson Brooks #121939 showed twice: the
+  // live pull's own row for a "Renewal - Service Pro Upsell" SUBSCRIPTION
+  // matched the upsell source and rode along beside its CRM twin). Rows the
+  // FieldRoutes pulls auto-added are CRM subscriptions; manual logs that the
+  // CRM has for the same customer on the same day are too. Add-on upsell
+  // rows (sale_kind 'upsell') are ticket items the CRM pool never has — kept.
+  const _crmCustDay = new Set();
+  (state._indicatorRawSales || []).forEach(r => { const d = (typeof dateSoldToIso === 'function' && dateSoldToIso(r.dateSold)) || ''; if (d && r.customerId != null) _crmCustDay.add(String(r.customerId) + '|' + d); });
+  const _inCrm = (s) => String(s.sale_kind || '') !== 'upsell'
+    && (/auto-added from fieldroutes/i.test(String(s.notes || '')) || (s.customer_number != null && _crmCustDay.has(String(s.customer_number) + '|' + String(s.sold_date || '').slice(0, 10))));
+  const ups = (state.allSales || []).filter(s => (upsellCt.has(s.contract_type_id) || upsellSrc.has(s.source_id)) && !_inCrm(s));
   // ── OPTIMISTIC TODAY (bottleneck fix): a sale logged at 2:14 shows on the
   // boards at 2:14 — not at the next hourly sync. Today's app-logged rows
   // with NO CRM counterpart yet ride along flagged _pendingSync; the moment

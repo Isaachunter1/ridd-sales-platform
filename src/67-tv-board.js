@@ -585,10 +585,11 @@ function openTvBoard() {
                 cell('8', 1, src ? sep() : null),
                 cell('9', 1, src ? el('span', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.04em' } }, src) : null),
                 cell('1 / 4', 2, at ? when(at) : '—', small),
-                ao.length ? cell('5 / 10', 2,
+                // No add-ons reads ADDONS +0 in the dim gray (per Isaac, Oct 14).
+                !ao.length ? cell('5 / 10', 2, el('span', { style: { letterSpacing: '.08em' } }, 'ADDONS +0'), small) : cell('5 / 10', 2,
                   el('span', { style: { fontWeight: '700', color: unassigned.length ? BAND.red : BAND.green, letterSpacing: '.08em' },
                     title: ao.map(a => (a.service_name || 'Add-on') + (a.credited_profile_id ? '' : ' — not assigned to a rep')).join('\n') },
-                    'ADDONS +' + ao.length + '  \u00b7  ' + ao.map(a => String(a.service_name || 'Add-on').toUpperCase()).join(', ') + (unassigned.length ? '  ·  ' + unassigned.length + ' UNASSIGNED' : '')), small) : null);
+                    'ADDONS +' + ao.length + '  \u00b7  ' + ao.map(a => String(a.service_name || 'Add-on').toUpperCase()).join(', ') + (unassigned.length ? '  ·  ' + unassigned.length + ' UNASSIGNED' : '')), small));
             })(),
             figure(money(s.revenue_amount), 'clamp(17px, 1.5vw, 24px)', T.ink));
         }) : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'Nothing yet.')]))], { flex: '1' });
