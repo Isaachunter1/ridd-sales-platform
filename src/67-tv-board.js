@@ -481,6 +481,27 @@ function openTvBoard() {
             figure(money(o.revenue), '15px')),
           el('div', { style: { height: '4px', background: T.surface2 } }, el('div', { style: { height: '100%', width: (offMax ? o.revenue / offMax * 100 : 0) + '%', background: i === 0 ? T.ember : T.dim } }))))
         : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, '—')]))]);
+    // Add-ons on each sale (per Isaac, Oct 14): FieldRoutes add-on items
+    // (add_ons table — service fees / tax / discounts never count) on the
+    // sale's own plan, or on the same customer within a day of the sale.
+    // Shown as "ADDONS +N"; red when any of them is credited to nobody, so
+    // someone can go assign it.
+    const _feeLike = /\bfee\b|\btax\b|discount|surcharge/i;
+    const _aoBySub = new Map(), _aoByCust = new Map();
+    for (const a of (Array.isArray(state.addOns) ? state.addOns : [])) {
+      if (!a || a.removed_at || _feeLike.test(String(a.service_name || ''))) continue;
+      if (a.subscription_id) (_aoBySub.get(String(a.subscription_id)) || _aoBySub.set(String(a.subscription_id), []).get(String(a.subscription_id))).push(a);
+      if (a.customer_id) (_aoByCust.get(String(a.customer_id)) || _aoByCust.set(String(a.customer_id), []).get(String(a.customer_id))).push(a);
+    }
+    const addOnsFor = (sale) => {
+      const out = new Set(_aoBySub.get(String(sale.crm_subscription_id || '')) || []);
+      const day = String(sale.sold_date || '').slice(0, 10);
+      if (day && sale.customer_number) {
+        const d0 = new Date(day + 'T00:00').getTime();
+        for (const a of (_aoByCust.get(String(sale.customer_number)) || [])) { const t = new Date(String(a.added_at || '').slice(0, 10) + 'T00:00').getTime(); if (Math.abs(t - d0) <= 86400000) out.add(a); }
+      }
+      return [...out];
+    };
     const latestEl = panel([
       el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } }, eyebrow('Latest sales'), eyebrow(d.latest.length + ' today' .replace('today', d.range.label.toLowerCase()))),
       el('div', { class: 'tv-scroll', style: { display: 'flex', flexDirection: 'column', marginTop: '10px', overflowY: 'auto', flex: '1', minHeight: '0', paddingRight: '4px' } },
@@ -500,7 +521,10 @@ function openTvBoard() {
                 sep(), el('span', { style: { fontFamily: VOICE, fontWeight: 600, fontSize: 'clamp(12px, .95vw, 15px)', color: T.ink } }, s._crmService || s.service_name || '—'),
                 sep(), el('span', { style: { fontFamily: VOICE, fontWeight: 600, fontSize: 'clamp(12px, .95vw, 15px)', color: T.ink } }, (Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME')),
                 src ? sep() : null, src ? el('span', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.04em' } }, src) : null),
-              el('div', { style: { fontFamily: MONO, fontSize: '10px', color: T.dim, letterSpacing: '.06em', marginTop: '2px', whiteSpace: 'nowrap' } }, at ? when(at) : '—')),
+              el('div', { style: { fontFamily: MONO, fontSize: '10px', color: T.dim, letterSpacing: '.06em', marginTop: '2px', whiteSpace: 'nowrap' } }, at ? when(at) : '—',
+                (() => { const ao = addOnsFor(s); if (!ao.length) return null; const unassigned = ao.filter(a => !a.credited_profile_id);
+                  return el('span', { style: { marginLeft: '10px', fontWeight: '700', color: unassigned.length ? BAND.red : BAND.green, letterSpacing: '.08em' },
+                    title: ao.map(a => (a.service_name || 'Add-on') + (a.credited_profile_id ? '' : ' — not assigned to a rep')).join('\n') }, 'ADDONS +' + ao.length + (unassigned.length ? ' \u00b7 ' + unassigned.length + ' UNASSIGNED' : '')); })())),
             figure(money(s.revenue_amount), 'clamp(17px, 1.5vw, 24px)', T.ink));
         }) : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'Nothing yet.')]))], { flex: '1' });
     const body = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr)', gap: '18px', padding: '20px 36px 24px', flex: '1', minHeight: '0' } },
