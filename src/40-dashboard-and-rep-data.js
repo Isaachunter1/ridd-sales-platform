@@ -3483,9 +3483,7 @@ function openIndicatorRepCard(rep, allReps = []) {
       (() => { if (_mo.servicedPct != null) return { key: 'soldSvc', label: 'Sold/Serviced', value: (_mo.servicedPct * 100).toFixed(1) + '%', sub: fmt.int(_mo.servicedN || 0) + ' serviced', title: 'Metric rules applied (Configurations → Indicators)' };
         const svc = allSales.filter(x => (Number(x.services) || 0) > 0 || !!x.servicedDate).length;
         return { key: 'soldSvc', label: 'Sold/Serviced', value: count > 0 ? ((svc / count) * 100).toFixed(1) + '%' : '\u2014', sub: fmt.int(svc) + ' of ' + fmt.int(count), title: 'Serviced accounts \u00f7 sold \u00b7 same as the leaderboard\u2019s Serviced %' }; })(),
-      (() => { let serv = 0, cxl = 0; for (const x of allSales) { const p = _attrRevParts(x); serv += p.serv; cxl += p.cxl; }
-        if (_mo.attrPct != null) { serv = 1; cxl = _mo.attrPct; }
-        return { key: 'cancelPct', label: 'Attrition %', sub: 'excl. 3-day ROR', title: 'Cancelled $ \u00f7 serviced $ \u00b7 3-day RORs + one-time services removed from both sides \u00b7 same number as the leaderboard\u2019s Attrition %', value: serv > 0 ? ((cxl / serv) * 100).toFixed(1) + '%' : '\u2014' }; })(),
+      // (Attrition % tile removed per Isaac, Oct 14 — 10 tiles, 5 + 5; it lives on the Retention tab.)
     ];
   }
 
@@ -3633,7 +3631,8 @@ function openIndicatorRepCard(rep, allReps = []) {
               + ' font-bold tabular-nums mt-1 whitespace-nowrap overflow-hidden',
             style: stat.color ? { color: stat.color } : {},
           }, stat.value),
-          stat.sub ? el('div', { class: 'text-[9px] whitespace-nowrap overflow-hidden', style: { color: 'var(--text-subtle)' } }, stat.sub) : null,
+          // Every tile carries the sub line (blank when it has none) so both rows are the same height (per Isaac, Oct 14).
+          el('div', { class: 'text-[9px] whitespace-nowrap overflow-hidden', style: { color: 'var(--text-subtle)' } }, stat.sub || '\u00a0'),
         );
       }),
     );
