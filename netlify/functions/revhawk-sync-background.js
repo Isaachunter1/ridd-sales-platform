@@ -162,6 +162,43 @@ cxl AS (
     SELECT sid, rid, reason, ROW_NUMBER() OVER (PARTITION BY sid ORDER BY written DESC, d DESC) rn FROM cxlNotes
   ) n LEFT JOIN cxlLabel l ON l.rid = n.rid WHERE n.rn = 1
 ),
+-- Fallback reason (per Isaac, Oct 14): ~2,900 cancelled subs have no row in
+-- FieldRoutesCancellationNote, but FieldRoutes still logged the cancel as a
+-- "Subscription Cancel" note (type 16) carrying the reason — e.g. customer
+-- 24543's Mosquito 12, cancelled 11/1/2021 as Combined Subscriptions, showed
+-- blank. Match the note to the sub by "[Canceled: … Subscription - <id>]" in
+-- its text; failing that, a note on the same customer written from a day
+-- before to three days after the cancel that names no other subscription —
+-- used only when every such note agrees on the reason.
+n16 AS (
+  SELECT fieldRoutes_customerID AS cid, TRIM(fieldRoutes_cancellationReason) AS reason,
+    NULLIF(fieldRoutes_cancellationReasonID, '') AS rid, fieldRoutes_notes AS txt,
+    SAFE.PARSE_DATETIME('%Y-%m-%d %H:%M:%S', fieldRoutes_dateAdded) AS written
+  FROM \`${PROJECT}.${DATASET}.FieldRoutesNote\`
+  WHERE fieldRoutes_typeID = '16' AND fieldRoutes_cancellationReason IS NOT NULL AND TRIM(fieldRoutes_cancellationReason) != ''
+),
+cxfCand AS (
+  SELECT s.id AS sid, COALESCE(l.reason, n.reason) AS reason, n.written,
+    REGEXP_CONTAINS(COALESCE(n.txt, ''), CONCAT(r'Subscription - ', s.fieldRoutes_subscriptionID, r'\]')) AS by_text,
+    REGEXP_CONTAINS(COALESCE(n.txt, ''), r'Subscription - \d+\]') AS names_a_sub
+  FROM sub s
+  JOIN n16 n ON n.cid = s.fieldRoutes_customerID
+  LEFT JOIN cxlLabel l ON l.rid = n.rid
+  WHERE s.fieldRoutes_dateCancelled IS NOT NULL AND s.fieldRoutes_dateCancelled != '' AND s.fieldRoutes_dateCancelled NOT LIKE '0000%'
+),
+cxf AS (
+  SELECT sid, reason FROM (
+    SELECT sid, reason, ROW_NUMBER() OVER (PARTITION BY sid ORDER BY written DESC) rn FROM cxfCand WHERE by_text
+  ) WHERE rn = 1
+  UNION ALL
+  SELECT c.sid, ANY_VALUE(c.reason) AS reason
+  FROM cxfCand c JOIN sub s ON s.id = c.sid
+  WHERE NOT c.names_a_sub
+    AND c.written BETWEEN DATETIME_SUB(SAFE.PARSE_DATETIME('%Y-%m-%d %H:%M:%S', LEFT(s.fieldRoutes_dateCancelled,19)), INTERVAL 1 DAY)
+                      AND DATETIME_ADD(SAFE.PARSE_DATETIME('%Y-%m-%d %H:%M:%S', LEFT(s.fieldRoutes_dateCancelled,19)), INTERVAL 3 DAY)
+    AND c.sid NOT IN (SELECT sid FROM cxfCand WHERE by_text)
+  GROUP BY c.sid HAVING COUNT(DISTINCT c.reason) = 1
+),
 appt AS (
   -- Completion date of each subscription's INITIAL appointment — i.e. when the
   -- account was first serviced. Drives the Spring Cleaning / Last Man Standing
@@ -242,7 +279,7 @@ SELECT
        THEN 0 ELSE ARRAY_LENGTH(SPLIT(s.fieldRoutes_completedAppointmentIDs, ',')) END AS subscription_completed_services,
   cust.county AS county,
   s.fieldRoutes_serviceType AS subscription,
-  cxl.reason AS subscription_cancellation_reason,
+  COALESCE(cxl.reason, cxf.reason) AS subscription_cancellation_reason,
   CASE WHEN s.fieldRoutes_dateCancelled IS NULL OR s.fieldRoutes_dateCancelled LIKE '0000%'
        THEN NULL ELSE LEFT(s.fieldRoutes_dateCancelled,10) END AS subscription_date_canceled,
   -- Full cancel timestamp (company clock, like sold_at) — Retention's churn-by-hour/day view.
@@ -305,6 +342,7 @@ LEFT JOIN cust  ON cust.cid  = s.fieldRoutes_customerID
 LEFT JOIN emp   ON emp.eid   = s.fieldRoutes_soldBy
 LEFT JOIN flags ON flags.cid = s.fieldRoutes_customerID
 LEFT JOIN cxl   ON cxl.sid   = s.id
+LEFT JOIN cxf   ON cxf.sid   = s.id
 LEFT JOIN appt  ON appt.aid  = s.fieldRoutes_initialAppointmentID
 LEFT JOIN apptSched ON apptSched.aid = s.fieldRoutes_initialAppointmentID
 LEFT JOIN sigsub  ON sigsub.sid  = s.fieldRoutes_subscriptionID
