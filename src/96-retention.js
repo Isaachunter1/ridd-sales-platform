@@ -198,7 +198,7 @@ function retenPolicyBridge(pop) {
       ['Remove cancels coded “never started”', 'popNoStart'],
       ['Remove combined subscriptions', 'popCombined'],
       ['Link renewals to the customer', 'popRenew'],
-      ['Link cancels replaced within 45 days', 'popReplaced'],
+      ['Link cancels replaced within 30 days', 'popReplaced'],
       ['Remove 3-day RORs caught by timing', 'popRorTiming'],
       ['Keep timing-RORs with 2+ completed appointments', 'popRorServiced'],
       ['Remove subs with no ARR', 'zero'],
@@ -275,7 +275,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
   const rorByReason = (r) => rorCoded(r) && _rorCodedOk(r);   // office staff / technician sales get no ROR from 2026 (per Isaac, Oct 13)
   // Order (per Isaac, Oct 14 — a clean story): trust what was CODED first (ROR,
   // never started, combined, renewals), then the two inferences (replaced within
-  // 45 days, RORs by timing + its 2+ appointment exemption), then the $0 catch-all.
+  // 30 days, RORs by timing + its 2+ appointment exemption), then the $0 catch-all.
   // The final book is the same in any order; the order decides which step gets
   // credit, so the fix-it lists and the raw → official bridge read cleanly.
   const s2r = s2.filter(r => !(rorOn && rorByReason(r)));                       // minus RORs coded as such (the sheet's rule)
@@ -287,7 +287,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
   const step1 = step1b.filter(r => !renLinked(r));                             // minus renewals linked at the customer level
   const byReason1 = {}; step1b.forEach(r => { if (renLinked(r)) { const k = String(reportingCancelReasonOf(r) || '').trim(); byReason1[k] = (byReason1[k] || 0) + 1; } });
   const replOn = _retenWhatIf('popReplaced', true);
-  const stepRp = step1.filter(r => !(replOn && _replacedLinked(r)));            // minus cancels replaced by a new plan within 45 days
+  const stepRp = step1.filter(r => !(replOn && _replacedLinked(r)));            // minus cancels replaced by a new plan within 30 days
   const step1a = stepRp.filter(r => !(rorOn && rorTimingOn && _reporting3dayRor(r)));   // minus RORs caught by timing (whatever is left)
   const step2 = step1a.filter(r => !(retenExclZeroPay() && !_retenPaying(r)));   // (a per-visit charge counts as paying)
   const svcOf = (r) => Number(r.subscription_completed_services) || 0;
@@ -450,7 +450,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       }, '⚑ ' + n(renUnlinked.length) + ' with no renewed plan — kept as cancels'));
       return node;
     })(),
-    step(next(), 'Link cancels replaced within 45 days', 'A plan cancelled for an ordinary reason (not a Renewal, Combined or ROR) when the same customer has another recurring plan sold from 7 days before to 45 days after the cancel that was still running past it. The customer never left \u2014 it was an uncoded renewal or a re-entry \u2014 so, like renewals, the closed plan is set aside and the new plan carries the customer. Whatever happens to the new plan later counts on that plan. The same list is on Auditing \u2192 \u201cCancelled, then replaced\u201d; recode the reason to a Renewal in FieldRoutes where that is what happened.', step1.length - stepRp.length, 'popReplaced', null, notIn(step1, stepRp), stepRp),
+    step(next(), 'Link cancels replaced within 30 days', 'A plan cancelled for an ordinary reason (not a Renewal, Combined or ROR) when the same customer has another recurring plan sold from 7 days before to 30 days after the cancel that was still running past it. The customer never left \u2014 it was an uncoded renewal or a re-entry \u2014 so, like renewals, the closed plan is set aside and the new plan carries the customer. Whatever happens to the new plan later counts on that plan. The same list is on Auditing \u2192 \u201cCancelled, then replaced\u201d; recode the reason to a Renewal in FieldRoutes where that is what happened.', step1.length - stepRp.length, 'popReplaced', null, notIn(step1, stepRp), stepRp),
     (() => {
       const removed = notIn(stepRp, step1a);
       // RORs caught by TIMING whose reason isn't coded "3 Day ROR" — fix these in FieldRoutes.

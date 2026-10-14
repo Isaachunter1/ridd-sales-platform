@@ -1921,9 +1921,9 @@ function _renewalLinked(r) {
 // or the appointment is wrong in FieldRoutes — the step lists them to fix.
 function _isNotStartedReason(x) { return /not started|no initial|initial appointment cancel/i.test(String(x || '')); }
 function retenNotStartedSub(r) { return !!r.subscription_date_canceled && _isNotStartedReason(reportingCancelReasonOf(r)); }
-// Replaced within 45 days (per Isaac, Oct 14 — linked like renewals): a plan
+// Replaced within 30 days (per Isaac, Oct 14 — linked like renewals): a plan
 // cancelled for a normal reason when the same customer has another RECURRING
-// plan sold from 7 days before to 45 days after the cancel that was still
+// plan sold from 7 days before to 30 days after the cancel that was still
 // running past it. The customer never left — it was an uncoded renewal or a
 // re-entry. Renewal, combined and ROR reasons are handled by their own steps.
 const _replLinkMemo = { src: null, idx: null };
@@ -1946,7 +1946,7 @@ function _replacedLinked(r) {
   const c = String(r.customer_id != null ? r.customer_id : ''); if (!c) return false;
   const cx = String(r.subscription_date_canceled).slice(0, 10);
   const sh = (days) => { const d = new Date(cx + 'T00:00'); d.setDate(d.getDate() + days); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
-  const lo = sh(-7), hi = sh(45), me = String(r.subscription_id);
+  const lo = sh(-7), hi = sh(30), me = String(r.subscription_id);
   return (_replLinkMemo.idx.get(c) || []).some(([id, d, oc]) => id !== me && d >= lo && d <= hi && (!oc || oc > cx));
 }
 // ── One rule for "does this cancel count as churn?" (per Isaac, Oct 14) ──
@@ -1957,7 +1957,7 @@ function _replacedLinked(r) {
 //   · Renewal reason, linked        → not churn (the customer renewed into a later plan)
 //   · Renewal reason, NOT linked    → churn (nothing carried forward = a real loss),
 //                                     even if the reason is ticked "don't count"
-//   · replaced within 45 days       → not churn (uncoded renewal / re-entry)
+//   · replaced within 30 days       → not churn (uncoded renewal / re-entry)
 //   · anything else                 → the "Don't count these cancel reasons" list decides
 // The Retention what-if toggles (combined / renewals / replaced) apply on that
 // tab; everywhere else the official setting is used. 3-day RORs, one-time
@@ -2056,7 +2056,7 @@ function retenPopulationExcluded(r) {
   if ([...popSet].some(_isRorReason) && retenIsRorSub(r)) return 'closed by 3 Day ROR';
   if (_retenWhatIf('popNoStart', true) && retenNotStartedSub(r)) return 'closed as never started';
   if (r.subscription_date_canceled && popSet.has(_normCancelReason(reportingCancelReasonOf(r))) && !_isRorReason(_normCancelReason(reportingCancelReasonOf(r))) && !(crmReasonIs('renewal', reportingCancelReasonOf(r)) && !_renewalLinked(r))) return 'closed by ' + String(reportingCancelReasonOf(r) || '').trim();
-  if (_retenWhatIf('popReplaced', true) && _replacedLinked(r)) return 'replaced by a new plan within 45 days';
+  if (_retenWhatIf('popReplaced', true) && _replacedLinked(r)) return 'replaced by a new plan within 30 days';
   if (retenExclRenewalSubs() && reportingSourceClass(r.subscription_source) === 'renewal') return 'renewal sub';
   if (retenExclZeroPay() && !_retenPaying(r)) return '$0 paying';
   const svc = Number(r.subscription_completed_services) || 0;
