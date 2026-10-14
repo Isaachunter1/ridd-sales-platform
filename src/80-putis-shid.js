@@ -1146,8 +1146,10 @@ function reportingPutis() {
       // Same box as the selects beside it (same padding / font / border).
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text-muted)', lineHeight: 'inherit' }, title: 'Re-pull the ledger from QuickBooks now', onclick: () => { reportingLoadLedger(true); if (typeof reportingLoadQboSpend === 'function') reportingLoadQboSpend(true); } }, '↻'),
       pickers()));
-  const barSpacer = el('div', { id: 'putisBarSpacer' }, toolbar);
-  wrap.append(barSpacer);
+  // Desktop: the sync stamp, ↻ and Year / Month ride in the sub-tab row (per Isaac, Oct 14).
+  const _inRow = reportingTabSlotPut(toolbar.firstChild);
+  const barSpacer = el('div', { id: 'putisBarSpacer' }, _inRow ? null : toolbar);
+  if (!_inRow) wrap.append(barSpacer);
   const pinPutisBar = () => {
     const sp = document.getElementById('putisBarSpacer'), bar = document.getElementById('putisBar');
     if (!sp || !bar) return;
@@ -1249,6 +1251,18 @@ function reportingPutis() {
   return wrap;
 }
 
+// Tab-row slot (per Isaac, Oct 14): each Reporting tab's filters sit in the
+// sub-tab row, right-justified, instead of their own white box. A tab hands
+// its controls to reportingTabSlotPut(); on phones (the strip becomes a
+// dropdown) it returns false and the tab keeps its old inline bar.
+let _RPT_SLOT = null;
+function reportingTabSlotPut(nodes) {
+  const list = [].concat(nodes).filter(Boolean);
+  let narrow = false; try { narrow = window.matchMedia('(max-width: 640px)').matches; } catch (e) {}
+  if (!_RPT_SLOT || narrow || !list.length) return false;
+  _RPT_SLOT.append(...list);
+  return true;
+}
 function reportingSubTabs() {
   const tabs = [
     ['overview',   'Overview'],
@@ -1264,7 +1278,8 @@ function reportingSubTabs() {
   const cur = tabs.some(([k]) => k === state.reportingSubTab && !tabs.find(([kk]) => kk === k)[2]) ? state.reportingSubTab : tabs[0][0];
   // Desktop: the tab strip. Phones: one dropdown (the strip had grown past
   // the screen width) — CSS in index.html swaps them at 640px.
-  const strip = el('div', { class: 'rpt-subtabs flex items-center gap-1 border-b flex-wrap', style: { borderColor: 'var(--border)' } },
+  _RPT_SLOT = el('div', { class: 'rpt-tab-slot flex items-center gap-2 flex-wrap justify-end', style: { marginLeft: 'auto', paddingBottom: '4px' } });
+  const strip = el('div', { class: 'rpt-subtabs flex items-end gap-1 border-b flex-wrap', style: { borderColor: 'var(--border)' } },
     ...tabs.map(([k, label]) => {
       const active = cur === k;
       // Marketing carries a small red bubble with the Needs-attention count (per Isaac, Sep 2026) — owner only, like the card.
@@ -1284,6 +1299,7 @@ function reportingSubTabs() {
         onclick: () => go(k),
       }, label, badge);
     }),
+    _RPT_SLOT,
   );
   const pick = el('div', { class: 'rpt-subtabs-select' },
     el('select', {
@@ -1397,7 +1413,7 @@ function reportingFilterBar(scope, opts = {}) {
     if (state._rptOfficeOpen) { try { clampDropdownPanel(panel); } catch (err) { /* optional */ } setTimeout(() => document.addEventListener('mousedown', function closer(ev) { if (!wrap.contains(ev.target)) { panel.style.display = 'none'; state._rptOfficeOpen = false; document.removeEventListener('mousedown', closer); } }), 0); }
     wrap.append(btn, panel);
     return el('div', { class: 'flex flex-col gap-1 rep-filter-pick' },
-      hint && el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, hint),
+      hint && el('div', { class: 'rpt-pick-label text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, hint),
       wrap);
   };
   const officePicker = (selected, onChange, hint) => {
@@ -1410,7 +1426,7 @@ function reportingFilterBar(scope, opts = {}) {
       ...offices.map(o => el('option', { value: o, selected: selected === o }, o)),
     );
     return el('div', { class: 'flex flex-col gap-1 rep-filter-pick' },
-      hint && el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, hint),
+      hint && el('div', { class: 'rpt-pick-label text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, hint),
       sel,
     );
   };
@@ -1446,7 +1462,7 @@ function reportingFilterBar(scope, opts = {}) {
     ['custom',          'Custom range…'],
   ];
   const datePicker = el('div', { class: 'flex flex-col gap-1 rep-filter-pick' },
-    el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Time range'),
+    el('div', { class: 'rpt-pick-label text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Time range'),
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
       el('select', {
         class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
@@ -1498,6 +1514,19 @@ function reportingFilterBar(scope, opts = {}) {
     }, 'Clear time filter'),
   );
 
+  // Desktop: the pickers + ⓘ ride in the sub-tab row (per Isaac, Oct 14) —
+  // the field labels drop there (the selects read "All Offices" / "All time").
+  {
+    const inRow = [
+      showOffice && (inCompare ? officePicker(office, (v) => { state.reportingOffice = v; mountApp(); }, 'Office A') : officeChecklist('Office')),
+      showOffice && inCompare && el('div', { class: 'text-sm font-bold', style: { color: 'var(--text-muted)' } }, 'vs'),
+      showOffice && inCompare && officePicker(compareOffice, (v) => { state.reportingCompareOffice = v; mountApp(); }, 'Office B'),
+      showDate && datePicker, showCompare && compareBtn,
+      (dateStart || dateEnd) ? filterSummary : null,
+      methodologyInfo,
+    ].filter(Boolean);
+    if (reportingTabSlotPut(inRow)) return null;
+  }
   // Phones (rep-filter-row CSS): pickers share one row with the ⓘ hugging
   // the right edge instead of wrapping underneath (per Isaac).
   return el('div', { class: 'card p-4 flex flex-col gap-2' },

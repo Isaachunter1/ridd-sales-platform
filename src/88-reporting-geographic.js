@@ -82,8 +82,13 @@ function reportingGeographic() {
   const activeMetric = metrics.find(m => m.key === metricKey) || metrics[0];
 
   const _phone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
+  // Color map by sits right-justified (per Isaac, Oct 14); the hint reads on the left.
   const metricToggle = el('div', { class: 'p-3 flex items-center gap-2 flex-wrap', style: { borderBottom: '1px solid var(--border)' } },
-    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Color map by'),
+    el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
+      (metricKey === 'attrition' || metricKey === 'retention') ? 'Uses 10+ sub floor per area · darker = '
+          + (isRetention ? 'better retention' : 'higher attrition')
+        : (metricKey === 'service' ? 'Only ZIPs with 11+ service types are colored · click one for its top 10' : 'Hover any area for every metric at once')),
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold ml-auto', style: { color: 'var(--text-subtle)' } }, 'Color map by'),
     // One dropdown everywhere (per Isaac, Sep 2026) — the seven-button row
     // is gone; the map can only color by one metric at a time anyway.
     el('select', {
@@ -91,10 +96,6 @@ function reportingGeographic() {
       style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: _phone ? undefined : '170px' },
       onchange: (e) => { state.reportingGeoMetric = e.target.value; mountApp(); },
     }, ...metrics.map(m => el('option', { value: m.key, selected: m.key === metricKey }, m.label))),
-    el('div', { class: 'text-[10px] ml-auto', style: { color: 'var(--text-subtle)' } },
-      (metricKey === 'attrition' || metricKey === 'retention') ? 'Uses 10+ sub floor per area · darker = '
-          + (isRetention ? 'better retention' : 'higher attrition')
-        : (metricKey === 'service' ? 'Only ZIPs with 11+ service types are colored · click one for its top 10' : 'Hover any area for every metric at once')),
   );
 
   // Legend for the Top Service metric — top 15 services + their colors.
@@ -326,20 +327,42 @@ function reportingGeographic() {
   // branch. Filtering re-aggregates that branch's rows so a border ZIP shows
   // only the selected office's accounts, not the majority office's.
   const bOffices = [...new Set(scopeServiced.map(r => (r.office_name || '').trim()).filter(Boolean))].sort();
-  const bOffice = bOffices.includes(state.reportingGeoBreakdownOffice) ? state.reportingGeoBreakdownOffice : 'all';
-  if (bOffice !== 'all') {
-    const bAgg = reportingGeoAggregate(scopeServiced.filter(r => (r.office_name || '').trim() === bOffice), geoF);
+  // Pick any set of offices (per Isaac, Oct 14) — a checklist instead of one branch.
+  let bPicked = Array.isArray(state.reportingGeoBreakdownOffices) ? state.reportingGeoBreakdownOffices.filter(o => bOffices.includes(o)) : null;
+  if (!bPicked || !bPicked.length || bPicked.length === bOffices.length) bPicked = null;   // null = every office
+  const bOffice = bPicked ? (bPicked.length === 1 ? bPicked[0] : 'multi') : 'all';
+  if (bPicked) {
+    const keep = new Set(bPicked);
+    const bAgg = reportingGeoAggregate(scopeServiced.filter(r => keep.has((r.office_name || '').trim())), geoF);
     const inState = (it) => !(mapLevel === 'state' && drilledState) || it.state === drilledState;
     breakdown.items = (breakdown.labelKey === 'county' ? bAgg.counties : bAgg.zips).filter(inState);
   }
-  const bOfficeSel = el('select', {
-    class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer font-semibold',
-    style: { borderColor: bOffice !== 'all' ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: bOffice !== 'all' ? 'var(--accent)' : 'var(--text)' },
-    title: 'Limit the table to one branch\u2019s accounts',
-    onchange: (e) => { state.reportingGeoBreakdownOffice = e.target.value; mountApp(); },
-  },
-    el('option', { value: 'all', selected: bOffice === 'all' }, 'All offices'),
-    ...bOffices.map(o => el('option', { value: o, selected: bOffice === o }, _mktgTC(o))));
+  const bOfficeSel = (() => {
+    const on = new Set(bPicked || bOffices);
+    const label = !bPicked ? 'All offices' : bPicked.length === 1 ? _mktgTC(bPicked[0]) : bPicked.length <= 2 ? bPicked.map(_mktgTC).join(' + ') : _mktgTC(bPicked[0]) + ' + ' + (bPicked.length - 1) + ' more';
+    const commit = (next) => { state.reportingGeoBreakdownOffices = (!next.length || next.length === bOffices.length) ? null : next; state._geoBOffOpen = true; mountApp(); };
+    const wrapB = el('div', { class: 'relative inline-flex' });
+    const btn = el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer inline-flex items-center gap-1.5', title: 'Pick which offices\u2019 accounts the table shows',
+      style: { borderColor: bPicked ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: bPicked ? 'var(--accent)' : 'var(--text)' } },
+      label, el('span', { style: { fontSize: '9px', opacity: .7 } }, '\u25bc'));
+    const panel = el('div', { class: 'card', style: { position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 60, minWidth: '200px', padding: '6px', display: state._geoBOffOpen ? 'block' : 'none', boxShadow: '0 12px 32px rgba(0,0,0,.18)' }, onclick: (e) => e.stopPropagation() },
+      el('div', { class: 'flex items-center justify-between px-2 pb-1 mb-1 border-b', style: { borderColor: 'var(--border)' } },
+        el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Offices'),
+        el('div', { class: 'flex gap-2' },
+          el('button', { class: 'text-[10px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => commit(bOffices.slice()) }, 'Select all'),
+          el('button', { class: 'text-[10px] font-semibold', style: { color: 'var(--text-muted)' }, onclick: () => commit([bOffices[0]]) }, 'Clear'))),
+      ...bOffices.map(o => { const cb = el('input', { type: 'checkbox' }); cb.checked = on.has(o);
+        cb.onchange = () => { const nx = new Set(on); if (cb.checked) nx.add(o); else nx.delete(o); commit(bOffices.filter(x => nx.has(x))); };
+        return el('label', { class: 'flex items-center gap-2 px-2 py-1 rounded-lg text-[11px] font-medium cursor-pointer', style: { color: 'var(--text)' } }, cb, _mktgTC(o)); }));
+    btn.onclick = (e) => { e.stopPropagation(); const open = panel.style.display === 'none'; panel.style.display = open ? 'block' : 'none'; state._geoBOffOpen = open; };
+    setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+      if (!wrapB.isConnected) { document.removeEventListener('mousedown', closer); return; }
+      if (wrapB.contains(ev.target)) return;
+      panel.style.display = 'none'; state._geoBOffOpen = false; document.removeEventListener('mousedown', closer);
+    }), 0);
+    wrapB.append(btn, panel);
+    return wrapB;
+  })();
 
   let sortKey = state.reportingZipSort || 'subs';
   const sortDir = state.reportingZipSortDir || 'desc';
@@ -413,7 +436,7 @@ function reportingGeographic() {
           style: { background: 'var(--accent)', color: 'var(--accent-text)' },
           title: 'Export CSV — ' + (breakdown.labelKey === 'county' ? 'county' : 'ZIP') + ', office, active subscriptions',
           'aria-label': 'Export CSV',
-          onclick: () => exportReportingGeoCsv(sortedItems, breakdown.labelKey, exportScopeTag + (bOffice !== 'all' ? '-' + bOffice.toLowerCase().replace(/\s+/g, '_') : '')),
+          onclick: () => exportReportingGeoCsv(sortedItems, breakdown.labelKey, exportScopeTag + (bOffice !== 'all' ? '-' + (bOffice === 'multi' ? bPicked.length + '-offices' : bOffice.toLowerCase().replace(/\s+/g, '_')) : '')),
         }, '⬇')),
     ),
     el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '500px' } },
@@ -562,10 +585,11 @@ function reportingGeographic() {
               const rated = s.subs >= floor;
               const v = isRetention ? (1 - s.cancelRate) : s.cancelRate;
               return el('tr', {
-                class: 'border-t tabular-nums' + (s.code ? ' cursor-pointer hover:brightness-95 transition' : ''),
+                class: 'border-t tabular-nums' + ((s.rows || []).length ? ' cursor-pointer hover:brightness-95 transition' : ''),
                 style: { borderColor: 'var(--border)' },
-                title: s.code ? 'Drill into ' + s.name : '',
-                onclick: s.code ? () => onStateClick(s.code) : undefined,
+                // Click = the accounts in the row (per Isaac, Oct 14 — e.g. fix the "AC" / "AA" state codes in FieldRoutes).
+                title: (s.rows || []).length ? 'Show the ' + (s.rows || []).length.toLocaleString() + ' subscriptions in ' + s.name : '',
+                onclick: (s.rows || []).length ? () => openReportingDrillModal({ chartTitle: 'Geographic \u00b7 ' + s.name, sliceLabel: (s.rows || []).length.toLocaleString() + ' subscription' + ((s.rows || []).length === 1 ? '' : 's') + ' \u00b7 ' + s.name, rows: s.rows, formatValue: fmt.usd0 }) : undefined,
               },
                 el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap', style: { position: 'sticky', left: 0, zIndex: 1, background: 'var(--card)', boxShadow: '1px 0 0 var(--border)' } }, s.name),
                 el('td', { class: 'px-3 py-2 text-left' }, s.customers.toLocaleString()),
@@ -634,7 +658,7 @@ function reportingGeographic() {
   })() : null;
 
   return el('div', { class: 'flex flex-col gap-4' },
-    reportingPinBar('geo', filterBar),
+    filterBar ? reportingPinBar('geo', filterBar) : null,
     compareNotice,
     svcOutBanner,
     breadcrumb,

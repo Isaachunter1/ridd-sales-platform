@@ -785,7 +785,7 @@ function reportingOverview() {
   })();
 
   return el('div', { class: 'flex flex-col gap-4' },
-    reportingPinBar('overview', filterBar),
+    filterBar ? reportingPinBar('overview', filterBar) : null,
     statsBlock,
     pulseCard,
     columnsBlock,

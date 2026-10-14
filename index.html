@@ -782,6 +782,9 @@
   .leaflet-container { isolation: isolate; position: relative; z-index: 0; }
   /* Modal overlay — z-index must beat Leaflet's controls (max 1000) so
      the Reporting tab's drill modals don't get drawn under the map. */
+  /* Reporting: a tab's filters ride in the sub-tab row (per Isaac, Oct 14) — no field labels there. */
+  .rpt-tab-slot .rpt-pick-label { display: none; }
+  .rpt-tab-slot .rep-filter-pick { gap: 0 !important; }
   .modal-overlay {
     position: fixed; inset: 0; z-index: 2000;
     background: rgba(0,0,0,.55);

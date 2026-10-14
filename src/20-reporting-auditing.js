@@ -541,7 +541,7 @@ function reportingAuditing() {
     // Toolbar — same card treatment as the Reporting filter bars; pickers
     // left, tools (⬇ export · 👥 manage teams) pushed right. Pinned under
     // the page header on scroll (per Isaac).
-    reportingPinBar('audit', el('div', { class: 'card p-4 flex items-center gap-2 flex-wrap' },
+    (() => { const _auditCtl = [
       sel(offFilter, [['all', 'All Branches'], ...offices.map(o => [o, o])], (e) => { state.auditOffice = e.target.value; mountApp(); }),
       sel(teamFilter, [['all', 'All Teams'], ...teamsList.map(t => [t, t])], (e) => { state.auditTeam = e.target.value; mountApp(); }, 'Filter by team'),
       sel(preset, presetOpts, (e) => {
@@ -563,7 +563,6 @@ function reportingAuditing() {
         class: 'rounded-xl px-2.5 py-1 text-[11px]',
         onchange: (e) => { state.auditCustomEnd = e.target.value; mountApp(); },
       }),
-      el('div', { class: 'flex-1' }),
       // (Export button removed per Isaac, Sep 2026 — exportAuditingXlsx kept for the console.)
       el('button', {
         class: 'rounded-xl border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
@@ -571,7 +570,12 @@ function reportingAuditing() {
         title: 'Assign reps to teams / tiers (same as the Indicators tab)',
         onclick: () => openManageTeamsModal(),
       }, '\ud83d\udc65'),
-      )),
+      ].filter(Boolean);
+      // Desktop: these ride in the sub-tab row, right-justified (per Isaac, Oct 14); phones keep the pinned bar.
+      if (reportingTabSlotPut(_auditCtl)) return null;
+      const _f = _auditCtl.slice(); _f.splice(_f.length - 1, 0, el('div', { class: 'flex-1' }));
+      return reportingPinBar('audit', el('div', { class: 'card p-4 flex items-center gap-2 flex-wrap' }, ..._f));
+    })(),
 
     // ONE rollup table with an Office ⇄ Teams toggle (per Isaac), then the per-rep detail table.
     (() => {
