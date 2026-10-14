@@ -1483,7 +1483,7 @@ function reportingFilterBar(scope, opts = {}) {
   );
 
   const filterSummary = el('div', {
-    class: 'text-[11px] mt-1 flex items-center gap-2 flex-wrap',
+    class: 'text-[11px] mt-1 flex items-center justify-end gap-2 flex-wrap',
     style: { color: 'var(--text-muted)' },
   },
     (dateStart || dateEnd) && el('button', {
@@ -1501,13 +1501,14 @@ function reportingFilterBar(scope, opts = {}) {
   // Phones (rep-filter-row CSS): pickers share one row with the ⓘ hugging
   // the right edge instead of wrapping underneath (per Isaac).
   return el('div', { class: 'card p-4 flex flex-col gap-2' },
-    el('div', { class: 'flex items-end gap-3 flex-wrap rep-filter-row' },
+    el('div', { class: 'flex items-end justify-end gap-3 flex-wrap rep-filter-row' },
+      // Pickers right-justified beside the ⓘ (per Isaac, Oct 14).
+      el('div', { class: 'flex-1 rep-filter-spacer' }),
       showOffice && (inCompare ? officePicker(office, (v) => { state.reportingOffice = v; mountApp(); }, 'Office A') : officeChecklist('Office')),
       showOffice && inCompare && el('div', { class: 'text-sm font-bold self-end pb-2', style: { color: 'var(--text-muted)' } }, 'vs'),
       showOffice && inCompare && officePicker(compareOffice, (v) => { state.reportingCompareOffice = v; mountApp(); }, 'Office B'),
       showDate && datePicker,
       showCompare && compareBtn,
-      el('div', { class: 'flex-1 rep-filter-spacer' }),
       methodologyInfo,
     ),
     filterSummary,
