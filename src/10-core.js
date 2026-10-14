@@ -2213,7 +2213,12 @@ async function loadReportingSubscriptions(uploadId) {
   }
   state._snapshotReinstated = _reinstated; state._snapshotWinbacks = _winbacks;
   // Blank / "un" / "unknown" states all group under ?? on the Geographic tab.
-  if (typeof _normStateCode === 'function') for (const r of rows) r.state = _normStateCode(r.state);
+  if (typeof _normStateCode === 'function') for (const r of rows) {
+    r.state = _normStateCode(r.state);
+    // The ZIP decides when the typed state disagrees (per Isaac, Oct 14); Auditing lists them.
+    const zs = typeof _stateFromZip === 'function' ? _stateFromZip(r.zip_code) : null;
+    if (zs && zs !== r.state) { r.state_crm = r.state || '(blank)'; r.state = zs; }
+  }
   // Same guard as the sync: a sub sold in the last 7 days whose customer row
   // hasn't landed yet is a feed lag, not a deleted account (Julia Phillips,
   // #180833 — sold and serviced the day of the sync). Clear the flag so it

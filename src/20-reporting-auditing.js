@@ -992,6 +992,16 @@ function auditSubTasks() {
       ok: 'All clear — no cancels were replaced by a new plan.',
       todo: (n) => n.toLocaleString() + ' cancel' + s(n) + ' where the customer got a new plan within 30 days, not coded as a renewal — likely uncoded renewals or re-entries. Retention now links these like renewals (step "Link cancels replaced within 30 days"), so they no longer count as churn — still recode the reason to a Renewal in FieldRoutes if it was one.' });
   }
+  // 9. State doesn't match the ZIP (per Isaac, Oct 14): reporting already uses the
+  //    ZIP's state; these are the customers to correct in FieldRoutes.
+  {
+    const seen = new Set(), bad = [];
+    for (const r of rows) { if (!r.state_crm || seen.has(String(r.customer_id))) continue; seen.add(String(r.customer_id));
+      bad.push({ ...r, _flagReason: 'Customer #' + r.customer_id + ' \u00b7 FieldRoutes says ' + r.state_crm + ', ZIP ' + String(r.zip_code || '').slice(0, 5) + ' is ' + r.state }); }
+    tasks.push({ tag: 'State', title: 'State doesn\u2019t match the ZIP', noun: 'customer', tone: 'check', rows: bad,
+      ok: 'All clear \u2014 every customer\u2019s state matches their ZIP.',
+      todo: (n) => n.toLocaleString() + ' customer' + s(n) + ' whose state in FieldRoutes doesn\u2019t match the ZIP (e.g. \u201cAC\u201d, \u201cAA\u201d, or the wrong state). Reporting already maps them by ZIP; fix the state on the customer in FieldRoutes.' });
+  }
   auditSubTasks._m = { src: rows, key, tasks };
   return tasks;
 }
