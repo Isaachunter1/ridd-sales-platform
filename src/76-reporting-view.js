@@ -260,7 +260,7 @@ function reportingCustomerHealth() {
   const zip5 = (r) => String(r.zip_code || '').trim().slice(0, 5);
   const moSince = (iso) => { const d = new Date(String(iso) + 'T00:00'); return isNaN(d) ? null : (now - d) / 2629800000; };
   const excludedReasons = reportingExcludedCancelReasons();
-  const counted = (r) => r.subscription_date_canceled && !excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r)));
+  const counted = (r) => r.subscription_date_canceled && reportingCancelCountsByReason(r);
 
   // Context churn rates — which ZIPs and service families bite hardest.
   const zipStat = new Map(), famStat = new Map();

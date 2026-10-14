@@ -54,7 +54,7 @@ function semRetentionBook(pop) {
     .filter(r => !retenPopulationExcluded(r))
     .map(r => {
       const realCancel = r.subscription_date_canceled
-        && !excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r)))
+        && (typeof reportingCancelCountsByReason === 'function' ? reportingCancelCountsByReason(r) : !excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r))))   // renewals / combines strung together; unlinked renewals count
         && !(reportingExcludeRorChurn() && _reporting3dayRor(r))
         ? r.subscription_date_canceled : null;
       return { ...r, initial_service: typeof retenCohortStart === 'function' ? retenCohortStart(r) : (r.origin_initial_service || r.initial_service), _effCancel: realCancel };

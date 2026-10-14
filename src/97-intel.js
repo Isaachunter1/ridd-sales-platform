@@ -27,7 +27,7 @@ function _intelRows() {
     const reason = _normCancelReason(reportingCancelReasonOf(r) || '');
     if (reason && popExcl.has(reason) && !(_isRorReason(reason) && !_rorCodedOk(r)) && !(crmReasonIs('renewal', reason) && !_renewalLinked(r))) continue;   // (ROR = sales-rep sales only; renewal = linked to a later plan on the customer — per Isaac, Oct 13)                // ROR / combined / renewal — left the book without churning
     const cxlIso = r.subscription_date_canceled ? String(r.subscription_date_canceled).slice(0, 10) : '';
-    const cxl = !!cxlIso && !(reason && excl.has(reason));      // excluded reasons (company-ended) count as retained
+    const cxl = !!cxlIso && reportingCancelCountsByReason(r);   // excluded reasons count as retained; renewals / combines strung together
     const days = cxl ? Math.round((Date.parse(cxlIso) - Date.parse(sold)) / 86400000) : null;
     out.push({
       sold, cxl, days, arv: Number(r.annual_recurring_value) || 0,

@@ -1949,6 +1949,34 @@ function _replacedLinked(r) {
   const lo = sh(-7), hi = sh(45), me = String(r.subscription_id);
   return (_replLinkMemo.idx.get(c) || []).some(([id, d, oc]) => id !== me && d >= lo && d <= hi && (!oc || oc > cx));
 }
+// ── One rule for "does this cancel count as churn?" (per Isaac, Oct 14) ──
+// Renewals and combines are strung together the same way everywhere in the
+// app as on Retention: a plan cancelled because the customer moved onto
+// another plan was cancelled for a GOOD reason — the customer carried on.
+//   · Combined Subscriptions        → never churn (merged into a plan that carries on)
+//   · Renewal reason, linked        → not churn (the customer renewed into a later plan)
+//   · Renewal reason, NOT linked    → churn (nothing carried forward = a real loss),
+//                                     even if the reason is ticked "don't count"
+//   · replaced within 45 days       → not churn (uncoded renewal / re-entry)
+//   · anything else                 → the "Don't count these cancel reasons" list decides
+// The Retention what-if toggles (combined / renewals / replaced) apply on that
+// tab; everywhere else the official setting is used. 3-day RORs, one-time
+// services and the recurring test stay with each caller, as before.
+function reportingCancelCarriedOn(r) {
+  if (!r || !r.subscription_date_canceled) return false;
+  const why = reportingCancelReasonOf(r);
+  if (_retenWhatIf('popCombined', true) && crmReasonIs('combined', why)) return true;
+  if (_retenWhatIf('popRenew', true) && crmReasonIs('renewal', why) && _renewalLinked(r)) return true;
+  if (_retenWhatIf('popReplaced', true) && _replacedLinked(r)) return true;
+  return false;
+}
+function reportingCancelCountsByReason(r) {
+  if (!r || !r.subscription_date_canceled) return false;
+  if (reportingCancelCarriedOn(r)) return false;
+  const why = reportingCancelReasonOf(r);
+  if (_retenWhatIf('popRenew', true) && crmReasonIs('renewal', why)) return true;   // renewal-coded, nothing carried forward
+  return !reportingExcludedCancelReasons().has(_normCancelReason(why));
+}
 // $89 a visit, 4 visits, showed $0 ARR and fell out of the book).
 // Only an "As Needed" plan (frequency -1) qualifies: a $0 plan with no
 // frequency (0) and a stray few-dollar charge is one-time work (per Isaac,

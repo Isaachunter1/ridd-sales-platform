@@ -331,7 +331,7 @@ function reportingAuditing() {
           const _otsT = (r) => /^\s*one[\s-]?time/i.test(String(r.subscription || ''));
           const _renT = (r) => /^renewal/i.test(String(r.subscription_cancellation_reason || '').trim()) || (typeof reportingSourceClass === 'function' && reportingSourceClass(r.subscription_source) === 'renewal');
           const _exclR = (typeof reportingExcludedCancelReasons === 'function') ? reportingExcludedCancelReasons() : new Set();
-          const _cxlT = (r) => !!r.subscription_date_canceled && !_act(r) && !_exclR.has(_normCancelReason(r.subscription_cancellation_reason));
+          const _cxlT = (r) => !!r.subscription_date_canceled && !_act(r) && (typeof reportingCancelCountsByReason === 'function' ? reportingCancelCountsByReason(r) : !_exclR.has(_normCancelReason(r.subscription_cancellation_reason)));
           const _agingT = (r) => _act(r) && (Number(r.days_past_due) || 0) >= (typeof reportingAgingDays === 'function' ? reportingAgingDays() : 60);
           const _tx = (r) => _svc(r) && !_rorT(r) && !_otsT(r) && !_renT(r);
           let tSvc = 0, tCxl = 0, tAging = 0, nSvc = 0, nCxl = 0, nAging = 0;

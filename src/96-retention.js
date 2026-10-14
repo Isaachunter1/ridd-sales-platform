@@ -307,8 +307,8 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     const A = semMetric('annual_attrition')(book, yr);   // the definition lives in the semantic layer
     const boy = A.rows.boy;
     const raw = boy.filter(r => r.subscription_date_canceled && r.subscription_date_canceled >= st && r.subscription_date_canceled <= en);
-    const exclRows = raw.filter(r => excl.has(_normCancelReason(reportingCancelReasonOf(r))));
-    const rorRows = raw.filter(r => !excl.has(_normCancelReason(reportingCancelReasonOf(r))) && reportingExcludeRorChurn() && _reporting3dayRor(r));
+    const exclRows = raw.filter(r => !reportingCancelCountsByReason(r));
+    const rorRows = raw.filter(r => reportingCancelCountsByReason(r) && reportingExcludeRorChurn() && _reporting3dayRor(r));
     const countedRows = A.rows.counted;
     return { boy: boy.length, raw: raw.length, exclN: exclRows.length, rorN: rorRows.length, counted: countedRows.length, rate: A.value,
       rows: { boy, raw, excl: exclRows, ror: rorRows, counted: countedRows } };
@@ -505,7 +505,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       const model = reportingCancelReasonModel();
       const cancelled = book.filter(r => r.subscription_date_canceled);
       const byKey = new Map(); cancelled.forEach(r => { const k = _normCancelReason(reportingCancelReasonOf(r)); byKey.set(k, (byKey.get(k) || []).concat([r])); });
-      const neutralised = cancelled.filter(r => excl.has(_normCancelReason(reportingCancelReasonOf(r))));
+      const neutralised = cancelled.filter(r => excl.has(_normCancelReason(reportingCancelReasonOf(r))) && !reportingCancelCountsByReason(r));   // a ticked Renewal reason with no later plan still counts (per Isaac)
       const rowsFor = model.list.filter(g => (byKey.get(g.key) || []).length || model.excludedSet.has(g.key));
       const listEl = el('div', { class: 'grid gap-x-4 gap-y-1 mt-2', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' } },
         ...rowsFor.map(g => {

@@ -118,7 +118,7 @@ function buildReportingWaterfall(rows, mode, cohortYear) {
     .filter(r => !!r.initial_service)   // retention starts at first service — unserviced subs can't retain (they used to pad Totals without ever appearing in a year column)
     .map(r => {
       const realCancel = r.subscription_date_canceled
-        && !excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r)))
+        && reportingCancelCountsByReason(r)   // renewals / combines strung together
         && !(reportingExcludeRorChurn() && _reporting3dayRor(r))   // same ROR setting as Overview/Geographic attrition
         ? r.subscription_date_canceled : null;
       // A renewal continuation keeps the relationship's ORIGINAL first-service

@@ -182,8 +182,7 @@ function reportingFilters() {
     if (!r.subscription_date_canceled) return false;
     if (!isRecurring(r)) return false;
     if (reportingExcludeRorChurn() && _reporting3dayRor(r)) return false;
-    if (excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r)))) return false;
-    return true;
+    return reportingCancelCountsByReason(r);   // renewals / combines strung together (src/66-scorecards.js)
   };
   const all = reportingApplyBranchRules(state.reportingSubscriptions || []);
   // `visible` is the master set every snapshot-based tab reads from. It drops
@@ -614,7 +613,7 @@ function openReportingSliceStatsModal({ chartTitle, sliceLabel, rows, siblings, 
   const n = rows.length;
   const excludedReasons = reportingExcludedCancelReasons();
   const isCxl = (r) => !!r.subscription_date_canceled;
-  const countedCxl = rows.filter(r => isCxl(r) && !excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r))));
+  const countedCxl = rows.filter(r => isCxl(r) && reportingCancelCountsByReason(r));
   const activeRows = rows.filter(r => (r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled);
   const customers = new Set(rows.map(r => r.customer_id).filter(Boolean)).size;
   const arrActive = activeRows.reduce((a, r) => a + (Number(r.annual_recurring_value) || 0), 0);
@@ -1199,8 +1198,7 @@ function reportingChartData(scopeRows, serviceConfig) {
     if (!r.subscription_date_canceled) return false;
     if (!isRecurring(r)) return false;
     if (reportingExcludeRorChurn() && _reporting3dayRor(r)) return false;
-    if (excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r)))) return false;
-    return true;
+    return reportingCancelCountsByReason(r);   // renewals / combines strung together (src/66-scorecards.js)
   };
 
   // Serviced: subs that have received at least one service. Since the
@@ -1242,6 +1240,8 @@ function reportingChartData(scopeRows, serviceConfig) {
   const activeForCharts = (typeof reportingActiveInclOneTime === 'function' && reportingActiveInclOneTime())
     ? activeSubs : activeRecurring;
   const realCancels     = scopeRows.filter(isRealCancel);
+  // Cancelled for a good reason (per Isaac, Oct 14): renewed, combined or replaced — the customer carried on.
+  const carriedOn       = scopeRows.filter(r => isRecurring(r) && typeof reportingCancelCarriedOn === 'function' && reportingCancelCarriedOn(r));
   const servicedRows    = scopeRows.filter(isServiced);
   // Past due = any sub with days_past_due > 0, regardless of status.
   // ── Receivables = REAL balances (per Isaac, fact-checked against the
@@ -1414,6 +1414,8 @@ function reportingChartData(scopeRows, serviceConfig) {
       distinctServices: new Set(scopeRows.map(r => r.subscription).filter(Boolean)).size,
       distinctActiveServices: new Set(activeSubs.map(r => r.subscription).filter(Boolean)).size,
       realCancels:      realCancels.length,
+      carriedOn:        carriedOn.length,
+      carriedOnRows:    carriedOn,
       cancelRate,
       pastDueAmount,
       pastDuePct,
