@@ -47,6 +47,31 @@ async function fr(endpoint, params) {
 fr.rateLimited = 0;
 const chunk = (arr, n) => { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; };
 const norm = (x) => String(x || '').trim().toLowerCase();
+// Signed via customer notes (per Isaac, Oct 14): when a customer e-signs,
+// FieldRoutes logs a "Contract Email" note (typeID 42) reading "… signed
+// contract". That note matched completed contracts ~99.5% of the time over
+// 30 days, and it shows up the minute they sign — so it backs up the
+// contract/search lookup, which has been coming back empty same-day.
+// Returns the set of customer IDs with such a note. Throws only on API error.
+async function signedViaNotes(custIds) {
+  const out = new Set();
+  for (const part of chunk([...new Set(custIds.map(String))], 500)) {
+    const got = await fr('note/search', { customerIDs: part.map(Number) });
+    const nids = got.noteIDs || got.noteIDsNoDataExported || [];
+    for (const npart of chunk(nids.map(String), 1000)) {
+      const det = await fr('note/get', { noteIDs: npart.map(Number) });
+      const list = Array.isArray(det.notes) ? det.notes : Object.values(det.notes || {});
+      list.forEach(n => {
+        // Type 42 only: the phrase also turns up in a handful of pasted
+        // emails / cancel requests (60-day check: 7,290 type-42 vs 10 others).
+        const isType = String(n.typeID || '') === '42' || /contract email/i.test(String(n.type || ''));
+        const says = /signed contract/i.test(String(n.notes || n.note || ''));
+        if (isType && says) out.add(String(n.customerID));
+      });
+    }
+  }
+  return out;
+}
 
 exports.handler = async (event) => {
   const started = Date.now();
@@ -116,6 +141,8 @@ exports.handler = async (event) => {
           }
         }
       } catch (e) { console.warn('[fr-live] contract lookup unavailable — signed check deferred to nightly pass:', e.message); }
+      try { (await signedViaNotes(custIds)).forEach(id => signedCust.add(id)); }
+      catch (e) { console.warn('[fr-live] signed-note lookup unavailable:', e.message); }
     }
     const [rosterQ, profQ, offQ, svcQ, srcQ, ctQ] = await Promise.all([
       supabase.from('fieldroutes_employees').select('employee_id, employee_ids, type_label'),
@@ -264,7 +291,12 @@ exports.handler = async (event) => {
           const { data: cur } = await supabase.from('sales').select('id, crm_subscription_id, customer_number, crm_contract_state').in('crm_subscription_id', known);
           const open = (cur || []).filter(r => String(r.crm_contract_state || '') !== 'signed' && r.customer_number);
           const done = new Set();
-          for (const part of chunk([...new Set(open.map(r => String(r.customer_number)))], 500)) {
+          const openCust = [...new Set(open.map(r => String(r.customer_number)))];
+          let viaNotes = 0;
+          try { const ns = await signedViaNotes(openCust); ns.forEach(id => done.add(id)); viaNotes = ns.size; }
+          catch (e) { console.warn('[fr-live] signed-note lookup unavailable:', e.message); }
+          try {
+          for (const part of chunk(openCust, 500)) {
             const got = await fr('contract/search', { customerIDs: part.map(Number), documentState: 'COMPLETED' });
             const cids = got.contractIDs || got.documentIDs || [];
             for (const cpart of chunk(cids.map(String), 1000)) {
@@ -273,6 +305,8 @@ exports.handler = async (event) => {
               list.forEach(c => { if (String(c.documentState || c.state || 'COMPLETED').toUpperCase() === 'COMPLETED') done.add(String(c.customerID)); });
             }
           }
+          } catch (e) { console.warn('[fr-live] contract re-check skipped:', e.message); }
+          console.log('[fr-live] signed re-check: ' + open.length + ' unsigned row(s) · ' + viaNotes + ' customer(s) with a signed-contract note · ' + done.size + ' signed in total');
           for (const r of open) {
             if (!done.has(String(r.customer_number))) continue;
             const { error } = await supabase.from('sales').update({ crm_contract_state: 'signed', crm_checked_at: new Date().toISOString() }).eq('id', r.id);
