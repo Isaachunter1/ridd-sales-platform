@@ -2146,7 +2146,8 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
       const small = { fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' };
       return el('div', {
         class: 'grid items-center gap-4 px-4 py-2.5 cursor-pointer transition hover:brightness-95',
-        style: { gridTemplateColumns: (_numW + 'px') + ' minmax(0, 1fr) auto auto', borderTop: '1px solid var(--border)' },
+        style: { gridTemplateColumns: (_numW + 'px') + ' minmax(0, 1fr) auto auto', borderTop: '1px solid var(--border)', ...(s.crm_audit === 'passed' ? { background: 'rgba(21,128,61,.06)' } : {}) },
+        title: s.crm_audit === 'passed' ? 'Passed Audit flag on the customer card in FieldRoutes' : undefined,
         onclick: (e) => { if (e.target.closest('select, button, input, textarea, a')) return; openNewSaleModal(null, s); },
       },
         // Row number (per Isaac, Oct 15) — the TV's rank column: mono, muted, right-aligned, newest = 1.
@@ -2180,7 +2181,7 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
           title: s.commission_split ? 'Commissionable ' + fmt.usd(s.revenue_amount) + ' of ' + fmt.usd(s.total_revenue) + ' on the account' : '' },
           fmt.usd0 ? fmt.usd0(s.revenue_amount) : fmt.usd(s.revenue_amount),
           s.commission_split && Number(s.total_revenue) > Number(s.revenue_amount) + 0.005 ? el('div', { class: 'text-[9px] font-normal text-muted-' }, 'of ' + fmt.usd(s.total_revenue)) : null),
-        el('div', { class: 'flex items-center gap-2' }, statusSelect(s.id), (typeof saleAuditChip === 'function') ? saleAuditChip(s) : null));
+        el('div', { class: 'flex items-center gap-2' }, statusSelect(s.id), el('span', { style: { display: 'inline-block', minWidth: '58px' } }, (s.crm_audit !== 'passed' && typeof saleAuditChip === 'function') ? saleAuditChip(s) : null)));
     }));
 }
 
