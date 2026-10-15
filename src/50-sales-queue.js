@@ -94,21 +94,22 @@ function viewSales() {
   //       backend payroll run on them. Marking Lock doesn't bounce the row
   //       off this tab — backend payroll does. The Lock dropdown stays
   //       interactive in case the reviewer needs to flip the decision.
+  // Per Isaac (Oct 15): once upfront is paid, the account STAYS here until the quarterly backend payroll runs on
+  // it — whatever happens to it meanwhile (cancelled, add-on taken off → Chargeback; 4 paid invoices → Lock).
   const isBackendPending = (s) =>
-    ACTIVE_QUEUE.has(s.audit_status) &&
     s.audit_status !== 'pending' &&
     !!s.payroll_processed_at &&
     !s.backend_payroll_processed_at;
   // Archived (per Isaac) = cancelled sales PLUS the ones parked as Not
   // Payable / Reschedule — they're no longer in flight but aren't settled
   // pay history either. History is strictly the locked / charged-back set.
-  const isCancelled = (s) => s.audit_status === 'cancelled' || HIST_TERMINAL.has(s.audit_status);
+  // …and after that run, Chargebacks land here with the other non-commissionable accounts; Locks go to History.
+  const _awaitingBackend = (s) => !!s.payroll_processed_at && !s.backend_payroll_processed_at;
+  const isCancelled = (s) => !_awaitingBackend(s) && (s.audit_status === 'cancelled' || HIST_TERMINAL.has(s.audit_status)
+    || (lockOf(s) === 'chargeback' && !!s.backend_payroll_processed_at));
   // History = settled. A Lock/Chargeback sale only graduates here once the
   // RUN BACKEND payroll run has stamped backend_payroll_processed_at.
-  const isHistory = (s) => {
-    const lock = lockOf(s);
-    return (lock === 'lock' || lock === 'chargeback') && !!s.backend_payroll_processed_at;
-  };
+  const isHistory = (s) => lockOf(s) === 'lock' && !!s.backend_payroll_processed_at;
   const queueCounts = {
     upfront: source.filter(isUpfrontPending).length,
     backend: source.filter(isBackendPending).length,
@@ -132,7 +133,8 @@ function viewSales() {
   let filtered = pending;
   if (sf.dateStart) filtered = filtered.filter(s => s.sold_date >= sf.dateStart);
   if (sf.dateEnd) filtered = filtered.filter(s => s.sold_date <= sf.dateEnd);
-  if (sf.status) filtered = filtered.filter(s => s.audit_status === sf.status);
+  if (sf.status && queueFilter !== 'backend') filtered = filtered.filter(s => s.audit_status === sf.status);
+  if (sf.lock && queueFilter === 'backend') filtered = filtered.filter(s => lockOf(s) === sf.lock);   // backend key (per Isaac, Oct 15)
   if (sf.repId) filtered = filtered.filter(s => s.rep_id === sf.repId);
   if (sf.contractTypeId) filtered = filtered.filter(s => s.contract_type_id === Number(sf.contractTypeId));
   if (sf.sourceId) filtered = filtered.filter(s => s.source_id === Number(sf.sourceId));
@@ -267,10 +269,11 @@ function viewSales() {
       ...(state.sources||[]).map(src => el('option', { value: src.id, selected: String(sf.sourceId) === String(src.id) }, src.name)),
     ),
     // Run payroll (per Isaac, Oct 15): right of All sources — the pay stubs for every commissionable account.
-    (isAdmin && _queue === 'office' && queueFilter === 'upfront') && el('button', {
+    (isAdmin && _queue === 'office' && (queueFilter === 'upfront' || queueFilter === 'backend')) && el('button', {
       class: 'rounded-xl px-3 py-1 text-[11px] font-bold transition hover:brightness-95 whitespace-nowrap', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-      title: 'Pay stubs for every commissionable account on Upfront Sales — review, then confirm',
-      onclick: () => openPayrollRun(source.filter(isUpfrontPending)),
+      title: 'Pay stubs for every commissionable account on Upfront Sales (tick the box on the next page to add the decided Pending Backend Lock accounts) — review, then confirm',
+      // Backend accounts ride along when ticked (per Isaac, Oct 15): decided ones only — Lock pays, Chargeback claws back.
+      onclick: () => openPayrollRun(source.filter(isUpfrontPending), { backend: source.filter(s => isBackendPending(s) && (lockOf(s) === 'lock' || lockOf(s) === 'chargeback')), includeBackend: queueFilter === 'backend' }),
     }, 'Run payroll'),
     (sf.status || sf.repId || sf.sourceId || sf.q) && el('button', {
       class: 'text-[11px] font-semibold px-2.5 py-1', style: { color: 'var(--accent)' },
@@ -367,7 +370,7 @@ function viewSales() {
           // Office Staff (per Isaac, Oct 15): all four tabs — Upfront, Pending Backend Lock, Archived, History — read as the
           // same rows. Sales before the new flow (10/12) keep the old table underneath.
           ((queueFilter === 'upfront' || _queue === 'office') && filtered.some(s => String(s.sold_date || '') >= SALES_FEED_START))
-            ? el('div', { class: 'hidden sm:block mb-5' }, salesFeed(filtered.filter(s => String(s.sold_date || '') >= SALES_FEED_START), { isAdmin,
+            ? el('div', { class: 'hidden sm:block mb-5' }, salesFeed(filtered.filter(s => String(s.sold_date || '') >= SALES_FEED_START), { isAdmin, mode: queueFilter === 'backend' ? 'backend' : 'upfront',
                 title: queueFilter === 'backend' ? 'Waiting on 4 paid invoices' : queueFilter === 'cancels' ? 'Archived' : queueFilter === 'history' ? 'History' : '' })) : null,
           ((queueFilter === 'upfront' || _queue === 'office') && !filtered.some(s => String(s.sold_date || '') < SALES_FEED_START)) ? null :
           el('div', { class: 'hidden sm:block' },
@@ -2178,7 +2181,26 @@ function saleSoldWhen(s) {
   const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4] + 7, +m[5]));
   try { return fmt.dateShortYear(s.sold_date) + ' \u00b7 ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Denver' }) + ' MT'; } catch (e) { return fmt.dateShortYear(s.sold_date); }
 }
-function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
+// Pending Backend Lock key (per Isaac, Oct 15): upfront is already paid, so the colors reset to the SECOND audit —
+// waiting on 4 paid invoices → Lock (commissionable at the quarterly backend run) or Chargeback.
+const BACKEND_KEY = [['pending', 'Waiting on 4 paid invoices', '#8F9A8C'], ['lock', 'Lock \u2014 commissionable', '#3E5A3A'], ['chargeback', 'Chargeback', '#E5532E']];
+function backendTint(lock) {
+  const k = BACKEND_KEY.find(x => x[0] === (lock || 'pending')) || BACKEND_KEY[0];
+  const n = parseInt(k[2].slice(1), 16), a = k[0] === 'pending' ? 0.08 : k[0] === 'lock' ? 0.16 : 0.10;
+  return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
+}
+function backendKey() {
+  const sf = state.salesFilters || (state.salesFilters = {});
+  return el('div', { class: 'flex flex-wrap items-center justify-end', style: { columnGap: '4px', rowGap: '4px' } },
+    ...BACKEND_KEY.map(([v, lbl, col]) => { const on = sf.lock === v, dim = !!sf.lock && !on;
+      return el('button', { type: 'button', title: on ? 'Showing ' + lbl + ' only \u2014 click to show all' : 'Show ' + lbl + ' only',
+        class: 'inline-flex items-center text-[10px] rounded-md cursor-pointer transition',
+        style: { gap: '5px', padding: '2px 6px', border: '1px solid ' + (on ? col : 'transparent'), background: on ? backendTint(v) : 'transparent', color: on ? 'var(--text)' : 'var(--text-muted)', fontWeight: on ? '600' : '400', opacity: dim ? '.45' : '1' },
+        onclick: () => { sf.lock = on ? '' : v; mountApp(); } },
+        el('span', { style: { width: '9px', height: '9px', borderRadius: '3px', background: col, display: 'inline-block' } }), lbl); }));
+}
+function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {}) {
+  const _bk = mode === 'backend';
   salesFeedAddOnsPull();
   const ok = '#15803D', bad = '#DC2626';
   // Column table (per Isaac, Oct 15): headers + key frozen while scrolling; every header sorts (click again flips).
@@ -2189,7 +2211,7 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
   const srcOf = (s) => { const v = typeof nameFromId === 'function' ? nameFromId(state.sources, s.source_id) : ''; return v && v !== '—' ? v : ''; };
   const initOf = (s) => String(s.crm_serviced_at || s.crm_initial_appt_at || '').slice(0, 10);
   const payRank = (s) => s.crm_paid_since_sale === true ? 2 : s.crm_paid_since_sale === false ? 0 : 1;
-  const statusRank = (s) => SALE_STATUS_OPTIONS.findIndex(([v]) => v === (s.audit_status || 'pending'));
+  const statusRank = (s) => _bk ? BACKEND_KEY.findIndex(([v]) => v === (s.lock_status || 'pending')) : SALE_STATUS_OPTIONS.findIndex(([v]) => v === (s.audit_status || 'pending'));
   const soldKey = (s) => saleSoldSortKey(s);
   const KEYS = {
     rep: [(s) => repName(s).toLowerCase(), 'asc'], customer: [(s) => String(s.customer_name || '').toLowerCase(), 'asc'],
@@ -2224,7 +2246,7 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
       el('div', { class: 'flex flex-wrap items-center justify-between gap-2 px-4 pt-3 pb-2' },
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, title || 'Latest sales'),
         el('div', { class: 'flex flex-wrap items-center justify-end', style: { columnGap: '18px', rowGap: '6px' } },
-          saleStatusKey(),
+          _bk ? backendKey() : saleStatusKey(),
           el('div', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, rows.length + ' since ' + fmt.dateShortYear(SALES_FEED_START)))),
       el('div', { class: 'px-4 pb-2', style: gridRow() },
         el('div', { class: 'text-[9px] text-right', style: { color: 'var(--text-subtle)' } }, '#'),
@@ -2265,7 +2287,7 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
       const tracked = s.crm_paid_invoices != null || s.payroll_processed_at;
       return el('div', {
         class: 'px-4 py-2.5 cursor-pointer transition hover:brightness-95',
-        style: gridRow({ borderTop: i ? '1px solid var(--border)' : '0', background: saleStatusTint(s.audit_status), ...(s.crm_audit === 'passed' ? { boxShadow: 'inset 3px 0 0 #15803D' } : {}) }),
+        style: gridRow({ borderTop: i ? '1px solid var(--border)' : '0', background: _bk ? backendTint(s.lock_status) : saleStatusTint(s.audit_status), ...(!_bk && s.crm_audit === 'passed' ? { boxShadow: 'inset 3px 0 0 #15803D' } : {}) }),
         title: s.crm_audit === 'passed' ? 'Passed Audit flag on the customer card in FieldRoutes' : undefined,
         onclick: (e) => { if (e.target.closest('select, button, input, textarea, a')) return; openNewSaleModal(null, s); },
       },
@@ -2294,7 +2316,7 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
           title: s.commission_split ? 'Commissionable ' + fmt.usd(s.revenue_amount) + ' of ' + fmt.usd(s.total_revenue) + ' on the account' : '' },
           fmt.usd0 ? fmt.usd0(s.revenue_amount) : fmt.usd(s.revenue_amount),
           s.commission_split && Number(s.total_revenue) > Number(s.revenue_amount) + 0.005 ? el('div', { class: 'text-[9px] font-normal text-muted-' }, 'of ' + fmt.usd(s.total_revenue)) : null),
-        el('div', { class: 'flex items-center gap-2', style: { minWidth: '0' }, title: s.crm_below_min ? 'Under the pricing minimum: ' + s.crm_below_min : '' }, statusSelect(s.id), (s.crm_audit === 'failed' && typeof saleAuditChip === 'function') ? saleAuditChip(s) : null));
+        el('div', { class: 'flex items-center gap-2', style: { minWidth: '0' }, title: s.crm_below_min ? 'Under the pricing minimum: ' + s.crm_below_min : '' }, _bk ? lockStatusSelect(s.id) : statusSelect(s.id), (s.crm_audit === 'failed' && typeof saleAuditChip === 'function') ? saleAuditChip(s) : null));
     }));
   // No overflow clipping on the card, so the frozen header sticks to the page scroll; narrow screens scroll sideways instead.
   return el('div', { class: 'card', style: narrow ? { overflowX: 'auto' } : {} }, table);
@@ -2314,7 +2336,13 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
 function payrollRunCandidates(rows) {
   return (rows || []).filter(s => (s.audit_status === 'serviced' || s.audit_status === 'below_minimums') && !s.payroll_processed_at && s.rep_id);
 }
-function payrollRunStub(repId, sales, period) {
+// backendSales (per Isaac, Oct 15): decided Pending Backend Lock accounts riding along with the run.
+//   Lock → pays the account's backend (getBackendAmount: 18/24-month multi-year %, renewal backend %); a
+//          12-month plan's backend is $0 — it just graduates to History.
+//   Chargeback → recoups the UPFRONT commission paid on it (Isaac's payout flow: cancels are "recouped /
+//          charged back quarterly"): the amount from that sale's stored pay-run snapshot (b._recoup), else
+//          today's math for it (b._recoupEst).
+function payrollRunStub(repId, sales, period, backendSales) {
   const prof = (state.allProfiles || []).find(p => p.id === repId) || {};
   const pool = (typeof passedAuditPool === 'function') ? passedAuditPool(repId, period) : [];
   const pct = upfrontCollectedPct(pool.length ? pool : sales), mult = upfrontTierPayPct(pct, repId);
@@ -2338,8 +2366,20 @@ function payrollRunStub(repId, sales, period) {
   const adj = (state.payAdjustments || []).filter(a => a.rep_id === repId && Number(a.period_year) === Number(period.start.getFullYear()) && Number(a.period_id) === Number(period.id));
   adj.forEach(a => extras.push([a.note || a.label || 'Other pay', Number(a.amount) || 0]));
   if (Number(prof.other_pay_amount)) extras.push(['Other pay', Number(prof.other_pay_amount)]);
-  const total = salesPay + extras.reduce((a, x) => a + x[1], 0);
-  return { prof, pct, mult, lines, salesPay, extras, total, revenue: lines.reduce((a, l) => a + l.revenue, 0) };
+  const backendLines = (backendSales || []).map(b => {
+    const cb = b.lock_status === 'chargeback';
+    let amt, est = false;
+    if (cb) {
+      if (b._recoup != null) amt = Number(b._recoup) || 0;
+      else { est = true; const one = payrollRunStub(repId, [Object.assign({}, b, { audit_status: b.audit_status === 'below_minimums' ? 'below_minimums' : 'serviced' })], period); amt = one.lines.length ? one.lines[0].amount : 0; }
+    } else amt = typeof getBackendAmount === 'function' ? getBackendAmount(b) : 0;
+    amt = Math.round(amt * 100) / 100;
+    return { sale_id: b.id, customer: b.customer_name || '', customer_number: b.customer_number || '', sold_date: b.sold_date || '', months: Number(b.contract_months) || 0,
+      kind: cb ? 'chargeback' : 'lock', est, invoices: Number(b.crm_paid_invoices) || 0, revenue: Number(b.revenue_amount) || 0,
+      amount: cb ? -amt : amt }; });
+  const backendPay = backendLines.reduce((a, l) => a + l.amount, 0);
+  const total = salesPay + backendPay + extras.reduce((a, x) => a + x[1], 0);
+  return { prof, pct, mult, lines, salesPay, backendLines, backendPay, extras, total, revenue: lines.reduce((a, l) => a + l.revenue, 0) };
 }
 // ── Pay stub PDF (per Isaac, Oct 15): the Run payroll stub, as a PDF each rep gets in Slack on Confirm.
 // A tiny dependency-free PDF writer (built-in Helvetica / Courier, WinAnsi text) — landscape Letter,
@@ -2408,6 +2448,27 @@ function paystubPdfBytes(x, period, saleById) {
   line(M, y, W - M, y, INK, 0.9);
   text('Sales pay', C.cust, y + 13, 9, 'F4'); text(money(x.revenue), C.rev, y + 13, 9, 'F3', INK, true); text(money(x.salesPay), C.pay, y + 13, 9, 'F4', INK, true);
   y += 19;
+  // Backend lock lines (per Isaac, Oct 15).
+  if ((x.backendLines || []).length) {
+    if (y + 40 > BOTTOM) { newPage(); y = header(false); }
+    rect(M, y, W - 2 * M, 18, BAND); text('BACKEND LOCK  \u2022  ' + x.backendLines.length + ' ACCOUNT' + (x.backendLines.length === 1 ? '' : 'S'), C.cust, y + 12, 7, 'F3', MUTED); y += 18;
+    for (const l of x.backendLines) {
+      if (y + ROW > BOTTOM) { newPage(); y = header(false); }
+      const sb = saleById.get(l.sale_id) || {};
+      const svcB = (typeof nameFromId === 'function' ? nameFromId(state.serviceTypes, sb.service_type_id) : '') || sb.crm_subscription || '\u2014';
+      text(fit('#' + (l.customer_number || '') + ' ' + (l.customer || ''), 33), C.cust, y + 12, 8.5, 'F3');
+      text(fit(svcB, 42), C.plan, y + 12, 8.5, 'F3');
+      text(sb.sale_kind === 'upsell' ? 'Add on' : l.months > 1 ? l.months + ' mo' : 'One-time', C.term, y + 12, 8.5, 'F3');
+      text(fmt.dateShortYear(l.sold_date), C.sold, y + 12, 8.5, 'F3');
+      text(money(l.revenue), C.rev, y + 12, 8.5, 'F3', INK, true);
+      text(l.kind === 'chargeback' ? 'Chargeback' : 'Lock ' + l.invoices + '/4', C.com, y + 12, 8.5, 'F4', l.kind === 'chargeback' ? RED : '#3E5A3A', true);
+      text(money(l.amount), C.pay, y + 12, 8.5, 'F4', l.amount < 0 ? RED : INK, true);
+      y += ROW; line(M, y, W - M, y, LINE, 0.4);
+    }
+    line(M, y, W - M, y, INK, 0.9);
+    text('Backend pay', C.cust, y + 13, 9, 'F4'); text(money(x.backendPay), C.pay, y + 13, 9, 'F4', x.backendPay < 0 ? RED : INK, true);
+    y += 19;
+  }
   for (const [k, v] of x.extras) { line(M, y, W - M, y, LINE, 0.4); text(fit(k, 40), C.cust, y + 13, 9, 'F3'); text(money(v), C.pay, y + 13, 9, 'F3', Number(v) < 0 ? RED : INK, true); y += 19; }
   rect(M, y, W - 2 * M, 22, ACC);
   text('Total pay', C.cust, y + 15, 10, 'F4', '#FFFFFF'); text(money(x.total), C.pay, y + 15, 10, 'F4', '#FFFFFF', true);
@@ -2511,6 +2572,20 @@ function payStubCard(x, period, saleById, opts = {}) {
           td(Math.round((l.tier_mult || 1) * 100) + '%', 1, { color: 'var(--text-muted)' }),
           td(money(l.amount), 1, { fontWeight: '700' }))),
           el('tr', { class: 'border-t', style: { borderColor: 'var(--text)' } }, td('Sales pay', 0, { fontWeight: '700' }), td(''), td(''), td(''), td(money(x.revenue), 1), td(''), td(''), td(money(x.salesPay), 1, { fontWeight: '800' })),
+          // Backend lock (per Isaac, Oct 15) — the decided Pending Backend Lock accounts in this run.
+          ...((x.backendLines || []).length ? [
+            el('tr', {}, el('td', { colspan: '8', class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, 'Backend lock \u00b7 ' + x.backendLines.length + ' account' + (x.backendLines.length === 1 ? '' : 's'))),
+            ...x.backendLines.map(l => { const sb = saleById.get(l.sale_id) || {}; return el('tr', { class: 'border-t border-', style: { background: typeof backendTint === 'function' ? backendTint(l.kind) : '' } },
+              td(el('span', {}, el('span', { class: 'text-muted-' }, '#' + (l.customer_number || '')), ' ', l.customer || '')),
+              td(el('span', { style: { fontSize: '12px' } }, saleServiceWithAddOns(sb, (typeof nameFromId === 'function' ? nameFromId(state.serviceTypes, sb.service_type_id) : '') || sb.crm_subscription || '\u2014', saleAddOnsFor(sb), { size: '12px', weight: '600' }))),
+              td(sb.sale_kind === 'upsell' ? 'Add on' : l.months > 1 ? l.months + ' mo' : 'One-time'),
+              td(fmt.dateShortYear(l.sold_date)),
+              td(money(l.revenue), 1),
+              td(l.kind === 'chargeback' ? 'Chargeback \u00b7 upfront back' + (l.est ? ' (est.)' : '') : 'Lock \u00b7 ' + l.invoices + '/4 paid', 0, { color: l.kind === 'chargeback' ? '#B91C1C' : '#3E5A3A', fontWeight: '700' }),
+              td(''),
+              td(money(l.amount), 1, { fontWeight: '700', color: l.amount < 0 ? '#B91C1C' : 'var(--text)' })); }),
+            el('tr', { class: 'border-t', style: { borderColor: 'var(--text)' } }, td('Backend pay', 0, { fontWeight: '700' }), td(''), td(''), td(''), td(''), td(''), td(''), td(money(x.backendPay), 1, { fontWeight: '800', color: x.backendPay < 0 ? '#B91C1C' : 'var(--text)' })),
+          ] : []),
           ...x.extras.map(([k, v]) => el('tr', { class: 'border-t border-' }, td(k), td(''), td(''), td(''), td(''), td(''), td(''), td(money(v), 1))),
           el('tr', { style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, td('Total pay', 0, { fontWeight: '800' }), td(''), td(''), td(''), td(''), td(''), td(''), td(money(x.total), 1, { fontWeight: '800' }))))),
       el('div', { class: 'px-4 py-2 text-[10px] text-muted-' },
@@ -2518,15 +2593,38 @@ function payStubCard(x, period, saleById, opts = {}) {
       opts.note ? el('div', { class: 'px-4 pb-2 text-[10px]', style: { color: 'var(--text-subtle)' } }, opts.note) : null);
   }
 }
-function openPayrollRun(rows) {
+function openPayrollRun(rows, opts = {}) {
   const today = new Date();
   const period = getPayPeriods(today.getFullYear()).find(p => p.id === currentPayPeriodId(today.getFullYear())) || getPayPeriods(today.getFullYear())[0];
   const sales = payrollRunCandidates(rows);
   const held = (rows || []).filter(s => (s.audit_status === 'serviced' || s.audit_status === 'below_minimums') && !s.payroll_processed_at && !s.rep_id);
+  // Quarterly backend (per Isaac, Oct 15): tick to add the decided Pending Backend Lock accounts to this run.
+  const backendAll = (opts.backend || []).filter(s => s.rep_id);
+  const incB = !!opts.includeBackend && backendAll.length > 0;
+  // Chargebacks recoup what was actually paid upfront: read it off the stored upfront pay runs once, then re-open.
+  if (incB && !opts._recoupLoaded && backendAll.some(s => s.lock_status === 'chargeback') && typeof supabase !== 'undefined' && supabase && !(typeof DEMO !== 'undefined' && DEMO)) {
+    const cbIds = new Set(backendAll.filter(s => s.lock_status === 'chargeback').map(s => String(s.id)));
+    const reps = [...new Set(backendAll.filter(s => s.lock_status === 'chargeback').map(s => s.rep_id))];
+    Promise.resolve(supabase.from('pay_runs').select('rep_id, kind, inputs').eq('kind', 'upfront').in('rep_id', reps)).then(({ data }) => {
+      const paid = new Map();
+      for (const r of (data || [])) for (const l of ((r.inputs && r.inputs.lines) || [])) if (cbIds.has(String(l.sale_id)) && l.amount != null) paid.set(String(l.sale_id), Number(l.amount));
+      backendAll.forEach(s => { if (paid.has(String(s.id))) s._recoup = paid.get(String(s.id)); });
+      openPayrollRun(rows, Object.assign({}, opts, { _recoupLoaded: true }));
+    }).catch(() => openPayrollRun(rows, Object.assign({}, opts, { _recoupLoaded: true })));
+    return;
+  }
+  const backendSales = incB ? backendAll : [];
   const byRep = new Map(); sales.forEach(s => { if (!byRep.has(s.rep_id)) byRep.set(s.rep_id, []); byRep.get(s.rep_id).push(s); });
-  const stubs = [...byRep.entries()].map(([rid, list]) => payrollRunStub(rid, list, period)).sort((a, b) => b.total - a.total);
+  const bByRep = new Map(); backendSales.forEach(s => { if (!bByRep.has(s.rep_id)) bByRep.set(s.rep_id, []); bByRep.get(s.rep_id).push(s); if (!byRep.has(s.rep_id)) byRep.set(s.rep_id, []); });
+  const stubs = [...byRep.entries()].map(([rid, list]) => payrollRunStub(rid, list, period, bByRep.get(rid) || [])).sort((a, b) => b.total - a.total);
   const grand = stubs.reduce((a, x) => a + x.total, 0);
-  const saleById = new Map(sales.map(s => [s.id, s]));
+  const saleById = new Map([...sales, ...backendSales].map(s => [s.id, s]));
+  const nLock = backendAll.filter(s => s.lock_status === 'lock').length, nCb = backendAll.length - nLock;
+  const backendToggle = backendAll.length ? el('label', { class: 'card flex items-center gap-3 px-4 py-3 cursor-pointer text-sm' },
+    el('input', { type: 'checkbox', checked: incB, style: { width: '18px', height: '18px', accentColor: 'var(--accent)' },
+      onchange: () => { back.remove(); openPayrollRun(rows, Object.assign({}, opts, { includeBackend: !incB })); } }),
+    el('div', {}, el('div', { class: 'font-bold' }, 'Include Pending Backend Lock (quarterly backend)'),
+      el('div', { class: 'text-[11px] text-muted-' }, nLock + ' locked (4 paid invoices) \u00b7 ' + nCb + ' chargeback' + (nCb === 1 ? '' : 's') + ' \u2014 Lock pays the account\u2019s backend (multi-year / renewal; $0 on 12-month plans), Chargeback takes back the upfront commission paid on it. Confirm moves Locks to History and Chargebacks to Archived. Accounts still waiting on invoices stay put.'))) : null;
   const money = (v) => fmt.usd(Math.round((Number(v) || 0) * 100) / 100);
   const pct = (v) => v == null ? '—' : Math.round(v * 100) + '%';
   const back = el('div', { style: { position: 'fixed', inset: '0', zIndex: '9000', background: 'var(--bg)', overflowY: 'auto' } });
@@ -2536,11 +2634,11 @@ function openPayrollRun(rows) {
   const stubCard = (x) => payStubCard(x, period, saleById);
   let busy = false;
   const confirmBtn = el('button', { class: 'rounded-lg px-4 py-2 text-sm font-bold transition hover:brightness-95', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-    disabled: !sales.length,
+    disabled: !sales.length && !backendSales.length,
     onclick: async () => {
-      if (busy || !sales.length) return; busy = true; confirmBtn.textContent = 'Running…';
+      if (busy || (!sales.length && !backendSales.length)) return; busy = true; confirmBtn.textContent = 'Running…';
       try {
-        await confirmPayrollRun(sales, period);
+        await confirmPayrollRun(sales, period, backendSales);
         close();
         // Pay stubs to Slack as PDFs (per Isaac, Oct 15), built from the numbers that were just confirmed.
         const r = await slackPaystubPdfs(stubs, period, saleById);
@@ -2555,6 +2653,7 @@ function openPayrollRun(rows) {
         el('div', { class: 'text-xs text-muted-' }, stubs.length + ' rep' + (stubs.length === 1 ? '' : 's') + ' · ' + sales.length + ' commissionable account' + (sales.length === 1 ? '' : 's') + ' · ' + money(grand) + ' total')),
       el('div', { class: 'flex items-center gap-2' },
         el('button', { class: 'rounded-lg border px-4 py-2 text-sm font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: close }, 'Cancel'), confirmBtn)),
+    backendToggle,
     held.length ? el('div', { class: 'card px-4 py-2.5 text-xs', style: { borderColor: '#B45309' } }, held.length + ' commissionable sale' + (held.length === 1 ? '' : 's') + ' held: the FieldRoutes seller has no app account yet. They pay on the next run once the account is linked.') : null,
     !stubs.length ? el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'Nothing commissionable yet — approve sales (Commissionable) on Upfront Sales first.') : null,
     // One stub at a time, picked from a rep dropdown (per Isaac, Oct 15) + its PDF (what Slack sends on Confirm).
@@ -2576,9 +2675,21 @@ function openPayrollRun(rows) {
     el('div', { class: 'text-[11px] text-muted-' }, 'Confirm stamps these accounts paid for ' + period.label + ' and saves a snapshot of every number above. One-time services then move to History; every other account moves to Pending Backend Lock and locks after 4 paid invoices.')));
   document.body.append(back);
 }
-async function confirmPayrollRun(sales, period) {
+async function confirmPayrollRun(sales, period, backendSales) {
   if (typeof DEMO !== 'undefined' && DEMO) { toast('Demo mode — payroll not written', 'warn'); return; }
   const now = new Date().toISOString();
+  backendSales = backendSales || [];
+  // Quarterly backend riding along (per Isaac, Oct 15): stamp the backend run — Locks graduate to History, Chargebacks to Archived.
+  if (backendSales.length) {
+    const bRep = new Map(); backendSales.forEach(s => { if (!bRep.has(s.rep_id)) bRep.set(s.rep_id, []); bRep.get(s.rep_id).push(s); });
+    const bSnaps = [...bRep.entries()].map(([rid, list]) => { const st = payrollRunStub(rid, [], period, list); return [rid, list, { backend_pay: Math.round(st.backendPay * 100) / 100, locked: list.filter(x => x.lock_status === 'lock').length, chargebacks: list.filter(x => x.lock_status === 'chargeback').length, accounts: list.length },
+      isPayInputsSnapshot(rid, st.prof, { backend_lines: st.backendLines, source: 'sales_tab_run' })]; });
+    const { error: eb } = await supabase.from('sales').update({ backend_payroll_processed_at: now, backend_payroll_period_id: period.id }).in('id', backendSales.map(s => s.id));
+    if (eb) throw eb;
+    for (const [rid, list, totals, inputs] of bSnaps) await recordPayRun('backend', rid, period, list, totals, inputs);
+    if (typeof logActivity === 'function') logActivity('backend_payroll_processed', { detail: period.label + ' · ' + backendSales.length + ' accounts (Sales tab run)' });
+  }
+  if (!sales.length) { toast('Backend payroll confirmed — ' + backendSales.length + ' accounts', 'success'); await refreshSalesData(); mountApp(); return; }
   // Snapshot first (inputs read the rows before they flip).
   const byRep = new Map(); sales.forEach(s => { if (!byRep.has(s.rep_id)) byRep.set(s.rep_id, []); byRep.get(s.rep_id).push(s); });
   const snaps = [...byRep.entries()].map(([rid, list]) => { const st = payrollRunStub(rid, list, period); return [rid, list,

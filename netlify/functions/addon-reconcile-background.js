@@ -31,6 +31,31 @@ async function fr(endpoint, params) {
   if (json.success === false || (json.errorMessage && json.errorMessage !== '')) throw new Error(endpoint + ': ' + (json.errorMessage || 'request failed'));
   return json;
 }
+// Add-on SALES follow their add-on on Pending Backend Lock (per Isaac, Oct 15): an upsell sale already paid
+// upfront locks when its add-on's streak locks (N paid invoices carrying it), and goes to Chargeback the
+// moment the add-on is taken off or its streak breaks / is clawed back — for any reason. Either way it STAYS on
+// Pending Backend Lock until the quarterly backend payroll runs on it (that run moves Lock → History,
+// Chargeback → Archived). Only undecided rows are touched; a manual Lock / Chargeback call stands.
+async function syncUpsellLocks(supabase, log) {
+  try {
+    const { data: ups, error } = await supabase.from('sales').select('id, lock_status')
+      .eq('sale_kind', 'upsell').not('payroll_processed_at', 'is', null).is('backend_payroll_processed_at', null)
+      .or('lock_status.is.null,lock_status.eq.pending');
+    if (error) throw error;
+    const ids = (ups || []).map(x => x.id); if (!ids.length) return;
+    const now = new Date().toISOString(); let n = 0;
+    for (const part of chunk(ids, 500)) {
+      const { data: aos } = await supabase.from('add_ons').select('sale_id, streak_status, removed_at').in('sale_id', part);
+      for (const a of (aos || [])) {
+        const next = (a.removed_at || ['broken', 'clawback'].includes(String(a.streak_status))) ? 'chargeback' : String(a.streak_status) === 'locked' ? 'lock' : null;
+        if (!next) continue;
+        const { error: ue } = await supabase.from('sales').update({ lock_status: next, audit_2_at: now }).eq('id', a.sale_id).or('lock_status.is.null,lock_status.eq.pending');
+        if (!ue) n++;
+      }
+    }
+    log.upsellLocks = n;
+  } catch (e) { console.warn('[addon-reconcile] upsell lock sync skipped:', (e && e.message) || e); }
+}
 const listOf = (got, key) => Array.isArray(got[key]) ? got[key] : Object.values(got[key] || {});
 
 exports.handler = async (event) => {
@@ -43,7 +68,7 @@ exports.handler = async (event) => {
   try {
     const { data: open, error } = await supabase.from('add_ons').select('*').in('streak_status', ['accruing', 'locked']).order('id');
     if (error) throw error;
-    if (!open || !open.length) return { statusCode: 200, body: 'no open add-ons' };
+    if (!open || !open.length) { await syncUpsellLocks(supabase, log); return { statusCode: 200, body: 'no open add-ons' }; }
     log.addOns = open.length;
     const token = await _bq.getAccessToken();
     const T = (n) => '`' + _bq.PROJECT + '.' + _bq.DATASET + '.' + n + '`';
@@ -131,6 +156,7 @@ FROM ${T('FieldRoutesSubscription')} WHERE fieldRoutes_subscriptionID IN (${part
       if (status === 'clawback' && a.streak_status !== 'clawback') log.clawback++;
     }
     console.log('[addon-reconcile] done', JSON.stringify({ ...log, ms: Date.now() - started }));
+    await syncUpsellLocks(supabase, log);
     return { statusCode: 200, body: JSON.stringify({ ...log, ms: Date.now() - started }) };
   } catch (e) {
     console.error('[addon-reconcile] failed', e);

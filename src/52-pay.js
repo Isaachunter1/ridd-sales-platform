@@ -871,7 +871,7 @@ function payRunsFor(repId, year) {
 async function recordPayRun(kind, repId, period, sales, totals, inputs) {
   if (typeof supabase === 'undefined' || !supabase || (typeof DEMO !== 'undefined' && DEMO)) return;
   try {
-    const row = { rep_id: repId, pay_year: Number(state.payYear), period_id: Number(period.id), period_label: period.label, kind, totals, inputs, sale_ids: sales.map(s => s.id), run_by: state.profile?.id };
+    const row = { rep_id: repId, pay_year: Number(state.payYear) || (period && period.start ? period.start.getFullYear() : new Date().getFullYear()), period_id: Number(period.id), period_label: period.label, kind, totals, inputs, sale_ids: sales.map(s => s.id), run_by: state.profile?.id };
     const { error } = await supabase.from('pay_runs').insert(row);
     if (error) { console.warn('pay run snapshot failed:', error.message); toast('Paid, but the run snapshot was not saved (' + error.message + ')', 'warn'); return; }
     state._payRuns = state._payRuns || {}; const k = repId + '|' + state.payYear; state._payRuns[k] = [Object.assign({ run_at: new Date().toISOString() }, row), ...(state._payRuns[k] || [])];

@@ -1977,6 +1977,19 @@ WHERE a.fieldRoutes_statusText = 'Completed' AND a.fieldRoutes_dateCompleted NOT
           if (uErr) { console.warn('[revhawk-sync] auto-stage failed for sale ' + s.id + ': ' + uErr.message); continue; }
           stageCount++;
         }
+        // Add-on sales already paid upfront: the plan they ride on cancelled → Chargeback (per Isaac, Oct 15 —
+        // non-commissionable for any reason). They stay on Pending Backend Lock until the quarterly backend run.
+        try {
+          const { data: upsP } = await selectAll(() => supabase.from('sales').select('id, parent_subscription_id, lock_status')
+            .eq('sale_kind', 'upsell').not('payroll_processed_at', 'is', null).is('backend_payroll_processed_at', null)
+            .not('parent_subscription_id', 'is', null).or('lock_status.is.null,lock_status.eq.pending'));
+          for (const u of (upsP || [])) {
+            const r = bySub.get(String(u.parent_subscription_id));
+            if (!r || !(r.subscription_date_canceled || /cancel|inactive/i.test(String(r.subscription_status || '')))) continue;
+            const { error: ue } = await supabase.from('sales').update({ lock_status: 'chargeback', audit_2_at: stamp }).eq('id', u.id);
+            if (!ue) stageCount++;
+          }
+        } catch (ue) { console.warn('[revhawk-sync] add-on chargeback check skipped:', String((ue && ue.message) || ue).slice(0, 200)); }
         if (stageCount) console.log('[revhawk-sync] auto-stage: ' + stageCount + ' sale(s) moved');
         // Stamp the Below Minimums reason on the row (shown on the Sales tab) — only when it changed.
         if (belowMin.size) {
