@@ -4262,7 +4262,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // every sale's initialPrice with no exclusions (overall pricing power).
     { key: 'revPerDay',   label: '$/Day',     align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Average revenue per SELLING day (days off don\'t count)' }, fmt.usd0(r.revPerDay || 0)) },
     { key: 'revenue',    label: 'Revenue',  align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums font-semibold' }, fmt.usd0(r.revenue)) },
-    { key: 'peakRevenue', label: 'Peak Rev', align: 'left', defaultDir: 'desc', title: 'Peak revenue \u2014 every account at its value once the initial was completed, before any later reduction (rates lowered to save it, plans adjusted down)',
+    // Off by default on every board (per Isaac, Oct 15) — tick it on under Columns.
+    { key: 'peakRevenue', label: 'Peak Rev', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'Peak revenue \u2014 every account at its value once the initial was completed, before any later reduction (rates lowered to save it, plans adjusted down)',
       cell: r => { const cut = (r.peakRevenue || 0) - (r.revenue || 0); return el('td', { class: 'px-2 py-2 text-left tabular-nums', title: cut > 0.5 ? fmt.usd0(cut) + ' lowered since the initials were completed' : 'No reductions' },
         fmt.usd0(r.peakRevenue || r.revenue || 0), cut > 0.5 ? el('div', { class: 'text-[10px]', style: { color: '#B91C1C' } }, '\u2212' + fmt.usd0(cut)) : null); } },
     // 12-week revenue sparkline with WoW slope. Sort key = trendSlope so
