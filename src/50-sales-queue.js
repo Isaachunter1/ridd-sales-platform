@@ -10,6 +10,13 @@
 //   Rep:   sees only their own pending / below-min / nsf sales
 //   Admin: sees every rep's pending sales + inline audit dropdown per row
 // ──────────────────────────────────────────────────────────────────────────
+// Placeholder for tabs being rebuilt (per Isaac, Oct 15): Sales Rep / Technician Sales + Pay.
+function viewUnderConstruction(what) {
+  return el('div', { class: 'card p-10 text-center flex flex-col items-center gap-2' },
+    el('div', { style: { fontSize: '28px' } }, '\u{1F6A7}'),
+    el('div', { class: 'text-base font-bold' }, 'Under construction'),
+    el('div', { class: 'text-xs text-muted-' }, (what ? what.charAt(0).toUpperCase() + what.slice(1) : 'This tab') + ' is coming soon.'));
+}
 function viewSales() {
   const isAdmin = isAdminRole(state.profile?.role);
   // One renderer, three queues: Inside Sales ('sales'), D2D ('d2d_sales'),
@@ -18,10 +25,7 @@ function viewSales() {
   // Sales Rep + Technician Sales tabs (per Isaac, Oct 15): under construction while the Office Staff flow is
   // built out — they get it next, with their own commission rules.
   if (_queue === 'd2d' || _queue === 'tech') {
-    return el('div', { class: 'card p-10 text-center flex flex-col items-center gap-2' },
-      el('div', { style: { fontSize: '28px' } }, '\u{1F6A7}'),
-      el('div', { class: 'text-base font-bold' }, 'Under construction'),
-      el('div', { class: 'text-xs text-muted-' }, (_queue === 'd2d' ? 'Sales Rep' : 'Technician') + ' sales are coming soon.'));
+    return viewUnderConstruction((_queue === 'd2d' ? 'Sales Rep' : 'Technician') + ' sales');
   }
   // Reach (Settings → Permissions → Sales tab rows): 'self' = own sales (the
   // default); team / dept / everyone widen it to those reps' sales.
@@ -61,8 +65,12 @@ function viewSales() {
     });
   }
   const HIST_TERMINAL = new Set(['not_payable', 'reschedule']);
+  // Upfront = everything still on its way to the UPFRONT payroll run: waiting on audit, or approved
+  // (Commissionable / Below Minimums / NSF) but not paid yet. It only moves to Pending Backend Lock once
+  // the upfront payroll has actually run on it (per Isaac, Oct 15 — no payroll run yet, so nothing
+  // should be waiting on a backend decision).
   const isUpfrontPending = (s) =>
-    s.audit_status === 'pending' && lockOf(s) === 'pending' && !s.payroll_processed_at;
+    ACTIVE_QUEUE.has(s.audit_status) && lockOf(s) === 'pending' && !s.payroll_processed_at;
   // Pending Backend Lock includes:
   //   (a) audited sales still awaiting a Lock/Chargeback decision, AND
   //   (b) sales already marked Lock or Chargeback that haven't yet had
@@ -72,6 +80,7 @@ function viewSales() {
   const isBackendPending = (s) =>
     ACTIVE_QUEUE.has(s.audit_status) &&
     s.audit_status !== 'pending' &&
+    !!s.payroll_processed_at &&
     !s.backend_payroll_processed_at;
   // Archived (per Isaac) = cancelled sales PLUS the ones parked as Not
   // Payable / Reschedule — they're no longer in flight but aren't settled
