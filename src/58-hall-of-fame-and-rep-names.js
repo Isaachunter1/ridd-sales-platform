@@ -1504,6 +1504,15 @@ function getRepTeam(repName) {
   if (!repName) return '';
   return _repKeyedLookup(_activeTeamMap(), repName);
 }
+// The team a SALE counts toward (per Isaac, Oct 15 — reps who change roles): a team only claims sales made
+// in its own department (door sales for a door team). Javier keeps his Sales Rep sales on his team while his
+// technician and office sales stay off it. Each sale's department comes from the FieldRoutes login that sold it.
+function teamOfSale(s) {
+  const t = (s && s.rep) ? getRepTeam(s.rep) : '';
+  if (!t) return '';
+  const td = (typeof _indTeamDepts === 'function' ? _indTeamDepts()[t] : '') || 'd2d';
+  return (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) : td) === td ? t : '';
+}
 // ── Teams a partner / team lead is responsible for (per Isaac): set in
 // Settings → Users, synced with the indicator config. A partner's reach
 // on leaderboards / player cards = these teams + whatever team they're

@@ -774,8 +774,8 @@ function getRepTier(repName) {
     return (yrs && yrs.min < curY) ? 'vet' : 'rookie';
   }
   if (tagged) return tagged;
-  // Role history (per Isaac, Oct 15): someone who changed roles is a rookie in the year their CURRENT role started
-  // (Javier: Sales Rep → Technician → Office Staff), not by their first sale in an earlier role.
+  // Role history (per Isaac, Oct 15): someone who changed roles is a rookie in the year they started as a Sales Rep
+  // (a tech who moved to the doors), not by their first sale in an earlier role.
   const _rsY = typeof roleStartYearForName === 'function' ? roleStartYearForName(repName) : 0;
   if (_rsY) return _rsY < curY ? 'vet' : 'rookie';
   // Untagged → sales-history default (no manual work needed).

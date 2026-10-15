@@ -1056,7 +1056,7 @@ function indicatorSales() {
     // Filters panel: exclude one-time services / 3-day RORs / renewals.
     if (_indExclDrop(s)) return false;
     // Excluded teams (Configurations → Indicators).
-    if (_exTeams.size && _exTeams.has(_teamOfRep(s.rep))) return false;
+    if (_exTeams.size && _exTeams.has(_teamOfRep(s.rep)) && teamOfSale(s)) return false;   // only the sales made in that team's role (per Isaac, Oct 15)
     // Account status. Default "Pending / Serviced" now uses FIELDROUTES' OWN
     // definition: the account's initial-appointment status is Pending or
     // Completed. Verified against the CRM's Sales Leaderboard to the penny
@@ -1152,7 +1152,7 @@ function openCrmReconcileModal() {
       if (ist !== 'pending' && ist !== 'completed') return 'initial appt status “' + (s.initialStatus || '—') + '” (not Pending/Completed)';
     } else if (_scIsSoldNotStarted(s)) return 'Sold-Not-Started (legacy heuristic)';
     if (_indicatorServiceExcluded(s)) return 'excluded service “' + s.subscription + '” (Settings → Configurations)';
-    { const _tm = (typeof getRepTeam === 'function') ? getRepTeam(s.rep) : ''; if (_tm && indicatorExcludedTeams().has(_tm)) return 'excluded team “' + _tm + '” (Settings → Configurations → Indicators)'; }
+    { const _tm = (typeof teamOfSale === 'function') ? teamOfSale(s) : ''; if (_tm && indicatorExcludedTeams().has(_tm)) return 'excluded team “' + _tm + '” (Settings → Configurations → Indicators)'; }
     const _s = String(s.source || '').trim();
     if (_exclSrc.has(_s)) return 'excluded source “' + (_s || '—') + '” (Settings → Configurations)';
     const _sub = String(s.subscription || '').trim();
@@ -2461,8 +2461,8 @@ function computeImportInsights() {
   const lastByRep    = aggBy(lastWeek, s => s.rep);
   const thisByBranch = aggBy(thisWeek, s => s.office);
   const lastByBranch = aggBy(lastWeek, s => s.office);
-  const thisByTeam   = aggBy(thisWeek, s => (typeof getRepTeam === 'function' ? getRepTeam(s.rep) : '') || 'Unassigned');
-  const lastByTeam   = aggBy(lastWeek, s => (typeof getRepTeam === 'function' ? getRepTeam(s.rep) : '') || 'Unassigned');
+  const thisByTeam   = aggBy(thisWeek, s => teamOfSale(s) || 'Unassigned');   // a sale counts for the team only in that team's role (per Isaac, Oct 15)
+  const lastByTeam   = aggBy(lastWeek, s => teamOfSale(s) || 'Unassigned');
 
   // Mover = (name, thisRev, lastRev, delta, pct). pct uses lastRev as
   // the denominator; new entries (no prior week) get Infinity so they

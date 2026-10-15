@@ -346,7 +346,7 @@ function viewIndicators() {
   if (isRange && rawSalesAvailable) {
     _rangeGroups = {};
     const groupKeyOf = groupBy === 'teams'
-      ? (s) => (getRepTeam(s.rep) || 'Unassigned')
+      ? (s) => (teamOfSale(s) || 'Unassigned')   // only sales made in the team's own role (per Isaac, Oct 15)
       : groupBy === 'dept'
       ? (s) => (DEPT_GROUP_LABELS[_indicatorDeptOf(s)] || 'OFFICE STAFF')
       : groupBy === 'company'

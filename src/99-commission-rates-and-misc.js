@@ -2633,7 +2633,7 @@ function openUserEditor(existing = null, prefill = null) {
       const section = el('div', { class: 'flex flex-col gap-1.5' },
         el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- block font-semibold' }, 'Role history'),
         box,
-        el('p', { class: 'text-[11px] text-muted-' }, 'When this person started each role. Sales already go to the board of the FieldRoutes login that sold them; these dates set tenure for the current role \u2014 Rookie/Vet and the scorecard\u2019s working days count from it.'));
+        el('p', { class: 'text-[11px] text-muted-' }, 'When this person started each role. Sales already go to the board of the FieldRoutes login that sold them; these dates set tenure \u2014 Rookie/Vet counts from their Sales Rep start, and the scorecard\u2019s working days from the current role\u2019s start. A team only counts the sales they made as a Sales Rep.'));
       setTimeout(() => { const f = section.closest('form'); const rs = f && f.querySelector('[name="role"]'); const show = () => { section.style.display = !rs || isSellerRole(rs.value) ? '' : 'none'; }; if (rs) rs.addEventListener('change', show); show(); }, 0);
       return section;
     })(),
@@ -3047,12 +3047,14 @@ function currentRoleEntry(p) {
   return h.length ? h[h.length - 1] : null;
 }
 function roleStartForProfileId(id) { const p = id ? (state.allProfiles || []).find(x => x.id === id) : null; const e = currentRoleEntry(p); return e ? e.start : ''; }
-// Rookie/Vet hook for the engine's getRepTier (name-keyed): the year the current role started, 0 = no history.
+// Rookie/Vet hook for the engine's getRepTier (name-keyed): the year they started as a Sales Rep (else the current role), 0 = no history.
 let _roleYearIdx = { src: null, map: null };
 function roleStartYearForName(name) {
   const profs = state.allProfiles || [];
   const sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
-  if (_roleYearIdx.src !== profs) { const m = new Map(); for (const p of profs) { const e = currentRoleEntry(p); if (e && p.full_name) m.set(sig(p.full_name), Number(e.start.slice(0, 4))); } _roleYearIdx = { src: profs, map: m }; }
+  // Rookie/Vet is a door-to-door class: the year they FIRST started as a Sales Rep (a tech who moves to the doors is a
+  // door rookie; a door vet who moves inside stays a vet for the seasons he sold). No Sales Rep entry → current role.
+  if (_roleYearIdx.src !== profs) { const m = new Map(); for (const p of profs) { if (!p.full_name) continue; const h = roleHistoryClean(p.role_history); const sr = h.find(r => r.role === 'Sales Rep'); const e = sr || currentRoleEntry(p); if (e) m.set(sig(p.full_name), Number(e.start.slice(0, 4))); } _roleYearIdx = { src: profs, map: m }; }
   if (!_roleYearIdx.map.size || !name) return 0;
   const canon = typeof getCanonicalRepName === 'function' ? getCanonicalRepName(name) : name;
   return _roleYearIdx.map.get(sig(canon)) || _roleYearIdx.map.get(sig(name)) || 0;
