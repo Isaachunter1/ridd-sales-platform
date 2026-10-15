@@ -1500,6 +1500,10 @@ exports.handler = async (event) => {
       // separately so the select chain above stays as it is; off if the column
       // isn't there yet.
       let _apptCol = true; const _apptNow = new Map();
+      // Add-on sales (sale_kind 'upsell') get their OWN initial from the add-ons sync — the plan's snapshot
+      // dates (its original initial, serviced date) are not theirs (per Isaac, Oct 15 — #143268's Mole read ⚠ 4/7/26).
+      const _upsellIds = new Set();
+      try { const { data: uk } = await supabase.from('sales').select('id').eq('sale_kind', 'upsell').gte('sold_date', since); (uk || []).forEach(x => _upsellIds.add(x.id)); } catch (e) { /* none */ }
       try {
         const { data: ap, error: apErr } = await supabase.from('sales').select('id, crm_initial_appt_at').gte('sold_date', since);
         if (apErr) { _apptCol = false; console.warn('[revhawk-sync] crm_initial_appt_at missing — run migrations/20260921_sales_initial_appt.sql for the Service date column'); }
@@ -1598,7 +1602,7 @@ exports.handler = async (event) => {
             (Number(s.crm_completed_services) || 0) !== (lc.completed || 0) ||
             (s.crm_days_past_due == null ? null : Number(s.crm_days_past_due)) !== lc.dpd ||
             (s.crm_balance == null ? null : Number(s.crm_balance)) !== lc.balance);
-          const apptChanged = _apptCol && !!lc.appt_at && (_apptNow.get(s.id) || null) !== lc.appt_at;   // a snapshot without the appointment yet never blanks a date the live pull stamped
+          const apptChanged = _apptCol && !!lc.appt_at && !_upsellIds.has(s.id) && (_apptNow.get(s.id) || null) !== lc.appt_at;   // a snapshot without the appointment yet never blanks a date the live pull stamped
           const pifChanged = !!lc.cardKnown && (!!s.paid_in_full) !== lc.pif;
           const commChanged = !!lc.cardKnown && (!!s.is_commercial) !== !!lc.commercial;
           const flagNow = _hasFlagV(lc.best);
@@ -1613,10 +1617,10 @@ exports.handler = async (event) => {
             || (s.crm_autopay == null || !!s.crm_autopay) !== (() => { const a = String(lc.best.customer_auto_pay || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); })());
           if (s.crm_status === status && (Number(s.crm_contract_value) || 0) === (cv || 0) && !lcChanged && !pifChanged && !commChanged && !sigChanged && !eligChanged && !flagChanged && !auditChanged && !apptChanged) continue;
           const upd = { crm_status: status, crm_contract_value: cv, crm_subscription: subName, crm_checked_at: stamp };
-          if (_lifecycleCols) { upd.crm_serviced_at = lc.serviced_at; upd.crm_completed_services = lc.completed; upd.crm_days_past_due = lc.dpd; upd.crm_balance = lc.balance; }
+          if (_lifecycleCols) { if (!_upsellIds.has(s.id)) upd.crm_serviced_at = lc.serviced_at; upd.crm_completed_services = lc.completed; upd.crm_days_past_due = lc.dpd; upd.crm_balance = lc.balance; }
           if (_lifecycleCols && _paidCol) upd.crm_first_paid_at = lc.first_paid_at;
-          if (_apptCol && lc.appt_at) upd.crm_initial_appt_at = lc.appt_at;
-          if (_eligCols && lc.best) { upd.crm_initial_status = String(lc.best.initial_status || '').trim() || 'None'; upd.crm_autopay = (() => { const a = String(lc.best.customer_auto_pay || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); })(); }
+          if (_apptCol && lc.appt_at && !_upsellIds.has(s.id)) upd.crm_initial_appt_at = lc.appt_at;
+          if (_eligCols && lc.best) { if (!_upsellIds.has(s.id)) upd.crm_initial_status = String(lc.best.initial_status || '').trim() || 'None'; upd.crm_autopay = (() => { const a = String(lc.best.customer_auto_pay || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); })(); }
           if (_agreementCols) { upd.crm_contract_signed_at = lc.signed_at; upd.crm_contract_state = lc.contract_state; }
           if (pifChanged) upd.paid_in_full = lc.pif;
           if (commChanged) upd.is_commercial = !!lc.commercial;

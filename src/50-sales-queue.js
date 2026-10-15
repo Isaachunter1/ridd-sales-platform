@@ -70,7 +70,10 @@ function viewSales() {
   // the upfront payroll has actually run on it (per Isaac, Oct 15 — no payroll run yet, so nothing
   // should be waiting on a backend decision).
   const isUpfrontPending = (s) =>
-    ACTIVE_QUEUE.has(s.audit_status) && lockOf(s) === 'pending' && !s.payroll_processed_at;
+    ACTIVE_QUEUE.has(s.audit_status) && lockOf(s) === 'pending' && !s.payroll_processed_at && saleHasInitialScheduled(s);
+  // Sold but no initial booked yet — kept off Upfront (per Isaac, Oct 15); listed on demand.
+  const isAwaitingInitial = (s) =>
+    ACTIVE_QUEUE.has(s.audit_status) && lockOf(s) === 'pending' && !s.payroll_processed_at && !saleHasInitialScheduled(s);
   // Pending Backend Lock includes:
   //   (a) audited sales still awaiting a Lock/Chargeback decision, AND
   //   (b) sales already marked Lock or Chargeback that haven't yet had
@@ -316,6 +319,18 @@ function viewSales() {
     // with a signed agreement that were never logged here. Ghosted rows the
     // rep can Claim (opens Log Sale pre-filled) or mark Not mine.
     queueFilter === 'upfront' ? unloggedSalesBlock(isAdmin) : null,
+    // Sold, no initial booked yet (per Isaac, Oct 15) — not on Upfront until the appointment is on the books.
+    (() => {
+      if (queueFilter !== 'upfront') return null;
+      const waiting = source.filter(isAwaitingInitial).filter(s => String(s.sold_date || '') >= SALES_FEED_START);
+      if (!waiting.length) return null;
+      const open = !!state._salesShowAwaiting;
+      return el('div', { class: 'flex flex-col gap-2' },
+        el('button', { class: 'self-start text-[11px] font-semibold rounded-lg border px-2.5 py-1 transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
+          onclick: () => { state._salesShowAwaiting = !open; mountApp(); } },
+          (open ? '\u25B4 ' : '\u25BE ') + waiting.length + ' sold, waiting on an initial appointment'),
+        open ? el('div', { class: 'hidden sm:block', style: { opacity: '.7' } }, salesFeed(waiting, { isAdmin, title: 'Waiting on an initial appointment' })) : null);
+    })(),
 
     // ── Table ──
     filtered.length === 0
@@ -789,7 +804,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                 const svc = s.crm_serviced_at ? String(s.crm_serviced_at).slice(0, 10) : null;
                 const sched = s.crm_initial_appt_at ? String(s.crm_initial_appt_at).slice(0, 10) : null;
                 if (svc) return el('span', { class: 'tabular-nums whitespace-nowrap font-medium', title: 'Initial service completed ' + svc + ' \u00b7 ' + c.why, style: { color: 'var(--ok)' } }, '\u2713 ' + fmt.dateShortYear(svc));
-                if (sched) { const past = sched < new Date().toISOString().slice(0, 10); return el('span', { class: 'tabular-nums whitespace-nowrap font-medium', title: (past ? 'Initial appointment was scheduled for ' + sched + ' but is not marked completed in FieldRoutes' : 'Initial appointment scheduled for ' + sched) + ' \u00b7 ' + c.why, style: past ? { color: '#B45309' } : {} }, (past ? '\u26a0 ' : '\u{1F4C5} ') + fmt.dateShortYear(sched)); }
+                if (sched) { const past = sched < new Date().toISOString().slice(0, 10); return el('span', { class: 'tabular-nums whitespace-nowrap font-medium', title: (past ? 'Initial appointment was scheduled for ' + sched + ' but is not marked completed in FieldRoutes' : 'Initial appointment scheduled for ' + sched) + ' \u00b7 ' + c.why, style: past ? { color: '#B45309' } : {} }, (past ? '\u26a0 ' : '') + fmt.dateShortYear(sched)); }
                 return el('span', { class: 'tabular-nums whitespace-nowrap text-muted-', title: 'No initial appointment on the subscription yet \u00b7 ' + c.why, style: { color: 'var(--text-subtle)' } }, 'not scheduled');
               })()),
               el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, 'paid_in_full', isAdmin, 'Paid in Full — the "Paid In Full" button on the FieldRoutes customer card')),
@@ -2029,14 +2044,25 @@ function saleAddOnCredited(a) {
   const e = String(a.credited_employee_id == null ? '' : a.credited_employee_id).trim();
   return !!e && e !== '0' && !e.startsWith('-');
 }
+// Counts as a sale on the Upfront queue (per Isaac, Oct 15): an initial appointment booked after the sale
+// (or already serviced). Signed agreement is the second requirement once FieldRoutes' form endpoint is in.
+// Before the crm_initial_appt_at column exists (migration 20260921), fall back to the appointment status.
+function saleHasInitialScheduled(s) {
+  if (s.crm_serviced_at) return true;
+  if ('crm_initial_appt_at' in s) { const a = s.crm_initial_appt_at ? String(s.crm_initial_appt_at).slice(0, 10) : ''; return !!a && a >= String(s.sold_date || '').slice(0, 10); }
+  const st = String(s.crm_initial_status || '').toLowerCase();
+  return s.crm_initial_status == null || st === 'pending' || st === 'completed';
+}
 // Initial date (was "Service Date"): completed ✓ / scheduled 📅 / past-and-not-done ⚠ / not scheduled.
 function saleInitialDateNode(s, small) {
   const c = (typeof commissionableDate === 'function') ? commissionableDate(s) : { why: '' };
   const svc = s.crm_serviced_at ? String(s.crm_serviced_at).slice(0, 10) : null;
-  const sched = s.crm_initial_appt_at ? String(s.crm_initial_appt_at).slice(0, 10) : null;
+  const _sold = String(s.sold_date || '').slice(0, 10);
+  const _appt = s.crm_initial_appt_at ? String(s.crm_initial_appt_at).slice(0, 10) : null;
+  const sched = _appt && (!_sold || _appt >= _sold) ? _appt : null;   // a date before the sale is an older plan appointment, not this sale's initial
   const cls = 'tabular-nums whitespace-nowrap' + (small ? '' : ' font-medium');
   if (svc) return el('span', { class: cls, title: 'Initial service completed ' + svc + ' · ' + c.why, style: { color: 'var(--ok)' } }, (small ? 'INITIAL ' : '') + '✓ ' + fmt.dateShortYear(svc));
-  if (sched) { const past = sched < new Date().toISOString().slice(0, 10); return el('span', { class: cls, title: (past ? 'Initial appointment was scheduled for ' + sched + ' but is not marked completed in FieldRoutes' : 'Initial appointment scheduled for ' + sched) + ' · ' + c.why, style: past ? { color: '#B45309' } : {} }, (small ? 'INITIAL ' : '') + (past ? '⚠ ' : '\u{1F4C5} ') + fmt.dateShortYear(sched)); }
+  if (sched) { const past = sched < new Date().toISOString().slice(0, 10); return el('span', { class: cls, title: (past ? 'Initial appointment was scheduled for ' + sched + ' but is not marked completed in FieldRoutes' : 'Initial appointment scheduled for ' + sched) + ' · ' + c.why, style: past ? { color: '#B45309' } : {} }, (small ? 'INITIAL ' : '') + (past ? '⚠ ' : '') + fmt.dateShortYear(sched)); }
   return el('span', { class: cls, title: 'No initial appointment on the subscription yet · ' + c.why, style: { color: 'var(--text-subtle)' } }, (small ? 'INITIAL ' : '') + 'not scheduled');
 }
 // Sold date + time (per Isaac, Oct 15). The CRM snapshot's sold_at is FieldRoutes' dateAdded on the company
@@ -2052,14 +2078,14 @@ function saleSoldWhen(s) {
   const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4] + 7, +m[5]));
   try { return fmt.dateShortYear(s.sold_date) + ' \u00b7 ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Denver' }) + ' MT'; } catch (e) { return fmt.dateShortYear(s.sold_date); }
 }
-function salesFeed(rows, { isAdmin = false } = {}) {
+function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
   salesFeedAddOnsPull();
   const sep = () => el('span', { style: { color: 'var(--border-2)', padding: '0 9px' } }, '|');
   const ok = '#15803D', bad = '#DC2626';
   const sorted = [...rows].sort((a, b) => String(b.sold_date || '').localeCompare(String(a.sold_date || '')) || String(b.created_at || '').localeCompare(String(a.created_at || '')));
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'flex items-baseline justify-between px-4 pt-4 pb-2' },
-      el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Latest sales'),
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, title || 'Latest sales'),
       el('div', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, rows.length + ' since ' + fmt.dateShortYear(SALES_FEED_START))),
     ...sorted.map((s, i) => {
       const rep = (state.allProfiles || []).find(p => p.id === s.rep_id);

@@ -80,6 +80,27 @@ async function signedViaNotes(custIds) {
   return out;
 }
 
+// Signed via FORM documents (per FieldRoutes support, Oct 15): an agreement generated from a form
+// template (e-signature) lives on form/search + form/get, not contract/*. Same dateSigned field
+// (0000-00-00 until signed) and documentState (WIP / COMPLETED). Returns signed customer IDs.
+async function signedViaForms(custIds) {
+  const out = new Set();
+  for (const part of chunk([...new Set(custIds.map(String))], 500)) {
+    const got = await fr('form/search', { customerIDs: part.map(Number) });
+    const fids = got.formIDs || got.documentIDs || got.formIDsNoDataExported || [];
+    for (const fpart of chunk(fids.map(String), 500)) {
+      const det = await fr('form/get', { formIDs: fpart.map(Number) });
+      const list = Array.isArray(det.forms) ? det.forms : Object.values(det.forms || det.documents || {});
+      list.forEach(f => {
+        const ds = String(f.dateSigned || '').trim();
+        const signed = (ds && !ds.startsWith('0000')) || String(f.documentState || '').toUpperCase() === 'COMPLETED';
+        if (signed && f.customerID) out.add(String(f.customerID));
+      });
+    }
+  }
+  return out;
+}
+
 exports.handler = async (event) => {
   const started = Date.now();
   const _gate = requireSyncSecret(event); if (_gate) return _gate;
@@ -152,6 +173,8 @@ exports.handler = async (event) => {
       } catch (e) { console.warn('[fr-live] contract lookup unavailable — signed check deferred to nightly pass:', e.message); }
       try { (await signedViaNotes(custIds)).forEach(id => signedCust.add(id)); }
       catch (e) { console.warn('[fr-live] signed-note lookup unavailable:', e.message); }
+      try { (await signedViaForms(custIds)).forEach(id => signedCust.add(id)); }
+      catch (e) { console.warn('[fr-live] signed-form lookup unavailable:', e.message); }
     }
     const [rosterQ, profQ, offQ, svcQ, srcQ, ctQ] = await Promise.all([
       supabase.from('fieldroutes_employees').select('employee_id, employee_ids, type_label, fname, lname'),
@@ -342,6 +365,9 @@ exports.handler = async (event) => {
           let viaNotes = 0;
           try { const ns = await signedViaNotes(openCust); ns.forEach(id => done.add(id)); viaNotes = ns.size; }
           catch (e) { console.warn('[fr-live] signed-note lookup unavailable:', e.message); }
+          let viaForms = 0;
+          try { const fs = await signedViaForms(openCust); fs.forEach(id => done.add(id)); viaForms = fs.size; }
+          catch (e) { console.warn('[fr-live] signed-form lookup unavailable:', e.message); }
           try {
           for (const part of chunk(openCust, 500)) {
             const got = await fr('contract/search', { customerIDs: part.map(Number), documentState: 'COMPLETED' });
@@ -354,7 +380,7 @@ exports.handler = async (event) => {
           }
           } catch (e) { console.warn('[fr-live] contract re-check skipped:', e.message); }
           done.forEach(id => signedRecent.add(id));
-          console.log('[fr-live] signed re-check: ' + open.length + ' unsigned row(s) · ' + viaNotes + ' customer(s) with a signed-contract note · ' + done.size + ' signed in total');
+          console.log('[fr-live] signed re-check: ' + open.length + ' unsigned row(s) · ' + viaNotes + ' customer(s) with a signed-contract note · ' + viaForms + ' with a signed form · ' + done.size + ' signed in total');
           for (const r of open) {
             if (!done.has(String(r.customer_number))) continue;
             const { error } = await supabase.from('sales').update({ crm_contract_state: 'signed', crm_checked_at: new Date().toISOString() }).eq('id', r.id);
