@@ -637,11 +637,23 @@ function adminConfigurations(part) {
           el('input', { type: 'text', inputmode: 'decimal', value: String(v), class: 'rounded-lg border px-2 py-1 text-[11px] tabular-nums', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '64px', textAlign: 'right' },
             onchange: (e) => { const n = parseFloat(String(e.target.value).replace(/[^0-9.]/g, '')); if (!isNaN(n) && n >= 0) onSave(n); } }));
         const cellTh = (t, al) => el('th', { class: 'px-2 py-1.5 text-[10px] uppercase tracking-wider font-semibold ' + (al || 'text-left'), style: { color: 'var(--text-muted)' } }, t);
-        const plansTable = el('div', { class: 'overflow-x-auto py-1.5' }, el('table', { class: 'w-full text-[11px]' },
-          el('thead', {}, el('tr', { style: { background: 'var(--card-2)' } }, cellTh('Base plan (recurring, per service)'), cellTh('4 · Quarterly', 'text-right'), cellTh('6 · Bi-monthly', 'text-right'), cellTh('12 · Monthly', 'text-right'))),
+        const plansGrid = (P, onSet, head) => el('div', { class: 'overflow-x-auto py-1.5' }, el('table', { class: 'w-full text-[11px]' },
+          el('thead', {}, el('tr', { style: { background: 'var(--card-2)' } }, cellTh(head), cellTh('4 \u00b7 Quarterly', 'text-right'), cellTh('6 \u00b7 Bi-monthly', 'text-right'), cellTh('12 \u00b7 Monthly', 'text-right'))),
           el('tbody', {}, ...[['pest', 'Pest'], ['rodent', 'Rodent'], ['mole', 'Mole'], ['mosquito', 'Mosquito']].map(([k, lbl]) => el('tr', { style: { borderTop: '1px solid var(--border)' } },
             el('td', { class: 'px-2 py-1.5 font-semibold' }, lbl),
-            ...[0, 1, 2].map(i => el('td', { class: 'px-2 py-1 text-right' }, money(PL[k][i], (n) => { const row = PL[k].slice(); row[i] = n; savePR({ plans: Object.assign({}, PL, { [k]: row }) }, lbl + ' ' + [4, 6, 12][i] + ' = $' + n); }))))))));
+            ...[0, 1, 2].map(i => el('td', { class: 'px-2 py-1 text-right' }, money(P[k][i], (n) => { const row = P[k].slice(); row[i] = n; onSet(Object.assign({}, P, { [k]: row }), lbl + ' ' + [4, 6, 12][i] + ' = $' + n); }))))))));
+        const plansTable = plansGrid(PL, (next, what) => savePR({ plans: next }, what), 'Base plan (recurring, per service)');
+        // Renewals (per Isaac, Oct 15): initial minimum $0; recurring from the Loyalty pricing sheet.
+        const RN = Object.assign({ initial_min: 0 }, PR.renewal || {});
+        const RNP = Object.assign({ pest: [29, 49, 99], rodent: [29, 49, 99], mole: [49, 69, 119], mosquito: [49, 69, 119] }, RN.plans || {});
+        const RNT = Object.assign({ initial: 399, recurring: 29 }, RN.termite || {});
+        const saveRN = (patch, what) => savePR({ renewal: Object.assign({}, RN, patch) }, 'renewals ' + what);
+        const renewalRows = [
+          row('Renewals \u2014 initial minimum', money(RN.initial_min, (n) => saveRN({ initial_min: n }, 'initial = $' + n)), { desc: 'Renewal sales (source starts with Renewal) are checked against these Loyalty minimums instead.' }),
+          plansGrid(RNP, (next, what) => saveRN({ plans: next }, what), 'Renewal plan (recurring, per service)'),
+          row('Renewals \u2014 Termite (annual)', [el('span', { class: 'text-[11px] text-muted-' }, 'initial'), money(RNT.initial, (n) => saveRN({ termite: Object.assign({}, RNT, { initial: n }) }, 'termite initial = $' + n)),
+            el('span', { class: 'text-[11px] text-muted-' }, 'recurring'), money(RNT.recurring, (n) => saveRN({ termite: Object.assign({}, RNT, { recurring: n }) }, 'termite recurring = $' + n))]),
+        ];
         const otTable = el('div', { class: 'overflow-x-auto py-1.5' }, el('table', { class: 'w-full text-[11px]' },
           el('thead', {}, el('tr', { style: { background: 'var(--card-2)' } }, cellTh('One-time service'), cellTh('New customer', 'text-right'), cellTh('Current customer', 'text-right'))),
           el('tbody', {}, ...Object.keys(OT).map(k => el('tr', { style: { borderTop: '1px solid var(--border)' } },
@@ -655,9 +667,10 @@ function adminConfigurations(part) {
           row('Termite (annual)', [el('span', { class: 'text-[11px] text-muted-' }, 'initial'), money(TM.initial, (n) => savePR({ termite: Object.assign({}, TM, { initial: n }) }, 'termite initial = $' + n)),
             el('span', { class: 'text-[11px] text-muted-' }, 'recurring'), money(TM.recurring, (n) => savePR({ termite: Object.assign({}, TM, { recurring: n }) }, 'termite recurring = $' + n))]),
           otTable,
+          ...renewalRows,
           row('Fee included in the recurring charge', money(PR.fee, (n) => savePR({ fee: n }, 'fee = $' + n)),
             { desc: 'The service fee FieldRoutes adds to the recurring charge — taken off before comparing when the charge carries it (0 = compare the charge as-is).' }),
-          el('div', { class: 'text-[11px] py-1.5', style: { color: 'var(--text-subtle)', lineHeight: '1.4' } }, 'Checked: Pest / Rodent / Mole / Mosquito 4 · 6 · 12, Termite, and one-time services (the Current Customer price needs a completed service on the account before the sale). Not checked: legacy bundles, Sentricon, add-ons and renewals.'),
+          el('div', { class: 'text-[11px] py-1.5', style: { color: 'var(--text-subtle)', lineHeight: '1.4' } }, 'Checked: Pest / Rodent / Mole / Mosquito 4 · 6 · 12, Termite, and one-time services (the Current Customer price needs a completed service on the account before the sale). Renewals use the renewal minimums. Not checked: legacy bundles, Sentricon and add-ons.'),
         ];
       })(),
       false && row('Auto-approve upfront commission', sw(!!AL.auto_approve, () => saveAL({ auto_approve: !AL.auto_approve })), { desc: 'Approve upfront pay automatically once the rules below hold.', tip: 'Approved automatically once the Upfront Commission Approval guard rails for the rep type hold (and no Failed Audit flag). Off = an auditor clicks Approve.' }),

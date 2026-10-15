@@ -1087,7 +1087,7 @@ const SALE_STATUS_COLOR = {
 };
 const saleStatusTint = (st) => {
   const hex = SALE_STATUS_COLOR[st || 'pending'] || SALE_STATUS_COLOR.pending;
-  const n = parseInt(hex.slice(1), 16), a = st === 'nsf' ? 0.08 : (!st || st === 'pending') ? 0.12 : 0.10;
+  const n = parseInt(hex.slice(1), 16), a = st === 'nsf' ? 0.08 : (!st || st === 'pending') ? 0.08 : st === 'serviced' ? 0.16 : 0.10;   // Pending a touch lighter, Commissionable a touch darker (per Isaac, Oct 15)
   return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
 };
 // Clickable key (per Isaac, Oct 15): a status filters the list to it (click again to clear).
@@ -2189,7 +2189,7 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
     return (S.dir === 'asc' ? c : -c) || soldKey(b).localeCompare(soldKey(a));
   });
   const numW = String(rows.length).length > 2 ? 30 : 22;
-  const COLS = numW + 'px minmax(130px, 1.1fr) minmax(140px, 1.2fr) minmax(160px, 1.6fr) 62px minmax(84px, .8fr) 92px 96px 100px 56px 48px 84px 140px';
+  const COLS = numW + 'px minmax(130px, 1.1fr) minmax(140px, 1.2fr) minmax(160px, 1.6fr) 62px minmax(84px, .8fr) 96px 92px 100px 56px 48px 84px 140px';
   const gridRow = (extra) => ({ display: 'grid', gridTemplateColumns: COLS, columnGap: '12px', alignItems: 'center', ...(extra || {}) });
   const clip = { minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
   const head = (key, label, align) => {
@@ -2213,7 +2213,7 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
       el('div', { class: 'px-4 pb-2', style: gridRow() },
         el('div', { class: 'text-[9px] text-right', style: { color: 'var(--text-subtle)' } }, '#'),
         head('rep', 'Rep'), head('customer', 'Customer'), head('service', 'Service + add-ons'), head('term', 'Term'), head('source', 'Source'),
-        head('initial', 'Initial'), head('sold', 'Sold'), head('payment', 'Payment'), head('invoices', 'Invoices'), head('aging', 'Aging'),
+        head('sold', 'Sold'), head('initial', 'Initial'), head('payment', 'Payment'), head('invoices', 'Invoices'), head('aging', 'Aging'),
         head('amount', 'Amount', 'right'), head('status', 'Status')));
   if (typeof window !== 'undefined') {
     if (window._salesFeedPin) { window.removeEventListener('scroll', window._salesFeedPin); window.removeEventListener('resize', window._salesFeedPin); }
@@ -2263,10 +2263,10 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
           s.crm_below_min ? el('div', { style: { ...sub, color: SALE_STATUS_COLOR.below_minimums, fontWeight: '700' }, title: 'Under the pricing minimum in Configurations → Pricing minimums: ' + s.crm_below_min }, '⚠ ' + s.crm_below_min) : null),
         el('div', { class: 'font-semibold', style: { fontSize: '12px', ...clip } }, term),
         el('div', { class: 'text-muted-', style: { fontSize: '11px', ...clip }, title: src }, src || '—'),
-        el('div', { style: { fontSize: '10px', ...clip } }, saleInitialDateNode(s, false)),
         el('div', { class: 'tabular-nums', style: clip },
           el('div', { style: { fontSize: '11px' } }, _t > 0 ? soldTxt.slice(0, _t) : soldTxt),
           _t > 0 ? el('div', { style: sub }, soldTxt.slice(_t + 3)) : null),
+        el('div', { style: { fontSize: '10px', ...clip } }, saleInitialDateNode(s, false)),
         // Paid since the sale (per Isaac, Oct 15) — the customer's first real payment on/after this sale.
         s.crm_paid_since_sale === true ? el('div', { class: 'tabular-nums', style: { fontSize: '11px', color: ok, fontWeight: '600', ...clip }, title: 'A successful payment on the account since this sale' }, 'Paid' + (s.crm_paid_at ? ' ' + fmt.dateShort(s.crm_paid_at) : ''))
           : s.crm_paid_since_sale === false ? el('div', { class: 'tabular-nums', style: { fontSize: '11px', color: bad, fontWeight: '700', ...clip }, title: 'Card declined since this sale and nothing has gone through' }, 'Declined' + (s.crm_declined_at ? ' ' + fmt.dateShort(s.crm_declined_at) : ''))

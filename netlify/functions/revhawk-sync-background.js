@@ -1820,9 +1820,13 @@ QUALIFY ROW_NUMBER() OVER (PARTITION BY fieldRoutes_paymentID ORDER BY updatedAt
         const PR = Object.assign({ initial_min: 39, fee: 4.87, auto: false }, AL2.pricing || {});
         const PR_PLANS = Object.assign({ pest: [49, 69, 119], rodent: [49, 69, 119], mole: [69, 89, 139], mosquito: [69, 89, 139] }, PR.plans || {});
         const PR_TERM = Object.assign({ initial: 399, recurring: 29 }, PR.termite || {});
+        // Renewals (per Isaac, Oct 15): initial minimum $0, recurring from the Loyalty pricing sheet.
+        const PR_REN = Object.assign({ initial_min: 0 }, PR.renewal || {});
+        const PR_REN_PLANS = Object.assign({ pest: [29, 49, 99], rodent: [29, 49, 99], mole: [49, 69, 119], mosquito: [49, 69, 119] }, PR_REN.plans || {});
+        const PR_REN_TERM = Object.assign({ initial: 399, recurring: 29 }, PR_REN.termite || {});
         const belowMinReason = (r) => {
           const name = String((r && r.subscription) || '').trim();
-          if (/renew/i.test(String(r.lead_source || ''))) return null;
+          const renewal = /renew/i.test(String(r.lead_source || ''));
           // $4.87 service fee rides on the recurring charge (per Isaac, Oct 15) — not part of the plan price.
           // Taken off only when the charge carries it (same cents), so a fee-less $49.00 still reads $49.
           const _fee = Number(PR.fee) || 0, _rc = Number(r.recurring_charge) || 0;
@@ -1831,9 +1835,9 @@ QUALIFY ROW_NUMBER() OVER (PARTITION BY fieldRoutes_paymentID ORDER BY updatedAt
           const money = (n) => '$' + (Math.round(n * 100) / 100).toFixed(2).replace(/\.00$/, '');
           let mInit, mRec, m;
           if ((m = name.match(/^(pest|rodent|mole|mosquito)\s+(4|6|12)\b/i))) {
-            mInit = Number(PR.initial_min) || 0;
-            mRec = Number((PR_PLANS[m[1].toLowerCase()] || [])[{ 4: 0, 6: 1, 12: 2 }[m[2]]]) || 0;
-          } else if (/^termite\b/i.test(name)) { mInit = Number(PR_TERM.initial) || 0; mRec = Number(PR_TERM.recurring) || 0; }
+            mInit = Number(renewal ? PR_REN.initial_min : PR.initial_min) || 0;
+            mRec = Number(((renewal ? PR_REN_PLANS : PR_PLANS)[m[1].toLowerCase()] || [])[{ 4: 0, 6: 1, 12: 2 }[m[2]]]) || 0;
+          } else if (/^termite\b/i.test(name)) { const T = renewal ? PR_REN_TERM : PR_TERM; mInit = Number(T.initial) || 0; mRec = Number(T.recurring) || 0; }
           else if (/^one[\s-]*time\b/i.test(name)) {
             // One-time services (per Isaac, Oct 15): the cheaper Current Customer price is only
             // allowed when the customer had a completed service (any kind) before this sale.
