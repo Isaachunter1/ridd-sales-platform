@@ -621,6 +621,9 @@ function adminConfigurations(part) {
           lab('sold on/after'), txt(AL.auto_approve_from || '', (v) => { const t = String(v || '').trim(); if (!t || /^\d{4}-\d{2}-\d{2}$/.test(t)) saveAL({ auto_approve_from: t }); }, { placeholder: 'YYYY-MM-DD', width: '100px' })],
           { desc: 'Approve upfront pay automatically for these rep types once the rules below hold.', tip: 'Runs with the RevHawk sync. A rep type that is off waits for an auditor to click Approve. Sales sold before the date are left for an auditor.' });
       })(),
+      // Non-commissionable sellers (per Isaac, Oct 15): their sales never show on the Sales tab.
+      row('Non-commissionable sellers', txt((typeof nonCommSellers === 'function' ? nonCommSellers() : ['RIDD Account']).join(', '), (v) => { const list = String(v || '').split(',').map(x => x.trim()).filter(Boolean); if (typeof setNonCommSellers === 'function') setNonCommSellers(list); mountApp(); }, { placeholder: 'RIDD Account, …', width: '220px' }),
+        { desc: 'House or system logins that never earn commission — their sales stay off the Sales tab. Comma-separated names, any order (Account, RIDD = RIDD Account).' }),
       false && row('Auto-approve upfront commission', sw(!!AL.auto_approve, () => saveAL({ auto_approve: !AL.auto_approve })), { desc: 'Approve upfront pay automatically once the rules below hold.', tip: 'Approved automatically once the Upfront Commission Approval guard rails for the rep type hold (and no Failed Audit flag). Off = an auditor clicks Approve.' }),
       // Backend lock guard rails per rep type (per Isaac, Sep 23): the account
       // stays pending until every indication holds. AL.backend[office|tech].

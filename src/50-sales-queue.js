@@ -11,6 +11,18 @@
 //   Admin: sees every rep's pending sales + inline audit dropdown per row
 // ──────────────────────────────────────────────────────────────────────────
 // Placeholder for tabs being rebuilt (per Isaac, Oct 15): Sales Rep / Technician Sales + Pay.
+// Non-commissionable sellers (per Isaac, Oct 15): house logins like "RIDD Account" never earn commission, so
+// their sales stay off the Sales tab. Settings → Configurations → Commission Rules → Non-commissionable sellers
+// (adminRules.nonCommSellers); names match in any order ("Account, RIDD" = "RIDD Account").
+const NONCOMM_DEFAULT = ['RIDD Account'];
+const _nameSig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+function nonCommSellers() { const r = (typeof _adminRules === 'function') ? _adminRules() : null; return (r && Array.isArray(r.nonCommSellers)) ? r.nonCommSellers : NONCOMM_DEFAULT; }
+function setNonCommSellers(list) { if (typeof _setAdminRule === 'function') _setAdminRule('nonCommSellers', list); }
+function isNonCommSale(s) {
+  const sigs = new Set(nonCommSellers().map(_nameSig).filter(Boolean)); if (!sigs.size) return false;
+  const p = s.rep_id ? (state.allProfiles || []).find(x => x.id === s.rep_id) : null;
+  return sigs.has(_nameSig(p ? p.full_name : '')) || sigs.has(_nameSig(s.crm_seller_name));
+}
 function viewUnderConstruction(what) {
   return el('div', { class: 'card p-10 text-center flex flex-col items-center gap-2' },
     el('div', { style: { fontSize: '28px' } }, '\u{1F6A7}'),
@@ -34,7 +46,7 @@ function viewSales() {
   const _mine = (s) => s.rep_id === state.profile.id || (_salesScope !== 'self' && _salesScope !== 'none' && repInReach(_salesScope, _profName.get(String(s.rep_id)) || ''));
   const _pool = _queue === 'office' ? (isAdmin ? state.allSales : (_salesScope === 'self' ? state.mySales : (state.allSales || []).filter(_mine)))
     : ((state.queueSales && state.queueSales[_queue]) || []).filter(s => isAdmin || _mine(s));
-  const source  = _pool;
+  const source  = (_pool || []).filter(s => !isNonCommSale(s));   // house / non-commissionable sellers stay off the Sales tab
   // The Sales tab is the active queue — anything that still needs admin/auditor
   // attention OR is in flight to payroll. A sale falls off only when payroll
   // is RUN (payroll_processed_at set) AND the backend lock is decided
