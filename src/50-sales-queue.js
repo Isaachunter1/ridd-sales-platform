@@ -2377,9 +2377,20 @@ function payrollRunStub(repId, sales, period, backendSales) {
     return { sale_id: b.id, customer: b.customer_name || '', customer_number: b.customer_number || '', sold_date: b.sold_date || '', months: Number(b.contract_months) || 0,
       kind: cb ? 'chargeback' : 'lock', est, invoices: Number(b.crm_paid_invoices) || 0, revenue: Number(b.revenue_amount) || 0,
       amount: cb ? -amt : amt }; });
-  const backendPay = backendLines.reduce((a, l) => a + l.amount, 0);
+  // Close-rate bonus (per Isaac, Oct 15) — rides the quarterly backend: the rep's own close rate (set per rep)
+  // picks the tier (Settings → close-rate tiers), paid on the subscription revenue (12/18/24-month + PIF base
+  // plans, no renewals / add-ons — subscriptionRevenueOf) of the accounts that LOCKED in this run.
+  const lockedB = (backendSales || []).filter(b => b.lock_status !== 'chargeback');
+  let closeBonus = null;
+  if (lockedB.length && typeof closeRateBonusFor === 'function' && typeof subscriptionRevenueOf === 'function') {
+    const rate = Number(prof.close_rate_target ?? 0.5);
+    const subRev = subscriptionRevenueOf(lockedB);
+    const tierPct = typeof closeRateTierPct === 'function' ? closeRateTierPct(rate, effectivePaySettings(repId)) : null;
+    closeBonus = { rate, subRev: Math.round(subRev * 100) / 100, tierPct, amount: Math.round(closeRateBonusFor(rate, subRev, repId) * 100) / 100 };
+  }
+  const backendPay = backendLines.reduce((a, l) => a + l.amount, 0) + (closeBonus ? closeBonus.amount : 0);
   const total = salesPay + backendPay + extras.reduce((a, x) => a + x[1], 0);
-  return { prof, pct, mult, lines, salesPay, backendLines, backendPay, extras, total, revenue: lines.reduce((a, l) => a + l.revenue, 0) };
+  return { prof, pct, mult, lines, salesPay, backendLines, closeBonus, backendPay, extras, total, revenue: lines.reduce((a, l) => a + l.revenue, 0) };
 }
 // ── Pay stub PDF (per Isaac, Oct 15): the Run payroll stub, as a PDF each rep gets in Slack on Confirm.
 // A tiny dependency-free PDF writer (built-in Helvetica / Courier, WinAnsi text) — landscape Letter,
@@ -2463,6 +2474,13 @@ function paystubPdfBytes(x, period, saleById) {
       text(money(l.revenue), C.rev, y + 12, 8.5, 'F3', INK, true);
       text(l.kind === 'chargeback' ? 'Chargeback' : 'Lock ' + l.invoices + '/4', C.com, y + 12, 8.5, 'F4', l.kind === 'chargeback' ? RED : '#3E5A3A', true);
       text(money(l.amount), C.pay, y + 12, 8.5, 'F4', l.amount < 0 ? RED : INK, true);
+      y += ROW; line(M, y, W - M, y, LINE, 0.4);
+    }
+    if (x.closeBonus) {
+      text('Close rate bonus', C.cust, y + 12, 8.5, 'F4');
+      text(Math.round(x.closeBonus.rate * 100) + '% close rate -> ' + (x.closeBonus.tierPct == null ? '-' : x.closeBonus.tierPct + '%') + ' of subscription revenue', C.plan, y + 12, 8.5, 'F3', MUTED);
+      text(money(x.closeBonus.subRev), C.rev, y + 12, 8.5, 'F3', INK, true);
+      text(money(x.closeBonus.amount), C.pay, y + 12, 8.5, 'F4', INK, true);
       y += ROW; line(M, y, W - M, y, LINE, 0.4);
     }
     line(M, y, W - M, y, INK, 0.9);
@@ -2584,6 +2602,10 @@ function payStubCard(x, period, saleById, opts = {}) {
               td(l.kind === 'chargeback' ? 'Chargeback \u00b7 upfront back' + (l.est ? ' (est.)' : '') : 'Lock \u00b7 ' + l.invoices + '/4 paid', 0, { color: l.kind === 'chargeback' ? '#B91C1C' : '#3E5A3A', fontWeight: '700' }),
               td(''),
               td(money(l.amount), 1, { fontWeight: '700', color: l.amount < 0 ? '#B91C1C' : 'var(--text)' })); }),
+            x.closeBonus ? el('tr', { class: 'border-t border-' },
+              td(el('div', {}, el('div', { style: { fontWeight: '700' } }, 'Close rate bonus'),
+                el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)', whiteSpace: 'normal' } }, Math.round(x.closeBonus.rate * 100) + '% close rate \u2192 ' + (x.closeBonus.tierPct == null ? '\u2014' : x.closeBonus.tierPct + '%') + ' of locked subscription revenue'))),
+              td(''), td(''), td(''), td(money(x.closeBonus.subRev), 1), td(''), td(''), td(money(x.closeBonus.amount), 1, { fontWeight: '700' })) : null,
             el('tr', { class: 'border-t', style: { borderColor: 'var(--text)' } }, td('Backend pay', 0, { fontWeight: '700' }), td(''), td(''), td(''), td(''), td(''), td(''), td(money(x.backendPay), 1, { fontWeight: '800', color: x.backendPay < 0 ? '#B91C1C' : 'var(--text)' })),
           ] : []),
           ...x.extras.map(([k, v]) => el('tr', { class: 'border-t border-' }, td(k), td(''), td(''), td(''), td(''), td(''), td(''), td(money(v), 1))),
@@ -2682,8 +2704,8 @@ async function confirmPayrollRun(sales, period, backendSales) {
   // Quarterly backend riding along (per Isaac, Oct 15): stamp the backend run — Locks graduate to History, Chargebacks to Archived.
   if (backendSales.length) {
     const bRep = new Map(); backendSales.forEach(s => { if (!bRep.has(s.rep_id)) bRep.set(s.rep_id, []); bRep.get(s.rep_id).push(s); });
-    const bSnaps = [...bRep.entries()].map(([rid, list]) => { const st = payrollRunStub(rid, [], period, list); return [rid, list, { backend_pay: Math.round(st.backendPay * 100) / 100, locked: list.filter(x => x.lock_status === 'lock').length, chargebacks: list.filter(x => x.lock_status === 'chargeback').length, accounts: list.length },
-      isPayInputsSnapshot(rid, st.prof, { backend_lines: st.backendLines, source: 'sales_tab_run' })]; });
+    const bSnaps = [...bRep.entries()].map(([rid, list]) => { const st = payrollRunStub(rid, [], period, list); return [rid, list, { backend_pay: Math.round(st.backendPay * 100) / 100, close_rate_bonus: st.closeBonus ? st.closeBonus.amount : 0, locked: list.filter(x => x.lock_status === 'lock').length, chargebacks: list.filter(x => x.lock_status === 'chargeback').length, accounts: list.length },
+      isPayInputsSnapshot(rid, st.prof, { backend_lines: st.backendLines, close_rate_bonus: st.closeBonus, source: 'sales_tab_run' })]; });
     const { error: eb } = await supabase.from('sales').update({ backend_payroll_processed_at: now, backend_payroll_period_id: period.id }).in('id', backendSales.map(s => s.id));
     if (eb) throw eb;
     for (const [rid, list, totals, inputs] of bSnaps) await recordPayRun('backend', rid, period, list, totals, inputs);
