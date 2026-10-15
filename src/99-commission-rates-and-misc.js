@@ -2547,8 +2547,11 @@ function openUserEditor(existing = null, prefill = null) {
         const teamSection = el('div', { class: 'flex flex-col gap-1.5' },
           el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- block font-semibold' }, 'Team · ' + _teamYearKey()),
           teamSel,
-          el('p', { class: 'text-[11px] text-muted-' }, 'The team this person sells on. Saves as you pick — the same assignment as Indicators → Manage Teams.'));
-        const _showTeam = () => { const on = SELLER_ROLES.includes(roleSelect.value) && allTeamNames().length > 0; teamSection.style.display = on ? '' : 'none'; if (on) drawTeamSel(); };
+          el('p', { class: 'text-[11px] text-muted-' }, 'The door-to-door team this person sells on. Saves as you pick — the same assignment as Indicators → Manage Teams. Only their Sales Rep sales count toward it.'));
+        // Teams are a Sales Rep thing (per Isaac, Oct 15) — office staff / technicians never get one. Someone who
+        // moved inside from the doors (Javier) keeps showing the team he sold on, so it can be seen or cleared;
+        // his door sales still count toward it and it stays off the Office Staff boards (_indTeamDepts).
+        const _showTeam = () => { const on = allTeamNames().length > 0 && (['rep_sales', 'rep_partner', 'rep_team_lead'].includes(roleSelect.value) || !!(_nm() && getRepTeam(_keyFor(_nm())))); teamSection.style.display = on ? '' : 'none'; if (on) drawTeamSel(); };
         roleSelect.addEventListener('change', _showTeam);
         setTimeout(_showTeam, 0);   // after the form (and its name field) is in the page
         wrapper.append(teamSection);
