@@ -2152,6 +2152,19 @@ function saleInitialDateNode(s, small) {
 // Sold date + time (per Isaac, Oct 15). The CRM snapshot's sold_at is FieldRoutes' dateAdded on the company
 // clock (UTC−7 year-round, same as the TV board); shown in Mountain time. Falls back to the date alone.
 let _soldAtIdx = { src: null, map: null };
+// Sort key for "most recent first" (per Isaac, Oct 15): the real sold timestamp (live pull / snapshot, company clock)
+// when we have it, else the sold date + when the row was logged.
+function saleSoldSortKey(s) {
+  const rows = state.reportingSubscriptions || [];
+  if (_soldAtIdx.src !== rows) { const m = new Map(); for (const r of rows) if (r && r.subscription_id != null && r.sold_at) m.set(String(r.subscription_id), r.sold_at); _soldAtIdx = { src: rows, map: m }; }
+  const live = state._crmLiveRecent && Array.isArray(state._crmLiveRecent.rows) ? state._crmLiveRecent.rows.find(x => String(x.subscriptionId) === String(s.crm_subscription_id || '')) : null;
+  const raw = String((live && live.soldAt) || (s.crm_subscription_id != null ? _soldAtIdx.map.get(String(s.crm_subscription_id)) : '') || '');
+  const day = String(s.sold_date || '').slice(0, 10);
+  if (raw.slice(0, 10) === day) return day + ' ' + raw.slice(11, 19) + '|' + String(s.created_at || '');
+  // No timestamp: the logged time stands in (UTC → company clock, -7h) so it sorts with the stamped ones.
+  const c = Date.parse(s.created_at || ''); const t = isNaN(c) ? '' : new Date(c - 7 * 3600000).toISOString().slice(11, 19);
+  return day + ' ' + (t && new Date(c - 7 * 3600000).toISOString().slice(0, 10) === day ? t : '00:00:00') + '|' + String(s.created_at || '');
+}
 function saleSoldWhen(s) {
   const rows = state.reportingSubscriptions || [];
   if (_soldAtIdx.src !== rows) { const m = new Map(); for (const r of rows) if (r && r.subscription_id != null && r.sold_at) m.set(String(r.subscription_id), r.sold_at); _soldAtIdx = { src: rows, map: m }; }
@@ -2174,7 +2187,7 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
   const initOf = (s) => String(s.crm_serviced_at || s.crm_initial_appt_at || '').slice(0, 10);
   const payRank = (s) => s.crm_paid_since_sale === true ? 2 : s.crm_paid_since_sale === false ? 0 : 1;
   const statusRank = (s) => SALE_STATUS_OPTIONS.findIndex(([v]) => v === (s.audit_status || 'pending'));
-  const soldKey = (s) => String(s.sold_date || '') + '|' + String(s.created_at || '');
+  const soldKey = (s) => saleSoldSortKey(s);
   const KEYS = {
     rep: [(s) => repName(s).toLowerCase(), 'asc'], customer: [(s) => String(s.customer_name || '').toLowerCase(), 'asc'],
     service: [(s) => svcOf(s).toLowerCase(), 'asc'], term: [(s) => s.sale_kind === 'upsell' ? -1 : Number(s.contract_months) || 0, 'desc'],

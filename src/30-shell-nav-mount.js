@@ -1271,6 +1271,8 @@ function mountApp() {
   if (_viewChanged && state.view === 'nrla') state._compsLanding = true;
   // Pay always opens on the CURRENT pay period (per Isaac).
   if (_viewChanged && state.view === 'pay') { state.payYear = null; state.payPeriodId = null; }
+  // Sales tab's Latest sales opens newest first every visit (per Isaac, Oct 15).
+  if (_viewChanged && typeof SALES_QUEUE_OF_VIEW !== 'undefined' && SALES_QUEUE_OF_VIEW[state.view]) state._salesFeedSort = { key: 'sold', dir: 'desc' };
   // Pricing pins its quote with position: sticky. `overflow-x: auto` here
   // would make THIS wrapper the sticky's scroll container (a 60px+ blank
   // band above the quote, and the quote painting over the first program on
