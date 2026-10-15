@@ -213,6 +213,7 @@ exports.handler = async (event) => {
 
     // 4. Build rows — same shape as the nightly auto-log.
     let added = 0, skippedNoRep = 0, skippedType = 0, skippedNotYet = 0, svcCreated = 0;
+    const UNLINKED_OK = AL.log_unlinked !== false;   // Settings switch; default on
     const batch = [];
     const hasAppt = (s) => { const id = String(s.initialAppointmentID || '').trim(); return !!id && id !== '0'; };
     const hasBilling = (c) => { const a = String((c && (c.aPay || c.autoPay)) || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); };
@@ -227,7 +228,10 @@ exports.handler = async (event) => {
       const type = typeOfEmp.get(soldById) || typeOfEmp.get(masterOf.get(soldById) || '') || null;
       if (!type || !TYPES.has(type)) { skippedType++; continue; }
       const prof = profByEmp.get(soldById) || profByEmp.get(masterOf.get(soldById) || '') || null;
-      if (!prof) { skippedNoRep++; continue; }
+      // No app account yet → logged anyway under the FieldRoutes seller (per Isaac, Oct 15); handed to the rep
+      // the moment their account is linked (step 3c). Needs 20261015_sales_unlinked_sellers.sql.
+      if (!prof) skippedNoRep++;
+      if (!prof && (!soldById || !UNLINKED_OK)) continue;
       let svcId = svcByName.get(norm(sub));
       if (!svcId) {
         const ins = await supabase.from('service_types').insert({ name: sub }).select('id').maybeSingle();
@@ -245,13 +249,14 @@ exports.handler = async (event) => {
       const months = Number(s.agreementLength) || 12;
       const monthly = Number(s.recurringCharge) > 0 ? Math.round(Number(s.recurringCharge) * 100) / 100 : Math.max(0, Math.round(((cv - initial) / 11) * 100) / 100);
       batch.push({
-        rep_id: prof.id,
+        rep_id: prof ? prof.id : null,
+        ...(prof ? {} : { crm_seller_id: masterOf.get(soldById) || soldById, crm_seller_name: nameOfEmp.get(soldById) || nameOfEmp.get(masterOf.get(soldById) || '') || null }),
         queue_type: QUEUE_OF[type] || 'office',
         crm_subscription_id: subId,
         logged_by: null,
         customer_name: [String(cust.fname || '').trim(), String(cust.lname || '').trim()].filter(Boolean).join(' ') || ('Customer ' + s.customerID),
         customer_number: String(s.customerID),
-        office_id: officeByFrId.get(String(s.officeID)) ?? prof.office_id ?? null,
+        office_id: officeByFrId.get(String(s.officeID)) ?? (prof ? prof.office_id : null) ?? null,
         service_type_id: svcId,
         source_id: srcByName.get(norm(s.source)) ?? null,
         contract_type_id: ctByName.get(norm(months + ' Months')) ?? null,
@@ -277,6 +282,11 @@ exports.handler = async (event) => {
     }
     for (const part of chunk(batch, 500)) {
       let { error } = await supabase.from('sales').insert(part);
+      if (error && /rep_id|crm_seller/i.test(error.message || '')) {
+        // Migration not run yet: drop the unlinked-seller rows, keep the rest (old behaviour).
+        console.warn('[fr-live] unlinked sellers not logged (run migrations/20261015_sales_unlinked_sellers.sql):', error.message);
+        const linked = part.filter(x => x.rep_id); ({ error } = linked.length ? await supabase.from('sales').insert(linked) : { error: null });
+      }
       if (error && /crm_initial_status|crm_autopay|crm_contract_state/i.test(error.message || '')) {
         part.forEach(x => { delete x.crm_initial_status; delete x.crm_autopay; delete x.crm_contract_state; });
         ({ error } = await supabase.from('sales').insert(part));
@@ -465,6 +475,19 @@ exports.handler = async (event) => {
       }
     } catch (e) { console.warn('[fr-live] TV live feed not published:', e.message); }
 
+    // 3c. Unlinked sellers → their rep (per Isaac, Oct 15): any sale logged under a FieldRoutes seller with no
+    //     app account gets that person's rep_id (and office if blank) once their account is linked.
+    let relinked = 0;
+    try {
+      const { data: orphan } = await supabase.from('sales').select('id, crm_seller_id, office_id').is('rep_id', null).not('crm_seller_id', 'is', null).limit(2000);
+      for (const r of (orphan || [])) {
+        const prof = profByEmp.get(String(r.crm_seller_id)) || profByEmp.get(masterOf.get(String(r.crm_seller_id)) || '') || null;
+        if (!prof) continue;
+        const { error } = await supabase.from('sales').update({ rep_id: prof.id, ...(r.office_id == null && prof.office_id != null ? { office_id: prof.office_id } : {}) }).eq('id', r.id);
+        if (!error) relinked++;
+      }
+    } catch (e) { /* migration not run yet */ }
+
     // 3b. True-up: auto-added rows whose Initial / Monthly / Revenue drifted
     // from FieldRoutes (e.g. the old derived Monthly) get the CRM's numbers.
     // Runs over the 400 auto-added rows checked longest ago (all of this
@@ -498,7 +521,7 @@ exports.handler = async (event) => {
         }
       } catch (e) { console.warn('[fr-live] true-up skipped:', e.message); }
     }
-    const msg = '[fr-live] ' + ids.length + ' subs since ' + from + ' across ' + ((fr.officeIDs || []).length || 'the key’s home') + ' office(s) · +' + added + ' logged · ' + fixed + ' trued up · ' + apptFlipped + ' appt status changed · ' + signFlipped + ' newly signed · ' + (livePublished ? livePublished + ' live row(s) published · ' : '') + skippedNoRep + ' seller(s) with no app account · ' + skippedType + ' skipped by type · ' + skippedNotYet + ' logged but not yet eligible (appt/billing/signed) · ' + svcCreated + ' service type(s) created · ' + (Date.now() - started) + 'ms';
+    const msg = '[fr-live] ' + ids.length + ' subs since ' + from + ' across ' + ((fr.officeIDs || []).length || 'the key’s home') + ' office(s) · +' + added + ' logged · ' + fixed + ' trued up · ' + apptFlipped + ' appt status changed · ' + signFlipped + ' newly signed · ' + (relinked ? relinked + ' handed to newly linked rep(s) · ' : '') + (livePublished ? livePublished + ' live row(s) published · ' : '') + skippedNoRep + ' seller(s) with no app account (logged unlinked) · ' + skippedType + ' skipped by type · ' + skippedNotYet + ' logged but not yet eligible (appt/billing/signed) · ' + svcCreated + ' service type(s) created · ' + (Date.now() - started) + 'ms';
     console.log(msg + (fr.rateLimited ? ' · ' + fr.rateLimited + ' rate-limited retr' + (fr.rateLimited === 1 ? 'y' : 'ies') : ''));
     await recordIntegrationStatus(supabase, 'fieldroutes', { last_run_at: new Date().toISOString(), last_run_ok: true, last_run_message: msg.replace('[fr-live] ', ''), last_run_ms: Date.now() - started, rate_limited: fr.rateLimited || 0 });
     return { statusCode: 200, body: msg };

@@ -497,8 +497,8 @@ function salesCardsMobile(rows, { isAdmin = false, queueFilter = 'upfront' } = {
   // Compact cards (per Isaac, Oct 6): two lines per sale — about half the old height.
   return el('div', { class: 'flex flex-col sm:hidden', style: { gap: '6px' } },
     ...rows.map(s => {
-      const rep = state.allProfiles.find(p => p.id === s.rep_id) || state.profile;
-      const repFirst = (rep?.full_name || '').split(' ')[0];
+      const rep = s.rep_id ? (state.allProfiles.find(p => p.id === s.rep_id) || (state.profile && state.profile.id === s.rep_id ? state.profile : null)) : null;
+      const repFirst = rep ? (rep.full_name || '').split(' ')[0] : (s.crm_seller_name ? String((typeof flipLastFirst === 'function' ? flipLastFirst(s.crm_seller_name) : s.crm_seller_name)).split(' ')[0] + ' (no account)' : 'Unlinked');
       const ctName = contractTypeLabelForSale(s);
       const noteTxt = s.notes || '';
       const rptM = (queueFilter === 'backend' && (state.reportingSubscriptions || []).length)
@@ -761,8 +761,8 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
         ),
         el('tbody', {},
           rows.map(s => {
-            const rep = state.allProfiles.find(p => p.id === s.rep_id) || state.profile;
-            const first = (rep?.full_name || '').split(' ')[0];
+            const rep = s.rep_id ? (state.allProfiles.find(p => p.id === s.rep_id) || (state.profile && state.profile.id === s.rep_id ? state.profile : null)) : null;
+            const first = rep ? (rep.full_name || '').split(' ')[0] : (s.crm_seller_name ? String((typeof flipLastFirst === 'function' ? flipLastFirst(s.crm_seller_name) : s.crm_seller_name)).split(' ')[0] + ' (no account)' : 'Unlinked');
             const ctName = contractTypeLabelForSale(s);
             const noteTxt = s.notes || '';
             const rpt = showRptStatus ? reportingBackendMatch(s.customer_number, rptIndex) : null;
@@ -2116,7 +2116,10 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
       },
         // One line (per Isaac, Oct 15 — there's room): NAME | #id | service | add-ons | term | source | initial; sold date + time under the name.
         el('div', { style: { display: 'grid', gridTemplateColumns: 'max-content auto max-content auto max-content auto minmax(0, max-content) auto max-content auto minmax(0, max-content) auto max-content minmax(0, 1fr)', alignItems: 'baseline', minWidth: '0', overflow: 'hidden' } },
-          cell('1', 1, el('span', { class: 'font-black uppercase', style: { fontSize: '15px', letterSpacing: '.02em' } }, rep ? rep.full_name : (s.customer_name ? '—' : 'Rep')), { minWidth: 'max-content' }),
+          // No app account yet: the FieldRoutes seller's name, marked (per Isaac, Oct 15).
+          cell('1', 1, el('span', { class: 'font-black uppercase', style: { fontSize: '15px', letterSpacing: '.02em' }, title: rep ? '' : 'Credited in FieldRoutes · no app account linked yet' },
+            rep ? rep.full_name : (s.crm_seller_name ? (typeof flipLastFirst === 'function' ? flipLastFirst(s.crm_seller_name) : s.crm_seller_name) : 'Unlinked seller'),
+            rep ? null : el('span', { class: 'normal-case font-semibold', style: { fontSize: '9px', letterSpacing: '.06em', marginLeft: '6px', color: 'var(--text-muted)' } }, 'NO APP ACCOUNT')), { minWidth: 'max-content' }),
           cell('2', 1, (s.customer_number || s.customer_name) ? sep() : null),
           // Customer name beside the id (per Isaac, Oct 15).
           cell('3', 1, (s.customer_number || s.customer_name) ? el('span', { style: { fontSize: '12px' } },

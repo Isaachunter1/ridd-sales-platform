@@ -147,12 +147,13 @@ exports.handler = async (event) => {
 
     // 4. Resolve the credited employee → app profile (any of a person's branch ids).
     const [rosterQ, profQ, offQ, svcQ] = await Promise.all([
-      supabase.from('fieldroutes_employees').select('employee_id, employee_ids, type_label, type'),
+      supabase.from('fieldroutes_employees').select('employee_id, employee_ids, type_label, type, fname, lname'),
       supabase.from('profiles').select('id, fieldroutes_employee_id, office_id').not('fieldroutes_employee_id', 'is', null),
       supabase.from('offices').select('id, name'),
       supabase.from('service_types').select('id, name'),
     ]);
-    const profByEmp = new Map(); const typeOfEmp = new Map();
+    const profByEmp = new Map(); const typeOfEmp = new Map(); const nameOfEmpA = new Map();
+    (rosterQ.data || []).forEach(e => { const nm = [String(e.lname || '').trim(), String(e.fname || '').trim()].filter(Boolean).join(', '); if (nm) String(e.employee_ids || e.employee_id || '').split(',').map(x => x.trim()).filter(Boolean).forEach(id => nameOfEmpA.set(id, nm)); });
     (profQ.data || []).forEach(p => profByEmp.set(String(p.fieldroutes_employee_id).trim(), p));
     (rosterQ.data || []).forEach(e => {
       const all = String(e.employee_ids || e.employee_id || '').split(',').map(x => x.trim()).filter(Boolean);
@@ -259,15 +260,19 @@ exports.handler = async (event) => {
     // assigned — what matters is how long it stays on the account). Used when the add-on is first seen AND when an
     // add-on that sat unassigned gets a rep later.
     const makeUpsell = async (addOnId, a, row, prof) => {
-      if (!(AL.upsells !== 'off' && prof && (Number(a.recurring_amount) || 0) > 0 && String(a.added_at || '') >= String(AL.start).slice(0, 10))) return;   // a negative eligible line (discount) never becomes its own upsell sale
+      // A credited FieldRoutes seller with no app account still gets the upsell row (per Isaac, Oct 15) — unlinked,
+      // handed to them by the live pull once linked.
+      const unlinked = !prof && !!a.credited_employee_id && AL.log_unlinked !== false;
+      if (!(AL.upsells !== 'off' && (prof || unlinked) && (Number(a.recurring_amount) || 0) > 0 && String(a.added_at || '') >= String(AL.start).slice(0, 10))) return;   // a negative eligible line (discount) never becomes its own upsell sale
       const t = tickets[a.initial_ticket_id || a.first_recurring_ticket_id] || {};
       const sale = upsellSaleRow({
         ticket_id: 'addon:' + addOnId, customer_id: a.customer_id, subscription_id: a.subscription_id, office_id: a.office_fr_id,
         first_name: t.firstName || '', last_name: t.lastName || '', created: a.added_at, created_by: a.credited_employee_id,
         created_by_type: row.credited_role === 'technician' ? '1' : row.credited_role === 'sales_rep' ? '2' : '0',
         service: a.service_name, total: lineValue.get(a.subscription_id + '|' + a.service_name.toLowerCase()) ?? (a.initial_amount + a.recurring_amount),
-      }, { repId: prof.id, officeId: officeByFr.get(String(a.office_fr_id)) ?? prof.office_id ?? null, serviceTypeId: svcByName.get(a.service_name.toLowerCase()) || null, now });
+      }, { repId: prof ? prof.id : null, officeId: officeByFr.get(String(a.office_fr_id)) ?? (prof ? prof.office_id : null) ?? null, serviceTypeId: svcByName.get(a.service_name.toLowerCase()) || null, now });
       sale.add_on_id = addOnId;
+      if (!prof) { sale.rep_id = null; sale.crm_seller_id = String(a.credited_employee_id); sale.crm_seller_name = nameOfEmpA.get(String(a.credited_employee_id)) || null; }
       const { data: sIns, error: se } = await supabase.from('sales').insert(sale).select('id').single();
       if (se) console.warn('[fr-addons] sale insert failed', addOnId, se.message);
       else { log.sales++; await supabase.from('add_ons').update({ sale_id: sIns.id }).eq('id', addOnId); }

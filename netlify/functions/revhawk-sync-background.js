@@ -1078,6 +1078,9 @@ exports.handler = async (event) => {
           const srcByName = new Map((srcQ.data || []).map(o => [norm(o.name), o.id]));
           const ctByName = new Map((ctQ.data || []).map(o => [norm(o.name), o.id]));
           let added = 0, skippedDup = 0, skippedNoRep = 0, svcCreated = 0;
+          // Unlinked-seller rows need 20261015_sales_unlinked_sellers.sql (rep_id nullable + crm_seller_*).
+          let _unlinkedOk = true;
+          try { const { error: ue } = await supabase.from('sales').select('crm_seller_id').limit(1); if (ue) _unlinkedOk = false; } catch (e) { _unlinkedOk = false; }
           const batch = [];
           const flush = async () => {
             if (!batch.length) return;
@@ -1110,7 +1113,9 @@ exports.handler = async (event) => {
             if (haveRevenue.some(h => h.cust === norm(r.customer_id) && Math.abs(h.rev - cv) <= 1 && Math.abs(h.t - soldT) <= 7 * 86400000)) { skippedDup++; continue; }
             const soldById = String(r.sold_by_id || '').trim();
             const prof = profByEmp.get(soldById) || profByEmp.get(masterOf.get(soldById) || '') || null;
-            if (!prof) { skippedNoRep++; continue; }                        // seller has no app account — nothing to attribute to
+            // No app account yet → logged anyway under the FieldRoutes seller (per Isaac, Oct 15); the live pull
+            // hands it to the rep once their account is linked. Off with autolog.log_unlinked = false.
+            if (!prof) { skippedNoRep++; if (!soldById || AL.log_unlinked === false || !_unlinkedOk) continue; }
             let svcId = svcByName.get(norm(sub));
             if (!svcId) {
               // Auto-create the service type so the pipeline never silently
@@ -1125,13 +1130,14 @@ exports.handler = async (event) => {
             const initial = Number(r.initial_price) || 0;
             const monthly = Math.max(0, Math.round(((cv - initial) / 11) * 100) / 100);   // inverse of the app's revenue = initial + monthly×11
             batch.push({
-              rep_id: prof.id,
+              rep_id: prof ? prof.id : null,
+              ...(prof ? {} : { crm_seller_id: masterOf.get(soldById) || soldById, crm_seller_name: (String(r.sold_by || '').trim() || null) }),
               queue_type: QUEUE_OF[String(r.sold_by_type || '').trim()] || 'office',
               crm_subscription_id: subId || null,
               logged_by: null,                                              // origin marker: auto-added
               customer_name: [String(r.first_name || '').trim(), String(r.last_name || '').trim()].filter(Boolean).join(' ') || ('Customer ' + r.customer_id),
               customer_number: String(r.customer_id),
-              office_id: officeByName.get(norm(r.office_name)) ?? prof.office_id ?? null,
+              office_id: officeByName.get(norm(r.office_name)) ?? (prof ? prof.office_id : null) ?? null,
               service_type_id: svcId,
               source_id: srcByName.get(norm(r.subscription_source)) ?? null,
               contract_type_id: ctByName.get(norm(months + ' Months')) ?? null,
@@ -1675,7 +1681,7 @@ exports.handler = async (event) => {
         const _upFlag = String(AL2.upfront_flag ?? 'Passed Audit').trim().toLowerCase();
         const _upfrontOf = (r) => !!_upFlag && !!r && String(r.customer_flags || '').split(',').some(f => f.trim().toLowerCase() === _upFlag);
         const { data: crmSales, error: csErr } = await supabase.from('sales')
-          .select('id, crm_subscription_id, sold_date, audit_status, lock_status, payroll_processed_at, backend_payroll_processed_at, contract_months, notes, crm_audit, queue_type, crm_contract_state')
+          .select('id, crm_subscription_id, sold_date, audit_status, lock_status, payroll_processed_at, backend_payroll_processed_at, contract_months, notes, crm_audit, queue_type, crm_contract_state, rep_id')
           .not('crm_subscription_id', 'is', null)
           .or('audit_status.eq.pending,lock_status.eq.pending');
         if (csErr) throw new Error(csErr.message);
@@ -1757,7 +1763,7 @@ exports.handler = async (event) => {
           const upd = {};
           if (s.audit_status === 'pending' && !s.payroll_processed_at) {
             if (cancelled && (!serviced || upfront)) { upd.audit_status = 'cancelled'; upd.audited_at = stamp; upd.notes = ((s.notes || '') + (upfront && serviced ? ' · Auto: cancelled in CRM (charged upfront)' : ' · Auto: cancelled in CRM before service')).trim(); }
-            else if (_autoApproveOn(s) && eligible && (serviced || upfront) && dpd <= 0 && s.crm_audit !== 'failed') { upd.audit_status = 'serviced'; upd.audited_at = stamp; }
+            else if (_autoApproveOn(s) && s.rep_id && eligible && (serviced || upfront) && dpd <= 0 && s.crm_audit !== 'failed') { upd.audit_status = 'serviced'; upd.audited_at = stamp; }
           }
           const lock = s.lock_status || 'pending';
           if (lock === 'pending' && s.payroll_processed_at && ['approved', 'serviced'].includes(upd.audit_status || s.audit_status)) {
