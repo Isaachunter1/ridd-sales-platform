@@ -2233,12 +2233,17 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
   const payRank = (s) => s.crm_paid_since_sale === true ? 2 : s.crm_paid_since_sale === false ? 0 : 1;
   const statusRank = (s) => _bk ? BACKEND_KEY.findIndex(([v]) => v === (s.lock_status || 'pending')) : SALE_STATUS_OPTIONS.findIndex(([v]) => v === (s.audit_status || 'pending'));
   const soldKey = (s) => saleSoldSortKey(s);
+  // Projected lock date (per Isaac, Oct 15): initial service + the 3 monthly payments after it = 4 paid
+  // invoices. From the initial (done, else scheduled) + 3 months; no initial yet → sold + 4 months (est.).
+  const addMo = (d, n) => { const [y, m, dd] = d.split('-').map(Number); const x = new Date(Date.UTC(y, m - 1 + n, 1)); const last = new Date(Date.UTC(x.getUTCFullYear(), x.getUTCMonth() + 1, 0)).getUTCDate(); x.setUTCDate(Math.min(dd, last)); return x.toISOString().slice(0, 10); };
+  const lockDateOf = (s) => { const i = initOf(s); if (/^\d{4}-\d{2}-\d{2}$/.test(i)) return { d: addMo(i, 3), est: false }; const so = String(s.sold_date || '').slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(so) ? { d: addMo(so, 4), est: true } : null; };
   const KEYS = {
     rep: [(s) => repName(s).toLowerCase(), 'asc'], customer: [(s) => String(s.customer_name || '').toLowerCase(), 'asc'],
     service: [(s) => svcOf(s).toLowerCase(), 'asc'], term: [(s) => s.sale_kind === 'upsell' ? -1 : Number(s.contract_months) || 0, 'desc'],
     source: [(s) => srcOf(s).toLowerCase(), 'asc'], initial: [(s) => initOf(s) || '9999', 'asc'], sold: [soldKey, 'desc'],
     payment: [payRank, 'asc'], invoices: [(s) => Number(s.crm_paid_invoices) || 0, 'desc'], aging: [(s) => Number(s.crm_days_past_due) || 0, 'desc'],
     amount: [(s) => Number(s.revenue_amount) || 0, 'desc'], status: [statusRank, 'asc'],
+    lockdate: [(s) => (lockDateOf(s) || {}).d || '9999', 'asc'],
   };
   const [kf] = KEYS[S.key] || KEYS.sold;
   const sorted = [...rows].sort((a, b) => {
@@ -2247,7 +2252,7 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
     return (S.dir === 'asc' ? c : -c) || soldKey(b).localeCompare(soldKey(a));
   });
   const numW = String(rows.length).length > 2 ? 30 : 22;
-  const COLS = numW + 'px minmax(130px, 1.1fr) minmax(140px, 1.2fr) minmax(160px, 1.6fr) 62px minmax(84px, .8fr) 96px 92px 100px 56px 48px 84px 140px';
+  const COLS = numW + 'px minmax(130px, 1.1fr) minmax(140px, 1.2fr) minmax(160px, 1.6fr) 62px minmax(84px, .8fr) 96px 92px 100px 56px ' + (_bk ? '92px ' : '') + '48px 84px 140px';
   const gridRow = (extra) => ({ display: 'grid', gridTemplateColumns: COLS, columnGap: '12px', alignItems: 'center', ...(extra || {}) });
   const clip = { minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
   const head = (key, label, align) => {
@@ -2271,7 +2276,7 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
       el('div', { class: 'px-4 pb-2', style: gridRow() },
         el('div', { class: 'text-[9px] text-left', style: { color: 'var(--text-subtle)' } }, '#'),
         head('rep', 'Rep'), head('customer', 'Customer'), head('service', 'Service + add-ons'), head('term', 'Term'), head('source', 'Source'),
-        head('sold', 'Sold'), head('initial', 'Initial'), head('payment', 'Payment'), head('invoices', 'Invoices'), head('aging', 'Aging'),
+        head('sold', 'Sold'), head('initial', 'Initial'), head('payment', 'Payment'), head('invoices', 'Invoices'), _bk ? head('lockdate', 'Pending lock') : null, head('aging', 'Aging'),
         head('amount', 'Amount'), head('status', 'Status')));   // everything left-justified (per Isaac, Oct 15)
   if (typeof window !== 'undefined') {
     if (window._salesFeedPin) { window.removeEventListener('scroll', window._salesFeedPin); window.removeEventListener('resize', window._salesFeedPin); }
@@ -2294,7 +2299,7 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
     window.addEventListener('resize', pin, { passive: true });
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(pin);
   }
-  const table = el('div', { style: narrow ? { minWidth: '1280px' } : {} },
+  const table = el('div', { style: narrow ? { minWidth: _bk ? '1380px' : '1280px' } : {} },
     frozen,
     ...sorted.map((s, i) => {
       const rep = repOf(s);
@@ -2331,6 +2336,12 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
           : el('div', { style: { fontSize: '11px', color: 'var(--text-subtle)', ...clip }, title: 'No payment on the account since this sale yet' }, 'Not yet'),
         // Invoices paid toward the backend lock (initial counts) and days aging (per Isaac, Oct 15).
         el('div', { class: 'tabular-nums', style: { fontSize: '11px', fontWeight: '600', color: tracked && (Number(s.crm_paid_invoices) || 0) >= 4 ? ok : tracked ? 'var(--text)' : 'var(--text-subtle)' }, title: 'Paid invoices on the plan (the initial counts) — locks at 4' }, tracked ? (Number(s.crm_paid_invoices) || 0) + ' / 4' : '—'),
+        _bk ? (() => { const L = lockDateOf(s), inv = Number(s.crm_paid_invoices) || 0, today = new Date().toISOString().slice(0, 10);
+          if (!L) return el('div', { style: { fontSize: '11px', color: 'var(--text-subtle)' } }, '—');
+          const done = tracked && inv >= 4, late = !done && L.d < today;
+          return el('div', { class: 'tabular-nums', style: clip, title: done ? '4 paid invoices — lock reached' : L.est ? 'No initial yet — estimated from the sold date + 4 months' : 'Initial service + 3 monthly payments' + (late ? ' — date has passed without 4 paid invoices' : '') },
+            el('div', { style: { fontSize: '11px', fontWeight: '600', color: done ? ok : late ? bad : L.est ? 'var(--text-muted)' : 'var(--text)' } }, fmt.dateShort(L.d)),
+            el('div', { style: sub }, done ? 'reached' : L.est ? 'est.' : late ? 'past due' : (() => { const n = Math.ceil((Date.parse(L.d) - Date.parse(today)) / 864e5); return 'in ' + n + 'd'; })())); })() : null,
         el('div', { class: 'tabular-nums', style: { fontSize: '11px', color: Number(s.crm_days_past_due) > 0 ? bad : 'var(--text-muted)', fontWeight: Number(s.crm_days_past_due) > 0 ? '700' : '400' } }, (s.crm_days_past_due != null ? Number(s.crm_days_past_due) : 0) + 'd'),
         el('div', { class: 'text-left tabular-nums font-semibold', style: { fontSize: '15px' },
           title: s.commission_split ? 'Commissionable ' + fmt.usd(s.revenue_amount) + ' of ' + fmt.usd(s.total_revenue) + ' on the account' : '' },
