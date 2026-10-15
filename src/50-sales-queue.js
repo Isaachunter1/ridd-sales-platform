@@ -2053,6 +2053,26 @@ function saleAddOnsFor(sale) {
   }
   return out;
 }
+// Service + its add-ons as one phrase (per Isaac, Oct 15): "Pest 6 + Mole + Rodent" — what the customer has and
+// what was added, at a glance. Each add-on green when FieldRoutes credits someone, red when it credits nobody.
+// An add-on-only sale shows the plan it went on (muted) + the add-on. opts: { size, weight, ok, bad, muted }.
+function saleBasePlanName(s, ao) {
+  const fromAo = (ao || []).map(a => a && a.base_service).find(Boolean);
+  if (fromAo) return fromAo;
+  const sub = String(s.parent_subscription_id || s.crm_subscription_id || '');
+  const r = sub ? (state.reportingSubscriptions || []).find(x => String(x.subscription_id) === sub) : null;
+  return r ? (r.subscription || '') : '';
+}
+function saleServiceWithAddOns(s, svcName, ao, opts) {
+  const o = Object.assign({ size: '13px', weight: '600', ok: '#15803D', bad: '#DC2626', muted: 'var(--text-muted)' }, opts || {});
+  const addOnOnly = s.sale_kind === 'upsell';
+  const base = addOnOnly ? saleBasePlanName(s, ao) : svcName;
+  const list = (ao || []).length ? ao : (addOnOnly && s.crm_subscription ? [{ service_name: s.crm_subscription, credited_profile_id: s.rep_id || null, credited_employee_id: s.crm_seller_id || (s.rep_id ? 'x' : null) }] : []);
+  return el('span', { style: { fontSize: o.size, fontWeight: o.weight, whiteSpace: 'nowrap' },
+    title: list.map(a => (a.service_name || 'Add-on') + (saleAddOnCredited(a) ? ' \u00b7 credited in FieldRoutes' : ' \u2014 Commission To is N/A in FieldRoutes')).join('\n') },
+    base ? el('span', { style: addOnOnly ? { color: o.muted } : {} }, base) : null,
+    ...list.map((a, i) => el('span', { style: { color: saleAddOnCredited(a) ? o.ok : o.bad } }, (base || i ? ' + ' : '+ ') + (a.service_name || 'Add-on'))));
+}
 function saleAddOnCredited(a) {
   if (!('credited_employee_id' in a)) return !!a.credited_profile_id;
   const e = String(a.credited_employee_id == null ? '' : a.credited_employee_id).trim();
@@ -2137,10 +2157,10 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
           cell('3', 1, (s.customer_number || s.customer_name) ? el('span', { style: { fontSize: '12px' } },
             s.customer_number ? el('span', { class: 'tabular-nums text-muted-' }, '#' + s.customer_number) : null,
             s.customer_name ? el('span', { class: 'font-medium', style: { marginLeft: s.customer_number ? '6px' : '0' } }, s.customer_name) : null) : null, { minWidth: 'max-content' }),
-          cell('4', 1, addOnOnly ? null : sep()),
-          cell('5', 1, addOnOnly ? null : el('span', { class: 'font-semibold', style: { fontSize: '13px' } }, svcName), { minWidth: 'max-content' }),
-          cell('6', 1, sep()),
-          cell('7', 1, el('span', { style: { fontSize: '10px' } }, aoNode)),   // a long add-on list ellipsizes first
+          cell('4', 1, sep()),
+          cell('5', 1, saleServiceWithAddOns(s, svcName, ao, { ok, bad })),   // "Pest 6 + Mole + Rodent" (per Isaac, Oct 15)
+          cell('6', 1, null),
+          cell('7', 1, null),
           cell('8', 1, sep()),
           cell('9', 1, el('span', { class: 'font-semibold', style: { fontSize: '13px' } }, term), { minWidth: 'max-content' }),
           cell('10', 1, src ? sep() : null),

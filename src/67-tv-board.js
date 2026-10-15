@@ -607,14 +607,17 @@ function openTvBoard() {
                 cell('1', 1, el('span', { style: { fontFamily: HEAD, fontSize: 'clamp(17px, 1.35vw, 22px)', letterSpacing: '.02em', textTransform: 'uppercase' } }, (r ? r.name : (s._crmRep || 'Rep'))), { minWidth: 'max-content' }),
                 cell('2', 1, s.customer_number ? sep() : null),
                 cell('3', 1, s.customer_number ? el('span', { style: { fontFamily: MONO, fontSize: 'clamp(11px, .85vw, 13px)', color: T.dim, letterSpacing: '.06em' }, title: 'Customer ID' }, '#' + s.customer_number) : null, { minWidth: 'max-content' }),
-                cell('4', 1, s.sale_kind === 'upsell' ? null : sep()),
-                cell('5', 1, s.sale_kind === 'upsell' ? null : el('span', { style: big }, s._crmService || s.service_name || s.crm_subscription || '—'), { minWidth: 'max-content' }),   // the service never truncates
+                cell('4', 1, sep()),
+                // "Pest 6 + Mole + Rodent" — the plan and what was added on (per Isaac, Oct 15); add-on-only sales show the plan muted.
+                cell('5', 1, el('span', { style: { fontFamily: VOICE, color: T.ink } }, (typeof saleServiceWithAddOns === 'function')
+                  ? saleServiceWithAddOns(s, s._crmService || s.service_name || s.crm_subscription || '\u2014', ao, { size: 'clamp(12px, .95vw, 15px)', weight: '600', ok: BAND.green, bad: BAND.red, muted: T.dim })
+                  : (s._crmService || s.service_name || '\u2014'))),   // the service never truncates
                 cell('6', 1, sep()),
                 cell('7', 1, el('span', { style: big }, term), { minWidth: 'max-content' }),
                 cell('8', 1, src ? sep() : null),
                 cell('9', 1, src ? el('span', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.04em' } }, src) : null),
                 cell('1 / 4', 2, at ? when(at) : '—', small),
-                cell('5 / 10', 2, aoSpan, small));   // add-ons right under the service type (per Isaac, Oct 14)
+                null);   // (add-ons moved inline with the service, per Isaac, Oct 15)
             })(),
             figure(money(s.revenue_amount), 'clamp(17px, 1.5vw, 24px)', T.ink));
         }) : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'Nothing yet.')]))], { flex: '1' });
