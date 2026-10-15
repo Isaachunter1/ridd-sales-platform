@@ -4177,7 +4177,7 @@ function openIndicatorRepCard(rep, allReps = []) {
                     height: Math.max(2, Math.round((v.count / max) * 90)) + 'px',
                     background: v.count > 0 ? accent : 'var(--border)',
                     opacity: v.count > 0 ? (v.hour === tr.peakHour ? 1 : 0.85) : 0.4,
-                    outline: v.hour === tr.peakHour ? '2px solid var(--accent)' : 'none',
+                    // (No outline on the peak bar — it drew 2px outside the bar, so the peak sat lower/taller than the rest; per Isaac, Oct 15.)
                   },
                   onclick: v.count > 0 ? () => openChartDrill(_fmtHourLabel(v.hour) + '–' + _fmtHourLabel((v.hour + 1) % 24), _salesAtHour(v.hour)) : undefined,
                 });
@@ -4754,15 +4754,40 @@ function openIndicatorRepCard(rep, allReps = []) {
   // ── Render & re-render ──────────────────────────────────────────────────
   // Every sale in the card's date range (per Isaac, Oct 13) — always at the bottom, newest first, sortable, same
   // columns as the account drills. Follows the range picker at the top of the card.
+  // Add-ons this rep sold in the window (per Isaac, Oct 15) — FieldRoutes ticket-item add-ons credited to them,
+  // shown in the sales table as their own rows (the tiles keep the leaderboard's plan-only numbers).
+  function cardAddOnRows() {
+    const ids = new Set((rep.sales || []).map(x => String(x.repId || '')).filter(Boolean));
+    if (!ids.size) return [];
+    const b = getCardScopeBounds(cardScope);
+    const byCust = new Map((rep.sales || []).map(x => [String(x.customerId || ''), x]));
+    const src = (Array.isArray(state.addOns) && state.addOns.length) ? state.addOns : (state._tvAddOns || []);
+    return src.filter(a => a && !a.removed_at && ids.has(String(a.credited_employee_id || '')) && a.added_at).filter(a => {
+      if (!b) return true;
+      const d = new Date(String(a.added_at).slice(0, 10) + 'T00:00');
+      return d >= b.start && d <= b.end;
+    }).map(a => {
+      const parent = byCust.get(String(a.customer_id || '')) || {};
+      const [y, m, d] = String(a.added_at).slice(0, 10).split('-');
+      const rec = Number(a.recurring_amount) || 0;
+      return { _addOn: true, customer: parent.customer || '', customerId: a.customer_id || '', rep: parent.rep || rep.name,
+        subscription: 'ADD ON \u00b7 ' + (a.base_service ? a.base_service + ' + ' : '+ ') + (a.service_name || 'Add-on'),
+        dateSold: Number(m) + '/' + Number(d) + '/' + y + ' 00:00:00', initialPrice: a.initial_amount != null ? Number(a.initial_amount) || 0 : null,
+        recurring: rec * 12, contractValue: typeof addOnAnnualValue === 'function' ? addOnAnnualValue(a) : rec * 12,
+        autoPay: parent.autoPay || '', status: 'Active', age: null, cancelDate: '', cancelReason: '' };
+    });
+  }
   function salesListBlock() {
-    const list = (scopedRep.sales || []).slice().sort((a, b) => (b.dateSold || '').localeCompare(a.dateSold || ''));
+    const _ao = cardAddOnRows();
+    const list = [...(scopedRep.sales || []), ..._ao].sort((a, b) => ((typeof dateSoldToIso === 'function' && dateSoldToIso(b.dateSold)) || '').localeCompare((typeof dateSoldToIso === 'function' && dateSoldToIso(a.dateSold)) || ''));
     const preset = (typeof CARD_SCOPE_PRESETS !== 'undefined' && CARD_SCOPE_PRESETS.find(p => p.id === cardScope)) || null;
-    const total = list.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
+    const total = (scopedRep.sales || []).reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
+    const aoTotal = _ao.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
     return el('div', { class: 'card overflow-hidden mt-5' },
       el('div', { class: 'px-4 py-2.5 border-b flex items-center justify-between gap-2 flex-wrap', style: { borderColor: 'var(--border)' } },
         el('div', { class: 'text-sm font-bold' }, 'Sales · ' + (preset ? preset.label : 'selected range')),
         el('div', { class: 'flex items-center gap-2' },
-          el('span', { class: 'text-[11px] tabular-nums', style: { color: 'var(--text-muted)' } }, list.length.toLocaleString() + ' sale' + (list.length === 1 ? '' : 's') + ' · ' + fmt.usd0(total)),
+          el('span', { class: 'text-[11px] tabular-nums', style: { color: 'var(--text-muted)' } }, (scopedRep.sales || []).length.toLocaleString() + ' sale' + ((scopedRep.sales || []).length === 1 ? '' : 's') + ' · ' + fmt.usd0(total) + (_ao.length ? ' + ' + _ao.length + ' add-on' + (_ao.length === 1 ? '' : 's') + ' · ' + fmt.usd0(aoTotal) : '')),
           list.length ? el('button', { class: 'px-2.5 py-1 rounded border text-[11px] font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: () => exportDrillCsv(list) }, '↓ Export') : null)),
       list.length ? el('div', { style: { maxHeight: '480px', overflowY: 'auto' } }, accountsTable(list))
         : el('div', { class: 'p-4 text-center text-xs italic', style: { color: 'var(--text-muted)' } }, 'No sales in this range.'));
@@ -4806,7 +4831,7 @@ function openIndicatorRepCard(rep, allReps = []) {
     modal.append(
       header(),
       statsGrid(),
-      cardRevMode === 'peak' ? peakTable() : null,
+      ...(cardRevMode === 'peak' ? [peakTable()] : []),   // (modal.append prints a bare null as the text "null")
       recordsStrip(),
       (_calMode === 'calendar' ? sellDaysCalendarBlock() : dayHourHeatmapBlock()),
       trendsBlock(),
