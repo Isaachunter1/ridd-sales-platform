@@ -982,11 +982,18 @@ function adminGoals() {
   // editable per month, and feeds the IS pacer, dashboard, and Marketing tab.
   if (!Array.isArray(g.monthly_new)     || g.monthly_new.length     !== 12) g.monthly_new     = IS_SEASONAL.map(s => Math.round(g.new_amount * s));
   if (!Array.isArray(g.monthly_renewal) || g.monthly_renewal.length !== 12) g.monthly_renewal = IS_RENEWAL_SEASONAL.map(s => Math.round(g.renewal_amount * s));
-  // Keep annual + quarterly derived from the monthly grid so existing consumers
-  // (dashboard war-room, per-rep math) stay correct.
+  // Seasonal curves are the only monthly input (per Isaac, Oct 15): each month's % of the line's annual target.
+  // Monthly dollars = annual target × that month's % — derived, never typed. Seeded once from the stored
+  // monthly grid so today's curve carries over exactly.
+  const _seedCurve = (arr, def) => { const s = arr.reduce((a, b) => a + (b || 0), 0); return s > 0 ? arr.map(v => (v || 0) / s) : def.slice(); };
+  if (!Array.isArray(g.curve_new) || g.curve_new.length !== 12) { g.new_amount = g.monthly_new.reduce((a, b) => a + (b || 0), 0) || g.new_amount || 0; g.curve_new = _seedCurve(g.monthly_new, IS_SEASONAL); }
+  if (!Array.isArray(g.curve_renewal) || g.curve_renewal.length !== 12) { g.renewal_amount = g.monthly_renewal.reduce((a, b) => a + (b || 0), 0) || g.renewal_amount || 0; g.curve_renewal = _seedCurve(g.monthly_renewal, IS_RENEWAL_SEASONAL); }
+  // Annual targets stay as set; the monthly grid + quarterly roll-ups follow the curves so existing
+  // consumers (IS pacer, dashboard war-room, per-rep math, Marketing) keep reading monthly_new / monthly_renewal.
   const syncDerived = () => {
-    g.new_amount     = g.monthly_new.reduce((a, b) => a + (b || 0), 0);
-    g.renewal_amount = g.monthly_renewal.reduce((a, b) => a + (b || 0), 0);
+    g.new_amount = Number(g.new_amount) || 0; g.renewal_amount = Number(g.renewal_amount) || 0;
+    g.monthly_new     = g.curve_new.map(c => Math.round(g.new_amount * (Number(c) || 0)));
+    g.monthly_renewal = g.curve_renewal.map(c => Math.round(g.renewal_amount * (Number(c) || 0)));
     g.amount = g.new_amount + g.renewal_amount;
     const qsum = (arr, q) => (arr[q*3]||0) + (arr[q*3+1]||0) + (arr[q*3+2]||0);
     g.quarterly_new     = [0,1,2,3].map(q => qsum(g.monthly_new, q));
@@ -997,11 +1004,9 @@ function adminGoals() {
   };
   syncDerived();
   const persist = () => { syncDerived(); saveDemoData(); saveDeptGoal(dept.id); };
-  // Re-spread an annual total across the 12 months via the matching seasonal curve.
+  // New annual target → the months re-spread on the line's own curve (its shape is kept).
   const reseed = (which, annual) => {
-    const curve = which === 'new' ? IS_SEASONAL : IS_RENEWAL_SEASONAL;
-    const arr = curve.map(s => Math.round(annual * s));
-    if (which === 'new') g.monthly_new = arr; else g.monthly_renewal = arr;
+    if (which === 'new') g.new_amount = Number(annual) || 0; else g.renewal_amount = Number(annual) || 0;
     persist(); mountApp();
   };
   // YTD actuals only exist for the office-staff goal today (the CRM pool the
@@ -1049,11 +1054,7 @@ function goalMonthlyCard(g, persist, dept) {
   const months = phone ? [state._goalMonth] : M.map((_, i) => i);
   const quarters = phone ? [Math.floor(state._goalMonth / 3)] : [0, 1, 2, 3];
   if (!window.__goalGridResize) { window.__goalGridResize = true; let _t; window.addEventListener('resize', () => { clearTimeout(_t); _t = setTimeout(() => { if (state.view === 'admin') mountApp(); }, 200); }); }
-  const cell = (arr, m) => el('input', {
-    type: 'text', inputmode: 'numeric', value: Math.round(arr[m] || 0).toLocaleString(),
-    class: 'text-left text-[11px] rounded border px-1.5 py-1 tabular-nums', style: { borderColor: 'var(--border-2)', width: '100%', minWidth: '0' },
-    onchange: (e) => { arr[m] = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); mountApp(); },
-  });
+  // (Monthly $ inputs retired — per Isaac, Oct 15: the curves are the only monthly input.)
   // Editable seasonal curve %: each month's share of its line's annual total.
   // Editing reshapes the curve while HOLDING that line's annual total fixed —
   // the edited month takes the new %, the other months rescale proportionally.
@@ -1067,15 +1068,16 @@ function goalMonthlyCard(g, persist, dept) {
     if (otherSum > 0) { const f = remain / otherSum; for (let i = 0; i < arr.length; i++) if (i !== m) arr[i] = (arr[i] || 0) * f; }
     else { const each = remain / (arr.length - 1); for (let i = 0; i < arr.length; i++) if (i !== m) arr[i] = each; }
   };
-  const curveCell = (arr, m) => {
-    const tot = arr.reduce((a, b) => a + (b || 0), 0);
-    const pct = tot > 0 ? (arr[m] || 0) / tot * 100 : 0;
-    return el('input', {
-      type: 'text', inputmode: 'decimal', value: pct.toFixed(1) + '%',
-      class: 'text-left text-[11px] rounded border px-1.5 py-1 tabular-nums', style: { borderColor: 'var(--border-2)', width: '100%', minWidth: '0' },
-      onchange: (e) => { reshapeCurve(arr, m, (parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0) / 100); persist(); mountApp(); },
-    });
-  };
+  // Curve % input (per Isaac, Oct 15): sets just that month — nothing else rescales, so the Year column is the
+  // plain sum of the twelve and turns red until it's back to 100%.
+  const curveCell = (curve, m) => el('input', {
+    type: 'text', inputmode: 'decimal', value: ((Number(curve[m]) || 0) * 100).toFixed(1) + '%',
+    class: 'text-left text-[11px] rounded border px-1.5 py-1 tabular-nums', style: { borderColor: 'var(--border-2)', width: '100%', minWidth: '0' },
+    onchange: (e) => { const v = parseFloat(String(e.target.value).replace(/[^0-9.]/g, '')); curve[m] = Math.max(0, Math.min(100, Number.isFinite(v) ? v : 0)) / 100; persist(); mountApp(); },
+  });
+  const curveSum = (curve) => curve.reduce((a, c) => a + (Number(c) || 0), 0) * 100;
+  const sumCell = (pct) => { const off = Math.abs(pct - 100) >= 0.05;
+    return el('span', { style: off ? { color: '#DC2626' } : {}, title: off ? 'The months add up to ' + pct.toFixed(1) + '% \u2014 they need to total 100%' : 'Adds up to 100%' }, pct.toFixed(1) + '%'); };
   const totNew = g.monthly_new.reduce((a, b) => a + (b || 0), 0);
   const totRen = g.monthly_renewal.reduce((a, b) => a + (b || 0), 0);
   const repsA = (q) => Math.max(1, Number(g.is_reps_q[q]) || 1), repsB = (q) => Math.max(1, Number(g.loyalty_reps_q[q]) || 1);
@@ -1093,7 +1095,7 @@ function goalMonthlyCard(g, persist, dept) {
         onchange: (e) => { state._goalMonth = Number(e.target.value); mountApp(); } },
         ...M.map((lbl, m) => el('option', { value: m, selected: m === state._goalMonth }, lbl + (m === curM ? ' (current)' : '')))) : null,
       el('button', { class: 'text-[11px] rounded px-2.5 py-1 border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-        onclick: () => { g.monthly_new = IS_SEASONAL.map(s => Math.round(g.new_amount * s)); g.monthly_renewal = IS_RENEWAL_SEASONAL.map(s => Math.round(g.renewal_amount * s)); persist(); mountApp(); } },
+        onclick: () => { g.curve_new = IS_SEASONAL.slice(); g.curve_renewal = IS_RENEWAL_SEASONAL.slice(); persist(); mountApp(); } },
         '↻ Reset to default curve')),
     // Transposed (per Isaac, Sep 22): months across the top, one row per line
     // — the curve reads left-to-right as a curve. Inputs stay editable in place.
@@ -1106,11 +1108,11 @@ function goalMonthlyCard(g, persist, dept) {
             el('th', { class: 'text-left px-2 py-2 font-semibold whitespace-nowrap', style: { borderLeft: '2px solid var(--border)' } }, 'Year'))),
         el('tbody', {},
           ...[
-            [N.curveA || (lineA + ' curve %'), (m) => curveCell(g.monthly_new, m),                        '100%',                 false],
-            [N.revA || lineA, (m) => cell(g.monthly_new, m),                             usd(totNew),            true],
+            [N.curveA || (lineA + ' curve %'), (m) => curveCell(g.curve_new, m),                          sumCell(curveSum(g.curve_new)), false],
+            [N.revA || lineA, (m) => usd(g.monthly_new[m] || 0),                         usd(totNew),            true],
             [N.perA || (lineA + ' /rep'), (m) => usd((g.monthly_new[m] || 0) / repsA(qOf(m))),         usd(totNew / yrA),      false],
-            [N.curveB || (lineB + ' curve %'), (m) => curveCell(g.monthly_renewal, m),                  '100%',                 false],
-            [N.revB || lineB, (m) => cell(g.monthly_renewal, m),                         usd(totRen),            true],
+            [N.curveB || (lineB + ' curve %'), (m) => curveCell(g.curve_renewal, m),                    sumCell(curveSum(g.curve_renewal)), false],
+            [N.revB || lineB, (m) => usd(g.monthly_renewal[m] || 0),                     usd(totRen),            true],
             [N.perB || (lineB + ' /rep'), (m) => usd((g.monthly_renewal[m] || 0) / repsB(qOf(m))),     usd(totRen / yrB),      false],
             [N.total || 'Total', (m) => usd((g.monthly_new[m] || 0) + (g.monthly_renewal[m] || 0)), usd(totNew + totRen), true],
           ].map(([label, cellOf, yearVal, bold], ri) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: label === 'Total' ? 'var(--card-2)' : 'transparent', borderTop: label === 'Total' ? '2px solid var(--border)' : undefined } },
@@ -1127,11 +1129,11 @@ function goalMonthlyCard(g, persist, dept) {
             const qn = [0, 1, 2, 3].map(q => qsum(g.monthly_new, q)), qr = [0, 1, 2, 3].map(q => qsum(g.monthly_renewal, q));
             const pctOf = (a, t) => (t > 0 ? (a / t * 100).toFixed(1) : '0.0') + '%';   // = the three months' curve % added up
             const rows = [
-              [N.qPctA || (lineA + ' quarterly %'), q => pctOf(qn[q], totNew), '100%', false],
+              [N.qPctA || (lineA + ' quarterly %'), q => (((Number(g.curve_new[q * 3]) || 0) + (Number(g.curve_new[q * 3 + 1]) || 0) + (Number(g.curve_new[q * 3 + 2]) || 0)) * 100).toFixed(1) + '%', sumCell(curveSum(g.curve_new)), false],
               [N.qA || (lineA + ' quarterly'), q => usd(qn[q]), usd(totNew), true],
               [N.repsA || dept.reps.a, q => repCell(g.is_reps_q, q), (Math.round(yrA * 10) / 10) + ' avg', false],
               [N.quotaA || (lineA + ' /rep quota'), q => usd(qn[q] / repsA(q)), usd(totNew / yrA), true],
-              [N.qPctB || (lineB + ' quarterly %'), q => pctOf(qr[q], totRen), '100%', false],
+              [N.qPctB || (lineB + ' quarterly %'), q => (((Number(g.curve_renewal[q * 3]) || 0) + (Number(g.curve_renewal[q * 3 + 1]) || 0) + (Number(g.curve_renewal[q * 3 + 2]) || 0)) * 100).toFixed(1) + '%', sumCell(curveSum(g.curve_renewal)), false],
               [N.qB || (lineB + ' quarterly'), q => usd(qr[q]), usd(totRen), true],
               [N.repsB || dept.reps.b, q => repCell(g.loyalty_reps_q, q), (Math.round(yrB * 10) / 10) + ' avg', false],
               [N.quotaB || (lineB + ' /rep quota'), q => usd(qr[q] / repsB(q)), usd(totRen / yrB), true],
