@@ -2459,29 +2459,21 @@ async function slackPaystubPdfs(stubs, period, saleById) {
   if (typeof logActivity === 'function') logActivity('slack_dm_sent', { new_status: 'paystub_upfront_pdf', detail: period.label + ' · ' + sent + ' sent · ' + skipped + ' without Slack · ' + failed + ' failed' + (errs.length ? ' — ' + errs.slice(0, 3).join('; ') : '') });
   return { sent, skipped, failed, errs };
 }
-function openPayrollRun(rows) {
-  const today = new Date();
-  const period = getPayPeriods(today.getFullYear()).find(p => p.id === currentPayPeriodId(today.getFullYear())) || getPayPeriods(today.getFullYear())[0];
-  const sales = payrollRunCandidates(rows);
-  const held = (rows || []).filter(s => (s.audit_status === 'serviced' || s.audit_status === 'below_minimums') && !s.payroll_processed_at && !s.rep_id);
-  const byRep = new Map(); sales.forEach(s => { if (!byRep.has(s.rep_id)) byRep.set(s.rep_id, []); byRep.get(s.rep_id).push(s); });
-  const stubs = [...byRep.entries()].map(([rid, list]) => payrollRunStub(rid, list, period)).sort((a, b) => b.total - a.total);
-  const grand = stubs.reduce((a, x) => a + x.total, 0);
-  const saleById = new Map(sales.map(s => [s.id, s]));
+// The pay stub card (per Isaac, Oct 15) — shared by Run payroll and the Office Staff Pay tab's live stub.
+// opts: { label } replaces 'Pay stub · <period>' in the header; { note } adds a line under the footnote.
+function payStubCard(x, period, saleById, opts = {}) {
   const money = (v) => fmt.usd(Math.round((Number(v) || 0) * 100) / 100);
-  const pct = (v) => v == null ? '—' : Math.round(v * 100) + '%';
-  const back = el('div', { style: { position: 'fixed', inset: '0', zIndex: '9000', background: 'var(--bg)', overflowY: 'auto' } });
-  const close = () => back.remove();
+  const pct = (v) => v == null ? '\u2014' : Math.round(v * 100) + '%';
   const th = (t, right) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
   const td = (t, right, extra) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: extra || {} }, t);
-  const stubCard = (x) => {
+  {
     const ownLines = x.lines.map(l => ({ l, s: saleById.get(l.sale_id) || {} }));
     return el('div', { class: 'card overflow-hidden', style: { breakInside: 'avoid' } },
       // Header bar — the same dark band the Pay tab's stub uses.
       el('div', { class: 'flex items-center justify-between px-4 py-2.5', style: { background: 'var(--text)', color: 'var(--card)' } },
         el('div', { class: 'flex items-center gap-2' }, avatarNode(x.prof.avatar_url, x.prof.initials, 'w-7 h-7 text-[10px]'),
           el('div', {}, el('div', { class: 'text-sm font-black uppercase tracking-wide' }, x.prof.full_name || 'Rep'),
-            el('div', { class: 'text-[10px] uppercase tracking-widest', style: { opacity: '.7' } }, 'Pay stub · ' + period.label))),
+            el('div', { class: 'text-[10px] uppercase tracking-widest', style: { opacity: '.7' } }, (opts.label || ('Pay stub · ' + period.label))))),
         el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest', style: { opacity: '.7' } }, 'Total pay'),
           el('div', { class: 'text-xl font-black tabular-nums' }, money(x.total)))),
       // How it was earned, in one line.
@@ -2506,8 +2498,26 @@ function openPayrollRun(rows) {
           ...x.extras.map(([k, v]) => el('tr', { class: 'border-t border-' }, td(k), td(''), td(''), td(''), td(''), td(''), td(''), td(money(v), 1))),
           el('tr', { style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, td('Total pay', 0, { fontWeight: '800' }), td(''), td(''), td(''), td(''), td(''), td(''), td(money(x.total), 1, { fontWeight: '800' }))))),
       el('div', { class: 'px-4 py-2 text-[10px] text-muted-' },
-        'Commission = revenue × the rep’s commission rate for that contract (renewals pay the flat renewal amount; Below Minimums pays half), then × the Passed Audit tier for the period (Sentricon, add-ons and renewals pay 100%). Backend (multi-year / renewal) pays at the backend lock, not on this stub.'));
-  };
+        'Commission = revenue × the rep’s commission rate for that contract (renewals pay the flat renewal amount; Below Minimums pays half), then × the Passed Audit tier for the period (Sentricon, add-ons and renewals pay 100%). Backend (multi-year / renewal) pays at the backend lock, not on this stub.'),
+      opts.note ? el('div', { class: 'px-4 pb-2 text-[10px]', style: { color: 'var(--text-subtle)' } }, opts.note) : null);
+  }
+}
+function openPayrollRun(rows) {
+  const today = new Date();
+  const period = getPayPeriods(today.getFullYear()).find(p => p.id === currentPayPeriodId(today.getFullYear())) || getPayPeriods(today.getFullYear())[0];
+  const sales = payrollRunCandidates(rows);
+  const held = (rows || []).filter(s => (s.audit_status === 'serviced' || s.audit_status === 'below_minimums') && !s.payroll_processed_at && !s.rep_id);
+  const byRep = new Map(); sales.forEach(s => { if (!byRep.has(s.rep_id)) byRep.set(s.rep_id, []); byRep.get(s.rep_id).push(s); });
+  const stubs = [...byRep.entries()].map(([rid, list]) => payrollRunStub(rid, list, period)).sort((a, b) => b.total - a.total);
+  const grand = stubs.reduce((a, x) => a + x.total, 0);
+  const saleById = new Map(sales.map(s => [s.id, s]));
+  const money = (v) => fmt.usd(Math.round((Number(v) || 0) * 100) / 100);
+  const pct = (v) => v == null ? '—' : Math.round(v * 100) + '%';
+  const back = el('div', { style: { position: 'fixed', inset: '0', zIndex: '9000', background: 'var(--bg)', overflowY: 'auto' } });
+  const close = () => back.remove();
+  const th = (t, right) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
+  const td = (t, right, extra) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: extra || {} }, t);
+  const stubCard = (x) => payStubCard(x, period, saleById);
   let busy = false;
   const confirmBtn = el('button', { class: 'rounded-lg px-4 py-2 text-sm font-bold transition hover:brightness-95', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
     disabled: !sales.length,
