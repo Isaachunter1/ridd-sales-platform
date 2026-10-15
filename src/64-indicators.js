@@ -3799,7 +3799,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     ];
 
     // Compact dropdown used in the card header.
-    const _recSel = (val, opts, on) => el('select', { class: 'rounded-lg border text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', padding: '4px 6px', maxWidth: '104px' },
+    // Phone (per Isaac, Oct 15): four compact selects on the SAME row as the title — short labels, tight padding.
+    const _recSel = (val, opts, on) => el('select', { class: 'rounded-lg border text-[11px] font-semibold cursor-pointer', style: _recPhone ? { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', padding: '2px 16px 2px 6px', fontSize: '11px', minWidth: '0', flex: '0 1 auto', maxWidth: '72px', backgroundPosition: 'right 5px center' } : { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', padding: '4px 6px', maxWidth: '104px' },
       onchange: (e) => { on(e.target.value); mountApp(); } }, ...opts.map(([v, l]) => el('option', { value: v, selected: v === val }, l)));
     const metricToggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
       ...[
@@ -3821,19 +3822,19 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         onclick: () => { state._aggRecordsAudit = id; mountApp(); },
       }, label)));
     return el('div', { class: 'card overflow-hidden', 'data-section': 'agg-records' },
-      el('div', { class: 'px-5 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-        el('div', { class: 'flex items-center gap-3 flex-wrap' },
+      el('div', { class: (_recPhone ? 'px-4' : 'px-5') + ' py-3 border-b flex items-center justify-between gap-3' + (_recPhone ? '' : ' flex-wrap'), style: { borderColor: 'var(--border)', ...(_recPhone ? { gap: '8px' } : {}) } },
+        el('div', { class: 'flex items-center gap-3 flex-wrap', style: _recPhone ? { flex: 'none' } : {} },
           el('h3', { class: 'text-base font-bold' }, 'Records'),
           _recPhone ? null : el('span', { class: 'text-[11px] text-muted-' }, 'Click any row to see the top 10 per category'),
         ),
         _recPhone
           // Phone (per Isaac, Oct 4): no description, no date-range line — three
           // compact dropdowns beside the title: Year · Revenue/Sales · record.
-          ? el('div', { class: 'flex items-center gap-1.5', style: { flexWrap: 'nowrap' } },
-              _recSel(_recYear, [...[...new Set([String(new Date().getFullYear()), ..._recYears])].map(y => [y, y]), ['all', 'All time']], (v) => { state._aggRecordsYear = v; }),
-              _recSel(byMetric, [['revenue', 'Revenue'], ['count', 'Sales']], (v) => { state._aggRecordsMetric = v; }),
-              _recSel(_recAudit, [['all', 'All audits'], ['passed', 'Passed only']], (v) => { state._aggRecordsAudit = v; }),
-              _recSel(_recPeriod, [['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['year', 'Year'], ['pra', 'PRA day']], (v) => { state._aggRecordsPeriod = v; }))
+          ? el('div', { class: 'flex items-center', style: { flexWrap: 'nowrap', gap: '4px', minWidth: '0', justifyContent: 'flex-end' } },
+              _recSel(_recYear, [...[...new Set([String(new Date().getFullYear()), ..._recYears])].map(y => [y, y]), ['all', 'All']], (v) => { state._aggRecordsYear = v; }),
+              _recSel(byMetric, [['revenue', 'Rev'], ['count', 'Sales']], (v) => { state._aggRecordsMetric = v; }),
+              _recSel(_recAudit, [['all', 'All'], ['passed', 'Passed']], (v) => { state._aggRecordsAudit = v; }),
+              _recSel(_recPeriod, [['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['year', 'Year'], ['pra', 'PRA']], (v) => { state._aggRecordsPeriod = v; }))
           : el('div', { class: 'flex items-center gap-3 flex-wrap' },
               _recSel(_recYear, [...[...new Set([String(new Date().getFullYear()), ..._recYears])].map(y => [y, y]), ['all', 'All time']], (v) => { state._aggRecordsYear = v; }),
               metricToggle,
@@ -4420,6 +4421,12 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     record: 'Your best single day, week or month in the range (pick which in the column header).',
   })[k] || '';
   const _lbPickable = repCols.filter(c => c.key !== 'name');
+  // Phone stat picker (per Isaac, Oct 15): one stat per rep card, default Days w/ a Sale.
+  const _lbPhoneCols = (() => { const seen = new Set(); return _lbPickable.filter(c => { if (c.key === 'team' || RECORD_SORT_KEYS.has(c.key) || seen.has(c.key)) return false; seen.add(c.key); return true; }); })();
+  if (state._lbPhoneCol == null) { try { state._lbPhoneCol = localStorage.getItem('ridd_lb_phone_col') || ''; } catch (e) { state._lbPhoneCol = ''; } }
+  const _lbPhoneColKey = _lbPhoneCols.some(c => c.key === state._lbPhoneCol) ? state._lbPhoneCol : 'sellingDays';
+  const _lbPhoneCol = _lbPhoneCols.find(c => c.key === _lbPhoneColKey) || null;
+  const _lbPhoneVal = (r) => { try { const td = _lbPhoneCol.cell(r); return String((td && td.textContent) || '').trim() || '\u2014'; } catch (e) { return '\u2014'; } };
   const _lbOnSet = new Set(state._indLbColsOn);
   // _lbOff = every column NOT showing (user-unticked + default-hidden not ticked on).
   const _lbOff = new Set([...state._indLbColsOff, ..._lbPickable.filter(c => c.defaultHidden && !_lbOnSet.has(_lbColKey(c))).map(_lbColKey)]);
@@ -4708,6 +4715,13 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           })(),
           // Columns — per-user show / hide (see _lbPickable above).
           (() => {
+            // Phone (per Isaac, Oct 15): the cards show ONE stat under each rep, so Columns is a plain
+            // dropdown that picks which stat that is — not the desktop show/hide checklist.
+            if (_lbPhone) return el('select', {
+              class: 'rounded-lg border ' + _lbBtnPad + ' py-1 text-[11px] font-semibold cursor-pointer', title: 'Which stat each rep card shows',
+              style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', maxWidth: '130px' },
+              onchange: (e) => { state._lbPhoneCol = e.target.value; try { localStorage.setItem('ridd_lb_phone_col', e.target.value); } catch (er) { /* session only */ } mountApp(); },
+            }, ..._lbPhoneCols.map(c => el('option', { value: c.key, selected: c.key === _lbPhoneColKey }, _lbColLabel(c))));
             const offN = _lbPickable.filter(c => !c.defaultHidden && _lbOff.has(_lbColKey(c))).length;
             const open = !!state._indLbColsOpen;
             const btn = el('button', {
@@ -5112,7 +5126,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 // Second line: Days w/ a Sale on the left, sales · $/day on the
                 // right (per Isaac — the stat used to sit a full line lower).
                 el('div', { class: 'flex items-baseline justify-between gap-2 mt-0.5' },
-                  indOneDayRange()
+                  (_lbPhoneCol && _lbPhoneColKey !== 'sellingDays')
+                    ? el('span', { class: 'text-[10px]' }, iv(_lbColLabel(_lbPhoneCol) + ':', _lbPhoneVal(r)))   // the stat picked in the phone Columns dropdown
+                    : indOneDayRange()
                     ? el('span', { class: 'text-[10px]' }, iv('Avg sale:', r.count ? fmt.usd0((Number(r.revenue) || 0) / r.count) : '—'))
                     : el('span', { class: 'text-[10px]' }, iv('Days w/ a Sale:', fmt.int(r.sellingDays || 0))),
                   el('span', { class: 'shrink-0 text-[11px] text-muted-' },
