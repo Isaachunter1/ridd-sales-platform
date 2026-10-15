@@ -2225,7 +2225,9 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
             // Paid since the sale (per Isaac, Oct 15) — the customer's first real payment on/after this sale.
             s.crm_paid_since_sale === true ? el('span', { style: { marginLeft: '12px', color: ok, fontWeight: '600' }, title: 'A successful payment on the account since this sale' }, '\u{1F4B3} Paid' + (s.crm_paid_at ? ' ' + fmt.dateShort(s.crm_paid_at) : ''))
               : s.crm_paid_since_sale === false ? el('span', { style: { marginLeft: '12px', color: bad, fontWeight: '700' }, title: 'Card declined since this sale and nothing has gone through' }, '\u{1F4B3} Declined' + (s.crm_declined_at ? ' ' + fmt.dateShort(s.crm_declined_at) : ''))
-              : el('span', { style: { marginLeft: '12px', color: 'var(--text-subtle)' }, title: 'No payment on the account since this sale yet' }, '\u{1F4B3} No payment yet')), small)),
+              : el('span', { style: { marginLeft: '12px', color: 'var(--text-subtle)' }, title: 'No payment on the account since this sale yet' }, '\u{1F4B3} No payment yet'),
+            // Below the pricing minimum (Configurations → Pricing minimums), per Isaac, Oct 15.
+            s.crm_below_min ? el('span', { style: { marginLeft: '12px', color: SALE_STATUS_COLOR.below_minimums, fontWeight: '700' }, title: 'Under the pricing minimum in Configurations \u2192 Pricing minimums' }, '\u26A0 Below min: ' + s.crm_below_min) : null), small)),
         el('div', { class: 'text-right tabular-nums font-semibold', style: { fontSize: '17px' },
           title: s.commission_split ? 'Commissionable ' + fmt.usd(s.revenue_amount) + ' of ' + fmt.usd(s.total_revenue) + ' on the account' : '' },
           fmt.usd0 ? fmt.usd0(s.revenue_amount) : fmt.usd(s.revenue_amount),

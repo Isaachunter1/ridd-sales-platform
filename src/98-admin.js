@@ -624,6 +624,42 @@ function adminConfigurations(part) {
       // Non-commissionable sellers (per Isaac, Oct 15): their sales never show on the Sales tab.
       row('Non-commissionable sellers', txt((typeof nonCommSellers === 'function' ? nonCommSellers() : ['RIDD Account']).join(', '), (v) => { const list = String(v || '').split(',').map(x => x.trim()).filter(Boolean); if (typeof setNonCommSellers === 'function') setNonCommSellers(list); mountApp(); }, { placeholder: 'RIDD Account, …', width: '220px' }),
         { desc: 'House or system logins that never earn commission — their sales stay off the Sales tab. Comma-separated names, any order (Account, RIDD = RIDD Account).' }),
+      // Pricing minimums (per Isaac, Oct 15): a sale is Below Minimums when its initial OR recurring
+      // price is a cent under these. Promotions change them, so they live here (autolog.pricing).
+      sub('Pricing minimums'),
+      ...(() => {
+        const PR = Object.assign({ initial_min: 39, fee: 0, auto: false }, AL.pricing || {});
+        const PL = Object.assign({ pest: [49, 69, 119], rodent: [49, 69, 119], mole: [69, 89, 139], mosquito: [69, 89, 139] }, PR.plans || {});
+        const TM = Object.assign({ initial: 399, recurring: 29 }, PR.termite || {});
+        const OT = Object.assign({ 'mosquito': [199, 99], 'pest': [199, 99], 'termite inspection': [199, 99], 'rodent': [249, 149], 'german roach': [299, 199], 'interior flea': [299, 199], 'vehicle': [199, 199] }, PR.one_time || {});
+        const savePR = (patch, what) => { saveAL({ pricing: Object.assign({}, PR, patch) }); logActivity('config_change', { detail: 'Pricing minimums: ' + what }); };
+        const money = (v, onSave) => el('span', { class: 'inline-flex items-center text-[11px]', style: { gap: '3px' } }, '$',
+          el('input', { type: 'text', inputmode: 'decimal', value: String(v), class: 'rounded-lg border px-2 py-1 text-[11px] tabular-nums', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '64px', textAlign: 'right' },
+            onchange: (e) => { const n = parseFloat(String(e.target.value).replace(/[^0-9.]/g, '')); if (!isNaN(n) && n >= 0) onSave(n); } }));
+        const cellTh = (t, al) => el('th', { class: 'px-2 py-1.5 text-[10px] uppercase tracking-wider font-semibold ' + (al || 'text-left'), style: { color: 'var(--text-muted)' } }, t);
+        const plansTable = el('div', { class: 'overflow-x-auto py-1.5' }, el('table', { class: 'w-full text-[11px]' },
+          el('thead', {}, el('tr', { style: { background: 'var(--card-2)' } }, cellTh('Base plan (recurring, per service)'), cellTh('4 · Quarterly', 'text-right'), cellTh('6 · Bi-monthly', 'text-right'), cellTh('12 · Monthly', 'text-right'))),
+          el('tbody', {}, ...[['pest', 'Pest'], ['rodent', 'Rodent'], ['mole', 'Mole'], ['mosquito', 'Mosquito']].map(([k, lbl]) => el('tr', { style: { borderTop: '1px solid var(--border)' } },
+            el('td', { class: 'px-2 py-1.5 font-semibold' }, lbl),
+            ...[0, 1, 2].map(i => el('td', { class: 'px-2 py-1 text-right' }, money(PL[k][i], (n) => { const row = PL[k].slice(); row[i] = n; savePR({ plans: Object.assign({}, PL, { [k]: row }) }, lbl + ' ' + [4, 6, 12][i] + ' = $' + n); }))))))));
+        const otTable = el('div', { class: 'overflow-x-auto py-1.5' }, el('table', { class: 'w-full text-[11px]' },
+          el('thead', {}, el('tr', { style: { background: 'var(--card-2)' } }, cellTh('One-time service'), cellTh('New customer', 'text-right'), cellTh('Current customer', 'text-right'))),
+          el('tbody', {}, ...Object.keys(OT).map(k => el('tr', { style: { borderTop: '1px solid var(--border)' } },
+            el('td', { class: 'px-2 py-1.5 font-semibold', style: { textTransform: 'capitalize' } }, 'One Time ' + k),
+            ...[0, 1].map(i => el('td', { class: 'px-2 py-1 text-right' }, money(OT[k][i], (n) => { const row = OT[k].slice(); row[i] = n; savePR({ one_time: Object.assign({}, OT, { [k]: row }) }, 'One Time ' + k + (i ? ' current' : ' new') + ' = $' + n); }))))))));
+        return [
+          row('Set Below Minimums automatically', sw(!!PR.auto, () => savePR({ auto: !PR.auto }, PR.auto ? 'auto off' : 'auto on')),
+            { desc: 'When auto-approve runs, a sale under any minimum here is approved as Below Minimums instead of Commissionable. Off = the reason still shows on the Sales tab row; an auditor decides.' }),
+          row('Initial minimum (base plans)', money(PR.initial_min, (n) => savePR({ initial_min: n }, 'initial = $' + n)), { desc: 'Changes with promotions. Applies to Pest, Rodent, Mole and Mosquito plans.' }),
+          plansTable,
+          row('Termite (annual)', [el('span', { class: 'text-[11px] text-muted-' }, 'initial'), money(TM.initial, (n) => savePR({ termite: Object.assign({}, TM, { initial: n }) }, 'termite initial = $' + n)),
+            el('span', { class: 'text-[11px] text-muted-' }, 'recurring'), money(TM.recurring, (n) => savePR({ termite: Object.assign({}, TM, { recurring: n }) }, 'termite recurring = $' + n))]),
+          otTable,
+          row('Fee included in the recurring charge', money(PR.fee, (n) => savePR({ fee: n }, 'fee = $' + n)),
+            { desc: 'Subtracted from FieldRoutes’ recurring charge before comparing (0 = compare the charge as-is).' }),
+          el('div', { class: 'text-[11px] py-1.5', style: { color: 'var(--text-subtle)', lineHeight: '1.4' } }, 'Checked: Pest / Rodent / Mole / Mosquito 4 · 6 · 12, Termite, and one-time services (the Current Customer price needs a completed service on the account before the sale). Not checked: legacy bundles, Sentricon, add-ons and renewals.'),
+        ];
+      })(),
       false && row('Auto-approve upfront commission', sw(!!AL.auto_approve, () => saveAL({ auto_approve: !AL.auto_approve })), { desc: 'Approve upfront pay automatically once the rules below hold.', tip: 'Approved automatically once the Upfront Commission Approval guard rails for the rep type hold (and no Failed Audit flag). Off = an auditor clicks Approve.' }),
       // Backend lock guard rails per rep type (per Isaac, Sep 23): the account
       // stays pending until every indication holds. AL.backend[office|tech].

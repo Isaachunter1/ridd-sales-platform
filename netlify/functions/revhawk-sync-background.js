@@ -1740,6 +1740,7 @@ exports.handler = async (event) => {
         // within the auto-approve scope a declined-and-never-paid Pending sale goes to NSF,
         // and an auto-NSF that later pays goes back to Pending. A manual NSF is never undone.
         const paidSince = new Map();   // sale id → { paid, paidAt, declinedAt }
+        const nsfNow = new Set();      // set to NSF this run — the approval pass below must not overwrite it
         try {
           const _from = (/^\d{4}-\d{2}-\d{2}$/.test(String(AL2.auto_approve_from || '')) ? String(AL2.auto_approve_from) : '2026-10-12');
           const { data: pc, error: pe } = await supabase.from('sales')
@@ -1747,8 +1748,9 @@ exports.handler = async (event) => {
             .gte('sold_date', _from).is('payroll_processed_at', null).in('audit_status', ['pending', 'nsf', 'serviced', 'below_minimums']);
           if (pe) throw new Error(pe.message);
           const RECHECK = 3 * 3600000;
+          // Declined / NSF rows are re-checked every run so they flip back as soon as the customer pays.
           const due = (pc || []).filter(x => x.customer_number && x.crm_paid_since_sale !== true
-            && (!x.crm_payment_checked_at || (today - Date.parse(x.crm_payment_checked_at)) > RECHECK));
+            && (x.audit_status === 'nsf' || x.crm_paid_since_sale === false || !x.crm_payment_checked_at || (today - Date.parse(x.crm_payment_checked_at)) > RECHECK));
           if (due.length) {
             const tokPay = await getAccessToken();
             const TP = '`' + PROJECT + '.' + DATASET + '.FieldRoutesPayment`';
@@ -1778,9 +1780,9 @@ QUALIFY ROW_NUMBER() OVER (PARTITION BY fieldRoutes_paymentID ORDER BY updatedAt
               const inScope = _autoApproveOn(x);
               const autoNsf = /Auto: NSF/.test(String(x.notes || ''));
               if (inScope && x.audit_status === 'pending' && !v.paid && v.declinedAt) {
-                upd.audit_status = 'nsf'; upd.audited_at = stamp;
+                upd.audit_status = 'nsf'; upd.audited_at = stamp; nsfNow.add(x.id);
                 upd.notes = ((x.notes || '') + ' · Auto: NSF — card declined ' + v.declinedAt + ', no payment since the sale').trim();
-              } else if (x.audit_status === 'nsf' && autoNsf && v.paid) {
+              } else if (x.audit_status === 'nsf' && v.paid && (autoNsf || inScope)) {   // per Isaac: NSF flips back as soon as they pay
                 upd.audit_status = 'pending'; upd.audited_at = null;
                 upd.notes = ((x.notes || '') + ' · Auto: paid ' + v.paidAt + ' — back to Pending').trim();
               }
@@ -1792,6 +1794,65 @@ QUALIFY ROW_NUMBER() OVER (PARTITION BY fieldRoutes_paymentID ORDER BY updatedAt
           }
           (pc || []).forEach(x => { if (x.crm_paid_since_sale === true && !paidSince.has(x.id)) paidSince.set(x.id, { paid: true }); });
         } catch (pe) { console.warn('[revhawk-sync] paid-since-sale skipped (run migrations/20261015d_sales_paid_since_sale.sql?):', String((pe && pe.message) || pe).slice(0, 200)); }
+        // ── Pricing minimums (per Isaac, Oct 15): a base plan is Below Minimums when EITHER its
+        // initial or its recurring charge is even a cent under the minimum in Configurations →
+        // Pricing minimums (autolog.pricing). The new lineup only: Pest / Rodent / Mole / Mosquito
+        // 4 · 6 · 12 and Termite (annual). Legacy bundles, Sentricon, one-time services, add-ons
+        // and renewals aren't checked — an auditor decides those.
+        const PR = Object.assign({ initial_min: 39, fee: 0, auto: false }, AL2.pricing || {});
+        const PR_PLANS = Object.assign({ pest: [49, 69, 119], rodent: [49, 69, 119], mole: [69, 89, 139], mosquito: [69, 89, 139] }, PR.plans || {});
+        const PR_TERM = Object.assign({ initial: 399, recurring: 29 }, PR.termite || {});
+        const belowMinReason = (r) => {
+          const name = String((r && r.subscription) || '').trim();
+          if (/renew/i.test(String(r.lead_source || ''))) return null;
+          const init = Number(r.initial_price), rec = (Number(r.recurring_charge) || 0) - (Number(PR.fee) || 0);
+          const money = (n) => '$' + (Math.round(n * 100) / 100).toFixed(2).replace(/\.00$/, '');
+          let mInit, mRec, m;
+          if ((m = name.match(/^(pest|rodent|mole|mosquito)\s+(4|6|12)\b/i))) {
+            mInit = Number(PR.initial_min) || 0;
+            mRec = Number((PR_PLANS[m[1].toLowerCase()] || [])[{ 4: 0, 6: 1, 12: 2 }[m[2]]]) || 0;
+          } else if (/^termite\b/i.test(name)) { mInit = Number(PR_TERM.initial) || 0; mRec = Number(PR_TERM.recurring) || 0; }
+          else if (/^one[\s-]*time\b/i.test(name)) {
+            // One-time services (per Isaac, Oct 15): the cheaper Current Customer price is only
+            // allowed when the customer had a completed service (any kind) before this sale.
+            const ot = oneTimeMin(name);
+            if (!ot) return null;
+            if (!isFinite(init) || init >= ot.nw - 0.001) return '';
+            if (init >= ot.cur - 0.001) return priorDone.has(String(r.customer_id)) ? '' : 'Current-customer price ' + money(init) + ' but no completed service before the sale (new customer ' + money(ot.nw) + ')';
+            return 'One-time ' + money(init) + ' < ' + money(ot.cur);
+          }
+          else return null;
+          const out = [];
+          if (mInit > 0 && isFinite(init) && init < mInit - 0.001) out.push('Initial ' + money(init) + ' < ' + money(mInit));
+          if (mRec > 0 && rec < mRec - 0.001) out.push('Recurring ' + money(rec) + ' < ' + money(mRec));
+          return out.length ? out.join(' · ') : '';
+        };
+        const belowMin = new Map();   // sale id → reason ('' = at/above minimum)
+        // One-time minimums: [new customer, current customer], matched on the service name.
+        const PR_OT = Object.assign({ 'mosquito': [199, 99], 'pest': [199, 99], 'termite inspection': [199, 99], 'rodent': [249, 149],
+          'german roach': [299, 199], 'interior flea': [299, 199], 'vehicle': [199, 199] }, PR.one_time || {});
+        const oneTimeMin = (name) => {
+          const n = String(name || '').toLowerCase();
+          const k = Object.keys(PR_OT).sort((a, b) => b.length - a.length).find(t => n.includes(t));
+          const v = k && PR_OT[k];
+          return v ? { nw: Number(v[0]) || 0, cur: Number(v[1]) || 0 } : null;
+        };
+        // Customers with a completed service BEFORE their one-time sale (current-customer price check).
+        const priorDone = new Set();
+        try {
+          const cand = (crmSales || []).filter(x => x.audit_status === 'pending' && !x.payroll_processed_at).map(x => ({ x, r: bySub.get(String(x.crm_subscription_id)) }))
+            .filter(({ r }) => r && /^one[\s-]*time\b/i.test(String(r.subscription || '')) && oneTimeMin(r.subscription) && Number(r.initial_price) < oneTimeMin(r.subscription).nw - 0.001);
+          if (cand.length) {
+            const tokO = await getAccessToken();
+            const pairs = cand.map(({ x, r }) => "STRUCT('" + String(r.customer_id).replace(/[^0-9]/g, '') + "' AS cid, '" + String(x.sold_date || '').slice(0, 10).replace(/[^0-9-]/g, '') + "' AS sold)");
+            const r2 = await runQuery(tokO, `
+WITH c AS (SELECT * FROM UNNEST([${pairs.join(',')}]))
+SELECT DISTINCT c.cid FROM c JOIN \`${PROJECT}.${DATASET}.FieldRoutesAppointment\` a ON a.fieldRoutes_customerID = c.cid
+WHERE a.fieldRoutes_statusText = 'Completed' AND a.fieldRoutes_dateCompleted NOT LIKE '0000%' AND a.fieldRoutes_dateCompleted != ''
+  AND LEFT(a.fieldRoutes_dateCompleted, 10) < c.sold`, { compact: true });
+            ((r2 && r2.objects) || []).forEach(o => priorDone.add(String(o.cid)));
+          }
+        } catch (oe) { console.warn('[revhawk-sync] one-time prior-service check skipped:', String((oe && oe.message) || oe).slice(0, 200)); }
         const lockDays = Math.max(0, Number(AL2.lock_days) || 90);
         const minSvc = Math.max(0, Number(AL2.lock_min_services) || 0);
         for (const s of (crmSales || [])) {
@@ -1822,10 +1883,15 @@ QUALIFY ROW_NUMBER() OVER (PARTITION BY fieldRoutes_paymentID ORDER BY updatedAt
           // and if it cancels while still pending it goes to Archived.
           // Charged upfront = the configured customer flag, OR a real payment since the sale (per Isaac, Oct 15).
           const upfront = _upfrontOf(r) || !!(paidSince.get(s.id) || {}).paid;
+          if (s.audit_status === 'pending' && !s.payroll_processed_at) { const bm = belowMinReason(r); if (bm != null) belowMin.set(s.id, bm); }
           const upd = {};
           if (s.audit_status === 'pending' && !s.payroll_processed_at) {
             if (cancelled && (!serviced || upfront)) { upd.audit_status = 'cancelled'; upd.audited_at = stamp; upd.notes = ((s.notes || '') + (upfront && serviced ? ' · Auto: cancelled in CRM (charged upfront)' : ' · Auto: cancelled in CRM before service')).trim(); }
-            else if (_autoApproveOn(s) && s.rep_id && eligible && (serviced || upfront) && dpd <= 0 && s.crm_audit !== 'failed') { upd.audit_status = 'serviced'; upd.audited_at = stamp; }
+            else if (!nsfNow.has(s.id) && _autoApproveOn(s) && s.rep_id && eligible && (serviced || upfront) && dpd <= 0 && s.crm_audit !== 'failed') {
+              // Below the pricing minimum → approved as Below Minimums (when that switch is on).
+              const bm = belowMin.get(s.id);
+              upd.audit_status = (PR.auto && bm) ? 'below_minimums' : 'serviced'; upd.audited_at = stamp;
+            }
           }
           const lock = s.lock_status || 'pending';
           if (lock === 'pending' && s.payroll_processed_at && ['approved', 'serviced'].includes(upd.audit_status || s.audit_status)) {
@@ -1873,6 +1939,26 @@ QUALIFY ROW_NUMBER() OVER (PARTITION BY fieldRoutes_paymentID ORDER BY updatedAt
           stageCount++;
         }
         if (stageCount) console.log('[revhawk-sync] auto-stage: ' + stageCount + ' sale(s) moved');
+        // Stamp the Below Minimums reason on the row (shown on the Sales tab) — only when it changed.
+        if (belowMin.size) {
+          try {
+            const ids = [...belowMin.keys()], cur = new Map();
+            for (let i = 0; i < ids.length; i += 500) {
+              const { data: bmRows, error: be } = await supabase.from('sales').select('id, crm_below_min').in('id', ids.slice(i, i + 500));
+              if (be) throw new Error(be.message);
+              (bmRows || []).forEach(x => cur.set(x.id, x.crm_below_min || null));
+            }
+            let n = 0;
+            for (const [id, why] of belowMin) {
+              const v = why || null;
+              if (cur.get(id) === v) continue;
+              const { error: ue } = await supabase.from('sales').update({ crm_below_min: v }).eq('id', id);
+              if (ue) throw new Error(ue.message);
+              n++;
+            }
+            if (n) console.log('[revhawk-sync] below-minimum reasons updated on ' + n + ' sale(s)');
+          } catch (be) { console.warn('[revhawk-sync] below-minimum stamp skipped (run migrations/20261015e_sales_below_min.sql?):', String((be && be.message) || be).slice(0, 200)); }
+        }
       }
     } catch (stErr) {
       stageError = String((stErr && stErr.message) || stErr);
