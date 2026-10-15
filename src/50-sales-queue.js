@@ -364,12 +364,15 @@ function viewSales() {
           // Upfront queue (per Isaac, Oct 14): sales from Oct 12 on — when office add-ons started — read as the
           // TV's Latest-sales rows with their add-ons and initial date; anything older keeps the table below.
           // Pending Backend Lock (office) reads the same rows — with invoices paid + days aging to watch (per Isaac, Oct 15).
-          ((queueFilter === 'upfront' || (queueFilter === 'backend' && _queue === 'office')) && filtered.some(s => String(s.sold_date || '') >= SALES_FEED_START))
-            ? el('div', { class: 'hidden sm:block mb-5' }, salesFeed(filtered.filter(s => String(s.sold_date || '') >= SALES_FEED_START), { isAdmin, title: queueFilter === 'backend' ? 'Waiting on 4 paid invoices' : '' })) : null,
-          ((queueFilter === 'upfront' || (queueFilter === 'backend' && _queue === 'office')) && !filtered.some(s => String(s.sold_date || '') < SALES_FEED_START)) ? null :
+          // Office Staff (per Isaac, Oct 15): all four tabs — Upfront, Pending Backend Lock, Archived, History — read as the
+          // same rows. Sales before the new flow (10/12) keep the old table underneath.
+          ((queueFilter === 'upfront' || _queue === 'office') && filtered.some(s => String(s.sold_date || '') >= SALES_FEED_START))
+            ? el('div', { class: 'hidden sm:block mb-5' }, salesFeed(filtered.filter(s => String(s.sold_date || '') >= SALES_FEED_START), { isAdmin,
+                title: queueFilter === 'backend' ? 'Waiting on 4 paid invoices' : queueFilter === 'cancels' ? 'Archived' : queueFilter === 'history' ? 'History' : '' })) : null,
+          ((queueFilter === 'upfront' || _queue === 'office') && !filtered.some(s => String(s.sold_date || '') < SALES_FEED_START)) ? null :
           el('div', { class: 'hidden sm:block' },
-            queueFilter === 'upfront' && filtered.some(s => String(s.sold_date || '') >= SALES_FEED_START) ? el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted- mb-2' }, 'Before ' + fmt.dateShortYear(SALES_FEED_START)) : null,
-            salesTable(queueFilter === 'upfront' ? filtered.filter(s => String(s.sold_date || '') < SALES_FEED_START) : filtered, { isAdmin, sortKey, sortDir,
+            (queueFilter === 'upfront' || _queue === 'office') && filtered.some(s => String(s.sold_date || '') >= SALES_FEED_START) ? el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted- mb-2' }, 'Before ' + fmt.dateShortYear(SALES_FEED_START)) : null,
+            salesTable((queueFilter === 'upfront' || _queue === 'office') ? filtered.filter(s => String(s.sold_date || '') < SALES_FEED_START) : filtered, { isAdmin, sortKey, sortDir,
               // Pending Backend Lock surfaces the second-pass review controls
               // (Audit 2 + Lock dropdown) plus any enriched columns from an
               // uploaded backend report so admins can decide row-by-row.
