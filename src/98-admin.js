@@ -992,6 +992,10 @@ function adminGoals() {
   // consumers (IS pacer, dashboard war-room, per-rep math, Marketing) keep reading monthly_new / monthly_renewal.
   const syncDerived = () => {
     g.new_amount = Number(g.new_amount) || 0; g.renewal_amount = Number(g.renewal_amount) || 0;
+    // Curves hold exactly what the boxes show (0.1% steps), so the Year sum is the sum you can see
+    // (per Isaac, Oct 15 — a seeded 1.96% showed as 2.0% but summed as 99.9%).
+    const _snap = (c) => Math.round((Number(c) || 0) * 1000) / 1000;
+    g.curve_new = g.curve_new.map(_snap); g.curve_renewal = g.curve_renewal.map(_snap);
     g.monthly_new     = g.curve_new.map(c => Math.round(g.new_amount * (Number(c) || 0)));
     g.monthly_renewal = g.curve_renewal.map(c => Math.round(g.renewal_amount * (Number(c) || 0)));
     g.amount = g.new_amount + g.renewal_amount;
@@ -1075,7 +1079,7 @@ function goalMonthlyCard(g, persist, dept) {
     class: 'text-left text-[11px] rounded border px-1.5 py-1 tabular-nums', style: { borderColor: 'var(--border-2)', width: '100%', minWidth: '0' },
     onchange: (e) => { const v = parseFloat(String(e.target.value).replace(/[^0-9.]/g, '')); curve[m] = Math.max(0, Math.min(100, Number.isFinite(v) ? v : 0)) / 100; persist(); mountApp(); },
   });
-  const curveSum = (curve) => curve.reduce((a, c) => a + (Number(c) || 0), 0) * 100;
+  const curveSum = (curve) => curve.reduce((a, c) => a + Math.round((Number(c) || 0) * 1000), 0) / 10;   // in 0.1% steps — no float drift
   const sumCell = (pct) => { const off = Math.abs(pct - 100) >= 0.05;
     return el('span', { style: off ? { color: '#DC2626' } : {}, title: off ? 'The months add up to ' + pct.toFixed(1) + '% \u2014 they need to total 100%' : 'Adds up to 100%' }, pct.toFixed(1) + '%'); };
   const totNew = g.monthly_new.reduce((a, b) => a + (b || 0), 0);
