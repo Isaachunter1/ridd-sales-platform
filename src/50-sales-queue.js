@@ -2164,83 +2164,124 @@ function saleSoldWhen(s) {
 }
 function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
   salesFeedAddOnsPull();
-  const sep = () => el('span', { style: { color: 'var(--border-2)', padding: '0 9px' } }, '|');
   const ok = '#15803D', bad = '#DC2626';
-  // Title click flips newest-first ⇄ oldest-first (per Isaac, Oct 15).
-  const _asc = !!state._salesFeedAsc;
-  const sorted = [...rows].sort((a, b) => String(b.sold_date || '').localeCompare(String(a.sold_date || '')) || String(b.created_at || '').localeCompare(String(a.created_at || '')));
-  if (_asc) sorted.reverse();
-  return el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'flex flex-wrap items-center justify-between gap-2 px-4 pt-4 pb-2' },
-      el('button', { type: 'button', class: 'text-[10px] uppercase tracking-widest font-semibold text-muted- cursor-pointer inline-flex items-center', style: { gap: '6px', background: 'transparent', border: '0', padding: '0' },
-        title: _asc ? 'Oldest first \u2014 click for newest first' : 'Newest first \u2014 click for oldest first',
-        onclick: () => { state._salesFeedAsc = !_asc; mountApp(); } },
-        title || 'Latest sales', el('span', { style: { fontSize: '11px', color: 'var(--text)' } }, _asc ? '\u2191' : '\u2193')),
-      el('div', { class: 'flex flex-wrap items-center justify-end', style: { columnGap: '18px', rowGap: '6px' } },
-        saleStatusKey(),
-        el('div', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, rows.length + ' since ' + fmt.dateShortYear(SALES_FEED_START)))),
-    ...sorted.map((s, i, arr) => {
-      const _numW = String(arr.length).length > 2 ? 30 : 22;
-      const rep = (state.allProfiles || []).find(p => p.id === s.rep_id);
-      const svcName = (typeof nameFromId === 'function' ? nameFromId(state.serviceTypes, s.service_type_id) : '') || s.crm_subscription || '—';
-      const _src = typeof nameFromId === 'function' ? nameFromId(state.sources, s.source_id) : '';
-      const src = _src && _src !== '\u2014' ? _src : '';
-      const ao = saleAddOnsFor(s), unassigned = ao.filter(a => !saleAddOnCredited(a));
-      // An add-on on its own (the upsell row the add-ons sync makes): no service type, and the term reads ADD ON (per Isaac, Oct 15).
+  // Column table (per Isaac, Oct 15): headers + key frozen while scrolling; every header sorts (click again flips).
+  const S = state._salesFeedSort || (state._salesFeedSort = { key: 'sold', dir: 'desc' });
+  const repOf = (s) => (state.allProfiles || []).find(p => p.id === s.rep_id);
+  const repName = (s) => { const r = repOf(s); return r ? r.full_name : (s.crm_seller_name ? (typeof flipLastFirst === 'function' ? flipLastFirst(s.crm_seller_name) : s.crm_seller_name) : 'Unlinked seller'); };
+  const svcOf = (s) => (typeof nameFromId === 'function' ? nameFromId(state.serviceTypes, s.service_type_id) : '') || s.crm_subscription || '—';
+  const srcOf = (s) => { const v = typeof nameFromId === 'function' ? nameFromId(state.sources, s.source_id) : ''; return v && v !== '—' ? v : ''; };
+  const initOf = (s) => String(s.crm_serviced_at || s.crm_initial_appt_at || '').slice(0, 10);
+  const payRank = (s) => s.crm_paid_since_sale === true ? 2 : s.crm_paid_since_sale === false ? 0 : 1;
+  const statusRank = (s) => SALE_STATUS_OPTIONS.findIndex(([v]) => v === (s.audit_status || 'pending'));
+  const soldKey = (s) => String(s.sold_date || '') + '|' + String(s.created_at || '');
+  const KEYS = {
+    rep: [(s) => repName(s).toLowerCase(), 'asc'], customer: [(s) => String(s.customer_name || '').toLowerCase(), 'asc'],
+    service: [(s) => svcOf(s).toLowerCase(), 'asc'], term: [(s) => s.sale_kind === 'upsell' ? -1 : Number(s.contract_months) || 0, 'desc'],
+    source: [(s) => srcOf(s).toLowerCase(), 'asc'], initial: [(s) => initOf(s) || '9999', 'asc'], sold: [soldKey, 'desc'],
+    payment: [payRank, 'asc'], invoices: [(s) => Number(s.crm_paid_invoices) || 0, 'desc'], aging: [(s) => Number(s.crm_days_past_due) || 0, 'desc'],
+    amount: [(s) => Number(s.revenue_amount) || 0, 'desc'], status: [statusRank, 'asc'],
+  };
+  const [kf] = KEYS[S.key] || KEYS.sold;
+  const sorted = [...rows].sort((a, b) => {
+    const x = kf(a), y = kf(b);
+    const c = (typeof x === 'number' && typeof y === 'number') ? x - y : String(x).localeCompare(String(y));
+    return (S.dir === 'asc' ? c : -c) || soldKey(b).localeCompare(soldKey(a));
+  });
+  const numW = String(rows.length).length > 2 ? 30 : 22;
+  const COLS = numW + 'px minmax(130px, 1.1fr) minmax(140px, 1.2fr) minmax(160px, 1.6fr) 62px minmax(84px, .8fr) 92px 96px 100px 56px 48px 84px 140px';
+  const gridRow = (extra) => ({ display: 'grid', gridTemplateColumns: COLS, columnGap: '12px', alignItems: 'center', ...(extra || {}) });
+  const clip = { minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+  const head = (key, label, align) => {
+    const on = S.key === key;
+    return el('button', { type: 'button', class: 'text-[9px] uppercase tracking-widest font-semibold cursor-pointer inline-flex items-center', title: 'Sort by ' + label.toLowerCase(),
+      style: { gap: '4px', background: 'transparent', border: '0', padding: '0', color: on ? 'var(--text)' : 'var(--text-muted)', justifyContent: align === 'right' ? 'flex-end' : 'flex-start', ...clip },
+      onclick: () => { state._salesFeedSort = on ? { key, dir: S.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: (KEYS[key] || [, 'asc'])[1] }; mountApp(); } },
+      label, on ? el('span', { style: { fontSize: '10px' } }, S.dir === 'asc' ? '↑' : '↓') : null);
+  };
+  const narrow = (typeof window !== 'undefined' && window.innerWidth < 1100);
+  // Frozen: title + key + column headers stay on screen while the list scrolls — tucked under the app's own
+  // sticky header + Sales sub-tabs (measured, so phone and desktop heights both work). Pinned with a scroll
+  // listener rather than position:sticky: the page's body is its own (non-scrolling) overflow box, which
+  // stops sticky from ever engaging.
+  const frozen = el('div', { style: { position: 'relative', zIndex: '5', willChange: 'transform', background: 'var(--card)', borderBottom: '1px solid var(--border)', borderTopLeftRadius: 'inherit', borderTopRightRadius: 'inherit' } },
+      el('div', { class: 'flex flex-wrap items-center justify-between gap-2 px-4 pt-3 pb-2' },
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, title || 'Latest sales'),
+        el('div', { class: 'flex flex-wrap items-center justify-end', style: { columnGap: '18px', rowGap: '6px' } },
+          saleStatusKey(),
+          el('div', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, rows.length + ' since ' + fmt.dateShortYear(SALES_FEED_START)))),
+      el('div', { class: 'px-4 pb-2', style: gridRow() },
+        el('div', { class: 'text-[9px] text-right', style: { color: 'var(--text-subtle)' } }, '#'),
+        head('rep', 'Rep'), head('customer', 'Customer'), head('service', 'Service + add-ons'), head('term', 'Term'), head('source', 'Source'),
+        head('initial', 'Initial'), head('sold', 'Sold'), head('payment', 'Payment'), head('invoices', 'Invoices'), head('aging', 'Aging'),
+        head('amount', 'Amount', 'right'), head('status', 'Status')));
+  if (typeof window !== 'undefined') {
+    if (window._salesFeedPin) { window.removeEventListener('scroll', window._salesFeedPin); window.removeEventListener('resize', window._salesFeedPin); }
+    const pin = () => {
+      if (!frozen.isConnected) { if (frozen._seen) { window.removeEventListener('scroll', pin); window.removeEventListener('resize', pin); } return; }
+      frozen._seen = true;
+      let top = 0;
+      for (const sel of ['.page-header', '.sales-subtabs']) {
+        const n = document.querySelector(sel); if (!n) continue;
+        const cs = getComputedStyle(n);
+        if (cs.position === 'sticky' || cs.position === 'fixed') top = Math.max(top, n.getBoundingClientRect().bottom);
+      }
+      const box = frozen.parentElement.getBoundingClientRect();
+      const y = Math.max(0, Math.min(top - box.top, box.height - frozen.offsetHeight));
+      frozen.style.transform = y > 0 ? 'translateY(' + y + 'px)' : '';
+      frozen.style.boxShadow = y > 0 ? '0 3px 8px rgba(0,0,0,.07)' : '';
+    };
+    window._salesFeedPin = pin;
+    window.addEventListener('scroll', pin, { passive: true });
+    window.addEventListener('resize', pin, { passive: true });
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(pin);
+  }
+  const table = el('div', { style: narrow ? { minWidth: '1280px' } : {} },
+    frozen,
+    ...sorted.map((s, i) => {
+      const rep = repOf(s);
+      const ao = saleAddOnsFor(s);
       const addOnOnly = s.sale_kind === 'upsell' || (!s.service_type_id && ao.length > 0);
       const term = addOnOnly ? 'ADD ON' : Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME';
-      const aoNode = !ao.length
-        ? el('span', { style: { color: 'var(--text-subtle)', letterSpacing: '.06em' } }, 'ADDONS +0')
-        : el('span', { style: { color: unassigned.length ? bad : ok, fontWeight: '700', letterSpacing: '.06em' },
-            title: ao.map(a => (a.service_name || 'Add-on') + (saleAddOnCredited(a) ? ' · credited in FieldRoutes' : ' — Commission To is N/A in FieldRoutes')).join('\n') },
-            'ADDONS +' + ao.length + '  ·  ' + ao.map(a => String(a.service_name || 'Add-on').toUpperCase()).join(', '));
-      const cell = (col, row, child, extra) => el('div', { style: { gridColumn: col, gridRow: String(row), minWidth: '0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', ...(extra || {}) } }, child);
-      const small = { fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' };
+      const src = srcOf(s);
+      const sub = { fontSize: '10px', color: 'var(--text-muted)', marginTop: '1px', ...clip };
+      const soldTxt = saleSoldWhen(s), _t = soldTxt.indexOf(' · ');
+      const tracked = s.crm_paid_invoices != null || s.payroll_processed_at;
       return el('div', {
-        class: 'grid items-center gap-4 px-4 py-2.5 cursor-pointer transition hover:brightness-95',
-        style: { gridTemplateColumns: (_numW + 'px') + ' minmax(0, 1fr) auto auto', borderTop: '1px solid var(--border)', background: saleStatusTint(s.audit_status), ...(s.crm_audit === 'passed' ? { boxShadow: 'inset 3px 0 0 #15803D' } : {}) },
+        class: 'px-4 py-2.5 cursor-pointer transition hover:brightness-95',
+        style: gridRow({ borderTop: i ? '1px solid var(--border)' : '0', background: saleStatusTint(s.audit_status), ...(s.crm_audit === 'passed' ? { boxShadow: 'inset 3px 0 0 #15803D' } : {}) }),
         title: s.crm_audit === 'passed' ? 'Passed Audit flag on the customer card in FieldRoutes' : undefined,
         onclick: (e) => { if (e.target.closest('select, button, input, textarea, a')) return; openNewSaleModal(null, s); },
       },
-        // Row number (per Isaac, Oct 15) — the TV's rank column: mono, muted, right-aligned, newest = 1.
-        el('div', { class: 'tabular-nums text-right self-start', style: { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: '12px', fontWeight: '600', color: 'var(--text-subtle)', paddingTop: '3px' } }, String(i + 1).padStart(2, '0')),
-        // One line (per Isaac, Oct 15 — there's room): NAME | #id | service | add-ons | term | source | initial; sold date + time under the name.
-        el('div', { style: { display: 'grid', gridTemplateColumns: 'max-content auto max-content auto max-content auto minmax(0, max-content) auto max-content auto minmax(0, max-content) auto max-content minmax(0, 1fr)', alignItems: 'baseline', minWidth: '0', overflow: 'hidden' } },
-          // No app account yet: the FieldRoutes seller's name, marked (per Isaac, Oct 15).
-          cell('1', 1, el('span', { class: 'font-black uppercase', style: { fontSize: '15px', letterSpacing: '.02em' }, title: rep ? '' : 'Credited in FieldRoutes · no app account linked yet' },
-            rep ? rep.full_name : (s.crm_seller_name ? (typeof flipLastFirst === 'function' ? flipLastFirst(s.crm_seller_name) : s.crm_seller_name) : 'Unlinked seller'),
-            /* NO APP ACCOUNT tag hidden (per Isaac, Oct 15) — FieldRoutes attribution is what counts */ null), { minWidth: 'max-content' }),
-          cell('2', 1, (s.customer_number || s.customer_name) ? sep() : null),
-          // Customer name beside the id (per Isaac, Oct 15).
-          cell('3', 1, (s.customer_number || s.customer_name) ? el('span', { style: { fontSize: '12px' } },
-            s.customer_number ? el('span', { class: 'tabular-nums text-muted-' }, '#' + s.customer_number) : null,
-            s.customer_name ? el('span', { class: 'font-medium', style: { marginLeft: s.customer_number ? '6px' : '0' } }, s.customer_name) : null) : null, { minWidth: 'max-content' }),
-          cell('4', 1, sep()),
-          cell('5', 1, saleServiceWithAddOns(s, svcName, ao, { ok, bad })),   // "Pest 6 + Mole + Rodent" (per Isaac, Oct 15)
-          cell('6', 1, null),
-          cell('7', 1, null),
-          cell('8', 1, sep()),
-          cell('9', 1, el('span', { class: 'font-semibold', style: { fontSize: '13px' } }, term), { minWidth: 'max-content' }),
-          cell('10', 1, src ? sep() : null),
-          cell('11', 1, src ? el('span', { class: 'text-muted-', style: { fontSize: '11px' } }, src) : null),
-          cell('12', 1, sep()),
-          cell('13', 1, el('span', { style: { fontSize: '10px' } }, saleInitialDateNode(s, true)), { minWidth: 'max-content' }),
-          cell('1 / 14', 2, el('span', { class: 'tabular-nums' }, 'Sold ' + saleSoldWhen(s),
-            // Invoices paid toward the backend lock (initial counts) and days aging (per Isaac, Oct 15).
-            (s.crm_paid_invoices != null || s.payroll_processed_at) ? el('span', { style: { marginLeft: '12px', color: (Number(s.crm_paid_invoices) || 0) >= 4 ? ok : 'var(--text-muted)', fontWeight: '600' } }, '\u{1F9FE} ' + (Number(s.crm_paid_invoices) || 0) + ' of 4 invoices paid') : null,
-            el('span', { style: { marginLeft: '12px', color: Number(s.crm_days_past_due) > 0 ? bad : 'var(--text-muted)', fontWeight: Number(s.crm_days_past_due) > 0 ? '700' : '400' } }, 'Aging ' + (s.crm_days_past_due != null ? Number(s.crm_days_past_due) : 0) + 'd'),
-            // Paid since the sale (per Isaac, Oct 15) — the customer's first real payment on/after this sale.
-            s.crm_paid_since_sale === true ? el('span', { style: { marginLeft: '12px', color: ok, fontWeight: '600' }, title: 'A successful payment on the account since this sale' }, '\u{1F4B3} Paid' + (s.crm_paid_at ? ' ' + fmt.dateShort(s.crm_paid_at) : ''))
-              : s.crm_paid_since_sale === false ? el('span', { style: { marginLeft: '12px', color: bad, fontWeight: '700' }, title: 'Card declined since this sale and nothing has gone through' }, '\u{1F4B3} Declined' + (s.crm_declined_at ? ' ' + fmt.dateShort(s.crm_declined_at) : ''))
-              : el('span', { style: { marginLeft: '12px', color: 'var(--text-subtle)' }, title: 'No payment on the account since this sale yet' }, '\u{1F4B3} No payment yet'),
-            // Below the pricing minimum (Configurations → Pricing minimums), per Isaac, Oct 15.
-            s.crm_below_min ? el('span', { style: { marginLeft: '12px', color: SALE_STATUS_COLOR.below_minimums, fontWeight: '700' }, title: 'Under the pricing minimum in Configurations \u2192 Pricing minimums' }, '\u26A0 Below min: ' + s.crm_below_min) : null), small)),
-        el('div', { class: 'text-right tabular-nums font-semibold', style: { fontSize: '17px' },
+        el('div', { class: 'tabular-nums text-right', style: { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: '12px', fontWeight: '600', color: 'var(--text-subtle)' } }, String(i + 1).padStart(2, '0')),
+        el('div', { class: 'font-black uppercase', style: { fontSize: '13px', letterSpacing: '.02em', ...clip }, title: rep ? repName(s) : 'Credited in FieldRoutes · no app account linked yet' }, repName(s)),
+        el('div', { style: clip },
+          el('div', { class: 'font-medium', style: { fontSize: '12px', ...clip } }, s.customer_name || '—'),
+          s.customer_number ? el('div', { class: 'tabular-nums', style: sub }, '#' + s.customer_number) : null),
+        el('div', { style: clip },
+          el('div', { style: { fontSize: '12px', ...clip } }, saleServiceWithAddOns(s, svcOf(s), ao, { ok, bad })),   // "Pest 6 + Mole + Rodent" (per Isaac, Oct 15)
+          s.crm_below_min ? el('div', { style: { ...sub, color: SALE_STATUS_COLOR.below_minimums, fontWeight: '700' }, title: 'Under the pricing minimum in Configurations → Pricing minimums: ' + s.crm_below_min }, '⚠ ' + s.crm_below_min) : null),
+        el('div', { class: 'font-semibold', style: { fontSize: '12px', ...clip } }, term),
+        el('div', { class: 'text-muted-', style: { fontSize: '11px', ...clip }, title: src }, src || '—'),
+        el('div', { style: { fontSize: '10px', ...clip } }, saleInitialDateNode(s, false)),
+        el('div', { class: 'tabular-nums', style: clip },
+          el('div', { style: { fontSize: '11px' } }, _t > 0 ? soldTxt.slice(0, _t) : soldTxt),
+          _t > 0 ? el('div', { style: sub }, soldTxt.slice(_t + 3)) : null),
+        // Paid since the sale (per Isaac, Oct 15) — the customer's first real payment on/after this sale.
+        s.crm_paid_since_sale === true ? el('div', { class: 'tabular-nums', style: { fontSize: '11px', color: ok, fontWeight: '600', ...clip }, title: 'A successful payment on the account since this sale' }, 'Paid' + (s.crm_paid_at ? ' ' + fmt.dateShort(s.crm_paid_at) : ''))
+          : s.crm_paid_since_sale === false ? el('div', { class: 'tabular-nums', style: { fontSize: '11px', color: bad, fontWeight: '700', ...clip }, title: 'Card declined since this sale and nothing has gone through' }, 'Declined' + (s.crm_declined_at ? ' ' + fmt.dateShort(s.crm_declined_at) : ''))
+          : el('div', { style: { fontSize: '11px', color: 'var(--text-subtle)', ...clip }, title: 'No payment on the account since this sale yet' }, 'Not yet'),
+        // Invoices paid toward the backend lock (initial counts) and days aging (per Isaac, Oct 15).
+        el('div', { class: 'tabular-nums', style: { fontSize: '11px', fontWeight: '600', color: tracked && (Number(s.crm_paid_invoices) || 0) >= 4 ? ok : tracked ? 'var(--text)' : 'var(--text-subtle)' }, title: 'Paid invoices on the plan (the initial counts) — locks at 4' }, tracked ? (Number(s.crm_paid_invoices) || 0) + ' / 4' : '—'),
+        el('div', { class: 'tabular-nums', style: { fontSize: '11px', color: Number(s.crm_days_past_due) > 0 ? bad : 'var(--text-muted)', fontWeight: Number(s.crm_days_past_due) > 0 ? '700' : '400' } }, (s.crm_days_past_due != null ? Number(s.crm_days_past_due) : 0) + 'd'),
+        el('div', { class: 'text-right tabular-nums font-semibold', style: { fontSize: '15px' },
           title: s.commission_split ? 'Commissionable ' + fmt.usd(s.revenue_amount) + ' of ' + fmt.usd(s.total_revenue) + ' on the account' : '' },
           fmt.usd0 ? fmt.usd0(s.revenue_amount) : fmt.usd(s.revenue_amount),
           s.commission_split && Number(s.total_revenue) > Number(s.revenue_amount) + 0.005 ? el('div', { class: 'text-[9px] font-normal text-muted-' }, 'of ' + fmt.usd(s.total_revenue)) : null),
-        el('div', { class: 'flex items-center gap-2' }, statusSelect(s.id), (s.crm_audit === 'failed' && typeof saleAuditChip === 'function') ? saleAuditChip(s) : null));
+        el('div', { class: 'flex items-center gap-2', style: { minWidth: '0' } }, statusSelect(s.id), (s.crm_audit === 'failed' && typeof saleAuditChip === 'function') ? saleAuditChip(s) : null));
     }));
+  // No overflow clipping on the card, so the frozen header sticks to the page scroll; narrow screens scroll sideways instead.
+  return el('div', { class: 'card', style: narrow ? { overflowX: 'auto' } : {} }, table);
 }
 
 // ── Run payroll (per Isaac, Oct 15) ──────────────────────────────────────────
