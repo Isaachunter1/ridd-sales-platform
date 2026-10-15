@@ -1125,6 +1125,9 @@ function reportingDateBounds(preset, customStart, customEnd) {
   const back = (n) => { const d = new Date(today); d.setDate(d.getDate() - n); return loc(d); };
   if (preset === 'today') return { start: loc(today), end: loc(today) };
   if (preset === 'yesterday') return { start: back(1), end: back(1) };
+  // The sales dashboard's presets (per Isaac, Oct 15 — every date picker matches it).
+  if (preset === 'all_time') return { start: null, end: null };
+  if (/^(this_week|last_week|this_month|last_month|this_year|year:\d{4})$/.test(String(preset)) && typeof indicatorRangeBounds === 'function') return indicatorRangeBounds(preset);
   if (preset === 'last_7' || preset === 'last_30' || preset === 'last_90') return { start: back(Number(preset.slice(5)) - 1), end: loc(today) };
   if (preset === 'ytd') {
     return { start: today.getFullYear() + '-01-01', end: iso(today) };
@@ -1159,7 +1162,8 @@ function reportingFilterByDate(rows, start, end) {
 // Pretty label for the active date-range preset. Used in chart sublines
 // and the comparison table header so the reader knows the time scope.
 function reportingDateRangeLabel(preset, start, end) {
-  if (preset === 'all' || !preset) return 'All time';
+  if (preset === 'all' || preset === 'all_time' || !preset) return 'All time';
+  if (/^(this_week|last_week|this_month|last_month|this_year|year:\d{4})$/.test(String(preset)) && typeof indicatorPresetLabel === 'function') return indicatorPresetLabel(preset);
   if (preset === 'today')          return 'Today';
   if (preset === 'yesterday')      return 'Yesterday';
   if (/^last_(7|30|90)$/.test(preset)) return 'Last ' + preset.slice(5) + ' days';

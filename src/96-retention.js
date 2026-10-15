@@ -2039,7 +2039,9 @@ function reportingWaterfall() {
     // week · this month · last month · last 90 · last 12 months · YTD · all ·
     // custom (start / end). Weeks run Sun–Sat like the rest of the app.
     const WIN = [['today', 'Today'], ['week', 'This week'], ['lastweek', 'Last week'], ['month', 'This month'], ['lastmonth', 'Last month'], [90, 'Last 90 days'], [365, 'Last 12 months'], ['ytd', 'YTD'], ['all', 'All time'], ['custom', 'Custom…']];
-    const win = WIN.some(w => String(w[0]) === String(state._rtChurnWin)) ? state._rtChurnWin : 90;
+    // Same presets as the sales dashboard (per Isaac, Oct 15); the older picks keep working if one is saved.
+    if (typeof appRangeOptions === 'function') { const _o = appRangeOptions(); WIN.length = 0; for (const o of _o) WIN.push([o.id === 'all_time' ? 'all' : o.id === 'this_week' ? 'week' : o.id === 'last_week' ? 'lastweek' : o.id === 'this_month' ? 'month' : o.id === 'last_month' ? 'lastmonth' : o.id, o.label]); }
+    const win = WIN.some(w => String(w[0]) === String(state._rtChurnWin)) ? state._rtChurnWin : 'month';
     const mode = state._rtChurnMode === 'arr' ? 'arr' : 'subs';
     const today = new Date(); const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
     const shift = (d, fn) => { const x = new Date(d); fn(x); return x; };
@@ -2052,6 +2054,7 @@ function reportingWaterfall() {
       if (win === 'lastmonth') return [iso(new Date(today.getFullYear(), today.getMonth() - 1, 1)), iso(new Date(today.getFullYear(), today.getMonth(), 0))];
       if (win === 'ytd') return [today.getFullYear() + '-01-01', t];
       if (win === 'all') return ['0000', '9999'];
+      if ((win === 'yesterday' || win === 'this_year' || win === 'last_year' || /^year:\d{4}$/.test(String(win))) && typeof indicatorRangeBounds === 'function') { const b = indicatorRangeBounds(win); return [b.start, b.end]; }
       if (win === 'custom') return [state._rtChurnFrom || iso(shift(today, x => x.setDate(x.getDate() - 29))), state._rtChurnTo || t];
       return [iso(new Date(today.getTime() - (Number(win) - 1) * 86400000)), t];
     })();

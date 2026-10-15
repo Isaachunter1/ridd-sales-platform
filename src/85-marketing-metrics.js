@@ -11,30 +11,25 @@
 // │ Part of the app.js bundle (tools/bundle.js concatenates src/*.js in name order).
 // └────────────────────────────────────────────────────────────────────────
 const MKM_C = { leads: '#2A78C2', jobs: '#DF643A', rate: '#5F6C5B' };
-const MKM_PRESETS = [['30d', 'Last 30 days'], ['90d', 'Last 90 days'], ['mtd', 'This month'], ['lm', 'Last month'], ['qtd', 'This quarter'], ['ytd', 'Year to date'], ['ly', 'Last year'], ['12m', 'Last 12 months'], ['custom', 'Custom']];
+// Date range = the sales dashboard's own picker (per Isaac, Oct 15): same presets (Today, Yesterday, This/Last
+// week, This/Last month, This/Last year, every older year in the data, All time, Custom) and the same bounds.
 function _mkmIso(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function appRangeOptions() { return (typeof indicatorPresetOptions === 'function') ? indicatorPresetOptions() : [{ id: 'this_month', label: 'This Month' }, { id: 'custom', label: 'Custom…' }]; }
+function appRangeBounds(preset, custom) {
+  if (preset === 'all_time') return { start: null, end: null };
+  return (typeof indicatorRangeBounds === 'function') ? indicatorRangeBounds(preset, custom) : { start: null, end: null };
+}
 // The page's range: { from, to, preset, label } (to is inclusive).
 function mkmRange() {
-  const R = state._mkmRange || (state._mkmRange = { preset: '90d' });
-  const t = new Date(); t.setHours(12, 0, 0, 0);
-  const back = (n) => { const d = new Date(t); d.setDate(d.getDate() - n); return d; };
-  let from, to = new Date(t);
-  switch (R.preset) {
-    case '30d': from = back(29); break;
-    case 'mtd': from = new Date(t.getFullYear(), t.getMonth(), 1); break;
-    case 'lm': from = new Date(t.getFullYear(), t.getMonth() - 1, 1); to = new Date(t.getFullYear(), t.getMonth(), 0); break;
-    case 'qtd': from = new Date(t.getFullYear(), Math.floor(t.getMonth() / 3) * 3, 1); break;
-    case 'ytd': from = new Date(t.getFullYear(), 0, 1); break;
-    case 'ly': from = new Date(t.getFullYear() - 1, 0, 1); to = new Date(t.getFullYear() - 1, 11, 31); break;
-    case '12m': from = new Date(t.getFullYear(), t.getMonth() - 11, 1); break;
-    case 'custom': {
-      const f = /^\d{4}-\d{2}-\d{2}$/.test(R.from || '') ? R.from : _mkmIso(back(89)), e = /^\d{4}-\d{2}-\d{2}$/.test(R.to || '') ? R.to : _mkmIso(t);
-      return { from: f <= e ? f : e, to: f <= e ? e : f, preset: 'custom', label: fmt.dateShortYear(f) + ' – ' + fmt.dateShortYear(e) };
-    }
-    default: from = back(89);
-  }
-  const lbl = (MKM_PRESETS.find(p => p[0] === R.preset) || MKM_PRESETS[1])[1];
-  return { from: _mkmIso(from), to: _mkmIso(to), preset: R.preset || '90d', label: lbl };
+  const R = state._mkmRange || (state._mkmRange = { preset: 'this_month' });
+  const opts = appRangeOptions();
+  const preset = opts.some(o => o.id === R.preset) ? R.preset : 'this_month';
+  const t = _mkmIso(new Date());
+  let b = preset === 'all_time' ? { start: '2015-01-01', end: t } : appRangeBounds(preset, { start: R.from, end: R.to });
+  let from = b.start || '2015-01-01', to = b.end || t;
+  if (from > to) { const x = from; from = to; to = x; }
+  const label = preset === 'custom' ? fmt.dateShortYear(from) + ' – ' + fmt.dateShortYear(to) : ((opts.find(o => o.id === preset) || {}).label || 'Range');
+  return { from, to, preset, label };
 }
 function _mkmDays(a, b) { return Math.round((Date.parse(b + 'T12:00') - Date.parse(a + 'T12:00')) / 86400000) + 1; }
 // The range picker that sits in the Marketing bar on Metrics (replaces the year arrows there).
@@ -45,7 +40,7 @@ function mkmRangeControl() {
   return el('div', { class: 'inline-flex items-center gap-1.5 flex-wrap' },
     el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer', style: st, title: 'Date range — the leads that came into GoHighLevel in it',
       onchange: (e) => { const v = e.target.value; set(v === 'custom' ? { preset: 'custom', from: R.from, to: R.to } : { preset: v }); } },
-      ...MKM_PRESETS.map(([v, l]) => el('option', { value: v, selected: R.preset === v }, l))),
+      ...appRangeOptions().map(o => el('option', { value: o.id, selected: R.preset === o.id }, o.label))),
     R.preset === 'custom' ? el('input', { type: 'date', value: R.from, class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: st, onchange: (e) => set({ from: e.target.value }) }) : null,
     R.preset === 'custom' ? el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'to') : null,
     R.preset === 'custom' ? el('input', { type: 'date', value: R.to, class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: st, onchange: (e) => set({ to: e.target.value }) }) : null,
@@ -125,8 +120,8 @@ function mktgMetricsView() {
   const tiles = el('div', { style: { display: 'grid', gap: '12px', gridTemplateColumns: 'repeat(auto-fit, minmax(128px, 1fr))' } },
     tile(fmt.int(n), 'New leads', ch ? ch : fmt.int(L.filter(x => x.paid).length) + ' from paid channels'),
     tile(fmt.int(jobs.length), 'Jobs', fmt.int(serviced.length) + ' serviced · ' + fmt.int(conv.length - jobs.length) + ' sold, not booked'),
-    tile(pct(jobs.length, n), 'Lead → job', pct(conv.length, n) + ' became a sale of any kind'),
-    tile(hasSpend ? usd(spend) : '—', 'Marketing spend', noSpend || ('QuickBooks · ' + (SP.missing.length ? SP.missing.length + ' month(s) not in yet' : 'as linked on Spend') + (SP.months && R.preset !== 'mtd' && R.preset !== 'lm' ? ' · part months pro-rated' : ''))),
+    tile(pct(jobs.length, n), 'Closed lead %', 'jobs ÷ every new lead (unqualified included) · ' + pct(conv.length, n) + ' became a sale of any kind'),
+    tile(hasSpend ? usd(spend) : '—', 'Marketing spend', noSpend || ('QuickBooks · ' + (SP.missing.length ? SP.missing.length + ' month(s) not in yet' : 'as linked on Spend') + (SP.months && !['this_month', 'last_month'].includes(R.preset) ? ' · part months pro-rated' : ''))),
     tile(usd(cpl), 'Cost per lead', cpl != null ? 'spend ÷ ' + fmt.int(paidLeads) + (ch ? '' : ' paid') + ' leads' : noSpend),
     tile(usd(cpj), 'Cost per job', cpj != null ? 'spend ÷ ' + fmt.int(paidJobs) + (ch ? '' : ' paid-channel') + ' jobs' : noSpend),
     tile(usd(rev), 'Job revenue', 'contract value of the jobs · avg ' + usd(jobs.length ? rev / jobs.length : null)),
@@ -144,7 +139,7 @@ function mktgMetricsView() {
       el('div', { style: { flex: '1', minWidth: '0', background: 'var(--card-2)', borderRadius: '4px', height: '22px', position: 'relative' } },
         el('div', { style: { width: (n ? Math.max(0.5, v / n * 100) : 0) + '%', height: '100%', borderRadius: '4px', background: i === 0 ? MKM_C.leads : MKM_C.jobs, opacity: String(1 - i * 0.12) } })),
       el('div', { class: 'text-[11px] tabular-nums text-left', style: { width: '120px', flexShrink: '0' } }, fmt.int(v) + (i ? ' · ' + pct(v, n) : ''))))));
-  // ── Trend: leads and jobs per bucket (by the day the LEAD came in) + lead → job rate ──
+  // ── Trend: leads and jobs per bucket (by the day the LEAD came in) + closed lead % ──
   const span = _mkmDays(R.from, R.to), unit = span <= 45 ? 'day' : span <= 210 ? 'week' : 'month';
   const keyOf = (iso) => { if (unit === 'day') return iso; if (unit === 'month') return iso.slice(0, 7); const d = new Date(iso + 'T12:00'); d.setDate(d.getDate() - d.getDay()); return _mkmIso(d); };
   const B = new Map();
@@ -161,7 +156,7 @@ function mktgMetricsView() {
     _chartInstances[idT] = new Chart(c.getContext('2d'), { data: { labels: keys.map(kLbl), datasets: [
         { type: 'bar', label: 'Leads', data: keys.map(k => B.get(k).n), backgroundColor: MKM_C.leads, borderRadius: 2, yAxisID: 'y', order: 2 },
         { type: 'bar', label: 'Jobs', data: keys.map(k => B.get(k).j), backgroundColor: MKM_C.jobs, borderRadius: 2, yAxisID: 'y', order: 2 },
-        { type: 'line', label: 'Lead → job %', data: keys.map(k => { const b = B.get(k); return b.n ? Math.round(b.j / b.n * 1000) / 10 : null; }), borderColor: MKM_C.rate, backgroundColor: MKM_C.rate, borderWidth: 2, tension: 0.3, pointRadius: 0, pointHoverRadius: 4, yAxisID: 'y2', order: 1, spanGaps: true }] },
+        { type: 'line', label: 'Closed lead %', data: keys.map(k => { const b = B.get(k); return b.n ? Math.round(b.j / b.n * 1000) / 10 : null; }), borderColor: MKM_C.rate, backgroundColor: MKM_C.rate, borderWidth: 2, tension: 0.3, pointRadius: 0, pointHoverRadius: 4, yAxisID: 'y2', order: 1, spanGaps: true }] },
       options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
         plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 } } }, tooltip: { callbacks: { label: (c) => ' ' + c.dataset.label + ': ' + (c.dataset.yAxisID === 'y2' ? c.parsed.y + '%' : fmt.int(c.parsed.y)) } } },
         scales: { x: { grid: { display: false }, ticks: { color: txt, font: { size: 10 }, maxTicksLimit: 12, maxRotation: 0 } },
@@ -187,7 +182,7 @@ function mktgMetricsView() {
     el('div', { class: 'px-4 py-3 border-b', style: { borderColor: 'var(--border)' } }, el('div', { class: 'text-sm font-bold' }, 'By channel · ' + R.label),
       el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Click a channel to filter the page to it; ⓘ opens its leads and where each stands in GoHighLevel. Spend is each channel’s QuickBooks lines as linked on the Spend tab' + (SP.tools ? ' (' + fmt.usd0(SP.tools) + ' of agency & tools sits in the total only)' : '') + '.' + (SP.unlinked ? ' ' + fmt.usd0(SP.unlinked) + ' of QuickBooks lines aren’t linked to a channel yet — link them on the Spend tab.' : ''))),
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-      el('thead', {}, el('tr', {}, th('Channel'), th('Leads', 'n'), th('Sold', 'sold'), th('Jobs', 'jobs', 'Initial scheduled or completed'), th('Serviced', 'svc'), th('Lead → job', 'rate'), th('Spend', 'spend'), th('Cost / lead', 'cpl'), th('Cost / job', 'cpj'), th('Revenue', 'rev'), th('ROAS', 'roas'), th('Days to sale', 'med', 'Median days from lead to sale'), th(''))),
+      el('thead', {}, el('tr', {}, th('Channel'), th('Leads', 'n'), th('Sold', 'sold'), th('Jobs', 'jobs', 'Initial scheduled or completed'), th('Serviced', 'svc'), th('Closed lead %', 'rate'), th('Spend', 'spend'), th('Cost / lead', 'cpl'), th('Cost / job', 'cpj'), th('Revenue', 'rev'), th('ROAS', 'roas'), th('Days to sale', 'med', 'Median days from lead to sale'), th(''))),
       el('tbody', {}, ...rows.map(c => el('tr', { class: 'border-t cursor-pointer transition hover:brightness-95', style: { borderColor: 'var(--border)', background: c.k === ch ? 'rgba(223,100,58,.08)' : '' },
           onclick: (e) => { if (e.target.closest('button')) return; state._mkmChannel = c.k === ch ? '' : c.k; mountApp(); } },
           td(c.k, { fontWeight: '700' }), td(fmt.int(c.n)), td(fmt.int(c.sold)), td(fmt.int(c.jobs)), td(fmt.int(c.svc)), td(c.rate == null ? '—' : (c.rate * 100).toFixed(1) + '%'),
@@ -206,7 +201,7 @@ function mktgMetricsView() {
     el('div', { class: 'px-4 py-3 border-b', style: { borderColor: 'var(--border)' } }, el('div', { class: 'text-sm font-bold' }, 'By office' + (ch ? ' · ' + ch : '')),
       el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'The office whose customers share the lead’s ZIP code in FieldRoutes.')),
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-      el('thead', {}, el('tr', {}, th('Office'), th('Leads'), th('Jobs'), th('Lead → job'), th('Revenue'))),
+      el('thead', {}, el('tr', {}, th('Office'), th('Leads'), th('Jobs'), th('Closed lead %'), th('Revenue'))),
       el('tbody', {}, ...offRows.map(([k, c]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
         td(k ? (typeof _mktgTC === 'function' ? _mktgTC(k) : k) : 'No office (ZIP not in FieldRoutes)', { fontWeight: '600', color: k ? undefined : 'var(--text-muted)' }), td(fmt.int(c.n)), td(fmt.int(c.jobs)), td(pct(c.jobs, c.n)), td(c.rev ? fmt.usd0(c.rev) : '—'))))))) : null;
   // ── Header: channel picker ──

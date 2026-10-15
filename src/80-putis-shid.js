@@ -1452,18 +1452,10 @@ function reportingFilterBar(scope, opts = {}) {
   }, inCompare ? '✕ Exit' : 'Compare');
   const methodologyInfo = (typeof reportingMethodologyInfoBtn === 'function') ? reportingMethodologyInfoBtn() : null;
 
-  const datePresets = [
-    ['all',             'All time'],
-    ['today',           'Today'],
-    ['yesterday',       'Yesterday'],
-    ['last_7',          'Last 7 days'],
-    ['last_30',         'Last 30 days'],
-    ['last_90',         'Last 90 days'],
-    ['ytd',             'This year'],
-    ['last_12_months',  'Last 12 months'],
-    ['last_year',       'Last year'],
-    ['custom',          'Custom range…'],
-  ];
+  // Same presets as the sales dashboard (per Isaac, Oct 15). An older saved pick (Last 30 days…) still shows.
+  const datePresets = (typeof appRangeOptions === 'function' ? appRangeOptions() : []).map(o => [o.id === 'all_time' ? 'all' : o.id, o.label]);
+  { const _legacy = { last_7: 'Last 7 days', last_30: 'Last 30 days', last_90: 'Last 90 days', ytd: 'This year', last_12_months: 'Last 12 months' };
+    if (_legacy[datePreset] && !datePresets.some(([v]) => v === datePreset)) datePresets.splice(datePresets.length - 1, 0, [datePreset, _legacy[datePreset]]); }
   const datePicker = el('div', { class: 'flex flex-col gap-1 rep-filter-pick' },
     el('div', { class: 'rpt-pick-label text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Time range'),
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
