@@ -94,6 +94,98 @@ function _mkmStage(x) {
   return 'sold';
 }
 
+// Channels = the GoHighLevel source map (per Isaac, Oct 15): a lead counts under a real channel only when its
+// label maps to one in Settings → Configurations → GoHighLevel sources (the auto rules, an admin's pick, or
+// "Its own source"). Any other label used to show up as a channel of its own; now it waits under "Unmapped"
+// (hover the row for the labels) until it's mapped there.
+const MKM_UNMAPPED = 'Unmapped';
+function mkmChannelSet() {
+  const map = ghlSourceMap();
+  const s = new Set([...(typeof MKTG_DEFAULT_CHANNELS !== 'undefined' ? MKTG_DEFAULT_CHANNELS : []), ...(typeof AD_PROVIDERS !== 'undefined' ? AD_PROVIDERS : []), 'PestBooker', 'Organic', 'Referral', 'Click-To-Buy']);
+  for (const [label, v] of Object.entries(map)) { if (v === GHL_SELF) s.add(label); else if (v && v !== GHL_NOT_LEAD) s.add(v); }
+  for (const r of GHL_AUTO_RULES) if (r[1] && r[1] !== GHL_NOT_LEAD) s.add(r[1]);
+  return s;
+}
+function mkmLeads(leads) {
+  const S = mkmChannelSet();
+  return leads.map(l => S.has(l.prov) ? l : Object.assign({}, l, { prov: MKM_UNMAPPED, rawProv: l.prov || 'blank' }));
+}
+
+// ── Marketing pulse (per Isaac, Oct 15) — the Daily Pulse, for the office's inbound leads ──────────────────
+// What happened IN the range, by the day it happened (not the cohort view below): Office Staff revenue sold,
+// new leads in, leads closed (an Office Staff sale whose person came in as a GoHighLevel lead in the 90 days
+// before), and what each cost. Same date range and channel picker as the rest of the page.
+function _mkmPulse(R, ch, G, crm, paid, SP) {
+  const muted = { color: 'var(--text-muted)' };
+  const back = (iso, n) => { const d = new Date(iso + 'T12:00'); d.setDate(d.getDate() - n); return _mkmIso(d); };
+  const lo = back(R.from, SEM_LEAD_WINDOW_DAYS);
+  const sig = lo + '|' + R.to + '|' + JSON.stringify(ghlSourceMap());
+  let W; const M = state._mkmPulseMemo;
+  if (M && M.g === G && M.subs === state.reportingSubscriptions && M.sig === sig) W = M.W;
+  else { W = semLeadConversions(mkmLeads(G.leads.filter(l => l.d >= lo && l.d <= R.to)), crm); state._mkmPulseMemo = { g: G, subs: state.reportingSubscriptions, sig, W }; }
+  const inR = (iso) => { const d = String(iso || '').slice(0, 10); return d >= R.from && d <= R.to; };
+  const isCh = (x) => !ch || (x.lead.prov || 'Unknown') === ch;
+  const booked = (s) => { const ist = String(s.initial_status || '').trim().toLowerCase(); return !!s.initial_serviced_date || ist === 'completed' || ist === 'pending'; };
+  const notRenewal = (s) => (typeof reportingSourceClass !== 'function' || typeof reportingSourceOf !== 'function') || reportingSourceClass(reportingSourceOf(s)) !== 'renewal';
+  // Office Staff revenue sold in the range (Pending / Serviced, no renewals — same rule as the Daily Pulse's Sold).
+  const sold = (state.reportingSubscriptions || []).filter(s => String(s.sold_by_type || '').trim() === 'Office Staff' && inR(s.sold_date) && booked(s) && notRenewal(s));
+  const soldRev = sold.reduce((a, s) => a + (Number(s.subscription_contract_value) || 0), 0);
+  const newLeads = W.map(x => x.lead).filter(l => inR(l.d) && (!ch || (l.prov || 'Unknown') === ch));
+  const closed = W.filter(x => x.converted && x.sale && inR(x.sale.sold_date) && booked(x.sale) && isCh(x));
+  const closedRev = closed.reduce((a, x) => a + (Number(x.sale.subscription_contract_value) || 0), 0);
+  const spend = ch ? (SP.byProv.get(ch) || 0) : SP.total, hasSpend = SP.months > 0;
+  const paidNew = ch ? newLeads.length : newLeads.filter(l => paid.has(l.prov)).length, paidClosed = ch ? closed.length : closed.filter(x => paid.has(x.lead.prov)).length;
+  const sameDay = closed.filter(x => String(x.lead.d).slice(0, 10) === String(x.sale.sold_date).slice(0, 10)).length;
+  const fromLeads = sold.length ? closed.length / sold.length : null;
+  const stat = (label, value, sub, color) => el('div', { class: 'text-left', style: { minWidth: '108px' }, title: sub || '' },
+    el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
+    el('div', { class: 'text-xl font-black tabular-nums', style: { color: color || 'var(--text)' } }, value),
+    sub ? el('div', { class: 'text-[10px]', style: muted }, sub) : null);
+  const stats = el('div', { class: 'flex items-start gap-x-6 gap-y-3 flex-wrap' },
+    ch ? stat('Closed-lead revenue', fmt.usd0(closedRev), fmt.int(closed.length) + ' sale' + (closed.length === 1 ? '' : 's') + ' from ' + ch, MKM_C.rate)
+      : stat('Sold revenue', fmt.usd0(soldRev), fmt.int(sold.length) + ' Office Staff sale' + (sold.length === 1 ? '' : 's') + ' · no renewals', MKM_C.rate),
+    stat('New leads', fmt.int(newLeads.length), ch ? ch : fmt.int(newLeads.filter(l => paid.has(l.prov)).length) + ' paid'),
+    stat('Closed leads', fmt.int(closed.length), (fromLeads != null && !ch ? Math.round(fromLeads * 100) + '% of the sales came from a lead' : fmt.usd0(closedRev) + ' sold') + (sameDay ? ' · ' + sameDay + ' same day' : ''), MKM_C.jobs),
+    !ch ? stat('Closed-lead revenue', fmt.usd0(closedRev), soldRev ? Math.round(closedRev / soldRev * 100) + '% of sold revenue' : '') : null,
+    stat('Spend', hasSpend ? fmt.usd0(spend) : '—', hasSpend ? 'QuickBooks, pro-rated' : 'no QuickBooks lines yet'),
+    stat('Cost / lead', hasSpend && paidNew ? fmt.usd0(spend / paidNew) : '—', hasSpend && paidNew ? 'spend ÷ ' + fmt.int(paidNew) + (ch ? '' : ' paid') + ' new leads' : ''),
+    stat('Cost / closed lead', hasSpend && paidClosed ? fmt.usd0(spend / paidClosed) : '—', hasSpend && paidClosed ? 'spend ÷ ' + fmt.int(paidClosed) + (ch ? '' : ' paid') + ' closed leads' : ''));
+  // Day by day (week / month on long ranges): new leads and closed leads as bars, sold revenue as a line.
+  const span = _mkmDays(R.from, R.to);
+  const unit = span <= 45 ? 'day' : span <= 210 ? 'week' : 'month';
+  const keyOf = (iso) => { iso = String(iso).slice(0, 10); if (unit === 'day') return iso; if (unit === 'month') return iso.slice(0, 7); const d = new Date(iso + 'T12:00'); d.setDate(d.getDate() - d.getDay()); return _mkmIso(d); };
+  const B = new Map();
+  { const d = new Date(R.from + 'T12:00'); for (let g = 0; g < 800; g++) { const iso = _mkmIso(d); if (iso > R.to) break; const k = keyOf(iso); if (!B.has(k)) B.set(k, { l: 0, c: 0, r: 0 }); d.setDate(d.getDate() + 1); } }
+  for (const l of newLeads) { const b = B.get(keyOf(l.d)); if (b) b.l++; }
+  for (const x of closed) { const b = B.get(keyOf(x.sale.sold_date)); if (b) b.c++; }
+  if (ch) { for (const x of closed) { const b = B.get(keyOf(x.sale.sold_date)); if (b) b.r += Number(x.sale.subscription_contract_value) || 0; } }
+  else for (const s of sold) { const b = B.get(keyOf(s.sold_date)); if (b) b.r += Number(s.subscription_contract_value) || 0; }
+  const keys = [...B.keys()];
+  const kLbl = (k) => unit === 'month' ? new Date(k + '-01T12:00').toLocaleDateString('en-US', { month: 'short', year: '2-digit' }) : new Date(k + 'T12:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const idP = 'mkmPulse', single = keys.length === 1;
+  const isDark = state.theme === 'dark', txt = isDark ? '#C9C9BE' : '#555', grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
+  if (!single) setTimeout(() => {
+    if (typeof Chart === 'undefined') return;
+    const c = document.getElementById(idP); if (!c) return;
+    if (_chartInstances[idP]) { _chartInstances[idP].destroy(); delete _chartInstances[idP]; }
+    _chartInstances[idP] = new Chart(c.getContext('2d'), { data: { labels: keys.map(kLbl), datasets: [
+        { type: 'line', label: ch ? 'Closed-lead revenue' : 'Sold revenue', data: keys.map(k => Math.round(B.get(k).r)), borderColor: MKM_C.rate, backgroundColor: MKM_C.rate, borderWidth: 2.5, tension: 0.3, pointRadius: 2, yAxisID: 'y2', order: 1 },
+        { type: 'bar', label: 'New leads', data: keys.map(k => B.get(k).l), backgroundColor: MKM_C.leads, borderRadius: 2, yAxisID: 'y', order: 2 },
+        { type: 'bar', label: 'Closed leads', data: keys.map(k => B.get(k).c), backgroundColor: MKM_C.jobs, borderRadius: 2, yAxisID: 'y', order: 2 }] },
+      options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 } } }, tooltip: { callbacks: { label: (c) => ' ' + c.dataset.label + ': ' + (c.dataset.yAxisID === 'y2' ? fmt.usd0(c.parsed.y) : fmt.int(c.parsed.y)) } } },
+        scales: { x: { grid: { display: false }, ticks: { color: txt, font: { size: 10 }, maxTicksLimit: 16, maxRotation: 0 } },
+          y: { beginAtZero: true, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, precision: 0 } },
+          y2: { beginAtZero: true, position: 'right', grid: { display: false }, ticks: { color: txt, font: { size: 10 }, callback: (v) => Math.abs(v) >= 1000 ? '$' + Math.round(v / 1000) + 'K' : '$' + v } } } } });
+  }, 50);
+  return el('div', { class: 'card p-4' },
+    el('div', { class: 'flex items-start justify-between gap-3 flex-wrap mb-3' },
+      el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Marketing pulse · ' + R.label + (ch ? ' · ' + ch : '')),
+        el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'What happened in the range, by the day it happened. Closed lead = an Office Staff sale (initial booked or done) whose person came in as a GoHighLevel lead in the ' + SEM_LEAD_WINDOW_DAYS + ' days before.'))),
+    stats,
+    single ? null : el('div', { class: 'mt-3', style: { height: '260px' } }, el('canvas', { id: idP })));
+}
+
 function mktgMetricsView() {
   if (typeof ghlLoadLeads === 'function') ghlLoadLeads();
   const R = mkmRange();
@@ -108,7 +200,7 @@ function mktgMetricsView() {
   const M = state._mkmMemo;
   if (M && M.g === G && M.subs === state.reportingSubscriptions && M.sig === sig) ALL = M.L;
   else {
-    ALL = semLeadConversions(G.leads.filter(l => l.d >= R.from && l.d <= R.to), crm);
+    ALL = semLeadConversions(mkmLeads(G.leads.filter(l => l.d >= R.from && l.d <= R.to)), crm);
     for (const x of ALL) { x.paid = paid.has(x.lead.prov); x.stage = _mkmStage(x); x.days = x.sale && x.ms != null ? Math.max(0, Math.round((_semMs(x.sale.sold_date) - x.ms) / 86400000)) : null; x.rev = x.sale ? (Number(x.sale.subscription_contract_value) || 0) : 0; }
     state._mkmMemo = { g: G, subs: state.reportingSubscriptions, sig, L: ALL };
   }
@@ -203,7 +295,7 @@ function mktgMetricsView() {
       el('thead', {}, el('tr', {}, th('Channel'), th('Leads', 'n'), th('Sold', 'sold'), th('Jobs', 'jobs', 'Initial scheduled or completed'), th('Serviced', 'svc'), th('Closed lead %', 'rate'), th('Spend', 'spend'), th('Cost / lead', 'cpl'), th('Cost / job', 'cpj'), th('Revenue', 'rev'), th('ROAS', 'roas'), th('Days to sale', 'med', 'Median days from lead to sale'), th(''))),
       el('tbody', {}, ...rows.map(c => el('tr', { class: 'border-t cursor-pointer transition hover:brightness-95', style: { borderColor: 'var(--border)', background: c.k === ch ? 'rgba(223,100,58,.08)' : '' },
           onclick: (e) => { if (e.target.closest('button')) return; state._mkmChannel = c.k === ch ? '' : c.k; mountApp(); } },
-          td(c.k, { fontWeight: '700' }), td(fmt.int(c.n)), td(fmt.int(c.sold)), td(fmt.int(c.jobs)), td(fmt.int(c.svc)), td(c.rate == null ? '—' : (c.rate * 100).toFixed(1) + '%'),
+          c.k === MKM_UNMAPPED ? el('td', { class: 'px-3 py-1.5 whitespace-nowrap', title: (() => { const m = new Map(); for (const x of ALL) if (x.lead.prov === MKM_UNMAPPED) m.set(x.lead.rawProv, (m.get(x.lead.rawProv) || 0) + 1); return 'GoHighLevel labels with no channel yet — map them in Settings → Configurations → GoHighLevel sources:\n' + [...m].sort((a, b) => b[1] - a[1]).map(([k, v]) => k + ' (' + v + ')').join('\n'); })(), style: { fontWeight: '700', color: '#B45309' } }, 'Unmapped ⓘ') : td(c.k, { fontWeight: '700' }), td(fmt.int(c.n)), td(fmt.int(c.sold)), td(fmt.int(c.jobs)), td(fmt.int(c.svc)), td(c.rate == null ? '—' : (c.rate * 100).toFixed(1) + '%'),
           td(c.spend ? fmt.usd0(c.spend) : '—', c.spend ? {} : { color: 'var(--text-subtle)' }), td(c.cpl == null ? '—' : fmt.usd0(c.cpl)), td(c.cpj == null ? '—' : fmt.usd0(c.cpj)), td(c.rev ? fmt.usd0(c.rev) : '—'),
           td(c.roas == null ? '—' : c.roas.toFixed(2) + 'x', c.roas == null ? {} : { color: c.roas >= 1 ? '#5F6C5B' : '#DC2626', fontWeight: '600' }), td(c.med == null ? '—' : c.med + 'd'),
           el('td', { class: 'px-2 py-1' }, c.n ? el('button', { type: 'button', title: 'Open ' + c.k + '’s leads', class: 'text-[11px] font-semibold', style: { color: 'var(--accent)', background: 'transparent', border: '0', cursor: 'pointer' },
@@ -231,8 +323,10 @@ function mktgMetricsView() {
   const matchNote = crm ? '' : ' FieldRoutes isn’t loaded yet, so nothing shows as converted — run a sync.';
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'flex items-end justify-between gap-3 flex-wrap' },
-      el('div', {}, el('div', { class: 'text-lg font-bold' }, 'Office Staff lead cohort · ' + R.label + (ch ? ' · ' + ch : '')),
+      el('div', {}, el('div', { class: 'text-lg font-bold' }, 'Office Staff marketing · ' + R.label + (ch ? ' · ' + ch : '')),
         el('div', { class: 'text-xs', style: muted }, fmt.dateShortYear(R.from) + ' – ' + fmt.dateShortYear(R.to) + ' · new inbound leads from GoHighLevel and what the office did with them: a lead converts when an Office Staff login sells that person (phone or email) in FieldRoutes. Spend from QuickBooks.' + matchNote)),
       chSel),
+    (() => { try { return _mkmPulse(R, ch, G, crm, paid, SP); } catch (e) { console.warn('[metrics] pulse skipped', e); return null; } })(),
+    el('div', { class: 'text-sm font-bold mt-2' }, 'Lead cohort', el('span', { class: 'text-[11px] font-normal ml-2', style: muted }, 'the leads that came in ' + R.label.toLowerCase() + ', followed to where they ended up')),
     tiles, funnel, trend, chTable, offCard);
 }
