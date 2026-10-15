@@ -4688,13 +4688,21 @@ function openIndicatorRepCard(rep, allReps = []) {
           class: 'text-[10px] text-muted- tabular-nums whitespace-nowrap px-2 py-1 rounded',
           style: { background: 'var(--card-2)', border: '1px solid var(--border)' },
         }, scopeRangeLabel),
-        el('select', {
-          class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer bg-transparent',
-          style: { borderColor: 'var(--border-2)' },
-          onchange: (e) => { cardScope = e.target.value; _trendWkOff = 0; renderBody(); },
-        },
-          ...CARD_SCOPE_PRESETS.map(p => el('option', { value: p.id, selected: cardScope === p.id }, p.label)),
-        ),
+        // Opens DOWNWARD (per Isaac, Oct 15): a native <select> on macOS pops the list up around the chosen item,
+        // and Year to date is last — so this is a small menu that always drops below the button.
+        (() => {
+          const cur = CARD_SCOPE_PRESETS.find(p => p.id === cardScope) || CARD_SCOPE_PRESETS[0];
+          const panel = el('div', { class: 'card', style: { position: 'absolute', top: 'calc(100% + 4px)', right: '0', zIndex: '60', minWidth: '100%', padding: '4px', display: 'none', boxShadow: '0 8px 24px rgba(0,0,0,.14)' } },
+            ...CARD_SCOPE_PRESETS.map(p => el('button', { type: 'button', class: 'w-full text-left rounded px-2.5 py-1.5 text-[11px] whitespace-nowrap transition hover:brightness-95',
+              style: p.id === cardScope ? { background: 'var(--accent)', color: 'var(--accent-text)', fontWeight: '700' } : { background: 'transparent', color: 'var(--text)', fontWeight: '500' },
+              onclick: (e) => { e.stopPropagation(); cardScope = p.id; _trendWkOff = 0; renderBody(); } }, p.label)));
+          const close = (ev) => { if (!wrap.contains(ev.target)) { panel.style.display = 'none'; document.removeEventListener('mousedown', close); } };
+          const btn = el('button', { type: 'button', class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer bg-transparent inline-flex items-center gap-1.5', style: { borderColor: 'var(--border-2)' },
+            onclick: () => { const open = panel.style.display === 'none'; panel.style.display = open ? 'block' : 'none'; if (open) document.addEventListener('mousedown', close); else document.removeEventListener('mousedown', close); } },
+            cur.label, el('span', { style: { fontSize: '9px', color: 'var(--text-muted)' } }, '\u25BE'));
+          const wrap = el('span', { style: { position: 'relative', display: 'inline-block' } }, btn, panel);
+          return wrap;
+        })(),
         el('button', {
           class: 'text-2xl leading-none text-muted- hidden sm:block hover:text-default transition -mr-1', 'aria-label': 'Close', title: 'Close',
           style: { lineHeight: '1' },
