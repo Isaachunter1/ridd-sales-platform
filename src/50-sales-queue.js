@@ -15,6 +15,14 @@ function viewSales() {
   // One renderer, three queues: Inside Sales ('sales'), D2D ('d2d_sales'),
   // Technicians ('tech_sales'). Rows carry queue_type from the sync.
   const _queue = SALES_QUEUE_OF_VIEW[state.view] || 'office';
+  // Sales Rep + Technician Sales tabs (per Isaac, Oct 15): under construction while the Office Staff flow is
+  // built out — they get it next, with their own commission rules.
+  if (_queue === 'd2d' || _queue === 'tech') {
+    return el('div', { class: 'card p-10 text-center flex flex-col items-center gap-2' },
+      el('div', { style: { fontSize: '28px' } }, '\u{1F6A7}'),
+      el('div', { class: 'text-base font-bold' }, 'Under construction'),
+      el('div', { class: 'text-xs text-muted-' }, (_queue === 'd2d' ? 'Sales Rep' : 'Technician') + ' sales are coming soon.'));
+  }
   // Reach (Settings → Permissions → Sales tab rows): 'self' = own sales (the
   // default); team / dept / everyone widen it to those reps' sales.
   const _salesScope = isAdmin ? 'all' : ((typeof userScope === 'function') ? userScope('sales_scope') : 'self');
