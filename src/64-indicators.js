@@ -4267,6 +4267,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     { key: 'avgPest',    label: 'Pest Init', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgPest > 0 ? fmt.usd(r.avgPest) : '—') },
     { key: 'avgInitial', label: 'Avg Init',      align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgInitial > 0 ? fmt.usd(r.avgInitial) : '—') },
     { key: 'acv',        label: 'ACV',      align: 'left', defaultDir: 'desc', title: 'Recurring new sales only — one-time services and renewals left out', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.usd(r.acv)) },
+    { key: 'avgRecurring', label: 'Recurring', align: 'left', defaultDir: 'desc', title: 'Average recurring charge per service across the rep\u2019s recurring sales (one-time services out) \u2014 as billed in FieldRoutes', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgRecurring > 0 ? fmt.usd(r.avgRecurring) : '\u2014') },
     { key: 'acvW', label: 'Weighted ACV', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'Every sale — one-time services and renewals included', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.acvW > 0 ? fmt.usd(r.acvW) : '\u2014') },
     { key: 'acvOts', label: 'One-Time ACV', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'One-time services only', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.acvOts > 0 ? fmt.usd(r.acvOts) : '\u2014') },
     { key: 'acvRen', label: 'Renewal ACV', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'Renewal-source sales only (Renewal - Loyalty / Inbound / Outbound / Service Pro Upsell)', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: indicatorExcl().renewal ? 'Renewals are excluded in Filters — untick Renewals to see this' : '' }, r.acvRen > 0 ? fmt.usd(r.acvRen) : (indicatorExcl().renewal ? 'excluded' : '\u2014')) },
@@ -4409,6 +4410,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     recRevenue: 'New recurring revenue: New Revenue minus one-time services.',
     avgPest: 'Average initial price, leaving out ' + ((typeof pestInitialExclList === 'function' ? pestInitialExclList() : []).join(', ') || 'nothing') + '.',
     avgInitial: 'Average initial price across every sale.',
+    avgRecurring: 'Average recurring charge per service (what the customer pays each visit) across recurring sales \u2014 one-time services left out. As billed in FieldRoutes.',
     acv: 'Average contract value of recurring new sales — one-time services and renewals left out.',
     acvW: 'Average contract value of every sale, one-time and renewals included.',
     acvOts: 'Average contract value of one-time services only.',
@@ -4558,6 +4560,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const _dv = state.indicatorDept || 'all';
     boardReps = boardReps.map(r => { const p = indMetricOverride(r, _dv); return Object.keys(p).length ? Object.assign({}, r, p) : r; });
   }
+  // Recurring (per Isaac, Oct 15): the average recurring charge per service across the rep's recurring sales.
+  // The feed's `recurring` is FieldRoutes' annual recurring value, which is always charge × 12 (verified on the
+  // live snapshot: ARV ÷ recurringCharge = 12 for monthly, bi-monthly and quarterly alike), so ÷ 12 = the charge.
+  boardReps = boardReps.map(r => { let n = 0, t = 0; for (const x of (r.sales || [])) { const v = Number(x.recurring) || 0; if (v > 0) { n++; t += v / 12; } }
+    return Object.assign({}, r, { avgRecurring: n ? t / n : 0, recN: n, recSum: t }); });
   // Sort by the selected column
   const sortKey = state._indicatorRepSort.key;
   const sortDir = state._indicatorRepSort.dir;
@@ -4901,6 +4908,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 acctsPerDay: T.sellingDays > 0 ? (T.count / T.sellingDays).toFixed(1) : '—',
                 avgPest: nPest > 0 ? fmt.usd(wPest / nPest) : '—',
                 avgInitial: nInit > 0 ? fmt.usd(wInit / nInit) : '—',
+                avgRecurring: (() => { const n = displayReps.reduce((a, r) => a + (r.recN || 0), 0), t = displayReps.reduce((a, r) => a + (r.recSum || 0), 0); return n > 0 ? fmt.usd(t / n) : '\u2014'; })(),
                 myPct: pct(wMy),
                 autoPayPct: pct(wAuto),
                 cancels: T.cancels > 0 ? fmt.int(T.cancels) : '—',
@@ -4924,6 +4932,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 acctsPerDay: 'Total sales ÷ total rep selling days',
                 avgPest: 'Sales-weighted average across reps with a value',
                 avgInitial: 'Sales-weighted average across reps with a value',
+                avgRecurring: 'Average recurring charge per service across every recurring sale shown',
                 cancelPct: 'Total cancels ÷ total sales',
                 attrPct: 'Cancelled $ ÷ serviced $ · excl. 3-day ROR + one-time',
                 bestDayTime: 'Biggest single-rep record among the reps shown',
