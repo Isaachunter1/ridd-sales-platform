@@ -2702,7 +2702,7 @@ function openUserEditor(existing = null, prefill = null) {
         if (!roleSel) return;
         const checkRole = () => {
           // Only loyalty roles have a stub field left here (Loyalty Royalty) — per Isaac, Sep 22.
-          section.style.display = LOYALTY_ROLES.has(roleSel.value) ? '' : 'none';
+          section.style.display = 'none';   // Pay Stub heading removed from the user form (per Isaac, Oct 15) — nothing left to edit in it
           applyRepTypeVisibility();   // Golden Phone visibility depends on the role too
         };
         roleSel.addEventListener('change', checkRole);
