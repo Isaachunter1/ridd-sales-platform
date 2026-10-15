@@ -3388,7 +3388,10 @@ function openIndicatorRepCard(rep, allReps = []) {
   // against) from the full sales feed — the card's dropdown (YTD default) does the scoping from there.
   // Aggregate rows (Total / RIDD / team totals) keep what they were given.
   try {
-    const raw = state._indicatorRawSales;
+    // The board's own pool: department + the Pending/Serviced gate + the Filters panel — just not the date
+    // range (per Isaac, Oct 15 — rebuilt from the raw feed, #Andrew Peterson counted No Appointment /
+    // cancelled-before-service sales the CRM leaderboard leaves out: $45.5k vs $28.5k).
+    const raw = (typeof indicatorSales === 'function') ? indicatorSales() : state._indicatorRawSales;
     const named = (r) => r && !Array.isArray(r._members) && r.name && typeof getCanonicalRepName === 'function' && getCanonicalRepName(r.name) === r.name;
     if (Array.isArray(raw) && raw.length && typeof _enrichRepFromRawSales === 'function') {
       const full = (r) => { if (!named(r)) return r; const f = _enrichRepFromRawSales(r.name, raw); return f.sales.length >= (r.sales || []).length ? Object.assign({}, r, f) : r; };
@@ -3436,6 +3439,8 @@ function openIndicatorRepCard(rep, allReps = []) {
   let cardScope = 'ytd';             // CARD_SCOPE_PRESETS id — scopes ALL stats/charts in this card (YTD default)
   let _trendWkOff = 0;               // 12-week trend paging (0 = latest window)
   let cardView = 'sales';            // 'sales' | 'retention' — retention mirrors the Auditing player card
+  // Revenue tile mode (per Isaac, Oct 15): Office Staff default New (renewal-source sales out), toggle Total / Renewal.
+  let cardRevMode = (state.indicatorDept === 'office') ? (state._indRepRevMode || 'new') : 'total';
   let retDrill = null;               // retention tile drill { label, pred }
   const isAutoPayOn = (s) => s.autoPay && s.autoPay !== 'No' && String(s.autoPay).trim() !== '';
 
@@ -3480,11 +3485,21 @@ function openIndicatorRepCard(rep, allReps = []) {
     // Personal PRA — denominators are SELLING days (days with ≥1 sale), so
     // days off don't drag the averages down.
     const sellDays = new Set(allSales.map(s => dateSoldToIso(s.dateSold)).filter(Boolean)).size;
+    const _isRen = (x) => typeof _indicatorIsRenewal === 'function' && _indicatorIsRenewal(x);
+    const revSales = cardRevMode === 'total' ? allSales : allSales.filter(x => cardRevMode === 'renewal' ? _isRen(x) : !_isRen(x));
+    const revAmt = cardRevMode === 'total' && _mo.revenue == null ? (scopedRep.revenue || 0) : revSales.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
+    const revDays = new Set(revSales.map(x => dateSoldToIso(x.dateSold)).filter(Boolean)).size;
+    const revToggle = el('span', { class: 'inline-flex rounded overflow-hidden', style: { border: '1px solid var(--border-2)' }, onclick: (e) => e.stopPropagation() },
+      ...[['new', 'New'], ['total', 'Total'], ['renewal', 'Renewal']].map(([v, l]) => el('button', { type: 'button',
+        style: { fontSize: '9px', fontWeight: '700', padding: '0 5px', lineHeight: '14px', border: '0', cursor: 'pointer', background: cardRevMode === v ? 'var(--accent)' : 'transparent', color: cardRevMode === v ? 'var(--accent-text)' : 'var(--text-muted)' },
+        title: v === 'new' ? 'New business only' : v === 'renewal' ? 'Renewal-source sales only' : 'Everything',
+        onclick: (e) => { e.stopPropagation(); cardRevMode = v; renderBody(); } }, l)));
     scopedStats = [
       { key: 'sales',      label: 'Sales',      value: fmt.int(count) },
-      { key: 'revenue',    label: 'Revenue',    value: fmt.usd0(scopedRep.revenue || 0) },
+      { key: 'revenue',    label: cardRevMode === 'new' ? 'New Revenue' : cardRevMode === 'renewal' ? 'Renewal Revenue' : 'Revenue', value: fmt.usd0(revAmt), sub: revToggle,
+        title: 'Sales sold in this window · New = renewal-source sales out (the leaderboard default for Office Staff) · Production/Day follows this toggle' },
       { key: 'revPerDay',  label: 'Production/Day',
-        value: _mo.revPerDay != null ? fmt.usd0(_mo.revPerDay) + (_mo.acctsPerDay != null ? ' / ' + Math.round(_mo.acctsPerDay) : '') : sellDays > 0 ? fmt.usd0((scopedRep.revenue || 0) / sellDays) + ' / ' + Math.round(count / sellDays) : '—' },   // whole accounts/day — decimals clipped the tile (per Isaac)
+        value: _mo.revPerDay != null && cardRevMode === 'total' ? fmt.usd0(_mo.revPerDay) + (_mo.acctsPerDay != null ? ' / ' + Math.round(_mo.acctsPerDay) : '') : revDays > 0 ? fmt.usd0(revAmt / revDays) + ' / ' + Math.round(revSales.length / revDays) : '—' },   // whole accounts/day — decimals clipped the tile (per Isaac)
       { key: 'acv',        label: 'ACV',        value: fmt.usd(acv) },
       // Sales Rep dept → Avg Pest Initial (excludes Sentricon / German Roach /
       // Interior Flea). Office Staff, Technician, and All → plain Avg Initial.
@@ -3632,6 +3647,8 @@ function openIndicatorRepCard(rep, allReps = []) {
     // 3 × 3 on phones, 5 + 4 on desktop (wider tiles, two rows — per Isaac); columns come from .rep-stats-grid in index.html.
     // 11 tiles since Audit % (Oct 8): 6 + 5 on desktop instead of 5 + 5 + a stray one; phones stay 3-up.
     let _wide = false; try { _wide = window.matchMedia('(min-width: 640px)').matches; } catch (e) { /* phones */ }
+    const _maxLen = Math.max(0, ...scopedStats.map(x => String(x.value).length));
+    const _valCls = _wide ? (_maxLen > 13 ? 'text-sm' : 'text-lg') : (_maxLen > 11 ? 'text-xs' : _maxLen > 8 ? 'text-sm' : 'text-lg');
     return el('div', { class: 'grid gap-2 sm:gap-3 mb-5 rep-stats-grid', style: (_wide && scopedStats.length === 11) ? { gridTemplateColumns: 'repeat(6, minmax(0, 1fr))' } : {} },
       ...scopedStats.map(stat => {
         const selected = drillKey === stat.key;
@@ -3653,7 +3670,8 @@ function openIndicatorRepCard(rep, allReps = []) {
           el('div', {
             // Plex Mono is wide: 9 mono characters ("$1,091 / 2") overflowed a
             // 100px tile at text-lg (per Isaac) — step down sooner.
-            class: (String(stat.value).length > 11 ? 'text-xs' : String(stat.value).length > 8 ? 'text-sm' : 'text-lg')
+            // One size for every tile (per Isaac, Oct 15) — the longest value on the card picks it, so nothing clips.
+            class: _valCls
               + ' font-bold tabular-nums mt-1 whitespace-nowrap overflow-hidden',
             style: stat.color ? { color: stat.color } : {},
           }, stat.value),
