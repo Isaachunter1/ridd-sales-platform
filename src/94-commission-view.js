@@ -193,8 +193,9 @@ function commissionComputeOfficeStaff(emp, startMs, endMs) {
   const isMultiYear = (s) => [18, 24].includes(Number(s.contract_months));
 
   const _upMult = upfrontTierPayPct(upfrontCollectedPct(sales.filter(s => s.audit_status !== 'cancelled')), repId);   // Passed Audit %: every account sold in the range
-  const salesPay   = serviced.reduce((a, s) => a + getCommissionAmount(repId, s), 0) * _upMult;
-  const belowPay   = below.reduce((a, s) => a + getCommissionAmount(repId, s), 0) * _upMult;
+  // Sentricon / add-ons / renewals skip the Passed Audit tier (per Isaac, Oct 15).
+  const salesPay   = serviced.reduce((a, s) => a + getCommissionAmount(repId, s) * (passedAuditExempt(s) ? 1 : _upMult), 0);
+  const belowPay   = below.reduce((a, s) => a + getCommissionAmount(repId, s) * (passedAuditExempt(s) ? 1 : _upMult), 0);
   const pendingPay = pending.reduce((a, s) => a + getCommissionAmount(repId, { ...s, audit_status: 'serviced' }), 0);
 
   const multiYearBonus = serviced.filter(s => isMultiYear(s) && !isRenewalSource(s)).reduce((a, s) => a + getBackendAmount(s), 0);

@@ -2307,7 +2307,8 @@ function payrollRunStub(repId, sales, period) {
   const byId = new Map(sales.map(x => [x.id, x]));
   const lines = isPayLines(repId, sales, mult).map(l => {
     const sale = byId.get(l.sale_id); const add = (typeof getAddonCommission === 'function' && sale) ? getAddonCommission(repId, sale) : 0;
-    return Object.assign(l, { addon: Math.round(add * 100) / 100, amount: Math.round(((l.base - add) * mult + add) * 100) / 100 });
+    const m = l.tier_mult == null ? mult : l.tier_mult;   // 100% for Sentricon / add-ons / renewals (per Isaac, Oct 15)
+    return Object.assign(l, { addon: Math.round(add * 100) / 100, amount: Math.round(((l.base - add) * m + add) * 100) / 100 });
   });
   const salesPay = lines.reduce((a, l) => a + l.amount, 0);
   // Same period-level lines as the Pay tab's pay-period stub (viewPay → totalPayPayPeriod).
@@ -2395,7 +2396,7 @@ function paystubPdfBytes(x, period, saleById) {
   rect(M, y, W - 2 * M, 22, ACC);
   text('Total pay', C.cust, y + 15, 10, 'F4', '#FFFFFF'); text(money(x.total), C.pay, y + 15, 10, 'F4', '#FFFFFF', true);
   y += 34;
-  const note = 'Commission = revenue x the rep\'s commission rate for that contract (renewals pay the flat renewal amount; Below Minimums pays half), then x the Passed Audit tier for the period. Backend (multi-year / renewal) pays at the backend lock, not on this stub.';
+  const note = 'Commission = revenue x the rep\'s commission rate for that contract (renewals pay the flat renewal amount; Below Minimums pays half), then x the Passed Audit tier for the period (Sentricon, add-ons and renewals pay 100%). Backend (multi-year / renewal) pays at the backend lock, not on this stub.';
   const words = note.split(' '); let ln = '';
   for (const w of words) { if ((ln + ' ' + w).length > 150) { text(ln, M, y, 7.5, 'F1', MUTED); y += 11; ln = w; } else ln = ln ? ln + ' ' + w : w; }
   if (ln) text(ln, M, y, 7.5, 'F1', MUTED);
@@ -2505,7 +2506,7 @@ function openPayrollRun(rows) {
           ...x.extras.map(([k, v]) => el('tr', { class: 'border-t border-' }, td(k), td(''), td(''), td(''), td(''), td(''), td(''), td(money(v), 1))),
           el('tr', { style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, td('Total pay', 0, { fontWeight: '800' }), td(''), td(''), td(''), td(''), td(''), td(''), td(money(x.total), 1, { fontWeight: '800' }))))),
       el('div', { class: 'px-4 py-2 text-[10px] text-muted-' },
-        'Commission = revenue × the rep’s commission rate for that contract (renewals pay the flat renewal amount; Below Minimums pays half), then × the Passed Audit tier for the period. Backend (multi-year / renewal) pays at the backend lock, not on this stub.'));
+        'Commission = revenue × the rep’s commission rate for that contract (renewals pay the flat renewal amount; Below Minimums pays half), then × the Passed Audit tier for the period (Sentricon, add-ons and renewals pay 100%). Backend (multi-year / renewal) pays at the backend lock, not on this stub.'));
   };
   let busy = false;
   const confirmBtn = el('button', { class: 'rounded-lg px-4 py-2 text-sm font-bold transition hover:brightness-95', style: { background: 'var(--accent)', color: 'var(--accent-text)' },

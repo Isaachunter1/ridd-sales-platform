@@ -292,7 +292,7 @@ function addOnLockLabel(a) {
 // charge-upfront tier multiplier; add-on pay is flat and does not.
 function sumUpfrontPay(repId, sales, mult) {
   let t = 0;
-  for (const s of (sales || [])) { const add = getAddonCommission(repId, s); t += (getCommissionAmount(repId, s) - add) * (mult == null ? 1 : mult) + add; }
+  for (const s of (sales || [])) { const add = getAddonCommission(repId, s); const m = (mult == null || passedAuditExempt(s)) ? 1 : mult; t += (getCommissionAmount(repId, s) - add) * m + add; }
   return t;
 }
 // Add-on helpers shared by the D2D engine + dashboards (state.addOns = the add_ons table).
@@ -364,6 +364,14 @@ function passedAuditPool(repId, period) {
     return !isNaN(d) && d >= period.start && d <= period.end;
   });
 }
+// Sentricon accounts, add-ons and renewals don't need the Passed Audit flag (per Isaac, Oct 15): they're out
+// of the Passed Audit % AND their pay isn't multiplied by the Passed Audit tier.
+function passedAuditExempt(x) {
+  if (!x) return false;
+  if (isRenewalSource(x) || _isUpsellContract(x) || x.sale_kind === 'upsell') return true;
+  const ct = (state.serviceTypes || []).find(t => t.id === x.service_type_id);
+  return (!!ct && /sentricon/i.test(String(ct.name || ''))) || /sentricon/i.test(String(x._crmService || '')) || /sentricon/i.test(String(x.crm_subscription || ''));
+}
 function upfrontCollectedPct(sales) {
   // Rollout guard: until the "Charged Upfront" flag is actually in use
   // anywhere (old sales all default to false), the tier stays at 100% —
@@ -376,8 +384,7 @@ function upfrontCollectedPct(sales) {
   // Per Isaac (Oct 15): Passed Audit doesn't count for Sentricon accounts, add-ons or renewals — they don't
   // need the flag, so they're out of the % entirely. Add-ons include the add-ons sync's rows (sale_kind
   // 'upsell'), and Sentricon is also read off the CRM plan name.
-  const _isSentricon = (x) => { const ct = (state.serviceTypes || []).find(t => t.id === x?.service_type_id); return !!ct && /sentricon/i.test(String(ct.name || '')) || /sentricon/i.test(String(x?._crmService || '')) || /sentricon/i.test(String(x?.crm_subscription || '')); };
-  const eligible = (sales || []).filter(x => !isRenewalSource(x) && !_isUpsellContract(x) && x?.sale_kind !== 'upsell' && !_isSentricon(x));
+  const eligible = (sales || []).filter(x => !passedAuditExempt(x));
   if (!eligible.length) return null;   // nothing eligible — no tier penalty
   return eligible.filter(x => !!x.upfront_collected).length / eligible.length;
 }

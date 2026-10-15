@@ -830,8 +830,8 @@ function isPayLines(repId, sales, upfrontMult) {
       revenue: Math.round(rev * 100) / 100,
       rate: rate == null ? null : Math.round(rate * 10000) / 10000,
       base: Math.round(base * 100) / 100,
-      tier_mult: mult,
-      amount: Math.round(base * mult * 100) / 100,
+      tier_mult: passedAuditExempt(s) ? 1 : mult,   // Sentricon / add-ons / renewals skip the Passed Audit tier (per Isaac, Oct 15)
+      amount: Math.round(base * (passedAuditExempt(s) ? 1 : mult) * 100) / 100,
       backend: Math.round(getBackendAmount(s) * 100) / 100,
     };
   });
