@@ -2096,6 +2096,10 @@ function saleInitialDateNode(s, small) {
   const cls = 'tabular-nums whitespace-nowrap' + (small ? '' : ' font-medium');
   if (svc) return el('span', { class: cls, title: 'Initial service completed ' + svc + ' · ' + c.why, style: { color: 'var(--ok)' } }, (small ? 'INITIAL ' : '') + '✓ ' + fmt.dateShortYear(svc));
   if (sched) { const past = sched < new Date().toISOString().slice(0, 10); return el('span', { class: cls, title: (past ? 'Initial appointment was scheduled for ' + sched + ' but is not marked completed in FieldRoutes' : 'Initial appointment scheduled for ' + sched) + ' · ' + c.why, style: past ? { color: '#B45309' } : {} }, (small ? 'INITIAL ' : '') + (past ? '⚠ ' : '') + fmt.dateShortYear(sched)); }
+  // No date stamped yet, but FieldRoutes' own initial status says it's done / booked (per Isaac, Oct 15 — #183711).
+  const _ist = String(s.crm_initial_status || '').toLowerCase();
+  if (s.sale_kind !== 'upsell' && _ist === 'completed') return el('span', { class: cls, title: 'FieldRoutes shows the initial appointment Completed · ' + c.why, style: { color: 'var(--ok)' } }, (small ? 'INITIAL ' : '') + '\u2713 done');
+  if (s.sale_kind !== 'upsell' && _ist === 'pending') return el('span', { class: cls, title: 'FieldRoutes shows the initial appointment booked (Pending) · ' + c.why }, (small ? 'INITIAL ' : '') + 'booked');
   return el('span', { class: cls, title: 'No initial appointment on the subscription yet · ' + c.why, style: { color: 'var(--text-subtle)' } }, (small ? 'INITIAL ' : '') + 'not scheduled');
 }
 // Sold date + time (per Isaac, Oct 15). The CRM snapshot's sold_at is FieldRoutes' dateAdded on the company
