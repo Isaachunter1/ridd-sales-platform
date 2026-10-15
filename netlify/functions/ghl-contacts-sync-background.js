@@ -29,6 +29,11 @@ function attrLabel(a) {
   if (a.fbclid) return 'fbclid';
   return String(a.medium || a.referrer || '').trim();
 }
+// Campaign + click id (per Isaac, Oct 15 — Marketing Pulse campaign drilldowns). Columns from
+// migrations/20261015g_ghl_contacts_campaign.sql; until it's run the sync keeps writing without them.
+function attrCampaign(a) { if (!a || typeof a !== 'object') return ''; return String(a.utmCampaign || a.utm_campaign || a.campaign || a.campaignName || a.utmCampaignId || a.campaignId || '').trim().slice(0, 160); }
+function attrClick(a) { if (!a || typeof a !== 'object') return ''; return a.gclid ? 'gclid' : a.fbclid ? 'fbclid' : (a.wbraid || a.gbraid) ? 'gclid' : ''; }
+let CAMPAIGN_COLS = true;
 function toRow(c, loc) {
   const added = c.dateAdded || c.createdAt || null, upd = c.dateUpdated || added;
   return {
@@ -37,6 +42,8 @@ function toRow(c, loc) {
     phone10: phone10(c.phone || c.phoneNumber) || null, email: String(c.email || '').trim().toLowerCase() || null,
     postal_code: String(c.postalCode || '').trim().slice(0, 10) || null, city: c.city || null, state: c.state || null,
     tags: Array.isArray(c.tags) ? c.tags.slice(0, 30).map(String) : null, synced_at: new Date().toISOString(),
+    ...(CAMPAIGN_COLS ? { first_campaign: attrCampaign(c.attributionSource) || null, last_campaign: attrCampaign(c.lastAttributionSource) || null,
+      first_click: attrClick(c.attributionSource) || null, last_click: attrClick(c.lastAttributionSource) || null } : {}),
   };
 }
 async function search(headers, body) {
@@ -145,13 +152,24 @@ exports.handler = async (event) => {
   const st = Object.assign({}, (stRow && stRow.value) || {});
   const log = { incremental: 0, backfill: 0, errors: [] };
   const upsert = async (contacts) => {
-    const rows = contacts.filter(c => c && c.id).map(c => toRow(c, loc));
+    let rows = contacts.filter(c => c && c.id).map(c => toRow(c, loc));
     if (!rows.length) return;
-    const { error } = await sb.from('ghl_contacts').upsert(rows, { onConflict: 'id' });
+    let { error } = await sb.from('ghl_contacts').upsert(rows, { onConflict: 'id' });
+    if (error && CAMPAIGN_COLS && /first_campaign|last_campaign|first_click|last_click/.test(error.message || '')) {
+      CAMPAIGN_COLS = false; log.errors.push('campaign columns missing — run migrations/20261015g_ghl_contacts_campaign.sql');
+      rows = contacts.filter(c => c && c.id).map(c => toRow(c, loc));
+      ({ error } = await sb.from('ghl_contacts').upsert(rows, { onConflict: 'id' }));
+    }
     if (error) throw new Error('upsert: ' + error.message);
   };
   const saveState = async () => { await sb.from('app_settings').upsert({ key: 'ghl_sync', value: st }, { onConflict: 'key' }); };
 
+  // One-time re-walk (per Isaac, Oct 15): contacts stored before the campaign columns get them filled in.
+  try {
+    const probe = await sb.from('ghl_contacts').select('first_campaign').limit(1);
+    if (probe.error) CAMPAIGN_COLS = false;
+    else if (st.backfillDone && st.campaignWalk !== 1) { st.backfillDone = false; delete st.backfillAfter; st.campaignWalk = 1; }
+  } catch (e) { CAMPAIGN_COLS = false; }
   try {
     // 1. Incremental (only once a backfill has started, so there's a mark to stop at).
     if (st.mark) {
@@ -208,13 +226,16 @@ exports.handler = async (event) => {
     const hhmm = (iso) => { const m = /T(\d{2}:\d{2})/.exec(String(iso || '')); return m ? m[1] : ''; };
     const from = new Date(CUTOFF).toISOString();
     for (let off = 0; off < 1000000; off += 1000) {
-      const { data, error } = await sb.from('ghl_contacts').select('id,date_added,source,first_attr,last_attr,phone10,email,postal_code')
+      const { data, error } = await sb.from('ghl_contacts').select('id,date_added,source,first_attr,last_attr,phone10,email,postal_code' + (CAMPAIGN_COLS ? ',first_campaign,last_campaign,first_click,last_click' : ''))
         .gte('date_added', from).order('date_added', { ascending: true }).order('id', { ascending: true }).range(off, off + 999);
       if (error) throw new Error('read: ' + error.message);
-      for (const r of data || []) { rows.push([String(r.date_added || '').slice(0, 10), L(r.source), L(r.first_attr), L(r.last_attr), r.phone10 || '', r.email || '', String(r.postal_code || '').slice(0, 5), hhmm(r.date_added)]); if (r.id) byContact.set(String(r.id), [r.phone10 || '', r.email || '']); }
+      for (const r of data || []) { rows.push([String(r.date_added || '').slice(0, 10), L(r.source), L(r.first_attr), L(r.last_attr), r.phone10 || '', r.email || '', String(r.postal_code || '').slice(0, 5), hhmm(r.date_added),
+        // [8] first campaign, [9] last campaign (label indexes), [10] click id kind 'g' / 'f' / '' (per Isaac, Oct 15).
+        L(r.first_campaign), L(r.last_campaign), (r.last_click || r.first_click) === 'gclid' ? 'g' : (r.last_click || r.first_click) === 'fbclid' ? 'f' : '']);
+        if (r.id) byContact.set(String(r.id), [r.phone10 || '', r.email || '', r.last_campaign || r.first_campaign || '']); }
       if (!data || data.length < 1000) break;
     }
-    // One row per opportunity: [date, source label, phone, email, HH:MM (UTC), status, stage index (into `stages`, -1 = none)].
+    // One row per opportunity: [date, source label, phone, email, HH:MM (UTC), status, stage index (into `stages`, -1 = none), campaign label].
     const stageMap = await stageNames(headers, loc); const stages = []; const stageIx = new Map();
     const SI = (id) => { const nm = stageMap[String(id || '')]; if (!nm) return -1; if (!stageIx.has(nm)) { stageIx.set(nm, stages.length); stages.push(nm); } return stageIx.get(nm); };
     const opps = [];
@@ -222,7 +243,7 @@ exports.handler = async (event) => {
       const o = oppStore[id]; const iso = String(o[0] || ''); if (!iso || Date.parse(iso) < CUTOFF) continue;
       const c = byContact.get(o[5]) || ['', ''];
       const ph = o[2] || c[0], em = o[3] || c[1]; if (!ph && !em) continue;
-      opps.push([iso.slice(0, 10), L(o[1]), ph, em, hhmm(iso), o[4] || '', SI(o[6])]);
+      opps.push([iso.slice(0, 10), L(o[1]), ph, em, hhmm(iso), o[4] || '', SI(o[6]), L(c[2] || '')]);   // [7] the contact's campaign
     }
     const gz = zlib.gzipSync(Buffer.from(JSON.stringify({ v: 2, at: new Date().toISOString(), backfillDone: !!st.backfillDone, oppBackfillDone: !!(st.opp && st.opp.backfillDone), labels, rows, opps, stages })));
     const { error } = await sb.storage.from('reporting').upload('ghl/leads.json.gz', gz, { contentType: 'application/gzip', upsert: true });

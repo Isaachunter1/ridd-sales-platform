@@ -58,12 +58,55 @@ async function pullGeo(key, from, to) {
   } finally { clearTimeout(t); }
 }
 
+// Daily (per Isaac, Oct 15 — Marketing Pulse): the same two platforms by DAY + account + campaign for a short window,
+// so Today / This week spend is real instead of a month pro-rated. Capped at 120 days per call; monthly stays as is.
+//   GET /api/ad-spend?daily=1&from=YYYY-MM-DD&to=YYYY-MM-DD → { daily: [{ d, platform, acct, acctName, campaign, type, spend, clicks, impr, leads }] }
+const DAILY = {
+  facebook:   { fields: 'date,account_id,account_name,campaign,spend,clicks,impressions,actions_lead', leads: 'actions_lead' },
+  google_ads: { fields: 'date,account_id,account_name,campaign,campaign_type,spend,clicks,impressions,conversions', leads: 'conversions' },
+};
+async function pullDaily(key, connector, from, to) {
+  const P = DAILY[connector];
+  const url = `${WINDSOR}/${connector}?api_key=${encodeURIComponent(key)}&date_from=${from}&date_to=${to}&fields=${P.fields}&_renderer=json`;
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 9000);
+  try {
+    const r = await fetch(url, { headers: { accept: 'application/json' }, signal: ctl.signal });
+    if (!r.ok) throw new Error(`Windsor ${connector} daily ${r.status}`);
+    const j = await r.json();
+    if (j && !Array.isArray(j) && String(j.status || '').toLowerCase() === 'pending') throw new Error(`Windsor ${connector} daily still building — try again in a minute`);
+    const out = [];
+    for (const x of (j && (j.data || j.result)) || []) {
+      const spend = Number(x.spend) || 0, clicks = Number(x.clicks) || 0, impr = Number(x.impressions) || 0, leads = Number(x[P.leads]) || 0;
+      if (!spend && !clicks && !leads) continue;
+      const d = String(x.date || '').slice(0, 10); if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
+      out.push({ d, platform: connector === 'facebook' ? 'facebook' : 'google', acct: String(x.account_id || ''), acctName: String(x.account_name || ''),
+        campaign: String(x.campaign || ''), type: String(x.campaign_type || ''), spend: Math.round(spend * 100) / 100, clicks, impr, leads: Math.round(leads * 100) / 100 });
+    }
+    return out;
+  } finally { clearTimeout(t); }
+}
+
 exports.handler = async (event) => {
   const { requireRole } = require('../lib/auth-gate.js');
   const gate = await requireRole(event, ['admin', 'admin_rep']);
   if (!gate.ok) return gate.response;
   const key = process.env.WINDSOR_API_KEY;
   if (!key) return { statusCode: 500, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ error: 'WINDSOR_API_KEY not set' }) };
+  const q = event.queryStringParameters || {};
+  if (q.daily) {
+    const iso = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || '')) ? String(s) : null;
+    const today = new Date().toISOString().slice(0, 10);
+    let to = iso(q.to) || today; if (to > today) to = today;
+    let from = iso(q.from) || to;
+    const minFrom = new Date(Date.parse(to + 'T00:00:00Z') - 119 * 86400000).toISOString().slice(0, 10);
+    if (from < minFrom) from = minFrom; if (from > to) from = to;
+    const res = await Promise.allSettled([pullDaily(key, 'facebook', from, to), pullDaily(key, 'google_ads', from, to)]);
+    const daily = [], errors = [];
+    res.forEach((r, i) => { if (r.status === 'fulfilled') daily.push(...r.value); else errors.push((i ? 'google_ads' : 'facebook') + ': ' + String(r.reason && r.reason.message || r.reason)); });
+    if (!daily.length && errors.length) return { statusCode: 502, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ error: errors.join(' · ') }) };
+    return { statusCode: 200, headers: { 'content-type': 'application/json', 'cache-control': 'private, max-age=900' },
+      body: JSON.stringify({ from, to, daily, errors, pulledAt: new Date().toISOString() }) };
+  }
   const nowY = new Date().getUTCFullYear();
   const year = Math.min(nowY, Math.max(2020, Number((event.queryStringParameters || {}).year) || nowY));
   const from = year + '-01-01';

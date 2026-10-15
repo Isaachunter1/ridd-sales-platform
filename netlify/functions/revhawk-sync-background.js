@@ -249,7 +249,8 @@ pay AS (
   -- Successful payments (status 1, money actually applied) per customer —
   -- the commissionable-date rule (per Isaac) needs "first payment received
   -- on/after the sale". One row per customer per day.
-  SELECT fieldRoutes_customerID AS cid, LEFT(fieldRoutes_date,10) AS paid_on
+  -- amt (per Isaac, Oct 15): the dollars applied that day, for Marketing's collected revenue.
+  SELECT fieldRoutes_customerID AS cid, LEFT(fieldRoutes_date,10) AS paid_on, ROUND(SUM(SAFE_CAST(fieldRoutes_appliedAmount AS FLOAT64)), 2) AS amt
   FROM \`${PROJECT}.${DATASET}.FieldRoutesPayment\`
   WHERE fieldRoutes_status = '1' AND SAFE_CAST(fieldRoutes_appliedAmount AS FLOAT64) > 0
     AND fieldRoutes_date >= FORMAT_DATE('%Y-%m-%d', DATE_SUB(CURRENT_DATE(), INTERVAL 2 YEAR))
@@ -328,6 +329,10 @@ SELECT
   s.fieldRoutes_billingFrequency AS billing_frequency,
   -- First successful payment on/after the sale date (commissionable-date rule).
   (SELECT MIN(p.paid_on) FROM pay p WHERE p.cid = s.fieldRoutes_customerID AND p.paid_on >= LEFT(s.fieldRoutes_dateAdded,10)) AS first_paid_date,
+  -- Collected revenue (per Isaac, Oct 15 — Marketing Pulse ROAS on cash): every successful payment applied to the
+  -- CUSTOMER on/after this plan was sold (payments are customer-level in FieldRoutes, so a customer with two plans
+  -- shows the same dollars on both — the app counts it once per customer). Last 2 years of payments.
+  (SELECT ROUND(SUM(p.amt), 2) FROM pay p WHERE p.cid = s.fieldRoutes_customerID AND p.paid_on >= LEFT(s.fieldRoutes_dateAdded,10)) AS collected_since_sale,
   s.fieldRoutes_source AS subscription_source,
   CAST(NULL AS STRING) AS country,
   cust.state AS state,

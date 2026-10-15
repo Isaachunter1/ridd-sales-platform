@@ -124,10 +124,27 @@ async function pullMarketingPayees(startYear) {
   const fields = 'generalledger__item__tx_date,generalledger__item__account_name,generalledger__item__name,generalledger__item__vendor_name,generalledger__item__memo,generalledger__item__txn_type,generalledger__item__subt_nat_amount';
   // Filter on one plain word: an ampersand or space inside the filter value can be mangled on the way to Windsor and match nothing.
   const filter = encodeURIComponent(JSON.stringify([['generalledger__item__account_name', 'contains', 'Advertising']]));
-  const url = `https://connectors.windsor.ai/quickbooks?api_key=${encodeURIComponent(key)}&date_from=${from}&date_to=${to}&fields=${fields}&filter=${filter}&_renderer=json`;
-  const r = await fetchT(url, { headers: { accept: 'application/json' } });
-  if (!r.ok || !r.json) throw new Error(`Windsor marketing detail ${r.status}: ${(r.text || '').slice(0, 200)}`);
-  const rows = Array.isArray(r.json) ? r.json : (r.json.data || r.json.result || []);
+  // Month by month (per Isaac, Oct 15 — the Oct 15 refresh came back with 0 lines): one request for ~22 months
+  // of ledger detail is too big for Windsor to answer in one go, so it returned no rows. A month is small; a
+  // reply still being built ("pending") is asked again. Months that fail are logged and the rest still load.
+  const rows = [], failed = [];
+  const yms = []; { const d = new Date(Date.UTC(Number(from.slice(0, 4)), 0, 1)); while (d.toISOString().slice(0, 10) <= to) { yms.push(d.toISOString().slice(0, 7)); d.setUTCMonth(d.getUTCMonth() + 1); } }
+  for (const ym of yms) {
+    const mFrom = ym + '-01', mEnd = new Date(Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0)).toISOString().slice(0, 10);
+    const mTo = mEnd > to ? to : mEnd;
+    const url = `https://connectors.windsor.ai/quickbooks?api_key=${encodeURIComponent(key)}&date_from=${mFrom}&date_to=${mTo}&fields=${fields}&filter=${filter}&_renderer=json`;
+    let got = null;
+    for (let attempt = 0; attempt < 5 && !got; attempt++) {
+      const r = await fetchT(url, { headers: { accept: 'application/json' } });
+      if (!r.ok || !r.json) { if (attempt === 4) failed.push(ym + ' ' + r.status); await new Promise(res => setTimeout(res, 4000)); continue; }
+      const j = r.json;
+      if (!Array.isArray(j) && j.status && String(j.status).toLowerCase() === 'pending') { await new Promise(res => setTimeout(res, 8000)); continue; }
+      got = Array.isArray(j) ? j : (j.data || j.result || []);
+    }
+    if (got) rows.push(...got); else if (!failed.some(f => f.startsWith(ym))) failed.push(ym + ' pending');
+  }
+  if (failed.length) console.warn('[qbo-refresh] marketing detail months not loaded:', failed.join(', '));
+  if (!rows.length) throw new Error('Windsor marketing detail: no lines for any month' + (failed.length ? ' (' + failed.join(', ') + ')' : ''));
   const months = {}, journal = {}, memo = {}, lines = {}; let n = 0;
   const cents = (x) => Math.round(x * 100) / 100;
   for (const row of rows) {
@@ -148,7 +165,7 @@ async function pullMarketingPayees(startYear) {
     (lines[ym] = lines[ym] || []).push([String(row.generalledger__item__tx_date || '').slice(8, 10), payee, m.slice(0, 90), cents(amt), acct.replace(/^advertising\s*&\s*marketing\s*:?\s*/i, '')]);
     n++;
   }
-  return { months, journal, memo, lines, rows: n, pulledAt: new Date().toISOString() };
+  return { months, journal, memo, lines, rows: n, failedMonths: failed, pulledAt: new Date().toISOString() };
 }
 
 exports.handler = async (event) => {
