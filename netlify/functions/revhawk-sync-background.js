@@ -2017,29 +2017,35 @@ WHERE a.fieldRoutes_statusText = 'Completed' AND a.fieldRoutes_dateCompleted NOT
       console.error('[revhawk-sync] auto-stage skipped:', stageError);
     }
 
-    // ── 📈 Peak values (per Isaac + CSO, Oct 15): what each account was worth BEFORE any reduction — rates
-    // lowered to save a customer, plans adjusted down from what was originally sold. Published as a small map
-    // (customer # | current plan name → peak contract value), only for accounts whose peak beats today's value,
-    // to indicators/peak-values.json; the player card's "Peak" revenue reads it. Two breadcrumbs:
-    //   1. FieldRoutes' subscription changelog (RevHawk, captured since 9/14/26): every recurringCharge change
-    //      with its old value — the highest recurring charge ever on the plan rescales the recurring part of
-    //      today's contract value (initial stays as is).
-    //   2. The app's own sale rows: the revenue frozen the first time a sale was seen vs the CRM value now.
+    // ── 📈 Peak values (per Isaac + CSO, Oct 15): each account's value from AFTER its initial service was
+    // completed, before any later change — a rate lowered to save the customer, a plan adjusted down. Edits before
+    // the initial is done (setting up the sale) don't count. Published as a small map (customer # | current plan
+    // name → peak contract value), only for accounts whose peak beats today's value, to
+    // indicators/peak-values.json; the player card's "Peak" revenue reads it. Breadcrumb: FieldRoutes' subscription
+    // changelog (RevHawk, captured since 9/14/26) — every recurringCharge change after the initial's completion,
+    // with its old value; the highest recurring charge in effect since then rescales the recurring part of today's
+    // contract value (the initial stays as is).
     try {
+      // Once a day is plenty (the query scans ~2 GB of change history) — skip when the file is under 20 hours old.
+      let _pkFresh = false;
+      try { const { data: pf } = await supabase.storage.from('reporting').download('indicators/peak-values.json'); if (pf) { const j = JSON.parse(await pf.text()); _pkFresh = !!j.at && (Date.now() - Date.parse(j.at)) < 20 * 3600000; } } catch (e) { /* first run */ }
+      if (_pkFresh) throw new Error('fresh');
       const tokPk = await getAccessToken();
       const TP = (n) => '`' + PROJECT + '.' + DATASET + '.' + n + '`';
       const r = await runQuery(tokPk, `
-WITH sub0 AS (
-  SELECT fieldRoutes_subscriptionID AS sid, LEFT(fieldRoutes_dateAdded, 10) AS added FROM ${TP('FieldRoutesSubscription')}
-  QUALIFY ROW_NUMBER() OVER (PARTITION BY fieldRoutes_subscriptionID ORDER BY fieldRoutes_dateUpdated DESC, updatedAt DESC) = 1
+WITH done AS (
+  -- When the plan's initial service was completed (its first completed appointment).
+  SELECT fieldRoutes_subscriptionID AS sid, MIN(LEFT(fieldRoutes_dateCompleted, 19)) AS done_at FROM ${TP('FieldRoutesAppointment')}
+  WHERE fieldRoutes_statusText = 'Completed' AND fieldRoutes_dateCompleted NOT LIKE '0000%' AND fieldRoutes_dateCompleted != ''
+    AND fieldRoutes_subscriptionID NOT IN ('', '0')
+  GROUP BY 1
 ),
--- Edits on the day the plan was created are the sale being set up, not a reduction — the value the plan was
--- SOLD at is the one in place at the end of that day (the "old" of the first later change).
+-- Only changes AFTER the initial was completed; the value in effect at completion is the "old" of the first one.
 ch AS (
   SELECT c.referenceID AS sid, SAFE_CAST(JSON_VALUE(e, '$.old') AS FLOAT64) AS o, SAFE_CAST(JSON_VALUE(e, '$.new') AS FLOAT64) AS n
   FROM ${TP('FieldRoutesChangelog')} c, UNNEST(JSON_QUERY_ARRAY(c.notesJson)) e
-  JOIN sub0 ON sub0.sid = c.referenceID
-  WHERE c.classID = 7 AND JSON_VALUE(e, '$.key') = 'recurringCharge' AND LEFT(c.dateChanged, 10) > sub0.added
+  JOIN done ON done.sid = c.referenceID
+  WHERE c.classID = 7 AND JSON_VALUE(e, '$.key') = 'recurringCharge' AND LEFT(c.dateChanged, 19) > done.done_at
 ),
 mx AS (SELECT sid, MAX(GREATEST(IFNULL(o, 0), IFNULL(n, 0))) AS peak_rec FROM ch GROUP BY sid),
 sub AS (
@@ -2058,19 +2064,13 @@ WHERE mx.peak_rec > IFNULL(sub.rec, 0) + 0.009 AND IFNULL(sub.rec, 0) > 0 AND IF
         const peak = init + Math.max(0, cv - init) * (pr / rec);
         if (peak > cv + 0.5) put(String(x.cid) + '|' + String(x.svc || '').trim().toLowerCase(), peak);
       }
-      const { data: frozen } = await selectAll(() => supabase.from('sales').select('id, customer_number, crm_subscription, revenue_amount, total_revenue, crm_contract_value, sale_kind')
-        .not('crm_contract_value', 'is', null).gte('sold_date', '2026-01-01'));
-      for (const x of (frozen || [])) {
-        if (x.sale_kind === 'upsell') continue;
-        const was = Math.max(Number(x.revenue_amount) || 0, Number(x.total_revenue) || 0), now = Number(x.crm_contract_value) || 0;
-        if (was > now + 0.5) put(String(x.customer_number || '') + '|' + String(x.crm_subscription || '').trim().toLowerCase(), was);
-      }
+      // (The value frozen at sale isn't used: that's before the initial — per Isaac, peak starts at completion.)
       const sbP = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
       await sbP.storage.from('reporting').upload('indicators/peak-values.json',
         Buffer.from(JSON.stringify({ at: new Date().toISOString(), changelog_since: '2026-09-14', peaks })),
         { contentType: 'application/json', upsert: true });
       console.log('[revhawk-sync] peak values: ' + Object.keys(peaks).length + ' account(s) below their peak');
-    } catch (pkErr) { console.warn('[revhawk-sync] peak values skipped:', String((pkErr && pkErr.message) || pkErr).slice(0, 200)); }
+    } catch (pkErr) { if (String((pkErr && pkErr.message) || '') !== 'fresh') console.warn('[revhawk-sync] peak values skipped:', String((pkErr && pkErr.message) || pkErr).slice(0, 200)); }
 
     await _hb({ stage: 'finished', ok: true, rows: objects.length, ms: Date.now() - started, dataAsOf: _dataAsOf || undefined, indicatorsError: indicatorsError || undefined, officeError: officeError || undefined, srcError: srcError || undefined, verifyError: verifyError || undefined });
     return {
