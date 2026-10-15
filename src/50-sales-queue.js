@@ -2168,7 +2168,13 @@ function saleInitialDateNode(s, small) {
     const nBill = snap && snap.next_billing_date ? String(snap.next_billing_date).slice(0, 10) : '';
     const appt = nAppt && nAppt >= sold ? nAppt : '', bill = nBill && nBill >= today ? nBill : '';
     if (appt && (!bill || appt <= bill)) return el('span', { class: cls, title: 'Renewal \u2014 next service scheduled ' + appt + (bill ? ', before the ' + bill + ' invoice' : '') + '. Commissionable once it\u2019s completed (or the invoice is paid, if that comes first).' }, (small ? 'RENEWAL ' : '') + 'svc ' + fmt.dateShort(appt));
-    if (bill) return el('span', { class: cls, title: 'Renewal \u2014 next invoice ' + bill + (nAppt ? ' (next service ' + nAppt + ')' : ', no service scheduled before it') + '. Commissionable once it\u2019s paid, or sooner if a service is completed first.' }, (small ? 'RENEWAL ' : '') + 'invoice ' + fmt.dateShort(bill));
+    if (bill) return el('span', { class: cls, title: 'Renewal \u2014 next payment due ' + bill + (nAppt ? ' (next service ' + nAppt + ')' : ', no service scheduled before it') + '. Commissionable once it\u2019s paid, or sooner if a service is completed first.' }, (small ? 'RENEWAL ' : '') + 'pay ' + fmt.dateShort(bill));
+    // No billing date from FieldRoutes yet (per Isaac, Oct 15 — show the projected payment, never "waiting"):
+    // billed per service → it's paid at the next service; otherwise a month after the save.
+    const perSvc = snap && ['-1', '0'].includes(String(snap.billing_frequency ?? ''));
+    if (perSvc && nAppt) return el('span', { class: cls, title: 'Renewal \u2014 billed per service, so the next payment comes with the ' + nAppt + ' service' }, (small ? 'RENEWAL ' : '') + 'pay ' + fmt.dateShort(nAppt));
+    const proj = (() => { if (!/^\d{4}-\d{2}-\d{2}$/.test(sold)) return ''; const [y, m, d] = sold.split('-').map(Number); const x = new Date(Date.UTC(y, m, 1)); x.setUTCDate(Math.min(d, new Date(Date.UTC(y, m + 1, 0)).getUTCDate())); return x.toISOString().slice(0, 10); })();
+    if (proj) return el('span', { class: cls, style: { color: 'var(--text-muted)' }, title: 'Renewal \u2014 projected first payment a month after the save (no billing date from FieldRoutes yet)' }, (small ? 'RENEWAL ' : '') + 'pay ' + fmt.dateShort(proj) + ' est.');
     return el('span', { class: cls, style: { color: 'var(--text-subtle)' }, title: 'Renewal \u2014 commissionable once the customer gets their next service or pays their next invoice' }, (small ? 'RENEWAL ' : '') + 'renewal \u00b7 waiting');
   }
   const c = (typeof commissionableDate === 'function') ? commissionableDate(s) : { why: '' };

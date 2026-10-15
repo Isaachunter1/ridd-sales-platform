@@ -325,6 +325,7 @@ SELECT
   CASE WHEN s.fieldRoutes_billingFrequency NOT IN ('-1', '0') AND LEFT(s.fieldRoutes_nextBillingDate,4) >= '2000'   -- 1969-01-01 = none
        THEN NULLIF(NULLIF(LEFT(s.fieldRoutes_nextBillingDate,10),''),'0000-00-00') END AS next_billing_date,
   NULLIF(NULLIF(LEFT(s.fieldRoutes_lastCompleted,10),''),'0000-00-00') AS last_completed_date,
+  s.fieldRoutes_billingFrequency AS billing_frequency,
   -- First successful payment on/after the sale date (commissionable-date rule).
   (SELECT MIN(p.paid_on) FROM pay p WHERE p.cid = s.fieldRoutes_customerID AND p.paid_on >= LEFT(s.fieldRoutes_dateAdded,10)) AS first_paid_date,
   s.fieldRoutes_source AS subscription_source,
