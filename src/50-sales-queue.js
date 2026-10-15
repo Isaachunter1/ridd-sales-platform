@@ -2324,6 +2324,140 @@ function payrollRunStub(repId, sales, period) {
   const total = salesPay + extras.reduce((a, x) => a + x[1], 0);
   return { prof, pct, mult, lines, salesPay, extras, total, revenue: lines.reduce((a, l) => a + l.revenue, 0) };
 }
+// ── Pay stub PDF (per Isaac, Oct 15): the Run payroll stub, as a PDF each rep gets in Slack on Confirm.
+// A tiny dependency-free PDF writer (built-in Helvetica / Courier, WinAnsi text) — landscape Letter,
+// paginated, laid out like the on-screen stub: dark header band, the four how-it-was-earned figures,
+// the account table, Sales pay / extras, the orange Total pay band and the footnote.
+function paystubPdfBytes(x, period, saleById) {
+  const W = 792, H = 612, M = 36;
+  const money = (v) => fmt.usd(Math.round((Number(v) || 0) * 100) / 100);
+  const enc = (t) => String(t == null ? '' : t).replace(/[‘’]/g, "'").replace(/[“”]/g, '"')
+    .replace(/[^\x20-\x7E -ÿ–—•]/g, '?')
+    .replace(/–/g, '\x96').replace(/—/g, '\x97').replace(/•/g, '\x95')
+    .replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+  const rgb = (hex) => { const n = parseInt(hex.slice(1), 16); return [(n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255].map(v => v.toFixed(3)).join(' '); };
+  const INK = '#2A2A2A', MUTED = '#6B6B6B', LINE = '#E3DED5', BAND = '#F3EFE8', ACC = '#E0613A', GREEN = '#15803D', RED = '#DC2626';
+  const pages = []; let ops = [];
+  const rect = (x0, y0, w, h, fill) => ops.push(rgb(fill) + ' rg ' + x0 + ' ' + (H - y0 - h) + ' ' + w + ' ' + h + ' re f');
+  const line = (x0, y0, x1, y1, col, wd) => ops.push(rgb(col) + ' RG ' + (wd || 0.6) + ' w ' + x0 + ' ' + (H - y0) + ' m ' + x1 + ' ' + (H - y1) + ' l S');
+  // f: F1 Helvetica, F2 Helvetica-Bold, F3 Courier, F4 Courier-Bold. Courier is monospace (0.6em) so right-aligning works.
+  const text = (s, x0, y0, size, f, col, right) => {
+    const t = enc(s); const w = right ? t.replace(/\\(.)/g, '$1').length * 0.6 * size : 0;
+    ops.push('BT /' + f + ' ' + size + ' Tf ' + rgb(col || INK) + ' rg ' + (x0 - w).toFixed(2) + ' ' + (H - y0).toFixed(2) + ' Td (' + t + ') Tj ET');
+  };
+  const fit = (s, n) => { s = String(s || ''); return s.length > n ? s.slice(0, n - 1) + '.' : s; };
+  const newPage = () => { if (ops.length) pages.push(ops.join('\n')); ops = []; };
+  // Columns: Customer | Plan | Term | Sold | Revenue | Commission | x Tier | Pay
+  const C = { cust: M + 8, plan: M + 186, term: M + 410, sold: M + 460, rev: M + 560, com: M + 630, tier: M + 672, pay: W - M - 8 };
+  const header = (first) => {
+    rect(M, M, W - 2 * M, 54, INK);
+    text(String(x.prof.full_name || 'Rep').toUpperCase(), M + 16, M + 24, 15, 'F2', '#FFFFFF');
+    text('PAY STUB  •  ' + period.label.toUpperCase() + (first ? '' : '  (CONT.)'), M + 16, M + 40, 8, 'F3', '#CFCFCF');
+    text('TOTAL PAY', W - M - 16, M + 20, 7, 'F3', '#CFCFCF', true);
+    text(money(x.total), W - M - 16, M + 41, 18, 'F4', '#FFFFFF', true);
+    let y = M + 54;
+    if (first) {
+      const k = [['ACCOUNTS', String(x.lines.length)], ['REVENUE', money(x.revenue)], ['PASSED AUDIT %', x.pct == null ? '—' : Math.round(x.pct * 100) + '%'], ['TIER PAYS', Math.round((x.mult || 1) * 100) + '%']];
+      const cw = (W - 2 * M) / 4;
+      k.forEach(([a, b], i) => { if (i) line(M + i * cw, y, M + i * cw, y + 40, LINE); text(a, M + i * cw + 12, y + 14, 7, 'F3', MUTED); text(b, M + i * cw + 12, y + 31, 11, 'F4'); });
+      y += 40; line(M, y, W - M, y, LINE);
+    }
+    rect(M, y, W - 2 * M, 20, BAND);
+    [['CUSTOMER', C.cust], ['PLAN', C.plan], ['TERM', C.term], ['SOLD', C.sold]].forEach(([t, cx]) => text(t, cx, y + 13, 7, 'F3', MUTED));
+    [['REVENUE', C.rev], ['COMMISSION', C.com], ['x TIER', C.tier], ['PAY', C.pay]].forEach(([t, cx]) => text(t, cx, y + 13, 7, 'F3', MUTED, true));
+    return y + 20;
+  };
+  let y = header(true);
+  const ROW = 17, BOTTOM = H - M - 90;
+  for (const l of x.lines) {
+    if (y + ROW > BOTTOM) { newPage(); y = header(false); }
+    const s = saleById.get(l.sale_id) || {};
+    const svc = (typeof nameFromId === 'function' ? nameFromId(state.serviceTypes, s.service_type_id) : '') || s.crm_subscription || '—';
+    const ao = (typeof saleAddOnsFor === 'function' ? saleAddOnsFor(s) : []) || [];
+    text(fit('#' + (l.customer_number || '') + ' ' + (l.customer || ''), 33), C.cust, y + 12, 8.5, 'F3');
+    const addOnOnly = s.sale_kind === 'upsell' || (!s.service_type_id && ao.length > 0);
+    const base = addOnOnly ? String((ao[0] && ao[0].base_service) || '') : svc;   // an add-on alone shows the plan it was added to
+    const plan = base + (ao.length ? (base ? ' ' : '') + '+ ' + ao.map(a => a.service_name || 'Add-on').join(' + ') : '');
+    text(fit(plan + (l.status === 'below_minimums' ? '  (below min, half)' : ''), 42), C.plan, y + 12, 8.5, 'F3', l.status === 'below_minimums' ? '#B45309' : INK);
+    text(s.sale_kind === 'upsell' ? 'Add on' : l.months > 1 ? l.months + ' mo' : 'One-time', C.term, y + 12, 8.5, 'F3');
+    text(fmt.dateShortYear(l.sold_date), C.sold, y + 12, 8.5, 'F3');
+    text(money(l.revenue), C.rev, y + 12, 8.5, 'F3', INK, true);
+    text(money(l.base), C.com, y + 12, 8.5, 'F3', INK, true);
+    text(Math.round((l.tier_mult || x.mult || 1) * 100) + '%', C.tier, y + 12, 8.5, 'F3', MUTED, true);
+    text(money(l.amount), C.pay, y + 12, 8.5, 'F4', INK, true);
+    y += ROW; line(M, y, W - M, y, LINE, 0.4);
+  }
+  if (y + 30 + x.extras.length * ROW + 60 > H - M) { newPage(); y = header(false); }
+  line(M, y, W - M, y, INK, 0.9);
+  text('Sales pay', C.cust, y + 13, 9, 'F4'); text(money(x.revenue), C.rev, y + 13, 9, 'F3', INK, true); text(money(x.salesPay), C.pay, y + 13, 9, 'F4', INK, true);
+  y += 19;
+  for (const [k, v] of x.extras) { line(M, y, W - M, y, LINE, 0.4); text(fit(k, 40), C.cust, y + 13, 9, 'F3'); text(money(v), C.pay, y + 13, 9, 'F3', Number(v) < 0 ? RED : INK, true); y += 19; }
+  rect(M, y, W - 2 * M, 22, ACC);
+  text('Total pay', C.cust, y + 15, 10, 'F4', '#FFFFFF'); text(money(x.total), C.pay, y + 15, 10, 'F4', '#FFFFFF', true);
+  y += 34;
+  const note = 'Commission = revenue x the rep\'s commission rate for that contract (renewals pay the flat renewal amount; Below Minimums pays half), then x the Passed Audit tier for the period. Backend (multi-year / renewal) pays at the backend lock, not on this stub.';
+  const words = note.split(' '); let ln = '';
+  for (const w of words) { if ((ln + ' ' + w).length > 150) { text(ln, M, y, 7.5, 'F1', MUTED); y += 11; ln = w; } else ln = ln ? ln + ' ' + w : w; }
+  if (ln) text(ln, M, y, 7.5, 'F1', MUTED);
+  text('RIDD Pest Control  •  generated ' + new Date().toLocaleDateString('en-US'), M, H - M + 12, 7, 'F3', MUTED);
+  void GREEN;
+  newPage();
+  // Assemble: 1 catalog, 2 pages, 3-6 fonts, then a page + content per page.
+  const objs = [];
+  objs[1] = '<< /Type /Catalog /Pages 2 0 R >>';
+  const kids = pages.map((_, i) => (7 + i * 2) + ' 0 R').join(' ');
+  objs[2] = '<< /Type /Pages /Kids [' + kids + '] /Count ' + pages.length + ' >>';
+  ['Helvetica', 'Helvetica-Bold', 'Courier', 'Courier-Bold'].forEach((f, i) => { objs[3 + i] = '<< /Type /Font /Subtype /Type1 /BaseFont /' + f + ' /Encoding /WinAnsiEncoding >>'; });
+  pages.forEach((stream, i) => {
+    const pid = 7 + i * 2, cid = pid + 1;
+    objs[pid] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + W + ' ' + H + '] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R >> >> /Contents ' + cid + ' 0 R >>';
+    objs[cid] = '<< /Length ' + stream.length + ' >>\nstream\n' + stream + '\nendstream';
+  });
+  let out = '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n'; const off = [];
+  for (let i = 1; i < objs.length; i++) { off[i] = out.length; out += i + ' 0 obj\n' + objs[i] + '\nendobj\n'; }
+  const xref = out.length;
+  out += 'xref\n0 ' + objs.length + '\n0000000000 65535 f \n' + off.slice(1).map(o => String(o).padStart(10, '0') + ' 00000 n \n').join('');
+  out += 'trailer\n<< /Size ' + objs.length + ' /Root 1 0 R >>\nstartxref\n' + xref + '\n%%EOF';
+  const bytes = new Uint8Array(out.length);
+  for (let i = 0; i < out.length; i++) bytes[i] = out.charCodeAt(i) & 255;
+  return bytes;
+}
+function paystubPdfName(x, period) {
+  return 'RIDD-paystub-' + String(x.prof.full_name || 'rep').replace(/[^A-Za-z0-9]+/g, '-') + '-' + String(period.label || '').replace(/[^A-Za-z0-9]+/g, '-') + '.pdf';
+}
+function downloadPaystubPdf(x, period, saleById) {
+  const blob = new Blob([paystubPdfBytes(x, period, saleById)], { type: 'application/pdf' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = paystubPdfName(x, period);
+  document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+// Slack each rep their stub as a PDF (per Isaac, Oct 15) — through /api/slack-paystub (admin-only; the bot
+// token stays server-side). Reps without a Slack member ID, or whose type has Slack off, are skipped.
+async function slackPaystubPdfs(stubs, period, saleById) {
+  if (typeof DEMO !== 'undefined' && DEMO) return { sent: 0, skipped: stubs.length, failed: 0 };
+  let sent = 0, skipped = 0, failed = 0; const errs = [];
+  for (const x of stubs) {
+    const sid = x.prof.slack_member_id || x.prof.slack_user_id;
+    if (!sid || (typeof slackAllowedFor === 'function' && !slackAllowedFor(x.prof))) { skipped++; continue; }
+    try {
+      const bytes = paystubPdfBytes(x, period, saleById);
+      let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+      const res = await fetch('/api/slack-paystub', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + ((state.session && state.session.access_token) || '') },
+        body: JSON.stringify({
+          kind: 'paystub_upfront_pdf',
+          recipients: [{ slack_user_id: sid, full_name: x.prof.full_name || '' }],
+          payload: { text: '\u{1F4B8} Your pay stub for ' + period.label + ' — ' + fmt.usd(Math.round(x.total * 100) / 100) + ' across ' + x.lines.length + ' account' + (x.lines.length === 1 ? '' : 's') + '.' },
+          file: { filename: paystubPdfName(x, period), title: 'Pay stub · ' + period.label, base64: btoa(bin) },
+        }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok && j.sent) sent++; else { failed++; errs.push((x.prof.full_name || 'rep') + ': ' + (Object.values(j.errors || {})[0] || j.error || ('HTTP ' + res.status))); }
+    } catch (e) { failed++; errs.push((x.prof.full_name || 'rep') + ': ' + (e.message || e)); }
+  }
+  if (typeof logActivity === 'function') logActivity('slack_dm_sent', { new_status: 'paystub_upfront_pdf', detail: period.label + ' · ' + sent + ' sent · ' + skipped + ' without Slack · ' + failed + ' failed' + (errs.length ? ' — ' + errs.slice(0, 3).join('; ') : '') });
+  return { sent, skipped, failed, errs };
+}
 function openPayrollRun(rows) {
   const today = new Date();
   const period = getPayPeriods(today.getFullYear()).find(p => p.id === currentPayPeriodId(today.getFullYear())) || getPayPeriods(today.getFullYear())[0];
@@ -2378,7 +2512,14 @@ function openPayrollRun(rows) {
     disabled: !sales.length,
     onclick: async () => {
       if (busy || !sales.length) return; busy = true; confirmBtn.textContent = 'Running…';
-      try { await confirmPayrollRun(sales, period); close(); } catch (e) { busy = false; confirmBtn.textContent = 'Confirm payroll'; toast(e.message || 'Payroll failed', 'error'); }
+      try {
+        await confirmPayrollRun(sales, period);
+        close();
+        // Pay stubs to Slack as PDFs (per Isaac, Oct 15), built from the numbers that were just confirmed.
+        const r = await slackPaystubPdfs(stubs, period, saleById);
+        if (r.sent || r.failed) toast('Pay stubs Slacked: ' + r.sent + (r.skipped ? ' · ' + r.skipped + ' without Slack' : '') + (r.failed ? ' · ' + r.failed + ' failed' : ''), r.failed ? 'warn' : 'success');
+        else if (r.skipped) toast('Pay stubs not Slacked — ' + r.skipped + ' rep' + (r.skipped === 1 ? '' : 's') + ' without a Slack member ID', 'warn');
+      } catch (e) { busy = false; confirmBtn.textContent = 'Confirm payroll'; toast(e.message || 'Payroll failed', 'error'); }
     } }, 'Confirm payroll');
   back.append(el('div', { class: 'max-w-5xl mx-auto px-4 sm:px-6 py-6 flex flex-col gap-5' },
     el('div', { class: 'flex items-start justify-between gap-4 flex-wrap' },
@@ -2389,7 +2530,22 @@ function openPayrollRun(rows) {
         el('button', { class: 'rounded-lg border px-4 py-2 text-sm font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: close }, 'Cancel'), confirmBtn)),
     held.length ? el('div', { class: 'card px-4 py-2.5 text-xs', style: { borderColor: '#B45309' } }, held.length + ' commissionable sale' + (held.length === 1 ? '' : 's') + ' held: the FieldRoutes seller has no app account yet. They pay on the next run once the account is linked.') : null,
     !stubs.length ? el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'Nothing commissionable yet — approve sales (Commissionable) on Upfront Sales first.') : null,
-    ...stubs.map(stubCard),
+    // One stub at a time, picked from a rep dropdown (per Isaac, Oct 15) + its PDF (what Slack sends on Confirm).
+    stubs.length ? (() => {
+      const host = el('div', {});
+      const show = (i) => { host.replaceChildren(stubCard(stubs[i])); state._payrunRep = stubs[i].prof.id; };
+      const start = Math.max(0, stubs.findIndex(x => x.prof.id === state._payrunRep));
+      const pick = el('select', { class: 'rounded-lg border px-3 py-2 text-sm font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: '260px' },
+        onchange: (e) => show(Number(e.target.value)) },
+        ...stubs.map((x, i) => el('option', { value: String(i), selected: i === start }, (x.prof.full_name || 'Rep') + ' \u2014 ' + money(x.total) + ' \u00b7 ' + x.lines.length + ' account' + (x.lines.length === 1 ? '' : 's'))));
+      const pdfBtn = el('button', { type: 'button', class: 'rounded-lg border px-3 py-2 text-sm font-semibold', style: { borderColor: 'var(--border-2)' },
+        onclick: () => downloadPaystubPdf(stubs[Number(pick.value)], period, saleById) }, 'Download PDF');
+      show(start);
+      return el('div', { class: 'flex flex-col gap-3' },
+        el('div', { class: 'flex items-center gap-2 flex-wrap' }, el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Rep'), pick, pdfBtn,
+          el('span', { class: 'text-[11px] text-muted-' }, 'Each rep is Slacked this stub as a PDF when you confirm.')),
+        host);
+    })() : null,
     el('div', { class: 'text-[11px] text-muted-' }, 'Confirm stamps these accounts paid for ' + period.label + ' and saves a snapshot of every number above. One-time services then move to History; every other account moves to Pending Backend Lock and locks after 4 paid invoices.')));
   document.body.append(back);
 }
@@ -2411,7 +2567,7 @@ async function confirmPayrollRun(sales, period) {
     if (e2) toast('Paid, but one-time services did not move to History (' + e2.message + ')', 'warn');
   }
   for (const [rid, list, totals, inputs] of snaps) await recordPayRun('upfront', rid, period, list, totals, inputs);
-  if (typeof notifyPayrollRun === 'function') notifyPayrollRun(sales, period, 'upfront');
+  // (Slack: the PDF pay stub goes out from openPayrollRun after this — no separate text DM.)
   if (typeof logActivity === 'function') logActivity('payroll_processed', { detail: period.label + ' · ' + sales.length + ' accounts (Sales tab run)' });
   toast('Payroll confirmed — ' + sales.length + ' accounts', 'success');
   await refreshSalesData(); mountApp();

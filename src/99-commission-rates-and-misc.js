@@ -373,8 +373,11 @@ function upfrontCollectedPct(sales) {
   if (!anyFlagged) return null;
   // Sentricon is excluded from the charge-upfront denominator (rep pay tab
   // C29 filters "<>Sentricon - Retreat") — termite jobs bill differently.
-  const _isSentricon = (x) => { const ct = (state.serviceTypes || []).find(t => t.id === x?.service_type_id); return !!ct && /sentricon/i.test(String(ct.name || '')) || /sentricon/i.test(String(x?._crmService || '')); };
-  const eligible = (sales || []).filter(x => !isRenewalSource(x) && !_isUpsellContract(x) && !_isSentricon(x));
+  // Per Isaac (Oct 15): Passed Audit doesn't count for Sentricon accounts, add-ons or renewals — they don't
+  // need the flag, so they're out of the % entirely. Add-ons include the add-ons sync's rows (sale_kind
+  // 'upsell'), and Sentricon is also read off the CRM plan name.
+  const _isSentricon = (x) => { const ct = (state.serviceTypes || []).find(t => t.id === x?.service_type_id); return !!ct && /sentricon/i.test(String(ct.name || '')) || /sentricon/i.test(String(x?._crmService || '')) || /sentricon/i.test(String(x?.crm_subscription || '')); };
+  const eligible = (sales || []).filter(x => !isRenewalSource(x) && !_isUpsellContract(x) && x?.sale_kind !== 'upsell' && !_isSentricon(x));
   if (!eligible.length) return null;   // nothing eligible — no tier penalty
   return eligible.filter(x => !!x.upfront_collected).length / eligible.length;
 }
