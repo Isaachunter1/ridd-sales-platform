@@ -2355,7 +2355,7 @@ function openPayrollRun(rows) {
           el('div', { class: 'px-4 py-2', style: { borderLeft: i ? '1px solid var(--border)' : '0' } },
             el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold text-muted-' }, k), el('div', { class: 'text-sm font-bold tabular-nums' }, v)))),
       el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs' },
-        el('thead', {}, el('tr', {}, th('Customer'), th('Plan'), th('Term'), th('Sold'), th('Revenue', 1), th('Rate', 1), th('Commission', 1), th('× Tier', 1), th('Pay', 1))),
+        el('thead', {}, el('tr', {}, th('Customer'), th('Plan'), th('Term'), th('Sold'), th('Revenue', 1), th('Commission', 1), th('× Tier', 1), th('Pay', 1))),
         el('tbody', {}, ...ownLines.map(({ l, s }) => el('tr', { class: 'border-t border-' },
           td(el('span', {}, el('span', { class: 'text-muted-' }, '#' + (l.customer_number || '')), ' ', l.customer || '')),
           td(el('span', { style: { fontSize: '12px' } }, saleServiceWithAddOns(s, (typeof nameFromId === 'function' ? nameFromId(state.serviceTypes, s.service_type_id) : '') || s.crm_subscription || '—', saleAddOnsFor(s), { size: '12px', weight: '600' })),
@@ -2363,15 +2363,15 @@ function openPayrollRun(rows) {
           td(s.sale_kind === 'upsell' ? 'Add on' : l.months > 1 ? l.months + ' mo' : 'One-time'),
           td(fmt.dateShortYear(l.sold_date)),
           td(money(l.revenue), 1),
-          td(l.renewal ? 'flat' : l.rate == null ? '—' : (Math.round(l.rate * 10000) / 100) + '%', 1, { color: 'var(--text-muted)' }),
+          /* Rate column hidden on the stubs (per Isaac, Oct 15) — commission already reflects it */
           td(money(l.base), 1),
           td(Math.round((l.tier_mult || 1) * 100) + '%', 1, { color: 'var(--text-muted)' }),
           td(money(l.amount), 1, { fontWeight: '700' }))),
-          el('tr', { class: 'border-t', style: { borderColor: 'var(--text)' } }, td('Sales pay', 0, { fontWeight: '700' }), td(''), td(''), td(''), td(money(x.revenue), 1), td(''), td(''), td(''), td(money(x.salesPay), 1, { fontWeight: '800' })),
-          ...x.extras.map(([k, v]) => el('tr', { class: 'border-t border-' }, td(k), td(''), td(''), td(''), td(''), td(''), td(''), td(''), td(money(v), 1))),
-          el('tr', { style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, td('Total pay', 0, { fontWeight: '800' }), td(''), td(''), td(''), td(''), td(''), td(''), td(''), td(money(x.total), 1, { fontWeight: '800' }))))),
+          el('tr', { class: 'border-t', style: { borderColor: 'var(--text)' } }, td('Sales pay', 0, { fontWeight: '700' }), td(''), td(''), td(''), td(money(x.revenue), 1), td(''), td(''), td(money(x.salesPay), 1, { fontWeight: '800' })),
+          ...x.extras.map(([k, v]) => el('tr', { class: 'border-t border-' }, td(k), td(''), td(''), td(''), td(''), td(''), td(''), td(money(v), 1))),
+          el('tr', { style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, td('Total pay', 0, { fontWeight: '800' }), td(''), td(''), td(''), td(''), td(''), td(''), td(money(x.total), 1, { fontWeight: '800' }))))),
       el('div', { class: 'px-4 py-2 text-[10px] text-muted-' },
-        'Commission = revenue × the rep’s rate for that contract (renewals pay the flat renewal amount; Below Minimums pays half), then × the Passed Audit tier for the period. Backend (multi-year / renewal) pays at the backend lock, not on this stub.'));
+        'Commission = revenue × the rep’s commission rate for that contract (renewals pay the flat renewal amount; Below Minimums pays half), then × the Passed Audit tier for the period. Backend (multi-year / renewal) pays at the backend lock, not on this stub.'));
   };
   let busy = false;
   const confirmBtn = el('button', { class: 'rounded-lg px-4 py-2 text-sm font-bold transition hover:brightness-95', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
