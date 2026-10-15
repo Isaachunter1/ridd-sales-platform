@@ -1337,7 +1337,8 @@ function viewIndicators() {
         // What is applied, as removable chips (per Isaac, Oct 6) — only shows when
         // something is on, so you can see what is narrowing the numbers and
         // clear one filter without opening the panel.
-        (() => {
+        // Chips retired (per Isaac, Oct 15): an applied filter or preset just turns the Filters button orange.
+        false && (() => {
           const _tc = (o) => String(o || '').split(' ').map(w => w[0] ? w[0].toUpperCase() + w.slice(1).toLowerCase() : '').join(' ');
           const world = (typeof IND_WORLD !== 'undefined') && !!IND_WORLD[state.view];
           const x = indicatorExcl();
