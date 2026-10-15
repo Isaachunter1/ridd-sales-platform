@@ -2124,7 +2124,8 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
     el('div', { class: 'flex items-baseline justify-between px-4 pt-4 pb-2' },
       el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, title || 'Latest sales'),
       el('div', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, rows.length + ' since ' + fmt.dateShortYear(SALES_FEED_START))),
-    ...sorted.map((s, i) => {
+    ...sorted.map((s, i, arr) => {
+      const _numW = String(arr.length).length > 2 ? 30 : 22;
       const rep = (state.allProfiles || []).find(p => p.id === s.rep_id);
       const svcName = (typeof nameFromId === 'function' ? nameFromId(state.serviceTypes, s.service_type_id) : '') || s.crm_subscription || '—';
       const _src = typeof nameFromId === 'function' ? nameFromId(state.sources, s.source_id) : '';
@@ -2142,9 +2143,11 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
       const small = { fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' };
       return el('div', {
         class: 'grid items-center gap-4 px-4 py-2.5 cursor-pointer transition hover:brightness-95',
-        style: { gridTemplateColumns: 'minmax(0, 1fr) auto auto', borderTop: '1px solid var(--border)' },
+        style: { gridTemplateColumns: (_numW + 'px') + ' minmax(0, 1fr) auto auto', borderTop: '1px solid var(--border)' },
         onclick: (e) => { if (e.target.closest('select, button, input, textarea, a')) return; openNewSaleModal(null, s); },
       },
+        // Row number (per Isaac, Oct 15) — the TV's rank column: mono, muted, right-aligned, newest = 1.
+        el('div', { class: 'tabular-nums text-right self-start', style: { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: '12px', fontWeight: '600', color: 'var(--text-subtle)', paddingTop: '3px' } }, String(i + 1).padStart(2, '0')),
         // One line (per Isaac, Oct 15 — there's room): NAME | #id | service | add-ons | term | source | initial; sold date + time under the name.
         el('div', { style: { display: 'grid', gridTemplateColumns: 'max-content auto max-content auto max-content auto minmax(0, max-content) auto max-content auto minmax(0, max-content) auto max-content minmax(0, 1fr)', alignItems: 'baseline', minWidth: '0', overflow: 'hidden' } },
           // No app account yet: the FieldRoutes seller's name, marked (per Isaac, Oct 15).
