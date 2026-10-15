@@ -3251,6 +3251,8 @@ const showRep = !!(opts && opts.showRep);
     customerId:   (x) => Number(x.customerId) || 0,
     subscription: (x) => (x.subscription || '').toLowerCase(),
     value:        (x) => Number(x.contractValue) || 0,
+    initial:      (x) => Number(x.initialPrice) || 0,
+    recurring:    (x) => (Number(x.recurring) || 0) / 12,
     autopay:      (x) => isAutoPayOn(x) ? 1 : 0,
     status:       (x) => (x.status || '').toLowerCase(),
     sold:         (x) => iso(x),
@@ -3274,14 +3276,18 @@ const showRep = !!(opts && opts.showRep);
     },
   }, label);
   return el('div', { class: 'overflow-x-auto rounded border', style: { borderColor: 'var(--border)', background: 'var(--card)' } },
-    el('table', { class: 'w-full text-[11px]', style: { minWidth: '760px' } },
+    el('table', { class: 'w-full text-[11px]', style: { minWidth: '880px' } },
       el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
         el('tr', { style: { background: 'var(--card-2)' } },
           showRep ? hSort('rep', 'Rep', 'text-left px-2 py-1.5 whitespace-nowrap') : null,
           hSort('customer',     'Customer',      'text-left px-2 py-1.5 whitespace-nowrap'),
           hSort('customerId',   'Cust ID',       'text-left px-2 py-1.5'),
           hSort('subscription', 'Subscription',  'text-left px-2 py-1.5 whitespace-nowrap'),
-          hSort('value',        'Value',         'text-right px-2 py-1.5'),
+          // Initial + Recurring (per service) left of ACV (per Isaac, Oct 15). The feed's `recurring` is FieldRoutes'
+          // annual recurring value = charge × 12, so ÷ 12 is the per-service charge.
+          hSort('initial',      'Initial',       'text-right px-2 py-1.5'),
+          hSort('recurring',    'Recurring',     'text-right px-2 py-1.5'),
+          hSort('value',        'ACV',           'text-right px-2 py-1.5'),
           hSort('autopay',      'Auto Pay',      'text-center px-2 py-1.5'),
           hSort('status',       'Status',        'text-center px-2 py-1.5'),
           hSort('sold',         'Sold',          'text-left px-2 py-1.5 whitespace-nowrap'),
@@ -3304,6 +3310,8 @@ const showRep = !!(opts && opts.showRep);
             el('td', { class: 'px-2 py-1.5 font-medium whitespace-nowrap', title: s.customer || '' }, s.customer || '—'),
             el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums' }, s.customerId || '—'),
             el('td', { class: 'px-2 py-1.5 text-muted- max-w-[200px] truncate', title: s.subscription || '' }, s.subscription || '—'),
+            el('td', { class: 'px-2 py-1.5 text-right tabular-nums' }, s.initialPrice != null && s.initialPrice !== '' ? fmt.usd(Number(s.initialPrice) || 0) : '\u2014'),
+            el('td', { class: 'px-2 py-1.5 text-right tabular-nums' }, (Number(s.recurring) || 0) > 0 ? fmt.usd((Number(s.recurring) || 0) / 12) : '\u2014'),
             el('td', { class: 'px-2 py-1.5 text-right tabular-nums font-semibold' }, fmt.usd0(s.contractValue)),
             el('td', { class: 'px-2 py-1.5 text-center' },
               el('span', {
@@ -3645,7 +3653,7 @@ function openIndicatorRepCard(rep, allReps = []) {
 
   function exportDrillCsv(drillSales) {
     if (drillSales.length === 0) return toast('Nothing to export', 'warn');
-    const headers = ['customer','customer_id','subscription','sold_date','contract_months','initial','contract_value','recurring','auto_pay','status','cancel_date','cancel_reason','audit'];
+    const headers = ['customer','customer_id','subscription','sold_date','contract_months','initial','recurring_per_service','acv','auto_pay','status','cancel_date','cancel_reason','audit'];
     const lines = [headers.join(',')];
     drillSales.forEach(s => lines.push([
       csvEsc(s.customer || ''),
@@ -3654,8 +3662,8 @@ function openIndicatorRepCard(rep, allReps = []) {
       csvEsc(s.dateSold || ''),
       s.contract || '',
       Number(s.initialPrice || 0).toFixed(2),
+      (Number(s.recurring || 0) / 12).toFixed(2),   // per-service charge (the feed's ARV is charge × 12)
       Number(s.contractValue || 0).toFixed(2),
-      Number(s.recurring || 0).toFixed(2),
       csvEsc(s.autoPay || ''),
       csvEsc(s.status || ''),
       csvEsc(s.cancelDate || ''),
