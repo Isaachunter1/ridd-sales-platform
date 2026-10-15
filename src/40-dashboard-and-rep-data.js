@@ -3383,6 +3383,19 @@ function openLandingTileDrill(title, subtitle, rows, opts) {
 function openIndicatorRepCard(rep, allReps = []) {
   if (typeof trackAction === 'function') trackAction('player_card', 'open');
   if (!rep) return;
+  // The card's own date range is independent of the page's (per Isaac, Oct 15): the board hands over a rep
+  // whose sales are already cut to the page's range, so rebuild the rep (and the peers the records rank
+  // against) from the full sales feed — the card's dropdown (YTD default) does the scoping from there.
+  // Aggregate rows (Total / RIDD / team totals) keep what they were given.
+  try {
+    const raw = state._indicatorRawSales;
+    const named = (r) => r && !Array.isArray(r._members) && r.name && typeof getCanonicalRepName === 'function' && getCanonicalRepName(r.name) === r.name;
+    if (Array.isArray(raw) && raw.length && typeof _enrichRepFromRawSales === 'function') {
+      const full = (r) => { if (!named(r)) return r; const f = _enrichRepFromRawSales(r.name, raw); return f.sales.length >= (r.sales || []).length ? Object.assign({}, r, f) : r; };
+      rep = full(rep);
+      allReps = (allReps || []).map(full);
+    }
+  } catch (e) { /* fall back to the page-scoped rep */ }
   // PRIVACY GATE — admin: anyone · self: always · Rep - Partner: their own
   // team's reps too (they manage them) · everyone else: self only. The
   // leaderboard still shows headline numbers for all; the full card
