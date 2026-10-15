@@ -2339,7 +2339,7 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
         class: 'px-4 py-2.5 cursor-pointer transition hover:brightness-95',
         style: gridRow({ borderTop: i ? '1px solid var(--border)' : '0', background: _bk ? backendTint(s.lock_status) : saleStatusTint(s.audit_status), ...(!_bk && s.crm_audit === 'passed' ? { boxShadow: 'inset 3px 0 0 #15803D' } : {}) }),
         title: s.crm_audit === 'passed' ? 'Passed Audit flag on the customer card in FieldRoutes' : undefined,
-        onclick: (e) => { if (e.target.closest('select, button, input, textarea, a')) return; openNewSaleModal(null, s); },
+        onclick: (e) => { if (e.target.closest('select, button, input, textarea, a')) return; openSaleCommissionCard(s, { isAdmin, backend: _bk }); },   // small commission card, not the edit form (per Isaac, Oct 15)
       },
         el('div', { class: 'tabular-nums text-left', style: { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: '12px', fontWeight: '600', color: 'var(--text-subtle)' } }, String(i + 1).padStart(2, '0')),
         el('div', { class: 'font-black uppercase', style: { fontSize: '13px', letterSpacing: '.02em', ...clip }, title: rep ? repName(s) : 'Credited in FieldRoutes · no app account linked yet' }, repName(s)),
@@ -2376,6 +2376,80 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
     }));
   // No overflow clipping on the card, so the frozen header sticks to the page scroll; narrow screens scroll sideways instead.
   return el('div', { class: 'card', style: narrow ? { overflowX: 'auto' } : {} }, table);
+}
+
+// ── Commission card (per Isaac, Oct 15): a row click on the Sales tables opens this small breakdown
+// instead of the full Edit Sale form. Same math as Run payroll (payrollRunStub → isPayLines / sumUpfrontPay).
+function openSaleCommissionCard(s, { isAdmin = false, backend = false } = {}) {
+  if (!s) return;
+  const money = (v) => fmt.usd(Math.round((Number(v) || 0) * 100) / 100);
+  const prof = (state.allProfiles || []).find(p => p.id === s.rep_id);
+  const repName = prof ? prof.full_name : (s.crm_seller_name || 'Unlinked seller');
+  const svc = (typeof nameFromId === 'function' ? nameFromId(state.serviceTypes, s.service_type_id) : '') || s.crm_subscription || '—';
+  const term = s.sale_kind === 'upsell' ? 'Add-on' : Number(s.contract_months) > 1 ? Number(s.contract_months) + ' months' : 'One-time';
+  const stLbl = backend ? ((BACKEND_KEY.find(([v]) => v === (s.lock_status || 'pending')) || [, 'Pending'])[1]) : (SALE_STATUS_LABEL[s.audit_status || 'pending'] || 'Pending');
+  const stCol = backend ? ((BACKEND_KEY.find(([v]) => v === (s.lock_status || 'pending')) || [, , '#8F9A8C'])[2]) : (SALE_STATUS_COLOR[s.audit_status || 'pending'] || '#8F9A8C');
+  const renewal = typeof isRenewalSource === 'function' && isRenewalSource(s);
+  const split = typeof saleAddonSplit === 'function' ? saleAddonSplit(s) : { base: Number(s.revenue_amount) || 0, addon: 0 };
+  const eff = s.rep_id && typeof effectivePaySettings === 'function' ? effectivePaySettings(s.rep_id) : {};
+  let x = null;
+  if (s.rep_id) {
+    try {
+      const today = new Date(), y = today.getFullYear();
+      const period = getPayPeriods(y).find(p => p.id === currentPayPeriodId(y)) || getPayPeriods(y)[0];
+      x = payrollRunStub(s.rep_id, [s], period);
+    } catch (e) { console.warn('commission card:', e); x = null; }
+  }
+  const l = x && x.lines[0];
+  const rate = l && l.rate != null ? l.rate : null;
+  const exempt = typeof passedAuditExempt === 'function' && passedAuditExempt(s);
+  const tierMult = l ? (l.tier_mult == null ? x.mult : l.tier_mult) : 1;
+  const planComm = l ? Math.round((l.base - (l.addon || 0)) * 100) / 100 : 0;
+  const backendAmt = typeof getBackendAmount === 'function' ? Math.round(getBackendAmount(s) * 100) / 100 : 0;
+  const paidUp = !!s.payroll_processed_at;
+  const mods = [];
+  if (s.audit_status === 'below_minimums') mods.push('Below Minimums ×' + (Number(eff.below_min_multiplier ?? 50)) + '%');
+  if (s.is_commercial) mods.push('Commercial rate');
+  if (s.paid_in_full) mods.push('Paid in full');
+  const row = (label, val, opts = {}) => el('div', { class: 'flex items-baseline justify-between', style: { gap: '12px', padding: '6px 0', borderTop: opts.top ? '1px solid var(--border)' : '0' } },
+    el('div', { style: { fontSize: opts.big ? '12px' : '11px', fontWeight: opts.big ? '700' : '400', color: opts.big ? 'var(--text)' : 'var(--text-muted)' } }, label,
+      opts.sub ? el('div', { style: { fontSize: '10px', color: 'var(--text-subtle)', marginTop: '1px' } }, opts.sub) : null),
+    el('div', { class: 'tabular-nums', style: { fontSize: opts.big ? '18px' : '12px', fontWeight: opts.big ? '800' : '600', color: opts.color || 'var(--text)', whiteSpace: 'nowrap' } }, val));
+  const body = [];
+  body.push(row('Commissionable revenue', money(s.revenue_amount), { sub: s.commission_split && Number(s.total_revenue) > Number(s.revenue_amount) + 0.005 ? 'of ' + money(s.total_revenue) + ' on the account' : (split.addon > 0 ? 'Plan ' + money(split.base) + ' + add-ons ' + money(split.addon) : '') }));
+  if (!l) {
+    body.push(row('Commission', '—', { top: true, sub: s.rep_id ? 'Couldn’t work it out for this sale' : 'No app account linked to this seller yet, so it isn’t on anyone’s pay' }));
+  } else {
+    body.push(row(renewal ? 'Renewal (flat)' : 'Rate', renewal ? money(planComm) : (rate != null ? (Math.round(rate * 10000) / 100) + '%' : '—'), { sub: mods.join(' · ') || null }));
+    if (split.base > 0 || !(l.addon > 0)) body.push(row('Plan commission', money(planComm)));
+    if (l.addon > 0) body.push(row('Add-on commission', money(l.addon), { sub: 'Flat — the Passed Audit tier doesn’t apply' }));
+    body.push(row('Passed Audit tier', exempt ? '100%' : Math.round(tierMult * 100) + '%',
+      { sub: exempt ? (renewal ? 'Renewals' : s.sale_kind === 'upsell' ? 'Add-ons' : 'Sentricon') + ' are paid at 100%' : 'Rep’s Passed Audit ' + (x.pct == null ? '—' : Math.round(x.pct * 100) + '%') + ' this pay period' }));
+    body.push(row(paidUp ? 'Upfront paid' : 'Upfront pay', money(l.amount), { top: true, big: true, color: 'var(--accent)',
+      sub: paidUp ? 'On the ' + fmt.dateShort(String(s.payroll_processed_at).slice(0, 10)) + ' payroll' : (['serviced', 'below_minimums'].includes(s.audit_status) ? 'On the next payroll' : 'Once it’s Commissionable') }));
+  }
+  body.push(row('Backend (quarterly)', backendAmt > 0 ? money(backendAmt) : '$0', { top: true,
+    sub: (backendAmt > 0 ? 'At the lock — 4 paid invoices' : (Number(s.contract_months) === 12 ? '12-month plans have no backend' : 'No backend on this plan')) + (s.crm_paid_invoices != null ? ' · ' + (Number(s.crm_paid_invoices) || 0) + ' / 4 paid' : '') }));
+  if (backend && s.lock_status === 'chargeback') body.push(row('Chargeback', '−' + money(l ? l.amount : 0), { color: '#DC2626', sub: 'The upfront commission comes back on the quarterly backend run' }));
+  const back = el('div', { style: { position: 'fixed', inset: '0', zIndex: '9000', background: 'rgba(20,20,20,.38)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' } });
+  const close = () => { back.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  back.addEventListener('click', (e) => { if (e.target === back) close(); });
+  const card = el('div', { class: 'card', style: { width: '100%', maxWidth: '400px', maxHeight: '90vh', overflowY: 'auto', background: 'var(--card)', boxShadow: '0 12px 40px rgba(0,0,0,.25)' } },
+    el('div', { style: { padding: '16px 18px 12px', borderBottom: '1px solid var(--border)' } },
+      el('div', { class: 'flex items-start justify-between', style: { gap: '10px' } },
+        el('div', { style: { minWidth: '0' } },
+          el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold text-muted-' }, 'Commission'),
+          el('div', { class: 'font-black uppercase', style: { fontSize: '15px', letterSpacing: '.02em', marginTop: '2px' } }, repName),
+          el('div', { style: { fontSize: '12px', marginTop: '4px' } }, (s.customer_name || '—') + (s.customer_number ? ' · #' + s.customer_number : '')),
+          el('div', { class: 'text-muted-', style: { fontSize: '11px', marginTop: '1px' } }, svc + ' · ' + term + (s.sold_date ? ' · sold ' + fmt.dateShort(String(s.sold_date).slice(0, 10)) : ''))),
+        el('button', { type: 'button', title: 'Close', onclick: close, style: { background: 'transparent', border: '0', fontSize: '18px', lineHeight: '1', color: 'var(--text-muted)', cursor: 'pointer' } }, '×')),
+      el('div', { class: 'inline-flex items-center', style: { gap: '6px', marginTop: '8px', fontSize: '10px', padding: '2px 8px', borderRadius: '6px', background: 'var(--card-2)' } },
+        el('span', { style: { width: '8px', height: '8px', borderRadius: '2px', background: stCol, display: 'inline-block' } }), stLbl)),
+    el('div', { style: { padding: '6px 18px 14px' } }, ...body));
+  back.append(card);
+  document.body.append(back);
 }
 
 // ── Run payroll (per Isaac, Oct 15) ──────────────────────────────────────────
