@@ -2047,9 +2047,12 @@ function salesFeed(rows, { isAdmin = false } = {}) {
     ...sorted.map((s, i) => {
       const rep = (state.allProfiles || []).find(p => p.id === s.rep_id);
       const svcName = (typeof nameFromId === 'function' ? nameFromId(state.serviceTypes, s.service_type_id) : '') || s.crm_subscription || '—';
-      const src = typeof nameFromId === 'function' ? nameFromId(state.sources, s.source_id) : '';
-      const term = Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME';
+      const _src = typeof nameFromId === 'function' ? nameFromId(state.sources, s.source_id) : '';
+      const src = _src && _src !== '\u2014' ? _src : '';
       const ao = saleAddOnsFor(s), unassigned = ao.filter(a => !saleAddOnCredited(a));
+      // An add-on on its own (the upsell row the add-ons sync makes): no service type, and the term reads ADD ON (per Isaac, Oct 15).
+      const addOnOnly = s.sale_kind === 'upsell' || (!s.service_type_id && ao.length > 0);
+      const term = addOnOnly ? 'ADD ON' : Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME';
       const aoNode = !ao.length
         ? el('span', { style: { color: 'var(--text-subtle)', letterSpacing: '.06em' } }, 'ADDONS +0')
         : el('span', { style: { color: unassigned.length ? bad : ok, fontWeight: '700', letterSpacing: '.06em' },
@@ -2067,8 +2070,8 @@ function salesFeed(rows, { isAdmin = false } = {}) {
           cell('1', 1, el('span', { class: 'font-black uppercase', style: { fontSize: '15px', letterSpacing: '.02em' } }, rep ? rep.full_name : (s.customer_name ? '—' : 'Rep')), { minWidth: 'max-content' }),
           cell('2', 1, s.customer_number ? sep() : null),
           cell('3', 1, s.customer_number ? el('span', { class: 'tabular-nums text-muted-', style: { fontSize: '12px' }, title: s.customer_name || '' }, '#' + s.customer_number) : null, { minWidth: 'max-content' }),
-          cell('4', 1, sep()),
-          cell('5', 1, el('span', { class: 'font-semibold', style: { fontSize: '13px' } }, svcName), { minWidth: 'max-content' }),
+          cell('4', 1, addOnOnly ? null : sep()),
+          cell('5', 1, addOnOnly ? null : el('span', { class: 'font-semibold', style: { fontSize: '13px' } }, svcName), { minWidth: 'max-content' }),
           cell('6', 1, sep()),
           cell('7', 1, el('span', { style: { fontSize: '10px' } }, aoNode)),   // a long add-on list ellipsizes first
           cell('8', 1, sep()),
