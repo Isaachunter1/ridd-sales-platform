@@ -24,6 +24,7 @@ function _spqStore() {
   const m = _mktgStore();
   m.qbRules = (m.qbRules && typeof m.qbRules === 'object') ? m.qbRules : {};   // { line key: provider | SPQ_TOOLS | SPQ_SKIP }
   m.qbAlloc = (m.qbAlloc && typeof m.qbAlloc === 'object') ? m.qbAlloc : {};   // { provider: method | 'office:BRANCH' }
+  m.qbLineRules = (m.qbLineRules && typeof m.qbLineRules === 'object') ? m.qbLineRules : {};   // { one charge: provider } — beats the payee rule
   return m;
 }
 // The key a remembered pick is stored under: the payee, or (no payee) the memo with numbers / refs taken out.
@@ -32,6 +33,16 @@ function _spqKey(payee, memo) {
   if (p && !/^\(no name\)/i.test(p)) return 'p:' + p.toLowerCase();
   return 'm:' + String(memo || '').toLowerCase().replace(/ref\s*#.*$/, '').replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim().split(' ').slice(0, 4).join(' ');
 }
+// One charge's own key ("this charge only" picks): month, day, payee, memo, amount.
+function _spqLineKey(ym, day, payee, memo, amt) { return [ym, String(day || ''), String(payee || '').trim(), String(memo || '').trim(), (Number(amt) || 0).toFixed(2)].join('|'); }
+// Assign a QuickBooks line to a provider (Spend tab + Marketing Pulse). onlyThis = just this charge; otherwise the
+// payee is remembered for every month (and any one-off pick on this charge is cleared).
+function spqSetRule(ym, L, prov, onlyThis) {
+  const m = _spqStore(), lk = _spqLineKey(ym, L.day, L.payee, L.memo, L.amt);
+  if (onlyThis) m.qbLineRules[lk] = prov; else { m.qbRules[_spqKey(L.payee, L.memo)] = prov; delete m.qbLineRules[lk]; }
+  state._spqMemo = {}; state._mkpMemo = null; _mktgSave(); mountApp();
+}
+function spqChannelOptions() { const m = _spqStore(); return [...new Set([...(m.channels || []), 'Google Ads', 'Google Local Services', 'Facebook'])].sort(); }
 // Google Ads accounts the platform feed knows: last four → { acct, name, lsa }.
 function _spqGoogleAccts(year) {
   const S = (state._adSpend || {})[year] || {};
@@ -46,8 +57,10 @@ function _spqGoogleAccts(year) {
   return out;
 }
 // One QuickBooks line → { prov, how, acct? }.
-function _spqClassify(line, m, gAccts) {
+function _spqClassify(line, m, gAccts, ym) {
   const [, payee, memo] = line;
+  const one = ym ? m.qbLineRules[_spqLineKey(ym, line[0], payee, memo, line[3])] : null;
+  if (one) return { prov: one, how: 'this charge only' };
   const rule = m.qbRules[_spqKey(payee, memo)];
   if (rule) return { prov: rule, how: 'your pick' };
   const txt = (payee + ' ' + memo);
@@ -89,7 +102,7 @@ function spqAllocMonth(ym) {
   if (!raw || !raw.length) return null;
   const m = _spqStore(), y = Number(ym.slice(0, 4));
   const BL = _mktgBranchList(y), branches = BL.all;
-  const sig = [ym, raw.length, JSON.stringify(m.qbRules), JSON.stringify(m.qbAlloc), JSON.stringify((m.spend || {})[ym] || {}), JSON.stringify(m.spendEvenBranches || {}), (state._adSpend && state._adSpend[y] && state._adSpend[y].pulledAt) || '', JSON.stringify(typeof adCampaignOfficeMap === 'function' ? adCampaignOfficeMap() : {}), JSON.stringify(typeof adMetroMap === 'function' ? adMetroMap() : {}), branches.join('|')].join('§');
+  const sig = [ym, raw.length, JSON.stringify(m.qbRules), JSON.stringify(m.qbLineRules), JSON.stringify(m.qbAlloc), JSON.stringify((m.spend || {})[ym] || {}), JSON.stringify(m.spendEvenBranches || {}), (state._adSpend && state._adSpend[y] && state._adSpend[y].pulledAt) || '', JSON.stringify(typeof adCampaignOfficeMap === 'function' ? adCampaignOfficeMap() : {}), JSON.stringify(typeof adMetroMap === 'function' ? adMetroMap() : {}), branches.join('|')].join('§');
   state._spqMemo = state._spqMemo || {};
   if (state._spqMemo[ym] && state._spqMemo[ym].sig === sig) return state._spqMemo[ym].v;
   const gAccts = _spqGoogleAccts(y);
@@ -105,7 +118,7 @@ function spqAllocMonth(ym) {
   const GL = typeof ghlLeads === 'function' ? ghlLeads() : null;
   if (GL) for (const l of GL.leads) { if (String(l.d).slice(0, 7) !== ym || !l.office || !branches.includes(l.office)) continue; const c = leads[l.prov] || (leads[l.prov] = {}); c[l.office] = (c[l.office] || 0) + 1; }
   const ctx = { m, AD, acctCells, leads };
-  const lines = raw.map(L => Object.assign({ day: L[0], payee: L[1], memo: L[2], amt: Number(L[3]) || 0, acctLeaf: L[4] || '' }, _spqClassify(L, m, gAccts)));
+  const lines = raw.map(L => Object.assign({ day: L[0], payee: L[1], memo: L[2], amt: Number(L[3]) || 0, acctLeaf: L[4] || '' }, _spqClassify(L, m, gAccts, ym)));
   const cells = {}, byProv = {}; let total = 0, unassigned = 0, skipped = 0;
   const add = (prov, b, v) => { const c = cells[prov] || (cells[prov] = {}); c[b] = (c[b] || 0) + v; };
   const tools = [];

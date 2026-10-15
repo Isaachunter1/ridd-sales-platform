@@ -10,13 +10,14 @@
 // │            out) whose person (normalized phone, else email) came in as a lead
 // │            in the conversion window before it (30 / 60 / 90 days). Exact match
 // │            only — no fuzzy name matching.
-// │   Spend  = Google + Meta from the ad platforms by day (Windsor), plus every
-// │            OTHER vendor from the QuickBooks lines as linked on the Spend tab.
-// │            Google / Facebook QuickBooks charges are left out so nothing is
-// │            counted twice. Missing data says so; it is never shown as $0.
-// │   CAC    = spend ÷ sales (advertising only). Fully loaded adds agency & tools
-// │            lines and the hand-entered wages / incentives, only for months that
-// │            have them; otherwise it says unavailable.
+// │   Spend  = the QuickBooks Advertising & Marketing account, charge by charge
+// │            (per Isaac, Oct 15): each charge assigned to a vendor / channel on
+// │            the Spend card (or Marketing → Spend). The ad platforms only add
+// │            campaign detail and a QuickBooks-vs-platform check — never added
+// │            in. Missing data says so; it is never shown as $0.
+// │   CAC    = marketing spend ÷ sales. Fully loaded adds the hand-entered
+// │            wages / incentives, only for months that have them; otherwise it
+// │            says unavailable.
 // │   Revenue: contracted (contract value) and collected (payments on the account
 // │            since the sale) are kept apart; ROAS is labeled with which it uses.
 // │ Two reporting modes: Cohort (leads that came in the range, followed forward)
@@ -119,12 +120,16 @@ function mkpLoadDaily(from, to) {
     .catch(e => { state._mkpDaily[k] = { failAt: Date.now(), error: String((e && e.message) || e) }; mountApp(); });
   return state._mkpDaily[k];
 }
-// Spend lines in [from, to]: [{ d, prov, market, amt, src, campaign, clicks, impr, pLeads, kind }]
-//   kind: 'ad' (counts toward advertising CAC), 'tools' (agency & tools — fully loaded only).
+// Spend = the QuickBooks Advertising & Marketing expense lines (per Isaac, Oct 15): the Pulse spend is a mirror of
+// the transactions in that account, each assigned to a vendor / channel (the Google card charges place themselves
+// by the Ads account's last four; anything else is picked once). The ad platforms are NOT spend here — they give
+// the campaign detail (clicks, CTR, CPC, platform leads) and a reconciliation check against QuickBooks.
+//   lines: [{ d, prov, market, amt, src:'qbo', kind:'ad', tx }] — one per market share of a transaction
+//   plat:  [{ d, prov, market, amt, src:'platform', campaign, clicks, impr, pLeads }] — detail only, never added in
 function mkpSpendLines(win) {
-  const out = { lines: [], platform: 'none', vendor: 'none', notes: [], unlinked: 0 };
+  const out = { lines: [], plat: [], platform: 'none', vendor: 'none', notes: [], covered: new Set(), missing: [] };
   const branchesFor = (y) => (typeof _mktgBranchList === 'function') ? _mktgBranchList(y).all : [];
-  // Platforms
+  // Platforms (detail + reconciliation)
   const D = win.daily;
   const pushPlat = (r, d, amt) => {
     const y = Number(d.slice(0, 4)), branches = branchesFor(y);
@@ -132,13 +137,12 @@ function mkpSpendLines(win) {
     let shares = null;
     if (!offs.length && typeof adGeoSplit === 'function') { const g = adGeoSplit(Object.assign({}, r, { ym: d.slice(0, 7) }), branches); if (g) { const tot = Object.values(g.by).reduce((a, v) => a + v, 0) + (g.unmapped || 0); if (tot > 0) shares = Object.entries(g.by).map(([b, v]) => [b, v / tot]).concat(g.unmapped ? [['', g.unmapped / tot]] : []); } }
     if (!shares) shares = offs.length ? offs.map(b => [b, 1 / offs.length]) : [['', 1]];
-    for (const [b, f] of shares) out.lines.push({ d, prov: adProviderOf(r), market: mkpMarketOf(b), amt: amt * f, src: 'platform', campaign: r.campaign, acct: r.acctName || r.acct, platform: r.platform, clicks: (r.clicks || 0) * f, impr: (r.impr || 0) * f, pLeads: (r.leads || 0) * f, kind: 'ad', shared: !b, allocated: shares.length > 1 });
+    for (const [b, f] of shares) out.plat.push({ d, prov: adProviderOf(r), market: mkpMarketOf(b), amt: amt * f, src: 'platform', campaign: r.campaign, acct: r.acctName || r.acct, platform: r.platform, clicks: (r.clicks || 0) * f, impr: (r.impr || 0) * f, pLeads: (r.leads || 0) * f, kind: 'ad' });
   };
   if (D && D.rows) {
     out.platform = 'daily';
     for (const r of D.rows) if (r.d >= win.from && r.d <= win.to && r.spend > 0) pushPlat(r, r.d, r.spend);
   } else {
-    // Monthly fallback, pro-rated by day.
     let any = false;
     for (let y = Number(win.from.slice(0, 4)); y <= Number(win.to.slice(0, 4)); y++) {
       if (typeof reportingLoadAdSpend === 'function') reportingLoadAdSpend(y);
@@ -148,32 +152,33 @@ function mkpSpendLines(win) {
         const ym = r.ym, dim = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0).getDate();
         const a = ym + '-01' < win.from ? win.from : ym + '-01', e = ym + '-' + String(dim).padStart(2, '0'), b = e > win.to ? win.to : e;
         if (a > b) continue;
-        // One line per day of the overlap keeps the trend chart honest about the spreading.
         for (let d = a; d <= b; d = _mkpAdd(d, 1)) pushPlat(r, d, r.spend / dim);
       }
     }
-    if (any) { out.platform = 'monthly'; out.notes.push('Google and Meta spend is monthly for this range, spread evenly over the days (daily pull covers up to 120 days).'); }
+    if (any) out.platform = 'monthly';
   }
-  // QuickBooks lines: every vendor that isn't an ad platform (those come from the platforms above).
+  // QuickBooks: every Advertising & Marketing line, on its transaction date.
   if (typeof spqAllocMonth === 'function') {
-    let any = false;
     for (let ym = win.from.slice(0, 7); ym <= win.to.slice(0, 7); ) {
       const A = spqAllocMonth(ym);
       if (A && A.lines && A.lines.length) {
-        any = true;
+        out.covered.add(ym);
+        // A provider's market split = its office split on the Spend tab for the month (same driver, same dollars).
+        const shareOf = {};
+        for (const p in A.cells) { const C = A.cells[p], t = Object.values(C).reduce((x, v) => x + (v > 0 ? v : 0), 0); shareOf[p] = t > 0 ? Object.entries(C).filter(([, v]) => v > 0).map(([bb, v]) => [bb, v / t]) : null; }
         for (const L of A.lines) {
           const d = ym + '-' + String(L.day || '01').padStart(2, '0');
           if (d < win.from || d > win.to || L.prov === SPQ_SKIP) continue;
-          if (MKP_PLATFORM.has(L.prov)) continue;   // the platform feed is the spend of record for these
-          if (!L.prov) { out.unlinked += L.amt; out.lines.push({ d, prov: 'Unlinked', market: '', amt: L.amt, src: 'qbo', kind: 'ad', shared: true, payee: L.payee }); continue; }
-          out.lines.push({ d, prov: L.prov === SPQ_TOOLS ? 'Agency & tools' : L.prov, market: '', amt: L.amt, src: 'qbo', kind: L.prov === SPQ_TOOLS ? 'tools' : 'ad', shared: true, payee: L.payee });
+          const prov = !L.prov ? 'Needs a vendor' : L.prov === SPQ_TOOLS ? 'Agency & tools' : L.prov;
+          const tx = { ym, day: L.day, d, payee: L.payee, memo: L.memo, amt: L.amt, acctLeaf: L.acctLeaf, prov: L.prov, how: L.how };
+          const shares = (L.prov && shareOf[L.prov]) || [['', 1]];
+          for (const [bb, f] of shares) out.lines.push({ d, prov, market: mkpMarketOf(bb), amt: L.amt * f, src: 'qbo', kind: 'ad', tx, shared: !bb, allocated: shares.length > 1 });
         }
-      }
+      } else out.missing.push(ym);
       const dd = new Date(ym + '-01T12:00'); dd.setMonth(dd.getMonth() + 1); ym = _mkpIso(dd).slice(0, 7);
     }
-    out.vendor = any ? 'qbo' : 'none';
+    out.vendor = out.covered.size ? 'qbo' : 'none';
   }
-  if (out.vendor === 'none') out.notes.push('Vendor spend (Angi, Baton, DoLead, Service Direct…) is unavailable: QuickBooks has no line detail loaded for this range.');
   return out;
 }
 
@@ -207,7 +212,9 @@ function mkpModel() {
   }
   const SP = mkpSpendLines({ from: wFrom, to: wTo, daily });
   const spOk = (s) => (!F.ch || (F.ch.startsWith('g:') ? mkpGroupOf(s.prov) === F.ch.slice(2) : s.prov === F.ch.slice(2))) && (!F.market || s.market === F.market) && (!F.campaign || s.campaign === F.campaign);
-  const spendIn = (a, b, kind) => SP.lines.filter(s => s.d >= a && s.d <= b && (kind ? s.kind === kind : true) && spOk(s));
+  // A campaign filter can only be answered by the platforms (QuickBooks charges don't name campaigns) — say so on the card.
+  const spendIn = (a, b, kind) => (F.campaign ? SP.plat : SP.lines).filter(s => s.d >= a && s.d <= b && (kind ? s.kind === kind : true) && spOk(s));
+  const monthsIn = (a, b) => { const o = []; for (let ym = a.slice(0, 7); ym <= b.slice(0, 7); ) { o.push(ym); const dd = new Date(ym + '-01T12:00'); dd.setMonth(dd.getMonth() + 1); ym = _mkpIso(dd).slice(0, 7); } return o; };
   // A period's numbers, in the page's mode.
   const period = (a, b) => {
     const cohort = conv.filter(x => x.lead.d >= a && x.lead.d <= b && keep(x.lead));
@@ -221,12 +228,68 @@ function mkpModel() {
   // Fully loaded: wages / incentives as hand-entered by month (only when every month in range has them).
   const store = typeof _mktgStore === 'function' ? _mktgStore() : null;
   const labor = (() => { if (!store) return null; let t = 0, missing = 0; for (let ym = R.from.slice(0, 7); ym <= R.to.slice(0, 7); ) { const w = store.wages[ym] || {}, inc = store.incentives[ym] || {}; const s = Object.values(w).reduce((a, v) => a + (Number(v) || 0), 0) + Object.values(inc).reduce((a, v) => a + (Number(v) || 0), 0); if (!s) missing++; const dim = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0).getDate(); const ov = Math.max(0, _mkpDays(ym + '-01' < R.from ? R.from : ym + '-01', (ym + '-' + String(dim).padStart(2, '0')) > R.to ? R.to : ym + '-' + String(dim).padStart(2, '0'))); t += s * ov / dim; const dd = new Date(ym + '-01T12:00'); dd.setMonth(dd.getMonth() + 1); ym = _mkpIso(dd).slice(0, 7); } return missing ? null : t; })();
-  const unlinkedCur = spendIn(R.from, R.to).filter(x => x.prov === 'Unlinked').reduce((t, x) => t + x.amt, 0);
-  const v = { R, F, AL, conv, SP, unlinkedCur, cur, prev, labor, daily, crm, keep, spOk, period, spendIn, hasSpend: SP.platform !== 'none', prevSpendOk: prev.ad > 0 };
+  const unlinkedCur = SP.lines.filter(x => x.d >= R.from && x.d <= R.to && x.prov === 'Needs a vendor').reduce((t, x) => t + x.amt, 0);
+  const curMonths = monthsIn(R.from, R.to), spendGaps = curMonths.filter(ym => !SP.covered.has(ym)).map(ym => new Date(ym + '-01T12:00').toLocaleString('en-US', { month: 'short', year: ym.slice(0, 4) === R.to.slice(0, 4) ? undefined : 'numeric' }));
+  const hasSpend = F.campaign ? SP.platform !== 'none' : curMonths.some(ym => SP.covered.has(ym));
+  const prevSpendOk = F.campaign ? SP.platform !== 'none' && prev.ad > 0 : monthsIn(R.pFrom, R.pTo).every(ym => SP.covered.has(ym));
+  const v = { R, F, AL, conv, SP, unlinkedCur, spendGaps, cur, prev, labor, daily, crm, keep, spOk, period, spendIn, hasSpend, prevSpendOk };
   state._mkpMemo = { sig, al: AL, subs: state.reportingSubscriptions, v };
   return v;
 }
-function _spqStoreSig() { try { const m = _mktgStore(); return [Object.keys(m.qbRules || {}).length, (state.reportingIsSpendPayee && state.reportingIsSpendPayee.pulledAt) || '']; } catch (e) { return []; } }
+function _spqStoreSig() { try { const m = _mktgStore(); return [JSON.stringify([m.qbRules || {}, m.qbLineRules || {}, m.qbAlloc || {}, m.spend || {}]), (state.reportingIsSpendPayee && state.reportingIsSpendPayee.pulledAt) || '']; } catch (e) { return []; } }
+
+// ── Marketing spend = the QuickBooks Advertising & Marketing charges, one row each, with the vendor pick ────
+// (per Isaac, Oct 15). Picks save to the same rules as Marketing → Spend: by payee (every month) or this charge only.
+function mkpOpenSpend(needsOnly) {
+  const V = mkpModel(); if (!V) return;
+  const { R } = V, admin = typeof isAdminRole === 'function' && isAdminRole(state.profile && state.profile.role);
+  const byTx = new Map();
+  for (const s of V.spendIn(R.from, R.to)) { if (!s.tx) continue; const o = byTx.get(s.tx) || byTx.set(s.tx, { tx: s.tx, prov: s.prov, mk: new Map(), amt: 0 }).get(s.tx); o.amt += s.amt; if (s.market) o.mk.set(s.market, (o.mk.get(s.market) || 0) + s.amt); }
+  let rows = [...byTx.values()];
+  const total = rows.reduce((t, r) => t + r.amt, 0), needs = rows.filter(r => r.prov === 'Needs a vendor');
+  if (needsOnly && needs.length) rows = needs;
+  rows.sort((a, b) => ((a.prov === 'Needs a vendor') === (b.prov === 'Needs a vendor') ? 0 : a.prov === 'Needs a vendor' ? -1 : 1) || b.tx.d.localeCompare(a.tx.d) || b.amt - a.amt);
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey); overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  const reopen = () => { close(); setTimeout(() => mkpOpenSpend(needsOnly), 0); };
+  const th = (t, r) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (r ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: '0' } }, t);
+  const td = (v, st, r) => el('td', { class: 'px-2 py-1.5 whitespace-nowrap' + (r ? ' text-right tabular-nums' : ''), style: st || {} }, v == null || v === '' ? '—' : v);
+  const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
+  const opts = typeof spqChannelOptions === 'function' ? spqChannelOptions() : [];
+  const pick = (r) => {
+    const only = el('input', { type: 'checkbox', title: 'Only this charge — leave the payee’s other charges as they are', style: { accentColor: 'var(--accent)' } });
+    const cur = r.tx.prov || '';
+    const sel = el('select', { class: 'rounded-lg border px-1.5 py-0.5 text-[11px]', style: Object.assign({}, selSt, cur ? {} : { borderColor: '#DC2626' }),
+      onchange: (e) => { if (typeof spqSetRule === 'function') { spqSetRule(r.tx.ym, r.tx, e.target.value, only.checked); reopen(); } } },
+      el('option', { value: '', selected: !cur, disabled: true }, 'Pick a vendor…'),
+      ...opts.map(c => el('option', { value: c, selected: cur === c }, c)),
+      el('option', { value: SPQ_TOOLS, selected: cur === SPQ_TOOLS }, SPQ_TOOLS),
+      el('option', { value: SPQ_SKIP }, 'Not marketing — leave out'));
+    return el('span', { class: 'inline-flex items-center gap-1.5' }, sel, el('label', { class: 'inline-flex items-center gap-1 text-[10px]', style: _mkpMuted }, only, 'this charge only'));
+  };
+  const csv = () => { const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const L = [['Date', 'Payee', 'Memo', 'QuickBooks account', 'Amount', 'Vendor / channel', 'How', 'Markets'].join(',')];
+    for (const r of rows) L.push([r.tx.d, r.tx.payee, r.tx.memo, r.tx.acctLeaf, r.amt.toFixed(2), r.prov, r.tx.how, [...r.mk.keys()].join('; ')].map(esc).join(','));
+    const url = URL.createObjectURL(new Blob([L.join('\n')], { type: 'text/csv' })); const a = el('a', { href: url, download: 'ridd-marketing-spend-' + R.from + '-' + R.to + '.csv' }); document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url); };
+  const card = el('div', { class: 'card', style: { width: 'min(1200px, 96vw)', maxHeight: '86vh', display: 'flex', flexDirection: 'column', background: 'var(--card)' } },
+    el('div', { class: 'flex items-center gap-3 px-4 py-3 border-b flex-wrap', style: { borderColor: 'var(--border)' } },
+      el('div', { class: 'flex-1 min-w-0' }, el('div', { class: 'text-sm font-bold' }, 'Marketing spend · ' + R.label + ' · ' + _mkpUsd(total)),
+        el('div', { class: 'text-[11px]', style: _mkpMuted }, fmt.int(byTx.size) + ' charges in QuickBooks Advertising & Marketing' + (V.F.market || V.F.ch ? ' (filtered)' : '') + ' · ' + (needs.length ? needs.length + ' need a vendor (' + _mkpUsd(needs.reduce((t, r) => t + r.amt, 0)) + ')' : 'every charge has a vendor') + (admin ? ' · a pick applies to every charge from that payee unless "this charge only" is ticked' : ''))),
+      needs.length ? el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { close(); mkpOpenSpend(!needsOnly); } }, needsOnly ? 'Show all charges' : 'Only ones that need a vendor') : null,
+      el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: csv }, '⬇ CSV'),
+      el('button', { class: 'text-xl leading-none', style: _mkpMuted, onclick: close, title: 'Close' }, '×')),
+    el('div', { style: { overflow: 'auto' } }, el('table', { class: 'w-full text-[11px]', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, th('Date'), th('Payee'), th('Memo'), th('QuickBooks account'), th('Amount', true), th('Vendor / channel'), th('Markets'))),
+      el('tbody', {}, ...rows.slice(0, 2000).map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: r.prov === 'Needs a vendor' ? 'rgba(220,38,38,.05)' : '' } },
+        td(fmt.dateShort(r.tx.d)), td(r.tx.payee, { fontWeight: '600' }), td(r.tx.memo, Object.assign({ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis' }, _mkpMuted)), td(r.tx.acctLeaf, _mkpMuted),
+        td(Math.abs(r.amt - r.tx.amt) > 0.01 ? _mkpUsd(r.amt) + ' of ' + _mkpUsd(r.tx.amt) : _mkpUsd(r.amt), { fontWeight: '700' }, true),
+        el('td', { class: 'px-2 py-1' }, admin ? pick(r) : r.prov, r.tx.how && r.tx.how !== 'your pick' ? el('div', { class: 'text-[9px]', style: { color: 'var(--text-subtle)' } }, r.tx.how === 'payee' ? 'auto · from the payee name' : r.tx.how) : null),
+        td(r.mk.size ? [...r.mk.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => k + (r.mk.size > 1 ? ' ' + Math.round(v / r.amt * 100) + '%' : '')).join(' · ') : 'shared', _mkpMuted)))),
+      el('tfoot', {}, el('tr', { style: { borderTop: '2px solid var(--text)' } }, td('Total', { fontWeight: '700' }), td('\u00a0'), td('\u00a0'), td('\u00a0'), td(_mkpUsd(rows.reduce((t, r) => t + r.amt, 0)), { fontWeight: '800' }, true), td('\u00a0'), td('\u00a0'))))));
+  overlay.append(card); document.body.append(overlay);
+}
 
 // ── UI helpers ───────────────────────────────────────────────────────────────
 const _mkpMuted = { color: 'var(--text-muted)' };
@@ -314,15 +377,18 @@ function mktgPulseView() {
   const ago = (iso) => { if (!iso) return null; const h = (Date.now() - Date.parse(iso)) / 3600000; return h < 1 ? Math.max(1, Math.round(h * 60)) + 'm ago' : h < 48 ? Math.round(h) + 'h ago' : Math.round(h / 24) + 'd ago'; };
   const fItem = (label, iso, warn, msg) => el('span', { class: 'inline-flex items-center gap-1', title: msg || '' }, el('span', { style: { width: '6px', height: '6px', borderRadius: '50%', background: warn ? MKP_C.red : MKP_C.sage, display: 'inline-block' } }), label + ' ' + (iso ? ago(iso) : warn ? 'not loaded' : 'loaded'));
   fresh.push(fItem('GoHighLevel', G.at, !G.at || Date.now() - Date.parse(G.at) > 3 * 3600000));
-  const dl = V.daily; fresh.push(fItem('Google + Meta', dl && dl.pulledAt ? dl.pulledAt : ((state._adSpend || {})[new Date().getFullYear()] || {}).pulledAt, SP.platform === 'none' || !!(dl && dl.error), dl && dl.error ? dl.error : SP.platform === 'monthly' ? 'monthly, spread by day' : ''));
-  fresh.push(fItem('QuickBooks lines', state.reportingIsSpendPayee && state.reportingIsSpendPayee.pulledAt, SP.vendor === 'none', SP.vendor === 'none' ? 'no line detail loaded' : ''));
+  const dl = V.daily; fresh.push(fItem('Google + Meta campaigns', dl && dl.pulledAt ? dl.pulledAt : ((state._adSpend || {})[new Date().getFullYear()] || {}).pulledAt, SP.platform === 'none' || !!(dl && dl.error), dl && dl.error ? dl.error : SP.platform === 'monthly' ? 'monthly, spread by day' : ''));
+  fresh.push(fItem('QuickBooks lines', state.reportingIsSpendPayee && state.reportingIsSpendPayee.pulledAt, SP.vendor === 'none', SP.vendor === 'none' ? 'no Advertising & Marketing lines loaded' : V.spendGaps.length ? 'no lines yet for ' + V.spendGaps.join(', ') : 'the spend of record'));
   fresh.push(fItem('FieldRoutes', state._snapshotAt || state.reportingSnapshotAt || null, !(state.reportingSubscriptions || []).length));
   const freshStrip = el('div', { class: 'flex items-center gap-4 flex-wrap text-[10px]', style: _mkpMuted }, el('span', { class: 'uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Data'), ...fresh,
     ...SP.notes.map(n => el('span', { style: { color: MKP_C.amber } }, '⚠ ' + n)));
 
   // ── 1 · KPI cards ──
   const adOnly = V.hasSpend ? cur.ad : null, pAd = V.hasSpend && V.prevSpendOk ? prev.ad : null;
-  const spendCaveat = SP.platform === 'none' ? 'Google + Meta unavailable' : SP.vendor === 'none' ? 'Google + Meta only — vendor spend unavailable' : 'Google + Meta (platforms) + vendors (QuickBooks)';
+  const txCur = (() => { const seen = new Set(); for (const s of V.spendIn(R.from, R.to)) if (s.tx) seen.add(s.tx); return seen.size; })();
+  const spendCaveat = F.campaign ? 'platform spend for this campaign (QuickBooks charges don’t name campaigns)'
+    : SP.vendor === 'none' ? 'QuickBooks marketing lines not loaded'
+    : (V.spendGaps.length ? '⚠ no QuickBooks lines yet for ' + V.spendGaps.join(', ') + ' · ' : '') + fmt.int(txCur) + ' QuickBooks charges' + (V.unlinkedCur ? ' · ' + fmt.usd0(V.unlinkedCur) + ' need a vendor' : '') + ' — click to review';
   const days = []; for (let d = R.from; d <= R.to; d = _mkpAdd(d, 1)) days.push(d);
   const sparkBy = (fn) => R.n >= 4 && R.n <= 120 ? days.map(fn) : null;
   const leadsByDay = new Map(); cur.leads.forEach(x => leadsByDay.set(x.lead.d, (leadsByDay.get(x.lead.d) || 0) + 1));
@@ -336,7 +402,7 @@ function mktgPulseView() {
   const salesLbl = F.mode === 'cohort' ? 'Sales from these leads' : 'Lead-sourced sales';
   const cards = el('div', { style: { display: 'grid', gap: '12px', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' } },
     kpi('Marketing spend', V.hasSpend ? _mkpUsd(adOnly) : 'Data unavailable', V.hasSpend ? _mkpDelta(adOnly, pAd, false) : null, sparkBy(d => spendByDay.get(d) || 0) && _mkpSpark(sparkBy(d => spendByDay.get(d) || 0), MKP_C.ink),
-      _mkpInfo('Marketing spend', 'Advertising spend in the range. Google Ads and Meta come from the ad platforms (by day when the range is up to 60 days, else monthly spread by day); every other vendor comes from the QuickBooks lines as linked on the Spend tab. Google and Facebook QuickBooks charges are left out so nothing is counted twice. Agency & tools lines are not advertising; they only go into fully loaded CAC.'), null, spendCaveat),
+      _mkpInfo('Marketing spend', 'A mirror of the Advertising & Marketing expense account in QuickBooks: every charge dated in the range (lines marked "Not marketing" are left out). Each charge is assigned to a vendor / channel — Google card charges place themselves by the Ads account’s last four; anything else is picked once and remembered (or for one charge only). Charges land on their QuickBooks date, so a monthly bill shows on the day it posted. Click the card to see and assign the charges. The ad platforms are not added in; they supply campaign detail and a check against QuickBooks.'), SP.vendor === 'qbo' && !F.campaign ? () => mkpOpenSpend() : null, spendCaveat),
     kpi('New leads', fmt.int(cur.n), _mkpDelta(cur.n, prev.n, true), _mkpSpark(sparkBy(d => leadsByDay.get(d) || 0) || [], MKP_C.ink),
       _mkpInfo('New leads', 'GoHighLevel opportunities opened in the range: the inbound lead record (contacts are mostly customer imports). One per person per 30 days — a second call or form from the same phone / email inside 30 days is a repeat. Every opportunity counts as qualified until GoHighLevel sends a qualified flag. ' + fmt.int(V.AL.raw) + ' raw opportunity events on file → ' + fmt.int(V.AL.leads.length) + ' unique leads.'), () => mkpOpenRecords('New leads · ' + R.label, cur.leads), cur.leads.filter(x => x.lead.paid).length + ' from paid channels'),
     kpi('Cost per lead', V.hasSpend && cur.n ? _mkpUsd(cur.ad / cur.n) : V.hasSpend ? '—' : 'Data unavailable', V.hasSpend ? _mkpDelta(cur.n ? cur.ad / cur.n : null, prev.n && V.prevSpendOk ? prev.ad / prev.n : null, false) : null, null,
@@ -344,8 +410,8 @@ function mktgPulseView() {
     kpi(salesLbl, fmt.int(cur.s), _mkpDelta(cur.s, prev.s, true), _mkpSpark(sparkBy(d => salesByDay.get(d) || 0) || [], MKP_C.accent),
       _mkpInfo('Sales', 'Office Staff FieldRoutes sales (initial booked or done, renewals left out) whose person — normalized phone, else email — came in as a lead within the ' + F.win + '-day window before the sale. Exact matches only. ' + (F.mode === 'cohort' ? 'Cohort mode: sales from the leads that came in during the range, whenever they sold.' : 'Activity mode: lead-sourced sales sold during the range.')), () => mkpOpenRecords(salesLbl + ' · ' + R.label, cur.sales), fmt.usd0(cur.cv) + ' contracted'),
     kpi('CAC', V.hasSpend && cur.s ? _mkpUsd(cur.ad / cur.s) : V.hasSpend ? '—' : 'Data unavailable', V.hasSpend ? _mkpDelta(cur.s ? cur.ad / cur.s : null, prev.s && V.prevSpendOk ? prev.ad / prev.s : null, false) : null, null,
-      _mkpInfo('Customer acquisition cost', 'Advertising-only CAC: marketing spend ÷ sales. Fully loaded CAC adds agency & tools lines and the wages / incentives entered on the Spend tab; it shows only when every month in the range has wages entered.'), null,
-      fullyLoaded != null && cur.s ? 'fully loaded ' + _mkpUsd(fullyLoaded / cur.s) : 'advertising only · fully loaded unavailable'),
+      _mkpInfo('Customer acquisition cost', 'Marketing-spend CAC: QuickBooks Advertising & Marketing spend ÷ sales (agency & tools charges included, since they sit in that account). Fully loaded CAC adds the wages / incentives entered on the Spend tab; it shows only when every month in the range has wages entered.'), null,
+      fullyLoaded != null && cur.s ? 'fully loaded ' + _mkpUsd(fullyLoaded / cur.s) : 'marketing spend only · fully loaded unavailable'),
     kpi('Lead → sale', cur.n ? _mkpPct(cur.leads.filter(x => x.sold).length / cur.n) : '—', _mkpDelta(cur.n ? cur.leads.filter(x => x.sold).length / cur.n : null, prev.n ? prev.leads.filter(x => x.sold).length / prev.n : null, true), null,
       _mkpInfo('Lead-to-sale conversion', 'Of the leads that came in during the range, the share that became a sale within the ' + F.win + '-day window. Leads younger than the window can still convert, so recent ranges read low — the card says how many are still maturing.'), null,
       (() => { const young = cur.leads.filter(x => Date.now() - _mkpMs(x.lead.d) < F.win * 86400000).length; return young ? fmt.int(young) + ' leads still inside the window' : 'all leads past the window'; })()));
@@ -386,7 +452,7 @@ function mktgPulseView() {
       el('span', { style: { flex: '1' } }),
       el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } }, ...[['day', 'Daily'], ['week', 'Weekly'], ['month', 'Monthly']].map(([v, l]) => pill(grain === v, l, () => setF({ grain: v }))))),
     el('div', { class: 'p-3', style: { height: '280px' } }, el('canvas', { id: idT })),
-    el('div', { class: 'px-4 pb-3 text-[10px]', style: _mkpMuted }, (F.mode === 'cohort' ? 'Leads, sales and revenue are placed on the day the lead came in. ' : 'Sales and revenue are placed on the day they sold. ') + 'The dashed line is the prior period of the same length.' + (SP.platform === 'monthly' ? ' Spend is monthly, spread by day.' : '')));
+    el('div', { class: 'px-4 pb-3 text-[10px]', style: _mkpMuted }, (F.mode === 'cohort' ? 'Leads, sales and revenue are placed on the day the lead came in. ' : 'Sales and revenue are placed on the day they sold. ') + 'The dashed line is the prior period of the same length.' + ' Spend sits on each QuickBooks charge’s date, so monthly bills show as spikes.'));
 
   // ── 3 · Funnel ──
   const L = cur.leads, sold = L.filter(x => x.sold), svc = sold.filter(x => x.svc), act = svc.filter(x => x.active), cxl = sold.filter(x => x.cxl);
@@ -432,7 +498,7 @@ function mktgPulseView() {
   const minLead = (r) => r.n >= 10;
   const bCPL = best(chRows.filter(r => r.sp && minLead(r)), r => r.sp / r.n, true), bCAC = best(chRows.filter(r => r.sp && r.s >= 3), r => r.sp / r.s, true), bS = best(chRows, r => r.s || null), bRev = best(chRows, r => r.cv || null);
   const openCh = state._mkpOpenCh || '';
-  const campRows = (prov) => { const m = new Map(); for (const s of V.spendIn(R.from, R.to, 'ad')) { if (s.prov !== prov || !s.campaign) continue; const o = m.get(s.campaign) || m.set(s.campaign, { k: s.campaign, sp: 0, clicks: 0, impr: 0, pl: 0, n: 0, s: 0, cv: 0, acct: s.acct }).get(s.campaign); o.sp += s.amt; o.clicks += s.clicks || 0; o.impr += s.impr || 0; o.pl += s.pLeads || 0; }
+  const campRows = (prov) => { const m = new Map(); for (const s of SP.plat) { if (s.d < R.from || s.d > R.to || !V.spOk(s) || s.prov !== prov || !s.campaign) continue; const o = m.get(s.campaign) || m.set(s.campaign, { k: s.campaign, sp: 0, clicks: 0, impr: 0, pl: 0, n: 0, s: 0, cv: 0, acct: s.acct }).get(s.campaign); o.sp += s.amt; o.clicks += s.clicks || 0; o.impr += s.impr || 0; o.pl += s.pLeads || 0; }
     for (const x of cur.leads) if (x.lead.prov === prov && x.lead.campaign) { const o = m.get(x.lead.campaign) || m.set(x.lead.campaign, { k: x.lead.campaign, sp: 0, clicks: 0, impr: 0, pl: 0, n: 0, s: 0, cv: 0 }).get(x.lead.campaign); o.n++; }
     for (const x of cur.sales) if (x.lead.prov === prov && x.lead.campaign) { const o = m.get(x.lead.campaign); if (o) { o.s++; o.cv += x.cv; } }
     return [...m.values()].sort((a, b) => b.sp - a.sp || b.n - a.n); };
@@ -442,9 +508,9 @@ function mktgPulseView() {
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('Channel', 'ch'), th('Spend', 'ch', 'sp'), th('Leads', 'ch', 'n'), th('CPL', 'ch', 'cpl'), th('Sales', 'ch', 's'), th('Close rate', 'ch', 'close', 'Sales ÷ leads'), th('CAC', 'ch', 'cac'), th('Revenue', 'ch', 'cv', 'Contracted (contract value)'), th('ROAS', 'ch', 'roas', 'Contracted revenue ÷ spend'))),
       el('tbody', {}, ...sortTable(chRows, 'ch').flatMap(r => {
-        const isOpen = openCh === r.k, weird = ['Unmapped', 'Unlinked', 'Agency & tools'].includes(r.k);
+        const isOpen = openCh === r.k, weird = ['Unmapped', 'Needs a vendor', 'Agency & tools'].includes(r.k);
         const head = el('tr', { class: 'border-t cursor-pointer transition hover:brightness-95', style: { borderColor: 'var(--border)', background: isOpen ? 'rgba(223,100,58,.07)' : '' }, onclick: () => { state._mkpOpenCh = isOpen ? '' : r.k; mountApp(); } },
-          td((isOpen ? '▾ ' : '▸ ') + r.k, { fontWeight: '700', color: weird ? MKP_C.amber : undefined }), ...metricCells(r, ghlPaidSet().has(r.k) ? (SP.vendor === 'none' && !MKP_PLATFORM.has(r.k) ? 'unavailable' : '—') : 'organic'));
+          td((isOpen ? '▾ ' : '▸ ') + r.k, { fontWeight: '700', color: weird ? MKP_C.amber : undefined }), ...metricCells(r, ghlPaidSet().has(r.k) ? (SP.vendor === 'none' ? 'unavailable' : '—') : 'organic'));
         if (!isOpen) return [head];
         const cs = campRows(r.k);
         return [head, ...(cs.length ? cs.slice(0, 40).map(c => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', fontSize: '11px' } },
@@ -454,8 +520,9 @@ function mktgPulseView() {
           : [el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, el('td', { colspan: '9', class: 'px-6 py-2 text-[11px]', style: _mkpMuted }, MKP_PLATFORM.has(r.k) ? 'No campaign rows for this range.' : 'No campaign detail for this channel (spend comes from QuickBooks; leads carry campaigns once the GoHighLevel sync stores them).'))])];
       }),
       el('tr', { style: { borderTop: '2px solid var(--text)' } }, td('Total', { fontWeight: '700' }), ...metricCells({ n: cur.n, s: cur.s, cv: cur.cv, sp: cur.ad, psp: 0, ps: 0 }))))),
-    V.unlinkedCur ? el('div', { class: 'px-4 py-2 text-[11px] border-t', style: { borderColor: 'var(--border)', color: MKP_C.amber } }, fmt.usd0(V.unlinkedCur) + ' of QuickBooks lines in this range aren’t linked to a channel — they count in the total as "Unlinked". Link them on the Spend tab.') : null,
-    el('div', { class: 'px-4 py-2 text-[10px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } }, 'Campaign rows show the platform’s own leads (marked "platform") until GoHighLevel leads carry campaign IDs. Ad set / ad level isn’t pulled yet.'));
+    V.unlinkedCur ? el('div', { class: 'px-4 py-2 text-[11px] border-t flex items-center gap-2', style: { borderColor: 'var(--border)', color: MKP_C.amber } }, fmt.usd0(V.unlinkedCur) + ' of QuickBooks charges in this range need a vendor — they count in the total as "Needs a vendor".',
+      el('button', { class: 'rounded-lg px-2 py-0.5 text-[10px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => mkpOpenSpend(true) }, 'Assign them')) : null,
+    el('div', { class: 'px-4 py-2 text-[10px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } }, 'Channel spend is QuickBooks. Campaign rows under a channel show the platform’s own spend, clicks and leads (marked "platform"), so they won’t add up to the QuickBooks line when billing timing differs. Ad set / ad level isn’t pulled yet.'));
 
   // ── 5 · Markets ──
   const mkRows = rowsBy(l => l.market || 'No market', s => s.market || 'Shared / unallocated').sort((a, b) => b.n - a.n);
@@ -483,7 +550,9 @@ function mktgPulseView() {
   if (allCPL && allCAC) for (const r of chRows) if (r.sp && r.n >= 20 && r.s >= 3 && r.sp / r.n < allCPL * 0.8 && r.sp / r.s > allCAC * 1.2) addI((r.sp / r.s - allCAC) * r.s, 'amber', r.k + ' brings cheaper leads than average (' + fmt.usd0(r.sp / r.n) + ' vs ' + fmt.usd0(allCPL) + ') but costlier customers (' + fmt.usd0(r.sp / r.s) + ' vs ' + fmt.usd0(allCAC) + ' CAC).');
   for (const r of mkRows) if (r.k !== 'No market' && r.n >= 30 && avgClose && r.s / r.n < avgClose * 0.6) addI((avgClose - r.s / r.n) * r.n * (cur.s ? cur.cv / cur.s : 0), 'amber', r.k + ' has strong lead volume (' + r.n + ') but a ' + _mkpPct(r.s / r.n) + ' close rate vs ' + _mkpPct(avgClose) + ' across markets.');
   if (!G.at || Date.now() - Date.parse(G.at) > 3 * 3600000) addI(1e9, 'red', 'GoHighLevel hasn’t refreshed in ' + (G.at ? ago(G.at) : 'a while') + ' — lead counts may be behind.');
-  if (SP.vendor === 'none') addI(1e8, 'amber', 'Vendor spend is missing: QuickBooks line detail hasn’t loaded, so spend, CPL and CAC cover Google + Meta only.');
+  if (SP.vendor === 'none') addI(1e8, 'amber', 'Marketing spend is missing: the QuickBooks Advertising & Marketing lines haven’t loaded, so spend, CPL and CAC are unavailable.');
+  else if (V.spendGaps.length) addI(1e8, 'amber', 'QuickBooks has no marketing lines yet for ' + V.spendGaps.join(', ') + ' — spend for those days is missing, not $0.');
+  if (V.unlinkedCur > 0) addI(V.unlinkedCur, 'amber', fmt.usd0(V.unlinkedCur) + ' of QuickBooks charges need a vendor — click Marketing spend to assign them.');
   if (dl && dl.error) addI(1e8, 'amber', 'Daily Google / Meta spend failed to load (' + dl.error + ').');
   const unm = cur.leads.filter(x => x.lead.prov === 'Unmapped').length; if (unm && cur.n && unm / cur.n > 0.05) addI(unm * 10, 'amber', fmt.int(unm) + ' leads (' + _mkpPct(unm / cur.n) + ') have a GoHighLevel source with no channel — map them in Settings → Configurations → GoHighLevel sources.');
   ins.sort((a, b) => b.impact - a.impact);
@@ -524,14 +593,16 @@ function mktgPulseView() {
   const diag = details('Data diagnostics', el('div', {},
     kv('Leads matched to a FieldRoutes customer', (() => { const m = cur.leads.filter(x => x.customer).length; return fmt.int(m) + ' of ' + fmt.int(cur.n) + ' (' + _mkpPct(cur.n ? m / cur.n : null) + ')'; })(), 'phone or email exists in FieldRoutes'),
     kv('Matched but not an Office Staff sale', fmt.int(cur.leads.filter(x => x.customer && !x.sold).length), 'existing customers, unsold, or sold by another rep type'),
-    kv('Spend in range (all kinds)', V.hasSpend ? _mkpUsd(lockedSp) : 'Data unavailable', 'advertising + agency & tools'),
-    kv('Platform spend source', SP.platform === 'daily' ? 'Daily (Windsor)' : SP.platform === 'monthly' ? 'Monthly, spread by day' : 'Unavailable'),
-    kv('QuickBooks vendor lines', SP.vendor === 'qbo' ? 'Loaded' : 'Unavailable'), kv('Unlinked QuickBooks lines', _mkpUsd(V.unlinkedCur)),
+    kv('Spend in range', V.hasSpend ? _mkpUsd(lockedSp) : 'Data unavailable', F.campaign ? 'platform, this campaign' : 'QuickBooks Advertising & Marketing'),
+    kv('QuickBooks marketing lines', SP.vendor === 'qbo' ? 'Loaded' + (V.spendGaps.length ? ' · missing ' + V.spendGaps.join(', ') : '') : 'Unavailable'), kv('Charges that need a vendor', _mkpUsd(V.unlinkedCur)),
+    kv('Platform campaign detail', SP.platform === 'daily' ? 'Daily (Windsor)' : SP.platform === 'monthly' ? 'Monthly, spread by day' : 'Unavailable'),
+    ...['Google Ads', 'Google Local Services', 'Facebook'].map(pv => { const q = SP.lines.filter(x => x.d >= R.from && x.d <= R.to && x.prov === pv).reduce((t, x) => t + x.amt, 0), pl = SP.plat.filter(x => x.d >= R.from && x.d <= R.to && x.prov === pv).reduce((t, x) => t + x.amt, 0);
+      return q || pl ? kv(pv + ': QuickBooks vs platform', _mkpUsd(q) + ' vs ' + (SP.platform === 'none' ? 'n/a' : _mkpUsd(pl)), 'billing dates differ from spend dates; a gap over a month means a charge is missing or misassigned') : null; }),
     kv('Spend with no market', _mkpUsd(V.spendIn(R.from, R.to, 'ad').filter(s => !s.market).reduce((a, s) => a + s.amt, 0)))));
 
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'flex items-end justify-between gap-3 flex-wrap' },
       el('div', {}, el('div', { class: 'text-lg font-bold' }, 'Marketing Pulse · ' + R.label + (F.market ? ' · ' + F.market : '') + (F.ch ? ' · ' + F.ch.slice(2) : '')),
-        el('div', { class: 'text-xs', style: _mkpMuted }, 'Office Staff inbound marketing. Leads = GoHighLevel opportunities; sales = Office Staff FieldRoutes sales matched on phone or email; spend = ad platforms + QuickBooks vendors.'))),
+        el('div', { class: 'text-xs', style: _mkpMuted }, 'Office Staff inbound marketing. Leads = GoHighLevel opportunities; sales = Office Staff FieldRoutes sales matched on phone or email; spend = the QuickBooks Advertising & Marketing account, charge by charge.'))),
     bar, freshStrip, cards, trend, funnel, chTable, mkTable, insights, revenue, quality, attribution, diag);
 }
