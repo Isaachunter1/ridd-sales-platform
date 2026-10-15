@@ -2316,7 +2316,7 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
           title: s.commission_split ? 'Commissionable ' + fmt.usd(s.revenue_amount) + ' of ' + fmt.usd(s.total_revenue) + ' on the account' : '' },
           fmt.usd0 ? fmt.usd0(s.revenue_amount) : fmt.usd(s.revenue_amount),
           s.commission_split && Number(s.total_revenue) > Number(s.revenue_amount) + 0.005 ? el('div', { class: 'text-[9px] font-normal text-muted-' }, 'of ' + fmt.usd(s.total_revenue)) : null),
-        el('div', { class: 'flex items-center gap-2', style: { minWidth: '0' }, title: s.crm_below_min ? 'Under the pricing minimum: ' + s.crm_below_min : '' }, _bk ? lockStatusSelect(s.id) : statusSelect(s.id), (s.crm_audit === 'failed' && typeof saleAuditChip === 'function') ? saleAuditChip(s) : null));
+        el('div', { class: 'flex items-center gap-2', style: { minWidth: '0' }, title: s.crm_below_min ? 'Under the pricing minimum: ' + s.crm_below_min : '' }, _bk ? lockStatusSelect(s.id) : statusSelect(s.id)));   // (audit flag chips off the rows — per Isaac, Oct 15)
     }));
   // No overflow clipping on the card, so the frozen header sticks to the page scroll; narrow screens scroll sideways instead.
   return el('div', { class: 'card', style: narrow ? { overflowX: 'auto' } : {} }, table);
