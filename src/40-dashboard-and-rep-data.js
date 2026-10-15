@@ -3386,11 +3386,13 @@ function openLandingTileDrill(title, subtitle, rows, opts) {
 // (FieldRoutes' change history, captured since 9/14/26). Only accounts below their peak are listed.
 let _cardPeak = { file: null, map: new Map() };
 let _peakFile = null, _peakFileAt = 0;
-function _loadPeakFile() {
+let _peakFileCb = null;   // the open card re-renders when the file lands
+function _loadPeakFile(cb) {
+  if (cb) _peakFileCb = cb;
   if (Date.now() - _peakFileAt < 10 * 60000 || typeof supabase === 'undefined' || !supabase || (typeof DEMO !== 'undefined' && DEMO)) return;
   _peakFileAt = Date.now();
   Promise.resolve(supabase.storage.from('reporting').download('indicators/peak-values.json?t=' + Date.now()))
-    .then(async ({ data }) => { if (!data) return; const j = JSON.parse(await data.text()); if (j && j.peaks) _peakFile = j; })
+    .then(async ({ data }) => { if (!data) return; const j = JSON.parse(await data.text()); if (j && j.peaks) { _peakFile = j; try { if (_peakFileCb) _peakFileCb(); } catch (e) { /* card closed */ } } })
     .catch(() => { /* no file yet — Peak reads as today's value */ });
 }
 function _cardPeakIdx() {
@@ -3400,7 +3402,7 @@ function _cardPeakIdx() {
 }
 function openIndicatorRepCard(rep, allReps = []) {
   if (typeof trackAction === 'function') trackAction('player_card', 'open');
-  try { _loadPeakFile(); } catch (e) { /* optional */ }   // so Peak is ready by the time the toggle is clicked
+  try { _loadPeakFile(() => { try { if (overlay.isConnected && cardRevMode === 'peak') renderBody(); } catch (e) { /* not ready */ } }); } catch (e) { /* optional */ }   // so Peak is ready by the time the toggle is clicked
   if (!rep) return;
   // The card's own date range is independent of the page's (per Isaac, Oct 15): the board hands over a rep
   // whose sales are already cut to the page's range, so rebuild the rep (and the peers the records rank
@@ -4753,6 +4755,38 @@ function openIndicatorRepCard(rep, allReps = []) {
       list.length ? el('div', { style: { maxHeight: '480px', overflowY: 'auto' } }, accountsTable(list))
         : el('div', { class: 'p-4 text-center text-xs italic', style: { color: 'var(--text-muted)' } }, 'No sales in this range.'));
   }
+  // Peak vs current (per Isaac, Oct 15): with Peak on, the accounts whose value came down after the initial
+  // was completed — peak, today, and the reduction — so leads and reps can see every save / downgrade.
+  function peakTable() {
+    const idx = _cardPeakIdx();
+    const rows = (scopedRep.sales || []).map(x => {
+      const now = Number(x.contractValue) || 0;
+      const pk = Math.max(now, idx.get(String(x.customerId || '') + '|' + String(x.subscription || '').trim().toLowerCase()) || 0);
+      return { x, now, pk, cut: pk - now };
+    }).filter(r => r.cut > 0.5).sort((a, b) => b.cut - a.cut);
+    const T = rows.reduce((a, r) => ({ pk: a.pk + r.pk, now: a.now + r.now, cut: a.cut + r.cut }), { pk: 0, now: 0, cut: 0 });
+    const th = (t, right) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
+    const td = (t, right, extra) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: extra || {} }, t);
+    const pctS = (a, b) => b > 0 ? Math.round(a / b * 100) + '%' : '\u2014';
+    return el('div', { class: 'rounded-xl border mb-5 overflow-hidden', style: { borderColor: 'var(--border)' } },
+      el('div', { class: 'flex items-baseline justify-between gap-3 flex-wrap px-3 pt-3 pb-2' },
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Peak vs current \u00b7 ' + rows.length + ' account' + (rows.length === 1 ? '' : 's') + ' reduced'),
+        el('div', { class: 'text-[11px] tabular-nums text-muted-' }, rows.length ? 'Peak ' + fmt.usd0(T.pk) + ' \u2192 now ' + fmt.usd0(T.now) + ' \u00b7 ' : '',
+          rows.length ? el('span', { style: { color: '#B91C1C', fontWeight: '700' } }, '\u2212' + fmt.usd0(T.cut) + ' (' + pctS(T.cut, T.pk) + ')') : 'No reductions in this range')),
+      rows.length ? el('div', { class: 'scroll-x', style: { maxHeight: '360px', overflowY: 'auto' } }, el('table', { class: 'w-full text-xs' },
+        el('thead', {}, el('tr', {}, th('Customer'), th('Plan now'), th('Sold'), th('Peak', 1), th('Current', 1), th('Reduction', 1), th('%', 1))),
+        el('tbody', {}, ...rows.map(r => el('tr', { class: 'border-t border-' },
+          td(el('span', {}, el('span', { class: 'text-muted-' }, '#' + (r.x.customerId || '')), ' ', r.x.customer || '')),
+          td(r.x.subscription || '\u2014'),
+          td(dateSoldToIso(r.x.dateSold) ? fmt.dateShortYear(dateSoldToIso(r.x.dateSold)) : '\u2014'),
+          td(fmt.usd0(r.pk), 1),
+          td(fmt.usd0(r.now), 1),
+          td('\u2212' + fmt.usd0(r.cut), 1, { color: '#B91C1C', fontWeight: '700' }),
+          td(pctS(r.cut, r.pk), 1, { color: 'var(--text-muted)' }))),
+          el('tr', { class: 'border-t', style: { borderColor: 'var(--text)' } }, td('Total', 0, { fontWeight: '800' }), td(''), td(''),
+            td(fmt.usd0(T.pk), 1, { fontWeight: '800' }), td(fmt.usd0(T.now), 1, { fontWeight: '800' }), td('\u2212' + fmt.usd0(T.cut), 1, { fontWeight: '800', color: '#B91C1C' }), td(pctS(T.cut, T.pk), 1))))) : null,
+      el('div', { class: 'px-3 py-2 text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Peak = the account\u2019s value once its initial service was completed, before any later change (a rate lowered to save the customer, a plan adjusted down). From FieldRoutes\u2019 change history, which RevHawk has captured since 9/14/26 \u2014 reductions before then aren\u2019t visible yet.'));
+  }
   function renderBody() {
     applyScope();  // refresh scopedRep / scopedAllRepRecords / scopedStats
     modal.innerHTML = '';
@@ -4760,6 +4794,7 @@ function openIndicatorRepCard(rep, allReps = []) {
     modal.append(
       header(),
       statsGrid(),
+      cardRevMode === 'peak' ? peakTable() : null,
       recordsStrip(),
       (_calMode === 'calendar' ? sellDaysCalendarBlock() : dayHourHeatmapBlock()),
       trendsBlock(),
