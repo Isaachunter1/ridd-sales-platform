@@ -919,6 +919,32 @@ function dataIntegrityPanel() {
 // snapshots like the reporting side).
 // (indicatorsUploadsPanel removed — unreferenced; settings audit, Sep 30)
 
+// ── Goal curve helpers (per Isaac, Oct 15) ───────────────────────────────────
+// Whole-dollar months that add up EXACTLY to the goal (largest remainder) — plain rounding of each month
+// turned a $25,000,000 goal into $25,000,001.
+function goalSpreadExact(total, curve) {
+  const exact = curve.map(c => (Number(total) || 0) * (Number(c) || 0));
+  const out = exact.map(Math.floor);
+  let left = Math.round(exact.reduce((a, b) => a + b, 0)) - out.reduce((a, b) => a + b, 0);
+  const order = exact.map((v, i) => [v - Math.floor(v), i]).sort((a, b) => b[0] - a[0]);
+  for (let k = 0; left > 0 && k < order.length; k++, left--) out[order[k][1]]++;
+  return out;
+}
+// Curve held at the 0.01% the boxes show; norm = nudge the biggest month so a seeded curve totals exactly 100.00%.
+function goalSnapCurve(curve, norm) {
+  const c = curve.map(v => Math.round((Number(v) || 0) * 10000) / 10000);
+  if (norm) { const off = 10000 - c.reduce((a, v) => a + Math.round(v * 10000), 0); if (off) { const i = c.indexOf(Math.max(...c)); c[i] = Math.round(c[i] * 10000 + off) / 10000; } }
+  return c;
+}
+const goalCurveSumPct = (curve) => curve.reduce((a, c) => a + Math.round((Number(c) || 0) * 10000), 0) / 100;   // 0.01% steps, no float drift
+function goalCurveSumCell(pct) { const off = Math.abs(pct - 100) >= 0.005;
+  return el('span', { style: off ? { color: '#DC2626' } : {}, title: off ? 'The months add up to ' + pct.toFixed(2) + '% — they need to total 100%' : 'Adds up to 100%' }, pct.toFixed(2) + '%'); }
+function goalCurveInput(curve, m, onDone, cls) {
+  return el('input', { type: 'text', inputmode: 'decimal', value: ((Number(curve[m]) || 0) * 100).toFixed(2) + '%',
+    class: cls || 'text-left text-[11px] rounded border px-1.5 py-1 tabular-nums', style: { borderColor: 'var(--border-2)', width: '100%', minWidth: '0' },
+    onchange: (e) => { const v = parseFloat(String(e.target.value).replace(/[^0-9.]/g, '')); curve[m] = Math.round(Math.max(0, Math.min(100, Number.isFinite(v) ? v : 0)) * 100) / 10000; onDone(); } });
+}
+
 // ── Department revenue goal (per Isaac, Oct 6) — the annual number + monthly
 // allocation the D2D Sales / Technicians Revenue Pacer races. Stored on the
 // department's own goal object (app_settings company_goal_d2d / _tech).
@@ -926,28 +952,41 @@ function deptRevenueGoalCard(dept) {
   const g = deptGoalObj(dept.id);
   const world = dept.id === 'tech' ? 'techs' : 'd2d';
   const M = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const lastYear = () => goalSnapCurve((typeof worldDeptCurve === 'function') ? worldDeptCurve(world) : Array(12).fill(1 / 12), true);
+  // Same model as the Office Staff grid (per Isaac, Oct 15): the annual goal and the 12 month % are the inputs;
+  // the month dollars are derived (exact to the dollar) for the Revenue Pacer, which reads g.monthly.
   const has = Array.isArray(g.monthly) && g.monthly.length === 12;
-  const annual = has ? g.monthly.reduce((a, b) => a + (Number(b) || 0), 0) : (Number(g.amount) || 0);
-  const persist = () => { g.amount = (g.monthly || []).reduce((a, b) => a + (Number(b) || 0), 0); saveDemoData(); saveDeptGoal(dept.id); };
-  const spread = (total) => { const c = (typeof worldDeptCurve === 'function') ? worldDeptCurve(world) : Array(12).fill(1 / 12); g.monthly = c.map(f => Math.round(total * f)); persist(); mountApp(); };
+  if (has && (!Array.isArray(g.curve) || g.curve.length !== 12)) {
+    const s = g.monthly.reduce((a, b) => a + (Number(b) || 0), 0);
+    g.amount = s || Number(g.amount) || 0;
+    g.curve = goalSnapCurve(s > 0 ? g.monthly.map(v => (Number(v) || 0) / s) : lastYear(), true);
+  }
+  const annual = Number(g.amount) || 0;
+  const persist = () => { g.curve = goalSnapCurve(g.curve || lastYear()); g.monthly = goalSpreadExact(g.amount, g.curve); saveDemoData(); saveDeptGoal(dept.id); mountApp(); };
   const num = (v) => parseFloat(String(v).replace(/[^0-9.]/g, '')) || 0;
   const inCls = 'text-left text-[11px] rounded border px-1.5 py-1 tabular-nums';
+  const curve = g.curve || [];
+  const sum = has ? goalCurveSumPct(curve) : 100;
   return el('div', { class: 'card p-5' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-3' },
       el('div', {},
         el('h3', { class: 'text-sm font-bold' }, dept.label + ' revenue goal'),
-        el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Drives the Revenue Pacer on the ' + (dept.id === 'tech' ? 'Technicians' : 'D2D Sales') + ' dashboard. Enter the year and it is spread across the months by last year\u2019s actual sales pattern; edit any month after.')),
+        el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Drives the Revenue Pacer on the ' + (dept.id === 'tech' ? 'Technicians' : 'D2D Sales') + ' dashboard. Enter the year and it is spread across the months by ' + (new Date().getFullYear() - 1) + '’s actual ' + (dept.id === 'tech' ? 'technician' : 'door-to-door') + ' sales by month (Reset months goes back to that pattern). Edit the month % to reshape it — they need to total 100%.')),
       el('div', { class: 'flex items-center gap-2' },
         el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, 'Annual goal'),
         el('input', { type: 'text', inputmode: 'decimal', value: annual ? '$' + Math.round(annual).toLocaleString() : '', placeholder: '$0', class: inCls + ' font-bold', style: { borderColor: 'var(--border-2)', width: '130px' },
-          onchange: (e) => spread(num(e.target.value)) }),
-        has ? el('button', { class: 'text-[11px] rounded px-2.5 py-1 border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Re-spread the annual goal by last year\u2019s pattern', onclick: () => spread(annual) }, '\u21bb Reset months') : null)),
-    has ? el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(86px, 1fr))' } },
-      ...M.map((lbl, m) => el('label', { class: 'flex flex-col gap-1' },
-        el('span', { class: 'text-[10px] uppercase tracking-wider font-semibold', style: { color: m === new Date().getMonth() ? 'var(--accent)' : 'var(--text-muted)' } }, lbl + (annual > 0 ? ' \u00b7 ' + ((Number(g.monthly[m]) || 0) / annual * 100).toFixed(0) + '%' : '')),
-        el('input', { type: 'text', inputmode: 'decimal', value: '$' + Math.round(Number(g.monthly[m]) || 0).toLocaleString(), class: inCls, style: { borderColor: 'var(--border-2)', width: '100%', minWidth: '0' },
-          onchange: (e) => { g.monthly[m] = num(e.target.value); persist(); mountApp(); } }))))
-      : el('div', { class: 'text-[11px] italic', style: { color: 'var(--text-subtle)' } }, 'No goal yet \u2014 type the annual number above.'));
+          onchange: (e) => { g.amount = Math.round(num(e.target.value)); if (!Array.isArray(g.curve) || g.curve.length !== 12) g.curve = lastYear(); persist(); } }),
+        has ? el('button', { class: 'text-[11px] rounded px-2.5 py-1 border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Back to last year’s actual month-by-month pattern', onclick: () => { g.curve = lastYear(); persist(); } }, '↻ Reset months') : null)),
+    has ? el('div', { class: 'flex flex-col gap-2' },
+      el('div', { class: 'grid gap-2', style: { gridTemplateColumns: window.matchMedia('(max-width: 767px)').matches ? 'repeat(3, minmax(0, 1fr))' : 'repeat(12, minmax(0, 1fr))' } },
+        ...M.map((lbl, m) => el('label', { class: 'flex flex-col gap-1' },
+          el('span', { class: 'text-[10px] uppercase tracking-wider font-semibold', style: { color: m === new Date().getMonth() ? 'var(--accent)' : 'var(--text-muted)' } }, lbl),
+          goalCurveInput(curve, m, persist, inCls),
+          el('span', { class: 'text-[11px] tabular-nums', style: { color: 'var(--text-muted)' } }, '$' + Math.round(Number(g.monthly[m]) || 0).toLocaleString())))),
+      el('div', { class: 'flex items-center gap-3 text-[11px] tabular-nums', style: { color: 'var(--text-muted)' } },
+        el('span', {}, 'Year: ', goalCurveSumCell(sum)),
+        el('span', {}, '$' + g.monthly.reduce((a, b) => a + (Number(b) || 0), 0).toLocaleString())))
+      : el('div', { class: 'text-[11px] italic', style: { color: 'var(--text-subtle)' } }, 'No goal yet — type the annual number above.'));
 }
 // ── Placeholder settings sections (filled in later as needed) ──
 function adminGoals() {
@@ -986,18 +1025,17 @@ function adminGoals() {
   // Monthly dollars = annual target × that month's % — derived, never typed. Seeded once from the stored
   // monthly grid so today's curve carries over exactly.
   const _seedCurve = (arr, def) => { const s = arr.reduce((a, b) => a + (b || 0), 0); return s > 0 ? arr.map(v => (v || 0) / s) : def.slice(); };
-  if (!Array.isArray(g.curve_new) || g.curve_new.length !== 12) { g.new_amount = g.monthly_new.reduce((a, b) => a + (b || 0), 0) || g.new_amount || 0; g.curve_new = _seedCurve(g.monthly_new, IS_SEASONAL); }
-  if (!Array.isArray(g.curve_renewal) || g.curve_renewal.length !== 12) { g.renewal_amount = g.monthly_renewal.reduce((a, b) => a + (b || 0), 0) || g.renewal_amount || 0; g.curve_renewal = _seedCurve(g.monthly_renewal, IS_RENEWAL_SEASONAL); }
+  if (!Array.isArray(g.curve_new) || g.curve_new.length !== 12) { g.new_amount = g.monthly_new.reduce((a, b) => a + (b || 0), 0) || g.new_amount || 0; g.curve_new = goalSnapCurve(_seedCurve(g.monthly_new, IS_SEASONAL), true); }
+  if (!Array.isArray(g.curve_renewal) || g.curve_renewal.length !== 12) { g.renewal_amount = g.monthly_renewal.reduce((a, b) => a + (b || 0), 0) || g.renewal_amount || 0; g.curve_renewal = goalSnapCurve(_seedCurve(g.monthly_renewal, IS_RENEWAL_SEASONAL), true); }
   // Annual targets stay as set; the monthly grid + quarterly roll-ups follow the curves so existing
   // consumers (IS pacer, dashboard war-room, per-rep math, Marketing) keep reading monthly_new / monthly_renewal.
   const syncDerived = () => {
     g.new_amount = Number(g.new_amount) || 0; g.renewal_amount = Number(g.renewal_amount) || 0;
     // Curves hold exactly what the boxes show (0.1% steps), so the Year sum is the sum you can see
     // (per Isaac, Oct 15 — a seeded 1.96% showed as 2.0% but summed as 99.9%).
-    const _snap = (c) => Math.round((Number(c) || 0) * 1000) / 1000;
-    g.curve_new = g.curve_new.map(_snap); g.curve_renewal = g.curve_renewal.map(_snap);
-    g.monthly_new     = g.curve_new.map(c => Math.round(g.new_amount * (Number(c) || 0)));
-    g.monthly_renewal = g.curve_renewal.map(c => Math.round(g.renewal_amount * (Number(c) || 0)));
+    g.curve_new = goalSnapCurve(g.curve_new); g.curve_renewal = goalSnapCurve(g.curve_renewal);   // 0.01% steps
+    g.monthly_new     = goalSpreadExact(g.new_amount, g.curve_new);       // whole dollars that add up exactly
+    g.monthly_renewal = goalSpreadExact(g.renewal_amount, g.curve_renewal);
     g.amount = g.new_amount + g.renewal_amount;
     const qsum = (arr, q) => (arr[q*3]||0) + (arr[q*3+1]||0) + (arr[q*3+2]||0);
     g.quarterly_new     = [0,1,2,3].map(q => qsum(g.monthly_new, q));
@@ -1074,14 +1112,10 @@ function goalMonthlyCard(g, persist, dept) {
   };
   // Curve % input (per Isaac, Oct 15): sets just that month — nothing else rescales, so the Year column is the
   // plain sum of the twelve and turns red until it's back to 100%.
-  const curveCell = (curve, m) => el('input', {
-    type: 'text', inputmode: 'decimal', value: ((Number(curve[m]) || 0) * 100).toFixed(1) + '%',
-    class: 'text-left text-[11px] rounded border px-1.5 py-1 tabular-nums', style: { borderColor: 'var(--border-2)', width: '100%', minWidth: '0' },
-    onchange: (e) => { const v = parseFloat(String(e.target.value).replace(/[^0-9.]/g, '')); curve[m] = Math.max(0, Math.min(100, Number.isFinite(v) ? v : 0)) / 100; persist(); mountApp(); },
-  });
-  const curveSum = (curve) => curve.reduce((a, c) => a + Math.round((Number(c) || 0) * 1000), 0) / 10;   // in 0.1% steps — no float drift
-  const sumCell = (pct) => { const off = Math.abs(pct - 100) >= 0.05;
-    return el('span', { style: off ? { color: '#DC2626' } : {}, title: off ? 'The months add up to ' + pct.toFixed(1) + '% \u2014 they need to total 100%' : 'Adds up to 100%' }, pct.toFixed(1) + '%'); };
+  // Curve % input (per Isaac, Oct 15): sets just that month (0.01% steps) — nothing else rescales, so the
+  // Year column is the plain sum of the twelve and turns red until it's back to 100%.
+  const curveCell = (curve, m) => goalCurveInput(curve, m, () => { persist(); mountApp(); });
+  const curveSum = goalCurveSumPct, sumCell = goalCurveSumCell;
   const totNew = g.monthly_new.reduce((a, b) => a + (b || 0), 0);
   const totRen = g.monthly_renewal.reduce((a, b) => a + (b || 0), 0);
   const repsA = (q) => Math.max(1, Number(g.is_reps_q[q]) || 1), repsB = (q) => Math.max(1, Number(g.loyalty_reps_q[q]) || 1);
@@ -1133,11 +1167,11 @@ function goalMonthlyCard(g, persist, dept) {
             const qn = [0, 1, 2, 3].map(q => qsum(g.monthly_new, q)), qr = [0, 1, 2, 3].map(q => qsum(g.monthly_renewal, q));
             const pctOf = (a, t) => (t > 0 ? (a / t * 100).toFixed(1) : '0.0') + '%';   // = the three months' curve % added up
             const rows = [
-              [N.qPctA || (lineA + ' quarterly %'), q => (((Number(g.curve_new[q * 3]) || 0) + (Number(g.curve_new[q * 3 + 1]) || 0) + (Number(g.curve_new[q * 3 + 2]) || 0)) * 100).toFixed(1) + '%', sumCell(curveSum(g.curve_new)), false],
+              [N.qPctA || (lineA + ' quarterly %'), q => (((Number(g.curve_new[q * 3]) || 0) + (Number(g.curve_new[q * 3 + 1]) || 0) + (Number(g.curve_new[q * 3 + 2]) || 0)) * 100).toFixed(2) + '%', sumCell(curveSum(g.curve_new)), false],
               [N.qA || (lineA + ' quarterly'), q => usd(qn[q]), usd(totNew), true],
               [N.repsA || dept.reps.a, q => repCell(g.is_reps_q, q), (Math.round(yrA * 10) / 10) + ' avg', false],
               [N.quotaA || (lineA + ' /rep quota'), q => usd(qn[q] / repsA(q)), usd(totNew / yrA), true],
-              [N.qPctB || (lineB + ' quarterly %'), q => (((Number(g.curve_renewal[q * 3]) || 0) + (Number(g.curve_renewal[q * 3 + 1]) || 0) + (Number(g.curve_renewal[q * 3 + 2]) || 0)) * 100).toFixed(1) + '%', sumCell(curveSum(g.curve_renewal)), false],
+              [N.qPctB || (lineB + ' quarterly %'), q => (((Number(g.curve_renewal[q * 3]) || 0) + (Number(g.curve_renewal[q * 3 + 1]) || 0) + (Number(g.curve_renewal[q * 3 + 2]) || 0)) * 100).toFixed(2) + '%', sumCell(curveSum(g.curve_renewal)), false],
               [N.qB || (lineB + ' quarterly'), q => usd(qr[q]), usd(totRen), true],
               [N.repsB || dept.reps.b, q => repCell(g.loyalty_reps_q, q), (Math.round(yrB * 10) / 10) + ' avg', false],
               [N.quotaB || (lineB + ' /rep quota'), q => usd(qr[q] / repsB(q)), usd(totRen / yrB), true],
@@ -1750,16 +1784,38 @@ function d2dRepGoalsCard(partnerOnly) {
     onchange: (e) => onSave(o.text ? e.target.value.trim() : (parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0)),
   }));
   const th = (t) => el('th', { class: 'text-left px-2 py-2 text-[10px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)' } }, t);
-  const COLS = [['Revenue goal', 'annual_revenue_goal'], ['Accounts', 'accounts'], ['Avg contract $', 'acv'], ['Retained %', 'retained_pct'], ['Other goal', 'other']];
+  // Revenue goal = Accounts × ACV (per Isaac, Oct 15): type any two, the third fills in. Retained % and
+  // Other goal retired (any stored values are kept). The derived one shows in grey and stays editable —
+  // typing in it makes it one of the two you set, and the oldest of the other two becomes the derived one.
+  const COLS = [['Revenue goal', 'annual_revenue_goal'], ['Accounts', 'accounts'], ['ACV', 'acv']];
   const repRow = (r) => {
-    const g = r.g, yg = g.year_goals || {};
-    return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+    const g = r.g;
+    const cur = () => { const yg = g.year_goals || {}; return { rev: Number(g.annual_revenue_goal) || 0, accounts: Number(yg.accounts) || 0, acv: Number(yg.acv) || 0 }; };
+    const entered = () => { const yg = g.year_goals || {}; if (Array.isArray(yg.goal_set)) return yg.goal_set.slice(0, 2);
+      const v = cur(); return ['rev', 'accounts', 'acv'].filter(k => v[k] > 0).slice(0, 2); };
+    const fmtV = (k, v) => !v ? '' : k === 'accounts' ? String(Math.round(v * 10) / 10) : Math.round(v).toLocaleString();
+    const boxes = {};
+    const paint = () => { const v = cur(), set = entered(); const der = set.length === 2 ? ['rev', 'accounts', 'acv'].find(k => !set.includes(k)) : null;
+      for (const k of ['rev', 'accounts', 'acv']) { const b = boxes[k]; b.value = fmtV(k, v[k]); const d = k === der && v[k] > 0;
+        b.style.color = d ? 'var(--text-muted)' : 'var(--text)'; b.style.fontStyle = d ? 'italic' : 'normal'; b.style.background = d ? 'var(--card-2)' : 'var(--card)';
+        b.title = d ? 'Worked out from the other two (Revenue goal = Accounts × ACV) — type here to set it instead' : ''; } };
+    const edit = (k, val) => {
+      const v = cur(); v[k] = Number(val) || 0;
+      let set = entered().filter(x => x !== k); if (v[k] > 0) set = [k, ...set]; set = set.slice(0, 2);
+      if (set.length === 2) { const der = ['rev', 'accounts', 'acv'].find(x => !set.includes(x));
+        if (der === 'rev') v.rev = v.accounts * v.acv;
+        else if (der === 'accounts') v.accounts = v.acv > 0 ? Math.round(v.rev / v.acv * 10) / 10 : 0;
+        else v.acv = v.accounts > 0 ? Math.round(v.rev / v.accounts * 100) / 100 : 0; }
+      Promise.resolve(save(r, { annual_revenue_goal: Math.round(v.rev * 100) / 100, year_goals: { accounts: v.accounts || null, acv: v.acv || null, goal_set: set } })).then(paint, paint);
+    };
+    const box = (k, ph) => (boxes[k] = inp('', (val) => edit(k, val), { placeholder: ph }));
+    const row = el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
       el('td', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap' }, r.disp, r.p ? null : el('span', { class: 'ml-1.5 text-[9px] font-normal', style: { color: 'var(--text-subtle)' }, title: 'No app login yet — goals are kept under the CRM name and carry over when they sign up' }, 'no login')),
-      el('td', { class: 'px-2 py-1' }, inp(Number(g.annual_revenue_goal) ? Math.round(Number(g.annual_revenue_goal)).toLocaleString() : '', (v) => save(r, { annual_revenue_goal: v }), { placeholder: '$' })),
-      el('td', { class: 'px-2 py-1' }, inp(yg.accounts, (v) => save(r, { year_goals: { accounts: v } }), { placeholder: '#' })),
-      el('td', { class: 'px-2 py-1' }, inp(yg.acv, (v) => save(r, { year_goals: { acv: v } }), { placeholder: '$' })),
-      el('td', { class: 'px-2 py-1' }, inp(yg.retained_pct, (v) => save(r, { year_goals: { retained_pct: v } }), { placeholder: '%' })),
-      el('td', { class: 'px-2 py-1' }, inp(yg.other, (v) => save(r, { year_goals: { other: v } }), { text: true, placeholder: 'e.g. 40 Sentricon' })));
+      el('td', { class: 'px-2 py-1' }, box('rev', '$')),
+      el('td', { class: 'px-2 py-1' }, box('accounts', '#')),
+      el('td', { class: 'px-2 py-1' }, box('acv', '$')));
+    paint();
+    return row;
   };
   // Broken out by team like Manage Teams (per Isaac, Sep 23): one accordion
   // section per team — logo / colour dot, name, rep count, goals total —
@@ -1798,7 +1854,7 @@ function d2dRepGoalsCard(partnerOnly) {
     reps.length
       ? el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', overflow: 'hidden' } }, ...sections)
       : el('div', { class: 'p-6 text-center text-sm text-muted-' }, partnerOnly ? 'No reps are assigned to your team yet — assignments come from Manage Teams.' : 'No active sales reps yet.'),
-    el('div', { class: 'text-[10px] mt-2', style: { color: 'var(--text-subtle)' } }, 'Revenue goal drives each rep’s Individual pacer on the Dashboard. Other goals are yours to define per rep for the year.'));
+    el('div', { class: 'text-[10px] mt-2', style: { color: 'var(--text-subtle)' } }, 'Revenue goal drives each rep’s Individual pacer on the Dashboard. Revenue goal = Accounts × ACV — type any two and the third fills in (shown in grey).'));
 }
 
 
