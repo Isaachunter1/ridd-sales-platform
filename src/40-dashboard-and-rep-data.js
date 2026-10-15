@@ -5390,6 +5390,7 @@ function statusChip(s) {
     nsf:            'chip-nsf',
     not_payable:    'chip-below',
     reschedule:     'chip-pending',
+    re_audit:       'chip-below',
     // Legacy aliases
     approved:       'chip-approved',
     rejected:       'chip-rejected',
@@ -5399,6 +5400,7 @@ function statusChip(s) {
     nsf:            'NSF',
     not_payable:    'Not Payable',
     reschedule:     'Reschedule',
+    re_audit:       'Re-Audit',
   }[s] || (s || '').replace('_', ' ');
   return el('span', { class: 'chip ' + cls }, label);
 }

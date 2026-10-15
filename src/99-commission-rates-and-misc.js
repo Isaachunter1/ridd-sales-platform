@@ -1022,7 +1022,7 @@ async function auditSale(saleId, status) {
     }
     const sale = state.allSales.find(s => s.id === saleId);
     logActivity('audit', { sale_id: saleId, customer_name: sale?.customer_name, old_status: sale?.audit_status, new_status: status });
-    toast('Sale ' + status.replace('_', ' '), 'success');
+    toast('Sale ' + ((typeof SALE_STATUS_LABEL !== 'undefined' && SALE_STATUS_LABEL[status]) || status.replace('_', ' ')), 'success');
     saveDemoData();
     mountApp();
     return;
@@ -1040,12 +1040,12 @@ async function auditSale(saleId, status) {
       staged_at: willStage ? new Date().toISOString() : null,
     }).eq('id', saleId);
     if (error) throw error;
-    toast('Sale ' + status.replace('_', ' '), 'success');
+    toast('Sale ' + ((typeof SALE_STATUS_LABEL !== 'undefined' && SALE_STATUS_LABEL[status]) || status.replace('_', ' ')), 'success');
     // Slack DM to the sale's rep (their ⚙ My Settings opt-in decides
     // whether it sends) — first event wired to per-user notifications.
     try {
       if (sale && sale.profile_id && sale.profile_id !== state.profile?.id) {
-        const _lbl = { pending: 'Pending', serviced: 'Commissionable \u2705', below_minimums: 'Below Minimums', cancelled: 'Cancelled', nsf: 'NSF', not_payable: 'Not Payable', reschedule: 'Reschedule' }[status] || status;
+        const _lbl = { pending: 'Pending', serviced: 'Commissionable \u2705', below_minimums: 'Below Minimums', cancelled: 'Cancelled', nsf: 'NSF', not_payable: 'Not Payable', reschedule: 'Reschedule', re_audit: 'Re-Audit' }[status] || status;
         notifySlack(sale.profile_id, '\ud83d\udd0e Audit update \u2014 your sale for ' + (sale.customer_name || 'a customer') + ' was marked *' + _lbl + '*.');
       }
     } catch (e2) { /* best-effort */ }

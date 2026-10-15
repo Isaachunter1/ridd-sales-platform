@@ -53,7 +53,7 @@ function viewSales() {
   // (lock_status set to lock or chargeback). At that point it lives in History.
   // Cancelled / Reschedule / Not Payable are terminal — they go straight to
   // History too (Cancelled is reinstateable from there).
-  const ACTIVE_QUEUE = new Set(['pending', 'serviced', 'below_minimums', 'nsf']);
+  const ACTIVE_QUEUE = new Set(['pending', 'serviced', 'below_minimums', 'nsf', 're_audit']);
   const lockOf = (s) => s.lock_status || 'pending';
   // Four queues, toggleable: upfront-payment audit (no first-pass audit yet)
   // vs backend-lock review (audited & paid out, awaiting Lock/Chargeback call)
@@ -242,8 +242,8 @@ function viewSales() {
       onchange: e => { sf.status = e.target.value; mountApp(); },
     },
       el('option', { value: '', selected: !sf.status }, 'All statuses'),
-      ...['pending','serviced','below_minimums','cancelled','nsf','not_payable','reschedule'].map(s =>
-        el('option', { value: s, selected: sf.status === s }, s.replace('_',' '))),
+      ...SALE_STATUS_OPTIONS.map(([s, lbl]) =>
+        el('option', { value: s, selected: sf.status === s }, lbl)),
     ),
     isAdmin && el('select', {
       class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
@@ -1067,6 +1067,15 @@ function saleAuditChip(sale) {
   if (v === 'failed') return mk('\u2717 Failed', 'rgba(220,38,38,.12)', '#B91C1C', 'Failed Audit flag on the customer card in FieldRoutes — fix it in the CRM and the next sync clears it');
   return el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' }, title: 'No audit flag on the customer card yet' }, 'not yet');
 }
+// Sale statuses, in the order of RIDD's status list (per Isaac, Oct 15). 'serviced' stays
+// labelled Commissionable. Re-Audit holds a sale on Upfront Sales (not payable, never auto-approved).
+const SALE_STATUS_OPTIONS = [
+  ['pending', 'Pending'], ['serviced', 'Commissionable'], ['below_minimums', 'Below Minimums'],
+  ['cancelled', 'Cancelled'], ['re_audit', 'Re-Audit'], ['reschedule', 'Reschedule'],
+  ['nsf', 'NSF'], ['not_payable', 'Not Payable'],
+];
+const SALE_STATUS_LABEL = Object.fromEntries(SALE_STATUS_OPTIONS);
+
 function statusSelect(saleId) {
   const sale = state.allSales.find(x => x.id === saleId) || state.mySales.find(x => x.id === saleId);
   const role = state.profile?.role;
@@ -1082,13 +1091,7 @@ function statusSelect(saleId) {
       auditSale(saleId, val);
     },
   },
-    el('option', { value: 'pending',         selected: current === 'pending' },         'Pending'),
-    el('option', { value: 'serviced',        selected: current === 'serviced' },        'Commissionable'),
-    el('option', { value: 'below_minimums',  selected: current === 'below_minimums' },  'Below Minimums'),
-    el('option', { value: 'cancelled',       selected: current === 'cancelled' },       'Cancelled'),
-    el('option', { value: 'nsf',             selected: current === 'nsf' },             'NSF'),
-    el('option', { value: 'not_payable',     selected: current === 'not_payable' },     'Not Payable'),
-    el('option', { value: 'reschedule',      selected: current === 'reschedule' },      'Reschedule'),
+    ...SALE_STATUS_OPTIONS.map(([v, lbl]) => el('option', { value: v, selected: current === v }, lbl)),
   );
 }
 
