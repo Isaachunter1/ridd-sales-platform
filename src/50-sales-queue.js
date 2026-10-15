@@ -69,8 +69,10 @@ function viewSales() {
   // (Commissionable / Below Minimums / NSF) but not paid yet. It only moves to Pending Backend Lock once
   // the upfront payroll has actually run on it (per Isaac, Oct 15 — no payroll run yet, so nothing
   // should be waiting on a backend decision).
+  // Upfront starts Oct 12 (per Isaac, Oct 15 — the 'before 10/12' table is cleared): the new flow begins there.
   const isUpfrontPending = (s) =>
-    ACTIVE_QUEUE.has(s.audit_status) && lockOf(s) === 'pending' && !s.payroll_processed_at && saleHasInitialScheduled(s);
+    ACTIVE_QUEUE.has(s.audit_status) && lockOf(s) === 'pending' && !s.payroll_processed_at && saleHasInitialScheduled(s)
+    && (_queue !== 'office' || String(s.sold_date || '') >= SALES_FEED_START);
   // Sold but no initial booked yet — kept off Upfront (per Isaac, Oct 15); listed on demand.
   const isAwaitingInitial = (s) =>
     ACTIVE_QUEUE.has(s.audit_status) && lockOf(s) === 'pending' && !s.payroll_processed_at && !saleHasInitialScheduled(s);
@@ -2049,9 +2051,13 @@ function saleAddOnCredited(a) {
 // Before the crm_initial_appt_at column exists (migration 20260921), fall back to the appointment status.
 function saleHasInitialScheduled(s) {
   if (s.crm_serviced_at) return true;
-  if ('crm_initial_appt_at' in s) { const a = s.crm_initial_appt_at ? String(s.crm_initial_appt_at).slice(0, 10) : ''; return !!a && a >= String(s.sold_date || '').slice(0, 10); }
+  const a = s.crm_initial_appt_at ? String(s.crm_initial_appt_at).slice(0, 10) : '';
+  if (a && a >= String(s.sold_date || '').slice(0, 10)) return true;
+  // FieldRoutes' own initial-appointment status on the plan (Pending / Completed) — stamped every 15 min,
+  // so it covers sales whose date hasn't been stamped yet. Add-on sales only count their own appointment.
   const st = String(s.crm_initial_status || '').toLowerCase();
-  return s.crm_initial_status == null || st === 'pending' || st === 'completed';
+  if (s.sale_kind === 'upsell') return st === 'pending' || st === 'completed';
+  return s.crm_initial_status == null ? !('crm_initial_appt_at' in s) : (st === 'pending' || st === 'completed');
 }
 // Initial date (was "Service Date"): completed ✓ / scheduled 📅 / past-and-not-done ⚠ / not scheduled.
 function saleInitialDateNode(s, small) {
