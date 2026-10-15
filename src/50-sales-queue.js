@@ -2174,7 +2174,7 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
           // No app account yet: the FieldRoutes seller's name, marked (per Isaac, Oct 15).
           cell('1', 1, el('span', { class: 'font-black uppercase', style: { fontSize: '15px', letterSpacing: '.02em' }, title: rep ? '' : 'Credited in FieldRoutes · no app account linked yet' },
             rep ? rep.full_name : (s.crm_seller_name ? (typeof flipLastFirst === 'function' ? flipLastFirst(s.crm_seller_name) : s.crm_seller_name) : 'Unlinked seller'),
-            rep ? null : el('span', { class: 'normal-case font-semibold', style: { fontSize: '9px', letterSpacing: '.06em', marginLeft: '6px', color: 'var(--text-muted)' } }, 'NO APP ACCOUNT')), { minWidth: 'max-content' }),
+            /* NO APP ACCOUNT tag hidden (per Isaac, Oct 15) — FieldRoutes attribution is what counts */ null), { minWidth: 'max-content' }),
           cell('2', 1, (s.customer_number || s.customer_name) ? sep() : null),
           // Customer name beside the id (per Isaac, Oct 15).
           cell('3', 1, (s.customer_number || s.customer_name) ? el('span', { style: { fontSize: '12px' } },
