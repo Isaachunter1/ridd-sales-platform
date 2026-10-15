@@ -139,7 +139,7 @@ function viewSales() {
   let filtered = pending;
   if (sf.dateStart) filtered = filtered.filter(s => s.sold_date >= sf.dateStart);
   if (sf.dateEnd) filtered = filtered.filter(s => s.sold_date <= sf.dateEnd);
-  if (sf.status && queueFilter !== 'backend') filtered = filtered.filter(s => s.audit_status === sf.status);
+  if (sf.status) filtered = filtered.filter(s => s.audit_status === sf.status);
   if (sf.lock && queueFilter === 'backend') filtered = filtered.filter(s => lockOf(s) === sf.lock);   // backend key (per Isaac, Oct 15)
   if (sf.repId) filtered = filtered.filter(s => s.rep_id === sf.repId);
   if (sf.contractTypeId) filtered = filtered.filter(s => s.contract_type_id === Number(sf.contractTypeId));
@@ -204,7 +204,7 @@ function viewSales() {
     ...[
       { id: 'upfront', label: 'Upfront Sales',                short: 'Sales' },
       { id: 'backend', label: 'Pending Backend Lock', short: 'Backend' },
-      { id: 'cancels', label: 'Archived',             short: 'Archived' },
+      { id: 'cancels', label: 'Cancelled',            short: 'Cancelled' },   // was Archived (per Isaac, Oct 15)
       { id: 'history', label: 'History',              short: 'History' },
     ].map((t, i) => el('button', {
       class: 'px-2.5 py-1 text-[11px] font-bold transition flex items-center justify-center gap-2 whitespace-nowrap' + (i ? ' border-l' : ''),
@@ -312,7 +312,7 @@ function viewSales() {
     _tile(_yr + ' sold', _ytd, true, "'" + _yr.slice(2) + ' Sold'),
     _tile('Upfront', source.filter(isUpfrontPending)),
     _tile('Backend lock', source.filter(isBackendPending), false, 'Backend'),
-    _tile('Archived', source.filter(isCancelled)),
+    _tile('Cancelled', source.filter(isCancelled)),
     _tile('History', source.filter(isHistory))) : null;
   if (totalsStrip && _phoneT && totalsStrip.firstChild) totalsStrip.firstChild.style.borderLeft = '0';
   const queueRow = el('div', { class: 'flex flex-col gap-3' }, totalsStrip, el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' }, queueToggle));
@@ -377,7 +377,7 @@ function viewSales() {
           // same rows. Sales before the new flow (10/12) keep the old table underneath.
           ((queueFilter === 'upfront' || _queue === 'office') && filtered.some(s => String(s.sold_date || '') >= SALES_FEED_START))
             ? el('div', { class: 'hidden sm:block mb-5' }, salesFeed(filtered.filter(s => String(s.sold_date || '') >= SALES_FEED_START), { isAdmin, mode: queueFilter === 'backend' ? 'backend' : 'upfront',
-                title: queueFilter === 'backend' ? 'Pending Backend Lock' : queueFilter === 'cancels' ? 'Archived' : queueFilter === 'history' ? 'History' : 'Upfront Sales' })) : null,   // titles = the tab names (per Isaac, Oct 15)
+                title: queueFilter === 'backend' ? 'Pending Backend Lock' : queueFilter === 'cancels' ? 'Cancelled' : queueFilter === 'history' ? 'History' : 'Upfront Sales' })) : null,   // titles = the tab names (per Isaac, Oct 15)
           ((queueFilter === 'upfront' || _queue === 'office') && !filtered.some(s => String(s.sold_date || '') < SALES_FEED_START)) ? null :
           el('div', { class: 'hidden sm:block' },
             (queueFilter === 'upfront' || _queue === 'office') && filtered.some(s => String(s.sold_date || '') >= SALES_FEED_START) ? el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted- mb-2' }, 'Before ' + fmt.dateShortYear(SALES_FEED_START)) : null,
@@ -1118,7 +1118,8 @@ function saleStatusKey() {
     mountApp();
   };
   return el('div', { class: 'flex flex-wrap items-center justify-end', style: { columnGap: '4px', rowGap: '4px' } },
-    ...SALE_STATUS_OPTIONS.map(([v, lbl]) => {
+    // Cancelled isn't on the key (per Isaac, Oct 15) — a cancelled sale goes straight to the Cancelled tab.
+    ...SALE_STATUS_OPTIONS.filter(([v]) => v !== 'cancelled').map(([v, lbl]) => {
       const on = sf.status === v, dim = !!sf.status && !on;
       return el('button', {
         type: 'button', title: on ? 'Showing ' + lbl + ' only \u2014 click to show all' : 'Show ' + lbl + ' only',
@@ -2252,7 +2253,7 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
       el('div', { class: 'flex flex-wrap items-center justify-between gap-2 px-4 pt-3 pb-2' },
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, title || 'Latest sales'),
         el('div', { class: 'flex flex-wrap items-center justify-end', style: { columnGap: '18px', rowGap: '6px' } },
-          _bk ? backendKey() : saleStatusKey(),
+          _bk ? el('div', { class: 'flex flex-col items-end', style: { rowGap: '4px' } }, saleStatusKey(), backendKey()) : saleStatusKey(),   // same key on every tab (per Isaac, Oct 15); backend adds its lock key
           el('div', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, rows.length + ' since ' + fmt.dateShortYear(SALES_FEED_START)))),
       el('div', { class: 'px-4 pb-2', style: gridRow() },
         el('div', { class: 'text-[9px] text-right', style: { color: 'var(--text-subtle)' } }, '#'),
