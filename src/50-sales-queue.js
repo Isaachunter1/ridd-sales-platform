@@ -2421,10 +2421,10 @@ function openSaleCommissionCard(s, { isAdmin = false, backend = false } = {}) {
     body.push(row('Commission', '—', { top: true, sub: s.rep_id ? 'Couldn’t work it out for this sale' : 'No app account linked to this seller yet, so it isn’t on anyone’s pay' }));
   } else {
     body.push(row(renewal ? 'Renewal (flat)' : 'Rate', renewal ? money(planComm) : (rate != null ? (Math.round(rate * 10000) / 100) + '%' : '—'), { sub: mods.join(' · ') || null }));
-    if (split.base > 0 || !(l.addon > 0)) body.push(row('Plan commission', money(planComm)));
+    if (!renewal && (split.base > 0 || !(l.addon > 0))) body.push(row('Plan commission', money(planComm)));
     if (l.addon > 0) body.push(row('Add-on commission', money(l.addon), { sub: 'Flat — the Passed Audit tier doesn’t apply' }));
     body.push(row('Passed Audit tier', exempt ? '100%' : Math.round(tierMult * 100) + '%',
-      { sub: exempt ? (renewal ? 'Renewals' : s.sale_kind === 'upsell' ? 'Add-ons' : 'Sentricon') + ' are paid at 100%' : 'Rep’s Passed Audit ' + (x.pct == null ? '—' : Math.round(x.pct * 100) + '%') + ' this pay period' }));
+      { sub: exempt ? (renewal ? 'Renewals' : s.sale_kind === 'upsell' ? 'Add-ons' : 'Sentricon') + ' are paid at 100%' : (x.pct == null ? 'The rep’s tier this pay period' : 'Rep’s Passed Audit is ' + Math.round(x.pct * 100) + '% this pay period') }));
     body.push(row(paidUp ? 'Upfront paid' : 'Upfront pay', money(l.amount), { top: true, big: true, color: 'var(--accent)',
       sub: paidUp ? 'On the ' + fmt.dateShort(String(s.payroll_processed_at).slice(0, 10)) + ' payroll' : (['serviced', 'below_minimums'].includes(s.audit_status) ? 'On the next payroll' : 'Once it’s Commissionable') }));
   }
