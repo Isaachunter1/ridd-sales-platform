@@ -895,7 +895,7 @@ function _mktgYearBar(sub) {
         onclick: () => { if (v === 'recon') { state._mktSub = 'providers'; state._mktProvView = 'recon'; } else { state._mktSub = v; state._mktProvView = 'cac'; } mountApp(); },
       }, l))),
     // Metrics runs on a date range (per Isaac, Oct 15); the other tabs keep the year.
-    sub === 'providers' && !_recon && typeof mkmRangeControl === 'function' ? mkmRangeControl() : el('div', { class: 'inline-flex items-center gap-1 ' },
+    sub === 'providers' && !_recon && typeof mktgPulseView === 'function' ? null : sub === 'providers' && !_recon && typeof mkmRangeControl === 'function' ? mkmRangeControl() : el('div', { class: 'inline-flex items-center gap-1 ' },
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = y - 1; mountApp(); } }, '‹'),
       el('span', { class: 'text-sm font-black tabular-nums px-1' }, String(y)),
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = y + 1; mountApp(); } }, '›')));
@@ -1514,6 +1514,8 @@ function reportingMarketingPnl() {
   const body = sub === 'providers' ? (provView === 'recon' ? el('div', { class: 'flex flex-col gap-4' }, mktgAttributionView())
       // Rebuilt around the GoHighLevel lead cohort (per Isaac, Oct 15) — src/85-marketing-metrics.js. The old
       // Demand / CAC / provider cards stay in the code, unreached.
+      // Marketing Pulse (per Isaac's brief, Oct 15) — src/85-marketing-pulse.js; the cohort view is the fallback.
+      : typeof mktgPulseView === 'function' ? (() => { try { return mktgPulseView(); } catch (e) { console.warn('[marketing] pulse skipped', e); return el('div', { class: 'card p-6 text-sm' }, 'Marketing Pulse hit an error: ' + (e.message || e)); } })()
       : (typeof mktgMetricsView === 'function' ? (() => { try { return mktgMetricsView(); } catch (e) { console.warn('[marketing] metrics skipped', e); return el('div', { class: 'card p-6 text-sm' }, 'Metrics hit an error: ' + (e.message || e)); } })()
         : el('div', { class: 'flex flex-col gap-4' }, (() => { try { return _mktgDemand(); } catch (e) { console.warn('[marketing] demand section skipped', e); return null; } })(), _mktgCac(), _mktgProviders())))
     : sub === 'spend' ? _mktgSpendEntry() : sub === 'disp' ? ((typeof mktgDispositionView === 'function') ? mktgDispositionView() : null) : sub === 'projections' ? _mktgProjections() : _mktgPnl();
