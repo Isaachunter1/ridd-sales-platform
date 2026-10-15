@@ -377,7 +377,7 @@ function viewSales() {
           // same rows. Sales before the new flow (10/12) keep the old table underneath.
           ((queueFilter === 'upfront' || _queue === 'office') && filtered.some(s => String(s.sold_date || '') >= SALES_FEED_START))
             ? el('div', { class: 'hidden sm:block mb-5' }, salesFeed(filtered.filter(s => String(s.sold_date || '') >= SALES_FEED_START), { isAdmin, mode: queueFilter === 'backend' ? 'backend' : 'upfront',
-                title: queueFilter === 'backend' ? 'Waiting on 4 paid invoices' : queueFilter === 'cancels' ? 'Archived' : queueFilter === 'history' ? 'History' : '' })) : null,
+                title: queueFilter === 'backend' ? 'Pending Backend Lock' : queueFilter === 'cancels' ? 'Archived' : queueFilter === 'history' ? 'History' : 'Upfront Sales' })) : null,   // titles = the tab names (per Isaac, Oct 15)
           ((queueFilter === 'upfront' || _queue === 'office') && !filtered.some(s => String(s.sold_date || '') < SALES_FEED_START)) ? null :
           el('div', { class: 'hidden sm:block' },
             (queueFilter === 'upfront' || _queue === 'office') && filtered.some(s => String(s.sold_date || '') >= SALES_FEED_START) ? el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted- mb-2' }, 'Before ' + fmt.dateShortYear(SALES_FEED_START)) : null,
