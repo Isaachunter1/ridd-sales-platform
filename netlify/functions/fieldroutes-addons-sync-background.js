@@ -336,6 +336,34 @@ exports.handler = async (event) => {
         await supabase.from('add_ons').update({ removed_at: /^\d{4}-\d{2}-\d{2}$/.test(cx) && !cx.startsWith('0000') ? cx : today, removed_reason: 'subscription_cancelled', updated_at: now }).eq('id', r.id); log.removed++;
       }
     }
+    // 8. The add-on's own initial appointment (per Isaac, Oct 15 — #143268's Mole has a "RIDD Package Mole
+    //    Initial" booked for 10/21, but the add-on row had no date, and RevHawk only mirrors new appointments
+    //    the next night). For each add-on sale from the window: the earliest appointment on its plan ADDED on/after
+    //    the add-on's day — Pending → crm_initial_appt_at, Completed → crm_serviced_at.
+    log.addOnAppts = 0;
+    try {
+      const { data: ups } = await supabase.from('sales').select('id, parent_subscription_id, sold_date, crm_initial_appt_at, crm_serviced_at, crm_initial_status')
+        .eq('sale_kind', 'upsell').gte('sold_date', from).not('parent_subscription_id', 'is', null);
+      const open = (ups || []).filter(u => !u.crm_serviced_at);
+      const subsU = [...new Set(open.map(u => String(u.parent_subscription_id)))];
+      const appts = [];
+      for (const part of chunk(subsU, ID_BATCH)) {
+        const found = await fr('appointment/search', { subscriptionIDs: part.map(Number), dateAdded: { operator: '>=', value: from } });
+        const aids = (found.appointmentIDs || []).map(String);
+        for (const ap of chunk(aids, ID_BATCH)) { const got = await fr('appointment/get', { appointmentIDs: ap.map(Number) }); appts.push(...listOf(got, 'appointments')); }
+      }
+      for (const u of open) {
+        const mine = appts.filter(x => String(x.subscriptionID) === String(u.parent_subscription_id) && String(x.dateAdded || '').slice(0, 10) >= String(u.sold_date || '').slice(0, 10)
+          && ['0', '1'].includes(String(x.status))).sort((x, y) => String(x.date || '').localeCompare(String(y.date || '')));
+        const first = mine[0]; if (!first) continue;
+        const day = String(first.date || '').slice(0, 10);
+        const patch = String(first.status) === '1' ? { crm_serviced_at: day, crm_initial_status: 'Completed' } : { crm_initial_appt_at: day, crm_initial_status: 'Pending' };
+        if (patch.crm_initial_appt_at && String(u.crm_initial_appt_at || '') === day && u.crm_initial_status === 'Pending') continue;
+        const { error } = await supabase.from('sales').update(patch).eq('id', u.id);
+        if (error) { console.warn('[fr-addons] add-on appointment stamp skipped (migrations/20260921_sales_initial_appt.sql run?):', error.message); break; }
+        log.addOnAppts++;
+      }
+    } catch (e) { console.warn('[fr-addons] add-on appointments skipped:', e.message); }
     console.log('[fr-addons] done', JSON.stringify({ ...log, from, ms: Date.now() - started }));
     await recordIntegrationStatus(supabase, 'fieldroutes', { addons_last_run_at: new Date().toISOString(), addons_ok: true, addons_stage: 'done', addons_message: JSON.stringify({ ...log, ms: Date.now() - started }).slice(0, 400) });
     return { statusCode: 200, body: JSON.stringify({ ...log, from, ms: Date.now() - started }) };

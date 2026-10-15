@@ -291,6 +291,28 @@ exports.handler = async (event) => {
       }
     } catch (e) { console.warn('[fr-live] appointment refresh skipped:', e.message); }
 
+    // 3a-1b. Initial appointment date (per Isaac, Oct 15): the Sales tab's Initial date read "not scheduled"
+    // for same-day sales — RevHawk only has a new appointment after its next pass. Read it straight from
+    // FieldRoutes for the window's subscriptions and stamp crm_initial_appt_at (needs 20260921_sales_initial_appt.sql).
+    try {
+      const withAppt = [...liveSubs.values()].filter(x => String(x.initialAppointmentID || '').trim() && String(x.initialAppointmentID) !== '0');
+      if (withAppt.length) {
+        const apptDay = new Map();
+        for (const part of chunk(withAppt.map(x => String(x.initialAppointmentID)), 500)) {
+          const got = await fr('appointment/get', { appointmentIDs: part.map(Number) });
+          const list = Array.isArray(got.appointments) ? got.appointments : Object.values(got.appointments || {});
+          list.forEach(a => { if (a && a.date) apptDay.set(String(a.appointmentID), String(a.date).slice(0, 10)); });
+        }
+        const { data: rowsA } = await supabase.from('sales').select('id, crm_subscription_id, crm_initial_appt_at').in('crm_subscription_id', withAppt.map(x => String(x.subscriptionID)));
+        for (const r of (rowsA || [])) {
+          const sub = liveSubs.get(String(r.crm_subscription_id)); const day = sub && apptDay.get(String(sub.initialAppointmentID));
+          if (!day || String(r.crm_initial_appt_at || '') === day) continue;
+          const { error } = await supabase.from('sales').update({ crm_initial_appt_at: day }).eq('id', r.id);
+          if (error) { console.warn('[fr-live] initial appointment stamp skipped:', error.message); break; }
+        }
+      }
+    } catch (e) { console.warn('[fr-live] initial appointment dates skipped:', e.message); }
+
     // 3a-2. Signed-agreement refresh (per Isaac, Oct 13): a sale is stamped at
     // the moment the pull first sees it — almost always BEFORE the customer
     // signs — so re-check the last two days' unsigned rows every run and flip
