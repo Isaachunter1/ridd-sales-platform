@@ -1107,7 +1107,7 @@ const saleStatusTint = (st) => {
 // Clickable key (per Isaac, Oct 15): a status filters the list to it (click again to clear).
 // Cancelled / Reschedule / Not Payable live on Archived, so picking one jumps there.
 const SALE_STATUS_ARCHIVED = new Set(['cancelled', 'reschedule', 'not_payable']);
-function saleStatusKey() {
+function saleStatusKey(only) {
   const sf = state.salesFilters || (state.salesFilters = {});
   const pick = (v) => {
     if (sf.status === v) { sf.status = ''; }
@@ -1121,7 +1121,8 @@ function saleStatusKey() {
   };
   return el('div', { class: 'flex flex-wrap items-center justify-end', style: { columnGap: '4px', rowGap: '4px' } },
     // Cancelled isn't on the key (per Isaac, Oct 15) — a cancelled sale goes straight to the Cancelled tab.
-    ...SALE_STATUS_OPTIONS.filter(([v]) => v !== 'cancelled').map(([v, lbl]) => {
+    // On the Cancelled tab the key is Cancelled alone (per Isaac, Oct 15).
+    ...SALE_STATUS_OPTIONS.filter(([v]) => only ? only.includes(v) : v !== 'cancelled').map(([v, lbl]) => {
       const on = sf.status === v, dim = !!sf.status && !on;
       return el('button', {
         type: 'button', title: on ? 'Showing ' + lbl + ' only \u2014 click to show all' : 'Show ' + lbl + ' only',
@@ -2271,7 +2272,7 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
       el('div', { class: 'flex flex-wrap items-center justify-between gap-2 px-4 pt-3 pb-2' },
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, title || 'Latest sales'),
         el('div', { class: 'flex flex-wrap items-center justify-end', style: { columnGap: '18px', rowGap: '6px' } },
-          _bk ? el('div', { class: 'flex flex-col items-end', style: { rowGap: '4px' } }, saleStatusKey(), backendKey()) : saleStatusKey(),   // same key on every tab (per Isaac, Oct 15); backend adds its lock key
+          _bk ? el('div', { class: 'flex flex-col items-end', style: { rowGap: '4px' } }, saleStatusKey(), backendKey()) : saleStatusKey(state._salesQueueFilter === 'cancels' ? ['cancelled'] : undefined),   // same key on every tab (per Isaac, Oct 15); backend adds its lock key
           el('div', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, rows.length + ' since ' + fmt.dateShortYear(SALES_FEED_START)))),
       el('div', { class: 'px-4 pb-2', style: gridRow() },
         el('div', { class: 'text-[9px] text-left', style: { color: 'var(--text-subtle)' } }, '#'),
