@@ -246,7 +246,9 @@ function openTvBoard() {
     const prior = priorRangeOf();
     const priorRows = pool.filter(s => { if (EXCLUDED.has(s.audit_status)) return false; if (!hasAppt(s)) return false; const day = localDay(s.created_at) || s.sold_date; return day && day >= prior.start && day <= prior.end && !isRenewal(s); });
     const priorRevenue = rev(priorRows);
-    const subs = rows.filter(s => !isOts(s));
+    // Add-on sales count in revenue, sales and the leaderboard, but not in the plan averages / mix tiles (per Isaac, Oct 15).
+    const isAddOnSale = (s) => s.sale_kind === 'upsell';
+    const subs = rows.filter(s => !isOts(s) && !isAddOnSale(s));
     // Multi-year % (per Isaac): anything sold by the house "RIDD Account"
     // login is out of the ratio (shown in its own column on the drill).
     // "RIDD Account" is an app USER (per Isaac), so the sale carries a rep_id
@@ -261,7 +263,7 @@ function openTvBoard() {
     const isHouse = (s) => { const n = sellerName(s).toLowerCase(); return (/\bridd\b/.test(n) && /\baccount\b/.test(n)) || (typeof FR_SYSTEM_NAME_RE !== 'undefined' && FR_SYSTEM_NAME_RE.test(sellerName(s))) || isSixBrothers(s); };
     // Agent performance, not the automated account (per Isaac): every rate
     // tile runs on rowsAgent / subsMy; the house rows stay in the revenue.
-    const rowsAgent = rows.filter(s => !isHouse(s));
+    const rowsAgent = rows.filter(s => !isHouse(s) && !isAddOnSale(s));
     const subsMy = subs.filter(s => !isHouse(s));
     const subsAcv = subsMy.filter(s => !isRenewal(s));   // ACV (per Isaac): renewals out as well
     // MY % leaves renewals out too (per Isaac, Sep 24) — they show in the
@@ -593,7 +595,7 @@ function openTvBoard() {
               const ao = addOnsFor(s), unassigned = ao.filter(a => !_credited(a));
               const cell = (col, row, child, extra) => el('div', { style: { gridColumn: col, gridRow: String(row), minWidth: '0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', ...(extra || {}) } }, child);
               const small = { fontFamily: MONO, fontSize: '10px', color: T.dim, letterSpacing: '.06em', marginTop: '2px' };
-              const term = Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME';
+              const term = s.sale_kind === 'upsell' ? 'ADD ON' : Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME';   // add-on-only sale reads ADD ON
               const aoSpan = !ao.length
                 ? el('span', { style: { letterSpacing: '.08em' } }, 'ADDONS +0')   // no add-ons: ADDONS +0 in the dim gray (per Isaac, Oct 14)
                 : el('span', { style: { fontWeight: '700', color: unassigned.length ? BAND.red : BAND.green, letterSpacing: '.08em' },
@@ -605,8 +607,8 @@ function openTvBoard() {
                 cell('1', 1, el('span', { style: { fontFamily: HEAD, fontSize: 'clamp(17px, 1.35vw, 22px)', letterSpacing: '.02em', textTransform: 'uppercase' } }, (r ? r.name : (s._crmRep || 'Rep'))), { minWidth: 'max-content' }),
                 cell('2', 1, s.customer_number ? sep() : null),
                 cell('3', 1, s.customer_number ? el('span', { style: { fontFamily: MONO, fontSize: 'clamp(11px, .85vw, 13px)', color: T.dim, letterSpacing: '.06em' }, title: 'Customer ID' }, '#' + s.customer_number) : null, { minWidth: 'max-content' }),
-                cell('4', 1, sep()),
-                cell('5', 1, el('span', { style: big }, s._crmService || s.service_name || '—'), { minWidth: 'max-content' }),   // the service never truncates
+                cell('4', 1, s.sale_kind === 'upsell' ? null : sep()),
+                cell('5', 1, s.sale_kind === 'upsell' ? null : el('span', { style: big }, s._crmService || s.service_name || s.crm_subscription || '—'), { minWidth: 'max-content' }),   // the service never truncates
                 cell('6', 1, sep()),
                 cell('7', 1, el('span', { style: big }, term), { minWidth: 'max-content' }),
                 cell('8', 1, src ? sep() : null),

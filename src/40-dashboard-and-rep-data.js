@@ -162,7 +162,9 @@ function dashboardSales() {
   (state._indicatorRawSales || []).forEach(r => { const d = (typeof dateSoldToIso === 'function' && dateSoldToIso(r.dateSold)) || ''; if (d && r.customerId != null) _crmCustDay.add(String(r.customerId) + '|' + d); });
   const _inCrm = (s) => String(s.sale_kind || '') !== 'upsell'
     && (/auto-added from fieldroutes/i.test(String(s.notes || '')) || (s.customer_number != null && _crmCustDay.has(String(s.customer_number) + '|' + String(s.sold_date || '').slice(0, 10))));
-  const ups = (state.allSales || []).filter(s => (upsellCt.has(s.contract_type_id) || upsellSrc.has(s.source_id)) && !_inCrm(s));
+  // Add-on sales (sale_kind 'upsell' — ticket items the add-ons sync logs) count as sales too (per Isaac, Oct 15 —
+  // Andrew Peterson's Mole on #143268): the CRM pool never carries them, so they always ride along.
+  const ups = (state.allSales || []).filter(s => (s.sale_kind === 'upsell' || upsellCt.has(s.contract_type_id) || upsellSrc.has(s.source_id)) && !_inCrm(s));
   // ── OPTIMISTIC TODAY (bottleneck fix): a sale logged at 2:14 shows on the
   // boards at 2:14 — not at the next hourly sync. Today's app-logged rows
   // with NO CRM counterpart yet ride along flagged _pendingSync; the moment
