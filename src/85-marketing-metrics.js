@@ -10,7 +10,25 @@
 // │   · Cost per lead, cost per job, revenue, ROAS, days to close
 // │ Part of the app.js bundle (tools/bundle.js concatenates src/*.js in name order).
 // └────────────────────────────────────────────────────────────────────────
-const MKM_C = { leads: '#2A78C2', jobs: '#DF643A', rate: '#5F6C5B' };
+// The app's own kit (per Isaac, Oct 15): charcoal for leads, RIDD orange for jobs, sage for the rate.
+const MKM_C = { get leads() { return state.theme === 'dark' ? '#E6E6DC' : '#323230'; }, jobs: '#DF643A', rate: '#5F6C5B' };
+// Office Staff only (per Isaac, Oct 15): the cohort tracks new inbound leads and what the office did with them,
+// so a lead counts as converted only when an Office Staff login sold the plan (door-to-door and technician sales
+// to the same person don't). Same index shape as _attrCrmIndex, built from the office's subscriptions.
+function _mkmOfficeCrmIndex() {
+  const subs = state.reportingSubscriptions || [];
+  if (_mkmOfficeCrmIndex._m && _mkmOfficeCrmIndex._m.src === subs) return _mkmOfficeCrmIndex._m;
+  const cust = new Map(), byPhone = new Map(), byEmail = new Map();
+  for (const r of subs) {
+    if (String(r.sold_by_type || '').trim() !== 'Office Staff') continue;
+    const id = String(r.customer_id != null ? r.customer_id : ''); if (!id) continue;
+    let c = cust.get(id); if (!c) { c = { id, subs: [] }; cust.set(id, c); }
+    c.subs.push(r);
+    const ph = typeof _attrDigits === 'function' ? _attrDigits(r.phone) : '', em = typeof _attrEmail === 'function' ? _attrEmail(r.email) : '';
+    if (ph) byPhone.set(ph, id); if (em) byEmail.set(em, id);
+  }
+  return (_mkmOfficeCrmIndex._m = { src: subs, cust, byPhone, byEmail });
+}
 // Date range = the sales dashboard's own picker (per Isaac, Oct 15): same presets (Today, Yesterday, This/Last
 // week, This/Last month, This/Last year, every older year in the data, All time, Custom) and the same bounds.
 function _mkmIso(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
@@ -82,7 +100,7 @@ function mktgMetricsView() {
   const G = (typeof ghlLeads === 'function') ? ghlLeads() : null;
   const muted = { color: 'var(--text-muted)' };
   if (!G) return el('div', { class: 'card p-6 text-sm', style: muted }, state._ghl === null ? 'Loading GoHighLevel leads…' : 'No GoHighLevel leads yet — the GoHighLevel sync fills this in (Settings → Configurations → GoHighLevel sources).');
-  const crm = (state.reportingSubscriptions || []).length ? _attrCrmIndex() : null;
+  const crm = (state.reportingSubscriptions || []).length ? _mkmOfficeCrmIndex() : null;
   const paid = ghlPaidSet();
   // Cohort: every new lead that came in during the range, matched to FieldRoutes. Memo per (file, book, range, map).
   const sig = R.from + '|' + R.to + '|' + JSON.stringify(ghlSourceMap());
@@ -125,7 +143,7 @@ function mktgMetricsView() {
     tile(usd(cpl), 'Cost per lead', cpl != null ? 'spend ÷ ' + fmt.int(paidLeads) + (ch ? '' : ' paid') + ' leads' : noSpend),
     tile(usd(cpj), 'Cost per job', cpj != null ? 'spend ÷ ' + fmt.int(paidJobs) + (ch ? '' : ' paid-channel') + ' jobs' : noSpend),
     tile(usd(rev), 'Job revenue', 'contract value of the jobs · avg ' + usd(jobs.length ? rev / jobs.length : null)),
-    tile(roas == null ? '—' : roas.toFixed(2) + 'x', 'ROAS', roas == null ? noSpend : 'job revenue ÷ spend', roas == null ? null : roas >= 1 ? '#15803D' : '#DC2626'),
+    tile(roas == null ? '—' : roas.toFixed(2) + 'x', 'ROAS', roas == null ? noSpend : 'job revenue ÷ spend', roas == null ? null : roas >= 1 ? '#5F6C5B' : '#DC2626'),
     tile(medDays == null ? '—' : medDays + 'd', 'Lead to sale', medDays == null ? 'no sales yet' : 'median days · ' + fmt.int(daysArr.length) + ' sales'));
   // ── Funnel ──
   const opp = (typeof _mktgOppIndex === 'function') ? _mktgOppIndex() : null;
@@ -137,7 +155,7 @@ function mktgMetricsView() {
     el('div', { class: 'flex flex-col gap-2' }, ...steps.map(([lbl, v], i) => el('div', { class: 'flex items-center gap-3' },
       el('div', { class: 'text-[11px] font-semibold', style: { width: '150px', flexShrink: '0' } }, lbl),
       el('div', { style: { flex: '1', minWidth: '0', background: 'var(--card-2)', borderRadius: '4px', height: '22px', position: 'relative' } },
-        el('div', { style: { width: (n ? Math.max(0.5, v / n * 100) : 0) + '%', height: '100%', borderRadius: '4px', background: i === 0 ? MKM_C.leads : MKM_C.jobs, opacity: String(1 - i * 0.12) } })),
+        el('div', { style: { width: (n ? Math.max(0.5, v / n * 100) : 0) + '%', height: '100%', borderRadius: '4px', background: i === 0 ? MKM_C.leads : i === steps.length - 1 ? MKM_C.rate : MKM_C.jobs, opacity: i === 0 || i === steps.length - 1 ? '1' : String(1 - (i - 1) * 0.18) } })),
       el('div', { class: 'text-[11px] tabular-nums text-left', style: { width: '120px', flexShrink: '0' } }, fmt.int(v) + (i ? ' · ' + pct(v, n) : ''))))));
   // ── Trend: leads and jobs per bucket (by the day the LEAD came in) + closed lead % ──
   const span = _mkmDays(R.from, R.to), unit = span <= 45 ? 'day' : span <= 210 ? 'week' : 'month';
@@ -187,7 +205,7 @@ function mktgMetricsView() {
           onclick: (e) => { if (e.target.closest('button')) return; state._mkmChannel = c.k === ch ? '' : c.k; mountApp(); } },
           td(c.k, { fontWeight: '700' }), td(fmt.int(c.n)), td(fmt.int(c.sold)), td(fmt.int(c.jobs)), td(fmt.int(c.svc)), td(c.rate == null ? '—' : (c.rate * 100).toFixed(1) + '%'),
           td(c.spend ? fmt.usd0(c.spend) : '—', c.spend ? {} : { color: 'var(--text-subtle)' }), td(c.cpl == null ? '—' : fmt.usd0(c.cpl)), td(c.cpj == null ? '—' : fmt.usd0(c.cpj)), td(c.rev ? fmt.usd0(c.rev) : '—'),
-          td(c.roas == null ? '—' : c.roas.toFixed(2) + 'x', c.roas == null ? {} : { color: c.roas >= 1 ? '#15803D' : '#DC2626', fontWeight: '600' }), td(c.med == null ? '—' : c.med + 'd'),
+          td(c.roas == null ? '—' : c.roas.toFixed(2) + 'x', c.roas == null ? {} : { color: c.roas >= 1 ? '#5F6C5B' : '#DC2626', fontWeight: '600' }), td(c.med == null ? '—' : c.med + 'd'),
           el('td', { class: 'px-2 py-1' }, c.n ? el('button', { type: 'button', title: 'Open ' + c.k + '’s leads', class: 'text-[11px] font-semibold', style: { color: 'var(--accent)', background: 'transparent', border: '0', cursor: 'pointer' },
             onclick: () => openMktgProviderDrill(c.k, ALL.filter(x => (x.lead.prov || 'Unknown') === c.k), R.label) }, 'ⓘ') : null))),
         el('tr', { style: { borderTop: '2px solid var(--text)' } }, td('Total', { fontWeight: '700' }), td(fmt.int(tot.n), { fontWeight: '700' }), td(fmt.int(tot.sold), { fontWeight: '700' }), td(fmt.int(tot.jobs), { fontWeight: '700' }), td(fmt.int(tot.svc), { fontWeight: '700' }),
@@ -213,8 +231,8 @@ function mktgMetricsView() {
   const matchNote = crm ? '' : ' FieldRoutes isn’t loaded yet, so nothing shows as converted — run a sync.';
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'flex items-end justify-between gap-3 flex-wrap' },
-      el('div', {}, el('div', { class: 'text-lg font-bold' }, 'Lead cohort · ' + R.label + (ch ? ' · ' + ch : '')),
-        el('div', { class: 'text-xs', style: muted }, fmt.dateShortYear(R.from) + ' – ' + fmt.dateShortYear(R.to) + ' · new leads from GoHighLevel, matched to FieldRoutes on phone or email, spend from QuickBooks.' + matchNote)),
+      el('div', {}, el('div', { class: 'text-lg font-bold' }, 'Office Staff lead cohort · ' + R.label + (ch ? ' · ' + ch : '')),
+        el('div', { class: 'text-xs', style: muted }, fmt.dateShortYear(R.from) + ' – ' + fmt.dateShortYear(R.to) + ' · new inbound leads from GoHighLevel and what the office did with them: a lead converts when an Office Staff login sells that person (phone or email) in FieldRoutes. Spend from QuickBooks.' + matchNote)),
       chSel),
     tiles, funnel, trend, chTable, offCard);
 }
