@@ -141,8 +141,10 @@ function exceptionFeedItems(scope) {
     const mk = (tag, label, rows, action) => {
       if (!rows.length) return;
       const recent = rows.filter(r => r.sold_date && r.sold_date >= d30).length;
+      const _drill = (rs) => openReportingDrillModal({ chartTitle: 'CRM fixes \u00b7 ' + tag, sliceLabel: rs.length + ' account' + (rs.length === 1 ? '' : 's') + ' \u00b7 newest first', rows: rs, formatValue: fmt.usd0 });
       items.push({ sev: recent ? 'red' : 'amber', tag, count: rows.length, text: label + (recent ? ' \u00b7 ' + recent + ' sold in the last 30 days' : ''), action: 'Review',
-        onClick: () => openReportingDrillModal({ chartTitle: 'CRM fixes \u00b7 ' + tag, sliceLabel: rows.length + ' account' + (rows.length === 1 ? '' : 's') + ' \u00b7 newest first', rows, formatValue: fmt.usd0 }) });
+        onClick: () => _drill(rows),
+        rvIds: rows.map(r => String(r.subscription_id != null ? r.subscription_id : r.customer_id)), rvOpen: (ids) => _drill(rows.filter(r => ids.has(String(r.subscription_id != null ? r.subscription_id : r.customer_id)))) });
     };
     const pl = (n, one, many) => n === 1 ? one : many;
     mk('Location', pl(rec.location.length, 'account whose state or ZIP doesn\u2019t fit', 'accounts whose state or ZIP doesn\u2019t fit the branch'), rec.location);
@@ -261,8 +263,10 @@ function crmReconciliationChecks(subs) {
 function exceptionFeedCard() {
   const scope = exceptionFeedScope();
   if (!scope) return null;
-  let items;
+  let items, _rvDone = [];
   try { items = exceptionFeedItems(scope); } catch (e) { console.warn('exception feed', e); return null; }
+  // Check-offs (per Isaac, Oct 15): a ticked item stays off until something new shows up in it.
+  if (typeof rvApply === 'function') { items.forEach(i => { i.rvKey = i.rvKey || 'att:' + i.tag; }); const R = rvApply(items); items = R.active; _rvDone = R.done; }
   const open = state._excOpen === true;
   const reds = items.filter(i => i.sev === 'red').length;
   const head = el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', onclick: () => { state._excOpen = !open; mountApp(); } },
@@ -272,13 +276,14 @@ function exceptionFeedCard() {
     el('span', { class: 'ml-auto text-[11px]', style: { color: 'var(--text-muted)' } }, open ? '▴' : '▾'));
   // Numbered rows with the count out front (per Isaac): "3 · Cancellation · 364 · …".
   const rows = open && items.length ? el('div', { class: 'border-t', style: { borderColor: 'var(--border)' } }, ...items.map((i, idx) => el('div', { class: 'flex items-center gap-3 px-4 py-2 border-t text-xs', style: { borderColor: 'var(--border)' } },
+    typeof rvBox === 'function' ? rvBox(i) : null,
     el('span', { class: 'text-[10px] font-bold tabular-nums shrink-0', style: { color: 'var(--text-subtle)', width: '18px', textAlign: 'right' } }, String(idx + 1) + '.'),
     el('span', { class: 'text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded shrink-0', style: { background: i.sev === 'red' ? 'rgba(220,38,38,.12)' : 'rgba(217,119,6,.14)', color: i.sev === 'red' ? '#DC2626' : '#B45309', minWidth: '58px', textAlign: 'center' } }, i.tag),
     i.count != null ? el('span', { class: 'text-sm font-black tabular-nums shrink-0', style: { minWidth: '52px', textAlign: 'right', color: i.sev === 'red' ? '#DC2626' : 'var(--text)' } }, Number(i.count).toLocaleString()) : null,
     el('span', { class: 'flex-1 min-w-0', style: { overflowWrap: 'anywhere' } }, i.text),
     el('button', { class: 'text-[11px] font-bold whitespace-nowrap shrink-0', style: { color: 'var(--accent)' }, onclick: i.onClick }, i.action + ' →')))) : null;
   const detail = open && state._excDetail ? (() => { try { return state._excDetail === 'flow' ? mktgLeadFlowTask({ embed: true }) : state._excDetail === 'zipfix' ? mktgZipFixTask({ embed: true }) : null; } catch (e) { return null; } })() : null;
-  return el('div', { class: 'card overflow-hidden' }, head, rows, detail);
+  return el('div', { class: 'card overflow-hidden' }, head, rows, detail, open && typeof rvDoneLine === 'function' ? rvDoneLine(_rvDone) : null);
 }
 
 // ── Rep "today" strip (AUDIT P3-4) ────────────────────────────────────────

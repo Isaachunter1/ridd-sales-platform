@@ -2128,6 +2128,52 @@ ORDER BY sub.sid, ch.at DESC, ch.cid_ DESC`, { compact: true });
       console.log('[revhawk-sync] peak values: ' + Object.keys(peaks).length + ' account(s) below their peak');
     } catch (pkErr) { if (String((pkErr && pkErr.message) || '') !== 'fresh') console.warn('[revhawk-sync] peak values skipped:', String((pkErr && pkErr.message) || pkErr).slice(0, 200)); }
 
+    // Service-type changes vs contract length (per Isaac, Oct 15) — an Auditing task. Changing a plan's service in
+    // FieldRoutes often moves its agreement length too (Package 6 12-mo → Pest 4 24-mo), so a rep can end up paid on
+    // a term the account no longer has (or the term is changed by mistake). From the subscription change log: every
+    // serviceID change, the agreementLength change made within an hour of it (if any), the plan's first recorded
+    // length, and the plan as it is today. Published to auditing/service-changes.json; the app compares it to the
+    // term each sale was paid on. Every 6 hours; no start date assumed (ready for RevHawk's 2026 backfill).
+    try {
+      let _scFresh = false;
+      try { const { data: sf } = await supabase.storage.from('reporting').download('auditing/service-changes.json'); if (sf) { const j = JSON.parse(await sf.text()); _scFresh = !!j.at && (Date.now() - Date.parse(j.at)) < 6 * 3600000; } } catch (e) { /* first run */ }
+      if (_scFresh) throw new Error('fresh');
+      const tokSc = await getAccessToken();
+      const TS = (n) => '`' + PROJECT + '.' + DATASET + '.' + n + '`';
+      const PT = (c) => "SAFE.PARSE_TIMESTAMP('%Y-%m-%d %H:%M:%S', " + c + ")";
+      const rq = await runQuery(tokSc, `
+WITH e AS (
+  SELECT c.referenceID sid, c.changeID cid, LEFT(c.dateChanged,19) ts, JSON_VALUE(x,'$.key') k, JSON_VALUE(x,'$.old') o, JSON_VALUE(x,'$.new') nw
+  FROM ${TS('FieldRoutesChangelog')} c, UNNEST(JSON_QUERY_ARRAY(COALESCE(c.notesJson, SAFE.PARSE_JSON(c.notes)))) x
+  WHERE c.classID = 7 AND JSON_VALUE(x,'$.key') IN ('serviceID','agreementLength')
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY c.referenceID, c.changeID, JSON_VALUE(x,'$.key') ORDER BY c.ingestedAt DESC) = 1),
+svc AS (SELECT * FROM e WHERE k = 'serviceID' AND IFNULL(o,'') NOT IN ('','0') AND o != IFNULL(nw,'')),
+len AS (SELECT * FROM e WHERE k = 'agreementLength' AND IFNULL(o,'') != IFNULL(nw,'')),
+subAll AS (SELECT * FROM ${TS('FieldRoutesSubscription')} WHERE fieldRoutes_subscriptionID IN (SELECT DISTINCT sid FROM svc)
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY fieldRoutes_subscriptionID ORDER BY updatedAt DESC) = 1),
+names AS (SELECT fieldRoutes_serviceID id, ANY_VALUE(fieldRoutes_serviceType) name FROM ${TS('FieldRoutesSubscription')} GROUP BY 1),
+j AS (SELECT svc.sid, svc.cid, svc.ts, svc.o, svc.nw,
+  ARRAY_AGG(IF(l.sid IS NULL, NULL, STRUCT(l.o AS lo, l.nw AS ln)) IGNORE NULLS ORDER BY ABS(TIMESTAMP_DIFF(${PT('l.ts')}, ${PT('svc.ts')}, SECOND)) LIMIT 1)[SAFE_OFFSET(0)] lc
+  FROM svc LEFT JOIN len l ON l.sid = svc.sid AND ABS(TIMESTAMP_DIFF(${PT('l.ts')}, ${PT('svc.ts')}, MINUTE)) <= 60
+  GROUP BY 1, 2, 3, 4, 5),
+fl AS (SELECT sid, ARRAY_AGG(o ORDER BY ts LIMIT 1)[OFFSET(0)] first_len FROM len GROUP BY sid)
+SELECT j.sid, s.fieldRoutes_customerID cust, j.ts, n1.name old_svc, n2.name new_svc, j.lc.lo len_old, j.lc.ln len_new, fl.first_len,
+  LEFT(s.fieldRoutes_dateAdded,19) added, s.fieldRoutes_serviceType cur_svc, s.fieldRoutes_agreementLength cur_len, s.fieldRoutes_contractValue cv, s.fieldRoutes_activeText act
+FROM j JOIN subAll s ON s.fieldRoutes_subscriptionID = j.sid
+LEFT JOIN names n1 ON n1.id = j.o LEFT JOIN names n2 ON n2.id = j.nw LEFT JOIN fl ON fl.sid = j.sid
+ORDER BY j.ts DESC`, { compact: true });
+      const r3 = await runQuery(tokSc, `SELECT CAST(MIN(dateChangedDate) AS STRING) AS since FROM ${TS('FieldRoutesChangelog')} WHERE classID = 7`, { compact: true });
+      const rows = ((rq && rq.objects) || []).map(x => [String(x.sid), String(x.cust || ''), String(x.ts || ''), x.old_svc || '', x.new_svc || '',
+        x.len_old == null ? null : Number(x.len_old), x.len_new == null ? null : Number(x.len_new), x.first_len == null ? null : Number(x.first_len),
+        String(x.added || ''), x.cur_svc || '', x.cur_len == null ? null : Number(x.cur_len), Math.round((Number(x.cv) || 0) * 100) / 100, x.act || '']);
+      const sbSc = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
+      await sbSc.storage.from('reporting').upload('auditing/service-changes.json',
+        Buffer.from(JSON.stringify({ at: new Date().toISOString(), changelog_since: (((r3 && r3.objects) || [])[0] || {}).since || null,
+          cols: ['sid', 'cust', 'at', 'oldSvc', 'newSvc', 'lenOld', 'lenNew', 'firstLen', 'added', 'curSvc', 'curLen', 'cv', 'status'], rows })),
+        { contentType: 'application/json', upsert: true });
+      console.log('[revhawk-sync] service changes: ' + rows.length + ' service-type change(s) on file');
+    } catch (scErr) { if (String((scErr && scErr.message) || '') !== 'fresh') console.warn('[revhawk-sync] service changes skipped:', String((scErr && scErr.message) || scErr).slice(0, 200)); }
+
     await _hb({ stage: 'finished', ok: true, rows: objects.length, ms: Date.now() - started, dataAsOf: _dataAsOf || undefined, indicatorsError: indicatorsError || undefined, officeError: officeError || undefined, srcError: srcError || undefined, verifyError: verifyError || undefined });
     return {
       statusCode: 200,

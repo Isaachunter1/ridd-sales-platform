@@ -741,7 +741,7 @@ function addOnNoRepAuditCard(opts) {
       el('span', { class: 'shrink-0 font-semibold', style: { minWidth: '170px' } }, r.a.service_name + ' ' + fmt.usd(Number(r.a.recurring_amount) || 0) + ' / service'),
       el('span', { class: 'flex-1 min-w-0', style: { color: r.likely ? '#DC2626' : 'var(--text-muted)' } },
         'added ' + String(r.a.added_at || '').slice(0, 10) + (r.days == null ? ' · sale date not found' : r.days <= 0 ? ' · the same day as the sale' : ' · ' + r.days + ' day' + (r.days === 1 ? '' : 's') + ' after the sale') + (r.likely && r.seller ? ' · sold by ' + r.seller + ', probably theirs' : r.seller ? ' · account sold by ' + r.seller : ''))))) : null;
-  if (opts && opts.item) return { key: 'addon', tag: 'Add-ons', sev: !Array.isArray(d) ? 'amber' : likelyN ? 'red' : rows.length ? 'amber' : 'ok', count: Array.isArray(d) ? rows.length : null, text: status, detail: list, title: 'Add-ons with no rep' };
+  if (opts && opts.item) return { rvIds: rows.map(r => String(r.a.id)), key: 'addon', tag: 'Add-ons', sev: !Array.isArray(d) ? 'amber' : likelyN ? 'red' : rows.length ? 'amber' : 'ok', count: Array.isArray(d) ? rows.length : null, text: status, detail: list, title: 'Add-ons with no rep' };
   return el('div', { class: 'card overflow-hidden' }, head, list);
 }
 function feeCreditAuditCard(opts) {
@@ -781,7 +781,7 @@ function feeCreditAuditCard(opts) {
       el('span', { class: 'shrink-0', style: { minWidth: '140px', color: 'var(--text-muted)' } }, (r.base_service || '') + ' · sub ' + r.subscription_id),
       el('span', { class: 'flex-1 min-w-0' }, fees.map(l => l.name + ' ' + fmt.usd(Number(l.per_service) || 0) + ' credited to ' + ((l.credited_profile_id && ((state.profiles || []).find(x => x.id === l.credited_profile_id) || {}).full_name) || empName(l.credited_employee_id))).join(' · ')));
   })) : null;
-  if (opts && opts.item) return { key: 'fee', tag: 'Service fees', sev: !Array.isArray(d) || state.frRoster == null ? 'amber' : rows.length ? 'red' : 'ok', count: Array.isArray(d) && state.frRoster != null ? rows.length : null, text: status, detail: list, title: 'Service fees credited to a person' };
+  if (opts && opts.item) return { rvIds: rows.map(r => String(r.subscription_id)), key: 'fee', tag: 'Service fees', sev: !Array.isArray(d) || state.frRoster == null ? 'amber' : rows.length ? 'red' : 'ok', count: Array.isArray(d) && state.frRoster != null ? rows.length : null, text: status, detail: list, title: 'Service fees credited to a person' };
   return el('div', { class: 'card overflow-hidden' }, head, list);
 }
 
@@ -810,16 +810,21 @@ function auditTaskItems() {
   const items = [];
   try { items.push(feeCreditAuditCard({ item: true })); } catch (e) { console.warn('[auditing] fee task', e); }
   try { items.push(addOnNoRepAuditCard({ item: true })); } catch (e) { console.warn('[auditing] add-on task', e); }
+  try { if (typeof serviceChangeAuditItem === 'function') items.push(serviceChangeAuditItem()); } catch (e) { console.warn('[auditing] service-change task', e); }
   for (const t of auditSubTasks()) {
     if (t.warn) { items.push({ key: t.title, tag: t.tag || 'Setup', title: t.title, sev: 'amber', count: null, text: t.warn }); continue; }
     const n = t.rows.length;
+    const _drill = (rs) => openReportingDrillModal({ chartTitle: 'Auditing · ' + t.title, sliceLabel: rs.length.toLocaleString() + ' ' + (rs.length === 1 ? t.noun : t.noun + 's'), rows: rs, formatValue: fmt.usd0 });
     items.push({ key: t.title, tag: t.tag || t.title, title: t.title, sev: n ? (t.tone === 'check' ? 'amber' : 'red') : 'ok', count: n, text: n ? t.todo(n) : t.ok,
-      onClick: n ? () => openReportingDrillModal({ chartTitle: 'Auditing · ' + t.title, sliceLabel: n.toLocaleString() + ' ' + (n === 1 ? t.noun : t.noun + 's'), rows: t.rows, formatValue: fmt.usd0 }) : null });
+      onClick: n ? () => _drill(t.rows) : null,
+      // Check-offs (per Isaac, Oct 15): accounts that weren't in the task when it was ticked bring it back, alone.
+      rvIds: t.rows.map(r => String(r.subscription_id)), rvOpen: (ids) => _drill(t.rows.filter(r => ids.has(String(r.subscription_id)))) });
   }
   return items.filter(Boolean);
 }
 function auditTasksCard() {
-  const all = auditTaskItems();
+  const _rv = rvApply(auditTaskItems());   // checked-off tasks drop out until something new shows up (per Isaac, Oct 15)
+  const all = _rv.active;
   const RANK = { red: 0, amber: 1, ok: 2 };
   const todo = all.filter(i => i.sev !== 'ok').sort((a, b) => RANK[a.sev] - RANK[b.sev]);
   const clear = all.filter(i => i.sev === 'ok');
@@ -837,6 +842,7 @@ function auditTasksCard() {
     const click = hasDetail ? () => { state._auditDetail = showing ? null : i.key; mountApp(); } : i.onClick;
     const red = i.sev === 'red';
     return [el('div', { class: 'flex items-center gap-3 px-4 py-2 border-t text-xs', style: { borderColor: 'var(--border)' }, title: i.title || '' },
+      rvBox(i),
       el('span', { class: 'text-[10px] font-bold tabular-nums shrink-0', style: { color: 'var(--text-subtle)', width: '18px', textAlign: 'right' } }, String(idx + 1) + '.'),
       el('span', { class: 'text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded shrink-0', style: { background: red ? 'rgba(220,38,38,.12)' : 'rgba(217,119,6,.14)', color: red ? '#DC2626' : '#B45309', minWidth: '72px', textAlign: 'center' } }, i.tag),
       el('span', { class: 'text-sm font-black tabular-nums shrink-0', style: { minWidth: '52px', textAlign: 'right', color: red ? '#DC2626' : 'var(--text)' } }, i.count != null ? Number(i.count).toLocaleString() : '…'),
@@ -846,6 +852,7 @@ function auditTasksCard() {
   };
   return el('div', { class: 'card overflow-hidden' }, head,
     todo.length ? el('div', { class: 'border-t', style: { borderColor: 'var(--border)' } }, ...todo.flatMap(row)) : null,
+    rvDoneLine(_rv.done),
     clear.length ? el('div', { class: 'px-4 py-2 border-t text-[11px]', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } },
       el('span', { style: { color: 'var(--ok)', fontWeight: 700 } }, '✓ All clear: '), clear.map(i => i.title || i.tag).join(' · ')) : null);
 }
