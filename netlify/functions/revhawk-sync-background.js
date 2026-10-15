@@ -1514,7 +1514,7 @@ exports.handler = async (event) => {
       const _failV = String(((_alV.data && _alV.data.value) || {}).audit_fail_flag ?? 'Failed Audit').trim().toLowerCase();
       const _auditV = (r) => { if (!r) return null; const fl = String(r.customer_flags || '').split(',').map(f => f.trim().toLowerCase()); return fl.includes(_flagV) ? 'passed' : (_failV && fl.includes(_failV)) ? 'failed' : null; };
       let { data: appSales, error: asErr } = await selectAll(() => supabase.from('sales')
-        .select('id, customer_number, revenue_amount, sold_date, paid_in_full, is_commercial, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance, crm_contract_signed_at, crm_contract_state, crm_initial_status, crm_autopay, crm_subscription_id, upfront_collected, crm_audit, crm_first_paid_at')
+        .select('id, customer_number, revenue_amount, sold_date, paid_in_full, is_commercial, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance, crm_contract_signed_at, crm_contract_state, crm_initial_status, crm_autopay, crm_subscription_id, upfront_collected, crm_audit, crm_first_paid_at, payroll_processed_at')
         .gte('sold_date', since));
       // Scheduled initial appointment (20260921_sales_initial_appt.sql) — read
       // separately so the select chain above stays as it is; off if the column
@@ -1593,6 +1593,10 @@ exports.handler = async (event) => {
             // has a Pest 4 and a Sentricon sold the same morning; both rows had been matched to the Pest 4).
             const own = s.crm_subscription_id ? subs.find(r => String(r.subscription_id || '') === String(s.crm_subscription_id)) : null;
             if (own) { best = own; bestDiff = Math.abs((Number(own.subscription_contract_value) || 0) - rev); }
+            // Sold date follows FieldRoutes (per Isaac, Oct 15 — #22281 was keyed 11/3, fixed in the CRM to 10/15):
+            // a corrected date on the sale's own plan flows to the row, until upfront payroll has paid it.
+            const _frDay = own && own.sold_date ? String(own.sold_date).slice(0, 10) : '';
+            if (_frDay && /^\d{4}-\d{2}-\d{2}$/.test(_frDay) && _frDay !== String(s.sold_date || '').slice(0, 10) && !s.payroll_processed_at) lc.soldFix = _frDay;
             cv = Number(best.subscription_contract_value) || 0;
             subName = best.subscription || null;
             // EXACT-value discipline (never over/under-pay): to-the-penny
@@ -1639,8 +1643,9 @@ exports.handler = async (event) => {
           const eligChanged = _eligCols && lc.best && (
             String(s.crm_initial_status || '') !== (String(lc.best.initial_status || '').trim() || 'None')
             || (s.crm_autopay == null || !!s.crm_autopay) !== (() => { const a = String(lc.best.customer_auto_pay || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); })());
-          if (s.crm_status === status && (Number(s.crm_contract_value) || 0) === (cv || 0) && !lcChanged && !pifChanged && !commChanged && !sigChanged && !eligChanged && !flagChanged && !auditChanged && !apptChanged) continue;
+          if (!lc.soldFix && s.crm_status === status && (Number(s.crm_contract_value) || 0) === (cv || 0) && !lcChanged && !pifChanged && !commChanged && !sigChanged && !eligChanged && !flagChanged && !auditChanged && !apptChanged) continue;
           const upd = { crm_status: status, crm_contract_value: cv, crm_subscription: subName, crm_checked_at: stamp };
+          if (lc.soldFix) upd.sold_date = lc.soldFix;
           if (_lifecycleCols) { if (!_upsellIds.has(s.id)) upd.crm_serviced_at = lc.serviced_at; upd.crm_completed_services = lc.completed; upd.crm_days_past_due = lc.dpd; upd.crm_balance = lc.balance; }
           if (_lifecycleCols && _paidCol) upd.crm_first_paid_at = lc.first_paid_at;
           if (_apptCol && lc.appt_at && !_upsellIds.has(s.id)) upd.crm_initial_appt_at = lc.appt_at;
