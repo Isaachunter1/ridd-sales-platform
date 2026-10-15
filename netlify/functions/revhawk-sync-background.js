@@ -236,6 +236,15 @@ apptAfter AS (
     AND LEFT(a.fieldRoutes_dateAdded,19) >= LEFT(sub.fieldRoutes_dateAdded,19)
   GROUP BY 1
 ),
+nextAppt AS (
+  -- Next service actually on the schedule (Pending, today or later) per plan — a renewal's
+  -- commissionable date is this or the next invoice, whichever comes first (per Isaac, Oct 15).
+  SELECT fieldRoutes_subscriptionID AS sid, MIN(LEFT(fieldRoutes_date,10)) AS appt_date
+  FROM \`${PROJECT}.${DATASET}.FieldRoutesAppointment\`
+  WHERE fieldRoutes_status = '0' AND fieldRoutes_date IS NOT NULL AND fieldRoutes_date NOT LIKE '0000%'
+    AND LEFT(fieldRoutes_date,10) >= FORMAT_DATE('%Y-%m-%d', CURRENT_DATE('America/Denver'))
+  GROUP BY 1
+),
 pay AS (
   -- Successful payments (status 1, money actually applied) per customer —
   -- the commissionable-date rule (per Isaac) needs "first payment received
@@ -310,6 +319,12 @@ SELECT
        THEN NULLIF(LEFT(s.fieldRoutes_dateAdded,10),'0000-00-00') END AS initial_service,
   appt.serviced_date AS initial_serviced_date,
   COALESCE(apptAfter.appt_date, apptSched.appt_date) AS initial_appt_date,
+  -- Renewals (per Isaac, Oct 15): next scheduled service, next invoice date (plans billed on a
+  -- schedule — per-service billing has none), and the last completed service on the plan.
+  nextAppt.appt_date AS next_appt_date,
+  CASE WHEN s.fieldRoutes_billingFrequency NOT IN ('-1', '0') AND LEFT(s.fieldRoutes_nextBillingDate,4) >= '2000'   -- 1969-01-01 = none
+       THEN NULLIF(NULLIF(LEFT(s.fieldRoutes_nextBillingDate,10),''),'0000-00-00') END AS next_billing_date,
+  NULLIF(NULLIF(LEFT(s.fieldRoutes_lastCompleted,10),''),'0000-00-00') AS last_completed_date,
   -- First successful payment on/after the sale date (commissionable-date rule).
   (SELECT MIN(p.paid_on) FROM pay p WHERE p.cid = s.fieldRoutes_customerID AND p.paid_on >= LEFT(s.fieldRoutes_dateAdded,10)) AS first_paid_date,
   s.fieldRoutes_source AS subscription_source,
@@ -366,6 +381,7 @@ LEFT JOIN cxf   ON cxf.sid   = s.id
 LEFT JOIN appt  ON appt.aid  = s.fieldRoutes_initialAppointmentID
 LEFT JOIN apptSched ON apptSched.aid = s.fieldRoutes_initialAppointmentID
 LEFT JOIN apptAfter ON apptAfter.sid = s.fieldRoutes_subscriptionID
+LEFT JOIN nextAppt ON nextAppt.sid = s.fieldRoutes_subscriptionID
 LEFT JOIN sigsub  ON sigsub.sid  = s.fieldRoutes_subscriptionID
 LEFT JOIN sigcust ON sigcust.cid = s.fieldRoutes_customerID
 WHERE s.fieldRoutes_customerID IS NOT NULL AND s.fieldRoutes_customerID != ''
@@ -1605,6 +1621,11 @@ exports.handler = async (event) => {
             status = bestDiff === 0 ? 'verified' : bestDiff <= 1 ? 'near_match' : 'revenue_mismatch';
             // Lifecycle from the warehouse: serviced yet? paid / current?
             lc.serviced_at = best.initial_serviced_date ? String(best.initial_serviced_date).slice(0, 10) : null;
+            // Renewal: serviced = a service completed on the plan on/after the save (per Isaac, Oct 15).
+            if (/renew/i.test(String(best.subscription_source || '') + ' ' + String(best.lead_source || ''))) {
+              const _lcd = best.last_completed_date ? String(best.last_completed_date).slice(0, 10) : '';
+              lc.serviced_at = _lcd && _lcd >= String(s.sold_date || '').slice(0, 10) ? _lcd : null;
+            }
             lc.appt_at = best.initial_appt_date ? String(best.initial_appt_date).slice(0, 10) : null;
             lc.first_paid_at = best.first_paid_date ? String(best.first_paid_date).slice(0, 10) : null;
             lc.completed = Number(best.subscription_completed_services) || 0;
@@ -1897,7 +1918,8 @@ WHERE a.fieldRoutes_statusText = 'Completed' AND a.fieldRoutes_dateCompleted NOT
           // the save) or their next paid invoice (the paid-since-sale check → upfront below). No appointment needed.
           const _isRenewal = /renew/i.test(String(r.subscription_source || '') + ' ' + String(r.lead_source || ''));
           const serviced = _isRenewal
-            ? (!!r.initial_serviced_date && String(r.initial_serviced_date).slice(0, 10) >= String(s.sold_date || '').slice(0, 10))
+            ? ((!!r.initial_serviced_date && String(r.initial_serviced_date).slice(0, 10) >= String(s.sold_date || '').slice(0, 10))
+              || (!!r.last_completed_date && String(r.last_completed_date).slice(0, 10) >= String(s.sold_date || '').slice(0, 10)))
             : (!!r.initial_serviced_date || /^completed$/i.test(String(r.initial_status || '').trim()));
           const completed = Number(r.subscription_completed_services) || 0;
           const dpd = Number(r.days_past_due) || 0;

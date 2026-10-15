@@ -2157,7 +2157,18 @@ function saleInitialDateNode(s, small) {
     const sold = String(s.sold_date || '').slice(0, 10), svc = s.crm_serviced_at ? String(s.crm_serviced_at).slice(0, 10) : '';
     const cls = 'tabular-nums whitespace-nowrap' + (small ? '' : ' font-medium');
     if (s.crm_paid_since_sale === true) return el('span', { class: cls, style: { color: 'var(--ok)' }, title: 'Renewal \u2014 paid since the save, so it\u2019s commissionable' }, (small ? 'RENEWAL ' : '') + '\u2713 paid' + (s.crm_paid_at ? ' ' + fmt.dateShort(s.crm_paid_at) : ''));
-    if (svc && svc >= sold) return el('span', { class: cls, style: { color: 'var(--ok)' }, title: 'Renewal \u2014 serviced since the save' }, (small ? 'RENEWAL ' : '') + '\u2713 serviced ' + fmt.dateShort(svc));
+    if (svc && svc >= sold) return el('span', { class: cls, style: { color: 'var(--ok)' }, title: 'Renewal \u2014 serviced since the save' }, (small ? 'RENEWAL ' : '') + '\u2713 svc ' + fmt.dateShort(svc));
+    // Waiting (per Isaac, Oct 15): show the date it should turn commissionable — the next scheduled service or the
+    // next invoice, whichever comes first (a service booked before the invoice wins).
+    const snap = typeof saleSnapRow === 'function' ? saleSnapRow(s) : null;
+    const done = snap && snap.last_completed_date ? String(snap.last_completed_date).slice(0, 10) : '';
+    if (done && done >= sold) return el('span', { class: cls, style: { color: 'var(--ok)' }, title: 'Renewal \u2014 serviced since the save' }, (small ? 'RENEWAL ' : '') + '\u2713 svc ' + fmt.dateShort(done));
+    const today = new Date().toISOString().slice(0, 10);
+    const nAppt = snap && snap.next_appt_date ? String(snap.next_appt_date).slice(0, 10) : '';
+    const nBill = snap && snap.next_billing_date ? String(snap.next_billing_date).slice(0, 10) : '';
+    const appt = nAppt && nAppt >= sold ? nAppt : '', bill = nBill && nBill >= today ? nBill : '';
+    if (appt && (!bill || appt <= bill)) return el('span', { class: cls, title: 'Renewal \u2014 next service scheduled ' + appt + (bill ? ', before the ' + bill + ' invoice' : '') + '. Commissionable once it\u2019s completed (or the invoice is paid, if that comes first).' }, (small ? 'RENEWAL ' : '') + 'svc ' + fmt.dateShort(appt));
+    if (bill) return el('span', { class: cls, title: 'Renewal \u2014 next invoice ' + bill + (nAppt ? ' (next service ' + nAppt + ')' : ', no service scheduled before it') + '. Commissionable once it\u2019s paid, or sooner if a service is completed first.' }, (small ? 'RENEWAL ' : '') + 'invoice ' + fmt.dateShort(bill));
     return el('span', { class: cls, style: { color: 'var(--text-subtle)' }, title: 'Renewal \u2014 commissionable once the customer gets their next service or pays their next invoice' }, (small ? 'RENEWAL ' : '') + 'renewal \u00b7 waiting');
   }
   const c = (typeof commissionableDate === 'function') ? commissionableDate(s) : { why: '' };
@@ -2191,6 +2202,13 @@ function saleSoldSortKey(s) {
   // No timestamp: the logged time stands in (UTC → company clock, -7h) so it sorts with the stamped ones.
   const c = Date.parse(s.created_at || ''); const t = isNaN(c) ? '' : new Date(c - 7 * 3600000).toISOString().slice(11, 19);
   return day + ' ' + (t && new Date(c - 7 * 3600000).toISOString().slice(0, 10) === day ? t : '00:00:00') + '|' + String(s.created_at || '');
+}
+// Snapshot row for a sale's own plan (by subscription id).
+let _snapRowIdx = { src: null, map: null };
+function saleSnapRow(s) {
+  const rows = state.reportingSubscriptions || [];
+  if (_snapRowIdx.src !== rows) { const m = new Map(); for (const r of rows) if (r && r.subscription_id != null) m.set(String(r.subscription_id), r); _snapRowIdx = { src: rows, map: m }; }
+  return s && s.crm_subscription_id != null ? _snapRowIdx.map.get(String(s.crm_subscription_id)) || null : null;
 }
 function saleSoldWhen(s) {
   const rows = state.reportingSubscriptions || [];
