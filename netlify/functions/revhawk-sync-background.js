@@ -1827,7 +1827,7 @@ QUALIFY ROW_NUMBER() OVER (PARTITION BY fieldRoutes_paymentID ORDER BY updatedAt
         const PR_REN_TERM = Object.assign({ initial: 399, recurring: 29 }, PR_REN.termite || {});
         const belowMinReason = (r) => {
           const name = String((r && r.subscription) || '').trim();
-          const renewal = /renew/i.test(String(r.lead_source || ''));
+          const renewal = /renew/i.test(String(r.subscription_source || '') + ' ' + String(r.lead_source || ''));
           // $4.87 service fee rides on the recurring charge (per Isaac, Oct 15) — not part of the plan price.
           // Taken off only when the charge carries it (same cents), so a fee-less $49.00 still reads $49.
           const _fee = Number(PR.fee) || 0, _rc = Number(r.recurring_charge) || 0;
@@ -1888,7 +1888,12 @@ WHERE a.fieldRoutes_statusText = 'Completed' AND a.fieldRoutes_dateCompleted NOT
           const cancelled = !!r.subscription_date_canceled || /cancel|inactive/i.test(String(r.subscription_status || ''));
           // Serviced = the initial's completion date, or FieldRoutes' own 'Completed' initial status while the
           // appointment row still lags in RevHawk (per Isaac, Oct 15 — #183686 completed, row still Pending).
-          const serviced = !!r.initial_serviced_date || /^completed$/i.test(String(r.initial_status || '').trim());
+          // Renewals (per Isaac, Oct 15): no new initial — commissionable on their next service (completed on/after
+          // the save) or their next paid invoice (the paid-since-sale check → upfront below). No appointment needed.
+          const _isRenewal = /renew/i.test(String(r.subscription_source || '') + ' ' + String(r.lead_source || ''));
+          const serviced = _isRenewal
+            ? (!!r.initial_serviced_date && String(r.initial_serviced_date).slice(0, 10) >= String(s.sold_date || '').slice(0, 10))
+            : (!!r.initial_serviced_date || /^completed$/i.test(String(r.initial_status || '').trim()));
           const completed = Number(r.subscription_completed_services) || 0;
           const dpd = Number(r.days_past_due) || 0;
           // Signed = the snapshot's e-sign document OR the sale row's own stamp, which the
@@ -1896,7 +1901,7 @@ WHERE a.fieldRoutes_statusText = 'Completed' AND a.fieldRoutes_dateCompleted NOT
           // Oct 14 — the e-sign document lags same-day, the note doesn't).
           const signed = String(r.contract_state || 'none') === 'signed' || String(s.crm_contract_state || '') === 'signed';
           const oneTime = (Number(s.contract_months) || 0) <= 0;
-          const hasAppt = ['pending', 'completed'].includes(String(r.initial_status || '').trim().toLowerCase());
+          const hasAppt = ['pending', 'completed'].includes(String(r.initial_status || '').trim().toLowerCase()) || /renew/i.test(String(r.subscription_source || '') + ' ' + String(r.lead_source || ''));
           const hasBilling = (() => { const a = String(r.customer_auto_pay || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); })();
           // Guard rails per rep type (Configurations → Commission Rules →
           // Upfront Commission Approval): AL2.approval[office|d2d|tech] =

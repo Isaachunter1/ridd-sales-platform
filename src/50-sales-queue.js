@@ -272,7 +272,9 @@ function viewSales() {
       onchange: e => { sf.sourceId = e.target.value; mountApp(); },
     },
       el('option', { value: '', selected: !sf.sourceId }, 'All sources'),
-      ...(state.sources||[]).map(src => el('option', { value: src.id, selected: String(sf.sourceId) === String(src.id) }, src.name)),
+      // Only the sources on this tab's rows (per Isaac, Oct 15) — not every source in FieldRoutes.
+      ...(() => { const ids = new Set(pending.map(x => String(x.source_id))); if (sf.sourceId) ids.add(String(sf.sourceId));
+        return (state.sources||[]).filter(src => ids.has(String(src.id))); })().map(src => el('option', { value: src.id, selected: String(sf.sourceId) === String(src.id) }, src.name)),
     ),
     // Run payroll (per Isaac, Oct 15): right of All sources — the pay stubs for every commissionable account.
     (isAdmin && _queue === 'office' && (queueFilter === 'upfront' || queueFilter === 'backend')) && el('button', {
@@ -2135,6 +2137,9 @@ function saleAddOnCredited(a) {
 // (or already serviced). Signed agreement is the second requirement once FieldRoutes' form endpoint is in.
 // Before the crm_initial_appt_at column exists (migration 20260921), fall back to the appointment status.
 function saleHasInitialScheduled(s) {
+  // Renewals (per Isaac, Oct 15): there's no new initial — a save often has no next appointment booked yet.
+  // They sit on Upfront Sales and become commissionable on their next service or next paid invoice.
+  if (s.sale_kind !== 'upsell' && typeof isRenewalSource === 'function' && isRenewalSource(s)) return true;
   if (s.crm_serviced_at) return true;
   const a = s.crm_initial_appt_at ? String(s.crm_initial_appt_at).slice(0, 10) : '';
   if (a && a >= String(s.sold_date || '').slice(0, 10)) return true;
@@ -2146,6 +2151,14 @@ function saleHasInitialScheduled(s) {
 }
 // Initial date (was "Service Date"): completed ✓ / scheduled 📅 / past-and-not-done ⚠ / not scheduled.
 function saleInitialDateNode(s, small) {
+  // Renewal: what makes it commissionable is the next service or the next paid invoice, not an initial.
+  if (s.sale_kind !== 'upsell' && typeof isRenewalSource === 'function' && isRenewalSource(s)) {
+    const sold = String(s.sold_date || '').slice(0, 10), svc = s.crm_serviced_at ? String(s.crm_serviced_at).slice(0, 10) : '';
+    const cls = 'tabular-nums whitespace-nowrap' + (small ? '' : ' font-medium');
+    if (s.crm_paid_since_sale === true) return el('span', { class: cls, style: { color: 'var(--ok)' }, title: 'Renewal \u2014 paid since the save, so it\u2019s commissionable' }, (small ? 'RENEWAL ' : '') + '\u2713 paid' + (s.crm_paid_at ? ' ' + fmt.dateShort(s.crm_paid_at) : ''));
+    if (svc && svc >= sold) return el('span', { class: cls, style: { color: 'var(--ok)' }, title: 'Renewal \u2014 serviced since the save' }, (small ? 'RENEWAL ' : '') + '\u2713 serviced ' + fmt.dateShort(svc));
+    return el('span', { class: cls, style: { color: 'var(--text-subtle)' }, title: 'Renewal \u2014 commissionable once the customer gets their next service or pays their next invoice' }, (small ? 'RENEWAL ' : '') + 'renewal \u00b7 waiting');
+  }
   const c = (typeof commissionableDate === 'function') ? commissionableDate(s) : { why: '' };
   const svc = s.crm_serviced_at ? String(s.crm_serviced_at).slice(0, 10) : null;
   const _sold = String(s.sold_date || '').slice(0, 10);
@@ -2256,10 +2269,10 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
           _bk ? el('div', { class: 'flex flex-col items-end', style: { rowGap: '4px' } }, saleStatusKey(), backendKey()) : saleStatusKey(),   // same key on every tab (per Isaac, Oct 15); backend adds its lock key
           el('div', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, rows.length + ' since ' + fmt.dateShortYear(SALES_FEED_START)))),
       el('div', { class: 'px-4 pb-2', style: gridRow() },
-        el('div', { class: 'text-[9px] text-right', style: { color: 'var(--text-subtle)' } }, '#'),
+        el('div', { class: 'text-[9px] text-left', style: { color: 'var(--text-subtle)' } }, '#'),
         head('rep', 'Rep'), head('customer', 'Customer'), head('service', 'Service + add-ons'), head('term', 'Term'), head('source', 'Source'),
         head('sold', 'Sold'), head('initial', 'Initial'), head('payment', 'Payment'), head('invoices', 'Invoices'), head('aging', 'Aging'),
-        head('amount', 'Amount', 'right'), head('status', 'Status')));
+        head('amount', 'Amount'), head('status', 'Status')));   // everything left-justified (per Isaac, Oct 15)
   if (typeof window !== 'undefined') {
     if (window._salesFeedPin) { window.removeEventListener('scroll', window._salesFeedPin); window.removeEventListener('resize', window._salesFeedPin); }
     const pin = () => {
@@ -2298,7 +2311,7 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
         title: s.crm_audit === 'passed' ? 'Passed Audit flag on the customer card in FieldRoutes' : undefined,
         onclick: (e) => { if (e.target.closest('select, button, input, textarea, a')) return; openNewSaleModal(null, s); },
       },
-        el('div', { class: 'tabular-nums text-right', style: { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: '12px', fontWeight: '600', color: 'var(--text-subtle)' } }, String(i + 1).padStart(2, '0')),
+        el('div', { class: 'tabular-nums text-left', style: { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: '12px', fontWeight: '600', color: 'var(--text-subtle)' } }, String(i + 1).padStart(2, '0')),
         el('div', { class: 'font-black uppercase', style: { fontSize: '13px', letterSpacing: '.02em', ...clip }, title: rep ? repName(s) : 'Credited in FieldRoutes · no app account linked yet' }, repName(s)),
         el('div', { style: clip },
           el('div', { class: 'font-medium', style: { fontSize: '12px', ...clip } }, s.customer_name || '—'),
@@ -2319,7 +2332,7 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
         // Invoices paid toward the backend lock (initial counts) and days aging (per Isaac, Oct 15).
         el('div', { class: 'tabular-nums', style: { fontSize: '11px', fontWeight: '600', color: tracked && (Number(s.crm_paid_invoices) || 0) >= 4 ? ok : tracked ? 'var(--text)' : 'var(--text-subtle)' }, title: 'Paid invoices on the plan (the initial counts) — locks at 4' }, tracked ? (Number(s.crm_paid_invoices) || 0) + ' / 4' : '—'),
         el('div', { class: 'tabular-nums', style: { fontSize: '11px', color: Number(s.crm_days_past_due) > 0 ? bad : 'var(--text-muted)', fontWeight: Number(s.crm_days_past_due) > 0 ? '700' : '400' } }, (s.crm_days_past_due != null ? Number(s.crm_days_past_due) : 0) + 'd'),
-        el('div', { class: 'text-right tabular-nums font-semibold', style: { fontSize: '15px' },
+        el('div', { class: 'text-left tabular-nums font-semibold', style: { fontSize: '15px' },
           title: s.commission_split ? 'Commissionable ' + fmt.usd(s.revenue_amount) + ' of ' + fmt.usd(s.total_revenue) + ' on the account' : '' },
           fmt.usd0 ? fmt.usd0(s.revenue_amount) : fmt.usd(s.revenue_amount),
           s.commission_split && Number(s.total_revenue) > Number(s.revenue_amount) + 0.005 ? el('div', { class: 'text-[9px] font-normal text-muted-' }, 'of ' + fmt.usd(s.total_revenue)) : null),
