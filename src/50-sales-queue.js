@@ -1075,6 +1075,21 @@ const SALE_STATUS_OPTIONS = [
   ['nsf', 'NSF'], ['not_payable', 'Not Payable'],
 ];
 const SALE_STATUS_LABEL = Object.fromEntries(SALE_STATUS_OPTIONS);
+// Status colors from RIDD's status list (per Isaac, Oct 15) — rows get a faint tint, the key shows the full color.
+const SALE_STATUS_COLOR = {
+  pending: '#8F9A8C', serviced: '#3E5A3A', below_minimums: '#B8862B', cancelled: '#E5532E',
+  re_audit: '#B84A47', reschedule: '#C17A3B', nsf: '#1F1F1F', not_payable: '#6E6C5C',
+};
+const saleStatusTint = (st) => {
+  const hex = SALE_STATUS_COLOR[st || 'pending'] || SALE_STATUS_COLOR.pending;
+  const n = parseInt(hex.slice(1), 16), a = st === 'nsf' ? 0.07 : (!st || st === 'pending') ? 0.05 : 0.09;
+  return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
+};
+function saleStatusKey() {
+  return el('div', { class: 'flex flex-wrap items-center justify-end', style: { columnGap: '12px', rowGap: '4px' } },
+    ...SALE_STATUS_OPTIONS.map(([v, lbl]) => el('span', { class: 'inline-flex items-center text-[10px] text-muted-', style: { gap: '5px' } },
+      el('span', { style: { width: '9px', height: '9px', borderRadius: '3px', background: SALE_STATUS_COLOR[v], display: 'inline-block' } }), lbl)));
+}
 
 function statusSelect(saleId) {
   const sale = state.allSales.find(x => x.id === saleId) || state.mySales.find(x => x.id === saleId);
@@ -2124,9 +2139,11 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
   const ok = '#15803D', bad = '#DC2626';
   const sorted = [...rows].sort((a, b) => String(b.sold_date || '').localeCompare(String(a.sold_date || '')) || String(b.created_at || '').localeCompare(String(a.created_at || '')));
   return el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'flex items-baseline justify-between px-4 pt-4 pb-2' },
+    el('div', { class: 'flex flex-wrap items-center justify-between gap-2 px-4 pt-4 pb-2' },
       el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, title || 'Latest sales'),
-      el('div', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, rows.length + ' since ' + fmt.dateShortYear(SALES_FEED_START))),
+      el('div', { class: 'flex flex-wrap items-center justify-end', style: { columnGap: '18px', rowGap: '6px' } },
+        saleStatusKey(),
+        el('div', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, rows.length + ' since ' + fmt.dateShortYear(SALES_FEED_START)))),
     ...sorted.map((s, i, arr) => {
       const _numW = String(arr.length).length > 2 ? 30 : 22;
       const rep = (state.allProfiles || []).find(p => p.id === s.rep_id);
@@ -2146,7 +2163,7 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
       const small = { fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' };
       return el('div', {
         class: 'grid items-center gap-4 px-4 py-2.5 cursor-pointer transition hover:brightness-95',
-        style: { gridTemplateColumns: (_numW + 'px') + ' minmax(0, 1fr) auto auto', borderTop: '1px solid var(--border)', ...(s.crm_audit === 'passed' ? { background: 'rgba(21,128,61,.06)' } : {}) },
+        style: { gridTemplateColumns: (_numW + 'px') + ' minmax(0, 1fr) auto auto', borderTop: '1px solid var(--border)', background: saleStatusTint(s.audit_status), ...(s.crm_audit === 'passed' ? { boxShadow: 'inset 3px 0 0 #15803D' } : {}) },
         title: s.crm_audit === 'passed' ? 'Passed Audit flag on the customer card in FieldRoutes' : undefined,
         onclick: (e) => { if (e.target.closest('select, button, input, textarea, a')) return; openNewSaleModal(null, s); },
       },
