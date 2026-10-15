@@ -628,7 +628,7 @@ function adminConfigurations(part) {
       // price is a cent under these. Promotions change them, so they live here (autolog.pricing).
       sub('Pricing minimums'),
       ...(() => {
-        const PR = Object.assign({ initial_min: 39, fee: 0, auto: false }, AL.pricing || {});
+        const PR = Object.assign({ initial_min: 39, fee: 4.87, auto: false }, AL.pricing || {});
         const PL = Object.assign({ pest: [49, 69, 119], rodent: [49, 69, 119], mole: [69, 89, 139], mosquito: [69, 89, 139] }, PR.plans || {});
         const TM = Object.assign({ initial: 399, recurring: 29 }, PR.termite || {});
         const OT = Object.assign({ 'mosquito': [199, 99], 'pest': [199, 99], 'termite inspection': [199, 99], 'rodent': [249, 149], 'german roach': [299, 199], 'interior flea': [299, 199], 'vehicle': [199, 199] }, PR.one_time || {});
@@ -656,7 +656,7 @@ function adminConfigurations(part) {
             el('span', { class: 'text-[11px] text-muted-' }, 'recurring'), money(TM.recurring, (n) => savePR({ termite: Object.assign({}, TM, { recurring: n }) }, 'termite recurring = $' + n))]),
           otTable,
           row('Fee included in the recurring charge', money(PR.fee, (n) => savePR({ fee: n }, 'fee = $' + n)),
-            { desc: 'Subtracted from FieldRoutes’ recurring charge before comparing (0 = compare the charge as-is).' }),
+            { desc: 'The service fee FieldRoutes adds to the recurring charge — taken off before comparing when the charge carries it (0 = compare the charge as-is).' }),
           el('div', { class: 'text-[11px] py-1.5', style: { color: 'var(--text-subtle)', lineHeight: '1.4' } }, 'Checked: Pest / Rodent / Mole / Mosquito 4 · 6 · 12, Termite, and one-time services (the Current Customer price needs a completed service on the account before the sale). Not checked: legacy bundles, Sentricon, add-ons and renewals.'),
         ];
       })(),

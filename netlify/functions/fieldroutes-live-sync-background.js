@@ -372,7 +372,7 @@ exports.handler = async (event) => {
         const firstAfter = new Map();
         for (const x of subsW) {
           const added = String(x.dateAdded || '').slice(0, 19);
-          const mine = appts.filter(a => String(a.subscriptionID) === String(x.subscriptionID) && String(a.status) !== '-1' && a.date && !String(a.date).startsWith('0000')
+          const mine = appts.filter(a => String(a.subscriptionID) === String(x.subscriptionID) && !['-1', '-2'].includes(String(a.status)) && a.date && !String(a.date).startsWith('0000')
             && String(a.dateAdded || '').slice(0, 19) >= added).map(a => String(a.date).slice(0, 10)).sort();
           if (mine.length) firstAfter.set(String(x.subscriptionID), mine[0]);
         }

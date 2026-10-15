@@ -251,7 +251,12 @@ function viewSales() {
       onchange: e => { sf.repId = e.target.value; mountApp(); },
     },
       el('option', { value: '', selected: !sf.repId }, 'All reps'),
-      ...(state.allProfiles||[]).map(p => el('option', { value: p.id, selected: sf.repId === p.id }, p.full_name)),
+      // Only this tab's rep type (per Isaac, Oct 15): Office Staff here; Sales Reps / Technicians on theirs.
+      // (also anyone credited with a sale in this tab's queue, so a rep whose CRM type hasn't synced yet isn't lost).
+      ...(() => { const sellers = new Set(source.filter(x => (x.queue_type || 'office') === _queue).map(x => String(x.rep_id))); return (state.allProfiles||[])
+        .filter(p => String(p.role || '') !== 'disabled' && ((typeof repTypeGroup === 'function' && repTypeGroup(p) === _queue) || sellers.has(String(p.id)))); })()
+        .sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || '')))
+        .map(p => el('option', { value: p.id, selected: sf.repId === p.id }, p.full_name)),
     ),
     el('select', {
       class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
@@ -2135,6 +2140,8 @@ function saleInitialDateNode(s, small) {
   const sched = _appt && (!_sold || _appt >= _sold) ? _appt : null;   // a date before the sale is an older plan appointment, not this sale's initial
   const cls = 'tabular-nums whitespace-nowrap' + (small ? '' : ' font-medium');
   if (svc) return el('span', { class: cls, title: 'Initial service completed ' + svc + ' · ' + c.why, style: { color: 'var(--ok)' } }, (small ? 'INITIAL ' : '') + '✓ ' + fmt.dateShortYear(svc));
+  // Scheduled date + FieldRoutes says Completed (the completion date lags in RevHawk) → ✓ that date (per Isaac, Oct 15 — #183686).
+  if (sched && s.sale_kind !== 'upsell' && String(s.crm_initial_status || '').toLowerCase() === 'completed') return el('span', { class: cls, title: 'Initial service completed (FieldRoutes) · ' + c.why, style: { color: 'var(--ok)' } }, (small ? 'INITIAL ' : '') + '\u2713 ' + fmt.dateShortYear(sched));
   if (sched) { const past = sched < new Date().toISOString().slice(0, 10); return el('span', { class: cls, title: (past ? 'Initial appointment was scheduled for ' + sched + ' but is not marked completed in FieldRoutes' : 'Initial appointment scheduled for ' + sched) + ' · ' + c.why, style: past ? { color: '#B45309' } : {} }, (small ? 'INITIAL ' : '') + (past ? '⚠ ' : '') + fmt.dateShortYear(sched)); }
   // No date stamped yet, but FieldRoutes' own initial status says it's done / booked (per Isaac, Oct 15 — #183711).
   const _ist = String(s.crm_initial_status || '').toLowerCase();

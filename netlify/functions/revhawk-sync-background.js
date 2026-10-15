@@ -221,7 +221,8 @@ apptSched AS (
   -- Sales queues' "Service date" before the initial visit has happened.
   SELECT fieldRoutes_appointmentID AS aid, MIN(NULLIF(LEFT(fieldRoutes_date,10),'0000-00-00')) AS appt_date
   FROM \`${PROJECT}.${DATASET}.FieldRoutesAppointment\`
-  WHERE fieldRoutes_status != '-1' AND fieldRoutes_date IS NOT NULL AND fieldRoutes_date NOT LIKE '0000%'
+  WHERE fieldRoutes_status NOT IN ('-1', '-2')   -- cancelled / re-scheduled (per Isaac, Oct 15 — #183686)
+    AND fieldRoutes_date IS NOT NULL AND fieldRoutes_date NOT LIKE '0000%'
   GROUP BY 1
 ),
 apptAfter AS (
@@ -231,7 +232,7 @@ apptAfter AS (
   SELECT a.fieldRoutes_subscriptionID AS sid, MIN(NULLIF(LEFT(a.fieldRoutes_date,10),'0000-00-00')) AS appt_date
   FROM \`${PROJECT}.${DATASET}.FieldRoutesAppointment\` a
   JOIN sub ON sub.fieldRoutes_subscriptionID = a.fieldRoutes_subscriptionID
-  WHERE a.fieldRoutes_status != '-1' AND a.fieldRoutes_date IS NOT NULL AND a.fieldRoutes_date NOT LIKE '0000%'
+  WHERE a.fieldRoutes_status NOT IN ('-1', '-2') AND a.fieldRoutes_date IS NOT NULL AND a.fieldRoutes_date NOT LIKE '0000%'
     AND LEFT(a.fieldRoutes_dateAdded,19) >= LEFT(sub.fieldRoutes_dateAdded,19)
   GROUP BY 1
 ),
@@ -541,6 +542,19 @@ async function getAccessToken() {
 // with no error — the raw {f:[{v}]} rows for ~105k subs × 60 columns were
 // being held in full (hundreds of MB of tiny objects) and the function was
 // OOM-killed before it could write a heartbeat.
+// Supabase/PostgREST caps a select at 1,000 rows. Every multi-row sales read below goes through
+// this so nothing past row 1,000 is silently skipped (per Isaac, Oct 15 — #183686's initial
+// never got its date: 1,442 sales in the 60-day verify window, only the first 1,000 were read).
+async function selectAll(make) {
+  const out = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await make().order('id').range(from, from + 999);
+    if (error) return { data: null, error };
+    out.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
+  return { data: out, error: null };
+}
 async function runQuery(token, sql, opts = {}) {
   const compact = !!opts.compact;
   const squash = (page, schema) => {
@@ -1499,9 +1513,9 @@ exports.handler = async (event) => {
       const _hasFlagV = (r) => !!_flagV && !!r && String(r.customer_flags || '').split(',').some(f => f.trim().toLowerCase() === _flagV);
       const _failV = String(((_alV.data && _alV.data.value) || {}).audit_fail_flag ?? 'Failed Audit').trim().toLowerCase();
       const _auditV = (r) => { if (!r) return null; const fl = String(r.customer_flags || '').split(',').map(f => f.trim().toLowerCase()); return fl.includes(_flagV) ? 'passed' : (_failV && fl.includes(_failV)) ? 'failed' : null; };
-      let { data: appSales, error: asErr } = await supabase.from('sales')
+      let { data: appSales, error: asErr } = await selectAll(() => supabase.from('sales')
         .select('id, customer_number, revenue_amount, sold_date, paid_in_full, is_commercial, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance, crm_contract_signed_at, crm_contract_state, crm_initial_status, crm_autopay, crm_subscription_id, upfront_collected, crm_audit, crm_first_paid_at')
-        .gte('sold_date', since);
+        .gte('sold_date', since));
       // Scheduled initial appointment (20260921_sales_initial_appt.sql) — read
       // separately so the select chain above stays as it is; off if the column
       // isn't there yet.
@@ -1509,9 +1523,9 @@ exports.handler = async (event) => {
       // Add-on sales (sale_kind 'upsell') get their OWN initial from the add-ons sync — the plan's snapshot
       // dates (its original initial, serviced date) are not theirs (per Isaac, Oct 15 — #143268's Mole read ⚠ 4/7/26).
       const _upsellIds = new Set();
-      try { const { data: uk } = await supabase.from('sales').select('id').eq('sale_kind', 'upsell').gte('sold_date', since); (uk || []).forEach(x => _upsellIds.add(x.id)); } catch (e) { /* none */ }
+      try { const { data: uk } = await selectAll(() => supabase.from('sales').select('id').eq('sale_kind', 'upsell').gte('sold_date', since)); (uk || []).forEach(x => _upsellIds.add(x.id)); } catch (e) { /* none */ }
       try {
-        const { data: ap, error: apErr } = await supabase.from('sales').select('id, crm_initial_appt_at').gte('sold_date', since);
+        const { data: ap, error: apErr } = await selectAll(() => supabase.from('sales').select('id, crm_initial_appt_at').gte('sold_date', since));
         if (apErr) { _apptCol = false; console.warn('[revhawk-sync] crm_initial_appt_at missing — run migrations/20260921_sales_initial_appt.sql for the Service date column'); }
         else (ap || []).forEach(x => _apptNow.set(x.id, x.crm_initial_appt_at ? String(x.crm_initial_appt_at).slice(0, 10) : null));
       } catch (e) { _apptCol = false; }
@@ -1520,29 +1534,29 @@ exports.handler = async (event) => {
       if (asErr && /crm_first_paid_at/i.test(asErr.message || '')) {
         _paidCol = false;
         console.warn('[revhawk-sync] crm_first_paid_at missing — run migrations/20260917_sales_first_paid.sql to enable the commissionable-date rule');
-        ({ data: appSales, error: asErr } = await supabase.from('sales')
+        ({ data: appSales, error: asErr } = await selectAll(() => supabase.from('sales')
           .select('id, customer_number, revenue_amount, sold_date, paid_in_full, is_commercial, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance, crm_contract_signed_at, crm_contract_state, crm_initial_status, crm_autopay, crm_subscription_id, upfront_collected, crm_audit')
-          .gte('sold_date', since));
+          .gte('sold_date', since)));
       }
       if (asErr && /crm_initial_status|crm_autopay/i.test(asErr.message || '')) {
         _eligCols = false;
-        ({ data: appSales, error: asErr } = await supabase.from('sales')
+        ({ data: appSales, error: asErr } = await selectAll(() => supabase.from('sales')
           .select('id, customer_number, revenue_amount, sold_date, paid_in_full, is_commercial, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance, crm_contract_signed_at, crm_contract_state')
-          .gte('sold_date', since));
+          .gte('sold_date', since)));
       }
       if (asErr && /crm_contract_signed_at|crm_contract_state/i.test(asErr.message || '')) {
         _agreementCols = false;
         console.warn('[revhawk-sync] agreement columns missing - run sales_crm_agreement.sql to enable signed-agreement stamps');
-        ({ data: appSales, error: asErr } = await supabase.from('sales')
+        ({ data: appSales, error: asErr } = await selectAll(() => supabase.from('sales')
           .select('id, customer_number, revenue_amount, sold_date, paid_in_full, is_commercial, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance')
-          .gte('sold_date', since));
+          .gte('sold_date', since)));
       }
       if (asErr && /column|schema cache/i.test(asErr.message || '')) {
         _lifecycleCols = false;
         console.warn('[revhawk-sync] lifecycle columns missing - run sales_crm_lifecycle.sql to enable serviced/paid stamps');
-        ({ data: appSales, error: asErr } = await supabase.from('sales')
+        ({ data: appSales, error: asErr } = await selectAll(() => supabase.from('sales')
           .select('id, customer_number, revenue_amount, sold_date, paid_in_full, is_commercial, crm_status, crm_contract_value')
-          .gte('sold_date', since));
+          .gte('sold_date', since)));
       }
       if (asErr) throw new Error(asErr.message);
       if (appSales && appSales.length) {
@@ -1575,6 +1589,10 @@ exports.handler = async (event) => {
               const d = Math.abs(v - rev);
               if (d < bestDiff) { bestDiff = d; best = r; }
             }
+            // A sale that knows its own subscription verifies against THAT plan (per Isaac, Oct 15 — #183686
+            // has a Pest 4 and a Sentricon sold the same morning; both rows had been matched to the Pest 4).
+            const own = s.crm_subscription_id ? subs.find(r => String(r.subscription_id || '') === String(s.crm_subscription_id)) : null;
+            if (own) { best = own; bestDiff = Math.abs((Number(own.subscription_contract_value) || 0) - rev); }
             cv = Number(best.subscription_contract_value) || 0;
             subName = best.subscription || null;
             // EXACT-value discipline (never over/under-pay): to-the-penny
@@ -1680,10 +1698,10 @@ exports.handler = async (event) => {
         for (const r of objects) { const id = String(r.subscription_id || '').trim(); if (id) bySub.set(id, r); }
         const _upFlag = String(AL2.upfront_flag ?? 'Passed Audit').trim().toLowerCase();
         const _upfrontOf = (r) => !!_upFlag && !!r && String(r.customer_flags || '').split(',').some(f => f.trim().toLowerCase() === _upFlag);
-        const { data: crmSales, error: csErr } = await supabase.from('sales')
+        const { data: crmSales, error: csErr } = await selectAll(() => supabase.from('sales')
           .select('id, crm_subscription_id, sold_date, audit_status, lock_status, payroll_processed_at, backend_payroll_processed_at, contract_months, notes, crm_audit, queue_type, crm_contract_state, rep_id')
           .not('crm_subscription_id', 'is', null)
-          .or('audit_status.eq.pending,lock_status.eq.pending');
+          .or('audit_status.eq.pending,lock_status.eq.pending'));
         if (csErr) throw new Error(csErr.message);
         const stamp = new Date().toISOString();
         const today = Date.now();
@@ -1743,9 +1761,9 @@ exports.handler = async (event) => {
         const nsfNow = new Set();      // set to NSF this run — the approval pass below must not overwrite it
         try {
           const _from = (/^\d{4}-\d{2}-\d{2}$/.test(String(AL2.auto_approve_from || '')) ? String(AL2.auto_approve_from) : '2026-10-12');
-          const { data: pc, error: pe } = await supabase.from('sales')
+          const { data: pc, error: pe } = await selectAll(() => supabase.from('sales')
             .select('id, customer_number, sold_date, audit_status, notes, queue_type, sale_kind, rep_id, payroll_processed_at, crm_paid_since_sale, crm_payment_checked_at')
-            .gte('sold_date', _from).is('payroll_processed_at', null).in('audit_status', ['pending', 'nsf', 'serviced', 'below_minimums']);
+            .gte('sold_date', _from).is('payroll_processed_at', null).in('audit_status', ['pending', 'nsf', 'serviced', 'below_minimums']));
           if (pe) throw new Error(pe.message);
           const RECHECK = 3 * 3600000;
           // Declined / NSF rows are re-checked every run so they flip back as soon as the customer pays.
@@ -1799,13 +1817,17 @@ QUALIFY ROW_NUMBER() OVER (PARTITION BY fieldRoutes_paymentID ORDER BY updatedAt
         // Pricing minimums (autolog.pricing). The new lineup only: Pest / Rodent / Mole / Mosquito
         // 4 · 6 · 12 and Termite (annual). Legacy bundles, Sentricon, one-time services, add-ons
         // and renewals aren't checked — an auditor decides those.
-        const PR = Object.assign({ initial_min: 39, fee: 0, auto: false }, AL2.pricing || {});
+        const PR = Object.assign({ initial_min: 39, fee: 4.87, auto: false }, AL2.pricing || {});
         const PR_PLANS = Object.assign({ pest: [49, 69, 119], rodent: [49, 69, 119], mole: [69, 89, 139], mosquito: [69, 89, 139] }, PR.plans || {});
         const PR_TERM = Object.assign({ initial: 399, recurring: 29 }, PR.termite || {});
         const belowMinReason = (r) => {
           const name = String((r && r.subscription) || '').trim();
           if (/renew/i.test(String(r.lead_source || ''))) return null;
-          const init = Number(r.initial_price), rec = (Number(r.recurring_charge) || 0) - (Number(PR.fee) || 0);
+          // $4.87 service fee rides on the recurring charge (per Isaac, Oct 15) — not part of the plan price.
+          // Taken off only when the charge carries it (same cents), so a fee-less $49.00 still reads $49.
+          const _fee = Number(PR.fee) || 0, _rc = Number(r.recurring_charge) || 0;
+          const _hasFee = _fee > 0 && _rc >= _fee && Math.round(_rc * 100) % 100 === Math.round(_fee * 100) % 100;
+          const init = Number(r.initial_price), rec = _hasFee ? _rc - _fee : _rc;
           const money = (n) => '$' + (Math.round(n * 100) / 100).toFixed(2).replace(/\.00$/, '');
           let mInit, mRec, m;
           if ((m = name.match(/^(pest|rodent|mole|mosquito)\s+(4|6|12)\b/i))) {
@@ -1859,7 +1881,9 @@ WHERE a.fieldRoutes_statusText = 'Completed' AND a.fieldRoutes_dateCompleted NOT
           const r = bySub.get(String(s.crm_subscription_id));
           if (!r) continue;                                     // not in this snapshot — leave it alone
           const cancelled = !!r.subscription_date_canceled || /cancel|inactive/i.test(String(r.subscription_status || ''));
-          const serviced = !!r.initial_serviced_date;
+          // Serviced = the initial's completion date, or FieldRoutes' own 'Completed' initial status while the
+          // appointment row still lags in RevHawk (per Isaac, Oct 15 — #183686 completed, row still Pending).
+          const serviced = !!r.initial_serviced_date || /^completed$/i.test(String(r.initial_status || '').trim());
           const completed = Number(r.subscription_completed_services) || 0;
           const dpd = Number(r.days_past_due) || 0;
           // Signed = the snapshot's e-sign document OR the sale row's own stamp, which the
