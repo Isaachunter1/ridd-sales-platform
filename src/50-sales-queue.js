@@ -261,6 +261,12 @@ function viewSales() {
       el('option', { value: '', selected: !sf.sourceId }, 'All sources'),
       ...(state.sources||[]).map(src => el('option', { value: src.id, selected: String(sf.sourceId) === String(src.id) }, src.name)),
     ),
+    // Run payroll (per Isaac, Oct 15): right of All sources — the pay stubs for every commissionable account.
+    (isAdmin && _queue === 'office' && queueFilter === 'upfront') && el('button', {
+      class: 'rounded-xl px-3 py-1 text-[11px] font-bold transition hover:brightness-95 whitespace-nowrap', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+      title: 'Pay stubs for every commissionable account on Upfront Sales — review, then confirm',
+      onclick: () => openPayrollRun(source.filter(isUpfrontPending)),
+    }, 'Run payroll'),
     (sf.status || sf.repId || sf.sourceId || sf.q) && el('button', {
       class: 'text-[11px] font-semibold px-2.5 py-1', style: { color: 'var(--accent)' },
       onclick: () => { Object.assign(sf, { dateStart:'', dateEnd:'', status:'', repId:'', contractTypeId:'', sourceId:'', q:'' }); mountApp(); },
@@ -333,18 +339,6 @@ function viewSales() {
     // with a signed agreement that were never logged here. Ghosted rows the
     // rep can Claim (opens Log Sale pre-filled) or mark Not mine.
     queueFilter === 'upfront' ? unloggedSalesBlock(isAdmin) : null,
-    // Sold, no initial booked yet (per Isaac, Oct 15) — not on Upfront until the appointment is on the books.
-    (() => {
-      if (queueFilter !== 'upfront') return null;
-      const waiting = source.filter(isAwaitingInitial).filter(s => String(s.sold_date || '') >= SALES_FEED_START);
-      if (!waiting.length) return null;
-      const open = !!state._salesShowAwaiting;
-      return el('div', { class: 'flex flex-col gap-2' },
-        el('button', { class: 'self-start text-[11px] font-semibold rounded-lg border px-2.5 py-1 transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-          onclick: () => { state._salesShowAwaiting = !open; mountApp(); } },
-          (open ? '\u25B4 ' : '\u25BE ') + waiting.length + ' sold, waiting on an initial appointment'),
-        open ? el('div', { class: 'hidden sm:block', style: { opacity: '.7' } }, salesFeed(waiting, { isAdmin, title: 'Waiting on an initial appointment' })) : null);
-    })(),
 
     // ── Table ──
     filtered.length === 0
@@ -364,9 +358,10 @@ function viewSales() {
           salesCardsMobile(filtered, { isAdmin, queueFilter }),
           // Upfront queue (per Isaac, Oct 14): sales from Oct 12 on — when office add-ons started — read as the
           // TV's Latest-sales rows with their add-ons and initial date; anything older keeps the table below.
-          (queueFilter === 'upfront' && filtered.some(s => String(s.sold_date || '') >= SALES_FEED_START))
-            ? el('div', { class: 'hidden sm:block mb-5' }, salesFeed(filtered.filter(s => String(s.sold_date || '') >= SALES_FEED_START), { isAdmin })) : null,
-          (queueFilter === 'upfront' && !filtered.some(s => String(s.sold_date || '') < SALES_FEED_START)) ? null :
+          // Pending Backend Lock (office) reads the same rows — with invoices paid + days aging to watch (per Isaac, Oct 15).
+          ((queueFilter === 'upfront' || (queueFilter === 'backend' && _queue === 'office')) && filtered.some(s => String(s.sold_date || '') >= SALES_FEED_START))
+            ? el('div', { class: 'hidden sm:block mb-5' }, salesFeed(filtered.filter(s => String(s.sold_date || '') >= SALES_FEED_START), { isAdmin, title: queueFilter === 'backend' ? 'Waiting on 4 paid invoices' : '' })) : null,
+          ((queueFilter === 'upfront' || (queueFilter === 'backend' && _queue === 'office')) && !filtered.some(s => String(s.sold_date || '') < SALES_FEED_START)) ? null :
           el('div', { class: 'hidden sm:block' },
             queueFilter === 'upfront' && filtered.some(s => String(s.sold_date || '') >= SALES_FEED_START) ? el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted- mb-2' }, 'Before ' + fmt.dateShortYear(SALES_FEED_START)) : null,
             salesTable(queueFilter === 'upfront' ? filtered.filter(s => String(s.sold_date || '') < SALES_FEED_START) : filtered, { isAdmin, sortKey, sortDir,
@@ -2167,11 +2162,147 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
           cell('11', 1, src ? el('span', { class: 'text-muted-', style: { fontSize: '11px' } }, src) : null),
           cell('12', 1, sep()),
           cell('13', 1, el('span', { style: { fontSize: '10px' } }, saleInitialDateNode(s, true)), { minWidth: 'max-content' }),
-          cell('1 / 6', 2, el('span', { class: 'tabular-nums' }, 'Sold ' + saleSoldWhen(s)), small)),
+          cell('1 / 14', 2, el('span', { class: 'tabular-nums' }, 'Sold ' + saleSoldWhen(s),
+            // Invoices paid toward the backend lock (initial counts) and days aging (per Isaac, Oct 15).
+            (s.crm_paid_invoices != null || s.payroll_processed_at) ? el('span', { style: { marginLeft: '12px', color: (Number(s.crm_paid_invoices) || 0) >= 4 ? ok : 'var(--text-muted)', fontWeight: '600' } }, '\u{1F9FE} ' + (Number(s.crm_paid_invoices) || 0) + ' of 4 invoices paid') : null,
+            el('span', { style: { marginLeft: '12px', color: Number(s.crm_days_past_due) > 0 ? bad : 'var(--text-muted)', fontWeight: Number(s.crm_days_past_due) > 0 ? '700' : '400' } }, 'Aging ' + (s.crm_days_past_due != null ? Number(s.crm_days_past_due) : 0) + 'd')), small)),
         el('div', { class: 'text-right tabular-nums font-semibold', style: { fontSize: '17px' },
           title: s.commission_split ? 'Commissionable ' + fmt.usd(s.revenue_amount) + ' of ' + fmt.usd(s.total_revenue) + ' on the account' : '' },
           fmt.usd0 ? fmt.usd0(s.revenue_amount) : fmt.usd(s.revenue_amount),
           s.commission_split && Number(s.total_revenue) > Number(s.revenue_amount) + 0.005 ? el('div', { class: 'text-[9px] font-normal text-muted-' }, 'of ' + fmt.usd(s.total_revenue)) : null),
         el('div', { class: 'flex items-center gap-2' }, statusSelect(s.id), (typeof saleAuditChip === 'function') ? saleAuditChip(s) : null));
     }));
+}
+
+// ── Run payroll (per Isaac, Oct 15) ──────────────────────────────────────────
+// Office Staff upfront run from the Sales tab: every Upfront sale that is
+// commissionable (Commissionable / Below Minimums), not paid yet, and credited to
+// a linked rep. Pay is computed by the SAME functions the Pay tab uses
+// (isPayLines → getCommissionAmount / getCommissionRate, the Passed Audit tier via
+// passedAuditPool + upfrontCollectedPct + upfrontTierPayPct, the period's Other
+// Pay adjustments, and the rep's Golden Phone / Loyalty lines). Nothing new is
+// invented here — this page only lays those numbers out per rep.
+// Confirm stamps payroll_processed_at (+ the pay_runs snapshot, Slack DMs), then:
+// one-time services go straight to History; everything else waits in Pending
+// Backend Lock for 4 paid invoices.
+function payrollRunCandidates(rows) {
+  return (rows || []).filter(s => (s.audit_status === 'serviced' || s.audit_status === 'below_minimums') && !s.payroll_processed_at && s.rep_id);
+}
+function payrollRunStub(repId, sales, period) {
+  const prof = (state.allProfiles || []).find(p => p.id === repId) || {};
+  const pool = (typeof passedAuditPool === 'function') ? passedAuditPool(repId, period) : [];
+  const pct = upfrontCollectedPct(pool.length ? pool : sales), mult = upfrontTierPayPct(pct, repId);
+  // Per-sale pay exactly as the Pay tab totals it (sumUpfrontPay): the Passed Audit tier applies to the plan
+  // commission; an add-on's flat slice (getAddonCommission) is paid as-is.
+  const byId = new Map(sales.map(x => [x.id, x]));
+  const lines = isPayLines(repId, sales, mult).map(l => {
+    const sale = byId.get(l.sale_id); const add = (typeof getAddonCommission === 'function' && sale) ? getAddonCommission(repId, sale) : 0;
+    return Object.assign(l, { addon: Math.round(add * 100) / 100, amount: Math.round(((l.base - add) * mult + add) * 100) / 100 });
+  });
+  const salesPay = lines.reduce((a, l) => a + l.amount, 0);
+  // Same period-level lines as the Pay tab's pay-period stub (viewPay → totalPayPayPeriod).
+  const isLoyalty = (prof.rep_type || 'sales_rep') === 'loyalty_rep' || (typeof scorecardDeptOf === 'function' && scorecardDeptOf(prof) === 'loyalty');
+  const extras = [];
+  if (isLoyalty) {
+    if (Number(prof.loyalty_royalty_amount)) extras.push(['Loyalty Royalty', Number(prof.loyalty_royalty_amount)]);
+    if (Number(prof.revhawk_pay_amount)) extras.push(['RevHawk', Number(prof.revhawk_pay_amount)]);
+    if (Number(prof.loyalty_pay_amount)) extras.push(['Loyalty Pay', Number(prof.loyalty_pay_amount)]);
+  } else if (Number(prof.golden_phone_amount)) extras.push(['Golden Phone', Number(prof.golden_phone_amount)]);
+  const adj = (state.payAdjustments || []).filter(a => a.rep_id === repId && Number(a.period_year) === Number(period.start.getFullYear()) && Number(a.period_id) === Number(period.id));
+  adj.forEach(a => extras.push([a.note || a.label || 'Other pay', Number(a.amount) || 0]));
+  if (Number(prof.other_pay_amount)) extras.push(['Other pay', Number(prof.other_pay_amount)]);
+  const total = salesPay + extras.reduce((a, x) => a + x[1], 0);
+  return { prof, pct, mult, lines, salesPay, extras, total, revenue: lines.reduce((a, l) => a + l.revenue, 0) };
+}
+function openPayrollRun(rows) {
+  const today = new Date();
+  const period = getPayPeriods(today.getFullYear()).find(p => p.id === currentPayPeriodId(today.getFullYear())) || getPayPeriods(today.getFullYear())[0];
+  const sales = payrollRunCandidates(rows);
+  const held = (rows || []).filter(s => (s.audit_status === 'serviced' || s.audit_status === 'below_minimums') && !s.payroll_processed_at && !s.rep_id);
+  const byRep = new Map(); sales.forEach(s => { if (!byRep.has(s.rep_id)) byRep.set(s.rep_id, []); byRep.get(s.rep_id).push(s); });
+  const stubs = [...byRep.entries()].map(([rid, list]) => payrollRunStub(rid, list, period)).sort((a, b) => b.total - a.total);
+  const grand = stubs.reduce((a, x) => a + x.total, 0);
+  const saleById = new Map(sales.map(s => [s.id, s]));
+  const money = (v) => fmt.usd(Math.round((Number(v) || 0) * 100) / 100);
+  const pct = (v) => v == null ? '—' : Math.round(v * 100) + '%';
+  const back = el('div', { style: { position: 'fixed', inset: '0', zIndex: '9000', background: 'var(--bg)', overflowY: 'auto' } });
+  const close = () => back.remove();
+  const th = (t, right) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
+  const td = (t, right, extra) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: extra || {} }, t);
+  const stubCard = (x) => {
+    const ownLines = x.lines.map(l => ({ l, s: saleById.get(l.sale_id) || {} }));
+    return el('div', { class: 'card overflow-hidden', style: { breakInside: 'avoid' } },
+      // Header bar — the same dark band the Pay tab's stub uses.
+      el('div', { class: 'flex items-center justify-between px-4 py-2.5', style: { background: 'var(--text)', color: 'var(--card)' } },
+        el('div', { class: 'flex items-center gap-2' }, avatarNode(x.prof.avatar_url, x.prof.initials, 'w-7 h-7 text-[10px]'),
+          el('div', {}, el('div', { class: 'text-sm font-black uppercase tracking-wide' }, x.prof.full_name || 'Rep'),
+            el('div', { class: 'text-[10px] uppercase tracking-widest', style: { opacity: '.7' } }, 'Pay stub · ' + period.label))),
+        el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest', style: { opacity: '.7' } }, 'Total pay'),
+          el('div', { class: 'text-xl font-black tabular-nums' }, money(x.total)))),
+      // How it was earned, in one line.
+      el('div', { class: 'grid', style: { gap: '0', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', borderBottom: '1px solid var(--border)' } },
+        ...[['Accounts', String(x.lines.length)], ['Revenue', money(x.revenue)], ['Passed Audit %', pct(x.pct)], ['Tier pays', Math.round((x.mult || 1) * 100) + '%']].map(([k, v], i) =>
+          el('div', { class: 'px-4 py-2', style: { borderLeft: i ? '1px solid var(--border)' : '0' } },
+            el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold text-muted-' }, k), el('div', { class: 'text-sm font-bold tabular-nums' }, v)))),
+      el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs' },
+        el('thead', {}, el('tr', {}, th('Customer'), th('Plan'), th('Term'), th('Sold'), th('Revenue', 1), th('Rate', 1), th('Commission', 1), th('× Tier', 1), th('Pay', 1))),
+        el('tbody', {}, ...ownLines.map(({ l, s }) => el('tr', { class: 'border-t border-' },
+          td(el('span', {}, el('span', { class: 'text-muted-' }, '#' + (l.customer_number || '')), ' ', l.customer || '')),
+          td(el('span', { style: { fontSize: '12px' } }, saleServiceWithAddOns(s, (typeof nameFromId === 'function' ? nameFromId(state.serviceTypes, s.service_type_id) : '') || s.crm_subscription || '—', saleAddOnsFor(s), { size: '12px', weight: '600' })),
+            (l.status === 'below_minimums' ? el('span', { class: 'text-[9px] font-bold ml-1.5', style: { color: '#B45309' } }, 'BELOW MIN · HALF') : null)),
+          td(s.sale_kind === 'upsell' ? 'Add on' : l.months > 1 ? l.months + ' mo' : 'One-time'),
+          td(fmt.dateShortYear(l.sold_date)),
+          td(money(l.revenue), 1),
+          td(l.renewal ? 'flat' : l.rate == null ? '—' : (Math.round(l.rate * 10000) / 100) + '%', 1, { color: 'var(--text-muted)' }),
+          td(money(l.base), 1),
+          td(Math.round((l.tier_mult || 1) * 100) + '%', 1, { color: 'var(--text-muted)' }),
+          td(money(l.amount), 1, { fontWeight: '700' }))),
+          el('tr', { class: 'border-t', style: { borderColor: 'var(--text)' } }, td('Sales pay', 0, { fontWeight: '700' }), td(''), td(''), td(''), td(money(x.revenue), 1), td(''), td(''), td(''), td(money(x.salesPay), 1, { fontWeight: '800' })),
+          ...x.extras.map(([k, v]) => el('tr', { class: 'border-t border-' }, td(k), td(''), td(''), td(''), td(''), td(''), td(''), td(''), td(money(v), 1))),
+          el('tr', { style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, td('Total pay', 0, { fontWeight: '800' }), td(''), td(''), td(''), td(''), td(''), td(''), td(''), td(money(x.total), 1, { fontWeight: '800' }))))),
+      el('div', { class: 'px-4 py-2 text-[10px] text-muted-' },
+        'Commission = revenue × the rep’s rate for that contract (renewals pay the flat renewal amount; Below Minimums pays half), then × the Passed Audit tier for the period. Backend (multi-year / renewal) pays at the backend lock, not on this stub.'));
+  };
+  let busy = false;
+  const confirmBtn = el('button', { class: 'rounded-lg px-4 py-2 text-sm font-bold transition hover:brightness-95', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+    disabled: !sales.length,
+    onclick: async () => {
+      if (busy || !sales.length) return; busy = true; confirmBtn.textContent = 'Running…';
+      try { await confirmPayrollRun(sales, period); close(); } catch (e) { busy = false; confirmBtn.textContent = 'Confirm payroll'; toast(e.message || 'Payroll failed', 'error'); }
+    } }, 'Confirm payroll');
+  back.append(el('div', { class: 'max-w-5xl mx-auto px-4 sm:px-6 py-6 flex flex-col gap-5' },
+    el('div', { class: 'flex items-start justify-between gap-4 flex-wrap' },
+      el('div', {}, el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Office Staff · upfront payroll'),
+        el('h2', { class: 'text-2xl font-black' }, 'Run payroll — ' + period.label),
+        el('div', { class: 'text-xs text-muted-' }, stubs.length + ' rep' + (stubs.length === 1 ? '' : 's') + ' · ' + sales.length + ' commissionable account' + (sales.length === 1 ? '' : 's') + ' · ' + money(grand) + ' total')),
+      el('div', { class: 'flex items-center gap-2' },
+        el('button', { class: 'rounded-lg border px-4 py-2 text-sm font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: close }, 'Cancel'), confirmBtn)),
+    held.length ? el('div', { class: 'card px-4 py-2.5 text-xs', style: { borderColor: '#B45309' } }, held.length + ' commissionable sale' + (held.length === 1 ? '' : 's') + ' held: the FieldRoutes seller has no app account yet. They pay on the next run once the account is linked.') : null,
+    !stubs.length ? el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'Nothing commissionable yet — approve sales (Commissionable) on Upfront Sales first.') : null,
+    ...stubs.map(stubCard),
+    el('div', { class: 'text-[11px] text-muted-' }, 'Confirm stamps these accounts paid for ' + period.label + ' and saves a snapshot of every number above. One-time services then move to History; every other account moves to Pending Backend Lock and locks after 4 paid invoices.')));
+  document.body.append(back);
+}
+async function confirmPayrollRun(sales, period) {
+  if (typeof DEMO !== 'undefined' && DEMO) { toast('Demo mode — payroll not written', 'warn'); return; }
+  const now = new Date().toISOString();
+  // Snapshot first (inputs read the rows before they flip).
+  const byRep = new Map(); sales.forEach(s => { if (!byRep.has(s.rep_id)) byRep.set(s.rep_id, []); byRep.get(s.rep_id).push(s); });
+  const snaps = [...byRep.entries()].map(([rid, list]) => { const st = payrollRunStub(rid, list, period); return [rid, list,
+    { sales_pay: Math.round(st.salesPay * 100) / 100, total: Math.round(st.total * 100) / 100, accounts: list.length, revenue: Math.round(st.revenue * 100) / 100, extras: st.extras },
+    isPayInputsSnapshot(rid, st.prof, { lines: st.lines, upfront_pct: st.pct, upfront_mult: st.mult, source: 'sales_tab_run' })]; });
+  const ids = sales.map(s => s.id);
+  const { error } = await supabase.from('sales').update({ staged_for_payroll: false, payroll_processed_at: now, payroll_period_id: period.id }).in('id', ids);
+  if (error) throw error;
+  // One-time services have no backend: straight to History. Add-ons and plans wait for 4 paid invoices.
+  const oneTime = sales.filter(s => s.sale_kind !== 'upsell' && !(Number(s.contract_months) > 0)).map(s => s.id);
+  if (oneTime.length) {
+    const { error: e2 } = await supabase.from('sales').update({ lock_status: 'lock', audit_2_at: now, backend_payroll_processed_at: now, backend_payroll_period_id: period.id }).in('id', oneTime);
+    if (e2) toast('Paid, but one-time services did not move to History (' + e2.message + ')', 'warn');
+  }
+  for (const [rid, list, totals, inputs] of snaps) await recordPayRun('upfront', rid, period, list, totals, inputs);
+  if (typeof notifyPayrollRun === 'function') notifyPayrollRun(sales, period, 'upfront');
+  if (typeof logActivity === 'function') logActivity('payroll_processed', { detail: period.label + ' · ' + sales.length + ' accounts (Sales tab run)' });
+  toast('Payroll confirmed — ' + sales.length + ' accounts', 'success');
+  await refreshSalesData(); mountApp();
 }
