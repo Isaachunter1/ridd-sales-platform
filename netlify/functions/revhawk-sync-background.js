@@ -1817,7 +1817,8 @@ QUALIFY ROW_NUMBER() OVER (PARTITION BY fieldRoutes_paymentID ORDER BY updatedAt
         // Pricing minimums (autolog.pricing). The new lineup only: Pest / Rodent / Mole / Mosquito
         // 4 · 6 · 12 and Termite (annual). Legacy bundles, Sentricon, one-time services, add-ons
         // and renewals aren't checked — an auditor decides those.
-        const PR = Object.assign({ initial_min: 39, fee: 4.87, auto: false }, AL2.pricing || {});
+        const PR = Object.assign({ initial_min: 39, fee: 4.87 }, AL2.pricing || {});
+        PR.auto = PR.auto !== false;   // on unless switched off (per Isaac, Oct 15: under the minimum = the status IS Below Minimums)
         const PR_PLANS = Object.assign({ pest: [49, 69, 119], rodent: [49, 69, 119], mole: [69, 89, 139], mosquito: [69, 89, 139] }, PR.plans || {});
         const PR_TERM = Object.assign({ initial: 399, recurring: 29 }, PR.termite || {});
         // Renewals (per Isaac, Oct 15): initial minimum $0, recurring from the Loyalty pricing sheet.
@@ -1911,7 +1912,9 @@ WHERE a.fieldRoutes_statusText = 'Completed' AND a.fieldRoutes_dateCompleted NOT
           // and if it cancels while still pending it goes to Archived.
           // Charged upfront = the configured customer flag, OR a real payment since the sale (per Isaac, Oct 15).
           const upfront = _upfrontOf(r) || !!(paidSince.get(s.id) || {}).paid;
-          if (s.audit_status === 'pending' && !s.payroll_processed_at) { const bm = belowMinReason(r); if (bm != null) belowMin.set(s.id, bm); }
+          // Checked from the new-flow start (sales before it were sold on the old pricing).
+          const _pmFrom = /^\d{4}-\d{2}-\d{2}$/.test(String(AL2.auto_approve_from || '')) ? String(AL2.auto_approve_from) : '2026-10-12';
+          if (['pending', 'serviced', 'below_minimums'].includes(s.audit_status) && !s.payroll_processed_at && String(s.sold_date || '') >= _pmFrom) { const bm = belowMinReason(r); if (bm != null) belowMin.set(s.id, bm); }
           const upd = {};
           if (s.audit_status === 'pending' && !s.payroll_processed_at) {
             if (cancelled && (!serviced || upfront)) { upd.audit_status = 'cancelled'; upd.audited_at = stamp; upd.notes = ((s.notes || '') + (upfront && serviced ? ' · Auto: cancelled in CRM (charged upfront)' : ' · Auto: cancelled in CRM before service')).trim(); }
@@ -1919,10 +1922,18 @@ WHERE a.fieldRoutes_statusText = 'Completed' AND a.fieldRoutes_dateCompleted NOT
               // Below the pricing minimum → approved as Below Minimums (when that switch is on).
               const bm = belowMin.get(s.id);
               upd.audit_status = (PR.auto && bm) ? 'below_minimums' : 'serviced'; upd.audited_at = stamp;
+              if (upd.audit_status === 'below_minimums') upd.notes = ((s.notes || '') + ' · Auto: Below Minimums — ' + bm).trim();
             }
           }
+          // Already approved, not paid yet: Commissionable under a minimum → Below Minimums; an auto Below Minimums
+          // that's back at/above the minimums (pricing changed) → Commissionable. A manual call is left alone.
+          if (PR.auto && !s.payroll_processed_at && !upd.audit_status && belowMin.has(s.id) && _autoApproveOn(s)) {
+            const bm = belowMin.get(s.id);
+            if (s.audit_status === 'serviced' && bm) { upd.audit_status = 'below_minimums'; upd.notes = ((s.notes || '') + ' · Auto: Below Minimums — ' + bm).trim(); }
+            else if (s.audit_status === 'below_minimums' && !bm && /Auto: Below Minimums/.test(String(s.notes || ''))) { upd.audit_status = 'serviced'; upd.notes = ((s.notes || '') + ' · Auto: back at/above the pricing minimums').trim(); }
+          }
           const lock = s.lock_status || 'pending';
-          if (lock === 'pending' && s.payroll_processed_at && ['approved', 'serviced'].includes(upd.audit_status || s.audit_status)) {
+          if (lock === 'pending' && s.payroll_processed_at && ['approved', 'serviced', 'below_minimums'].includes(upd.audit_status || s.audit_status)) {   // Below Minimums locks the same way (it was stuck before)
             const ageDays = (today - (Date.parse(String(s.sold_date || '')) || today)) / 86400000;
             if (cancelled) { upd.lock_status = 'chargeback'; upd.audit_2_at = stamp; }
             else if (s.queue_type === 'd2d') {

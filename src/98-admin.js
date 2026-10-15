@@ -628,7 +628,7 @@ function adminConfigurations(part) {
       // price is a cent under these. Promotions change them, so they live here (autolog.pricing).
       sub('Pricing minimums'),
       ...(() => {
-        const PR = Object.assign({ initial_min: 39, fee: 4.87, auto: false }, AL.pricing || {});
+        const PR = Object.assign({ initial_min: 39, fee: 4.87 }, AL.pricing || {}); PR.auto = PR.auto !== false;
         const PL = Object.assign({ pest: [49, 69, 119], rodent: [49, 69, 119], mole: [69, 89, 139], mosquito: [69, 89, 139] }, PR.plans || {});
         const TM = Object.assign({ initial: 399, recurring: 29 }, PR.termite || {});
         const OT = Object.assign({ 'mosquito': [199, 99], 'pest': [199, 99], 'termite inspection': [199, 99], 'rodent': [249, 149], 'german roach': [299, 199], 'interior flea': [299, 199], 'vehicle': [199, 199] }, PR.one_time || {});
@@ -661,7 +661,7 @@ function adminConfigurations(part) {
             ...[0, 1].map(i => el('td', { class: 'px-2 py-1 text-right' }, money(OT[k][i], (n) => { const row = OT[k].slice(); row[i] = n; savePR({ one_time: Object.assign({}, OT, { [k]: row }) }, 'One Time ' + k + (i ? ' current' : ' new') + ' = $' + n); }))))))));
         return [
           row('Set Below Minimums automatically', sw(!!PR.auto, () => savePR({ auto: !PR.auto }, PR.auto ? 'auto off' : 'auto on')),
-            { desc: 'When auto-approve runs, a sale under any minimum here is approved as Below Minimums instead of Commissionable. Off = the reason still shows on the Sales tab row; an auditor decides.' }),
+            { desc: 'A sale under any minimum here is approved as Below Minimums instead of Commissionable (an approved one not yet paid flips too). Off = an auditor decides. Checked for sales from the auto-approve start date.' }),
           row('Initial minimum (base plans)', money(PR.initial_min, (n) => savePR({ initial_min: n }, 'initial = $' + n)), { desc: 'Changes with promotions. Applies to Pest, Rodent, Mole and Mosquito plans.' }),
           plansTable,
           row('Termite (annual)', [el('span', { class: 'text-[11px] text-muted-' }, 'initial'), money(TM.initial, (n) => savePR({ termite: Object.assign({}, TM, { initial: n }) }, 'termite initial = $' + n)),

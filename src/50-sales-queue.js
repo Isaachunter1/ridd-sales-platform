@@ -2260,7 +2260,7 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
           s.customer_number ? el('div', { class: 'tabular-nums', style: sub }, '#' + s.customer_number) : null),
         el('div', { style: clip },
           el('div', { style: { fontSize: '12px', ...clip } }, saleServiceWithAddOns(s, svcOf(s), ao, { ok, bad })),   // "Pest 6 + Mole + Rodent" (per Isaac, Oct 15)
-          s.crm_below_min ? el('div', { style: { ...sub, color: SALE_STATUS_COLOR.below_minimums, fontWeight: '700' }, title: 'Under the pricing minimum in Configurations → Pricing minimums: ' + s.crm_below_min }, '⚠ ' + s.crm_below_min) : null),
+          null),   /* below-minimum reason: the status says it (per Isaac, Oct 15) — the why is on the status tooltip */
         el('div', { class: 'font-semibold', style: { fontSize: '12px', ...clip } }, term),
         el('div', { class: 'text-muted-', style: { fontSize: '11px', ...clip }, title: src }, src || '—'),
         el('div', { class: 'tabular-nums', style: clip },
@@ -2278,7 +2278,7 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
           title: s.commission_split ? 'Commissionable ' + fmt.usd(s.revenue_amount) + ' of ' + fmt.usd(s.total_revenue) + ' on the account' : '' },
           fmt.usd0 ? fmt.usd0(s.revenue_amount) : fmt.usd(s.revenue_amount),
           s.commission_split && Number(s.total_revenue) > Number(s.revenue_amount) + 0.005 ? el('div', { class: 'text-[9px] font-normal text-muted-' }, 'of ' + fmt.usd(s.total_revenue)) : null),
-        el('div', { class: 'flex items-center gap-2', style: { minWidth: '0' } }, statusSelect(s.id), (s.crm_audit === 'failed' && typeof saleAuditChip === 'function') ? saleAuditChip(s) : null));
+        el('div', { class: 'flex items-center gap-2', style: { minWidth: '0' }, title: s.crm_below_min ? 'Under the pricing minimum: ' + s.crm_below_min : '' }, statusSelect(s.id), (s.crm_audit === 'failed' && typeof saleAuditChip === 'function') ? saleAuditChip(s) : null));
     }));
   // No overflow clipping on the card, so the frozen header sticks to the page scroll; narrow screens scroll sideways instead.
   return el('div', { class: 'card', style: narrow ? { overflowX: 'auto' } : {} }, table);
