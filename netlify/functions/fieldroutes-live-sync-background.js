@@ -291,24 +291,36 @@ exports.handler = async (event) => {
       }
     } catch (e) { console.warn('[fr-live] appointment refresh skipped:', e.message); }
 
-    // 3a-1b. Initial appointment date (per Isaac, Oct 15): the Sales tab's Initial date read "not scheduled"
-    // for same-day sales — RevHawk only has a new appointment after its next pass. Read it straight from
-    // FieldRoutes for the window's subscriptions and stamp crm_initial_appt_at (needs 20260921_sales_initial_appt.sql).
+    // 3a-1b. Initial = the first appointment on the plan BOOKED AFTER the sale (per Isaac, Oct 15) — any
+    // appointment (not cancelled) added at/after the subscription's dateAdded, earliest date wins. Read straight
+    // from FieldRoutes, since RevHawk only has a same-day appointment after a later pass. Stamps
+    // crm_initial_appt_at (20260921_sales_initial_appt.sql); the RevHawk sync applies the same rule later.
     try {
-      const withAppt = [...liveSubs.values()].filter(x => String(x.initialAppointmentID || '').trim() && String(x.initialAppointmentID) !== '0');
-      if (withAppt.length) {
-        const apptDay = new Map();
-        for (const part of chunk(withAppt.map(x => String(x.initialAppointmentID)), 500)) {
-          const got = await fr('appointment/get', { appointmentIDs: part.map(Number) });
-          const list = Array.isArray(got.appointments) ? got.appointments : Object.values(got.appointments || {});
-          list.forEach(a => { if (a && a.date) apptDay.set(String(a.appointmentID), String(a.date).slice(0, 10)); });
+      const subsW = [...liveSubs.values()];
+      if (subsW.length) {
+        const appts = [];
+        for (const part of chunk(subsW.map(x => String(x.subscriptionID)), 500)) {
+          const found = await fr('appointment/search', { subscriptionIDs: part.map(Number), dateAdded: { operator: '>=', value: from } });
+          for (const ap of chunk((found.appointmentIDs || []).map(String), 500)) {
+            const got = await fr('appointment/get', { appointmentIDs: ap.map(Number) });
+            appts.push(...(Array.isArray(got.appointments) ? got.appointments : Object.values(got.appointments || {})));
+          }
         }
-        const { data: rowsA } = await supabase.from('sales').select('id, crm_subscription_id, crm_initial_appt_at').in('crm_subscription_id', withAppt.map(x => String(x.subscriptionID)));
-        for (const r of (rowsA || [])) {
-          const sub = liveSubs.get(String(r.crm_subscription_id)); const day = sub && apptDay.get(String(sub.initialAppointmentID));
-          if (!day || String(r.crm_initial_appt_at || '') === day) continue;
-          const { error } = await supabase.from('sales').update({ crm_initial_appt_at: day }).eq('id', r.id);
-          if (error) { console.warn('[fr-live] initial appointment stamp skipped:', error.message); break; }
+        const firstAfter = new Map();
+        for (const x of subsW) {
+          const added = String(x.dateAdded || '').slice(0, 19);
+          const mine = appts.filter(a => String(a.subscriptionID) === String(x.subscriptionID) && String(a.status) !== '-1' && a.date && !String(a.date).startsWith('0000')
+            && String(a.dateAdded || '').slice(0, 19) >= added).map(a => String(a.date).slice(0, 10)).sort();
+          if (mine.length) firstAfter.set(String(x.subscriptionID), mine[0]);
+        }
+        if (firstAfter.size) {
+          const { data: rowsA } = await supabase.from('sales').select('id, crm_subscription_id, crm_initial_appt_at').in('crm_subscription_id', [...firstAfter.keys()]);
+          for (const r of (rowsA || [])) {
+            const day = firstAfter.get(String(r.crm_subscription_id));
+            if (!day || String(r.crm_initial_appt_at || '').slice(0, 10) === day) continue;
+            const { error } = await supabase.from('sales').update({ crm_initial_appt_at: day }).eq('id', r.id);
+            if (error) { console.warn('[fr-live] initial appointment stamp skipped:', error.message); break; }
+          }
         }
       }
     } catch (e) { console.warn('[fr-live] initial appointment dates skipped:', e.message); }

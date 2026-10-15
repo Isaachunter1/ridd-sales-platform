@@ -342,7 +342,10 @@ exports.handler = async (event) => {
     //    the add-on's day — Pending → crm_initial_appt_at, Completed → crm_serviced_at.
     log.addOnAppts = 0;
     try {
-      const { data: ups } = await supabase.from('sales').select('id, parent_subscription_id, sold_date, crm_initial_appt_at, crm_serviced_at, crm_initial_status')
+      // When the add-on went on, to the second where this run saw its ticket line (dateCreated); else its day.
+      const itemAt = new Map();
+      for (const it of items) { const k = String(it.subscriptionID || '') + '|' + String(it.description || '').trim().toLowerCase(); const t = String(it.dateCreated || '').slice(0, 19); if (t && (!itemAt.has(k) || t < itemAt.get(k))) itemAt.set(k, t); }
+      const { data: ups } = await supabase.from('sales').select('id, parent_subscription_id, sold_date, crm_initial_appt_at, crm_serviced_at, crm_initial_status, crm_subscription')
         .eq('sale_kind', 'upsell').gte('sold_date', from).not('parent_subscription_id', 'is', null);
       const open = (ups || []).filter(u => !u.crm_serviced_at);
       const subsU = [...new Set(open.map(u => String(u.parent_subscription_id)))];
@@ -353,8 +356,10 @@ exports.handler = async (event) => {
         for (const ap of chunk(aids, ID_BATCH)) { const got = await fr('appointment/get', { appointmentIDs: ap.map(Number) }); appts.push(...listOf(got, 'appointments')); }
       }
       for (const u of open) {
-        const mine = appts.filter(x => String(x.subscriptionID) === String(u.parent_subscription_id) && String(x.dateAdded || '').slice(0, 10) >= String(u.sold_date || '').slice(0, 10)
-          && ['0', '1'].includes(String(x.status))).sort((x, y) => String(x.date || '').localeCompare(String(y.date || '')));
+        // Booked AFTER the add-on was sold (per Isaac, Oct 15): appointment dateAdded at/after the add-on's own timestamp.
+        const soldTs = itemAt.get(String(u.parent_subscription_id) + '|' + String(u.crm_subscription || '').trim().toLowerCase()) || String(u.sold_date || '').slice(0, 10);
+        const mine = appts.filter(x => String(x.subscriptionID) === String(u.parent_subscription_id) && String(x.dateAdded || '').slice(0, 19) >= soldTs
+          && String(x.status) !== '-1' && x.date && !String(x.date).startsWith('0000')).sort((x, y) => String(x.date || '').localeCompare(String(y.date || '')));
         const first = mine[0]; if (!first) continue;
         const day = String(first.date || '').slice(0, 10);
         const patch = String(first.status) === '1' ? { crm_serviced_at: day, crm_initial_status: 'Completed' } : { crm_initial_appt_at: day, crm_initial_status: 'Pending' };

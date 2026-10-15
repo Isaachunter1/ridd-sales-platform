@@ -224,6 +224,17 @@ apptSched AS (
   WHERE fieldRoutes_status != '-1' AND fieldRoutes_date IS NOT NULL AND fieldRoutes_date NOT LIKE '0000%'
   GROUP BY 1
 ),
+apptAfter AS (
+  -- Initial = the first appointment on the plan BOOKED AFTER the sale (per Isaac, Oct 15):
+  -- any appointment (not cancelled) added at/after the subscription's dateAdded, earliest date wins.
+  -- Covers plans whose initialAppointmentID was never set or was swapped.
+  SELECT a.fieldRoutes_subscriptionID AS sid, MIN(NULLIF(LEFT(a.fieldRoutes_date,10),'0000-00-00')) AS appt_date
+  FROM \`${PROJECT}.${DATASET}.FieldRoutesAppointment\` a
+  JOIN sub ON sub.fieldRoutes_subscriptionID = a.fieldRoutes_subscriptionID
+  WHERE a.fieldRoutes_status != '-1' AND a.fieldRoutes_date IS NOT NULL AND a.fieldRoutes_date NOT LIKE '0000%'
+    AND LEFT(a.fieldRoutes_dateAdded,19) >= LEFT(sub.fieldRoutes_dateAdded,19)
+  GROUP BY 1
+),
 pay AS (
   -- Successful payments (status 1, money actually applied) per customer —
   -- the commissionable-date rule (per Isaac) needs "first payment received
@@ -297,7 +308,7 @@ SELECT
   CASE WHEN s.fieldRoutes_initialStatusText='Completed'
        THEN NULLIF(LEFT(s.fieldRoutes_dateAdded,10),'0000-00-00') END AS initial_service,
   appt.serviced_date AS initial_serviced_date,
-  apptSched.appt_date AS initial_appt_date,
+  COALESCE(apptAfter.appt_date, apptSched.appt_date) AS initial_appt_date,
   -- First successful payment on/after the sale date (commissionable-date rule).
   (SELECT MIN(p.paid_on) FROM pay p WHERE p.cid = s.fieldRoutes_customerID AND p.paid_on >= LEFT(s.fieldRoutes_dateAdded,10)) AS first_paid_date,
   s.fieldRoutes_source AS subscription_source,
@@ -353,6 +364,7 @@ LEFT JOIN cxl   ON cxl.sid   = s.id
 LEFT JOIN cxf   ON cxf.sid   = s.id
 LEFT JOIN appt  ON appt.aid  = s.fieldRoutes_initialAppointmentID
 LEFT JOIN apptSched ON apptSched.aid = s.fieldRoutes_initialAppointmentID
+LEFT JOIN apptAfter ON apptAfter.sid = s.fieldRoutes_subscriptionID
 LEFT JOIN sigsub  ON sigsub.sid  = s.fieldRoutes_subscriptionID
 LEFT JOIN sigcust ON sigcust.cid = s.fieldRoutes_customerID
 WHERE s.fieldRoutes_customerID IS NOT NULL AND s.fieldRoutes_customerID != ''
@@ -1586,7 +1598,7 @@ exports.handler = async (event) => {
             (Number(s.crm_completed_services) || 0) !== (lc.completed || 0) ||
             (s.crm_days_past_due == null ? null : Number(s.crm_days_past_due)) !== lc.dpd ||
             (s.crm_balance == null ? null : Number(s.crm_balance)) !== lc.balance);
-          const apptChanged = _apptCol && (_apptNow.get(s.id) || null) !== (lc.appt_at || null);
+          const apptChanged = _apptCol && !!lc.appt_at && (_apptNow.get(s.id) || null) !== lc.appt_at;   // a snapshot without the appointment yet never blanks a date the live pull stamped
           const pifChanged = !!lc.cardKnown && (!!s.paid_in_full) !== lc.pif;
           const commChanged = !!lc.cardKnown && (!!s.is_commercial) !== !!lc.commercial;
           const flagNow = _hasFlagV(lc.best);
@@ -1603,7 +1615,7 @@ exports.handler = async (event) => {
           const upd = { crm_status: status, crm_contract_value: cv, crm_subscription: subName, crm_checked_at: stamp };
           if (_lifecycleCols) { upd.crm_serviced_at = lc.serviced_at; upd.crm_completed_services = lc.completed; upd.crm_days_past_due = lc.dpd; upd.crm_balance = lc.balance; }
           if (_lifecycleCols && _paidCol) upd.crm_first_paid_at = lc.first_paid_at;
-          if (_apptCol) upd.crm_initial_appt_at = lc.appt_at;
+          if (_apptCol && lc.appt_at) upd.crm_initial_appt_at = lc.appt_at;
           if (_eligCols && lc.best) { upd.crm_initial_status = String(lc.best.initial_status || '').trim() || 'None'; upd.crm_autopay = (() => { const a = String(lc.best.customer_auto_pay || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); })(); }
           if (_agreementCols) { upd.crm_contract_signed_at = lc.signed_at; upd.crm_contract_state = lc.contract_state; }
           if (pifChanged) upd.paid_in_full = lc.pif;

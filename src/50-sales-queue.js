@@ -2068,8 +2068,11 @@ function salesFeed(rows, { isAdmin = false } = {}) {
         // One line (per Isaac, Oct 15 — there's room): NAME | #id | service | add-ons | term | source | initial; sold date + time under the name.
         el('div', { style: { display: 'grid', gridTemplateColumns: 'max-content auto max-content auto max-content auto minmax(0, max-content) auto max-content auto minmax(0, max-content) auto max-content minmax(0, 1fr)', alignItems: 'baseline', minWidth: '0', overflow: 'hidden' } },
           cell('1', 1, el('span', { class: 'font-black uppercase', style: { fontSize: '15px', letterSpacing: '.02em' } }, rep ? rep.full_name : (s.customer_name ? '—' : 'Rep')), { minWidth: 'max-content' }),
-          cell('2', 1, s.customer_number ? sep() : null),
-          cell('3', 1, s.customer_number ? el('span', { class: 'tabular-nums text-muted-', style: { fontSize: '12px' }, title: s.customer_name || '' }, '#' + s.customer_number) : null, { minWidth: 'max-content' }),
+          cell('2', 1, (s.customer_number || s.customer_name) ? sep() : null),
+          // Customer name beside the id (per Isaac, Oct 15).
+          cell('3', 1, (s.customer_number || s.customer_name) ? el('span', { style: { fontSize: '12px' } },
+            s.customer_number ? el('span', { class: 'tabular-nums text-muted-' }, '#' + s.customer_number) : null,
+            s.customer_name ? el('span', { class: 'font-medium', style: { marginLeft: s.customer_number ? '6px' : '0' } }, s.customer_name) : null) : null, { minWidth: 'max-content' }),
           cell('4', 1, addOnOnly ? null : sep()),
           cell('5', 1, addOnOnly ? null : el('span', { class: 'font-semibold', style: { fontSize: '13px' } }, svcName), { minWidth: 'max-content' }),
           cell('6', 1, sep()),
