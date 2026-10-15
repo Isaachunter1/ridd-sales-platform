@@ -1109,8 +1109,9 @@ function viewIndicators() {
           }, 0);
           const btn = el('button', {
             class: 'relative rounded-xl px-2.5 py-1 text-[11px] font-semibold border transition hover:brightness-95 shrink-0',
-            style: { borderColor: nonDefault ? 'var(--accent)' : 'var(--border-2)', color: 'var(--text)' },
-            title: 'Filters — saved views, Metric, Exclude, Group, Office, Team, Tier',
+            // Active filters / a preset (per Isaac, Oct 15): the button itself turns orange — no count badge.
+            style: nonDefault ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)', color: 'var(--text)' },
+            title: nonDefault ? 'Filters are on (' + nonDefault + ') — click to see or change them' : 'Filters — saved views, Metric, Exclude, Group, Office, Team, Tier',
             onclick: (e) => {
               e.stopPropagation();
               const open = panel.style.display === 'block';
@@ -1120,10 +1121,6 @@ function viewIndicators() {
             },
           },
             'Filters',
-            nonDefault ? el('span', {
-              class: 'absolute tabular-nums',
-              style: { top: '-5px', right: '-5px', minWidth: '14px', height: '14px', padding: '0 3px', borderRadius: '0', background: 'var(--accent)', color: '#3A1D12', fontSize: '9px', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: '1' },
-            }, String(nonDefault)) : null,
           );
           if (state._indFiltersOpen) bindCloser();                 // panel restored open after a filter change re-render
           clampDropdownPanel(panel);
@@ -6865,7 +6862,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
             document.removeEventListener('mousedown', closer);
           }), 0);
         },
-      }, 'Filters' + (_activeN ? ' · ' + _activeN : ''));
+      }, 'Filters');   // orange when on, no count (per Isaac, Oct 15)
       if (state._trendFiltersOpen) setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
         if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
         if (wrap.contains(ev.target)) return;

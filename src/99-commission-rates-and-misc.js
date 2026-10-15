@@ -1032,7 +1032,7 @@ async function auditSale(saleId, status) {
     }
     const sale = state.allSales.find(s => s.id === saleId);
     logActivity('audit', { sale_id: saleId, customer_name: sale?.customer_name, old_status: sale?.audit_status, new_status: status });
-    toast('Sale ' + ((typeof SALE_STATUS_LABEL !== 'undefined' && SALE_STATUS_LABEL[status]) || status.replace('_', ' ')), 'success');
+    /* no status toast — the row's colour says it (per Isaac, Oct 15) */
     saveDemoData();
     mountApp();
     return;
@@ -1050,7 +1050,7 @@ async function auditSale(saleId, status) {
       staged_at: willStage ? new Date().toISOString() : null,
     }).eq('id', saleId);
     if (error) throw error;
-    toast('Sale ' + ((typeof SALE_STATUS_LABEL !== 'undefined' && SALE_STATUS_LABEL[status]) || status.replace('_', ' ')), 'success');
+    /* no status toast — the row's colour says it (per Isaac, Oct 15) */
     // Slack DM to the sale's rep (their ⚙ My Settings opt-in decides
     // whether it sends) — first event wired to per-user notifications.
     try {
@@ -1694,7 +1694,7 @@ function adminReps() {
           document.removeEventListener('mousedown', closer);
         }), 0);
       },
-    }, 'Filters' + (_fActive ? ' · ' + _fActive : ''));
+    }, 'Filters');   // orange when on, no count (per Isaac, Oct 15)
     if (state._adminUserFiltersOpen) setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
       if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
       if (wrap.contains(ev.target)) return;

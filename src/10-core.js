@@ -1484,13 +1484,9 @@ function subscribeMySalesRealtime() {
         const key = row.id + ':' + row.audit_status + ':' + (row.staged_for_payroll ? 1 : 0);
         if (seen.has(key)) return;
         seen.add(key);
-        const who = row.customer_name || 'your sale';
-        if (row.staged_for_payroll) {
-          toast(who + ' just staged for payroll', 'success');
-        } else if (row.audit_status && row.audit_status !== 'pending') {
-          const nice = String(row.audit_status).replace(/_/g, ' ');
-          toast((row.audit_status === 'cancelled' || row.audit_status === 'nsf' ? '⚠ ' : '✅ ') + who + ' — audit: ' + nice, row.audit_status === 'cancelled' ? 'warn' : 'success');
-        } else return;
+        // No pop-ups (per Isaac, Oct 15 — the syncs move statuses all day, so reps were buried in
+        // "audit: below minimums" toasts). The rep's lists just refresh quietly.
+        if (!row.staged_for_payroll && !(row.audit_status && row.audit_status !== 'pending')) return;
         // Refresh the rep's own lists so the row they're looking at updates.
         refreshSalesData().then(() => { if (INSIDE_SALES_TAB_KEYS.has(state.view)) mountApp(); }).catch(() => {});
       })
