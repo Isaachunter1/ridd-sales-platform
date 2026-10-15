@@ -3383,7 +3383,7 @@ function openLandingTileDrill(title, subtitle, rows, opts) {
 // Peak value per account (per Isaac + CSO, Oct 15): what the account was worth from AFTER its initial service
 // was completed, before any later reduction (a rate lowered to save the customer, a plan adjusted down).
 // customer # + current plan name → peak contract value, from the RevHawk sync's indicators/peak-values.json
-// (FieldRoutes' change history, captured since 9/14/26). Only accounts below their peak are listed.
+// (FieldRoutes' change history — whatever RevHawk has on file; the 2026 backfill flows in automatically).
 let _cardPeak = { file: null, map: new Map() };
 let _peakFile = null, _peakFileAt = 0;
 let _peakFileCb = null;   // the open card re-renders when the file lands
@@ -3392,8 +3392,12 @@ function _loadPeakFile(cb) {
   if (Date.now() - _peakFileAt < 10 * 60000 || typeof supabase === 'undefined' || !supabase || (typeof DEMO !== 'undefined' && DEMO)) return;
   _peakFileAt = Date.now();
   Promise.resolve(supabase.storage.from('reporting').download('indicators/peak-values.json?t=' + Date.now()))
-    .then(async ({ data }) => { if (!data) return; const j = JSON.parse(await data.text()); if (j && j.peaks) { _peakFile = j; try { if (_peakFileCb) _peakFileCb(); } catch (e) { /* card closed */ } } })
+    .then(async ({ data }) => { if (!data) return; const j = JSON.parse(await data.text()); if (j && j.peaks) { _peakFile = j; try { if (_peakFileCb) _peakFileCb(); } catch (e) { /* card closed */ } try { if (typeof mountApp === 'function') mountApp(); } catch (e) { /* the leaderboard's Peak column fills in */ } } })
     .catch(() => { /* no file yet — Peak reads as today's value */ });
+}
+function _peakSinceLabel() {
+  const d = _peakFile && _peakFile.changelog_since;
+  return d && typeof fmt !== 'undefined' && fmt.dateShortYear ? fmt.dateShortYear(String(d).slice(0, 10)) : '9/14/26';
 }
 function _cardPeakIdx() {
   _loadPeakFile();
@@ -3524,7 +3528,7 @@ function openIndicatorRepCard(rep, allReps = []) {
     scopedStats = [
       { key: 'sales',      label: 'Sales',      value: fmt.int(count) },
       { key: 'revenue',    label: cardRevMode === 'new' ? 'New Revenue' : cardRevMode === 'renewal' ? 'Renewal Revenue' : cardRevMode === 'peak' ? 'Peak Revenue' : 'Revenue', value: fmt.usd0(revAmt), sub: revToggle,
-        title: cardRevMode === 'peak' ? 'Peak ' + fmt.usd0(revAmt) + ' vs ' + fmt.usd0(_nowAmt) + ' today \u2014 ' + fmt.usd0(Math.max(0, revAmt - _nowAmt)) + ' lowered since the initial was completed (rate cuts to save customers, downgrades) \u00b7 change history from 9/14/26' : 'Sales sold in this window · New = renewal-source sales out (the leaderboard default for Office Staff) · Production/Day follows this toggle' },
+        title: cardRevMode === 'peak' ? 'Peak ' + fmt.usd0(revAmt) + ' vs ' + fmt.usd0(_nowAmt) + ' today \u2014 ' + fmt.usd0(Math.max(0, revAmt - _nowAmt)) + ' lowered since the initial was completed (rate cuts to save customers, downgrades) \u00b7 change history from ' + _peakSinceLabel() : 'Sales sold in this window · New = renewal-source sales out (the leaderboard default for Office Staff) · Production/Day follows this toggle' },
       { key: 'revPerDay',  label: 'Production/Day',
         value: _mo.revPerDay != null && cardRevMode === 'total' ? fmt.usd0(_mo.revPerDay) + (_mo.acctsPerDay != null ? ' / ' + Math.round(_mo.acctsPerDay) : '') : revDays > 0 ? fmt.usd0(revAmt / revDays) + ' / ' + Math.round(revSales.length / revDays) : '—' },   // whole accounts/day — decimals clipped the tile (per Isaac)
       { key: 'acv',        label: 'ACV',        value: fmt.usd(acv) },
@@ -4785,7 +4789,7 @@ function openIndicatorRepCard(rep, allReps = []) {
           td(pctS(r.cut, r.pk), 1, { color: 'var(--text-muted)' }))),
           el('tr', { class: 'border-t', style: { borderColor: 'var(--text)' } }, td('Total', 0, { fontWeight: '800' }), td(''), td(''),
             td(fmt.usd0(T.pk), 1, { fontWeight: '800' }), td(fmt.usd0(T.now), 1, { fontWeight: '800' }), td('\u2212' + fmt.usd0(T.cut), 1, { fontWeight: '800', color: '#B91C1C' }), td(pctS(T.cut, T.pk), 1))))) : null,
-      el('div', { class: 'px-3 py-2 text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Peak = the account\u2019s value once its initial service was completed, before any later change (a rate lowered to save the customer, a plan adjusted down). From FieldRoutes\u2019 change history, which RevHawk has captured since 9/14/26 \u2014 reductions before then aren\u2019t visible yet.'));
+      /* (description line removed per Isaac, Oct 15) */ null);
   }
   function renderBody() {
     applyScope();  // refresh scopedRep / scopedAllRepRecords / scopedStats

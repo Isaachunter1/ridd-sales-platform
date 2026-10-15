@@ -2028,46 +2028,69 @@ WHERE a.fieldRoutes_statusText = 'Completed' AND a.fieldRoutes_dateCompleted NOT
     try {
       // Once a day is plenty (the query scans ~2 GB of change history) — skip when the file is under 20 hours old.
       let _pkFresh = false;
-      try { const { data: pf } = await supabase.storage.from('reporting').download('indicators/peak-values.json'); if (pf) { const j = JSON.parse(await pf.text()); _pkFresh = !!j.at && (Date.now() - Date.parse(j.at)) < 20 * 3600000; } } catch (e) { /* first run */ }
+      const AL_PK_FORCE = false;   // flip to true for one deploy to rebuild immediately (e.g. right after a backfill)
+      try { const { data: pf } = await supabase.storage.from('reporting').download('indicators/peak-values.json'); if (pf) { const j = JSON.parse(await pf.text()); _pkFresh = !!j.at && (Date.now() - Date.parse(j.at)) < 20 * 3600000 && (!AL_PK_FORCE); } } catch (e) { /* first run */ }
       if (_pkFresh) throw new Error('fresh');
       const tokPk = await getAccessToken();
       const TP = (n) => '`' + PROJECT + '.' + DATASET + '.' + n + '`';
+      // Ready for RevHawk's 2026 backfill of the change log (per Isaac, Oct 15): nothing here assumes a start date —
+      // whatever history is in the table is used, older rows that only carry the text `notes` are parsed too, and a
+      // re-delivered change (same changeID) counts once. The earliest change on file is published with the map.
+      // Timeline per plan, walked BACKWARDS from today's values: each change's "old" restores the earlier state.
+      // Value tracked = recurring charge × services per year (so a frequency downgrade — bi-monthly → quarterly at
+      // the same charge — is a reduction too). Only states in effect AFTER the initial service was completed count.
       const r = await runQuery(tokPk, `
 WITH done AS (
-  -- When the plan's initial service was completed (its first completed appointment).
   SELECT fieldRoutes_subscriptionID AS sid, MIN(LEFT(fieldRoutes_dateCompleted, 19)) AS done_at FROM ${TP('FieldRoutesAppointment')}
   WHERE fieldRoutes_statusText = 'Completed' AND fieldRoutes_dateCompleted NOT LIKE '0000%' AND fieldRoutes_dateCompleted != ''
     AND fieldRoutes_subscriptionID NOT IN ('', '0')
   GROUP BY 1
 ),
--- Only changes AFTER the initial was completed; the value in effect at completion is the "old" of the first one.
 ch AS (
-  SELECT c.referenceID AS sid, SAFE_CAST(JSON_VALUE(e, '$.old') AS FLOAT64) AS o, SAFE_CAST(JSON_VALUE(e, '$.new') AS FLOAT64) AS n
-  FROM ${TP('FieldRoutesChangelog')} c, UNNEST(JSON_QUERY_ARRAY(c.notesJson)) e
+  SELECT c.referenceID AS sid, c.changeID AS cid_, LEFT(c.dateChanged, 19) AS at, JSON_VALUE(e, '$.key') AS k, JSON_VALUE(e, '$.old') AS o
+  FROM ${TP('FieldRoutesChangelog')} c, UNNEST(JSON_QUERY_ARRAY(COALESCE(c.notesJson, SAFE.PARSE_JSON(c.notes)))) e
   JOIN done ON done.sid = c.referenceID
-  WHERE c.classID = 7 AND JSON_VALUE(e, '$.key') = 'recurringCharge' AND LEFT(c.dateChanged, 19) > done.done_at
+  WHERE c.classID = 7 AND JSON_VALUE(e, '$.key') IN ('recurringCharge', 'annualRecurringServices') AND LEFT(c.dateChanged, 19) > done.done_at
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY c.referenceID, c.changeID, JSON_VALUE(e, '$.key') ORDER BY c.ingestedAt DESC) = 1
 ),
-mx AS (SELECT sid, MAX(GREATEST(IFNULL(o, 0), IFNULL(n, 0))) AS peak_rec FROM ch GROUP BY sid),
 sub AS (
-  SELECT fieldRoutes_subscriptionID AS sid, fieldRoutes_customerID AS cid, fieldRoutes_serviceType AS svc,
-    SAFE_CAST(fieldRoutes_recurringCharge AS FLOAT64) AS rec, SAFE_CAST(fieldRoutes_contractValue AS FLOAT64) AS cv,
-    SAFE_CAST(fieldRoutes_initialServiceTotal AS FLOAT64) AS init
-  FROM ${TP('FieldRoutesSubscription')} WHERE fieldRoutes_subscriptionID IN (SELECT sid FROM mx)
+  SELECT fieldRoutes_subscriptionID AS sid, fieldRoutes_customerID AS cust, fieldRoutes_serviceType AS svc,
+    SAFE_CAST(fieldRoutes_recurringCharge AS FLOAT64) AS rec, SAFE_CAST(fieldRoutes_annualRecurringServices AS FLOAT64) AS ars,
+    SAFE_CAST(fieldRoutes_contractValue AS FLOAT64) AS cv, SAFE_CAST(fieldRoutes_initialServiceTotal AS FLOAT64) AS init
+  FROM ${TP('FieldRoutesSubscription')} WHERE fieldRoutes_subscriptionID IN (SELECT DISTINCT sid FROM ch)
   QUALIFY ROW_NUMBER() OVER (PARTITION BY fieldRoutes_subscriptionID ORDER BY fieldRoutes_dateUpdated DESC, updatedAt DESC) = 1
 )
-SELECT sub.cid, sub.svc, sub.rec, sub.cv, sub.init, mx.peak_rec FROM sub JOIN mx USING (sid)
-WHERE mx.peak_rec > IFNULL(sub.rec, 0) + 0.009 AND IFNULL(sub.rec, 0) > 0 AND IFNULL(sub.cv, 0) > 0`, { compact: true });
+SELECT sub.sid, sub.cust, sub.svc, sub.rec, sub.ars, sub.cv, sub.init, ch.at, ch.cid_, ch.k, ch.o
+FROM ch JOIN sub USING (sid)
+ORDER BY sub.sid, ch.at DESC, ch.cid_ DESC`, { compact: true });
+      const r2 = await runQuery(tokPk, `SELECT CAST(MIN(dateChangedDate) AS STRING) AS since, COUNT(*) AS n FROM ${TP('FieldRoutesChangelog')} WHERE classID = 7`, { compact: true });
+      const histSince = (((r2 && r2.objects) || [])[0] || {}).since || null;
       const peaks = {};
       const put = (k, v) => { v = Math.round(v * 100) / 100; if (v > (peaks[k] || 0)) peaks[k] = v; };
-      for (const x of ((r && r.objects) || [])) {
-        const init = Math.max(0, Number(x.init) || 0), cv = Number(x.cv) || 0, rec = Number(x.rec) || 0, pr = Number(x.peak_rec) || 0;
-        const peak = init + Math.max(0, cv - init) * (pr / rec);
-        if (peak > cv + 0.5) put(String(x.cid) + '|' + String(x.svc || '').trim().toLowerCase(), peak);
+      const bySid = new Map();
+      for (const x of ((r && r.objects) || [])) { const k = String(x.sid); (bySid.get(k) || bySid.set(k, []).get(k)).push(x); }
+      for (const rows of bySid.values()) {
+        const h = rows[0];
+        const cv = Number(h.cv) || 0, init = Math.max(0, Number(h.init) || 0);
+        let rec = Number(h.rec) || 0, ars = Number(h.ars) || 0;
+        if (cv <= 0 || rec <= 0) continue;
+        if (!(ars > 0)) ars = 1;   // unknown frequency: compare the charge alone
+        const nowAnnual = rec * ars;
+        let peakAnnual = nowAnnual;
+        for (const c of rows) {   // newest → oldest: undo each change
+          const o = Number(c.o);
+          if (!isFinite(o) || o <= 0) continue;
+          if (c.k === 'recurringCharge') rec = o; else if (c.k === 'annualRecurringServices') ars = o;
+          peakAnnual = Math.max(peakAnnual, rec * ars);
+        }
+        if (peakAnnual <= nowAnnual + 0.01) continue;
+        const peak = init + Math.max(0, cv - init) * (peakAnnual / nowAnnual);
+        if (peak > cv + 0.5) put(String(h.cust) + '|' + String(h.svc || '').trim().toLowerCase(), peak);
       }
       // (The value frozen at sale isn't used: that's before the initial — per Isaac, peak starts at completion.)
       const sbP = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
       await sbP.storage.from('reporting').upload('indicators/peak-values.json',
-        Buffer.from(JSON.stringify({ at: new Date().toISOString(), changelog_since: '2026-09-14', peaks })),
+        Buffer.from(JSON.stringify({ at: new Date().toISOString(), changelog_since: histSince, peaks })),
         { contentType: 'application/json', upsert: true });
       console.log('[revhawk-sync] peak values: ' + Object.keys(peaks).length + ' account(s) below their peak');
     } catch (pkErr) { if (String((pkErr && pkErr.message) || '') !== 'fresh') console.warn('[revhawk-sync] peak values skipped:', String((pkErr && pkErr.message) || pkErr).slice(0, 200)); }
