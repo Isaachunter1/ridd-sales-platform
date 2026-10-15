@@ -1986,6 +1986,10 @@ function salesFeedAddOnsPull() {
   Promise.resolve(supabase.rpc('tv_add_ons', { since: SALES_FEED_START })).then(({ data, error }) => {
     if (!error && Array.isArray(data)) { state._tvAddOns = data; if (state.view && /sales/.test(state.view)) mountApp(); }
   }).catch(() => { /* falls back to state.addOns */ });
+  // Today's sales' sold time: the live pull's feed (same one the TV reads) until the snapshot has them.
+  Promise.resolve(supabase.from('app_settings').select('value').eq('key', 'crm_live_recent').maybeSingle()).then(({ data }) => {
+    const v = data && data.value; if (v && Array.isArray(v.rows) && (!state._crmLiveRecent || state._crmLiveRecent.at !== v.at)) state._crmLiveRecent = v;
+  }).catch(() => { /* snapshot time only */ });
 }
 function saleAddOnsFor(sale) {
   const all = Array.isArray(state._tvAddOns) ? state._tvAddOns : (Array.isArray(state.addOns) ? state.addOns : []);
@@ -2018,6 +2022,19 @@ function saleInitialDateNode(s, small) {
   if (sched) { const past = sched < new Date().toISOString().slice(0, 10); return el('span', { class: cls, title: (past ? 'Initial appointment was scheduled for ' + sched + ' but is not marked completed in FieldRoutes' : 'Initial appointment scheduled for ' + sched) + ' · ' + c.why, style: past ? { color: '#B45309' } : {} }, (small ? 'INITIAL ' : '') + (past ? '⚠ ' : '\u{1F4C5} ') + fmt.dateShortYear(sched)); }
   return el('span', { class: cls, title: 'No initial appointment on the subscription yet · ' + c.why, style: { color: 'var(--text-subtle)' } }, (small ? 'INITIAL ' : '') + 'not scheduled');
 }
+// Sold date + time (per Isaac, Oct 15). The CRM snapshot's sold_at is FieldRoutes' dateAdded on the company
+// clock (UTC−7 year-round, same as the TV board); shown in Mountain time. Falls back to the date alone.
+let _soldAtIdx = { src: null, map: null };
+function saleSoldWhen(s) {
+  const rows = state.reportingSubscriptions || [];
+  if (_soldAtIdx.src !== rows) { const m = new Map(); for (const r of rows) if (r && r.subscription_id != null && r.sold_at) m.set(String(r.subscription_id), r.sold_at); _soldAtIdx = { src: rows, map: m }; }
+  const live = state._crmLiveRecent && Array.isArray(state._crmLiveRecent.rows) ? state._crmLiveRecent.rows.find(x => String(x.subscriptionId) === String(s.crm_subscription_id || '')) : null;
+  const raw = (live && live.soldAt) || (s.crm_subscription_id != null ? _soldAtIdx.map.get(String(s.crm_subscription_id)) : null);
+  const m = String(raw || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+  if (!m) return fmt.dateShortYear(s.sold_date);
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4] + 7, +m[5]));
+  try { return fmt.dateShortYear(s.sold_date) + ' \u00b7 ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Denver' }) + ' MT'; } catch (e) { return fmt.dateShortYear(s.sold_date); }
+}
 function salesFeed(rows, { isAdmin = false } = {}) {
   salesFeedAddOnsPull();
   const sep = () => el('span', { style: { color: 'var(--border-2)', padding: '0 9px' } }, '|');
@@ -2045,19 +2062,22 @@ function salesFeed(rows, { isAdmin = false } = {}) {
         style: { gridTemplateColumns: 'minmax(0, 1fr) auto auto', borderTop: '1px solid var(--border)' },
         onclick: (e) => { if (e.target.closest('select, button, input, textarea, a')) return; openNewSaleModal(null, s); },
       },
-        el('div', { style: { display: 'grid', gridTemplateColumns: 'max-content auto max-content auto max-content auto max-content auto minmax(0, 1fr)', alignItems: 'baseline', minWidth: '0', overflow: 'hidden' } },
+        // One line (per Isaac, Oct 15 — there's room): NAME | #id | service | add-ons | term | source | initial; sold date + time under the name.
+        el('div', { style: { display: 'grid', gridTemplateColumns: 'max-content auto max-content auto max-content auto minmax(0, max-content) auto max-content auto minmax(0, max-content) auto max-content minmax(0, 1fr)', alignItems: 'baseline', minWidth: '0', overflow: 'hidden' } },
           cell('1', 1, el('span', { class: 'font-black uppercase', style: { fontSize: '15px', letterSpacing: '.02em' } }, rep ? rep.full_name : (s.customer_name ? '—' : 'Rep')), { minWidth: 'max-content' }),
           cell('2', 1, s.customer_number ? sep() : null),
           cell('3', 1, s.customer_number ? el('span', { class: 'tabular-nums text-muted-', style: { fontSize: '12px' }, title: s.customer_name || '' }, '#' + s.customer_number) : null, { minWidth: 'max-content' }),
           cell('4', 1, sep()),
           cell('5', 1, el('span', { class: 'font-semibold', style: { fontSize: '13px' } }, svcName), { minWidth: 'max-content' }),
           cell('6', 1, sep()),
-          cell('7', 1, el('span', { class: 'font-semibold', style: { fontSize: '13px' } }, term), { minWidth: 'max-content' }),
-          cell('8', 1, src ? sep() : null),
-          cell('9', 1, src ? el('span', { class: 'text-muted-', style: { fontSize: '11px' } }, src) : null),
-          cell('1 / 4', 2, el('span', { class: 'tabular-nums' }, 'Sold ' + fmt.dateShortYear(s.sold_date)), small),
-          cell('5 / 6', 2, aoNode, small),
-          cell('7 / 10', 2, saleInitialDateNode(s, true), small)),
+          cell('7', 1, el('span', { style: { fontSize: '10px' } }, aoNode)),   // a long add-on list ellipsizes first
+          cell('8', 1, sep()),
+          cell('9', 1, el('span', { class: 'font-semibold', style: { fontSize: '13px' } }, term), { minWidth: 'max-content' }),
+          cell('10', 1, src ? sep() : null),
+          cell('11', 1, src ? el('span', { class: 'text-muted-', style: { fontSize: '11px' } }, src) : null),
+          cell('12', 1, sep()),
+          cell('13', 1, el('span', { style: { fontSize: '10px' } }, saleInitialDateNode(s, true)), { minWidth: 'max-content' }),
+          cell('1 / 6', 2, el('span', { class: 'tabular-nums' }, 'Sold ' + saleSoldWhen(s)), small)),
         el('div', { class: 'text-right tabular-nums font-semibold', style: { fontSize: '17px' },
           title: s.commission_split ? 'Commissionable ' + fmt.usd(s.revenue_amount) + ' of ' + fmt.usd(s.total_revenue) + ' on the account' : '' },
           fmt.usd0 ? fmt.usd0(s.revenue_amount) : fmt.usd(s.revenue_amount),
