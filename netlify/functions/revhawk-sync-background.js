@@ -1731,6 +1731,67 @@ exports.handler = async (event) => {
             console.log('[revhawk-sync] paid invoices counted for ' + due.length + ' Inside Sales sale(s)');
           }
         } catch (pe) { console.warn('[revhawk-sync] paid-invoice count skipped (run migrations/20261014c_sales_paid_invoices.sql?):', String((pe && pe.message) || pe).slice(0, 200)); }
+        // ── 💳 Paid since the sale (per Isaac, Oct 15). The only question is whether the customer
+        // has PAID since this sale / add-on / re-sign happened — an NSF months ago doesn't matter
+        // if they're current and were upsold. Customer-level FieldRoutes payments dated on/after
+        // the sale day: a successful one (status 1, real money — not a coupon, write-off or
+        // credit memo) = paid; only declines (status 0) = declined; nothing yet = waiting.
+        // Stamped on every open sale (crm_paid_since_sale / crm_paid_at / crm_declined_at);
+        // within the auto-approve scope a declined-and-never-paid Pending sale goes to NSF,
+        // and an auto-NSF that later pays goes back to Pending. A manual NSF is never undone.
+        const paidSince = new Map();   // sale id → { paid, paidAt, declinedAt }
+        try {
+          const _from = (/^\d{4}-\d{2}-\d{2}$/.test(String(AL2.auto_approve_from || '')) ? String(AL2.auto_approve_from) : '2026-10-12');
+          const { data: pc, error: pe } = await supabase.from('sales')
+            .select('id, customer_number, sold_date, audit_status, notes, queue_type, sale_kind, rep_id, payroll_processed_at, crm_paid_since_sale, crm_payment_checked_at')
+            .gte('sold_date', _from).is('payroll_processed_at', null).in('audit_status', ['pending', 'nsf', 'serviced', 'below_minimums']);
+          if (pe) throw new Error(pe.message);
+          const RECHECK = 3 * 3600000;
+          const due = (pc || []).filter(x => x.customer_number && x.crm_paid_since_sale !== true
+            && (!x.crm_payment_checked_at || (today - Date.parse(x.crm_payment_checked_at)) > RECHECK));
+          if (due.length) {
+            const tokPay = await getAccessToken();
+            const TP = '`' + PROJECT + '.' + DATASET + '.FieldRoutesPayment`';
+            const cids = [...new Set(due.map(x => String(x.customer_number).replace(/[^0-9]/g, '')).filter(Boolean))];
+            const minSold = due.map(x => String(x.sold_date || '').slice(0, 10)).sort()[0];
+            const byCust = new Map();
+            for (let i = 0; i < cids.length; i += 1000) {
+              const part = cids.slice(i, i + 1000);
+              const r = await runQuery(tokPay, `
+SELECT fieldRoutes_customerID AS cid, LEFT(fieldRoutes_date, 10) AS d, fieldRoutes_status AS st, fieldRoutes_paymentMethod AS pm,
+       SAFE_CAST(fieldRoutes_amount AS FLOAT64) AS amt, fieldRoutes_writeOff AS wo, fieldRoutes_creditMemo AS cm
+FROM ${TP}
+WHERE fieldRoutes_customerID IN (${part.map(c => "'" + c + "'").join(',')}) AND LEFT(fieldRoutes_date, 10) >= '${minSold}'
+QUALIFY ROW_NUMBER() OVER (PARTITION BY fieldRoutes_paymentID ORDER BY updatedAt DESC) = 1`, { compact: true });
+              for (const t of ((r && r.objects) || [])) { const k = String(t.cid); (byCust.get(k) || byCust.set(k, []).get(k)).push(t); }
+            }
+            const isOk = (t) => String(t.st) === '1' && String(t.pm) !== '0' && (Number(t.amt) || 0) > 0 && String(t.wo || '0') !== '1' && String(t.cm || '0') !== '1';
+            const isDecl = (t) => String(t.st) === '0';
+            for (const x of due) {
+              const day = String(x.sold_date || '').slice(0, 10);
+              const mine = (byCust.get(String(x.customer_number).replace(/[^0-9]/g, '')) || []).filter(t => String(t.d || '') >= day);
+              const ok = mine.filter(isOk).map(t => t.d).sort();
+              const dec = mine.filter(isDecl).map(t => t.d).sort();
+              const v = { paid: ok.length > 0, paidAt: ok[0] || null, declinedAt: ok.length ? null : (dec[dec.length - 1] || null) };
+              paidSince.set(x.id, v);
+              const upd = { crm_paid_since_sale: v.paid ? true : (v.declinedAt ? false : null), crm_paid_at: v.paidAt, crm_declined_at: v.declinedAt, crm_payment_checked_at: stamp };
+              const inScope = _autoApproveOn(x);
+              const autoNsf = /Auto: NSF/.test(String(x.notes || ''));
+              if (inScope && x.audit_status === 'pending' && !v.paid && v.declinedAt) {
+                upd.audit_status = 'nsf'; upd.audited_at = stamp;
+                upd.notes = ((x.notes || '') + ' · Auto: NSF — card declined ' + v.declinedAt + ', no payment since the sale').trim();
+              } else if (x.audit_status === 'nsf' && autoNsf && v.paid) {
+                upd.audit_status = 'pending'; upd.audited_at = null;
+                upd.notes = ((x.notes || '') + ' · Auto: paid ' + v.paidAt + ' — back to Pending').trim();
+              }
+              const { error: ue } = await supabase.from('sales').update(upd).eq('id', x.id);
+              if (ue) throw new Error(ue.message);
+              if (upd.audit_status) stageCount++;
+            }
+            console.log('[revhawk-sync] paid-since-sale checked for ' + due.length + ' sale(s)');
+          }
+          (pc || []).forEach(x => { if (x.crm_paid_since_sale === true && !paidSince.has(x.id)) paidSince.set(x.id, { paid: true }); });
+        } catch (pe) { console.warn('[revhawk-sync] paid-since-sale skipped (run migrations/20261015d_sales_paid_since_sale.sql?):', String((pe && pe.message) || pe).slice(0, 200)); }
         const lockDays = Math.max(0, Number(AL2.lock_days) || 90);
         const minSvc = Math.max(0, Number(AL2.lock_min_services) || 0);
         for (const s of (crmSales || [])) {
@@ -1759,7 +1820,8 @@ exports.handler = async (event) => {
           // Charged upfront (the configured customer flag) — per Isaac:
           // commissionable on the sale date, no need to wait for service;
           // and if it cancels while still pending it goes to Archived.
-          const upfront = _upfrontOf(r);
+          // Charged upfront = the configured customer flag, OR a real payment since the sale (per Isaac, Oct 15).
+          const upfront = _upfrontOf(r) || !!(paidSince.get(s.id) || {}).paid;
           const upd = {};
           if (s.audit_status === 'pending' && !s.payroll_processed_at) {
             if (cancelled && (!serviced || upfront)) { upd.audit_status = 'cancelled'; upd.audited_at = stamp; upd.notes = ((s.notes || '') + (upfront && serviced ? ' · Auto: cancelled in CRM (charged upfront)' : ' · Auto: cancelled in CRM before service')).trim(); }

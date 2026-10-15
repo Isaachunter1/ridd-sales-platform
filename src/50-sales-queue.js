@@ -1082,13 +1082,35 @@ const SALE_STATUS_COLOR = {
 };
 const saleStatusTint = (st) => {
   const hex = SALE_STATUS_COLOR[st || 'pending'] || SALE_STATUS_COLOR.pending;
-  const n = parseInt(hex.slice(1), 16), a = st === 'nsf' ? 0.07 : (!st || st === 'pending') ? 0.05 : 0.09;
+  const n = parseInt(hex.slice(1), 16), a = st === 'nsf' ? 0.08 : (!st || st === 'pending') ? 0.12 : 0.10;
   return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
 };
+// Clickable key (per Isaac, Oct 15): a status filters the list to it (click again to clear).
+// Cancelled / Reschedule / Not Payable live on Archived, so picking one jumps there.
+const SALE_STATUS_ARCHIVED = new Set(['cancelled', 'reschedule', 'not_payable']);
 function saleStatusKey() {
-  return el('div', { class: 'flex flex-wrap items-center justify-end', style: { columnGap: '12px', rowGap: '4px' } },
-    ...SALE_STATUS_OPTIONS.map(([v, lbl]) => el('span', { class: 'inline-flex items-center text-[10px] text-muted-', style: { gap: '5px' } },
-      el('span', { style: { width: '9px', height: '9px', borderRadius: '3px', background: SALE_STATUS_COLOR[v], display: 'inline-block' } }), lbl)));
+  const sf = state.salesFilters || (state.salesFilters = {});
+  const pick = (v) => {
+    if (sf.status === v) { sf.status = ''; }
+    else {
+      sf.status = v;
+      const arch = SALE_STATUS_ARCHIVED.has(v);
+      if (arch && state._salesQueueFilter !== 'cancels') state._salesQueueFilter = 'cancels';
+      else if (!arch && state._salesQueueFilter === 'cancels') state._salesQueueFilter = 'upfront';
+    }
+    mountApp();
+  };
+  return el('div', { class: 'flex flex-wrap items-center justify-end', style: { columnGap: '4px', rowGap: '4px' } },
+    ...SALE_STATUS_OPTIONS.map(([v, lbl]) => {
+      const on = sf.status === v, dim = !!sf.status && !on;
+      return el('button', {
+        type: 'button', title: on ? 'Showing ' + lbl + ' only \u2014 click to show all' : 'Show ' + lbl + ' only',
+        class: 'inline-flex items-center text-[10px] rounded-md cursor-pointer transition',
+        style: { gap: '5px', padding: '2px 6px', border: '1px solid ' + (on ? SALE_STATUS_COLOR[v] : 'transparent'),
+          background: on ? saleStatusTint(v) : 'transparent', color: on ? 'var(--text)' : 'var(--text-muted)', fontWeight: on ? '600' : '400', opacity: dim ? '.45' : '1' },
+        onclick: () => pick(v),
+      }, el('span', { style: { width: '9px', height: '9px', borderRadius: '3px', background: SALE_STATUS_COLOR[v], display: 'inline-block' } }), lbl);
+    }));
 }
 
 function statusSelect(saleId) {
@@ -2137,10 +2159,16 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
   salesFeedAddOnsPull();
   const sep = () => el('span', { style: { color: 'var(--border-2)', padding: '0 9px' } }, '|');
   const ok = '#15803D', bad = '#DC2626';
+  // Title click flips newest-first ⇄ oldest-first (per Isaac, Oct 15).
+  const _asc = !!state._salesFeedAsc;
   const sorted = [...rows].sort((a, b) => String(b.sold_date || '').localeCompare(String(a.sold_date || '')) || String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  if (_asc) sorted.reverse();
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'flex flex-wrap items-center justify-between gap-2 px-4 pt-4 pb-2' },
-      el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, title || 'Latest sales'),
+      el('button', { type: 'button', class: 'text-[10px] uppercase tracking-widest font-semibold text-muted- cursor-pointer inline-flex items-center', style: { gap: '6px', background: 'transparent', border: '0', padding: '0' },
+        title: _asc ? 'Oldest first \u2014 click for newest first' : 'Newest first \u2014 click for oldest first',
+        onclick: () => { state._salesFeedAsc = !_asc; mountApp(); } },
+        title || 'Latest sales', el('span', { style: { fontSize: '11px', color: 'var(--text)' } }, _asc ? '\u2191' : '\u2193')),
       el('div', { class: 'flex flex-wrap items-center justify-end', style: { columnGap: '18px', rowGap: '6px' } },
         saleStatusKey(),
         el('div', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, rows.length + ' since ' + fmt.dateShortYear(SALES_FEED_START)))),
@@ -2193,12 +2221,16 @@ function salesFeed(rows, { isAdmin = false, title = '' } = {}) {
           cell('1 / 14', 2, el('span', { class: 'tabular-nums' }, 'Sold ' + saleSoldWhen(s),
             // Invoices paid toward the backend lock (initial counts) and days aging (per Isaac, Oct 15).
             (s.crm_paid_invoices != null || s.payroll_processed_at) ? el('span', { style: { marginLeft: '12px', color: (Number(s.crm_paid_invoices) || 0) >= 4 ? ok : 'var(--text-muted)', fontWeight: '600' } }, '\u{1F9FE} ' + (Number(s.crm_paid_invoices) || 0) + ' of 4 invoices paid') : null,
-            el('span', { style: { marginLeft: '12px', color: Number(s.crm_days_past_due) > 0 ? bad : 'var(--text-muted)', fontWeight: Number(s.crm_days_past_due) > 0 ? '700' : '400' } }, 'Aging ' + (s.crm_days_past_due != null ? Number(s.crm_days_past_due) : 0) + 'd')), small)),
+            el('span', { style: { marginLeft: '12px', color: Number(s.crm_days_past_due) > 0 ? bad : 'var(--text-muted)', fontWeight: Number(s.crm_days_past_due) > 0 ? '700' : '400' } }, 'Aging ' + (s.crm_days_past_due != null ? Number(s.crm_days_past_due) : 0) + 'd'),
+            // Paid since the sale (per Isaac, Oct 15) — the customer's first real payment on/after this sale.
+            s.crm_paid_since_sale === true ? el('span', { style: { marginLeft: '12px', color: ok, fontWeight: '600' }, title: 'A successful payment on the account since this sale' }, '\u{1F4B3} Paid' + (s.crm_paid_at ? ' ' + fmt.dateShort(s.crm_paid_at) : ''))
+              : s.crm_paid_since_sale === false ? el('span', { style: { marginLeft: '12px', color: bad, fontWeight: '700' }, title: 'Card declined since this sale and nothing has gone through' }, '\u{1F4B3} Declined' + (s.crm_declined_at ? ' ' + fmt.dateShort(s.crm_declined_at) : ''))
+              : el('span', { style: { marginLeft: '12px', color: 'var(--text-subtle)' }, title: 'No payment on the account since this sale yet' }, '\u{1F4B3} No payment yet')), small)),
         el('div', { class: 'text-right tabular-nums font-semibold', style: { fontSize: '17px' },
           title: s.commission_split ? 'Commissionable ' + fmt.usd(s.revenue_amount) + ' of ' + fmt.usd(s.total_revenue) + ' on the account' : '' },
           fmt.usd0 ? fmt.usd0(s.revenue_amount) : fmt.usd(s.revenue_amount),
           s.commission_split && Number(s.total_revenue) > Number(s.revenue_amount) + 0.005 ? el('div', { class: 'text-[9px] font-normal text-muted-' }, 'of ' + fmt.usd(s.total_revenue)) : null),
-        el('div', { class: 'flex items-center gap-2' }, statusSelect(s.id), el('span', { style: { display: 'inline-block', minWidth: '58px' } }, (s.crm_audit !== 'passed' && typeof saleAuditChip === 'function') ? saleAuditChip(s) : null)));
+        el('div', { class: 'flex items-center gap-2' }, statusSelect(s.id), (s.crm_audit === 'failed' && typeof saleAuditChip === 'function') ? saleAuditChip(s) : null));
     }));
 }
 
