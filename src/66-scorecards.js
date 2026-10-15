@@ -511,7 +511,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
 
     // ── Attendance Calculator
     const attTpl = tpl.attendance;
-    const attScore = computeAttendanceScore(draft.attendance, attTpl, period);
+    const attScore = computeAttendanceScore(draft.attendance, attTpl, period, profileId);
     const attBand  = scorecardBand(attScore);
     const attMetric = tpl.metrics.find(m => m.source === 'attendance');
     const attWeight = attMetric ? attMetric.weight : 0;
@@ -519,8 +519,8 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
     // Working days: explicit override > Mon–Sat count for the period >
     // template fallback. We surface BOTH numbers in the input row so
     // the user sees the auto-calculated value and can override it.
-    const workingDays = resolveWorkingDays(draft.attendance, attTpl, period);
-    const autoWorkingDays = workingDaysForPeriod(period);
+    const workingDays = resolveWorkingDays(draft.attendance, attTpl, period, profileId);
+    const autoWorkingDays = workingDaysForPeriod(period, typeof roleStartForProfileId === 'function' ? roleStartForProfileId(profileId) : '');
     const usingOverride = draft.attendance.workingDays != null
       && draft.attendance.workingDays !== '' && draft.attendance.workingDays !== autoWorkingDays;
     // Show the live deduction breakdown so the manager can see exactly
@@ -954,7 +954,7 @@ function openMeetingLogModal(profile, dept, tpl, canEdit) {
       });
       const att = tpl.attendance || {};
       if ((att.penalties || []).length) {
-        const attScore = computeAttendanceScore(card.attendance || {}, att, m.period);
+        const attScore = computeAttendanceScore(card.attendance || {}, att, m.period, profile && profile.id);
         const attW = ((tpl.metrics || []).find(x => x.source === 'attendance') || {}).weight;
         rowsBox.append(el('div', { class: 'flex items-center gap-2 mt-1' },
           el('span', { class: 'flex-1 text-xs font-semibold' }, 'Attendance Score', el('span', { class: 'text-[10px] text-muted- font-normal ml-1' }, 'auto from the counts below')),

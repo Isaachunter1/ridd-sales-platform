@@ -767,11 +767,17 @@ function getRepTier(repName) {
     const ty = Number(_repKeyedLookup(state._indicatorRepTierYear || {}, repName)) || 0;
     if (ty >= curY) return 'rookie';                       // tagged rookie THIS season — respected
     if (ty && ty < curY) return 'vet';                     // returning rookie → auto-promoted
-    // Legacy tag with no recorded year — trust the sales history.
+    // Legacy tag with no recorded year — the current role's start year, else the sales history.
+    const _rsY0 = typeof roleStartYearForName === 'function' ? roleStartYearForName(repName) : 0;
+    if (_rsY0) return _rsY0 < curY ? 'vet' : 'rookie';
     const yrs = _repSaleYears(repName);
     return (yrs && yrs.min < curY) ? 'vet' : 'rookie';
   }
   if (tagged) return tagged;
+  // Role history (per Isaac, Oct 15): someone who changed roles is a rookie in the year their CURRENT role started
+  // (Javier: Sales Rep → Technician → Office Staff), not by their first sale in an earlier role.
+  const _rsY = typeof roleStartYearForName === 'function' ? roleStartYearForName(repName) : 0;
+  if (_rsY) return _rsY < curY ? 'vet' : 'rookie';
   // Untagged → sales-history default (no manual work needed).
   const yrs = _repSaleYears(repName);
   if (!yrs) return '';

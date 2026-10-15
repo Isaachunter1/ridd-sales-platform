@@ -2123,6 +2123,8 @@ function openUserEditor(existing = null, prefill = null) {
     is_active: existing ? (existing.is_active !== false) : true,
     // The CRM identity link — carried through Save onto the profile.
     fr_id: existing?.fieldroutes_employee_id || prefill?.fieldroutes_employee_id || null,
+    // Role history (per Isaac, Oct 15): [{ role, start }] — when this person started each role.
+    role_history: Array.isArray(existing?.role_history) ? existing.role_history.map(r => ({ ...r })) : null,
   };
 
   const form = el('form', {
@@ -2187,6 +2189,7 @@ function openUserEditor(existing = null, prefill = null) {
         // that joins this app user to their CRM sales.
         phone: (data.phone || '').trim() || null,
         fieldroutes_employee_id: modal.fr_id || null,
+        ...(modal.role_history ? { role_history: roleHistoryClean(modal.role_history) } : {}),
         ...(existing && (_wantOwner !== !!existing.is_owner) ? { is_owner: _wantOwner } : {}),
       };
 
@@ -2236,13 +2239,24 @@ function openUserEditor(existing = null, prefill = null) {
           if (!uid) throw new Error('Create returned no user id — open the user and re-save their details.');
           const patch = { ...payload };
           delete patch.email;   // auth owns the login email; the trigger already copied it
-          const { data: _row, error: _pErr } = await supabase.from('profiles')
+          let { data: _row, error: _pErr } = await supabase.from('profiles')
             .update(patch).eq('id', uid).select('id').single();
+          if (_pErr && /role_history/.test(_pErr.message || '') && 'role_history' in patch) {
+            delete patch.role_history;
+            ({ data: _row, error: _pErr } = await supabase.from('profiles').update(patch).eq('id', uid).select('id').single());
+            if (!_pErr) toast('Created, but Role history needs the 20261015f migration run first', 'error');
+          }
           if (_pErr || !_row) throw new Error('Login created, but saving the profile details failed'
             + (_pErr ? ' — ' + _pErr.message : '') + '. Open the user and re-save.');
         };
         if (existing) {
-          const { error } = await supabase.from('profiles').update(payload).eq('id', existing.id);
+          let { error } = await supabase.from('profiles').update(payload).eq('id', existing.id);
+          if (error && /role_history/.test(error.message || '') && 'role_history' in payload) {
+            // Column not there yet (migrations/20261015f_profiles_role_history.sql) — save the rest.
+            const { role_history: _rh, ...rest } = payload;
+            ({ error } = await supabase.from('profiles').update(rest).eq('id', existing.id));
+            if (!error) toast('Saved, but Role history needs the 20261015f migration run first', 'error');
+          }
           if (error) throw error;
           // Email changed? The profile row alone isn't enough — LOGIN runs on
           // auth.users, so push the new address through the admin function
@@ -2589,6 +2603,37 @@ function openUserEditor(existing = null, prefill = null) {
     mk('Full Name', inp('full_name', { required: true, value: existing?.full_name || prefill?.full_name || '' })),
     mk('Email', inp('email', { type: 'email', required: true, value: existing?.email || prefill?.email || '' })),
     mk('Phone', inp('phone', { type: 'tel', value: existing?.phone || prefill?.phone || '', placeholder: 'From FieldRoutes' })),
+    // ── Role history (per Isaac, Oct 15) — for people who changed roles (Javier: Sales Rep → Technician →
+    // Office Staff). Sales already file under the FieldRoutes login that sold them; this dates each role so
+    // tenure reads from the CURRENT role: Rookie/Vet and the scorecard's working days start at its start date.
+    (() => {
+      const box = el('div', { class: 'flex flex-col gap-2' });
+      const sel = (cls) => ({ class: cls, style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
+      const nameNow = () => { const f = box.closest('form'); const n = f && f.querySelector('[name="full_name"]'); return n ? n.value.trim() : (existing?.full_name || ''); };
+      const draw = () => {
+        box.innerHTML = '';
+        const rows = modal.role_history || [];
+        rows.forEach((r, i) => box.append(el('div', { class: 'flex items-center gap-2' },
+          el('select', { ...sel('flex-1 rounded-lg border px-3 py-2 text-sm'), onchange: (e) => { r.role = e.target.value; } },
+            ...ROLE_HISTORY_ROLES.map(v => el('option', { value: v, selected: r.role === v }, v))),
+          el('input', { type: 'date', value: r.start || '', ...sel('rounded-lg border px-3 py-2 text-sm'), onchange: (e) => { r.start = e.target.value; } }),
+          el('button', { type: 'button', title: 'Remove', class: 'text-lg leading-none text-muted- px-1', onclick: () => { rows.splice(i, 1); modal.role_history = rows; draw(); } }, '\u00d7'))));
+        if (!rows.length) box.append(el('p', { class: 'text-[11px] text-muted-' }, 'None yet \u2014 only needed for someone who has held more than one role.'));
+        box.append(el('div', { class: 'flex flex-wrap gap-3' },
+          el('button', { type: 'button', class: 'text-xs font-semibold', style: { color: 'var(--accent)' },
+            onclick: () => { modal.role_history = [...(modal.role_history || []), { role: 'Office Staff', start: new Date().toISOString().slice(0, 10) }]; draw(); } }, '+ Add role'),
+          el('button', { type: 'button', class: 'text-xs font-semibold', style: { color: 'var(--accent)' },
+            onclick: () => { const h = roleHistoryFromSales(nameNow()); if (!h.length) { toast('No FieldRoutes sales found under that name yet', 'info'); return; } modal.role_history = h; draw(); toast('Filled from each login\u2019s first sale \u2014 fix any date that\u2019s off, then Save', 'success'); } },
+            'Fill from FieldRoutes')));
+      };
+      draw();
+      const section = el('div', { class: 'flex flex-col gap-1.5' },
+        el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- block font-semibold' }, 'Role history'),
+        box,
+        el('p', { class: 'text-[11px] text-muted-' }, 'When this person started each role. Sales already go to the board of the FieldRoutes login that sold them; these dates set tenure for the current role \u2014 Rookie/Vet and the scorecard\u2019s working days count from it.'));
+      setTimeout(() => { const f = section.closest('form'); const rs = f && f.querySelector('[name="role"]'); const show = () => { section.style.display = !rs || isSellerRole(rs.value) ? '' : 'none'; }; if (rs) rs.addEventListener('change', show); show(); }, 0);
+      return section;
+    })(),
     el('label', { class: 'block text-sm' },
       el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- block mb-1.5 font-semibold' },
         'Password ',
@@ -2985,3 +3030,42 @@ boot().catch(err => {
   try { mountError(err); } catch (e) { location.reload(); }
 });
 
+// ── Role history (per Isaac, Oct 15) ─────────────────────────────────────────
+// profiles.role_history = [{ role: 'Sales Rep' | 'Technician' | 'Office Staff', start: 'YYYY-MM-DD' }].
+const ROLE_HISTORY_ROLES = ['Sales Rep', 'Technician', 'Office Staff'];
+function roleHistoryClean(h) {
+  return (Array.isArray(h) ? h : []).filter(r => r && ROLE_HISTORY_ROLES.includes(r.role) && /^\d{4}-\d{2}-\d{2}$/.test(String(r.start || '')))
+    .map(r => ({ role: r.role, start: String(r.start) })).sort((a, b) => a.start.localeCompare(b.start));
+}
+// The role this person is in today (latest start on/before today), or null without a history.
+function currentRoleEntry(p) {
+  const today = new Date().toISOString().slice(0, 10);
+  const h = roleHistoryClean(p && p.role_history).filter(r => r.start <= today);
+  return h.length ? h[h.length - 1] : null;
+}
+function roleStartForProfileId(id) { const p = id ? (state.allProfiles || []).find(x => x.id === id) : null; const e = currentRoleEntry(p); return e ? e.start : ''; }
+// Rookie/Vet hook for the engine's getRepTier (name-keyed): the year the current role started, 0 = no history.
+let _roleYearIdx = { src: null, map: null };
+function roleStartYearForName(name) {
+  const profs = state.allProfiles || [];
+  const sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  if (_roleYearIdx.src !== profs) { const m = new Map(); for (const p of profs) { const e = currentRoleEntry(p); if (e && p.full_name) m.set(sig(p.full_name), Number(e.start.slice(0, 4))); } _roleYearIdx = { src: profs, map: m }; }
+  if (!_roleYearIdx.map.size || !name) return 0;
+  const canon = typeof getCanonicalRepName === 'function' ? getCanonicalRepName(name) : name;
+  return _roleYearIdx.map.get(sig(canon)) || _roleYearIdx.map.get(sig(name)) || 0;
+}
+// Prefill: each FieldRoutes login type's first sale under this person's name, in order.
+function roleHistoryFromSales(fullName) {
+  const sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  const want = sig(fullName); if (!want) return [];
+  const first = new Map();
+  for (const x of (state._indicatorRawSales || [])) {
+    if (!x || !x.rep) continue;
+    const nm = typeof getCanonicalRepName === 'function' ? getCanonicalRepName(x.rep) : x.rep;
+    if (sig(nm) !== want && sig(x.rep) !== want) continue;
+    const t = String(x.repType || '').trim(); const role = ROLE_HISTORY_ROLES.find(r => r.toLowerCase() === t.toLowerCase()); if (!role) continue;
+    const iso = typeof dateSoldToIso === 'function' ? dateSoldToIso(x.dateSold) : ''; if (!iso) continue;
+    if (!first.has(role) || iso < first.get(role)) first.set(role, iso);
+  }
+  return [...first.entries()].map(([role, start]) => ({ role, start })).sort((a, b) => a.start.localeCompare(b.start));
+}

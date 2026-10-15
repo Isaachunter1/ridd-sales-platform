@@ -11333,7 +11333,7 @@ const SCORECARD_LOYALTY_DEFAULT_TEMPLATE = {
 // rest of the platform's "RIDD weeks run Sunday-off only" convention
 // (TV dashboard, indicators goal math). Returns 0 if the key can't be
 // parsed so the attendance formula can fall back to the template default.
-function workingDaysForPeriod(periodKey) {
+function workingDaysForPeriod(periodKey, fromIso) {
   if (!periodKey) return 0;
   const m = String(periodKey).match(/^(\d{4})-(\d{2})$/);
   if (!m) return 0;
@@ -11341,7 +11341,9 @@ function workingDaysForPeriod(periodKey) {
   const month = Number(m[2]);
   const daysInMonth = new Date(year, month, 0).getDate();
   let count = 0;
-  for (let d = 1; d <= daysInMonth; d++) {
+  // Started the role mid-month (role history, per Isaac, Oct 15) → count from the start date.
+  const _f = /^\d{4}-\d{2}-\d{2}$/.test(String(fromIso || '')) && String(fromIso).slice(0, 7) === m[1] + '-' + m[2] ? Number(String(fromIso).slice(8, 10)) : 1;
+  for (let d = _f; d <= daysInMonth; d++) {
     const dow = new Date(year, month - 1, d).getDay();
     if (dow !== 0) count++; // skip Sundays only
   }
@@ -11430,7 +11432,7 @@ function scorecardAutoMetric(profileId, metricId, periodKey) {
 }
 function computeScorecardScore(card, tpl, periodKey, profileId) {
   if (!card) return null;
-  const attendanceScore = computeAttendanceScore(card.attendance || {}, tpl.attendance, periodKey);
+  const attendanceScore = computeAttendanceScore(card.attendance || {}, tpl.attendance, periodKey, profileId);
   let composite = 0;
   let totalWeight = 0;
   const breakdown = {};
@@ -11461,18 +11463,18 @@ function computeScorecardScore(card, tpl, periodKey, profileId) {
 // Resolve the working-days denominator for a period. User override on
 // the card wins; otherwise we compute Mon–Sat days from the period;
 // otherwise the template default; otherwise 22 as last resort.
-function resolveWorkingDays(att, tplAtt, periodKey) {
+function resolveWorkingDays(att, tplAtt, periodKey, profileId) {
   const override = Number(att && att.workingDays);
   if (Number.isFinite(override) && override > 0) return override;
-  const dynamic = workingDaysForPeriod(periodKey);
+  const dynamic = workingDaysForPeriod(periodKey, typeof roleStartForProfileId === 'function' ? roleStartForProfileId(profileId) : '');
   if (dynamic > 0) return dynamic;
   const tplDefault = Number(tplAtt && tplAtt.workingDays);
   if (Number.isFinite(tplDefault) && tplDefault > 0) return tplDefault;
   return 22;
 }
 
-function computeAttendanceScore(att, tplAtt, periodKey) {
-  const workingDays = resolveWorkingDays(att, tplAtt, periodKey);
+function computeAttendanceScore(att, tplAtt, periodKey, profileId) {
+  const workingDays = resolveWorkingDays(att, tplAtt, periodKey, profileId);
   if (workingDays <= 0) return 0;
   let deduction = 0;
   for (const p of (tplAtt.penalties || [])) {
