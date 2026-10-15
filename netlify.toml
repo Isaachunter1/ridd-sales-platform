@@ -29,7 +29,9 @@
   # the BigQuery scan volume we once halved for cost control; if the GCP
   # bill creeps, dial back to "0 * * * *". Overnight stays paused — the
   # function skips outside 8am–11pm ET.
-  schedule = "*/30 * * * *"  # plain step only — Netlify silently ignored range/list cron expressions
+  # Every 5 min (per Isaac, Oct 15 — "the cap should be RevHawk's own FieldRoutes cadence, not RevHawk → app";
+  # RevHawk lands FieldRoutes changes every ~5 min). A run takes ~3 min; the kicker skips while one is still going.
+  schedule = "*/5 * * * *"  # plain step only — Netlify silently ignored range/list cron expressions
 
 # FieldRoutes LIVE pull (per Isaac) — every 5 min (was 15; Sep 22 2026, the TV
 # board wants near-real-time), 7am–11pm ET, new subscriptions straight from
@@ -38,14 +40,14 @@
 # Needs FIELDROUTES_SUBDOMAIN / FIELDROUTES_AUTH_KEY / FIELDROUTES_AUTH_TOKEN
 # in the Netlify env; silently skips until they exist.
 [functions."fieldroutes-live-sync-scheduled"]
-  schedule = "*/5 * * * *"
+  schedule = "*/2 * * * *"   # every 2 min (per Isaac, Oct 15 — as fast as we can)
 
 # Add-ons (per Isaac + COO, Sep 2026): every 15 min the kicker pulls new
 # FieldRoutes ticket items into add_ons (7am–11pm ET) and, at ~3am ET, runs
 # the invoice reconcile that advances each add-on's 5-paid-invoice streak.
 # Skips until the FieldRoutes env vars exist. See docs/TECH_UPSELLS.md.
 [functions."addons-scheduled"]
-  schedule = "*/15 * * * *"
+  schedule = "*/5 * * * *"   # every 5 min (per Isaac, Oct 15); the nightly reconcile still gates itself to ~3am ET
 
 # GoHighLevel contacts → Supabase + reporting/ghl/leads.json.gz (per Isaac, Sep 30) — hourly at :40.
 [functions."ghl-scheduled"]

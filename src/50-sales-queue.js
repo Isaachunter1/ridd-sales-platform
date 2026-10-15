@@ -96,7 +96,7 @@ function viewSales() {
   //       interactive in case the reviewer needs to flip the decision.
   // Per Isaac (Oct 15): once upfront is paid, the account STAYS here until the quarterly backend payroll runs on
   // it — whatever happens to it meanwhile (cancelled, add-on taken off → Chargeback; 4 paid invoices → Lock).
-  const isBackendPending = (s) =>
+  let isBackendPending = (s) =>
     s.audit_status !== 'pending' &&
     !!s.payroll_processed_at &&
     !s.backend_payroll_processed_at;
@@ -105,11 +105,17 @@ function viewSales() {
   // pay history either. History is strictly the locked / charged-back set.
   // …and after that run, Chargebacks land here with the other non-commissionable accounts; Locks go to History.
   const _awaitingBackend = (s) => !!s.payroll_processed_at && !s.backend_payroll_processed_at;
-  const isCancelled = (s) => !_awaitingBackend(s) && (s.audit_status === 'cancelled' || HIST_TERMINAL.has(s.audit_status)
+  let isCancelled = (s) => !_awaitingBackend(s) && (s.audit_status === 'cancelled' || HIST_TERMINAL.has(s.audit_status)
     || (lockOf(s) === 'chargeback' && !!s.backend_payroll_processed_at));
   // History = settled. A Lock/Chargeback sale only graduates here once the
   // RUN BACKEND payroll run has stamped backend_payroll_processed_at.
-  const isHistory = (s) => lockOf(s) === 'lock' && !!s.backend_payroll_processed_at;
+  let isHistory = (s) => lockOf(s) === 'lock' && !!s.backend_payroll_processed_at;
+  // Office Staff (per Isaac, Oct 15): every tab starts at the new flow (10/12) — the pre-10/12 tables are cleared.
+  const _newFlow = (s) => _queue !== 'office' || String(s.sold_date || '') >= SALES_FEED_START;
+  const _isB = isBackendPending, _isC = isCancelled, _isH = isHistory;
+  isBackendPending = (s) => _newFlow(s) && _isB(s);
+  isCancelled = (s) => _newFlow(s) && _isC(s);
+  isHistory = (s) => _newFlow(s) && _isH(s);
   const queueCounts = {
     upfront: source.filter(isUpfrontPending).length,
     backend: source.filter(isBackendPending).length,

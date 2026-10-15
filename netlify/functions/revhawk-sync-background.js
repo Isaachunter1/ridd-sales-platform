@@ -1765,7 +1765,7 @@ exports.handler = async (event) => {
             .select('id, customer_number, sold_date, audit_status, notes, queue_type, sale_kind, rep_id, payroll_processed_at, crm_paid_since_sale, crm_payment_checked_at')
             .gte('sold_date', _from).is('payroll_processed_at', null).in('audit_status', ['pending', 'nsf', 'serviced', 'below_minimums']));
           if (pe) throw new Error(pe.message);
-          const RECHECK = 3 * 3600000;
+          const RECHECK = 20 * 60000;   // unpaid-yet sales re-checked every 20 min (was 3h — per Isaac, Oct 15: as fast as we can)
           // Declined / NSF rows are re-checked every run so they flip back as soon as the customer pays.
           const due = (pc || []).filter(x => x.customer_number && x.crm_paid_since_sale !== true
             && (x.audit_status === 'nsf' || x.crm_paid_since_sale === false || !x.crm_payment_checked_at || (today - Date.parse(x.crm_payment_checked_at)) > RECHECK));

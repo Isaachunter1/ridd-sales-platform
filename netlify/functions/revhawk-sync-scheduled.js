@@ -15,6 +15,17 @@ exports.handler = async () => {
   }
   const base = process.env.URL || process.env.DEPLOY_PRIME_URL || process.env.DEPLOY_URL;
   if (!base) return { statusCode: 500, body: 'no site URL available' };
+  // 5-minute cadence (Oct 15): never stack a second worker on one still running — skip when the last
+  // heartbeat is mid-run and under 14 minutes old (a stuck run past that gets kicked again).
+  try {
+    const st = await (await fetch(base + '/api/sync-status')).json();
+    const lr = st && st.lastRun;
+    const at = lr && (lr.at || lr.updated_at);
+    if (lr && lr.stage && !/^(finished|failed)$/.test(String(lr.stage)) && at && (Date.now() - Date.parse(at)) < 14 * 60000) {
+      console.log('[revhawk-sync-scheduled] previous run still going (' + lr.stage + ') — skipping this tick');
+      return { statusCode: 200, body: 'previous run still in progress — skipped' };
+    }
+  } catch (e) { /* status unknown — kick anyway */ }
   try {
     // Background functions return 202 immediately; this just kicks it off.
     const res = await fetch(base + '/.netlify/functions/revhawk-sync-background', {
@@ -40,7 +51,7 @@ exports.handler = async () => {
   // returned 202, yet the dataset sat stale for two days. So after kicking,
   // check how old the published dataset actually is. This run's own sync
   // won't have landed yet, so the age reflects the PREVIOUS cycle's outcome —
-  // at the 30-min cadence, >90 min during selling hours means at least two
+  // at the 5-min cadence, >90 min during selling hours means at least two
   // full cycles failed (or Netlify silently dropped the cron expression).
   try {
     const hook = process.env.SLACK_ADMIN_WEBHOOK;
