@@ -3380,8 +3380,36 @@ function openLandingTileDrill(title, subtitle, rows, opts) {
   document.body.append(overlay);
 }
 
+// Peak value per account (per Isaac + CSO, Oct 15): what the account was worth BEFORE any reduction (a rate lowered
+// to save the customer, a plan adjusted down). customer # + current plan name → peak contract value. Source: the
+// RevHawk sync's indicators/peak-values.json (FieldRoutes' change history since 9/14/26 + every sale's value when
+// the app first saw it), topped up with the sale rows loaded here. Only accounts below their peak are listed.
+let _cardPeak = { src: null, file: null, map: new Map() };
+let _peakFile = null, _peakFileAt = 0;
+function _loadPeakFile() {
+  if (Date.now() - _peakFileAt < 10 * 60000 || typeof supabase === 'undefined' || !supabase || (typeof DEMO !== 'undefined' && DEMO)) return;
+  _peakFileAt = Date.now();
+  Promise.resolve(supabase.storage.from('reporting').download('indicators/peak-values.json?t=' + Date.now()))
+    .then(async ({ data }) => { if (!data) return; const j = JSON.parse(await data.text()); if (j && j.peaks) { _peakFile = j; _cardPeak.src = null; } })
+    .catch(() => { /* no file yet — the sale rows still count */ });
+}
+function _cardPeakIdx() {
+  _loadPeakFile();
+  const rows = (state.allSales && state.allSales.length) ? state.allSales : (state.mySales || []);
+  if (_cardPeak.src === rows && _cardPeak.file === _peakFile) return _cardPeak.map;
+  const m = new Map(Object.entries((_peakFile && _peakFile.peaks) || {}).map(([k, v]) => [k, Number(v) || 0]));
+  for (const s of rows) {
+    if (!s || s.sale_kind === 'upsell') continue;
+    const k = String(s.customer_number || '') + '|' + String(s.crm_subscription || '').trim().toLowerCase();
+    const v = Math.max(Number(s.revenue_amount) || 0, Number(s.total_revenue) || 0, Number(s.crm_contract_value) || 0);
+    if (v > (m.get(k) || 0)) m.set(k, v);
+  }
+  _cardPeak = { src: rows, file: _peakFile, map: m };
+  return m;
+}
 function openIndicatorRepCard(rep, allReps = []) {
   if (typeof trackAction === 'function') trackAction('player_card', 'open');
+  try { _loadPeakFile(); } catch (e) { /* optional */ }   // so Peak is ready by the time the toggle is clicked
   if (!rep) return;
   // The card's own date range is independent of the page's (per Isaac, Oct 15): the board hands over a rep
   // whose sales are already cut to the page's range, so rebuild the rep (and the peers the records rank
@@ -3486,18 +3514,25 @@ function openIndicatorRepCard(rep, allReps = []) {
     // days off don't drag the averages down.
     const sellDays = new Set(allSales.map(s => dateSoldToIso(s.dateSold)).filter(Boolean)).size;
     const _isRen = (x) => typeof _indicatorIsRenewal === 'function' && _indicatorIsRenewal(x);
-    const revSales = cardRevMode === 'total' ? allSales : allSales.filter(x => cardRevMode === 'renewal' ? _isRen(x) : !_isRen(x));
-    const revAmt = cardRevMode === 'total' && _mo.revenue == null ? (scopedRep.revenue || 0) : revSales.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
+    const revSales = (cardRevMode === 'total' || cardRevMode === 'peak') ? allSales : allSales.filter(x => cardRevMode === 'renewal' ? _isRen(x) : !_isRen(x));
+    // Peak (per Isaac, Oct 15 — the CSO's ask): each account at the HIGHEST value the system has clocked for it —
+    // the value the app froze when it first saw the sale vs FieldRoutes' value now — so rates lowered later to
+    // save a customer don't shrink what the rep sold.
+    const _peakOf = (x) => { const v = Number(x.contractValue) || 0; const hit = _cardPeakIdx().get(String(x.customerId || '') + '|' + String(x.subscription || '').trim().toLowerCase()); return Math.max(v, hit || 0); };
+    const revAmt = cardRevMode === 'peak' ? revSales.reduce((a, x) => a + _peakOf(x), 0)
+      : cardRevMode === 'total' && _mo.revenue == null ? (scopedRep.revenue || 0) : revSales.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
+    const _nowAmt = revSales.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
     const revDays = new Set(revSales.map(x => dateSoldToIso(x.dateSold)).filter(Boolean)).size;
     const revToggle = el('span', { class: 'inline-flex rounded overflow-hidden', style: { border: '1px solid var(--border-2)' }, onclick: (e) => e.stopPropagation() },
-      ...[['new', 'New'], ['total', 'Total'], ['renewal', 'Renewal']].map(([v, l]) => el('button', { type: 'button',
+      // Office Staff: New / Total / Renewal / Peak · everyone else: Revenue / Peak (per Isaac, Oct 15).
+      ...(state.indicatorDept === 'office' ? [['new', 'New'], ['total', 'Total'], ['renewal', 'Renewal'], ['peak', 'Peak']] : [['total', 'Revenue'], ['peak', 'Peak']]).map(([v, l]) => el('button', { type: 'button',
         style: { fontSize: '9px', fontWeight: '700', padding: '0 5px', lineHeight: '14px', border: '0', cursor: 'pointer', background: cardRevMode === v ? 'var(--accent)' : 'transparent', color: cardRevMode === v ? 'var(--accent-text)' : 'var(--text-muted)' },
-        title: v === 'new' ? 'New business only' : v === 'renewal' ? 'Renewal-source sales only' : 'Everything',
+        title: v === 'new' ? 'New business only' : v === 'renewal' ? 'Renewal-source sales only' : v === 'peak' ? 'Every account at the highest value the system has clocked for it (before any rate was lowered to save it)' : 'Everything',
         onclick: (e) => { e.stopPropagation(); cardRevMode = v; renderBody(); } }, l)));
     scopedStats = [
       { key: 'sales',      label: 'Sales',      value: fmt.int(count) },
-      { key: 'revenue',    label: cardRevMode === 'new' ? 'New Revenue' : cardRevMode === 'renewal' ? 'Renewal Revenue' : 'Revenue', value: fmt.usd0(revAmt), sub: revToggle,
-        title: 'Sales sold in this window · New = renewal-source sales out (the leaderboard default for Office Staff) · Production/Day follows this toggle' },
+      { key: 'revenue',    label: cardRevMode === 'new' ? 'New Revenue' : cardRevMode === 'renewal' ? 'Renewal Revenue' : cardRevMode === 'peak' ? 'Peak Revenue' : 'Revenue', value: fmt.usd0(revAmt), sub: revToggle,
+        title: cardRevMode === 'peak' ? 'Peak ' + fmt.usd0(revAmt) + ' vs ' + fmt.usd0(_nowAmt) + ' today \u2014 ' + fmt.usd0(Math.max(0, revAmt - _nowAmt)) + ' lowered since sold (rate cuts to save customers, downgrades)' : 'Sales sold in this window · New = renewal-source sales out (the leaderboard default for Office Staff) · Production/Day follows this toggle' },
       { key: 'revPerDay',  label: 'Production/Day',
         value: _mo.revPerDay != null && cardRevMode === 'total' ? fmt.usd0(_mo.revPerDay) + (_mo.acctsPerDay != null ? ' / ' + Math.round(_mo.acctsPerDay) : '') : revDays > 0 ? fmt.usd0(revAmt / revDays) + ' / ' + Math.round(revSales.length / revDays) : '—' },   // whole accounts/day — decimals clipped the tile (per Isaac)
       { key: 'acv',        label: 'ACV',        value: fmt.usd(acv) },

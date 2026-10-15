@@ -2017,6 +2017,61 @@ WHERE a.fieldRoutes_statusText = 'Completed' AND a.fieldRoutes_dateCompleted NOT
       console.error('[revhawk-sync] auto-stage skipped:', stageError);
     }
 
+    // ── 📈 Peak values (per Isaac + CSO, Oct 15): what each account was worth BEFORE any reduction — rates
+    // lowered to save a customer, plans adjusted down from what was originally sold. Published as a small map
+    // (customer # | current plan name → peak contract value), only for accounts whose peak beats today's value,
+    // to indicators/peak-values.json; the player card's "Peak" revenue reads it. Two breadcrumbs:
+    //   1. FieldRoutes' subscription changelog (RevHawk, captured since 9/14/26): every recurringCharge change
+    //      with its old value — the highest recurring charge ever on the plan rescales the recurring part of
+    //      today's contract value (initial stays as is).
+    //   2. The app's own sale rows: the revenue frozen the first time a sale was seen vs the CRM value now.
+    try {
+      const tokPk = await getAccessToken();
+      const TP = (n) => '`' + PROJECT + '.' + DATASET + '.' + n + '`';
+      const r = await runQuery(tokPk, `
+WITH sub0 AS (
+  SELECT fieldRoutes_subscriptionID AS sid, LEFT(fieldRoutes_dateAdded, 10) AS added FROM ${TP('FieldRoutesSubscription')}
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY fieldRoutes_subscriptionID ORDER BY fieldRoutes_dateUpdated DESC, updatedAt DESC) = 1
+),
+-- Edits on the day the plan was created are the sale being set up, not a reduction — the value the plan was
+-- SOLD at is the one in place at the end of that day (the "old" of the first later change).
+ch AS (
+  SELECT c.referenceID AS sid, SAFE_CAST(JSON_VALUE(e, '$.old') AS FLOAT64) AS o, SAFE_CAST(JSON_VALUE(e, '$.new') AS FLOAT64) AS n
+  FROM ${TP('FieldRoutesChangelog')} c, UNNEST(JSON_QUERY_ARRAY(c.notesJson)) e
+  JOIN sub0 ON sub0.sid = c.referenceID
+  WHERE c.classID = 7 AND JSON_VALUE(e, '$.key') = 'recurringCharge' AND LEFT(c.dateChanged, 10) > sub0.added
+),
+mx AS (SELECT sid, MAX(GREATEST(IFNULL(o, 0), IFNULL(n, 0))) AS peak_rec FROM ch GROUP BY sid),
+sub AS (
+  SELECT fieldRoutes_subscriptionID AS sid, fieldRoutes_customerID AS cid, fieldRoutes_serviceType AS svc,
+    SAFE_CAST(fieldRoutes_recurringCharge AS FLOAT64) AS rec, SAFE_CAST(fieldRoutes_contractValue AS FLOAT64) AS cv,
+    SAFE_CAST(fieldRoutes_initialServiceTotal AS FLOAT64) AS init
+  FROM ${TP('FieldRoutesSubscription')} WHERE fieldRoutes_subscriptionID IN (SELECT sid FROM mx)
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY fieldRoutes_subscriptionID ORDER BY fieldRoutes_dateUpdated DESC, updatedAt DESC) = 1
+)
+SELECT sub.cid, sub.svc, sub.rec, sub.cv, sub.init, mx.peak_rec FROM sub JOIN mx USING (sid)
+WHERE mx.peak_rec > IFNULL(sub.rec, 0) + 0.009 AND IFNULL(sub.rec, 0) > 0 AND IFNULL(sub.cv, 0) > 0`, { compact: true });
+      const peaks = {};
+      const put = (k, v) => { v = Math.round(v * 100) / 100; if (v > (peaks[k] || 0)) peaks[k] = v; };
+      for (const x of ((r && r.objects) || [])) {
+        const init = Math.max(0, Number(x.init) || 0), cv = Number(x.cv) || 0, rec = Number(x.rec) || 0, pr = Number(x.peak_rec) || 0;
+        const peak = init + Math.max(0, cv - init) * (pr / rec);
+        if (peak > cv + 0.5) put(String(x.cid) + '|' + String(x.svc || '').trim().toLowerCase(), peak);
+      }
+      const { data: frozen } = await selectAll(() => supabase.from('sales').select('id, customer_number, crm_subscription, revenue_amount, total_revenue, crm_contract_value, sale_kind')
+        .not('crm_contract_value', 'is', null).gte('sold_date', '2026-01-01'));
+      for (const x of (frozen || [])) {
+        if (x.sale_kind === 'upsell') continue;
+        const was = Math.max(Number(x.revenue_amount) || 0, Number(x.total_revenue) || 0), now = Number(x.crm_contract_value) || 0;
+        if (was > now + 0.5) put(String(x.customer_number || '') + '|' + String(x.crm_subscription || '').trim().toLowerCase(), was);
+      }
+      const sbP = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
+      await sbP.storage.from('reporting').upload('indicators/peak-values.json',
+        Buffer.from(JSON.stringify({ at: new Date().toISOString(), changelog_since: '2026-09-14', peaks })),
+        { contentType: 'application/json', upsert: true });
+      console.log('[revhawk-sync] peak values: ' + Object.keys(peaks).length + ' account(s) below their peak');
+    } catch (pkErr) { console.warn('[revhawk-sync] peak values skipped:', String((pkErr && pkErr.message) || pkErr).slice(0, 200)); }
+
     await _hb({ stage: 'finished', ok: true, rows: objects.length, ms: Date.now() - started, dataAsOf: _dataAsOf || undefined, indicatorsError: indicatorsError || undefined, officeError: officeError || undefined, srcError: srcError || undefined, verifyError: verifyError || undefined });
     return {
       statusCode: 200,
