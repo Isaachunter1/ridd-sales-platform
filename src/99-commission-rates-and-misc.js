@@ -1857,8 +1857,7 @@ function adminReps() {
       td(roleLabelOf(p), p.is_owner ? 'font-bold' : ''),                 // Access Profile (app role)
       td(fr ? fr.type_label : null, fr ? '' : 'text-muted- italic'),      // Rep Type (CRM)
       tdM(p.phone || (fr ? fr.phone : null)),                             // Phone (profile wins, else CRM)
-      (() => { const em = p.email || (fr ? fr.email : null);              // Email — truncated, full on hover
-        return el('td', { class: 'px-2.5 py-2.5 text-muted- max-w-[180px] truncate', title: em || '' }, em || '—'); })(),
+      // (Email column dropped from the list — per Isaac, Oct 16; it's in Edit User. Search still matches it.)
       // Last Login moved into Edit User — it was costing a whole column.
       tierCell(x),                                                       // Tier
       el('td', { class: 'px-3 py-3 text-center' },
@@ -1882,7 +1881,6 @@ function adminReps() {
       el('td', { class: 'px-3 py-3 text-muted- italic' }, 'In CRM'),      // Access Profile (none yet)
       td(e.type_label),                                                   // Rep Type
       tdM(e.phone),                                                       // Phone
-      (() => el('td', { class: 'px-2.5 py-2.5 text-muted- max-w-[180px] truncate', title: e.email || '' }, e.email || '—'))(),  // Email
       tierCell(x),                                                       // Tier
       el('td', { class: 'px-3 py-3 text-center' }, statusChip(false)),
       el('td', { class: 'px-3 py-3 text-right' },
@@ -1908,11 +1906,11 @@ function adminReps() {
     el('table', { class: 'w-full text-sm whitespace-nowrap' },
       el('thead', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, el('tr', {},
         th('ID', null, 'id'), th('Name', 'text-left', 'name'), th('User Name', null, 'username'), th('Access Profile', null, 'role'),
-        th('Rep Type', null, 'reptype'), th('Phone', null, 'phone'), th('Email', null, 'email'),
+        th('Rep Type', null, 'reptype'), th('Phone', null, 'phone'),
         th('Tier', null, 'tier'), th('Status', 'text-center', 'status'), th('', 'text-right'))),
       el('tbody', {},
         (appPeople.length + rosterShown.length) === 0
-          ? el('tr', {}, el('td', { class: 'px-4 py-8 text-center text-xs text-muted- italic', colspan: 10 },
+          ? el('tr', {}, el('td', { class: 'px-4 py-8 text-center text-xs text-muted- italic', colspan: 9 },
               q ? 'No ' + REP_TYPE_TAB_LABEL[typeTab] + ' match “' + state._adminUserSearch + '”.' : 'No ' + REP_TYPE_TAB_LABEL[typeTab] + ' in this view.'))
           : null,
         ...appPeople.map(appRow),
