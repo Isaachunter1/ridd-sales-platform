@@ -4614,7 +4614,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     let pk = 0; const _pi = typeof _cardPeakIdx === 'function' ? _cardPeakIdx() : null;
     for (const x of (r.sales || [])) { const v = Number(x.contractValue) || 0; const h = _pi ? (_pi.get(String(x.customerId || '') + '|' + String(x.subscription || '').trim().toLowerCase()) || 0) : 0; pk += Math.max(v, h); }
     return Object.assign({}, r, { avgRecurring: n ? t / n : 0, recN: n, recSum: t, peakRevenue: pk }); });
-  // Sort by the selected column
+  // Sort by the selected column. Record columns no longer sort (per Isaac, Oct 16 —
+  // the "by $ / by date" toggle is gone); an old saved record sort falls back to Total Revenue.
+  if (state._indicatorRepSort && RECORD_SORT_KEYS.has(state._indicatorRepSort.key)) state._indicatorRepSort = { key: 'revenue', dir: 'desc' };
   const sortKey = state._indicatorRepSort.key;
   const sortDir = state._indicatorRepSort.dir;
   const cmpVal = (v) => typeof v === 'string' ? v.toLowerCase() : (v ?? 0);
@@ -4849,9 +4851,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 // Best Day/Week/Month show which custom mode is active
                 // (date or amount) — other columns use the standard
                 // asc/desc arrow.
-                const arrow = isSorting && isRecordCol
-                  ? (sortDir === 'amount' ? ' · by $' : ' · by date')
-                  : '';   // direction arrows retired — active header is highlighted
+                const arrow = '';   // direction arrows retired — active header is highlighted; record columns don't sort
                 const align = c.align === 'right' ? 'text-right' : 'text-left';
                 // Record column: the picker sits flush on the column's divider line (per Isaac, Oct 16).
                 const padLeft = isRecordCol ? 'pr-2' : (c.key === 'cancelPct' || c.key === 'attrPct') ? 'pl-2 pr-5' : 'px-2';
@@ -4863,10 +4863,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                     // date (most recent first) and amount (biggest $ first)
                     // — no asc/desc toggle since old best records aren't
                     // useful at the top either way.
-                    if (isRecordCol) {
-                      const cur = sortKey === c.key ? sortDir : 'date';
-                      state._indicatorRepSort = { key: c.key, dir: cur === 'date' ? 'amount' : 'date' };
-                    } else if (sortKey === c.key) {
+                    if (isRecordCol) return;   // records header: the picker only (no by $ / by date sort)
+                    if (sortKey === c.key) {
                       state._indicatorRepSort = { key: c.key, dir: sortDir === 'asc' ? 'desc' : 'asc' };
                     } else {
                       state._indicatorRepSort = { key: c.key, dir: c.defaultDir };
