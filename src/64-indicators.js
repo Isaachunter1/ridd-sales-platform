@@ -5392,8 +5392,9 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
                 class: 'flex items-center gap-3 text-[13px] py-2.5 transition rounded' + (i > 0 ? ' border-t border-' : '') + (opts.onRowClick ? ' cursor-pointer' : ''),
                 title: opts.rowTitle || '',
                 // Whole-row hover (per Isaac, Oct 16 — only the name cell lit up).
-                onmouseenter: (e) => { e.currentTarget.style.background = 'rgba(223,100,58,.07)'; },
-                onmouseleave: (e) => { e.currentTarget.style.background = ''; },
+                // Same tint as the Records table; the frozen name cell (its own white background) changes with it.
+                onmouseenter: (e) => { const r = e.currentTarget; r.style.background = 'var(--card-2)'; const c0 = r.firstElementChild; if (c0 && c0.style.position === 'sticky') c0.style.background = 'var(--card-2)'; },
+                onmouseleave: (e) => { const r = e.currentTarget; r.style.background = ''; const c0 = r.firstElementChild; if (c0 && c0.style.position === 'sticky') c0.style.background = 'var(--card)'; },
                 onclick: opts.onRowClick ? () => opts.onRowClick(s.name) : undefined,
               },
                 firstCol('truncate font-medium', s.name, s.name),
