@@ -1060,7 +1060,9 @@ function manageTeamsPanel(opts) {
             openSet.clear(); if (!was) openSet.add(t);
             list.querySelectorAll('[data-team-head]').forEach(h => { const on = openSet.has(h.getAttribute('data-team-head')); h.style.background = on ? 'rgba(223,100,58,.06)' : 'var(--card-2)'; h.lastElementChild.textContent = on ? '\u25b2' : '\u25bc'; const b = h.nextElementSibling; if (b && b.hasAttribute('data-team-body')) b.style.display = on ? '' : 'none'; });
           } },
-          logo ? el('img', { src: logo, alt: '', style: { width: '18px', height: '18px', borderRadius: '50%', objectFit: 'cover', background: '#fff' } })
+          // Team picture (per Isaac) — click it to set the picture + team color.
+          real ? el('span', { class: 'inline-flex cursor-pointer hover:brightness-110', title: 'Change the ' + t + ' picture or color',
+              onclick: (e) => { e.stopPropagation(); openTeamLookPopover(e.currentTarget, t, render); } }, teamAvatarNode(t, 28))
                : el('span', { style: { width: '10px', height: '10px', borderRadius: '50%', background: color, display: 'inline-block', flex: 'none' } }),
           el('span', { class: 'text-sm font-bold flex-1 min-w-0 truncate' }, t, isTeamExcluded(t) ? el('span', { class: 'ml-2 text-[9px] uppercase tracking-wider font-bold', style: { color: '#DC2626' } }, 'excluded') : null),
           el('span', { class: 'text-[11px] tabular-nums text-muted-' }, rows.length + ' rep' + (rows.length === 1 ? '' : 's')),
@@ -1127,14 +1129,14 @@ function manageTeamsPanel(opts) {
         onchange: (e) => onChange(e.target.value),
       }, ...opts.map(o => el('option', { value: o.value, selected: value === o.value }, o.label))));
     const filterBar = el('div', { style: { display: 'contents' } },
-      // ⚙ Teams — every team with its headcount and a Remove button; the
-      // confirm names how many reps go untagged (per Isaac).
+      // + New Team (per Isaac) — replaces the old Teams pop-up; removing a
+      // team lives in each team's Settings.
       el('button', {
-        class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-        title: 'All teams — add or remove teams',
-        onclick: () => openTeamsListModal(teamYear, render),
-      }, 'Teams'),
+        title: 'Create a new team',
+        onclick: (e) => openNewTeamPopover(e.currentTarget, render),
+      }, '+ New Team'),
       mkFilter('Tier', tierSelect, [
         { value: '', label: 'All · ' + (tierCounts.rookie + tierCounts.vet + tierCounts.na + tierCounts.untagged) },
         { value: 'rookie', label: 'Rookie · ' + tierCounts.rookie },

@@ -6212,81 +6212,76 @@ function addTeam(name) {
   saveDemoData();
   return true;
 }
-// Team list manager (per Isaac): every team for the year with headcount,
-// remove with an are-you-sure that states how many reps become untagged.
-function openTeamsListModal(teamYear, onChange) {
-  const overlay = el('div', { class: 'modal-overlay' });
-  const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
-  document.addEventListener('keydown', _escClose);
-  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
-  const card = el('div', { class: 'card w-full max-w-md my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } });
-  overlay.append(card);
-  const yearMap = (state._indicatorRepTeamByYear || {})[String(teamYear)] || {};
-  const countIn = (t) => Object.values(yearMap).filter(v => v === t).length;
-  const countAll = (t) => _allTeamYearMaps().reduce((n, m) => n + Object.values(m).filter(v => v === t).length, 0);
-  const askRemove = (t) => {
-    const here = countIn(t), everywhere = countAll(t);
-    const ov = el('div', { class: 'modal-overlay', style: { zIndex: '2100' } });
-    ov.append(el('div', { class: 'card w-full max-w-sm p-5 flex flex-col gap-3' },
-      el('h3', { class: 'text-base font-bold' }, 'Remove “' + t + '”?'),
-      el('p', { class: 'text-sm' }, here
-        ? here + ' rep' + (here === 1 ? '' : 's') + ' in ' + teamYear + ' will move to untagged.'
-        : 'No reps are on this team in ' + teamYear + ' — nobody moves to untagged.'),
-      everywhere > here ? el('p', { class: 'text-[11px] text-muted-' }, (everywhere - here) + ' assignment' + (everywhere - here === 1 ? '' : 's') + ' in other years will be cleared too.') : null,
-      el('div', { class: 'flex justify-end gap-2 mt-1' },
-        el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => ov.remove() }, 'Cancel'),
-        el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: '#DC2626', color: '#fff' },
-          onclick: () => { removeTeam(t); ov.remove(); if (state._indicatorManageTeamFilter === t) state._indicatorManageTeamFilter = ''; draw(); if (typeof onChange === 'function') onChange(); toast('Team removed: ' + t, 'success'); } }, 'Yes, remove'))));
-    document.body.append(ov);
-  };
-  const draw = () => {
+// Small anchored popover (Manage Teams): positioned under `anchor`, closes on
+// outside click / Escape. Returns { card, close }.
+function _mtPopover(anchor, width) {
+  document.querySelectorAll('[data-mt-pop]').forEach(n => n.remove());
+  const r = anchor.getBoundingClientRect();
+  const card = el('div', { 'data-mt-pop': '1', class: 'card',
+    style: { position: 'fixed', zIndex: '2000', width: width + 'px', padding: '12px', boxShadow: 'var(--shadow-lg)',
+      top: Math.min(r.bottom + 6, window.innerHeight - 20) + 'px',
+      left: Math.max(8, Math.min(r.left, window.innerWidth - width - 8)) + 'px' },
+    onclick: (e) => e.stopPropagation() });
+  const close = () => { card.remove(); document.removeEventListener('mousedown', outside, true); document.removeEventListener('keydown', esc); };
+  // The cropper / file dialog lives outside the card — don't count it as "outside".
+  const outside = (e) => { if (!card.contains(e.target) && !e.target.closest('.modal-overlay')) close(); };
+  const esc = (e) => { if (e.key === 'Escape') close(); };
+  setTimeout(() => { document.addEventListener('mousedown', outside, true); document.addEventListener('keydown', esc); }, 0);
+  document.body.append(card);
+  return { card, close };
+}
+// Team avatar (per Isaac) — picture if set, else team color + initial.
+function teamAvatarNode(t, size) {
+  const logo = getTeamLogo(t), color = getTeamColor(t);
+  const st = { width: size + 'px', height: size + 'px', borderRadius: '50%', flex: 'none', border: '1px solid var(--border-2)' };
+  return logo
+    ? el('img', { src: logo, alt: t + ' picture', style: { ...st, objectFit: 'cover', background: '#fff' } })
+    : el('span', { style: { ...st, background: color, color: groupHeaderTextColor(color), display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: '700', fontSize: Math.round(size * 0.42) + 'px', lineHeight: '1' } },
+        (t || '?').slice(0, 1).toUpperCase());
+}
+// Click a team's avatar in Manage Teams → picture + color in one place.
+function openTeamLookPopover(anchor, t, onChange) {
+  const { card, close } = _mtPopover(anchor, 260);
+  const done = () => { if (typeof onChange === 'function') onChange(); };
+  const fileIn = el('input', { type: 'file', accept: 'image/jpeg,image/png,image/gif,image/webp,image/svg+xml', style: { display: 'none' },
+    onchange: (e) => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; close(); openLogoCropper(f, t, done); } });
+  const paint = () => {
+    const color = getTeamColor(t), logo = getTeamLogo(t);
+    const custom = !!(state._indicatorTeamColors || {})[t];
+    const set = (hex) => { setTeamColor(t, hex); paint(); done(); };
     card.innerHTML = '';
-    const teams = distinctTeamsForYear(teamYear).filter(t => t !== '(unassigned)');
     card.append(
-      el('div', { class: 'flex items-center justify-between px-5 py-4 border-b', style: { borderColor: 'var(--border)' } },
-        el('div', {}, el('h2', { class: 'text-base font-bold' }, 'Teams · ' + teamYear), el('div', { class: 'text-[11px] text-muted-' }, teams.length + ' team' + (teams.length === 1 ? '' : 's'))),
-        el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)' }, onclick: () => overlay.remove() }, 'Done')),
-      (() => {
-        const inp = el('input', { type: 'text', placeholder: 'New team name', class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-          onkeydown: (e) => { if (e.key === 'Enter') add(); } });
-        const add = () => {
-          const name = inp.value.trim(); if (!name) return;
-          if (!addTeam(name)) { toast('Team already exists', 'warn'); return; }
-          inp.value = ''; draw(); if (typeof onChange === 'function') onChange(); toast('Team added: ' + name, 'success');
-          setTimeout(() => { const i = card.querySelector('input[placeholder="New team name"]'); if (i) i.focus(); }, 0);
-        };
-        return el('div', { class: 'flex items-center gap-2 px-5 py-3 border-b', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } }, inp,
-          el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: add }, '+ Add'));
-      })(),
-      el('div', { class: 'overflow-y-auto flex-1' },
-        ...teams.map(t => {
-          const n = countIn(t);
-          // Team picture (per Isaac) — click the avatar to upload / replace,
-          // same square-crop flow as Manage Teams; falls back to the team
-          // color + initial. Stored with the team config, so it syncs.
-          const logo = getTeamLogo(t);
-          const color = getTeamColor(t);
-          const fileIn = el('input', { type: 'file', accept: 'image/jpeg,image/png,image/gif,image/webp,image/svg+xml', style: { display: 'none' },
-            onchange: (e) => { const f = e.target.files[0]; e.target.value = ''; if (!f) return;
-              openLogoCropper(f, t, () => { draw(); if (typeof onChange === 'function') onChange(); }); } });
-          const avStyle = { width: '38px', height: '38px', borderRadius: '50%', flexShrink: '0', border: '1px solid var(--border-2)', cursor: 'pointer' };
-          const avatar = logo
-            ? el('img', { src: logo, alt: t + ' picture', title: 'Change the ' + t + ' picture', style: { ...avStyle, objectFit: 'cover', background: '#fff' }, onclick: () => fileIn.click() })
-            : el('div', { title: 'Add a picture for ' + t, onclick: () => fileIn.click(),
-                style: { ...avStyle, background: color, color: groupHeaderTextColor ? groupHeaderTextColor(color) : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '700', fontSize: '14px' } },
-                (t || '?').slice(0, 1).toUpperCase());
-          return el('div', { class: 'flex items-center gap-3 px-5 py-2.5 border-b', style: { borderColor: 'var(--border)' } },
-            avatar, fileIn,
-            el('div', { class: 'flex-1 min-w-0' },
-              el('div', { class: 'text-sm font-semibold truncate' }, t, isTeamExcluded(t) ? el('span', { class: 'ml-2 text-[9px] uppercase tracking-wider font-bold', style: { color: '#DC2626' } }, 'excluded') : null),
-              el('div', { class: 'text-[11px] text-muted-' }, n ? n + ' rep' + (n === 1 ? '' : 's') : 'empty',
-                el('button', { class: 'ml-2 underline cursor-pointer', style: { color: 'var(--text-muted)' }, onclick: () => fileIn.click() }, logo ? 'Change picture' : 'Add picture'),
-                logo ? el('button', { class: 'ml-2 underline cursor-pointer', style: { color: 'var(--text-muted)' }, onclick: () => { setTeamLogo(t, ''); draw(); if (typeof onChange === 'function') onChange(); } }, 'Remove picture') : null)),
-            el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold border', style: { color: '#DC2626', borderColor: 'rgba(220,38,38,.35)' }, onclick: () => askRemove(t) }, 'Remove'));
-        })));
+      el('div', { class: 'flex items-center gap-3' }, teamAvatarNode(t, 44),
+        el('div', { class: 'min-w-0' }, el('div', { class: 'text-sm font-bold truncate' }, t),
+          el('div', { class: 'flex gap-2 mt-0.5 text-[11px]' },
+            el('button', { class: 'underline cursor-pointer', style: { color: 'var(--accent)' }, onclick: () => fileIn.click() }, logo ? 'Change picture' : 'Add picture'),
+            logo ? el('button', { class: 'underline cursor-pointer', style: { color: 'var(--text-muted)' }, onclick: () => { setTeamLogo(t, ''); paint(); done(); } }, 'Remove') : null))),
+      fileIn,
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mt-3 mb-1.5', style: { color: 'var(--text-muted)' } }, 'Team color'),
+      el('div', { class: 'flex flex-wrap gap-1.5 items-center' },
+        ...TEAM_COLOR_PALETTE.map(hex => el('button', { title: hex, class: 'rounded-full cursor-pointer shrink-0',
+          style: { width: '20px', height: '20px', background: hex, border: hex.toLowerCase() === color.toLowerCase() ? '2px solid var(--text)' : '1px solid var(--border-2)' },
+          onclick: () => set(hex) })),
+        el('input', { type: 'color', value: /^#[0-9a-f]{6}$/i.test(color) ? color : '#888888', title: 'Custom color',
+          style: { width: '28px', height: '22px', padding: '0', border: '1px solid var(--border-2)', borderRadius: '6px', cursor: 'pointer', background: 'transparent' },
+          onchange: (e) => set(e.target.value) }),
+        custom ? el('button', { class: 'text-[10px] underline cursor-pointer ml-auto', style: { color: 'var(--text-muted)' }, onclick: () => set('') }, 'Reset') : null));
   };
-  draw();
-  document.body.append(overlay);
+  paint();
+}
+// "+ New Team" (per Isaac) — inline name box under the button.
+function openNewTeamPopover(anchor, onChange) {
+  const { card, close } = _mtPopover(anchor, 260);
+  const inp = el('input', { type: 'text', placeholder: 'Team name', class: 'flex-1 min-w-0 rounded-lg border px-2.5 py-1 text-[12px]',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onkeydown: (e) => { if (e.key === 'Enter') add(); } });
+  const add = () => {
+    const name = inp.value.trim(); if (!name) return;
+    if (!addTeam(name)) { toast('Team already exists', 'warn'); return; }
+    close(); toast('Team added: ' + name, 'success'); if (typeof onChange === 'function') onChange();
+  };
+  card.append(el('div', { class: 'flex items-center gap-2' }, inp,
+    el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: add }, 'Add')));
+  setTimeout(() => inp.focus(), 0);
 }
 function removeTeam(name) {
   if (!name) return;
