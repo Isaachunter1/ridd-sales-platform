@@ -398,7 +398,7 @@ function renderMonthGrid(anchor, today, meId, repById) {
   const _stdWinsBy = (() => {
     const pre = anchor.getFullYear() + '-' + String(anchor.getMonth() + 1).padStart(2, '0') + '-';
     const n = { wd: {}, we: {} }, tot = { wd: 0, we: 0 };
-    for (const sh of deptShifts()) { if (!String(sh.date || '').startsWith(pre) || !calendarAssignVisible(sh)) continue; const g = _isWkndIso(sh.date) ? 'we' : 'wd'; const t = calShiftTimes(sh); const k = t.st + '|' + t.en; n[g][k] = (n[g][k] || 0) + 1; tot[g]++; }
+    for (const sh of deptShifts()) { if (!String(sh.date || '').startsWith(pre) || !calendarAssignVisible(sh)) continue; const g = _isWkndIso(sh.date) ? 'we' : 'wd'; const t = calShiftTimes(sh); const k = String(t.st).slice(0, 5) + '|' + String(t.en).slice(0, 5); n[g][k] = (n[g][k] || 0) + 1; tot[g]++; }
     const top = (g) => Object.entries(n[g]).filter(([, c]) => c >= tot[g] * 0.1).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k]) => k);
     const we = top('we'); if (!we.includes('08:00|16:00')) we.push('08:00|16:00');
     return { wd: top('wd').sort(), we: we.sort() };
@@ -462,7 +462,7 @@ function renderMonthGrid(anchor, today, meId, repById) {
               .filter(sh => sh.date === iso && vis(sh) && calendarAssignVisible(sh))
               .sort((a, b) => String(a.start || a.slot_start || '').localeCompare(String(b.start || b.slot_start || ''))
                 || calendarRepShort(a.rep_id, repById).localeCompare(calendarRepShort(b.rep_id, repById)));
-            const winOf = (a) => { const t = calShiftTimes(a); return t.st + '|' + t.en; };
+            const winOf = (a) => { const t = calShiftTimes(a); return String(t.st).slice(0, 5) + '|' + String(t.en).slice(0, 5); };   // HH:MM (a stored 08:00:00 still matches 8–4)
             const winLabel = (k) => { const [st, en] = k.split('|'); return calShortTime(st) + '–' + calShortTime(en); };
             // Coverage: reps per slot vs the department floor.
             const minReps = calendarMinReps();
@@ -500,7 +500,8 @@ function renderMonthGrid(anchor, today, meId, repById) {
             const _stdWins = _isWkndIso(iso) ? _stdWinsBy.we : _stdWinsBy.wd;
             const std = rows.filter(a => _stdWins.includes(winOf(a))), other = rows.filter(a => !_stdWins.includes(winOf(a)));
             _stdWins.forEach((k, n) => { const list = std.filter(a => winOf(a) === k); if (list.length) out.push(block(winLabel(k), list, { color: ['#5F6C5B', '#B5733A'][n] || 'var(--border-2)' })); });
-            if (other.length) out.push(block('Other', other, { other: true, color: 'var(--text-subtle)' }));
+            // No "Other" bucket (per Isaac, Oct 16): a shift outside the usual windows gets its own block, labelled by its time.
+            [...new Set(other.map(winOf))].sort().forEach(k => out.push(block(winLabel(k), other.filter(a => winOf(a) === k), { color: 'var(--text-subtle)' })));
             return out;
           })(),
         );

@@ -329,6 +329,10 @@ function calendarAgentColor(repId) {
 // in the sidebar. Session-only on purpose - a hidden agent who stays hidden
 // is how a shift gets missed.
 function calendarAssignVisible(a) {
+  // Someone taken off the calendar (Settings → Calendar → Remove) disappears from it entirely — past weeks too
+  // (per Isaac, Oct 16). Their history stays in the store; it just isn't drawn.
+  const _ro = a && calendarSettings().roster[a.rep_id];
+  if (_ro && _ro.on === false) return false;
   if (state._calFocus) return a.rep_id === state._calFocus;
   return !(state._calAgentHidden instanceof Set && state._calAgentHidden.has(a.rep_id));
 }
