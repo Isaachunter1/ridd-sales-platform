@@ -6261,10 +6261,27 @@ function openTeamsListModal(teamYear, onChange) {
       el('div', { class: 'overflow-y-auto flex-1' },
         ...teams.map(t => {
           const n = countIn(t);
+          // Team picture (per Isaac) — click the avatar to upload / replace,
+          // same square-crop flow as Manage Teams; falls back to the team
+          // color + initial. Stored with the team config, so it syncs.
+          const logo = getTeamLogo(t);
+          const color = getTeamColor(t);
+          const fileIn = el('input', { type: 'file', accept: 'image/jpeg,image/png,image/gif,image/webp,image/svg+xml', style: { display: 'none' },
+            onchange: (e) => { const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+              openLogoCropper(f, t, () => { draw(); if (typeof onChange === 'function') onChange(); }); } });
+          const avStyle = { width: '38px', height: '38px', borderRadius: '50%', flexShrink: '0', border: '1px solid var(--border-2)', cursor: 'pointer' };
+          const avatar = logo
+            ? el('img', { src: logo, alt: t + ' picture', title: 'Change the ' + t + ' picture', style: { ...avStyle, objectFit: 'cover', background: '#fff' }, onclick: () => fileIn.click() })
+            : el('div', { title: 'Add a picture for ' + t, onclick: () => fileIn.click(),
+                style: { ...avStyle, background: color, color: groupHeaderTextColor ? groupHeaderTextColor(color) : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '700', fontSize: '14px' } },
+                (t || '?').slice(0, 1).toUpperCase());
           return el('div', { class: 'flex items-center gap-3 px-5 py-2.5 border-b', style: { borderColor: 'var(--border)' } },
+            avatar, fileIn,
             el('div', { class: 'flex-1 min-w-0' },
               el('div', { class: 'text-sm font-semibold truncate' }, t, isTeamExcluded(t) ? el('span', { class: 'ml-2 text-[9px] uppercase tracking-wider font-bold', style: { color: '#DC2626' } }, 'excluded') : null),
-              el('div', { class: 'text-[11px] text-muted-' }, n ? n + ' rep' + (n === 1 ? '' : 's') : 'empty')),
+              el('div', { class: 'text-[11px] text-muted-' }, n ? n + ' rep' + (n === 1 ? '' : 's') : 'empty',
+                el('button', { class: 'ml-2 underline cursor-pointer', style: { color: 'var(--text-muted)' }, onclick: () => fileIn.click() }, logo ? 'Change picture' : 'Add picture'),
+                logo ? el('button', { class: 'ml-2 underline cursor-pointer', style: { color: 'var(--text-muted)' }, onclick: () => { setTeamLogo(t, ''); draw(); if (typeof onChange === 'function') onChange(); } }, 'Remove picture') : null)),
             el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold border', style: { color: '#DC2626', borderColor: 'rgba(220,38,38,.35)' }, onclick: () => askRemove(t) }, 'Remove'));
         })));
   };
