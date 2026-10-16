@@ -1693,7 +1693,8 @@ function viewIndicators() {
                 // (branch or team, matching the grouping mode) ranked against
                 // its peer columns — same card as a rep, fed the group's sales.
                 ...sortedBranches.map((b, i) => (() => {
-                  const _lbl = b.split(' ').map(w => (w[0] || '') + w.slice(1).toLowerCase()).join(' ');
+                  // The owners' RIDD team reads "RIDD Direct" so it can't be mistaken for the RIDD total column.
+                  const _lbl = (groupBy === 'teams' && typeof isOwnerTeam === 'function' && isOwnerTeam(b)) ? 'RIDD Direct' : b.split(' ').map(w => (w[0] || '') + w.slice(1).toLowerCase()).join(' ');
                   const _canOpen = !!(_rangeGroups && (_rangeGroups[b] || []).length);
                   // Rank-excluded columns (trophy picker) read as OUT of the
                   // competition: faded header with a strike through the name.
@@ -3378,7 +3379,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       });
     };
     const branchAll = groupBests(s => s.office,           PRA_MIN_BRANCH);
-    const teamAll   = groupBests(s => indWorldTeamOf(s.rep),  PRA_MIN_TEAM);
+    const teamAll   = groupBests(s => { const t = indWorldTeamOf(s.rep); return (typeof isOwnerTeam === 'function' && isOwnerTeam(t)) ? '' : t; },  PRA_MIN_TEAM);   // owners' RIDD team never holds a team record
     // Rep scope (per Isaac): each rep's own best day/week/month. PRA floor
     // is 1 by definition — a rep's PRA day IS their best solo day.
     const repAll    = groupBests(s => getCanonicalRepName(s.rep), 1);
@@ -7073,7 +7074,11 @@ function buildTeamReportNode(teamName, ctx) {
     });
     // Rankings exclude the synthetic "Unassigned" bucket so it can't
     // outrank a real team just by accumulating untagged reps' sales.
-    const rankedTeams = Object.keys(branchData).filter(t => t !== 'Unassigned');
+    const rankedTeams = Object.keys(branchData).filter(t => t !== 'Unassigned' && !(groupMode === 'team' && typeof isOwnerTeam === 'function' && isOwnerTeam(t)));
+    // RIDD totals cover EVERY sale in the window — the Unassigned bucket and
+    // the owners' "RIDD" team included — same as the main board's RIDD
+    // column (per Isaac, Oct 16). Only the ranking math leaves them out.
+    const totalTeams = Object.keys(branchData);
     const METRICS = ['sold_accounts', 'revenue', 'avg_initial', 'acv', 'pra', 'multi_year_pct', 'auto_pay_pct'];
     const rankings = {};
     METRICS.forEach(m => {
@@ -7083,11 +7088,11 @@ function buildTeamReportNode(teamName, ctx) {
       rankings[m] = sorted.map((s, i) => ({ ...s, rank: i + 1 }));
     });
     // RIDD totals. Averages are sales-weighted; raw counts sum.
-    const totalSold    = rankedTeams.reduce((a, t) => a + (branchData[t].sold_accounts || 0), 0);
-    const totalRevenue = rankedTeams.reduce((a, t) => a + (branchData[t].revenue || 0), 0);
-    const totalReps    = rankedTeams.reduce((a, t) => a + (branchData[t].reps || 0), 0);
+    const totalSold    = totalTeams.reduce((a, t) => a + (branchData[t].sold_accounts || 0), 0);
+    const totalRevenue = totalTeams.reduce((a, t) => a + (branchData[t].revenue || 0), 0);
+    const totalReps    = totalTeams.reduce((a, t) => a + (branchData[t].reps || 0), 0);
     const wAvg = (key) => totalSold > 0
-      ? rankedTeams.reduce((a, t) => a + (branchData[t][key] || 0) * (branchData[t].sold_accounts || 0), 0) / totalSold
+      ? totalTeams.reduce((a, t) => a + (branchData[t][key] || 0) * (branchData[t].sold_accounts || 0), 0) / totalSold
       : 0;
     const riddTotal = {
       sold_accounts:  totalSold,

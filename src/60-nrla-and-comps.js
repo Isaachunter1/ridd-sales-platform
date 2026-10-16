@@ -5516,8 +5516,14 @@ function rankExcludedSet() {
   const raw = (store[_rankExcludeMode()] || []).filter(n => !/^office\s*-\s*\d/i.test(String(n || '').trim()));
   return new Set(raw);
 }
+// "RIDD" team (per Isaac, Oct 16): reps who report straight to the owners and
+// sit on no real team. They're RIDD's own production, so they roll into the
+// RIDD total column like any team, but never score Power Ranking points.
+function isOwnerTeam(name) { return /^ridd$/i.test(String(name || '').trim()); }
 function isRankExcluded(name) {
-  return !!name && rankExcludedSet().has(name);
+  if (!name) return false;
+  if (_rankExcludeMode() === 'teams' && isOwnerTeam(name)) return true;
+  return rankExcludedSet().has(name);
 }
 function toggleRankExcluded(name) {
   if (!name) return;
@@ -6355,6 +6361,10 @@ function powerRankPickerBtn() {
         },
       }, 'Include all'),
       ...opts.map(b => {
+        if (mode === 'teams' && isOwnerTeam(b)) return el('div', {
+          class: 'flex items-center gap-2 px-2 py-1.5 text-xs', style: { color: 'var(--text-muted)' },
+          title: 'Reps directly under the owners — counted in the RIDD total, never ranked',
+        }, el('input', { type: 'checkbox', disabled: true }), el('span', { class: 'truncate' }, 'RIDD'), el('span', { class: 'text-[10px] italic ml-auto whitespace-nowrap' }, 'total only'));
         const out = excluded.has(b);
         return el('label', {
           class: 'flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs',
