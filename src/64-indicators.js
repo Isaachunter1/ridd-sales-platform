@@ -6165,23 +6165,7 @@ function parseRawSalesReport(lines, headerRow, headers, cols) {
   // the persisted rep_offices map. Existing entries are overwritten so
   // an admin always sees the freshest data; reps not in the CSV keep
   // whatever office was previously assigned.
-  const repOfficeCounts = {};
-  state._indicatorRawSales.forEach(s => {
-    if (!s.rep || !s.office) return;
-    if (!repOfficeCounts[s.rep]) repOfficeCounts[s.rep] = {};
-    repOfficeCounts[s.rep][s.office] = (repOfficeCounts[s.rep][s.office] || 0) + 1;
-  });
-  if (!state._indicatorRepOffice) state._indicatorRepOffice = {};
-  let updated = 0;
-  Object.entries(repOfficeCounts).forEach(([rep, counts]) => {
-    const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
-    if (top && state._indicatorRepOffice[rep] !== top) {
-      state._indicatorRepOffice[rep] = top;
-      updated++;
-    }
-  });
-  if (updated > 0) {
-    _invalidateRepSigIndex(state._indicatorRepOffice);
+  if (typeof _autoMergeRepOffices === 'function' && _autoMergeRepOffices(state._indicatorRawSales) > 0) {
     // Fire the same persistence pipe the team/tier maps use — localStorage
     // for the local cache + Supabase mirror. Silent on success; only
     // surfaces an error toast if the upload-time sync fails.

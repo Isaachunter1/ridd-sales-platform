@@ -800,6 +800,37 @@ async function refreshIndicatorsFromCloud(force) {
   }
 }
 
+// Rep → office auto-sync: each rep's MOST FREQUENT office in the sales, written
+// into the shared rep_offices map. Deterministic on purpose (per Isaac, Oct 16 —
+// a team rename kept reverting): ties used to fall to whichever office came first
+// in the payload, which differs between loads/devices, so two open tabs flipped
+// e.g. 2 DETROIT / 2 SALT LAKE back and forth, re-saving the shared config every
+// few minutes and making every other device's real edits lose the CAS race.
+// Ties now go to the office of the rep's latest sale, then alphabetically, and
+// keys use the same cleaned spelling the map is normalized to (a raw "Gross , Noah"
+// was being re-added after every load). Returns how many entries changed.
+function _autoMergeRepOffices(raw) {
+  const clean = (n) => (typeof _cleanRepName === 'function' ? _cleanRepName(n) : String(n || '').trim());
+  const toIso = (d) => (typeof dateSoldToIso === 'function' ? (dateSoldToIso(d) || '') : String(d || ''));
+  const stats = {};
+  for (const s of raw || []) {
+    if (!s || !s.rep || !s.office) continue;
+    const rep = clean(s.rep); if (!rep) continue;
+    const o = ((stats[rep] = stats[rep] || {})[s.office] = stats[rep][s.office] || { n: 0, last: '' });
+    o.n++;
+    const iso = toIso(s.dateSold); if (iso > o.last) o.last = iso;
+  }
+  if (!state._indicatorRepOffice) state._indicatorRepOffice = {};
+  const m = state._indicatorRepOffice;
+  let updated = 0;
+  for (const [rep, offices] of Object.entries(stats)) {
+    const top = Object.entries(offices).sort((a, b) => (b[1].n - a[1].n) || b[1].last.localeCompare(a[1].last) || a[0].localeCompare(b[0]))[0]?.[0];
+    if (top && m[rep] !== top) { m[rep] = top; updated++; }
+  }
+  if (updated > 0 && typeof _invalidateRepSigIndex === 'function') _invalidateRepSigIndex(m);
+  return updated;
+}
+
 // Post-apply housekeeping — the things the local PARSE path used to do that
 // must now happen when a device APPLIES the server-derived payload instead
 // (browsers no longer parse snapshots in the normal flow).
@@ -824,21 +855,7 @@ function _applyIndicatorsPayloadHousekeeping(payload) {
   // 2. Rep → office auto-sync (admins only — it lands in shared config).
   try {
     if (!isAdminRole(state.profile && state.profile?.role)) return;
-    const counts = {};
-    for (const s of raw) {
-      if (!s || !s.rep || !s.office) continue;
-      (counts[s.rep] = counts[s.rep] || {})[s.office] = (counts[s.rep][s.office] || 0) + 1;
-    }
-    if (!state._indicatorRepOffice) state._indicatorRepOffice = {};
-    let updated = 0;
-    for (const [rep, c] of Object.entries(counts)) {
-      const top = Object.entries(c).sort((a, b) => b[1] - a[1])[0]?.[0];
-      if (top && state._indicatorRepOffice[rep] !== top) { state._indicatorRepOffice[rep] = top; updated++; }
-    }
-    if (updated > 0) {
-      if (typeof _invalidateRepSigIndex === 'function') _invalidateRepSigIndex(state._indicatorRepOffice);
-      if (typeof saveIndicatorState === 'function') saveIndicatorState();
-    }
+    if (_autoMergeRepOffices(raw) > 0 && typeof saveIndicatorState === 'function') saveIndicatorState();
   } catch (e) { console.warn('[ridd] rep-office merge from payload failed', e); }
 }
 
@@ -1303,7 +1320,7 @@ async function loadIndicatorConfigFromSupabase() {
           let changed = false;
           const reg = state._indicatorTeams || [];
           if (!reg.some(t => /^ridd$/i.test(String(t || '').trim()))) { addTeam('RIDD'); changed = true; }
-          if (reg.includes('Excluded') && !reg.includes('Termite Pros') && typeof renameTeam === 'function') { const r = renameTeam('Excluded', 'Termite Pros'); if (r && r.ok) changed = true; }
+          if (typeof distinctTeams === 'function' && distinctTeams().includes('Excluded') && !reg.includes('Termite Pros') && typeof renameTeam === 'function') { const r = renameTeam('Excluded', 'Termite Pros'); if (r && r.ok) changed = true; }
           if (changed) setTimeout(() => { saveIndicatorConfigToSupabase().catch(() => {}); if (typeof mountApp === 'function') mountApp(); }, 0);
         }
       } catch (e) { console.warn('[ridd] team tidy skipped', e); }
@@ -1411,6 +1428,7 @@ async function _indicatorConfigUpsertNow() {
       .rpc('save_indicator_config', { payload, based_on: _basedOn });
     if (!casErr && casRes && casRes.ok) {
       state._tierPending = {};
+      state._cfgReplay = [];
       _indCfgRecordSynced(casRes.server_updated_at || payload.updated_at);
       _mirrorNrlaRostersToRows();              // stage-1 dual-write (additive, never blocks)
       return true;
@@ -1426,11 +1444,18 @@ async function _indicatorConfigUpsertNow() {
       // Oct 2 — N/A tags reverted): put them back on top of the server copy
       // and save once more. One retry only, so two devices can't ping-pong.
       const _tp = state._tierPending;
-      if (_tp && Object.keys(_tp).length && !state._tierReapplying) {
+      const _rp = Array.isArray(state._cfgReplay) ? state._cfgReplay.splice(0) : [];
+      if (((_tp && Object.keys(_tp).length) || _rp.length) && !state._tierReapplying) {
         state._tierReapplying = true;
         try {
+          // Explicit team renames (per Isaac, Oct 16 — "Excluded" → "Termite Pros" kept reverting).
+          for (const op of _rp) {
+            if (op[0] === 'renameTeam' && typeof renameTeam === 'function' && typeof distinctTeams === 'function' && distinctTeams().includes(op[1])) renameTeam(op[1], op[2]);
+          }
+          if (Array.isArray(state._cfgReplay)) state._cfgReplay.length = 0;   // the replays above re-queued themselves; this one save carries them
+          // (renameTeam already refreshed the local cache via saveDemoData.)
           state._indicatorRepTier = state._indicatorRepTier || {}; state._indicatorRepTierYear = state._indicatorRepTierYear || {};
-          for (const k of Object.keys(_tp)) {
+          for (const k of Object.keys(_tp || {})) {
             if (_tp[k]) { state._indicatorRepTier[k] = _tp[k]; state._indicatorRepTierYear[k] = new Date().getFullYear(); }
             else { delete state._indicatorRepTier[k]; delete state._indicatorRepTierYear[k]; }
           }

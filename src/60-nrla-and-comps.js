@@ -6331,6 +6331,14 @@ function renameTeam(oldName, newNameRaw) {
   // Rename in the registry, preserving order
   if (!state._indicatorTeams) state._indicatorTeams = [];
   state._indicatorTeams = state._indicatorTeams.map(t => t === oldName ? newName : t);
+  // A team that only lived in the exclusion list / assignments (the old built-in
+  // "Excluded") joins the registry under its new name so it stays a real team.
+  if (!state._indicatorTeams.includes(newName)) state._indicatorTeams.push(newName);
+  // Color + picture follow the team.
+  for (const f of ['_indicatorTeamColors', '_indicatorTeamLogos']) {
+    const m = state[f];
+    if (m && typeof m === 'object' && oldName in m) { if (!(newName in m)) m[newName] = m[oldName]; delete m[oldName]; }
+  }
   { const _ty = (state._indicatorTeamTypes || {})[oldName]; if (_ty) { setTeamType(oldName, ''); setTeamType(newName, _ty); } }
   logActivity('team_change', { detail: 'Team renamed: ' + oldName + ' → ' + newName });
   // Rename in every rep assignment, across every year.
@@ -6344,6 +6352,9 @@ function renameTeam(oldName, newNameRaw) {
   }
   // And into every competition's exclusion list.
   getIndicatorCompetitions().forEach(c => { c.excludedTeams = c.excludedTeams.map(t => t === oldName ? newName : t); });
+  // If another device saved first, the sync adopts the server copy — replay
+  // this rename on top of it instead of silently losing it (see _indicatorConfigUpsertNow).
+  (state._cfgReplay = state._cfgReplay || []).push(['renameTeam', oldName, newName]);
   saveDemoData();
   return { ok: true };
 }
