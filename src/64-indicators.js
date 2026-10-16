@@ -4438,6 +4438,12 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     try { const raw = localStorage.getItem('ridd_lb_cols_on::' + ((state.profile && state.profile.id) || 'anon')); const j = raw ? JSON.parse(raw) : null; if (Array.isArray(j)) v = j; } catch (e) { /* storage blocked */ }
     state._indLbColsOn = v;
   }
+  // Column ORDER (per Isaac, Oct 16): drag rows in the Columns dropdown to reorder; saved per login like the picks.
+  if (!Array.isArray(state._indLbColOrder)) {
+    let v = [];
+    try { const raw = localStorage.getItem('ridd_lb_col_order::' + ((state.profile && state.profile.id) || 'anon')); const j = raw ? JSON.parse(raw) : null; if (Array.isArray(j)) v = j; } catch (e) { /* storage blocked */ }
+    state._indLbColOrder = v;
+  }
   const _lbColKey = (c) => RECORD_SORT_KEYS.has(c.key) ? 'record' : c.key;
   const _lbColLabel = (c) => RECORD_SORT_KEYS.has(c.key) ? 'Best Day / Week / Month' : c.label;
   // What each column means (per Isaac, Sep 30) — hover on desktop, tap ⓘ on
@@ -4482,6 +4488,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   const _lbOff = new Set([...state._indLbColsOff, ..._lbPickable.filter(c => c.defaultHidden && !_lbOnSet.has(_lbColKey(c))).map(_lbColKey)]);
   repCols = repCols.filter(c => c.key === 'name' || !_lbOff.has(_lbColKey(c)));
   if (indOneDayRange()) repCols = repCols.filter(c => !IND_PER_DAY_COLS.has(c.key));
+  // Apply the saved order: Rep stays first and the frozen Best Day / Week / Month column stays last.
+  const _lbOrd = state._indLbColOrder || [];
+  const _lbRank = (c, i) => { const k = _lbColKey(c); if (c.key === 'name') return -1; if (k === 'record') return 1e6; const j = _lbOrd.indexOf(k); return j >= 0 ? j : 1000 + i; };
+  if (_lbOrd.length) repCols = repCols.map((c, i) => [c, _lbRank(c, i)]).sort((a, b) => a[1] - b[1]).map(x => x[0]);
   const _lbStore = (k, arr) => { try { localStorage.setItem(k + '::' + ((state.profile && state.profile.id) || 'anon'), JSON.stringify(arr)); } catch (e) { /* storage blocked */ } };
   const _lbSetShown = (key, show, render = true) => {
     const def = _lbPickable.find(c => _lbColKey(c) === key);
@@ -4793,22 +4803,48 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             }, offN ? 'Columns · ' + offN + (_lbPhone ? '' : ' hidden') : 'Columns');
             if (!open) return el('span', { style: { position: 'relative' } }, btn);
             const seen = new Set();
-            const items = _lbPickable.filter(c => { const k = _lbColKey(c); if (seen.has(k)) return false; seen.add(k); return true; });
+            const _uniq = _lbPickable.filter(c => { const k = _lbColKey(c); if (seen.has(k)) return false; seen.add(k); return true; });
+            // Selected columns first, in board order (per Isaac, Oct 16), then the unticked ones.
+            const _ordIdx = (c) => { const k = _lbColKey(c); if (k === 'record') return 1e6; const j = (state._indLbColOrder || []).indexOf(k); return j >= 0 ? j : 1000 + _uniq.indexOf(c); };
+            const _onItems = _uniq.filter(c => !_lbOff.has(_lbColKey(c))).sort((a, b) => _ordIdx(a) - _ordIdx(b));
+            const _offItems = _uniq.filter(c => _lbOff.has(_lbColKey(c)));
+            const items = _onItems.concat(_offItems);
+            // Drag to reorder the shown columns — saves on drop; the board redraws on Done / click-away.
+            let _dragKey = null;
+            const _saveOrder = () => {
+              const keys = [...panel.querySelectorAll('[data-lbcol][data-on="1"]')].map(n => n.getAttribute('data-lbcol')).filter(k => k !== 'record');
+              const rest = (state._indLbColOrder || []).filter(k => !keys.includes(k));
+              state._indLbColOrder = keys.concat(rest);
+              _lbStore('ridd_lb_col_order', state._indLbColOrder);
+              state._lbColsDirty = true;
+            };
             const cb = (on, fn) => { const c = el('input', { type: 'checkbox', style: { accentColor: 'var(--accent)' }, onchange: (e) => fn(e.target.checked) }); c.checked = on; return c; };
             const panel = el('div', { class: 'card absolute p-1.5', style: { top: 'calc(100% + 6px)', right: '0', width: '280px', maxWidth: 'calc(100vw - 32px)', maxHeight: '420px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)' }, onclick: (e) => e.stopPropagation() },
               // Ticks are STAGED (per Isaac, Sep 30): the list doesn't redraw on
               // every click (that jumped the page and the list's scroll); the
               // board updates once, on Done or when you click away.
               el('div', { class: 'flex items-center gap-1 px-1.5 pb-1.5 mb-1', style: { borderBottom: '1px solid var(--border)' } },
-                el('button', { class: 'rounded-lg px-2 py-0.5 text-[10px] font-bold', style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: () => _lbSetOff([]) }, 'Reset'),
+                el('button', { class: 'rounded-lg px-2 py-0.5 text-[10px] font-bold', style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: () => { state._indLbColOrder = []; _lbStore('ridd_lb_col_order', []); _lbSetOff([]); } }, 'Reset'),
                 el('span', { class: 'flex-1' }),
                 el('button', { class: 'rounded-lg px-2.5 py-0.5 text-[10px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => { state._indLbColsOpen = false; mountApp(); } }, 'Done')),
-              ...items.map(c => { const k = _lbColKey(c), on = !_lbOff.has(k), desc = _lbColDesc(k);
+              _onItems.length ? el('div', { class: 'px-2.5 pb-1 text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Showing \u00b7 drag to reorder') : null,
+              ...items.flatMap((c, _ii) => { const k = _lbColKey(c), on = !_lbOff.has(k), desc = _lbColDesc(k);
                 // Desktop: hover the row for the tooltip. Phone (no hover): tap ⓘ
                 // to open the explanation right under the row; tap again to close.
                 // Both update in place — no page redraw.
                 const info = desc ? el('div', { class: 'px-3 pb-2 text-[11px]', style: { color: 'var(--text-muted)', lineHeight: '1.35', display: 'none' } }, desc) : null;
-                const row = el('div', { class: 'rounded-lg', style: { background: on ? 'var(--card-2)' : 'transparent' }, title: desc });
+                const row = el('div', { class: 'rounded-lg', style: { background: on ? 'var(--card-2)' : 'transparent' }, title: desc, 'data-lbcol': k, 'data-on': on ? '1' : '0' });
+                const _dragOk = on && k !== 'record';
+                if (_dragOk) {
+                  row.draggable = true;
+                  row.addEventListener('dragstart', (e) => { _dragKey = k; row.style.opacity = '.45'; try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', k); } catch (er) { /* */ } });
+                  row.addEventListener('dragend', () => { row.style.opacity = ''; _dragKey = null; panel.querySelectorAll('[data-lbcol]').forEach(x => { x.style.boxShadow = ''; }); });
+                  row.addEventListener('dragover', (e) => { if (!_dragKey || _dragKey === k) return; e.preventDefault(); const r = row.getBoundingClientRect(); const after = e.clientY > r.top + r.height / 2; row.style.boxShadow = after ? 'inset 0 -2px 0 var(--accent)' : 'inset 0 2px 0 var(--accent)'; });
+                  row.addEventListener('dragleave', () => { row.style.boxShadow = ''; });
+                  row.addEventListener('drop', (e) => { e.preventDefault(); row.style.boxShadow = ''; const src = panel.querySelector('[data-lbcol="' + _dragKey + '"]'); if (!src || src === row) return;
+                    const r = row.getBoundingClientRect(); const after = e.clientY > r.top + r.height / 2; row.parentNode.insertBefore(src, after ? row.nextSibling : row); _saveOrder(); });
+                }
+                const grip = _dragOk ? el('span', { class: 'shrink-0 select-none', title: 'Drag to reorder', style: { cursor: 'grab', color: 'var(--text-subtle)', fontSize: '12px', lineHeight: '1', padding: '0 0 0 6px' } }, '\u2807') : el('span', { class: 'shrink-0', style: { width: '13px', display: 'inline-block' } });
                 const infoBtn = desc ? el('button', { type: 'button', 'aria-label': 'What is ' + _lbColLabel(c) + '?', class: 'shrink-0 inline-flex items-center justify-center rounded-full text-[10px] font-bold', style: { width: '28px', height: '28px', color: 'var(--text-subtle)' },
                   onclick: (e) => { e.preventDefault(); e.stopPropagation(); const show = info.style.display === 'none';
                     panel.querySelectorAll('[data-lbinfo]').forEach(x => { x.style.display = 'none'; }); panel.querySelectorAll('[data-lbinfobtn]').forEach(x => { x.style.color = 'var(--text-subtle)'; });
@@ -4816,11 +4852,12 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 if (info) info.setAttribute('data-lbinfo', ''); if (infoBtn) infoBtn.setAttribute('data-lbinfobtn', '');
                 row.append(
                   el('div', { class: 'flex items-center gap-1' },
-                    el('label', { class: 'flex-1 flex items-center gap-2 px-2.5 py-1 text-[11px] font-semibold cursor-pointer min-w-0', style: { color: 'var(--text)' } },
-                      cb(on, (v) => { _lbSetShown(k, v, false); row.style.background = v ? 'var(--card-2)' : 'transparent'; }), el('span', { class: 'flex-1' }, _lbColLabel(c)), c.defaultHidden ? el('span', { class: 'text-[9px] whitespace-nowrap', style: { color: 'var(--text-subtle)' } }, 'off by default') : null),
+                    grip,
+                    el('label', { class: 'flex-1 flex items-center gap-2 px-2 py-1 text-[11px] font-semibold cursor-pointer min-w-0', style: { color: 'var(--text)' } },
+                      cb(on, (v) => { _lbSetShown(k, v, false); row.style.background = v ? 'var(--card-2)' : 'transparent'; row.setAttribute('data-on', v ? '1' : '0'); }), el('span', { class: 'flex-1' }, _lbColLabel(c)), c.defaultHidden ? el('span', { class: 'text-[9px] whitespace-nowrap', style: { color: 'var(--text-subtle)' } }, 'off by default') : null),
                     infoBtn));
                 if (info) row.append(info);
-                return row; }));
+                return (_ii === _onItems.length && _ii > 0) ? [el('div', { class: 'px-2.5 pt-2 pb-1 text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)', borderTop: '1px solid var(--border)' } }, 'Not showing'), row] : [row]; }));
             const wrap = el('span', { style: { position: 'relative' }, 'data-dd': 'lbcols' }, btn, panel);
             try { clampDropdownPanel(panel); } catch (err) { /* optional helper */ }
             setTimeout(() => document.addEventListener('mousedown', function closer(ev) { if (!(ev.target.closest && ev.target.closest('[data-dd="lbcols"]'))) { document.removeEventListener('mousedown', closer); if (state._indLbColsOpen) { state._indLbColsOpen = false; mountApp(); } } }), 0);

@@ -1426,6 +1426,7 @@ const IND_PRESET_KEYS = [
   '_indHiddenMetrics',
   '_indHiddenLbCols',
   '_indLbColsOff', '_indLbColsOn',               // a user's own leaderboard column picks (per Isaac, Sep 30)
+  '_indLbColOrder',                               // …and their drag-to-reorder column order (per Isaac, Oct 16)
   '_indicatorRepPick',           // a partner's hand-picked downline (null = everyone)
 ];
 // Presets are PER USER (per Isaac): stored on this device under the
