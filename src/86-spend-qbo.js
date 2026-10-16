@@ -20,6 +20,9 @@
 // │ Part of the app.js bundle (tools/bundle.js concatenates src/*.js in name order).
 // └────────────────────────────────────────────────────────────────────────
 const SPQ_TOOLS = 'Agency & tools';      // agency fees, software, creative — spread with the media they support
+// What people see (per Isaac, Oct 16): "Agency". The stored value stays 'Agency & tools' so saved picks keep working.
+const SPQ_TOOLS_LABEL = 'Agency';
+function spqLabel(p) { return p === SPQ_TOOLS ? SPQ_TOOLS_LABEL : p; }
 const SPQ_SKIP = '__skip';               // not marketing spend (booked to the wrong account)
 const SPQ_METHODS = [['auto', 'Auto'], ['platform', 'Platform spend'], ['upload', 'Uploaded breakout'], ['leads', 'GHL leads'], ['even', 'Even split']];
 
@@ -199,8 +202,8 @@ function mktgSpendQboView() {
   const provPick = (L) => el('select', { class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: Object.assign({}, selSt, L.prov ? {} : { borderColor: '#DC2626' }), onchange: (e) => setRule(L, e.target.value) },
     el('option', { value: '', selected: !L.prov, disabled: true }, 'Pick a provider…'),
     ...chanOpts.map(c => el('option', { value: c, selected: L.prov === c }, c)),
-    el('option', { value: SPQ_TOOLS, selected: L.prov === SPQ_TOOLS }, SPQ_TOOLS + ' (spread with the media)'),
-    el('option', { value: SPQ_SKIP, selected: L.prov === SPQ_SKIP }, 'Not marketing — leave out'));
+    el('option', { value: SPQ_TOOLS, selected: L.prov === SPQ_TOOLS }, SPQ_TOOLS_LABEL),
+    el('option', { value: SPQ_SKIP, selected: L.prov === SPQ_SKIP }, 'Not marketing'));
 
   // 1 · QuickBooks lines by provider.
   const open = state._spqOpen || {};
@@ -209,10 +212,10 @@ function mktgSpendQboView() {
     const ls = A.lines.filter(L => (L.prov || '') === p && L.prov !== SPQ_SKIP);
     const amt = ls.reduce((a, L) => a + L.amt, 0), isOpen = !p || open[p];
     return [el('tr', { class: 'border-t cursor-pointer', style: { borderColor: 'var(--border)', background: p ? '' : 'rgba(220,38,38,.06)' }, onclick: () => { state._spqOpen = Object.assign({}, open, { [p]: !open[p] }); mountApp(); } },
-      td((isOpen ? '▾ ' : '▸ ') + (p || 'Needs a provider'), { fontWeight: '700', color: p ? undefined : '#B91C1C' }), td(fmt.int(ls.length) + ' line' + (ls.length === 1 ? '' : 's'), muted), td(usd(amt), { fontWeight: '700' }, true), td(p ? (A.byProv[p] || {}).how : 'Pick once — remembered for every month', muted)),
+      td((isOpen ? '▾ ' : '▸ ') + (spqLabel(p) || 'Needs a provider'), { fontWeight: '700', color: p ? undefined : '#B91C1C' }), td(fmt.int(ls.length) + ' line' + (ls.length === 1 ? '' : 's'), muted), td(usd(amt), { fontWeight: '700' }, true), td(p ? (A.byProv[p] || {}).how : 'Pick once — remembered for every month', muted)),
       ...(isOpen ? ls.sort((a, b) => b.amt - a.amt).map(L => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', fontSize: '11px' } },
         td('    ' + ym.slice(5) + '/' + L.day + ' · ' + (L.payee || '—'), { paddingLeft: '28px' }), td(L.memo, Object.assign({}, muted, { maxWidth: '360px', overflow: 'hidden', textOverflow: 'ellipsis' })), td(usd(L.amt), null, true),
-        el('td', { class: 'px-3 py-1' }, admin ? provPick(L) : (L.prov || '—'), L.how && L.how !== 'your pick' ? el('span', { class: 'ml-2 text-[10px]', style: muted }, L.how) : null))) : [])];
+        el('td', { class: 'px-3 py-1' }, admin ? provPick(L) : (spqLabel(L.prov) || '—'), L.how && L.how !== 'your pick' ? el('span', { class: 'ml-2 text-[10px]', style: muted }, L.how) : null))) : [])];
   }).flat();
   const linesCard = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
@@ -241,7 +244,7 @@ function mktgSpendQboView() {
         el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Each provider’s QuickBooks dollars split by its driver (pick one in the column header). Columns add up to QuickBooks to the cent. This is what the month-end journal entry should book.')),
       el('button', { class: 'ml-auto rounded-lg px-3 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: csv }, '⬇ CSV for the controller')),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-      el('thead', {}, el('tr', {}, th('Office'), ...provs.map(p => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold text-right align-top', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, el('div', {}, p), admin && p !== SPQ_TOOLS ? el('div', { class: 'mt-1' }, methodSel(p)) : el('div', { class: 'mt-1 text-[9px] normal-case tracking-normal' }, p === SPQ_TOOLS ? 'pro rata to media' : ''))), th('Total', true), bookedTot ? th('Booked in QBO', true) : null)),
+      el('thead', {}, el('tr', {}, th('Office'), ...provs.map(p => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold text-right align-top', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, el('div', {}, spqLabel(p)), admin && p !== SPQ_TOOLS ? el('div', { class: 'mt-1' }, methodSel(p)) : el('div', { class: 'mt-1 text-[9px] normal-case tracking-normal' }, p === SPQ_TOOLS ? 'pro rata to media' : ''))), th('Total', true), bookedTot ? th('Booked in QBO', true) : null)),
       el('tbody', {}, ...offices.map(b => { const t = offTot(b), bk = A.booked[b] || 0;
         return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, td(_mktgTC(b), { fontWeight: '700' }), ...provs.map(p => td((A.cells[p] || {})[b] ? usd(A.cells[p][b]) : '—', null, true)), td(usd(t), { fontWeight: '700' }, true),
           bookedTot ? td(usd(bk), Math.abs(bk - t) > 1 ? { color: '#B45309', fontWeight: '600' } : muted, true) : null); }),

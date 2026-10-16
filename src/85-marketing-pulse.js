@@ -178,7 +178,7 @@ function mkpSpendLines(win) {
         for (const L of A.lines) {
           const d = ym + '-' + String(L.day || '01').padStart(2, '0');
           if (d < win.from || d > win.to || L.prov === SPQ_SKIP) continue;
-          const prov = !L.prov ? 'Needs a vendor' : L.prov === SPQ_TOOLS ? 'Agency & tools' : L.prov;
+          const prov = !L.prov ? 'Needs a vendor' : L.prov === SPQ_TOOLS ? SPQ_TOOLS_LABEL : L.prov;
           const tx = { ym, day: L.day, d, payee: L.payee, memo: L.memo, amt: L.amt, acctLeaf: L.acctLeaf, prov: L.prov, how: L.how, txn: L.txn, journal: L.journal };
           const shares = (L.prov && shareOf[L.prov]) || [['', 1]];
           for (const [bb, f] of shares) out.lines.push({ d, prov, market: mkpMarketOf(bb), amt: L.amt * f, src: 'qbo', kind: 'ad', tx, shared: !bb, allocated: shares.length > 1 });
@@ -274,8 +274,8 @@ function mkpOpenSpend(needsOnly) {
       onchange: (e) => { if (typeof spqSetRule === 'function') { spqSetRule(r.tx.ym, r.tx, e.target.value, only.checked); reopen(); } } },
       el('option', { value: '', selected: !cur, disabled: true }, 'Pick a vendor…'),
       ...opts.map(c => el('option', { value: c, selected: cur === c }, c)),
-      el('option', { value: SPQ_TOOLS, selected: cur === SPQ_TOOLS }, SPQ_TOOLS),
-      el('option', { value: SPQ_SKIP }, 'Not marketing — leave out'));
+      el('option', { value: SPQ_TOOLS, selected: cur === SPQ_TOOLS }, SPQ_TOOLS_LABEL),
+      el('option', { value: SPQ_SKIP }, 'Not marketing'));
     return el('span', { class: 'inline-flex items-center gap-1.5' }, sel, el('label', { class: 'inline-flex items-center gap-1 text-[10px]', style: _mkpMuted }, only, 'this charge only'));
   };
   const csv = () => { const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
@@ -294,7 +294,7 @@ function mkpOpenSpend(needsOnly) {
       el('tbody', {}, ...rows.slice(0, 2000).map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: r.prov === 'Needs a vendor' ? 'rgba(220,38,38,.05)' : '' } },
         td(fmt.dateShort(r.tx.d)), el('td', { class: 'px-2 py-1.5 whitespace-nowrap', style: { fontWeight: '600' } }, r.tx.payee || '—', r.tx.journal ? el('span', { class: 'ml-1 rounded px-1 text-[9px] font-bold', title: 'QuickBooks journal entry (an accrual, reversal or adjustment). Allocations between the marketing accounts net to $0 and are left out.', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, 'JOURNAL') : null), td(r.tx.memo, Object.assign({ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis' }, _mkpMuted)), td(r.tx.acctLeaf, _mkpMuted),
         td(Math.abs(r.amt - r.tx.amt) > 0.01 ? _mkpUsd(r.amt) + ' of ' + _mkpUsd(r.tx.amt) : _mkpUsd(r.amt), { fontWeight: '700' }, true),
-        el('td', { class: 'px-2 py-1' }, admin ? pick(r) : r.prov, r.tx.how && r.tx.how !== 'your pick' ? el('div', { class: 'text-[9px]', style: { color: 'var(--text-subtle)' } }, r.tx.how === 'payee' ? 'auto · from the payee name' : r.tx.how) : null),
+        el('td', { class: 'px-2 py-1' }, admin ? pick(r) : spqLabel(r.prov), r.tx.how && r.tx.how !== 'your pick' ? el('div', { class: 'text-[9px]', style: { color: 'var(--text-subtle)' } }, r.tx.how === 'payee' ? 'auto · from the payee name' : r.tx.how) : null),
         td(r.mk.size ? [...r.mk.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => k + (r.mk.size > 1 ? ' ' + Math.round(v / r.amt * 100) + '%' : '')).join(' · ') : 'shared', _mkpMuted)))),
       el('tfoot', {}, el('tr', { style: { borderTop: '2px solid var(--text)' } }, td('Total', { fontWeight: '700' }), td('\u00a0'), td('\u00a0'), td('\u00a0'), td(_mkpUsd(rows.reduce((t, r) => t + r.amt, 0)), { fontWeight: '800' }, true), td('\u00a0'), td('\u00a0'))))));
   overlay.append(card); document.body.append(overlay);
@@ -475,7 +475,7 @@ function mktgPulseView() {
     kpi(salesLbl, fmt.int(cur.s), _mkpDelta(cur.s, prev.s, true), _mkpSpark(sparkBy(d => salesByDay.get(d) || 0) || [], MKP_C.accent),
       _mkpInfo('Sales', 'Office Staff FieldRoutes sales (initial booked or done, renewals left out) whose person — normalized phone, else email — came in as a lead within the ' + F.win + '-day window before the sale. Exact matches only. ' + (F.mode === 'cohort' ? 'Cohort mode: sales from the leads that came in during the range, whenever they sold.' : 'Activity mode: lead-sourced sales sold during the range.')), () => mkpOpenRecords(salesLbl + ' · ' + R.label, cur.sales), fmt.usd0(cur.cv) + ' contracted'),
     kpi('CAC', V.hasSpend && cur.s && cur.ad > 0 ? _mkpUsd(cur.ad / cur.s) : V.hasSpend ? '—' : 'Data unavailable', V.hasSpend ? _mkpDelta(cur.s ? cur.ad / cur.s : null, prev.s && V.prevSpendOk ? prev.ad / prev.s : null, false) : null, null,
-      _mkpInfo('Customer acquisition cost', 'Marketing-spend CAC: QuickBooks Advertising & Marketing spend ÷ sales (agency & tools charges included, since they sit in that account). Fully loaded CAC adds the wages / incentives entered on the Spend tab; it shows only when every month in the range has wages entered.'), null,
+      _mkpInfo('Customer acquisition cost', 'Marketing-spend CAC: QuickBooks Advertising & Marketing spend ÷ sales (agency charges included, since they sit in that account). Fully loaded CAC adds the wages / incentives entered on the Spend tab; it shows only when every month in the range has wages entered.'), null,
       fullyLoaded != null && cur.s ? 'fully loaded ' + _mkpUsd(fullyLoaded / cur.s) : 'marketing spend only · fully loaded unavailable'),
     kpi('Lead → sale', cur.n ? _mkpPct(cur.leads.filter(x => x.sold).length / cur.n) : '—', _mkpDelta(cur.n ? cur.leads.filter(x => x.sold).length / cur.n : null, prev.n ? prev.leads.filter(x => x.sold).length / prev.n : null, true), null,
       _mkpInfo('Lead-to-sale conversion', 'Of the leads that came in during the range, the share that became a sale within the ' + F.win + '-day window. Leads younger than the window can still convert, so recent ranges read low — the card says how many are still maturing.'), null,
@@ -573,7 +573,7 @@ function mktgPulseView() {
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('Channel', 'ch'), th('Spend', 'ch', 'sp'), th('Leads', 'ch', 'n'), th('CPL', 'ch', 'cpl'), th('Sales', 'ch', 's'), th('Close rate', 'ch', 'close', 'Sales ÷ leads'), th('CAC', 'ch', 'cac'), th('Revenue', 'ch', 'cv', 'Contracted (contract value)'), th('ROAS', 'ch', 'roas', 'Contracted revenue ÷ spend'))),
       el('tbody', {}, ...sortTable(chRows, 'ch').flatMap(r => {
-        const isOpen = openCh === r.k, weird = ['Unmapped', 'Needs a vendor', 'Agency & tools'].includes(r.k);
+        const isOpen = openCh === r.k, weird = ['Unmapped', 'Needs a vendor', SPQ_TOOLS_LABEL].includes(r.k);
         const head = el('tr', { class: 'border-t cursor-pointer transition hover:brightness-95', style: { borderColor: 'var(--border)', background: isOpen ? 'rgba(223,100,58,.07)' : '' }, onclick: () => { state._mkpOpenCh = isOpen ? '' : r.k; mountApp(); } },
           td((isOpen ? '▾ ' : '▸ ') + r.k, { fontWeight: '700', color: weird ? MKP_C.amber : undefined }), ...metricCells(r, ghlPaidSet().has(r.k) ? (SP.vendor === 'none' ? 'unavailable' : '—') : 'organic'));
         if (!isOpen) return [head];
