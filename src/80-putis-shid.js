@@ -1263,6 +1263,22 @@ function reportingTabSlotPut(nodes) {
   _RPT_SLOT.append(...list);
   return true;
 }
+// Open (not checked-off, not all-clear) tasks behind a Reporting tab, for its red bubble. Cached briefly so the
+// tab strip doesn't rebuild every task list on each render.
+function _rptTabTaskCount(k) {
+  const C = _rptTabTaskCount._c || (_rptTabTaskCount._c = {});
+  const sig = [state.allSales, state.reportingSubscriptions, state._reviewMarks, state._svcChg, state._ghl].map(x => x ? 1 : 0).join('') + '|' + JSON.stringify(state._reviewMarks || {}).length;
+  const hit = C[k]; if (hit && hit.sig === sig && Date.now() - hit.at < 30000) return hit.n;
+  let items = [];
+  try {
+    if (k === 'marketing' && typeof exceptionFeedScope === 'function' && typeof exceptionFeedItems === 'function') { const sc = exceptionFeedScope(); if (sc) { items = exceptionFeedItems(sc); items.forEach(i => { i.rvKey = i.rvKey || 'att:' + i.tag; }); } }
+    else if (k === 'auditing' && typeof auditTaskItems === 'function') items = auditTaskItems();
+    if (items.length && typeof rvApply === 'function') items = rvApply(items).active;
+  } catch (e) { items = []; }
+  const n = items.filter(i => i && i.sev !== 'ok').length;
+  C[k] = { sig, at: Date.now(), n };
+  return n;
+}
 function reportingSubTabs() {
   const tabs = [
     ['overview',   'Overview'],
@@ -1282,14 +1298,15 @@ function reportingSubTabs() {
   const strip = el('div', { class: 'rpt-subtabs flex items-end gap-1 border-b flex-wrap', style: { borderColor: 'var(--border)' } },
     ...tabs.map(([k, label]) => {
       const active = cur === k;
-      // Marketing carries a small red bubble with the Needs-attention count (per Isaac, Sep 2026) — owner only, like the card.
-      let badge = null;
-      if (k === 'marketing' && typeof exceptionFeedScope === 'function' && typeof exceptionFeedItems === 'function') {
-        try { const sc = exceptionFeedScope(); const n = sc ? exceptionFeedItems(sc).length : 0; if (n) badge = el('span', { class: 'inline-flex items-center justify-center rounded-full text-[9px] font-bold ml-1', title: n + ' item' + (n === 1 ? '' : 's') + ' need attention', style: { background: '#DC2626', color: '#fff', minWidth: '16px', height: '16px', padding: '0 4px', lineHeight: '16px' } }, String(n)); } catch (e) { /* badge is optional */ }
-      }
+      // Red count bubble on the tabs that hold a task list (per Isaac): Marketing = Needs attention (owner only),
+      // Auditing = Auditing tasks. Counts what's still open — checked-off items don't count.
+      const n = _rptTabTaskCount(k);
+      const badge = n ? el('span', { class: 'inline-flex items-center justify-center rounded-full font-bold', title: n + ' open task' + (n === 1 ? '' : 's'),
+        style: { position: 'absolute', top: '-3px', right: '-5px', background: '#DC2626', color: '#fff', minWidth: '13px', height: '13px', padding: '0 3px', fontSize: '8px', lineHeight: '13px', pointerEvents: 'none' } }, String(n)) : null;
       return el('button', {
         class: 'px-2.5 py-1 text-[11px] font-semibold transition whitespace-nowrap inline-flex items-center',
         style: {
+          position: 'relative',
           borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
           color: active ? 'var(--text)' : 'var(--text-muted)',
           background: active ? 'rgba(223,100,58,.10)' : 'transparent',   // super-light orange on the open tab (per Isaac)
