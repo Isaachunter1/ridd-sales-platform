@@ -381,7 +381,7 @@ function reportingSourceConfigPanel() {
     ...Object.values(_pmap).filter(v => v && v !== MKTG_HIDE), ...allSources])].filter(Boolean).sort((a, b) => a.localeCompare(b));
   const provSel = (source) => {
     const v = _pmap[source] || '';
-    return el('select', { class: 'rounded border px-1.5 py-1 text-xs cursor-pointer', style: { borderColor: v ? 'var(--accent)' : 'var(--border-2)', background: 'transparent', color: v === MKTG_HIDE ? 'var(--text-muted)' : 'var(--text)', maxWidth: '170px' },
+    return el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] cursor-pointer', style: { borderColor: v ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: v === MKTG_HIDE ? 'var(--text-muted)' : 'var(--text)', width: '150px' },
       onchange: (e) => { setReportingSourceProvider(source, e.target.value || null); logActivity('config_change', { detail: 'Metrics provider: ' + source + ' → ' + (e.target.value || 'itself') }); mountApp(); } },
       el('option', { value: '', selected: !v }, 'Itself'),
       el('option', { value: MKTG_HIDE, selected: v === MKTG_HIDE }, 'Hide on Metrics'),
@@ -420,7 +420,7 @@ function reportingSourceConfigPanel() {
   };
 
   return el('div', { class: 'card p-3', id: 'cfg-sources' },
-    el('div', { class: 'flex items-center gap-2 mb-3' },
+    el('div', { class: 'flex items-center gap-2 mb-2' },
       el('h2', { class: 'text-base font-bold' }, 'Lead Sources'),
       el('span', { class: 'text-[10px] ml-auto', style: { color: 'var(--text-subtle)' } }, (state.sources || []).filter(x => x.is_active !== false).length + ' on the Sales Log · ' + frLinked.length + ' from FieldRoutes' + (frStampRaw ? ' · CRM checked ' + new Date(frStampRaw).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET' : '')),
       configInfoBtn('Lead Sources',
@@ -428,22 +428,29 @@ function reportingSourceConfigPanel() {
         'In Reporting excludes a source from all snapshot reporting (Overview, Geographic, Rep Performance, Waterfall, Inside Sales) — e.g. Miscellaneous drops out everywhere at once. Counts are total subs per source in the current snapshot. ' +
         'FieldRoutes / Sales Log mirror the CRM source list (hourly): add or hide a source in FieldRoutes and it lands here; visible ones feed the Sales Log dropdown. Pay tab hides a source from the Pay tab’s By Source grid (its sales still pay).'),
     ),
+    // What each column group means, in one glance (cleanup, Oct 16).
+    el('div', { class: 'grid gap-x-4 gap-y-1 mb-2 text-[11px]', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', color: 'var(--text-muted)', lineHeight: '1.35' } },
+      el('div', {}, el('b', { style: { color: 'var(--text)' } }, 'What it is'), ' — new, renewal or upsell business, and whether it’s a paid channel.'),
+      el('div', {}, el('b', { style: { color: 'var(--text)' } }, 'How sales are credited'), ' — the attribution rule, and which provider row it rolls into on Marketing.'),
+      el('div', {}, el('b', { style: { color: 'var(--text)' } }, 'Where it shows'), ' — counted in Reporting, offered on the Sales Log, shown on the Pay tab.')),
     list.length === 0
       ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'Lead sources appear here after you upload a snapshot.')
-      : el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', maxHeight: '280px', overflowY: 'scroll', scrollbarWidth: 'thin', scrollbarGutter: 'stable' } },
+      : el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', maxHeight: '460px', overflowY: 'scroll', scrollbarWidth: 'thin', scrollbarGutter: 'stable' } },
           el('table', { class: 'w-full text-xs' },
             el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)', position: 'sticky', top: '0', zIndex: '10' } },
+              (() => { const g = (t, span, first) => el('th', { colspan: String(span), class: 'text-left px-2 pt-2 pb-0.5 font-bold', style: { color: 'var(--text)', borderLeft: first ? 'none' : '1px solid var(--border)' } }, t);
+                return el('tr', {}, g('', 2, true), g('What it is', 2), g('How sales are credited', 2), g('Where it shows', 3), g('', 1)); })(),
               el('tr', {},
                 el('th', { class: 'text-left pl-3 pr-2 py-2 font-semibold' }, 'Lead Source'),
                 el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Subs'),
-                el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Revenue Type'),
-                el('th', { class: 'text-left px-2 py-2 font-semibold', title: 'Paid lead channels — the only channels that can earn a sale on Marketing → Attribution. Facebook, Google Ads and Google Local Services are always paid.' }, 'Paid channel'),
-                el('th', { class: 'text-left px-2 py-2 font-semibold', title: 'How Marketing → Attribution treats a sale with this source. Last touch: the last lead before the sale wins, paid or not. Priority window: this channel wins when it sent a lead within N days before the sale, even if another touched after. Never overwrite: the sale keeps this source. Keep when booked online: keeps this source only when the sale sits on the RIDD Account - Office house account.' }, 'Attribution rule'),
-                el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'In Reporting'),
-                el('th', { class: 'text-left px-2 py-2 font-semibold', title: 'Which provider row this source rolls into on Marketing → Metrics (e.g. “#49 FB” → Facebook), or Hide to leave it off Metrics.' }, 'Metrics provider'),
-                el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'FieldRoutes'),
-                el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Sales Log'),
-                el('th', { class: 'text-left pr-3 pl-2 py-2 font-semibold' }, 'Pay tab'),
+                el('th', { class: 'text-left px-2 py-2 font-semibold', style: { borderLeft: '1px solid var(--border)' } }, 'Revenue Type'),
+                el('th', { class: 'text-left px-2 py-2 font-semibold', title: 'Paid lead channels — the only channels that can earn a sale on Marketing → Attribution. Facebook, Google Ads and Google Local Services are always paid.' }, 'Paid?'),
+                el('th', { class: 'text-left px-2 py-2 font-semibold', style: { borderLeft: '1px solid var(--border)' }, title: 'How Marketing → Attribution treats a sale with this source. Last touch: the last lead before the sale wins, paid or not. Priority window: this channel wins when it sent a lead within N days before the sale, even if another touched after. Never overwrite: the sale keeps this source. Keep when booked online: keeps this source only when the sale sits on the RIDD Account - Office house account.' }, 'Attribution rule'),
+                el('th', { class: 'text-left px-2 py-2 font-semibold', title: 'Which provider row this source rolls into on Marketing → Metrics (e.g. “#49 FB” → Facebook), or Hide to leave it off Metrics.' }, 'Rolls into'),
+                el('th', { class: 'text-left px-2 py-2 font-semibold', style: { borderLeft: '1px solid var(--border)' }, title: 'Excluded sources drop out of all snapshot reporting (Overview, Geographic, Rep Performance, Waterfall, Inside Sales).' }, 'Reporting'),
+                el('th', { class: 'text-left px-2 py-2 font-semibold', title: 'Managed in FieldRoutes — visible sources feed the Sales Log dropdown.' }, 'Sales Log'),
+                el('th', { class: 'text-left px-2 py-2 font-semibold', title: 'Hidden sources drop off the Pay tab’s By Source grid (their sales still pay).' }, 'Pay tab'),
+                el('th', { class: 'text-left pr-3 pl-2 py-2 font-semibold', style: { borderLeft: '1px solid var(--border)' } }, 'FieldRoutes'),
               ),
             ),
             el('tbody', {},
@@ -476,8 +483,8 @@ function reportingSourceConfigPanel() {
                 const nameDefault = /renewal/i.test(source) ? 'renewal' : /upsell/i.test(source) ? 'upsell' : 'new';
                 const setClass = c.revenue_class || '';
                 const classSelect = el('select', {
-                  class: 'rounded border px-1.5 py-1 text-xs cursor-pointer',
-                  style: { borderColor: 'var(--border-2)', background: 'transparent', color: 'var(--text)' },
+                  class: 'rounded-lg border px-2 py-1 text-[11px] cursor-pointer',
+                  style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '118px' },
                   onchange: (e) => { c.revenue_class = e.target.value || null; updateSourceConfig(source, { revenue_class: e.target.value || null }); },
                 },
                   el('option', { value: '',        selected: setClass === '' },        'Auto (' + nameDefault + ')'),
@@ -490,7 +497,7 @@ function reportingSourceConfigPanel() {
                 const isPaid = _adPaid || reportingPaidSources().has(source);
                 const _rule = (typeof attrRuleOf === 'function') ? attrRuleOf(source) : '';
                 const _priDays = [3, 7, 14, 30]; if (/^pri:/.test(_rule) && !_priDays.includes(Number(_rule.slice(4)))) _priDays.push(Number(_rule.slice(4)));
-                const ruleSel = el('select', { class: 'rounded border px-1.5 py-1 text-xs cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'transparent', color: _rule ? 'var(--accent)' : 'var(--text)', fontWeight: _rule ? '700' : '400' },
+                const ruleSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: _rule ? 'var(--accent)' : 'var(--text)', fontWeight: _rule ? '700' : '400', width: '170px' },
                   onchange: (e) => { if (typeof setAttrRule === 'function') setAttrRule(source, e.target.value); mountApp(); } },
                   el('option', { value: '', selected: _rule === '' }, isPaid ? 'Last touch' : 'Standard'),
                   ...((isPaid || /^pri:/.test(_rule)) ? _priDays.sort((a, b) => a - b).map(d => el('option', { value: 'pri:' + d, selected: _rule === 'pri:' + d }, 'Priority window · ' + d + ' days (sales through Sep 30)')) : []),
@@ -502,24 +509,24 @@ function reportingSourceConfigPanel() {
                 row.append(
                   el('td', { class: 'pl-3 pr-2 py-1.5 font-medium' }, source),
                   el('td', { class: 'px-2 py-1.5 text-left tabular-nums text-muted-' }, (counts.get(source) || 0).toLocaleString()),
-                  el('td', { class: 'px-2 py-1.5 text-left' }, classSelect),
+                  el('td', { class: 'px-2 py-1.5 text-left', style: { borderLeft: '1px solid var(--border)' } }, classSelect),
                   el('td', { class: 'px-2 py-1.5 text-left' }, paidBtn),
-                  el('td', { class: 'px-2 py-1.5 text-left' }, ruleSel),
-                  el('td', { class: 'px-2 py-1.5 text-left' }, pill),
+                  el('td', { class: 'px-2 py-1.5 text-left', style: { borderLeft: '1px solid var(--border)' } }, ruleSel),
                   el('td', { class: 'px-2 py-1.5 text-left' }, provSel(source)),
-                  (() => { const reg = regByName.get(source);
-                    return el('td', { class: 'px-2 py-1.5 text-left' }, !reg ? chip('Not listed', 'var(--card-2)', 'var(--text-muted)', 'Seen in sales data but not in the source list')
-                      : reg.fr_source_id ? chip('In CRM', 'rgba(95,108,91,.12)', '#5F6C5B', 'Mirrored from FieldRoutes (source ID ' + reg.fr_source_id + ')')
-                      : chip('Not in CRM', 'rgba(220,38,38,.10)', '#DC2626', 'Not in the FieldRoutes source list — hidden from the Sales Log automatically')); })(),
+                  el('td', { class: 'px-2 py-1.5 text-left', style: { borderLeft: '1px solid var(--border)' } }, pill),
                   (() => { const reg = regByName.get(source);
                     return el('td', { class: 'px-2 py-1.5 text-left text-[11px]', style: { color: reg && reg.is_active !== false ? 'var(--text)' : 'var(--text-muted)' }, title: 'Managed in FieldRoutes' }, !reg ? '—' : reg.is_active === false ? 'Hidden' : 'Visible'); })(),
                   (() => { const reg = regByName.get(source);
-                    if (!reg || typeof payHiddenSources !== 'function') return el('td', { class: 'pr-3 pl-2 py-1.5' }, '—');
+                    if (!reg || typeof payHiddenSources !== 'function') return el('td', { class: 'px-2 py-1.5' }, '—');
                     const off = !!payHiddenSources()[reg.id];
-                    return el('td', { class: 'pr-3 pl-2 py-1.5 text-left' }, el('button', { class: 'text-[11px] font-bold rounded-full px-2.5 py-1 border whitespace-nowrap',
+                    return el('td', { class: 'px-2 py-1.5 text-left' }, el('button', { class: 'text-[11px] font-bold rounded-full px-2.5 py-1 border whitespace-nowrap',
                       style: off ? { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' } : { background: 'rgba(61,122,102,.16)', color: '#5F6C5B', borderColor: 'rgba(61,122,102,.3)' },
                       title: off ? 'Hidden from the Pay tab’s By Source grid — sales on it still pay. Click to show.' : 'Shown on the Pay tab’s By Source grid. Click to hide.',
                       onclick: () => togglePayHiddenSource(reg.id) }, off ? 'Hidden on Pay' : 'On Pay')); })(),
+                  (() => { const reg = regByName.get(source);
+                    return el('td', { class: 'pr-3 pl-2 py-1.5 text-left', style: { borderLeft: '1px solid var(--border)' } }, !reg ? chip('Not listed', 'var(--card-2)', 'var(--text-muted)', 'Seen in sales data but not in the source list')
+                      : reg.fr_source_id ? chip('In CRM', 'rgba(95,108,91,.12)', '#5F6C5B', 'Mirrored from FieldRoutes (source ID ' + reg.fr_source_id + ')')
+                      : chip('Not in CRM', 'rgba(220,38,38,.10)', '#DC2626', 'Not in the FieldRoutes source list — hidden from the Sales Log automatically')); })(),
                 );
                 return row;
               }),
