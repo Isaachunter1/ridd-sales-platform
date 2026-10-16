@@ -85,7 +85,8 @@ function indWorldHasTeams() {
 // first, then the Indicators table, its graph, Performance Trends, Records,
 // Class Metrics, Sales Mix. A dashboard with no entry keeps its built order.
 // Anything not named (player card, comp card) keeps its place around them.
-const _IND_ORDER_STD = ['rep-leaderboard', 'ind-table', 'power-charts', 'yoy', 'repTrend', 'agg-records', 'class-metrics', 'sales-mix'];
+// Oct 16 (per Isaac): player card → Performance Trends → Leaderboard → the rest.
+const _IND_ORDER_STD = ['yoy', 'rep-leaderboard', 'ind-table', 'power-charts', 'repTrend', 'agg-records', 'class-metrics', 'sales-mix'];
 // Same order on all three dashboards (per Isaac, Oct 6). Office Staff keep the revenue-goal pacer above it.
 const IND_SECTION_ORDER = { d2d: _IND_ORDER_STD, office: _IND_ORDER_STD, techs: _IND_ORDER_STD, all: _IND_ORDER_STD };   // All too (per Isaac, Oct 9)
 // The dashboards open on TODAY (per Isaac, Oct 6) — the Today / Week / Month / Year chips are one tap away.
@@ -117,12 +118,12 @@ function indApplySectionOrder(page) {
     if (ranked.length < 2) return page;
     const isBar = (n) => !!(n.querySelector && (n.querySelector('#indFixedBar') || n.querySelector('#indBarSpacer')));
     const firstRanked = kids.findIndex(n => rank(n) >= 0);
-    const lead = ranked[0];
+    // The player card leads the page, above the first named section (per Isaac, Oct 16 — it used to sit under the
+    // leaderboard).
     const seq = [
       ...kids.filter(isBar),
-      lead,                                                                             // first named section leads the page
       ...kids.filter((n, i) => i < firstRanked && !isBar(n) && rank(n) < 0),           // e.g. the player card
-      ...ranked.slice(1),
+      ...ranked,
       ...kids.filter((n, i) => i > firstRanked && !isBar(n) && rank(n) < 0),
     ];
     seq.forEach(n => page.append(n));
