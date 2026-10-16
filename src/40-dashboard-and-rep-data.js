@@ -2965,13 +2965,16 @@ const PARTNER_LAYOUT_SECTIONS = [
   ['mix',     'Sales Mix'],
 ];
 // (the 'class' key is quoted so the CI class-token scanner skips it)
+// Player card rule (per Isaac, Oct 16): shown for anyone whose app login is linked to a FieldRoutes employee
+// (Settings → Users), any user type; hidden for app-only accounts with no FieldRoutes rep behind them.
+function indShowMyCard(profile) { const p = profile || state.profile; return !!(p && String(p.fieldroutes_employee_id || '').trim()); }
 const _REP_SECTION_PERM = { 'card': 'ind_card', 'yoy': 'ind_yoy', 'trend': 'ind_trend', 'board': 'ind_board', 'records': 'ind_records', 'class': 'ind_class', 'mix': 'ind_mix' };
 const _repLayoutSections = () => {
   const partnerish = (typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role))
     || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role));
   const ordered = partnerish ? PARTNER_LAYOUT_SECTIONS
     : [...REP_LAYOUT_SECTIONS, ['records', 'Records'], ['class', 'Class Metrics']];
-  return ordered.filter(([id]) => (typeof userCan !== 'function') || userCan(_REP_SECTION_PERM[id] || ''));
+  return ordered.filter(([id]) => id === 'card' ? indShowMyCard() : ((typeof userCan !== 'function') || userCan(_REP_SECTION_PERM[id] || '')));
 };
 function _repLayoutPrefs() {
   try {

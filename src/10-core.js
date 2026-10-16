@@ -300,7 +300,7 @@ const PERM_DEFS = [
   { id: 'set_marketing',    label: 'Settings · Marketing & lead sources', group: 'Settings', sensitive: 'ad spend, cost per lead and marketing targets' },
   { id: 'set_slack',        label: 'Settings · Slack',    group: 'Settings' },
   { id: 'set_usage',        label: 'Settings · Usage',    group: 'Settings', sensitive: 'what every user looks at in the app' },
-  { id: 'ind_card',         label: 'My Player Card',      group: 'Indicators sections' },
+  // (My Player Card left the matrix, Oct 16 — it shows automatically for any login linked to a FieldRoutes rep: indShowMyCard.)
   { id: 'ind_table',        label: 'Indicators table',    group: 'Indicators sections' },
   { id: 'ind_power_chart',  label: 'Power Ranking chart', group: 'Indicators sections' },
   { id: 'ind_board',        label: 'Leaderboard',         group: 'Indicators sections' },

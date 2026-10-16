@@ -1587,7 +1587,9 @@ function viewIndicators() {
     // render twice.
     // Partners / office leads with a team default to the TEAM card, with a
     // Team / Me toggle to flip to their personal card (per Isaac).
-    _isPartner && !_focusedComp && userCan('ind_card') && !(_repLayoutPrefs().hidden || []).includes('card') && partnerLandingCard(),
+    _isPartner && !_focusedComp && indShowMyCard() && !(_repLayoutPrefs().hidden || []).includes('card') && partnerLandingCard(),
+    // Admins with a linked FieldRoutes rep get their own card in the same spot (per Isaac, Oct 16).
+    !_repLite && !_focusedComp && indShowMyCard() && repLandingPlayerCard(),
     // Sales reps: Your Performance Trends sits right under the player card,
     // ahead of the Indicators table + Power Ranking (per Isaac).
     // Same spot for admins now (per Isaac, Oct 16): one page order for every user type.
@@ -2021,7 +2023,7 @@ function viewIndicators() {
           const prefs = _repLayoutPrefs();
           const builders = {
             // Every section is gated by the Settings → Permissions matrix.
-            card:  () => (!_isPartner && userCan('ind_card')) ? [repLandingPlayerCard()] : [],   // analyst layout pins it at page top instead
+            card:  () => (!_isPartner && indShowMyCard()) ? [repLandingPlayerCard()] : [],   // linked FieldRoutes rep only (per Isaac, Oct 16); analyst layout pins it at page top instead
             yoy:   () => (!_repSalesLayout && userCan('ind_yoy')) ? [indLazy('yoy', () => indicatorYoYTrendChart(), null, 380)] : [],   // sales reps: pinned under the player card instead
             trend: () => userCan('ind_trend') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-indsection') === 'repTrend') : [],
             board: () => userCan('ind_board') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'rep-leaderboard') : [],
@@ -2034,7 +2036,7 @@ function viewIndicators() {
             if (prefs.hidden.includes(k) || !builders[k]) return;
             builders[k]().forEach(n => { if (n) out.push(n); });
           });
-          return out.length ? out : [repLandingPlayerCard()];
+          return out.length ? out : (indShowMyCard() ? [repLandingPlayerCard()] : []);
         })()
       : _repSections)),
   );
