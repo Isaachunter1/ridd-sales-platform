@@ -1600,6 +1600,8 @@ function adminReps() {
           })());
         const btn = el('button', {
           class: 'icon-btn show',
+          // A fixed 28px box (per Isaac, Oct 16): the bare emoji glyph spilled past the table's right edge.
+          style: { width: '28px', height: '28px', minWidth: '28px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px', lineHeight: '1', padding: '0', overflow: 'hidden' },
           title: 'Change rep type view',
           onclick: () => {
             const open = menu.style.display === 'block';
@@ -1720,7 +1722,7 @@ function adminReps() {
         el('span', { class: 'text-[10px] tabular-nums px-1.5 py-0.5 rounded', style: activeFilter === t.id ? { background: 'rgba(0,0,0,.15)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' } }, t.count.toLocaleString()))));
   const _searchInp = el('input', {
       id: 'admin-user-search',
-      class: 'rounded-xl border px-2.5 py-1 text-[11px] flex-1 min-w-0', style: { borderColor: 'var(--border-2)', minWidth: _phoneU ? '0' : '180px', height: '28px' },
+      class: 'rounded-xl border px-2.5 py-1 text-[11px] flex-1 min-w-0', style: { borderColor: 'var(--border-2)', minWidth: _phoneU ? '0' : '160px', height: '28px', marginRight: '6px' },   // a touch narrower (per Isaac, Oct 16)
       placeholder: 'Search ' + REP_TYPE_TAB_LABEL[typeTab] + '…', value: state._adminUserSearch,
       // The debounced mountApp() rebuilds the whole page, which replaces
       // this input and dropped focus mid-word - typing felt like the page
