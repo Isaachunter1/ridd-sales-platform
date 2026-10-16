@@ -192,7 +192,6 @@ function viewWorldDashboard() {
     state._indDeptDefaulted = true;
     state._indWorld = state.view;
     state.indicatorDept = dept;
-    if (dept !== 'd2d' && state.indicatorsGroupBy === 'teams') state.indicatorsGroupBy = 'branch';   // teams are a D2D grouping
     if (!indWorldHasTeams() && !isAdminRole(state.profile?.role)) state._indicatorRepTeamFilter = '';   // (admins keep their team pick across user types — per Isaac, Oct 9) a D2D team filter doesn't follow you onto a dashboard with no teams
   }
   const node = viewIndicators();
@@ -361,9 +360,9 @@ function viewIndicators() {
     for (const s of indicatorSales()) {
       if (!s.rep) continue;
       if (groupBy === 'teams' && isRepExcluded(s.rep)) continue;
-      // Teams are Sales-Rep-only — office staff / technician sales never
-      // group by team (they'd all land in a bogus "Unassigned" column).
-      if (groupBy === 'teams' && typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') continue;
+      // Teams follow the dashboard's rep type (per Isaac, Oct 16): an Office Staff board groups Office Staff sales by
+      // their teams (none yet → one no-team column); the All view keeps D2D teams.
+      if (groupBy === 'teams' && typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== (['office', 'techs'].includes(state.indicatorDept) ? state.indicatorDept : 'd2d')) continue;
       const d = _parseIndicatorDay(s);
       if (!d || d < rangeStartD || d > rangeEndD) continue;
       const k = groupKeyOf(s);
@@ -1039,7 +1038,9 @@ function viewIndicators() {
             onchange: e => { _staged.group = e.target.value; _markDirty(); },
           },
             el('option', { value: 'branch', selected: _staged.group === 'branch' }, 'Office'),
-            state.indicatorDept === 'office' || state.indicatorDept === 'techs' ? null : el('option', { value: 'teams', selected: _staged.group === 'teams' }, 'Teams'),
+            // Teams on every user type (per Isaac, Oct 16) — Office Staff / Technicians have no teams yet, so their
+            // reps all sit in one "no team" column for now; the infrastructure is there for when they do.
+            el('option', { value: 'teams', selected: _staged.group === 'teams' }, 'Teams'),
           );
           const _selCls = { class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer w-full', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } };
           const _offices = [...new Set((state._indicatorRawSales || []).map(x => x.office).filter(Boolean))].sort();   // raw CRM strings — the leaderboard matches on these exactly
@@ -1064,9 +1065,9 @@ function viewIndicators() {
               ...(() => {
                 const hl = (node, on) => { if (node && on) { node.style.borderColor = 'var(--accent)'; node.style.boxShadow = '0 0 0 2px rgba(223,100,58,.25)'; } return node; };
                 return [
+                  _metricLocked ? null : _fRow('Audit', auditBtn),   // top of the panel (per Isaac, Oct 16)
                   _fRow('Saved views', indPresetRibbon({ inline: true })),
                   _metricLocked ? null : _fRow('Metric', hl(metricSel, (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced')),
-                  _metricLocked ? null : _fRow('Audit', auditBtn),
                   // Type is the Office Staff / D2D / Technicians switch on the Sales dashboards — only the stand-alone page still picks it here.
                   (_repLite || _fWorld) ? null : _fRow('Type',   hl(typeSel,   (state.indicatorDept || 'all') !== _fDeptDefault)),
                   // Date moved OUT to the bar (Today / Week / Month / Year / More). Only the legacy weekly view keeps a picker here.

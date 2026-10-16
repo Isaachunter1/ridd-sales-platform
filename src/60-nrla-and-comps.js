@@ -6144,8 +6144,12 @@ function aggregateByTeam(rawSales, indicatorRowsForDates) {
   // SALES REPS ONLY — teams are a D2D construct; office staff and technicians
   // don't get team assignments, so including their sales just piled a huge
   // fake "Unassigned" column into the view.
-  const d2d = (rawSales || []).filter(s => (typeof _indicatorDeptOf !== 'function') || _indicatorDeptOf(s) === 'd2d');
-  return aggregateRawSalesByGroup(d2d, s => getRepTeam(s.rep) || 'Unassigned', indicatorRowsForDates, true, TEAM_PEST_EXCLUDE);
+  // Oct 16 (per Isaac): the Office Staff / Technician dashboards group THEIR sales by team too — no teams there yet,
+  // so everything lands in one no-team column (RIDD total intact) until teams are built for that rep type.
+  const dept = ['office', 'techs'].includes(state.indicatorDept) ? state.indicatorDept : 'd2d';
+  const pool = (rawSales || []).filter(s => (typeof _indicatorDeptOf !== 'function') || _indicatorDeptOf(s) === dept);
+  if (dept !== 'd2d') return aggregateRawSalesByGroup(pool, s => (typeof teamOfSale === 'function' ? teamOfSale(s) : getRepTeam(s.rep)) || 'Unassigned', indicatorRowsForDates, false, null);
+  return aggregateRawSalesByGroup(pool, s => getRepTeam(s.rep) || 'Unassigned', indicatorRowsForDates, true, TEAM_PEST_EXCLUDE);
 }
 // Department view — the three legs of the company as columns (Sales Rep /
 // Office Staff / Technician), classified per sale by _indicatorDeptOf.
