@@ -9774,7 +9774,7 @@ const YOY_METRICS = [
   ['avg_pest',    'Avg Pest Initial', 'usd'],
   ['my_pct',      'MY %',             'pct'],
   ['audit_pct',   'Audit %',          'pct'],
-  ['cancel_pct',  'Cancel %',         'pct'],
+  ['cancel_pct',  'Attrition %',      'pct'],   // renamed from Cancel % (per Isaac, Oct 16)
 ];
 function indicatorYoYTrendChart() {
   const id = 'chart-yoy-trend';
@@ -9818,7 +9818,7 @@ function indicatorYoYTrendChart() {
   // date ≤ prior-year week start + days elapsed since this year's week
   // start). `cancels` = all-time cancels (current-year line), `cancelsM` =
   // horizon-matched cancels (prior-year line).
-  const mk = () => ({ rev: 0, revNew: 0, revRenewal: 0, n: 0, multi: 0, twelve: 0, fail: 0, initSum: 0, pestSum: 0, pestN: 0, cancels: 0, cancelsM: 0, cancelElig: 0, repSet: new Set() });
+  const mk = () => ({ rev: 0, revNew: 0, revRenewal: 0, revOts: 0, n: 0, multi: 0, twelve: 0, fail: 0, initSum: 0, pestSum: 0, pestN: 0, cancels: 0, cancelsM: 0, cancelElig: 0, repSet: new Set() });
   // (per-scope accumulators are built by buildAcc below — the first scope's
   // maps are aliased to acc/accTier after the build)
   // ── Tier split (All / Rookies / Vets) — checkbox picker, so Rookies vs
@@ -9944,7 +9944,8 @@ function indicatorYoYTrendChart() {
     for (const b of (aT ? [a, aT] : [a])) {
       if (_repNm) b.repSet.add(_repNm);   // PRA denominator: unique sellers in the bucket
       b.rev += cv;
-      if (_indicatorIsRenewal(s)) b.revRenewal += cv; else b.revNew += cv;
+      // Revenue splits (per Isaac, Oct 16): Renewal, One-time service, New (everything else) — they add up to Total.
+      if (_indicatorIsRenewal(s)) b.revRenewal += cv; else if (typeof _indIsOneTimeSale === 'function' && _indIsOneTimeSale(s)) b.revOts += cv; else b.revNew += cv;
       b.n++;
       const _myb = myBucketOf(s);
       if (_myb === 'multi') b.multi++; else if (_myb === 'twelve') b.twelve++;
@@ -9985,12 +9986,14 @@ function indicatorYoYTrendChart() {
   // Revenue splits into Total / New / Renewal for EVERY user type (per Isaac,
   // Sep 2026) — sales reps default to Total and won't notice a difference.
   // …reversed Oct 4 (per Isaac): New / Renewal revenue are Office Staff only; everyone else gets Total Revenue alone.
-  const isOffice = state.indicatorDept === 'office';
-  const revType = (metric === 'revenue' && isOffice) ? (state._indicatorYoYRevType || 'total') : 'total';
+  // Oct 16 (per Isaac): the Exclude button is gone — the revenue metric itself splits into Total / New / Renewal /
+  // One-time service for every user type.
+  const isOffice = true;
+  const revType = metric === 'revenue' ? (['new', 'renewal', 'ots'].includes(state._indicatorYoYRevType) ? state._indicatorYoYRevType : 'total') : 'total';
   const valOf = (a, matchedHorizon) => {
     if (!a) return null;
     switch (metric) {
-      case 'revenue':     return revType === 'new' ? a.revNew : revType === 'renewal' ? a.revRenewal : a.rev;
+      case 'revenue':     return revType === 'new' ? a.revNew : revType === 'renewal' ? a.revRenewal : revType === 'ots' ? a.revOts : a.rev;
       case 'pra':         return (a.repSet && a.repSet.size > 0) ? a.rev / a.repSet.size : null;
       case 'count':       return a.n;
       case 'acv':         return a.n > 0 ? a.rev / a.n : null;
@@ -10026,7 +10029,7 @@ function indicatorYoYTrendChart() {
     for (const [v, lab] of YOY_METRICS) {
       if (v === 'pra' && _yoyAllReps) continue;   // ÷1 for a single rep — meaningless
       if (v === 'revenue' && isOffice) {
-        opts.push(['revenue|total', 'Total Revenue'], ['revenue|new', 'New Revenue'], ['revenue|renewal', 'Renewal Revenue']);
+        opts.push(['revenue|total', 'Total Revenue'], ['revenue|new', 'New Revenue'], ['revenue|renewal', 'Renewal Revenue'], ['revenue|ots', 'One Time Service Revenue']);
       } else opts.push([v, v === 'revenue' ? 'Total Revenue' : lab]);
     }
     const cur = (metric === 'revenue' && isOffice) ? 'revenue|' + revType : metric;
@@ -10302,10 +10305,7 @@ function indicatorYoYTrendChart() {
         secTitle('Show as'), granRow('week', 'Weeks'), granRow('month', 'Months'), granRow('year', 'Years (all history)'),
         secTitle('Overlay years'),
         ...yearsPresent.slice().sort((a, b) => b - a).map(y => _chk(() => _stYears.includes(y), () => { _stYears = _stYears.includes(y) ? _stYears.filter(x => x !== y) : [..._stYears, y]; }, String(y) + (y === curY ? ' \u00b7 current' : ''))),
-        secTitle('Exclude'),
-        _chk(() => !!_stExcl.oneTime, () => { _stExcl.oneTime = !_stExcl.oneTime; }, 'One-time services'),
-        _chk(() => !!_stExcl.ror, () => { _stExcl.ror = !_stExcl.ror; }, '3-day RORs'),
-        _chk(() => !!_stExcl.renewal, () => { _stExcl.renewal = !_stExcl.renewal; }, 'Renewals'),
+        // (Exclude section removed per Isaac, Oct 16 — the revenue metric splits into New / Renewal / One-time instead.)
       ];
       paintGran();
       return out;
@@ -10796,7 +10796,7 @@ function indicatorYoYTrendChart() {
       el('h3', { class: 'text-sm font-bold' }, 'Performance Trends'),
       // Labels live INSIDE the buttons now (Scope / Type / Range / Metric —
       // per Isaac); the current value shows in each button's tooltip.
-      el('div', { class: 'flex items-center gap-2 flex-wrap' }, ...(comboWrap ? [comboWrap, exclWrap] : [scopesWrap]), metricSel)),
+      el('div', { class: 'flex items-center gap-2 flex-wrap' }, ...(comboWrap ? [comboWrap] : [scopesWrap]), metricSel)),
     cvsWrap);
 }
 
