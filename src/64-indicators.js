@@ -152,7 +152,17 @@ function dashLensSwitch() {
       type: 'button',
       class: 'px-2.5 text-[11px] font-semibold transition whitespace-nowrap',
       style: v === cur ? { background: 'var(--accent)', color: 'var(--accent-text)', height: '100%' } : { color: 'var(--text-muted)', background: 'var(--card)', height: '100%' },
-      onclick: () => { if (v === cur) return; state._dashLens = v; try { localStorage.setItem('ridd_dash_lens', v); } catch (e) {} if (typeof trackAction === 'function') trackAction('dash_lens', 'indicators', { lens: v.indexOf('team:') === 0 ? 'team' : v }); mountApp(); },
+      onclick: () => {
+        if (v === cur) return;
+        state._dashLens = v; try { localStorage.setItem('ridd_dash_lens', v); } catch (e) {}
+        if (typeof trackAction === 'function') trackAction('dash_lens', 'indicators', { lens: v.indexOf('team:') === 0 ? 'team' : v });
+        // Stay put (per Isaac, Oct 16): the re-render briefly re-measures the fixed bar's spacer, which used to
+        // nudge the page up ~28px per switch. Re-pin the exact scroll spot once the layout has settled.
+        const y = window.scrollY || 0;
+        mountApp();
+        const pin = () => { if (Math.abs((window.scrollY || 0) - y) > 1) window.scrollTo(0, y); };
+        requestAnimationFrame(() => requestAnimationFrame(pin)); setTimeout(pin, 150);
+      },
     }, l)));
 }
 // Revenue Pacer for the Me / My Team lens — YTD revenue on this dashboard vs
@@ -197,7 +207,7 @@ function dashLensPacer(dept) {
     const open = () => {
       wrap.innerHTML = '';
       const inp = el('input', { type: 'number', min: '0', step: '1000', value: goal > 0 ? String(Math.round(goal)) : '', placeholder: 'Annual goal $',
-        class: 'rounded-lg border px-2 py-0.5 text-[11px] tabular-nums', style: { borderColor: 'var(--border-2)', width: '110px', background: 'var(--card)', color: 'var(--text)' },
+        class: 'rounded-lg border px-2 text-[11px] tabular-nums', style: { borderColor: 'var(--border-2)', width: '110px', height: '22px', background: 'var(--card)', color: 'var(--text)' },
         onkeydown: (e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') mountApp(); } });
       const save = async () => {
         const n = Math.max(0, Math.round(Number(inp.value) || 0));
@@ -214,7 +224,7 @@ function dashLensPacer(dept) {
         el('button', { type: 'button', class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: () => mountApp() }, 'Cancel'));
       setTimeout(() => { try { inp.focus(); } catch (e) {} }, 0);
     };
-    wrap.append(el('button', { type: 'button', class: 'rounded-lg border px-2 py-0.5 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: open }, goal > 0 ? 'Edit goal' : 'Set my goal'));
+    wrap.append(el('button', { type: 'button', class: 'rounded-lg border px-2 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text)', height: '22px', lineHeight: '20px' }, onclick: open }, goal > 0 ? 'Edit goal' : 'Set my goal'));
     return wrap;
   })() : null;
   const range = { start: new Date(y, m, dd), end: new Date(y, m, dd, 23, 59, 59) };

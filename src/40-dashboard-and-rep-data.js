@@ -5957,7 +5957,8 @@ function dashboardGoalCard(range, opts) {
     const _one = _streams.length === 1;
     const _totalShown = opts.streams ? _streams.reduce((a, x) => a + (Number(x.actual) || 0), 0) : totalActual;
     return el('div', { class: 'card rev-goal-card', style: { padding: _phoneP ? '14px' : '18px 20px' } },
-      el('div', { class: 'flex items-center justify-between gap-2 mb-3' },
+      // Fixed header height (per Isaac, Oct 16): the Me pacer's Edit goal button must not make it taller than the department one.
+      el('div', { class: 'flex items-center justify-between gap-2 mb-3', style: { minHeight: '28px' } },
         el('div', { class: 'flex items-baseline gap-2 flex-1 min-w-0 flex-wrap' },
           el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, opts.title || 'Revenue Pacer'),
           el('span', { class: 'text-[11px] tabular-nums', style: { color: 'var(--text-muted)' }, title: opts.streams ? '' : 'New ' + fmt.usd0(ytdDept.new) + ' (' + newPctOfTotal.toFixed(0) + '%) + Renewal ' + fmt.usd0(ytdDept.renewal) + ' (' + renewalPctOfTotal.toFixed(0) + '%)' },
