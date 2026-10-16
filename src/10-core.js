@@ -296,7 +296,7 @@ const PERM_DEFS = [
   { id: 'set_goals',        label: 'Settings · Goals',    group: 'Settings', sensitive: 'company and per-rep revenue goals' },
   { id: 'set_comps',        label: 'Settings · Competitions', group: 'Settings' },
   { id: 'set_commissions',  label: 'Settings · Commissions',  group: 'Settings', sensitive: 'commission rates and pay rules' },
-  { id: 'set_config',       label: 'Settings · Reporting rules', group: 'Settings', sensitive: 'the rules behind every reporting number' },
+  { id: 'set_config',       label: 'Settings · Configurations', group: 'Settings', sensitive: 'the rules behind every reporting number' },
   { id: 'set_marketing',    label: 'Settings · Marketing & lead sources', group: 'Settings', sensitive: 'ad spend, cost per lead and marketing targets' },
   { id: 'set_slack',        label: 'Settings · Slack',    group: 'Settings' },
   { id: 'set_usage',        label: 'Settings · Usage',    group: 'Settings', sensitive: 'what every user looks at in the app' },

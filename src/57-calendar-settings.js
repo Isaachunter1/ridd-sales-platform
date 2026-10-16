@@ -1,8 +1,8 @@
 // ┌─ src/57-calendar-settings.js ─────────────────────────────────────────────
 // │ Calendar → ⚙ Settings (per Isaac, Oct 13): one place for leads and admins
 // │ to run the schedule — who is on the calendar (and in which department),
-// │ each agent's standing week, who is working which shift this week, named
-// │ shift templates, and the swap-approval rule. Everything saves to the
+// │ each agent's standing week and who is working which shift this week (shift
+// │ templates + the swap rule live in Settings → Configurations). Everything saves to the
 // │ shared calendar_store (state.calendarSettings) like the shifts do.
 // └────────────────────────────────────────────────────────────────────────
 function _calSetSave() { saveDemoData(); mountApp(); }
@@ -143,11 +143,17 @@ function viewCalendarSettings(opts) {
       el('span', {}, el('b', {}, 'Shift swaps need a team lead’s approval'), el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'On: after the other rep accepts, a lead or admin signs off before the shift moves. Off: the shift moves as soon as the other rep accepts.'))),
     el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Company holidays (no one is scheduled unless you add them on the day): New Year’s Day, Memorial Day, Independence Day, Labor Day, Thanksgiving, Black Friday, Christmas Eve, Christmas Day.'));
 
+  if (opts.rulesOnly) return el('div', { class: 'flex flex-col gap-4 w-full' }, templates, rules);
   return el('div', { class: 'flex flex-col gap-4 w-full' },
     // Inside Settings → Calendar (per Isaac, Oct 13) the page header is the section title; on the calendar it's a back link.
     opts.embedded ? el('div', {}, el('h2', { class: 'text-lg font-bold' }, 'Calendar'), el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Who is on the calendar and when they work, shift templates and swap rules. Also on the Calendar tab under ⚙ Settings.'))
       : el('div', { class: 'flex items-center gap-2 flex-wrap' },
           btn('‹ Back to calendar', () => { state._calSettingsOpen = false; mountApp(); }),
           el('h2', { class: 'text-lg font-bold ml-1' }, '⚙ Calendar settings')),
-    team, templates, rules);
+    team);
+}
+// Shift templates + the swap rule moved out of Calendar settings into
+// Settings → Configurations (per Isaac, Oct 16). Same controls, same store.
+function calendarRulesPanel() {
+  return viewCalendarSettings({ rulesOnly: true });
 }

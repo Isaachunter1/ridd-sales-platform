@@ -173,7 +173,7 @@ function viewAdmin() {
       ['users',     'Users',                'Logins, roles, rep links'],
       ['teams',     'Teams',                'Rosters, tiers, colors'],
       ['perms',     'Permissions',          'What each role can see and do'],
-      ['calendar',  'Calendar',             'Team schedules, shift templates, swap rules'],   // per Isaac, Oct 13
+      ['calendar',  'Calendar',             'Team schedules and who works when'],   // per Isaac, Oct 13
     ] },
     { label: 'Pay & goals', items: [
       ['pricing',   'Commissions & payroll', 'Rates by rep type · when sales pay and lock'],
@@ -181,7 +181,7 @@ function viewAdmin() {
       ['comps',     'Competitions',         'Schedule and calendar'],
     ] },
     { label: 'Rules', items: [
-      ['config',    'Reporting rules',      'Book, churn, services, cancel reasons, Indicators'],
+      ['config',    'Configurations',       'Book, churn, services, cancel reasons, Indicators, shift templates'],
       ['marketing', 'Marketing & lead sources', 'Sources, paid channels, ad accounts, GoHighLevel, targets'],
     ] },
     { label: 'System', items: [
@@ -764,12 +764,14 @@ function adminConfigurations(part) {
     typeof reportingGhlSourcesPanel === 'function' ? listCard('ghl', 'GoHighLevel sources → provider', (state._ghl && state._ghl.rows && state._ghl.rows.length) ? n(state._ghl.rows.length) + ' contacts' : 'sync', reportingGhlSourcesPanel) : null,
     typeof reportingMarketingGoalsPanel === 'function' ? listCard('mgoals', 'Marketing goals & targets', 'CAC · ROAS · spend mix', reportingMarketingGoalsPanel) : null);
   return el('div', { class: 'flex flex-col gap-4' },
-    head('Reporting rules', 'How the customer book, churn and the Indicators leaderboard are counted — every tab reads these.', configInfoBtn('How reporting works', howItWorks())),
+    head('Configurations', 'How the customer book, churn and the Indicators leaderboard are counted — every tab reads these.', configInfoBtn('How reporting works', howItWorks())),
     reportingRules,
     indicators,
     listCard('service', 'Service types', svcCount, reportingServiceConfigPanel),
     listCard('cancel', 'Cancel reasons', cxlCount, reportingCancelConfigPanel),
     // Definitions moved here from its own Reporting tab (per Isaac, Oct 14).
+    // Shift templates + swap approval (per Isaac, Oct 16 — moved from Calendar settings).
+    typeof calendarRulesPanel === 'function' ? listCard('calrules', 'Shift templates & swap rules', (() => { try { const t = (calendarSettings().templates || []).length; return t + ' template' + (t === 1 ? '' : 's'); } catch (e) { return ''; } })(), calendarRulesPanel) : null,
     typeof viewSemanticDefinitions === 'function' ? listCard('defs', 'Definitions', 'how every number is built', () => viewSemanticDefinitions({ embedded: true })) : null,
     advanced(
       typeof reportingCrmVocabPanel === 'function' ? listCard('vocab', 'CRM vocabulary', 'seller types · reasons · ROR window', reportingCrmVocabPanel) : null,

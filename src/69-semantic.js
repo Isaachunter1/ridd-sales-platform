@@ -12,7 +12,7 @@
 // │             function. A screen asks for a metric by name (semMetric(id))
 // │             instead of working it out again.
 // │
-// │ Settings → Reporting rules → Definitions renders this registry, so anyone can see how a
+// │ Settings → Configurations → Definitions renders this registry, so anyone can see how a
 // │ number is built and which screens show it. Add a metric HERE first, then
 // │ use it; do not add new rate math inside a view.
 // │ Part of the app.js bundle (tools/bundle.js concatenates src/*.js in name order).
@@ -27,11 +27,11 @@ const semPct = (n, d) => d > 0 ? n / d : null;
 // ── RULES ───────────────────────────────────────────────────────────────
 // Read live so the Definitions page shows what is in force right now.
 const SEM_RULES = {
-  recurring_services:   { label: 'Recurring service types', where: 'Settings → Reporting rules → Service types', now: () => { const m = reportingServiceRecurringMap(); let n = 0; m.forEach(v => { if (v) n++; }); return n + ' service types count as recurring'; } },
+  recurring_services:   { label: 'Recurring service types', where: 'Settings → Configurations → Service types', now: () => { const m = reportingServiceRecurringMap(); let n = 0; m.forEach(v => { if (v) n++; }); return n + ' service types count as recurring'; } },
   excluded_sources:     { label: 'Excluded lead sources', where: 'Settings → Marketing & lead sources', now: () => { const s = reportingExcludedSources(); return s.size ? [...s].join(', ') : 'none'; } },
-  excluded_reasons:     { label: 'Cancel reasons that are not churn', where: 'Settings → Reporting rules → Cancel reasons', now: () => { const s = reportingExcludedCancelReasons(); return s.size ? [...s].join(', ') : 'none'; } },
-  ror:                  { label: '3-day right of rescission', where: 'Settings → Reporting rules', now: () => reportingExcludeRorChurn() ? 'not counted as churn (within ' + crmRorWindowDays() + ' days of the sale)' : 'counted as churn' },
-  population:           { label: 'Who is in the retention book', where: 'Settings → Reporting rules (and the Attrition Steps toggles)', now: () => [retenExclRenewalSubs() ? 'renewal subscriptions out' : 'renewal subscriptions in', retenExclZeroPay() ? '$0-paying out' : '$0-paying in', retenExclOneSvc() ? 'under 2 services out' : 'under 2 services in', retenExclFrozenOneSvc() ? 'frozen with 1 service out' : 'frozen with 1 service in'].join(' · ') },
+  excluded_reasons:     { label: 'Cancel reasons that are not churn', where: 'Settings → Configurations → Cancel reasons', now: () => { const s = reportingExcludedCancelReasons(); return s.size ? [...s].join(', ') : 'none'; } },
+  ror:                  { label: '3-day right of rescission', where: 'Settings → Configurations', now: () => reportingExcludeRorChurn() ? 'not counted as churn (within ' + crmRorWindowDays() + ' days of the sale)' : 'counted as churn' },
+  population:           { label: 'Who is in the retention book', where: 'Settings → Configurations (and the Attrition Steps toggles)', now: () => [retenExclRenewalSubs() ? 'renewal subscriptions out' : 'renewal subscriptions in', retenExclZeroPay() ? '$0-paying out' : '$0-paying in', retenExclOneSvc() ? 'under 2 services out' : 'under 2 services in', retenExclFrozenOneSvc() ? 'frozen with 1 service out' : 'frozen with 1 service in'].join(' · ') },
   renewal_sources:      { label: 'Which sources are renewals', where: 'Settings → Marketing & lead sources (revenue class = Renewal)', now: () => 'a subscription whose source is classed Renewal' },
 };
 
@@ -325,9 +325,9 @@ const SEM_OPEN_DIFFERENCES = [
   { what: 'Monthly churn', a: 'Seasonality: cancels \u00f7 the book at the start of that month', b: 'LTV card: its own monthly churn over a trailing 24 months', effect: 'Two monthly rates built separately that should be one.' },
 ];
 
-// ── Settings → Reporting rules → Definitions ─────────────────────────────────────────────
+// ── Settings → Configurations → Definitions ─────────────────────────────────────────────
 function viewSemanticDefinitions(opts) {
-  const embedded = !!(opts && opts.embedded);   // inside Settings → Reporting rules (per Isaac, Oct 14) — no page title
+  const embedded = !!(opts && opts.embedded);   // inside Settings → Configurations (per Isaac, Oct 14) — no page title
   const q = String(state._semSearch || '').trim().toLowerCase();
   const hit = (...xs) => !q || xs.some(x => String(x || '').toLowerCase().includes(q));
   const chip = (t) => el('span', { class: 'inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold', style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)', marginRight: '4px', marginBottom: '4px' } }, t);
