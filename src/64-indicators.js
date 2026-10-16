@@ -5055,7 +5055,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   return [...pinned, ...displayReps.map((r, i) => {
                     return el('tr', {
                       'data-replb': (r.name || '').toLowerCase(), 'data-lbrank': String(i),
-                      class: 'border-t border- cursor-pointer transition hover:brightness-95',
+                      // First rep row: no top border — the Total row's own inset
+                      // bottom line is the rule, so it reads 1px across frozen and
+                      // scrolling cells alike (per Isaac).
+                      class: (i === 0 ? '' : 'border-t border- ') + 'cursor-pointer transition hover:brightness-95',
                       style: i >= LB_TOP && _hideMore ? { display: 'none' } : {},
                       onclick: () => openIndicatorRepCard(r._orig || r, allReps),
                     },
