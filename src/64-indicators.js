@@ -4853,10 +4853,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   ? (sortDir === 'amount' ? ' · by $' : ' · by date')
                   : '';   // direction arrows retired — active header is highlighted
                 const align = c.align === 'right' ? 'text-right' : 'text-left';
-                const padLeft = (c.key === 'cancelPct' || c.key === 'attrPct') ? 'pl-2 pr-5' : 'px-2';
+                // Record column: the picker sits flush on the column's divider line (per Isaac, Oct 16).
+                const padLeft = isRecordCol ? 'pr-2' : (c.key === 'cancelPct' || c.key === 'attrPct') ? 'pl-2 pr-5' : 'px-2';
                 return el('th', {
                   class: align + ' ' + padLeft + ' py-2 font-semibold cursor-pointer select-none hover:text-default transition whitespace-nowrap',
-                  style: isSorting ? { color: 'var(--accent)' } : {},   // (bold Best-Day rule starts on the body rows, not the header — per Isaac)
+                  style: Object.assign(isSorting ? { color: 'var(--accent)' } : {}, isRecordCol ? { paddingLeft: '0' } : {}),   // (bold Best-Day rule starts on the body rows, not the header — per Isaac)
                   onclick: () => {
                     // Record columns cycle between two custom sort modes —
                     // date (most recent first) and amount (biggest $ first)
@@ -4882,6 +4883,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                         onclick: (e) => e.stopPropagation(),
                         onchange: (e) => { e.stopPropagation(); state._lbRecordCol = e.target.value; if (state._indicatorRepSort && RECORD_SORT_KEYS.has(state._indicatorRepSort.key)) state._indicatorRepSort = { key: e.target.value, dir: state._indicatorRepSort.dir }; mountApp(); },
                       }, ...[['bestDayTime', 'Best Day'], ['bestWeekTime', 'Best Week'], ['bestMonthTime', 'Best Month']].map(([k, l]) => el('option', { value: k, selected: k === c.key }, l))),
+                      // Records are always this calendar year (YTD) — say which (per Isaac, Oct 16).
+                      el('span', { class: 'tabular-nums', style: { color: 'var(--text-subtle)' }, title: 'Records are year-to-date: every sale this calendar year, whatever range the page is on' }, String(new Date().getFullYear())),
                       arrow ? el('span', {}, arrow) : null)
                   : c.label + arrow,
                   (isAdminRole(state.profile?.role) && state._editMode && c.key !== 'name') ? el('span', {
