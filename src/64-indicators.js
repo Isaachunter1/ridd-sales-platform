@@ -5568,10 +5568,10 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
       row: (s) => el('div', { class: 'w-14 text-left tabular-nums font-bold shrink-0', style: { color: 'var(--accent)' } }, (s.share * 100).toFixed(1) + '%') },
     { key: 'revenue', label: 'Revenue', w: 'w-24', total: () => el('div', { class: 'w-24 text-left tabular-nums shrink-0 font-black' }, fmt.usd0(T.rev)),
       row: (s) => el('div', { class: 'w-24 text-left tabular-nums shrink-0 font-semibold' }, fmt.usd0(s.revenue)) },
-    { key: 'acv', label: 'ACV', w: 'w-16', total: () => el('div', { class: 'w-16 text-left tabular-nums shrink-0 font-bold' }, T.n > 0 ? fmt.usd0(T.rev / T.n) : '—'),
-      row: (s) => el('div', { class: 'w-16 text-left tabular-nums text-muted- shrink-0' }, s.acv > 0 ? fmt.usd0(s.acv) : '—') },
     { key: 'avgInit', label: 'Avg Initial', w: 'w-24', title: 'Average initial price', total: () => el('div', { class: 'w-24 text-left tabular-nums shrink-0 font-bold' }, T.n > 0 ? fmt.usd0(T.init / T.n) : '—'),
       row: (s) => el('div', { class: 'w-24 text-left tabular-nums text-muted- shrink-0' }, s.avgInit > 0 ? fmt.usd0(s.avgInit) : '—') },
+    { key: 'acv', label: 'ACV', w: 'w-16', total: () => el('div', { class: 'w-16 text-left tabular-nums shrink-0 font-bold' }, T.n > 0 ? fmt.usd0(T.rev / T.n) : '—'),
+      row: (s) => el('div', { class: 'w-16 text-left tabular-nums text-muted- shrink-0' }, s.acv > 0 ? fmt.usd0(s.acv) : '—') },
     { key: 'my', label: 'MY %', w: 'w-12', title: 'Multi-year share of contract sales', total: () => el('div', { class: 'w-12 text-left tabular-nums shrink-0 font-bold' }, T.my == null ? '—' : (T.my * 100).toFixed(0) + '%'),
       row: (s) => el('div', { class: 'w-12 text-left tabular-nums text-muted- shrink-0' }, s.myPct == null ? '—' : (s.myPct * 100).toFixed(0) + '%') },
     { key: 'apay', label: 'APay %', w: 'w-16', title: 'Auto-pay share', total: () => el('div', { class: 'w-16 text-left tabular-nums shrink-0 font-bold' }, T.n > 0 ? (T.ap / T.n * 100).toFixed(0) + '%' : '—'),
@@ -5587,18 +5587,23 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
     const pick = narrow ? (COLS.find(c => c.key === state._mixMobileCol) || COLS[1]) : null;
     const cols = pick ? [pick] : COLS;
     // Fixed-width label column so every bar starts at the same x (per Isaac).
-    const firstCol = (cls, txt, title) => el('div', { class: (narrow ? '' : opts.noBars ? 'w-[200px]' : 'w-[200px] sm:w-[240px]') + ' shrink-0 ' + cls, title: title || undefined, style: narrow ? { width: '112px', minWidth: '112px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } : { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1 } }, txt);
+    const firstCol = (cls, txt, title) => el('div', { class: 'min-w-0 ' + cls, title: title || undefined, style: narrow ? { width: '112px', minWidth: '112px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } : { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1 } }, txt);
     const topSubscriptions = visibleSubs();
     const maxShare = topSubscriptions.reduce((m, s) => Math.max(m, s.share), 0.0001);
-    body.replaceChildren(el('div', { class: narrow ? '' : 'scroll-x' }, el('div', { style: narrow ? {} : { minWidth: opts.noBars ? '880px' : '930px' } },
-      el('div', { class: 'flex items-center gap-3 text-[10px] uppercase tracking-wider text-muted- font-semibold pb-1.5' },
+    // One grid for the header, Total and every row (per Isaac, Oct 16): each value sits left-justified exactly
+    // under its header — the flex rows drifted apart whenever a label was wider than its column.
+    const _PX = { 'w-12': 52, 'w-14': 60, 'w-16': 68, 'w-20': 84, 'w-24': 96 };
+    const _tpl = (narrow ? '112px ' : (opts.noBars ? 'minmax(150px, 200px) ' : 'minmax(200px, 240px) ')) + (opts.noBars ? '48px' : 'minmax(120px, 1fr)') + ' ' + cols.map(c => c.key === 'attr' ? 'minmax(96px, 1fr)' : (_PX[c.w] || 72) + 'px').join(' ');
+    const _grid = { display: 'grid', gridTemplateColumns: _tpl, columnGap: '12px', alignItems: 'center' };
+    body.replaceChildren(el('div', { class: narrow ? '' : 'scroll-x' }, el('div', { style: narrow ? {} : { minWidth: opts.noBars ? '860px' : '930px' } },
+      el('div', { class: 'text-[10px] uppercase tracking-wider text-muted- font-semibold pb-1.5', style: _grid },
         firstCol('', opts.firstCol || 'Subscription'),
-        opts.noBars ? el('div', { class: 'w-14 text-left shrink-0' }, 'Total') : el('div', { class: 'flex-1 text-right pr-2' }, 'Total'),
+        el('div', { class: 'text-left' }, 'Total'),
         ...cols.map(c => el('div', { class: c.w + ' text-left shrink-0', title: c.title || undefined }, c.label))),
       topSubscriptions.length === 0
         ? el('div', { class: 'text-xs text-muted- italic py-3 text-center' }, opts.emptyText || 'No accounts here.')
         : el('div', { class: 'flex flex-col' },
-            el('div', { class: 'flex items-center gap-3 text-[13px] py-2.5 cursor-pointer', style: { borderBottom: '3px solid var(--text)' }, title: 'Click for every account', onclick: () => _mixDrill(null, false) },
+            el('div', { class: 'text-[13px] py-2.5 cursor-pointer', style: { ..._grid, borderBottom: '3px solid var(--text)' }, title: 'Click for every account', onclick: () => _mixDrill(null, false) },
               firstCol('truncate font-black', 'Total'),
               // Player cards (per Isaac, Oct 16): just the count, no bars.
               opts.noBars ? el('div', { class: 'w-14 text-left tabular-nums font-black shrink-0' }, fmt.int(T.n)) :
@@ -5613,7 +5618,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
               // Desktop too ("158" at 16% still spilled, per Isaac Sep 24): 7%/character.
               const _inBar = narrow ? _pct >= Math.max(22, fmt.int(s.count).length * 9) : _pct >= Math.max(15, fmt.int(s.count).length * 7);
               return el('div', {
-                class: 'flex items-center gap-3 text-[13px] py-2.5 transition rounded cursor-pointer' + (i > 0 ? ' border-t border-' : ''),
+                class: 'text-[13px] py-2.5 transition rounded cursor-pointer' + (i > 0 ? ' border-t border-' : ''), style: _grid,
                 title: opts.rowTitle || 'Click for the accounts in this row',
                 // Whole-row hover (per Isaac, Oct 16 — only the name cell lit up).
                 // Same tint as the Records table; the frozen name cell (its own white background) changes with it.
