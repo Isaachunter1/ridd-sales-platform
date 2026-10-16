@@ -1056,6 +1056,12 @@ function deptRevenueGoalCard(dept) {
 }
 // ── Placeholder settings sections (filled in later as needed) ──
 function adminGoals() {
+  // My Goal on top for anyone with a player card (per Isaac, Oct 16 — moved off the Revenue Pacer).
+  const node = _adminGoalsBody();
+  try { const mine = typeof myGoalCard === 'function' ? myGoalCard() : null; if (mine && node && node.prepend) { const h = node.firstElementChild; if (h && h.nextSibling) node.insertBefore(mine, h.nextSibling); else node.prepend(mine); } } catch (e) { /* optional */ }
+  return node;
+}
+function _adminGoalsBody() {
   // One set of goals per department (per Isaac, Sep 22): Office Staff is the
   // company goal everything already reads; Door to Door and Technicians are
   // their own objects (same cards, own storage) to be configured from here.

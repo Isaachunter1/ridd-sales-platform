@@ -337,7 +337,7 @@ function notifySlack(userId, text) {
 }
 function openMySettingsModal() {
   const p = state.profile || {};
-  // Annual goal is set by admins in Edit User (per Isaac); Slack DMs are an
+  // Annual goal: Goals section below for anyone with a player card (per Isaac, Oct 16); Slack DMs are an
   // office-staff feature — sellers and partners don't see either section.
   const officeStaff = (typeof isOfficeStaffProfile === 'function') ? isOfficeStaffProfile(p) : (typeof isOfficeStaffRole === 'function' && isOfficeStaffRole(p.role));
   const overlay = el('div', { class: 'modal-overlay' });
@@ -441,6 +441,8 @@ function openMySettingsModal() {
         el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
           'Affects time displays like Today\u2019s Sales. Auto = Mountain (Utah) for office staff; D2D sale times always show in the selling office\u2019s local time.')),
       slackAllowedFor(p) ? slackSection : null,
+      // Goals (per Isaac, Oct 16): anyone with a player card sets their own annual goal here.
+      (typeof myGoalCard === 'function' && myGoalCard(true)) ? el('div', { class: 'flex flex-col gap-2' }, secLabel('Goals'), myGoalCard(true)) : null,
       el('div', { class: 'flex flex-col gap-2' },
         secLabel('Change Password'),
         pw1, pw2, policyList, pwBtn),

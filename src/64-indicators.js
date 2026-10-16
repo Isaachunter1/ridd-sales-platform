@@ -144,6 +144,37 @@ function dashLensMatch(s) {
   if (v.indexOf('team:') === 0) return (getRepTeam(getCanonicalRepName(s.rep)) || '') === v.slice(5);
   return true;
 }
+// My annual goal (per Isaac, Oct 16): every user with a player card (a linked FieldRoutes rep) sets their own
+// goal in ⚙ Settings → Goals (admins / partners) or My Settings → Goals (everyone else). It drives the Me
+// Revenue Pacer and adds into their team's goal. Saves through set_my_goal (own row only).
+function myGoalCard(compact) {
+  if (typeof indShowMyCard !== 'function' || !indShowMyCard()) return null;
+  const p = state.profile || {};
+  const cur = Number(p.annual_revenue_goal) || 0;
+  const inp = el('input', { type: 'number', min: '0', step: '1000', value: cur > 0 ? String(Math.round(cur)) : '', placeholder: 'e.g. 250000',
+    class: 'rounded-lg border px-2.5 py-1 text-[12px] tabular-nums', style: { borderColor: 'var(--border-2)', width: compact ? '100%' : '160px', background: 'var(--card)', color: 'var(--text)' },
+    onkeydown: (e) => { if (e.key === 'Enter') save(); } });
+  const btn = el('button', { type: 'button', class: 'rounded-lg px-3 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, 'Save');
+  const save = async () => {
+    const n = Math.max(0, Math.round(Number(inp.value) || 0));
+    btn.disabled = true;
+    try {
+      if (!(typeof DEMO !== 'undefined' && DEMO)) { const { error } = await supabase.rpc('set_my_goal', { goal: n }); if (error) throw error; }
+      state.profile.annual_revenue_goal = n;
+      const me = (state.allProfiles || []).find(x => x.id === state.profile.id); if (me) me.annual_revenue_goal = n;
+      if (typeof logActivity === 'function') logActivity('goal_change', { detail: 'Own annual goal set to $' + n.toLocaleString() });
+      toast('Goal saved', 'success');
+      if (typeof scheduleBackgroundRemount === 'function') scheduleBackgroundRemount();
+    } catch (e) { toast('Could not save the goal' + (/set_my_goal/.test(String(e && e.message)) ? ' \u2014 run migrations/20260708_rep_self_settings.sql in Supabase' : ''), 'error'); }
+    finally { btn.disabled = false; }
+  };
+  btn.onclick = save;
+  const row = el('div', { class: 'flex items-center gap-2' + (compact ? '' : ' flex-wrap') }, el('span', { class: 'text-[12px] font-semibold' }, '$'), inp, btn);
+  const note = el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Your annual revenue goal \u2014 the Me Revenue Pacer races it, and it adds into your team\u2019s goal.');
+  if (compact) return el('div', { class: 'flex flex-col gap-2' }, row, note);
+  return el('div', { class: 'card p-4 flex flex-col gap-2' },
+    el('div', { class: 'text-sm font-bold' }, 'My Goal'), row, note);
+}
 function dashLensSwitch() {
   const o = dashLensOptions(), cur = dashLens();
   if (o.length < 2) return null;
@@ -198,39 +229,14 @@ function dashLensPacer(dept) {
   const label = v === 'me' ? 'My' : team;
   const streams = [{ key: 'new', label: isOffice ? label + ' New' : label, color: '#DF643A', actual: acc.new.ytd, target: goal, monthly: goal > 0 ? curve.map(f => f * goal) : null, win: acc.new.tod, mtd: acc.new.mtd }];
   if (isOffice) streams.push({ key: 'renewal', label: label + ' Renewal', color: '#5F6C5B', actual: acc.renewal.ytd, target: 0, monthly: null, win: acc.renewal.tod, mtd: acc.renewal.mtd });
-  const canSet = v === 'me' && (isAdminRole(state.profile?.role) || userCan('goal_set_own'));
+  // Goals are set in ⚙ Settings → Goals now, not on the pacer (per Isaac, Oct 16).
   const hint = goal > 0 ? '' : v === 'me'
-    ? (canSet ? 'No personal goal yet' : 'No personal goal yet \u2014 ask your manager to set one')
+    ? 'No personal goal yet \u2014 set one in \u2699 Settings \u2192 Goals'
     : 'No team goal yet \u2014 it\u2019s the sum of the ' + members + ' reps\u2019 personal goals (Settings \u2192 Goals)';
-  const setBtn = canSet ? (() => {
-    const wrap = el('span', { class: 'inline-flex items-center gap-1.5' });
-    const open = () => {
-      wrap.innerHTML = '';
-      const inp = el('input', { type: 'number', min: '0', step: '1000', value: goal > 0 ? String(Math.round(goal)) : '', placeholder: 'Annual goal $',
-        class: 'rounded-lg border px-2 text-[11px] tabular-nums', style: { borderColor: 'var(--border-2)', width: '110px', height: '22px', background: 'var(--card)', color: 'var(--text)' },
-        onkeydown: (e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') mountApp(); } });
-      const save = async () => {
-        const n = Math.max(0, Math.round(Number(inp.value) || 0));
-        try {
-          if (!(typeof DEMO !== 'undefined' && DEMO)) { const { error } = await supabase.rpc('set_my_goal', { goal: n }); if (error) throw error; }
-          state.profile.annual_revenue_goal = n;
-          const me = (state.allProfiles || []).find(x => x.id === state.profile.id); if (me) me.annual_revenue_goal = n;
-          if (typeof logActivity === 'function') logActivity('goal_change', { detail: 'Own annual goal set to $' + n.toLocaleString() });
-          toast('Goal saved', 'success'); mountApp();
-        } catch (e) { toast('Could not save the goal' + (/set_my_goal/.test(String(e && e.message)) ? ' \u2014 run migrations/20260708_rep_self_settings.sql in Supabase' : ''), 'error'); }
-      };
-      wrap.append(inp,
-        el('button', { type: 'button', class: 'rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: save }, 'Save'),
-        el('button', { type: 'button', class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: () => mountApp() }, 'Cancel'));
-      setTimeout(() => { try { inp.focus(); } catch (e) {} }, 0);
-    };
-    wrap.append(el('button', { type: 'button', class: 'rounded-lg border px-2 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text)', height: '22px', lineHeight: '20px' }, onclick: open }, goal > 0 ? 'Edit goal' : 'Set my goal'));
-    return wrap;
-  })() : null;
   const range = { start: new Date(y, m, dd), end: new Date(y, m, dd, 23, 59, 59) };
   const _keep = state.dashDateRange; state.dashDateRange = 'today';   // this pacer's third number is always Today
   try {
-    return dashboardGoalCard(range, { title: (v === 'me' ? 'My' : team + ' Team') + ' Revenue Pacer', simple: true, hint, headerExtra: setBtn, streams });
+    return dashboardGoalCard(range, { title: (v === 'me' ? 'My' : team + ' Team') + ' Revenue Pacer', simple: true, hint, streams });
   } finally { state.dashDateRange = _keep; }
 }
 // ── Page order per dashboard (per Isaac, Oct 5). Sales Reps: Leaderboard
