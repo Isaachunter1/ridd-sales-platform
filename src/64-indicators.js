@@ -50,7 +50,8 @@ function _indTeamDepts() {
   const map = (typeof _activeTeamMap === 'function' && _activeTeamMap()) || null;
   const rev = (typeof _indCfgRev !== 'undefined') ? _indCfgRev : 0;
   const M = _indTeamDepts._m;
-  if (M && M.raw === raw && M.map === map && M.rev === rev) return M.out;
+  const tt = state._indicatorTeamTypes || null;
+  if (M && M.raw === raw && M.map === map && M.rev === rev && M.tt === tt) return M.out;
   const tally = {}, repTeam = new Map();
   for (const s of raw) {
     if (!s || !s.rep) continue;
@@ -62,7 +63,9 @@ function _indTeamDepts() {
   }
   const out = {};
   for (const t in tally) { let best = '', n = -1; for (const d in tally[t]) if (tally[t][d] > n) { n = tally[t][d]; best = d; } out[t] = best; }
-  _indTeamDepts._m = { raw, map, rev, out };
+  // A team's rep type set in Manage Teams wins over the sales-based guess.
+  if (tt) for (const t in tt) if (tt[t]) out[t] = tt[t];
+  _indTeamDepts._m = { raw, map, rev, tt, out };
   return out;
 }
 function _indTeamWorld() { const d = state.indicatorDept; return (d === 'office' || d === 'techs') ? d : ''; }

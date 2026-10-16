@@ -528,6 +528,7 @@ const INDICATOR_SETTINGS_FIELDS = [
   '_indHiddenMetrics',           // hidden Indicators rows, keyed by Type (all/d2d/office/techs) — per Isaac
   '_indHiddenLbCols',            // hidden Rep Leaderboard columns, keyed by Type — per Isaac
   '_indicatorTeams',
+  '_indicatorTeamTypes',      // { team: 'd2d' | 'office' | 'techs' } — which rep type a team belongs to (Manage Teams toggle)
   '_indicatorExcludedTeams',
   '_indicatorRankExclude',    // { branch:[...], teams:[...] } — kept on the board but out of Power Ranking
   '_indicatorCompetitions',
@@ -1248,6 +1249,8 @@ async function loadIndicatorConfigFromSupabase() {
         // a merge is data correctness, not a view preference: per-browser
         // aliases meant leaderboard totals differed between admin devices.
         if (data.competitions.repAlias && typeof data.competitions.repAlias === 'object') state._indicatorRepAlias = data.competitions.repAlias;
+        // Team rep types (per Isaac, Oct 16) — which Manage Teams tab a team lives under.
+        if (data.competitions.teamTypes && typeof data.competitions.teamTypes === 'object') state._indicatorTeamTypes = data.competitions.teamTypes;
         // Virtual-comp config rides the same row (per Isaac's rep-UX audit):
         // ISL divisions/history, Kobe window + freeze, KOTH freeze, ★
         // default and pill order now reach EVERY user, not just the admin
@@ -1331,7 +1334,7 @@ function _indCfgFingerprint() {
   const s = JSON.stringify([
     state._indicatorTeams || [], state._indicatorTeamColors || {}, state._indicatorTeamLogos || {},
     state._indicatorExcludedTeams || [],
-    { list: state._indicatorCompetitions || [], removed: state._indicatorRemovedDefaults || [], rankExclude: state._indicatorRankExclude || {}, repAlias: state._indicatorRepAlias || {}, dupesDismissed: state._indicatorDismissedDupes || [], tierYears: state._indicatorRepTierYear || {}, extras: state._compExtras || {}, pillOrder: state._compPillOrder || [], favMystery: !!state._compFavoriteMystery },
+    { list: state._indicatorCompetitions || [], removed: state._indicatorRemovedDefaults || [], rankExclude: state._indicatorRankExclude || {}, repAlias: state._indicatorRepAlias || {}, teamTypes: state._indicatorTeamTypes || {}, dupesDismissed: state._indicatorDismissedDupes || [], tierYears: state._indicatorRepTierYear || {}, extras: state._compExtras || {}, pillOrder: state._compPillOrder || [], favMystery: !!state._compFavoriteMystery },
     state._indicatorRepTeamByYear || {}, state._indicatorRepTier || {}, state._indicatorRepActive || {}, state._indicatorRepOffice || {},
   ]);
   let h = 5381;
@@ -1376,7 +1379,7 @@ async function _indicatorConfigUpsertNow() {
     team_colors:   state._indicatorTeamColors || {},
     team_logos:    state._indicatorTeamLogos || {},
     team_excluded: state._indicatorExcludedTeams || [],
-    competitions:  { active: state._indicatorActiveCompId || null, list: state._indicatorCompetitions || [], removed: state._indicatorRemovedDefaults || [], rankExclude: state._indicatorRankExclude || {}, repAlias: state._indicatorRepAlias || {}, dupesDismissed: state._indicatorDismissedDupes || [], tierYears: state._indicatorRepTierYear || {}, extras: state._compExtras || {}, pillOrder: state._compPillOrder || [], favMystery: !!state._compFavoriteMystery },
+    competitions:  { active: state._indicatorActiveCompId || null, list: state._indicatorCompetitions || [], removed: state._indicatorRemovedDefaults || [], rankExclude: state._indicatorRankExclude || {}, repAlias: state._indicatorRepAlias || {}, teamTypes: state._indicatorTeamTypes || {}, dupesDismissed: state._indicatorDismissedDupes || [], tierYears: state._indicatorRepTierYear || {}, extras: state._compExtras || {}, pillOrder: state._compPillOrder || [], favMystery: !!state._compFavoriteMystery },
     rep_teams:     state._indicatorRepTeamByYear || {},
     rep_tiers:     state._indicatorRepTier || {},
     rep_active:    state._indicatorRepActive || {},

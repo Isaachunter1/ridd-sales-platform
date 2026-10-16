@@ -6202,12 +6202,28 @@ function distinctTeamsForYear(year) {
     return a.localeCompare(b);
   });
 }
-function addTeam(name) {
+// Which rep type a team belongs to (per Isaac, Oct 16): 'd2d' | 'office' | 'techs'.
+// Set when the team is created under a Manage Teams tab; otherwise worked out
+// from its reps' sales (_indTeamDepts), defaulting to Sales Reps.
+function teamTypeOf(t) {
+  const x = (state._indicatorTeamTypes || {})[t];
+  if (x) return x;
+  const d = (typeof _indTeamDepts === 'function') ? _indTeamDepts()[t] : '';
+  return d === 'office' || d === 'techs' ? d : 'd2d';
+}
+function setTeamType(t, type) {
+  if (!t) return;
+  const m = Object.assign({}, state._indicatorTeamTypes || {});   // new object — memo keys on identity
+  if (type) m[t] = type; else delete m[t];
+  state._indicatorTeamTypes = m;
+}
+function addTeam(name, type) {
   const clean = (name || '').trim();
   if (!clean) return false;
   if (!state._indicatorTeams) state._indicatorTeams = [];
   if (state._indicatorTeams.some(t => t.toLowerCase() === clean.toLowerCase())) return false;
   state._indicatorTeams.push(clean);
+  if (type) setTeamType(clean, type);
   logActivity('team_change', { detail: 'Team created: ' + clean });
   saveDemoData();
   return true;
@@ -6270,13 +6286,13 @@ function openTeamLookPopover(anchor, t, onChange) {
   paint();
 }
 // "+ New Team" (per Isaac) — inline name box under the button.
-function openNewTeamPopover(anchor, onChange) {
+function openNewTeamPopover(anchor, onChange, type) {
   const { card, close } = _mtPopover(anchor, 260);
   const inp = el('input', { type: 'text', placeholder: 'Team name', class: 'flex-1 min-w-0 rounded-lg border px-2.5 py-1 text-[12px]',
     style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onkeydown: (e) => { if (e.key === 'Enter') add(); } });
   const add = () => {
     const name = inp.value.trim(); if (!name) return;
-    if (!addTeam(name)) { toast('Team already exists', 'warn'); return; }
+    if (!addTeam(name, type)) { toast('Team already exists', 'warn'); return; }
     close(); toast('Team added: ' + name, 'success'); if (typeof onChange === 'function') onChange();
   };
   card.append(el('div', { class: 'flex items-center gap-2' }, inp,
@@ -6296,6 +6312,7 @@ function removeTeam(name) {
   }
   // And from every competition's exclusion list.
   getIndicatorCompetitions().forEach(c => { c.excludedTeams = c.excludedTeams.filter(t => t !== name); });
+  if ((state._indicatorTeamTypes || {})[name]) setTeamType(name, '');
   logActivity('team_change', { detail: 'Team deleted: ' + name });
   saveDemoData();
 }
@@ -6310,6 +6327,7 @@ function renameTeam(oldName, newNameRaw) {
   // Rename in the registry, preserving order
   if (!state._indicatorTeams) state._indicatorTeams = [];
   state._indicatorTeams = state._indicatorTeams.map(t => t === oldName ? newName : t);
+  { const _ty = (state._indicatorTeamTypes || {})[oldName]; if (_ty) { setTeamType(oldName, ''); setTeamType(newName, _ty); } }
   logActivity('team_change', { detail: 'Team renamed: ' + oldName + ' → ' + newName });
   // Rename in every rep assignment, across every year.
   _allTeamYearMaps().forEach(map => { Object.keys(map).forEach(r => { if (map[r] === oldName) map[r] = newName; }); _invalidateRepSigIndex(map); });

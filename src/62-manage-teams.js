@@ -110,7 +110,14 @@ function manageTeamsPanel(opts) {
     const activeSelect = state._indicatorManageActiveFilter || '';
     // Rep-type filter — '' = all, else a "Sold By Type" value from the
     // Customer Report (Sales Rep / Office Staff / Technician / Unknown).
-    const typeSelect = state._indicatorManageTypeFilter || '';
+    // Rep-type toggle (per Isaac, Oct 16): Sales Reps / Office Staff / Technicians —
+    // Manage Teams is the team builder for one rep type at a time. '' = Sales
+    // Reps (CRM Sales Reps + unmatched names); the old "Unknown only" /
+    // "CRM-matched" picks fold into it.
+    let typeSelect = state._indicatorManageTypeFilter || '';
+    if (typeSelect !== 'Office Staff' && typeSelect !== 'Technician') typeSelect = '';
+    const tabType = typeSelect === 'Office Staff' ? 'office' : typeSelect === 'Technician' ? 'techs' : 'd2d';
+    const _inTab = (t) => !!t && (teamTypeOf(t) === tabType || isTeamExcluded(t));
     // Branch filter — '' = all, else a primary-office name. Lets the admin
     // view the roster one branch at a time.
     state._indicatorManageBranchFilter = '';   // the Office filter is gone — never leave an old pick silently applied
@@ -910,7 +917,7 @@ function manageTeamsPanel(opts) {
               const name = prompt('New team name:');
               if (name && name.trim()) {
                 const clean = name.trim();
-                addTeam(clean); // register so it persists even if no rep is on it
+                addTeam(clean, tabType); // register so it persists even if no rep is on it
                 setRepTeam(repName, clean);
               } else {
                 setRepTeam(repName, currentTeam); // revert
@@ -922,7 +929,7 @@ function manageTeamsPanel(opts) {
           },
         },
           el('option', { value: '', selected: !currentTeam }, '— Team —'),
-          ...teams.map(t => el('option', { value: t, selected: currentTeam === t }, t)),
+          ...teams.filter(t => t === currentTeam || _inTab(t)).map(t => el('option', { value: t, selected: currentTeam === t }, t)),
           el('option', { value: '__new__' }, '+ New team…'),
         );
 
@@ -1031,6 +1038,9 @@ function manageTeamsPanel(opts) {
       const needs = filteredReps.slice(0, _needsN).filter(r => !_isAl(r)), rest = filteredReps.slice(_needsN).filter(r => !_isAl(r));
       const byTeam = new Map();
       rest.forEach(r => { const t = getRepTeam(r) || '(unassigned)'; if (!byTeam.has(t)) byTeam.set(t, []); byTeam.get(t).push(r); });
+      // Empty teams of this rep type still list (a team just made under this
+      // tab has nobody on it yet) — unless a search / filter is narrowing.
+      if (!search && !teamView && !tierSelect && !activeSelect) distinctTeamsForYear(teamYear).forEach(t => { if (t !== '(unassigned)' && !byTeam.has(t) && _inTab(t) && !isTeamExcluded(t)) byTeam.set(t, []); });
       const teamOrder = [...byTeam.keys()].sort((a, b) => byTeam.get(b).length - byTeam.get(a).length || a.localeCompare(b));
       const openSet = state._mtOpenTeams instanceof Set ? state._mtOpenTeams : (state._mtOpenTeams = new Set());
       // Every section's rows are ALWAYS in the DOM (hidden when closed), so
@@ -1128,14 +1138,21 @@ function manageTeamsPanel(opts) {
         style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', color: 'var(--text)', minWidth: '0' },
         onchange: (e) => onChange(e.target.value),
       }, ...opts.map(o => el('option', { value: o.value, selected: value === o.value }, o.label))));
+    const typeToggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden shrink-0', style: { borderColor: 'var(--border-2)' } },
+      ...[['', 'Sales Reps'], ['Office Staff', 'Office Staff'], ['Technician', 'Technicians']].map(([v, l]) => el('button', {
+        class: 'px-3 py-1 text-[11px] font-semibold transition whitespace-nowrap',
+        style: typeSelect === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
+        onclick: () => { if (typeSelect === v) return; state._indicatorManageTypeFilter = v; state._indicatorManageTeamView = ''; state._indicatorManageTeamFilter = ''; render(); },
+      }, l)));
     const filterBar = el('div', { style: { display: 'contents' } },
+      typeToggle,
       // + New Team (per Isaac) — replaces the old Teams pop-up; removing a
       // team lives in each team's Settings.
       el('button', {
         class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-        title: 'Create a new team',
-        onclick: (e) => openNewTeamPopover(e.currentTarget, render),
+        onclick: (e) => openNewTeamPopover(e.currentTarget, render, tabType),
+        title: 'Create a new ' + (tabType === 'office' ? 'Office Staff' : tabType === 'techs' ? 'Technician' : 'Sales Rep') + ' team',
       }, '+ New Team'),
       mkFilter('Tier', tierSelect, [
         { value: '', label: 'All · ' + (tierCounts.rookie + tierCounts.vet + tierCounts.na + tierCounts.untagged) },
@@ -1152,11 +1169,7 @@ function manageTeamsPanel(opts) {
       ], (v) => { state._indicatorManageActiveFilter = v; render(); }),
       // Type defaults to Sales Reps (+ unmatched names) — teams are a
       // Sales-Rep construct. Pick a specific type to inspect the others.
-      mkFilter('Type', typeSelect, [
-        { value: '', label: 'Sales Reps' },
-        ...repTypesPresent.filter(t => t !== 'Sales Rep').map(t => ({ value: t, label: t + ' only' })),
-        ...(repTypesPresent.includes('Sales Rep') ? [{ value: 'Sales Rep', label: 'Sales Rep (CRM-matched)' }] : []),
-      ], (v) => { state._indicatorManageTypeFilter = v; render(); }),
+
       // Team — view one team at a time (per Isaac, Oct 4; replaces the Office filter).
       mkFilter('Team', teamView, [
         { value: '', label: 'All' },
