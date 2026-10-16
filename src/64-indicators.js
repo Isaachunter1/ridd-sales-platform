@@ -973,6 +973,7 @@ function viewIndicators() {
             },
               el('option', { value: 'pending_serviced', selected: _staged.acct === 'pending_serviced' }, 'Pending / Serviced'),
               el('option', { value: 'all', selected: _staged.acct === 'all' }, 'Sold'),   // labels per Isaac, Oct 9
+              el('option', { value: 'passed_audit', selected: _staged.acct === 'passed_audit' }, 'Passed Audit'),   // page-wide (per Isaac, Oct 16)
             );
           // Exclude — one-time services / 3-day RORs / renewals (per Isaac),
           // same switches as the Performance Trends card (shared state).
@@ -1344,7 +1345,7 @@ function viewIndicators() {
           const x = indicatorExcl();
           const chips = [];
           const add = (label, clear) => chips.push([label, clear]);
-          if ((state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced') add('Sold', () => { state.indicatorAcctStatus = 'pending_serviced'; });
+          if ((state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced') add(state.indicatorAcctStatus === 'passed_audit' ? 'Passed Audit' : 'Sold', () => { state.indicatorAcctStatus = 'pending_serviced'; });
           if (x.oneTime) add('No one-time services', () => { state.indicatorExcl = { ...indicatorExcl(), oneTime: false }; });
           if (x.ror) add('No 3-day RORs', () => { state.indicatorExcl = { ...indicatorExcl(), ror: false }; });
           if (x.renewal) add('No renewals', () => { state.indicatorExcl = { ...indicatorExcl(), renewal: false }; });
@@ -2045,7 +2046,7 @@ function maybeShowWeeklyRecap() {
     // Same dual-path rows as My Stats: CRM dataset by name (D2D), else logged sales.
     const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
     const mySig = _sig(state.profile.full_name);
-    const d2d = (state._indicatorRawSales || []).filter(s => s && s.rep && frPendingServiced(s) && (isMyRepName(s.rep) || _sig(getCanonicalRepName(s.rep)) === mySig))
+    const d2d = (state._indicatorRawSales || []).filter(s => s && s.rep && _landingOk(s) && (isMyRepName(s.rep) || _sig(getCanonicalRepName(s.rep)) === mySig))
       .map(s => ({ d: _parseIndicatorDay(s), rev: Number(s.contractValue) || 0 })).filter(r => r.d);
     const EXCLUDE = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
     const rows = d2d.length ? d2d : (state.mySales || []).filter(s => !EXCLUDE.has(s.audit_status))
@@ -3324,7 +3325,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const _recYear = (state._aggRecordsYear && state._aggRecordsYear !== '') ? state._aggRecordsYear : String(new Date().getFullYear());
     // Audit filter (per Isaac, Oct 13): 'all' = every sale incl. Failed Audit (default), 'passed' = only accounts
     // flagged Passed Audit.
-    const _recAudit = state._aggRecordsAudit === 'passed' ? 'passed' : 'all';
+    // Records follow the page's Filters → Metric (per Isaac, Oct 16): Passed Audit there = passed-only records here.
+    const _recAudit = state.indicatorAcctStatus === 'passed_audit' ? 'passed' : 'all';
     const _recAuditOk = (s) => _recAudit === 'all' || /passed\s*audit/i.test(String(s.customerFlags || ''));
     const recSales = !_recYear ? rawSales.filter(_recAuditOk) : (allRawSales || []).filter(s => {
       if (applyExclusion && isRepExcluded(s.rep)) return false;
@@ -3851,12 +3853,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           ? el('div', { class: 'flex items-center', style: { flexWrap: 'nowrap', gap: '4px', minWidth: '0', justifyContent: 'flex-end' } },
               _recSel(_recYear, [...[...new Set([String(new Date().getFullYear()), ..._recYears])].map(y => [y, y]), ['all', 'All']], (v) => { state._aggRecordsYear = v; }),
               _recSel(byMetric, [['revenue', 'Rev'], ['count', 'Sales']], (v) => { state._aggRecordsMetric = v; }),
-              _recSel(_recAudit, [['all', 'All'], ['passed', 'Passed']], (v) => { state._aggRecordsAudit = v; }),
               _recSel(_recPeriod, [['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['year', 'Year'], ['pra', 'PRA']], (v) => { state._aggRecordsPeriod = v; }))
           : el('div', { class: 'flex items-center gap-3 flex-wrap' },
               _recSel(_recYear, [...[...new Set([String(new Date().getFullYear()), ..._recYears])].map(y => [y, y]), ['all', 'All time']], (v) => { state._aggRecordsYear = v; }),
               metricToggle,
-              _recAuditToggle,
             ),
       ),
       el('div', { class: 'scroll-x' },
@@ -5386,8 +5386,11 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
               // Desktop too ("158" at 16% still spilled, per Isaac Sep 24): 7%/character.
               const _inBar = narrow ? _pct >= Math.max(22, fmt.int(s.count).length * 9) : _pct >= Math.max(15, fmt.int(s.count).length * 7);
               return el('div', {
-                class: 'flex items-center gap-3 text-[13px] py-2.5 transition hover:brightness-95 rounded' + (i > 0 ? ' border-t border-' : '') + (opts.onRowClick ? ' cursor-pointer' : ''),
+                class: 'flex items-center gap-3 text-[13px] py-2.5 transition rounded' + (i > 0 ? ' border-t border-' : '') + (opts.onRowClick ? ' cursor-pointer' : ''),
                 title: opts.rowTitle || '',
+                // Whole-row hover (per Isaac, Oct 16 — only the name cell lit up).
+                onmouseenter: (e) => { e.currentTarget.style.background = 'rgba(223,100,58,.07)'; },
+                onmouseleave: (e) => { e.currentTarget.style.background = ''; },
                 onclick: opts.onRowClick ? () => opts.onRowClick(s.name) : undefined,
               },
                 firstCol('truncate font-medium', s.name, s.name),
@@ -6770,7 +6773,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
     const _sigT = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
     const _mineT = _sigT(state.profile && state.profile.full_name);
     const _full = (state._indicatorRawSales || []).filter(s =>
-      s && s.rep && frPendingServiced(s) && (isMyRepName(s.rep) || (_mineT && _sigT(getCanonicalRepName(s.rep)) === _mineT)));
+      s && s.rep && _landingOk(s) && (isMyRepName(s.rep) || (_mineT && _sigT(getCanonicalRepName(s.rep)) === _mineT)));
     if (_full.length) {
       drillRepName = getCanonicalRepName(_full[0].rep);
       const _base = repMap[drillRepName] || {};
@@ -9326,6 +9329,13 @@ function _landingWindow() {
   const yr = String(new Date().getFullYear());
   return { has: (iso) => !!iso && iso.slice(0, 4) === yr, label: yr + ' YTD' };
 }
+// Landing cards use the page's Filters → Metric too: Sold = every sale, Pending / Serviced (default), Passed Audit.
+function _landingOk(s) {
+  const a = state.indicatorAcctStatus || 'pending_serviced';
+  if (a === 'all') return true;
+  if (!frPendingServiced(s)) return false;
+  return a !== 'passed_audit' || /passed\s*audit/i.test(String(s.customerFlags || ''));
+}
 function _landingTiles(tile, m) {
   const ytdLabel = _landingWindow().label;
   const multi = m.ytd.filter(s => myBucketOf(s) === 'multi');
@@ -9387,7 +9397,7 @@ function repLandingPlayerCard(opts) {
     if (!mine && !myRepNameSet().size) return _repFirstRunCard();
     const W = _landingWindow();
     const all = (state._indicatorRawSales || []).filter(s =>
-      s && s.rep && frPendingServiced(s) && (isMyRepName(s.rep) || _sig(getCanonicalRepName(s.rep)) === mine));
+      s && s.rep && _landingOk(s) && (isMyRepName(s.rep) || _sig(getCanonicalRepName(s.rep)) === mine));
     const ytd = all.filter(s => W.has((typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : ''));
     if (!all.length) return _repFirstRunCard(); // never a silent blank page
     const _first = ytd[0] || all[0];
@@ -9457,7 +9467,7 @@ function teamLandingPlayerCards(opts) {
     if (!teams.length) return [];
     const W = _landingWindow();
     const PEST_RE = pestInitialExclRe();
-    const pool = (state._indicatorRawSales || []).filter(s => s && s.rep && frPendingServiced(s));
+    const pool = (state._indicatorRawSales || []).filter(s => s && s.rep && _landingOk(s));
     const teamOf = (s) => getRepTeam(getCanonicalRepName(s.rep)) || '';
     return teams.map((team, i) => {
       const all = pool.filter(s => teamOf(s) === team);

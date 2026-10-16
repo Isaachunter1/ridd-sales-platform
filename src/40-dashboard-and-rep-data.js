@@ -1082,6 +1082,8 @@ function indicatorSales() {
     // when the Filters panel is set to "all".
     if (state._indManualMode) { if (!frPendingServiced(s)) return false; }
     else if (_acct !== 'all' && !frPendingServiced(s)) return false;
+    // Passed Audit (per Isaac, Oct 16 — was a Records-only toggle): Pending / Serviced AND flagged Passed Audit, page-wide.
+    if (_acct === 'passed_audit' && !/passed\s*audit/i.test(String(s.customerFlags || ''))) return false;
     if (_indicatorServiceExcluded(s)) return false;
     const _s = String(s.source || '').trim();
     if (_exclSrc.has(_s)) return false;
