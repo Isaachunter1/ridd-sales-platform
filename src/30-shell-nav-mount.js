@@ -1083,11 +1083,20 @@ function mountApp() {
 
   // Brand mark (per Isaac): the RIDD spider from the brand guide is the
   // menu button, replacing the generic ⊞ grid icon.
+  // Bare header icons (per Isaac, Oct 16): no grey box behind the spider or the gear — just the icon; the spider
+  // a touch bigger with a very soft pulse. Injected once so it beats the .page-header .icon-btn theme rules.
+  if (!document.getElementById('hb-bare-css')) { const st = document.createElement('style'); st.id = 'hb-bare-css';
+    st.textContent = '.page-header .icon-btn.hb-bare, :root[data-theme="light"] .page-header .icon-btn.hb-bare { background: transparent !important; }'
+      + '.page-header .icon-btn.hb-bare:hover { background: transparent !important; opacity: .7; }'
+      + '@keyframes hbPulse { 0%, 100% { opacity: 1; } 50% { opacity: .62; } }'
+      + '.page-header .hb-spider > * { animation: hbPulse 3.2s ease-in-out infinite; }'
+      + '@media (prefers-reduced-motion: reduce) { .page-header .hb-spider > * { animation: none; } }';
+    document.head.appendChild(st); }
   const gridBtn = el('button', {
-    class: 'icon-btn show',
+    class: 'icon-btn show hb-bare hb-spider',
     onclick: toggleNavMenu,
     title: 'Menu',
-  }, riddSpiderMark(20));
+  }, riddSpiderMark(26));
 
   // ── Page header bar ──
   // Position: fixed so it always pins to the top of the viewport regardless
@@ -1158,7 +1167,7 @@ function mountApp() {
       (() => {
         const wrap = el('div', { class: 'relative' });
         const gearBtn = el('button', {
-          class: 'icon-btn show',
+          class: 'icon-btn show' + (state._editMode ? '' : ' hb-bare'),
           style: state._editMode ? { background: 'var(--accent)', color: 'var(--accent-text)' } : {},
           title: 'Settings & tools',
         }, iconGear(18));
