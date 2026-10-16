@@ -11,7 +11,7 @@
 // └────────────────────────────────────────────────────────────────────────
 const IND_METRIC_DEPTS = [['d2d', 'Sales Reps'], ['office', 'Office Staff'], ['techs', 'Technicians']];
 const IND_METRIC_DIMS = [
-  ['renewals', 'Renewals', 'Renewal-source subscriptions (Office Staff: the board’s New / Total / Renewal toggle decides)'],
+  ['renewals', 'Renewals', 'Renewal-source subscriptions'],
   ['oneTime',  'One-time', 'One-time services'],
   ['ror',      '3-day RORs', 'Sales cancelled within the 3-day right of rescission'],
   ['pending',  'Not serviced yet', 'Sold, initial still Pending (no completed service)'],
@@ -39,7 +39,6 @@ const IND_METRIC_DEFS = [
 function _indMetricDefault(key, dept, dim) {
   const d = IND_METRIC_DEFS.find(x => x.key === key);
   if (d && d.fixed && dim in d.fixed) return d.fixed[dim];
-  if (dim === 'renewals') return dept !== 'office';   // office: the board's New / Total / Renewal toggle (default New)
   if (dim === 'addOns') return false;                 // add-ons were never in Indicators
   return true;                                        // today everything else is in
 }
@@ -65,7 +64,7 @@ function _indSaleDept(s, fallback) { return (typeof _indicatorDeptOf === 'functi
 function _indKeep(s, key, deptView) {
   const dept = deptView === 'all' ? _indSaleDept(s, 'office') : deptView;
   if (s && s._addOn) return indMetricRule(key, dept, 'addOns');
-  if (!indMetricRule(key, dept, 'renewals') && dept !== 'office' && typeof _indicatorIsRenewal === 'function' && _indicatorIsRenewal(s)) return false;
+  if (!indMetricRule(key, dept, 'renewals') && typeof _indicatorIsRenewal === 'function' && _indicatorIsRenewal(s)) return false;
   if (!indMetricRule(key, dept, 'oneTime') && typeof _indIsOneTimeSale === 'function' && _indIsOneTimeSale(s)) return false;
   if (!indMetricRule(key, dept, 'ror') && typeof _is3DayROR === 'function' && s.cancelDate && _is3DayROR(s)) return false;
   if (!indMetricRule(key, dept, 'pending') && !((Number(s.services) || 0) > 0 || !!s.servicedDate)) return false;
@@ -110,7 +109,7 @@ function indMetricOverride(rep, deptView, bounds) {
   const patch = {};
   // Office Staff renewals switched on (per Isaac, Oct 16): count them even when
   // the board's toggle is on New — so start from the rep's unfiltered sales.
-  const _lensNew = deptView === 'office' && (state._indRepRevMode || 'new') === 'new' && rep._orig && Array.isArray(rep._orig.sales);
+  const _lensNew = false;   // the Office Staff New lens is retired (Oct 16) — boards count total
   const _anyAddOns = IND_METRIC_DEFS.some(d => depts.some(dp => indMetricRule(d.key, dp, 'addOns')));
   const _ao = _anyAddOns ? _indAddOnRows(rep._orig || rep, bounds) : [];
   const days = (ss) => new Set(ss.map(s => (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || '').filter(Boolean)).size;
@@ -174,7 +173,6 @@ function indicatorMetricRulesTable() {
           const v = indMetricRule(d.key, dept, dim);
           const diff = !fixed && v !== _indMetricDefault(d.key, dept, dim);
           const note = fixed ? 'Set by the metric’s formula'
-            : (dept === 'office' && dim === 'renewals' && !v) ? 'Off: follows the board’s New / Total / Renewal toggle'
             : help;
           const c = el('input', { type: 'checkbox', disabled: fixed, style: { accentColor: 'var(--accent)', marginTop: '2px' },
             onchange: (e) => { setIndMetricRule(d.key, dept, dim, e.target.checked); saveIndicatorState(); mountApp(); } });

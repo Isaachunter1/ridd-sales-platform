@@ -2772,7 +2772,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // player card. (It used to filter only sales + revenue afterwards, so
   // MY % etc. still included renewals.) New Rev / Renewal Rev stay the
   // full split.
-  const _lensMode = state.indicatorDept === 'office' ? (state._indRepRevMode || 'new') : 'total';
+  const _lensMode = 'total';
   const _inLens = (s) => { if (_lensMode === 'total') return true; const ren = (typeof _indicatorIsRenewal === 'function') && _indicatorIsRenewal(s); return _lensMode === 'renewal' ? ren : !ren; };
   rawSales.forEach(s => {
     const rep = getCanonicalRepName(s.rep || 'Unknown');
@@ -2870,7 +2870,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // default) = everything MINUS the renewal source types; Renewal = only
     // those sources; Total = everything. D2D records are untouched (no
     // renewal motion there — always total).
-    const _recMode = state.indicatorDept === 'office' ? (state._indRepRevMode || 'new') : 'total';
+    const _recMode = 'total';
     const _recPool = _ytdByRep.get(r.name) || r.sales;
     const _recRows = _recMode === 'total' ? _recPool : _recPool.filter(s => {
       const ren = (typeof _indicatorIsRenewal === 'function') && _indicatorIsRenewal(s);
@@ -4381,7 +4381,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const ri = repCols.findIndex(c => c.key === 'revenue');
     // Revenue IS total revenue (per Isaac) — labelled that way; on the Office
     // Staff board the New / Renewal switch narrows it, and the label says so.
-    const _rl = (state.indicatorDept || 'all') === 'office' ? (state._indRepRevMode || 'new') : 'total';
+    const _rl = 'total';
     if (ri >= 0) repCols[ri] = Object.assign({}, repCols[ri], { label: _rl === 'new' ? 'Revenue (New)' : _rl === 'renewal' ? 'Revenue (Renewals)' : 'Total Revenue' });
     if (ri >= 0) repCols.splice(ri + 1, 0,
       // New / Renewal revenue columns are Office Staff only (per Isaac, Oct 4).
@@ -4586,7 +4586,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // ── Office-staff revenue lens (per Isaac): NEW revenue is the default —
   // renewals are a different motion and drowned the new-business race.
   // Toggle: New (default) / Total / Renewal. Other departments stay Total.
-  const _repRevMode = state.indicatorDept === 'office' ? (state._indRepRevMode || 'new') : 'total';
+  const _repRevMode = 'total';
   let boardReps = filteredReps;
   if (_repRevMode !== 'total') {
     const _isRenS = (s) => (typeof _indicatorIsRenewal === 'function') && _indicatorIsRenewal(s);
@@ -4822,13 +4822,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             return wrap;
           })(),
 
-          state.indicatorDept === 'office' ? el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: _lbPhone ? { borderColor: 'var(--border-2)', order: '1', flex: '0 0 auto' } : { borderColor: 'var(--border-2)' } },
-            ...[['new', 'New'], ['total', 'Total'], ['renewal', 'Renewal']].map(([v, l]) => el('button', {
-              class: _lbBtnPad + ' py-1 text-[11px] font-bold transition cursor-pointer',
-              style: (state._indRepRevMode || 'new') === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
-              title: v === 'new' ? 'New business only (default)' : v === 'renewal' ? 'Renewal-source revenue only' : 'Everything',
-              onclick: () => { state._indRepRevMode = v; mountApp(); },
-            }, l))) : null,
+          // (New / Total / Renewal switch retired per Isaac, Oct 16 — New Revenue / Renewal Revenue are their own columns.)
           (() => {
             // One-time migration kept: the old default EXCLUDED these three cancel kinds.
             if (!state._repFiltersV2) { state._repFiltersV2 = true; state._indicatorRepIncludeRor = true; state._indicatorRepIncludeOneTime = true; state._indicatorRepIncludeRenewals = true; saveDemoData(); }

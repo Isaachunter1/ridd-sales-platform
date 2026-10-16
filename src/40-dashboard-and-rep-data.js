@@ -3490,7 +3490,7 @@ function openIndicatorRepCard(rep, allReps = []) {
   let _trendWkOff = 0;               // 12-week trend paging (0 = latest window)
   let cardView = 'sales';            // 'sales' | 'retention' — retention mirrors the Auditing player card
   // Revenue tile mode (per Isaac, Oct 15): Office Staff default New (renewal-source sales out), toggle Total / Renewal.
-  let cardRevMode = (state.indicatorDept === 'office') ? (state._indRepRevMode || 'new') : 'total';
+  let cardRevMode = 'total';   // the Office Staff New / Total / Renewal switch is retired (per Isaac, Oct 16) — every board counts total
   let retDrill = null;               // retention tile drill { label, pred }
   const isAutoPayOn = (s) => s.autoPay && s.autoPay !== 'No' && String(s.autoPay).trim() !== '';
 
