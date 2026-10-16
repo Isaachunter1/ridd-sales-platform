@@ -774,6 +774,9 @@ function getRepTier(repName) {
     return (yrs && yrs.min < curY) ? 'vet' : 'rookie';
   }
   if (tagged) return tagged;
+  // App-supplied default for people Rookie / Vet doesn't apply to (per Isaac, Oct 16: Office Staff, admins,
+  // developers → N/A). A manual tag above still wins.
+  if (typeof repTierDefaultFor === 'function') { const _d = repTierDefaultFor(repName); if (_d) return _d; }
   // Role history (per Isaac, Oct 15): someone who changed roles is a rookie in the year they started as a Sales Rep
   // (a tech who moved to the doors), not by their first sale in an earlier role.
   const _rsY = typeof roleStartYearForName === 'function' ? roleStartYearForName(repName) : 0;

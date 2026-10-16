@@ -3047,6 +3047,24 @@ function currentRoleEntry(p) {
   return h.length ? h[h.length - 1] : null;
 }
 function roleStartForProfileId(id) { const p = id ? (state.allProfiles || []).find(x => x.id === id) : null; const e = currentRoleEntry(p); return e ? e.start : ''; }
+// Tier default (per Isaac, Oct 16): Rookie / Vet is a door-to-door class — Office Staff (incl. loyalty and the
+// office leads), admins and developers default to N/A. Matched by the rep's app login (name signature), else the
+// CRM's Sold By Type. A tier someone sets by hand still wins (engine getRepTier checks tags first).
+let _tierDefIdx = { src: null, map: new Map() };
+function repTierDefaultFor(name) {
+  if (!name) return '';
+  const profs = state.allProfiles || [];
+  const sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  if (_tierDefIdx.src !== profs) { const m = new Map(); for (const p of profs) { if (!p || !p.full_name) continue;
+    const na = (typeof isAdminRole === 'function' && isAdminRole(p.role)) || p.role === 'developer' || (typeof isOfficeStaffProfile === 'function' && isOfficeStaffProfile(p));
+    m.set(sig(p.full_name), na ? 'na' : ''); } _tierDefIdx = { src: profs, map: m }; }
+  const canon = typeof getCanonicalRepName === 'function' ? getCanonicalRepName(name) : name;
+  const k = sig(canon), k2 = sig(name);
+  if (_tierDefIdx.map.has(k)) return _tierDefIdx.map.get(k);
+  if (_tierDefIdx.map.has(k2)) return _tierDefIdx.map.get(k2);
+  const t = (state._indicatorRepTypeBySig || {})[typeof _repTypeNameSig === 'function' ? _repTypeNameSig(canon) : k];
+  return t === 'Office Staff' ? 'na' : '';
+}
 // Rookie/Vet hook for the engine's getRepTier (name-keyed): the year they started as a Sales Rep (else the current role), 0 = no history.
 let _roleYearIdx = { src: null, map: null };
 function roleStartYearForName(name) {

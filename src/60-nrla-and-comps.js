@@ -5589,7 +5589,7 @@ function repTierMeta(tierId) { return REP_TIERS.find(t => t.id === tierId); }
 // A tier nobody has SET — it is the sales-history guess (first selling year =
 // Rookie, earlier years = Vet). Right most of the time, but an experienced
 // rep in their first season here reads Rookie until someone confirms a tier.
-function repTierIsAuto(name) { return !!name && !_repKeyedLookup(state._indicatorRepTier || {}, name) && !!getRepTier(name); }
+function repTierIsAuto(name) { return !!name && !_repKeyedLookup(state._indicatorRepTier || {}, name) && !!getRepTier(name) && !(typeof repTierDefaultFor === 'function' && repTierDefaultFor(name)); }
 // The one tier dropdown (Manage Teams, Settings → Users, the New User form).
 // A guessed tier shows as "Rookie · auto" in a dashed, muted box; picking
 // any tier — including the same one — confirms it.
