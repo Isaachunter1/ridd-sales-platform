@@ -43,7 +43,17 @@ function _spqLineKey(ym, day, payee, memo, amt, txn) { if (txn) return ym + '|t'
 function spqSetRule(ym, L, prov, onlyThis) {
   const m = _spqStore(), lk = _spqLineKey(ym, L.day, L.payee, L.memo, L.amt, L.txn);
   if (onlyThis) m.qbLineRules[lk] = prov; else { m.qbRules[_spqKey(L.payee, L.memo)] = prov; delete m.qbLineRules[lk]; }
+  // A journal entry and the entry that reverses it (same dollars, opposite sign, this month or the month either side —
+  // accruals are often reversed into the next month or back into the prior one) are one cost: they follow each other.
+  if (L.journal && typeof _spqJournalPartner === 'function') { const P = _spqJournalPartner(ym, L); if (P) m.qbLineRules[_spqLineKey(P.ym, P.line[0], P.line[1], P.line[2], P.line[3], P.line[5])] = prov; }
   state._spqMemo = {}; state._mkpMemo = null; _mktgSave(); mountApp();
+}
+function _spqJournalPartner(ym, L) {
+  const lines = (state.reportingIsSpendPayee && state.reportingIsSpendPayee.lines) || {};
+  const shift = (k) => { const d = new Date(ym + '-01T12:00'); d.setMonth(d.getMonth() + k); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
+  const amt = Math.round((Number(L.amt) || 0) * 100);
+  for (const k of [0, 1, -1]) { const y = shift(k); for (const x of (lines[y] || [])) if (x[6] === 'J' && String(x[5] || '') !== String(L.txn || '') && Math.round((Number(x[3]) || 0) * 100) === -amt) return { ym: y, line: x }; }
+  return null;
 }
 function spqChannelOptions() { const m = _spqStore(); return [...new Set([...(m.channels || []), 'Google Ads', 'Google Local Services', 'Facebook'])].sort(); }
 // Google Ads accounts the platform feed knows: last four → { acct, name, lsa }.
@@ -64,6 +74,8 @@ function _spqClassify(line, m, gAccts, ym) {
   const [, payee, memo] = line;
   const one = ym ? m.qbLineRules[_spqLineKey(ym, line[0], payee, memo, line[3], line[5])] : null;
   if (one) return { prov: one, how: 'this charge only' };
+  if (line[6] === 'J' && ym && !m.qbRules[_spqKey(payee, memo)]) { const P = _spqJournalPartner(ym, { amt: line[3], txn: line[5] });
+    if (P) { const pr = m.qbLineRules[_spqLineKey(P.ym, P.line[0], P.line[1], P.line[2], P.line[3], P.line[5])] || m.qbRules[_spqKey(P.line[1], P.line[2])]; if (pr) return { prov: pr, how: 'follows ' + P.line[1] + ' (' + P.ym + ') — it reverses it' }; } }
   const rule = m.qbRules[_spqKey(payee, memo)];
   if (rule) return { prov: rule, how: 'your pick' };
   const txt = (payee + ' ' + memo);
