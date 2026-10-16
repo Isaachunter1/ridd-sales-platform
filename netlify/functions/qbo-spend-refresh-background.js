@@ -121,7 +121,9 @@ async function pullMarketingPayees(startYear) {
   const key = process.env.WINDSOR_API_KEY;
   const now = new Date();
   const from = `${startYear}-01-01`, to = now.toISOString().slice(0, 10);
-  const fields = 'generalledger__item__tx_date,generalledger__item__account_name,generalledger__item__name,generalledger__item__vendor_name,generalledger__item__memo,generalledger__item__txn_type,generalledger__item__subt_nat_amount';
+  const fields = 'generalledger__item__tx_date,generalledger__item__account_name,generalledger__item__name,generalledger__item__vendor_name,generalledger__item__memo,generalledger__item__txn_type,generalledger__item__subt_nat_amount,generalledger__item__txn_id,generalledger__item__doc_num';
+  // txn_id keeps every charge its own row (per Isaac, Oct 16): without it Windsor sums look-alike lines — e.g. the
+  // many $500 Google Ads card charges on one day — so October came through as 56 lines instead of QuickBooks' 130.
   // Filter on one plain word: an ampersand or space inside the filter value can be mangled on the way to Windsor and match nothing.
   const filter = encodeURIComponent(JSON.stringify([['generalledger__item__account_name', 'contains', 'Advertising']]));
   // Month by month (per Isaac, Oct 15 — the Oct 15 refresh came back with 0 lines): one request for ~22 months
@@ -147,12 +149,31 @@ async function pullMarketingPayees(startYear) {
   if (!rows.length) throw new Error('Windsor marketing detail: no lines for any month' + (failed.length ? ' (' + failed.join(', ') + ')' : ''));
   const months = {}, journal = {}, memo = {}, lines = {}; let n = 0;
   const cents = (x) => Math.round(x * 100) / 100;
+  // Journal entries (per Isaac, Oct 16 — the Pulse must tie to the QuickBooks Advertising & Marketing total): an
+  // entry whose lines inside Advertising & Marketing net to $0 is the month-end allocation moving Executive Marketing
+  // out to the branch accounts — the same dollars, left out. Every other entry (the ROR accrual and its reversal,
+  // postage…) is real P&L and becomes a line like any charge.
+  const jNet = {};
+  for (const row of rows) {
+    if (!/journal/i.test(String(row.generalledger__item__txn_type || ''))) continue;
+    if (!/^advertising\s*&\s*marketing/i.test(String(row.generalledger__item__account_name || '').trim())) continue;
+    const id = String(row.generalledger__item__txn_id || ''); if (!id) continue;
+    jNet[id] = (jNet[id] || 0) + (Number(row.generalledger__item__subt_nat_amount) || 0);
+  }
   for (const row of rows) {
     const acct = String(row.generalledger__item__account_name || '').trim();
     if (!/^advertising\s*&\s*marketing/i.test(acct)) continue;   // the filter is also applied here, in case Windsor ignores it
     const ym = String(row.generalledger__item__tx_date || '').slice(0, 7); if (!/^\d{4}-\d{2}$/.test(ym)) continue;
     const amt = Number(row.generalledger__item__subt_nat_amount); if (!amt) continue;
-    if (/journal/i.test(String(row.generalledger__item__txn_type || ''))) { journal[ym] = cents((journal[ym] || 0) + amt); continue; }
+    const txn = String(row.generalledger__item__txn_id || ''), doc = String(row.generalledger__item__doc_num || '').trim();
+    const isJ = /journal/i.test(String(row.generalledger__item__txn_type || ''));
+    if (isJ) {
+      journal[ym] = cents((journal[ym] || 0) + amt);
+      if (!txn || Math.abs(jNet[txn] || 0) < 1) continue;   // allocation between the marketing accounts — nets to $0
+      const jm = String(row.generalledger__item__memo || '').replace(/\s+/g, ' ').trim();
+      (lines[ym] = lines[ym] || []).push([String(row.generalledger__item__tx_date || '').slice(8, 10), doc || jm.slice(0, 40) || 'Journal entry', jm.slice(0, 90), cents(amt), acct.replace(/^advertising\s*&\s*marketing\s*:?\s*/i, ''), txn, 'J']);
+      n++; continue;
+    }
     const m = String(row.generalledger__item__memo || '').replace(/\s+/g, ' ').trim();
     let payee = String(row.generalledger__item__name || row.generalledger__item__vendor_name || '').trim();
     if (!payee) payee = m ? '(no name) ' + m.replace(/[*#]?[A-Z0-9]*\d{4,}.*$/i, '').trim().slice(0, 24) : '(no name)';
@@ -162,7 +183,7 @@ async function pullMarketingPayees(startYear) {
     // Every expense line too (per Isaac, Oct 12 — the Spend tab allocates QuickBooks spend line by line):
     // [day, payee, memo, amount, account leaf]. The memo carries the card descriptor, e.g. the last four of
     // the Google Ads account a charge belongs to (PPC vs Local Services).
-    (lines[ym] = lines[ym] || []).push([String(row.generalledger__item__tx_date || '').slice(8, 10), payee, m.slice(0, 90), cents(amt), acct.replace(/^advertising\s*&\s*marketing\s*:?\s*/i, '')]);
+    (lines[ym] = lines[ym] || []).push([String(row.generalledger__item__tx_date || '').slice(8, 10), payee, m.slice(0, 90), cents(amt), acct.replace(/^advertising\s*&\s*marketing\s*:?\s*/i, ''), txn, '']);
     n++;
   }
   return { months, journal, memo, lines, rows: n, failedMonths: failed, pulledAt: new Date().toISOString() };
