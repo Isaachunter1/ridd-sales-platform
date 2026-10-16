@@ -413,7 +413,7 @@ function renderMonthGrid(anchor, today, meId, repById) {
           return el('div', { class: 'cal-month-cell border-r border-b', style: {
             borderColor: 'var(--border)',
             borderRightWidth: (idx + 1) % 7 === 0 ? '0' : '1px',
-            minHeight: '120px',
+            minHeight: 'max(140px, calc((100vh - 260px) / 5))',   // fill the screen (per Isaac, Oct 16 — bigger day boxes)
             opacity: '0.35',
           } });
         }
@@ -425,7 +425,7 @@ function renderMonthGrid(anchor, today, meId, repById) {
           style: {
             borderColor: 'var(--border)',
             borderRightWidth: (idx + 1) % 7 === 0 ? '0' : '1px',
-            minHeight: '120px',
+            minHeight: 'max(140px, calc((100vh - 260px) / 5))',   // fill the screen (per Isaac, Oct 16 — bigger day boxes)
             background: holiday ? 'rgba(242,20,140,0.05)' : isToday ? 'rgba(223,100,58,0.14)' : 'transparent',
             boxShadow: isToday ? 'inset 0 0 0 2px var(--accent)' : 'none',
           },

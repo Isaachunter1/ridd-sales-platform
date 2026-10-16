@@ -5959,7 +5959,8 @@ function dashboardGoalCard(range, opts) {
           el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, opts.title || 'Revenue Pacer'),
           el('span', { class: 'text-[11px] tabular-nums', style: { color: 'var(--text-muted)' }, title: opts.streams ? '' : 'New ' + fmt.usd0(ytdDept.new) + ' (' + newPctOfTotal.toFixed(0) + '%) + Renewal ' + fmt.usd0(ytdDept.renewal) + ' (' + renewalPctOfTotal.toFixed(0) + '%)' },
             (_one ? '' : (_phoneP ? _shortUsd(_totalShown) : fmt.usd0(_totalShown) + ' total') + ' · ') + daysLeft + ' days left'),
-          opts.hint ? el('span', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' } }, opts.hint) : null),
+          opts.hint ? el('span', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' } }, opts.hint) : null,
+          opts.headerExtra || null),
         (opts.streams || _simple) ? null : el('div', { class: 'inline-flex rounded-lg border overflow-hidden shrink-0 ml-auto', style: { borderColor: 'var(--border-2)' } },
           ...[['dept', 'Department'], ['reps', 'Individual']].map(([v, l]) => el('button', {
             class: 'px-2.5 py-1 text-[11px] font-semibold transition',

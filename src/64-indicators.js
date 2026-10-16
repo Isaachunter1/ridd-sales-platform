@@ -88,6 +88,141 @@ function indWorldHasTeams() {
   for (const t in D) if (D[t] === w && !(typeof isTeamExcluded === 'function' && isTeamExcluded(t))) return true;
   return false;
 }
+// ── Dashboard lens (per Isaac, Oct 16): ONE switch at the top of every Sales
+// dashboard — Me · My Team · Company — that the Revenue Pacer, Performance
+// Trends and Sales Mix all follow, so the cards never disagree about whose
+// numbers they show. Every user type opens on Me (when they have sales on this
+// dashboard). The comparison tables (Leaderboard, Indicators, Power Ranking,
+// Records) stay comparisons. Teams offered = the teams the user is on / leads,
+// of this dashboard's rep type.
+function dashLensMe() {
+  try { return [...myRepNameSet()][0] || ''; } catch (e) { return ''; }
+}
+function dashLensTeams() {
+  const dept = state.indicatorDept;
+  const want = dept === 'office' ? 'office' : dept === 'techs' ? 'techs' : 'd2d';
+  return (typeof myReachTeams === 'function' ? [...myReachTeams()] : []).filter(Boolean)
+    .filter(t => typeof teamTypeOf !== 'function' || teamTypeOf(t) === want).sort();
+}
+function dashLensCompanyLabel() {
+  return state.indicatorDept === 'office' ? 'All Office Staff' : state.indicatorDept === 'techs' ? 'All Technicians' : 'Company';
+}
+function dashLensOptions() {
+  const me = dashLensMe(), teams = dashLensTeams();
+  return [
+    ...(me ? [['me', 'Me']] : []),
+    ...teams.map(t => ['team:' + t, teams.length === 1 ? 'My Team' : t]),
+    // Company: admins, partners / leads, and anyone on Office Staff (their department pacer was always shared).
+    // Plain sales reps / techs never saw company trends, so they get Me · My Team only.
+    ...(_dashLensCompanyOk() ? [['all', dashLensCompanyLabel()]] : []),
+  ];
+}
+function _dashLensCompanyOk() {
+  const r = state.profile?.role;
+  if (isAdminRole(r) || state.indicatorDept === 'office') return true;
+  return (typeof isPartnerRole === 'function' && isPartnerRole(r)) || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(r));
+}
+function dashLensOn() { return !!(typeof IND_WORLD !== 'undefined' && IND_WORLD[state.view]) && !state.indicatorsComps; }
+function dashLens() {
+  if (state._dashLens === undefined) { try { state._dashLens = localStorage.getItem('ridd_dash_lens') || ''; } catch (e) { state._dashLens = ''; } }
+  const o = dashLensOptions();
+  return o.some(x => x[0] === state._dashLens) ? state._dashLens : (o[0] ? o[0][0] : 'all');
+}
+function dashLensTeam() { const v = dashLens(); return v.indexOf('team:') === 0 ? v.slice(5) : ''; }
+// Plain-words name of what the lens is showing: "Isaac Hunter", "Avanti team", "Company".
+function dashLensLabel() {
+  const v = dashLens();
+  if (v === 'me') { const me = dashLensMe(); return me ? (typeof flipLastFirst === 'function' ? flipLastFirst(me) : me) : 'Me'; }
+  if (v.indexOf('team:') === 0) return v.slice(5) + ' team';
+  return dashLensCompanyLabel();
+}
+// Does a sale belong to the current lens? (all → everything)
+function dashLensMatch(s) {
+  const v = dashLens();
+  if (!s || !s.rep) return v === 'all';
+  if (v === 'me') return isMyRepName(s.rep);
+  if (v.indexOf('team:') === 0) return (getRepTeam(getCanonicalRepName(s.rep)) || '') === v.slice(5);
+  return true;
+}
+function dashLensSwitch() {
+  const o = dashLensOptions(), cur = dashLens();
+  if (o.length < 2) return null;
+  return el('div', { class: 'inline-flex rounded-xl border overflow-hidden shrink-0', 'data-dash-lens': '1', style: { borderColor: 'var(--border-2)', height: '28px', boxSizing: 'border-box' }, title: 'Whose numbers the Revenue Pacer, Performance Trends and Sales Mix show' },
+    ...o.map(([v, l]) => el('button', {
+      type: 'button',
+      class: 'px-2.5 text-[11px] font-semibold transition whitespace-nowrap',
+      style: v === cur ? { background: 'var(--accent)', color: 'var(--accent-text)', height: '100%' } : { color: 'var(--text-muted)', background: 'var(--card)', height: '100%' },
+      onclick: () => { if (v === cur) return; state._dashLens = v; try { localStorage.setItem('ridd_dash_lens', v); } catch (e) {} if (typeof trackAction === 'function') trackAction('dash_lens', 'indicators', { lens: v.indexOf('team:') === 0 ? 'team' : v }); mountApp(); },
+    }, l)));
+}
+// Revenue Pacer for the Me / My Team lens — YTD revenue on this dashboard vs
+// the personal goal (Me) or the sum of the team's personal goals (My Team).
+// Office Staff goals are NEW-revenue goals, so renewals show as their own bar.
+function dashLensPacer(dept) {
+  const v = dashLens(); if (v === 'all') return null;
+  const now = new Date(), y = now.getFullYear(), m = now.getMonth(), dd = now.getDate();
+  const isOffice = dept === 'office';
+  const acc = { new: { ytd: 0, mtd: 0, tod: 0 }, renewal: { ytd: 0, mtd: 0, tod: 0 } };
+  for (const s of indicatorSales()) {
+    if (_indicatorDeptOf(s) !== dept || !dashLensMatch(s)) continue;
+    const d = _parseIndicatorDay(s); if (!d || d.getFullYear() !== y) continue;
+    const val = Number(s.contractValue) || 0;
+    const b = acc[isOffice && _indicatorIsRenewal(s) ? 'renewal' : 'new'];
+    b.ytd += val; if (d.getMonth() === m) { b.mtd += val; if (d.getDate() === dd) b.tod += val; }
+  }
+  const team = dashLensTeam();
+  const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  const goalOfName = (name) => {
+    if (state.profile && _sig(state.profile.full_name) === _sig(name)) return Number(state.profile.annual_revenue_goal) || 0;
+    const p = (state.allProfiles || []).find(x => x.full_name && _sig(x.full_name) === _sig(name));
+    if (p) return Number(p.annual_revenue_goal) || 0;
+    const g = (state._repNameGoals || {})[name]; return g ? Number(g.annual_revenue_goal) || 0 : 0;
+  };
+  let goal = 0, members = 0;
+  if (v === 'me') goal = Number(state.profile && state.profile.annual_revenue_goal) || 0;
+  else {
+    const map = state._indicatorRepTeam || {};
+    for (const n of Object.keys(map)) { if (map[n] !== team) continue; if (typeof isRepActive === 'function' && !isRepActive(n)) continue; members++; goal += goalOfName(n); }
+  }
+  const curve = worldDeptCurve(dept);
+  const label = v === 'me' ? 'My' : team;
+  const streams = [{ key: 'new', label: isOffice ? label + ' New' : label, color: '#DF643A', actual: acc.new.ytd, target: goal, monthly: goal > 0 ? curve.map(f => f * goal) : null, win: acc.new.tod, mtd: acc.new.mtd }];
+  if (isOffice) streams.push({ key: 'renewal', label: label + ' Renewal', color: '#5F6C5B', actual: acc.renewal.ytd, target: 0, monthly: null, win: acc.renewal.tod, mtd: acc.renewal.mtd });
+  const canSet = v === 'me' && (isAdminRole(state.profile?.role) || userCan('goal_set_own'));
+  const hint = goal > 0 ? '' : v === 'me'
+    ? (canSet ? 'No personal goal yet' : 'No personal goal yet \u2014 ask your manager to set one')
+    : 'No team goal yet \u2014 it\u2019s the sum of the ' + members + ' reps\u2019 personal goals (Settings \u2192 Goals)';
+  const setBtn = canSet ? (() => {
+    const wrap = el('span', { class: 'inline-flex items-center gap-1.5' });
+    const open = () => {
+      wrap.innerHTML = '';
+      const inp = el('input', { type: 'number', min: '0', step: '1000', value: goal > 0 ? String(Math.round(goal)) : '', placeholder: 'Annual goal $',
+        class: 'rounded-lg border px-2 py-0.5 text-[11px] tabular-nums', style: { borderColor: 'var(--border-2)', width: '110px', background: 'var(--card)', color: 'var(--text)' },
+        onkeydown: (e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') mountApp(); } });
+      const save = async () => {
+        const n = Math.max(0, Math.round(Number(inp.value) || 0));
+        try {
+          if (!(typeof DEMO !== 'undefined' && DEMO)) { const { error } = await supabase.rpc('set_my_goal', { goal: n }); if (error) throw error; }
+          state.profile.annual_revenue_goal = n;
+          const me = (state.allProfiles || []).find(x => x.id === state.profile.id); if (me) me.annual_revenue_goal = n;
+          if (typeof logActivity === 'function') logActivity('goal_change', { detail: 'Own annual goal set to $' + n.toLocaleString() });
+          toast('Goal saved', 'success'); mountApp();
+        } catch (e) { toast('Could not save the goal' + (/set_my_goal/.test(String(e && e.message)) ? ' \u2014 run migrations/20260708_rep_self_settings.sql in Supabase' : ''), 'error'); }
+      };
+      wrap.append(inp,
+        el('button', { type: 'button', class: 'rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: save }, 'Save'),
+        el('button', { type: 'button', class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: () => mountApp() }, 'Cancel'));
+      setTimeout(() => { try { inp.focus(); } catch (e) {} }, 0);
+    };
+    wrap.append(el('button', { type: 'button', class: 'rounded-lg border px-2 py-0.5 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: open }, goal > 0 ? 'Edit goal' : 'Set my goal'));
+    return wrap;
+  })() : null;
+  const range = { start: new Date(y, m, dd), end: new Date(y, m, dd, 23, 59, 59) };
+  const _keep = state.dashDateRange; state.dashDateRange = 'today';   // this pacer's third number is always Today
+  try {
+    return dashboardGoalCard(range, { title: (v === 'me' ? 'My' : team + ' Team') + ' Revenue Pacer', simple: true, hint, headerExtra: setBtn, streams });
+  } finally { state.dashDateRange = _keep; }
+}
 // ── Page order per dashboard (per Isaac, Oct 5). Sales Reps: Leaderboard
 // first, then the Indicators table, its graph, Performance Trends, Records,
 // Class Metrics, Sales Mix. A dashboard with no entry keeps its built order.
@@ -200,9 +335,11 @@ function viewWorldDashboard() {
   }
   const node = viewIndicators();
   const _adminPacer = (dept === 'd2d' || dept === 'techs') && isAdminRole(state.profile?.role) && !state.indicatorsComps;
-  if ((dept === 'office' || _adminPacer) && typeof dashboardGoalCard === 'function') {
+  const _lensPacer = dashLensOn() && dashLens() !== 'all';   // Me / My Team: a personal / team pacer for EVERY user type (per Isaac, Oct 16)
+  if ((dept === 'office' || _adminPacer || _lensPacer) && typeof dashboardGoalCard === 'function') {
     try {
-      const goal = dept === 'office' ? dashboardGoalCard(getDateRange(state.dashDateRange), { simple: true }) : worldRevenuePacer(dept);   // two goal bars only (per Isaac, Oct 16)
+      const goal = _lensPacer ? dashLensPacer(dept)
+        : dept === 'office' ? dashboardGoalCard(getDateRange(state.dashDateRange), { simple: true }) : worldRevenuePacer(dept);   // two goal bars only (per Isaac, Oct 16)
       if (goal) {
         goal.setAttribute('data-section', 'goal-pacer');
         const barHost = [...node.children].find(c => c.querySelector && c.querySelector('#indFixedBar'));
@@ -928,6 +1065,8 @@ function viewIndicators() {
                     style: { position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px', color: 'var(--text)', background: 'var(--card)', height: '100%', paddingTop: '0', paddingBottom: '0', lineHeight: '16.5px' },
                   }, String((cur === 'this_year' && !isRange ? 'This year' : indicatorPresetLabel(cur)) || 'Date range').replace(/\u2026$/, ''), el('span', { style: { fontSize: '8px', opacity: '.8' } }, '\u25BE'), sel);
                 })()),
+              // Me · My Team · Company (per Isaac, Oct 16) — right beside the date.
+              dashLensOn() ? dashLensSwitch() : null,
               el('div', { class: 'flex items-center justify-end gap-2 flex-wrap ml-auto' },
         // (🔧 edit mode moved to the GLOBAL top bar — it now drives section
         // layout on every tab plus the row editing here.)
@@ -5299,8 +5438,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   const _mixReach = (!isAdminRole(state.profile?.role)
     && ((typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role)) || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role)))
     && typeof myReachTeams === 'function') ? myReachTeams() : null;
-  const _mixScoped = (_mixReach && _mixReach.size) ? rawSales.filter(s => _mixReach.has(teamKeyOf(s))) : rawSales;
-  const _mixScopeLabel = (_mixReach && _mixReach.size) ? [..._mixReach].sort().join(' + ') : '';
+  const _mixLens = dashLensOn() && dashLens() !== 'all';   // the page lens wins (per Isaac, Oct 16)
+  const _mixScoped = _mixLens ? rawSales.filter(dashLensMatch) : (_mixReach && _mixReach.size) ? rawSales.filter(s => _mixReach.has(teamKeyOf(s))) : rawSales;
+  const _mixScopeLabel = _mixLens ? dashLensLabel() : (_mixReach && _mixReach.size) ? [..._mixReach].sort().join(' + ') : '';
   const drill = (state._indicatorMixDrill && state._indicatorMixDrill.group === mixGroup && mixGroup !== 'subscription')
     ? state._indicatorMixDrill : null;
   const subSales = drill
@@ -9882,18 +10022,23 @@ function indicatorYoYTrendChart() {
   // WHOSE trend (per Isaac, Oct 16): every user type opens on THEIR OWN line,
   // and can switch to any team they're assigned to. Admins / partners keep a
   // third choice — the page filters / their scope picker ("all").
-  const _yoyMeName = (() => {
+  const _yoyMeName = (() => { const _n = _yoyMeName0(); return _n || (typeof dashLensOn === 'function' && dashLensOn() ? dashLensMe() : ''); })();
+  function _yoyMeName0() { return (() => {
     const seen = new Set();
     for (const s of raw) { if (!s || !s.rep) continue; const n = getCanonicalRepName(s.rep); if (seen.has(n)) continue; seen.add(n); if (_yoyIsMe(n)) return n; }
     return '';
-  })();
+  })(); }
   const _yoyMyTeams = (typeof myReachTeams === 'function' ? [...myReachTeams()] : []).filter(Boolean).sort();
   const _yoyViewOpts = [
     ...(_yoyMeName ? [['me', _yoyMeName + ' (me)']] : []),
     ..._yoyMyTeams.map(t => ['team:' + t, t + ' (team)']),
     ...(_yoyRepOnly ? [] : [['all', isAdminRole(state.profile?.role) ? 'Page filters' : 'Custom (picker)']]),
   ];
-  const _yoyView = _yoyViewOpts.some(o => o[0] === state._indTrendView) ? state._indTrendView : (_yoyViewOpts[0] ? _yoyViewOpts[0][0] : 'all');
+  // On a Sales dashboard the page lens (Me · My Team · Company) decides; elsewhere the card's own picker.
+  const _yoyLensOn = typeof dashLensOn === 'function' && dashLensOn();
+  const _yoyWant = _yoyLensOn ? dashLens() : state._indTrendView;
+  // Lens on: follow it exactly (an empty line for "Me" beats silently showing a team instead).
+  const _yoyView = _yoyLensOn ? _yoyWant : (_yoyViewOpts.some(o => o[0] === _yoyWant) ? _yoyWant : (_yoyViewOpts[0] ? _yoyViewOpts[0][0] : 'all'));
   const _yoyViewTeam = _yoyView.indexOf('team:') === 0 ? _yoyView.slice(5) : '';
   if (_yoyRepOnly) {
     const _sigY = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
@@ -10894,7 +11039,7 @@ function indicatorYoYTrendChart() {
 
   // "Showing …" — says exactly whose numbers the lines are (per Isaac, Oct 16).
   const _yoyShowingLab = _yoyView === 'all' ? (_yoySelScopes.length === 1 ? _scopeLabelOf(_yoySelScopes[0]) : _yoySelScopes.length + ' lines') : '';
-  const _yoyViewPick = _yoyViewOpts.length > 1
+  const _yoyViewPick = (_yoyViewOpts.length > 1 && !_yoyLensOn)
     ? el('label', { class: 'flex items-center gap-1.5 text-[11px]', style: { color: 'var(--text-subtle)' } }, 'Showing',
         el('select', {
           class: 'rounded-xl px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
@@ -10903,7 +11048,9 @@ function indicatorYoYTrendChart() {
           onchange: (e) => { state._indTrendView = e.target.value; mountApp(); },
         }, ..._yoyViewOpts.map(([v, l]) => el('option', { value: v, selected: v === _yoyView }, v === 'all' && _yoyView === 'all' && _yoyShowingLab ? l + ' \u00b7 ' + _yoyShowingLab : l))))
     : el('span', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, 'Showing ',
-        el('strong', { style: { color: 'var(--text)' } }, _yoyViewOpts[0] ? _yoyViewOpts[0][1] : (_yoySelScopes.length === 1 ? _scopeLabelOf(_yoySelScopes[0]) : _yoySelScopes.length + ' lines')));
+        el('strong', { style: { color: 'var(--text)' } }, _yoyLensOn
+          ? (_yoyView === 'me' ? (typeof flipLastFirst === 'function' ? flipLastFirst(_yoyMeName) : _yoyMeName) : _yoyViewTeam ? _yoyViewTeam + ' team' : (_yoySelScopes.length === 1 ? _scopeLabelOf(_yoySelScopes[0]) : _yoySelScopes.length + ' lines'))
+          : (_yoyViewOpts[0] ? _yoyViewOpts[0][1] : (_yoySelScopes.length === 1 ? _scopeLabelOf(_yoySelScopes[0]) : _yoySelScopes.length + ' lines'))));
 
   return el('div', { class: 'card p-5' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-3' },
