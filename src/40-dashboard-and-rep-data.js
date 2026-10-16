@@ -4858,9 +4858,11 @@ function openIndicatorRepCard(rep, allReps = []) {
     if (cardView === 'retention' && fullAccess) { modal.append(header(), retentionBlock()); return; }
     modal.append(
       header(),
+      // Records first (per Isaac, Oct 16), then the stat tiles under a label naming the card's date range.
+      recordsStrip(),
+      el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' }, ((CARD_SCOPE_PRESETS.find(p => p.id === cardScope) || {}).label || 'Stats')),
       statsGrid(),
       ...(cardRevMode === 'peak' ? [peakTable()] : []),   // (modal.append prints a bare null as the text "null")
-      recordsStrip(),
       (_calMode === 'calendar' ? sellDaysCalendarBlock() : dayHourHeatmapBlock()),
       trendsBlock(),
       powerHourBlock(),
