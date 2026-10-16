@@ -3367,8 +3367,20 @@ const showRep = !!(opts && opts.showRep);
               const hot = d >= ((typeof reportingAgingDays === 'function') ? reportingAgingDays() : 7);
               return el('td', { class: 'px-2 py-1.5 text-right tabular-nums' + (hot ? ' font-bold' : ''), style: hot ? { color: '#DC2626' } : { color: 'var(--text-muted)' } }, d > 0 ? d + 'd' : '—');
             })(),
-            el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums whitespace-nowrap' }, s.cancelDate || '—'),
-            el('td', { class: 'px-2 py-1.5 text-muted-', style: { minWidth: '150px', maxWidth: '260px', whiteSpace: 'normal', lineHeight: '1.35' }, title: s.cancelReason || '' }, s.cancelReason || '—'),
+            // Reactivated (per Isaac, Oct 16 — Denise Jackson: Sold Not Started, then reactivated and sold): the account is
+            // active again, so the old cancel no longer applies. Don't show a live-looking cancel date / reason on an
+            // active account; say "Reactivated" and keep the history in the tooltip. (Counts already treat it as alive.)
+            ...(() => {
+              const _was = !!(s.cancelDate || s.cancelReason);
+              if (_was && _subAliveNow(s) === true) {
+                const tip = 'Reactivated — the account is active again. Earlier cancel' + (s.cancelDate ? ' on ' + s.cancelDate : '') + (s.cancelReason ? ' (' + s.cancelReason + ')' : '') + ' no longer applies.';
+                return [el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums whitespace-nowrap', title: tip }, '—'),
+                  el('td', { class: 'px-2 py-1.5', style: { minWidth: '150px', maxWidth: '260px' }, title: tip },
+                    el('span', { class: 'text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap', style: { background: 'rgba(21,128,61,.10)', color: '#15803D' } }, 'Reactivated'))];
+              }
+              return [el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums whitespace-nowrap' }, s.cancelDate || '—'),
+                el('td', { class: 'px-2 py-1.5 text-muted-', style: { minWidth: '150px', maxWidth: '260px', whiteSpace: 'normal', lineHeight: '1.35' }, title: s.cancelReason || '' }, s.cancelReason || '—')];
+            })(),
             showAudit ? (() => { const a = _aud(s);
               return el('td', { class: 'px-2 py-1.5 text-center' }, el('span', { class: 'text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap',
                 style: a === 'failed' ? { background: 'rgba(220,38,38,.12)', color: '#B91C1C' } : a === 'passed' ? { background: 'rgba(21,128,61,.12)', color: '#15803D' } : { background: 'var(--card-2)', color: 'var(--text-muted)' } },
@@ -3702,8 +3714,9 @@ function openIndicatorRepCard(rep, allReps = []) {
       Number(s.contractValue || 0).toFixed(2),
       csvEsc(s.autoPay || ''),
       csvEsc(s.status || ''),
-      csvEsc(s.cancelDate || ''),
-      csvEsc(s.cancelReason || ''),
+      // Reactivated accounts: no live cancel — the old one is noted as history (same as the table).
+      csvEsc((s.cancelDate || s.cancelReason) && _subAliveNow(s) === true ? '' : (s.cancelDate || '')),
+      csvEsc((s.cancelDate || s.cancelReason) && _subAliveNow(s) === true ? 'Reactivated (earlier cancel' + (s.cancelDate ? ' ' + s.cancelDate : '') + (s.cancelReason ? ': ' + s.cancelReason : '') + ')' : (s.cancelReason || '')),
       auditBucketOf(s) === 'pending' ? 'awaiting' : auditBucketOf(s),
     ].join(',')));
     const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
