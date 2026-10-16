@@ -1069,8 +1069,8 @@ function viewIndicators() {
               ...(() => {
                 const hl = (node, on) => { if (node && on) { node.style.borderColor = 'var(--accent)'; node.style.boxShadow = '0 0 0 2px rgba(223,100,58,.25)'; } return node; };
                 return [
-                  _metricLocked ? null : _fRow('Audit', auditBtn),   // top of the panel (per Isaac, Oct 16)
                   _fRow('Saved views', indPresetRibbon({ inline: true })),
+                  _metricLocked ? null : _fRow('Audit', auditBtn),   // right under Saved views (per Isaac, Oct 16)
                   _metricLocked ? null : _fRow('Metric', hl(metricSel, (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced')),
                   // Type is the Office Staff / D2D / Technicians switch on the Sales dashboards — only the stand-alone page still picks it here.
                   (_repLite || _fWorld) ? null : _fRow('Type',   hl(typeSel,   (state.indicatorDept || 'all') !== _fDeptDefault)),
@@ -9879,10 +9879,28 @@ function indicatorYoYTrendChart() {
   const _yoyDefaultScopes = () => _yoyReachTeams.length ? _yoyReachTeams.map(t => ({ t: 'team', v: t })) : [{ t: 'co' }];
   const _yoyCoLabel = state.indicatorDept === 'office' ? 'All Office Staff' : state.indicatorDept === 'techs' ? 'All Technicians' : 'Company';
   const _yoyRepOnly = !isAdminRole(state.profile && state.profile?.role) && !_yoyPartner;
+  // WHOSE trend (per Isaac, Oct 16): every user type opens on THEIR OWN line,
+  // and can switch to any team they're assigned to. Admins / partners keep a
+  // third choice — the page filters / their scope picker ("all").
+  const _yoyMeName = (() => {
+    const seen = new Set();
+    for (const s of raw) { if (!s || !s.rep) continue; const n = getCanonicalRepName(s.rep); if (seen.has(n)) continue; seen.add(n); if (_yoyIsMe(n)) return n; }
+    return '';
+  })();
+  const _yoyMyTeams = (typeof myReachTeams === 'function' ? [...myReachTeams()] : []).filter(Boolean).sort();
+  const _yoyViewOpts = [
+    ...(_yoyMeName ? [['me', _yoyMeName + ' (me)']] : []),
+    ..._yoyMyTeams.map(t => ['team:' + t, t + ' (team)']),
+    ...(_yoyRepOnly ? [] : [['all', isAdminRole(state.profile?.role) ? 'Page filters' : 'Custom (picker)']]),
+  ];
+  const _yoyView = _yoyViewOpts.some(o => o[0] === state._indTrendView) ? state._indTrendView : (_yoyViewOpts[0] ? _yoyViewOpts[0][0] : 'all');
+  const _yoyViewTeam = _yoyView.indexOf('team:') === 0 ? _yoyView.slice(5) : '';
   if (_yoyRepOnly) {
     const _sigY = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
     const _mineY = _sigY(state.profile.full_name);
-    raw = raw.filter(x => x.rep && (isMyRepName(x.rep) || _sigY(getCanonicalRepName(x.rep)) === _mineY));
+    raw = _yoyViewTeam
+      ? raw.filter(x => x.rep && (getRepTeam(getCanonicalRepName(x.rep)) || '') === _yoyViewTeam)
+      : raw.filter(x => x.rep && (isMyRepName(x.rep) || _sigY(getCanonicalRepName(x.rep)) === _mineY));
   }
   const curY = new Date().getFullYear(), prevY = curY - 1;
   const PEST_RE = pestInitialExclRe();
@@ -9960,6 +9978,8 @@ function indicatorYoYTrendChart() {
     return o ? o.split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w).join(' ') : '';
   };
   const _yoySelScopes = (() => {
+    if (_yoyView === 'me' && _yoyMeName) return [{ t: 'rep', v: _yoyMeName }];
+    if (_yoyViewTeam) return [{ t: 'team', v: _yoyViewTeam }];
     if (_yoyRepOnly) return [{ t: 'co' }];
     let sel = Array.isArray(state._indicatorYoYScopes) ? state._indicatorYoYScopes.filter(x => x && x.t) : [];
     if (_yoyPartner) {
@@ -9981,7 +10001,7 @@ function indicatorYoYTrendChart() {
   // PRA is revenue ÷ unique sellers — for a REP scope that's ÷1, i.e. it
   // just repaints Revenue (Isaac: "the PRA metric isn't doing anything").
   // Rep-only views fall back to Revenue and hide the PRA option entirely.
-  const _yoyAllReps = _yoyRepOnly || _yoySelScopes.every(sc => sc.t === 'rep');
+  const _yoyAllReps = _yoySelScopes.every(sc => sc.t === 'rep') || (_yoyRepOnly && !_yoyViewTeam);
   if (_yoyAllReps && metric === 'pra') metric = 'revenue';
   // Department scopes (per Isaac): Office Staff / Sales Rep / Technician as
   // their own overlay lines, keyed by the same dept buckets the page-level
@@ -10441,6 +10461,7 @@ function indicatorYoYTrendChart() {
           e.stopPropagation();
           const parsed = _staged.filter(k => k.indexOf('rep:') === 0).map(k => ({ t: 'rep', v: k.slice(4) }));
           state._indicatorYoYScopes = parsed;   // [] = follow the page-header scope
+          state._indTrendView = 'all';          // picking reps here = the custom view
           state._yoyScopesOpen = false;
           mountApp();
         },
@@ -10836,6 +10857,7 @@ function indicatorYoYTrendChart() {
           state._indicatorYoYTiers = _stTiers.length ? _stTiers : ['all'];
           state._indicatorYoYYears = _stYears.length ? _stYears : [curY];
           state._indicatorYoYGran = _stGran;
+          state._indTrendView = 'all';          // partner picker = the custom view
           state._yoyComboOpen = false;
           mountApp();
         },
@@ -10870,9 +10892,24 @@ function indicatorYoYTrendChart() {
     return wrap;
   })() : null;
 
+  // "Showing …" — says exactly whose numbers the lines are (per Isaac, Oct 16).
+  const _yoyShowingLab = _yoyView === 'all' ? (_yoySelScopes.length === 1 ? _scopeLabelOf(_yoySelScopes[0]) : _yoySelScopes.length + ' lines') : '';
+  const _yoyViewPick = _yoyViewOpts.length > 1
+    ? el('label', { class: 'flex items-center gap-1.5 text-[11px]', style: { color: 'var(--text-subtle)' } }, 'Showing',
+        el('select', {
+          class: 'rounded-xl px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
+          style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+          title: 'Whose trend the lines show',
+          onchange: (e) => { state._indTrendView = e.target.value; mountApp(); },
+        }, ..._yoyViewOpts.map(([v, l]) => el('option', { value: v, selected: v === _yoyView }, v === 'all' && _yoyView === 'all' && _yoyShowingLab ? l + ' \u00b7 ' + _yoyShowingLab : l))))
+    : el('span', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, 'Showing ',
+        el('strong', { style: { color: 'var(--text)' } }, _yoyViewOpts[0] ? _yoyViewOpts[0][1] : (_yoySelScopes.length === 1 ? _scopeLabelOf(_yoySelScopes[0]) : _yoySelScopes.length + ' lines')));
+
   return el('div', { class: 'card p-5' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-3' },
-      el('h3', { class: 'text-base font-bold' }, 'Performance Trends'),   // same title size as every other card (per Isaac, Oct 16)
+      el('div', { class: 'flex items-center gap-2 flex-wrap' },
+        el('h3', { class: 'text-base font-bold' }, 'Performance Trends'),   // same title size as every other card (per Isaac, Oct 16)
+        _yoyViewPick),
       // Labels live INSIDE the buttons now (Scope / Type / Range / Metric —
       // per Isaac); the current value shows in each button's tooltip.
       el('div', { class: 'flex items-center gap-2 flex-wrap' }, ...(comboWrap ? [comboWrap] : [scopesWrap]), metricSel)),

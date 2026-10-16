@@ -1200,31 +1200,19 @@ function mountApp() {
             onclick: () => { dd.style.display = 'none'; onclick(); },
           }, ic, el('span', {}, label));
         };
-        // Order (per Isaac): Resync · Dark mode · Settings · Sign out.
+        // Order (per Isaac, Oct 16): Dark Mode · Feedback · TV Display · Settings · Sign out.
+        // (Resync / Refresh data retired — the app keeps itself synced.)
         [
-          isAdmin
-            ? item('resync', state._revhawkSyncing ? 'Syncing…' : 'Resync', () => {
-                if (state._revhawkSyncing) return;
-                if (typeof trackAction === 'function') trackAction('resync', 'manual');
-                syncFromRevHawk(gearBtn);
-              })
-            : item('resync', 'Refresh data', () => {
-                gearBtn.classList.add('icon-spin');
-                toast('Refreshing your data…', 'success');
-                try { refreshIndicatorsFromCloud(true); } catch (err) { /* poll retries */ }
-                try { if (typeof refreshSalesData === 'function') refreshSalesData(); } catch (err) { /* ignore */ }
-                setTimeout(() => { try { gearBtn.classList.remove('icon-spin'); } catch (err) { /* gone */ } }, 4000);
-              }),
-          item(state.theme === 'light' ? 'moon' : 'sun', state.theme === 'light' ? 'Dark mode' : 'Light mode', () => toggleTheme()),
-          item('settings', (isAdmin || canOpenSettings()) ? 'Settings' : 'My Settings', () => {
-            if (isAdmin || canOpenSettings()) { state.view = 'admin'; history.replaceState(null, '', VIEW_TO_HASH['admin'] || '#admin'); mountApp(); }
-            else openMySettingsModal();
-          }),
+          item(state.theme === 'light' ? 'moon' : 'sun', state.theme === 'light' ? 'Dark Mode' : 'Light Mode', () => toggleTheme()),
           item('feedback', 'Feedback', () => openFeedbackModal()),
           // TV Display (per Isaac, Sep 2026): the inside-sales floor board.
           // Admins + office-staff reps only (per Isaac) — it is the inside-sales floor board.
           // Desktop only (per Isaac) — a wall board has no business on a phone.
           (typeof openTvBoard === 'function' && !(() => { try { return window.matchMedia('(max-width: 900px)').matches; } catch (e) { return false; } })() && (isAdmin || userCan('view_tv'))) ? item('tv', 'TV Display', () => openTvBoard()) : null,   // Settings → Permissions (default: office staff)
+          item('settings', (isAdmin || canOpenSettings()) ? 'Settings' : 'My Settings', () => {
+            if (isAdmin || canOpenSettings()) { state.view = 'admin'; history.replaceState(null, '', VIEW_TO_HASH['admin'] || '#admin'); mountApp(); }
+            else openMySettingsModal();
+          }),
           el('div', { style: { borderTop: '1px solid var(--border)', margin: '4px 2px' } }),
           item('power', 'Sign out', async () => {
             if (typeof DEMO !== 'undefined' && DEMO) { location.href = location.pathname; return; }
