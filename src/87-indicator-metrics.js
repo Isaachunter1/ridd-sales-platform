@@ -15,6 +15,9 @@ const IND_METRIC_DIMS = [
   ['oneTime',  'One-time', 'One-time services'],
   ['ror',      '3-day RORs', 'Sales cancelled within the 3-day right of rescission'],
   ['pending',  'Not serviced yet', 'Sold, initial still Pending (no completed service)'],
+  // Add-ons (per Isaac, Oct 16): FieldRoutes ticket-item add-ons credited to the rep. Indicators never counted them,
+  // so they're off by default everywhere; turning one on adds the rep's add-ons in the window to that metric.
+  ['addOns',   'Add-ons', 'FieldRoutes add-ons (ticket items) credited to the rep in the window'],
 ];
 const _IND_PEST_EXCL = { test: (v) => pestInitialExclRe().test(String(v == null ? '' : v)) };
 // fixed: dims the metric's formula already decides (shown, not editable).
@@ -26,24 +29,24 @@ const IND_METRIC_DEFS = [
   { key: 'revPerDay',   label: '$/Day',          def: 'Revenue ÷ days with a sale.' },
   { key: 'acv',         label: 'ACV',            def: 'Contract value ÷ sales, recurring new only (one-time services and renewals are always out — see Weighted / One-Time / Renewal ACV on the leaderboard).', fixed: { oneTime: false, renewals: false } },
   { key: 'avgInitial',  label: 'Avg Init',       def: 'Mean initial price.' },
-  { key: 'avgPest',     label: 'Pest Init',      def: 'Mean initial price, Sentricon / German Roach / Interior Flea left out.' },
-  { key: 'myPct',       label: 'MY %',           def: 'Multi-year (18+ mo) ÷ (12-mo + multi-year). Other terms and the MY % excluded services are out of both sides.', fixed: { oneTime: false } },
+  { key: 'avgPest',     label: 'Pest Init',      def: 'Mean initial price, Sentricon / German Roach / Interior Flea left out.', fixed: { addOns: false } },
+  { key: 'myPct',       label: 'MY %',           def: 'Multi-year (18+ mo) ÷ (12-mo + multi-year). Other terms and the MY % excluded services are out of both sides.', fixed: { oneTime: false, addOns: false } },
   { key: 'autoPayPct',  label: 'APay %',         def: 'Sales with autopay on file ÷ sales.' },
-  { key: 'servicedPct', label: 'Serviced %',     def: 'Sales with a completed service ÷ sales.', fixed: { pending: true } },
-  { key: 'attrPct',     label: 'Attrition %',    def: 'Cancelled $ ÷ serviced $.', fixed: { oneTime: false, ror: false } },
-  { key: 'cancels',     label: 'Cancels',        def: 'Sales cancelled (player card).' },
+  { key: 'servicedPct', label: 'Serviced %',     def: 'Sales with a completed service ÷ sales.', fixed: { pending: true, addOns: false } },
+  { key: 'attrPct',     label: 'Attrition %',    def: 'Cancelled $ ÷ serviced $.', fixed: { oneTime: false, ror: false, addOns: false } },
+  { key: 'cancels',     label: 'Cancels',        def: 'Sales cancelled (player card).', fixed: { addOns: false } },
 ];
 function _indMetricDefault(key, dept, dim) {
   const d = IND_METRIC_DEFS.find(x => x.key === key);
   if (d && d.fixed && dim in d.fixed) return d.fixed[dim];
-  if (dim === 'renewals') return dept !== 'office';   // office: the board's New lens (default New = no renewals)
+  if (dim === 'renewals') return dept !== 'office';   // office: the board's New / Total / Renewal toggle (default New)
+  if (dim === 'addOns') return false;                 // add-ons were never in Indicators
   return true;                                        // today everything else is in
 }
 function indMetricRules() { const r = (typeof _adminRules === 'function') ? _adminRules() : null; return (r && r.indMetricRules && typeof r.indMetricRules === 'object') ? r.indMetricRules : {}; }
 function indMetricRule(key, dept, dim) {
   const d = IND_METRIC_DEFS.find(x => x.key === key);
   if (d && d.fixed && dim in d.fixed) return d.fixed[dim];
-  if (dept === 'office' && dim === 'renewals') return _indMetricDefault(key, dept, dim);   // lens decides
   const v = ((indMetricRules()[key] || {})[dept] || {})[dim];
   return typeof v === 'boolean' ? v : _indMetricDefault(key, dept, dim);
 }
@@ -61,6 +64,7 @@ function _indMetricCustomized(key, dept) {
 function _indSaleDept(s, fallback) { return (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) : null) || fallback; }
 function _indKeep(s, key, deptView) {
   const dept = deptView === 'all' ? _indSaleDept(s, 'office') : deptView;
+  if (s && s._addOn) return indMetricRule(key, dept, 'addOns');
   if (!indMetricRule(key, dept, 'renewals') && dept !== 'office' && typeof _indicatorIsRenewal === 'function' && _indicatorIsRenewal(s)) return false;
   if (!indMetricRule(key, dept, 'oneTime') && typeof _indIsOneTimeSale === 'function' && _indIsOneTimeSale(s)) return false;
   if (!indMetricRule(key, dept, 'ror') && typeof _is3DayROR === 'function' && s.cancelDate && _is3DayROR(s)) return false;
@@ -69,16 +73,53 @@ function _indKeep(s, key, deptView) {
 }
 // Recompute ONLY the metrics whose rules differ from today's for this view.
 // Returns a patch of rep fields ({} when nothing is customised).
-function indMetricOverride(rep, deptView) {
+// The rep's FieldRoutes add-ons in the window, shaped like Indicators sales
+// (same rows the player card lists). bounds = { start, end } as Dates or ISO
+// days; defaults to the page's range, else the span of the rep's own sales.
+const _IND_FEE_LIKE = /\bfee\b|\btax\b|discount|surcharge/i;
+function _indAddOnRows(rep, bounds) {
+  const sales = rep.sales || [];
+  const ids = new Set(sales.map(x => String(x.repId || '')).filter(Boolean));
+  if (!ids.size) return [];
+  const iso = (v) => v instanceof Date ? (v.getFullYear() + '-' + String(v.getMonth() + 1).padStart(2, '0') + '-' + String(v.getDate()).padStart(2, '0')) : String(v || '').slice(0, 10);
+  let lo = bounds && iso(bounds.start), hi = bounds && iso(bounds.end);
+  if (!lo || !hi) {
+    if (state.indicatorsView === 'range' && typeof indicatorRangeBounds === 'function') { const b = indicatorRangeBounds(state.indicatorsRangePreset, { start: state.indicatorsCustomStart, end: state.indicatorsCustomEnd }); lo = b.start; hi = b.end; }
+    else { const ds = sales.map(x => (typeof dateSoldToIso === 'function' && dateSoldToIso(x.dateSold)) || '').filter(Boolean).sort(); lo = ds[0]; hi = ds[ds.length - 1]; }
+  }
+  if (!lo || !hi) return [];
+  const byCust = new Map(sales.map(x => [String(x.customerId || ''), x]));
+  const src = (Array.isArray(state.addOns) && state.addOns.length) ? state.addOns : (state._tvAddOns || []);
+  const out = [];
+  for (const a of src) {
+    if (!a || a.removed_at || !a.added_at || !ids.has(String(a.credited_employee_id || '')) || _IND_FEE_LIKE.test(String(a.service_name || ''))) continue;
+    const day = String(a.added_at).slice(0, 10);
+    if (day < lo || day > hi) continue;
+    const parent = byCust.get(String(a.customer_id || '')) || sales[0] || {};
+    const [y, m, d] = day.split('-');
+    const rec = Number(a.recurring_amount) || 0;
+    out.push(Object.assign({}, parent, { _addOn: true, customerId: a.customer_id || '', subscription: 'ADD ON \u00b7 ' + (a.service_name || 'Add-on'),
+      dateSold: Number(m) + '/' + Number(d) + '/' + y + ' 00:00:00', initialPrice: a.initial_amount != null ? Number(a.initial_amount) || 0 : null,
+      recurring: rec * 12, contractValue: typeof addOnAnnualValue === 'function' ? addOnAnnualValue(a) : rec * 12,
+      status: 'Active', cancelDate: '', cancelReason: '' }));
+  }
+  return out;
+}
+function indMetricOverride(rep, deptView, bounds) {
   const depts = deptView === 'all' ? IND_METRIC_DEPTS.map(x => x[0]) : [deptView];
   const patch = {};
-  const all = rep.sales || [];
+  // Office Staff renewals switched on (per Isaac, Oct 16): count them even when
+  // the board's toggle is on New — so start from the rep's unfiltered sales.
+  const _lensNew = deptView === 'office' && (state._indRepRevMode || 'new') === 'new' && rep._orig && Array.isArray(rep._orig.sales);
+  const _anyAddOns = IND_METRIC_DEFS.some(d => depts.some(dp => indMetricRule(d.key, dp, 'addOns')));
+  const _ao = _anyAddOns ? _indAddOnRows(rep._orig || rep, bounds) : [];
   const days = (ss) => new Set(ss.map(s => (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || '').filter(Boolean)).size;
   const rev = (ss) => ss.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
-  const mean = (ss) => ss.length ? ss.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / ss.length : 0;
+  const mean = (ss) => { const xs = ss.filter(s => !(s._addOn && s.initialPrice == null)); return xs.length ? xs.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / xs.length : 0; };
   for (const d of IND_METRIC_DEFS) {
     if (!depts.some(dp => _indMetricCustomized(d.key, dp))) continue;
-    const ss = all.filter(s => _indKeep(s, d.key, deptView));
+    const base = (_lensNew && indMetricRule(d.key, 'office', 'renewals')) ? rep._orig.sales : (rep.sales || []);
+    const ss = base.concat(_ao).filter(s => _indKeep(s, d.key, deptView));
     const n = ss.length;
     switch (d.key) {
       case 'count': patch.count = n; break;
@@ -100,30 +141,66 @@ function indMetricOverride(rep, deptView) {
 }
 
 // Settings → Configurations → Indicators: the metric × user-type matrix.
+// One dropdown per cell (per Isaac, Oct 16 — same control as the Permissions
+// tab): the button reads "4/5 counted", the panel ticks each kind of sale.
 function indicatorMetricRulesTable() {
   const muted = { color: 'var(--text-muted)' };
   const th = (t, cls) => el('th', { class: (cls || 'text-left') + ' px-2 py-1.5 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap', style: muted }, t);
-  const chip = (key, dept, dim, label, tip) => {
-    const d = IND_METRIC_DEFS.find(x => x.key === key);
-    const fixed = (d.fixed && dim in d.fixed) || (dept === 'office' && dim === 'renewals');
-    const on = indMetricRule(key, dept, dim);
-    const changed = !fixed && on !== _indMetricDefault(key, dept, dim);
-    return el('button', { type: 'button', disabled: fixed, title: (fixed ? (dept === 'office' && dim === 'renewals' ? 'Office Staff: the leaderboard’s New / Total / Renewal toggle decides renewals' : 'Set by the metric’s own formula') : (on ? 'Included — click to leave out' : 'Left out — click to include')) + ' · ' + tip,
-      class: 'rounded-full border px-2.5 text-[10px] font-semibold whitespace-nowrap', 
-      style: Object.assign({ minHeight: '30px' }, on ? { background: 'rgba(95,108,91,.14)', color: '#5F6C5B', borderColor: 'rgba(95,108,91,.35)' } : { background: 'transparent', color: 'var(--text-subtle)', borderColor: 'var(--border-2)', textDecoration: 'line-through' },
-        fixed ? { opacity: '.5', cursor: 'default' } : { cursor: 'pointer' }, changed ? { boxShadow: '0 0 0 1.5px var(--accent)' } : {}),
-      onclick: () => { if (fixed) return; setIndMetricRule(key, dept, dim, !on); saveIndicatorState(); mountApp(); } }, label);
+  const isFixed = (d, dept, dim) => !!(d.fixed && dim in d.fixed);
+  const cell = (d, dept) => {
+    const key = 'mr:' + d.key + ':' + dept;
+    const open = state._mrOpen === key;
+    const on = IND_METRIC_DIMS.filter(([dim]) => indMetricRule(d.key, dept, dim));
+    const changed = _indMetricCustomized(d.key, dept);
+    const out = IND_METRIC_DIMS.filter(([dim]) => !indMetricRule(d.key, dept, dim)).map(x => x[1]);
+    const tip = out.length ? 'Left out: ' + out.join(', ') : 'Every kind of sale counts';
+    const wrap = el('div', { class: 'relative', 'data-mr': key });
+    const btn = el('button', {
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer flex items-center justify-between gap-2',
+      style: { borderColor: changed ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '170px', justifyContent: 'space-between', textAlign: 'left' },
+      title: tip + (changed ? ' · changed from the default' : ''),
+      onclick: (e) => { e.stopPropagation(); state._mrOpen = open ? null : key; mountApp(); },
+    }, el('span', { class: 'truncate' }, on.length + '/' + IND_METRIC_DIMS.length + ' counted'), el('span', { style: { fontSize: '9px', opacity: .7 } }, '\u25be'));
+    wrap.append(btn);
+    if (open) {
+      const panel = el('div', { class: 'card absolute p-1.5', style: { top: 'calc(100% + 6px)', left: '0', width: '280px', maxWidth: 'calc(100vw - 32px)', zIndex: '40', boxShadow: 'var(--shadow-lg)' } },
+        el('div', { class: 'flex items-center gap-2 px-2 pt-1 pb-1.5 mb-1 text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)', borderBottom: '1px solid var(--border)' } },
+          el('span', { class: 'flex-1' }, d.label + ' \u00b7 ' + (IND_METRIC_DEPTS.find(x => x[0] === dept) || [, dept])[1]),
+          changed ? el('button', { class: 'text-[10px] font-semibold normal-case tracking-normal', style: { color: 'var(--accent)' }, onclick: (e) => { e.stopPropagation();
+            for (const [dim] of IND_METRIC_DIMS) if (!isFixed(d, dept, dim)) setIndMetricRule(d.key, dept, dim, _indMetricDefault(d.key, dept, dim));
+            saveIndicatorState(); mountApp(); } }, 'Reset') : null),
+        ...IND_METRIC_DIMS.map(([dim, label, help]) => {
+          const fixed = isFixed(d, dept, dim);
+          const v = indMetricRule(d.key, dept, dim);
+          const diff = !fixed && v !== _indMetricDefault(d.key, dept, dim);
+          const note = fixed ? 'Set by the metric’s formula'
+            : (dept === 'office' && dim === 'renewals' && !v) ? 'Off: follows the board’s New / Total / Renewal toggle'
+            : help;
+          const c = el('input', { type: 'checkbox', disabled: fixed, style: { accentColor: 'var(--accent)', marginTop: '2px' },
+            onchange: (e) => { setIndMetricRule(d.key, dept, dim, e.target.checked); saveIndicatorState(); mountApp(); } });
+          c.checked = v;
+          return el('label', { class: 'w-full flex items-start gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold', style: { background: v ? 'var(--card-2)' : 'transparent', color: 'var(--text)', cursor: fixed ? 'default' : 'pointer', opacity: fixed ? '.55' : '1' } },
+            c, el('span', { class: 'flex-1' }, label, el('span', { class: 'block text-[10px] font-normal', style: muted }, note)),
+            diff ? el('span', { class: 'text-[9px]', style: { color: 'var(--accent)' }, title: 'Changed from default' }, '\u25cf') : null);
+        }));
+      wrap.append(panel);
+      try { if (typeof clampDropdownPanel === 'function') clampDropdownPanel(panel); } catch (err) { /* optional */ }
+      setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+        if (ev.target.closest && ev.target.closest('[data-mr="' + key + '"]')) return;
+        document.removeEventListener('mousedown', closer);
+        if (state._mrOpen === key) { state._mrOpen = null; mountApp(); }
+      }), 0);
+    }
+    return wrap;
   };
   return el('div', { class: 'rounded-lg border mt-2', style: { borderColor: 'var(--border)' } },
     el('div', { class: 'flex items-center gap-2 flex-wrap px-3 py-2', style: { background: 'var(--card-2)' } },
-      el('span', { class: 'text-[11px] font-bold' }, 'Metric rules · what goes into each metric, by user type'),
-      el('span', { class: 'text-[10px] flex-1', style: { color: 'var(--text-subtle)' } }, 'Green = included, struck through = left out; outlined = changed from the default. Every metric starts from the Pending / Serviced sales after the exclusions above. Applies to the leaderboard and player cards.'),
+      el('span', { class: 'text-[10px] flex-1', style: { color: 'var(--text-subtle)' } }, 'Pick which kinds of sales each metric counts: renewals, one-time services, 3-day RORs, sales not serviced yet and add-ons. An orange outline means it’s changed from the default. Every metric starts from the Pending / Serviced sales after the exclusions above, and the rules apply to the leaderboard and player cards.'),
       Object.keys(indMetricRules()).length ? el('button', { class: 'text-[10px] underline', style: muted, onclick: () => { _setAdminRule('indMetricRules', {}); saveIndicatorState(); mountApp(); } }, 'reset all to default') : null),
-    el('div', { class: 'scroll-x' }, el('table', { class: 'text-xs', style: { width: '100%', borderCollapse: 'collapse', minWidth: '980px' } },
+    el('div', { class: 'scroll-x' }, el('table', { class: 'text-xs', style: { width: '100%', borderCollapse: 'collapse', minWidth: '820px' } },
       el('thead', {}, el('tr', {}, th('Metric'), th('Formula'), ...IND_METRIC_DEPTS.map(([, l]) => th(l)))),
       el('tbody', {}, ...IND_METRIC_DEFS.map(d => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
         el('td', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap' }, d.label),
-        el('td', { class: 'px-2 py-1.5 text-[11px]', style: Object.assign({ maxWidth: '280px' }, muted) }, d.def),
-        ...IND_METRIC_DEPTS.map(([dept]) => el('td', { class: 'px-2 py-1.5' }, el('div', { class: 'flex flex-wrap gap-1' },
-          ...IND_METRIC_DIMS.map(([dim, label, tip]) => chip(d.key, dept, dim, label, tip)))))))))));
+        el('td', { class: 'px-2 py-1.5 text-[11px]', style: Object.assign({ maxWidth: '300px' }, muted) }, d.def),
+        ...IND_METRIC_DEPTS.map(([dept]) => el('td', { class: 'px-2 py-1.5' }, cell(d, dept)))))))));
 }

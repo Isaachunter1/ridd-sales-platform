@@ -814,7 +814,7 @@ function adminConfigurations(part) {
     section('book', null, reportingRules),
     section('ind', null, indicators,
       typeof indicatorMetricRulesTable === 'function' ? listCard('metrics', 'Metric rules by user type', 'per metric', indicatorMetricRulesTable,
-        'Which sales each Indicators metric counts (renewals, one-time, 3-day RORs, not serviced yet) for Sales Reps, Office Staff and Technicians.') : null),
+        'Which sales each Indicators metric counts (renewals, one-time, 3-day RORs, not serviced yet, add-ons) for Sales Reps, Office Staff and Technicians.') : null),
     section('lists', 'Services, cancels & definitions',
       listCard('service', 'Service types', svcCount, reportingServiceConfigPanel,
         'Recurring, one-time or retired for each service — drives churn, ARR and retention.', ['Service Types']),

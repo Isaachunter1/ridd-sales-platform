@@ -3514,7 +3514,7 @@ function openIndicatorRepCard(rep, allReps = []) {
       : [];
     // Metric rules (Configurations → Indicators) — same overrides as the board.
     if (typeof indMetricOverride === 'function' && Object.keys(indMetricRules()).length) {
-      const _p = indMetricOverride(scopedRep, state.indicatorDept || 'all');
+      const _p = indMetricOverride(scopedRep, state.indicatorDept || 'all', bounds);
       if (Object.keys(_p).length) scopedRep = Object.assign({}, scopedRep, _p, { _mo: _p });
     }
     const _mo = scopedRep._mo || {};
