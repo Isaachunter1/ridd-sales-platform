@@ -383,6 +383,10 @@ function openLogoCropper(file, teamName, onDone) {
       style: {
         position: 'absolute', top: '0', left: '0',
         width: img.width + 'px', height: img.height + 'px',
+        // The global img reset (max-width:100%) squeezed wide photos into the
+        // 280px circle — an oval with a black gap beside it. Keep native size;
+        // the transform does the scaling.
+        maxWidth: 'none', maxHeight: 'none',
         userSelect: 'none', pointerEvents: 'none',
         transformOrigin: 'top left', willChange: 'transform',
       },
