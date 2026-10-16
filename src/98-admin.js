@@ -106,7 +106,12 @@ function adminPermissions() {
             cb(on.includes(r), (v) => grant([r], v)), el('span', { class: 'flex-1' }, g.roles.length > 1 ? shortOf(r) : rl(r)),
             overrides[r] && overrides[r][d.id] !== undefined ? el('span', { class: 'text-[9px]', style: { color: 'var(--accent)' }, title: 'Changed from default' }, '●') : null)),
         ];
-      }));
+      }),
+      // Admin (per Isaac, Oct 16): listed so the matrix is complete — always on, can't be unticked.
+      famHead('Admin'),
+      el('label', { class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold', style: { background: 'var(--card-2)', color: 'var(--text)', cursor: 'default', opacity: '.75' }, title: 'Admins can see and do everything' },
+        (() => { const c = el('input', { type: 'checkbox', disabled: true, style: { accentColor: 'var(--accent)' } }); c.checked = true; return c; })(),
+        el('span', { class: 'flex-1' }, 'Admin'), el('span', { class: 'text-[9px]', style: { color: 'var(--text-subtle)' } }, 'always')));
     const label = d.sensitive
       ? el('span', { class: 'inline-flex items-center gap-1.5 flex-wrap' }, d.label, el('span', { class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: 'rgba(220,38,38,.10)', color: '#B91C1C' }, title: 'Sensitive — ' + d.sensitive }, 'sensitive'))
       : d.label;
@@ -128,7 +133,10 @@ function adminPermissions() {
           ...g.roles.map(r => el('div', { class: 'flex items-center justify-between gap-2 px-2.5 py-1 text-[11px] font-semibold' },
             el('span', {}, g.roles.length > 1 ? shortOf(r) : rl(r)), sel(scopeOf(r, d.id), (v) => setScope(r, d.id, v), scopeOf(r, d.id) !== scopeDef(r, d.id)))),
         ];
-      }));
+      }),
+      famHead('Admin'),
+      el('div', { class: 'flex items-center justify-between gap-2 px-2.5 py-1 text-[11px] font-semibold', style: { opacity: '.75' }, title: 'Admins reach everyone' },
+        el('span', {}, 'Admin'), el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Everyone · always')));
     return row(el('span', { title: d.help || '' }, d.label), dropdown('s:' + d.id, summary, changed, body));
   };
 
