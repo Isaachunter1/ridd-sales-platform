@@ -39,10 +39,11 @@ const _mkpMs = (iso) => Date.parse(String(iso).slice(0, 10) + 'T12:00');
 function mkpMarketOf(name) { const s = String(name || '').trim(); return s ? _mktgTC(s) : ''; }
 
 // ── Filters ──────────────────────────────────────────────────────────────────
-const MKP_RANGES = [['today', 'Today'], ['yesterday', 'Yesterday'], ['last_7', 'Last 7 days'], ['last_30', 'Last 30 days'], ['this_week', 'This week'], ['last_week', 'Last week'], ['this_month', 'This month'], ['last_month', 'Last month'], ['this_year', 'This year'], ['last_year', 'Last year'], ['custom', 'Custom…']];
+// Date range = the sales dashboard's picker (per Isaac, Oct 16): same presets, same bounds; defaults to This Month.
+function mkpRangeOptions() { return (typeof appRangeOptions === 'function' ? appRangeOptions() : [{ id: 'this_month', label: 'This Month' }, { id: 'custom', label: 'Custom…' }]).map(o => [o.id, o.label]); }
 function mkpFilters() {
   const F = state._mkp || (state._mkp = {});
-  if (!MKP_RANGES.some(r => r[0] === F.range)) F.range = 'last_30';
+  if (!mkpRangeOptions().some(r => r[0] === F.range)) F.range = 'this_month';
   if (![30, 60, 90].includes(F.win)) F.win = 90;
   if (!['cohort', 'activity'].includes(F.mode)) F.mode = 'cohort';
   if (!['last', 'first'].includes(F.attr)) F.attr = 'last';
@@ -51,17 +52,19 @@ function mkpFilters() {
 function mkpRange() {
   const F = mkpFilters(), t = _mkpIso(new Date());
   let from, to = t;
-  switch (F.range) {
-    case 'today': from = t; break;
-    case 'yesterday': from = to = _mkpAdd(t, -1); break;
-    case 'last_7': from = _mkpAdd(t, -6); break;
-    case 'last_30': from = _mkpAdd(t, -29); break;
-    case 'custom': from = /^\d{4}-\d{2}-\d{2}$/.test(F.from || '') ? F.from : _mkpAdd(t, -29); to = /^\d{4}-\d{2}-\d{2}$/.test(F.to || '') ? F.to : t; if (from > to) { const x = from; from = to; to = x; } break;
-    default: { const b = (typeof indicatorRangeBounds === 'function') ? indicatorRangeBounds(F.range) : { start: _mkpAdd(t, -29), end: t }; from = b.start; to = b.end > t ? t : b.end; }
-  }
+  const ok = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v || '');
+  if (F.range === 'custom') { from = ok(F.from) ? F.from : t.slice(0, 8) + '01'; to = ok(F.to) ? F.to : t; }
+  else if (F.range === 'all_time') { const AL = mkpAllLeads(); from = (AL && AL.leads.length ? AL.leads[0].d : t.slice(0, 4) + '-01-01'); }
+  else { const b = typeof appRangeBounds === 'function' ? appRangeBounds(F.range) : { start: t.slice(0, 8) + '01', end: t }; from = b.start || t.slice(0, 8) + '01'; to = b.end && b.end < t ? b.end : t; }
+  if (from > to) { const x = from; from = to; to = x; }
   const n = _mkpDays(from, to);
-  const pTo = _mkpAdd(from, -1), pFrom = _mkpAdd(pTo, -(n - 1));
-  const label = F.range === 'custom' ? fmt.dateShortYear(from) + ' – ' + fmt.dateShortYear(to) : (MKP_RANGES.find(r => r[0] === F.range) || [, 'Range'])[1];
+  // Prior period: the calendar presets compare to the same span of the previous month / year (This Month → the
+  // same days last month); everything else to the same number of days just before.
+  let pTo = _mkpAdd(from, -1), pFrom = _mkpAdd(pTo, -(n - 1));
+  const shift = (iso, months) => { const [y, m, d] = iso.split('-').map(Number); const last = new Date(y, m - 1 + months + 1, 0).getDate(); return _mkpIso(new Date(y, m - 1 + months, Math.min(d, last), 12)); };
+  if (F.range === 'this_month' || F.range === 'last_month') { pFrom = shift(from, -1); pTo = F.range === 'last_month' ? _mkpAdd(from, -1) : shift(to, -1); }
+  else if (F.range === 'this_year' || F.range === 'last_year' || /^year:/.test(F.range)) { pFrom = shift(from, -12); pTo = shift(to, -12); }
+  const label = F.range === 'custom' ? fmt.dateShortYear(from) + ' – ' + fmt.dateShortYear(to) : (mkpRangeOptions().find(r => r[0] === F.range) || [, 'Range'])[1];
   return { from, to, n, pFrom, pTo, label };
 }
 
@@ -360,7 +363,7 @@ function mktgPulseView() {
   const camps = [...new Set(inWin.map(x => x.lead.campaign).filter(Boolean))].sort();
   const hasType = inWin.some(x => x.lead.type);
   const bar = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
-    sel(F.range, MKP_RANGES, false, 'Date range', (v) => setF(v === 'custom' ? { range: v, from: R.from, to: R.to } : { range: v }), '120px'),
+    sel(F.range, mkpRangeOptions(), false, 'Date range', (v) => setF(v === 'custom' ? { range: v, from: R.from, to: R.to } : { range: v }), '120px'),
     F.range === 'custom' ? el('input', { type: 'date', value: R.from, class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: selSt(false), onchange: (e) => setF({ from: e.target.value }) }) : null,
     F.range === 'custom' ? el('input', { type: 'date', value: R.to, class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: selSt(false), onchange: (e) => setF({ to: e.target.value }) }) : null,
     el('span', { class: 'text-[11px] tabular-nums', style: _mkpMuted }, fmt.dateShort(R.from) + (R.n > 1 ? ' – ' + fmt.dateShort(R.to) : '') + ' · vs ' + fmt.dateShort(R.pFrom) + (R.n > 1 ? ' – ' + fmt.dateShort(R.pTo) : '')),
