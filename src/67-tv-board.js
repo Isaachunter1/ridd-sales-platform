@@ -62,11 +62,18 @@ function tvRawWithLive() {
 // existing customer with no subscription ID and no office, so look the office up from FieldRoutes — the sale's
 // subscription, else any subscription on the same customer number. Memoized per snapshot.
 function tvSaleOfficeFallback(s) {
-  const subs = state.reportingSubscriptions || [];
+  // Every row the snapshot has (the full mirror — the filtered list drops some customers' rows) plus the live
+  // FieldRoutes sales feed, which carries the office on every sale.
+  const subs = state._snapshotAllRows || state.reportingSubscriptions || [], raw = state._indicatorRawSales || [];
   let M = tvSaleOfficeFallback._m;
-  if (!M || M.src !== subs) { const bySub = new Map(), byCust = new Map(); for (const r of subs) { const o = String(r.office_name || '').trim(); if (!o) continue; if (r.subscription_id != null) bySub.set(String(r.subscription_id), o); if (r.customer_id != null && !byCust.has(String(r.customer_id))) byCust.set(String(r.customer_id), o); } M = tvSaleOfficeFallback._m = { src: subs, bySub, byCust }; }
+  if (!M || M.src !== subs || M.raw !== raw) {
+    const bySub = new Map(), byCust = new Map();
+    for (const r of subs) { const o = String(r.office_name || '').trim(); if (!o) continue; if (r.subscription_id != null) bySub.set(String(r.subscription_id), o); if (r.customer_id != null && !byCust.has(String(r.customer_id))) byCust.set(String(r.customer_id), o); }
+    for (const r of raw) { const o = String(r.office || '').split(',')[0].trim(); if (!o || r.customerId == null) continue; if (!byCust.has(String(r.customerId))) byCust.set(String(r.customerId), o); }
+    M = tvSaleOfficeFallback._m = { src: subs, raw, bySub, byCust };
+  }
   const t = (o) => { if (!o) return ''; const hit = (state.offices || []).find(x => String(x.name || '').trim().toUpperCase() === o.toUpperCase()); return hit ? hit.name : (typeof _mktgTC === 'function' ? _mktgTC(o) : o); };
-  return t((s.crm_subscription_id != null && M.bySub.get(String(s.crm_subscription_id))) || (s.customer_number != null && M.byCust.get(String(s.customer_number))) || '');
+  return t((s.crm_subscription_id != null && M.bySub.get(String(s.crm_subscription_id))) || (s.customer_number != null && M.byCust.get(String(s.customer_number).replace(/\D/g, ''))) || '');
 }
 function openTvBoard() {
   // Desktop only (per Isaac): the board is a wall display, never a phone view.
