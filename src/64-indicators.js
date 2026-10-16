@@ -1921,8 +1921,16 @@ function viewIndicators() {
       let chartLabels = null;
       let grain = 'Weekly';
       const rawAvail = Array.isArray(state._indicatorRawSales) && state._indicatorRawSales.length > 0;
-      if (isRange && rawAvail && rangeBounds) {
-        const buckets = getChartBuckets(rangeBounds, allWeeks, state.indicatorsData);
+      // Short ranges (per Isaac, Oct 16 — Today / Yesterday plotted one dot): a trend needs days to move across, so
+      // under a week the chart shows the 14 days ending on the range's last day, and says so.
+      let _prBounds = rangeBounds, _prNote = '';
+      if (isRange && rangeBounds && rangeBounds.start && rangeBounds.end) {
+        const _d = (iso) => new Date(iso + 'T12:00');
+        const span = Math.round((_d(rangeBounds.end) - _d(rangeBounds.start)) / 86400000) + 1;
+        if (span < 7) { const st = _d(rangeBounds.end); st.setDate(st.getDate() - 13); const iso = st.getFullYear() + '-' + String(st.getMonth() + 1).padStart(2, '0') + '-' + String(st.getDate()).padStart(2, '0'); _prBounds = { start: iso, end: rangeBounds.end }; _prNote = ' · last 14 days'; }
+      }
+      if (isRange && rawAvail && _prBounds) {
+        const buckets = getChartBuckets(_prBounds, allWeeks, state.indicatorsData);
         if (buckets.length > 0 && buckets[0].kind !== 'week') {
           const groupFn = state.indicatorsGroupBy === 'teams'
             ? (s => getRepTeam(s.rep) || 'Unassigned')
@@ -1943,8 +1951,8 @@ function viewIndicators() {
       // math (weekly mode), then slice it off every chart series.
       const _todaySale = (() => { const t = new Date(); return { dateSold: (t.getMonth() + 1) + '/' + t.getDate() + '/' + t.getFullYear() }; })();
       let _liveTail = false;
-      if (isRange && rawAvail && rangeBounds && chartLabels) {
-        const bks = getChartBuckets(rangeBounds, allWeeks, state.indicatorsData);
+      if (isRange && rawAvail && _prBounds && chartLabels) {
+        const bks = getChartBuckets(_prBounds, allWeeks, state.indicatorsData);
         const lb = bks[bks.length - 1];
         _liveTail = !!(lb && lb.match && lb.match(_todaySale));
       } else if (Array.isArray(chartWeeks) && chartWeeks.length) {
@@ -1967,7 +1975,7 @@ function viewIndicators() {
       const _hideBranchCharts = state.indicatorDept === 'office';
       return el('div', { class: 'flex flex-col gap-4' },
         !_hideBranchCharts && el('div', {},
-          indicatorChart('Power Ranking', chartData, branches, '_power_ranking', chartWeeks, true, chartLabels),
+          indicatorChart('Power Ranking' + _prNote, chartData, branches, '_power_ranking', chartWeeks, true, chartLabels),
         ),
         // Monthly/Weekly PRA + Revenue cards RETIRED (Jul 2026, per Isaac) —
         // the Performance Trends chart covers them via its Scope picker and
