@@ -467,7 +467,7 @@ const ROLE_LABEL = {
   rep_partner:'Sales Rep - Partner',
   rep_team_lead:'Sales Rep - Team Lead',
   rep_office: 'Office Staff - Inside Sales Rep',
-  rep_office_lead: 'Office Staff - Team Lead',
+  rep_office_lead: 'Office Staff - Inside Sales Team Lead',
   rep_loyalty: 'Office Staff - Loyalty Rep',
   rep_loyalty_lead: 'Office Staff - Loyalty Team Lead',
   office_staff: 'Office Staff - Office',   // non-selling office user (per Isaac, Sep 22)
