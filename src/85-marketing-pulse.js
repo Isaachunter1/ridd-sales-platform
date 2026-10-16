@@ -378,7 +378,7 @@ function mkpOpenSources() {
 
 // ── UI helpers ───────────────────────────────────────────────────────────────
 const _mkpMuted = { color: 'var(--text-muted)' };
-function _mkpInfo(title, desc) { const b = el('span', { class: 'inline-flex items-center justify-center rounded-full text-[9px] font-bold ml-1', style: { width: '14px', height: '14px', background: 'var(--card-2)', color: 'var(--text-muted)', cursor: 'help' } }, 'i'); if (typeof attachExplainer === 'function') attachExplainer(b, { title, desc }); else b.title = desc; return b; }
+function _mkpInfo(title, desc) { const b = el('span', { class: 'inline-flex items-center justify-center rounded-full text-[9px] font-bold ml-1', style: { width: '14px', height: '14px', background: 'var(--card-2)', color: 'var(--text-muted)' } }, 'i'); if (typeof attachExplainer === 'function') attachExplainer(b, { title, desc }); else b.title = desc; return b; }
 function _mkpDelta(cur, prev, betterUp) {
   if (cur == null || prev == null || !isFinite(cur) || !isFinite(prev) || prev === 0) return el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, prev === 0 && cur ? 'new vs prior' : prev == null && cur != null ? 'no prior data' : '— vs prior');
   const ch = (cur - prev) / Math.abs(prev), good = betterUp ? ch >= 0 : ch <= 0;

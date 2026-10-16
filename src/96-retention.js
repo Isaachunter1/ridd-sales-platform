@@ -1943,7 +1943,7 @@ function reportingWaterfall() {
       if (g.section) return el('tr', {}, el('td', { colspan: 7, class: 'px-2.5 pt-3 pb-1 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, g.section));
       const s = g.s;
       const small = !s || s.n < 50 || s.bookMonths < 300;
-      return el('tr', { class: 'border-t border-' + (small ? '' : ''), style: { borderColor: 'var(--border)' } },
+      return el('tr', { class: 'border-t border-', style: { borderColor: 'var(--border)' } },
         el('td', { class: 'px-2.5 py-1.5 font-semibold truncate', style: { maxWidth: '220px' } }, g.name),
         el('td', { class: 'px-2 py-1.5 tabular-nums', style: { color: 'var(--text-muted)' } }, s ? fmt.int(s.n) : '—'),
         el('td', { class: 'px-2 py-1.5 tabular-nums', style: { color: 'var(--text-muted)' } }, s && s.avgArv ? money2(s.avgArv) : '—'),

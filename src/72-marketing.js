@@ -237,7 +237,7 @@ function viewMarketing() {
           el('span', {}, el('span', { style: { display: 'inline-block', width: '8px', height: '8px', borderRadius: '0', background: 'var(--accent)', marginRight: '4px' } }), 'Revenue'))),
       el('div', { class: 'flex items-end gap-2', style: { height: '110px' } },
         ...weeks.map(w => {
-          const cell = el('div', { class: 'flex-1 flex items-end justify-center gap-0.5 cursor-help', style: { height: '100%' } },
+          const cell = el('div', { class: 'flex-1 flex items-end justify-center gap-0.5', style: { height: '100%' } },
             el('div', { style: { width: '38%', height: Math.max(2, Math.round(w.spend / maxV * 105)) + 'px', background: '#7C857A', borderRadius: '0' } }),
             el('div', { style: { width: '38%', height: Math.max(2, Math.round(w.revenue / maxV * 105)) + 'px', background: 'var(--accent)', borderRadius: '0' } }));
           attachTooltip(cell, {

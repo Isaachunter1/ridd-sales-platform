@@ -475,7 +475,7 @@ function adminConfigurations(part) {
   // off-screen); o.desc is a visible one-liner, o.tip stays a hover detail.
   const row = (label, control, o = {}) => el('div', { class: 'flex items-center justify-between gap-x-3 gap-y-1 py-1.5 border-t flex-wrap', style: { borderColor: 'var(--border)', paddingLeft: o.indent ? '18px' : '0' }, title: o.tip || '' },
     el('div', { class: 'min-w-0', style: { flex: o.stack ? '1 1 100%' : '1 1 200px' } },
-      el('div', { class: (o.small ? 'text-xs' : 'text-sm') + ' font-semibold' + (o.tip ? ' cursor-help' : ''), style: o.muted ? { color: 'var(--text-muted)' } : {} }, label),
+      el('div', { class: (o.small ? 'text-xs' : 'text-sm') + ' font-semibold', style: o.muted ? { color: 'var(--text-muted)' } : {} }, label),
       o.desc ? el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)', lineHeight: '1.35' } }, o.desc) : null),
     el('div', { class: 'flex items-center gap-2 flex-wrap justify-end', style: o.stack ? { flex: '1 1 100%', justifyContent: 'flex-start', paddingTop: '4px' } : {} }, ...[].concat(control).filter(Boolean)));
   const sel = (value, opts, onChange, w) => el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: w || '0' }, onchange: (e) => onChange(e.target.value) },
@@ -526,7 +526,7 @@ function adminConfigurations(part) {
   // line with a ↳ marker, smaller + lighter than a top-level rule.
   const sub2 = (label, control, o = {}) => el('div', { class: 'flex items-center justify-between gap-x-3 gap-y-1 py-1.5 flex-wrap', style: { marginLeft: '10px', paddingLeft: '14px', borderLeft: '2px solid var(--border-2)' }, title: o.tip || '' },
     el('div', { style: { flex: '1 1 200px', minWidth: '0' } },
-      el('div', { class: 'text-xs font-semibold' + (o.tip ? ' cursor-help' : '') }, label),
+      el('div', { class: 'text-xs font-semibold' }, label),
       o.desc ? el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)', lineHeight: '1.35' } }, o.desc) : null),
     el('div', { class: 'flex items-center gap-2 flex-wrap justify-end' }, ...[].concat(control).filter(Boolean)));
   // Customer book (Configurations cleanup, Oct 16): same controls, plain-English
@@ -2113,7 +2113,7 @@ function slackTypesCard() {
     el('span', { style: { display: 'block', position: 'relative', width: '36px', height: '20px', borderRadius: '10px', background: on ? 'var(--accent)' : 'var(--border-2)' } },
       el('span', { style: { position: 'absolute', top: '2px', left: on ? '18px' : '2px', width: '16px', height: '16px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.3)', transition: 'left .12s' } })));
   const row = (label, control, tip) => el('div', { class: 'flex items-center justify-between gap-3 py-1.5 border-t', style: { borderColor: 'var(--border)' }, title: tip || '' },
-    el('div', { class: 'text-sm font-semibold' + (tip ? ' cursor-help' : '') }, label), control);
+    el('div', { class: 'text-sm font-semibold' }, label), control);
   const on = [['office', 'Inside Sales'], ['d2d', 'D2D'], ['tech', 'Technicians']].filter(([k]) => SL[k] !== false && !(k !== 'office' && SL[k] !== true)).map(([, l]) => l).join(' · ') || 'off';
   return el('div', { class: 'card p-4' },
     el('div', { class: 'flex items-center justify-between gap-3 mb-1' }, el('div', { class: 'text-sm font-bold' }, 'Slack notifications by rep type'),

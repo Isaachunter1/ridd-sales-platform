@@ -700,7 +700,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
     // Every header gets a short pop-up explainer (hover / tap) — per Isaac.
     const help = typeof opts === 'string' ? '' : (opts.help || title || '');
     const th = (!sortableKey || !onSort)
-      ? el('th', { class: baseClass + (help ? ' cursor-help' : '') }, label + arrow)
+      ? el('th', { class: baseClass }, label + arrow)
       : el('th', {
           class: baseClass + ' cursor-pointer select-none hover:text-default transition',
           style: hlStyle,

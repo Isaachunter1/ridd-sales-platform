@@ -546,8 +546,8 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
   const deltaMode = state._putisDelta === 'mom' || state._putisDelta === 'yoy' ? state._putisDelta : 'none';
   const showMoM = deltaMode !== 'none';
   const lyMonths = deltaMode === 'yoy' ? Array.from({ length: 12 }, (_, i) => { const k = _mktgYm(year - 1, i); return M && M[k] ? putisAugment(putisDerive(M, k, branches), M, k, branches, company) : null; }) : null;
-  const th = (t, extra, tip) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap text-left ' + (extra || '') + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-muted)' }, title: tip || '' }, t);
-  const td = (content, o = {}) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap align-top' + (o.bold ? ' font-bold' : '') + (o.title && !o.onclick ? ' cursor-help' : ''), style: o.style || {}, title: o.title || '', onclick: o.onclick }, content);
+  const th = (t, extra, tip) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap text-left ' + (extra || ''), style: { color: 'var(--text-muted)' }, title: tip || '' }, t);
+  const td = (content, o = {}) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap align-top' + (o.bold ? ' font-bold' : ''), style: o.style || {}, title: o.title || '', onclick: o.onclick }, content);
   const cellVal = (row, d, prev) => {
     const v = (row.point || row.unit) ? d[row.id] : (d.any ? d[row.id] : null);
     const label = fmtRow(row, v);
@@ -651,8 +651,8 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
     byBranch.Corporate = Math.max(0, total - named);   // whatever isn't a branch-named loan
     return (key) => { const set = cols.find(c => c.key === key).set; if (key === 'RIDD') return total; let t = 0, any = false; for (const b of set) if (byBranch[b] != null) { t += byBranch[b]; any = true; } return any ? t : null; };
   })() : null;
-  const th = (t, tip, corner) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap text-left' + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-muted)', position: 'sticky', top: 0, left: corner ? 0 : undefined, zIndex: corner ? 3 : 2, background: 'var(--card)', boxShadow: '0 1px 0 var(--border)' }, title: tip || '' }, t);
-  const td = (v, o = {}) => el('td', { class: 'px-2 py-1 tabular-nums whitespace-nowrap' + (o.bold ? ' font-bold' : '') + (o.muted ? ' text-muted-' : '') + (o.title && !o.onclick ? ' cursor-help' : ''), style: o.style || {}, title: o.title || '', onclick: o.onclick }, v);
+  const th = (t, tip, corner) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap text-left', style: { color: 'var(--text-muted)', position: 'sticky', top: 0, left: corner ? 0 : undefined, zIndex: corner ? 3 : 2, background: 'var(--card)', boxShadow: '0 1px 0 var(--border)' }, title: tip || '' }, t);
+  const td = (v, o = {}) => el('td', { class: 'px-2 py-1 tabular-nums whitespace-nowrap' + (o.bold ? ' font-bold' : '') + (o.muted ? ' text-muted-' : ''), style: o.style || {}, title: o.title || '', onclick: o.onclick }, v);
   // Income-statement card: every $ column gets a "% of revenue" column beside it (per Isaac).
   // Desktop: click a branch header to pop its "% of revenue" column open
   // (click again to close). Phones (one column) always show it.
@@ -666,7 +666,7 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
   const section = (label, tip) => ({ _section: label, tip });
   const line = (label, f, o = {}) => ({ _label: label, f, o });
   const sortSt = state._putisSort && state._putisSort.part === part ? state._putisSort : null;
-  const renderSection = (r) => el('tr', {}, el('td', { class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-bold' + (r.tip ? ' cursor-help' : ''), style: { color: 'var(--text-subtle)' }, colspan: nCols + 1, title: r.tip || '' }, r._section));
+  const renderSection = (r) => el('tr', {}, el('td', { class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' }, colspan: nCols + 1, title: r.tip || '' }, r._section));
   // One column (phones): a tap on the label explains the metric instead of
   // sorting — there's nothing to sort.
   const single = !!opts.onlyCol;
@@ -951,7 +951,7 @@ function putisKpiStrip(M, U, closedYm, branches) {
       ...tiles.map(t => {
         const v = cur[t.id];
         const col = t.signed && v != null ? { color: v < 0 ? '#DC2626' : '#5F6C5B' } : {};
-        return el('div', { class: 'rounded-lg border p-3 cursor-help', style: { borderColor: 'var(--border)', background: 'var(--card-2)' }, title: PUTIS_KPI_TIPS[t.id] || '' },
+        return el('div', { class: 'rounded-lg border p-3', style: { borderColor: 'var(--border)', background: 'var(--card-2)' }, title: PUTIS_KPI_TIPS[t.id] || '' },
           el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, t.label),
           el('div', { class: 'text-xl font-black tabular-nums mt-0.5', style: col }, _putisFmt(t.kind, v)),
           el('div', { class: 'flex items-center gap-2 mt-1 flex-wrap' },
@@ -1032,7 +1032,7 @@ function putisComparativeCard(M, ym, branches, title, headerExtra, opts = {}) {
   const rows = PUTIS_ROWS.filter(r => !r.company || company);
   const fmt = (row, v) => v == null || !isFinite(v) ? '—' : row.kind === 'pct' ? _putisPct1(v) : row.kind === 'x' ? v.toFixed(2) + 'x' : row.kind === 'mo' ? v.toFixed(1) + ' mo' : row.kind === 'int' ? Math.round(v).toLocaleString() : _putisUsd(v);
   const val = (row, d) => d ? ((row.point || row.unit) ? d[row.id] : (d.any ? d[row.id] : null)) : null;
-  const th = (t, tip, o = {}) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (o.left ? 'text-left' : 'text-right') + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-muted)', position: 'sticky', top: 0, left: o.corner ? 0 : undefined, zIndex: o.corner ? 3 : 2, background: 'var(--card)', boxShadow: '0 1px 0 var(--border)', borderLeft: o.group ? '1px solid var(--border)' : undefined }, title: tip || '' }, t);
+  const th = (t, tip, o = {}) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (o.left ? 'text-left' : 'text-right'), style: { color: 'var(--text-muted)', position: 'sticky', top: 0, left: o.corner ? 0 : undefined, zIndex: o.corner ? 3 : 2, background: 'var(--card)', boxShadow: '0 1px 0 var(--border)', borderLeft: o.group ? '1px solid var(--border)' : undefined }, title: tip || '' }, t);
   // A value cell: $ (or %) with the % of revenue underneath for $ rows.
   const cell = (row, d, o = {}) => {
     const v = val(row, d);
@@ -1069,7 +1069,7 @@ function putisComparativeCard(M, ym, branches, title, headerExtra, opts = {}) {
     const pd = (s) => s ? s.d : null;
     const bold = !!row.bold;
     const tr = el('tr', { class: 'border-t border-' + (bold ? ' font-semibold' : ''), style: bold ? { background: 'var(--card-2)' } : {} },
-      el('td', { class: 'px-2 py-1 whitespace-nowrap font-bold cursor-help', style: { position: 'sticky', left: 0, background: bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' }, title: row.tip || '' }, row.label),
+      el('td', { class: 'px-2 py-1 whitespace-nowrap font-bold', style: { position: 'sticky', left: 0, background: bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' }, title: row.tip || '' }, row.label),
       cell(row, cur, { bold, group: true, dim: ym === openYm }), cell(row, prev), delta(row, cur, prev),
       cell(row, ly, { group: true }), delta(row, cur, ly));
     if (isPt) {

@@ -4099,7 +4099,7 @@ function openIndicatorRepCard(rep, allReps = []) {
                 ...tr.weeks12.map(w => {
                   const h = Math.max(2, Math.round((w.revenue / maxWeek) * 90));
                   const bar = el('div', {
-                    class: 'flex-1 rounded-t transition ' + (w.count > 0 ? 'cursor-pointer' : 'cursor-help'),
+                    class: 'flex-1 rounded-t transition ' + (w.count > 0 ? 'cursor-pointer' : ''),
                     style: { height: h + 'px', background: w.revenue > 0 ? accent : 'var(--border)', opacity: w.revenue > 0 ? 1 : 0.5 },
                     onclick: w.count > 0 ? () => openChartDrill('Week of ' + w.weekStart, _salesInWeek(w.weekStart)) : undefined,
                   });
@@ -4133,7 +4133,7 @@ function openIndicatorRepCard(rep, allReps = []) {
                 ...tr.dow.map((c, i) => {
                   const dayName = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][i];
                   const bar = el('div', {
-                    class: 'flex-1 rounded-t transition ' + (c > 0 ? 'cursor-pointer' : 'cursor-help'),
+                    class: 'flex-1 rounded-t transition ' + (c > 0 ? 'cursor-pointer' : ''),
                     style: {
                       height: Math.max(2, Math.round((c / maxDow) * 70)) + 'px',
                       background: c > 0 ? accent : 'var(--border)',
@@ -4180,7 +4180,7 @@ function openIndicatorRepCard(rep, allReps = []) {
             el('div', { class: 'flex items-end gap-1', style: { height: '90px' } },
               ...visible.map(v => {
                 const bar = el('div', {
-                  class: 'flex-1 rounded-t transition ' + (v.count > 0 ? 'cursor-pointer' : 'cursor-help'),
+                  class: 'flex-1 rounded-t transition ' + (v.count > 0 ? 'cursor-pointer' : ''),
                   style: {
                     height: Math.max(2, Math.round((v.count / max) * 90)) + 'px',
                     background: v.count > 0 ? accent : 'var(--border)',
@@ -4292,7 +4292,7 @@ function openIndicatorRepCard(rep, allReps = []) {
             const intensity = maxCell > 0 ? count / maxCell : 0;
             const isHot = (dow === hotDow && h === hotHour);
             const cell = el('div', {
-              class: 'rounded transition ' + (count > 0 ? 'cursor-pointer' : 'cursor-help'),
+              class: 'rounded transition ' + (count > 0 ? 'cursor-pointer' : ''),
               style: {
                 height: 'clamp(22px, 4vw, 44px)',
                 background: count > 0
