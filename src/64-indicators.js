@@ -782,6 +782,7 @@ function viewIndicators() {
     state._indDeptDefaulted = true;
     state.indicatorDept = 'd2d';
     state.indicatorAcctStatus = 'pending_serviced';
+    state.indicatorPassedAudit = false;
     state.indicatorsRangePreset = IND_DEFAULT_RANGE;
     state.indicatorsCustomStart = '';
     state.indicatorsCustomEnd = '';
@@ -939,7 +940,8 @@ function viewIndicators() {
           // the panel feel molasses-slow). Changes collect here and the
           // Apply button commits them with ONE re-render.
           const _staged = {
-            acct: state.indicatorAcctStatus || 'pending_serviced',
+            acct: (state.indicatorAcctStatus === 'passed_audit' ? 'pending_serviced' : (state.indicatorAcctStatus || 'pending_serviced')),
+            audit: state.indicatorPassedAudit === true || state.indicatorAcctStatus === 'passed_audit',
             dept: state.indicatorDept || 'all',
             preset: state.indicatorsRangePreset,
             group: state.indicatorsGroupBy || 'branch',
@@ -968,16 +970,24 @@ function viewIndicators() {
           // Revenue" counts cancelled + sold-not-started rows — an analysis
           // lens, not a payroll number). Team leads / partners get the pick
           // (per Isaac, Sep 2026 — Pere's view).
-          const _metricLocked = _repLite && !((typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role)) || (typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role)));
-          const metricSel = _metricLocked ? (() => { state.indicatorAcctStatus = 'pending_serviced'; _staged.acct = 'pending_serviced'; return null; })() : el('select', {
+          // Granted by user type in Settings → Permissions (Filters · Metric + Passed Audit, per Isaac Oct 16).
+          const _metricLocked = _repLite && !userCan('ind_metric_pick');
+          const metricSel = _metricLocked ? (() => { state.indicatorAcctStatus = 'pending_serviced'; _staged.acct = 'pending_serviced'; state.indicatorPassedAudit = false; _staged.audit = false; return null; })() : el('select', {
               class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer w-full',
               style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
               onchange: e => { _staged.acct = e.target.value; _markDirty(); },
             },
               el('option', { value: 'pending_serviced', selected: _staged.acct === 'pending_serviced' }, 'Pending / Serviced'),
               el('option', { value: 'all', selected: _staged.acct === 'all' }, 'Sold'),   // labels per Isaac, Oct 9
-              el('option', { value: 'passed_audit', selected: _staged.acct === 'passed_audit' }, 'Passed Audit'),   // page-wide (per Isaac, Oct 16)
             );
+          // Passed Audit only — an on/off switch on top of the Metric (per Isaac, Oct 16).
+          const auditBtn = _metricLocked ? null : (() => {
+            const b = el('button', { type: 'button', class: 'rounded-xl px-2.5 py-1 text-[11px] font-semibold w-full flex items-center justify-between gap-2 border transition' });
+            const paint = () => { const on = !!_staged.audit; b.innerHTML = ''; b.append(el('span', {}, 'Passed Audit only'), el('span', { class: 'text-[10px] font-bold uppercase tracking-widest' }, on ? '\u25cf On' : '\u25cb Off'));
+              Object.assign(b.style, on ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { background: 'var(--card)', color: 'var(--text)', borderColor: 'var(--border-2)' }); };
+            b.title = 'Only accounts carrying the Passed Audit flag in FieldRoutes — leaderboard, records, landing cards and every table on the page';
+            b.onclick = (e) => { e.stopPropagation(); _staged.audit = !_staged.audit; paint(); _markDirty(); };
+            paint(); return b; })();
           // Exclude — one-time services / 3-day RORs / renewals (per Isaac),
           // same switches as the Performance Trends card (shared state).
           const _stExcl = { ...indicatorExcl() };
@@ -1054,6 +1064,7 @@ function viewIndicators() {
                 return [
                   _fRow('Saved views', indPresetRibbon({ inline: true })),
                   _metricLocked ? null : _fRow('Metric', hl(metricSel, (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced')),
+                  _metricLocked ? null : _fRow('Audit', auditBtn),
                   // Type is the Office Staff / D2D / Technicians switch on the Sales dashboards — only the stand-alone page still picks it here.
                   (_repLite || _fWorld) ? null : _fRow('Type',   hl(typeSel,   (state.indicatorDept || 'all') !== _fDeptDefault)),
                   // Date moved OUT to the bar (Today / Week / Month / Year / More). Only the legacy weekly view keeps a picker here.
@@ -1074,6 +1085,7 @@ function viewIndicators() {
                     return;
                   }
                   state.indicatorAcctStatus = _staged.acct;
+                  state.indicatorPassedAudit = !!_staged.audit;
                   state.indicatorExcl = { ..._stExcl };
                   state.indicatorDept = _staged.dept;
                   if (_staged.preset !== state.indicatorsRangePreset) {
@@ -1097,6 +1109,7 @@ function viewIndicators() {
           );
           const nonDefault = [
             (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced',
+            state.indicatorPassedAudit === true,
             !!indicatorExclKey(),
             !_repLite && !!state._indicatorRepOfficeFilter, !_repLite && !!state._indicatorRepTeamFilter, !_repLite && !!state._indicatorRepTierFilter,
             !_repLite && !_fWorld && (state.indicatorDept || 'all') !== _fDeptDefault,
@@ -1348,7 +1361,7 @@ function viewIndicators() {
           const x = indicatorExcl();
           const chips = [];
           const add = (label, clear) => chips.push([label, clear]);
-          if ((state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced') add(state.indicatorAcctStatus === 'passed_audit' ? 'Passed Audit' : 'Sold', () => { state.indicatorAcctStatus = 'pending_serviced'; });
+          if ((state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced') add('Sold', () => { state.indicatorAcctStatus = 'pending_serviced'; });
           if (x.oneTime) add('No one-time services', () => { state.indicatorExcl = { ...indicatorExcl(), oneTime: false }; });
           if (x.ror) add('No 3-day RORs', () => { state.indicatorExcl = { ...indicatorExcl(), ror: false }; });
           if (x.renewal) add('No renewals', () => { state.indicatorExcl = { ...indicatorExcl(), renewal: false }; });
@@ -3330,7 +3343,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // Audit filter (per Isaac, Oct 13): 'all' = every sale incl. Failed Audit (default), 'passed' = only accounts
     // flagged Passed Audit.
     // Records follow the page's Filters → Metric (per Isaac, Oct 16): Passed Audit there = passed-only records here.
-    const _recAudit = state.indicatorAcctStatus === 'passed_audit' ? 'passed' : 'all';
+    const _recAudit = state.indicatorPassedAudit === true ? 'passed' : 'all';
     const _recAuditOk = (s) => _recAudit === 'all' || /passed\s*audit/i.test(String(s.customerFlags || ''));
     const recSales = !_recYear ? rawSales.filter(_recAuditOk) : (allRawSales || []).filter(s => {
       if (applyExclusion && isRepExcluded(s.rep)) return false;
@@ -9349,9 +9362,8 @@ function _landingWindow() {
 // Landing cards use the page's Filters → Metric too: Sold = every sale, Pending / Serviced (default), Passed Audit.
 function _landingOk(s) {
   const a = state.indicatorAcctStatus || 'pending_serviced';
-  if (a === 'all') return true;
-  if (!frPendingServiced(s)) return false;
-  return a !== 'passed_audit' || /passed\s*audit/i.test(String(s.customerFlags || ''));
+  if (a !== 'all' && !frPendingServiced(s)) return false;
+  return state.indicatorPassedAudit !== true || /passed\s*audit/i.test(String(s.customerFlags || ''));
 }
 function _landingTiles(tile, m) {
   const ytdLabel = _landingWindow().label;

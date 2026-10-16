@@ -284,13 +284,13 @@ function commissionSnapshot(R, emp, period) {
 // ──────────────────────────────────────────────────────────────────────────
 function d2dRawSales() {
   const prevDept = state.indicatorDept;
-  const prevAcct = state.indicatorAcctStatus;
+  const prevAcct = state.indicatorAcctStatus, prevAud = state.indicatorPassedAudit;
   let raw = [];
   // D2D dashboard stays on the Pending/Serviced basis it launched with —
   // pinned so the Indicators-page default (Total) can't drift it.
-  try { state.indicatorDept = 'd2d'; state.indicatorAcctStatus = 'pending_serviced'; raw = indicatorSales(); }
+  try { state.indicatorDept = 'd2d'; state.indicatorAcctStatus = 'pending_serviced'; state.indicatorPassedAudit = false; raw = indicatorSales(); }
   catch (e) { raw = []; }
-  finally { state.indicatorDept = prevDept; state.indicatorAcctStatus = prevAcct; }
+  finally { state.indicatorDept = prevDept; state.indicatorAcctStatus = prevAcct; state.indicatorPassedAudit = prevAud; }
   return raw;
 }
 // One-time cloud kick so a fresh login fills in without a manual refresh.

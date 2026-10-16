@@ -1413,6 +1413,7 @@ function manageTeamsPanel(opts) {
 // settings, so every admin sees the same ribbon.
 const IND_PRESET_KEYS = [
   'indicatorAcctStatus',         // Metric: Pending/Serviced vs Total Revenue
+  'indicatorPassedAudit',        // Filters → Passed Audit only (toggle)
   'indicatorDept',               // Type: All / Sales Rep / Office Staff / Technician
   'indicatorsRangePreset', 'indicatorsCustomStart', 'indicatorsCustomEnd',
   'indicatorsGroupBy',

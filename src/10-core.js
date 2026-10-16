@@ -309,6 +309,8 @@ const PERM_DEFS = [
   { id: 'ind_records',      label: 'Records',       group: 'Indicators sections' },
   { id: 'ind_class',        label: 'Class Metrics', group: 'Indicators sections' },
   { id: 'ind_mix',          label: 'Sales Mix table', group: 'Indicators sections' },
+  // Filters → Metric (Sold / Pending · Serviced) + the Passed Audit toggle (per Isaac, Oct 16 — granted by user type).
+  { id: 'ind_metric_pick',  label: 'Filters · Metric + Passed Audit', group: 'Indicators sections' },
 ];
 // Sales-group sub-tab defaults = what each family sees today: D2D reps get
 // Dashboard / Sales / Pay; office staff the full Inside Sales bar; the
@@ -324,12 +326,12 @@ const PERM_DEFAULTS = {
   rep_sales:       { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ..._PERM_D2D_TABS },   // no Indicators table / Power Ranking for sales reps (per Isaac, Sep 2026)
   rep_office:      { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ..._PERM_OFFICE_TABS },
   rep_loyalty:     { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ..._PERM_OFFICE_TABS },
-  rep_partner:     { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1, view_settings: 1, set_goals: 1, ..._PERM_D2D_TABS },   // Settings → Goals: their own reps' yearly goals (per Isaac, Sep 23)
-  rep_team_lead:   { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1, view_settings: 1, set_goals: 1, ..._PERM_D2D_TABS },
-  rep_office_lead: { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1, ..._PERM_OFFICE_TABS },
-  rep_loyalty_lead: { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1, ..._PERM_OFFICE_TABS },
+  rep_partner:     { ind_metric_pick: 1, view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1, view_settings: 1, set_goals: 1, ..._PERM_D2D_TABS },   // Settings → Goals: their own reps' yearly goals (per Isaac, Sep 23)
+  rep_team_lead:   { ind_metric_pick: 1, view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1, view_settings: 1, set_goals: 1, ..._PERM_D2D_TABS },
+  rep_office_lead: { ind_metric_pick: 1, view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1, ..._PERM_OFFICE_TABS },
+  rep_loyalty_lead: { ind_metric_pick: 1, view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1, ..._PERM_OFFICE_TABS },
   // Office Staff - Office (per Isaac, Sep 22): works in the office, doesn't sell — no player card, no pay; sees the boards. Tune in Settings → Permissions.
-  office_staff:    { view_comps: 1, view_indicators: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ..._PERM_OFFICE_TABS, tab_pay: 0 },
+  office_staff:    { ind_metric_pick: 1, view_comps: 1, view_indicators: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ..._PERM_OFFICE_TABS, tab_pay: 0 },
   // Technicians (per Isaac, Sep 22): Service Pros get their dashboard / sales / pay; leads add the Indicators table; managers add the Power Ranking + mix.
   tech_pro:         { view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ..._PERM_TECH_TABS },
   tech_senior_lead: { view_indicators: 1, ind_card: 1, ind_table: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ..._PERM_TECH_TABS },

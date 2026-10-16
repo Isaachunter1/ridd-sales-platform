@@ -16,11 +16,11 @@ function openDashboardPlayerCard(profileIdOrCrmName) {
     for (const s of dashboardSales()) if (s.rep_id === profileIdOrCrmName && s._crmRep) counts.set(s._crmRep, (counts.get(s._crmRep) || 0) + 1);
     nm = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || getCanonicalRepName(p?.full_name || '');
   }
-  const prevDept = state.indicatorDept, prevAcct = state.indicatorAcctStatus;
+  const prevDept = state.indicatorDept, prevAcct = state.indicatorAcctStatus, prevAud = state.indicatorPassedAudit;
   let raw = [];
-  try { state.indicatorDept = 'office'; state.indicatorAcctStatus = 'pending_serviced'; raw = indicatorSales(); }
+  try { state.indicatorDept = 'office'; state.indicatorAcctStatus = 'pending_serviced'; state.indicatorPassedAudit = false; raw = indicatorSales(); }
   catch (e) { raw = []; }
-  finally { state.indicatorDept = prevDept; state.indicatorAcctStatus = prevAcct; }
+  finally { state.indicatorDept = prevDept; state.indicatorAcctStatus = prevAcct; state.indicatorPassedAudit = prevAud; }
   if (!nm || !raw.some(x => getCanonicalRepName(x.rep) === nm)) {
     if (p) openRepProfileModal(p.id); else toast('No CRM sales for this rep yet', 'warn');
     return;
@@ -32,15 +32,15 @@ function openDashboardPlayerCard(profileIdOrCrmName) {
 
 function warRoomCrmSales() {
   const prevDept = state.indicatorDept;
-  const prevAcct = state.indicatorAcctStatus;
+  const prevAcct = state.indicatorAcctStatus, prevAud = state.indicatorPassedAudit;
   let raw = [];
   // PENDING/SERVICED basis (per Isaac, after trying sold-basis): the War
   // Room counts real production — FieldRoutes' own Pending/Serviced gate
   // applies, so accounts that closed before ever being serviced don't
   // count. Pinned explicitly now that the Indicators-page DEFAULT is Total.
-  try { state.indicatorDept = 'office'; state.indicatorAcctStatus = 'pending_serviced'; raw = indicatorSales(); }
+  try { state.indicatorDept = 'office'; state.indicatorAcctStatus = 'pending_serviced'; state.indicatorPassedAudit = false; raw = indicatorSales(); }
   catch (e) { raw = []; }
-  finally { state.indicatorDept = prevDept; state.indicatorAcctStatus = prevAcct; }
+  finally { state.indicatorDept = prevDept; state.indicatorAcctStatus = prevAcct; state.indicatorPassedAudit = prevAud; }
   if (!raw.length) return [];
   if (_wrBridgeCache.src === raw && _wrBridgeCache.roster === state.frRoster
       && _wrBridgeCache.profiles === state.allProfiles) return _wrBridgeCache.out;
@@ -1018,7 +1018,9 @@ function indicatorSales() {
   const src = state._indicatorRawSales || [];
   // CRM-style user filters (session-only; default = unfiltered, so nothing
   // changes until the user opens the Filters panel and picks something).
+  if (state.indicatorAcctStatus === 'passed_audit') { state.indicatorAcctStatus = 'pending_serviced'; state.indicatorPassedAudit = true; }   // old Metric value → the toggle
   const _acct       = state.indicatorAcctStatus || 'pending_serviced';   // default = Pending/Serviced (matches the CRM Sales Leaderboard config)
+  const _audit      = state.indicatorPassedAudit === true;   // Filters → Passed Audit only (per Isaac, Oct 16 — a toggle, on top of the Metric)
   const _exclSvc    = state.indicatorExclServiceTypes || [];
   const _inclSvc    = state.indicatorInclServiceTypes || [];
   const _inclSrcArr = state.indicatorInclSources || [];
@@ -1027,7 +1029,7 @@ function indicatorSales() {
   // times; the cache resets when the upload (array identity), any saved config,
   // or a filter changes.
   const cfg = _indCfgRev + '|' + (state.indicatorsComps ? 1 : 0)
-    + '|' + _acct + '#' + _exclSvc.join('~') + '#' + _inclSvc.join('~') + '#' + _inclSrcArr.join('~') + '#' + _exclSrcArr.join('~')
+    + '|' + _acct + (_audit ? '+pa' : '') + '#' + _exclSvc.join('~') + '#' + _inclSvc.join('~') + '#' + _inclSrcArr.join('~') + '#' + _exclSrcArr.join('~')
     + '#' + (state.indicatorDeletedCustIds || []).join('~') + '#x' + indicatorExclKey()
     + '#t' + (state.indicatorExclTeams || []).join('~') + '#s' + (Array.isArray(state.indicatorExclServices) ? state.indicatorExclServices.join('~') : 'def');
   if (_indSalesCache.src !== src || _indSalesCache.cfg !== cfg) {
@@ -1082,8 +1084,8 @@ function indicatorSales() {
     // when the Filters panel is set to "all".
     if (state._indManualMode) { if (!frPendingServiced(s)) return false; }
     else if (_acct !== 'all' && !frPendingServiced(s)) return false;
-    // Passed Audit (per Isaac, Oct 16 — was a Records-only toggle): Pending / Serviced AND flagged Passed Audit, page-wide.
-    if (_acct === 'passed_audit' && !/passed\s*audit/i.test(String(s.customerFlags || ''))) return false;
+    // Passed Audit only (per Isaac, Oct 16): the Metric's sales AND flagged Passed Audit, page-wide.
+    if (_audit && !/passed\s*audit/i.test(String(s.customerFlags || ''))) return false;
     if (_indicatorServiceExcluded(s)) return false;
     const _s = String(s.source || '').trim();
     if (_exclSrc.has(_s)) return false;
