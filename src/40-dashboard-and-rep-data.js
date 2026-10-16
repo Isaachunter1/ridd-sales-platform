@@ -3263,6 +3263,9 @@ function canViewAggregate(reps) {
 function _indAccountsTable(sales, sort, onSort, opts) {
   const isAutoPayOn = (s) => s.autoPay && s.autoPay !== 'No' && String(s.autoPay).trim() !== '';
 const showRep = !!(opts && opts.showRep);
+  // Audit columns (per Isaac, Oct 16 — Sales Mix drills): Passed / Failed / Not audited + the FieldRoutes flags.
+  const showAudit = !!(opts && opts.showAudit);
+  const _aud = (x) => (typeof auditBucketOf === 'function') ? auditBucketOf(x) : '';
   // Sortable headers — click cycles desc → asc. State lives on the modal
   // instance so it survives re-renders while the card is open.
   const iso = (x) => (typeof dateSoldToIso === 'function' && dateSoldToIso(x.dateSold)) || '';
@@ -3280,6 +3283,8 @@ const showRep = !!(opts && opts.showRep);
     cancelDate:   (x) => x.cancelDate || '',
     cancelReason: (x) => (x.cancelReason || '').toLowerCase(),
     rep:          (x) => (typeof getCanonicalRepName === 'function' ? getCanonicalRepName(x.rep) : (x.rep || '')).toLowerCase(),
+    audit:        (x) => ({ failed: 0, pending: 1, passed: 2 })[_aud(x)] ?? 1,
+    flags:        (x) => String(x.customerFlags || '').toLowerCase(),
   };
   const keyFn = SORTERS[sort.key] || SORTERS.sold;
   const dirMul = sort.dir === 'asc' ? 1 : -1;
@@ -3314,6 +3319,8 @@ const showRep = !!(opts && opts.showRep);
           hSort('aged',         'Aged',          'text-right px-2 py-1.5'),
           hSort('cancelDate',   'Cancel Date',   'text-left px-2 py-1.5 whitespace-nowrap'),
           hSort('cancelReason', 'Cancel Reason', 'text-left px-2 py-1.5'),
+          showAudit ? hSort('audit', 'Audit', 'text-center px-2 py-1.5') : null,
+          showAudit ? hSort('flags', 'FieldRoutes flags', 'text-left px-2 py-1.5 whitespace-nowrap') : null,
         ),
       ),
       el('tbody', {},
@@ -3359,6 +3366,11 @@ const showRep = !!(opts && opts.showRep);
             })(),
             el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums whitespace-nowrap' }, s.cancelDate || '—'),
             el('td', { class: 'px-2 py-1.5 text-muted-', style: { minWidth: '150px', maxWidth: '260px', whiteSpace: 'normal', lineHeight: '1.35' }, title: s.cancelReason || '' }, s.cancelReason || '—'),
+            showAudit ? (() => { const a = _aud(s);
+              return el('td', { class: 'px-2 py-1.5 text-center' }, el('span', { class: 'text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap',
+                style: a === 'failed' ? { background: 'rgba(220,38,38,.12)', color: '#B91C1C' } : a === 'passed' ? { background: 'rgba(21,128,61,.12)', color: '#15803D' } : { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+                a === 'failed' ? 'Failed' : a === 'passed' ? 'Passed' : 'Not audited')); })() : null,
+            showAudit ? el('td', { class: 'px-2 py-1.5 text-muted-', style: { minWidth: '160px', maxWidth: '280px', whiteSpace: 'normal', lineHeight: '1.35' }, title: s.customerFlags || '' }, s.customerFlags || '—') : null,
           );
         }),
       ),

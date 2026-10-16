@@ -5313,9 +5313,11 @@ function auditPctColor(p) { return p == null ? 'var(--text-subtle)' : p > 0.8 ? 
 function indicatorSubscriptionMixCard(subSales, opts = {}) {
   const keyOf = opts.keyOf || ((s) => s.subscription || 'Unknown');
   const subMix = {};
+  const _rowsOf = new Map();   // bucket → its accounts, for the drill (per Isaac, Oct 16)
   subSales.forEach(s => {
     const sub = keyOf(s);
     if (!subMix[sub]) subMix[sub] = { count: 0, revenue: 0, cancels: 0, initSum: 0, multi: 0, twelve: 0, apOn: 0, auditFail: 0 };
+    (_rowsOf.get(sub) || _rowsOf.set(sub, []).get(sub)).push(s);
     const m = subMix[sub];
     m.count++;
     m.revenue += s.contractValue;
@@ -5327,6 +5329,16 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
     if (typeof _isReportableCancel === 'function' ? _isReportableCancel(s) : !!s.cancelDate) m.cancels++;
   });
   const totalSubCount = subSales.length; // includes Unknown
+  // Drill to the accounts behind a row (per Isaac, Oct 16): click a row (or Total) for every account in it; click
+  // its Audit % for just the ones that failed audit — with the FieldRoutes flags so you can see why.
+  const _mixDrill = (name, failedOnly, e) => {
+    if (e) e.stopPropagation();
+    const all = name == null ? subSales : (_rowsOf.get(name) || []);
+    const rows = failedOnly ? all.filter(x => auditBucketOf(x) === 'failed') : all;
+    if (typeof openLandingTileDrill !== 'function') return;
+    openLandingTileDrill('Sales Mix \u00b7 ' + (name == null ? 'Total' : name) + (failedOnly ? ' \u00b7 Failed audit' : ''),
+      failedOnly ? 'of ' + fmt.int(all.length) + ' in this bucket' : '', rows, { showRep: true, showAudit: true });
+  };
   const allSubscriptions = Object.entries(subMix)
     .map(([name, v]) => ({
       name, ...v,
@@ -5372,8 +5384,8 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
       row: (s) => el('div', { class: 'w-12 text-left tabular-nums text-muted- shrink-0' }, s.myPct == null ? '—' : (s.myPct * 100).toFixed(0) + '%') },
     { key: 'apay', label: 'APay %', w: 'w-16', title: 'Auto-pay share', total: () => el('div', { class: 'w-16 text-left tabular-nums shrink-0 font-bold' }, T.n > 0 ? (T.ap / T.n * 100).toFixed(0) + '%' : '—'),
       row: (s) => el('div', { class: 'w-16 text-left tabular-nums text-muted- shrink-0' }, s.count > 0 ? (s.apOn / s.count * 100).toFixed(0) + '%' : '—') },
-    { key: 'audit', label: 'Audit %', w: 'w-14', title: 'Accounts NOT flagged Failed Audit \u00f7 all accounts (passed, no-audit and awaiting all count as good). Same as the leaderboard\u2019s Audit %.', total: () => el('div', { class: 'w-14 text-left tabular-nums shrink-0 font-bold', style: { color: auditPctColor(T.n > 0 ? (T.n - T.af) / T.n : null) } }, T.n > 0 ? ((T.n - T.af) / T.n * 100).toFixed(0) + '%' : '\u2014'),
-      row: (s) => el('div', { class: 'w-14 text-left tabular-nums shrink-0 font-semibold', style: { color: auditPctColor(s.count > 0 ? (s.count - s.auditFail) / s.count : null) }, title: s.auditFail > 0 ? fmt.int(s.auditFail) + ' failed audit' : '' }, s.count > 0 ? ((s.count - s.auditFail) / s.count * 100).toFixed(0) + '%' : '\u2014') },
+    { key: 'audit', label: 'Audit %', w: 'w-14', title: 'Accounts NOT flagged Failed Audit \u00f7 all accounts (passed, no-audit and awaiting all count as good). Same as the leaderboard\u2019s Audit %.', total: () => el('div', { class: 'w-14 text-left tabular-nums shrink-0 font-bold' + (T.af > 0 ? ' cursor-pointer hover:underline' : ''), style: { color: auditPctColor(T.n > 0 ? (T.n - T.af) / T.n : null) }, title: T.af > 0 ? fmt.int(T.af) + ' failed audit — click to see which' : '', onclick: T.af > 0 ? (e) => _mixDrill(null, true, e) : undefined }, T.n > 0 ? ((T.n - T.af) / T.n * 100).toFixed(0) + '%' : '\u2014'),
+      row: (s) => el('div', { class: 'w-14 text-left tabular-nums shrink-0 font-semibold' + (s.auditFail > 0 ? ' cursor-pointer hover:underline' : ''), style: { color: auditPctColor(s.count > 0 ? (s.count - s.auditFail) / s.count : null) }, title: s.auditFail > 0 ? fmt.int(s.auditFail) + ' failed audit — click to see which' : '', onclick: s.auditFail > 0 ? (e) => _mixDrill(s.name, true, e) : undefined }, s.count > 0 ? ((s.count - s.auditFail) / s.count * 100).toFixed(0) + '%' : '\u2014') },
     { key: 'attr', label: 'Attrition %', w: 'w-20', title: 'Reportable cancels ÷ accounts (RORs, SNS, combined, one-time and renewals excluded)', total: () => el('div', { class: 'w-20 text-left tabular-nums font-black shrink-0', style: { color: attrColor(T.attr) } }, (T.attr * 100).toFixed(1) + '%'),
       row: (s) => el('div', { class: 'w-20 text-left tabular-nums font-semibold shrink-0', style: { color: attrColor(s.attr) } }, (s.attr * 100).toFixed(1) + '%') },
   ];
@@ -5394,7 +5406,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
       topSubscriptions.length === 0
         ? el('div', { class: 'text-xs text-muted- italic py-3 text-center' }, opts.emptyText || 'No accounts here.')
         : el('div', { class: 'flex flex-col' },
-            el('div', { class: 'flex items-center gap-3 text-[13px] py-2.5', style: { borderBottom: '3px solid var(--text)' } },
+            el('div', { class: 'flex items-center gap-3 text-[13px] py-2.5 cursor-pointer', style: { borderBottom: '3px solid var(--text)' }, title: 'Click for every account', onclick: () => _mixDrill(null, false) },
               firstCol('truncate font-black', 'Total'),
               el('div', { class: 'flex-1 rounded-full', style: { background: 'var(--text)', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '9px' } },
                 el('span', { class: 'tabular-nums font-black', style: { color: 'var(--accent)', fontSize: '11.5px', lineHeight: '1' } }, fmt.int(T.n))),
@@ -5407,13 +5419,13 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
               // Desktop too ("158" at 16% still spilled, per Isaac Sep 24): 7%/character.
               const _inBar = narrow ? _pct >= Math.max(22, fmt.int(s.count).length * 9) : _pct >= Math.max(15, fmt.int(s.count).length * 7);
               return el('div', {
-                class: 'flex items-center gap-3 text-[13px] py-2.5 transition rounded' + (i > 0 ? ' border-t border-' : '') + (opts.onRowClick ? ' cursor-pointer' : ''),
-                title: opts.rowTitle || '',
+                class: 'flex items-center gap-3 text-[13px] py-2.5 transition rounded cursor-pointer' + (i > 0 ? ' border-t border-' : ''),
+                title: opts.rowTitle || 'Click for the accounts in this row',
                 // Whole-row hover (per Isaac, Oct 16 — only the name cell lit up).
                 // Same tint as the Records table; the frozen name cell (its own white background) changes with it.
                 onmouseenter: (e) => { const r = e.currentTarget; r.style.background = 'var(--card-2)'; const c0 = r.firstElementChild; if (c0 && c0.style.position === 'sticky') c0.style.background = 'var(--card-2)'; },
                 onmouseleave: (e) => { const r = e.currentTarget; r.style.background = ''; const c0 = r.firstElementChild; if (c0 && c0.style.position === 'sticky') c0.style.background = 'var(--card)'; },
-                onclick: opts.onRowClick ? () => opts.onRowClick(s.name) : undefined,
+                onclick: opts.onRowClick ? () => opts.onRowClick(s.name) : () => _mixDrill(s.name, false),
               },
                 firstCol('truncate font-medium', s.name, s.name),
                 el('div', { class: 'flex-1 rounded-full relative', style: { background: 'var(--card-2)', height: '22px' } },
