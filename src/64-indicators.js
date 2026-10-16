@@ -5587,19 +5587,21 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
     const pick = narrow ? (COLS.find(c => c.key === state._mixMobileCol) || COLS[1]) : null;
     const cols = pick ? [pick] : COLS;
     // Fixed-width label column so every bar starts at the same x (per Isaac).
-    const firstCol = (cls, txt, title) => el('div', { class: (narrow ? '' : 'w-[200px] sm:w-[240px]') + ' shrink-0 ' + cls, title: title || undefined, style: narrow ? { width: '112px', minWidth: '112px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } : { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1 } }, txt);
+    const firstCol = (cls, txt, title) => el('div', { class: (narrow ? '' : opts.noBars ? 'w-[200px]' : 'w-[200px] sm:w-[240px]') + ' shrink-0 ' + cls, title: title || undefined, style: narrow ? { width: '112px', minWidth: '112px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } : { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1 } }, txt);
     const topSubscriptions = visibleSubs();
     const maxShare = topSubscriptions.reduce((m, s) => Math.max(m, s.share), 0.0001);
-    body.replaceChildren(el('div', { class: narrow ? '' : 'scroll-x' }, el('div', { style: narrow ? {} : { minWidth: '930px' } },
+    body.replaceChildren(el('div', { class: narrow ? '' : 'scroll-x' }, el('div', { style: narrow ? {} : { minWidth: opts.noBars ? '880px' : '930px' } },
       el('div', { class: 'flex items-center gap-3 text-[10px] uppercase tracking-wider text-muted- font-semibold pb-1.5' },
         firstCol('', opts.firstCol || 'Subscription'),
-        el('div', { class: 'flex-1 text-right pr-2' }, 'Total'),
+        opts.noBars ? el('div', { class: 'w-14 text-left shrink-0' }, 'Total') : el('div', { class: 'flex-1 text-right pr-2' }, 'Total'),
         ...cols.map(c => el('div', { class: c.w + ' text-left shrink-0', title: c.title || undefined }, c.label))),
       topSubscriptions.length === 0
         ? el('div', { class: 'text-xs text-muted- italic py-3 text-center' }, opts.emptyText || 'No accounts here.')
         : el('div', { class: 'flex flex-col' },
             el('div', { class: 'flex items-center gap-3 text-[13px] py-2.5 cursor-pointer', style: { borderBottom: '3px solid var(--text)' }, title: 'Click for every account', onclick: () => _mixDrill(null, false) },
               firstCol('truncate font-black', 'Total'),
+              // Player cards (per Isaac, Oct 16): just the count, no bars.
+              opts.noBars ? el('div', { class: 'w-14 text-left tabular-nums font-black shrink-0' }, fmt.int(T.n)) :
               el('div', { class: 'flex-1 rounded-full', style: { background: 'var(--text)', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '9px' } },
                 el('span', { class: 'tabular-nums font-black', style: { color: 'var(--accent)', fontSize: '11.5px', lineHeight: '1' } }, fmt.int(T.n))),
               ...cols.map(c => c.total())),
@@ -5620,6 +5622,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
                 onclick: opts.onRowClick ? () => opts.onRowClick(s.name) : () => _mixDrill(s.name, false),
               },
                 firstCol('truncate font-medium', s.name, s.name),
+                opts.noBars ? el('div', { class: 'w-14 text-left tabular-nums font-semibold shrink-0' }, fmt.int(s.count)) :
                 el('div', { class: 'flex-1 rounded-full relative', style: { background: 'var(--card-2)', height: '22px' } },
                   el('div', { style: { width: _pct + '%', height: '100%', background: 'var(--accent)', borderRadius: '0', opacity: String(0.55 + 0.45 * (s.share / maxShare)), transition: 'width .3s', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '9px' } },
                     _inBar ? el('span', { class: 'tabular-nums font-black', style: { color: '#fff', fontSize: '11.5px', lineHeight: '1', textShadow: '0 1px 1px rgba(0,0,0,.2)' } }, fmt.int(s.count)) : null),

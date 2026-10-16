@@ -4869,7 +4869,7 @@ function openIndicatorRepCard(rep, allReps = []) {
       // Full Subscription Mix table (same one as the Indicators page),
       // scoped to this rep's accounts in the current date scope.
       (scopedRep.sales && scopedRep.sales.length)
-        ? el('div', { class: 'mb-5' }, indicatorSubscriptionMixCard(scopedRep.sales, { subtitleSuffix: ' · ' + (rep.name || 'this rep') }))
+        ? el('div', { class: 'mb-5' }, indicatorSubscriptionMixCard(scopedRep.sales, { subtitleSuffix: ' · ' + (rep.name || 'this rep'), noBars: true }))
         : topSubsBlock(),
       drillBlock() || el('div', {}),
       salesListBlock(),
