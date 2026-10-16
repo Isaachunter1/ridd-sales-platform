@@ -1752,7 +1752,7 @@ function viewIndicators() {
                   (() => {
                     const cell = el('td', {
                       class: 'px-3 py-2 font-semibold text-xs sticky left-0 select-none',
-                      style: { background: 'var(--card)', zIndex: 1, cursor: 'help', color: isSorting ? 'var(--accent)' : '' },
+                      style: { background: 'var(--card)', zIndex: 1, cursor: 'pointer', color: isSorting ? 'var(--accent)' : '' },
                     },
                       indicatorMetricLabel(m),
                       // "hide" hides this row for the current Type (per
@@ -1791,7 +1791,7 @@ function viewIndicators() {
                 const totRev = activeBranches.reduce((a, b) => a + (branchData[b]?.revenue || 0), 0);
                 const cell = el('td', {
                   class: 'px-3 py-2 font-semibold text-xs sticky left-0 select-none',
-                  style: { background: 'var(--card)', zIndex: 1, cursor: 'help' },
+                  style: { background: 'var(--card)', zIndex: 1 },
                 },
                   // (collapse toggle lives on the divider bar now — per Isaac)
                   '% of Revenue', _rowXBtn('_pct_rev'));
@@ -1812,7 +1812,7 @@ function viewIndicators() {
                   (() => {
                     const cell = el('td', {
                       class: 'px-3 py-2 font-semibold text-xs sticky left-0 select-none',
-                      style: { background: 'var(--card)', zIndex: 1, cursor: 'help', color: isSortingReps ? 'var(--accent)' : '' },
+                      style: { background: 'var(--card)', zIndex: 1, cursor: 'pointer', color: isSortingReps ? 'var(--accent)' : '' },
                     },
                       'Reps W/ A Sale', _rowXBtn('_reps_sale'),
                     );
@@ -1836,7 +1836,7 @@ function viewIndicators() {
                 const total20 = activeBranches.reduce((a, b) => a + (branchData[b]?.reps20k ?? branchData[b]?.reps ?? 0), 0);
                 const cell = el('td', {
                   class: 'px-3 py-2 font-semibold text-xs sticky left-0 select-none',
-                  style: { background: 'var(--card)', zIndex: 1, cursor: 'help' },
+                  style: { background: 'var(--card)', zIndex: 1 },
                 }, 'Reps > $20K', _rowXBtn('_reps20k'));
                 attachExplainer(cell, { title: 'Reps > $20K', desc: indicatorMetricHelp('reps20k') });
                 return el('tr', { class: 'border-t border-' },
@@ -1883,7 +1883,7 @@ function viewIndicators() {
                   (() => {
                     const cell = el('td', {
                       class: 'px-3 py-2 font-bold text-xs sticky left-0 select-none',
-                      style: { background: 'var(--card)', zIndex: 1, cursor: 'help', color: sort.key === '_points' ? 'var(--accent)' : '' },
+                      style: { background: 'var(--card)', zIndex: 1, cursor: 'pointer', color: sort.key === '_points' ? 'var(--accent)' : '' },
                     },
                       'Power Rank',
                     );
