@@ -1757,7 +1757,7 @@ function adminReps() {
   // (Tier filter is applied a few lines down, once repKeyForPerson exists.)
 
   const statusChip = (active) => el('span', { class: 'chip', style: active
-    ? { background: 'rgba(223,100,58,.14)', color: '#DF643A', border: '1px solid rgba(223,100,58,.4)' }
+    ? { background: 'rgba(21,128,61,.10)', color: '#15803D', border: '1px solid rgba(21,128,61,.30)' }   // light green (per Isaac, Oct 16)
     : { background: 'rgba(220,38,38,.08)', color: '#B91C1C', border: '1px solid rgba(220,38,38,.25)' } }, active ? 'Active' : 'Inactive');
 
   // Readable last-login from the CRM string ("YYYY-MM-DD HH:MM:SS" or blank).
@@ -1905,7 +1905,11 @@ function adminReps() {
       }, label)
     : el('th', { class: (align || 'text-left') + ' px-3 py-3' }, label);
   host.append(el('div', { class: 'card overflow-hidden' }, el('div', { class: 'scroll-x' },
-    el('table', { class: 'w-full text-sm whitespace-nowrap' },
+    // Fixed column widths (per Isaac, Oct 16): Active, Inactive and All line up the same whatever the names are.
+    (() => { if (!document.getElementById('users-tbl-css')) { const st = document.createElement('style'); st.id = 'users-tbl-css';
+      st.textContent = 'table.users-tbl td, table.users-tbl th { overflow: hidden; text-overflow: ellipsis; }'; document.head.appendChild(st); } return null; })(),
+    el('table', { class: 'w-full text-sm whitespace-nowrap users-tbl', style: { tableLayout: 'fixed', minWidth: '960px' } },
+      el('colgroup', {}, ...['6%', '17%', '13%', '18%', '9%', '10%', '10%', '9%', '8%'].map(w => el('col', { style: { width: w } }))),
       el('thead', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, el('tr', {},
         th('ID', null, 'id'), th('Name', 'text-left', 'name'), th('User Name', null, 'username'), th('Access Profile', null, 'role'),
         th('Rep Type', null, 'reptype'), th('Phone', null, 'phone'),
