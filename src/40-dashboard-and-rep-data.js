@@ -2987,6 +2987,9 @@ function _repLayoutPrefs() {
       if (!p._v2 && _repLayoutSections()[0] && _repLayoutSections().some(([id]) => id === 'mix')) { p.order = _repLayoutSections().map(([id]) => id).filter(k => p.order.includes(k) || true); p._v2 = true; }
       // One-time (Sep 24): Sales Mix moves to sit right after Class Metrics on partner/lead layouts.
       if (!p._v3 && p.order.includes('mix') && p.order.includes('class')) { p.order = p.order.filter(k => k !== 'mix'); p.order.splice(p.order.indexOf('class') + 1, 0, 'mix'); p._v3 = true; }
+      // One-time (Oct 16): Class Metrics above Sales Mix for every user type (per Isaac) — saved layouts follow once.
+      if (!p._v4 && p.order.includes('mix') && p.order.includes('class') && p.order.indexOf('mix') < p.order.indexOf('class')) { p.order = p.order.filter(k => k !== 'mix'); p.order.splice(p.order.indexOf('class') + 1, 0, 'mix'); }
+      p._v4 = true;
       p.hidden = Array.isArray(p.hidden) ? p.hidden : [];
       return p;
     }
