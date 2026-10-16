@@ -243,6 +243,55 @@ function refreshIndSection(id) {
   if (typeof fitCardNumbers === 'function') requestAnimationFrame(fitCardNumbers);
 }
 
+// ── Card-only refresh on the Sales dashboards (per Isaac, Oct 16) ─────────
+// "Every table should be independent": flipping Sales Mix between Subscriptions
+// and Offices used to rebuild the whole page, so the Power Ranking chart redrew
+// too. When mountApp() runs from a click / change INSIDE one dashboard card, and
+// nothing page-wide moved (date, rep type, lens, filters, grouping, comps,
+// exclusions, data, edit mode), the page is rebuilt off-screen and ONLY that card
+// is swapped in. Anything else — the top bar, modals, page-wide state — still
+// takes the normal full render. Charts only paint their own canvas, so the cards
+// left in place are never touched.
+let _indGlobalFpAtMount = null;
+function _indGlobalFp() {
+  const st = state;
+  return JSON.stringify([st.view, st.profile && st.profile.id, st.indicatorDept, st.indicatorsRangePreset, st.indicatorsCustomStart, st.indicatorsCustomEnd,
+    st.indicatorsGroupBy, st.indicatorAcctStatus, st.indicatorPassedAudit, st._indicatorRepOfficeFilter, st._indicatorRepTeamFilter, st._indicatorRepTierFilter,
+    st.indicatorExcl || null, st.indicatorsComps, st._indicatorActiveCompId, st._indicatorRankExclude || null, st._dashLens, !!st._editMode, st.theme,
+    (typeof _indCfgRev !== 'undefined') ? _indCfgRev : 0, (st._indicatorRawSales || []).length, st.indicatorsUploadedAt || null]);
+}
+function _indPartialMount() {
+  try {
+    const ev = window.event;
+    if (!ev || !(ev.target instanceof Element) || !/^(click|change|input|keydown|keyup|submit|pointerup|mouseup)$/.test(ev.type)) return false;
+    if (typeof IND_WORLD === 'undefined' || !(IND_WORLD[state.view] || state.view === 'indicators')) return false;
+    if (state._editMode || _lastMountedView !== state.view || _indGlobalFpAtMount == null || _indGlobalFp() !== _indGlobalFpAtMount) return false;
+    // The OUTERMOST dashboard card the click came from.
+    let sec = null;
+    for (let n = ev.target; n && n !== document.body; n = n.parentElement) {
+      if (n.classList && n.classList.contains('modal-overlay')) return false;
+      if (n.id === 'indFixedBar') return false;
+      if (n.hasAttribute && (n.hasAttribute('data-section') || n.hasAttribute('data-lazykey'))) sec = n;
+    }
+    if (!sec || !sec.isConnected) return false;
+    const lk = sec.getAttribute('data-lazykey'), ds = sec.getAttribute('data-section');
+    const x = window.scrollX || 0, y = window.scrollY || 0;
+    const build = state.view === 'indicators' ? viewIndicators : viewWorldDashboard;
+    let fresh;
+    window._indSyncLazy = new Set(lk ? [lk] : []);
+    try { fresh = build(); } finally { window._indSyncLazy = null; }
+    if (!fresh || !fresh.querySelector) return false;
+    const nn = fresh.querySelector(lk ? '[data-lazykey="' + CSS.escape(lk) + '"]' : '[data-section="' + CSS.escape(ds) + '"]');
+    if (!nn || nn.hasAttribute('data-lazy')) return false;
+    if (sec.style.order && !nn.style.order) nn.style.order = sec.style.order;
+    if (sec.style.display === 'none') nn.style.display = 'none';
+    if (window.Chart && Chart.getChart) sec.querySelectorAll('canvas').forEach(c => { try { const ch = Chart.getChart(c); if (ch) ch.destroy(); } catch (e) { /* gone */ } });
+    sec.replaceWith(nn);
+    requestAnimationFrame(() => { try { if (typeof fitCardNumbers === 'function') fitCardNumbers(nn); } catch (e) { /* nicety */ } if (Math.abs((window.scrollY || 0) - y) > 1) window.scrollTo(x, y); });
+    return true;
+  } catch (e) { console.warn('[ridd] card-only refresh fell back to a full render', e); window._indSyncLazy = null; return false; }
+}
+
 // ── White-screen safety net ────────────────────────────────────────────────
 // A crash anywhere inside a render used to leave the page blank with the only
 // clue buried in the console. Wrap every mountApp call: log the crash and show
@@ -256,6 +305,7 @@ function refreshIndSection(id) {
     if (_wrapped) return; _wrapped = true;
     const inner = _mountAppInner();
     mountApp = function () {
+      if (_indPartialMount()) return;   // a toggle inside one dashboard card repaints only that card (per Isaac, Oct 16)
       try { return inner.apply(this, arguments); }
       catch (err) {
         console.error('[ridd] render crashed', err);
@@ -743,6 +793,7 @@ function _vcTryRestore(keepY) {
   const y = hit.scrollY || 0;
   requestAnimationFrame(() => { try { fitCardNumbers(); } catch (e) { /* noop */ } window.scrollTo(0, y); });
   _lastMountedView = state.view;
+  try { _indGlobalFpAtMount = _indGlobalFp(); } catch (e) { _indGlobalFpAtMount = null; }
   _vc.delete(state.view); _vc.set(state.view, hit);   // most recently used
   return true;
 }
@@ -1492,6 +1543,7 @@ function mountApp() {
     requestAnimationFrame(() => window.scrollTo(kx, ky));
   }
   _lastMountedView = state.view;
+  try { _indGlobalFpAtMount = _indGlobalFp(); } catch (e) { _indGlobalFpAtMount = null; }
   _vcStore(state.view, shell);
   _profEnd();
 }

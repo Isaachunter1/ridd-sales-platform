@@ -16,7 +16,7 @@
 const _indLazyH = new Map();
 function indLazy(key, build, attrs, estHeight) {
   // Edit mode decorates real sections, and old browsers have no observer: build now.
-  if (state._editMode || typeof IntersectionObserver !== 'function') { try { const n0 = build(); if (n0 && n0.setAttribute) n0.setAttribute('data-lazykey', key); return n0; } catch (e) { console.warn('[ridd] section failed', key, e); return null; } }
+  if (state._editMode || typeof IntersectionObserver !== 'function' || (window._indSyncLazy && window._indSyncLazy.has(key))) { try { const n0 = build(); if (n0 && n0.setAttribute) n0.setAttribute('data-lazykey', key); return n0; } catch (e) { console.warn('[ridd] section failed', key, e); return null; } }
   const ph = el('div', Object.assign({ class: 'card', 'data-lazy': key, 'data-lazykey': key,
     style: { minHeight: (_indLazyH.get(key) || estHeight || 240) + 'px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-subtle)', fontSize: '11px' } }, attrs || {}), 'Loading…');
   let done = false, io = null;
@@ -6614,7 +6614,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
     setTimeout(() => {
       if (typeof Chart === 'undefined') return;
       const cvs = document.getElementById(canvasId);
-      if (!cvs) return;
+      if (!cvs || cvs !== canvas) return;   // only paint OUR canvas (a section-only refresh builds the page off-screen)
 
       // Per-rep, per-week values for the chosen metric.
       //
@@ -9376,6 +9376,7 @@ function buildTrendMiniGrid(sales, chartBuckets, idPrefix, accentColor, overlay,
     setTimeout(() => {
       if (typeof Chart === 'undefined') return;
       const cvsEl = document.getElementById(id);
+      if (cvsEl && cvsEl !== cvs) return;   // only paint OUR canvas (section-only refresh)
       if (!cvsEl) return;
       if (_chartInstances[id]) { _chartInstances[id].destroy(); delete _chartInstances[id]; }
       const isDark = state.theme === 'dark';
@@ -10664,10 +10665,12 @@ function indicatorYoYTrendChart() {
   })();
 
   const cvsWrap = el('div', { style: { position: 'relative', height: '280px', width: '100%' } });
-  cvsWrap.append(el('canvas', { id }));
+  const _ownCvs = el('canvas', { id });
+  cvsWrap.append(_ownCvs);
   setTimeout(() => {
     if (typeof Chart === 'undefined') return;
     const cvs = document.getElementById(id);
+    if (cvs && cvs !== _ownCvs) return;   // only paint OUR canvas (section-only refresh)
     if (!cvs) return;
     if (_chartInstances[id]) { _chartInstances[id].destroy(); delete _chartInstances[id]; }
     const isDark = state.theme === 'dark';
@@ -11130,6 +11133,7 @@ function indicatorChart(title, data, branches, metricKey, weeks, invertForRankin
   setTimeout(() => {
     const cvs = document.getElementById(canvasId);
     if (!cvs || typeof Chart === 'undefined') return;
+    if (cvs !== canvas) return;   // only paint OUR canvas (section-only refresh)
 
     // Destroy previous instance if it exists
     if (_chartInstances[canvasId]) {
