@@ -1571,7 +1571,7 @@ function addCompetition(name) {
   if (!nm) return null;
   const comps = getIndicatorCompetitions();
   const id = 'comp_' + Date.now().toString(36);
-  comps.push({ id, name: nm, excludedTeams: [REP_EXCLUDED_TEAM] });
+  comps.push({ id, name: nm, excludedTeams: [] });
   state._indicatorActiveCompId = id;   // jump to the new one
   saveDemoData();
   return id;

@@ -1313,7 +1313,7 @@ async function loadIndicatorConfigFromSupabase() {
       // counts as CLEAN until the user actually changes something here.
       _indCfgRecordSynced(data.updated_at);
       // One-time team tidy (per Isaac, Oct 16): a real RIDD team on every rep type (no team = RIDD), and the old
-      // "Excluded" team becomes "Termite Pros". Admin-only, idempotent; saved once through the normal CAS path.
+      // "Excluded" team becomes "Termite Pros" (a normal, counted team). Admin-only, idempotent; saved once through the normal CAS path.
       try {
         if (isAdminRole(state.profile?.role) && !state._teamTidyOct16 && typeof addTeam === 'function') {
           state._teamTidyOct16 = true;
@@ -1321,7 +1321,18 @@ async function loadIndicatorConfigFromSupabase() {
           const reg = state._indicatorTeams || [];
           if (!reg.some(t => /^ridd$/i.test(String(t || '').trim()))) { addTeam('RIDD'); changed = true; }
           if (typeof distinctTeams === 'function' && distinctTeams().includes('Excluded') && !reg.includes('Termite Pros') && typeof renameTeam === 'function') { const r = renameTeam('Excluded', 'Termite Pros'); if (r && r.ok) changed = true; }
-          if (changed) setTimeout(() => { saveIndicatorConfigToSupabase().catch(() => {}); if (typeof mountApp === 'function') mountApp(); }, 0);
+          // Termite Pros is a normal team, not an excluded one (per Isaac, Oct 16): no EXCLUDED badge,
+          // its reps count again; he takes it off the Power Ranking with the 🏆 picker instead.
+          // Once only (marker rides the synced extras), so a later deliberate exclusion sticks.
+          state._compExtras = state._compExtras || {};
+          const _mig = (state._compExtras.migrations = state._compExtras.migrations || {});
+          if (!_mig.termiteProsIncluded) {
+            const _drop = (l) => (Array.isArray(l) ? l.filter(t => t !== 'Termite Pros' && t !== 'Excluded') : []);
+            (state._indicatorCompetitions || []).forEach(c => { if (c) c.excludedTeams = _drop(c.excludedTeams); });
+            state._indicatorExcludedTeams = _drop(state._indicatorExcludedTeams);
+            _mig.termiteProsIncluded = true; changed = true;
+          }
+          if (changed) setTimeout(() => { saveIndicatorState(); if (typeof mountApp === 'function') mountApp(); }, 0);   // local cache + caches + shared sync
         }
       } catch (e) { console.warn('[ridd] team tidy skipped', e); }
       // Another admin's change (teams, aliases, rules) must reach cached boards

@@ -29,8 +29,9 @@ function dateSoldToIso(dateSold) {
 // Each rep can be assigned to a team string. Any team whose name is in
 // state._indicatorExcludedTeams is dropped from every rep-level metric
 // (leaderboard, performance chart, cancel analysis, subscription mix, branch
-// rollups). The literal "Excluded" name is the default-excluded team for
-// fresh data so existing demo assignments keep working.
+// rollups). Nothing is excluded by default any more (per Isaac, Oct 16 — the
+// old built-in "Excluded" team became Termite Pros, a normal team); the
+// constant stays only so older references still resolve.
 const REP_EXCLUDED_TEAM = 'Excluded';
 // FieldRoutes sometimes exports doubled spaces in rep names, so older
 // team/tier/active assignments may be stored under the raw spelling while
@@ -109,7 +110,7 @@ function getIndicatorCompetitions() {
   if (!Array.isArray(state._indicatorCompetitions) || state._indicatorCompetitions.length === 0) {
     const legacy = Array.isArray(state._indicatorExcludedTeams) && state._indicatorExcludedTeams.length
       ? state._indicatorExcludedTeams.slice()
-      : [REP_EXCLUDED_TEAM];
+      : [];
     state._indicatorCompetitions = DEFAULT_COMPETITIONS.map(c => ({ ...c, excludedTeams: legacy.slice() }));
   }
   // Cleanup: the standalone Raffle competition was merged into Avg Pest &
@@ -127,11 +128,11 @@ function getIndicatorCompetitions() {
   const _removedDefaults = new Set(state._indicatorRemovedDefaults || []);
   DEFAULT_COMPETITIONS.forEach(d => {
     const existing = byId.get(d.id);
-    if (!existing) { if (!_removedDefaults.has(d.id)) state._indicatorCompetitions.push({ ...d, excludedTeams: [REP_EXCLUDED_TEAM] }); }
+    if (!existing) { if (!_removedDefaults.has(d.id)) state._indicatorCompetitions.push({ ...d, excludedTeams: [] }); }
     else if (d.scoring && !existing.scoring) existing.scoring = d.scoring;
   });
   // Defensive: every competition must carry an excludedTeams array.
-  state._indicatorCompetitions.forEach(c => { if (!Array.isArray(c.excludedTeams)) c.excludedTeams = [REP_EXCLUDED_TEAM]; });
+  state._indicatorCompetitions.forEach(c => { if (!Array.isArray(c.excludedTeams)) c.excludedTeams = []; });
   return state._indicatorCompetitions;
 }
 function getActiveCompId() {

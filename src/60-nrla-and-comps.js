@@ -6178,9 +6178,8 @@ function indicatorMetricLabel(metric) {
 // they pre-date the registry.
 function distinctTeams() {
   const registry = state._indicatorTeams || [];
-  // Surface every currently-excluded team so users can manage them. On fresh
-  // state, getExcludedTeams() seeds itself with ['Excluded']; once the user
-  // removes a team it stays gone (no hardcoded re-seed here).
+  // Surface every currently-excluded team so users can manage them (nothing is
+  // excluded by default any more; no hardcoded re-seed here).
   const set = new Set(getExcludedTeams());
   registry.forEach(t => { if (t) set.add(t); });
   // Team NAMES are global across years, so surface any team referenced by an
