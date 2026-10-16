@@ -104,6 +104,8 @@ function mkmChannelSet() {
   const s = new Set([...(typeof MKTG_DEFAULT_CHANNELS !== 'undefined' ? MKTG_DEFAULT_CHANNELS : []), ...(typeof AD_PROVIDERS !== 'undefined' ? AD_PROVIDERS : []), 'PestBooker', 'Organic', 'Referral', 'Click-To-Buy']);
   for (const [label, v] of Object.entries(map)) { if (v === GHL_SELF) s.add(label); else if (v && v !== GHL_NOT_LEAD) s.add(v); }
   for (const r of GHL_AUTO_RULES) if (r[1] && r[1] !== GHL_NOT_LEAD) s.add(r[1]);
+  // Vendors added on the Spend tab / Pulse (per Isaac, Oct 16) are channels too.
+  try { for (const c of ((typeof _mktgStore === 'function' ? _mktgStore().channels : null) || [])) if (c) s.add(c); } catch (e) { /* optional */ }
   return s;
 }
 function mkmLeads(leads) {

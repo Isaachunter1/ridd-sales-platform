@@ -58,6 +58,17 @@ function _spqJournalPartner(ym, L) {
   for (const k of [0, 1, -1]) { const y = shift(k); for (const x of (lines[y] || [])) if (x[6] === 'J' && String(x[5] || '') !== String(L.txn || '') && Math.round((Number(x[3]) || 0) * 100) === -amt) return { ym: y, line: x }; }
   return null;
 }
+// A vendor that isn't in the list yet (per Isaac, Oct 16 — e.g. 6 Brothers, paid by Zelle): added to the marketing
+// channel list, so it shows in every vendor pick, the Spend tab, the Pulse and the GoHighLevel source picks.
+const SPQ_NEW = '__newvendor';
+function spqAddVendor(name) {
+  const n = String(name || '').trim().replace(/\s+/g, ' ').slice(0, 60); if (!n) return '';
+  const m = _spqStore(); m.channels = Array.isArray(m.channels) ? m.channels : [];
+  const hit = [...m.channels, 'Google Ads', 'Google Local Services', 'Facebook'].find(c => c.toLowerCase() === n.toLowerCase());
+  if (hit) return hit;
+  m.channels = [...m.channels, n]; _mktgSave(); return n;
+}
+function spqAskNewVendor() { const n = window.prompt('New vendor / channel name (e.g. 6 Brothers):'); return n ? spqAddVendor(n) : ''; }
 function spqChannelOptions() { const m = _spqStore(); return [...new Set([...(m.channels || []), 'Google Ads', 'Google Local Services', 'Facebook'])].sort(); }
 // Google Ads accounts the platform feed knows: last four → { acct, name, lsa }.
 function _spqGoogleAccts(year) {
@@ -198,12 +209,13 @@ function mktgSpendQboView() {
   const chanOpts = [...new Set([...(m.channels || []), 'Google Ads', 'Google Local Services', 'Facebook'])].sort();
   const th = (t, r) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (r ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0 } }, t);
   const td = (t, st, r) => el('td', { class: 'px-3 py-1.5 whitespace-nowrap' + (r ? ' text-right tabular-nums' : ''), style: st || {} }, t == null || t === '' ? '—' : t);
-  const setRule = (L, v) => { m.qbRules[_spqKey(L.payee, L.memo)] = v; _mktgSave(); mountApp(); };
+  const setRule = (L, v) => { if (v === SPQ_NEW) { v = spqAskNewVendor(); if (!v) { mountApp(); return; } } m.qbRules[_spqKey(L.payee, L.memo)] = v; _mktgSave(); mountApp(); };
   const provPick = (L) => el('select', { class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: Object.assign({}, selSt, L.prov ? {} : { borderColor: '#DC2626' }), onchange: (e) => setRule(L, e.target.value) },
     el('option', { value: '', selected: !L.prov, disabled: true }, 'Pick a provider…'),
     ...chanOpts.map(c => el('option', { value: c, selected: L.prov === c }, c)),
     el('option', { value: SPQ_TOOLS, selected: L.prov === SPQ_TOOLS }, SPQ_TOOLS_LABEL),
-    el('option', { value: SPQ_SKIP, selected: L.prov === SPQ_SKIP }, 'Not marketing'));
+    el('option', { value: SPQ_SKIP, selected: L.prov === SPQ_SKIP }, 'Not marketing'),
+    el('option', { value: SPQ_NEW }, '+ New vendor…'));
 
   // 1 · QuickBooks lines by provider.
   const open = state._spqOpen || {};

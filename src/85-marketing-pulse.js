@@ -80,7 +80,7 @@ function _mkpContactIdx() {
 // repeat (a second call, a second form), not a new lead. { leads, raw } over the whole file, memoized.
 function mkpAllLeads() {
   const G = state._ghl; if (!G || !G.opps) return null;
-  const sig = JSON.stringify(ghlSourceMap()) + '|' + mkpFilters().attr;
+  const sig = JSON.stringify(ghlSourceMap()) + '|' + mkpFilters().attr + '|' + (typeof _mktgStore === 'function' ? (_mktgStore().channels || []).join(',') : '');
   const M = mkpAllLeads._m; if (M && M.src === G.opps && M.sig === sig && M.zip === (typeof _ghlZipOffice === 'function' ? _ghlZipOffice() : null)) return M.out;
   const CI = _mkpContactIdx(), zipOff = typeof _ghlZipOffice === 'function' ? _ghlZipOffice() : new Map();
   const chSet = typeof mkmChannelSet === 'function' ? mkmChannelSet() : null;
@@ -271,11 +271,12 @@ function mkpOpenSpend(needsOnly) {
     const only = el('input', { type: 'checkbox', title: 'Only this charge — leave the payee’s other charges as they are', style: { accentColor: 'var(--accent)' } });
     const cur = r.tx.prov || '';
     const sel = el('select', { class: 'rounded-lg border px-1.5 py-0.5 text-[11px]', style: Object.assign({}, selSt, cur ? {} : { borderColor: '#DC2626' }),
-      onchange: (e) => { if (typeof spqSetRule === 'function') { spqSetRule(r.tx.ym, r.tx, e.target.value, only.checked); reopen(); } } },
+      onchange: (e) => { let v = e.target.value; if (v === SPQ_NEW) { v = spqAskNewVendor(); if (!v) { reopen(); return; } } if (typeof spqSetRule === 'function') { spqSetRule(r.tx.ym, r.tx, v, only.checked); reopen(); } } },
       el('option', { value: '', selected: !cur, disabled: true }, 'Pick a vendor…'),
       ...opts.map(c => el('option', { value: c, selected: cur === c }, c)),
       el('option', { value: SPQ_TOOLS, selected: cur === SPQ_TOOLS }, SPQ_TOOLS_LABEL),
-      el('option', { value: SPQ_SKIP }, 'Not marketing'));
+      el('option', { value: SPQ_SKIP }, 'Not marketing'),
+      el('option', { value: SPQ_NEW }, '+ New vendor…'));
     return el('span', { class: 'inline-flex items-center gap-1.5' }, sel, el('label', { class: 'inline-flex items-center gap-1 text-[10px]', style: _mkpMuted }, only, 'this charge only'));
   };
   const csv = () => { const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
@@ -322,7 +323,7 @@ function mkpOpenSources() {
   const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
   const onKey = (e) => { if (e.key === 'Escape') close(); };
   document.addEventListener('keydown', onKey); overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-  const set = (label, v) => { setGhlSourceMap(label, v === '' ? null : v); state._mkpMemo = null; close(); mountApp(); setTimeout(() => mkpOpenSources(), 0); };
+  const set = (label, v) => { if (v === SPQ_NEW) { v = spqAskNewVendor(); if (!v) { close(); setTimeout(() => mkpOpenSources(), 0); return; } } setGhlSourceMap(label, v === '' ? null : v); state._mkpMemo = null; close(); mountApp(); setTimeout(() => mkpOpenSources(), 0); };
   const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
   const opts = [...chSet].sort();
   const pick = (r) => { const v = map[r.label];
@@ -330,7 +331,8 @@ function mkpOpenSources() {
       el('option', { value: '', selected: !v }, 'Auto' + (ghlAutoProvider(r.label) ? ' (' + (ghlAutoProvider(r.label) === GHL_NOT_LEAD ? 'not a lead' : ghlAutoProvider(r.label)) + ')' : '')),
       el('option', { value: GHL_NOT_LEAD, selected: v === GHL_NOT_LEAD }, 'Not a lead — don’t count'),
       el('option', { value: GHL_SELF, selected: v === GHL_SELF }, 'Its own channel ("' + r.label.slice(0, 24) + '")'),
-      ...opts.map(c => el('option', { value: c, selected: v === c }, c))); };
+      ...opts.map(c => el('option', { value: c, selected: v === c }, c)),
+      el('option', { value: SPQ_NEW }, '+ New channel…')); };
   const th = (t, rt) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (rt ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: '0' } }, t);
   const td = (v, st, rt) => el('td', { class: 'px-2 py-1.5 whitespace-nowrap' + (rt ? ' text-right tabular-nums' : ''), style: st || {} }, v == null || v === '' ? '—' : v);
   const body = [];
