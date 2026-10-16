@@ -888,7 +888,7 @@ function _mktgMatrixCard(title, note, rows, cell, fmtFn, opts = {}) {
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-start gap-4 gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
       // Description line under the title retired (per Isaac, Sep 2026) — the definition rides the title as a tooltip.
-      el('div', {}, el('h3', { class: 'text-sm font-bold', title: note || '' }, title)),
+      el('div', {}, el('h3', { class: 'text-base font-bold', title: note || '' }, title)),
       opts.headerExtra || null, monthPick),
     // Fixed column grid on desktop (per Isaac, Sep 29): every matrix card
     // uses the same first-column width and equal month columns, so Jan..Dec
@@ -1241,14 +1241,14 @@ function _mktgProvidersViz(cur, o) {
   const hA = Math.max(160, 26 * ytd.length + 40);
   const rankCard = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, cur.label + ' by ' + (o.noun || 'provider') + ' \u00b7 ' + y + (lastMonth >= 0 && lastMonth < 11 ? ' YTD' : '')),
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, cur.label + ' by ' + (o.noun || 'provider') + ' \u00b7 ' + y + (lastMonth >= 0 && lastMonth < 11 ? ' YTD' : '')),
         el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, (lowerIsBetter ? 'lower is better' : 'higher is better') + (goal ? ' \u00b7 goal ' + fmtV(goal.v) + ' (line) \u00b7 green meets it, red misses' : '') + ' \u00b7 click a bar to spotlight it in the trend')),
       focus ? el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktProvFocus = null; mountApp(); } }, 'Clear spotlight \u00b7 ' + focus) : null),
     ytd.length ? el('div', { class: 'p-3', style: { height: hA + 'px' } }, el('canvas', { id: idA }))
       : el('div', { class: 'px-4 py-8 text-center text-[11px]', style: { color: 'var(--text-muted)' } }, 'Nothing to chart yet for ' + cur.label.toLowerCase() + ' \u2014 ' + (isRatio ? 'enter ad spend on the Spend entry tab.' : 'no data in ' + y + '.')));
   const trendCard = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-4 py-3 border-b', style: { borderColor: 'var(--border)' } },
-      el('h3', { class: 'text-sm font-bold' }, cur.label + ' by month \u00b7 ' + (focus ? focus + ' vs the top ' + (o.noun || 'provider') + 's' : 'top ' + lineChans.length + ' ' + (o.noun || 'provider') + 's')),
+      el('h3', { class: 'text-base font-bold' }, cur.label + ' by month \u00b7 ' + (focus ? focus + ' vs the top ' + (o.noun || 'provider') + 's' : 'top ' + lineChans.length + ' ' + (o.noun || 'provider') + 's')),
       el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'ranked by ' + ({ rev: 'revenue', spend: 'ad spend', leads: 'leads', book: 'jobs', wages: 'wages', inc: 'incentives', tot: 'total spend', cpl: 'ad spend', spj: 'ad spend', roas: 'ad spend', adcac: 'ad spend', cac: 'total spend', cpj: 'total spend', wgcac: 'wages', revW: 'revenue', spendW: 'ad spend' }[cur.key] || 'revenue') + ' in ' + y + (goal ? ' \u00b7 goal dashed' : '') + (isRatio ? ' \u00b7 a month with no spend or no result is left blank' : ''))),
     lineChans.length && monthsShown.length ? el('div', { class: 'p-3', style: { height: '280px' } }, el('canvas', { id: idB }))
       : el('div', { class: 'px-4 py-8 text-center text-[11px]', style: { color: 'var(--text-muted)' } }, 'No months to chart yet.'));
@@ -1379,7 +1379,7 @@ function _mktgControllerTable() {
     const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' })); const a2 = el('a', { href: url, download: 'RIDD-marketing-spend-by-office-' + ym + '.csv' }); document.body.append(a2); a2.click(); a2.remove(); URL.revokeObjectURL(url); };
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Controller allocation · ' + reportingMonthLbl(ym)),
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Controller allocation · ' + reportingMonthLbl(ym)),
         el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Every office with spend this month, by provider. Facebook and Google come straight from the ad platforms; everything else from the uploaded reports. ' + fmt.int(branches.length) + ' office' + (branches.length === 1 ? '' : 's') + ' · ' + usd2(grand) + (openAmt ? ' · ' + usd2(openAmt) + ' still needs an office (below)' : '') + '.')),
       el('div', { class: 'ml-auto flex items-center gap-2' },
         el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { state._mktCtrlMonth = e.target.value; mountApp(); } },
@@ -1444,7 +1444,7 @@ function _mktgProjections() {
     onchange: (e) => { const x = parseFloat(e.target.value); onSave(isNaN(x) ? 0 : x); _mktgSave(); mountApp(); } });
   const goalsCard = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
-      el('h3', { class: 'text-sm font-bold' }, 'Office goals · ' + y),
+      el('h3', { class: 'text-base font-bold' }, 'Office goals · ' + y),
       el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'revenue goal per office · ad spend ' + Math.round(s.adSpendPct * 100) + '% · wages ' + Math.round(s.wagesPct * 100) + '% · incentives ' + Math.round(s.incentivesPct * 100) + '% (rates in Configurations)')),
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs frozen-table' },
       el('thead', {}, el('tr', {}, _mktgTh('Office', false), _mktgTh('Revenue goal'), _mktgTh('Ad spend'), _mktgTh('Wages'), _mktgTh('Incentives'), _mktgTh('Total spend'), _mktgTh('Attrition %', true, 'Projected annual attrition — sets replacement revenue'), _mktgTh('YTD actual'), _mktgTh('% of goal'))),
@@ -1465,7 +1465,7 @@ function _mktgProjections() {
   const chProj = (ch, i) => Number((s.channelProjections[ch] || [])[i]) || 0;
   const chCard = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
-      el('h3', { class: 'text-sm font-bold' }, 'Lead-partner spend plan · ' + y),
+      el('h3', { class: 'text-base font-bold' }, 'Lead-partner spend plan · ' + y),
       el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'planned ad spend per channel per month · compare to Providers → Ad spend')),
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs frozen-table' },
       el('thead', {}, el('tr', {}, _mktgTh('Channel', false), ...MKTG_MONTHS.map(mn => _mktgTh(mn)), _mktgTh('Total'))),
@@ -1671,7 +1671,7 @@ function reportingCrmVocabPanel() {
     onchange: (e) => { const d = Math.max(0, Math.round(Number(e.target.value) || 0)); const next = JSON.parse(JSON.stringify(stored)); if (d && d !== CRM_VOCAB_DEFAULTS.rorWindowDays) next.rorWindowDays = d; else delete next.rorWindowDays; save(Object.keys(next).length ? next : null); } });
   return el('div', { class: 'card p-4', id: 'cfg-vocab' },
     el('div', { class: 'flex items-center justify-between gap-2 mb-1' },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'CRM vocabulary')),
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'CRM vocabulary')),
       V.configured ? el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { if (confirm('Reset every vocabulary tag to the defaults?')) save(null); } }, 'Reset all') : null),
     el('div', { class: 'flex items-center justify-between gap-3 py-1.5 border-t', style: { borderColor: 'var(--border)' }, title: 'The right-of-rescission window: a door-to-door sale cancelled within this many days of the sale is a rescission, not a customer. State law; RIDD’s markets are 3.' },
       el('span', { class: 'text-[11px] font-semibold' }, 'Rescission window (days)'), el('div', { class: 'flex items-center gap-2' }, win, el('span', { class: 'text-[9px] font-semibold px-1.5 py-0.5 rounded-full', style: V.rorWindowDays === CRM_VOCAB_DEFAULTS.rorWindowDays ? { background: 'var(--card-2)', color: 'var(--text-muted)' } : { background: 'rgba(223,100,58,.12)', color: 'var(--accent)' } }, V.rorWindowDays === CRM_VOCAB_DEFAULTS.rorWindowDays ? 'default' : 'custom'))),
@@ -1725,7 +1725,7 @@ function reportingSetupCard() {
   const dot = (ok) => el('span', { class: 'inline-flex items-center justify-center rounded-full shrink-0 text-[10px] font-black', style: { width: '18px', height: '18px', background: ok ? 'rgba(47,125,50,.15)' : 'rgba(223,100,58,.15)', color: ok ? '#2F7D32' : 'var(--accent)' } }, ok ? '✓' : '•');
   return el('div', { class: 'card p-4', id: 'cfg-setup' },
     el('div', { class: 'flex items-center justify-between gap-2 mb-1' },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Company setup · ' + done + ' of ' + all), el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Do these in order the first time; each one is a card on this tab or a Settings page. Status is read from the data, so it updates as you go.')),
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Company setup · ' + done + ' of ' + all), el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Do these in order the first time; each one is a card on this tab or a Settings page. Status is read from the data, so it updates as you go.')),
       complete ? el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--text-muted)' }, onclick: () => { state._setupOpen = false; mountApp(); } }, 'Hide') : null),
     el('div', { class: 'h-1.5 rounded-full mb-2', style: { background: 'var(--card-2)' } }, el('div', { class: 'h-full rounded-full', style: { width: (done / all * 100) + '%', background: '#2F7D32', transition: 'width .3s' } })),
     ...steps.map((s, i) => el('div', { class: 'flex items-start gap-2 py-1.5 border-t', style: { borderColor: 'var(--border)' } },
@@ -1768,7 +1768,7 @@ function reportingOpsBaselinePanel() {
   const msg = el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '');
   return el('div', { class: 'card p-4', id: 'cfg-ops-baseline' },
     el('div', { class: 'flex items-center justify-between gap-2 cursor-pointer', onclick: () => { state._opsBaseOpen = !open; mountApp(); } },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, (open ? '▾ ' : '▸ ') + 'Operations baseline · ' + B.year)),
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, (open ? '▾ ' : '▸ ') + 'Operations baseline · ' + B.year)),
       el('span', { class: 'text-[9px] font-semibold px-1.5 py-0.5 rounded-full', style: stored ? { background: 'rgba(223,100,58,.12)', color: 'var(--accent)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' } }, stored ? 'custom' : 'default')),
     open ? el('div', { class: 'mt-2 flex flex-col gap-2' },
       el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'One row per metric and office: metric key, office name (ALL = company-wide), value. Counts are weekly averages; rates are the ratio (0.93, not 93). Keys: ' + OPS_BASELINE_METRIC_KEYS.join(', ') + '.'),

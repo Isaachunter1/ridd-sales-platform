@@ -406,7 +406,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     // the controls — wraps on narrow screens.
     el('div', { class: 'px-5 py-3 flex flex-col gap-2 cursor-pointer', onclick: () => { state._retenMethodOpen = !open; mountApp(); } },
       el('div', { class: 'flex items-center gap-2 flex-wrap' },
-        el('h3', { class: 'text-sm font-bold flex-1 min-w-0' }, (open ? '▾ ' : '▸ ') + 'Attrition Steps'),
+        el('h3', { class: 'text-base font-bold flex-1 min-w-0' }, (open ? '▾ ' : '▸ ') + 'Attrition Steps'),
         // The four attrition numbers sit left of Insights on the same row (per Isaac, Oct 14).
       el('div', { class: 'flex items-center gap-4 tabular-nums reten-tiles mr-2' },
         // Last year's full-year attrition first (per Isaac) — same rules, whole year, drillable to the counted cancels.
@@ -1136,7 +1136,7 @@ function reportingWaterfall() {
     const drillRows = (title, rs, summary) => rs.length ? () => openReportingDrillModal({ chartTitle: 'Cohort waterfall · ' + title, sliceLabel: rs.length.toLocaleString() + ' subscription' + (rs.length === 1 ? '' : 's'), rows: rs, formatValue: fmt.usd0, summary: summary ? summary() : null }) : undefined;
     return el('div', { class: 'flex flex-col gap-4' }, el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-        el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Cohort Waterfall' + (office !== 'all' ? ' · ' + office : '')),
+        el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Cohort Waterfall' + (office !== 'all' ? ' · ' + office : '')),
           el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, wfDim === 'year' ? 'Click a cohort\u2019s size for its accounts and what was excluded from it; click the Total for every year.' : (wfCohort != null ? 'Each row is one ' + SEM_DIMENSIONS[wfDim].label.toLowerCase() + ' within the ' + wfCohort + ' cohort (first serviced in ' + wfCohort + '). Under the size: growth against the ' + (wfCohort - 1) + ' cohort. Each year: still active, and the share lost that year. Click any number for the accounts.' : 'Each row is one ' + SEM_DIMENSIONS[wfDim].label.toLowerCase() + '. Under the size: the share that has ever cancelled. Each year: active at year-end, and the share of that January\u2019s book that left. Click any number for the accounts.'))),
         el('div', { class: 'flex items-center gap-2 flex-wrap' }, rowsSel, cohortSel,
           // (Renewal cohort picker removed per Isaac, Oct 13: a renewal ALWAYS counts in the year we acquired the customer.)
@@ -1721,7 +1721,7 @@ function reportingWaterfall() {
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
         el('div', {},
-          el('h3', { class: 'text-sm font-bold' }, 'Monthly Churn' + (label ? ' — ' + label : '') + (R ? ' · ' + R : ''))),
+          el('h3', { class: 'text-base font-bold' }, 'Monthly Churn' + (label ? ' — ' + label : '') + (R ? ' · ' + R : ''))),
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
           view === 'table' ? reasonSel : null,
           view === 'timeline' ? seriesDrop : null,
@@ -1794,7 +1794,7 @@ function reportingWaterfall() {
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
         el('div', {},
-          el('h3', { class: 'text-sm font-bold' }, '🌱 Retention by Start Month' + (label ? ' — ' + label : ''))),
+          el('h3', { class: 'text-base font-bold' }, '🌱 Retention by Start Month' + (label ? ' — ' + label : ''))),
         el('div', { class: 'flex items-center gap-2' },
           el('div', { class: 'inline-flex', style: { border: '1px solid var(--border-2)' } },
             ...[['pct', '% kept'], ['count', 'Subs left']].map(([k, l]) => el('button', {
@@ -1956,7 +1956,7 @@ function reportingWaterfall() {
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
         el('div', {},
-          el('h3', { class: 'text-sm font-bold' }, '💎 LTV' + (label ? ' — ' + label : ''))),
+          el('h3', { class: 'text-base font-bold' }, '💎 LTV' + (label ? ' — ' + label : ''))),
         configInfoBtn('Lifetime Value',
           'Same population and churn rules as everything on this tab (recurring + serviced subs; excluded reasons and 3-day ROR count as retained). Monthly churn = countable cancels ÷ book-months over the TRAILING 24 MONTHS, per segment — so LTV reflects how the segment retains TODAY, not its whole history. Implied lifetime = 1 ÷ monthly churn, capped at 120 months. Avg ARV averages subs with a recurring value; LTV = monthly ARPU × implied lifetime. Median lifetime (churned subs only) is shown as the observed sanity check. Segments under 50 subs or 300 book-months show "small sample" — don\u2019t price a deal off those.')),
       el('div', { class: 'scroll-x' },
@@ -2029,7 +2029,7 @@ function reportingWaterfall() {
   const churnTimingCard = (pop, label) => {
     const rows = _retenEff(pop).filter(r => r._effCancel);
     const stamped = rows.filter(r => r.canceled_at && /^\d{4}-\d{2}-\d{2} \d{2}/.test(String(r.canceled_at)));
-    const title = el('h3', { class: 'text-sm font-bold' }, 'Churn Timing' + (label ? ' — ' + label : ''));
+    const title = el('h3', { class: 'text-base font-bold' }, 'Churn Timing' + (label ? ' — ' + label : ''));
     if (!stamped.length) {
       return el('div', { class: 'card overflow-hidden' },
         el('div', { class: 'px-4 py-3 border-b', style: { borderColor: 'var(--border)' } }, title),
@@ -2258,7 +2258,7 @@ function reportingWaterfall() {
     return el('div', { class: 'card p-4' },
       el('div', { class: 'flex items-center justify-between gap-2 flex-wrap mb-1' },
         el('div', {},
-          el('h3', { class: 'text-sm font-bold' }, 'Attrition Trends' + (label ? ' — ' + label : ''))),
+          el('h3', { class: 'text-base font-bold' }, 'Attrition Trends' + (label ? ' — ' + label : ''))),
         el('select', {
           class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
           style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
@@ -2538,7 +2538,7 @@ function reportingWaterfall() {
   const _bookEmpty = !popA.length;
   const _shell = (title, node) => node || (!_bookEmpty ? null : el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3', style: { borderColor: 'var(--border)' } },
-      el('h3', { class: 'text-sm font-bold' }, title),
+      el('h3', { class: 'text-base font-bold' }, title),
       el('span', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-subtle)' } }, '0 subscriptions')),
     el('div', { class: 'px-4 py-6 text-center text-[11px]', style: { color: 'var(--text-subtle)' } }, 'No offices selected \u2014 tick an office on Attrition Steps.')));
   const renderSide = (data, pop, label, sideMark) => el('div', { class: 'flex flex-col gap-4' },

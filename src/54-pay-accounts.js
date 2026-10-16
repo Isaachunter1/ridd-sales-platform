@@ -103,7 +103,7 @@ function payAccountsLedger(prof, year) {
       tile('Lost to cancels', money(lost), fmt.int(rows.filter(r => r.cancelled).length) + ' cancelled / removed', lost ? '#A9441F' : undefined)),
     el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-        el('h3', { class: 'text-sm font-bold' }, 'Accounts sold · ' + Y),
+        el('h3', { class: 'text-base font-bold' }, 'Accounts sold · ' + Y),
         el('span', { class: 'text-[11px] text-muted-' }, 'Peak = value when sold · Attributed = what’s still theirs today · Account now = the whole account in FieldRoutes (others’ add-ons and upsells included)'),
         el('div', { class: 'ml-auto inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } }, chip('all', 'All'), chip('active', 'Active'), chip('cancelled', 'Cancelled'), chip('addon', 'Add-ons')),
         el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: csv }, '⬇ CSV')),

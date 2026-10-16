@@ -5080,7 +5080,7 @@ function openRepProfileModal(repId) {
 
     // Personal records
     el('div', { class: 'mb-5' },
-      el('h3', { class: 'text-sm font-bold mb-2' }, 'Personal Records'),
+      el('h3', { class: 'text-base font-bold mb-2' }, 'Personal Records'),
       el('div', { class: 'grid grid-cols-3 gap-3' },
         recordStat('Best Day',   records.bestDay.revenue,   records.bestDay.count,   records.bestDay.date),
         recordStat('Best Week',  records.bestWeek.revenue,  records.bestWeek.count,  records.bestWeek.weekStart),
@@ -5090,7 +5090,7 @@ function openRepProfileModal(repId) {
 
     // Badge collection
     repBadges.length > 0 && el('div', { class: 'mb-5' },
-      el('h3', { class: 'text-sm font-bold mb-2' }, 'Badges'),
+      el('h3', { class: 'text-base font-bold mb-2' }, 'Badges'),
       el('div', { class: 'flex flex-wrap gap-2' },
         ...repBadges.map(code => {
           const def = BADGE_DEFS[code];
@@ -5107,7 +5107,7 @@ function openRepProfileModal(repId) {
 
     // Recent sales
     el('div', {},
-      el('h3', { class: 'text-sm font-bold mb-2' }, 'Recent Sales'),
+      el('h3', { class: 'text-base font-bold mb-2' }, 'Recent Sales'),
       repSales.length === 0
         ? el('div', { class: 'text-sm text-muted- italic' }, 'No sales logged yet.')
         : el('div', { class: 'scroll-x' },

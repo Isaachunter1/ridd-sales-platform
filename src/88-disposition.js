@@ -190,7 +190,7 @@ function mktgDispositionView() {
   const fileIn = el('input', { type: 'file', multiple: true, accept: '.csv,.xlsx,.xls,.tsv', class: 'hidden', onchange: (e) => { _dispUpload(e.target.files); e.target.value = ''; } });
   const head = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Lead disposition'),
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Lead disposition'),
         el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Upload one or more providers’ lead reports. Each lead is matched to FieldRoutes (customer? sold? still active?) and GoHighLevel (status and stage), and you download their report back with the disposition columns added. Problems found on the way — duplicate leads, leads that never reached GoHighLevel, sales typed under another source, the same person sent by two providers — are flagged. With two or more reports open, “Reconcile across reports” shows who each sale belongs to (the provider whose lead came last before the sale). Reports stay open until you refresh the page.')),
       el('label', { class: 'ml-auto rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, '↑ Upload lead reports', fileIn)));
   if (!(state.reportingSubscriptions || []).length) return el('div', { class: 'flex flex-col gap-4' }, head, el('div', { class: 'card p-6 text-[11px] text-center', style: muted }, 'Waiting for the FieldRoutes data to load…'));
@@ -318,7 +318,7 @@ function _dispReconcileCard(runs) {
   };
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap cursor-pointer', onclick: () => { state._dispRecOpen = !open; mountApp(); } },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, (open ? '▾ ' : '▸ ') + 'Reconcile across reports'),
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, (open ? '▾ ' : '▸ ') + 'Reconcile across reports'),
         el('div', { class: 'text-[11px] mt-0.5', style: muted }, fmt.int(R.sales.length) + ' completed sales found through ' + runs.size + ' reports. Each sale goes to the provider whose lead came last in the ' + DISP_SALE_WINDOW + ' days before it; same-day leads from two providers split it.')),
       el('button', { class: 'ml-auto rounded-lg px-3 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: (e) => { e.stopPropagation(); dl(); } }, '⬇ Download reconciliation (.xlsx)')),
     !open ? null : el('div', { class: 'flex flex-col' },

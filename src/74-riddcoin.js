@@ -377,7 +377,7 @@ function viewMarketplace() {
       await loadRiddcoin(true); mountApp();
     };
     wrap.append(el('div', { class: 'card p-4' },
-      el('h3', { class: 'text-sm font-bold mb-2' }, '🪙 Grant / deduct RIDDCOIN'),
+      el('h3', { class: 'text-base font-bold mb-2' }, '🪙 Grant / deduct RIDDCOIN'),
       el('div', { class: 'flex items-center gap-2 flex-wrap' },
         userSel, amtIn, whyIn,
         el('button', { class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => doGrant(1) }, '+ Add'),
@@ -470,7 +470,7 @@ function viewMarketplace() {
       });
       const card = el('div', { class: 'card p-4' },
         el('div', { class: 'flex items-center justify-between gap-2 flex-wrap mb-1' },
-          el('h3', { class: 'text-sm font-bold' }, '🎰 Spin builder'),
+          el('h3', { class: 'text-base font-bold' }, '🎰 Spin builder'),
           spins.length ? el('select', {
             class: 'rounded border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
             onchange: (e) => loadDraft(items.find(it => it.id === e.target.value) || null),
@@ -527,7 +527,7 @@ function viewMarketplace() {
       return card;
     })());
     wrap.append(el('div', { class: 'card p-4' },
-      el('h3', { class: 'text-sm font-bold mb-1' }, '🛍️ Store catalog'),
+      el('h3', { class: 'text-base font-bold mb-1' }, '🛍️ Store catalog'),
       el('div', { class: 'text-[10px] text-muted- mb-2' }, 'Name · cost in RIDDCOIN · stock (blank = unlimited) · live toggle · description · photos (first = card cover; reps click into a full product page). Redeems decrement stock automatically.'),
       ...items.map(itemRow),
       itemRow(null)));

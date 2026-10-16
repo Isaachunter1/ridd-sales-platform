@@ -46,7 +46,7 @@ function viewCalendarSettings(opts) {
   const btn = (label, onclick, sty, title) => el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap', title: title || '', style: Object.assign({ borderColor: 'var(--border-2)', color: 'var(--text)', background: 'var(--card)' }, sty || {}), onclick }, label);
   const section = (title, sub, ...kids) => el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-4 py-3 border-b', style: { borderColor: 'var(--border)' } },
-      el('h3', { class: 'text-sm font-bold' }, title),
+      el('h3', { class: 'text-base font-bold' }, title),
       sub ? el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, sub) : null),
     el('div', { class: 'p-4 flex flex-col gap-3' }, ...kids));
   const setRoster = (p, patch) => { cs.roster[p.id] = Object.assign({}, cs.roster[p.id] || {}, patch); _calSetSave(); };

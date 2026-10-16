@@ -964,7 +964,7 @@ function payAddOnsCard(repId) {
   const shown = sorted.slice(0, state._payAddOnsMore ? 2000 : 50);
   return el('div', { class: 'card overflow-hidden', style: { gridColumn: '1 / -1' } },
     el('div', { class: 'px-4 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-      el('h3', { class: 'text-sm font-bold' }, 'Add-ons'),
+      el('h3', { class: 'text-base font-bold' }, 'Add-ons'),
       el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } },
         all == null ? 'waiting on the add-ons table (migration 20260922_add_ons.sql + 20260929_add_ons_lifecycle.sql)'
           : open.length + ' active · ' + fmt.usd0(perSvc) + ' per service · ' + gone.length + ' removed' + (avgLife != null ? ' · removed ones lasted ' + avgLife + ' days on average' : '')),
@@ -1053,7 +1053,7 @@ function payRevenueCreditCard(repId) {
   }
   return el('div', { class: 'card overflow-hidden', style: { gridColumn: '1 / -1' } },
     el('div', { class: 'px-4 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-      el('h3', { class: 'text-sm font-bold' }, 'Revenue credit by account'),
+      el('h3', { class: 'text-base font-bold' }, 'Revenue credit by account'),
       el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } },
         data === undefined || data === null ? 'loading…' : data.error ? 'waiting on subscription_revenue (migration 20260929_add_ons_lifecycle.sql + the add-ons sync)' :
           rows.length + ' accounts · total revenue ' + fmt.usd0(tot) + ' · service fees ' + fmt.usd0(fees) + ' · credited to this user ' + fmt.usd0(cred))),

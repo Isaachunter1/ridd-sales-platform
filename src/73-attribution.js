@@ -736,7 +736,7 @@ function mktgAttributionView() {
   const titleOf = stFilter === 'fix' ? 'Accounts to change in FieldRoutes' : stFilter === 'done' ? 'Marked done — waiting for FieldRoutes to sync' : 'Leads · ' + (stFilter === 'all' ? 'all' : stFilter === 'missourced' ? 'Mis-sourced' : (ATTR_STATUS[stFilter] || [stFilter])[0]);
   const table = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-4 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-      el('h3', { class: 'text-sm font-bold' }, titleOf),
+      el('h3', { class: 'text-base font-bold' }, titleOf),
       el('span', { class: 'text-[11px]', style: muted }, list.length.toLocaleString() + ' rows' + (stFilter === 'fix' ? ' · tick a row once you have changed it in FieldRoutes' : '')),
       el('button', { class: btn + ' ml-auto', style: { borderColor: 'var(--border-2)' }, onclick: () => _attrExport(list) }, '↓ Excel')),
     list.length ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]' },

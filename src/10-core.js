@@ -5033,7 +5033,7 @@ function buildNotifDropdown() {
 
   const dropdown = el('div', { class: 'notif-dropdown card', style: { display: 'none' } },
     el('div', { class: 'flex items-center justify-between px-4 py-3 border-b', style: { borderColor: 'var(--border)' } },
-      el('h3', { class: 'text-sm font-bold' }, 'Notifications'),
+      el('h3', { class: 'text-base font-bold' }, 'Notifications'),
       unread.length > 0 && el('button', {
         class: 'text-[10px] font-semibold', style: { color: 'var(--accent)' },
         onclick: () => { state.notifLastSeen = new Date().toISOString(); saveDemoData(); mountApp(); },

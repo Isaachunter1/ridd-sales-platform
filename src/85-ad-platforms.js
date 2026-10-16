@@ -233,7 +233,7 @@ function adCampaignsCard(year, branches) {
   const muted = { color: 'var(--text-muted)' };
   const refresh = el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => reportingLoadAdSpend(year, true) }, S.loading ? 'Pulling…' : '↻ Refresh');
   const head = (extra) => el('div', { class: 'px-4 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-    el('h3', { class: 'text-sm font-bold' }, 'Ad platform campaigns · ' + year), extra || null, el('div', { class: 'ml-auto flex items-center gap-2' },
+    el('h3', { class: 'text-base font-bold' }, 'Ad platform campaigns · ' + year), extra || null, el('div', { class: 'ml-auto flex items-center gap-2' },
       S.pulledAt ? el('span', { class: 'text-[10px]', style: muted }, 'Facebook + Google via Windsor · pulled ' + new Date(S.pulledAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })) : null, refresh));
   if (!S.rows) return el('div', { class: 'card overflow-hidden' }, head(),
     el('div', { class: 'px-4 py-6 text-center text-[11px]', style: S.error ? { color: '#DC2626' } : muted }, S.error ? 'Couldn’t pull Facebook / Google: ' + S.error : 'Pulling Facebook and Google Ads from Windsor…'));

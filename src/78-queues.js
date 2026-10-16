@@ -54,7 +54,7 @@ function reportingAuditExportCard() {
   if (gate) return null;   // config panels render their own empty states
   return el('div', { class: 'card p-4 flex items-start justify-between gap-3 flex-wrap' },
     el('div', {},
-      el('h3', { class: 'text-sm font-bold' }, '🔍 Reporting audit export'),
+      el('h3', { class: 'text-base font-bold' }, '🔍 Reporting audit export'),
       el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
         'Every row in the snapshot — including hidden/excluded ones — with the raw CRM fields AND every judgment the app makes about the row (visible, recurring, active, counted as churn + the reason it isn\u2019t, ROR, retention population). XLOOKUP it against a manual CRM export by Customer ID to reconcile.')),
     el('button', {

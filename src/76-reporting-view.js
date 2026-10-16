@@ -1232,7 +1232,7 @@ function reportingContractLength() {
 
   const card = (kids, cls) => el('div', { class: 'card ' + (cls || 'p-4') }, ...kids);
   const secHdr = (title, sub) => el('div', { class: 'mb-2' },
-    el('h3', { class: 'text-sm font-bold' }, title),
+    el('h3', { class: 'text-base font-bold' }, title),
     sub && el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, sub));
   const pct = (v) => (v * 100).toFixed(1) + '%';
 

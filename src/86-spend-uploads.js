@@ -378,7 +378,7 @@ function mktgSpendUploadCard(B, year) {
   const officeOpts = [[SPU_SPLIT, 'Split by leads'], ...branches.map(b => [b, _mktgTC(b)]), [SPU_SKIP, 'Skip (not spend)']];
   const fileIn = el('input', { type: 'file', multiple: true, accept: '.csv,.xlsx,.xls,.tsv', class: 'hidden', onchange: (e) => { _spuUpload(e.target.files); e.target.value = ''; } });
   const head = el('div', { class: 'px-5 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-    el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Upload spend reports'),
+    el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Upload spend reports'),
       el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Drop any spend report (CSV or Excel, one or many). Map it once — the columns, the provider and the office — and the app remembers: the next report with the same layout, provider names or locations fills itself in.')),
     el('label', { class: 'ml-auto rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, '↑ Choose files', fileIn));
   const pending = (state._spendPending || []).map(P => {
@@ -570,7 +570,7 @@ function mktgSpendChecklist() {
   const th = (t) => el('th', { class: 'px-4 py-2 text-left text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
   return el('div', { class: 'card overflow-hidden' }, fileIn,
     el('div', { class: 'px-5 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Spend checklist · ' + reportingMonthLbl(ym)),
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Spend checklist · ' + reportingMonthLbl(ym)),
         el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Every provider that sent leads into GoHighLevel this month, plus anything already carrying spend. A provider that bills per lead (DoLead): enter its fixed cost per lead, then Upload lead report — each row of the report is billed at that price. Otherwise upload a provider’s breakout by location, enter one total to split evenly across the offices, or mark No spend. Change the month in the Controller allocation below.')),
       el('span', { class: 'ml-auto' }, todo ? pill(todo + ' to do', 'rgba(220,38,38,.10)', '#B91C1C') : pill('✓ All providers covered', 'rgba(95,108,91,.16)', '#5F6C5B'))),
     rows.length ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },

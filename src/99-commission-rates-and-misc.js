@@ -571,7 +571,7 @@ function adminCompetitionSchedule() {
     const idx = comps.map((c, i) => [c, i]).filter(([c]) => ((sc[c.id] && sc[c.id].group) || c.group) === group);
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 flex items-center gap-3 border-b flex-wrap', style: { borderColor: 'var(--border)' } },
-        el('h3', { class: 'text-sm font-bold' }, group),
+        el('h3', { class: 'text-base font-bold' }, group),
         el('span', { class: 'text-[11px] text-muted-' }, idx.length + ' competition' + (idx.length === 1 ? '' : 's')),
         el('button', {
           class: 'ml-auto rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
@@ -630,7 +630,7 @@ function adminCompetitionSchedule() {
   }
   const calendar = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-4 py-3 flex items-center gap-2 border-b', style: { borderColor: 'var(--border)' } },
-      el('h3', { class: 'text-sm font-bold' }, 'Calendar', el('span', { class: 'ml-2 text-[11px] font-semibold', style: { color: 'var(--text-muted)' } }, groupTab)),
+      el('h3', { class: 'text-base font-bold' }, 'Calendar', el('span', { class: 'ml-2 text-[11px] font-semibold', style: { color: 'var(--text-muted)' } }, groupTab)),
       el('div', { class: 'ml-auto flex items-center gap-1' },
         el('button', { class: 'px-2.5 py-1 text-[11px] rounded-lg border', style: { borderColor: 'var(--border-2)' }, onclick: () => shiftMonth(-1) }, '‹'),
         el('span', { class: 'text-[11px] font-semibold px-2 tabular-nums' }, first.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })),
@@ -735,7 +735,7 @@ function adminSlack() {
     // (Architecture banner removed — implementation detail; settings audit, Sep 30)
     // ── 2. Connection — Bot Token + Channels ──
     el('div', { class: 'card p-5' },
-      el('h3', { class: 'text-sm font-bold mb-3' }, 'Connection'),
+      el('h3', { class: 'text-base font-bold mb-3' }, 'Connection'),
 
 /* (Bot Token removed — nothing read it; settings audit, Sep 30) */
 
@@ -799,7 +799,7 @@ function adminSlack() {
 
     // ── 3. Channel Posts — Sale Broadcast / First Blood / Weekly Digest / Competition Updates ──
     el('div', { class: 'card p-5' },
-      el('h3', { class: 'text-sm font-bold mb-3' }, 'Channel Posts'),
+      el('h3', { class: 'text-base font-bold mb-3' }, 'Channel Posts'),
 
       subsection({ first: true, icon: '📢', title: 'Sale Broadcast', statusKind: 'live',
         hint: 'Every sale logged auto-posts the rep, customer, service, and ACV to the chosen channel.',
@@ -847,7 +847,7 @@ function adminSlack() {
 
     // ── 4. Direct Messages — Pay Stub DMs + Daily Update ──
     el('div', { class: 'card p-5' },
-      el('h3', { class: 'text-sm font-bold mb-3' }, 'Direct Messages'),
+      el('h3', { class: 'text-base font-bold mb-3' }, 'Direct Messages'),
 
       subsection({ first: true, icon: '💰', title: 'Pay Stub DMs', statusKind: 'server',
         hint: 'DM each rep their pay stub the moment payroll runs. Demo mode logs the intent to Admin → Activity Log.',
@@ -904,7 +904,7 @@ function adminSlack() {
 
     // ── 5. Rep Slack User IDs ──
     el('div', { class: 'card p-5' },
-      el('h3', { class: 'text-sm font-bold mb-1' }, 'Rep Slack User IDs'),
+      el('h3', { class: 'text-base font-bold mb-1' }, 'Rep Slack User IDs'),
       el('p', { class: 'text-xs text-muted- mb-3' },
         'Find a rep\'s Slack User ID in their Slack profile → ⋮ → Copy member ID. Looks like ',
         el('code', { style: { color: 'var(--accent)' } }, 'U01AB2CD3EF'),

@@ -183,7 +183,7 @@ function _mkmPulse(R, ch, G, crm, paid, SP) {
   }, 50);
   return el('div', { class: 'card p-4' },
     el('div', { class: 'flex items-start justify-between gap-3 flex-wrap mb-3' },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Marketing pulse · ' + R.label + (ch ? ' · ' + ch : '')),
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Marketing pulse · ' + R.label + (ch ? ' · ' + ch : '')),
         el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'What happened in the range, by the day it happened. Closed lead = an Office Staff sale (initial booked or done) whose person came in as a GoHighLevel lead in the ' + SEM_LEAD_WINDOW_DAYS + ' days before.'))),
     stats,
     single ? null : el('div', { class: 'mt-3', style: { height: '260px' } }, el('canvas', { id: idP })));

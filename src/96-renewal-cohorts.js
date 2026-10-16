@@ -54,7 +54,7 @@ function retenRenewalCohortCard(pop) {
     td(g.past ? pct(g.pastRen, g.past) : '—', { color: 'var(--text-muted)' }));
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-4 py-3 border-b', style: { borderColor: 'var(--border)' } },
-      el('h3', { class: 'text-sm font-bold' }, 'Renewals by cohort')),
+      el('h3', { class: 'text-base font-bold' }, 'Renewals by cohort')),
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
       el('thead', { class: 'text-[9px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } }, el('tr', {},
         el('th', { class: 'px-2 py-1.5 text-left font-semibold' }, 'Cohort'),

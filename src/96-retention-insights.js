@@ -236,7 +236,7 @@ function retenInsightsCard() {
   return el('div', { class: 'card p-4 flex flex-col gap-4' },
     el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
       el('div', {},
-        el('h3', { class: 'text-sm font-bold' }, '🔎 Office insights'),
+        el('h3', { class: 'text-base font-bold' }, '🔎 Office insights'),
         el('div', { class: 'flex items-center gap-2 flex-wrap mt-1' },
           el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, title: 'Which window the comparison reads',
             onchange: (e) => { state._retenInsMode = e.target.value; mountApp(); } },

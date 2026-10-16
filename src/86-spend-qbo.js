@@ -199,7 +199,7 @@ function mktgSpendQboView() {
     ...yms.map(k => el('option', { value: k, selected: k === ym }, reportingMonthLbl(k))));
   const P = state.reportingIsSpendPayee;
   const head = (sub) => el('div', { class: 'card px-5 py-3 flex items-center gap-3 flex-wrap' },
-    el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Spend · QuickBooks'), el('div', { class: 'text-[11px] mt-0.5', style: muted }, sub)),
+    el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Spend · QuickBooks'), el('div', { class: 'text-[11px] mt-0.5', style: muted }, sub)),
     el('span', { class: 'ml-auto' }), monthSel);
   if (!P) return el('div', { class: 'flex flex-col gap-4' }, head(state._isSpendLoading ? 'Pulling QuickBooks…' : 'QuickBooks isn’t connected or hasn’t been pulled yet.'));
   if (!P.lines) return el('div', { class: 'flex flex-col gap-4' }, head('QuickBooks is connected, but the line-by-line marketing detail hasn’t been pulled yet. It arrives with the next QuickBooks refresh after this update is deployed.'));
@@ -231,7 +231,7 @@ function mktgSpendQboView() {
   }).flat();
   const linesCard = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, '1 · QuickBooks lines → provider'),
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, '1 · QuickBooks lines → provider'),
         el('div', { class: 'text-[11px] mt-0.5', style: muted }, fmt.int(A.lines.length) + ' Advertising & Marketing expense lines · ' + usd(A.total) + (A.skipped ? ' · ' + usd(A.skipped) + ' left out as not marketing' : '') + '. Google charges are matched to their Ads account by the card’s last four, which separates PPC from Local Services.')),
       unl.length ? el('span', { class: 'ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold', style: { background: 'rgba(220,38,38,.10)', color: '#B91C1C' } }, unl.length + ' to place · ' + usd(A.unassigned)) : el('span', { class: 'ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold', style: { background: 'rgba(95,108,91,.16)', color: '#5F6C5B' } }, '✓ every line has a provider')),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
@@ -252,7 +252,7 @@ function mktgSpendQboView() {
     const url = URL.createObjectURL(new Blob([L.join('\n')], { type: 'text/csv' })); const a = el('a', { href: url, download: 'ridd-marketing-allocation-' + ym + '.csv' }); document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url); };
   const tableCard = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, '2 · Allocation · office × provider · ' + reportingMonthLbl(ym)),
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, '2 · Allocation · office × provider · ' + reportingMonthLbl(ym)),
         el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Each provider’s QuickBooks dollars split by its driver (pick one in the column header). Columns add up to QuickBooks to the cent. This is what the month-end journal entry should book.')),
       el('button', { class: 'ml-auto rounded-lg px-3 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: csv }, '⬇ CSV for the controller')),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
@@ -267,7 +267,7 @@ function mktgSpendQboView() {
   // 3 · Platform campaigns with no office (they can't help split their provider's dollars until they have one).
   const openCamps = (A.AD.open || []).filter(x => provs.includes(x.prov));
   const campCard = openCamps.length ? el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'px-5 py-3' }, el('h3', { class: 'text-sm font-bold', style: { color: '#B91C1C' } }, '3 · Platform campaigns with no office · ' + usd(openCamps.reduce((a, x) => a + x.spend, 0))),
+    el('div', { class: 'px-5 py-3' }, el('h3', { class: 'text-base font-bold', style: { color: '#B91C1C' } }, '3 · Platform campaigns with no office · ' + usd(openCamps.reduce((a, x) => a + x.spend, 0))),
       el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'These campaigns’ platform spend is left out of the split above until they have an office (remembered for every month). Google campaigns that span offices split themselves by the searchers’ metro.')),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('Provider'), th('Account'), th('Campaign'), th('Platform spend', true), th('Office'))),

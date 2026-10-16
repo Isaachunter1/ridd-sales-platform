@@ -773,7 +773,7 @@ function reportingOverview() {
     return el('div', { class: 'card p-4' },
       el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-2' },
         el('div', {},
-          el('h3', { class: 'text-sm font-bold', title: (single ? 'By office: contract value SOLD (green) · ARR of accounts that received their first service (teal) · ARR that CHURNED (red). Click a bar for the day.' : 'Each day: contract value SOLD (green bars) · ARR of accounts that received their first service (teal) · ARR that CHURNED (red). Click a bar or point for the accounts.') }, 'Daily Pulse' + (monthly ? ' · by month' : '') + (office !== 'all' ? ' · ' + officeLabel(office) : ''), pulseInfo)),
+          el('h3', { class: 'text-base font-bold', title: (single ? 'By office: contract value SOLD (green) · ARR of accounts that received their first service (teal) · ARR that CHURNED (red). Click a bar for the day.' : 'Each day: contract value SOLD (green bars) · ARR of accounts that received their first service (teal) · ARR that CHURNED (red). Click a bar or point for the accounts.') }, 'Daily Pulse' + (monthly ? ' · by month' : '') + (office !== 'all' ? ' · ' + officeLabel(office) : ''), pulseInfo)),
         el('div', { class: 'flex items-center gap-4 flex-wrap' },
           stat('Sold · ' + (single ? (spanRaw === 'today' ? 'today' : 'yesterday') : spanRaw === 'thisyear' ? 'this yr' : spanRaw === 'lastyear' ? 'last yr' : spanRaw === 'custom' ? 'range' : span + 'd'), sum(sold), C.sold, 'sold'), stat('Serviced', sum(serviced), C.svc, 'svc'), stat('Churned', sum(churned), C.cxl, 'cxl'),
           // Net = Serviced − Churned for the window (per Isaac, Sep 30).

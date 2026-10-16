@@ -590,7 +590,7 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
       (() => { const v = row.point ? ytdVal(row) : (ttm.months ? ttm[row.id] : null); return td(fmtRow(row, v), { bold: true, title: row.point ? 'Latest closed month with a value' : '', style: row.signed && v != null ? { color: v < 0 ? '#DC2626' : '#5F6C5B' } : {} }); })()))));
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-center gap-3' + (opts.compact ? '' : ' flex-wrap'), style: { borderColor: 'var(--border)' } },
-      el('div', { class: 'min-w-0' }, el('h3', { class: 'text-sm font-bold' }, title), subtitle ? el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, subtitle) : null),
+      el('div', { class: 'min-w-0' }, el('h3', { class: 'text-base font-bold' }, title), subtitle ? el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, subtitle) : null),
       headerExtra || null),
     el('div', { class: 'scroll-x' }, table));
 }
@@ -796,7 +796,7 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-center justify-between gap-3' + (opts.compact ? '' : ' flex-wrap'), style: { borderColor: 'var(--border)' } },
       el('div', { class: 'min-w-0' },
-        el('h3', { class: 'text-sm font-bold' + (opts.compact ? ' truncate' : '') }, (opts.title || ({ book: 'Recurring Book', margins: 'Margins', unit: 'Unit Economics' })[part] || 'P&L Indicators') + (opts.compact ? '' : ' · ' + periodLabel)),
+        el('h3', { class: 'text-base font-bold' + (opts.compact ? ' truncate' : '') }, (opts.title || ({ book: 'Recurring Book', margins: 'Margins', unit: 'Unit Economics' })[part] || 'P&L Indicators') + (opts.compact ? '' : ' · ' + periodLabel)),
         null),
       opts.headerExtra || null),
     // Fixed column grid (per Isaac, Sep 30): the same label width and equal
@@ -944,7 +944,7 @@ function putisKpiStrip(M, U, closedYm, branches) {
   const monthLabel = new Date(closedYm + '-15T12:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
   return el('div', { class: 'card p-4' },
     el('div', { class: 'flex items-baseline justify-between gap-3 flex-wrap mb-3' },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Executive summary · ' + monthLabel + ' (last closed month)'),
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Executive summary · ' + monthLabel + ' (last closed month)'),
         el('div', { class: 'text-[9px] uppercase tracking-widest mt-0.5', style: { color: 'var(--text-subtle)' } }, 'Deltas vs prior month · vs same month last year · YTD through ' + monthLabel)),
     ),
     el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' } },
@@ -1002,7 +1002,7 @@ function putisBranchScorecard(M, U, yms, branches, title) {
   };
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-start justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, title),
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, title),
         el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'Green = best in column · red = worst · click a header to sort' + (topShare != null ? ' · top-office concentration ' + _putisPct1(topShare) : ''))),
     ),
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse' } },
@@ -1082,7 +1082,7 @@ function putisComparativeCard(M, ym, branches, title, headerExtra, opts = {}) {
   });
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-start gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, title + (ym === openYm ? ' · open month' : ''))),
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, title + (ym === openYm ? ' · open month' : ''))),
       headerExtra || null),
     el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse' } }, el('thead', {}, head), el('tbody', {}, ...body))));
 }

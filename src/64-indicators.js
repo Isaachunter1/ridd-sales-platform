@@ -822,7 +822,7 @@ function viewIndicators() {
     && (['spring_cleaning', 'avg_pest_initial', 'top_gun', 'last_man_standing', 'nrla'].includes(getActiveComp().scoring || '')
         || isLastManStandingComp() || isNrlaComp());
 
-  const _page = el('div', { class: 'flex flex-col gap-5 w-full' },
+  const _page = el('div', { class: 'flex flex-col gap-4 w-full' },
 
     // ── Fixed filter bar — pinned just below the page header at all times,
     // so the user can change week / range / scope from anywhere on the page.
@@ -1709,8 +1709,8 @@ function viewIndicators() {
           el('table', { class: 'w-full text-xs', style: { display: 'table', width: '100%' } },
             el('thead', {},
               el('tr', {},
-                el('th', { class: 'text-left px-3 py-2 text-[10px] uppercase tracking-wider text-muted- font-semibold sticky left-0', style: { background: 'var(--card)', zIndex: 2 } },
-                  'Indicators'),
+                el('th', { class: 'text-left px-3 py-2 sticky left-0', style: { background: 'var(--card)', zIndex: 2 } },
+                  el('h3', { class: 'text-base font-bold', style: { textTransform: 'none', letterSpacing: 'normal', color: 'var(--text)' } }, 'Indicators')),   // card-title font, like Leaderboard / Records (per Isaac, Oct 16)
                 // Column headers click through to a pooled entity player card
                 // (branch or team, matching the grouping mode) ranked against
                 // its peer columns — same card as a rep, fed the group's sales.
@@ -1994,9 +1994,9 @@ function viewIndicators() {
         chartWeeks = chartWeeks.slice(0, -1);
         if (chartLabels) chartLabels = chartLabels.slice(0, -1);
       }
-      // Office Staff hides the branch-level charts (Power Ranking / PRA /
-      // Revenue) — only the YoY trend stays.
-      const _hideBranchCharts = state.indicatorDept === 'office';
+      // Power Ranking shows on every user type now (per Isaac, Oct 16 — one layout for everyone; on Office Staff
+      // the hidden chart left an empty card behind once Performance Trends moved out of this block).
+      const _hideBranchCharts = false;
       return el('div', { class: 'flex flex-col gap-4' },
         !_hideBranchCharts && el('div', {},
           indicatorChart('Power Ranking' + _prNote, chartData, branches, '_power_ranking', chartWeeks, true, chartLabels),
@@ -2311,7 +2311,7 @@ function buildAvgPestCompCard({ cf, allRawSales, rawSales, windowLabel, applyExc
     const compFilterBar = el('div', { class: 'flex items-center gap-3 flex-wrap px-3 py-2.5 mb-3 rounded-lg border', style: { borderColor: 'var(--border-2)', background: 'var(--card)' } },
       el('div', { class: 'flex items-center gap-2' },
         el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'D2D Comp Window'),
-        el('span', { class: 'text-[10px] text-muted- italic' }, '· filters the two cards below'),
+
       ),
       el('div', { class: 'flex items-center gap-2 text-xs' },
         el('input', {
@@ -3868,7 +3868,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       el('div', { class: (_recPhone ? 'px-4' : 'px-5') + ' py-3 border-b flex items-center justify-between gap-3' + (_recPhone ? '' : ' flex-wrap'), style: { borderColor: 'var(--border)', ...(_recPhone ? { gap: '8px' } : {}) } },
         el('div', { class: 'flex items-center gap-3 flex-wrap', style: _recPhone ? { flex: 'none' } : {} },
           el('h3', { class: 'text-base font-bold' }, 'Records'),
-          _recPhone ? null : el('span', { class: 'text-[11px] text-muted-' }, 'Click any row to see the top 10 per category'),
+          // (the "Click any row…" hint retired, per Isaac Oct 16)
         ),
         _recPhone
           // Phone (per Isaac, Oct 4): no description, no date-range line — three
@@ -10884,7 +10884,7 @@ function indicatorYoYTrendChart() {
 
   return el('div', { class: 'card p-5' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-3' },
-      el('h3', { class: 'text-sm font-bold' }, 'Performance Trends'),
+      el('h3', { class: 'text-base font-bold' }, 'Performance Trends'),   // same title size as every other card (per Isaac, Oct 16)
       // Labels live INSIDE the buttons now (Scope / Type / Range / Metric —
       // per Isaac); the current value shows in each button's tooltip.
       el('div', { class: 'flex items-center gap-2 flex-wrap' }, ...(comboWrap ? [comboWrap] : [scopesWrap]), metricSel)),
@@ -10937,9 +10937,8 @@ function indicatorChart(title, data, branches, metricKey, weeks, invertForRankin
 
   const container = el('div', { class: 'card p-5' },
     el('div', { class: 'flex items-center justify-between mb-3 gap-2' },
-      el('h3', { class: 'text-sm font-bold' }, title),
-      resetBtn || (supportsDrill ? el('span', { class: 'text-[10px] text-muted- italic' },
-        'Click a ' + groupLabel.toLowerCase() + ' line to compare against Company \u00b7 click more to stack') : null),
+      el('h3', { class: 'text-base font-bold' }, title),
+      resetBtn || null,   // ("Click a line to compare…" hint retired, per Isaac Oct 16)
     ),
     canvasWrap,
   );

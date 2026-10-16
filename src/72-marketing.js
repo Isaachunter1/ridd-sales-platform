@@ -173,7 +173,7 @@ function viewMarketing() {
   // ── Channel P&L table ──
   wrap.append(el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-4 py-3 border-b flex items-center justify-between', style: { borderColor: 'var(--border)' } },
-      el('h3', { class: 'text-sm font-bold' }, 'Channel P&L'),
+      el('h3', { class: 'text-base font-bold' }, 'Channel P&L'),
       el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'spend = platform-reported (Windsor) · revenue = FieldRoutes contract value, Pending/Serviced')),
     el('div', { class: 'overflow-x-auto' },
       el('table', { class: 'w-full text-xs' },
@@ -231,7 +231,7 @@ function viewMarketing() {
     const maxV = Math.max(1, ...weeks.map(w => Math.max(w.spend, w.revenue)));
     wrap.append(el('div', { class: 'card p-4' },
       el('div', { class: 'flex items-center justify-between mb-3' },
-        el('h3', { class: 'text-sm font-bold' }, 'Spend vs Marketed Revenue · Last 12 Weeks'),
+        el('h3', { class: 'text-base font-bold' }, 'Spend vs Marketed Revenue · Last 12 Weeks'),
         el('div', { class: 'flex items-center gap-3 text-[10px]', style: { color: 'var(--text-muted)' } },
           el('span', {}, el('span', { style: { display: 'inline-block', width: '8px', height: '8px', borderRadius: '0', background: '#7C857A', marginRight: '4px' } }), 'Spend'),
           el('span', {}, el('span', { style: { display: 'inline-block', width: '8px', height: '8px', borderRadius: '0', background: 'var(--accent)', marginRight: '4px' } }), 'Revenue'))),
@@ -266,7 +266,7 @@ function viewMarketing() {
     if (qboSpend > 0 && adSpend > 0 && qboSpend > adSpend * 1.15) sigs.push({ c: '#A9441F', t: 'Books show ' + money0(qboSpend) + ' marketing expense vs ' + money0(adSpend) + ' platform ad spend — ' + money0(qboSpend - adSpend) + ' in agency/vendor costs beyond the platforms' });
     if (!sigs.length) sigs.push({ c: 'var(--text-muted)', t: 'No anomalies this period — spend and returns are steady.' });
     wrap.append(el('div', { class: 'card p-4' },
-      el('h3', { class: 'text-sm font-bold mb-2' }, '🚨 Signals'),
+      el('h3', { class: 'text-base font-bold mb-2' }, '🚨 Signals'),
       el('div', { class: 'flex flex-col gap-1.5' },
         ...sigs.map(sg => el('div', { class: 'text-xs flex items-start gap-2' },
           el('span', { style: { color: sg.c, fontWeight: '900' } }, '●'),
@@ -276,7 +276,7 @@ function viewMarketing() {
   // ── QuickBooks reconciliation ──
   wrap.append(el('div', { class: 'card p-4' },
     el('div', { class: 'flex items-center justify-between flex-wrap gap-2' },
-      el('h3', { class: 'text-sm font-bold' }, '📒 Books vs Platforms'),
+      el('h3', { class: 'text-base font-bold' }, '📒 Books vs Platforms'),
       el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'QuickBooks “Advertising & Marketing” vs Windsor platform spend')),
     qboSlot.data
       ? el('div', {},

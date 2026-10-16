@@ -398,7 +398,7 @@ function adminDataHygiene() {
           el('div', { class: 'min-w-0' },
             el('div', { class: 'flex items-center gap-2' },
               el('span', {}, c.icon),
-              el('h3', { class: 'text-sm font-bold' }, c.title),
+              el('h3', { class: 'text-base font-bold' }, c.title),
               el('span', { class: 'text-sm font-black tabular-nums px-2 py-0.5 rounded-full', style: { background: n > 0 ? SEV[c.sev] + '18' : 'rgba(223,100,58,.14)', color: n > 0 ? SEV[c.sev] : '#DF643A' } }, n.toLocaleString()),
               (n > 0 && !c.custom) ? el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, isOpen ? '▴ close' : '▾ view rows') : null),
             el('p', { class: 'text-[11px] mt-1', style: { color: 'var(--text-muted)' } }, c.fix))),
@@ -1028,7 +1028,7 @@ function deptRevenueGoalCard(dept) {
   return el('div', { class: 'card p-5' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-3' },
       el('div', {},
-        el('h3', { class: 'text-sm font-bold' }, dept.label + ' revenue goal'),
+        el('h3', { class: 'text-base font-bold' }, dept.label + ' revenue goal'),
         el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Drives the Revenue Pacer on the ' + (dept.id === 'tech' ? 'Technicians' : 'D2D Sales') + ' dashboard. Enter the year and it is spread across the months by ' + (new Date().getFullYear() - 1) + '’s actual ' + (dept.id === 'tech' ? 'technician' : 'door-to-door') + ' sales by month (Reset months goes back to that pattern). Edit the month % to reshape it — they need to total 100%.')),
       el('div', { class: 'flex items-center gap-2' },
         el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, 'Annual goal'),
@@ -1120,7 +1120,7 @@ function adminGoals() {
 
     // ── Annual targets + team size ──
     el('div', { class: 'card p-5' },
-      el('h3', { class: 'text-sm font-bold mb-4' }, 'Annual targets & team'),
+      el('h3', { class: 'text-base font-bold mb-4' }, 'Annual targets & team'),
       el('div', { class: 'grid grid-cols-1 sm:grid-cols-3 gap-4' },
         goalTargetCard('Total Revenue', g.amount, ytd.total, null, true),
         goalTargetCard(dept.lines.a, g.new_amount, ytd.new, (val) => reseed('new', val)),
@@ -1186,7 +1186,7 @@ function goalMonthlyCard(g, persist, dept) {
   });
   return el('div', { class: 'card p-4' },
     el('div', { class: 'flex items-center justify-between flex-wrap gap-2 mb-3' },
-      el('h3', { class: 'text-sm font-bold' }, dept.label + ' Quota'),
+      el('h3', { class: 'text-base font-bold' }, dept.label + ' Quota'),
       phone ? el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
         onchange: (e) => { state._goalMonth = Number(e.target.value); mountApp(); } },
         ...M.map((lbl, m) => el('option', { value: m, selected: m === state._goalMonth }, lbl + (m === curM ? ' (current)' : '')))) : null,
@@ -1736,7 +1736,7 @@ function adminUsage() {
   const th = (t, right) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
   const td = (t, right) => el('td', { class: 'px-2 py-1.5 tabular-nums ' + (right ? 'text-right whitespace-nowrap' : 'text-left'), style: right ? {} : { overflowWrap: 'anywhere' } }, t);
   const table = (title, sub, heads, rows, empty) => el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'px-4 py-3 border-b', style: { borderColor: 'var(--border)' } }, el('h3', { class: 'text-sm font-bold' }, title), sub ? el('div', { class: 'text-[11px] text-muted-' }, sub) : null),
+    el('div', { class: 'px-4 py-3 border-b', style: { borderColor: 'var(--border)' } }, el('h3', { class: 'text-base font-bold' }, title), sub ? el('div', { class: 'text-[11px] text-muted-' }, sub) : null),
     rows.length ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, ...heads.map(([h, r]) => th(h, r)))),
       el('tbody', {}, ...rows.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, ...r.map(([v, right]) => td(v, right)))))))
@@ -1907,7 +1907,7 @@ function d2dRepGoalsCard(partnerOnly) {
   const total = reps.reduce((a, x) => a + (Number(x.g.annual_revenue_goal) || 0), 0);
   return el('div', { class: 'card p-4' },
     el('div', { class: 'flex items-center justify-between flex-wrap gap-2 mb-3' },
-      el('h3', { class: 'text-sm font-bold' }, (partnerOnly ? 'My team' : 'Door to Door') + ' · ' + year + ' rep goals'),
+      el('h3', { class: 'text-base font-bold' }, (partnerOnly ? 'My team' : 'Door to Door') + ' · ' + year + ' rep goals'),
       el('span', { class: 'text-[11px] text-muted-' }, reps.length + ' rep' + (reps.length === 1 ? '' : 's') + ' · revenue goals total ' + usd(total))),
     reps.length
       ? el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', overflow: 'hidden' } }, ...sections)
@@ -1965,7 +1965,7 @@ function adminDataSources() {
   const connected = fst.last_test_ok === true && set.auth_key && set.auth_token;
   const frCard = el('div', { class: 'card p-5' },
     el('div', { class: 'flex items-start justify-between gap-3 flex-wrap mb-3' },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'FieldRoutes (CRM)'), el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'New subscriptions land in the Sales queues within 5 minutes; add-on tickets and the deleted-account scan use the same key.')),
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'FieldRoutes (CRM)'), el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'New subscriptions land in the Sales queues within 5 minutes; add-on tickets and the deleted-account scan use the same key.')),
       pill(connected ? true : (fst.last_test_ok === false ? false : null), connected ? 'Connected' : fst.last_test_ok === false ? 'Not connected' : (set.auth_key ? 'Saved · untested' : 'Not set up'))),
     el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' } },
       field('Subdomain', subIn, 'The first part of the address you sign in at — riddpest for riddpest.pestroutes.com.'),
@@ -1981,14 +1981,14 @@ function adminDataSources() {
   const rvOk = !!(st && st.lastRun && st.lastRun.ok);
   const rvCard = el('div', { class: 'card p-5' },
     el('div', { class: 'flex items-start justify-between gap-3 flex-wrap mb-3' },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'RevHawk (data warehouse)'), el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Full-book snapshot every 30 minutes — Reporting, Retention, Indicators and the TV board read this. Service account lives in the Netlify environment (GCP_SA_EMAIL / GCP_SA_PRIVATE_KEY).')),
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'RevHawk (data warehouse)'), el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Full-book snapshot every 30 minutes — Reporting, Retention, Indicators and the TV board read this. Service account lives in the Netlify environment (GCP_SA_EMAIL / GCP_SA_PRIVATE_KEY).')),
       pill(st && st.lastRun ? rvOk : null, st && st.lastRun ? (rvOk ? 'Healthy' : 'Last run failed') : 'checking…')),
     row('Last snapshot', st && st.recentSnapshots && st.recentSnapshots[0] ? ago(st.recentSnapshots[0].uploaded_at) + ' · ' + Number(st.recentSnapshots[0].rows || 0).toLocaleString() + ' rows' : '—'),
     row('Last run', st && st.lastRun ? (st.lastRun.stage || '') + (st.lastRun.ms ? ' · ' + Math.round(st.lastRun.ms / 1000) + 's' : '') : '—'),
     row('Derive worker', st && st.lastDerive ? (st.lastDerive.ok ? '✓ ' : '') + (st.lastDerive.stage || '') + ' · ' + ago(st.lastDerive.at) : '—'),
     el('div', { class: 'text-[10px] mt-3', style: { color: 'var(--text-subtle)' } }, 'Roadmap: a FieldRoutes-native mirror (nightly full pull + 5-minute changes into our own tables) makes this source optional for new customers.'));
   const sbCard = el('div', { class: 'card p-5' },
-    el('h3', { class: 'text-sm font-bold mb-2' }, 'Setup checklist'),
+    el('h3', { class: 'text-base font-bold mb-2' }, 'Setup checklist'),
     ...[
       ['FieldRoutes connected', !!connected],
       ['Commission Rules · Create sales from CRM subscriptions switched on (Configurations)', !!(state._autolog && state._autolog.enabled)],
