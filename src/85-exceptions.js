@@ -14,7 +14,14 @@ function exceptionFeedScope() {
 
 // Build the items. Pure over state; cheap enough to run on every mount
 // (a few passes over the raw sales + subscription arrays).
+// Memoized (per Isaac, Oct 16): the feed reconciles attribution, scans every sale and subscription — seconds on
+// live data — and both the Marketing card and the tab bubble asked for it on every render. Same data → same list;
+// 60 seconds at most, so time-based items ("no sales in 3 days") still move.
 function exceptionFeedItems(scope) {
+  const deps = [scope && scope.kind, state.allSales, state.reportingSubscriptions, state._ghl, state._attr, state.allProfiles, state._indicatorRawSales, state.reportingIsSpendPayee, state._adSpend, state._compExtras, state._reviewMarks, state.reportingSourceConfig, state._snapshotAt, state.indicatorsUploadedAt];
+  return perfT('exceptionFeedItems', () => refMemo('excFeed', deps, 60000, () => _exceptionFeedItemsRaw(scope)));
+}
+function _exceptionFeedItemsRaw(scope) {
   const items = [];
   const today = new Date(); today.setHours(12, 0, 0, 0);
   const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');

@@ -85,8 +85,10 @@ function mkpAllLeads() {
   const CI = _mkpContactIdx(), zipOff = typeof _ghlZipOffice === 'function' ? _ghlZipOffice() : new Map();
   const chSet = typeof mkmChannelSet === 'function' ? mkmChannelSet() : null;
   const lab = G.labels, paid = ghlPaidSet(), stages = G.stages || [], first = mkpFilters().attr === 'first';
-  const provOf = (i) => { if (i == null || i < 0) return 'Unmapped'; const p = ghlProviderOf(lab[i]); if (!p || p === GHL_NOT_LEAD) return p === GHL_NOT_LEAD ? GHL_NOT_LEAD : 'Unmapped'; return chSet && !chSet.has(p) ? 'Unmapped' : p; };
-  const sorted = G.opps.filter(o => o && o[0] && (o[2] || o[3])).slice().sort((a, b) => (a[0] + (a[4] || '')).localeCompare(b[0] + (b[4] || '')));
+  const _pc = new Map();
+  const provOf = (i) => { if (i == null || i < 0) return 'Unmapped'; if (_pc.has(i)) return _pc.get(i); const r = _provOf(i); _pc.set(i, r); return r; };
+  const _provOf = (i) => { const p = ghlProviderOf(lab[i]); if (!p || p === GHL_NOT_LEAD) return p === GHL_NOT_LEAD ? GHL_NOT_LEAD : 'Unmapped'; return chSet && !chSet.has(p) ? 'Unmapped' : p; };
+  const sorted = G.opps.filter(o => o && o[0] && (o[2] || o[3])).slice().sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : (a[4] || '') < (b[4] || '') ? -1 : (a[4] || '') > (b[4] || '') ? 1 : 0);   // plain compares: localeCompare on 36K rows cost ~1s
   const lastAt = new Map(), leads = []; let raw = 0, notLead = 0;
   for (const o of sorted) {
     const c = (o[2] && CI && CI.byP.get(o[2])) || (o[3] && CI && CI.byE.get(o[3])) || null;
@@ -194,7 +196,7 @@ function mkpSpendLines(win) {
 // ── Cohort + activity model, memoized per filter set ─────────────────────────
 function mkpModel() {
   const F = mkpFilters(), R = mkpRange();
-  const AL = mkpAllLeads(); if (!AL) return null;
+  const AL = perfT('pulse:leads', () => mkpAllLeads()); if (!AL) return null;
   const crm = (state.reportingSubscriptions || []).length && typeof _mkmOfficeCrmIndex === 'function' ? _mkmOfficeCrmIndex() : null;
   const winDays = F.win;
   const wFrom = R.pFrom, wTo = R.to;   // current + prior period
@@ -206,7 +208,7 @@ function mkpModel() {
   // Leads that could have produced a sale in the window: from (prior start − window) to the range end.
   const lo = _mkpAdd(wFrom, -winDays);
   const pool = AL.leads.filter(l => l.d >= lo && l.d <= wTo);
-  const conv = semLeadConversions(pool, crm, winDays);
+  const conv = perfT('pulse:conversions', () => semLeadConversions(pool, crm, winDays));
   const booked = (s) => { const ist = String(s.initial_status || '').trim().toLowerCase(); return !!s.initial_serviced_date || ist === 'completed' || ist === 'pending'; };
   const notRen = (s) => typeof reportingSourceClass !== 'function' || reportingSourceClass(reportingSourceOf(s)) !== 'renewal';
   for (const x of conv) {
@@ -219,7 +221,7 @@ function mkpModel() {
       x.days = Math.max(0, Math.round((_mkpMs(s.sold_date) - _mkpMs(x.lead.d)) / 86400000));
       const svcD = s.initial_serviced_date || (x.svc ? s.initial_service : null); x.svcDays = svcD ? Math.max(0, Math.round((_mkpMs(svcD) - _mkpMs(x.lead.d)) / 86400000)) : null; }
   }
-  const SP = mkpSpendLines({ from: wFrom, to: wTo, daily });
+  const SP = perfT('pulse:spend', () => mkpSpendLines({ from: wFrom, to: wTo, daily }));
   const spOk = (s) => (!F.ch || (F.ch.startsWith('g:') ? mkpGroupOf(s.prov) === F.ch.slice(2) : s.prov === F.ch.slice(2))) && (!F.market || s.market === F.market) && (!F.campaign || s.campaign === F.campaign);
   // A campaign filter can only be answered by the platforms (QuickBooks charges don't name campaigns) — say so on the card.
   const spendIn = (a, b, kind) => (F.campaign ? SP.plat : SP.lines).filter(s => s.d >= a && s.d <= b && (kind ? s.kind === kind : true) && spOk(s));
@@ -406,7 +408,8 @@ function mkpOpenRecords(title, rows, kind) {
 }
 
 // ── The page ─────────────────────────────────────────────────────────────────
-function mktgPulseView() {
+function mktgPulseView() { return perfT('pulse:view', () => _mktgPulseView()); }
+function _mktgPulseView() {
   if (typeof ghlLoadLeads === 'function') ghlLoadLeads();
   if (typeof reportingLoadQboSpend === 'function') reportingLoadQboSpend();
   const F = mkpFilters();

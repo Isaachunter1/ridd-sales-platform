@@ -30,6 +30,27 @@ const VIEW_FEATURE = { pay: 'pay', commission: 'pay', hall_of_fame: 'hall_of_fam
 function viewFeatureOn(viewKey) { const f = VIEW_FEATURE[viewKey]; return !f || featureOn(f); }
 const hasConfig = CFG.SUPABASE_PUBLISHABLE_KEY && !CFG.SUPABASE_PUBLISHABLE_KEY.includes('PASTE_');
 const DEMO = new URLSearchParams(location.search).has('demo') || location.hash === '#demo';
+// Render timing (per Isaac, Oct 16 — "make Marketing load faster"): add ?perf to the URL (or set localStorage
+// riddPerf = 1) and the slow sections log to the console; window.__riddPerf keeps the running totals.
+const PERF_ON = (() => { try { return /[?&]perf\b/.test(location.search) || localStorage.getItem('riddPerf') === '1'; } catch (e) { return false; } })();
+function perfT(label, fn) {
+  if (!PERF_ON) return fn();
+  const t = performance.now();
+  try { return fn(); } finally {
+    const ms = performance.now() - t, P = window.__riddPerf || (window.__riddPerf = {}), o = P[label] || (P[label] = { n: 0, ms: 0, max: 0 });
+    o.n++; o.ms += ms; o.max = Math.max(o.max, ms); if (ms > 100) console.info('[perf] ' + label + ' ' + Math.round(ms) + 'ms');
+  }
+}
+// Memo keyed on the identity of the data a computation reads, with a time ceiling for anything not in the key.
+// Used for the heavy task lists (Needs attention, Auditing tasks) that every render was rebuilding from scratch.
+function refMemo(key, deps, ttlMs, fn) {
+  const C = refMemo._c || (refMemo._c = new Map());
+  const hit = C.get(key);
+  if (hit && Date.now() - hit.at < ttlMs && hit.deps.length === deps.length && hit.deps.every((d, i) => d === deps[i])) return hit.v;
+  const v = fn();
+  C.set(key, { at: Date.now(), deps, v });
+  return v;
+}
 // Auth lock with a timeout (per Isaac, Oct 16 — the app hung on a blank page): supabase-js serializes every auth
 // call across ALL open tabs with one browser lock and, in this version, waits on it forever. One stuck tab (asleep
 // mid token refresh, or busy) held it, so every other tab's sign-in check waited forever. Now a tab waits at most

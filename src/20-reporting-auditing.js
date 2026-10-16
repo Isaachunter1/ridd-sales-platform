@@ -806,7 +806,12 @@ function auditTaskCard(t) {
       n ? el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, '→') : null));
 }
 // ── Auditing tasks as one dropdown list (per Isaac, Oct 13 — same look as Needs attention on Marketing) ──
+// Memoized like the Needs attention feed (per Isaac, Oct 16): the Auditing tab and the tab bubble both build it.
 function auditTaskItems() {
+  const deps = [state.allSales, state.reportingSubscriptions, state._svcChg, state._feeAudit, state.allProfiles, state._reviewMarks, state._indicatorRawSales, state.unloggedSales, state._crmDeletedIdsRaw, state.reportingSourceConfig];
+  return perfT('auditTaskItems', () => refMemo('auditTasks', deps, 60000, () => _auditTaskItemsRaw()));
+}
+function _auditTaskItemsRaw() {
   const items = [];
   try { items.push(feeCreditAuditCard({ item: true })); } catch (e) { console.warn('[auditing] fee task', e); }
   try { items.push(addOnNoRepAuditCard({ item: true })); } catch (e) { console.warn('[auditing] add-on task', e); }

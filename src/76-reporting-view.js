@@ -59,7 +59,7 @@ function viewReporting() {
     // Attribution is real for a developer (FieldRoutes + GoHighLevel only — no QuickBooks in it), so no sample ribbon there.
     (['marketing', 'putis', 'is'].includes(state.reportingSubTab) && !(state.reportingSubTab === 'marketing' && state._mktSub === 'providers' && state._mktProvView === 'recon')) ? devSampleBanner() : null,
     reportingMethodologyBar(),
-    _guarded(() =>
+    _guarded(() => perfT('reporting:' + state.reportingSubTab + (isMarketing ? ':' + (state._mktSub || '') : ''), () =>
     isMarketing                            ? reportingMarketingPnl() :
     state.reportingSubTab === 'is'         ? reportingMarketingPnl() :
     // Reporting → Configuration retired (settings audit, Sep 30): every
@@ -78,7 +78,7 @@ function viewReporting() {
     (state.reportingSubTab === 'health' || state.reportingSubTab === 'nextbest' || state.reportingSubTab === 'services') ? reportingWaterfall() :
     state.reportingSubTab === 'auditing'   ? el('div', { class: 'flex flex-col gap-4' }, auditTasksCard(), reportingAuditing()) :
     state.reportingSubTab === 'ops'        ? reportingOpsHub() :
-                                              reportingOverview()),
+                                              reportingOverview())),
   );
 }
 
