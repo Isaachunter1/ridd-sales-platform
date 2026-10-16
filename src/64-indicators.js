@@ -3510,7 +3510,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       // showed on the frozen Scope cell (the one with its own background).
       const _hov = (on) => (e) => { if (isOpen) return; const tr = e.currentTarget; tr.style.background = on ? 'var(--card-2)' : ''; const c0 = tr.firstElementChild; if (c0 && c0.style.position === 'sticky') c0.style.background = on ? 'var(--card-2)' : 'var(--card)'; };
       return el('tr', {
-        class: 'border-t border-' + (clickable ? ' cursor-pointer transition' : ''),
+        // No CSS transition (per Isaac, Oct 16): the row faded in while the frozen Scope cell switched instantly.
+        class: 'border-t border-' + (clickable ? ' cursor-pointer' : ''),
         style: isOpen ? { background: 'rgba(223,100,58,.08)' } : {},
         onclick: clickable ? () => { state._aggRecordsExpanded = isOpen ? null : expandKey; mountApp(); } : undefined,
         onmouseenter: clickable ? _hov(true) : undefined,
