@@ -897,7 +897,7 @@ function viewIndicators() {
               // One-tap range (per Isaac, Oct 4): the page opens on This Year, but in
               // season a rep mostly wants TODAY — so the four ranges people flip
               // between sit right on the bar instead of inside Filters.
-              el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' }, 'data-quick-range': '1' },
+              el('div', { class: 'inline-flex rounded-xl border overflow-hidden shrink-0', style: { borderColor: 'var(--border-2)', height: '28px', boxSizing: 'border-box' }, 'data-quick-range': '1' },   // same 28px box as Filters / 🏆 (per Isaac, Oct 16)
                 // ONE date button (per Isaac, Oct 12): it wears the current range's name; tap to pick another.
                 (() => {
                   const cur = state.indicatorsRangePreset;
@@ -920,7 +920,7 @@ function viewIndicators() {
                   return el('span', {
                     class: 'px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap', 'data-range-more': '1',
                     title: 'Date range',
-                    style: { position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px', color: 'var(--text)', background: 'var(--card)' },
+                    style: { position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px', color: 'var(--text)', background: 'var(--card)', height: '100%', paddingTop: '0', paddingBottom: '0', lineHeight: '16.5px' },
                   }, String((cur === 'this_year' && !isRange ? 'This year' : indicatorPresetLabel(cur)) || 'Date range').replace(/\u2026$/, ''), el('span', { style: { fontSize: '8px', opacity: '.8' } }, '\u25BE'), sel);
                 })()),
               el('div', { class: 'flex items-center justify-end gap-2 flex-wrap ml-auto' },
