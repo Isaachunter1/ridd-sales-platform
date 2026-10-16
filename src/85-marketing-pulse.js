@@ -173,7 +173,7 @@ function mkpSpendLines(win) {
           const d = ym + '-' + String(L.day || '01').padStart(2, '0');
           if (d < win.from || d > win.to || L.prov === SPQ_SKIP) continue;
           const prov = !L.prov ? 'Needs a vendor' : L.prov === SPQ_TOOLS ? 'Agency & tools' : L.prov;
-          const tx = { ym, day: L.day, d, payee: L.payee, memo: L.memo, amt: L.amt, acctLeaf: L.acctLeaf, prov: L.prov, how: L.how };
+          const tx = { ym, day: L.day, d, payee: L.payee, memo: L.memo, amt: L.amt, acctLeaf: L.acctLeaf, prov: L.prov, how: L.how, txn: L.txn, journal: L.journal };
           const shares = (L.prov && shareOf[L.prov]) || [['', 1]];
           for (const [bb, f] of shares) out.lines.push({ d, prov, market: mkpMarketOf(bb), amt: L.amt * f, src: 'qbo', kind: 'ad', tx, shared: !bb, allocated: shares.length > 1 });
         }
@@ -286,11 +286,67 @@ function mkpOpenSpend(needsOnly) {
     el('div', { style: { overflow: 'auto' } }, el('table', { class: 'w-full text-[11px]', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('Date'), th('Payee'), th('Memo'), th('QuickBooks account'), th('Amount', true), th('Vendor / channel'), th('Markets'))),
       el('tbody', {}, ...rows.slice(0, 2000).map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: r.prov === 'Needs a vendor' ? 'rgba(220,38,38,.05)' : '' } },
-        td(fmt.dateShort(r.tx.d)), td(r.tx.payee, { fontWeight: '600' }), td(r.tx.memo, Object.assign({ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis' }, _mkpMuted)), td(r.tx.acctLeaf, _mkpMuted),
+        td(fmt.dateShort(r.tx.d)), el('td', { class: 'px-2 py-1.5 whitespace-nowrap', style: { fontWeight: '600' } }, r.tx.payee || '—', r.tx.journal ? el('span', { class: 'ml-1 rounded px-1 text-[9px] font-bold', title: 'QuickBooks journal entry (an accrual, reversal or adjustment). Allocations between the marketing accounts net to $0 and are left out.', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, 'JOURNAL') : null), td(r.tx.memo, Object.assign({ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis' }, _mkpMuted)), td(r.tx.acctLeaf, _mkpMuted),
         td(Math.abs(r.amt - r.tx.amt) > 0.01 ? _mkpUsd(r.amt) + ' of ' + _mkpUsd(r.tx.amt) : _mkpUsd(r.amt), { fontWeight: '700' }, true),
         el('td', { class: 'px-2 py-1' }, admin ? pick(r) : r.prov, r.tx.how && r.tx.how !== 'your pick' ? el('div', { class: 'text-[9px]', style: { color: 'var(--text-subtle)' } }, r.tx.how === 'payee' ? 'auto · from the payee name' : r.tx.how) : null),
         td(r.mk.size ? [...r.mk.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => k + (r.mk.size > 1 ? ' ' + Math.round(v / r.amt * 100) + '%' : '')).join(' · ') : 'shared', _mkpMuted)))),
       el('tfoot', {}, el('tr', { style: { borderTop: '2px solid var(--text)' } }, td('Total', { fontWeight: '700' }), td('\u00a0'), td('\u00a0'), td('\u00a0'), td(_mkpUsd(rows.reduce((t, r) => t + r.amt, 0)), { fontWeight: '800' }, true), td('\u00a0'), td('\u00a0'))))));
+  overlay.append(card); document.body.append(overlay);
+}
+
+// ── New leads = the GoHighLevel sources behind them (per Isaac, Oct 16) ────────────────────────────────────
+// Every opportunity source label in the range, grouped by what it counts as: a channel, "Unmapped", or "Not a lead"
+// (left out of every count). A pick here saves to the same GoHighLevel source map as Settings → Configurations.
+function mkpOpenSources() {
+  const V = mkpModel(); if (!V) return;
+  const { R, cur } = V, G = state._ghl || {}, lab = G.labels || [];
+  const admin = typeof isAdminRole === 'function' && isAdminRole(state.profile && state.profile.role);
+  const chSet = typeof mkmChannelSet === 'function' ? mkmChannelSet() : new Set();
+  const map = ghlSourceMap();
+  const by = new Map();
+  const row = (k) => by.get(k) || by.set(k, { label: k, opps: 0, people: new Set(), leads: 0, sales: 0, cv: 0 }).get(k);
+  for (const o of (G.opps || [])) { if (!o || !o[0] || o[0] < R.from || o[0] > R.to) continue; const k = o[1] != null && o[1] >= 0 ? lab[o[1]] : ''; const r = row(k); r.opps++; r.people.add(o[2] || o[3] || ''); }
+  for (const x of cur.leads) { const r = row(x.lead.label || ''); r.leads++; if (x.sold) { r.sales++; r.cv += x.cv; } }
+  const statusOf = (label) => { if (!label) return 'Unmapped'; const p = ghlProviderOf(label); if (p === GHL_NOT_LEAD) return 'Not a lead'; return p && chSet.has(p) ? p : 'Unmapped'; };
+  const howOf = (label) => { if (!label) return 'no source on the opportunity'; const v = map[label]; if (v === GHL_NOT_LEAD) return 'your pick'; if (v === GHL_SELF) return 'its own channel'; if (v) return 'your pick'; return ghlAutoProvider(label) ? 'auto rule' : 'no rule — the label itself'; };
+  const groups = new Map();
+  for (const r of by.values()) { const g = statusOf(r.label); (groups.get(g) || groups.set(g, []).get(g)).push(r); }
+  const order = [...groups.keys()].sort((a, b) => (a === 'Not a lead') - (b === 'Not a lead') || (a === 'Unmapped' ? -1 : b === 'Unmapped' ? 1 : 0) || groups.get(b).reduce((t, r) => t + r.opps, 0) - groups.get(a).reduce((t, r) => t + r.opps, 0));
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey); overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  const set = (label, v) => { setGhlSourceMap(label, v === '' ? null : v); state._mkpMemo = null; close(); mountApp(); setTimeout(() => mkpOpenSources(), 0); };
+  const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
+  const opts = [...chSet].sort();
+  const pick = (r) => { const v = map[r.label];
+    return el('select', { class: 'rounded-lg border px-1.5 py-0.5 text-[11px]', style: Object.assign({}, selSt, statusOf(r.label) === 'Unmapped' ? { borderColor: '#DC2626' } : {}), onchange: (e) => set(r.label, e.target.value) },
+      el('option', { value: '', selected: !v }, 'Auto' + (ghlAutoProvider(r.label) ? ' (' + (ghlAutoProvider(r.label) === GHL_NOT_LEAD ? 'not a lead' : ghlAutoProvider(r.label)) + ')' : '')),
+      el('option', { value: GHL_NOT_LEAD, selected: v === GHL_NOT_LEAD }, 'Not a lead — don’t count'),
+      el('option', { value: GHL_SELF, selected: v === GHL_SELF }, 'Its own channel ("' + r.label.slice(0, 24) + '")'),
+      ...opts.map(c => el('option', { value: c, selected: v === c }, c))); };
+  const th = (t, rt) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (rt ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: '0' } }, t);
+  const td = (v, st, rt) => el('td', { class: 'px-2 py-1.5 whitespace-nowrap' + (rt ? ' text-right tabular-nums' : ''), style: st || {} }, v == null || v === '' ? '—' : v);
+  const body = [];
+  for (const g of order) {
+    const rs = groups.get(g).sort((a, b) => b.opps - a.opps), off = g === 'Not a lead';
+    const t = rs.reduce((a, r) => ({ opps: a.opps + r.opps, leads: a.leads + r.leads, sales: a.sales + r.sales }), { opps: 0, leads: 0, sales: 0 });
+    body.push(el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: g === 'Unmapped' ? 'rgba(220,38,38,.06)' : off ? 'var(--card-2)' : 'rgba(223,100,58,.06)' } },
+      td(g + (off ? ' · not counted' : ''), { fontWeight: '800', color: g === 'Unmapped' ? '#B91C1C' : off ? 'var(--text-muted)' : 'var(--text)' }), td(rs.length + ' source' + (rs.length === 1 ? '' : 's'), _mkpMuted), td(fmt.int(t.opps), { fontWeight: '700' }, true), td(off ? '—' : fmt.int(t.leads), { fontWeight: '700' }, true), td(off ? '—' : fmt.int(t.sales), { fontWeight: '700' }, true), td(''), td('')));
+    for (const r of rs) body.push(el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', opacity: off ? '.7' : '1' } },
+      td(r.label || '(no source)', { paddingLeft: '22px', fontWeight: '600' }), td(fmt.int(r.people.size) + ' people', _mkpMuted), td(fmt.int(r.opps), null, true), td(off ? '—' : fmt.int(r.leads), null, true), td(off ? '—' : fmt.int(r.sales), null, true),
+      td(howOf(r.label), Object.assign({ fontSize: '10px' }, _mkpMuted)), el('td', { class: 'px-2 py-1' }, admin && r.label ? pick(r) : '')));
+  }
+  const totOpps = [...by.values()].reduce((a, r) => a + r.opps, 0), notN = (groups.get('Not a lead') || []).reduce((a, r) => a + r.opps, 0);
+  const card = el('div', { class: 'card', style: { width: 'min(1100px, 96vw)', maxHeight: '86vh', display: 'flex', flexDirection: 'column', background: 'var(--card)' } },
+    el('div', { class: 'flex items-center gap-3 px-4 py-3 border-b flex-wrap', style: { borderColor: 'var(--border)' } },
+      el('div', { class: 'flex-1 min-w-0' }, el('div', { class: 'text-sm font-bold' }, 'New leads by GoHighLevel source · ' + R.label),
+        el('div', { class: 'text-[11px]', style: _mkpMuted }, fmt.int(totOpps) + ' opportunities in the range · ' + fmt.int(notN) + ' left out as "Not a lead" · ' + fmt.int(cur.n) + ' counted as new leads (one per person per 30 days' + (V.F.market || V.F.ch || V.F.type ? ', page filters applied' : '') + ').' + (admin ? ' A pick applies to that source everywhere in the app.' : ''))),
+      el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { close(); mkpOpenRecords('New leads · ' + R.label, cur.leads); } }, 'See the lead records'),
+      el('button', { class: 'text-xl leading-none', style: _mkpMuted, onclick: close, title: 'Close' }, '×')),
+    el('div', { style: { overflow: 'auto' } }, el('table', { class: 'w-full text-[11px]', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, th('Counts as / GHL source'), th(''), th('Opportunities', true), th('Counted leads', true), th('Sales', true), th('Mapped by'), th('Counts as'))),
+      el('tbody', {}, ...body))));
   overlay.append(card); document.body.append(overlay);
 }
 
@@ -407,12 +463,12 @@ function mktgPulseView() {
     kpi('Marketing spend', V.hasSpend ? _mkpUsd(adOnly) : 'Data unavailable', V.hasSpend ? _mkpDelta(adOnly, pAd, false) : null, sparkBy(d => spendByDay.get(d) || 0) && _mkpSpark(sparkBy(d => spendByDay.get(d) || 0), MKP_C.ink),
       _mkpInfo('Marketing spend', 'A mirror of the Advertising & Marketing expense account in QuickBooks: every charge dated in the range (lines marked "Not marketing" are left out). Each charge is assigned to a vendor / channel — Google card charges place themselves by the Ads account’s last four; anything else is picked once and remembered (or for one charge only). Charges land on their QuickBooks date, so a monthly bill shows on the day it posted. Click the card to see and assign the charges. The ad platforms are not added in; they supply campaign detail and a check against QuickBooks.'), SP.vendor === 'qbo' && !F.campaign ? () => mkpOpenSpend() : null, spendCaveat),
     kpi('New leads', fmt.int(cur.n), _mkpDelta(cur.n, prev.n, true), _mkpSpark(sparkBy(d => leadsByDay.get(d) || 0) || [], MKP_C.ink),
-      _mkpInfo('New leads', 'GoHighLevel opportunities opened in the range: the inbound lead record (contacts are mostly customer imports). One per person per 30 days — a second call or form from the same phone / email inside 30 days is a repeat. Every opportunity counts as qualified until GoHighLevel sends a qualified flag. ' + fmt.int(V.AL.raw) + ' raw opportunity events on file → ' + fmt.int(V.AL.leads.length) + ' unique leads.'), () => mkpOpenRecords('New leads · ' + R.label, cur.leads), cur.leads.filter(x => x.lead.paid).length + ' from paid channels'),
-    kpi('Cost per lead', V.hasSpend && cur.n ? _mkpUsd(cur.ad / cur.n) : V.hasSpend ? '—' : 'Data unavailable', V.hasSpend ? _mkpDelta(cur.n ? cur.ad / cur.n : null, prev.n && V.prevSpendOk ? prev.ad / prev.n : null, false) : null, null,
+      _mkpInfo('New leads', 'GoHighLevel opportunities opened in the range: the inbound lead record (contacts are mostly customer imports). One per person per 30 days — a second call or form from the same phone / email inside 30 days is a repeat. Every opportunity counts as qualified until GoHighLevel sends a qualified flag. ' + fmt.int(V.AL.raw) + ' raw opportunity events on file → ' + fmt.int(V.AL.leads.length) + ' unique leads.'), () => mkpOpenSources(), cur.leads.filter(x => x.lead.paid).length + ' from paid channels · click for the sources'),
+    kpi('Cost per lead', V.hasSpend && cur.n && cur.ad > 0 ? _mkpUsd(cur.ad / cur.n) : V.hasSpend ? '—' : 'Data unavailable', V.hasSpend ? _mkpDelta(cur.n ? cur.ad / cur.n : null, prev.n && V.prevSpendOk ? prev.ad / prev.n : null, false) : null, null,
       _mkpInfo('Cost per lead', 'Marketing spend ÷ new leads, for the same channels and market. Organic leads are in the count, so the all-channel CPL reads lower than a paid-only CPL; pick a channel to see its own.'), null, F.ch ? '' : 'all leads, organic included'),
     kpi(salesLbl, fmt.int(cur.s), _mkpDelta(cur.s, prev.s, true), _mkpSpark(sparkBy(d => salesByDay.get(d) || 0) || [], MKP_C.accent),
       _mkpInfo('Sales', 'Office Staff FieldRoutes sales (initial booked or done, renewals left out) whose person — normalized phone, else email — came in as a lead within the ' + F.win + '-day window before the sale. Exact matches only. ' + (F.mode === 'cohort' ? 'Cohort mode: sales from the leads that came in during the range, whenever they sold.' : 'Activity mode: lead-sourced sales sold during the range.')), () => mkpOpenRecords(salesLbl + ' · ' + R.label, cur.sales), fmt.usd0(cur.cv) + ' contracted'),
-    kpi('CAC', V.hasSpend && cur.s ? _mkpUsd(cur.ad / cur.s) : V.hasSpend ? '—' : 'Data unavailable', V.hasSpend ? _mkpDelta(cur.s ? cur.ad / cur.s : null, prev.s && V.prevSpendOk ? prev.ad / prev.s : null, false) : null, null,
+    kpi('CAC', V.hasSpend && cur.s && cur.ad > 0 ? _mkpUsd(cur.ad / cur.s) : V.hasSpend ? '—' : 'Data unavailable', V.hasSpend ? _mkpDelta(cur.s ? cur.ad / cur.s : null, prev.s && V.prevSpendOk ? prev.ad / prev.s : null, false) : null, null,
       _mkpInfo('Customer acquisition cost', 'Marketing-spend CAC: QuickBooks Advertising & Marketing spend ÷ sales (agency & tools charges included, since they sit in that account). Fully loaded CAC adds the wages / incentives entered on the Spend tab; it shows only when every month in the range has wages entered.'), null,
       fullyLoaded != null && cur.s ? 'fully loaded ' + _mkpUsd(fullyLoaded / cur.s) : 'marketing spend only · fully loaded unavailable'),
     kpi('Lead → sale', cur.n ? _mkpPct(cur.leads.filter(x => x.sold).length / cur.n) : '—', _mkpDelta(cur.n ? cur.leads.filter(x => x.sold).length / cur.n : null, prev.n ? prev.leads.filter(x => x.sold).length / prev.n : null, true), null,

@@ -11,6 +11,9 @@
 // │      an uploaded breakout (Angi, Baton, DoLead…), its GoHighLevel leads
 // │      by office, an even split, or one office;
 // │ so the Office × Provider table always adds up to QuickBooks to the cent.
+// │ Journal entries count like any line (ROR accrual / reversal, postage…) so the
+// │ total ties to QuickBooks (per Isaac, Oct 16) — except the allocation entry
+// │ that nets to $0 across the marketing accounts (left out by the refresh).
 // │ The month-end journal entry that moves Executive Marketing out to the
 // │ branch accounts is NOT spend — it is the controller booking this table —
 // │ and is only shown beside it as a check. CAC reads this allocation.
@@ -34,11 +37,11 @@ function _spqKey(payee, memo) {
   return 'm:' + String(memo || '').toLowerCase().replace(/ref\s*#.*$/, '').replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim().split(' ').slice(0, 4).join(' ');
 }
 // One charge's own key ("this charge only" picks): month, day, payee, memo, amount.
-function _spqLineKey(ym, day, payee, memo, amt) { return [ym, String(day || ''), String(payee || '').trim(), String(memo || '').trim(), (Number(amt) || 0).toFixed(2)].join('|'); }
+function _spqLineKey(ym, day, payee, memo, amt, txn) { if (txn) return ym + '|t' + txn; return [ym, String(day || ''), String(payee || '').trim(), String(memo || '').trim(), (Number(amt) || 0).toFixed(2)].join('|'); }
 // Assign a QuickBooks line to a provider (Spend tab + Marketing Pulse). onlyThis = just this charge; otherwise the
 // payee is remembered for every month (and any one-off pick on this charge is cleared).
 function spqSetRule(ym, L, prov, onlyThis) {
-  const m = _spqStore(), lk = _spqLineKey(ym, L.day, L.payee, L.memo, L.amt);
+  const m = _spqStore(), lk = _spqLineKey(ym, L.day, L.payee, L.memo, L.amt, L.txn);
   if (onlyThis) m.qbLineRules[lk] = prov; else { m.qbRules[_spqKey(L.payee, L.memo)] = prov; delete m.qbLineRules[lk]; }
   state._spqMemo = {}; state._mkpMemo = null; _mktgSave(); mountApp();
 }
@@ -59,7 +62,7 @@ function _spqGoogleAccts(year) {
 // One QuickBooks line → { prov, how, acct? }.
 function _spqClassify(line, m, gAccts, ym) {
   const [, payee, memo] = line;
-  const one = ym ? m.qbLineRules[_spqLineKey(ym, line[0], payee, memo, line[3])] : null;
+  const one = ym ? m.qbLineRules[_spqLineKey(ym, line[0], payee, memo, line[3], line[5])] : null;
   if (one) return { prov: one, how: 'this charge only' };
   const rule = m.qbRules[_spqKey(payee, memo)];
   if (rule) return { prov: rule, how: 'your pick' };
@@ -69,7 +72,7 @@ function _spqClassify(line, m, gAccts, ym) {
   if (g) { const a = gAccts[g[1]]; return a ? { prov: a.lsa ? 'Google Local Services' : 'Google Ads', how: 'Google account ' + a.acct + (a.name ? ' · ' + a.name : ''), acct: a.acct } : { prov: 'Google Ads', how: 'Google account ····' + g[1] + ' (not in the ad feed)' }; }
   if (/google\s*ads|google\s*\*?ads/i.test(txt)) return { prov: 'Google Ads', how: 'payee' };
   if (/facebk|facebook|\bmeta\b/i.test(txt)) return { prov: 'Facebook', how: 'payee' };
-  if (/\bror\b/i.test(txt)) return { prov: 'Facebook', how: 'ROR invoice (Facebook agency)' };
+  if (/\brorr?\b/i.test(txt)) return { prov: 'Facebook', how: line[6] === 'J' ? 'ROR accrual / reversal (Facebook agency)' : 'ROR invoice (Facebook agency)' };
   const pv = typeof qboPayeeProvider === 'function' ? qboPayeeProvider(payee) : '';
   if (pv) return { prov: pv, how: 'payee' };
   return { prov: '', how: '' };
@@ -118,7 +121,7 @@ function spqAllocMonth(ym) {
   const GL = typeof ghlLeads === 'function' ? ghlLeads() : null;
   if (GL) for (const l of GL.leads) { if (String(l.d).slice(0, 7) !== ym || !l.office || !branches.includes(l.office)) continue; const c = leads[l.prov] || (leads[l.prov] = {}); c[l.office] = (c[l.office] || 0) + 1; }
   const ctx = { m, AD, acctCells, leads };
-  const lines = raw.map(L => Object.assign({ day: L[0], payee: L[1], memo: L[2], amt: Number(L[3]) || 0, acctLeaf: L[4] || '' }, _spqClassify(L, m, gAccts, ym)));
+  const lines = raw.map(L => Object.assign({ day: L[0], payee: L[1], memo: L[2], amt: Number(L[3]) || 0, acctLeaf: L[4] || '', txn: L[5] || '', journal: L[6] === 'J' }, _spqClassify(L, m, gAccts, ym)));
   const cells = {}, byProv = {}; let total = 0, unassigned = 0, skipped = 0;
   const add = (prov, b, v) => { const c = cells[prov] || (cells[prov] = {}); c[b] = (c[b] || 0) + v; };
   const tools = [];
