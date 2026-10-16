@@ -6212,8 +6212,7 @@ function distinctTeamsForYear(year) {
 function teamTypeOf(t) {
   const x = (state._indicatorTeamTypes || {})[t];
   if (x) return x;
-  const d = (typeof _indTeamDepts === 'function') ? _indTeamDepts()[t] : '';
-  return d === 'office' || d === 'techs' ? d : 'd2d';
+  return 'd2d';   // teams made before the rep-type toggle are Sales Rep teams
 }
 function setTeamType(t, type) {
   if (!t) return;

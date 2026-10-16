@@ -63,7 +63,10 @@ function _indTeamDepts() {
   }
   const out = {};
   for (const t in tally) { let best = '', n = -1; for (const d in tally[t]) if (tally[t][d] > n) { n = tally[t][d]; best = d; } out[t] = best; }
-  // A team's rep type set in Manage Teams wins over the sales-based guess.
+  // A team's rep type is what Manage Teams says (per Isaac, Oct 16): set when the team is made under a tab, and
+  // every team that pre-dates the toggle is a Sales Rep team. The old majority-of-sales guess flipped a door team
+  // onto the Office Staff board once a member moved inside — a "traded" rep must not drag his old team along.
+  for (const t in out) out[t] = 'd2d';
   if (tt) for (const t in tt) if (tt[t]) out[t] = tt[t];
   _indTeamDepts._m = { raw, map, rev, tt, out };
   return out;

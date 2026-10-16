@@ -83,7 +83,31 @@ function manageTeamsPanel(opts) {
       _typeBySig = state._indicatorRepTypeBySig || {};
     }
     const hasTypeData = Object.keys(_typeBySig).length > 0;
-    const repTypeOf = (rep) => _typeBySig[_nameSig(rep)] || 'Unknown';
+    // Which tab a rep lives on = the rep type they are NOW (per Isaac, Oct 16 — a rep "traded" from inside
+    // sales to the doors kept showing under Office Staff because the CRM name map remembers their first type).
+    // Each SALE still counts for the role it was made in (teamOfSale / _indicatorDeptOf), so production before
+    // the trade stays on the old side and production after it lands on the new team. Current type, in order:
+    //   1. a team assignment this year → that team's rep type (being put on a team = being traded to it)
+    //   2. the linked app login's role        3. the latest role-history entry
+    //   4. the type of their most recent CRM sale       5. the CRM name map
+    const _TT = { d2d: 'Sales Rep', office: 'Office Staff', techs: 'Technician' };
+    const _profBySig = new Map((state.allProfiles || []).filter(p => p && p.full_name).map(p => [_nameSig(p.full_name), p]));
+    const _lastTypeBySig = (() => { const m = new Map(); for (const s of (state._indicatorRawSales || [])) { if (!s || !s.rep || !s.repType) continue; const iso = (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || ''; const k = _nameSig(getCanonicalRepName(s.rep)); const e = m.get(k); if (!e || iso > e.iso) m.set(k, { iso, t: s.repType }); } return m; })();
+    const _typeMemo = new Map();
+    const repTypeOf = (rep) => {
+      const k = _nameSig(rep);
+      if (_typeMemo.has(k)) return _typeMemo.get(k);
+      let out = '';
+      const tm = getRepTeam(rep);
+      if (tm && !isTeamExcluded(tm) && typeof teamTypeOf === 'function') out = _TT[teamTypeOf(tm)] || '';
+      const p = !out && _profBySig.get(k);
+      if (p && !isAdminRole(p.role) && p.role !== 'developer') out = (typeof isOfficeStaffProfile === 'function' && isOfficeStaffProfile(p)) ? 'Office Staff' : (typeof isTechRole === 'function' && isTechRole(p.role)) ? 'Technician' : 'Sales Rep';
+      if (!out && p && typeof roleHistoryClean === 'function') { const h = roleHistoryClean(p.role_history); const last = h && h.length ? h[h.length - 1] : null; if (last && ['Sales Rep', 'Office Staff', 'Technician'].includes(last.role)) out = last.role; }
+      if (!out) { const ls = _lastTypeBySig.get(k); if (ls && ['Sales Rep', 'Office Staff', 'Technician'].includes(ls.t)) out = ls.t; }
+      if (!out) out = _typeBySig[k] || 'Unknown';
+      _typeMemo.set(k, out);
+      return out;
+    };
     const repTypesPresent = (() => {
       const s = new Set(reps.map(repTypeOf));
       return ['Sales Rep', 'Office Staff', 'Technician'].filter(t => s.has(t)).concat(s.has('Unknown') ? ['Unknown'] : []);
