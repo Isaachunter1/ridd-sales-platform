@@ -3506,6 +3506,7 @@ function openIndicatorRepCard(rep, allReps = []) {
   let recordsLeaderExpanded = null;  // name of the rep whose accounts are expanded inline
   let cardScope = 'ytd';             // CARD_SCOPE_PRESETS id — scopes ALL stats/charts in this card (YTD default)
   let _trendWkOff = 0;               // 12-week trend paging (0 = latest window)
+  let _salesShowAll = false;          // Sales list: latest 25 until Show more
   let cardView = 'sales';            // 'sales' | 'retention' — retention mirrors the Auditing player card
   // Revenue tile mode (per Isaac, Oct 15): Office Staff default New (renewal-source sales out), toggle Total / Renewal.
   let cardRevMode = 'total';   // the Office Staff New / Total / Renewal switch is retired (per Isaac, Oct 16) — every board counts total
@@ -4813,11 +4814,25 @@ function openIndicatorRepCard(rep, allReps = []) {
     const aoTotal = _ao.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
     return el('div', { class: 'card overflow-hidden mt-5' },
       el('div', { class: 'px-4 py-2.5 border-b flex items-center justify-between gap-2 flex-wrap', style: { borderColor: 'var(--border)' } },
-        el('div', { class: 'text-sm font-bold' }, 'Sales · ' + (preset ? preset.label : 'selected range')),
+        el('div', { class: 'text-sm font-bold', title: preset ? preset.label : 'selected range' }, 'Sales'),   // just "Sales" (per Isaac, Oct 16) — the range sits on the card's dropdown
         el('div', { class: 'flex items-center gap-2' },
           el('span', { class: 'text-[11px] tabular-nums', style: { color: 'var(--text-muted)' } }, (scopedRep.sales || []).length.toLocaleString() + ' sale' + ((scopedRep.sales || []).length === 1 ? '' : 's') + ' · ' + fmt.usd0(total) + (_ao.length ? ' + ' + _ao.length + ' add-on' + (_ao.length === 1 ? '' : 's') + ' · ' + fmt.usd0(aoTotal) : '')),
           list.length ? el('button', { class: 'px-2.5 py-1 rounded border text-[11px] font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: () => exportDrillCsv(list) }, '↓ Export') : null)),
-      list.length ? el('div', { style: { maxHeight: '480px', overflowY: 'auto' } }, accountsTable(list))
+      list.length ? (() => {
+        // Latest 25, then Show more (per Isaac, Oct 16); Export still takes every row.
+        const SHOW = 25, host = el('div');
+        const paint = () => {
+          const rows = _salesShowAll ? list : list.slice(0, SHOW);
+          host.replaceChildren(accountsTable(rows),
+            list.length > SHOW ? el('button', {
+              class: 'w-full text-[11px] font-bold py-2 border-t transition hover:brightness-95',
+              style: { color: 'var(--accent)', background: 'var(--card-2)', borderColor: 'var(--border)' },
+              onclick: (e) => { e.stopPropagation(); _salesShowAll = !_salesShowAll; paint(); },
+            }, _salesShowAll ? '\u25B4 Show latest ' + SHOW : '\u25BE Show more (' + fmt.int(list.length - SHOW) + ' more)') : null);
+        };
+        paint();
+        return host;
+      })()
         : el('div', { class: 'p-4 text-center text-xs italic', style: { color: 'var(--text-muted)' } }, 'No sales in this range.'));
   }
   // Peak vs current (per Isaac, Oct 15): with Peak on, the accounts whose value came down after the initial
