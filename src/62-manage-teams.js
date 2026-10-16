@@ -846,13 +846,38 @@ function manageTeamsPanel(opts) {
                 : 'Off — counts everywhere.'),
           ),
           el('button', {
-            class: 'rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest cursor-pointer transition',
+            class: 'rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest cursor-pointer transition whitespace-nowrap shrink-0',
             style: excluded
               ? { background: '#DC2626', color: '#fff' }
               : { background: 'var(--card)', color: 'var(--text-muted)', border: '1px solid var(--border-2)' },
             onclick: () => { setTeamExcluded(t, !excluded); render(); },
           }, excluded ? '● On' : '○ Off'),
         ),
+        // Leave out of Indicators entirely (per Isaac, Oct 16 — moved here from
+        // Configurations so team exclusions live in one place). Same store as
+        // before: state.indicatorExclTeams, synced with the admin rules.
+        (() => {
+          const out = Array.isArray(state.indicatorExclTeams) && state.indicatorExclTeams.includes(t);
+          return el('div', { class: 'flex items-center justify-between gap-3 rounded-lg p-2.5',
+            style: { background: out ? 'rgba(220, 38, 38, .08)' : 'var(--card)', border: '1px solid ' + (out ? 'rgba(220, 38, 38, .35)' : 'var(--border-2)') } },
+            el('div', { class: 'flex flex-col' },
+              el('div', { class: 'text-xs font-bold' }, 'Leave out of Indicators'),
+              el('div', { class: 'text-[10px] text-muted-' }, out
+                ? 'On — every sale by a rep on this team drops out of Indicators (leaderboard, boards, competitions), by Office and company-wide too.'
+                : 'Off — this team’s sales count in Indicators.')),
+            el('button', {
+              class: 'rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest cursor-pointer transition whitespace-nowrap shrink-0',
+              style: out ? { background: '#DC2626', color: '#fff' } : { background: 'var(--card)', color: 'var(--text-muted)', border: '1px solid var(--border-2)' },
+              onclick: () => {
+                const cur = Array.isArray(state.indicatorExclTeams) ? state.indicatorExclTeams : [];
+                state.indicatorExclTeams = out ? cur.filter(x => x !== t) : cur.concat(t);
+                saveIndicatorState();
+                logActivity('config_change', { detail: 'Indicators ' + (out ? 'include' : 'exclude') + ' team: ' + t });
+                toast(out ? t + ' counts in Indicators again' : t + ' left out of Indicators', 'success');
+                render();
+              },
+            }, out ? '● On' : '○ Off'));
+        })(),
         // Remove team row
         el('div', { class: 'flex justify-end' },
           el('button', {
