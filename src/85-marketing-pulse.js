@@ -80,7 +80,7 @@ function _mkpContactIdx() {
 // repeat (a second call, a second form), not a new lead. { leads, raw } over the whole file, memoized.
 function mkpAllLeads() {
   const G = state._ghl; if (!G || !G.opps) return null;
-  const sig = JSON.stringify(ghlSourceMap()) + '|' + mkpFilters().attr + '|' + (typeof _mktgStore === 'function' ? (_mktgStore().channels || []).join(',') : '');
+  const sig = JSON.stringify(ghlSourceMap()) + '|' + mkpFilters().attr + '|' + (typeof _mktgStore === 'function' ? (_mktgStore().channels || []).join(',') : '') + '|' + (typeof mkpFrSources === 'function' ? mkpFrSources().join(',') : '');
   const M = mkpAllLeads._m; if (M && M.src === G.opps && M.sig === sig && M.zip === (typeof _ghlZipOffice === 'function' ? _ghlZipOffice() : null)) return M.out;
   const CI = _mkpContactIdx(), zipOff = typeof _ghlZipOffice === 'function' ? _ghlZipOffice() : new Map();
   const chSet = typeof mkmChannelSet === 'function' ? mkmChannelSet() : null;
@@ -306,6 +306,16 @@ function mkpOpenSpend(needsOnly) {
 // ── New leads = the GoHighLevel sources behind them (per Isaac, Oct 16) ────────────────────────────────────
 // Every opportunity source label in the range, grouped by what it counts as: a channel, "Unmapped", or "Not a lead"
 // (left out of every count). A pick here saves to the same GoHighLevel source map as Settings → Configurations.
+// Active FieldRoutes sources (the mirror in public.sources), renewals left out.
+function mkpFrSources() {
+  const out = new Set();
+  for (const x of (state.sources || [])) {
+    if (!x || !x.fr_source_id || x.is_active === false || x.fr_visible === false) continue;
+    if (typeof sourceIsRenewal === 'function' && sourceIsRenewal(x)) continue;
+    const n = String(x.name || '').trim(); if (n) out.add(n);
+  }
+  return [...out].sort((a, b) => a.toLowerCase() < b.toLowerCase() ? -1 : 1);
+}
 function mkpOpenSources() {
   const V = mkpModel(); if (!V) return;
   const { R, cur } = V, G = state._ghl || {}, lab = G.labels || [];
@@ -327,14 +337,17 @@ function mkpOpenSources() {
   document.addEventListener('keydown', onKey); overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   const set = (label, v) => { if (v === SPQ_NEW) { v = spqAskNewVendor(); if (!v) { close(); setTimeout(() => mkpOpenSources(), 0); return; } } setGhlSourceMap(label, v === '' ? null : v); state._mkpMemo = null; close(); mountApp(); setTimeout(() => mkpOpenSources(), 0); };
   const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
-  const opts = [...chSet].sort();
+  // The pick is a FieldRoutes source (per Isaac, Oct 16): the active, non-renewal sources mirrored from FieldRoutes, so
+  // GHL leads and FieldRoutes sales speak the same source names. A value already saved that isn't one stays listed.
+  const frSrc = mkpFrSources();
   const pick = (r) => { const v = map[r.label];
+    const opts = v && v !== GHL_NOT_LEAD && v !== GHL_SELF && !frSrc.includes(v) ? [v, ...frSrc] : frSrc;
+    const auto = ghlAutoProvider(r.label), autoFr = auto && auto !== GHL_NOT_LEAD ? frSrc.find(x => x.toLowerCase() === auto.toLowerCase()) : null;
     return el('select', { class: 'rounded-lg border px-1.5 py-0.5 text-[11px]', style: Object.assign({}, selSt, statusOf(r.label) === 'Unmapped' ? { borderColor: '#DC2626' } : {}), onchange: (e) => set(r.label, e.target.value) },
-      el('option', { value: '', selected: !v }, 'Auto' + (ghlAutoProvider(r.label) ? ' (' + (ghlAutoProvider(r.label) === GHL_NOT_LEAD ? 'not a lead' : ghlAutoProvider(r.label)) + ')' : '')),
+      el('option', { value: '', selected: !v }, 'Auto' + (auto ? ' (' + (auto === GHL_NOT_LEAD ? 'not a lead' : auto + (autoFr ? '' : ' — not a FieldRoutes source')) + ')' : '')),
       el('option', { value: GHL_NOT_LEAD, selected: v === GHL_NOT_LEAD }, 'Not a lead — don’t count'),
-      el('option', { value: GHL_SELF, selected: v === GHL_SELF }, 'Its own channel ("' + r.label.slice(0, 24) + '")'),
-      ...opts.map(c => el('option', { value: c, selected: v === c }, c)),
-      el('option', { value: SPQ_NEW }, '+ New channel…')); };
+      v === GHL_SELF ? el('option', { value: GHL_SELF, selected: true }, r.label + ' (its own)') : null,
+      ...opts.map(c => el('option', { value: c, selected: v === c }, c + (frSrc.includes(c) ? '' : ' (not in FieldRoutes)')))); };
   const th = (t, rt) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (rt ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: '0' } }, t);
   const td = (v, st, rt) => el('td', { class: 'px-2 py-1.5 whitespace-nowrap' + (rt ? ' text-right tabular-nums' : ''), style: st || {} }, v == null || v === '' ? '—' : v);
   const body = [];
@@ -355,7 +368,7 @@ function mkpOpenSources() {
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { close(); mkpOpenRecords('New leads · ' + R.label, cur.leads); } }, 'See the lead records'),
       el('button', { class: 'text-xl leading-none', style: _mkpMuted, onclick: close, title: 'Close' }, '×')),
     el('div', { style: { overflow: 'auto' } }, el('table', { class: 'w-full text-[11px]', style: { borderCollapse: 'collapse' } },
-      el('thead', {}, el('tr', {}, th('Counts as / GHL source'), th(''), th('Opportunities', true), th('Counted leads', true), th('Sales', true), th('Mapped by'), th('Counts as'))),
+      el('thead', {}, el('tr', {}, th('Source / GHL source'), th(''), th('Opportunities', true), th('Counted leads', true), th('Sales', true), th('Mapped by'), th('FieldRoutes source'))),
       el('tbody', {}, ...body))));
   overlay.append(card); document.body.append(overlay);
 }
