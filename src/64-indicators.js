@@ -3458,7 +3458,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       }
       const groupLine = rec.group
         ? el('div', { class: 'text-[10px] font-semibold mt-0.5', style: { color: 'var(--accent)' } }, opts.groupKind === 'branch' ? titleCase(rec.group) : rec.group)
-        : null;
+        // Company has no name line — keep an empty one so every row is the same height (per Isaac, Oct 16).
+        : el('div', { class: 'text-[10px] font-semibold mt-0.5', 'aria-hidden': 'true', style: { visibility: 'hidden' } }, '\u00a0');
       // The toggle decides which value gets the headline treatment;
       // the other shows as the secondary line alongside the date. Rep
       // count (unique reps who contributed) appears whenever the
@@ -3493,7 +3494,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       }
       const groupLine = rec.group
         ? el('div', { class: 'text-[10px] font-semibold mt-0.5', style: { color: 'var(--accent)' } }, opts.groupKind === 'branch' ? titleCase(rec.group) : rec.group)
-        : null;
+        // Company has no name line — keep an empty one so every row is the same height (per Isaac, Oct 16).
+        : el('div', { class: 'text-[10px] font-semibold mt-0.5', 'aria-hidden': 'true', style: { visibility: 'hidden' } }, '\u00a0');
       if (_recPhone) return _recPhoneCell(fmtPRA(rec.pra), rec.group ? (opts.groupKind === 'branch' ? titleCase(rec.group) : rec.group) : '', praSecondary(rec));
       return el('td', { class: 'p-3 align-top' },
         el('div', { class: 'text-base font-bold tabular-nums' }, fmtPRA(rec.pra)),
