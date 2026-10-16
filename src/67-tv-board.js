@@ -58,6 +58,16 @@ function tvRawWithLive() {
   return out;
 }
 
+// A sale with no office on it (per Isaac, Oct 16 — "Unassigned" revenue on the board): add-ons are logged on an
+// existing customer with no subscription ID and no office, so look the office up from FieldRoutes — the sale's
+// subscription, else any subscription on the same customer number. Memoized per snapshot.
+function tvSaleOfficeFallback(s) {
+  const subs = state.reportingSubscriptions || [];
+  let M = tvSaleOfficeFallback._m;
+  if (!M || M.src !== subs) { const bySub = new Map(), byCust = new Map(); for (const r of subs) { const o = String(r.office_name || '').trim(); if (!o) continue; if (r.subscription_id != null) bySub.set(String(r.subscription_id), o); if (r.customer_id != null && !byCust.has(String(r.customer_id))) byCust.set(String(r.customer_id), o); } M = tvSaleOfficeFallback._m = { src: subs, bySub, byCust }; }
+  const t = (o) => { if (!o) return ''; const hit = (state.offices || []).find(x => String(x.name || '').trim().toUpperCase() === o.toUpperCase()); return hit ? hit.name : (typeof _mktgTC === 'function' ? _mktgTC(o) : o); };
+  return t((s.crm_subscription_id != null && M.bySub.get(String(s.crm_subscription_id))) || (s.customer_number != null && M.byCust.get(String(s.customer_number))) || '');
+}
 function openTvBoard() {
   // Desktop only (per Isaac): the board is a wall display, never a phone view.
   try { if (window.matchMedia('(max-width: 900px)').matches) { if (typeof toast === 'function') toast('TV Display is desktop-only \u2014 open it on a computer.', 'info'); return; } } catch (e) { /* noop */ }
@@ -330,7 +340,7 @@ function openTvBoard() {
     }).sort((x, y) => y.revenue - x.revenue);
     // Offices
     const offAgg = new Map();
-    rows.forEach(s => { const o = (state.offices || []).find(x => x.id === s.office_id); const n = o ? o.name : (s._crmOffice || 'Unassigned'); if (!offAgg.has(n)) offAgg.set(n, { name: n, revenue: 0, renewal: 0, total: 0 }); const g = offAgg.get(n); const v = Number(s.revenue_amount) || 0; g.total += v; if (isRenewal(s)) g.renewal += v; else g.revenue += v; });
+    rows.forEach(s => { const o = (state.offices || []).find(x => x.id === s.office_id); const n = o ? o.name : (s._crmOffice || tvSaleOfficeFallback(s) || 'Unassigned'); if (!offAgg.has(n)) offAgg.set(n, { name: n, revenue: 0, renewal: 0, total: 0 }); const g = offAgg.get(n); const v = Number(s.revenue_amount) || 0; g.total += v; if (isRenewal(s)) g.renewal += v; else g.revenue += v; });
     const offices = [...offAgg.values()].sort((a, b) => b.revenue - a.revenue);   // revenue = NEW (the headline); renewal + total ride along
     const latest = [...rows].sort((a, b) => saleKey(b) - saleKey(a));   // newest sale first — by the CRM's clock, not sync order
     const goal = goalFor(range);
