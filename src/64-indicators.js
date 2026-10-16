@@ -4367,8 +4367,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // Revenue column (renewals are ~zero there) and Audit %.
   // Audit % shows for EVERY Type now (per Isaac, Sep 30) — Office Staff used to drop it.
   // Revenue split (per Isaac, Sep 30) — same idea as the ACV split. Revenue
-  // (labelled Total Revenue) stays the ranked column (Office Staff: the New / Total / Renewal switch);
-  // these four are off by default in Columns and ignore that switch:
+  // (labelled Total Revenue) stays the ranked column; these four are off by default in Columns:
   //   New Revenue       = everything but renewals (one-time included)
   //   Renewal Revenue   = renewals only
   //   One-Time Revenue  = one-time services only (non-renewal)
@@ -4384,9 +4383,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const _rl = 'total';
     if (ri >= 0) repCols[ri] = Object.assign({}, repCols[ri], { label: _rl === 'new' ? 'Revenue (New)' : _rl === 'renewal' ? 'Revenue (Renewals)' : 'Total Revenue' });
     if (ri >= 0) repCols.splice(ri + 1, 0,
-      // New / Renewal revenue columns are Office Staff only (per Isaac, Oct 4).
-      ...((state.indicatorDept || 'all') === 'office' ? [usdCol('newRevenue', 'New Revenue', 'Everything except renewals (one-time services included)'),
-      usdCol('renewalRevenue', 'Renewal Revenue', 'Renewal sources only (Renewal - Loyalty / Inbound / Outbound / Service Pro Upsell)')] : []),
+      // Revenue, defined (per Isaac, Oct 16) — every user type:
+      //   Total Revenue = everything · New Revenue = excludes renewals · Renewal Revenue = renewals only.
+      usdCol('newRevenue', 'New Revenue', 'Excludes renewals — every new sale, one-time services included'),
+      usdCol('renewalRevenue', 'Renewal Revenue', 'Renewal revenue only (Renewal - Loyalty / Inbound / Outbound / Service Pro Upsell)'),
       usdCol('otsRevenue', 'One-Time Revenue', 'One-time services only'),
       usdCol('recRevenue', 'Recurring Revenue', 'New revenue minus one-time services'),
     );
@@ -4445,9 +4445,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     sellingDays: 'How many days you made at least one sale.',
     acctsPerDay: 'Sales ÷ days you sold — days off don’t count against you.',
     revPerDay: 'Revenue ÷ days you sold — days off don’t count against you.',
-    revenue: 'Total contract value of every sale — new, one-time and renewals. What the board ranks by.' + ((state.indicatorDept || 'all') === 'office' ? ' Office Staff: the New / Total / Renewal switch narrows it.' : ''),
-    newRevenue: 'Everything except renewals (one-time services included).',
-    renewalRevenue: 'Renewals only (Renewal - Loyalty / Inbound / Outbound / Service Pro Upsell).',
+    revenue: 'Total Revenue — includes everything: new sales, one-time services and renewals. What the board ranks by.',
+    newRevenue: 'New Revenue — excludes renewals. Every new sale, one-time services included.',
+    renewalRevenue: 'Renewal Revenue — renewal revenue only (Renewal - Loyalty / Inbound / Outbound / Service Pro Upsell).',
     otsRevenue: 'One-time services only.',
     recRevenue: 'New recurring revenue: New Revenue minus one-time services.',
     avgPest: 'Average initial price, leaving out ' + ((typeof pestInitialExclList === 'function' ? pestInitialExclList() : []).join(', ') || 'nothing') + '.',

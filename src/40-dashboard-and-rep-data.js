@@ -3552,7 +3552,7 @@ function openIndicatorRepCard(rep, allReps = []) {
         onclick: (e) => { e.stopPropagation(); cardRevMode = v; renderBody(); } }, l)));
     scopedStats = [
       { key: 'sales',      label: 'Sales',      value: fmt.int(count) },
-      { key: 'revenue',    label: cardRevMode === 'new' ? 'New Revenue' : cardRevMode === 'renewal' ? 'Renewal Revenue' : cardRevMode === 'peak' ? 'Peak Revenue' : 'Revenue', value: fmt.usd0(revAmt), sub: revToggle,
+      { key: 'revenue',    label: cardRevMode === 'new' ? 'New Revenue' : cardRevMode === 'renewal' ? 'Renewal Revenue' : cardRevMode === 'peak' ? 'Peak Revenue' : 'Total Revenue', value: fmt.usd0(revAmt), sub: revToggle,
         title: cardRevMode === 'peak' ? 'Peak ' + fmt.usd0(revAmt) + ' vs ' + fmt.usd0(_nowAmt) + ' today \u2014 ' + fmt.usd0(Math.max(0, revAmt - _nowAmt)) + ' lowered since the initial was completed (rate cuts to save customers, downgrades) \u00b7 change history from ' + _peakSinceLabel() : 'Sales sold in this window · New = renewal-source sales out (the leaderboard default for Office Staff) · Production/Day follows this toggle' },
       { key: 'revPerDay',  label: 'Production/Day',
         value: _mo.revPerDay != null && cardRevMode === 'total' ? fmt.usd0(_mo.revPerDay) + (_mo.acctsPerDay != null ? ' / ' + Math.round(_mo.acctsPerDay) : '') : revDays > 0 ? fmt.usd0(revAmt / revDays) + ' / ' + Math.round(revSales.length / revDays) : '—' },   // whole accounts/day — decimals clipped the tile (per Isaac)
