@@ -2085,7 +2085,7 @@ WITH done AS (
   GROUP BY 1
 ),
 ch AS (
-  SELECT c.referenceID AS sid, c.changeID AS cid_, LEFT(c.dateChanged, 19) AS at, JSON_VALUE(e, '$.key') AS k, JSON_VALUE(e, '$.old') AS o
+  SELECT c.referenceID AS sid, c.changeID AS cid_, LEFT(c.dateChanged, 19) AS at_, JSON_VALUE(e, '$.key') AS k, JSON_VALUE(e, '$.old') AS o
   FROM ${TP('FieldRoutesChangelog')} c, UNNEST(JSON_QUERY_ARRAY(COALESCE(c.notesJson, SAFE.PARSE_JSON(c.notes)))) e
   JOIN done ON done.sid = c.referenceID
   WHERE c.classID = 7 AND JSON_VALUE(e, '$.key') IN ('recurringCharge', 'annualRecurringServices') AND LEFT(c.dateChanged, 19) > done.done_at
@@ -2098,9 +2098,9 @@ sub AS (
   FROM ${TP('FieldRoutesSubscription')} WHERE fieldRoutes_subscriptionID IN (SELECT DISTINCT sid FROM ch)
   QUALIFY ROW_NUMBER() OVER (PARTITION BY fieldRoutes_subscriptionID ORDER BY fieldRoutes_dateUpdated DESC, updatedAt DESC) = 1
 )
-SELECT sub.sid, sub.cust, sub.svc, sub.rec, sub.ars, sub.cv, sub.init, ch.at, ch.cid_, ch.k, ch.o
+SELECT sub.sid, sub.cust, sub.svc, sub.rec, sub.ars, sub.cv, sub.init, ch.at_, ch.cid_, ch.k, ch.o
 FROM ch JOIN sub USING (sid)
-ORDER BY sub.sid, ch.at DESC, ch.cid_ DESC`, { compact: true });
+ORDER BY sub.sid, ch.at_ DESC, ch.cid_ DESC`, { compact: true });
       const r2 = await runQuery(tokPk, `SELECT CAST(MIN(dateChangedDate) AS STRING) AS since, COUNT(*) AS n FROM ${TP('FieldRoutesChangelog')} WHERE classID = 7`, { compact: true });
       const histSince = (((r2 && r2.objects) || [])[0] || {}).since || null;
       const peaks = {};

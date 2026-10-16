@@ -2253,8 +2253,11 @@ window.addEventListener('beforeinstallprompt', (e) => {
       const tw = tip.offsetWidth, th = tip.offsetHeight;
       let x = r.left + r.width / 2 - tw / 2;
       x = Math.max(8, Math.min(x, window.innerWidth - tw - 8));
-      let y = r.top - th - 8;
-      if (y < 8) y = r.bottom + 8;
+      // Tips open above by default; a block marked data-tip-below (the player card's stat tiles, per Isaac,
+      // Oct 16 — the bubble was covering the tile's label) opens them underneath, flipping up only at the screen edge.
+      const _below = !!(t.closest && t.closest('[data-tip-below]'));
+      let y = _below ? r.bottom + 8 : r.top - th - 8;
+      if (_below ? (y + th > window.innerHeight - 8) : (y < 8)) y = _below ? r.top - th - 8 : r.bottom + 8;
       tip.style.left = x + 'px'; tip.style.top = y + 'px';
       tip.style.opacity = '1';
     }, 250);

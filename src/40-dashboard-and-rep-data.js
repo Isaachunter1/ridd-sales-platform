@@ -3723,7 +3723,7 @@ function openIndicatorRepCard(rep, allReps = []) {
     let _wide = false; try { _wide = window.matchMedia('(min-width: 640px)').matches; } catch (e) { /* phones */ }
     const _maxLen = Math.max(0, ...scopedStats.map(x => String(x.value).length));
     const _valCls = _wide ? (_maxLen > 13 ? 'text-sm' : 'text-lg') : (_maxLen > 11 ? 'text-xs' : _maxLen > 8 ? 'text-sm' : 'text-lg');
-    return el('div', { class: 'grid gap-2 sm:gap-3 mb-5 rep-stats-grid', style: (_wide && scopedStats.length === 11) ? { gridTemplateColumns: 'repeat(6, minmax(0, 1fr))' } : {} },
+    return el('div', { class: 'grid gap-2 sm:gap-3 mb-5 rep-stats-grid', 'data-tip-below': '1', style: (_wide && scopedStats.length === 11) ? { gridTemplateColumns: 'repeat(6, minmax(0, 1fr))' } : {} },
       ...scopedStats.map(stat => {
         // Not clickable any more (per Isaac, Oct 16): the Sales table under the card has every account and exports.
         return el('div', {
