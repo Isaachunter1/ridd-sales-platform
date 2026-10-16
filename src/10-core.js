@@ -30,8 +30,24 @@ const VIEW_FEATURE = { pay: 'pay', commission: 'pay', hall_of_fame: 'hall_of_fam
 function viewFeatureOn(viewKey) { const f = VIEW_FEATURE[viewKey]; return !f || featureOn(f); }
 const hasConfig = CFG.SUPABASE_PUBLISHABLE_KEY && !CFG.SUPABASE_PUBLISHABLE_KEY.includes('PASTE_');
 const DEMO = new URLSearchParams(location.search).has('demo') || location.hash === '#demo';
+// Auth lock with a timeout (per Isaac, Oct 16 — the app hung on a blank page): supabase-js serializes every auth
+// call across ALL open tabs with one browser lock and, in this version, waits on it forever. One stuck tab (asleep
+// mid token refresh, or busy) held it, so every other tab's sign-in check waited forever. Now a tab waits at most
+// 6 seconds for the lock and then goes ahead without it (the session in storage is still valid).
+async function _sbAuthLock(name, acquireTimeout, fn) {
+  if (typeof navigator === 'undefined' || !navigator.locks || !navigator.locks.request) return await fn();
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), 6000);
+  try {
+    return await navigator.locks.request(name, { mode: 'exclusive', signal: ac.signal }, async () => { clearTimeout(t); return await fn(); });
+  } catch (e) {
+    clearTimeout(t);
+    if (e && e.name === 'AbortError') { console.warn('[auth] another tab is holding the sign-in lock — continuing without it'); return await fn(); }
+    throw e;
+  }
+}
 const _sbReal = hasConfig
-  ? createClient(CFG.SUPABASE_URL, CFG.SUPABASE_PUBLISHABLE_KEY, { auth: { persistSession: true, autoRefreshToken: true } })
+  ? createClient(CFG.SUPABASE_URL, CFG.SUPABASE_PUBLISHABLE_KEY, { auth: { persistSession: true, autoRefreshToken: true, lock: _sbAuthLock } })
   : null;
 
 // ── SANDBOX MODE (admin) ──────────────────────────────────────────────────
@@ -3162,9 +3178,11 @@ async function boot() {
     // reloading here yanked users to the splash + reset their tab mid-read
     // (THE "app feels glitchy" report). Never re-splash a working session.
     if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') return;
+    // Deferred out of the auth callback: supabase-js runs it while holding the auth lock, and loadAndRender's
+    // first query asks for that same lock — the documented deadlock. setTimeout lets the callback return first.
     if (session) {
       if (state.profile) return;   // already hydrated — nothing to do
-      loadAndRender();
+      setTimeout(() => loadAndRender(), 0);
     } else mountAuth();
   });
 

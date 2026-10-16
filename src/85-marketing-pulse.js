@@ -134,12 +134,18 @@ function mkpSpendLines(win) {
   const branchesFor = (y) => (typeof _mktgBranchList === 'function') ? _mktgBranchList(y).all : [];
   // Platforms (detail + reconciliation)
   const D = win.daily;
+  // A campaign's market split is the same every day of a month — work it out once per campaign × month.
+  const shareMemo = new Map(), brMemo = new Map();
   const pushPlat = (r, d, amt) => {
-    const y = Number(d.slice(0, 4)), branches = branchesFor(y);
-    let offs = typeof adOfficesOf === 'function' ? adOfficesOf(r, branches).filter(b => branches.includes(b)) : [];
-    let shares = null;
-    if (!offs.length && typeof adGeoSplit === 'function') { const g = adGeoSplit(Object.assign({}, r, { ym: d.slice(0, 7) }), branches); if (g) { const tot = Object.values(g.by).reduce((a, v) => a + v, 0) + (g.unmapped || 0); if (tot > 0) shares = Object.entries(g.by).map(([b, v]) => [b, v / tot]).concat(g.unmapped ? [['', g.unmapped / tot]] : []); } }
-    if (!shares) shares = offs.length ? offs.map(b => [b, 1 / offs.length]) : [['', 1]];
+    const ym = d.slice(0, 7), sk = r.platform + '|' + r.acct + '|' + r.campaign + '|' + ym;
+    let shares = shareMemo.get(sk);
+    if (!shares) {
+      const y = Number(d.slice(0, 4)); let branches = brMemo.get(y); if (!branches) { branches = branchesFor(y); brMemo.set(y, branches); }
+      const offs = typeof adOfficesOf === 'function' ? adOfficesOf(r, branches).filter(b => branches.includes(b)) : [];
+      if (!offs.length && typeof adGeoSplit === 'function') { const g = adGeoSplit(Object.assign({}, r, { ym }), branches); if (g) { const tot = Object.values(g.by).reduce((a, v) => a + v, 0) + (g.unmapped || 0); if (tot > 0) shares = Object.entries(g.by).map(([b, v]) => [b, v / tot]).concat(g.unmapped ? [['', g.unmapped / tot]] : []); } }
+      if (!shares) shares = offs.length ? offs.map(b => [b, 1 / offs.length]) : [['', 1]];
+      shareMemo.set(sk, shares);
+    }
     for (const [b, f] of shares) out.plat.push({ d, prov: adProviderOf(r), market: mkpMarketOf(b), amt: amt * f, src: 'platform', campaign: r.campaign, acct: r.acctName || r.acct, platform: r.platform, clicks: (r.clicks || 0) * f, impr: (r.impr || 0) * f, pLeads: (r.leads || 0) * f, kind: 'ad' });
   };
   if (D && D.rows) {
@@ -155,7 +161,7 @@ function mkpSpendLines(win) {
         const ym = r.ym, dim = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0).getDate();
         const a = ym + '-01' < win.from ? win.from : ym + '-01', e = ym + '-' + String(dim).padStart(2, '0'), b = e > win.to ? win.to : e;
         if (a > b) continue;
-        for (let d = a; d <= b; d = _mkpAdd(d, 1)) pushPlat(r, d, r.spend / dim);
+        pushPlat(r, a, r.spend * _mkpDays(a, b) / dim);   // one line per campaign-month (detail only), on the overlap's first day
       }
     }
     if (any) out.platform = 'monthly';

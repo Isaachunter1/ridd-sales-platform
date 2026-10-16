@@ -767,7 +767,21 @@ const _mktgYm = (y, i) => y + '-' + String(i + 1).padStart(2, '0');
 const _mktgTC = (o) => String(o || '').split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w).join(' ');
 // FieldRoutes actuals for one calendar year: per branch/month + per source/month.
 const MKTG_UPSELL_SINCE = '2026-10-12';   // office-staff add-ons go live — upsells count from here
+// Memoized (per Isaac, Oct 16 — the app froze): this walks every subscription and was being called dozens of times per
+// render (every _mktgBranchList call, i.e. every QuickBooks month the Spend tab / Marketing Pulse allocates). Same
+// rows + same settings → same answer; a 15-second ceiling keeps it from going stale on anything not in the key.
 function _mktgActuals(year) {
+  const _rows = state.reportingSubscriptions || [];
+  let _sig = '';
+  try { _sig = [year, state._mktSrcMode || '', JSON.stringify(reportingExcludedSources() || null), JSON.stringify(typeof attrSourceOverrides === 'function' ? attrSourceOverrides() : null).length].join('|'); } catch (e) { _sig = String(Math.random()); }
+  const _C = _mktgActuals._c || (_mktgActuals._c = new Map());
+  const _hit = _C.get(year);
+  if (_hit && _hit.rows === _rows && _hit.sig === _sig && Date.now() - _hit.at < 15000) return _hit.v;
+  const _v = _mktgActualsRaw(year);
+  _C.set(year, { rows: _rows, sig: _sig, at: Date.now(), v: _v });
+  return _v;
+}
+function _mktgActualsRaw(year) {
   const rows = state.reportingSubscriptions || [];
   const isExcl = reportingExcludedSources();
   const gate = (r) => {

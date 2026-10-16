@@ -43,7 +43,12 @@ function adMetroBranch(metro, branches) {
 function adGeoSplit(r, branches) {
   if (r.platform !== 'google') return null;
   const S = (state._adSpend || {})[Number(String(r.ym).slice(0, 4))] || {};
-  const geo = (S.geo || []).filter(g => g.ym === r.ym && g.acct === r.acct && g.campaign === r.campaign);
+  // Indexed once per geo pull (per Isaac, Oct 16 — the app froze): this runs for every campaign row, and the
+  // Marketing Pulse calls it per day, so scanning the whole geo report each time cost minutes on long ranges.
+  const all = S.geo || [];
+  let I = adGeoSplit._idx && adGeoSplit._idx.src === all ? adGeoSplit._idx.map : null;
+  if (!I) { I = new Map(); for (const g of all) { const k = g.ym + '|' + g.acct + '|' + g.campaign; (I.get(k) || I.set(k, []).get(k)).push(g); } adGeoSplit._idx = { src: all, map: I }; }
+  const geo = I.get(r.ym + '|' + r.acct + '|' + r.campaign) || [];
   if (!geo.length) return null;
   const by = {}, metros = []; let mapped = 0, unm = 0;
   for (const g of geo) { const b = adMetroBranch(g.metro, branches); metros.push({ metro: g.metro, spend: g.spend, b }); if (b) { by[b] = (by[b] || 0) + g.spend; mapped += g.spend; } else unm += g.spend; }
