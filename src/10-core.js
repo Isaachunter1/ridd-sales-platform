@@ -41,6 +41,28 @@ function perfT(label, fn) {
     o.n++; o.ms += ms; o.max = Math.max(o.max, ms); if (ms > 100) console.info('[perf] ' + label + ' ' + Math.round(ms) + 'ms');
   }
 }
+// Off-render memo (per Isaac, Oct 16 — the Marketing tab froze for 10+ seconds at a time): a heavy list (Needs
+// attention, Auditing tasks) is never built inside a render. The render gets the last result (null the first time —
+// show "checking…"); when the data behind it changed, one rebuild is scheduled shortly after, at most once every
+// minGapMs, and the page re-renders when it's done. While the app is loading, the burst of data arrivals collapses
+// into one rebuild instead of one per arrival.
+function deferredMemo(key, depsFn, fn, opts) {
+  const o = opts || {}, delay = o.delay != null ? o.delay : 1200, minGap = o.minGapMs != null ? o.minGapMs : 30000, ttl = o.ttlMs != null ? o.ttlMs : 120000;
+  const C = deferredMemo._c || (deferredMemo._c = new Map());
+  let e = C.get(key); if (!e) { e = { has: false, v: null, deps: null, at: 0, timer: null }; C.set(key, e); }
+  const deps = depsFn();
+  const same = e.has && e.deps.length === deps.length && e.deps.every((d, i) => d === deps[i]) && Date.now() - e.at < ttl;
+  if (!same && !e.timer) {
+    const wait = Math.max(delay, e.has ? minGap - (Date.now() - e.at) : 0);
+    e.timer = setTimeout(() => {
+      e.timer = null;
+      try { e.v = fn(); e.has = true; } catch (err) { console.warn('[deferred] ' + key, err); if (!e.has) { e.v = []; e.has = true; } }
+      e.deps = depsFn(); e.at = Date.now();
+      try { mountApp(); } catch (err) { /* not mounted yet */ }
+    }, wait);
+  }
+  return e.has ? e.v : null;
+}
 // Memo keyed on the identity of the data a computation reads, with a time ceiling for anything not in the key.
 // Used for the heavy task lists (Needs attention, Auditing tasks) that every render was rebuilding from scratch.
 function refMemo(key, deps, ttlMs, fn) {

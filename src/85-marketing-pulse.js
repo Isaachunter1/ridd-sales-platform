@@ -324,7 +324,10 @@ function mkpOpenSources() {
   const map = ghlSourceMap();
   const by = new Map();
   const row = (k) => by.get(k) || by.set(k, { label: k, opps: 0, people: new Set(), leads: 0, sales: 0, cv: 0 }).get(k);
-  for (const o of (G.opps || [])) { if (!o || !o[0] || o[0] < R.from || o[0] > R.to) continue; const k = o[1] != null && o[1] >= 0 ? lab[o[1]] : ''; const r = row(k); r.opps++; r.people.add(o[2] || o[3] || ''); }
+  // Last time each source produced an opportunity, over the whole file (per Isaac, Oct 16) — spots dead sources.
+  const lastBy = new Map();
+  for (const o of (G.opps || [])) { if (!o || !o[0]) continue; const k = o[1] != null && o[1] >= 0 ? lab[o[1]] : ''; if (!lastBy.has(k) || o[0] > lastBy.get(k)) lastBy.set(k, o[0]);
+    if (o[0] < R.from || o[0] > R.to) continue; const r = row(k); r.opps++; r.people.add(o[2] || o[3] || ''); }
   for (const x of cur.leads) { const r = row(x.lead.label || ''); r.leads++; if (x.sold) { r.sales++; r.cv += x.cv; } }
   const statusOf = (label) => { if (!label) return 'Unmapped'; const p = ghlProviderOf(label); if (p === GHL_NOT_LEAD) return 'Not a lead'; return p && chSet.has(p) ? p : 'Unmapped'; };
   const howOf = (label) => { if (!label) return 'no source on the opportunity'; const v = map[label]; if (v === GHL_NOT_LEAD) return 'your pick'; if (v === GHL_SELF) return 'its own channel'; if (v) return 'your pick'; return ghlAutoProvider(label) ? 'auto rule' : 'no rule — the label itself'; };
@@ -355,9 +358,9 @@ function mkpOpenSources() {
     const rs = groups.get(g).sort((a, b) => b.opps - a.opps), off = g === 'Not a lead';
     const t = rs.reduce((a, r) => ({ opps: a.opps + r.opps, leads: a.leads + r.leads, sales: a.sales + r.sales }), { opps: 0, leads: 0, sales: 0 });
     body.push(el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: g === 'Unmapped' ? 'rgba(220,38,38,.06)' : off ? 'var(--card-2)' : 'rgba(223,100,58,.06)' } },
-      td(g + (off ? ' · not counted' : ''), { fontWeight: '800', color: g === 'Unmapped' ? '#B91C1C' : off ? 'var(--text-muted)' : 'var(--text)' }), td(rs.length + ' source' + (rs.length === 1 ? '' : 's'), _mkpMuted), td(fmt.int(t.opps), { fontWeight: '700' }, true), td(off ? '—' : fmt.int(t.leads), { fontWeight: '700' }, true), td(off ? '—' : fmt.int(t.sales), { fontWeight: '700' }, true), td(''), td('')));
+      td(g + (off ? ' · not counted' : ''), { fontWeight: '800', color: g === 'Unmapped' ? '#B91C1C' : off ? 'var(--text-muted)' : 'var(--text)' }), td(rs.length + ' source' + (rs.length === 1 ? '' : 's'), _mkpMuted), td(''), td(fmt.int(t.opps), { fontWeight: '700' }, true), td(off ? '—' : fmt.int(t.leads), { fontWeight: '700' }, true), td(off ? '—' : fmt.int(t.sales), { fontWeight: '700' }, true), td(''), td('')));
     for (const r of rs) body.push(el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', opacity: off ? '.7' : '1' } },
-      td(r.label || '(no source)', { paddingLeft: '22px', fontWeight: '600' }), td(fmt.int(r.people.size) + ' people', _mkpMuted), td(fmt.int(r.opps), null, true), td(off ? '—' : fmt.int(r.leads), null, true), td(off ? '—' : fmt.int(r.sales), null, true),
+      td(r.label || '(no source)', { paddingLeft: '22px', fontWeight: '600' }), td(fmt.int(r.people.size) + ' people', _mkpMuted), (() => { const ld = lastBy.get(r.label); const age = ld ? Math.round((Date.now() - _mkpMs(ld)) / 86400000) : null; return td(ld ? fmt.dateShortYear(ld) + (age > 0 ? ' · ' + age + 'd ago' : ' · today') : '', { color: age != null && age > 30 ? MKP_C.amber : 'var(--text-muted)', fontSize: '10px' }); })(), td(fmt.int(r.opps), null, true), td(off ? '—' : fmt.int(r.leads), null, true), td(off ? '—' : fmt.int(r.sales), null, true),
       td(howOf(r.label), Object.assign({ fontSize: '10px' }, _mkpMuted)), el('td', { class: 'px-2 py-1' }, admin && r.label ? pick(r) : '')));
   }
   const totOpps = [...by.values()].reduce((a, r) => a + r.opps, 0), notN = (groups.get('Not a lead') || []).reduce((a, r) => a + r.opps, 0);
@@ -368,7 +371,7 @@ function mkpOpenSources() {
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { close(); mkpOpenRecords('New leads · ' + R.label, cur.leads); } }, 'See the lead records'),
       el('button', { class: 'text-xl leading-none', style: _mkpMuted, onclick: close, title: 'Close' }, '×')),
     el('div', { style: { overflow: 'auto' } }, el('table', { class: 'w-full text-[11px]', style: { borderCollapse: 'collapse' } },
-      el('thead', {}, el('tr', {}, th('Source / GHL source'), th(''), th('Opportunities', true), th('Counted leads', true), th('Sales', true), th('Mapped by'), th('FieldRoutes source'))),
+      el('thead', {}, el('tr', {}, th('Source / GHL source'), th(''), th('Last lead'), th('Opportunities', true), th('Counted leads', true), th('Sales', true), th('Mapped by'), th('FieldRoutes source'))),
       el('tbody', {}, ...body))));
   overlay.append(card); document.body.append(overlay);
 }

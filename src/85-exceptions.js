@@ -17,9 +17,10 @@ function exceptionFeedScope() {
 // Memoized (per Isaac, Oct 16): the feed reconciles attribution, scans every sale and subscription — seconds on
 // live data — and both the Marketing card and the tab bubble asked for it on every render. Same data → same list;
 // 60 seconds at most, so time-based items ("no sales in 3 days") still move.
+// Built off-render (deferredMemo): returns null until the first build is done. Check-offs are applied by the callers.
 function exceptionFeedItems(scope) {
-  const deps = [scope && scope.kind, state.allSales, state.reportingSubscriptions, state._ghl, state._attr, state.allProfiles, state._indicatorRawSales, state.reportingIsSpendPayee, state._adSpend, state._compExtras, state._reviewMarks, state.reportingSourceConfig, state._snapshotAt, state.indicatorsUploadedAt];
-  return perfT('exceptionFeedItems', () => refMemo('excFeed', deps, 60000, () => _exceptionFeedItemsRaw(scope)));
+  return deferredMemo('excFeed:' + (scope && scope.kind), () => [state.allSales, state.reportingSubscriptions, state._ghl, state._attr, state.allProfiles, state.reportingSourceConfig, state._svcChg],
+    () => perfT('exceptionFeedItems', () => _exceptionFeedItemsRaw(scope)));
 }
 function _exceptionFeedItemsRaw(scope) {
   const items = [];
@@ -144,7 +145,7 @@ function _exceptionFeedItemsRaw(scope) {
   // with the reason on every row (and the location columns) so it can be
   // fixed in FieldRoutes straight from the drill.
   if (_adm && subs.length) {
-    const rec = crmReconciliationChecks(subs);
+    const rec = perfT('exc:crmChecks', () => refMemo('crmChecks', [subs, state.reportingSourceConfig], 300000, () => crmReconciliationChecks(subs)));
     const mk = (tag, label, rows, action) => {
       if (!rows.length) return;
       const recent = rows.filter(r => r.sold_date && r.sold_date >= d30).length;
@@ -163,7 +164,7 @@ function _exceptionFeedItemsRaw(scope) {
     // Same rule as the Auditing task (per Isaac, Oct 13): serviced cancels the retention book counts — never-serviced,
     // 3-day reversals, one-time and deleted customers left out — so both tabs show one number.
     let _nr = rec.noReason;
-    try { const T = typeof auditSubTasks === 'function' ? auditSubTasks().find(t => t.tag === 'No reason') : null;
+    try { const T = typeof auditSubTasks === 'function' ? perfT('exc:auditSubTasks', () => auditSubTasks()).find(t => t.tag === 'No reason') : null;
       if (T && T.rows) { const ids = new Set(subs.map(r => String(r.subscription_id))); _nr = T.rows.filter(r => ids.has(String(r.subscription_id))); } } catch (e) { /* fall back */ }
     mk('No reason', pl(_nr.length, 'serviced cancel with no cancel reason', 'serviced cancels with no cancel reason'), _nr);
   }
@@ -171,9 +172,9 @@ function _exceptionFeedItemsRaw(scope) {
   // Review opens the detail table right inside this card.
   if (_adm) {
     const det = (k) => () => { state._excDetail = state._excDetail === k ? null : k; mountApp(); };
-    try { const F = typeof mktgLeadFlowTask === 'function' ? mktgLeadFlowTask({ info: true }) : null;
+    try { const F = typeof mktgLeadFlowTask === 'function' ? perfT('exc:leadFlow', () => mktgLeadFlowTask({ info: true })) : null;
       if (F && F.n) items.push({ sev: 'red', tag: 'Lead flow', count: F.n, text: F.text + '. Check the form or integration that sends these leads in.', action: state._excDetail === 'flow' ? 'Hide' : 'Review', onClick: det('flow') }); } catch (e) { /* noop */ }
-    try { const Z = typeof mktgZipFixTask === 'function' ? mktgZipFixTask({ info: true }) : null;
+    try { const Z = typeof mktgZipFixTask === 'function' ? perfT('exc:zipFix', () => mktgZipFixTask({ info: true })) : null;
       if (Z && Z.n) items.push({ sev: 'amber', tag: 'ZIP', count: Z.n, text: 'active account' + (Z.n === 1 ? '' : 's') + ' coded to another office than its ZIP’s market, or with no valid ZIP — fix in FieldRoutes', action: state._excDetail === 'zipfix' ? 'Hide' : 'Review', onClick: det('zipfix') }); } catch (e) { /* noop */ }
   }
   return items;
@@ -272,6 +273,9 @@ function exceptionFeedCard() {
   if (!scope) return null;
   let items, _rvDone = [];
   try { items = exceptionFeedItems(scope); } catch (e) { console.warn('exception feed', e); return null; }
+  if (items == null) return el('div', { class: 'card overflow-hidden' }, el('div', { class: 'w-full flex items-center gap-2 px-4 py-2.5' },
+    el('span', { class: 'inline-block rounded-full', style: { width: '8px', height: '8px', background: 'var(--border-2)' } }),
+    el('span', { class: 'text-[11px] uppercase tracking-widest font-bold' }, 'Needs attention'), el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'checking…')));
   // Check-offs (per Isaac, Oct 15): a ticked item stays off until something new shows up in it.
   if (typeof rvApply === 'function') { items.forEach(i => { i.rvKey = i.rvKey || 'att:' + i.tag; }); const R = rvApply(items); items = R.active; _rvDone = R.done; }
   const open = state._excOpen === true;

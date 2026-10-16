@@ -807,9 +807,10 @@ function auditTaskCard(t) {
 }
 // ── Auditing tasks as one dropdown list (per Isaac, Oct 13 — same look as Needs attention on Marketing) ──
 // Memoized like the Needs attention feed (per Isaac, Oct 16): the Auditing tab and the tab bubble both build it.
+// Built off-render (deferredMemo): null until the first build is done.
 function auditTaskItems() {
-  const deps = [state.allSales, state.reportingSubscriptions, state._svcChg, state._feeAudit, state.allProfiles, state._reviewMarks, state._indicatorRawSales, state.unloggedSales, state._crmDeletedIdsRaw, state.reportingSourceConfig];
-  return perfT('auditTaskItems', () => refMemo('auditTasks', deps, 60000, () => _auditTaskItemsRaw()));
+  return deferredMemo('auditTasks', () => [state.allSales, state.reportingSubscriptions, state._svcChg, state._feeAudit, state.allProfiles, state._indicatorRawSales, state.unloggedSales, state._crmDeletedIdsRaw, state.reportingSourceConfig],
+    () => perfT('auditTaskItems', () => _auditTaskItemsRaw()));
 }
 function _auditTaskItemsRaw() {
   const items = [];
@@ -828,7 +829,11 @@ function _auditTaskItemsRaw() {
   return items.filter(Boolean);
 }
 function auditTasksCard() {
-  const _rv = rvApply(auditTaskItems());   // checked-off tasks drop out until something new shows up (per Isaac, Oct 15)
+  const _items = auditTaskItems();
+  if (_items == null) return el('div', { class: 'card overflow-hidden' }, el('div', { class: 'w-full flex items-center gap-2 px-4 py-2.5' },
+    el('span', { class: 'inline-block rounded-full', style: { width: '8px', height: '8px', background: 'var(--border-2)' } }),
+    el('span', { class: 'text-[11px] uppercase tracking-widest font-bold' }, 'Auditing tasks'), el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'checking…')));
+  const _rv = rvApply(_items);   // checked-off tasks drop out until something new shows up (per Isaac, Oct 15)
   const all = _rv.active;
   const RANK = { red: 0, amber: 1, ok: 2 };
   const todo = all.filter(i => i.sev !== 'ok').sort((a, b) => RANK[a.sev] - RANK[b.sev]);

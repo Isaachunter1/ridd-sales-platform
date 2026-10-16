@@ -1271,8 +1271,8 @@ function _rptTabTaskCount(k) {
   const hit = C[k]; if (hit && hit.sig === sig && Date.now() - hit.at < 30000) return hit.n;
   let items = [];
   try {
-    if (k === 'marketing' && typeof exceptionFeedScope === 'function' && typeof exceptionFeedItems === 'function') { const sc = exceptionFeedScope(); if (sc) { items = exceptionFeedItems(sc); items.forEach(i => { i.rvKey = i.rvKey || 'att:' + i.tag; }); } }
-    else if (k === 'auditing' && typeof auditTaskItems === 'function') items = auditTaskItems();
+    if (k === 'marketing' && typeof exceptionFeedScope === 'function' && typeof exceptionFeedItems === 'function') { const sc = exceptionFeedScope(); if (sc) { const raw = exceptionFeedItems(sc); if (raw == null) return 0; items = raw; items.forEach(i => { i.rvKey = i.rvKey || 'att:' + i.tag; }); } }
+    else if (k === 'auditing' && typeof auditTaskItems === 'function') { const raw = auditTaskItems(); if (raw == null) return 0; items = raw; }
     if (items.length && typeof rvApply === 'function') items = rvApply(items).active;
   } catch (e) { items = []; }
   const n = items.filter(i => i && i.sev !== 'ok').length;
