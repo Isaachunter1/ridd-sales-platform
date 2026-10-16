@@ -5236,6 +5236,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     keyOf: drill ? null : mixGroup === 'office' ? officeKeyOf : mixGroup === 'team' ? teamKeyOf : null,
     firstCol: drill ? 'Subscription' : groupNoun,
     title: drill ? 'Sales Mix \u00b7 ' + drill.key : (_mixScopeLabel ? 'Sales Mix \u00b7 ' + _mixScopeLabel : undefined),
+    // Say why it's empty (per Isaac, Oct 16 — Linksmen had no sales today and the table just said "No accounts here").
+    emptyText: _mixScopeLabel ? 'No ' + _mixScopeLabel + ' sales in this date range yet — pick a wider range (This Week, This Month) to see the mix.' : 'No sales in this date range yet.',
     onRowClick: (!drill && mixGroup !== 'subscription')
       ? (name) => { state._indicatorMixDrill = { group: mixGroup, key: name }; mountApp(); }
       : null,
@@ -5350,7 +5352,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
         el('div', { class: 'flex-1 text-right pr-2' }, 'Total'),
         ...cols.map(c => el('div', { class: c.w + ' text-left shrink-0', title: c.title || undefined }, c.label))),
       topSubscriptions.length === 0
-        ? el('div', { class: 'text-xs text-muted- italic py-3 text-center' }, 'No accounts here.')
+        ? el('div', { class: 'text-xs text-muted- italic py-3 text-center' }, opts.emptyText || 'No accounts here.')
         : el('div', { class: 'flex flex-col' },
             el('div', { class: 'flex items-center gap-3 text-[13px] py-2.5', style: { borderBottom: '3px solid var(--text)' } },
               firstCol('truncate font-black', 'Total'),
