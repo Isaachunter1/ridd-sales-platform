@@ -98,13 +98,13 @@ function viewCalendarSettings(opts) {
     el('option', { value: '' }, addable.length ? 'Add someone to the calendar…' : 'Everyone active is on the calendar'),
     ...addable.map(p => el('option', { value: p.id }, (p.full_name || p.email || p.id) + (p.role ? ' · ' + p.role : ''))));
   addSel.onchange = () => { const p = addable.find(x => x.id === addSel.value); if (p) setRoster(p, { on: true, dept: currentDepartment() }); };
-  const team = section('Team & schedule', 'Everyone on the calendar and their shifts for the week. Active office staff are on by default — add anyone else who works shifts, move someone between departments, or remove them. Click a day to add, move or remove shifts.',
+  const team = section('Team & Schedule', null,   // (description retired, per Isaac Oct 16)
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
       btn('‹', () => { const d = new Date(ws); d.setDate(d.getDate() - 7); state._calSetWeek = isoDate(d); mountApp(); }),
       btn('This week', () => { state._calSetWeek = null; mountApp(); }),
       btn('›', () => { const d = new Date(ws); d.setDate(d.getDate() + 7); state._calSetWeek = isoDate(d); mountApp(); }),
       el('span', { class: 'text-[12px] font-semibold ml-1' }, calendarWindowLabel(ws, 'week')),
-      el('div', { class: 'flex-1' }), addSel),
+      el('div', { class: 'flex-1' })),   // ("Add someone to the calendar" picker retired, per Isaac Oct 16 — Off-the-calendar people still have their ↩ chips)
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
       el('thead', { class: 'text-[9px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } }, el('tr', {},
         el('th', { class: 'text-left pr-2 font-semibold' }, 'Agent'), el('th', { class: 'text-left pr-2 font-semibold' }, 'Department'),
