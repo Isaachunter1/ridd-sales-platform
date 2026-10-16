@@ -2729,6 +2729,17 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // counting even when the CSV still references the old spelling.
   const parseNum = (s) => parseFloat(String(s || '').replace(/[$,%]/g,'').replace(/,/g,'').trim()) || 0;
   const repMap = {};
+  // Best Day / Week / Month records are ALWAYS year-to-date (per Isaac, Oct 16), whatever range the page is on: the
+  // rep's sales this calendar year from the same pool (same exclusions), not just the selected window.
+  const _ytdYear = String(new Date().getFullYear());
+  const _ytdByRep = new Map();
+  for (const s of (allRawSales || [])) {
+    if (applyExclusion && isRepExcluded(s.rep)) continue;
+    const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : '';
+    if (!iso || iso.slice(0, 4) !== _ytdYear) continue;
+    const k = getCanonicalRepName(s.rep || 'Unknown');
+    (_ytdByRep.get(k) || _ytdByRep.set(k, []).get(k)).push(s);
+  }
   // Office revenue lens (New / Total / Renewal) applies HERE, at the source
   // (per Isaac, Sep 30): every per-rep metric — MY %, ACV, Avg Init, APay %,
   // Serviced %, Attrition, cancels, records — is computed from the SAME
@@ -2835,7 +2846,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // those sources; Total = everything. D2D records are untouched (no
     // renewal motion there — always total).
     const _recMode = state.indicatorDept === 'office' ? (state._indRepRevMode || 'new') : 'total';
-    const _recRows = _recMode === 'total' ? r.sales : r.sales.filter(s => {
+    const _recPool = _ytdByRep.get(r.name) || r.sales;
+    const _recRows = _recMode === 'total' ? _recPool : _recPool.filter(s => {
       const ren = (typeof _indicatorIsRenewal === 'function') && _indicatorIsRenewal(s);
       return _recMode === 'renewal' ? ren : !ren;
     });
@@ -9291,9 +9303,24 @@ function _landingTile(who, showRep) {
     el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
     el('div', { class: 'text-base font-bold tabular-nums mt-0.5' }, value));
 }
+// The landing cards follow the page's date range (per Isaac, Oct 16 — the card said $6.1M YTD while the page was on
+// Today). Weekly view keeps year-to-date.
+function _landingWindow() {
+  try {
+    if (state.indicatorsView === 'range') {
+      const pre = state.indicatorsRangePreset;
+      const b = indicatorRangeBounds(pre, { start: state.indicatorsCustomStart, end: state.indicatorsCustomEnd });
+      if (b && b.start && b.end) {
+        const label = pre === 'custom' ? fmt.dateShort(b.start) + ' – ' + fmt.dateShort(b.end) : (typeof indicatorPresetLabel === 'function' ? indicatorPresetLabel(pre) : 'Range');
+        return { has: (iso) => !!iso && iso >= b.start && iso <= b.end, label };
+      }
+    }
+  } catch (e) { /* fall back to YTD */ }
+  const yr = String(new Date().getFullYear());
+  return { has: (iso) => !!iso && iso.slice(0, 4) === yr, label: yr + ' YTD' };
+}
 function _landingTiles(tile, m) {
-  const yr = new Date().getFullYear();
-  const ytdLabel = yr + ' YTD';
+  const ytdLabel = _landingWindow().label;
   const multi = m.ytd.filter(s => myBucketOf(s) === 'multi');
   const twelve = m.ytd.filter(s => myBucketOf(s) === 'twelve');
   const apayOn = m.ytd.filter(s => s.autoPay && s.autoPay !== 'No');
@@ -9351,15 +9378,13 @@ function repLandingPlayerCard(opts) {
     const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
     const mine = _sig(state.profile && state.profile.full_name);
     if (!mine && !myRepNameSet().size) return _repFirstRunCard();
-    const yr = String(new Date().getFullYear());
+    const W = _landingWindow();
     const all = (state._indicatorRawSales || []).filter(s =>
       s && s.rep && frPendingServiced(s) && (isMyRepName(s.rep) || _sig(getCanonicalRepName(s.rep)) === mine));
-    const ytd = all.filter(s => {
-      const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : '';
-      return iso && iso.slice(0, 4) === yr;
-    });
-    if (!ytd.length) return _repFirstRunCard(); // never a silent blank page
-    const name = getCanonicalRepName(ytd[0].rep);
+    const ytd = all.filter(s => W.has((typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : ''));
+    if (!all.length) return _repFirstRunCard(); // never a silent blank page
+    const _first = ytd[0] || all[0];
+    const name = getCanonicalRepName(_first.rep);
     const revenue = ytd.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
     const count = ytd.length;
     const sellDays = new Set(ytd.map(s => dateSoldToIso(s.dateSold)).filter(Boolean)).size;
@@ -9375,9 +9400,9 @@ function repLandingPlayerCard(opts) {
     const team = getRepTeam(name);
     const teamColor = team ? getTeamColor(team) : null;
     const tierMeta = (typeof repTierMeta === 'function') ? repTierMeta(getRepTier(name)) : null;
-    const office = (ytd[0].office || '').split(' ').map(w => (w[0] || '').toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+    const office = (_first.office || '').split(' ').map(w => (w[0] || '').toUpperCase() + w.slice(1).toLowerCase()).join(' ');
     const initials = name.split(/[\s,]+/).filter(Boolean).map(p => p[0]).join('').slice(0, 2).toUpperCase();
-    const repObj = { name, office: ytd[0].office || '', team, tier: getRepTier(name), sales: all, revenue: all.reduce((a, s) => a + (Number(s.contractValue) || 0), 0) };
+    const repObj = { name, office: _first.office || '', team, tier: getRepTier(name), sales: all, revenue: all.reduce((a, s) => a + (Number(s.contractValue) || 0), 0) };
 
     const tile = _landingTile(name, false);
 
@@ -9399,7 +9424,8 @@ function repLandingPlayerCard(opts) {
             // Revenue rides right beside the name (THE number) — pulled out
             // of the tile grid so the remaining 9 tiles fill even 3-per-row
             // rows on mobile.
-            el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-1' }, fmt.usd0(revenue)))),
+            el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-1' }, fmt.usd0(revenue)),
+            el('span', { class: 'text-[10px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)' } }, W.label))),
         // Right column, pinned top-right: Team | Me toggle over the link
         // (per Isaac — the toggle used to float mid-row on phones).
         el('div', { class: 'flex flex-col items-end gap-1.5 shrink-0 self-start ml-auto' },
@@ -9422,13 +9448,13 @@ function teamLandingPlayerCards(opts) {
     if (typeof myReachTeams !== 'function') return [];
     const teams = [...myReachTeams()].filter(Boolean).slice(0, 4);
     if (!teams.length) return [];
-    const yr = String(new Date().getFullYear());
+    const W = _landingWindow();
     const PEST_RE = pestInitialExclRe();
     const pool = (state._indicatorRawSales || []).filter(s => s && s.rep && frPendingServiced(s));
     const teamOf = (s) => getRepTeam(getCanonicalRepName(s.rep)) || '';
     return teams.map((team, i) => {
       const all = pool.filter(s => teamOf(s) === team);
-      const ytd = all.filter(s => { const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : ''; return iso && iso.slice(0, 4) === yr; });
+      const ytd = all.filter(s => W.has((typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : ''));
       const revenue = ytd.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
       const count = ytd.length;
       const reps = new Set(ytd.map(s => getCanonicalRepName(s.rep))).size;
@@ -9458,7 +9484,7 @@ function teamLandingPlayerCards(opts) {
               el('span', { class: 'text-lg font-bold truncate' }, team),
               el('span', { class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: color + '22', color } }, 'Team'),
               el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-1' }, fmt.usd0(revenue))),
-            el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, reps + ' rep' + (reps === 1 ? '' : 's') + ' with a sale this year')),
+            el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, reps + ' rep' + (reps === 1 ? '' : 's') + ' with a sale · ' + W.label)),
           el('div', { class: 'flex flex-col items-end gap-1.5 shrink-0 self-start ml-auto' },
             i === 0 ? _hdrExtra : null,
             el('span', { class: 'text-[11px] font-bold shrink-0', style: { color: 'var(--accent)' } }, 'Team card →'))),
