@@ -58,7 +58,8 @@ function viewCalendar() {
           onclick: () => {
             state.calendarView = v;
             const base = new Date(state.calendarAnchor + 'T00:00');
-            state.calendarAnchor = v === 'week' ? isoDate(startOfWeek(base)) : isoDate(startOfMonth(base));
+            // Week always opens on THIS week (per Isaac, Oct 16 — it used to land on the month's first week).
+            state.calendarAnchor = v === 'week' ? isoDate(startOfWeek(new Date())) : isoDate(startOfMonth(base));
             mountApp();
           },
         }, v === 'week' ? 'Week' : 'Month')),
@@ -391,11 +392,16 @@ function renderMonthGrid(anchor, today, meId, repById) {
   const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   // The month's standard shifts = its two most-used time windows (a window needs
   // at least 10% of the month's assignments to count); everything else is "Other".
-  const _stdWins = (() => {
+  // Weekdays and weekends have their own standard shifts (per Isaac, Oct 16 — 8AM–4PM is the Saturday / Sunday
+  // shift, so it must not land in "Other"): worked out separately, plus 8–4 always counts on a weekend.
+  const _isWkndIso = (iso) => { const d = new Date(iso + 'T00:00'); const w = d.getDay(); return w === 0 || w === 6; };
+  const _stdWinsBy = (() => {
     const pre = anchor.getFullYear() + '-' + String(anchor.getMonth() + 1).padStart(2, '0') + '-';
-    const n = {}; let tot = 0;
-    for (const sh of deptShifts()) { if (!String(sh.date || '').startsWith(pre) || !calendarAssignVisible(sh)) continue; const t = calShiftTimes(sh); const k = t.st + '|' + t.en; n[k] = (n[k] || 0) + 1; tot++; }
-    return Object.entries(n).filter(([, c]) => c >= tot * 0.1).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k]) => k).sort();
+    const n = { wd: {}, we: {} }, tot = { wd: 0, we: 0 };
+    for (const sh of deptShifts()) { if (!String(sh.date || '').startsWith(pre) || !calendarAssignVisible(sh)) continue; const g = _isWkndIso(sh.date) ? 'we' : 'wd'; const t = calShiftTimes(sh); const k = t.st + '|' + t.en; n[g][k] = (n[g][k] || 0) + 1; tot[g]++; }
+    const top = (g) => Object.entries(n[g]).filter(([, c]) => c >= tot[g] * 0.1).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k]) => k);
+    const we = top('we'); if (!we.includes('08:00|16:00')) we.push('08:00|16:00');
+    return { wd: top('wd').sort(), we: we.sort() };
   })();
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'grid grid-cols-7 border-b text-[11px] font-semibold uppercase tracking-wider text-muted-', style: { borderColor: 'var(--border)' } },
@@ -491,6 +497,7 @@ function renderMonthGrid(anchor, today, meId, repById) {
                   ...shown.flatMap((a, i2) => [i2 ? ', ' : '', el('span', { style: a.rep_id === meId ? { color: 'var(--accent)', fontWeight: '800' } : openShiftReqFor(a.id) ? { color: '#A9441F', fontStyle: 'italic' } : {} }, nameOf(a) + (o.other ? ' ' + winLabel(winOf(a)) : ''))]),
                   more > 0 ? el('span', { style: { fontWeight: '700' } }, ' +' + more + ' more') : null));
             };
+            const _stdWins = _isWkndIso(iso) ? _stdWinsBy.we : _stdWinsBy.wd;
             const std = rows.filter(a => _stdWins.includes(winOf(a))), other = rows.filter(a => !_stdWins.includes(winOf(a)));
             _stdWins.forEach((k, n) => { const list = std.filter(a => winOf(a) === k); if (list.length) out.push(block(winLabel(k), list, { color: ['#5F6C5B', '#B5733A'][n] || 'var(--border-2)' })); });
             if (other.length) out.push(block('Other', other, { other: true, color: 'var(--text-subtle)' }));
