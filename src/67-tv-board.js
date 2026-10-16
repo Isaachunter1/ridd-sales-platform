@@ -307,7 +307,9 @@ function openTvBoard() {
     const sgKnown = rowsAgent.filter(s => signedOf(s) != null);
     const sgYes = sgKnown.filter(s => signedOf(s) === true), sgNo = sgKnown.filter(s => signedOf(s) === false);
     const sgExcl = rows.filter(s => isHouse(s) || signedOf(s) == null);
-    const signedPct = sgKnown.length ? sgYes.length / sgKnown.length * 100 : null;
+    // No data yet = no number and no color (per Isaac, Oct 16): while the feed is paused the tile reads — in white;
+    // the red / green bands come back on their own once real signed data flows.
+    const signedPct = TV_SIGNED_PAUSED ? null : sgKnown.length ? sgYes.length / sgKnown.length * 100 : null;
     const apPool = rowsAgent.filter(s => s._crm);
     const ap = apPool.length ? apPool.filter(s => s._crmAutoPay).length / apPool.length : null;   // agent sales only
     // Reps — CRM sellers without an app account rank under their CRM name.
@@ -369,8 +371,8 @@ function openTvBoard() {
       { label: 'Under ' + f(redBelow), rows: r.sort(byAmt), color: BAND.red },
     ];
   };
-  const tile = (label, value, sub, drill, color) => el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, borderLeft: color ? '3px solid ' + color : '1px solid ' + T.hair, padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '0', cursor: drill ? 'pointer' : 'default' }, title: drill ? 'Tap to see what is behind this number' : '', onclick: drill || null },
-    eyebrow(label), figure(value, 'clamp(22px, 2.2cqw, 34px)', color));   // (descriptions dropped per Isaac — the room knows what these are)
+  const tile = (label, value, sub, drill, color) => (value == null || value === '—' ? (color = null) : null, el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, borderLeft: color ? '3px solid ' + color : '1px solid ' + T.hair, padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '0', cursor: drill ? 'pointer' : 'default' }, title: drill ? 'Tap to see what is behind this number' : '', onclick: drill || null },
+    eyebrow(label), figure(value, 'clamp(22px, 2.2cqw, 34px)', color)));   // (descriptions dropped per Isaac — the room knows what these are)
   // Drill panel (per Isaac): what is pulling a % up or down — the sales
   // that count on one side, the ones that don't on the other, as they were sold.
   // `metric` (optional): { of: (sale) → number, fmt: (n) → string } — what the
