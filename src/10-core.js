@@ -1338,9 +1338,22 @@ function _indCfgFingerprint() {
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
   return h + ':' + s.length;
 }
-function _indCfgSyncRec() { try { return JSON.parse(localStorage.getItem(IND_CFG_SYNC_KEY) || 'null'); } catch { return null; } }
+// THE STALE-TAB RESURRECTION BUG (per Isaac, Oct 16 — a removed team kept
+// coming back): the sync baseline lived ONLY in localStorage, which every
+// tab shares. Tab A removes a team and records "synced at T"; an older tab B
+// (still holding the team) then reads that same baseline, looks "dirty"
+// against it, claims based_on = T — so CAS accepts it — and pushes the
+// removed team back up. The baseline is now kept PER TAB in memory;
+// localStorage only seeds a fresh tab's first boot. A tab that hasn't seen
+// the latest server copy now correctly reads as stale and adopts it.
+let _indCfgTabRec = null;
+function _indCfgSyncRec() {
+  if (_indCfgTabRec) return _indCfgTabRec;
+  try { return JSON.parse(localStorage.getItem(IND_CFG_SYNC_KEY) || 'null'); } catch { return null; }
+}
 function _indCfgRecordSynced(serverAt) {
-  try { localStorage.setItem(IND_CFG_SYNC_KEY, JSON.stringify({ hash: _indCfgFingerprint(), serverAt: serverAt || new Date().toISOString() })); } catch {}
+  _indCfgTabRec = { hash: _indCfgFingerprint(), serverAt: serverAt || new Date().toISOString() };
+  try { localStorage.setItem(IND_CFG_SYNC_KEY, JSON.stringify(_indCfgTabRec)); } catch {}
 }
 function _indCfgDirty() {
   const r = _indCfgSyncRec();
