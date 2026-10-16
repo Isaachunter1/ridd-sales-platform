@@ -89,7 +89,9 @@ function indWorldHasTeams() {
 // Class Metrics, Sales Mix. A dashboard with no entry keeps its built order.
 // Anything not named (player card, comp card) keeps its place around them.
 // Oct 16 (per Isaac): player card → Performance Trends → Leaderboard → the rest.
-const _IND_ORDER_STD = ['yoy', 'rep-leaderboard', 'ind-table', 'power-charts', 'repTrend', 'agg-records', 'class-metrics', 'sales-mix'];
+// Oct 16 (per Isaac): one order for EVERY user type — (revenue pacer) → player card → Performance Trends → Leaderboard →
+// Indicators → Power Ranking → Records → Sales Mix, then Class Metrics and Metric Trends.
+const _IND_ORDER_STD = ['yoy', 'rep-leaderboard', 'ind-table', 'power-charts', 'agg-records', 'sales-mix', 'class-metrics', 'repTrend'];
 // Same order on all three dashboards (per Isaac, Oct 6). Office Staff keep the revenue-goal pacer above it.
 const IND_SECTION_ORDER = { d2d: _IND_ORDER_STD, office: _IND_ORDER_STD, techs: _IND_ORDER_STD, all: _IND_ORDER_STD };   // All too (per Isaac, Oct 9)
 // The dashboards open on TODAY (per Isaac, Oct 6) — the Today / Week / Month / Year chips are one tap away.
@@ -176,7 +178,7 @@ function worldRevenuePacer(dept) {
   const _keep = state.dashDateRange; state.dashDateRange = 'today';   // this pacer's third number is always Today
   try {
     return dashboardGoalCard(range, {
-      title: label + ' Revenue Pacer',
+      title: label + ' Revenue Pacer', simple: true,
       hint: target > 0 ? '' : 'No goal set \u2014 add one in Settings \u2192 Goals \u2192 ' + (dept === 'techs' ? 'Technician' : 'Sales Rep'),
       streams: [{ key: 'all', label, color: '#DF643A', actual: ytd, target, monthly: monthly || (target > 0 ? worldDeptCurve(dept).map(f => f * target) : null), win: tod, mtd }],
     });
@@ -197,7 +199,7 @@ function viewWorldDashboard() {
   const _adminPacer = (dept === 'd2d' || dept === 'techs') && isAdminRole(state.profile?.role) && !state.indicatorsComps;
   if ((dept === 'office' || _adminPacer) && typeof dashboardGoalCard === 'function') {
     try {
-      const goal = dept === 'office' ? dashboardGoalCard(getDateRange(state.dashDateRange)) : worldRevenuePacer(dept);
+      const goal = dept === 'office' ? dashboardGoalCard(getDateRange(state.dashDateRange), { simple: true }) : worldRevenuePacer(dept);   // two goal bars only (per Isaac, Oct 16)
       if (goal) {
         goal.setAttribute('data-section', 'goal-pacer');
         const barHost = [...node.children].find(c => c.querySelector && c.querySelector('#indFixedBar'));
@@ -1587,7 +1589,8 @@ function viewIndicators() {
     _isPartner && !_focusedComp && userCan('ind_card') && !(_repLayoutPrefs().hidden || []).includes('card') && partnerLandingCard(),
     // Sales reps: Your Performance Trends sits right under the player card,
     // ahead of the Indicators table + Power Ranking (per Isaac).
-    _repSalesLayout && !_focusedComp && userCan('ind_yoy') && !(_repLayoutPrefs().hidden || []).includes('yoy') && indLazy('yoy', () => indicatorYoYTrendChart(), null, 380),
+    // Same spot for admins now (per Isaac, Oct 16): one page order for every user type.
+    ((_repSalesLayout && !(_repLayoutPrefs().hidden || []).includes('yoy')) || !_repLite) && !_focusedComp && userCan('ind_yoy') && indLazy('yoy', () => indicatorYoYTrendChart(), null, 380),
 
     // ── Main metrics table (click metric name to sort branches) ──
     // Rep accounts get the focused view (Performance Trends + Rep
@@ -2002,10 +2005,7 @@ function viewIndicators() {
           indicatorChart(grain + ' PRA',     chartData, branches, 'pra',     chartWeeks, false, chartLabels),
           indicatorChart(grain + ' Revenue', chartData, branches, 'revenue', chartWeeks, false, chartLabels),
         ),
-        // Partners get the YoY/Performance Trends chart inside their
-        // personalized stack (yoy builder) — rendering it here too would
-        // double it up.
-        !_repLite && indLazy('yoy', () => indicatorYoYTrendChart(), null, 380),
+        // (Admins' Performance Trends moved up to its own spot under the pacer / player card — per Isaac, Oct 16.)
       );
     }, null, 720),
 

@@ -5643,7 +5643,9 @@ function dashboardGoalCard(range, opts) {
     // against the personal goal they set (⚙ My Settings) or an admin set
     // for them, with the same year-pace marker as the department bars. ──
     // opts.streams (Oct 6): another dashboard hands in its own stream(s) — D2D Sales and Technicians reuse this card with their own revenue + goal, no Individual view.
-    const goalMode = opts.streams ? 'dept' : LOY ? 'reps' : (state.dashGoalMode === 'reps' ? 'reps' : 'dept');
+    // opts.simple (per Isaac, Oct 16 — the Indicators dashboards): just the two goal bars, no Individual table, no stats row.
+    const _simple = !!opts.simple && !LOY;
+    const goalMode = (opts.streams || _simple) ? 'dept' : LOY ? 'reps' : (state.dashGoalMode === 'reps' ? 'reps' : 'dept');
     // Toggle stays pinned right on phones too (per Isaac): the longer
     // Individual title gets flex-1 / min-w-0 so it wraps instead of
     // shoving the toggle around.
@@ -5920,7 +5922,7 @@ function dashboardGoalCard(range, opts) {
         el('div', { class: 'goal-track', style: { position: 'relative' } },
           el('div', { style: { background: s.color, height: '100%', borderRadius: '0', transition: 'width .3s', width: (pct * 100).toFixed(2) + '%' } }),
           s.target > 0 ? el('div', { title: 'Seasonal pace — ' + fmt.usd0(s.target * sp) + ' should be sold by today', style: { position: 'absolute', top: '-3px', bottom: '-3px', left: Math.min(100, sp * 100).toFixed(1) + '%', width: '2px', background: 'var(--text)', opacity: '.65' } }) : null),
-        el('div', { class: 'grid', style: { gridTemplateColumns: _phoneP ? 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.35fr)' : 'repeat(3, minmax(0, 1fr))', gap: _phoneP ? '8px' : '12px', marginTop: '8px' } },
+        _simple ? null : el('div', { class: 'grid', style: { gridTemplateColumns: _phoneP ? 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.35fr)' : 'repeat(3, minmax(0, 1fr))', gap: _phoneP ? '8px' : '12px', marginTop: '8px' } },
           _stat('Need per day', needYear == null ? '—' : needYear > 0 ? fmt.usd0(needYear) : '✓ goal hit', needYear === 0 ? _GREEN : null,
             needYear == null ? '' : fmt.usd0(Math.max(0, s.target - s.actual)) + ' left on the annual goal ÷ ' + daysLeftY + ' selling days left this year (Mon–Fri, holidays off).'
               + (needMonth != null ? ' To land ' + _monName + ' alone: ' + (needMonth > 0 ? fmt.usd0(needMonth) + '/day over ' + daysLeftM + ' selling days.' : 'already hit.') : '')),
@@ -5943,7 +5945,7 @@ function dashboardGoalCard(range, opts) {
           el('span', { class: 'text-[11px] tabular-nums', style: { color: 'var(--text-muted)' }, title: opts.streams ? '' : 'New ' + fmt.usd0(ytdDept.new) + ' (' + newPctOfTotal.toFixed(0) + '%) + Renewal ' + fmt.usd0(ytdDept.renewal) + ' (' + renewalPctOfTotal.toFixed(0) + '%)' },
             (_one ? '' : (_phoneP ? _shortUsd(_totalShown) : fmt.usd0(_totalShown) + ' total') + ' · ') + daysLeft + ' days left'),
           opts.hint ? el('span', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' } }, opts.hint) : null),
-        opts.streams ? null : el('div', { class: 'inline-flex rounded-lg border overflow-hidden shrink-0 ml-auto', style: { borderColor: 'var(--border-2)' } },
+        (opts.streams || _simple) ? null : el('div', { class: 'inline-flex rounded-lg border overflow-hidden shrink-0 ml-auto', style: { borderColor: 'var(--border-2)' } },
           ...[['dept', 'Department'], ['reps', 'Individual']].map(([v, l]) => el('button', {
             class: 'px-2.5 py-1 text-[11px] font-semibold transition',
             style: goalMode === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
