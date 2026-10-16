@@ -379,7 +379,7 @@ function mktgSpendUploadCard(B, year) {
   const fileIn = el('input', { type: 'file', multiple: true, accept: '.csv,.xlsx,.xls,.tsv', class: 'hidden', onchange: (e) => { _spuUpload(e.target.files); e.target.value = ''; } });
   const head = el('div', { class: 'px-5 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
     el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Upload spend reports'),
-      el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Drop any spend report (CSV or Excel, one or many). Map it once — the columns, the provider and the branch — and the app remembers: the next report with the same layout, provider names or locations fills itself in.')),
+      el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Drop any spend report (CSV or Excel, one or many). Map it once — the columns, the provider and the office — and the app remembers: the next report with the same layout, provider names or locations fills itself in.')),
     el('label', { class: 'ml-auto rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, '↑ Choose files', fileIn));
   const pending = (state._spendPending || []).map(P => {
     const A = _spuComputeAll(P, branches, m);
@@ -424,22 +424,22 @@ function mktgSpendUploadCard(B, year) {
           el('span', { class: 'font-semibold' }, 'Provider'), sel(P.cols.prov || '', colOpts('Whole file is one provider'), (v) => { P.cols.prov = v; P.provMap = {}; })),
         !P.cols.prov ? el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Channel'), sel(P.channel, [['', 'Pick a channel…'], ...m.channels.map(c => [c, c])], (v) => { P.channel = v; })) : null,
         (!P.cols.prov && P.channel) ? _spuCplInput(P.channel) : null,
-        el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold', title: 'The column that says which branch / location each row belongs to — a branch ID, office name, market, campaign or ZIP. Each value in it is mapped to a branch below, once.' }, 'Branch column'), sel(P.cols.loc, colOpts('No branch / location column'), (v) => { P.cols.loc = v; P.locMap = {}; })),
+        el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold', title: 'The column that says which office / location each row belongs to — an office ID, office name, market, campaign or ZIP. Each value in it is mapped to an office below, once.' }, 'Office column'), sel(P.cols.loc, colOpts('No office / location column'), (v) => { P.cols.loc = v; P.locMap = {}; })),
         !P.cols.loc ? el('label', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, 'Goes to'), sel(P.noLoc, officeOpts.filter(o => o[0] !== SPU_SKIP), (v) => { P.noLoc = v; })) : null,
         P.grid ? el('label', { class: 'inline-flex items-center gap-1.5', title: 'Only read rows whose label says this (Baton: the Amount line, not the referral count).' }, el('span', { class: 'font-semibold' }, 'Only rows where'),
           sel(P.rowFilter ? P.rowFilter.col : '', colOpts('Every row'), (v) => { P.rowFilter = v ? { col: v, val: (P.rowFilter && P.rowFilter.val) || 'Amount' } : null; }),
           P.rowFilter ? el('span', {}, '=') : null,
           P.rowFilter ? el('input', { value: P.rowFilter.val, class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '90px' }, onchange: (e) => { P.rowFilter = { col: P.rowFilter.col, val: e.target.value }; mountApp(); } }) : null) : null,
-        (P.grid && P.cols.loc) ? el('label', { class: 'inline-flex items-center gap-1.5', title: 'A branch name in a merged cell covers the rows under it.' },
-          el('input', { type: 'checkbox', checked: !!P.fillDown, onchange: (e) => { P.fillDown = e.target.checked; mountApp(); } }), el('span', { class: 'font-semibold' }, 'Fill branch down')) : null,
+        (P.grid && P.cols.loc) ? el('label', { class: 'inline-flex items-center gap-1.5', title: 'An office name in a merged cell covers the rows under it.' },
+          el('input', { type: 'checkbox', checked: !!P.fillDown, onchange: (e) => { P.fillDown = e.target.checked; mountApp(); } }), el('span', { class: 'font-semibold' }, 'Fill office down')) : null,
         P.credits ? (() => { const K = (C.credit || {})[P.forceMonth] || _spuCreditsFor(P, P.forceMonth, branches, m);
-          return el('label', { class: 'inline-flex items-center gap-1.5', title: 'Referrals RIDD sent to Baton earn back ' + Math.round(BATON_SENT_SHARE * 100) + '% of the bid. Calls are handled centrally, so by default the credit is shared in proportion to each branch’s Baton cost.' },
+          return el('label', { class: 'inline-flex items-center gap-1.5', title: 'Referrals RIDD sent to Baton earn back ' + Math.round(BATON_SENT_SHARE * 100) + '% of the bid. Calls are handled centrally, so by default the credit is shared in proportion to each office’s Baton cost.' },
             el('input', { type: 'checkbox', checked: !!P.useCredits, onchange: (e) => { P.useCredits = e.target.checked; mountApp(); } }),
             el('span', { class: 'font-semibold' }, 'Subtract credits for referrals sent'),
             el('span', { style: { color: '#15803D', fontWeight: '600' } }, '−' + fmt.usd(K.total) + ' · ' + fmt.int(K.n) + ' referrals'),
-            P.useCredits ? sel(P.creditByZip ? 'zip' : 'pro', [['pro', 'shared by each branch’s Baton cost'], ['zip', 'by where the referral came from (ZIP)']], (v) => { P.creditByZip = v === 'zip'; }) : null,
+            P.useCredits ? sel(P.creditByZip ? 'zip' : 'pro', [['pro', 'shared by each office’s Baton cost'], ['zip', 'by where the referral came from (ZIP)']], (v) => { P.creditByZip = v === 'zip'; }) : null,
             (P.useCredits && P.creditByZip && K.spread) ? el('span', { style: muted }, fmt.usd0(K.spread) + ' outside our markets spread pro rata') : null); })() : null,
-        P.grid ? el('label', { class: 'inline-flex items-center gap-1.5', title: 'Type the net from the provider’s statement (Baton: Net Bought − Net Sold) and the branch split is scaled to match it to the cent.' },
+        P.grid ? el('label', { class: 'inline-flex items-center gap-1.5', title: 'Type the net from the provider’s statement (Baton: Net Bought − Net Sold) and the office split is scaled to match it to the cent.' },
           el('span', { class: 'font-semibold' }, 'Match statement total'), el('span', { style: muted }, '$'),
           el('input', { type: 'number', step: '0.01', value: P.statementTotal ? String(P.statementTotal) : '', placeholder: 'optional', class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '96px' },
             onchange: (e) => { const v = parseFloat(e.target.value); P.statementTotal = isFinite(v) && v ? v : 0; mountApp(); } })) : null),
@@ -451,12 +451,12 @@ function mktgSpendUploadCard(B, year) {
             el('span', { class: 'tabular-nums', style: muted }, fmt.usd0(L.amt)),
             sel(cur, chanOpts, (v) => { P.provMap = P.provMap || {}; P.provMap[k] = v; })); }))) : null,
       locRows.length ? el('div', { class: 'flex flex-col gap-1' },
-        lab(String(P.cols.loc) + ' → branch (' + locRows.length + ' value' + (locRows.length === 1 ? '' : 's') + ') · pick a branch for each · remembered for next time'),
+        lab(String(P.cols.loc) + ' → office (' + locRows.length + ' value' + (locRows.length === 1 ? '' : 's') + ') · pick an office for each · remembered for next time'),
         grid(shownLocs.map(([val, L]) => {
           const k = _spuKey(val), cur = (P.locMap && P.locMap[k]) || _spuAutoOffice(val, branches, m);
           const isNew = !m.spendLocMap[k] && !/^\d{5}(-\d{4})?$/.test(val);   // never mapped before — check it
           return el('div', { class: 'flex items-center gap-2 text-[11px]' },
-            isNew ? el('span', { class: 'rounded px-1 text-[9px] font-black uppercase', style: { background: 'rgba(223,100,58,.15)', color: 'var(--accent)' }, title: 'First time this value shows up — check its branch' }, 'New') : null,
+            isNew ? el('span', { class: 'rounded px-1 text-[9px] font-black uppercase', style: { background: 'rgba(223,100,58,.15)', color: 'var(--accent)' }, title: 'First time this value shows up — check its office' }, 'New') : null,
             el('span', { class: 'truncate', style: { flex: '1', minWidth: '0' }, title: val }, val || '(blank)'),
             el('span', { class: 'tabular-nums', style: muted }, fmt.usd0(L.amt)),
             sel(cur, officeOpts, (v) => { P.locMap = P.locMap || {}; P.locMap[k] = v; }));
@@ -466,7 +466,7 @@ function mktgSpendUploadCard(B, year) {
         el('span', { class: 'font-semibold' }, months.length ? fmt.usd0(total) + ' · ' + months.map(reportingMonthLbl).join(', ') : 'Nothing to add yet'),
         groups.length > 1 ? el('span', { style: muted }, groups.map(g => g.ch + ' ' + fmt.usd0(g.C.total)).join(' · ')) : (months.length ? el('span', { style: muted }, Object.entries(C.months.reduce((o, ym) => { for (const bb in C.cells[ym]) o[bb] = (o[bb] || 0) + C.cells[ym][bb]; return o; }, {})).sort((x, y) => y[1] - x[1]).slice(0, 6).map(([bb, v]) => _mktgTC(bb) + ' ' + fmt.usd0(v)).join(' · ')) : null),
         unmappedAmt ? el('span', { style: { color: '#DC2626', fontWeight: '600' } }, fmt.usd0(unmappedAmt) + ' from ' + A.unmapped.size + ' provider' + (A.unmapped.size === 1 ? '' : 's') + ' with no channel yet — pick one (or Skip) above') : null,
-        unalloc ? el('span', { style: { color: '#DC2626', fontWeight: '600' } }, fmt.usd0(unalloc) + ' could not be split (no leads or sales that month) — pick a branch') : null,
+        unalloc ? el('span', { style: { color: '#DC2626', fontWeight: '600' } }, fmt.usd0(unalloc) + ' could not be split (no leads or sales that month) — pick an office') : null,
         (C.noDate && !P.month && !P.forceMonth) ? el('span', { style: { color: '#DC2626', fontWeight: '600' } }, fmt.usd0(C.noDate) + ' has no date — pick the month above') : null,
         C.skipped ? el('span', { style: muted }, fmt.usd0(C.skipped) + ' skipped') : null,
         C.outside ? el('span', { style: muted }, fmt.int(C.outsideN) + ' row' + (C.outsideN === 1 ? '' : 's') + ' dated outside ' + reportingMonthLbl(P.forceMonth) + ' left out (' + fmt.usd0(C.outside) + ')') : null,
@@ -474,7 +474,7 @@ function mktgSpendUploadCard(B, year) {
         el('span', { class: 'ml-auto inline-flex gap-2' },
           el('button', { class: 'rounded-lg border px-2.5 py-1 font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._spendPending = state._spendPending.filter(x => x !== P); mountApp(); } }, 'Discard'),
           el('button', { class: 'rounded-lg px-3 py-1 font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)', opacity: ready ? '1' : '.5' },
-            onclick: () => { if (unalloc) { toast('Pick a branch for the spend that could not be split', 'error'); return; } _spuCommit(P, branches); } }, 'Add to sheet'))));
+            onclick: () => { if (unalloc) { toast('Pick an office for the spend that could not be split', 'error'); return; } _spuCommit(P, branches); } }, 'Add to sheet'))));
   });
   // What the app has learned (per Isaac, Oct 9): every remembered pick, with Forget.
   const memo = (() => {
@@ -490,7 +490,7 @@ function mktgSpendUploadCard(B, year) {
       el('div', { class: 'grid gap-4 mt-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' } },
         sect('Report layouts', T.map(([k, t]) => row(t.from || 'Report', [t.channel || (t.cols && t.cols.prov ? 'by ' + t.cols.prov : ''), t.cols && t.cols.amount].filter(Boolean).join(' · '), 'tpl', k))),
         sect('Provider → channel', PV.sort().map(([k, v]) => row(k, lbl(v), 'prov', k))),
-        sect('Location → branch', LC.sort().map(([k, v]) => row(k, lbl(v), 'loc', k)))));
+        sect('Location → office', LC.sort().map(([k, v]) => row(k, lbl(v), 'loc', k)))));
   })();
   const ups = m.spendUploads.slice().sort((a, b) => String(b.at).localeCompare(String(a.at)));
   const list = ups.length ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]' },
@@ -516,12 +516,12 @@ function mktgSpendUploadCard(B, year) {
 // Controller allocation below.
 const SPU_SKIP_PROVS = /^(organic|referral|unknown|direct|door to door|current customer|pestbooker|click-to-buy|gbp|google business( profile)?|main office( number)?|phone|website)$/i;   // free channels: nothing to pay
 function _spuEven(ch, ym, amount, branches) {
-  const m = _spuStore(); if (!(amount > 0)) return; if (!branches.length) { toast('No branches loaded yet — try again once the sales data has loaded', 'error'); return; }
+  const m = _spuStore(); if (!(amount > 0)) return; if (!branches.length) { toast('No offices loaded yet — try again once the sales data has loaded', 'error'); return; }
   const cells = {}; const per = Math.floor(amount / branches.length * 100) / 100; let used = 0;
   for (const b of branches) { cells[b] = per; used += per; }
   cells[branches[0]] = Math.round((cells[branches[0]] + amount - used) * 100) / 100;
-  m.spendUploads.push({ id: 'even-' + ch + '-' + ym + '-' + Date.now().toString(36), fileName: 'Entered · split evenly across ' + branches.length + ' branches', channel: ch, at: new Date().toISOString(), by: (state.profile && state.profile.full_name) || '', total: Math.round(amount * 100) / 100, n: 1, cells: { [ym]: cells } });
-  _spuRebuild(m, ch, [ym]); _mktgSave(); toast(fmt.usd0(amount) + ' of ' + ch + ' split evenly across ' + branches.length + ' branches', 'success'); mountApp();
+  m.spendUploads.push({ id: 'even-' + ch + '-' + ym + '-' + Date.now().toString(36), fileName: 'Entered · split evenly across ' + branches.length + ' offices', channel: ch, at: new Date().toISOString(), by: (state.profile && state.profile.full_name) || '', total: Math.round(amount * 100) / 100, n: 1, cells: { [ym]: cells } });
+  _spuRebuild(m, ch, [ym]); _mktgSave(); toast(fmt.usd0(amount) + ' of ' + ch + ' split evenly across ' + branches.length + ' offices', 'success'); mountApp();
 }
 function mktgSpendChecklist() {
   const m = _spuStore();
@@ -571,7 +571,7 @@ function mktgSpendChecklist() {
   return el('div', { class: 'card overflow-hidden' }, fileIn,
     el('div', { class: 'px-5 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
       el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Spend checklist · ' + reportingMonthLbl(ym)),
-        el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Every provider that sent leads into GoHighLevel this month, plus anything already carrying spend. A provider that bills per lead (DoLead): enter its fixed cost per lead, then Upload lead report — each row of the report is billed at that price. Otherwise upload a provider’s breakout by location, enter one total to split evenly across the branches, or mark No spend. Change the month in the Controller allocation below.')),
+        el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Every provider that sent leads into GoHighLevel this month, plus anything already carrying spend. A provider that bills per lead (DoLead): enter its fixed cost per lead, then Upload lead report — each row of the report is billed at that price. Otherwise upload a provider’s breakout by location, enter one total to split evenly across the offices, or mark No spend. Change the month in the Controller allocation below.')),
       el('span', { class: 'ml-auto' }, todo ? pill(todo + ' to do', 'rgba(220,38,38,.10)', '#B91C1C') : pill('✓ All providers covered', 'rgba(95,108,91,.16)', '#5F6C5B'))),
     rows.length ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('Provider'), th('GHL leads'), th('Fixed cost per lead'), th('Status'), th(''))),
@@ -599,7 +599,7 @@ function spuBranchPicker(branches, selected, onSave, opts) {
   opts = opts || {};
   const wrap = el('span', { class: 'relative inline-block' });
   const picked = new Set(selected || []);
-  const label = () => picked.size === 0 ? (opts.empty || 'Pick branches…') : picked.size === branches.length ? 'All ' + branches.length + ' branches' : picked.size === 1 ? _mktgTC([...picked][0]) : picked.size + ' branches';
+  const label = () => picked.size === 0 ? (opts.empty || 'Pick offices…') : picked.size === branches.length ? 'All ' + branches.length + ' offices' : picked.size === 1 ? _mktgTC([...picked][0]) : picked.size + ' offices';
   // The panel floats over the page (fixed, on <body>) so a table's scroll box can't clip it and the page still
   // scrolls with it open (per Isaac, Oct 9); it follows its button and opens upward when there's no room below.
   const panel = el('div', { class: 'card p-2 flex flex-col gap-1', style: { position: 'fixed', zIndex: '80', minWidth: '220px', overflowY: 'auto', display: 'none', boxShadow: 'var(--shadow-lg)' } });
@@ -623,7 +623,7 @@ function spuBranchPicker(branches, selected, onSave, opts) {
       ...branches.map(b => el('label', { class: 'flex items-center gap-2 px-1 py-0.5 text-[11px] cursor-pointer' },
         el('input', { type: 'checkbox', checked: picked.has(b), onchange: (e) => { if (e.target.checked) picked.add(b); else picked.delete(b); const n = panel.querySelector('.ml-auto'); if (n) n.textContent = picked.size + ' picked'; } }), _mktgTC(b))),
       el('button', { class: 'mt-1 rounded-lg px-2 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-        onclick: (e) => { e.stopPropagation(); if (!picked.size) { toast('Pick at least one branch', 'error'); return; } close(); onSave([...picked].sort()); } }, opts.save || 'Save · split evenly'));
+        onclick: (e) => { e.stopPropagation(); if (!picked.size) { toast('Pick at least one office', 'error'); return; } close(); onSave([...picked].sort()); } }, opts.save || 'Save · split evenly'));
   };
   document.addEventListener('mousedown', function closer(ev) { if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); close(); return; } if (!wrap.contains(ev.target) && !panel.contains(ev.target)) close(); });
   wrap.append(btn);
@@ -664,18 +664,18 @@ function reportingProviderIdsPanel() {
   const remove = (r) => { if (r.kind === 'camp') setAdCampaignOffice(r.key, null); else if (r.kind === 'acct') setAdAccountOffice(r.key, null); else { delete m.spendLocMap[r.key]; delete m.spendLocMeta[r.key]; _mktgSave(); } mountApp(); };
   // Add an ID ahead of a report (e.g. a new Angi branch ID).
   const provs = [...new Set([...(m.channels || []), ...rows.filter(r => r.kind === 'loc').map(r => r.prov)])].filter(p => !/^Several|^Uploaded/.test(p)).sort();
-  const addId = el('input', { type: 'text', placeholder: 'ID (e.g. Angi branch ID)', class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', width: '170px' } });
+  const addId = el('input', { type: 'text', placeholder: 'ID (e.g. Angi office ID)', class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', width: '170px' } });
   const addProv = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } }, ...provs.map(p => el('option', { value: p }, p)));
-  const addBr = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } }, el('option', { value: '' }, 'Branch…'), ...branches.map(b => el('option', { value: b }, _mktgTC(b))));
+  const addBr = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } }, el('option', { value: '' }, 'Office…'), ...branches.map(b => el('option', { value: b }, _mktgTC(b))));
   const addRow = admin ? el('div', { class: 'flex items-center gap-2 flex-wrap mb-3' },
     el('span', { class: 'text-[11px] font-semibold' }, 'Add an ID'), addProv, addId, addBr,
     el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => {
-      const k = _spuKey(addId.value); if (!k || !addBr.value) { toast('Enter the ID and pick a branch', 'error'); return; }
+      const k = _spuKey(addId.value); if (!k || !addBr.value) { toast('Enter the ID and pick an office', 'error'); return; }
       m.spendLocMap[k] = addBr.value; m.spendLocMeta[k] = { ch: addProv.value, col: '' }; _mktgSave(); toast('Saved ' + addId.value.trim() + ' → ' + _mktgTC(addBr.value), 'success'); mountApp(); } }, 'Save')) : null;
-  const search = el('input', { type: 'search', placeholder: 'Search an ID, provider or branch…', value: state._provIdQ || '', class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', width: '260px' },
+  const search = el('input', { type: 'search', placeholder: 'Search an ID, provider or office…', value: state._provIdQ || '', class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', width: '260px' },
     oninput: (e) => { state._provIdQ = e.target.value; clearTimeout(state._provIdT); state._provIdT = setTimeout(() => { mountApp(); const i = document.querySelector('#cfg-provids input[type=search]'); if (i) { i.focus(); const n = i.value.length; try { i.setSelectionRange(n, n); } catch (err) { /* */ } } }, 250); } });
   return el('div', { id: 'cfg-provids', class: 'flex flex-col gap-3' },
-    el('div', { class: 'text-[11px]', style: muted }, 'Every provider ID the app sends to a branch: Google LSA and Google Ads / Facebook campaigns and accounts (set on Marketing → Spend), and the branch / location IDs from uploaded reports like Angi. Saved for every admin. Change a branch here, remove a wrong one, or add an ID before its first report.'),
+    el('div', { class: 'text-[11px]', style: muted }, 'Every provider ID the app sends to an office: Google LSA and Google Ads / Facebook campaigns and accounts (set on Marketing → Spend), and the office / location IDs from uploaded reports like Angi. Saved for every admin. Change an office here, remove a wrong one, or add an ID before its first report.'),
     el('div', { class: 'flex items-center gap-3 flex-wrap' }, search, el('span', { class: 'text-[11px]', style: muted }, fmt.int(rows.length) + ' IDs saved')),
     addRow,
     shown.length ? el('div', { class: 'flex flex-col gap-4' }, ...[...byProv.entries()].sort((a2, b2) => a2[0].localeCompare(b2[0])).map(([prov, list]) => el('div', {},
@@ -684,7 +684,7 @@ function reportingProviderIdsPanel() {
         el('tbody', {}, ...list.sort((a2, b2) => String(a2.id).localeCompare(String(b2.id))).map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
           el('td', { class: 'px-2 py-1 font-semibold tabular-nums whitespace-nowrap' }, r.id),
           el('td', { class: 'px-2 py-1', style: Object.assign({ maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, muted), title: r.detail }, r.detail),
-          el('td', { class: 'px-2 py-1' }, admin && !(r.kind === 'loc' && (r.to[0] === 'split' || r.to[0] === 'skip')) ? spuBranchPicker(branches, r.to, (picked) => save(r, r.kind === 'loc' ? picked.slice(0, 1) : picked), { save: r.kind === 'loc' ? 'Save (first branch)' : 'Save · split evenly' }) : el('span', { class: 'font-semibold' }, r.to.length ? r.to.map(lbl).join(' + ') : 'Company-wide')),
+          el('td', { class: 'px-2 py-1' }, admin && !(r.kind === 'loc' && (r.to[0] === 'split' || r.to[0] === 'skip')) ? spuBranchPicker(branches, r.to, (picked) => save(r, r.kind === 'loc' ? picked.slice(0, 1) : picked), { save: r.kind === 'loc' ? 'Save (first office)' : 'Save · split evenly' }) : el('span', { class: 'font-semibold' }, r.to.length ? r.to.map(lbl).join(' + ') : 'Company-wide')),
           admin ? el('td', { class: 'px-2 py-1 text-right' }, el('button', { class: 'underline', style: muted, onclick: () => remove(r) }, 'Remove')) : null)))))))) 
       : el('div', { class: 'text-[11px] py-2', style: muted }, q ? 'Nothing matches.' : 'No IDs saved yet.'));
 }

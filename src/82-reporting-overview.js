@@ -273,7 +273,7 @@ function reportingOverview() {
   const CARD_HELP = {
     customers: 'Distinct Customer IDs that have AT LEAST ONE active subscription. A customer with 3 active subs counts once; a customer whose subs are all Frozen/cancelled is not counted.\n\n' + scopeNote,
     subs:      'NEW subscriptions whose initial service falls in the selected time range (renewal sources out; office scope applies). The big number is RECURRING (ARV > $0 or flagged recurring in Configurations); the sub-line adds the one-time services and the total. Pick a time range above to see any cohort.\n\n' + scopeNote,
-    _subsOld:  'COUNT of every subscription in FieldRoutes whose initial service is marked Completed \u2014 Active AND Frozen, recurring AND one-time, BEFORE the hidden-type / excluded-source / excluded-branch rules. This is the same number as step 1 on the Retention tab and matches a raw FieldRoutes pull filtered to \u201creceived an initial service\u201d. The sub-line shows every row in the snapshot. \u201cRecurring\u201d = Annual Recurring Value > $0 (or manually flagged recurring in Configurations).\n\n' + scopeNote,
+    _subsOld:  'COUNT of every subscription in FieldRoutes whose initial service is marked Completed \u2014 Active AND Frozen, recurring AND one-time, BEFORE the hidden-type / excluded-source / excluded-office rules. This is the same number as step 1 on the Retention tab and matches a raw FieldRoutes pull filtered to \u201creceived an initial service\u201d. The sub-line shows every row in the snapshot. \u201cRecurring\u201d = Annual Recurring Value > $0 (or manually flagged recurring in Configurations).\n\n' + scopeNote,
     active:    'Of the NEW RECURRING subscriptions serviced in the selected time range (the Subscriptions Serviced number), how many are still Active today — status Active and no cancellation date. The sub-line is the share still active.\n\n' + scopeNote,
     _activeOld: 'COUNT of subscriptions that are BOTH:\n• Status = "Active" (exactly), AND\n• have NO cancellation date (a date there means frozen/lapsed),\nAND are recurring (ARV > $0 or flagged recurring). Frozen subs are excluded.\n\n' + scopeNote,
     arr:       'SUM of Annual Recurring Value across the Active recurring subscriptions above (same Active + recurring filter). Frozen and one-time subs contribute $0.\n\n' + scopeNote,
@@ -579,7 +579,7 @@ function reportingOverview() {
       })();
       body.replaceChildren(
         el('div', { class: 'flex gap-2 flex-wrap' }, tile('sold'), tile('svc'), tile('cxl'), netTile),
-        el('div', { class: 'text-[11px] text-muted-' }, K.label + ': ' + fmt.usd0(grand) + ' of ' + K.unit + ' across ' + fmt.int(rowsIn.length) + ' subscription' + (rowsIn.length === 1 ? '' : 's') + ' in ' + list.length + ' office' + (list.length === 1 ? '' : 's') + ' · click a branch for the accounts'),
+        el('div', { class: 'text-[11px] text-muted-' }, K.label + ': ' + fmt.usd0(grand) + ' of ' + K.unit + ' across ' + fmt.int(rowsIn.length) + ' subscription' + (rowsIn.length === 1 ? '' : 's') + ' in ' + list.length + ' office' + (list.length === 1 ? '' : 's') + ' · click an office for the accounts'),
         !rowsIn.length ? el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'Nothing ' + K.label.toLowerCase() + ' on this day.') :
         narrow ? el('div', { class: 'flex flex-col gap-2' }, ...list.map(([k, g]) => stack(k, g, false)), stack('RIDD · Total', all, true)) :
         el('div', { style: { overflowX: 'hidden' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
@@ -829,7 +829,7 @@ function openArrStepsModal(scope, dataA) {
     step('Keep the selected office(s)', 'Office filter on this tab: ' + officeLabel(scope.office) + '.', r => inOffice.has(r), 'filter');
   }
   step('Remove non-recurring service types', 'One-time services and any service type not classed Recurring (Configurations → Services). Their value never counts toward ARR.', r => F.isRecurring(r), 'app rule');
-  step('Remove excluded branches', 'Offices switched off in Reporting → Configurations → Branches.', r => !exclBranches.has((r.office_name || '').trim()), 'config');
+  step('Remove excluded offices', 'Offices switched off in Reporting → Configurations → Offices.', r => !exclBranches.has((r.office_name || '').trim()), 'config');
   step('Keep only status = Active', 'Frozen, inactive, pending and every other CRM status leaves here.', r => (r.subscription_status || '').toLowerCase() === 'active', 'app rule');
   // Steps 8 + 9 are OPTIONAL (per Isaac, Sep 29) — expected revenue that
   // isn't locked in: sold-but-not-serviced (ON by default) and past due

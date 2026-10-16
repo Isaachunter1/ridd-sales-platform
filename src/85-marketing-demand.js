@@ -145,7 +145,7 @@ function _mktgPayeeCard(year, providers) {
   const rows = [...Q.payees.entries()].sort((a, b) => b[1] - a[1]);
   const th = (t, right) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
   return el('div', { class: 'card overflow-hidden' },
-    head('QuickBooks spend by provider · ' + year, fmt.usd0(Q.total) + ' in marketing charges, ' + (Q.unmapped > 0 ? fmt.usd0(Q.unmapped) + ' not mapped to a provider yet' : 'all mapped') + '. Each QuickBooks name counts toward the provider picked here; journal entries (the branch allocation at close) are left out so nothing is counted twice.'),
+    head('QuickBooks spend by provider · ' + year, fmt.usd0(Q.total) + ' in marketing charges, ' + (Q.unmapped > 0 ? fmt.usd0(Q.unmapped) + ' not mapped to a provider yet' : 'all mapped') + '. Each QuickBooks name counts toward the provider picked here; journal entries (the office allocation at close) are left out so nothing is counted twice.'),
     el('div', { style: { overflow: 'auto', maxHeight: '420px' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', { style: { position: 'sticky', top: 0 } }, el('tr', {}, th('QuickBooks name'), th('Example description'), th('Spend', true), th('Counts toward'))),
       el('tbody', {}, ...rows.map(([name, amt]) => { const pv = qboPayeeProvider(name), manual = !!qboPayeeMap()[String(name).trim().toLowerCase()];

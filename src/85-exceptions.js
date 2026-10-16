@@ -155,7 +155,7 @@ function _exceptionFeedItemsRaw(scope) {
         rvIds: rows.map(r => String(r.subscription_id != null ? r.subscription_id : r.customer_id)), rvOpen: (ids) => _drill(rows.filter(r => ids.has(String(r.subscription_id != null ? r.subscription_id : r.customer_id)))) });
     };
     const pl = (n, one, many) => n === 1 ? one : many;
-    mk('Location', pl(rec.location.length, 'account whose state or ZIP doesn\u2019t fit', 'accounts whose state or ZIP doesn\u2019t fit the branch'), rec.location);
+    mk('Location', pl(rec.location.length, 'account whose state or ZIP doesn\u2019t fit', 'accounts whose state or ZIP doesn\u2019t fit the office'), rec.location);
     mk('Source', pl(rec.source.length, 'subscription sourced wrong for who sold it', 'subscriptions sourced wrong for who sold them'), rec.source);
     mk('Cancellation', pl(rec.cancel.length, 'cancel reason that can\u2019t be right', 'cancel reasons that can\u2019t be right'), rec.cancel);
     mk('Status', pl(rec.status.length, 'subscription still Active but carrying a cancel date or reason', 'subscriptions still Active but carrying a cancel date or reason'), rec.status);

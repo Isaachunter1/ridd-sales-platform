@@ -486,7 +486,7 @@ function openTvBoard() {
       state._tvHeroOffices ? panel([el('div', { style: { position: 'absolute', inset: '20px 24px', display: 'flex', flexDirection: 'column', minHeight: '0' } },
         // Tap-swapped view (per Isaac): the window's NEW revenue by branch,
         // in the SAME footprint as the number (the list scrolls inside).
-        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } }, eyebrow(d.range.label + ' · new revenue by branch · bar = new'), eyebrow(money(d.revenue) + ' new · ' + money(d.totalRevenue) + ' total')),
+        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } }, eyebrow(d.range.label + ' · new revenue by office · bar = new'), eyebrow(money(d.revenue) + ' new · ' + money(d.totalRevenue) + ' total')),
         el('div', { class: 'tv-scroll', style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px', overflowY: 'auto', minHeight: '0', flex: '1', paddingRight: '4px' } },
           ...(d.offices.length ? d.offices.map((o, i) => el('div', {},
             el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px', gap: '12px' } },
@@ -568,7 +568,7 @@ function openTvBoard() {
       : el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px', padding: '24px 0' } }, 'No sales in this window yet.')]);
     const offMax = d.offices.length ? d.offices[0].revenue : 0;
     const officesEl = panel([
-      eyebrow('By branch'),
+      eyebrow('By office'),
       el('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '14px' } },
         ...(d.offices.length ? d.offices.slice(0, 7).map((o, i) => el('div', {},
           el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '5px' } },

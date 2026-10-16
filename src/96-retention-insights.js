@@ -77,7 +77,7 @@ function retenBranchInsightsData() {
     const cut = new Date(); cut.setFullYear(cut.getFullYear() - 1); const cutIso = cut.toISOString().slice(0, 10);
     baseAll = book.filter(r => { const o = String(r.office_name || '—').trim(); return branchYear[o] && String(r.initial_service || '').slice(0, 4) === String(branchYear[o]) && String(r.initial_service) <= cutIso; });
     countedAll = baseAll.filter(r => { if (!r._effCancel) return false; const l = semLifeMonths(r); return l != null && l < 12; });
-    st = ''; en = ''; label = 'Each branch’s year ' + bm[1] + ' · lost in the first 12 months';
+    st = ''; en = ''; label = 'Each office’s year ' + bm[1] + ' · lost in the first 12 months';
   }
   else { const T = semMetric('trailing12_attrition')(book); baseAll = T.rows.boy; countedAll = T.rows.counted; st = T.st; en = T.en; label = 'Trailing 12 months (' + st + ' → ' + en + ')'; }
   const years = [...new Set(book.map(r => String(r.initial_service || '').slice(0, 4)).filter(y => /^20\d\d$/.test(y)))].sort().reverse();
@@ -148,12 +148,12 @@ function retenInsightsCard() {
   const RI_BANDS = [[0, 'Lost in months 0–6'], [6, 'Lost in months 6–12'], [12, 'Lost in months 12–18'], [18, 'Lost in months 18–24']];
   const _cohY = /^cohort:(\d{4})/.exec(D.mode || ''); const _cohAge = _cohY ? (Date.now() - new Date(+_cohY[1], 0, 1).getTime()) / (30.44 * 864e5) : null;
   const bands = RI_BANDS.map((x, i) => ({ i, lo: x[0], label: x[1] })).filter(x => D.isBranchYr ? x.lo < 12 : _cohAge != null ? x.lo < _cohAge : true);
-  const cols = [[D.isBranchYr ? 'Branch · cohort year' : 'Branch', 'left'], [/^cohort/.test(D.mode) || D.isBranchYr ? 'Cohort size' : D.mode === 't12' ? 'Book a year ago' : 'Book on Jan 1', 'right'], ['Cancels', 'right'], [D.mode === 't12' ? 'T12 attrition' : /^cohort/.test(D.mode) ? 'Lost to date' : D.isBranchYr ? 'Lost in 1st 12 mo' : 'Attrition', 'right'], ['vs company', 'right'], ['Expected for its mix', 'right'], ['Multi-year', 'right'], ...bands.map(x => [x.label, 'right']), ['Past due 30+', 'right']];
+  const cols = [[D.isBranchYr ? 'Office · cohort year' : 'Office', 'left'], [/^cohort/.test(D.mode) || D.isBranchYr ? 'Cohort size' : D.mode === 't12' ? 'Book a year ago' : 'Book on Jan 1', 'right'], ['Cancels', 'right'], [D.mode === 't12' ? 'T12 attrition' : /^cohort/.test(D.mode) ? 'Lost to date' : D.isBranchYr ? 'Lost in 1st 12 mo' : 'Attrition', 'right'], ['vs company', 'right'], ['Expected for its mix', 'right'], ['Multi-year', 'right'], ...bands.map(x => [x.label, 'right']), ['Past due 30+', 'right']];
   const th = (l, a) => el('th', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap', style: { textAlign: a } }, l);
   const td = (v, a, sty) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap', style: Object.assign({ textAlign: a }, sty || {}) }, v);
   const row = (b, isCo) => el('tr', { class: 'border-t' + (isCo ? '' : ' cursor-pointer hover:brightness-95'), style: { borderColor: 'var(--border)', background: B && b === B ? 'rgba(223,100,58,.08)' : isCo ? 'var(--card-2)' : '', fontWeight: isCo ? '700' : '' },
-      onclick: isCo ? null : () => { state._retenInsBranch = state._retenInsBranch === b.name ? null : b.name; mountApp(); }, title: isCo ? '' : 'Click to compare this branch with the company' },
-    td((b.rank ? '#' + b.rank + ' ' : '') + (isCo ? (D.isBranchYr ? 'All branches' : 'Company') : tc(b.name)) + (!isCo && D.isBranchYr && b.cohortYear ? ' · ' + b.cohortYear : '') + (b.base < RI_MIN_BASE && !isCo ? ' (small)' : ''), 'left'),
+      onclick: isCo ? null : () => { state._retenInsBranch = state._retenInsBranch === b.name ? null : b.name; mountApp(); }, title: isCo ? '' : 'Click to compare this office with the company' },
+    td((b.rank ? '#' + b.rank + ' ' : '') + (isCo ? (D.isBranchYr ? 'All offices' : 'Company') : tc(b.name)) + (!isCo && D.isBranchYr && b.cohortYear ? ' · ' + b.cohortYear : '') + (b.base < RI_MIN_BASE && !isCo ? ' (small)' : ''), 'left'),
     td(n(b.base), 'right'), td(n(b.cancels), 'right'),
     td(pct(b.rate), 'right', { fontWeight: '700' }),
     td(isCo ? '—' : pts((b.rate || 0) - (C.rate || 0)), 'right', isCo ? {} : { color: (b.rate || 0) > (C.rate || 0) ? bad : good }),
@@ -169,7 +169,7 @@ function retenInsightsCard() {
 
   // ── Patterns across branches ──
   const relLines = D.rels.filter(x => Math.abs(x.r) >= 0.45).sort((a, b) => Math.abs(b.r) - Math.abs(a.r)).map(x =>
-    el('div', { class: 'text-[11px]' }, '• Branches with a higher ', el('b', {}, x.label), x.r < 0 ? ' tend to have LOWER attrition' : ' tend to have HIGHER attrition', el('span', { style: { color: 'var(--text-muted)' } }, ' (r = ' + x.r.toFixed(2) + ' across ' + D.ranked.length + ' branches)')));
+    el('div', { class: 'text-[11px]' }, '• Offices with a higher ', el('b', {}, x.label), x.r < 0 ? ' tend to have LOWER attrition' : ' tend to have HIGHER attrition', el('span', { style: { color: 'var(--text-muted)' } }, ' (r = ' + x.r.toFixed(2) + ' across ' + D.ranked.length + ' offices)')));
 
   let focusBlock = null;
   const _nr = focus && !B && (D.notReady || []).find(x => x.name === focus);
@@ -196,20 +196,20 @@ function retenInsightsCard() {
       return el('div', { class: 'rounded-xl border px-3 py-2', style: { borderColor: worse ? 'rgba(220,38,38,.4)' : better ? 'rgba(22,163,74,.4)' : 'var(--border)' } },
         el('div', { class: 'text-[10px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)' } }, label),
         el('div', { class: 'text-base font-black tabular-nums', style: { color: worse ? bad : better ? good : 'var(--text)' } }, fmtv(bv)),
-        el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, 'other branches ' + fmtv(cv)));
+        el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, 'other offices ' + fmtv(cv)));
     };
     // Plain-English read: the three things that explain most of this branch's difference.
     const say = [];
-    if (D.isBranchYr) say.push(tc(B.name) + '\u2019s year ' + D.mode.slice(-1) + ' (' + (B.cohortYear || '—') + ', ' + n(B.base) + ' customers) lost ' + pct(B.rate) + ' in their first 12 months, versus ' + pct(R.rate) + ' for the other branches\u2019 own year ' + D.mode.slice(-1) + ' (' + n(R.base) + ' customers across ' + (D.branches.length - 1) + ' branches) — ' + pts(gap) + (B.rank ? ', #' + B.rank + ' of ' + D.ranked.length + '.' : '.'));
-    else say.push(tc(B.name) + ' lost ' + pct(B.rate) + ' of its ' + n(B.base) + ' accounts (' + D.label.split(' · ')[0].replace(/ \(.*\)/, '') + ') versus ' + pct(R.rate) + ' of ' + n(R.base) + ' at the other branches (' + pts(gap) + ')' + (B.rank ? ', #' + B.rank + ' of ' + D.ranked.length + ' branches.' : '.'));
-    if (Math.abs(mixGap) >= 0.01) say.push('Its mix accounts for ' + pts(mixGap) + ' (' + (mixGap > 0 ? 'more' : 'fewer') + ' of the contract lengths and channels that churn more at the other branches); the other ' + pts(perfGap) + ' is how the branch performs on a like-for-like book.');
-    else say.push('Its contract-length and channel mix is close to the other branches’, so the difference (' + pts(perfGap) + ') is performance on a like-for-like book.');
-    if (worstR) say.push('The biggest driver is ' + worstR.k + ': ' + pct(worstR.b) + ' of the book lost to it vs ' + pct(worstR.c) + ' at the other branches (' + pts(worstR.d) + ').' + (bestR ? ' Best relative showing: ' + bestR.k + ' (' + pts(bestR.d) + ').' : ''));
-    if (worstLife && worstLife.d > 0.005) say.push('By timing, the excess sits in ' + worstLife.L.label.toLowerCase() + ' (' + worstLife.L.note + '): ' + pts(worstLife.d) + ' above the other branches.');
-    if (B.apPct != null && R.apPct != null && Math.abs(B.apPct - R.apPct) >= 0.05) say.push((B.apPct < R.apPct ? 'Autopay is lower' : 'Autopay is higher') + ' than the other branches (' + pct(B.apPct, 0) + ' vs ' + pct(R.apPct, 0) + ')' + (D.rels.find(x => x.k === 'ap' && x.r < -0.45) ? ' — and across branches, lower autopay goes with higher attrition.' : '.'));
+    if (D.isBranchYr) say.push(tc(B.name) + '\u2019s year ' + D.mode.slice(-1) + ' (' + (B.cohortYear || '—') + ', ' + n(B.base) + ' customers) lost ' + pct(B.rate) + ' in their first 12 months, versus ' + pct(R.rate) + ' for the other offices\u2019 own year ' + D.mode.slice(-1) + ' (' + n(R.base) + ' customers across ' + (D.branches.length - 1) + ' offices) — ' + pts(gap) + (B.rank ? ', #' + B.rank + ' of ' + D.ranked.length + '.' : '.'));
+    else say.push(tc(B.name) + ' lost ' + pct(B.rate) + ' of its ' + n(B.base) + ' accounts (' + D.label.split(' · ')[0].replace(/ \(.*\)/, '') + ') versus ' + pct(R.rate) + ' of ' + n(R.base) + ' at the other offices (' + pts(gap) + ')' + (B.rank ? ', #' + B.rank + ' of ' + D.ranked.length + ' offices.' : '.'));
+    if (Math.abs(mixGap) >= 0.01) say.push('Its mix accounts for ' + pts(mixGap) + ' (' + (mixGap > 0 ? 'more' : 'fewer') + ' of the contract lengths and channels that churn more at the other offices); the other ' + pts(perfGap) + ' is how the office performs on a like-for-like book.');
+    else say.push('Its contract-length and channel mix is close to the other offices’, so the difference (' + pts(perfGap) + ') is performance on a like-for-like book.');
+    if (worstR) say.push('The biggest driver is ' + worstR.k + ': ' + pct(worstR.b) + ' of the book lost to it vs ' + pct(worstR.c) + ' at the other offices (' + pts(worstR.d) + ').' + (bestR ? ' Best relative showing: ' + bestR.k + ' (' + pts(bestR.d) + ').' : ''));
+    if (worstLife && worstLife.d > 0.005) say.push('By timing, the excess sits in ' + worstLife.L.label.toLowerCase() + ' (' + worstLife.L.note + '): ' + pts(worstLife.d) + ' above the other offices.');
+    if (B.apPct != null && R.apPct != null && Math.abs(B.apPct - R.apPct) >= 0.05) say.push((B.apPct < R.apPct ? 'Autopay is lower' : 'Autopay is higher') + ' than the other offices (' + pct(B.apPct, 0) + ' vs ' + pct(R.apPct, 0) + ')' + (D.rels.find(x => x.k === 'ap' && x.r < -0.45) ? ' — and across offices, lower autopay goes with higher attrition.' : '.'));
     focusBlock = el('div', { class: 'flex flex-col gap-4' },
       el('div', { class: 'rounded-xl p-3 flex flex-col gap-1', style: { background: gap > 0 ? 'rgba(220,38,38,.06)' : 'rgba(22,163,74,.07)' } },
-        el('div', { class: 'text-sm font-black' }, tc(B.name) + ' vs the other branches'),
+        el('div', { class: 'text-sm font-black' }, tc(B.name) + ' vs the other offices'),
         ...say.map(t => el('div', { class: 'text-[12px]' }, t))),
       el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' } },
         trait(D.mode === 't12' ? 'Trailing-12 attrition' : /^cohort/.test(D.mode) ? 'Cohort lost to date' : D.isBranchYr ? 'Lost in first 12 months' : 'Attrition that year', B.rate, R.rate, true, v => pct(v)),
@@ -217,7 +217,7 @@ function retenInsightsCard() {
         el('div', { class: 'rounded-xl border px-3 py-2', style: { borderColor: 'var(--border)' } },
           el('div', { class: 'text-[10px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)' } }, /^cohort/.test(D.mode) || D.isBranchYr ? 'Cohort size' : 'Accounts compared'),
           el('div', { class: 'text-base font-black tabular-nums' }, n(B.base) + (D.isBranchYr && B.cohortYear ? ' · ' + B.cohortYear : '')),
-          el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, 'other branches ' + n(R.base))),
+          el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, 'other offices ' + n(R.base))),
         trait('Expected for its mix', B.expectedVsRest, R.rate, true, v => pct(v)),
         trait('Autopay', B.apPct, R.apPct, false, v => pct(v, 0)),
         trait('Multi-year (18–24 mo)', B.multiPct, R.multiPct, false, v => pct(v, 0)),
@@ -225,29 +225,29 @@ function retenInsightsCard() {
         trait('Avg annual price', B.arvAvg, R.arvAvg, false, v => v == null ? '—' : fmt.usd0(v)),
         trait('Active 30+ days past due', B.pastDuePct, R.pastDuePct, true, v => pct(v, 1)),
         trait('Cancels in months 0–6', B.earlyPct, R.earlyPct, true, v => pct(v, 0))),
-      sec('What the gap is made of — by cancel reason', 'Share of the book lost to each reason, branch minus the other branches. The bars add up to the total gap. Click one for the branch’s accounts.',
+      sec('What the gap is made of — by cancel reason', 'Share of the book lost to each reason, office minus the other offices. The bars add up to the total gap. Click one for the office’s accounts.',
         ...topR.map(x => gapBar(x.k, x.d, pct(x.b) + ' vs ' + pct(x.c) + ' · ' + n(x.n) + ' lost', drill(tc(B.name) + ' · ' + x.k, B.cancelRows.filter(r => (String(reportingCancelReasonOf(r) || 'Unspecified').trim() || 'Unspecified') === x.k))))),
-      sec('When they leave — by month of customer life', 'Share of the book lost at each stage of the customer’s life, branch minus the other branches.',
+      sec('When they leave — by month of customer life', 'Share of the book lost at each stage of the customer’s life, office minus the other offices.',
         ...lifeRows.map(x => gapBar(x.L.label + ' · ' + x.L.note, x.d, pct(x.b) + ' vs ' + pct(x.c) + ' · ' + n(x.n) + ' lost', drill(tc(B.name) + ' · ' + x.L.label, B.cancelRows.filter(r => { const l = semLifeMonths(r); return l != null && l >= x.L.lo && l < x.L.hi; }))))),
-      sec('Like for like — same contract length and channel', 'Attrition inside each slice of the book, branch vs the other branches. Gaps here are performance, not mix.',
+      sec('Like for like — same contract length and channel', 'Attrition inside each slice of the book, office vs the other offices. Gaps here are performance, not mix.',
         ...cellRows.map(x => gapBar(x.k.replace('|', ' mo · ').replace('other mo', 'Other term') + ' (' + n(x.base) + ' accts)', (x.b || 0) - (x.c || 0), pct(x.b) + ' vs ' + pct(x.c)))));
   }
   const offN = (typeof retenBranchesOff === 'function') ? retenBranchesOff().size : 0;
   return el('div', { class: 'card p-4 flex flex-col gap-4' },
     el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
       el('div', {},
-        el('h3', { class: 'text-sm font-bold' }, '🔎 Branch insights'),
+        el('h3', { class: 'text-sm font-bold' }, '🔎 Office insights'),
         el('div', { class: 'flex items-center gap-2 flex-wrap mt-1' },
           el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, title: 'Which window the comparison reads',
             onchange: (e) => { state._retenInsMode = e.target.value; mountApp(); } },
             el('option', { value: 't12', selected: D.mode === 't12' }, 'Trailing 12 months'),
             el('optgroup', { label: 'Calendar year (book on Jan 1)' }, ...D.years.map(y => el('option', { value: 'year:' + y, selected: D.mode === 'year:' + y }, y))),
-            el('optgroup', { label: 'Branch’s own year (lost in first 12 months)' }, ...[1, 2, 3].map(n => el('option', { value: 'branchyr:' + n, selected: D.mode === 'branchyr:' + n }, 'Year ' + n + ' of each branch'))),
+            el('optgroup', { label: 'Office’s own year (lost in first 12 months)' }, ...[1, 2, 3].map(n => el('option', { value: 'branchyr:' + n, selected: D.mode === 'branchyr:' + n }, 'Year ' + n + ' of each office'))),
             el('optgroup', { label: 'Start-year cohort (lost to date)' }, ...D.years.map(y => el('option', { value: 'cohort:' + y, selected: D.mode === 'cohort:' + y }, y + ' cohort'))))),
         el('div', { class: 'text-[11px] mt-1', style: { color: 'var(--text-muted)' } }, D.label + ', same book and rules as the tiles above. '
-          + (B ? '' : (offN ? 'Leave exactly one branch ticked in 🏢, or c' : 'Pick one branch in 🏢 (or c') + 'lick a branch below' + (offN ? '' : ')') + ' to see why it differs from the company.'))),
+          + (B ? '' : (offN ? 'Leave exactly one office ticked in 🏢, or c' : 'Pick one office in 🏢 (or c') + 'lick an office below' + (offN ? '' : ')') + ' to see why it differs from the company.'))),
       el('button', { class: 'text-[11px] font-bold', style: { color: 'var(--text-muted)' }, onclick: () => { state._retenInsightsOpen = false; mountApp(); } }, 'Close ✕')),
     focusBlock,
-    sec('All branches', '"Expected for its mix" = what the branch would lose at the other branches’ rate for each contract length and channel it sells. Above it = underperforming on a like-for-like book. Ranked best → worst; branches under ' + RI_MIN_BASE + ' accounts are listed but not ranked. "Lost in months" = the share of the branch’s cancels that came in that stretch of the customer’s life.', league),
-    relLines.length ? sec('Patterns across branches', null, ...relLines) : null);
+    sec('All offices', '"Expected for its mix" = what the office would lose at the other offices’ rate for each contract length and channel it sells. Above it = underperforming on a like-for-like book. Ranked best → worst; offices under ' + RI_MIN_BASE + ' accounts are listed but not ranked. "Lost in months" = the share of the office’s cancels that came in that stretch of the customer’s life.', league),
+    relLines.length ? sec('Patterns across offices', null, ...relLines) : null);
 }

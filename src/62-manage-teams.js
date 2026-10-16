@@ -207,7 +207,7 @@ function manageTeamsPanel(opts) {
     // under their FIRST listed office.
     const _normBranch = (b) => String(b || '').split(',')[0].trim().toUpperCase();
     const branchCounts = {};
-    reps.forEach(r => { if (isAlias(r)) return; const b = _normBranch(primaryOffice(r)) || '(no branch)'; branchCounts[b] = (branchCounts[b] || 0) + 1; });
+    reps.forEach(r => { if (isAlias(r)) return; const b = _normBranch(primaryOffice(r)) || '(no office)'; branchCounts[b] = (branchCounts[b] || 0) + 1; });
     const branchesPresent = Object.keys(branchCounts).sort();
 
     let filteredReps = reps;
@@ -237,7 +237,7 @@ function manageTeamsPanel(opts) {
       filteredReps = filteredReps.filter(r => { const t = repTypeOf(r); return t !== 'Office Staff' && t !== 'Technician'; });
     }
     if (branchSelect) {
-      filteredReps = filteredReps.filter(r => (_normBranch(primaryOffice(r)) || '(no branch)') === branchSelect);
+      filteredReps = filteredReps.filter(r => (_normBranch(primaryOffice(r)) || '(no office)') === branchSelect);
     }
     // ── Sort (Name / Tier / Team) — click a column header to group. In
     // ascending order the blanks float to the top (Untagged tier, Unassigned
@@ -503,7 +503,7 @@ function manageTeamsPanel(opts) {
       }, titleCase(b) + ' · ' + (branchCounts[b] || 0));
     };
     const branchChips = el('div', { class: 'px-5 py-2 border-b flex flex-wrap gap-1.5 items-center', style: { borderColor: 'var(--border)' } },
-      el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold mr-1', style: { color: 'var(--text-muted)' } }, 'Branch'),
+      el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold mr-1', style: { color: 'var(--text-muted)' } }, 'Office'),
       el('button', {
         class: 'rounded-full px-2.5 py-0.5 text-[11px] font-semibold cursor-pointer transition hover:brightness-95',
         style: !branchSelect

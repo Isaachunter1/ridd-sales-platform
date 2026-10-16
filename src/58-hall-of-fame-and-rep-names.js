@@ -1124,7 +1124,7 @@ function indicatorMetricHelp(key) {
     audit_pct:      'Subscriptions NOT flagged Failed Audit \u00f7 Subscriptions — passed, pending, and unaudited all count as good.',
     last_resort_pct:'Subscriptions with an initial under $' + lastResortMin() + ' \u00f7 Subscriptions. Context only — not scored for Power Rank.',
     reps:           'Unique reps with at least one sale in the window. Context only — not scored for Power Rank.',
-    reps20k:        'How many reps cleared $20,000 in total sales for the selected date range. A rep\u2019s sales are added up across every branch first, then the rep is placed in ONE column only \u2014 the branch where they sold the most \u2014 so a rep is never counted twice. This is also the denominator for PRA (Revenue \u00f7 Reps > $20K).',
+    reps20k:        'How many reps cleared $20,000 in total sales for the selected date range. A rep\u2019s sales are added up across every office first, then the rep is placed in ONE column only \u2014 the office where they sold the most \u2014 so a rep is never counted twice. This is also the denominator for PRA (Revenue \u00f7 Reps > $20K).',
     _points:        'Each column is ranked 1\u2013N on the seven scored rows (Subscriptions, Revenue, Avg Initial, ACV, PRA, Multi-Year %, Auto-Pay %); Power Rank is the sum of those ranks — lowest total wins.',
   };
   return F[key] || '';
@@ -2276,7 +2276,7 @@ function nrlaBranchClocks(teams, cfg, opts) {
     paint();
     live.push(paint);
     strip.append(el('span', {
-      title: ts.map(_nrlaTitle).join(', ') + ' — local time' + (o.RO ? '' : '. Click to set branch time zones.'),
+      title: ts.map(_nrlaTitle).join(', ') + ' — local time' + (o.RO ? '' : '. Click to set office time zones.'),
       class: o.RO ? '' : 'cursor-pointer transition hover:brightness-110',
       style: Object.assign({
         display: 'inline-flex', alignItems: 'center', gap: '5px',
@@ -2310,7 +2310,7 @@ function openNrlaTzModal(teams, cfg, save) {
   const card = el('div', { class: 'card w-full max-w-sm my-8 overflow-hidden flex flex-col' },
     el('div', { class: 'flex items-start justify-between gap-3 p-4 pb-2' },
       el('div', {},
-        el('h2', { class: 'text-base font-bold' }, '⏰ Branch time zones'),
+        el('h2', { class: 'text-base font-bold' }, '⏰ Office time zones'),
         el('div', { class: 'text-[11px] text-muted- mt-0.5' }, 'Drives the local-time clocks on the board. New markets default to Eastern.')),
       el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×'),
     ),
@@ -2327,7 +2327,7 @@ function openNrlaTzModal(teams, cfg, save) {
       el('button', {
         class: 'w-full rounded-xl px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-        onclick: () => { overlay.remove(); save('branch time zones'); },
+        onclick: () => { overlay.remove(); save('office time zones'); },
       }, 'Save'),
     ),
   );

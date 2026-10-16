@@ -26,7 +26,7 @@ function openNrlaHelpModal() {
   const card = el('div', { class: 'card w-full max-w-lg my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
     el('div', { class: 'flex items-start justify-between px-5 py-3', style: { background: NAVY } },
       el('div', {},
-        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: '#fff', opacity: '0.8' } }, 'RIDDMADE ★ Branch vs Branch'),
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: '#fff', opacity: '0.8' } }, 'RIDDMADE ★ Office vs Office'),
         el('h2', { class: 'text-lg font-black mt-0.5', style: { color: '#fff', textTransform: 'uppercase' } }, 'NRLA — Rules'),
       ),
       el('button', { class: 'text-2xl leading-none', style: { color: '#fff' }, onclick: close }, '×'),
@@ -39,7 +39,7 @@ function openNrlaHelpModal() {
       block('Seeding', 'After the seeding rounds, teams are ranked #1 through #8 by: 1. overall record · 2. head-to-head result · 3. total cumulative PRA.'),
       block('Playoffs', 'Semifinals: #1 vs #4, #2 vs #3, #5 vs #8, #6 vs #7. Championship round: semifinal winners meet in the 1st (and 5th) place matches, losers in the 3rd (and 7th) — every team plays for its final placement.'),
       block('Prize pool', 'Per rep, by final placement: 1st ®400K + Team Trip · 2nd ®325K · 3rd ®250K · 4th ®175K · 5th ®125K · 6th ®100K · 7th ®75K · 8th ®50K.'),
-      block('Who counts', 'Sales-Rep (D2D) production only. Rosters (📋) are authoritative: a rostered rep counts for THAT team wherever they knock, and a team with a roster counts only its rostered reps. Roster size is the PRA denominator. Teams without a roster count everyone on the branch (denominator = reps who sold this season).'),
+      block('Who counts', 'Sales-Rep (D2D) production only. Rosters (📋) are authoritative: a rostered rep counts for THAT team wherever they knock, and a team with a roster counts only its rostered reps. Roster size is the PRA denominator. Teams without a roster count everyone on the office (denominator = reps who sold this season).'),
       block('Revenue columns', 'Total Rev Sold = everything sold in the season windows. Passed = Passed Audit / No Audit · Pending = not audited yet · Failed = Failed Audit + Last Resort (<$' + lastResortMin() + '). Informational — rounds are won on PRA.'),
       block('Updates', 'Updates will be sent daily.'),
     ),
@@ -358,7 +358,7 @@ function openNrlaRosterModal(rawSales) {
     addName, addId, addTeam,
     el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer shrink-0', style: { background: PINK, color: '#fff' }, onclick: doAdd }, 'Add'));
   const footer = el('div', { class: 'px-5 py-3 text-[10px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } },
-    'Rosters are authoritative: they set who competes for each team and the PRA denominator. Use the team dropdown on a rep to move them to the branch they\'re competing for — their production follows them. New reps are matched to their sales by NAME once the sync catches up. Synced to every admin.');
+    'Rosters are authoritative: they set who competes for each team and the PRA denominator. Use the team dropdown on a rep to move them to the office they\'re competing for — their production follows them. New reps are matched to their sales by NAME once the sync catches up. Synced to every admin.');
   // ── Competing branches (moved here from the board, per Isaac) — every
   // branch that has EVER sold D2D shows automatically (new ones included);
   // click to sit a branch out / bring it back.
@@ -476,11 +476,11 @@ function openNrlaRosterModal(rawSales) {
               class: 'text-[10px] font-bold rounded px-2 py-0.5 cursor-pointer',
               style: hasRoster ? { background: 'rgba(255,255,255,.25)', color: '#fff' } : { background: '#fff', color: PINK },
               title: hasRoster
-                ? 'Explicit roster in force (' + picked.size + ' competing) — click to put the WHOLE branch back in'
-                : 'Everyone on the branch is competing — click to CLEAR the roster and add reps back individually',
+                ? 'Explicit roster in force (' + picked.size + ' competing) — click to put the WHOLE office back in'
+                : 'Everyone on the office is competing — click to CLEAR the roster and add reps back individually',
               onclick: (e) => {
                 e.stopPropagation();
-                if (hasRoster) { delete cfg.rosters[t]; persist(t + ' → everyone on the branch competes'); }
+                if (hasRoster) { delete cfg.rosters[t]; persist(t + ' → everyone on the office competes'); }
                 else { cfg.rosters[t] = []; persist(t + ' roster CLEARED — add reps individually'); }
               },
             }, hasRoster ? 'All' : 'All ✓'))),
@@ -508,7 +508,7 @@ function openNrlaRosterModal(rawSales) {
             style: teamOf(name) !== home
               ? { border: '2px solid ' + PINK, color: PINK, background: 'var(--card)' }
               : { border: '1px solid var(--border-2)', color: 'var(--text)', background: 'var(--card)' },
-            title: 'Which branch ' + name + ' competes for (moves them onto that team\'s roster)',
+            title: 'Which office ' + name + ' competes for (moves them onto that team\'s roster)',
             onchange: (e) => assignTo(name, e.target.value),
             onclick: (e) => e.stopPropagation(),
           }, ...allTeamChoices.filter(b => !exNow.has(b) || b === teamOf(name)).map(b => { const o = el('option', { value: b }, b + (b === home ? ' (home)' : '')); if (b === teamOf(name)) o.selected = true; return o; }));
@@ -763,7 +763,7 @@ function nrlaBoard(rawSales, opts) {
   const save = (detail) => { logActivity('comp_change', { detail: 'NRLA: ' + detail }); saveDemoData(); rerender(); };
   const nameOf = (t) => (cfg.teamNames && cfg.teamNames[t]) || t;
   const renameTeam = (t) => {
-    const v = prompt('Display name for ' + t + ' (blank = branch name):', (cfg.teamNames && cfg.teamNames[t]) || '');
+    const v = prompt('Display name for ' + t + ' (blank = office name):', (cfg.teamNames && cfg.teamNames[t]) || '');
     if (v === null) return;
     if (!cfg.teamNames || typeof cfg.teamNames !== 'object') cfg.teamNames = {};
     const nm = v.trim();
@@ -899,7 +899,7 @@ function nrlaBoard(rawSales, opts) {
           RO ? null : el('button', {
             class: 'cursor-pointer transition hover:brightness-95',
             style: { width: '26px', height: '26px', borderRadius: '50%', background: '#fff', border: '1px solid rgba(255,255,255,.5)', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
-            title: 'Rosters — pick who competes for each team and which branch each rep competes for (sets the PRA denominator)',
+            title: 'Rosters — pick who competes for each team and which office each rep competes for (sets the PRA denominator)',
             onclick: () => openNrlaRosterModal(rawSales),
           }, '📋'),
           RO ? null : el('button', {
@@ -4349,7 +4349,7 @@ async function exportSpringCleaningXlsx(sales, branchList, winLabel) {
   st.push(['Note', 'Standings include passed-audit + pending (assumed passing). Excluded = Failed Audit + Last Resort (<$' + lastResortMin() + ').']);
   st.push(['Pulled', new Date().toLocaleString()]);
   st.push([]);
-  st.push(['Branch', 'Reps', 'Accounts', 'Revenue', 'Avg Pest Init', 'PRA', 'ACV', '24+ Mo %', 'Autopay %', 'Audit %', 'Total Pts', 'Place', 'Bugs']);
+  st.push(['Office', 'Reps', 'Accounts', 'Revenue', 'Avg Pest Init', 'PRA', 'ACV', '24+ Mo %', 'Autopay %', 'Audit %', 'Total Pts', 'Place', 'Bugs']);
   sc.ranked.forEach(m => st.push([
     m.office, m.reps, m.n, Math.round(m.revenue), +m.avgPestInitial.toFixed(2), Math.round(m.pra),
     +m.acv.toFixed(2), +(m.pct24 * 100).toFixed(1), +(m.autopayPct * 100).toFixed(1), +(m.auditPct * 100).toFixed(1), m.totalPoints, m.place, m.bugs,
@@ -4436,7 +4436,7 @@ async function exportSpringRepsXlsx() {
     for (const s of sc.excluded) { if (!isLastResort(s)) ensure(s.office || 'UNKNOWN', s.rep || 'Unknown').qual += 1; }
   });
 
-  const rows = [['Branch', 'Rep', 'Total Accts', 'Qualifying Accts', 'Counting Accts', 'Passed Rev']];
+  const rows = [['Office', 'Rep', 'Total Accts', 'Qualifying Accts', 'Counting Accts', 'Passed Rev']];
   const entries = [...byKey.values()]
     .filter(e => e.total > 0)   // any rep who sold a D2D account during the comp — surfaces zero-qualifying reps
     .sort((a, b) => a.branch.localeCompare(b.branch) || b.rev - a.rev || b.total - a.total || a.rep.localeCompare(b.rep));
@@ -4897,7 +4897,7 @@ function openSpringRepMarketModal(sales, officeList) {
             sel);
         })),
       el('div', { class: 'px-5 py-3 text-[10px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } },
-        'Reassignments move ALL of a rep\'s accounts (revenue, PRA, Audit %, every category) to the chosen branch on the Spring Cleaning board and its export. Pick the home market to undo. Synced to every admin.'));
+        'Reassignments move ALL of a rep\'s accounts (revenue, PRA, Audit %, every category) to the chosen office on the Spring Cleaning board and its export. Pick the home market to undo. Synced to every admin.'));
   };
   render();
   document.body.append(overlay);
@@ -4968,14 +4968,14 @@ function openSpringCleaningHelpModal() {
     el('div', { class: 'overflow-auto px-5 pb-5', style: { borderTop: '1px solid var(--border)' } },
       el('div', { class: 'pt-4' },
         section('Who competes',
-          el('div', {}, 'The Sales Rep rep type only — Office Staff and Technicians are out entirely. Rep type comes from the Customer Report (Source is only a fallback for reps with no type on file). Branches can be sat out for the year via the "Competing" chips on the board.'),
+          el('div', {}, 'The Sales Rep rep type only — Office Staff and Technicians are out entirely. Rep type comes from the Customer Report (Source is only a fallback for reps with no type on file). Offices can be sat out for the year via the "Competing" chips on the board.'),
           el('div', { class: 'mt-1' }, 'Set the round with the date filter at the top.')),
         section('Does an account count? (in order)',
           metric('1 · Initial ≥ $' + lastResortMin() + '', 'Under $' + lastResortMin() + ' = "Last Resort" — out of every category (but still shows in Audit %).'),
           metric('2 · Not a pre-service cancel', 'If the account cancelled before its initial service ever ran (any cancel reason), it\'s excluded from EVERY metric — revenue, PRA, Audit %, all of it. A pre-service cancel never needed an audit, so it isn\'t counted anywhere.'),
           metric('3 · Serviced by the deadline', 'Sold in a round, it must be serviced (initial service completed) by the end of the FOLLOWING week. Weeks run Sun–Sat — e.g. sold the week of Jun 8 → serviced by Sat Jun 20. Past the deadline unserviced, or serviced late → out. Before the deadline, an unserviced account is still in play.'),
           metric('4 · Audit flag', 'Passed Audit or No Audit → counts. Failed Audit → out. No flag yet = pending, counted as assumed-passing until it\'s flagged.')),
-        section('The seven categories (per branch)',
+        section('The seven categories (per office)',
           metric('Passed Rev', 'The SCORED revenue — counting revenue toward the comp (passed audit + no audit + pending). A separate "Total Rev" column shows everything sold except Sold-Not-Started (incl. Last Resort + Failed) so it reconciles to FieldRoutes, but Total isn\'t scored.'),
           metric('Avg Pest Init', 'Average initial price, excluding Sentricon / German Roach / Interior Flea services.'),
           metric('PRA', 'Per Rep Average = Revenue ÷ number of reps who sold that round. Last Resort sales leave no footprint here — they add no revenue and don\'t count a rep into the denominator.'),
@@ -4984,7 +4984,7 @@ function openSpringCleaningHelpModal() {
           metric('Autopay %', 'Share of accounts with a payment method on file.'),
           metric('Audit %', 'Passed + No Audit + pending ÷ ALL accounts (incl. failed audit & Last Resort). Scored like every other category — and it doubles as the points tiebreaker.')),
         section('Scoring',
-          el('div', {}, 'In each category the branches are ranked; your place = your points (1st = 1pt … 7th = 7pts — golf, low is good).'),
+          el('div', {}, 'In each category the offices are ranked; your place = your points (1st = 1pt … 7th = 7pts — golf, low is good).'),
           el('div', { class: 'mt-1' }, 'Your seven category points add up to a Total. Lowest total wins the round.'),
           el('div', { class: 'mt-1' }, 'Tiebreakers: a dead tie WITHIN a category means both teams take the same points and the next place is skipped (two teams at 100% AutoPay both score 1, the next team scores 3). A tie in TOTAL points goes to the higher Passed Audit %; if that\'s somehow tied too, higher Avg Pest Initial decides it.'),
           el('div', { class: 'mt-1' }, 'Place → Bugs: 1st = 6, 2nd = 5, 3rd = 4, 4th = 3, 5th = 2, 6th = 1, 7th = 0.')),
@@ -5138,7 +5138,7 @@ function openSpringCompetingModal(branchList) {
       el('h3', { class: 'text-base font-bold' }, '🏢 Offices competing'),
       el('button', { class: 'text-2xl leading-none text-muted- cursor-pointer px-2', 'aria-label': 'Close', title: 'Close', onclick: () => overlay.remove() }, '×')),
     el('p', { class: 'text-xs text-muted- mb-3' },
-      'Green = in the comp. Struck through = sitting this one out — excluded branches drop from every category, the points race, and Audit %. Synced to every admin.'),
+      'Green = in the comp. Struck through = sitting this one out — excluded offices drop from every category, the points race, and Audit %. Synced to every admin.'),
     body));
   document.body.append(overlay);
 }
@@ -5227,7 +5227,7 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
           el('tr', {},
             // Branch column frozen — sticky through horizontal scroll (the
             // green header bg carries over so rows never show through).
-            el('th', { class: 'text-left px-3 py-2.5 font-bold', style: { position: 'sticky', left: '0', zIndex: '3', background: '#9C3F1E' } }, 'Branch'),
+            el('th', { class: 'text-left px-3 py-2.5 font-bold', style: { position: 'sticky', left: '0', zIndex: '3', background: '#9C3F1E' } }, 'Office'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Reps with a qualifying sale this round' }, 'Reps'),
             ...catDefs.map(d => el('th', {
               class: 'text-left px-2 py-2.5 font-bold',

@@ -138,23 +138,23 @@ function retenBranchDropdown(g0) {
   const later = (fn) => requestAnimationFrame(() => setTimeout(fn, 0));
   const setBranches = (br) => { const nw = { ...(state._retenWhatIf || {}) }; if (br) nw.branches = br; else delete nw.branches; state._retenWhatIf = nw; later(mountApp); };
   const wrap = el('div', { class: 'relative shrink-0', onclick: (e) => e.stopPropagation() });
-  const label = off.size === 0 ? 'RIDD' : inN === 1 ? names.find(o => !off.has(o)) : inN + ' of ' + names.length + ' branches';
+  const label = off.size === 0 ? 'RIDD' : inN === 1 ? names.find(o => !off.has(o)) : inN + ' of ' + names.length + ' offices';
   const btn = el('button', {
     class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold whitespace-nowrap transition hover:brightness-95',
     style: { borderColor: off.size ? 'var(--accent)' : 'var(--border-2)', color: 'var(--text)', background: 'var(--card)' },
-    title: 'Which branches are in the retention book',
+    title: 'Which offices are in the retention book',
     onclick: () => { state._retenBranchOpen = !state._retenBranchOpen; place(); panel.style.display = state._retenBranchOpen ? 'block' : 'none'; if (state._retenBranchOpen) clampDropdownPanel(panel); },
   }, '🏢 ' + label + ' ▾');
   // The steps card clips overflow, so the panel floats fixed under the button.
   const place = () => { try { const r = btn.getBoundingClientRect(); panel.style.top = (r.bottom + 4) + 'px'; panel.style.right = Math.max(8, window.innerWidth - r.right) + 'px'; } catch { /* ignore */ } };
   const panel = el('div', { class: 'rounded-xl border shadow-lg p-2', style: { position: 'fixed', zIndex: 60, display: state._retenBranchOpen ? 'block' : 'none', background: 'var(--card)', borderColor: 'var(--border-2)', minWidth: '240px', maxHeight: '60vh', overflowY: 'auto' } },
     el('div', { class: 'flex items-center justify-between gap-2 px-1 pb-1.5 mb-1 border-b', style: { borderColor: 'var(--border)' } },
-      el('span', { class: 'text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Branches'),
+      el('span', { class: 'text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Offices'),
       el('span', { class: 'inline-flex items-center gap-1' },
         // None (per Isaac): clear every branch, then tick the one to look at.
-        el('button', { class: 'rounded-md border px-1.5 py-0.5 text-[10px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--text-subtle)' }, title: 'Take every branch out, then tick just the one you want', onclick: () => { const br = {}; names.forEach(o => { br[o] = false; }); setBranches(br); } }, 'None'),
+        el('button', { class: 'rounded-md border px-1.5 py-0.5 text-[10px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--text-subtle)' }, title: 'Take every office out, then tick just the one you want', onclick: () => { const br = {}; names.forEach(o => { br[o] = false; }); setBranches(br); } }, 'None'),
         // Reset puts every branch back in.
-        el('button', { class: 'rounded-md border px-1.5 py-0.5 text-[10px] font-bold', style: { borderColor: off.size ? 'var(--accent)' : 'var(--border-2)', color: off.size ? 'var(--accent)' : 'var(--text-subtle)' }, title: 'Every branch back in the book', onclick: () => setBranches(null) }, 'Reset'))),
+        el('button', { class: 'rounded-md border px-1.5 py-0.5 text-[10px] font-bold', style: { borderColor: off.size ? 'var(--accent)' : 'var(--border-2)', color: off.size ? 'var(--accent)' : 'var(--text-subtle)' }, title: 'Every office back in the book', onclick: () => setBranches(null) }, 'Reset'))),
     ...names.map(o => {
       const isOff = off.has(o);
       const cb = el('input', { type: 'checkbox', checked: !isOff, style: { accentColor: 'var(--accent)' }, onchange: (e) => {
@@ -416,7 +416,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
         (() => { const t = retenTrailing12(book); const fn = drill('Trailing 12 months · counted cancels', t.rows.counted, 'counted as churn'); return el('div', { class: 'text-right', title: n(t.c) + ' cancels ' + t.st + ' → ' + t.en + ' ÷ ' + n(t.boy) + ' on the books a year ago' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Trailing 12 months'), el('div', { class: 'text-base font-black', style: fn ? { cursor: 'pointer' } : {}, onclick: fn ? (e) => { e.stopPropagation(); fn(); } : null }, pct(t.rate))); })()),
         // Insights › (per Isaac, Oct 13) — beside the branch button (moved up a row, same day).
         el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: state._retenInsightsOpen ? 'var(--accent)' : 'var(--border-2)', background: state._retenInsightsOpen ? 'var(--accent)' : 'var(--card)', color: state._retenInsightsOpen ? 'var(--accent-text)' : 'var(--text)' },
-          title: 'Compare branches: who loses more, why, and when', onclick: (e) => { e.stopPropagation(); state._retenInsightsOpen = !state._retenInsightsOpen; mountApp(); } }, state._retenInsightsOpen ? 'Insights ▾' : 'Insights ›'),
+          title: 'Compare offices: who loses more, why, and when', onclick: (e) => { e.stopPropagation(); state._retenInsightsOpen = !state._retenInsightsOpen; mountApp(); } }, state._retenInsightsOpen ? 'Insights ▾' : 'Insights ›'),
         el('span', { class: 'inline-flex' }, retenBranchDropdown(retenGroundZero())),
         whatIf ? el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: (e) => { e.stopPropagation(); state._retenWhatIf = null; mountApp(); } }, 'Reset to official') : null,
         (() => {
@@ -453,7 +453,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     el('div', { class: 'flex items-center justify-between py-2 gap-3' },
       el('div', {}, el('div', { class: 'text-sm font-black' }, 'Everything in FieldRoutes'),
         el('div', { class: 'text-[11px] text-muted-' }, 'Every subscription in the synced snapshot, any status, any service type — the top of the funnel.'
-          + (retenBranchesOff().size ? ' Branches out (🏢 dropdown above): ' + [...retenBranchesOff()].join(', ') + '.' : '')
+          + (retenBranchesOff().size ? ' Offices out (🏢 dropdown above): ' + [...retenBranchesOff()].join(', ') + '.' : '')
           + (loadDrops && (loadDrops.phantom || loadDrops.dupes) ? ' The loader itself set aside ' + n(loadDrops.phantom) + ' phantom-office row' + (loadDrops.phantom === 1 ? '' : 's') + ' and ' + n(loadDrops.dupes) + ' duplicate' + (loadDrops.dupes === 1 ? '' : 's') + ' of the same subscription id (' + n(loadDrops.raw) + ' raw rows).' : ''))),
       clickable(el('div', { class: 'text-lg font-black tabular-nums' }, n(g0.length)), drill('Everything in FieldRoutes', g0, 'the whole snapshot'))),
     ...scopeSteps.map(st => {
@@ -2363,7 +2363,7 @@ function reportingWaterfall() {
         tbl(['Trait', 'This month', 'Other months', '', 'Gap'], traitRows),
         (brs.length || svs.length) ? H('Over-represented this month') : null,
         (brs.length || svs.length) ? el('div', { class: 'text-[11px] flex flex-col gap-0.5' },
-          brs.length ? el('div', {}, el('b', {}, 'Branches: '), brs.map(x => x.k + ' ' + P(x.sa) + ' (vs ' + P(x.so) + ')').join(' \u00b7 ')) : null,
+          brs.length ? el('div', {}, el('b', {}, 'Offices: '), brs.map(x => x.k + ' ' + P(x.sa) + ' (vs ' + P(x.so) + ')').join(' \u00b7 ')) : null,
           svs.length ? el('div', {}, el('b', {}, 'Services: '), svs.map(x => x.k + ' ' + P(x.sa) + ' (vs ' + P(x.so) + ')').join(' \u00b7 ')) : null) : null,
         el('div', { class: 'text-[10px] mt-3', style: { color: 'var(--text-muted)' } }, 'Shares are of the cancels in that month vs the cancels in every other month, same filters as the chart. Reasons need at least ' + minN + ' cancels to list.'));
     };
@@ -2540,7 +2540,7 @@ function reportingWaterfall() {
     el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3', style: { borderColor: 'var(--border)' } },
       el('h3', { class: 'text-sm font-bold' }, title),
       el('span', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-subtle)' } }, '0 subscriptions')),
-    el('div', { class: 'px-4 py-6 text-center text-[11px]', style: { color: 'var(--text-subtle)' } }, 'No branches selected \u2014 tick a branch on Attrition Steps.')));
+    el('div', { class: 'px-4 py-6 text-center text-[11px]', style: { color: 'var(--text-subtle)' } }, 'No offices selected \u2014 tick an office on Attrition Steps.')));
   const renderSide = (data, pop, label, sideMark) => el('div', { class: 'flex flex-col gap-4' },
     // Matrix wants ~560px; when it can't have it (phones) the blended table
     // wraps underneath instead of both squeezing side by side.

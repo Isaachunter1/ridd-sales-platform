@@ -1022,7 +1022,7 @@ function viewIndicators() {
             title: (rawSalesAvailable && !state.indicatorsComps) ? '' : 'Teams needs a raw-sales upload and Comps off',
             onchange: e => { _staged.group = e.target.value; _markDirty(); },
           },
-            el('option', { value: 'branch', selected: _staged.group === 'branch' }, 'Branch / Office'),
+            el('option', { value: 'branch', selected: _staged.group === 'branch' }, 'Office'),
             state.indicatorDept === 'office' || state.indicatorDept === 'techs' ? null : el('option', { value: 'teams', selected: _staged.group === 'teams' }, 'Teams'),
           );
           const _selCls = { class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer w-full', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } };
@@ -1066,7 +1066,7 @@ function viewIndicators() {
                 style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
                 onclick: () => {
                   if (_staged.group === 'teams' && (!rawSalesAvailable || state.indicatorsComps)) {
-                    toast(state.indicatorsComps ? 'Competitions are branch-level — turn Comps off first' : 'This grouping needs a raw-sales upload', 'warn');
+                    toast(state.indicatorsComps ? 'Competitions are office-level — turn Comps off first' : 'This grouping needs a raw-sales upload', 'warn');
                     return;
                   }
                   state.indicatorAcctStatus = _staged.acct;
@@ -1226,7 +1226,7 @@ function viewIndicators() {
                     st.push(['Note', 'Standings include passed-audit + pending (assumed passing). Excluded = Failed Audit + Last Resort (<$' + lastResortMin() + ').']);
                     st.push(['Pulled', new Date().toLocaleString()]);
                     st.push([]);
-                    st.push(['Branch', 'Reps', 'Accounts', 'Revenue', 'Avg Pest Init', 'PRA', 'ACV', '24+ Mo %', 'Autopay %', 'Total Pts', 'Place', 'Bugs']);
+                    st.push(['Office', 'Reps', 'Accounts', 'Revenue', 'Avg Pest Init', 'PRA', 'ACV', '24+ Mo %', 'Autopay %', 'Total Pts', 'Place', 'Bugs']);
                     sc.ranked.forEach(m => st.push([
                       m.office, m.reps, m.n, Math.round(m.revenue), +m.avgPestInitial.toFixed(2), Math.round(m.pra),
                       +m.acv.toFixed(2), +(m.pct24 * 100).toFixed(1), +(m.autopayPct * 100).toFixed(1), m.totalPoints, m.place, m.bugs,
@@ -4280,9 +4280,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // clicking surfaces reps with the biggest week-over-week jump (or drop).
     { key: 'avgPest',    label: 'Avg Pest Initial', title: 'Recurring pest plans only — one-time services, Sentricon, German roach and interior flea left out', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgPest > 0 ? fmt.usd(r.avgPest) : '—') },
     { key: 'avgInitial', label: 'Avg Initial', title: 'Every sale, one-time services included',      align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgInitial > 0 ? fmt.usd(r.avgInitial) : '—') },
-    { key: 'acvW', label: 'Weighted ACV', align: 'left', defaultDir: 'desc', title: 'Every sale — one-time services included', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.acvW > 0 ? fmt.usd(r.acvW) : '\u2014') },
+    { key: 'acvW', label: 'Weighted ACV', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'Every sale — one-time services included', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.acvW > 0 ? fmt.usd(r.acvW) : '\u2014') },
     { key: 'acv',        label: 'Recurring ACV',      align: 'left', defaultDir: 'desc', title: 'Recurring new sales only — one-time services (and renewals, see Renewal ACV) left out', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.usd(r.acv)) },
-    { key: 'acvOts', label: 'One Time Service ACV', align: 'left', defaultDir: 'desc', title: 'One-time services only', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.acvOts > 0 ? fmt.usd(r.acvOts) : '\u2014') },
+    { key: 'acvOts', label: 'One Time Service ACV', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'One-time services only', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.acvOts > 0 ? fmt.usd(r.acvOts) : '\u2014') },
     { key: 'avgRecurring', label: 'Recurring', align: 'left', defaultDir: 'desc', title: 'Average recurring charge per service across the rep\u2019s recurring sales (one-time services out) \u2014 as billed in FieldRoutes', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgRecurring > 0 ? fmt.usd(r.avgRecurring) : '\u2014') },
     { key: 'acvRen', label: 'Renewal ACV', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'Renewal-source sales only (Renewal - Loyalty / Inbound / Outbound / Service Pro Upsell)', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: indicatorExcl().renewal ? 'Renewals are excluded in Filters — untick Renewals to see this' : '' }, r.acvRen > 0 ? fmt.usd(r.acvRen) : (indicatorExcl().renewal ? 'excluded' : '\u2014')) },
     // Selling-day metrics — averages over days WITH ≥1 sale only.
@@ -5115,7 +5115,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               const officeName = _tcOff(_offEntries.length ? _offEntries[0][0] : r.office)
                 + (_offEntries.length > 1 ? ' +' + (_offEntries.length - 1) : '');
               const officeTitle = _offEntries.length > 1
-                ? 'Sold across ' + _offEntries.length + ' branches: ' + _offEntries.map(([o, v]) => _tcOff(o) + ' ' + fmt.usd0(v)).join(' · ')
+                ? 'Sold across ' + _offEntries.length + ' offices: ' + _offEntries.map(([o, v]) => _tcOff(o) + ' ' + fmt.usd0(v)).join(' · ')
                 : '';
               // Inline label→value pair for the detail lines. Values keep the
               // text color; labels recede. Dot separators, no boxes — calm.
@@ -5870,7 +5870,7 @@ function parseIndicatorsCsv(text) {
   }
 
   // Fallback: pre-aggregated format
-  if (iOffice === -1) throw new Error('No "Office" or "Branch" column found');
+  if (iOffice === -1) throw new Error('No "Office" column found');
   return parsePreAggregated(lines, headers, iOffice);
 }
 
@@ -6849,7 +6849,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
         el('div', {}, _fLabel('Office'), pickerSel('Company', branchesAll.map(b => [b, titleCase2(b)]),
           curScope.type === 'branch' ? curScope.value : '',
           (v) => setScope(v ? { type: 'branch', value: v } : { type: 'company' }, null),
-          'Company-wide, or scope the mini-charts to one branch')),
+          'Company-wide, or scope the mini-charts to one office')),
         el('div', {}, _fLabel('Team'), pickerSel('Team…', teamsAll.map(t => [t, t]),
           curScope.type === 'team' ? curScope.value : '',
           (v) => setScope(v ? { type: 'team', value: v } : { type: 'company' }, null),
@@ -6864,7 +6864,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
         style: _activeN
           ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
           : { borderColor: 'var(--border-2)', color: 'var(--text)' },
-        title: 'Scope the charts — branch, team, or a single rep',
+        title: 'Scope the charts — office, team, or a single rep',
         onclick: (e) => {
           e.stopPropagation();
           const open = panel.style.display === 'flex';
@@ -7306,7 +7306,7 @@ function buildTeamReportNode(teamName, ctx) {
   const showCohort  = !isRep && (rookieStats.reps + vetStats.reps) > 0;   // one rep isn't a cohort
 
   const cohortHeader = showCohort
-    ? el('div', { style: { fontSize: '13px', fontWeight: '800', letterSpacing: '0.06em', color: '#323230', margin: '8px 0 8px 0', textTransform: 'uppercase' } }, 'Rookie vs Vet · This ' + (isBranch ? 'Branch' : 'Team'))
+    ? el('div', { style: { fontSize: '13px', fontWeight: '800', letterSpacing: '0.06em', color: '#323230', margin: '8px 0 8px 0', textTransform: 'uppercase' } }, 'Rookie vs Vet · This ' + (isBranch ? 'Office' : 'Team'))
     : null;
   const cohortColumn = (label, color, s) => {
     const line = (lbl, val) => el('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px' } },
@@ -7341,7 +7341,7 @@ function buildTeamReportNode(teamName, ctx) {
   const repsHeader = el('div', {
     style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', margin: '14px 0 6px 0' },
   },
-    el('div', { style: { fontSize: '13px', fontWeight: '800', letterSpacing: '0.06em', color: '#323230', textTransform: 'uppercase' } }, isRep ? 'Rep Breakdown' : isBranch ? 'Branch Ranks' : 'Team Ranks'),
+    el('div', { style: { fontSize: '13px', fontWeight: '800', letterSpacing: '0.06em', color: '#323230', textTransform: 'uppercase' } }, isRep ? 'Rep Breakdown' : isBranch ? 'Office Ranks' : 'Team Ranks'),
     el('div', { style: { fontSize: '10px', color: '#888', fontWeight: '600' } },
       teamRepsFull.length + ' rep' + (teamRepsFull.length === 1 ? '' : 's') + ' · sorted by sales'),
   );
@@ -9065,7 +9065,7 @@ async function exportTiersXlsx() {
     })
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   const tagged = rows.filter(r => r.tier).length;
-  const header = ['Rep Name', 'Tier', 'FieldRoutes Employee ID', 'FieldRoutes Username', 'Rep Type', 'Branch / Office', 'Team', 'Active', 'Matched in CRM'];
+  const header = ['Rep Name', 'Tier', 'FieldRoutes Employee ID', 'FieldRoutes Username', 'Rep Type', 'Office', 'Team', 'Active', 'Matched in CRM'];
   const aoa = [
     ['RIDD · Rep Tier Export (Rookie / Vet)'],
     ['Generated', new Date().toLocaleString('en-US')],
@@ -9591,7 +9591,7 @@ function scopeDrillPanel(scope, allScopedSales, chartBuckets, compareRep, panelO
   const reps = new Set(scopedSales.map(s => s.rep).filter(Boolean)).size;
   const rev = scopedSales.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
   const sublabel = (scope.type === 'company'
-      ? 'All branches and teams'
+      ? 'All offices and teams'
       : scope.type === 'branch' ? 'Office' : 'Team')
     + ' · ' + reps + ' rep' + (reps === 1 ? '' : 's')
     + ' · ' + scopedSales.length + ' sale' + (scopedSales.length === 1 ? '' : 's')

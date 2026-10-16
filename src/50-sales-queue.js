@@ -714,7 +714,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
     customer: 'The customer, as entered on the sale. Click the name to open the sale details.',
     number:   'FieldRoutes customer number. This is what links the sale to the CRM for the automatic checks.',
     rep:      'The office rep who logged the sale and gets the commission.',
-    office:   'The branch the customer belongs to.',
+    office:   'The office the customer belongs to.',
     service:  'The plan sold (e.g. Pest 4 = quarterly pest control).',
     contract: 'Agreement length — 12, 18 or 24 months — or Renewal for an existing customer re-signing.',
     source:   'Where the lead came from. Pay rate and renewal treatment depend on this.',

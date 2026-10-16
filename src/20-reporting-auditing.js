@@ -445,7 +445,7 @@ function reportingAuditing() {
   const _phoneAud = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
   const statTable = (label, entries, note, kind, headerRight) => {
     const cols = [
-      { id: 'name', label: kind === 'rep' ? 'Rep' : (kind === 'team' ? 'Team' : 'Office'), tip: kind === 'rep' ? 'Sales rep (canonical name).' : (kind === 'team' ? 'Team from Manage Teams (current Team Year). "Unassigned" = no team set.' : 'Branch / office.') },
+      { id: 'name', label: kind === 'rep' ? 'Rep' : (kind === 'team' ? 'Team' : 'Office'), tip: kind === 'rep' ? 'Sales rep (canonical name).' : (kind === 'team' ? 'Team from Manage Teams (current Team Year). "Unassigned" = no team set.' : 'Office.') },
       // (Office/Team columns removed — the table filters below cover them;
       // the rep card modal still shows both.)
       { id: 'sold', label: 'Sold', tip: 'EVERY subscription sold in range (a customer with 2 subs counts as 2). Passed, failed, pending and no-audit all included. D2D production only.' },
@@ -542,7 +542,7 @@ function reportingAuditing() {
     // left, tools (⬇ export · 👥 manage teams) pushed right. Pinned under
     // the page header on scroll (per Isaac).
     (() => { const _auditCtl = [
-      sel(offFilter, [['all', 'All Branches'], ...offices.map(o => [o, o])], (e) => { state.auditOffice = e.target.value; mountApp(); }),
+      sel(offFilter, [['all', 'All Offices'], ...offices.map(o => [o, o])], (e) => { state.auditOffice = e.target.value; mountApp(); }),
       sel(teamFilter, [['all', 'All Teams'], ...teamsList.map(t => [t, t])], (e) => { state.auditTeam = e.target.value; mountApp(); }, 'Filter by team'),
       sel(preset, presetOpts, (e) => {
         state.auditRange = e.target.value;
@@ -1027,10 +1027,10 @@ function auditSubTasks() {
     const seen = new Set(), bad = [];
     for (const r of rows) { if (!r.state_crm || seen.has(String(r.customer_id))) continue; seen.add(String(r.customer_id));
       const zipWrong = r.state !== r.zip_state;
-      bad.push({ ...r, _flagReason: 'Customer #' + r.customer_id + ' \u00b7 state ' + r.state_crm + ', ZIP ' + String(r.zip_code || '').slice(0, 5) + ' is ' + r.zip_state + ' \u2014 ' + (zipWrong ? 'the ZIP looks wrong (kept ' + r.state + ', the branch\u2019s state)' : 'the state looks wrong (reporting uses ' + r.state + ')') }); }
+      bad.push({ ...r, _flagReason: 'Customer #' + r.customer_id + ' \u00b7 state ' + r.state_crm + ', ZIP ' + String(r.zip_code || '').slice(0, 5) + ' is ' + r.zip_state + ' \u2014 ' + (zipWrong ? 'the ZIP looks wrong (kept ' + r.state + ', the office\u2019s state)' : 'the state looks wrong (reporting uses ' + r.state + ')') }); }
     tasks.push({ tag: 'State', title: 'State doesn\u2019t match the ZIP', noun: 'customer', tone: 'check', rows: bad,
       ok: 'All clear \u2014 every customer\u2019s state matches their ZIP.',
-      todo: (n) => n.toLocaleString() + ' customer' + s(n) + ' whose state in FieldRoutes doesn\u2019t match the ZIP (e.g. \u201cAC\u201d, \u201cAA\u201d, or the wrong state). Reporting picks whichever matches the branch (each row says which looks wrong); fix that field on the customer in FieldRoutes.' });
+      todo: (n) => n.toLocaleString() + ' customer' + s(n) + ' whose state in FieldRoutes doesn\u2019t match the ZIP (e.g. \u201cAC\u201d, \u201cAA\u201d, or the wrong state). Reporting picks whichever matches the office (each row says which looks wrong); fix that field on the customer in FieldRoutes.' });
   }
   auditSubTasks._m = { src: rows, key, tasks };
   return tasks;

@@ -470,7 +470,7 @@ const ROLE_LABEL = {
   rep_loyalty_lead: 'Office Staff - Loyalty Team Lead',
   office_staff: 'Office Staff - Office',   // non-selling office user (per Isaac, Sep 22)
   tech_regional: 'Technician - Regional Manager',
-  tech_branch: 'Technician - Branch Manager',
+  tech_branch: 'Technician - Office Manager',
   tech_senior_lead: 'Technician - Senior Lead Service Pro',
   tech_pro: 'Technician - Service Pro',
   admin_rep:  'Admin',   // one "Admin" label (per Isaac) — admin_rep still sells under the hood

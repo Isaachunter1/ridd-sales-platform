@@ -2749,7 +2749,7 @@ function openImportInsightsModal(insights) {
           'D2D reps with a sale in the last 2 weeks (' + rk.windowLabel + ')'),
       ),
       el('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3' },
-        rk.byBranch.length > 0 ? knockTable('By Branch', rk.byBranch, tc) : el('span'),
+        rk.byBranch.length > 0 ? knockTable('By Office', rk.byBranch, tc) : el('span'),
         rk.byTeam.length > 0 ? knockTable('By Team', rk.byTeam, (t) => t) : el('span')),
     ));
   }
@@ -2757,7 +2757,7 @@ function openImportInsightsModal(insights) {
   // ── Branch YTD vs same period last year
   if ((insights.branchYoY || []).some(m => m.lastRev > 0)) {
     modal.append(el('div', { class: 'mb-2' },
-      sectionHeader('Branches · YTD vs ' + (y.year - 1), 'same period both years'),
+      sectionHeader('Offices · YTD vs ' + (y.year - 1), 'same period both years'),
       el('div', {}, ...insights.branchYoY.slice(0, 8).map(m => moverRow(m, { newText: '(new this year)' })))));
   }
 

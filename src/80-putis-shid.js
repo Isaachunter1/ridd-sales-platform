@@ -227,14 +227,14 @@ const PUTIS_KPI_TIPS = {
   acv: 'ACV — active ARR ÷ active accounts.',
   revPerActive: 'Monthly revenue per active account — booked revenue ÷ months ÷ active accounts today.',
   arrCoverage: 'ARR realisation — booked monthly revenue ÷ (ARR ÷ 12). Above 1.0 means billing ran ahead of the recurring base (initials, upsells); below means under-billing or seasonal timing.',
-  gaPerActive: 'Monthly G&A per active account — overhead leverage. Should fall as branches scale.',
-  concentration: 'Share of company revenue from the largest branch.',
+  gaPerActive: 'Monthly G&A per active account — overhead leverage. Should fall as offices scale.',
+  concentration: 'Share of company revenue from the largest office.',
   jobs: 'Completed jobs — FieldRoutes appointments with a completion date in the period, by the office they belong to (RevHawk).',
   cogsPerJob: 'COGS per completed job — (chemicals & job supplies + auto & fuel + tech wages + merchant fees) ÷ completed appointments. The all-in cost of rolling a truck to one stop.',
 };
 // Putis Shid rows (sheet order).
 const PUTIS_ROWS = [
-  { id: 'revenue',      label: 'Revenue',          kind: 'usd', bold: true,  tip: 'Revenue — every QuickBooks "Sales:<Branch> Sales" income account for the month. Recognized revenue as booked on the P&L, not FieldRoutes contract value.' },
+  { id: 'revenue',      label: 'Revenue',          kind: 'usd', bold: true,  tip: 'Revenue — every QuickBooks "Sales:<Office> Sales" income account for the month. Recognized revenue as booked on the P&L, not FieldRoutes contract value.' },
   { id: 'msPct',        label: 'M&S',              kind: 'pct', lowGood: true, tip: 'Materials & Supplies as a % of revenue — "Chemicals and Job Supplies" (chemical products + job supplies COGS) ÷ revenue. Lower is better.' },
   { id: 'autoPct',      label: 'Auto/Fuel',        kind: 'pct', lowGood: true, tip: 'Auto & fuel as a % of revenue — "Auto and Fuel" (auto expenses + fuel expense) ÷ revenue. Lower is better.' },
   { id: 'techPct',      label: 'Tech Wages',       kind: 'pct', lowGood: true, tip: 'Technician labor as a % of revenue — "Technician Labor Wages" ÷ revenue. Lower is better.' },
@@ -255,7 +255,7 @@ const PUTIS_ROWS = [
   { head: 'Operating expense' },
   { id: 'gaPct',        label: 'G&A',              kind: 'pct', lowGood: true, tip: 'General & administrative as a % of revenue — every other operating expense group (insurance, legal, office expenses, office wages, postage, recruiting, rent & lease, travel, utilities, telephone, software, bank fees…) ÷ revenue. Excludes housing, selling expense and interest.' },
   { id: 'sellingPct',   label: 'Selling Expense',  kind: 'pct', lowGood: true, tip: 'Cost of selling as a % of revenue — (sales commissions + advertising & marketing + incentive costs) ÷ revenue. Lower is better.' },
-  { id: 'marketing',    label: 'Marketing',        kind: 'usd',              tip: 'Advertising & marketing dollars — the "<Branch> Marketing" sub-accounts under Advertising & Marketing. Same feed as the Marketing tab’s ad spend.' },
+  { id: 'marketing',    label: 'Marketing',        kind: 'usd',              tip: 'Advertising & marketing dollars — the "<Office> Marketing" sub-accounts under Advertising & Marketing. Same feed as the Marketing tab’s ad spend.' },
   { id: 'marketingPct', label: 'Marketing %',      kind: 'pct', lowGood: true, tip: 'Marketing as a % of revenue — marketing ÷ revenue.' },
   { id: 'ebitda',       label: 'EBITDA',           kind: 'usd', bold: true, signed: true, tip: 'Earnings before interest, taxes, depreciation & amortization — gross profit minus all operating expense (selling expense + housing + G&A). Interest and depreciation are excluded. Red = loss.' },
   { id: 'adjEbitda',    label: 'Adjusted EBITDA',  kind: 'usd', bold: true, signed: true, tip: 'EBITDA before the cost of selling — EBITDA + selling expense (commissions + marketing + incentives). What the service business earns on its own, separate from growth spend. The sheet’s F14 + F11 × F3.' },
@@ -671,7 +671,7 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
   // sorting — there's nothing to sort.
   const single = !!opts.onlyCol;
   const renderLine = (label, f, o = {}) => el('tr', { class: 'border-t border-' + (o.bold ? ' font-semibold' : ''), style: o.bold ? { background: 'var(--card-2)' } : {} },
-    td(el('span', { class: 'inline-flex items-center gap-1' }, label, !single && sortSt && sortSt.label === label ? el('span', { style: { color: 'var(--accent)' } }, sortSt.dir === 'asc' ? '▲' : '▼') : null), { bold: true, title: single ? (o.tip || '') : (o.tip ? o.tip + ' · ' : '') + 'Click to sort branches by this row', style: { position: 'sticky', left: 0, background: o.bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)', cursor: 'pointer', userSelect: 'none' },
+    td(el('span', { class: 'inline-flex items-center gap-1' }, label, !single && sortSt && sortSt.label === label ? el('span', { style: { color: 'var(--accent)' } }, sortSt.dir === 'asc' ? '▲' : '▼') : null), { bold: true, title: single ? (o.tip || '') : (o.tip ? o.tip + ' · ' : '') + 'Click to sort offices by this row', style: { position: 'sticky', left: 0, background: o.bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)', cursor: 'pointer', userSelect: 'none' },
       onclick: single ? () => putisExplain(label, o.tip) : () => { const cur = state._putisSort; state._putisSort = (cur && cur.part === part && cur.label === label) ? (cur.dir === 'desc' ? { part, label, dir: 'asc' } : null) : { part, label, dir: 'desc' }; mountApp(); } }),
     ...cols.flatMap(c => { const v = f(D[c.key], c.key); const s = o.red && typeof v === 'number' && v > 0 ? { color: '#DC2626' } : o.signed && typeof v === 'number' ? { color: v < 0 ? '#DC2626' : '#5F6C5B' } : {};
       const isUsd = !(o.pct || o.num || o.x || o.mo || o.usd2);
@@ -681,23 +681,23 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
       const pv = isUsd && typeof v === 'number' && isFinite(v) && rev > 0 ? v / rev : null;
       return [cell, td(pv == null ? '' : _putisPct1(pv), { style: { color: 'var(--text-muted)', fontSize: '11px' } })]; }));
   const TIPS = {
-    'Total income': 'All "Sales:<Branch> Sales" income accounts.',
+    'Total income': 'All "Sales:<Office> Sales" income accounts.',
     'Chemicals & job supplies': '"Chemicals and Job Supplies": chemical products + job supplies COGS.',
     'Auto & fuel': '"Auto and Fuel": auto expenses + fuel expense.',
-    'Technician labor wages': '"Technician Labor Wages" by branch.',
+    'Technician labor wages': '"Technician Labor Wages" by office.',
     'Merchant fees': '"Other COGS: Merchant Fees" — card processing.',
     'Cost of goods sold': 'Chemicals & job supplies + auto & fuel + tech wages + merchant fees.',
     'Gross profit': 'Total income − cost of goods sold (as $ or ÷ total income in Margins).',
-    'Advertising & marketing': '"Advertising & Marketing: <Branch> Marketing" — same feed as the Marketing tab.',
+    'Advertising & marketing': '"Advertising & Marketing: <Office> Marketing" — same feed as the Marketing tab.',
     'Sales commissions': '"Selling Expenses" group — sales commissions, MD expenses, BayToast comish (corporate).',
-    'Incentive costs': '"Incentive Costs" — branch incentives, competition prizes, retreats.',
-    'Housing': '"Housing" — summer rep housing by branch. Operating expense, but not part of G&A or selling.',
+    'Incentive costs': '"Incentive Costs" — office incentives, competition prizes, retreats.',
+    'Housing': '"Housing" — summer rep housing by office. Operating expense, but not part of G&A or selling.',
     'Other G&A': 'Remaining G&A groups: bank charges, building cleaning, car & truck, Geotab, telephone, utilities, payroll, software, legal & professional…',
     'Total expenses': 'All operating expense: selling (commissions + marketing + incentives) + housing + G&A. Interest and depreciation excluded.',
     'EBITDA': 'Gross profit − total expenses. Earnings before interest, taxes, depreciation & amortization.',
     'Interest paid': '"Interest Paid" — interest expense (corporate).',
     'Net income': 'EBITDA − interest paid − depreciation/amortization.',
-    'Recurring revenue (active ARR)': 'Annual recurring value of every active recurring subscription in the branch — same rule as the Overview tab’s Active ARR. As of the last FieldRoutes sync.',
+    'Recurring revenue (active ARR)': 'Annual recurring value of every active recurring subscription in the office — same rule as the Overview tab’s Active ARR. As of the last FieldRoutes sync.',
     'Active accounts': 'Active recurring subscriptions right now (status Active, no cancel date).',
     'ACV (ARR ÷ active accounts)': 'Average annual contract value per active account.',
     'Revenue ÷ active account': 'Booked revenue this period per active account today.',
@@ -711,11 +711,11 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
     'Adjusted EBITDA': 'Adjusted EBITDA ÷ total income.',
     'Net profit': 'Net income ÷ total income.',
   };
-  PUTIS_GA_LINES.forEach(g => { TIPS[g] = 'G&A line: the "' + g + '" account group, by branch.'; });
+  PUTIS_GA_LINES.forEach(g => { TIPS[g] = 'G&A line: the "' + g + '" account group, by office.'; });
   const _line = line;
   const lineT = (label, f, o = {}) => _line(label, f, { ...o, tip: o.tip || TIPS[label] || '' });
   const rows = [
-    section('Income statement', 'Dollars booked in QuickBooks for the selected month (or year to date), by branch. Corporate = accounts with no branch prefix.'),
+    section('Income statement', 'Dollars booked in QuickBooks for the selected month (or year to date), by office. Corporate = accounts with no office prefix.'),
     lineT('Total income', d => d.revenue, { bold: true }),
     lineT('Chemicals & job supplies', d => d.ms),
     lineT('Auto & fuel', d => d.auto),
@@ -1003,10 +1003,10 @@ function putisBranchScorecard(M, U, yms, branches, title) {
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-start justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
       el('div', {}, el('h3', { class: 'text-sm font-bold' }, title),
-        el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'Green = best in column · red = worst · click a header to sort' + (topShare != null ? ' · top-branch concentration ' + _putisPct1(topShare) : ''))),
+        el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'Green = best in column · red = worst · click a header to sort' + (topShare != null ? ' · top-office concentration ' + _putisPct1(topShare) : ''))),
     ),
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse' } },
-      el('thead', {}, el('tr', {}, el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold text-left', style: { color: 'var(--text-muted)' } }, 'Branch'), ...COLS.map(th))),
+      el('thead', {}, el('tr', {}, el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold text-left', style: { color: 'var(--text-muted)' } }, 'Office'), ...COLS.map(th))),
       el('tbody', {},
         ...rows.map(r => el('tr', { class: 'border-t border-' }, el('td', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap', style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }, r.name), ...COLS.map(c => td(c, r.m, false)))),
         el('tr', { class: 'border-t font-bold', style: { background: 'var(--card-2)' } }, el('td', { class: 'px-2 py-1.5 whitespace-nowrap', style: { position: 'sticky', left: 0, background: 'var(--card-2)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }, 'RIDD'), ...COLS.map(c => td(c, total, true)))))));
@@ -1188,7 +1188,7 @@ function reportingPutis() {
   const branchPicker = () => {
     const label = allOn ? 'RIDD' : picked.length === 1 ? picked[0] : picked.length <= 2 ? picked.join(' + ') : picked[0] + ' + ' + (picked.length - 1) + ' more';
     const wrapB = el('div', { class: 'relative inline-flex' });
-    const btn = el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer inline-flex items-center gap-1.5', style: { borderColor: allOn ? 'var(--border-2)' : 'var(--accent)', background: 'var(--card)', color: 'var(--text)' }, title: 'Branches in this roll-up' },
+    const btn = el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer inline-flex items-center gap-1.5', style: { borderColor: allOn ? 'var(--border-2)' : 'var(--accent)', background: 'var(--card)', color: 'var(--text)' }, title: 'Offices in this roll-up' },
       label, el('span', { style: { fontSize: '9px', opacity: .7 } }, '\u25bc'));
     const panel = el('div', { class: 'card', style: { position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 60, minWidth: '200px', padding: '6px', display: 'none', boxShadow: 'var(--shadow-lg)' } });
     const commit = (next) => { state._putisBranches = next.length === allBranches.length ? null : next; mountApp(); };
@@ -1196,7 +1196,7 @@ function reportingPutis() {
       el('input', { type: 'checkbox', checked: on, class: 'accent-lime', onchange: onclick }), name);
     panel.append(
       el('div', { class: 'flex items-center justify-between px-2 pb-1 mb-1 border-b', style: { borderColor: 'var(--border)' } },
-        el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Branches'),
+        el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Offices'),
         el('div', { class: 'flex gap-2' },
           el('button', { class: 'text-[10px] font-semibold', style: { color: 'var(--accent)' }, onclick: (e) => { e.stopPropagation(); commit(allBranches.slice()); } }, 'All'),
           el('button', { class: 'text-[10px] font-semibold', style: { color: 'var(--text-muted)' }, onclick: (e) => { e.stopPropagation(); commit([allBranches[0]]); } }, 'None'))),
@@ -1382,7 +1382,7 @@ function reportingScope(opts = {}) {
     visible, offices, office, compareOffice, inCompare,
     datePreset, dateStart, dateEnd, dateLabel, inDate,
     scopeA, scopeB,
-    officeLabel: (o) => o === 'all' ? 'All Offices' : o === 'multi' ? ((state.reportingOffices || []).length + ' branches') : o,
+    officeLabel: (o) => o === 'all' ? 'All Offices' : o === 'multi' ? ((state.reportingOffices || []).length + ' offices') : o,
   };
 }
 

@@ -963,7 +963,7 @@ function _mktgPnl() {
     // Spend (per Isaac): Ad spend · Wages · Incentives · Total spend in ONE
     // table with a dropdown — default Total spend.
     (() => {
-      const qboNote = (state._isSpendSource === 'QuickBooks' ? 'QuickBooks · Advertising & Marketing by branch' + (state._isSpendPulledAt ? ' · pulled ' + new Date(state._isSpendPulledAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '') : state._isSpendSource === 'none' ? 'QuickBooks feed unavailable — no spend to show' : 'loading QuickBooks spend…') + ' · P&L Advertising & Marketing · unbooked months show $0';
+      const qboNote = (state._isSpendSource === 'QuickBooks' ? 'QuickBooks · Advertising & Marketing by office' + (state._isSpendPulledAt ? ' · pulled ' + new Date(state._isSpendPulledAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '') : state._isSpendSource === 'none' ? 'QuickBooks feed unavailable — no spend to show' : 'loading QuickBooks spend…') + ' · P&L Advertising & Marketing · unbooked months show $0';
       const SPEND = {
         total: { label: 'Total spend', note: 'ad spend + wages + incentives', cell: tot },
         ad:    { label: 'Ad spend',    note: qboNote,                          cell: ad },
@@ -1135,7 +1135,7 @@ function _mktgProviders(vizOnly) {
   const opts = { groupRows: groups, firstCol: mode === 'provider' ? 'Provider' : 'Office',
     label: (rk) => groups.has(rk) ? _mktgGroupLabel(rk) : (mode === 'office' ? _mktgTC(rk) : rk) };
   const wt = (num) => ({ ...opts, groupRows: new Set(), total: (rk) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += num(rk, i); d += num(TOTAL, i); } return _mktgDiv(n, d); } });
-  const spNote = officeFull ? 'QuickBooks · Advertising & Marketing by branch' : (AP ? [...AP.has].join(' / ') + ' from the ad platforms (Windsor, campaign → office) · other providers from Spend entry' : 'Spend entry allocation (provider × office)');
+  const spNote = officeFull ? 'QuickBooks · Advertising & Marketing by office' : (AP ? [...AP.has].join(' / ') + ' from the ad platforms (Windsor, campaign → office) · other providers from Spend entry' : 'Spend entry allocation (provider × office)');
   const pf = (f) => (rk, i) => AP ? AP.cell(chsOf(rk), bsWide(rk), i, f) : 0;
   const pSp = pf('spend'), pLd = pf('leads'), pCl = pf('clicks'), pIm = pf('impr');
   const apNote = ' · Facebook + Google Ads as the platforms report them (Windsor)';
@@ -1365,21 +1365,21 @@ function _mktgControllerTable() {
   const th = (t, r) => el('th', { class: 'px-4 py-2 text-[10px] uppercase tracking-wider font-semibold ' + (r ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
   const td = (t, o = {}) => el('td', { class: 'px-4 py-1.5' + (o.r ? ' text-right tabular-nums' : '') + (o.b ? ' font-bold' : ''), style: o.st || {} }, t);
   const exportCsv = () => { const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
-    const lines = [['Branch', 'Provider', 'Amount'].join(',')];
+    const lines = [['Office', 'Provider', 'Amount'].join(',')];
     for (const x of branches) { for (const r of x.rows) lines.push([_mktgTC(x.b), r.ch, r.v.toFixed(2)].map(esc).join(',')); lines.push([_mktgTC(x.b) + ' total', '', x.tot.toFixed(2)].map(esc).join(',')); }
     lines.push(['Total', '', grand.toFixed(2)].map(esc).join(','));
-    for (const x of AD.open) lines.push(['Needs a branch', x.prov + ' · ' + x.r.campaign, x.spend.toFixed(2)].map(esc).join(','));
-    const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' })); const a2 = el('a', { href: url, download: 'RIDD-marketing-spend-by-branch-' + ym + '.csv' }); document.body.append(a2); a2.click(); a2.remove(); URL.revokeObjectURL(url); };
+    for (const x of AD.open) lines.push(['Needs an office', x.prov + ' · ' + x.r.campaign, x.spend.toFixed(2)].map(esc).join(','));
+    const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' })); const a2 = el('a', { href: url, download: 'RIDD-marketing-spend-by-office-' + ym + '.csv' }); document.body.append(a2); a2.click(); a2.remove(); URL.revokeObjectURL(url); };
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
       el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Controller allocation · ' + reportingMonthLbl(ym)),
-        el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Every branch with spend this month, by provider. Facebook and Google come straight from the ad platforms; everything else from the uploaded reports. ' + fmt.int(branches.length) + ' branch' + (branches.length === 1 ? '' : 'es') + ' · ' + usd2(grand) + (openAmt ? ' · ' + usd2(openAmt) + ' still needs a branch (below)' : '') + '.')),
+        el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Every office with spend this month, by provider. Facebook and Google come straight from the ad platforms; everything else from the uploaded reports. ' + fmt.int(branches.length) + ' office' + (branches.length === 1 ? '' : 's') + ' · ' + usd2(grand) + (openAmt ? ' · ' + usd2(openAmt) + ' still needs an office (below)' : '') + '.')),
       el('div', { class: 'ml-auto flex items-center gap-2' },
         el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { state._mktCtrlMonth = e.target.value; mountApp(); } },
           ...yms.map(v => el('option', { value: v, selected: v === ym }, reportingMonthLbl(v)))),
         el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: exportCsv }, '⬇ Download (.csv)'))),
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-      el('thead', {}, el('tr', {}, th('Branch'), th('Provider'), th('Amount', true))),
+      el('thead', {}, el('tr', {}, th('Office'), th('Provider'), th('Amount', true))),
       el('tbody', {}, ...branches.flatMap(x => [
         ...x.rows.map((r, i) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, td(i === 0 ? _mktgTC(x.b) : '', { b: true }), td(r.ch), td(usd2(r.v), { r: true }))),
         el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } }, td(_mktgTC(x.b) + ' total', { b: true }), td(''), td(usd2(x.tot), { r: true, b: true }))]),
@@ -1388,33 +1388,33 @@ function _mktgControllerTable() {
     dupUploads.length ? el('div', { class: 'px-5 py-2 text-[11px] border-t', style: { borderColor: 'var(--border)', color: '#B45309' } }, 'Uploaded ' + dupUploads.join(', ') + ' spend for this month is left out — the platform numbers are used instead, so it isn’t counted twice.') : null,
     // Spend that points at no branch yet: pick one per campaign (remembered).
     AD.open.length ? el('div', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-      el('div', { class: 'px-5 pt-3 pb-1 text-[11px] font-bold', style: { color: '#DC2626' } }, 'Needs a branch · ' + usd2(openAmt) + ' across ' + AD.open.length + ' campaign' + (AD.open.length === 1 ? '' : 's')),
-      el('div', { class: 'px-5 pb-2 text-[11px]', style: { color: 'var(--text-muted)' } }, 'Facebook / Google campaigns whose account or name doesn’t point at one branch. Pick a branch and it is remembered for every month; whole accounts can be set in Settings → Connections → Ad accounts.'),
+      el('div', { class: 'px-5 pt-3 pb-1 text-[11px] font-bold', style: { color: '#DC2626' } }, 'Needs an office · ' + usd2(openAmt) + ' across ' + AD.open.length + ' campaign' + (AD.open.length === 1 ? '' : 's')),
+      el('div', { class: 'px-5 pb-2 text-[11px]', style: { color: 'var(--text-muted)' } }, 'Facebook / Google campaigns whose account or name doesn’t point at one office. Pick an office and it is remembered for every month; whole accounts can be set in Settings → Connections → Ad accounts.'),
       el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-        el('thead', {}, el('tr', {}, th('Provider'), th('Account'), th('Campaign'), th('Amount', true), th('Branch'))),
+        el('thead', {}, el('tr', {}, th('Provider'), th('Account'), th('Campaign'), th('Amount', true), th('Office'))),
         el('tbody', {}, ...AD.open.map(x => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
           td(x.prov), td((x.r.acctName ? x.r.acctName + ' · ' : '') + x.r.acct), td(x.r.campaign, { st: { maxWidth: '380px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }), td(usd2(x.spend), { r: true, b: true }),
           // One branch, or several split evenly (per Isaac, Oct 9).
-          el('td', { class: 'px-4 py-1' }, isAdminRole(state.profile?.role) ? spuBranchPicker(BL.all, [], (picked) => { setAdCampaignOffice(x.k, picked.length === 1 ? picked[0] : picked); mountApp(); }, { empty: 'Pick branches…', save: 'Save · split evenly' }) : '—'))))))) : null,
+          el('td', { class: 'px-4 py-1' }, isAdminRole(state.profile?.role) ? spuBranchPicker(BL.all, [], (picked) => { setAdCampaignOffice(x.k, picked.length === 1 ? picked[0] : picked); mountApp(); }, { empty: 'Pick offices…', save: 'Save · split evenly' }) : '—'))))))) : null,
     // Google campaigns split by the searcher's metro (location report) — metro → branch, editable.
     AD.geo.length ? (() => { const metros = new Map(); for (const x of AD.geo) for (const g of x.G.metros) { const v = metros.get(g.metro) || { spend: 0, b: g.b }; v.spend += g.spend; metros.set(g.metro, v); }
       const unm = AD.geo.reduce((t, x) => t + x.G.unmapped, 0);
       return el('details', { class: 'px-5 py-3 border-t', style: { borderColor: 'var(--border)' }, open: unm > 0 },
-        el('summary', { class: 'text-[11px] font-semibold cursor-pointer' }, 'Split by Google’s location report · ' + AD.geo.map(x => x.r.campaign + ' ' + usd2(x.r.spend)).join(' · ') + (unm ? ' · ' + usd2(unm) + ' in metros with no branch, spread pro rata' : '')),
-        el('div', { class: 'text-[11px] mt-1 mb-2', style: { color: 'var(--text-muted)' } }, 'One Google campaign serving several branches is split by where the searchers were (metro). Point each metro at its branch; it is remembered for every month.'),
+        el('summary', { class: 'text-[11px] font-semibold cursor-pointer' }, 'Split by Google’s location report · ' + AD.geo.map(x => x.r.campaign + ' ' + usd2(x.r.spend)).join(' · ') + (unm ? ' · ' + usd2(unm) + ' in metros with no office, spread pro rata' : '')),
+        el('div', { class: 'text-[11px] mt-1 mb-2', style: { color: 'var(--text-muted)' } }, 'One Google campaign serving several offices is split by where the searchers were (metro). Point each metro at its office; it is remembered for every month.'),
         el('div', { class: 'grid gap-x-4 gap-y-1', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' } }, ...[...metros.entries()].sort((a, b) => b[1].spend - a[1].spend).map(([mt, v]) =>
           el('div', { class: 'flex items-center gap-2 text-[11px]' },
             el('span', { class: 'truncate', style: { flex: '1', minWidth: '0', color: v.b ? undefined : '#DC2626', fontWeight: v.b ? undefined : '600' }, title: mt }, mt),
             el('span', { class: 'tabular-nums', style: { color: 'var(--text-muted)' } }, usd2(v.spend)),
             isAdminRole(state.profile?.role) ? el('select', { class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', maxWidth: '160px' },
               onchange: (e) => { const all = Object.assign({}, adMetroMap()); if (e.target.value === '__auto') delete all[mt]; else all[mt] = e.target.value; _setAdminRule('adMetroBranch', all); mountApp(); } },
-              el('option', { value: '__auto', selected: !(mt in adMetroMap()) }, v.b ? 'Auto · ' + _mktgTC(v.b) : 'Pick a branch…'),
+              el('option', { value: '__auto', selected: !(mt in adMetroMap()) }, v.b ? 'Auto · ' + _mktgTC(v.b) : 'Pick an office…'),
               ...BL.all.map(b => el('option', { value: b, selected: adMetroMap()[mt] === b }, _mktgTC(b))),
-              el('option', { value: '', selected: adMetroMap()[mt] === '' }, 'No branch (spread)')) : el('span', {}, v.b ? _mktgTC(v.b) : '—'))))); })() : null,
+              el('option', { value: '', selected: adMetroMap()[mt] === '' }, 'No office (spread)')) : el('span', {}, v.b ? _mktgTC(v.b) : '—'))))); })() : null,
     // Campaigns already given branches by hand — change or reset them here.
     (() => { const map = adCampaignOfficeMap(); const keys = Object.keys(map).filter(k => map[k] !== '' && map[k] != null); if (!keys.length || !isAdminRole(state.profile?.role)) return null;
       return el('details', { class: 'px-5 py-3 border-t', style: { borderColor: 'var(--border)' } },
-        el('summary', { class: 'text-[11px] font-semibold cursor-pointer' }, 'Campaign branches set by hand (' + keys.length + ')'),
+        el('summary', { class: 'text-[11px] font-semibold cursor-pointer' }, 'Campaign offices set by hand (' + keys.length + ')'),
         el('div', { class: 'flex flex-col gap-1 mt-2' }, ...keys.sort().map(k => { const v = map[k]; const cur = Array.isArray(v) ? v : [v]; const parts = k.split('|');
           return el('div', { class: 'flex items-center gap-3 text-[11px]' },
             el('span', { class: 'truncate', style: { flex: '1', minWidth: '0' }, title: k }, parts.slice(2).join('|') + ' · ' + parts[1]),
@@ -1437,8 +1437,8 @@ function _mktgProjections() {
     onchange: (e) => { const x = parseFloat(e.target.value); onSave(isNaN(x) ? 0 : x); _mktgSave(); mountApp(); } });
   const goalsCard = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
-      el('h3', { class: 'text-sm font-bold' }, 'Branch goals · ' + y),
-      el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'revenue goal per branch · ad spend ' + Math.round(s.adSpendPct * 100) + '% · wages ' + Math.round(s.wagesPct * 100) + '% · incentives ' + Math.round(s.incentivesPct * 100) + '% (rates in Configurations)')),
+      el('h3', { class: 'text-sm font-bold' }, 'Office goals · ' + y),
+      el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'revenue goal per office · ad spend ' + Math.round(s.adSpendPct * 100) + '% · wages ' + Math.round(s.wagesPct * 100) + '% · incentives ' + Math.round(s.incentivesPct * 100) + '% (rates in Configurations)')),
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs frozen-table' },
       el('thead', {}, el('tr', {}, _mktgTh('Office', false), _mktgTh('Revenue goal'), _mktgTh('Ad spend'), _mktgTh('Wages'), _mktgTh('Incentives'), _mktgTh('Total spend'), _mktgTh('Attrition %', true, 'Projected annual attrition — sets replacement revenue'), _mktgTh('YTD actual'), _mktgTh('% of goal'))),
       el('tbody', {},
@@ -1473,7 +1473,7 @@ function _mktgProjections() {
           _mktgTd(fmt.usd0(channels.reduce((t, ch) => t + [0,1,2,3,4,5,6,7,8,9,10,11].reduce((u, i) => u + chProj(ch, i), 0), 0)), { bold: true }))))));
   return el('div', { class: 'flex flex-col gap-4' },
     goalsCard,
-    _mktgMatrixCard('Projected revenue', 'branch goal × the monthly allocation in Settings → Goals', rows, pRev, _mktgUsd0, opts),
+    _mktgMatrixCard('Projected revenue', 'office goal × the monthly allocation in Settings → Goals', rows, pRev, _mktgUsd0, opts),
     _mktgMatrixCard('Actual vs projected', 'FieldRoutes actual ÷ projected', rows, (rk, i) => { const p = pRev(rk, i); return p > 0 ? aRev(rk, i) / p : null; }, _mktgPct, { ...opts, cellStyle: (v) => v == null ? {} : { color: v >= 1 ? '#5F6C5B' : v >= 0.8 ? '#A9441F' : '#DC2626', fontWeight: '600' }, total: (rk) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += aRev(rk, i); d += pRev(rk, i); } return _mktgDiv(n, d); } }),
     _mktgMatrixCard('Projected ad spend', 'projected revenue × ' + Math.round(s.adSpendPct * 100) + '%', rows, pAd, _mktgUsd0, opts),
     _mktgMatrixCard('Projected wages', 'projected revenue × ' + Math.round(s.wagesPct * 100) + '%', rows, pWg, _mktgUsd0, opts),
@@ -1703,7 +1703,7 @@ function _setupSteps() {
     { key: 'services', title: 'Service types', done: explicitSvc > 0, detail: svcNames.size ? explicitSvc + ' set explicitly · ' + svcDefaulted + ' on the default guess (recurring unless named “One Time…”)' : 'Needs data first', action: ['Open', goTo('cfg-services')] },
     { key: 'sources', title: 'Lead sources', done: srcCfg.length > 0, detail: srcNames.size ? srcCfg.length + ' configured · ' + srcUnset + ' source' + (srcUnset === 1 ? '' : 's') + ' in the data with no row yet (counted as new revenue, included)' : 'Needs data first', action: ['Open', goTo('cfg-sources')] },
     { key: 'cancel', title: 'Cancellation reasons', done: (state.reportingCancelConfig || []).length > 0 || obs.reasons.length === 0, detail: obs.reasons.length + ' distinct reason' + (obs.reasons.length === 1 ? '' : 's') + ' in the data · ' + (state.reportingCancelConfig || []).length + ' classified as retained', action: ['Open', goTo('cfg-cancel')] },
-    { key: 'branches', title: 'Branches', done: offices.length > 0 && unmappedBranches === 0, detail: offices.length + ' office' + (offices.length === 1 ? '' : 's') + ' set up' + (unmappedBranches ? ' · ' + unmappedBranches + ' branch name' + (unmappedBranches === 1 ? '' : 's') + ' in the data with no office row (add the office or a rename)' : ''), action: ['Settings', goAdmin] },
+    { key: 'branches', title: 'Offices', done: offices.length > 0 && unmappedBranches === 0, detail: offices.length + ' office' + (offices.length === 1 ? '' : 's') + ' set up' + (unmappedBranches ? ' · ' + unmappedBranches + ' office name' + (unmappedBranches === 1 ? '' : 's') + ' in the data with no office row (add the office or a rename)' : ''), action: ['Settings', goAdmin] },
     { key: 'goals', title: 'Goals', done: !!goal, detail: goal ? 'Department goal set' : 'No department goal yet — the pacer and daily goals need one', action: ['Settings', goAdmin] },
     { key: 'users', title: 'Users', done: people > 1, detail: people + ' user' + (people === 1 ? '' : 's') + ' — invite reps and leads; roles follow their CRM employee type', action: ['Settings', goAdmin] },
   ];

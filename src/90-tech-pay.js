@@ -260,7 +260,7 @@ function techOverridesView(managerId) {
   const ledger = (state.techLedger || []).filter(l => l.profile_id === pick && l.pay_year === y && l.pay_quarter === q && String(l.kind).startsWith('override'));
   const mapKind = { override_commission: 'commission', override_clawback: 'clawback', override_reverse: 'reverse_clawback' };
   const S = techCommissionSummary(sales, ledger.map(l => ({ ...l, kind: mapKind[l.kind] || l.kind })), rate);
-  const branchOpts = [['all', 'All branches'], ...offices.map(id => [id, techOfficeName(id) || ('Office ' + id)])];
+  const branchOpts = [['all', 'All offices'], ...offices.map(id => [id, techOfficeName(id) || ('Office ' + id)])];
   const bSel = el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { state._tpBranch = e.target.value; mountApp(); } }, ...branchOpts.map(([v, l]) => el('option', { value: String(v), selected: String(v) === String(branchSel) }, l)));
   // By branch / by rep rollups.
   const byBranch = new Map(), byRep = new Map();
@@ -272,7 +272,7 @@ function techOverridesView(managerId) {
   const cell = (v, cls) => el('td', { class: 'px-2 py-2 tabular-nums ' + (cls || '') }, v);
   const two = (a, b) => el('div', {}, el('div', { class: 'font-semibold' }, a), el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, b));
   const branchTbl = el('div', { class: 'card overflow-hidden' }, el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs' },
-    el('thead', {}, el('tr', { style: { borderBottom: '1px solid var(--border)' } }, hdr('Branch'), hdr('Sales', 'text-right'), hdr('Qualified CV', 'text-right'), hdr('Gross', 'text-right'), hdr('Net', 'text-right'))),
+    el('thead', {}, el('tr', { style: { borderBottom: '1px solid var(--border)' } }, hdr('Office'), hdr('Sales', 'text-right'), hdr('Qualified CV', 'text-right'), hdr('Gross', 'text-right'), hdr('Net', 'text-right'))),
     el('tbody', {}, ...([...byBranch.entries()].sort((a, b) => b[1].gross - a[1].gross).map(([oid, b]) => el('tr', { style: { borderBottom: '1px solid var(--border)' } },
       cell(two(techOfficeName(oid) || 'Unassigned', b.reps.size + ' reps')), cell(two(b.n, b.q + ' qualified'), 'text-right'), cell(two(fmt.usd0(b.qcv), fmt.usd0(b.cv) + ' sold'), 'text-right'), cell(two(fmt.usd0(b.gross), 'at ' + Math.round(rate * 100) + '%'), 'text-right'), cell(el('span', { class: 'font-black' }, fmt.usd0(b.gross)), 'text-right')))),
       ...(byBranch.size ? [] : [el('tr', {}, el('td', { colspan: 5, class: 'px-3 py-6 text-center text-muted-' }, pick ? 'No sales in this manager’s scope for the quarter.' : 'Pick a manager, or add an override scope under Configuration.'))])))));
@@ -283,7 +283,7 @@ function techOverridesView(managerId) {
   return el('div', { class: 'flex flex-col gap-4' },
     _tpQuarterBar(el('div', { class: 'flex items-center gap-2' }, mgrSel, bSel)),
     el('div', {}, el('h3', { class: 'text-base font-black' }, pick ? techRepName(pick) : 'Manager'),
-      el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, Math.round(rate * 100) + '% override on qualified sales across ' + (offices.length || 'all') + ' branch' + (offices.length === 1 ? '' : 'es') + ' · ' + (scopes[0] && scopes[0].label || 'Technician Sales') + ' · your own sales are excluded')),
+      el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, Math.round(rate * 100) + '% override on qualified sales across ' + (offices.length || 'all') + ' office' + (offices.length === 1 ? '' : 's') + ' · ' + (scopes[0] && scopes[0].label || 'Technician Sales') + ' · your own sales are excluded')),
     el('div', { class: 'grid grid-cols-1 lg:grid-cols-3 gap-4 items-start' },
       el('div', { class: 'card p-4' },
         el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Q' + q + ' ' + y + ' · ' + Math.round(rate * 100) + '% override'),
@@ -299,10 +299,10 @@ function techOverridesView(managerId) {
     el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-3' },
       _tpStat('Sales in scope', S.total.n, S.total.q + ' qualified · ' + (S.total.n ? Math.round(S.total.q / S.total.n * 100) : 0) + '%'),
       _tpStat('Sold contract value', fmt.usd0(S.total.cv), fmt.usd0(S.total.qcv) + ' qualified'),
-      _tpStat('Reps covered', byRep.size, byBranch.size + ' of ' + (offices.length || byBranch.size) + ' branches active'),
+      _tpStat('Reps covered', byRep.size, byBranch.size + ' of ' + (offices.length || byBranch.size) + ' offices active'),
       _tpStat('Clawbacks', S.ded.nClaw, 'All counted')),
-    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'By branch'), branchTbl,
-    el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Branch figures exclude the manager’s own sales, so they won’t tie to a company branch report.'),
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'By office'), branchTbl,
+    el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Office figures exclude the manager’s own sales, so they won’t tie to a company office report.'),
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'By rep'), repTbl,
     techDeductionBreakdown(ledger.map(l => ({ ...l, kind: mapKind[l.kind] || l.kind })), 'mgr'),
     techSalesDetail(S.rows, { key: 'mgr', rate, showRep: true, commLabel: 'Override' }));
@@ -445,7 +445,7 @@ function techPayConfigView() {
         el('div', { class: 'flex items-center gap-2' },
           el('select', { class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { state._tpNewMgr = e.target.value; } }, ...people.map(p => el('option', { value: p.id, selected: p.id === state._tpNewMgr }, p.full_name))),
           el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: newScope }, '+ Add scope'))),
-      el('div', { class: 'text-[10px] mb-2', style: { color: 'var(--text-subtle)' } }, 'Who earns an override on whose sales: a rate over a set of branches (none = every branch), technician sales only, the manager’s own sales excluded.'),
+      el('div', { class: 'text-[10px] mb-2', style: { color: 'var(--text-subtle)' } }, 'Who earns an override on whose sales: a rate over a set of offices (none = every office), technician sales only, the manager’s own sales excluded.'),
       ...(scopeRows.length ? scopeRows : [el('div', { class: 'text-[11px] py-2', style: { color: 'var(--text-subtle)' } }, 'No override scopes yet.')])),
     el('div', { class: 'card p-4 flex items-center justify-between gap-2 flex-wrap' },
       el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Quarter lock · Q' + q + ' ' + y), el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, locked ? 'Locked — commissions and overrides for this quarter are frozen for reps.' : 'Open — numbers keep moving as the CRM stamps change.')),
@@ -465,7 +465,7 @@ function reportingOpsHub() {
   const body = sub === 'commissions' ? techCommissionsView(null) : sub === 'overrides' ? techOverridesView(null) : sub === 'production' ? techProductionPayView(null) : sub === 'config' ? techPayConfigView() : reportingOps();
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' }, _tpSubTabs(SUBS, sub, (v) => { state._opsSub = v; mountApp(); }),
-      el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, sub === 'stats' ? 'Weekly COO stats by office' : sub === 'commissions' ? 'Quarterly technician commissions (the rep’s Pay tab, for any rep)' : sub === 'overrides' ? 'Manager overrides across their branches' : sub === 'production' ? 'Bi-weekly production bonus' : 'Rates, qualifiers, override scopes, quarter lock')),
+      el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, sub === 'stats' ? 'Weekly COO stats by office' : sub === 'commissions' ? 'Quarterly technician commissions (the rep’s Pay tab, for any rep)' : sub === 'overrides' ? 'Manager overrides across their offices' : sub === 'production' ? 'Bi-weekly production bonus' : 'Rates, qualifiers, override scopes, quarter lock')),
     body);
 }
 

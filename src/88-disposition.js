@@ -156,7 +156,7 @@ function _dispOutRow(F, x) {
     'GHL status': x.ghl.status || (x.ghl.found === false ? 'Not in GoHighLevel' : ''), 'GHL stage': x.ghl.stage,
     'Closed': closed ? 'Yes' : 'No',
     'Sold date': x.fr.sold, 'Service': x.fr.service, 'Initial': x.fr.initial || '', 'Account status': x.fr.status, 'Contract value': x.fr.value || '',
-    'Branch': x.fr.office ? _mktgTC(x.fr.office) : '',
+    'Office': x.fr.office ? _mktgTC(x.fr.office) : '',
     'FieldRoutes customer ID': x.fr.id, 'Matched on': x.fr.how,
     'Flags': x.flags.join('; '),
   });

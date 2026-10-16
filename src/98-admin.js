@@ -759,8 +759,8 @@ function adminConfigurations(part) {
   if (part === 'marketing') return el('div', { class: 'flex flex-col gap-4' },
     head('Marketing & lead sources', 'What each FieldRoutes lead source is (new / renewal / upsell, paid or not, which provider it rolls into), how ad accounts and GoHighLevel leads map in, and the marketing targets.'),
     listCard('source', 'Lead sources', '', reportingSourceConfigPanel),
-    typeof reportingAdAccountsPanel === 'function' ? listCard('adacc', 'Ad accounts → branch', 'Facebook + Google', reportingAdAccountsPanel) : null,
-    typeof reportingProviderIdsPanel === 'function' ? listCard('provids', 'Provider IDs → branch', 'LSA · Angi · campaigns', reportingProviderIdsPanel) : null,   // per Isaac, Oct 9
+    typeof reportingAdAccountsPanel === 'function' ? listCard('adacc', 'Ad accounts → office', 'Facebook + Google', reportingAdAccountsPanel) : null,
+    typeof reportingProviderIdsPanel === 'function' ? listCard('provids', 'Provider IDs → office', 'LSA · Angi · campaigns', reportingProviderIdsPanel) : null,   // per Isaac, Oct 9
     typeof reportingGhlSourcesPanel === 'function' ? listCard('ghl', 'GoHighLevel sources → provider', (state._ghl && state._ghl.rows && state._ghl.rows.length) ? n(state._ghl.rows.length) + ' contacts' : 'sync', reportingGhlSourcesPanel) : null,
     typeof reportingMarketingGoalsPanel === 'function' ? listCard('mgoals', 'Marketing goals & targets', 'CAC · ROAS · spend mix', reportingMarketingGoalsPanel) : null);
   return el('div', { class: 'flex flex-col gap-4' },
@@ -897,11 +897,11 @@ function dataIntegrityPanel() {
       cancelCls.unspecified ? (() => listTable(SALE_COLS, unspecRows.map(saleRow))) : null),
     check('blank', 'Rows with a blank rep name', blankRows.length,
       blankRows.length === 0 ? 'good' : 'warn',
-      'Never counted in any rep metric (' + money0(blankRev) + ' of contract value sits here). Branch totals still include them.',
+      'Never counted in any rep metric (' + money0(blankRev) + ' of contract value sits here). Office totals still include them.',
       blankRows.length ? (() => listTable(SALE_COLS, blankRows.slice(0, 120).map(saleRow))) : null),
     check('multioffice', 'Reps selling across multiple offices', multiOffice.length,
       'good',
-      'Not an error — but their "primary branch" label (leaderboard filters, Manage Teams) is a judgment call: sales count under the account\u2019s office, the rep label follows their biggest market.',
+      'Not an error — but their "primary office" label (leaderboard filters, Manage Teams) is a judgment call: sales count under the account\u2019s office, the rep label follows their biggest market.',
       multiOffice.length ? (() => listTable(['Rep', 'Offices (sales)', 'Total sales'], multiOffice.slice(0, 120).map(m => [m.name, m.offices, String(m.n)]))) : null),
   );
 }

@@ -124,7 +124,7 @@ function reportingAdAccountsPanel() {
   const admin = isAdminRole(state.profile?.role);
   const wrap = (body) => el('div', { class: 'card p-3', id: 'cfg-ad-accounts' },
     el('div', { class: 'flex items-center gap-3 flex-wrap mb-2' },
-      el('div', { class: 'text-sm font-bold' }, 'Ad accounts → branch'),
+      el('div', { class: 'text-sm font-bold' }, 'Ad accounts → office'),
       el('div', { class: 'text-[11px]', style: muted }, 'Facebook + Google Ads accounts from Windsor, one line per account and type (PPC / LSA). Pick one or more offices (spend splits evenly), or a whole company for accounts that can’t be pinned to an office — company spend counts in that company’s totals, not in any single office. Auto = the office named in each campaign. A single campaign can still be overridden on the Metrics campaigns card.')),
     body);
   if (!S.rows) return wrap(el('div', { class: 'text-[11px] py-3', style: S.error ? { color: '#DC2626' } : muted }, S.error ? 'Couldn’t pull the ad accounts: ' + S.error : 'Pulling ad accounts from Windsor…'));
@@ -180,9 +180,9 @@ function reportingAdAccountsPanel() {
     return wrapEl;
   };
   return wrap(el('div', {},
-    unassigned.length ? el('div', { class: 'text-[11px] mb-2', style: { color: '#DC2626' } }, unassigned.length + ' account line' + (unassigned.length === 1 ? '' : 's') + ' (' + fmt.usd0(unassigned.reduce((t, x) => t + x.spend, 0)) + ' this year) have no branch yet — outlined in red.') : null,
+    unassigned.length ? el('div', { class: 'text-[11px] mb-2', style: { color: '#DC2626' } }, unassigned.length + ' account line' + (unassigned.length === 1 ? '' : 's') + ' (' + fmt.usd0(unassigned.reduce((t, x) => t + x.spend, 0)) + ' this year) have no office yet — outlined in red.') : null,
     el('div', { class: 'scroll-x', style: { paddingBottom: state._adAcctOpen ? '300px' : '0' } }, el('table', { class: 'w-full text-[11px]' },
-      el('thead', {}, el('tr', {}, th('Platform'), th('Type'), th('Account ID'), th('Account name'), th('Campaigns'), th(y + ' spend'), th('Branch'))),
+      el('thead', {}, el('tr', {}, th('Platform'), th('Type'), th('Account ID'), th('Account name'), th('Campaigns'), th(y + ' spend'), th('Office'))),
       el('tbody', {}, ...list.map(x => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
         td(x.platform === 'facebook' ? 'Facebook' : 'Google Ads'), td(typeOf(x)), td(x.acct, { fontFamily: 'var(--font-mono, ui-monospace, monospace)' }), td(x.name),
         td(x.camps.size), td(fmt.usd0(x.spend)), td(picker(x)))))))));

@@ -262,7 +262,7 @@ function mktgSpendQboView() {
           bookedTot ? td(usd(bk), Math.abs(bk - t) > 1 ? { color: '#B45309', fontWeight: '600' } : muted, true) : null); }),
         el('tr', { style: { borderTop: '2px solid var(--text)' } }, td('Total', { fontWeight: '700' }), ...provs.map(p => td(usd(A.byProv[p].amt), { fontWeight: '700' }, true)), td(usd(allocTot), { fontWeight: '800' }, true), bookedTot ? td(usd(bookedTot), { fontWeight: '700' }, true) : null)))),
     A.unassigned ? el('div', { class: 'px-5 py-2 text-[11px] border-t', style: { borderColor: 'var(--border)', color: '#B91C1C', fontWeight: '600' } }, usd(A.unassigned) + ' of QuickBooks lines have no provider yet, so they aren’t in the table — place them in step 1.') : null,
-    bookedTot && Math.abs(bookedTot - allocTot) > 1 ? el('div', { class: 'px-5 py-2 text-[11px] border-t', style: { borderColor: 'var(--border)', color: '#B45309' } }, 'Booked to the branch accounts: ' + usd(bookedTot) + ' vs ' + usd(allocTot) + ' allocated here. Orange offices differ by more than $1 — the journal entry should match this table.') : null);
+    bookedTot && Math.abs(bookedTot - allocTot) > 1 ? el('div', { class: 'px-5 py-2 text-[11px] border-t', style: { borderColor: 'var(--border)', color: '#B45309' } }, 'Booked to the office accounts: ' + usd(bookedTot) + ' vs ' + usd(allocTot) + ' allocated here. Orange offices differ by more than $1 — the journal entry should match this table.') : null);
 
   // 3 · Platform campaigns with no office (they can't help split their provider's dollars until they have one).
   const openCamps = (A.AD.open || []).filter(x => provs.includes(x.prov));
