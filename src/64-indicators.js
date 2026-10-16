@@ -105,7 +105,7 @@ function dashLensTeams() {
     .filter(t => typeof teamTypeOf !== 'function' || teamTypeOf(t) === want).sort();
 }
 function dashLensCompanyLabel() {
-  return state.indicatorDept === 'office' ? 'All Office Staff' : state.indicatorDept === 'techs' ? 'All Technicians' : 'Company';
+  return state.indicatorDept === 'office' ? 'All Office Staff' : state.indicatorDept === 'techs' ? 'All Technicians' : state.indicatorDept === 'd2d' ? 'All Sales Reps' : 'Company';
 }
 function dashLensOptions() {
   const me = dashLensMe(), teams = dashLensTeams();
@@ -1039,6 +1039,8 @@ function viewIndicators() {
               // One-tap range (per Isaac, Oct 4): the page opens on This Year, but in
               // season a rep mostly wants TODAY — so the four ranges people flip
               // between sit right on the bar instead of inside Filters.
+              // Me · My Team · All … (per Isaac, Oct 16) — just before the date.
+              dashLensOn() ? dashLensSwitch() : null,
               el('div', { class: 'inline-flex rounded-xl border overflow-hidden shrink-0', style: { borderColor: 'var(--border-2)', height: '28px', boxSizing: 'border-box' }, 'data-quick-range': '1' },   // same 28px box as Filters / 🏆 (per Isaac, Oct 16)
                 // ONE date button (per Isaac, Oct 12): it wears the current range's name; tap to pick another.
                 (() => {
@@ -1065,8 +1067,6 @@ function viewIndicators() {
                     style: { position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px', color: 'var(--text)', background: 'var(--card)', height: '100%', paddingTop: '0', paddingBottom: '0', lineHeight: '16.5px' },
                   }, String((cur === 'this_year' && !isRange ? 'This year' : indicatorPresetLabel(cur)) || 'Date range').replace(/\u2026$/, ''), el('span', { style: { fontSize: '8px', opacity: '.8' } }, '\u25BE'), sel);
                 })()),
-              // Me · My Team · Company (per Isaac, Oct 16) — right beside the date.
-              dashLensOn() ? dashLensSwitch() : null,
               el('div', { class: 'flex items-center justify-end gap-2 flex-wrap ml-auto' },
         // (🔧 edit mode moved to the GLOBAL top bar — it now drives section
         // layout on every tab plus the row editing here.)
@@ -10017,7 +10017,7 @@ function indicatorYoYTrendChart() {
   const _yoySigMe = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
   const _yoyIsMe = (n) => (typeof isMyRepName === 'function' && isMyRepName(n)) || _yoySigMe(getCanonicalRepName(n)) === _yoySigMe(state.profile && state.profile.full_name);
   const _yoyDefaultScopes = () => _yoyReachTeams.length ? _yoyReachTeams.map(t => ({ t: 'team', v: t })) : [{ t: 'co' }];
-  const _yoyCoLabel = state.indicatorDept === 'office' ? 'All Office Staff' : state.indicatorDept === 'techs' ? 'All Technicians' : 'Company';
+  const _yoyCoLabel = state.indicatorDept === 'office' ? 'All Office Staff' : state.indicatorDept === 'techs' ? 'All Technicians' : state.indicatorDept === 'd2d' ? 'All Sales Reps' : 'Company';
   const _yoyRepOnly = !isAdminRole(state.profile && state.profile?.role) && !_yoyPartner;
   // WHOSE trend (per Isaac, Oct 16): every user type opens on THEIR OWN line,
   // and can switch to any team they're assigned to. Admins / partners keep a
