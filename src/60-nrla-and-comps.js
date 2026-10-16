@@ -6148,8 +6148,9 @@ function aggregateByTeam(rawSales, indicatorRowsForDates) {
   // so everything lands in one no-team column (RIDD total intact) until teams are built for that rep type.
   const dept = ['office', 'techs'].includes(state.indicatorDept) ? state.indicatorDept : 'd2d';
   const pool = (rawSales || []).filter(s => (typeof _indicatorDeptOf !== 'function') || _indicatorDeptOf(s) === dept);
-  if (dept !== 'd2d') return aggregateRawSalesByGroup(pool, s => (typeof teamOfSale === 'function' ? teamOfSale(s) : getRepTeam(s.rep)) || 'Unassigned', indicatorRowsForDates, false, null);
-  return aggregateRawSalesByGroup(pool, s => getRepTeam(s.rep) || 'Unassigned', indicatorRowsForDates, true, TEAM_PEST_EXCLUDE);
+  // Reps on no team count under the owners' RIDD team (per Isaac, Oct 16) — one column, not ranked, in the RIDD total.
+  if (dept !== 'd2d') return aggregateRawSalesByGroup(pool, s => (typeof teamOfSale === 'function' ? teamOfSale(s) : getRepTeam(s.rep)) || 'RIDD', indicatorRowsForDates, false, null);
+  return aggregateRawSalesByGroup(pool, s => getRepTeam(s.rep) || 'RIDD', indicatorRowsForDates, true, TEAM_PEST_EXCLUDE);
 }
 // Department view — the three legs of the company as columns (Sales Rep /
 // Office Staff / Technician), classified per sale by _indicatorDeptOf.

@@ -75,6 +75,7 @@ function _indTeamWorld() { const d = state.indicatorDept; return (d === 'office'
 // The team a rep counts under on the CURRENT dashboard ('' = none).
 function indWorldTeamOf(rep) {
   const t = (typeof getRepTeam === 'function' && getRepTeam(rep)) || '';
+  if (t && typeof isOwnerTeam === 'function' && isOwnerTeam(t)) return t;   // the owners' RIDD team spans every rep type
   const w = _indTeamWorld();
   if (!t || !w) return t;
   return _indTeamDepts()[t] === w ? t : '';
@@ -354,7 +355,7 @@ function viewIndicators() {
   if (isRange && rawSalesAvailable) {
     _rangeGroups = {};
     const groupKeyOf = groupBy === 'teams'
-      ? (s) => (teamOfSale(s) || 'Unassigned')   // only sales made in the team's own role (per Isaac, Oct 15)
+      ? (s) => (teamOfSale(s) || 'RIDD')   // only sales made in the team's own role (per Isaac, Oct 15)
       : groupBy === 'dept'
       ? (s) => (DEPT_GROUP_LABELS[_indicatorDeptOf(s)] || 'OFFICE STAFF')
       : groupBy === 'company'
@@ -389,7 +390,7 @@ function viewIndicators() {
     if (isRange && rawSalesAvailable && _rangeGroups) {
       for (const [k, arr] of Object.entries(_rangeGroups)) arr.forEach(s => bump(s, k));
     } else if (rawSalesAvailable) {
-      const keyOf = groupBy === 'teams' ? (s) => (getRepTeam(s.rep) || 'Unassigned')
+      const keyOf = groupBy === 'teams' ? (s) => (getRepTeam(s.rep) || 'RIDD')
         : groupBy === 'dept' ? (s) => (DEPT_GROUP_LABELS[_indicatorDeptOf(s)] || 'OFFICE STAFF')
         : groupBy === 'company' ? (s) => companyGroupOf(s.office)
         : (s) => s.office || 'Unknown';
@@ -469,7 +470,7 @@ function viewIndicators() {
       // compares against the rep's team (the previous code only matched office,
       // which made every team's reps count = 0 → PRA always 0 in team mode).
       const groupKeyMatches = groupBy === 'teams'
-        ? (s) => (getRepTeam(s.rep) || 'Unassigned') === b
+        ? (s) => (getRepTeam(s.rep) || 'RIDD') === b
         : (s) => s.office === b;
       const inWindow = (s) => {
         if (isRange) return weeks.includes(s.week) && groupKeyMatches(s);
@@ -580,7 +581,7 @@ function viewIndicators() {
       (_rangeGroups[b] || []).forEach(add);
     } else {
       const matches = groupBy === 'teams'
-        ? (s) => (getRepTeam(s.rep) || 'Unassigned') === b
+        ? (s) => (getRepTeam(s.rep) || 'RIDD') === b
         : groupBy === 'dept'
         ? (s) => (DEPT_GROUP_LABELS[_indicatorDeptOf(s)] || 'OFFICE STAFF') === b
         : groupBy === 'company'
@@ -1960,7 +1961,7 @@ function viewIndicators() {
         const buckets = getChartBuckets(_prBounds, allWeeks, state.indicatorsData);
         if (buckets.length > 0 && buckets[0].kind !== 'week') {
           const groupFn = state.indicatorsGroupBy === 'teams'
-            ? (s => getRepTeam(s.rep) || 'Unassigned')
+            ? (s => getRepTeam(s.rep) || 'RIDD')
             : state.indicatorsGroupBy === 'dept'
               ? (s => DEPT_GROUP_LABELS[_indicatorDeptOf(s)] || 'OFFICE STAFF')   // was office names — dept ranks were alphabetical ties
               : (s => s.office || 'Unknown');
@@ -5291,7 +5292,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     : ((state._indicatorMixGroup === 'office' || (state._indicatorMixGroup === 'team' && indWorldHasTeams())) ? state._indicatorMixGroup : 'subscription');
   const _mixTC = (o) => String(o || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
   const officeKeyOf = (s) => _mixTC(s.office || 'Unknown');
-  const teamKeyOf   = (s) => indWorldTeamOf(s.rep) || 'Unassigned';
+  const teamKeyOf   = (s) => indWorldTeamOf(s.rep) || 'RIDD';   // no team = the owners' RIDD team (per Isaac, Oct 16)
   // Partners / team leads (per Isaac, Sep 2026): the mix is THEIR team's —
   // every view here (Subscriptions / Offices / Teams) reads from the sales
   // of the team(s) they lead, not the whole company.
@@ -6327,7 +6328,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
     // y-axis scale doesn't get warped by orgs that aren't actually selling.
     const byTeam = {};
     (rawSales || []).forEach(s => {
-      const t = getRepTeam(s.rep) || 'Unassigned';
+      const t = getRepTeam(s.rep) || 'RIDD';
       if (isTeamExcluded(t)) return;
       (byTeam[t] = byTeam[t] || []).push(s);
     });
@@ -7081,7 +7082,7 @@ function buildTeamReportNode(teamName, ctx) {
     ? getCanonicalRepName(s.rep || 'Unknown')
     : isBranch
       ? (s.office || 'Unassigned')
-      : (getRepTeam(getCanonicalRepName(s.rep || 'Unknown')) || 'Unassigned');
+      : (getRepTeam(getCanonicalRepName(s.rep || 'Unknown')) || 'RIDD');
 
   // Aggregate raw sales inside a date range into the same shape the
   // page-level viewIndicators emits (branchData + riddTotal + rankings
@@ -9663,7 +9664,7 @@ function scopeDrillPanel(scope, allScopedSales, chartBuckets, compareRep, panelO
     if (sc.type === 'team') {
       const t = sc.value;
       return {
-        sales: (allScopedSales || []).filter(s => (getRepTeam(s.rep) || 'Unassigned') === t),
+        sales: (allScopedSales || []).filter(s => (getRepTeam(s.rep) || 'RIDD') === t),
         label: t,
         color: getTeamColor(t),
       };

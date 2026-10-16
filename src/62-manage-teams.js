@@ -143,7 +143,7 @@ function manageTeamsPanel(opts) {
     let typeSelect = state._indicatorManageTypeFilter || '';
     if (typeSelect !== 'Office Staff' && typeSelect !== 'Technician') typeSelect = '';
     const tabType = typeSelect === 'Office Staff' ? 'office' : typeSelect === 'Technician' ? 'techs' : 'd2d';
-    const _inTab = (t) => !!t && (teamTypeOf(t) === tabType || isTeamExcluded(t));
+    const _inTab = (t) => !!t && ((typeof isOwnerTeam === 'function' && isOwnerTeam(t)) || teamTypeOf(t) === tabType || isTeamExcluded(t));   // RIDD sits on every tab
     // Branch filter — '' = all, else a primary-office name. Lets the admin
     // view the roster one branch at a time.
     state._indicatorManageBranchFilter = '';   // the Office filter is gone — never leave an old pick silently applied
@@ -974,13 +974,14 @@ function manageTeamsPanel(opts) {
                 setRepTeam(repName, currentTeam); // revert
               }
             } else {
+              if (typeof isOwnerTeam === 'function' && isOwnerTeam(v) && !(state._indicatorTeams || []).some(isOwnerTeam)) addTeam('RIDD');
               setRepTeam(repName, v);
             }
             render();
           },
         },
           el('option', { value: '', selected: !currentTeam }, '— Team —'),
-          ...teams.filter(t => t === currentTeam || _inTab(t)).map(t => el('option', { value: t, selected: currentTeam === t }, t)),
+          ...[...new Set(teams.concat(['RIDD']))].filter(t => t === currentTeam || _inTab(t)).map(t => el('option', { value: t, selected: currentTeam === t }, t)),   // RIDD always offered (per Isaac, Oct 16)
           el('option', { value: '__new__' }, '+ New team…'),
         );
 
@@ -1126,7 +1127,7 @@ function manageTeamsPanel(opts) {
           real ? el('span', { class: 'inline-flex cursor-pointer hover:brightness-110', title: 'Change the ' + t + ' picture or color',
               onclick: (e) => { e.stopPropagation(); openTeamLookPopover(e.currentTarget, t, render); } }, teamAvatarNode(t, 28))
                : el('span', { style: { width: '10px', height: '10px', borderRadius: '50%', background: color, display: 'inline-block', flex: 'none' } }),
-          el('span', { class: 'text-sm font-bold flex-1 min-w-0 truncate' }, t, isTeamExcluded(t) ? el('span', { class: 'ml-2 text-[9px] uppercase tracking-wider font-bold', style: { color: '#DC2626' } }, 'excluded') : null),
+          el('span', { class: 'text-sm font-bold flex-1 min-w-0 truncate' }, real ? t : 'Unassigned', !real ? el('span', { class: 'ml-2 text-[10px] font-semibold', style: { color: 'var(--text-muted)' } }, 'counts under RIDD until assigned') : null, isTeamExcluded(t) ? el('span', { class: 'ml-2 text-[9px] uppercase tracking-wider font-bold', style: { color: '#DC2626' } }, 'excluded') : null),
           el('span', { class: 'text-[11px] tabular-nums text-muted-' }, rows.length + ' rep' + (rows.length === 1 ? '' : 's')),
           real ? el('button', { class: 'text-[11px] font-semibold px-2 py-0.5 rounded-md border', style: { borderColor: 'var(--border-2)', color: teamSelect === t ? 'var(--accent)' : 'var(--text-muted)' }, title: 'Rename, color, logo, exclude',
             onclick: (e) => { e.stopPropagation(); state._indicatorManageTeamFilter = teamSelect === t ? '' : t; openSet.clear(); openSet.add(t); render(); } }, teamSelect === t ? 'Close settings' : 'Settings') : null,

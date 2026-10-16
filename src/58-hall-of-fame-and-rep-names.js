@@ -1510,6 +1510,7 @@ function getRepTeam(repName) {
 function teamOfSale(s) {
   const t = (s && s.rep) ? getRepTeam(s.rep) : '';
   if (!t) return '';
+  if (typeof isOwnerTeam === 'function' && isOwnerTeam(t)) return t;   // the owners' RIDD team takes every rep type's sales (per Isaac, Oct 16)
   const td = (typeof _indTeamDepts === 'function' ? _indTeamDepts()[t] : '') || 'd2d';
   return (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) : td) === td ? t : '';
 }
