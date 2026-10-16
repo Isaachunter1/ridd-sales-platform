@@ -4445,11 +4445,13 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     attrPct: 'Cancelled revenue ÷ serviced revenue — how much of what you sold has been lost.',
     record: 'Your best single day, week or month in the range (pick which in the column header).',
   })[k] || '';
-  const _lbPickable = repCols.filter(c => c.key !== 'name');
+  // One-day ranges (Today / Yesterday / a single custom day): Days w/ Sale, Accts/Day and $/Day just repeat Sales and
+  // Revenue, so they aren't offered at all (per Isaac, Oct 16) — not in the table, the Columns picker or the phone stat.
+  const _lbPickable = repCols.filter(c => c.key !== 'name' && !(indOneDayRange() && IND_PER_DAY_COLS.has(c.key)));
   // Phone stat picker (per Isaac, Oct 15): one stat per rep card, default Days w/ a Sale.
   const _lbPhoneCols = (() => { const seen = new Set(); return _lbPickable.filter(c => { if (c.key === 'team' || RECORD_SORT_KEYS.has(c.key) || seen.has(c.key)) return false; seen.add(c.key); return true; }); })();
   if (state._lbPhoneCol == null) { try { state._lbPhoneCol = localStorage.getItem('ridd_lb_phone_col') || ''; } catch (e) { state._lbPhoneCol = ''; } }
-  const _lbPhoneColKey = _lbPhoneCols.some(c => c.key === state._lbPhoneCol) ? state._lbPhoneCol : 'sellingDays';
+  const _lbPhoneColKey = _lbPhoneCols.some(c => c.key === state._lbPhoneCol) ? state._lbPhoneCol : (indOneDayRange() ? 'revenue' : 'sellingDays');
   const _lbPhoneCol = _lbPhoneCols.find(c => c.key === _lbPhoneColKey) || null;
   const _lbPhoneVal = (r) => { try { const td = _lbPhoneCol.cell(r); return String((td && td.textContent) || '').trim() || '\u2014'; } catch (e) { return '\u2014'; } };
   const _lbOnSet = new Set(state._indLbColsOn);
