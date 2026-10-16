@@ -6374,7 +6374,8 @@ function powerRankPickerBtn() {
           } }); cb.checked = !out; return cb; })(),
           el('span', { class: 'truncate', style: out ? { opacity: '.45', textDecoration: 'line-through' } : {} }, titleCase(b)));
       }),
-      opts.length ? null : el('div', { class: 'px-2 py-2 text-[11px] italic', style: { color: 'var(--text-muted)' } }, 'Nothing to list yet.'));
+      // Native append() prints a literal "null" — spread an empty list instead.
+      ...(opts.length ? [] : [el('div', { class: 'px-2 py-2 text-[11px] italic', style: { color: 'var(--text-muted)' } }, 'Nothing to list yet.')]));
   };
   const btn = el('button', {
     class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
