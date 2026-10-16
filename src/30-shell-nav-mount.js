@@ -1130,7 +1130,7 @@ function mountApp() {
           // status words: a stale time says it's down, the colour backs it up,
           // and the detail is a tap away. Falls back to the sync time only
           // when the data-as-of stamp isn't available yet.
-          (() => { const d = (typeof crmDataAsOfStr === 'function') ? crmDataAsOfStr(false) : ''; return [_phone ? 'Data ' : 'Last data: ', el('span', { class: 'font-semibold', style: { color: c || 'var(--text)' } }, d || txt)]; })()) : null;
+          (() => { const d = (typeof crmDataAsOfStr === 'function') ? crmDataAsOfStr(false) : ''; return [_phone ? 'Sync ' : 'Last Sync: ', el('span', { class: 'font-semibold', style: { color: c || 'var(--text)' } }, d || txt)]; })()) : null;
       })();
   const pageHeader = el('header', {
     class: 'page-header px-4 sm:px-6 py-4',

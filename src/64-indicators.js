@@ -10622,7 +10622,7 @@ function indicatorYoYTrendChart() {
                 // rep's own single-series view (it read as a stray marker).
                 const ytdData = weeksAxis.map(() => null); ytdData.push(ytdValOf(A, y, tier));
                 state._yoyHideYtd = (_totalSeries === 1 && !isAdminRole(state.profile?.role));
-                if (!state._yoyHideYtd) ytdPts.push({ label: 'YTD ' + label, data: ytdData, yAxisID: 'yYTD', showLine: false, borderColor: color, backgroundColor: color, pointRadius: 5, pointHoverRadius: 7, pointStyle: 'rectRot', order: 0 });
+                if (!state._yoyHideYtd) ytdPts.push({ label: 'YTD ' + label, data: ytdData, yAxisID: 'yYTD', showLine: false, borderColor: color, backgroundColor: color, pointRadius: 5, pointHoverRadius: 7, pointStyle: 'circle', order: 0 });   // circle, not a diamond (per Isaac, Oct 16)
               });
             });
           });
