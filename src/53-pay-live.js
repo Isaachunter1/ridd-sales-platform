@@ -124,6 +124,9 @@ function viewPayLive() {
       el('div', {}, el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Office Staff · pay'),
         el('h2', { class: 'text-2xl font-black' }, (prof.full_name || 'My') + (prof.full_name ? ' — ' : ' ') + period.label)),
       controls),
+    // Running YTD ledger of every account this rep sold (per Isaac, Oct 16) — display only, above the stub.
+    typeof payAccountsLedger === 'function' ? (() => { try { return payAccountsLedger(prof, state.payYear); } catch (e) { console.warn('[pay] accounts ledger', e); return null; } })() : null,
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-', style: { marginTop: '4px' } }, 'Pay stub · ' + period.label),
     tiles, stub, holdCard, backendCard,
     !mine.length ? el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'No Office Staff sales since ' + fmt.dateShortYear(SALES_FEED_START) + ' for this rep yet.') : null);
 }
