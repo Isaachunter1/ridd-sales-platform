@@ -1050,7 +1050,6 @@ function viewIndicators() {
                 return [
                   _fRow('Saved views', indPresetRibbon({ inline: true })),
                   _metricLocked ? null : _fRow('Metric', hl(metricSel, (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced')),
-                  _fRow('Exclude', hl(exclSel, !!indicatorExclKey())),
                   // Type is the Office Staff / D2D / Technicians switch on the Sales dashboards — only the stand-alone page still picks it here.
                   (_repLite || _fWorld) ? null : _fRow('Type',   hl(typeSel,   (state.indicatorDept || 'all') !== _fDeptDefault)),
                   // Date moved OUT to the bar (Today / Week / Month / Year / More). Only the legacy weekly view keeps a picker here.

@@ -858,7 +858,10 @@ function _indicatorIsRenewal(s) { return reportingSourceClass(s && s.source ? St
 // and renewals can be dropped from every Indicators number + Performance
 // Trends. Session-only, off by default. One-time = the service's lifecycle
 // in Configurations says so, or the name / cancel reason reads one-time.
-function indicatorExcl() { return state.indicatorExcl || (state.indicatorExcl = { oneTime: false, ror: false, renewal: false }); }
+// Exclude switches RETIRED (per Isaac, Oct 16): one-time / 3-day ROR / renewal are split out where they matter (the
+// revenue metrics, the office New / Renewal lens, attrition's own exclusions), so nothing filters them out page-wide.
+// Always off — an old saved view or session can't leave a hidden filter on.
+function indicatorExcl() { return (state.indicatorExcl = { oneTime: false, ror: false, renewal: false }); }
 function indicatorExclKey() { const x = indicatorExcl(); return (x.oneTime ? 'o' : '') + (x.ror ? 'r' : '') + (x.renewal ? 'n' : ''); }
 function _indIsOneTimeSale(s) {
   if (!s) return false;
