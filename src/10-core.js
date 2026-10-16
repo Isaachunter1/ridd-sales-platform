@@ -4207,6 +4207,17 @@ function _armSplashWatchdog() {
           location.reload(); return;
         }
       }
+      // Every screen gets new builds (per Isaac, Oct 16 — Pere's TV display was still on an old build): a session
+      // nobody has touched for 10 minutes (a dashboard left up on a TV, a desk tab) reloads itself onto the new
+      // build — once per build, never with a modal open or something typed in.
+      if (state.profile && Date.now() - _lastUserActivity >= 10 * 60 * 1000 && !_busy()) {
+        let done = null; try { done = sessionStorage.getItem('ridd_auto_reloaded_for'); } catch { /* private */ }
+        if (done !== v.hash) {
+          try { sessionStorage.setItem('ridd_auto_reloaded_for', v.hash); sessionStorage.setItem('ridd_reloaded_for', v.hash); if (state._tvOpen) { localStorage.setItem('ridd_tv_board', '1'); sessionStorage.setItem('ridd_reopen_tv', '1'); } } catch { /* private */ }
+          console.log('[version] newer build live and this screen is idle — reloading');
+          location.reload(); return;
+        }
+      }
       // The TV board is an unattended screen (per Isaac, Sep 18): nobody is
       // there to press Refresh, and the board's overlay hides the banner
       // anyway. Reload straight away and come back up on the board.

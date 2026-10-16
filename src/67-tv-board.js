@@ -79,6 +79,10 @@ function openTvBoard() {
   const _KEY_RANGES = ['today', 'this_week', 'this_month', 'this_year'];   // keys 1–4, as before
 
   const overlay = el('div', { style: { position: 'fixed', inset: '0', background: T.void, color: T.ink, zIndex: '9999', overflow: 'hidden', fontFamily: VOICE } });
+  const TV_W = 1920, TV_H = 1080;
+  const tvScale = () => Math.min(window.innerWidth / TV_W, window.innerHeight / TV_H) || 1;
+  const onResize = () => { const st = overlay.querySelector('[data-tv-stage]'); if (st) st.style.transform = 'translate(-50%, -50%) scale(' + tvScale() + ')'; };
+  window.addEventListener('resize', onResize);
   let timers = [];
   let lastKeys = null;   // sale ids seen on the previous paint → pulse on a new one
   let rtSub = null;      // Supabase realtime channel on `sales` (per Isaac, Sep 22: the board reacts the moment a row lands)
@@ -88,6 +92,7 @@ function openTvBoard() {
     timers.forEach(clearInterval); timers = [];
     if (rtSub) { try { supabase.removeChannel(rtSub); } catch (e) { /* already gone */ } rtSub = null; }
     document.removeEventListener('keydown', onKey);
+    window.removeEventListener('resize', onResize);
     document.removeEventListener('fullscreenchange', onFs);
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     document.querySelectorAll('[data-tv-drill]').forEach(n => n.remove());
@@ -365,7 +370,7 @@ function openTvBoard() {
     ];
   };
   const tile = (label, value, sub, drill, color) => el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, borderLeft: color ? '3px solid ' + color : '1px solid ' + T.hair, padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '0', cursor: drill ? 'pointer' : 'default' }, title: drill ? 'Tap to see what is behind this number' : '', onclick: drill || null },
-    eyebrow(label), figure(value, 'clamp(22px, 2.2vw, 34px)', color));   // (descriptions dropped per Isaac — the room knows what these are)
+    eyebrow(label), figure(value, 'clamp(22px, 2.2cqw, 34px)', color));   // (descriptions dropped per Isaac — the room knows what these are)
   // Drill panel (per Isaac): what is pulling a % up or down — the sales
   // that count on one side, the ones that don't on the other, as they were sold.
   // `metric` (optional): { of: (sale) → number, fmt: (n) → string } — what the
@@ -466,27 +471,27 @@ function openTvBoard() {
         el('div', { class: 'tv-scroll', style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px', overflowY: 'auto', minHeight: '0', flex: '1', paddingRight: '4px' } },
           ...(d.offices.length ? d.offices.map((o, i) => el('div', {},
             el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px', gap: '12px' } },
-              el('div', { style: { fontFamily: HEAD, fontSize: 'clamp(16px, 1.3vw, 22px)', letterSpacing: '.03em', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, o.name),
+              el('div', { style: { fontFamily: HEAD, fontSize: 'clamp(16px, 1.3cqw, 22px)', letterSpacing: '.03em', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, o.name),
               el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '18px', whiteSpace: 'nowrap' } },
                 el('span', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.06em' } }, 'RENEWAL ' + money(o.renewal)),
                 el('span', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.06em' } }, 'TOTAL ' + money(o.total)),
-                figure(money(o.revenue), 'clamp(15px, 1.3vw, 22px)', i === 0 ? T.ember : T.ink))),
+                figure(money(o.revenue), 'clamp(15px, 1.3cqw, 22px)', i === 0 ? T.ember : T.ink))),
             el('div', { style: { height: '4px', background: T.surface2 } }, el('div', { style: { height: '100%', width: (d.offices[0].revenue ? o.revenue / d.offices[0].revenue * 100 : 0) + '%', background: i === 0 ? T.ember : T.dim } }))))
           : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'No sales in this window yet.')])))], { cursor: 'pointer', position: 'relative', padding: '0', onclick: () => { state._tvHeroOffices = false; render(); } })
       : panel([
         el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } }, eyebrow(d.range.label + ' · new revenue'), eyebrow(d.newCount + ' sale' + (d.newCount === 1 ? '' : 's') + (d.renewalCount ? '  |  ' + d.renewalCount + ' renewal' + (d.renewalCount === 1 ? '' : 's') : ''))),
         el('div', { style: { display: 'flex', alignItems: 'center', gap: '22px', flexWrap: 'wrap', marginTop: '6px' } },   // Yesterday sits level with the big number (per Isaac, Oct 14)
-          el('div', { class: fresh ? 'tv-pulse' : '', style: { fontFamily: HEAD, fontSize: 'clamp(64px, 6.8vw, 124px)', lineHeight: '.95', letterSpacing: '.01em', color: T.ember, fontVariantNumeric: 'tabular-nums' } }, money(d.revenue)),
+          el('div', { class: fresh ? 'tv-pulse' : '', style: { fontFamily: HEAD, fontSize: 'clamp(64px, 6.8cqw, 124px)', lineHeight: '.95', letterSpacing: '.01em', color: T.ember, fontVariantNumeric: 'tabular-nums' } }, money(d.revenue)),
           // Prior period at a quarter of the size (per Isaac): yesterday / last week / last month / last year, to date.
           el('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
             eyebrow(d.prior.label),
             el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '10px' } },
-              figure(money(d.priorRevenue), 'clamp(16px, 1.7vw, 31px)', T.dim),
+              figure(money(d.priorRevenue), 'clamp(16px, 1.7cqw, 31px)', T.dim),
               d.priorRevenue > 0 ? el('span', { style: { fontFamily: MONO, fontSize: '11px', letterSpacing: '.06em', color: d.revenue >= d.priorRevenue ? T.ember : T.dim } }, (d.revenue >= d.priorRevenue ? '+' : '−') + Math.round(Math.abs(d.revenue - d.priorRevenue) / d.priorRevenue * 100) + '%') : null))),
         // Total and renewal, minimally (per Isaac) — the headline stays NEW.
         el('div', { style: { display: 'flex', gap: '28px', marginTop: '10px', flexWrap: 'wrap' } },
-          el('div', {}, eyebrow('Total'), figure(money(d.totalRevenue), 'clamp(16px, 1.4vw, 22px)', T.ink)),
-          el('div', {}, eyebrow('Renewal'), figure(money(d.renewalRevenue), 'clamp(16px, 1.4vw, 22px)', T.dim))),
+          el('div', {}, eyebrow('Total'), figure(money(d.totalRevenue), 'clamp(16px, 1.4cqw, 22px)', T.ink)),
+          el('div', {}, eyebrow('Renewal'), figure(money(d.renewalRevenue), 'clamp(16px, 1.4cqw, 22px)', T.dim))),
         el('div', { style: { marginTop: 'auto', paddingTop: '12px' } },
           el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '8px' } },
             eyebrow(d.goal > 0 ? d.range.label + ' goal ' + money(d.goal) : 'No goal set'),
@@ -514,13 +519,13 @@ function openTvBoard() {
       const crmR = sales.filter(s => s._crm), apR = crmR.length ? crmR.filter(s => s._crmAutoPay).length / crmR.length : null;
       const avgR = sales.length ? r.revenue / sales.length : 0;
       const stat = (label, val, color) => el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '0' } },
-        eyebrow(label), figure(val, 'clamp(30px, 3vw, 48px)', color || T.ink));
+        eyebrow(label), figure(val, 'clamp(30px, 3cqw, 48px)', color || T.ink));
       return el('div', { style: { display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', gap: '32px', alignItems: 'center', paddingBottom: '18px', borderBottom: '1px solid ' + T.hair } },
         avatar(r, 180),
         el('div', { style: { minWidth: '0', display: 'flex', flexDirection: 'column', gap: '18px' } },
           el('div', {},
             eyebrow('#' + String(rank + 1).padStart(2, '0') + ' · ' + d.range.label, { color: rank === 0 ? T.ember : T.dim }),
-            el('div', { style: { fontFamily: HEAD, fontSize: 'clamp(40px, 4.5vw, 72px)', lineHeight: '1', letterSpacing: '.02em', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '8px' } }, r.name)),
+            el('div', { style: { fontFamily: HEAD, fontSize: 'clamp(40px, 4.5cqw, 72px)', lineHeight: '1', letterSpacing: '.02em', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '8px' } }, r.name)),
           el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: '22px' } },
             stat('Revenue', money(r.revenue), T.ember),
             stat('Sales', String(r.count)),
@@ -536,10 +541,10 @@ function openTvBoard() {
           el('div', { style: { fontFamily: MONO, fontSize: '14px', color: i === 0 ? T.ember : T.dim, letterSpacing: '.08em' } }, String(i + 1).padStart(2, '0')),
           avatar(r, 56),
           el('div', { style: { minWidth: '0' } },
-            el('div', { style: { fontFamily: HEAD, fontSize: 'clamp(22px, 2vw, 32px)', lineHeight: '1', letterSpacing: '.02em', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, r.name),
+            el('div', { style: { fontFamily: HEAD, fontSize: 'clamp(22px, 2cqw, 32px)', lineHeight: '1', letterSpacing: '.02em', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, r.name),
             el('div', { style: { height: '4px', marginTop: '8px', background: T.surface2, width: '100%' } }, el('div', { style: { height: '100%', width: (maxRev ? r.revenue / maxRev * 100 : 0) + '%', background: i === 0 ? T.ember : T.dim, transition: 'width .6s ease' } }))),
           el('div', { style: { textAlign: 'right' } },
-            figure(money(r.revenue), 'clamp(20px, 1.9vw, 30px)', i === 0 ? T.ink : T.ink),
+            figure(money(r.revenue), 'clamp(20px, 1.9cqw, 30px)', i === 0 ? T.ink : T.ink),
             el('div', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, marginTop: '4px', letterSpacing: '.06em' } }, r.count + ' sale' + (r.count === 1 ? '' : 's') + (r.last ? ' · ' + ago(r.last) : ''))))))
       : el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px', padding: '24px 0' } }, 'No sales in this window yet.')]);
     const offMax = d.offices.length ? d.offices[0].revenue : 0;
@@ -602,15 +607,15 @@ function openTvBoard() {
                     title: ao.map(a => (a.service_name || 'Add-on') + (_credited(a) ? '' : ' — not assigned to a rep')).join('\n') },
                     'ADDONS +' + ao.length + '  ·  ' + ao.map(a => String(a.service_name || 'Add-on').toUpperCase()).join(', '));   // red alone says it's unassigned (per Isaac, Oct 14)
               // NAME | #id | service | term | source; second line: the time under the name, the add-ons under the service (per Isaac, Oct 14).
-              const big = { fontFamily: VOICE, fontWeight: 600, fontSize: 'clamp(12px, .95vw, 15px)', color: T.ink };
+              const big = { fontFamily: VOICE, fontWeight: 600, fontSize: 'clamp(12px, .95cqw, 15px)', color: T.ink };
               return el('div', { style: { display: 'grid', gridTemplateColumns: 'auto auto auto auto max-content auto max-content auto minmax(0, 1fr)', alignItems: 'baseline', minWidth: '0', overflow: 'hidden' } },
-                cell('1', 1, el('span', { style: { fontFamily: HEAD, fontSize: 'clamp(17px, 1.35vw, 22px)', letterSpacing: '.02em', textTransform: 'uppercase' } }, (r ? r.name : (s._crmRep || 'Rep'))), { minWidth: 'max-content' }),
+                cell('1', 1, el('span', { style: { fontFamily: HEAD, fontSize: 'clamp(17px, 1.35cqw, 22px)', letterSpacing: '.02em', textTransform: 'uppercase' } }, (r ? r.name : (s._crmRep || 'Rep'))), { minWidth: 'max-content' }),
                 cell('2', 1, s.customer_number ? sep() : null),
-                cell('3', 1, s.customer_number ? el('span', { style: { fontFamily: MONO, fontSize: 'clamp(11px, .85vw, 13px)', color: T.dim, letterSpacing: '.06em' }, title: 'Customer ID' }, '#' + s.customer_number) : null, { minWidth: 'max-content' }),
+                cell('3', 1, s.customer_number ? el('span', { style: { fontFamily: MONO, fontSize: 'clamp(11px, .85cqw, 13px)', color: T.dim, letterSpacing: '.06em' }, title: 'Customer ID' }, '#' + s.customer_number) : null, { minWidth: 'max-content' }),
                 cell('4', 1, sep()),
                 // "Pest 6 + Mole + Rodent" — the plan and what was added on (per Isaac, Oct 15); add-on-only sales show the plan muted.
                 cell('5', 1, el('span', { style: { fontFamily: VOICE, color: T.ink } }, (typeof saleServiceWithAddOns === 'function')
-                  ? saleServiceWithAddOns(s, s._crmService || s.service_name || s.crm_subscription || '\u2014', ao, { size: 'clamp(12px, .95vw, 15px)', weight: '600', ok: BAND.green, bad: BAND.red, muted: T.dim })
+                  ? saleServiceWithAddOns(s, s._crmService || s.service_name || s.crm_subscription || '\u2014', ao, { size: 'clamp(12px, .95cqw, 15px)', weight: '600', ok: BAND.green, bad: BAND.red, muted: T.dim })
                   : (s._crmService || s.service_name || '\u2014'))),   // the service never truncates
                 cell('6', 1, sep()),
                 cell('7', 1, el('span', { style: big }, term), { minWidth: 'max-content' }),
@@ -619,13 +624,18 @@ function openTvBoard() {
                 cell('1 / 4', 2, at ? when(at) : '—', small),
                 null);   // (add-ons moved inline with the service, per Isaac, Oct 15)
             })(),
-            figure(money(s.revenue_amount), 'clamp(17px, 1.5vw, 24px)', T.ink));
+            figure(money(s.revenue_amount), 'clamp(17px, 1.5cqw, 24px)', T.ink));
         }) : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'Nothing yet.')]))], { flex: '1' });
     const body = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr)', gap: '18px', padding: '20px 36px 24px', flex: '1', minHeight: '0' } },
       board,
       latestEl);   // (By branch retired per Isaac — the column is the latest sales.)
 
-    overlay.replaceChildren(el('div', { style: { display: 'flex', flexDirection: 'column', height: '100%', minHeight: '0' } }, header, hero, body));
+    // Fit to any screen (per Isaac, Oct 16 — Pere's TV didn't fit like his): the board is laid out once on a
+    // 1920×1080 stage (sizes in cqw = 1% of the stage, not of the window) and scaled to the screen, so every TV,
+    // zoom level and window size shows the same board. Other aspect ratios get thin bars, never cut-off panels.
+    const stage = el('div', { 'data-tv-stage': '1', style: { position: 'absolute', left: '50%', top: '50%', width: TV_W + 'px', height: TV_H + 'px', containerType: 'size', transformOrigin: 'center center', transform: 'translate(-50%, -50%) scale(' + tvScale() + ')' } },
+      el('div', { style: { display: 'flex', flexDirection: 'column', height: '100%', minHeight: '0' } }, header, hero, body));
+    overlay.replaceChildren(stage);
     timers.forEach(clearInterval); timers = [];
     timers.push(setInterval(tick, 15000));
     timers.push(setInterval(() => { try { render(); } catch (e) { /* keep the board up */ } }, 30000));
