@@ -157,7 +157,7 @@ function manageTeamsPanel(opts) {
     const counts = {};
     reps.forEach(r => {
       if (isAlias(r)) return;
-      const t = getRepTeam(r) || '(unassigned)';
+      const t = getRepTeam(r) || 'RIDD';   // no team counts under RIDD (per Isaac, Oct 16)
       counts[t] = (counts[t] || 0) + 1;
     });
     // Counts per tier for the second filter row — same exclusion.
@@ -245,7 +245,7 @@ function manageTeamsPanel(opts) {
 
     let filteredReps = reps;
     // Team view: only that team's reps (the list is still grouped by team, so just its section shows).
-    if (teamView) filteredReps = filteredReps.filter(r => (getRepTeam(r) || '(unassigned)') === teamView);
+    if (teamView) filteredReps = filteredReps.filter(r => (getRepTeam(r) || 'RIDD') === teamView || (teamView === '(unassigned)' && !getRepTeam(r)));
     if (tierSelect) {
       filteredReps = filteredReps.filter(r => {
         const t = getRepTier(r);
@@ -289,7 +289,8 @@ function manageTeamsPanel(opts) {
     // to the top of the list, whatever the sort, so they're the first thing
     // fixed. Within each group the chosen sort still applies.
     {
-      const _needs = (n) => !getRepTeam(n) || !getRepTier(n);
+      // No team isn't "unassigned" any more — those reps sit under RIDD (per Isaac, Oct 16). Only a missing tier floats up.
+      const _needs = (n) => !getRepTier(n);
       const top = filteredReps.filter(_needs), rest = filteredReps.filter(n => !_needs(n));
       filteredReps = [...top, ...rest];
       state._mtUntaggedFirstCount = top.length;
@@ -1090,7 +1091,9 @@ function manageTeamsPanel(opts) {
       const needs = filteredReps.slice(0, _needsN).filter(r => !_isAl(r)), rest = filteredReps.slice(_needsN).filter(r => !_isAl(r));
       const byTeam = new Map();
       // A team of another rep type (a traded rep's old team) reads as "no team" on this tab — his sales for it still count there.
-      rest.forEach(r => { const t0 = getRepTeam(r); const t = (t0 && _inTab(t0)) ? t0 : '(unassigned)'; if (!byTeam.has(t)) byTeam.set(t, []); byTeam.get(t).push(r); });
+      // No team (or a team of another rep type) = RIDD (per Isaac, Oct 16) — assign them out of it from there.
+      rest.forEach(r => { const t0 = getRepTeam(r); const t = (t0 && _inTab(t0)) ? t0 : 'RIDD'; if (!byTeam.has(t)) byTeam.set(t, []); byTeam.get(t).push(r); });
+      if (!byTeam.has('RIDD') && !search && !teamView) byTeam.set('RIDD', []);
       // Empty teams of this rep type still list (a team just made under this
       // tab has nobody on it yet) — unless a search / filter is narrowing.
       if (!search && !teamView && !tierSelect && !activeSelect) distinctTeamsForYear(teamYear).forEach(t => { if (t !== '(unassigned)' && !byTeam.has(t) && _inTab(t) && !isTeamExcluded(t)) byTeam.set(t, []); });
@@ -1107,7 +1110,7 @@ function manageTeamsPanel(opts) {
         out.push(el('div', { class: 'flex items-center gap-2 px-5 py-1.5 text-[10px] uppercase tracking-widest font-bold border-b cursor-pointer hover:brightness-95', 'data-needs-head': '1',
           style: { color: '#A9441F', borderColor: 'var(--border)', background: 'rgba(255,193,7,.06)' },
           onclick: (e) => { const on = state._mtNeedsOpen !== true; state._mtNeedsOpen = on; const b = e.currentTarget.nextElementSibling; if (b) b.style.display = on ? '' : 'none'; e.currentTarget.lastElementChild.textContent = on ? '\u25b2' : '\u25bc'; } },
-          el('span', { class: 'flex-1' }, needs.length + ' unassigned'),
+          el('span', { class: 'flex-1' }, needs.length + ' need a tier'),
           el('span', {}, needsOpen ? '\u25b2' : '\u25bc')));
         out.push(body('data-needs-body', needsOpen, needs.map(r => buildRow(r))));
       }

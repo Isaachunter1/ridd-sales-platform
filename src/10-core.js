@@ -1295,6 +1295,18 @@ async function loadIndicatorConfigFromSupabase() {
       // The server copy is now our baseline — record it so this browser
       // counts as CLEAN until the user actually changes something here.
       _indCfgRecordSynced(data.updated_at);
+      // One-time team tidy (per Isaac, Oct 16): a real RIDD team on every rep type (no team = RIDD), and the old
+      // "Excluded" team becomes "Termite Pros". Admin-only, idempotent; saved once through the normal CAS path.
+      try {
+        if (isAdminRole(state.profile?.role) && !state._teamTidyOct16 && typeof addTeam === 'function') {
+          state._teamTidyOct16 = true;
+          let changed = false;
+          const reg = state._indicatorTeams || [];
+          if (!reg.some(t => /^ridd$/i.test(String(t || '').trim()))) { addTeam('RIDD'); changed = true; }
+          if (reg.includes('Excluded') && !reg.includes('Termite Pros') && typeof renameTeam === 'function') { const r = renameTeam('Excluded', 'Termite Pros'); if (r && r.ok) changed = true; }
+          if (changed) setTimeout(() => { saveIndicatorConfigToSupabase().catch(() => {}); if (typeof mountApp === 'function') mountApp(); }, 0);
+        }
+      } catch (e) { console.warn('[ridd] team tidy skipped', e); }
       // Another admin's change (teams, aliases, rules) must reach cached boards
       // without a reload: bump the cache revision and repaint.
       if (typeof _indCfgRev !== 'undefined') _indCfgRev++;
