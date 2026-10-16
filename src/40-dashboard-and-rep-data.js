@@ -972,8 +972,18 @@ function myExcludedFromPct(s) {
 // some places and >12 in others, so 13-17mo contracts counted as multi-year
 // on the Power Ranking and team PDFs but not on the rep leaderboard - the
 // same rep read differently screen to screen.
+// Avg Pest Initial (per Isaac, Oct 16): recurring pest plans only — the configured exclusions (Sentricon, German
+// roach, interior flea… priced higher) AND every one-time service are out. One rule for every Avg Pest on the
+// dashboards, player cards, trends and PDFs. (Competition rules keep their own list.)
+function avgPestEligible(s) {
+  if (!s) return false;
+  if (typeof pestInitialExclRe === 'function' && pestInitialExclRe().test(String(s.subscription || ''))) return false;
+  return !_indIsOneTimeSale(s);
+}
+// MY % (per Isaac, Oct 16): one-time services and Sentricon are never multi-year recurring accounts — out of both sides.
 function myBucketOf(s) {
   if (!s || myExcludedFromPct(s)) return null;
+  if (_indIsOneTimeSale(s) || /sentricon/i.test(_myServiceNameOf(s))) return null;
   const m = Number(s.contract != null ? s.contract : s.contract_months) || 0;
   if (m >= 18) return 'multi';
   if (m === 12) return 'twelve';
@@ -1435,7 +1445,7 @@ function _fmtTimeOfDay(t) {
 function _computeRecordMetrics(sales) {
   if (!sales || sales.length === 0) return { acv: 0, myPct: 0, avgPest: 0, avgInitial: 0, cancelPct: 0 };
   const REP_AVG_PEST_EXCLUDE = pestInitialExclRe();
-  const eligible = sales.filter(s => !REP_AVG_PEST_EXCLUDE.test(s.subscription || ''));
+  const eligible = sales.filter(s => avgPestEligible(s));
   const avgPest    = eligible.length > 0 ? eligible.reduce((a, s) => a + Number(s.initialPrice || 0), 0) / eligible.length : 0;
   const avgInitial = sales.reduce((a, s) => a + Number(s.initialPrice || 0), 0) / sales.length;
   const acv        = sales.reduce((a, s) => a + Number(s.contractValue || 0), 0) / sales.length;
@@ -1614,7 +1624,7 @@ function computeCoachFlags() {
       if (s.autoPay && s.autoPay !== 'No') autoPay++;
       const initPrice = Number(s.initialPrice || 0);
       initialSum += initPrice;
-      if (!PEST_EXCLUDE_RE.test(s.subscription || '')) {
+      if (avgPestEligible(s)) {
         pestInitialSum += initPrice;
         pestCount++;
       }
@@ -3515,7 +3525,7 @@ function openIndicatorRepCard(rep, allReps = []) {
     // Avg Pest Initial: same mean but with Sentricon / German Roach /
     // Interior Flea filtered out (mirrors the comp + leaderboard).
     const allSales      = scopedRep.sales || [];
-    const pestEligible  = allSales.filter(s => !REP_AVG_PEST_EXCLUDE.test(s.subscription || ''));
+    const pestEligible  = allSales.filter(s => avgPestEligible(s));
     const avgInitial    = _mo.avgInitial != null ? _mo.avgInitial : (allSales.length     > 0 ? allSales.reduce((a, s) => a + Number(s.initialPrice || 0), 0)    / allSales.length     : 0);
     const avgPest       = _mo.avgPest != null ? _mo.avgPest : (pestEligible.length > 0 ? pestEligible.reduce((a, s) => a + Number(s.initialPrice || 0), 0) / pestEligible.length : 0);
     // Personal PRA — denominators are SELLING days (days with ≥1 sale), so
@@ -3610,7 +3620,7 @@ function openIndicatorRepCard(rep, allReps = []) {
       case 'avgPest':
         // Same as Avg Init but drop Sentricon / German Roach / Interior
         // Flea so the drill matches the stat card's filtered formula.
-        return all.filter(s => !REP_AVG_PEST_EXCLUDE.test(s.subscription || ''))
+        return all.filter(s => avgPestEligible(s))
           .sort((a, b) => Number(b.initialPrice || 0) - Number(a.initialPrice || 0));
       case 'myPct':
         // Multi-year = anything ≥18mo (includes 36/60mo). All Contracts =

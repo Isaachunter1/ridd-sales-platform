@@ -88,7 +88,7 @@ function indMetricOverride(rep, deptView) {
       case 'revPerDay': { const k = days(ss); patch.revPerDay = k ? rev(ss) / k : 0; break; }
       case 'acv': patch.acv = (typeof indAcvSplit === 'function') ? indAcvSplit(ss).acv : (n ? rev(ss) / n : 0); break;
       case 'avgInitial': patch.avgInitial = mean(ss); break;
-      case 'avgPest': patch.avgPest = mean(ss.filter(s => !_IND_PEST_EXCL.test(s.subscription || ''))); break;
+      case 'avgPest': patch.avgPest = mean(ss.filter(s => avgPestEligible(s))); break;
       case 'myPct': { let m = 0, t = 0; for (const s of ss) { const b = typeof myBucketOf === 'function' ? myBucketOf(s) : null; if (b === 'multi') m++; else if (b === 'twelve') t++; } patch.myPct = (m + t) ? m / (m + t) : 0; patch.multi = m; patch.twelve = t; break; }
       case 'autoPayPct': patch.autoPayPct = n ? ss.filter(s => s.autoPay && s.autoPay !== 'No').length / n : 0; break;
       case 'servicedPct': { const k = ss.filter(s => (Number(s.services) || 0) > 0 || !!s.servicedDate).length; patch.servicedPct = n ? k / n : 0; patch.servicedN = k; break; }

@@ -2822,7 +2822,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const count = r.sales.length;
     // MY % = multi-year contracts (anything other than 12 months) / all contract sales (12 + multi)
     const ctTotal = r.twelve + r.multi;
-    const eligibleForPest = r.sales.filter(s => !REP_AVG_PEST_EXCLUDE.test(s.subscription || ''));
+    const eligibleForPest = r.sales.filter(s => avgPestEligible(s));
     const avgPest = eligibleForPest.length > 0
       ? eligibleForPest.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / eligibleForPest.length
       : 0;
@@ -3067,7 +3067,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         if (s.autoPay && s.autoPay !== 'No') autoPay++;
         const initPrice = Number(s.initialPrice || 0);
         initialSum += initPrice;
-        if (!PEST_EXCLUDE_RE.test(s.subscription || '')) {
+        if (avgPestEligible(s)) {
           pestInitialSum += initPrice;
           pestCount++;
         }
@@ -4000,7 +4000,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const aggForTier = (reps) => {
       const sales = reps.reduce((acc, r) => acc.concat(r.sales), []);
       const totalRevenue = sales.reduce((a, s) => a + Number(s.contractValue || 0), 0);
-      const pestEligible = sales.filter(s => !REP_AVG_PEST_EXCLUDE.test(s.subscription || ''));
+      const pestEligible = sales.filter(s => avgPestEligible(s));
       const avgInit = pestEligible.length > 0
         ? pestEligible.reduce((a, s) => a + Number(s.initialPrice || 0), 0) / pestEligible.length
         : 0;
@@ -4278,12 +4278,12 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         fmt.usd0(r.peakRevenue || r.revenue || 0), cut > 0.5 ? el('div', { class: 'text-[10px]', style: { color: '#B91C1C' } }, '\u2212' + fmt.usd0(cut)) : null); } },
     // 12-week revenue sparkline with WoW slope. Sort key = trendSlope so
     // clicking surfaces reps with the biggest week-over-week jump (or drop).
-    { key: 'avgPest',    label: 'Pest Init', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgPest > 0 ? fmt.usd(r.avgPest) : '—') },
-    { key: 'avgInitial', label: 'Avg Init',      align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgInitial > 0 ? fmt.usd(r.avgInitial) : '—') },
-    { key: 'acv',        label: 'ACV',      align: 'left', defaultDir: 'desc', title: 'Recurring new sales only — one-time services and renewals left out', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.usd(r.acv)) },
+    { key: 'avgPest',    label: 'Avg Pest Initial', title: 'Recurring pest plans only — one-time services, Sentricon, German roach and interior flea left out', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgPest > 0 ? fmt.usd(r.avgPest) : '—') },
+    { key: 'avgInitial', label: 'Avg Initial', title: 'Every sale, one-time services included',      align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgInitial > 0 ? fmt.usd(r.avgInitial) : '—') },
+    { key: 'acvW', label: 'Weighted ACV', align: 'left', defaultDir: 'desc', title: 'Every sale — one-time services included', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.acvW > 0 ? fmt.usd(r.acvW) : '\u2014') },
+    { key: 'acv',        label: 'Recurring ACV',      align: 'left', defaultDir: 'desc', title: 'Recurring new sales only — one-time services (and renewals, see Renewal ACV) left out', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.usd(r.acv)) },
+    { key: 'acvOts', label: 'One Time Service ACV', align: 'left', defaultDir: 'desc', title: 'One-time services only', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.acvOts > 0 ? fmt.usd(r.acvOts) : '\u2014') },
     { key: 'avgRecurring', label: 'Recurring', align: 'left', defaultDir: 'desc', title: 'Average recurring charge per service across the rep\u2019s recurring sales (one-time services out) \u2014 as billed in FieldRoutes', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgRecurring > 0 ? fmt.usd(r.avgRecurring) : '\u2014') },
-    { key: 'acvW', label: 'Weighted ACV', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'Every sale — one-time services and renewals included', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.acvW > 0 ? fmt.usd(r.acvW) : '\u2014') },
-    { key: 'acvOts', label: 'One-Time ACV', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'One-time services only', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.acvOts > 0 ? fmt.usd(r.acvOts) : '\u2014') },
     { key: 'acvRen', label: 'Renewal ACV', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'Renewal-source sales only (Renewal - Loyalty / Inbound / Outbound / Service Pro Upsell)', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: indicatorExcl().renewal ? 'Renewals are excluded in Filters — untick Renewals to see this' : '' }, r.acvRen > 0 ? fmt.usd(r.acvRen) : (indicatorExcl().renewal ? 'excluded' : '\u2014')) },
     // Selling-day metrics — averages over days WITH ≥1 sale only.
     { key: 'auditPct', label: 'Audit %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap' },
@@ -6422,7 +6422,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
         const through = group.sales.filter(bucket.cumThrough);
         if (through.length === 0) return 0;
         if (cfg.metric === 'avg_pest') {
-          const eligible = through.filter(s => !REP_AVG_PEST_EXCLUDE.test(s.subscription || ''));
+          const eligible = through.filter(s => avgPestEligible(s));
           if (eligible.length === 0) return 0;
           return eligible.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / eligible.length;
         }
@@ -6567,7 +6567,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
     const twelve = sales.filter(s => myBucketOf(s) === 'twelve').length;
     const autoPay = sales.filter(s => s.autoPay && s.autoPay !== 'No').length;
     const cancels = sales.filter(_isReportableCancel).length;
-    const eligibleForPest = sales.filter(s => !VERIFY_PEST_EXCLUDE.test(s.subscription || ''));
+    const eligibleForPest = sales.filter(s => avgPestEligible(s));
     const avgPest = eligibleForPest.length > 0
       ? eligibleForPest.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / eligibleForPest.length
       : 0;
@@ -7030,7 +7030,7 @@ function buildTeamReportNode(teamName, ctx) {
       const _myb = myBucketOf(s);
       if (_myb === 'twelve') t.twelve++; else if (_myb === 'multi') t.multi++;
       if (s.autoPay && s.autoPay !== 'No') t.autoPay++;
-      if (!PEST_EXCLUDE_RE.test(s.subscription || '')) {
+      if (avgPestEligible(s)) {
         t.initial_total += Number(s.initialPrice || 0);
         t.initial_count++;
       }
@@ -7122,7 +7122,7 @@ function buildTeamReportNode(teamName, ctx) {
     const cancels = repSales.filter(_isReportableCancel).length;
     const rors    = repSales.filter(_is3DayROR).length;
     const sns     = repSales.filter(_isSoldNotStarted).length;
-    const pestEligible = repSales.filter(s => !PEST_EXCLUDE_RE.test(s.subscription || ''));
+    const pestEligible = repSales.filter(s => avgPestEligible(s));
     return {
       name,
       tier: getRepTier(name),
@@ -7642,7 +7642,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
     b.revenue += r.revenue || 0;
     b.count   += r.count || (r.sales ? r.sales.length : 0);
     for (const s of (r.sales || [])) {
-      if (PDF_PEST_EXCLUDE.test(s.subscription || '')) continue;
+      if (!avgPestEligible(s)) continue;
       b.pestSum += Number(s.initialPrice) || 0; b.pestN++;
     }
   }
@@ -9108,7 +9108,7 @@ function buildTrendMiniGrid(sales, chartBuckets, idPrefix, accentColor, overlay,
     if (metricId === 'revenue') return bucketSales.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
     if (metricId === 'count')   return bucketSales.length;
     if (metricId === 'avg_pest') {
-      const eligible = bucketSales.filter(s => !REP_AVG_PEST_EXCLUDE.test(s.subscription || ''));
+      const eligible = bucketSales.filter(s => avgPestEligible(s));
       if (eligible.length === 0) return 0;
       return eligible.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / eligible.length;
     }
@@ -9388,7 +9388,7 @@ function repLandingPlayerCard(opts) {
     const count = ytd.length;
     const sellDays = new Set(ytd.map(s => dateSoldToIso(s.dateSold)).filter(Boolean)).size;
     const PEST_RE = pestInitialExclRe();
-    const pest = ytd.filter(s => !PEST_RE.test(s.subscription || ''));
+    const pest = ytd.filter(s => avgPestEligible(s));
     const avgPest = pest.length ? pest.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / pest.length : 0;
     const multi = ytd.filter(s => myBucketOf(s) === 'multi').length;
     const twelve = ytd.filter(s => myBucketOf(s) === 'twelve').length;
@@ -9458,7 +9458,7 @@ function teamLandingPlayerCards(opts) {
       const count = ytd.length;
       const reps = new Set(ytd.map(s => getCanonicalRepName(s.rep))).size;
       const sellDays = new Set(ytd.map(s => dateSoldToIso(s.dateSold)).filter(Boolean)).size;
-      const pest = ytd.filter(s => !PEST_RE.test(s.subscription || ''));
+      const pest = ytd.filter(s => avgPestEligible(s));
       const avgPest = pest.length ? pest.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / pest.length : 0;
       const multi = ytd.filter(s => myBucketOf(s) === 'multi').length;
       const twelve = ytd.filter(s => myBucketOf(s) === 'twelve').length;
@@ -9950,7 +9950,7 @@ function indicatorYoYTrendChart() {
       if (_myb === 'multi') b.multi++; else if (_myb === 'twelve') b.twelve++;
       if (auditFailRe().test(s.customerFlags || '')) b.fail++;
       b.initSum += Number(s.initialPrice) || 0;
-      if (!PEST_RE.test(s.subscription || '')) { b.pestSum += Number(s.initialPrice) || 0; b.pestN++; }
+      if (avgPestEligible(s)) { b.pestSum += Number(s.initialPrice) || 0; b.pestN++; }
       if (_isReportableCancel(s)) {
         b.cancels++;
         if (y === prevY) {
