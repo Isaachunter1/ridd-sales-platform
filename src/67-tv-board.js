@@ -634,7 +634,7 @@ function openTvBoard() {
                 cell('4', 1, sep()),
                 // "Pest 6 + Mole + Rodent" — the plan and what was added on (per Isaac, Oct 15); add-on-only sales show the plan muted.
                 cell('5', 1, el('span', { style: { fontFamily: VOICE, color: T.ink } }, (typeof saleServiceWithAddOns === 'function')
-                  ? saleServiceWithAddOns(s, s._crmService || s.service_name || s.crm_subscription || '\u2014', ao, { size: 'clamp(12px, .95cqw, 15px)', weight: '600', ok: BAND.green, bad: BAND.red, muted: T.dim })
+                  ? saleServiceWithAddOns(s, s._crmService || s.service_name || s.crm_subscription || '\u2014', ao, { size: 'clamp(12px, .95cqw, 15px)', weight: '600', ok: BAND.green, bad: BAND.red, muted: T.dim, inline: true })
                   : (s._crmService || s.service_name || '\u2014'))),   // the service never truncates
                 cell('6', 1, sep()),
                 cell('7', 1, el('span', { style: big }, term), { minWidth: 'max-content' }),

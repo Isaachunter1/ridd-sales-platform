@@ -2124,8 +2124,16 @@ function saleServiceWithAddOns(s, svcName, ao, opts) {
   const addOnOnly = s.sale_kind === 'upsell';
   const base = addOnOnly ? saleBasePlanName(s, ao) : svcName;
   const list = (ao || []).length ? ao : (addOnOnly && s.crm_subscription ? [{ service_name: s.crm_subscription, credited_profile_id: s.rep_id || null, credited_employee_id: s.crm_seller_id || (s.rep_id ? 'x' : null) }] : []);
-  return el('span', { style: { fontSize: o.size, fontWeight: o.weight, whiteSpace: 'nowrap' },
-    title: list.map(a => (a.service_name || 'Add-on') + (saleAddOnCredited(a) ? ' \u00b7 credited in FieldRoutes' : ' \u2014 Commission To is N/A in FieldRoutes')).join('\n') },
+  const _tip = list.map(a => (a.service_name || 'Add-on') + (saleAddOnCredited(a) ? ' \u00b7 credited in FieldRoutes' : ' \u2014 Commission To is N/A in FieldRoutes')).join('\n');
+  // A new plan sold WITH add-ons (per Isaac, Oct 16): the plan on its own line, the add-ons underneath.
+  // An add-on-only sale keeps the one phrase: "Pest 4 + Mole" (the plan it went on, muted).
+  if (!o.inline && !addOnOnly && base && list.length) {
+    return el('span', { style: { display: 'inline-flex', flexDirection: 'column', minWidth: '0', maxWidth: '100%' }, title: _tip },
+      el('span', { style: { fontSize: o.size, fontWeight: o.weight, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, base),
+      el('span', { style: { fontSize: '10px', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '1px' } },
+        ...list.map((a, i) => el('span', { style: { color: saleAddOnCredited(a) ? o.ok : o.bad } }, (i ? '  + ' : '+ ') + (a.service_name || 'Add-on')))));
+  }
+  return el('span', { style: { fontSize: o.size, fontWeight: o.weight, whiteSpace: 'nowrap' }, title: _tip },
     base ? el('span', { style: addOnOnly ? { color: o.muted } : {} }, base) : null,
     ...list.map((a, i) => el('span', { style: { color: saleAddOnCredited(a) ? o.ok : o.bad } }, (base || i ? ' + ' : '+ ') + (a.service_name || 'Add-on'))));
 }
