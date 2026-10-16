@@ -1649,7 +1649,9 @@ function adminReps() {
   // status toggle on the left; ⚲ filters sit just left of the search box. ──
   const inTab = typeTab === 'All' ? people : people.filter(x => x.type === typeTab);
   const aCount = inTab.filter(x => x.active).length;
-  const F = state._adminUserFilters || (state._adminUserFilters = {});
+  // Filters button retired (per Isaac, Oct 16 — search covers it); clear any pick left over so nothing filters silently.
+  state._adminUserFilters = {}; state._adminUserFiltersOpen = false;
+  const F = state._adminUserFilters;
   const _roleOpts = [...new Set(inTab.filter(x => x.isApp).map(x => String(x.profile.role || '')))].filter(Boolean).sort();
   const _officeOpts = [...new Set(inTab.flatMap(x => { const e = x.frEmp || x.emp; return String((e && e.office_name) || '').split(',').map(s => s.trim()).filter(Boolean); }))].sort();
   const _fActive = ['role', 'office', 'tier'].filter(k => F[k]).length;
@@ -1722,7 +1724,7 @@ function adminReps() {
         el('span', { class: 'text-[10px] tabular-nums px-1.5 py-0.5 rounded', style: activeFilter === t.id ? { background: 'rgba(0,0,0,.15)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' } }, t.count.toLocaleString()))));
   const _searchInp = el('input', {
       id: 'admin-user-search',
-      class: 'rounded-xl border px-2.5 py-1 text-[11px] flex-1 min-w-0', style: { borderColor: 'var(--border-2)', minWidth: _phoneU ? '0' : '160px', height: '28px', marginRight: '6px' },   // a touch narrower (per Isaac, Oct 16)
+      class: 'rounded-xl border px-2.5 py-1 text-[11px] flex-1 min-w-0', style: { borderColor: 'var(--border-2)', minWidth: _phoneU ? '0' : '220px', height: '28px', marginRight: '6px' },   // takes the Filters button's room (per Isaac, Oct 16)
       placeholder: 'Search ' + REP_TYPE_TAB_LABEL[typeTab] + '…', value: state._adminUserSearch,
       // The debounced mountApp() rebuilds the whole page, which replaces
       // this input and dropped focus mid-word - typing felt like the page
@@ -1742,10 +1744,10 @@ function adminReps() {
     });
   if (_phoneU) host.append(el('div', { class: 'flex flex-col gap-2' },
     el('div', { class: 'flex items-center gap-2' }, _statusToggle, el('div', { class: 'ml-auto shrink-0' }, _newUserBtn)),
-    el('div', { class: 'flex items-center gap-2 w-full' }, _searchInp, _filtersWrap, _eyeWrap)));
+    el('div', { class: 'flex items-center gap-2 w-full' }, _searchInp, _eyeWrap)));
   else host.append(el('div', { class: 'flex items-center flex-wrap gap-2' }, _statusToggle, _searchInp,
     // Right-hand cluster (per Isaac): search sits left, actions pinned right.
-    el('div', { class: 'flex items-center gap-2 shrink-0 ml-auto' }, _newUserBtn, _filtersWrap, _eyeWrap)));
+    el('div', { class: 'flex items-center gap-2 shrink-0 ml-auto' }, _newUserBtn, _eyeWrap)));
 
   // ── Build the filtered, capped list for this tab ──
   let list = inTab;
