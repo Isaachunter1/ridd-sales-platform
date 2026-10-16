@@ -4874,16 +4874,14 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   },
                 }, isRecordCol
                   // Best Day / Week / Month picker ON the header (per Isaac): the select swaps the record column; the rest of the header still sorts.
-                  ? el('span', { class: 'inline-flex items-center gap-1' },
+                  ? el('span', { class: 'flex items-center gap-1', style: { width: '100%' } },
                       el('select', {
                         class: 'cursor-pointer font-semibold uppercase',
-                        style: { border: 0, background: 'transparent', color: 'inherit', font: 'inherit', padding: 0, appearance: 'auto', WebkitAppearance: 'menulist' },
+                        style: { border: 0, background: 'transparent', color: 'inherit', font: 'inherit', padding: 0, appearance: 'auto', WebkitAppearance: 'menulist', width: '100%', minWidth: '0' },   // fills the column (per Isaac, Oct 16)
                         title: 'Swap the record column: Best Day / Best Week / Best Month',
                         onclick: (e) => e.stopPropagation(),
                         onchange: (e) => { e.stopPropagation(); state._lbRecordCol = e.target.value; if (state._indicatorRepSort && RECORD_SORT_KEYS.has(state._indicatorRepSort.key)) state._indicatorRepSort = { key: e.target.value, dir: state._indicatorRepSort.dir }; mountApp(); },
                       }, ...[['bestDayTime', 'Best Day'], ['bestWeekTime', 'Best Week'], ['bestMonthTime', 'Best Month']].map(([k, l]) => el('option', { value: k, selected: k === c.key }, l))),
-                      // Records are always this calendar year (YTD) — say which (per Isaac, Oct 16).
-                      el('span', { class: 'tabular-nums', style: { color: 'var(--text-subtle)' }, title: 'Records are year-to-date: every sale this calendar year, whatever range the page is on' }, String(new Date().getFullYear())),
                       arrow ? el('span', {}, arrow) : null)
                   : c.label + arrow,
                   (isAdminRole(state.profile?.role) && state._editMode && c.key !== 'name') ? el('span', {

@@ -611,12 +611,10 @@ function openFeedbackModal() {
   }, 'Send');
   overlay.append(el('div', { class: 'card w-full max-w-md p-5 flex flex-col gap-3' },
     el('div', { class: 'flex items-center justify-between' },
-      el('h2', { class: 'text-lg font-bold' }, '📣 Feedback'),
+      el('h2', { class: 'text-lg font-bold' }, 'Feedback'),
       el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×')),
     ta, drop, picker, list,
-    el('div', { class: 'flex items-center justify-between gap-2' },
-      el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Goes to the app team (Slack) and the Adoption log.'),
-      send)));
+    el('div', { class: 'flex items-center justify-end gap-2' }, send)));
   document.body.append(overlay);
   setTimeout(() => ta.focus(), 50);
 }
