@@ -4301,7 +4301,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           title: 'Accounts not flagged Failed Audit ÷ all accounts (no-audit + pending count as good)',
         }, (r.auditPct * 100).toFixed(1) + '%')) },
     // Serviced % (per Isaac, Sep 22): serviced accounts ÷ every account sold, cancelled-before-service included.
-    { key: 'servicedPct', label: 'Serviced %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap', title: fmt.int(r.servicedN) + ' serviced of ' + fmt.int(r.soldAll) + ' sold \u00b7 same as the player card\u2019s Sold/Serviced' }, r.soldAll > 0 ? (r.servicedPct * 100).toFixed(1) + '%' : '—') },
+    { key: 'servicedPct', label: 'Serviced %', align: 'left', defaultDir: 'desc', defaultHidden: true, cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap', title: fmt.int(r.servicedN) + ' serviced of ' + fmt.int(r.soldAll) + ' sold \u00b7 same as the player card\u2019s Sold/Serviced' }, r.soldAll > 0 ? (r.servicedPct * 100).toFixed(1) + '%' : '—') },
     { key: 'myPct',      label: 'MY %',     align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, (r.myPct * 100).toFixed(1) + '%') },
     { key: 'autoPayPct', label: 'APay %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, (r.autoPayPct * 100).toFixed(1) + '%') },
     // (Cancels column retired from the leaderboard per Isaac, Sep 21 — fewer columns so the table fits without a scroll; Attrition % carries the read, and the player card keeps the count.)
