@@ -3690,18 +3690,11 @@ function openIndicatorRepCard(rep, allReps = []) {
     const _valCls = _wide ? (_maxLen > 13 ? 'text-sm' : 'text-lg') : (_maxLen > 11 ? 'text-xs' : _maxLen > 8 ? 'text-sm' : 'text-lg');
     return el('div', { class: 'grid gap-2 sm:gap-3 mb-5 rep-stats-grid', style: (_wide && scopedStats.length === 11) ? { gridTemplateColumns: 'repeat(6, minmax(0, 1fr))' } : {} },
       ...scopedStats.map(stat => {
-        const selected = drillKey === stat.key;
+        // Not clickable any more (per Isaac, Oct 16): the Sales table under the card has every account and exports.
         return el('div', {
-          class: 'rounded-lg border p-3 text-center cursor-pointer transition hover:brightness-95',
+          class: 'rounded-lg border p-3 text-center',
           title: stat.title || '',
-          style: selected
-            ? { borderColor: 'var(--accent)', background: 'rgba(223,100,58,.12)', boxShadow: '0 0 0 1px var(--accent)' }
-            : { borderColor: 'var(--border)', background: 'var(--card-2)' },
-          onclick: () => {
-            drillKey = selected ? null : stat.key;
-            drillSub = null;
-            renderBody();
-          },
+          style: { borderColor: 'var(--border)', background: 'var(--card-2)' },
         },
           el('div', { class: 'text-[9px] uppercase tracking-widest text-muted- font-semibold whitespace-nowrap' }, stat.label),
           // Font scales down with value length so long figures (entity cards
