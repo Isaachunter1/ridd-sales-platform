@@ -258,7 +258,8 @@ function saleAddonSplit(sale) {
   if (sale.sale_kind === 'upsell' && sale.add_on_id != null) return { base: 0, addon: rev };
   const lines = Array.isArray(sale.commission_split) ? sale.commission_split : null;
   if (lines && lines.some(l => l && l.kind === 'base') && lines.some(l => l && l.kind === 'addon')) {
-    const baseV = lines.filter(l => l && l.kind === 'base').reduce((a, l) => a + (Number(l.value) || 0), 0);
+    // Service fees paid to the seller (per Isaac, Oct 17 — the sync marks them paid) count as PLAN revenue, not add-on.
+    const baseV = lines.filter(l => l && (l.kind === 'base' || (l.kind === 'fee' && l.paid))).reduce((a, l) => a + (Number(l.kind === 'fee' ? l.paid_value : l.value) || 0), 0);
     const base = Math.max(0, Math.min(rev, baseV));
     return { base, addon: Math.max(0, Math.round((rev - base) * 100) / 100) };
   }

@@ -79,6 +79,8 @@ exports.handler = async (event) => {
     // Per-item Commissionable switch (AL.addon_items, per Isaac Sep 30) wins;
     // unlisted items keep the old rule.
     const isAddOn = makeIsAddOn(AL.upsell_services, AL.addon_items, require('../lib/rules.js').notAddOnDefault);
+    const PAY_FEES = AL.pay_service_fees !== false;            // default ON (per Isaac, Oct 17)
+    const SERVICE_FEE_RE = /^service fee\b/i;
     const lookback = Math.max(1, Number(AL.addons_lookback_days) || 3);
     const since = new Date(Date.now() - lookback * 86400000).toISOString().slice(0, 10);
     const from = since > String(AL.start).slice(0, 10) ? since : String(AL.start).slice(0, 10);
@@ -208,9 +210,16 @@ exports.handler = async (event) => {
       const sum = (f) => money2(lines.filter(f).reduce((t, l) => t + l.value, 0));
       const base_value = sum(l => l.kind === 'base'), fee_value = sum(l => l.kind === 'fee');
       const addon_own_value = sum(l => l.kind === 'addon' && samePerson(l)), addon_other_value = sum(l => l.kind === 'addon' && !samePerson(l));
+      // Service fees pay the base seller "for now" (per Isaac, Oct 17 — Settings → Configurations → Pay automation →
+      // Pay reps on service fees, on by default). Still never assigned to anyone in FieldRoutes (Auditing flags a fee
+      // with a Commission To), so the fee rides the plan's seller at the plan rate. Tax / NSF / late / card fees and
+      // discounts stay out. The paid lines are marked so the app pays them as plan revenue, not add-on revenue.
+      // Paid = the fee itself (per service × services), never the initial extras folded into the first fee line.
+      lines.forEach(l => { if (l.kind === 'fee' && PAY_FEES && SERVICE_FEE_RE.test(l.name || '') && l.per_service > 0) { l.paid = true; l.paid_value = money2(l.per_service * n); } });
+      const service_fee_paid = money2(lines.filter(l => l.kind === 'fee' && l.paid).reduce((t, l) => t + l.paid_value, 0));
       revRows.push({ subscription_id: String(x.subscriptionID), customer_id: String(x.customerID || rt.customerID || ''), base_service: x.serviceType || null,
         sold_by_employee_id: soldBy || null, sold_by_profile_id: soldProf ? soldProf.id : null, contract_value: cv, recurring_services: n,
-        base_value, fee_value, addon_own_value, addon_other_value, commissionable_value: money2(base_value + addon_own_value), lines, active: true, updated_at: nowIso,
+        base_value, fee_value, addon_own_value, addon_other_value, commissionable_value: money2(base_value + addon_own_value + service_fee_paid), lines, active: true, updated_at: nowIso,
         // Service fees are never credited to anyone (per Isaac) — flag any that are, for Auditing.
         fee_credited_count: lines.filter(l => l.kind === 'fee' && l.credited_employee_id).length,
         fee_credited_employee_ids: [...new Set(lines.filter(l => l.kind === 'fee' && l.credited_employee_id).map(l => l.credited_employee_id))] });
@@ -241,7 +250,7 @@ exports.handler = async (event) => {
       for (const l of r.lines) if (l.kind === 'addon') lineValue.set(r.subscription_id + '|' + l.name.toLowerCase(), l.value);
       const b = baseSale.get(r.subscription_id); if (!b) continue;
       const own = r.lines.filter(l => l.kind === 'addon' && !!l.credited_employee_id && ((l.credited_profile_id && l.credited_profile_id === b.rep_id) || (!l.credited_profile_id && l.credited_employee_id === r.sold_by_employee_id)));
-      const commissionable = money2(r.base_value + own.reduce((t, l) => t + l.value, 0));
+      const commissionable = money2(r.base_value + own.reduce((t, l) => t + l.value, 0) + r.lines.filter(l => l.kind === 'fee' && l.paid).reduce((t, l) => t + (Number(l.paid_value) || 0), 0));
       const names = own.map(l => l.name).join(' + ') || null;
       if (b.payroll_processed_at || String(b.sold_date || '') < String(AL.start).slice(0, 10)) continue;
       if (Math.abs((Number(b.revenue_amount) || 0) - commissionable) < 0.01 && Math.abs((Number(b.total_revenue) || 0) - r.contract_value) < 0.01 && (b.addon_names || null) === names) continue;

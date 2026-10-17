@@ -1022,13 +1022,15 @@ function payRevenueCreditCard(repId) {
     // This user's piece: the base plan if they sold it, plus every add-on line credited to them.
     const mine = (l) => l.credited_profile_id === repId;
     const soldIt = r.sold_by_profile_id === repId;
-    let v = 0; for (const l of (r.lines || [])) if (l.kind === 'base' ? soldIt : (l.kind === 'addon' && (mine(l) || (soldIt && !l.credited_profile_id && l.credited_employee_id && l.credited_employee_id === r.sold_by_employee_id)))) v += Number(l.value) || 0;
+    let v = 0; for (const l of (r.lines || [])) if ((l.kind === 'base' || (l.kind === 'fee' && l.paid)) ? soldIt : (l.kind === 'addon' && (mine(l) || (soldIt && !l.credited_profile_id && l.credited_employee_id && l.credited_employee_id === r.sold_by_employee_id)))) v += Number(l.kind === 'fee' ? l.paid_value : l.value) || 0;
     return Math.round(v * 100) / 100;
   };
   const _pvc = isAdminRole(state.profile?.role) && state._payPreviewCust ? String(state._payPreviewCust) : '';
   const rows = Array.isArray(data) ? data.filter(r => !_pvc || String(r.customer_id) === _pvc).sort((x, y) => Number(y.subscription_id) - Number(x.subscription_id)) : [];
   const tot = rows.reduce((t, r) => t + (Number(r.contract_value) || 0), 0);
-  const fees = rows.reduce((t, r) => t + (Number(r.fee_value) || 0), 0);
+  // Fees that come OFF: service fees paid to the seller (per Isaac, Oct 17) stay in.
+  const _feeOff = (r) => (r.lines || []).filter(l => l.kind === 'fee').reduce((t, l) => t + (Number(l.value) || 0) - (l.paid ? (Number(l.paid_value) || 0) : 0), 0);
+  const fees = rows.reduce((t, r) => t + _feeOff(r), 0);
   const cred = rows.reduce((t, r) => t + creditOf(r), 0);
   const open = state._subRevOpen || (state._subRevOpen = {});
   const th = (t) => el('th', { class: 'px-2 py-1.5 text-left text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)' } }, t);
@@ -1040,15 +1042,15 @@ function payRevenueCreditCard(repId) {
     const baseNotMine = r.sold_by_profile_id !== repId ? (Number(r.base_value) || 0) : 0;
     body.push(el('tr', { class: 'border-t cursor-pointer', style: { borderColor: 'var(--border)' }, onclick: () => { open[r.subscription_id] = !open[r.subscription_id]; mountApp(); } },
       td((open[r.subscription_id] ? '▾ ' : '▸ ') + '#' + r.customer_id), td(r.base_service), td(r.sold_by_profile_id === repId ? 'Sold it' : 'Add-on only'),
-      td(money(r.contract_value), { fontWeight: '600' }), td('−' + money(r.fee_value)), td(other || baseNotMine ? '−' + money(other + baseNotMine) : '—'),
+      td(money(r.contract_value), { fontWeight: '600' }), td('−' + money(_feeOff(r))), td(other || baseNotMine ? '−' + money(other + baseNotMine) : '—'),
       td(money(creditOf(r)), { fontWeight: '700', color: 'var(--accent)' })));
     if (open[r.subscription_id]) for (const l of (r.lines || [])) {
-      const mine = l.kind === 'base' ? r.sold_by_profile_id === repId : l.kind === 'addon' && (l.credited_profile_id === repId || (r.sold_by_profile_id === repId && !l.credited_profile_id && l.credited_employee_id === r.sold_by_employee_id));
+      const mine = (l.kind === 'base' || (l.kind === 'fee' && l.paid)) ? r.sold_by_profile_id === repId : l.kind === 'addon' && (l.credited_profile_id === repId || (r.sold_by_profile_id === repId && !l.credited_profile_id && l.credited_employee_id === r.sold_by_employee_id));
       const who = l.credited_profile_id ? (((state.profiles || []).find(p => p.id === l.credited_profile_id) || {}).full_name || 'linked user') : (l.credited_employee_id ? 'FR #' + l.credited_employee_id : '');
       body.push(el('tr', { style: { background: 'var(--card-2)' } },
         td(''), td((l.kind === 'base' ? 'Base · ' : l.kind === 'fee' ? 'Fee · ' : 'Add-on · ') + l.name, { paddingLeft: '18px' }),
-        td(l.kind === 'fee' ? 'not commissionable' : who), td(money(l.value) + ' (' + money(l.per_service) + '/service)'), td(''), td(''),
-        td(l.kind === 'fee' ? '—' : mine ? money(l.value) : 'other user', mine ? { color: 'var(--accent)', fontWeight: '600' } : { color: 'var(--text-muted)' })));
+        td(l.kind === 'fee' ? (l.paid ? 'paid to the seller' : 'not commissionable') : who), td(money(l.value) + ' (' + money(l.per_service) + '/service)'), td(''), td(''),
+        td(l.kind === 'fee' && !l.paid ? '—' : mine ? money(l.kind === 'fee' ? l.paid_value : l.value) : 'other user', mine ? { color: 'var(--accent)', fontWeight: '600' } : { color: 'var(--text-muted)' })));
     }
   }
   return el('div', { class: 'card overflow-hidden', style: { gridColumn: '1 / -1' } },

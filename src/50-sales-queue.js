@@ -821,7 +821,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
               !showBackend && el('td', { class: 'px-2 py-2 text-right tabular-nums whitespace-nowrap' }, fmt.usd(s.initial_amount)),
               !showBackend && el('td', { class: 'px-2 py-2 text-right tabular-nums whitespace-nowrap text-muted-' }, fmt.usd(s.monthly_amount)),
               el('td', { class: 'px-2 py-2 text-right tabular-nums font-semibold whitespace-nowrap',
-                title: s.commission_split ? 'Commissionable ' + fmt.usd(s.revenue_amount) + ' of ' + fmt.usd(s.total_revenue) + ' on the account (service fees and add-ons credited to other users are out)' : '' },
+                title: s.commission_split ? 'Commissionable ' + fmt.usd(s.revenue_amount) + ' of ' + fmt.usd(s.total_revenue) + ' on the account (add-ons credited to other users, tax and other fees are out)' : '' },
                 fmt.usd(s.revenue_amount), s.commission_split && Number(s.total_revenue) > Number(s.revenue_amount) + 0.005 ? el('div', { class: 'text-[9px] font-normal', style: { color: 'var(--text-muted)' } }, 'of ' + fmt.usd(s.total_revenue)) : null),
               cell(el('span', { class: 'text-muted- tabular-nums whitespace-nowrap' }, fmt.dateShortYear(s.sold_date))),
               cell((() => {
@@ -2124,18 +2124,38 @@ function saleServiceWithAddOns(s, svcName, ao, opts) {
   const addOnOnly = s.sale_kind === 'upsell';
   const base = addOnOnly ? saleBasePlanName(s, ao) : svcName;
   const list = (ao || []).length ? ao : (addOnOnly && s.crm_subscription ? [{ service_name: s.crm_subscription, credited_profile_id: s.rep_id || null, credited_employee_id: s.crm_seller_id || (s.rep_id ? 'x' : null) }] : []);
-  const _tip = list.map(a => (a.service_name || 'Add-on') + (saleAddOnCredited(a) ? ' \u00b7 credited in FieldRoutes' : ' \u2014 Commission To is N/A in FieldRoutes')).join('\n');
+  // Missing service fee (per Isaac, Oct 17): reps often forget to put the Service Fee on the recurring ticket — that's a lot of
+  // revenue across the book. A recurring plan whose ticket lines are known and carry no Service Fee gets a red flag, like an
+  // add-on nobody's credited with. One-time plans and add-on-only sales are skipped.
+  const _noFee = saleMissingServiceFee(s);
+  const _feeFlag = _noFee ? el('span', { style: { color: o.bad, fontWeight: '700' }, title: 'No Service Fee (or a $0 one) on this plan\u2019s recurring ticket in FieldRoutes \u2014 add it (Commission To N/A)' }, (addOnOnly ? ' ' : '') + '\u26a0 No service fee') : null;
+  const _tip0 = list.map(a => (a.service_name || 'Add-on') + (saleAddOnCredited(a) ? ' \u00b7 credited in FieldRoutes' : ' \u2014 Commission To is N/A in FieldRoutes')).join('\n');
+  const _tip = _tip0 + (_noFee ? (_tip0 ? '\n' : '') + 'No Service Fee on the recurring ticket' : '');
   // A new plan sold WITH add-ons (per Isaac, Oct 16): the plan on its own line, the add-ons underneath.
   // An add-on-only sale keeps the one phrase: "Pest 4 + Mole" (the plan it went on, muted).
   if (!o.inline && !addOnOnly && base && list.length) {
     return el('span', { style: { display: 'inline-flex', flexDirection: 'column', minWidth: '0', maxWidth: '100%' }, title: _tip },
       el('span', { style: { fontSize: o.size, fontWeight: o.weight, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, base),
       el('span', { style: { fontSize: '10px', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '1px' } },
-        ...list.map((a, i) => el('span', { style: { color: saleAddOnCredited(a) ? o.ok : o.bad } }, (i ? '  + ' : '+ ') + (a.service_name || 'Add-on')))));
+        ...list.map((a, i) => el('span', { style: { color: saleAddOnCredited(a) ? o.ok : o.bad } }, (i ? '  + ' : '+ ') + (a.service_name || 'Add-on'))),
+        _feeFlag ? el('span', {}, '  ', _feeFlag) : null));
+  }
+  if (!o.inline && !addOnOnly && base && _noFee) {
+    return el('span', { style: { display: 'inline-flex', flexDirection: 'column', minWidth: '0', maxWidth: '100%' }, title: _tip },
+      el('span', { style: { fontSize: o.size, fontWeight: o.weight, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, base),
+      el('span', { style: { fontSize: '10px', whiteSpace: 'nowrap', marginTop: '1px' } }, _feeFlag));
   }
   return el('span', { style: { fontSize: o.size, fontWeight: o.weight, whiteSpace: 'nowrap' }, title: _tip },
     base ? el('span', { style: addOnOnly ? { color: o.muted } : {} }, base) : null,
     ...list.map((a, i) => el('span', { style: { color: saleAddOnCredited(a) ? o.ok : o.bad } }, (base || i ? ' + ' : '+ ') + (a.service_name || 'Add-on'))));
+}
+function saleMissingServiceFee(s) {
+  if (!s || s.sale_kind === 'upsell') return false;
+  const lines = Array.isArray(s.commission_split) ? s.commission_split : null;
+  if (!lines || !lines.length || !lines.some(l => l && l.kind === 'base')) return false;   // ticket lines not known yet
+  if (!(Number(s.contract_months) > 1)) return false;                                         // one-time plans carry no recurring fee
+  // A Service Fee line at $0 is as good as missing.
+  return !lines.some(l => l && /^service fee\b/i.test(String(l.name || '')) && Number(l.per_service) > 0);
 }
 function saleAddOnCredited(a) {
   if (!('credited_employee_id' in a)) return !!a.credited_profile_id;
