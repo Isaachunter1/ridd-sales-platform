@@ -5547,7 +5547,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     ? _mixScoped.filter(s => (mixGroup === 'office' ? officeKeyOf(s) : teamKeyOf(s)) === drill.key)
     : _mixScoped;
   const mixGroupTabs = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
-    ...((_mixPartnerish || !indWorldHasTeams()) ? [['subscription', 'Subscriptions'], ['office', 'Offices']] : [['subscription', 'Subscriptions'], ['office', 'Offices'], ['team', 'Teams']]).map(([v, l]) => el('button', {
+    ...((_mixPartnerish || !indWorldHasTeams()) ? [['subscription', 'Subscriptions'], ['office', 'Office']] : [['subscription', 'Subscriptions'], ['office', 'Office'], ['team', 'Teams']]).map(([v, l]) => el('button', {
       class: 'px-2.5 py-1 text-[11px] font-semibold transition',
       style: mixGroup === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
       onclick: () => { state._indicatorMixGroup = v; state._indicatorMixDrill = null; mountApp(); },
