@@ -5937,7 +5937,8 @@ function dashboardGoalCard(range, opts) {
       el('div', { class: 'uppercase font-semibold truncate', style: { fontSize: '9px', letterSpacing: '.1em', color: 'var(--text-subtle)' } }, label),
       el('div', { class: 'font-bold tabular-nums truncate', style: { fontSize: _phoneP ? '13px' : '15px', lineHeight: '1.3', color: color || 'var(--text)' } }, value));
     const _stream = (s) => {
-      const sp = _seasonalPctAt(_shapeOf(s.monthly), now2);                     // share of the year that should be sold by today
+      // A stream can carry its own work-day plan (the Me pacer — per Isaac, Oct 16); otherwise the seasonal shape.
+      const sp = s.plan && typeof s.plan.sp === 'number' ? s.plan.sp : _seasonalPctAt(_shapeOf(s.monthly), now2);   // share that should be sold by today
       const pct = s.target > 0 ? Math.min(1, s.actual / s.target) : 0;
       const paceDiff = s.target > 0 ? ((s.actual / s.target) - sp) / (sp || 0.01) * 100 : 0;
       const gap = s.actual - s.target * sp;                                       // dollars ahead (+) or behind (−) the seasonal plan
@@ -5991,8 +5992,8 @@ function dashboardGoalCard(range, opts) {
       el('div', { class: 'flex items-center justify-between gap-2 mb-3', style: { minHeight: '28px' } },
         el('div', { class: 'flex items-baseline gap-2 flex-1 min-w-0 flex-wrap' },
           el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, opts.title || 'Revenue Pacer'),
-          el('span', { class: 'text-[11px] tabular-nums', style: { color: 'var(--text-muted)' }, title: opts.streams ? '' : 'New ' + fmt.usd0(ytdDept.new) + ' (' + newPctOfTotal.toFixed(0) + '%) + Renewal ' + fmt.usd0(ytdDept.renewal) + ' (' + renewalPctOfTotal.toFixed(0) + '%)' },
-            (_one ? '' : (_phoneP ? _shortUsd(_totalShown) : fmt.usd0(_totalShown) + ' total') + ' · ') + daysLeft + ' days left'),
+          el('span', { class: 'text-[11px] tabular-nums', style: { color: 'var(--text-muted)' }, title: opts.sublineTip ? opts.sublineTip : opts.streams ? '' : 'New ' + fmt.usd0(ytdDept.new) + ' (' + newPctOfTotal.toFixed(0) + '%) + Renewal ' + fmt.usd0(ytdDept.renewal) + ' (' + renewalPctOfTotal.toFixed(0) + '%)' },
+            (_one ? '' : (_phoneP ? _shortUsd(_totalShown) : fmt.usd0(_totalShown) + ' total') + ' · ') + (opts.subline || (daysLeft + ' days left'))),
           opts.hint ? el('span', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' } }, opts.hint) : null,
           opts.headerExtra || null),
         (opts.streams || _simple) ? null : el('div', { class: 'inline-flex rounded-lg border overflow-hidden shrink-0 ml-auto', style: { borderColor: 'var(--border-2)' } },
