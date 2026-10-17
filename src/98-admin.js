@@ -633,9 +633,6 @@ function adminConfigurations(part) {
       row('Failed-audit flag holds auto-approval', txt(AL.audit_fail_flag == null ? 'Failed Audit' : AL.audit_fail_flag, (v) => saveAL({ audit_fail_flag: String(v || '').trim() }), { placeholder: 'FieldRoutes customer flag', width: '180px' }), { indent: true, small: true, tip: 'Accounts carrying this flag stay in Upfront Sales for manual review instead of auto-approving. Clear the flag (or re-flag Passed) in FieldRoutes and the next sync continues the automated upfront-pay flow. Blank = no hold.' }),
       sub('Upsells'),
       row('Upsells', el('span', { class: 'text-[11px] font-semibold' }, 'Automatic \u2014 add-on ticket items in FieldRoutes'), { tip: 'Every add-on sold as a ticket item in FieldRoutes (Invoices \u2192 Add Ticket Item) becomes an upsell sale for the rep it is assigned to (or the person who added it). No manual logging (per Isaac).' }),
-      // Service fees (per Isaac, Oct 17): pay the plan's seller on the service fee for now — still never assigned to a rep.
-      row('Pay reps on service fees', sw(AL.pay_service_fees !== false, () => saveAL({ pay_service_fees: !(AL.pay_service_fees !== false) })),
-        { desc: 'The Service Fee line on the recurring ticket counts toward the seller\u2019s commissionable revenue at the plan rate. Leave its Commission To on N/A in FieldRoutes \u2014 Auditing still flags a fee assigned to a person. Applies to sales not yet paid out, from the next add-ons sync.' }),
       addonItemsTable(AL, saveAL, sw, pill),
       // Add-on commission by rep type (per Isaac, Oct 6). Base plans keep each type's normal structure.
       ...(() => { const R = addonPayRules(); const pctIn = (k, tip) => txt(String(R[k]), (v) => { const n = parseFloat(String(v).replace(/[^0-9.]/g, '')); if (!isNaN(n)) { setAddonPayRules({ [k]: n }); logActivity('config_change', { detail: 'Add-on pay ' + k + ': ' + n + '%' }); toast('Saved', 'success'); mountApp(); } }, { placeholder: '%', width: '70px' });
@@ -1413,6 +1410,36 @@ function adminD2dPayscales() {
 // REP TYPE (Office Staff / Sales Reps / Technicians). A specific rep's rates can
 // still be overridden on the calculator; this is the default for everyone of a
 // type. The service→category map is global (one taxonomy for all).
+// Save one Pay automation (app_settings.autolog) setting from outside that card — same compare-and-swap as saveAL.
+async function _saveAutologPatch(patch) {
+  const AL = state._autolog; if (!AL) return;
+  Object.assign(AL, patch);
+  let r = await saveAppSettingCas('autolog', AL);
+  if (r.conflict) {
+    const { data } = await supabase.from('app_settings').select('value, updated_at').eq('key', 'autolog').maybeSingle();
+    state._autolog = Object.assign({}, (data && data.value) || {}, patch);
+    (state._settingsSeen = state._settingsSeen || {}).autolog = (data && data.updated_at) || null;
+    r = await saveAppSettingCas('autolog', state._autolog);
+  }
+  state._autologCache = state._autolog;
+  if (!r.ok) toast('Could not save: ' + ((r.error && r.error.message) || 'another admin is editing \u2014 reload and retry'), 'error');
+  else { logActivity('config_change', { detail: 'Pay automation: ' + JSON.stringify(patch) }); toast('Saved \u2014 applies on the next sync', 'success'); }
+  mountApp();
+}
+// Service fee commissions (per Isaac, Oct 17): one On / Off for whether reps are paid on service-fee revenue.
+function serviceFeeCommissionCard() {
+  const AL = state._autolog;
+  const on = !AL || AL.pay_service_fees !== false;
+  const seg = (v, l) => el('button', { type: 'button', class: 'px-3 py-1 text-[11px] font-bold transition',
+    style: (on === v) ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)', background: 'var(--card)' },
+    disabled: !AL, onclick: () => { if (on !== v) _saveAutologPatch({ pay_service_fees: v }); } }, l);
+  return el('div', { class: 'card p-4 flex items-center justify-between gap-4 flex-wrap' },
+    el('div', { class: 'min-w-0' },
+      el('div', { class: 'text-sm font-bold' }, 'Pay reps on service fees'),
+      el('div', { class: 'text-[11px] text-muted- mt-0.5' }, 'On: the Service Fee on a plan counts toward the seller\u2019s commissionable revenue at the plan rate (it still stays unassigned in FieldRoutes). Off: service fees pay nobody. Either way they count toward ACV. Applies to sales not yet paid out, from the next sync.')),
+    AL ? el('div', { class: 'inline-flex rounded-lg border overflow-hidden shrink-0', style: { borderColor: 'var(--border-2)' } }, seg(true, 'On'), seg(false, 'Off'))
+       : el('span', { class: 'text-[11px] text-muted-' }, 'loading\u2026'));
+}
 function adminCommissions() {
   if (!isAdminRole(state.profile?.role)) return emptyCard('Admins only.');
   const pct = (n) => (Math.round((n || 0) * 100) / 100).toFixed(2) + '%';
@@ -1511,6 +1538,7 @@ function adminCommissions() {
         : type === 'Sales Rep'
           ? 'Sales Rep payscales \u2014 the Rookie / Veteran / Elite / Pro ladders (rate by retained revenue). Pick a rep to put them on a ladder or give them their own. Backend pay-stub rules are under Advanced.'
           : 'Commission rules by rep type. The Commission Calculator uses these; a specific rep can still be overridden there.')),
+    serviceFeeCommissionCard(),   // every rep type (per Isaac, Oct 17)
     tabs,
     body);
 }
