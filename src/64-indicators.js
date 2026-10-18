@@ -299,7 +299,7 @@ function _pacerClip(a, w) {
 }
 function dashLensPacer(dept) {
   const v = dashLens(); if (v === 'all') return null;
-  const R = _pacerRange();
+  let R = _pacerRange(), _weekOf = false;
   const isOffice = dept === 'office';
   const _wt = dept === 'd2d' ? 'd2d' : dept === 'techs' ? 'techs' : 'office';
   const yr = R.today.getFullYear();
@@ -322,18 +322,31 @@ function dashLensPacer(dept) {
     return goal * goalWorkDays(_wt, c.start, c.end) / tot;
   };
   let goal = 0, annual = 0, members = 0, W;
-  if (v === 'me') {
-    W = goalWindow(state.profile);
-    annual = Number(state.profile && state.profile.annual_revenue_goal) || 0;
-    goal = shareOf(annual, W);
-  } else {
-    W = yearWin;
-    const map = state._indicatorRepTeam || {};
-    for (const n of Object.keys(map)) {
-      if (map[n] !== team) continue; if (typeof isRepActive === 'function' && !isRepActive(n)) continue;
-      members++; const g = goalOfName(n); annual += g;
-      const p = profOfName(n); goal += shareOf(g, p ? goalWindow(p) : yearWin);
+  const _calc = () => {
+    goal = 0; annual = 0; members = 0;
+    if (v === 'me') {
+      W = goalWindow(state.profile);
+      annual = Number(state.profile && state.profile.annual_revenue_goal) || 0;
+      goal = shareOf(annual, W);
+    } else {
+      W = yearWin;
+      const map = state._indicatorRepTeam || {};
+      for (const n of Object.keys(map)) {
+        if (map[n] !== team) continue; if (typeof isRepActive === 'function' && !isRepActive(n)) continue;
+        members++; const g = goalOfName(n); annual += g;
+        const p = profOfName(n); goal += shareOf(g, p ? goalWindow(p) : yearWin);
+      }
     }
+  };
+  _calc();
+  // A single day with no scheduled work (a Sunday, a Saturday for office staff, a holiday) shows that day's WEEK
+  // instead (per Isaac, Oct 18) — Sunday-start, like FieldRoutes and the rest of the app.
+  if (R.oneDay && !(goal > 0) && annual > 0) {
+    const ws = new Date(R.start); ws.setDate(ws.getDate() - ws.getDay());
+    const we = new Date(ws); we.setDate(we.getDate() + 6);
+    R = Object.assign({}, R, { start: ws, end: we, oneDay: false, label: 'Week of ' + (ws.getMonth() + 1) + '/' + ws.getDate() });
+    _weekOf = true;
+    _calc();
   }
   // Revenue counts inside the range; for Me also inside the selling window when the range overlaps it.
   const RW = _pacerClip(R, W);
@@ -367,6 +380,7 @@ function dashLensPacer(dept) {
     else text = p.need > 0
       ? el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(p.need)), ' / work day needed · ' + p.left + ' work day' + (p.left === 1 ? '' : 's') + ' left')
       : '✓ Goal hit';
+    if (_weekOf) text = el('span', {}, el('span', { style: { color: 'var(--text-subtle)' } }, (R.today >= R.start && R.today <= R.end ? 'This week' : R.label) + ' \u00b7 '), text);
     return {
       // Nothing elapsed yet (today, a future range) → no ahead/behind chip; a finished range judges the whole goal.
       sp: over ? 1 : p.sp, noChip: !over && p.done === 0, need: p.need, left: p.left, text,
