@@ -4038,11 +4038,12 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   class: 'border-t p-3',
                   style: { borderColor: 'var(--accent)', background: 'rgba(223,100,58,.04)' },
                 },
-                  el('div', { class: 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3' },
+                  // No PRA days for a single rep (per Isaac, Oct 18) — PRA is a team/office/company measure.
+                  el('div', { class: scope === 'rep' ? 'grid grid-cols-1 md:grid-cols-3 gap-3' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3' },
                     miniTable('Top 10 Days',     'day',   subTops.topDays,   false),
                     miniTable('Top 10 Weeks',    'week',  subTops.topWeeks,  false),
                     miniTable('Top 10 Months',   'month', subTops.topMonths, false),
-                    miniTable('Top 10 PRA Days', 'pra',   subPRA,            false),
+                    scope === 'rep' ? null : miniTable('Top 10 PRA Days', 'pra',   subPRA,            false),
                   ),
                 ),
               );
@@ -4071,13 +4072,14 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             // Hidden on phones (per Isaac, Oct 18): the table is max-content wide there, so this long line stretched it off-screen.
             el('div', { class: 'hidden sm:block text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' },
               scopeLabel + ' · ' + (byMetric === 'count' ? 'sales' : 'revenue') + ' mode'
-                + ' · PRA gated to May 1 onward (≥' + praMin + ' rep' + (praMin === 1 ? '' : 's') + ')',
+                + (scope === 'rep' ? '' : ' · PRA gated to May 1 onward (≥' + praMin + ' rep' + (praMin === 1 ? '' : 's') + ')'),
             ),
-            el('div', { class: 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3' },
+            // Rep scope drops Top 10 PRA Days (per Isaac, Oct 18) — a PRA day is a group record, not a rep's.
+            el('div', { class: scope === 'rep' ? 'grid grid-cols-1 md:grid-cols-3 gap-3' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3' },
               miniTable(dayLabel,   'day',   topDays,   isGroup),
               miniTable(weekLabel,  'week',  topWeeks,  isGroup),
               miniTable(monthLabel, 'month', topMonths, isGroup),
-              miniTable(praLabel,   'pra',   topPRA,    isGroup),
+              scope === 'rep' ? null : miniTable(praLabel,   'pra',   topPRA,    isGroup),
             ),
             subDrillSection,
           ),

@@ -2237,7 +2237,9 @@ function _repCancelExcluded(s) {
   // Sold-Not-Started and Combined-subscription rows are NEVER attrition and
   // stay excluded regardless.
   if (_is3DayROR(s)) return !state._indicatorRepIncludeRor;
-  if (_isOneTimeCancel(s)) return !state._indicatorRepIncludeOneTime;
+  // One-time services NEVER count as cancels, for anyone (per Isaac, Oct 18): we close them on purpose once the job
+  // is done. (The old leaderboard toggle — defaulted ON by the _repFiltersV2 migration — no longer applies.)
+  if (_isOneTimeCancel(s)) return true;
   if (_isRenewalCancel(s)) return !state._indicatorRepIncludeRenewals;
   if (_isSoldNotStarted(s) || _isCombinedSub(s) || _indConfigCancelExcluded(s)) return true;
   return false;
@@ -3331,6 +3333,8 @@ const showRep = !!(opts && opts.showRep);
           // Tint counted cancels red so they stand out in the detail
           // list; excluded rows (per the ROR toggle) stay neutral.
           const cancelled = _repCancelCounts(s);
+          // A one-time job we closed out on purpose reads "Completed", not Cancelled / Active (per Isaac, Oct 18).
+          const otsDone = !cancelled && _subCancelledNow(s) && _isOneTimeCancel(s);
           const on = isAutoPayOn(s);
           return el('tr', {
             class: 'border-t border-',
@@ -3356,8 +3360,9 @@ const showRep = !!(opts && opts.showRep);
                 class: 'text-[10px] font-semibold px-1.5 py-0.5 rounded',
                 style: cancelled
                   ? { background: 'rgba(220,38,38,.12)', color: '#B91C1C' }
+                  : otsDone ? { background: 'var(--card-2)', color: 'var(--text-muted)' }
                   : { background: 'rgba(223,100,58,.16)', color: '#DF643A' },
-              }, cancelled ? 'Cancelled' : 'Active'),
+              }, cancelled ? 'Cancelled' : otsDone ? 'Completed' : 'Active'),
             ),
             el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums whitespace-nowrap' }, (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || (s.dateSold || '—').split(' ')[0]),
             // Days past due - the same field the Aging tile thresholds on,
@@ -3415,7 +3420,7 @@ function openLandingTileDrill(title, subtitle, rows, opts) {
       const q = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
       const lines = [cols.map(q).join(',')].concat(rows.map(s => [
         (typeof getCanonicalRepName === 'function' ? getCanonicalRepName(s.rep) : s.rep) || '', s.customer || '', s.customerId || '', s.subscription || '',
-        Number(s.contractValue) || 0, isAutoPayOn(s) ? 'On' : 'Off', _repCancelCounts(s) ? 'Cancelled' : 'Active',
+        Number(s.contractValue) || 0, isAutoPayOn(s) ? 'On' : 'Off', _repCancelCounts(s) ? 'Cancelled' : (_subCancelledNow(s) && _isOneTimeCancel(s)) ? 'Completed' : 'Active',
         (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || s.dateSold || '', Number(s.age) || 0, s.cancelDate || '', s.cancelReason || '',
       ].map(q).join(',')));
       const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
@@ -3955,7 +3960,8 @@ function openIndicatorRepCard(rep, allReps = []) {
       el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' }, 'Records'),
       el('div', { class: 'grid grid-cols-3 gap-3' },
         recordCard('Best Day',   recs.bestDay,   r => r.date,                    rankFor('bestDay'),   'bestDay'),
-        recordCard('Best Week',  recs.bestWeek,  r => 'Week of ' + r.weekStart,  rankFor('bestWeek'),  'bestWeek'),
+        // Just the date, in Best Day's M/D/YYYY (per Isaac, Oct 18) — no 'Week of', no ISO.
+        recordCard('Best Week',  recs.bestWeek,  r => _isoToMdy(r.weekStart),     rankFor('bestWeek'),  'bestWeek'),
         recordCard('Best Month', recs.bestMonth, r => {
           const [y, m] = r.month.split('-');
           return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
@@ -3972,12 +3978,14 @@ function openIndicatorRepCard(rep, allReps = []) {
     return _indAccountsTable(sales, _acctSort, (st) => { _acctSort = st; renderBody(); });
   }
 
+  // '2026-10-04' → '10/4/2026' (Best Day's format).
+  function _isoToMdy(iso) { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || '')); return m ? Number(m[2]) + '/' + Number(m[3]) + '/' + m[1] : String(iso || ''); }
   function recordsLeaderboardBlock() {
     if (!recordsLeaderKey || scopedAllRepRecords.length === 0) return null;
     const labelMap = { bestDay: 'Best Day', bestWeek: 'Best Week', bestMonth: 'Best Month' };
     const subLabel = (r) => {
       if (recordsLeaderKey === 'bestDay')   return r.date;
-      if (recordsLeaderKey === 'bestWeek')  return 'Week of ' + r.weekStart;
+      if (recordsLeaderKey === 'bestWeek')  return _isoToMdy(r.weekStart);
       if (recordsLeaderKey === 'bestMonth') {
         const [y, m] = r.month.split('-');
         return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
@@ -4844,17 +4852,46 @@ function openIndicatorRepCard(rep, allReps = []) {
         const SHOW = 25, host = el('div');
         const paint = () => {
           const rows = _salesShowAll ? list : list.slice(0, SHOW);
-          host.replaceChildren(accountsTable(rows),
+          const tblNode = accountsTable(rows);
+          host.replaceChildren(tblNode,
             list.length > SHOW ? el('button', {
               class: 'w-full text-[11px] font-bold py-2 border-t transition hover:brightness-95',
               style: { color: 'var(--accent)', background: 'var(--card-2)', borderColor: 'var(--border)' },
               onclick: (e) => { e.stopPropagation(); _salesShowAll = !_salesShowAll; paint(); },
             }, _salesShowAll ? '\u25B4 Show latest ' + SHOW : '\u25BE Show more (' + fmt.int(list.length - SHOW) + ' more)') : null);
+          _freezeFirstCols(tblNode, 2);   // Customer + Cust ID stay put
         };
         paint();
         return host;
       })()
         : el('div', { class: 'p-4 text-center text-xs italic', style: { color: 'var(--text-muted)' } }, 'No sales in this range.'));
+  }
+  // Freeze the first N columns (Customer + Cust ID) of a table while the rest scrolls sideways (per Isaac, Oct 18).
+  // Offsets are measured after layout; rows with a colspan'd first cell (sub-rows) are left alone.
+  function _freezeFirstCols(node, n) {
+    requestAnimationFrame(() => {
+      const t = node && (node.tagName === 'TABLE' ? node : node.querySelector('table'));
+      if (!t || !t.isConnected) return;
+      const rows = [...t.rows].filter(tr => tr.cells.length > n && [...tr.cells].slice(0, n).every(c => c.colSpan === 1));
+      if (!rows.length) return;
+      const ref = rows.find(tr => tr.parentElement && tr.parentElement.tagName === 'TBODY') || rows[0];
+      const offs = []; let acc = 0;
+      for (let i = 0; i < n; i++) { offs.push(acc); acc += ref.cells[i].getBoundingClientRect().width; }
+      const clear = (bg) => !bg || bg === 'transparent' || /rgba\(0, 0, 0, 0\)/.test(bg);
+      for (const tr of rows) {
+        const head = tr.parentElement && tr.parentElement.tagName === 'THEAD';
+        let bg = getComputedStyle(tr).backgroundColor;
+        if (clear(bg) && head) bg = getComputedStyle(tr.parentElement).backgroundColor;
+        for (let i = 0; i < n; i++) {
+          const c = tr.cells[i]; let cbg = getComputedStyle(c).backgroundColor;
+          if (clear(cbg)) cbg = clear(bg) ? 'var(--card)' : bg;
+          // Tinted rows (cancels) use translucent fills — layer them over the card so scrolled text can't show through.
+          if (/^rgba\(/.test(cbg)) cbg = 'linear-gradient(' + cbg + ', ' + cbg + '), var(--card)';
+          Object.assign(c.style, { position: 'sticky', left: offs[i] + 'px', zIndex: head ? '4' : '2', background: cbg });
+          if (i === n - 1) c.style.boxShadow = '1px 0 0 var(--border)';
+        }
+      }
+    });
   }
   // Peak vs current (per Isaac, Oct 15): with Peak on, the accounts whose value came down after the initial
   // was completed — peak, today, and the reduction — so leads and reps can see every save / downgrade.
