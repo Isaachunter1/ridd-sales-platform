@@ -717,7 +717,7 @@ function _mktgQboOffice(acct) {
 // entered by hand and synced to every admin via the shared config
 // (_compExtras.marketing). Quota + goals live in Configurations.
 const MKTG_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const MKTG_DEFAULT_CHANNELS = ['Facebook', 'Google Ads', 'Google Local Services', 'Angi', 'Baton', 'DoLead', 'ElectGen', 'Pest Net', 'Service Direct'];
+const MKTG_DEFAULT_CHANNELS = ['Facebook', 'Google Ads', 'Google Local Services', 'Angi', 'Baton', 'DoLead', 'ElectGen', 'Pest Net', 'Service Direct', '6 Brothers', 'Sellify'];   // 6 Brothers + Sellify (per Isaac, Oct 17)
 // Legal-entity grouping of branches (generalization, Sep 22 2026): entities
 // come from RIDD_CONFIG.ENTITIES (default RPC / RPS) and a branch's entity from
 // companyGroupOf() — Configurations → branch groups, or the RIDD default
@@ -746,6 +746,8 @@ function _mktgStore() {
   m.incentives = m.incentives || {};   // { ym: { BRANCH: amt } }
   m.leads      = m.leads      || {};   // { ym: { channel: n } }
   m.channels   = Array.isArray(m.channels) && m.channels.length ? m.channels : MKTG_DEFAULT_CHANNELS.slice();
+  // One-time (per Isaac, Oct 17): saved channel lists pick up 6 Brothers and Sellify; removing one later sticks.
+  if (!m._chAddedOct17) { for (const c of ['6 Brothers', 'Sellify']) if (!m.channels.some(x => String(x).toLowerCase() === c.toLowerCase())) m.channels.push(c); m._chAddedOct17 = true; }
   const s = m.settings = m.settings || {};
   if (s.isGoal == null) s.isGoal = 4000000;
   if (s.renewalsGoal == null) s.renewalsGoal = 1600000;
@@ -1564,6 +1566,8 @@ function reportingCanonSource(raw) {
   if (/dolead/.test(L)) return 'DoLead';
   if (/baton/.test(L)) return 'Baton';
   if (/service direct/.test(L)) return 'Service Direct';
+  if (/\b6 ?brothers|six brothers/.test(L)) return '6 Brothers';
+  if (/sellify/.test(L)) return 'Sellify';
   if (/click-to-buy|clicki/.test(L)) return 'Click-To-Buy';
   if (/organic|direct traffic|ridd form|crm workflow/.test(L)) return 'Website';
   if (/referral/.test(L)) return 'Referral';

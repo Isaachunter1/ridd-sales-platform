@@ -25,6 +25,8 @@ const GHL_AUTO_RULES = [
   [/elect ?gen/, 'ElectGen'],
   [/baton/, 'Baton'],
   [/pest ?net/, 'Pest Net'],
+  [/\b6 ?brothers|six brothers/, '6 Brothers'],   // (per Isaac, Oct 17)
+  [/sellify/, 'Sellify'],
   [/pest ?booker/, 'PestBooker'],
   [/clicki/, 'Referral'],                       // old referral tool (per Isaac)
   [/click[- ]?to[- ]?buy/, 'Click-To-Buy'],    // the old online booker, before PestBooker
