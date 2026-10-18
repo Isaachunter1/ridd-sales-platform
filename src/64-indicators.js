@@ -250,7 +250,7 @@ function myGoalCard(compact) {
 function dashLensSwitch() {
   const o = dashLensOptions(), cur = dashLens();
   if (o.length < 2) return null;
-  return el('div', { class: 'inline-flex rounded-xl border overflow-hidden shrink-0', 'data-dash-lens': '1', style: { borderColor: 'var(--border-2)', height: '28px', boxSizing: 'border-box' }, title: 'Whose numbers the Revenue Pacer, Performance Trends and Sales Mix show' },
+  return el('div', { class: 'inline-flex rounded-xl border overflow-hidden shrink-0', 'data-dash-lens': '1', style: { borderColor: 'var(--border-2)', height: '28px', boxSizing: 'border-box' }, title: 'Whose numbers the Revenue Pacer, Trends and Sales Mix show' },
     ...o.map(([v, l]) => el('button', {
       type: 'button',
       class: 'px-2.5 text-[11px] font-semibold transition whitespace-nowrap',
@@ -268,72 +268,139 @@ function dashLensSwitch() {
       },
     }, l)));
 }
-// Revenue Pacer for the Me / My Team lens — YTD revenue on this dashboard vs
-// the personal goal (Me) or the sum of the team's personal goals (My Team).
-// Office Staff goals are NEW-revenue goals, so renewals show as their own bar.
+// Revenue Pacer for the Me / My Team lens. Follows the page's date range (per Isaac, Oct 18): the bar is revenue in
+// the range vs the goal's share of it, so a rep can see how today, this week, last week, this year … is pacing.
+// A range's goal = the annual goal spread evenly over the work days of the selling window (Settings → Goals),
+// times the work days of that window inside the range. "This week / month / year" pace to the period's END
+// (what's needed per remaining work day); a range that's over shows hit / missed.
+// Office Staff goals are NEW-revenue goals (Loyalty: RENEWAL), with Total revenue as its own bar.
+function _pacerRange() {
+  const loc = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  let pre = 'this_year', b = null;
+  try {
+    if (state.indicatorsView === 'range') { pre = state.indicatorsRangePreset || 'this_year'; b = indicatorRangeBounds(pre, { start: state.indicatorsCustomStart, end: state.indicatorsCustomEnd }); }
+  } catch (e) { b = null; }
+  if (!b || !b.start || !b.end) { pre = 'this_year'; b = { start: today.getFullYear() + '-01-01', end: loc(today) }; }
+  const start = new Date(b.start + 'T00:00');
+  let end = new Date(b.end + 'T00:00');
+  // To-date presets pace to the end of their period.
+  if (pre === 'this_week') { end = new Date(start); end.setDate(end.getDate() + 6); }
+  else if (pre === 'this_month') end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  else if (pre === 'this_year') end = new Date(today.getFullYear(), 11, 31);
+  if (pre === 'all_time') end = new Date(today);
+  const label = pre === 'custom' ? (start.getMonth() + 1) + '/' + start.getDate() + ' – ' + (end.getMonth() + 1) + '/' + end.getDate() : (typeof indicatorPresetLabel === 'function' ? indicatorPresetLabel(pre) : 'Range');
+  return { pre, start, end, label, today, oneDay: +start === +end };
+}
+// Overlap of two {start, end} day windows, or null.
+function _pacerClip(a, w) {
+  const s = a.start > w.start ? a.start : w.start, e = a.end < w.end ? a.end : w.end;
+  return s <= e ? { start: s, end: e } : null;
+}
 function dashLensPacer(dept) {
   const v = dashLens(); if (v === 'all') return null;
-  const now = new Date(), y = now.getFullYear(), m = now.getMonth(), dd = now.getDate();
+  const R = _pacerRange();
   const isOffice = dept === 'office';
-  const acc = { new: { ytd: 0, mtd: 0, tod: 0 }, renewal: { ytd: 0, mtd: 0, tod: 0 } };
-  const _win = v === 'me' ? goalWindow(state.profile) : null;   // Me: only sales inside the selling window count
-  for (const s of indicatorSales()) {
-    if (_indicatorDeptOf(s) !== dept || !dashLensMatch(s)) continue;
-    const d = _parseIndicatorDay(s); if (!d || d.getFullYear() !== y) continue;
-    if (_win && (d < _win.start || d > new Date(_win.end.getFullYear(), _win.end.getMonth(), _win.end.getDate(), 23, 59, 59))) continue;
-    const val = Number(s.contractValue) || 0;
-    const b = acc[isOffice && _indicatorIsRenewal(s) ? 'renewal' : 'new'];
-    b.ytd += val; if (d.getMonth() === m) { b.mtd += val; if (d.getDate() === dd) b.tod += val; }
-  }
+  const _wt = dept === 'd2d' ? 'd2d' : dept === 'techs' ? 'techs' : 'office';
+  const yr = R.today.getFullYear();
+  const yearWin = { start: new Date(yr, 0, 1), end: new Date(yr, 11, 31) };
   const team = dashLensTeam();
   const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  const profOfName = (name) => {
+    if (state.profile && _sig(state.profile.full_name) === _sig(name)) return state.profile;
+    return (state.allProfiles || []).find(x => x.full_name && _sig(x.full_name) === _sig(name)) || null;
+  };
   const goalOfName = (name) => {
-    if (state.profile && _sig(state.profile.full_name) === _sig(name)) return Number(state.profile.annual_revenue_goal) || 0;
-    const p = (state.allProfiles || []).find(x => x.full_name && _sig(x.full_name) === _sig(name));
-    if (p) return Number(p.annual_revenue_goal) || 0;
+    const p = profOfName(name); if (p) return Number(p.annual_revenue_goal) || 0;
     const g = (state._repNameGoals || {})[name]; return g ? Number(g.annual_revenue_goal) || 0 : 0;
   };
-  let goal = 0, members = 0;
-  if (v === 'me') goal = Number(state.profile && state.profile.annual_revenue_goal) || 0;
-  else {
+  // The range's share of one person's annual goal: goal ÷ work days in their window × work days of it in the range.
+  const shareOf = (goal, win) => {
+    if (!(goal > 0)) return 0;
+    const tot = goalWorkDays(_wt, win.start, win.end); if (!tot) return 0;
+    const c = _pacerClip(R, win); if (!c) return 0;
+    return goal * goalWorkDays(_wt, c.start, c.end) / tot;
+  };
+  let goal = 0, annual = 0, members = 0, W;
+  if (v === 'me') {
+    W = goalWindow(state.profile);
+    annual = Number(state.profile && state.profile.annual_revenue_goal) || 0;
+    goal = shareOf(annual, W);
+  } else {
+    W = yearWin;
     const map = state._indicatorRepTeam || {};
-    for (const n of Object.keys(map)) { if (map[n] !== team) continue; if (typeof isRepActive === 'function' && !isRepActive(n)) continue; members++; goal += goalOfName(n); }
+    for (const n of Object.keys(map)) {
+      if (map[n] !== team) continue; if (typeof isRepActive === 'function' && !isRepActive(n)) continue;
+      members++; const g = goalOfName(n); annual += g;
+      const p = profOfName(n); goal += shareOf(g, p ? goalWindow(p) : yearWin);
+    }
   }
-  const curve = worldDeptCurve(dept);
+  // Revenue counts inside the range; for Me also inside the selling window when the range overlaps it.
+  const RW = _pacerClip(R, W);
+  const cnt = (v === 'me' && RW) ? RW : R;
+  const cntEnd = new Date(cnt.end.getFullYear(), cnt.end.getMonth(), cnt.end.getDate(), 23, 59, 59);
+  const acc = { new: { amt: 0, tod: 0 }, renewal: { amt: 0, tod: 0 } };
+  const t0 = R.today, t1 = new Date(t0.getFullYear(), t0.getMonth(), t0.getDate(), 23, 59, 59);
+  for (const s of indicatorSales()) {
+    if (_indicatorDeptOf(s) !== dept || !dashLensMatch(s)) continue;
+    const d = _parseIndicatorDay(s); if (!d) continue;
+    const val = Number(s.contractValue) || 0;
+    const bk = acc[isOffice && _indicatorIsRenewal(s) ? 'renewal' : 'new'];
+    if (d >= cnt.start && d <= cntEnd) bk.amt += val;
+    if (d >= t0 && d <= t1) bk.tod += val;
+  }
+  const _fmtD = (d) => (d.getMonth() + 1) + '/' + d.getDate();
+  const goalOn = goal > 0;
+  // Pace inside the range: share of its goal work days already done (before today), need per remaining work day.
+  const planFor = (actual) => {
+    if (!goalOn) return null;
+    const PW = v === 'me' ? RW : _pacerClip(R, yearWin);
+    if (!PW) return null;
+    const p = goalPlan(_wt, PW, goal, actual);
+    const over = R.today > PW.end;
+    let text;
+    if (!p.total) text = 'No work days in this range';
+    else if (over) text = actual >= goal
+      ? el('span', {}, '✓ Goal hit · ', el('strong', { style: { color: 'var(--text)' } }, '+' + fmt.usd0(actual - goal)))
+      : el('span', {}, 'Missed by ', el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(goal - actual)));
+    else if (p.left === 1 && +PW.start === +PW.end) text = actual >= goal ? '✓ Day goal hit' : el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(goal - actual)), ' to go today');
+    else text = p.need > 0
+      ? el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(p.need)), ' / work day needed · ' + p.left + ' work day' + (p.left === 1 ? '' : 's') + ' left')
+      : '✓ Goal hit';
+    return {
+      // Nothing elapsed yet (today, a future range) → no ahead/behind chip; a finished range judges the whole goal.
+      sp: over ? 1 : p.sp, noChip: !over && p.done === 0, need: p.need, left: p.left, text,
+      tip: R.label + ': ' + fmt.usd0(goal) + ' goal = ' + fmt.usd0(annual) + ' annual ÷ work days, × ' + p.total + ' work day' + (p.total === 1 ? '' : 's') + ' in range (' + goalWorkRule(_wt) + ')'
+        + (v === 'me' ? ' · selling window ' + _fmtD(W.start) + ' – ' + _fmtD(W.end) + ' · change it in ⚙ Settings → Goals' : ''),
+    };
+  };
   const label = v === 'me' ? 'My' : team;
-  // Me: pace by the work days in the user's selling window (Settings → Goals), by THIS dashboard's rep type.
-  const _wt = dept === 'd2d' ? 'd2d' : dept === 'techs' ? 'techs' : 'office';
-  const _plan = (v === 'me' && goal > 0) ? goalPlan(_wt, _win, goal, acc.new.ytd) : null;
-  const _planObj = _plan ? { sp: _plan.sp, need: _plan.need, left: _plan.left, tip: _plan.done + ' of ' + _plan.total + ' work days done (' + goalWorkRule(_wt) + ') \u00b7 window ' + (_win.start.getMonth() + 1) + '/' + _win.start.getDate() + ' \u2013 ' + (_win.end.getMonth() + 1) + '/' + _win.end.getDate() + ' \u00b7 change it in \u2699 Settings \u2192 Goals' } : null;
+  const totalLine = R.oneDay && +R.start === +R.today ? null : undefined;   // "Today $X" under Total, unless the range IS today
   let streams;
   if (isOffice) {
     // Office Staff (per Isaac, Oct 17): Inside Sales race NEW revenue against the goal, Loyalty reps RENEWAL revenue —
     // each next to their TOTAL revenue (no goal of its own).
     const _loy = v === 'me' && typeof _isLoyaltyProfile === 'function' && _isLoyaltyProfile(state.profile);
     const g = _loy ? acc.renewal : acc.new;
-    const _tot = { ytd: acc.new.ytd + acc.renewal.ytd, tod: acc.new.tod + acc.renewal.tod, mtd: acc.new.mtd + acc.renewal.mtd };
-    const _gPlan = (v === 'me' && goal > 0) ? goalPlan(_wt, _win, goal, g.ytd) : null;
     streams = [
-      { key: _loy ? 'renewal' : 'new', label: _loy ? 'Renewal Rev' : 'New Rev', noSuffix: true, color: _loy ? '#5F6C5B' : '#DF643A', actual: g.ytd, target: goal, monthly: goal > 0 ? curve.map(f => f * goal) : null, win: g.tod, mtd: g.mtd,
-        plan: _gPlan ? Object.assign({}, _planObj, { sp: _gPlan.sp, need: _gPlan.need, left: _gPlan.left }) : null },
-      { key: 'total', label: 'Total Rev', noSuffix: true, color: '#323230', actual: _tot.ytd, target: 0, monthly: null, win: _tot.tod, mtd: _tot.mtd },
+      { key: _loy ? 'renewal' : 'new', label: _loy ? 'Renewal Rev' : 'New Rev', noSuffix: true, color: _loy ? '#5F6C5B' : '#DF643A', actual: g.amt, target: goal, monthly: null, win: g.tod, plan: planFor(g.amt) },
+      { key: 'total', label: 'Total Rev', noSuffix: true, color: '#323230', actual: acc.new.amt + acc.renewal.amt, target: 0, monthly: null, win: totalLine === null ? null : acc.new.tod + acc.renewal.tod },
     ];
   } else {
-    streams = [{ key: 'new', label, color: '#DF643A', actual: acc.new.ytd, target: goal, monthly: goal > 0 ? curve.map(f => f * goal) : null, win: acc.new.tod, mtd: acc.new.mtd, plan: _planObj }];
+    streams = [{ key: 'new', label, color: '#DF643A', actual: acc.new.amt, target: goal, monthly: null, win: acc.new.tod, plan: planFor(acc.new.amt) }];
   }
-  // Goals are set in ⚙ Settings → Goals now, not on the pacer (per Isaac, Oct 16).
-  const hint = goal > 0 ? '' : v === 'me'
-    ? 'No personal goal yet \u2014 set one in \u2699 Settings \u2192 Goals'
-    : 'No team goal yet \u2014 it\u2019s the sum of the ' + members + ' reps\u2019 personal goals (Settings \u2192 Goals)';
-  const range = { start: new Date(y, m, dd), end: new Date(y, m, dd, 23, 59, 59) };
-  const _keep = state.dashDateRange; state.dashDateRange = 'today';   // this pacer's third number is always Today
+  // Goals are set in ⚙ Settings → Goals (per Isaac, Oct 16).
+  const hint = annual > 0 ? (goalOn ? '' : (v === 'me' && !RW) || R.start.getFullYear() > yr || R.end.getFullYear() < yr
+      ? 'No goal in this range — it’s outside the selling window'
+      // Weekend / holiday reps do sell (per Isaac, Oct 18): those sales still count toward every range's revenue and
+      // the year's goal — the day just carries no goal of its own.
+      : (R.oneDay ? 'Not a scheduled work day' : 'No scheduled work days') + ' \u2014 every sale is a bonus toward your goal') : v === 'me'
+    ? 'No personal goal yet — set one in ⚙ Settings → Goals'
+    : 'No team goal yet — it’s the sum of the ' + members + ' reps’ personal goals (Settings → Goals)';
+  const range = { start: R.start, end: new Date(R.end.getFullYear(), R.end.getMonth(), R.end.getDate(), 23, 59, 59) };
+  const _keep = state.dashDateRange; state.dashDateRange = 'today';
   try {
-    const _fmtD = (d) => (d.getMonth() + 1) + '/' + d.getDate();
-    const subline = _plan ? (_plan.left > 0
-        ? (_plan.need > 0 ? fmt.usd0(_plan.need) + '/work day needed' : '\u2713 goal hit') + ' \u00b7 ' + _plan.left + ' work days left' + (_win.custom ? ' (to ' + _fmtD(_win.end) + ')' : '')
-        : 'Selling window ended ' + _fmtD(_win.end)) : null;
-    return dashboardGoalCard(range, { title: (v === 'me' ? 'My' : team + ' Team') + ' Revenue Pacer', simple: true, hint, streams, subline,
-      sublineTip: _plan ? 'Your goal window ' + _fmtD(_win.start) + ' \u2013 ' + _fmtD(_win.end) + ' \u00b7 ' + goalWorkRule(_wt) + ' \u00b7 change it in \u2699 Settings \u2192 Goals' : '' });
+    return dashboardGoalCard(range, { title: (v === 'me' ? 'My' : team + ' Team') + ' Revenue Pacer', simple: true, hint, streams });
   } finally { state.dashDateRange = _keep; }
 }
 // ── Page order per dashboard (per Isaac, Oct 5). Sales Reps: Leaderboard
@@ -1945,20 +2012,21 @@ function viewIndicators() {
           : !_repLite ? 'ridd'
           : (sortedBranches.includes(homeBranch) ? homeBranch : sortedBranches[0]);
         const _lblB = (b) => b.split(' ').map(w => (w[0] || '') + w.slice(1).toLowerCase()).join(' ');
-        _branchSel = el('div', { class: 'flex items-center gap-2 px-3 py-2 border-b', style: { borderColor: 'var(--border)' } },
-          el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, groupBy === 'teams' ? 'Team' : 'Office'),
+        // The picker lives IN the first column's header now (per Isaac, Oct 18) — the column name + ▾, with an
+        // invisible native <select> over it so a tap opens the phone's picker. No separate Office row on top.
+        const _opts = [['ridd', 'RIDD'], ...sortedBranches.map(b => [b, _lblB(b) + (b === homeBranch ? ' \u00b7 mine' : '')])];
+        _branchSel = { chosen, pick: (label) => el('span', { class: 'inline-flex items-center gap-1', style: { position: 'relative' } },
+          label, el('span', { style: { fontSize: '9px', opacity: '.8' } }, '\u25BE'),
           el('select', {
-            class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold flex-1',
-            style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+            'aria-label': groupBy === 'teams' ? 'Team' : 'Office',
+            style: { position: 'absolute', inset: '-8px -10px', opacity: '0', width: 'calc(100% + 20px)', height: 'calc(100% + 16px)', cursor: 'pointer', fontSize: '16px' },
+            onclick: (e) => e.stopPropagation(),
             onchange: (e) => { state._indMobileBranch = e.target.value; mountApp(); },
-          },
-            el('option', { value: 'ridd', selected: chosen === 'ridd' }, 'RIDD'),
-            ...sortedBranches.map(b => el('option', { value: b, selected: chosen === b }, _lblB(b) + (b === homeBranch ? ' \u00b7 mine' : '')))));
+          }, ..._opts.map(([v, l]) => el('option', { value: v, selected: chosen === v }, l)))) };
         if (chosen === 'ridd' || chosen === 'all') sortedBranches = [];
         else sortedBranches = [chosen];
       }
       return el('div', { class: 'card overflow-hidden', 'data-section': 'ind-table' },
-        _branchSel,
         el('div', { class: 'scroll-x' },
           // Real table display (the phone CSS turns card tables into blocks
           // so they can scroll — that also stops them filling the width once
@@ -1991,7 +2059,7 @@ function viewIndicators() {
                     } : undefined,
                   },
                     sort.key ? (i + 1) + '. ' : '',
-                    _lbl,
+                    _branchSel && i === 0 ? _branchSel.pick(_lbl) : _lbl,
                   );
                 })()),
                 (() => {
@@ -2001,7 +2069,7 @@ function viewIndicators() {
                     style: { background: '#323230', color: RIDD_COLOR, minWidth: '100px' },
                     title: _all.length ? 'Open the company-wide RIDD player card' : '',
                     onclick: _all.length ? () => openIndicatorRepCard(_scopeRep({ name: 'RIDD', sales: _all }, () => true), [{ name: 'RIDD', sales: _all }]) : undefined,
-                  }, 'RIDD');
+                  }, _branchSel && !sortedBranches.length ? _branchSel.pick('RIDD') : 'RIDD');
                 })(),
               ),
             ),
@@ -11201,7 +11269,7 @@ function indicatorYoYTrendChart() {
     // on Me / My Team the rep search is redundant (the lens already says whose numbers), so it only shows on All.
     el('div', { class: 'flex items-center justify-between gap-2 mb-3', style: { flexWrap: 'nowrap' } },
       el('div', { class: 'flex items-center gap-2 min-w-0', style: { flexWrap: 'nowrap', overflow: 'hidden' } },
-        el('h3', { class: 'text-base font-bold whitespace-nowrap' }, 'Performance Trends'),   // same title size as every other card (per Isaac, Oct 16)
+        el('h3', { class: 'text-base font-bold whitespace-nowrap' }, 'Trends'),   // shortened (per Isaac, Oct 18)   // same title size as every other card (per Isaac, Oct 16)
         el('div', { class: 'min-w-0', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, _yoyViewPick)),
       el('div', { class: 'flex items-center gap-2 shrink-0' }, ...((_yoyLensOn && _yoyView !== 'all') ? [] : (comboWrap ? [comboWrap] : [scopesWrap])), metricSel)),
     cvsWrap);

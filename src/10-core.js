@@ -304,7 +304,7 @@ const PERM_DEFS = [
   { id: 'ind_table',        label: 'Indicators table',    group: 'Indicators sections' },
   { id: 'ind_power_chart',  label: 'Power Ranking chart', group: 'Indicators sections' },
   { id: 'ind_board',        label: 'Leaderboard',         group: 'Indicators sections' },
-  { id: 'ind_yoy',          label: 'Performance Trends',  group: 'Indicators sections' },
+  { id: 'ind_yoy',          label: 'Trends',              group: 'Indicators sections' },
   { id: 'ind_trend',        label: 'Metric Trends',       group: 'Indicators sections' },
   { id: 'ind_records',      label: 'Records',       group: 'Indicators sections' },
   { id: 'ind_class',        label: 'Class Metrics', group: 'Indicators sections' },

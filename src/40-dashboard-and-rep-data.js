@@ -2945,7 +2945,7 @@ const REP_LAYOUT_KEY = 'ridd_rep_layout_v1';
 const _repLayoutKeyForMe = () => REP_LAYOUT_KEY + '::' + ((state.profile && state.profile.id) || 'anon');
 const REP_LAYOUT_SECTIONS = [
   ['card',  'My Player Card'],
-  ['yoy',   'Performance Trends'],
+  ['yoy',   'Trends'],
   ['board', 'Leaderboard'],
   ['trend', 'Your Metric Trends'],
 ];
@@ -2959,7 +2959,7 @@ const REP_LAYOUT_SECTIONS = [
 // Sales Mix sits right under Class Metrics, like the admin page (per Isaac, Sep 24).
 const PARTNER_LAYOUT_SECTIONS = [
   ['card',    'My Player Card'],
-  ['yoy',     'Performance Trends'],
+  ['yoy',     'Trends'],
   ['board',   'Leaderboard'],
   ['trend',   'Your Metric Trends'],
   ['records', 'Records'],
@@ -6002,7 +6002,7 @@ function dashboardGoalCard(range, opts) {
       // Window (Today by default).
       const goalWin = _goalBetween(s.monthly, s.target, range.start, _winEnd);
       const winHit = goalWin > 0 && s.win >= goalWin;
-      const chip = s.target > 0 ? el('span', {
+      const chip = s.target > 0 && !(s.plan && s.plan.noChip) ? el('span', {
         class: 'font-bold whitespace-nowrap shrink-0', title: (ahead ? fmt.usd0(gap) + ' ahead of' : fmt.usd0(-gap) + ' behind') + ' where the seasonal plan says we should be today (' + (sp * 100).toFixed(1) + '% of the goal)',
         style: { fontSize: '11px', padding: '2px 8px', background: ahead ? 'rgba(95,108,91,.12)' : 'rgba(220,38,38,.08)', color: ahead ? _GREEN : _RED },
       }, (ahead ? '▲ ' : '▼ ') + Math.abs(paceDiff).toFixed(0) + '%' + (_phoneP ? '' : (ahead ? ' ahead of pace' : ' behind pace'))) : null;
@@ -6021,7 +6021,8 @@ function dashboardGoalCard(range, opts) {
         // one quiet line under the bar — what's needed per day and how many days are left. Always present, so the
         // card is the same height on every lens.
         _simple ? el('div', { class: 'text-[11px] tabular-nums whitespace-nowrap overflow-hidden', style: { color: 'var(--text-muted)', marginTop: '7px', height: '16px', textOverflow: 'ellipsis' }, title: (s.plan && s.plan.tip) || '' },
-          s.plan && s.plan.left != null
+          s.plan && s.plan.text != null ? s.plan.text
+          : s.plan && s.plan.left != null
             ? (s.plan.left > 0 ? (s.plan.need > 0 ? el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(s.plan.need)), ' / work day needed \u00b7 ' + s.plan.left + ' work days left') : '\u2713 goal hit') : 'Selling window ended')
             : s.target > 0 && needYear != null
               ? (needYear > 0 ? el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(needYear)), ' / day needed \u00b7 ' + daysLeftY + ' selling days left') : '\u2713 goal hit')
