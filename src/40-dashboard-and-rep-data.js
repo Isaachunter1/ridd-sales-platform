@@ -6028,6 +6028,15 @@ function dashboardGoalCard(range, opts) {
               ? (needYear > 0 ? el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(needYear)), ' / day needed \u00b7 ' + daysLeftY + ' selling days left') : '\u2713 goal hit')
               : (!(s.target > 0) && opts.hint && s === _streams[0] ? el('span', { style: { color: 'var(--accent)', fontWeight: '600' } }, opts.hint)
                 : !(s.target > 0) && s.win != null ? el('span', {}, 'Today ', el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(s.win))) : '\u00a0')) : null,
+        // Annual-goal reminder (per Isaac, Oct 18): the bar above follows the date range; this thin line always shows
+        // the year's progress toward the full goal.
+        s.annual && s.annual.target > 0 ? el('div', { style: { marginTop: '8px' }, title: fmt.usd0(s.annual.actual) + ' of the ' + fmt.usd0(s.annual.target) + ' annual goal so far this year' },
+          el('div', { class: 'flex items-baseline gap-2 text-[11px] tabular-nums whitespace-nowrap', style: { color: 'var(--text-muted)', marginBottom: '4px' } },
+            el('span', { class: 'uppercase font-semibold', style: { fontSize: '9px', letterSpacing: '.1em', color: 'var(--text-subtle)' } }, 'Annual goal'),
+            el('strong', { style: { color: 'var(--text)' } }, _phoneP ? _shortUsd(s.annual.actual) : fmt.usd0(s.annual.actual)),
+            el('span', {}, 'of ' + _shortUsd(s.annual.target) + ' \u00b7 ' + Math.round(s.annual.actual / s.annual.target * 100) + '%')),
+          el('div', { style: { height: '4px', background: 'var(--border)', position: 'relative' } },
+            el('div', { style: { height: '100%', background: s.color, opacity: '.55', width: (Math.min(1, s.annual.actual / s.annual.target) * 100).toFixed(2) + '%' } }))) : null,
         _simple ? null : el('div', { class: 'grid', style: { gridTemplateColumns: _phoneP ? 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.35fr)' : 'repeat(3, minmax(0, 1fr))', gap: _phoneP ? '8px' : '12px', marginTop: '8px' } },
           _stat('Need per day', needYear == null ? '—' : needYear > 0 ? fmt.usd0(needYear) : '✓ goal hit', needYear === 0 ? _GREEN : null,
             needYear == null ? '' : fmt.usd0(Math.max(0, s.target - s.actual)) + ' left on the annual goal ÷ ' + daysLeftY + ' selling days left this year (Mon–Fri, holidays off).'

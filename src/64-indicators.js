@@ -352,7 +352,9 @@ function dashLensPacer(dept) {
   const RW = _pacerClip(R, W);
   const cnt = (v === 'me' && RW) ? RW : R;
   const cntEnd = new Date(cnt.end.getFullYear(), cnt.end.getMonth(), cnt.end.getDate(), 23, 59, 59);
-  const acc = { new: { amt: 0, tod: 0 }, renewal: { amt: 0, tod: 0 } };
+  const acc = { new: { amt: 0, tod: 0, ytd: 0 }, renewal: { amt: 0, tod: 0, ytd: 0 } };
+  // Year-to-date toward the ANNUAL goal (inside the selling window for Me) — always shown as the reminder line.
+  const yW = v === 'me' ? W : yearWin, yWEnd = new Date(yW.end.getFullYear(), yW.end.getMonth(), yW.end.getDate(), 23, 59, 59);
   const t0 = R.today, t1 = new Date(t0.getFullYear(), t0.getMonth(), t0.getDate(), 23, 59, 59);
   for (const s of indicatorSales()) {
     if (_indicatorDeptOf(s) !== dept || !dashLensMatch(s)) continue;
@@ -361,7 +363,10 @@ function dashLensPacer(dept) {
     const bk = acc[isOffice && _indicatorIsRenewal(s) ? 'renewal' : 'new'];
     if (d >= cnt.start && d <= cntEnd) bk.amt += val;
     if (d >= t0 && d <= t1) bk.tod += val;
+    if (d >= yW.start && d <= yWEnd) bk.ytd += val;
   }
+  // The annual goal stays on screen whatever the range (per Isaac, Oct 18) — except This Year, where the bar IS it.
+  const annualOf = (ytd) => annual > 0 && R.pre !== 'this_year' ? { actual: ytd, target: annual } : null;
   const _fmtD = (d) => (d.getMonth() + 1) + '/' + d.getDate();
   const goalOn = goal > 0;
   // Pace inside the range: share of its goal work days already done (before today), need per remaining work day.
@@ -378,7 +383,7 @@ function dashLensPacer(dept) {
       : el('span', {}, 'Missed by ', el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(goal - actual)));
     else if (p.left === 1 && +PW.start === +PW.end) text = actual >= goal ? '✓ Day goal hit' : el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(goal - actual)), ' to go today');
     else text = p.need > 0
-      ? el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(p.need)), ' / work day needed · ' + p.left + ' work day' + (p.left === 1 ? '' : 's') + ' left')
+      ? el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(p.need)), ' / work day needed · ' + p.left + ' day' + (p.left === 1 ? '' : 's') + ' left')
       : '✓ Goal hit';
     if (_weekOf) text = el('span', {}, el('span', { style: { color: 'var(--text-subtle)' } }, (R.today >= R.start && R.today <= R.end ? 'This week' : R.label) + ' \u00b7 '), text);
     return {
@@ -397,11 +402,11 @@ function dashLensPacer(dept) {
     const _loy = v === 'me' && typeof _isLoyaltyProfile === 'function' && _isLoyaltyProfile(state.profile);
     const g = _loy ? acc.renewal : acc.new;
     streams = [
-      { key: _loy ? 'renewal' : 'new', label: _loy ? 'Renewal Rev' : 'New Rev', noSuffix: true, color: _loy ? '#5F6C5B' : '#DF643A', actual: g.amt, target: goal, monthly: null, win: g.tod, plan: planFor(g.amt) },
+      { key: _loy ? 'renewal' : 'new', label: _loy ? 'Renewal Rev' : 'New Rev', noSuffix: true, color: _loy ? '#5F6C5B' : '#DF643A', actual: g.amt, target: goal, monthly: null, win: g.tod, plan: planFor(g.amt), annual: annualOf(g.ytd) },
       { key: 'total', label: 'Total Rev', noSuffix: true, color: '#323230', actual: acc.new.amt + acc.renewal.amt, target: 0, monthly: null, win: totalLine === null ? null : acc.new.tod + acc.renewal.tod },
     ];
   } else {
-    streams = [{ key: 'new', label, color: '#DF643A', actual: acc.new.amt, target: goal, monthly: null, win: acc.new.tod, plan: planFor(acc.new.amt) }];
+    streams = [{ key: 'new', label, color: '#DF643A', actual: acc.new.amt, target: goal, monthly: null, win: acc.new.tod, plan: planFor(acc.new.amt), annual: annualOf(acc.new.ytd) }];
   }
   // Goals are set in ⚙ Settings → Goals (per Isaac, Oct 16).
   const hint = annual > 0 ? (goalOn ? '' : (v === 'me' && !RW) || R.start.getFullYear() > yr || R.end.getFullYear() < yr
