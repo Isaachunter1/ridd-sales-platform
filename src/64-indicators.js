@@ -394,16 +394,16 @@ function dashLensPacer(dept) {
     };
   };
   const label = v === 'me' ? 'My' : team;
-  const totalLine = R.oneDay && +R.start === +R.today ? null : undefined;   // "Today $X" under Total, unless the range IS today
   let streams;
   if (isOffice) {
-    // Office Staff (per Isaac, Oct 17): Inside Sales race NEW revenue against the goal, Loyalty reps RENEWAL revenue —
-    // each next to their TOTAL revenue (no goal of its own).
+    // Office Staff — ONE bar (per Isaac, Oct 18): Inside Sales race NEW revenue against the goal; Loyalty reps race
+    // TOTAL revenue (new + renewal). The annual-goal line underneath tracks the same measure.
     const _loy = v === 'me' && typeof _isLoyaltyProfile === 'function' && _isLoyaltyProfile(state.profile);
-    const g = _loy ? acc.renewal : acc.new;
+    const g = _loy
+      ? { amt: acc.new.amt + acc.renewal.amt, tod: acc.new.tod + acc.renewal.tod, ytd: acc.new.ytd + acc.renewal.ytd }
+      : acc.new;
     streams = [
-      { key: _loy ? 'renewal' : 'new', label: _loy ? 'Renewal Rev' : 'New Rev', noSuffix: true, color: _loy ? '#5F6C5B' : '#DF643A', actual: g.amt, target: goal, monthly: null, win: g.tod, plan: planFor(g.amt), annual: annualOf(g.ytd) },
-      { key: 'total', label: 'Total Rev', noSuffix: true, color: '#323230', actual: acc.new.amt + acc.renewal.amt, target: 0, monthly: null, win: totalLine === null ? null : acc.new.tod + acc.renewal.tod },
+      { key: _loy ? 'total' : 'new', label: _loy ? 'Total Rev' : 'New Rev', noSuffix: true, color: _loy ? '#5F6C5B' : '#DF643A', actual: g.amt, target: goal, monthly: null, win: g.tod, plan: planFor(g.amt), annual: annualOf(g.ytd) },
     ];
   } else {
     streams = [{ key: 'new', label, color: '#DF643A', actual: acc.new.amt, target: goal, monthly: null, win: acc.new.tod, plan: planFor(acc.new.amt), annual: annualOf(acc.new.ytd) }];
