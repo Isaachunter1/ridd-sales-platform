@@ -245,6 +245,17 @@ const REPORTING_AGING_ORDER = ['Current', '31–60 days', '61–90 days', '90+ d
 const REPORTING_DEPTH_ORDER = ['No Sentricon', 'Sentricon + pest plan', 'Sentricon only'];
 const reportingDepthBucket = (n) => n >= 3 ? '3+ services' : n === 2 ? '2 services' : '1 service';
 
+// Initial service for the drills (per Isaac, Oct 17 — Crystal Bennett is scheduled for the 20th but showed "—"):
+// FieldRoutes' initial_service only fills in once it's DONE. Not done yet → the booked appointment date, marked
+// scheduled. { iso, scheduled }
+function _drillInitial(r) {
+  const done = String(r.initial_service || r.initial_serviced_date || '').slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(done)) return { iso: done, scheduled: false };
+  const st = String(r.initial_status || '').toLowerCase();
+  const appt = String(r.initial_appt_date || '').slice(0, 10);
+  if (st === 'pending' && /^\d{4}-\d{2}-\d{2}$/.test(appt)) return { iso: appt, scheduled: true };
+  return { iso: '', scheduled: false };
+}
 // Customer tenure bucket from initial_service date — years between then
 // and today. Returns 'Unknown' for missing / unparseable dates so the
 // chart can still surface them as a separate slice instead of dropping.
@@ -819,7 +830,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
     { key: 'appts',        label: 'Appts',           align: 'right', type: 'num', get: r => Number(r.subscription_completed_services) || 0 },
     { key: 'autopay',      label: 'Autopay',         align: 'left',  type: 'str', get: r => _drillAutopay(r) ? 'yes' : 'no' },
     { key: 'sold',         label: 'Sold',            align: 'left',  type: 'str', get: r => r.sold_date || '' },
-    { key: 'initial',      label: 'Initial Service', align: 'left',  type: 'str', get: r => r.initial_service || '' },
+    { key: 'initial',      label: 'Initial Service', align: 'left',  type: 'str', get: r => _drillInitial(r).iso },
     { key: 'pastdue',      label: 'Past Due',        align: 'right', type: 'num', get: r => Number(r.days_past_due) || 0 },
     { key: 'balance',      label: 'Balance',         align: 'right', type: 'num', get: r => Number(r.responsible_balance) || 0 },
   ];
@@ -842,7 +853,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
     recurring: r => { const v = _drillRecurring(r); return v ? money0(v) : ''; },
     term: r => Number(r.agreement_length) ? r.agreement_length + ' mo' : '',
     appts: r => String(Number(r.subscription_completed_services) || 0), autopay: r => _drillAutopay(r) ? 'Yes' : 'No',
-    sold: r => r.sold_date ? fmtDate(r.sold_date) : '', initial: r => r.initial_service ? fmtDate(r.initial_service) : '',
+    sold: r => r.sold_date ? fmtDate(r.sold_date) : '', initial: r => { const x = _drillInitial(r); return x.iso ? fmtDate(x.iso) + (x.scheduled ? ' (scheduled)' : '') : ''; },
     pastdue: r => r.days_past_due ? r.days_past_due + 'd' : '', balance: r => (Number(r.responsible_balance) || 0) > 0 ? money0(r.responsible_balance) : '',
     canceled: r => r.subscription_date_canceled ? fmtDate(r.subscription_date_canceled) : '', reason: r => r.subscription_cancellation_reason || '',
   };
@@ -898,7 +909,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
     el('td', { class: 'px-3 py-2 text-right tabular-nums' }, String(Number(r.subscription_completed_services) || 0)),
     el('td', { class: 'px-3 py-2' }, _drillAutopay(r) ? el('span', { style: { color: 'var(--ok)' } }, 'Yes') : el('span', { style: { color: 'var(--text-subtle)' } }, 'No')),
     el('td', { class: 'px-3 py-2' }, fmtDate(r.sold_date)),
-    el('td', { class: 'px-3 py-2' }, fmtDate(r.initial_service)),
+    (() => { const x = _drillInitial(r); return el('td', { class: 'px-3 py-2 whitespace-nowrap', title: x.scheduled ? 'Initial booked for this date \u2014 not done yet' : '' }, x.iso ? (x.scheduled ? el('span', { style: { color: 'var(--accent)' } }, fmtDate(x.iso), el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'scheduled')) : fmtDate(x.iso)) : '\u2014'); })(),
     el('td', {
       class: 'px-3 py-2 text-right tabular-nums',
       style: { color: (Number(r.days_past_due) || 0) > 0 ? '#DC2626' : 'var(--text-muted)' },
@@ -1038,7 +1049,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
         Number(r.agreement_length) || 0,
         _drillAutopay(r) ? 'Yes' : 'No',
         csvEsc(r.sold_date || ''),
-        csvEsc(r.initial_service || ''),
+        csvEsc((() => { const x = _drillInitial(r); return x.iso ? x.iso + (x.scheduled ? ' (scheduled)' : '') : ''; })()),
         Number(r.days_past_due) || 0,
         Number(r.responsible_balance) || 0,
         csvEsc(r.subscription_date_canceled || ''),
