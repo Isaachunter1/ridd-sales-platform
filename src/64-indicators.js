@@ -304,9 +304,23 @@ function dashLensPacer(dept) {
   // Me: pace by the work days in the user's selling window (Settings → Goals), by THIS dashboard's rep type.
   const _wt = dept === 'd2d' ? 'd2d' : dept === 'techs' ? 'techs' : 'office';
   const _plan = (v === 'me' && goal > 0) ? goalPlan(_wt, _win, goal, acc.new.ytd) : null;
-  const streams = [{ key: 'new', label: isOffice ? label + ' New' : label, color: '#DF643A', actual: acc.new.ytd, target: goal, monthly: goal > 0 ? curve.map(f => f * goal) : null, win: acc.new.tod, mtd: acc.new.mtd,
-    plan: _plan ? { sp: _plan.sp, need: _plan.need, left: _plan.left, tip: _plan.done + ' of ' + _plan.total + ' work days done (' + goalWorkRule(_wt) + ') \u00b7 window ' + (_win.start.getMonth() + 1) + '/' + _win.start.getDate() + ' \u2013 ' + (_win.end.getMonth() + 1) + '/' + _win.end.getDate() + ' \u00b7 change it in \u2699 Settings \u2192 Goals' } : null }];
-  if (isOffice) streams.push({ key: 'renewal', label: label + ' Renewal', color: '#5F6C5B', actual: acc.renewal.ytd, target: 0, monthly: null, win: acc.renewal.tod, mtd: acc.renewal.mtd });
+  const _planObj = _plan ? { sp: _plan.sp, need: _plan.need, left: _plan.left, tip: _plan.done + ' of ' + _plan.total + ' work days done (' + goalWorkRule(_wt) + ') \u00b7 window ' + (_win.start.getMonth() + 1) + '/' + _win.start.getDate() + ' \u2013 ' + (_win.end.getMonth() + 1) + '/' + _win.end.getDate() + ' \u00b7 change it in \u2699 Settings \u2192 Goals' } : null;
+  let streams;
+  if (isOffice) {
+    // Office Staff (per Isaac, Oct 17): Inside Sales race NEW revenue against the goal, Loyalty reps RENEWAL revenue —
+    // each next to their TOTAL revenue (no goal of its own).
+    const _loy = v === 'me' && typeof _isLoyaltyProfile === 'function' && _isLoyaltyProfile(state.profile);
+    const g = _loy ? acc.renewal : acc.new;
+    const _tot = { ytd: acc.new.ytd + acc.renewal.ytd, tod: acc.new.tod + acc.renewal.tod, mtd: acc.new.mtd + acc.renewal.mtd };
+    const _gPlan = (v === 'me' && goal > 0) ? goalPlan(_wt, _win, goal, g.ytd) : null;
+    streams = [
+      { key: _loy ? 'renewal' : 'new', label: _loy ? 'Renewal Rev' : 'New Rev', noSuffix: true, color: _loy ? '#5F6C5B' : '#DF643A', actual: g.ytd, target: goal, monthly: goal > 0 ? curve.map(f => f * goal) : null, win: g.tod, mtd: g.mtd,
+        plan: _gPlan ? Object.assign({}, _planObj, { sp: _gPlan.sp, need: _gPlan.need, left: _gPlan.left }) : null },
+      { key: 'total', label: 'Total Rev', noSuffix: true, color: '#323230', actual: _tot.ytd, target: 0, monthly: null, win: _tot.tod, mtd: _tot.mtd },
+    ];
+  } else {
+    streams = [{ key: 'new', label, color: '#DF643A', actual: acc.new.ytd, target: goal, monthly: goal > 0 ? curve.map(f => f * goal) : null, win: acc.new.tod, mtd: acc.new.mtd, plan: _planObj }];
+  }
   // Goals are set in ⚙ Settings → Goals now, not on the pacer (per Isaac, Oct 16).
   const hint = goal > 0 ? '' : v === 'me'
     ? 'No personal goal yet \u2014 set one in \u2699 Settings \u2192 Goals'
@@ -5674,31 +5688,34 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
   const body = el('div');
   const paint = () => {
     const pick = narrow ? (COLS.find(c => c.key === state._mixMobileCol) || COLS[1]) : null;
-    const cols = pick ? [pick] : COLS;
+    // Player card on a phone (per Isaac, Oct 17): Attrition rides beside the picked metric — there's room without the bars.
+    const cols = pick ? (opts.noBars && pick.key !== 'attr' ? [pick, COLS.find(c => c.key === 'attr')].filter(Boolean) : [pick]) : COLS;
     // Fixed-width label column so every bar starts at the same x (per Isaac).
-    const firstCol = (cls, txt, title) => el('div', { class: 'min-w-0 ' + cls, title: title || undefined, style: narrow ? { width: '112px', minWidth: '112px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } : { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1 } }, txt);
+    const firstCol = (cls, txt, title) => el('div', { class: 'min-w-0 ' + cls, title: title || undefined, style: narrow ? (opts.noBars ? { minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } : { width: '112px', minWidth: '112px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }) : { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1 } }, txt);
     const topSubscriptions = visibleSubs();
     const maxShare = topSubscriptions.reduce((m, s) => Math.max(m, s.share), 0.0001);
     // One grid for the header, Total and every row (per Isaac, Oct 16): each value sits left-justified exactly
     // under its header — the flex rows drifted apart whenever a label was wider than its column.
     const _PX = { 'w-12': 52, 'w-14': 60, 'w-16': 68, 'w-20': 84, 'w-24': 96 };
-    const _tpl = (narrow ? '112px ' : (opts.noBars ? 'minmax(150px, 200px) ' : 'minmax(200px, 240px) ')) + (opts.noBars ? '48px' : 'minmax(120px, 1fr)') + ' ' + cols.map(c => c.key === 'attr' ? 'minmax(96px, 1fr)' : (_PX[c.w] || 72) + 'px').join(' ');
-    const _grid = { display: 'grid', gridTemplateColumns: _tpl, columnGap: '12px', alignItems: 'center' };
+    const _nb2 = narrow && opts.noBars;   // player card on a phone: name · total · metric · attrition
+    const _tpl = _nb2 ? 'minmax(0, 1fr) 34px 78px 52px'
+      : (narrow ? '112px ' : (opts.noBars ? 'minmax(150px, 200px) ' : 'minmax(200px, 240px) ')) + (opts.noBars ? '48px' : 'minmax(120px, 1fr)') + ' ' + cols.map(c => c.key === 'attr' ? 'minmax(96px, 1fr)' : (_PX[c.w] || 72) + 'px').join(' ');
+    const _grid = { display: 'grid', gridTemplateColumns: _tpl, columnGap: _nb2 ? '8px' : '12px', alignItems: 'center' };
     body.replaceChildren(el('div', { class: narrow ? '' : 'scroll-x' }, el('div', { style: narrow ? {} : { minWidth: opts.noBars ? '860px' : '930px' } },
       el('div', { class: 'text-[10px] uppercase tracking-wider text-muted- font-semibold pb-1.5', style: _grid },
         firstCol('', opts.firstCol || 'Subscription'),
         el('div', { class: 'text-left' }, 'Total'),
-        ...cols.map(c => el('div', { class: c.w + ' text-left shrink-0', title: c.title || undefined }, c.label))),
+        ...cols.map(c => el('div', { class: (_nb2 ? '' : c.w + ' ') + 'text-left shrink-0 whitespace-nowrap', title: c.title || undefined }, _nb2 && c.key === 'attr' ? 'Attr %' : c.label))),
       topSubscriptions.length === 0
         ? el('div', { class: 'text-xs text-muted- italic py-3 text-center' }, opts.emptyText || 'No accounts here.')
         : el('div', { class: 'flex flex-col' },
             el('div', { class: 'text-[13px] py-2.5 cursor-pointer', style: { ..._grid, borderBottom: '3px solid var(--text)' }, title: 'Click for every account', onclick: () => _mixDrill(null, false) },
               firstCol('truncate font-black', 'Total'),
               // Player cards (per Isaac, Oct 16): just the count, no bars.
-              opts.noBars ? el('div', { class: 'w-14 text-left tabular-nums font-black shrink-0' }, fmt.int(T.n)) :
+              opts.noBars ? el('div', { class: (_nb2 ? '' : 'w-14 ') + 'text-left tabular-nums font-black shrink-0' }, fmt.int(T.n)) :
               el('div', { class: 'flex-1 rounded-full', style: { background: 'var(--text)', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '9px' } },
                 el('span', { class: 'tabular-nums font-black', style: { color: 'var(--accent)', fontSize: '11.5px', lineHeight: '1' } }, fmt.int(T.n))),
-              ...cols.map(c => c.total())),
+              ...cols.map(c => { const n = c.total(); if (_nb2) { n.style.width = 'auto'; n.style.minWidth = '0'; } return n; })),
             ...topSubscriptions.map((s, i) => {
               const _pct = Math.max(1.5, s.share / maxShare * 100);
               // In-bar label only when the bar is wide enough for the digits —
@@ -5716,12 +5733,12 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
                 onclick: opts.onRowClick ? () => opts.onRowClick(s.name) : () => _mixDrill(s.name, false),
               },
                 firstCol('truncate font-medium', s.name, s.name),
-                opts.noBars ? el('div', { class: 'w-14 text-left tabular-nums font-semibold shrink-0' }, fmt.int(s.count)) :
+                opts.noBars ? el('div', { class: (_nb2 ? '' : 'w-14 ') + 'text-left tabular-nums font-semibold shrink-0' }, fmt.int(s.count)) :
                 el('div', { class: 'flex-1 rounded-full relative', style: { background: 'var(--card-2)', height: '22px' } },
                   el('div', { style: { width: _pct + '%', height: '100%', background: 'var(--accent)', borderRadius: '0', opacity: String(0.55 + 0.45 * (s.share / maxShare)), transition: 'width .3s', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '9px' } },
                     _inBar ? el('span', { class: 'tabular-nums font-black', style: { color: '#fff', fontSize: '11.5px', lineHeight: '1', textShadow: '0 1px 1px rgba(0,0,0,.2)' } }, fmt.int(s.count)) : null),
                   _inBar ? null : el('span', { class: 'tabular-nums font-black', style: { position: 'absolute', left: 'calc(' + _pct + '% + 8px)', top: '50%', transform: 'translateY(-50%)', color: 'var(--text)', fontSize: '11.5px', lineHeight: '1' } }, fmt.int(s.count))),
-                ...cols.map(c => c.row(s)));
+                ...cols.map(c => { const n = c.row(s); if (_nb2) { n.style.width = 'auto'; n.style.minWidth = '0'; } return n; }));
             }),
             allSubscriptions.length > MIX_TOP ? el('button', {
               class: 'w-full text-[11px] font-bold py-2 mt-1 rounded-lg transition hover:brightness-95',
@@ -9733,7 +9750,7 @@ function repLandingPlayerCard(opts) {
     const attrPct = _landingAttritionPct(ytd);
     const team = getRepTeam(name);
     const teamColor = team ? getTeamColor(team) : null;
-    const tierMeta = (typeof repTierMeta === 'function') ? repTierMeta(getRepTier(name)) : null;
+    const tierMeta = (typeof repTierMeta === 'function' && getRepTier(name) !== 'na') ? repTierMeta(getRepTier(name)) : null;   // no N/A chip (per Isaac, Oct 17)
     const office = (_first.office || '').split(' ').map(w => (w[0] || '').toUpperCase() + w.slice(1).toLowerCase()).join(' ');
     const initials = name.split(/[\s,]+/).filter(Boolean).map(p => p[0]).join('').slice(0, 2).toUpperCase();
     const repObj = { name, office: _first.office || '', team, tier: getRepTier(name), sales: all, revenue: all.reduce((a, s) => a + (Number(s.contractValue) || 0), 0) };

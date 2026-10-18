@@ -3575,10 +3575,13 @@ function openIndicatorRepCard(rep, allReps = []) {
       : cardRevMode === 'total' && _mo.revenue == null ? (scopedRep.revenue || 0) : revSales.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
     const _nowAmt = revSales.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
     const revDays = new Set(revSales.map(x => dateSoldToIso(x.dateSold)).filter(Boolean)).size;
-    const revToggle = el('span', { class: 'inline-flex rounded overflow-hidden', style: { border: '1px solid var(--border-2)' }, onclick: (e) => e.stopPropagation() },
+    // Office Staff: a 2 × 2 grid — New / Total, then Renewal / Peak (per Isaac, Oct 17 — Peak was cut off in one row).
+    let _rtWide = false; try { _rtWide = window.matchMedia('(min-width: 640px)').matches; } catch (e) { /* phone */ }
+    const _rt4 = state.indicatorDept === 'office' && _rtWide;   // phones: the revenue tile is full-width, one row fits
+    const revToggle = el('span', { class: _rt4 ? 'inline-grid rounded overflow-hidden' : 'inline-flex rounded overflow-hidden', style: Object.assign({ border: '1px solid var(--border-2)' }, _rt4 ? { gridTemplateColumns: 'repeat(2, auto)', marginTop: '2px' } : {}), onclick: (e) => e.stopPropagation() },
       // Office Staff: New / Total / Renewal / Peak · everyone else: Revenue / Peak (per Isaac, Oct 15).
       ...(state.indicatorDept === 'office' ? [['new', 'New'], ['total', 'Total'], ['renewal', 'Renewal'], ['peak', 'Peak']] : [['total', 'Revenue'], ['peak', 'Peak']]).map(([v, l]) => el('button', { type: 'button',
-        style: { fontSize: '9px', fontWeight: '700', padding: '0 5px', lineHeight: '14px', border: '0', cursor: 'pointer', background: cardRevMode === v ? 'var(--accent)' : 'transparent', color: cardRevMode === v ? 'var(--accent-text)' : 'var(--text-muted)' },
+        style: { fontSize: '9px', fontWeight: '700', padding: _rt4 ? '1px 7px' : '0 5px', lineHeight: '14px', border: '0', cursor: 'pointer', background: cardRevMode === v ? 'var(--accent)' : 'transparent', color: cardRevMode === v ? 'var(--accent-text)' : 'var(--text-muted)' },
         title: v === 'new' ? 'New business only' : v === 'renewal' ? 'Renewal-source sales only' : v === 'peak' ? 'Every account at its value once the initial was completed, before any later reduction (rates lowered to save it, plans adjusted down)' : 'Everything',
         onclick: (e) => { e.stopPropagation(); cardRevMode = v; renderBody(); } }, l)));
     scopedStats = [
@@ -3736,14 +3739,16 @@ function openIndicatorRepCard(rep, allReps = []) {
     // 11 tiles since Audit % (Oct 8): 6 + 5 on desktop instead of 5 + 5 + a stray one; phones stay 3-up.
     let _wide = false; try { _wide = window.matchMedia('(min-width: 640px)').matches; } catch (e) { /* phones */ }
     const _maxLen = Math.max(0, ...scopedStats.map(x => String(x.value).length));
-    const _valCls = _wide ? (_maxLen > 13 ? 'text-sm' : 'text-lg') : (_maxLen > 11 ? 'text-xs' : _maxLen > 8 ? 'text-sm' : 'text-lg');
+    const _valCls = _wide ? (_maxLen > 13 ? 'text-sm' : 'text-lg') : (_maxLen > 11 ? 'text-xs' : _maxLen > 7 ? 'text-sm' : 'text-lg');   // phones step down a size sooner ("$986 / 1" clipped)
     return el('div', { class: 'grid gap-2 sm:gap-3 mb-5 rep-stats-grid', 'data-tip-below': '1', style: (_wide && scopedStats.length === 11) ? { gridTemplateColumns: 'repeat(6, minmax(0, 1fr))' } : {} },
-      ...scopedStats.map(stat => {
+      ...(_wide ? scopedStats : [...scopedStats.filter(x => x.key === 'revenue'), ...scopedStats.filter(x => x.key !== 'revenue')]).map(stat => {
         // Not clickable any more (per Isaac, Oct 16): the Sales table under the card has every account and exports.
         return el('div', {
           class: 'rounded-lg border p-3 text-center',
           title: stat.title || '',
-          style: { borderColor: 'var(--border)', background: 'var(--card-2)' },
+          // Phones (per Isaac, Oct 17): Revenue (with its New / Total / Renewal / Peak switch) takes the whole first row,
+          // Sales drops to the next, so the rest fill even rows of three.
+          style: Object.assign({ borderColor: 'var(--border)', background: 'var(--card-2)' }, (!_wide && stat.key === 'revenue' && (scopedStats.length - 1) % 3 === 0) ? { gridColumn: 'span 3' } : {}),
         },
           el('div', { class: 'text-[9px] uppercase tracking-widest text-muted- font-semibold whitespace-nowrap' }, stat.label),
           // Font scales down with value length so long figures (entity cards
@@ -3773,9 +3778,11 @@ function openIndicatorRepCard(rep, allReps = []) {
   let _acctSort = { key: 'sold', dir: 'desc' };   // accounts-table sort (click headers)
   let _calMode = 'calendar';          // 'calendar' | 'clock' — one card, two views
   let _calDrillIso = null;            // tapped day → inline account list
+  const _isPhoneCard = () => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } };
   const _whenToggle = () => el('div', { class: 'inline-flex rounded-lg border overflow-hidden shrink-0', style: { borderColor: 'var(--border-2)' } },
-    ...[['calendar', '📅 Calendar'], ['clock', '🕐 Time of day']].map(([m, label]) => el('button', {
-      class: 'px-2.5 py-1 text-[10px] font-bold transition cursor-pointer',
+    // Phones (per Isaac, Oct 17): shorter labels so the switch fits top-right beside the month.
+    ...(_isPhoneCard() ? [['calendar', '📅 Calendar'], ['clock', '🕐 Time']] : [['calendar', '📅 Calendar'], ['clock', '🕐 Time of day']]).map(([m, label]) => el('button', {
+      class: (_isPhoneCard() ? 'px-1.5' : 'px-2.5') + ' py-1 text-[10px] font-bold transition cursor-pointer whitespace-nowrap',
       style: _calMode === m ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)', background: 'var(--card)' },
       onclick: () => { if (_calMode !== m) { _calMode = m; _calDrillIso = null; renderBody(); } },
     }, label)));
@@ -3845,10 +3852,10 @@ function openIndicatorRepCard(rep, allReps = []) {
         // Toggle pinned top-right beside the month nav (it used to wrap
         // under the stats line on mobile); the month stats get their own
         // line below.
-        el('div', { class: 'flex items-center justify-between gap-2 mb-1.5 flex-wrap' },
-          el('div', { class: 'flex items-center gap-2' },
+        el('div', { class: 'flex items-center justify-between gap-2 mb-1.5', style: { flexWrap: _isPhoneCard() ? 'nowrap' : 'wrap' } },
+          el('div', { class: 'flex items-center gap-1.5 min-w-0' },
             arrow(-1, atMin),
-            el('div', { class: 'text-sm font-bold', style: { minWidth: '110px', textAlign: 'center' } },
+            el('div', { class: 'font-bold whitespace-nowrap', style: { minWidth: _isPhoneCard() ? '0' : '110px', textAlign: 'center', fontSize: _isPhoneCard() ? '13px' : '14px' } },
               first.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })),
             arrow(1, atMax)),
           _whenToggle()),
@@ -4117,12 +4124,13 @@ function openIndicatorRepCard(rep, allReps = []) {
     return el('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-4 mb-5' },
       // Weekly trend (12 weeks, revenue bars, pageable)
       el('div', { class: 'rounded-lg border p-4', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
-        el('div', { class: 'flex items-center justify-between gap-2 mb-3 flex-wrap' },
-          el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' },
-            _trendWkOff === 0 ? 'Last 12 Weeks · Revenue' : '12 Weeks · Revenue'),
-          el('div', { class: 'flex items-center gap-2' },
+        // One row on phones too (per Isaac, Oct 17): shorter title + M/D dates so the arrows fit beside it.
+        el('div', { class: 'flex items-center justify-between gap-2 mb-3', style: { flexWrap: _isPhoneCard() ? 'nowrap' : 'wrap' } },
+          el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold whitespace-nowrap' },
+            _trendWkOff === 0 && !_isPhoneCard() ? 'Last 12 Weeks · Revenue' : '12 Weeks · Revenue'),
+          el('div', { class: 'flex items-center gap-1.5 shrink-0' },
             wkArrow('‹', !tr.weeksHasOlder, () => { _trendWkOff++; renderBody(); }),
-            el('div', { class: 'text-[10px] text-muted- tabular-nums' }, tr.weeks12.length === 0 ? '' : tr.weeks12[0].weekStart + ' → ' + tr.weeks12[tr.weeks12.length - 1].weekStart),
+            el('div', { class: 'text-[10px] text-muted- tabular-nums whitespace-nowrap' }, tr.weeks12.length === 0 ? '' : (() => { const f = (iso) => _isPhoneCard() ? Number(iso.slice(5, 7)) + '/' + Number(iso.slice(8, 10)) : iso; return f(tr.weeks12[0].weekStart) + ' → ' + f(tr.weeks12[tr.weeks12.length - 1].weekStart); })()),
             wkArrow('›', _trendWkOff === 0, () => { _trendWkOff--; renderBody(); }),
           ),
         ),
@@ -4700,7 +4708,7 @@ function openIndicatorRepCard(rep, allReps = []) {
   }
 
   function header() {
-    const tierMeta = repTierMeta(rep.tier);
+    const tierMeta = rep.tier === 'na' ? null : repTierMeta(rep.tier);   // no N/A chip by the name (per Isaac, Oct 17)
     const teamColor = rep.team ? getTeamColor(rep.team) : null;
     const officeName = (rep.office || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
     const initials = (rep.name || '?').split(/\s+/).map(p => p[0] || '').join('').slice(0, 2).toUpperCase();
@@ -4738,6 +4746,11 @@ function openIndicatorRepCard(rep, allReps = []) {
                 ' selling days',
               );
             })(),
+            // The card's date range sits beside the selling days (per Isaac, Oct 17).
+            scopeRangeLabel && el('span', {
+              class: 'text-[10px] text-muted- tabular-nums whitespace-nowrap px-2 py-0.5 rounded',
+              style: { background: 'var(--card-2)', border: '1px solid var(--border)' },
+            }, scopeRangeLabel),
           ),
         ),
         el('button', {
@@ -4746,7 +4759,7 @@ function openIndicatorRepCard(rep, allReps = []) {
           onclick: () => overlay.remove(),
         }, '×'),
       ),
-      el('div', { class: 'flex items-center gap-2 sm:gap-3 shrink-0 flex-wrap' },
+      el('div', { class: 'flex items-center justify-end gap-2 sm:gap-3 shrink-0 flex-wrap' },   // right-justified on phones too (per Isaac, Oct 17)
         // Sales ↔ Retention view toggle — Retention mirrors the Auditing
         // player card (audits, serviced/active/cancelled revenue, attrition)
         // computed from this rep's sales in the shared dataset, so reps can
@@ -4765,10 +4778,6 @@ function openIndicatorRepCard(rep, allReps = []) {
         // "Today" means the data's latest, not the system clock. The
         // resolved date range shows as a subtle chip to the left so the
         // dropdown + close button stay on a tidy single line.
-        scopeRangeLabel && el('span', {
-          class: 'text-[10px] text-muted- tabular-nums whitespace-nowrap px-2 py-1 rounded',
-          style: { background: 'var(--card-2)', border: '1px solid var(--border)' },
-        }, scopeRangeLabel),
         // Opens DOWNWARD (per Isaac, Oct 15): a native <select> on macOS pops the list up around the chosen item,
         // and Year to date is last — so this is a small menu that always drops below the button.
         (() => {
@@ -5964,7 +5973,7 @@ function dashboardGoalCard(range, opts) {
         el('div', { class: 'flex items-center justify-between gap-2', style: { minWidth: 0, marginBottom: '6px' } },
           el('div', { class: 'flex items-baseline gap-2 min-w-0' },
             el('span', { style: { width: '8px', height: '8px', borderRadius: '50%', background: s.color, flexShrink: 0, alignSelf: 'center' } }),
-            el('span', { class: 'text-sm font-bold whitespace-nowrap' }, s.label + (_phoneP ? '' : ' Revenue')),
+            el('span', { class: 'text-sm font-bold whitespace-nowrap' }, s.label + (s.noSuffix || _phoneP ? '' : ' Revenue')),
             el('span', { class: 'font-black tabular-nums whitespace-nowrap', style: { fontSize: _phoneP ? '15px' : '18px', lineHeight: '1' } }, _phoneP ? _shortUsd(s.actual) : fmt.usd0(s.actual)),
             s.target > 0 ? el('span', { class: 'text-[11px] tabular-nums whitespace-nowrap truncate', style: { color: 'var(--text-muted)' } }, 'of ' + _shortUsd(s.target) + ' · ' + Math.round(s.actual / s.target * 100) + '%') : null),
           chip),
@@ -5979,7 +5988,8 @@ function dashboardGoalCard(range, opts) {
             ? (s.plan.left > 0 ? (s.plan.need > 0 ? el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(s.plan.need)), ' / work day needed \u00b7 ' + s.plan.left + ' work days left') : '\u2713 goal hit') : 'Selling window ended')
             : s.target > 0 && needYear != null
               ? (needYear > 0 ? el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(needYear)), ' / day needed \u00b7 ' + daysLeftY + ' selling days left') : '\u2713 goal hit')
-              : (!(s.target > 0) && opts.hint && s === _streams[0] ? el('span', { style: { color: 'var(--accent)', fontWeight: '600' } }, opts.hint) : '\u00a0')) : null,
+              : (!(s.target > 0) && opts.hint && s === _streams[0] ? el('span', { style: { color: 'var(--accent)', fontWeight: '600' } }, opts.hint)
+                : !(s.target > 0) && s.win != null ? el('span', {}, 'Today ', el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(s.win))) : '\u00a0')) : null,
         _simple ? null : el('div', { class: 'grid', style: { gridTemplateColumns: _phoneP ? 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.35fr)' : 'repeat(3, minmax(0, 1fr))', gap: _phoneP ? '8px' : '12px', marginTop: '8px' } },
           _stat('Need per day', needYear == null ? '—' : needYear > 0 ? fmt.usd0(needYear) : '✓ goal hit', needYear === 0 ? _GREEN : null,
             needYear == null ? '' : fmt.usd0(Math.max(0, s.target - s.actual)) + ' left on the annual goal ÷ ' + daysLeftY + ' selling days left this year (Mon–Fri, holidays off).'

@@ -258,13 +258,21 @@ function mkpOpenSpend(needsOnly) {
   for (const s of V.spendIn(R.from, R.to)) { if (!s.tx) continue; const o = byTx.get(s.tx) || byTx.set(s.tx, { tx: s.tx, prov: s.prov, mk: new Map(), amt: 0 }).get(s.tx); o.amt += s.amt; if (s.market) o.mk.set(s.market, (o.mk.get(s.market) || 0) + s.amt); }
   let rows = [...byTx.values()];
   const total = rows.reduce((t, r) => t + r.amt, 0), needs = rows.filter(r => r.prov === 'Needs a vendor');
-  if (needsOnly && needs.length) rows = needs;
+  // Charges placed while this list is open stay on it (per Isaac, Oct 17 — "save it but still display them").
+  const _keyOf = (r) => r.tx.ym + '|' + (r.tx.txn || [r.tx.d, r.tx.payee, r.tx.memo, (Number(r.tx.amt) || 0).toFixed(2)].join('|'));
+  const keep = state._mkpSpendKeep instanceof Set ? state._mkpSpendKeep : (state._mkpSpendKeep = new Set());
+  if (needsOnly && needs.length) rows = rows.filter(r => r.prov === 'Needs a vendor' || keep.has(_keyOf(r)));
   rows.sort((a, b) => ((a.prov === 'Needs a vendor') === (b.prov === 'Needs a vendor') ? 0 : a.prov === 'Needs a vendor' ? -1 : 1) || b.tx.d.localeCompare(a.tx.d) || b.amt - a.amt);
   const overlay = el('div', { class: 'modal-overlay' });
   const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
   const onKey = (e) => { if (e.key === 'Escape') close(); };
   document.addEventListener('keydown', onKey); overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   const reopen = () => { close(); setTimeout(() => mkpOpenSpend(needsOnly), 0); };
+  // Bulk select (per Isaac, Oct 17): tick charges, pick one vendor, apply to all of them in one save.
+  const selKeys = new Set();
+  const bulkCount = el('span', { class: 'text-[11px] font-semibold' });
+  const bulkBar = el('div', { class: 'flex items-center gap-2 flex-wrap px-4 py-2 border-b', style: { borderColor: 'var(--border)', background: 'rgba(223,100,58,.07)', display: 'none' } });
+  const paintBulk = () => { bulkBar.style.display = selKeys.size ? 'flex' : 'none'; bulkCount.textContent = selKeys.size + ' selected \u00b7 ' + _mkpUsd(rows.filter(r => selKeys.has(_keyOf(r))).reduce((t, r) => t + r.amt, 0)); };
   const th = (t, r) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (r ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: '0' } }, t);
   const td = (v, st, r) => el('td', { class: 'px-2 py-1.5 whitespace-nowrap' + (r ? ' text-right tabular-nums' : ''), style: st || {} }, v == null || v === '' ? '—' : v);
   const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
@@ -281,6 +289,24 @@ function mkpOpenSpend(needsOnly) {
       el('option', { value: SPQ_NEW }, '+ New vendor…'));
     return el('span', { class: 'inline-flex items-center gap-1.5' }, sel, el('label', { class: 'inline-flex items-center gap-1 text-[10px]', style: _mkpMuted }, only, 'this charge only'));
   };
+  if (admin) {
+    const bOnly = el('input', { type: 'checkbox', style: { accentColor: 'var(--accent)' } });
+    const bSel = el('select', { class: 'rounded-lg border px-1.5 py-0.5 text-[11px]', style: selSt },
+      el('option', { value: '', selected: true, disabled: true }, 'Vendor for all selected\u2026'),
+      ...opts.map(c => el('option', { value: c }, c)), el('option', { value: SPQ_TOOLS }, SPQ_TOOLS_LABEL), el('option', { value: SPQ_SKIP }, 'Not marketing'), el('option', { value: SPQ_NEW }, '+ New vendor\u2026'));
+    const apply = el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => {
+      let v = bSel.value; if (!v) { toast('Pick a vendor first', 'warn'); return; }
+      if (v === SPQ_NEW) { v = spqAskNewVendor(); if (!v) return; }
+      const picked = rows.filter(r => selKeys.has(_keyOf(r)));
+      picked.forEach(r => keep.add(_keyOf(r)));
+      if (typeof spqSetRules === 'function') spqSetRules(picked.map(r => ({ ym: r.tx.ym, L: r.tx })), v, bOnly.checked);
+      toast(picked.length + ' charge' + (picked.length === 1 ? '' : 's') + ' \u2192 ' + (v === SPQ_SKIP ? 'Not marketing' : spqLabel(v)), 'success');
+      reopen(); } }, 'Apply');
+    bulkBar.append(bulkCount, bSel, el('label', { class: 'inline-flex items-center gap-1 text-[10px]', style: _mkpMuted }, bOnly, 'these charges only'), apply,
+      el('button', { class: 'text-[11px] underline', style: _mkpMuted, onclick: () => { selKeys.clear(); overlay.querySelectorAll('input[data-bulk]').forEach(c => { c.checked = false; }); paintBulk(); } }, 'Clear'));
+  }
+  const rowBox = (r) => el('input', { type: 'checkbox', 'data-bulk': '1', style: { accentColor: 'var(--accent)' }, onclick: (e) => { e.stopPropagation(); const k = _keyOf(r); if (e.target.checked) selKeys.add(k); else selKeys.delete(k); paintBulk(); } });
+  const allBox = el('input', { type: 'checkbox', title: 'Select every charge shown', style: { accentColor: 'var(--accent)' }, onclick: (e) => { const on = e.target.checked; rows.slice(0, 2000).forEach(r => { const k = _keyOf(r); if (on) selKeys.add(k); else selKeys.delete(k); }); overlay.querySelectorAll('input[data-bulk]').forEach(c => { c.checked = on; }); paintBulk(); } });
   const csv = () => { const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
     const L = [['Date', 'Payee', 'Memo', 'QuickBooks account', 'Amount', 'Vendor / channel', 'How', 'Markets'].join(',')];
     for (const r of rows) L.push([r.tx.d, r.tx.payee, r.tx.memo, r.tx.acctLeaf, r.amt.toFixed(2), r.prov, r.tx.how, [...r.mk.keys()].join('; ')].map(esc).join(','));
@@ -292,14 +318,16 @@ function mkpOpenSpend(needsOnly) {
       needs.length ? el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { close(); mkpOpenSpend(!needsOnly); } }, needsOnly ? 'Show all charges' : 'Only ones that need a vendor') : null,
       el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: csv }, '⬇ CSV'),
       el('button', { class: 'text-xl leading-none', style: _mkpMuted, onclick: close, title: 'Close' }, '×')),
+    admin ? bulkBar : null,
     el('div', { style: { overflow: 'auto' } }, el('table', { class: 'w-full text-[11px]', style: { borderCollapse: 'collapse' } },
-      el('thead', {}, el('tr', {}, th('Date'), th('Payee'), th('Memo'), th('QuickBooks account'), th('Amount', true), th('Vendor / channel'), th('Markets'))),
+      el('thead', {}, el('tr', {}, admin ? el('th', { class: 'px-2 py-1.5', style: { background: 'var(--card-2)', position: 'sticky', top: '0' } }, allBox) : null, th('Date'), th('Payee'), th('Memo'), th('QuickBooks account'), th('Amount', true), th('Vendor / channel'), th('Markets'))),
       el('tbody', {}, ...rows.slice(0, 2000).map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: r.prov === 'Needs a vendor' ? 'rgba(220,38,38,.05)' : '' } },
+        admin ? el('td', { class: 'px-2 py-1.5' }, rowBox(r)) : null,
         td(fmt.dateShort(r.tx.d)), el('td', { class: 'px-2 py-1.5 whitespace-nowrap', style: { fontWeight: '600' } }, r.tx.payee || '—', r.tx.journal ? el('span', { class: 'ml-1 rounded px-1 text-[9px] font-bold', title: 'QuickBooks journal entry (an accrual, reversal or adjustment). Allocations between the marketing accounts net to $0 and are left out.', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, 'JOURNAL') : null), td(r.tx.memo, Object.assign({ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis' }, _mkpMuted)), td(r.tx.acctLeaf, _mkpMuted),
         td(Math.abs(r.amt - r.tx.amt) > 0.01 ? _mkpUsd(r.amt) + ' of ' + _mkpUsd(r.tx.amt) : _mkpUsd(r.amt), { fontWeight: '700' }, true),
         el('td', { class: 'px-2 py-1' }, admin ? pick(r) : spqLabel(r.prov), r.tx.how && r.tx.how !== 'your pick' ? el('div', { class: 'text-[9px]', style: { color: 'var(--text-subtle)' } }, r.tx.how === 'payee' ? 'auto · from the payee name' : r.tx.how) : null),
         td(r.mk.size ? [...r.mk.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => k + (r.mk.size > 1 ? ' ' + Math.round(v / r.amt * 100) + '%' : '')).join(' · ') : 'shared', _mkpMuted)))),
-      el('tfoot', {}, el('tr', { style: { borderTop: '2px solid var(--text)' } }, td('Total', { fontWeight: '700' }), td('\u00a0'), td('\u00a0'), td('\u00a0'), td(_mkpUsd(rows.reduce((t, r) => t + r.amt, 0)), { fontWeight: '800' }, true), td('\u00a0'), td('\u00a0'))))));
+      el('tfoot', {}, el('tr', { style: { borderTop: '2px solid var(--text)' } }, admin ? td('\u00a0') : null, td('Total', { fontWeight: '700' }), td('\u00a0'), td('\u00a0'), td('\u00a0'), td(_mkpUsd(rows.reduce((t, r) => t + r.amt, 0)), { fontWeight: '800' }, true), td('\u00a0'), td('\u00a0'))))));
   overlay.append(card); document.body.append(overlay);
 }
 
@@ -353,13 +381,37 @@ function mkpOpenSources() {
       ...opts.map(c => el('option', { value: c, selected: v === c }, c + (frSrc.includes(c) ? '' : ' (not in FieldRoutes)')))); };
   const th = (t, rt) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (rt ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: '0' } }, t);
   const td = (v, st, rt) => el('td', { class: 'px-2 py-1.5 whitespace-nowrap' + (rt ? ' text-right tabular-nums' : ''), style: st || {} }, v == null || v === '' ? '—' : v);
+  // Bulk select (per Isaac, Oct 17): tick sources, pick one FieldRoutes source (or Not a lead), one save.
+  const selLabels = new Set();
+  const bulkCount = el('span', { class: 'text-[11px] font-semibold' });
+  const bulkBar = el('div', { class: 'flex items-center gap-2 flex-wrap px-4 py-2 border-b', style: { borderColor: 'var(--border)', background: 'rgba(223,100,58,.07)', display: 'none' } });
+  const paintBulk = () => { bulkBar.style.display = selLabels.size ? 'flex' : 'none'; bulkCount.textContent = selLabels.size + ' source' + (selLabels.size === 1 ? '' : 's') + ' selected'; };
+  if (admin) {
+    const bSel = el('select', { class: 'rounded-lg border px-1.5 py-0.5 text-[11px]', style: selSt },
+      el('option', { value: '', selected: true, disabled: true }, 'Map all selected to\u2026'),
+      el('option', { value: '__auto' }, 'Auto (clear the pick)'), el('option', { value: GHL_NOT_LEAD }, 'Not a lead \u2014 don\u2019t count'),
+      ...frSrc.map(c => el('option', { value: c }, c)));
+    bulkBar.append(bulkCount, bSel,
+      el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => {
+        const v = bSel.value; if (!v) { toast('Pick a source first', 'warn'); return; }
+        const m = Object.assign({}, ghlSourceMap());
+        for (const l of selLabels) { if (v === '__auto') delete m[l]; else m[l] = v; }
+        if (typeof _setAdminRule === 'function') _setAdminRule('ghlSourceMap', m);
+        state._mkpMemo = null; toast(selLabels.size + ' source' + (selLabels.size === 1 ? '' : 's') + ' mapped', 'success');
+        close(); mountApp(); setTimeout(() => mkpOpenSources(), 0); } }, 'Apply'),
+      el('button', { class: 'text-[11px] underline', style: _mkpMuted, onclick: () => { selLabels.clear(); overlay.querySelectorAll('input[data-bulk]').forEach(c => { c.checked = false; }); paintBulk(); } }, 'Clear'));
+  }
+  const srcBox = (r) => r.label ? el('input', { type: 'checkbox', 'data-bulk': '1', style: { accentColor: 'var(--accent)' }, onclick: (e) => { if (e.target.checked) selLabels.add(r.label); else selLabels.delete(r.label); paintBulk(); } }) : null;
+  const groupBox = (rs) => el('input', { type: 'checkbox', title: 'Select every source in this group', style: { accentColor: 'var(--accent)' }, onclick: (e) => { const on = e.target.checked; rs.forEach(r => { if (!r.label) return; if (on) selLabels.add(r.label); else selLabels.delete(r.label); const c = overlay.querySelector('input[data-src="' + CSS.escape(r.label) + '"]'); if (c) c.checked = on; }); paintBulk(); } });
   const body = [];
   for (const g of order) {
     const rs = groups.get(g).sort((a, b) => b.opps - a.opps), off = g === 'Not a lead';
     const t = rs.reduce((a, r) => ({ opps: a.opps + r.opps, leads: a.leads + r.leads, sales: a.sales + r.sales }), { opps: 0, leads: 0, sales: 0 });
     body.push(el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: g === 'Unmapped' ? 'rgba(220,38,38,.06)' : off ? 'var(--card-2)' : 'rgba(223,100,58,.06)' } },
+      admin ? el('td', { class: 'px-2 py-1.5' }, groupBox(rs)) : null,
       td(g + (off ? ' · not counted' : ''), { fontWeight: '800', color: g === 'Unmapped' ? '#B91C1C' : off ? 'var(--text-muted)' : 'var(--text)' }), td(rs.length + ' source' + (rs.length === 1 ? '' : 's'), _mkpMuted), td(''), td(fmt.int(t.opps), { fontWeight: '700' }, true), td(off ? '—' : fmt.int(t.leads), { fontWeight: '700' }, true), td(off ? '—' : fmt.int(t.sales), { fontWeight: '700' }, true), td(''), td('')));
     for (const r of rs) body.push(el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', opacity: off ? '.7' : '1' } },
+      admin ? el('td', { class: 'px-2 py-1.5' }, (() => { const b = srcBox(r); if (b) b.setAttribute('data-src', r.label); return b; })()) : null,
       td(r.label || '(no source)', { paddingLeft: '22px', fontWeight: '600' }), td(fmt.int(r.people.size) + ' people', _mkpMuted), (() => { const ld = lastBy.get(r.label); const age = ld ? Math.round((Date.now() - _mkpMs(ld)) / 86400000) : null; return td(ld ? fmt.dateShortYear(ld) + (age > 0 ? ' · ' + age + 'd ago' : ' · today') : '', { color: age != null && age > 30 ? MKP_C.amber : 'var(--text-muted)', fontSize: '10px' }); })(), td(fmt.int(r.opps), null, true), td(off ? '—' : fmt.int(r.leads), null, true), td(off ? '—' : fmt.int(r.sales), null, true),
       td(howOf(r.label), Object.assign({ fontSize: '10px' }, _mkpMuted)), el('td', { class: 'px-2 py-1' }, admin && r.label ? pick(r) : '')));
   }
@@ -370,8 +422,9 @@ function mkpOpenSources() {
         el('div', { class: 'text-[11px]', style: _mkpMuted }, fmt.int(totOpps) + ' opportunities in the range · ' + fmt.int(notN) + ' left out as "Not a lead" · ' + fmt.int(cur.n) + ' counted as new leads (one per person per 30 days' + (V.F.market || V.F.ch || V.F.type ? ', page filters applied' : '') + ').' + (admin ? ' A pick applies to that source everywhere in the app.' : ''))),
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { close(); mkpOpenRecords('New leads · ' + R.label, cur.leads); } }, 'See the lead records'),
       el('button', { class: 'text-xl leading-none', style: _mkpMuted, onclick: close, title: 'Close' }, '×')),
+    admin ? bulkBar : null,
     el('div', { style: { overflow: 'auto' } }, el('table', { class: 'w-full text-[11px]', style: { borderCollapse: 'collapse' } },
-      el('thead', {}, el('tr', {}, th('Source / GHL source'), th(''), th('Last lead'), th('Opportunities', true), th('Counted leads', true), th('Sales', true), th('Mapped by'), th('FieldRoutes source'))),
+      el('thead', {}, el('tr', {}, admin ? th('') : null, th('Source / GHL source'), th(''), th('Last lead'), th('Opportunities', true), th('Counted leads', true), th('Sales', true), th('Mapped by'), th('FieldRoutes source'))),
       el('tbody', {}, ...body))));
   overlay.append(card); document.body.append(overlay);
 }

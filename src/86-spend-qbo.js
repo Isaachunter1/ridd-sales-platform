@@ -51,6 +51,16 @@ function spqSetRule(ym, L, prov, onlyThis) {
   if (L.journal && typeof _spqJournalPartner === 'function') { const P = _spqJournalPartner(ym, L); if (P) m.qbLineRules[_spqLineKey(P.ym, P.line[0], P.line[1], P.line[2], P.line[3], P.line[5])] = prov; }
   state._spqMemo = {}; state._mkpMemo = null; _mktgSave(); mountApp();
 }
+// Bulk pick (per Isaac, Oct 17): many charges → one vendor in one save. items = [{ ym, L }].
+function spqSetRules(items, prov, onlyThis) {
+  const m = _spqStore();
+  for (const { ym, L } of items) {
+    const lk = _spqLineKey(ym, L.day, L.payee, L.memo, L.amt, L.txn);
+    if (onlyThis) m.qbLineRules[lk] = prov; else { m.qbRules[_spqKey(L.payee, L.memo)] = prov; delete m.qbLineRules[lk]; }
+    if (L.journal) { const P = _spqJournalPartner(ym, L); if (P) m.qbLineRules[_spqLineKey(P.ym, P.line[0], P.line[1], P.line[2], P.line[3], P.line[5])] = prov; }
+  }
+  state._spqMemo = {}; state._mkpMemo = null; _mktgSave(); mountApp();
+}
 function _spqJournalPartner(ym, L) {
   const lines = (state.reportingIsSpendPayee && state.reportingIsSpendPayee.lines) || {};
   const shift = (k) => { const d = new Date(ym + '-01T12:00'); d.setMonth(d.getMonth() + k); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
