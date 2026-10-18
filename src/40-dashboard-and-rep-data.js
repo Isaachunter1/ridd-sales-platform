@@ -5971,6 +5971,15 @@ function dashboardGoalCard(range, opts) {
         el('div', { class: 'goal-track', style: { position: 'relative' } },
           el('div', { style: { background: s.color, height: '100%', borderRadius: '0', transition: 'width .3s', width: (pct * 100).toFixed(2) + '%' } }),
           s.target > 0 ? el('div', { title: 'Seasonal pace — ' + fmt.usd0(s.target * sp) + ' should be sold by today', style: { position: 'absolute', top: '-3px', bottom: '-3px', left: Math.min(100, sp * 100).toFixed(1) + '%', width: '2px', background: 'var(--text)', opacity: '.65' } }) : null),
+        // Simple pacer (the dashboards' first screen — per Isaac, Oct 17: no header line, just what a rep acts on):
+        // one quiet line under the bar — what's needed per day and how many days are left. Always present, so the
+        // card is the same height on every lens.
+        _simple ? el('div', { class: 'text-[11px] tabular-nums whitespace-nowrap overflow-hidden', style: { color: 'var(--text-muted)', marginTop: '7px', height: '16px', textOverflow: 'ellipsis' }, title: (s.plan && s.plan.tip) || '' },
+          s.plan && s.plan.left != null
+            ? (s.plan.left > 0 ? (s.plan.need > 0 ? el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(s.plan.need)), ' / work day needed \u00b7 ' + s.plan.left + ' work days left') : '\u2713 goal hit') : 'Selling window ended')
+            : s.target > 0 && needYear != null
+              ? (needYear > 0 ? el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(needYear)), ' / day needed \u00b7 ' + daysLeftY + ' selling days left') : '\u2713 goal hit')
+              : (!(s.target > 0) && opts.hint && s === _streams[0] ? el('span', { style: { color: 'var(--accent)', fontWeight: '600' } }, opts.hint) : '\u00a0')) : null,
         _simple ? null : el('div', { class: 'grid', style: { gridTemplateColumns: _phoneP ? 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.35fr)' : 'repeat(3, minmax(0, 1fr))', gap: _phoneP ? '8px' : '12px', marginTop: '8px' } },
           _stat('Need per day', needYear == null ? '—' : needYear > 0 ? fmt.usd0(needYear) : '✓ goal hit', needYear === 0 ? _GREEN : null,
             needYear == null ? '' : fmt.usd0(Math.max(0, s.target - s.actual)) + ' left on the annual goal ÷ ' + daysLeftY + ' selling days left this year (Mon–Fri, holidays off).'
@@ -5989,7 +5998,8 @@ function dashboardGoalCard(range, opts) {
     const _totalShown = opts.streams ? _streams.reduce((a, x) => a + (Number(x.actual) || 0), 0) : totalActual;
     return el('div', { class: 'card rev-goal-card', style: { padding: _phoneP ? '14px' : '18px 20px' } },
       // Fixed header height (per Isaac, Oct 16): the Me pacer's Edit goal button must not make it taller than the department one.
-      el('div', { class: 'flex items-center justify-between gap-2 mb-3', style: { minHeight: '28px' } },
+      // Simple pacers have no header at all (per Isaac, Oct 17) — the bars speak for themselves.
+      _simple ? null : el('div', { class: 'flex items-center justify-between gap-2 mb-3', style: { minHeight: '28px' } },
         el('div', { class: 'flex items-baseline gap-2 flex-1 min-w-0 flex-wrap' },
           el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, opts.title || 'Revenue Pacer'),
           el('span', { class: 'text-[11px] tabular-nums', style: { color: 'var(--text-muted)' }, title: opts.sublineTip ? opts.sublineTip : opts.streams ? '' : 'New ' + fmt.usd0(ytdDept.new) + ' (' + newPctOfTotal.toFixed(0) + '%) + Renewal ' + fmt.usd0(ytdDept.renewal) + ' (' + renewalPctOfTotal.toFixed(0) + '%)' },

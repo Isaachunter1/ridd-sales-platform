@@ -305,7 +305,7 @@ function dashLensPacer(dept) {
   const _wt = dept === 'd2d' ? 'd2d' : dept === 'techs' ? 'techs' : 'office';
   const _plan = (v === 'me' && goal > 0) ? goalPlan(_wt, _win, goal, acc.new.ytd) : null;
   const streams = [{ key: 'new', label: isOffice ? label + ' New' : label, color: '#DF643A', actual: acc.new.ytd, target: goal, monthly: goal > 0 ? curve.map(f => f * goal) : null, win: acc.new.tod, mtd: acc.new.mtd,
-    plan: _plan ? { sp: _plan.sp, tip: _plan.done + ' of ' + _plan.total + ' work days done (' + goalWorkRule(_wt) + ')' } : null }];
+    plan: _plan ? { sp: _plan.sp, need: _plan.need, left: _plan.left, tip: _plan.done + ' of ' + _plan.total + ' work days done (' + goalWorkRule(_wt) + ') \u00b7 window ' + (_win.start.getMonth() + 1) + '/' + _win.start.getDate() + ' \u2013 ' + (_win.end.getMonth() + 1) + '/' + _win.end.getDate() + ' \u00b7 change it in \u2699 Settings \u2192 Goals' } : null }];
   if (isOffice) streams.push({ key: 'renewal', label: label + ' Renewal', color: '#5F6C5B', actual: acc.renewal.ytd, target: 0, monthly: null, win: acc.renewal.tod, mtd: acc.renewal.mtd });
   // Goals are set in ⚙ Settings → Goals now, not on the pacer (per Isaac, Oct 16).
   const hint = goal > 0 ? '' : v === 'me'
