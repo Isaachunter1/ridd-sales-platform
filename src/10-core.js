@@ -4149,17 +4149,13 @@ function mountLoading() {
   // the splash is already gone (mid-session re-auth), render the SAME
   // splash markup so the brand screen is the only loader anywhere.
   if (document.getElementById('splashMark')) { _armSplashWatchdog(); return; }
-  let logoImg = null;
-  try {
-    const logo = localStorage.getItem('ridd-spin-logo-v1') || '';
-    if (/^data:image\//.test(logo)) logoImg = el('img', { src: logo, alt: 'RIDD', style: { height: '64px', display: 'block' } });
-  } catch (e) { /* wordmark fallback */ }
-  mount(el('div', { class: 'min-h-screen flex items-center justify-center', style: { background: 'var(--bg)' } },
-    el('div', { class: 'flex flex-col items-center', style: { gap: '14px' } },
-      logoImg || el('div', { style: { fontFamily: "var(--font-display,'Anton',system-ui,sans-serif)", fontSize: '2.6rem', letterSpacing: '.02em', color: 'var(--accent)', lineHeight: '1' } }, 'RIDD'),
-      el('div', { style: { fontSize: '9px', letterSpacing: '.28em', color: 'var(--text-subtle)', textTransform: 'uppercase' } }, 'Service Above All'),
-      el('span', { class: 'spinner', style: { width: '20px', height: '20px', marginTop: '4px' } }),
-      el('div', { id: 'splash-watchdog' }))));
+  // Same markup + viewport pin as the static splash in index.html (per Isaac, Oct 18), so a hand-off between
+  // the two never moves the wordmark or spinner.
+  mount(el('div', { style: { position: 'fixed', inset: '0', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', zIndex: '1' } },
+    el('div', { style: { position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px' } },
+      el('div', { id: 'splashMark', style: { color: 'var(--text)', lineHeight: '0' } }, (typeof riddmadeWordmark === 'function') ? riddmadeWordmark(220) : 'RIDDMADE'),
+      el('span', { class: 'spinner', style: { width: '20px', height: '20px', marginTop: '2px' } }),
+      el('div', { id: 'splash-watchdog', style: { position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)' } }))));
   _armSplashWatchdog();
 }
 // Splash watchdog — if the spinner is still on screen after 12s, offer a
@@ -4173,7 +4169,8 @@ function _armSplashWatchdog() {
     if (!host || !host.isConnected) {
       const mark = document.getElementById('splashMark');
       if (!mark) return;   // splash already gone — booted fine
-      host = el('div', { id: 'splash-watchdog', class: 'flex flex-col items-center' });
+      // Hangs below the spinner without taking layout space, so the wordmark never shifts up when it appears.
+      host = el('div', { id: 'splash-watchdog', class: 'flex flex-col items-center', style: { position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)', whiteSpace: 'nowrap' } });
       (mark.parentElement || mark).append(host);
     }
     host.append(
