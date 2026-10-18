@@ -3967,7 +3967,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       // or team. Sub-expansion state is per-scope so a user can have
       // one branch and one team open at the same time.
       const subDrillSection = !isGroup ? null : el('div', { class: 'mt-4' },
-        el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' },
+        el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2 sm:hidden' }, 'By ' + (scope === 'rep' ? 'rep' : scope === 'branch' ? 'office' : 'team')),   // short on phones, same reason
+        el('div', { class: 'hidden sm:block text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' },
           scope === 'rep' ? 'By rep · search a rep to see their own top 10 per category' :
           'By ' + (scope === 'branch' ? 'branch' : 'team')
             + ' · click any ' + (scope === 'branch' ? 'branch' : 'team')
@@ -4067,7 +4068,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       return el('tr', { class: 'border-t border-', style: { background: 'rgba(223,100,58,.04)' } },
         el('td', { class: 'p-0', colspan: 6 },
           el('div', { class: 'p-3' },
-            el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' },
+            // Hidden on phones (per Isaac, Oct 18): the table is max-content wide there, so this long line stretched it off-screen.
+            el('div', { class: 'hidden sm:block text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' },
               scopeLabel + ' · ' + (byMetric === 'count' ? 'sales' : 'revenue') + ' mode'
                 + ' · PRA gated to May 1 onward (≥' + praMin + ' rep' + (praMin === 1 ? '' : 's') + ')',
             ),
