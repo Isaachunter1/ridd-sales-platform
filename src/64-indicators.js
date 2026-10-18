@@ -9657,7 +9657,7 @@ function _landingWindow() {
       const b = indicatorRangeBounds(pre, { start: state.indicatorsCustomStart, end: state.indicatorsCustomEnd });
       if (b && b.start && b.end) {
         const label = pre === 'custom' ? fmt.dateShort(b.start) + ' – ' + fmt.dateShort(b.end) : (typeof indicatorPresetLabel === 'function' ? indicatorPresetLabel(pre) : 'Range');
-        return { has: (iso) => !!iso && iso >= b.start && iso <= b.end, label };
+        return { has: (iso) => !!iso && iso >= b.start && iso <= b.end, label, oneDay: b.start === b.end };
       }
     }
   } catch (e) { /* fall back to YTD */ }
@@ -9671,7 +9671,7 @@ function _landingOk(s) {
   return state.indicatorPassedAudit !== true || /passed\s*audit/i.test(String(s.customerFlags || ''));
 }
 function _landingTiles(tile, m) {
-  const ytdLabel = _landingWindow().label;
+  const _win = _landingWindow(), ytdLabel = _win.label;
   const multi = m.ytd.filter(s => myBucketOf(s) === 'multi');
   const twelve = m.ytd.filter(s => myBucketOf(s) === 'twelve');
   const apayOn = m.ytd.filter(s => s.autoPay && s.autoPay !== 'No');
@@ -9679,8 +9679,13 @@ function _landingTiles(tile, m) {
   const attrRows = _landingAttritionRows(m.ytd);
   return [
     tile('Sales', fmt.int(m.count), m.ytd, ytdLabel),
-    tile('Revenue/Day', m.sellDays ? fmt.usd0(m.revenue / m.sellDays) : '\u2014', m.ytd, fmt.usd0(m.revenue) + ' over ' + m.sellDays + ' selling days'),
-    tile('Accts/Day', m.sellDays ? (m.count / m.sellDays).toFixed(1) : '\u2014', m.ytd, m.count + ' accounts over ' + m.sellDays + ' selling days'),
+    // One day picked (Today / Yesterday / a 1-day custom range): per-day is just the day's total (per Isaac, Oct 18).
+    _win.oneDay
+      ? tile('Revenue', m.count ? fmt.usd0(m.revenue) : '\u2014', m.ytd, fmt.usd0(m.revenue) + ' \u00b7 ' + ytdLabel)
+      : tile('Revenue/Day', m.sellDays ? fmt.usd0(m.revenue / m.sellDays) : '\u2014', m.ytd, fmt.usd0(m.revenue) + ' over ' + m.sellDays + ' selling days'),
+    _win.oneDay
+      ? tile('Accts', m.count ? fmt.int(m.count) : '\u2014', m.ytd, m.count + ' accounts \u00b7 ' + ytdLabel)
+      : tile('Accts/Day', m.sellDays ? (m.count / m.sellDays).toFixed(1) : '\u2014', m.ytd, m.count + ' accounts over ' + m.sellDays + ' selling days'),
     tile('ACV', m.count ? fmt.usd(m.revenue / m.count) : '\u2014', m.ytd, fmt.usd0(m.revenue) + ' \u00f7 ' + m.count + ' accounts'),
     tile('Avg Pest', m.avgPest > 0 ? fmt.usd(m.avgPest) : '\u2014', m.pest, 'pest accounts (Sentricon, German roach, interior flea excluded) \u00b7 avg initial'),
     tile('MY %', (m.myPct * 100).toFixed(1) + '%', multi, multi.length + ' multi-year of ' + (multi.length + twelve.length) + ' (multi + 12-month)'),
@@ -9765,7 +9770,7 @@ function repLandingPlayerCard(opts) {
     },
       el('div', { class: 'flex items-start gap-3 mb-3' },
         (typeof avatarNode === 'function') ? avatarNode(state.profile.avatar_url || null, initials, 'w-12 h-12 text-base') : null,
-        el('div', { class: 'min-w-0 flex-1' },
+        el('div', { class: 'min-w-0 flex-1 self-center' },   // name sits level with the avatar's middle (per Isaac, Oct 18)
           el('div', { class: 'flex items-center gap-2 flex-wrap' },
             el('span', { class: 'text-lg font-bold truncate' }, name),
             tierMeta && el('span', {
@@ -9775,13 +9780,14 @@ function repLandingPlayerCard(opts) {
             // Revenue rides right beside the name (THE number) — pulled out
             // of the tile grid so the remaining 9 tiles fill even 3-per-row
             // rows on mobile.
-            el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-1' }, fmt.usd0(revenue)),
-            el('span', { class: 'text-[10px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)' } }, W.label))),
+            el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-1' }, fmt.usd0(revenue)))),
         // Right column, pinned top-right: Team | Me toggle over the link
         // (per Isaac — the toggle used to float mid-row on phones).
         el('div', { class: 'flex flex-col items-end gap-1.5 shrink-0 self-start ml-auto' },
           _hdrExtra,
-          el('span', { class: 'text-[11px] font-bold shrink-0', style: { color: 'var(--accent)' } }, 'Player card →'))),
+          el('span', { class: 'text-[11px] font-bold shrink-0', style: { color: 'var(--accent)' } }, 'Player card →'),
+          // The window label (Today / the date range) sits under the link (per Isaac, Oct 18).
+          el('span', { class: 'text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)' } }, W.label))),
       el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))' } },
         ..._landingTiles(tile, { ytd, count, revenue, sellDays, avgPest, pest, myPct, apay, attrPct, cancels }),
       ),

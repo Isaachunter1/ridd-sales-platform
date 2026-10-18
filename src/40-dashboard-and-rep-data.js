@@ -4723,7 +4723,7 @@ function openIndicatorRepCard(rep, allReps = []) {
     // of the card while the body scrolls, so any screenshot says who it is.
     // The modal is the scroll container, so sticky works here; the negative
     // margins let it span the card's padding edge to edge.
-    return el('div', { class: 'flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4 mb-5', style: { position: 'sticky', top: '-24px', zIndex: 20, background: 'var(--card)', margin: '-24px -24px 20px', padding: '16px 24px 12px', borderBottom: '1px solid var(--border)' } },
+    return el('div', { class: 'flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4 mb-5', style: { position: 'sticky', top: 'calc(-1 * var(--pc-pt, 24px))', zIndex: 20, background: 'var(--card)', margin: 'calc(-1 * var(--pc-pt, 24px)) -24px 20px', padding: 'calc(var(--pc-pt, 24px) - 8px) 24px 12px', borderBottom: '1px solid var(--border)' } },   // --pc-pt = the modal's real top padding, so no gap shows above the pinned header (per Isaac, Oct 18)
       el('div', { class: 'flex items-center gap-4 flex-1 min-w-0' },
         avatarNode((profileForRepName(rep.name) || {}).avatar_url || null, initials, 'w-16 h-16 text-lg'),
         el('div', { class: 'flex-1 min-w-0' },
@@ -4746,11 +4746,6 @@ function openIndicatorRepCard(rep, allReps = []) {
                 ' selling days',
               );
             })(),
-            // The card's date range sits beside the selling days (per Isaac, Oct 17).
-            scopeRangeLabel && el('span', {
-              class: 'text-[10px] text-muted- tabular-nums whitespace-nowrap px-2 py-0.5 rounded',
-              style: { background: 'var(--card-2)', border: '1px solid var(--border)' },
-            }, scopeRangeLabel),
           ),
         ),
         el('button', {
@@ -4759,12 +4754,13 @@ function openIndicatorRepCard(rep, allReps = []) {
           onclick: () => overlay.remove(),
         }, '×'),
       ),
-      el('div', { class: 'flex items-center justify-end gap-2 sm:gap-3 shrink-0 flex-wrap' },   // right-justified on phones too (per Isaac, Oct 17)
+      // Sales | Retention on the left, Year to date + its date range on the right (per Isaac, Oct 18).
+      el('div', { class: 'flex items-center justify-between sm:justify-end gap-2 sm:gap-3 shrink-0', style: { flexWrap: 'nowrap' } },
         // Sales ↔ Retention view toggle — Retention mirrors the Auditing
         // player card (audits, serviced/active/cancelled revenue, attrition)
         // computed from this rep's sales in the shared dataset, so reps can
         // see it without the admin-only Reporting snapshot.
-        fullAccess && el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+        fullAccess ? el('div', { class: 'inline-flex rounded-lg border overflow-hidden shrink-0', style: { borderColor: 'var(--border-2)' } },
           ...[['sales', 'Sales'], ['retention', 'Retention']].map(([vid, lab]) => el('button', {
             class: 'px-2.5 py-1 text-[11px] font-semibold transition',
             style: cardView === vid
@@ -4772,7 +4768,8 @@ function openIndicatorRepCard(rep, allReps = []) {
               : { background: 'transparent', color: 'var(--text)' },
             onclick: () => { if (cardView !== vid) { cardView = vid; retDrill = null; renderBody(); } },
           }, lab)),
-        ),
+        ) : el('span', {}),
+        el('div', { class: 'flex items-center gap-2 shrink-0' },
         // Scope dropdown — every stat / chart in the modal recomputes to
         // this window. Anchored to the dataset's latest sale date so
         // "Today" means the data's latest, not the system clock. The
@@ -4793,12 +4790,16 @@ function openIndicatorRepCard(rep, allReps = []) {
           const wrap = el('span', { style: { position: 'relative', display: 'inline-block' } }, btn, panel);
           return wrap;
         })(),
+        scopeRangeLabel && el('span', {
+          class: 'text-[10px] text-muted- tabular-nums whitespace-nowrap px-2 py-0.5 rounded',
+          style: { background: 'var(--card-2)', border: '1px solid var(--border)' },
+        }, scopeRangeLabel),
         el('button', {
           class: 'text-2xl leading-none text-muted- hidden sm:block hover:text-default transition -mr-1', 'aria-label': 'Close', title: 'Close',
           style: { lineHeight: '1' },
           onclick: () => overlay.remove(),
         }, '×'),
-      ),
+      )),
     );
   }
 
@@ -4831,15 +4832,13 @@ function openIndicatorRepCard(rep, allReps = []) {
   function salesListBlock() {
     const _ao = cardAddOnRows();
     const list = [...(scopedRep.sales || []), ..._ao].sort((a, b) => ((typeof dateSoldToIso === 'function' && dateSoldToIso(b.dateSold)) || '').localeCompare((typeof dateSoldToIso === 'function' && dateSoldToIso(a.dateSold)) || ''));
-    const preset = (typeof CARD_SCOPE_PRESETS !== 'undefined' && CARD_SCOPE_PRESETS.find(p => p.id === cardScope)) || null;
     const total = (scopedRep.sales || []).reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
     const aoTotal = _ao.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
     return el('div', { class: 'card overflow-hidden mt-5' },
-      el('div', { class: 'px-4 py-2.5 border-b flex items-center justify-between gap-2 flex-wrap', style: { borderColor: 'var(--border)' } },
-        el('div', { class: 'text-sm font-bold', title: preset ? preset.label : 'selected range' }, 'Sales'),   // just "Sales" (per Isaac, Oct 16) — the range sits on the card's dropdown
-        el('div', { class: 'flex items-center gap-2' },
-          el('span', { class: 'text-[11px] tabular-nums', style: { color: 'var(--text-muted)' } }, (scopedRep.sales || []).length.toLocaleString() + ' sale' + ((scopedRep.sales || []).length === 1 ? '' : 's') + ' · ' + fmt.usd0(total) + (_ao.length ? ' + ' + _ao.length + ' add-on' + (_ao.length === 1 ? '' : 's') + ' · ' + fmt.usd0(aoTotal) : '')),
-          list.length ? el('button', { class: 'px-2.5 py-1 rounded border text-[11px] font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: () => exportDrillCsv(list) }, '↓ Export') : null)),
+      el('div', { class: 'px-4 py-2.5 border-b flex items-center justify-between gap-2', style: { borderColor: 'var(--border)', flexWrap: 'nowrap' } },
+        // Just "Sales" + Export on one row (per Isaac, Oct 18) — the counts live in the title's tooltip.
+        el('div', { class: 'text-sm font-bold', title: (scopedRep.sales || []).length.toLocaleString() + ' sale' + ((scopedRep.sales || []).length === 1 ? '' : 's') + ' · ' + fmt.usd0(total) + (_ao.length ? ' + ' + _ao.length + ' add-on' + (_ao.length === 1 ? '' : 's') + ' · ' + fmt.usd0(aoTotal) : '') }, 'Sales'),
+        list.length ? el('button', { class: 'px-2.5 py-1 rounded border text-[11px] font-semibold transition hover:brightness-95 shrink-0', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: () => exportDrillCsv(list) }, '↓ Export') : null),
       list.length ? (() => {
         // Latest 25, then Show more (per Isaac, Oct 16); Export still takes every row.
         const SHOW = 25, host = el('div');
@@ -4928,6 +4927,7 @@ function openIndicatorRepCard(rep, allReps = []) {
 
   renderBody();
   document.body.append(overlay);
+  try { modal.style.setProperty('--pc-pt', getComputedStyle(modal).paddingTop || '24px'); } catch (e) { /* keep 24px */ }
 }
 
 function badgeChip(code) {
