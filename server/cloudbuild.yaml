@@ -1,0 +1,45 @@
+# Cloud Build → Artifact Registry → Cloud Run. Used by the Cloud Build trigger
+# described in server/README.md (Configuration: "Cloud Build configuration
+# file", location: server/cloudbuild.yaml). Runs from the repo root; every
+# step cds into server/.
+#
+# Substitutions (set on the trigger, Advanced → Substitution variables):
+#   _SERVICE   Cloud Run service name      e.g. ridd-server
+#   _REGION    Cloud Run region            e.g. us-central1
+#   _REPO      Artifact Registry repo      e.g. ridd
+steps:
+  - name: gcr.io/cloud-builders/docker
+    dir: server
+    args: ['build', '-t', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA', '-t', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:latest', '.']
+  - name: gcr.io/cloud-builders/docker
+    args: ['push', '--all-tags', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}']
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - --region=${_REGION}
+      - --platform=managed
+      - --port=8080
+      - --timeout=3600
+      - --min-instances=1
+      - --max-instances=3
+      - --concurrency=10
+      - --memory=2Gi
+      - --cpu=1
+      - --no-cpu-throttling
+      - --allow-unauthenticated      # the app's /api/* calls arrive with a Supabase JWT, not a Google identity
+      - --update-env-vars=JOB_VERSION=$SHORT_SHA,NODE_ENV=production
+      # Secrets are attached once in the console (README step 4) and survive
+      # every deploy; env vars set there survive too unless named here.
+images:
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA'
+substitutions:
+  _SERVICE: ridd-server
+  _REGION: us-central1
+  _REPO: ridd
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: 900s

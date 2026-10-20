@@ -1,0 +1,20 @@
+{
+  "name": "@ridd/server",
+  "private": true,
+  "version": "0.1.0",
+  "description": "RIDD Sales Platform — one Express service on Cloud Run: scheduled jobs + the few HTTP endpoints that need a secret.",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --env-file=.env --watch index.js",
+    "job": "node --env-file=.env scripts/run-job.js",
+    "schedules": "node scripts/schedules.js",
+    "test": "node --test 'test/**/*.test.js'"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.0"
+  }
+}
