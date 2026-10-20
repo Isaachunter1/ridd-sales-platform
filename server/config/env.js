@@ -29,6 +29,24 @@ const SPEC = {
 
   // ── Slack ─────────────────────────────────────────────────────────────
   SLACK_ADMIN_WEBHOOK:        { required: false, secret: true },         // job wake-up / result / failure lines; unset = logs only
+  SLACK_SYNC_WEBHOOK:         { required: false, secret: true },         // the sales channel — NOT for job lines (it pinged the whole team); kept for services/slack when it ports
+
+  // ── Not used yet — declared so Cloud Run can hold them ahead of each port ──
+  // (services/crm + services/addons) FieldRoutes API direct, until retired
+  FIELDROUTES_SUBDOMAIN:      { required: false },
+  FIELDROUTES_AUTH_KEY:       { required: false, secret: true },
+  FIELDROUTES_AUTH_TOKEN:     { required: false, secret: true },
+  // (services/ghl) GoHighLevel — the real names, not the doc's GHL_API_KEY
+  GHL_PRIVATE_TOKEN:          { required: false, secret: true },
+  GHL_LOCATION_ID:            { required: false },
+  // (services/qbo) QuickBooks OAuth
+  QBO_CLIENT_ID:              { required: false },
+  QBO_CLIENT_SECRET:          { required: false, secret: true },
+  QBO_ENV:                    { required: false, default: 'production' },
+  // (services/marketing) Windsor ad-spend feed
+  WINDSOR_API_KEY:            { required: false, secret: true },
+  // (services/misc → ask-data) keep or retire is Isaac's call
+  ANTHROPIC_API_KEY:          { required: false, secret: true },
 };
 
 const env = {};
@@ -42,9 +60,14 @@ for (const [key, rule] of Object.entries(SPEC)) {
 // Missing variables do NOT crash the process: Cloud Run needs a revision that
 // starts before you can attach secrets to it in the console (README step 5).
 // Instead index.js answers 503 "not configured: X, Y" on every route except
-// /healthz, and the boot log names them. Locally, `npm run dev` says the same.
+// /health, and the boot log names them. Locally, `npm run dev` says the same.
 if (missing.length) {
   console.error(JSON.stringify({ severity: 'ERROR', msg: 'NOT CONFIGURED — missing required variable(s): ' + missing.join(', ') + ' (see server/.env.example)' }));
+}
+// SUPABASE_URL set but not a real URL (the .env.example placeholder, a typo) is as good as missing.
+if (env.SUPABASE_URL && !/^https?:\/\/[^<>\s]+$/.test(env.SUPABASE_URL)) {
+  missing.push('SUPABASE_URL (malformed: ' + env.SUPABASE_URL + ')');
+  console.error(JSON.stringify({ severity: 'ERROR', msg: 'SUPABASE_URL is not a valid URL: ' + env.SUPABASE_URL }));
 }
 export const MISSING = Object.freeze(missing);
 // One place for the BigQuery credential rule so bigquery.js stays dumb.

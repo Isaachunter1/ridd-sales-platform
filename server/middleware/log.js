@@ -3,7 +3,7 @@
 export function requestLog(req, res, next) {
   const t0 = Date.now();
   res.on('finish', () => {
-    if (req.path === '/healthz') return;
+    if (req.path === '/health' || req.path === '/api/health') return;
     console.log(JSON.stringify({
       severity: res.statusCode >= 500 ? 'ERROR' : 'INFO',
       msg: 'http', method: req.method, path: req.path, status: res.statusCode,

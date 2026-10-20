@@ -41,7 +41,11 @@ export async function createApp() {
   app.use(express.json({ limit: '2mb' }));
   app.use(requestLog);
 
-  app.get('/healthz', (_req, res) => res.json({ ok: MISSING.length === 0, configured: MISSING.length === 0, missing: MISSING, version: env.JOB_VERSION, now: new Date().toISOString() }));
+  // /health, not /healthz — Google's front end answers its own 404 for
+  // /healthz on Cloud Run and the request never reaches the container.
+  const health = (_req, res) => res.json({ ok: MISSING.length === 0, configured: MISSING.length === 0, missing: MISSING, version: env.JOB_VERSION, now: new Date().toISOString() });
+  app.get('/health', health);
+  app.get('/api/health', health);
   // Not configured yet → every other route says so, plainly, instead of
   // throwing from deep inside a Supabase call.
   if (MISSING.length) app.use((req, res) => res.status(503).json({ error: 'server not configured — missing: ' + MISSING.join(', ') + '. Attach them in Cloud Run → Edit & deploy → Variables & Secrets (server/README.md step 5).' }));

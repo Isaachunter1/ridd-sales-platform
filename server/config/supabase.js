@@ -4,8 +4,10 @@ import { createClient } from '@supabase/supabase-js';
 import env from './env.js';
 
 // Placeholders keep the module importable while the service is not yet
-// configured (index.js answers 503 everywhere but /healthz in that state).
-const URL_ = env.SUPABASE_URL || 'http://not-configured.invalid';
+// configured (index.js answers 503 everywhere but /health in that state).
+// A placeholder like "https://<project-ref>.supabase.co" counts as unset.
+const validUrl = (u) => { try { const x = new URL(u); return /^https?:$/.test(x.protocol) && !/[<>]/.test(u); } catch { return false; } };
+const URL_ = validUrl(env.SUPABASE_URL) ? env.SUPABASE_URL : 'http://not-configured.invalid';
 const SERVICE_ = env.SUPABASE_SERVICE_ROLE_KEY || 'not-configured';
 const ANON_ = env.SUPABASE_ANON_KEY || 'not-configured';
 

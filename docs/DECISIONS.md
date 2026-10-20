@@ -2,6 +2,8 @@
 
 One dated paragraph per decision. Read before proposing to undo one. Add to the top.
 
+**2026-10-20 · The health route is `/health`, not `/healthz`.** Google's front end in front of Cloud Run answers its own 404 for `/healthz`; the request never reaches the container (verified on the first deploy: `/` and `/api/sync-status` got through, `/healthz` did not). `/api/health` is the same handler so the Netlify `/api/*` redirect covers it.
+
 **2026-10-20 · `GET /api/sync-status` stays open through the port.** The Netlify function had no auth and the app's health sheet calls it without an `Authorization` header. It returns timestamps only. Closing it is a two-sided change (caller + `requireRole()`), which is a behaviour change, so it waits until after the port and ships in one commit.
 
 **2026-10-20 · Admin "Refresh now" goes to `POST /api/jobs/<name>`.** The server also answers `POST /jobs/<name>` (what Cloud Scheduler calls), but putting the admin kick under `/api/` means the app's single Netlify `/api/*` redirect covers it and the browser never needs the Cloud Run URL. Same handler; two paths.
@@ -12,7 +14,7 @@ One dated paragraph per decision. Read before proposing to undo one. Add to the 
 
 **2026-10-20 · `DRY_RUN` means compute everything, write nothing, publish to disk.** `ctx.publish()` is the one path for published files; in a dry run it writes `server/dryrun/<path>`. That file is the port's proof: diffed against the Netlify output for the same window. Table writes check `ctx.dryRun` themselves. A dry run takes no lock, posts nothing to Slack, and writes no heartbeat.
 
-**2026-10-20 · A missing env var does not crash the container.** `config/env.js` names the missing variables; `index.js` answers 503 on every route except `/healthz`, which lists them. Reason: in the Cloud Run console a revision has to exist before secrets can be attached to it, so the first deploy is always unconfigured. The doc's "exits with a one-line message" became "answers with a one-line message"; the information is the same.
+**2026-10-20 · A missing env var does not crash the container.** `config/env.js` names the missing variables; `index.js` answers 503 on every route except `/health`, which lists them. Reason: in the Cloud Run console a revision has to exist before secrets can be attached to it, so the first deploy is always unconfigured. The doc's "exits with a one-line message" became "answers with a one-line message"; the information is the same.
 
 **2026-10-20 · The old `x-sync-secret` gate's open-when-unset behaviour is gone.** `API_TOKEN` is required. A fresh environment without it answers 503, not "anyone may kick a job".
 

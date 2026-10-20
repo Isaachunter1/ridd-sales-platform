@@ -22,7 +22,7 @@ cd server
 cp .env.example .env            # fill in SUPABASE_*, API_TOKEN, GCP_SA_JSON (same values the Netlify functions use)
 npm install
 npm test                        # fixture tests — no network
-npm run dev                     # http://localhost:8080/healthz
+npm run dev                     # http://localhost:8080/health
 npm run job -- ops-stats --dry  # queries RevHawk, writes server/dryrun/indicators/ops-stats.json, touches nothing else
 ```
 
@@ -75,7 +75,7 @@ Console → *APIs & Services → Enable APIs*. Enable: **Cloud Run**, **Cloud Bu
 
 Permissions (*Cloud Build → Settings → Service account permissions*): turn ON **Cloud Run** and **Service Accounts**. That gives the build SA `run.admin` + `iam.serviceAccountUser`.
 
-Click **Run** on the trigger once. It builds the image, pushes it, and creates the Cloud Run service `ridd-server`. The first revision boots **unconfigured** — `/healthz` returns `configured:false` and lists what's missing. That's expected; step 6 fixes it.
+Click **Run** on the trigger once. It builds the image, pushes it, and creates the Cloud Run service `ridd-server`. The first revision boots **unconfigured** — `/health` returns `configured:false` and lists what's missing. That's expected; step 6 fixes it.
 
 ### 6. Cloud Run — variables and secrets
 
@@ -97,7 +97,7 @@ Click **Run** on the trigger once. It builds the image, pushes it, and creates t
 
 Check the *Container* tab matches `cloudbuild.yaml` (it will after the first trigger run): request timeout **3600 s**, min instances **1**, concurrency **10**, memory **2 GiB**, CPU **always allocated**. Then **Deploy**.
 
-Open `https://<service-url>/healthz` → `{"ok":true,"configured":true,...}`. Copy the service URL; you need it twice more.
+Open `https://<service-url>/health` → `{"ok":true,"configured":true,...}`. Copy the service URL; you need it twice more.
 
 ### 7. Cloud Scheduler — the cron table
 
@@ -147,6 +147,6 @@ Every later job is this, with a different name:
 | --- | --- |
 | Slack says a job FAILED | Cloud Logging, filter `jsonPayload.job="<name>"` — the stack is there; the Slack line is the summary |
 | "A run is already in progress" | `select * from job_runs where status='running'` — a dead run holds the lock until the 5 a.m. kill switch, or mark it `stale` yourself |
-| `/healthz` says `configured:false` | Cloud Run → Variables & Secrets — the response names the missing variable |
+| `/health` says `configured:false` | Cloud Run → Variables & Secrets — the response names the missing variable |
 | Scheduler shows failures | Cloud Scheduler → the job → logs. 401 = `X-API-TOKEN` header wrong; 409 = overlapping runs, lengthen the schedule; 5xx = read the job's log |
 | Numbers look wrong | `job_runs.summary` + `version` say which build produced them; `dryrun` the job locally against the same window |
