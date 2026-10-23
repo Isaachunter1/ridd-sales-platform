@@ -49,14 +49,24 @@ Port order after `ops-stats`: `derive`, then `sync/` split in this order — sna
 
 ## Frontend
 
-**Window: not yet set** (Isaac + TJ; weekend start preferred). No merges to `main` during the window; everything merged before is in; branches are rebased onto the new layout afterward.
+**Done · Oct 20, 2026**, on branch `server-app-architecture`, as five commits each verifiable on its own — `app/public/app.js` is byte-identical to the pre-port bundle after every one (sha256 `42781b05…`; the shipped file is still `app-42781b05.immutable.js`), and `npm run check` passes:
 
-Prep that can land any time before the window, on `main`:
+1. `app/src/bundle.order.js` — explicit concatenation order; the bundler refuses an unlisted, missing or duplicated file.
+2. `src/NN-*.js` → `app/src/<feature>/name.js` (53 files; the five that arrived after the Oct 13 map placed by their banners; `80-putis-shid` is `reporting/executive-pnl.js`).
+3. `core.js` and `commission-rates-and-misc.js` split at their own section banners into 29 files (binary cut, CRLF kept).
+4. `app/public` (site), `app/scripts`, `app/test`, `packages/engine` (a workspace), `db/migrations` + `db/scripts`, `archive/` (geo, handoff, mockups), `docs/` (AUDIT, PRODUCT_IMPROVEMENT_PLAN); `deno.lock` deleted. `netlify.toml` stays at the root and publishes `app/public`.
+5. `index.html` without CSS (→ `app/src/styles/app.css`, copied to `app/public/app.css` by the bundler) and without config (→ `app/public/config.js`). 1,331 → 111 lines.
 
-- [ ] `tools/bundle.js` reads `src/bundle.order.js` instead of sorting by filename, with the order file listing today's numbered files in today's order. `app.js` byte-identical.
-- [ ] Decide the Netlify base-directory question: `netlify/functions/` stays at the repo root until the last job ports, so `netlify.toml` either stays at the root (publish pointing into `app/`) or Netlify is confirmed to accept a functions directory outside `base`. Record in `docs/DECISIONS.md`.
+Deviations from the Oct 13 map, each so that `app.js` stays byte-identical (`docs/DECISIONS.md`):
+- images and `vendor-supabase.js` stay at the public **root** (not `img/`, `vendor/`): `app.js` names them by root path;
+- the engine build writes to `packages/engine/dist` **and** `app/public/engine/dist`, so `/engine/dist/ridd-engine.js` and `/engine/latest.json` keep their URLs with no redirect;
+- the file banners inside `app/src/**` still say `src/NN-*.js` — a comment-only commit fixes them (changes `app.js` bytes, so it is proven by a comment-stripped diff instead).
 
-The window itself, each its own commit: move `src/` into feature folders per `docs/ARCHITECTURE.md` and update `bundle.order.js` · split `10-core.js` by section banner · `engine/` → `packages/engine/` + the two redirects for Cam · `index.html`/assets/fonts (+ licences) → `app/public/` and `window.RIDD_CONFIG` → `config.js` · inline `<style>` → `app/src/styles/app.css` · **Tailwind rebuild** (not byte-checkable; verified by opening every screen on a phone and a desktop) · `docs/`, `db/`, `archive/` moves · README/CONTRIBUTING rewrites.
+Still open, for the deploy preview on a phone and a desktop:
+- [ ] **Tailwind rebuild** (`npm run tailwind`): the committed `tailwind.css` is stale (+83 / −40 selectors against a rebuild); the app leans on the hand-written gap-fill rules at the end of `app.css` for classes like `.h-8`, `.mt-6`, `.opacity-50`. Rebuild → open every screen → delete the gap-fill rules that Tailwind now defines. Its own commit; not byte-checkable.
+- [ ] Ask Isaac whether `archive/geo/*.html` (the service-area tools) or `archive/handoff/` were live on the site; if so, restore them under `app/public/`.
+- [ ] Comment-only commit: file banners to the new paths.
+- [ ] Phase 3 (ESM via esbuild) is not started and is not in the port: `docs/ARCHITECTURE.md` → Deferred.
 
 ## Frozen means
 

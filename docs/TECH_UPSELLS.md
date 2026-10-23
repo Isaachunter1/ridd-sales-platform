@@ -35,7 +35,7 @@ added_at ──▶ upfront commissionable ──▶ 5 paid invoices in a row ─
                                            subscription cancelled = break
 ```
 
-`netlify/lib/add-on-streak.js` is the pure rule; `tools/addon-test.js` pins it.
+`netlify/lib/add-on-streak.js` is the pure rule; `app/test/addon-test.js` pins it.
 `streak_status`: accruing → locked | broken | clawback (| cancelled). `invoices`
 jsonb holds the qualifying tickets so "3 of 5" is auditable.
 

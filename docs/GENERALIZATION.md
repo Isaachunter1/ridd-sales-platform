@@ -4,7 +4,7 @@ Status doc for the multi-company effort (started Sep 22 2026). Principle, per Is
 **the rules stay exactly as built; what a second company configures is the mapping
 from their FieldRoutes labels to the buckets the rules read.** Nothing in here changes
 a number for RIDD — every default is RIDD's current spelling or constant, and the
-golden tests (`tools/attrition-test.js`, `ps-gate-test.js`, `commission-test.js`,
+golden tests (`app/test/attrition-test.js`, `ps-gate-test.js`, `commission-test.js`,
 `upsell-test.js`) must stay green through every slice.
 
 ## What is already per-company (no work)
@@ -28,7 +28,7 @@ golden tests (`tools/attrition-test.js`, `ps-gate-test.js`, `commission-test.js`
 
 - **1.** CRM vocabulary layer (below). **2.** Configurations → CRM vocabulary panel. **3.** Sold-Not-Started bucket + pop-exclusion default derives from tags. **4.** `RIDD_CONFIG.BRAND` (wordmark / mark / external link) and `RIDD_CONFIG.ENTITIES` (legal entities). **5.** Marketing P&L / CAC / Projections iterate the entity list (no hardcoded RPS office set). **6.** Operations baseline from `adminRules.opsBaseline` (RIDD 2025 sheet = default). **7.** `RIDD_CONFIG.FEATURES` switches (pay / competitions / hall_of_fame / scorecards / calendar / pricing) gate the nav and sub-tabs. **8.** Company setup checklist on Configurations (onboarding). **9.** Configurations → Operations baseline panel (CSV paste). See `docs/DEPLOY_NEW_COMPANY.md`.
 
-## Slice 1 — CRM vocabulary layer (`src/12-crm-vocab.js`)
+## Slice 1 — CRM vocabulary layer (`app/src/core/crm-vocab.js`, was `src/12-crm-vocab.js`)
 
 The app used to test RIDD spellings inline: `"3 Day ROR"`, `/renewal/`, `/combined/`,
 `"Upsell - Service Pro"`, `"Door to Door"`, `"sales rep"`, `/office\s*staff/`,

@@ -2,7 +2,7 @@
 
 _Snapshot audited 2026-09-21, read-only. Question asked of every screen: how fast can this person do the five things they do every day? Clicks are counted from the post-login landing page on desktop; the nav menu (spider button) costs 1 click to open + 1 to pick. Phone paths add nothing except that sub-tabs become a `<select>`._
 
-Role gating recap (`src/10-core.js`): `isAdminRole` = admin/admin_rep; `isOfficeLeadRole` = rep_office_lead/rep_loyalty_lead; `isPartnerRole` = rep_partner/rep_team_lead; everything else is a plain rep. `repTypeGroup` (`40-dashboard-and-rep-data.js:179`) sorts explicit roles into office/d2d; `defaultViewFor` (`:188`) lands office → `sales`, d2d → `d2d_dashboard`, admin → `dashboard`. `mountApp` (`30-shell-nav-mount.js:658-721`) enforces one sales world per group and bounces non-admins off `reporting|marketing|admin` to Indicators (`:686-690`).
+Role gating recap (`app/src/core/permissions.js`, was in `src/10-core.js`): `isAdminRole` = admin/admin_rep; `isOfficeLeadRole` = rep_office_lead/rep_loyalty_lead; `isPartnerRole` = rep_partner/rep_team_lead; everything else is a plain rep. `repTypeGroup` (`40-dashboard-and-rep-data.js:179`) sorts explicit roles into office/d2d; `defaultViewFor` (`:188`) lands office → `sales`, d2d → `d2d_dashboard`, admin → `dashboard`. `mountApp` (`30-shell-nav-mount.js:658-721`) enforces one sales world per group and bounces non-admins off `reporting|marketing|admin` to Indicators (`:686-690`).
 
 ---
 

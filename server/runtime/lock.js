@@ -1,6 +1,6 @@
 // job_runs is the lock AND the run history AND the health sheet's source.
 // The lock is a partial unique index (one `running` row per job name, see
-// migrations/20261020_job_runs.sql): a second kick inserts, violates the
+// db/migrations/20261020_job_runs.sql): a second kick inserts, violates the
 // index, and is told a run is already in progress. No advisory locks, no
 // extra table, nothing to leak if the process dies — the 5 a.m. kill switch
 // marks an abandoned `running` row stale.
@@ -18,7 +18,7 @@ export async function acquire(job, { version, dryRun }) {
       e.code = 'LOCKED'; e.status = 409;
       throw e;
     }
-    throw new Error('job_runs insert failed: ' + error.message + ' (run migrations/20261020_job_runs.sql?)');
+    throw new Error('job_runs insert failed: ' + error.message + ' (run db/migrations/20261020_job_runs.sql?)');
   }
   return data;
 }

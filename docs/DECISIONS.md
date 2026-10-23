@@ -2,6 +2,16 @@
 
 One dated paragraph per decision. Read before proposing to undo one. Add to the top.
 
+**2026-10-20 · The Tailwind rebuild is not part of the port.** `tailwind.css` as committed is stale: a rebuild over `app/src/**/*.js` adds 83 selectors and drops 40, and the app has been relying on hand-written gap-fill rules (now at the end of `app/src/styles/app.css`) for the missing ones. Swapping hand-written definitions for Tailwind's can move pixels, so it is its own commit after the port, verified on a deploy preview, with the gap-fill rules deleted one by one as Tailwind covers them. `npm run tailwind` and the repointed `app/tailwind.config.js` are ready for it.
+
+**2026-10-20 · Images and `vendor-supabase.js` stay at the public root.** The architecture doc puts them in `app/public/img/` and `vendor/`; `app.js` names them by their root path (`'kobe-snake.png'`, `import './vendor-supabase.js'`). Moving them means editing code, which breaks the byte-identical check that the port rests on. They move in the ESM phase, when the import lines are rewritten anyway.
+
+**2026-10-20 · The engine build writes two copies.** `packages/engine/dist/ridd-engine.js` is the package's `main` (what `smoke.js` and an `npm install` of the package load); `app/public/engine/dist/ridd-engine.js` + `latest.json` are what Netlify serves at the URLs Cam's server already uses. Two writes of the same bytes beat a redirect, which would have needed a publish-dir target anyway.
+
+**2026-10-20 · `netlify.toml` stays at the repo root during the port.** Netlify resolves `netlify/functions` relative to the base directory, and the functions stay there until the last one ports. The file publishes `app/public` and runs the build from the root; it moves into `app/` when `netlify/` is deleted.
+
+**2026-10-20 · One scope, explicit order.** The app bundle stays one concatenated module scope (no ESM yet); the concatenation order moved from filename numbers to `app/src/bundle.order.js`. Folders now say what a file is; the order file says when it runs. The bundler fails on a file that is on disk but unlisted, listed but missing, or listed twice.
+
 **2026-10-20 · The health route is `/health`, not `/healthz`.** Google's front end in front of Cloud Run answers its own 404 for `/healthz`; the request never reaches the container (verified on the first deploy: `/` and `/api/sync-status` got through, `/healthz` did not). `/api/health` is the same handler so the Netlify `/api/*` redirect covers it.
 
 **2026-10-20 · `GET /api/sync-status` stays open through the port.** The Netlify function had no auth and the app's health sheet calls it without an `Authorization` header. It returns timestamps only. Closing it is a two-sided change (caller + `requireRole()`), which is a behaviour change, so it waits until after the port and ships in one commit.

@@ -39,7 +39,7 @@ Everything below is one-time. After it, **a merge to `main` is a deploy.**
 
 ### 1. Supabase — the `job_runs` table
 
-SQL Editor → paste `migrations/20261020_job_runs.sql` → Run. (It is append-only; a change to the table is a new migration, never an edit.)
+SQL Editor → paste `db/migrations/20261020_job_runs.sql` → Run. (It is append-only; a change to the table is a new migration, never an edit.)
 
 ### 2. Google Cloud — enable the APIs
 

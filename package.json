@@ -3,13 +3,15 @@
   "private": true,
   "description": "RIDD Sales Platform — static PWA on Netlify + one Express service on Cloud Run (server/). Netlify Functions remain until each is ported; see MIGRATION.md.",
   "workspaces": [
-    "server"
+    "server",
+    "packages/engine"
   ],
   "scripts": {
-    "bundle": "node tools/bundle.js",
-    "check": "node tools/bundle.js && node tools/ci-check.js && node tools/build-engine.js && node engine/test/smoke.js",
-    "build": "node tools/bundle.js && node tools/ci-check.js && node tools/build-engine.js && node engine/test/smoke.js && node tools/build.js",
-    "engine": "node tools/build-engine.js && node engine/test/smoke.js",
+    "bundle": "node app/scripts/bundle.js",
+    "check": "node app/scripts/bundle.js && node app/scripts/ci-check.js && node app/scripts/build-engine.js && node packages/engine/test/smoke.js",
+    "build": "node app/scripts/bundle.js && node app/scripts/ci-check.js && node app/scripts/build-engine.js && node packages/engine/test/smoke.js && node app/scripts/build.js",
+    "engine": "node app/scripts/build-engine.js && node packages/engine/test/smoke.js",
+    "tailwind": "cd app && npx --yes tailwindcss@3.4.17 -c tailwind.config.js -i src/styles/tailwind.in.css -o public/tailwind.css --minify",
     "server": "npm run dev --workspace server",
     "server:test": "npm test --workspace server",
     "server:job": "npm run job --workspace server --"

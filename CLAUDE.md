@@ -21,8 +21,13 @@ If a request would break one of these, say so and propose the version that doesn
 | A BigQuery query | `server/services/<domain>/functions/<name>.sql` beside the `.js` that runs it | a template literal in JS |
 | Pure computation (rows in, rows out) | `server/services/<domain>/functions/<name>.js` + a fixture test in `server/test/` | inside the job file |
 | A new env var or secret | one row in `server/config/env.js` + one line in `server/.env.example` | `process.env` anywhere else |
-| A table or column | a new file in `migrations/` (timestamped; append-only) | an edit to an old migration |
-| App code (screens, state, helpers) | `src/` — see `MIGRATION.md` for the current layout | `app.js` (generated) |
+| A table or column | a new file in `db/migrations/` (timestamped; append-only) | an edit to an old migration |
+| App code (screens, state, helpers) | `app/src/<feature>/` — shared helpers in `core/`, everything else in the feature it renders; the file goes in `app/src/bundle.order.js` where it runs | `app/public/app.js` (generated) |
+| CSS the app owns (tokens, components, gap-fill utilities) | `app/src/styles/app.css` | `index.html` |
+| A per-deployment value (Supabase URL, company name) | `app/public/config.js` (`window.RIDD_CONFIG`) | `index.html` |
+| A build or CI script | `app/scripts/` | the repo root |
+| A golden test for app code | `app/test/` (runs inside `app/scripts/ci-check.js`) | beside the code |
+| Engine code (competition scorers, shared by app, server and Cam) | `packages/engine/src/` | `app/src/` |
 | A design decision (done, not planned) | one dated paragraph in `docs/DECISIONS.md` | a comment nobody will find |
 | A way something broke and where to look | a row in `docs/RUNBOOK.md` | only the Slack thread |
 
@@ -64,16 +69,18 @@ router.post('/thing', requireRole(['admin', 'admin_rep']), async (req, res, next
 
 ### Change the app
 
-Edit `src/`, never `app.js`. `node tools/bundle.js` regenerates it. The CI gate (`tools/ci-check.js`) runs on every push and a failure keeps the previous version live. Open the branch preview on a phone and a desktop before asking for a merge.
+Edit `app/src/`, never `app/public/app.js` — it is generated. `npm run bundle` regenerates it; `npm run check` is the CI gate Netlify runs on every push (a failure keeps the previous version live). A new file must be added to `app/src/bundle.order.js` at the position it should run, or the bundle refuses. The bundle is one module scope stitched in that order: any function can call any other, but a `const`/`let` is only usable after its line has run. Open the deploy preview on a phone and a desktop before asking for a merge.
+
+Utility classes come from `app/public/tailwind.css` (prebuilt, committed) plus the gap-fill rules at the end of `app/src/styles/app.css`; `npm run tailwind` rebuilds the sheet over `app/src/**/*.js`, but a rebuild is a visible change (MIGRATION.md) — do it as its own commit and look at every screen.
 
 ### Add a migration
 
-`migrations/YYYYMMDD_<what>.sql`, idempotent (`create table if not exists`, `drop policy if exists … create policy …`). Every table gets RLS. Say in the PR that it needs running in the Supabase SQL editor — there is no deploy-time check yet (`docs/ARCHITECTURE.md` → Deferred).
+`db/migrations/YYYYMMDD_<what>.sql`, idempotent (`create table if not exists`, `drop policy if exists … create policy …`). Every table gets RLS. Say in the PR that it needs running in the Supabase SQL editor — there is no deploy-time check yet (`docs/ARCHITECTURE.md` → Deferred).
 
 ## Deploy
 
 - **Server:** a merge to `main` that touches `server/**` builds and deploys through the Cloud Build trigger. Nothing to do by hand. Config and secrets live in Cloud Run → Variables & Secrets, never in the image.
-- **App:** Netlify, on every push. Branch previews are the human checkpoint.
+- **App:** Netlify, on every push: `netlify.toml` at the repo root publishes `app/public` and runs bundle → ci-check → engine build + smoke → build. The file stays at the root (not `app/`) because `netlify/functions/` is still served from there until the last function ports. Deploy previews are the human checkpoint.
 - **Scheduler:** `npm run schedules -- --apply` after a job's `schedule` changes. Never edit Cloud Scheduler by hand.
 - **You never merge.** Open the PR, point at the preview, stop.
 

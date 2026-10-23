@@ -13,8 +13,8 @@ in this checklist changes RIDD's deployment.
 
 ## 1. Supabase (new project)
 1. Create the project; note URL, publishable key, service-role key.
-2. Run every file in `migrations/` in filename order (they are dated). Skip
-   `migrations/one-off/`.
+2. Run every file in `db/migrations/` in filename order (they are dated). Skip
+   `db/scripts/`.
 3. Auth: enable email, set Site URL to the Netlify URL; add the same URL to
    redirect allow-list.
 4. Storage: create the `reporting` bucket (public read off) — the snapshot loader
