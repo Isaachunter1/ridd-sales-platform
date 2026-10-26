@@ -44,6 +44,9 @@ export async function createApp() {
   // /health, not /healthz — Google's front end answers its own 404 for
   // /healthz on Cloud Run and the request never reaches the container.
   const health = (_req, res) => res.json({ ok: MISSING.length === 0, configured: MISSING.length === 0, missing: MISSING, version: env.JOB_VERSION, now: new Date().toISOString() });
+  app.get('/', (req, res) => {
+    res.send('Hello');
+  }); // For testing app update publish path.
   app.get('/health', health);
   app.get('/api/health', health);
   // Not configured yet → every other route says so, plainly, instead of
