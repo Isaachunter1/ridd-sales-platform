@@ -11,7 +11,7 @@ Started Oct 20, 2026.
 | Netlify today | Server home | Status | Verified by |
 | --- | --- | --- | --- |
 | `functions/sync-status.js` | `services/misc` → `GET /api/sync-status` | **moved** · Oct 20 | health sheet reads through Cloud Run; response shape unchanged (+ `jobs`) |
-| `functions/ops-stats-background.js` + `-now` + `-scheduled` | `services/ops/jobs/ops-stats.js` | **moved** · Oct 20 — ⏳ *awaiting first scheduled run before Netlify delete* | `npm run job -- ops-stats --dry` diffed against `indicators/ops-stats.json` from Netlify, same window |
+| `functions/ops-stats-background.js` + `-now` + `-scheduled` | `services/ops/jobs/ops-stats.js` | **moved** · Oct 20 · Netlify copies deleted Oct 26 | `npm run job -- ops-stats --dry` diffed against `indicators/ops-stats.json` from Netlify, same window; Cloud Scheduler `ridd-ops-stats` (40 */6 UTC) landed in `job_runs` |
 | `lib/auth-gate.js` | `middleware/auth.js` | **moved** · Oct 20 | same status codes and messages |
 | `lib/sync-gate.js` | `middleware/apiToken.js` | **moved** · Oct 20 | now always closed (was open when the secret was unset) |
 | `revhawk-sync-background.js` — `_bq` | `config/bigquery.js` | **moved** · Oct 20 | token flow, polling cap, paging verbatim; SQL now in `.sql` files with named params |
@@ -37,12 +37,15 @@ Started Oct 20, 2026.
 | `lib/add-on-streak.js`, `upsell-record.js`, `rules.js`, `invoice-map.js` | `services/addons/functions/` | frozen | |
 | `lib/integrations.js` | `services/misc/functions/` | frozen | |
 
-Port order after `ops-stats`: `derive`, then `sync/` split in this order — snapshot, monitors, roster + mirrors, autolog, verify, staging — then the rest.
+Port order now that `ops-stats` is done: `derive` (next), then `sync/` split in this order — snapshot, monitors, roster + mirrors, autolog, verify, staging — then the rest.
 
 ### Open items from the POC
 
 - [x] App change for ops-stats: **none** — the Reporting → Operations "Refresh now" button was retired Sep 21 (`src/89-reporting-ops.js`); the tab only reads `indicators/ops-stats.json`. `POST /api/jobs/ops-stats` exists for an admin kick if one is ever wanted back.
-- [ ] `netlify.toml`: `/api/sync-status` and `/api/jobs/*` redirects → Cloud Run (`server/README.md` step 8). Delete `[functions."ops-stats-scheduled"]` and the `/api/ops-stats-now` redirect when the three Netlify files go.
+- [x] `netlify.toml`: `/api/sync-status` and `/api/jobs/*` redirects → Cloud Run (`server/README.md` step 8) — live since Oct 26 (`26fbf9e`). `[functions."ops-stats-scheduled"]` and the `/api/ops-stats-now` redirect deleted with the three Netlify files, Oct 26.
+- [x] Cloud Scheduler applied Oct 26 (project `ridd-data`, location `us-west3`): `ridd-ops-stats` (`40 */6 * * *` UTC) and `ridd-kill-switch` (`0 5 * * *` America/New_York), created with the exact commands `scripts/schedules.js` generates. Manual kick returned HTTP 200, `dryRun:false`.
+- [ ] Every Cloud Run secret (`API_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY`, `GCP_SA_*`, QBO, Windsor, GHL, FieldRoutes, Anthropic, Slack webhooks) is a **plain env var** on `ridd-sales-platform`, not a Secret Manager reference — readable by anyone with Cloud Run viewer. Move each into Secret Manager (`server/README.md` step 6) and reference it; `scripts/schedules.js` reads `API_TOKEN` from Secret Manager and fails until that one moves.
+- [ ] `server/README.md` step 7 defaults `GCP_REGION=us-central1` and names the service `ridd-server`; the live service is `ridd-sales-platform` in `us-west3`, project `ridd-data`. Fix the doc.
 - [ ] `GET /api/sync-status` is **open** (no JWT), as it was on Netlify, because the health sheet calls it without headers. Closing it = change the caller + `requireRole()` in one commit, after the port.
 - [ ] `CORS_ORIGINS=*` on Cloud Run for the POC; set it to the Netlify production + preview origins before the next endpoint moves.
 - [ ] Health sheet still reads `indicators/sync-heartbeat.json`; `job_runs` is already in the `sync-status` response under `jobs`. Switch the sheet when `snapshot` ports.
