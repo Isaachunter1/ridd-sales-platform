@@ -126,7 +126,6 @@
   status = 200
 
 [[redirects]]
-[[redirects]]
   from = "/api/slack-dm"
   to   = "/.netlify/functions/slack-dm"
   status = 200
@@ -205,10 +204,23 @@
   to   = "/.netlify/functions/ask-data"
   status = 200
 
+# ── Cloud Run (the port, Oct 2026 — see MIGRATION.md) ──────────────────
+# Endpoints that have moved to server/. The service is built and deployed by
+# Cloud Build from main; its URL is stable across deploys. `force = true`
+# makes these win even while the old Netlify function still exists beside
+# them. One rule per moved endpoint until the port is done, then one `/api/*`.
 [[redirects]]
   from = "/api/sync-status"
-  to   = "/.netlify/functions/sync-status"
+  to   = "https://ridd-sales-platform-69617826151.us-west3.run.app/api/sync-status"
   status = 200
+  force = true
+
+# Admin job kicks: POST /api/jobs/<name> with the Supabase JWT.
+[[redirects]]
+  from = "/api/jobs/*"
+  to   = "https://ridd-sales-platform-69617826151.us-west3.run.app/api/jobs/:splat"
+  status = 200
+  force = true
 
 [[redirects]]
   from = "/api/integrations-admin"
