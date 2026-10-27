@@ -124,9 +124,13 @@ function _dashLensCompanyOk() {
 }
 function dashLensOn() { return !!(typeof IND_WORLD !== 'undefined' && IND_WORLD[state.view]) && !state.indicatorsComps; }
 function dashLens() {
-  if (state._dashLens === undefined) { try { state._dashLens = localStorage.getItem('ridd_dash_lens') || ''; } catch (e) { state._dashLens = ''; } }
+  // Default lens (per Isaac, Oct 27): admins open on the company view, everyone else on Me — a rep's own numbers
+  // first, the company second. New storage key so the old saved pick doesn't override the new default once.
+  if (state._dashLens === undefined) { try { state._dashLens = localStorage.getItem('ridd_dash_lens_v2') || ''; } catch (e) { state._dashLens = ''; } }
   const o = dashLensOptions();
-  return o.some(x => x[0] === state._dashLens) ? state._dashLens : (o[0] ? o[0][0] : 'all');
+  if (o.some(x => x[0] === state._dashLens)) return state._dashLens;
+  if (isAdminRole(state.profile?.role) && o.some(x => x[0] === 'all')) return 'all';
+  return o[0] ? o[0][0] : 'all';
 }
 function dashLensTeam() { const v = dashLens(); return v.indexOf('team:') === 0 ? v.slice(5) : ''; }
 // Plain-words name of what the lens is showing: "Isaac Hunter", "Avanti team", "Company".
@@ -257,7 +261,7 @@ function dashLensSwitch() {
       style: v === cur ? { background: 'var(--accent)', color: 'var(--accent-text)', height: '100%' } : { color: 'var(--text-muted)', background: 'var(--card)', height: '100%' },
       onclick: () => {
         if (v === cur) return;
-        state._dashLens = v; try { localStorage.setItem('ridd_dash_lens', v); } catch (e) {}
+        state._dashLens = v; try { localStorage.setItem('ridd_dash_lens_v2', v); } catch (e) {}
         if (typeof trackAction === 'function') trackAction('dash_lens', 'indicators', { lens: v.indexOf('team:') === 0 ? 'team' : v });
         // Stay put (per Isaac, Oct 16): the re-render briefly re-measures the fixed bar's spacer, which used to
         // nudge the page up ~28px per switch. Re-pin the exact scroll spot once the layout has settled.
@@ -4827,10 +4831,36 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   const _lbPickable = repCols.filter(c => c.key !== 'name' && !(indOneDayRange() && IND_PER_DAY_COLS.has(c.key)));
   // Phone stat picker (per Isaac, Oct 15): one stat per rep card, default Days w/ a Sale.
   const _lbPhoneCols = (() => { const seen = new Set(); return _lbPickable.filter(c => { if (c.key === 'team' || RECORD_SORT_KEYS.has(c.key) || seen.has(c.key)) return false; seen.add(c.key); return true; }); })();
-  if (state._lbPhoneCol == null) { try { state._lbPhoneCol = localStorage.getItem('ridd_lb_phone_col') || ''; } catch (e) { state._lbPhoneCol = ''; } }
-  const _lbPhoneColKey = _lbPhoneCols.some(c => c.key === state._lbPhoneCol) ? state._lbPhoneCol : (indOneDayRange() ? 'revenue' : 'sellingDays');
+  // The big number on each phone card IS this stat, and the cards rank by it (per Isaac, Oct 27).
+  // Default per user type: Sales Reps + Technicians → Total Revenue, Office Staff → New Revenue. Remembered per dashboard.
+  const _lbPhoneStore = 'ridd_lb_phone_col_v2:' + (state.indicatorDept || 'all');
+  if (!state._lbPhoneColBy) state._lbPhoneColBy = {};
+  if (state._lbPhoneColBy[_lbPhoneStore] == null) { try { state._lbPhoneColBy[_lbPhoneStore] = localStorage.getItem(_lbPhoneStore) || ''; } catch (e) { state._lbPhoneColBy[_lbPhoneStore] = ''; } }
+  const _lbPhoneDefault = (state.indicatorDept === 'office' && _lbPhoneCols.some(c => c.key === 'newRevenue')) ? 'newRevenue' : 'revenue';
+  const _lbPhoneColKey = _lbPhoneCols.some(c => c.key === state._lbPhoneColBy[_lbPhoneStore]) ? state._lbPhoneColBy[_lbPhoneStore] : _lbPhoneDefault;
   const _lbPhoneCol = _lbPhoneCols.find(c => c.key === _lbPhoneColKey) || null;
   const _lbPhoneVal = (r) => { try { const td = _lbPhoneCol.cell(r); return String((td && td.textContent) || '').trim() || '\u2014'; } catch (e) { return '\u2014'; } };
+  // Phone cards rank by the picked stat, in that column's own direction (Attrition % ranks low-first).
+  const _lbPhoneRanked = (list) => {
+    const k = _lbPhoneColKey, asc = !!(_lbPhoneCol && _lbPhoneCol.defaultDir === 'asc');
+    return list.slice().sort((a, b) => { const va = Number(a[k]) || 0, vb = Number(b[k]) || 0; return va === vb ? (Number(b.revenue) || 0) - (Number(a.revenue) || 0) : (asc ? va - vb : vb - va); });
+  };
+  // Phone Total card's big number for the picked stat: sums for money / counts, sales-weighted averages for
+  // rates and per-sale averages, per-rep average for Days w/ Sale — the same rules as the desktop Total row.
+  const _lbPhoneTotal = (list, tRev) => {
+    const k = _lbPhoneColKey; if (k === 'revenue') return fmt.usd0(tRev);
+    const sum = (f) => list.reduce((a, r) => a + (Number(r[f]) || 0), 0), n = sum('count'), days = sum('sellingDays');
+    const w = (f) => { let t = 0, c = 0; for (const r of list) { const v = Number(r[f]) || 0, rc = Number(r.count) || 0; if (v > 0) { t += v * rc; c += rc; } } return c > 0 ? t / c : 0; };
+    if (['newRevenue', 'renewalRevenue', 'totalRevenue', 'otsRevenue', 'recRevenue'].includes(k)) return fmt.usd0(sum(k));
+    if (k === 'peakRevenue') return fmt.usd0(list.reduce((a, r) => a + (r.peakRevenue || r.revenue || 0), 0));
+    if (k === 'count') return fmt.int(n);
+    if (k === 'sellingDays') return list.length ? (days / list.length).toFixed(1) : '\u2014';
+    if (k === 'revPerDay') return days > 0 ? fmt.usd0(tRev / days) : '\u2014';
+    if (k === 'acctsPerDay') return days > 0 ? (n / days).toFixed(1) : '\u2014';
+    if (['auditPct', 'myPct', 'autoPayPct'].includes(k)) { let t = 0; for (const r of list) t += (Number(r[k]) || 0) * (Number(r.count) || 0); return n > 0 ? ((t / n) * 100).toFixed(1) + '%' : '\u2014'; }
+    if (k === 'attrPct') { const sv = sum('attrServRev'), cx = sum('attrCxlRev'); return sv > 0 && cx > 0 ? ((cx / sv) * 100).toFixed(1) + '%' : '\u2014'; }
+    const v = w(k); return v > 0 ? fmt.usd(v) : '\u2014';   // avgInitial, avgPest, ACVs, avgRecurring
+  };
   const _lbOnSet = new Set(state._indLbColsOn);
   // _lbOff = every column NOT showing (user-unticked + default-hidden not ticked on).
   const _lbOff = new Set([...state._indLbColsOff, ..._lbPickable.filter(c => c.defaultHidden && !_lbOnSet.has(_lbColKey(c))).map(_lbColKey)]);
@@ -5139,7 +5169,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             if (_lbPhone) return el('select', {
               class: 'rounded-lg border ' + _lbBtnPad + ' py-1 text-[11px] font-semibold cursor-pointer', title: 'Which stat each rep card shows',
               style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', maxWidth: '130px' },
-              onchange: (e) => { state._lbPhoneCol = e.target.value; try { localStorage.setItem('ridd_lb_phone_col', e.target.value); } catch (er) { /* session only */ } mountApp(); },
+              onchange: (e) => { state._lbPhoneColBy[_lbPhoneStore] = e.target.value; try { localStorage.setItem(_lbPhoneStore, e.target.value); } catch (er) { /* session only */ } mountApp(); },
             }, ..._lbPhoneCols.map(c => el('option', { value: c.key, selected: c.key === _lbPhoneColKey }, _lbColLabel(c))));
             const offN = _lbPickable.filter(c => !c.defaultHidden && _lbOff.has(_lbColKey(c))).length;
             const open = !!state._indLbColsOpen;
@@ -5500,7 +5530,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             el('div', { class: 'flex items-center gap-2' },
               el('span', { class: 'font-black text-[11px] uppercase tracking-wider' }, 'Total'),
               el('span', { class: 'text-[10px] text-muted-' }, displayReps.length + ' reps'),
-              el('span', { class: 'text-xl leading-none font-black tabular-nums ml-auto shrink-0' }, fmt.usd0(tRev))),
+              el('span', { class: 'text-xl leading-none font-black tabular-nums ml-auto shrink-0', title: _lbPhoneCol ? _lbColLabel(_lbPhoneCol) : 'Revenue' }, _lbPhoneTotal(displayReps, tRev))),
             el('div', { class: 'flex items-baseline justify-between gap-2 mt-0.5' },
               indOneDayRange()
                 // One day: how many of the reps shown got on the board, and the average sale.
@@ -5517,7 +5547,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         // (Mobile pinned "You" card removed per Isaac, Oct 9: each rep's own player card already sits at the top of their page.)
         ...(displayReps.length === 0
           ? [el('div', { class: 'text-center text-xs text-muted- italic py-6' }, 'No reps match the current filters.')]
-          : displayReps.map((r, i) => {   // mobile: top 20, rest hidden until Show more (per Isaac, Oct 13)
+          : _lbPhoneRanked(displayReps).map((r, i) => {   // mobile: top 20, rest hidden until Show more (per Isaac, Oct 13) · ranked by the picked stat (Oct 27)
               const tierMeta = repTierMeta(r.tier);
               const teamColor = r.team ? getTeamColor(r.team) : null;
               // Multi-branch reps (per Isaac): primary office = where they
@@ -5561,7 +5591,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                     style: { background: 'var(--card-2)', color: 'var(--text-muted)' },
                     title: 'No sale within 75 days of the latest sale in the dataset. Still on the board because they sold inside this range.',
                   }, 'Inactive'),
-                  el('span', { class: 'text-xl leading-none font-black tabular-nums ml-auto shrink-0' }, fmt.usd0(r.revenue)),
+                  el('span', { class: 'text-xl leading-none font-black tabular-nums ml-auto shrink-0', title: _lbPhoneCol ? _lbColLabel(_lbPhoneCol) : 'Revenue' }, _lbPhoneCol ? _lbPhoneVal(r) : fmt.usd0(r.revenue)),
                 ),
                 // Sales pace right under the revenue. (Team + office names
                 // dropped — the colored left border still hints the team, and
@@ -5569,8 +5599,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 // Second line: Days w/ a Sale on the left, sales · $/day on the
                 // right (per Isaac — the stat used to sit a full line lower).
                 el('div', { class: 'flex items-baseline justify-between gap-2 mt-0.5' },
-                  (_lbPhoneCol && _lbPhoneColKey !== 'sellingDays')
-                    ? el('span', { class: 'text-[10px]' }, iv(_lbColLabel(_lbPhoneCol) + ':', _lbPhoneVal(r)))   // the stat picked in the phone Columns dropdown
+                  (_lbPhoneColKey !== 'revenue')
+                    ? el('span', { class: 'text-[10px]' }, iv('Total rev:', fmt.usd0(r.revenue)))   // the big number is the picked stat; total revenue stays in view
                     : indOneDayRange()
                     ? el('span', { class: 'text-[10px]' }, iv('Avg sale:', r.count ? fmt.usd0((Number(r.revenue) || 0) / r.count) : '—'))
                     : el('span', { class: 'text-[10px]' }, iv('Days w/ a Sale:', fmt.int(r.sellingDays || 0))),
