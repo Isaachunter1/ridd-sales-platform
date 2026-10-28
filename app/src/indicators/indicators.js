@@ -5555,12 +5555,14 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 onclick: _canOpenTot ? _openTot : undefined,
                 // Same size as a rep row, just bold (per Isaac, Oct 28) — no grey band, no small caps. It sits in the
                 // sticky thead, so it resets the header's 10px / uppercase / muted text.
-                style: { background: 'var(--card)', color: 'var(--text)', fontSize: '13px', textTransform: 'none', letterSpacing: 'normal', fontWeight: '700', boxShadow: 'inset 0 -1px 0 var(--border), inset 0 1px 0 var(--border)' } },   // same weight as every other row line (per Isaac)
-                el('td', { class: 'pl-5 pr-2 py-2 text-base leading-none', style: { fontFamily: 'Georgia, "Times New Roman", serif' } }, '\ud835\udd7d'),
+                style: { background: 'var(--card)', color: 'var(--text)', fontSize: '13px', textTransform: 'none', letterSpacing: 'normal', fontWeight: '700', WebkitTextStroke: '0.4px currentColor', boxShadow: 'inset 0 -1px 0 var(--border), inset 0 1px 0 var(--border)' } },   // same weight as every other row line (per Isaac)
+                // Bold that shows (per Isaac, Oct 28): only IBM Plex Mono Regular ships, declared 400–700, so the browser
+                // never thickens it for bold — a hairline text stroke does. The 𝕽 mark in the # column is gone.
+                el('td', { class: 'pl-5 pr-2 py-2' }, ''),
                 ...repCols.map(c => {
                   if (c.key === 'name') return el('td', { class: 'px-2 py-2' },
                     el('span', { class: 'font-bold', style: { fontFamily: "'Archivo', Inter, ui-sans-serif, system-ui, -apple-system, sans-serif" } }, 'Total'),   // same face as the rep names
-                    el('span', { class: 'text-[11px] text-muted- ml-1.5 font-normal' }, displayReps.length + ' reps'));
+                    el('span', { class: 'text-[11px] text-muted- ml-1.5 font-normal', style: { WebkitTextStroke: '0' } }, displayReps.length + ' reps'));
                   if (c.key === 'team' || c.key === 'office') return el('td', { class: 'px-2 py-2' }, '');
                   const st = { fontWeight: '700' };
                   if (RECORD_SORT_KEYS.has(c.key)) st.borderLeft = '1px solid var(--border-2)';
