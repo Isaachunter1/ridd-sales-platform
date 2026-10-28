@@ -2,6 +2,8 @@
 
 One dated paragraph per decision. Read before proposing to undo one. Add to the top.
 
+**2026-10-28 · Renewals are exempt from the audit flag.** A renewal's account still carries the Passed / Failed Audit flag from the original sale, so the flag says nothing about the renewal (per Isaac). Auto-approval (`server/services/sync/functions/stageRules.js`) no longer holds a renewal on a Failed Audit flag; it is approved on its next treatment (completed on/after the save) or its next paid bill, as before. The app hides the flag on renewals (Sales tab, Pay) and pay math already exempted them (`passedAuditExempt`). To pull it forward, `staging` was ported out of the sync worker ahead of the port order.
+
 **2026-10-20 · The Tailwind rebuild is not part of the port.** `tailwind.css` as committed is stale: a rebuild over `app/src/**/*.js` adds 83 selectors and drops 40, and the app has been relying on hand-written gap-fill rules (now at the end of `app/src/styles/app.css`) for the missing ones. Swapping hand-written definitions for Tailwind's can move pixels, so it is its own commit after the port, verified on a deploy preview, with the gap-fill rules deleted one by one as Tailwind covers them. `npm run tailwind` and the repointed `app/tailwind.config.js` are ready for it.
 
 **2026-10-20 · Images and `vendor-supabase.js` stay at the public root.** The architecture doc puts them in `app/public/img/` and `vendor/`; `app.js` names them by their root path (`'kobe-snake.png'`, `import './vendor-supabase.js'`). Moving them means editing code, which breaks the byte-identical check that the port rests on. They move in the ESM phase, when the import lines are rewritten anyway.

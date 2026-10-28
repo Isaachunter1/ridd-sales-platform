@@ -22,7 +22,8 @@ Started Oct 20, 2026.
 | — offices + sources mirror | `services/sync/jobs/mirrors.js` | frozen | |
 | — auto-add, upsell auto-log, ghost sales | `services/sync/jobs/autolog.js` | frozen | |
 | — 60-day CRM verify | `services/sync/jobs/verify.js` | frozen | |
-| — auto-stage, paid-since-sale, minimums, peak values, service changes | `services/sync/jobs/staging.js` | frozen — *note: peak-values and service-changes are their own files inside the worker today; decide on read whether they are separate jobs* | |
+| — auto-stage, paid-since-sale, minimums | `services/sync/jobs/staging.js` | **ported, not switched** · Oct 28 — reads the worker's latest snapshot; no schedule yet, so the Netlify block still does the writing. Pulled forward of the port order to fix the renewal audit rule (per Isaac). | decisions in `functions/stageRules.js` are the Netlify lines verbatim: a differential run of the extracted Netlify loop vs `decideStage` over 9,000 random sales × 3 autolog configs = 0 differences (all moves exercised). Before the switch: `POST /api/jobs/staging?dry=1` right after a Netlify run should plan ~nothing |
+| — peak values, service changes | their own jobs (they publish files, not sales updates) | frozen | |
 | `tech-stats-background.js` + `-scheduled` | `services/ops/jobs/tech-stats.js` | frozen | |
 | `fieldroutes-addons-sync-background.js`, `addon-reconcile-background.js`, `addons-scheduled.js`, `addons-dryrun.js` | `services/addons` | frozen | |
 | `crm-deleted-scan-*`, `fieldroutes-live-sync-*` | `services/crm` | frozen | |
@@ -36,6 +37,8 @@ Started Oct 20, 2026.
 | `lib/indicators-derive.js` | `services/indicators/functions/` | frozen | |
 | `lib/add-on-streak.js`, `upsell-record.js`, `rules.js`, `invoice-map.js` | `services/addons/functions/` | frozen | |
 | `lib/integrations.js` | `services/misc/functions/` | frozen | |
+
+`staging` was pulled forward (Oct 28) for the renewal audit rule. **Switch** (its own PR): give the job its schedule, delete the AUTO-STAGE block from the Netlify worker, `npm run schedules -- --apply`.
 
 Port order now that `ops-stats` is done: `derive` (next), then `sync/` split in this order — snapshot, monitors, roster + mirrors, autolog, verify, staging — then the rest.
 
