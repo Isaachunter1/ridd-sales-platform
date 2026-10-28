@@ -3603,13 +3603,13 @@ function openIndicatorRepCard(rep, allReps = []) {
       : cardRevMode === 'total' && _mo.revenue == null ? (scopedRep.revenue || 0) : revSales.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
     const _nowAmt = revSales.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
     const revDays = new Set(revSales.map(x => dateSoldToIso(x.dateSold)).filter(Boolean)).size;
-    // Office Staff: a 2 × 2 grid — New / Total, then Renewal / Peak (per Isaac, Oct 17 — Peak was cut off in one row).
-    let _rtWide = false; try { _rtWide = window.matchMedia('(min-width: 640px)').matches; } catch (e) { /* phone */ }
-    const _rt4 = state.indicatorDept === 'office' && _rtWide;   // phones: the revenue tile is full-width, one row fits
-    const revToggle = el('span', { class: _rt4 ? 'inline-grid rounded overflow-hidden' : 'inline-flex rounded overflow-hidden', style: Object.assign({ border: '1px solid var(--border-2)' }, _rt4 ? { gridTemplateColumns: 'repeat(2, auto)', marginTop: '2px' } : {}), onclick: (e) => e.stopPropagation() },
+    // One row (per Isaac, Oct 28, reversing the Oct 17 2×2 grid): New / Total / Renewal / Peak side by side with
+    // tighter buttons, so the revenue tile stays the same height as the others.
+    const _rt4 = state.indicatorDept === 'office';
+    const revToggle = el('span', { class: 'inline-flex rounded overflow-hidden', style: { border: '1px solid var(--border-2)', maxWidth: '100%' }, onclick: (e) => e.stopPropagation() },
       // Office Staff: New / Total / Renewal / Peak · everyone else: Revenue / Peak (per Isaac, Oct 15).
       ...(state.indicatorDept === 'office' ? [['new', 'New'], ['total', 'Total'], ['renewal', 'Renewal'], ['peak', 'Peak']] : [['total', 'Revenue'], ['peak', 'Peak']]).map(([v, l]) => el('button', { type: 'button',
-        style: { fontSize: '9px', fontWeight: '700', padding: _rt4 ? '1px 7px' : '0 5px', lineHeight: '14px', border: '0', cursor: 'pointer', background: cardRevMode === v ? 'var(--accent)' : 'transparent', color: cardRevMode === v ? 'var(--accent-text)' : 'var(--text-muted)' },
+        style: { fontSize: _rt4 ? '8px' : '9px', fontWeight: '700', padding: _rt4 ? '0 4px' : '0 5px', lineHeight: '14px', border: '0', cursor: 'pointer', whiteSpace: 'nowrap', background: cardRevMode === v ? 'var(--accent)' : 'transparent', color: cardRevMode === v ? 'var(--accent-text)' : 'var(--text-muted)' },
         title: v === 'new' ? 'New business only' : v === 'renewal' ? 'Renewal-source sales only' : v === 'peak' ? 'Every account at its value once the initial was completed, before any later reduction (rates lowered to save it, plans adjusted down)' : 'Everything',
         onclick: (e) => { e.stopPropagation(); cardRevMode = v; renderBody(); } }, l)));
     scopedStats = [
