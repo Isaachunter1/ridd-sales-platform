@@ -93,6 +93,16 @@ function indTeamFilterLabel(v) {
   const l = indTeamFilterList(v).map(t => t === '__unassigned__' ? 'No team' : t);
   return l.length <= 2 ? l.join(' + ') : l.length + ' teams';
 }
+// Teams belong to the rep type they were made under in Manage Teams (per Isaac, Oct 28): a dashboard only lists
+// ITS type's teams — Sales Rep teams on Sales Reps, none on Office Staff / Technicians until teams are made there.
+// The All dashboard lists every team.
+function indWorldTeamOk(t) {
+  if (!t || (typeof isTeamExcluded === 'function' && isTeamExcluded(t))) return false;
+  const d = state.indicatorDept;
+  const w = (d === 'office' || d === 'techs' || d === 'd2d') ? d : '';
+  if (!w) return true;
+  return (typeof teamTypeOf === 'function' ? teamTypeOf(t) : 'd2d') === w;
+}
 function indWorldHasTeams() {
   const w = _indTeamWorld();
   if (!w) return true;
@@ -617,7 +627,9 @@ function viewWorldDashboard() {
     state._indDeptDefaulted = true;
     state._indWorld = state.view;
     state.indicatorDept = dept;
-    if (!indWorldHasTeams() && !isAdminRole(state.profile?.role)) state._indicatorRepTeamFilter = '';   // (admins keep their team pick across user types — per Isaac, Oct 9) a D2D team filter doesn't follow you onto a dashboard with no teams
+    // A team pick only follows you onto a dashboard whose rep type has those teams (per Isaac, Oct 28) — otherwise
+    // it would filter the board with no Team row there to undo it.
+    if (state._indicatorRepTeamFilter) { const keep = indTeamFilterList().filter(t => t === '__unassigned__' || indWorldTeamOk(t)); state._indicatorRepTeamFilter = keep.join(IND_TEAM_SEP); }
   }
   const node = viewIndicators();
   const _adminPacer = (dept === 'd2d' || dept === 'techs') && isAdminRole(state.profile?.role) && !state.indicatorsComps;
@@ -1504,7 +1516,7 @@ function viewIndicators() {
           const officeSel = el('select', Object.assign({ onchange: e => { _staged.office = e.target.value; _markDirty(); } }, _selCls),
             el('option', { value: '', selected: !_staged.office }, 'All offices'),
             ..._offices.map(o => el('option', { value: o, selected: _staged.office === o }, String(o).split(' ').map(w => w[0] ? w[0].toUpperCase() + w.slice(1).toLowerCase() : '').join(' '))));
-          const _teams = (typeof distinctTeams === 'function' ? distinctTeams() : []).filter(t => !(typeof isTeamExcluded === 'function' && isTeamExcluded(t)));
+          const _teams = (typeof distinctTeams === 'function' ? distinctTeams() : []).filter(indWorldTeamOk);   // this rep type's teams only (per Isaac, Oct 28)
           // Team: a checkbox dropdown (per Isaac, Oct 28) — tick several teams to see them combined.
           const teamSel = (() => {
             const picked = new Set(indTeamFilterList(_staged.team));
@@ -1553,8 +1565,8 @@ function viewIndicators() {
                   isRange ? null : _fRow('Date', dateSel),
                   _fRow('Group',  hl(groupSel,  groupBy !== 'branch')),
                   _repLite ? null : _fRow('Office', hl(officeSel, !!state._indicatorRepOfficeFilter)),
-                  // Admins get the Team pick on every user type (per Isaac, Oct 9) — every team is listed, so one team can be looked at from any dashboard.
-                  (_repLite || !(indWorldHasTeams() || isAdminRole(state.profile?.role))) ? null : _fRow('Team',   (hl(teamSel._hl, !!state._indicatorRepTeamFilter), teamSel)),
+                  // Team: only this rep type's teams, and no row at all when it has none (per Isaac, Oct 28 — replaces Oct 9's every-team-everywhere).
+                  (_repLite || !_teams.length) ? null : _fRow('Team',   (hl(teamSel._hl, !!state._indicatorRepTeamFilter), teamSel)),
                   (_repLite || !tierSel) ? null : _fRow('Tier', hl(tierSel, !!state._indicatorRepTierFilter)),
                 ];
               })(),
@@ -11053,7 +11065,7 @@ function indicatorYoYTrendChart() {
       const ql = String(q || '').toLowerCase();
       const fit = (n) => !ql || n.toLowerCase().includes(ql);
       const offs = offices.filter(o => fit(o) || _staged.includes('office:' + o));
-      const tms = teams.filter(t => !(typeof isTeamExcluded === 'function' && isTeamExcluded(t))).filter(t => fit(t) || _staged.includes('team:' + t));
+      const tms = teams.filter(indWorldTeamOk).filter(t => fit(t) || _staged.includes('team:' + t));   // this rep type's teams only
       if (offs.length) { placeList.append(secTitle('Offices')); offs.forEach(o => placeList.append(rowBtn('office:' + o, o))); }
       if (tms.length) { placeList.append(secTitle('Teams')); tms.forEach(t => placeList.append(rowBtn('team:' + t, t))); }
     };
