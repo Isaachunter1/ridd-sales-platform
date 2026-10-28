@@ -11561,7 +11561,7 @@ function indicatorYoYTrendChart() {
         el('h3', { class: 'text-base font-bold whitespace-nowrap' }, 'Trends'),   // shortened (per Isaac, Oct 18)   // same title size as every other card (per Isaac, Oct 16)
         el('div', { class: 'min-w-0', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, _yoyViewPick)),
       el('div', { class: 'flex items-center gap-2 shrink-0' }, ...((_yoyLensOn && _yoyView !== 'all') ? [] : (comboWrap ? [comboWrap] : [
-        // Compare on/off (per Isaac, Oct 28) — the picker only shows while it's on.
+        scopesWrap,   // search box first, then the Compare switch (per Isaac, Oct 28)
         // Compare on/off switch (per Isaac, Oct 28): off → the rep search only; on → offices + teams join it.
         scopesWrap ? (() => { const on = _yoyCompareOn();
           return el('button', { type: 'button', class: 'rounded-xl border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap inline-flex items-center gap-2',
@@ -11571,7 +11571,6 @@ function indicatorYoYTrendChart() {
             'Compare',
             el('span', { class: 'inline-flex items-center', style: { width: '26px', height: '14px', borderRadius: '999px', padding: '2px', boxSizing: 'border-box', background: on ? 'var(--accent)' : 'var(--border-2)', justifyContent: on ? 'flex-end' : 'flex-start', transition: 'background .15s' } },
               el('span', { style: { width: '10px', height: '10px', borderRadius: '50%', background: '#fff', display: 'block' } }))); })() : null,
-        scopesWrap,
       ].filter(Boolean))), metricSel)),
     cvsWrap);
 }
