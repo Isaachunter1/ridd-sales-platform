@@ -10604,8 +10604,9 @@ function indicatorYoYTrendChart() {
     // Admins (per Isaac, Sep 24): scope follows the page-header Filters —
     // Team, else Office, else Company — unless specific reps are picked
     // here, in which case each rep is its own line.
-    // Compare on: each picked office / team / rep is its own line. Off: the picks are kept but not drawn.
-    if (_yoyCompareOn()) { const pick = sel.filter(sc => sc.t === 'office' || sc.t === 'team' || sc.t === 'rep'); if (pick.length) return pick; }
+    // Picked reps are always their own lines. Compare on adds offices and teams (per Isaac, Oct 28); off keeps those
+    // picks but doesn't draw them.
+    { const pick = sel.filter(sc => sc.t === 'rep' || (_yoyCompareOn() && (sc.t === 'office' || sc.t === 'team'))); if (pick.length) return pick; }
     if (state._indicatorRepTeamFilter && state._indicatorRepTeamFilter !== '__unassigned__') return [{ t: 'team', v: indTeamFilterList().filter(t => t !== '__unassigned__').join(IND_TEAM_SEP) }];   // several teams = ONE combined line
     if (state._indicatorRepOfficeFilter) return [{ t: 'office', v: state._indicatorRepOfficeFilter }];
     return [{ t: 'co' }];
@@ -11048,6 +11049,7 @@ function indicatorYoYTrendChart() {
     const placeList = el('div', {});
     const paintPlaces = (q) => {
       placeList.innerHTML = '';
+      if (!_yoyCompareOn()) return;   // offices + teams only while Compare is on
       const ql = String(q || '').toLowerCase();
       const fit = (n) => !ql || n.toLowerCase().includes(ql);
       const offs = offices.filter(o => fit(o) || _staged.includes('office:' + o));
@@ -11090,7 +11092,8 @@ function indicatorYoYTrendChart() {
         style: { borderColor: 'var(--border-2)', color: 'var(--text)', background: 'var(--card)', bottom: '0' },
         onclick: (e) => {
           e.stopPropagation();
-          const parsed = _staged.filter(k => /^(rep|office|team):/.test(k)).map(k => { const i = k.indexOf(':'); return { t: k.slice(0, i), v: k.slice(i + 1) }; });
+          const _keepPlaces = _yoyCompareOn() ? [] : (Array.isArray(state._indicatorYoYScopes) ? state._indicatorYoYScopes.filter(x => x && (x.t === 'office' || x.t === 'team')).map(x => x.t + ':' + x.v) : []);
+          const parsed = [...new Set([..._staged.filter(k => /^(rep|office|team):/.test(k)), ..._keepPlaces])].map(k => { const i = k.indexOf(':'); return { t: k.slice(0, i), v: k.slice(i + 1) }; });
           state._indicatorYoYScopes = parsed;   // [] = follow the page-header scope
           state._indTrendView = 'all';          // picking reps here = the custom view
           state._yoyScopesOpen = false;
@@ -11104,7 +11107,7 @@ function indicatorYoYTrendChart() {
     // Trigger is a search box styled like the Leaderboard's (per Isaac,
     // Sep 24): typing opens the panel with matches; picked reps stay listed
     // at the top with their checkmarks until Apply.
-    const _nReps = _yoyCompareOn() ? _yoySelScopes.filter(sc => sc.t === 'rep' || sc.t === 'office' || sc.t === 'team').length : 0;
+    const _nReps = _yoySelScopes.filter(sc => sc.t === 'rep' || (_yoyCompareOn() && (sc.t === 'office' || sc.t === 'team'))).length;
     const openPanel = () => {
       if (panel.style.display === 'block') return;
       panel.style.display = 'block'; state._yoyScopesOpen = true;
@@ -11118,10 +11121,10 @@ function indicatorYoYTrendChart() {
     };
     const btn = el('input', {
       type: 'text', autocomplete: 'off',
-      placeholder: _nReps ? (_nReps === 1 ? _scopeLabelOf(_yoySelScopes[0]) : _nReps + ' compared') : 'Pick offices, teams, reps\u2026',
+      placeholder: _nReps ? (_nReps === 1 ? _scopeLabelOf(_yoySelScopes[0]) : _nReps + (_yoyCompareOn() ? ' compared' : ' reps')) : (_yoyCompareOn() ? 'Pick offices, teams, reps\u2026' : 'Search rep\u2026'),
       class: 'rounded-lg border px-2.5 py-1 text-[11px]',
       style: { borderColor: _nReps ? 'var(--accent)' : 'var(--border-2)', minWidth: '160px', background: 'var(--card)', color: 'var(--text)' },
-      title: 'Compare offices, teams and reps — each pick is its own line',
+      title: _yoyCompareOn() ? 'Compare offices, teams and reps — each pick is its own line' : 'Overlay specific reps as their own lines',
       onfocus: openPanel,
       onclick: (e) => { e.stopPropagation(); openPanel(); },
       oninput: (e) => { openPanel(); paintReps(e.target.value); },
@@ -11549,11 +11552,16 @@ function indicatorYoYTrendChart() {
         el('div', { class: 'min-w-0', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, _yoyViewPick)),
       el('div', { class: 'flex items-center gap-2 shrink-0' }, ...((_yoyLensOn && _yoyView !== 'all') ? [] : (comboWrap ? [comboWrap] : [
         // Compare on/off (per Isaac, Oct 28) — the picker only shows while it's on.
-        scopesWrap ? el('button', { type: 'button', class: 'rounded-xl border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
-          style: _yoyCompareOn() ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)', color: 'var(--text)', background: 'var(--card)' },
-          title: _yoyCompareOn() ? 'Compare is on — each picked office, team or rep is its own line. Click to turn off.' : 'Compare offices, teams and reps as separate lines',
-          onclick: () => { state._yoyCompare = !_yoyCompareOn(); try { localStorage.setItem('ridd_yoy_compare_v1', state._yoyCompare ? '1' : '0'); } catch (e) { /* per-session */ } state._yoyScopesOpen = !!state._yoyCompare; mountApp(); } }, 'Compare') : null,
-        _yoyCompareOn() ? scopesWrap : null,
+        // Compare on/off switch (per Isaac, Oct 28): off → the rep search only; on → offices + teams join it.
+        scopesWrap ? (() => { const on = _yoyCompareOn();
+          return el('button', { type: 'button', class: 'rounded-xl border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap inline-flex items-center gap-2',
+            style: { borderColor: on ? 'var(--accent)' : 'var(--border-2)', color: 'var(--text)', background: 'var(--card)' },
+            title: on ? 'Compare is on — pick offices and teams as their own lines. Click to turn off.' : 'Turn on to compare offices and teams as separate lines',
+            onclick: () => { state._yoyCompare = !on; try { localStorage.setItem('ridd_yoy_compare_v1', state._yoyCompare ? '1' : '0'); } catch (e) { /* per-session */ } state._yoyScopesOpen = !!state._yoyCompare; mountApp(); } },
+            'Compare',
+            el('span', { class: 'inline-flex items-center', style: { width: '26px', height: '14px', borderRadius: '999px', padding: '2px', boxSizing: 'border-box', background: on ? 'var(--accent)' : 'var(--border-2)', justifyContent: on ? 'flex-end' : 'flex-start', transition: 'background .15s' } },
+              el('span', { style: { width: '10px', height: '10px', borderRadius: '50%', background: '#fff', display: 'block' } }))); })() : null,
+        scopesWrap,
       ].filter(Boolean))), metricSel)),
     cvsWrap);
 }
