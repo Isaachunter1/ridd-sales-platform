@@ -125,10 +125,19 @@ function warRoomCrmSales() {
 // appointment is on the books (Pending) or done (Completed). Rows without the
 // stamp (manual logs, legacy) pass. The CRM feed applies the same gate
 // upstream (frPendingServiced), so the dashboard and the TV board agree.
+// Oct 28 (per Isaac): a sale isn't fully sold until its initial is scheduled — an auto-logged row the sync hasn't
+// stamped yet (no status, no appointment date, not serviced) waits too, instead of showing on the TV board
+// (#133680 showed with "No Appointment" in FieldRoutes). Renewals have no new initial and always count, as on
+// the Sales tab. Hand-logged rows (no sync columns at all) still pass.
 function saleHasAppt(s) {
-  if (s.crm_initial_status == null) return true;
-  const st = String(s.crm_initial_status).trim().toLowerCase();
-  return st === 'pending' || st === 'completed';
+  if (s.sale_kind !== 'upsell' && typeof isRenewalSource === 'function' && isRenewalSource(s)) return true;
+  if (s.crm_initial_status != null) {
+    const st = String(s.crm_initial_status).trim().toLowerCase();
+    return st === 'pending' || st === 'completed';
+  }
+  if (s.crm_serviced_at) return true;
+  if (s.crm_subscription_id && 'crm_initial_appt_at' in s) return !!s.crm_initial_appt_at;
+  return true;
 }
 // The combined pool every War Room metric reads: CRM rows + app upsells.
 // Falls back to the app sales table until the shared dataset has loaded
@@ -988,16 +997,33 @@ function myExcludedFromPct(s) {
 // some places and >12 in others, so 13-17mo contracts counted as multi-year
 // on the Power Ranking and team PDFs but not on the rep leaderboard - the
 // same rep read differently screen to screen.
-// Avg Pest Initial (per Isaac, Oct 16): recurring pest plans only — the configured exclusions (Sentricon, German
-// roach, interior flea… priced higher) AND every one-time service are out. One rule for every Avg Pest on the
-// dashboards, player cards, trends and PDFs. (Competition rules keep their own list.)
-function avgPestEligible(s) {
+// ── ONE definition per metric, every dashboard (per Isaac, Oct 28 — "consistency, no confusion"). ───────────────
+// Renewal = the source's Revenue Type (CRM rows carry the source name, app rows a source id).
+function metricIsRenewal(s) {
   if (!s) return false;
-  if (typeof pestInitialExclRe === 'function' && pestInitialExclRe().test(String(s.subscription || ''))) return false;
-  return !_indIsOneTimeSale(s);
+  if (typeof _indicatorIsRenewal === 'function' && s.source && _indicatorIsRenewal(s)) return true;
+  return typeof isRenewalSource === 'function' && s.sale_kind !== 'upsell' && isRenewalSource(s);
 }
-// MY % (per Isaac, Oct 16): one-time services and Sentricon are never multi-year recurring accounts — out of both sides.
-function myBucketOf(s) {
+// Avg Initial = every NEW sale, one-time services included; renewals out (a re-sign carries no real initial).
+function avgInitialEligible(s) { return !!s && !metricIsRenewal(s); }
+// The one Avg Initial (and Avg Pest Initial) mean — rows in, average out (0 when none qualify).
+function meanInitial(list, pest) {
+  let t = 0, n = 0;
+  for (const s of (list || [])) { if (!(pest ? avgPestEligible(s) : avgInitialEligible(s))) continue; t += Number(s.initialPrice != null ? s.initialPrice : s.initial_amount) || 0; n++; }
+  return n ? t / n : 0;
+}
+// Avg Pest Initial = Avg Initial minus the configured high-ticket services (Sentricon, German roach, interior
+// flea — Configurations). Oct 28 (per Isaac): it "just removes" those — one-time services now count (Oct 16 had
+// them out). One rule for every Avg Pest on the dashboards, player cards, trends and PDFs. (Competition rules
+// keep their own list.)
+function avgPestEligible(s) {
+  if (!avgInitialEligible(s)) return false;
+  return !(typeof pestInitialExclRe === 'function' && pestInitialExclRe().test(String(s.subscription || '')));
+}
+// Multi-Year % (per Isaac, Oct 16 + Oct 28): 18+ months ÷ (12 + 18+), one-time services and Sentricon out of both
+// sides. The base bucket counts every source — the Inside Sales League still breaks ties on it, so it is kept as
+// is for the competition (myBucketOfAllSources).
+function myBucketOfAllSources(s) {
   if (!s || myExcludedFromPct(s)) return null;
   if (_indIsOneTimeSale(s) || /sentricon/i.test(_myServiceNameOf(s))) return null;
   const m = Number(s.contract != null ? s.contract : s.contract_months) || 0;
@@ -1005,6 +1031,10 @@ function myBucketOf(s) {
   if (m === 12) return 'twelve';
   return null;
 }
+// Dashboards' Multi-Year % = new sales only (renewals out, Oct 28) …
+function myBucketOf(s) { return metricIsRenewal(s) ? null : myBucketOfAllSources(s); }
+// … and Renewal Multi-Year % = the same split over renewals only: how many re-sign for more than 12 months.
+function myBucketOfRenewal(s) { return metricIsRenewal(s) ? myBucketOfAllSources(s) : null; }
 // Customers DELETED inside FieldRoutes leave orphan rows in the RevHawk
 // mirror (the CRM's live reports drop them, the warehouse keeps them). The
 // mirror carries no deletion marker, so this admin-maintained ID list
@@ -1467,7 +1497,7 @@ function _computeRecordMetrics(sales) {
   const REP_AVG_PEST_EXCLUDE = pestInitialExclRe();
   const eligible = sales.filter(s => avgPestEligible(s));
   const avgPest    = eligible.length > 0 ? eligible.reduce((a, s) => a + Number(s.initialPrice || 0), 0) / eligible.length : 0;
-  const avgInitial = sales.reduce((a, s) => a + Number(s.initialPrice || 0), 0) / sales.length;
+  const avgInitial = meanInitial(sales);   // new sales, one-time in, renewals out (Oct 28)
   const acv        = sales.reduce((a, s) => a + Number(s.contractValue || 0), 0) / sales.length;
   const multi   = sales.filter(s => myBucketOf(s) === 'multi').length;
   const twelve  = sales.filter(s => myBucketOf(s) === 'twelve').length;
@@ -1760,7 +1790,7 @@ function computeCoachFlags() {
             });
           }
         };
-        ratioRule('myPct',      'MY %',          recent.myPct,      prior.myPct);
+        ratioRule('myPct',      'Multi-Year %',          recent.myPct,      prior.myPct);
         ratioRule('autoPayPct', 'Auto Pay %',    recent.autoPayPct, prior.autoPayPct);
         dollarRule('acv',       'ACV',           recent.acv,        prior.acv);
         dollarRule('avgInit',   'Avg Init',      recent.avgInitial, prior.avgInitial);
@@ -3589,7 +3619,7 @@ function openIndicatorRepCard(rep, allReps = []) {
     // Interior Flea filtered out (mirrors the comp + leaderboard).
     const allSales      = scopedRep.sales || [];
     const pestEligible  = allSales.filter(s => avgPestEligible(s));
-    const avgInitial    = _mo.avgInitial != null ? _mo.avgInitial : (allSales.length     > 0 ? allSales.reduce((a, s) => a + Number(s.initialPrice || 0), 0)    / allSales.length     : 0);
+    const avgInitial    = _mo.avgInitial != null ? _mo.avgInitial : meanInitial(allSales);   // same rule as every board (Oct 28)
     const avgPest       = _mo.avgPest != null ? _mo.avgPest : (pestEligible.length > 0 ? pestEligible.reduce((a, s) => a + Number(s.initialPrice || 0), 0) / pestEligible.length : 0);
     // Personal PRA — denominators are SELLING days (days with ≥1 sale), so
     // days off don't drag the averages down.
@@ -3613,7 +3643,7 @@ function openIndicatorRepCard(rep, allReps = []) {
         title: v === 'new' ? 'New business only' : v === 'renewal' ? 'Renewal-source sales only' : v === 'peak' ? 'Every account at its value once the initial was completed, before any later reduction (rates lowered to save it, plans adjusted down)' : 'Everything',
         onclick: (e) => { e.stopPropagation(); cardRevMode = v; renderBody(); } }, l)));
     scopedStats = [
-      { key: 'sales',      label: 'Sales',      value: fmt.int(count) },
+      { key: 'sales',      label: 'Subscriptions',      value: fmt.int(count) },
       { key: 'revenue',    label: cardRevMode === 'new' ? 'New Revenue' : cardRevMode === 'renewal' ? 'Renewal Revenue' : cardRevMode === 'peak' ? 'Peak Revenue' : 'Total Revenue', value: fmt.usd0(revAmt), sub: revToggle,
         title: cardRevMode === 'peak' ? 'Peak ' + fmt.usd0(revAmt) + ' vs ' + fmt.usd0(_nowAmt) + ' today \u2014 ' + fmt.usd0(Math.max(0, revAmt - _nowAmt)) + ' lowered since the initial was completed (rate cuts to save customers, downgrades) \u00b7 change history from ' + _peakSinceLabel() : 'Sales sold in this window · New = renewal-source sales out (the leaderboard default for Office Staff) · Production/Day follows this toggle' },
       { key: 'revPerDay',  label: 'Production/Day',
@@ -3624,8 +3654,8 @@ function openIndicatorRepCard(rep, allReps = []) {
       (state.indicatorDept === 'd2d'
         ? { key: 'avgPest',    label: 'Avg Pest', value: avgPest    > 0 ? fmt.usd(avgPest)    : '—' }
         : { key: 'avgInitial', label: 'Avg Initial',      value: avgInitial > 0 ? fmt.usd(avgInitial) : '—' }),
-      { key: 'myPct',      label: 'MY %',       value: (myPct * 100).toFixed(1) + '%' },
-      { key: 'autoPay',    label: 'Auto Pay',   value: (autoPayPct * 100).toFixed(1) + '%' },
+      { key: 'myPct',      label: 'Multi-Year %',       value: (myPct * 100).toFixed(1) + '%' },
+      { key: 'autoPay',    label: 'Auto Pay %', value: (autoPayPct * 100).toFixed(1) + '%' },
       // Audit % (per Isaac, Oct 8 — asked for by the office lead): accounts NOT flagged Failed Audit ÷ all
       // accounts, every user type, same number as the leaderboard. Click it for the accounts behind it.
       (() => { let f = 0, p = 0; for (const x of allSales) { const b = auditBucketOf(x); if (b === 'failed') f++; else if (b === 'pending') p++; }
@@ -4044,7 +4074,7 @@ function openIndicatorRepCard(rep, allReps = []) {
               el('th', { class: 'text-right px-2 py-2' }, 'Revenue'),
               el('th', { class: 'text-right px-2 py-2' }, 'Sales'),
               el('th', { class: 'text-right px-2 py-2' }, 'ACV'),
-              el('th', { class: 'text-right px-2 py-2', title: 'Multi-year (≥18mo) / (12mo + multi-year)' }, 'MY %'),
+              el('th', { class: 'text-right px-2 py-2', title: 'Multi-year (≥18mo) / (12mo + multi-year)' }, 'Multi-Year %'),
               el('th', { class: 'text-right px-2 py-2', title: 'Avg initial price excluding Sentricon / German Roach / Interior Flea' }, 'Avg Pest Init'),
               el('th', { class: 'text-right px-2 py-2', title: 'Avg initial price across all sales' }, 'Avg Init'),
               el('th', { class: 'text-right px-2 py-2', title: 'Cancelled sales / sales in this period' }, 'Cncl %'),
@@ -5488,7 +5518,7 @@ function leaderboardSection(range) {
         (() => {
           const ph = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })();
           if (!ph) return null;
-          const opts = [['sales', 'Sales'], ['initial', 'Initial'], ['revenue', 'Revenue'], ['recurring', 'Rec. Rev'], ['ots', 'OTS Rev'], ['acv', 'ACV'], ['auto_pay', 'APay %'], ['my_pct', 'MY %'], ['rec_mix_pct', 'Rec Mix %']];
+          const opts = [['sales', 'Sales'], ['initial', 'Initial'], ['revenue', 'Revenue'], ['recurring', 'Rec. Rev'], ['ots', 'OTS Rev'], ['acv', 'ACV'], ['auto_pay', 'Auto Pay %'], ['my_pct', 'Multi-Year %'], ['rec_mix_pct', 'Rec Mix %']];
           const cur = state._lbMobileCol || 'revenue';
           // Same 26px box as the pills + Reps button; sits LAST (far right,
           // per Isaac) via flex order so Reps lands between the tabs and it.

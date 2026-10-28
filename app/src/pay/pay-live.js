@@ -54,7 +54,7 @@ function viewPayLive() {
   const controls = el('div', { class: 'flex items-center gap-2 flex-wrap' },
     isAdmin ? sel(repId, pickable.map(p => [p.id, p.full_name || 'Rep']), (v) => { state.payViewRepId = v; mountApp(); }, '220px') : null,
     sel(period.id, periods.map(p => [p.id, p.label + (state.payYear === today.getFullYear() && p.id === nowPid ? ' (current)' : '')]), (v) => { state.payPeriodId = Number(v); mountApp(); }, '200px'),
-    isAdmin ? el('button', { type: 'button', class: 'text-[11px] underline text-muted-', onclick: () => { state._payClassic = true; mountApp(); } }, 'Classic pay tab') : null);
+    null);   // (Classic pay tab link removed per Isaac, Oct 28 — the live pay stub is the Pay tab)
 
   // ── Status tiles: where every dollar stands.
   const tile = (label, value, sub, color, tip) => el('div', { class: 'card px-4 py-3', title: tip || '' },

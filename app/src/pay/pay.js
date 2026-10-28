@@ -8,7 +8,7 @@
 // Office Staff Pay tab (per Isaac, Oct 15): the live pay stub (53-pay-live.js). The classic tab stays one
 // click away for admins while the new flow beds in.
 function viewPay() {
-  if (!state._payClassic && typeof viewPayLive === 'function') return viewPayLive();
+  if (typeof viewPayLive === 'function') return viewPayLive();   // the classic tab is no longer reachable (per Isaac, Oct 28)
   return el('div', { class: 'flex flex-col gap-3' },
     el('div', {}, el('button', { type: 'button', class: 'text-[11px] underline text-muted-', onclick: () => { state._payClassic = false; mountApp(); } }, '\u2190 Back to the live pay stub')),
     viewPayClassic());

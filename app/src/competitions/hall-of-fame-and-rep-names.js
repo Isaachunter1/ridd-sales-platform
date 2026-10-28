@@ -1083,7 +1083,7 @@ function chartBucketsGrainLabel(buckets) {
 // count is also the denominator of PRA.
 const INDICATOR_METRICS = [
   { key: 'sold_accounts',  label: 'Subscriptions',    fmt: v => fmt.int(v) },
-  { key: 'revenue',        label: 'Revenue',          fmt: v => fmt.usd0(v) },
+  { key: 'revenue',        label: 'Total Revenue',    fmt: v => fmt.usd0(v) },   // "Total" so it never reads as New (per Isaac, Oct 28 — Office Staff also sell renewals)
   // New / Renewal revenue split — only SHOWN on the Office Staff table, but
   // defined here so RIDD totals + rankings compute them. Excluded from Power
   // Ranking scoring (they'd double-count Revenue).
@@ -1091,8 +1091,10 @@ const INDICATOR_METRICS = [
   { key: 'renewal_revenue', label: 'Renewal Revenue', fmt: v => fmt.usd0(v) },
   { key: 'avg_initial',    label: 'Avg Pest Initial',   fmt: v => fmt.usd(v) },
   { key: 'acv',            label: 'ACV',              fmt: v => fmt.usd(v) },
-  { key: 'pra',            label: 'PRA',              fmt: v => fmt.usd(v) },
-  { key: 'multi_year_pct', label: 'Multi Year %',     fmt: v => (v * 100).toFixed(1) + '%' },
+  { key: 'pra',            label: 'PRA · $20K+ Reps', fmt: v => fmt.usd(v) },   // scored (Power Rank)
+  { key: 'pra_all',        label: 'PRA',              fmt: v => fmt.usd(v) },   // every rep with a sale — context (Oct 28)
+  { key: 'multi_year_pct', label: 'Multi-Year %',     fmt: v => (v * 100).toFixed(1) + '%' },   // new sales only (Oct 28)
+  { key: 'renewal_my_pct', label: 'Renewal Multi-Year %', fmt: v => (v * 100).toFixed(1) + '%' },   // Office Staff, context (Oct 28)
   { key: 'auto_pay_pct',   label: 'Auto Pay %',       fmt: v => (v * 100).toFixed(1) + '%' },
   { key: 'audit_pct',      label: 'Audit %',          fmt: v => (v * 100).toFixed(1) + '%' },
   // Last Resort % — accounts with an initial under $99 ÷ all accounts. A
@@ -1118,12 +1120,14 @@ function indicatorMetricHelp(key) {
     revenue:        'Total Contract Value of all accounts sold in the window.',
     new_revenue:    'Revenue from new sales only — renewal sources are excluded.',
     renewal_revenue:'Revenue from renewal sources ("Renewal - …") only.',
-    avg_initial:    (teamsMode || dept === 'office')
-      ? 'Average Initial Service Price, excluding Sentricon, German Roach, and Interior Flea plans so termite installs don\u2019t skew the pest number.'
-      : 'Average Initial Service Price across all accounts sold in the window.',
-    acv:            'Revenue \u00f7 Subscriptions — the average contract value per subscription.',
-    pra:            'Revenue \u00f7 Reps > $20K. Reps qualify on their company-wide total for the window and count toward the one column where they sold the most.',
-    multi_year_pct: 'Contracts longer than 12 months \u00f7 all contracts that are 12 months or longer.',
+    avg_initial:    dept === 'd2d'
+      ? 'Avg Pest Initial: average initial price of new sales (renewals out), leaving out Sentricon, German Roach and Interior Flea so high-ticket installs don\u2019t skew the pest number.'
+      : 'Average initial price of every new sale in the window, one-time services included. Renewals are out (a re-sign has no real initial).',
+    acv:            'Contract value \u00f7 subscriptions, recurring NEW plans only \u2014 renewals and one-time services are out. Same ACV as the leaderboard, player card and TV board.',
+    pra:            'Revenue sold by reps who cleared $20K \u00f7 how many of those reps. Reps qualify on their company-wide total for the window and count in the one column where they sold the most. Scored for Power Rank.',
+    pra_all:        'Total revenue \u00f7 every rep with at least one sale. Context only \u2014 not scored.',
+    multi_year_pct: 'New sales only: contracts 18+ months \u00f7 contracts of 12 months or more (one-time services and Sentricon out). Renewals have their own row.',
+    renewal_my_pct: 'Renewals only: re-signed for 18+ months \u00f7 renewals of 12 months or more. Context only \u2014 not scored.',
     auto_pay_pct:   'Subscriptions with autopay on file \u00f7 Subscriptions.',
     audit_pct:      'Subscriptions NOT flagged Failed Audit \u00f7 Subscriptions — passed, pending, and unaudited all count as good.',
     last_resort_pct:'Subscriptions with an initial under $' + lastResortMin() + ' \u00f7 Subscriptions. Context only — not scored for Power Rank.',

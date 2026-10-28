@@ -22,7 +22,7 @@ const IND_METRIC_DIMS = [
 const _IND_PEST_EXCL = { test: (v) => pestInitialExclRe().test(String(v == null ? '' : v)) };
 // fixed: dims the metric's formula already decides (shown, not editable).
 const IND_METRIC_DEFS = [
-  { key: 'count',       label: 'Sales',          def: 'Count of sales.' },
+  { key: 'count',       label: 'Subscriptions',          def: 'Count of sales.' },
   { key: 'revenue',     label: 'Revenue',        def: 'Sum of contract value.' },
   { key: 'sellingDays', label: 'Days w/ Sale',   def: 'Distinct sold dates.' },
   { key: 'acctsPerDay', label: 'Accts/Day',      def: 'Sales ÷ days with a sale.' },
@@ -30,8 +30,8 @@ const IND_METRIC_DEFS = [
   { key: 'acv',         label: 'ACV',            def: 'Contract value ÷ sales, recurring new only (one-time services and renewals are always out — see Weighted / One-Time / Renewal ACV on the leaderboard).', fixed: { oneTime: false, renewals: false } },
   { key: 'avgInitial',  label: 'Avg Init',       def: 'Mean initial price.' },
   { key: 'avgPest',     label: 'Pest Init',      def: 'Mean initial price, Sentricon / German Roach / Interior Flea left out.', fixed: { addOns: false } },
-  { key: 'myPct',       label: 'MY %',           def: 'Multi-year (18+ mo) ÷ (12-mo + multi-year). Other terms and the MY % excluded services are out of both sides.', fixed: { oneTime: false, addOns: false } },
-  { key: 'autoPayPct',  label: 'APay %',         def: 'Sales with autopay on file ÷ sales.' },
+  { key: 'myPct',       label: 'Multi-Year %',           def: 'Multi-year (18+ mo) ÷ (12-mo + multi-year). Other terms and the MY % excluded services are out of both sides.', fixed: { oneTime: false, addOns: false } },
+  { key: 'autoPayPct',  label: 'Auto Pay %',         def: 'Sales with autopay on file ÷ sales.' },
   { key: 'servicedPct', label: 'Serviced %',     def: 'Sales with a completed service ÷ sales.', fixed: { pending: true, addOns: false } },
   { key: 'attrPct',     label: 'Attrition %',    def: 'Cancelled $ ÷ serviced $.', fixed: { oneTime: false, ror: false, addOns: false } },
   { key: 'cancels',     label: 'Cancels',        def: 'Sales cancelled (player card).', fixed: { addOns: false } },

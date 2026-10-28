@@ -3351,7 +3351,7 @@ function islSection(raw, cfg, isAdmin) {
       if ((typeof reportingSourceClass === 'function') && reportingSourceClass(s.source) === 'upsell') t.up += cv; else t.fr += cv;
       if (typeof SC_FAIL_RE !== 'undefined' && SC_FAIL_RE.test(s.customerFlags || '')) t.fail += cv;
       t.n++;
-      const _myb2 = myBucketOf(s);
+      const _myb2 = myBucketOfAllSources(s);   // league tiebreak keeps every source (Oct 28)
       if (_myb2 === 'multi') t.multi++; else if (_myb2 === 'twelve') t.twelve++;
       t0.set(nm, t);
     }
@@ -3440,7 +3440,7 @@ function islSection(raw, cfg, isAdmin) {
     if (rec.isUp) t.up += cv; else t.fr += cv;
     if (rec.failed) t.fail += cv;
     t.n++;
-    const _myb = myBucketOf(s);
+    const _myb = myBucketOfAllSources(s);   // league tiebreak keeps every source (Oct 28)
     if (_myb === 'multi') t.multi++; else if (_myb === 'twelve') t.twelve++;
     if (!rec.failed && typeof scAuditPassed === 'function' && !scAuditPassed(s.customerFlags || '')) t.pend++;
     tally.set(nm, t);
@@ -6034,7 +6034,7 @@ function aggregateRawSalesByGroup(rawSales, getGroupKey, indicatorRowsForDates, 
     const ss = g.sales;
     const count = ss.length;
     const revenue = ss.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
-    const pest = pestExcludeRegex ? ss.filter(s => !pestExcludeRegex.test(s.subscription || '')) : ss;
+    const pest = ss.filter(s => avgInitialEligible(s) && !(pestExcludeRegex && pestExcludeRegex.test(s.subscription || '')));   // renewals out (Oct 28)
     const avgInit = pest.length > 0 ? pest.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / pest.length : 0;
     const multiYears = ss.filter(s => myBucketOf(s) === 'multi').length;
     const twelveMonth = ss.filter(s => myBucketOf(s) === 'twelve').length;
@@ -6084,7 +6084,7 @@ function aggregateRawSalesByBucket(rawSales, getGroupKey, buckets, applyExclusio
     const ss = g.sales;
     const count = ss.length;
     const revenue = ss.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
-    const pest = pestExcludeRegex ? ss.filter(s => !pestExcludeRegex.test(s.subscription || '')) : ss;
+    const pest = ss.filter(s => avgInitialEligible(s) && !(pestExcludeRegex && pestExcludeRegex.test(s.subscription || '')));   // renewals out (Oct 28)
     const avgInit = pest.length > 0 ? pest.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / pest.length : 0;
     const multiYears = ss.filter(s => myBucketOf(s) === 'multi').length;
     const twelveMonth = ss.filter(s => myBucketOf(s) === 'twelve').length;
@@ -6163,8 +6163,9 @@ function aggregateByDept(rawSales, indicatorRowsForDates) {
 // Dynamic label for the avg_initial column. "Avg Pest Initial" (strips
 // Sentricon/Roach/Flea from the average) is used for the Sales Rep dept and in
 // Team view; Office Staff, Technician, and All show the plain "Avg Initial".
+// Oct 28 (per Isaac): by rep type only — the Group pick (Office / Teams) no longer flips the same number.
 function indicatorAvgInitialIsPest() {
-  return state.indicatorsGroupBy === 'teams' || state.indicatorDept === 'd2d';
+  return state.indicatorDept === 'd2d';
 }
 function indicatorMetricLabel(metric) {
   if (metric && metric.key === 'avg_initial') {
