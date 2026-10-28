@@ -23,6 +23,15 @@ test('a Failed Audit flag holds a new sale', () => {
   assert.deepEqual(decideStage(sale({ crm_audit: 'failed' }), row({}), ctx()), {});
 });
 
+test('renewal on an account with a Failed Audit flag (from the original sale) is still approved', () => {
+  const r = row({ subscription_source: 'Renewal - Loyalty', initial_status: '', initial_serviced_date: '2025-06-01', last_completed_date: '2026-10-25' });
+  assert.equal(decideStage(sale({ crm_audit: 'failed' }), r, ctx()).audit_status, 'serviced');
+  // …and on its next paid bill, with no treatment since the save.
+  const r2 = row({ subscription_source: 'Renewal - Loyalty', initial_status: '', initial_serviced_date: '2025-06-01', last_completed_date: '2026-09-01' });
+  assert.deepEqual(decideStage(sale({ crm_audit: 'failed' }), r2, ctx()), {});
+  assert.equal(decideStage(sale({ crm_audit: 'failed' }), r2, ctx({ paidSince: new Map([['s1', { paid: true }]]) })).audit_status, 'serviced');
+});
+
 test('cancelled in the CRM before service → Cancelled', () => {
   const u = decideStage(sale({}), row({ initial_serviced_date: null, initial_status: 'Pending', subscription_status: 'Cancelled' }), ctx());
   assert.equal(u.audit_status, 'cancelled');

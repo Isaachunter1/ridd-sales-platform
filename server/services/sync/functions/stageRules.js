@@ -143,7 +143,9 @@ export function decideStage(s, r, d) {
   const upd = {};
   if (s.audit_status === 'pending' && !s.payroll_processed_at) {
     if (cancelled && (!serviced || upfront)) { upd.audit_status = 'cancelled'; upd.audited_at = stamp; upd.notes = ((s.notes || '') + (upfront && serviced ? ' · Auto: cancelled in CRM (charged upfront)' : ' · Auto: cancelled in CRM before service')).trim(); }
-    else if (!nsfNow.has(s.id) && _autoApproveOn(s) && s.rep_id && eligible && (serviced || upfront) && dpd <= 0 && s.crm_audit !== 'failed') {
+    // Renewals are exempt from the audit flag (per Isaac, Oct 28): a Passed / Failed Audit flag on the account is
+    // from the ORIGINAL sale, never the renewal — a renewal is approved on its next treatment or next paid bill.
+    else if (!nsfNow.has(s.id) && _autoApproveOn(s) && s.rep_id && eligible && (serviced || upfront) && dpd <= 0 && (_isRenewal || s.crm_audit !== 'failed')) {
       // Below the pricing minimum → approved as Below Minimums (when that switch is on).
       const bm = belowMin.get(s.id);
       upd.audit_status = (PR.auto && bm) ? 'below_minimums' : 'serviced'; upd.audited_at = stamp;
