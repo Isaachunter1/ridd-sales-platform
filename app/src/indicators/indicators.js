@@ -9868,8 +9868,10 @@ function _landingTile(who, showRep) {
 }
 // The landing cards follow the page's date range (per Isaac, Oct 16 — the card said $6.1M YTD while the page was on
 // Today). Weekly view keeps year-to-date.
+// Oct 28 (per Isaac, reversing Oct 16): the player cards always show year-to-date, whatever the page's range.
+const LANDING_FOLLOWS_RANGE = false;
 function _landingWindow() {
-  try {
+  if (LANDING_FOLLOWS_RANGE) try {
     if (state.indicatorsView === 'range') {
       const pre = state.indicatorsRangePreset;
       const b = indicatorRangeBounds(pre, { start: state.indicatorsCustomStart, end: state.indicatorsCustomEnd });
