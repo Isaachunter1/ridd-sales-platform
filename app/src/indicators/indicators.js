@@ -1463,10 +1463,10 @@ function viewIndicators() {
           const _worldOpts = (_staged.world && typeof repWorldOptions === 'function') ? repWorldOptions(state.profile?.role) : [];
           // Rep type: a compact picker + a ⭐ to make it your default dashboard (per Isaac, Oct 28).
           const worldSel = _worldOpts.length > 1 ? (() => {
-            const sel = el('select', Object.assign({}, _selCls, { class: _selCls.class.replace(' w-full', ''), style: Object.assign({}, _selCls.style, { width: 'auto', minWidth: '150px' }),
+            const sel = el('select', Object.assign({}, _selCls, { class: _selCls.class.replace(' w-full', ''), style: Object.assign({}, _selCls.style, { flex: '1 1 auto', minWidth: '0' }),
               onchange: e => { _staged.world = e.target.value; _markDirty(); paint(); } }),
               ..._worldOpts.map(([m, lab]) => el('option', { value: m, selected: _staged.world === m }, m === 'all' ? 'All rep types' : lab)));
-            const star = el('button', { type: 'button', class: 'rounded-xl border px-2 py-1 text-[13px] leading-none transition hover:brightness-95',
+            const star = el('button', { type: 'button', class: 'rounded-xl border text-[13px] leading-none transition hover:brightness-95 shrink-0 flex items-center justify-center', style: { width: '30px', minWidth: '30px', alignSelf: 'stretch', padding: '0' },
               onclick: (e) => {
                 e.stopPropagation();
                 const on = getFavWorld() === _staged.world;
@@ -1482,7 +1482,7 @@ function viewIndicators() {
               Object.assign(star.style, on ? { color: 'var(--accent)', borderColor: 'var(--accent)' } : { color: 'var(--text-muted)', borderColor: 'var(--border-2)' });
             }
             paint();
-            const w = el('div', { class: 'flex items-center gap-1.5' }, sel, star);
+            const w = el('div', { class: 'flex items-stretch gap-1.5 w-full' }, sel, star);
             w._hl = sel;
             return w;
           })() : null;
