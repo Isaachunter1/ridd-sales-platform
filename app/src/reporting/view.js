@@ -919,7 +919,9 @@ function _renewalClaimChip(id) {
 function _renewalQueueView(o) {
   const today = _renewalToday();
   const me = (state.profile && state.profile.full_name) || '';
-  const tab = String(state._renewalQTab || 'queue');
+  // One list (per Isaac, Oct 28): the Call queue / Callbacks / Done buttons are gone. Callbacks still come back to
+  // the top of the queue on their day; finished accounts are on the Board view's Renewed / Not Interested columns.
+  const tab = 'queue';
   const fTier = state._renewalTier == null ? '' : String(state._renewalTier);
   const base = (x) => (!o.q || String(x.name).toLowerCase().includes(o.q) || String(x.id).includes(o.q) || String(x.phone || '').includes(o.q) || String(x.office).toLowerCase().includes(o.q))
     && (!o.fBranch || String(x.office) === o.fBranch);
@@ -1064,8 +1066,6 @@ function _renewalQueueView(o) {
       el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-muted)' } }, '#' + x.id + ' · ' + _titleCaseWords(x.office) + ' · ' + x.svc + (o.logOf(x).notes ? ' · ✎ ' + o.logOf(x).notes : ''))),
     el('div', { class: 'text-[11px] font-bold tabular-nums' }, fmt.usd0(x.arv)), phoneA(x), right);
 
-  const tabBtn = (k, label, n) => el('button', { class: 'rounded-lg px-3 py-1 text-[11px] font-bold cursor-pointer', style: tab === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text)' },
-    onclick: () => { state._renewalQTab = k; mountApp(); } }, label + ' · ' + n.toLocaleString());
   const tierBar = el('div', { class: 'flex gap-1.5 flex-wrap' },
     el('button', { class: 'rounded-lg border px-2 py-1 text-[10px] font-bold cursor-pointer', style: { borderColor: fTier === '' ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onclick: () => { state._renewalTier = null; mountApp(); } }, 'All · ' + qAll.length.toLocaleString()),
     ...RENEWAL_TIERS.filter(t => tierN[t.key].n).map(t => el('button', { class: 'rounded-lg border px-2 py-1 text-[10px] font-bold cursor-pointer', title: t.blurb + ' · ' + fmt.usd0(tierN[t.key].arr) + ' ARR',
@@ -1110,11 +1110,9 @@ function _renewalQueueView(o) {
       : el('div', { class: 'text-[12px] text-center py-8', style: { color: 'var(--text-subtle)' } }, o.q ? 'Nobody matches “' + o.q + '”.' : 'Queue is clear — nice work.');
   }
   const header = el('div', { class: 'flex flex-col gap-2' },
-    el('div', { class: 'flex items-center gap-2 flex-wrap' },
-      tabBtn('queue', '📞 Call queue', qAll.length), tabBtn('callbacks', '📅 Callbacks', snoozed.filter(base).length), tabBtn('done', '✓ Done', doneAll.filter(base).length),
+    el('div', { class: 'flex items-center gap-2 flex-wrap' }, o.search, o.branchSel, _renewalModeBtn(),
       el('span', { class: 'text-[11px] tabular-nums ml-auto', style: { color: 'var(--text-muted)' } },
-        'Today: ', el('b', {}, String(mCalls)), ' calls · ', el('b', { style: { color: 'var(--ok)' } }, String(mRenewed)), ' renewed (you) · team ', el('b', {}, String(tCalls)), ' / ', el('b', { style: { color: 'var(--ok)' } }, String(tRenewed)))),
-    el('div', { class: 'flex items-center gap-2 flex-wrap' }, o.search, o.branchSel, _renewalModeBtn()));
+        'Today: ', el('b', {}, String(mCalls)), ' calls · ', el('b', { style: { color: 'var(--ok)' } }, String(mRenewed)), ' renewed (you) · team ', el('b', {}, String(tCalls)), ' / ', el('b', { style: { color: 'var(--ok)' } }, String(tRenewed)))));
   if (o.compact) return el('div', { class: 'flex flex-col gap-3' }, header, body);
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'card p-4 flex flex-col gap-3' },
