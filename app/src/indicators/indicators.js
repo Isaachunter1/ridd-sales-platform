@@ -1473,7 +1473,7 @@ function viewIndicators() {
               ...(() => {
                 const hl = (node, on) => { if (node && on) { node.style.borderColor = 'var(--accent)'; node.style.boxShadow = '0 0 0 2px rgba(223,100,58,.25)'; } return node; };
                 return [
-                  _fRow('Saved views', indPresetRibbon({ inline: true })),
+                  _fRow('Presets', indPresetRibbon({ inline: true })),
                   _fRow('Rep type', worldSel),   // right under Saved views — it switches the whole dashboard (per Isaac, Oct 28)
                   _metricLocked ? null : _fRow('Audit', auditBtn),   // right under Saved views (per Isaac, Oct 16)
                   _metricLocked ? null : _fRow('Metric', hl(metricSel, (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced')),
@@ -1542,7 +1542,7 @@ function viewIndicators() {
             class: 'relative rounded-xl px-2.5 py-1 text-[11px] font-semibold border transition hover:brightness-95 shrink-0',
             // Active filters / a preset (per Isaac, Oct 15): the button itself turns orange — no count badge.
             style: nonDefault ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)', color: 'var(--text)' },
-            title: nonDefault ? 'Filters are on (' + nonDefault + ') — click to see or change them' : 'Filters — rep type, saved views, Metric, Exclude, Group, Office, Team, Tier',
+            title: nonDefault ? 'Filters are on (' + nonDefault + ') — click to see or change them' : 'Filters — presets, rep type, Metric, Exclude, Group, Office, Team, Tier',
             onclick: (e) => {
               e.stopPropagation();
               const open = panel.style.display === 'block';
