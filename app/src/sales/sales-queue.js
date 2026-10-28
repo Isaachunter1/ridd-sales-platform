@@ -2309,8 +2309,15 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
     return (S.dir === 'asc' ? c : -c) || soldKey(b).localeCompare(soldKey(a));
   });
   const numW = String(rows.length).length > 2 ? 30 : 22;
-  const COLS = numW + 'px minmax(130px, 1.1fr) minmax(140px, 1.2fr) minmax(160px, 1.6fr) 62px minmax(84px, .8fr) 96px 92px 100px 56px ' + (_bk ? '92px ' : '') + '48px 84px 140px';
-  const gridRow = (extra) => ({ display: 'grid', gridTemplateColumns: COLS, columnGap: '12px', alignItems: 'center', ...(extra || {}) });
+  // Fits the page (per Isaac, Oct 28 — the table ran ~1,400px wide, so the whole page slid sideways and Status got
+  // cut off): tighter column minimums + gaps, so it fits a normal laptop window. The flexible columns
+  // (Rep / Customer / Service / Source) take whatever room is left, and long names end in "…".
+  const _W = [80, 90, 96, 52, 60, 80, 72, 72, 44, _bk ? 84 : 0, 40, 76, 116];   // rep · customer · service · term · source · sold · initial · payment · invoices · (lock) · aging · amount · status
+  const COLS = numW + 'px minmax(' + _W[0] + 'px, 1.1fr) minmax(' + _W[1] + 'px, 1.2fr) minmax(' + _W[2] + 'px, 1.6fr) ' + _W[3] + 'px minmax(' + _W[4] + 'px, .8fr) '
+    + _W[5] + 'px ' + _W[6] + 'px ' + _W[7] + 'px ' + _W[8] + 'px ' + (_bk ? _W[9] + 'px ' : '') + _W[10] + 'px ' + _W[11] + 'px ' + _W[12] + 'px';
+  const _gap = 8;
+  const _minW = numW + _W.reduce((a, b) => a + b, 0) + _gap * (_bk ? 13 : 12) + 32;   // + px-4 padding
+  const gridRow = (extra) => ({ display: 'grid', gridTemplateColumns: COLS, columnGap: _gap + 'px', alignItems: 'center', ...(extra || {}) });
   const clip = { minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
   const head = (key, label, align) => {
     const on = S.key === key;
@@ -2356,7 +2363,7 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
     window.addEventListener('resize', pin, { passive: true });
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(pin);
   }
-  const table = el('div', { style: narrow ? { minWidth: _bk ? '1380px' : '1280px' } : {} },
+  const table = el('div', { style: { minWidth: _minW + 'px' } },
     frozen,
     ...sorted.map((s, i) => {
       const rep = repOf(s);
@@ -2408,8 +2415,10 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
           s.commission_split && Number(s.total_revenue) > Number(s.revenue_amount) + 0.005 ? el('div', { class: 'text-[9px] font-normal text-muted-' }, 'of ' + fmt.usd(s.total_revenue)) : null),
         el('div', { class: 'flex items-center gap-2', style: { minWidth: '0' }, title: s.crm_below_min ? 'Under the pricing minimum: ' + s.crm_below_min : '' }, _bk ? lockStatusSelect(s.id) : statusSelect(s.id)));   // (audit flag chips off the rows — per Isaac, Oct 15)
     }));
-  // No overflow clipping on the card, so the frozen header sticks to the page scroll; narrow screens scroll sideways instead.
-  return el('div', { class: 'card', style: narrow ? { overflowX: 'auto' } : {} }, table);
+  // Never the page (per Isaac, Oct 28): when a window is narrower than the table's minimum, the CARD scrolls sideways
+  // on its own — the tabs, search and filters above stay put. (The frozen header pins by transform, not sticky, so
+  // the card's own overflow doesn't stop it.)
+  return el('div', { class: 'card', style: { overflowX: 'auto' } }, table);
 }
 
 // ── Commission card (per Isaac, Oct 15): a row click on the Sales tables opens this small breakdown
