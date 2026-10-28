@@ -880,6 +880,14 @@ function _renewalYmd(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1
 function _renewalToday() { return _renewalYmd(new Date()); }
 function _renewalLocalDay(iso) { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? String(iso).slice(0, 10) : _renewalYmd(d); }
 function _renewalCallback(g) { const m = /^Callback\s+(\d{4}-\d{2}-\d{2})/.exec(String((g && g.result) || '')); return m ? m[1] : ''; }
+// Callback time + missed follow-ups (per Isaac, Oct 28), carried in the result text so no table change is needed:
+//   'Callback 2026-10-30 14:30' · 'Callback 2026-10-31 14:30 · missed 1'. Older day-only callbacks still read fine.
+function _renewalCallbackTime(g) { const m = /^Callback\s+\d{4}-\d{2}-\d{2}\s+(\d{2}:\d{2})/.exec(String((g && g.result) || '')); return m ? m[1] : ''; }
+function _renewalCallbackMisses(g) { const m = /missed\s+(\d+)/.exec(String((g && g.result) || '')); return m ? Number(m[1]) : 0; }
+const RENEWAL_CB_MAX_MISSES = 2;   // a callback that goes unanswered is re-booked twice; the third miss → back on the regular list
+function _renewalTime12(t) { const m = /^(\d{2}):(\d{2})$/.exec(String(t || '')); if (!m) return ''; const h = Number(m[1]); return ((h % 12) || 12) + ':' + m[2] + (h < 12 ? ' AM' : ' PM'); }
+function _renewalNextWorkday(ymd) { const d = new Date(ymd + 'T12:00:00'); do { d.setDate(d.getDate() + 1); } while (d.getDay() === 0 || d.getDay() === 6); return _renewalYmd(d); }
+function _renewalCallbackLabel(g) { const d = _renewalCallback(g); if (!d) return ''; const t = _renewalCallbackTime(g), n = _renewalCallbackMisses(g); return d + (t ? ' · ' + _renewalTime12(t) : '') + (n ? ' · missed ' + n : ''); }
 function _renewalTierOf(x, g, today) {
   const cb = _renewalCallback(g);
   if (cb && cb <= today) return 0;
@@ -946,6 +954,7 @@ function _renewalQueueView(o) {
   // first-contract accounts lead and long-tenured month-to-month customers fall to the end. A callback that is due
   // today stays on top (it was promised); anyone already tried today sinks to the bottom.
   queue.sort((a, b) => (a._triedToday ? 1 : 0) - (b._triedToday ? 1 : 0) || (a._tier === 0 ? 0 : 1) - (b._tier === 0 ? 0 : 1)
+    || (a._tier === 0 && b._tier === 0 ? (_renewalCallback(o.logOf(a)) + (_renewalCallbackTime(o.logOf(a)) || '99')).localeCompare(_renewalCallback(o.logOf(b)) + (_renewalCallbackTime(o.logOf(b)) || '99')) : 0)
     || a.life - b.life || a.toGo - b.toGo);
   const qAll = queue.filter(base);
   const tierN = {}; RENEWAL_TIERS.forEach(t => { tierN[t.key] = { n: 0, arr: 0 }; });
@@ -968,14 +977,16 @@ function _renewalQueueView(o) {
   const btn = (label, title, onclick, sty) => el('button', { class: 'rounded-lg border px-2 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95 whitespace-nowrap', title,
     style: Object.assign({ borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, sty || {}), onclick: (e) => { e.stopPropagation(); onclick(); } }, label);
   // One Disposition button (per Isaac, Oct 13): click it, pick the outcome, save. What each outcome does:
-  //   No answer      → +1 attempt; drops to the bottom of the queue for today, back in its normal spot tomorrow.
-  //   Callback       → +1 attempt + a date; leaves the queue (Callbacks tab) and returns at the top on that day.
-  //   Renewed        → +1 attempt; off the queue for everyone, listed under Done (Undo puts it back).
-  //   Not interested → +1 attempt; off the queue for everyone, listed under Done (Undo puts it back).
+  //   No answer      → +1 attempt; Contacting on the board; bottom of today's list, back in its normal spot tomorrow.
+  //                    On a callback that is due: re-booked next weekday, same time (twice), then the regular list.
+  //   Callback       → +1 attempt + a day AND time (both required); off the list until that day, then on top,
+  //                    ordered by time. Stays on top until the rep logs a new disposition.
+  //   Renewed        → +1 attempt; off the list for everyone; Renewed column on the board.
+  //   Not interested → +1 attempt; off the list for everyone; Not Interested column on the board.
   // Every save stamps the rep and the time, and syncs to everyone's screen within a second.
   const DISPOS = [
     { k: 'noanswer', label: '📵 No answer', tip: 'Back tomorrow — drops to the bottom of today’s list' },
-    { k: 'callback', label: '📅 Callback', tip: 'Pick a day — off the list until then, then back on top' },
+    { k: 'callback', label: '📅 Callback', tip: 'Pick a day and time — off the list until that day, then back on top' },
     { k: 'renewed', label: '✅ Renewed', tip: 'Signed a new agreement — off the list for everyone' },
     { k: 'notint', label: '❌ Not interested', tip: 'Declined — off the list for everyone' },
   ];
@@ -986,32 +997,50 @@ function _renewalQueueView(o) {
     const pick = open ? (state._renewalDispPick || '') : '';
     const sz = big ? { fontSize: '12px', padding: '6px 14px' } : {};
     if (!open) return el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
-      btn('📝 Disposition', 'Log how the call went', () => { state._renewalDispOpen = String(x.id); state._renewalDispPick = ''; state._renewalDispDate = ''; mountApp(); },
+      btn('📝 Disposition', 'Log how the call went', () => { state._renewalDispOpen = String(x.id); state._renewalDispPick = ''; state._renewalDispDate = ''; state._renewalDispTime = ''; mountApp(); },
         Object.assign({ background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }, sz)));
-    const cbDate = state._renewalDispDate || '';
-    const canSave = pick && (pick !== 'callback' || cbDate);
+    const cbDate = state._renewalDispDate || '', cbTime = state._renewalDispTime || '';
+    const canSave = pick && (pick !== 'callback' || (cbDate && cbTime));
+    // A callback that is due now and goes unanswered (per Isaac, Oct 28): re-booked for the next weekday at the
+    // same time, up to RENEWAL_CB_MAX_MISSES times; the next miss puts the account back on the regular list.
+    const cbDue = _renewalCallback(g) && _renewalCallback(g) <= today;
+    const misses = _renewalCallbackMisses(g), cbT = _renewalCallbackTime(g);
     const doSave = () => {
       if (!canSave) return;
-      const patch = pick === 'noanswer' ? { attempts: att + 1, result: 'Contacting' }
-        : pick === 'callback' ? { attempts: att + 1, result: 'Callback ' + cbDate }
-        : pick === 'renewed' ? { attempts: att + 1, result: 'Renewed' } : { attempts: att + 1, result: 'Not Interested' };
-      const msg = pick === 'callback' ? 'Callback set for ' + cbDate : pick === 'renewed' ? x.name + ' renewed 🎉' : pick === 'noanswer' ? 'No answer logged — back tomorrow' : 'Marked not interested';
-      state._renewalDispOpen = null; state._renewalDispPick = ''; state._renewalDispDate = '';
+      let patch, msg;
+      if (pick === 'noanswer' && cbDue && misses < RENEWAL_CB_MAX_MISSES) {
+        const next = _renewalNextWorkday(today);
+        patch = { attempts: att + 1, result: 'Callback ' + next + (cbT ? ' ' + cbT : '') + ' · missed ' + (misses + 1) };
+        msg = 'Missed callback — re-booked for ' + next + (cbT ? ' at ' + _renewalTime12(cbT) : '') + ' (' + (misses + 1) + ' of ' + RENEWAL_CB_MAX_MISSES + ')';
+      } else if (pick === 'noanswer') {
+        patch = { attempts: att + 1, result: 'Contacting' };
+        msg = cbDue ? 'Callback missed ' + (misses + 1) + ' times — back on the regular list' : 'No answer logged — back tomorrow';
+      } else if (pick === 'callback') {
+        patch = { attempts: att + 1, result: 'Callback ' + cbDate + ' ' + cbTime };
+        msg = 'Callback set for ' + cbDate + ' at ' + _renewalTime12(cbTime);
+      } else {
+        patch = { attempts: att + 1, result: pick === 'renewed' ? 'Renewed' : 'Not Interested' };
+        msg = pick === 'renewed' ? x.name + ' renewed 🎉' : 'Marked not interested';
+      }
+      state._renewalDispOpen = null; state._renewalDispPick = ''; state._renewalDispDate = ''; state._renewalDispTime = '';
       save(x, patch, msg);
     };
     const opt = (d) => el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold cursor-pointer transition', title: d.tip,
       style: pick === d.k ? { borderColor: 'var(--accent)', background: 'var(--accent)', color: 'var(--accent-text)' } : { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
       onclick: (e) => { e.stopPropagation(); state._renewalDispPick = d.k; mountApp(); } }, d.label);
-    const tip = pick ? (DISPOS.find(d => d.k === pick) || {}).tip : 'Pick how the call went';
+    const tip = pick === 'noanswer' && cbDue ? (misses < RENEWAL_CB_MAX_MISSES ? 'Missed callback — re-books for the next weekday' + (cbT ? ' at ' + _renewalTime12(cbT) : '') + ' (' + (misses + 1) + ' of ' + RENEWAL_CB_MAX_MISSES + ')' : 'Last try on this callback — goes back on the regular list')
+      : pick ? (DISPOS.find(d => d.k === pick) || {}).tip : 'Pick how the call went';
     return el('div', { class: 'flex flex-col gap-1.5 rounded-xl border p-2', style: { borderColor: 'var(--border-2)', background: 'var(--card)' }, onclick: (e) => e.stopPropagation() },
       el('div', { class: 'flex items-center gap-1.5 flex-wrap' }, ...DISPOS.map(opt),
         pick === 'callback' ? el('input', { type: 'date', min: today, value: cbDate, class: 'rounded-lg border px-1.5 py-0.5 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-          onchange: (e) => { state._renewalDispDate = e.target.value; mountApp(); } }) : null),
+          onchange: (e) => { state._renewalDispDate = e.target.value; mountApp(); } }) : null,
+        pick === 'callback' ? el('input', { type: 'time', step: 900, value: cbTime, class: 'rounded-lg border px-1.5 py-0.5 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+          onchange: (e) => { state._renewalDispTime = e.target.value; mountApp(); } }) : null),
       el('div', { class: 'flex items-center gap-2 flex-wrap' },
         el('span', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, tip),
         el('span', { class: 'ml-auto inline-flex gap-1.5' },
           btn('Cancel', '', () => { state._renewalDispOpen = null; mountApp(); }),
-          el('button', { class: 'rounded-lg px-3 py-1 text-[11px] font-black', disabled: !canSave, title: canSave ? 'Save the disposition' : (pick === 'callback' ? 'Pick the callback day' : 'Pick an outcome first'),
+          el('button', { class: 'rounded-lg px-3 py-1 text-[11px] font-black', disabled: !canSave, title: canSave ? 'Save the disposition' : (pick === 'callback' ? 'Pick the callback day and time' : 'Pick an outcome first'),
             style: { background: canSave ? 'var(--ok)' : 'var(--card-2)', color: canSave ? '#fff' : 'var(--text-subtle)', cursor: canSave ? 'pointer' : 'not-allowed' },
             onclick: (e) => { e.stopPropagation(); doSave(); } }, 'Save'))));
   };
@@ -1019,7 +1048,7 @@ function _renewalQueueView(o) {
   const tierChip = (t) => el('span', { class: 'text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md shrink-0', style: { background: t.bg, color: t.color }, title: t.blurb }, t.short);
   const why = (x) => {
     const lifeTxt = 'month ' + Math.floor(x.life + 1) + ' of life';
-    if (x._tier === 0) return 'callback due ' + _renewalCallback(o.logOf(x)) + ' · ' + (x.pastBy < 0 && !x.noContract ? 'term ends ' + x.endMonth : 'month-to-month');
+    if (x._tier === 0) return 'callback due ' + _renewalCallbackLabel(o.logOf(x)) + ' · ' + (x.pastBy < 0 && !x.noContract ? 'term ends ' + x.endMonth : 'month-to-month');
     if (x.noContract) return 'no contract on file · month-to-month · ' + lifeTxt;
     if (x.pastBy < 0) return 'term ends ' + x.endMonth + ' · ' + lifeTxt + ' · ' + x.len + '-mo agreement';
     return 'term ended ' + x.endMonth + ' · month-to-month ' + x.pastBy.toFixed(1) + ' mo · ' + lifeTxt;
@@ -1035,7 +1064,7 @@ function _renewalQueueView(o) {
     const G = '#15803D';
     return el('div', { class: 'rounded-2xl border p-4 flex flex-col gap-2', style: { borderColor: 'rgba(22,163,74,.55)', background: 'rgba(22,163,74,.08)' } },
       el('div', { class: 'flex items-center justify-end gap-2 flex-wrap' },
-        x._tier === 0 ? el('span', { class: 'text-[10px] font-bold', style: { color: G, marginRight: 'auto' } }, '📅 Callback due today') : null,
+        x._tier === 0 ? el('span', { class: 'text-[10px] font-bold', style: { color: G, marginRight: 'auto' } }, '📅 Callback due today' + (_renewalCallbackTime(o.logOf(x)) ? ' at ' + _renewalTime12(_renewalCallbackTime(o.logOf(x))) : '') + (_renewalCallbackMisses(o.logOf(x)) ? ' · missed ' + _renewalCallbackMisses(o.logOf(x)) + 'x' : '')) : null,
         el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, lastTouch(x))),
       el('div', { class: 'flex items-end justify-between gap-3 flex-wrap' },
         el('div', { class: 'min-w-0' },
@@ -1087,7 +1116,7 @@ function _renewalQueueView(o) {
   if (tab === 'callbacks') {
     const L = snoozed.filter(base);
     body = L.length ? el('div', { class: 'flex flex-col gap-1.5' }, ...L.map(x => plainRow(x, el('span', { class: 'inline-flex items-center gap-1.5' },
-      el('span', { class: 'text-[11px] font-bold', style: { color: '#7C3AED' } }, '📅 ' + _renewalCallback(o.logOf(x))),
+      el('span', { class: 'text-[11px] font-bold', style: { color: '#7C3AED' } }, '📅 ' + _renewalCallbackLabel(o.logOf(x))),
       btn('Call now', 'Put back in the queue today', () => save(x, { result: 'Contacting' }))))))
       : el('div', { class: 'text-[12px] text-center py-8', style: { color: 'var(--text-subtle)' } }, 'No callbacks scheduled.');
   } else if (tab === 'done') {
