@@ -136,7 +136,8 @@ function dashLensOptions() {
     ...teams.map(t => ['team:' + t, teams.length === 1 ? 'My Team' : t]),
     // Company: admins, partners / leads, and anyone on Office Staff (their department pacer was always shared).
     // Plain sales reps / techs never saw company trends, so they get Me · My Team only.
-    ...(_dashLensCompanyOk() ? [['all', dashLensCompanyLabel()]] : []),
+    // The Rep type picker beside it already names the department, so the button just says All (per Isaac, Oct 28).
+    ...(_dashLensCompanyOk() ? [['all', (typeof repWorldOptions === 'function' && repWorldOptions(state.profile?.role).length > 1) ? 'All' : dashLensCompanyLabel()]] : []),
   ];
 }
 function _dashLensCompanyOk() {
@@ -1339,6 +1340,8 @@ function viewIndicators() {
               // season a rep mostly wants TODAY — so the four ranges people flip
               // between sit right on the bar instead of inside Filters.
               // Me · My Team · All … (per Isaac, Oct 16) — just before the date.
+              // Rep type picker + ★ first in the row (per Isaac, Oct 28) — same control as the Sales / Pay tabs.
+              (typeof repWorldPicker === 'function' && IND_WORLD[state.view]) ? repWorldPicker(({ office: 'inside', d2d: 'd2d', techs: 'techs', all: 'all' })[IND_WORLD[state.view]]) : null,
               dashLensOn() ? dashLensSwitch() : null,
               el('div', { class: 'inline-flex rounded-xl border overflow-hidden shrink-0', style: { borderColor: 'var(--border-2)', height: '28px', boxSizing: 'border-box' }, 'data-quick-range': '1' },   // same 28px box as Filters / 🏆 (per Isaac, Oct 16)
                 // ONE date button (per Isaac, Oct 12): it wears the current range's name; tap to pick another.
@@ -1560,7 +1563,7 @@ function viewIndicators() {
                 const hl = (node, on) => { if (node && on) { node.style.borderColor = 'var(--accent)'; node.style.boxShadow = '0 0 0 2px rgba(223,100,58,.25)'; } return node; };
                 return [
                   _fRow('Presets', indPresetRibbon({ inline: true })),
-                  _fRow('Rep type', worldSel),   // right under Saved views — it switches the whole dashboard (per Isaac, Oct 28)
+                  // (Rep type moved OUT of Filters onto the bar beside Me / All — per Isaac, Oct 28.)
                   _metricLocked ? null : _fRow('Audit', auditBtn),   // right under Saved views (per Isaac, Oct 16)
                   _metricLocked ? null : _fRow('Revenue metric', hl(metricSel, (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced')),
                   // Type is the Office Staff / D2D / Technicians switch on the Sales dashboards — only the stand-alone page still picks it here.
@@ -1628,7 +1631,7 @@ function viewIndicators() {
             class: 'relative rounded-xl px-2.5 py-1 text-[11px] font-semibold border transition hover:brightness-95 shrink-0',
             // Active filters / a preset (per Isaac, Oct 15): the button itself turns orange — no count badge.
             style: nonDefault ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)', color: 'var(--text)' },
-            title: nonDefault ? 'Filters are on (' + nonDefault + ') — click to see or change them' : 'Filters — presets, rep type, Revenue metric, Exclude, Group, Team, Tier',
+            title: nonDefault ? 'Filters are on (' + nonDefault + ') — click to see or change them' : 'Filters — presets, Revenue metric, Exclude, Group, Team, Tier',
             onclick: (e) => {
               e.stopPropagation();
               const open = panel.style.display === 'block';

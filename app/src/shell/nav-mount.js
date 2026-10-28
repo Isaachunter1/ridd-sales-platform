@@ -161,10 +161,15 @@ function salesModeToggle(mode) {
   const role = state.profile?.role;
   const opts = repWorldOptions(role);
   if (!opts.length) return null;
-  // On a dashboard the rep type lives inside Filters as "Rep type" (per Isaac, Oct 28) — the bar toggle only shows on
-  // the Sales / Pay / other tabs, which have no Filters panel.
+  // On a dashboard the same picker rides in the dashboard's own control row (indicators: repWorldPicker), first in
+  // line before Me / All, Today and Filters — so it isn't drawn twice here.
   if (typeof IND_WORLD !== 'undefined' && IND_WORLD[state.view]) return null;
-  // One compact Rep type picker, right side of the bar, same look on every tab (per Isaac, Oct 28 — the row of
+  return repWorldPicker(mode, 'sales-mode-toggle flex items-stretch gap-1.5 ml-auto shrink-0 py-1.5');
+}
+// The Rep type picker + default star (per Isaac, Oct 28) — one control, same look on every tab.
+function repWorldPicker(mode, cls) {
+  const opts = repWorldOptions(state.profile?.role);
+  if (opts.length < 2) return null;  // One compact Rep type picker, right side of the bar, same look on every tab (per Isaac, Oct 28 — the row of
   // Office Staff / Sales Rep / Technician / All buttons is gone). The ★ beside it sets your default dashboard,
   // same as the star in the dashboard's Filters.
   const sel = el('select', {
@@ -185,7 +190,7 @@ function salesModeToggle(mode) {
       mountApp();
     },
   }, on ? '★' : '☆') : null;
-  return el('div', { class: 'sales-mode-toggle flex items-stretch gap-1.5 ml-auto shrink-0 py-1.5' }, sel, star);
+  return el('div', { class: cls || 'flex items-stretch gap-1.5 shrink-0', 'data-world-pick': '1' }, sel, star);
 }
 function insideSalesSubTabs() {
   const tabs = insideSalesTabsFor(state.profile?.role);
@@ -1525,7 +1530,11 @@ function mountApp() {
       // the range buttons stretch, nothing wraps or gets squeezed off the edge.
       let _phone = false; try { _phone = window.matchMedia('(max-width: 640px)').matches; } catch (e) { /* desktop */ }
       if (_phone) {
-        const sel = bar.querySelector('.sales-tab-select'); if (sel) sel.style.flex = '1 1 100%';
+        const sel = bar.querySelector('.sales-tab-select');
+        // Rep type picker shares the tab row on phones (per Isaac, Oct 28) — the control row below stays one line.
+        const wp = ctl.querySelector('[data-world-pick]');
+        if (sel && wp) { sel.style.flex = '1 1 0'; wp.style.flex = '1 1 0'; wp.style.minWidth = '0'; const s2 = wp.querySelector('select'); if (s2) { s2.style.flex = '1 1 auto'; s2.style.minWidth = '0'; } sel.after(wp); }
+        else if (sel) sel.style.flex = '1 1 100%';
         // Even spacing (per Isaac, Oct 4): the gap under the second row matches the 12px gap between the two rows.
         bar.style.setProperty('margin-bottom', '0', 'important');
         bar.style.setProperty('row-gap', '12px', 'important');
