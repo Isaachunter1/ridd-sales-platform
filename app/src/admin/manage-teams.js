@@ -259,15 +259,24 @@ function manageTeamsPanel(opts) {
     } else if (activeSelect === 'inactive') {
       filteredReps = filteredReps.filter(r => !isRepActive(r));
     }
+    // The tab a rep is LISTED on (per Isaac, Oct 28 — Javier, traded from the doors to inside sales): a rep on a
+    // Sales Rep team this year stays on the Sales Reps tab with that team, whatever their role is now — Office
+    // Staff / Technicians have no teams yet. Counting is unchanged: each sale still goes to the role it was made
+    // in (teamOfSale / _indicatorDeptOf), so his door sales count for him and his team, his office sales don't.
+    const tabTypeOf = (r) => {
+      const tm = getRepTeam(r);
+      if (tm && !isTeamExcluded(tm) && !(typeof isOwnerTeam === 'function' && isOwnerTeam(tm)) && typeof teamTypeOf === 'function' && teamTypeOf(tm) === 'd2d') return 'Sales Rep';
+      return repTypeOf(r);
+    };
     if (typeSelect) {
-      filteredReps = filteredReps.filter(r => repTypeOf(r) === typeSelect);
+      filteredReps = filteredReps.filter(r => tabTypeOf(r) === typeSelect);
     } else {
       // DEFAULT: teams are a Sales-Rep construct — known Office Staff and
       // Technicians stay out of the roster (accounts mis-sourced as Door to
       // Door were sneaking techs in here). 'Unknown' types stay visible so
       // unmatched sales reps can still be assigned. Pick the Office Staff /
       // Technician chip to see those groups explicitly.
-      filteredReps = filteredReps.filter(r => { const t = repTypeOf(r); return t !== 'Office Staff' && t !== 'Technician'; });
+      filteredReps = filteredReps.filter(r => { const t = tabTypeOf(r); return t !== 'Office Staff' && t !== 'Technician'; });
     }
     if (branchSelect) {
       filteredReps = filteredReps.filter(r => (_normBranch(primaryOffice(r)) || '(no office)') === branchSelect);

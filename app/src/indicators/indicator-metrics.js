@@ -76,6 +76,18 @@ function _indKeep(s, key, deptView) {
 // (same rows the player card lists). bounds = { start, end } as Dates or ISO
 // days; defaults to the page's range, else the span of the rep's own sales.
 const _IND_FEE_LIKE = /\bfee\b|\btax\b|discount|surcharge/i;
+// An add-on sold WITH its base plan is already inside that plan's recurring / CV — FieldRoutes folds it into
+// the subscription (per Isaac, Oct 28: Pest 4 at $73.87 / $1,116 already holds the $20 Interior Flea). So it is
+// shown on the plan's row ("Pest 4 + Interior Flea") and never counted a second time. An add-on only stands on
+// its own when it was the ONLY thing added — sold onto an account that already had its plan (no plan row for
+// that customer within a day of it, the Sales tab's own tolerance).
+function indStandaloneAddOns(saleRows, addOnRows) {
+  if (!addOnRows || !addOnRows.length) return [];
+  const dayMs = (v) => { const iso = (typeof dateSoldToIso === 'function' && dateSoldToIso(v)) || String(v || '').slice(0, 10); const t = Date.parse(iso + 'T00:00'); return Number.isFinite(t) ? t : null; };
+  const byCust = new Map();
+  for (const x of (saleRows || [])) { if (!x || x._addOn) continue; const k = String(x.customerId || ''); const t = dayMs(x.dateSold); if (t == null) continue; (byCust.get(k) || byCust.set(k, []).get(k)).push(t); }
+  return addOnRows.filter(a => { const t = dayMs(a.dateSold); const ts = byCust.get(String(a.customerId || '')) || []; return !(t != null && ts.some(d => Math.abs(d - t) <= 86400000)); });
+}
 function _indAddOnRows(rep, bounds) {
   const sales = rep.sales || [];
   const ids = new Set(sales.map(x => String(x.repId || '')).filter(Boolean));
@@ -118,7 +130,7 @@ function indMetricOverride(rep, deptView, bounds) {
   for (const d of IND_METRIC_DEFS) {
     if (!depts.some(dp => _indMetricCustomized(d.key, dp))) continue;
     const base = (_lensNew && indMetricRule(d.key, 'office', 'renewals')) ? rep._orig.sales : (rep.sales || []);
-    const ss = base.concat(_ao).filter(s => _indKeep(s, d.key, deptView));
+    const ss = base.concat(indStandaloneAddOns(rep._orig ? rep._orig.sales : base, _ao)).filter(s => _indKeep(s, d.key, deptView));   // add-ons sold with the plan are already in its CV
     const n = ss.length;
     switch (d.key) {
       case 'count': patch.count = n; break;

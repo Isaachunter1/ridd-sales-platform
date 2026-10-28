@@ -6344,7 +6344,7 @@ function renameTeam(oldName, newNameRaw) {
   _allTeamYearMaps().forEach(map => { Object.keys(map).forEach(r => { if (map[r] === oldName) map[r] = newName; }); _invalidateRepSigIndex(map); });
   // Carry the rename into the modal's active filter so the filter doesn't break
   if (state._indicatorManageTeamFilter === oldName) state._indicatorManageTeamFilter = newName;
-  if (state._indicatorRepTeamFilter === oldName)   state._indicatorRepTeamFilter   = newName;
+  if (state._indicatorRepTeamFilter) state._indicatorRepTeamFilter = indTeamFilterList().map(t => t === oldName ? newName : t).join(IND_TEAM_SEP);
   // Carry the rename into the excluded-teams list so the exclusion follows.
   if (Array.isArray(state._indicatorExcludedTeams)) {
     state._indicatorExcludedTeams = state._indicatorExcludedTeams.map(t => t === oldName ? newName : t);

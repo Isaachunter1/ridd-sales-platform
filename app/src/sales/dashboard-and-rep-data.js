@@ -220,7 +220,23 @@ function repTypeGroup(p) {
   if (isOfficeStaffProfile(p)) return 'office';
   return 'd2d';
 }
+// ⭐ Favorite rep type (per Isaac, Oct 28): anyone with the Rep type picker can star one in Filters, and that
+// dashboard is where they land. No star = the standard default (Office Staff for admins). Per user, kept on the
+// device and synced with the rest of their prefs (user_prefs).
+const FAV_WORLD_DASH = { inside: 'dashboard', d2d: 'd2d_dashboard', techs: 'techs', all: 'all_dashboard' };
+function _favWorldKey() { return 'ridd_fav_world_v1::' + ((state.profile && state.profile.id) || ''); }
+function getFavWorld() {
+  try { const v = localStorage.getItem(_favWorldKey()) || ''; return FAV_WORLD_DASH[v] ? v : ''; } catch (e) { return ''; }
+}
+function setFavWorld(m) {
+  try { if (m && FAV_WORLD_DASH[m]) localStorage.setItem(_favWorldKey(), m); else localStorage.removeItem(_favWorldKey()); } catch (e) { /* per-session only */ }
+  if (typeof pushUserPrefsSoon === 'function') pushUserPrefsSoon();
+}
 function defaultViewFor(p) {
+  if (p && typeof canWalkWorlds === 'function' && canWalkWorlds(p.role) && state.profile && p.id === state.profile.id) {
+    const fav = getFavWorld();
+    if (fav && (fav !== 'all' || (typeof canSeeAllWorld === 'function' && canSeeAllWorld(p.role)))) return FAV_WORLD_DASH[fav];
+  }
   const g = repTypeGroup(p);
   return g === 'tech' ? 'techs'
     : g === 'd2d' ? 'd2d_dashboard'
@@ -3011,7 +3027,7 @@ let _userPrefsPushTimer = null;
 function _collectUserPrefs() {
   const uid = state.profile && state.profile.id;
   if (!uid) return null;
-  const out = { repLayout: null, indPresets: null, viewLayouts: {} };
+  const out = { repLayout: null, indPresets: null, viewLayouts: {}, favWorld: getFavWorld() || null };
   try { out.repLayout = JSON.parse(localStorage.getItem(_repLayoutKeyForMe()) || 'null'); } catch (e) { /* skip */ }
   try { out.indPresets = JSON.parse(localStorage.getItem(_indPresetsKey()) || 'null'); } catch (e) { /* skip */ }
   try {
@@ -3048,6 +3064,13 @@ async function loadUserPrefs() {
     // server is the freshest cross-device truth.
     try { if (p.repLayout && Array.isArray(p.repLayout.order)) localStorage.setItem(_repLayoutKeyForMe(), JSON.stringify(p.repLayout)); } catch (e) { /* skip */ }
     try { if (Array.isArray(p.indPresets)) localStorage.setItem(_indPresetsKey(), JSON.stringify(p.indPresets)); } catch (e) { /* skip */ }
+    // Favorite rep type from another device: land there if nothing has been picked yet this session.
+    try {
+      if ('favWorld' in p && (p.favWorld || '') !== getFavWorld()) {
+        if (p.favWorld) localStorage.setItem(_favWorldKey(), p.favWorld); else localStorage.removeItem(_favWorldKey());
+        if (!state._navChosen && typeof IND_WORLD !== 'undefined' && IND_WORLD[state.view]) state.view = defaultViewFor(state.profile);
+      }
+    } catch (e) { /* skip */ }
     try {
       if (p.viewLayouts && typeof p.viewLayouts === 'object') {
         const pre = 'ridd_layout_v1::' + uid + '::';
@@ -3580,13 +3603,13 @@ function openIndicatorRepCard(rep, allReps = []) {
       : cardRevMode === 'total' && _mo.revenue == null ? (scopedRep.revenue || 0) : revSales.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
     const _nowAmt = revSales.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
     const revDays = new Set(revSales.map(x => dateSoldToIso(x.dateSold)).filter(Boolean)).size;
-    // Office Staff: a 2 × 2 grid — New / Total, then Renewal / Peak (per Isaac, Oct 17 — Peak was cut off in one row).
-    let _rtWide = false; try { _rtWide = window.matchMedia('(min-width: 640px)').matches; } catch (e) { /* phone */ }
-    const _rt4 = state.indicatorDept === 'office' && _rtWide;   // phones: the revenue tile is full-width, one row fits
-    const revToggle = el('span', { class: _rt4 ? 'inline-grid rounded overflow-hidden' : 'inline-flex rounded overflow-hidden', style: Object.assign({ border: '1px solid var(--border-2)' }, _rt4 ? { gridTemplateColumns: 'repeat(2, auto)', marginTop: '2px' } : {}), onclick: (e) => e.stopPropagation() },
+    // One row (per Isaac, Oct 28, reversing the Oct 17 2×2 grid): New / Total / Renewal / Peak side by side with
+    // tighter buttons, so the revenue tile stays the same height as the others.
+    const _rt4 = state.indicatorDept === 'office';
+    const revToggle = el('span', { class: 'inline-flex rounded overflow-hidden', style: { border: '1px solid var(--border-2)', maxWidth: '100%' }, onclick: (e) => e.stopPropagation() },
       // Office Staff: New / Total / Renewal / Peak · everyone else: Revenue / Peak (per Isaac, Oct 15).
       ...(state.indicatorDept === 'office' ? [['new', 'New'], ['total', 'Total'], ['renewal', 'Renewal'], ['peak', 'Peak']] : [['total', 'Revenue'], ['peak', 'Peak']]).map(([v, l]) => el('button', { type: 'button',
-        style: { fontSize: '9px', fontWeight: '700', padding: _rt4 ? '1px 7px' : '0 5px', lineHeight: '14px', border: '0', cursor: 'pointer', background: cardRevMode === v ? 'var(--accent)' : 'transparent', color: cardRevMode === v ? 'var(--accent-text)' : 'var(--text-muted)' },
+        style: { fontSize: _rt4 ? '8px' : '9px', fontWeight: '700', padding: _rt4 ? '0 4px' : '0 5px', lineHeight: '14px', border: '0', cursor: 'pointer', whiteSpace: 'nowrap', background: cardRevMode === v ? 'var(--accent)' : 'transparent', color: cardRevMode === v ? 'var(--accent-text)' : 'var(--text-muted)' },
         title: v === 'new' ? 'New business only' : v === 'renewal' ? 'Renewal-source sales only' : v === 'peak' ? 'Every account at its value once the initial was completed, before any later reduction (rates lowered to save it, plans adjusted down)' : 'Everything',
         onclick: (e) => { e.stopPropagation(); cardRevMode = v; renderBody(); } }, l)));
     scopedStats = [
@@ -4830,7 +4853,7 @@ function openIndicatorRepCard(rep, allReps = []) {
       const parent = byCust.get(String(a.customer_id || '')) || {};
       const [y, m, d] = String(a.added_at).slice(0, 10).split('-');
       const rec = Number(a.recurring_amount) || 0;
-      return { _addOn: true, customer: parent.customer || '', customerId: a.customer_id || '', rep: parent.rep || rep.name,
+      return { _addOn: true, _aoBase: a.base_service || '', _aoName: a.service_name || 'Add-on', customer: parent.customer || '', customerId: a.customer_id || '', rep: parent.rep || rep.name,
         subscription: 'ADD ON \u00b7 ' + (a.base_service ? a.base_service + ' + ' : '+ ') + (a.service_name || 'Add-on'),
         dateSold: Number(m) + '/' + Number(d) + '/' + y + ' 00:00:00', initialPrice: a.initial_amount != null ? Number(a.initial_amount) || 0 : null,
         recurring: rec * 12, contractValue: typeof addOnAnnualValue === 'function' ? addOnAnnualValue(a) : rec * 12,
@@ -4838,9 +4861,30 @@ function openIndicatorRepCard(rep, allReps = []) {
     });
   }
   function salesListBlock() {
-    const _ao = cardAddOnRows();
-    const list = [...(scopedRep.sales || []), ..._ao].sort((a, b) => ((typeof dateSoldToIso === 'function' && dateSoldToIso(b.dateSold)) || '').localeCompare((typeof dateSoldToIso === 'function' && dateSoldToIso(a.dateSold)) || ''));
-    const total = (scopedRep.sales || []).reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
+    // Add-ons ride ON their base plan's row — "Pest 4 + Interior Flea" — like the Sales tab (per Isaac, Oct 28):
+    // FieldRoutes already folded the add-on's $ into the plan's recurring / CV, so the row's value IS the sum.
+    // An add-on only keeps its own ADD ON line when it was the ONLY thing added — sold onto an account that
+    // already had its base plan (no plan row for that customer within a day, the Sales tab's own tolerance).
+    const _aoAll = cardAddOnRows();
+    const _plan = (scopedRep.sales || []).slice();
+    const _ao = [];
+    {
+      const _dayMs = (v) => { const iso = (typeof dateSoldToIso === 'function' && dateSoldToIso(v)) || String(v || '').slice(0, 10); const t = Date.parse(iso + 'T00:00'); return Number.isFinite(t) ? t : null; };
+      const byCust = new Map();
+      _plan.forEach((x, i) => { const k = String(x.customerId || ''); (byCust.get(k) || byCust.set(k, []).get(k)).push(i); });
+      for (const a of _aoAll) {
+        const t = _dayMs(a.dateSold);
+        const cand = (byCust.get(String(a.customerId || '')) || []).filter(i => { const d = _dayMs(_plan[i].dateSold); return t != null && d != null && Math.abs(d - t) <= 86400000; });
+        // Prefer the row whose plan the add-on names as its base.
+        const base = String(a._aoBase || '').trim().toLowerCase();
+        const i = cand.find(j => String((scopedRep.sales || [])[j].subscription || '').trim().toLowerCase() === base) ?? cand[0];
+        if (i == null) { _ao.push(a); continue; }
+        const x = _plan[i];
+        _plan[i] = Object.assign({}, x, { subscription: x.subscription + ' + ' + a._aoName, _aoMerged: (x._aoMerged || 0) + 1 });
+      }
+    }
+    const list = [..._plan, ..._ao].sort((a, b) => ((typeof dateSoldToIso === 'function' && dateSoldToIso(b.dateSold)) || '').localeCompare((typeof dateSoldToIso === 'function' && dateSoldToIso(a.dateSold)) || ''));
+    const total = _plan.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);   // add-on $ folded into the plan rows already
     const aoTotal = _ao.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
     return el('div', { class: 'card overflow-hidden mt-5' },
       el('div', { class: 'px-4 py-2.5 border-b flex items-center justify-between gap-2', style: { borderColor: 'var(--border)', flexWrap: 'nowrap' } },
@@ -6002,10 +6046,8 @@ function dashboardGoalCard(range, opts) {
       // Window (Today by default).
       const goalWin = _goalBetween(s.monthly, s.target, range.start, _winEnd);
       const winHit = goalWin > 0 && s.win >= goalWin;
-      const chip = s.target > 0 && !(s.plan && s.plan.noChip) ? el('span', {
-        class: 'font-bold whitespace-nowrap shrink-0', title: (ahead ? fmt.usd0(gap) + ' ahead of' : fmt.usd0(-gap) + ' behind') + ' where the seasonal plan says we should be today (' + (sp * 100).toFixed(1) + '% of the goal)',
-        style: { fontSize: '11px', padding: '2px 8px', background: ahead ? 'rgba(95,108,91,.12)' : 'rgba(220,38,38,.08)', color: ahead ? _GREEN : _RED },
-      }, (ahead ? '▲ ' : '▼ ') + Math.abs(paceDiff).toFixed(0) + '%' + (_phoneP ? '' : (ahead ? ' ahead of pace' : ' behind pace'))) : null;
+      // Per Isaac (Oct 28): no ahead/behind-pace chip on the pacer — the tick on the bar shows the pace (hover for $).
+      const chip = null;
       return el('div', { class: 'min-w-0' },
         el('div', { class: 'flex items-center justify-between gap-2', style: { minWidth: 0, marginBottom: '6px' } },
           el('div', { class: 'flex items-baseline gap-2 min-w-0' },
@@ -6023,9 +6065,9 @@ function dashboardGoalCard(range, opts) {
         _simple ? el('div', { class: 'text-[11px] tabular-nums whitespace-nowrap overflow-hidden', style: { color: 'var(--text-muted)', marginTop: '7px', height: '16px', textOverflow: 'ellipsis' }, title: (s.plan && s.plan.tip) || '' },
           s.plan && s.plan.text != null ? s.plan.text
           : s.plan && s.plan.left != null
-            ? (s.plan.left > 0 ? (s.plan.need > 0 ? el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(s.plan.need)), ' / work day needed \u00b7 ' + s.plan.left + ' work days left') : '\u2713 goal hit') : 'Selling window ended')
+            ? (s.plan.left > 0 ? (s.plan.need > 0 ? el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(s.plan.need)), ' / work day needed \u00b7 ' + s.plan.left + ' work days left') : '') : 'Selling window ended')
             : s.target > 0 && needYear != null
-              ? (needYear > 0 ? el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(needYear)), ' / day needed \u00b7 ' + daysLeftY + ' selling days left') : '\u2713 goal hit')
+              ? (needYear > 0 ? el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(needYear)), ' / day needed \u00b7 ' + daysLeftY + ' selling days left') : '')
               : (!(s.target > 0) && opts.hint && s === _streams[0] ? el('span', { style: { color: 'var(--accent)', fontWeight: '600' } }, opts.hint)
                 : !(s.target > 0) && s.win != null ? el('span', {}, 'Today ', el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(s.win))) : '\u00a0')) : null,
         // Annual-goal reminder (per Isaac, Oct 18): the bar above follows the date range; this thin line always shows

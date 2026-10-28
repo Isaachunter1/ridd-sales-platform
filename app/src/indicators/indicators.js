@@ -81,6 +81,28 @@ function indWorldTeamOf(rep) {
   return _indTeamDepts()[t] === w ? t : '';
 }
 // Does the current dashboard have any teams of its own?
+// Team filter (per Isaac, Oct 28): several teams can be picked at once to see them combined. Stored as ONE string,
+// names joined by '||' (so saved presets, the change fingerprint and the old single-team value all keep working).
+const IND_TEAM_SEP = '||';
+function indTeamFilterList(v) {
+  const raw = v === undefined ? state._indicatorRepTeamFilter : v;
+  if (Array.isArray(raw)) return raw.filter(Boolean);
+  return String(raw || '').split(IND_TEAM_SEP).filter(Boolean);
+}
+function indTeamFilterLabel(v) {
+  const l = indTeamFilterList(v).map(t => t === '__unassigned__' ? 'No team' : t);
+  return l.length <= 2 ? l.join(' + ') : l.length + ' teams';
+}
+// Teams belong to the rep type they were made under in Manage Teams (per Isaac, Oct 28): a dashboard only lists
+// ITS type's teams — Sales Rep teams on Sales Reps, none on Office Staff / Technicians until teams are made there.
+// The All dashboard lists every team.
+function indWorldTeamOk(t) {
+  if (!t || (typeof isTeamExcluded === 'function' && isTeamExcluded(t))) return false;
+  const d = state.indicatorDept;
+  const w = (d === 'office' || d === 'techs' || d === 'd2d') ? d : '';
+  if (!w) return true;
+  return (typeof teamTypeOf === 'function' ? teamTypeOf(t) : 'd2d') === w;
+}
 function indWorldHasTeams() {
   const w = _indTeamWorld();
   if (!w) return true;
@@ -114,7 +136,8 @@ function dashLensOptions() {
     ...teams.map(t => ['team:' + t, teams.length === 1 ? 'My Team' : t]),
     // Company: admins, partners / leads, and anyone on Office Staff (their department pacer was always shared).
     // Plain sales reps / techs never saw company trends, so they get Me · My Team only.
-    ...(_dashLensCompanyOk() ? [['all', dashLensCompanyLabel()]] : []),
+    // The Rep type picker beside it already names the department, so the button just says All (per Isaac, Oct 28).
+    ...(_dashLensCompanyOk() ? [['all', (typeof repWorldOptions === 'function' && repWorldOptions(state.profile?.role).length > 1) ? 'All' : dashLensCompanyLabel()]] : []),
   ];
 }
 function _dashLensCompanyOk() {
@@ -132,6 +155,9 @@ function dashLens() {
   if (isAdminRole(state.profile?.role) && o.some(x => x[0] === 'all')) return 'all';
   return o[0] ? o[0][0] : 'all';
 }
+// Player cards only on the Me lens (per Isaac, Oct 28) — My Team / the department view show none. A user with no
+// lens choice (no Me / Team / All buttons) keeps theirs.
+function indCardLensOk() { const o = dashLensOptions(); return o.length < 2 || dashLens() === 'me'; }
 function dashLensTeam() { const v = dashLens(); return v.indexOf('team:') === 0 ? v.slice(5) : ''; }
 // Plain-words name of what the lens is showing: "Isaac Hunter", "Avanti team", "Company".
 function dashLensLabel() {
@@ -356,7 +382,8 @@ function dashLensPacer(dept) {
   const RW = _pacerClip(R, W);
   const cnt = (v === 'me' && RW) ? RW : R;
   const cntEnd = new Date(cnt.end.getFullYear(), cnt.end.getMonth(), cnt.end.getDate(), 23, 59, 59);
-  const acc = { new: { amt: 0, tod: 0, ytd: 0 }, renewal: { amt: 0, tod: 0, ytd: 0 } };
+  const acc = { new: { amt: 0, tod: 0, ytd: 0, ytdN: 0 }, renewal: { amt: 0, tod: 0, ytd: 0, ytdN: 0 } };
+  const _saleDays = new Set();   // days with a sale — the game plan's streak
   // Year-to-date toward the ANNUAL goal (inside the selling window for Me) — always shown as the reminder line.
   const yW = v === 'me' ? W : yearWin, yWEnd = new Date(yW.end.getFullYear(), yW.end.getMonth(), yW.end.getDate(), 23, 59, 59);
   const t0 = R.today, t1 = new Date(t0.getFullYear(), t0.getMonth(), t0.getDate(), 23, 59, 59);
@@ -367,7 +394,8 @@ function dashLensPacer(dept) {
     const bk = acc[isOffice && _indicatorIsRenewal(s) ? 'renewal' : 'new'];
     if (d >= cnt.start && d <= cntEnd) bk.amt += val;
     if (d >= t0 && d <= t1) bk.tod += val;
-    if (d >= yW.start && d <= yWEnd) bk.ytd += val;
+    if (d >= yW.start && d <= yWEnd) { bk.ytd += val; bk.ytdN++; }
+    _saleDays.add(d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate());
   }
   // The annual goal stays on screen whatever the range (per Isaac, Oct 18) — except This Year, where the bar IS it.
   const annualOf = (ytd) => annual > 0 && R.pre !== 'this_year' ? { actual: ytd, target: annual } : null;
@@ -385,7 +413,7 @@ function dashLensPacer(dept) {
     else if (over) text = actual >= goal
       ? el('span', {}, '✓ Goal hit · ', el('strong', { style: { color: 'var(--text)' } }, '+' + fmt.usd0(actual - goal)))
       : el('span', {}, 'Missed by ', el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(goal - actual)));
-    else if (p.left === 1 && +PW.start === +PW.end) text = actual >= goal ? '✓ Day goal hit' : el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(goal - actual)), ' to go today');
+    else if (p.left === 1 && +PW.start === +PW.end) text = actual >= goal ? '' : el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(goal - actual)), ' to go today');
     else text = p.need > 0
       ? el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(p.need)), ' / work day needed · ' + p.left + ' day' + (p.left === 1 ? '' : 's') + ' left')
       : '✓ Goal hit';
@@ -423,8 +451,59 @@ function dashLensPacer(dept) {
   const range = { start: R.start, end: new Date(R.end.getFullYear(), R.end.getMonth(), R.end.getDate(), 23, 59, 59) };
   const _keep = state.dashDateRange; state.dashDateRange = 'today';
   try {
-    return dashboardGoalCard(range, { title: (v === 'me' ? 'My' : team + ' Team') + ' Revenue Pacer', simple: true, hint, streams });
+    const card = dashboardGoalCard(range, { title: (v === 'me' ? 'My' : team + ' Team') + ' Revenue Pacer', simple: true, hint, streams });
+    const plan = v === 'me' ? _dailyGamePlan() : null;
+    if (card && plan) card.prepend(plan);
+    return card;
   } finally { state.dashDateRange = _keep; }
+
+  // Daily game plan (per Isaac, Oct 28 — keep it SIMPLE): one line at the top of the Me pacer, always about TODAY
+  // whatever range is picked — what today needs to stay on pace for the annual goal, about how many sales that is at
+  // the rep's own average, and their streak of work days with a sale.
+  function _dailyGamePlan() {
+    if (!(annual > 0)) return null;
+    const loy = isOffice && typeof _isLoyaltyProfile === 'function' && _isLoyaltyProfile(state.profile);
+    const ytd = loy ? acc.new.ytd + acc.renewal.ytd : acc.new.ytd, ytdN = loy ? acc.new.ytdN + acc.renewal.ytdN : acc.new.ytdN;
+    const tod = loy ? acc.new.tod + acc.renewal.tod : acc.new.tod;
+    const today = R.today, inWin = today >= W.start && today <= W.end;
+    if (!inWin) return null;
+    const key = (d) => d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+    // Streak: work days in a row with a sale, counting back from today (today only counts once it has a sale).
+    // A day off never breaks it; a sale on a day off still counts as a day with a sale.
+    let streak = 0;
+    for (let i = 0, d = new Date(today); i < 180; i++, d.setDate(d.getDate() - 1)) {
+      const has = _saleDays.has(key(d));
+      if (has) { streak++; continue; }
+      if (i === 0 || !goalIsWorkDay(_wt, d)) continue;
+      break;
+    }
+    const avg = ytdN > 0 ? ytd / ytdN : 0;
+    const workToday = goalIsWorkDay(_wt, today);
+    // Same daily goal as the pacer bar (annual ÷ work days in the window), so reps see ONE "today" number.
+    // The catch-up pace (what's left ÷ work days left) only shows on hover.
+    const left = goalWorkDays(_wt, today, W.end), total = goalWorkDays(_wt, W.start, W.end);
+    const dayTarget = workToday && total > 0 ? annual / total : 0;
+    const catchUp = left > 0 ? Math.max(0, (annual - (ytd - tod)) / left) : 0;
+    const toGo = Math.max(0, dayTarget - tod);
+    const strong = (t) => el('strong', { style: { color: 'var(--text)' } }, t);
+    let msg;
+    if (!workToday) msg = el('span', {}, 'Day off — every sale is a bonus' + (tod > 0 ? ' · ' : ''), tod > 0 ? strong(fmt.usd0(tod) + ' sold') : null);
+    else if (ytd >= annual) msg = el('span', {}, '✓ Annual goal hit — everything today is extra');
+    else if (toGo <= 0) msg = el('span', {}, '✓ Today’s pace hit · ', strong(fmt.usd0(tod) + ' sold'));
+    else {
+      const n = avg > 0 ? Math.ceil(toGo / avg) : null;
+      // The bar under this already says "$X to go today" — this line adds the one thing it doesn't: how many sales that is.
+      const sales = (k, more) => k + (more ? ' more' : '') + ' sale' + (k === 1 ? '' : 's');
+      msg = !n ? el('span', {}, strong(fmt.usd0(toGo)), ' to go today')
+        : tod > 0 ? el('span', {}, strong(fmt.usd0(tod) + ' sold'), ' · about ' + sales(n, true))
+        : el('span', {}, 'About ', strong(sales(n)), ' to go');
+    }
+    return el('div', { class: 'flex items-center gap-2 tabular-nums', style: { marginBottom: '12px', paddingBottom: '10px', borderBottom: '1px solid var(--border)', minWidth: 0 },
+      title: 'Today’s goal: ' + fmt.usd0(annual) + ' annual ÷ ' + total + ' work days (' + goalWorkRule(_wt) + ')' + (left > 0 && ytd < annual ? ' · to catch up on the year: ' + fmt.usd0(catchUp) + ' a work day from here' : '') + (avg > 0 ? ' · your average sale ' + fmt.usd0(avg) : '') },
+      el('span', { class: 'uppercase font-bold shrink-0', style: { fontSize: '10px', letterSpacing: '.12em', color: 'var(--accent)' } }, 'Today'),
+      el('span', { class: 'text-[12px] min-w-0 truncate', style: { color: 'var(--text-muted)' } }, msg),
+      streak >= 2 ? el('span', { class: 'ml-auto shrink-0 text-[11px] font-bold whitespace-nowrap', title: streak + ' work days in a row with a sale' }, '🔥 ' + streak + ' days') : null);
+  }
 }
 // ── Page order per dashboard (per Isaac, Oct 5). Sales Reps: Leaderboard
 // first, then the Indicators table, its graph, Performance Trends, Records,
@@ -434,7 +513,8 @@ function dashLensPacer(dept) {
 // Oct 16 (per Isaac): one order for EVERY user type — (revenue pacer) → player card → Performance Trends → Leaderboard →
 // Indicators → Power Ranking → Records → Sales Mix, then Class Metrics and Metric Trends.
 // Oct 16 later (per Isaac): Class Metrics and Sales Mix swapped — Class Metrics first, for every user type.
-const _IND_ORDER_STD = ['yoy', 'rep-leaderboard', 'ind-table', 'power-charts', 'agg-records', 'class-metrics', 'sales-mix', 'repTrend'];
+// Oct 28 (per Isaac): Leaderboard above Trends on the team / department views (Me hides the Leaderboard).
+const _IND_ORDER_STD = ['rep-leaderboard', 'yoy', 'ind-table', 'power-charts', 'agg-records', 'class-metrics', 'sales-mix', 'repTrend'];
 // Same order on all three dashboards (per Isaac, Oct 6). Office Staff keep the revenue-goal pacer above it.
 const IND_SECTION_ORDER = { d2d: _IND_ORDER_STD, office: _IND_ORDER_STD, techs: _IND_ORDER_STD, all: _IND_ORDER_STD };   // All too (per Isaac, Oct 9)
 // The dashboards open on TODAY (per Isaac, Oct 6) — the Today / Week / Month / Year chips are one tap away.
@@ -455,11 +535,21 @@ function indRepAvatar(name, px) {
     return node;
   } catch (e) { return null; }
 }
+// Me vs the department (per Isaac, Oct 28): the Me lens is about the REP, so the department tables come off —
+// Leaderboard, the Indicators table, Power Ranking, company Records, Class Metrics (and, for admins, the
+// company Trends mini-grid; reps' own mini-grid is already personal). Pacer, player card, Trends and Sales Mix stay — they already scope to the lens.
+const IND_ME_HIDE = ['rep-leaderboard', 'ind-table', 'power-charts', 'agg-records', 'class-metrics'];
 function indApplySectionOrder(page) {
   try {
-    const order = IND_SECTION_ORDER[state.indicatorDept];
-    if (!order || state.indicatorsComps || !page || !page.children) return page;
+    if (!page || !page.children) return page;
     const keyOf = (n) => (n.getAttribute && (n.getAttribute('data-section') || n.getAttribute('data-lazykey') || n.getAttribute('data-indsection'))) || '';
+    if (typeof dashLensOn === 'function' && dashLensOn() && dashLens() === 'me' && dashLensOptions().length > 1) {
+      const hide = new Set(IND_ME_HIDE);
+      if (isAdminRole(state.profile?.role)) hide.add('repTrend');
+      [...page.children].forEach(n => { if (hide.has(keyOf(n))) n.remove(); });
+    }
+    const order = IND_SECTION_ORDER[state.indicatorDept];
+    if (!order || state.indicatorsComps || !page.children) return page;
     const kids = [...page.children];
     const rank = (n) => order.indexOf(keyOf(n));
     const ranked = kids.filter(n => rank(n) >= 0).sort((a, b) => rank(a) - rank(b));
@@ -531,11 +621,17 @@ function viewWorldDashboard() {
   const dept = IND_WORLD[state.view];
   if (dept && state._indWorld !== state.view) {
     // Entering a world (or switching between them): preset the filters to it.
-    if (!state._indDeptDefaulted) { state.indicatorAcctStatus = 'pending_serviced'; state.indicatorsRangePreset = state.indicatorsRangePreset || IND_DEFAULT_RANGE; state.indicatorsGroupBy = state.indicatorsGroupBy || 'branch'; }
+    if (!state._indDeptDefaulted) { state.indicatorAcctStatus = 'pending_serviced'; state.indicatorsRangePreset = state.indicatorsRangePreset || IND_DEFAULT_RANGE; }
+    // Group default per dashboard (per Isaac, Oct 28): Sales Reps open grouped by TEAMS, Office Staff / Technicians by
+    // office. Set on entering a dashboard; the Filters → Group pick still sticks while you stay on it.
+    state.indicatorsGroupBy = dept === 'd2d' ? 'teams' : 'branch';
     state._indDeptDefaulted = true;
     state._indWorld = state.view;
     state.indicatorDept = dept;
-    if (!indWorldHasTeams() && !isAdminRole(state.profile?.role)) state._indicatorRepTeamFilter = '';   // (admins keep their team pick across user types — per Isaac, Oct 9) a D2D team filter doesn't follow you onto a dashboard with no teams
+    // A team pick only follows you onto a dashboard whose rep type has those teams (per Isaac, Oct 28) — otherwise
+    // it would filter the board with no Team row there to undo it.
+    state._indicatorRepOfficeFilter = '';   // Office filter retired (per Isaac, Oct 28)
+    if (state._indicatorRepTeamFilter) { const keep = indTeamFilterList().filter(t => t === '__unassigned__' || indWorldTeamOk(t)); state._indicatorRepTeamFilter = keep.join(IND_TEAM_SEP); }
   }
   const node = viewIndicators();
   const _adminPacer = (dept === 'd2d' || dept === 'techs') && isAdminRole(state.profile?.role) && !state.indicatorsComps;
@@ -1287,6 +1383,9 @@ function viewIndicators() {
           // every change (each mountApp re-crunches the full tab, which made
           // the panel feel molasses-slow). Changes collect here and the
           // Apply button commits them with ONE re-render.
+          // The Office filter is retired (per Isaac, Oct 28): never leave an old pick — or one inside a saved preset —
+          // silently narrowing the page with no row left to undo it.
+          state._indicatorRepOfficeFilter = '';
           const _staged = {
             acct: (state.indicatorAcctStatus === 'passed_audit' ? 'pending_serviced' : (state.indicatorAcctStatus || 'pending_serviced')),
             audit: state.indicatorPassedAudit === true || state.indicatorAcctStatus === 'passed_audit',
@@ -1298,6 +1397,8 @@ function viewIndicators() {
             office: state._indicatorRepOfficeFilter || '',
             team: state._indicatorRepTeamFilter || '',
             tier: state._indicatorRepTierFilter || '',
+            // Rep type (per Isaac, Oct 28): the Office Staff / Sales Rep / Technician / All switch moved off the bar into here.
+            world: ({ office: 'inside', d2d: 'd2d', techs: 'techs', all: 'all' })[(typeof IND_WORLD !== 'undefined' && IND_WORLD[state.view]) || ''] || '',
           };
           // Honest badge (per Isaac, Oct 6): on a Sales dashboard the rep type is the page, not a filter, and the date has its own buttons — neither counts.
           const _fWorld = (typeof IND_WORLD !== 'undefined') && !!IND_WORLD[state.view];
@@ -1390,14 +1491,61 @@ function viewIndicators() {
             el('option', { value: 'teams', selected: _staged.group === 'teams' }, 'Teams'),
           );
           const _selCls = { class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer w-full', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } };
+          const _worldOpts = (_staged.world && typeof repWorldOptions === 'function') ? repWorldOptions(state.profile?.role) : [];
+          // Rep type: a compact picker + a ⭐ to make it your default dashboard (per Isaac, Oct 28).
+          const worldSel = _worldOpts.length > 1 ? (() => {
+            const sel = el('select', Object.assign({}, _selCls, { class: _selCls.class.replace(' w-full', ''), style: Object.assign({}, _selCls.style, { flex: '1 1 auto', minWidth: '0' }),
+              onchange: e => { _staged.world = e.target.value; _markDirty(); paint(); } }),
+              ..._worldOpts.map(([m, lab]) => el('option', { value: m, selected: _staged.world === m }, m === 'all' ? 'All rep types' : lab)));
+            const star = el('button', { type: 'button', class: 'rounded-xl border text-[13px] leading-none transition hover:brightness-95 shrink-0 flex items-center justify-center', style: { width: '30px', minWidth: '30px', alignSelf: 'stretch', padding: '0' },
+              onclick: (e) => {
+                e.stopPropagation();
+                const on = getFavWorld() === _staged.world;
+                setFavWorld(on ? '' : _staged.world);
+                const name = (_worldOpts.find(o => o[0] === _staged.world) || [])[1] || '';
+                if (typeof toast === 'function') toast(on ? 'Default cleared — you’ll open on Office Staff' : (_staged.world === 'all' ? 'All rep types' : name) + ' is now your default', 'ok');
+                paint();
+              } });
+            function paint() {
+              const on = getFavWorld() === _staged.world;
+              star.textContent = on ? '★' : '☆';
+              star.title = on ? 'Your default dashboard — click to clear' : 'Make this rep type your default dashboard';
+              Object.assign(star.style, on ? { color: 'var(--accent)', borderColor: 'var(--accent)' } : { color: 'var(--text-muted)', borderColor: 'var(--border-2)' });
+            }
+            paint();
+            const w = el('div', { class: 'flex items-stretch gap-1.5 w-full' }, sel, star);
+            w._hl = sel;
+            return w;
+          })() : null;
           const _offices = [...new Set((state._indicatorRawSales || []).map(x => x.office).filter(Boolean))].sort();   // raw CRM strings — the leaderboard matches on these exactly
           const officeSel = el('select', Object.assign({ onchange: e => { _staged.office = e.target.value; _markDirty(); } }, _selCls),
             el('option', { value: '', selected: !_staged.office }, 'All offices'),
             ..._offices.map(o => el('option', { value: o, selected: _staged.office === o }, String(o).split(' ').map(w => w[0] ? w[0].toUpperCase() + w.slice(1).toLowerCase() : '').join(' '))));
-          const _teams = (typeof distinctTeams === 'function' ? distinctTeams() : []).filter(t => !(typeof isTeamExcluded === 'function' && isTeamExcluded(t)));
-          const teamSel = el('select', Object.assign({ onchange: e => { _staged.team = e.target.value; _markDirty(); } }, _selCls),
-            el('option', { value: '', selected: !_staged.team }, 'All teams'),
-            ..._teams.map(t => el('option', { value: t, selected: _staged.team === t }, t)));
+          const _teams = (typeof distinctTeams === 'function' ? distinctTeams() : []).filter(indWorldTeamOk);   // this rep type's teams only (per Isaac, Oct 28)
+          // Team: a checkbox dropdown (per Isaac, Oct 28) — tick several teams to see them combined.
+          const teamSel = (() => {
+            const picked = new Set(indTeamFilterList(_staged.team));
+            const labelOf = () => picked.size ? indTeamFilterLabel([...picked]) : 'All teams';
+            const caret = el('span', { style: { opacity: '.6', marginLeft: 'auto' } }, '▾');
+            const lab = el('span', { class: 'truncate' }, labelOf());
+            const list = el('div', { class: 'flex flex-col', style: { display: 'none', marginTop: '4px', maxHeight: '220px', overflowY: 'auto', border: '1px solid var(--border-2)', borderRadius: '12px', padding: '4px 0', background: 'var(--card)' } });
+            const sync = () => {
+              _staged.team = [...picked].join(IND_TEAM_SEP); lab.textContent = labelOf(); _markDirty();
+              list.querySelectorAll('input[data-team]').forEach(cb => { cb.checked = picked.has(cb.dataset.team); });
+              const all = list.querySelector('input[data-all]'); if (all) all.checked = !picked.size;
+            };
+            const row = (text, input) => el('label', { class: 'flex items-center gap-2 px-3 py-1 text-[11px] cursor-pointer hover:brightness-95', style: { color: 'var(--text)' } }, input, el('span', { class: 'truncate' }, text));
+            list.appendChild(row('All teams', el('input', { type: 'checkbox', 'data-all': '1', checked: !picked.size, onchange: () => { picked.clear(); sync(); } })));
+            for (const t of _teams) {
+              list.appendChild(row(t, el('input', { type: 'checkbox', 'data-team': t, checked: picked.has(t),
+                onchange: (e) => { if (e.target.checked) picked.add(t); else picked.delete(t); sync(); } })));
+            }
+            const btn = el('button', Object.assign({}, _selCls, { type: 'button', class: _selCls.class + ' flex items-center gap-2 border text-left',
+              onclick: (e) => { e.stopPropagation(); list.style.display = list.style.display === 'none' ? 'flex' : 'none'; } }), lab, caret);
+            const wrap = el('div', {}, btn, list);
+            wrap._hl = btn;
+            return wrap;
+          })();
           const _tiers = (typeof REP_TIERS !== 'undefined') ? REP_TIERS : [];
           const tierSel = _tiers.length ? el('select', Object.assign({ onchange: e => { _staged.tier = e.target.value; _markDirty(); } }, _selCls),
             el('option', { value: '', selected: !_staged.tier }, 'All tiers'),
@@ -1412,17 +1560,18 @@ function viewIndicators() {
               ...(() => {
                 const hl = (node, on) => { if (node && on) { node.style.borderColor = 'var(--accent)'; node.style.boxShadow = '0 0 0 2px rgba(223,100,58,.25)'; } return node; };
                 return [
-                  _fRow('Saved views', indPresetRibbon({ inline: true })),
+                  _fRow('Presets', indPresetRibbon({ inline: true })),
+                  // (Rep type moved OUT of Filters onto the bar beside Me / All — per Isaac, Oct 28.)
                   _metricLocked ? null : _fRow('Audit', auditBtn),   // right under Saved views (per Isaac, Oct 16)
-                  _metricLocked ? null : _fRow('Metric', hl(metricSel, (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced')),
+                  _metricLocked ? null : _fRow('Revenue metric', hl(metricSel, (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced')),
                   // Type is the Office Staff / D2D / Technicians switch on the Sales dashboards — only the stand-alone page still picks it here.
                   (_repLite || _fWorld) ? null : _fRow('Type',   hl(typeSel,   (state.indicatorDept || 'all') !== _fDeptDefault)),
                   // Date moved OUT to the bar (Today / Week / Month / Year / More). Only the legacy weekly view keeps a picker here.
                   isRange ? null : _fRow('Date', dateSel),
                   _fRow('Group',  hl(groupSel,  groupBy !== 'branch')),
-                  _repLite ? null : _fRow('Office', hl(officeSel, !!state._indicatorRepOfficeFilter)),
-                  // Admins get the Team pick on every user type (per Isaac, Oct 9) — every team is listed, so one team can be looked at from any dashboard.
-                  (_repLite || !(indWorldHasTeams() || isAdminRole(state.profile?.role))) ? null : _fRow('Team',   hl(teamSel,   !!state._indicatorRepTeamFilter)),
+                  // (Office row removed per Isaac, Oct 28 — the Indicators table and Group already show every office side by side.)
+                  // Team: only this rep type's teams, and no row at all when it has none (per Isaac, Oct 28 — replaces Oct 9's every-team-everywhere).
+                  (_repLite || !_teams.length) ? null : _fRow('Team',   (hl(teamSel._hl, !!state._indicatorRepTeamFilter), teamSel)),
                   (_repLite || !tierSel) ? null : _fRow('Tier', hl(tierSel, !!state._indicatorRepTierFilter)),
                 ];
               })(),
@@ -1452,6 +1601,8 @@ function viewIndicators() {
                   state._indicatorRepTierFilter = _staged.tier || '';
                   state._indFiltersOpen = false;   // one commit, one render, panel closes
                   if (typeof trackAction === 'function') trackAction('filters_apply', 'indicators', { dept: state.indicatorDept || 'all', group: _staged.group, acct: state.indicatorAcctStatus || '' });
+                  const _curWorld = ({ office: 'inside', d2d: 'd2d', techs: 'techs', all: 'all' })[IND_WORLD[state.view] || ''] || '';
+                  if (worldSel && _staged.world && _staged.world !== _curWorld) { switchRepWorld(_staged.world, true); return; }   // new rep type → its dashboard (one render)
                   mountApp();
                 },
               }, 'Apply')),
@@ -1478,7 +1629,7 @@ function viewIndicators() {
             class: 'relative rounded-xl px-2.5 py-1 text-[11px] font-semibold border transition hover:brightness-95 shrink-0',
             // Active filters / a preset (per Isaac, Oct 15): the button itself turns orange — no count badge.
             style: nonDefault ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)', color: 'var(--text)' },
-            title: nonDefault ? 'Filters are on (' + nonDefault + ') — click to see or change them' : 'Filters — saved views, Metric, Exclude, Group, Office, Team, Tier',
+            title: nonDefault ? 'Filters are on (' + nonDefault + ') — click to see or change them' : 'Filters — presets, Revenue metric, Exclude, Group, Team, Tier',
             onclick: (e) => {
               e.stopPropagation();
               const open = panel.style.display === 'block';
@@ -1500,27 +1651,9 @@ function viewIndicators() {
         // Custom date pickers still render in their own row below this bar
         // when the Date preset is Custom (see the dedicated row after the
         // toolbar div).
-          // 🏆 Manage Teams (per Isaac: the trophy is THE teams button now — the
-          // Power Ranking scoring picker lives inside Manage Teams).
-          (() => {
-            if (_repLite) return null;
-            const excludedNow = (typeof rankExcludedSet === 'function') ? rankExcludedSet() : new Set();
-            const icon = iconTrophy();
-            icon.style.width = '15px'; icon.style.height = '15px';
-            return el('button', {
-              class: 'relative rounded-xl border cursor-pointer transition hover:brightness-95 shrink-0 flex items-center justify-center text-[11px]',
-              // Square (per Isaac): same height as the Filters button beside it, width to match.
-              style: { color: excludedNow.size ? 'var(--accent)' : 'var(--text)', borderColor: excludedNow.size ? 'var(--accent)' : 'var(--border-2)', alignSelf: 'stretch', aspectRatio: '1 / 1', padding: '0', minWidth: '28px' },
-              title: 'Manage teams — assign reps, pick a color, and choose which offices/teams are scored in the Power Ranking'
-                + (excludedNow.size ? ' · ' + excludedNow.size + ' out of the ranking' : ''),
-              onclick: () => openManageTeamsModal(),
-            },
-              icon,
-              excludedNow.size ? el('span', {
-                class: 'absolute tabular-nums',
-                style: { top: '-5px', right: '-5px', minWidth: '14px', height: '14px', padding: '0 3px', borderRadius: '0', background: 'var(--accent)', color: '#3A1D12', fontSize: '9px', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-              }, String(excludedNow.size)) : null);
-          })(),
+          // (🏆 Manage Teams button removed from the dashboard per Isaac, Oct 28 — it lives in ⚙ Settings → Teams.)
+          // Rep type picker + ★ at the far right (per Isaac, Oct 28) — same control and spot as the Sales / Pay tabs.
+          (typeof repWorldPicker === 'function' && IND_WORLD[state.view]) ? repWorldPicker(({ office: 'inside', d2d: 'd2d', techs: 'techs', all: 'all' })[IND_WORLD[state.view]]) : null,
         // Manual-data mode (admin, THIS browser only): upload the CRM's
         // SalesReport CSV and pin the whole Indicators tab to it — a
         // side-by-side truth check against the sync. Amber pill = active.
@@ -1718,7 +1851,7 @@ function viewIndicators() {
           if (!_repLite && !world && (state.indicatorDept || 'all') !== 'd2d') add(({ all: 'All rep types', office: 'Office Staff', techs: 'Technicians' })[state.indicatorDept || 'all'] || 'Type', () => { state.indicatorDept = 'd2d'; });
           if (groupBy !== 'branch') add('Grouped by ' + (groupBy === 'teams' ? 'team' : groupBy), () => { state.indicatorsGroupBy = 'branch'; });
           if (!_repLite && state._indicatorRepOfficeFilter) add(_tc(state._indicatorRepOfficeFilter), () => { state._indicatorRepOfficeFilter = ''; });
-          if (!_repLite && state._indicatorRepTeamFilter) add(state._indicatorRepTeamFilter === '__unassigned__' ? 'No team' : state._indicatorRepTeamFilter, () => { state._indicatorRepTeamFilter = ''; });
+          if (!_repLite && state._indicatorRepTeamFilter) add(indTeamFilterLabel(), () => { state._indicatorRepTeamFilter = ''; });
           if (!_repLite && state._indicatorRepTierFilter) add(state._indicatorRepTierFilter === 'rookie' ? 'Rookies' : state._indicatorRepTierFilter === 'vet' ? 'Vets' : state._indicatorRepTierFilter, () => { state._indicatorRepTierFilter = ''; });
           if (!chips.length) return null;
           const chip = (label, clear, quiet) => el('button', {
@@ -1934,9 +2067,9 @@ function viewIndicators() {
     // render twice.
     // Partners / office leads with a team default to the TEAM card, with a
     // Team / Me toggle to flip to their personal card (per Isaac).
-    _isPartner && !_focusedComp && indShowMyCard() && !(_repLayoutPrefs().hidden || []).includes('card') && partnerLandingCard(),
+    _isPartner && !_focusedComp && indShowMyCard() && indCardLensOk() && !(_repLayoutPrefs().hidden || []).includes('card') && partnerLandingCard(),
     // Admins with a linked FieldRoutes rep get their own card in the same spot (per Isaac, Oct 16).
-    !_repLite && !_focusedComp && indShowMyCard() && repLandingPlayerCard(),
+    !_repLite && !_focusedComp && indShowMyCard() && indCardLensOk() && repLandingPlayerCard(),
     // Sales reps: Your Performance Trends sits right under the player card,
     // ahead of the Indicators table + Power Ranking (per Isaac).
     // Same spot for admins now (per Isaac, Oct 16): one page order for every user type.
@@ -2371,7 +2504,7 @@ function viewIndicators() {
           const prefs = _repLayoutPrefs();
           const builders = {
             // Every section is gated by the Settings → Permissions matrix.
-            card:  () => (!_isPartner && indShowMyCard()) ? [repLandingPlayerCard()] : [],   // linked FieldRoutes rep only (per Isaac, Oct 16); analyst layout pins it at page top instead
+            card:  () => (!_isPartner && indShowMyCard() && indCardLensOk()) ? [repLandingPlayerCard()] : [],   // linked FieldRoutes rep only (per Isaac, Oct 16); analyst layout pins it at page top instead
             yoy:   () => (!_repSalesLayout && userCan('ind_yoy')) ? [indLazy('yoy', () => indicatorYoYTrendChart(), null, 380)] : [],   // sales reps: pinned under the player card instead
             trend: () => userCan('ind_trend') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-indsection') === 'repTrend') : [],
             board: () => userCan('ind_board') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'rep-leaderboard') : [],
@@ -2384,7 +2517,7 @@ function viewIndicators() {
             if (prefs.hidden.includes(k) || !builders[k]) return;
             builders[k]().forEach(n => { if (n) out.push(n); });
           });
-          return out.length ? out : (indShowMyCard() ? [repLandingPlayerCard()] : []);
+          return out.length ? out : (indShowMyCard() && indCardLensOk() ? [repLandingPlayerCard()] : []);
         })()
       : _repSections)),
   );
@@ -4940,6 +5073,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   const _activeUnassignedTeam = allReps.some(r => !r.team);
   if (tierFilter === '__unassigned__' && !_activeUnassignedTier) tierFilter = state._indicatorRepTierFilter = '';
   if (teamFilter === '__unassigned__' && !_activeUnassignedTeam) teamFilter = state._indicatorRepTeamFilter = '';
+  const _teamSet = teamFilter ? new Set(indTeamFilterList(teamFilter)) : null;   // several teams = combined (per Isaac, Oct 28)
   const nameSearch   = (state._indicatorRepNameSearch || '').trim().toLowerCase();
   // ── Rep pick (a "downline") ─────────────────────────────────────────────
   // Partners run downlines that cut across teams, so team/office filters
@@ -4961,9 +5095,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // and the Kobe board still skip them - those are about who to work with
     // now, not who produced.
     if (officeFilter && r.office !== officeFilter) return false;
-    if (teamFilter) {
-      if (teamFilter === '__unassigned__') { if (r.team) return false; }
-      else if (r.team !== teamFilter) return false;
+    if (_teamSet && _teamSet.size) {
+      if (!(r.team ? _teamSet.has(r.team) : _teamSet.has('__unassigned__'))) return false;
     }
     if (tierFilter) {
       if (tierFilter === '__unassigned__') { if (r.tier) return false; }
@@ -5419,12 +5552,16 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 class: _canOpenTot ? 'cursor-pointer transition hover:brightness-95' : '',
                 title: _canOpenTot ? 'Open the combined player card for every rep shown' : '',
                 onclick: _canOpenTot ? _openTot : undefined,
-                style: { background: 'var(--card-2)', boxShadow: 'inset 0 -1px 0 var(--border), inset 0 1px 0 var(--border)' } },   // same weight as every other row line (per Isaac)
-                el('td', { class: 'pl-5 pr-2 py-2 text-base leading-none', style: { fontFamily: 'Georgia, "Times New Roman", serif' } }, '\ud835\udd7d'),
+                // Same size as a rep row, just bold (per Isaac, Oct 28) — no grey band, no small caps. It sits in the
+                // sticky thead, so it resets the header's 10px / uppercase / muted text.
+                style: { background: 'var(--card)', color: 'var(--text)', fontSize: '13px', textTransform: 'none', letterSpacing: 'normal', fontWeight: '700', WebkitTextStroke: '0.4px currentColor', boxShadow: 'inset 0 -1px 0 var(--border), inset 0 1px 0 var(--border)' } },   // same weight as every other row line (per Isaac)
+                // Bold that shows (per Isaac, Oct 28): only IBM Plex Mono Regular ships, declared 400–700, so the browser
+                // never thickens it for bold — a hairline text stroke does. The 𝕽 mark in the # column is gone.
+                el('td', { class: 'pl-5 pr-2 py-2' }, ''),
                 ...repCols.map(c => {
                   if (c.key === 'name') return el('td', { class: 'px-2 py-2' },
-                    el('span', { class: 'font-black text-[11px] uppercase tracking-wider' }, 'Total'),
-                    el('span', { class: 'text-[10px] text-muted- ml-1.5 normal-case tracking-normal' }, displayReps.length + ' reps'));
+                    el('span', { class: 'font-bold', style: { fontFamily: "'Archivo', Inter, ui-sans-serif, system-ui, -apple-system, sans-serif" } }, 'Total'),   // same face as the rep names
+                    el('span', { class: 'text-[11px] text-muted- ml-1.5 font-normal', style: { WebkitTextStroke: '0' } }, displayReps.length + ' reps'));
                   if (c.key === 'team' || c.key === 'office') return el('td', { class: 'px-2 py-2' }, '');
                   const st = { fontWeight: '700' };
                   if (RECORD_SORT_KEYS.has(c.key)) st.borderLeft = '1px solid var(--border-2)';
@@ -9771,8 +9908,10 @@ function _landingTile(who, showRep) {
 }
 // The landing cards follow the page's date range (per Isaac, Oct 16 — the card said $6.1M YTD while the page was on
 // Today). Weekly view keeps year-to-date.
+// Oct 28 (per Isaac, reversing Oct 16): the player cards always show year-to-date, whatever the page's range.
+const LANDING_FOLLOWS_RANGE = false;
 function _landingWindow() {
-  try {
+  if (LANDING_FOLLOWS_RANGE) try {
     if (state.indicatorsView === 'range') {
       const pre = state.indicatorsRangePreset;
       const b = indicatorRangeBounds(pre, { start: state.indicatorsCustomStart, end: state.indicatorsCustomEnd });
@@ -9849,6 +9988,72 @@ function _landingAttritionPct(rows) {
   } catch { return null; }
 }
 
+// ── My Rank — RETIRED from the page (per Isaac, Oct 28, same day); kept for reuse. On the Me lens the department tables come off; this compact card shows where
+// the rep stands instead — rank by revenue in the department over the page's date range, the two reps either
+// side, and what it takes to pass the next one. The full leaderboard lives on the team / department views.
+function myRankCard() {
+  try {
+    if (!(typeof dashLensOn === 'function' && dashLensOn() && dashLens() === 'me' && dashLensOptions().length > 1)) return null;
+    const dept = state.indicatorDept;
+    // Window: the page's date range (the Today / Week / Month / Year chips); the weekly view falls back to YTD.
+    let has = null, label = '';
+    try {
+      if (state.indicatorsView === 'range') {
+        const pre = state.indicatorsRangePreset;
+        const b = indicatorRangeBounds(pre, { start: state.indicatorsCustomStart, end: state.indicatorsCustomEnd });
+        if (b && b.start && b.end) {
+          has = (iso) => !!iso && iso >= b.start && iso <= b.end;
+          label = pre === 'custom' ? fmt.dateShort(b.start) + ' – ' + fmt.dateShort(b.end) : (typeof indicatorPresetLabel === 'function' ? indicatorPresetLabel(pre) : 'Range');
+        }
+      }
+    } catch (e) { /* YTD below */ }
+    if (!has) { const yr = String(new Date().getFullYear()); has = (iso) => !!iso && iso.slice(0, 4) === yr; label = yr + ' YTD'; }
+    const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+    const mineSig = _sig(state.profile && state.profile.full_name);
+    const tally = new Map(); let mineKey = '';
+    for (const s of (state._indicatorRawSales || [])) {
+      if (!s || !s.rep || !_landingOk(s)) continue;
+      if (dept && dept !== 'all' && typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== dept) continue;
+      const iso = (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || '';
+      if (!has(iso)) continue;
+      const n = getCanonicalRepName(s.rep);
+      tally.set(n, (tally.get(n) || 0) + (Number(s.contractValue) || 0));
+      if (!mineKey && (isMyRepName(s.rep) || _sig(n) === mineSig)) mineKey = n;
+    }
+    if (!tally.size) return null;
+    const rows = [...tally.entries()].sort((a, b) => b[1] - a[1]);
+    const meIdx = mineKey ? rows.findIndex(([n]) => n === mineKey) : -1;
+    const flip = (n) => (typeof flipLastFirst === 'function' ? flipLastFirst(n) : n);
+    // "Full leaderboard →" jumps the lens to the department (or the team when that's all the user has).
+    const deptOpt = dashLensOptions().filter(([v]) => v !== 'me').pop();
+    const goBoard = deptOpt ? el('button', { class: 'text-[11px] font-bold shrink-0', style: { color: 'var(--accent)' },
+      title: 'See the full leaderboard on the ' + deptOpt[1] + ' view',
+      onclick: () => { state._dashLens = deptOpt[0]; try { localStorage.setItem('ridd_dash_lens_v2', deptOpt[0]); } catch (e) { /* per-session */ } mountApp(); } }, 'Full leaderboard →') : null;
+    const rowEl = (r, idx) => {
+      const me = idx === meIdx;
+      return el('div', { class: 'flex items-center gap-2 tabular-nums rounded-lg px-2 py-1', style: me ? { background: 'rgba(223,100,58,.10)', border: '1px solid var(--accent)' } : {} },
+        el('span', { class: 'text-[11px] font-bold shrink-0', style: { width: '26px', color: me ? 'var(--accent)' : 'var(--text-muted)' } }, '#' + (idx + 1)),
+        (typeof indRepAvatar === 'function' && indRepAvatar(r[0], 22)) || null,
+        el('span', { class: 'text-[12px] min-w-0 truncate' + (me ? ' font-bold' : '') }, me ? 'You' : flip(r[0])),
+        el('span', { class: 'ml-auto text-[12px] font-bold shrink-0' }, fmt.usd0(r[1])));
+    };
+    const around = meIdx >= 0 ? rows.slice(Math.max(0, meIdx - 2), meIdx + 3) : rows.slice(0, 3);
+    const startIdx = meIdx >= 0 ? Math.max(0, meIdx - 2) : 0;
+    const gapLine = meIdx > 0
+      ? el('div', { class: 'text-[11px] mt-1.5', style: { color: 'var(--text-muted)' } }, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(rows[meIdx - 1][1] - rows[meIdx][1])), ' to pass ' + flip(rows[meIdx - 1][0]))
+      : meIdx === 0 && rows.length > 1
+        ? el('div', { class: 'text-[11px] mt-1.5', style: { color: 'var(--text-muted)' } }, '🏆 Leading by ', el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(rows[0][1] - rows[1][1])))
+        : meIdx < 0 ? el('div', { class: 'text-[11px] mt-1.5', style: { color: 'var(--text-muted)' } }, 'No sales in this range yet — the top of the board:') : null;
+    return el('div', { class: 'card p-4 sm:p-5', 'data-section': 'my-rank' },
+      el('div', { class: 'flex items-center gap-2 mb-2' },
+        el('h3', { class: 'text-base font-bold' }, 'My Rank'),
+        meIdx >= 0 ? el('span', { class: 'text-[12px] font-bold tabular-nums', style: { color: 'var(--accent)' } }, '#' + (meIdx + 1) + ' of ' + rows.length) : el('span', { class: 'text-[12px] tabular-nums', style: { color: 'var(--text-muted)' } }, rows.length + ' reps'),
+        el('span', { class: 'ml-auto text-[10px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)' } }, label),
+        goBoard),
+      gapLine,
+      el('div', { class: 'flex flex-col gap-1 mt-2' }, ...around.map((r, i) => rowEl(r, startIdx + i))));
+  } catch (e) { console.warn('[ridd] my-rank card failed', e); return null; }
+}
 function repLandingPlayerCard(opts) {
   try {
     const _hdrExtra = (opts && opts.headerExtra) || null;
@@ -9897,11 +10102,8 @@ function repLandingPlayerCard(opts) {
             tierMeta && el('span', {
               class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded',
               style: { background: tierMeta.color + '22', color: tierMeta.color },
-            }, tierMeta.label),
-            // Revenue rides right beside the name (THE number) — pulled out
-            // of the tile grid so the remaining 9 tiles fill even 3-per-row
-            // rows on mobile.
-            el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-1' }, fmt.usd0(revenue)))),
+            }, tierMeta.label))),
+            // No revenue number beside the name (per Isaac, Oct 28) — the Revenue tile below already shows it.
         // Right column, pinned top-right: Team | Me toggle over the link
         // (per Isaac — the toggle used to float mid-row on phones).
         el('div', { class: 'flex flex-col items-end gap-1.5 shrink-0 self-start ml-auto' },
@@ -9960,8 +10162,7 @@ function teamLandingPlayerCards(opts) {
           el('div', { class: 'min-w-0 flex-1' },
             el('div', { class: 'flex items-center gap-2 flex-wrap' },
               el('span', { class: 'text-lg font-bold truncate' }, team),
-              el('span', { class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: color + '22', color } }, 'Team'),
-              el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-1' }, fmt.usd0(revenue))),
+              el('span', { class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: color + '22', color } }, 'Team')),   // no revenue beside the name (per Isaac, Oct 28) — the Revenue tile shows it
             el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, reps + ' rep' + (reps === 1 ? '' : 's') + ' with a sale · ' + W.label)),
           el('div', { class: 'flex flex-col items-end gap-1.5 shrink-0 self-start ml-auto' },
             i === 0 ? _hdrExtra : null,
@@ -10254,6 +10455,10 @@ const YOY_METRICS = [
   ['audit_pct',   'Audit %',          'pct'],
   ['cancel_pct',  'Attrition %',      'pct'],   // renamed from Cancel % (per Isaac, Oct 16)
 ];
+// Trends Compare (per Isaac, Oct 28): an on/off toggle on the department / team views. Off → one line that follows
+// the page Filters. On → every office, team and rep picked in the search box is its own line. Always opens OFF
+// (per Isaac, Oct 28) — it lasts only until the page is reloaded.
+function _yoyCompareOn() { return !!state._yoyCompare; }
 function indicatorYoYTrendChart() {
   const id = 'chart-yoy-trend';
   let metric = state._indicatorYoYMetric || 'revenue';
@@ -10396,9 +10601,10 @@ function indicatorYoYTrendChart() {
     // Admins (per Isaac, Sep 24): scope follows the page-header Filters —
     // Team, else Office, else Company — unless specific reps are picked
     // here, in which case each rep is its own line.
-    const reps = sel.filter(sc => sc.t === 'rep');
-    if (reps.length) return reps;
-    if (state._indicatorRepTeamFilter && state._indicatorRepTeamFilter !== '__unassigned__') return [{ t: 'team', v: state._indicatorRepTeamFilter }];
+    // Picked reps are always their own lines. Compare on adds offices and teams (per Isaac, Oct 28); off keeps those
+    // picks but doesn't draw them.
+    { const pick = sel.filter(sc => sc.t === 'rep' || (_yoyCompareOn() && (sc.t === 'office' || sc.t === 'team'))); if (pick.length) return pick; }
+    if (state._indicatorRepTeamFilter && state._indicatorRepTeamFilter !== '__unassigned__') return [{ t: 'team', v: indTeamFilterList().filter(t => t !== '__unassigned__').join(IND_TEAM_SEP) }];   // several teams = ONE combined line
     if (state._indicatorRepOfficeFilter) return [{ t: 'office', v: state._indicatorRepOfficeFilter }];
     return [{ t: 'co' }];
   })();
@@ -10413,13 +10619,14 @@ function indicatorYoYTrendChart() {
   const _YOY_DEPTS = [['office', 'Office Staff'], ['d2d', 'Sales Rep'], ['techs', 'Technician']];
   const _scopeLabelOf = (sc) => sc.t === 'co' ? _yoyCoLabel
     : sc.t === 'dept' ? ((_YOY_DEPTS.find(d => d[0] === sc.v) || [])[1] || String(sc.v || ''))
+    : sc.t === 'team' ? indTeamFilterLabel(sc.v)
     : String(sc.v || '');
   const _scopeKey = (sc) => sc.t + ':' + (sc.v || '');
   const _scopeMatchFn = (sc) => {
     if (sc.t === 'co') return () => true;
     if (sc.t === 'dept') return (s) => _indicatorDeptOf(s) === sc.v;
     if (sc.t === 'office') return (s) => _yoyOfficeOf(s) === sc.v;
-    if (sc.t === 'team') return (s) => (typeof getRepTeam === 'function' && getRepTeam(getCanonicalRepName(s.rep))) === sc.v;
+    if (sc.t === 'team') { const ts = new Set(indTeamFilterList(sc.v)); return (s) => ts.has((typeof getRepTeam === 'function' && getRepTeam(getCanonicalRepName(s.rep))) || ''); }
     return (s) => getCanonicalRepName(s.rep) === sc.v;   // rep
   };
   const buildAcc = (rawArr) => {
@@ -10492,7 +10699,11 @@ function indicatorYoYTrendChart() {
   // Oct 16 (per Isaac): the Exclude button is gone — the revenue metric itself splits into Total / New / Renewal /
   // One-time service for every user type.
   const isOffice = true;
-  const revType = metric === 'revenue' ? (['new', 'renewal', 'ots'].includes(state._indicatorYoYRevType) ? state._indicatorYoYRevType : 'total') : 'total';
+  // Default split (per Isaac, Oct 28): the Office Staff dashboard opens on New Revenue (loyalty reps keep Total, same
+  // rule as the pacer); every other dashboard opens on Total. A pick from the dropdown wins.
+  const _yoyLoy = typeof _isLoyaltyProfile === 'function' && _isLoyaltyProfile(state.profile);
+  const _yoyRevDefault = state.indicatorDept === 'office' && !_yoyLoy ? 'new' : 'total';
+  const revType = metric === 'revenue' ? (['total', 'new', 'renewal', 'ots'].includes(state._indicatorYoYRevType) ? state._indicatorYoYRevType : _yoyRevDefault) : 'total';
   const valOf = (a, matchedHorizon) => {
     if (!a) return null;
     switch (metric) {
@@ -10830,8 +11041,22 @@ function indicatorYoYTrendChart() {
       }, glyph, el('span', {}, lab));
       return row;
     };
+    // Compare picks (per Isaac, Oct 28): offices and teams are short lists, shown whole (typing narrows them);
+    // reps are searched. Every pick is its own line on the chart.
+    const placeList = el('div', {});
+    const paintPlaces = (q) => {
+      placeList.innerHTML = '';
+      if (!_yoyCompareOn()) return;   // offices + teams only while Compare is on
+      const ql = String(q || '').toLowerCase();
+      const fit = (n) => !ql || n.toLowerCase().includes(ql);
+      const offs = offices.filter(o => fit(o) || _staged.includes('office:' + o));
+      const tms = teams.filter(indWorldTeamOk).filter(t => fit(t) || _staged.includes('team:' + t));   // this rep type's teams only
+      if (offs.length) { placeList.append(secTitle('Offices')); offs.forEach(o => placeList.append(rowBtn('office:' + o, o))); }
+      if (tms.length) { placeList.append(secTitle('Teams')); tms.forEach(t => placeList.append(rowBtn('team:' + t, t))); }
+    };
     const repList = el('div', {});
     const paintReps = (q) => {
+      paintPlaces(q);
       repList.innerHTML = '';
       const ql = String(q || '').toLowerCase();
       // Checked reps always show; search reveals the rest (cap 10 matches).
@@ -10855,7 +11080,8 @@ function indicatorYoYTrendChart() {
       // Reps only (per Isaac, Sep 24): everything else — type, office, team,
       // tier, date range, exclusions — comes from the page-header Filters.
       // Picked reps overlay as their own lines; none picked = the header scope.
-      secTitle('Overlay reps'),
+      placeList,
+      secTitle('Reps'),
       el('div', { class: 'px-1.5 pb-1' }, repSearch),
       repList,
       (_sApply = el('button', {
@@ -10863,7 +11089,8 @@ function indicatorYoYTrendChart() {
         style: { borderColor: 'var(--border-2)', color: 'var(--text)', background: 'var(--card)', bottom: '0' },
         onclick: (e) => {
           e.stopPropagation();
-          const parsed = _staged.filter(k => k.indexOf('rep:') === 0).map(k => ({ t: 'rep', v: k.slice(4) }));
+          const _keepPlaces = _yoyCompareOn() ? [] : (Array.isArray(state._indicatorYoYScopes) ? state._indicatorYoYScopes.filter(x => x && (x.t === 'office' || x.t === 'team')).map(x => x.t + ':' + x.v) : []);
+          const parsed = [...new Set([..._staged.filter(k => /^(rep|office|team):/.test(k)), ..._keepPlaces])].map(k => { const i = k.indexOf(':'); return { t: k.slice(0, i), v: k.slice(i + 1) }; });
           state._indicatorYoYScopes = parsed;   // [] = follow the page-header scope
           state._indTrendView = 'all';          // picking reps here = the custom view
           state._yoyScopesOpen = false;
@@ -10877,7 +11104,7 @@ function indicatorYoYTrendChart() {
     // Trigger is a search box styled like the Leaderboard's (per Isaac,
     // Sep 24): typing opens the panel with matches; picked reps stay listed
     // at the top with their checkmarks until Apply.
-    const _nReps = _yoySelScopes.filter(sc => sc.t === 'rep').length;
+    const _nReps = _yoySelScopes.filter(sc => sc.t === 'rep' || (_yoyCompareOn() && (sc.t === 'office' || sc.t === 'team'))).length;
     const openPanel = () => {
       if (panel.style.display === 'block') return;
       panel.style.display = 'block'; state._yoyScopesOpen = true;
@@ -10891,10 +11118,10 @@ function indicatorYoYTrendChart() {
     };
     const btn = el('input', {
       type: 'text', autocomplete: 'off',
-      placeholder: _nReps ? (_nReps === 1 ? _yoySelScopes[0].v : _nReps + ' reps overlaid') : 'Search rep\u2026',
+      placeholder: _nReps ? (_nReps === 1 ? _scopeLabelOf(_yoySelScopes[0]) : _nReps + (_yoyCompareOn() ? ' compared' : ' reps')) : (_yoyCompareOn() ? 'Pick offices, teams, reps\u2026' : 'Search rep\u2026'),
       class: 'rounded-lg border px-2.5 py-1 text-[11px]',
       style: { borderColor: _nReps ? 'var(--accent)' : 'var(--border-2)', minWidth: '160px', background: 'var(--card)', color: 'var(--text)' },
-      title: 'Overlay specific reps as their own lines',
+      title: _yoyCompareOn() ? 'Compare offices, teams and reps — each pick is its own line' : 'Overlay specific reps as their own lines',
       onfocus: openPanel,
       onclick: (e) => { e.stopPropagation(); openPanel(); },
       oninput: (e) => { openPanel(); paintReps(e.target.value); },
@@ -11320,7 +11547,18 @@ function indicatorYoYTrendChart() {
       el('div', { class: 'flex items-center gap-2 min-w-0', style: { flexWrap: 'nowrap', overflow: 'hidden' } },
         el('h3', { class: 'text-base font-bold whitespace-nowrap' }, 'Trends'),   // shortened (per Isaac, Oct 18)   // same title size as every other card (per Isaac, Oct 16)
         el('div', { class: 'min-w-0', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, _yoyViewPick)),
-      el('div', { class: 'flex items-center gap-2 shrink-0' }, ...((_yoyLensOn && _yoyView !== 'all') ? [] : (comboWrap ? [comboWrap] : [scopesWrap])), metricSel)),
+      el('div', { class: 'flex items-center gap-2 shrink-0' }, ...((_yoyLensOn && _yoyView !== 'all') ? [] : (comboWrap ? [comboWrap] : [
+        scopesWrap,   // search box first, then the Compare switch (per Isaac, Oct 28)
+        // Compare on/off switch (per Isaac, Oct 28): off → the rep search only; on → offices + teams join it.
+        scopesWrap ? (() => { const on = _yoyCompareOn();
+          return el('button', { type: 'button', class: 'rounded-xl border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap inline-flex items-center gap-2',
+            style: { borderColor: on ? 'var(--accent)' : 'var(--border-2)', color: 'var(--text)', background: 'var(--card)' },
+            title: on ? 'Compare is on — pick offices and teams as their own lines. Click to turn off.' : 'Turn on to compare offices and teams as separate lines',
+            onclick: () => { state._yoyCompare = !on; state._yoyScopesOpen = !!state._yoyCompare; mountApp(); } },
+            'Compare',
+            el('span', { class: 'inline-flex items-center', style: { width: '26px', height: '14px', borderRadius: '999px', padding: '2px', boxSizing: 'border-box', background: on ? 'var(--accent)' : 'var(--border-2)', justifyContent: on ? 'flex-end' : 'flex-start', transition: 'background .15s' } },
+              el('span', { style: { width: '10px', height: '10px', borderRadius: '50%', background: '#fff', display: 'block' } }))); })() : null,
+      ].filter(Boolean))), metricSel)),
     cvsWrap);
 }
 

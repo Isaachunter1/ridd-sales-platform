@@ -171,7 +171,7 @@ function viewSales() {
       case 'service_date': return s.crm_serviced_at ? String(s.crm_serviced_at).slice(0, 10) : (s.crm_initial_appt_at ? String(s.crm_initial_appt_at).slice(0, 10) : '');
       case 'audit_status':    return s.audit_status || '';
       case 'audited_by':      return (state.allProfiles.find(p => p.id === s.audited_by)?.full_name || '').toLowerCase();
-      case 'crm_audit':       return s.crm_audit === 'passed' ? 2 : s.crm_audit === 'failed' ? 1 : 0;
+      case 'crm_audit':       return saleAuditFlag(s) === 'passed' ? 2 : saleAuditFlag(s) === 'failed' ? 1 : 0;
       case 'created_at':      return new Date(s.created_at || s.sold_date).getTime();
       default:                return '';
     }
@@ -310,7 +310,8 @@ function viewSales() {
       el('div', { class: 'text-base font-black tabular-nums', style: accent ? { color: 'var(--accent)' } : {} }, fmt.usd0(rev)),
       el('div', { class: 'text-[10px] tabular-nums text-muted-' }, cnt));
   };
-  const totalsStrip = isAdmin ? el('div', { class: _phoneT ? 'card flex items-stretch overflow-hidden' : 'card flex items-stretch overflow-x-auto sales-totals-strip' },
+  // Totals strip hidden for every user (per Isaac, Oct 28) — the queue pills right below carry the counts.
+  const totalsStrip = false ? el('div', { class: _phoneT ? 'card flex items-stretch overflow-hidden' : 'card flex items-stretch overflow-x-auto sales-totals-strip' },
     _tile(_yr + ' sold', _ytd, true, "'" + _yr.slice(2) + ' Sold'),
     _tile('Upfront', source.filter(isUpfrontPending)),
     _tile('Backend lock', source.filter(isBackendPending), false, 'Backend'),
@@ -822,7 +823,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
               !showBackend && el('td', { class: 'px-2 py-2 text-right tabular-nums whitespace-nowrap text-muted-' }, fmt.usd(s.monthly_amount)),
               el('td', { class: 'px-2 py-2 text-right tabular-nums font-semibold whitespace-nowrap',
                 title: s.commission_split ? 'Commissionable ' + fmt.usd(s.revenue_amount) + ' of ' + fmt.usd(s.total_revenue) + ' on the account (add-ons credited to other users, tax and other fees are out)' : '' },
-                fmt.usd(s.revenue_amount), s.commission_split && Number(s.total_revenue) > Number(s.revenue_amount) + 0.005 ? el('div', { class: 'text-[9px] font-normal', style: { color: 'var(--text-muted)' } }, 'of ' + fmt.usd(s.total_revenue)) : null),
+                ...saleAmountNode(s, 'text-[9px] font-normal text-muted-')),
               cell(el('span', { class: 'text-muted- tabular-nums whitespace-nowrap' }, fmt.dateShortYear(s.sold_date))),
               cell((() => {
                 // Service Date (per Isaac): the initial service completion
@@ -901,8 +902,8 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                 // Office audit (FieldRoutes customer flag, per Isaac Sep 17 2026):
                 // Passed feeds the Charge Upfront % tier; Failed holds
                 // auto-approval for manual review until the office re-flags.
-                if (s.crm_audit === 'passed') lcChips.push(chip('✓ Audit', 'rgba(95,108,91,.16)', '#5F6C5B', 'Passed Audit flag in FieldRoutes — counts toward the Passed Audit % pay tier'));
-                else if (s.crm_audit === 'failed') lcChips.push(chip('✗ Audit', 'rgba(220,38,38,.12)', '#B91C1C', 'Failed Audit flag in FieldRoutes — auto-approval is on hold. Review it here, or fix it in the CRM and the next sync resumes the flow.'));
+                if (saleAuditFlag(s) === 'passed') lcChips.push(chip('✓ Audit', 'rgba(95,108,91,.16)', '#5F6C5B', 'Passed Audit flag in FieldRoutes — counts toward the Passed Audit % pay tier'));
+                else if (saleAuditFlag(s) === 'failed') lcChips.push(chip('✗ Audit', 'rgba(220,38,38,.12)', '#B91C1C', 'Failed Audit flag in FieldRoutes — auto-approval is on hold. Review it here, or fix it in the CRM and the next sync resumes the flow.'));
                 if (s.crm_days_past_due != null) {
                   lcChips.push(Number(s.crm_days_past_due) > 0
                     ? chip('⚠ ' + s.crm_days_past_due + 'd', 'rgba(220,38,38,.12)', '#B91C1C', 'Customer is ' + s.crm_days_past_due + ' day(s) past due' + (s.crm_balance != null ? ' · balance ' + fmt.usd(s.crm_balance) : ''))
@@ -1079,7 +1080,16 @@ function saleFlagBox(sale, field, editable, tip) {
   }, on ? '\u2713' : '\u2014');
 }
 // Audit column: the office's audit flag on the FieldRoutes customer card.
+// Renewals are exempt from the audit flag (per Isaac, Oct 28): the account still carries the Passed / Failed flag
+// from the ORIGINAL sale, so it says nothing about the renewal. A renewal is commissionable on the customer's next
+// treatment or next paid bill — the audit flag is never shown, required or held against it.
+function saleAuditFlag(sale) {
+  if (!sale || (typeof isRenewalSource === 'function' && sale.sale_kind !== 'upsell' && isRenewalSource(sale))) return null;
+  return sale.crm_audit || null;
+}
 function saleAuditChip(sale) {
+  if (sale && sale.sale_kind !== 'upsell' && typeof isRenewalSource === 'function' && isRenewalSource(sale))
+    return el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' }, title: 'Renewal — the audit flag on the account is from the original sale and doesn\u2019t apply. Commissionable on the next treatment or next paid bill.' }, 'n/a');
   const v = sale.crm_audit;
   const mk = (txt, bg, colr, tip) => el('span', { title: tip, class: 'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold whitespace-nowrap', style: { background: bg, color: colr } }, txt);
   if (v === 'passed') return mk('\u2713 Passed', 'rgba(95,108,91,.16)', '#5F6C5B', 'Passed Audit flag on the customer card in FieldRoutes');
@@ -2149,6 +2159,28 @@ function saleServiceWithAddOns(s, svcName, ao, opts) {
     base ? el('span', { style: addOnOnly ? { color: o.muted } : {} }, base) : null,
     ...list.map((a, i) => el('span', { style: { color: saleAddOnCredited(a) ? o.ok : o.bad } }, (base || i ? ' + ' : '+ ') + (a.service_name || 'Add-on'))));
 }
+// Settings → Commissions → "Pay reps on service fees" (app_settings.autolog.pay_service_fees, default ON). Read
+// once here too so the Sales tab knows before anyone opens Settings; same load + defaults as the admin page.
+function salesPayFeesOn() {
+  if (state._autolog === undefined && typeof supabase !== 'undefined' && supabase && !(typeof DEMO !== 'undefined' && DEMO)) {
+    state._autolog = null;
+    supabase.from('app_settings').select('value, updated_at').eq('key', 'autolog').maybeSingle().then(({ data, error }) => {
+      if (error || !data) return;   // not readable for this role — stays on the default
+      (state._settingsSeen = state._settingsSeen || {}).autolog = data.updated_at || null;
+      state._autolog = Object.assign({ enabled: false, start: '2026-01-01', types: ['Office Staff', 'Sales Rep', 'Technician'], auto_approve: true, lock_days: 90, lock_min_services: 2 }, data.value || {});
+      mountApp();
+    }).catch(() => { /* default */ });
+  }
+  const AL = state._autolog;
+  return !AL || AL.pay_service_fees !== false;
+}
+// The Amount cell (per Isaac, Oct 28): when reps ARE paid on service fees, show the account's total value alone —
+// no "of $X" line. Only when fees are switched OFF (reps not paid on them) does it show commissionable "of" total.
+function saleAmountNode(s, cls) {
+  const total = Number(s.total_revenue), rev = Number(s.revenue_amount) || 0;
+  if (salesPayFeesOn() && Number.isFinite(total) && total > 0) return [fmt.usd0 ? fmt.usd0(total) : fmt.usd(total)];
+  return [fmt.usd0 ? fmt.usd0(rev) : fmt.usd(rev), s.commission_split && total > rev + 0.005 ? el('div', { class: cls || 'text-[9px] font-normal text-muted-' }, 'of ' + fmt.usd(total)) : null];
+}
 function saleMissingServiceFee(s) {
   if (!s || s.sale_kind === 'upsell') return false;
   const lines = Array.isArray(s.commission_split) ? s.commission_split : null;
@@ -2282,6 +2314,10 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
   const repName = (s) => { const r = repOf(s); return r ? r.full_name : (s.crm_seller_name ? (typeof flipLastFirst === 'function' ? flipLastFirst(s.crm_seller_name) : s.crm_seller_name) : 'Unlinked seller'); };
   const svcOf = (s) => (typeof nameFromId === 'function' ? nameFromId(state.serviceTypes, s.service_type_id) : '') || s.crm_subscription || '—';
   const srcOf = (s) => { const v = typeof nameFromId === 'function' ? nameFromId(state.sources, s.source_id) : ''; return v && v !== '—' ? v : ''; };
+  // Office Staff never sell Door to Door (per Isaac, Oct 28): a D2D source on the Office Staff queue is a wrong
+  // source on the FieldRoutes account — shown red, like an unassigned add-on, so the rep knows to fix it.
+  const _officeQ = typeof SALES_QUEUE_OF_VIEW !== 'undefined' && SALES_QUEUE_OF_VIEW[state.view] === 'office';
+  const srcBad = (src) => _officeQ && /door\s*(to|2)\s*door|\bd2d\b/i.test(String(src || ''));
   const initOf = (s) => String(s.crm_serviced_at || s.crm_initial_appt_at || '').slice(0, 10);
   const payRank = (s) => s.crm_paid_since_sale === true ? 2 : s.crm_paid_since_sale === false ? 0 : 1;
   const statusRank = (s) => _bk ? BACKEND_KEY.findIndex(([v]) => v === (s.lock_status || 'pending')) : SALE_STATUS_OPTIONS.findIndex(([v]) => v === (s.audit_status || 'pending'));
@@ -2295,7 +2331,7 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
     service: [(s) => svcOf(s).toLowerCase(), 'asc'], term: [(s) => s.sale_kind === 'upsell' ? -1 : Number(s.contract_months) || 0, 'desc'],
     source: [(s) => srcOf(s).toLowerCase(), 'asc'], initial: [(s) => initOf(s) || '9999', 'asc'], sold: [soldKey, 'desc'],
     payment: [payRank, 'asc'], invoices: [(s) => Number(s.crm_paid_invoices) || 0, 'desc'], aging: [(s) => Number(s.crm_days_past_due) || 0, 'desc'],
-    amount: [(s) => Number(s.revenue_amount) || 0, 'desc'], status: [statusRank, 'asc'],
+    amount: [(s) => (salesPayFeesOn() && Number(s.total_revenue) > 0 ? Number(s.total_revenue) : Number(s.revenue_amount)) || 0, 'desc'],   // sorts on what the cell shows status: [statusRank, 'asc'],
     lockdate: [(s) => (lockDateOf(s) || {}).d || '9999', 'asc'],
   };
   const [kf] = KEYS[S.key] || KEYS.sold;
@@ -2305,8 +2341,15 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
     return (S.dir === 'asc' ? c : -c) || soldKey(b).localeCompare(soldKey(a));
   });
   const numW = String(rows.length).length > 2 ? 30 : 22;
-  const COLS = numW + 'px minmax(130px, 1.1fr) minmax(140px, 1.2fr) minmax(160px, 1.6fr) 62px minmax(84px, .8fr) 96px 92px 100px 56px ' + (_bk ? '92px ' : '') + '48px 84px 140px';
-  const gridRow = (extra) => ({ display: 'grid', gridTemplateColumns: COLS, columnGap: '12px', alignItems: 'center', ...(extra || {}) });
+  // Fits the page (per Isaac, Oct 28 — the table ran ~1,400px wide, so the whole page slid sideways and Status got
+  // cut off): tighter column minimums + gaps, so it fits a normal laptop window. The flexible columns
+  // (Rep / Customer / Service / Source) take whatever room is left, and long names end in "…".
+  const _W = [80, 90, 96, 52, 60, 80, 72, 72, 44, _bk ? 84 : 0, 40, 76, 116];   // rep · customer · service · term · source · sold · initial · payment · invoices · (lock) · aging · amount · status
+  const COLS = numW + 'px minmax(' + _W[0] + 'px, 1.1fr) minmax(' + _W[1] + 'px, 1.2fr) minmax(' + _W[2] + 'px, 1.6fr) ' + _W[3] + 'px minmax(' + _W[4] + 'px, .8fr) '
+    + _W[5] + 'px ' + _W[6] + 'px ' + _W[7] + 'px ' + _W[8] + 'px ' + (_bk ? _W[9] + 'px ' : '') + _W[10] + 'px ' + _W[11] + 'px ' + _W[12] + 'px';
+  const _gap = 8;
+  const _minW = numW + _W.reduce((a, b) => a + b, 0) + _gap * (_bk ? 13 : 12) + 32;   // + px-4 padding
+  const gridRow = (extra) => ({ display: 'grid', gridTemplateColumns: COLS, columnGap: _gap + 'px', alignItems: 'center', ...(extra || {}) });
   const clip = { minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
   const head = (key, label, align) => {
     const on = S.key === key;
@@ -2352,7 +2395,7 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
     window.addEventListener('resize', pin, { passive: true });
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(pin);
   }
-  const table = el('div', { style: narrow ? { minWidth: _bk ? '1380px' : '1280px' } : {} },
+  const table = el('div', { style: { minWidth: _minW + 'px' } },
     frozen,
     ...sorted.map((s, i) => {
       const rep = repOf(s);
@@ -2365,8 +2408,8 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
       const tracked = s.crm_paid_invoices != null || s.payroll_processed_at;
       return el('div', {
         class: 'px-4 py-2.5 cursor-pointer transition hover:brightness-95',
-        style: gridRow({ borderTop: i ? '1px solid var(--border)' : '0', background: _bk ? backendTint(s.lock_status) : saleStatusTint(s.audit_status), ...(!_bk && s.crm_audit === 'passed' ? { boxShadow: 'inset 3px 0 0 #15803D' } : {}) }),
-        title: s.crm_audit === 'passed' ? 'Passed Audit flag on the customer card in FieldRoutes' : undefined,
+        style: gridRow({ borderTop: i ? '1px solid var(--border)' : '0', background: _bk ? backendTint(s.lock_status) : saleStatusTint(s.audit_status), ...(!_bk && saleAuditFlag(s) === 'passed' ? { boxShadow: 'inset 3px 0 0 #15803D' } : {}) }),
+        title: saleAuditFlag(s) === 'passed' ? 'Passed Audit flag on the customer card in FieldRoutes' : undefined,   // never on renewals (Oct 28)
         onclick: (e) => { if (e.target.closest('select, button, input, textarea, a')) return; openSaleCommissionCard(s, { isAdmin, backend: _bk }); },   // small commission card, not the edit form (per Isaac, Oct 15)
       },
         el('div', { class: 'tabular-nums text-left', style: { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: '12px', fontWeight: '600', color: 'var(--text-subtle)' } }, String(i + 1).padStart(2, '0')),
@@ -2378,7 +2421,9 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
           el('div', { style: { fontSize: '12px', ...clip } }, saleServiceWithAddOns(s, svcOf(s), ao, { ok, bad })),   // "Pest 6 + Mole + Rodent" (per Isaac, Oct 15)
           null),   /* below-minimum reason: the status says it (per Isaac, Oct 15) — the why is on the status tooltip */
         el('div', { class: 'font-semibold', style: { fontSize: '12px', ...clip } }, term),
-        el('div', { class: 'text-muted-', style: { fontSize: '11px', ...clip }, title: src }, src || '—'),
+        srcBad(src)
+          ? el('div', { style: { fontSize: '11px', color: bad, fontWeight: '700', ...clip }, title: src + ' — Office Staff sales shouldn\u2019t be sourced Door to Door. Fix the source on the account in FieldRoutes.' }, src)   // just red, no icon (per Isaac, Oct 28)
+          : el('div', { class: 'text-muted-', style: { fontSize: '11px', ...clip }, title: src }, src || '—'),
         el('div', { class: 'tabular-nums', style: clip },
           el('div', { style: { fontSize: '11px' } }, _t > 0 ? soldTxt.slice(0, _t) : soldTxt),
           _t > 0 ? el('div', { style: sub }, soldTxt.slice(_t + 3)) : null),
@@ -2398,12 +2443,13 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
         el('div', { class: 'tabular-nums', style: { fontSize: '11px', color: Number(s.crm_days_past_due) > 0 ? bad : 'var(--text-muted)', fontWeight: Number(s.crm_days_past_due) > 0 ? '700' : '400' } }, (s.crm_days_past_due != null ? Number(s.crm_days_past_due) : 0) + 'd'),
         el('div', { class: 'text-left tabular-nums font-semibold', style: { fontSize: '15px' },
           title: s.commission_split ? 'Commissionable ' + fmt.usd(s.revenue_amount) + ' of ' + fmt.usd(s.total_revenue) + ' on the account' : '' },
-          fmt.usd0 ? fmt.usd0(s.revenue_amount) : fmt.usd(s.revenue_amount),
-          s.commission_split && Number(s.total_revenue) > Number(s.revenue_amount) + 0.005 ? el('div', { class: 'text-[9px] font-normal text-muted-' }, 'of ' + fmt.usd(s.total_revenue)) : null),
+          ...saleAmountNode(s)),
         el('div', { class: 'flex items-center gap-2', style: { minWidth: '0' }, title: s.crm_below_min ? 'Under the pricing minimum: ' + s.crm_below_min : '' }, _bk ? lockStatusSelect(s.id) : statusSelect(s.id)));   // (audit flag chips off the rows — per Isaac, Oct 15)
     }));
-  // No overflow clipping on the card, so the frozen header sticks to the page scroll; narrow screens scroll sideways instead.
-  return el('div', { class: 'card', style: narrow ? { overflowX: 'auto' } : {} }, table);
+  // Never the page (per Isaac, Oct 28): when a window is narrower than the table's minimum, the CARD scrolls sideways
+  // on its own — the tabs, search and filters above stay put. (The frozen header pins by transform, not sticky, so
+  // the card's own overflow doesn't stop it.)
+  return el('div', { class: 'card', style: { overflowX: 'auto' } }, table);
 }
 
 // ── Commission card (per Isaac, Oct 15): a row click on the Sales tables opens this small breakdown

@@ -177,6 +177,7 @@
        the tab dropdown ("Dashboard") drops to its own row underneath. */
     .sales-mode-toggle { display: flex !important; width: 100%; margin-right: 0 !important; }
     .sales-mode-btn { flex: 1 1 0; }
+    .sales-mode-toggle > select { flex: 1 1 auto; min-width: 0; }   /* the Rep type picker fills its phone row (Oct 28) */
     /* The content column is the horizontal scroller on desktop (wide tables);
        on phones it must never pan — anything wide scrolls inside its own
        .scroll-x. This is the "I can still slightly scroll sideways" fix (Sep 23). */

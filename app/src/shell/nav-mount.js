@@ -128,15 +128,27 @@ function insideSalesTabsFor(role) {
 // gets the first three. It stays on the bar rather than inside Filters because it switches the whole section
 // (its Sales / Pay tabs too), not just the numbers. (Replaces the Oct 7 single click-to-cycle button.)
 function canSeeAllWorld(r) { return isAdminRole(r) || (typeof isDeveloperRole === 'function' && isDeveloperRole(r)); }
-function salesModeToggle(mode) {
-  const role = state.profile?.role;
-  if (!canWalkWorlds(role)) return null;   // admins, developers and Office Staff - Office walk the worlds
-  let narrow = false; try { narrow = window.matchMedia('(max-width: 640px)').matches; } catch (e) { /* desktop */ }
+// The rep types one user can walk between, as [mode, label, short label].
+function repWorldOptions(role) {
+  if (!canWalkWorlds(role)) return [];   // admins, developers and Office Staff - Office walk the worlds
   const opts = [['inside', 'Office Staff', 'Office'], ['d2d', 'Sales Rep', 'Sales Rep'], ['techs', 'Technician', 'Tech']];   // FieldRoutes' seller types: Office Staff · Sales Rep · Technician (per Isaac, Oct 9)
   if (canSeeAllWorld(role)) opts.push(['all', 'All', 'All']);
-  const go = (m) => {
-    if (m === mode) return;
-    const target = m === 'd2d'
+  return opts;
+}
+// Switch rep type: lands on that type's last-used tab (Dashboard by default). Shared by the bar toggle and the
+// dashboard Filters' "Rep type" row.
+function switchRepWorld(m, toDashboard) {
+    const DASH = { inside: 'dashboard', d2d: 'd2d_dashboard', techs: 'techs', all: 'all_dashboard' };
+    // Same tab on the other rep type when it has one (per Isaac, Oct 28): Sales → Sales, Pay → Pay.
+    const SAME = {
+      sales: { inside: 'sales', d2d: 'd2d_sales', techs: 'tech_sales' },
+      pay:   { inside: 'pay', d2d: 'commission', techs: 'tech_pay' },
+    };
+    const kind = ['sales', 'd2d_sales', 'tech_sales'].includes(state.view) ? 'sales' : ['pay', 'commission', 'tech_pay'].includes(state.view) ? 'pay' : '';
+    const _r = state.profile?.role;
+    const _canTab = (k) => k && _r !== 'office_staff' && (typeof viewFeatureOn !== 'function' || viewFeatureOn(k)) && (isAdminRole(_r) || !VIEW_TAB_PERM[k] || userCan(VIEW_TAB_PERM[k]));   // Office Staff - Office only walk the dashboards
+    const same = !toDashboard && kind && _canTab(SAME[kind][m]) ? SAME[kind][m] : '';
+    const target = same ? same : toDashboard ? DASH[m] : m === 'd2d'
       ? (D2D_SALES_TAB_KEYS.has(state._lastD2dTab) ? state._lastD2dTab : 'd2d_dashboard')
       : m === 'techs' ? 'techs'
       : m === 'all' ? 'all_dashboard'
@@ -144,14 +156,41 @@ function salesModeToggle(mode) {
     state.view = target;
     history.replaceState(null, '', VIEW_TO_HASH[target] || '#' + target);
     mountApp();
-  };
-  return el('div', { class: 'sales-mode-toggle inline-flex rounded-lg border overflow-hidden mr-2 shrink-0', style: { borderColor: 'var(--border-2)' } },
-    ...opts.map(([m, label, short], i) => el('button', {
-      class: 'sales-mode-btn px-2.5 py-1 text-[11px] font-bold transition whitespace-nowrap',
-      style: Object.assign(i ? { borderLeft: '1px solid var(--border-2)' } : {}, mode === m ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)', background: 'var(--card)' }),
-      title: m === 'all' ? 'Every user type on one dashboard' : undefined,
-      onclick: () => go(m),
-    }, narrow && opts.length > 3 ? short : label)));
+}
+function salesModeToggle(mode) {
+  const role = state.profile?.role;
+  const opts = repWorldOptions(role);
+  if (!opts.length) return null;
+  // On a dashboard the same picker rides in the dashboard's own control row (indicators: repWorldPicker), first in
+  // line before Me / All, Today and Filters — so it isn't drawn twice here.
+  if (typeof IND_WORLD !== 'undefined' && IND_WORLD[state.view]) return null;
+  return repWorldPicker(mode, 'sales-mode-toggle flex items-stretch gap-1.5 ml-auto shrink-0 py-1.5');
+}
+// The Rep type picker + default star (per Isaac, Oct 28) — one control, same look on every tab.
+function repWorldPicker(mode, cls) {
+  const opts = repWorldOptions(state.profile?.role);
+  if (opts.length < 2) return null;  // One compact Rep type picker, right side of the bar, same look on every tab (per Isaac, Oct 28 — the row of
+  // Office Staff / Sales Rep / Technician / All buttons is gone). The ★ beside it sets your default dashboard,
+  // same as the star in the dashboard's Filters.
+  const sel = el('select', {
+    class: 'rounded-xl border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+    title: 'Rep type — switches the whole section (Dashboard, Sales, Pay…)',
+    onchange: (e) => { if (e.target.value !== mode) switchRepWorld(e.target.value); },
+  }, ...opts.map(([m, label]) => el('option', { value: m, selected: mode === m }, m === 'all' ? 'All rep types' : label)));
+  const on = typeof getFavWorld === 'function' && getFavWorld() === mode;
+  const star = typeof setFavWorld === 'function' ? el('button', {
+    type: 'button', class: 'rounded-xl border text-[13px] leading-none transition hover:brightness-95 flex items-center justify-center shrink-0',
+    style: { width: '28px', alignSelf: 'stretch', padding: '0', color: on ? 'var(--accent)' : 'var(--text-muted)', borderColor: on ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)' },
+    title: on ? 'Your default dashboard — click to clear' : 'Make this rep type your default dashboard',
+    onclick: () => {
+      setFavWorld(on ? '' : mode);
+      const name = (opts.find(o => o[0] === mode) || [])[1] || '';
+      if (typeof toast === 'function') toast(on ? 'Default cleared — you’ll open on Office Staff' : (mode === 'all' ? 'All rep types' : name) + ' is now your default', 'ok');
+      mountApp();
+    },
+  }, on ? '★' : '☆') : null;
+  return el('div', { class: cls || 'flex items-stretch gap-1.5 shrink-0', 'data-world-pick': '1' }, sel, star);
 }
 function insideSalesSubTabs() {
   const tabs = insideSalesTabsFor(state.profile?.role);
@@ -181,9 +220,9 @@ function insideSalesSubTabs() {
       onchange: (e) => go(e.target.value),
     }, ...tabs.map(([k, label]) => el('option', { value: k, selected: state.view === k }, label))));
   return el('div', { class: 'sales-subtabs flex items-center flex-wrap gap-x-1 gap-y-0 border-b mb-4', style: { borderColor: 'var(--border)' } },
-    salesModeToggle('inside'),
     tabBar,
-    tabSelect);
+    tabSelect,
+    salesModeToggle('inside'));
 }
 // D2D counterpart — same bar, same mobile dropdown consolidation, with the
 // admin Inside/D2D/Techs toggle riding in front.
@@ -212,9 +251,9 @@ function d2dSalesSubTabs(mode) {
       onchange: (e) => go(e.target.value),
     }, ...tabs.map(([k, label]) => el('option', { value: k, selected: state.view === k }, label))));
   return el('div', { class: 'sales-subtabs flex items-center flex-wrap gap-x-1 gap-y-0 border-b mb-4', style: { borderColor: 'var(--border)' } },
-    salesModeToggle(mode === 'all' ? 'all' : mode === 'techs' ? 'techs' : 'd2d'),
     tabBar,
-    tabSelect);
+    tabSelect,
+    salesModeToggle(mode === 'all' ? 'all' : mode === 'techs' ? 'techs' : 'd2d'));
 }
 
 // ── Independent section re-render ─────────────────────────────────────────
@@ -1491,7 +1530,11 @@ function mountApp() {
       // the range buttons stretch, nothing wraps or gets squeezed off the edge.
       let _phone = false; try { _phone = window.matchMedia('(max-width: 640px)').matches; } catch (e) { /* desktop */ }
       if (_phone) {
-        const sel = bar.querySelector('.sales-tab-select'); if (sel) sel.style.flex = '1 1 100%';
+        const sel = bar.querySelector('.sales-tab-select');
+        // Rep type picker shares the tab row on phones (per Isaac, Oct 28) — the control row below stays one line.
+        const wp = ctl.querySelector('[data-world-pick]');
+        if (sel && wp) { sel.style.flex = '1 1 0'; wp.style.flex = '1 1 0'; wp.style.minWidth = '0'; const s2 = wp.querySelector('select'); if (s2) { s2.style.flex = '1 1 auto'; s2.style.minWidth = '0'; } sel.after(wp); }
+        else if (sel) sel.style.flex = '1 1 100%';
         // Even spacing (per Isaac, Oct 4): the gap under the second row matches the 12px gap between the two rows.
         bar.style.setProperty('margin-bottom', '0', 'important');
         bar.style.setProperty('row-gap', '12px', 'important');
