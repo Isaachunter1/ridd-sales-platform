@@ -314,7 +314,9 @@ function reportingCustomerHealth() {
     c.bucket = c.score >= 65 ? 'critical' : c.score >= 40 ? 'atrisk' : c.score >= 20 ? 'watch' : 'healthy';
     scored.push(c);
   });
-  scored.sort((a, b) => b.score - a.score || b.arr - a.arr);
+  scored.sort((a, b) => b.score - a.score || String(a.id).localeCompare(String(b.id)));
+  // Working list (per Isaac, Oct 28) — the score table stays one click away for managers.
+  if (!state._healthTable) return _healthQueueView(scored);
 
   const BUCKETS = [
     // Worst → least: red, rust, orange. Healthy is not a call list (per Isaac, Sep 23).
@@ -345,7 +347,8 @@ function reportingCustomerHealth() {
     el('div', { class: 'card p-4' },
       el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
         el('div', {},
-          el('h2', { class: 'text-lg font-bold' }, '❤️‍🩹 Customer Health'),
+          el('h2', { class: 'text-lg font-bold flex items-center gap-2' }, '❤️‍🩹 Customer Health',
+            el('button', { class: 'rounded-lg border px-2 py-0.5 text-[11px] font-bold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onclick: () => { state._healthTable = false; mountApp(); } }, '☰ Check-in list')),
           el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
             'Every active customer, scored on the churn drivers measured in OUR book — past due balance, no autopay, single service, danger-zone tenure (months 3–14), high-churn ZIP. Call the top of this list before they cancel.')),
         exportBtn),
@@ -413,6 +416,177 @@ function reportingCustomerHealth() {
                 el('td', { class: 'px-3 py-2', style: { color: 'var(--text-muted)' } }, c.why.join(' · ') || '—'));
             }),
             list.length > 300 ? el('tr', {}, el('td', { class: 'px-3 py-3 text-center text-[11px] italic', colspan: 6, style: { color: 'var(--text-subtle)' } }, 'Showing top 300 — export the CSV for all ' + list.length.toLocaleString() + '.')) : null)))));
+}
+
+// ═══ CUSTOMER HEALTH CHECK-INS — a working list (per Isaac, Oct 28) ═══
+// Not renewals: one proactive "touch base" call per customer inside their first 12 months, where the Customer
+// Lifetime curve says cancels happen (the months 2–5 collections cliff is the biggest spike). Customers whose
+// contract is ending are left to the Renewals list. Outcomes share renewal_worklog under an 'h:' key (no table
+// change): No answer · Callback · No concerns · Resolved concerns · Transferred to Loyalty. Any of the last three
+// (or 5 no-answers → 'Unreachable') takes the customer off the list for good.
+// Order: callbacks due (by time) → months 0–5 (first bills) → months 6–12; inside each, trouble first (past due,
+// then no autopay, then single service / high-churn ZIP), then the newest customer — reach them before the cliff.
+const HEALTH_DONE_RE = /^(No Concerns|Resolved Concerns|Transferred to Loyalty|Unreachable)/;
+const HEALTH_MAX_MO = 12;
+const _healthKey = (id) => 'h:' + id;
+function _healthTrouble(c) { return (c.pastDue > 0 ? 4 : 0) + (c.autopay ? 0 : 2) + (c.flags.single ? 1 : 0) + (c.flags.zip ? 1 : 0); }
+function _healthQueueView(scored) {
+  _renewalLogLoad();
+  const today = _renewalToday();
+  const LOG = state._renewalLog || {};
+  const logOf = (c) => LOG[_healthKey(c.id)] || {};
+  const me = (state.profile && state.profile.full_name) || '';
+  // Branch only, like Renewals: default = the viewer's own office.
+  const branches = [...new Set(scored.map(c => String(c.office || '')).filter(b => b && b !== '—'))].sort();
+  let fBranch = String(state._healthBranch || '');
+  if (!branches.includes(fBranch)) {
+    const mine = String((state.profile && (state.offices || []).find(o => String(o.id) === String(state.profile.office_id)) || {}).name || '').trim().toLowerCase();
+    fBranch = branches.find(b => b.trim().toLowerCase() === mine) || branches[0] || '';
+    state._healthBranch = fBranch;
+  }
+  const q = String(state._healthQ || '').trim().toLowerCase();
+  const inScope = (c) => c.oldest != null && c.oldest >= 0 && c.oldest <= HEALTH_MAX_MO && !c.renewal;
+  const list = [], done = [];
+  scored.forEach(c => {
+    if (!inScope(c) || String(c.office) !== fBranch) return;
+    const g = logOf(c);
+    if (HEALTH_DONE_RE.test(String(g.result || ''))) { done.push(c); return; }
+    const cb = _renewalCallback(g);
+    if (cb && cb > today) return;                       // booked for a later day
+    c._band = cb ? 0 : c.oldest < 6 ? 1 : 2;
+    c._triedToday = (Number(g.attempts) || 0) > 0 && _renewalLocalDay(g.updated_at) === today && !cb;
+    if (q && !(c.name + ' ' + c.id + ' ' + (c.phone || '')).toLowerCase().includes(q)) return;
+    list.push(c);
+  });
+  const cbKey = (c) => _renewalCallback(logOf(c)) + (_renewalCallbackTime(logOf(c)) || '99');
+  list.sort((a, b) => (a._triedToday ? 1 : 0) - (b._triedToday ? 1 : 0) || a._band - b._band
+    || (a._band === 0 ? cbKey(a).localeCompare(cbKey(b)) : 0)
+    || _healthTrouble(b) - _healthTrouble(a) || a.oldest - b.oldest || String(a.id).localeCompare(String(b.id)));
+
+  // Today's tally — health check-ins only.
+  let tCalls = 0, mCalls = 0;
+  Object.values(LOG).forEach(g => { if (!g || !String(g.customer_id || '').startsWith('h:') || !g.result || _renewalLocalDay(g.updated_at) !== today) return; tCalls++; if (me && g.worked_by === me) mCalls++; });
+
+  const claims = state._renewalClaims || {};
+  const meK = state.profile ? String(state.profile.id) : '', keys = state._renewalClaimKeys || {};
+  const takenByOther = (c) => { const k = _healthKey(c.id); return !!claims[k] && !(state._renewalClaimSent === k && meK && meK < (keys[k] || '')); };
+  const first = list.find(c => !takenByOther(c)) || null, rest = list.filter(c => c !== first);
+  _renewalClaimTrack(state._healthDispOpen ? _healthKey(state._healthDispOpen) : state._healthOpenCard ? _healthKey(state._healthOpenCard) : first ? _healthKey(first.id) : null);
+
+  const btn = (label, title, onclick, sty) => el('button', { class: 'rounded-lg border px-2 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95 whitespace-nowrap', title,
+    style: Object.assign({ borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, sty || {}), onclick: (e) => { e.stopPropagation(); onclick(); } }, label);
+  const save = (c, patch, msg) => {
+    state._healthUndo = { id: c.id, prev: Object.assign({}, logOf(c)) };
+    _renewalLogSave(_healthKey(c.id), patch); if (msg) toast(msg, 'success'); mountApp();
+  };
+  const DISPOS = [
+    { k: 'noanswer', label: '📵 No answer', tip: 'Back tomorrow — drops to the bottom of today’s list' },
+    { k: 'callback', label: '📅 Callback', tip: 'Pick a day and time — off the list until that day, then back on top' },
+    { k: 'none', label: '👍 No concerns', tip: 'Checked in, all good — done' },
+    { k: 'resolved', label: '🛠 Resolved concerns', tip: 'Had a concern and it was handled on the call — done' },
+    { k: 'loyalty', label: '🔁 Transferred to Loyalty', tip: 'Wants to cancel or needs a save — handed to the Loyalty team — done' },
+  ];
+  const actions = (c, big) => {
+    const g = logOf(c), att = Number(g.attempts) || 0;
+    const open = state._healthDispOpen === String(c.id);
+    const pick = open ? (state._healthDispPick || '') : '';
+    if (!open) return el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
+      btn('📝 Disposition', 'Log how the call went', () => { state._healthDispOpen = String(c.id); state._healthDispPick = ''; state._healthDispDate = ''; state._healthDispTime = ''; mountApp(); },
+        Object.assign({ background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }, big ? { fontSize: '12px', padding: '6px 14px' } : {})));
+    const cbDate = state._healthDispDate || '', cbTime = state._healthDispTime || '';
+    const canSave = pick && (pick !== 'callback' || (cbDate && cbTime));
+    const cbDue = _renewalCallback(g) && _renewalCallback(g) <= today, misses = _renewalCallbackMisses(g), cbT = _renewalCallbackTime(g);
+    const capHit = pick === 'noanswer' && att + 1 >= RENEWAL_NOANSWER_MAX;
+    const doSave = () => {
+      if (!canSave) return;
+      let patch, msg;
+      if (capHit) { patch = { attempts: att + 1, result: 'Unreachable · no answer x' + (att + 1) }; msg = (att + 1) + ' attempts with no answer — off the list'; }
+      else if (pick === 'noanswer' && cbDue && misses < RENEWAL_CB_MAX_MISSES) { const nx = _renewalNextWorkday(today); patch = { attempts: att + 1, result: 'Callback ' + nx + (cbT ? ' ' + cbT : '') + ' · missed ' + (misses + 1) }; msg = 'Missed callback — re-booked for ' + nx + (cbT ? ' at ' + _renewalTime12(cbT) : ''); }
+      else if (pick === 'noanswer') { patch = { attempts: att + 1, result: 'Contacting' }; msg = 'No answer logged — back tomorrow'; }
+      else if (pick === 'callback') { patch = { attempts: att + 1, result: 'Callback ' + cbDate + ' ' + cbTime }; msg = 'Callback set for ' + cbDate + ' at ' + _renewalTime12(cbTime); }
+      else { const r = pick === 'none' ? 'No Concerns' : pick === 'resolved' ? 'Resolved Concerns' : 'Transferred to Loyalty'; patch = { attempts: att + 1, result: r }; msg = r + ' — ' + c.name + ' is done'; }
+      state._healthDispOpen = null; state._healthDispPick = '';
+      save(c, patch, msg);
+    };
+    const tip = capHit ? 'Attempt ' + (att + 1) + ' of ' + RENEWAL_NOANSWER_MAX + ' — no answer takes this customer off the list'
+      : pick === 'noanswer' && cbDue ? (misses < RENEWAL_CB_MAX_MISSES ? 'Missed callback — re-books for the next weekday' + (cbT ? ' at ' + _renewalTime12(cbT) : '') : 'Last try on this callback — back on the regular list')
+      : pick ? (DISPOS.find(d => d.k === pick) || {}).tip : 'Pick how the call went';
+    const inSty = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
+    return el('div', { class: 'flex flex-col gap-1.5 rounded-xl border p-2', style: { borderColor: 'var(--border-2)', background: 'var(--card)' }, onclick: (e) => e.stopPropagation() },
+      el('div', { class: 'flex items-center gap-1.5 flex-wrap' }, ...DISPOS.map(d => el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold cursor-pointer transition', title: d.tip,
+          style: pick === d.k ? { borderColor: 'var(--accent)', background: 'var(--accent)', color: 'var(--accent-text)' } : inSty,
+          onclick: (e) => { e.stopPropagation(); state._healthDispPick = d.k; mountApp(); } }, d.label)),
+        pick === 'callback' ? el('input', { type: 'date', min: today, value: cbDate, class: 'rounded-lg border px-1.5 py-0.5 text-[11px]', style: inSty, onchange: (e) => { state._healthDispDate = e.target.value; mountApp(); } }) : null,
+        pick === 'callback' ? el('input', { type: 'time', step: 900, value: cbTime, class: 'rounded-lg border px-1.5 py-0.5 text-[11px]', style: inSty, onchange: (e) => { state._healthDispTime = e.target.value; mountApp(); } }) : null),
+      el('div', { class: 'flex items-center gap-2 flex-wrap' },
+        el('span', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, tip),
+        el('span', { class: 'ml-auto inline-flex gap-1.5' },
+          btn('Cancel', '', () => { state._healthDispOpen = null; mountApp(); }),
+          el('button', { class: 'rounded-lg px-3 py-1 text-[11px] font-black', disabled: !canSave, title: canSave ? 'Save the disposition' : (pick === 'callback' ? 'Pick the callback day and time' : 'Pick an outcome first'),
+            style: { background: canSave ? 'var(--ok)' : 'var(--card-2)', color: canSave ? '#fff' : 'var(--text-subtle)', cursor: canSave ? 'pointer' : 'not-allowed' },
+            onclick: (e) => { e.stopPropagation(); doSave(); } }, 'Save'))));
+  };
+  const reasons = (c) => [c.pastDue > 0 ? c.pastDue + 'd past due' : '', c.autopay ? '' : 'no autopay', c.flags.single ? 'single service' : '', c.flags.zip ? 'high-churn ZIP' : ''].filter(Boolean);
+  const why = (c) => {
+    const g = logOf(c);
+    const head = c._band === 0 ? 'callback due ' + _renewalCallbackLabel(g) : 'month ' + Math.floor(c.oldest + 1) + ' of life' + (c._band === 1 ? ' · first bills' : '');
+    return [head, ...reasons(c)].join(' · ');
+  };
+  const lastTouch = (c) => { const g = logOf(c), n = Number(g.attempts) || 0; return n ? '📞 ' + n + ' attempt' + (n > 1 ? 's' : '') + (g.worked_by ? ' · last ' + g.worked_by.split(' ')[0] : '') : 'not called yet'; };
+  const phoneA = (c, big) => c.phone ? el('a', { href: 'tel:' + String(c.phone).replace(/[^0-9+]/g, ''), class: (big ? 'text-base' : 'text-[12px]') + ' font-black tabular-nums whitespace-nowrap', style: { color: 'var(--accent)' }, onclick: (e) => e.stopPropagation() }, '📞 ' + c.phone)
+    : el('span', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, 'no phone on file');
+  const notesIn = (c) => el('input', { class: 'rounded-lg border px-2 py-1 text-[11px] w-full', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, placeholder: 'notes (optional)…', value: logOf(c).notes || '', onclick: (e) => e.stopPropagation(), onchange: (e) => _renewalLogSave(_healthKey(c.id), { notes: e.target.value }) });
+  const G = '#15803D';
+  const nextUp = (c) => el('div', { class: 'rounded-2xl border p-4 flex flex-col gap-2', style: { borderColor: 'rgba(22,163,74,.55)', background: 'rgba(22,163,74,.08)' } },
+    el('div', { class: 'flex items-center justify-end gap-2 flex-wrap' },
+      c._band === 0 ? el('span', { class: 'text-[10px] font-bold', style: { color: G, marginRight: 'auto' } }, '📅 Callback due today' + (_renewalCallbackTime(logOf(c)) ? ' at ' + _renewalTime12(_renewalCallbackTime(logOf(c))) : '')) : null,
+      el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, lastTouch(c))),
+    el('div', { class: 'flex items-end justify-between gap-3 flex-wrap' },
+      el('div', { class: 'min-w-0' },
+        el('div', { class: 'text-lg font-black truncate' }, c.name),
+        el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, '#' + c.id + ' · ' + _titleCaseWords(c.office) + ' · ' + c.subs.join(', ')),
+        el('div', { class: 'text-[12px] font-bold mt-0.5', style: { color: G } }, why(c))),
+      phoneA(c, true)),
+    actions(c, true), notesIn(c));
+  const LIMIT = state._healthMore ? 100000 : 60;
+  const row = (c, i) => {
+    const open = state._healthOpenCard === String(c.id);
+    return el('div', { class: 'rounded-xl border px-3 py-2 flex flex-col gap-1.5 cursor-pointer', style: { borderColor: 'var(--border)', background: 'var(--card)', opacity: c._triedToday ? '.6' : '1' },
+      onclick: () => { state._healthOpenCard = open ? null : String(c.id); mountApp(); } },
+      el('div', { class: 'flex items-center gap-2 flex-wrap' },
+        el('span', { class: 'text-[10px] font-bold tabular-nums w-6 shrink-0', style: { color: 'var(--text-subtle)' } }, String(i + 1)),
+        el('div', { class: 'min-w-0 flex-1', style: { minWidth: '160px' } },
+          el('div', { class: 'text-xs font-bold truncate' }, c.name + (c._triedToday ? ' · tried today' : '')),
+          el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-muted)' } }, why(c))),
+        _renewalClaimChip(_healthKey(c.id)),
+        el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-subtle)', maxWidth: '220px' } }, c.subs.join(', ')),
+        phoneA(c)),
+      open ? el('div', { class: 'flex flex-col gap-1.5 pt-1.5 border-t', style: { borderColor: 'var(--border)' }, onclick: (e) => e.stopPropagation() },
+        el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '#' + c.id + ' · ' + lastTouch(c)), actions(c), notesIn(c)) : null);
+  };
+  const undo = state._healthUndo;
+  const selSty = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
+  const header = el('div', { class: 'flex items-center gap-2 flex-wrap' },
+    el('input', { class: 'rounded-lg border px-2.5 py-1 text-[11px]', style: Object.assign({ minWidth: '200px' }, selSty), placeholder: 'Search name, #id, phone…', value: state._healthQ || '',
+      oninput: (e) => { state._healthQ = e.target.value; clearTimeout(state._healthQt); state._healthQt = setTimeout(() => mountApp(), 350); } }),
+    el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer', style: selSty, onchange: (e) => { state._healthBranch = e.target.value; mountApp(); } },
+      ...branches.map(b => el('option', { value: b, selected: fBranch === b }, _titleCaseWords(b)))),
+    btn('📊 Score table', 'The health score for every customer (manager view)', () => { state._healthTable = true; mountApp(); }),
+    undo ? btn('↶ Undo last', 'Put your last disposition back the way it was', () => { _renewalLogSave(_healthKey(undo.id), Object.assign({ result: '', attempts: 0, notes: '' }, undo.prev)); state._healthUndo = null; toast('Undone', 'success'); mountApp(); }) : null,
+    el('span', { class: 'text-[11px] tabular-nums ml-auto', style: { color: 'var(--text-muted)' } },
+      el('b', {}, list.length.toLocaleString()), ' to call · ', el('b', {}, done.length.toLocaleString()), ' checked in · today ', el('b', {}, String(mCalls)), ' (you) / ', el('b', {}, String(tCalls)), ' (team)'));
+  const body = first ? el('div', { class: 'flex flex-col gap-2' },
+      first._triedToday ? el('div', { class: 'text-[12px] font-bold text-center py-2', style: { color: 'var(--ok)' } }, '🎉 Everyone here has been tried today — what is left are second attempts.') : null,
+      nextUp(first),
+      rest.length ? el('div', { class: 'text-[10px] font-black uppercase tracking-wider mt-1', style: { color: 'var(--text-subtle)' } }, 'Then') : null,
+      ...rest.slice(0, LIMIT).map((c, i) => row(c, i + 1)),
+      rest.length > LIMIT ? btn('Show all ' + rest.length.toLocaleString(), '', () => { state._healthMore = true; mountApp(); }) : null)
+    : el('div', { class: 'text-[12px] text-center py-8', style: { color: 'var(--text-subtle)' } }, q ? 'Nobody matches “' + q + '”.' : 'Everyone in their first year here has had their check-in — nice work.');
+  return el('div', { class: 'card p-4 flex flex-col gap-3' },
+    el('div', {},
+      el('h2', { class: 'text-lg font-bold' }, '❤️‍🩹 Customer check-ins'),
+      el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } }, 'One touch-base call for every customer in their first 12 months — where cancels happen. First bills (months 0–5) first, accounts showing trouble first. Customers with a contract ending are on Renewals.')),
+    header, body);
 }
 
 // ═══ NEXT BEST SERVICE — the attach engine. Multi-service customers retain
@@ -935,7 +1109,7 @@ function _renewalClaimTrack(cid) {
         state._renewalClaimKeys = ks;
         const changed = JSON.stringify(m) !== JSON.stringify(state._renewalClaims || {});
         state._renewalClaims = m;
-        if (changed && state.view === 'loyalty_renewals') { clearTimeout(state._renewalClaimT); state._renewalClaimT = setTimeout(mountApp, 200); }
+        if (changed && (state.view === 'loyalty_renewals' || state.view === 'loyalty_health' || state.view === 'queues')) { clearTimeout(state._renewalClaimT); state._renewalClaimT = setTimeout(mountApp, 200); }
       });
       ch.subscribe((status) => { if (status === 'SUBSCRIBED') { state._renewalClaimReady = true; state._renewalClaimSent = undefined; _renewalClaimTrack(state._renewalClaimWant == null ? null : state._renewalClaimWant); } });
       state._renewalClaimCh = ch;
@@ -982,7 +1156,7 @@ function _renewalQueueView(o) {
   const LOG = state._renewalLog || {};
   let tCalls = 0, tRenewed = 0, mCalls = 0, mRenewed = 0;
   Object.values(LOG).forEach(g => {
-    if (!g || _renewalLocalDay(g.updated_at) !== today) return;
+    if (!g || String(g.customer_id || '').startsWith('h:') || _renewalLocalDay(g.updated_at) !== today) return;   // h: = Customer Health check-ins
     const ren = g.result === 'Renewed' || g.result === 'Resigned';
     tCalls++; if (ren) tRenewed++;
     if (me && g.worked_by === me) { mCalls++; if (ren) mRenewed++; }
@@ -1188,7 +1362,7 @@ function _renewalLogLoad() {
   supabase.from('renewal_worklog').select('*').then(({ data, error }) => {
     if (error) { console.warn('[renewals] worklog load failed (run renewal_worklog.sql?)', error.message); return; }
     (data || []).forEach(r => { state._renewalLog[String(r.customer_id)] = r; });
-    if (state.view === 'loyalty_renewals') mountApp();
+    if (state.view === 'loyalty_renewals' || state.view === 'loyalty_health' || state.view === 'queues') mountApp();
   });
   // Many reps work the board at once (per Isaac): every save lands on every
   // open board within a second through the realtime channel, so two people
@@ -1201,7 +1375,7 @@ function _renewalLogLoad() {
           if (msg.eventType === 'DELETE') { const k = msg.old && msg.old.customer_id; if (k) delete state._renewalLog[String(k)]; }
           else if (row) state._renewalLog[String(row.customer_id)] = row;
           try { localStorage.setItem('ridd_renewal_log_v1', JSON.stringify(state._renewalLog)); } catch (e) { /* quota */ }
-          if (state.view === 'loyalty_renewals') { clearTimeout(state._renewalRtT); state._renewalRtT = setTimeout(mountApp, 300); }
+          if (state.view === 'loyalty_renewals' || state.view === 'loyalty_health' || state.view === 'queues') { clearTimeout(state._renewalRtT); state._renewalRtT = setTimeout(mountApp, 300); }
         }).subscribe();
     }
   } catch (e) { /* realtime unavailable — saves still land, boards refresh on reload */ }
