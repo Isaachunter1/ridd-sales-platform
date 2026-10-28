@@ -387,7 +387,7 @@ function dashLensPacer(dept) {
     else if (over) text = actual >= goal
       ? el('span', {}, '✓ Goal hit · ', el('strong', { style: { color: 'var(--text)' } }, '+' + fmt.usd0(actual - goal)))
       : el('span', {}, 'Missed by ', el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(goal - actual)));
-    else if (p.left === 1 && +PW.start === +PW.end) text = actual >= goal ? '✓ Day goal hit' : el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(goal - actual)), ' to go today');
+    else if (p.left === 1 && +PW.start === +PW.end) text = actual >= goal ? '' : el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(goal - actual)), ' to go today');
     else text = p.need > 0
       ? el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(p.need)), ' / work day needed · ' + p.left + ' day' + (p.left === 1 ? '' : 's') + ' left')
       : '✓ Goal hit';

@@ -6021,9 +6021,9 @@ function dashboardGoalCard(range, opts) {
         _simple ? el('div', { class: 'text-[11px] tabular-nums whitespace-nowrap overflow-hidden', style: { color: 'var(--text-muted)', marginTop: '7px', height: '16px', textOverflow: 'ellipsis' }, title: (s.plan && s.plan.tip) || '' },
           s.plan && s.plan.text != null ? s.plan.text
           : s.plan && s.plan.left != null
-            ? (s.plan.left > 0 ? (s.plan.need > 0 ? el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(s.plan.need)), ' / work day needed \u00b7 ' + s.plan.left + ' work days left') : '\u2713 goal hit') : 'Selling window ended')
+            ? (s.plan.left > 0 ? (s.plan.need > 0 ? el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(s.plan.need)), ' / work day needed \u00b7 ' + s.plan.left + ' work days left') : '') : 'Selling window ended')
             : s.target > 0 && needYear != null
-              ? (needYear > 0 ? el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(needYear)), ' / day needed \u00b7 ' + daysLeftY + ' selling days left') : '\u2713 goal hit')
+              ? (needYear > 0 ? el('span', {}, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(needYear)), ' / day needed \u00b7 ' + daysLeftY + ' selling days left') : '')
               : (!(s.target > 0) && opts.hint && s === _streams[0] ? el('span', { style: { color: 'var(--accent)', fontWeight: '600' } }, opts.hint)
                 : !(s.target > 0) && s.win != null ? el('span', {}, 'Today ', el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(s.win))) : '\u00a0')) : null,
         // Annual-goal reminder (per Isaac, Oct 18): the bar above follows the date range; this thin line always shows
