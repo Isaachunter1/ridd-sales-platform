@@ -125,10 +125,19 @@ function warRoomCrmSales() {
 // appointment is on the books (Pending) or done (Completed). Rows without the
 // stamp (manual logs, legacy) pass. The CRM feed applies the same gate
 // upstream (frPendingServiced), so the dashboard and the TV board agree.
+// Oct 28 (per Isaac): a sale isn't fully sold until its initial is scheduled — an auto-logged row the sync hasn't
+// stamped yet (no status, no appointment date, not serviced) waits too, instead of showing on the TV board
+// (#133680 showed with "No Appointment" in FieldRoutes). Renewals have no new initial and always count, as on
+// the Sales tab. Hand-logged rows (no sync columns at all) still pass.
 function saleHasAppt(s) {
-  if (s.crm_initial_status == null) return true;
-  const st = String(s.crm_initial_status).trim().toLowerCase();
-  return st === 'pending' || st === 'completed';
+  if (s.sale_kind !== 'upsell' && typeof isRenewalSource === 'function' && isRenewalSource(s)) return true;
+  if (s.crm_initial_status != null) {
+    const st = String(s.crm_initial_status).trim().toLowerCase();
+    return st === 'pending' || st === 'completed';
+  }
+  if (s.crm_serviced_at) return true;
+  if (s.crm_subscription_id && 'crm_initial_appt_at' in s) return !!s.crm_initial_appt_at;
+  return true;
 }
 // The combined pool every War Room metric reads: CRM rows + app upsells.
 // Falls back to the app sales table until the shared dataset has loaded
