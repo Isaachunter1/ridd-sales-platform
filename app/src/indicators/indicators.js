@@ -629,6 +629,7 @@ function viewWorldDashboard() {
     state.indicatorDept = dept;
     // A team pick only follows you onto a dashboard whose rep type has those teams (per Isaac, Oct 28) — otherwise
     // it would filter the board with no Team row there to undo it.
+    state._indicatorRepOfficeFilter = '';   // Office filter retired (per Isaac, Oct 28)
     if (state._indicatorRepTeamFilter) { const keep = indTeamFilterList().filter(t => t === '__unassigned__' || indWorldTeamOk(t)); state._indicatorRepTeamFilter = keep.join(IND_TEAM_SEP); }
   }
   const node = viewIndicators();
@@ -1381,6 +1382,9 @@ function viewIndicators() {
           // every change (each mountApp re-crunches the full tab, which made
           // the panel feel molasses-slow). Changes collect here and the
           // Apply button commits them with ONE re-render.
+          // The Office filter is retired (per Isaac, Oct 28): never leave an old pick — or one inside a saved preset —
+          // silently narrowing the page with no row left to undo it.
+          state._indicatorRepOfficeFilter = '';
           const _staged = {
             acct: (state.indicatorAcctStatus === 'passed_audit' ? 'pending_serviced' : (state.indicatorAcctStatus || 'pending_serviced')),
             audit: state.indicatorPassedAudit === true || state.indicatorAcctStatus === 'passed_audit',
@@ -1564,7 +1568,7 @@ function viewIndicators() {
                   // Date moved OUT to the bar (Today / Week / Month / Year / More). Only the legacy weekly view keeps a picker here.
                   isRange ? null : _fRow('Date', dateSel),
                   _fRow('Group',  hl(groupSel,  groupBy !== 'branch')),
-                  _repLite ? null : _fRow('Office', hl(officeSel, !!state._indicatorRepOfficeFilter)),
+                  // (Office row removed per Isaac, Oct 28 — the Indicators table and Group already show every office side by side.)
                   // Team: only this rep type's teams, and no row at all when it has none (per Isaac, Oct 28 — replaces Oct 9's every-team-everywhere).
                   (_repLite || !_teams.length) ? null : _fRow('Team',   (hl(teamSel._hl, !!state._indicatorRepTeamFilter), teamSel)),
                   (_repLite || !tierSel) ? null : _fRow('Tier', hl(tierSel, !!state._indicatorRepTierFilter)),
@@ -1624,7 +1628,7 @@ function viewIndicators() {
             class: 'relative rounded-xl px-2.5 py-1 text-[11px] font-semibold border transition hover:brightness-95 shrink-0',
             // Active filters / a preset (per Isaac, Oct 15): the button itself turns orange — no count badge.
             style: nonDefault ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)', color: 'var(--text)' },
-            title: nonDefault ? 'Filters are on (' + nonDefault + ') — click to see or change them' : 'Filters — presets, rep type, Revenue metric, Exclude, Group, Office, Team, Tier',
+            title: nonDefault ? 'Filters are on (' + nonDefault + ') — click to see or change them' : 'Filters — presets, rep type, Revenue metric, Exclude, Group, Team, Tier',
             onclick: (e) => {
               e.stopPropagation();
               const open = panel.style.display === 'block';
