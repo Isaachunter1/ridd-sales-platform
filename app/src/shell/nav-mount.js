@@ -139,7 +139,16 @@ function repWorldOptions(role) {
 // dashboard Filters' "Rep type" row.
 function switchRepWorld(m, toDashboard) {
     const DASH = { inside: 'dashboard', d2d: 'd2d_dashboard', techs: 'techs', all: 'all_dashboard' };
-    const target = toDashboard ? DASH[m] : m === 'd2d'
+    // Same tab on the other rep type when it has one (per Isaac, Oct 28): Sales → Sales, Pay → Pay.
+    const SAME = {
+      sales: { inside: 'sales', d2d: 'd2d_sales', techs: 'tech_sales' },
+      pay:   { inside: 'pay', d2d: 'commission', techs: 'tech_pay' },
+    };
+    const kind = ['sales', 'd2d_sales', 'tech_sales'].includes(state.view) ? 'sales' : ['pay', 'commission', 'tech_pay'].includes(state.view) ? 'pay' : '';
+    const _r = state.profile?.role;
+    const _canTab = (k) => k && _r !== 'office_staff' && (typeof viewFeatureOn !== 'function' || viewFeatureOn(k)) && (isAdminRole(_r) || !VIEW_TAB_PERM[k] || userCan(VIEW_TAB_PERM[k]));   // Office Staff - Office only walk the dashboards
+    const same = !toDashboard && kind && _canTab(SAME[kind][m]) ? SAME[kind][m] : '';
+    const target = same ? same : toDashboard ? DASH[m] : m === 'd2d'
       ? (D2D_SALES_TAB_KEYS.has(state._lastD2dTab) ? state._lastD2dTab : 'd2d_dashboard')
       : m === 'techs' ? 'techs'
       : m === 'all' ? 'all_dashboard'
@@ -155,15 +164,28 @@ function salesModeToggle(mode) {
   // On a dashboard the rep type lives inside Filters as "Rep type" (per Isaac, Oct 28) — the bar toggle only shows on
   // the Sales / Pay / other tabs, which have no Filters panel.
   if (typeof IND_WORLD !== 'undefined' && IND_WORLD[state.view]) return null;
-  let narrow = false; try { narrow = window.matchMedia('(max-width: 640px)').matches; } catch (e) { /* desktop */ }
-  const go = (m) => { if (m !== mode) switchRepWorld(m); };
-  return el('div', { class: 'sales-mode-toggle inline-flex rounded-lg border overflow-hidden mr-2 shrink-0', style: { borderColor: 'var(--border-2)' } },
-    ...opts.map(([m, label, short], i) => el('button', {
-      class: 'sales-mode-btn px-2.5 py-1 text-[11px] font-bold transition whitespace-nowrap',
-      style: Object.assign(i ? { borderLeft: '1px solid var(--border-2)' } : {}, mode === m ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)', background: 'var(--card)' }),
-      title: m === 'all' ? 'Every user type on one dashboard' : undefined,
-      onclick: () => go(m),
-    }, narrow && opts.length > 3 ? short : label)));
+  // One compact Rep type picker, right side of the bar, same look on every tab (per Isaac, Oct 28 — the row of
+  // Office Staff / Sales Rep / Technician / All buttons is gone). The ★ beside it sets your default dashboard,
+  // same as the star in the dashboard's Filters.
+  const sel = el('select', {
+    class: 'rounded-xl border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+    title: 'Rep type — switches the whole section (Dashboard, Sales, Pay…)',
+    onchange: (e) => { if (e.target.value !== mode) switchRepWorld(e.target.value); },
+  }, ...opts.map(([m, label]) => el('option', { value: m, selected: mode === m }, m === 'all' ? 'All rep types' : label)));
+  const on = typeof getFavWorld === 'function' && getFavWorld() === mode;
+  const star = typeof setFavWorld === 'function' ? el('button', {
+    type: 'button', class: 'rounded-xl border text-[13px] leading-none transition hover:brightness-95 flex items-center justify-center shrink-0',
+    style: { width: '28px', alignSelf: 'stretch', padding: '0', color: on ? 'var(--accent)' : 'var(--text-muted)', borderColor: on ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)' },
+    title: on ? 'Your default dashboard — click to clear' : 'Make this rep type your default dashboard',
+    onclick: () => {
+      setFavWorld(on ? '' : mode);
+      const name = (opts.find(o => o[0] === mode) || [])[1] || '';
+      if (typeof toast === 'function') toast(on ? 'Default cleared — you’ll open on Office Staff' : (mode === 'all' ? 'All rep types' : name) + ' is now your default', 'ok');
+      mountApp();
+    },
+  }, on ? '★' : '☆') : null;
+  return el('div', { class: 'sales-mode-toggle flex items-stretch gap-1.5 ml-auto shrink-0 py-1.5' }, sel, star);
 }
 function insideSalesSubTabs() {
   const tabs = insideSalesTabsFor(state.profile?.role);
@@ -193,9 +215,9 @@ function insideSalesSubTabs() {
       onchange: (e) => go(e.target.value),
     }, ...tabs.map(([k, label]) => el('option', { value: k, selected: state.view === k }, label))));
   return el('div', { class: 'sales-subtabs flex items-center flex-wrap gap-x-1 gap-y-0 border-b mb-4', style: { borderColor: 'var(--border)' } },
-    salesModeToggle('inside'),
     tabBar,
-    tabSelect);
+    tabSelect,
+    salesModeToggle('inside'));
 }
 // D2D counterpart — same bar, same mobile dropdown consolidation, with the
 // admin Inside/D2D/Techs toggle riding in front.
@@ -224,9 +246,9 @@ function d2dSalesSubTabs(mode) {
       onchange: (e) => go(e.target.value),
     }, ...tabs.map(([k, label]) => el('option', { value: k, selected: state.view === k }, label))));
   return el('div', { class: 'sales-subtabs flex items-center flex-wrap gap-x-1 gap-y-0 border-b mb-4', style: { borderColor: 'var(--border)' } },
-    salesModeToggle(mode === 'all' ? 'all' : mode === 'techs' ? 'techs' : 'd2d'),
     tabBar,
-    tabSelect);
+    tabSelect,
+    salesModeToggle(mode === 'all' ? 'all' : mode === 'techs' ? 'techs' : 'd2d'));
 }
 
 // ── Independent section re-render ─────────────────────────────────────────
