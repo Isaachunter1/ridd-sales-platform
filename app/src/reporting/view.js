@@ -306,7 +306,7 @@ function reportingCustomerHealth() {
     else if (c.pastDue > 0)   { score += 15; why.push(c.pastDue + 'd past due'); flags.pastdue = true; }
     if (!c.autopay)           { score += 15; why.push('no autopay'); flags.apay = true; }
     if (c.fams.size <= 1)     { score += 10; why.push('single service'); flags.single = true; }
-    if (c.oldest != null && c.oldest >= 3 && c.oldest <= 14) { score += 10; why.push('danger-zone tenure (' + c.oldest.toFixed(0) + ' mo)'); flags.danger = true; }
+    // (Danger-zone tenure retired per Isaac, Oct 28 — the check-in list already covers the first year.)
     // (Renewal window + high-churn service retired per Isaac, Sep 23 — renewals have their own tab.)
     if (riskyZip(c.zip))      { score += 10; why.push('high-churn ZIP'); flags.zip = true; }
     // Golden autopay conversion: pays reliably by hand (zero past due, 3+
@@ -353,7 +353,7 @@ function reportingCustomerHealth() {
           el('h2', { class: 'text-lg font-bold flex items-center gap-2' }, '❤️‍🩹 Customer Health',
             el('button', { class: 'rounded-lg border px-2 py-0.5 text-[11px] font-bold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onclick: () => { state._healthTable = false; mountApp(); } }, '☰ Check-in list')),
           el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
-            'Every active customer, scored on the churn drivers measured in OUR book — past due balance, no autopay, single service, danger-zone tenure (months 3–14), high-churn ZIP. Call the top of this list before they cancel.')),
+            'Every active customer, scored on the churn drivers measured in OUR book — past due balance, no autopay, single service, high-churn ZIP. Call the top of this list before they cancel.')),
         exportBtn),
       el('div', { class: 'grid gap-3 mt-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' } },
         ...BUCKETS.map(([k, label, color]) => el('button', {
@@ -370,7 +370,7 @@ function reportingCustomerHealth() {
         (() => {
           const F = [
             ['all', 'All factors'], ['pastdue', '💸 Past due'], ['apay', '💳 No autopay'],
-            ['single', '1️⃣ Single service'], ['danger', '⏳ Danger zone'], ['zip', '📍 High-churn ZIP'],
+            ['single', '1️⃣ Single service'], ['zip', '📍 High-churn ZIP'],
           ];
           const inBucket = scored.filter(c => (sel === 'all' || c.bucket === sel));
           const cnt = (k) => k === 'all' ? inBucket.length : inBucket.filter(c => c.flags[k]).length;
@@ -427,15 +427,27 @@ function reportingCustomerHealth() {
 // contract is ending are left to the Renewals list. Outcomes share renewal_worklog under an 'h:' key (no table
 // change): No answer · Callback · No concerns · Resolved concerns · Transferred to Loyalty. Any of the last three
 // (or 5 no-answers → 'Unreachable') takes the customer off the list for good.
-// Order: callbacks due (by time) → months 0–5 (first bills) → months 6–12; inside each, trouble first (no autopay,
-// then single service / high-churn ZIP), then the newest customer. Past-due customers are left to collections.
+// Order: callbacks due (by time) → a reservice in the first 2 months → months 0–5 (first bills) → months 6–12;
+// inside each, trouble first (no autopay, then single service / high-churn ZIP), then the newest customer. Past-due customers are left to collections.
 const HEALTH_DONE_RE = /^(No Concerns|Resolved Concerns|Transferred to Loyalty|Unreachable)/;
 const HEALTH_MAX_MO = 12;
 const HEALTH_MIN_SERVICES = 2;   // the initial + one regular treatment
 const _healthKey = (id) => 'h:' + id;
-function _healthTrouble(c) { return (c.autopay ? 0 : 2) + (c.flags.single ? 1 : 0) + (c.flags.zip ? 1 : 0); }
+// Early reservice (server job early-reservice → app_settings.early_reservice, ids only): a reservice inside the
+// first 2 months is the clearest early sign of a problem, so it outranks everything else (per Isaac, Oct 28).
+function _healthEarlyReservice(c) { return !!(state._earlyReservice && state._earlyReservice.has(String(c.id))); }
+function _healthLoadReservice() {
+  if (state._earlyResLoaded) return; state._earlyResLoaded = true;
+  if ((typeof DEMO !== 'undefined' && DEMO) || !supabase) return;
+  supabase.from('app_settings').select('value').eq('key', 'early_reservice').maybeSingle().then(({ data }) => {
+    const ids = data && data.value && Array.isArray(data.value.customer_ids) ? data.value.customer_ids : [];
+    state._earlyReservice = new Set(ids.map(String));
+    if (ids.length && (state.view === 'loyalty_health' || state.view === 'queues')) mountApp();
+  }, () => { /* no list yet — order falls back to the other signals */ });
+}
+function _healthTrouble(c) { return (_healthEarlyReservice(c) ? 8 : 0) + (c.autopay ? 0 : 2) + (c.flags.single ? 1 : 0) + (c.flags.zip ? 1 : 0); }
 function _healthQueueView(scored) {
-  _renewalLogLoad();
+  _renewalLogLoad(); _healthLoadReservice();
   const today = _renewalToday();
   const LOG = state._renewalLog || {};
   const logOf = (c) => LOG[_healthKey(c.id)] || {};
@@ -461,7 +473,7 @@ function _healthQueueView(scored) {
     if (HEALTH_DONE_RE.test(String(g.result || ''))) { done.push(c); return; }
     const cb = _renewalCallback(g);
     if (cb && cb > today) return;                       // booked for a later day
-    c._band = cb ? 0 : c.oldest < 6 ? 1 : 2;
+    c._band = cb ? 0 : _healthEarlyReservice(c) ? 1 : c.oldest < 6 ? 2 : 3;   // reservice outranks tenure
     c._triedToday = (Number(g.attempts) || 0) > 0 && _renewalLocalDay(g.updated_at) === today && !cb;
     if (q && !(c.name + ' ' + c.id + ' ' + (c.phone || '')).toLowerCase().includes(q)) return;
     list.push(c);
@@ -534,10 +546,10 @@ function _healthQueueView(scored) {
             style: { background: canSave ? 'var(--ok)' : 'var(--card-2)', color: canSave ? '#fff' : 'var(--text-subtle)', cursor: canSave ? 'pointer' : 'not-allowed' },
             onclick: (e) => { e.stopPropagation(); doSave(); } }, 'Save'))));
   };
-  const reasons = (c) => [c.autopay ? '' : 'no autopay', c.flags.single ? 'single service' : '', c.flags.zip ? 'high-churn ZIP' : ''].filter(Boolean);
+  const reasons = (c) => [_healthEarlyReservice(c) ? '🔁 reservice in first 2 months' : '', c.autopay ? '' : 'no autopay', c.flags.single ? 'single service' : '', c.flags.zip ? 'high-churn ZIP' : ''].filter(Boolean);
   const why = (c) => {
     const g = logOf(c);
-    const head = c._band === 0 ? 'callback due ' + _renewalCallbackLabel(g) : 'month ' + Math.floor(c.oldest + 1) + ' of life' + (c._band === 1 ? ' · first bills' : '');
+    const head = c._band === 0 ? 'callback due ' + _renewalCallbackLabel(g) : 'month ' + Math.floor(c.oldest + 1) + ' of life' + (c._band === 2 ? ' · first bills' : '');
     return [head, ...reasons(c)].join(' · ');
   };
   const lastTouch = (c) => { const g = logOf(c), n = Number(g.attempts) || 0; return n ? '📞 ' + n + ' attempt' + (n > 1 ? 's' : '') + (g.worked_by ? ' · last ' + g.worked_by.split(' ')[0] : '') : 'not called yet'; };
@@ -593,7 +605,7 @@ function _healthQueueView(scored) {
   return el('div', { class: 'card p-4 flex flex-col gap-3' },
     el('div', {},
       el('h2', { class: 'text-lg font-bold' }, '❤️‍🩹 Customer check-ins'),
-      el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } }, 'One touch-base call for every customer in their first 12 months, once they have had a treatment after the initial. First bills (months 0–5) first, accounts showing trouble first. Past-due accounts are left to collections. Customers with a contract ending are on Renewals.')),
+      el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } }, 'One touch-base call for every customer in their first 12 months, once they have had a treatment after the initial. Early reservices first, then first bills (months 0–5), accounts showing trouble first. Past-due accounts are left to collections. Customers with a contract ending are on Renewals.')),
     header, body);
 }
 
