@@ -854,13 +854,18 @@ function viewIndicators() {
       const count = ss.length;
       const rev = ss.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
       const revRenewal = ss.reduce((a, s) => a + (_indicatorIsRenewal(s) ? (Number(s.contractValue) || 0) : 0), 0);
-      // Avg Pest Initial rules (exclude Sentricon / German Roach / Interior
-      // Flea) apply to Teams view AND the Office Staff dept.
-      const usePestExclude = groupBy === 'teams' || state.indicatorDept === 'd2d';
-      const pest = usePestExclude ? ss.filter(s => !TEAM_PEST_EXCLUDE.test(s.subscription || '')) : ss;
+      // Avg Initial (per Isaac, Oct 28): every new sale, one-time included, renewals out. Sales Reps see Avg Pest
+      // Initial instead (Sentricon / German Roach / Interior Flea out too) — by rep type, never by the Group pick.
+      const usePestExclude = indicatorAvgInitialIsPest();
+      const pest = ss.filter(s => usePestExclude ? avgPestEligible(s) : avgInitialEligible(s));
       const avgInit = pest.length > 0 ? pest.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / pest.length : 0;
-      const multi = ss.filter(s => myBucketOf(s) === 'multi').length;
+      const multi = ss.filter(s => myBucketOf(s) === 'multi').length;            // new sales only (Oct 28)
       const twelve = ss.filter(s => myBucketOf(s) === 'twelve').length;
+      const renMulti = ss.filter(s => myBucketOfRenewal(s) === 'multi').length;  // Renewal Multi-Year %
+      const renTwelve = ss.filter(s => myBucketOfRenewal(s) === 'twelve').length;
+      // ACV (per Isaac, Oct 28): recurring NEW plans only — renewals and one-time services out, same as the
+      // leaderboard, player card and TV board.
+      const _acvS = indAcvSplit(ss);
       const autoPayCount = ss.filter(s => s.autoPay && s.autoPay !== 'No').length;
       // Audit % = accounts NOT flagged "Failed Audit" ÷ all accounts. Without
       // this the range view left audit_pct undefined → the column rendered NaN%.
@@ -870,6 +875,10 @@ function viewIndicators() {
       // $20K PRA qualification — company-wide bar, home-column attribution
       // (see _praHome above). Each qualified rep counts in exactly one column.
       const reps20k = _reps20kOf(b);
+      // PRA (per Isaac, Oct 28) is two numbers: PRA = total revenue ÷ every rep with a sale; PRA · $20K+ = what the
+      // reps who cleared $20K sold here ÷ how many of them — real average production, not diluted by someone who
+      // sold one account and quit. (A $20K rep counts in the one column where they sold the most.)
+      let rev20k = 0; _praHome.qualified.forEach(r => { if (_praHome.homeOf[r] === b) rev20k += (_praHome.agg[r] && _praHome.agg[r].by[b]) || 0; });
       branchData[b] = {
         sold_accounts: count,
         revenue: rev,
@@ -877,10 +886,16 @@ function viewIndicators() {
         renewal_revenue: revRenewal,
         avg_initial: avgInit,
         avg_initial_count: pest.length,
-        acv: count > 0 ? rev / count : 0,
-        pra: reps20k > 0 ? rev / reps20k : 0,
+        avg_initial_sum: pest.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0),
+        acv: _acvS.acv, acv_rev: _acvS.coreRev, acv_n: _acvS.coreN,
+        pra: reps20k > 0 ? rev20k / reps20k : 0,
+        pra_rev: rev20k,
+        pra_all: reps > 0 ? rev / reps : 0,
         reps20k,
         multi_year_pct: (twelve + multi) > 0 ? multi / (twelve + multi) : 0,
+        my_multi: multi, my_den: twelve + multi,
+        renewal_my_pct: (renTwelve + renMulti) > 0 ? renMulti / (renTwelve + renMulti) : 0,
+        ren_my_multi: renMulti, ren_my_den: renTwelve + renMulti,
         auto_pay_pct: count > 0 ? autoPayCount / count : 0,
         audit_pct: count > 0 ? (count - auditFail) / count : 0,
         last_resort_pct: count > 0 ? lastResort / count : 0,
@@ -976,19 +991,32 @@ function viewIndicators() {
       riddTotal[m.key] = totalW > 0
         ? activeBranches.reduce((a, b) => a + (branchData[b]?.avg_initial || 0) * weightOf(b), 0) / totalW
         : 0;
+    } else if ((m.key === 'multi_year_pct' || m.key === 'renewal_my_pct') && activeBranches.some(b => branchData[b] && branchData[b].my_den != null)) {
+      // Exact (Oct 28): summed contracts, not a sales-weighted average of percentages.
+      const [nk, dk] = m.key === 'multi_year_pct' ? ['my_multi', 'my_den'] : ['ren_my_multi', 'ren_my_den'];
+      const den = activeBranches.reduce((a, b) => a + (branchData[b]?.[dk] || 0), 0);
+      riddTotal[m.key] = den > 0 ? activeBranches.reduce((a, b) => a + (branchData[b]?.[nk] || 0), 0) / den : 0;
     } else if (m.key === 'auto_pay_pct' || m.key === 'appruv_pct' || m.key === 'multi_year_pct' || m.key === 'audit_pct' || m.key === 'last_resort_pct') {
       const totalSold = activeBranches.reduce((a, b) => a + (branchData[b]?.sold_accounts || 0), 0);
       riddTotal[m.key] = totalSold > 0
         ? activeBranches.reduce((a, b) => a + (branchData[b]?.[m.key] || 0) * (branchData[b]?.sold_accounts || 0), 0) / totalSold
         : 0;
     } else if (m.key === 'acv') {
-      const totalSold = activeBranches.reduce((a, b) => a + (branchData[b]?.sold_accounts || 0), 0);
-      const totalRev = activeBranches.reduce((a, b) => a + (branchData[b]?.revenue || 0), 0);
+      const _hasSplit = activeBranches.some(b => branchData[b] && branchData[b].acv_n != null);
+      const totalSold = activeBranches.reduce((a, b) => a + (_hasSplit ? (branchData[b]?.acv_n || 0) : (branchData[b]?.sold_accounts || 0)), 0);
+      const totalRev = activeBranches.reduce((a, b) => a + (_hasSplit ? (branchData[b]?.acv_rev || 0) : (branchData[b]?.revenue || 0)), 0);
       riddTotal[m.key] = totalSold > 0 ? totalRev / totalSold : 0;
     } else if (m.key === 'pra') {
-      const totalRev = activeBranches.reduce((a, b) => a + (branchData[b]?.revenue || 0), 0);
+      const _hasPraRev = activeBranches.some(b => branchData[b] && branchData[b].pra_rev != null);
+      const totalRev = activeBranches.reduce((a, b) => a + ((_hasPraRev ? branchData[b]?.pra_rev : branchData[b]?.revenue) || 0), 0);
       const totalReps = activeBranches.reduce((a, b) => a + (branchData[b]?.reps20k ?? branchData[b]?.reps ?? 0), 0);
       riddTotal[m.key] = totalReps > 0 ? totalRev / totalReps : 0;
+    } else if (m.key === 'pra_all') {
+      // Total PRA for the company = all revenue ÷ every distinct rep with a sale (a rep in two columns counts once).
+      const totalRev = activeBranches.reduce((a, b) => a + (branchData[b]?.revenue || 0), 0);
+      const reps = new Set(); activeBranches.forEach(b => { (_rangeGroups && _rangeGroups[b] || []).forEach(s => { if (s.rep) reps.add(s.rep); }); });
+      const n = reps.size || activeBranches.reduce((a, b) => a + (branchData[b]?.reps || 0), 0);
+      riddTotal[m.key] = n > 0 ? totalRev / n : 0;
     } else {
       riddTotal[m.key] = activeBranches.reduce((a, b) => a + (branchData[b]?.[m.key] || 0), 0);
     }
@@ -1078,7 +1106,7 @@ function viewIndicators() {
   // Audit % is shown in the table for context but intentionally NOT scored —
   // it's a quality flag, not a selling-effectiveness signal, so it shouldn't
   // move a branch/team up or down the Power Ranking.
-  const POWER_RANKING_METRICS = INDICATOR_METRICS.filter(m => m.key !== 'reps' && m.key !== 'new_revenue' && m.key !== 'renewal_revenue' && m.key !== 'audit_pct' && m.key !== 'last_resort_pct');
+  const POWER_RANKING_METRICS = INDICATOR_METRICS.filter(m => m.key !== 'reps' && m.key !== 'new_revenue' && m.key !== 'renewal_revenue' && m.key !== 'renewal_my_pct' && m.key !== 'pra_all' && m.key !== 'audit_pct' && m.key !== 'last_resort_pct');
   const worstRank = rankableBranches.length;
   const totalPoints = {};
   rankableBranches.forEach(b => {
@@ -1779,7 +1807,7 @@ function viewIndicators() {
                   m.push(['Excluded teams', excludedList.length ? excludedList.join(', ') : 'none']);
                   m.push(['Pulled', new Date().toLocaleString()]);
                   m.push([]);
-                  m.push([groupLabel, 'Revenue', 'Avg Initial', 'ACV', 'PRA', 'Multi-Year %', 'Auto-Pay %', 'Reps']);
+                  m.push([groupLabel, 'Revenue', 'Avg Initial', 'ACV', 'PRA', 'Multi-Year %', 'Auto Pay %', 'Reps']);
                   branches.forEach(b => {
                     const d = branchData[b]; if (!d) return;
                     m.push([b, Math.round(d.revenue), +d.avg_initial.toFixed(2), +d.acv.toFixed(2), +d.pra.toFixed(2),
@@ -1815,7 +1843,7 @@ function viewIndicators() {
                 out.push(['RIDD Indicators — ' + groupLabel + ' table']);
                 out.push(['Pulled', new Date().toLocaleString()]);
                 out.push([]);
-                out.push([groupLabel, 'Revenue', 'Avg Initial', 'ACV', 'PRA', 'Multi-Year %', 'Auto-Pay %', 'Reps']);
+                out.push([groupLabel, 'Revenue', 'Avg Initial', 'ACV', 'PRA', 'Multi-Year %', 'Auto Pay %', 'Reps']);
                 branches.forEach(b => {
                   const d = branchData[b]; if (!d) return;
                   out.push([b, Math.round(d.revenue), d.avg_initial.toFixed(2), d.acv.toFixed(2), d.pra.toFixed(2),
@@ -2106,12 +2134,12 @@ function viewIndicators() {
       // PRA + Audit %.
       const _deptT = state.indicatorDept || 'all';
       const _visibleMetrics = INDICATOR_METRICS.filter(m => {
-        if (m.key === 'new_revenue' || m.key === 'renewal_revenue') return _deptT === 'office';
+        if (m.key === 'new_revenue' || m.key === 'renewal_revenue' || m.key === 'renewal_my_pct') return _deptT === 'office';
         // Audit % only appears on the Sales Rep tab; Last Resort % shows for
         // EVERY dept in both branch + team views (per Isaac) — context only,
         // still not a Power Ranking scorer.
         if (m.key === 'audit_pct') return _deptT === 'd2d';
-        if (_deptT === 'office' && m.key === 'pra') return false;
+        if (_deptT === 'office' && (m.key === 'pra' || m.key === 'pra_all')) return false;   // Office Staff never showed PRA
         return true;
       });
       // Hidden rows (per Isaac): the ✕ on a row's label hides that metric
@@ -2140,7 +2168,7 @@ function viewIndicators() {
       }, 'hide') : null;
       // SCORED metrics on top, CONTEXT metrics below a bold cutoff line
       // (per Isaac) — the same exclusion set Power Rank scoring uses.
-      const _PR_CTX = new Set(['new_revenue', 'renewal_revenue', 'audit_pct', 'last_resort_pct']);
+      const _PR_CTX = new Set(['new_revenue', 'renewal_revenue', 'renewal_my_pct', 'pra_all', 'audit_pct', 'last_resort_pct']);
       const tableMetrics = [..._shownMetrics.filter(m => !_PR_CTX.has(m.key)), ..._shownMetrics.filter(m => _PR_CTX.has(m.key))];
       const _prDividerAt = _shownMetrics.some(m => _PR_CTX.has(m.key)) ? tableMetrics.filter(m => !_PR_CTX.has(m.key)).length : null;
       // Phone + rep/partner view (per Isaac): one branch column at a time —
@@ -3339,9 +3367,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // Avg Initial across ALL sales (including Sentricon / German Roach /
     // Interior Flea) — useful for the raffle / overall pricing comp where
     // every sale counts.
-    const avgInitial = r.sales.length > 0
-      ? r.sales.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / r.sales.length
-      : 0;
+    const avgInitial = meanInitial(r.sales);   // every new sale, one-time in, renewals out (Oct 28)
     // Best Day / Week / Month: bucket the rep's sales by sold-DATE,
     // sunday-anchored week, and YYYY-MM. `dateSold` is often
     // "MM/DD/YY HH:MM AM/PM" so two sales on the same calendar day would
@@ -3689,7 +3715,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               });
             }
           };
-          ratioRule('myPct',      'MY %',          recent.myPct,      prior.myPct);
+          ratioRule('myPct',      'Multi-Year %',          recent.myPct,      prior.myPct);
           ratioRule('autoPayPct', 'Auto Pay %',    recent.autoPayPct, prior.autoPayPct);
           dollarRule('acv',       'ACV',           recent.acv,        prior.acv);
           dollarRule('avgInit',   'Avg Init',      recent.avgInitial, prior.avgInitial);
@@ -4542,9 +4568,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         ? pestEligible.reduce((a, s) => a + Number(s.initialPrice || 0), 0) / pestEligible.length
         : 0;
       // Avg Initial across ALL subscriptions (no pest exclusions) — per Isaac.
-      const avgInitial = sales.length > 0
-        ? sales.reduce((a, s) => a + Number(s.initialPrice || 0), 0) / sales.length
-        : 0;
+      const avgInitial = meanInitial(sales);   // Oct 28: one rule
       const twelve = sales.filter(s => myBucketOf(s) === 'twelve').length;
       const multi  = sales.filter(s => myBucketOf(s) === 'multi').length;
       const myDen  = twelve + multi;
@@ -4627,7 +4651,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       ]],
       ['Quality', [
         ['myPct', 'Multi-Year %'],
-        ['apPct', 'Auto-Pay %'],
+        ['apPct', 'Auto Pay %'],
       ]],
     ];
 
@@ -4801,7 +4825,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         } },
     ]),
     // Column order per Isaac (Sep 21): Sales · Days w/ Sale · Accts/Day · $/Day · Revenue · Pest Init · Avg Init · ACV · Audit % · MY % · APay % · Attrition %.
-    { key: 'count',      label: 'Sales',    align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.int(r.count)) },
+    { key: 'count',      label: 'Subscriptions',    align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.int(r.count)) },
     { key: 'sellingDays', label: 'Days w/ Sale', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Days with at least one sale' }, fmt.int(r.sellingDays || 0)) },
     { key: 'acctsPerDay', label: 'Accts/Day', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Average accounts per SELLING day' }, (r.acctsPerDay || 0).toFixed(1)) },
     // Avg Pest Initial = avg of initialPrice EXCLUDING Sentricon / German Roach
@@ -4815,11 +4839,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         fmt.usd0(r.peakRevenue || r.revenue || 0), cut > 0.5 ? el('div', { class: 'text-[10px]', style: { color: '#B91C1C' } }, '\u2212' + fmt.usd0(cut)) : null); } },
     // 12-week revenue sparkline with WoW slope. Sort key = trendSlope so
     // clicking surfaces reps with the biggest week-over-week jump (or drop).
-    { key: 'avgInitial', label: 'Avg Initial', title: 'Every sale, one-time services included',      align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgInitial > 0 ? fmt.usd(r.avgInitial) : '—') },
-    { key: 'avgPest',    label: 'Avg Pest Initial', title: 'Recurring pest plans only — one-time services, Sentricon, German roach and interior flea left out', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgPest > 0 ? fmt.usd(r.avgPest) : '—') },
+    { key: 'avgInitial', label: 'Avg Initial', title: 'Every new sale, one-time services included — renewals out',      align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgInitial > 0 ? fmt.usd(r.avgInitial) : '—') },
+    { key: 'avgPest',    label: 'Avg Pest Initial', title: 'New sales, leaving out Sentricon, German roach and interior flea (renewals out too)', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgPest > 0 ? fmt.usd(r.avgPest) : '—') },
     { key: 'acvW', label: 'Weighted ACV', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'Every sale — one-time services included', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.acvW > 0 ? fmt.usd(r.acvW) : '\u2014') },
     { key: 'avgRecurring', label: 'Recurring', align: 'left', defaultDir: 'desc', title: 'Average recurring charge per service across the rep\u2019s recurring sales (one-time services out) \u2014 as billed in FieldRoutes', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgRecurring > 0 ? fmt.usd(r.avgRecurring) : '\u2014') },
-    { key: 'acv',        label: 'Recurring ACV',      align: 'left', defaultDir: 'desc', title: 'Recurring new sales only — one-time services (and renewals, see Renewal ACV) left out', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.usd(r.acv)) },
+    { key: 'acv',        label: 'ACV',      align: 'left', defaultDir: 'desc', title: 'Recurring new sales only — one-time services (and renewals, see Renewal ACV) left out', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.usd(r.acv)) },
     { key: 'acvOts', label: 'One Time Service ACV', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'One-time services only', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.acvOts > 0 ? fmt.usd(r.acvOts) : '\u2014') },
     { key: 'acvRen', label: 'Renewal ACV', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'Renewal-source sales only (Renewal - Loyalty / Inbound / Outbound / Service Pro Upsell)', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: indicatorExcl().renewal ? 'Renewals are excluded in Filters — untick Renewals to see this' : '' }, r.acvRen > 0 ? fmt.usd(r.acvRen) : (indicatorExcl().renewal ? 'excluded' : '\u2014')) },
     // Selling-day metrics — averages over days WITH ≥1 sale only.
@@ -4831,8 +4855,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         }, (r.auditPct * 100).toFixed(1) + '%')) },
     // Serviced % (per Isaac, Sep 22): serviced accounts ÷ every account sold, cancelled-before-service included.
     { key: 'servicedPct', label: 'Serviced %', align: 'left', defaultDir: 'desc', defaultHidden: true, cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap', title: fmt.int(r.servicedN) + ' serviced of ' + fmt.int(r.soldAll) + ' sold \u00b7 same as the player card\u2019s Sold/Serviced' }, r.soldAll > 0 ? (r.servicedPct * 100).toFixed(1) + '%' : '—') },
-    { key: 'myPct',      label: 'MY %',     align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, (r.myPct * 100).toFixed(1) + '%') },
-    { key: 'autoPayPct', label: 'APay %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, (r.autoPayPct * 100).toFixed(1) + '%') },
+    { key: 'myPct',      label: 'Multi-Year %',     align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, (r.myPct * 100).toFixed(1) + '%') },
+    { key: 'autoPayPct', label: 'Auto Pay %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, (r.autoPayPct * 100).toFixed(1) + '%') },
     // (Cancels column retired from the leaderboard per Isaac, Sep 21 — fewer columns so the table fits without a scroll; Attrition % carries the read, and the player card keeps the count.)
     { key: 'attrPct',    label: 'Attrition %', align: 'left', defaultDir: 'desc', title: 'Cancelled $ ÷ serviced $ · 3-day RORs + one-time services removed from both sides (same number as the player card)', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', style: r.attrPct > 0.1 ? { color: '#DC2626', fontWeight: '600' } : {} }, r.attrPct > 0 ? (r.attrPct * 100).toFixed(1) + '%' : '—') },
     // ─── Records: Best Day / Week / Month moved to the end of the row so
@@ -5499,6 +5523,12 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 if ((r.bestMonth || 0) > bMonth) bMonth = r.bestMonth;
               });
               const pct = (v) => T.count > 0 ? ((v / T.count) * 100).toFixed(1) + '%' : '—';
+              // Pooled over every sale shown (per Isaac, Oct 28 — consistency): the Total row's Avg Initial, Avg
+              // Pest Initial and Multi-Year % are the same formula run on all the reps' sales together, not an
+              // average of each rep's number — so it matches the Indicators table's RIDD column.
+              const _poolSales = displayReps.flatMap(r => ((r._orig || r).sales) || []);
+              const _poolInit = meanInitial(_poolSales), _poolPest = meanInitial(_poolSales, true);
+              const _poolMy = (() => { let m = 0, d = 0; for (const x of _poolSales) { const k = myBucketOf(x); if (k === 'multi') { m++; d++; } else if (k === 'twelve') d++; } return d > 0 ? ((m / d) * 100).toFixed(1) + '%' : '—'; })();
               const vals = {
                 name: 'Total',
                 count: fmt.int(T.count),
@@ -5520,11 +5550,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 sellingDays: displayReps.length > 0 ? (T.sellingDays / displayReps.length).toFixed(1) : '—',
                 revPerDay: T.sellingDays > 0 ? fmt.usd0(T.revenue / T.sellingDays) : '—',
                 acctsPerDay: T.sellingDays > 0 ? (T.count / T.sellingDays).toFixed(1) : '—',
-                avgPest: nPest > 0 ? fmt.usd(wPest / nPest) : '—',
-                avgInitial: nInit > 0 ? fmt.usd(wInit / nInit) : '—',
+                avgPest: _poolPest > 0 ? fmt.usd(_poolPest) : '—',
+                avgInitial: _poolInit > 0 ? fmt.usd(_poolInit) : '—',
                 peakRevenue: fmt.usd0(displayReps.reduce((a, r) => a + (r.peakRevenue || r.revenue || 0), 0)),
                 avgRecurring: (() => { const n = displayReps.reduce((a, r) => a + (r.recN || 0), 0), t = displayReps.reduce((a, r) => a + (r.recSum || 0), 0); return n > 0 ? fmt.usd(t / n) : '\u2014'; })(),
-                myPct: pct(wMy),
+                myPct: _poolMy,
                 autoPayPct: pct(wAuto),
                 cancels: T.cancels > 0 ? fmt.int(T.cancels) : '—',
                 cancelPct: (T.count > 0 && T.cancels > 0) ? ((T.cancels / T.count) * 100).toFixed(1) + '%' : '—',
@@ -5536,7 +5566,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               const tips = {
                 auditPct: 'Sales-weighted average across the reps shown',
                 servicedPct: fmt.int(T.servicedN) + ' serviced of ' + fmt.int(T.soldAll) + ' sold across the reps shown',
-                myPct: 'Sales-weighted average across the reps shown',
+                myPct: 'Every sale shown pooled: 18+ month ÷ 12+ month new contracts (renewals out)',
                 autoPayPct: 'Sales-weighted average across the reps shown',
                 acv: 'Recurring new revenue ÷ recurring new sales (one-time + renewals out)',
                 acvW: 'All revenue ÷ all sales',
@@ -5545,8 +5575,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 sellingDays: 'Average days with at least one sale per rep shown',
                 revPerDay: 'Total revenue ÷ total rep selling days',
                 acctsPerDay: 'Total sales ÷ total rep selling days',
-                avgPest: 'Sales-weighted average across reps with a value',
-                avgInitial: 'Sales-weighted average across reps with a value',
+                avgPest: 'Every sale shown pooled — new sales, Sentricon / German roach / interior flea out',
+                avgInitial: 'Every sale shown pooled — new sales, one-time services in, renewals out',
                 avgRecurring: 'Average recurring charge per service across every recurring sale shown',
                 cancelPct: 'Total cancels ÷ total sales',
                 attrPct: 'Cancelled $ ÷ serviced $ · excl. 3-day ROR + one-time',
@@ -5895,7 +5925,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
     const m = subMix[sub];
     m.count++;
     m.revenue += s.contractValue;
-    m.initSum += Number(s.initialPrice) || 0;
+    if (avgInitialEligible(s)) { m.initSum += Number(s.initialPrice) || 0; m.initN = (m.initN || 0) + 1; }   // renewals out (Oct 28)
     const _myb = myBucketOf(s);
     if (_myb === 'multi') m.multi++; else if (_myb === 'twelve') m.twelve++;
     if (s.autoPay && s.autoPay !== 'No') m.apOn++;
@@ -5917,8 +5947,8 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
     .map(([name, v]) => ({
       name, ...v,
       share: totalSubCount > 0 ? v.count / totalSubCount : 0,
-      acv: v.count > 0 ? v.revenue / v.count : 0,
-      avgInit: v.count > 0 ? v.initSum / v.count : 0,
+      acv: indAcvSplit(_rowsOf.get(name) || []).acv,   // ACV = recurring new only, same as every board (Oct 28)
+      avgInit: v.initN > 0 ? v.initSum / v.initN : 0,
       attr: v.count > 0 ? v.cancels / v.count : 0,
       myPct: (v.multi + v.twelve) > 0 ? v.multi / (v.multi + v.twelve) : null,
     }))
@@ -5930,9 +5960,9 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
 
   // Blended totals across ALL accounts (the reference row on top).
   const T = (() => {
-    let _rev = 0, _init = 0, _mu = 0, _tw = 0, _ap = 0, _cx = 0, _af = 0;
+    let _rev = 0, _init = 0, _initN = 0, _mu = 0, _tw = 0, _ap = 0, _cx = 0, _af = 0;
     subSales.forEach(s => {
-      _rev += s.contractValue; _init += Number(s.initialPrice) || 0;
+      _rev += s.contractValue; if (avgInitialEligible(s)) { _init += Number(s.initialPrice) || 0; _initN++; }
       const _myb = myBucketOf(s);
       if (_myb === 'multi') _mu++; else if (_myb === 'twelve') _tw++;
       if (s.autoPay && s.autoPay !== 'No') _ap++;
@@ -5940,7 +5970,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
       if (typeof _isReportableCancel === 'function' ? _isReportableCancel(s) : !!s.cancelDate) _cx++;
     });
     const _n = totalSubCount;
-    return { n: _n, rev: _rev, init: _init, my: (_mu + _tw) > 0 ? _mu / (_mu + _tw) : null, ap: _ap, af: _af, attr: _n > 0 ? _cx / _n : 0 };
+    return { n: _n, rev: _rev, init: _init, initN: _initN, my: (_mu + _tw) > 0 ? _mu / (_mu + _tw) : null, ap: _ap, af: _af, attr: _n > 0 ? _cx / _n : 0 };
   })();
   const attrColor = (a) => a >= 0.10 ? '#DC2626' : a >= 0.05 ? '#A9441F' : '#DF643A';
   // Metric columns — one definition drives the desktop table AND the phone
@@ -5950,9 +5980,9 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
       row: (s) => el('div', { class: 'w-14 text-left tabular-nums font-bold shrink-0', style: { color: 'var(--accent)' } }, (s.share * 100).toFixed(1) + '%') },
     { key: 'revenue', label: 'Total Revenue', w: 'w-24', total: () => el('div', { class: 'w-24 text-left tabular-nums shrink-0 font-black' }, fmt.usd0(T.rev)),
       row: (s) => el('div', { class: 'w-24 text-left tabular-nums shrink-0 font-semibold' }, fmt.usd0(s.revenue)) },
-    { key: 'avgInit', label: 'Avg Initial', w: 'w-24', title: 'Average initial price', total: () => el('div', { class: 'w-24 text-left tabular-nums shrink-0 font-bold' }, T.n > 0 ? fmt.usd0(T.init / T.n) : '—'),
+    { key: 'avgInit', label: 'Avg Initial', w: 'w-24', title: 'Average initial price', total: () => el('div', { class: 'w-24 text-left tabular-nums shrink-0 font-bold' }, T.initN > 0 ? fmt.usd0(T.init / T.initN) : '—'),
       row: (s) => el('div', { class: 'w-24 text-left tabular-nums text-muted- shrink-0' }, s.avgInit > 0 ? fmt.usd0(s.avgInit) : '—') },
-    { key: 'acv', label: 'ACV', w: 'w-16', total: () => el('div', { class: 'w-16 text-left tabular-nums shrink-0 font-bold' }, T.n > 0 ? fmt.usd0(T.rev / T.n) : '—'),
+    { key: 'acv', label: 'ACV', w: 'w-16', total: () => el('div', { class: 'w-16 text-left tabular-nums shrink-0 font-bold' }, (() => { const a = indAcvSplit(subSales).acv; return a > 0 ? fmt.usd0(a) : '—'; })()),
       row: (s) => el('div', { class: 'w-16 text-left tabular-nums text-muted- shrink-0' }, s.acv > 0 ? fmt.usd0(s.acv) : '—') },
     { key: 'my', label: 'MY %', w: 'w-12', title: 'Multi-year share of contract sales', total: () => el('div', { class: 'w-12 text-left tabular-nums shrink-0 font-bold' }, T.my == null ? '—' : (T.my * 100).toFixed(0) + '%'),
       row: (s) => el('div', { class: 'w-12 text-left tabular-nums text-muted- shrink-0' }, s.myPct == null ? '—' : (s.myPct * 100).toFixed(0) + '%') },
@@ -6962,10 +6992,10 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
       },
         ...[
           { id: 'revenue',   label: 'Revenue' },
-          { id: 'count',     label: 'Sales' },
+          { id: 'count',     label: 'Subscriptions' },
           { id: 'acv',       label: 'ACV' },
           { id: 'avg_pest',  label: 'Avg Pest Initial' },
-          { id: 'my_pct',    label: 'MY %' },
+          { id: 'my_pct',    label: 'Multi-Year %' },
         ].map(m => el('option', { value: m.id, selected: cfg.metric === m.id }, m.label)),
       ),
     ),
@@ -7274,8 +7304,8 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
             verifyHeaderCell('Revenue', 'right'),
             verifyHeaderCell('ACV', 'right'),
             verifyHeaderCell('Avg Pest', 'right'),
-            verifyHeaderCell('MY %', 'right'),
-            verifyHeaderCell('Auto Pay', 'right'),
+            verifyHeaderCell('Multi-Year %', 'right'),
+            verifyHeaderCell('Auto Pay %', 'right'),
             verifyHeaderCell('Cancels', 'right'),
             verifyHeaderCell('Cancel %', 'right'),
           ),
@@ -7358,8 +7388,8 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
                 stat('Revenue', fmt.usd0(s.revenue)),
                 stat('ACV', s.count > 0 ? fmt.usd(s.acv) : '—'),
                 stat('Avg Pest', s.avgPest > 0 ? fmt.usd(s.avgPest) : '—'),
-                stat('MY %', s.count > 0 ? (s.myPct * 100).toFixed(1) + '%' : '—'),
-                stat('Auto Pay', s.count > 0 ? (s.autoPayPct * 100).toFixed(1) + '%' : '—'),
+                stat('Multi-Year %', s.count > 0 ? (s.myPct * 100).toFixed(1) + '%' : '—'),
+                stat('Auto Pay %', s.count > 0 ? (s.autoPayPct * 100).toFixed(1) + '%' : '—'),
                 stat('Cancels', s.cancels > 0 ? fmt.int(s.cancels) + ' (' + (s.cancelPct * 100).toFixed(1) + '%)' : '—', s.cancelPct > 0.1),
               ),
             );
@@ -7754,7 +7784,7 @@ function buildTeamReportNode(teamName, ctx) {
       revenue,
       acv:        count > 0 ? revenue / count : 0,
       avgPest:    pestEligible.length > 0 ? pestEligible.reduce((a, s) => a + Number(s.initialPrice || 0), 0) / pestEligible.length : 0,
-      avgInitial: count > 0 ? repSales.reduce((a, s) => a + Number(s.initialPrice || 0), 0) / count : 0,
+      avgInitial: meanInitial(repSales),   // Oct 28: one rule
       myPct:      (twelve + multi) > 0 ? multi / (twelve + multi) : 0,
       autoPayPct: count > 0 ? autoPay / count : 0,
       cancels,
@@ -7857,7 +7887,7 @@ function buildTeamReportNode(teamName, ctx) {
     stat('ACV',            fmt.usd0(teamD.acv || 0),                               rankOf('acv')),
     stat('PRA',            fmt.usd0(teamD.pra || 0),                               rankOf('pra')),
     stat('Multi-Year %',   ((teamD.multi_year_pct || 0) * 100).toFixed(1) + '%',   rankOf('multi_year_pct')),
-    stat('Auto-Pay %',     ((teamD.auto_pay_pct || 0) * 100).toFixed(1) + '%',     rankOf('auto_pay_pct')),
+    stat('Auto Pay %',     ((teamD.auto_pay_pct || 0) * 100).toFixed(1) + '%',     rankOf('auto_pay_pct')),
     stat('Reps W/ Sale',   fmt.int(teamD.reps || 0),                               null),
   );
 
@@ -7901,7 +7931,7 @@ function buildTeamReportNode(teamName, ctx) {
     buildScorecardRow('acv',            'ACV',              v => fmt.usd0(v)),
     buildScorecardRow('pra',            'PRA',              v => fmt.usd0(v)),
     buildScorecardRow('multi_year_pct', 'Multi-Year %',     v => (v * 100).toFixed(1) + '%'),
-    buildScorecardRow('auto_pay_pct',   'Auto-Pay %',       v => (v * 100).toFixed(1) + '%'),
+    buildScorecardRow('auto_pay_pct',   'Auto Pay %',       v => (v * 100).toFixed(1) + '%'),
   );
 
   // ── Rookie vs Vet (this team only) ──
@@ -8014,7 +8044,7 @@ function buildTeamReportNode(teamName, ctx) {
         th('Revenue', 'right'),
         th('ACV', 'right'),
         th('Avg Pest', 'right'),
-        th('MY %', 'right'),
+        th('Multi-Year %', 'right'),
         th('AP %', 'right'),
         th('Cncl', 'right'),
         th('3d ROR', 'right'),
@@ -8499,7 +8529,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
             th('Accts/Day',  'right'),
             th('Avg Pest',   'right'),
             th('Avg Initial','right'),
-            th('MY %',       'right'),
+            th('Multi-Year %',       'right'),
             th('Auto Pay %', 'right'),
             th('Cancels',    'right'),
             th('Cancel %',   'right'),
@@ -9202,7 +9232,7 @@ function openTVDashboard() {
                 el('th', { style: thS, title: 'Subscriptions logged (one-time services excluded)' }, 'Subs'),
                 el('th', { style: thS }, 'Revenue'),
                 el('th', { style: thS }, 'ACV'),
-                el('th', { style: thS, title: 'Multi-year contracts ÷ (12-month + multi-year) — one-time services excluded' }, 'MY %'),
+                el('th', { style: thS, title: 'Multi-year contracts ÷ (12-month + multi-year) — one-time services excluded' }, 'Multi-Year %'),
                 el('th', { style: { ...thS, paddingRight: '14px' }, title: 'Subscriptions ÷ all accounts logged' }, 'Rec Mix'))),
               el('tbody', {}, ...ranked.map((rep, i) => repRow(rep, i + 1))))),
     );
@@ -9714,10 +9744,10 @@ function buildTrendMiniGrid(sales, chartBuckets, idPrefix, accentColor, overlay,
   const REP_AVG_PEST_EXCLUDE = pestInitialExclRe();
   const metrics = [
     { id: 'revenue',   label: 'Revenue',          isCurrency: true,  format: v => '$' + (Math.abs(v) >= 1000000 ? (v / 1000000).toFixed(2).replace(/0$/, '').replace(/\.0$/, '') + 'M' : Math.abs(v) >= 1000 ? Math.round(v/1000) + 'K' : v) },
-    { id: 'count',     label: 'Sales',            isCurrency: false, format: v => String(v) },
+    { id: 'count',     label: 'Subscriptions',            isCurrency: false, format: v => String(v) },
     { id: 'acv',       label: 'ACV',              isCurrency: true,  format: v => '$' + (Math.abs(v) >= 1000000 ? (v / 1000000).toFixed(2).replace(/0$/, '').replace(/\.0$/, '') + 'M' : Math.abs(v) >= 1000 ? Math.round(v/1000) + 'K' : v) },
     { id: 'avg_pest',  label: 'Avg Pest Initial', isCurrency: true,  format: v => '$' + Math.round(v) },
-    { id: 'my_pct',    label: 'MY %',             isCurrency: false, format: v => (v * 100).toFixed(0) + '%' },
+    { id: 'my_pct',    label: 'Multi-Year %',             isCurrency: false, format: v => (v * 100).toFixed(0) + '%' },
   ];
 
   const lineColor = accentColor || 'var(--accent)';
@@ -9959,7 +9989,7 @@ function _landingTiles(tile, m) {
   const cxl = m.ytd.filter(s => (typeof _repCancelCounts === 'function') ? _repCancelCounts(s) : !!s.cancelDate);
   const attrRows = _landingAttritionRows(m.ytd);
   return [
-    tile('Sales', fmt.int(m.count), m.ytd, ytdLabel),
+    tile('Subscriptions', fmt.int(m.count), m.ytd, ytdLabel),
     // One day picked (Today / Yesterday / a 1-day custom range): per-day is just the day's total (per Isaac, Oct 18).
     _win.oneDay
       ? tile('Total Revenue', m.count ? fmt.usd0(m.revenue) : '\u2014', m.ytd, fmt.usd0(m.revenue) + ' \u00b7 ' + ytdLabel)
@@ -9969,8 +9999,8 @@ function _landingTiles(tile, m) {
       : tile('Accts/Day', m.sellDays ? (m.count / m.sellDays).toFixed(1) : '\u2014', m.ytd, m.count + ' accounts over ' + m.sellDays + ' selling days'),
     tile('ACV', m.count ? fmt.usd(m.revenue / m.count) : '\u2014', m.ytd, fmt.usd0(m.revenue) + ' \u00f7 ' + m.count + ' accounts'),
     tile('Avg Pest', m.avgPest > 0 ? fmt.usd(m.avgPest) : '\u2014', m.pest, 'pest accounts (Sentricon, German roach, interior flea excluded) \u00b7 avg initial'),
-    tile('MY %', (m.myPct * 100).toFixed(1) + '%', multi, multi.length + ' multi-year of ' + (multi.length + twelve.length) + ' (multi + 12-month)'),
-    tile('Auto Pay', (m.apay * 100).toFixed(1) + '%', apayOn, apayOn.length + ' of ' + m.count + ' on autopay'),
+    tile('Multi-Year %', (m.myPct * 100).toFixed(1) + '%', multi, multi.length + ' multi-year of ' + (multi.length + twelve.length) + ' (multi + 12-month)'),
+    tile('Auto Pay %', (m.apay * 100).toFixed(1) + '%', apayOn, apayOn.length + ' of ' + m.count + ' on autopay'),
     tile('Attrition', m.attrPct == null ? '\u2014' : (m.attrPct * 100).toFixed(1) + '%', attrRows.cancelled, 'cancelled \u00f7 serviced by contract value, incl. 3-day ROR + one-time \u00b7 ' + attrRows.cancelled.length + ' of ' + attrRows.serviced.length + ' serviced'),
     tile('Cancels', String(m.cancels), cxl, 'counted cancels (excluded reasons removed)'),
   ];
@@ -10466,13 +10496,13 @@ function scopeDrillPanel(scope, allScopedSales, chartBuckets, compareRep, panelO
 // toggle; ignores the page's date range on purpose (always a full-year
 // week-of-year axis, Sunday-anchored like everything else).
 const YOY_METRICS = [
-  ['revenue',     'Revenue',          'usd'],
+  ['revenue',     'Total Revenue',    'usd'],
   ['pra',         'PRA',              'usd'],
-  ['count',       'Sales',            'int'],
+  ['count',       'Subscriptions',    'int'],
   ['acv',         'ACV',              'usd'],
   ['avg_initial', 'Avg Initial',      'usd'],
   ['avg_pest',    'Avg Pest Initial', 'usd'],
-  ['my_pct',      'MY %',             'pct'],
+  ['my_pct',      'Multi-Year %',             'pct'],
   ['audit_pct',   'Audit %',          'pct'],
   ['cancel_pct',  'Attrition %',      'pct'],   // renamed from Cancel % (per Isaac, Oct 16)
 ];
@@ -10546,7 +10576,7 @@ function indicatorYoYTrendChart() {
   // date ≤ prior-year week start + days elapsed since this year's week
   // start). `cancels` = all-time cancels (current-year line), `cancelsM` =
   // horizon-matched cancels (prior-year line).
-  const mk = () => ({ rev: 0, revNew: 0, revRenewal: 0, revOts: 0, n: 0, multi: 0, twelve: 0, fail: 0, initSum: 0, pestSum: 0, pestN: 0, cancels: 0, cancelsM: 0, cancelElig: 0, repSet: new Set() });
+  const mk = () => ({ rev: 0, revNew: 0, revRenewal: 0, revOts: 0, n: 0, multi: 0, twelve: 0, fail: 0, initSum: 0, initN: 0, acvRev: 0, acvN: 0, pestSum: 0, pestN: 0, cancels: 0, cancelsM: 0, cancelElig: 0, repSet: new Set() });
   // (per-scope accumulators are built by buildAcc below — the first scope's
   // maps are aliased to acc/accTier after the build)
   // ── Tier split (All / Rookies / Vets) — checkbox picker, so Rookies vs
@@ -10677,12 +10707,12 @@ function indicatorYoYTrendChart() {
       if (_repNm) b.repSet.add(_repNm);   // PRA denominator: unique sellers in the bucket
       b.rev += cv;
       // Revenue splits (per Isaac, Oct 16): Renewal, One-time service, New (everything else) — they add up to Total.
-      if (_indicatorIsRenewal(s)) b.revRenewal += cv; else if (typeof _indIsOneTimeSale === 'function' && _indIsOneTimeSale(s)) b.revOts += cv; else b.revNew += cv;
+      if (_indicatorIsRenewal(s)) b.revRenewal += cv; else if (typeof _indIsOneTimeSale === 'function' && _indIsOneTimeSale(s)) b.revOts += cv; else { b.revNew += cv; b.acvRev += cv; b.acvN++; }   // ACV = recurring new only (Oct 28)
       b.n++;
       const _myb = myBucketOf(s);
       if (_myb === 'multi') b.multi++; else if (_myb === 'twelve') b.twelve++;
       if (auditFailRe().test(s.customerFlags || '')) b.fail++;
-      b.initSum += Number(s.initialPrice) || 0;
+      if (avgInitialEligible(s)) { b.initSum += Number(s.initialPrice) || 0; b.initN++; }   // renewals out (Oct 28)
       if (avgPestEligible(s)) { b.pestSum += Number(s.initialPrice) || 0; b.pestN++; }
       if (_isReportableCancel(s)) {
         b.cancels++;
@@ -10732,8 +10762,8 @@ function indicatorYoYTrendChart() {
       case 'revenue':     return revType === 'new' ? a.revNew : revType === 'renewal' ? a.revRenewal : revType === 'ots' ? a.revOts : a.rev;
       case 'pra':         return (a.repSet && a.repSet.size > 0) ? a.rev / a.repSet.size : null;
       case 'count':       return a.n;
-      case 'acv':         return a.n > 0 ? a.rev / a.n : null;
-      case 'avg_initial': return a.n > 0 ? a.initSum / a.n : null;
+      case 'acv':         return a.acvN > 0 ? a.acvRev / a.acvN : null;
+      case 'avg_initial': return a.initN > 0 ? a.initSum / a.initN : null;
       case 'avg_pest':    return a.pestN > 0 ? a.pestSum / a.pestN : null;
       case 'my_pct':      { const ct = a.twelve + a.multi; return ct > 0 ? a.multi / ct : null; }
       case 'audit_pct':   return a.n > 0 ? (a.n - a.fail) / a.n : null;
@@ -11718,7 +11748,7 @@ function indicatorChart(title, data, branches, metricKey, weeks, invertForRankin
         rankBranches.forEach(b => pts[b] = 0);
         // Audit % excluded from scoring (shown in the table only) — keep this in
         // lockstep with POWER_RANKING_METRICS so the trend matches the table.
-        INDICATOR_METRICS.filter(m => m.key !== 'reps' && m.key !== 'new_revenue' && m.key !== 'renewal_revenue' && m.key !== 'audit_pct' && m.key !== 'last_resort_pct').forEach(m => {
+        INDICATOR_METRICS.filter(m => m.key !== 'reps' && m.key !== 'new_revenue' && m.key !== 'renewal_revenue' && m.key !== 'renewal_my_pct' && m.key !== 'pra_all' && m.key !== 'audit_pct' && m.key !== 'last_resort_pct').forEach(m => {
           const sorted = rankBranches.slice().sort((a, b) => (weekData[b]?.[m.key] || 0) - (weekData[a]?.[m.key] || 0));
           sorted.forEach((b, i) => { pts[b] += i + 1; });
         });
