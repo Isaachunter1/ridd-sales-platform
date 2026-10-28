@@ -523,11 +523,22 @@ function indRepAvatar(name, px) {
     return node;
   } catch (e) { return null; }
 }
+// Me vs the department (per Isaac, Oct 28): the Me lens is about the REP, so the department tables come off —
+// Leaderboard, the Indicators table, Power Ranking, company Records, Class Metrics (and, for admins, the
+// company Trends mini-grid; reps' own mini-grid is already personal). The compact My Rank card stands in for
+// the board. Pacer, player card, Trends and Sales Mix stay — they already scope to the lens.
+const IND_ME_HIDE = ['rep-leaderboard', 'ind-table', 'power-charts', 'agg-records', 'class-metrics'];
 function indApplySectionOrder(page) {
   try {
-    const order = IND_SECTION_ORDER[state.indicatorDept];
-    if (!order || state.indicatorsComps || !page || !page.children) return page;
+    if (!page || !page.children) return page;
     const keyOf = (n) => (n.getAttribute && (n.getAttribute('data-section') || n.getAttribute('data-lazykey') || n.getAttribute('data-indsection'))) || '';
+    if (typeof dashLensOn === 'function' && dashLensOn() && dashLens() === 'me' && dashLensOptions().length > 1) {
+      const hide = new Set(IND_ME_HIDE);
+      if (isAdminRole(state.profile?.role)) hide.add('repTrend');
+      [...page.children].forEach(n => { if (hide.has(keyOf(n))) n.remove(); });
+    }
+    const order = IND_SECTION_ORDER[state.indicatorDept];
+    if (!order || state.indicatorsComps || !page.children) return page;
     const kids = [...page.children];
     const rank = (n) => order.indexOf(keyOf(n));
     const ranked = kids.filter(n => rank(n) >= 0).sort((a, b) => rank(a) - rank(b));
@@ -2060,6 +2071,8 @@ function viewIndicators() {
     _isPartner && !_focusedComp && indShowMyCard() && indCardLensOk() && !(_repLayoutPrefs().hidden || []).includes('card') && partnerLandingCard(),
     // Admins with a linked FieldRoutes rep get their own card in the same spot (per Isaac, Oct 16).
     !_repLite && !_focusedComp && indShowMyCard() && indCardLensOk() && repLandingPlayerCard(),
+    // Me lens: the compact My Rank card rides under the player card (per Isaac, Oct 28).
+    !_focusedComp && myRankCard(),
     // Sales reps: Your Performance Trends sits right under the player card,
     // ahead of the Indicators table + Power Ranking (per Isaac).
     // Same spot for admins now (per Isaac, Oct 16): one page order for every user type.
@@ -2494,7 +2507,7 @@ function viewIndicators() {
           const prefs = _repLayoutPrefs();
           const builders = {
             // Every section is gated by the Settings → Permissions matrix.
-            card:  () => (!_isPartner && indShowMyCard() && indCardLensOk()) ? [repLandingPlayerCard()] : [],   // linked FieldRoutes rep only (per Isaac, Oct 16); analyst layout pins it at page top instead
+            card:  () => [...((!_isPartner && indShowMyCard() && indCardLensOk()) ? [repLandingPlayerCard()] : []), myRankCard()].filter(Boolean),   // linked FieldRoutes rep only (per Isaac, Oct 16); analyst layout pins it at page top instead
             yoy:   () => (!_repSalesLayout && userCan('ind_yoy')) ? [indLazy('yoy', () => indicatorYoYTrendChart(), null, 380)] : [],   // sales reps: pinned under the player card instead
             trend: () => userCan('ind_trend') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-indsection') === 'repTrend') : [],
             board: () => userCan('ind_board') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'rep-leaderboard') : [],
@@ -9974,6 +9987,72 @@ function _landingAttritionPct(rows) {
   } catch { return null; }
 }
 
+// ── My Rank (per Isaac, Oct 28): on the Me lens the department tables come off; this compact card shows where
+// the rep stands instead — rank by revenue in the department over the page's date range, the two reps either
+// side, and what it takes to pass the next one. The full leaderboard lives on the team / department views.
+function myRankCard() {
+  try {
+    if (!(typeof dashLensOn === 'function' && dashLensOn() && dashLens() === 'me' && dashLensOptions().length > 1)) return null;
+    const dept = state.indicatorDept;
+    // Window: the page's date range (the Today / Week / Month / Year chips); the weekly view falls back to YTD.
+    let has = null, label = '';
+    try {
+      if (state.indicatorsView === 'range') {
+        const pre = state.indicatorsRangePreset;
+        const b = indicatorRangeBounds(pre, { start: state.indicatorsCustomStart, end: state.indicatorsCustomEnd });
+        if (b && b.start && b.end) {
+          has = (iso) => !!iso && iso >= b.start && iso <= b.end;
+          label = pre === 'custom' ? fmt.dateShort(b.start) + ' – ' + fmt.dateShort(b.end) : (typeof indicatorPresetLabel === 'function' ? indicatorPresetLabel(pre) : 'Range');
+        }
+      }
+    } catch (e) { /* YTD below */ }
+    if (!has) { const yr = String(new Date().getFullYear()); has = (iso) => !!iso && iso.slice(0, 4) === yr; label = yr + ' YTD'; }
+    const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+    const mineSig = _sig(state.profile && state.profile.full_name);
+    const tally = new Map(); let mineKey = '';
+    for (const s of (state._indicatorRawSales || [])) {
+      if (!s || !s.rep || !_landingOk(s)) continue;
+      if (dept && dept !== 'all' && typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== dept) continue;
+      const iso = (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || '';
+      if (!has(iso)) continue;
+      const n = getCanonicalRepName(s.rep);
+      tally.set(n, (tally.get(n) || 0) + (Number(s.contractValue) || 0));
+      if (!mineKey && (isMyRepName(s.rep) || _sig(n) === mineSig)) mineKey = n;
+    }
+    if (!tally.size) return null;
+    const rows = [...tally.entries()].sort((a, b) => b[1] - a[1]);
+    const meIdx = mineKey ? rows.findIndex(([n]) => n === mineKey) : -1;
+    const flip = (n) => (typeof flipLastFirst === 'function' ? flipLastFirst(n) : n);
+    // "Full leaderboard →" jumps the lens to the department (or the team when that's all the user has).
+    const deptOpt = dashLensOptions().filter(([v]) => v !== 'me').pop();
+    const goBoard = deptOpt ? el('button', { class: 'text-[11px] font-bold shrink-0', style: { color: 'var(--accent)' },
+      title: 'See the full leaderboard on the ' + deptOpt[1] + ' view',
+      onclick: () => { state._dashLens = deptOpt[0]; try { localStorage.setItem('ridd_dash_lens_v2', deptOpt[0]); } catch (e) { /* per-session */ } mountApp(); } }, 'Full leaderboard →') : null;
+    const rowEl = (r, idx) => {
+      const me = idx === meIdx;
+      return el('div', { class: 'flex items-center gap-2 tabular-nums rounded-lg px-2 py-1', style: me ? { background: 'rgba(223,100,58,.10)', border: '1px solid var(--accent)' } : {} },
+        el('span', { class: 'text-[11px] font-bold shrink-0', style: { width: '26px', color: me ? 'var(--accent)' : 'var(--text-muted)' } }, '#' + (idx + 1)),
+        (typeof indRepAvatar === 'function' && indRepAvatar(r[0], 22)) || null,
+        el('span', { class: 'text-[12px] min-w-0 truncate' + (me ? ' font-bold' : '') }, me ? 'You' : flip(r[0])),
+        el('span', { class: 'ml-auto text-[12px] font-bold shrink-0' }, fmt.usd0(r[1])));
+    };
+    const around = meIdx >= 0 ? rows.slice(Math.max(0, meIdx - 2), meIdx + 3) : rows.slice(0, 3);
+    const startIdx = meIdx >= 0 ? Math.max(0, meIdx - 2) : 0;
+    const gapLine = meIdx > 0
+      ? el('div', { class: 'text-[11px] mt-1.5', style: { color: 'var(--text-muted)' } }, el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(rows[meIdx - 1][1] - rows[meIdx][1])), ' to pass ' + flip(rows[meIdx - 1][0]))
+      : meIdx === 0 && rows.length > 1
+        ? el('div', { class: 'text-[11px] mt-1.5', style: { color: 'var(--text-muted)' } }, '🏆 Leading by ', el('strong', { style: { color: 'var(--text)' } }, fmt.usd0(rows[0][1] - rows[1][1])))
+        : meIdx < 0 ? el('div', { class: 'text-[11px] mt-1.5', style: { color: 'var(--text-muted)' } }, 'No sales in this range yet — the top of the board:') : null;
+    return el('div', { class: 'card p-4 sm:p-5', 'data-section': 'my-rank' },
+      el('div', { class: 'flex items-center gap-2 mb-2' },
+        el('h3', { class: 'text-base font-bold' }, 'My Rank'),
+        meIdx >= 0 ? el('span', { class: 'text-[12px] font-bold tabular-nums', style: { color: 'var(--accent)' } }, '#' + (meIdx + 1) + ' of ' + rows.length) : el('span', { class: 'text-[12px] tabular-nums', style: { color: 'var(--text-muted)' } }, rows.length + ' reps'),
+        el('span', { class: 'ml-auto text-[10px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)' } }, label),
+        goBoard),
+      gapLine,
+      el('div', { class: 'flex flex-col gap-1 mt-2' }, ...around.map((r, i) => rowEl(r, startIdx + i))));
+  } catch (e) { console.warn('[ridd] my-rank card failed', e); return null; }
+}
 function repLandingPlayerCard(opts) {
   try {
     const _hdrExtra = (opts && opts.headerExtra) || null;
