@@ -6002,10 +6002,8 @@ function dashboardGoalCard(range, opts) {
       // Window (Today by default).
       const goalWin = _goalBetween(s.monthly, s.target, range.start, _winEnd);
       const winHit = goalWin > 0 && s.win >= goalWin;
-      const chip = s.target > 0 && !(s.plan && s.plan.noChip) ? el('span', {
-        class: 'font-bold whitespace-nowrap shrink-0', title: (ahead ? fmt.usd0(gap) + ' ahead of' : fmt.usd0(-gap) + ' behind') + ' where the seasonal plan says we should be today (' + (sp * 100).toFixed(1) + '% of the goal)',
-        style: { fontSize: '11px', padding: '2px 8px', background: ahead ? 'rgba(95,108,91,.12)' : 'rgba(220,38,38,.08)', color: ahead ? _GREEN : _RED },
-      }, (ahead ? '▲ ' : '▼ ') + Math.abs(paceDiff).toFixed(0) + '%' + (_phoneP ? '' : (ahead ? ' ahead of pace' : ' behind pace'))) : null;
+      // Per Isaac (Oct 28): no ahead/behind-pace chip on the pacer — the tick on the bar shows the pace (hover for $).
+      const chip = null;
       return el('div', { class: 'min-w-0' },
         el('div', { class: 'flex items-center justify-between gap-2', style: { minWidth: 0, marginBottom: '6px' } },
           el('div', { class: 'flex items-baseline gap-2 min-w-0' },
