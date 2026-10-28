@@ -2282,6 +2282,10 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
   const repName = (s) => { const r = repOf(s); return r ? r.full_name : (s.crm_seller_name ? (typeof flipLastFirst === 'function' ? flipLastFirst(s.crm_seller_name) : s.crm_seller_name) : 'Unlinked seller'); };
   const svcOf = (s) => (typeof nameFromId === 'function' ? nameFromId(state.serviceTypes, s.service_type_id) : '') || s.crm_subscription || '—';
   const srcOf = (s) => { const v = typeof nameFromId === 'function' ? nameFromId(state.sources, s.source_id) : ''; return v && v !== '—' ? v : ''; };
+  // Office Staff never sell Door to Door (per Isaac, Oct 28): a D2D source on the Office Staff queue is a wrong
+  // source on the FieldRoutes account — shown red, like an unassigned add-on, so the rep knows to fix it.
+  const _officeQ = typeof SALES_QUEUE_OF_VIEW !== 'undefined' && SALES_QUEUE_OF_VIEW[state.view] === 'office';
+  const srcBad = (src) => _officeQ && /door\s*(to|2)\s*door|\bd2d\b/i.test(String(src || ''));
   const initOf = (s) => String(s.crm_serviced_at || s.crm_initial_appt_at || '').slice(0, 10);
   const payRank = (s) => s.crm_paid_since_sale === true ? 2 : s.crm_paid_since_sale === false ? 0 : 1;
   const statusRank = (s) => _bk ? BACKEND_KEY.findIndex(([v]) => v === (s.lock_status || 'pending')) : SALE_STATUS_OPTIONS.findIndex(([v]) => v === (s.audit_status || 'pending'));
@@ -2378,7 +2382,9 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
           el('div', { style: { fontSize: '12px', ...clip } }, saleServiceWithAddOns(s, svcOf(s), ao, { ok, bad })),   // "Pest 6 + Mole + Rodent" (per Isaac, Oct 15)
           null),   /* below-minimum reason: the status says it (per Isaac, Oct 15) — the why is on the status tooltip */
         el('div', { class: 'font-semibold', style: { fontSize: '12px', ...clip } }, term),
-        el('div', { class: 'text-muted-', style: { fontSize: '11px', ...clip }, title: src }, src || '—'),
+        srcBad(src)
+          ? el('div', { style: { fontSize: '11px', color: bad, fontWeight: '700', ...clip }, title: src + ' — Office Staff sales shouldn\u2019t be sourced Door to Door. Fix the source on the account in FieldRoutes.' }, '\u26a0 ' + src)
+          : el('div', { class: 'text-muted-', style: { fontSize: '11px', ...clip }, title: src }, src || '—'),
         el('div', { class: 'tabular-nums', style: clip },
           el('div', { style: { fontSize: '11px' } }, _t > 0 ? soldTxt.slice(0, _t) : soldTxt),
           _t > 0 ? el('div', { style: sub }, soldTxt.slice(_t + 3)) : null),
