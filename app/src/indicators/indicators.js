@@ -356,7 +356,8 @@ function dashLensPacer(dept) {
   const RW = _pacerClip(R, W);
   const cnt = (v === 'me' && RW) ? RW : R;
   const cntEnd = new Date(cnt.end.getFullYear(), cnt.end.getMonth(), cnt.end.getDate(), 23, 59, 59);
-  const acc = { new: { amt: 0, tod: 0, ytd: 0 }, renewal: { amt: 0, tod: 0, ytd: 0 } };
+  const acc = { new: { amt: 0, tod: 0, ytd: 0, ytdN: 0 }, renewal: { amt: 0, tod: 0, ytd: 0, ytdN: 0 } };
+  const _saleDays = new Set();   // days with a sale — the game plan's streak
   // Year-to-date toward the ANNUAL goal (inside the selling window for Me) — always shown as the reminder line.
   const yW = v === 'me' ? W : yearWin, yWEnd = new Date(yW.end.getFullYear(), yW.end.getMonth(), yW.end.getDate(), 23, 59, 59);
   const t0 = R.today, t1 = new Date(t0.getFullYear(), t0.getMonth(), t0.getDate(), 23, 59, 59);
@@ -367,7 +368,8 @@ function dashLensPacer(dept) {
     const bk = acc[isOffice && _indicatorIsRenewal(s) ? 'renewal' : 'new'];
     if (d >= cnt.start && d <= cntEnd) bk.amt += val;
     if (d >= t0 && d <= t1) bk.tod += val;
-    if (d >= yW.start && d <= yWEnd) bk.ytd += val;
+    if (d >= yW.start && d <= yWEnd) { bk.ytd += val; bk.ytdN++; }
+    _saleDays.add(d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate());
   }
   // The annual goal stays on screen whatever the range (per Isaac, Oct 18) — except This Year, where the bar IS it.
   const annualOf = (ytd) => annual > 0 && R.pre !== 'this_year' ? { actual: ytd, target: annual } : null;
@@ -423,8 +425,59 @@ function dashLensPacer(dept) {
   const range = { start: R.start, end: new Date(R.end.getFullYear(), R.end.getMonth(), R.end.getDate(), 23, 59, 59) };
   const _keep = state.dashDateRange; state.dashDateRange = 'today';
   try {
-    return dashboardGoalCard(range, { title: (v === 'me' ? 'My' : team + ' Team') + ' Revenue Pacer', simple: true, hint, streams });
+    const card = dashboardGoalCard(range, { title: (v === 'me' ? 'My' : team + ' Team') + ' Revenue Pacer', simple: true, hint, streams });
+    const plan = v === 'me' ? _dailyGamePlan() : null;
+    if (card && plan) card.prepend(plan);
+    return card;
   } finally { state.dashDateRange = _keep; }
+
+  // Daily game plan (per Isaac, Oct 28 — keep it SIMPLE): one line at the top of the Me pacer, always about TODAY
+  // whatever range is picked — what today needs to stay on pace for the annual goal, about how many sales that is at
+  // the rep's own average, and their streak of work days with a sale.
+  function _dailyGamePlan() {
+    if (!(annual > 0)) return null;
+    const loy = isOffice && typeof _isLoyaltyProfile === 'function' && _isLoyaltyProfile(state.profile);
+    const ytd = loy ? acc.new.ytd + acc.renewal.ytd : acc.new.ytd, ytdN = loy ? acc.new.ytdN + acc.renewal.ytdN : acc.new.ytdN;
+    const tod = loy ? acc.new.tod + acc.renewal.tod : acc.new.tod;
+    const today = R.today, inWin = today >= W.start && today <= W.end;
+    if (!inWin) return null;
+    const key = (d) => d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+    // Streak: work days in a row with a sale, counting back from today (today only counts once it has a sale).
+    // A day off never breaks it; a sale on a day off still counts as a day with a sale.
+    let streak = 0;
+    for (let i = 0, d = new Date(today); i < 180; i++, d.setDate(d.getDate() - 1)) {
+      const has = _saleDays.has(key(d));
+      if (has) { streak++; continue; }
+      if (i === 0 || !goalIsWorkDay(_wt, d)) continue;
+      break;
+    }
+    const avg = ytdN > 0 ? ytd / ytdN : 0;
+    const workToday = goalIsWorkDay(_wt, today);
+    // Same daily goal as the pacer bar (annual ÷ work days in the window), so reps see ONE "today" number.
+    // The catch-up pace (what's left ÷ work days left) only shows on hover.
+    const left = goalWorkDays(_wt, today, W.end), total = goalWorkDays(_wt, W.start, W.end);
+    const dayTarget = workToday && total > 0 ? annual / total : 0;
+    const catchUp = left > 0 ? Math.max(0, (annual - (ytd - tod)) / left) : 0;
+    const toGo = Math.max(0, dayTarget - tod);
+    const strong = (t) => el('strong', { style: { color: 'var(--text)' } }, t);
+    let msg;
+    if (!workToday) msg = el('span', {}, 'Day off — every sale is a bonus' + (tod > 0 ? ' · ' : ''), tod > 0 ? strong(fmt.usd0(tod) + ' sold') : null);
+    else if (ytd >= annual) msg = el('span', {}, '✓ Annual goal hit — everything today is extra');
+    else if (toGo <= 0) msg = el('span', {}, '✓ Today’s pace hit · ', strong(fmt.usd0(tod) + ' sold'));
+    else {
+      const n = avg > 0 ? Math.ceil(toGo / avg) : null;
+      // The bar under this already says "$X to go today" — this line adds the one thing it doesn't: how many sales that is.
+      const sales = (k, more) => k + (more ? ' more' : '') + ' sale' + (k === 1 ? '' : 's');
+      msg = !n ? el('span', {}, strong(fmt.usd0(toGo)), ' to go today')
+        : tod > 0 ? el('span', {}, strong(fmt.usd0(tod) + ' sold'), ' · about ' + sales(n, true))
+        : el('span', {}, 'About ', strong(sales(n)), ' to go');
+    }
+    return el('div', { class: 'flex items-center gap-2 tabular-nums', style: { marginBottom: '12px', paddingBottom: '10px', borderBottom: '1px solid var(--border)', minWidth: 0 },
+      title: 'Today’s goal: ' + fmt.usd0(annual) + ' annual ÷ ' + total + ' work days (' + goalWorkRule(_wt) + ')' + (left > 0 && ytd < annual ? ' · to catch up on the year: ' + fmt.usd0(catchUp) + ' a work day from here' : '') + (avg > 0 ? ' · your average sale ' + fmt.usd0(avg) : '') },
+      el('span', { class: 'uppercase font-bold shrink-0', style: { fontSize: '10px', letterSpacing: '.12em', color: 'var(--accent)' } }, 'Today'),
+      el('span', { class: 'text-[12px] min-w-0 truncate', style: { color: 'var(--text-muted)' } }, msg),
+      streak >= 2 ? el('span', { class: 'ml-auto shrink-0 text-[11px] font-bold whitespace-nowrap', title: streak + ' work days in a row with a sale' }, '🔥 ' + streak + ' days') : null);
+  }
 }
 // ── Page order per dashboard (per Isaac, Oct 5). Sales Reps: Leaderboard
 // first, then the Indicators table, its graph, Performance Trends, Records,
