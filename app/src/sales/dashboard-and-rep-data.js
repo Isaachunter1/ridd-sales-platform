@@ -4853,7 +4853,7 @@ function openIndicatorRepCard(rep, allReps = []) {
       const parent = byCust.get(String(a.customer_id || '')) || {};
       const [y, m, d] = String(a.added_at).slice(0, 10).split('-');
       const rec = Number(a.recurring_amount) || 0;
-      return { _addOn: true, customer: parent.customer || '', customerId: a.customer_id || '', rep: parent.rep || rep.name,
+      return { _addOn: true, _aoBase: a.base_service || '', _aoName: a.service_name || 'Add-on', customer: parent.customer || '', customerId: a.customer_id || '', rep: parent.rep || rep.name,
         subscription: 'ADD ON \u00b7 ' + (a.base_service ? a.base_service + ' + ' : '+ ') + (a.service_name || 'Add-on'),
         dateSold: Number(m) + '/' + Number(d) + '/' + y + ' 00:00:00', initialPrice: a.initial_amount != null ? Number(a.initial_amount) || 0 : null,
         recurring: rec * 12, contractValue: typeof addOnAnnualValue === 'function' ? addOnAnnualValue(a) : rec * 12,
@@ -4861,9 +4861,30 @@ function openIndicatorRepCard(rep, allReps = []) {
     });
   }
   function salesListBlock() {
-    const _ao = cardAddOnRows();
-    const list = [...(scopedRep.sales || []), ..._ao].sort((a, b) => ((typeof dateSoldToIso === 'function' && dateSoldToIso(b.dateSold)) || '').localeCompare((typeof dateSoldToIso === 'function' && dateSoldToIso(a.dateSold)) || ''));
-    const total = (scopedRep.sales || []).reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
+    // Add-ons ride ON their base plan's row — "Pest 4 + Interior Flea" — like the Sales tab (per Isaac, Oct 28):
+    // FieldRoutes already folded the add-on's $ into the plan's recurring / CV, so the row's value IS the sum.
+    // An add-on only keeps its own ADD ON line when it was the ONLY thing added — sold onto an account that
+    // already had its base plan (no plan row for that customer within a day, the Sales tab's own tolerance).
+    const _aoAll = cardAddOnRows();
+    const _plan = (scopedRep.sales || []).slice();
+    const _ao = [];
+    {
+      const _dayMs = (v) => { const iso = (typeof dateSoldToIso === 'function' && dateSoldToIso(v)) || String(v || '').slice(0, 10); const t = Date.parse(iso + 'T00:00'); return Number.isFinite(t) ? t : null; };
+      const byCust = new Map();
+      _plan.forEach((x, i) => { const k = String(x.customerId || ''); (byCust.get(k) || byCust.set(k, []).get(k)).push(i); });
+      for (const a of _aoAll) {
+        const t = _dayMs(a.dateSold);
+        const cand = (byCust.get(String(a.customerId || '')) || []).filter(i => { const d = _dayMs(_plan[i].dateSold); return t != null && d != null && Math.abs(d - t) <= 86400000; });
+        // Prefer the row whose plan the add-on names as its base.
+        const base = String(a._aoBase || '').trim().toLowerCase();
+        const i = cand.find(j => String((scopedRep.sales || [])[j].subscription || '').trim().toLowerCase() === base) ?? cand[0];
+        if (i == null) { _ao.push(a); continue; }
+        const x = _plan[i];
+        _plan[i] = Object.assign({}, x, { subscription: x.subscription + ' + ' + a._aoName, _aoMerged: (x._aoMerged || 0) + 1 });
+      }
+    }
+    const list = [..._plan, ..._ao].sort((a, b) => ((typeof dateSoldToIso === 'function' && dateSoldToIso(b.dateSold)) || '').localeCompare((typeof dateSoldToIso === 'function' && dateSoldToIso(a.dateSold)) || ''));
+    const total = _plan.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);   // add-on $ folded into the plan rows already
     const aoTotal = _ao.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
     return el('div', { class: 'card overflow-hidden mt-5' },
       el('div', { class: 'px-4 py-2.5 border-b flex items-center justify-between gap-2', style: { borderColor: 'var(--border)', flexWrap: 'nowrap' } },
