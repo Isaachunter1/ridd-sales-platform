@@ -10469,11 +10469,9 @@ const YOY_METRICS = [
   ['cancel_pct',  'Attrition %',      'pct'],   // renamed from Cancel % (per Isaac, Oct 16)
 ];
 // Trends Compare (per Isaac, Oct 28): an on/off toggle on the department / team views. Off → one line that follows
-// the page Filters. On → every office, team and rep picked in the search box is its own line. Remembered per device.
-function _yoyCompareOn() {
-  if (state._yoyCompare === undefined) { try { state._yoyCompare = localStorage.getItem('ridd_yoy_compare_v1') === '1'; } catch (e) { state._yoyCompare = false; } }
-  return !!state._yoyCompare;
-}
+// the page Filters. On → every office, team and rep picked in the search box is its own line. Always opens OFF
+// (per Isaac, Oct 28) — it lasts only until the page is reloaded.
+function _yoyCompareOn() { return !!state._yoyCompare; }
 function indicatorYoYTrendChart() {
   const id = 'chart-yoy-trend';
   let metric = state._indicatorYoYMetric || 'revenue';
@@ -11569,7 +11567,7 @@ function indicatorYoYTrendChart() {
           return el('button', { type: 'button', class: 'rounded-xl border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap inline-flex items-center gap-2',
             style: { borderColor: on ? 'var(--accent)' : 'var(--border-2)', color: 'var(--text)', background: 'var(--card)' },
             title: on ? 'Compare is on — pick offices and teams as their own lines. Click to turn off.' : 'Turn on to compare offices and teams as separate lines',
-            onclick: () => { state._yoyCompare = !on; try { localStorage.setItem('ridd_yoy_compare_v1', state._yoyCompare ? '1' : '0'); } catch (e) { /* per-session */ } state._yoyScopesOpen = !!state._yoyCompare; mountApp(); } },
+            onclick: () => { state._yoyCompare = !on; state._yoyScopesOpen = !!state._yoyCompare; mountApp(); } },
             'Compare',
             el('span', { class: 'inline-flex items-center', style: { width: '26px', height: '14px', borderRadius: '999px', padding: '2px', boxSizing: 'border-box', background: on ? 'var(--accent)' : 'var(--border-2)', justifyContent: on ? 'flex-end' : 'flex-start', transition: 'background .15s' } },
               el('span', { style: { width: '10px', height: '10px', borderRadius: '50%', background: '#fff', display: 'block' } }))); })() : null,
