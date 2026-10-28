@@ -531,7 +531,10 @@ function viewWorldDashboard() {
   const dept = IND_WORLD[state.view];
   if (dept && state._indWorld !== state.view) {
     // Entering a world (or switching between them): preset the filters to it.
-    if (!state._indDeptDefaulted) { state.indicatorAcctStatus = 'pending_serviced'; state.indicatorsRangePreset = state.indicatorsRangePreset || IND_DEFAULT_RANGE; state.indicatorsGroupBy = state.indicatorsGroupBy || 'branch'; }
+    if (!state._indDeptDefaulted) { state.indicatorAcctStatus = 'pending_serviced'; state.indicatorsRangePreset = state.indicatorsRangePreset || IND_DEFAULT_RANGE; }
+    // Group default per dashboard (per Isaac, Oct 28): Sales Reps open grouped by TEAMS, Office Staff / Technicians by
+    // office. Set on entering a dashboard; the Filters → Group pick still sticks while you stay on it.
+    state.indicatorsGroupBy = dept === 'd2d' ? 'teams' : 'branch';
     state._indDeptDefaulted = true;
     state._indWorld = state.view;
     state.indicatorDept = dept;
