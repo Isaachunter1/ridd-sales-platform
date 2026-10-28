@@ -144,6 +144,9 @@ function dashLens() {
   if (isAdminRole(state.profile?.role) && o.some(x => x[0] === 'all')) return 'all';
   return o[0] ? o[0][0] : 'all';
 }
+// Player cards only on the Me lens (per Isaac, Oct 28) — My Team / the department view show none. A user with no
+// lens choice (no Me / Team / All buttons) keeps theirs.
+function indCardLensOk() { const o = dashLensOptions(); return o.length < 2 || dashLens() === 'me'; }
 function dashLensTeam() { const v = dashLens(); return v.indexOf('team:') === 0 ? v.slice(5) : ''; }
 // Plain-words name of what the lens is showing: "Isaac Hunter", "Avanti team", "Company".
 function dashLensLabel() {
@@ -2054,9 +2057,9 @@ function viewIndicators() {
     // render twice.
     // Partners / office leads with a team default to the TEAM card, with a
     // Team / Me toggle to flip to their personal card (per Isaac).
-    _isPartner && !_focusedComp && indShowMyCard() && !(_repLayoutPrefs().hidden || []).includes('card') && partnerLandingCard(),
+    _isPartner && !_focusedComp && indShowMyCard() && indCardLensOk() && !(_repLayoutPrefs().hidden || []).includes('card') && partnerLandingCard(),
     // Admins with a linked FieldRoutes rep get their own card in the same spot (per Isaac, Oct 16).
-    !_repLite && !_focusedComp && indShowMyCard() && repLandingPlayerCard(),
+    !_repLite && !_focusedComp && indShowMyCard() && indCardLensOk() && repLandingPlayerCard(),
     // Sales reps: Your Performance Trends sits right under the player card,
     // ahead of the Indicators table + Power Ranking (per Isaac).
     // Same spot for admins now (per Isaac, Oct 16): one page order for every user type.
@@ -2491,7 +2494,7 @@ function viewIndicators() {
           const prefs = _repLayoutPrefs();
           const builders = {
             // Every section is gated by the Settings → Permissions matrix.
-            card:  () => (!_isPartner && indShowMyCard()) ? [repLandingPlayerCard()] : [],   // linked FieldRoutes rep only (per Isaac, Oct 16); analyst layout pins it at page top instead
+            card:  () => (!_isPartner && indShowMyCard() && indCardLensOk()) ? [repLandingPlayerCard()] : [],   // linked FieldRoutes rep only (per Isaac, Oct 16); analyst layout pins it at page top instead
             yoy:   () => (!_repSalesLayout && userCan('ind_yoy')) ? [indLazy('yoy', () => indicatorYoYTrendChart(), null, 380)] : [],   // sales reps: pinned under the player card instead
             trend: () => userCan('ind_trend') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-indsection') === 'repTrend') : [],
             board: () => userCan('ind_board') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'rep-leaderboard') : [],
@@ -2504,7 +2507,7 @@ function viewIndicators() {
             if (prefs.hidden.includes(k) || !builders[k]) return;
             builders[k]().forEach(n => { if (n) out.push(n); });
           });
-          return out.length ? out : (indShowMyCard() ? [repLandingPlayerCard()] : []);
+          return out.length ? out : (indShowMyCard() && indCardLensOk() ? [repLandingPlayerCard()] : []);
         })()
       : _repSections)),
   );
