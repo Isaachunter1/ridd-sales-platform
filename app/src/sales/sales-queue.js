@@ -310,7 +310,8 @@ function viewSales() {
       el('div', { class: 'text-base font-black tabular-nums', style: accent ? { color: 'var(--accent)' } : {} }, fmt.usd0(rev)),
       el('div', { class: 'text-[10px] tabular-nums text-muted-' }, cnt));
   };
-  const totalsStrip = isAdmin ? el('div', { class: _phoneT ? 'card flex items-stretch overflow-hidden' : 'card flex items-stretch overflow-x-auto sales-totals-strip' },
+  // Totals strip hidden for every user (per Isaac, Oct 28) — the queue pills right below carry the counts.
+  const totalsStrip = false ? el('div', { class: _phoneT ? 'card flex items-stretch overflow-hidden' : 'card flex items-stretch overflow-x-auto sales-totals-strip' },
     _tile(_yr + ' sold', _ytd, true, "'" + _yr.slice(2) + ' Sold'),
     _tile('Upfront', source.filter(isUpfrontPending)),
     _tile('Backend lock', source.filter(isBackendPending), false, 'Backend'),
