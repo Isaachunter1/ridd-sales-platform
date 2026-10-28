@@ -2383,7 +2383,7 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
           null),   /* below-minimum reason: the status says it (per Isaac, Oct 15) — the why is on the status tooltip */
         el('div', { class: 'font-semibold', style: { fontSize: '12px', ...clip } }, term),
         srcBad(src)
-          ? el('div', { style: { fontSize: '11px', color: bad, fontWeight: '700', ...clip }, title: src + ' — Office Staff sales shouldn\u2019t be sourced Door to Door. Fix the source on the account in FieldRoutes.' }, '\u26a0 ' + src)
+          ? el('div', { style: { fontSize: '11px', color: bad, fontWeight: '700', ...clip }, title: src + ' — Office Staff sales shouldn\u2019t be sourced Door to Door. Fix the source on the account in FieldRoutes.' }, src)   // just red, no icon (per Isaac, Oct 28)
           : el('div', { class: 'text-muted-', style: { fontSize: '11px', ...clip }, title: src }, src || '—'),
         el('div', { class: 'tabular-nums', style: clip },
           el('div', { style: { fontSize: '11px' } }, _t > 0 ? soldTxt.slice(0, _t) : soldTxt),
