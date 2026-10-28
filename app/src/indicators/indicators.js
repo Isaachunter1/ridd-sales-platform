@@ -10545,7 +10545,11 @@ function indicatorYoYTrendChart() {
   // Oct 16 (per Isaac): the Exclude button is gone — the revenue metric itself splits into Total / New / Renewal /
   // One-time service for every user type.
   const isOffice = true;
-  const revType = metric === 'revenue' ? (['new', 'renewal', 'ots'].includes(state._indicatorYoYRevType) ? state._indicatorYoYRevType : 'total') : 'total';
+  // Default split (per Isaac, Oct 28): the Office Staff dashboard opens on New Revenue (loyalty reps keep Total, same
+  // rule as the pacer); every other dashboard opens on Total. A pick from the dropdown wins.
+  const _yoyLoy = typeof _isLoyaltyProfile === 'function' && _isLoyaltyProfile(state.profile);
+  const _yoyRevDefault = state.indicatorDept === 'office' && !_yoyLoy ? 'new' : 'total';
+  const revType = metric === 'revenue' ? (['total', 'new', 'renewal', 'ots'].includes(state._indicatorYoYRevType) ? state._indicatorYoYRevType : _yoyRevDefault) : 'total';
   const valOf = (a, matchedHorizon) => {
     if (!a) return null;
     switch (metric) {
