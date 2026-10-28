@@ -705,11 +705,10 @@ function reportingRenewals(srcRows, opts) {
     return 'Eligible';
   };
   const q = String(state._renewalQ || '').trim().toLowerCase();
-  if (state._renewalSort === 'acv') state._renewalSort = 'soonest';
-  let fBranch = String(state._renewalBranch || ''); const fSort = String(state._renewalSort || 'soonest');
+  let fBranch = String(state._renewalBranch || '');
   // Window (default per Isaac): the accounts ENDING within 2 months — reach
   // them before the cancellation call. Past-term (month-to-month) and All are a click away.
-  const fWin = String(state._renewalWindow || 'ending');
+  const fWin = 'all';   // window picker removed (per Isaac, Oct 28) — every eligible account, in priority order
   const inWin = (x) => x.crm || fWin === 'all' || (fWin === 'ending' ? x.pastBy < 0 : x.pastBy >= 0);
   const matchQ = (x) => (!q || String(x.name).toLowerCase().includes(q) || String(x.id).includes(q) || String(x.phone || '').includes(q) || String(x.office).toLowerCase().includes(q))
     && (!fBranch || String(x.office) === fBranch) && inWin(x);
@@ -725,17 +724,10 @@ function reportingRenewals(srcRows, opts) {
   const cols = {}; STAGES.forEach(s => cols[s.key] = []);
   allRecs.forEach(x => cols[stageOf(x)].push(x));
   cols.Renewed = cols.Renewed.concat(crmRenewed);
-  // Eligible: soonest term end first, then past-term biggest ARV; other
-  // stages: most recently touched first.
   const touched = (x) => String(logOf(x).updated_at || '');
-  // Sort (per Isaac): soonest term end · most recently out of contract ·
-  // longest out of contract · highest ACV.
-  const SORTS = {
-    soonest: (a, b) => (a.pastBy >= 0 ? 1 : 0) - (b.pastBy >= 0 ? 1 : 0) || (a.pastBy >= 0 ? a.pastBy - b.pastBy : a.toGo - b.toGo),
-    newest_out: (a, b) => a.pastBy - b.pastBy,       // just went out of contract first (still-in-term first)
-    oldest_out: (a, b) => b.pastBy - a.pastBy,       // longest out of contract first
-  };
-  cols.Eligible.sort(SORTS[fSort] || SORTS.soonest);
+  const _today = _renewalToday();
+  cols.Eligible.forEach(x => { x._tier = _renewalTierOf(x, logOf(x), _today); });
+  cols.Eligible.sort((a, b) => _renewalPriority(a, b, logOf));   // same order as the call queue
   ['Contacting', 'Renewed', 'Not Interested'].forEach(k => cols[k].sort((a, b) => touched(b).localeCompare(touched(a))));
   // Renewed → checked against FieldRoutes (per Isaac, Oct 28). A rep's "Renewed" is a claim until FieldRoutes has a
   // Renewal-source plan on the customer; the moment it does (next snapshot, ~30 min in selling hours) the customer
@@ -842,17 +834,13 @@ function reportingRenewals(srcRows, opts) {
   const renewedManual = cols.Renewed.filter(x => !x.crm).length;
   const selCls = 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer';
   const selSty = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
-  const winSel = el('select', { class: selCls, style: selSty, title: 'Which eligible accounts to show', onchange: (e) => { state._renewalWindow = e.target.value; mountApp(); } },
-    ...[['ending', 'Ending within 2 months'], ['past', 'Past term (month-to-month)'], ['all', 'All eligible']].map(([v, l]) => el('option', { value: v, selected: fWin === v }, l)));
   const branchSel = el('select', { class: selCls, style: selSty, onchange: (e) => { state._renewalBranch = e.target.value; mountApp(); } },
     ...branches.map(b => el('option', { value: b, selected: fBranch === b }, _titleCaseWords(b))));
-  const sortSel = el('select', { class: selCls, style: selSty, title: 'Order of the Eligible column', onchange: (e) => { state._renewalSort = e.target.value; mountApp(); } },
-    ...[['soonest', 'Soonest term end'], ['newest_out', 'Most recently out of contract'], ['oldest_out', 'Longest out of contract']].map(([v, l]) => el('option', { value: v, selected: fSort === v }, l)));
   if (state._renewalBoard) _renewalClaimTrack(state._renewalOpenCard || null);
   if (!state._renewalBoard) return _renewalQueueView({ allRecs, crmRenewed, misSourced, logOf, stageOf, search, branchSel, q, fBranch, compact: !!opts.compact, exportBoard: exportAll });
   if (opts.compact) {
     return el('div', { class: 'flex flex-col gap-3' },
-      el('div', { class: 'flex items-center gap-2 flex-wrap' }, _renewalModeBtn(), search, winSel, branchSel, sortSel,
+      el('div', { class: 'flex items-center gap-2 flex-wrap' }, _renewalModeBtn(), search, branchSel,
         el('span', { class: 'text-[11px] tabular-nums ml-auto', style: { color: 'var(--text-muted)' } }, cols.Eligible.filter(matchQ).length.toLocaleString() + ' eligible · ' + fmt.usd0(arrOf(cols.Eligible.filter(matchQ))) + ' ARR'),
         exportAll),
       el('div', { class: 'grid gap-3 renewal-board', style: { gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' } }, ...STAGES.map(column)));
@@ -864,7 +852,7 @@ function reportingRenewals(srcRows, opts) {
           el('h2', { class: 'text-lg font-bold' }, '🔁 Renewals pipeline'),
           el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
             'Eligible = inside the final 2 months of the contract (start date + contract length) or past term and still month-to-month, never renewed before (any Renewal-source sub on the account rules it out), and not Sentricon. Refreshes from the CRM sync. Drag a card between stages or use the stage picker on it; attempts and notes save instantly for everyone.')),
-        el('div', { class: 'flex items-center gap-2 flex-wrap' }, _renewalModeBtn(), search, winSel, branchSel, sortSel, exportAll)),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' }, _renewalModeBtn(), search, branchSel, exportAll)),
       el('div', { class: 'flex gap-x-4 gap-y-1 flex-wrap mt-2 text-[11px] tabular-nums', style: { color: 'var(--text-muted)' } },
         el('span', {}, el('b', {}, allRecs.length.toLocaleString()), ' eligible contracts · ', el('b', {}, fmt.usd0(arrOf(allRecs))), ' ARR in play'),
         el('span', {}, el('b', {}, worked.toLocaleString()), ' worked · ', el('b', { style: { color: 'var(--ok)' } }, renewedManual.toLocaleString()), ' marked renewed, awaiting FieldRoutes'),
@@ -910,6 +898,23 @@ function _renewalTierOf(x, g, today) {
   if (x.pastBy < 0) return x.life <= RENEWAL_FIRST_LIFE_MAX ? 1 : 2;
   return x.pastBy < 3 ? 3 : 4;
 }
+// One priority order for the queue and the board (per Isaac, Oct 28 — no window / sort pickers). Built from the
+// Customer Lifetime curve: renewal-time cancels pile up at months 11–13 of customer life (the first contract ending)
+// and fall off after; long month-to-month customers rarely leave. So:
+//   1. callbacks due today, by time   2. first contract ending (months 11–12)   3. just out of contract (term ended
+//   < 3 months ago, still on the cliff)   4. a later contract ending   5. long-term month-to-month.
+// Inside each group, accounts showing trouble go first — a balance past due, then no autopay, then no signed
+// agreement — so a concern is heard before it becomes a cancel; then the nearest term end. Never by account size.
+const RENEWAL_TIER_RANK = { 0: 0, 1: 1, 3: 2, 2: 3, 4: 4 };
+function _renewalTrouble(x) { return (x.pastDue > 0 ? 4 : 0) + (x.autopay ? 0 : 2) + (x.unsigned ? 1 : 0); }
+function _renewalPriority(a, b, logOf) {
+  const ta = RENEWAL_TIER_RANK[a._tier] ?? 9, tb = RENEWAL_TIER_RANK[b._tier] ?? 9;
+  if (ta !== tb) return ta - tb;
+  if (a._tier === 0) return (_renewalCallback(logOf(a)) + (_renewalCallbackTime(logOf(a)) || '99')).localeCompare(_renewalCallback(logOf(b)) + (_renewalCallbackTime(logOf(b)) || '99'));
+  return _renewalTrouble(b) - _renewalTrouble(a)
+    || (a.pastBy < 0 ? a.toGo : 1000 + a.pastBy) - (b.pastBy < 0 ? b.toGo : 1000 + b.pastBy)
+    || String(a.id).localeCompare(String(b.id));
+}
 function _renewalModeBtn() {
   const board = !!state._renewalBoard;
   return el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
@@ -952,7 +957,6 @@ function _renewalQueueView(o) {
   // One list (per Isaac, Oct 28): the Call queue / Callbacks / Done buttons are gone. Callbacks still come back to
   // the top of the queue on their day; finished accounts are on the Board view's Renewed / Not Interested columns.
   const tab = 'queue';
-  const fTier = state._renewalTier == null ? '' : String(state._renewalTier);
   const base = (x) => (!o.q || String(x.name).toLowerCase().includes(o.q) || String(x.id).includes(o.q) || String(x.phone || '').includes(o.q) || String(x.office).toLowerCase().includes(o.q))
     && (!o.fBranch || String(x.office) === o.fBranch);
   const queue = [], snoozed = [], done = [];
@@ -965,12 +969,8 @@ function _renewalQueueView(o) {
     x._triedToday = (Number(g.attempts) || 0) > 0 && _renewalLocalDay(g.updated_at) === today && !cb;
     queue.push(x);
   });
-  // Order (per Isaac, Oct 13): newest customers first — fewest months of customer life — so the month 11–12
-  // first-contract accounts lead and long-tenured month-to-month customers fall to the end. A callback that is due
-  // today stays on top (it was promised); anyone already tried today sinks to the bottom.
-  queue.sort((a, b) => (a._triedToday ? 1 : 0) - (b._triedToday ? 1 : 0) || (a._tier === 0 ? 0 : 1) - (b._tier === 0 ? 0 : 1)
-    || (a._tier === 0 && b._tier === 0 ? (_renewalCallback(o.logOf(a)) + (_renewalCallbackTime(o.logOf(a)) || '99')).localeCompare(_renewalCallback(o.logOf(b)) + (_renewalCallbackTime(o.logOf(b)) || '99')) : 0)
-    || a.life - b.life || a.toGo - b.toGo);
+  // Order: _renewalPriority (per Isaac, Oct 28 — the lifetime curve); anyone already tried today sinks to the bottom.
+  queue.sort((a, b) => (a._triedToday ? 1 : 0) - (b._triedToday ? 1 : 0) || _renewalPriority(a, b, o.logOf));
   const qAll = queue.filter(base);
   const tierN = {}; RENEWAL_TIERS.forEach(t => { tierN[t.key] = { n: 0, arr: 0 }; });
   qAll.forEach(x => { tierN[x._tier].n++; tierN[x._tier].arr += x.arv; });
@@ -1122,11 +1122,6 @@ function _renewalQueueView(o) {
       el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-muted)' } }, '#' + x.id + ' · ' + _titleCaseWords(x.office) + ' · ' + x.svc + (o.logOf(x).notes ? ' · ✎ ' + o.logOf(x).notes : ''))),
     el('div', { class: 'text-[11px] font-bold tabular-nums' }, fmt.usd0(x.arv)), phoneA(x), right);
 
-  const tierBar = el('div', { class: 'flex gap-1.5 flex-wrap' },
-    el('button', { class: 'rounded-lg border px-2 py-1 text-[10px] font-bold cursor-pointer', style: { borderColor: fTier === '' ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onclick: () => { state._renewalTier = null; mountApp(); } }, 'All · ' + qAll.length.toLocaleString()),
-    ...RENEWAL_TIERS.filter(t => tierN[t.key].n).map(t => el('button', { class: 'rounded-lg border px-2 py-1 text-[10px] font-bold cursor-pointer', title: t.blurb + ' · ' + fmt.usd0(tierN[t.key].arr) + ' ARR',
-      style: { borderColor: fTier === String(t.key) ? t.color : 'var(--border-2)', background: fTier === String(t.key) ? t.bg : 'var(--card)', color: t.color },
-      onclick: () => { state._renewalTier = t.key; mountApp(); } }, t.label + ' · ' + tierN[t.key].n.toLocaleString())));
   const exportQ = el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
     onclick: () => _reportingCsvDownload('renewal-call-queue-' + today + '.csv',
       ['Rank', 'Priority', 'Customer ID', 'Customer Name', 'Phone', 'Office Name', 'Subscription Type', 'ARV', 'Contract', 'Customer Life (mo)', 'Term End', 'Months To Term End', 'Months Past Term', 'Auto Pay', 'Days Past Due', 'Attempts', 'Last Rep', 'Notes'],
