@@ -4186,6 +4186,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         );
       };
 
+      // Phones (per Isaac, Oct 28): a drill shows ONE top-10 list — the record picked in the card's dropdown
+      // (Day / Week / Month / PRA). Year has no top-10 of its own, so it shows the months. Desktop keeps all four.
+      const _recShow = (kind) => !_recPhone || kind === (_recPeriod === 'year' ? 'month' : _recPeriod);
+      const _recPraRepNote = _recPhone && _recPeriod === 'pra' && scope === 'rep'
+        ? el('div', { class: 'text-[11px] text-muted- px-1 py-2' }, 'PRA is an office / team / company record — pick Day, Week or Month to see a rep\u2019s.') : null;
       const scopeLabel = scope === 'company' ? 'Company-wide records'
                        : scope === 'branch'  ? 'Top offices per category'
                        :                       'Top teams per category';
@@ -4275,10 +4280,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 },
                   // No PRA days for a single rep (per Isaac, Oct 18) — PRA is a team/office/company measure.
                   el('div', { class: scope === 'rep' ? 'grid grid-cols-1 md:grid-cols-3 gap-3' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3' },
-                    miniTable('Top 10 Days',     'day',   subTops.topDays,   false),
-                    miniTable('Top 10 Weeks',    'week',  subTops.topWeeks,  false),
-                    miniTable('Top 10 Months',   'month', subTops.topMonths, false),
-                    scope === 'rep' ? null : miniTable('Top 10 PRA Days', 'pra',   subPRA,            false),
+                    _recShow('day') ? miniTable('Top 10 Days',     'day',   subTops.topDays,   false) : null,
+                    _recShow('week') ? miniTable('Top 10 Weeks',    'week',  subTops.topWeeks,  false) : null,
+                    _recShow('month') ? miniTable('Top 10 Months',   'month', subTops.topMonths, false) : null,
+                    scope === 'rep' ? _recPraRepNote : (_recShow('pra') ? miniTable('Top 10 PRA Days', 'pra',   subPRA,            false) : null),
                   ),
                 ),
               );
@@ -4294,7 +4299,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               class: 'rounded-lg border px-2.5 py-1.5 text-[11px] w-full mt-2', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', maxWidth: '320px' },
               oninput: (e) => { state._recSubQ[scope] = e.target.value; clearTimeout(state._recSubQT); state._recSubQT = setTimeout(() => { mountApp(); requestAnimationFrame(() => { const n = document.querySelector('[data-rec-search="' + scope + '"]'); if (n) { n.focus(); const v = n.value; n.setSelectionRange(v.length, v.length); } }); }, 250); } });
             _inp.setAttribute('data-rec-search', scope);
-            _rows.push(_inp);
+            // Rep scope (per Isaac, Oct 28): the search box sits at the TOP; matches open under it.
+            if (_searchOnly) { _inp.classList.remove('mt-2'); _rows.unshift(_inp); } else _rows.push(_inp);
             if (_q || _hits.length) _rows.push(...(_hits.length ? _hits.slice(0, 25).map(_row) : [el('div', { class: 'text-[11px] text-muted- px-1' }, 'No ' + (_searchOnly ? '' : 'other ') + _noun + ' matches “' + _q + '”' + (_vis.some(g => String(g.name || '').toLowerCase().includes(_q)) ? ' — they’re in the top ' + _LIM + ' above.' : '.'))]));
             return _rows;
           })(),
@@ -4310,13 +4316,15 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 + (scope === 'rep' ? '' : ' · PRA gated to May 1 onward (≥' + praMin + ' rep' + (praMin === 1 ? '' : 's') + ')'),
             ),
             // Rep scope drops Top 10 PRA Days (per Isaac, Oct 18) — a PRA day is a group record, not a rep's.
-            el('div', { class: scope === 'rep' ? 'grid grid-cols-1 md:grid-cols-3 gap-3' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3' },
-              miniTable(dayLabel,   'day',   topDays,   isGroup),
-              miniTable(weekLabel,  'week',  topWeeks,  isGroup),
-              miniTable(monthLabel, 'month', topMonths, isGroup),
-              scope === 'rep' ? null : miniTable(praLabel,   'pra',   topPRA,    isGroup),
+            // Rep scope: the rep search comes first (per Isaac, Oct 28), then the company-wide rep top 10.
+            scope === 'rep' ? subDrillSection : null,
+            el('div', { class: (scope === 'rep' ? 'grid grid-cols-1 md:grid-cols-3 gap-3' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3') + (scope === 'rep' ? ' mt-4' : '') },
+              _recShow('day') ? miniTable(dayLabel,   'day',   topDays,   isGroup) : null,
+              _recShow('week') ? miniTable(weekLabel,  'week',  topWeeks,  isGroup) : null,
+              _recShow('month') ? miniTable(monthLabel, 'month', topMonths, isGroup) : null,
+              scope === 'rep' ? _recPraRepNote : (_recShow('pra') ? miniTable(praLabel,   'pra',   topPRA,    isGroup) : null),
             ),
-            subDrillSection,
+            scope === 'rep' ? null : subDrillSection,
           ),
         ),
       );
