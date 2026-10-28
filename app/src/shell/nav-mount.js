@@ -128,15 +128,18 @@ function insideSalesTabsFor(role) {
 // gets the first three. It stays on the bar rather than inside Filters because it switches the whole section
 // (its Sales / Pay tabs too), not just the numbers. (Replaces the Oct 7 single click-to-cycle button.)
 function canSeeAllWorld(r) { return isAdminRole(r) || (typeof isDeveloperRole === 'function' && isDeveloperRole(r)); }
-function salesModeToggle(mode) {
-  const role = state.profile?.role;
-  if (!canWalkWorlds(role)) return null;   // admins, developers and Office Staff - Office walk the worlds
-  let narrow = false; try { narrow = window.matchMedia('(max-width: 640px)').matches; } catch (e) { /* desktop */ }
+// The rep types one user can walk between, as [mode, label, short label].
+function repWorldOptions(role) {
+  if (!canWalkWorlds(role)) return [];   // admins, developers and Office Staff - Office walk the worlds
   const opts = [['inside', 'Office Staff', 'Office'], ['d2d', 'Sales Rep', 'Sales Rep'], ['techs', 'Technician', 'Tech']];   // FieldRoutes' seller types: Office Staff · Sales Rep · Technician (per Isaac, Oct 9)
   if (canSeeAllWorld(role)) opts.push(['all', 'All', 'All']);
-  const go = (m) => {
-    if (m === mode) return;
-    const target = m === 'd2d'
+  return opts;
+}
+// Switch rep type: lands on that type's last-used tab (Dashboard by default). Shared by the bar toggle and the
+// dashboard Filters' "Rep type" row.
+function switchRepWorld(m, toDashboard) {
+    const DASH = { inside: 'dashboard', d2d: 'd2d_dashboard', techs: 'techs', all: 'all_dashboard' };
+    const target = toDashboard ? DASH[m] : m === 'd2d'
       ? (D2D_SALES_TAB_KEYS.has(state._lastD2dTab) ? state._lastD2dTab : 'd2d_dashboard')
       : m === 'techs' ? 'techs'
       : m === 'all' ? 'all_dashboard'
@@ -144,7 +147,16 @@ function salesModeToggle(mode) {
     state.view = target;
     history.replaceState(null, '', VIEW_TO_HASH[target] || '#' + target);
     mountApp();
-  };
+}
+function salesModeToggle(mode) {
+  const role = state.profile?.role;
+  const opts = repWorldOptions(role);
+  if (!opts.length) return null;
+  // On a dashboard the rep type lives inside Filters as "Rep type" (per Isaac, Oct 28) — the bar toggle only shows on
+  // the Sales / Pay / other tabs, which have no Filters panel.
+  if (typeof IND_WORLD !== 'undefined' && IND_WORLD[state.view]) return null;
+  let narrow = false; try { narrow = window.matchMedia('(max-width: 640px)').matches; } catch (e) { /* desktop */ }
+  const go = (m) => { if (m !== mode) switchRepWorld(m); };
   return el('div', { class: 'sales-mode-toggle inline-flex rounded-lg border overflow-hidden mr-2 shrink-0', style: { borderColor: 'var(--border-2)' } },
     ...opts.map(([m, label, short], i) => el('button', {
       class: 'sales-mode-btn px-2.5 py-1 text-[11px] font-bold transition whitespace-nowrap',

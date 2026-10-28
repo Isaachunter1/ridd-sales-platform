@@ -1354,6 +1354,8 @@ function viewIndicators() {
             office: state._indicatorRepOfficeFilter || '',
             team: state._indicatorRepTeamFilter || '',
             tier: state._indicatorRepTierFilter || '',
+            // Rep type (per Isaac, Oct 28): the Office Staff / Sales Rep / Technician / All switch moved off the bar into here.
+            world: ({ office: 'inside', d2d: 'd2d', techs: 'techs', all: 'all' })[(typeof IND_WORLD !== 'undefined' && IND_WORLD[state.view]) || ''] || '',
           };
           // Honest badge (per Isaac, Oct 6): on a Sales dashboard the rep type is the page, not a filter, and the date has its own buttons — neither counts.
           const _fWorld = (typeof IND_WORLD !== 'undefined') && !!IND_WORLD[state.view];
@@ -1446,6 +1448,9 @@ function viewIndicators() {
             el('option', { value: 'teams', selected: _staged.group === 'teams' }, 'Teams'),
           );
           const _selCls = { class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer w-full', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } };
+          const _worldOpts = (_staged.world && typeof repWorldOptions === 'function') ? repWorldOptions(state.profile?.role) : [];
+          const worldSel = _worldOpts.length > 1 ? el('select', Object.assign({ onchange: e => { _staged.world = e.target.value; _markDirty(); } }, _selCls),
+            ..._worldOpts.map(([m, lab]) => el('option', { value: m, selected: _staged.world === m }, m === 'all' ? 'All rep types' : lab))) : null;
           const _offices = [...new Set((state._indicatorRawSales || []).map(x => x.office).filter(Boolean))].sort();   // raw CRM strings — the leaderboard matches on these exactly
           const officeSel = el('select', Object.assign({ onchange: e => { _staged.office = e.target.value; _markDirty(); } }, _selCls),
             el('option', { value: '', selected: !_staged.office }, 'All offices'),
@@ -1468,6 +1473,7 @@ function viewIndicators() {
               ...(() => {
                 const hl = (node, on) => { if (node && on) { node.style.borderColor = 'var(--accent)'; node.style.boxShadow = '0 0 0 2px rgba(223,100,58,.25)'; } return node; };
                 return [
+                  _fRow('Rep type', worldSel),   // first row — it switches the whole dashboard (per Isaac, Oct 28)
                   _fRow('Saved views', indPresetRibbon({ inline: true })),
                   _metricLocked ? null : _fRow('Audit', auditBtn),   // right under Saved views (per Isaac, Oct 16)
                   _metricLocked ? null : _fRow('Metric', hl(metricSel, (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced')),
@@ -1508,6 +1514,8 @@ function viewIndicators() {
                   state._indicatorRepTierFilter = _staged.tier || '';
                   state._indFiltersOpen = false;   // one commit, one render, panel closes
                   if (typeof trackAction === 'function') trackAction('filters_apply', 'indicators', { dept: state.indicatorDept || 'all', group: _staged.group, acct: state.indicatorAcctStatus || '' });
+                  const _curWorld = ({ office: 'inside', d2d: 'd2d', techs: 'techs', all: 'all' })[IND_WORLD[state.view] || ''] || '';
+                  if (worldSel && _staged.world && _staged.world !== _curWorld) { switchRepWorld(_staged.world, true); return; }   // new rep type → its dashboard (one render)
                   mountApp();
                 },
               }, 'Apply')),
