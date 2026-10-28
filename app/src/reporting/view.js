@@ -761,6 +761,7 @@ function reportingRenewals(srcRows, opts) {
         el('div', { class: 'min-w-0' },
           el('div', { class: 'text-xs font-bold truncate' }, x.name),
           el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-subtle)' } }, '#' + x.id + ' · ' + _titleCaseWords(x.office))),
+        x.crm ? null : _renewalClaimChip(x.id),
         x.crm ? el('span', { class: 'text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md shrink-0', style: { background: 'rgba(22,163,74,.12)', color: 'var(--ok)' } }, 'CRM')
           : (g.attempts ? el('span', { class: 'text-[9px] font-bold px-1.5 py-0.5 rounded-md shrink-0 tabular-nums', style: { background: 'var(--card-2)', color: 'var(--text-muted)' }, title: 'Call attempts' }, '📞 ' + g.attempts) : null)),
       el('div', { class: 'flex items-center justify-between gap-2 text-[11px]' },
@@ -826,6 +827,7 @@ function reportingRenewals(srcRows, opts) {
     el('option', { value: '', selected: !fBranch }, 'All offices'), ...branches.map(b => el('option', { value: b, selected: fBranch === b }, _titleCaseWords(b))));
   const sortSel = el('select', { class: selCls, style: selSty, title: 'Order of the Eligible column', onchange: (e) => { state._renewalSort = e.target.value; mountApp(); } },
     ...[['soonest', 'Soonest term end'], ['newest_out', 'Most recently out of contract'], ['oldest_out', 'Longest out of contract']].map(([v, l]) => el('option', { value: v, selected: fSort === v }, l)));
+  if (state._renewalBoard) _renewalClaimTrack(state._renewalOpenCard || null);
   if (!state._renewalBoard) return _renewalQueueView({ allRecs, crmRenewed, misSourced, logOf, stageOf, search, branchSel, q, fBranch, compact: !!opts.compact, exportBoard: exportAll });
   if (opts.compact) {
     return el('div', { class: 'flex flex-col gap-3' },
@@ -893,8 +895,9 @@ function _renewalClaimTrack(cid) {
     try {
       const ch = supabase.channel('renewal_claims', { config: { presence: { key: me } } });
       ch.on('presence', { event: 'sync' }, () => {
-        const m = {}; const ps = ch.presenceState() || {};
-        for (const [k, arr] of Object.entries(ps)) { if (k === me) continue; (arr || []).forEach(p => { if (p && p.cid) m[String(p.cid)] = p.name || 'Another rep'; }); }
+        const m = {}, ks = {}; const ps = ch.presenceState() || {};
+        for (const [k, arr] of Object.entries(ps)) { if (k === me) continue; (arr || []).forEach(p => { if (p && p.cid) { m[String(p.cid)] = p.name || 'Another rep'; ks[String(p.cid)] = ks[String(p.cid)] && ks[String(p.cid)] < k ? ks[String(p.cid)] : k; } }); }
+        state._renewalClaimKeys = ks;
         const changed = JSON.stringify(m) !== JSON.stringify(state._renewalClaims || {});
         state._renewalClaims = m;
         if (changed && state.view === 'loyalty_renewals') { clearTimeout(state._renewalClaimT); state._renewalClaimT = setTimeout(mountApp, 200); }
@@ -907,6 +910,11 @@ function _renewalClaimTrack(cid) {
   if (!state._renewalClaimReady || state._renewalClaimSent === cid) return;
   state._renewalClaimSent = cid;
   try { state._renewalClaimCh.track({ cid: cid || null, name }); } catch (e) { /* presence is best effort */ }
+}
+// The "someone's on it" flag (per Isaac, Oct 28): amber pill on any card another rep has open right now.
+function _renewalClaimChip(id) {
+  const who = (state._renewalClaims || {})[String(id)];
+  return who ? el('span', { class: 'text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md shrink-0 whitespace-nowrap', style: { background: 'rgba(217,119,6,.14)', color: '#B45309' }, title: who + ' has this customer open right now' }, '📞 ' + who + ' on it') : null;
 }
 function _renewalQueueView(o) {
   const today = _renewalToday();
@@ -1039,8 +1047,9 @@ function _renewalQueueView(o) {
       el('div', { class: 'flex items-center gap-2 flex-wrap' },
         el('span', { class: 'text-[10px] font-bold tabular-nums w-6 shrink-0', style: { color: 'var(--text-subtle)' } }, String(i + 1)),
         el('div', { class: 'min-w-0 flex-1', style: { minWidth: '160px' } },
-          el('div', { class: 'text-xs font-bold truncate' }, x.name + (x._triedToday ? ' · tried today' : '') + ((state._renewalClaims || {})[String(x.id)] ? ' · 📞 ' + state._renewalClaims[String(x.id)] + ' is on this one' : '')),
+          el('div', { class: 'text-xs font-bold truncate' }, x.name + (x._triedToday ? ' · tried today' : '')),
           el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-muted)' } }, why(x))),
+        _renewalClaimChip(x.id),
         el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-subtle)', maxWidth: '200px' } }, _titleCaseWords(x.office) + ' · ' + x.svc),
         el('div', { class: 'text-[11px] font-bold tabular-nums w-16 text-right shrink-0' }, fmt.usd0(x.arv)),
         phoneA(x)),
@@ -1087,8 +1096,11 @@ function _renewalQueueView(o) {
     // Several reps at once (per Isaac, Oct 13): each open queue tells the others (Supabase realtime presence, no table)
     // which customer it has up. Your next call skips anyone another rep is on; their row says who.
     const claims = state._renewalClaims || {};
-    const first = qShown.find(x => !claims[String(x.id)]) || null, rest = qShown.filter(x => x !== first);
-    _renewalClaimTrack(state._renewalDispOpen || (first ? String(first.id) : null));
+    // Two reps landing on the same customer at the same moment: the lower profile id keeps it, the other moves on.
+    const meK = state.profile ? String(state.profile.id) : '', keys = state._renewalClaimKeys || {};
+    const takenByOther = (x) => !!claims[String(x.id)] && !(state._renewalClaimSent === String(x.id) && meK && meK < (keys[String(x.id)] || ''));
+    const first = qShown.find(x => !takenByOther(x)) || null, rest = qShown.filter(x => x !== first);
+    _renewalClaimTrack(state._renewalDispOpen || state._renewalOpenCard || (first ? String(first.id) : null));
     body = first ? el('div', { class: 'flex flex-col gap-2' },
       first._triedToday ? el('div', { class: 'text-[12px] font-bold text-center py-2', style: { color: 'var(--ok)' } }, '🎉 Everyone in this list has been tried today — what is left are second attempts.') : null,
       nextUp(first),
