@@ -1542,7 +1542,7 @@ function viewIndicators() {
             class: 'relative rounded-xl px-2.5 py-1 text-[11px] font-semibold border transition hover:brightness-95 shrink-0',
             // Active filters / a preset (per Isaac, Oct 15): the button itself turns orange — no count badge.
             style: nonDefault ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)', color: 'var(--text)' },
-            title: nonDefault ? 'Filters are on (' + nonDefault + ') — click to see or change them' : 'Filters — saved views, Metric, Exclude, Group, Office, Team, Tier',
+            title: nonDefault ? 'Filters are on (' + nonDefault + ') — click to see or change them' : 'Filters — rep type, saved views, Metric, Exclude, Group, Office, Team, Tier',
             onclick: (e) => {
               e.stopPropagation();
               const open = panel.style.display === 'block';
@@ -10021,8 +10021,7 @@ function teamLandingPlayerCards(opts) {
           el('div', { class: 'min-w-0 flex-1' },
             el('div', { class: 'flex items-center gap-2 flex-wrap' },
               el('span', { class: 'text-lg font-bold truncate' }, team),
-              el('span', { class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: color + '22', color } }, 'Team'),
-              el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-1' }, fmt.usd0(revenue))),
+              el('span', { class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: color + '22', color } }, 'Team')),   // no revenue beside the name (per Isaac, Oct 28) — the Revenue tile shows it
             el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, reps + ' rep' + (reps === 1 ? '' : 's') + ' with a sale · ' + W.label)),
           el('div', { class: 'flex flex-col items-end gap-1.5 shrink-0 self-start ml-auto' },
             i === 0 ? _hdrExtra : null,
