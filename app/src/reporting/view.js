@@ -288,6 +288,9 @@ function reportingCustomerHealth() {
     c.arr += Number(r.annual_recurring_value) || 0;
     svcFamiliesOf(r.subscription).forEach(f => c.fams.add(f));
     c.pastDue = Math.max(c.pastDue, Number(r.days_past_due) || 0);
+    // Completed services on the plan (the initial counts as one) — the check-in list waits for the first treatment after it.
+    { const _cs = r.subscription_completed_services != null ? r.subscription_completed_services : r.completed_services;
+      if (_cs != null && _cs !== '') { c.hasCount = true; c.treatments = Math.max(c.treatments || 0, Number(_cs) || 0); } }
     { const _ap = String(r.customer_auto_pay || '').trim(); if (_ap && !/^no$/i.test(_ap)) c.autopay = true; }
     const mo = moSince(r.initial_service);
     if (mo != null && (c.oldest == null || mo > c.oldest)) c.oldest = mo;
@@ -424,12 +427,13 @@ function reportingCustomerHealth() {
 // contract is ending are left to the Renewals list. Outcomes share renewal_worklog under an 'h:' key (no table
 // change): No answer · Callback · No concerns · Resolved concerns · Transferred to Loyalty. Any of the last three
 // (or 5 no-answers → 'Unreachable') takes the customer off the list for good.
-// Order: callbacks due (by time) → months 0–5 (first bills) → months 6–12; inside each, trouble first (past due,
-// then no autopay, then single service / high-churn ZIP), then the newest customer — reach them before the cliff.
+// Order: callbacks due (by time) → months 0–5 (first bills) → months 6–12; inside each, trouble first (no autopay,
+// then single service / high-churn ZIP), then the newest customer. Past-due customers are left to collections.
 const HEALTH_DONE_RE = /^(No Concerns|Resolved Concerns|Transferred to Loyalty|Unreachable)/;
 const HEALTH_MAX_MO = 12;
+const HEALTH_MIN_SERVICES = 2;   // the initial + one regular treatment
 const _healthKey = (id) => 'h:' + id;
-function _healthTrouble(c) { return (c.pastDue > 0 ? 4 : 0) + (c.autopay ? 0 : 2) + (c.flags.single ? 1 : 0) + (c.flags.zip ? 1 : 0); }
+function _healthTrouble(c) { return (c.autopay ? 0 : 2) + (c.flags.single ? 1 : 0) + (c.flags.zip ? 1 : 0); }
 function _healthQueueView(scored) {
   _renewalLogLoad();
   const today = _renewalToday();
@@ -445,7 +449,11 @@ function _healthQueueView(scored) {
     state._healthBranch = fBranch;
   }
   const q = String(state._healthQ || '').trim().toLowerCase();
-  const inScope = (c) => c.oldest != null && c.oldest >= 0 && c.oldest <= HEALTH_MAX_MO && !c.renewal;
+  // Wait for one treatment after the initial (per Isaac, Oct 28 — calling at month 0 is too early): 2+ completed
+  // services. A book without the service count falls back to a month after the initial.
+  const treated = (c) => c.hasCount ? (c.treatments || 0) >= HEALTH_MIN_SERVICES : (c.oldest || 0) >= 1;
+  // Past due → collections already has them (per Isaac, Oct 28); they stay off this list until the balance clears.
+  const inScope = (c) => c.oldest != null && c.oldest <= HEALTH_MAX_MO && !c.renewal && !(c.pastDue > 0) && treated(c);
   const list = [], done = [];
   scored.forEach(c => {
     if (!inScope(c) || String(c.office) !== fBranch) return;
@@ -526,7 +534,7 @@ function _healthQueueView(scored) {
             style: { background: canSave ? 'var(--ok)' : 'var(--card-2)', color: canSave ? '#fff' : 'var(--text-subtle)', cursor: canSave ? 'pointer' : 'not-allowed' },
             onclick: (e) => { e.stopPropagation(); doSave(); } }, 'Save'))));
   };
-  const reasons = (c) => [c.pastDue > 0 ? c.pastDue + 'd past due' : '', c.autopay ? '' : 'no autopay', c.flags.single ? 'single service' : '', c.flags.zip ? 'high-churn ZIP' : ''].filter(Boolean);
+  const reasons = (c) => [c.autopay ? '' : 'no autopay', c.flags.single ? 'single service' : '', c.flags.zip ? 'high-churn ZIP' : ''].filter(Boolean);
   const why = (c) => {
     const g = logOf(c);
     const head = c._band === 0 ? 'callback due ' + _renewalCallbackLabel(g) : 'month ' + Math.floor(c.oldest + 1) + ' of life' + (c._band === 1 ? ' · first bills' : '');
@@ -585,7 +593,7 @@ function _healthQueueView(scored) {
   return el('div', { class: 'card p-4 flex flex-col gap-3' },
     el('div', {},
       el('h2', { class: 'text-lg font-bold' }, '❤️‍🩹 Customer check-ins'),
-      el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } }, 'One touch-base call for every customer in their first 12 months — where cancels happen. First bills (months 0–5) first, accounts showing trouble first. Customers with a contract ending are on Renewals.')),
+      el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } }, 'One touch-base call for every customer in their first 12 months, once they have had a treatment after the initial. First bills (months 0–5) first, accounts showing trouble first. Past-due accounts are left to collections. Customers with a contract ending are on Renewals.')),
     header, body);
 }
 
