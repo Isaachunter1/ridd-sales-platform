@@ -10460,6 +10460,7 @@ const YOY_METRICS = [
 // (per Isaac, Oct 28) — it lasts only until the page is reloaded.
 function _yoyCompareOn() { return !!state._yoyCompare; }
 function indicatorYoYTrendChart() {
+  const _yoyPhone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })();
   const id = 'chart-yoy-trend';
   let metric = state._indicatorYoYMetric || 'revenue';
   const mDef = YOY_METRICS.find(m => m[0] === metric) || YOY_METRICS[0];
@@ -11543,11 +11544,13 @@ function indicatorYoYTrendChart() {
   return el('div', { class: 'card p-5' },
     // One row (per Isaac, Oct 16): title + whose lines on the left, the metric pinned top-right. With the page lens
     // on Me / My Team the rep search is redundant (the lens already says whose numbers), so it only shows on All.
-    el('div', { class: 'flex items-center justify-between gap-2 mb-3', style: { flexWrap: 'nowrap' } },
+    // Phones (per Isaac, Oct 28): the title keeps its own row and the search / Compare / metric controls drop to a
+    // full-width row under it — on one row the title got cut to "Tr".
+    el('div', { class: 'flex items-center justify-between gap-2 mb-3', style: { flexWrap: _yoyPhone ? 'wrap' : 'nowrap', rowGap: '10px' } },
       el('div', { class: 'flex items-center gap-2 min-w-0', style: { flexWrap: 'nowrap', overflow: 'hidden' } },
         el('h3', { class: 'text-base font-bold whitespace-nowrap' }, 'Trends'),   // shortened (per Isaac, Oct 18)   // same title size as every other card (per Isaac, Oct 16)
         el('div', { class: 'min-w-0', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, _yoyViewPick)),
-      el('div', { class: 'flex items-center gap-2 shrink-0' }, ...((_yoyLensOn && _yoyView !== 'all') ? [] : (comboWrap ? [comboWrap] : [
+      el('div', { class: 'flex items-center gap-2' + (_yoyPhone ? ' yoy-ctl-phone' : ' shrink-0'), style: _yoyPhone ? { flex: '1 1 100%', minWidth: '0' } : {} }, ...((_yoyLensOn && _yoyView !== 'all') ? [] : (comboWrap ? [comboWrap] : [
         scopesWrap,   // search box first, then the Compare switch (per Isaac, Oct 28)
         // Compare on/off switch (per Isaac, Oct 28): off → the rep search only; on → offices + teams join it.
         scopesWrap ? (() => { const on = _yoyCompareOn();

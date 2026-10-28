@@ -178,6 +178,9 @@
     .sales-mode-toggle { display: flex !important; width: 100%; margin-right: 0 !important; }
     .sales-mode-btn { flex: 1 1 0; }
     .sales-mode-toggle > select { flex: 1 1 auto; min-width: 0; }   /* the Rep type picker fills its phone row (Oct 28) */
+    /* Trends controls on their own phone row (Oct 28): the rep search takes the room left beside Compare + metric. */
+    .yoy-ctl-phone > div:first-child { flex: 1 1 auto; min-width: 0; }
+    .yoy-ctl-phone > div:first-child input { width: 100%; min-width: 0 !important; }
     /* The content column is the horizontal scroller on desktop (wide tables);
        on phones it must never pan — anything wide scrolls inside its own
        .scroll-x. This is the "I can still slightly scroll sideways" fix (Sep 23). */
