@@ -31,6 +31,7 @@ module.exports = [
   'shell/app-shell.js',
   'core/crm-vocab.js',
   'reporting/auditing.js',
+  'reporting/account-integrity.js',
   'reporting/review-marks.js',
   'shell/nav-mount.js',
   'sales/dashboard-and-rep-data.js',
