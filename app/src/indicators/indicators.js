@@ -4381,7 +4381,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               (() => { const m = _recSel(_recPick, _REC_OPTS, (v) => { state._aggRecordsMetric = v; }); m.style.maxWidth = '140px'; return m; })())   // the metric names are long — it gets the room (Oct 28)
           : el('div', { class: 'flex items-center gap-3 flex-wrap' },
               _recSel(_recYear, [...[...new Set([String(new Date().getFullYear()), ..._recYears])].map(y => [y, y]), ['all', 'All time']], (v) => { state._aggRecordsYear = v; }),
-              metricToggle,
+              _recSel(_recPick, _REC_OPTS, (v) => { state._aggRecordsMetric = v; }),   // a dropdown, not buttons (per Isaac, Oct 28)
             ),
       ),
       el('div', { class: 'scroll-x' },
