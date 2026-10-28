@@ -706,7 +706,7 @@ function reportingRenewals(srcRows, opts) {
   };
   const q = String(state._renewalQ || '').trim().toLowerCase();
   if (state._renewalSort === 'acv') state._renewalSort = 'soonest';
-  const fBranch = String(state._renewalBranch || ''), fSort = String(state._renewalSort || 'soonest');
+  let fBranch = String(state._renewalBranch || ''); const fSort = String(state._renewalSort || 'soonest');
   // Window (default per Isaac): the accounts ENDING within 2 months — reach
   // them before the cancellation call. Past-term (month-to-month) and All are a click away.
   const fWin = String(state._renewalWindow || 'ending');
@@ -714,6 +714,14 @@ function reportingRenewals(srcRows, opts) {
   const matchQ = (x) => (!q || String(x.name).toLowerCase().includes(q) || String(x.id).includes(q) || String(x.phone || '').includes(q) || String(x.office).toLowerCase().includes(q))
     && (!fBranch || String(x.office) === fBranch) && inWin(x);
   const allRecs = expiring.concat(past);
+  // Branch only (per Isaac, Oct 28): nobody works renewals out of All offices. Default = the viewer's own office,
+  // else the first branch; the pick is kept for the session.
+  const branches = [...new Set(allRecs.map(x => String(x.office || '')).filter(Boolean))].sort();
+  if (!branches.includes(fBranch)) {
+    const mine = String((state.profile && (state.offices || []).find(o => String(o.id) === String(state.profile.office_id)) || {}).name || '').trim().toLowerCase();
+    fBranch = branches.find(b => b.trim().toLowerCase() === mine) || branches[0] || '';
+    state._renewalBranch = fBranch;
+  }
   const cols = {}; STAGES.forEach(s => cols[s.key] = []);
   allRecs.forEach(x => cols[stageOf(x)].push(x));
   cols.Renewed = cols.Renewed.concat(crmRenewed);
@@ -818,13 +826,12 @@ function reportingRenewals(srcRows, opts) {
   });
   const worked = allRecs.filter(x => stageOf(x) !== 'Eligible').length;
   const renewedManual = cols.Renewed.filter(x => !x.crm).length;
-  const branches = [...new Set(allRecs.map(x => String(x.office || '')).filter(Boolean))].sort();
   const selCls = 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer';
   const selSty = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
   const winSel = el('select', { class: selCls, style: selSty, title: 'Which eligible accounts to show', onchange: (e) => { state._renewalWindow = e.target.value; mountApp(); } },
     ...[['ending', 'Ending within 2 months'], ['past', 'Past term (month-to-month)'], ['all', 'All eligible']].map(([v, l]) => el('option', { value: v, selected: fWin === v }, l)));
   const branchSel = el('select', { class: selCls, style: selSty, onchange: (e) => { state._renewalBranch = e.target.value; mountApp(); } },
-    el('option', { value: '', selected: !fBranch }, 'All offices'), ...branches.map(b => el('option', { value: b, selected: fBranch === b }, _titleCaseWords(b))));
+    ...branches.map(b => el('option', { value: b, selected: fBranch === b }, _titleCaseWords(b))));
   const sortSel = el('select', { class: selCls, style: selSty, title: 'Order of the Eligible column', onchange: (e) => { state._renewalSort = e.target.value; mountApp(); } },
     ...[['soonest', 'Soonest term end'], ['newest_out', 'Most recently out of contract'], ['oldest_out', 'Longest out of contract']].map(([v, l]) => el('option', { value: v, selected: fSort === v }, l)));
   if (state._renewalBoard) _renewalClaimTrack(state._renewalOpenCard || null);
