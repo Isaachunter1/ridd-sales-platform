@@ -10456,6 +10456,12 @@ const YOY_METRICS = [
   ['audit_pct',   'Audit %',          'pct'],
   ['cancel_pct',  'Attrition %',      'pct'],   // renamed from Cancel % (per Isaac, Oct 16)
 ];
+// Trends Compare (per Isaac, Oct 28): an on/off toggle on the department / team views. Off → one line that follows
+// the page Filters. On → every office, team and rep picked in the search box is its own line. Remembered per device.
+function _yoyCompareOn() {
+  if (state._yoyCompare === undefined) { try { state._yoyCompare = localStorage.getItem('ridd_yoy_compare_v1') === '1'; } catch (e) { state._yoyCompare = false; } }
+  return !!state._yoyCompare;
+}
 function indicatorYoYTrendChart() {
   const id = 'chart-yoy-trend';
   let metric = state._indicatorYoYMetric || 'revenue';
@@ -10598,8 +10604,8 @@ function indicatorYoYTrendChart() {
     // Admins (per Isaac, Sep 24): scope follows the page-header Filters —
     // Team, else Office, else Company — unless specific reps are picked
     // here, in which case each rep is its own line.
-    const reps = sel.filter(sc => sc.t === 'rep');
-    if (reps.length) return reps;
+    // Compare on: each picked office / team / rep is its own line. Off: the picks are kept but not drawn.
+    if (_yoyCompareOn()) { const pick = sel.filter(sc => sc.t === 'office' || sc.t === 'team' || sc.t === 'rep'); if (pick.length) return pick; }
     if (state._indicatorRepTeamFilter && state._indicatorRepTeamFilter !== '__unassigned__') return [{ t: 'team', v: indTeamFilterList().filter(t => t !== '__unassigned__').join(IND_TEAM_SEP) }];   // several teams = ONE combined line
     if (state._indicatorRepOfficeFilter) return [{ t: 'office', v: state._indicatorRepOfficeFilter }];
     return [{ t: 'co' }];
@@ -11037,8 +11043,21 @@ function indicatorYoYTrendChart() {
       }, glyph, el('span', {}, lab));
       return row;
     };
+    // Compare picks (per Isaac, Oct 28): offices and teams are short lists, shown whole (typing narrows them);
+    // reps are searched. Every pick is its own line on the chart.
+    const placeList = el('div', {});
+    const paintPlaces = (q) => {
+      placeList.innerHTML = '';
+      const ql = String(q || '').toLowerCase();
+      const fit = (n) => !ql || n.toLowerCase().includes(ql);
+      const offs = offices.filter(o => fit(o) || _staged.includes('office:' + o));
+      const tms = teams.filter(t => !(typeof isTeamExcluded === 'function' && isTeamExcluded(t))).filter(t => fit(t) || _staged.includes('team:' + t));
+      if (offs.length) { placeList.append(secTitle('Offices')); offs.forEach(o => placeList.append(rowBtn('office:' + o, o))); }
+      if (tms.length) { placeList.append(secTitle('Teams')); tms.forEach(t => placeList.append(rowBtn('team:' + t, t))); }
+    };
     const repList = el('div', {});
     const paintReps = (q) => {
+      paintPlaces(q);
       repList.innerHTML = '';
       const ql = String(q || '').toLowerCase();
       // Checked reps always show; search reveals the rest (cap 10 matches).
@@ -11062,7 +11081,8 @@ function indicatorYoYTrendChart() {
       // Reps only (per Isaac, Sep 24): everything else — type, office, team,
       // tier, date range, exclusions — comes from the page-header Filters.
       // Picked reps overlay as their own lines; none picked = the header scope.
-      secTitle('Overlay reps'),
+      placeList,
+      secTitle('Reps'),
       el('div', { class: 'px-1.5 pb-1' }, repSearch),
       repList,
       (_sApply = el('button', {
@@ -11070,7 +11090,7 @@ function indicatorYoYTrendChart() {
         style: { borderColor: 'var(--border-2)', color: 'var(--text)', background: 'var(--card)', bottom: '0' },
         onclick: (e) => {
           e.stopPropagation();
-          const parsed = _staged.filter(k => k.indexOf('rep:') === 0).map(k => ({ t: 'rep', v: k.slice(4) }));
+          const parsed = _staged.filter(k => /^(rep|office|team):/.test(k)).map(k => { const i = k.indexOf(':'); return { t: k.slice(0, i), v: k.slice(i + 1) }; });
           state._indicatorYoYScopes = parsed;   // [] = follow the page-header scope
           state._indTrendView = 'all';          // picking reps here = the custom view
           state._yoyScopesOpen = false;
@@ -11084,7 +11104,7 @@ function indicatorYoYTrendChart() {
     // Trigger is a search box styled like the Leaderboard's (per Isaac,
     // Sep 24): typing opens the panel with matches; picked reps stay listed
     // at the top with their checkmarks until Apply.
-    const _nReps = _yoySelScopes.filter(sc => sc.t === 'rep').length;
+    const _nReps = _yoyCompareOn() ? _yoySelScopes.filter(sc => sc.t === 'rep' || sc.t === 'office' || sc.t === 'team').length : 0;
     const openPanel = () => {
       if (panel.style.display === 'block') return;
       panel.style.display = 'block'; state._yoyScopesOpen = true;
@@ -11098,10 +11118,10 @@ function indicatorYoYTrendChart() {
     };
     const btn = el('input', {
       type: 'text', autocomplete: 'off',
-      placeholder: _nReps ? (_nReps === 1 ? _yoySelScopes[0].v : _nReps + ' reps overlaid') : 'Search rep\u2026',
+      placeholder: _nReps ? (_nReps === 1 ? _scopeLabelOf(_yoySelScopes[0]) : _nReps + ' compared') : 'Pick offices, teams, reps\u2026',
       class: 'rounded-lg border px-2.5 py-1 text-[11px]',
       style: { borderColor: _nReps ? 'var(--accent)' : 'var(--border-2)', minWidth: '160px', background: 'var(--card)', color: 'var(--text)' },
-      title: 'Overlay specific reps as their own lines',
+      title: 'Compare offices, teams and reps — each pick is its own line',
       onfocus: openPanel,
       onclick: (e) => { e.stopPropagation(); openPanel(); },
       oninput: (e) => { openPanel(); paintReps(e.target.value); },
@@ -11527,7 +11547,14 @@ function indicatorYoYTrendChart() {
       el('div', { class: 'flex items-center gap-2 min-w-0', style: { flexWrap: 'nowrap', overflow: 'hidden' } },
         el('h3', { class: 'text-base font-bold whitespace-nowrap' }, 'Trends'),   // shortened (per Isaac, Oct 18)   // same title size as every other card (per Isaac, Oct 16)
         el('div', { class: 'min-w-0', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, _yoyViewPick)),
-      el('div', { class: 'flex items-center gap-2 shrink-0' }, ...((_yoyLensOn && _yoyView !== 'all') ? [] : (comboWrap ? [comboWrap] : [scopesWrap])), metricSel)),
+      el('div', { class: 'flex items-center gap-2 shrink-0' }, ...((_yoyLensOn && _yoyView !== 'all') ? [] : (comboWrap ? [comboWrap] : [
+        // Compare on/off (per Isaac, Oct 28) — the picker only shows while it's on.
+        scopesWrap ? el('button', { type: 'button', class: 'rounded-xl border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
+          style: _yoyCompareOn() ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)', color: 'var(--text)', background: 'var(--card)' },
+          title: _yoyCompareOn() ? 'Compare is on — each picked office, team or rep is its own line. Click to turn off.' : 'Compare offices, teams and reps as separate lines',
+          onclick: () => { state._yoyCompare = !_yoyCompareOn(); try { localStorage.setItem('ridd_yoy_compare_v1', state._yoyCompare ? '1' : '0'); } catch (e) { /* per-session */ } state._yoyScopesOpen = !!state._yoyCompare; mountApp(); } }, 'Compare') : null,
+        _yoyCompareOn() ? scopesWrap : null,
+      ].filter(Boolean))), metricSel)),
     cvsWrap);
 }
 
