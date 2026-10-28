@@ -9953,11 +9953,8 @@ function repLandingPlayerCard(opts) {
             tierMeta && el('span', {
               class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded',
               style: { background: tierMeta.color + '22', color: tierMeta.color },
-            }, tierMeta.label),
-            // Revenue rides right beside the name (THE number) — pulled out
-            // of the tile grid so the remaining 9 tiles fill even 3-per-row
-            // rows on mobile.
-            el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-1' }, fmt.usd0(revenue)))),
+            }, tierMeta.label))),
+            // No revenue number beside the name (per Isaac, Oct 28) — the Revenue tile below already shows it.
         // Right column, pinned top-right: Team | Me toggle over the link
         // (per Isaac — the toggle used to float mid-row on phones).
         el('div', { class: 'flex flex-col items-end gap-1.5 shrink-0 self-start ml-auto' },
