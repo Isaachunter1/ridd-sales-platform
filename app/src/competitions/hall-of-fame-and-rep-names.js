@@ -1083,7 +1083,7 @@ function chartBucketsGrainLabel(buckets) {
 // count is also the denominator of PRA.
 const INDICATOR_METRICS = [
   { key: 'sold_accounts',  label: 'Subscriptions',    fmt: v => fmt.int(v) },
-  { key: 'revenue',        label: 'Revenue',          fmt: v => fmt.usd0(v) },
+  { key: 'revenue',        label: 'Total Revenue',    fmt: v => fmt.usd0(v) },   // "Total" so it never reads as New (per Isaac, Oct 28 — Office Staff also sell renewals)
   // New / Renewal revenue split — only SHOWN on the Office Staff table, but
   // defined here so RIDD totals + rankings compute them. Excluded from Power
   // Ranking scoring (they'd double-count Revenue).

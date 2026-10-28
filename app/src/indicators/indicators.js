@@ -2130,7 +2130,7 @@ function viewIndicators() {
       };
       // The three hard-coded context rows are hideable too (per Isaac) —
       // they ride the same hidden list under pseudo-keys.
-      const _CTX_EXTRA_ROWS = [['_pct_rev', '% of Revenue'], ['_reps_sale', 'Reps W/ A Sale'], ['_reps20k', 'Reps > $20K']];
+      const _CTX_EXTRA_ROWS = [['_pct_rev', '% of Total Revenue'], ['_reps_sale', 'Reps W/ A Sale'], ['_reps20k', 'Reps > $20K']];
       const _rowHidden = (key) => _hiddenKeys.includes(key);
       const _rowXBtn = (key) => (isAdminRole(state.profile?.role) && state._editMode) ? el('span', {
         class: 'ml-1.5 cursor-pointer select-none',
@@ -2298,8 +2298,8 @@ function viewIndicators() {
                   style: { background: 'var(--card)', zIndex: 1 },
                 },
                   // (collapse toggle lives on the divider bar now — per Isaac)
-                  '% of Revenue', _rowXBtn('_pct_rev'));
-                attachExplainer(cell, { title: '% of Revenue', desc: 'This column\u2019s revenue \u00f7 the RIDD total for the same window \u2014 the share of company production each ' + (groupBy === 'dept' ? 'department' : groupBy === 'teams' ? 'team' : 'branch') + ' is contributing.' });
+                  '% of Total Revenue', _rowXBtn('_pct_rev'));
+                attachExplainer(cell, { title: '% of Total Revenue', desc: 'This column\u2019s revenue \u00f7 the RIDD total for the same window \u2014 the share of company production each ' + (groupBy === 'dept' ? 'department' : groupBy === 'teams' ? 'team' : 'branch') + ' is contributing.' });
                 return el('tr', { class: 'border-t border-' },
                   cell,
                   ...sortedBranches.map(b => el('td', { class: 'px-3 py-2 text-center tabular-nums font-semibold', style: { color: 'var(--accent)' } },
@@ -4608,7 +4608,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const ROW_SECTIONS = [
       ['Volume', [
         ['sold',    'Subscriptions'],
-        ['revenue', 'Revenue'],
+        ['revenue', 'Total Revenue'],
       ]],
       ['Pricing', [
         ['avgInitial', 'Avg Initial'],
@@ -5944,7 +5944,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
   const COLS = [
     { key: 'share', label: '% Mix', w: 'w-14', total: () => el('div', { class: 'w-14 text-left tabular-nums font-bold shrink-0', style: { color: 'var(--accent)' } }, '100%'),
       row: (s) => el('div', { class: 'w-14 text-left tabular-nums font-bold shrink-0', style: { color: 'var(--accent)' } }, (s.share * 100).toFixed(1) + '%') },
-    { key: 'revenue', label: 'Revenue', w: 'w-24', total: () => el('div', { class: 'w-24 text-left tabular-nums shrink-0 font-black' }, fmt.usd0(T.rev)),
+    { key: 'revenue', label: 'Total Revenue', w: 'w-24', total: () => el('div', { class: 'w-24 text-left tabular-nums shrink-0 font-black' }, fmt.usd0(T.rev)),
       row: (s) => el('div', { class: 'w-24 text-left tabular-nums shrink-0 font-semibold' }, fmt.usd0(s.revenue)) },
     { key: 'avgInit', label: 'Avg Initial', w: 'w-24', title: 'Average initial price', total: () => el('div', { class: 'w-24 text-left tabular-nums shrink-0 font-bold' }, T.n > 0 ? fmt.usd0(T.init / T.n) : '—'),
       row: (s) => el('div', { class: 'w-24 text-left tabular-nums text-muted- shrink-0' }, s.avgInit > 0 ? fmt.usd0(s.avgInit) : '—') },
@@ -9958,7 +9958,7 @@ function _landingTiles(tile, m) {
     tile('Sales', fmt.int(m.count), m.ytd, ytdLabel),
     // One day picked (Today / Yesterday / a 1-day custom range): per-day is just the day's total (per Isaac, Oct 18).
     _win.oneDay
-      ? tile('Revenue', m.count ? fmt.usd0(m.revenue) : '\u2014', m.ytd, fmt.usd0(m.revenue) + ' \u00b7 ' + ytdLabel)
+      ? tile('Total Revenue', m.count ? fmt.usd0(m.revenue) : '\u2014', m.ytd, fmt.usd0(m.revenue) + ' \u00b7 ' + ytdLabel)
       : tile('Revenue/Day', m.sellDays ? fmt.usd0(m.revenue / m.sellDays) : '\u2014', m.ytd, fmt.usd0(m.revenue) + ' over ' + m.sellDays + ' selling days'),
     _win.oneDay
       ? tile('Accts', m.count ? fmt.int(m.count) : '\u2014', m.ytd, m.count + ' accounts \u00b7 ' + ytdLabel)
