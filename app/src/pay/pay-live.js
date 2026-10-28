@@ -90,7 +90,7 @@ function viewPayLive() {
     if (s.audit_status === 're_audit') return 'Held for re-audit';
     if (!booked(s)) return 'No initial booked after the sale';
     if (s.crm_paid_since_sale === false) return 'Card declined ' + (s.crm_declined_at ? fmt.dateShort(s.crm_declined_at) : '');
-    if (s.crm_audit === 'failed') return 'Failed Audit flag in FieldRoutes';
+    if ((typeof saleAuditFlag === 'function' ? saleAuditFlag(s) : s.crm_audit) === 'failed') return 'Failed Audit flag in FieldRoutes';   // renewals exempt (Oct 28)
     const ist = String(s.crm_initial_status || '').toLowerCase();
     if (!s.crm_serviced_at && ist !== 'completed') return 'Initial ' + (s.crm_initial_appt_at ? fmt.dateShort(String(s.crm_initial_appt_at).slice(0, 10)) : 'booked') + ' — approves once serviced';
     return 'Waiting on the audit';

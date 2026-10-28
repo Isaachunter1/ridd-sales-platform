@@ -171,7 +171,7 @@ function viewSales() {
       case 'service_date': return s.crm_serviced_at ? String(s.crm_serviced_at).slice(0, 10) : (s.crm_initial_appt_at ? String(s.crm_initial_appt_at).slice(0, 10) : '');
       case 'audit_status':    return s.audit_status || '';
       case 'audited_by':      return (state.allProfiles.find(p => p.id === s.audited_by)?.full_name || '').toLowerCase();
-      case 'crm_audit':       return s.crm_audit === 'passed' ? 2 : s.crm_audit === 'failed' ? 1 : 0;
+      case 'crm_audit':       return saleAuditFlag(s) === 'passed' ? 2 : saleAuditFlag(s) === 'failed' ? 1 : 0;
       case 'created_at':      return new Date(s.created_at || s.sold_date).getTime();
       default:                return '';
     }
@@ -902,8 +902,8 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                 // Office audit (FieldRoutes customer flag, per Isaac Sep 17 2026):
                 // Passed feeds the Charge Upfront % tier; Failed holds
                 // auto-approval for manual review until the office re-flags.
-                if (s.crm_audit === 'passed') lcChips.push(chip('✓ Audit', 'rgba(95,108,91,.16)', '#5F6C5B', 'Passed Audit flag in FieldRoutes — counts toward the Passed Audit % pay tier'));
-                else if (s.crm_audit === 'failed') lcChips.push(chip('✗ Audit', 'rgba(220,38,38,.12)', '#B91C1C', 'Failed Audit flag in FieldRoutes — auto-approval is on hold. Review it here, or fix it in the CRM and the next sync resumes the flow.'));
+                if (saleAuditFlag(s) === 'passed') lcChips.push(chip('✓ Audit', 'rgba(95,108,91,.16)', '#5F6C5B', 'Passed Audit flag in FieldRoutes — counts toward the Passed Audit % pay tier'));
+                else if (saleAuditFlag(s) === 'failed') lcChips.push(chip('✗ Audit', 'rgba(220,38,38,.12)', '#B91C1C', 'Failed Audit flag in FieldRoutes — auto-approval is on hold. Review it here, or fix it in the CRM and the next sync resumes the flow.'));
                 if (s.crm_days_past_due != null) {
                   lcChips.push(Number(s.crm_days_past_due) > 0
                     ? chip('⚠ ' + s.crm_days_past_due + 'd', 'rgba(220,38,38,.12)', '#B91C1C', 'Customer is ' + s.crm_days_past_due + ' day(s) past due' + (s.crm_balance != null ? ' · balance ' + fmt.usd(s.crm_balance) : ''))
@@ -1080,7 +1080,16 @@ function saleFlagBox(sale, field, editable, tip) {
   }, on ? '\u2713' : '\u2014');
 }
 // Audit column: the office's audit flag on the FieldRoutes customer card.
+// Renewals are exempt from the audit flag (per Isaac, Oct 28): the account still carries the Passed / Failed flag
+// from the ORIGINAL sale, so it says nothing about the renewal. A renewal is commissionable on the customer's next
+// treatment or next paid bill — the audit flag is never shown, required or held against it.
+function saleAuditFlag(sale) {
+  if (!sale || (typeof isRenewalSource === 'function' && sale.sale_kind !== 'upsell' && isRenewalSource(sale))) return null;
+  return sale.crm_audit || null;
+}
 function saleAuditChip(sale) {
+  if (sale && sale.sale_kind !== 'upsell' && typeof isRenewalSource === 'function' && isRenewalSource(sale))
+    return el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' }, title: 'Renewal — the audit flag on the account is from the original sale and doesn\u2019t apply. Commissionable on the next treatment or next paid bill.' }, 'n/a');
   const v = sale.crm_audit;
   const mk = (txt, bg, colr, tip) => el('span', { title: tip, class: 'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold whitespace-nowrap', style: { background: bg, color: colr } }, txt);
   if (v === 'passed') return mk('\u2713 Passed', 'rgba(95,108,91,.16)', '#5F6C5B', 'Passed Audit flag on the customer card in FieldRoutes');
@@ -2399,8 +2408,8 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
       const tracked = s.crm_paid_invoices != null || s.payroll_processed_at;
       return el('div', {
         class: 'px-4 py-2.5 cursor-pointer transition hover:brightness-95',
-        style: gridRow({ borderTop: i ? '1px solid var(--border)' : '0', background: _bk ? backendTint(s.lock_status) : saleStatusTint(s.audit_status), ...(!_bk && s.crm_audit === 'passed' ? { boxShadow: 'inset 3px 0 0 #15803D' } : {}) }),
-        title: s.crm_audit === 'passed' ? 'Passed Audit flag on the customer card in FieldRoutes' : undefined,
+        style: gridRow({ borderTop: i ? '1px solid var(--border)' : '0', background: _bk ? backendTint(s.lock_status) : saleStatusTint(s.audit_status), ...(!_bk && saleAuditFlag(s) === 'passed' ? { boxShadow: 'inset 3px 0 0 #15803D' } : {}) }),
+        title: saleAuditFlag(s) === 'passed' ? 'Passed Audit flag on the customer card in FieldRoutes' : undefined,   // never on renewals (Oct 28)
         onclick: (e) => { if (e.target.closest('select, button, input, textarea, a')) return; openSaleCommissionCard(s, { isAdmin, backend: _bk }); },   // small commission card, not the edit form (per Isaac, Oct 15)
       },
         el('div', { class: 'tabular-nums text-left', style: { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: '12px', fontWeight: '600', color: 'var(--text-subtle)' } }, String(i + 1).padStart(2, '0')),

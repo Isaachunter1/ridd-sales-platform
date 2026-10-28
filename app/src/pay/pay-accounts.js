@@ -60,7 +60,7 @@ function payAccountsLedger(prof, year) {
     when: typeof saleSoldWhen === 'function' ? saleSoldWhen(sale || { sold_date: d, crm_subscription_id: sid }) : fmt.dateShortYear(d),
     init: initOf(sale, r), pay: payOf(sale, r, d),
     aging: sale && sale.crm_days_past_due != null ? Number(sale.crm_days_past_due) : r && r.days_past_due != null ? Number(r.days_past_due) : null,
-    passed: !!(sale && sale.crm_audit === 'passed'),
+    passed: !!(sale && (typeof saleAuditFlag === 'function' ? saleAuditFlag(sale) : sale.crm_audit) === 'passed'),   // renewals never (Oct 28)
   });
   // Base plans.
   for (const r of snap) {
