@@ -2331,7 +2331,8 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
     service: [(s) => svcOf(s).toLowerCase(), 'asc'], term: [(s) => s.sale_kind === 'upsell' ? -1 : Number(s.contract_months) || 0, 'desc'],
     source: [(s) => srcOf(s).toLowerCase(), 'asc'], initial: [(s) => initOf(s) || '9999', 'asc'], sold: [soldKey, 'desc'],
     payment: [payRank, 'asc'], invoices: [(s) => Number(s.crm_paid_invoices) || 0, 'desc'], aging: [(s) => Number(s.crm_days_past_due) || 0, 'desc'],
-    amount: [(s) => (salesPayFeesOn() && Number(s.total_revenue) > 0 ? Number(s.total_revenue) : Number(s.revenue_amount)) || 0, 'desc'],   // sorts on what the cell shows status: [statusRank, 'asc'],
+    amount: [(s) => (salesPayFeesOn() && Number(s.total_revenue) > 0 ? Number(s.total_revenue) : Number(s.revenue_amount)) || 0, 'desc'],   // sorts on what the cell shows
+    status: [statusRank, 'asc'],
     lockdate: [(s) => (lockDateOf(s) || {}).d || '9999', 'asc'],
   };
   const [kf] = KEYS[S.key] || KEYS.sold;
