@@ -81,6 +81,18 @@ function indWorldTeamOf(rep) {
   return _indTeamDepts()[t] === w ? t : '';
 }
 // Does the current dashboard have any teams of its own?
+// Team filter (per Isaac, Oct 28): several teams can be picked at once to see them combined. Stored as ONE string,
+// names joined by '||' (so saved presets, the change fingerprint and the old single-team value all keep working).
+const IND_TEAM_SEP = '||';
+function indTeamFilterList(v) {
+  const raw = v === undefined ? state._indicatorRepTeamFilter : v;
+  if (Array.isArray(raw)) return raw.filter(Boolean);
+  return String(raw || '').split(IND_TEAM_SEP).filter(Boolean);
+}
+function indTeamFilterLabel(v) {
+  const l = indTeamFilterList(v).map(t => t === '__unassigned__' ? 'No team' : t);
+  return l.length <= 2 ? l.join(' + ') : l.length + ' teams';
+}
 function indWorldHasTeams() {
   const w = _indTeamWorld();
   if (!w) return true;
@@ -1456,9 +1468,30 @@ function viewIndicators() {
             el('option', { value: '', selected: !_staged.office }, 'All offices'),
             ..._offices.map(o => el('option', { value: o, selected: _staged.office === o }, String(o).split(' ').map(w => w[0] ? w[0].toUpperCase() + w.slice(1).toLowerCase() : '').join(' '))));
           const _teams = (typeof distinctTeams === 'function' ? distinctTeams() : []).filter(t => !(typeof isTeamExcluded === 'function' && isTeamExcluded(t)));
-          const teamSel = el('select', Object.assign({ onchange: e => { _staged.team = e.target.value; _markDirty(); } }, _selCls),
-            el('option', { value: '', selected: !_staged.team }, 'All teams'),
-            ..._teams.map(t => el('option', { value: t, selected: _staged.team === t }, t)));
+          // Team: a checkbox dropdown (per Isaac, Oct 28) — tick several teams to see them combined.
+          const teamSel = (() => {
+            const picked = new Set(indTeamFilterList(_staged.team));
+            const labelOf = () => picked.size ? indTeamFilterLabel([...picked]) : 'All teams';
+            const caret = el('span', { style: { opacity: '.6', marginLeft: 'auto' } }, '▾');
+            const lab = el('span', { class: 'truncate' }, labelOf());
+            const list = el('div', { class: 'flex flex-col', style: { display: 'none', marginTop: '4px', maxHeight: '220px', overflowY: 'auto', border: '1px solid var(--border-2)', borderRadius: '12px', padding: '4px 0', background: 'var(--card)' } });
+            const sync = () => {
+              _staged.team = [...picked].join(IND_TEAM_SEP); lab.textContent = labelOf(); _markDirty();
+              list.querySelectorAll('input[data-team]').forEach(cb => { cb.checked = picked.has(cb.dataset.team); });
+              const all = list.querySelector('input[data-all]'); if (all) all.checked = !picked.size;
+            };
+            const row = (text, input) => el('label', { class: 'flex items-center gap-2 px-3 py-1 text-[11px] cursor-pointer hover:brightness-95', style: { color: 'var(--text)' } }, input, el('span', { class: 'truncate' }, text));
+            list.appendChild(row('All teams', el('input', { type: 'checkbox', 'data-all': '1', checked: !picked.size, onchange: () => { picked.clear(); sync(); } })));
+            for (const t of _teams) {
+              list.appendChild(row(t, el('input', { type: 'checkbox', 'data-team': t, checked: picked.has(t),
+                onchange: (e) => { if (e.target.checked) picked.add(t); else picked.delete(t); sync(); } })));
+            }
+            const btn = el('button', Object.assign({}, _selCls, { type: 'button', class: _selCls.class + ' flex items-center gap-2 border text-left',
+              onclick: (e) => { e.stopPropagation(); list.style.display = list.style.display === 'none' ? 'flex' : 'none'; } }), lab, caret);
+            const wrap = el('div', {}, btn, list);
+            wrap._hl = btn;
+            return wrap;
+          })();
           const _tiers = (typeof REP_TIERS !== 'undefined') ? REP_TIERS : [];
           const tierSel = _tiers.length ? el('select', Object.assign({ onchange: e => { _staged.tier = e.target.value; _markDirty(); } }, _selCls),
             el('option', { value: '', selected: !_staged.tier }, 'All tiers'),
@@ -1484,7 +1517,7 @@ function viewIndicators() {
                   _fRow('Group',  hl(groupSel,  groupBy !== 'branch')),
                   _repLite ? null : _fRow('Office', hl(officeSel, !!state._indicatorRepOfficeFilter)),
                   // Admins get the Team pick on every user type (per Isaac, Oct 9) — every team is listed, so one team can be looked at from any dashboard.
-                  (_repLite || !(indWorldHasTeams() || isAdminRole(state.profile?.role))) ? null : _fRow('Team',   hl(teamSel,   !!state._indicatorRepTeamFilter)),
+                  (_repLite || !(indWorldHasTeams() || isAdminRole(state.profile?.role))) ? null : _fRow('Team',   (hl(teamSel._hl, !!state._indicatorRepTeamFilter), teamSel)),
                   (_repLite || !tierSel) ? null : _fRow('Tier', hl(tierSel, !!state._indicatorRepTierFilter)),
                 ];
               })(),
@@ -1782,7 +1815,7 @@ function viewIndicators() {
           if (!_repLite && !world && (state.indicatorDept || 'all') !== 'd2d') add(({ all: 'All rep types', office: 'Office Staff', techs: 'Technicians' })[state.indicatorDept || 'all'] || 'Type', () => { state.indicatorDept = 'd2d'; });
           if (groupBy !== 'branch') add('Grouped by ' + (groupBy === 'teams' ? 'team' : groupBy), () => { state.indicatorsGroupBy = 'branch'; });
           if (!_repLite && state._indicatorRepOfficeFilter) add(_tc(state._indicatorRepOfficeFilter), () => { state._indicatorRepOfficeFilter = ''; });
-          if (!_repLite && state._indicatorRepTeamFilter) add(state._indicatorRepTeamFilter === '__unassigned__' ? 'No team' : state._indicatorRepTeamFilter, () => { state._indicatorRepTeamFilter = ''; });
+          if (!_repLite && state._indicatorRepTeamFilter) add(indTeamFilterLabel(), () => { state._indicatorRepTeamFilter = ''; });
           if (!_repLite && state._indicatorRepTierFilter) add(state._indicatorRepTierFilter === 'rookie' ? 'Rookies' : state._indicatorRepTierFilter === 'vet' ? 'Vets' : state._indicatorRepTierFilter, () => { state._indicatorRepTierFilter = ''; });
           if (!chips.length) return null;
           const chip = (label, clear, quiet) => el('button', {
@@ -5004,6 +5037,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   const _activeUnassignedTeam = allReps.some(r => !r.team);
   if (tierFilter === '__unassigned__' && !_activeUnassignedTier) tierFilter = state._indicatorRepTierFilter = '';
   if (teamFilter === '__unassigned__' && !_activeUnassignedTeam) teamFilter = state._indicatorRepTeamFilter = '';
+  const _teamSet = teamFilter ? new Set(indTeamFilterList(teamFilter)) : null;   // several teams = combined (per Isaac, Oct 28)
   const nameSearch   = (state._indicatorRepNameSearch || '').trim().toLowerCase();
   // ── Rep pick (a "downline") ─────────────────────────────────────────────
   // Partners run downlines that cut across teams, so team/office filters
@@ -5025,9 +5059,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // and the Kobe board still skip them - those are about who to work with
     // now, not who produced.
     if (officeFilter && r.office !== officeFilter) return false;
-    if (teamFilter) {
-      if (teamFilter === '__unassigned__') { if (r.team) return false; }
-      else if (r.team !== teamFilter) return false;
+    if (_teamSet && _teamSet.size) {
+      if (!(r.team ? _teamSet.has(r.team) : _teamSet.has('__unassigned__'))) return false;
     }
     if (tierFilter) {
       if (tierFilter === '__unassigned__') { if (r.tier) return false; }
@@ -10458,7 +10491,7 @@ function indicatorYoYTrendChart() {
     // here, in which case each rep is its own line.
     const reps = sel.filter(sc => sc.t === 'rep');
     if (reps.length) return reps;
-    if (state._indicatorRepTeamFilter && state._indicatorRepTeamFilter !== '__unassigned__') return [{ t: 'team', v: state._indicatorRepTeamFilter }];
+    if (state._indicatorRepTeamFilter && state._indicatorRepTeamFilter !== '__unassigned__') return [{ t: 'team', v: indTeamFilterList().filter(t => t !== '__unassigned__').join(IND_TEAM_SEP) }];   // several teams = ONE combined line
     if (state._indicatorRepOfficeFilter) return [{ t: 'office', v: state._indicatorRepOfficeFilter }];
     return [{ t: 'co' }];
   })();
@@ -10473,13 +10506,14 @@ function indicatorYoYTrendChart() {
   const _YOY_DEPTS = [['office', 'Office Staff'], ['d2d', 'Sales Rep'], ['techs', 'Technician']];
   const _scopeLabelOf = (sc) => sc.t === 'co' ? _yoyCoLabel
     : sc.t === 'dept' ? ((_YOY_DEPTS.find(d => d[0] === sc.v) || [])[1] || String(sc.v || ''))
+    : sc.t === 'team' ? indTeamFilterLabel(sc.v)
     : String(sc.v || '');
   const _scopeKey = (sc) => sc.t + ':' + (sc.v || '');
   const _scopeMatchFn = (sc) => {
     if (sc.t === 'co') return () => true;
     if (sc.t === 'dept') return (s) => _indicatorDeptOf(s) === sc.v;
     if (sc.t === 'office') return (s) => _yoyOfficeOf(s) === sc.v;
-    if (sc.t === 'team') return (s) => (typeof getRepTeam === 'function' && getRepTeam(getCanonicalRepName(s.rep))) === sc.v;
+    if (sc.t === 'team') { const ts = new Set(indTeamFilterList(sc.v)); return (s) => ts.has((typeof getRepTeam === 'function' && getRepTeam(getCanonicalRepName(s.rep))) || ''); }
     return (s) => getCanonicalRepName(s.rep) === sc.v;   // rep
   };
   const buildAcc = (rawArr) => {
