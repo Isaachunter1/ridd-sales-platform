@@ -327,6 +327,74 @@ function _pacerClip(a, w) {
   const s = a.start > w.start ? a.start : w.start, e = a.end < w.end ? a.end : w.end;
   return s <= e ? { start: s, end: e } : null;
 }
+// ── Department pacer, tied to the date range (per Isaac, Oct 28) ────────────────────────────────────────────────
+// The All lens / admin dashboards: the bar is the picked range (Today, This Week, This Month…) against that
+// range's share of the department goal (Settings → Goals — its month-by-month allocation, spread over the
+// month's work days), with the same one line as the Me pacer (to go today / per work day needed / hit / missed)
+// and the annual goal kept underneath. Office Staff: New + Renewal bars; Sales Reps / Technicians: one bar.
+function deptRangePacer(dept) {
+  let R = _pacerRange(), _weekOf = false;
+  const _wt = dept === 'd2d' ? 'd2d' : dept === 'techs' ? 'techs' : 'office';
+  const yr = R.today.getFullYear();
+  const yearWin = { start: new Date(yr, 0, 1), end: new Date(yr, 11, 31) };
+  const isOffice = dept === 'office';
+  const G = isOffice ? (state.companyGoal || {}) : ((typeof deptGoalObj === 'function' ? deptGoalObj(dept === 'techs' ? 'tech' : 'd2d') : null) || {});
+  const _mon = (m) => (Array.isArray(m) && m.length === 12 && m.some(v => Number(v) > 0)) ? m.map(Number) : null;
+  const defs = isOffice
+    ? [{ key: 'new', label: 'New', color: '#DF643A', annual: Number(G.new_amount) || Math.round((Number(G.amount) || 0) * 0.75), monthly: _mon(G.monthly_new) },
+       { key: 'renewal', label: 'Renewal', color: '#5F6C5B', annual: Number(G.renewal_amount) || Math.round((Number(G.amount) || 0) * 0.25), monthly: _mon(G.monthly_renewal) }]
+    : (() => { const m = _mon(G.monthly); const a = m ? m.reduce((x, y) => x + (y || 0), 0) : (Number(G.amount) || 0);
+        return [{ key: 'all', label: dept === 'techs' ? 'Technician' : 'Sales Rep', color: '#DF643A', annual: a, monthly: m || (a > 0 && typeof worldDeptCurve === 'function' ? worldDeptCurve(dept).map(f => f * a) : null) }]; })();
+  // A range's goal: each work day carries its month's allocation ÷ that month's work days (no monthly split → the
+  // annual goal spread evenly over the year's work days).
+  const dayGoal = (d, def) => {
+    if (!goalIsWorkDay(_wt, d)) return 0;
+    if (def.monthly) { const mi = d.getMonth(); const n = goalWorkDays(_wt, new Date(d.getFullYear(), mi, 1), new Date(d.getFullYear(), mi + 1, 0)) || 1; return (Number(def.monthly[mi]) || 0) / n; }
+    const n = goalWorkDays(_wt, yearWin.start, yearWin.end) || 1; return def.annual / n;
+  };
+  const goalOf = (def, a, b) => { let t = 0; const d = new Date(a); const e = new Date(b); while (d <= e) { if (d.getFullYear() === yr) t += dayGoal(d, def); d.setDate(d.getDate() + 1); } return t; };
+  // A single day with no work scheduled shows that day's week (same as the Me pacer, Oct 18).
+  if (R.oneDay && !goalIsWorkDay(_wt, R.start)) {
+    const ws = new Date(R.start); ws.setDate(ws.getDate() - ws.getDay()); const we = new Date(ws); we.setDate(we.getDate() + 6);
+    R = Object.assign({}, R, { start: ws, end: we, oneDay: false, label: 'Week of ' + (ws.getMonth() + 1) + '/' + ws.getDate() }); _weekOf = true;
+  }
+  const PW = _pacerClip(R, yearWin);
+  const endOf = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59);
+  const acc = {}; defs.forEach(d => { acc[d.key] = { amt: 0, ytd: 0 }; });
+  for (const s of indicatorSales()) {
+    if (_indicatorDeptOf(s) !== dept) continue;
+    const d = _parseIndicatorDay(s); if (!d) continue;
+    const k = isOffice ? (_indicatorIsRenewal(s) ? 'renewal' : 'new') : 'all';
+    const v = Number(s.contractValue) || 0;
+    if (d >= R.start && d <= endOf(R.end)) acc[k].amt += v;
+    if (d.getFullYear() === yr && d <= endOf(R.today)) acc[k].ytd += v;
+  }
+  const strong = (t) => el('strong', { style: { color: 'var(--text)' } }, t);
+  const streams = defs.map(def => {
+    const goal = PW ? goalOf(def, PW.start, PW.end) : 0, actual = acc[def.key].amt;
+    let plan = null;
+    if (goal > 0 && PW) {
+      const p = goalPlan(_wt, PW, goal, actual);
+      const over = R.today > PW.end;
+      let text = over ? (actual >= goal ? el('span', {}, '\u2713 Goal hit \u00b7 ', strong('+' + fmt.usd0(actual - goal))) : el('span', {}, 'Missed by ', strong(fmt.usd0(goal - actual))))
+        : (p.left === 1 && +PW.start === +PW.end) ? (actual >= goal ? '' : el('span', {}, strong(fmt.usd0(goal - actual)), ' to go today'))
+        : p.need > 0 ? el('span', {}, strong(fmt.usd0(p.need)), ' / work day needed \u00b7 ' + p.left + ' day' + (p.left === 1 ? '' : 's') + ' left') : '';
+      if (_weekOf) text = el('span', {}, el('span', { style: { color: 'var(--text-subtle)' } }, 'This week \u00b7 '), text);
+      // The tick: how much of the range's goal should be in by now — its work days, each weighted by its month.
+      const doneEnd = new Date(R.today); doneEnd.setDate(doneEnd.getDate() - 1);
+      const sp = over ? 1 : (R.today <= PW.start ? 0 : Math.min(1, goalOf(def, PW.start, doneEnd < PW.end ? doneEnd : PW.end) / goal));
+      plan = { sp, noChip: true, need: p.need, left: p.left, text, tip: R.label + ': ' + fmt.usd0(goal) + ' goal \u2014 the ' + fmt.usd0(def.annual) + ' annual goal by its monthly allocation, over the range\u2019s work days (' + goalWorkRule(_wt) + ')' };
+    }
+    return { key: def.key, label: def.label, color: def.color, actual, target: goal, monthly: null, win: actual, plan,
+      annual: def.annual > 0 && R.pre !== 'this_year' ? { actual: acc[def.key].ytd, target: def.annual } : null };
+  });
+  const any = defs.some(d => d.annual > 0);
+  const hint = any ? '' : 'No goal set \u2014 add one in Settings \u2192 Goals' + (isOffice ? '' : ' \u2192 ' + (dept === 'techs' ? 'Technician' : 'Sales Rep'));
+  const range = { start: R.start, end: endOf(R.end) };
+  const _keep = state.dashDateRange; state.dashDateRange = 'today';
+  try { return dashboardGoalCard(range, { title: 'Revenue Pacer', simple: true, hint, streams }); }
+  finally { state.dashDateRange = _keep; }
+}
 function dashLensPacer(dept) {
   const v = dashLens(); if (v === 'all') return null;
   let R = _pacerRange(), _weekOf = false;
@@ -638,8 +706,8 @@ function viewWorldDashboard() {
   const _lensPacer = dashLensOn() && dashLens() !== 'all';   // Me / My Team: a personal / team pacer for EVERY user type (per Isaac, Oct 16)
   if ((dept === 'office' || _adminPacer || _lensPacer) && typeof dashboardGoalCard === 'function') {
     try {
-      const goal = _lensPacer ? dashLensPacer(dept)
-        : dept === 'office' ? dashboardGoalCard(getDateRange(state.dashDateRange), { simple: true }) : worldRevenuePacer(dept);   // two goal bars only (per Isaac, Oct 16)
+      // The department pacer follows the page's date range too (per Isaac, Oct 28) — same picker as everything else.
+      const goal = _lensPacer ? dashLensPacer(dept) : deptRangePacer(dept);
       if (goal) {
         goal.setAttribute('data-section', 'goal-pacer');
         const barHost = [...node.children].find(c => c.querySelector && c.querySelector('#indFixedBar'));
