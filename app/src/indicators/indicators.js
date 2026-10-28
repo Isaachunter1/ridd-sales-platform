@@ -4227,7 +4227,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             if (!state._recSubQ) state._recSubQ = {};
             const _q = String(state._recSubQ[scope] || '').trim().toLowerCase();
             const _openIdx = _sorted.findIndex(g => groupExpanded[scope] === g.name);
-            const _all = !!state._recSubShowAll[scope] || (_openIdx >= _LIM && !_q);
+            // Offices: always every branch, no search (per Isaac, Oct 28 — there are only ~10).
+            const _allBranches = scope === 'branch';
+            const _all = _allBranches || !!state._recSubShowAll[scope] || (_openIdx >= _LIM && !_q);
             // Rep scope (per Isaac, Oct 13): no list at all — just the search box; matches (and an open rep) show under it.
             const _searchOnly = scope === 'rep';
             const _vis = _searchOnly ? [] : (_all ? _sorted : _sorted.slice(0, _LIM));
@@ -4291,7 +4293,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               );
             };
             const _rows = _vis.map(_row);
-            if (_more > 0 && !_q && !_searchOnly) _rows.push(el('button', {
+            if (_more > 0 && !_q && !_searchOnly && !_allBranches) _rows.push(el('button', {
               class: 'rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition hover:brightness-95 self-center mt-1',
               style: { borderColor: 'var(--border-2)', color: 'var(--text)', background: 'var(--card)' },
               onclick: () => { state._recSubShowAll[scope] = !_all; mountApp(); },
@@ -4302,7 +4304,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               oninput: (e) => { state._recSubQ[scope] = e.target.value; clearTimeout(state._recSubQT); state._recSubQT = setTimeout(() => { mountApp(); requestAnimationFrame(() => { const n = document.querySelector('[data-rec-search="' + scope + '"]'); if (n) { n.focus(); const v = n.value; n.setSelectionRange(v.length, v.length); } }); }, 250); } });
             _inp.setAttribute('data-rec-search', scope);
             // Rep scope (per Isaac, Oct 28): the search box sits at the TOP; matches open under it.
-            if (_searchOnly) { _inp.classList.remove('mt-2'); _rows.unshift(_inp); } else _rows.push(_inp);
+            if (_searchOnly) { _inp.classList.remove('mt-2'); _rows.unshift(_inp); } else if (!_allBranches) _rows.push(_inp);
             if (_q || _hits.length) _rows.push(...(_hits.length ? _hits.slice(0, 25).map(_row) : [el('div', { class: 'text-[11px] text-muted- px-1' }, 'No ' + (_searchOnly ? '' : 'other ') + _noun + ' matches “' + _q + '”' + (_vis.some(g => String(g.name || '').toLowerCase().includes(_q)) ? ' — they’re in the top ' + _LIM + ' above.' : '.'))]));
             return _rows;
           })(),
