@@ -4105,7 +4105,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
 
       // Category-aware label for the date/period cell.
       const labelOf = (rec, cat) => cat === 'day' ? rec.date
-        : cat === 'week'  ? 'Wk ' + rec.weekStart
+        // Week = its Sunday, written like a day (per Isaac, Oct 28 — "Wk 2026-08-02" pushed the rows to two lines).
+        : cat === 'week'  ? (/^\d{4}-\d{2}-\d{2}$/.test(String(rec.weekStart || '')) ? Number(rec.weekStart.slice(5, 7)) + '/' + Number(rec.weekStart.slice(8, 10)) + '/' + rec.weekStart.slice(0, 4) : 'Wk ' + rec.weekStart)
         : cat === 'month' ? fmtMonth(rec.month)
         : /* pra */         rec.date;
       // Value column. For pra we show the per-rep average; everything
@@ -4119,9 +4120,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       // denominator of the metric.
       const subOf = (rec, cat) => {
         if (cat === 'pra') return rec.reps + ' rep' + (rec.reps === 1 ? '' : 's');
+        // Compact so every row is one line and the four tables line up (per Isaac, Oct 28): "18 subs · 7 reps".
         const metricBit = byMetric === 'count'
           ? fmt.usd0(rec.revenue || 0)
-          : _subWord(rec.count);
+          : rec.count + ' sub' + (rec.count === 1 ? '' : 's');
         const repsBit = rec.reps ? ' · ' + rec.reps + ' rep' + (rec.reps === 1 ? '' : 's') : '';
         return metricBit + repsBit;
       };
@@ -4140,12 +4142,12 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         }, '#' + (i + 1));
         const valueCell = el('td', { class: 'pl-2 pr-3 py-1.5 text-right' },
           el('div', { class: 'tabular-nums font-semibold' }, valueOf(rec, cat)),
-          el('div', { class: 'text-[9px] text-muted- tabular-nums' }, subOf(rec, cat)),
+          el('div', { class: 'text-[9px] text-muted- tabular-nums whitespace-nowrap' }, subOf(rec, cat)),
         );
         if (isGroupRow) {
           return el('tr', { class: 'border-t border-' },
             rankCell,
-            el('td', { class: 'px-2 py-1.5 font-semibold' }, scope === 'branch' ? titleCase(groupName) : groupName),
+            el('td', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap' }, scope === 'branch' ? titleCase(groupName) : groupName),
             el('td', { class: 'px-2 py-1.5 text-[10px] text-muted- tabular-nums whitespace-nowrap' }, labelOf(rec, cat)),
             valueCell,
           );
