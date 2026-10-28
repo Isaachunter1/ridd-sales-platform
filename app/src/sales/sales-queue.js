@@ -822,7 +822,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
               !showBackend && el('td', { class: 'px-2 py-2 text-right tabular-nums whitespace-nowrap text-muted-' }, fmt.usd(s.monthly_amount)),
               el('td', { class: 'px-2 py-2 text-right tabular-nums font-semibold whitespace-nowrap',
                 title: s.commission_split ? 'Commissionable ' + fmt.usd(s.revenue_amount) + ' of ' + fmt.usd(s.total_revenue) + ' on the account (add-ons credited to other users, tax and other fees are out)' : '' },
-                fmt.usd(s.revenue_amount), s.commission_split && Number(s.total_revenue) > Number(s.revenue_amount) + 0.005 ? el('div', { class: 'text-[9px] font-normal', style: { color: 'var(--text-muted)' } }, 'of ' + fmt.usd(s.total_revenue)) : null),
+                ...saleAmountNode(s, 'text-[9px] font-normal text-muted-')),
               cell(el('span', { class: 'text-muted- tabular-nums whitespace-nowrap' }, fmt.dateShortYear(s.sold_date))),
               cell((() => {
                 // Service Date (per Isaac): the initial service completion
@@ -2149,6 +2149,28 @@ function saleServiceWithAddOns(s, svcName, ao, opts) {
     base ? el('span', { style: addOnOnly ? { color: o.muted } : {} }, base) : null,
     ...list.map((a, i) => el('span', { style: { color: saleAddOnCredited(a) ? o.ok : o.bad } }, (base || i ? ' + ' : '+ ') + (a.service_name || 'Add-on'))));
 }
+// Settings → Commissions → "Pay reps on service fees" (app_settings.autolog.pay_service_fees, default ON). Read
+// once here too so the Sales tab knows before anyone opens Settings; same load + defaults as the admin page.
+function salesPayFeesOn() {
+  if (state._autolog === undefined && typeof supabase !== 'undefined' && supabase && !(typeof DEMO !== 'undefined' && DEMO)) {
+    state._autolog = null;
+    supabase.from('app_settings').select('value, updated_at').eq('key', 'autolog').maybeSingle().then(({ data, error }) => {
+      if (error || !data) return;   // not readable for this role — stays on the default
+      (state._settingsSeen = state._settingsSeen || {}).autolog = data.updated_at || null;
+      state._autolog = Object.assign({ enabled: false, start: '2026-01-01', types: ['Office Staff', 'Sales Rep', 'Technician'], auto_approve: true, lock_days: 90, lock_min_services: 2 }, data.value || {});
+      mountApp();
+    }).catch(() => { /* default */ });
+  }
+  const AL = state._autolog;
+  return !AL || AL.pay_service_fees !== false;
+}
+// The Amount cell (per Isaac, Oct 28): when reps ARE paid on service fees, show the account's total value alone —
+// no "of $X" line. Only when fees are switched OFF (reps not paid on them) does it show commissionable "of" total.
+function saleAmountNode(s, cls) {
+  const total = Number(s.total_revenue), rev = Number(s.revenue_amount) || 0;
+  if (salesPayFeesOn() && Number.isFinite(total) && total > 0) return [fmt.usd0 ? fmt.usd0(total) : fmt.usd(total)];
+  return [fmt.usd0 ? fmt.usd0(rev) : fmt.usd(rev), s.commission_split && total > rev + 0.005 ? el('div', { class: cls || 'text-[9px] font-normal text-muted-' }, 'of ' + fmt.usd(total)) : null];
+}
 function saleMissingServiceFee(s) {
   if (!s || s.sale_kind === 'upsell') return false;
   const lines = Array.isArray(s.commission_split) ? s.commission_split : null;
@@ -2299,7 +2321,7 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
     service: [(s) => svcOf(s).toLowerCase(), 'asc'], term: [(s) => s.sale_kind === 'upsell' ? -1 : Number(s.contract_months) || 0, 'desc'],
     source: [(s) => srcOf(s).toLowerCase(), 'asc'], initial: [(s) => initOf(s) || '9999', 'asc'], sold: [soldKey, 'desc'],
     payment: [payRank, 'asc'], invoices: [(s) => Number(s.crm_paid_invoices) || 0, 'desc'], aging: [(s) => Number(s.crm_days_past_due) || 0, 'desc'],
-    amount: [(s) => Number(s.revenue_amount) || 0, 'desc'], status: [statusRank, 'asc'],
+    amount: [(s) => (salesPayFeesOn() && Number(s.total_revenue) > 0 ? Number(s.total_revenue) : Number(s.revenue_amount)) || 0, 'desc'],   // sorts on what the cell shows status: [statusRank, 'asc'],
     lockdate: [(s) => (lockDateOf(s) || {}).d || '9999', 'asc'],
   };
   const [kf] = KEYS[S.key] || KEYS.sold;
@@ -2411,8 +2433,7 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
         el('div', { class: 'tabular-nums', style: { fontSize: '11px', color: Number(s.crm_days_past_due) > 0 ? bad : 'var(--text-muted)', fontWeight: Number(s.crm_days_past_due) > 0 ? '700' : '400' } }, (s.crm_days_past_due != null ? Number(s.crm_days_past_due) : 0) + 'd'),
         el('div', { class: 'text-left tabular-nums font-semibold', style: { fontSize: '15px' },
           title: s.commission_split ? 'Commissionable ' + fmt.usd(s.revenue_amount) + ' of ' + fmt.usd(s.total_revenue) + ' on the account' : '' },
-          fmt.usd0 ? fmt.usd0(s.revenue_amount) : fmt.usd(s.revenue_amount),
-          s.commission_split && Number(s.total_revenue) > Number(s.revenue_amount) + 0.005 ? el('div', { class: 'text-[9px] font-normal text-muted-' }, 'of ' + fmt.usd(s.total_revenue)) : null),
+          ...saleAmountNode(s)),
         el('div', { class: 'flex items-center gap-2', style: { minWidth: '0' }, title: s.crm_below_min ? 'Under the pricing minimum: ' + s.crm_below_min : '' }, _bk ? lockStatusSelect(s.id) : statusSelect(s.id)));   // (audit flag chips off the rows — per Isaac, Oct 15)
     }));
   // Never the page (per Isaac, Oct 28): when a window is narrower than the table's minimum, the CARD scrolls sideways
