@@ -220,7 +220,23 @@ function repTypeGroup(p) {
   if (isOfficeStaffProfile(p)) return 'office';
   return 'd2d';
 }
+// ⭐ Favorite rep type (per Isaac, Oct 28): anyone with the Rep type picker can star one in Filters, and that
+// dashboard is where they land. No star = the standard default (Office Staff for admins). Per user, kept on the
+// device and synced with the rest of their prefs (user_prefs).
+const FAV_WORLD_DASH = { inside: 'dashboard', d2d: 'd2d_dashboard', techs: 'techs', all: 'all_dashboard' };
+function _favWorldKey() { return 'ridd_fav_world_v1::' + ((state.profile && state.profile.id) || ''); }
+function getFavWorld() {
+  try { const v = localStorage.getItem(_favWorldKey()) || ''; return FAV_WORLD_DASH[v] ? v : ''; } catch (e) { return ''; }
+}
+function setFavWorld(m) {
+  try { if (m && FAV_WORLD_DASH[m]) localStorage.setItem(_favWorldKey(), m); else localStorage.removeItem(_favWorldKey()); } catch (e) { /* per-session only */ }
+  if (typeof pushUserPrefsSoon === 'function') pushUserPrefsSoon();
+}
 function defaultViewFor(p) {
+  if (p && typeof canWalkWorlds === 'function' && canWalkWorlds(p.role) && state.profile && p.id === state.profile.id) {
+    const fav = getFavWorld();
+    if (fav && (fav !== 'all' || (typeof canSeeAllWorld === 'function' && canSeeAllWorld(p.role)))) return FAV_WORLD_DASH[fav];
+  }
   const g = repTypeGroup(p);
   return g === 'tech' ? 'techs'
     : g === 'd2d' ? 'd2d_dashboard'
@@ -3011,7 +3027,7 @@ let _userPrefsPushTimer = null;
 function _collectUserPrefs() {
   const uid = state.profile && state.profile.id;
   if (!uid) return null;
-  const out = { repLayout: null, indPresets: null, viewLayouts: {} };
+  const out = { repLayout: null, indPresets: null, viewLayouts: {}, favWorld: getFavWorld() || null };
   try { out.repLayout = JSON.parse(localStorage.getItem(_repLayoutKeyForMe()) || 'null'); } catch (e) { /* skip */ }
   try { out.indPresets = JSON.parse(localStorage.getItem(_indPresetsKey()) || 'null'); } catch (e) { /* skip */ }
   try {
@@ -3048,6 +3064,13 @@ async function loadUserPrefs() {
     // server is the freshest cross-device truth.
     try { if (p.repLayout && Array.isArray(p.repLayout.order)) localStorage.setItem(_repLayoutKeyForMe(), JSON.stringify(p.repLayout)); } catch (e) { /* skip */ }
     try { if (Array.isArray(p.indPresets)) localStorage.setItem(_indPresetsKey(), JSON.stringify(p.indPresets)); } catch (e) { /* skip */ }
+    // Favorite rep type from another device: land there if nothing has been picked yet this session.
+    try {
+      if ('favWorld' in p && (p.favWorld || '') !== getFavWorld()) {
+        if (p.favWorld) localStorage.setItem(_favWorldKey(), p.favWorld); else localStorage.removeItem(_favWorldKey());
+        if (!state._navChosen && typeof IND_WORLD !== 'undefined' && IND_WORLD[state.view]) state.view = defaultViewFor(state.profile);
+      }
+    } catch (e) { /* skip */ }
     try {
       if (p.viewLayouts && typeof p.viewLayouts === 'object') {
         const pre = 'ridd_layout_v1::' + uid + '::';

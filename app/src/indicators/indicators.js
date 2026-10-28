@@ -1461,8 +1461,31 @@ function viewIndicators() {
           );
           const _selCls = { class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer w-full', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } };
           const _worldOpts = (_staged.world && typeof repWorldOptions === 'function') ? repWorldOptions(state.profile?.role) : [];
-          const worldSel = _worldOpts.length > 1 ? el('select', Object.assign({ onchange: e => { _staged.world = e.target.value; _markDirty(); } }, _selCls),
-            ..._worldOpts.map(([m, lab]) => el('option', { value: m, selected: _staged.world === m }, m === 'all' ? 'All rep types' : lab))) : null;
+          // Rep type: a compact picker + a ⭐ to make it your default dashboard (per Isaac, Oct 28).
+          const worldSel = _worldOpts.length > 1 ? (() => {
+            const sel = el('select', Object.assign({}, _selCls, { class: _selCls.class.replace(' w-full', ''), style: Object.assign({}, _selCls.style, { width: 'auto', minWidth: '150px' }),
+              onchange: e => { _staged.world = e.target.value; _markDirty(); paint(); } }),
+              ..._worldOpts.map(([m, lab]) => el('option', { value: m, selected: _staged.world === m }, m === 'all' ? 'All rep types' : lab)));
+            const star = el('button', { type: 'button', class: 'rounded-xl border px-2 py-1 text-[13px] leading-none transition hover:brightness-95',
+              onclick: (e) => {
+                e.stopPropagation();
+                const on = getFavWorld() === _staged.world;
+                setFavWorld(on ? '' : _staged.world);
+                const name = (_worldOpts.find(o => o[0] === _staged.world) || [])[1] || '';
+                if (typeof toast === 'function') toast(on ? 'Default cleared — you’ll open on Office Staff' : (_staged.world === 'all' ? 'All rep types' : name) + ' is now your default', 'ok');
+                paint();
+              } });
+            function paint() {
+              const on = getFavWorld() === _staged.world;
+              star.textContent = on ? '★' : '☆';
+              star.title = on ? 'Your default dashboard — click to clear' : 'Make this rep type your default dashboard';
+              Object.assign(star.style, on ? { color: 'var(--accent)', borderColor: 'var(--accent)' } : { color: 'var(--text-muted)', borderColor: 'var(--border-2)' });
+            }
+            paint();
+            const w = el('div', { class: 'flex items-center gap-1.5' }, sel, star);
+            w._hl = sel;
+            return w;
+          })() : null;
           const _offices = [...new Set((state._indicatorRawSales || []).map(x => x.office).filter(Boolean))].sort();   // raw CRM strings — the leaderboard matches on these exactly
           const officeSel = el('select', Object.assign({ onchange: e => { _staged.office = e.target.value; _markDirty(); } }, _selCls),
             el('option', { value: '', selected: !_staged.office }, 'All offices'),
