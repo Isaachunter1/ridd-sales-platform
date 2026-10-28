@@ -28,7 +28,7 @@
 //      SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY. Silently skips without them.
 
 const { createClient } = require('@supabase/supabase-js');
-const { applyFieldRoutesEnv, fieldRoutesBase, recordIntegrationStatus } = require('../lib/integrations.js');
+const { applyFieldRoutesEnv, fieldRoutesBase, recordIntegrationStatus, frOfficesCached, isRateLimited, FieldRoutesRateLimited } = require('../lib/integrations.js');
 const { requireSyncSecret } = require('../lib/sync-gate.js');
 const { makeIsAddOn, upsellSaleRow } = require('../lib/upsell-record.js');
 const { groupTicketItems, lineCreditOf } = require('../lib/add-on-streak.js');
@@ -38,13 +38,11 @@ async function fr(endpoint, params) {
   const q = new URLSearchParams({ authenticationKey: process.env.FIELDROUTES_AUTH_KEY || '', authenticationToken: process.env.FIELDROUTES_AUTH_TOKEN || '' });
   for (const [k, v] of Object.entries(params || {})) q.set(k, typeof v === 'string' ? v : JSON.stringify(v));
   if (Array.isArray(fr.officeIDs) && fr.officeIDs.length && !(params && 'officeIDs' in params) && !/^office\//.test(endpoint)) q.set('officeIDs', JSON.stringify(fr.officeIDs));
-  let res, txt;
-  for (let attempt = 0; ; attempt++) {
-    res = await fetch(frBase() + endpoint + '?' + q.toString()); txt = await res.text();
-    const limited = res.status === 429 || /too many requests|rate limit/i.test(txt.slice(0, 300));
-    if (!limited || attempt >= 2) break;
-    await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
-  }
+  // Rate limit (per Isaac, Oct 28): stop the run on the first one; later calls fail fast without touching the API.
+  if (fr.halted) throw new FieldRoutesRateLimited(endpoint);
+  const res = await fetch(frBase() + endpoint + '?' + q.toString()); const txt = await res.text();
+  fr.calls++;
+  if (isRateLimited(res.status, txt)) { fr.halted = true; throw new FieldRoutesRateLimited(endpoint); }
   let json; try { json = JSON.parse(txt); } catch (e) { throw new Error(endpoint + ': non-JSON (' + res.status + '): ' + txt.slice(0, 120)); }
   if (json.success === false || (json.errorMessage && json.errorMessage !== '')) throw new Error(endpoint + ': ' + (json.errorMessage || 'request failed'));
   return json;
@@ -55,6 +53,17 @@ const listOf = (got, key) => Array.isArray(got[key]) ? got[key] : Object.values(
 // (Oct 13) a recent run covers ~9k subscriptions instead of ~700, and 1,000 ids
 // plus the office list per URL is the size that failed in the deleted scan.
 const ID_BATCH = 250;
+fr.calls = 0; fr.halted = false;
+// What this worker reads off each subscription — a search record missing any of these is fetched with get instead.
+const SUB_FIELDS = ['subscriptionID', 'customerID', 'serviceType', 'soldBy', 'contractValue', 'recurringCharge', 'initialServiceTotal', 'recurringTicket'];
+// Changed-since marker (per Isaac, Oct 28 — FieldRoutes: "only request what changed since your last request").
+// The recent run used to re-read every subscription touched in the last 3 days, every 5 minutes. Now it reads the
+// ones touched since the last run that FINISHED (a failed or rate-limited run never moves the marker), minus a
+// 3-hour margin. FieldRoutes compares dates, so the marker is a calendar day, taken in Pacific time — the earliest
+// local date of any office — so no office's update can fall before it. The 3-day window still drives the
+// add-on appointment stamps below, and the nightly full sweep still reads everything.
+const MARKER_MARGIN_MS = 3 * 3600 * 1000;
+const pacificDay = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ms));
 const ROLE_OF_TYPE = { '0': 'office_staff', '1': 'technician', '2': 'sales_rep' };
 
 exports.handler = async (event) => {
@@ -64,11 +73,14 @@ exports.handler = async (event) => {
   if (!SUPABASE_URL || !SERVICE_ROLE) return { statusCode: 500, body: 'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY required' };
   // Credentials come from Settings → Data sources (public.integrations) first, Netlify env as the fallback.
   try { await applyFieldRoutesEnv(createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })); } catch (e) { /* env fallback */ }
-  if (frBase() && process.env.FIELDROUTES_AUTH_KEY) { fr.officeIDs = await require('../lib/integrations.js').frOfficeIds(fr); console.log('[fieldroutes] offices visible:', fr.officeIDs.length); }
+  fr.calls = 0; fr.halted = false;   // module state survives warm starts — reset per run
   if (!frBase() || !process.env.FIELDROUTES_AUTH_KEY || !process.env.FIELDROUTES_AUTH_TOKEN) return { statusCode: 200, body: 'fieldroutes env not set — skipped' };
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
   const log = { items: 0, addOns: 0, inserted: 0, updated: 0, sales: 0, unmatchedEmployees: 0 };
+  const runStartedAt = new Date().toISOString();
   try {
+    const OFF = await frOfficesCached(supabase, fr); fr.officeIDs = OFF.ids;
+    console.log('[fieldroutes] offices visible:', fr.officeIDs.length, OFF.cached ? '(cached)' : '(fresh)');
     const { data: alRow } = await supabase.from('app_settings').select('value').eq('key', 'autolog').maybeSingle();
     const AL = Object.assign({ enabled: false, start: '2026-01-01', upsells: 'manual', upsell_services: [], addons_lookback_days: 3 }, (alRow && alRow.value) || {});
     if (!AL.enabled) return { statusCode: 200, body: 'autolog disabled — skipped' };
@@ -92,13 +104,41 @@ exports.handler = async (event) => {
     log.mode = full ? 'full' : 'recent';
 
     // 1. Active subscriptions → their recurring (template) tickets.
-    const sq = full ? { active: 1 } : { active: 1, dateUpdated: { operator: '>=', value: from } };
-    const subIds = ((await fr('subscription/search', sq)).subscriptionIDs || []).map(String);
+    let changedFrom = from, markerIso = null;
+    if (!full) {
+      try {
+        const { data: mk } = await supabase.from('app_settings').select('value').eq('key', 'fr_addons_marker').maybeSingle();
+        const last = mk && mk.value && Date.parse(mk.value.last_ok_start);
+        if (last > 0) { const d = pacificDay(last - MARKER_MARGIN_MS); if (d > changedFrom) { changedFrom = d; markerIso = new Date(last - MARKER_MARGIN_MS).toISOString(); } }
+      } catch (e) { /* no marker → the full 3-day window */ }
+    }
+    log.changedFrom = changedFrom;
+    // includeData=1 on the recent run: the search returns the records, so no subscription/get batches. (The nightly
+    // full sweep reads every active subscription — too many for one response — and keeps the batched gets.)
+    const sq = full ? { active: 1 } : { active: 1, dateUpdated: { operator: '>=', value: changedFrom }, includeData: 1 };
+    const sres = await fr('subscription/search', sq);
+    const subIds = (sres.subscriptionIDs || []).map(String);
+    // A sale row logged since the marker (live pull, nightly RevHawk pass) for a plan FieldRoutes hasn't touched
+    // since — still inside the old 3-day window — is read too, so its revenue split lands as fast as before.
+    let lateSubs = new Set();
+    if (markerIso) {
+      try {
+        const { data: lateRows } = await supabase.from('sales').select('crm_subscription_id, sold_date').gte('created_at', markerIso).gte('sold_date', from).not('crm_subscription_id', 'is', null).limit(5000);
+        const have = new Set(subIds);
+        lateSubs = new Set((lateRows || []).map(r => String(r.crm_subscription_id)).filter(id => id && !have.has(id)));
+        subIds.push(...lateSubs);
+      } catch (e) { console.warn('[fr-addons] late sale lookup skipped:', e.message); }
+    }
+    log.lateSubs = lateSubs.size;
     // Run status on the FieldRoutes integration row (Settings → Data sources), so a
     // run that dies part-way is visible instead of silent (no run recorded since Oct 13).
     await recordIntegrationStatus(supabase, 'fieldroutes', { addons_last_start_at: new Date().toISOString(), addons_stage: 'reading ' + subIds.length + ' subscriptions (' + log.mode + ')' });
     const subs = {};
-    for (const part of chunk(subIds, ID_BATCH)) { const got = await fr('subscription/get', { subscriptionIDs: part.map(Number) }); listOf(got, 'subscriptions').forEach(x => { subs[String(x.subscriptionID)] = x; }); }
+    if (!full) listOf(sres, 'subscriptions').forEach(x => { if (x && typeof x === 'object' && SUB_FIELDS.every(f => x[f] !== undefined)) subs[String(x.subscriptionID)] = x; });
+    log.fromSearch = Object.keys(subs).length;
+    for (const part of chunk(subIds.filter(id => !subs[id]), ID_BATCH)) { const got = await fr('subscription/get', { subscriptionIDs: part.map(Number) }); listOf(got, 'subscriptions').forEach(x => { subs[String(x.subscriptionID)] = x; }); }
+    // The search is active-only; a late sale's plan read by id must be too.
+    lateSubs.forEach(id => { const x = subs[id]; if (x && String(x.active) !== '1') delete subs[id]; });
     // 2. subscription/get EMBEDS the recurring ticket, line items included
     //    (68003 dry run, Sep 29) — read it straight off the subscription.
     //    Only a sub that carries a bare ticket id falls back to ticket/get
@@ -164,7 +204,7 @@ exports.handler = async (event) => {
     });
     // FieldRoutes officeID → app office id, by name (same as the live pull).
     const officeByFr = new Map(); const officeByName = new Map((offQ.data || []).map(o => [String(o.name || '').trim().toLowerCase(), o.id]));
-    try { const got = await fr('office/get', {}); listOf(got, 'offices').forEach(o => { const id = officeByName.get(String(o.officeName || '').trim().toLowerCase()); if (id) officeByFr.set(String(o.officeID), id); }); } catch (e) { console.warn('[fr-addons] office lookup skipped:', e.message); }
+    try { OFF.offices.forEach(o => { const id = officeByName.get(String(o.officeName || '').trim().toLowerCase()); if (id) officeByFr.set(String(o.officeID), id); }); } catch (e) { console.warn('[fr-addons] office lookup skipped:', e.message); }
     const svcByName = new Map((svcQ.data || []).map(s => [String(s.name || '').trim().toLowerCase(), s.id]));
 
     // 6b. Revenue credit by account: split each subscription's contract
@@ -383,6 +423,9 @@ exports.handler = async (event) => {
         log.addOnAppts++;
       }
     } catch (e) { console.warn('[fr-addons] add-on appointments skipped:', e.message); }
+    log.calls = fr.calls;
+    if (fr.halted) throw new Error('stopped on a FieldRoutes rate limit after ' + fr.calls + ' call(s) — the marker stays put, next run resumes');
+    if (!full) { try { await supabase.from('app_settings').upsert({ key: 'fr_addons_marker', value: { last_ok_start: runStartedAt, at: new Date().toISOString() } }, { onConflict: 'key' }); } catch (e) { /* next run uses the older marker */ } }
     console.log('[fr-addons] done', JSON.stringify({ ...log, from, ms: Date.now() - started }));
     await recordIntegrationStatus(supabase, 'fieldroutes', { addons_last_run_at: new Date().toISOString(), addons_ok: true, addons_stage: 'done', addons_message: JSON.stringify({ ...log, ms: Date.now() - started }).slice(0, 400) });
     return { statusCode: 200, body: JSON.stringify({ ...log, from, ms: Date.now() - started }) };
