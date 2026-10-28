@@ -3816,7 +3816,18 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     if (!state._aggRecordsGroupExpanded) state._aggRecordsGroupExpanded = { branch: null, team: null, rep: null };
     if (state._aggRecordsGroupExpanded.rep === undefined) state._aggRecordsGroupExpanded.rep = null;
     const expanded = state._aggRecordsExpanded;
-    const byMetric = state._aggRecordsMetric;
+    // Record metric (per Isaac, Oct 28), same words as the other tables: Office Staff pick Total Revenue · New
+    // Revenue · Renewal Revenue · Subscriptions; Sales Reps / Technicians Total Revenue · Subscriptions. New and
+    // Renewal are revenue records over just those sales.
+    const _recOffice = state.indicatorDept === 'office';
+    const _REC_OPTS = _recOffice
+      ? [['revenue', 'Total Revenue'], ['new', 'New Revenue'], ['renewal', 'Renewal Revenue'], ['count', 'Subscriptions']]
+      : [['revenue', 'Total Revenue'], ['count', 'Subscriptions']];
+    const _recPick = _REC_OPTS.some(o => o[0] === state._aggRecordsMetric) ? state._aggRecordsMetric : 'revenue';
+    const byMetric = _recPick === 'count' ? 'count' : 'revenue';
+    const _recIsRen = (s) => typeof _indicatorIsRenewal === 'function' && _indicatorIsRenewal(s);
+    const _recKindOk = (s) => _recPick === 'new' ? !_recIsRen(s) : _recPick === 'renewal' ? _recIsRen(s) : true;
+    const _subWord = (n) => n + ' subscription' + (n === 1 ? '' : 's');
     // The card's own window (per Isaac, Oct 4): '' = follow the page range,
     // 'YYYY' = that calendar year, 'all' = all time. Picked from the Year
     // dropdown on the card.
@@ -3829,9 +3840,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // Records follow the page's Filters → Metric (per Isaac, Oct 16): Passed Audit there = passed-only records here.
     const _recAudit = state.indicatorPassedAudit === true ? 'passed' : 'all';
     const _recAuditOk = (s) => _recAudit === 'all' || /passed\s*audit/i.test(String(s.customerFlags || ''));
-    const recSales = !_recYear ? rawSales.filter(_recAuditOk) : (allRawSales || []).filter(s => {
+    const recSales = !_recYear ? rawSales.filter(s => _recAuditOk(s) && _recKindOk(s)) : (allRawSales || []).filter(s => {
       if (applyExclusion && isRepExcluded(s.rep)) return false;
-      if (!_recAuditOk(s)) return false;
+      if (!_recAuditOk(s) || !_recKindOk(s)) return false;
       if (_recYear === 'all') return true;
       const d = _parseIndicatorDay(s); return !!d && String(d.getFullYear()) === _recYear;
     });
@@ -3858,7 +3869,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // except the sales set, the metric and the team/alias config. Keyed on
     // the indicatorSales() array identity (it's cached per dept+filters),
     // the leaderboard scope, the metric and _indCfgRev.
-    const _recKeyMemo = [allRawSales.length, applyExclusion ? 1 : 0, isRange ? (rangeBounds ? rangeBounds.start + '..' + rangeBounds.end : 'r') : 'w', byMetric, (typeof _indCfgRev !== 'undefined') ? _indCfgRev : 0, state.indicatorDept || 'all', _recYear, _recAudit].join('|');
+    const _recKeyMemo = [allRawSales.length, applyExclusion ? 1 : 0, isRange ? (rangeBounds ? rangeBounds.start + '..' + rangeBounds.end : 'r') : 'w', _recPick, (typeof _indCfgRev !== 'undefined') ? _indCfgRev : 0, state.indicatorDept || 'all', _recYear, _recAudit].join('|');
     const _recMemo = (window._indRecordsMemo && window._indRecordsMemo.src === allRawSales && window._indRecordsMemo.key === _recKeyMemo) ? window._indRecordsMemo.val : null;
     const _recCompute = () => {
     const company = aggregateRecords(recSales, byMetric);
@@ -3967,7 +3978,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       // upstream helper attached it — gives a quick read on whether the
       // record was a team effort or one rep carrying the day.
       const primary   = byMetric === 'count' ? fmt.int(rec.count)    : fmt.usd0(rec.revenue);
-      const metricBit = byMetric === 'count' ? fmt.usd0(rec.revenue) : (rec.count + ' sale' + (rec.count === 1 ? '' : 's'));
+      const metricBit = byMetric === 'count' ? fmt.usd0(rec.revenue) : _subWord(rec.count);
       const repsBit   = rec.reps ? ' · ' + rec.reps + ' rep' + (rec.reps === 1 ? '' : 's') : '';
       // Phone (per Isaac, Oct 4): one column leaves room — the winner's NAME
       // sits big on the right, level with the number, and the detail line
@@ -3985,7 +3996,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // modes never hides the underlying total.
     const fmtPRA = (v) => byMetric === 'count' ? Number(v).toFixed(1) : fmt.usd0(v);
     const praSecondary = (rec) => byMetric === 'count'
-      ? (rec.reps + ' rep' + (rec.reps === 1 ? '' : 's') + ' · ' + rec.count + ' sale' + (rec.count === 1 ? '' : 's') + ' · ' + rec.date)
+      ? (rec.reps + ' rep' + (rec.reps === 1 ? '' : 's') + ' · ' + _subWord(rec.count) + ' · ' + rec.date)
       : (rec.reps + ' rep' + (rec.reps === 1 ? '' : 's') + ' · ' + fmt.usd0(rec.revenue) + ' · ' + rec.date);
 
     function praCell(rec, opts = {}) {
@@ -4110,7 +4121,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         if (cat === 'pra') return rec.reps + ' rep' + (rec.reps === 1 ? '' : 's');
         const metricBit = byMetric === 'count'
           ? fmt.usd0(rec.revenue || 0)
-          : (rec.count + ' sale' + (rec.count === 1 ? '' : 's'));
+          : _subWord(rec.count);
         const repsBit = rec.reps ? ' · ' + rec.reps + ' rep' + (rec.reps === 1 ? '' : 's') : '';
         return metricBit + repsBit;
       };
@@ -4146,7 +4157,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         );
       };
 
-      const valueColLabel = byMetric === 'count' ? 'Sales' : 'Revenue';
+      const valueColLabel = (_REC_OPTS.find(o => o[0] === _recPick) || [, 'Total Revenue'])[1];
       const miniTable = (title, cat, entries, isGroupTable) => {
         const headerCells = isGroupTable
           ? [
@@ -4251,7 +4262,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                     }, '▸'),
                     el('span', { class: 'font-bold' }, scope === 'branch' ? titleCase(g.name) : g.name),
                     el('span', { class: 'text-[10px] text-muted-' },
-                      subSales.length + ' sale' + (subSales.length === 1 ? '' : 's')),
+                      _subWord(subSales.length)),
                   ),
                   el('div', { class: 'text-[10px] text-muted- tabular-nums flex items-center gap-2 whitespace-nowrap' },
                     el('span', {}, 'Best Day'),
@@ -4295,7 +4306,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           el('div', { class: 'p-3' },
             // Hidden on phones (per Isaac, Oct 18): the table is max-content wide there, so this long line stretched it off-screen.
             el('div', { class: 'hidden sm:block text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' },
-              scopeLabel + ' · ' + (byMetric === 'count' ? 'sales' : 'revenue') + ' mode'
+              scopeLabel + ' · ' + (_REC_OPTS.find(o => o[0] === _recPick) || [, 'Total Revenue'])[1]
                 + (scope === 'rep' ? '' : ' · PRA gated to May 1 onward (≥' + praMin + ' rep' + (praMin === 1 ? '' : 's') + ')'),
             ),
             // Rep scope drops Top 10 PRA Days (per Isaac, Oct 18) — a PRA day is a group record, not a rep's.
@@ -4331,12 +4342,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const _recSel = (val, opts, on) => el('select', { class: 'rounded-lg border text-[11px] font-semibold cursor-pointer', style: _recPhone ? { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', padding: '2px 16px 2px 6px', fontSize: '11px', minWidth: '0', flex: '0 1 auto', maxWidth: '72px', backgroundPosition: 'right 5px center' } : { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', padding: '4px 6px', maxWidth: '104px' },
       onchange: (e) => { on(e.target.value); mountApp(); } }, ...opts.map(([v, l]) => el('option', { value: v, selected: v === val }, l)));
     const metricToggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
-      ...[
-        { id: 'revenue', label: 'Revenue' },
-        { id: 'count',   label: 'Sales' },
-      ].map(m => el('button', {
+      ..._REC_OPTS.map(([id, label]) => ({ id, label })).map(m => el('button', {
         class: 'px-2.5 py-1 text-[11px] font-semibold transition',
-        style: byMetric === m.id
+        style: _recPick === m.id
           ? { background: 'var(--accent)', color: 'var(--accent-text)' }
           : { background: 'transparent', color: 'var(--text)' },
         onclick: () => { state._aggRecordsMetric = m.id; mountApp(); },
@@ -4359,9 +4367,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           // Phone (per Isaac, Oct 4): no description, no date-range line — three
           // compact dropdowns beside the title: Year · Revenue/Sales · record.
           ? el('div', { class: 'flex items-center', style: { flexWrap: 'nowrap', gap: '4px', minWidth: '0', justifyContent: 'flex-end' } },
+              // Order (per Isaac, Oct 28): record (Day…) · year · metric.
+              _recSel(_recPeriod, [['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['year', 'Year'], ['pra', 'PRA']], (v) => { state._aggRecordsPeriod = v; }),
               _recSel(_recYear, [...[...new Set([String(new Date().getFullYear()), ..._recYears])].map(y => [y, y]), ['all', 'All']], (v) => { state._aggRecordsYear = v; }),
-              _recSel(byMetric, [['revenue', 'Rev'], ['count', 'Sales']], (v) => { state._aggRecordsMetric = v; }),
-              _recSel(_recPeriod, [['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['year', 'Year'], ['pra', 'PRA']], (v) => { state._aggRecordsPeriod = v; }))
+              (() => { const m = _recSel(_recPick, _REC_OPTS, (v) => { state._aggRecordsMetric = v; }); m.style.maxWidth = '140px'; return m; })())   // the metric names are long — it gets the room (Oct 28)
           : el('div', { class: 'flex items-center gap-3 flex-wrap' },
               _recSel(_recYear, [...[...new Set([String(new Date().getFullYear()), ..._recYears])].map(y => [y, y]), ['all', 'All time']], (v) => { state._aggRecordsYear = v; }),
               metricToggle,
@@ -4379,7 +4388,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                    el('th', { class: 'text-left p-2' }, 'Best Month'),
                    el('th', { class: 'text-left p-2', title: 'Biggest calendar year in the window. Only 2026 onward counts — earlier years show No data.' }, 'Best Year'),
                    el('th', { class: 'text-left p-2', title: byMetric === 'count'
-                     ? 'Highest sales ÷ active reps on a single day at this scope'
+                     ? 'Highest subscriptions ÷ active reps on a single day at this scope'
                      : 'Highest revenue ÷ active reps on a single day at this scope' }, 'Best PRA Day')]),
             ),
           ),
