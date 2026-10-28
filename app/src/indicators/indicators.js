@@ -1340,8 +1340,6 @@ function viewIndicators() {
               // season a rep mostly wants TODAY — so the four ranges people flip
               // between sit right on the bar instead of inside Filters.
               // Me · My Team · All … (per Isaac, Oct 16) — just before the date.
-              // Rep type picker + ★ first in the row (per Isaac, Oct 28) — same control as the Sales / Pay tabs.
-              (typeof repWorldPicker === 'function' && IND_WORLD[state.view]) ? repWorldPicker(({ office: 'inside', d2d: 'd2d', techs: 'techs', all: 'all' })[IND_WORLD[state.view]]) : null,
               dashLensOn() ? dashLensSwitch() : null,
               el('div', { class: 'inline-flex rounded-xl border overflow-hidden shrink-0', style: { borderColor: 'var(--border-2)', height: '28px', boxSizing: 'border-box' }, 'data-quick-range': '1' },   // same 28px box as Filters / 🏆 (per Isaac, Oct 16)
                 // ONE date button (per Isaac, Oct 12): it wears the current range's name; tap to pick another.
@@ -1653,27 +1651,9 @@ function viewIndicators() {
         // Custom date pickers still render in their own row below this bar
         // when the Date preset is Custom (see the dedicated row after the
         // toolbar div).
-          // 🏆 Manage Teams (per Isaac: the trophy is THE teams button now — the
-          // Power Ranking scoring picker lives inside Manage Teams).
-          (() => {
-            if (_repLite) return null;
-            const excludedNow = (typeof rankExcludedSet === 'function') ? rankExcludedSet() : new Set();
-            const icon = iconTrophy();
-            icon.style.width = '15px'; icon.style.height = '15px';
-            return el('button', {
-              class: 'relative rounded-xl border cursor-pointer transition hover:brightness-95 shrink-0 flex items-center justify-center text-[11px]',
-              // Square (per Isaac): same height as the Filters button beside it, width to match.
-              style: { color: excludedNow.size ? 'var(--accent)' : 'var(--text)', borderColor: excludedNow.size ? 'var(--accent)' : 'var(--border-2)', alignSelf: 'stretch', aspectRatio: '1 / 1', padding: '0', minWidth: '28px' },
-              title: 'Manage teams — assign reps, pick a color, and choose which offices/teams are scored in the Power Ranking'
-                + (excludedNow.size ? ' · ' + excludedNow.size + ' out of the ranking' : ''),
-              onclick: () => openManageTeamsModal(),
-            },
-              icon,
-              excludedNow.size ? el('span', {
-                class: 'absolute tabular-nums',
-                style: { top: '-5px', right: '-5px', minWidth: '14px', height: '14px', padding: '0 3px', borderRadius: '0', background: 'var(--accent)', color: '#3A1D12', fontSize: '9px', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-              }, String(excludedNow.size)) : null);
-          })(),
+          // (🏆 Manage Teams button removed from the dashboard per Isaac, Oct 28 — it lives in ⚙ Settings → Teams.)
+          // Rep type picker + ★ at the far right (per Isaac, Oct 28) — same control and spot as the Sales / Pay tabs.
+          (typeof repWorldPicker === 'function' && IND_WORLD[state.view]) ? repWorldPicker(({ office: 'inside', d2d: 'd2d', techs: 'techs', all: 'all' })[IND_WORLD[state.view]]) : null,
         // Manual-data mode (admin, THIS browser only): upload the CRM's
         // SalesReport CSV and pin the whole Indicators tab to it — a
         // side-by-side truth check against the sync. Amber pill = active.
