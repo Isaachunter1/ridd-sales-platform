@@ -525,8 +525,7 @@ function indRepAvatar(name, px) {
 }
 // Me vs the department (per Isaac, Oct 28): the Me lens is about the REP, so the department tables come off —
 // Leaderboard, the Indicators table, Power Ranking, company Records, Class Metrics (and, for admins, the
-// company Trends mini-grid; reps' own mini-grid is already personal). The compact My Rank card stands in for
-// the board. Pacer, player card, Trends and Sales Mix stay — they already scope to the lens.
+// company Trends mini-grid; reps' own mini-grid is already personal). Pacer, player card, Trends and Sales Mix stay — they already scope to the lens.
 const IND_ME_HIDE = ['rep-leaderboard', 'ind-table', 'power-charts', 'agg-records', 'class-metrics'];
 function indApplySectionOrder(page) {
   try {
@@ -2071,8 +2070,6 @@ function viewIndicators() {
     _isPartner && !_focusedComp && indShowMyCard() && indCardLensOk() && !(_repLayoutPrefs().hidden || []).includes('card') && partnerLandingCard(),
     // Admins with a linked FieldRoutes rep get their own card in the same spot (per Isaac, Oct 16).
     !_repLite && !_focusedComp && indShowMyCard() && indCardLensOk() && repLandingPlayerCard(),
-    // Me lens: the compact My Rank card rides under the player card (per Isaac, Oct 28).
-    !_focusedComp && myRankCard(),
     // Sales reps: Your Performance Trends sits right under the player card,
     // ahead of the Indicators table + Power Ranking (per Isaac).
     // Same spot for admins now (per Isaac, Oct 16): one page order for every user type.
@@ -2507,7 +2504,7 @@ function viewIndicators() {
           const prefs = _repLayoutPrefs();
           const builders = {
             // Every section is gated by the Settings → Permissions matrix.
-            card:  () => [...((!_isPartner && indShowMyCard() && indCardLensOk()) ? [repLandingPlayerCard()] : []), myRankCard()].filter(Boolean),   // linked FieldRoutes rep only (per Isaac, Oct 16); analyst layout pins it at page top instead
+            card:  () => (!_isPartner && indShowMyCard() && indCardLensOk()) ? [repLandingPlayerCard()] : [],   // linked FieldRoutes rep only (per Isaac, Oct 16); analyst layout pins it at page top instead
             yoy:   () => (!_repSalesLayout && userCan('ind_yoy')) ? [indLazy('yoy', () => indicatorYoYTrendChart(), null, 380)] : [],   // sales reps: pinned under the player card instead
             trend: () => userCan('ind_trend') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-indsection') === 'repTrend') : [],
             board: () => userCan('ind_board') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'rep-leaderboard') : [],
@@ -9987,7 +9984,7 @@ function _landingAttritionPct(rows) {
   } catch { return null; }
 }
 
-// ── My Rank (per Isaac, Oct 28): on the Me lens the department tables come off; this compact card shows where
+// ── My Rank — RETIRED from the page (per Isaac, Oct 28, same day); kept for reuse. On the Me lens the department tables come off; this compact card shows where
 // the rep stands instead — rank by revenue in the department over the page's date range, the two reps either
 // side, and what it takes to pass the next one. The full leaderboard lives on the team / department views.
 function myRankCard() {
