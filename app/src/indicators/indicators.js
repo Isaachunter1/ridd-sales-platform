@@ -1473,8 +1473,8 @@ function viewIndicators() {
               ...(() => {
                 const hl = (node, on) => { if (node && on) { node.style.borderColor = 'var(--accent)'; node.style.boxShadow = '0 0 0 2px rgba(223,100,58,.25)'; } return node; };
                 return [
-                  _fRow('Rep type', worldSel),   // first row — it switches the whole dashboard (per Isaac, Oct 28)
                   _fRow('Saved views', indPresetRibbon({ inline: true })),
+                  _fRow('Rep type', worldSel),   // right under Saved views — it switches the whole dashboard (per Isaac, Oct 28)
                   _metricLocked ? null : _fRow('Audit', auditBtn),   // right under Saved views (per Isaac, Oct 16)
                   _metricLocked ? null : _fRow('Metric', hl(metricSel, (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced')),
                   // Type is the Office Staff / D2D / Technicians switch on the Sales dashboards — only the stand-alone page still picks it here.
