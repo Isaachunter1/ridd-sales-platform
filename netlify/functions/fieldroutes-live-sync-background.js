@@ -13,7 +13,7 @@
 // Off until all three FieldRoutes vars exist AND app_settings.autolog.enabled.
 
 const { createClient } = require('@supabase/supabase-js');
-const { applyFieldRoutesEnv, fieldRoutesBase, recordIntegrationStatus } = require('../lib/integrations.js');
+const { applyFieldRoutesEnv, fieldRoutesBase, recordIntegrationStatus, frOfficesCached, isRateLimited, FieldRoutesRateLimited } = require('../lib/integrations.js');
 const { requireSyncSecret } = require('../lib/sync-gate.js');
 
 let EXCLUDED_SVCS = new Set(require('../lib/rules.js').FR_GLOBAL_EXCLUDED);   // refreshed per run with admin-Hidden service types
@@ -36,22 +36,28 @@ async function fr(endpoint, params) {
   });
   for (const [k, v] of Object.entries(params || {})) q.set(k, typeof v === 'string' ? v : JSON.stringify(v));
   if (Array.isArray(fr.officeIDs) && fr.officeIDs.length && !(params && 'officeIDs' in params) && !/^office\//.test(endpoint)) q.set('officeIDs', JSON.stringify(fr.officeIDs));
-  // FieldRoutes rate limit (429 / "too many requests"): back off and retry
-  // twice before giving up, and count it so the log says why a run was thin.
-  let res, txt;
-  for (let attempt = 0; ; attempt++) {
-    res = await fetch(base + endpoint + '?' + q.toString());
-    txt = await res.text();
-    const limited = res.status === 429 || /too many requests|rate limit/i.test(txt.slice(0, 300));
-    if (!limited || attempt >= 2) break;
-    fr.rateLimited = (fr.rateLimited || 0) + 1;
-    await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
-  }
+  // FieldRoutes rate limit (per Isaac, Oct 28): stop the whole run on the first one — no retries, and every later
+  // call this run fails fast without touching the API (fr.halted). The next scheduled run resumes.
+  if (fr.halted) throw new FieldRoutesRateLimited(endpoint);
+  const res = await fetch(base + endpoint + '?' + q.toString());
+  const txt = await res.text();
+  fr.calls++;
+  if (isRateLimited(res.status, txt)) { fr.halted = true; fr.rateLimited++; throw new FieldRoutesRateLimited(endpoint); }
   let json; try { json = JSON.parse(txt); } catch (e) { throw new Error(endpoint + ': non-JSON response (' + res.status + '): ' + txt.slice(0, 120)); }
   if (json.success === false || (json.errorMessage && json.errorMessage !== '')) throw new Error(endpoint + ': ' + (json.errorMessage || 'request failed'));
   return json;
 }
-fr.rateLimited = 0;
+fr.rateLimited = 0; fr.calls = 0; fr.halted = false;
+// includeData=1 (per FieldRoutes' guidance, Oct 28): subscription/search hands back the records themselves, so the
+// separate subscription/get calls go away. A record is only used when it carries every field this worker reads;
+// anything missing or incomplete is fetched with subscription/get exactly as before.
+const SUB_FIELDS = ['subscriptionID', 'customerID', 'dateAdded', 'serviceType', 'initialAppointmentID', 'contractValue', 'recurringCharge', 'soldBy', 'agreementLength', 'initialServiceTotal'];
+function searchRecords(got, key, fields) {
+  const list = Array.isArray(got[key]) ? got[key] : Object.values(got[key] || {});
+  const m = new Map();
+  list.forEach(x => { if (x && typeof x === 'object' && fields.every(f => x[f] !== undefined)) m.set(String(x.subscriptionID), x); });
+  return m;
+}
 const chunk = (arr, n) => { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; };
 const norm = (x) => String(x || '').trim().toLowerCase();
 // Signed via customer notes (per Isaac, Oct 14): when a customer e-signs,
@@ -156,16 +162,26 @@ exports.handler = async (event) => {
   if (!SUPABASE_URL || !SERVICE_ROLE) return { statusCode: 500, body: 'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY required' };
   // Credentials come from Settings → Data sources (public.integrations) first, Netlify env as the fallback.
   try { await applyFieldRoutesEnv(createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })); } catch (e) { /* env fallback */ }
-  if (frBase() && process.env.FIELDROUTES_AUTH_KEY) { fr.officeIDs = await require('../lib/integrations.js').frOfficeIds(fr); console.log('[fieldroutes] offices visible:', fr.officeIDs.length); }
+  fr.calls = 0; fr.rateLimited = 0; fr.halted = false;   // module state survives warm starts — reset per run
   if (!frBase() || !process.env.FIELDROUTES_AUTH_KEY || !process.env.FIELDROUTES_AUTH_TOKEN) {
     console.log('[fr-live] FieldRoutes API env not set — skipping');
     return { statusCode: 200, body: 'fieldroutes env not set — skipped' };
   }
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
+  let locked = false;
   try {
     const { data: alRow } = await supabase.from('app_settings').select('value').eq('key', 'autolog').maybeSingle();
     const AL = Object.assign({ enabled: false, start: '2026-01-01', types: ['Office Staff', 'Sales Rep', 'Technician'], require_appt: true, require_billing: true, require_signed: true }, (alRow && alRow.value) || {});
     if (!AL.enabled) return { statusCode: 200, body: 'autolog disabled — skipped' };
+    // One run at a time (per Isaac, Oct 28): a run that starts while the last is still going would re-read the same
+    // records. The lock expires after 4 minutes so a run that died never blocks the next one.
+    const { data: lk } = await supabase.from('app_settings').select('value').eq('key', 'fr_live_running').maybeSingle();
+    if (lk && lk.value && !lk.value.done && Date.now() - Date.parse(lk.value.at || 0) < 4 * 60 * 1000) { console.log('[fr-live] previous run still going — skipped'); return { statusCode: 200, body: 'previous run still going — skipped' }; }
+    await supabase.from('app_settings').upsert({ key: 'fr_live_running', value: { at: new Date().toISOString(), done: false } }, { onConflict: 'key' });
+    locked = true;
+    // Office list: cached a day (lib/integrations.js frOfficesCached) instead of two calls every run.
+    const OFF = await frOfficesCached(supabase, fr); fr.officeIDs = OFF.ids;
+    console.log('[fieldroutes] offices visible:', fr.officeIDs.length, OFF.cached ? '(cached)' : '(fresh)');
     EXCLUDED_SVCS = await require('../lib/rules.js').loadNonSaleServices(supabase);
     const TYPES = new Set(Array.isArray(AL.types) && AL.types.length ? AL.types : Object.keys(QUEUE_OF));
     const since = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
@@ -173,8 +189,9 @@ exports.handler = async (event) => {
     const from = since > START ? since : START;
 
     // 1. Which subscriptions were added since `from`?
-    const search = await fr('subscription/search', { dateAdded: { operator: '>=', value: from } });
+    const search = await fr('subscription/search', { dateAdded: { operator: '>=', value: from }, includeData: 1 });
     const ids = (search.subscriptionIDs || []).map(String);
+    const subData = searchRecords(search, 'subscriptions', SUB_FIELDS);   // the records themselves, when complete
     if (!ids.length) { await recordIntegrationStatus(supabase, 'fieldroutes', { last_run_at: new Date().toISOString(), last_run_ok: true, last_run_message: 'no new subscriptions since ' + from, last_run_ms: Date.now() - started }); return { statusCode: 200, body: 'no new subscriptions' }; }
 
     // 2. Already logged? (either by this worker or the nightly pass)
@@ -184,8 +201,8 @@ exports.handler = async (event) => {
     // (Already-logged subs get their amounts trued up in step 3b.)
 
     // 3. Details + the people/lookups to attribute them.
-    const subs = [];
-    for (const part of chunk(fresh, 1000)) {
+    const subs = fresh.map(id => subData.get(id)).filter(Boolean);
+    for (const part of chunk(fresh.filter(id => !subData.has(id)), 1000)) {
       const got = await fr('subscription/get', { subscriptionIDs: part.map(Number) });
       const list = Array.isArray(got.subscriptions) ? got.subscriptions : Object.values(got.subscriptions || {});
       subs.push(...list);
@@ -233,8 +250,7 @@ exports.handler = async (event) => {
     const officeNameByFrId = new Map();   // FieldRoutes officeID → CRM office name (the TV live feed)
     const officeByName = new Map((offQ.data || []).map(o => [norm(o.name), o.id]));
     try {
-      const og = await fr('office/get', {});
-      const list = Array.isArray(og.offices) ? og.offices : Object.values(og.offices || {});
+      const list = OFF.offices;   // cached with the office ids
       list.forEach(o => { if (o.officeName) officeNameByFrId.set(String(o.officeID), String(o.officeName)); const id = officeByName.get(norm(o.officeName)); if (id) officeByFrId.set(String(o.officeID), id); });
     } catch (e) { console.warn('[fr-live] office lookup skipped:', e.message); }
     const svcByName = new Map((svcQ.data || []).map(o => [norm(o.name), o.id]));
@@ -339,9 +355,12 @@ exports.handler = async (event) => {
       if (known.length) {
         const { data: cur } = await supabase.from('sales').select('id, crm_subscription_id, crm_initial_status').in('crm_subscription_id', known);
         const curBy = new Map((cur || []).map(r => [String(r.crm_subscription_id), r]));
-        for (const part of chunk(known, 1000)) {
+        const list = known.map(id => subData.get(id)).filter(Boolean);
+        for (const part of chunk(known.filter(id => !subData.has(id)), 1000)) {
           const got = await fr('subscription/get', { subscriptionIDs: part.map(Number) });
-          const list = Array.isArray(got.subscriptions) ? got.subscriptions : Object.values(got.subscriptions || {});
+          list.push(...(Array.isArray(got.subscriptions) ? got.subscriptions : Object.values(got.subscriptions || {})));
+        }
+        {
           for (const s of list) {
             liveSubs.set(String(s.subscriptionID), s);
             const row = curBy.get(String(s.subscriptionID)); if (!row) continue;
@@ -418,7 +437,8 @@ exports.handler = async (event) => {
     // signed at 2:24 PM, but one-time / no-account sales are never logged as
     // app sales, so the TV only had the day-old snapshot to go on). The TV reads
     // this list for CRM sales with no app row. Written only when it changes.
-    if (_anySigned) {
+    // A run stopped by a rate limit saw only part of the picture — never publish a shrunken list from it.
+    if (_anySigned && !fr.halted) {
       try {
         const idsNow = [...signedRecent].sort();
         const { data: cur } = await supabase.from('app_settings').select('value').eq('key', 'crm_signed_recent').maybeSingle();
@@ -482,6 +502,7 @@ exports.handler = async (event) => {
         });
       }
       rows.sort((a, b) => a.subscriptionId.localeCompare(b.subscriptionId));
+      if (fr.halted) throw new Error('rate-limited run — feed left as it was');
       const { data: cur } = await supabase.from('app_settings').select('value').eq('key', 'crm_live_recent').maybeSingle();
       const prevRows = (cur && cur.value && Array.isArray(cur.value.rows)) ? cur.value.rows : null;
       if (JSON.stringify(prevRows) !== JSON.stringify(rows)) {
@@ -536,13 +557,16 @@ exports.handler = async (event) => {
         }
       } catch (e) { console.warn('[fr-live] true-up skipped:', e.message); }
     }
-    const msg = '[fr-live] ' + ids.length + ' subs since ' + from + ' across ' + ((fr.officeIDs || []).length || 'the key’s home') + ' office(s) · +' + added + ' logged · ' + fixed + ' trued up · ' + apptFlipped + ' appt status changed · ' + signFlipped + ' newly signed · ' + (relinked ? relinked + ' handed to newly linked rep(s) · ' : '') + (livePublished ? livePublished + ' live row(s) published · ' : '') + skippedNoRep + ' seller(s) with no app account (logged unlinked) · ' + skippedType + ' skipped by type · ' + skippedNotYet + ' logged but not yet eligible (appt/billing/signed) · ' + svcCreated + ' service type(s) created · ' + (Date.now() - started) + 'ms';
-    console.log(msg + (fr.rateLimited ? ' · ' + fr.rateLimited + ' rate-limited retr' + (fr.rateLimited === 1 ? 'y' : 'ies') : ''));
-    await recordIntegrationStatus(supabase, 'fieldroutes', { last_run_at: new Date().toISOString(), last_run_ok: true, last_run_message: msg.replace('[fr-live] ', ''), last_run_ms: Date.now() - started, rate_limited: fr.rateLimited || 0 });
+    const msg = '[fr-live] ' + ids.length + ' subs since ' + from + ' across ' + ((fr.officeIDs || []).length || 'the key’s home') + ' office(s) · +' + added + ' logged · ' + fixed + ' trued up · ' + apptFlipped + ' appt status changed · ' + signFlipped + ' newly signed · ' + (relinked ? relinked + ' handed to newly linked rep(s) · ' : '') + (livePublished ? livePublished + ' live row(s) published · ' : '') + skippedNoRep + ' seller(s) with no app account (logged unlinked) · ' + skippedType + ' skipped by type · ' + skippedNotYet + ' logged but not yet eligible (appt/billing/signed) · ' + svcCreated + ' service type(s) created · ' + (Date.now() - started) + 'ms · ' + fr.calls + ' FieldRoutes call(s)' + (fr.halted ? ' · STOPPED on a rate limit' : '');
+    console.log(msg);
+    if (fr.halted) console.warn('[fr-live] stopped early on a FieldRoutes rate limit — the next run picks up the rest');
+    await recordIntegrationStatus(supabase, 'fieldroutes', { last_run_at: new Date().toISOString(), last_run_ok: !fr.halted, last_run_message: msg.replace('[fr-live] ', ''), last_run_ms: Date.now() - started, rate_limited: fr.rateLimited || 0 });
     return { statusCode: 200, body: msg };
   } catch (e) {
     console.error('[fr-live]', e);
-    await recordIntegrationStatus(supabase, 'fieldroutes', { last_run_at: new Date().toISOString(), last_run_ok: false, last_run_message: String((e && e.message) || e).slice(0, 300) });
+    await recordIntegrationStatus(supabase, 'fieldroutes', { last_run_at: new Date().toISOString(), last_run_ok: false, last_run_message: String((e && e.message) || e).slice(0, 300), rate_limited: fr.rateLimited || 0 });
     return { statusCode: 500, body: String((e && e.message) || e) };
+  } finally {
+    if (locked) { try { await supabase.from('app_settings').upsert({ key: 'fr_live_running', value: { at: new Date().toISOString(), done: true } }, { onConflict: 'key' }); } catch (e) { /* expires on its own */ } }
   }
 };
