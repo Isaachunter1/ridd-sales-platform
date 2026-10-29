@@ -1794,7 +1794,7 @@ function reportingWaterfall() {
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
         el('div', {},
-          el('h3', { class: 'text-base font-bold' }, '🌱 Retention by Start Month' + (label ? ' — ' + label : ''))),
+          el('h3', { class: 'text-base font-bold' }, 'Retention by Start Month' + (label ? ' — ' + label : ''))),
         el('div', { class: 'flex items-center gap-2' },
           el('div', { class: 'inline-flex', style: { border: '1px solid var(--border-2)' } },
             ...[['pct', '% kept'], ['count', 'Subs left']].map(([k, l]) => el('button', {
@@ -2550,7 +2550,7 @@ function reportingWaterfall() {
     _shell('Customer Lifetime', lifetimeCard),                       // Customer Lifetime follows the trends chart (per Isaac)
     _shell('Cohort Waterfall', _pm('ret:blended', () => renderBlended(pop))),
     _shell('Monthly Churn', _pm('ret:seasonality', () => seasonalityCard(pop, label))),
-    _shell('\ud83c\udf31 Retention by Start Month', _pm('ret:cohorts', () => startCohortCard(pop, label))));   // (LTV card retired per Isaac, Sep 2026)
+    _shell('Retention by Start Month', _pm('ret:cohorts', () => startCohortCard(pop, label))));   // (LTV card retired per Isaac, Sep 2026)
 
   const body = inCompare
     ? el('div', { class: 'flex flex-col gap-4' },
