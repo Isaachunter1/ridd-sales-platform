@@ -915,10 +915,9 @@ function viewIndicators() {
     return { homeOf, qualified, agg };
   })();
   const _reps20kOf = (b) => { let n = 0; _praHome.qualified.forEach(r => { if (_praHome.homeOf[r] === b) n++; }); return n; };
-  branches.forEach(b => {
-    if (isRange && rawSalesAvailable) {
-      const ss = _rangeGroups[b] || [];
-      if (!ss.length) { branchData[b] = null; return; }
+  // One column's numbers from its windowed sales (range mode, raw sales). inGroup(k) says which column keys this
+  // column covers — one branch/team, or several teams combined on the phone (per Isaac, Oct 29).
+  const _rangeStatsOf = (ss, inGroup) => {
       const count = ss.length;
       const rev = ss.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
       const revRenewal = ss.reduce((a, s) => a + (_indicatorIsRenewal(s) ? (Number(s.contractValue) || 0) : 0), 0);
@@ -942,12 +941,16 @@ function viewIndicators() {
       const reps = new Set(ss.map(s => s.rep).filter(Boolean)).size;
       // $20K PRA qualification — company-wide bar, home-column attribution
       // (see _praHome above). Each qualified rep counts in exactly one column.
-      const reps20k = _reps20kOf(b);
+      // inGroup null = a pooled team column (phone): the $20K reps who sold in it, with what they sold in it.
+      const _repsHere = inGroup ? null : new Set(ss.map(s => s.rep).filter(Boolean));
+      let reps20k = 0; _praHome.qualified.forEach(r => { if (inGroup ? inGroup(_praHome.homeOf[r]) : _repsHere.has(r)) reps20k++; });
       // PRA (per Isaac, Oct 28) is two numbers: PRA = total revenue ÷ every rep with a sale; PRA · $20K+ = what the
       // reps who cleared $20K sold here ÷ how many of them — real average production, not diluted by someone who
       // sold one account and quit. (A $20K rep counts in the one column where they sold the most.)
-      let rev20k = 0; _praHome.qualified.forEach(r => { if (_praHome.homeOf[r] === b) rev20k += (_praHome.agg[r] && _praHome.agg[r].by[b]) || 0; });
-      branchData[b] = {
+      let rev20k = 0;
+      if (inGroup) _praHome.qualified.forEach(r => { const h = _praHome.homeOf[r]; if (inGroup(h)) rev20k += (_praHome.agg[r] && _praHome.agg[r].by[h]) || 0; });
+      else ss.forEach(s => { if (_praHome.qualified.has(s.rep)) rev20k += Number(s.contractValue) || 0; });
+      return {
         sold_accounts: count,
         revenue: rev,
         new_revenue: rev - revRenewal,
@@ -969,6 +972,12 @@ function viewIndicators() {
         last_resort_pct: count > 0 ? lastResort / count : 0,
         reps,
       };
+  };
+  branches.forEach(b => {
+    if (isRange && rawSalesAvailable) {
+      const ss = _rangeGroups[b] || [];
+      if (!ss.length) { branchData[b] = null; return; }
+      branchData[b] = _rangeStatsOf(ss, (k) => k === b);
       return;
     }
     const rows = isRange
@@ -2245,7 +2254,20 @@ function viewIndicators() {
       // Admins default to the RIDD (company) column; reps/partners to their own branch.
       const _narrowT = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
       let _branchSel = null;
-      if (_narrowT && sortedBranches.length > 1) {
+      // Phone (per Isaac, Oct 29): the column follows the Team pick in Filters. Teams picked = ONE column with
+      // those teams' sales pooled (whatever the grouping), beside RIDD. No team = all teams: just RIDD on the
+      // Teams grouping; the office picker as before on the others.
+      const _comboTeams = (_narrowT && _rangeGroups) ? indTeamFilterList().filter(t => t !== '__unassigned__') : [];
+      const _comboSet = new Set(_comboTeams.map(t => String(t).toLowerCase()));
+      const _comboSales = _comboTeams.length ? Object.values(_rangeGroups).flat().filter(x => _comboSet.has(String(teamOfSale(x) || '').toLowerCase())) : [];
+      const _comboLabel = _comboTeams.length ? (_comboTeams.length <= 2 ? _comboTeams.map(t => t.split(' ').map(w => (w[0] || '') + w.slice(1).toLowerCase()).join(' ')).join(' + ') : _comboTeams.length + ' teams') : '';
+      const _salesOf = (x) => x === '__combo__' ? _comboSales : ((_rangeGroups && _rangeGroups[x]) || []);
+      if (_comboTeams.length) {
+        branchData.__combo__ = _comboSales.length ? _rangeStatsOf(_comboSales, null) : null;
+        sortedBranches = ['__combo__'];
+      } else if (_narrowT && groupBy === 'teams' && _rangeGroups) {
+        sortedBranches = [];
+      } else if (_narrowT && sortedBranches.length > 1) {
         const homeBranch = (() => {
           const pool = _rangeGroups ? Object.entries(_rangeGroups) : [];
           const mineTeams = (typeof myReachTeams === 'function') ? myReachTeams() : new Set();
@@ -2293,21 +2315,22 @@ function viewIndicators() {
                 // its peer columns — same card as a rep, fed the group's sales.
                 ...sortedBranches.map((b, i) => (() => {
                   // The owners' RIDD team reads "RIDD Direct" so it can't be mistaken for the RIDD total column.
-                  const _lbl = (groupBy === 'teams' && typeof isOwnerTeam === 'function' && isOwnerTeam(b)) ? 'RIDD Direct' : b.split(' ').map(w => (w[0] || '') + w.slice(1).toLowerCase()).join(' ');
-                  const _canOpen = !!(_rangeGroups && (_rangeGroups[b] || []).length);
+                  const _lbl = b === '__combo__' ? _comboLabel : (groupBy === 'teams' && typeof isOwnerTeam === 'function' && isOwnerTeam(b)) ? 'RIDD Direct' : b.split(' ').map(w => (w[0] || '') + w.slice(1).toLowerCase()).join(' ');
+                  const _canOpen = !!(_rangeGroups && _salesOf(b).length);
+                  const _gc = b === '__combo__' ? (_comboTeams.length === 1 ? getGroupColor(_comboTeams[0]) : '#DF643A') : getGroupColor(b);
                   // Rank-excluded columns (trophy picker) read as OUT of the
                   // competition: faded header with a strike through the name.
                   // (Excluded columns are NOT faded on the table anymore —
                   // the exclusion reads in the 🏆 dropdown instead, per Isaac.)
                   return el('th', {
                     class: 'text-center px-3 py-2 text-[10px] uppercase tracking-wider font-bold' + (_canOpen ? ' cursor-pointer select-none' : ''),
-                    style: { background: getGroupColor(b), color: groupHeaderTextColor(getGroupColor(b)), minWidth: '100px' },
+                    style: { background: _gc, color: groupHeaderTextColor(_gc), minWidth: '100px' },
                     title: _canOpen ? 'Open the ' + _lbl + ' player card' : '',
                     onclick: _canOpen ? () => {
                       const peers = sortedBranches
-                        .map(x => ({ name: x.split(' ').map(w => (w[0] || '') + w.slice(1).toLowerCase()).join(' '), sales: _rangeGroups[x] || [] }))
+                        .map(x => ({ name: x === '__combo__' ? _comboLabel : x.split(' ').map(w => (w[0] || '') + w.slice(1).toLowerCase()).join(' '), sales: _salesOf(x) }))
                         .filter(p => p.sales.length);
-                      openIndicatorRepCard(_scopeRep({ name: _lbl, sales: _rangeGroups[b] }, () => true), peers);
+                      openIndicatorRepCard(_scopeRep({ name: _lbl, sales: _salesOf(b) }, () => true), peers);
                     } : undefined,
                   },
                     sort.key ? (i + 1) + '. ' : '',
