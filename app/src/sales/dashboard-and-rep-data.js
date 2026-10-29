@@ -3381,10 +3381,13 @@ const showRep = !!(opts && opts.showRep);
   };
   const keyFn = SORTERS[sort.key] || SORTERS.sold;
   const dirMul = sort.dir === 'asc' ? 1 : -1;
+  // opts.limit (per Isaac, Oct 29): sort EVERY row first, then show the top N — a header click on the player
+  // card's Sales list re-orders the whole list, not just the 25 already showing.
+  const _lim = opts && Number(opts.limit) > 0 ? Number(opts.limit) : Infinity;
   const sorted = [...sales].sort((a, b) => {
     const va = keyFn(a), vb = keyFn(b);
     return (va < vb ? -1 : va > vb ? 1 : 0) * dirMul;
-  });
+  }).slice(0, _lim);
   const hSort = (key, label, cls) => el('th', {
     class: cls + ' cursor-pointer select-none hover:underline',
     style: sort.key === key ? { color: 'var(--accent)', fontWeight: '800' } : {},
@@ -4062,8 +4065,8 @@ function openIndicatorRepCard(rep, allReps = []) {
   // Render the full account list for an expanded leaderboard row. Pulls
   // every CSV-derived field so the user can investigate why each account
   // is active vs cancelled (cancel date, cancel reason, autopay, etc.).
-  function accountsTable(sales) {
-    return _indAccountsTable(sales, _acctSort, (st) => { _acctSort = st; renderBody(); });
+  function accountsTable(sales, opts) {
+    return _indAccountsTable(sales, _acctSort, (st) => { _acctSort = st; renderBody(); }, opts);
   }
 
   // '2026-10-04' → '10/4/2026' (Best Day's format).
@@ -4960,14 +4963,13 @@ function openIndicatorRepCard(rep, allReps = []) {
         // Latest 25, then Show more (per Isaac, Oct 16); Export still takes every row.
         const SHOW = 25, host = el('div');
         const paint = () => {
-          const rows = _salesShowAll ? list : list.slice(0, SHOW);
-          const tblNode = accountsTable(rows);
+          const tblNode = accountsTable(list, { limit: _salesShowAll ? 0 : SHOW });   // sorted over all rows, then cut
           host.replaceChildren(tblNode,
             list.length > SHOW ? el('button', {
               class: 'w-full text-[11px] font-bold py-2 border-t transition hover:brightness-95',
               style: { color: 'var(--accent)', background: 'var(--card-2)', borderColor: 'var(--border)' },
               onclick: (e) => { e.stopPropagation(); _salesShowAll = !_salesShowAll; paint(); },
-            }, _salesShowAll ? '\u25B4 Show latest ' + SHOW : '\u25BE Show more (' + fmt.int(list.length - SHOW) + ' more)') : null);
+            }, _salesShowAll ? '\u25B4 Show first ' + SHOW : '\u25BE Show more (' + fmt.int(list.length - SHOW) + ' more)') : null);
           _freezeFirstCols(tblNode, 2);   // Customer + Cust ID stay put
         };
         paint();
