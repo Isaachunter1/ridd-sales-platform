@@ -11259,9 +11259,12 @@ function indicatorYoYTrendChart() {
       // Reps only (per Isaac, Sep 24): everything else — type, office, team,
       // tier, date range, exclusions — comes from the page-header Filters.
       // Picked reps overlay as their own lines; none picked = the header scope.
+      // Compare on (per Isaac, Oct 29): the search sits at the TOP of the panel, pinned while the list scrolls,
+      // and narrows offices, teams and reps alike. Compare off: the trigger box is the search, as before.
+      _yoyCompareOn() ? el('div', { class: 'px-1.5 pb-1.5 sticky', style: { paddingTop: '2px', top: '-6px', background: 'var(--card)', zIndex: 1 } }, repSearch) : null,
       placeList,
       secTitle('Reps'),
-      el('div', { class: 'px-1.5 pb-1' }, repSearch),
+      _yoyCompareOn() ? null : el('div', { class: 'px-1.5 pb-1' }, repSearch),
       repList,
       (_sApply = el('button', {
         class: 'w-full rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95 mt-1 sticky',
@@ -11298,15 +11301,17 @@ function indicatorYoYTrendChart() {
     const btn = el('input', {
       type: 'text', autocomplete: 'off',
       placeholder: _nReps ? (_nReps === 1 ? _scopeLabelOf(_yoySelScopes[0]) : _nReps + (_yoyCompareOn() ? ' compared' : ' reps')) : (_yoyCompareOn() ? 'Pick offices, teams, reps\u2026' : 'Search rep\u2026'),
+      readOnly: _yoyCompareOn(),   // compare on: the panel's own search (top) takes the typing
       class: 'rounded-lg border px-2.5 py-1 text-[11px]',
       style: { borderColor: _nReps ? 'var(--accent)' : 'var(--border-2)', minWidth: '160px', background: 'var(--card)', color: 'var(--text)' },
       title: _yoyCompareOn() ? 'Compare offices, teams and reps — each pick is its own line' : 'Overlay specific reps as their own lines',
-      onfocus: openPanel,
-      onclick: (e) => { e.stopPropagation(); openPanel(); },
+      onfocus: () => { openPanel(); if (_yoyCompareOn()) setTimeout(() => { try { repSearch.focus(); } catch (e) { /* gone */ } }, 0); },
+      onclick: (e) => { e.stopPropagation(); openPanel(); if (_yoyCompareOn()) repSearch.focus(); },
       oninput: (e) => { openPanel(); paintReps(e.target.value); },
     });
-    // The panel's own search box is redundant now — the trigger IS the search.
-    repSearch.style.display = 'none';
+    // Compare off: the trigger IS the search, so the panel's own box stays hidden.
+    if (!_yoyCompareOn()) repSearch.style.display = 'none';
+    else repSearch.placeholder = 'Search offices, teams, reps\u2026';
     if (state._yoyScopesOpen) { panel.style.display = 'block'; clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
       if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
       if (wrap.contains(ev.target)) return;
