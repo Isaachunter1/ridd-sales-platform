@@ -1076,15 +1076,15 @@ function deletedCustIdSet() {
   const set = new Set();   // (manual deleted-ID list retired per Isaac, Sep 30 — deletions come from the sync's checks only)
   const _ex = state._crmExcluded;
   if (_ex && reportingAutoExcludeOrphans()) _ex.orphans.forEach(id => set.add(id));
-  if (_ex && reportingExclStalePending()) _ex.stale.forEach(id => set.add(id));
   // Auto-detected orphans: subscriptions whose customer id has NO customer
   // record in FieldRoutes any more (deleted in the CRM). Flagged by the sync
   // as customer_missing; excluded here unless an admin turns the rule off.
   if (reportingAutoExcludeOrphans()) for (const id of (state._orphanCustIds || [])) set.add(id);
   // Nightly FieldRoutes scan: ids the CRM no longer returns (same switch).
   if (reportingAutoExcludeOrphans()) for (const id of (state._crmDeletedIds || [])) set.add(id);
-  // Stale pending ghosts (active, never serviced, initial appt long passed).
-  if (reportingExclStalePending()) for (const id of (state._stalePendingCustIds || [])) set.add(id);
+  // Stale pending: no longer excluded automatically (per Isaac, Oct 29). A Pending initial more than a week past
+  // goes to Auditing → Possibly deleted customers; the ones an admin marks Deleted are held here for good.
+  if (typeof crmDeletedConfirmedIds === 'function') crmDeletedConfirmedIds().forEach(id => set.add(String(id)));
   return set;
 }
 function reportingAutoExcludeOrphans() {
