@@ -5544,6 +5544,24 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             setTimeout(() => document.addEventListener('mousedown', function closer(ev) { if (!(ev.target.closest && ev.target.closest('[data-dd="lbcols"]'))) { document.removeEventListener('mousedown', closer); if (state._indLbColsOpen) { state._indLbColsOpen = false; mountApp(); } } }), 0);
             return wrap;
           })(),
+          // 📄 Top-10 PDF (per Isaac, Oct 29 — back on the leaderboard, admins only): top overall + top rookies, the
+          // full active roster whatever the page filters (same report as Settings → Brand downloads).
+          (isAdminRole(state.profile?.role) && !_lbPhone) ? (() => {
+            const b = el('button', {
+              class: 'rounded-lg border ' + _lbBtnPad + ' py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
+              style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, title: 'Download the leaderboard PDF — top 10 overall + top 10 rookies',
+              onclick: async (e) => {
+                e.stopPropagation();
+                const reps = (typeof _lbAllRepsForReport === 'function') ? _lbAllRepsForReport() : [];
+                if (!reps.length) { toast('Leaderboard still loading — try again in a moment', 'info'); return; }
+                b.disabled = true; b.textContent = '…';
+                try { await downloadRookieVetPdf(reps, { limitOverall: 10, limitRookie: 10 }); }
+                catch (err) { console.error('[ridd] leaderboard PDF threw', err); toast('PDF failed: ' + (err.message || 'unknown'), 'error'); }
+                finally { b.disabled = false; b.textContent = '📄 PDF'; }
+              },
+            }, '📄 PDF');
+            return b;
+          })() : null,
 
           // (New / Total / Renewal switch retired per Isaac, Oct 16 — New Revenue / Renewal Revenue are their own columns.)
           (() => {
@@ -8725,14 +8743,14 @@ function buildRookieVetReportNode(allReps, opts = {}) {
   return el('div', {}, page, ...(page2 ? [page2] : []));
 }
 
-async function downloadRookieVetPdf(allReps) {
+async function downloadRookieVetPdf(allReps, opts) {
   try {
     await loadPdfLibsOnce();
   } catch {
     toast('Could not load PDF libraries — check your connection', 'error');
     return;
   }
-  const reportEl = buildRookieVetReportNode(allReps);
+  const reportEl = buildRookieVetReportNode(allReps, opts || {});
   reportEl.style.position = 'fixed';
   reportEl.style.left     = '-99999px';
   reportEl.style.top      = '0';
