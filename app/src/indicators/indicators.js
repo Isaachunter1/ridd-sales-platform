@@ -6101,7 +6101,10 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
     const _PX = { 'w-12': 52, 'w-14': 60, 'w-16': 68, 'w-20': 84, 'w-24': 96 };
     const _nb2 = narrow && opts.noBars;   // player card on a phone: name · total · metric · attrition
     const _tpl = _nb2 ? 'minmax(0, 1fr) 34px 78px 52px'
-      : (narrow ? '112px ' : (opts.noBars ? 'minmax(150px, 200px) ' : 'minmax(200px, 240px) ')) + (opts.noBars ? '48px' : 'minmax(120px, 1fr)') + ' ' + cols.map(c => c.key === 'attr' ? 'minmax(96px, 1fr)' : (_PX[c.w] || 72) + 'px').join(' ');
+      : narrow ? '112px minmax(120px, 1fr) ' + cols.map(c => c.key === 'attr' ? 'minmax(96px, 1fr)' : (_PX[c.w] || 72) + 'px').join(' ')
+      // Desktop (per Isaac, Oct 29): the metric columns share the spare width instead of leaving it empty on the
+      // right — each keeps its minimum and grows evenly; the bar column takes a larger share.
+      : (opts.noBars ? 'minmax(150px, 200px) 48px ' : 'minmax(200px, 240px) minmax(120px, 2.5fr) ') + cols.map(c => 'minmax(' + (c.key === 'attr' ? 96 : (_PX[c.w] || 72)) + 'px, 1fr)').join(' ');
     const _grid = { display: 'grid', gridTemplateColumns: _tpl, columnGap: _nb2 ? '8px' : '12px', alignItems: 'center' };
     body.replaceChildren(el('div', { class: narrow ? '' : 'scroll-x' }, el('div', { style: narrow ? {} : { minWidth: opts.noBars ? '860px' : '930px' } },
       el('div', { class: 'text-[10px] uppercase tracking-wider text-muted- font-semibold pb-1.5', style: _grid },
