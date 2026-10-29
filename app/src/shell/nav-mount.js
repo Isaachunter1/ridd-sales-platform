@@ -69,7 +69,7 @@ const TECH_TAB_KEYS = new Set(TECH_TABS.map(([k]) => k));
 // Office staff only (Permissions → Loyalty); admins always.
 const LOYALTY_TABS = [
   ['loyalty_renewals', 'Renewals'],
-  ['loyalty_health',   'Customer Health'],
+  ['loyalty_health',   'Proactive Outreach'],
 ];
 const LOYALTY_TAB_KEYS = new Set(LOYALTY_TABS.map(([k]) => k));
 function loyaltySubTabs() {

@@ -1127,8 +1127,8 @@ function reportingWaterfall() {
     });
     const rowsSel = el('select', { class: 'px-2.5 py-1 text-[11px] font-bold cursor-pointer', style: { border: '1px solid var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, title: 'What each row of the waterfall is',
       onchange: (e) => { state._rtWfDim = e.target.value; mountApp(); } },
-      el('option', { value: 'year', selected: wfDim === 'year' }, 'Rows: Cohort year'),
-      ...Object.entries(SEM_DIMENSIONS).map(([k, d]) => el('option', { value: k, selected: wfDim === k }, 'Rows: ' + d.label)));
+      el('option', { value: 'year', selected: wfDim === 'year' }, 'Cohorts by Year'),   // labels per Isaac, Oct 29
+      ...Object.entries(SEM_DIMENSIONS).map(([k, d]) => el('option', { value: k, selected: wfDim === k }, 'Cohorts by ' + d.label)));
     const cohortSel = wfDim === 'year' ? null : el('select', { class: 'px-2.5 py-1 text-[11px] font-bold cursor-pointer', style: { border: '1px solid var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, title: 'Show every year together, or only the subscriptions first serviced in one year',
       onchange: (e) => { state._rtWfCohort = e.target.value === 'all' ? null : Number(e.target.value); mountApp(); } },
       el('option', { value: 'all', selected: wfCohort == null }, 'Cohort: All years'),
@@ -1794,7 +1794,7 @@ function reportingWaterfall() {
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
         el('div', {},
-          el('h3', { class: 'text-base font-bold' }, '🌱 Retention by Start Month' + (label ? ' — ' + label : ''))),
+          el('h3', { class: 'text-base font-bold' }, 'Retention by Start Month' + (label ? ' — ' + label : ''))),
         el('div', { class: 'flex items-center gap-2' },
           el('div', { class: 'inline-flex', style: { border: '1px solid var(--border-2)' } },
             ...[['pct', '% kept'], ['count', 'Subs left']].map(([k, l]) => el('button', {
@@ -2550,7 +2550,7 @@ function reportingWaterfall() {
     _shell('Customer Lifetime', lifetimeCard),                       // Customer Lifetime follows the trends chart (per Isaac)
     _shell('Cohort Waterfall', _pm('ret:blended', () => renderBlended(pop))),
     _shell('Monthly Churn', _pm('ret:seasonality', () => seasonalityCard(pop, label))),
-    _shell('\ud83c\udf31 Retention by Start Month', _pm('ret:cohorts', () => startCohortCard(pop, label))));   // (LTV card retired per Isaac, Sep 2026)
+    _shell('Retention by Start Month', _pm('ret:cohorts', () => startCohortCard(pop, label))));   // (LTV card retired per Isaac, Sep 2026)
 
   const body = inCompare
     ? el('div', { class: 'flex flex-col gap-4' },
@@ -2696,9 +2696,10 @@ function reportingWaterfall() {
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
         el('div', {},
-          el('div', { class: 'font-display text-lg', title: 'Counted by CUSTOMER, not subscription: every subscription a customer has had is linked into one life. Still a customer = any active subscription. Sentricon excluded.' }, 'Renewal Retention' + (office !== 'all' ? ' · ' + officeLabel : '')),
+          el('h3', { class: 'text-base font-bold', title: 'Counted by CUSTOMER, not subscription: every subscription a customer has had is linked into one life. Still a customer = any active subscription. Sentricon excluded.' }, 'Renewal Retention' + (office !== 'all' ? ' · ' + officeLabel : '')),
           head ? el('div', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } }, head) : null),
-        null),
+        // The footnote moved into an ⓘ on the right (per Isaac, Oct 29).
+        configInfoBtn('Renewal Retention', 'Decision point = the day the first renewal was sold, or the first contract’s end date for customers who never renewed.' + (noLink ? ' ' + fmt.int(noLink) + ' renewal customer' + (noLink === 1 ? ' has' : 's have') + ' no earlier subscription in this view, so their tenure starts at the renewal.' : '') + ' Counted by customer, not subscription: every subscription a customer has had is linked into one life. Still a customer = any active subscription. Sentricon excluded.')),
       el('div', { class: 'scroll-x' },
         el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
           el('thead', {}, el('tr', {},
@@ -2712,9 +2713,7 @@ function reportingWaterfall() {
             ...keys.map(k => row(grp === 'year' ? k : 'Renewal - ' + k, groups.get(k), false, m2m)),
             row('All customers who renewed', all, true, m2m),
             el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, el('td', { class: 'px-3 pt-3 pb-1 text-[10px] uppercase tracking-widest font-semibold', colspan: '10', style: { color: 'var(--text-subtle)' } }, 'The comparison · reached the end of their first contract still a customer and never renewed')),
-            row('Did not renew', m2m, true)))),
-      el('div', { class: 'px-4 py-2 text-[10px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } },
-        'Decision point = the day the first renewal was sold, or the first contract’s end date for customers who never renewed.' + (noLink ? ' ' + fmt.int(noLink) + ' renewal customer' + (noLink === 1 ? ' has' : 's have') + ' no earlier subscription in this view, so their tenure starts at the renewal.' : '')));
+            row('Did not renew', m2m, true)))));
   })();
 
   // (Renewal Timing card retired per Isaac, Sep 2026.)

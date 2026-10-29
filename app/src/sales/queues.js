@@ -22,7 +22,7 @@ function viewQueues() {
   }
   const sec = ['health', 'nextbest'].includes(state._queuesSection) ? state._queuesSection : 'renewals';
   const pills = el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
-    ...[['renewals', '🔁 Renewals'], ['health', '❤️‍🩹 Customer Health'], ['nextbest', '🎯 Next Best Service']].map(([k, l]) => el('button', {
+    ...[['renewals', '🔁 Renewals'], ['health', '❤️‍🩹 Proactive Outreach'], ['nextbest', '🎯 Next Best Service']].map(([k, l]) => el('button', {
       class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition hover:brightness-95',
       style: sec === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' },
       onclick: () => { state._queuesSection = k; mountApp(); },

@@ -828,8 +828,90 @@ function _auditTaskItemsRaw() {
   }
   return items.filter(Boolean);
 }
+// ── Possibly deleted customers (per Isaac, Oct 29) ──────────────────────
+// FieldRoutes never tells the RevHawk mirror about a deleted customer, so the account lives on as Active with an
+// initial that stays "Pending" forever (Noah Shadix's #145329, initial Apr 21). Rule: an active plan whose
+// Pending initial appointment date passed more than a week ago and was never serviced is flagged here. An admin
+// marks the customer Deleted — held for good and excluded app-wide for every user — or Not deleted, which
+// takes it off this list. Nothing is excluded until it is marked. Stored in app_settings 'crm_deleted_review' =
+// { deleted: { id: { by, at } }, kept: { id: { by, at } } } (customer ids only).
+const DEL_REVIEW_KEY = 'Possibly deleted customers';
+const DEL_REVIEW_DAYS = 7;
+function crmDelReviewLoad() {
+  if (state._crmDelReview !== undefined) return;
+  state._crmDelReview = { deleted: {}, kept: {} };
+  if (typeof supabase === 'undefined' || !supabase || (typeof DEMO !== 'undefined' && DEMO)) return;
+  Promise.resolve(supabase.from('app_settings').select('value').eq('key', 'crm_deleted_review').maybeSingle()).then(({ data }) => {
+    if (!data || !data.value) return;
+    state._crmDelReview = Object.assign({ deleted: {}, kept: {} }, data.value);
+    if (typeof _applyLiveDataRules === 'function') _applyLiveDataRules();
+    if (typeof _indCfgRev !== 'undefined') _indCfgRev++;
+    mountApp();
+  }).catch(() => {});
+}
+// Every customer an admin has marked Deleted — read by deletedCustIdSet() for every dataset.
+function crmDeletedConfirmedIds() { crmDelReviewLoad(); return Object.keys((state._crmDelReview && state._crmDelReview.deleted) || {}); }
+function crmDelReviewMark(cid, verdict) {
+  crmDelReviewLoad();
+  const R = { deleted: Object.assign({}, state._crmDelReview.deleted), kept: Object.assign({}, state._crmDelReview.kept) };
+  const id = String(cid), stamp = { by: (state.profile && state.profile.full_name) || '', at: new Date().toISOString() };
+  delete R.deleted[id]; delete R.kept[id];
+  if (verdict === 'deleted') R.deleted[id] = stamp; else if (verdict === 'kept') R.kept[id] = stamp;
+  state._crmDelReview = R;
+  if (typeof _applyLiveDataRules === 'function') _applyLiveDataRules();
+  if (typeof _indCfgRev !== 'undefined') _indCfgRev++;
+  mountApp();
+  if (typeof supabase === 'undefined' || !supabase || (typeof DEMO !== 'undefined' && DEMO)) return;
+  Promise.resolve(supabase.from('app_settings').upsert({ key: 'crm_deleted_review', value: R }, { onConflict: 'key' }))
+    .then(({ error }) => { if (error) toast('Couldn’t save: ' + error.message, 'error'); else toast(verdict === 'deleted' ? 'Marked deleted — out of every number' : verdict === 'kept' ? 'Kept — off the review list' : 'Put back on the review list', 'success'); })
+    .catch(() => {});
+}
+// One row per customer: their active plans whose Pending initial passed 7+ days ago, never serviced.
+function crmDelReviewCandidates() {
+  crmDelReviewLoad();
+  const rows = state._snapshotAllRows || state.reportingSubscriptions || [];
+  const R = state._crmDelReview || { deleted: {}, kept: {} };
+  const cut = new Date(); cut.setDate(cut.getDate() - DEL_REVIEW_DAYS); const cutIso = cut.toISOString().slice(0, 10);
+  const by = new Map();
+  for (const r of rows) {
+    const id = String(r.customer_id != null ? r.customer_id : ''); if (!id || R.deleted[id] || R.kept[id]) continue;
+    if (String(r.subscription_status || '').trim().toLowerCase() !== 'active' || r.subscription_date_canceled) continue;
+    if (r.initial_service || r.initial_serviced_date || String(r.initial_status || '').trim().toLowerCase() !== 'pending') continue;
+    const appt = String(r.initial_appt_date || '').slice(0, 10); if (!appt || appt >= cutIso) continue;
+    const c = by.get(id) || by.set(id, { id, name: (typeof _custDisplayName === 'function' ? _custDisplayName(r) : ''), office: r.office_name || '', rep: String(r.sold_by || '').trim(), subs: [], value: 0, appt, sold: String(r.sold_date || '').slice(0, 10) }).get(id);
+    c.subs.push(String(r.subscription || '').trim()); c.value += Number(r.subscription_contract_value) || 0;
+    if (appt < c.appt) c.appt = appt;
+  }
+  return [...by.values()].sort((a, b) => a.appt.localeCompare(b.appt));
+}
+function crmDelReviewItem() {
+  const L = crmDelReviewCandidates();
+  const n = L.length, s = n === 1 ? '' : 's';
+  const today = Date.now();
+  const btn = (label, sty, fn) => el('button', { class: 'rounded-lg border px-2 py-0.5 text-[11px] font-bold cursor-pointer whitespace-nowrap', style: Object.assign({ borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, sty || {}), onclick: (e) => { e.stopPropagation(); fn(); } }, label);
+  const R = state._crmDelReview || { deleted: {} };
+  const nDel = Object.keys(R.deleted || {}).length;
+  const detail = el('div', { class: 'px-4 pb-3 flex flex-col gap-1.5' },
+    el('div', { class: 'text-[11px] pt-1', style: { color: 'var(--text-muted)' } }, 'Look each one up in FieldRoutes. Deleted = held for good and left out of every number for everyone. Not deleted = off this list. ' + (nDel ? nDel.toLocaleString() + ' customer' + (nDel === 1 ? '' : 's') + ' marked deleted so far.' : '')),
+    ...L.slice(0, 200).map(c => el('div', { class: 'flex items-center gap-2 flex-wrap rounded-lg border px-2.5 py-1.5 text-[11px]', style: { borderColor: 'var(--border)' } },
+      el('span', { class: 'font-bold tabular-nums' }, '#' + c.id),
+      el('span', { class: 'font-semibold' }, c.name || '—'),
+      el('span', { style: { color: 'var(--text-muted)' } }, [c.office, c.subs.join(', '), c.rep].filter(Boolean).join(' · ')),
+      el('span', { class: 'tabular-nums', style: { color: '#B45309' } }, 'initial ' + c.appt + ' · ' + Math.round((today - Date.parse(c.appt)) / 86400000) + 'd ago, still Pending'),
+      el('span', { class: 'tabular-nums font-semibold' }, fmt.usd0(c.value)),
+      el('span', { class: 'ml-auto inline-flex gap-1.5' },
+        btn('🗑 Deleted', { borderColor: '#DC2626', color: '#DC2626' }, () => crmDelReviewMark(c.id, 'deleted')),
+        btn('Not deleted', null, () => crmDelReviewMark(c.id, 'kept'))))),
+    n > 200 ? el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, 'Showing the oldest 200 of ' + n.toLocaleString() + '.') : null);
+  return { key: DEL_REVIEW_KEY, tag: 'Deleted?', title: DEL_REVIEW_KEY, sev: n ? 'amber' : 'ok', count: n,
+    text: n ? n.toLocaleString() + ' customer' + s + ' with a Pending initial more than ' + DEL_REVIEW_DAYS + ' days past and never serviced — usually deleted in FieldRoutes. Mark each Deleted or Not deleted.' : 'All clear — no Pending initial is more than a week past.',
+    detail, rvIds: L.map(c => c.id) };
+}
+
 function auditTasksCard() {
-  const _items = auditTaskItems();
+  const _items0 = auditTaskItems();
+  // The deleted-customer review is built live (its buttons change it), not in the memo.
+  const _items = _items0 == null ? null : [..._items0, crmDelReviewItem()];
   if (_items == null) return el('div', { class: 'card overflow-hidden' }, el('div', { class: 'w-full flex items-center gap-2 px-4 py-2.5' },
     el('span', { class: 'inline-block rounded-full', style: { width: '8px', height: '8px', background: 'var(--border-2)' } }),
     el('span', { class: 'text-[11px] uppercase tracking-widest font-bold' }, 'Auditing tasks'), el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'checking…')));

@@ -957,6 +957,20 @@ const INDICATOR_DEPTS = [
   ['techs',  'Technician'],
 ];
 const _indSalesCache = { src: null, cfg: '', byKey: new Map() };
+// Serviced Revenue (per Isaac, Oct 29): Pending / Serviced minus Pending — only accounts that have had at least
+// their initial service. Same evidence the Pending/Serviced gate trusts first: a completed service count or a
+// serviced date, else a Completed initial. Manual sheets read their own Status column (Serviced).
+function frServiced(s) {
+  if (!frPendingServiced(s)) return false;
+  if (state._indManualMode) return String(s.status || '').trim().toLowerCase() === 'serviced';
+  if ((Number(s.services) || 0) > 0 || String(s.servicedDate || '').trim()) return true;
+  return String(s.initialStatus || '').trim().toLowerCase() === 'completed';
+}
+// The Revenue metric pick (Filters): 'pending_serviced' (default) · 'serviced' · 'all' (= Sold Revenue).
+function indAcctOk(s, acct) {
+  const a = acct || state.indicatorAcctStatus || 'pending_serviced';
+  return a === 'all' ? true : a === 'serviced' ? frServiced(s) : frPendingServiced(s);
+}
 // The FieldRoutes "Pending / Serviced Accounts" gate as a standalone
 // predicate — initial-appointment status Pending or Completed, minus the
 // global service exclusions. indicatorSales() applies it to every metric on
@@ -1040,16 +1054,37 @@ function myBucketOfRenewal(s) { return metricIsRenewal(s) ? myBucketOfAllSources
 // mirror carries no deletion marker, so this admin-maintained ID list
 // (Settings → Configurations) is the source of truth — excluded from EVERY
 // dataset so app numbers align with the CRM exactly.
+// Server-published deleted-customer list (per Isaac, Oct 29 — Noah Shadix's P/S was $2,056 high on two customers
+// deleted in FieldRoutes). The orphan / stale-pending sets below were only ever computed from the Reporting
+// snapshot, which reps never load and admins load in the background — so a rep's own dashboard, and anyone's
+// before the snapshot arrived, counted deleted customers. The crm-excluded server job publishes the same two
+// rules as customer ids (app_settings.crm_excluded); everyone loads it once, and the set uses both sources.
+function _loadCrmExcluded() {
+  if (state._crmExcludedKick) return; state._crmExcludedKick = true;
+  if ((typeof DEMO !== 'undefined' && DEMO) || typeof supabase === 'undefined' || !supabase) return;
+  const done = () => { if (typeof _indCfgRev !== 'undefined') _indCfgRev++; try { mountApp(); } catch (e) { /* not mounted yet */ } };
+  supabase.from('app_settings').select('value').eq('key', 'crm_excluded').maybeSingle().then(({ data }) => {
+    const v = data && data.value;
+    state._crmExcluded = v ? { orphans: (v.orphans || []).map(String), stale: (v.stale_pending || []).map(String), at: v.at || null } : null;
+    if (state._crmExcluded) done();
+  }, () => {});
+  // The nightly FieldRoutes scan list too (still behind its Configurations switch).
+  if (typeof _loadCrmDeletedIds === 'function') _loadCrmDeletedIds().then(() => { if ((state._crmDeletedIds || []).length) done(); }, () => {});
+}
 function deletedCustIdSet() {
+  _loadCrmExcluded();
   const set = new Set();   // (manual deleted-ID list retired per Isaac, Sep 30 — deletions come from the sync's checks only)
+  const _ex = state._crmExcluded;
+  if (_ex && reportingAutoExcludeOrphans()) _ex.orphans.forEach(id => set.add(id));
   // Auto-detected orphans: subscriptions whose customer id has NO customer
   // record in FieldRoutes any more (deleted in the CRM). Flagged by the sync
   // as customer_missing; excluded here unless an admin turns the rule off.
   if (reportingAutoExcludeOrphans()) for (const id of (state._orphanCustIds || [])) set.add(id);
   // Nightly FieldRoutes scan: ids the CRM no longer returns (same switch).
   if (reportingAutoExcludeOrphans()) for (const id of (state._crmDeletedIds || [])) set.add(id);
-  // Stale pending ghosts (active, never serviced, initial appt long passed).
-  if (reportingExclStalePending()) for (const id of (state._stalePendingCustIds || [])) set.add(id);
+  // Stale pending: no longer excluded automatically (per Isaac, Oct 29). A Pending initial more than a week past
+  // goes to Auditing → Possibly deleted customers; the ones an admin marks Deleted are held here for good.
+  if (typeof crmDeletedConfirmedIds === 'function') crmDeletedConfirmedIds().forEach(id => set.add(String(id)));
   return set;
 }
 function reportingAutoExcludeOrphans() {
@@ -1129,7 +1164,7 @@ function indicatorSales() {
     // Serviced count, Canceled / Not Serviced never do (per Isaac) — even
     // when the Filters panel is set to "all".
     if (state._indManualMode) { if (!frPendingServiced(s)) return false; }
-    else if (_acct !== 'all' && !frPendingServiced(s)) return false;
+    else if (!indAcctOk(s, _acct)) return false;
     // Passed Audit only (per Isaac, Oct 16): the Metric's sales AND flagged Passed Audit, page-wide.
     if (_audit && !/passed\s*audit/i.test(String(s.customerFlags || ''))) return false;
     if (_indicatorServiceExcluded(s)) return false;
@@ -3346,10 +3381,13 @@ const showRep = !!(opts && opts.showRep);
   };
   const keyFn = SORTERS[sort.key] || SORTERS.sold;
   const dirMul = sort.dir === 'asc' ? 1 : -1;
+  // opts.limit (per Isaac, Oct 29): sort EVERY row first, then show the top N — a header click on the player
+  // card's Sales list re-orders the whole list, not just the 25 already showing.
+  const _lim = opts && Number(opts.limit) > 0 ? Number(opts.limit) : Infinity;
   const sorted = [...sales].sort((a, b) => {
     const va = keyFn(a), vb = keyFn(b);
     return (va < vb ? -1 : va > vb ? 1 : 0) * dirMul;
-  });
+  }).slice(0, _lim);
   const hSort = (key, label, cls) => el('th', {
     class: cls + ' cursor-pointer select-none hover:underline',
     style: sort.key === key ? { color: 'var(--accent)', fontWeight: '800' } : {},
@@ -4027,8 +4065,8 @@ function openIndicatorRepCard(rep, allReps = []) {
   // Render the full account list for an expanded leaderboard row. Pulls
   // every CSV-derived field so the user can investigate why each account
   // is active vs cancelled (cancel date, cancel reason, autopay, etc.).
-  function accountsTable(sales) {
-    return _indAccountsTable(sales, _acctSort, (st) => { _acctSort = st; renderBody(); });
+  function accountsTable(sales, opts) {
+    return _indAccountsTable(sales, _acctSort, (st) => { _acctSort = st; renderBody(); }, opts);
   }
 
   // '2026-10-04' → '10/4/2026' (Best Day's format).
@@ -4925,14 +4963,13 @@ function openIndicatorRepCard(rep, allReps = []) {
         // Latest 25, then Show more (per Isaac, Oct 16); Export still takes every row.
         const SHOW = 25, host = el('div');
         const paint = () => {
-          const rows = _salesShowAll ? list : list.slice(0, SHOW);
-          const tblNode = accountsTable(rows);
+          const tblNode = accountsTable(list, { limit: _salesShowAll ? 0 : SHOW });   // sorted over all rows, then cut
           host.replaceChildren(tblNode,
             list.length > SHOW ? el('button', {
               class: 'w-full text-[11px] font-bold py-2 border-t transition hover:brightness-95',
               style: { color: 'var(--accent)', background: 'var(--card-2)', borderColor: 'var(--border)' },
               onclick: (e) => { e.stopPropagation(); _salesShowAll = !_salesShowAll; paint(); },
-            }, _salesShowAll ? '\u25B4 Show latest ' + SHOW : '\u25BE Show more (' + fmt.int(list.length - SHOW) + ' more)') : null);
+            }, _salesShowAll ? '\u25B4 Show first ' + SHOW : '\u25BE Show more (' + fmt.int(list.length - SHOW) + ' more)') : null);
           _freezeFirstCols(tblNode, 2);   // Customer + Cust ID stay put
         };
         paint();

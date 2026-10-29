@@ -915,10 +915,9 @@ function viewIndicators() {
     return { homeOf, qualified, agg };
   })();
   const _reps20kOf = (b) => { let n = 0; _praHome.qualified.forEach(r => { if (_praHome.homeOf[r] === b) n++; }); return n; };
-  branches.forEach(b => {
-    if (isRange && rawSalesAvailable) {
-      const ss = _rangeGroups[b] || [];
-      if (!ss.length) { branchData[b] = null; return; }
+  // One column's numbers from its windowed sales (range mode, raw sales). inGroup(k) says which column keys this
+  // column covers — one branch/team, or several teams combined on the phone (per Isaac, Oct 29).
+  const _rangeStatsOf = (ss, inGroup) => {
       const count = ss.length;
       const rev = ss.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
       const revRenewal = ss.reduce((a, s) => a + (_indicatorIsRenewal(s) ? (Number(s.contractValue) || 0) : 0), 0);
@@ -942,12 +941,16 @@ function viewIndicators() {
       const reps = new Set(ss.map(s => s.rep).filter(Boolean)).size;
       // $20K PRA qualification — company-wide bar, home-column attribution
       // (see _praHome above). Each qualified rep counts in exactly one column.
-      const reps20k = _reps20kOf(b);
+      // inGroup null = a pooled team column (phone): the $20K reps who sold in it, with what they sold in it.
+      const _repsHere = inGroup ? null : new Set(ss.map(s => s.rep).filter(Boolean));
+      let reps20k = 0; _praHome.qualified.forEach(r => { if (inGroup ? inGroup(_praHome.homeOf[r]) : _repsHere.has(r)) reps20k++; });
       // PRA (per Isaac, Oct 28) is two numbers: PRA = total revenue ÷ every rep with a sale; PRA · $20K+ = what the
       // reps who cleared $20K sold here ÷ how many of them — real average production, not diluted by someone who
       // sold one account and quit. (A $20K rep counts in the one column where they sold the most.)
-      let rev20k = 0; _praHome.qualified.forEach(r => { if (_praHome.homeOf[r] === b) rev20k += (_praHome.agg[r] && _praHome.agg[r].by[b]) || 0; });
-      branchData[b] = {
+      let rev20k = 0;
+      if (inGroup) _praHome.qualified.forEach(r => { const h = _praHome.homeOf[r]; if (inGroup(h)) rev20k += (_praHome.agg[r] && _praHome.agg[r].by[h]) || 0; });
+      else ss.forEach(s => { if (_praHome.qualified.has(s.rep)) rev20k += Number(s.contractValue) || 0; });
+      return {
         sold_accounts: count,
         revenue: rev,
         new_revenue: rev - revRenewal,
@@ -969,6 +972,12 @@ function viewIndicators() {
         last_resort_pct: count > 0 ? lastResort / count : 0,
         reps,
       };
+  };
+  branches.forEach(b => {
+    if (isRange && rawSalesAvailable) {
+      const ss = _rangeGroups[b] || [];
+      if (!ss.length) { branchData[b] = null; return; }
+      branchData[b] = _rangeStatsOf(ss, (k) => k === b);
       return;
     }
     const rows = isRange
@@ -1522,8 +1531,10 @@ function viewIndicators() {
               style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
               onchange: e => { _staged.acct = e.target.value; _markDirty(); },
             },
-              el('option', { value: 'pending_serviced', selected: _staged.acct === 'pending_serviced' }, 'Pending / Serviced'),
-              el('option', { value: 'all', selected: _staged.acct === 'all' }, 'Sold'),   // labels per Isaac, Oct 9
+              // Labels per Isaac, Oct 29: "… Revenue", plus Serviced Revenue (initial done — no Pending).
+              el('option', { value: 'pending_serviced', selected: _staged.acct === 'pending_serviced' }, 'Pending / Serviced Revenue'),
+              el('option', { value: 'serviced', selected: _staged.acct === 'serviced' }, 'Serviced Revenue'),
+              el('option', { value: 'all', selected: _staged.acct === 'all' }, 'Sold Revenue'),
             );
           // Passed Audit only — an on/off switch on top of the Metric (per Isaac, Oct 16).
           const auditBtn = _metricLocked ? null : (() => {
@@ -1940,7 +1951,7 @@ function viewIndicators() {
           const x = indicatorExcl();
           const chips = [];
           const add = (label, clear) => chips.push([label, clear]);
-          if ((state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced') add('Sold', () => { state.indicatorAcctStatus = 'pending_serviced'; });
+          if ((state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced') add(state.indicatorAcctStatus === 'serviced' ? 'Serviced Revenue' : 'Sold Revenue', () => { state.indicatorAcctStatus = 'pending_serviced'; });
           if (x.oneTime) add('No one-time services', () => { state.indicatorExcl = { ...indicatorExcl(), oneTime: false }; });
           if (x.ror) add('No 3-day RORs', () => { state.indicatorExcl = { ...indicatorExcl(), ror: false }; });
           if (x.renewal) add('No renewals', () => { state.indicatorExcl = { ...indicatorExcl(), renewal: false }; });
@@ -2245,7 +2256,20 @@ function viewIndicators() {
       // Admins default to the RIDD (company) column; reps/partners to their own branch.
       const _narrowT = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
       let _branchSel = null;
-      if (_narrowT && sortedBranches.length > 1) {
+      // Phone (per Isaac, Oct 29): the column follows the Team pick in Filters. Teams picked = ONE column with
+      // those teams' sales pooled (whatever the grouping), beside RIDD. No team = all teams: just RIDD on the
+      // Teams grouping; the office picker as before on the others.
+      const _comboTeams = (_narrowT && _rangeGroups) ? indTeamFilterList().filter(t => t !== '__unassigned__') : [];
+      const _comboSet = new Set(_comboTeams.map(t => String(t).toLowerCase()));
+      const _comboSales = _comboTeams.length ? Object.values(_rangeGroups).flat().filter(x => _comboSet.has(String(teamOfSale(x) || '').toLowerCase())) : [];
+      const _comboLabel = _comboTeams.length ? (_comboTeams.length <= 2 ? _comboTeams.map(t => t.split(' ').map(w => (w[0] || '') + w.slice(1).toLowerCase()).join(' ')).join(' + ') : _comboTeams.length + ' teams') : '';
+      const _salesOf = (x) => x === '__combo__' ? _comboSales : ((_rangeGroups && _rangeGroups[x]) || []);
+      if (_comboTeams.length) {
+        branchData.__combo__ = _comboSales.length ? _rangeStatsOf(_comboSales, null) : null;
+        sortedBranches = ['__combo__'];
+      } else if (_narrowT && groupBy === 'teams' && _rangeGroups) {
+        sortedBranches = [];
+      } else if (_narrowT && sortedBranches.length > 1) {
         const homeBranch = (() => {
           const pool = _rangeGroups ? Object.entries(_rangeGroups) : [];
           const mineTeams = (typeof myReachTeams === 'function') ? myReachTeams() : new Set();
@@ -2293,21 +2317,22 @@ function viewIndicators() {
                 // its peer columns — same card as a rep, fed the group's sales.
                 ...sortedBranches.map((b, i) => (() => {
                   // The owners' RIDD team reads "RIDD Direct" so it can't be mistaken for the RIDD total column.
-                  const _lbl = (groupBy === 'teams' && typeof isOwnerTeam === 'function' && isOwnerTeam(b)) ? 'RIDD Direct' : b.split(' ').map(w => (w[0] || '') + w.slice(1).toLowerCase()).join(' ');
-                  const _canOpen = !!(_rangeGroups && (_rangeGroups[b] || []).length);
+                  const _lbl = b === '__combo__' ? _comboLabel : (groupBy === 'teams' && typeof isOwnerTeam === 'function' && isOwnerTeam(b)) ? 'RIDD Direct' : b.split(' ').map(w => (w[0] || '') + w.slice(1).toLowerCase()).join(' ');
+                  const _canOpen = !!(_rangeGroups && _salesOf(b).length);
+                  const _gc = b === '__combo__' ? (_comboTeams.length === 1 ? getGroupColor(_comboTeams[0]) : '#DF643A') : getGroupColor(b);
                   // Rank-excluded columns (trophy picker) read as OUT of the
                   // competition: faded header with a strike through the name.
                   // (Excluded columns are NOT faded on the table anymore —
                   // the exclusion reads in the 🏆 dropdown instead, per Isaac.)
                   return el('th', {
                     class: 'text-center px-3 py-2 text-[10px] uppercase tracking-wider font-bold' + (_canOpen ? ' cursor-pointer select-none' : ''),
-                    style: { background: getGroupColor(b), color: groupHeaderTextColor(getGroupColor(b)), minWidth: '100px' },
+                    style: { background: _gc, color: groupHeaderTextColor(_gc), minWidth: '100px' },
                     title: _canOpen ? 'Open the ' + _lbl + ' player card' : '',
                     onclick: _canOpen ? () => {
                       const peers = sortedBranches
-                        .map(x => ({ name: x.split(' ').map(w => (w[0] || '') + w.slice(1).toLowerCase()).join(' '), sales: _rangeGroups[x] || [] }))
+                        .map(x => ({ name: x === '__combo__' ? _comboLabel : x.split(' ').map(w => (w[0] || '') + w.slice(1).toLowerCase()).join(' '), sales: _salesOf(x) }))
                         .filter(p => p.sales.length);
-                      openIndicatorRepCard(_scopeRep({ name: _lbl, sales: _rangeGroups[b] }, () => true), peers);
+                      openIndicatorRepCard(_scopeRep({ name: _lbl, sales: _salesOf(b) }, () => true), peers);
                     } : undefined,
                   },
                     sort.key ? (i + 1) + '. ' : '',
@@ -4587,23 +4612,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // ALL technicians in one column, fenced to technician production.
     const _cmTech = state.indicatorDept === 'techs';
     const _cmDept = _cmTech ? 'techs' : 'd2d';
-    const tierBuckets = { rookie: [], vet: [] };
-    let untagged = 0;
-    const untaggedReps = [];   // for the badge drill-down (per Isaac)
     // DOOR-TO-DOOR ONLY — rookie/vet is a knocking cohort. Office staff and
     // technician production never counts here, no matter what the page's
     // Type filter says: each rep's sales are re-fenced to Sales Rep dept and
     // reps with no D2D production drop out entirely.
-    const allBucket = [];   // every D2D seller, tagged or not — the ALL column
-    // Scope (per Isaac): break the cohorts down by team or office. Stored
-    // as 'all' | 'team:<name>' | 'office:<name>'.
-    let _scope = String(state._classScope || 'all');
-    let _scopeKind = _scope.startsWith('team:') ? 'team' : _scope.startsWith('office:') ? 'office' : 'all';
-    let _scopeVal = _scope.replace(/^(team|office):/, '');
     const _repOffice = (r) => String(r.office || ((r.sales || []).find(x => x.office) || {}).office || '').trim();
-    const _inScope = (r) => _scopeKind === 'all' ? true
-      : _scopeKind === 'team' ? (getRepTeam(r.name) || '') === _scopeVal
-      : _repOffice(r).toUpperCase() === _scopeVal.toUpperCase();
     // Partners / team leads (per Isaac): RIDD (all D2D) + the team(s) they
     // lead only — no other teams, no offices.
     // Every other rep (per Isaac, Oct 4): RIDD only — no team or office breakdowns.
@@ -4611,22 +4624,35 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const _cmFull = isAdminRole(state.profile?.role) || (typeof isDeveloperRole === 'function' && isDeveloperRole(state.profile?.role));
     const _cmLead = (typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role)) || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role));
     const _cmReach = _cmFull ? null : ((_cmLead && typeof myReachTeams === 'function') ? (myReachTeams() || new Set()) : new Set());
-    const _teamOpts = [...new Set(Object.values(repMap).map(r => getRepTeam(r.name) || '').filter(Boolean))].sort()
-      .filter(t => !_cmTech && (!_cmReach || _cmReach.has(t)));
-    const _officeOpts = _cmReach ? [] : [...new Set(Object.values(repMap).map(_repOffice).filter(Boolean))].sort();
-    // A partner can't sit on a scope outside their reach.
-    if ((_cmTech && _scopeKind === 'team') || (_cmReach && _scopeKind !== 'all' && !(_scopeKind === 'team' && _cmReach.has(_scopeVal)))) { state._classScope = 'all'; _scope = 'all'; _scopeKind = 'all'; _scopeVal = ''; }
-    const _scopedNames = new Set();
-    Object.values(repMap).forEach(r => {
-      if (!_inScope(r)) return;
-      _scopedNames.add(r.name);
-      const d2dSales = (r.sales || []).filter(s => (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) === _cmDept : true));
-      if (!d2dSales.length) return;
-      allBucket.push({ ...r, sales: d2dSales });
-      const t = getRepTier(r.name);
-      if (t === 'rookie' || t === 'vet') tierBuckets[t].push({ ...r, sales: d2dSales });
-      else { untagged++; untaggedReps.push({ ...r, sales: d2dSales }); }
-    });
+    // Scopes (per Isaac, Oct 29): pick up to TWO to compare side by side — a team against the company, or two
+    // teams. The list follows Filters → Group: Teams lists teams, Office lists offices.
+    const _byTeams = state.indicatorsGroupBy === 'teams' && !_cmTech;   // Filters → Group
+    const _teamOpts = _byTeams ? [...new Set(Object.values(repMap).map(r => getRepTeam(r.name) || '').filter(Boolean))].sort()
+      .filter(t => !_cmReach || _cmReach.has(t)) : [];
+    const _officeOpts = (_byTeams || _cmReach) ? [] : [...new Set(Object.values(repMap).map(_repOffice).filter(Boolean))].sort();
+    const _okScope = (sc) => sc === 'all' || (sc.startsWith('team:') && _teamOpts.includes(sc.slice(5))) || (sc.startsWith('office:') && _officeOpts.includes(sc.slice(7)));
+    let _scopes = (Array.isArray(state._classScopes) ? state._classScopes : [state._classScope || 'all']).map(String).filter(_okScope);
+    _scopes = [...new Set(_scopes)].slice(0, 2);
+    if (!_scopes.length) _scopes = ['all'];
+    state._classScopes = _scopes;
+    const _scopeLabel = (sc) => sc === 'all' ? (_cmTech ? 'All technicians' : _cmReach ? 'RIDD' : 'All Sales Reps')
+      : sc.startsWith('team:') ? sc.slice(5) : _mktgTC(sc.slice(7));
+    const _buildScope = (sc) => {
+      const kind = sc.startsWith('team:') ? 'team' : sc.startsWith('office:') ? 'office' : 'all';
+      const val = sc.replace(/^(team|office):/, '');
+      const inScope = (r) => kind === 'all' ? true : kind === 'team' ? (getRepTeam(r.name) || '') === val : _repOffice(r).toUpperCase() === val.toUpperCase();
+      const tierBuckets = { rookie: [], vet: [] }, allBucket = [], names = new Set();
+      Object.values(repMap).forEach(r => {
+        if (!inScope(r)) return;
+        names.add(r.name);
+        const d2dSales = (r.sales || []).filter(s => (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) === _cmDept : true));
+        if (!d2dSales.length) return;
+        allBucket.push({ ...r, sales: d2dSales });
+        const t = getRepTier(r.name);
+        if (t === 'rookie' || t === 'vet') tierBuckets[t].push({ ...r, sales: d2dSales });
+      });
+      return { kind, tierBuckets, allBucket, names };
+    };
 
     const aggForTier = (reps) => {
       const sales = reps.reduce((acc, r) => acc.concat(r.sales), []);
@@ -4650,7 +4676,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       // Reps w/ a serviced account (per Isaac) — same serviced evidence the
       // P/S gate uses: ≥1 completed service OR a serviced date. PRA·Serviced
       // divides the cohort's revenue by THAT rep count.
-      const _svcEv = (s) => (Number(s.services) || 0) > 0 || !!s.servicedDate;
+      // Same test as Filters → Serviced Revenue (per Isaac, Oct 29): a completed service, a serviced date, or a Completed initial.
+      const _svcEv = (s) => (typeof frServiced === 'function') ? frServiced(s) : ((Number(s.services) || 0) > 0 || !!s.servicedDate);
       const repsServiced = reps.filter(r => (r.sales || []).some(_svcEv)).length;
       return {
         reps:    reps.length,
@@ -4667,21 +4694,18 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         apPct:   sales.length > 0 ? apYes / sales.length : 0,
       };
     };
-    const rookie = aggForTier(tierBuckets.rookie);
-    const vet    = aggForTier(tierBuckets.vet);
-    const alls   = aggForTier(allBucket);   // combined — includes untagged sellers
-
-    // Company-wide totals for the weight % math below. Counts every
-    // sale in the windowed rawSales (so untagged reps' contributions
-    // are in the denominator) — that way "% of company" tells the
-    // truth: rookie + vet won't sum to 100% when there are untagged
-    // reps still selling, which is exactly the story the manager needs.
-    // Same D2D fence as the cohorts above — "% of co." means percent of
-    // DOOR-TO-DOOR production, not company-wide across departments.
-    const _d2dAll = (rawSales || []).filter(s => (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) === _cmDept : true)
-      && (_scopeKind === 'all' || _scopedNames.has(getCanonicalRepName(s.rep))));
-    const companyTotalSold    = _d2dAll.length;
-    const companyTotalRevenue = _d2dAll.reduce((a, s) => a + Number(s.contractValue || 0), 0);
+    // One set of cohorts per picked scope. "% of co." = share of THAT scope's door-to-door production (untagged
+    // reps included in the denominator, so rookie + vet won't sum to 100% while some are untagged).
+    const _S = _scopes.map(sc => {
+      const b = _buildScope(sc);
+      const d2d = (rawSales || []).filter(s => (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) === _cmDept : true)
+        && (b.kind === 'all' || b.names.has(getCanonicalRepName(s.rep))));
+      return { sc, label: _scopeLabel(sc), rookie: aggForTier(b.tierBuckets.rookie), vet: aggForTier(b.tierBuckets.vet), alls: aggForTier(b.allBucket),
+        coSold: d2d.length, coRev: d2d.reduce((a, s) => a + Number(s.contractValue || 0), 0) };
+    });
+    const _two = _S.length === 2;
+    const { rookie, vet, alls } = _S[0];
+    const companyTotalSold = _S[0].coSold, companyTotalRevenue = _S[0].coRev;
 
     // Side-by-side metric row — leading metric labels in the center column
     // so the two values sit symmetrically. Adds a small delta arrow per
@@ -4712,10 +4736,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         ['acv',        'ACV'],
       ]],
       ['Per Rep', [
-        ['reps20k',      'Reps > $20K'],
-        ['pra',          'PRA'],
-        ['repsServiced', 'Reps W/ Serviced'],
-        ['praServiced',  'PRA \u00b7 Serviced'],
+        // Labels per Isaac, Oct 29.
+        ['reps20k',      'Reps w/ > $20k Serviced Revenue'],
+        ['pra',          '$20k Rep PRA'],
+        ['repsServiced', 'Reps w/ Serviced Account'],
+        ['praServiced',  'PRA'],
       ]],
       ['Quality', [
         ['myPct', 'Multi-Year %'],
@@ -4771,6 +4796,18 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         rSub = pctOfCo(rVal, companyTotalRevenue);
         vSub = pctOfCo(vVal, companyTotalRevenue);
       }
+      if (_two) {
+        // Two scopes (per Isaac, Oct 29): each class side by side — Rookie A · Rookie B · Vet A · Vet B · All A · All B.
+        const [A, B] = _S;
+        const pair = (k2, color) => {
+          const va = A[k2][key], vb = B[k2][key];
+          const sub = (S, v) => key === 'sold' ? pctOfCo(v, S.coSold) : key === 'revenue' ? pctOfCo(v, S.coRev) : null;
+          return [sideCell(fmtVal[key](va), color, va > vb, sub(A, va)), sideCell(fmtVal[key](vb), color, vb > va, sub(B, vb))];
+        };
+        return el('div', { class: 'grid items-center gap-1 px-3 py-1.5', style: { gridTemplateColumns: _cmTech ? _cmGrid2T : _cmGrid2, borderTop: '1px solid var(--border)' } },
+          el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
+          ...(_cmTech ? [] : [...pair('rookie', ROOKIE_COLOR), ...pair('vet', VET_COLOR)]), ...pair('alls', ALL_COLOR));
+      }
       if (_cmTech) return el('div', { class: 'flex items-center justify-between gap-3 px-5 py-2', style: { borderTop: '1px solid var(--border)' } },
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
         el('div', { class: 'font-black tabular-nums text-base' }, fmtVal[key](alls[key])));
@@ -4781,7 +4818,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         // ALL — the combined cohort (rookies + vets + untagged), neutral, no
         // leader highlight: it's the reference line the halves compare to.
         sideCell(fmtVal[key](alls[key]), ALL_COLOR, false,
-          key === 'sold' || key === 'revenue' ? 'all D2D' : null),
+          key === 'sold' || key === 'revenue' ? _S[0].label : null),
       );
     };
 
@@ -4793,16 +4830,30 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       el('span', { class: 'text-xs font-semibold', style: { color: 'var(--text-muted)' } }, count + ' rep' + (count === 1 ? '' : 's')),
     );
 
+    const _cmGrid2 = 'minmax(88px,1.1fr) repeat(6, minmax(0,1fr))', _cmGrid2T = 'minmax(88px,1.1fr) repeat(2, minmax(0,1fr))';
+    // Scope picker (per Isaac, Oct 29): a checkbox dropdown, up to two at once. A third tick drops the oldest pick.
     // Nothing to pick (a rep who only sees RIDD): a plain label, not a one-item dropdown.
-    const scopePicker = (_cmReach && !_teamOpts.length) ? el('span', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } }, 'RIDD') : el('select', {
-      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
-      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-      title: 'Break the Rookie / Vet cohorts down by team or office',
-      onchange: (e) => { state._classScope = e.target.value; mountApp(); },
-    },
-      el('option', { value: 'all', selected: _scope === 'all' }, _cmTech ? 'All technicians' : _cmReach ? 'RIDD' : 'All D2D'),
-      _teamOpts.length ? el('optgroup', { label: 'Teams' }, ..._teamOpts.map(t => el('option', { value: 'team:' + t, selected: _scope === 'team:' + t }, t))) : null,
-      _officeOpts.length ? el('optgroup', { label: 'Offices' }, ..._officeOpts.map(o => el('option', { value: 'office:' + o, selected: _scope === 'office:' + o }, _mktgTC(o)))) : null);
+    const scopePicker = (_cmReach && !_teamOpts.length) ? el('span', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } }, 'RIDD') : (() => {
+      const opts = [['all', _scopeLabel('all')], ..._teamOpts.map(t => ['team:' + t, t]), ..._officeOpts.map(o => ['office:' + o, _mktgTC(o)])];
+      const open = !!state._classScopeOpen;
+      const set = (next) => { state._classScopes = next.length ? next : ['all']; mountApp(); };
+      const toggle = (v) => {
+        const cur = _scopes.slice();
+        if (cur.includes(v)) set(cur.filter(x => x !== v));
+        else set([...cur, v].slice(-2));
+      };
+      const panel = open ? el('div', { class: 'flex flex-col', style: { position: 'absolute', right: '0', top: 'calc(100% + 4px)', zIndex: 30, minWidth: '220px', maxHeight: '320px', overflowY: 'auto', border: '1px solid var(--border-2)', borderRadius: '12px', padding: '4px 0', background: 'var(--card)', boxShadow: '0 8px 24px rgba(0,0,0,.18)' }, onclick: (e) => e.stopPropagation() },
+        el('div', { class: 'px-3 pt-1 pb-1 text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Pick up to 2 to compare · ' + (_byTeams ? 'teams' : 'offices') + ' follow Filters → Group'),
+        ...opts.map(([v, l]) => el('label', { class: 'flex items-center gap-2 px-3 py-1 text-[11px] cursor-pointer hover:brightness-95', style: { color: 'var(--text)' } },
+          el('input', { type: 'checkbox', checked: _scopes.includes(v), onchange: () => toggle(v) }), el('span', { class: 'truncate' }, l)))) : null;
+      return el('div', { style: { position: 'relative' } },
+        el('button', { type: 'button', class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer flex items-center gap-2', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+          title: 'Compare the Rookie / Vet cohorts across up to two ' + (_byTeams ? 'teams' : 'offices') + ' (or the whole company)',
+          onclick: (e) => { e.stopPropagation(); state._classScopeOpen = !open; mountApp();
+            if (!open) setTimeout(() => document.addEventListener('click', function _cl() { document.removeEventListener('click', _cl); if (state._classScopeOpen) { state._classScopeOpen = false; mountApp(); } }), 0); } },
+          el('span', {}, _S.map(x => x.label).join(' vs ')), el('span', { style: { opacity: '.6' } }, '▾')),
+        panel);
+    })();
     const tierCard = el('div', { class: 'card overflow-hidden', 'data-section': 'class-metrics' },
       // Header: title left, scope dropdown top-right (per Isaac). The
       // "N untagged" chip is gone — untagged reps surface in Manage Teams.
@@ -4810,13 +4861,20 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         el('h3', { class: 'text-base font-bold', title: 'Tiers auto-set from sales history \u2014 first season selling = Rookie, returning reps = Vet. Manage Teams tags override. PRA divides by the Reps > $20K row; PRA \u00b7 Serviced divides by Reps W/ Serviced.' }, _cmTech ? 'Technician Metrics' : 'Class Metrics'),
         _cmTech ? el('div', { class: 'flex items-center gap-2' }, el('span', { class: 'text-xs font-semibold', style: { color: 'var(--text-muted)' } }, alls.reps + ' tech' + (alls.reps === 1 ? '' : 's')), scopePicker) : scopePicker,
       ),
-      _cmTech ? null : el('div', { class: 'grid items-center gap-2 px-3', style: { gridTemplateColumns: 'minmax(88px,1.1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)' } },
+      _two ? el('div', { class: 'grid items-end gap-1 px-3 pt-2', style: { gridTemplateColumns: _cmTech ? _cmGrid2T : _cmGrid2 } },
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pb-1', style: { color: 'var(--text-muted)' } }, 'Class'),
+        ...(_cmTech ? [['All', ALL_COLOR, 'alls']] : [['Rookie', ROOKIE_COLOR, 'rookie'], ['Vet', VET_COLOR, 'vet'], ['All', ALL_COLOR, 'alls']]).flatMap(([lab, color, k2]) => _S.map((S, si) =>
+          el('div', { class: 'flex flex-col items-center justify-center py-1 px-1 min-w-0', style: { borderBottom: '2px solid ' + color } },
+            si === 0 ? el('div', { class: 'text-[11px] font-black uppercase tracking-wide', style: { color } }, lab) : el('div', { class: 'text-[11px]', style: { visibility: 'hidden' } }, lab),
+            el('div', { class: 'text-[10px] font-bold truncate', style: { color: 'var(--text)', maxWidth: '100%' }, title: S.label }, S.label),
+            el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, S[k2].reps + ' rep' + (S[k2].reps === 1 ? '' : 's')))))) : null,
+      (_cmTech || _two) ? null : el('div', { class: 'grid items-center gap-2 px-3', style: { gridTemplateColumns: 'minmax(88px,1.1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)' } },
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, 'Class'),
         headerCell('Rookie', ROOKIE_COLOR, rookie.reps),
         headerCell('Vet', VET_COLOR, vet.reps),
         headerCell('All', ALL_COLOR, alls.reps),
       ),
-      (_cmTech ? alls.reps === 0 : (rookie.reps === 0 && vet.reps === 0))
+      (_cmTech ? _S.every(S => S.alls.reps === 0) : _S.every(S => S.rookie.reps === 0 && S.vet.reps === 0))
         ? el('div', { class: 'p-6 text-center text-xs italic', style: { color: 'var(--text-muted)' } },
             _cmTech ? 'No technician sales in this window.' : 'No tagged reps in this window. Tag reps as Rookie or Vet in Manage Teams.')
         : el('div', {}, ...ROW_SECTIONS.flatMap(([sec, defs]) => [
@@ -4894,7 +4952,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     ]),
     // Column order per Isaac (Sep 21): Sales · Days w/ Sale · Accts/Day · $/Day · Revenue · Pest Init · Avg Init · ACV · Audit % · MY % · APay % · Attrition %.
     { key: 'count',      label: 'Subscriptions',    align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.int(r.count)) },
-    { key: 'sellingDays', label: 'Days w/ Sale', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Days with at least one sale' }, fmt.int(r.sellingDays || 0)) },
+    { key: 'sellingDays', label: 'Days w/ Sale', align: 'left', defaultDir: 'desc', defaultHidden: true /* off by default, still in the column picker (per Isaac, Oct 29) */, cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Days with at least one sale' }, fmt.int(r.sellingDays || 0)) },
     { key: 'acctsPerDay', label: 'Accts/Day', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Average accounts per SELLING day' }, (r.acctsPerDay || 0).toFixed(1)) },
     // Avg Pest Initial = avg of initialPrice EXCLUDING Sentricon / German Roach
     // / Interior Flea (matches the door-to-door comp). Avg Initial = avg of
@@ -4908,7 +4966,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // 12-week revenue sparkline with WoW slope. Sort key = trendSlope so
     // clicking surfaces reps with the biggest week-over-week jump (or drop).
     { key: 'avgInitial', label: 'Avg Initial', title: 'Every new sale, one-time services included — renewals out',      align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgInitial > 0 ? fmt.usd(r.avgInitial) : '—') },
-    { key: 'avgPest',    label: 'Avg Pest Initial', title: 'New sales, leaving out Sentricon, German roach and interior flea (renewals out too)', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgPest > 0 ? fmt.usd(r.avgPest) : '—') },
+    { key: 'avgPest',    label: 'Avg Pest Initial', defaultHidden: true /* off by default, still in Columns (per Isaac, Oct 29) */, title: 'New sales, leaving out Sentricon, German roach and interior flea (renewals out too)', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgPest > 0 ? fmt.usd(r.avgPest) : '—') },
     { key: 'acvW', label: 'Weighted ACV', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'Every sale — one-time services included', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.acvW > 0 ? fmt.usd(r.acvW) : '\u2014') },
     { key: 'avgRecurring', label: 'Recurring', align: 'left', defaultDir: 'desc', title: 'Average recurring charge per service across the rep\u2019s recurring sales (one-time services out) \u2014 as billed in FieldRoutes', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgRecurring > 0 ? fmt.usd(r.avgRecurring) : '\u2014') },
     { key: 'acv',        label: 'ACV',      align: 'left', defaultDir: 'desc', title: 'Recurring new sales only — one-time services (and renewals, see Renewal ACV) left out', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.usd(r.acv)) },
@@ -5116,6 +5174,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   const _lbOrd = state._indLbColOrder || [];
   const _lbRank = (c, i) => { const k = _lbColKey(c); if (c.key === 'name') return -1; if (k === 'record') return 1e6; const j = _lbOrd.indexOf(k); return j >= 0 ? j : 1000 + i; };
   if (_lbOrd.length) repCols = repCols.map((c, i) => [c, _lbRank(c, i)]).sort((a, b) => a[1] - b[1]).map(x => x[0]);
+  // The leaderboard PDF prints exactly these columns, in this order (per Isaac, Oct 29).
+  state._indLbPdfCols = repCols.filter(c => c.key !== 'name');
   const _lbStore = (k, arr) => { try { localStorage.setItem(k + '::' + ((state.profile && state.profile.id) || 'anon'), JSON.stringify(arr)); } catch (e) { /* storage blocked */ } };
   const _lbSetShown = (key, show, render = true) => {
     const def = _lbPickable.find(c => _lbColKey(c) === key);
@@ -5487,6 +5547,24 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             setTimeout(() => document.addEventListener('mousedown', function closer(ev) { if (!(ev.target.closest && ev.target.closest('[data-dd="lbcols"]'))) { document.removeEventListener('mousedown', closer); if (state._indLbColsOpen) { state._indLbColsOpen = false; mountApp(); } } }), 0);
             return wrap;
           })(),
+          // 📄 Top-10 PDF (per Isaac, Oct 29 — back on the leaderboard, admins only): top overall + top rookies, the
+          // full active roster whatever the page filters (same report as Settings → Brand downloads).
+          (isAdminRole(state.profile?.role) && !_lbPhone) ? (() => {
+            const b = el('button', {
+              class: 'rounded-lg border ' + _lbBtnPad + ' py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
+              style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, title: 'Download the leaderboard PDF — top 10 overall + top 10 rookies',
+              onclick: async (e) => {
+                e.stopPropagation();
+                const reps = (typeof _lbAllRepsForReport === 'function') ? _lbAllRepsForReport() : [];
+                if (!reps.length) { toast('Leaderboard still loading — try again in a moment', 'info'); return; }
+                b.disabled = true; b.textContent = '…';
+                try { await downloadRookieVetPdf(reps, { limitOverall: 10, limitRookie: 10 }); }
+                catch (err) { console.error('[ridd] leaderboard PDF threw', err); toast('PDF failed: ' + (err.message || 'unknown'), 'error'); }
+                finally { b.disabled = false; b.textContent = '📄 PDF'; }
+              },
+            }, '📄 PDF');
+            return b;
+          })() : null,
 
           // (New / Total / Renewal switch retired per Isaac, Oct 16 — New Revenue / Renewal Revenue are their own columns.)
           (() => {
@@ -6076,7 +6154,10 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
     const _PX = { 'w-12': 52, 'w-14': 60, 'w-16': 68, 'w-20': 84, 'w-24': 96 };
     const _nb2 = narrow && opts.noBars;   // player card on a phone: name · total · metric · attrition
     const _tpl = _nb2 ? 'minmax(0, 1fr) 34px 78px 52px'
-      : (narrow ? '112px ' : (opts.noBars ? 'minmax(150px, 200px) ' : 'minmax(200px, 240px) ')) + (opts.noBars ? '48px' : 'minmax(120px, 1fr)') + ' ' + cols.map(c => c.key === 'attr' ? 'minmax(96px, 1fr)' : (_PX[c.w] || 72) + 'px').join(' ');
+      : narrow ? '112px minmax(120px, 1fr) ' + cols.map(c => c.key === 'attr' ? 'minmax(96px, 1fr)' : (_PX[c.w] || 72) + 'px').join(' ')
+      // Desktop (per Isaac, Oct 29): the metric columns share the spare width instead of leaving it empty on the
+      // right — each keeps its minimum and grows evenly; the bar column takes a larger share.
+      : (opts.noBars ? 'minmax(150px, 200px) 48px ' : 'minmax(200px, 240px) minmax(120px, 2.5fr) ') + cols.map(c => 'minmax(' + (c.key === 'attr' ? 96 : (_PX[c.w] || 72)) + 'px, 1fr)').join(' ');
     const _grid = { display: 'grid', gridTemplateColumns: _tpl, columnGap: _nb2 ? '8px' : '12px', alignItems: 'center' };
     body.replaceChildren(el('div', { class: narrow ? '' : 'scroll-x' }, el('div', { style: narrow ? {} : { minWidth: opts.noBars ? '860px' : '930px' } },
       el('div', { class: 'text-[10px] uppercase tracking-wider text-muted- font-semibold pb-1.5', style: _grid },
@@ -8275,6 +8356,12 @@ async function downloadCombinedTeamPdf(names, ctx, onProgress) {
 function buildRookieVetReportNode(allReps, opts = {}) {
   const limitOverall = opts.limitOverall ?? 15;
   const limitRookie  = opts.limitRookie  ?? 15;
+  // Columns = whatever the on-screen leaderboard shows right now (per Isaac, Oct 29). Team · Office prints as the PDF's
+  // own Team and Office columns; Best Day / Week / Month print as three columns when the record column is on.
+  const _lbShown = Array.isArray(state._indLbPdfCols) && state._indLbPdfCols.length ? state._indLbPdfCols : null;
+  const _REC = new Set(['bestDayTime', 'bestWeekTime', 'bestMonthTime']);
+  const _pdfRec = !_lbShown || _lbShown.some(c => _REC.has(c.key));
+  const _pdfCols = (_lbShown || []).filter(c => c.key !== 'team' && !_REC.has(c.key) && typeof c.cell === 'function');
 
   // Filter to Manage-Teams Active reps only — the leaderboard already
   // hides inactives, this report should match what's on screen.
@@ -8322,7 +8409,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
       // Title hard-left so it lines up with the leaderboard's left edge;
       // logo + date live on the right side of the header strip.
       el('div', {},
-        el('div', { style: { fontSize: '18px', fontWeight: '900', letterSpacing: '-0.01em', lineHeight: '1.1' } }, 'Sales Leaderboard'),
+        el('div', { style: { fontSize: '18px', fontWeight: '900', letterSpacing: '-0.01em', lineHeight: '24px' } }, 'Sales Leaderboard'),
         el('div', { style: { fontSize: '10px', color: '#666', marginTop: '1px' } },
           'Top ' + limitOverall + ' overall · Top ' + limitRookie + ' rookies · ranked by revenue · column-leading metrics highlighted'),
       ),
@@ -8354,6 +8441,8 @@ function buildRookieVetReportNode(allReps, opts = {}) {
     if (!t) return null;
     if (/^excluded$/i.test(t.trim())) return null; // the "Excluded" parking team
     if (typeof isTeamExcluded === 'function' && isTeamExcluded(t)) return null;
+    // Teams sitting out the competition (Settings → Teams, per Isaac Oct 29) and the owners' RIDD team stay off the rollups.
+    if ((typeof isOwnerTeam === 'function' && isOwnerTeam(t)) || ((state._indicatorRankExclude && state._indicatorRankExclude.teams) || []).includes(t)) return null;
     return PDF_TEAM_MERGE[t.toLowerCase().trim()] || t;
   };
   const byBranch = {};
@@ -8380,15 +8469,15 @@ function buildRookieVetReportNode(allReps, opts = {}) {
       const pct = dark ? 100 : Math.max(2, val / maxV * 100);
       const inBar = pct >= 22;
       return el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0' } },
-        el('div', { style: { width: '20px', fontSize: '9px', fontWeight: '800', color: '#999' } }, rank || ''),
-        el('div', { style: { width: '120px', fontSize: '11px', fontWeight: dark ? '900' : '700', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, label),
+        el('div', { style: { lineHeight: '20px', height: '20px', width: '20px', fontSize: '9px', fontWeight: '800', color: '#999' } }, rank || ''),
+        el('div', { style: { lineHeight: '20px', height: '20px', width: '120px', fontSize: '11px', fontWeight: dark ? '900' : '700', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, label),
         el('div', { style: { flex: '1', height: '20px', borderRadius: '0', background: '#f1f1ec', position: 'relative' } },
           el('div', { style: { width: pct + '%', height: '100%', borderRadius: '0', background: dark ? '#323230' : '#DF643A', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '8px', boxSizing: 'border-box' } },
-            inBar ? el('span', { style: { fontSize: '10px', fontWeight: '900', color: dark ? '#DF643A' : '#fff', whiteSpace: 'nowrap' } }, fmtV(val)) : null),
-          inBar ? null : el('span', { style: { position: 'absolute', left: 'calc(' + pct + '% + 6px)', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', fontWeight: '900', color: '#323230', whiteSpace: 'nowrap' } }, fmtV(val))));
+            inBar ? el('span', { style: { lineHeight: '20px', fontSize: '10px', fontWeight: '900', color: dark ? '#DF643A' : '#fff', whiteSpace: 'nowrap' } }, fmtV(val)) : null),
+          inBar ? null : el('span', { style: { position: 'absolute', left: 'calc(' + pct + '% + 6px)', top: '0', lineHeight: '20px', fontSize: '10px', fontWeight: '900', color: '#323230', whiteSpace: 'nowrap' } }, fmtV(val))));
     };
     return el('div', {},
-      el('div', { style: { fontSize: '12px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#A9441F', margin: '0 0 4px' } }, title),
+      el('div', { style: { fontSize: '12px', lineHeight: '16px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#A9441F', margin: '0 0 4px' } }, title),
       bar('', totalLab, totalVal, true),
       ...rows.map(([o, v], i) => bar('#' + (i + 1), o, v, false)));
   };
@@ -8432,17 +8521,17 @@ function buildRookieVetReportNode(allReps, opts = {}) {
       const pct = dark ? 100 : Math.max(2, val / maxV * 100);
       const inBar = pct >= 26;
       return el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0' } },
-        el('div', { style: { width: '20px', fontSize: '9px', fontWeight: '800', color: '#999' } }, rank || ''),
-        el('div', { style: { width: '104px', fontSize: '11px', fontWeight: dark ? '900' : '700', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, label),
-        el('div', { style: { width: '54px', fontSize: '9px', fontWeight: '700', color: '#666', whiteSpace: 'nowrap' } }, q + ' >$20K'),
-        el('div', { style: { width: '66px', fontSize: '9px', fontWeight: '700', color: '#666', whiteSpace: 'nowrap' } }, subs + ' subs/rep'),
+        el('div', { style: { lineHeight: '20px', height: '20px', width: '20px', fontSize: '9px', fontWeight: '800', color: '#999' } }, rank || ''),
+        el('div', { style: { lineHeight: '20px', height: '20px', width: '104px', fontSize: '11px', fontWeight: dark ? '900' : '700', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, label),
+        el('div', { style: { lineHeight: '20px', height: '20px', width: '54px', fontSize: '9px', fontWeight: '700', color: '#666', whiteSpace: 'nowrap' } }, q + ' >$20K'),
+        el('div', { style: { lineHeight: '20px', height: '20px', width: '66px', fontSize: '9px', fontWeight: '700', color: '#666', whiteSpace: 'nowrap' } }, subs + ' subs/rep'),
         el('div', { style: { flex: '1', height: '20px', borderRadius: '0', background: '#f1f1ec', position: 'relative' } },
           el('div', { style: { width: pct + '%', height: '100%', borderRadius: '0', background: dark ? '#323230' : '#DF643A', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '8px', boxSizing: 'border-box' } },
-            inBar ? el('span', { style: { fontSize: '10px', fontWeight: '900', color: dark ? '#DF643A' : '#fff', whiteSpace: 'nowrap' } }, fmt.usd0(val)) : null),
-          inBar ? null : el('span', { style: { position: 'absolute', left: 'calc(' + pct + '% + 6px)', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', fontWeight: '900', color: '#323230', whiteSpace: 'nowrap' } }, fmt.usd0(val))));
+            inBar ? el('span', { style: { lineHeight: '20px', fontSize: '10px', fontWeight: '900', color: dark ? '#DF643A' : '#fff', whiteSpace: 'nowrap' } }, fmt.usd0(val)) : null),
+          inBar ? null : el('span', { style: { position: 'absolute', left: 'calc(' + pct + '% + 6px)', top: '0', lineHeight: '20px', fontSize: '10px', fontWeight: '900', color: '#323230', whiteSpace: 'nowrap' } }, fmt.usd0(val))));
     };
     return el('div', {},
-      el('div', { style: { fontSize: '12px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#A9441F', margin: '0 0 4px' } }, 'YTD PRA'),
+      el('div', { style: { fontSize: '12px', lineHeight: '16px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#A9441F', margin: '0 0 4px' } }, 'YTD PRA'),
       row('', 'Company', String(sumSummer.reps || 0), sumSummer.reps > 0 ? (sumSummer.subs / sumSummer.reps).toFixed(1) : '—', sumSummer.reps > 0 ? sumSummer.revenue / sumSummer.reps : 0, true),
       ...praRows.map((r, i) => row('#' + (i + 1), r.o, String(r.q || 0), r.q > 0 ? r.subsPra.toFixed(1) : '—', r.q > 0 ? r.revPra : 0, false)));
   })();
@@ -8459,7 +8548,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
   },
     el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', borderBottom: '2px solid #DF643A', paddingBottom: '4px', marginBottom: '10px' } },
       el('div', {},
-        el('div', { style: { fontSize: '18px', fontWeight: '900', letterSpacing: '-0.01em', lineHeight: '1.1' } }, 'Team Rollups'),
+        el('div', { style: { fontSize: '18px', fontWeight: '900', letterSpacing: '-0.01em', lineHeight: '24px' } }, 'Team Rollups'),
         el('div', { style: { fontSize: '10px', color: '#666', marginTop: '1px' } }, 'Team Revenue · Team ACV · Avg Pest Initial · YTD PRA — every rep in the window · ' + deptLabel)),
       el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } },
         companyLogo
@@ -8544,11 +8633,19 @@ function buildRookieVetReportNode(allReps, opts = {}) {
       );
     }
     const leaders = findLeaders(reps);
+    const _pdfLead = {};
+    for (const c of _pdfCols) {
+      const low = c.key === 'attrPct';
+      let best = null, who = null;
+      for (const r of reps) { const v = Number(r[c.key]); if (!Number.isFinite(v) || v <= 0) continue; if (best == null || (low ? v < best : v > best)) { best = v; who = r.name; } }
+      if (who) _pdfLead[c.key] = who;
+    }
     const th = (text, align) => el('th', {
       style: {
         fontSize: '8px', fontWeight: '800', letterSpacing: '0.04em',
         textTransform: 'uppercase', color: '#666',
-        padding: '4px 4px',
+        padding: '5px 4px',
+        lineHeight: '12px',
         textAlign: 'left',   // everything left-justified (per Isaac)
         borderBottom: '1px solid #ddd',
         whiteSpace: 'nowrap',
@@ -8559,8 +8656,9 @@ function buildRookieVetReportNode(allReps, opts = {}) {
     // page (works in B&W too because the pill has its own outline).
     const td = (content, align, opts2 = {}) => {
       const style = {
-        padding: '3px 4px',
+        padding: '4px 4px',
         fontSize: '9.5px',
+        lineHeight: '13px',
         textAlign: 'left',   // everything left-justified (per Isaac)
         borderBottom: '1px solid #f0f0f0',
         whiteSpace: 'nowrap',
@@ -8588,22 +8686,8 @@ function buildRookieVetReportNode(allReps, opts = {}) {
             th('Rep'),
             th('Team'),
             th('Office'),
-            th('Sales',      'right'),
-            th('Revenue',    'right'),
-            th('Audit %',    'right'),
-            th('ACV',        'right'),
-            th('Days w/ a Sale', 'right'),
-            th('$ / Day',    'right'),
-            th('Accts/Day',  'right'),
-            th('Avg Pest',   'right'),
-            th('Avg Initial','right'),
-            th('Multi-Year %',       'right'),
-            th('Auto Pay %', 'right'),
-            th('Cancels',    'right'),
-            th('Cancel %',   'right'),
-            th('Best Day',   'right'),
-            th('Best Week',  'right'),
-            th('Best Month', 'right'),
+            ..._pdfCols.map(c => th(c.label)),
+            ...(_pdfRec ? [th('Best Day'), th('Best Week'), th('Best Month')] : []),
           ),
         ),
         el('tbody', {},
@@ -8612,32 +8696,19 @@ function buildRookieVetReportNode(allReps, opts = {}) {
             td(r.name, 'left', { bold: true }),
             td(r.team || '—', 'left', { color: '#666' }),
             td(titleCase(r.office) || '—', 'left', { color: '#666' }),
-            td(fmt.int(r.count || 0),     'right', { leader: leaders.count === r.name }),
-            td(fmt.usd0(r.revenue || 0),  'right', { bold: true, leader: leaders.revenue === r.name }),
-            td(pctOrDash(r.auditPct),     'right', { leader: leaders.auditPct === r.name }),
-            td(usdOrDash(r.acv),          'right', { leader: leaders.acv === r.name }),
-            td(r.sellingDays > 0 ? fmt.int(r.sellingDays) : '—', 'right'),
-            td(r.revPerDay > 0 ? fmt.usd0(r.revPerDay) : '—', 'right', { leader: leaders.revPerDay === r.name }),
-            td(r.acctsPerDay > 0 ? r.acctsPerDay.toFixed(1) : '—', 'right', { leader: leaders.acctsPerDay === r.name }),
-            td(usdOrDash(r.avgPest),      'right', { leader: leaders.avgPest === r.name }),
-            td(usdOrDash(r.avgInitial),   'right', { leader: leaders.avgInitial === r.name }),
-            td(pctOrDash(r.myPct),        'right', { leader: leaders.myPct === r.name }),
-            td(pctOrDash(r.autoPayPct),   'right', { leader: leaders.autoPayPct === r.name }),
-            td(r.cancels > 0 ? fmt.int(r.cancels) : '—', 'right', { color: '#666' }),
-            // Cancel % is "best when low" — leader pill goes to the
-            // lowest non-zero rate, and over-10% rates still render red
-            // even on the leader so the absolute number reads honestly.
-            td(r.cancelPct > 0 ? (r.cancelPct * 100).toFixed(1) + '%' : '—', 'right', {
-              leader: leaders.cancelPct === r.name,
-              color: r.cancelPct > 0.1 ? '#B91C1C' : '#323230',
+            // The leaderboard's own columns (per Isaac, Oct 29): same cell text as on screen; the leader pill goes
+            // to the best value in the table (lowest for Attrition %).
+            ..._pdfCols.map(c => {
+              let txt = '\u2014'; try { const n = c.cell(r); txt = String((n && n.textContent) || '').trim() || '\u2014'; } catch (e) { /* column without a value */ }
+              return td(txt, 'left', { leader: _pdfLead[c.key] === r.name, bold: c.key === 'revenue', color: c.key === 'attrPct' && (r.attrPct || 0) > 0.1 ? '#B91C1C' : undefined });
             }),
             // Personal records — dollar amount with the date it happened
             // tucked underneath in small gray type.
-            ...[
+            ...(!_pdfRec ? [] : [
               [r.bestDay,   recWhen.day(r),   leaders.bestDay   === r.name],
               [r.bestWeek,  recWhen.week(r),  leaders.bestWeek  === r.name],
               [r.bestMonth, recWhen.month(r), leaders.bestMonth === r.name],
-            ].map(([amount, when, isLeader]) => td(
+            ]).map(([amount, when, isLeader]) => td(
               amount > 0
                 ? el('div', { style: { lineHeight: '1.15' } },
                     el('div', {}, fmt.usd0(amount)),
@@ -8665,14 +8736,14 @@ function buildRookieVetReportNode(allReps, opts = {}) {
   return el('div', {}, page, ...(page2 ? [page2] : []));
 }
 
-async function downloadRookieVetPdf(allReps) {
+async function downloadRookieVetPdf(allReps, opts) {
   try {
     await loadPdfLibsOnce();
   } catch {
     toast('Could not load PDF libraries — check your connection', 'error');
     return;
   }
-  const reportEl = buildRookieVetReportNode(allReps);
+  const reportEl = buildRookieVetReportNode(allReps, opts || {});
   reportEl.style.position = 'fixed';
   reportEl.style.left     = '-99999px';
   reportEl.style.top      = '0';
@@ -8693,12 +8764,13 @@ async function downloadRookieVetPdf(allReps) {
     const usableH = pageH - marginY * 2;
     const sheets = [...reportEl.children];
     for (let pi = 0; pi < sheets.length; pi++) {
-      const canvas = await html2canvas(sheets[pi], {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        logging: false,
-        useCORS: true,
-      });
+      // foreignObject rendering (per Isaac, Oct 29 — labels and bar values printed clipped): html2canvas's own text
+      // layout drops every line ~8px under the app's CSS; the browser's native renderer draws it exactly as on
+      // screen. Safari's foreignObject is unreliable, so it (and any failure) falls back to the classic renderer.
+      const _safari = /^((?!chrome|android|crios|fxios).)*safari/i.test(navigator.userAgent || '');
+      let canvas = null;
+      if (!_safari) { try { canvas = await html2canvas(sheets[pi], { scale: 2, backgroundColor: '#ffffff', logging: false, useCORS: true, foreignObjectRendering: true }); } catch (e) { canvas = null; } }
+      if (!canvas || !canvas.width) canvas = await html2canvas(sheets[pi], { scale: 2, backgroundColor: '#ffffff', logging: false, useCORS: true });
       const imgData = canvas.toDataURL('image/png');
       const imgH = (canvas.height * imgW) / canvas.width;
       if (pi > 0) pdf.addPage();
@@ -10043,10 +10115,9 @@ function _landingWindow() {
   const yr = String(new Date().getFullYear());
   return { has: (iso) => !!iso && iso.slice(0, 4) === yr, label: yr + ' YTD' };
 }
-// Landing cards use the page's Filters → Metric too: Sold = every sale, Pending / Serviced (default), Passed Audit.
+// Landing cards use the page's Filters → Revenue metric too: Sold, Pending / Serviced (default) or Serviced, + Passed Audit.
 function _landingOk(s) {
-  const a = state.indicatorAcctStatus || 'pending_serviced';
-  if (a !== 'all' && !frPendingServiced(s)) return false;
+  if (!indAcctOk(s)) return false;
   return state.indicatorPassedAudit !== true || /passed\s*audit/i.test(String(s.customerFlags || ''));
 }
 function _landingTiles(tile, m) {
@@ -11200,9 +11271,12 @@ function indicatorYoYTrendChart() {
       // Reps only (per Isaac, Sep 24): everything else — type, office, team,
       // tier, date range, exclusions — comes from the page-header Filters.
       // Picked reps overlay as their own lines; none picked = the header scope.
+      // Compare on (per Isaac, Oct 29): the search sits at the TOP of the panel, pinned while the list scrolls,
+      // and narrows offices, teams and reps alike. Compare off: the trigger box is the search, as before.
+      _yoyCompareOn() ? el('div', { class: 'px-1.5 pb-1.5 sticky', style: { paddingTop: '2px', top: '-6px', background: 'var(--card)', zIndex: 1 } }, repSearch) : null,
       placeList,
       secTitle('Reps'),
-      el('div', { class: 'px-1.5 pb-1' }, repSearch),
+      _yoyCompareOn() ? null : el('div', { class: 'px-1.5 pb-1' }, repSearch),
       repList,
       (_sApply = el('button', {
         class: 'w-full rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95 mt-1 sticky',
@@ -11239,15 +11313,17 @@ function indicatorYoYTrendChart() {
     const btn = el('input', {
       type: 'text', autocomplete: 'off',
       placeholder: _nReps ? (_nReps === 1 ? _scopeLabelOf(_yoySelScopes[0]) : _nReps + (_yoyCompareOn() ? ' compared' : ' reps')) : (_yoyCompareOn() ? 'Pick offices, teams, reps\u2026' : 'Search rep\u2026'),
+      readOnly: _yoyCompareOn(),   // compare on: the panel's own search (top) takes the typing
       class: 'rounded-lg border px-2.5 py-1 text-[11px]',
       style: { borderColor: _nReps ? 'var(--accent)' : 'var(--border-2)', minWidth: '160px', background: 'var(--card)', color: 'var(--text)' },
       title: _yoyCompareOn() ? 'Compare offices, teams and reps — each pick is its own line' : 'Overlay specific reps as their own lines',
-      onfocus: openPanel,
-      onclick: (e) => { e.stopPropagation(); openPanel(); },
+      onfocus: () => { openPanel(); if (_yoyCompareOn()) setTimeout(() => { try { repSearch.focus(); } catch (e) { /* gone */ } }, 0); },
+      onclick: (e) => { e.stopPropagation(); openPanel(); if (_yoyCompareOn()) repSearch.focus(); },
       oninput: (e) => { openPanel(); paintReps(e.target.value); },
     });
-    // The panel's own search box is redundant now — the trigger IS the search.
-    repSearch.style.display = 'none';
+    // Compare off: the trigger IS the search, so the panel's own box stays hidden.
+    if (!_yoyCompareOn()) repSearch.style.display = 'none';
+    else repSearch.placeholder = 'Search offices, teams, reps\u2026';
     if (state._yoyScopesOpen) { panel.style.display = 'block'; clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
       if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
       if (wrap.contains(ev.target)) return;
