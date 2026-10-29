@@ -4676,7 +4676,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       // Reps w/ a serviced account (per Isaac) — same serviced evidence the
       // P/S gate uses: ≥1 completed service OR a serviced date. PRA·Serviced
       // divides the cohort's revenue by THAT rep count.
-      const _svcEv = (s) => (Number(s.services) || 0) > 0 || !!s.servicedDate;
+      // Same test as Filters → Serviced Revenue (per Isaac, Oct 29): a completed service, a serviced date, or a Completed initial.
+      const _svcEv = (s) => (typeof frServiced === 'function') ? frServiced(s) : ((Number(s.services) || 0) > 0 || !!s.servicedDate);
       const repsServiced = reps.filter(r => (r.sales || []).some(_svcEv)).length;
       return {
         reps:    reps.length,
