@@ -4737,10 +4737,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         ['acv',        'ACV'],
       ]],
       ['Per Rep', [
-        ['reps20k',      'Reps > $20K'],
-        ['pra',          'PRA'],
-        ['repsServiced', 'Reps W/ Serviced'],
-        ['praServiced',  'PRA \u00b7 Serviced'],
+        // Labels per Isaac, Oct 29.
+        ['reps20k',      'Reps w/ > $20k Serviced Revenue'],
+        ['pra',          '$20k Rep PRA'],
+        ['repsServiced', 'Reps w/ Serviced Account'],
+        ['praServiced',  'PRA'],
       ]],
       ['Quality', [
         ['myPct', 'Multi-Year %'],
