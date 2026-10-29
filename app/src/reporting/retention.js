@@ -2696,9 +2696,10 @@ function reportingWaterfall() {
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
         el('div', {},
-          el('div', { class: 'font-display text-lg', title: 'Counted by CUSTOMER, not subscription: every subscription a customer has had is linked into one life. Still a customer = any active subscription. Sentricon excluded.' }, 'Renewal Retention' + (office !== 'all' ? ' · ' + officeLabel : '')),
+          el('h3', { class: 'text-base font-bold', title: 'Counted by CUSTOMER, not subscription: every subscription a customer has had is linked into one life. Still a customer = any active subscription. Sentricon excluded.' }, 'Renewal Retention' + (office !== 'all' ? ' · ' + officeLabel : '')),
           head ? el('div', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } }, head) : null),
-        null),
+        // The footnote moved into an ⓘ on the right (per Isaac, Oct 29).
+        configInfoBtn('Renewal Retention', 'Decision point = the day the first renewal was sold, or the first contract’s end date for customers who never renewed.' + (noLink ? ' ' + fmt.int(noLink) + ' renewal customer' + (noLink === 1 ? ' has' : 's have') + ' no earlier subscription in this view, so their tenure starts at the renewal.' : '') + ' Counted by customer, not subscription: every subscription a customer has had is linked into one life. Still a customer = any active subscription. Sentricon excluded.')),
       el('div', { class: 'scroll-x' },
         el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
           el('thead', {}, el('tr', {},
@@ -2712,9 +2713,7 @@ function reportingWaterfall() {
             ...keys.map(k => row(grp === 'year' ? k : 'Renewal - ' + k, groups.get(k), false, m2m)),
             row('All customers who renewed', all, true, m2m),
             el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, el('td', { class: 'px-3 pt-3 pb-1 text-[10px] uppercase tracking-widest font-semibold', colspan: '10', style: { color: 'var(--text-subtle)' } }, 'The comparison · reached the end of their first contract still a customer and never renewed')),
-            row('Did not renew', m2m, true)))),
-      el('div', { class: 'px-4 py-2 text-[10px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } },
-        'Decision point = the day the first renewal was sold, or the first contract’s end date for customers who never renewed.' + (noLink ? ' ' + fmt.int(noLink) + ' renewal customer' + (noLink === 1 ? ' has' : 's have') + ' no earlier subscription in this view, so their tenure starts at the renewal.' : '')));
+            row('Did not renew', m2m, true)))));
   })();
 
   // (Renewal Timing card retired per Isaac, Sep 2026.)
