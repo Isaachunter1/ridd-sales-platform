@@ -1127,8 +1127,8 @@ function reportingWaterfall() {
     });
     const rowsSel = el('select', { class: 'px-2.5 py-1 text-[11px] font-bold cursor-pointer', style: { border: '1px solid var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, title: 'What each row of the waterfall is',
       onchange: (e) => { state._rtWfDim = e.target.value; mountApp(); } },
-      el('option', { value: 'year', selected: wfDim === 'year' }, 'Rows: Cohort year'),
-      ...Object.entries(SEM_DIMENSIONS).map(([k, d]) => el('option', { value: k, selected: wfDim === k }, 'Rows: ' + d.label)));
+      el('option', { value: 'year', selected: wfDim === 'year' }, 'Cohorts by Year'),   // labels per Isaac, Oct 29
+      ...Object.entries(SEM_DIMENSIONS).map(([k, d]) => el('option', { value: k, selected: wfDim === k }, 'Cohorts by ' + d.label)));
     const cohortSel = wfDim === 'year' ? null : el('select', { class: 'px-2.5 py-1 text-[11px] font-bold cursor-pointer', style: { border: '1px solid var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, title: 'Show every year together, or only the subscriptions first serviced in one year',
       onchange: (e) => { state._rtWfCohort = e.target.value === 'all' ? null : Number(e.target.value); mountApp(); } },
       el('option', { value: 'all', selected: wfCohort == null }, 'Cohort: All years'),
