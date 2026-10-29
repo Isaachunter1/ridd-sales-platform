@@ -4919,7 +4919,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     ]),
     // Column order per Isaac (Sep 21): Sales · Days w/ Sale · Accts/Day · $/Day · Revenue · Pest Init · Avg Init · ACV · Audit % · MY % · APay % · Attrition %.
     { key: 'count',      label: 'Subscriptions',    align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.int(r.count)) },
-    { key: 'sellingDays', label: 'Days w/ Sale', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Days with at least one sale' }, fmt.int(r.sellingDays || 0)) },
+    { key: 'sellingDays', label: 'Days w/ Sale', align: 'left', defaultDir: 'desc', defaultHidden: true /* off by default, still in the column picker (per Isaac, Oct 29) */, cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Days with at least one sale' }, fmt.int(r.sellingDays || 0)) },
     { key: 'acctsPerDay', label: 'Accts/Day', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Average accounts per SELLING day' }, (r.acctsPerDay || 0).toFixed(1)) },
     // Avg Pest Initial = avg of initialPrice EXCLUDING Sentricon / German Roach
     // / Interior Flea (matches the door-to-door comp). Avg Initial = avg of
