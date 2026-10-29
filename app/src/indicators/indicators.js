@@ -1531,8 +1531,10 @@ function viewIndicators() {
               style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
               onchange: e => { _staged.acct = e.target.value; _markDirty(); },
             },
-              el('option', { value: 'pending_serviced', selected: _staged.acct === 'pending_serviced' }, 'Pending / Serviced'),
-              el('option', { value: 'all', selected: _staged.acct === 'all' }, 'Sold'),   // labels per Isaac, Oct 9
+              // Labels per Isaac, Oct 29: "… Revenue", plus Serviced Revenue (initial done — no Pending).
+              el('option', { value: 'pending_serviced', selected: _staged.acct === 'pending_serviced' }, 'Pending / Serviced Revenue'),
+              el('option', { value: 'serviced', selected: _staged.acct === 'serviced' }, 'Serviced Revenue'),
+              el('option', { value: 'all', selected: _staged.acct === 'all' }, 'Sold Revenue'),
             );
           // Passed Audit only — an on/off switch on top of the Metric (per Isaac, Oct 16).
           const auditBtn = _metricLocked ? null : (() => {
@@ -1949,7 +1951,7 @@ function viewIndicators() {
           const x = indicatorExcl();
           const chips = [];
           const add = (label, clear) => chips.push([label, clear]);
-          if ((state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced') add('Sold', () => { state.indicatorAcctStatus = 'pending_serviced'; });
+          if ((state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced') add(state.indicatorAcctStatus === 'serviced' ? 'Serviced Revenue' : 'Sold Revenue', () => { state.indicatorAcctStatus = 'pending_serviced'; });
           if (x.oneTime) add('No one-time services', () => { state.indicatorExcl = { ...indicatorExcl(), oneTime: false }; });
           if (x.ror) add('No 3-day RORs', () => { state.indicatorExcl = { ...indicatorExcl(), ror: false }; });
           if (x.renewal) add('No renewals', () => { state.indicatorExcl = { ...indicatorExcl(), renewal: false }; });
@@ -10066,10 +10068,9 @@ function _landingWindow() {
   const yr = String(new Date().getFullYear());
   return { has: (iso) => !!iso && iso.slice(0, 4) === yr, label: yr + ' YTD' };
 }
-// Landing cards use the page's Filters → Metric too: Sold = every sale, Pending / Serviced (default), Passed Audit.
+// Landing cards use the page's Filters → Revenue metric too: Sold, Pending / Serviced (default) or Serviced, + Passed Audit.
 function _landingOk(s) {
-  const a = state.indicatorAcctStatus || 'pending_serviced';
-  if (a !== 'all' && !frPendingServiced(s)) return false;
+  if (!indAcctOk(s)) return false;
   return state.indicatorPassedAudit !== true || /passed\s*audit/i.test(String(s.customerFlags || ''));
 }
 function _landingTiles(tile, m) {

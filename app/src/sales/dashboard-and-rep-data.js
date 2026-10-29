@@ -957,6 +957,20 @@ const INDICATOR_DEPTS = [
   ['techs',  'Technician'],
 ];
 const _indSalesCache = { src: null, cfg: '', byKey: new Map() };
+// Serviced Revenue (per Isaac, Oct 29): Pending / Serviced minus Pending — only accounts that have had at least
+// their initial service. Same evidence the Pending/Serviced gate trusts first: a completed service count or a
+// serviced date, else a Completed initial. Manual sheets read their own Status column (Serviced).
+function frServiced(s) {
+  if (!frPendingServiced(s)) return false;
+  if (state._indManualMode) return String(s.status || '').trim().toLowerCase() === 'serviced';
+  if ((Number(s.services) || 0) > 0 || String(s.servicedDate || '').trim()) return true;
+  return String(s.initialStatus || '').trim().toLowerCase() === 'completed';
+}
+// The Revenue metric pick (Filters): 'pending_serviced' (default) · 'serviced' · 'all' (= Sold Revenue).
+function indAcctOk(s, acct) {
+  const a = acct || state.indicatorAcctStatus || 'pending_serviced';
+  return a === 'all' ? true : a === 'serviced' ? frServiced(s) : frPendingServiced(s);
+}
 // The FieldRoutes "Pending / Serviced Accounts" gate as a standalone
 // predicate — initial-appointment status Pending or Completed, minus the
 // global service exclusions. indicatorSales() applies it to every metric on
@@ -1129,7 +1143,7 @@ function indicatorSales() {
     // Serviced count, Canceled / Not Serviced never do (per Isaac) — even
     // when the Filters panel is set to "all".
     if (state._indManualMode) { if (!frPendingServiced(s)) return false; }
-    else if (_acct !== 'all' && !frPendingServiced(s)) return false;
+    else if (!indAcctOk(s, _acct)) return false;
     // Passed Audit only (per Isaac, Oct 16): the Metric's sales AND flagged Passed Audit, page-wide.
     if (_audit && !/passed\s*audit/i.test(String(s.customerFlags || ''))) return false;
     if (_indicatorServiceExcluded(s)) return false;
