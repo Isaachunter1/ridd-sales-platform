@@ -1054,8 +1054,29 @@ function myBucketOfRenewal(s) { return metricIsRenewal(s) ? myBucketOfAllSources
 // mirror carries no deletion marker, so this admin-maintained ID list
 // (Settings → Configurations) is the source of truth — excluded from EVERY
 // dataset so app numbers align with the CRM exactly.
+// Server-published deleted-customer list (per Isaac, Oct 29 — Noah Shadix's P/S was $2,056 high on two customers
+// deleted in FieldRoutes). The orphan / stale-pending sets below were only ever computed from the Reporting
+// snapshot, which reps never load and admins load in the background — so a rep's own dashboard, and anyone's
+// before the snapshot arrived, counted deleted customers. The crm-excluded server job publishes the same two
+// rules as customer ids (app_settings.crm_excluded); everyone loads it once, and the set uses both sources.
+function _loadCrmExcluded() {
+  if (state._crmExcludedKick) return; state._crmExcludedKick = true;
+  if ((typeof DEMO !== 'undefined' && DEMO) || typeof supabase === 'undefined' || !supabase) return;
+  const done = () => { if (typeof _indCfgRev !== 'undefined') _indCfgRev++; try { mountApp(); } catch (e) { /* not mounted yet */ } };
+  supabase.from('app_settings').select('value').eq('key', 'crm_excluded').maybeSingle().then(({ data }) => {
+    const v = data && data.value;
+    state._crmExcluded = v ? { orphans: (v.orphans || []).map(String), stale: (v.stale_pending || []).map(String), at: v.at || null } : null;
+    if (state._crmExcluded) done();
+  }, () => {});
+  // The nightly FieldRoutes scan list too (still behind its Configurations switch).
+  if (typeof _loadCrmDeletedIds === 'function') _loadCrmDeletedIds().then(() => { if ((state._crmDeletedIds || []).length) done(); }, () => {});
+}
 function deletedCustIdSet() {
+  _loadCrmExcluded();
   const set = new Set();   // (manual deleted-ID list retired per Isaac, Sep 30 — deletions come from the sync's checks only)
+  const _ex = state._crmExcluded;
+  if (_ex && reportingAutoExcludeOrphans()) _ex.orphans.forEach(id => set.add(id));
+  if (_ex && reportingExclStalePending()) _ex.stale.forEach(id => set.add(id));
   // Auto-detected orphans: subscriptions whose customer id has NO customer
   // record in FieldRoutes any more (deleted in the CRM). Flagged by the sync
   // as customer_missing; excluded here unless an admin turns the rule off.

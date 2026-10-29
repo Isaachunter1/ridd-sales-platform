@@ -375,7 +375,10 @@ async function loadReportingSubscriptions(uploadId) {
   // Everything after the loader's own cleanup is kept, so the deleted-account
   // rules below can be re-applied LIVE when an admin changes them (no reload).
   state._snapshotAllRows = rows;
-  return _filterDeletedRows(rows);
+  const _kept = _filterDeletedRows(rows);
+  // The deleted-customer sets just changed — drop every cached indicatorSales() view (per Isaac, Oct 29).
+  if (typeof _indCfgRev !== 'undefined') _indCfgRev++;
+  return _kept;
 }
 // Streamed snapshot download with live progress, stall detection and retries.
 // supabase-js .download() is one opaque await — if the connection stalls
