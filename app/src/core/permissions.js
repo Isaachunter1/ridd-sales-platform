@@ -42,7 +42,7 @@ const PERM_DEFS = [
   { id: 'tab_scorecards',   label: 'Sales · Scorecards',  group: 'Sales tabs' },
   { id: 'tab_calendar',     label: 'Sales · Calendar',    group: 'Sales tabs' },
   { id: 'tab_hof',          label: 'Sales · Hall of Fame', group: 'Sales tabs' },
-  { id: 'tab_loyalty',      label: 'Loyalty (Renewals · Customer Health)', group: 'Tabs' },
+  { id: 'tab_loyalty',      label: 'Loyalty (Renewals · Proactive Outreach)', group: 'Tabs' },
   // Settings pages a non-admin may open (Permissions itself stays admin-only).
   { id: 'view_settings',    label: 'Settings',            group: 'Settings', sensitive: 'the Settings area' },
   { id: 'set_users',        label: 'Settings · Users',    group: 'Settings', sensitive: 'every user\u2019s account, role and password reset' },

@@ -350,7 +350,7 @@ function reportingCustomerHealth() {
     el('div', { class: 'card p-4' },
       el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
         el('div', {},
-          el('h2', { class: 'text-lg font-bold flex items-center gap-2' }, '❤️‍🩹 Customer Health',
+          el('h2', { class: 'text-lg font-bold flex items-center gap-2' }, '❤️‍🩹 Proactive Outreach · health scores',
             el('button', { class: 'rounded-lg border px-2 py-0.5 text-[11px] font-bold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onclick: () => { state._healthTable = false; mountApp(); } }, '☰ Check-in list')),
           el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
             'Every active customer, scored on the churn drivers measured in OUR book — past due balance, no autopay, single service, high-churn ZIP. Call the top of this list before they cancel.')),
@@ -604,7 +604,7 @@ function _healthQueueView(scored) {
     : el('div', { class: 'text-[12px] text-center py-8', style: { color: 'var(--text-subtle)' } }, q ? 'Nobody matches “' + q + '”.' : 'Everyone in their first year here has had their check-in — nice work.');
   return el('div', { class: 'card p-4 flex flex-col gap-3' },
     el('div', {},
-      el('h2', { class: 'text-lg font-bold' }, '❤️‍🩹 Customer check-ins'),
+      el('h2', { class: 'text-lg font-bold' }, '❤️‍🩹 Proactive Outreach'),
       el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } }, 'One touch-base call for every customer in their first 12 months, once they have had a treatment after the initial. Early reservices first, then first bills (months 0–5), accounts showing trouble first. Past-due accounts are left to collections. Customers with a contract ending are on Renewals.')),
     header, body);
 }
