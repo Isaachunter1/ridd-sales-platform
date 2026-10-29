@@ -4612,23 +4612,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // ALL technicians in one column, fenced to technician production.
     const _cmTech = state.indicatorDept === 'techs';
     const _cmDept = _cmTech ? 'techs' : 'd2d';
-    const tierBuckets = { rookie: [], vet: [] };
-    let untagged = 0;
-    const untaggedReps = [];   // for the badge drill-down (per Isaac)
     // DOOR-TO-DOOR ONLY — rookie/vet is a knocking cohort. Office staff and
     // technician production never counts here, no matter what the page's
     // Type filter says: each rep's sales are re-fenced to Sales Rep dept and
     // reps with no D2D production drop out entirely.
-    const allBucket = [];   // every D2D seller, tagged or not — the ALL column
-    // Scope (per Isaac): break the cohorts down by team or office. Stored
-    // as 'all' | 'team:<name>' | 'office:<name>'.
-    let _scope = String(state._classScope || 'all');
-    let _scopeKind = _scope.startsWith('team:') ? 'team' : _scope.startsWith('office:') ? 'office' : 'all';
-    let _scopeVal = _scope.replace(/^(team|office):/, '');
     const _repOffice = (r) => String(r.office || ((r.sales || []).find(x => x.office) || {}).office || '').trim();
-    const _inScope = (r) => _scopeKind === 'all' ? true
-      : _scopeKind === 'team' ? (getRepTeam(r.name) || '') === _scopeVal
-      : _repOffice(r).toUpperCase() === _scopeVal.toUpperCase();
     // Partners / team leads (per Isaac): RIDD (all D2D) + the team(s) they
     // lead only — no other teams, no offices.
     // Every other rep (per Isaac, Oct 4): RIDD only — no team or office breakdowns.
@@ -4636,22 +4624,35 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const _cmFull = isAdminRole(state.profile?.role) || (typeof isDeveloperRole === 'function' && isDeveloperRole(state.profile?.role));
     const _cmLead = (typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role)) || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role));
     const _cmReach = _cmFull ? null : ((_cmLead && typeof myReachTeams === 'function') ? (myReachTeams() || new Set()) : new Set());
-    const _teamOpts = [...new Set(Object.values(repMap).map(r => getRepTeam(r.name) || '').filter(Boolean))].sort()
-      .filter(t => !_cmTech && (!_cmReach || _cmReach.has(t)));
-    const _officeOpts = _cmReach ? [] : [...new Set(Object.values(repMap).map(_repOffice).filter(Boolean))].sort();
-    // A partner can't sit on a scope outside their reach.
-    if ((_cmTech && _scopeKind === 'team') || (_cmReach && _scopeKind !== 'all' && !(_scopeKind === 'team' && _cmReach.has(_scopeVal)))) { state._classScope = 'all'; _scope = 'all'; _scopeKind = 'all'; _scopeVal = ''; }
-    const _scopedNames = new Set();
-    Object.values(repMap).forEach(r => {
-      if (!_inScope(r)) return;
-      _scopedNames.add(r.name);
-      const d2dSales = (r.sales || []).filter(s => (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) === _cmDept : true));
-      if (!d2dSales.length) return;
-      allBucket.push({ ...r, sales: d2dSales });
-      const t = getRepTier(r.name);
-      if (t === 'rookie' || t === 'vet') tierBuckets[t].push({ ...r, sales: d2dSales });
-      else { untagged++; untaggedReps.push({ ...r, sales: d2dSales }); }
-    });
+    // Scopes (per Isaac, Oct 29): pick up to TWO to compare side by side — a team against the company, or two
+    // teams. The list follows Filters → Group: Teams lists teams, Office lists offices.
+    const _byTeams = state.indicatorsGroupBy === 'teams' && !_cmTech;   // Filters → Group
+    const _teamOpts = _byTeams ? [...new Set(Object.values(repMap).map(r => getRepTeam(r.name) || '').filter(Boolean))].sort()
+      .filter(t => !_cmReach || _cmReach.has(t)) : [];
+    const _officeOpts = (_byTeams || _cmReach) ? [] : [...new Set(Object.values(repMap).map(_repOffice).filter(Boolean))].sort();
+    const _okScope = (sc) => sc === 'all' || (sc.startsWith('team:') && _teamOpts.includes(sc.slice(5))) || (sc.startsWith('office:') && _officeOpts.includes(sc.slice(7)));
+    let _scopes = (Array.isArray(state._classScopes) ? state._classScopes : [state._classScope || 'all']).map(String).filter(_okScope);
+    _scopes = [...new Set(_scopes)].slice(0, 2);
+    if (!_scopes.length) _scopes = ['all'];
+    state._classScopes = _scopes;
+    const _scopeLabel = (sc) => sc === 'all' ? (_cmTech ? 'All technicians' : _cmReach ? 'RIDD' : 'All Sales Reps')
+      : sc.startsWith('team:') ? sc.slice(5) : _mktgTC(sc.slice(7));
+    const _buildScope = (sc) => {
+      const kind = sc.startsWith('team:') ? 'team' : sc.startsWith('office:') ? 'office' : 'all';
+      const val = sc.replace(/^(team|office):/, '');
+      const inScope = (r) => kind === 'all' ? true : kind === 'team' ? (getRepTeam(r.name) || '') === val : _repOffice(r).toUpperCase() === val.toUpperCase();
+      const tierBuckets = { rookie: [], vet: [] }, allBucket = [], names = new Set();
+      Object.values(repMap).forEach(r => {
+        if (!inScope(r)) return;
+        names.add(r.name);
+        const d2dSales = (r.sales || []).filter(s => (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) === _cmDept : true));
+        if (!d2dSales.length) return;
+        allBucket.push({ ...r, sales: d2dSales });
+        const t = getRepTier(r.name);
+        if (t === 'rookie' || t === 'vet') tierBuckets[t].push({ ...r, sales: d2dSales });
+      });
+      return { kind, tierBuckets, allBucket, names };
+    };
 
     const aggForTier = (reps) => {
       const sales = reps.reduce((acc, r) => acc.concat(r.sales), []);
@@ -4692,21 +4693,18 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         apPct:   sales.length > 0 ? apYes / sales.length : 0,
       };
     };
-    const rookie = aggForTier(tierBuckets.rookie);
-    const vet    = aggForTier(tierBuckets.vet);
-    const alls   = aggForTier(allBucket);   // combined — includes untagged sellers
-
-    // Company-wide totals for the weight % math below. Counts every
-    // sale in the windowed rawSales (so untagged reps' contributions
-    // are in the denominator) — that way "% of company" tells the
-    // truth: rookie + vet won't sum to 100% when there are untagged
-    // reps still selling, which is exactly the story the manager needs.
-    // Same D2D fence as the cohorts above — "% of co." means percent of
-    // DOOR-TO-DOOR production, not company-wide across departments.
-    const _d2dAll = (rawSales || []).filter(s => (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) === _cmDept : true)
-      && (_scopeKind === 'all' || _scopedNames.has(getCanonicalRepName(s.rep))));
-    const companyTotalSold    = _d2dAll.length;
-    const companyTotalRevenue = _d2dAll.reduce((a, s) => a + Number(s.contractValue || 0), 0);
+    // One set of cohorts per picked scope. "% of co." = share of THAT scope's door-to-door production (untagged
+    // reps included in the denominator, so rookie + vet won't sum to 100% while some are untagged).
+    const _S = _scopes.map(sc => {
+      const b = _buildScope(sc);
+      const d2d = (rawSales || []).filter(s => (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) === _cmDept : true)
+        && (b.kind === 'all' || b.names.has(getCanonicalRepName(s.rep))));
+      return { sc, label: _scopeLabel(sc), rookie: aggForTier(b.tierBuckets.rookie), vet: aggForTier(b.tierBuckets.vet), alls: aggForTier(b.allBucket),
+        coSold: d2d.length, coRev: d2d.reduce((a, s) => a + Number(s.contractValue || 0), 0) };
+    });
+    const _two = _S.length === 2;
+    const { rookie, vet, alls } = _S[0];
+    const companyTotalSold = _S[0].coSold, companyTotalRevenue = _S[0].coRev;
 
     // Side-by-side metric row — leading metric labels in the center column
     // so the two values sit symmetrically. Adds a small delta arrow per
@@ -4797,6 +4795,18 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         rSub = pctOfCo(rVal, companyTotalRevenue);
         vSub = pctOfCo(vVal, companyTotalRevenue);
       }
+      if (_two) {
+        // Two scopes (per Isaac, Oct 29): each class side by side — Rookie A · Rookie B · Vet A · Vet B · All A · All B.
+        const [A, B] = _S;
+        const pair = (k2, color) => {
+          const va = A[k2][key], vb = B[k2][key];
+          const sub = (S, v) => key === 'sold' ? pctOfCo(v, S.coSold) : key === 'revenue' ? pctOfCo(v, S.coRev) : null;
+          return [sideCell(fmtVal[key](va), color, va > vb, sub(A, va)), sideCell(fmtVal[key](vb), color, vb > va, sub(B, vb))];
+        };
+        return el('div', { class: 'grid items-center gap-1 px-3 py-1.5', style: { gridTemplateColumns: _cmTech ? _cmGrid2T : _cmGrid2, borderTop: '1px solid var(--border)' } },
+          el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
+          ...(_cmTech ? [] : [...pair('rookie', ROOKIE_COLOR), ...pair('vet', VET_COLOR)]), ...pair('alls', ALL_COLOR));
+      }
       if (_cmTech) return el('div', { class: 'flex items-center justify-between gap-3 px-5 py-2', style: { borderTop: '1px solid var(--border)' } },
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
         el('div', { class: 'font-black tabular-nums text-base' }, fmtVal[key](alls[key])));
@@ -4807,7 +4817,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         // ALL — the combined cohort (rookies + vets + untagged), neutral, no
         // leader highlight: it's the reference line the halves compare to.
         sideCell(fmtVal[key](alls[key]), ALL_COLOR, false,
-          key === 'sold' || key === 'revenue' ? 'all D2D' : null),
+          key === 'sold' || key === 'revenue' ? _S[0].label : null),
       );
     };
 
@@ -4819,16 +4829,30 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       el('span', { class: 'text-xs font-semibold', style: { color: 'var(--text-muted)' } }, count + ' rep' + (count === 1 ? '' : 's')),
     );
 
+    const _cmGrid2 = 'minmax(88px,1.1fr) repeat(6, minmax(0,1fr))', _cmGrid2T = 'minmax(88px,1.1fr) repeat(2, minmax(0,1fr))';
+    // Scope picker (per Isaac, Oct 29): a checkbox dropdown, up to two at once. A third tick drops the oldest pick.
     // Nothing to pick (a rep who only sees RIDD): a plain label, not a one-item dropdown.
-    const scopePicker = (_cmReach && !_teamOpts.length) ? el('span', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } }, 'RIDD') : el('select', {
-      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
-      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-      title: 'Break the Rookie / Vet cohorts down by team or office',
-      onchange: (e) => { state._classScope = e.target.value; mountApp(); },
-    },
-      el('option', { value: 'all', selected: _scope === 'all' }, _cmTech ? 'All technicians' : _cmReach ? 'RIDD' : 'All D2D'),
-      _teamOpts.length ? el('optgroup', { label: 'Teams' }, ..._teamOpts.map(t => el('option', { value: 'team:' + t, selected: _scope === 'team:' + t }, t))) : null,
-      _officeOpts.length ? el('optgroup', { label: 'Offices' }, ..._officeOpts.map(o => el('option', { value: 'office:' + o, selected: _scope === 'office:' + o }, _mktgTC(o)))) : null);
+    const scopePicker = (_cmReach && !_teamOpts.length) ? el('span', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } }, 'RIDD') : (() => {
+      const opts = [['all', _scopeLabel('all')], ..._teamOpts.map(t => ['team:' + t, t]), ..._officeOpts.map(o => ['office:' + o, _mktgTC(o)])];
+      const open = !!state._classScopeOpen;
+      const set = (next) => { state._classScopes = next.length ? next : ['all']; mountApp(); };
+      const toggle = (v) => {
+        const cur = _scopes.slice();
+        if (cur.includes(v)) set(cur.filter(x => x !== v));
+        else set([...cur, v].slice(-2));
+      };
+      const panel = open ? el('div', { class: 'flex flex-col', style: { position: 'absolute', right: '0', top: 'calc(100% + 4px)', zIndex: 30, minWidth: '220px', maxHeight: '320px', overflowY: 'auto', border: '1px solid var(--border-2)', borderRadius: '12px', padding: '4px 0', background: 'var(--card)', boxShadow: '0 8px 24px rgba(0,0,0,.18)' }, onclick: (e) => e.stopPropagation() },
+        el('div', { class: 'px-3 pt-1 pb-1 text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Pick up to 2 to compare · ' + (_byTeams ? 'teams' : 'offices') + ' follow Filters → Group'),
+        ...opts.map(([v, l]) => el('label', { class: 'flex items-center gap-2 px-3 py-1 text-[11px] cursor-pointer hover:brightness-95', style: { color: 'var(--text)' } },
+          el('input', { type: 'checkbox', checked: _scopes.includes(v), onchange: () => toggle(v) }), el('span', { class: 'truncate' }, l)))) : null;
+      return el('div', { style: { position: 'relative' } },
+        el('button', { type: 'button', class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer flex items-center gap-2', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+          title: 'Compare the Rookie / Vet cohorts across up to two ' + (_byTeams ? 'teams' : 'offices') + ' (or the whole company)',
+          onclick: (e) => { e.stopPropagation(); state._classScopeOpen = !open; mountApp();
+            if (!open) setTimeout(() => document.addEventListener('click', function _cl() { document.removeEventListener('click', _cl); if (state._classScopeOpen) { state._classScopeOpen = false; mountApp(); } }), 0); } },
+          el('span', {}, _S.map(x => x.label).join(' vs ')), el('span', { style: { opacity: '.6' } }, '▾')),
+        panel);
+    })();
     const tierCard = el('div', { class: 'card overflow-hidden', 'data-section': 'class-metrics' },
       // Header: title left, scope dropdown top-right (per Isaac). The
       // "N untagged" chip is gone — untagged reps surface in Manage Teams.
@@ -4836,13 +4860,20 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         el('h3', { class: 'text-base font-bold', title: 'Tiers auto-set from sales history \u2014 first season selling = Rookie, returning reps = Vet. Manage Teams tags override. PRA divides by the Reps > $20K row; PRA \u00b7 Serviced divides by Reps W/ Serviced.' }, _cmTech ? 'Technician Metrics' : 'Class Metrics'),
         _cmTech ? el('div', { class: 'flex items-center gap-2' }, el('span', { class: 'text-xs font-semibold', style: { color: 'var(--text-muted)' } }, alls.reps + ' tech' + (alls.reps === 1 ? '' : 's')), scopePicker) : scopePicker,
       ),
-      _cmTech ? null : el('div', { class: 'grid items-center gap-2 px-3', style: { gridTemplateColumns: 'minmax(88px,1.1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)' } },
+      _two ? el('div', { class: 'grid items-end gap-1 px-3 pt-2', style: { gridTemplateColumns: _cmTech ? _cmGrid2T : _cmGrid2 } },
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pb-1', style: { color: 'var(--text-muted)' } }, 'Class'),
+        ...(_cmTech ? [['All', ALL_COLOR, 'alls']] : [['Rookie', ROOKIE_COLOR, 'rookie'], ['Vet', VET_COLOR, 'vet'], ['All', ALL_COLOR, 'alls']]).flatMap(([lab, color, k2]) => _S.map((S, si) =>
+          el('div', { class: 'flex flex-col items-center justify-center py-1 px-1 min-w-0', style: { borderBottom: '2px solid ' + color } },
+            si === 0 ? el('div', { class: 'text-[11px] font-black uppercase tracking-wide', style: { color } }, lab) : el('div', { class: 'text-[11px]', style: { visibility: 'hidden' } }, lab),
+            el('div', { class: 'text-[10px] font-bold truncate', style: { color: 'var(--text)', maxWidth: '100%' }, title: S.label }, S.label),
+            el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, S[k2].reps + ' rep' + (S[k2].reps === 1 ? '' : 's')))))) : null,
+      (_cmTech || _two) ? null : el('div', { class: 'grid items-center gap-2 px-3', style: { gridTemplateColumns: 'minmax(88px,1.1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)' } },
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, 'Class'),
         headerCell('Rookie', ROOKIE_COLOR, rookie.reps),
         headerCell('Vet', VET_COLOR, vet.reps),
         headerCell('All', ALL_COLOR, alls.reps),
       ),
-      (_cmTech ? alls.reps === 0 : (rookie.reps === 0 && vet.reps === 0))
+      (_cmTech ? _S.every(S => S.alls.reps === 0) : _S.every(S => S.rookie.reps === 0 && S.vet.reps === 0))
         ? el('div', { class: 'p-6 text-center text-xs italic', style: { color: 'var(--text-muted)' } },
             _cmTech ? 'No technician sales in this window.' : 'No tagged reps in this window. Tag reps as Rookie or Vet in Manage Teams.')
         : el('div', {}, ...ROW_SECTIONS.flatMap(([sec, defs]) => [
