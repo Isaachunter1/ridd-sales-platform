@@ -5173,6 +5173,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   const _lbOrd = state._indLbColOrder || [];
   const _lbRank = (c, i) => { const k = _lbColKey(c); if (c.key === 'name') return -1; if (k === 'record') return 1e6; const j = _lbOrd.indexOf(k); return j >= 0 ? j : 1000 + i; };
   if (_lbOrd.length) repCols = repCols.map((c, i) => [c, _lbRank(c, i)]).sort((a, b) => a[1] - b[1]).map(x => x[0]);
+  // The leaderboard PDF prints exactly these columns, in this order (per Isaac, Oct 29).
+  state._indLbPdfCols = repCols.filter(c => c.key !== 'name');
   const _lbStore = (k, arr) => { try { localStorage.setItem(k + '::' + ((state.profile && state.profile.id) || 'anon'), JSON.stringify(arr)); } catch (e) { /* storage blocked */ } };
   const _lbSetShown = (key, show, render = true) => {
     const def = _lbPickable.find(c => _lbColKey(c) === key);
@@ -8353,6 +8355,12 @@ async function downloadCombinedTeamPdf(names, ctx, onProgress) {
 function buildRookieVetReportNode(allReps, opts = {}) {
   const limitOverall = opts.limitOverall ?? 15;
   const limitRookie  = opts.limitRookie  ?? 15;
+  // Columns = whatever the on-screen leaderboard shows right now (per Isaac, Oct 29). Team · Office prints as the PDF's
+  // own Team and Office columns; Best Day / Week / Month print as three columns when the record column is on.
+  const _lbShown = Array.isArray(state._indLbPdfCols) && state._indLbPdfCols.length ? state._indLbPdfCols : null;
+  const _REC = new Set(['bestDayTime', 'bestWeekTime', 'bestMonthTime']);
+  const _pdfRec = !_lbShown || _lbShown.some(c => _REC.has(c.key));
+  const _pdfCols = (_lbShown || []).filter(c => c.key !== 'team' && !_REC.has(c.key) && typeof c.cell === 'function');
 
   // Filter to Manage-Teams Active reps only — the leaderboard already
   // hides inactives, this report should match what's on screen.
@@ -8400,7 +8408,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
       // Title hard-left so it lines up with the leaderboard's left edge;
       // logo + date live on the right side of the header strip.
       el('div', {},
-        el('div', { style: { fontSize: '18px', fontWeight: '900', letterSpacing: '-0.01em', lineHeight: '1.1' } }, 'Sales Leaderboard'),
+        el('div', { style: { fontSize: '18px', fontWeight: '900', letterSpacing: '-0.01em', lineHeight: '24px' } }, 'Sales Leaderboard'),
         el('div', { style: { fontSize: '10px', color: '#666', marginTop: '1px' } },
           'Top ' + limitOverall + ' overall · Top ' + limitRookie + ' rookies · ranked by revenue · column-leading metrics highlighted'),
       ),
@@ -8432,6 +8440,8 @@ function buildRookieVetReportNode(allReps, opts = {}) {
     if (!t) return null;
     if (/^excluded$/i.test(t.trim())) return null; // the "Excluded" parking team
     if (typeof isTeamExcluded === 'function' && isTeamExcluded(t)) return null;
+    // Teams sitting out the competition (Settings → Teams, per Isaac Oct 29) and the owners' RIDD team stay off the rollups.
+    if ((typeof isOwnerTeam === 'function' && isOwnerTeam(t)) || ((state._indicatorRankExclude && state._indicatorRankExclude.teams) || []).includes(t)) return null;
     return PDF_TEAM_MERGE[t.toLowerCase().trim()] || t;
   };
   const byBranch = {};
@@ -8458,15 +8468,15 @@ function buildRookieVetReportNode(allReps, opts = {}) {
       const pct = dark ? 100 : Math.max(2, val / maxV * 100);
       const inBar = pct >= 22;
       return el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0' } },
-        el('div', { style: { width: '20px', fontSize: '9px', fontWeight: '800', color: '#999' } }, rank || ''),
-        el('div', { style: { width: '120px', fontSize: '11px', fontWeight: dark ? '900' : '700', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, label),
+        el('div', { style: { lineHeight: '20px', height: '20px', width: '20px', fontSize: '9px', fontWeight: '800', color: '#999' } }, rank || ''),
+        el('div', { style: { lineHeight: '20px', height: '20px', width: '120px', fontSize: '11px', fontWeight: dark ? '900' : '700', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, label),
         el('div', { style: { flex: '1', height: '20px', borderRadius: '0', background: '#f1f1ec', position: 'relative' } },
           el('div', { style: { width: pct + '%', height: '100%', borderRadius: '0', background: dark ? '#323230' : '#DF643A', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '8px', boxSizing: 'border-box' } },
-            inBar ? el('span', { style: { fontSize: '10px', fontWeight: '900', color: dark ? '#DF643A' : '#fff', whiteSpace: 'nowrap' } }, fmtV(val)) : null),
-          inBar ? null : el('span', { style: { position: 'absolute', left: 'calc(' + pct + '% + 6px)', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', fontWeight: '900', color: '#323230', whiteSpace: 'nowrap' } }, fmtV(val))));
+            inBar ? el('span', { style: { lineHeight: '20px', fontSize: '10px', fontWeight: '900', color: dark ? '#DF643A' : '#fff', whiteSpace: 'nowrap' } }, fmtV(val)) : null),
+          inBar ? null : el('span', { style: { position: 'absolute', left: 'calc(' + pct + '% + 6px)', top: '0', lineHeight: '20px', fontSize: '10px', fontWeight: '900', color: '#323230', whiteSpace: 'nowrap' } }, fmtV(val))));
     };
     return el('div', {},
-      el('div', { style: { fontSize: '12px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#A9441F', margin: '0 0 4px' } }, title),
+      el('div', { style: { fontSize: '12px', lineHeight: '16px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#A9441F', margin: '0 0 4px' } }, title),
       bar('', totalLab, totalVal, true),
       ...rows.map(([o, v], i) => bar('#' + (i + 1), o, v, false)));
   };
@@ -8510,17 +8520,17 @@ function buildRookieVetReportNode(allReps, opts = {}) {
       const pct = dark ? 100 : Math.max(2, val / maxV * 100);
       const inBar = pct >= 26;
       return el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0' } },
-        el('div', { style: { width: '20px', fontSize: '9px', fontWeight: '800', color: '#999' } }, rank || ''),
-        el('div', { style: { width: '104px', fontSize: '11px', fontWeight: dark ? '900' : '700', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, label),
-        el('div', { style: { width: '54px', fontSize: '9px', fontWeight: '700', color: '#666', whiteSpace: 'nowrap' } }, q + ' >$20K'),
-        el('div', { style: { width: '66px', fontSize: '9px', fontWeight: '700', color: '#666', whiteSpace: 'nowrap' } }, subs + ' subs/rep'),
+        el('div', { style: { lineHeight: '20px', height: '20px', width: '20px', fontSize: '9px', fontWeight: '800', color: '#999' } }, rank || ''),
+        el('div', { style: { lineHeight: '20px', height: '20px', width: '104px', fontSize: '11px', fontWeight: dark ? '900' : '700', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, label),
+        el('div', { style: { lineHeight: '20px', height: '20px', width: '54px', fontSize: '9px', fontWeight: '700', color: '#666', whiteSpace: 'nowrap' } }, q + ' >$20K'),
+        el('div', { style: { lineHeight: '20px', height: '20px', width: '66px', fontSize: '9px', fontWeight: '700', color: '#666', whiteSpace: 'nowrap' } }, subs + ' subs/rep'),
         el('div', { style: { flex: '1', height: '20px', borderRadius: '0', background: '#f1f1ec', position: 'relative' } },
           el('div', { style: { width: pct + '%', height: '100%', borderRadius: '0', background: dark ? '#323230' : '#DF643A', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '8px', boxSizing: 'border-box' } },
-            inBar ? el('span', { style: { fontSize: '10px', fontWeight: '900', color: dark ? '#DF643A' : '#fff', whiteSpace: 'nowrap' } }, fmt.usd0(val)) : null),
-          inBar ? null : el('span', { style: { position: 'absolute', left: 'calc(' + pct + '% + 6px)', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', fontWeight: '900', color: '#323230', whiteSpace: 'nowrap' } }, fmt.usd0(val))));
+            inBar ? el('span', { style: { lineHeight: '20px', fontSize: '10px', fontWeight: '900', color: dark ? '#DF643A' : '#fff', whiteSpace: 'nowrap' } }, fmt.usd0(val)) : null),
+          inBar ? null : el('span', { style: { position: 'absolute', left: 'calc(' + pct + '% + 6px)', top: '0', lineHeight: '20px', fontSize: '10px', fontWeight: '900', color: '#323230', whiteSpace: 'nowrap' } }, fmt.usd0(val))));
     };
     return el('div', {},
-      el('div', { style: { fontSize: '12px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#A9441F', margin: '0 0 4px' } }, 'YTD PRA'),
+      el('div', { style: { fontSize: '12px', lineHeight: '16px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#A9441F', margin: '0 0 4px' } }, 'YTD PRA'),
       row('', 'Company', String(sumSummer.reps || 0), sumSummer.reps > 0 ? (sumSummer.subs / sumSummer.reps).toFixed(1) : '—', sumSummer.reps > 0 ? sumSummer.revenue / sumSummer.reps : 0, true),
       ...praRows.map((r, i) => row('#' + (i + 1), r.o, String(r.q || 0), r.q > 0 ? r.subsPra.toFixed(1) : '—', r.q > 0 ? r.revPra : 0, false)));
   })();
@@ -8537,7 +8547,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
   },
     el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', borderBottom: '2px solid #DF643A', paddingBottom: '4px', marginBottom: '10px' } },
       el('div', {},
-        el('div', { style: { fontSize: '18px', fontWeight: '900', letterSpacing: '-0.01em', lineHeight: '1.1' } }, 'Team Rollups'),
+        el('div', { style: { fontSize: '18px', fontWeight: '900', letterSpacing: '-0.01em', lineHeight: '24px' } }, 'Team Rollups'),
         el('div', { style: { fontSize: '10px', color: '#666', marginTop: '1px' } }, 'Team Revenue · Team ACV · Avg Pest Initial · YTD PRA — every rep in the window · ' + deptLabel)),
       el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } },
         companyLogo
@@ -8622,11 +8632,19 @@ function buildRookieVetReportNode(allReps, opts = {}) {
       );
     }
     const leaders = findLeaders(reps);
+    const _pdfLead = {};
+    for (const c of _pdfCols) {
+      const low = c.key === 'attrPct';
+      let best = null, who = null;
+      for (const r of reps) { const v = Number(r[c.key]); if (!Number.isFinite(v) || v <= 0) continue; if (best == null || (low ? v < best : v > best)) { best = v; who = r.name; } }
+      if (who) _pdfLead[c.key] = who;
+    }
     const th = (text, align) => el('th', {
       style: {
         fontSize: '8px', fontWeight: '800', letterSpacing: '0.04em',
         textTransform: 'uppercase', color: '#666',
-        padding: '4px 4px',
+        padding: '5px 4px',
+        lineHeight: '12px',
         textAlign: 'left',   // everything left-justified (per Isaac)
         borderBottom: '1px solid #ddd',
         whiteSpace: 'nowrap',
@@ -8637,8 +8655,9 @@ function buildRookieVetReportNode(allReps, opts = {}) {
     // page (works in B&W too because the pill has its own outline).
     const td = (content, align, opts2 = {}) => {
       const style = {
-        padding: '3px 4px',
+        padding: '4px 4px',
         fontSize: '9.5px',
+        lineHeight: '13px',
         textAlign: 'left',   // everything left-justified (per Isaac)
         borderBottom: '1px solid #f0f0f0',
         whiteSpace: 'nowrap',
@@ -8666,22 +8685,8 @@ function buildRookieVetReportNode(allReps, opts = {}) {
             th('Rep'),
             th('Team'),
             th('Office'),
-            th('Sales',      'right'),
-            th('Revenue',    'right'),
-            th('Audit %',    'right'),
-            th('ACV',        'right'),
-            th('Days w/ a Sale', 'right'),
-            th('$ / Day',    'right'),
-            th('Accts/Day',  'right'),
-            th('Avg Pest',   'right'),
-            th('Avg Initial','right'),
-            th('Multi-Year %',       'right'),
-            th('Auto Pay %', 'right'),
-            th('Cancels',    'right'),
-            th('Cancel %',   'right'),
-            th('Best Day',   'right'),
-            th('Best Week',  'right'),
-            th('Best Month', 'right'),
+            ..._pdfCols.map(c => th(c.label)),
+            ...(_pdfRec ? [th('Best Day'), th('Best Week'), th('Best Month')] : []),
           ),
         ),
         el('tbody', {},
@@ -8690,32 +8695,19 @@ function buildRookieVetReportNode(allReps, opts = {}) {
             td(r.name, 'left', { bold: true }),
             td(r.team || '—', 'left', { color: '#666' }),
             td(titleCase(r.office) || '—', 'left', { color: '#666' }),
-            td(fmt.int(r.count || 0),     'right', { leader: leaders.count === r.name }),
-            td(fmt.usd0(r.revenue || 0),  'right', { bold: true, leader: leaders.revenue === r.name }),
-            td(pctOrDash(r.auditPct),     'right', { leader: leaders.auditPct === r.name }),
-            td(usdOrDash(r.acv),          'right', { leader: leaders.acv === r.name }),
-            td(r.sellingDays > 0 ? fmt.int(r.sellingDays) : '—', 'right'),
-            td(r.revPerDay > 0 ? fmt.usd0(r.revPerDay) : '—', 'right', { leader: leaders.revPerDay === r.name }),
-            td(r.acctsPerDay > 0 ? r.acctsPerDay.toFixed(1) : '—', 'right', { leader: leaders.acctsPerDay === r.name }),
-            td(usdOrDash(r.avgPest),      'right', { leader: leaders.avgPest === r.name }),
-            td(usdOrDash(r.avgInitial),   'right', { leader: leaders.avgInitial === r.name }),
-            td(pctOrDash(r.myPct),        'right', { leader: leaders.myPct === r.name }),
-            td(pctOrDash(r.autoPayPct),   'right', { leader: leaders.autoPayPct === r.name }),
-            td(r.cancels > 0 ? fmt.int(r.cancels) : '—', 'right', { color: '#666' }),
-            // Cancel % is "best when low" — leader pill goes to the
-            // lowest non-zero rate, and over-10% rates still render red
-            // even on the leader so the absolute number reads honestly.
-            td(r.cancelPct > 0 ? (r.cancelPct * 100).toFixed(1) + '%' : '—', 'right', {
-              leader: leaders.cancelPct === r.name,
-              color: r.cancelPct > 0.1 ? '#B91C1C' : '#323230',
+            // The leaderboard's own columns (per Isaac, Oct 29): same cell text as on screen; the leader pill goes
+            // to the best value in the table (lowest for Attrition %).
+            ..._pdfCols.map(c => {
+              let txt = '\u2014'; try { const n = c.cell(r); txt = String((n && n.textContent) || '').trim() || '\u2014'; } catch (e) { /* column without a value */ }
+              return td(txt, 'left', { leader: _pdfLead[c.key] === r.name, bold: c.key === 'revenue', color: c.key === 'attrPct' && (r.attrPct || 0) > 0.1 ? '#B91C1C' : undefined });
             }),
             // Personal records — dollar amount with the date it happened
             // tucked underneath in small gray type.
-            ...[
+            ...(!_pdfRec ? [] : [
               [r.bestDay,   recWhen.day(r),   leaders.bestDay   === r.name],
               [r.bestWeek,  recWhen.week(r),  leaders.bestWeek  === r.name],
               [r.bestMonth, recWhen.month(r), leaders.bestMonth === r.name],
-            ].map(([amount, when, isLeader]) => td(
+            ]).map(([amount, when, isLeader]) => td(
               amount > 0
                 ? el('div', { style: { lineHeight: '1.15' } },
                     el('div', {}, fmt.usd0(amount)),
@@ -8771,12 +8763,13 @@ async function downloadRookieVetPdf(allReps, opts) {
     const usableH = pageH - marginY * 2;
     const sheets = [...reportEl.children];
     for (let pi = 0; pi < sheets.length; pi++) {
-      const canvas = await html2canvas(sheets[pi], {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        logging: false,
-        useCORS: true,
-      });
+      // foreignObject rendering (per Isaac, Oct 29 — labels and bar values printed clipped): html2canvas's own text
+      // layout drops every line ~8px under the app's CSS; the browser's native renderer draws it exactly as on
+      // screen. Safari's foreignObject is unreliable, so it (and any failure) falls back to the classic renderer.
+      const _safari = /^((?!chrome|android|crios|fxios).)*safari/i.test(navigator.userAgent || '');
+      let canvas = null;
+      if (!_safari) { try { canvas = await html2canvas(sheets[pi], { scale: 2, backgroundColor: '#ffffff', logging: false, useCORS: true, foreignObjectRendering: true }); } catch (e) { canvas = null; } }
+      if (!canvas || !canvas.width) canvas = await html2canvas(sheets[pi], { scale: 2, backgroundColor: '#ffffff', logging: false, useCORS: true });
       const imgData = canvas.toDataURL('image/png');
       const imgH = (canvas.height * imgW) / canvas.width;
       if (pi > 0) pdf.addPage();

@@ -889,6 +889,35 @@ function manageTeamsPanel(opts) {
             onclick: () => { setTeamExcluded(t, !excluded); render(); },
           }, excluded ? '● On' : '○ Off'),
         ),
+        // Competing (per Isaac, Oct 29): teams that sit out the Power Ranking and the leaderboard PDF's Team Rollups —
+        // e.g. Termite Pros. Their sales still count everywhere else. Same store the old 🏆 picker used
+        // (state._indicatorRankExclude.teams), shared through the indicator config.
+        (() => {
+          const store = (state._indicatorRankExclude && state._indicatorRankExclude.teams) || [];
+          const owner = typeof isOwnerTeam === 'function' && isOwnerTeam(t);
+          const out = owner || store.includes(t);
+          return el('div', { class: 'flex items-center justify-between gap-3 rounded-lg p-2.5',
+            style: { background: out ? 'rgba(220, 38, 38, .08)' : 'var(--card)', border: '1px solid ' + (out ? 'rgba(220, 38, 38, .35)' : 'var(--border-2)') } },
+            el('div', { class: 'flex flex-col' },
+              el('div', { class: 'text-xs font-bold' }, 'Sit out of the competition'),
+              el('div', { class: 'text-[10px] text-muted-' }, owner ? 'Always — the RIDD team reports to the owners and never competes.'
+                : out ? 'On — left out of the Power Ranking and the leaderboard PDF’s Team Rollups. Sales still count everywhere else.'
+                : 'Off — this team competes.')),
+            owner ? null : el('button', {
+              class: 'rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest cursor-pointer transition whitespace-nowrap shrink-0',
+              style: out ? { background: '#DC2626', color: '#fff' } : { background: 'var(--card)', color: 'var(--text-muted)', border: '1px solid var(--border-2)' },
+              onclick: () => {
+                if (!state._indicatorRankExclude || typeof state._indicatorRankExclude !== 'object') state._indicatorRankExclude = {};
+                const cur = new Set(state._indicatorRankExclude.teams || []);
+                if (cur.has(t)) cur.delete(t); else cur.add(t);
+                state._indicatorRankExclude.teams = [...cur];
+                if (typeof logActivity === 'function') logActivity('config_change', { detail: 'Competition ' + (cur.has(t) ? 'excluded' : 'included') + ' team: ' + t });
+                if (typeof saveDemoData === 'function') saveDemoData();
+                if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {});
+                render();
+              },
+            }, out ? '● On' : '○ Off'));
+        })(),
         // Leave out of Indicators entirely (per Isaac, Oct 16 — moved here from
         // Configurations so team exclusions live in one place). Same store as
         // before: state.indicatorExclTeams, synced with the admin rules.
