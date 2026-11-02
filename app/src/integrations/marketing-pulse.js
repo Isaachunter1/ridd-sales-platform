@@ -46,7 +46,9 @@ function mkpFilters() {
   if (!mkpRangeOptions().some(r => r[0] === F.range)) F.range = 'this_month';
   if (![30, 60, 90].includes(F.win)) F.win = 90;
   if (!['cohort', 'activity'].includes(F.mode)) F.mode = 'cohort';
-  if (!['last', 'first'].includes(F.attr)) F.attr = 'last';
+  // Last touch only, no campaign filter (per Isaac, Nov 2 — both pickers retired; a filter left over from an
+  // earlier session would otherwise keep narrowing the page with no control on screen to clear it).
+  F.attr = 'last'; F.campaign = '';
   return F;
 }
 function mkpRange() {
@@ -493,10 +495,10 @@ function _mktgPulseView() {
     ...opts.map(o => Array.isArray(o[1]) ? el('optgroup', { label: o[0] }, ...o[1].map(([v, l]) => el('option', { value: v, selected: v === val }, l))) : el('option', { value: o[0], selected: o[0] === val, disabled: !!o[2] }, o[1])));
   // Filter options from the data in the window.
   const inWin = V.conv.filter(x => x.lead.d >= R.pFrom && x.lead.d <= R.to);
-  const markets = [...new Set(inWin.map(x => x.lead.market).filter(Boolean).concat(SP.lines.map(s => s.market).filter(Boolean)))].sort();
+  // Every office (per Isaac, Nov 2), plus any market the leads / spend carry that isn't an office row.
+  const markets = [...new Set((state.offices || []).filter(o => o && o.name && o.active !== false).map(o => mkpMarketOf(o.name)).concat(inWin.map(x => x.lead.market), SP.lines.map(s => s.market)).filter(Boolean))].sort();
   const provs = [...new Set(inWin.map(x => x.lead.prov).concat(SP.lines.map(s => s.prov)))].filter(Boolean).sort();
   const groups = [...new Set(provs.map(mkpGroupOf))];
-  const camps = [...new Set(inWin.map(x => x.lead.campaign).filter(Boolean))].sort();
   const hasType = inWin.some(x => x.lead.type);
   const bar = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
     sel(F.range, mkpRangeOptions(), false, 'Date range', (v) => setF(v === 'custom' ? { range: v, from: R.from, to: R.to } : { range: v }), '120px'),
@@ -504,11 +506,9 @@ function _mktgPulseView() {
     F.range === 'custom' ? el('input', { type: 'date', value: R.to, class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: selSt(false), onchange: (e) => setF({ to: e.target.value }) }) : null,
     el('span', { class: 'text-[11px] tabular-nums', style: _mkpMuted }, fmt.dateShort(R.from) + (R.n > 1 ? ' – ' + fmt.dateShort(R.to) : '') + ' · vs ' + fmt.dateShort(R.pFrom) + (R.n > 1 ? ' – ' + fmt.dateShort(R.pTo) : '')),
     el('span', { style: { flex: '1' } }),
-    sel(F.market || '', [['', 'All markets'], ...markets.map(m => [m, m])], !!F.market, 'Market', (v) => setF({ market: v })),
+    sel(F.market || '', [['', 'RIDD'], ...markets.map(m => [m, m])], !!F.market, 'Office', (v) => setF({ market: v })),
     sel(F.ch || '', [['', 'All channels'], ['Channel groups', groups.map(g => ['g:' + g, g])], ['Channels', provs.map(p => ['p:' + p, p])]], !!F.ch, 'Channel', (v) => setF({ ch: v })),
-    sel(F.campaign || '', [['', camps.length ? 'All campaigns' : 'Campaigns (none tracked yet)'], ...camps.slice(0, 300).map(c => [c, c.slice(0, 48)])], !!F.campaign, camps.length ? 'Campaign (from the lead’s UTM / attribution in GoHighLevel)' : 'Campaigns appear once the GoHighLevel sync stores them (migration 20261015g)', (v) => setF({ campaign: v })),
     sel(F.type || '', [['', 'Calls + forms'], ['call', 'Calls', !hasType], ['form', 'Forms', !hasType]], !!F.type, hasType ? 'Lead type — from the GHL pipeline stage, only known while the opportunity is still in a New Lead stage' : 'Call vs form isn’t tracked yet: GoHighLevel only shows it as the current pipeline stage', (v) => setF({ type: v })),
-    sel(F.attr, [['last', 'Last touch'], ['first', 'First touch']], false, 'Attribution: last touch = the opportunity’s source; first touch = the contact’s original source (never overwritten)', (v) => setF({ attr: v })),
     sel(String(F.win), [['30', '30-day window'], ['60', '60-day window'], ['90', '90-day window']], false, 'Conversion window: a sale counts for a lead when it is sold within this many days of it', (v) => setF({ win: Number(v) })),
     el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } }, ...[['cohort', 'Cohort'], ['activity', 'Activity']].map(([v, l]) => el('button', { class: 'px-2 py-1 text-[11px] font-semibold', title: v === 'cohort' ? 'Cohort: the leads that came in during the range, followed to their sales' : 'Activity: lead-sourced sales sold during the range, whenever the lead came in', style: F.mode === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => setF({ mode: v }) }, l))));
   // Freshness strip.
@@ -517,7 +517,9 @@ function _mktgPulseView() {
   const fItem = (label, iso, warn, msg) => el('span', { class: 'inline-flex items-center gap-1', title: msg || '' }, el('span', { style: { width: '6px', height: '6px', borderRadius: '50%', background: warn ? MKP_C.red : MKP_C.sage, display: 'inline-block' } }), label + ' ' + (iso ? ago(iso) : warn ? 'not loaded' : 'loaded'));
   fresh.push(fItem('GoHighLevel', G.at, !G.at || Date.now() - Date.parse(G.at) > 3 * 3600000));
   const dl = V.daily; fresh.push(fItem('Google + Meta campaigns', dl && dl.pulledAt ? dl.pulledAt : ((state._adSpend || {})[new Date().getFullYear()] || {}).pulledAt, SP.platform === 'none' || !!(dl && dl.error), dl && dl.error ? dl.error : SP.platform === 'monthly' ? 'monthly, spread by day' : ''));
-  fresh.push(fItem('QuickBooks lines', state.reportingIsSpendPayee && state.reportingIsSpendPayee.pulledAt, SP.vendor === 'none', SP.vendor === 'none' ? 'no Advertising & Marketing lines loaded' : V.spendGaps.length ? 'no lines yet for ' + V.spendGaps.join(', ') : 'the spend of record'));
+  const qbLoading = !state.reportingIsSpendPayee && (state._isSpendLoading || state.reportingIsSpend == null);
+  if (qbLoading) fresh.push(el('span', { class: 'inline-flex items-center gap-1' }, el('span', { class: 'spinner', style: { width: '8px', height: '8px' } }), 'QuickBooks lines loading\u2026'));
+  else fresh.push(fItem('QuickBooks lines', state.reportingIsSpendPayee && state.reportingIsSpendPayee.pulledAt, SP.vendor === 'none', SP.vendor === 'none' ? 'no Advertising & Marketing lines loaded' : V.spendGaps.length ? 'no lines yet for ' + V.spendGaps.join(', ') : 'the spend of record'));
   fresh.push(fItem('FieldRoutes', state._snapshotAt || state.reportingSnapshotAt || null, !(state.reportingSubscriptions || []).length));
   const freshStrip = el('div', { class: 'flex items-center gap-4 flex-wrap text-[10px]', style: _mkpMuted }, el('span', { class: 'uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Data'), ...fresh,
     ...SP.notes.map(n => el('span', { style: { color: MKP_C.amber } }, '⚠ ' + n)));
@@ -526,22 +528,26 @@ function _mktgPulseView() {
   const adOnly = V.hasSpend ? cur.ad : null, pAd = V.hasSpend && V.prevSpendOk ? prev.ad : null;
   const txCur = (() => { const seen = new Set(); for (const s of V.spendIn(R.from, R.to)) if (s.tx) seen.add(s.tx); return seen.size; })();
   const spendCaveat = F.campaign ? 'platform spend for this campaign (QuickBooks charges don’t name campaigns)'
-    : SP.vendor === 'none' ? 'QuickBooks marketing lines not loaded'
+    : qbLoading ? 'pulling QuickBooks\u2026' : SP.vendor === 'none' ? 'QuickBooks marketing lines not loaded'
     : (V.spendGaps.length ? '⚠ no QuickBooks lines yet for ' + V.spendGaps.join(', ') + ' · ' : '') + fmt.int(txCur) + ' QuickBooks charges' + (V.unlinkedCur ? ' · ' + fmt.usd0(V.unlinkedCur) + ' need a vendor' : '') + ' — click to review';
   const days = []; for (let d = R.from; d <= R.to; d = _mkpAdd(d, 1)) days.push(d);
   const sparkBy = (fn) => R.n >= 4 && R.n <= 120 ? days.map(fn) : null;
   const leadsByDay = new Map(); cur.leads.forEach(x => leadsByDay.set(x.lead.d, (leadsByDay.get(x.lead.d) || 0) + 1));
   const salesByDay = new Map(); cur.sales.forEach(x => { const k = F.mode === 'cohort' ? x.lead.d : String(x.sale.sold_date).slice(0, 10); salesByDay.set(k, (salesByDay.get(k) || 0) + 1); });
+  const revByDay = new Map(); cur.sales.forEach(x => { const k = F.mode === 'cohort' ? x.lead.d : String(x.sale.sold_date).slice(0, 10); revByDay.set(k, (revByDay.get(k) || 0) + x.cv); });
   const spendByDay = new Map(); V.spendIn(R.from, R.to, 'ad').forEach(s => spendByDay.set(s.d, (spendByDay.get(s.d) || 0) + s.amt));
   const fullyLoaded = V.hasSpend && V.labor != null ? cur.ad + cur.tools + V.labor : null;
-  const kpi = (label, value, delta, spark, info, onClick, sub) => el('button', { type: 'button', class: 'card p-4 text-left transition hover:brightness-95', style: { cursor: onClick ? 'pointer' : 'default', minWidth: '0' }, onclick: onClick || null },
+  const kpi = (label, value, delta, spark, info, onClick, sub, alert) => el('button', { type: 'button', class: 'card p-4 text-left transition hover:brightness-95', style: { cursor: onClick ? 'pointer' : 'default', minWidth: '0' }, onclick: onClick || null },
     el('div', { class: 'flex items-center text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label, info),
-    el('div', { class: 'text-2xl font-black tabular-nums mt-1', style: { color: value === 'Data unavailable' ? 'var(--text-muted)' : 'var(--text)', fontSize: value === 'Data unavailable' ? '15px' : undefined } }, value),
+    el('div', { class: 'text-2xl font-black tabular-nums mt-1', style: { color: alert && value === 'Data unavailable' ? MKP_C.red : value === 'Data unavailable' || value === 'Loading\u2026' ? 'var(--text-muted)' : 'var(--text)', fontSize: value === 'Data unavailable' || value === 'Loading\u2026' ? '15px' : undefined } }, value),
     el('div', { class: 'mt-0.5' }, delta), sub ? el('div', { class: 'text-[10px] mt-0.5', style: _mkpMuted }, sub) : null, spark);
   const salesLbl = F.mode === 'cohort' ? 'Sales from these leads' : 'Lead-sourced sales';
   const cards = el('div', { style: { display: 'grid', gap: '12px', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' } },
-    kpi('Marketing spend', V.hasSpend ? _mkpUsd(adOnly) : 'Data unavailable', V.hasSpend ? _mkpDelta(adOnly, pAd, false) : null, sparkBy(d => spendByDay.get(d) || 0) && _mkpSpark(sparkBy(d => spendByDay.get(d) || 0), MKP_C.ink),
-      _mkpInfo('Marketing spend', 'A mirror of the Advertising & Marketing expense account in QuickBooks: every charge dated in the range (lines marked "Not marketing" are left out). Each charge is assigned to a vendor / channel — Google card charges place themselves by the Ads account’s last four; anything else is picked once and remembered (or for one charge only). Charges land on their QuickBooks date, so a monthly bill shows on the day it posted. Click the card to see and assign the charges. The ad platforms are not added in; they supply campaign detail and a check against QuickBooks.'), SP.vendor === 'qbo' && !F.campaign ? () => mkpOpenSpend() : null, spendCaveat),
+    kpi('Marketing spend', V.hasSpend ? _mkpUsd(adOnly) : qbLoading ? 'Loading\u2026' : 'Data unavailable', V.hasSpend ? _mkpDelta(adOnly, pAd, false) : null, sparkBy(d => spendByDay.get(d) || 0) && _mkpSpark(sparkBy(d => spendByDay.get(d) || 0), MKP_C.ink),
+      _mkpInfo('Marketing spend', 'A mirror of the Advertising & Marketing expense account in QuickBooks: every charge dated in the range (lines marked "Not marketing" are left out). Each charge is assigned to a vendor / channel — Google card charges place themselves by the Ads account’s last four; anything else is picked once and remembered (or for one charge only). Charges land on their QuickBooks date, so a monthly bill shows on the day it posted. Click the card to see and assign the charges. The ad platforms are not added in; they supply campaign detail and a check against QuickBooks.'), SP.vendor === 'qbo' && !F.campaign ? () => mkpOpenSpend() : null, spendCaveat, true),
+    kpi('New revenue', _mkpUsd(cur.cv), _mkpDelta(cur.cv, prev.cv, true), _mkpSpark(sparkBy(d => revByDay.get(d) || 0) || [], MKP_C.accent),
+      _mkpInfo('New revenue', 'FieldRoutes contract value of the sales on the Sales card: Office Staff sales (renewals left out) matched to a lead within the ' + F.win + '-day window. ' + (F.mode === 'cohort' ? 'Cohort mode: from the leads that came in during the range, whenever they sold.' : 'Activity mode: lead-sourced sales sold during the range.')), null,
+      fmt.int(cur.s) + ' sale' + (cur.s === 1 ? '' : 's') + ' \u00b7 contract value in FieldRoutes'),
     kpi('New leads', fmt.int(cur.n), _mkpDelta(cur.n, prev.n, true), _mkpSpark(sparkBy(d => leadsByDay.get(d) || 0) || [], MKP_C.ink),
       _mkpInfo('New leads', 'GoHighLevel opportunities opened in the range: the inbound lead record (contacts are mostly customer imports). One per person per 30 days — a second call or form from the same phone / email inside 30 days is a repeat. Every opportunity counts as qualified until GoHighLevel sends a qualified flag. ' + fmt.int(V.AL.raw) + ' raw opportunity events on file → ' + fmt.int(V.AL.leads.length) + ' unique leads.'), () => mkpOpenSources(), cur.leads.filter(x => x.lead.paid).length + ' from paid channels · click for the sources'),
     kpi('Cost per lead', V.hasSpend && cur.n && cur.ad > 0 ? _mkpUsd(cur.ad / cur.n) : V.hasSpend ? '—' : 'Data unavailable', V.hasSpend ? _mkpDelta(cur.n ? cur.ad / cur.n : null, prev.n && V.prevSpendOk ? prev.ad / prev.n : null, false) : null, null,
@@ -550,10 +556,7 @@ function _mktgPulseView() {
       _mkpInfo('Sales', 'Office Staff FieldRoutes sales (initial booked or done, renewals left out) whose person — normalized phone, else email — came in as a lead within the ' + F.win + '-day window before the sale. Exact matches only. ' + (F.mode === 'cohort' ? 'Cohort mode: sales from the leads that came in during the range, whenever they sold.' : 'Activity mode: lead-sourced sales sold during the range.')), () => mkpOpenRecords(salesLbl + ' · ' + R.label, cur.sales), fmt.usd0(cur.cv) + ' contracted'),
     kpi('CAC', V.hasSpend && cur.s && cur.ad > 0 ? _mkpUsd(cur.ad / cur.s) : V.hasSpend ? '—' : 'Data unavailable', V.hasSpend ? _mkpDelta(cur.s ? cur.ad / cur.s : null, prev.s && V.prevSpendOk ? prev.ad / prev.s : null, false) : null, null,
       _mkpInfo('Customer acquisition cost', 'Marketing-spend CAC: QuickBooks Advertising & Marketing spend ÷ sales (agency charges included, since they sit in that account). Fully loaded CAC adds the wages / incentives entered on the Spend tab; it shows only when every month in the range has wages entered.'), null,
-      fullyLoaded != null && cur.s ? 'fully loaded ' + _mkpUsd(fullyLoaded / cur.s) : 'marketing spend only · fully loaded unavailable'),
-    kpi('Lead → sale', cur.n ? _mkpPct(cur.leads.filter(x => x.sold).length / cur.n) : '—', _mkpDelta(cur.n ? cur.leads.filter(x => x.sold).length / cur.n : null, prev.n ? prev.leads.filter(x => x.sold).length / prev.n : null, true), null,
-      _mkpInfo('Lead-to-sale conversion', 'Of the leads that came in during the range, the share that became a sale within the ' + F.win + '-day window. Leads younger than the window can still convert, so recent ranges read low — the card says how many are still maturing.'), null,
-      (() => { const young = cur.leads.filter(x => Date.now() - _mkpMs(x.lead.d) < F.win * 86400000).length; return young ? fmt.int(young) + ' leads still inside the window' : 'all leads past the window'; })()));
+      fullyLoaded != null && cur.s ? 'fully loaded ' + _mkpUsd(fullyLoaded / cur.s) : 'marketing spend only · fully loaded unavailable'));
 
   // ── 2 · Trend ──
   const TM = [['spend', 'Spend'], ['leads', 'Leads'], ['sales', 'Sales'], ['cpl', 'CPL'], ['cac', 'CAC'], ['conv', 'Conversion'], ['rev', 'Revenue'], ['roas', 'ROAS']];
@@ -741,7 +744,6 @@ function _mktgPulseView() {
 
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'flex items-end justify-between gap-3 flex-wrap' },
-      el('div', {}, el('div', { class: 'text-lg font-bold' }, 'Marketing Pulse · ' + R.label + (F.market ? ' · ' + F.market : '') + (F.ch ? ' · ' + F.ch.slice(2) : '')),
-        el('div', { class: 'text-xs', style: _mkpMuted }, 'Office Staff inbound marketing. Leads = GoHighLevel opportunities; sales = Office Staff FieldRoutes sales matched on phone or email; spend = the QuickBooks Advertising & Marketing account, charge by charge.'))),
+      el('div', {}, el('div', { class: 'text-lg font-bold' }, 'Marketing Pulse · ' + R.label + (F.market ? ' · ' + F.market : '') + (F.ch ? ' · ' + F.ch.slice(2) : '')))),
     bar, freshStrip, cards, trend, funnel, chTable, mkTable, insights, revenue, quality, attribution, diag);
 }
