@@ -196,7 +196,7 @@ function retenPolicyBridge(pop) {
     const seq = [
       ['Raw — no policy adjustments', null],
       ['Remove 3-day RORs coded in the CRM', 'popRor'],
-      ['Remove cancels coded “never started”', 'popNoStart'],
+      ['Sold Not Started Cancellation Reasons with a Completed Service', 'popNoStart'],
       ['Remove combined subscriptions', 'popCombined'],
       ['Link renewals to the customer', 'popRenew'],
       ['Link cancels replaced within 30 days', 'popReplaced'],
@@ -472,7 +472,8 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       }, '⚑ ' + n(badRor.length) + ' coded on 2026 office / tech sales — kept as cancels'));
       return node;
     })(),
-    step(next(), 'Remove cancels coded \u201cnever started\u201d', 'Cancelled as “Sold, Not Started” or “Initial Appointment Canceled.”', s2r.length - stepNS.length, 'popNoStart', null, notIn(s2r, stepNS), stepNS),
+    step(next(), 'Sold Not Started Cancellation Reasons with a Completed Service',   // renamed per Isaac, Nov 2
+      'Cancelled as “Sold, Not Started” or “Initial Appointment Canceled.”', s2r.length - stepNS.length, 'popNoStart', null, notIn(s2r, stepNS), stepNS),
     step(next(), 'Remove combined subscriptions', 'Cancelled as “Combined Subscriptions” — merged into another plan on the account.', stepNS.length - step1b.length, 'popCombined', null, notIn(stepNS, step1b), step1b),
     (() => {
       const node = step(next(), 'Link renewals to the customer', 'A plan closed for a renewal reason is folded into the customer’s newer plan, so the renewal counts as retained.' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), step1b.length - step1.length, 'popRenew', null, notIn(step1b, step1), step1);
