@@ -319,7 +319,7 @@ function reportingCustomerHealth() {
   });
   scored.sort((a, b) => b.score - a.score || String(a.id).localeCompare(String(b.id)));
   // Working list (per Isaac, Oct 28) — the score table stays one click away for managers.
-  if (!state._healthTable) return _healthQueueView(scored);
+  if (true) return _healthQueueView(scored);   // the score table is retired (per Isaac, Oct 29) — list + board only
 
   const BUCKETS = [
     // Worst → least: red, rust, orange. Healthy is not a call list (per Isaac, Sep 23).
@@ -466,10 +466,11 @@ function _healthQueueView(scored) {
   const treated = (c) => c.hasCount ? (c.treatments || 0) >= HEALTH_MIN_SERVICES : (c.oldest || 0) >= 1;
   // Past due → collections already has them (per Isaac, Oct 28); they stay off this list until the balance clears.
   const inScope = (c) => c.oldest != null && c.oldest <= HEALTH_MAX_MO && !c.renewal && !(c.pastDue > 0) && treated(c);
-  const list = [], done = [];
+  const list = [], done = [], boardAll = [];
   scored.forEach(c => {
     if (!inScope(c) || String(c.office) !== fBranch) return;
     const g = logOf(c);
+    if (!q || (c.name + ' ' + c.id + ' ' + (c.phone || '')).toLowerCase().includes(q)) boardAll.push(c);
     if (HEALTH_DONE_RE.test(String(g.result || ''))) { done.push(c); return; }
     const cb = _renewalCallback(g);
     if (cb && cb > today) return;                       // booked for a later day
@@ -591,11 +592,68 @@ function _healthQueueView(scored) {
       oninput: (e) => { state._healthQ = e.target.value; clearTimeout(state._healthQt); state._healthQt = setTimeout(() => mountApp(), 350); } }),
     el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer', style: selSty, onchange: (e) => { state._healthBranch = e.target.value; mountApp(); } },
       ...branches.map(b => el('option', { value: b, selected: fBranch === b }, _titleCaseWords(b)))),
-    btn('📊 Score table', 'The health score for every customer (manager view)', () => { state._healthTable = true; mountApp(); }),
+    btn(state._healthBoard ? '☰ Call list' : '▦ Board view', state._healthBoard ? 'Back to the call list' : 'Stage board (manager view)', () => { state._healthBoard = !state._healthBoard; mountApp(); }),
     undo ? btn('↶ Undo last', 'Put your last disposition back the way it was', () => { _renewalLogSave(_healthKey(undo.id), Object.assign({ result: '', attempts: 0, notes: '' }, undo.prev)); state._healthUndo = null; toast('Undone', 'success'); mountApp(); }) : null,
     el('span', { class: 'text-[11px] tabular-nums ml-auto', style: { color: 'var(--text-muted)' } },
       el('b', {}, list.length.toLocaleString()), ' to call · ', el('b', {}, done.length.toLocaleString()), ' checked in · today ', el('b', {}, String(mCalls)), ' (you) / ', el('b', {}, String(tCalls)), ' (team)'));
-  const body = first ? el('div', { class: 'flex flex-col gap-2' },
+  // ── Board view (per Isaac, Oct 29 — same as Renewals): one column per stage; drag a card (or use its stage
+  // menu) to move it. Moving back to To call clears the outcome. Attempts are kept.
+  const H_STAGES = [
+    { key: 'tocall',   label: 'To call',               emoji: '🟢', color: '#5F6C5B', set: '' },
+    { key: 'contact',  label: 'Contacting',            emoji: '📞', color: '#A9441F', set: 'Contacting' },
+    { key: 'none',     label: 'No concerns',           emoji: '👍', color: 'var(--ok)', set: 'No Concerns' },
+    { key: 'resolved', label: 'Resolved concerns',     emoji: '🛠', color: '#2563EB', set: 'Resolved Concerns' },
+    { key: 'loyalty',  label: 'Transferred to Loyalty', emoji: '🔁', color: '#7C3AED', set: 'Transferred to Loyalty' },
+  ];
+  const stageOfH = (c) => { const r = String(logOf(c).result || '');
+    if (/^No Concerns/.test(r)) return 'none'; if (/^Resolved Concerns/.test(r)) return 'resolved'; if (/^Transferred to Loyalty/.test(r)) return 'loyalty';
+    if (r) return 'contact';   // Contacting, Callback …, Unreachable · no answer x5
+    return 'tocall'; };
+  const boardBody = () => {
+    const cols = {}; H_STAGES.forEach(st => { cols[st.key] = []; });
+    boardAll.forEach(c => cols[stageOfH(c)].push(c));
+    const prio = (a, b) => _healthTrouble(b) - _healthTrouble(a) || (_healthEarlyReservice(b) ? 1 : 0) - (_healthEarlyReservice(a) ? 1 : 0) || a.oldest - b.oldest || String(a.id).localeCompare(String(b.id));
+    cols.tocall.sort(prio);
+    ['contact', 'none', 'resolved', 'loyalty'].forEach(k => cols[k].sort((a, b) => String(logOf(b).updated_at || '').localeCompare(String(logOf(a).updated_at || ''))));
+    const moveTo = (c, key) => { const st = H_STAGES.find(x => x.key === key); if (!st || stageOfH(c) === key) return; save(c, { result: st.set }, c.name + ' → ' + st.label); };
+    const drag = { cur: null };
+    const CARD_LIMIT = state._healthBoardMore ? 100000 : 100;
+    const card = (c, stKey) => {
+      const g = logOf(c), n = Number(g.attempts) || 0, r = String(g.result || '');
+      const sel = el('select', { class: 'rounded-md border px-1.5 py-0.5 text-[10px] font-bold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', maxWidth: '100%', minWidth: '0' }, title: 'Move to a stage',
+        onclick: (e) => e.stopPropagation(), onchange: (e) => moveTo(c, e.target.value) }, ...H_STAGES.map(st => el('option', { value: st.key, selected: st.key === stKey }, st.emoji + ' ' + st.label)));
+      const node = el('div', { class: 'rounded-xl border p-2.5 flex flex-col gap-1', draggable: 'true', style: { borderColor: 'var(--border)', background: 'var(--card)', cursor: 'grab' },
+        ondragstart: (e) => { drag.cur = c; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', String(c.id)); } catch (er) { /* ignore */ } node.style.opacity = '.5'; },
+        ondragend: () => { node.style.opacity = '1'; drag.cur = null; } },
+        el('div', { class: 'flex items-start justify-between gap-2' },
+          el('div', { class: 'min-w-0' },
+            el('div', { class: 'text-xs font-bold truncate' }, c.name),
+            el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-subtle)' } }, '#' + c.id + ' · ' + c.subs.join(', '))),
+          _renewalClaimChip(_healthKey(c.id)),
+          n ? el('span', { class: 'text-[9px] font-bold px-1.5 py-0.5 rounded-md shrink-0 tabular-nums', style: { background: 'var(--card-2)', color: 'var(--text-muted)' }, title: 'Call attempts' }, '📞 ' + n) : null),
+        el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-muted)' } }, stKey === 'contact' && /^Callback/.test(r) ? '📅 ' + _renewalCallbackLabel(g) : /^Unreachable/.test(r) ? 'unreachable · 5 no-answers' : ['month ' + Math.floor(c.oldest + 1) + ' of life', ...reasons(c)].join(' · ')),
+        el('div', { class: 'flex items-center justify-between gap-1.5 flex-wrap' }, phoneA(c), sel),
+        g.notes ? el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-muted)' } }, '✎ ' + g.notes) : null);
+      return node;
+    };
+    const column = (st) => {
+      const L = cols[st.key];
+      const colEl = el('div', { class: 'rounded-xl border flex flex-col min-w-0', style: { borderColor: 'var(--border)', background: 'var(--card-2)' },
+        ondragover: (e) => { e.preventDefault(); colEl.style.outline = '2px solid ' + st.color; },
+        ondragleave: () => { colEl.style.outline = ''; },
+        ondrop: (e) => { e.preventDefault(); colEl.style.outline = ''; if (drag.cur) moveTo(drag.cur, st.key); } },
+        el('div', { class: 'px-3 py-2 flex items-center justify-between gap-2' },
+          el('div', { class: 'text-xs font-black', style: { color: st.color } }, st.emoji + ' ' + st.label),
+          el('span', { class: 'text-[11px] font-bold tabular-nums', style: { color: 'var(--text-muted)' } }, L.length.toLocaleString())),
+        el('div', { class: 'flex flex-col gap-1.5 px-2 pb-2', style: { maxHeight: '70vh', overflowY: 'auto' } },
+          ...L.slice(0, CARD_LIMIT).map(c => card(c, st.key)),
+          L.length > CARD_LIMIT ? btn('Show all ' + L.length.toLocaleString(), '', () => { state._healthBoardMore = true; mountApp(); }) : null,
+          !L.length ? el('div', { class: 'text-[11px] text-center py-4', style: { color: 'var(--text-subtle)' } }, 'Nobody here') : null));
+      return colEl;
+    };
+    return el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(5, minmax(200px, 1fr))', overflowX: 'auto' } }, ...H_STAGES.map(column));
+  };
+  const body = state._healthBoard ? boardBody() : first ? el('div', { class: 'flex flex-col gap-2' },
       first._triedToday ? el('div', { class: 'text-[12px] font-bold text-center py-2', style: { color: 'var(--ok)' } }, '🎉 Everyone here has been tried today — what is left are second attempts.') : null,
       nextUp(first),
       rest.length ? el('div', { class: 'text-[10px] font-black uppercase tracking-wider mt-1', style: { color: 'var(--text-subtle)' } }, 'Then') : null,

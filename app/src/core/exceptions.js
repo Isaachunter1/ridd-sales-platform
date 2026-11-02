@@ -49,7 +49,8 @@ function _exceptionFeedItemsRaw(scope) {
   const ON = new Set(['data']);   // attrition retired too (per Isaac) — the card is now the CRM reconciliation list
   // 1. Data health — anything a sync reported broken in the last 3 hours.
   const bad = (typeof healthWorst === 'function') ? healthWorst() : [];
-  if (ON.has('data')) for (const h of bad) items.push({ sev: 'red', tag: 'Data', text: h.label + ': ' + (h.msg || 'not healthy'), action: 'Details', onClick: () => openHealthSheet() });
+  // QuickBooks spend (Windsor) is left out (per Isaac, Nov 2): it shows as a red "Data unavailable" on the Marketing spend card instead.
+  if (ON.has('data')) for (const h of bad) if (h.source !== 'qbo') items.push({ sev: 'red', tag: 'Data', text: h.label + ': ' + (h.msg || 'not healthy'), action: 'Details', onClick: () => openHealthSheet() });
 
   // 2. Quiet reps — D2D reps who sold in the last 14 days but nothing in
   // the last 3 (today + 2 prior). Active reps who went silent, not the
