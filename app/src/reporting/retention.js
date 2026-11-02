@@ -192,7 +192,7 @@ function retenPolicyBridge(pop) {
     state._retenWhatIf = null;
     const off = _retenOfficial();
     const offReasons = {}; for (const k of reportingExcludedCancelReasons()) offReasons[k] = false;
-    const cfg = { popRor: false, popRorTiming: false, popRorServiced: false, popNoStart: false, popCombined: false, popRenew: false, popReplaced: false, zero: false, takePay: false, reasons: offReasons };
+    const cfg = { popRor: false, popRorTiming: false, popRorServiced: false, popNoStart: false, popCombined: false, popRenew: false, popReplaced: false, takePay: false, reasons: offReasons };
     const seq = [
       ['Raw — no policy adjustments', null],
       ['Remove combined subscriptions', 'popCombined'],
@@ -202,7 +202,6 @@ function retenPolicyBridge(pop) {
       ['Sold Not Started Cancellation Reasons with a Completed Service', 'popNoStart'],
       ['Link renewals to the customer', 'popRenew'],
       ['Accounts cancelled and reactivated within 30 days', 'popReplaced'],
-      ['Remove subs with no ARR', 'zero'],
       ['Take and pay: customers with 2+ services', 'takePay'],
       ['Don’t count these cancel reasons', 'reasons'],
     ];
@@ -318,7 +317,8 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     // credit, so the fix-it lists and the raw → official bridge read cleanly.
     // Order (per Isaac, Nov 2): combined first (step 5), then coded RORs (6) with the timing RORs right under them (6a),
     // then never started, renewals, replaced, $0 ARR, take and pay. The book is the same in any order.
-    const sCb = s2.filter(r => !closedBy(r, 'combined'));                          // minus combined
+    const sZ = s2.filter(r => _retenPaying(r));                                   // minus $0 ARR — step 5, always on (per Isaac, Nov 2)
+    const sCb = sZ.filter(r => !closedBy(r, 'combined'));                          // minus combined
     const s2r = sCb.filter(r => !(rorOn && rorByReason(r)));                      // minus RORs coded as such (the sheet's rule)
     const s2t = s2r.filter(r => !(rorOn && rorTimingOn && _reporting3dayRor(r)));   // minus RORs caught by timing (6a)
     const noStartOn = _retenWhatIf('popNoStart', true);
@@ -330,7 +330,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     const byReason1 = {}; step1b.forEach(r => { if (renLinked(r)) { const k = String(reportingCancelReasonOf(r) || '').trim(); byReason1[k] = (byReason1[k] || 0) + 1; } });
     const replOn = _retenWhatIf('popReplaced', true);
     const stepRp = step1.filter(r => !(replOn && _replacedLinked(r)));            // minus cancels replaced by a new plan within 30 days
-    const stepZ = stepRp.filter(r => !(retenExclZeroPay() && !_retenPaying(r)));   // (a per-visit charge counts as paying)
+    const stepZ = stepRp;                                                          // ($0 ARR already out at step 5)
     const step2 = stepZ.filter(r => !retenTakePayOut(r));                          // minus take-and-pay (customer < 2 services)   // (a per-visit charge counts as paying)
     const svcOf = (r) => Number(r.subscription_completed_services) || 0;
     const sentricon = (r) => retenOneSvcExemptTerms().some(t => String(r.subscription || '').toLowerCase().includes(t));
@@ -341,7 +341,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     const step2b = step2.filter(r => !(retenExclOneSvc() && svcOf(r) <= 1 && !sentricon(r) && !soldThisYear(r)));
     // 8: sold this year but already frozen after one treatment
     const step3 = step2b.filter(r => !retenPopulationExcluded(r));
-    return { s1o, s1, s2, popSet, rorOn, rorTimingOn, closedBy, rorCoded, rorByReason, sCb, s2r, s2t, noStartOn, stepNS, step1b, renLinked, renUnlinked, step1, byReason1, replOn, stepRp, stepZ, step2, svcOf, sentricon, soldThisYear, oneSvcAll, oneSvcKept, step2b, step3 };
+    return { s1o, s1, s2, popSet, rorOn, rorTimingOn, closedBy, rorCoded, rorByReason, sZ, sCb, s2r, s2t, noStartOn, stepNS, step1b, renLinked, renUnlinked, step1, byReason1, replOn, stepRp, stepZ, step2, svcOf, sentricon, soldThisYear, oneSvcAll, oneSvcKept, step2b, step3 };
   };
   const book = _retenEff(pop);   // the real thing — should equal step3 in size
   // Cancel steps for the current year (YTD) and last year.
@@ -453,7 +453,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
 
   if (!open) return card;
   const C = _chain();
-  const { s1o, s1, s2, popSet, rorOn, rorTimingOn, closedBy, rorCoded, rorByReason, sCb, s2r, s2t, noStartOn, stepNS, step1b, renLinked, renUnlinked, step1, byReason1, replOn, stepRp, stepZ, step2, svcOf, sentricon, soldThisYear, oneSvcAll, oneSvcKept, step2b, step3 } = C;
+  const { s1o, s1, s2, popSet, rorOn, rorTimingOn, closedBy, rorCoded, rorByReason, sZ, sCb, s2r, s2t, noStartOn, stepNS, step1b, renLinked, renUnlinked, step1, byReason1, replOn, stepRp, stepZ, step2, svcOf, sentricon, soldThisYear, oneSvcAll, oneSvcKept, step2b, step3 } = C;
   const loadDrops = state._snapshotLoadDrops || null;
   let stepNo = 0;
   const next = () => ++stepNo;
@@ -470,7 +470,8 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       return node;
     }),
     // (one-time / retired / status steps now run in the locked scope chain above)
-    step(next(), 'Remove combined subscriptions', 'Cancelled as “Combined Subscriptions” — merged into another plan on the account.', s2.length - sCb.length, 'popCombined', null, notIn(s2, sCb), sCb),
+    step(next(), 'Remove subs with no ARR', '$0 ARR and no per-visit charge — bills nothing. Anything here with ARR above $0 is a data fix, not a judgment call.', s2.length - sZ.length, null, null, notIn(s2, sZ), sZ),
+    step(next(), 'Remove combined subscriptions', 'Cancelled as “Combined Subscriptions” — merged into another plan on the account.', sZ.length - sCb.length, 'popCombined', null, notIn(sZ, sCb), sCb),
     (() => {
       // Coded "3 Day ROR" on an office-staff / technician sale (per Isaac, Oct 13):
       // those sales never get a rescission, so they stay in as real cancels — fix the reason in FieldRoutes.
@@ -487,7 +488,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       const removed = notIn(s2r, s2t);
       // RORs caught by TIMING whose reason isn't coded "3 Day ROR" — fix these in FieldRoutes.
       const miscoded = removed;
-      const node = step('6a', 'Remove 3-day RORs caught by timing', 'Door-to-door cancels within 3 days of the sale, whatever the reason. Subs with 2+ completed appointments stay in.', s2r.length - s2t.length, rorOn ? 'popRorTiming' : null, rorOn ? null : 'needs the ROR step on', removed, s2t);
+      const node = step('7a', 'Remove 3-day RORs caught by timing', 'Door-to-door cancels within 3 days of the sale, whatever the reason. Subs with 2+ completed appointments stay in.', s2r.length - s2t.length, rorOn ? 'popRorTiming' : null, rorOn ? null : 'needs the ROR step on', removed, s2t);
       if (miscoded.length) node.children[1].append(el('button', {
         class: 'mt-1.5 rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.3)' },
         title: 'Cancelled within 3 days of the sale but the reason in FieldRoutes is not “3 Day ROR” — open the list and correct them in the CRM',
@@ -517,7 +518,6 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     })(),
     step(next(), 'Accounts cancelled and reactivated within 30 days',   // renamed per Isaac, Nov 2
       'Cancelled, but the customer bought another plan within 30 days — counted as retained.', step1.length - stepRp.length, 'popReplaced', null, notIn(step1, stepRp), stepRp),
-    step(next(), 'Remove subs with no ARR', '$0 ARR and no per-visit charge — bills nothing.', stepRp.length - stepZ.length, 'zero', null, notIn(stepRp, stepZ), stepZ),
     // Step 12 — Take and pay, ON by default (per Isaac, Nov 2; replaced "Keep timing-RORs with 2+ completed appointments", whose
     // exemption still applies inside step 10 so the official book is unchanged).
     step(next(), 'Take and pay: only customers with 2+ services', 'Only customers with 2+ completed services, counted across all their plans.', stepZ.length - step2.length, 'takePay', null, notIn(stepZ, step2), step2),
@@ -530,7 +530,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     // equal the book. Anything that fell out without a step shows here in red.
     (() => {
       const key = (r) => String(r.subscription_id) + '|' + String(r.customer_id);
-      const removedLists = [...scopeSteps.map(st => st.removed), notIn(s2, sCb), notIn(sCb, s2r), notIn(s2r, s2t), notIn(s2t, stepNS), notIn(step1b, step1), notIn(step1, stepRp), notIn(stepRp, stepZ), notIn(stepZ, step2)];
+      const removedLists = [...scopeSteps.map(st => st.removed), notIn(s2, sZ), notIn(sZ, sCb), notIn(sCb, s2r), notIn(s2r, s2t), notIn(s2t, stepNS), notIn(step1b, step1), notIn(step1, stepRp), notIn(stepZ, step2)];
       const gone = new Set(); let removedN = 0;
       for (const L of removedLists) for (const r of L) { const k = key(r); if (!gone.has(k)) { gone.add(k); removedN++; } }
       const inBook = new Set(book.map(key));
