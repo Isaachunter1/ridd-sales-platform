@@ -850,7 +850,31 @@ function _paintSkeleton() {
     el('div', { class: 'card p-4 flex flex-col gap-3' }, bar('30%', '14px'), bar('100%', '180px')),
     el('div', { class: 'card p-4 flex flex-col gap-2' }, bar('25%', '14px'), bar('100%', '12px'), bar('100%', '12px'), bar('100%', '12px'), bar('70%', '12px')));
 }
+// ── Background re-renders are coalesced (per Isaac, Nov 2 — "tables and graphs refresh 5–10 times before they
+// stabilize"). At boot a dozen loaders each call mountApp() as their data lands, and every call rebuilt the whole
+// page. A call that is NOT a direct user action (no click / key / scroll in the last 300ms, same view) and comes
+// within 500ms of the previous render is held and merged into one trailing render (never later than 2s after the
+// first held call). Clicks, taps and view changes still render at once, exactly as before.
+const _mountGate = { at: 0, timer: null, since: 0 };
+function _mountCoalesce() {
+  if (typeof window === 'undefined') return false;
+  const now = Date.now();
+  const userNow = (typeof _lastUserActivity !== 'undefined') && now - _lastUserActivity < 300;
+  const viewChange = (typeof _lastMountedView !== 'undefined') && _lastMountedView !== state.view;
+  if (userNow || viewChange || !state.profile || now - _mountGate.at >= 500) { _mountGate.since = 0; return false; }
+  if (!_mountGate.since) _mountGate.since = now;
+  const wait = Math.min(500, Math.max(0, _mountGate.since + 2000 - now));
+  clearTimeout(_mountGate.timer);
+  _mountGate.timer = setTimeout(() => { _mountGate.timer = null; _mountGate.since = 0; _mountGate.at = 0; mountApp(); }, wait);
+  return true;
+}
 function mountApp() {
+  if (_mountCoalesce()) return;
+  clearTimeout(_mountGate.timer); _mountGate.timer = null; _mountGate.since = 0;
+  _mountGate.at = Date.now();
+  try { return _mountAppRender(); } finally { _mountGate.at = Date.now(); }   // stamped after the render too, so a slow one still holds the next burst
+}
+function _mountAppRender() {
   window._riddSeq = (window._riddSeq || 0) + 1;   // one render = one tick (per-render memos key on it)
   // Hall of Fame retired (per Isaac, Oct 13 — Records covers it): an old link or saved view opens that world's dashboard.
   // Loyalty Dashboard retired the same day — Loyalty opens on Renewals.
