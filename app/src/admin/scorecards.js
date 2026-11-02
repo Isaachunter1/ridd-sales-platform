@@ -2107,8 +2107,8 @@ function reportingAllBranches() { const s = new Set(); for (const r of (state.re
 // Retention step 11: only customers who have received 2+ completed services stay in the book. Counted per
 // CUSTOMER — completed services summed across every subscription the customer has in the snapshot — so a
 // renewal plan that is one visit old still carries a long-time customer. A session toggle on Attrition
-// Steps (Reporting → Retention), OFF by default, so the official rate is unchanged until it is switched on.
-function retenTakeAndPay() { return _retenWhatIf('takePay', false); }
+// Steps (Reporting → Retention), ON by default (per Isaac, Nov 2) — part of the official retention book app-wide.
+function retenTakeAndPay() { return _retenWhatIf('takePay', true); }
 const _takePayMemo = { subs: null, by: null };
 function retenCustomerServices(r) {
   const subs = state.reportingSubscriptions || [];
