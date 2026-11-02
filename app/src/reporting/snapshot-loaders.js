@@ -110,16 +110,26 @@ function prefetchReportingSnapshot() {
     if (!id || state.reportingSubscriptionsLoadedFor === id || state._reportingPrefetching) return;
     if (!isAdminRole(state.profile?.role) && !(typeof isOfficeStaffProfile === 'function' && isOfficeStaffProfile(state.profile))) return;
     state._reportingPrefetching = true;
+    // Retries (per Isaac, Nov 2 — "it just sits on Loading snapshot… until I hard-reload"): one failed pull (a
+    // session token mid-refresh at boot, a dropped download, a new upload landing mid-load) used to leave the
+    // Reporting tab on "Loading snapshot…" for good, because nothing ever tried again. Now a failure or an empty
+    // result retries with backoff (5 tries, ~2s → 32s), and a result for an upload that was replaced mid-load
+    // re-runs straight away for the new one.
+    const attempt = (state._reportingPrefetchTry || 0);
+    const again = (ms) => { state._reportingPrefetching = false; state._reportingPrefetchTry = attempt + 1; if (typeof DEMO !== 'undefined' && DEMO) return; if (attempt + 1 < 5) setTimeout(() => { if (state.reportingSubscriptionsLoadedFor !== state.reportingActiveUploadId) prefetchReportingSnapshot(); }, ms); else console.warn('[ridd] reporting snapshot prefetch gave up after ' + (attempt + 1) + ' tries'); };
     const run = () => {
       state._reportingSilent = true;
       loadReportingSubscriptions(id).then(rows => {
         if (rows && rows.length && state.reportingActiveUploadId === id && state.reportingSubscriptionsLoadedFor !== id) {
           state.reportingSubscriptions = rows; healthReport('reporting', true);
           state.reportingSubscriptionsLoadedFor = id;
+          state._reportingPrefetchTry = 0;
           if (typeof _refreshRepTypeMap === 'function') { try { _refreshRepTypeMap(); } catch (e) { /* optional */ } }
           if (state.view === 'reporting') mountApp();
-        }
-      }).catch(() => {}).finally(() => { state._reportingSilent = false; state._reportingPrefetching = false; });
+        } else if (state.reportingActiveUploadId !== id) { state._reportingSilent = false; state._reportingPrefetching = false; state._reportingPrefetchTry = 0; prefetchReportingSnapshot(); return; }   // replaced mid-load → pull the new one
+        else if (!(rows && rows.length) && state.reportingSubscriptionsLoadedFor !== id) { state._reportingSilent = false; again(2000 * Math.pow(2, attempt)); return; }
+      }).catch((e) => { console.warn('[ridd] reporting snapshot prefetch failed (try ' + (attempt + 1) + ')', (e && e.message) || e); state._reportingSilent = false; again(2000 * Math.pow(2, attempt)); })
+        .finally(() => { state._reportingSilent = false; if (state._reportingPrefetching && state.reportingSubscriptionsLoadedFor === id) state._reportingPrefetching = false; });
     };
     if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 8000 }); else setTimeout(run, 3000);
   } catch (e) { state._reportingPrefetching = false; }

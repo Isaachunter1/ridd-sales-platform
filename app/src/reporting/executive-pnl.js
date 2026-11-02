@@ -1340,6 +1340,8 @@ function reportingDataGate() {
     return emptyCard('No snapshot loaded yet — the scheduled sync (hourly during the day) pulls the latest from RevHawk automatically.');
   }
   if (state.reportingSubscriptionsLoadedFor !== activeId) {
+    // Opening the tab is itself a kick (per Isaac, Nov 2): if no pull is in flight, start one — a no-op otherwise.
+    try { if (typeof prefetchReportingSnapshot === 'function' && !state._reportingPrefetching) prefetchReportingSnapshot(); } catch (e) { /* best effort */ }
     return emptyCard('Loading snapshot…');
   }
   if (DEMO && (state.reportingSubscriptions || []).length === 0) {
