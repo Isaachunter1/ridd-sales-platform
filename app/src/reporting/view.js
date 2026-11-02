@@ -813,6 +813,7 @@ function renewalMisSourcedRows(rows, skip) {
   });
   return out;
 }
+const _renEndMonthMemo = new Map();   // year*12+month → 'Aug ’26' (toLocaleDateString is ~0.14ms a call)
 function reportingRenewals(srcRows, opts) {
   opts = opts || {};
   let rows;
@@ -885,6 +886,10 @@ function reportingRenewals(srcRows, opts) {
       renewedN++; renewedArr += Number(r.annual_recurring_value) || 0;
       return;
     }
+    // Outside the renewal window → never listed (the pushes below need mo >= len − 2), so skip it before the card
+    // is built (per Isaac, Nov 2). Measured on live data: 40,336 cards were built per render to keep 9,157, and
+    // their toLocaleDateString alone cost 5.7s — the end-month label is memoized per month below as well.
+    if (!noContract && !inWindow) return;
     const rec = {
       id: r.customer_id, name: _custDisplayName(r), office: r.office_name || '—', state: r.state || '',
       phone: r.phone || '', email: r.email || '',
@@ -893,7 +898,7 @@ function reportingRenewals(srcRows, opts) {
       // Last month of the term (per Isaac, Sep 23 — shown instead of "ends in
       // X mo"): an 18-month agreement first serviced Mar ’25 bills through
       // Aug ’26, i.e. start + (length − 1) months.
-      endMonth: (() => { const e = new Date(d.getFullYear(), d.getMonth() + len - 1, 1); return e.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }).replace(' ', ' \u2019'); })(),
+      endMonth: (() => { const e = new Date(d.getFullYear(), d.getMonth() + len - 1, 1); const k = e.getFullYear() * 12 + e.getMonth(); let v = _renEndMonthMemo.get(k); if (v == null) { v = e.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }).replace(' ', ' \u2019'); _renEndMonthMemo.set(k, v); } return v; })(),
       autopay: (() => { const _ap = String(r.customer_auto_pay || '').trim(); return !!_ap && !/^no$/i.test(_ap); })(),
       pastDue: Number(r.days_past_due) || 0,
       unsigned: String(r.contract_state || 'none') !== 'signed',
