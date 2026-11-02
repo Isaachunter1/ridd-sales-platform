@@ -298,43 +298,48 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
   const lifecycleByName = reportingServiceLifecycleMap();
   // Sheet Step 1 "take out all one-time services" is two things in the app:
   // service types whose lifecycle is one-time (or unknown), then retired types.
-  const s1o = pop.filter(r => lifecycleByName.get(r.subscription) === 'recurring' || lifecycleByName.get(r.subscription) === 'retired');
-  const s1 = s1o.filter(r => !!recurringByName.get(r.subscription));
-  const s2 = s1.filter(r => !!r.initial_service && r.initial_service >= '2000-01-01');
-  // Population steps, applied in order so each count is "removed at this step".
-  const popSet = retenPopExclReasons();
-  const rorOn = [...popSet].some(_isRorReason);
-  const rorTimingOn = _retenWhatIf('popRorTiming', true);
-  const closedBy = (r, kind) => r.subscription_date_canceled && popSet.has(_normCancelReason(reportingCancelReasonOf(r))) && crmReasonIs(kind, reportingCancelReasonOf(r));   // kind: 'combined' | 'renewal' (src/12-crm-vocab.js)
-  const rorCoded = (r) => !!r.subscription_date_canceled && _isRorReason(_normCancelReason(reportingCancelReasonOf(r)));
-  const rorByReason = (r) => rorCoded(r) && _rorCodedOk(r);   // office staff / technician sales get no ROR from 2026 (per Isaac, Oct 13)
-  // Order (per Isaac, Oct 14 — a clean story): trust what was CODED first (ROR,
-  // never started, combined, renewals), then the two inferences (replaced within
-  // 30 days, RORs by timing + its 2+ appointment exemption), then the $0 catch-all.
-  // The final book is the same in any order; the order decides which step gets
-  // credit, so the fix-it lists and the raw → official bridge read cleanly.
-  const s2r = s2.filter(r => !(rorOn && rorByReason(r)));                       // minus RORs coded as such (the sheet's rule)
-  const noStartOn = _retenWhatIf('popNoStart', true);
-  const stepNS = s2r.filter(r => !(noStartOn && retenNotStartedSub(r)));      // minus “never started” cancels (all have a completed initial)
-  const step1b = stepNS.filter(r => !closedBy(r, 'combined'));                  // minus combined
-  const renLinked = (r) => closedBy(r, 'renewal') && _renewalLinked(r);          // renewal pieced to the customer's next plan
-  const renUnlinked = step1b.filter(r => closedBy(r, 'renewal') && !_renewalLinked(r));   // renewal-coded but no later plan = real loss
-  const step1 = step1b.filter(r => !renLinked(r));                             // minus renewals linked at the customer level
-  const byReason1 = {}; step1b.forEach(r => { if (renLinked(r)) { const k = String(reportingCancelReasonOf(r) || '').trim(); byReason1[k] = (byReason1[k] || 0) + 1; } });
-  const replOn = _retenWhatIf('popReplaced', true);
-  const stepRp = step1.filter(r => !(replOn && _replacedLinked(r)));            // minus cancels replaced by a new plan within 30 days
-  const step1a = stepRp.filter(r => !(rorOn && rorTimingOn && _reporting3dayRor(r)));   // minus RORs caught by timing (whatever is left)
-  const stepZ = step1a.filter(r => !(retenExclZeroPay() && !_retenPaying(r)));   // (a per-visit charge counts as paying)
-  const step2 = stepZ.filter(r => !retenTakePayOut(r));                          // minus take-and-pay (customer < 2 services)   // (a per-visit charge counts as paying)
-  const svcOf = (r) => Number(r.subscription_completed_services) || 0;
-  const sentricon = (r) => retenOneSvcExemptTerms().some(t => String(r.subscription || '').toLowerCase().includes(t));
-  const soldThisYear = (r) => { const d = r.sold_date ? new Date(r.sold_date) : (r.initial_service ? new Date(r.initial_service) : null); return d && !isNaN(d) && d.getFullYear() >= year; };
-  const oneSvcAll = step2.filter(r => svcOf(r) <= 1);
-  const oneSvcKept = oneSvcAll.filter(r => _retenOneSvcExempt(r));
-  // 7: never got a 2nd treatment — prior-year one-service subs (Sentricon exempt)
-  const step2b = step2.filter(r => !(retenExclOneSvc() && svcOf(r) <= 1 && !sentricon(r) && !soldThisYear(r)));
-  // 8: sold this year but already frozen after one treatment
-  const step3 = step2b.filter(r => !retenPopulationExcluded(r));
+  // The step chain is only built when the card is OPEN (speed pass, Nov 2): collapsed — the default — the header
+  // needs the book and the attrition rates, not the thirteen filtered copies of the population (~7s on live data).
+  const _chain = () => {
+    const s1o = pop.filter(r => lifecycleByName.get(r.subscription) === 'recurring' || lifecycleByName.get(r.subscription) === 'retired');
+    const s1 = s1o.filter(r => !!recurringByName.get(r.subscription));
+    const s2 = s1.filter(r => !!r.initial_service && r.initial_service >= '2000-01-01');
+    // Population steps, applied in order so each count is "removed at this step".
+    const popSet = retenPopExclReasons();
+    const rorOn = [...popSet].some(_isRorReason);
+    const rorTimingOn = _retenWhatIf('popRorTiming', true);
+    const closedBy = (r, kind) => r.subscription_date_canceled && popSet.has(_normCancelReason(reportingCancelReasonOf(r))) && crmReasonIs(kind, reportingCancelReasonOf(r));   // kind: 'combined' | 'renewal' (src/12-crm-vocab.js)
+    const rorCoded = (r) => !!r.subscription_date_canceled && _isRorReason(_normCancelReason(reportingCancelReasonOf(r)));
+    const rorByReason = (r) => rorCoded(r) && _rorCodedOk(r);   // office staff / technician sales get no ROR from 2026 (per Isaac, Oct 13)
+    // Order (per Isaac, Oct 14 — a clean story): trust what was CODED first (ROR,
+    // never started, combined, renewals), then the two inferences (replaced within
+    // 30 days, RORs by timing + its 2+ appointment exemption), then the $0 catch-all.
+    // The final book is the same in any order; the order decides which step gets
+    // credit, so the fix-it lists and the raw → official bridge read cleanly.
+    const s2r = s2.filter(r => !(rorOn && rorByReason(r)));                       // minus RORs coded as such (the sheet's rule)
+    const noStartOn = _retenWhatIf('popNoStart', true);
+    const stepNS = s2r.filter(r => !(noStartOn && retenNotStartedSub(r)));      // minus “never started” cancels (all have a completed initial)
+    const step1b = stepNS.filter(r => !closedBy(r, 'combined'));                  // minus combined
+    const renLinked = (r) => closedBy(r, 'renewal') && _renewalLinked(r);          // renewal pieced to the customer's next plan
+    const renUnlinked = step1b.filter(r => closedBy(r, 'renewal') && !_renewalLinked(r));   // renewal-coded but no later plan = real loss
+    const step1 = step1b.filter(r => !renLinked(r));                             // minus renewals linked at the customer level
+    const byReason1 = {}; step1b.forEach(r => { if (renLinked(r)) { const k = String(reportingCancelReasonOf(r) || '').trim(); byReason1[k] = (byReason1[k] || 0) + 1; } });
+    const replOn = _retenWhatIf('popReplaced', true);
+    const stepRp = step1.filter(r => !(replOn && _replacedLinked(r)));            // minus cancels replaced by a new plan within 30 days
+    const step1a = stepRp.filter(r => !(rorOn && rorTimingOn && _reporting3dayRor(r)));   // minus RORs caught by timing (whatever is left)
+    const stepZ = step1a.filter(r => !(retenExclZeroPay() && !_retenPaying(r)));   // (a per-visit charge counts as paying)
+    const step2 = stepZ.filter(r => !retenTakePayOut(r));                          // minus take-and-pay (customer < 2 services)   // (a per-visit charge counts as paying)
+    const svcOf = (r) => Number(r.subscription_completed_services) || 0;
+    const sentricon = (r) => retenOneSvcExemptTerms().some(t => String(r.subscription || '').toLowerCase().includes(t));
+    const soldThisYear = (r) => { const d = r.sold_date ? new Date(r.sold_date) : (r.initial_service ? new Date(r.initial_service) : null); return d && !isNaN(d) && d.getFullYear() >= year; };
+    const oneSvcAll = step2.filter(r => svcOf(r) <= 1);
+    const oneSvcKept = oneSvcAll.filter(r => _retenOneSvcExempt(r));
+    // 7: never got a 2nd treatment — prior-year one-service subs (Sentricon exempt)
+    const step2b = step2.filter(r => !(retenExclOneSvc() && svcOf(r) <= 1 && !sentricon(r) && !soldThisYear(r)));
+    // 8: sold this year but already frozen after one treatment
+    const step3 = step2b.filter(r => !retenPopulationExcluded(r));
+    return { s1o, s1, s2, popSet, rorOn, rorTimingOn, closedBy, rorCoded, rorByReason, s2r, noStartOn, stepNS, step1b, renLinked, renUnlinked, step1, byReason1, replOn, stepRp, step1a, stepZ, step2, svcOf, sentricon, soldThisYear, oneSvcAll, oneSvcKept, step2b, step3 };
+  };
   const book = _retenEff(pop);   // the real thing — should equal step3 in size
   // Cancel steps for the current year (YTD) and last year.
   const excl = reportingExcludedCancelReasons();
@@ -397,7 +402,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     el('div', {}, el('div', { class: 'text-sm font-black' }, label), sub ? el('div', { class: 'text-[11px] text-muted-' }, sub) : null),
     clickable(el('div', { class: 'text-lg font-black tabular-nums' }, val), drill(label, rowsIn, 'included')));
   const notIn = (a, b) => { const set = new Set(b); return a.filter(r => !set.has(r)); };
-  const reasonList = Object.entries(byReason1).sort((a, b) => b[1] - a[1]).map(([k, v]) => k + ' ' + n(v)).join(' · ');
+  const reasonList = () => Object.entries(C.byReason1).sort((a, b) => b[1] - a[1]).map(([k, v]) => k + ' ' + n(v)).join(' · ');
   const open = state._retenMethodOpen === true;   // collapsed by default (per Isaac)
   const whatIf = retenWhatIfActive();
   const card = el('div', { class: 'card overflow-hidden', style: whatIf ? { outline: '2px solid var(--accent)' } : {} },
@@ -444,6 +449,8 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
         infoBtn ? el('span', { class: 'inline-flex', onclick: (e) => e.stopPropagation() }, infoBtn) : null)));
 
   if (!open) return card;
+  const C = _chain();
+  const { s1o, s1, s2, popSet, rorOn, rorTimingOn, closedBy, rorCoded, rorByReason, s2r, noStartOn, stepNS, step1b, renLinked, renUnlinked, step1, byReason1, replOn, stepRp, step1a, stepZ, step2, svcOf, sentricon, soldThisYear, oneSvcAll, oneSvcKept, step2b, step3 } = C;
   const loadDrops = state._snapshotLoadDrops || null;
   let stepNo = 0;
   const next = () => ++stepNo;
@@ -476,7 +483,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       'Cancelled as “Sold, Not Started” or “Initial Appointment Canceled.”', s2r.length - stepNS.length, 'popNoStart', null, notIn(s2r, stepNS), stepNS),
     step(next(), 'Remove combined subscriptions', 'Cancelled as “Combined Subscriptions” — merged into another plan on the account.', stepNS.length - step1b.length, 'popCombined', null, notIn(stepNS, step1b), step1b),
     (() => {
-      const node = step(next(), 'Link renewals to the customer', 'A plan closed for a renewal reason is folded into the customer’s newer plan, so the renewal counts as retained.' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), step1b.length - step1.length, 'popRenew', null, notIn(step1b, step1), step1);
+      const node = step(next(), 'Link renewals to the customer', 'A plan closed for a renewal reason is folded into the customer’s newer plan, so the renewal counts as retained.' + (reasonList() ? ' Removed: ' + reasonList() + '.' : ''), step1b.length - step1.length, 'popRenew', null, notIn(step1b, step1), step1);
       if (renUnlinked.length) node.children[1].append(el('button', {
         class: 'mt-1.5 rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.3)' },
         title: 'Cancelled with a Renewal reason but the customer has no newer plan — counted as a real cancel. Fix the reason in the CRM if it was not a renewal.',
@@ -577,6 +584,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
   return card;
 }
 
+const _startCohortPre = new WeakMap();   // book array → per-row horizon / cancel times (startCohortCard)
 function reportingWaterfall() {
   const gate = reportingDataGate();
   if (gate) return gate;
@@ -623,7 +631,9 @@ function reportingWaterfall() {
     ['rep',             'Rep'],
   ];
 
+  _profMark('ret:scope');
   const waterfallA = buildReportingWaterfall(popA, mode, cohortSel);
+  _profMark('ret:waterfall');
   const waterfallB = inCompare ? buildReportingWaterfall(popB, mode, cohortSel) : null;
 
   const _methodologyInfo = (typeof reportingMethodologyInfoBtn === 'function') ? reportingMethodologyInfoBtn() : null;
@@ -1756,18 +1766,31 @@ function reportingWaterfall() {
     const today = new Date();
     const addM = (iso, n) => { const d = new Date(iso + 'T00:00'); d.setMonth(d.getMonth() + n); return d; };
     const HORIZONS = [3, 6, 9, 12, 18, 24];   // (6, 9, 18 added per Isaac, Sep 2026)
-    const byMonth = Array.from({ length: 12 }, () => []);
-    rows.forEach(r => {
-      const d = new Date(r.initial_service + 'T00:00');
-      if (!isNaN(d)) byMonth[d.getMonth()].push(r);
-    });
+    // Per-row dates worked out ONCE per book (speed pass, Nov 2): the old code parsed the start date six times per
+    // row for every horizon, twice over — ~1.3M Date objects a render. Same addM / setMonth arithmetic, same tests.
+    const todayMs = today.getTime();
+    let SC = _startCohortPre.get(rows);
+    if (!SC || SC.day !== today.toDateString()) {
+      const hz = new Map(), cx = new Map(); const byMonth = Array.from({ length: 12 }, () => []);
+      for (const r of rows) {
+        const d = new Date(r.initial_service + 'T00:00');
+        if (isNaN(d)) continue;
+        byMonth[d.getMonth()].push(r);
+        hz.set(r, HORIZONS.map(h => { const x = new Date(d); x.setMonth(x.getMonth() + h); return x.getTime(); }));
+        if (r._effCancel) cx.set(r, new Date(r._effCancel + 'T00:00').getTime());
+      }
+      SC = { day: today.toDateString(), hz, cx, byMonth }; _startCohortPre.set(rows, SC);
+    }
+    const { hz, cx, byMonth } = SC;
+    const _elig = (r, i) => hz.get(r)[i] <= todayMs;
+    const _kept = (r, i) => { const c = cx.get(r); return c === undefined || c >= hz.get(r)[i]; };
     const greenHeat = (pct) => `hsl(${Math.max(0, Math.min(120, pct * 120))}, 70%, 88%)`;
     const monthRow = (m) => {
       const cohort = byMonth[m];
-      const cells = HORIZONS.map(h => {
-        const eligible = cohort.filter(r => addM(r.initial_service, h) <= today);
+      const cells = HORIZONS.map((h, hi) => {
+        const eligible = cohort.filter(r => _elig(r, hi));
         if (eligible.length < 25) return el('td', { class: 'px-2 py-1.5', style: { color: 'var(--text-subtle)' }, title: 'Fewer than 25 subs old enough for this horizon' }, '—');
-        const kept = eligible.filter(r => !r._effCancel || new Date(r._effCancel + 'T00:00') >= addM(r.initial_service, h));
+        const kept = eligible.filter(r => _kept(r, hi));
         const pct = kept.length / eligible.length;
         return el('td', {
           class: 'px-2 py-1.5 tabular-nums',
@@ -1814,10 +1837,10 @@ function reportingWaterfall() {
             // the true WEIGHTED average (kept ÷ eligible across every month,
             // not an average of the monthly averages). ──
             (() => {
-              const cells = HORIZONS.map(h => {
-                const eligible = rows.filter(r => addM(r.initial_service, h) <= today);
+              const cells = HORIZONS.map((h, hi) => {
+                const eligible = rows.filter(r => hz.has(r) && _elig(r, hi));
                 if (eligible.length < 25) return el('td', { class: 'px-2 py-2', style: { color: 'var(--text-subtle)' } }, '—');
-                const kept = eligible.filter(r => !r._effCancel || new Date(r._effCancel + 'T00:00') >= addM(r.initial_service, h));
+                const kept = eligible.filter(r => _kept(r, hi));
                 const pct = kept.length / eligible.length;
                 return el('td', {
                   class: 'px-2 py-2 tabular-nums font-black',
@@ -2621,6 +2644,7 @@ function reportingWaterfall() {
   // 12 / 18 / 24 months after the renewal was sold. Month-to-month rides
   // the same horizons measured from contract end, so the comparison is
   // fair. Sentricon excluded.
+  _profMark('ret:pre-renewalRet');
   const renewalRetentionCard = (() => {
     // Rebuilt at the CUSTOMER level (per Isaac, Oct 6 2026). A renewal is a
     // NEW subscription on a customer who was already with us on another plan
@@ -2718,7 +2742,8 @@ function reportingWaterfall() {
   // never renewed (source is not Renewal), not Sentricon, real 12/18/24-mo
   // term, and within 2 months of contract end OR already month-to-month.
   // 61-120 days out shows as a planning bucket. Sorted most-overdue first.
-  const renewalQueueCard = (() => {
+  _profMark('ret:renewalRet');
+  const renewalQueueCard = () => {   // retired (per Isaac, Sep 2026) — kept as a function, no longer built on every render (speed pass, Nov 2)
     const MS_D = 86400000;
     const now = new Date();
     const rowsQ = [];
@@ -2802,7 +2827,7 @@ function reportingWaterfall() {
             el('td', { class: 'px-3 py-2 text-left tabular-nums' }, (Number(x.r.agreement_length) || 0) + ' mo'),
             el('td', { class: 'px-3 py-2 text-left whitespace-nowrap tabular-nums font-semibold' }, _fmtDt(x.end)),
             el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.usd0(Number(x.r.annual_recurring_value) || 0))))))));
-  })();
+  };
 
 
   // (Source Quality Ledger folded into Attrition by Source — per Isaac, Sep 2026.)

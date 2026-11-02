@@ -1950,13 +1950,14 @@ function retenNotStartedSub(r) { return !!r.subscription_date_canceled && _isNot
 const _replLinkMemo = { src: null, idx: null, vocab: null, res: new WeakMap() };
 function _replacedLinked(r) {
   if (!r.subscription_date_canceled) return false;
-  const why = String(reportingCancelReasonOf(r) || '');
-  if (crmReasonIs('renewal', why) || crmReasonIs('combined', why) || _isRorReason(why)) return false;
   const all = state.reportingSubscriptions || [];
-  // Per-row answer remembered for this snapshot + vocabulary (speed pass, Nov 2 — ~87k calls a Reporting render).
+  // Per-row answer remembered for this snapshot + vocabulary (speed pass, Nov 2 — ~300k calls a Retention render),
+  // checked before the reason tests so a hit costs one lookup.
   const _v = (typeof crmVocab === 'function') ? crmVocab() : null;
   if (_replLinkMemo.src !== all || _replLinkMemo.vocab !== _v) { _replLinkMemo.res = new WeakMap(); _replLinkMemo.vocab = _v; }
   if (typeof r === 'object' && _replLinkMemo.src === all) { const h = _replLinkMemo.res.get(r); if (h !== undefined) return h; }
+  const why = String(reportingCancelReasonOf(r) || '');
+  if (crmReasonIs('renewal', why) || crmReasonIs('combined', why) || _isRorReason(why)) { if (typeof r === 'object' && _replLinkMemo.src === all) _replLinkMemo.res.set(r, false); return false; }
   if (_replLinkMemo.src !== all) {
     const rec = (typeof reportingServiceRecurringMap === 'function') ? reportingServiceRecurringMap() : null;
     const idx = new Map();
@@ -1994,12 +1995,12 @@ function _replacedLinked(r) {
 // inside one.
 // Keyed on the what-if object, tab and saved rules too: the Raw → official bridge and the "official" read swap
 // state._retenWhatIf mid-render, and each swap must get its own answers.
-const _cancelTickMemo = { tick: 0, w: undefined, tab: undefined, rules: undefined, cc: undefined, carried: new WeakMap(), counts: new WeakMap() };
+const _cancelTickMemo = { tick: 0, w: undefined, tab: undefined, rules: undefined, cc: undefined, carried: new WeakMap(), counts: new WeakMap(), popEx: new WeakMap() };
 function _cancelMemo(slot, r, fn) {
   const tick = (typeof window !== 'undefined' && window._riddSeq) || 0;
   if (!tick || typeof r !== 'object') return fn(r);
   const M0 = _cancelTickMemo, w = state._retenWhatIf, tab = state.reportingSubTab, rules = _adminRules(), cc = state.reportingCancelConfig, mr = window._riddMutRev || 0;
-  if (M0.tick !== tick || M0.w !== w || M0.tab !== tab || M0.rules !== rules || M0.cc !== cc || M0.mr !== mr) { Object.assign(M0, { tick, w, tab, rules, cc, mr, carried: new WeakMap(), counts: new WeakMap() }); }
+  if (M0.tick !== tick || M0.w !== w || M0.tab !== tab || M0.rules !== rules || M0.cc !== cc || M0.mr !== mr) { Object.assign(M0, { tick, w, tab, rules, cc, mr, carried: new WeakMap(), counts: new WeakMap(), popEx: new WeakMap() }); }
   const M = _cancelTickMemo[slot]; const h = M.get(r); if (h !== undefined) return h;
   const v = fn(r); M.set(r, v); return v;
 }
@@ -2111,6 +2112,9 @@ function retenIsRorSub(r) {
   return (_isRorReason(_normCancelReason(reportingCancelReasonOf(r))) && _rorCodedOk(r)) || (_retenWhatIf('popRorTiming', true) && _reporting3dayRor(r));
 }
 function retenPopulationExcluded(r) {
+  return _cancelMemo('popEx', r, _retenPopulationExcluded);   // per row per render tick (Retention asked ~210k times; speed pass, Nov 2)
+}
+function _retenPopulationExcluded(r) {
   const popSet = retenPopExclReasons();
   if ([...popSet].some(_isRorReason) && retenIsRorSub(r)) return 'closed by 3 Day ROR';
   if (_retenWhatIf('popNoStart', true) && retenNotStartedSub(r)) return 'closed as never started';
