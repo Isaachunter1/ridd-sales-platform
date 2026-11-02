@@ -43,7 +43,7 @@ const SEM_RULES = {
 // Memoized per population array + rules.
 const _semBookCache = new WeakMap();
 function semRetentionBook(pop) {
-  const key = ((typeof retenChainRenewalCohort === 'function' && retenChainRenewalCohort()) ? 'C' : '') + (retenExclRenewalSubs() ? 'R' : '') + (retenExclZeroPay() ? 'Z' : '') + (retenExclFrozenOneSvc() ? 'F' : '') + (retenExclOneSvc() ? 'O' : '') + (reportingExcludeRorChurn() ? 'r' : '') + '|' + [...retenPopExclReasons()].join(',') + '|' + retenOneSvcExemptTerms().join(',') + '|' + reportingExcludedCancelReasons().size + '|' + JSON.stringify(state._retenWhatIf || null);
+  const key = ((typeof retenChainRenewalCohort === 'function' && retenChainRenewalCohort()) ? 'C' : '') + (retenExclRenewalSubs() ? 'R' : '') + (retenExclZeroPay() ? 'Z' : '') + (retenExclFrozenOneSvc() ? 'F' : '') + (retenExclOneSvc() ? 'O' : '') + ((typeof retenTakeAndPay === 'function' && retenTakeAndPay()) ? 'T' : '') + (reportingExcludeRorChurn() ? 'r' : '') + '|' + [...retenPopExclReasons()].join(',') + '|' + retenOneSvcExemptTerms().join(',') + '|' + reportingExcludedCancelReasons().size + '|' + JSON.stringify(state._retenWhatIf || null);
   const hit = _semBookCache.get(pop);
   if (hit && hit._rulesKey === key) return hit;
   const recurringByName = (typeof retenRecurringMap === 'function') ? retenRecurringMap() : reportingServiceRecurringMap();   // retired plans stay in the book

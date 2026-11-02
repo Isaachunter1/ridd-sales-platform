@@ -2080,6 +2080,7 @@ function retenPopulationExcluded(r) {
   if (_retenWhatIf('popReplaced', true) && _replacedLinked(r)) return 'replaced by a new plan within 30 days';
   if (retenExclRenewalSubs() && reportingSourceClass(r.subscription_source) === 'renewal') return 'renewal sub';
   if (retenExclZeroPay() && !_retenPaying(r)) return '$0 paying';
+  if (retenTakePayOut(r)) return 'take and pay: customer has under 2 services';
   const svc = Number(r.subscription_completed_services) || 0;
   if (retenExclOneSvc() && svc <= 1 && !_retenOneSvcExempt(r)) return 'under 2 services';
   // Frozen after a single visit is a dead-on-arrival account in ANY year
@@ -2102,6 +2103,24 @@ function reportingBranchRenames() {
   return {}; }
 function setReportingBranchRename(from, to) { try { const m = { ...reportingBranchRenames() }; if (to && to !== from) m[from] = to; else delete m[from]; _setAdminRule('branchRenames', m); localStorage.setItem('ridd_rpt_branch_renames', JSON.stringify(m)); } catch {} }
 function reportingAllBranches() { const s = new Set(); for (const r of (state.reportingSubscriptions || [])) { const o = (r.office_name || '').trim(); if (o) s.add(o); } return [...s].sort(); }
+// ── Take and pay (per Isaac, Nov 2) ─────────────────────────────────────
+// Retention step 11: only customers who have received 2+ completed services stay in the book. Counted per
+// CUSTOMER — completed services summed across every subscription the customer has in the snapshot — so a
+// renewal plan that is one visit old still carries a long-time customer. A session toggle on Attrition
+// Steps (Reporting → Retention), OFF by default, so the official rate is unchanged until it is switched on.
+function retenTakeAndPay() { return _retenWhatIf('takePay', false); }
+const _takePayMemo = { subs: null, by: null };
+function retenCustomerServices(r) {
+  const subs = state.reportingSubscriptions || [];
+  if (_takePayMemo.subs !== subs) {
+    const by = new Map();
+    for (const x of subs) { const k = String(x.customer_id == null ? '' : x.customer_id); if (k) by.set(k, (by.get(k) || 0) + (Number(x.subscription_completed_services) || 0)); }
+    _takePayMemo.subs = subs; _takePayMemo.by = by;
+  }
+  const k = String(r.customer_id == null ? '' : r.customer_id);
+  return k ? (_takePayMemo.by.get(k) || 0) : (Number(r.subscription_completed_services) || 0);
+}
+function retenTakePayOut(r) { return retenTakeAndPay() && retenCustomerServices(r) < 2; }
 function _reporting3dayRor(r) {
   if (!_reporting3dayRorByDates(r)) return false;
   // A sub with MORE THAN ONE completed appointment was really serviced (per

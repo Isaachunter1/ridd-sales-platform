@@ -117,7 +117,7 @@ function _retenOfficeSlice(office) {
 }
 function _retenOfficial() {
   const saved = state._retenWhatIf; state._retenWhatIf = null;
-  const o = { initial: true, orphans: reportingAutoExcludeOrphans(), branches: true, hidden: true, sources: reportingExcludedSources().size > 0, popRor: [...retenPopExclReasons()].some(_isRorReason), popRorTiming: true, popRorServiced: true, popNoStart: true, popReplaced: true, popCombined: [...retenPopExclReasons()].some(x => /combined/.test(x)), popRenew: [...retenPopExclReasons()].some(x => !_isRorReason(x) && !/combined/.test(x)), zero: retenExclZeroPay(), oneSvc: retenExclOneSvc(), oneSvcExempt: true, frozenOneSvc: retenExclFrozenOneSvc(), exclReasons: reportingExcludedCancelReasons().size > 0, ror: reportingExcludeRorChurn() };
+  const o = { initial: true, orphans: reportingAutoExcludeOrphans(), branches: true, hidden: true, sources: reportingExcludedSources().size > 0, popRor: [...retenPopExclReasons()].some(_isRorReason), popRorTiming: true, popRorServiced: true, popNoStart: true, popReplaced: true, popCombined: [...retenPopExclReasons()].some(x => /combined/.test(x)), popRenew: [...retenPopExclReasons()].some(x => !_isRorReason(x) && !/combined/.test(x)), zero: retenExclZeroPay(), oneSvc: retenExclOneSvc(), oneSvcExempt: true, frozenOneSvc: retenExclFrozenOneSvc(), takePay: false, exclReasons: reportingExcludedCancelReasons().size > 0, ror: reportingExcludeRorChurn() };
   state._retenWhatIf = saved;
   return o;
 }
@@ -323,7 +323,8 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
   const replOn = _retenWhatIf('popReplaced', true);
   const stepRp = step1.filter(r => !(replOn && _replacedLinked(r)));            // minus cancels replaced by a new plan within 30 days
   const step1a = stepRp.filter(r => !(rorOn && rorTimingOn && _reporting3dayRor(r)));   // minus RORs caught by timing (whatever is left)
-  const step2 = step1a.filter(r => !(retenExclZeroPay() && !_retenPaying(r)));   // (a per-visit charge counts as paying)
+  const stepTP = step1a.filter(r => !retenTakePayOut(r));                       // minus take-and-pay (customer < 2 services), when on
+  const step2 = stepTP.filter(r => !(retenExclZeroPay() && !_retenPaying(r)));   // (a per-visit charge counts as paying)
   const svcOf = (r) => Number(r.subscription_completed_services) || 0;
   const sentricon = (r) => retenOneSvcExemptTerms().some(t => String(r.subscription || '').toLowerCase().includes(t));
   const soldThisYear = (r) => { const d = r.sold_date ? new Date(r.sold_date) : (r.initial_service ? new Date(r.initial_service) : null); return d && !isNaN(d) && d.getFullYear() >= year; };
@@ -388,7 +389,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       el('div', { class: 'text-[11px] text-muted-' }, detail),
       // Judgment steps are stated as RIDD policy (per Isaac, Oct 14): anyone who
       // disagrees switches the step OFF and sees attrition without it.
-      chipKey ? el('div', { class: 'text-[10px] font-semibold mt-0.5', style: { color: 'var(--text-subtle)' } }, 'RIDD policy \u2014 switch it OFF (right) to see attrition without it.') : null),
+      chipKey ? el('div', { class: 'text-[10px] font-semibold mt-0.5', style: { color: 'var(--text-subtle)' } }, chipKey === 'takePay' ? 'Off by default \u2014 switch it ON (right) to see attrition with it.' : 'RIDD policy \u2014 switch it OFF (right) to see attrition without it.') : null),
     el('div', { class: 'text-right shrink-0 tabular-nums' },
       removed != null ? clickable(el('div', { class: 'text-sm font-bold', style: { color: removed ? '#DC2626' : 'var(--text-subtle)' } }, removed ? '−' + n(removed) : '0'), drill(title, rowsRemoved, 'removed at this step')) : null,
       fixedNote ? clickable(el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, fixedNote), drill(title, noteRows, 'kept by this step')) : null,
@@ -498,7 +499,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       const removed = notIn(stepRp, step1a);
       // RORs caught by TIMING whose reason isn't coded "3 Day ROR" — fix these in FieldRoutes.
       const miscoded = removed;
-      const node = step(next(), 'Remove 3-day RORs caught by timing', 'Door-to-door subscriptions cancelled within three days of the sale, whatever other reason was typed in FieldRoutes. This runs after the coded steps above, so a cancel already coded never started, combined or renewal is claimed there first; what is left here is a quick cancel with an ordinary reason, unless the step below keeps it. Timing makes these rescissions in substance \u2014 the rep or office simply coded a different reason \u2014 so they are treated the same as the coded RORs above. Switch it off to count only the reason as coded.', stepRp.length - step1a.length, rorOn ? 'popRorTiming' : null, rorOn ? null : 'needs the ROR step on', removed, step1a);
+      const node = step(next(), 'Remove 3-day RORs caught by timing', 'Door-to-door subscriptions cancelled within three days of the sale, whatever other reason was typed in FieldRoutes. This runs after the coded steps above, so a cancel already coded never started, combined or renewal is claimed there first; what is left here is a quick cancel with an ordinary reason, unless it has two or more completed appointments \u2014 then it was really serviced (the dates in FieldRoutes are wrong, not the customer) and it stays in the book. Timing makes these rescissions in substance \u2014 the rep or office simply coded a different reason \u2014 so they are treated the same as the coded RORs above. Switch it off to count only the reason as coded.', stepRp.length - step1a.length, rorOn ? 'popRorTiming' : null, rorOn ? null : 'needs the ROR step on', removed, step1a);
       if (miscoded.length) node.children[1].append(el('button', {
         class: 'mt-1.5 rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.3)' },
         title: 'Cancelled within 3 days of the sale but the reason in FieldRoutes is not “3 Day ROR” — open the list and correct them in the CRM',
@@ -506,14 +507,10 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       }, '⚑ ' + n(miscoded.length) + ' miscoded — fix the reason in the CRM'));
       return node;
     })(),
-    (() => {
-      // Timing-RORs that were serviced twice or more (per Isaac, Sep 21): the
-      // dates say ROR, the appointments say customer. Kept by default; the
-      // list is here so the CRM can be cleaned up over time.
-      const kept = (rorOn && rorTimingOn && _retenWhatIf('popRorServiced', true)) ? stepRp.filter(r => _reporting3dayRorByDates(r) && svcOf(r) > 1) : [];
-      return step(next(), 'Keep timing-RORs with 2+ completed appointments', 'Exemption to the step above: a subscription cancelled within three days of its sale date but with two or more completed appointments was really serviced \u2014 the sold or cancel date in FieldRoutes is wrong, not the customer. These stay in the book; if the cancel reason is a renewal, the renewals step below counts them as retained, otherwise they are a real cancel counted by date. Switch off to treat them as RORs. Open the list to fix the dates in the CRM.', 0, rorOn && rorTimingOn ? 'popRorServiced' : null, n(kept.length) + ' kept', null, null, kept);
-    })(),
-    step(next(), 'Remove subs with no ARR', 'Subscriptions that bill nothing: $0 annual recurring value and no per-visit charge on an \u201cAs Needed\u201d plan. (An \u201cAs Needed\u201d plan shows $0 ARR in FieldRoutes but still charges each visit \u2014 those are paying customers and stay in.) Attrition is measured on recurring revenue, and a sub that bills nothing can neither be kept nor lost in dollar terms, so it is removed rather than diluting the rate.', step1a.length - step2.length, 'zero', null, notIn(step1a, step2), step2),
+    // Step 11 — Take and pay (per Isaac, Nov 2; replaces "Keep timing-RORs with 2+ completed appointments", whose
+    // exemption still applies inside step 10 so the official book is unchanged).
+    step(next(), 'Take and pay: only customers with 2+ services', 'Keeps only customers who have received two or more completed services \u2014 they took the service and kept paying. Services are counted across all of the customer\u2019s subscriptions, so a renewal plan with one visit on it still counts a long-time customer. Off by default; switch it on to see attrition on take-and-pay customers only.', step1a.length - stepTP.length, 'takePay', null, notIn(step1a, stepTP), stepTP),
+    step(next(), 'Remove subs with no ARR', 'Subscriptions that bill nothing: $0 annual recurring value and no per-visit charge on an \u201cAs Needed\u201d plan. (An \u201cAs Needed\u201d plan shows $0 ARR in FieldRoutes but still charges each visit \u2014 those are paying customers and stay in.) Attrition is measured on recurring revenue, and a sub that bills nothing can neither be kept nor lost in dollar terms, so it is removed rather than diluting the rate.', stepTP.length - step2.length, 'zero', null, notIn(stepTP, step2), step2),
     // (The one-visit steps — prior-year never-2nd-treatment, the Sentricon exemption,
     // and this-year frozen-after-one — were retired per Isaac, Oct 13: cancelling
     // after the initial is real churn.)
@@ -523,7 +520,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     // equal the book. Anything that fell out without a step shows here in red.
     (() => {
       const key = (r) => String(r.subscription_id) + '|' + String(r.customer_id);
-      const removedLists = [...scopeSteps.map(st => st.removed), notIn(s2, s2r), notIn(s2r, stepNS), notIn(stepNS, step1b), notIn(step1b, step1), notIn(step1, stepRp), notIn(stepRp, step1a), notIn(step1a, step2)];
+      const removedLists = [...scopeSteps.map(st => st.removed), notIn(s2, s2r), notIn(s2r, stepNS), notIn(stepNS, step1b), notIn(step1b, step1), notIn(step1, stepRp), notIn(stepRp, step1a), notIn(step1a, stepTP), notIn(stepTP, step2)];
       const gone = new Set(); let removedN = 0;
       for (const L of removedLists) for (const r of L) { const k = key(r); if (!gone.has(k)) { gone.add(k); removedN++; } }
       const inBook = new Set(book.map(key));
