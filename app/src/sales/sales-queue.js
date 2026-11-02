@@ -372,16 +372,18 @@ function viewSales() {
           // edit modal as clicking a desktop row, so the rep can fix details
           // or admins can audit on a phone without horizontal-scrolling a
           // 13-column table.
-          salesCardsMobile(filtered, { isAdmin, queueFilter }),
+          // One layout per screen size (per Isaac, Nov 2 — speed pass): both used to be built on every render and one
+          // hidden by CSS; on live data that was 889ms (desktop feed) + 560ms (phone cards) per render.
+          _salesPhone() ? salesCardsMobile(filtered, { isAdmin, queueFilter }) : null,
           // Upfront queue (per Isaac, Oct 14): sales from Oct 12 on — when office add-ons started — read as the
           // TV's Latest-sales rows with their add-ons and initial date; anything older keeps the table below.
           // Pending Backend Lock (office) reads the same rows — with invoices paid + days aging to watch (per Isaac, Oct 15).
           // Office Staff (per Isaac, Oct 15): all four tabs — Upfront, Pending Backend Lock, Archived, History — read as the
           // same rows. Sales before the new flow (10/12) keep the old table underneath.
-          ((queueFilter === 'upfront' || _queue === 'office') && filtered.some(s => String(s.sold_date || '') >= SALES_FEED_START))
+          (!_salesPhone() && (queueFilter === 'upfront' || _queue === 'office') && filtered.some(s => String(s.sold_date || '') >= SALES_FEED_START))
             ? el('div', { class: 'hidden sm:block mb-5' }, salesFeed(filtered.filter(s => String(s.sold_date || '') >= SALES_FEED_START), { isAdmin, mode: queueFilter === 'backend' ? 'backend' : 'upfront',
                 title: queueFilter === 'backend' ? 'Pending Backend Lock' : queueFilter === 'cancels' ? 'Cancelled' : queueFilter === 'history' ? 'History' : 'Upfront Sales' })) : null,   // titles = the tab names (per Isaac, Oct 15)
-          ((queueFilter === 'upfront' || _queue === 'office') && !filtered.some(s => String(s.sold_date || '') < SALES_FEED_START)) ? null :
+          (_salesPhone() || ((queueFilter === 'upfront' || _queue === 'office') && !filtered.some(s => String(s.sold_date || '') < SALES_FEED_START))) ? null :
           el('div', { class: 'hidden sm:block' },
             (queueFilter === 'upfront' || _queue === 'office') && filtered.some(s => String(s.sold_date || '') >= SALES_FEED_START) ? el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted- mb-2' }, 'Before ' + fmt.dateShortYear(SALES_FEED_START)) : null,
             salesTable((queueFilter === 'upfront' || _queue === 'office') ? filtered.filter(s => String(s.sold_date || '') < SALES_FEED_START) : filtered, { isAdmin, sortKey, sortDir,
@@ -520,6 +522,10 @@ function unloggedSalesBlock(isAdmin) {
 // target that opens the same edit modal as a desktop row. Admins also get the
 // status + auditor dropdowns inline so they can audit on a phone. We keep this
 // deliberately spare — no sort headers, no filter chips, no horizontal scroll.
+// Phone = below Tailwind's sm breakpoint (640px), the same line the CSS used to hide one of the two layouts.
+function _salesPhone() { try { return window.matchMedia('(max-width: 639.98px)').matches; } catch (e) { return false; } }
+// Crossing the breakpoint (rotate, resize) re-renders the Sales screen into the other layout.
+try { window.matchMedia('(max-width: 639.98px)').addEventListener('change', () => { if (typeof SALES_QUEUE_OF_VIEW !== 'undefined' && SALES_QUEUE_OF_VIEW[state.view]) mountApp(); }); } catch (e) { /* old Safari: no change event */ }
 function salesCardsMobile(rows, { isAdmin = false, queueFilter = 'upfront' } = {}) {
   // Compact cards (per Isaac, Oct 6): two lines per sale — about half the old height.
   return el('div', { class: 'flex flex-col sm:hidden', style: { gap: '6px' } },
