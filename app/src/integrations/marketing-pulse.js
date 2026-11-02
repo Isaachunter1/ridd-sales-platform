@@ -48,7 +48,7 @@ function mkpFilters() {
   if (!['cohort', 'activity'].includes(F.mode)) F.mode = 'cohort';
   // Last touch only, no campaign filter (per Isaac, Nov 2 — both pickers retired; a filter left over from an
   // earlier session would otherwise keep narrowing the page with no control on screen to clear it).
-  F.attr = 'last'; F.campaign = '';
+  F.attr = 'last'; F.campaign = ''; F.type = '';   // calls vs forms retired too (per Isaac, Nov 2 — GHL only knows it while a lead sits in its first stage)
   return F;
 }
 function mkpRange() {
@@ -499,7 +499,6 @@ function _mktgPulseView() {
   const markets = [...new Set((state.offices || []).filter(o => o && o.name && o.active !== false).map(o => mkpMarketOf(o.name)).concat(inWin.map(x => x.lead.market), SP.lines.map(s => s.market)).filter(Boolean))].sort();
   const provs = [...new Set(inWin.map(x => x.lead.prov).concat(SP.lines.map(s => s.prov)))].filter(Boolean).sort();
   const groups = [...new Set(provs.map(mkpGroupOf))];
-  const hasType = inWin.some(x => x.lead.type);
   const bar = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
     sel(F.range, mkpRangeOptions(), false, 'Date range', (v) => setF(v === 'custom' ? { range: v, from: R.from, to: R.to } : { range: v }), '120px'),
     F.range === 'custom' ? el('input', { type: 'date', value: R.from, class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: selSt(false), onchange: (e) => setF({ from: e.target.value }) }) : null,
@@ -508,7 +507,6 @@ function _mktgPulseView() {
     el('span', { style: { flex: '1' } }),
     sel(F.market || '', [['', 'RIDD'], ...markets.map(m => [m, m])], !!F.market, 'Office', (v) => setF({ market: v })),
     sel(F.ch || '', [['', 'All channels'], ['Channel groups', groups.map(g => ['g:' + g, g])], ['Channels', provs.map(p => ['p:' + p, p])]], !!F.ch, 'Channel', (v) => setF({ ch: v })),
-    sel(F.type || '', [['', 'Calls + forms'], ['call', 'Calls', !hasType], ['form', 'Forms', !hasType]], !!F.type, hasType ? 'Lead type — from the GHL pipeline stage, only known while the opportunity is still in a New Lead stage' : 'Call vs form isn’t tracked yet: GoHighLevel only shows it as the current pipeline stage', (v) => setF({ type: v })),
     sel(String(F.win), [['30', '30-day window'], ['60', '60-day window'], ['90', '90-day window']], false, 'Conversion window: a sale counts for a lead when it is sold within this many days of it', (v) => setF({ win: Number(v) })),
     el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } }, ...[['cohort', 'Cohort'], ['activity', 'Activity']].map(([v, l]) => el('button', { class: 'px-2 py-1 text-[11px] font-semibold', title: v === 'cohort' ? 'Cohort: the leads that came in during the range, followed to their sales' : 'Activity: lead-sourced sales sold during the range, whenever the lead came in', style: F.mode === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => setF({ mode: v }) }, l))));
   // Freshness strip.
@@ -720,7 +718,6 @@ function _mktgPulseView() {
   const noContact = cur.leads.filter(x => /no contact/i.test(x.lead.stage)).length;
   const quality = details('Lead quality and sales efficiency', el('div', {},
     kv('Sales per 100 leads', cur.n ? (cur.s / cur.n * 100).toFixed(1) : '—'),
-    kv('Calls vs forms', hasType ? cur.leads.filter(x => x.lead.type === 'call').length + ' calls · ' + cur.leads.filter(x => x.lead.type === 'form').length + ' forms · ' + cur.leads.filter(x => !x.lead.type).length + ' unknown' : 'Not tracked', 'GoHighLevel only shows it as the current stage'),
     kv('Qualified vs unqualified', 'Not tracked', 'every opportunity counts until GHL sends a qualified flag'),
     kv('GHL status', Object.entries(st).sort((a, b) => b[1] - a[1]).map(([k, v]) => k + ' ' + v).join(' · ') || '—', 'open / won / lost / abandoned'),
     kv('Sitting in "No Contact"', fmt.int(noContact), 'current stage only — not a contact rate'),
