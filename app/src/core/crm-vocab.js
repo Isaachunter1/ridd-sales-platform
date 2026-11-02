@@ -70,14 +70,16 @@ const _crmMatchMemo = { vocab: null, by: new Map() };
 function _crmMatch(group, key, value) {
   const v = crmVocab();
   if (_crmMatchMemo.vocab !== v) { _crmMatchMemo.vocab = v; _crmMatchMemo.by = new Map(); }
-  const mk = group + '\u0001' + key + '\u0001' + (value == null ? '' : String(value));
-  const hit = _crmMatchMemo.by.get(mk); if (hit !== undefined) return hit;
+  // Nested maps (group → key → raw value) so a hit is three lookups and no string building — ~1M asks a Retention render.
+  let g = _crmMatchMemo.by.get(group); if (!g) { g = new Map(); _crmMatchMemo.by.set(group, g); }
+  let k = g.get(key); if (!k) { k = new Map(); g.set(key, k); }
+  const hit = k.get(value); if (hit !== undefined) return hit;
   const n = _crmNorm(value);
   const set = v[group][key];
   let out;
   if (set) out = set.has(n);
   else { const d = CRM_VOCAB_DEFAULTS[group][key]; out = d instanceof RegExp ? d.test(n) : (Array.isArray(d) ? d.includes(n) : false); }
-  if (_crmMatchMemo.by.size < 50000) _crmMatchMemo.by.set(mk, out);
+  if (k.size < 20000) k.set(value, out);
   return out;
 }
 // ── Predicates the rest of the app uses ──

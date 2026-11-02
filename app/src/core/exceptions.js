@@ -168,6 +168,21 @@ function _exceptionFeedItemsRaw(scope) {
     try { const T = typeof auditSubTasks === 'function' ? perfT('exc:auditSubTasks', () => auditSubTasks()).find(t => t.tag === 'No reason') : null;
       if (T && T.rows) { const ids = new Set(subs.map(r => String(r.subscription_id))); _nr = T.rows.filter(r => ids.has(String(r.subscription_id))); } } catch (e) { /* fall back */ }
     mk('No reason', pl(_nr.length, 'serviced cancel with no cancel reason', 'serviced cancels with no cancel reason'), _nr);
+    // Renewals coded wrong (per Isaac, Nov 2 — step 8 of Attrition Steps, surfaced here so they get fixed):
+    //  · closed with a Renewal reason but the customer never renewed (no later plan) — fix the reason, or enter the renewal;
+    //  · a renewal happened (Renewal-source plan, or a renewal sold under another source) but the plan before it
+    //    was closed with another reason, is still open, or doesn't exist — fix the old plan's reason / source.
+    try {
+      const R = perfT('exc:renewals', () => refMemo('renewalFixes', [subs, state.reportingCancelConfig, state._compExtras], 300000, () => {
+        const rec = (typeof reportingServiceRecurringMap === 'function') ? reportingServiceRecurringMap() : null;
+        const never = subs.filter(r => r.subscription_date_canceled && (!rec || rec.get(r.subscription)) && crmReasonIs('renewal', String(reportingCancelReasonOf(r) || '')) && !_renewalLinked(r))
+          .map(r => ({ ...r, _flagReason: 'Closed ' + String(r.subscription_date_canceled).slice(0, 10) + ' as \u201c' + String(reportingCancelReasonOf(r) || '').trim() + '\u201d but the customer has no later plan \u2014 fix the reason, or enter the renewal' }));
+        const wrong = (typeof retenRenewalsEnteredWrong === 'function') ? retenRenewalsEnteredWrong(subs) : [];
+        return { never, wrong };
+      }));
+      mk('Renewal · not renewed', pl(R.never.length, 'plan closed as a renewal whose customer never renewed', 'plans closed as a renewal whose customer never renewed'), R.never);
+      mk('Renewal · not coded', pl(R.wrong.length, 'renewal whose old plan wasn\u2019t closed as a renewal (or sold under the wrong source)', 'renewals whose old plan wasn\u2019t closed as a renewal (or sold under the wrong source)'), R.wrong);
+    } catch (e) { /* renewal checks are best-effort */ }
   }
   // Marketing to-dos (per Isaac, Oct 9 — both live under Needs attention now): lead flow gaps and CRM ZIP fixes.
   // Review opens the detail table right inside this card.

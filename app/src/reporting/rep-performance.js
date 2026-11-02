@@ -104,7 +104,18 @@ function reportingRepPerformance() {
 // earliest sold sub to today, cells are count or ARV of cohort still
 // active at year-end. Cells are color-coded by retention % so trends
 // pop visually.
+// Memoized per (population array, mode, cohort, rules) — speed pass, Nov 2: ~5s a Retention render on live data,
+// rebuilt on every click of the tab. The population array's identity comes from retenScopeSteps' own memo.
+const _wfMemo = new WeakMap();
 function buildReportingWaterfall(rows, mode, cohortYear) {
+  const key = String(mode) + '|' + String(cohortYear) + '|' + ((typeof _retenMemoKey === 'function') ? _retenMemoKey() : '') + '|' + (window._riddMutRev || 0) + '|' + ((typeof reportingServiceRecurringMap === 'function') ? reportingServiceRecurringMap().size : '');
+  let M = _wfMemo.get(rows); if (!M) { M = new Map(); _wfMemo.set(rows, M); }
+  const hit = M.get(key); if (hit) return hit;
+  const out = _buildReportingWaterfall(rows, mode, cohortYear);
+  M.set(key, out); if (M.size > 12) M.delete(M.keys().next().value);
+  return out;
+}
+function _buildReportingWaterfall(rows, mode, cohortYear) {
   const today = new Date();
   // Consistency with Overview + Geographic attrition: cohort retention counts
   // RECURRING subs only (one-time subs don't "retain"), and a cancellation
@@ -123,11 +134,12 @@ function buildReportingWaterfall(rows, mode, cohortYear) {
         ? r.subscription_date_canceled : null;
       // A renewal continuation keeps the relationship's ORIGINAL first-service
       // date, so cohorts and tenure don't restart when a customer changes plans.
-      return { ...r, initial_service: retenCohortStart(r), _effCancel: realCancel };
+      // _iy = the first-service year, read once from the ISO date (the same year `new Date(d + 'T00:00')` gives);
+      // the old per-row Date parses ran ~600k times a render (speed pass, Nov 2).
+      const init = retenCohortStart(r);
+      return { ...r, initial_service: init, _effCancel: realCancel, _iy: _isoYear(init) };
     });
-  const initYears = rows
-    .map(r => r.initial_service ? new Date(r.initial_service + 'T00:00').getFullYear() : null)
-    .filter(y => y && !Number.isNaN(y));
+  const initYears = rows.map(r => r._iy).filter(y => y && !Number.isNaN(y));
   if (initYears.length === 0) return { rowDefs: [], years: [], allYears: [], cohorted: false };
   const allYears = [...new Set(initYears)].sort((a, b) => a - b);
   // COHORT MODE (Contract Length / Rep): restrict the population to subs
@@ -137,7 +149,7 @@ function buildReportingWaterfall(rows, mode, cohortYear) {
   const cohorted = !!cohortYear && cohortYear !== 'all' && (mode === 'contract' || mode === 'rep');
   if (cohorted) {
     const cy = Number(cohortYear);
-    rows = rows.filter(r => r.initial_service && new Date(r.initial_service + 'T00:00').getFullYear() === cy);
+    rows = rows.filter(r => r._iy === cy);
   }
   const minYear = cohorted ? Number(cohortYear) : initYears.reduce((m, y) => (y < m ? y : m), Infinity);
   const maxYear = today.getFullYear();
@@ -149,8 +161,7 @@ function buildReportingWaterfall(rows, mode, cohortYear) {
   let rowFilter = () => () => false;
   if (mode === 'subscription' || mode === 'arv') {
     rowIds = [...new Set(initYears)].sort((a, b) => a - b);
-    rowFilter = (id) => (r) => r.initial_service
-      && new Date(r.initial_service + 'T00:00').getFullYear() === id;
+    rowFilter = (id) => (r) => r._iy === id;
   } else if (mode === 'contract') {
     // 12/18/24 are the real products. Every other length (odd values that
     // need CRM cleanup, legacy long terms) buckets into Other.
@@ -177,17 +188,21 @@ function buildReportingWaterfall(rows, mode, cohortYear) {
     ? (rs) => rs.reduce((s, r) => s + (Number(r.annual_recurring_value) || 0), 0)
     : (rs) => rs.length;
 
+  // One pass per row bucket: each sub adds to every year column it was alive at the end of (same test as before —
+  // first service on/before Dec 31 and no effective cancel on/before it).
+  const isArv = mode === 'arv';
   const rowDefs = rowIds.map(id => {
     const rowRows = rows.filter(rowFilter(id));
     const total = cellAggregate(rowRows);
-    const byYear = {};
-    for (const y of years) {
-      const yearEnd = y + '-12-31';
-      const active = rowRows.filter(r =>
-        r.initial_service && r.initial_service <= yearEnd
-        && (!r._effCancel || r._effCancel > yearEnd)
-      );
-      byYear[y] = cellAggregate(active);
+    const byYear = {}; for (const y of years) byYear[y] = 0;
+    const ends = years.map(y => y + '-12-31');
+    for (const r of rowRows) {
+      if (!r.initial_service) continue;
+      const v = isArv ? (Number(r.annual_recurring_value) || 0) : 1;
+      for (let i = 0; i < years.length; i++) {
+        const yearEnd = ends[i];
+        if (r.initial_service <= yearEnd && (!r._effCancel || r._effCancel > yearEnd)) byYear[years[i]] += v;
+      }
     }
     return { id, total, byYear, rowRows };
   });
@@ -197,6 +212,8 @@ function buildReportingWaterfall(rows, mode, cohortYear) {
   return { rowDefs, years, allYears, cohorted };
 }
 
+// First-service year exactly as before (`new Date(d + 'T00:00').getFullYear()`, null when invalid), parsed once per row.
+function _isoYear(d) { if (!d) return null; const x = new Date(d + 'T00:00'); return isNaN(x) ? null : x.getFullYear(); }   // one parse per row (was six+)
 // ── COMMISSION CALCULATOR ────────────────────────────────────────────────────
 // Backend commission breakdown for a FieldRoutes SALES REP, computed from the
 // live CRM snapshot: revenue split into Pest / Bundle / Ancillary (via the
