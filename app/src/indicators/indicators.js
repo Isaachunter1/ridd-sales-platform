@@ -347,10 +347,13 @@ function deptRangePacer(dept) {
         return [{ key: 'all', label: dept === 'techs' ? 'Technician' : 'Sales Rep', color: '#DF643A', annual: a, monthly: m || (a > 0 && typeof worldDeptCurve === 'function' ? worldDeptCurve(dept).map(f => f * a) : null) }]; })();
   // A range's goal: each work day carries its month's allocation ÷ that month's work days (no monthly split → the
   // annual goal spread evenly over the year's work days).
+  // Work days per month / per year counted once, not once per day of the range (speed pass, Nov 2).
+  const _wdMemo = new Map();
+  const _wd = (k, a, b) => { let v = _wdMemo.get(k); if (v === undefined) { v = goalWorkDays(_wt, a, b); _wdMemo.set(k, v); } return v; };
   const dayGoal = (d, def) => {
     if (!goalIsWorkDay(_wt, d)) return 0;
-    if (def.monthly) { const mi = d.getMonth(); const n = goalWorkDays(_wt, new Date(d.getFullYear(), mi, 1), new Date(d.getFullYear(), mi + 1, 0)) || 1; return (Number(def.monthly[mi]) || 0) / n; }
-    const n = goalWorkDays(_wt, yearWin.start, yearWin.end) || 1; return def.annual / n;
+    if (def.monthly) { const mi = d.getMonth(), y = d.getFullYear(); const n = _wd(y + '-' + mi, new Date(y, mi, 1), new Date(y, mi + 1, 0)) || 1; return (Number(def.monthly[mi]) || 0) / n; }
+    const n = _wd('year', yearWin.start, yearWin.end) || 1; return def.annual / n;
   };
   const goalOf = (def, a, b) => { let t = 0; const d = new Date(a); const e = new Date(b); while (d <= e) { if (d.getFullYear() === yr) t += dayGoal(d, def); d.setDate(d.getDate() + 1); } return t; };
   // A single day with no work scheduled shows that day's week (same as the Me pacer, Oct 18).
@@ -361,13 +364,14 @@ function deptRangePacer(dept) {
   const PW = _pacerClip(R, yearWin);
   const endOf = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59);
   const acc = {}; defs.forEach(d => { acc[d.key] = { amt: 0, ytd: 0 }; });
+  const _endR = endOf(R.end), _endT = endOf(R.today);   // hoisted out of the loop (speed pass, Nov 2): two Dates per sale before
   for (const s of indicatorSales()) {
     if (_indicatorDeptOf(s) !== dept) continue;
     const d = _parseIndicatorDay(s); if (!d) continue;
     const k = isOffice ? (_indicatorIsRenewal(s) ? 'renewal' : 'new') : 'all';
     const v = Number(s.contractValue) || 0;
-    if (d >= R.start && d <= endOf(R.end)) acc[k].amt += v;
-    if (d.getFullYear() === yr && d <= endOf(R.today)) acc[k].ytd += v;
+    if (d >= R.start && d <= _endR) acc[k].amt += v;
+    if (d.getFullYear() === yr && d <= _endT) acc[k].ytd += v;
   }
   const strong = (t) => el('strong', { style: { color: 'var(--text)' } }, t);
   const streams = defs.map(def => {

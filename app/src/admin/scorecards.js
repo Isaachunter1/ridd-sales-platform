@@ -1947,12 +1947,16 @@ function retenNotStartedSub(r) { return !!r.subscription_date_canceled && _isNot
 // plan sold from 7 days before to 30 days after the cancel that was still
 // running past it. The customer never left — it was an uncoded renewal or a
 // re-entry. Renewal, combined and ROR reasons are handled by their own steps.
-const _replLinkMemo = { src: null, idx: null };
+const _replLinkMemo = { src: null, idx: null, vocab: null, res: new WeakMap() };
 function _replacedLinked(r) {
   if (!r.subscription_date_canceled) return false;
   const why = String(reportingCancelReasonOf(r) || '');
   if (crmReasonIs('renewal', why) || crmReasonIs('combined', why) || _isRorReason(why)) return false;
   const all = state.reportingSubscriptions || [];
+  // Per-row answer remembered for this snapshot + vocabulary (speed pass, Nov 2 — ~87k calls a Reporting render).
+  const _v = (typeof crmVocab === 'function') ? crmVocab() : null;
+  if (_replLinkMemo.src !== all || _replLinkMemo.vocab !== _v) { _replLinkMemo.res = new WeakMap(); _replLinkMemo.vocab = _v; }
+  if (typeof r === 'object' && _replLinkMemo.src === all) { const h = _replLinkMemo.res.get(r); if (h !== undefined) return h; }
   if (_replLinkMemo.src !== all) {
     const rec = (typeof reportingServiceRecurringMap === 'function') ? reportingServiceRecurringMap() : null;
     const idx = new Map();
@@ -1968,7 +1972,9 @@ function _replacedLinked(r) {
   const cx = String(r.subscription_date_canceled).slice(0, 10);
   const sh = (days) => { const d = new Date(cx + 'T00:00'); d.setDate(d.getDate() + days); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
   const lo = sh(-7), hi = sh(30), me = String(r.subscription_id);
-  return (_replLinkMemo.idx.get(c) || []).some(([id, d, oc]) => id !== me && d >= lo && d <= hi && (!oc || oc > cx));
+  const out = (_replLinkMemo.idx.get(c) || []).some(([id, d, oc]) => id !== me && d >= lo && d <= hi && (!oc || oc > cx));
+  if (typeof r === 'object') _replLinkMemo.res.set(r, out);
+  return out;
 }
 // ── One rule for "does this cancel count as churn?" (per Isaac, Oct 14) ──
 // Renewals and combines are strung together the same way everywhere in the
@@ -1983,8 +1989,25 @@ function _replacedLinked(r) {
 // The Retention what-if toggles (combined / renewals / replaced) apply on that
 // tab; everywhere else the official setting is used. 3-day RORs, one-time
 // services and the recurring test stay with each caller, as before.
+// Both answers below are remembered for ONE render tick per row (same pattern as _is3DayROR; speed pass, Nov 2 —
+// Reporting → Overview asked ~150k / ~70k times a render). The rules behind them can change between renders, never
+// inside one.
+// Keyed on the what-if object, tab and saved rules too: the Raw → official bridge and the "official" read swap
+// state._retenWhatIf mid-render, and each swap must get its own answers.
+const _cancelTickMemo = { tick: 0, w: undefined, tab: undefined, rules: undefined, cc: undefined, carried: new WeakMap(), counts: new WeakMap() };
+function _cancelMemo(slot, r, fn) {
+  const tick = (typeof window !== 'undefined' && window._riddSeq) || 0;
+  if (!tick || typeof r !== 'object') return fn(r);
+  const M0 = _cancelTickMemo, w = state._retenWhatIf, tab = state.reportingSubTab, rules = _adminRules(), cc = state.reportingCancelConfig, mr = window._riddMutRev || 0;
+  if (M0.tick !== tick || M0.w !== w || M0.tab !== tab || M0.rules !== rules || M0.cc !== cc || M0.mr !== mr) { Object.assign(M0, { tick, w, tab, rules, cc, mr, carried: new WeakMap(), counts: new WeakMap() }); }
+  const M = _cancelTickMemo[slot]; const h = M.get(r); if (h !== undefined) return h;
+  const v = fn(r); M.set(r, v); return v;
+}
 function reportingCancelCarriedOn(r) {
   if (!r || !r.subscription_date_canceled) return false;
+  return _cancelMemo('carried', r, _reportingCancelCarriedOn);
+}
+function _reportingCancelCarriedOn(r) {
   const why = reportingCancelReasonOf(r);
   if (_retenWhatIf('popCombined', true) && crmReasonIs('combined', why)) return true;
   if (_retenWhatIf('popRenew', true) && crmReasonIs('renewal', why) && _renewalLinked(r)) return true;
@@ -1993,6 +2016,9 @@ function reportingCancelCarriedOn(r) {
 }
 function reportingCancelCountsByReason(r) {
   if (!r || !r.subscription_date_canceled) return false;
+  return _cancelMemo('counts', r, _reportingCancelCountsByReason);
+}
+function _reportingCancelCountsByReason(r) {
   if (reportingCancelCarriedOn(r)) return false;
   const why = reportingCancelReasonOf(r);
   if (_retenWhatIf('popRenew', true) && crmReasonIs('renewal', why)) return true;   // renewal-coded, nothing carried forward
@@ -2016,7 +2042,19 @@ const RETEN_POP_EXCL_REASONS_DEFAULT = ['3 Day ROR', 'Combined Subscriptions', '
 // memoize on (admin rules, cancel config, what-if, tab) — rebuilding a Set
 // per row was the reason Attrition Steps took seconds to open.
 const _retenMemo = { key: null, pop: null, terms: null, excl: null };
-function _retenMemoKey() { return JSON.stringify([_adminRules() || null, state._retenWhatIf || null, state.reportingSubTab, (state.reportingCancelConfig || []).length, state._reportingCancelConfigStamp || 0]); }
+// The key is a JSON of the saved rules — ~57k calls a Reporting render (speed pass, Nov 2). Within one render tick
+// with the same inputs (same objects, same tab) the string is reused instead of re-serialized.
+const _retenKeyMemo = { tick: 0, rules: undefined, w: undefined, tab: undefined, n: -1, st: -1, key: null };
+function _retenMemoKey() {
+  const tick = (typeof window !== 'undefined' && window._riddSeq) || 0;
+  const rules = _adminRules() || null, w = state._retenWhatIf || null, tab = state.reportingSubTab, n = (state.reportingCancelConfig || []).length, st = state._reportingCancelConfigStamp || 0;
+  const M = _retenKeyMemo;
+  const mr = (typeof window !== 'undefined' && window._riddMutRev) || 0;   // in-place rule edits (_setAdminRule) bump this
+  if (tick && M.tick === tick && M.mr === mr && M.rules === rules && M.w === w && M.tab === tab && M.n === n && M.st === st) return M.key;
+  const key = JSON.stringify([rules, w, tab, n, st]);
+  Object.assign(M, { tick, mr, rules, w, tab, n, st, key });
+  return key;
+}
 function _retenMemoGet(slot, build) {
   const k = _retenMemoKey();
   if (_retenMemo.key !== k) { _retenMemo.key = k; _retenMemo.pop = _retenMemo.terms = _retenMemo.excl = null; }

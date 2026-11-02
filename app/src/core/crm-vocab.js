@@ -63,12 +63,22 @@ function crmVocab() {
   _crmVocabMemo.src = src; _crmVocabMemo.out = out;
   return out;
 }
+// Answers memoized per vocabulary (speed pass, Nov 2): Reporting → Overview asked ~520k times a render over a few
+// hundred distinct reasons / sources. A new vocabulary (crmVocab rebuilds `out` when the saved rules change) starts
+// a fresh memo, so a Configurations edit is picked up on the next render.
+const _crmMatchMemo = { vocab: null, by: new Map() };
 function _crmMatch(group, key, value) {
-  const v = crmVocab(); const n = _crmNorm(value);
+  const v = crmVocab();
+  if (_crmMatchMemo.vocab !== v) { _crmMatchMemo.vocab = v; _crmMatchMemo.by = new Map(); }
+  const mk = group + '\u0001' + key + '\u0001' + (value == null ? '' : String(value));
+  const hit = _crmMatchMemo.by.get(mk); if (hit !== undefined) return hit;
+  const n = _crmNorm(value);
   const set = v[group][key];
-  if (set) return set.has(n);
-  const d = CRM_VOCAB_DEFAULTS[group][key];
-  return d instanceof RegExp ? d.test(n) : (Array.isArray(d) ? d.includes(n) : false);
+  let out;
+  if (set) out = set.has(n);
+  else { const d = CRM_VOCAB_DEFAULTS[group][key]; out = d instanceof RegExp ? d.test(n) : (Array.isArray(d) ? d.includes(n) : false); }
+  if (_crmMatchMemo.by.size < 50000) _crmMatchMemo.by.set(mk, out);
+  return out;
 }
 // ── Predicates the rest of the app uses ──
 // Cancel reasons
