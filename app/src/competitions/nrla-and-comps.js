@@ -5550,6 +5550,7 @@ function isTeamExcluded(teamName) {
 }
 function setTeamExcluded(teamName, excluded) {
   if (!teamName) return;
+  _repExclMemoClear();
   const list = getExcludedTeams();
   const idx = list.indexOf(teamName);
   if (excluded && idx === -1) list.push(teamName);
@@ -5557,8 +5558,19 @@ function setTeamExcluded(teamName, excluded) {
   logActivity('comp_change', { detail: 'Team ' + teamName + (excluded ? ' excluded from comp' : ' included in comp') });
   saveDemoData();
 }
+// Memoized per render tick (per Isaac, Nov 2 — speed pass): the D2D dashboard asked ~210k times a render, and each
+// call walked getActiveComp → getExcludedTeams → the rep's team. Cleared on a new render (window._riddSeq) and by
+// the writers (setTeamExcluded, setRepTeam), so a change made in a click shows on that click's render.
+const _repExclMemo = { tick: -1, by: new Map() };
+function _repExclMemoClear() { _repExclMemo.tick = -1; _repExclMemo.by = new Map(); }
 function isRepExcluded(repName) {
-  return isTeamExcluded(getRepTeam(repName));
+  const tick = (typeof window !== 'undefined' && window._riddSeq) || 0;
+  if (!tick) return isTeamExcluded(getRepTeam(repName));
+  if (_repExclMemo.tick !== tick) { _repExclMemo.tick = tick; _repExclMemo.by = new Map(); }
+  const k = String(repName || '');
+  let v = _repExclMemo.by.get(k);
+  if (v === undefined) { v = isTeamExcluded(getRepTeam(repName)); _repExclMemo.by.set(k, v); }
+  return v;
 }
 
 // Independent of team: each rep can be tagged 'rookie' | 'vet' (or unset).
@@ -6012,6 +6024,24 @@ function dismissDuplicateRepPair(bad, good) {
 //     Team view passes the strict regex (Sentricon + German Roach + Interior
 //     Flea); branch view passes null so the column is a true "Avg Initial"
 //     across every account type with no carve-outs.
+// One pass per group for every column (speed pass, Nov 2): the old version walked each group eight times and asked
+// myBucketOf twice per sale (~1.7s of the D2D dashboard's render on live data). Same rules, same order of addition,
+// so the same numbers. The regex and the Last Resort floor are read once per call.
+function _aggGroupStats(ss, pestExcludeRegex) {
+  const failRe = auditFailRe(), lrMin = lastResortMin();
+  let revenue = 0, pestN = 0, pestSum = 0, multiYears = 0, twelveMonth = 0, autoPayCount = 0, auditFail = 0, lastResort = 0;
+  const reps = new Set();
+  for (const s of ss) {
+    revenue += (Number(s.contractValue) || 0);
+    if (avgInitialEligible(s) && !(pestExcludeRegex && pestExcludeRegex.test(s.subscription || ''))) { pestN++; pestSum += (Number(s.initialPrice) || 0); }   // renewals out (Oct 28)
+    const b = myBucketOf(s); if (b === 'multi') multiYears++; else if (b === 'twelve') twelveMonth++;
+    if (s.autoPay && s.autoPay !== 'No') autoPayCount++;
+    if (failRe.test(s.customerFlags || '')) auditFail++;
+    if ((Number(s && s.initialPrice) || 0) < lrMin) lastResort++;   // = isLastResort(s)
+    if (s.rep) reps.add(s.rep);
+  }
+  return { revenue, pestN, avgInit: pestN > 0 ? pestSum / pestN : 0, multiYears, twelveMonth, autoPayCount, auditFail, lastResort, uniqueReps: reps.size };
+}
 function aggregateRawSalesByGroup(rawSales, getGroupKey, indicatorRowsForDates, applyExclusion = false, pestExcludeRegex = null) {
   const weekMeta = {};
   (indicatorRowsForDates || []).forEach(r => {
@@ -6033,15 +6063,7 @@ function aggregateRawSalesByGroup(rawSales, getGroupKey, indicatorRowsForDates, 
   return Object.values(groups).map(g => {
     const ss = g.sales;
     const count = ss.length;
-    const revenue = ss.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
-    const pest = ss.filter(s => avgInitialEligible(s) && !(pestExcludeRegex && pestExcludeRegex.test(s.subscription || '')));   // renewals out (Oct 28)
-    const avgInit = pest.length > 0 ? pest.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / pest.length : 0;
-    const multiYears = ss.filter(s => myBucketOf(s) === 'multi').length;
-    const twelveMonth = ss.filter(s => myBucketOf(s) === 'twelve').length;
-    const autoPayCount = ss.filter(s => s.autoPay && s.autoPay !== 'No').length;
-    const auditFail = ss.filter(s => auditFailRe().test(s.customerFlags || '')).length;
-    const lastResort = ss.filter(s => isLastResort(s)).length;
-    const uniqueReps = new Set(ss.map(s => s.rep).filter(Boolean)).size;
+    const { revenue, pestN, avgInit, multiYears, twelveMonth, autoPayCount, auditFail, lastResort, uniqueReps } = _aggGroupStats(ss, pestExcludeRegex);
     const meta = weekMeta[g.week] || {};
     return {
       week: g.week,
@@ -6051,7 +6073,7 @@ function aggregateRawSalesByGroup(rawSales, getGroupKey, indicatorRowsForDates, 
       sold_accounts: count,
       revenue,
       avg_initial: avgInit,
-      avg_initial_count: pest.length,
+      avg_initial_count: pestN,
       auto_pay_pct: count > 0 ? autoPayCount / count : 0,
       audit_fail: auditFail, // accounts flagged Failed Audit (for Audit % rollups)
       last_resort: lastResort, // accounts with initial < $99 (for Last Resort % rollups)
@@ -6083,15 +6105,7 @@ function aggregateRawSalesByBucket(rawSales, getGroupKey, buckets, applyExclusio
   return Object.values(groups).map(g => {
     const ss = g.sales;
     const count = ss.length;
-    const revenue = ss.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
-    const pest = ss.filter(s => avgInitialEligible(s) && !(pestExcludeRegex && pestExcludeRegex.test(s.subscription || '')));   // renewals out (Oct 28)
-    const avgInit = pest.length > 0 ? pest.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / pest.length : 0;
-    const multiYears = ss.filter(s => myBucketOf(s) === 'multi').length;
-    const twelveMonth = ss.filter(s => myBucketOf(s) === 'twelve').length;
-    const autoPayCount = ss.filter(s => s.autoPay && s.autoPay !== 'No').length;
-    const auditFail = ss.filter(s => auditFailRe().test(s.customerFlags || '')).length;
-    const lastResort = ss.filter(s => isLastResort(s)).length;
-    const uniqueReps = new Set(ss.map(s => s.rep).filter(Boolean)).size;
+    const { revenue, pestN, avgInit, multiYears, twelveMonth, autoPayCount, auditFail, lastResort, uniqueReps } = _aggGroupStats(ss, pestExcludeRegex);
     return {
       week: g.week,
       date: buckets[g.week]?.label || '',
@@ -6100,7 +6114,7 @@ function aggregateRawSalesByBucket(rawSales, getGroupKey, buckets, applyExclusio
       sold_accounts: count,
       revenue,
       avg_initial: avgInit,
-      avg_initial_count: pest.length,
+      avg_initial_count: pestN,
       auto_pay_pct: count > 0 ? autoPayCount / count : 0,
       audit_fail: auditFail, // accounts flagged Failed Audit (for Audit % rollups)
       last_resort: lastResort, // accounts with initial < $99 (for Last Resort % rollups)

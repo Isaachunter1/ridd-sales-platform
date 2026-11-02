@@ -839,6 +839,17 @@ function _vcTryRestore(keepY) {
   return true;
 }
 
+// Screens heavy enough to paint a skeleton first (see "Paint first, build second" in mountApp).
+const _DEFER_PAINT_VIEWS = new Set(['dashboard', 'd2d_dashboard', 'techs', 'all_dashboard', 'indicators', 'reporting', 'marketing', 'sales', 'd2d_sales', 'tech_sales', 'loyalty_renewals', 'loyalty_health', 'loyalty_dashboard', 'queues', 'pay']);
+let _deferPaintTok = 0;
+function _paintSkeleton() {
+  const bar = (w, h) => el('div', { class: 'ridd-skel', style: { width: w, height: h } });
+  const card = () => el('div', { class: 'card p-4 flex flex-col gap-2' }, bar('40%', '10px'), bar('60%', '22px'), bar('80%', '10px'));
+  return el('div', { class: 'flex flex-col gap-4', 'aria-busy': 'true', 'aria-label': 'Loading' },
+    el('div', { style: { display: 'grid', gap: '12px', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' } }, card(), card(), card(), card()),
+    el('div', { class: 'card p-4 flex flex-col gap-3' }, bar('30%', '14px'), bar('100%', '180px')),
+    el('div', { class: 'card p-4 flex flex-col gap-2' }, bar('25%', '14px'), bar('100%', '12px'), bar('100%', '12px'), bar('100%', '12px'), bar('70%', '12px')));
+}
 function mountApp() {
   window._riddSeq = (window._riddSeq || 0) + 1;   // one render = one tick (per-render memos key on it)
   // Hall of Fame retired (per Isaac, Oct 13 — Records covers it): an old link or saved view opens that world's dashboard.
@@ -1486,6 +1497,28 @@ function mountApp() {
   if (INSIDE_SALES_TAB_KEYS.has(state.view)) state._lastIsTab = state.view;
   if (D2D_SALES_TAB_KEYS.has(state.view)) state._lastD2dTab = state.view;
   if (LOYALTY_TAB_KEYS.has(state.view)) state._lastLoyaltyTab = state.view;
+  // ── Paint first, build second (per Isaac, Nov 2 — "glitchy every time I first open a tab") ──
+  // Opening a heavy screen used to freeze the old page for 1–9s (real-user render times on app_events,
+  // last 7 days: D2D dashboard p90 3.7s, Retention median 2.8s, Renewals p90 6s) before anything moved.
+  // Now the click paints the page header and a skeleton straight away, and the screen itself is
+  // built on the next frame. Same data, same rules, same render — only the order changes. In-place
+  // re-renders (filters, toggles, background refreshes) and cached screens are untouched.
+  const _paintKey = state.view + (state.view === 'reporting' ? ':' + (state.reportingSubTab || 'overview') : '');
+  const _keyChanged = state._lastPaintKey !== _paintKey;
+  state._lastPaintKey = _paintKey;
+  if (_keyChanged && _DEFER_PAINT_VIEWS.has(state.view) && state._deferPaint !== _paintKey) {
+    state._deferPaint = _paintKey;
+    const tok = ++_deferPaintTok;
+    contentWrap.append(_paintSkeleton());
+    requestAnimationFrame(() => setTimeout(() => {
+      // Skip if another render already built it (a data loader) or the user moved on.
+      if (tok !== _deferPaintTok || state._deferPaint !== _paintKey) return;
+      mountApp();
+    }, 0));
+    return;
+  }
+  const _wasDeferred = state._deferPaint === _paintKey;
+  state._deferPaint = null;
   _profStart(state.view);
   const _t0 = performance.now();
   const node = view();
@@ -1497,7 +1530,7 @@ function mountApp() {
   // Fade only when the screen changes (perf pass, Oct 13): every in-place
   // re-render — a sort, a toggle, the 2-minute background refresh — used to
   // fade the whole page from transparent, which read as flicker.
-  if (_viewChanged) node.classList.add('fade-in');
+  if (_viewChanged || _wasDeferred) node.classList.add('fade-in');
   // Per-user layout (🔧): reorder / hide sections on every tab.
   try { applyUserLayout(node); } catch (e) { console.warn('[ridd] user layout skipped', e); }
   try { _ensureEditBanner(); } catch (e) { /* never block a render */ }

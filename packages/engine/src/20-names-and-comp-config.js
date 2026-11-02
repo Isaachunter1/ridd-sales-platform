@@ -78,12 +78,17 @@ function _repNameSig(n) {
 const _repSigIdxCache = new WeakMap();
 function _repSigIndex(map) {
   if (!map || typeof map !== 'object') return {};
-  const count = Object.keys(map).length;
+  // Counting the map's keys on every lookup was the cost (per Isaac, Nov 2 — speed pass): ~15µs a call, ×3 per sale
+  // on the dashboards (team, team-of-sale, excluded) over 95k sales ≈ 4s a render. In the app the count is checked
+  // once per render tick (window._riddSeq); writers still invalidate explicitly. Elsewhere (server, engine) as before.
   const cached = _repSigIdxCache.get(map);
-  if (cached && cached.count === count) return cached.idx;
+  const tick = (typeof window !== 'undefined' && window._riddSeq) || 0;
+  if (cached && tick && cached.tick === tick) return cached.idx;
+  const count = Object.keys(map).length;
+  if (cached && cached.count === count) { cached.tick = tick; return cached.idx; }
   const idx = Object.create(null);
   for (const k of Object.keys(map)) { const s = _repNameSig(k); if (!(s in idx)) idx[s] = map[k]; }
-  _repSigIdxCache.set(map, { idx, count });
+  _repSigIdxCache.set(map, { idx, count, tick });
   return idx;
 }
 function _repKeyedLookup(map, repName) {

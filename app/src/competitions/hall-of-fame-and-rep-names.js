@@ -1561,6 +1561,7 @@ function getRepTeamForYear(repName, year) {
   return map[repName] || map[_cleanRepName(repName)] || '';
 }
 function setRepTeam(repName, team) {
+  if (typeof _repExclMemoClear === 'function') _repExclMemoClear();
   const map = _activeTeamMap();
   if (!team) delete map[repName];
   else       map[repName] = team;

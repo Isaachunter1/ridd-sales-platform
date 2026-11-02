@@ -83,7 +83,7 @@ function _retenScopeStepsBuild(rows) {
   // Step 1 is LOCKED (per Isaac): a subscription that never received its
   // initial service cannot retain or churn, so the funnel starts from the
   // subs with a completed initial — the same pull he takes from FieldRoutes.
-  run('initial', 'Remove subscriptions that have not received an initial service yet', 'Subscriptions whose initial service is not yet marked Completed in FieldRoutes — still pending, never started, or cancelled before the first visit. These have not become customers yet: they cannot retain and they cannot churn, so counting them either way would distort the rate. They are removed here and the funnel starts from everyone who has actually been serviced. Always applied.', r => !r.initial_service || r.initial_service < '2000-01-01', true);   // (the old "Keep every account status" step only dropped bad pre-2000 dates — folded in here per Isaac, Oct 13)
+  run('initial', 'Remove subscriptions that have not received an initial service yet', 'No completed initial service yet — never became a customer.', r => !r.initial_service || r.initial_service < '2000-01-01', true);   // (the old "Keep every account status" step only dropped bad pre-2000 dates — folded in here per Isaac, Oct 13)
   // (The branch pick is no longer a step — per Isaac, Sep 21. It scopes
   // "Everything in FieldRoutes" itself, from the 🏢 dropdown on the bar; see
   // _retenOfficeSlice.)
@@ -94,12 +94,12 @@ function _retenScopeStepsBuild(rows) {
   // sheet does every time, then the toggles.
   const lifecycleByName = reportingServiceLifecycleMap();
   const recurringByName = reportingServiceRecurringMap();
-  run('onetime', 'Remove one-time service types', 'Service types set to a One-time lifecycle in Configurations \u2192 Service types (the \u201cOne Time \u2026\u201d treatments, Initials, Reservices, Inspection-style items). A one-time job is complete when it is done \u2014 there is nothing recurring to retain, so it cannot count as churn when it ends. These still count as revenue on the Overview and in the P&L; they are only set aside for attrition.', r => { const lc = lifecycleByName.get(r.subscription); return !(lc === 'recurring' || lc === 'retired'); }, true);
+  run('onetime', 'Remove one-time service types', 'One-time service types (Configurations → Service types). Nothing recurring to retain.', r => { const lc = lifecycleByName.get(r.subscription); return !(lc === 'recurring' || lc === 'retired'); }, true);
   // Hidden types run AFTER one-time types (per Isaac, Sep 21): the hidden
   // list is mostly performed one-time work that should fall off above.
-  run('hidden', 'Remove hidden service types', 'Service types marked Hidden in Configurations \u2192 Service types: late fees, inspections, admin and billing items. These are line items on an account, not a pest-control plan a customer can keep or cancel, so they are removed before anything is counted.', r => !!(cfgByName.get(r.subscription) || {}).is_hidden, true);
+  run('hidden', 'Remove hidden service types', 'Hidden service types: fees, inspections and billing items, not a plan.', r => !!(cfgByName.get(r.subscription) || {}).is_hidden, true);
   // Excluded lead sources run AFTER one-time types (per Isaac, Sep 21).
-  run('sources', 'Remove excluded lead sources', 'Subscriptions whose lead source is switched off in Configurations \u2192 Lead sources' + (exclSrc.size ? ': ' + [...exclSrc].join(', ') : ' (none today)') + '. These sources are internal or bookkeeping channels rather than real customer acquisition (upsells recorded as new subs, internal saves, test and unknown sources), so the accounts behind them are not part of the retention book.', r => exclSrc.has(reportingSourceOf(r)), true);
+  run('sources', 'Remove excluded lead sources', 'Lead sources switched off in Configurations' + (exclSrc.size ? ': ' + [...exclSrc].join(', ') : ' (none today)') + '.', r => exclSrc.has(reportingSourceOf(r)), true);
   // ("Remove retired service types" retired per Isaac, Oct 14 — customers still on a plan RIDD no longer sells are
   // paying customers, so they stay in the book; retenRecurringMap counts retired types as recurring.)
   return { steps, out: cur };
@@ -117,7 +117,7 @@ function _retenOfficeSlice(office) {
 }
 function _retenOfficial() {
   const saved = state._retenWhatIf; state._retenWhatIf = null;
-  const o = { initial: true, orphans: reportingAutoExcludeOrphans(), branches: true, hidden: true, sources: reportingExcludedSources().size > 0, popRor: [...retenPopExclReasons()].some(_isRorReason), popRorTiming: true, popRorServiced: true, popNoStart: true, popReplaced: true, popCombined: [...retenPopExclReasons()].some(x => /combined/.test(x)), popRenew: [...retenPopExclReasons()].some(x => !_isRorReason(x) && !/combined/.test(x)), zero: retenExclZeroPay(), oneSvc: retenExclOneSvc(), oneSvcExempt: true, frozenOneSvc: retenExclFrozenOneSvc(), takePay: false, exclReasons: reportingExcludedCancelReasons().size > 0, ror: reportingExcludeRorChurn() };
+  const o = { initial: true, orphans: reportingAutoExcludeOrphans(), branches: true, hidden: true, sources: reportingExcludedSources().size > 0, popRor: [...retenPopExclReasons()].some(_isRorReason), popRorTiming: true, popRorServiced: true, popNoStart: true, popReplaced: true, popCombined: [...retenPopExclReasons()].some(x => /combined/.test(x)), popRenew: [...retenPopExclReasons()].some(x => !_isRorReason(x) && !/combined/.test(x)), zero: retenExclZeroPay(), oneSvc: retenExclOneSvc(), oneSvcExempt: true, frozenOneSvc: retenExclFrozenOneSvc(), takePay: true, exclReasons: reportingExcludedCancelReasons().size > 0, ror: reportingExcludeRorChurn() };
   state._retenWhatIf = saved;
   return o;
 }
@@ -192,17 +192,18 @@ function retenPolicyBridge(pop) {
     state._retenWhatIf = null;
     const off = _retenOfficial();
     const offReasons = {}; for (const k of reportingExcludedCancelReasons()) offReasons[k] = false;
-    const cfg = { popRor: false, popRorTiming: false, popRorServiced: false, popNoStart: false, popCombined: false, popRenew: false, popReplaced: false, zero: false, reasons: offReasons };
+    const cfg = { popRor: false, popRorTiming: false, popRorServiced: false, popNoStart: false, popCombined: false, popRenew: false, popReplaced: false, zero: false, takePay: false, reasons: offReasons };
     const seq = [
       ['Raw — no policy adjustments', null],
       ['Remove 3-day RORs coded in the CRM', 'popRor'],
-      ['Remove cancels coded “never started”', 'popNoStart'],
+      ['Sold Not Started Cancellation Reasons with a Completed Service', 'popNoStart'],
       ['Remove combined subscriptions', 'popCombined'],
       ['Link renewals to the customer', 'popRenew'],
       ['Link cancels replaced within 30 days', 'popReplaced'],
       ['Remove 3-day RORs caught by timing', 'popRorTiming'],
       ['Keep timing-RORs with 2+ completed appointments', 'popRorServiced'],
       ['Remove subs with no ARR', 'zero'],
+      ['Take and pay: customers with 2+ services', 'takePay'],
       ['Don’t count these cancel reasons', 'reasons'],
     ];
     const t12 = semMetric('trailing12_attrition');
@@ -227,7 +228,7 @@ function retenPolicyBridgeBlock(pop) {
   const head = el('div', { class: 'flex items-center justify-between gap-3 py-2 border-t cursor-pointer', style: { borderColor: 'var(--border)' }, onclick: (e) => { e.stopPropagation(); state._retenBridgeOpen = !open; mountApp(); } },
     el('div', {},
       el('div', { class: 'text-sm font-black' }, (open ? '▾ ' : '▸ ') + 'Raw → official attrition'),
-      el('div', { class: 'text-[11px] text-muted-' }, 'What each RIDD policy above is worth. The scope steps (never serviced, one-time, hidden, excluded sources, retired) define the book and always apply; everything after them is a judgment call stated as RIDD policy. This starts from attrition with none of those policies, switches them on one at a time in step order, and ends at the official rate. Anyone who disagrees with a policy can switch that step OFF above and see the rate without it.')));
+      el('div', { class: 'text-[11px] text-muted-' }, 'Attrition with no policies, then each policy switched on in step order, ending at the official rate.')));
   if (!open) return head;
   let rows;
   try { rows = retenPolicyBridge(pop); } catch (e) { return el('div', {}, head, el('div', { class: 'text-[11px] py-2', style: { color: '#DC2626' } }, 'Could not build the bridge: ' + (e && e.message || e))); }
@@ -323,8 +324,8 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
   const replOn = _retenWhatIf('popReplaced', true);
   const stepRp = step1.filter(r => !(replOn && _replacedLinked(r)));            // minus cancels replaced by a new plan within 30 days
   const step1a = stepRp.filter(r => !(rorOn && rorTimingOn && _reporting3dayRor(r)));   // minus RORs caught by timing (whatever is left)
-  const stepTP = step1a.filter(r => !retenTakePayOut(r));                       // minus take-and-pay (customer < 2 services), when on
-  const step2 = stepTP.filter(r => !(retenExclZeroPay() && !_retenPaying(r)));   // (a per-visit charge counts as paying)
+  const stepZ = step1a.filter(r => !(retenExclZeroPay() && !_retenPaying(r)));   // (a per-visit charge counts as paying)
+  const step2 = stepZ.filter(r => !retenTakePayOut(r));                          // minus take-and-pay (customer < 2 services)   // (a per-visit charge counts as paying)
   const svcOf = (r) => Number(r.subscription_completed_services) || 0;
   const sentricon = (r) => retenOneSvcExemptTerms().some(t => String(r.subscription || '').toLowerCase().includes(t));
   const soldThisYear = (r) => { const d = r.sold_date ? new Date(r.sold_date) : (r.initial_service ? new Date(r.initial_service) : null); return d && !isNaN(d) && d.getFullYear() >= year; };
@@ -386,10 +387,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     el('div', { class: 'w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-black shrink-0', style: { background: 'var(--card-2)', color: 'var(--text)' } }, String(num)),
     el('div', { class: 'flex-1 min-w-0' },
       el('div', { class: 'text-sm font-semibold' }, title),
-      el('div', { class: 'text-[11px] text-muted-' }, detail),
-      // Judgment steps are stated as RIDD policy (per Isaac, Oct 14): anyone who
-      // disagrees switches the step OFF and sees attrition without it.
-      chipKey ? el('div', { class: 'text-[10px] font-semibold mt-0.5', style: { color: 'var(--text-subtle)' } }, chipKey === 'takePay' ? 'Off by default \u2014 switch it ON (right) to see attrition with it.' : 'RIDD policy \u2014 switch it OFF (right) to see attrition without it.') : null),
+      el('div', { class: 'text-[11px] text-muted-' }, detail)),
     el('div', { class: 'text-right shrink-0 tabular-nums' },
       removed != null ? clickable(el('div', { class: 'text-sm font-bold', style: { color: removed ? '#DC2626' : 'var(--text-subtle)' } }, removed ? '−' + n(removed) : '0'), drill(title, rowsRemoved, 'removed at this step')) : null,
       fixedNote ? clickable(el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, fixedNote), drill(title, noteRows, 'kept by this step')) : null,
@@ -466,7 +464,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       // Coded "3 Day ROR" on an office-staff / technician sale (per Isaac, Oct 13):
       // those sales never get a rescission, so they stay in as real cancels — fix the reason in FieldRoutes.
       const badRor = rorOn ? s2.filter(r => rorCoded(r) && !_rorCodedOk(r)) : [];
-      const node = step(next(), 'Remove 3-day RORs coded in the CRM', 'Subscriptions cancelled with the reason \u201c3 Day ROR\u201d \u2014 the customer used the three-day right of rescission. Counted for every seller type (sales rep, office staff, technician). The contract was legally undone before service began, so this was never a customer and is neither retained nor churned.', s2.length - s2r.length, 'popRor', null, notIn(s2, s2r), s2r);
+      const node = step(next(), 'Remove 3-day RORs coded in the CRM', 'Cancelled as “3 Day ROR” — rescinded before service.', s2.length - s2r.length, 'popRor', null, notIn(s2, s2r), s2r);
       if (badRor.length) node.children[1].append(el('button', {
         class: 'mt-1.5 rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.3)' },
         title: 'Coded “3 Day ROR” but sold by office staff or a technician — no rescission right, so these count as real cancels. Fix the reason in the CRM.',
@@ -474,10 +472,11 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       }, '⚑ ' + n(badRor.length) + ' coded on 2026 office / tech sales — kept as cancels'));
       return node;
     })(),
-    step(next(), 'Remove cancels coded \u201cnever started\u201d', 'Subscriptions cancelled as \u201cSold, Not Started (No Initial)\u201d or \u201cInitial Appointment Canceled\u201d. The reason says the customer never began, so the plan leaves the book instead of sitting in it as retained. Every one listed here DOES have a completed initial in FieldRoutes (step 1 already took out the ones that never started) \u2014 so either the reason or the appointment is wrong. Open the list and fix them in the CRM: recode the reason if they started, or correct the appointment if they did not.', s2r.length - stepNS.length, 'popNoStart', null, notIn(s2r, stepNS), stepNS),
-    step(next(), 'Remove combined subscriptions', 'Subscriptions cancelled with the reason \u201cCombined Subscriptions\u201d \u2014 the plan was merged into another subscription on the same account, which carries on. The customer is still with RIDD, so counting the closed line as churn would double-count a customer who never left.', stepNS.length - step1b.length, 'popCombined', null, notIn(stepNS, step1b), step1b),
+    step(next(), 'Sold Not Started Cancellation Reasons with a Completed Service',   // renamed per Isaac, Nov 2
+      'Cancelled as “Sold, Not Started” or “Initial Appointment Canceled.”', s2r.length - stepNS.length, 'popNoStart', null, notIn(s2r, stepNS), stepNS),
+    step(next(), 'Remove combined subscriptions', 'Cancelled as “Combined Subscriptions” — merged into another plan on the account.', stepNS.length - step1b.length, 'popCombined', null, notIn(stepNS, step1b), step1b),
     (() => {
-      const node = step(next(), 'Link renewals to the customer', 'Renewals are pieced together at the customer level, not removed as customers. A plan closed with a Renewal reason (Outbound, Loyalty, Service Pro Upsell, Inbound) is the old half of a renewal: when the same customer has another plan sold after it that was still running when it closed (renewals are often sold months ahead), the old plan is folded into it \u2014 the new plan carries the customer\u2019s original start date, so the customer is counted once, as retained. Whatever happens to the renewed plan later \u2014 say it cancels for Finances \u2014 is counted on that plan. A Renewal-coded cancel with nothing carrying forward is a real loss and stays a cancel.' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), step1b.length - step1.length, 'popRenew', null, notIn(step1b, step1), step1);
+      const node = step(next(), 'Link renewals to the customer', 'A plan closed for a renewal reason is folded into the customer’s newer plan, so the renewal counts as retained.' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), step1b.length - step1.length, 'popRenew', null, notIn(step1b, step1), step1);
       if (renUnlinked.length) node.children[1].append(el('button', {
         class: 'mt-1.5 rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.3)' },
         title: 'Cancelled with a Renewal reason but the customer has no newer plan — counted as a real cancel. Fix the reason in the CRM if it was not a renewal.',
@@ -494,12 +493,12 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       }, '⚑ ' + n(wrong.length) + ' renewals entered wrong — fix in the CRM'));
       return node;
     })(),
-    step(next(), 'Link cancels replaced within 30 days', 'A plan cancelled for an ordinary reason (not a Renewal, Combined or ROR) when the same customer has another recurring plan sold from 7 days before to 30 days after the cancel that was still running past it. The customer never left \u2014 it was an uncoded renewal or a re-entry \u2014 so, like renewals, the closed plan is set aside and the new plan carries the customer. Whatever happens to the new plan later counts on that plan. The same list is on Auditing \u2192 \u201cCancelled, then replaced\u201d; recode the reason to a Renewal in FieldRoutes where that is what happened.', step1.length - stepRp.length, 'popReplaced', null, notIn(step1, stepRp), stepRp),
+    step(next(), 'Link cancels replaced within 30 days', 'Cancelled, but the customer bought another plan within 30 days — counted as retained.', step1.length - stepRp.length, 'popReplaced', null, notIn(step1, stepRp), stepRp),
     (() => {
       const removed = notIn(stepRp, step1a);
       // RORs caught by TIMING whose reason isn't coded "3 Day ROR" — fix these in FieldRoutes.
       const miscoded = removed;
-      const node = step(next(), 'Remove 3-day RORs caught by timing', 'Door-to-door subscriptions cancelled within three days of the sale, whatever other reason was typed in FieldRoutes. This runs after the coded steps above, so a cancel already coded never started, combined or renewal is claimed there first; what is left here is a quick cancel with an ordinary reason, unless it has two or more completed appointments \u2014 then it was really serviced (the dates in FieldRoutes are wrong, not the customer) and it stays in the book. Timing makes these rescissions in substance \u2014 the rep or office simply coded a different reason \u2014 so they are treated the same as the coded RORs above. Switch it off to count only the reason as coded.', stepRp.length - step1a.length, rorOn ? 'popRorTiming' : null, rorOn ? null : 'needs the ROR step on', removed, step1a);
+      const node = step(next(), 'Remove 3-day RORs caught by timing', 'Door-to-door cancels within 3 days of the sale, whatever the reason. Subs with 2+ completed appointments stay in.', stepRp.length - step1a.length, rorOn ? 'popRorTiming' : null, rorOn ? null : 'needs the ROR step on', removed, step1a);
       if (miscoded.length) node.children[1].append(el('button', {
         class: 'mt-1.5 rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.3)' },
         title: 'Cancelled within 3 days of the sale but the reason in FieldRoutes is not “3 Day ROR” — open the list and correct them in the CRM',
@@ -507,10 +506,10 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       }, '⚑ ' + n(miscoded.length) + ' miscoded — fix the reason in the CRM'));
       return node;
     })(),
-    // Step 11 — Take and pay (per Isaac, Nov 2; replaces "Keep timing-RORs with 2+ completed appointments", whose
+    step(next(), 'Remove subs with no ARR', '$0 ARR and no per-visit charge — bills nothing.', step1a.length - stepZ.length, 'zero', null, notIn(step1a, stepZ), stepZ),
+    // Step 12 — Take and pay, ON by default (per Isaac, Nov 2; replaced "Keep timing-RORs with 2+ completed appointments", whose
     // exemption still applies inside step 10 so the official book is unchanged).
-    step(next(), 'Take and pay: only customers with 2+ services', 'Keeps only customers who have received two or more completed services \u2014 they took the service and kept paying. Services are counted across all of the customer\u2019s subscriptions, so a renewal plan with one visit on it still counts a long-time customer. Off by default; switch it on to see attrition on take-and-pay customers only.', step1a.length - stepTP.length, 'takePay', null, notIn(step1a, stepTP), stepTP),
-    step(next(), 'Remove subs with no ARR', 'Subscriptions that bill nothing: $0 annual recurring value and no per-visit charge on an \u201cAs Needed\u201d plan. (An \u201cAs Needed\u201d plan shows $0 ARR in FieldRoutes but still charges each visit \u2014 those are paying customers and stay in.) Attrition is measured on recurring revenue, and a sub that bills nothing can neither be kept nor lost in dollar terms, so it is removed rather than diluting the rate.', stepTP.length - step2.length, 'zero', null, notIn(stepTP, step2), step2),
+    step(next(), 'Take and pay: only customers with 2+ services', 'Only customers with 2+ completed services, counted across all their plans.', stepZ.length - step2.length, 'takePay', null, notIn(stepZ, step2), step2),
     // (The one-visit steps — prior-year never-2nd-treatment, the Sentricon exemption,
     // and this-year frozen-after-one — were retired per Isaac, Oct 13: cancelling
     // after the initial is real churn.)
@@ -520,7 +519,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     // equal the book. Anything that fell out without a step shows here in red.
     (() => {
       const key = (r) => String(r.subscription_id) + '|' + String(r.customer_id);
-      const removedLists = [...scopeSteps.map(st => st.removed), notIn(s2, s2r), notIn(s2r, stepNS), notIn(stepNS, step1b), notIn(step1b, step1), notIn(step1, stepRp), notIn(stepRp, step1a), notIn(step1a, stepTP), notIn(stepTP, step2)];
+      const removedLists = [...scopeSteps.map(st => st.removed), notIn(s2, s2r), notIn(s2r, stepNS), notIn(stepNS, step1b), notIn(step1b, step1), notIn(step1, stepRp), notIn(stepRp, step1a), notIn(step1a, stepZ), notIn(stepZ, step2)];
       const gone = new Set(); let removedN = 0;
       for (const L of removedLists) for (const r of L) { const k = key(r); if (!gone.has(k)) { gone.add(k); removedN++; } }
       const inBook = new Set(book.map(key));
@@ -569,7 +568,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       // Sits AFTER the Retention book on purpose: it does not shrink the
       // book — these subs stay in it as retained — it takes them out of the
       // CHURN count. The number is labelled so it can't read as a book step.
-      const node = step(next(), 'Don\u2019t count these cancel reasons', 'The book above stays at ' + n(book.length) + ' — this step changes what counts as churn, not who is in the book. The ticked reasons are cancels we don\u2019t count: subscriptions cancelled for them stay in the book as RETAINED — the company ended it, or it wasn\u2019t a real loss. Unticked reasons count as churn. Click a reason for its accounts. These are slicers for this tab and session only (an * marks a reason that differs from the saved setting); the saved list lives in Reporting → Configurations → Cancellation reasons and drives the rest of the app.', neutralised.length, 'exclReasons', n(neutralised.length) + ' cancels moved from churn to retained', neutralised, null, neutralised);
+      const node = step(next(), 'Don\u2019t count these cancel reasons', 'Ticked reasons count as retained, not churn (the book stays at ' + n(book.length) + '). Saved list: Configurations → Cancellation reasons.', neutralised.length, 'exclReasons', n(neutralised.length) + ' cancels moved from churn to retained', neutralised, null, neutralised);
       node.children[1].append(listEl);
       return node;
     })(),
