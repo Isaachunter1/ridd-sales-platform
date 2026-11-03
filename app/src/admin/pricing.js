@@ -12,21 +12,21 @@
 // Numbers mirror the printed slicks exactly. Edit here and the PDFs together.
 const PRICING_TIERS = [
   { id: 'd2d',      label: 'D2D',          badge: null,       init: 399, home: [79, 99, 149],  yard: [99, 119, 169],  termite: [999, 49],
-    addons: [['tfm', 100, 50], ['mole', 100, 50], ['seasonal', 100, 45], ['pest', 100, 30], ['rodent', 100, 30], ['snake', 100, 30], ['cbee', 100, 30], ['roach', 200, 30], ['flea', 200, 30]], onetime: false },
+    addons: [['mole', 100, 50], ['tfm', 100, 50], ['seasonal', 100, 45], ['roach', 200, 30], ['flea', 200, 30], ['pest', 100, 30], ['snake', 100, 30], ['cbee', 100, 30], ['rodent', 100, 30]], onetime: false },
   { id: 'd2d_min',  label: 'D2D',          badge: 'Minimums', init: 99,  home: [49, 69, 119],  yard: [69, 89, 139],   termite: [399, 29],
-    addons: [['tfm', 0, 40], ['mole', 0, 40], ['seasonal', 0, 30], ['pest', 0, 20], ['rodent', 0, 20], ['snake', 0, 20], ['cbee', 0, 20], ['roach', 200, 20], ['flea', 200, 20]], onetime: false },
+    addons: [['mole', 0, 40], ['tfm', 0, 40], ['seasonal', 0, 30], ['roach', 200, 20], ['flea', 200, 20], ['pest', 0, 20], ['snake', 0, 20], ['cbee', 0, 20], ['rodent', 0, 20]], onetime: false },
   { id: 'standard', label: 'Standard',     badge: 'Standard', init: 99,  home: [49, 69, 119],  yard: [69, 89, 139],   termite: [399, 29],
-    addons: [['tfm', 0, 40], ['mole', 0, 40], ['seasonal', 0, 30], ['pest', 0, 20], ['rodent', 0, 20], ['snake', 0, 20], ['cbee', 0, 20], ['roach', 200, 20], ['flea', 200, 20]], onetime: true },
+    addons: [['mole', 0, 40], ['tfm', 0, 40], ['seasonal', 0, 30], ['roach', 200, 20], ['flea', 200, 20], ['pest', 0, 20], ['snake', 0, 20], ['cbee', 0, 20], ['rodent', 0, 20]], onetime: true },
   { id: 'loyalty',  label: 'Loyalty',      badge: 'Loyalty Pricing', init: 99, home: [29, 49, 99], yard: [49, 69, 119], termite: [399, 29],
-    addons: [['tfm', 0, 30], ['mole', 0, 30], ['seasonal', 0, 15], ['pest', 0, 10], ['rodent', 0, 10], ['snake', 0, 10], ['cbee', 0, 10], ['roach', 200, 10], ['flea', 200, 10]], onetime: true },
+    addons: [['mole', 0, 30], ['tfm', 0, 30], ['seasonal', 0, 15], ['roach', 200, 10], ['flea', 200, 10], ['pest', 0, 10], ['snake', 0, 10], ['cbee', 0, 10], ['rodent', 0, 10]], onetime: true },
 ];
 const PRICING_SERVICES = {
   pest:     { label: 'Pest',                    program: 'home' },
   rodent:   { label: 'Rodent',                  program: 'home' },
-  tfm:      { label: 'Tick, Flea & Mosquito',   program: 'yard' },
+  tfm:      { label: 'Tick, Flea, & Mosquito',  program: 'yard' },
   mole:     { label: 'Mole',                    program: 'yard' },
   termite:  { label: 'Termite',                 program: 'termite' },
-  seasonal: { label: 'Seasonal Mosquito' },
+  seasonal: { label: 'Seasonal Tick, Flea, & Mosquito' },
   snake:    { label: 'Snake' },
   cbee:     { label: 'Carpenter Bee' },
   roach:    { label: 'German Roach' },
@@ -58,11 +58,12 @@ function pricingIcon(id, px, color) {
   return s;
 }
 const PRICING_FREQ = [['q', 'Quarterly', 4], ['b', 'Bi-Monthly', 6], ['m', 'Monthly', 12]];
-// One-time services (Standard + Loyalty only) — New customer / Current customer.
+// One-time services (Standard + Loyalty only) — New customer / Existing customer (already on a plan).
+// Order and wording follow the printed price sheet (Nov 2026); 0 = FREE.
 const PRICING_ONETIME = [
-  ['ot_tfm',     'Tick, Flea & Mosquito', 199, 99],
-  ['ot_pest',    'Pest',                  199, 99],
-  ['ot_termite', 'Termite Inspection',    199, 99],
+  ['ot_termite', 'Termite Inspection',     199, 0],
+  ['ot_tfm',     'Tick, Flea, & Mosquito', 199, 99],
+  ['ot_pest',    'Pest',                   199, 99],
   ['ot_rodent',  'Rodent',                249, 149],
   ['ot_roach',   'German Roach',          299, 199],
   ['ot_flea',    'Interior Flea',         299, 199],
@@ -160,7 +161,7 @@ function pricingQuote(st) {
   }
   if (T.onetime) for (const [id, label, nw, cur] of PRICING_ONETIME) {
     if (!st.onetime[id]) continue;
-    lines.push({ kind: 'onetime', label, sub: 'one-time · ' + (st.customer === 'current' ? 'current customer' : 'new customer'), init: st.customer === 'current' ? cur : nw, mo: 0 });
+    lines.push({ kind: 'onetime', label, sub: 'one-time · ' + (st.customer === 'current' ? 'existing customer' : 'new customer'), init: st.customer === 'current' ? cur : nw, mo: 0 });
   }
   const init = lines.reduce((a, l) => a + l.init, 0), mo = lines.reduce((a, l) => a + l.mo, 0);
   // Sellable = at least one base (Home/Yard plan or Termite Defense), or —
@@ -239,7 +240,7 @@ function viewPricing() {
 
     // ── card primitives (brand look, fixed colours — the slick doesn't theme) ──
     const card = (...kids) => el('div', { style: { background: C.cream, borderRadius: '12px', overflow: 'hidden', color: C.char } }, ...kids);
-    // `extra` (the New / Current toggle) sits at the right edge of the header (per Isaac).
+    // `extra` (the New / Existing toggle) sits at the right edge of the header (per Isaac).
     const secH = (title, sub, extra) => el('div', { class: 'flex items-center justify-between gap-3 flex-wrap', style: { padding: '12px 16px 4px' } },
       el('div', { style: { font: '700 14px/1 Archivo, "Helvetica Neue", Arial, sans-serif', textTransform: 'uppercase', color: C.char } }, title),
       extra || (sub ? el('div', { style: { font: '400 9px/1.2 Archivo, Arial, sans-serif', color: C.ink2, textAlign: 'right' } }, sub) : null));
@@ -300,11 +301,12 @@ function viewPricing() {
     // ── one-time (Standard / Loyalty) ──
     const oneTimeCard = T.onetime ? card(
       secH('One-Time Services', null, el('div', { class: 'inline-flex rounded-full overflow-hidden', style: { border: '1.5px solid ' + C.ink3 } },
-        ...[['new', 'New'], ['current', 'Current']].map(([v, l]) => el('button', { onclick: () => { st.customer = v; rerender(); }, style: { padding: '3px 10px', font: '700 9px/1.4 Archivo, Arial, sans-serif', letterSpacing: '.08em', textTransform: 'uppercase', background: st.customer === v ? C.orange : 'transparent', color: st.customer === v ? C.cream : C.char, border: 0, cursor: 'pointer' } }, l)))),
-      table(['Service', 'New', 'Current'],
+        ...[['new', 'New'], ['current', 'Existing']].map(([v, l]) => el('button', { onclick: () => { st.customer = v; rerender(); }, style: { padding: '3px 10px', font: '700 9px/1.4 Archivo, Arial, sans-serif', letterSpacing: '.08em', textTransform: 'uppercase', background: st.customer === v ? C.orange : 'transparent', color: st.customer === v ? C.cream : C.char, border: 0, cursor: 'pointer' } }, l)))),
+      table(['Service', 'New', 'Existing'],
         PRICING_ONETIME.map(([id, label, nw, cur], i) => {
           const on = !!st.onetime[id];
-          return trow([el('span', { class: 'inline-flex items-center' }, box(on), label), money(nw), money(cur)], on, () => { if (on) delete st.onetime[id]; else st.onetime[id] = true; rerender(); }, i);
+          const otp = (v) => v > 0 ? money(v) : 'FREE';
+          return trow([el('span', { class: 'inline-flex items-center' }, box(on), label), otp(nw), otp(cur)], on, () => { if (on) delete st.onetime[id]; else st.onetime[id] = true; rerender(); }, i);
         }))) : null;
 
     // ── bundle & save (informational, computed from this tier's numbers) ──

@@ -15,7 +15,7 @@ Started Oct 20, 2026.
 | `lib/auth-gate.js` | `middleware/auth.js` | **moved** · Oct 20 | same status codes and messages |
 | `lib/sync-gate.js` | `middleware/apiToken.js` | **moved** · Oct 20 | now always closed (was open when the secret was unset) |
 | `revhawk-sync-background.js` — `_bq` | `config/bigquery.js` | **moved** · Oct 20 | token flow, polling cap, paging verbatim; SQL now in `.sql` files with named params |
-| `derive-worker-background.js` | `services/indicators/jobs/derive.js` | frozen — next | |
+| `derive-worker-background.js` | `services/indicators/jobs/derive.js` | **ported** · Nov 3 — not yet switched | `npm run job -- indicators-derive --dry` (blobs byte-identical: same library, verbatim); `server/test/publish-tables.test.js`. Table writes changed on purpose (diff-based mirror; server-side prune — the 6 GB `indicator_sales` pile-up). Switch = apply `db/migrations/20261103_indicator_tables_prune.sql`, deploy, `npm run schedules -- --apply`, then delete the Netlify worker (the sync's kick 404s harmlessly: caught, logged). |
 | `revhawk-sync-background.js` — snapshot | `services/sync/jobs/snapshot.js` | frozen | |
 | — office-drop / no-customer / data-as-of monitors | `services/sync/jobs/monitors.js` | frozen | |
 | — roster upsert, access revoke/restore | `services/sync/jobs/roster.js` | frozen | |
@@ -34,7 +34,7 @@ Started Oct 20, 2026.
 | `auth-forgot.js`, `admin-set-password.js` | `services/auth` | frozen | |
 | `feedback.js`, `client-error.js`, `integrations-admin.js`, `ask-data.js`, `revhawk-test.js` | `services/misc` | frozen | |
 | `lib/kv-store.js` | `config/cache.js` (`server_cache` only) | frozen — **its own commit**; verify both stores hold every key before the switch | |
-| `lib/indicators-derive.js` | `services/indicators/functions/` | frozen | |
+| `lib/indicators-derive.js` | `services/indicators/functions/deriveIndicators.js` | **ported** · Nov 3 (verbatim, ESM export) — Netlify copy stays until the worker is deleted | `diff` against the Netlify file: export line only |
 | `lib/add-on-streak.js`, `upsell-record.js`, `rules.js`, `invoice-map.js` | `services/addons/functions/` | frozen | |
 | `lib/integrations.js` | `services/misc/functions/` | frozen | |
 
