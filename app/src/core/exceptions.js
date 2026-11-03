@@ -190,6 +190,18 @@ function _exceptionFeedItemsRaw(scope) {
     const det = (k) => () => { state._excDetail = state._excDetail === k ? null : k; mountApp(); };
     try { const F = typeof mktgLeadFlowTask === 'function' ? perfT('exc:leadFlow', () => mktgLeadFlowTask({ info: true })) : null;
       if (F && F.n) items.push({ sev: 'red', tag: 'Lead flow', count: F.n, text: F.text + '. Check the form or integration that sends these leads in.', action: state._excDetail === 'flow' ? 'Hide' : 'Review', onClick: det('flow') }); } catch (e) { /* noop */ }
+    // Sales with no GHL lead (per Isaac, Nov 2): every lead should come through GoHighLevel, so an Office Staff sale
+    // in the last 30 days whose phone / email never showed up as a GHL opportunity is a capture gap to run down.
+    try {
+      if (state._ghl === undefined && typeof ghlLoadLeads === 'function') ghlLoadLeads();
+      const G = state._ghl;
+      if (G && Array.isArray(G.opps) && G.opps.length && subs.length && typeof mktgNoGhlLeadSales === 'function') {
+        const N = perfT('exc:noGhlLead', () => refMemo('noGhlLead', [subs, G.opps], 300000, () => mktgNoGhlLeadSales(subs, G.opps, d30)));
+        if (N.length) items.push({ sev: 'amber', tag: 'No GHL lead', count: N.length,
+          text: 'sale' + (N.length === 1 ? '' : 's') + ' in the last 30 days with no GoHighLevel lead behind ' + (N.length === 1 ? 'it' : 'them') + ' (' + fmt.usd0(N.reduce((t, r) => t + (Number(r.subscription_contract_value) || 0), 0)) + ' contracted) \u2014 find how the lead got in without GHL',
+          action: 'Review', onClick: () => mkpOpenNoLead('No GHL lead \u00b7 last 30 days', N) });
+      }
+    } catch (e) { /* best-effort */ }
     try { const Z = typeof mktgZipFixTask === 'function' ? perfT('exc:zipFix', () => mktgZipFixTask({ info: true })) : null;
       if (Z && Z.n) items.push({ sev: 'amber', tag: 'ZIP', count: Z.n, text: 'active account' + (Z.n === 1 ? '' : 's') + ' coded to another office than its ZIP’s market, or with no valid ZIP — fix in FieldRoutes', action: state._excDetail === 'zipfix' ? 'Hide' : 'Review', onClick: det('zipfix') }); } catch (e) { /* noop */ }
   }

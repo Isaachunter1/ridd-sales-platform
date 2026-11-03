@@ -461,6 +461,29 @@ function _mkpSpark(vals, color) {
 const _mkpUsd = (v) => v == null || !isFinite(v) ? '—' : fmt.usd0(v);
 const _mkpPct = (v) => v == null || !isFinite(v) ? '—' : (v * 100).toFixed(1) + '%';
 // Records drawer: the leads / sales behind a number.
+// Office Staff subscriptions sold since `sinceIso` (initial pending or serviced, renewals out) with no GoHighLevel
+// opportunity on the account's phone or email inside the window before the sale. Filter-free, so Needs attention
+// can show it off the raw GHL file without the Pulse page's range / channel state.
+function mktgNoGhlLeadSales(subs, opps, sinceIso, winDays) {
+  const W = (winDays || 90) * 86400000, DAY = 86400000;
+  const byP = new Map(), byE = new Map();
+  for (const o of opps) { if (!o || !o[0]) continue; const ms = _mkpMs(o[0]); if (ms == null) continue;
+    if (o[2]) { if (!byP.has(o[2])) byP.set(o[2], []); byP.get(o[2]).push(ms); }
+    if (o[3]) { if (!byE.has(o[3])) byE.set(o[3], []); byE.get(o[3]).push(ms); } }
+  const booked = (r) => { const ist = String(r.initial_status || '').trim().toLowerCase(); return !!r.initial_serviced_date || ist === 'completed' || ist === 'pending'; };
+  const hit = (L, sd) => !!L && L.some(ms => ms <= sd + DAY && sd - ms <= W);
+  const out = [];
+  for (const r of subs) {
+    if (String(r.sold_by_type || '').trim() !== 'Office Staff' || !booked(r)) continue;
+    const d = String(r.sold_date || '').slice(0, 10); if (!d || d < sinceIso) continue;
+    if (typeof reportingSourceClass === 'function' && reportingSourceClass(reportingSourceOf(r)) === 'renewal') continue;
+    const sd = _mkpMs(d); if (sd == null) continue;
+    const ph = typeof _attrDigits === 'function' ? _attrDigits(r.phone) : '', em = typeof _attrEmail === 'function' ? _attrEmail(r.email) : '';
+    if (hit(byP.get(ph), sd) || hit(byE.get(em), sd)) continue;
+    out.push(r);
+  }
+  return out;
+}
 // The sales with no GHL lead behind them: who sold it, where it says it came from, so the funnel leak can be found.
 function mkpOpenNoLead(title, rows) {
   const overlay = el('div', { class: 'modal-overlay' });
