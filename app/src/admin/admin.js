@@ -144,7 +144,11 @@ function adminPermissions() {
     el('div', { class: 'text-sm font-semibold min-w-0' }, label), control);
   const groupHead = (t) => el('div', { class: 'pt-3 pb-1 text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, t);
   const groups = [...new Set(PERM_DEFS.map(d => d.group))];
-  return el('div', { class: 'flex flex-col gap-4' },
+  // The developer sees this page but can't change it (per Isaac, Nov 3): every control
+  // disabled after render, and a line saying so, so a role can't widen its own access.
+  const readOnly = !isAdminRole(state.profile && state.profile.role);
+  const root = el('div', { class: 'flex flex-col gap-4' },
+    readOnly ? el('div', { class: 'rounded-lg px-3 py-2 text-[12px]', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, 'View only \u2014 only an admin can change permissions.') : null,
     el('div', { class: 'card p-4' },
       el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
         el('div', {},
@@ -159,6 +163,8 @@ function adminPermissions() {
         ...groups.flatMap(g => [groupHead(g), ...PERM_DEFS.filter(d => d.group === g).map(permRow)]),
         groupHead('Reach'),
         ...PERM_SCOPE_DEFS.map(reachRow))));
+  if (readOnly) root.querySelectorAll('input, button, select').forEach(x => { x.disabled = true; x.style.cursor = 'default'; });
+  return root;
 }
 
 // ──────────────────────────────────────────────────────────────────────────

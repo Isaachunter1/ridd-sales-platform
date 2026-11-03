@@ -94,17 +94,20 @@ const PERM_DEFAULTS = {
   auditor:         { tab_sales: 1, view_pricing: 1 },   // auditors live in the Sales queue — grant extras here as needed
   // Developer (per Isaac, Oct 1): the tech guy sees every LAYER of the app —
   // all three Sales worlds, Loyalty, Competitions, Indicators, the read-only
-  // Reporting tabs and the non-sensitive Settings pages. P&L + Marketing show
-  // their full UI on SAMPLE numbers (devSampleData, src/80) — never QuickBooks
-  // or ad spend; no pay stubs, commission rules, goals, users, usage or
-  // Connections (keys). Tune in Settings → Permissions like any role.
+  // Reporting tabs and EVERY Settings page (per Isaac, Nov 3: Users, Teams,
+  // Permissions — read-only —, Calendar, Commissions & payroll, Goals,
+  // Competitions, Configurations, Marketing, Notifications, Connections,
+  // Usage). P&L + Marketing show their full UI on SAMPLE numbers
+  // (devSampleData, src/80) — never QuickBooks or ad spend; no pay stubs.
+  // Connections shows whether each secret is set, never a value. Tune in
+  // Settings → Permissions like any role.
   developer:       { view_comps: 1, view_indicators: 1, view_reporting: 1, view_pricing: 1, view_tv: 1,
                      tab_dashboard: 1, tab_sales: 1, tab_scorecards: 1, tab_calendar: 1, tab_hof: 1, tab_loyalty: 1,
                      ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1,
-                     view_settings: 1, set_teams: 1, set_comps: 1, set_config: 1, set_marketing: 1, set_slack: 1 },
+                     view_settings: 1, set_users: 1, set_teams: 1, set_goals: 1, set_commissions: 1, set_comps: 1, set_config: 1, set_marketing: 1, set_slack: 1, set_usage: 1 },
 };
 // Settings pages → the permission that opens each (Permissions itself is admin-only, always).
-const ADMIN_SECTION_PERM = { calendar: 'tab_calendar', users: 'set_users', teams: 'set_teams', goals: 'set_goals', comps: 'set_comps', pricing: 'set_commissions', config: 'set_config', marketing: 'set_marketing', slack: 'set_slack', usage: 'set_usage' };   // 'data' (Data sources) is admin-only, never delegated
+const ADMIN_SECTION_PERM = { calendar: 'tab_calendar', users: 'set_users', teams: 'set_teams', goals: 'set_goals', comps: 'set_comps', pricing: 'set_commissions', config: 'set_config', marketing: 'set_marketing', slack: 'set_slack', usage: 'set_usage' };   // 'perms' and 'data' (Connections) are admin-only — plus the developer (per Isaac, Nov 3), Permissions read-only
 // Sub-tab view key → its Sales-tab permission (all three groups).
 const VIEW_TAB_PERM = { dashboard: 'tab_dashboard', sales: 'tab_sales', pay: 'tab_pay', scorecards: 'tab_scorecards', calendar: 'tab_calendar', hall_of_fame: 'tab_hof', d2d_hof: 'tab_hof', tech_hof: 'tab_hof',
   d2d_dashboard: 'tab_dashboard', d2d_sales: 'tab_sales', commission: 'tab_pay', techs: 'tab_dashboard', all_dashboard: 'tab_dashboard', tech_sales: 'tab_sales', tab_pay: 'tab_pay', tech_pay: 'tab_pay', loyalty_dashboard: 'tab_loyalty', loyalty_renewals: 'tab_loyalty', loyalty_health: 'tab_loyalty' };
@@ -112,7 +115,7 @@ const VIEW_TAB_PERM = { dashboard: 'tab_dashboard', sales: 'tab_sales', pay: 'ta
 function canOpenLoyalty(profile) { const p = profile || state.profile; return !!p && (isAdminRole(p.role) || ['rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead', 'office_staff'].includes(String(p.role || '')) || userCan('tab_loyalty', p)); }
 // Non-admins may open Settings when granted; only the sections they hold.
 function canOpenSettings(profile) { const p = profile || state.profile; return !!p && (isAdminRole(p.role) || userCan('view_settings', p)); }
-function canOpenAdminSection(k, profile) { const p = profile || state.profile; if (!p) return false; if (isAdminRole(p.role)) return true; if (k === 'perms' || k === 'uploads' || k === 'data') return false; return userCan('view_settings', p) && !!ADMIN_SECTION_PERM[k] && userCan(ADMIN_SECTION_PERM[k], p); }
+function canOpenAdminSection(k, profile) { const p = profile || state.profile; if (!p) return false; if (isAdminRole(p.role)) return true; if (k === 'perms' || k === 'data') return p.role === 'developer' && userCan('view_settings', p); if (k === 'uploads') return false; return userCan('view_settings', p) && !!ADMIN_SECTION_PERM[k] && userCan(ADMIN_SECTION_PERM[k], p); }
 // Effective permission role: legacy 'rep' resolves by CRM type.
 function _permRoleOf(profile) {
   const r = (profile && profile.role) || '';
