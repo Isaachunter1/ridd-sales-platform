@@ -229,13 +229,19 @@ function mkpModel() {
   const spendIn = (a, b, kind) => (F.campaign ? SP.plat : SP.lines).filter(s => s.d >= a && s.d <= b && (kind ? s.kind === kind : true) && spOk(s));
   const monthsIn = (a, b) => { const o = []; for (let ym = a.slice(0, 7); ym <= b.slice(0, 7); ) { o.push(ym); const dd = new Date(ym + '-01T12:00'); dd.setMonth(dd.getMonth() + 1); ym = _mkpIso(dd).slice(0, 7); } return o; };
   // A period's numbers, in the page's mode.
+  // Every Office Staff new sale in the period, lead or not (per Isaac, Nov 2): the New revenue card runs on this —
+  // initial pending or serviced, renewals out — so it reads like the TV board; the lead-matched figure rides along.
+  const offSubs = (state.reportingSubscriptions || []).filter(s => String(s.sold_by_type || '').trim() === 'Office Staff' && booked(s) && notRen(s) && (!F.market || mkpMarketOf(s.office_name) === F.market));
+  const allIn = (a, b) => F.ch || F.campaign || F.type ? null : offSubs.filter(s => { const d = String(s.sold_date || '').slice(0, 10); return d >= a && d <= b; });
   const period = (a, b) => {
+    const all = allIn(a, b);
     const cohort = conv.filter(x => x.lead.d >= a && x.lead.d <= b && keep(x.lead));
     const sales = F.mode === 'cohort' ? cohort.filter(x => x.sold) : conv.filter(x => x.sold && keep(x.lead) && String(x.sale.sold_date).slice(0, 10) >= a && String(x.sale.sold_date).slice(0, 10) <= b);
     const ad = spendIn(a, b, 'ad').reduce((t, s) => t + s.amt, 0), tools = spendIn(a, b, 'tools').reduce((t, s) => t + s.amt, 0);
     const custSeen = new Set(); let col = 0, colKnown = 0;
     for (const x of sales) { const c = String(x.sale.customer_id); if (custSeen.has(c)) continue; custSeen.add(c); if (x.col != null) { col += x.col; colKnown++; } }
-    return { leads: cohort, sales, n: cohort.length, s: sales.length, ad, tools, cv: sales.reduce((t, x) => t + x.cv, 0), acv: sales.reduce((t, x) => t + x.acv, 0), col: colKnown ? col : null };
+    return { leads: cohort, sales, n: cohort.length, s: sales.length, ad, tools, cv: sales.reduce((t, x) => t + x.cv, 0), acv: sales.reduce((t, x) => t + x.acv, 0), col: colKnown ? col : null,
+      all: all ? { rows: all, s: all.length, cv: all.reduce((t, r) => t + (Number(r.subscription_contract_value) || 0), 0) } : null };
   };
   const cur = period(R.from, R.to), prev = period(R.pFrom, R.pTo);
   // Fully loaded: wages / incentives as hand-entered by month (only when every month in range has them).
@@ -532,7 +538,9 @@ function _mktgPulseView() {
   const sparkBy = (fn) => R.n >= 4 && R.n <= 120 ? days.map(fn) : null;
   const leadsByDay = new Map(); cur.leads.forEach(x => leadsByDay.set(x.lead.d, (leadsByDay.get(x.lead.d) || 0) + 1));
   const salesByDay = new Map(); cur.sales.forEach(x => { const k = F.mode === 'cohort' ? x.lead.d : String(x.sale.sold_date).slice(0, 10); salesByDay.set(k, (salesByDay.get(k) || 0) + 1); });
-  const revByDay = new Map(); cur.sales.forEach(x => { const k = F.mode === 'cohort' ? x.lead.d : String(x.sale.sold_date).slice(0, 10); revByDay.set(k, (revByDay.get(k) || 0) + x.cv); });
+  const revByDay = new Map();
+  if (cur.all) cur.all.rows.forEach(r => { const k = String(r.sold_date || '').slice(0, 10); revByDay.set(k, (revByDay.get(k) || 0) + (Number(r.subscription_contract_value) || 0)); });
+  else cur.sales.forEach(x => { const k = F.mode === 'cohort' ? x.lead.d : String(x.sale.sold_date).slice(0, 10); revByDay.set(k, (revByDay.get(k) || 0) + x.cv); });
   const spendByDay = new Map(); V.spendIn(R.from, R.to, 'ad').forEach(s => spendByDay.set(s.d, (spendByDay.get(s.d) || 0) + s.amt));
   const fullyLoaded = V.hasSpend && V.labor != null ? cur.ad + cur.tools + V.labor : null;
   const kpi = (label, value, delta, spark, info, onClick, sub, alert) => el('button', { type: 'button', class: 'card p-4 text-left transition hover:brightness-95', style: { cursor: onClick ? 'pointer' : 'default', minWidth: '0' }, onclick: onClick || null },
@@ -543,9 +551,13 @@ function _mktgPulseView() {
   const cards = el('div', { style: { display: 'grid', gap: '12px', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' } },
     kpi('Marketing spend', V.hasSpend ? _mkpUsd(adOnly) : qbLoading ? 'Loading\u2026' : 'Data unavailable', V.hasSpend ? _mkpDelta(adOnly, pAd, false) : null, sparkBy(d => spendByDay.get(d) || 0) && _mkpSpark(sparkBy(d => spendByDay.get(d) || 0), MKP_C.ink),
       _mkpInfo('Marketing spend', 'A mirror of the Advertising & Marketing expense account in QuickBooks: every charge dated in the range (lines marked "Not marketing" are left out). Each charge is assigned to a vendor / channel — Google card charges place themselves by the Ads account’s last four; anything else is picked once and remembered (or for one charge only). Charges land on their QuickBooks date, so a monthly bill shows on the day it posted. Click the card to see and assign the charges. The ad platforms are not added in; they supply campaign detail and a check against QuickBooks.'), SP.vendor === 'qbo' && !F.campaign ? () => mkpOpenSpend() : null, spendCaveat, true),
-    kpi('New revenue', _mkpUsd(cur.cv), _mkpDelta(cur.cv, prev.cv, true), _mkpSpark(sparkBy(d => revByDay.get(d) || 0) || [], MKP_C.accent),
-      _mkpInfo('New revenue', 'FieldRoutes contract value of the sales on the Sales card: Office Staff sales (renewals left out) matched to a lead within the ' + F.win + '-day window. ' + (F.mode === 'cohort' ? 'Cohort mode: from the leads that came in during the range, whenever they sold.' : 'Activity mode: lead-sourced sales sold during the range.')), null,
-      fmt.int(cur.s) + ' sale' + (cur.s === 1 ? '' : 's') + ' \u00b7 contract value in FieldRoutes'),
+    cur.all
+      ? kpi('New revenue', _mkpUsd(cur.all.cv), _mkpDelta(cur.all.cv, prev.all ? prev.all.cv : null, true), _mkpSpark(sparkBy(d => revByDay.get(d) || 0) || [], MKP_C.accent),
+          _mkpInfo('New revenue', 'FieldRoutes contract value of every Office Staff subscription sold in the range with the initial pending or serviced (renewals and add-ons left out), whether or not a lead came first \u2014 the same new revenue as the TV board, minus add-ons. "From leads" is the share matched to a lead within the ' + F.win + '-day window; pick a channel to see lead-sourced revenue only.'), null,
+          fmt.int(cur.all.s) + ' sale' + (cur.all.s === 1 ? '' : 's') + ' \u00b7 pending or serviced \u00b7 ' + _mkpUsd(cur.cv) + ' from leads')
+      : kpi('New revenue', _mkpUsd(cur.cv), _mkpDelta(cur.cv, prev.cv, true), _mkpSpark(sparkBy(d => revByDay.get(d) || 0) || [], MKP_C.accent),
+          _mkpInfo('New revenue', 'FieldRoutes contract value of the sales on the Sales card: Office Staff sales (renewals left out) matched to a lead within the ' + F.win + '-day window. ' + (F.mode === 'cohort' ? 'Cohort mode: from the leads that came in during the range, whenever they sold.' : 'Activity mode: lead-sourced sales sold during the range.')), null,
+          fmt.int(cur.s) + ' sale' + (cur.s === 1 ? '' : 's') + ' \u00b7 lead-sourced \u00b7 contract value in FieldRoutes'),
     kpi('New leads', fmt.int(cur.n), _mkpDelta(cur.n, prev.n, true), _mkpSpark(sparkBy(d => leadsByDay.get(d) || 0) || [], MKP_C.ink),
       _mkpInfo('New leads', 'GoHighLevel opportunities opened in the range: the inbound lead record (contacts are mostly customer imports). One per person per 30 days — a second call or form from the same phone / email inside 30 days is a repeat. Every opportunity counts as qualified until GoHighLevel sends a qualified flag. ' + fmt.int(V.AL.raw) + ' raw opportunity events on file → ' + fmt.int(V.AL.leads.length) + ' unique leads.'), () => mkpOpenSources(), cur.leads.filter(x => x.lead.paid).length + ' from paid channels · click for the sources'),
     kpi('Cost per lead', V.hasSpend && cur.n && cur.ad > 0 ? _mkpUsd(cur.ad / cur.n) : V.hasSpend ? '—' : 'Data unavailable', V.hasSpend ? _mkpDelta(cur.n ? cur.ad / cur.n : null, prev.n && V.prevSpendOk ? prev.ad / prev.n : null, false) : null, null,
