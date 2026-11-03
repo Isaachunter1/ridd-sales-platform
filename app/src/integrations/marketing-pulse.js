@@ -564,9 +564,9 @@ function _mktgPulseView() {
       _mkpInfo('Cost per lead', 'Marketing spend ÷ new leads, for the same channels and market. Organic leads are in the count, so the all-channel CPL reads lower than a paid-only CPL; pick a channel to see its own.'), null, F.ch ? '' : 'all leads, organic included'),
     kpi(salesLbl, fmt.int(cur.s), _mkpDelta(cur.s, prev.s, true), _mkpSpark(sparkBy(d => salesByDay.get(d) || 0) || [], MKP_C.accent),
       _mkpInfo('Sales', 'Office Staff FieldRoutes sales (initial booked or done, renewals left out) whose person — normalized phone, else email — came in as a lead within the ' + F.win + '-day window before the sale. Exact matches only. ' + (F.mode === 'cohort' ? 'Cohort mode: sales from the leads that came in during the range, whenever they sold.' : 'Activity mode: lead-sourced sales sold during the range.')), () => mkpOpenRecords(salesLbl + ' · ' + R.label, cur.sales), fmt.usd0(cur.cv) + ' contracted'),
-    kpi('CAC', V.hasSpend && cur.s && cur.ad > 0 ? _mkpUsd(cur.ad / cur.s) : V.hasSpend ? '—' : 'Data unavailable', V.hasSpend ? _mkpDelta(cur.s ? cur.ad / cur.s : null, prev.s && V.prevSpendOk ? prev.ad / prev.s : null, false) : null, null,
-      _mkpInfo('Customer acquisition cost', 'Marketing-spend CAC: QuickBooks Advertising & Marketing spend ÷ sales (agency charges included, since they sit in that account). Fully loaded CAC adds the wages / incentives entered on the Spend tab; it shows only when every month in the range has wages entered.'), null,
-      fullyLoaded != null && cur.s ? 'fully loaded ' + _mkpUsd(fullyLoaded / cur.s) : 'marketing spend only · fully loaded unavailable'));
+    kpi('Agency CAC', V.hasSpend && cur.s && cur.ad > 0 ? _mkpUsd(cur.ad / cur.s) : V.hasSpend ? '—' : 'Data unavailable', V.hasSpend ? _mkpDelta(cur.s ? cur.ad / cur.s : null, prev.s && V.prevSpendOk ? prev.ad / prev.s : null, false) : null, null,
+      _mkpInfo('Agency CAC', 'QuickBooks Advertising & Marketing spend ÷ lead-sourced sales: ad spend and agency charges only (they sit in that account), no rep wages or incentives. Fully loaded CAC adds the wages / incentives entered on the Spend tab; it shows only when every month in the range has wages entered.'), null,
+      fullyLoaded != null && cur.s ? 'fully loaded ' + _mkpUsd(fullyLoaded / cur.s) : 'ad spend + agency · no wages'));
 
   // ── 2 · Trend ──
   const TM = [['spend', 'Spend'], ['leads', 'Leads'], ['sales', 'Sales'], ['cpl', 'CPL'], ['cac', 'CAC'], ['conv', 'Conversion'], ['rev', 'Revenue'], ['roas', 'ROAS']];
