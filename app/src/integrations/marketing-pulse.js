@@ -240,8 +240,11 @@ function mkpModel() {
     const ad = spendIn(a, b, 'ad').reduce((t, s) => t + s.amt, 0), tools = spendIn(a, b, 'tools').reduce((t, s) => t + s.amt, 0);
     const custSeen = new Set(); let col = 0, colKnown = 0;
     for (const x of sales) { const c = String(x.sale.customer_id); if (custSeen.has(c)) continue; custSeen.add(c); if (x.col != null) { col += x.col; colKnown++; } }
+    // Sales with no GHL lead behind them (per Isaac, Nov 2: every lead should come through GHL, so these are the funnel leaks).
+    const matchedSubs = new Set(sales.map(x => String(x.sale.subscription_id != null ? x.sale.subscription_id : x.sale.customer_id)));
+    const noLead = all ? all.filter(r => !matchedSubs.has(String(r.subscription_id != null ? r.subscription_id : r.customer_id))) : null;
     return { leads: cohort, sales, n: cohort.length, s: sales.length, ad, tools, cv: sales.reduce((t, x) => t + x.cv, 0), acv: sales.reduce((t, x) => t + x.acv, 0), col: colKnown ? col : null,
-      all: all ? { rows: all, s: all.length, cv: all.reduce((t, r) => t + (Number(r.subscription_contract_value) || 0), 0) } : null };
+      all: all ? { rows: all, s: all.length, cv: all.reduce((t, r) => t + (Number(r.subscription_contract_value) || 0), 0), noLead } : null };
   };
   const cur = period(R.from, R.to), prev = period(R.pFrom, R.pTo);
   // Fully loaded: wages / incentives as hand-entered by month (only when every month in range has them).
@@ -458,6 +461,32 @@ function _mkpSpark(vals, color) {
 const _mkpUsd = (v) => v == null || !isFinite(v) ? '—' : fmt.usd0(v);
 const _mkpPct = (v) => v == null || !isFinite(v) ? '—' : (v * 100).toFixed(1) + '%';
 // Records drawer: the leads / sales behind a number.
+// The sales with no GHL lead behind them: who sold it, where it says it came from, so the funnel leak can be found.
+function mkpOpenNoLead(title, rows) {
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey); overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  const th = (t) => el('th', { class: 'px-2 py-1.5 text-left text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: '0' } }, t);
+  const td = (v, st) => el('td', { class: 'px-2 py-1.5 whitespace-nowrap tabular-nums', style: st || {} }, v == null || v === '' ? '\u2014' : v);
+  const name = (r) => [String(r.first_name || '').trim(), String(r.last_name || '').trim()].filter(Boolean).join(' ');
+  const src = (r) => typeof reportingSourceOf === 'function' ? reportingSourceOf(r) : (r.subscription_source || '');
+  const sorted = rows.slice().sort((a, b) => String(b.sold_date || '').localeCompare(String(a.sold_date || '')));
+  const cols = [['Sold', r => String(r.sold_date || '').slice(0, 10)], ['Customer ID', r => r.customer_id], ['Customer', name], ['Rep', r => r.sold_by], ['Office', r => r.office_name], ['FieldRoutes source', src], ['Service', r => r.service || r.service_type || ''], ['Contract', r => Number(r.subscription_contract_value) || 0], ['Initial', r => r.initial_serviced_date ? 'Serviced' : 'Pending'], ['Phone', r => r.phone], ['Email', r => r.email]];
+  const csv = () => { const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const L = [cols.map(c => c[0]).join(',')]; for (const r of sorted) L.push(cols.map(c => esc(c[1](r))).join(','));
+    const url = URL.createObjectURL(new Blob([L.join('\n')], { type: 'text/csv' })); const a = el('a', { href: url, download: 'ridd-no-ghl-lead-' + title.replace(/[^a-z0-9]+/gi, '-').toLowerCase() + '.csv' }); document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url); };
+  const card = el('div', { class: 'card', style: { width: 'min(1100px, 96vw)', maxHeight: '86vh', display: 'flex', flexDirection: 'column', background: 'var(--card)' } },
+    el('div', { class: 'flex items-center gap-3 px-4 py-3 border-b', style: { borderColor: 'var(--border)' } },
+      el('div', { class: 'flex-1 min-w-0' }, el('div', { class: 'text-sm font-bold' }, title), el('div', { class: 'text-[11px]', style: _mkpMuted }, fmt.int(rows.length) + ' sale' + (rows.length === 1 ? '' : 's') + ' with no GoHighLevel opportunity matched on phone or email \u00b7 ' + fmt.usd0(rows.reduce((t, r) => t + (Number(r.subscription_contract_value) || 0), 0)) + ' contracted')),
+      el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: csv }, '\u2b07 CSV'),
+      el('button', { class: 'text-xl leading-none', style: _mkpMuted, onclick: close, title: 'Close' }, '\u00d7')),
+    el('div', { style: { overflow: 'auto' } }, el('table', { class: 'w-full text-[11px]', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, ...cols.map(c => th(c[0])))),
+      el('tbody', {}, ...sorted.slice(0, 1500).map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        ...cols.map(c => { const v = c[1](r); return td(c[0] === 'Contract' ? fmt.usd0(v) : v, c[0] === 'FieldRoutes source' || c[0] === 'Rep' ? { fontWeight: '600' } : {}); })))))));
+  overlay.append(card); document.body.append(overlay);
+}
 function mkpOpenRecords(title, rows, kind) {
   const overlay = el('div', { class: 'modal-overlay' });
   const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
@@ -547,7 +576,8 @@ function _mktgPulseView() {
     el('div', { class: 'flex items-center text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label, info),
     el('div', { class: 'text-2xl font-black tabular-nums mt-1', style: { color: alert && value === 'Data unavailable' ? MKP_C.red : value === 'Data unavailable' || value === 'Loading\u2026' ? 'var(--text-muted)' : 'var(--text)', fontSize: value === 'Data unavailable' || value === 'Loading\u2026' ? '15px' : undefined } }, value),
     el('div', { class: 'mt-0.5' }, delta), sub ? el('div', { class: 'text-[10px] mt-0.5', style: _mkpMuted }, sub) : null, spark);
-  const salesLbl = F.mode === 'cohort' ? 'Sales from these leads' : 'Lead-sourced sales';
+  const salesLbl = F.mode === 'cohort' ? 'Sales from these leads' : 'Sales with a GHL lead';
+  const noLeadN = cur.all && cur.all.noLead ? cur.all.noLead.length : 0;
   const cards = el('div', { style: { display: 'grid', gap: '12px', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' } },
     kpi('Marketing spend', V.hasSpend ? _mkpUsd(adOnly) : qbLoading ? 'Loading\u2026' : 'Data unavailable', V.hasSpend ? _mkpDelta(adOnly, pAd, false) : null, sparkBy(d => spendByDay.get(d) || 0) && _mkpSpark(sparkBy(d => spendByDay.get(d) || 0), MKP_C.ink),
       _mkpInfo('Marketing spend', 'A mirror of the Advertising & Marketing expense account in QuickBooks: every charge dated in the range (lines marked "Not marketing" are left out). Each charge is assigned to a vendor / channel — Google card charges place themselves by the Ads account’s last four; anything else is picked once and remembered (or for one charge only). Charges land on their QuickBooks date, so a monthly bill shows on the day it posted. Click the card to see and assign the charges. The ad platforms are not added in; they supply campaign detail and a check against QuickBooks.'), SP.vendor === 'qbo' && !F.campaign ? () => mkpOpenSpend() : null, spendCaveat, true),
@@ -563,7 +593,10 @@ function _mktgPulseView() {
     kpi('Cost per lead', V.hasSpend && cur.n && cur.ad > 0 ? _mkpUsd(cur.ad / cur.n) : V.hasSpend ? '—' : 'Data unavailable', V.hasSpend ? _mkpDelta(cur.n ? cur.ad / cur.n : null, prev.n && V.prevSpendOk ? prev.ad / prev.n : null, false) : null, null,
       _mkpInfo('Cost per lead', 'Marketing spend ÷ new leads, for the same channels and market. Organic leads are in the count, so the all-channel CPL reads lower than a paid-only CPL; pick a channel to see its own.'), null, F.ch ? '' : 'all leads, organic included'),
     kpi(salesLbl, fmt.int(cur.s), _mkpDelta(cur.s, prev.s, true), _mkpSpark(sparkBy(d => salesByDay.get(d) || 0) || [], MKP_C.accent),
-      _mkpInfo('Sales', 'Office Staff FieldRoutes sales (initial booked or done, renewals left out) whose person — normalized phone, else email — came in as a lead within the ' + F.win + '-day window before the sale. Exact matches only. ' + (F.mode === 'cohort' ? 'Cohort mode: sales from the leads that came in during the range, whenever they sold.' : 'Activity mode: lead-sourced sales sold during the range.')), () => mkpOpenRecords(salesLbl + ' · ' + R.label, cur.sales), fmt.usd0(cur.cv) + ' contracted'),
+      _mkpInfo('Sales', 'Office Staff FieldRoutes sales (initial booked or done, renewals left out) whose person — normalized phone, else email — came in as a lead within the ' + F.win + '-day window before the sale. Exact matches only. ' + (F.mode === 'cohort' ? 'Cohort mode: sales from the leads that came in during the range, whenever they sold.' : 'Activity mode: lead-sourced sales sold during the range.')), () => mkpOpenRecords(salesLbl + ' · ' + R.label, cur.sales), fmt.usd0(cur.cv) + ' contracted' + (cur.all ? ' \u00b7 ' + fmt.int(noLeadN) + ' of ' + fmt.int(cur.all.s) + ' new sales had no GHL lead' : '')),
+    cur.all ? kpi('No GHL lead', fmt.int(noLeadN), _mkpDelta(noLeadN, prev.all && prev.all.noLead ? prev.all.noLead.length : null, false), null,
+      _mkpInfo('No GHL lead', 'Office Staff subscriptions sold in the range (initial pending or serviced, renewals out) whose customer never came through GoHighLevel as a lead inside the ' + F.win + '-day window \u2014 no opportunity matched on phone or email. Every lead should come through GHL, so these are the ones to chase: a rep who booked straight into FieldRoutes, a source that bypasses GHL, or a phone / email that differs between the two.'),
+      noLeadN ? () => mkpOpenNoLead('No GHL lead \u00b7 ' + R.label, cur.all.noLead) : null, noLeadN ? 'click for the sales' : 'every sale had a lead', noLeadN > 0) : null,
     kpi('Agency CAC', V.hasSpend && cur.s && cur.ad > 0 ? _mkpUsd(cur.ad / cur.s) : V.hasSpend ? '—' : 'Data unavailable', V.hasSpend ? _mkpDelta(cur.s ? cur.ad / cur.s : null, prev.s && V.prevSpendOk ? prev.ad / prev.s : null, false) : null, null,
       _mkpInfo('Agency CAC', 'QuickBooks Advertising & Marketing spend ÷ lead-sourced sales: ad spend and agency charges only (they sit in that account), no rep wages or incentives. Fully loaded CAC adds the wages / incentives entered on the Spend tab; it shows only when every month in the range has wages entered.'), null,
       fullyLoaded != null && cur.s ? 'fully loaded ' + _mkpUsd(fullyLoaded / cur.s) : 'ad spend + agency · no wages'));
