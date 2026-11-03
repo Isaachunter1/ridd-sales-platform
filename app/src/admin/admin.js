@@ -1572,7 +1572,9 @@ function adminPricingSimple() {
   // ── Per-rep overrides (per Isaac): pick a rep, edit THEIR column; blank
   // = inherits the default live. Stored on profiles.pay_overrides, read by
   // effectivePaySettings() everywhere pay is computed.
-  const reps = (state.allProfiles || []).filter(p => p && p.is_active !== false && (typeof isOfficeStaffProfile === 'function' ? isOfficeStaffProfile(p) : /office|loyalty/.test(String(p.role || ''))))
+  // Only the selling office-staff user types (per Isaac, Nov 3): Inside Sales and Loyalty, incl. leads —
+  // no admins, no 'Office Staff - Office' (non-selling), active only.
+  const reps = (state.allProfiles || []).filter(p => p && p.is_active !== false && ['rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead'].includes(String(p.role || '')))
     .sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || '')));
   const withOverrides = (state.allProfiles || []).filter(p => p && p.pay_overrides && typeof p.pay_overrides === 'object' && Object.keys(p.pay_overrides).length);
   const repId = state._payOverrideRep || '';
