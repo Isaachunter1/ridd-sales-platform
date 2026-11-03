@@ -252,7 +252,7 @@ function viewAdmin() {
     calendar: () => (typeof calendarCanManage === 'function' && calendarCanManage(state.profile && state.profile.role)) ? viewCalendarSettings({ embedded: true }) : el('div', { class: 'card p-6 text-sm text-muted-' }, 'Calendar settings are for team leads and admins.'),
     usage:   adminUsage,
     data:    adminDataSources,
-    pricing: () => el('div', { class: 'flex flex-col gap-4' }, adminCommissions(), adminConfigurations('autolog')),   // rates + pay automation in ONE place
+    pricing: () => el('div', { class: 'flex flex-col gap-4', style: { maxWidth: '880px' } }, adminCommissions(), adminConfigurations('autolog')),   // rates + pay automation in ONE place; one left-aligned column so controls sit near their labels (per Isaac, Nov 3)
   };
   const view = _allowed(state.adminSection) ? (sectionRenderers[state.adminSection] || adminReps) : (() => el('div', { class: 'card p-6 text-sm text-muted-' }, 'Nothing here for your role yet \u2014 ask an admin to grant a Settings page in Permissions.'));
   const body = el('div', { class: 'flex-1 min-w-0' }, view());
@@ -1604,13 +1604,14 @@ function adminPricingSimple() {
   // override key + get/set on the override object (relative values are
   // converted to the absolute rate the engine stores).
   const rows = [
-    ['section', 'Metrics'],
+    ['section', 'Base pay'],
     { label: 'Upfront %', unit: '%', hint: 'Base upfront commission on 12 / 18 / 24-month contracts.',
       get: () => stdOf(s), set: (v) => { for (const cc of s.contract_commissions) if (isStd(cc)) cc.rate = v; },
       oget: () => ov.upfront_pct, oset: (v) => { ov.upfront_pct = v; }, oeff: () => stdOf(eff()) },
     { label: 'Close Rate %', unit: '%', hint: 'Close rate needed for the full close-rate bonus.',
       get: () => s.close_rate_tiers[0].min_close_rate, set: (v) => { s.close_rate_tiers[0].min_close_rate = v; },
       oget: () => ov.close_min, oset: (v) => { ov.close_min = v; }, oeff: () => eff().close_rate_tiers[0].min_close_rate },
+    ['section', 'Passed Audit tiers'],
     { label: 'Passed Audit Pay %', unit: '%', hint: 'Share of the upfront commission paid at the top Passed Audit % tier.',
       get: () => (s.upfront_tiers[0] || {}).pay, set: (v) => { if (s.upfront_tiers[0]) s.upfront_tiers[0].pay = v; },
       oget: () => (ov.upfront_tiers || [])[0] && ov.upfront_tiers[0].pay, oset: (v) => { ov.upfront_tiers = (ov.upfront_tiers || s.upfront_tiers.map(t => ({ ...t }))); ov.upfront_tiers[0].pay = v; }, oeff: () => (eff().upfront_tiers[0] || {}).pay },
@@ -1620,7 +1621,7 @@ function adminPricingSimple() {
     ...((s.upfront_tiers || []).slice(1).map((t, i) => ({ label: 'Passed Audit Tier ' + (i + 2) + ' (≥ ' + t.min + '%)', unit: '%', hint: 'Pays this % of the upfront commission at ≥ ' + t.min + '% passed audit.',
       get: () => t.pay, set: (v) => { t.pay = v; },
       oget: () => (ov.upfront_tiers || [])[i + 1] && ov.upfront_tiers[i + 1].pay, oset: (v) => { ov.upfront_tiers = (ov.upfront_tiers || s.upfront_tiers.map(x => ({ ...x }))); if (ov.upfront_tiers[i + 1]) ov.upfront_tiers[i + 1].pay = v; }, oeff: () => ((eff().upfront_tiers || [])[i + 1] || {}).pay }))),
-    ['section', 'Modifiers'],
+    ['section', 'Rate modifiers \u00b7 points on top of Upfront %'],
     { label: 'PIF Modifier', unit: 'pts', hint: 'Added to the base rate when the customer pays in full (7 + 5 = 12%).',
       get: () => s.pif_modifier ?? 5, set: (v) => { s.pif_modifier = v; }, oget: () => ov.pif_modifier, oset: (v) => { ov.pif_modifier = v; }, oeff: () => eff().pif_modifier ?? 5 },
     { label: 'Commercial Modifier', unit: 'pts', hint: 'Relative to Upfront %. −3.5 means commercial pays 3.5% on a 7% base (half).',
@@ -1634,16 +1635,19 @@ function adminPricingSimple() {
       oget: () => ov.upsell_rate == null ? undefined : r2(ov.upsell_rate - stdOf(eff())), oset: (v) => { ov.upsell_rate = r2(stdOf(eff()) + v); }, oeff: () => r2((ccOf(eff(), /upsell/i) ?? 10) - stdOf(eff())) },
     { label: 'Below Min Pay Modifier', unit: '%', hint: 'Below-minimum accounts pay this % of the normal commission.',
       get: () => s.below_min_multiplier, set: (v) => { s.below_min_multiplier = v; }, oget: () => ov.below_min_multiplier, oset: (v) => { ov.below_min_multiplier = v; }, oeff: () => eff().below_min_multiplier },
+    ['section', 'Close-rate bonus'],
     { label: 'Close Rate Bonus %', unit: '%', hint: 'Bonus on subscription revenue at the full close rate.',
       get: () => s.close_rate_tiers[0].rate, set: (v) => { s.close_rate_tiers[0].rate = v; }, oget: () => ov.close_rate, oset: (v) => { ov.close_rate = v; }, oeff: () => eff().close_rate_tiers[0].rate },
     { label: 'Close Rate Tier 2 (≥ ' + s.close_rate_tiers[1].min_close_rate + '%)', unit: '%', hint: 'Bonus at the second close-rate tier.',
       get: () => s.close_rate_tiers[1].rate, set: (v) => { s.close_rate_tiers[1].rate = v; }, oget: () => ov.close2_rate, oset: (v) => { ov.close2_rate = v; }, oeff: () => (eff().close_rate_tiers[1] || {}).rate },
+    ['section', 'Quarter-end backend'],
     { label: '18 Mo Backend Bonus %', unit: '%', hint: 'Quarter-end backend on 18-month revenue.',
       get: () => s.multi_year_rate_18, set: (v) => { s.multi_year_rate_18 = v; }, oget: () => ov.multi_year_rate_18, oset: (v) => { ov.multi_year_rate_18 = v; }, oeff: () => eff().multi_year_rate_18 },
     { label: '24 Mo Backend Bonus %', unit: '%', hint: 'Quarter-end backend on 24-month revenue.',
       get: () => s.multi_year_rate_24, set: (v) => { s.multi_year_rate_24 = v; }, oget: () => ov.multi_year_rate_24, oset: (v) => { ov.multi_year_rate_24 = v; }, oeff: () => eff().multi_year_rate_24 },
     { label: 'Renewal Backend Bonus', unit: '%', hint: 'Quarter-end backend on renewal revenue.',
       get: () => s.renewal_backend_rate, set: (v) => { s.renewal_backend_rate = v; }, oget: () => ov.renewal_backend_rate, oset: (v) => { ov.renewal_backend_rate = v; }, oeff: () => eff().renewal_backend_rate },
+    ['section', 'Renewal flat pay'],
     ...([['m12', 'Upfront 12-Mo Pay', '12-month'], ['m18', 'Upfront 18-Mo Pay', '18-month'], ['m24', 'Upfront 24-Mo Pay', '24-month'], ['pif', 'Upfront PIF Pay', 'paid in full']].map(([k, label, what]) => ({ label, unit: '$', hint: 'Flat pay per serviced renewal-source account, ' + what + '.',
       get: () => s.renewal_flat[k], set: (v) => { s.renewal_flat[k] = v; },
       oget: () => (ov.renewal_flat || {})[k], oset: (v) => { ov.renewal_flat = ov.renewal_flat || {}; ov.renewal_flat[k] = v; }, oeff: () => (eff().renewal_flat || {})[k] }))),
@@ -1651,7 +1655,7 @@ function adminPricingSimple() {
   const fmt = (v, unit) => v == null || v === '' ? '' : unit === '$' ? '$' + Number(v).toFixed(2) : (unit === 'pts' ? (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%' : Number(v).toFixed(2) + (unit === '%+' ? '% +' : '%'));
   const cellInput = (get, set, unit, hint, placeholder) => el('input', { type: 'text', inputmode: 'decimal', value: fmt(get(), unit), placeholder: placeholder || '', title: hint,
     class: 'text-right tabular-nums font-semibold rounded-lg border px-2 py-1 text-xs w-full',
-    style: { borderColor: 'transparent', background: 'transparent', color: 'var(--text)', maxWidth: '120px' },
+    style: { borderColor: 'var(--border)', background: 'var(--card)', color: 'var(--text)', maxWidth: '120px' },
     onfocus: (e) => { e.target.style.borderColor = 'var(--accent)'; e.target.style.background = 'var(--card)'; const v = get(); e.target.value = v == null ? '' : String(v); e.target.select(); },
     onblur: (e) => { set(e.target.value.trim() === '' ? null : num(e.target.value)); e.target.style.borderColor = 'transparent'; e.target.style.background = 'transparent'; },
     onkeydown: (e) => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { e.target.value = fmt(get(), unit); e.target.blur(); } },
@@ -1659,11 +1663,15 @@ function adminPricingSimple() {
   const body = el('tbody');
   const draw = () => {
     body.replaceChildren(...rows.map(r => {
-      if (Array.isArray(r)) return el('tr', {}, el('td', { colspan: rep ? '3' : '2', class: 'px-3 py-1.5 text-[10px] uppercase tracking-widest font-bold', style: { background: 'var(--card-2)', color: 'var(--text-muted)', borderTop: '1px solid var(--border)' } }, r[1]));
+      if (Array.isArray(r)) return el('tr', {}, el('td', { colspan: rep ? '4' : '3', class: 'px-3 pt-3 pb-1.5 text-[10px] uppercase tracking-widest font-bold', style: { background: 'var(--card-2)', color: 'var(--text-muted)', borderTop: '1px solid var(--border)' } }, r[1]));
       const defIn = cellInput(r.get, (v) => { if (v != null) { r.set(v); persist(); } draw(); }, r.unit, r.hint);
+      // Label + its hint in sentence case, then the value boxes right beside it (left-justified; the last
+      // column is a filler so nothing is pushed to the far edge of the card) — per Isaac, Nov 3.
       const cells = [
-        el('td', { class: 'px-3 py-1.5 text-xs font-semibold uppercase whitespace-nowrap', title: r.hint }, r.label),
-        el('td', { class: 'px-3 py-1 text-right', style: { width: '140px' } }, defIn),
+        el('td', { class: 'px-3 py-1.5', style: { width: '320px' } },
+          el('div', { class: 'text-xs font-semibold' }, r.label),
+          r.hint ? el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)', lineHeight: '1.3' } }, r.hint) : null),
+        el('td', { class: 'px-3 py-1 text-left', style: { width: '130px' } }, defIn),
       ];
       if (rep) {
         const has = r.oget() != null;
@@ -1673,11 +1681,12 @@ function adminPricingSimple() {
           saveOverrides(ov).then(draw);
         }, r.unit, r.hint, fmt(r.oeff(), r.unit));
         if (has) { ovIn.style.color = 'var(--accent)'; ovIn.style.background = 'rgba(223,100,58,.08)'; }
-        cells.push(el('td', { class: 'px-3 py-1 text-right', style: { width: '150px' } },
-          el('div', { class: 'flex items-center justify-end gap-1' },
+        cells.push(el('td', { class: 'px-3 py-1 text-left', style: { width: '150px' } },
+          el('div', { class: 'flex items-center gap-1' },
             ovIn,
             has ? el('button', { class: 'text-[10px] px-1.5 rounded', style: { color: 'var(--text-muted)' }, title: 'Back to default', onclick: () => { r.oset(undefined); for (const k of Object.keys(ov)) if (ov[k] === undefined) delete ov[k]; if (ov.renewal_flat && !Object.keys(ov.renewal_flat).length) delete ov.renewal_flat; saveOverrides(ov).then(draw); } }, '×') : null)));
       }
+      cells.push(el('td', {}));   // filler
       return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, ...cells);
     }));
   };
@@ -1704,21 +1713,22 @@ function adminPricingSimple() {
       '%', 'This rep\u2019s actual close rate (hand-maintained each quarter; also editable on the Pay tab).');
     return el('div', { class: 'card overflow-hidden' }, el('table', { class: 'w-full' },
       el('thead', {}, el('tr', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } },
-        el('th', { class: 'px-3 py-2 text-left' }, 'Pay stub \u00b7 ' + rep.full_name),
-        el('th', { class: 'px-3 py-2 text-right' }, 'Amount'))),
+        el('th', { class: 'px-3 py-2 text-left', style: { width: '320px' } }, 'Pay stub \u00b7 ' + rep.full_name),
+        el('th', { class: 'px-3 py-2 text-left' }, 'Amount'))),
       el('tbody', {},
         el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-          el('td', { class: 'px-3 py-1.5 text-xs font-semibold uppercase whitespace-nowrap' }, 'Close Rate'),
-          el('td', { class: 'px-3 py-1 text-right', style: { width: '150px' } }, closeIn)),
+          el('td', { class: 'px-3 py-1.5 text-xs font-semibold whitespace-nowrap' }, 'Close rate'),
+          el('td', { class: 'px-3 py-1 text-left' }, closeIn)),
         ...stubFields.map(([k, label, hint]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-          el('td', { class: 'px-3 py-1.5 text-xs font-semibold uppercase whitespace-nowrap', title: hint }, label),
-          el('td', { class: 'px-3 py-1 text-right', style: { width: '150px' } },
+          el('td', { class: 'px-3 py-1.5' }, el('div', { class: 'text-xs font-semibold' }, label), el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, hint)),
+          el('td', { class: 'px-3 py-1 text-left' },
             cellInput(() => (Number(rep[k]) || 0) === 0 ? null : Number(rep[k]), (v) => saveField(k, v), '$', hint, '$0.00')))))));
   })() : null;
   const head = el('thead', {}, el('tr', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } },
     el('th', { class: 'px-3 py-2 text-left' }, 'Metric'),
-    el('th', { class: 'px-3 py-2 text-right' }, 'Default'),
-    rep ? el('th', { class: 'px-3 py-2 text-right', style: { color: 'var(--accent)' } }, rep.full_name) : null));
+    el('th', { class: 'px-3 py-2 text-left' }, 'Default'),
+    rep ? el('th', { class: 'px-3 py-2 text-left', style: { color: 'var(--accent)' } }, rep.full_name) : null,
+    el('th', {})));
   const picker = el('div', { class: 'card p-3 flex items-center gap-3 flex-wrap' },
     el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Individual overrides'),
     el('select', {
