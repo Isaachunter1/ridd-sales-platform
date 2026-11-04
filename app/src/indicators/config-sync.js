@@ -44,6 +44,10 @@ async function loadIndicatorConfigFromSupabase() {
       // fall through: apply the server copy below
     }
     if (hasServerData) {
+      // Remember how much the server copy held — the wipe guard in _indicatorConfigUpsertNow
+      // refuses to push a save that would take this to nothing (Nov 2 2026: an admin's browser
+      // pushed an empty config over 10 teams / 803 assignments; CAS passed, nothing else checked).
+      try { const yr = String(new Date().getFullYear()); state._indCfgServerCounts = { teams: Array.isArray(data.teams) ? data.teams.length : 0, reps: Object.keys((data.rep_teams || {})[yr] || {}).length }; } catch { /* guard only */ }
       state._indicatorTeams         = Array.isArray(data.teams) ? data.teams : (state._indicatorTeams || []);
       state._indicatorTeamColors    = data.team_colors   && typeof data.team_colors   === 'object' ? data.team_colors   : (state._indicatorTeamColors || {});
       state._indicatorTeamLogos     = data.team_logos    && typeof data.team_logos    === 'object' ? data.team_logos    : (state._indicatorTeamLogos || {});
@@ -221,6 +225,26 @@ async function _indicatorConfigUpsertNow() {
     updated_at:    new Date().toISOString(),
     updated_by:    state.profile?.id || null,
   };
+  // WIPE GUARD (client half; the server half is save_indicator_config's allow_wipe check,
+  // db/migrations/20261104_indicator_config_wipe_guard.sql): never push "no teams" or "no
+  // roster this year" over a server copy that had them unless an explicit reset set
+  // state._indCfgAllowWipe. Adopt the server copy instead, so a boot-time save from a
+  // browser whose config hadn't loaded can't blank everyone's teams.
+  try {
+    const sc = state._indCfgServerCounts;
+    if (sc && !state._indCfgAllowWipe) {
+      const yr = String(new Date().getFullYear());
+      const nt = Array.isArray(payload.teams) ? payload.teams.length : 0;
+      const nr = Object.keys((payload.rep_teams || {})[yr] || {}).length;
+      if ((sc.teams > 1 && nt === 0) || (sc.reps > 20 && nr === 0)) {
+        console.warn('[ridd] config save refused by wipe guard — would drop teams ' + sc.teams + '→' + nt + ', ' + yr + ' assignments ' + sc.reps + '→' + nr + '; adopting server copy');
+        try { logActivity('config_change', { detail: 'Config save refused (wipe guard): teams ' + sc.teams + '→' + nt + ', ' + yr + ' roster ' + sc.reps + '→' + nr }); } catch { /* log only */ }
+        try { await loadIndicatorConfigFromSupabase(); if (typeof mountApp === 'function') mountApp(); } catch { /* next poll heals */ }
+        if (typeof toast === 'function') toast('That save would have removed every team — pulled the shared config back instead.', 'warn');
+        return true;   // handled; never retry this payload
+      }
+    }
+  } catch { /* guard is best-effort */ }
   try {
     // COMPARE-AND-SWAP first (indicator_config_cas.sql): the server rejects
     // any write based on an outdated copy, which deterministically ends the
@@ -228,7 +252,14 @@ async function _indicatorConfigUpsertNow() {
     // back to the old direct upsert until the SQL has been run.
     const _basedOn = (_indCfgSyncRec() || {}).serverAt || null;
     const { data: casRes, error: casErr } = await supabase
-      .rpc('save_indicator_config', { payload, based_on: _basedOn });
+      .rpc('save_indicator_config', state._indCfgAllowWipe ? { payload, based_on: _basedOn, allow_wipe: true } : { payload, based_on: _basedOn });   // two-arg form works before and after the wipe-guard migration (the third arg is defaulted)
+    if (!casErr && casRes && casRes.wiped) {
+      // The server half of the wipe guard said no: adopt its copy, tell the admin, drop the payload.
+      console.warn('[ridd] config save refused by the server wipe guard: ' + (casRes.error || ''));
+      try { await loadIndicatorConfigFromSupabase(); if (typeof mountApp === 'function') mountApp(); } catch { /* next poll heals */ }
+      if (typeof toast === 'function') toast('That save would have removed every team — pulled the shared config back instead.', 'warn');
+      return true;
+    }
     if (!casErr && casRes && casRes.ok) {
       state._tierPending = {};
       state._cfgReplay = [];
