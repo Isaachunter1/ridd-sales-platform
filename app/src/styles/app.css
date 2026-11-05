@@ -965,6 +965,19 @@
 
   /* Momentum scrolling on every sideways-scrolling table (iOS) */
   .scroll-x, .overflow-x-auto { -webkit-overflow-scrolling: touch; }
+  /* Leaderboard presentation by width (Nov 5): the desktop table needs ~1,300px, so below 1024px — phones, iPads in
+     portrait, foldables — the stacked rep cards take over; on the tablet band they sit two across, with the Σ total
+     card (first child) and any Show-more button spanning the row. */
+  .lb-table { display: block; }
+  .lb-cards { display: none; }
+  @media (max-width: 1023px) {
+    .lb-table { display: none !important; }
+    .lb-cards { display: flex; }
+  }
+  @media (min-width: 641px) and (max-width: 1023px) {
+    .lb-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .lb-cards > :first-child, .lb-cards > button { grid-column: 1 / -1; }
+  }
   @media (min-width: 641px) {
     .mobile-only { display:none !important; }
     .mobile-nav { display: none !important; }

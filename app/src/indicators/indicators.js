@@ -14,6 +14,10 @@
 // and a card nobody scrolls to (or has hidden) costs nothing. The placeholder
 // keeps the card's last height so the page doesn't jump.
 const _indLazyH = new Map();
+// Compact tables (per Isaac, Nov 5 — a rep's foldable / iPad showed the 1,300px desktop leaderboard squeezed into
+// 740px): the leaderboard's stacked rep cards and the Sales Mix single-metric picker, built for phones, are also the
+// right read on anything narrower than a laptop. Phone-only tweaks (button padding, the lb-head rows) stay at 640.
+function indCompactTables() { try { return window.matchMedia('(max-width: 1023px)').matches; } catch (e) { return false; } }
 function indLazy(key, build, attrs, estHeight) {
   // Edit mode decorates real sections, and old browsers have no observer: build now.
   if (state._editMode || typeof IntersectionObserver !== 'function' || (window._indSyncLazy && window._indSyncLazy.has(key))) { try { const n0 = build(); if (n0 && n0.setAttribute) n0.setAttribute('data-lazykey', key); return n0; } catch (e) { console.warn('[ridd] section failed', key, e); return null; } }
@@ -5379,8 +5383,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   state._indLbAllReps = allReps;
   _profMark('ind:leaderboard-compute');
   // Phone (per Isaac, Oct 4): New / Total / Renewal, Pick and Columns all share the title row — tighter buttons, "Pick reps" reads "Pick".
-  const _lbPhone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })();
-  const _lbBtnPad = _lbPhone ? 'px-1.5' : 'px-2.5';
+  const _lbPhone = indCompactTables();   // stacked cards + the stat picker below 1024px (phones AND tablets / foldables, Nov 5)
+  const _lbBtnPad = (() => { try { return window.matchMedia('(max-width: 640px)').matches ? 'px-1.5' : 'px-2.5'; } catch (e) { return 'px-2.5'; } })();
   sections.push(
     // overflow-visible while the Filters menu is open so the dropdown isn't
     // clipped at the card edge (per Isaac).
@@ -5583,7 +5587,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       // Sized to comfortably show ~10 rows + the sticky header before
       // scrolling kicks in (each row averages ~44px once the Best
       // Day/Week/Month two-line cells render, plus the ~32px header).
-      el('div', { class: 'hidden sm:block scroll-x', style: { maxHeight: '680px', overflowY: 'auto' } },   // header + Total + top 10 before scrolling (per Isaac)
+      el('div', { class: 'lb-table scroll-x', style: { maxHeight: '680px', overflowY: 'auto' } },   // header + Total + top 10 before scrolling (per Isaac) · hidden below 1024px (app.css .lb-table)
         _lbFreeze(el('table', { class: 'w-full text-[13px]' },   // larger now that columns can be trimmed (per Isaac, Sep 30)
           el('thead', {
             class: 'text-[10px] uppercase tracking-wider text-muted-',
@@ -5838,7 +5842,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       ),
       // Mobile: stacked card per rep. Same data as the table, but laid out
       // top-down so it's readable on a phone without horizontal scroll.
-      el('div', { class: 'sm:hidden p-3 flex flex-col gap-2' },
+      el('div', { class: 'lb-cards p-3 flex-col gap-2' },   // phones: one column · tablets / foldables: two (app.css .lb-cards)
         // Σ Mobile Total card (per Isaac) — the desktop table's Σ Totals row
         // never made it to the stacked-card layout. Same filtered rep set,
         // same combined player card on tap. Days = average per rep.
@@ -6148,7 +6152,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
     { key: 'attr', label: 'Attrition %', w: 'w-20', title: 'Cancelled $ ÷ serviced $ · 3-day RORs + one-time services removed from both sides (same number as the leaderboard and the player card)', total: () => el('div', { class: 'w-20 text-left tabular-nums font-black shrink-0', style: { color: attrColor(T.attr) } }, (T.attr * 100).toFixed(1) + '%'),
       row: (s) => el('div', { class: 'w-20 text-left tabular-nums font-semibold shrink-0', style: { color: attrColor(s.attr) } }, (s.attr * 100).toFixed(1) + '%') },
   ];
-  const narrow = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
+  const narrow = indCompactTables();   // one picked metric below 1024px — the 930px desktop grid never fit a tablet (Nov 5)
   const body = el('div');
   const paint = () => {
     const pick = narrow ? (COLS.find(c => c.key === state._mixMobileCol) || COLS[1]) : null;
