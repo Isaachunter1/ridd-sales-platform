@@ -6070,7 +6070,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
   const _rowsOf = new Map();   // bucket → its accounts, for the drill (per Isaac, Oct 16)
   subSales.forEach(s => {
     const sub = keyOf(s);
-    if (!subMix[sub]) subMix[sub] = { count: 0, revenue: 0, cancels: 0, initSum: 0, multi: 0, twelve: 0, apOn: 0, auditFail: 0 };
+    if (!subMix[sub]) subMix[sub] = { count: 0, revenue: 0, cancels: 0, initSum: 0, multi: 0, twelve: 0, apOn: 0, auditFail: 0, attrServ: 0, attrCxl: 0 };
     (_rowsOf.get(sub) || _rowsOf.set(sub, []).get(sub)).push(s);
     const m = subMix[sub];
     m.count++;
@@ -6081,6 +6081,10 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
     if (s.autoPay && s.autoPay !== 'No') m.apOn++;
     if (auditBucketOf(s) === 'failed') m.auditFail++;
     if (typeof _isReportableCancel === 'function' ? _isReportableCancel(s) : !!s.cancelDate) m.cancels++;
+    // Attrition % by REVENUE (per Isaac, Nov 5): the ONE definition — cancelled $ ÷ serviced $, 3-day RORs and
+    // one-time services out of both sides — shared with the leaderboard column and the player card headline.
+    // (Was reportable cancels ÷ all accounts by count, so a rep's Sales Mix read 8.9% while his card said 11.5%.)
+    if (typeof _attrRevParts === 'function') { const ap = _attrRevParts(s); m.attrServ += ap.serv; m.attrCxl += ap.cxl; }
   });
   const totalSubCount = subSales.length; // includes Unknown
   // Drill to the accounts behind a row (per Isaac, Oct 16): click a row (or Total) for every account in it; click
@@ -6099,7 +6103,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
       share: totalSubCount > 0 ? v.count / totalSubCount : 0,
       acv: indAcvSplit(_rowsOf.get(name) || []).acv,   // ACV = recurring new only, same as every board (Oct 28)
       avgInit: v.initN > 0 ? v.initSum / v.initN : 0,
-      attr: v.count > 0 ? v.cancels / v.count : 0,
+      attr: v.attrServ > 0 ? v.attrCxl / v.attrServ : 0,
       myPct: (v.multi + v.twelve) > 0 ? v.multi / (v.multi + v.twelve) : null,
     }))
     .sort((a, b) => b.count - a.count);
@@ -6110,8 +6114,9 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
 
   // Blended totals across ALL accounts (the reference row on top).
   const T = (() => {
-    let _rev = 0, _init = 0, _initN = 0, _mu = 0, _tw = 0, _ap = 0, _cx = 0, _af = 0;
+    let _rev = 0, _init = 0, _initN = 0, _mu = 0, _tw = 0, _ap = 0, _cx = 0, _af = 0, _aServ = 0, _aCxl = 0;
     subSales.forEach(s => {
+      if (typeof _attrRevParts === 'function') { const ap = _attrRevParts(s); _aServ += ap.serv; _aCxl += ap.cxl; }
       _rev += s.contractValue; if (avgInitialEligible(s)) { _init += Number(s.initialPrice) || 0; _initN++; }
       const _myb = myBucketOf(s);
       if (_myb === 'multi') _mu++; else if (_myb === 'twelve') _tw++;
@@ -6120,7 +6125,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
       if (typeof _isReportableCancel === 'function' ? _isReportableCancel(s) : !!s.cancelDate) _cx++;
     });
     const _n = totalSubCount;
-    return { n: _n, rev: _rev, init: _init, initN: _initN, my: (_mu + _tw) > 0 ? _mu / (_mu + _tw) : null, ap: _ap, af: _af, attr: _n > 0 ? _cx / _n : 0 };
+    return { n: _n, rev: _rev, init: _init, initN: _initN, my: (_mu + _tw) > 0 ? _mu / (_mu + _tw) : null, ap: _ap, af: _af, attr: _aServ > 0 ? _aCxl / _aServ : 0 };
   })();
   const attrColor = (a) => a >= 0.10 ? '#DC2626' : a >= 0.05 ? '#A9441F' : '#DF643A';
   // Metric columns — one definition drives the desktop table AND the phone
@@ -6140,7 +6145,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
       row: (s) => el('div', { class: 'w-16 text-left tabular-nums text-muted- shrink-0' }, s.count > 0 ? (s.apOn / s.count * 100).toFixed(0) + '%' : '—') },
     { key: 'audit', label: 'Audit %', w: 'w-14', title: 'Accounts NOT flagged Failed Audit \u00f7 all accounts (passed, no-audit and awaiting all count as good). Same as the leaderboard\u2019s Audit %.', total: () => el('div', { class: 'w-14 text-left tabular-nums shrink-0 font-bold' + (T.af > 0 ? ' cursor-pointer hover:underline' : ''), style: { color: auditPctColor(T.n > 0 ? (T.n - T.af) / T.n : null) }, title: T.af > 0 ? fmt.int(T.af) + ' failed audit — click to see which' : '', onclick: T.af > 0 ? (e) => _mixDrill(null, true, e) : undefined }, T.n > 0 ? ((T.n - T.af) / T.n * 100).toFixed(0) + '%' : '\u2014'),
       row: (s) => el('div', { class: 'w-14 text-left tabular-nums shrink-0 font-semibold' + (s.auditFail > 0 ? ' cursor-pointer hover:underline' : ''), style: { color: auditPctColor(s.count > 0 ? (s.count - s.auditFail) / s.count : null) }, title: s.auditFail > 0 ? fmt.int(s.auditFail) + ' failed audit — click to see which' : '', onclick: s.auditFail > 0 ? (e) => _mixDrill(s.name, true, e) : undefined }, s.count > 0 ? ((s.count - s.auditFail) / s.count * 100).toFixed(0) + '%' : '\u2014') },
-    { key: 'attr', label: 'Attrition %', w: 'w-20', title: 'Reportable cancels ÷ accounts (RORs, SNS, combined, one-time and renewals excluded)', total: () => el('div', { class: 'w-20 text-left tabular-nums font-black shrink-0', style: { color: attrColor(T.attr) } }, (T.attr * 100).toFixed(1) + '%'),
+    { key: 'attr', label: 'Attrition %', w: 'w-20', title: 'Cancelled $ ÷ serviced $ · 3-day RORs + one-time services removed from both sides (same number as the leaderboard and the player card)', total: () => el('div', { class: 'w-20 text-left tabular-nums font-black shrink-0', style: { color: attrColor(T.attr) } }, (T.attr * 100).toFixed(1) + '%'),
       row: (s) => el('div', { class: 'w-20 text-left tabular-nums font-semibold shrink-0', style: { color: attrColor(s.attr) } }, (s.attr * 100).toFixed(1) + '%') },
   ];
   const narrow = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
