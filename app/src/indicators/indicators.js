@@ -377,32 +377,59 @@ function deptRangePacer(dept) {
     if (d >= R.start && d <= _endR) acc[k].amt += v;
     if (d.getFullYear() === yr && d <= _endT) acc[k].ytd += v;
   }
-  const strong = (t) => el('strong', { style: { color: 'var(--text)' } }, t);
+  // Offices (per Isaac, Nov 5 — the admin card's right panel): where the range's revenue is coming from. No per-office
+  // goals exist, so these are shares of the department total, not paces.
+  const byOffice = {};
+  for (const s of indicatorSales()) {
+    if (_indicatorDeptOf(s) !== dept) continue;
+    const d = _parseIndicatorDay(s); if (!d || d < R.start || d > _endR) continue;
+    const o = String(s.office || 'Unknown'); byOffice[o] = (byOffice[o] || 0) + (Number(s.contractValue) || 0);
+  }
+  const _lastW = (k) => (k === 'new' || k === 'renewal') ? k : 'all';
   const streams = defs.map(def => {
     const goal = PW ? goalOf(def, PW.start, PW.end) : 0, actual = acc[def.key].amt;
-    let plan = null;
+    const sub = isOffice ? (def.key === 'new' ? 'Inside Sales' : 'Loyalty') : '';
+    const S = { key: def.key, label: def.label + ' revenue', sub, actual, target: goal, sp: 0, over: false, elapsed: false, need: null, left: null, tip: '', hint: '' };
     if (goal > 0 && PW) {
       const p = goalPlan(_wt, PW, goal, actual);
       const over = R.today > PW.end;
-      let text = over ? (actual >= goal ? el('span', {}, '\u2713 Goal hit \u00b7 ', strong('+' + fmt.usd0(actual - goal))) : el('span', {}, 'Missed by ', strong(fmt.usd0(goal - actual))))
-        : (p.left === 1 && +PW.start === +PW.end) ? (actual >= goal ? '' : el('span', {}, strong(fmt.usd0(goal - actual)), ' to go today'))
-        : p.need > 0 ? el('span', {}, strong(fmt.usd0(p.need)), ' / work day needed \u00b7 ' + p.left + ' day' + (p.left === 1 ? '' : 's') + ' left') : '';
-      if (_weekOf) text = el('span', {}, el('span', { style: { color: 'var(--text-subtle)' } }, 'This week \u00b7 '), text);
-      // The tick: how much of the range's goal should be in by now — its work days, each weighted by its month.
+      // The tick: the goal that should be in by now — yesterday's work days, each weighted by its month, plus today's
+      // share by the clock (pacer-card.js PACER_DAY_HOURS).
       const doneEnd = new Date(R.today); doneEnd.setDate(doneEnd.getDate() - 1);
-      const sp = over ? 1 : (R.today <= PW.start ? 0 : Math.min(1, goalOf(def, PW.start, doneEnd < PW.end ? doneEnd : PW.end) / goal));
-      plan = { sp, noChip: true, need: p.need, left: p.left, text, tip: R.label + ': ' + fmt.usd0(goal) + ' goal \u2014 the ' + fmt.usd0(def.annual) + ' annual goal by its monthly allocation, over the range\u2019s work days (' + goalWorkRule(_wt) + ')' };
+      const before = R.today <= PW.start ? 0 : goalOf(def, PW.start, doneEnd < PW.end ? doneEnd : PW.end);
+      const todayIn = R.today >= PW.start && R.today <= PW.end;
+      const live = todayIn ? dayGoal(R.today, def) * pacerDayFraction(_wt, new Date()) : 0;
+      S.sp = over ? 1 : Math.min(1, (before + live) / goal);
+      S.over = over; S.elapsed = over || before > 0 || live > 0;
+      S.need = p.need; S.left = p.left;
+      S.tickLabel = todayIn && !over ? _pacerClock(new Date()) : '';
+      S.tip = R.label + ': ' + fmt.usd0(goal) + ' goal — the ' + fmt.usd0(def.annual) + ' annual goal by its monthly allocation, over the range’s work days (' + goalWorkRule(_wt) + ')';
+      if (_weekOf) S.sub = (S.sub ? S.sub + ' · ' : '') + 'this week';
+    } else if (!(def.annual > 0)) S.hint = 'No goal set — add one in Settings → Goals' + (isOffice ? '' : ' → ' + (dept === 'techs' ? 'Technician' : 'Sales Rep'));
+    else S.hint = 'No work days in this range';
+    if (def.annual > 0) {
+      const yEnd = new Date(R.today); yEnd.setDate(yEnd.getDate() - 1);
+      const ySp = Math.min(1, goalOf(def, yearWin.start, yEnd < yearWin.start ? yearWin.start : yEnd) / def.annual);
+      if (R.pre !== 'this_year') S.annual = { actual: acc[def.key].ytd, target: def.annual, sp: ySp };
     }
-    return { key: def.key, label: def.label, color: def.color, actual, target: goal, monthly: null, win: actual, plan,
-      annual: def.annual > 0 && R.pre !== 'this_year' ? { actual: acc[def.key].ytd, target: def.annual } : null };
+    return S;
   });
-  const any = defs.some(d => d.annual > 0);
-  const hint = any ? '' : 'No goal set \u2014 add one in Settings \u2192 Goals' + (isOffice ? '' : ' \u2192 ' + (dept === 'techs' ? 'Technician' : 'Sales Rep'));
-  const range = { start: R.start, end: endOf(R.end) };
+  const total = Object.values(byOffice).reduce((a, b) => a + b, 0);
+  const side = (!isOffice && total > 0) ? (() => {
+    const rows = Object.entries(byOffice).sort((x, y) => y[1] - x[1]);
+    const top = rows.slice(0, 5), max = top[0][1] || 1;
+    return { title: 'Where it’s coming from · ' + R.label.toLowerCase(), textW: 104,
+      rows: top.map(([o, v]) => ({ label: _mktgTCish(o), pct: v / max, tick: null, color: 'var(--text)', text: _pacerShort(v) + ' · ' + Math.round(v / total * 100) + '%' })),
+      more: rows.length > 5 ? rows.length + ' offices · ' + (rows.length - 5) + ' more below the fold' : '' };
+  })() : null;
   const _keep = state.dashDateRange; state.dashDateRange = 'today';
-  try { return dashboardGoalCard(range, { title: 'Revenue Pacer', simple: true, hint, streams }); }
-  finally { state.dashDateRange = _keep; }
+  try {
+    return pacerCard({ title: 'Revenue Pacer', subtitle: (isOffice ? 'Office Staff' : dept === 'techs' ? 'Technicians' : 'Sales Reps') + ' · ' + R.label + ' · follows the date picker',
+      note: 'goal = annual goal × the month’s share ÷ its work days · Settings → Goals', rangeLabel: R.label, streams, side,
+      projection: isAdminRole(state.profile?.role) });
+  } finally { state.dashDateRange = _keep; }
 }
+function _mktgTCish(o) { return String(o || '').split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w).join(' '); }
 function dashLensPacer(dept) {
   const v = dashLens(); if (v === 'all') return null;
   let R = _pacerRange(), _weekOf = false;
@@ -501,35 +528,71 @@ function dashLensPacer(dept) {
         + (v === 'me' ? ' · selling window ' + _fmtD(W.start) + ' – ' + _fmtD(W.end) + ' · change it in ⚙ Settings → Goals' : ''),
     };
   };
-  const label = v === 'me' ? 'My' : team;
-  let streams;
-  if (isOffice) {
-    // Office Staff — ONE bar (per Isaac, Oct 18): Inside Sales race NEW revenue against the goal; Loyalty reps race
-    // TOTAL revenue (new + renewal). The annual-goal line underneath tracks the same measure.
-    const _loy = v === 'me' && typeof _isLoyaltyProfile === 'function' && _isLoyaltyProfile(state.profile);
-    const g = _loy
-      ? { amt: acc.new.amt + acc.renewal.amt, tod: acc.new.tod + acc.renewal.tod, ytd: acc.new.ytd + acc.renewal.ytd }
-      : acc.new;
-    streams = [
-      { key: _loy ? 'total' : 'new', label: _loy ? 'Total Rev' : 'New Rev', noSuffix: true, color: _loy ? '#5F6C5B' : '#DF643A', actual: g.amt, target: goal, monthly: null, win: g.tod, plan: planFor(g.amt), annual: annualOf(g.ytd) },
-    ];
-  } else {
-    streams = [{ key: 'new', label, color: '#DF643A', actual: acc.new.amt, target: goal, monthly: null, win: acc.new.tod, plan: planFor(acc.new.amt), annual: annualOf(acc.new.ytd) }];
+  // Inside Sales race NEW revenue; Loyalty race RENEWAL revenue (per Isaac, Nov 5 — the Total bar is gone, it was a
+  // second answer to the same question). Sales reps / technicians: everything they sold.
+  const _loy = isOffice && (v === 'me' ? (typeof _isLoyaltyProfile === 'function' && _isLoyaltyProfile(state.profile)) : (typeof _isLoyaltyProfile === 'function' && _isLoyaltyProfile(state.profile)));
+  const bucket = isOffice ? (_loy ? acc.renewal : acc.new) : acc.new;
+  const streamLabel = isOffice ? (_loy ? 'Renewal revenue' : 'New revenue') : (v === 'me' ? 'My revenue' : team + ' revenue');
+  const PWm = v === 'me' ? RW : _pacerClip(R, yearWin);
+  // Live pace: work days before today + today's share by the clock (pacer-card.js PACER_DAY_HOURS).
+  const liveSp = (win, g) => {
+    if (!(g > 0) || !win) return { sp: 0, elapsed: false, over: false };
+    const p = goalPlan(_wt, win, g, 0);
+    const over = R.today > win.end;
+    const todayIn = R.today >= win.start && R.today <= win.end && goalIsWorkDay(_wt, R.today);
+    const frac = todayIn ? pacerDayFraction(_wt, new Date()) : 0;
+    const sp = over ? 1 : (p.total > 0 ? Math.min(1, (p.done + frac) / p.total) : 0);
+    return { sp, elapsed: over || p.done > 0 || frac > 0, over, need: p.need, left: p.left, total: p.total, todayIn };
+  };
+  const S = { key: _loy ? 'renewal' : 'new', label: streamLabel, sub: v === 'me' ? '' : members + ' reps', actual: bucket.amt, target: goal, sp: 0, over: false, elapsed: false, need: null, left: null, tip: '', hint: '' };
+  if (goalOn && PWm) {
+    const L = liveSp(PWm, goal); const p = goalPlan(_wt, PWm, goal, bucket.amt);
+    Object.assign(S, { sp: L.sp, over: L.over, elapsed: L.elapsed, need: p.need, left: p.left, tickLabel: L.todayIn && !L.over ? _pacerClock(new Date()) : '' });
+    S.tip = R.label + ': ' + fmt.usd0(goal) + ' goal = ' + fmt.usd0(annual) + ' annual ÷ work days, × ' + p.total + ' work day' + (p.total === 1 ? '' : 's') + ' in range (' + goalWorkRule(_wt) + ')'
+      + (v === 'me' ? ' · selling window ' + _fmtD(W.start) + ' – ' + _fmtD(W.end) + ' · change it in ⚙ Settings → Goals' : '');
+    if (_weekOf) S.sub = (S.sub ? S.sub + ' · ' : '') + 'this week';
+    if (bucket.ytdN > 0) S.avgSale = bucket.ytd / bucket.ytdN;
+  } else S.hint = hint;
+  if (annual > 0 && R.pre !== 'this_year') {
+    const yEnd = new Date(R.today); yEnd.setDate(yEnd.getDate() - 1);
+    const yTot = goalWorkDays(_wt, yW.start, yW.end), yDone = yEnd < yW.start ? 0 : goalWorkDays(_wt, yW.start, yEnd < yW.end ? yEnd : yW.end);
+    S.annual = { actual: bucket.ytd, target: annual, sp: yTot > 0 ? yDone / yTot : 0 };
   }
-  // Goals are set in ⚙ Settings → Goals (per Isaac, Oct 16).
-  const hint = annual > 0 ? (goalOn ? '' : (v === 'me' && !RW) || R.start.getFullYear() > yr || R.end.getFullYear() < yr
-      ? 'No goal in this range — it’s outside the selling window'
-      // Weekend / holiday reps do sell (per Isaac, Oct 18): those sales still count toward every range's revenue and
-      // the year's goal — the day just carries no goal of its own.
-      : (R.oneDay ? 'Not a scheduled work day' : 'No scheduled work days') + ' \u2014 every sale is a bonus toward your goal') : v === 'me'
-    ? 'No personal goal yet — set one in ⚙ Settings → Goals'
-    : 'No team goal yet — it’s the sum of the ' + members + ' reps’ personal goals (Settings → Goals)';
-  const range = { start: R.start, end: new Date(R.end.getFullYear(), R.end.getMonth(), R.end.getDate(), 23, 59, 59) };
+  // Team side panel (per Isaac, Nov 5): each rep vs their OWN pace in the range, best gap first.
+  let side = null;
+  if (v !== 'me' && goalOn) {
+    const map = state._indicatorRepTeam || {};
+    const byRep = {};
+    for (const s of indicatorSales()) {
+      if (_indicatorDeptOf(s) !== dept || !dashLensMatch(s)) continue;
+      const d = _parseIndicatorDay(s); if (!d || d < cnt.start || d > cntEnd) continue;
+      if (isOffice && (_indicatorIsRenewal(s) ? !_loy : _loy)) continue;
+      const n = (typeof getCanonicalRepName === 'function' ? getCanonicalRepName(s.rep) : s.rep) || ''; byRep[n] = (byRep[n] || 0) + (Number(s.contractValue) || 0);
+    }
+    const rows = [];
+    for (const n of Object.keys(map)) {
+      if (map[n] !== team) continue; if (typeof isRepActive === 'function' && !isRepActive(n)) continue;
+      const g = goalOfName(n); const pr = profOfName(n); const win = _pacerClip(R, pr ? goalWindow(pr) : yearWin);
+      const share = shareOf(g, pr ? goalWindow(pr) : yearWin); const act = byRep[n] || 0;
+      if (!(share > 0)) { rows.push({ n, act, share: 0, gap: null }); continue; }
+      const L = liveSp(win, share); rows.push({ n, act, share, sp: L.sp, gap: act - share * L.sp });
+    }
+    const paced = rows.filter(r => r.gap != null).sort((x, y) => y.gap - x.gap);
+    if (paced.length) {
+      const short = (n) => { const m = /^([^,]+),/.exec(n); return m ? m[1].trim() : n; };
+      side = { title: 'Who’s carrying it · vs their own pace',
+        rows: paced.slice(0, 5).map(r => { const v2 = pacerVerdict({ actual: r.act, target: r.share, sp: r.sp, over: R.today > R.end, elapsed: true });
+          return { label: short(r.n), pct: Math.min(1, r.act / r.share), tick: r.sp, color: v2.color === PACER_INK ? 'var(--text)' : v2.color, text: _pacerSigned(r.gap).replace(/\$(\d{1,3}),(\d{3})$/, (m, a2, b2) => '$' + a2 + '.' + b2[0] + 'K') }; }),
+        more: paced.length > 5 ? 'All ' + paced.length + ' in the leaderboard below' + (rows.length > paced.length ? ' · ' + (rows.length - paced.length) + ' with no goal yet' : '') : (rows.length > paced.length ? (rows.length - paced.length) + ' rep' + (rows.length - paced.length === 1 ? '' : 's') + ' with no goal yet · Settings → Goals' : '') };
+    }
+  }
   const _keep = state.dashDateRange; state.dashDateRange = 'today';
   try {
-    const card = dashboardGoalCard(range, { title: (v === 'me' ? 'My' : team + ' Team') + ' Revenue Pacer', simple: true, hint, streams });
+    const card = pacerCard({ title: v === 'me' ? 'My pace' : team + ' · pace', subtitle: (v === 'me' ? (state.profile && state.profile.full_name ? String(state.profile.full_name).split(' ')[0] : 'Me') : 'My Team') + ' · ' + R.label,
+      rangeLabel: R.label, streams: [S], side, rangeToggle: ['today', 'this_week', 'this_year'].includes(R.pre) && !_weekOf ? R.pre : (R.pre || null),
+      projection: true });
     const plan = v === 'me' ? _dailyGamePlan() : null;
-    if (card && plan) card.prepend(plan);
+    if (card && plan) card.append(plan);
     return card;
   } finally { state.dashDateRange = _keep; }
 
@@ -574,7 +637,7 @@ function dashLensPacer(dept) {
         : tod > 0 ? el('span', {}, strong(fmt.usd0(tod) + ' sold'), ' · about ' + sales(n, true))
         : el('span', {}, 'About ', strong(sales(n)), ' to go');
     }
-    return el('div', { class: 'flex items-center gap-2 tabular-nums', style: { marginBottom: '12px', paddingBottom: '10px', borderBottom: '1px solid var(--border)', minWidth: 0 },
+    return el('div', { class: 'flex items-center gap-2 tabular-nums', style: { marginTop: '12px', paddingTop: '10px', borderTop: '1px solid var(--border)', minWidth: 0 },
       title: 'Today’s goal: ' + fmt.usd0(annual) + ' annual ÷ ' + total + ' work days (' + goalWorkRule(_wt) + ')' + (left > 0 && ytd < annual ? ' · to catch up on the year: ' + fmt.usd0(catchUp) + ' a work day from here' : '') + (avg > 0 ? ' · your average sale ' + fmt.usd0(avg) : '') },
       el('span', { class: 'uppercase font-bold shrink-0', style: { fontSize: '10px', letterSpacing: '.12em', color: 'var(--accent)' } }, 'Today'),
       el('span', { class: 'text-[12px] min-w-0 truncate', style: { color: 'var(--text-muted)' } }, msg),

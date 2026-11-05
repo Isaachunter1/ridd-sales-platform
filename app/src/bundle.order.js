@@ -46,6 +46,7 @@ module.exports = [
   'competitions/nrla-and-comps.js',
   'admin/manage-teams.js',
   'indicators/indicators.js',
+  'indicators/pacer-card.js',
   'admin/scorecards.js',
   'competitions/tv-board.js',
   'core/semantic.js',
