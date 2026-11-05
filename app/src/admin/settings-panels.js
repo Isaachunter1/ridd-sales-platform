@@ -1448,7 +1448,6 @@ function adminReps() {
           fr && !p.fieldroutes_employee_id ? el('div', { class: 'text-[10px]', style: { color: 'var(--accent)' } }, '↔ match — confirm to link') : null))),
       tdM(fr ? fr.username : null),                                       // User ID (CRM username)
       td(roleLabelOf(p), p.is_owner ? 'font-bold' : ''),                 // Access Profile (app role)
-      td(fr ? fr.type_label : null, fr ? '' : 'text-muted- italic'),      // Rep Type (CRM)
       tdM(p.phone || (fr ? fr.phone : null)),                             // Phone (profile wins, else CRM)
       // (Email column dropped from the list — per Isaac, Oct 16; it's in Edit User. Search still matches it.)
       // Last Login moved into Edit User — it was costing a whole column.
@@ -1472,7 +1471,6 @@ function adminReps() {
         el('div', { class: 'font-semibold whitespace-nowrap', title: e.office_name ? 'Offices: ' + e.office_name : undefined }, x.name))),
       tdM(e.username),                                                    // User ID
       el('td', { class: 'px-3 py-3 text-muted- italic' }, 'In CRM'),      // Access Profile (none yet)
-      td(e.type_label),                                                   // Rep Type
       tdM(e.phone),                                                       // Phone
       tierCell(x),                                                       // Tier
       el('td', { class: 'px-3 py-3 text-center' }, statusChip(false)),
@@ -1500,14 +1498,15 @@ function adminReps() {
     (() => { if (!document.getElementById('users-tbl-css')) { const st = document.createElement('style'); st.id = 'users-tbl-css';
       st.textContent = 'table.users-tbl td, table.users-tbl th { overflow: hidden; text-overflow: ellipsis; }'; document.head.appendChild(st); } return null; })(),
     el('table', { class: 'w-full text-sm whitespace-nowrap users-tbl', style: { tableLayout: 'fixed', minWidth: '960px' } },
-      el('colgroup', {}, ...['6%', '17%', '13%', '18%', '9%', '10%', '10%', '9%', '8%'].map(w => el('col', { style: { width: w } }))),
+      // (Rep Type column dropped per Isaac, Nov 5 — the tabs already split people by type; it's still in Edit User. Search still matches it.)
+      el('colgroup', {}, ...['6%', '19%', '14%', '20%', '12%', '11%', '9%', '9%'].map(w => el('col', { style: { width: w } }))),
       el('thead', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, el('tr', {},
         th('ID', null, 'id'), th('Name', 'text-left', 'name'), th('User Name', null, 'username'), th('Access Profile', null, 'role'),
-        th('Rep Type', null, 'reptype'), th('Phone', null, 'phone'),
+        th('Phone', null, 'phone'),
         th('Tier', null, 'tier'), th('Status', 'text-center', 'status'), th('', 'text-right'))),
       el('tbody', {},
         (appPeople.length + rosterShown.length) === 0
-          ? el('tr', {}, el('td', { class: 'px-4 py-8 text-center text-xs text-muted- italic', colspan: 9 },
+          ? el('tr', {}, el('td', { class: 'px-4 py-8 text-center text-xs text-muted- italic', colspan: 8 },
               q ? 'No ' + REP_TYPE_TAB_LABEL[typeTab] + ' match “' + state._adminUserSearch + '”.' : 'No ' + REP_TYPE_TAB_LABEL[typeTab] + ' in this view.'))
           : null,
         ...appPeople.map(appRow),
