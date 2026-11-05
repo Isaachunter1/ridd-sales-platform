@@ -19,10 +19,13 @@
 --      project: Database → Extensions → pg_cron. The cron block is last and
 --      can be run separately if the extension isn't on yet.)
 --
--- One-time cleanup of the existing pile is NOT here — do it by hand first
--- (delete one computed_at at a time, then VACUUM FULL between sync runs).
+-- One-time cleanup of the existing pile is NOT here. Done by hand Nov 5 2026: copy the newest run into a
+-- fresh table, swap names, re-point market_feed.indicator_sales, hand over the id sequence, drop the old table.
+-- Sections 1–3 were applied to the live database the same day (pg_cron enabled; job id 1).
 
--- 1. Prune: one older computed_at per call (bounded work; returns rows deleted).
+-- 1. Prune: up to 50 older runs per call (bounded work; returns rows deleted). One run per call couldn't
+--    outrun a 5-minute sync (12 runs an hour), so the cron job below loops. This is the version applied to
+--    the live database on Nov 5 2026, after the 44M-row rebuild.
 create or replace function public.indicator_tables_prune(p_keep timestamptz default null)
 returns bigint
 language plpgsql
@@ -37,18 +40,20 @@ declare
   v_keep  timestamptz := coalesce(p_keep, (select max(computed_at) from public.indicator_sales where computed_at < now() - interval '15 minutes'));
   v_old   timestamptz;
   v_n     bigint := 0;
-  v_w     bigint := 0;
+  v_t     bigint := 0;
+  v_i     int := 0;
 begin
   if v_keep is null then return 0; end if;
-  select min(computed_at) into v_old from public.indicator_sales where computed_at < v_keep;
-  if v_old is not null then
+  loop
+    select min(computed_at) into v_old from public.indicator_sales where computed_at < v_keep;
+    exit when v_old is null or v_i >= 50;
     delete from public.indicator_sales where computed_at = v_old;
-    get diagnostics v_n = row_count;
-  end if;
+    get diagnostics v_n = row_count; v_t := v_t + v_n; v_i := v_i + 1;
+  end loop;
   -- indicator_weekly is small (≈20k rows): clear every older run at once.
   delete from public.indicator_weekly where computed_at < v_keep;
-  get diagnostics v_w = row_count;
-  return v_n + v_w;
+  get diagnostics v_n = row_count;
+  return v_t + v_n;
 end $$;
 revoke all on function public.indicator_tables_prune(timestamptz) from public, anon, authenticated;
 grant execute on function public.indicator_tables_prune(timestamptz) to service_role;
