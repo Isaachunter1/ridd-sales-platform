@@ -448,9 +448,35 @@ function _applyIndicatorConfigSnapshot(data) {
   state._indicatorTeamLogos     = data.team_logos   && typeof data.team_logos   === 'object' ? data.team_logos   : {};
   state._indicatorExcludedTeams = Array.isArray(data.team_excluded) ? data.team_excluded : [];
   if (data.competitions && typeof data.competitions === 'object') {
-    if (Array.isArray(data.competitions.list)) state._indicatorCompetitions = data.competitions.list;
-    if (data.competitions.active)              state._indicatorActiveCompId = data.competitions.active;
-    if (Array.isArray(data.competitions.removed)) state._indicatorRemovedDefaults = data.competitions.removed;
+    const c = data.competitions;
+    if (Array.isArray(c.list)) state._indicatorCompetitions = c.list;
+    if (c.active)              state._indicatorActiveCompId = c.active;
+    if (Array.isArray(c.removed)) state._indicatorRemovedDefaults = c.removed;
+    // The whole competitions block comes back, not just the list (Nov 5 2026): the Nov 2 wipe took the
+    // ISL / KOTH / Kobe config, Permissions overrides, hidden pay sources, rep aliases and tier years with
+    // it, and a Restore that left those at the post-wipe defaults then pushed the defaults back as "restored".
+    if (c.rankExclude && typeof c.rankExclude === 'object') state._indicatorRankExclude = c.rankExclude;
+    if (c.repAlias && typeof c.repAlias === 'object')       state._indicatorRepAlias = c.repAlias;
+    if (c.teamTypes && typeof c.teamTypes === 'object')     state._indicatorTeamTypes = c.teamTypes;
+    if (Array.isArray(c.dupesDismissed))                    state._indicatorDismissedDupes = c.dupesDismissed;
+    if (c.tierYears && typeof c.tierYears === 'object')     state._indicatorRepTierYear = c.tierYears;
+    if (Array.isArray(c.pillOrder))                         state._compPillOrder = c.pillOrder;
+    if (typeof c.favMystery === 'boolean')                  state._compFavoriteMystery = c.favMystery;
+    if (c.extras && typeof c.extras === 'object') {
+      state._compExtras = c.extras;
+      try {
+        const _ar = c.extras.adminRules;
+        if (_ar) {
+          if (Array.isArray(_ar.deletedCustIds)) state.indicatorDeletedCustIds = _ar.deletedCustIds;
+          if (typeof _ar.repIncludeRor === 'boolean') state._indicatorRepIncludeRor = _ar.repIncludeRor;
+          if (typeof _ar.repIncludeOneTime === 'boolean') state._indicatorRepIncludeOneTime = _ar.repIncludeOneTime;
+          if (typeof _ar.repIncludeRenewals === 'boolean') state._indicatorRepIncludeRenewals = _ar.repIncludeRenewals;
+          if ('indMyExclTerms' in _ar) state.indicatorMyExclServiceTerms = _ar.indMyExclTerms;
+          if ('indExclServices' in _ar) state.indicatorExclServices = _ar.indExclServices;
+          if ('indExclTeams' in _ar) state.indicatorExclTeams = _ar.indExclTeams;
+        }
+      } catch (e) { /* fallback: local values */ }
+    }
   }
   const rt = (data.rep_teams && typeof data.rep_teams === 'object' && !Array.isArray(data.rep_teams)) ? data.rep_teams : {};
   const keys = Object.keys(rt);
