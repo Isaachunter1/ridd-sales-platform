@@ -403,19 +403,9 @@ async function _mirrorNrlaRostersToRows() {
 // Realtime foundation — hear other admins' roster changes the moment they
 // land (stage 2 will auto-apply them; stage 1 just tells you).
 function subscribeRosterRealtime() {
-  if ((typeof DEMO !== 'undefined' && DEMO) || window._rosterRtSub || !state.profile) return;
-  try {
-    window._rosterRtSub = supabase.channel('indicator_rosters_rt')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'indicator_rosters' }, () => {
-        if (Date.now() - (window._rosterMirrorAt || 0) < 10000) return;      // our own mirror
-        if (window._rosterRtToastAt && Date.now() - window._rosterRtToastAt < 30000) return;
-        window._rosterRtToastAt = Date.now();
-        // (Toast retired per Isaac, Sep 2026 — the whole app re-syncs on its
-        // own now, so a roster-only "refresh to pull the latest" nag was
-        // misleading. The subscription stays for the stage-2 auto-apply.)
-      })
-      .subscribe();
-  } catch (e) { console.warn('[ridd] roster realtime subscribe failed', e); }
+  // Retired Nov 5 2026: the callback had done nothing since the Sep toast was removed, and every
+  // postgres_changes subscription kept Realtime's WAL poller running. Rosters still sync through
+  // the config poll; a stage-2 auto-apply would subscribe to a broadcast topic, not the WAL.
 }
 
 // ── My-sales realtime — the transparency loop for reps ───────────────────
@@ -428,9 +418,11 @@ function subscribeMySalesRealtime() {
   if (isAdminRole(state.profile?.role) || isAuditorRole(state.profile?.role)) return;   // reps only
   try {
     const seen = (window._mySalesRtSeen = window._mySalesRtSeen || new Set());
-    window._mySalesRtSub = supabase.channel('my_sales_rt')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sales', filter: 'rep_id=eq.' + state.profile.id }, (payload) => {
-        const row = payload.new || {};
+    // The rep's own private topic (20261105_realtime_broadcast.sql): the trigger on `sales` publishes
+    // each UPDATE with the row to ridd:sales:rep:<rep_id>, readable only by that rep.
+    window._mySalesRtSub = supabase.channel('ridd:sales:rep:' + state.profile.id, { config: { private: true } })
+      .on('broadcast', { event: 'UPDATE' }, (msg) => {
+        const row = (msg && msg.payload && msg.payload.record) || {};
         const key = row.id + ':' + row.audit_status + ':' + (row.staged_for_payroll ? 1 : 0);
         if (seen.has(key)) return;
         seen.add(key);

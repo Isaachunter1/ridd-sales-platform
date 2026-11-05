@@ -1358,10 +1358,13 @@ function _renewalLogLoad() {
   // never drag the same card without seeing it move.
   try {
     if (!state._renewalRt) {
-      state._renewalRt = supabase.channel('renewal_worklog_rt')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'renewal_worklog' }, (msg) => {
-          const row = msg.new && msg.new.customer_id ? msg.new : null;
-          if (msg.eventType === 'DELETE') { const k = msg.old && msg.old.customer_id; if (k) delete state._renewalLog[String(k)]; }
+      // Broadcast topic (20261105_realtime_broadcast.sql): the trigger on renewal_worklog publishes each change
+      // with old + new rows, so no WAL decoding. Payload: { operation, record, old_record }.
+      state._renewalRt = supabase.channel('ridd:renewal_worklog', { config: { private: true } })
+        .on('broadcast', { event: '*' }, (msg) => {
+          const p = (msg && msg.payload) || {};
+          const row = p.record && p.record.customer_id ? p.record : null;
+          if (p.operation === 'DELETE') { const k = p.old_record && p.old_record.customer_id; if (k) delete state._renewalLog[String(k)]; }
           else if (row) state._renewalLog[String(row.customer_id)] = row;
           try { localStorage.setItem('ridd_renewal_log_v1', JSON.stringify(state._renewalLog)); } catch (e) { /* quota */ }
           if (state.view === 'loyalty_renewals' || state.view === 'loyalty_health' || state.view === 'queues') { clearTimeout(state._renewalRtT); state._renewalRtT = setTimeout(mountApp, 300); }
