@@ -243,28 +243,24 @@ const BRANCH_COLORS = {
   'JOPLIN':         '#E5187D',
   'LITTLE ROCK':    '#8F1D2C',
 };
-// Company rollups — RPS = Detroit + Little Rock + Joplin; RPC = every other
-// branch; RIDD = the sum of both (admin-only grouping on Indicators).
-// Workbook rows: RPC light yellow-green, RPS orange-red (matched to the
-// reporting sheet screenshot — tweak hexes here if the print looks off).
-// Display names (per Isaac, Sep 2026): the abbreviations read as
-// "RIDD Pest Control" / "RIDD Pest Solutions" everywhere in the app. The
-// short keys stay in configs (branchGroups) and marketing row keys.
-// Legal entities / operating companies (generalization, Sep 22 2026): RIDD_CONFIG.ENTITIES =
-// { RPC: { name, color }, … } overrides; most companies have one and can leave it unset.
+// One company (per Isaac, Nov 5 2026): RIDD Pest Solutions (Detroit · Joplin · Little Rock) has been consolidated
+// into RIDD Pest Control, so every office rolls up to RPC and the RIDD total IS the company. The entity plumbing
+// stays for the generalization — another company can still set RIDD_CONFIG.ENTITIES = { KEY: { name, color }, … }
+// and group its branches with Configurations → branchGroups — but RIDD's default is a single entity, and a stale
+// 'RPS' in a saved branchGroups map is read as RPC.
 const _CFG_ENTITIES = (() => { try { const e = window.RIDD_CONFIG && window.RIDD_CONFIG.ENTITIES; return e && typeof e === 'object' && Object.keys(e).length ? e : null; } catch (x) { return null; } })();
-const COMPANY_NAMES = _CFG_ENTITIES ? Object.fromEntries(Object.entries(_CFG_ENTITIES).map(([k, v]) => [k, (v && v.name) || k])) : { RPC: 'RIDD Pest Control', RPS: 'RIDD Pest Solutions' };
+const COMPANY_NAMES = _CFG_ENTITIES ? Object.fromEntries(Object.entries(_CFG_ENTITIES).map(([k, v]) => [k, (v && v.name) || k])) : { RPC: 'RIDD Pest Control' };
 function companyName(k) { return COMPANY_NAMES[String(k || '').toUpperCase()] || k; }
-const COMPANY_COLORS = _CFG_ENTITIES ? Object.fromEntries(Object.entries(_CFG_ENTITIES).flatMap(([k, v]) => [[k, (v && v.color) || '#888'], [String((v && v.name) || k).toUpperCase(), (v && v.color) || '#888']])) : { 'RPS': '#D2451E', 'RPC': '#9BCB3C', 'RIDD PEST SOLUTIONS': '#D2451E', 'RIDD PEST CONTROL': '#9BCB3C' };
-const RPS_OFFICES_RE = /detroit|joplin|little\s*rock/i;
+const COMPANY_COLORS = _CFG_ENTITIES ? Object.fromEntries(Object.entries(_CFG_ENTITIES).flatMap(([k, v]) => [[k, (v && v.color) || '#888'], [String((v && v.name) || k).toUpperCase(), (v && v.color) || '#888']])) : { 'RPC': '#9BCB3C', 'RIDD PEST CONTROL': '#9BCB3C' };
+const _COMPANY_DEFAULT_KEY = Object.keys(COMPANY_NAMES)[0];
 function companyGroupOf(office) {
   const o = String(office || '');
   const ar = (typeof _adminRules === 'function') ? _adminRules() : null;
   if (ar && ar.branchGroups && typeof ar.branchGroups === 'object') {
     const hit = ar.branchGroups[o] || ar.branchGroups[o.trim().toUpperCase()];
-    if (hit === 'RPS' || hit === 'RPC') return COMPANY_NAMES[hit];
+    if (hit && COMPANY_NAMES[hit]) return COMPANY_NAMES[hit];
   }
-  return RPS_OFFICES_RE.test(o) ? COMPANY_NAMES.RPS : COMPANY_NAMES.RPC;
+  return COMPANY_NAMES[_COMPANY_DEFAULT_KEY];
 }
 // Readable text on any group color (SALT LAKE is near-white).
 function groupHeaderTextColor(bg) {

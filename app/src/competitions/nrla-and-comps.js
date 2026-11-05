@@ -6148,7 +6148,7 @@ function aggregateByBranch(rawSales, indicatorRowsForDates) {
   }
   return aggregateRawSalesByGroup(rawSales, s => s.office || 'Unknown', indicatorRowsForDates, false, pestRe);
 }
-// Company view (admin-only): RPS / RPC columns; the RIDD column IS the sum.
+// Company view (admin-only, retired from the picker): one column per entity — RIDD has one since Nov 5 2026.
 function aggregateByCompany(rawSales, indicatorRowsForDates) {
   const pestRe = state.indicatorDept === 'd2d' ? TEAM_PEST_EXCLUDE : null;
   return aggregateRawSalesByGroup(rawSales, s => companyGroupOf(s.office), indicatorRowsForDates, false, pestRe);

@@ -783,7 +783,7 @@ function viewIndicators() {
   // (table, charts, rankings). Teams mode requires raw sales — falls back
   // gracefully to Branch mode otherwise.
   const rawSalesAvailable = Array.isArray(state._indicatorRawSales) && state._indicatorRawSales.length > 0;
-  // Company rollup (RPS / RPC) is ADMIN-ONLY — heal the state for anyone else.
+  // Company rollup (entity columns) is ADMIN-ONLY — heal the state for anyone else.
   if (state.indicatorsGroupBy === 'company') state.indicatorsGroupBy = 'branch';   // Company rollup retired from the picker (per Isaac, Sep 24) — it's the offices summed two ways
   // Department grouping was retired from the filters panel (per Isaac). Heal
   // any saved preset or persisted session still holding it, otherwise the
