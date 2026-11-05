@@ -403,19 +403,9 @@ async function _mirrorNrlaRostersToRows() {
 // Realtime foundation — hear other admins' roster changes the moment they
 // land (stage 2 will auto-apply them; stage 1 just tells you).
 function subscribeRosterRealtime() {
-  if ((typeof DEMO !== 'undefined' && DEMO) || window._rosterRtSub || !state.profile) return;
-  try {
-    window._rosterRtSub = supabase.channel('indicator_rosters_rt')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'indicator_rosters' }, () => {
-        if (Date.now() - (window._rosterMirrorAt || 0) < 10000) return;      // our own mirror
-        if (window._rosterRtToastAt && Date.now() - window._rosterRtToastAt < 30000) return;
-        window._rosterRtToastAt = Date.now();
-        // (Toast retired per Isaac, Sep 2026 — the whole app re-syncs on its
-        // own now, so a roster-only "refresh to pull the latest" nag was
-        // misleading. The subscription stays for the stage-2 auto-apply.)
-      })
-      .subscribe();
-  } catch (e) { console.warn('[ridd] roster realtime subscribe failed', e); }
+  // Retired Nov 5 2026: the callback had done nothing since the Sep toast was removed, and every
+  // postgres_changes subscription kept Realtime's WAL poller running. Rosters still sync through
+  // the config poll; a stage-2 auto-apply would subscribe to a broadcast topic, not the WAL.
 }
 
 // ── My-sales realtime — the transparency loop for reps ───────────────────
@@ -428,9 +418,11 @@ function subscribeMySalesRealtime() {
   if (isAdminRole(state.profile?.role) || isAuditorRole(state.profile?.role)) return;   // reps only
   try {
     const seen = (window._mySalesRtSeen = window._mySalesRtSeen || new Set());
-    window._mySalesRtSub = supabase.channel('my_sales_rt')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sales', filter: 'rep_id=eq.' + state.profile.id }, (payload) => {
-        const row = payload.new || {};
+    // The rep's own private topic (20261105_realtime_broadcast.sql): the trigger on `sales` publishes
+    // each UPDATE with the row to ridd:sales:rep:<rep_id>, readable only by that rep.
+    window._mySalesRtSub = supabase.channel('ridd:sales:rep:' + state.profile.id, { config: { private: true } })
+      .on('broadcast', { event: 'UPDATE' }, (msg) => {
+        const row = (msg && msg.payload && msg.payload.record) || {};
         const key = row.id + ':' + row.audit_status + ':' + (row.staged_for_payroll ? 1 : 0);
         if (seen.has(key)) return;
         seen.add(key);
@@ -456,9 +448,35 @@ function _applyIndicatorConfigSnapshot(data) {
   state._indicatorTeamLogos     = data.team_logos   && typeof data.team_logos   === 'object' ? data.team_logos   : {};
   state._indicatorExcludedTeams = Array.isArray(data.team_excluded) ? data.team_excluded : [];
   if (data.competitions && typeof data.competitions === 'object') {
-    if (Array.isArray(data.competitions.list)) state._indicatorCompetitions = data.competitions.list;
-    if (data.competitions.active)              state._indicatorActiveCompId = data.competitions.active;
-    if (Array.isArray(data.competitions.removed)) state._indicatorRemovedDefaults = data.competitions.removed;
+    const c = data.competitions;
+    if (Array.isArray(c.list)) state._indicatorCompetitions = c.list;
+    if (c.active)              state._indicatorActiveCompId = c.active;
+    if (Array.isArray(c.removed)) state._indicatorRemovedDefaults = c.removed;
+    // The whole competitions block comes back, not just the list (Nov 5 2026): the Nov 2 wipe took the
+    // ISL / KOTH / Kobe config, Permissions overrides, hidden pay sources, rep aliases and tier years with
+    // it, and a Restore that left those at the post-wipe defaults then pushed the defaults back as "restored".
+    if (c.rankExclude && typeof c.rankExclude === 'object') state._indicatorRankExclude = c.rankExclude;
+    if (c.repAlias && typeof c.repAlias === 'object')       state._indicatorRepAlias = c.repAlias;
+    if (c.teamTypes && typeof c.teamTypes === 'object')     state._indicatorTeamTypes = c.teamTypes;
+    if (Array.isArray(c.dupesDismissed))                    state._indicatorDismissedDupes = c.dupesDismissed;
+    if (c.tierYears && typeof c.tierYears === 'object')     state._indicatorRepTierYear = c.tierYears;
+    if (Array.isArray(c.pillOrder))                         state._compPillOrder = c.pillOrder;
+    if (typeof c.favMystery === 'boolean')                  state._compFavoriteMystery = c.favMystery;
+    if (c.extras && typeof c.extras === 'object') {
+      state._compExtras = c.extras;
+      try {
+        const _ar = c.extras.adminRules;
+        if (_ar) {
+          if (Array.isArray(_ar.deletedCustIds)) state.indicatorDeletedCustIds = _ar.deletedCustIds;
+          if (typeof _ar.repIncludeRor === 'boolean') state._indicatorRepIncludeRor = _ar.repIncludeRor;
+          if (typeof _ar.repIncludeOneTime === 'boolean') state._indicatorRepIncludeOneTime = _ar.repIncludeOneTime;
+          if (typeof _ar.repIncludeRenewals === 'boolean') state._indicatorRepIncludeRenewals = _ar.repIncludeRenewals;
+          if ('indMyExclTerms' in _ar) state.indicatorMyExclServiceTerms = _ar.indMyExclTerms;
+          if ('indExclServices' in _ar) state.indicatorExclServices = _ar.indExclServices;
+          if ('indExclTeams' in _ar) state.indicatorExclTeams = _ar.indExclTeams;
+        }
+      } catch (e) { /* fallback: local values */ }
+    }
   }
   const rt = (data.rep_teams && typeof data.rep_teams === 'object' && !Array.isArray(data.rep_teams)) ? data.rep_teams : {};
   const keys = Object.keys(rt);

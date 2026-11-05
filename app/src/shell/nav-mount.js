@@ -940,10 +940,13 @@ function _mountAppRender() {
     // there — so an insert repaints the dashboard within seconds, throttle
     // bypassed.
     setInterval(_freshKick, 120000);
+    // Broadcast topic, not postgres_changes (Nov 5 2026 — db/migrations/20261105_realtime_broadcast.sql):
+    // a trigger on `sales` publishes {table, op, id} to ridd:sales, so Realtime never decodes the WAL
+    // or runs RLS per subscriber. Until that migration runs nothing arrives here and the poll carries it.
     try {
       let _rtT = null;
-      state._salesRtSub = supabase.channel('app_sales_rt')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'sales' }, () => {
+      state._salesRtSub = supabase.channel('ridd:sales', { config: { private: true } })
+        .on('broadcast', { event: 'change' }, () => {
           clearTimeout(_rtT);
           _rtT = setTimeout(() => { _appDataAt = 0; _freshKick(); }, 1500);
         })

@@ -714,8 +714,8 @@ function openTvBoard() {
   // second. Debounced so a batch of 30 inserts is one refresh.
   try {
     let _rtTimer = null;
-    rtSub = supabase.channel('tv_board_sales_rt')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'sales' }, () => {
+    rtSub = supabase.channel('ridd:sales', { config: { private: true } })   // broadcast topic (20261105_realtime_broadcast.sql), not postgres_changes
+      .on('broadcast', { event: 'change' }, () => {
         clearTimeout(_rtTimer);
         _rtTimer = setTimeout(async () => {
           try { if (typeof refreshSalesData === 'function') await refreshSalesData(); } catch (e) { /* poll covers it */ }
