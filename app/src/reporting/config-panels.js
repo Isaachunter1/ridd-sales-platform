@@ -719,10 +719,10 @@ function _mktgQboOffice(acct) {
 const MKTG_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MKTG_DEFAULT_CHANNELS = ['Facebook', 'Google Ads', 'Google Local Services', 'Angi', 'Baton', 'DoLead', 'ElectGen', 'Pest Net', 'Service Direct', '6 Brothers', 'Sellify'];   // 6 Brothers + Sellify (per Isaac, Oct 17)
 // Legal-entity grouping of branches (generalization, Sep 22 2026): entities
-// come from RIDD_CONFIG.ENTITIES (default RPC / RPS) and a branch's entity from
-// companyGroupOf() — Configurations → branch groups, or the RIDD default
-// (Detroit / Joplin / Little Rock = RPS, everything else RPC). One entity =
-// no entity rows, just the company total.
+// come from RIDD_CONFIG.ENTITIES and a branch's entity from companyGroupOf()
+// (Configurations → branch groups). RIDD is one entity since Nov 5 2026 —
+// RIDD Pest Solutions folded into RIDD Pest Control — so there are no entity
+// rows, just the offices and the company total.
 const MKTG_ALL = 'RIDD';   // sentinel key for the company-wide row / scope (display label = the company name)
 function _mktgEntities() { return Object.keys(COMPANY_NAMES); }
 function _mktgEntityOf(branch) { const g = companyGroupOf(branch); const k = Object.keys(COMPANY_NAMES).find(k => COMPANY_NAMES[k] === g); return k || _mktgEntities()[0]; }
@@ -767,6 +767,22 @@ function _mktgStore() {
   s.branchAttrition = s.branchAttrition || {}; // { BRANCH: 0.38 }
   s.channelProjections = s.channelProjections || {}; // { channel: [12 spend] }
   return m;
+}
+// One-time wipe of everything the old Spend tab had saved (per Isaac, Nov 5 — starting from scratch): the hand /
+// upload allocation sheet, the uploaded reports and their remembered location / vendor / layout mappings, fixed
+// cost-per-lead, and the QuickBooks vendor picks + office allocations. Runs once per shared config (flagged), from
+// an admin's browser, then syncs like any other marketing-config change.
+function _mktgSpendReset() {
+  try {
+    if (!state.profile || typeof isAdminRole !== 'function' || !isAdminRole(state.profile.role)) return;
+    const m = _mktgStore();
+    if (m._spendResetNov5) return;
+    for (const k of ['spend', 'spendUploads', 'spendLocMap', 'spendProvMap', 'spendTemplates', 'spendCpl', 'qbRules', 'qbAlloc', 'qbLineRules']) delete m[k];
+    m.spend = {};
+    m._spendResetNov5 = new Date().toISOString();
+    state._spqMemo = {}; state._mkpMemo = null;
+    _mktgSave();
+  } catch (e) { console.warn('[marketing] spend reset skipped', e); }
 }
 function _mktgSave() {
   saveDemoData();
@@ -849,7 +865,7 @@ function _mktgBranchList(year) {
   for (const b of [...set].sort()) { const k = _mktgEntityOf(b); (byEntity[k] || (byEntity[k] = [])).push(b); }
   const all = _mktgEntities().flatMap(k => byEntity[k] || []);
   // rpc / rps kept for any caller that still reads them (RIDD's two entities).
-  return { byEntity, all, rpc: byEntity.RPC || [], rps: byEntity.RPS || [] };
+  return { byEntity, all, rpc: byEntity.RPC || [] };
 }
 // One provider's QuickBooks spend for a month (payees mapped to providers — Marketing → Metrics).
 function _mktgQboProvMonth(ym, ch) { const P = state.reportingIsSpendPayee; const M = P && P.months && P.months[ym]; if (!M || typeof qboPayeeProvider !== 'function') return 0; let t = 0; for (const name in M) if (qboPayeeProvider(name) === ch) t += Number(M[name]) || 0; return t; }
@@ -908,7 +924,7 @@ const _mktgDiv = (a, b) => (b > 0 ? a / b : null);
 function _mktgYearBar(sub) {
   const y = _mktgYearSel();
   // Attribution (lead reconciliation) is a tab of its own (per Isaac, Oct 2) — it lived behind a button on the right.
-  const SUBS = [['providers', 'Metrics'], ['recon', 'Attribution'], ['pnl', 'P&L'], ['spend', 'Spend'], ['disp', 'Disposition']];   // Projections hidden for now (per Isaac, Oct 9)
+  const SUBS = [['providers', 'Metrics'], ['recon', 'Attribution'], ['pnl', 'P&L'], ['spend', 'Spend']];   // Projections hidden (per Isaac, Oct 9); Disposition removed (Nov 5)
   const _recon = sub === 'providers' && state._mktProvView === 'recon';
   return el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
     el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
@@ -1006,7 +1022,7 @@ function _mktgMetricsButtons(inline) {
 }
 function _mktgCac() {
   const y = _mktgYearSel(), m = _mktgStore(), a = _mktgActuals(y), B = _mktgBranchList(y), s = m.settings;
-  // Scope (per Isaac): RIDD · RPC · RPS · or any single office.
+  // Scope (per Isaac): RIDD (all) · or any single office (entity rows only when a company has more than one).
   const scope = state._mktCacScope || 'RIDD';
   const scopeBranches = scope === MKTG_ALL ? B.all : (B.byEntity[scope] ? B.byEntity[scope] : [scope]);
   const zero = { rev: 0, upRev: 0, subs: 0, upsells: 0 };
@@ -1314,8 +1330,13 @@ function _mktgProvidersViz(cur, o) {
 // QuickBooks (and the ad platforms).
 function _mktgSpendEntry() {
   const y = _mktgYearSel(), B = _mktgBranchList(y);
-  // Rebuilt on QuickBooks lines (per Isaac, Oct 12) — see src/86-spend-qbo.js. The old upload-first checklist +
-  // controller table stay in the code below, unreached.
+  // Cleared out to start over (per Isaac, Nov 5): the tab is an empty shell until the new design lands. The
+  // QuickBooks-lines view (src/86-spend-qbo.js), the upload-first checklist and the controller table all stay in
+  // the code, unreached — Pulse / Metrics / CAC keep reading QuickBooks totals through spend-qbo's helpers.
+  _mktgSpendReset();
+  return el('div', { class: 'card p-8 text-center' },
+    el('div', { class: 'text-base font-bold mb-1' }, 'Spend'),
+    el('div', { class: 'text-sm', style: { color: 'var(--text-muted)' } }, 'Cleared Nov 5, 2026 — being rebuilt. Marketing spend for CAC and ROAS still comes straight from QuickBooks totals in the meantime.'));
   if (typeof mktgSpendQboView === 'function') return mktgSpendQboView();
   return el('div', { class: 'flex flex-col gap-4' }, (typeof mktgSpendUploadCard === 'function') ? mktgSpendUploadCard(B, y) : null, (typeof mktgSpendChecklist === 'function') ? mktgSpendChecklist() : null, _mktgControllerTable());
 }
@@ -1541,7 +1562,7 @@ function reportingMarketingPnl() {
       : typeof mktgPulseView === 'function' ? (() => { try { return mktgPulseView(); } catch (e) { console.warn('[marketing] pulse skipped', e); return el('div', { class: 'card p-6 text-sm' }, 'Marketing Pulse hit an error: ' + (e.message || e)); } })()
       : (typeof mktgMetricsView === 'function' ? (() => { try { return mktgMetricsView(); } catch (e) { console.warn('[marketing] metrics skipped', e); return el('div', { class: 'card p-6 text-sm' }, 'Metrics hit an error: ' + (e.message || e)); } })()
         : el('div', { class: 'flex flex-col gap-4' }, (() => { try { return _mktgDemand(); } catch (e) { console.warn('[marketing] demand section skipped', e); return null; } })(), _mktgCac(), _mktgProviders())))
-    : sub === 'spend' ? _mktgSpendEntry() : sub === 'disp' ? ((typeof mktgDispositionView === 'function') ? mktgDispositionView() : null) : sub === 'projections' ? _mktgProjections() : _mktgPnl();
+    : sub === 'spend' ? _mktgSpendEntry() : sub === 'projections' ? _mktgProjections() : _mktgPnl();
   // Needs attention (owner-only feed) lives on the Marketing tab (per Isaac, Sep 2026).
   return el('div', { class: 'flex flex-col gap-4' }, (typeof exceptionFeedCard === 'function') ? exceptionFeedCard() : null,  _mktgYearBar(sub), body);
 }

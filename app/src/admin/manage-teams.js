@@ -467,8 +467,11 @@ function manageTeamsPanel(opts) {
       }, 'All · ' + reps.length),
       tierChip('rookie',   'Rookie',   '#5F6C5B', tierCounts.rookie),
       tierChip('vet',      'Vet',      '#DF643A', tierCounts.vet),
-      tierChip('na',       'N/A',      '#8A8A88', tierCounts.na),
-      tierChip('untagged', 'Untagged', '#9B6B2C', tierCounts.untagged),
+      // N/A (non-D2D rep types) and Untagged (no tier at all) only appear when they have someone in
+      // them (per Isaac, Nov 5) — on the Sales Reps tab both are normally 0 since every rep is
+      // auto-tagged Rookie/Vet; Unconfirmed is the one that needs a look.
+      tierCounts.na       ? tierChip('na',       'N/A',      '#8A8A88', tierCounts.na)       : null,
+      tierCounts.untagged ? tierChip('untagged', 'Untagged', '#9B6B2C', tierCounts.untagged) : null,
       tierChip('auto',     'Unconfirmed', '#B45309', tierCounts.auto),
     );
 
@@ -1252,8 +1255,9 @@ function manageTeamsPanel(opts) {
         { value: '', label: 'All · ' + (tierCounts.rookie + tierCounts.vet + tierCounts.na + tierCounts.untagged) },
         { value: 'rookie', label: 'Rookie · ' + tierCounts.rookie },
         { value: 'vet', label: 'Vet · ' + tierCounts.vet },
-        { value: 'na', label: 'N/A · ' + tierCounts.na },
-        { value: 'untagged', label: 'Untagged · ' + tierCounts.untagged },
+        // N/A / Untagged only when non-empty (per Isaac, Nov 5) — see the chips above.
+        ...(tierCounts.na       || tierSelect === 'na'       ? [{ value: 'na',       label: 'N/A · ' + tierCounts.na }] : []),
+        ...(tierCounts.untagged || tierSelect === 'untagged' ? [{ value: 'untagged', label: 'Untagged · ' + tierCounts.untagged }] : []),
         { value: 'auto', label: 'Unconfirmed · ' + tierCounts.auto },
       ], (v) => { state._indicatorManageTierFilter = v; render(); }),
       mkFilter('Status', activeSelect, [

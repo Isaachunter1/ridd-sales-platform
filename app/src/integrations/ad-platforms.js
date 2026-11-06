@@ -78,7 +78,7 @@ function adAutoOffices(r, branches) {
 // Assigned per ACCOUNT × PROVIDER (per Isaac, Sep 30): an account running
 // both Google PPC (Search) and LSA campaigns gets a line for each. Targets
 // are a multi-select — any offices (spend splits evenly between them) and/or
-// a whole company ("ENT:RPC" / "ENT:RPS") for accounts that can't be pinned
+// a whole company ("ENT:RPC") for accounts that can't be pinned
 // to an office (the Facebook brand accounts, the main Google Ads account).
 // A company target counts in that company's totals (and RIDD's), never in a
 // single office. Stored value: array of targets; [] = company-wide; absent
@@ -198,7 +198,7 @@ function adPlatformIndex(year, branches) {
   if (memo && memo.rows === rows && memo.mapSig === mapSig && memo.bs === branches.join(',')) return memo.idx;
   const ents = [];
   const has = new Set();
-  // A company target ("ENT:RPS") = that company's offices, counted whole
+  // A company target ("ENT:RPC") = that company's offices, counted whole
   // only when the scope covers all of them (the company / RIDD rows).
   const entBranches = (k) => branches.filter(b => typeof _mktgEntityOf === 'function' && _mktgEntityOf(b) === k);
   for (const r of rows) {

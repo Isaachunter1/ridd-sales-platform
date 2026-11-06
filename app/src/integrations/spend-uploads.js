@@ -131,7 +131,7 @@ function _spuGuessCols(headers, rows) {
   return { amount, date: pick([/^date$/i, /date|day/i, /month|period/i, /created|time/i]), loc: pick([/office|branch/i, /location|market|territory|region/i, /campaign/i, /account/i, /city/i, /zip|postal/i, /state/i]), prov: pick([/vendor|payee|provider|publisher|platform/i]) };
 }
 // A location value → office: remembered choice, else an office name inside the
-// value ("FB | Detroit | RPS" → DETROIT), else a ZIP's office, else split.
+// value ("FB | Detroit | RIDD" → DETROIT), else a ZIP's office, else split.
 const SPU_MARKET_BRANCH = [[/\brichmond\b/, 'Virginia Beach'], [/\bwalton\b/, 'Destin'], [/\bwilmington\b/, 'Myrtle Beach']];
 function _spuAutoOffice(val, branches, m) {
   const k = _spuKey(val); if (!k) return SPU_SPLIT;
