@@ -53,9 +53,13 @@ function _pacerChip(v) {
     _pacerIcon(v.kind), v.label);
 }
 // A bar with the pace tick. pct / tick in 0–1.
-function _pacerBar(pct, tick, color, h, tickTip) {
+// split (optional) = share of the fill, 0–1, drawn solid; the rest of the fill is the same color at 55% (the
+// Loyalty Total bar: renewals solid, overflow new sales lighter).
+function _pacerBar(pct, tick, color, h, tickTip, split) {
+  const w = Math.max(0, Math.min(1, pct));
   return el('div', { style: { position: 'relative', height: h + 'px', background: 'var(--border)' } },
-    el('div', { style: { position: 'absolute', left: 0, top: 0, bottom: 0, width: (Math.max(0, Math.min(1, pct)) * 100).toFixed(2) + '%', background: color, transition: 'width .3s' } }),
+    el('div', { style: { position: 'absolute', left: 0, top: 0, bottom: 0, width: (w * 100).toFixed(2) + '%', background: color, transition: 'width .3s', opacity: split != null ? '.55' : '1' } }),
+    split != null ? el('div', { style: { position: 'absolute', left: 0, top: 0, bottom: 0, width: (w * Math.max(0, Math.min(1, split)) * 100).toFixed(2) + '%', background: color, transition: 'width .3s' } }) : null,
     tick != null ? el('div', { title: tickTip || '', style: { position: 'absolute', left: (Math.max(0, Math.min(1, tick)) * 100).toFixed(2) + '%', top: '-4px', bottom: '-4px', width: '2px', background: 'var(--text)' } }) : null);
 }
 
@@ -108,7 +112,13 @@ function _pacerStream(s, o) {
       gapEl ? el('span', { class: 'font-bold tabular-nums', style: { fontSize: '15px', color: v.color } }, gapEl) : null,
       gapNote ? el('span', { class: 'text-[12px]', style: { color: 'var(--text-muted)' } }, gapNote) : null),
     el('div', { class: 'flex flex-col', style: { gap: '5px' }, title: s.tip || '' },
-      _pacerBar(pct, s.target > 0 && v.kind !== 'hit' && v.kind !== 'missed' ? s.sp : null, barColor, phone ? 14 : 12, s.target > 0 ? 'Where you should be by now: ' + _pacerUsd(v.expected) : ''),
+      _pacerBar(pct, s.target > 0 && v.kind !== 'hit' && v.kind !== 'missed' ? s.sp : null, barColor, phone ? 14 : 12, s.target > 0 ? 'Where you should be by now: ' + _pacerUsd(v.expected) : '', s.parts && s.actual > 0 ? (Number(s.parts[0].value) || 0) / s.actual : null),
+      // Breakout (Loyalty — per Isaac, Nov 6): the Total bar is renewals + the overflow new sales they take.
+      s.parts ? el('div', { class: 'flex items-center gap-3 text-[11px] tabular-nums flex-wrap', style: { color: 'var(--text-muted)' } },
+        ...s.parts.map((pt, i) => el('span', { class: 'inline-flex items-center gap-1.5' },
+          el('span', { style: { width: '8px', height: '8px', background: barColor, opacity: i === 0 ? '1' : '.55', flexShrink: 0 }, 'aria-hidden': 'true' }),
+          el('span', {}, pt.label + ' '), el('strong', { style: { color: 'var(--text)' } }, _pacerUsd(pt.value)))),
+        el('span', {}, '= ' + s.label.toLowerCase())) : null,
       el('div', { class: 'flex items-center justify-between gap-3 text-[11px] tabular-nums', style: { color: 'var(--text-muted)' } },
         el('span', { class: 'truncate', style: v.kind === 'none' ? { color: 'var(--accent)', fontWeight: '600' } : {} }, leftTxt),
         rightTxt ? el('span', { class: 'shrink-0' }, rightTxt) : null)),

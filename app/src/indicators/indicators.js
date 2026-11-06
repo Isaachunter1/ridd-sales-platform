@@ -528,11 +528,11 @@ function dashLensPacer(dept) {
         + (v === 'me' ? ' · selling window ' + _fmtD(W.start) + ' – ' + _fmtD(W.end) + ' · change it in ⚙ Settings → Goals' : ''),
     };
   };
-  // Inside Sales race NEW revenue; Loyalty race RENEWAL revenue (per Isaac, Nov 5 — the Total bar is gone, it was a
-  // second answer to the same question). Sales reps / technicians: everything they sold.
+  // Inside Sales race NEW revenue. Loyalty race TOTAL revenue (per Isaac, Nov 6 — they take overflow new sales too),
+  // broken out underneath as renewal + new. Sales reps / technicians: everything they sold.
   const _loy = isOffice && (v === 'me' ? (typeof _isLoyaltyProfile === 'function' && _isLoyaltyProfile(state.profile)) : (typeof _isLoyaltyProfile === 'function' && _isLoyaltyProfile(state.profile)));
-  const bucket = isOffice ? (_loy ? acc.renewal : acc.new) : acc.new;
-  const streamLabel = isOffice ? (_loy ? 'Renewal revenue' : 'New revenue') : (v === 'me' ? 'My revenue' : team + ' revenue');
+  const bucket = isOffice ? (_loy ? { amt: acc.new.amt + acc.renewal.amt, tod: acc.new.tod + acc.renewal.tod, ytd: acc.new.ytd + acc.renewal.ytd, ytdN: acc.new.ytdN + acc.renewal.ytdN } : acc.new) : acc.new;
+  const streamLabel = isOffice ? (_loy ? 'Total revenue' : 'New revenue') : (v === 'me' ? 'My revenue' : team + ' revenue');
   const PWm = v === 'me' ? RW : _pacerClip(R, yearWin);
   // Live pace: work days before today + today's share by the clock (pacer-card.js PACER_DAY_HOURS).
   const liveSp = (win, g) => {
@@ -544,7 +544,7 @@ function dashLensPacer(dept) {
     const sp = over ? 1 : (p.total > 0 ? Math.min(1, (p.done + frac) / p.total) : 0);
     return { sp, elapsed: over || p.done > 0 || frac > 0, over, need: p.need, left: p.left, total: p.total, todayIn };
   };
-  const S = { key: _loy ? 'renewal' : 'new', label: streamLabel, sub: v === 'me' ? '' : members + ' reps', actual: bucket.amt, target: goal, sp: 0, over: false, elapsed: false, need: null, left: null, tip: '', hint: '' };
+  const S = { key: _loy ? 'total' : 'new', label: streamLabel, parts: _loy ? [{ label: 'Renewal', value: acc.renewal.amt }, { label: 'New', value: acc.new.amt }] : null, sub: v === 'me' ? '' : members + ' reps', actual: bucket.amt, target: goal, sp: 0, over: false, elapsed: false, need: null, left: null, tip: '', hint: '' };
   if (goalOn && PWm) {
     const L = liveSp(PWm, goal); const p = goalPlan(_wt, PWm, goal, bucket.amt);
     Object.assign(S, { sp: L.sp, over: L.over, elapsed: L.elapsed, need: p.need, left: p.left, tickLabel: L.todayIn && !L.over ? _pacerClock(new Date()) : '' });
@@ -566,7 +566,7 @@ function dashLensPacer(dept) {
     for (const s of indicatorSales()) {
       if (_indicatorDeptOf(s) !== dept || !dashLensMatch(s)) continue;
       const d = _parseIndicatorDay(s); if (!d || d < cnt.start || d > cntEnd) continue;
-      if (isOffice && (_indicatorIsRenewal(s) ? !_loy : _loy)) continue;
+      if (isOffice && !_loy && _indicatorIsRenewal(s)) continue;   // Inside Sales: new only; Loyalty: everything
       const n = (typeof getCanonicalRepName === 'function' ? getCanonicalRepName(s.rep) : s.rep) || ''; byRep[n] = (byRep[n] || 0) + (Number(s.contractValue) || 0);
     }
     const rows = [];
