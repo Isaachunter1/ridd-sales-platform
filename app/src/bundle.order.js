@@ -40,6 +40,7 @@ module.exports = [
   'pay/pay-live.js',
   'competitions/competitions.js',
   'pay/pay-accounts.js',
+  'pay/pay-cards.js',
   'sales/calendar.js',
   'sales/calendar-settings.js',
   'competitions/hall-of-fame-and-rep-names.js',

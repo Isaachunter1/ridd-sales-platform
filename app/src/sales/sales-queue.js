@@ -384,6 +384,8 @@ function viewSales() {
           // Pending Backend Lock (office) reads the same rows — with invoices paid + days aging to watch (per Isaac, Oct 15).
           // Office Staff (per Isaac, Oct 15): all four tabs — Upfront, Pending Backend Lock, Archived, History — read as the
           // same rows. Sales before the new flow (10/12) keep the old table underneath.
+          // Backend commission cards over the rows on screen (per Isaac, Nov 7) — the Pay tab's backend row.
+          (!_salesPhone() && queueFilter === 'backend' && typeof backendSummaryStrip === 'function') ? backendSummaryStrip(filtered) : null,
           (!_salesPhone() && (queueFilter === 'upfront' || _queue === 'office') && filtered.some(s => String(s.sold_date || '') >= SALES_FEED_START))
             ? el('div', { class: 'hidden sm:block mb-5' }, salesFeed(filtered.filter(s => String(s.sold_date || '') >= SALES_FEED_START), { isAdmin, mode: queueFilter === 'backend' ? 'backend' : 'upfront',
                 title: queueFilter === 'backend' ? 'Pending Backend Lock' : queueFilter === 'cancels' ? 'Archived' : queueFilter === 'history' ? 'History' : 'Upfront Sales' })) : null,   // titles = the tab names (per Isaac, Oct 15)

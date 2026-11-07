@@ -17,7 +17,7 @@
 // │ inside their Office Staff dates when they have a role history); add-ons from the
 // │ add-ons table (credited to the rep). Part of the app.js bundle.
 // └────────────────────────────────────────────────────────────────────────
-function payAccountsLedger(prof, year) {
+function payAccountsLedger(prof, year, opts = {}) {
   if (!prof) return null;
   const repId = prof.id, Y = String(year || new Date().getFullYear());
   if (typeof _loadSubRevenue === 'function') _loadSubRevenue(repId);
@@ -121,7 +121,7 @@ function payAccountsLedger(prof, year) {
   const chip = (k, l) => el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold', style: F === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._payAcctFilter = k; mountApp(); } }, l);
   if (!snap.length && !rows.length) return el('div', { class: 'card p-4 text-[11px] text-muted-' }, 'Accounts sold this year: waiting on the FieldRoutes snapshot.');
   return el('div', { class: 'flex flex-col gap-3' },
-    el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' } },
+    opts.tiles === false ? null : el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' } },
       tile('Accounts sold · ' + Y, fmt.int(base.length), fmt.int(base.filter(r => !r.cancelled).length) + ' active · ' + fmt.int(base.filter(r => r.cancelled).length) + ' cancelled' + (adds.length ? ' · ' + adds.length + ' add-on' + (adds.length === 1 ? '' : 's') : '')),
       tile('Peak revenue', money(peak), 'what they were worth when sold', undefined, 'Each account at the value this rep sold it for (the logged sale), plus add-ons credited to them at the value they were added.' + (noRec ? ' ' + noRec + ' account' + (noRec === 1 ? '' : 's') + ' sold before the app logged sales use FieldRoutes’ value.' : '')),
       tile('Attributed revenue', money(attr), 'still theirs today', 'var(--accent)', 'Base plans still active, each capped at the value this rep sold it for (upsells others added don’t count), plus their add-ons still on. Cancelled accounts are $0.'),
