@@ -63,8 +63,14 @@ function closeRatesCard() {
   const win = el('input', { type: 'text', value: (S && S.window && S.window.label) || '', placeholder: 'window, e.g. Aug 8 – Nov 6 (90 days)', class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '240px' } });
   const save = el('button', { class: 'rounded-lg px-3 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: async () => {
     const next = Object.assign({ source: 'plaibook', reps: {}, aliases: {} }, S || {});
-    const lines = String(box.value || '').split(/\n+/).map(x => x.trim()).filter(Boolean);
+    const raw = String(box.value || '').trim();
     let n = 0;
+    if (raw.startsWith('{')) {
+      // Full payload: { window: {label,start,end}, reps: { name: { rate, sold, qualified, closed: [{name,sub}], qualified_not_closed: [...], unqualified: [...] } } }
+      try { const j = JSON.parse(raw); if (j.reps && typeof j.reps === 'object') { for (const [k, v] of Object.entries(j.reps)) { const rate = Number(v.rate); if (!Number.isFinite(rate)) continue; next.reps[_crKey(v.name || k)] = Object.assign({}, v, { name: v.name || k, rate: rate > 1 ? rate / 100 : rate }); n++; } if (j.window) next.window = Object.assign({}, next.window || {}, j.window); if (j.aliases) next.aliases = Object.assign({}, next.aliases || {}, j.aliases); } }
+      catch (e) { toast('That JSON did not parse: ' + e.message, 'error'); return; }
+    }
+    const lines = raw.startsWith('{') ? [] : raw.split(/\n+/).map(x => x.trim()).filter(Boolean);
     for (const L of lines) {
       const m = L.match(/^(.+?)\s*[,\t]\s*([\d.]+)\s*%?(?:\s*[,\t]\s*(\d+)\s*\/\s*(\d+))?/);
       if (!m) continue;
@@ -72,7 +78,7 @@ function closeRatesCard() {
       next.reps[_crKey(m[1])] = { name: m[1].trim(), rate: rate > 1 ? rate / 100 : rate, sold: Number(m[3]) || 0, qualified: Number(m[4]) || 0 }; n++;
     }
     if (!n && !lines.length && !win.value) { toast('Nothing to save', 'warn'); return; }
-    next.window = Object.assign({}, next.window || {}, { label: win.value.trim() });
+    if (win.value.trim()) next.window = Object.assign({}, next.window || {}, { label: win.value.trim() });
     next.pulled_at = new Date().toISOString();
     if (typeof DEMO !== 'undefined' && DEMO) { state._closeRates = next; toast(n + ' close rate' + (n === 1 ? '' : 's') + ' saved', 'success'); mountApp(); return; }
     const r = await saveAppSettingCas('close_rates', next, async () => { state._closeRates = undefined; _closeRatesStore(); });
