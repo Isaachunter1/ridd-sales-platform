@@ -167,9 +167,10 @@ function pacerCard(opts) {
     : el('div', { class: 'grid', style: { gridTemplateColumns: two ? 'repeat(2, minmax(0, 1fr))' : 'minmax(0, 1fr)', columnGap: '32px', rowGap: '18px' } }, ...streams);
   return el('div', { class: 'card rev-goal-card', style: { padding: phone ? '14px' : '18px 20px' } },
     el('div', { class: 'flex items-center justify-between gap-2 flex-wrap', style: { marginBottom: '12px' } },
-      el('div', { class: 'flex items-baseline gap-2 min-w-0 flex-wrap' },
-        el('span', { class: 'uppercase font-bold', style: { fontSize: '10px', letterSpacing: '.1em', color: 'var(--text)' } }, opts.title || 'Revenue Pacer'),
-        opts.subtitle ? el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, opts.subtitle) : null),
-      opts.rangeToggle ? _pacerRangeToggle(opts.rangeToggle) : (opts.note && !phone ? el('span', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-subtle)' } }, opts.note) : null)),
+      // No descriptions on the card (per Isaac, Nov 7): the title, and the range toggle where there is one. The
+      // subtitle and the goal formula live in the card's tooltip instead.
+      el('div', { class: 'flex items-baseline gap-2 min-w-0 flex-wrap', title: [opts.subtitle, opts.note].filter(Boolean).join(' \u00b7 ') },
+        el('span', { class: 'uppercase font-bold', style: { fontSize: '10px', letterSpacing: '.1em', color: 'var(--text)' } }, opts.title || 'Revenue Pacer')),
+      opts.rangeToggle ? _pacerRangeToggle(opts.rangeToggle) : null),
     body);
 }
