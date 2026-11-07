@@ -2632,7 +2632,7 @@ function payrollRunStub(repId, sales, period, backendSales) {
   const lockedB = (backendSales || []).filter(b => b.lock_status !== 'chargeback');
   let closeBonus = null;
   if (lockedB.length && typeof closeRateBonusFor === 'function' && typeof subscriptionRevenueOf === 'function') {
-    const rate = Number(prof.close_rate_target ?? 0.5);
+    const rate = typeof repCloseRateValue === 'function' ? repCloseRateValue(prof) : null;   // Plaibook's close rate; null = No Close Rate → $0 (per Isaac, Nov 7)
     const subRev = subscriptionRevenueOf(lockedB);
     const tierPct = typeof closeRateTierPct === 'function' ? closeRateTierPct(rate, effectivePaySettings(repId)) : null;
     closeBonus = { rate, subRev: Math.round(subRev * 100) / 100, tierPct, amount: Math.round(closeRateBonusFor(rate, subRev, repId) * 100) / 100 };
@@ -2727,7 +2727,7 @@ function paystubPdfBytes(x, period, saleById) {
     }
     if (x.closeBonus) {
       text('Close rate bonus', C.cust, y + 12, 8.5, 'F4');
-      text(Math.round(x.closeBonus.rate * 100) + '% close rate -> ' + (x.closeBonus.tierPct == null ? '-' : x.closeBonus.tierPct + '%') + ' of subscription revenue', C.plan, y + 12, 8.5, 'F3', MUTED);
+      text((x.closeBonus.rate == null ? 'No Close Rate (not in Plaibook)' : Math.round(x.closeBonus.rate * 100) + '% close rate') + ' -> ' + (x.closeBonus.tierPct == null ? '-' : x.closeBonus.tierPct + '%') + ' of subscription revenue', C.plan, y + 12, 8.5, 'F3', MUTED);
       text(money(x.closeBonus.subRev), C.rev, y + 12, 8.5, 'F3', INK, true);
       text(money(x.closeBonus.amount), C.pay, y + 12, 8.5, 'F4', INK, true);
       y += ROW; line(M, y, W - M, y, LINE, 0.4);
@@ -2853,7 +2853,7 @@ function payStubCard(x, period, saleById, opts = {}) {
               td(money(l.amount), 1, { fontWeight: '700', color: l.amount < 0 ? '#B91C1C' : 'var(--text)' })); }),
             x.closeBonus ? el('tr', { class: 'border-t border-' },
               td(el('div', {}, el('div', { style: { fontWeight: '700' } }, 'Close rate bonus'),
-                el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)', whiteSpace: 'normal' } }, Math.round(x.closeBonus.rate * 100) + '% close rate \u2192 ' + (x.closeBonus.tierPct == null ? '\u2014' : x.closeBonus.tierPct + '%') + ' of locked subscription revenue'))),
+                el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)', whiteSpace: 'normal' } }, (x.closeBonus.rate == null ? 'No Close Rate (no Plaibook seat)' : Math.round(x.closeBonus.rate * 100) + '% close rate \u00b7 Plaibook') + ' \u2192 ' + (x.closeBonus.tierPct == null ? '\u2014' : x.closeBonus.tierPct + '%') + ' of locked subscription revenue'))),
               td(''), td(''), td(''), td(money(x.closeBonus.subRev), 1), td(''), td(''), td(money(x.closeBonus.amount), 1, { fontWeight: '700' })) : null,
             el('tr', { class: 'border-t', style: { borderColor: 'var(--text)' } }, td('Backend pay', 0, { fontWeight: '700' }), td(''), td(''), td(''), td(''), td(''), td(''), td(money(x.backendPay), 1, { fontWeight: '800', color: x.backendPay < 0 ? '#B91C1C' : 'var(--text)' })),
           ] : []),

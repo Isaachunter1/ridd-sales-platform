@@ -1756,10 +1756,9 @@ function adminPricingSimple() {
       if (error) toast('Could not save: ' + error.message, 'error');
       else { try { logActivity('pay_override', { detail: rep.full_name + ': ' + k + ' = ' + rep[k] }); } catch (e) { /* optional */ } }
     };
-    const closeIn = cellInput(
-      () => rep.close_rate_target == null ? null : Math.round(Number(rep.close_rate_target) * 1000) / 10,
-      (v) => { if (v != null) saveField('close_rate_target', Math.max(0, Math.min(100, v)) / 100); },
-      '%', 'This rep\u2019s actual close rate (hand-maintained each quarter; also editable on the Pay tab).');
+    // Close rate comes from Plaibook now (per Isaac, Nov 7) — read-only here; Configurations → Close rates to refresh.
+    const closeIn = el('span', { class: 'text-[11px] tabular-nums', style: typeof repCloseRate === 'function' && repCloseRate(rep) ? { fontWeight: '600' } : { color: '#B91C1C' }, title: 'Plaibook\u2019s close rate for this rep (sold \u00f7 qualified). No seat in Plaibook = No Close Rate, no close-rate bonus.' },
+      typeof closeRateLabel === 'function' ? closeRateLabel(rep) : '\u2014');
     return el('div', { class: 'card overflow-hidden' }, el('table', { class: 'w-full' },
       el('thead', {}, el('tr', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } },
         el('th', { class: 'px-3 py-2 text-left', style: { width: '320px' } }, 'Pay stub \u00b7 ' + rep.full_name),

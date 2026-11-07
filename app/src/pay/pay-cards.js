@@ -36,8 +36,9 @@ function backendFigures(repId, backend) {
   const revenue = eligible.reduce((a, s) => a + (Number(s.revenue_amount) || 0), 0);
   const subRev = typeof subscriptionRevenueOf === 'function' ? subscriptionRevenueOf(eligible) : 0;
   const prof = (state.allProfiles || []).find(p => p.id === repId) || {};
-  const closeRate = Number(prof.close_rate_target ?? 0.5);
-  const closeBonus = (repId && typeof closeRateBonusFor === 'function') ? closeRateBonusFor(closeRate, subRev, repId) : 0;
+  const cr = typeof repCloseRate === 'function' ? repCloseRate(prof) : null;   // Plaibook's close rate; null = No Close Rate (per Isaac, Nov 7)
+  const closeRate = cr ? cr.rate : null;
+  const closeBonus = (repId && cr && typeof closeRateBonusFor === 'function') ? closeRateBonusFor(closeRate, subRev, repId) : 0;
   // Chargebacks recoup what was paid upfront: the stored pay-run line when loaded (_recoup), else today's estimate.
   const chargebacks = list.filter(s => lockOf(s) === 'chargeback').reduce((a, s) => {
     if (s._recoup != null) return a + (Number(s._recoup) || 0);
@@ -45,7 +46,7 @@ function backendFigures(repId, backend) {
     const one = payrollRunStub(s.rep_id, [Object.assign({}, s, { audit_status: s.audit_status === 'below_minimums' ? 'below_minimums' : 'serviced' })], { id: 0, start: new Date(), label: '' });
     return a + (one.lines.length ? one.lines[0].amount : 0);
   }, 0);
-  return { eligible: eligible.length, revenue: money(revenue), multiYear: money(multiYear), renewal: money(renewal), closeRate, closeBonus: money(closeBonus), subRev: money(subRev),
+  return { eligible: eligible.length, revenue: money(revenue), multiYear: money(multiYear), renewal: money(renewal), closeRate, closeRateInfo: cr, noCloseRate: cr ? 0 : 1, closeBonus: money(closeBonus), subRev: money(subRev),
     pending: money(multiYear + renewal + closeBonus), chargebacks: money(chargebacks) };
 }
 
@@ -70,13 +71,15 @@ function payCommissionCards(repId, prof, period, x, ctx) {
       _payTile('Subscriptions', String(lines.length), money(x.revenue) + ' total revenue', undefined, 'Accounts on the stub and their contract value.'),
       _payTile('Upfront pay %', pct(x.mult == null ? 1 : x.mult), (x.pct == null ? 'no Passed Audit flags yet' : 'Passed Audit ' + pct(x.pct) + (upfrontTier ? ' · tier ' + upfrontTier : '')), undefined, 'The Passed Audit % of this period’s accounts picks the upfront tier; the tier is the share of commission that pays upfront.'),
       _payTile('Below Minimums %', lines.length ? Math.round(below.length / lines.length * 100) + '%' : '—', 'of accounts on the stub', undefined, 'Share of this period’s accounts sold under Standard pricing.'),
-      _payTile('Est. close rate %', pct(B.closeRate), 'sets the close-rate bonus tier', undefined, 'The rep’s close rate target (per rep, Settings) — picks the close-rate bonus tier paid at the backend lock.')),
+      B.closeRateInfo
+        ? _payTile('Close rate · Plaibook', pct(B.closeRate), B.closeRateInfo.sold + ' sold / ' + B.closeRateInfo.qualified + ' qualified' + (B.closeRateInfo.window && B.closeRateInfo.window.label ? ' · ' + B.closeRateInfo.window.label : ''), undefined, 'Plaibook’s Sales team page close rate for this rep (sold ÷ qualified) — picks the close-rate bonus tier paid at the backend lock.')
+        : _payTile('Close rate', 'No Close Rate', 'no seat in Plaibook · no close-rate bonus', '#B91C1C', 'This rep has no seat in Plaibook, so there is no close rate to read and the close-rate bonus does not pay. Configurations → Commission rules → Close rates.')),
     head('Backend · ' + n(B.eligible, 'account') + ' waiting on the lock'),
     _payGrid(
       _payTile('Eligible subscriptions', String(B.eligible), money(B.revenue) + ' eligible revenue', undefined, 'Paid upfront, waiting on the backend lock (4 paid invoices); chargebacks left out.'),
       _payTile('Est. multi-year pay', money(B.multiYear), '18 / 24-month plans', undefined, 'Backend on 18- and 24-month plans at the multi-year rates.'),
       _payTile('Est. renewal pay', money(B.renewal), 'renewal-source plans', undefined, 'Backend on renewals at the renewal backend rate.'),
-      _payTile('Est. close rate % pay', money(B.closeBonus), 'on ' + money(B.subRev) + ' subscription revenue', undefined, 'Close-rate bonus tier × the subscription revenue (12/18/24-month + PIF base plans) of the accounts waiting to lock.'),
+      _payTile('Est. close rate % pay', money(B.closeBonus), B.closeRateInfo ? 'on ' + money(B.subRev) + ' subscription revenue' : 'No Close Rate — nothing pays', B.closeRateInfo ? undefined : '#B91C1C', 'Close-rate bonus tier × the subscription revenue (12/18/24-month + PIF base plans) of the accounts waiting to lock.'),
       _payTile('Pending backend pay', money(B.pending), 'multi-year + renewal + close rate', '#3E5A3A', 'What the quarterly backend run would pay if every waiting account locked today.'),
       _payTile('Chargebacks', money(B.chargebacks), (ctx.backend || []).filter(s => s.lock_status === 'chargeback').length + ' to recoup', B.chargebacks ? '#B91C1C' : undefined, 'Upfront pay to recoup on accounts marked Chargeback, taken off the next backend run.'),
       ctx.backendPaidYear != null ? _payTile('Backend paid · ' + ctx.year, money(ctx.backendPaidYear), 'quarterly runs this year') : null));
@@ -89,14 +92,14 @@ function backendSummaryStrip(rows) {
   const money = (v) => fmt.usd(Math.round((Number(v) || 0) * 100) / 100);
   const reps = [...new Set(list.map(s => s.rep_id).filter(Boolean))];
   // Per rep (the close-rate tier is per rep), summed.
-  const T = { eligible: 0, revenue: 0, multiYear: 0, renewal: 0, closeBonus: 0, pending: 0, chargebacks: 0 };
+  const T = { eligible: 0, revenue: 0, multiYear: 0, renewal: 0, closeBonus: 0, pending: 0, chargebacks: 0, noCloseRate: 0 };
   for (const r of reps) { const B = backendFigures(r, list.filter(s => s.rep_id === r)); for (const k of Object.keys(T)) T[k] += B[k] || 0; }
   const n = (k, w) => k + ' ' + (w || 'account') + (k === 1 ? '' : 's');
   return el('div', { class: 'mb-4' }, _payGrid(
     _payTile('Eligible subscriptions', String(T.eligible), money(T.revenue) + ' eligible revenue · ' + n(reps.length, 'rep'), undefined, 'Paid upfront, waiting on the backend lock; chargebacks left out.'),
     _payTile('Est. multi-year pay', money(T.multiYear), '18 / 24-month plans'),
     _payTile('Est. renewal pay', money(T.renewal), 'renewal-source plans'),
-    _payTile('Est. close rate % pay', money(T.closeBonus), 'per rep’s close-rate tier'),
+    _payTile('Est. close rate % pay', money(T.closeBonus), 'per rep’s Plaibook close rate' + (T.noCloseRate ? ' · ' + T.noCloseRate + ' rep' + (T.noCloseRate === 1 ? '' : 's') + ' with No Close Rate' : ''), T.noCloseRate ? '#B45309' : undefined, 'Each rep’s Plaibook close rate picks their tier; a rep with no Plaibook seat has No Close Rate and earns no close-rate bonus.'),
     _payTile('Pending backend pay', money(T.pending), 'if every account locked today', '#3E5A3A'),
     _payTile('Chargebacks', money(T.chargebacks), list.filter(s => s.lock_status === 'chargeback').length + ' to recoup', T.chargebacks ? '#B91C1C' : undefined)));
 }

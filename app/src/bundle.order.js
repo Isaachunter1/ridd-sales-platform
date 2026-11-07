@@ -41,6 +41,7 @@ module.exports = [
   'competitions/competitions.js',
   'pay/pay-accounts.js',
   'pay/pay-cards.js',
+  'pay/close-rates.js',
   'sales/calendar.js',
   'sales/calendar-settings.js',
   'competitions/hall-of-fame-and-rep-names.js',
