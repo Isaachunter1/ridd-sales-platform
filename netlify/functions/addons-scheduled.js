@@ -11,8 +11,9 @@ exports.handler = async () => {
   if (!base) return { statusCode: 500, body: 'no site URL available' };
   const kick = async (fn) => { try { const res = await fetch(base + '/.netlify/functions/' + fn, { method: 'POST', headers: { 'x-sync-secret': process.env.REVHAWK_SYNC_SECRET || '' } }); console.log('[addons-scheduled] ' + fn + ' -> HTTP', res.status); } catch (e) { console.error('[addons-scheduled] ' + fn + ' failed', e); } };
   if (hour >= 7 && hour <= 23) await kick('fieldroutes-addons-sync-background');
+  // minute < 5, not < 15 (per Isaac, Oct 28): this kicker fires every 5 min, so < 15 ran each nightly job THREE times.
   // Nightly full sweep (~2am ET): every active subscription's recurring ticket, so removals are caught.
-  if (hour === 2 && minute < 15) await kick('fieldroutes-addons-sync-background?full=1');
-  if (hour === 3 && minute < 15) await kick('addon-reconcile-background');
+  if (hour === 2 && minute < 5) await kick('fieldroutes-addons-sync-background?full=1');
+  if (hour === 3 && minute < 5) await kick('addon-reconcile-background');
   return { statusCode: 200, body: 'kicked' };
 };

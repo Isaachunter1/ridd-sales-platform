@@ -45,7 +45,8 @@
 # Needs FIELDROUTES_SUBDOMAIN / FIELDROUTES_AUTH_KEY / FIELDROUTES_AUTH_TOKEN
 # in the Netlify env; silently skips until they exist.
 [functions."fieldroutes-live-sync-scheduled"]
-  schedule = "*/2 * * * *"   # every 2 min (per Isaac, Oct 15 — as fast as we can)
+  # Every 5 min (per Isaac, Oct 28 — was */2; FieldRoutes rate limits). ~13 calls a run, one run at a time.
+  schedule = "*/5 * * * *"
 
 # Add-ons (per Isaac + COO, Sep 2026): every 15 min the kicker pulls new
 # FieldRoutes ticket items into add_ons (7am–11pm ET) and, at ~3am ET, runs

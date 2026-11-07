@@ -47,4 +47,31 @@ async function frOfficeIds(frFn) {
   try { const j = await frFn('office/search', {}); return (Array.isArray(j.officeIDs) ? j.officeIDs : Object.values(j.officeIDs || {})).map(Number).filter(n => n > 0); }
   catch (e) { console.warn('[fieldroutes] office/search failed:', e && e.message); return []; }
 }
-module.exports = { loadIntegration, applyFieldRoutesEnv, fieldRoutesBase, recordIntegrationStatus, frOfficeIds };
+// Office ids + names, cached for a day in app_settings.fr_office_cache (per Isaac, Oct 28 — FieldRoutes asked us to
+// cache what rarely changes; the live pull and add-ons sync each read office/search + office/get on every run,
+// ~800 calls a day for a list that changes when a branch opens). Cached only when BOTH calls succeed, so a bad
+// read never sticks for a day. Ids and branch names only — app_settings is readable company-wide.
+const OFFICE_CACHE_MS = 24 * 3600 * 1000;
+async function frOfficesCached(admin, frFn) {
+  try {
+    const { data } = await admin.from('app_settings').select('value').eq('key', 'fr_office_cache').maybeSingle();
+    const v = data && data.value;
+    if (v && Array.isArray(v.ids) && v.ids.length && Array.isArray(v.offices) && v.offices.length && Date.now() - Date.parse(v.at) < OFFICE_CACHE_MS) return { ids: v.ids, offices: v.offices, cached: true };
+  } catch (e) { /* read fresh */ }
+  const ids = await frOfficeIds(frFn);
+  let offices = [];
+  try {
+    const og = await frFn('office/get', {});
+    offices = (Array.isArray(og.offices) ? og.offices : Object.values(og.offices || {})).map(o => ({ officeID: String(o.officeID), officeName: String(o.officeName || '') }));
+  } catch (e) { console.warn('[fieldroutes] office/get failed:', e && e.message); }
+  if (ids.length && offices.length) {
+    try { await admin.from('app_settings').upsert({ key: 'fr_office_cache', value: { at: new Date().toISOString(), ids, offices } }, { onConflict: 'key' }); } catch (e) { /* next run retries */ }
+  }
+  return { ids, offices, cached: false };
+}
+// Rate limits (per Isaac, Oct 28): when FieldRoutes says "too many requests" the run STOPS — no retries, no more
+// calls. Retrying while limited only deepens the limit for every other job. The next scheduled run picks up where
+// this one left off (every job here is idempotent).
+const isRateLimited = (status, txt) => status === 429 || /too many requests|rate limit/i.test(String(txt || '').slice(0, 300));
+class FieldRoutesRateLimited extends Error { constructor(endpoint) { super('FieldRoutes rate limit on ' + endpoint + ' — run stopped, next run resumes'); this.rateLimited = true; } }
+module.exports = { loadIntegration, applyFieldRoutesEnv, fieldRoutesBase, recordIntegrationStatus, frOfficeIds, frOfficesCached, isRateLimited, FieldRoutesRateLimited };
