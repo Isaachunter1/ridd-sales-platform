@@ -729,6 +729,12 @@ function processPayroll(sales, period) {
         payroll_period_id: period.id,
       }).in('id', ids);
       if (error) throw error;
+      // Not Payable accounts this run went past (per Isaac, Nov 7) → Archived (payroll_skipped_at); best-effort.
+      try {
+        const reps = new Set(sales.map(s => s.rep_id));
+        const skipped = (state.allSales || []).filter(s => reps.has(s.rep_id) && s.audit_status === 'not_payable' && !s.payroll_processed_at && !s.payroll_skipped_at && String(s.sold_date || '') <= String(period.end || '9999'));
+        if (skipped.length) await supabase.from('sales').update({ payroll_skipped_at: new Date().toISOString() }).in('id', skipped.map(s => s.id));
+      } catch (e) { console.warn('not-payable archive stamp skipped:', e && e.message); }
       toast(`Payroll processed for ${sales.length} accounts`, 'success');
       for (const [rid, list, totals, inputs] of snaps) recordPayRun('upfront', rid, period, list, totals, inputs);
       notifyPayrollRun(sales, period, 'upfront');

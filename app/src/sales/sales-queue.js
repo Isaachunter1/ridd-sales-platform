@@ -53,7 +53,11 @@ function viewSales() {
   // (lock_status set to lock or chargeback). At that point it lives in History.
   // Cancelled / Reschedule / Not Payable are terminal — they go straight to
   // History too (Cancelled is reinstateable from there).
-  const ACTIVE_QUEUE = new Set(['pending', 'serviced', 'below_minimums', 'nsf', 're_audit']);
+  // Not Payable (per Isaac, Nov 7) stays on Upfront until a payroll run has gone past it (payroll_skipped_at),
+  // then it's Archived; if it recovers (contract signed, price fixed) the stamp clears and it comes back.
+  // Flagged for Audit waits on Upfront for an auditor — never auto-approved, never paid while flagged.
+  const ACTIVE_QUEUE = new Set(['pending', 'serviced', 'below_minimums', 'nsf', 're_audit', 'flagged_for_audit', 'not_payable']);
+  const _npParked = (s) => s.audit_status === 'not_payable' && !!s.payroll_skipped_at;
   const lockOf = (s) => s.lock_status || 'pending';
   // Four queues, toggleable: upfront-payment audit (no first-pass audit yet)
   // vs backend-lock review (audited & paid out, awaiting Lock/Chargeback call)
@@ -76,18 +80,18 @@ function viewSales() {
       mountApp();
     });
   }
-  const HIST_TERMINAL = new Set(['not_payable', 'reschedule']);
+  const HIST_TERMINAL = new Set(['reschedule']);
   // Upfront = everything still on its way to the UPFRONT payroll run: waiting on audit, or approved
   // (Commissionable / Below Minimums / NSF) but not paid yet. It only moves to Pending Backend Lock once
   // the upfront payroll has actually run on it (per Isaac, Oct 15 — no payroll run yet, so nothing
   // should be waiting on a backend decision).
   // Upfront starts Oct 12 (per Isaac, Oct 15 — the 'before 10/12' table is cleared): the new flow begins there.
   const isUpfrontPending = (s) =>
-    ACTIVE_QUEUE.has(s.audit_status) && lockOf(s) === 'pending' && !s.payroll_processed_at && saleHasInitialScheduled(s)
+    ACTIVE_QUEUE.has(s.audit_status) && !_npParked(s) && lockOf(s) === 'pending' && !s.payroll_processed_at && saleHasInitialScheduled(s)
     && (_queue !== 'office' || String(s.sold_date || '') >= SALES_FEED_START);
   // Sold but no initial booked yet — kept off Upfront (per Isaac, Oct 15); listed on demand.
   const isAwaitingInitial = (s) =>
-    ACTIVE_QUEUE.has(s.audit_status) && lockOf(s) === 'pending' && !s.payroll_processed_at && !saleHasInitialScheduled(s);
+    ACTIVE_QUEUE.has(s.audit_status) && !_npParked(s) && lockOf(s) === 'pending' && !s.payroll_processed_at && !saleHasInitialScheduled(s);
   // Pending Backend Lock includes:
   //   (a) audited sales still awaiting a Lock/Chargeback decision, AND
   //   (b) sales already marked Lock or Chargeback that haven't yet had
@@ -105,7 +109,7 @@ function viewSales() {
   // pay history either. History is strictly the locked / charged-back set.
   // …and after that run, Chargebacks land here with the other non-commissionable accounts; Locks go to History.
   const _awaitingBackend = (s) => !!s.payroll_processed_at && !s.backend_payroll_processed_at;
-  let isCancelled = (s) => !_awaitingBackend(s) && (s.audit_status === 'cancelled' || HIST_TERMINAL.has(s.audit_status)
+  let isCancelled = (s) => !_awaitingBackend(s) && (s.audit_status === 'cancelled' || HIST_TERMINAL.has(s.audit_status) || _npParked(s)
     || (lockOf(s) === 'chargeback' && !!s.backend_payroll_processed_at));
   // History = settled. A Lock/Chargeback sale only graduates here once the
   // RUN BACKEND payroll run has stamped backend_payroll_processed_at.
@@ -204,7 +208,7 @@ function viewSales() {
     ...[
       { id: 'upfront', label: 'Upfront Sales',                short: 'Sales' },
       { id: 'backend', label: 'Pending Backend Lock', short: 'Backend' },
-      { id: 'cancels', label: 'Cancelled',            short: 'Cancelled' },   // was Archived (per Isaac, Oct 15)
+      { id: 'cancels', label: 'Archived',             short: 'Archived' },    // Cancelled + Not Payable a payroll run went past (per Isaac, Nov 7)
       { id: 'history', label: 'History',              short: 'History' },
     ].map((t, i) => el('button', {
       class: 'px-2.5 py-1 text-[11px] font-bold transition flex items-center justify-center gap-2 whitespace-nowrap' + (i ? ' border-l' : ''),
@@ -382,7 +386,7 @@ function viewSales() {
           // same rows. Sales before the new flow (10/12) keep the old table underneath.
           (!_salesPhone() && (queueFilter === 'upfront' || _queue === 'office') && filtered.some(s => String(s.sold_date || '') >= SALES_FEED_START))
             ? el('div', { class: 'hidden sm:block mb-5' }, salesFeed(filtered.filter(s => String(s.sold_date || '') >= SALES_FEED_START), { isAdmin, mode: queueFilter === 'backend' ? 'backend' : 'upfront',
-                title: queueFilter === 'backend' ? 'Pending Backend Lock' : queueFilter === 'cancels' ? 'Cancelled' : queueFilter === 'history' ? 'History' : 'Upfront Sales' })) : null,   // titles = the tab names (per Isaac, Oct 15)
+                title: queueFilter === 'backend' ? 'Pending Backend Lock' : queueFilter === 'cancels' ? 'Archived' : queueFilter === 'history' ? 'History' : 'Upfront Sales' })) : null,   // titles = the tab names (per Isaac, Oct 15)
           (_salesPhone() || ((queueFilter === 'upfront' || _queue === 'office') && !filtered.some(s => String(s.sold_date || '') < SALES_FEED_START))) ? null :
           el('div', { class: 'hidden sm:block' },
             (queueFilter === 'upfront' || _queue === 'office') && filtered.some(s => String(s.sold_date || '') >= SALES_FEED_START) ? el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted- mb-2' }, 'Before ' + fmt.dateShortYear(SALES_FEED_START)) : null,
@@ -872,6 +876,8 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                 if (s.crm_paid_invoices != null && (s.queue_type || 'office') === 'office') { const _N = Math.max(1, parseInt((((state._autolog || {}).backend || {}).office || {}).paid_invoices, 10) || 4); const _n = Number(s.crm_paid_invoices) || 0;
                   lcChips.push(_n >= _N ? chip('🧾 ' + _n + ' of ' + _N + ' paid', 'rgba(95,108,91,.16)', '#5F6C5B', 'Paid invoices on the plan since the sale (initial included) — backend lock reached' + (s.crm_paid_invoices_at ? ' · counted ' + String(s.crm_paid_invoices_at).slice(0, 10) : ''))
                     : chip('🧾 ' + _n + ' of ' + _N + ' paid', 'var(--card-2)', 'var(--text-muted)', 'Paid invoices on the plan since the sale (initial included) — the backend locks at ' + _N + (s.crm_paid_invoices_at ? ' · counted ' + String(s.crm_paid_invoices_at).slice(0, 10) : ''))); }
+                if (saleUnsignedScheduled(s)) lcChips.push(chip('\u26a0 Scheduled, unsigned', 'rgba(185,28,28,.16)', '#B91C1C', 'Initial appointment on the books with no signed contract \u2014 get it signed or pull the appointment'));
+                if (s.audit_flag) lcChips.push(chip('\u2691 ' + s.audit_flag, 'rgba(109,40,217,.12)', '#6D28D9', s.audit_flag));
                 if (s.sale_kind === 'upsell') lcChips.push(chip('＋ Upsell', 'rgba(156,63,30,.14)', '#9C3F1E', 'Add-on' + (s.crm_ticket_id ? ' · FieldRoutes ticket #' + s.crm_ticket_id : '') + (s.parent_subscription_id ? ' on subscription ' + s.parent_subscription_id : '')));
                 // Add-on streak (docs/TECH_UPSELLS.md): backend pays after 5 paid
                 // invoices ON/after the add-on date with the add-on still on each.
@@ -1107,14 +1113,26 @@ function saleAuditChip(sale) {
 const SALE_STATUS_OPTIONS = [
   ['pending', 'Pending'], ['serviced', 'Commissionable'], ['below_minimums', 'Below Minimums'],
   ['cancelled', 'Cancelled'], ['re_audit', 'Re-Audit'], ['reschedule', 'Reschedule'],
-  ['nsf', 'NSF'], ['not_payable', 'Not Payable'],
+  ['nsf', 'NSF'], ['not_payable', 'Not Payable'], ['flagged_for_audit', 'Flagged for Audit'],
 ];
 const SALE_STATUS_LABEL = Object.fromEntries(SALE_STATUS_OPTIONS);
 // Status colors from RIDD's status list (per Isaac, Oct 15) — rows get a faint tint, the key shows the full color.
 const SALE_STATUS_COLOR = {
   pending: '#8F9A8C', serviced: '#3E5A3A', below_minimums: '#B8862B', cancelled: '#E5532E',
-  re_audit: '#B84A47', reschedule: '#C17A3B', nsf: '#1F1F1F', not_payable: '#6E6C5C',
+  re_audit: '#B84A47', reschedule: '#C17A3B', nsf: '#1F1F1F', not_payable: '#6E6C5C', flagged_for_audit: '#6D28D9',
 };
+// A scheduled (or completed) initial with no signed contract (per Isaac, Nov 7): "we do NOT want scheduled
+// appointments without signed contracts" — the whole row goes red. One-time services need no contract.
+function saleUnsignedScheduled(s) {
+  if (!s || s.sale_kind === 'upsell' || !(Number(s.contract_months) > 0)) return false;
+  if (!['sent', 'none'].includes(String(s.crm_contract_state || ''))) return false;
+  return /^(pending|completed)$/i.test(String(s.crm_initial_status || '').trim()) || !!s.crm_serviced_at;
+}
+// ⚑ what an auditor should look at (sales.audit_flag — the pricing-floors job, or a rep's own status pick).
+function saleAuditFlagChip(s) {
+  if (!s || !s.audit_flag) return null;
+  return el('span', { class: 'inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-bold whitespace-nowrap', style: { background: 'rgba(109,40,217,.12)', color: '#6D28D9', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis' }, title: s.audit_flag }, '\u2691 ' + s.audit_flag);
+}
 const saleStatusTint = (st) => {
   const hex = SALE_STATUS_COLOR[st || 'pending'] || SALE_STATUS_COLOR.pending;
   const n = parseInt(hex.slice(1), 16), a = st === 'nsf' ? 0.08 : (!st || st === 'pending') ? 0.08 : st === 'serviced' ? 0.16 : 0.10;   // Pending a touch lighter, Commissionable a touch darker (per Isaac, Oct 15)
@@ -1155,17 +1173,22 @@ function statusSelect(saleId) {
   const role = state.profile?.role;
   const canAudit = isAdminRole(role) || role === 'auditor';
   const current = sale?.audit_status || 'pending';
-  if (!canAudit) return statusChip(current);
+  // A rep may ask for a status on their OWN pending sale (per Isaac, Nov 7): the pick lands as Flagged for Audit
+  // with what they asked for on the row, and an auditor confirms it. Anything else: read-only chip.
+  const ownPending = !canAudit && sale && sale.rep_id === state.profile?.id && current === 'pending';
+  if (!canAudit && !ownPending) return statusChip(current);
+  const REP_PICKS = [['pending', 'Pending'], ['not_payable', 'Not Payable'], ['reschedule', 'Reschedule'], ['cancelled', 'Cancelled'], ['nsf', 'NSF']];
   return el('select', {
     class: 'rounded-lg border px-2.5 py-1 text-[11px] font-medium cursor-pointer',
     style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+    title: ownPending ? 'Ask for a status \u2014 it goes to an auditor as Flagged for Audit' : undefined,
     onchange: (e) => {
       const val = e.target.value;
       if (!val || val === current) return;
-      auditSale(saleId, val);
+      ownPending ? requestSaleStatus(saleId, val) : auditSale(saleId, val);
     },
   },
-    ...SALE_STATUS_OPTIONS.map(([v, lbl]) => el('option', { value: v, selected: current === v }, lbl)),
+    ...(ownPending ? REP_PICKS : SALE_STATUS_OPTIONS).map(([v, lbl]) => el('option', { value: v, selected: current === v }, lbl)),
   );
 }
 
@@ -2374,7 +2397,7 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
       el('div', { class: 'flex flex-wrap items-center justify-between gap-2 px-4 pt-3 pb-2' },
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, title || 'Latest sales'),
         el('div', { class: 'flex flex-wrap items-center justify-end', style: { columnGap: '18px', rowGap: '6px' } },
-          _bk ? el('div', { class: 'flex flex-col items-end', style: { rowGap: '4px' } }, saleStatusKey(), backendKey()) : saleStatusKey(state._salesQueueFilter === 'cancels' ? ['cancelled'] : undefined),   // same key on every tab (per Isaac, Oct 15); backend adds its lock key
+          _bk ? el('div', { class: 'flex flex-col items-end', style: { rowGap: '4px' } }, saleStatusKey(), backendKey()) : saleStatusKey(state._salesQueueFilter === 'cancels' ? ['cancelled', 'not_payable'] : undefined),   // same key on every tab (per Isaac, Oct 15); backend adds its lock key
           el('div', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, rows.length + ' since ' + fmt.dateShortYear(SALES_FEED_START)))),
       el('div', { class: 'px-4 pb-2', style: gridRow() },
         el('div', { class: 'text-[9px] text-left', style: { color: 'var(--text-subtle)' } }, '#'),
@@ -2425,8 +2448,9 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
       const tracked = s.crm_paid_invoices != null || s.payroll_processed_at;
       return el('div', {
         class: 'px-4 py-2.5 cursor-pointer transition hover:brightness-95',
-        style: gridRow({ borderTop: i ? '1px solid var(--border)' : '0', background: _bk ? backendTint(s.lock_status) : saleStatusTint(s.audit_status), ...(!_bk && saleAuditFlag(s) === 'passed' ? { boxShadow: 'inset 3px 0 0 #15803D' } : {}) }),
-        title: saleAuditFlag(s) === 'passed' ? 'Passed Audit flag on the customer card in FieldRoutes' : undefined,   // never on renewals (Oct 28)
+        style: gridRow({ borderTop: i ? '1px solid var(--border)' : '0', background: _bk ? backendTint(s.lock_status) : saleStatusTint(s.audit_status), ...(!_bk && saleAuditFlag(s) === 'passed' ? { boxShadow: 'inset 3px 0 0 #15803D' } : {}),
+          ...(!_bk && saleUnsignedScheduled(s) ? { background: 'rgba(185,28,28,.18)', boxShadow: 'inset 4px 0 0 #B91C1C' } : {}) }),   // red: scheduled with no signed contract (per Isaac, Nov 7)
+        title: saleUnsignedScheduled(s) ? 'Initial appointment on the books with NO signed contract \u2014 get it signed in FieldRoutes or pull the appointment. Not Payable until it\u2019s signed.' : saleAuditFlag(s) === 'passed' ? 'Passed Audit flag on the customer card in FieldRoutes' : undefined,   // never on renewals (Oct 28)
         onclick: (e) => { if (e.target.closest('select, button, input, textarea, a')) return; openSaleCommissionCard(s, { isAdmin, backend: _bk }); },   // small commission card, not the edit form (per Isaac, Oct 15)
       },
         el('div', { class: 'tabular-nums text-left', style: { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: '12px', fontWeight: '600', color: 'var(--text-subtle)' } }, String(i + 1).padStart(2, '0')),
@@ -2461,7 +2485,7 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
         el('div', { class: 'text-left tabular-nums font-semibold', style: { fontSize: '15px' },
           title: s.commission_split ? 'Commissionable ' + fmt.usd(s.revenue_amount) + ' of ' + fmt.usd(s.total_revenue) + ' on the account' : '' },
           ...saleAmountNode(s)),
-        el('div', { class: 'flex items-center gap-2', style: { minWidth: '0' }, title: s.crm_below_min ? 'Under the pricing minimum: ' + s.crm_below_min : '' }, _bk ? lockStatusSelect(s.id) : statusSelect(s.id)));   // (audit flag chips off the rows — per Isaac, Oct 15)
+        el('div', { class: 'flex items-center gap-2 flex-wrap', style: { minWidth: '0' }, title: s.crm_below_min ? 'Under the pricing minimum: ' + s.crm_below_min : '' }, _bk ? lockStatusSelect(s.id) : statusSelect(s.id), _bk ? null : saleAuditFlagChip(s)));   // (audit flag chips off the rows — per Isaac, Oct 15)
     }));
   // Never the page (per Isaac, Oct 28): when a window is narrower than the table's minimum, the CARD scrolls sideways
   // on its own — the tabs, search and filters above stay put. (The frozen header pins by transform, not sticky, so
@@ -2883,7 +2907,7 @@ function openPayrollRun(rows, opts = {}) {
     onclick: async () => {
       if (busy || (!sales.length && !backendSales.length)) return; busy = true; confirmBtn.textContent = 'Running…';
       try {
-        await confirmPayrollRun(sales, period, backendSales);
+        await confirmPayrollRun(sales, period, backendSales, (rows || []).filter(s => s.audit_status === 'not_payable' && !s.payroll_processed_at && !s.payroll_skipped_at));
         close();
         // Pay stubs to Slack as PDFs (per Isaac, Oct 15), built from the numbers that were just confirmed.
         const r = await slackPaystubPdfs(stubs, period, saleById);
@@ -2920,10 +2944,16 @@ function openPayrollRun(rows, opts = {}) {
     el('div', { class: 'text-[11px] text-muted-' }, 'Confirm stamps these accounts paid for ' + period.label + ' and saves a snapshot of every number above. One-time services then move to History; every other account moves to Pending Backend Lock and locks after 4 paid invoices.')));
   document.body.append(back);
 }
-async function confirmPayrollRun(sales, period, backendSales) {
+async function confirmPayrollRun(sales, period, backendSales, skipped) {
   if (typeof DEMO !== 'undefined' && DEMO) { toast('Demo mode — payroll not written', 'warn'); return; }
   const now = new Date().toISOString();
   backendSales = backendSales || [];
+  // Not Payable accounts this run went past (per Isaac, Nov 7): stamped, so they move from Upfront to Archived.
+  // Nothing is paid on them; if one recovers the pricing-floors job clears the stamp and it comes back to Upfront.
+  if (skipped && skipped.length) {
+    const { error: es } = await supabase.from('sales').update({ payroll_skipped_at: now }).in('id', skipped.map(s => s.id));
+    if (es) toast('Not Payable accounts did not move to Archived (' + es.message + ' — run db/migrations/20261107_pricing_floors.sql?)', 'warn');
+  }
   // Quarterly backend riding along (per Isaac, Oct 15): stamp the backend run — Locks graduate to History, Chargebacks to Archived.
   if (backendSales.length) {
     const bRep = new Map(); backendSales.forEach(s => { if (!bRep.has(s.rep_id)) bRep.set(s.rep_id, []); bRep.get(s.rep_id).push(s); });

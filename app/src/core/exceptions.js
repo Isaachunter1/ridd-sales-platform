@@ -160,6 +160,7 @@ function _exceptionFeedItemsRaw(scope) {
     mk('Source', pl(rec.source.length, 'subscription sourced wrong for who sold it', 'subscriptions sourced wrong for who sold them'), rec.source);
     mk('Cancellation', pl(rec.cancel.length, 'cancel reason that can\u2019t be right', 'cancel reasons that can\u2019t be right'), rec.cancel);
     mk('Status', pl(rec.status.length, 'subscription still Active but carrying a cancel date or reason', 'subscriptions still Active but carrying a cancel date or reason'), rec.status);
+    mk('Contract', pl((rec.contract || []).length, 'initial appointment scheduled with no signed agreement', 'initial appointments scheduled with no signed agreement'), rec.contract || []);
     mk('Duplicates', pl(rec.dupes.length, 'active subscription duplicated on the same customer', 'active subscriptions duplicated on the same customer (same service twice)'), rec.dupes);
     mk('Seller', pl(rec.seller.length, 'active subscription with no Sold By rep', 'active subscriptions with no Sold By rep'), rec.seller);
     // Same rule as the Auditing task (per Isaac, Oct 13): serviced cancels the retention book counts — never-serviced,
@@ -246,7 +247,7 @@ function _exceptionFeedItemsRaw(scope) {
 const CRM_ZIP_STATE = { AL: [350, 369], AK: [995, 999], AZ: [850, 865], AR: [716, 729], CA: [900, 961], CO: [800, 816], CT: [60, 69], DE: [197, 199], DC: [200, 205], FL: [320, 349], GA: [300, 319], HI: [967, 968], ID: [832, 838], IL: [600, 629], IN: [460, 479], IA: [500, 528], KS: [660, 679], KY: [400, 427], LA: [700, 714], ME: [39, 49], MD: [206, 219], MA: [10, 27], MI: [480, 499], MN: [550, 567], MS: [386, 397], MO: [630, 658], MT: [590, 599], NE: [680, 693], NV: [889, 898], NH: [30, 38], NJ: [70, 89], NM: [870, 884], NY: [100, 149], NC: [270, 289], ND: [580, 588], OH: [430, 459], OK: [730, 749], OR: [970, 979], PA: [150, 196], RI: [28, 29], SC: [290, 299], SD: [570, 577], TN: [370, 385], TX: [750, 799], UT: [840, 847], VT: [50, 59], VA: [220, 246], WA: [980, 994], WV: [247, 268], WI: [530, 549], WY: [820, 831] };
 function crmZipState(zip) { const m = /^(\d{3})\d{2}/.exec(String(zip || '').trim()); if (!m) return null; const p = Number(m[1]); for (const k in CRM_ZIP_STATE) { const [a, b] = CRM_ZIP_STATE[k]; if (p >= a && p <= b) return k; } return null; }
 function crmReconciliationChecks(subs) {
-  const out = { location: [], source: [], cancel: [], status: [], dupes: [], seller: [], noReason: [] };
+  const out = { location: [], source: [], cancel: [], status: [], dupes: [], seller: [], noReason: [], contract: [] };
   const isActive = (r) => /^\s*active\s*$/i.test(String(r.subscription_status || ''));
   const dupKey = new Map();
   const flag = (r, why) => Object.assign({}, r, { _flagReason: why });
@@ -279,6 +280,11 @@ function crmReconciliationChecks(subs) {
     // FieldRoutes dropped them from the employee list (3,287 active subs) — and that sale is still theirs; nothing to fix.
     if (isActive(r) && !String(r.sold_by || '').trim() && /^(|0|-\d+)$/.test(String(r.sold_by_id == null ? '' : r.sold_by_id).trim())) out.seller.push(flag(r, 'Active with no Sold By'));
     if (!isActive(r) && cxlDate && !cxlReason) out.noReason.push(flag(r, 'Cancelled ' + cxlDate + ' with no reason'));
+    // Contract (per Isaac, Nov 7): an initial on the books with NO signed agreement — "we do NOT want scheduled
+    // appointments without signed contracts". Active recurring plans sold this year; one-time services exempt.
+    if (isActive(r) && /^pending$/i.test(String(r.initial_status || '').trim()) && String(r.contract_state || 'none') !== 'signed'
+        && !/one[\s-]?time/i.test(String(r.subscription || '')) && String(r.sold_date || '').slice(0, 4) === String(new Date().getFullYear()))
+      out.contract.push(flag(r, 'Initial scheduled, agreement ' + (String(r.contract_state) === 'sent' ? 'sent but not signed' : 'never sent') + ' \u2014 get it signed or pull the appointment'));
     // Source
     const t = TYPE(r), src = SRC(r);
     if (t === 'technician') { if (!crmSourceIs('tech_upsell', src)) out.source.push(flag(r, 'Technician sale sourced "' + (src || 'blank') + '" \u2014 should be a technician-upsell source')); }

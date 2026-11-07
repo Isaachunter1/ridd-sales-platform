@@ -703,6 +703,29 @@ function adminConfigurations(part) {
           row('Termite (annual)', [el('span', { class: 'text-[11px] text-muted-' }, 'initial'), money(TM.initial, (n) => savePR({ termite: Object.assign({}, TM, { initial: n }) }, 'termite initial = $' + n)),
             el('span', { class: 'text-[11px] text-muted-' }, 'recurring'), money(TM.recurring, (n) => savePR({ termite: Object.assign({}, TM, { recurring: n }) }, 'termite recurring = $' + n))]),
           otTable,
+          // Pricing floors (per Isaac, Nov 7): the server job (pricing-floors) scores every open sale sold on/after
+          // the start date — under Standard = Below Minimums, under Loyalty (the renewal sheet below) = Not Payable,
+          // no signed contract = Not Payable until it's signed. Add-on floors are the Pricing tab's Standard / Loyalty.
+          ...(() => {
+            const FL = Object.assign({ start: '2027-01-01', unsigned_grace_days: 0 }, PR.floors || {});
+            const saveFL = (patch, what) => savePR({ floors: Object.assign({}, FL, patch) }, 'floors ' + what);
+            const AD = [['mole', 'Mole', [40, 30]], ['tfm', 'Tick, Flea & Mosquito', [40, 30]], ['seasonal', 'Seasonal TF&M', [30, 15]], ['roach', 'German Roach', [20, 10]], ['flea', 'Interior Flea', [20, 10]], ['pest', 'Pest', [20, 10]], ['snake', 'Snake', [20, 10]], ['cbee', 'Carpenter Bee', [20, 10]], ['rodent', 'Rodent', [20, 10]]];
+            const adVal = (k, d) => { const v = (FL.addons || {})[k]; return Array.isArray(v) && v.length === 2 ? v : d; };
+            const adTable = el('div', { class: 'overflow-x-auto py-1.5' }, el('table', { class: 'w-full text-[11px]' },
+              el('thead', {}, el('tr', { style: { background: 'var(--card-2)' } }, cellTh('Add-on (per service)'), cellTh('Standard → Below Minimums under', 'text-right'), cellTh('Loyalty → Not Payable under', 'text-right'))),
+              el('tbody', {}, ...AD.map(([k, lbl, d]) => el('tr', { style: { borderTop: '1px solid var(--border)' } },
+                el('td', { class: 'px-2 py-1.5 font-semibold' }, lbl),
+                ...[0, 1].map(i => el('td', { class: 'px-2 py-1 text-right' }, money(adVal(k, d)[i], (n) => { const row = adVal(k, d).slice(); row[i] = n; saveFL({ addons: Object.assign({}, FL.addons || {}, { [k]: row }) }, lbl + (i ? ' loyalty' : ' standard') + ' = $' + n); }))))))));
+            return [
+              sub('Pricing floors — Standard / Loyalty (server job)'),
+              row('Pricing floors start', txt(FL.start, (v) => { const t = String(v || '').trim(); if (/^\d{4}-\d{2}-\d{2}$/.test(t)) saveFL({ start: t }, 'start ' + t); }, { placeholder: 'YYYY-MM-DD', width: '110px' }),
+                { desc: 'Sales sold on/after this date are scored: under Standard = Below Minimums (half upfront, full backend); under Loyalty = Not Payable; no signed contract = Not Payable until signed; Sales Reps and Technicians must sell at Standard. Before it, the sheets rule.' }),
+              row('Unsigned grace (days)', num(FL.unsigned_grace_days, (v) => saveFL({ unsigned_grace_days: Math.max(0, parseInt(v, 10) || 0) }, 'unsigned grace ' + v)),
+                { desc: '0 = an unsigned sale is Not Payable right away (it comes back the moment the e-sign completes). The red "scheduled, unsigned" row shows either way.' }),
+              adTable,
+              el('div', { class: 'text-[11px] py-1.5', style: { color: 'var(--text-subtle)', lineHeight: '1.4' } }, 'Base-plan Loyalty floors are the Renewal plan table below (one sheet, one place). Termite has no Loyalty price: under Standard is Not Payable. Add-ons sold the SAME DAY as the plan pull the plan down with them; an add-on sold later is scored on its own. Renewals under Loyalty, and plans or add-ons with no sheet, are Flagged for Audit.'),
+            ];
+          })(),
           ...renewalRows,
           row('Fee included in the recurring charge', money(PR.fee, (n) => savePR({ fee: n }, 'fee = $' + n)),
             { desc: 'The service fee FieldRoutes adds to the recurring charge — taken off before comparing when the charge carries it (0 = compare the charge as-is).' }),
