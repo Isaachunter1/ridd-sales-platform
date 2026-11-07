@@ -6051,8 +6051,10 @@ function aggregateRawSalesByGroup(rawSales, getGroupKey, indicatorRowsForDates, 
 
   const groups = {}; // key = groupKey + '|' + week
   (rawSales || []).forEach(s => {
-    if (!s.rep) return;
-    if (applyExclusion && isRepExcluded(s.rep)) return; // team view only
+    // A sale with no rep still counts for its office / team / company (per Isaac, Nov 7 — 22 Sellify subs, $11K,
+    // were in the leaderboard, Sales Mix and pacer but missing from this table's RIDD column). Rep-only reads
+    // (the leaderboard) filter on rep themselves.
+    if (applyExclusion && s.rep && isRepExcluded(s.rep)) return; // team view only
     const groupKey = getGroupKey(s);
     if (!groupKey) return;
     const key = groupKey + '|' + s.week;
