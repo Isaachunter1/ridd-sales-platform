@@ -16,8 +16,17 @@ const PACER_ON_PACE_BAND = 0.03;
 // How much of TODAY's goal should be in by now: the work day's clock, by rep type (local time). Inside sales runs
 // 7–3 and 9–5 (per Isaac, Oct 2026); door-to-door and technicians default to 9–8 / 8–5 until Isaac sets otherwise.
 const PACER_DAY_HOURS = { office: [7, 17], d2d: [9, 20], techs: [8, 17] };
+// The live hours: Settings → Goals → Pacer hours (shared admin rule, per rep type), else the defaults above.
+function pacerDayHours(type) {
+  try {
+    const r = typeof _adminRules === 'function' ? _adminRules() : null;
+    const h = r && r.pacerHours && r.pacerHours[type];
+    if (Array.isArray(h) && h.length === 2 && Number.isFinite(Number(h[0])) && Number.isFinite(Number(h[1])) && Number(h[1]) > Number(h[0])) return [Number(h[0]), Number(h[1])];
+  } catch (e) { /* defaults */ }
+  return PACER_DAY_HOURS[type] || PACER_DAY_HOURS.office;
+}
 function pacerDayFraction(type, now) {
-  const h = PACER_DAY_HOURS[type] || PACER_DAY_HOURS.office;
+  const h = pacerDayHours(type);
   const t = (now || new Date()); const x = t.getHours() + t.getMinutes() / 60;
   return Math.max(0, Math.min(1, (x - h[0]) / (h[1] - h[0])));
 }

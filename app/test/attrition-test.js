@@ -35,7 +35,7 @@ function extractRange(startMarker, endFnName) {
   return appJs.slice(start, end);
 }
 function extractConst(name) {
-  const m = appJs.match(new RegExp('const ' + name + ' = [^\\n]*;'));
+  const m = appJs.match(new RegExp('const ' + name + ' += [^\\n]*;'));
   if (!m) throw new Error('cannot find const ' + name);
   return m[0];
 }
@@ -48,6 +48,8 @@ const src = [
   extractConst('_SNS_REASON_RE'),
   extractFn('_parseSlashDate'),
   extractFn('_isSoldNotStarted'),
+  extractConst('_ONETIME_SUB_RE'),
+  extractFn('_indIsOneTimeSale'),   // one-time = the service type (Nov 7); no lifecycle map in the test → the name decides
   extractFn('_rorSellerOkSale'),
   extractFn('_is3DayROR'),
   extractFn('_subAliveNow'),
@@ -77,7 +79,8 @@ const cases = [
   ['cancel on day 4: NOT an ROR, counts as churn',              S({ status: 'Inactive', active: 'No', cancelDate: '5/5/2026', cancelReason: 'Finances' }), { serv: 1000, cxl: 1000 }],
   ['"Subscription Error" reason is NOT an ROR (no /ror/ substring bug)', S({ status: 'Inactive', active: 'No', cancelDate: '8/1/2026', cancelReason: 'Subscription Error' }), { serv: 1000, cxl: 1000 }],
   ['one-time service by name: removed from both sides',        S({ subscription: 'One Time Pest Control', contract: '' }),             { serv: 0, cxl: 0 }],
-  ['no contract months (one-time): removed',                    S({ contract: '0' }),                                                  { serv: 0, cxl: 0 }],
+  ['one-time SERVICE TYPE: removed (Nov 7 — the type decides, not the contract months)', S({ subscription: 'One Time Pest', contract: '0' }), { serv: 0, cxl: 0 }],
+  ['recurring plan with no contract months: still a serviced account (Nov 7)', S({ contract: '0' }), { serv: 1000, cxl: 0 }],
   ['Sentricon with blank contract: KEPT (annual program)',      S({ subscription: 'Sentricon South', contract: '' }),                   { serv: 1000, cxl: 0 }],
   ['saved account (Active + cancel date): kept, no churn',      S({ status: 'Active', active: 'Yes', cancelDate: '8/1/2026', cancelReason: 'Moved' }), { serv: 1000, cxl: 0 }],
   ['blank status + active No + cancel date: churn',             S({ status: '', active: 'No', cancelDate: '8/1/2026', cancelReason: 'Moved' }), { serv: 1000, cxl: 1000 }],
@@ -93,7 +96,7 @@ for (const [label, row, want] of cases) {
 const book = cases.map(c => c[1]);
 const t = book.reduce((a, r) => { const p = _attrRevParts(r); a.serv += p.serv; a.cxl += p.cxl; return a; }, { serv: 0, cxl: 0 });
 const pct = t.serv ? t.cxl / t.serv : 0;
-const wantPct = 6 / 9;   // 6 churned of 9 serviced $1,000 rows in the fixture (two office-staff quick cancels count — Nov 7)
+const wantPct = 6 / 10;   // 6 churned of 10 serviced $1,000 rows in the fixture (Nov 7: two office-staff quick cancels count; a recurring plan with no contract months stays)
 if (Math.abs(pct - wantPct) > 1e-9) { fail++; console.error('  ✗ fixture attrition % ' + pct + ' want ' + wantPct); }
 else console.log('  ✓ fixture book attrition = ' + (pct * 100).toFixed(1) + '% (' + t.cxl + ' / ' + t.serv + ')');
 // The Indicators landing "Attrition" tile must read the same book number.

@@ -297,6 +297,20 @@ function crmReconciliationChecks(subs) {
       if (rorCoded) out.cancel.push(flag(r, String(r.sold_by_type).trim() + ' sale coded as a 3-day ROR — only Sales Rep contracts have one; re-code the reason'));
       else if (dIn >= 0 && dIn <= win && !reason) out.cancel.push(flag(r, String(r.sold_by_type).trim() + ' sale cancelled ' + Math.round(dIn) + ' day' + (Math.round(dIn) === 1 ? '' : 's') + ' after the sale with no reason — not an ROR; code the real reason'));
     }
+    // The other way round (per Isaac, Nov 7): a Sales Rep cancel inside the window IS a 3-day ROR whatever was typed —
+    // those get re-coded TO the ROR reason so the CRM says what the app already counts.
+    else if (cxlDate && r.sold_date && String(r.sold_by_type || '').trim() === 'Sales Rep' && !(typeof _rorReasonHit === 'function' && _rorReasonHit(reason))) {
+      const dIn = (new Date(cxlDate) - new Date(r.sold_date)) / 86400000;
+      const win = typeof crmRorWindowDays === 'function' ? crmRorWindowDays() : 3;
+      if (dIn >= 0 && dIn <= win) out.cancel.push(flag(r, 'Sales Rep cancel ' + Math.round(dIn) + ' day' + (Math.round(dIn) === 1 ? '' : 's') + ' after the sale coded "' + (reason || 'no reason') + '" — re-code to 3 Day ROR'));
+    }
+    // One-time plans always close as "One Time Service" (per Isaac, Nov 7); a recurring plan never does.
+    if (cxlDate && typeof reportingServiceLifecycleMap === 'function') {
+      const lc = reportingServiceLifecycleMap().get(String(r.subscription || '').trim());
+      const otsReason = /\b(one[\s-]?time|ots)\b/i.test(reason);
+      if (lc === 'onetime' && !otsReason) out.cancel.push(flag(r, 'One-time plan closed as "' + (reason || 'no reason') + '" — re-code to One Time Service'));
+      else if (lc === 'recurring' && otsReason) out.cancel.push(flag(r, 'Recurring plan closed as One Time Service — code the real reason'));
+    }
   }
   // Duplicates (per Isaac, Sep 30 — #53790): name each subscription ID and
   // its state. A copy that never got an appointment or a service is almost

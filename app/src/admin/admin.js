@@ -1061,6 +1061,30 @@ function deptRevenueGoalCard(dept) {
       : el('div', { class: 'text-[11px] italic', style: { color: 'var(--text-subtle)' } }, 'No goal yet — type the annual number above.'));
 }
 // ── Placeholder settings sections (filled in later as needed) ──
+// Pacer hours (per Isaac, Nov 7): the clock the Revenue Pacer's live tick runs on, per rep type — how much of
+// today's goal should be in by now. Shared admin rule (adminRules.pacerHours), so every device paces the same.
+function pacerHoursCard(type) {
+  if (!isAdminRole(state.profile?.role)) return null;
+  const label = type === 'd2d' ? 'Sales Reps' : type === 'techs' ? 'Technicians' : 'Office Staff';
+  const cur = (typeof pacerDayHours === 'function') ? pacerDayHours(type) : [7, 17];
+  const hhmm = (h) => String(Math.floor(h)).padStart(2, '0') + ':' + String(Math.round((h % 1) * 60)).padStart(2, '0');
+  const toH = (v) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(v || '')); return m ? Number(m[1]) + Number(m[2]) / 60 : NaN; };
+  const field = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
+  const a = el('input', { type: 'time', value: hhmm(cur[0]), class: 'rounded-lg border px-2 py-1 text-[12px]', style: field });
+  const b = el('input', { type: 'time', value: hhmm(cur[1]), class: 'rounded-lg border px-2 py-1 text-[12px]', style: field });
+  const note = el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } });
+  const paint = () => { const x = toH(a.value), y = toH(b.value); note.textContent = (Number.isFinite(x) && Number.isFinite(y) && y > x) ? 'At ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) + ' the pacer expects ' + Math.round(Math.max(0, Math.min(1, ((new Date().getHours() + new Date().getMinutes() / 60) - x) / (y - x))) * 100) + '% of today\u2019s goal in.' : 'End must be after start.'; };
+  paint(); a.oninput = paint; b.oninput = paint;
+  const save = el('button', { class: 'rounded-lg px-3 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+    onclick: () => { const x = toH(a.value), y = toH(b.value); if (!(Number.isFinite(x) && Number.isFinite(y) && y > x)) { toast('End must be after start', 'error'); return; }
+      const r = _adminRules() || {}; const ph = Object.assign({}, r.pacerHours || {}); ph[type] = [Math.round(x * 100) / 100, Math.round(y * 100) / 100]; _setAdminRule('pacerHours', ph);
+      toast(label + ' pacer hours saved \u2014 ' + a.value + '\u2013' + b.value, 'success'); mountApp(); } }, 'Save');
+  return el('div', { class: 'card p-5' },
+    el('h3', { class: 'text-base font-bold mb-1' }, 'Pacer hours \u00b7 ' + label),
+    el('div', { class: 'text-[11px] mb-3', style: { color: 'var(--text-muted)' } }, 'The work day the Revenue Pacer\u2019s tick runs on: how much of today\u2019s goal should be in by the current time. Shared by every device.'),
+    el('div', { class: 'flex items-center gap-2 flex-wrap' }, a, el('span', { class: 'text-[12px]' }, 'to'), b, save),
+    el('div', { class: 'mt-2' }, note));
+}
 function adminGoals() {
   // My Goal on top for anyone with a player card (per Isaac, Oct 16 — moved off the Revenue Pacer).
   const node = _adminGoalsBody();
@@ -1082,7 +1106,8 @@ function _adminGoalsBody() {
     return el('div', { class: 'flex flex-col gap-5' },
       el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' }, el('h2', { class: 'text-xl font-bold' }, 'Goals'), tabs),
       _partnerOnly ? null : deptRevenueGoalCard(dept),
-      dept.id === 'tech' ? null : d2dRepGoalsCard(_partnerOnly));
+      dept.id === 'tech' ? null : d2dRepGoalsCard(_partnerOnly),
+      _partnerOnly ? null : pacerHoursCard(dept.id === 'tech' ? 'techs' : 'd2d'));
   }
   const g = deptGoalObj(dept.id);
   g.amount         = g.amount         ?? 0;
@@ -1137,6 +1162,7 @@ function _adminGoalsBody() {
 
   return el('div', { class: 'flex flex-col gap-5' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' }, el('h2', { class: 'text-xl font-bold' }, 'Goals'), tabs),
+    pacerHoursCard('office'),
 
     // ── Annual targets + team size ──
     el('div', { class: 'card p-5' },
