@@ -202,6 +202,19 @@ function _exceptionFeedItemsRaw(scope) {
           action: 'Review', onClick: () => mkpOpenNoLead('No GHL lead \u00b7 last 30 days', N) });
       }
     } catch (e) { /* best-effort */ }
+    // Sellify subscriptions belong to Anna Williams (per Isaac, Nov 7): the feed lands with no Sold By, so every
+    // table that needs a rep drops them. Flag any Sellify sub (pending/serviced) not credited to her — fix in FieldRoutes.
+    try {
+      const SELLIFY_REP = 'anna williams';
+      const sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+      const want = sig(SELLIFY_REP);
+      const S = perfT('exc:sellify', () => refMemo('sellifyRep', [subs], 300000, () => subs.filter(r => /^sellify$/i.test(String(r.subscription_source || '').trim())
+        && (/^(pending|completed)$/i.test(String(r.initial_status || '').trim()) || (Number(r.subscription_completed_services) || 0) > 0 || !!r.initial_serviced_date)   // the Sales Leaderboard's Pending / Serviced gate
+        && sig(r.sold_by) !== want)));
+      if (S.length) items.push({ sev: 'amber', tag: 'Sellify', count: S.length,
+        text: 'Sellify subscription' + (S.length === 1 ? '' : 's') + ' not credited to Anna Williams (' + S.filter(r => !String(r.sold_by || '').trim()).length + ' with no rep) — set Sold By in FieldRoutes',
+        action: 'Review', onClick: () => mkpOpenNoLead('Sellify \u00b7 set Sold By to Anna Williams', S) });
+    } catch (e) { /* best-effort */ }
     try { const Z = typeof mktgZipFixTask === 'function' ? perfT('exc:zipFix', () => mktgZipFixTask({ info: true })) : null;
       if (Z && Z.n) items.push({ sev: 'amber', tag: 'ZIP', count: Z.n, text: 'active account' + (Z.n === 1 ? '' : 's') + ' coded to another office than its ZIP’s market, or with no valid ZIP — fix in FieldRoutes', action: state._excDetail === 'zipfix' ? 'Hide' : 'Review', onClick: det('zipfix') }); } catch (e) { /* noop */ }
   }
