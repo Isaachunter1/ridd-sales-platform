@@ -3,6 +3,7 @@
 // No HTTP endpoints of its own; an admin re-run is POST /api/jobs/pricing-floors.
 import { Router } from 'express';
 import pricingFloors from './jobs/pricing-floors.js';
+import plaibookCloseRates from './jobs/plaibook-close-rates.js';
 
 export const router = Router();
-export const jobs = [pricingFloors];
+export const jobs = [pricingFloors, plaibookCloseRates];

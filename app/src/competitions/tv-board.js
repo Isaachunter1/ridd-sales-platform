@@ -13,8 +13,11 @@
 // autopay; one it doesn't have yet (sold minutes ago) is added. Everything
 // downstream (Pending/Serviced gate, excluded sources and services, the rep
 // bridge) runs exactly as it does for the dataset's own rows.
-// Signed agreement data is paused on the TV until FieldRoutes' signed-contract endpoint is in (see signedOf).
-const TV_SIGNED_PAUSED = true;
+// Signed agreement (per Isaac, Nov 7): back ON. The 2-minute live pull stamps crm_contract_state from FieldRoutes'
+// "signed contract" Contract Email note (matched completed contracts 99.5% of the time) and the e-sign form documents,
+// and the 5-minute sync from the FieldRoutesContract documents (COMPLETED = signed); signedOf reads the sale row,
+// then its twin, then the snapshot, then the last-two-days signed set. Flip back to true only to pause the tile.
+const TV_SIGNED_PAUSED = false;
 let _tvLiveMergeCache = { base: null, live: null, out: null };
 function tvRawWithLive() {
   const base = state._indicatorRawSales || [];

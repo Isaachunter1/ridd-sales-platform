@@ -24,6 +24,7 @@ Started Oct 20, 2026.
 | — 60-day CRM verify | `services/sync/jobs/verify.js` | frozen | |
 | — auto-stage, paid-since-sale, minimums, peak values, service changes | `services/sync/jobs/staging.js` | frozen — *note: peak-values and service-changes are their own files inside the worker today; decide on read whether they are separate jobs* | |
 | — pricing floors + signed-contract rule (per Isaac, Nov 7 — NEW, not a port: Standard / Loyalty floors → Below Minimums / Not Payable / Flagged for Audit; runs after the sync, reverses only its own decisions, never a manual pick) | `services/pay/jobs/pricing-floors.js` | **ported (new)** — `db/migrations/20261107_pricing_floors.sql`; the frozen worker's own minimums check stays until staging ports | |
+| — Plaibook close rates, hourly (per Isaac, Nov 7 — NEW, not a port: MCP client in `services/pay/functions/plaibookMcp.js`; needs `PLAIBOOK_MCP_URL` + `PLAIBOOK_MCP_TOKEN`) | `services/pay/jobs/plaibook-close-rates.js` | **ported (new)** | |
 | `tech-stats-background.js` + `-scheduled` | `services/ops/jobs/tech-stats.js` | frozen | |
 | `fieldroutes-addons-sync-background.js`, `addon-reconcile-background.js`, `addons-scheduled.js`, `addons-dryrun.js` | `services/addons` | frozen | |
 | `crm-deleted-scan-*`, `fieldroutes-live-sync-*` | `services/crm` | frozen | |
