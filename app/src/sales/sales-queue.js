@@ -2370,7 +2370,7 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
   // sticky header + Sales sub-tabs (measured, so phone and desktop heights both work). Pinned with a scroll
   // listener rather than position:sticky: the page's body is its own (non-scrolling) overflow box, which
   // stops sticky from ever engaging.
-  const frozen = el('div', { style: { position: 'relative', zIndex: '5', willChange: 'transform', background: 'var(--card)', borderBottom: '1px solid var(--border)', borderTopLeftRadius: 'inherit', borderTopRightRadius: 'inherit' } },
+  const frozen = el('div', { style: { position: 'relative', zIndex: '5', background: 'var(--card)', borderBottom: '1px solid var(--border)', borderTopLeftRadius: 'inherit', borderTopRightRadius: 'inherit' } },
       el('div', { class: 'flex flex-wrap items-center justify-between gap-2 px-4 pt-3 pb-2' },
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, title || 'Latest sales'),
         el('div', { class: 'flex flex-wrap items-center justify-end', style: { columnGap: '18px', rowGap: '6px' } },
@@ -2392,10 +2392,20 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
         const cs = getComputedStyle(n);
         if (cs.position === 'sticky' || cs.position === 'fixed') top = Math.max(top, n.getBoundingClientRect().bottom);
       }
-      const box = frozen.parentElement.getBoundingClientRect();
-      const y = Math.max(0, Math.min(top - box.top, box.height - frozen.offsetHeight));
-      frozen.style.transform = y > 0 ? 'translateY(' + y + 'px)' : '';
-      frozen.style.boxShadow = y > 0 ? '0 3px 8px rgba(0,0,0,.07)' : '';
+      // Pinned with position:fixed, not a transform (per Isaac, Nov 7): a transform set from a scroll listener runs
+      // a frame behind the compositor, so on a fast scroll the rows showed through above and below the header.
+      // A fixed element is placed by the compositor itself. The holder keeps the header's height in the flow.
+      const holder = frozen.parentElement;
+      const wasPinned = frozen.style.position === 'fixed';
+      if (wasPinned) { frozen.style.position = ''; frozen.style.top = ''; frozen.style.left = ''; frozen.style.width = ''; }
+      const box = holder.parentElement.getBoundingClientRect();   // the table block (header + rows)
+      const hb = holder.getBoundingClientRect();
+      const y = Math.max(0, Math.min(top - hb.top, box.height - frozen.offsetHeight));
+      if (y > 0) {
+        holder.style.height = frozen.offsetHeight + 'px';
+        frozen.style.position = 'fixed'; frozen.style.top = (hb.top + y) + 'px'; frozen.style.left = hb.left + 'px'; frozen.style.width = hb.width + 'px';
+        frozen.style.boxShadow = '0 3px 8px rgba(0,0,0,.07)';
+      } else { holder.style.height = ''; frozen.style.boxShadow = ''; }
     };
     window._salesFeedPin = pin;
     window.addEventListener('scroll', pin, { passive: true });
@@ -2403,7 +2413,7 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(pin);
   }
   const table = el('div', { style: { minWidth: _minW + 'px' } },
-    frozen,
+    el('div', { style: { position: 'relative', zIndex: '5' } }, frozen),   // holder: keeps the header's height when it pins
     ...sorted.map((s, i) => {
       const rep = repOf(s);
       const ao = saleAddOnsFor(s);
@@ -2456,7 +2466,9 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
   // Never the page (per Isaac, Oct 28): when a window is narrower than the table's minimum, the CARD scrolls sideways
   // on its own — the tabs, search and filters above stay put. (The frozen header pins by transform, not sticky, so
   // the card's own overflow doesn't stop it.)
-  return el('div', { class: 'card', style: { overflowX: 'auto' } }, table);
+  const card = el('div', { class: 'card', style: { overflowX: 'auto' } }, table);
+  card.addEventListener('scroll', () => { if (window._salesFeedPin) window._salesFeedPin(); }, { passive: true });   // sideways scroll re-places the pinned header
+  return card;
 }
 
 // ── Commission card (per Isaac, Oct 15): a row click on the Sales tables opens this small breakdown
