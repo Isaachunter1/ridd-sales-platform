@@ -1334,9 +1334,8 @@ function _mktgSpendEntry() {
   // QuickBooks-lines view (src/86-spend-qbo.js), the upload-first checklist and the controller table all stay in
   // the code, unreached — Pulse / Metrics / CAC keep reading QuickBooks totals through spend-qbo's helpers.
   _mktgSpendReset();
-  return el('div', { class: 'card p-8 text-center' },
-    el('div', { class: 'text-base font-bold mb-1' }, 'Spend'),
-    el('div', { class: 'text-sm', style: { color: 'var(--text-muted)' } }, 'Cleared Nov 5, 2026 — being rebuilt. Marketing spend for CAC and ROAS still comes straight from QuickBooks totals in the meantime.'));
+  // Rebuilt Nov 7 (per Isaac): QuickBooks lines as booked + FieldRoutes new revenue for the range — src/integrations/spend-view.js.
+  if (typeof mktgSpendView === 'function') return mktgSpendView();
   if (typeof mktgSpendQboView === 'function') return mktgSpendQboView();
   return el('div', { class: 'flex flex-col gap-4' }, (typeof mktgSpendUploadCard === 'function') ? mktgSpendUploadCard(B, y) : null, (typeof mktgSpendChecklist === 'function') ? mktgSpendChecklist() : null, _mktgControllerTable());
 }

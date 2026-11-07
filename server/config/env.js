@@ -47,6 +47,9 @@ const SPEC = {
   WINDSOR_API_KEY:            { required: false, secret: true },
   // (services/misc → ask-data) keep or retire is Isaac's call
   ANTHROPIC_API_KEY:          { required: false, secret: true },
+  // (services/pay → plaibook-close-rates) Plaibook's MCP server: close rates by rep, hourly (per Isaac, Nov 7)
+  PLAIBOOK_MCP_URL:           { required: false },                       // the MCP endpoint Plaibook gives for server use
+  PLAIBOOK_MCP_TOKEN:         { required: false, secret: true },         // its API key / server token (Bearer)
 };
 
 const env = {};

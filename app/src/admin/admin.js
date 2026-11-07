@@ -703,6 +703,29 @@ function adminConfigurations(part) {
           row('Termite (annual)', [el('span', { class: 'text-[11px] text-muted-' }, 'initial'), money(TM.initial, (n) => savePR({ termite: Object.assign({}, TM, { initial: n }) }, 'termite initial = $' + n)),
             el('span', { class: 'text-[11px] text-muted-' }, 'recurring'), money(TM.recurring, (n) => savePR({ termite: Object.assign({}, TM, { recurring: n }) }, 'termite recurring = $' + n))]),
           otTable,
+          // Pricing floors (per Isaac, Nov 7): the server job (pricing-floors) scores every open sale sold on/after
+          // the start date — under Standard = Below Minimums, under Loyalty (the renewal sheet below) = Not Payable,
+          // no signed contract = Not Payable until it's signed. Add-on floors are the Pricing tab's Standard / Loyalty.
+          ...(() => {
+            const FL = Object.assign({ start: '2027-01-01', unsigned_grace_days: 0 }, PR.floors || {});
+            const saveFL = (patch, what) => savePR({ floors: Object.assign({}, FL, patch) }, 'floors ' + what);
+            const AD = [['mole', 'Mole', [40, 30]], ['tfm', 'Tick, Flea & Mosquito', [40, 30]], ['seasonal', 'Seasonal TF&M', [30, 15]], ['roach', 'German Roach', [20, 10]], ['flea', 'Interior Flea', [20, 10]], ['pest', 'Pest', [20, 10]], ['snake', 'Snake', [20, 10]], ['cbee', 'Carpenter Bee', [20, 10]], ['rodent', 'Rodent', [20, 10]]];
+            const adVal = (k, d) => { const v = (FL.addons || {})[k]; return Array.isArray(v) && v.length === 2 ? v : d; };
+            const adTable = el('div', { class: 'overflow-x-auto py-1.5' }, el('table', { class: 'w-full text-[11px]' },
+              el('thead', {}, el('tr', { style: { background: 'var(--card-2)' } }, cellTh('Add-on (per service)'), cellTh('Standard → Below Minimums under', 'text-right'), cellTh('Loyalty → Not Payable under', 'text-right'))),
+              el('tbody', {}, ...AD.map(([k, lbl, d]) => el('tr', { style: { borderTop: '1px solid var(--border)' } },
+                el('td', { class: 'px-2 py-1.5 font-semibold' }, lbl),
+                ...[0, 1].map(i => el('td', { class: 'px-2 py-1 text-right' }, money(adVal(k, d)[i], (n) => { const row = adVal(k, d).slice(); row[i] = n; saveFL({ addons: Object.assign({}, FL.addons || {}, { [k]: row }) }, lbl + (i ? ' loyalty' : ' standard') + ' = $' + n); }))))))));
+            return [
+              sub('Pricing floors — Standard / Loyalty (server job)'),
+              row('Pricing floors start', txt(FL.start, (v) => { const t = String(v || '').trim(); if (/^\d{4}-\d{2}-\d{2}$/.test(t)) saveFL({ start: t }, 'start ' + t); }, { placeholder: 'YYYY-MM-DD', width: '110px' }),
+                { desc: 'Sales sold on/after this date are scored: under Standard = Below Minimums (half upfront, full backend); under Loyalty = Not Payable; no signed contract = Not Payable until signed; Sales Reps and Technicians must sell at Standard. Before it, the sheets rule.' }),
+              row('Unsigned grace (days)', num(FL.unsigned_grace_days, (v) => saveFL({ unsigned_grace_days: Math.max(0, parseInt(v, 10) || 0) }, 'unsigned grace ' + v)),
+                { desc: '0 = an unsigned sale is Not Payable right away (it comes back the moment the e-sign completes). The red "scheduled, unsigned" row shows either way.' }),
+              adTable,
+              el('div', { class: 'text-[11px] py-1.5', style: { color: 'var(--text-subtle)', lineHeight: '1.4' } }, 'Base-plan Loyalty floors are the Renewal plan table below (one sheet, one place). Termite has no Loyalty price: under Standard is Not Payable. Add-ons sold the SAME DAY as the plan pull the plan down with them; an add-on sold later is scored on its own. Renewals under Loyalty, and plans or add-ons with no sheet, are Flagged for Audit.'),
+            ];
+          })(),
           ...renewalRows,
           row('Fee included in the recurring charge', money(PR.fee, (n) => savePR({ fee: n }, 'fee = $' + n)),
             { desc: 'The service fee FieldRoutes adds to the recurring charge — taken off before comparing when the charge carries it (0 = compare the charge as-is).' }),
@@ -1061,6 +1084,30 @@ function deptRevenueGoalCard(dept) {
       : el('div', { class: 'text-[11px] italic', style: { color: 'var(--text-subtle)' } }, 'No goal yet — type the annual number above.'));
 }
 // ── Placeholder settings sections (filled in later as needed) ──
+// Pacer hours (per Isaac, Nov 7): the clock the Revenue Pacer's live tick runs on, per rep type — how much of
+// today's goal should be in by now. Shared admin rule (adminRules.pacerHours), so every device paces the same.
+function pacerHoursCard(type) {
+  if (!isAdminRole(state.profile?.role)) return null;
+  const label = type === 'd2d' ? 'Sales Reps' : type === 'techs' ? 'Technicians' : 'Office Staff';
+  const cur = (typeof pacerDayHours === 'function') ? pacerDayHours(type) : [7, 17];
+  const hhmm = (h) => String(Math.floor(h)).padStart(2, '0') + ':' + String(Math.round((h % 1) * 60)).padStart(2, '0');
+  const toH = (v) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(v || '')); return m ? Number(m[1]) + Number(m[2]) / 60 : NaN; };
+  const field = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
+  const a = el('input', { type: 'time', value: hhmm(cur[0]), class: 'rounded-lg border px-2 py-1 text-[12px]', style: field });
+  const b = el('input', { type: 'time', value: hhmm(cur[1]), class: 'rounded-lg border px-2 py-1 text-[12px]', style: field });
+  const note = el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } });
+  const paint = () => { const x = toH(a.value), y = toH(b.value); note.textContent = (Number.isFinite(x) && Number.isFinite(y) && y > x) ? 'At ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) + ' the pacer expects ' + Math.round(Math.max(0, Math.min(1, ((new Date().getHours() + new Date().getMinutes() / 60) - x) / (y - x))) * 100) + '% of today\u2019s goal in.' : 'End must be after start.'; };
+  paint(); a.oninput = paint; b.oninput = paint;
+  const save = el('button', { class: 'rounded-lg px-3 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+    onclick: () => { const x = toH(a.value), y = toH(b.value); if (!(Number.isFinite(x) && Number.isFinite(y) && y > x)) { toast('End must be after start', 'error'); return; }
+      const r = _adminRules() || {}; const ph = Object.assign({}, r.pacerHours || {}); ph[type] = [Math.round(x * 100) / 100, Math.round(y * 100) / 100]; _setAdminRule('pacerHours', ph);
+      toast(label + ' pacer hours saved \u2014 ' + a.value + '\u2013' + b.value, 'success'); mountApp(); } }, 'Save');
+  return el('div', { class: 'card p-5' },
+    el('h3', { class: 'text-base font-bold mb-1' }, 'Pacer hours \u00b7 ' + label),
+    el('div', { class: 'text-[11px] mb-3', style: { color: 'var(--text-muted)' } }, 'The work day the Revenue Pacer\u2019s tick runs on: how much of today\u2019s goal should be in by the current time. Shared by every device.'),
+    el('div', { class: 'flex items-center gap-2 flex-wrap' }, a, el('span', { class: 'text-[12px]' }, 'to'), b, save),
+    el('div', { class: 'mt-2' }, note));
+}
 function adminGoals() {
   // My Goal on top for anyone with a player card (per Isaac, Oct 16 — moved off the Revenue Pacer).
   const node = _adminGoalsBody();
@@ -1082,7 +1129,8 @@ function _adminGoalsBody() {
     return el('div', { class: 'flex flex-col gap-5' },
       el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' }, el('h2', { class: 'text-xl font-bold' }, 'Goals'), tabs),
       _partnerOnly ? null : deptRevenueGoalCard(dept),
-      dept.id === 'tech' ? null : d2dRepGoalsCard(_partnerOnly));
+      dept.id === 'tech' ? null : d2dRepGoalsCard(_partnerOnly),
+      _partnerOnly ? null : pacerHoursCard(dept.id === 'tech' ? 'techs' : 'd2d'));
   }
   const g = deptGoalObj(dept.id);
   g.amount         = g.amount         ?? 0;
@@ -1137,6 +1185,7 @@ function _adminGoalsBody() {
 
   return el('div', { class: 'flex flex-col gap-5' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' }, el('h2', { class: 'text-xl font-bold' }, 'Goals'), tabs),
+    pacerHoursCard('office'),
 
     // ── Annual targets + team size ──
     el('div', { class: 'card p-5' },
@@ -1707,10 +1756,9 @@ function adminPricingSimple() {
       if (error) toast('Could not save: ' + error.message, 'error');
       else { try { logActivity('pay_override', { detail: rep.full_name + ': ' + k + ' = ' + rep[k] }); } catch (e) { /* optional */ } }
     };
-    const closeIn = cellInput(
-      () => rep.close_rate_target == null ? null : Math.round(Number(rep.close_rate_target) * 1000) / 10,
-      (v) => { if (v != null) saveField('close_rate_target', Math.max(0, Math.min(100, v)) / 100); },
-      '%', 'This rep\u2019s actual close rate (hand-maintained each quarter; also editable on the Pay tab).');
+    // Close rate comes from Plaibook now (per Isaac, Nov 7) — read-only here; Configurations → Close rates to refresh.
+    const closeIn = el('span', { class: 'text-[11px] tabular-nums', style: typeof repCloseRate === 'function' && repCloseRate(rep) ? { fontWeight: '600' } : { color: '#B91C1C' }, title: 'Plaibook\u2019s close rate for this rep (sold \u00f7 qualified). No seat in Plaibook = No Close Rate, no close-rate bonus.' },
+      typeof closeRateLabel === 'function' ? closeRateLabel(rep) : '\u2014');
     return el('div', { class: 'card overflow-hidden' }, el('table', { class: 'w-full' },
       el('thead', {}, el('tr', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } },
         el('th', { class: 'px-3 py-2 text-left', style: { width: '320px' } }, 'Pay stub \u00b7 ' + rep.full_name),

@@ -124,9 +124,15 @@ function viewPayLive() {
       el('div', {}, el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Office Staff · pay'),
         el('h2', { class: 'text-2xl font-black' }, (prof.full_name || 'My') + (prof.full_name ? ' — ' : ' ') + period.label)),
       controls),
-    // Running YTD ledger of every account this rep sold (per Isaac, Oct 16) — display only, above the stub.
-    typeof payAccountsLedger === 'function' ? (() => { try { return payAccountsLedger(prof, state.payYear); } catch (e) { console.warn('[pay] accounts ledger', e); return null; } })() : null,
+    // Commission cards (per Isaac, Nov 7): the pay stub's numbers — upfront this period, backend waiting.
+    typeof payCommissionCards === 'function' ? (() => { try {
+      const runs = typeof payRunsFor === 'function' ? payRunsFor(repId, state.payYear) : [];
+      const backendPaidYear = (runs || []).filter(r => r.kind === 'backend').reduce((a, r) => a + (Number((r.totals || {}).backend_pay) || 0), 0);
+      return payCommissionCards(repId, prof, period, x, { backend: mine.filter(s => s.payroll_processed_at && !s.backend_payroll_processed_at), isCurrent, year: state.payYear, backendPaidYear: (runs || []).some(r => r.kind === 'backend') ? backendPaidYear : null });
+    } catch (e) { console.warn('[pay] commission cards', e); return null; } })() : null,
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-', style: { marginTop: '4px' } }, 'Pay stub · ' + period.label),
     tiles, stub, holdCard, backendCard,
+    // Running YTD ledger of every account this rep sold (per Isaac, Oct 16) — display only, now below the stub, table only.
+    typeof payAccountsLedger === 'function' ? (() => { try { return payAccountsLedger(prof, state.payYear, { tiles: false }); } catch (e) { console.warn('[pay] accounts ledger', e); return null; } })() : null,
     !mine.length ? el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'No Office Staff sales since ' + fmt.dateShortYear(SALES_FEED_START) + ' for this rep yet.') : null);
 }

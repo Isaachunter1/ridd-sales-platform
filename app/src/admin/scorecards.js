@@ -1839,11 +1839,14 @@ function setReportingAgingDays(n) {
 // as churn (we missed the revenue) and the reactivation is a win-back.
 function reportingReinstateGraceDays() { const r = _adminRules(); const n = r && Number(r.reinstateGraceDays); return Number.isFinite(n) && n >= 0 ? n : 30; }
 function setReportingReinstateGraceDays(n) { _setAdminRule('reinstateGraceDays', Math.max(0, parseInt(n, 10) || 0)); }
+// Default ON (per Isaac, Nov 7): a 3-day ROR received service but we never really acquired that customer, so it is
+// not churn for retention — the same read the dashboards' attrition has always had. The Retention step and the
+// Configurations switch still turn it back on to see them.
 function reportingExcludeRorChurn() {
   if (state._retenWhatIf && typeof state._retenWhatIf.ror === 'boolean' && state.reportingSubTab === 'waterfall') return state._retenWhatIf.ror;
   const r = _adminRules();
   if (r && typeof r.exclRorChurn === 'boolean') return r.exclRorChurn;
-  return false; }
+  return true; }
 function setReportingExcludeRorChurn(b) {
   _setAdminRule('exclRorChurn', !!b);
   try { localStorage.setItem('ridd_rpt_excl_ror', b ? '1' : '0'); } catch {} }

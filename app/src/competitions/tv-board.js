@@ -13,8 +13,11 @@
 // autopay; one it doesn't have yet (sold minutes ago) is added. Everything
 // downstream (Pending/Serviced gate, excluded sources and services, the rep
 // bridge) runs exactly as it does for the dataset's own rows.
-// Signed agreement data is paused on the TV until FieldRoutes' signed-contract endpoint is in (see signedOf).
-const TV_SIGNED_PAUSED = true;
+// Signed agreement (per Isaac, Nov 7): back ON. The 2-minute live pull stamps crm_contract_state from FieldRoutes'
+// "signed contract" Contract Email note (matched completed contracts 99.5% of the time) and the e-sign form documents,
+// and the 5-minute sync from the FieldRoutesContract documents (COMPLETED = signed); signedOf reads the sale row,
+// then its twin, then the snapshot, then the last-two-days signed set. Flip back to true only to pause the tile.
+const TV_SIGNED_PAUSED = false;
 let _tvLiveMergeCache = { base: null, live: null, out: null };
 function tvRawWithLive() {
   const base = state._indicatorRawSales || [];
@@ -435,6 +438,46 @@ function openTvBoard() {
     // while a drill is open, so the 30-second repaint can't wipe it.
     (document.fullscreenElement || document.body).append(back);
   };
+  // Close rate (Plaibook, per Isaac Nov 7): the rep's sold ÷ qualified, colored by the close-rate bonus tiers
+  // (green = top tier, yellow = a tier, red = no tier); no Plaibook seat = NO CLOSE RATE. Tap for the drill.
+  const closeTiers = (() => { try { const s = ensurePaySettings(); return (s.close_rate_tiers || []).map(t => Number(t.min_close_rate)).filter(Number.isFinite).sort((a, b) => a - b); } catch (e) { return [50, 60]; } })();
+  const closeColor = (rate) => { if (rate == null) return T.dim; const p = rate * 100; if (!closeTiers.length) return T.ink; return p >= closeTiers[closeTiers.length - 1] ? BAND.green : p >= closeTiers[0] ? BAND.yellow : BAND.red; };
+  const closeOf = (r) => { try { const prof = (state.allProfiles || []).find(p => p.id === r.key) || { full_name: r.name }; return typeof repCloseRate === 'function' ? repCloseRate(prof) : null; } catch (e) { return null; } };
+  const closeCell = (r) => { const c = closeOf(r); return el('div', { title: c ? 'Close rate · Plaibook · tap for the calls behind it' : 'No seat in Plaibook — no close rate', style: { textAlign: 'right', cursor: c ? 'pointer' : 'default', minWidth: '150px' },
+      onclick: (e) => { if (!c) return; e.stopPropagation(); openCloseDrill(r, c); } },
+    c ? figure(Math.round(c.rate * 1000) / 10 + '%', 'clamp(26px, 2.4cqw, 40px)', closeColor(c.rate)) : el('div', { style: { fontFamily: HEAD, fontSize: '16px', letterSpacing: '.06em', color: T.dim, textTransform: 'uppercase', lineHeight: '1.1' } }, 'No close rate'),
+    el('div', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, marginTop: '4px', letterSpacing: '.06em' } }, c ? c.sold + ' / ' + c.qualified + ' qualified' : 'not in Plaibook')); };
+  const openCloseDrill = (r, c) => {
+    const back = el('div', { 'data-tv-drill': '1', style: { position: 'fixed', inset: '0', background: 'rgba(10,11,13,.82)', zIndex: '10000', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px' } });
+    const close = () => { back.remove(); document.removeEventListener('keydown', esc, true); try { render(); } catch (e) { /* keep the board up */ } };
+    back.addEventListener('click', (e) => { if (e.target === back) close(); });
+    const esc = (e) => { if (e.key === 'Escape') { close(); e.stopPropagation(); } };
+    document.addEventListener('keydown', esc, true);
+    const S = typeof _closeRatesStore === 'function' ? _closeRatesStore() : null;
+    const rec = S && S.reps ? (S.reps[String(c.name || r.name).trim().toLowerCase()] || null) : null;
+    const col = (label, color, rows, n) => el('div', { style: { minWidth: '0', display: 'flex', flexDirection: 'column', background: T.void, border: '1px solid ' + T.hair, padding: '16px' } },
+      el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '12px' } },
+        el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } }, el('span', { style: { width: '10px', height: '10px', borderRadius: '50%', background: color, display: 'inline-block' } }), el('span', { style: { fontFamily: VOICE, fontWeight: 700, fontSize: '20px' } }, label)),
+        figure(String(n == null ? (rows || []).length : n), '22px', T.dim)),
+      el('div', { style: { overflow: 'auto', maxHeight: '58vh', display: 'flex', flexDirection: 'column', gap: '8px' } },
+        ...((rows && rows.length) ? rows.map(x => el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, padding: '12px 16px' } },
+          el('div', { style: { fontFamily: VOICE, fontWeight: 600, fontSize: '18px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, x.name || '—'),
+          el('div', { style: { fontFamily: VOICE, fontSize: '13px', color: T.dim, marginTop: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, x.sub || '')))
+        : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, rows ? 'None.' : 'List not loaded yet — refreshes with Plaibook.')])));
+    back.append(el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, color: T.ink, width: 'min(1500px, 96vw)', padding: '26px 30px', display: 'flex', flexDirection: 'column', gap: '18px' } },
+      el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' } },
+        el('div', {},
+          el('div', { style: { fontFamily: VOICE, fontSize: '16px', color: T.dim } }, 'Close rate \u00b7 ' + r.name + (c.window && c.window.label ? ' \u00b7 ' + c.window.label : '')),
+          el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '16px' } },
+            el('div', { style: { fontFamily: HEAD, fontSize: '56px', lineHeight: '1', color: closeColor(c.rate) } }, Math.round(c.rate * 1000) / 10 + '%'),
+            el('div', { style: { fontFamily: VOICE, fontSize: '18px', color: T.dim } }, c.sold + ' closed of ' + c.qualified + ' qualified' + (c.pulledAt ? ' \u00b7 Plaibook ' + ago(c.pulledAt) : '')))),
+        el('button', { style: { width: '36px', height: '36px', background: 'transparent', border: '1px solid ' + T.hair, color: T.dim, cursor: 'pointer', fontSize: '18px' }, onclick: close }, '\u00d7')),
+      el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' } },
+        col('Closed', BAND.green, rec ? (rec.closed || []) : null, c.sold),
+        col('Qualified, not closed', BAND.yellow, rec ? (rec.qualified_not_closed || []) : null, rec && rec.qualified_not_closed_n != null ? rec.qualified_not_closed_n : Math.max(0, c.qualified - c.sold)),
+        col('Unqualified', BAND.red, rec ? (rec.unqualified || []) : null, rec && rec.unqualified_n != null ? rec.unqualified_n : null))));
+    (document.fullscreenElement || document.body).append(back);
+  };
   const avatar = (r, px) => r.avatar
     ? el('img', { src: r.avatar, alt: '', style: { width: px + 'px', height: px + 'px', objectFit: 'cover', flexShrink: '0' } })   // (colour, per Isaac — the grayscale treatment is gone)
     : el('div', { style: { width: px + 'px', height: px + 'px', flexShrink: '0', background: T.surface2, color: T.ink, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: HEAD, fontSize: Math.round(px * .42) + 'px', letterSpacing: '.04em' } }, r.initials);
@@ -554,14 +597,15 @@ function openTvBoard() {
     };
     // Body: leaderboard | offices + latest
     const board = panel([
-      el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '14px' } }, eyebrow('Leaderboard'), eyebrow('revenue · sales')),
+      el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '14px' } }, eyebrow('Leaderboard'), eyebrow('close rate · revenue · sales')),
       d.reps.length ? el('div', { class: 'tv-scroll', style: { display: 'flex', flexDirection: 'column', gap: '6px', overflowY: 'auto', flex: '1', minHeight: '0', paddingRight: '4px' } },
-        ...d.reps.map((r, i) => el('div', { title: 'Tap for ' + r.name + '’s sales', onclick: () => openDrill(r.name + ' · ' + d.range.label, 'Sales · ' + d.range.label, r.sales, null, null, (x) => (x.customer_name || (x.customer_number ? 'Customer #' + x.customer_number : '—')), repHero(r, i)), style: { cursor: 'pointer', display: 'grid', gridTemplateColumns: '44px 56px minmax(0, 1fr) auto', alignItems: 'center', gap: '16px', padding: '8px 10px', background: i === 0 ? T.surface2 : 'transparent', borderLeft: i === 0 ? '3px solid ' + T.ember : '3px solid transparent' } },
+        ...d.reps.map((r, i) => el('div', { title: 'Tap for ' + r.name + '’s sales', onclick: () => openDrill(r.name + ' · ' + d.range.label, 'Sales · ' + d.range.label, r.sales, null, null, (x) => (x.customer_name || (x.customer_number ? 'Customer #' + x.customer_number : '—')), repHero(r, i)), style: { cursor: 'pointer', display: 'grid', gridTemplateColumns: '44px 56px minmax(0, 1fr) 150px auto', alignItems: 'center', gap: '16px', padding: '8px 10px', background: i === 0 ? T.surface2 : 'transparent', borderLeft: i === 0 ? '3px solid ' + T.ember : '3px solid transparent' } },
           el('div', { style: { fontFamily: MONO, fontSize: '14px', color: i === 0 ? T.ember : T.dim, letterSpacing: '.08em' } }, String(i + 1).padStart(2, '0')),
           avatar(r, 56),
           el('div', { style: { minWidth: '0' } },
             el('div', { style: { fontFamily: HEAD, fontSize: 'clamp(22px, 2cqw, 32px)', lineHeight: '1', letterSpacing: '.02em', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, r.name),
             el('div', { style: { height: '4px', marginTop: '8px', background: T.surface2, width: '100%' } }, el('div', { style: { height: '100%', width: (maxRev ? r.revenue / maxRev * 100 : 0) + '%', background: i === 0 ? T.ember : T.dim, transition: 'width .6s ease' } }))),
+          closeCell(r),
           el('div', { style: { textAlign: 'right' } },
             figure(money(r.revenue), 'clamp(20px, 1.9cqw, 30px)', i === 0 ? T.ink : T.ink),
             el('div', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, marginTop: '4px', letterSpacing: '.06em' } }, r.count + ' sale' + (r.count === 1 ? '' : 's') + (r.last ? ' · ' + ago(r.last) : ''))))))

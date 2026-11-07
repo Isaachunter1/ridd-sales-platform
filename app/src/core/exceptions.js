@@ -160,6 +160,7 @@ function _exceptionFeedItemsRaw(scope) {
     mk('Source', pl(rec.source.length, 'subscription sourced wrong for who sold it', 'subscriptions sourced wrong for who sold them'), rec.source);
     mk('Cancellation', pl(rec.cancel.length, 'cancel reason that can\u2019t be right', 'cancel reasons that can\u2019t be right'), rec.cancel);
     mk('Status', pl(rec.status.length, 'subscription still Active but carrying a cancel date or reason', 'subscriptions still Active but carrying a cancel date or reason'), rec.status);
+    mk('Contract', pl((rec.contract || []).length, 'initial appointment scheduled with no signed agreement', 'initial appointments scheduled with no signed agreement'), rec.contract || []);
     mk('Duplicates', pl(rec.dupes.length, 'active subscription duplicated on the same customer', 'active subscriptions duplicated on the same customer (same service twice)'), rec.dupes);
     mk('Seller', pl(rec.seller.length, 'active subscription with no Sold By rep', 'active subscriptions with no Sold By rep'), rec.seller);
     // Same rule as the Auditing task (per Isaac, Oct 13): serviced cancels the retention book counts — never-serviced,
@@ -202,6 +203,19 @@ function _exceptionFeedItemsRaw(scope) {
           action: 'Review', onClick: () => mkpOpenNoLead('No GHL lead \u00b7 last 30 days', N) });
       }
     } catch (e) { /* best-effort */ }
+    // Sellify subscriptions belong to Anna Williams (per Isaac, Nov 7): the feed lands with no Sold By, so every
+    // table that needs a rep drops them. Flag any Sellify sub (pending/serviced) not credited to her — fix in FieldRoutes.
+    try {
+      const SELLIFY_REP = 'anna williams';
+      const sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+      const want = sig(SELLIFY_REP);
+      const S = perfT('exc:sellify', () => refMemo('sellifyRep', [subs], 300000, () => subs.filter(r => /^sellify$/i.test(String(r.subscription_source || '').trim())
+        && (/^(pending|completed)$/i.test(String(r.initial_status || '').trim()) || (Number(r.subscription_completed_services) || 0) > 0 || !!r.initial_serviced_date)   // the Sales Leaderboard's Pending / Serviced gate
+        && sig(r.sold_by) !== want)));
+      if (S.length) items.push({ sev: 'amber', tag: 'Sellify', count: S.length,
+        text: 'Sellify subscription' + (S.length === 1 ? '' : 's') + ' not credited to Anna Williams (' + S.filter(r => !String(r.sold_by || '').trim()).length + ' with no rep) — set Sold By in FieldRoutes',
+        action: 'Review', onClick: () => mkpOpenNoLead('Sellify \u00b7 set Sold By to Anna Williams', S) });
+    } catch (e) { /* best-effort */ }
     try { const Z = typeof mktgZipFixTask === 'function' ? perfT('exc:zipFix', () => mktgZipFixTask({ info: true })) : null;
       if (Z && Z.n) items.push({ sev: 'amber', tag: 'ZIP', count: Z.n, text: 'active account' + (Z.n === 1 ? '' : 's') + ' coded to another office than its ZIP’s market, or with no valid ZIP — fix in FieldRoutes', action: state._excDetail === 'zipfix' ? 'Hide' : 'Review', onClick: det('zipfix') }); } catch (e) { /* noop */ }
   }
@@ -233,7 +247,7 @@ function _exceptionFeedItemsRaw(scope) {
 const CRM_ZIP_STATE = { AL: [350, 369], AK: [995, 999], AZ: [850, 865], AR: [716, 729], CA: [900, 961], CO: [800, 816], CT: [60, 69], DE: [197, 199], DC: [200, 205], FL: [320, 349], GA: [300, 319], HI: [967, 968], ID: [832, 838], IL: [600, 629], IN: [460, 479], IA: [500, 528], KS: [660, 679], KY: [400, 427], LA: [700, 714], ME: [39, 49], MD: [206, 219], MA: [10, 27], MI: [480, 499], MN: [550, 567], MS: [386, 397], MO: [630, 658], MT: [590, 599], NE: [680, 693], NV: [889, 898], NH: [30, 38], NJ: [70, 89], NM: [870, 884], NY: [100, 149], NC: [270, 289], ND: [580, 588], OH: [430, 459], OK: [730, 749], OR: [970, 979], PA: [150, 196], RI: [28, 29], SC: [290, 299], SD: [570, 577], TN: [370, 385], TX: [750, 799], UT: [840, 847], VT: [50, 59], VA: [220, 246], WA: [980, 994], WV: [247, 268], WI: [530, 549], WY: [820, 831] };
 function crmZipState(zip) { const m = /^(\d{3})\d{2}/.exec(String(zip || '').trim()); if (!m) return null; const p = Number(m[1]); for (const k in CRM_ZIP_STATE) { const [a, b] = CRM_ZIP_STATE[k]; if (p >= a && p <= b) return k; } return null; }
 function crmReconciliationChecks(subs) {
-  const out = { location: [], source: [], cancel: [], status: [], dupes: [], seller: [], noReason: [] };
+  const out = { location: [], source: [], cancel: [], status: [], dupes: [], seller: [], noReason: [], contract: [] };
   const isActive = (r) => /^\s*active\s*$/i.test(String(r.subscription_status || ''));
   const dupKey = new Map();
   const flag = (r, why) => Object.assign({}, r, { _flagReason: why });
@@ -266,6 +280,11 @@ function crmReconciliationChecks(subs) {
     // FieldRoutes dropped them from the employee list (3,287 active subs) — and that sale is still theirs; nothing to fix.
     if (isActive(r) && !String(r.sold_by || '').trim() && /^(|0|-\d+)$/.test(String(r.sold_by_id == null ? '' : r.sold_by_id).trim())) out.seller.push(flag(r, 'Active with no Sold By'));
     if (!isActive(r) && cxlDate && !cxlReason) out.noReason.push(flag(r, 'Cancelled ' + cxlDate + ' with no reason'));
+    // Contract (per Isaac, Nov 7): an initial on the books with NO signed agreement — "we do NOT want scheduled
+    // appointments without signed contracts". Active recurring plans sold this year; one-time services exempt.
+    if (isActive(r) && /^pending$/i.test(String(r.initial_status || '').trim()) && String(r.contract_state || 'none') !== 'signed'
+        && !/one[\s-]?time/i.test(String(r.subscription || '')) && String(r.sold_date || '').slice(0, 4) === String(new Date().getFullYear()))
+      out.contract.push(flag(r, 'Initial scheduled, agreement ' + (String(r.contract_state) === 'sent' ? 'sent but not signed' : 'never sent') + ' \u2014 get it signed or pull the appointment'));
     // Source
     const t = TYPE(r), src = SRC(r);
     if (t === 'technician') { if (!crmSourceIs('tech_upsell', src)) out.source.push(flag(r, 'Technician sale sourced "' + (src || 'blank') + '" \u2014 should be a technician-upsell source')); }
@@ -275,6 +294,29 @@ function crmReconciliationChecks(subs) {
     const reason = String(r.subscription_cancellation_reason || '').trim();
     if (/sold,?\s*not\s*started/i.test(reason) && initialDone(r)) out.cancel.push(flag(r, 'Sold, Not Started but the initial was completed' + ((Number(r.subscription_completed_services) || 0) > 0 ? ' (' + r.subscription_completed_services + ' service' + (Number(r.subscription_completed_services) === 1 ? '' : 's') + ')' : '')));
     else if (/expired\s*subscription/i.test(reason)) out.cancel.push(flag(r, '"Expired Subscription" is a retired cancel reason'));
+    // 3-day ROR is a Sales Rep contract right (per Isaac, Nov 7): an office-staff or technician sale coded ROR — or
+    // cancelled inside the window with any other reason — is a real cancel that needs its proper reason in FieldRoutes.
+    else if (cxlDate && String(r.sold_by_type || '').trim() && String(r.sold_by_type || '').trim() !== 'Sales Rep') {
+      const rorCoded = typeof _rorReasonHit === 'function' && _rorReasonHit(reason);
+      const dIn = r.sold_date ? (new Date(cxlDate) - new Date(r.sold_date)) / 86400000 : -1;
+      const win = typeof crmRorWindowDays === 'function' ? crmRorWindowDays() : 3;
+      if (rorCoded) out.cancel.push(flag(r, String(r.sold_by_type).trim() + ' sale coded as a 3-day ROR — only Sales Rep contracts have one; re-code the reason'));
+      else if (dIn >= 0 && dIn <= win && !reason) out.cancel.push(flag(r, String(r.sold_by_type).trim() + ' sale cancelled ' + Math.round(dIn) + ' day' + (Math.round(dIn) === 1 ? '' : 's') + ' after the sale with no reason — not an ROR; code the real reason'));
+    }
+    // The other way round (per Isaac, Nov 7): a Sales Rep cancel inside the window IS a 3-day ROR whatever was typed —
+    // those get re-coded TO the ROR reason so the CRM says what the app already counts.
+    else if (cxlDate && r.sold_date && String(r.sold_by_type || '').trim() === 'Sales Rep' && !(typeof _rorReasonHit === 'function' && _rorReasonHit(reason))) {
+      const dIn = (new Date(cxlDate) - new Date(r.sold_date)) / 86400000;
+      const win = typeof crmRorWindowDays === 'function' ? crmRorWindowDays() : 3;
+      if (dIn >= 0 && dIn <= win) out.cancel.push(flag(r, 'Sales Rep cancel ' + Math.round(dIn) + ' day' + (Math.round(dIn) === 1 ? '' : 's') + ' after the sale coded "' + (reason || 'no reason') + '" — re-code to 3 Day ROR'));
+    }
+    // One-time plans always close as "One Time Service" (per Isaac, Nov 7); a recurring plan never does.
+    if (cxlDate && typeof reportingServiceLifecycleMap === 'function') {
+      const lc = reportingServiceLifecycleMap().get(String(r.subscription || '').trim());
+      const otsReason = /\b(one[\s-]?time|ots)\b/i.test(reason);
+      if (lc === 'onetime' && !otsReason) out.cancel.push(flag(r, 'One-time plan closed as "' + (reason || 'no reason') + '" — re-code to One Time Service'));
+      else if (lc === 'recurring' && otsReason) out.cancel.push(flag(r, 'Recurring plan closed as One Time Service — code the real reason'));
+    }
   }
   // Duplicates (per Isaac, Sep 30 — #53790): name each subscription ID and
   // its state. A copy that never got an appointment or a service is almost

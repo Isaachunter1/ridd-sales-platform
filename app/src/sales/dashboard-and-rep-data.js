@@ -888,12 +888,15 @@ function _indicatorIsRenewal(s) { return reportingSourceClass(s && s.source ? St
 // Always off — an old saved view or session can't leave a hidden filter on.
 function indicatorExcl() { return (state.indicatorExcl = { oneTime: false, ror: false, renewal: false }); }
 function indicatorExclKey() { const x = indicatorExcl(); return (x.oneTime ? 'o' : '') + (x.ror ? 'r' : '') + (x.renewal ? 'n' : ''); }
+// One-time is a property of the SERVICE TYPE (per Isaac, Nov 7): Settings → Reporting rules → Service types
+// (lifecycle), defaulting to the name ("One Time …"). The cancel reason no longer makes a sale one-time — a
+// one-time plan should always close as "One Time Service", and a mismatch is a CRM fix, not a definition.
 function _indIsOneTimeSale(s) {
   if (!s) return false;
   const nm = String(s.subscription || '').trim();
-  if (_ONETIME_SUB_RE.test(nm) || _ONETIME_REASON_RE.test(s.cancelReason || '')) return true;
   const lc = (typeof reportingServiceLifecycleMap === 'function') ? reportingServiceLifecycleMap().get(nm) : null;
-  return lc === 'onetime';
+  if (lc) return lc === 'onetime';
+  return _ONETIME_SUB_RE.test(nm);
 }
 // ACV split (per Isaac + Pere, Sep 30): one-time services dragged ACV down.
 //   ACV            = recurring NEW sales only (no one-time, no renewals)
@@ -2226,6 +2229,11 @@ function _is3DayROR(s) {
     const c = _M.map.get(s); if (c !== undefined) return c;
   }
   const _v = (() => {
+    // A 3-day ROR is a door-to-door contract right (per Isaac, Nov 7 — same rule Reporting has had since Oct 13):
+    // only a Sales Rep's sale can be one. An office-staff or technician cancel coded ROR, or inside 3 days, is a
+    // REAL cancel here and a reason to re-code in FieldRoutes (Needs attention → CRM fixes → Cancellation).
+    // Blank seller type: Door to Door source only, benefit of the doubt for legacy rows.
+    if (!_rorSellerOkSale(s)) return false;
     if (_rorReasonHit(s.cancelReason || '')) return true;
     // Date-based fallback: cancel within 3 days of sale, regardless of
     // what's typed in the reason field — confirmed rule: a quick cancel is
@@ -2240,12 +2248,18 @@ function _is3DayROR(s) {
   if (_M) _M.map.set(s, _v);
   return _v;
 }
+// Who gets a rescission window on the indicators pool: Sales Rep CRM type, or (no type) a Door to Door source.
+function _rorSellerOkSale(s) {
+  const t = String(s.repType || '').trim().toLowerCase();
+  if (t) return t === 'sales rep';
+  return String(s.source || '').trim().toLowerCase() === 'door to door';
+}
 function _isCombinedSub(s) {
   return !!s && _combinedReasonHit(s.cancelReason || '');
 }
 function _isOneTimeCancel(s) {
   if (!s) return false;
-  return _ONETIME_REASON_RE.test(s.cancelReason || '') || _ONETIME_SUB_RE.test(s.subscription || '');
+  return _indIsOneTimeSale(s);   // the service type decides (per Isaac, Nov 7); a one-time reason on a recurring plan is a CRM fix
 }
 function _isRenewalCancel(s) {
   return !!s && _RENEWAL_REASON_RE.test(s.cancelReason || '');
@@ -2332,11 +2346,9 @@ function _repCancelExcluded(s) {
 // logged cancel) count as kept, same as the card. ──
 function _attrRevIsSvc(x) { return (Number(x.services) || 0) > 0 || !!x.servicedDate; }
 function _attrRevIsAct(x) { return (x.status || '').toLowerCase() === 'active' || ((x.status || '') === '' && _subAliveNow(x) === true); }
-function _attrRevIsOTS(x) {
-  if (/^\s*one[\s-]?time/i.test(String(x.subscription || ''))) return true;
-  const m = Number(x.contract);
-  return !(m > 1) && !/sentricon/i.test(String(x.subscription || ''));
-}
+// Same rule as every other one-time read (per Isaac, Nov 7): the service type. (Was: name, or a contract of 1
+// that isn't Sentricon — a second definition that could disagree with the Sales Mix and ACV.)
+function _attrRevIsOTS(x) { return _indIsOneTimeSale(x); }
 // Returns { serv, cxl } contract-value contributions of ONE sale to the
 // attrition fraction (zeros when the sale doesn't count).
 function _attrRevParts(x) {

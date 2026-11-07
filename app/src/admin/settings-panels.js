@@ -606,6 +606,23 @@ function _evalStaging(sale) {
   }
 }
 
+// A rep asking for a status on their own pending sale (per Isaac, Nov 7): the sale goes to Flagged for Audit with
+// the request on the row; an auditor sets the real status. The rep never sets a payable status themselves.
+async function requestSaleStatus(saleId, status) {
+  const sale = state.allSales.find(s => s.id === saleId) || state.mySales.find(s => s.id === saleId);
+  const lbl = (typeof SALE_STATUS_LABEL !== 'undefined' && SALE_STATUS_LABEL[status]) || status;
+  if (DEMO) { if (sale) { sale.audit_status = 'flagged_for_audit'; sale.requested_status = status; sale.audit_flag = 'Rep asked for ' + lbl + ' \u2014 confirm'; } mountApp(); return; }
+  try {
+    const { error } = await supabase.from('sales').update({
+      audit_status: 'flagged_for_audit', requested_status: status, status_set_by: 'manual',
+      audit_flag: 'Rep asked for ' + lbl + ' \u2014 confirm', audit_flag_by: state.profile?.id || 'rep',
+    }).eq('id', saleId);
+    if (error) throw error;
+    toast('Sent to an auditor as Flagged for Audit (' + lbl + ')', 'success');
+    await refreshSalesData();
+    mountApp();
+  } catch (err) { toast(err.message || 'Could not flag the sale (run db/migrations/20261107_pricing_floors.sql?)', 'error'); }
+}
 async function auditSale(saleId, status) {
   if (typeof trackAction === 'function') trackAction('sale_audit', status);
   if (DEMO) {
@@ -637,6 +654,9 @@ async function auditSale(saleId, status) {
       audit_status: status,
       staged_for_payroll: willStage,
       staged_at: willStage ? new Date().toISOString() : null,
+      // A hand-set status is final for the automation (per Isaac, Nov 7): the sync and the pricing-floors job
+      // never overwrite it. Confirming a rep's request clears their flag.
+      status_set_by: 'manual', audit_flag: null, audit_flag_by: null, requested_status: null,
     }).eq('id', saleId);
     if (error) throw error;
     /* no status toast — the row's colour says it (per Isaac, Oct 15) */

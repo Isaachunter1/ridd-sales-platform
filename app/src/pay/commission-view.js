@@ -200,7 +200,7 @@ function commissionComputeOfficeStaff(emp, startMs, endMs) {
 
   const multiYearBonus = serviced.filter(s => isMultiYear(s) && !isRenewalSource(s)).reduce((a, s) => a + getBackendAmount(s), 0);
   const renewalPay     = serviced.filter(s => isRenewalSource(s)).reduce((a, s) => a + getBackendAmount(s), 0);
-  const closeRate      = Number(profile.close_rate_target ?? 0.50);
+  const closeRate      = typeof repCloseRateValue === 'function' ? repCloseRateValue(profile) : null;   // Plaibook, or No Close Rate (Nov 7)
   const subscriptionRev = subscriptionRevenueOf(serviced);
   const closeRateBonus = closeRateBonusFor(closeRate, subscriptionRev, repId);
   const backendPay     = multiYearBonus + closeRateBonus + renewalPay;

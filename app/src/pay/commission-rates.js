@@ -328,6 +328,7 @@ function getBackendAmount(sale) {
 // meets, applied to subscription revenue (serviced 12/18/24/PIF revenue
 // from standard sources — no commercial, OTS, upsells, or renewals).
 function closeRateBonusFor(closeRate, subscriptionRevenue, repId) {
+  if (closeRate == null || !Number.isFinite(Number(closeRate))) return 0;   // No Close Rate (no Plaibook seat) → no bonus (per Isaac, Nov 7)
   return subscriptionRevenue * (closeRateTierPct(closeRate, repId ? effectivePaySettings(repId) : null) / 100);
 }
 
@@ -335,6 +336,7 @@ function closeRateBonusFor(closeRate, subscriptionRevenue, repId) {
 // whose threshold the close rate meets. Used both for the live bonus and for
 // the Paid-in-Full upfront estimate (which assumes a 50% close rate).
 function closeRateTierPct(closeRate, s) {
+  if (closeRate == null || !Number.isFinite(Number(closeRate))) return 0;
   s = s || ensurePaySettings();
   const tiers = (s.close_rate_tiers || []).slice().sort((a, b) => b.min_close_rate - a.min_close_rate);
   for (const t of tiers) {

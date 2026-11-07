@@ -16,8 +16,17 @@ const PACER_ON_PACE_BAND = 0.03;
 // How much of TODAY's goal should be in by now: the work day's clock, by rep type (local time). Inside sales runs
 // 7–3 and 9–5 (per Isaac, Oct 2026); door-to-door and technicians default to 9–8 / 8–5 until Isaac sets otherwise.
 const PACER_DAY_HOURS = { office: [7, 17], d2d: [9, 20], techs: [8, 17] };
+// The live hours: Settings → Goals → Pacer hours (shared admin rule, per rep type), else the defaults above.
+function pacerDayHours(type) {
+  try {
+    const r = typeof _adminRules === 'function' ? _adminRules() : null;
+    const h = r && r.pacerHours && r.pacerHours[type];
+    if (Array.isArray(h) && h.length === 2 && Number.isFinite(Number(h[0])) && Number.isFinite(Number(h[1])) && Number(h[1]) > Number(h[0])) return [Number(h[0]), Number(h[1])];
+  } catch (e) { /* defaults */ }
+  return PACER_DAY_HOURS[type] || PACER_DAY_HOURS.office;
+}
 function pacerDayFraction(type, now) {
-  const h = PACER_DAY_HOURS[type] || PACER_DAY_HOURS.office;
+  const h = pacerDayHours(type);
   const t = (now || new Date()); const x = t.getHours() + t.getMinutes() / 60;
   return Math.max(0, Math.min(1, (x - h[0]) / (h[1] - h[0])));
 }
@@ -158,9 +167,10 @@ function pacerCard(opts) {
     : el('div', { class: 'grid', style: { gridTemplateColumns: two ? 'repeat(2, minmax(0, 1fr))' : 'minmax(0, 1fr)', columnGap: '32px', rowGap: '18px' } }, ...streams);
   return el('div', { class: 'card rev-goal-card', style: { padding: phone ? '14px' : '18px 20px' } },
     el('div', { class: 'flex items-center justify-between gap-2 flex-wrap', style: { marginBottom: '12px' } },
-      el('div', { class: 'flex items-baseline gap-2 min-w-0 flex-wrap' },
-        el('span', { class: 'uppercase font-bold', style: { fontSize: '10px', letterSpacing: '.1em', color: 'var(--text)' } }, opts.title || 'Revenue Pacer'),
-        opts.subtitle ? el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, opts.subtitle) : null),
-      opts.rangeToggle ? _pacerRangeToggle(opts.rangeToggle) : (opts.note && !phone ? el('span', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-subtle)' } }, opts.note) : null)),
+      // No descriptions on the card (per Isaac, Nov 7): the title, and the range toggle where there is one. The
+      // subtitle and the goal formula live in the card's tooltip instead.
+      el('div', { class: 'flex items-baseline gap-2 min-w-0 flex-wrap', title: [opts.subtitle, opts.note].filter(Boolean).join(' \u00b7 ') },
+        el('span', { class: 'uppercase font-bold', style: { fontSize: '10px', letterSpacing: '.1em', color: 'var(--text)' } }, opts.title || 'Revenue Pacer')),
+      opts.rangeToggle ? _pacerRangeToggle(opts.rangeToggle) : null),
     body);
 }

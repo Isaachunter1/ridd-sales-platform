@@ -96,8 +96,8 @@ function viewPayClassic() {
   // Close rate bonus (sheet O17): tiered — ≥60% pays 3% of subscription
   // revenue, ≥50% pays 2%, below that $0. Subscription revenue = serviced
   // 12/18/24/PIF revenue from standard sources (no commercial/OTS/upsells/
-  // renewals). Close rate itself is manually maintained per rep.
-  const closeRate = Number(viewedProfile.close_rate_target ?? 0.50);
+  // renewals). Close rate = the rep's Plaibook close rate (per Isaac, Nov 7); no seat there = No Close Rate, no bonus.
+  const closeRate = typeof repCloseRateValue === 'function' ? repCloseRateValue(viewedProfile) : null;
   const periodSubscriptionRev = subscriptionRevenueOf(servicedStaged);
   const closeRateBonus = closeRateBonusFor(closeRate, periodSubscriptionRev, repId);
   const meetsCloseRate = closeRateBonus > 0;
@@ -729,6 +729,12 @@ function processPayroll(sales, period) {
         payroll_period_id: period.id,
       }).in('id', ids);
       if (error) throw error;
+      // Not Payable accounts this run went past (per Isaac, Nov 7) → Archived (payroll_skipped_at); best-effort.
+      try {
+        const reps = new Set(sales.map(s => s.rep_id));
+        const skipped = (state.allSales || []).filter(s => reps.has(s.rep_id) && s.audit_status === 'not_payable' && !s.payroll_processed_at && !s.payroll_skipped_at && String(s.sold_date || '') <= String(period.end || '9999'));
+        if (skipped.length) await supabase.from('sales').update({ payroll_skipped_at: new Date().toISOString() }).in('id', skipped.map(s => s.id));
+      } catch (e) { console.warn('not-payable archive stamp skipped:', e && e.message); }
       toast(`Payroll processed for ${sales.length} accounts`, 'success');
       for (const [rid, list, totals, inputs] of snaps) recordPayRun('upfront', rid, period, list, totals, inputs);
       notifyPayrollRun(sales, period, 'upfront');
@@ -852,7 +858,7 @@ function isPayInputsSnapshot(repId, viewedProfile, extra) {
     settings: { contract_commissions: eff.contract_commissions, upfront_tiers: eff.upfront_tiers, close_rate_tiers: eff.close_rate_tiers, renewal_flat: eff.renewal_flat,
       pif_modifier: eff.pif_modifier, commercial_multiplier: eff.commercial_multiplier, below_min_multiplier: eff.below_min_multiplier,
       multi_year_rate_18: eff.multi_year_rate_18, multi_year_rate_24: eff.multi_year_rate_24, renewal_backend_rate: eff.renewal_backend_rate },
-    rep_overrides: o, close_rate: Number((viewedProfile || {}).close_rate_target ?? 0.5),
+    rep_overrides: o, close_rate: typeof repCloseRateValue === 'function' ? repCloseRateValue(viewedProfile) : null,
     computed_at: new Date().toISOString(),
   }, extra || {});
 }

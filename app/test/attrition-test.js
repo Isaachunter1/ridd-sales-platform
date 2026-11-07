@@ -35,7 +35,7 @@ function extractRange(startMarker, endFnName) {
   return appJs.slice(start, end);
 }
 function extractConst(name) {
-  const m = appJs.match(new RegExp('const ' + name + ' = [^\\n]*;'));
+  const m = appJs.match(new RegExp('const ' + name + ' += [^\\n]*;'));
   if (!m) throw new Error('cannot find const ' + name);
   return m[0];
 }
@@ -48,6 +48,9 @@ const src = [
   extractConst('_SNS_REASON_RE'),
   extractFn('_parseSlashDate'),
   extractFn('_isSoldNotStarted'),
+  extractConst('_ONETIME_SUB_RE'),
+  extractFn('_indIsOneTimeSale'),   // one-time = the service type (Nov 7); no lifecycle map in the test → the name decides
+  extractFn('_rorSellerOkSale'),
   extractFn('_is3DayROR'),
   extractFn('_subAliveNow'),
   extractFn('_attrRevIsSvc'),
@@ -62,9 +65,12 @@ const state = { _indManualMode: false };
 const { _attrRevParts, _is3DayROR, _isRorReason, _landingAttritionPct } = new Function('state', src)(state);
 
 // ── Fixtures: one sale each, the way indicatorSales() rows look ──
-const base = { subscription: 'Pest 4', contract: '12', contractValue: 1000, services: 2, status: 'Active', dateSold: '5/1/2026', cancelDate: '', cancelReason: '', active: 'Yes' };
+const base = { subscription: 'Pest 4', contract: '12', contractValue: 1000, services: 2, status: 'Active', dateSold: '5/1/2026', cancelDate: '', cancelReason: '', active: 'Yes', repType: 'Sales Rep', source: 'Door to Door' };
 const S = (o) => ({ ...base, ...o });
 const cases = [
+  ['office-staff cancel coded ROR is a REAL cancel (ROR is a Sales Rep right — Nov 7)', S({ repType: 'Office Staff', source: 'Facebook', status: 'Inactive', active: 'No', cancelDate: '5/2/2026', cancelReason: '3 Day ROR' }), { serv: 1000, cxl: 1000 }],
+  ['office-staff cancel inside 3 days, no reason: still a real cancel', S({ repType: 'Office Staff', source: 'Facebook', status: 'Inactive', active: 'No', cancelDate: '5/3/2026', cancelReason: '' }), { serv: 1000, cxl: 1000 }],
+  ['sales-rep cancel inside 3 days with another reason: ROR by date (re-code in CRM)', S({ status: 'Inactive', active: 'No', cancelDate: '5/3/2026', cancelReason: 'Moved' }), { serv: 0, cxl: 0 }],
   ['active serviced account: serviced $, no cancel',            S({}),                                                                { serv: 1000, cxl: 0 }],
   ['serviced then cancelled (real reason): both sides',        S({ status: 'Inactive', active: 'No', cancelDate: '8/1/2026', cancelReason: 'Moved' }), { serv: 1000, cxl: 1000 }],
   ['never serviced: counts nowhere',                            S({ services: 0, servicedDate: '' }),                                  { serv: 0, cxl: 0 }],
@@ -73,7 +79,8 @@ const cases = [
   ['cancel on day 4: NOT an ROR, counts as churn',              S({ status: 'Inactive', active: 'No', cancelDate: '5/5/2026', cancelReason: 'Finances' }), { serv: 1000, cxl: 1000 }],
   ['"Subscription Error" reason is NOT an ROR (no /ror/ substring bug)', S({ status: 'Inactive', active: 'No', cancelDate: '8/1/2026', cancelReason: 'Subscription Error' }), { serv: 1000, cxl: 1000 }],
   ['one-time service by name: removed from both sides',        S({ subscription: 'One Time Pest Control', contract: '' }),             { serv: 0, cxl: 0 }],
-  ['no contract months (one-time): removed',                    S({ contract: '0' }),                                                  { serv: 0, cxl: 0 }],
+  ['one-time SERVICE TYPE: removed (Nov 7 — the type decides, not the contract months)', S({ subscription: 'One Time Pest', contract: '0' }), { serv: 0, cxl: 0 }],
+  ['recurring plan with no contract months: still a serviced account (Nov 7)', S({ contract: '0' }), { serv: 1000, cxl: 0 }],
   ['Sentricon with blank contract: KEPT (annual program)',      S({ subscription: 'Sentricon South', contract: '' }),                   { serv: 1000, cxl: 0 }],
   ['saved account (Active + cancel date): kept, no churn',      S({ status: 'Active', active: 'Yes', cancelDate: '8/1/2026', cancelReason: 'Moved' }), { serv: 1000, cxl: 0 }],
   ['blank status + active No + cancel date: churn',             S({ status: '', active: 'No', cancelDate: '8/1/2026', cancelReason: 'Moved' }), { serv: 1000, cxl: 1000 }],
@@ -89,7 +96,7 @@ for (const [label, row, want] of cases) {
 const book = cases.map(c => c[1]);
 const t = book.reduce((a, r) => { const p = _attrRevParts(r); a.serv += p.serv; a.cxl += p.cxl; return a; }, { serv: 0, cxl: 0 });
 const pct = t.serv ? t.cxl / t.serv : 0;
-const wantPct = 4 / 7;   // 4 churned of 7 serviced $1,000 rows in the fixture
+const wantPct = 6 / 10;   // 6 churned of 10 serviced $1,000 rows in the fixture (Nov 7: two office-staff quick cancels count; a recurring plan with no contract months stays)
 if (Math.abs(pct - wantPct) > 1e-9) { fail++; console.error('  ✗ fixture attrition % ' + pct + ' want ' + wantPct); }
 else console.log('  ✓ fixture book attrition = ' + (pct * 100).toFixed(1) + '% (' + t.cxl + ' / ' + t.serv + ')');
 // The Indicators landing "Attrition" tile must read the same book number.
