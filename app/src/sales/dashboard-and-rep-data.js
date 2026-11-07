@@ -2226,6 +2226,11 @@ function _is3DayROR(s) {
     const c = _M.map.get(s); if (c !== undefined) return c;
   }
   const _v = (() => {
+    // A 3-day ROR is a door-to-door contract right (per Isaac, Nov 7 — same rule Reporting has had since Oct 13):
+    // only a Sales Rep's sale can be one. An office-staff or technician cancel coded ROR, or inside 3 days, is a
+    // REAL cancel here and a reason to re-code in FieldRoutes (Needs attention → CRM fixes → Cancellation).
+    // Blank seller type: Door to Door source only, benefit of the doubt for legacy rows.
+    if (!_rorSellerOkSale(s)) return false;
     if (_rorReasonHit(s.cancelReason || '')) return true;
     // Date-based fallback: cancel within 3 days of sale, regardless of
     // what's typed in the reason field — confirmed rule: a quick cancel is
@@ -2239,6 +2244,12 @@ function _is3DayROR(s) {
   })();
   if (_M) _M.map.set(s, _v);
   return _v;
+}
+// Who gets a rescission window on the indicators pool: Sales Rep CRM type, or (no type) a Door to Door source.
+function _rorSellerOkSale(s) {
+  const t = String(s.repType || '').trim().toLowerCase();
+  if (t) return t === 'sales rep';
+  return String(s.source || '').trim().toLowerCase() === 'door to door';
 }
 function _isCombinedSub(s) {
   return !!s && _combinedReasonHit(s.cancelReason || '');

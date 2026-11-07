@@ -275,6 +275,15 @@ function crmReconciliationChecks(subs) {
     const reason = String(r.subscription_cancellation_reason || '').trim();
     if (/sold,?\s*not\s*started/i.test(reason) && initialDone(r)) out.cancel.push(flag(r, 'Sold, Not Started but the initial was completed' + ((Number(r.subscription_completed_services) || 0) > 0 ? ' (' + r.subscription_completed_services + ' service' + (Number(r.subscription_completed_services) === 1 ? '' : 's') + ')' : '')));
     else if (/expired\s*subscription/i.test(reason)) out.cancel.push(flag(r, '"Expired Subscription" is a retired cancel reason'));
+    // 3-day ROR is a Sales Rep contract right (per Isaac, Nov 7): an office-staff or technician sale coded ROR — or
+    // cancelled inside the window with any other reason — is a real cancel that needs its proper reason in FieldRoutes.
+    else if (cxlDate && String(r.sold_by_type || '').trim() && String(r.sold_by_type || '').trim() !== 'Sales Rep') {
+      const rorCoded = typeof _rorReasonHit === 'function' && _rorReasonHit(reason);
+      const dIn = r.sold_date ? (new Date(cxlDate) - new Date(r.sold_date)) / 86400000 : -1;
+      const win = typeof crmRorWindowDays === 'function' ? crmRorWindowDays() : 3;
+      if (rorCoded) out.cancel.push(flag(r, String(r.sold_by_type).trim() + ' sale coded as a 3-day ROR — only Sales Rep contracts have one; re-code the reason'));
+      else if (dIn >= 0 && dIn <= win && !reason) out.cancel.push(flag(r, String(r.sold_by_type).trim() + ' sale cancelled ' + Math.round(dIn) + ' day' + (Math.round(dIn) === 1 ? '' : 's') + ' after the sale with no reason — not an ROR; code the real reason'));
+    }
   }
   // Duplicates (per Isaac, Sep 30 — #53790): name each subscription ID and
   // its state. A copy that never got an appointment or a service is almost
