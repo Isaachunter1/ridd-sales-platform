@@ -67,6 +67,7 @@ module.exports = [
   'integrations/ghl-leads.js',
   'reporting/inside-sales.js',
   'integrations/spend-qbo.js',
+  'integrations/spend-view.js',
   'integrations/spend-uploads.js',
   'indicators/indicator-metrics.js',
   'integrations/disposition.js',
