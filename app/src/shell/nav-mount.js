@@ -390,7 +390,7 @@ function openMySettingsModal() {
   // comes from Slack: profile → ⋮ → Copy member ID. Writes own row only
   // via the set_my_slack RPC (slack_notify.sql). ──
   const slackId = el('input', {
-    type: 'text', value: p.slack_member_id || '', placeholder: 'Slack Member ID, e.g. U0123ABCD',
+    type: 'text', value: p.slack_member_id || '', placeholder: 'Slack Member ID, e.g. U0123ABCD', title: 'Slack: your profile \u2192 \u22ee \u2192 Copy member ID',
     class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px]', style: { minWidth: '0' },
   });
   const slackOn = el('input', { type: 'checkbox', class: 'cursor-pointer' });
@@ -415,9 +415,7 @@ function openMySettingsModal() {
     secLabel('Slack notifications'),
     el('label', { class: 'flex items-center gap-2 text-sm cursor-pointer' }, slackOn,
       el('span', {}, 'DM me app notifications (audit results and more)')),
-    el('div', { class: 'flex items-center gap-2' }, slackId, slackBtn),
-    el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
-      'Find your Member ID in Slack: your profile \u2192 \u22ee \u2192 Copy member ID. A test DM confirms the hookup.'));
+    el('div', { class: 'flex items-center gap-2' }, slackId, slackBtn));   // (how-to caption dropped per Isaac, Nov 7 — the input's placeholder + title carry it)
 
   // ── Change password — same policy + live checklist as the reset screen. ──
   const pw1 = el('input', { type: 'password', placeholder: 'New password', autocomplete: 'new-password', class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]' });
@@ -476,9 +474,7 @@ function openMySettingsModal() {
           class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]',
           style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
           onchange: (e) => { setUserTzPref(e.target.value); toast('Time zone updated', 'success'); scheduleBackgroundRemount(); },
-        }, ...USER_TZ_CHOICES.map(([v, label]) => el('option', { value: v, selected: userTzPref() === v }, label))),
-        el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
-          'Affects time displays like Today\u2019s Sales. Auto = Mountain (Utah) for office staff; D2D sale times always show in the selling office\u2019s local time.')),
+        }, ...USER_TZ_CHOICES.map(([v, label]) => el('option', { value: v, selected: userTzPref() === v }, label)))),   // (caption dropped per Isaac, Nov 7 — labels only)
       slackAllowedFor(p) ? slackSection : null,
       // Goals (per Isaac, Oct 16): anyone with a player card sets their own annual goal here.
       (typeof myGoalCard === 'function' && myGoalCard(true)) ? el('div', { class: 'flex flex-col gap-2' }, secLabel('Goals'), myGoalCard(true)) : null,
