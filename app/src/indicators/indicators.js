@@ -6083,7 +6083,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   }
   sections.push(indLazy('agg-records', () => buildAggregateRecordsCard(), { 'data-section': 'agg-records' }, 320)); _profMark('ind:records');
   // Rookie vs Vet lives directly under the Records card (built earlier).
-  if (_tierCardSection && state.indicatorDept !== 'office') sections.push(_tierCardSection); _profMark('ind:class-metrics');
+  // Class Metrics: Sales Reps only — not Office Staff, and (per Isaac, Nov 8) not the Technicians dashboard either (the Technician Metrics table is dropped).
+  if (_tierCardSection && state.indicatorDept !== 'office' && state.indicatorDept !== 'techs') sections.push(_tierCardSection); _profMark('ind:class-metrics');
 
   // ── 3. (Cancel Analysis card retired — per Isaac. Reasons live in the
   // Retention tab's drills; package/office/team attrition lives in the
