@@ -172,25 +172,29 @@ function repWorldPicker(mode, cls) {
   if (opts.length < 2) return null;  // One compact Rep type picker, right side of the bar, same look on every tab (per Isaac, Oct 28 — the row of
   // Office Staff / Sales Rep / Technician / All buttons is gone). The ★ beside it sets your default dashboard,
   // same as the star in the dashboard's Filters.
+  // One joined control (per Isaac, Nov 8): the picker and the default-star share a single border, and the star
+  // carries a word — "Default" / "Set default" — so it reads as "this rep type is / isn't my default dashboard"
+  // rather than two unrelated buttons sitting next to each other.
   const sel = el('select', {
-    class: 'rounded-xl border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
-    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+    class: 'px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
+    style: { border: '0', outline: 'none', background: 'var(--card)', color: 'var(--text)', borderRadius: '0' },
     title: 'Rep type — switches the whole section (Dashboard, Sales, Pay…)',
     onchange: (e) => { if (e.target.value !== mode) switchRepWorld(e.target.value); },
   }, ...opts.map(([m, label]) => el('option', { value: m, selected: mode === m }, m === 'all' ? 'All rep types' : label)));
   const on = typeof getFavWorld === 'function' && getFavWorld() === mode;
   const star = typeof setFavWorld === 'function' ? el('button', {
-    type: 'button', class: 'rounded-xl border text-[13px] leading-none transition hover:brightness-95 flex items-center justify-center shrink-0',
-    style: { width: '28px', alignSelf: 'stretch', padding: '0', color: on ? 'var(--accent)' : 'var(--text-muted)', borderColor: on ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)' },
-    title: on ? 'Your default dashboard — click to clear' : 'Make this rep type your default dashboard',
+    type: 'button', class: 'text-[11px] font-semibold leading-none transition hover:brightness-95 flex items-center gap-1 shrink-0 whitespace-nowrap',
+    style: { padding: '0 10px', alignSelf: 'stretch', borderLeft: '1px solid ' + (on ? 'var(--accent)' : 'var(--border-2)'), color: on ? 'var(--accent)' : 'var(--text-muted)', background: on ? 'rgba(223,100,58,.08)' : 'var(--card)' },
+    title: on ? 'This rep type opens by default when you sign in — click to clear' : 'Open on this rep type by default when you sign in',
     onclick: () => {
       setFavWorld(on ? '' : mode);
       const name = (opts.find(o => o[0] === mode) || [])[1] || '';
-      if (typeof toast === 'function') toast(on ? 'Default cleared — you’ll open on Office Staff' : (mode === 'all' ? 'All rep types' : name) + ' is now your default', 'ok');
+      if (typeof toast === 'function') toast(on ? 'Default cleared — you’ll open on Office Staff' : (mode === 'all' ? 'All rep types' : name) + ' is now your default dashboard', 'ok');
       mountApp();
     },
-  }, on ? '★' : '☆') : null;
-  return el('div', { class: cls || 'flex items-stretch gap-1.5 shrink-0', 'data-world-pick': '1' }, sel, star);
+  }, el('span', { style: { fontSize: '13px' } }, on ? '★' : '☆'), el('span', { class: 'hidden sm:inline' }, on ? 'Default' : 'Set default')) : null;
+  return el('div', { class: cls || 'flex items-stretch shrink-0', 'data-world-pick': '1' },
+    el('div', { class: 'inline-flex items-stretch rounded-xl border overflow-hidden', style: { borderColor: on ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)' } }, sel, star));
 }
 function insideSalesSubTabs() {
   const tabs = insideSalesTabsFor(state.profile?.role);
