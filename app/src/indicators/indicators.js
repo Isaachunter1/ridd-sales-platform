@@ -5474,15 +5474,6 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             filteredReps.length === allReps.length
               ? filteredReps.length + ' reps'
               : filteredReps.length + ' of ' + allReps.length + ' reps'),
-        ),
-        el('div', { class: 'lb-tools flex items-center gap-2 flex-wrap flex-1 sm:flex-initial' },
-          // Search on the left; ONE Filters button on the right — tier,
-          // team, office, and the cancel-type toggles all live inside its
-          // panel now instead of crowding the header.
-          //
-          // Search: mountApp() rebuilds the entire page, so firing it
-          // per-keystroke felt laggy on big rosters — rows filter IN PLACE
-          // (show/hide) so the input keeps focus with zero flicker.
           // My team (per Isaac, Nov 8): one tap to see the board as just the team the viewer is assigned to —
           // "how am I doing against everyone else on my team" — tap again for everyone.
           (() => {
@@ -5496,6 +5487,15 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               onclick: () => { state._indicatorRepTeamFilter = on ? '' : myTeam; mountApp(); },
             }, on ? myTeam : 'My team');
           })(),
+        ),
+        el('div', { class: 'lb-tools flex items-center gap-2 flex-wrap flex-1 sm:flex-initial' },
+          // Search on the left; ONE Filters button on the right — tier,
+          // team, office, and the cancel-type toggles all live inside its
+          // panel now instead of crowding the header.
+          //
+          // Search: mountApp() rebuilds the entire page, so firing it
+          // per-keystroke felt laggy on big rosters — rows filter IN PLACE
+          // (show/hide) so the input keeps focus with zero flicker.
           el('input', {
             id: 'rep-leaderboard-search',
             type: 'text',
