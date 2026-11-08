@@ -3036,11 +3036,12 @@ function computeIndicatorTrends(rep, weekOffset = 0) {
 // plus an optional personal default date range. ──
 const REP_LAYOUT_KEY = 'ridd_rep_layout_v1';
 const _repLayoutKeyForMe = () => REP_LAYOUT_KEY + '::' + ((state.profile && state.profile.id) || 'anon');
+// Nov 7 (per Isaac): player card → Trends → Leaderboard for every user type.
 const REP_LAYOUT_SECTIONS = [
   ['card',  'My Player Card'],
   ['yoy',   'Trends'],
-  ['board', 'Leaderboard'],
   ['trend', 'Your Metric Trends'],
+  ['board', 'Leaderboard'],
 ];
 // Rep - Partner / Office Team Lead page order (per Isaac): player card
 // pinned at top, then Indicators table + Power Ranking chart (fixed
@@ -3053,8 +3054,8 @@ const REP_LAYOUT_SECTIONS = [
 const PARTNER_LAYOUT_SECTIONS = [
   ['card',    'My Player Card'],
   ['yoy',     'Trends'],
-  ['board',   'Leaderboard'],
   ['trend',   'Your Metric Trends'],
+  ['board',   'Leaderboard'],
   ['records', 'Records'],
   ['class',   'Class Metrics'],
   ['mix',     'Sales Mix'],
@@ -3062,7 +3063,31 @@ const PARTNER_LAYOUT_SECTIONS = [
 // (the 'class' key is quoted so the CI class-token scanner skips it)
 // Player card rule (per Isaac, Oct 16): shown for anyone whose app login is linked to a FieldRoutes employee
 // (Settings → Users), any user type; hidden for app-only accounts with no FieldRoutes rep behind them.
-function indShowMyCard(profile) { const p = profile || state.profile; return !!(p && String(p.fieldroutes_employee_id || '').trim()); }
+// …and (per Isaac, Nov 7) only once they have a SERVICED account this year — a card with nothing on it stays off.
+// While the dataset is still loading the card is allowed, so it never flashes away on a slow load.
+function indShowMyCard(profile) {
+  const p = profile || state.profile;
+  if (!(p && String(p.fieldroutes_employee_id || '').trim())) return false;
+  return _repHasServicedThisYear(p);
+}
+function _repHasServicedThisYear(p) {
+  const raw = state._indicatorRawSales;
+  if (!Array.isArray(raw) || !raw.length) return true;
+  const C = _repHasServicedThisYear._c || (_repHasServicedThisYear._c = { raw: null, by: new Map() });
+  if (C.raw !== raw) { C.raw = raw; C.by.clear(); }
+  const key = String(p.id || p.full_name || '');
+  if (C.by.has(key)) return C.by.get(key);
+  const yr = String(new Date().getFullYear());
+  const self = state.profile && p.id === state.profile.id;
+  const sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  const pSig = sig(p.full_name);
+  const mine = (s) => (self && typeof isMyRepName === 'function' ? isMyRepName(s.rep) : sig(s.rep) === pSig) || String(s.repId || '') === String(p.fieldroutes_employee_id);
+  const iso = (d) => (typeof dateSoldToIso === 'function' && dateSoldToIso(d)) || String(d || '').slice(0, 10);
+  let ok = false;
+  for (const s of raw) { if (!mine(s)) continue; if (iso(s.dateSold).slice(0, 4) !== yr) continue; if (typeof frServiced === 'function' ? frServiced(s) : true) { ok = true; break; } }
+  C.by.set(key, ok);
+  return ok;
+}
 const _REP_SECTION_PERM = { 'card': 'ind_card', 'yoy': 'ind_yoy', 'trend': 'ind_trend', 'board': 'ind_board', 'records': 'ind_records', 'class': 'ind_class', 'mix': 'ind_mix' };
 const _repLayoutSections = () => {
   const partnerish = (typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role))
@@ -3085,6 +3110,8 @@ function _repLayoutPrefs() {
       // One-time (Oct 16): Class Metrics above Sales Mix for every user type (per Isaac) — saved layouts follow once.
       if (!p._v4 && p.order.includes('mix') && p.order.includes('class') && p.order.indexOf('mix') < p.order.indexOf('class')) { p.order = p.order.filter(k => k !== 'mix'); p.order.splice(p.order.indexOf('class') + 1, 0, 'mix'); }
       p._v4 = true;
+      // One-time (Nov 7, per Isaac): Trends above the Leaderboard for every user type — saved layouts follow once.
+      if (!p._v5) { const b = p.order.indexOf('board'); for (const k of ['yoy', 'trend']) { const i = p.order.indexOf(k); if (i > b && b >= 0) { p.order.splice(i, 1); p.order.splice(p.order.indexOf('board'), 0, k); } } p._v5 = true; }
       p.hidden = Array.isArray(p.hidden) ? p.hidden : [];
       return p;
     }
