@@ -139,7 +139,9 @@ function _pacerSide(side, o) {
   const phone = o.phone;
   return el('div', { class: 'flex flex-col min-w-0', style: { gap: '8px', ...(phone ? { paddingTop: '12px', borderTop: '1px solid var(--border)' } : { paddingLeft: '28px', borderLeft: '1px solid var(--border)' }) } },
     el('div', { class: 'uppercase font-bold', style: { fontSize: '9px', letterSpacing: '.08em', color: 'var(--text-subtle)' } }, side.title),
-    el('div', { class: 'grid items-center text-[12px]', style: { gridTemplateColumns: (phone ? '92px' : '116px') + ' minmax(0, 1fr) ' + (side.textW || 68) + 'px', gap: '6px 10px' } },
+    // side.scrollRows: show that many rows, the rest scroll inside the panel (thin scrollbar, per Isaac Nov 8).
+    el('div', { class: 'grid items-center text-[12px]' + (side.scrollRows && side.rows.length > side.scrollRows ? ' pacer-side-scroll' : ''), style: { gridTemplateColumns: (phone ? '92px' : '116px') + ' minmax(0, 1fr) ' + (side.textW || 68) + 'px', gap: '6px 10px',
+        ...(side.scrollRows && side.rows.length > side.scrollRows ? { maxHeight: (side.scrollRows * 24 + 6) + 'px', overflowY: 'auto', paddingRight: '6px', alignContent: 'start' } : {}) } },
       ...side.rows.flatMap(r => [
         el('div', { class: 'font-semibold truncate', title: r.label }, r.label),
         _pacerBar(r.pct, r.tick, r.color || 'var(--text)', 8, r.tickTip || ''),

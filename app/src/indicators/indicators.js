@@ -416,10 +416,11 @@ function deptRangePacer(dept) {
   const total = Object.values(byOffice).reduce((a, b) => a + b, 0);
   const side = (!isOffice && total > 0) ? (() => {
     const rows = Object.entries(byOffice).sort((x, y) => y[1] - x[1]);
-    const top = rows.slice(0, 5), max = top[0][1] || 1;
-    return { title: 'Where it’s coming from · ' + R.label.toLowerCase(), textW: 104,
-      rows: top.map(([o, v]) => ({ label: _mktgTCish(o), pct: v / max, tick: null, color: 'var(--text)', text: _pacerShort(v) + ' · ' + Math.round(v / total * 100) + '%' })),
-      more: rows.length > 5 ? rows.length + ' offices · ' + (rows.length - 5) + ' more below the fold' : '' };
+    // Every office, in a list that scrolls past five rows (per Isaac, Nov 8) — no "more below the fold" note.
+    const max = rows[0][1] || 1;
+    return { title: 'Where it’s coming from · ' + R.label.toLowerCase(), textW: 104, scrollRows: 5,
+      rows: rows.map(([o, v]) => ({ label: _mktgTCish(o), pct: v / max, tick: null, color: 'var(--text)', text: _pacerShort(v) + ' · ' + Math.round(v / total * 100) + '%' })),
+      more: rows.length > 5 ? rows.length + ' offices' : '' };
   })() : null;
   const _keep = state.dashDateRange; state.dashDateRange = 'today';
   try {
