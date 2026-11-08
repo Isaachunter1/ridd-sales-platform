@@ -11344,6 +11344,11 @@ function indicatorYoYTrendChart() {
     };
     // Compare picks (per Isaac, Oct 28): offices and teams are short lists, shown whole (typing narrows them);
     // reps are searched. Every pick is its own line on the chart.
+    // Name only what the list actually offers (per Isaac, Nov 8): the Office Staff dashboard has offices + reps and no
+    // teams, so the placeholder said "teams" for a section that never appeared.
+    const _hasTeams = teams.filter(indWorldTeamOk).length > 0;
+    const _pickWhat = 'Pick ' + (offices.length ? 'offices, ' : '') + (_hasTeams ? 'teams, ' : '') + 'reps\u2026';
+    const _searchWhat = 'Search ' + (offices.length ? 'offices, ' : '') + (_hasTeams ? 'teams, ' : '') + 'reps\u2026';
     const placeList = el('div', {});
     const paintPlaces = (q) => {
       placeList.innerHTML = '';
@@ -11422,7 +11427,7 @@ function indicatorYoYTrendChart() {
     };
     const btn = el('input', {
       type: 'text', autocomplete: 'off',
-      placeholder: _nReps ? (_nReps === 1 ? _scopeLabelOf(_yoySelScopes[0]) : _nReps + (_yoyCompareOn() ? ' compared' : ' reps')) : (_yoyCompareOn() ? 'Pick offices, teams, reps\u2026' : 'Search rep\u2026'),
+      placeholder: _nReps ? (_nReps === 1 ? _scopeLabelOf(_yoySelScopes[0]) : _nReps + (_yoyCompareOn() ? ' compared' : ' reps')) : (_yoyCompareOn() ? _pickWhat : 'Search rep\u2026'),
       readOnly: _yoyCompareOn(),   // compare on: the panel's own search (top) takes the typing
       class: 'rounded-lg border px-2.5 py-1 text-[11px]',
       style: { borderColor: _nReps ? 'var(--accent)' : 'var(--border-2)', minWidth: '160px', background: 'var(--card)', color: 'var(--text)' },
@@ -11433,7 +11438,7 @@ function indicatorYoYTrendChart() {
     });
     // Compare off: the trigger IS the search, so the panel's own box stays hidden.
     if (!_yoyCompareOn()) repSearch.style.display = 'none';
-    else repSearch.placeholder = 'Search offices, teams, reps\u2026';
+    else repSearch.placeholder = _searchWhat;
     if (state._yoyScopesOpen) { panel.style.display = 'block'; clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
       if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
       if (wrap.contains(ev.target)) return;
