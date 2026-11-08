@@ -653,6 +653,8 @@ function dashLensPacer(dept) {
 // Oct 16 later (per Isaac): Class Metrics and Sales Mix swapped — Class Metrics first, for every user type.
 // Oct 28 (per Isaac): Leaderboard above Trends on the team / department views (Me hides the Leaderboard).
 const _IND_ORDER_STD = ['rep-leaderboard', 'yoy', 'ind-table', 'power-charts', 'agg-records', 'class-metrics', 'sales-mix', 'repTrend'];
+// Nov 7 (per Isaac): admins see Trends ABOVE the Leaderboard; every other user type keeps the Oct 28 order.
+const _IND_ORDER_ADMIN = ['yoy', 'rep-leaderboard', 'ind-table', 'power-charts', 'agg-records', 'class-metrics', 'sales-mix', 'repTrend'];
 // Same order on all three dashboards (per Isaac, Oct 6). Office Staff keep the revenue-goal pacer above it.
 const IND_SECTION_ORDER = { d2d: _IND_ORDER_STD, office: _IND_ORDER_STD, techs: _IND_ORDER_STD, all: _IND_ORDER_STD };   // All too (per Isaac, Oct 9)
 // The dashboards open on TODAY (per Isaac, Oct 6) — the Today / Week / Month / Year chips are one tap away.
@@ -689,7 +691,7 @@ function indApplySectionOrder(page) {
       if (String(state.profile?.role || '') === 'rep_sales') hide.delete('rep-leaderboard');
       [...page.children].forEach(n => { if (hide.has(keyOf(n))) n.remove(); });
     }
-    const order = IND_SECTION_ORDER[state.indicatorDept];
+    const order = isAdminRole(state.profile?.role) ? _IND_ORDER_ADMIN : IND_SECTION_ORDER[state.indicatorDept];
     if (!order || state.indicatorsComps || !page.children) return page;
     const kids = [...page.children];
     const rank = (n) => order.indexOf(keyOf(n));
