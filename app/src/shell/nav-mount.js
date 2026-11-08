@@ -192,7 +192,7 @@ function repWorldPicker(mode, cls) {
       if (typeof toast === 'function') toast(on ? 'Default cleared — you’ll open on Office Staff' : (mode === 'all' ? 'All rep types' : name) + ' is now your default dashboard', 'ok');
       mountApp();
     },
-  }, el('span', { style: { fontSize: '13px' } }, on ? '★' : '☆'), el('span', { class: 'hidden sm:inline' }, on ? 'Default' : 'Set default')) : null;
+  }, el('span', { style: { fontSize: '13px' } }, on ? '★' : '☆'), on ? null : el('span', { class: 'hidden sm:inline' }, 'Set default')) : null;   // once set: just the lit star (per Isaac, Nov 8)
   return el('div', { class: cls || 'flex items-stretch shrink-0', 'data-world-pick': '1' },
     el('div', { class: 'inline-flex items-stretch rounded-xl border overflow-hidden', style: { borderColor: on ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)' } }, sel, star));
 }
