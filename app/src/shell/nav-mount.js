@@ -460,6 +460,27 @@ function openMySettingsModal() {
     },
   }, 'Update Password');
 
+  // Get the app on your phone (per Isaac, Nov 7): a banner at the top, one tap. Hidden once the app is installed.
+  const installBanner = (() => {
+    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent || '');
+    const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+    if (standalone) return null;
+    const phone = el('span', { style: { fontSize: '20px', lineHeight: '1' }, 'aria-hidden': 'true' }, '\ud83d\udcf1');
+    const canPrompt = !!window._riddInstallEvt;
+    const sub = canPrompt ? 'One tap \u2014 opens like a real app, no app store.'
+      : isIOS ? 'Safari \u2192 Share \u2192 Add to Home Screen' : 'Chrome or Edge \u2192 \u22ee menu \u2192 Install app';
+    const btn = canPrompt ? el('button', {
+      class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold whitespace-nowrap transition hover:brightness-95',
+      style: { background: 'var(--accent)', color: 'var(--accent-text, #fff)' },
+      onclick: async (e) => { const evt = window._riddInstallEvt; window._riddInstallEvt = null; e.currentTarget.disabled = true; try { evt.prompt(); } catch { /* dismissed */ } },
+    }, 'Install') : null;
+    return el('div', { class: 'mb-1 rounded-xl px-3.5 py-3 flex items-center gap-3', style: { margin: '0 20px 4px', background: 'rgba(223,100,58,.10)', border: '1px solid rgba(223,100,58,.35)' } },
+      phone,
+      el('div', { class: 'flex-1', style: { minWidth: '0' } },
+        el('div', { class: 'text-[12px] font-bold' }, 'Get RIDD on your phone'),
+        el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, sub)),
+      btn);
+  })();
   const card = el('div', { class: 'card w-full max-w-sm overflow-hidden flex flex-col' },
     el('div', { class: 'flex items-center justify-between px-5 pt-5 pb-3' },
       el('div', {},
@@ -467,6 +488,7 @@ function openMySettingsModal() {
         el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } },
           (p.full_name || '') + ' · ' + roleLabel(p.role))),
       el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
+    installBanner,
     el('div', { class: 'px-5 pb-5 flex flex-col gap-5' },
       el('div', { class: 'flex flex-col gap-2' },
         secLabel('Time Zone'),
@@ -481,31 +503,6 @@ function openMySettingsModal() {
       el('div', { class: 'flex flex-col gap-2' },
         secLabel('Change Password'),
         pw1, pw2, policyList, pwBtn),
-      el('div', { class: 'flex flex-col gap-2' },
-        secLabel('Get the App on Your Phone'),
-        (() => {
-          const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent || '');
-          const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
-          if (standalone) {
-            return el('div', { class: 'text-xs', style: { color: 'var(--text-muted)' } }, '✓ Installed — you\'re running RIDD from your home screen.');
-          }
-          if (window._riddInstallEvt) {
-            return el('button', {
-              class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95 self-start',
-              style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
-              onclick: async (e) => {
-                const evt = window._riddInstallEvt;
-                window._riddInstallEvt = null;
-                e.currentTarget.disabled = true;
-                try { evt.prompt(); } catch { /* user dismissed */ }
-              },
-            }, 'Install on Device');
-          }
-          return el('div', { class: 'text-xs', style: { color: 'var(--text-muted)', lineHeight: '1.5' } },
-            isIOS
-              ? 'On iPhone: open this page in Safari, tap the Share button, then "Add to Home Screen" — RIDD installs like a real app.'
-              : 'Open this page in Chrome or Edge and use the browser\'s "Install app" option (⋮ menu) to put RIDD on your home screen.');
-        })()),
       el('div', { class: 'pt-3 border-t flex' , style: { borderColor: 'var(--border)' } },
         el('button', {
           class: 'text-xs font-semibold transition hover:underline',
