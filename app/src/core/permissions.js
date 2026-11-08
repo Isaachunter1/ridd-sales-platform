@@ -226,9 +226,9 @@ const ROLE_LABEL = {
   rep_partner:'Sales Rep - Partner',
   rep_team_lead:'Sales Rep - Team Lead',
   rep_office: 'Office Staff - Inside Sales Rep',
-  rep_office_lead: 'Office Staff - Inside Sales Team Lead',
+  rep_office_lead: 'Office Staff - Inside Sales TL',   // TL (per Isaac, Nov 8)
   rep_loyalty: 'Office Staff - Loyalty Rep',
-  rep_loyalty_lead: 'Office Staff - Loyalty Team Lead',
+  rep_loyalty_lead: 'Office Staff - Loyalty TL',   // TL (per Isaac, Nov 8)
   office_staff: 'Office Staff - Office',   // non-selling office user (per Isaac, Sep 22)
   tech_regional: 'Technician - Regional Manager',
   tech_branch: 'Technician - Office Manager',
