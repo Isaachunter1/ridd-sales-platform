@@ -684,6 +684,9 @@ function indApplySectionOrder(page) {
     if (typeof dashLensOn === 'function' && dashLensOn() && dashLens() === 'me' && dashLensOptions().length > 1) {
       const hide = new Set(IND_ME_HIDE);
       if (isAdminRole(state.profile?.role)) hide.add('repTrend');
+      // Sales Rep - Rep (per Isaac, Nov 7): the Me view keeps the Leaderboard — it's their home page and the
+      // board is the pulse they need; the department tables stay off.
+      if (String(state.profile?.role || '') === 'rep_sales') hide.delete('rep-leaderboard');
       [...page.children].forEach(n => { if (hide.has(keyOf(n))) n.remove(); });
     }
     const order = IND_SECTION_ORDER[state.indicatorDept];
@@ -7091,7 +7094,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
     });
   }
   const canvasId = 'chart-rep-trend';
-  const canvasWrap = el('div', { style: { position: 'relative', height: '320px', width: '100%' } });
+  const canvasWrap = el('div', { style: { position: 'relative', height: '250px', width: '100%' } });   // shorter (per Isaac, Nov 7 — every user)
   const canvas = el('canvas', { id: canvasId });
   canvasWrap.append(canvas);
 
@@ -11416,7 +11419,7 @@ function indicatorYoYTrendChart() {
     return wrap;
   })();
 
-  const cvsWrap = el('div', { style: { position: 'relative', height: '280px', width: '100%' } });
+  const cvsWrap = el('div', { style: { position: 'relative', height: '210px', width: '100%' } });   // shorter (per Isaac, Nov 7 — every user)
   const _ownCvs = el('canvas', { id });
   cvsWrap.append(_ownCvs);
   setTimeout(() => {
