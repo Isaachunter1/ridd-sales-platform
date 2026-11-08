@@ -5496,18 +5496,26 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               _lbApplyVis();
             },
           }),
-          // My team (per Isaac, Nov 8): one tap to see the board as just the team the viewer is assigned to —
-          // "how am I doing against everyone else on my team" — tap again for everyone.
+          // Team picker (per Isaac, Nov 8): the SAME control for every user type — admins, leads and reps alike —
+          // listing the teams this dashboard has (the role's own reach); the viewer's own team sits first as
+          // "My team". It drives the same Team filter as Filters → Team, so chips and Clear all stay in sync.
           (() => {
+            const teams = (typeof distinctTeams === 'function' ? distinctTeams() : []).filter(t => typeof indWorldTeamOk !== 'function' || indWorldTeamOk(t)).sort();
+            if (!teams.length) return null;
             const myTeam = (typeof getRepTeam === 'function' && state.profile) ? (getRepTeam(state.profile.full_name) || '') : '';
-            if (!myTeam) return null;
-            const on = indTeamFilterList().length === 1 && indTeamFilterList()[0] === myTeam;
-            return el('button', {
-              class: 'rounded-lg border ' + _lbBtnPad + ' py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
-              style: on ? { borderColor: 'var(--accent)', background: 'var(--accent)', color: 'var(--accent-text, #fff)' } : { borderColor: 'var(--border-2)', color: 'var(--text)' },
-              title: on ? 'Showing ' + myTeam + ' — tap for everyone' : 'Just ' + myTeam + ' — see how you stack up against your own team',
-              onclick: () => { state._indicatorRepTeamFilter = on ? '' : myTeam; mountApp(); },
-            }, on ? myTeam : 'My team');
+            const cur = indTeamFilterList();
+            const val = cur.length === 1 ? cur[0] : (cur.length > 1 ? '__multi__' : '');
+            const on = !!val;
+            return el('select', {
+              class: 'rounded-lg border ' + _lbBtnPad + ' py-1 text-[11px] font-semibold cursor-pointer',
+              style: on ? { borderColor: 'var(--accent)', color: 'var(--accent)', background: 'var(--card)', maxWidth: '160px' } : { borderColor: 'var(--border-2)', color: 'var(--text)', background: 'var(--card)', maxWidth: '160px' },
+              title: 'Show one team on the leaderboard' + (myTeam ? ' — My team = ' + myTeam : ''),
+              onchange: (e) => { const v = e.target.value; if (v === '__multi__') return; state._indicatorRepTeamFilter = v; mountApp(); },
+            },
+              el('option', { value: '', selected: !on }, 'All teams'),
+              myTeam && teams.includes(myTeam) ? el('option', { value: myTeam, selected: val === myTeam }, 'My team · ' + myTeam) : null,
+              ...(cur.length > 1 ? [el('option', { value: '__multi__', selected: true }, cur.length + ' teams (Filters)')] : []),
+              ...teams.filter(t => t !== myTeam).map(t => el('option', { value: t, selected: val === t }, t)));
           })(),
           // Rep picker — check specific reps to build a downline view.
           (() => {
@@ -5657,9 +5665,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 b.disabled = true; b.textContent = '…';
                 try { await downloadRookieVetPdf(reps, { limitOverall: 10, limitRookie: 10 }); }
                 catch (err) { console.error('[ridd] leaderboard PDF threw', err); toast('PDF failed: ' + (err.message || 'unknown'), 'error'); }
-                finally { b.disabled = false; b.textContent = '📄 PDF'; }
+                finally { b.disabled = false; b.textContent = '📄'; }
               },
-            }, '📄 PDF');
+            }, '📄');   // icon only (per Isaac, Nov 8)
             return b;
           })() : null,
 
