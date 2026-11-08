@@ -1382,6 +1382,7 @@ function viewIndicators() {
   // tab for every role. Clears any persisted ON state so nobody's stuck.
   state.indicatorsComps = false;
   const _repLite = !isAdminRole(state.profile?.role);
+  const _canBoardFilters = !_repLite || userCan('ind_board');   // Team / Tier filters follow the Leaderboard (per Isaac, Nov 8)
   // "Analyst layout" (pinned card + admin tables/charts): driven by the
   // Settings → Permissions matrix now — any role granted the Indicators
   // table or Power Ranking chart gets it. Defaults: partners + office
@@ -1753,8 +1754,9 @@ function viewIndicators() {
                   _fRow('Group',  hl(groupSel,  groupBy !== 'branch')),
                   // (Office row removed per Isaac, Oct 28 — the Indicators table and Group already show every office side by side.)
                   // Team: only this rep type's teams, and no row at all when it has none (per Isaac, Oct 28 — replaces Oct 9's every-team-everywhere).
-                  (_repLite || !_teams.length) ? null : _fRow('Team',   (hl(teamSel._hl, !!state._indicatorRepTeamFilter), teamSel)),
-                  (_repLite || !tierSel) ? null : _fRow('Tier', hl(tierSel, !!state._indicatorRepTierFilter)),
+                  // Team + Tier (per Isaac, Nov 8): anyone who sees the Leaderboard can filter it — reps included; Type stays admin.
+                  (!_canBoardFilters || !_teams.length) ? null : _fRow('Team',   (hl(teamSel._hl, !!state._indicatorRepTeamFilter), teamSel)),
+                  (!_canBoardFilters || !tierSel) ? null : _fRow('Tier', hl(tierSel, !!state._indicatorRepTierFilter)),
                 ];
               })(),
               (_applyBtn = el('button', {
@@ -1794,7 +1796,7 @@ function viewIndicators() {
             (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced',
             state.indicatorPassedAudit === true,
             !!indicatorExclKey(),
-            !_repLite && !!state._indicatorRepOfficeFilter, !_repLite && !!state._indicatorRepTeamFilter, !_repLite && !!state._indicatorRepTierFilter,
+            !_repLite && !!state._indicatorRepOfficeFilter, _canBoardFilters && !!state._indicatorRepTeamFilter, _canBoardFilters && !!state._indicatorRepTierFilter,
             !_repLite && !_fWorld && (state.indicatorDept || 'all') !== _fDeptDefault,
             groupBy !== 'branch',
           ].filter(Boolean).length;
@@ -2033,7 +2035,7 @@ function viewIndicators() {
           if (!_repLite && !world && (state.indicatorDept || 'all') !== 'd2d') add(({ all: 'All rep types', office: 'Office Staff', techs: 'Technicians' })[state.indicatorDept || 'all'] || 'Type', () => { state.indicatorDept = 'd2d'; });
           if (groupBy !== 'branch') add('Grouped by ' + (groupBy === 'teams' ? 'team' : groupBy), () => { state.indicatorsGroupBy = 'branch'; });
           if (!_repLite && state._indicatorRepOfficeFilter) add(_tc(state._indicatorRepOfficeFilter), () => { state._indicatorRepOfficeFilter = ''; });
-          if (!_repLite && state._indicatorRepTeamFilter) add(indTeamFilterLabel(), () => { state._indicatorRepTeamFilter = ''; });
+          if ((!_repLite || userCan('ind_board')) && state._indicatorRepTeamFilter) add(indTeamFilterLabel(), () => { state._indicatorRepTeamFilter = ''; });
           if (!_repLite && state._indicatorRepTierFilter) add(state._indicatorRepTierFilter === 'rookie' ? 'Rookies' : state._indicatorRepTierFilter === 'vet' ? 'Vets' : state._indicatorRepTierFilter, () => { state._indicatorRepTierFilter = ''; });
           if (!chips.length) return null;
           const chip = (label, clear, quiet) => el('button', {
@@ -5481,6 +5483,19 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           // Search: mountApp() rebuilds the entire page, so firing it
           // per-keystroke felt laggy on big rosters — rows filter IN PLACE
           // (show/hide) so the input keeps focus with zero flicker.
+          // My team (per Isaac, Nov 8): one tap to see the board as just the team the viewer is assigned to —
+          // "how am I doing against everyone else on my team" — tap again for everyone.
+          (() => {
+            const myTeam = (typeof getRepTeam === 'function' && state.profile) ? (getRepTeam(state.profile.full_name) || '') : '';
+            if (!myTeam) return null;
+            const on = indTeamFilterList().length === 1 && indTeamFilterList()[0] === myTeam;
+            return el('button', {
+              class: 'rounded-lg border ' + _lbBtnPad + ' py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
+              style: on ? { borderColor: 'var(--accent)', background: 'var(--accent)', color: 'var(--accent-text, #fff)' } : { borderColor: 'var(--border-2)', color: 'var(--text)' },
+              title: on ? 'Showing ' + myTeam + ' — tap for everyone' : 'Just ' + myTeam + ' — see how you stack up against your own team',
+              onclick: () => { state._indicatorRepTeamFilter = on ? '' : myTeam; mountApp(); },
+            }, on ? myTeam : 'My team');
+          })(),
           el('input', {
             id: 'rep-leaderboard-search',
             type: 'text',
