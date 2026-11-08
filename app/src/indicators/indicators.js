@@ -904,6 +904,9 @@ function viewIndicators() {
   // doesn't get scored. Reps without a team are still visible in Manage
   // Teams' "(unassigned)" filter so admins can fix them.
   const branches = [...new Set(allData.map(r => r.branch))].sort();
+  // By team (per Isaac, Nov 8): the owners' "RIDD" team — everyone not yet assigned a team — is not a column of its
+  // own; those reps live inside the RIDD total. (Manage Teams → RIDD is where the unassigned are found and placed.)
+  const visibleBranches = branches.filter(b => !(groupBy === 'teams' && typeof isOwnerTeam === 'function' && isOwnerTeam(b)));
   const isRange = state.indicatorsView === 'range';
 
   // Range bounds (only used when view === 'range')
@@ -2269,7 +2272,7 @@ function viewIndicators() {
       const sort = state._indicatorSort;
 
       // Determine column order (branches sorted by the selected metric)
-      let sortedBranches = [...branches];
+      let sortedBranches = [...visibleBranches];
       if (sort.key === '_points') {
         // Total Points lives outside branchData — sort by it directly. Lower = better (golf scoring).
         // Ties: higher D2D Revenue, then higher Avg Pest Initial.
@@ -2678,7 +2681,7 @@ function viewIndicators() {
       const _hideBranchCharts = false;
       return el('div', { class: 'flex flex-col gap-4' },
         !_hideBranchCharts && el('div', {},
-          indicatorChart('Power Ranking' + _prNote, chartData, branches, '_power_ranking', chartWeeks, true, chartLabels),
+          indicatorChart('Power Ranking' + _prNote, chartData, visibleBranches, '_power_ranking', chartWeeks, true, chartLabels),
         ),
         // Monthly/Weekly PRA + Revenue cards RETIRED (Jul 2026, per Isaac) —
         // the Performance Trends chart covers them via its Scope picker and
