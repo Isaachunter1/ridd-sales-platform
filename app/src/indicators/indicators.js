@@ -271,12 +271,11 @@ function myGoalCard(compact) {
   const lab = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, t);
   const body = el('div', { class: 'flex flex-col gap-2.5' },
     el('div', { class: 'flex flex-col gap-1' }, lab('Annual revenue goal'), el('div', { class: 'flex items-center gap-2' }, el('span', { class: 'text-[12px] font-semibold' }, '$'), inp)),
-    el('div', { class: 'flex items-end gap-3 flex-wrap' },
-      el('div', { class: 'flex flex-col gap-1' }, lab('Start'), dS),
-      el('div', { class: 'flex flex-col gap-1' }, lab('End'), dE)),
+    // Labels live inside the boxes (per Isaac, Nov 7): "Start date" / "End date" beside the picker, no caption under them.
+    el('div', { class: 'flex items-center gap-2' },
+      ...[['Start date', dS], ['End date', dE]].map(([t, d]) => { d.className = 'text-[12px] bg-transparent border-0 outline-none p-0 w-full'; d.style.cssText = 'color: var(--text); min-width: 0; width: 100%';
+        return el('label', { class: 'flex flex-col gap-0.5 rounded-lg border px-2.5 py-1.5 flex-1', style: Object.assign({}, field, { minWidth: '0' }), title: t }, el('span', { class: 'text-[9px] uppercase tracking-widest font-semibold whitespace-nowrap', style: { color: 'var(--text-subtle)' } }, t), d); })),
     preview,
-    el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
-      (type === 'd2d' ? 'Sales Reps: set the days you start and finish selling this year.' : 'Office Staff / Technicians: year-round by default.') + ' The Me Revenue Pacer counts work days in this window to show what you need per day.'),
     btn);
   if (compact) return body;
   return el('div', { class: 'card p-4 flex flex-col gap-3' }, el('div', { class: 'text-sm font-bold' }, 'My Goal'), body);
