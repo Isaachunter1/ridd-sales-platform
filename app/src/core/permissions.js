@@ -71,7 +71,9 @@ const PERM_DEFS = [
 // non-selling office role everything but Pay; auditors just Sales. Pricing is
 // open to everyone (as it is now); TV Display to office staff; Reporting and
 // Settings to nobody but admins until switched on here.
-const _PERM_D2D_TABS    = { tab_dashboard: 1, tab_sales: 1, tab_pay: 1, tab_hof: 1, view_pricing: 1 };
+// Sales Reps' Sales + Pay tabs are still "Under construction" (per Isaac, Nov 7 — before the rep / team-lead
+// onboarding): off by default for all three D2D roles until they're built. Settings → Permissions turns them back on.
+const _PERM_D2D_TABS    = { tab_dashboard: 1, tab_sales: 0, tab_pay: 0, tab_hof: 1, view_pricing: 1 };
 const _PERM_OFFICE_TABS = { tab_dashboard: 1, tab_sales: 1, tab_pay: 1, tab_scorecards: 1, tab_calendar: 1, tab_hof: 1, view_pricing: 1, view_tv: 1, tab_loyalty: 1 };   // Loyalty tab (per Isaac, Sep 23): office staff only
 const _PERM_TECH_TABS   = { tab_dashboard: 1, tab_sales: 1, tab_pay: 1, tab_hof: 1, view_pricing: 1, view_tv: 1 };
 const PERM_DEFAULTS = {

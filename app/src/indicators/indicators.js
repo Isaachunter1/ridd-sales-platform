@@ -5422,7 +5422,14 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // page doesn't stretch indefinitely.
   // Reach (Settings → Permissions): which rows this role sees at all. Default = everyone.
   const _boardScope = (typeof userScope === 'function') ? userScope('board_scope') : 'all';
-  const displayReps = _boardScope === 'all' ? boardReps : boardReps.filter(r => repInReach(_boardScope, r.name));
+  // "My Team" lens (per Isaac, Nov 7 — permissions audit before onboarding): a plain Sales Rep's My Team view
+  // showed every rep in the company with the company total, because the rows only read the Permissions reach.
+  // Under a team lens the board IS that team for anyone who can't open the company view; leads and admins
+  // (who can) keep the full board under their team lens, as before.
+  const _lens = (typeof dashLens === 'function') ? String(dashLens() || '') : '';
+  const _lensTeam = _lens.startsWith('team:') && typeof _dashLensCompanyOk === 'function' && !_dashLensCompanyOk() ? _lens.slice(5) : '';
+  const _inLensTeam = (r) => !_lensTeam || String(r.team || (typeof getRepTeam === 'function' ? getRepTeam(r.name) : '') || '') === _lensTeam;
+  const displayReps = (_boardScope === 'all' ? boardReps : boardReps.filter(r => repInReach(_boardScope, r.name))).filter(_inLensTeam);
 
   const offices = [...new Set(allReps.map(r => r.office).filter(Boolean))].sort();
 

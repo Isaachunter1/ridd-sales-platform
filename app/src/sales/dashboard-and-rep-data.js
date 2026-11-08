@@ -3600,7 +3600,7 @@ function openIndicatorRepCard(rep, allReps = []) {
   // at all — a sales rep sees the leaderboard numbers, not other reps' cards.
   if (!fullAccess) {
     const lead = typeof myReachTeams === 'function' && myReachTeams().size > 0;
-    try { toast(lead ? 'You can view both your own player card statistics as well as anyone on your team\u2019s player card.' : 'You can open your own player card here \u2014 other reps\u2019 cards are for leads and admins.', 'info'); } catch (e) { /* pre-boot */ }
+    try { toast(lead ? 'You can open your own player card and the cards of reps on your team \u2014 this rep isn\u2019t on it.' : 'You can open your own player card here \u2014 other reps\u2019 cards are for leads and admins.', 'info'); } catch (e) { /* pre-boot */ }
     return;
   }
   const overlay = el('div', { class: 'modal-overlay' });
