@@ -5474,19 +5474,6 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             filteredReps.length === allReps.length
               ? filteredReps.length + ' reps'
               : filteredReps.length + ' of ' + allReps.length + ' reps'),
-          // My team (per Isaac, Nov 8): one tap to see the board as just the team the viewer is assigned to —
-          // "how am I doing against everyone else on my team" — tap again for everyone.
-          (() => {
-            const myTeam = (typeof getRepTeam === 'function' && state.profile) ? (getRepTeam(state.profile.full_name) || '') : '';
-            if (!myTeam) return null;
-            const on = indTeamFilterList().length === 1 && indTeamFilterList()[0] === myTeam;
-            return el('button', {
-              class: 'rounded-lg border ' + _lbBtnPad + ' py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
-              style: on ? { borderColor: 'var(--accent)', background: 'var(--accent)', color: 'var(--accent-text, #fff)' } : { borderColor: 'var(--border-2)', color: 'var(--text)' },
-              title: on ? 'Showing ' + myTeam + ' — tap for everyone' : 'Just ' + myTeam + ' — see how you stack up against your own team',
-              onclick: () => { state._indicatorRepTeamFilter = on ? '' : myTeam; mountApp(); },
-            }, on ? myTeam : 'My team');
-          })(),
         ),
         el('div', { class: 'lb-tools flex items-center gap-2 flex-wrap flex-1 sm:flex-initial' },
           // Search on the left; ONE Filters button on the right — tier,
@@ -5509,6 +5496,19 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               _lbApplyVis();
             },
           }),
+          // My team (per Isaac, Nov 8): one tap to see the board as just the team the viewer is assigned to —
+          // "how am I doing against everyone else on my team" — tap again for everyone.
+          (() => {
+            const myTeam = (typeof getRepTeam === 'function' && state.profile) ? (getRepTeam(state.profile.full_name) || '') : '';
+            if (!myTeam) return null;
+            const on = indTeamFilterList().length === 1 && indTeamFilterList()[0] === myTeam;
+            return el('button', {
+              class: 'rounded-lg border ' + _lbBtnPad + ' py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
+              style: on ? { borderColor: 'var(--accent)', background: 'var(--accent)', color: 'var(--accent-text, #fff)' } : { borderColor: 'var(--border-2)', color: 'var(--text)' },
+              title: on ? 'Showing ' + myTeam + ' — tap for everyone' : 'Just ' + myTeam + ' — see how you stack up against your own team',
+              onclick: () => { state._indicatorRepTeamFilter = on ? '' : myTeam; mountApp(); },
+            }, on ? myTeam : 'My team');
+          })(),
           // Rep picker — check specific reps to build a downline view.
           (() => {
             const btn = el('button', {
