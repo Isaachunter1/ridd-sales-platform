@@ -85,7 +85,7 @@ function _pacerStream(s, o) {
   else if (v.kind === 'start') { gapNote = _pacerUsd(s.target) + ' goal for ' + (o.rangeLabel || 'the range').toLowerCase(); }
   else if (v.kind !== 'none') { gapEl = _pacerSigned(v.gap); gapNote = (v.gap >= 0 ? 'over ' : 'to ') + (o.rangeLabel ? o.rangeLabel.toLowerCase() + '’s ' : '') + _pacerUsd(v.expected) + ' pace'; }
   // The quiet line under the bar: left = where the tick is; right = what it takes from here.
-  const leftTxt = v.kind === 'none' ? (s.hint || '') : v.kind === 'hit' ? (s.left > 0 ? 'Goal hit · anything from here is upside' : 'Goal hit') : v.kind === 'missed' ? 'Range over' : v.kind === 'start' ? 'Nothing elapsed yet' : Math.round(pct * 100) + '% of goal' + (s.tickLabel ? ' · tick = ' + s.tickLabel : '');
+  const leftTxt = v.kind === 'none' ? (s.hint || '') : v.kind === 'hit' ? (s.left > 0 ? 'Goal hit · anything from here is upside' : 'Goal hit') : v.kind === 'missed' ? 'Range over' : v.kind === 'start' ? '' : Math.round(pct * 100) + '% of goal' + (s.tickLabel ? ' · tick = ' + s.tickLabel : '');
   let rightTxt = '';
   if (v.kind === 'behind' || v.kind === 'pace' || v.kind === 'ahead' || v.kind === 'start') {
     const toGo = Math.max(0, s.target - s.actual);
