@@ -144,6 +144,10 @@ function viewCalendarSettings(opts) {
     el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Company holidays (no one is scheduled unless you add them on the day): New Year’s Day, Memorial Day, Independence Day, Labor Day, Thanksgiving, Black Friday, Christmas Eve, Christmas Day.'));
 
   if (opts.rulesOnly) return el('div', { class: 'flex flex-col gap-4 w-full' }, templates, rules);
+  // Settings → Calendar shows the templates + swap rule again (per Isaac, Nov 9 — out of Configurations).
+  if (opts.embedded) return el('div', { class: 'flex flex-col gap-4 w-full' },
+    el('div', {}, el('h2', { class: 'text-lg font-bold' }, 'Calendar'), el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Who is on the calendar and when they work, shift templates and swap rules.')),
+    team, templates, rules);
   return el('div', { class: 'flex flex-col gap-4 w-full' },
     // Inside Settings → Calendar (per Isaac, Oct 13) the page header is the section title; on the calendar it's a back link.
     opts.embedded ? el('div', {}, el('h2', { class: 'text-lg font-bold' }, 'Calendar'), el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Who is on the calendar and when they work, shift templates and swap rules. Also on the Calendar tab under ⚙ Settings.'))
