@@ -1291,6 +1291,15 @@ function _mountAppRender() {
       // messy): Notifications, Sync, Settings/My Settings, Edit layout,
       // Feedback, Theme and TV Display ALL live here now - the icon row is
       // a single gear. The unread badge rides the gear itself.
+      // Theme toggle as its own icon beside the gear (per Isaac, Nov 9) — sun in dark mode, moon in light mode.
+      (() => {
+        const light = state.theme === 'light';
+        const b = el('button', { class: 'icon-btn show hb-bare', title: light ? 'Dark mode' : 'Light mode', 'aria-label': light ? 'Switch to dark mode' : 'Switch to light mode', onclick: () => toggleTheme() });
+        b.innerHTML = light
+          ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>'
+          : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>';
+        return b;
+      })(),
       (() => {
         const wrap = el('div', { class: 'relative' });
         const gearBtn = el('button', {
@@ -1330,7 +1339,7 @@ function _mountAppRender() {
         // Order (per Isaac, Oct 16): Dark Mode · Feedback · TV Display · Settings · Sign out.
         // (Resync / Refresh data retired — the app keeps itself synced.)
         [
-          item(state.theme === 'light' ? 'moon' : 'sun', state.theme === 'light' ? 'Dark Mode' : 'Light Mode', () => toggleTheme()),
+          // (Light / Dark Mode moved out to its own icon beside the gear — per Isaac, Nov 9.)
           item('feedback', 'Feedback', () => openFeedbackModal()),
           // TV Display (per Isaac, Sep 2026): the inside-sales floor board.
           // Admins + office-staff reps only (per Isaac) — it is the inside-sales floor board.
