@@ -29,6 +29,7 @@ const _mklUsd = (v) => v == null || !isFinite(v) ? '—' : fmt.usd0(v);
 const _mklPct = (v) => v == null || !isFinite(v) ? '—' : (v * 100).toFixed(1) + '%';
 const _mklX = (v) => v == null || !isFinite(v) ? '—' : v.toFixed(2) + 'x';
 const _mklNum = (v) => v == null ? '—' : fmt.int(v);
+const _mklAgo = (iso) => { if (!iso) return ''; const h = (Date.now() - Date.parse(iso)) / 3600000; return !isFinite(h) ? '' : h < 1 ? Math.max(1, Math.round(h * 60)) + 'm ago' : h < 48 ? Math.round(h) + 'h ago' : Math.round(h / 24) + 'd ago'; };
 // FieldRoutes source → the channel name the Spend tab and GoHighLevel use (same rules as GHL labels).
 function _mklChannelOfSource(src) {
   const s = String(src || '').trim(); if (!s) return 'Unspecified';
@@ -102,9 +103,9 @@ function _mktgLeanView() {
   const dot = (ok, label) => el('span', { class: 'inline-flex items-center gap-1.5 text-[11px]', style: muted }, el('span', { class: 'inline-block rounded-full', style: { width: '7px', height: '7px', background: ok ? 'var(--ok)' : '#DC2626' } }), label);
   const fresh = el('div', { class: 'flex items-center gap-4 flex-wrap text-[11px]' },
     el('span', { class: 'uppercase tracking-widest text-[10px] font-bold', style: muted }, 'Sources'),
-    dot(cur.hasSpend, 'QuickBooks marketing' + (P && P.pulledAt ? ' · ' + ago(P.pulledAt) : cur.hasSpend ? '' : ' · no lines for ' + _mklLblS(ym))),
+    dot(cur.hasSpend, 'QuickBooks marketing' + (P && P.pulledAt ? ' · ' + _mklAgo(P.pulledAt) : cur.hasSpend ? '' : ' · no lines for ' + _mklLblS(ym))),
     dot(cur.hasSubs, 'FieldRoutes new sales' + (state.reportingSubscriptions ? '' : ' · loading')),
-    dot(!!(G && G.opps), 'GoHighLevel leads' + (G && G.at ? ' · ' + ago(G.at) : G === undefined || (G && G.loading) ? ' · loading' : '')));
+    dot(!!(G && G.opps), 'GoHighLevel leads' + (G && G.at ? ' · ' + _mklAgo(G.at) : G === undefined || (G && G.loading) ? ' · loading' : '')));
 
   // ── Tiles: the three truths, then what they make. ──
   const d = (a, b) => a == null || b == null || !isFinite(a) || !isFinite(b) || b === 0 ? null : (a - b) / Math.abs(b);
