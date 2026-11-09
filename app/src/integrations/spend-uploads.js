@@ -16,6 +16,12 @@ function _spuStore() {
   const m = _mktgStore();
   m.spendUploads = Array.isArray(m.spendUploads) ? m.spendUploads : [];   // [{ id, fileName, channel, at, by, total, n, cells: { ym: { BRANCH: amt } } }]
   m.spendLocMap = (m.spendLocMap && typeof m.spendLocMap === 'object') ? m.spendLocMap : {};   // { 'location value' (lowercase): BRANCH | SPU_SPLIT | SPU_SKIP }
+  // Built-in provider IDs (per Isaac, Nov 9 — Angi's company ID per branch, from his sheet). Seeded once into the
+  // saved map so an Angi report places itself before anyone maps it; an admin can still re-point or remove them
+  // on Configurations → Provider IDs → office (a removed one stays removed — it is remembered in spendLocSeeded).
+  m.spendLocMeta = (m.spendLocMeta && typeof m.spendLocMeta === 'object') ? m.spendLocMeta : {};
+  m.spendLocSeeded = (m.spendLocSeeded && typeof m.spendLocSeeded === 'object') ? m.spendLocSeeded : {};
+  for (const [id, b] of Object.entries(SPU_BUILTIN_LOC_IDS.angi)) { const k = _spuKey(id); if (m.spendLocSeeded[k]) continue; m.spendLocSeeded[k] = 1; if (!m.spendLocMap[k]) { m.spendLocMap[k] = b; m.spendLocMeta[k] = { ch: 'Angi', col: 'Angi company ID' }; } }
   // Remembered mappings (per Isaac, Oct 9): a provider/vendor value → channel, and each report LAYOUT (its column
   // headers) → the columns, channel and default office picked last time — so the next file of the same kind maps itself.
   m.spendProvMap = (m.spendProvMap && typeof m.spendProvMap === 'object') ? m.spendProvMap : {};   // { 'vendor value' (lowercase): channel | SPU_SKIP }
@@ -117,6 +123,8 @@ function _spuGridRows(ws) {
 }
 const _spuNum = (v) => { if (typeof v === 'number') return isFinite(v) ? v : 0; const s = String(v == null ? '' : v).trim(); if (!s) return 0; const neg = /^\(.*\)$/.test(s) || /^-/.test(s); const n = parseFloat(s.replace(/[^0-9.]/g, '')); return isFinite(n) ? (neg ? -n : n) : 0; };
 const _spuKey = (v) => String(v == null ? '' : v).trim().toLowerCase();
+// Angi company IDs → branch (per Isaac, Nov 9). Detroit has no Angi company.
+const SPU_BUILTIN_LOC_IDS = { angi: { '156010936': 'ATLANTA', '154527321': 'VIRGINIA BEACH', '154557933': 'CHARLESTON', '154557967': 'RALEIGH', '140133752': 'MYRTLE BEACH', '154534497': 'DESTIN', '164862640': 'JOPLIN', '164862711': 'LITTLE ROCK', '132204858': 'SALT LAKE' } };
 const _spuSig = (headers) => (headers || []).map(h => String(h).trim().toLowerCase()).filter(h => h && !/^__empty/.test(h)).sort().join('|');
 // A provider/vendor value → channel: this file's pick, else remembered, else a channel name inside the value.
 function _spuChanOf(val, P, m) {
