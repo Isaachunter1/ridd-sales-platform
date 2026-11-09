@@ -119,20 +119,44 @@ function viewPayLive() {
         td((Number(s.crm_days_past_due) || 0) + 'd', 1, { color: Number(s.crm_days_past_due) > 0 ? '#DC2626' : 'var(--text-muted)' }),
         td(money(typeof getBackendAmount === 'function' ? getBackendAmount(s) : 0), 1, { fontWeight: '700' })); }))))) : null;
 
+  // ── The one number (per Isaac, Nov 9): what this period pays, then what is on its way. Everything else folds.
+  const B = typeof backendFigures === 'function' ? backendFigures(repId, backend) : null;
+  const cards = (part) => { try {
+    const runs = typeof payRunsFor === 'function' ? payRunsFor(repId, state.payYear) : [];
+    const backendPaidYear = (runs || []).filter(r => r.kind === 'backend').reduce((a, r) => a + (Number((r.totals || {}).backend_pay) || 0), 0);
+    return payCommissionCards(repId, prof, period, x, { part, backend, isCurrent, year: state.payYear, backendPaidYear: (runs || []).some(r => r.kind === 'backend') ? backendPaidYear : null });
+  } catch (e) { console.warn('[pay] commission cards', e); return null; } };
+  const onWay = [
+    pending.length ? ['+ ' + money(pendingPay), n(pending) + ' pending approval', C('pending')] : null,
+    noInitial.length ? ['+ ' + money(noInitialPay), n(noInitial) + ' with no initial yet', 'var(--text-muted)'] : null,
+    (nsf.length || reAudit.length) ? [money(nsfPay + reAuditPay), n([...nsf, ...reAudit]) + ' on hold (NSF / re-audit)', '#B91C1C'] : null,
+    backend.length && B ? ['+ ' + money(B.pending), n(backend) + ' building backend · pays at the lock', '#3E5A3A'] : null,
+    B && !B.closeRateInfo && backend.length ? ['No Close Rate', 'no Plaibook seat · no close-rate bonus', '#B91C1C'] : null,
+  ].filter(Boolean);
+  const hero = el('div', { class: 'card p-5 flex items-start gap-6 flex-wrap' },
+    el('div', { class: 'min-w-0' },
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, isCurrent ? 'Your pay this period · if payroll ran now' : 'Paid · ' + period.label),
+      el('div', { class: 'font-black tabular-nums', style: { fontSize: '44px', lineHeight: '1.05', color: '#3E5A3A' } }, money(x.total)),
+      el('div', { class: 'text-xs mt-1 text-muted-' }, n(stubSales) + ' · ' + money(x.revenue) + ' revenue' + (x.pct != null ? ' · passed audit ' + Math.round(x.pct * 100) + '%' : '') + (x.mult != null && x.mult !== 1 ? ' · paid at ' + Math.round(x.mult * 100) + '%' : '')
+        + (isCurrent && paidHere.length ? ' · ' + money(paidPay) + ' already paid this period' : ''))),
+    onWay.length ? el('div', { class: 'ml-auto flex flex-col gap-1.5', style: { minWidth: '240px' } },
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'On its way'),
+      ...onWay.map(([v, l, c]) => el('div', { class: 'flex items-baseline gap-2 text-xs' }, el('span', { class: 'font-black tabular-nums', style: { color: c, minWidth: '84px' } }, v), el('span', { class: 'text-muted-' }, l)))) : null);
+  const fold = (title, sub, open, ...body) => body.some(Boolean) ? el('details', { class: 'card overflow-hidden', open: !!open },
+    el('summary', { class: 'px-5 py-3 cursor-pointer flex items-center gap-3 flex-wrap' }, el('span', { class: 'text-sm font-bold' }, title), sub ? el('span', { class: 'text-[11px] text-muted-' }, sub) : null),
+    el('div', { class: 'px-4 pb-4 flex flex-col gap-3' }, ...body.filter(Boolean))) : null;
+  const unwrap = (card) => { if (card && card.classList) { card.classList.remove('card'); card.style.boxShadow = 'none'; card.style.border = '1px solid var(--border)'; card.style.borderRadius = '10px'; } return card; };
+  const holdN = holdRows.length, holdEst = pendingPay + nsfPay + reAuditPay + noInitialPay;
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'flex items-end justify-between gap-3 flex-wrap' },
       el('div', {}, el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Office Staff · pay'),
         el('h2', { class: 'text-2xl font-black' }, (prof.full_name || 'My') + (prof.full_name ? ' — ' : ' ') + period.label)),
       controls),
-    // Commission cards (per Isaac, Nov 7): the pay stub's numbers — upfront this period, backend waiting.
-    typeof payCommissionCards === 'function' ? (() => { try {
-      const runs = typeof payRunsFor === 'function' ? payRunsFor(repId, state.payYear) : [];
-      const backendPaidYear = (runs || []).filter(r => r.kind === 'backend').reduce((a, r) => a + (Number((r.totals || {}).backend_pay) || 0), 0);
-      return payCommissionCards(repId, prof, period, x, { backend: mine.filter(s => s.payroll_processed_at && !s.backend_payroll_processed_at), isCurrent, year: state.payYear, backendPaidYear: (runs || []).some(r => r.kind === 'backend') ? backendPaidYear : null });
-    } catch (e) { console.warn('[pay] commission cards', e); return null; } })() : null,
-    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-', style: { marginTop: '4px' } }, 'Pay stub · ' + period.label),
-    tiles, stub, holdCard, backendCard,
-    // Running YTD ledger of every account this rep sold (per Isaac, Oct 16) — display only, now below the stub, table only.
-    typeof payAccountsLedger === 'function' ? (() => { try { return payAccountsLedger(prof, state.payYear, { tiles: false }); } catch (e) { console.warn('[pay] accounts ledger', e); return null; } })() : null,
+    hero,
+    stub,
+    fold('Not on the stub yet', holdN ? n(holdRows) + ' · ' + money(holdEst) + ' estimated' : 'nothing waiting', false, tiles, unwrap(holdCard)),
+    fold('Backend', backend.length ? n(backend) + ' building · ' + money(B ? B.pending : 0) + ' if everything locked today' : 'nothing waiting on the lock', false, cards('backend'), unwrap(backendCard)),
+    fold('How this pay was calculated', 'rates, tier, close rate', false, cards('upfront')),
+    fold('Every account this year', String(state.payYear), false, typeof payAccountsLedger === 'function' ? (() => { try { return unwrap(payAccountsLedger(prof, state.payYear, { tiles: false })); } catch (e) { console.warn('[pay] accounts ledger', e); return null; } })() : null),
     !mine.length ? el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'No Office Staff sales since ' + fmt.dateShortYear(SALES_FEED_START) + ' for this rep yet.') : null);
 }
