@@ -104,7 +104,7 @@ function viewScorecards() {
       // metrics + weights + attendance penalties every scorecard uses,
       // so reps shouldn't be able to retune the formula their own
       // manager scores them on.
-      canScoreRoster && !isAllDepts && el('button', {
+      isAdmin && !isAllDepts && el('button', {   // template = the formula TLs are held to; admin-only (TLs score and log, not retune)
         class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         title: 'Edit template metrics, weights, and attendance penalties',
