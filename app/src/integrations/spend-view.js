@@ -81,10 +81,14 @@ function mktgSpendView() {
       el('div', {}, el('h3', { class: 'text-base font-bold', style: { color: '#B91C1C' } }, 'Place these · ' + usd(A.unassigned)),
         el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Pick the vendor once per payee — it’s remembered for every month.'))),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-      el('thead', {}, el('tr', {}, th('Payee'), th('Memo'), th('Lines'), th('Amount', true), th('Vendor'))),
+      el('thead', {}, el('tr', {}, th('Date(s)'), th('Type'), th('Payee'), th('Memo'), th('Amount', true), th('Vendor'))),
       el('tbody', {}, ...[...byPayee.values()].sort((a, b) => b.reduce((x, L) => x + L.amt, 0) - a.reduce((x, L) => x + L.amt, 0)).map(ls => { const L = ls[0];
+        // Dates of the charges (per Isaac, Nov 9 — so a line can be found in QuickBooks): every day in the group, oldest first.
+        const days = [...new Set(ls.map(x => Number(x.day) || 0).filter(Boolean))].sort((a, b) => a - b);
+        const dateTxt = ym.slice(5, 7) + '/' + days.map(d => String(d).padStart(2, '0')).join(', ' + ym.slice(5, 7) + '/') + (ls.length > 1 ? ' · ' + ls.length + ' lines' : '');
         return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-          td(L.payee || '(no name)', { fontWeight: '600' }), td(L.memo, Object.assign({}, muted, { maxWidth: '380px', overflow: 'hidden', textOverflow: 'ellipsis' })), td(ls.length, muted), td(usd(ls.reduce((x, y) => x + y.amt, 0)), null, true),
+          td(dateTxt, { fontFamily: 'ui-monospace, monospace', whiteSpace: 'normal', maxWidth: '220px' }), td(ls.every(x => x.journal) ? 'Journal' : ls.some(x => x.journal) ? 'Mixed' : 'Expense', muted),
+          td(L.payee || '(no name)', { fontWeight: '600' }), td(L.memo, Object.assign({}, muted, { maxWidth: '380px', overflow: 'hidden', textOverflow: 'ellipsis' })), td(usd(ls.reduce((x, y) => x + y.amt, 0)), null, true),
           el('td', { class: 'px-3 py-1' }, admin ? vendorPick(L) : '—')); }))))) : null;
 
   // ── The table: branches down, vendors across, how each vendor is split under its name. ──
@@ -102,7 +106,8 @@ function mktgSpendView() {
       el('button', { class: 'ml-auto rounded-lg px-3 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: csv }, '⬇ Close the books · CSV')),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)', maxHeight: '70vh', overflowY: 'auto' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('Branch'),
-        ...vendors.map(v => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold text-right align-bottom', style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0 } },
+        ...vendors.map(v => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold text-right align-bottom', style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0 },
+            title: A.lines.filter(L => L.prov === v).sort((a, b) => a.day - b.day).map(L => ym.slice(5, 7) + '/' + String(L.day).padStart(2, '0') + '  ' + (L.journal ? 'JE  ' : '') + (L.payee || L.memo || '') + '  ' + usd(L.amt)).join('\n') },
           el('div', {}, spqLabel(v)), el('div', { class: 'mt-1 font-normal normal-case tracking-normal' }, admin && v !== SPQ_TOOLS ? methodSel(v) : el('span', { style: muted }, methodLabel(v))))),
         th('Total', true, { color: 'var(--text)' }), bookedTot ? th('Booked', true) : null)),
       el('tbody', {},
