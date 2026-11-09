@@ -165,5 +165,5 @@ function mktgSpendView() {
         td(L.memo, Object.assign({}, muted, { maxWidth: '360px', overflow: 'hidden', textOverflow: 'ellipsis' })), td(L.acctLeaf || 'Advertising & Marketing', muted), td(usd(L.amt), L.amt < 0 ? { color: '#B91C1C' } : {}, true),
         el('td', { class: 'px-3 py-1' }, admin ? vendorPick(L, L.how === 'this charge only') : (spqLabel(L.prov) || '—'), L.how && !/^(your pick|payee|this charge only)$/.test(L.how) ? el('span', { class: 'ml-2 text-[10px]', style: muted }, L.how) : null)))))));
 
-  return el('div', { class: 'flex flex-col gap-4' }, head(), top, placeCard, table, campCard, uploads, linesCard);
+  return el('div', { class: 'flex flex-col gap-4' }, head(), top, placeCard, waitCard, table, campCard, uploads, linesCard);
 }

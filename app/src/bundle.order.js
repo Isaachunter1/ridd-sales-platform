@@ -66,6 +66,7 @@ module.exports = [
   'integrations/marketing-demand.js',
   'integrations/marketing-metrics.js',
   'integrations/marketing-pulse.js',
+  'integrations/marketing-lean.js',
   'integrations/ghl-leads.js',
   'reporting/inside-sales.js',
   'integrations/spend-qbo.js',
