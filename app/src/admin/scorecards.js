@@ -104,7 +104,7 @@ function viewScorecards() {
       // metrics + weights + attendance penalties every scorecard uses,
       // so reps shouldn't be able to retune the formula their own
       // manager scores them on.
-      canScoreRoster && !isAllDepts && el('button', {
+      isAdmin && !isAllDepts && el('button', {   // template = the formula TLs are held to; admin-only (TLs score and log, not retune)
         class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         title: 'Edit template metrics, weights, and attendance penalties',
@@ -127,87 +127,9 @@ function viewScorecards() {
     return container;
   }
 
-  // Roster-level rollups for the summary strip up top.
-  const scores = roster.map(profile => {
-    // A rep with graded calls but no saved card still scores (per Isaac —
-    // Pere logged audits and saw nothing): score an empty shell so the
-    // automatic audit / accuracy rollup counts.
-    const hasAudits = typeof callAuditRollup === 'function' && callAuditRollup(profile.id, period).n > 0;
-    const card = getCard(profile.id) || (hasAudits ? { metrics: {}, attendance: {}, notes: '' } : null);
-    const score = card ? computeScorecardScore(card, tplFor(profile), period, profile.id) : null;
-    return { profile, card, score };
-  });
-  const scored = scores.filter(s => s.score && s.score.coverage > 0);
-  const avgComposite = scored.length > 0
-    ? scored.reduce((a, s) => a + s.score.final, 0) / scored.length
-    : null;
-  const strongCount    = scored.filter(s => s.score.final >= 90).length;
-  const watchCount     = scored.filter(s => s.score.final >= 75 && s.score.final < 90).length;
-  const interveneCount = scored.filter(s => s.score.final < 75).length;
-
-  const summaryStrip = el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-3' },
-    scorecardSummaryCard('Roster', roster.length + ' agent' + (roster.length === 1 ? '' : 's'), scored.length + ' scored this period'),
-    scorecardSummaryCard('Avg Composite',
-      avgComposite != null ? fmtScore(avgComposite, 1) : '—',
-      avgComposite != null ? scorecardBand(avgComposite).label : 'no scores yet',
-      avgComposite != null ? scorecardBand(avgComposite).color : null),
-    scorecardSummaryCard('Strong (≥90)',     strongCount.toString(),    'on or above target', '#DF643A'),
-    scorecardSummaryCard('Needs Coaching',   (interveneCount + watchCount).toString(),
-      interveneCount + ' intervene · ' + watchCount + ' watch',
-      interveneCount > 0 ? '#B91C1C' : (watchCount > 0 ? '#A9441F' : null)),
-  );
-  // (1:1 Cadence summary card retired per Isaac, Sep 2026 — four cards only.)
-  container.append(summaryStrip);
-
-  // ── Agent grid ──────────────────────────────────────────────────
-  // Sort: scored agents first (highest composite up top), then unscored.
-  scores.sort((a, b) => {
-    const aS = a.score && a.score.coverage > 0 ? a.score.final : -1;
-    const bS = b.score && b.score.coverage > 0 ? b.score.final : -1;
-    if (aS !== bS) return bS - aS;
-    return (a.profile.full_name || '').localeCompare(b.profile.full_name || '');
-  });
-
-  // Trend series (per Isaac): composite over the last 6 periods,
-  // oldest \u2192 newest, null where a month was never scored.
-  const _trendKeys = periodOpts.slice(0, 6).map(o => o.key).reverse();
-  const cardFor = ({ profile, card, score }) => {
-    const t = tplFor(profile), d = scorecardDeptOf(profile);
-    return scorecardAgentCard({
-      profile, card, score, tpl: t,
-      trend: _trendKeys.map(k => {
-        const c = state._scorecardData[profile.id + '|' + k];
-        const s = c ? computeScorecardScore(c, t, k, p.id) : null;
-        return (s && s.coverage > 0) ? { key: k, val: s.final } : { key: k, val: null };
-      }),
-      // Admins and team leads have the SAME scorecard permissions (per
-      // Isaac): score any card in the department, log / edit 1:1s.
-      onOpen: () => openScorecardDetailModal(profile, period, t, upsertCard, canScoreRoster),
-      onMeetings: () => openMeetingLogModal(profile, d, t, canScoreRoster),
-    });
-  };
-  if (isAllDepts) {
-    // Segmented by department (per Isaac): one section per dept, each with
-    // its own header + grid, in SCORECARD_DEPTS order.
-    for (const d of SCORECARD_DEPTS) {
-      const rows = scores.filter(x => scorecardDeptOf(x.profile) === d.id);
-      if (!rows.length) continue;
-      const dScored = rows.filter(x => x.score && x.score.coverage > 0);
-      const dAvg = dScored.length ? dScored.reduce((a, x) => a + x.score.final, 0) / dScored.length : null;
-      container.append(el('div', { class: 'flex items-center gap-3 mt-2' },
-        el('h3', { class: 'text-base font-bold' }, d.label),
-        el('span', { class: 'text-[11px] text-muted-' }, rows.length + ' agent' + (rows.length === 1 ? '' : 's') + (dAvg != null ? ' \u00b7 avg ' + fmtScore(dAvg, 1) : '')),
-        canScoreRoster ? el('button', {
-          class: 'ml-auto rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95',
-          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-          onclick: () => openScorecardTemplateModal(d.id),
-        }, '\u2699 ' + d.label + ' template') : null));
-      container.append(el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3' }, ...rows.map(cardFor)));
-    }
-  } else {
-    container.append(el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3' }, ...scores.map(cardFor)));
-  }
-
+  // The 1:1 accountability board (per Isaac, Nov 9) — src/admin/scorecard-board.js. Meetings first; each row opens
+  // its scorecard (the Review's content) and its meeting history.
+  container.append(scorecardBoard({ roster, isAdmin, canScoreRoster, isAllDepts, dept, period, tplFor, upsertCard, allProfiles }));
   return container;
 }
 
@@ -864,7 +786,8 @@ function meetingInsights(profile, tpl) {
   return out;
 }
 
-function openMeetingLogModal(profile, dept, tpl, canEdit) {
+function openMeetingLogModal(profile, dept, tpl, canEdit, opts) {
+  opts = opts || {};
   const overlay = el('div', { class: 'modal-overlay' });
   const _escClose = (e) => { if (e.key === 'Escape' || !overlay.isConnected) { overlay.remove(); document.removeEventListener('keydown', _escClose); } };
   document.addEventListener('keydown', _escClose);
@@ -876,11 +799,13 @@ function openMeetingLogModal(profile, dept, tpl, canEdit) {
   const scoreFor = (period) => { const c = (state._scorecardData || {})[profile.id + '|' + period]; const s = c ? computeScorecardScore(c, tpl, period, profile.id) : null; return (s && s.coverage > 0) ? s : null; };
   const chip = (kind) => { const k = MEETING_KINDS[kind] || MEETING_KINDS.coaching; return el('span', { class: 'rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider', style: { background: k.color + '22', color: k.color } }, k.short); };
 
-  const startNew = (kind) => {
+  const startNew = (kind, forPeriod) => {
     const ms = meetingsFor(profile.id);
     const prev = ms[0];
     const carried = prev ? (prev.action_items || []).filter(a => a && !a.done).map(a => ({ text: a.text, done: false, carried_from: prev.meeting_date, carried_count: (a.carried_count || 0) + 1 })) : [];
-    const today = _mtgIso(new Date());
+    // Logged from the board for another month (per Isaac, Nov 9): the meeting lands in that month (its first day).
+    const now = _mtgIso(new Date());
+    const today = forPeriod && forPeriod !== now.slice(0, 7) ? forPeriod + '-01' : now;
     editing = { profile_id: profile.id, dept, period: today.slice(0, 7), kind, meeting_date: today,
       lead_id: state.profile?.id || null, lead_name: state.profile?.full_name || '', notes: '', wins: '', focus: [], action_items: carried };
     render();
@@ -1058,7 +983,8 @@ function openMeetingLogModal(profile, dept, tpl, canEdit) {
   // Open straight into the form (per Isaac): review by default, coaching
   // once this month's review is already logged. The picker row still shows
   // after a save / cancel.
-  if (canEdit) startNew(meetingCadence(profile.id).nextKind); else render();
+  // From the board: a chip opens straight into that meeting; History / a logged chip opens the list (startKind: null).
+  if (canEdit && opts.startKind !== null) startNew(opts.startKind || meetingCadence(profile.id).nextKind, opts.period); else render();
   document.body.append(overlay);
 }
 

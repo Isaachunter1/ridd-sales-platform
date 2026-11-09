@@ -100,7 +100,7 @@ function mktgSpendView() {
   // this vendor and month preset. A platform vendor (Facebook / Google) isn't waiting on a report — its campaigns
   // need a branch (the card further down).
   const rowUpload = (v) => { const inp = el('input', { type: 'file', multiple: true, accept: '.csv,.xlsx,.xls,.tsv', class: 'hidden',
-      onchange: (e) => { state._spuPreset = { channel: v, month: ym }; if (typeof _spuUpload === 'function') _spuUpload(e.target.files); e.target.value = ''; } });
+      onchange: (e) => { state._spuPreset = { channel: v, month: ym }; if (typeof _spuUpload === 'function') Promise.resolve(_spuUpload(e.target.files)).then(() => setTimeout(() => { const d = document.getElementById('spend-uploads'); if (d) { d.open = true; d.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }, 60)); e.target.value = ''; } });
     return el('label', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer inline-flex items-center gap-1', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, '↑ Upload ' + spqLabel(v) + ' report', inp); };
   const waitRow = ([v, w]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
     td(spqLabel(v), { fontWeight: '700' }), td(usd(w.amt), null, true), td(String(w.n), muted, true),
@@ -155,7 +155,8 @@ function mktgSpendView() {
         el('td', { class: 'px-3 py-1' }, admin ? spuBranchPicker(A.branches, [], (picked) => { setAdCampaignOffice(x.k, picked.length === 1 ? picked[0] : picked); mountApp(); }, { empty: 'Pick branches…', save: 'Save · split evenly' }) : '—'))))))) : null;
 
   // ── Vendor spreadsheets (DoLead, Angi, Baton…): the manual driver. ──
-  const uploads = (typeof mktgSpendUploadCard === 'function') ? el('details', { class: 'card overflow-hidden', open: !!(state._spendPending && state._spendPending.length) },
+  const pendingN = (state._spendPending || []).length;
+  const uploads = (typeof mktgSpendUploadCard === 'function') ? el('details', { id: 'spend-uploads', class: 'card overflow-hidden', open: !!pendingN },
     el('summary', { class: 'px-5 py-3 text-sm font-bold cursor-pointer' }, 'Upload a vendor’s breakout by branch'),
     el('div', { class: 'px-5 pb-2 text-[11px]', style: muted }, 'For vendors that bill one total but send a report by market (DoLead, Angi, Baton…): drop the report, say which column is the location, and that vendor splits by it from then on.'),
     mktgSpendUploadCard(_mktgBranchList(year), year)) : null;
@@ -171,5 +172,7 @@ function mktgSpendView() {
         td(L.memo, Object.assign({}, muted, { maxWidth: '360px', overflow: 'hidden', textOverflow: 'ellipsis' })), td(L.acctLeaf || 'Advertising & Marketing', muted), td(usd(L.amt), L.amt < 0 ? { color: '#B91C1C' } : {}, true),
         el('td', { class: 'px-3 py-1' }, admin ? vendorPick(L, L.how === 'this charge only') : (spqLabel(L.prov) || '—'), L.how && !/^(your pick|payee|this charge only)$/.test(L.how) ? el('span', { class: 'ml-2 text-[10px]', style: muted }, L.how) : null)))))));
 
-  return el('div', { class: 'flex flex-col gap-4' }, head(), top, placeCard, waitCard, table, campCard, uploads, linesCard);
+  // A report just uploaded maps right under the Waiting list (per Isaac, Nov 9 — it used to land below the big table,
+  // out of sight); with nothing pending the upload card keeps its usual place lower down.
+  return el('div', { class: 'flex flex-col gap-4' }, head(), top, placeCard, waitCard, pendingN ? uploads : null, table, campCard, pendingN ? null : uploads, linesCard);
 }
