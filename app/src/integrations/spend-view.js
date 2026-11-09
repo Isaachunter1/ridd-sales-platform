@@ -49,20 +49,24 @@ function mktgSpendView() {
   const allocTot = vendors.reduce((a, v) => a + Object.values(A.cells[v] || {}).reduce((x, c) => x + c, 0), 0);
   const bookedTot = Object.values(A.booked).reduce((a, v) => a + v, 0);
   const unplaced = A.lines.filter(L => !L.prov);
+  const waiting = Object.entries(A.waiting || {}).sort((a, b) => b[1].amt - a[1].amt);
+  const waitingAmt = waiting.reduce((a, [, w]) => a + w.amt, 0);
   const openCamps = (A.AD.open || []).filter(x => vendors.includes(x.prov));
 
-  // CSV for the controller: one row per branch × vendor, plus branch totals — the journal entry.
+  // CSV for the controller (per Isaac, Nov 9): the By-branch table exactly as shown — one row per branch, a column
+  // per vendor, a Total column, and a Total row — so the branch totals read straight off it.
   const csv = () => { const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
-    const L = [['Month', 'Branch', 'Vendor', 'Amount'].join(',')];
-    for (const b of branches) { for (const v of vendors) { const c = (A.cells[v] || {})[b]; if (c) L.push([ym, _mktgTC(b), spqLabel(v), c.toFixed(2)].map(esc).join(',')); } L.push([ym, _mktgTC(b), 'TOTAL', brTot(b).toFixed(2)].map(esc).join(',')); }
-    L.push([ym, 'ALL BRANCHES', 'TOTAL', allocTot.toFixed(2)].map(esc).join(','));
+    const L = [['Branch', ...vendors.map(spqLabel), 'Total', ...(bookedTot ? ['Booked in QuickBooks'] : [])].map(esc).join(',')];
+    for (const b of branches) L.push([_mktgTC(b), ...vendors.map(v => ((A.cells[v] || {})[b] || 0).toFixed(2)), brTot(b).toFixed(2), ...(bookedTot ? [(A.booked[b] || 0).toFixed(2)] : [])].map(esc).join(','));
+    L.push(['Total', ...vendors.map(v => A.byProv[v].amt.toFixed(2)), allocTot.toFixed(2), ...(bookedTot ? [bookedTot.toFixed(2)] : [])].map(esc).join(','));
+    L.push(''); L.push(['Marketing spend by branch · ' + reportingMonthLbl(ym) + ' · QuickBooks Advertising & Marketing ' + usd(A.total) + (A.unassigned ? ' · ' + usd(A.unassigned) + ' not yet placed' : '')].map(esc).join(','));
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([L.join('\n')], { type: 'text/csv' })); a.download = 'ridd-marketing-by-branch-' + ym + '.csv'; a.click(); };
 
   const top = el('div', { class: 'card p-5' },
     el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-2' },
       stat('QuickBooks · marketing', usd(A.total), A.lines.filter(L => L.prov !== SPQ_SKIP).length + ' lines' + (A.skipped ? ' · ' + usd0(A.skipped) + ' marked not marketing' : '')),
       stat('Allocated to branches', usd(allocTot), branches.length + ' branch' + (branches.length === 1 ? '' : 'es') + ' · ' + vendors.length + ' vendor' + (vendors.length === 1 ? '' : 's')),
-      stat('Still to place', usd(A.unassigned), unplaced.length ? unplaced.length + ' line' + (unplaced.length === 1 ? '' : 's') + ' need a vendor' : 'every line has a vendor', A.unassigned > 0 ? '#B91C1C' : '#3E5A3A'),
+      stat('Still to place', usd(A.unassigned + waitingAmt), [unplaced.length ? unplaced.length + ' line' + (unplaced.length === 1 ? '' : 's') + ' need a vendor' : '', waiting.length ? waiting.length + ' vendor' + (waiting.length === 1 ? '' : 's') + ' waiting on a report' : ''].filter(Boolean).join(' · ') || 'every line has a vendor and a split', A.unassigned + waitingAmt > 0 ? '#B91C1C' : '#3E5A3A'),
       stat('Booked in QuickBooks', bookedTot ? usd(bookedTot) : '—', bookedTot ? (Math.abs(bookedTot - allocTot) > 1 ? 'differs from this table by ' + usd(Math.abs(bookedTot - allocTot)) : 'matches this table') : 'month-end entry not booked yet', bookedTot && Math.abs(bookedTot - allocTot) > 1 ? '#B45309' : undefined)));
 
   // ── Lines that still need a vendor: one row per payee, one pick saves the rule for every month. ──
@@ -81,11 +85,31 @@ function mktgSpendView() {
       el('div', {}, el('h3', { class: 'text-base font-bold', style: { color: '#B91C1C' } }, 'Place these · ' + usd(A.unassigned)),
         el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Pick the vendor once per payee — it’s remembered for every month.'))),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-      el('thead', {}, el('tr', {}, th('Payee'), th('Memo'), th('Lines'), th('Amount', true), th('Vendor'))),
+      el('thead', {}, el('tr', {}, th('Date(s)'), th('Type'), th('Payee'), th('Memo'), th('Amount', true), th('Vendor'))),
       el('tbody', {}, ...[...byPayee.values()].sort((a, b) => b.reduce((x, L) => x + L.amt, 0) - a.reduce((x, L) => x + L.amt, 0)).map(ls => { const L = ls[0];
+        // Dates of the charges (per Isaac, Nov 9 — so a line can be found in QuickBooks): every day in the group, oldest first.
+        const days = [...new Set(ls.map(x => Number(x.day) || 0).filter(Boolean))].sort((a, b) => a - b);
+        const dateTxt = ym.slice(5, 7) + '/' + days.map(d => String(d).padStart(2, '0')).join(', ' + ym.slice(5, 7) + '/') + (ls.length > 1 ? ' · ' + ls.length + ' lines' : '');
         return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-          td(L.payee || '(no name)', { fontWeight: '600' }), td(L.memo, Object.assign({}, muted, { maxWidth: '380px', overflow: 'hidden', textOverflow: 'ellipsis' })), td(ls.length, muted), td(usd(ls.reduce((x, y) => x + y.amt, 0)), null, true),
+          td(dateTxt, { fontFamily: 'ui-monospace, monospace', whiteSpace: 'normal', maxWidth: '220px' }), td(ls.every(x => x.journal) ? 'Journal' : ls.some(x => x.journal) ? 'Mixed' : 'Expense', muted),
+          td(L.payee || '(no name)', { fontWeight: '600' }), td(L.memo, Object.assign({}, muted, { maxWidth: '380px', overflow: 'hidden', textOverflow: 'ellipsis' })), td(usd(ls.reduce((x, y) => x + y.amt, 0)), null, true),
           el('td', { class: 'px-3 py-1' }, admin ? vendorPick(L) : '—')); }))))) : null;
+
+  // ── Vendors with dollars but nothing to split them by (per Isaac, Nov 9: no guessing — upload the vendor's report). ──
+  const waitRow = ([v, w]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+    td(spqLabel(v), { fontWeight: '700' }), td(usd(w.amt), null, true), td(String(w.n), muted, true),
+    el('td', { class: 'px-3 py-1' }, admin
+      ? el('select', { class: 'rounded border px-1 py-0.5 text-[10px]', style: selSt, onchange: (e) => { const x = e.target.value; if (!x) return; m.qbAlloc[v] = x; state._spqMemo = {}; state._mkpMemo = null; _mktgSave(); mountApp(); } },
+          el('option', { value: '' }, 'Upload its report (below)…'),
+          ...SPQ_METHODS.filter(([x]) => !['auto', 'platform', 'upload'].includes(x)).map(([x, l]) => el('option', { value: x }, l)),
+          ...A.branches.map(b => el('option', { value: 'office:' + b }, 'All to ' + _mktgTC(b))))
+      : el('span', { style: muted }, 'upload its report')));
+  const waitCard = waiting.length ? el('div', { class: 'card overflow-hidden', style: { borderColor: 'rgba(217,119,6,.5)' } },
+    el('div', { class: 'px-5 py-3' }, el('h3', { class: 'text-base font-bold', style: { color: '#B45309' } }, 'Waiting on a report · ' + usd(waitingAmt)),
+      el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'These vendors have QuickBooks dollars this month but no platform spend or uploaded breakout to split them by. Upload the vendor’s report below (branch by branch), or pick a split here.')),
+    el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, th('Vendor'), th('QuickBooks', true), th('Lines', true), th('What places it'))),
+      el('tbody', {}, ...waiting.map(waitRow))))) : null;
 
   // ── The table: branches down, vendors across, how each vendor is split under its name. ──
   const methodLabel = (v) => { const set = m.qbAlloc[v]; if (set && /^office:/.test(set)) return 'All to ' + _mktgTC(set.slice(7)); const L = { platform: 'Platform spend', upload: 'Upload', leads: 'GHL leads', even: 'Even split' }; if (set && L[set]) return L[set]; const how = String((A.byProv[v] || {}).how || ''); return /platform/i.test(how) ? 'Auto · platform' : /upload/i.test(how) ? 'Auto · upload' : /leads/i.test(how) ? 'Auto · leads' : /pro rata/i.test(how) ? 'With the media' : 'Auto · even'; };
@@ -102,7 +126,8 @@ function mktgSpendView() {
       el('button', { class: 'ml-auto rounded-lg px-3 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: csv }, '⬇ Close the books · CSV')),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)', maxHeight: '70vh', overflowY: 'auto' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('Branch'),
-        ...vendors.map(v => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold text-right align-bottom', style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0 } },
+        ...vendors.map(v => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold text-right align-bottom', style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0 },
+            title: A.lines.filter(L => L.prov === v).sort((a, b) => a.day - b.day).map(L => ym.slice(5, 7) + '/' + String(L.day).padStart(2, '0') + '  ' + (L.journal ? 'JE  ' : '') + (L.payee || L.memo || '') + '  ' + usd(L.amt)).join('\n') },
           el('div', {}, spqLabel(v)), el('div', { class: 'mt-1 font-normal normal-case tracking-normal' }, admin && v !== SPQ_TOOLS ? methodSel(v) : el('span', { style: muted }, methodLabel(v))))),
         th('Total', true, { color: 'var(--text)' }), bookedTot ? th('Booked', true) : null)),
       el('tbody', {},
@@ -138,7 +163,7 @@ function mktgSpendView() {
       el('tbody', {}, ...lines.map(L => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: L.prov ? '' : 'rgba(220,38,38,.06)' } },
         td(ym.slice(5, 7) + '/' + String(L.day || '').padStart(2, '0') + '/' + ym.slice(0, 4), { fontFamily: 'ui-monospace, monospace' }), td(L.journal ? 'Journal' : 'Expense', muted), td(L.payee, { fontWeight: '600' }),
         td(L.memo, Object.assign({}, muted, { maxWidth: '360px', overflow: 'hidden', textOverflow: 'ellipsis' })), td(L.acctLeaf || 'Advertising & Marketing', muted), td(usd(L.amt), L.amt < 0 ? { color: '#B91C1C' } : {}, true),
-        el('td', { class: 'px-3 py-1' }, admin ? vendorPick(L, L.how === 'this charge only') : (spqLabel(L.prov) || '—'), L.how && !/your pick|payee|this charge only/.test(L.how) ? el('span', { class: 'ml-2 text-[10px]', style: muted }, L.how) : null)))))));
+        el('td', { class: 'px-3 py-1' }, admin ? vendorPick(L, L.how === 'this charge only') : (spqLabel(L.prov) || '—'), L.how && !/^(your pick|payee|this charge only)$/.test(L.how) ? el('span', { class: 'ml-2 text-[10px]', style: muted }, L.how) : null)))))));
 
   return el('div', { class: 'flex flex-col gap-4' }, head(), top, placeCard, table, campCard, uploads, linesCard);
 }
