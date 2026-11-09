@@ -287,6 +287,8 @@ async function _spuUpload(files) {
   for (const file of list) {
     try {
       const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
+      // Provider statements with their own shape (per Isaac, Nov 9): Baton's Net Spend workbook, Pest Net's CPL report.
+      if (typeof prvParseWorkbook === 'function') { try { const R = prvParseWorkbook(wb, file.name, (typeof _mktgBranchList === 'function' ? _mktgBranchList(new Date().getFullYear()).all : [])); if (R) { state._spendPending.push({ key: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), fileName: file.name, provider: R }); continue; } } catch (e) { console.warn('[spend] provider statement', e); } }
       const cands = []; let credits = null;
       for (const sheet of wb.SheetNames) {
         const ws = wb.Sheets[sheet];
@@ -390,6 +392,7 @@ function mktgSpendUploadCard(B, year) {
       el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Drop any spend report (CSV or Excel, one or many). Map it once — the columns, the provider and the office — and the app remembers: the next report with the same layout, provider names or locations fills itself in.')),
     el('label', { class: 'ml-auto rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, '↑ Choose files', fileIn));
   const pending = (state._spendPending || []).map(P => {
+    if (P.provider && typeof prvPendingCard === 'function') return prvPendingCard(P, branches);
     const A = _spuComputeAll(P, branches, m);
     // Locations are listed across the whole file (whatever channel each row goes to).
     const C = _spuCompute(Object.assign({}, P, { channel: P.channel || (A.groups[0] && A.groups[0].ch) || '' }), branches, m);
