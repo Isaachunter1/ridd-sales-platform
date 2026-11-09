@@ -96,17 +96,23 @@ function mktgSpendView() {
           el('td', { class: 'px-3 py-1' }, admin ? vendorPick(L) : '—')); }))))) : null;
 
   // ── Vendors with dollars but nothing to split them by (per Isaac, Nov 9: no guessing — upload the vendor's report). ──
+  // Upload the vendor's report right from its row (per Isaac, Nov 9): the file opens in the mapping card below with
+  // this vendor and month preset. A platform vendor (Facebook / Google) isn't waiting on a report — its campaigns
+  // need a branch (the card further down).
+  const rowUpload = (v) => { const inp = el('input', { type: 'file', multiple: true, accept: '.csv,.xlsx,.xls,.tsv', class: 'hidden',
+      onchange: (e) => { state._spuPreset = { channel: v, month: ym }; if (typeof _spuUpload === 'function') _spuUpload(e.target.files); e.target.value = ''; } });
+    return el('label', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer inline-flex items-center gap-1', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, '↑ Upload ' + spqLabel(v) + ' report', inp); };
   const waitRow = ([v, w]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
     td(spqLabel(v), { fontWeight: '700' }), td(usd(w.amt), null, true), td(String(w.n), muted, true),
-    el('td', { class: 'px-3 py-1' }, admin
-      ? el('select', { class: 'rounded border px-1 py-0.5 text-[10px]', style: selSt, onchange: (e) => { const x = e.target.value; if (!x) return; m.qbAlloc[v] = x; state._spqMemo = {}; state._mkpMemo = null; _mktgSave(); mountApp(); } },
-          el('option', { value: '' }, 'Upload its report (below)…'),
+    el('td', { class: 'px-3 py-1' }, el('div', { class: 'flex items-center gap-2 flex-wrap' },
+      w.why === 'campaigns' ? el('span', { class: 'text-[11px]', style: { color: '#B45309', fontWeight: '600' } }, 'Its campaigns have no branch — assign them in “Campaigns with no branch” below') : admin ? rowUpload(v) : el('span', { style: muted }, 'upload its report'),
+      admin ? el('select', { class: 'rounded border px-1 py-0.5 text-[10px]', style: selSt, title: 'Or split it another way', onchange: (e) => { const x = e.target.value; if (!x) return; m.qbAlloc[v] = x; state._spqMemo = {}; state._mkpMemo = null; _mktgSave(); mountApp(); } },
+          el('option', { value: '' }, 'or split by…'),
           ...SPQ_METHODS.filter(([x]) => !['auto', 'platform', 'upload'].includes(x)).map(([x, l]) => el('option', { value: x }, l)),
-          ...A.branches.map(b => el('option', { value: 'office:' + b }, 'All to ' + _mktgTC(b))))
-      : el('span', { style: muted }, 'upload its report')));
+          ...A.branches.map(b => el('option', { value: 'office:' + b }, 'All to ' + _mktgTC(b)))) : null)));
   const waitCard = waiting.length ? el('div', { class: 'card overflow-hidden', style: { borderColor: 'rgba(217,119,6,.5)' } },
     el('div', { class: 'px-5 py-3' }, el('h3', { class: 'text-base font-bold', style: { color: '#B45309' } }, 'Waiting on a report · ' + usd(waitingAmt)),
-      el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'These vendors have QuickBooks dollars this month but no platform spend or uploaded breakout to split them by. Upload the vendor’s report below (branch by branch), or pick a split here.')),
+      el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'These vendors have QuickBooks dollars this month but nothing to split them by yet. Upload each vendor’s report from its row — it opens below with the vendor and month filled in — or pick a split.')),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('Vendor'), th('QuickBooks', true), th('Lines', true), th('What places it'))),
       el('tbody', {}, ...waiting.map(waitRow))))) : null;
