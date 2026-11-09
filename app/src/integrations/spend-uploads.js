@@ -660,7 +660,8 @@ function reportingProviderIdsPanel() {
     rows.push({ kind: 'camp', key: k, prov: plat === 'facebook' ? 'Facebook' : /^LocalServicesCampaign/i.test(c) ? 'Google Local Services' : 'Google Ads', id: acct, detail: /^LocalServicesCampaign/i.test(c) ? 'LSA account' : c, to: v === '' ? [] : Array.isArray(v) ? v : [v] }); }
   const acc = (typeof adAccountOfficeMap === 'function') ? adAccountOfficeMap() : {};
   for (const k in acc) { const [plat, acctId, prov] = k.split('|'); const v = acc[k];
-    rows.push({ kind: 'acct', key: k, prov: prov || (plat === 'facebook' ? 'Facebook' : 'Google'), id: acctId, detail: 'Whole account', to: v === '' ? [] : Array.isArray(v) ? v : [v] }); }
+    const nm = (() => { try { const S = (state._adSpend || {})[y] || {}; const r = (S.rows || []).find(x => x.acct === acctId); return r && r.acctName ? r.acctName : ''; } catch (e) { return ''; } })();
+    rows.push({ kind: 'acct', key: k, prov: prov || (plat === 'facebook' ? 'Facebook' : 'Google'), id: acctId, detail: (nm ? nm + ' · ' : '') + 'whole account', to: v === '' ? [] : Array.isArray(v) ? v : [v] }); }
   for (const k in m.spendLocMap) { const meta = m.spendLocMeta[k] || {}; const v = m.spendLocMap[k];
     rows.push({ kind: 'loc', key: k, prov: meta.ch || 'Uploaded reports', id: k, detail: meta.col ? 'column “' + meta.col + '”' : 'report location', to: v === SPU_SPLIT ? ['split'] : v === SPU_SKIP ? ['skip'] : [v] }); }
   const shown = rows.filter(r => !q || (r.prov + ' ' + r.id + ' ' + r.detail + ' ' + r.to.join(' ')).toLowerCase().includes(q));

@@ -85,7 +85,17 @@ function adAutoOffices(r, branches) {
 // = auto (office named in each campaign). Legacy string values still read.
 function adAccountKey(r) { return r.platform + '|' + r.acct; }
 function adAcctProvKey(r) { return adAccountKey(r) + '|' + adProviderOf(r); }
-function adAccountOfficeMap() { const R = (typeof _adminRules === 'function') ? _adminRules() : null; return (R && R.adAccountOffice) || {}; }
+// Google Local Services accounts → branch (per Isaac's sheet, Nov 9). Seeded once into the saved account map so they
+// show on Settings → Marketing → Location IDs and can be re-pointed or removed there (a removal sticks: lsaSeeded).
+// Savannah (622) rolls into Charleston, Wilmington (128) into Myrtle Beach; 698 is the Detroit "Ridd LSA" account.
+const LSA_BUILTIN_ACCOUNTS = { '189-219-7278': 'ATLANTA', '126-666-6517': 'CHARLESTON', '622-030-9686': 'CHARLESTON', '958-064-7748': 'DESTIN', '472-818-1860': 'MYRTLE BEACH', '128-264-0035': 'MYRTLE BEACH', '584-743-2650': 'RALEIGH', '916-601-0148': 'SALT LAKE', '718-677-6260': 'VIRGINIA BEACH', '698-663-2490': 'DETROIT' };
+function adSeedBuiltinAccounts() {
+  const R = (typeof _adminRules === 'function') ? _adminRules() : null; if (!R || R.lsaSeeded) return;
+  const m = Object.assign({}, R.adAccountOffice || {});
+  for (const [a, b] of Object.entries(LSA_BUILTIN_ACCOUNTS)) { const k = 'google|' + a + '|Google Local Services'; if (m[k] === undefined) m[k] = [b]; }
+  R.adAccountOffice = m; _setAdminRule('lsaSeeded', true);
+}
+function adAccountOfficeMap() { const R = (typeof _adminRules === 'function') ? _adminRules() : null; if (R && !R.lsaSeeded) adSeedBuiltinAccounts(); return (R && R.adAccountOffice) || {}; }
 function setAdAccountOffice(key, val) {
   const m = Object.assign({}, adAccountOfficeMap());
   if (val == null) delete m[key]; else m[key] = val;

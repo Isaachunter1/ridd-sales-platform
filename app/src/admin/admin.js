@@ -838,10 +838,10 @@ function adminConfigurations(part) {
       listCard('source', 'Lead sources', _srcN ? n(_srcN) + ' sources' : '', reportingSourceConfigPanel,
         'Each FieldRoutes source: new, renewal or upsell; paid or not; how a sale gets credited; and where it shows.')),
     section('spend', 'Where spend and leads land',
+      typeof reportingProviderIdsPanel === 'function' ? listCard('provids', 'Location IDs → office', 'Angi · Google LSA · campaigns', reportingProviderIdsPanel,
+        'Angi company IDs, Google Local Services account IDs, campaigns and uploaded-report locations, each with its office (per Isaac, Nov 9).') : null,
       typeof reportingAdAccountsPanel === 'function' ? listCard('adacc', 'Ad accounts → office', 'Facebook + Google', reportingAdAccountsPanel,
         'Which office each Facebook and Google Ads account’s spend belongs to.') : null,
-      typeof reportingProviderIdsPanel === 'function' ? listCard('provids', 'Provider IDs → office', 'LSA · Angi · campaigns', reportingProviderIdsPanel,
-        'Account, campaign and report IDs (LSA, Angi, uploaded reports) matched to an office.') : null,   // per Isaac, Oct 9
       typeof reportingGhlSourcesPanel === 'function' ? listCard('ghl', 'GoHighLevel sources → provider', (state._ghl && state._ghl.rows && state._ghl.rows.length) ? n(state._ghl.rows.length) + ' contacts' : 'sync', reportingGhlSourcesPanel,
         'Which provider each GoHighLevel lead source counts as, so new leads roll up by channel.') : null,
       typeof reportingFrSourcesPanel === 'function' ? listCard('frsrc', 'FieldRoutes sources → channel', 'match GoHighLevel', reportingFrSourcesPanel,
