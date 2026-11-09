@@ -537,6 +537,32 @@ function mkpOpenRecords(title, rows, kind) {
 }
 
 // ── The page ─────────────────────────────────────────────────────────────────
+// Data diagnostics on their own, for the Auditing tab (per Isaac, Nov 9 — Metrics is lean now). Collapsed by
+// default; the Pulse model only runs once the section is opened.
+function mkpDiagnosticsCard() {
+  const open = state._mkpDiagOpen === true;
+  const body = () => {
+    let V = null; try { V = mkpModel(); } catch (e) { return el('div', { class: 'text-xs', style: _mkpMuted }, 'Diagnostics hit an error: ' + (e.message || e)); }
+    if (!V) return el('div', { class: 'text-xs', style: _mkpMuted }, 'Loading GoHighLevel…');
+    const { R, F, SP, cur } = V;
+    const kv = (k, v, note) => el('div', { class: 'flex items-baseline justify-between gap-3 py-1 border-t text-xs', style: { borderColor: 'var(--border)' } }, el('span', { style: _mkpMuted }, k, note ? el('span', { class: 'text-[10px] ml-1', style: { color: 'var(--text-subtle)' } }, note) : null), el('span', { class: 'tabular-nums font-semibold' }, v));
+    const lockedSp = V.spendIn(R.from, R.to).reduce((a, s) => a + s.amt, 0);
+    return el('div', {},
+      el('div', { class: 'text-[11px] pb-1', style: _mkpMuted }, R.label + ' · the checks behind the marketing numbers'),
+      kv('Leads matched to a FieldRoutes customer', (() => { const m = cur.leads.filter(x => x.customer).length; return fmt.int(m) + ' of ' + fmt.int(cur.n) + ' (' + _mkpPct(cur.n ? m / cur.n : null) + ')'; })(), 'phone or email exists in FieldRoutes'),
+      kv('Matched but not an Office Staff sale', fmt.int(cur.leads.filter(x => x.customer && !x.sold).length), 'existing customers, unsold, or sold by another rep type'),
+      kv('Spend in range', V.hasSpend ? _mkpUsd(lockedSp) : 'Data unavailable', F.campaign ? 'platform, this campaign' : 'QuickBooks Advertising & Marketing'),
+      kv('QuickBooks marketing lines', SP.vendor === 'qbo' ? 'Loaded' + (V.spendGaps.length ? ' · missing ' + V.spendGaps.join(', ') : '') : 'Unavailable'), kv('Charges that need a vendor', _mkpUsd(V.unlinkedCur)),
+      kv('Platform campaign detail', SP.platform === 'daily' ? 'Daily (Windsor)' : SP.platform === 'monthly' ? 'Monthly, spread by day' : 'Unavailable'),
+      ...['Google Ads', 'Google Local Services', 'Facebook'].map(pv => { const q = SP.lines.filter(x => x.d >= R.from && x.d <= R.to && x.prov === pv).reduce((t, x) => t + x.amt, 0), pl = SP.plat.filter(x => x.d >= R.from && x.d <= R.to && x.prov === pv).reduce((t, x) => t + x.amt, 0);
+        return q || pl ? kv(pv + ': QuickBooks vs platform', _mkpUsd(q) + ' vs ' + (SP.platform === 'none' ? 'n/a' : _mkpUsd(pl)), 'billing dates differ from spend dates; a gap over a month means a charge is missing or misassigned') : null; }),
+      kv('Unmapped GHL sources', fmt.int(cur.leads.filter(x => x.lead.prov === 'Unmapped').length)), kv('Repeat opportunities folded in', fmt.int(V.AL.raw - V.AL.leads.length), 'same person within 30 days'),
+      kv('Spend with no market', _mkpUsd(V.spendIn(R.from, R.to, 'ad').filter(s => !s.market).reduce((a, s) => a + s.amt, 0))));
+  };
+  return el('details', { class: 'card overflow-hidden', open, ontoggle: (e) => { const o = e.target.open; if (o !== state._mkpDiagOpen) { state._mkpDiagOpen = o; if (o) mountApp(); } } },
+    el('summary', { class: 'px-4 py-3 text-sm font-bold cursor-pointer' }, 'Marketing data diagnostics'),
+    open ? el('div', { class: 'px-4 pb-4' }, body()) : null);
+}
 function mktgPulseView() { return perfT('pulse:view', () => _mktgPulseView()); }
 function _mktgPulseView() {
   if (typeof ghlLoadLeads === 'function') ghlLoadLeads();

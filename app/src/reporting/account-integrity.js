@@ -31,7 +31,8 @@ function reportingAuditingTab() {
       onclick: () => { if (pane !== v) { state._auditPane = v; mountApp(); } },
     }, l))) : null;
   if (pane === 'integrity') return el('div', { class: 'flex flex-col gap-4' }, tabs, accountIntegrityView());
-  return el('div', { class: 'flex flex-col gap-4' }, tabs, auditTasksCard(), reportingAuditing());
+  // Marketing data diagnostics live here since Nov 9 (per Isaac — off the Metrics page).
+  return el('div', { class: 'flex flex-col gap-4' }, tabs, auditTasksCard(), reportingAuditing(), typeof mkpDiagnosticsCard === 'function' ? mkpDiagnosticsCard() : null);
 }
 
 // Loads the latest run's summary + the flags for the current filter (one PostgREST read each, paged).
