@@ -172,25 +172,29 @@ function repWorldPicker(mode, cls) {
   if (opts.length < 2) return null;  // One compact Rep type picker, right side of the bar, same look on every tab (per Isaac, Oct 28 — the row of
   // Office Staff / Sales Rep / Technician / All buttons is gone). The ★ beside it sets your default dashboard,
   // same as the star in the dashboard's Filters.
+  // One joined control (per Isaac, Nov 8): the picker and the default-star share a single border, and the star
+  // carries a word — "Default" / "Set default" — so it reads as "this rep type is / isn't my default dashboard"
+  // rather than two unrelated buttons sitting next to each other.
   const sel = el('select', {
-    class: 'rounded-xl border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
-    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+    class: 'px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
+    style: { border: '0', outline: 'none', background: 'var(--card)', color: 'var(--text)', borderRadius: '0' },
     title: 'Rep type — switches the whole section (Dashboard, Sales, Pay…)',
     onchange: (e) => { if (e.target.value !== mode) switchRepWorld(e.target.value); },
   }, ...opts.map(([m, label]) => el('option', { value: m, selected: mode === m }, m === 'all' ? 'All rep types' : label)));
   const on = typeof getFavWorld === 'function' && getFavWorld() === mode;
   const star = typeof setFavWorld === 'function' ? el('button', {
-    type: 'button', class: 'rounded-xl border text-[13px] leading-none transition hover:brightness-95 flex items-center justify-center shrink-0',
-    style: { width: '28px', alignSelf: 'stretch', padding: '0', color: on ? 'var(--accent)' : 'var(--text-muted)', borderColor: on ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)' },
-    title: on ? 'Your default dashboard — click to clear' : 'Make this rep type your default dashboard',
+    type: 'button', class: 'text-[11px] font-semibold leading-none transition hover:brightness-95 flex items-center gap-1 shrink-0 whitespace-nowrap',
+    style: { padding: '0 10px', alignSelf: 'stretch', borderLeft: '1px solid ' + (on ? 'var(--accent)' : 'var(--border-2)'), color: on ? 'var(--accent)' : 'var(--text-muted)', background: on ? 'rgba(223,100,58,.08)' : 'var(--card)' },
+    title: on ? 'This rep type opens by default when you sign in — click to clear' : 'Open on this rep type by default when you sign in',
     onclick: () => {
       setFavWorld(on ? '' : mode);
       const name = (opts.find(o => o[0] === mode) || [])[1] || '';
-      if (typeof toast === 'function') toast(on ? 'Default cleared — you’ll open on Office Staff' : (mode === 'all' ? 'All rep types' : name) + ' is now your default', 'ok');
+      if (typeof toast === 'function') toast(on ? 'Default cleared — you’ll open on Office Staff' : (mode === 'all' ? 'All rep types' : name) + ' is now your default dashboard', 'ok');
       mountApp();
     },
-  }, on ? '★' : '☆') : null;
-  return el('div', { class: cls || 'flex items-stretch gap-1.5 shrink-0', 'data-world-pick': '1' }, sel, star);
+  }, el('span', { style: { fontSize: '13px' } }, on ? '★' : '☆'), on ? null : el('span', { class: 'hidden sm:inline' }, 'Set default')) : null;   // once set: just the lit star (per Isaac, Nov 8)
+  return el('div', { class: cls || 'flex items-stretch shrink-0', 'data-world-pick': '1' },
+    el('div', { class: 'inline-flex items-stretch rounded-xl border overflow-hidden', style: { borderColor: on ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)' } }, sel, star));
 }
 function insideSalesSubTabs() {
   const tabs = insideSalesTabsFor(state.profile?.role);
@@ -390,7 +394,7 @@ function openMySettingsModal() {
   // comes from Slack: profile → ⋮ → Copy member ID. Writes own row only
   // via the set_my_slack RPC (slack_notify.sql). ──
   const slackId = el('input', {
-    type: 'text', value: p.slack_member_id || '', placeholder: 'Slack Member ID, e.g. U0123ABCD',
+    type: 'text', value: p.slack_member_id || '', placeholder: 'Slack Member ID, e.g. U0123ABCD', title: 'Slack: your profile \u2192 \u22ee \u2192 Copy member ID',
     class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px]', style: { minWidth: '0' },
   });
   const slackOn = el('input', { type: 'checkbox', class: 'cursor-pointer' });
@@ -415,9 +419,7 @@ function openMySettingsModal() {
     secLabel('Slack notifications'),
     el('label', { class: 'flex items-center gap-2 text-sm cursor-pointer' }, slackOn,
       el('span', {}, 'DM me app notifications (audit results and more)')),
-    el('div', { class: 'flex items-center gap-2' }, slackId, slackBtn),
-    el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
-      'Find your Member ID in Slack: your profile \u2192 \u22ee \u2192 Copy member ID. A test DM confirms the hookup.'));
+    el('div', { class: 'flex items-center gap-2' }, slackId, slackBtn));   // (how-to caption dropped per Isaac, Nov 7 — the input's placeholder + title carry it)
 
   // ── Change password — same policy + live checklist as the reset screen. ──
   const pw1 = el('input', { type: 'password', placeholder: 'New password', autocomplete: 'new-password', class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]' });
@@ -462,6 +464,27 @@ function openMySettingsModal() {
     },
   }, 'Update Password');
 
+  // Get the app on your phone (per Isaac, Nov 7): a banner at the top, one tap. Hidden once the app is installed.
+  const installBanner = (() => {
+    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent || '');
+    const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+    if (standalone) return null;
+    const phone = el('span', { style: { fontSize: '20px', lineHeight: '1' }, 'aria-hidden': 'true' }, '\ud83d\udcf1');
+    const canPrompt = !!window._riddInstallEvt;
+    const sub = canPrompt ? 'One tap \u2014 opens like a real app, no app store.'
+      : isIOS ? 'Safari \u2192 Share \u2192 Add to Home Screen' : 'Chrome or Edge \u2192 \u22ee menu \u2192 Install app';
+    const btn = canPrompt ? el('button', {
+      class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold whitespace-nowrap transition hover:brightness-95',
+      style: { background: 'var(--accent)', color: 'var(--accent-text, #fff)' },
+      onclick: async (e) => { const evt = window._riddInstallEvt; window._riddInstallEvt = null; e.currentTarget.disabled = true; try { evt.prompt(); } catch { /* dismissed */ } },
+    }, 'Install') : null;
+    return el('div', { class: 'mb-1 rounded-xl px-3.5 py-3 flex items-center gap-3', style: { margin: '0 20px 4px', background: 'rgba(223,100,58,.10)', border: '1px solid rgba(223,100,58,.35)' } },
+      phone,
+      el('div', { class: 'flex-1', style: { minWidth: '0' } },
+        el('div', { class: 'text-[12px] font-bold' }, 'Get RIDD on your phone'),
+        el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, sub)),
+      btn);
+  })();
   const card = el('div', { class: 'card w-full max-w-sm overflow-hidden flex flex-col' },
     el('div', { class: 'flex items-center justify-between px-5 pt-5 pb-3' },
       el('div', {},
@@ -469,6 +492,7 @@ function openMySettingsModal() {
         el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } },
           (p.full_name || '') + ' · ' + roleLabel(p.role))),
       el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
+    installBanner,
     el('div', { class: 'px-5 pb-5 flex flex-col gap-5' },
       el('div', { class: 'flex flex-col gap-2' },
         secLabel('Time Zone'),
@@ -476,40 +500,13 @@ function openMySettingsModal() {
           class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]',
           style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
           onchange: (e) => { setUserTzPref(e.target.value); toast('Time zone updated', 'success'); scheduleBackgroundRemount(); },
-        }, ...USER_TZ_CHOICES.map(([v, label]) => el('option', { value: v, selected: userTzPref() === v }, label))),
-        el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
-          'Affects time displays like Today\u2019s Sales. Auto = Mountain (Utah) for office staff; D2D sale times always show in the selling office\u2019s local time.')),
+        }, ...USER_TZ_CHOICES.map(([v, label]) => el('option', { value: v, selected: userTzPref() === v }, label)))),   // (caption dropped per Isaac, Nov 7 — labels only)
       slackAllowedFor(p) ? slackSection : null,
       // Goals (per Isaac, Oct 16): anyone with a player card sets their own annual goal here.
       (typeof myGoalCard === 'function' && myGoalCard(true)) ? el('div', { class: 'flex flex-col gap-2' }, secLabel('Goals'), myGoalCard(true)) : null,
       el('div', { class: 'flex flex-col gap-2' },
         secLabel('Change Password'),
         pw1, pw2, policyList, pwBtn),
-      el('div', { class: 'flex flex-col gap-2' },
-        secLabel('Get the App on Your Phone'),
-        (() => {
-          const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent || '');
-          const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
-          if (standalone) {
-            return el('div', { class: 'text-xs', style: { color: 'var(--text-muted)' } }, '✓ Installed — you\'re running RIDD from your home screen.');
-          }
-          if (window._riddInstallEvt) {
-            return el('button', {
-              class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95 self-start',
-              style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
-              onclick: async (e) => {
-                const evt = window._riddInstallEvt;
-                window._riddInstallEvt = null;
-                e.currentTarget.disabled = true;
-                try { evt.prompt(); } catch { /* user dismissed */ }
-              },
-            }, 'Install on Device');
-          }
-          return el('div', { class: 'text-xs', style: { color: 'var(--text-muted)', lineHeight: '1.5' } },
-            isIOS
-              ? 'On iPhone: open this page in Safari, tap the Share button, then "Add to Home Screen" — RIDD installs like a real app.'
-              : 'Open this page in Chrome or Edge and use the browser\'s "Install app" option (⋮ menu) to put RIDD on your home screen.');
-        })()),
       el('div', { class: 'pt-3 border-t flex' , style: { borderColor: 'var(--border)' } },
         el('button', {
           class: 'text-xs font-semibold transition hover:underline',

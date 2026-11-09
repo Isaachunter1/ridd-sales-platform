@@ -26,7 +26,8 @@ export class PlaibookMcp {
   }
   async rpc(method, params, { notify = false } = {}) {
     const body = notify ? { jsonrpc: '2.0', method, params } : { jsonrpc: '2.0', id: ++this.id, method, params };
-    const headers = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Authorization: 'Bearer ' + this.token, 'MCP-Protocol-Version': PROTOCOL };
+    // Bearer is the MCP norm; Plaibook's keys (plb_…) may be read from X-API-Key instead — send both, one is ignored.
+    const headers = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Authorization: 'Bearer ' + this.token, 'X-API-Key': this.token, 'MCP-Protocol-Version': PROTOCOL };
     if (this.session) headers['Mcp-Session-Id'] = this.session;
     const r = await this.fetch(this.url, { method: 'POST', headers, body: JSON.stringify(body) });
     const sid = r.headers && r.headers.get ? r.headers.get('mcp-session-id') : null;

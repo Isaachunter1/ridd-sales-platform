@@ -271,12 +271,11 @@ function myGoalCard(compact) {
   const lab = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, t);
   const body = el('div', { class: 'flex flex-col gap-2.5' },
     el('div', { class: 'flex flex-col gap-1' }, lab('Annual revenue goal'), el('div', { class: 'flex items-center gap-2' }, el('span', { class: 'text-[12px] font-semibold' }, '$'), inp)),
-    el('div', { class: 'flex items-end gap-3 flex-wrap' },
-      el('div', { class: 'flex flex-col gap-1' }, lab('Start'), dS),
-      el('div', { class: 'flex flex-col gap-1' }, lab('End'), dE)),
+    // Labels live inside the boxes (per Isaac, Nov 7): "Start date" / "End date" beside the picker, no caption under them.
+    el('div', { class: 'flex items-center gap-2' },
+      ...[['Start date', dS], ['End date', dE]].map(([t, d]) => { d.className = 'text-[12px] bg-transparent border-0 outline-none p-0 w-full'; d.style.cssText = 'color: var(--text); min-width: 0; width: 100%';
+        return el('label', { class: 'flex flex-col gap-0.5 rounded-lg border px-2.5 py-1.5 flex-1', style: Object.assign({}, field, { minWidth: '0' }), title: t }, el('span', { class: 'text-[9px] uppercase tracking-widest font-semibold whitespace-nowrap', style: { color: 'var(--text-subtle)' } }, t), d); })),
     preview,
-    el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
-      (type === 'd2d' ? 'Sales Reps: set the days you start and finish selling this year.' : 'Office Staff / Technicians: year-round by default.') + ' The Me Revenue Pacer counts work days in this window to show what you need per day.'),
     btn);
   if (compact) return body;
   return el('div', { class: 'card p-4 flex flex-col gap-3' }, el('div', { class: 'text-sm font-bold' }, 'My Goal'), body);
@@ -417,10 +416,11 @@ function deptRangePacer(dept) {
   const total = Object.values(byOffice).reduce((a, b) => a + b, 0);
   const side = (!isOffice && total > 0) ? (() => {
     const rows = Object.entries(byOffice).sort((x, y) => y[1] - x[1]);
-    const top = rows.slice(0, 5), max = top[0][1] || 1;
-    return { title: 'Where it’s coming from · ' + R.label.toLowerCase(), textW: 104,
-      rows: top.map(([o, v]) => ({ label: _mktgTCish(o), pct: v / max, tick: null, color: 'var(--text)', text: _pacerShort(v) + ' · ' + Math.round(v / total * 100) + '%' })),
-      more: rows.length > 5 ? rows.length + ' offices · ' + (rows.length - 5) + ' more below the fold' : '' };
+    // Every office, in a list that scrolls past five rows (per Isaac, Nov 8) — no "more below the fold" note.
+    const max = rows[0][1] || 1;
+    return { title: 'Where it’s coming from · ' + R.label.toLowerCase(), textW: 104, scrollRows: 5,
+      rows: rows.map(([o, v]) => ({ label: _mktgTCish(o), pct: v / max, tick: null, color: 'var(--text)', text: _pacerShort(v) + ' · ' + Math.round(v / total * 100) + '%' })),
+      more: rows.length > 5 ? rows.length + ' offices' : '' };
   })() : null;
   const _keep = state.dashDateRange; state.dashDateRange = 'today';
   try {
@@ -653,7 +653,9 @@ function dashLensPacer(dept) {
 // Indicators → Power Ranking → Records → Sales Mix, then Class Metrics and Metric Trends.
 // Oct 16 later (per Isaac): Class Metrics and Sales Mix swapped — Class Metrics first, for every user type.
 // Oct 28 (per Isaac): Leaderboard above Trends on the team / department views (Me hides the Leaderboard).
-const _IND_ORDER_STD = ['rep-leaderboard', 'yoy', 'ind-table', 'power-charts', 'agg-records', 'class-metrics', 'sales-mix', 'repTrend'];
+// Nov 7 (per Isaac): back to player card → Trends → Leaderboard, the same for EVERY user type. Reps' Trends is the
+// repTrend card, admins' is the Performance Trends (yoy) card — both sit right under the player card.
+const _IND_ORDER_STD = ['yoy', 'repTrend', 'rep-leaderboard', 'ind-table', 'power-charts', 'agg-records', 'class-metrics', 'sales-mix'];
 // Same order on all three dashboards (per Isaac, Oct 6). Office Staff keep the revenue-goal pacer above it.
 const IND_SECTION_ORDER = { d2d: _IND_ORDER_STD, office: _IND_ORDER_STD, techs: _IND_ORDER_STD, all: _IND_ORDER_STD };   // All too (per Isaac, Oct 9)
 // The dashboards open on TODAY (per Isaac, Oct 6) — the Today / Week / Month / Year chips are one tap away.
@@ -685,6 +687,9 @@ function indApplySectionOrder(page) {
     if (typeof dashLensOn === 'function' && dashLensOn() && dashLens() === 'me' && dashLensOptions().length > 1) {
       const hide = new Set(IND_ME_HIDE);
       if (isAdminRole(state.profile?.role)) hide.add('repTrend');
+      // Sales Rep - Rep (per Isaac, Nov 7): the Me view keeps the Leaderboard — it's their home page and the
+      // board is the pulse they need; the department tables stay off.
+      if (String(state.profile?.role || '') === 'rep_sales') hide.delete('rep-leaderboard');
       [...page.children].forEach(n => { if (hide.has(keyOf(n))) n.remove(); });
     }
     const order = IND_SECTION_ORDER[state.indicatorDept];
@@ -900,6 +905,9 @@ function viewIndicators() {
   // doesn't get scored. Reps without a team are still visible in Manage
   // Teams' "(unassigned)" filter so admins can fix them.
   const branches = [...new Set(allData.map(r => r.branch))].sort();
+  // By team (per Isaac, Nov 8): the owners' "RIDD" team — everyone not yet assigned a team — is not a column of its
+  // own; those reps live inside the RIDD total. (Manage Teams → RIDD is where the unassigned are found and placed.)
+  const visibleBranches = branches.filter(b => !(groupBy === 'teams' && typeof isOwnerTeam === 'function' && isOwnerTeam(b)));
   const isRange = state.indicatorsView === 'range';
 
   // Range bounds (only used when view === 'range')
@@ -1378,6 +1386,7 @@ function viewIndicators() {
   // tab for every role. Clears any persisted ON state so nobody's stuck.
   state.indicatorsComps = false;
   const _repLite = !isAdminRole(state.profile?.role);
+  const _canBoardFilters = !_repLite || userCan('ind_board');   // Team / Tier filters follow the Leaderboard (per Isaac, Nov 8)
   // "Analyst layout" (pinned card + admin tables/charts): driven by the
   // Settings → Permissions matrix now — any role granted the Indicators
   // table or Power Ranking chart gets it. Defaults: partners + office
@@ -1749,8 +1758,9 @@ function viewIndicators() {
                   _fRow('Group',  hl(groupSel,  groupBy !== 'branch')),
                   // (Office row removed per Isaac, Oct 28 — the Indicators table and Group already show every office side by side.)
                   // Team: only this rep type's teams, and no row at all when it has none (per Isaac, Oct 28 — replaces Oct 9's every-team-everywhere).
-                  (_repLite || !_teams.length) ? null : _fRow('Team',   (hl(teamSel._hl, !!state._indicatorRepTeamFilter), teamSel)),
-                  (_repLite || !tierSel) ? null : _fRow('Tier', hl(tierSel, !!state._indicatorRepTierFilter)),
+                  // Team + Tier (per Isaac, Nov 8): anyone who sees the Leaderboard can filter it — reps included; Type stays admin.
+                  (!_canBoardFilters || !_teams.length) ? null : _fRow('Team',   (hl(teamSel._hl, !!state._indicatorRepTeamFilter), teamSel)),
+                  (!_canBoardFilters || !tierSel) ? null : _fRow('Tier', hl(tierSel, !!state._indicatorRepTierFilter)),
                 ];
               })(),
               (_applyBtn = el('button', {
@@ -1790,7 +1800,7 @@ function viewIndicators() {
             (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced',
             state.indicatorPassedAudit === true,
             !!indicatorExclKey(),
-            !_repLite && !!state._indicatorRepOfficeFilter, !_repLite && !!state._indicatorRepTeamFilter, !_repLite && !!state._indicatorRepTierFilter,
+            !_repLite && !!state._indicatorRepOfficeFilter, _canBoardFilters && !!state._indicatorRepTeamFilter, _canBoardFilters && !!state._indicatorRepTierFilter,
             !_repLite && !_fWorld && (state.indicatorDept || 'all') !== _fDeptDefault,
             groupBy !== 'branch',
           ].filter(Boolean).length;
@@ -2029,7 +2039,7 @@ function viewIndicators() {
           if (!_repLite && !world && (state.indicatorDept || 'all') !== 'd2d') add(({ all: 'All rep types', office: 'Office Staff', techs: 'Technicians' })[state.indicatorDept || 'all'] || 'Type', () => { state.indicatorDept = 'd2d'; });
           if (groupBy !== 'branch') add('Grouped by ' + (groupBy === 'teams' ? 'team' : groupBy), () => { state.indicatorsGroupBy = 'branch'; });
           if (!_repLite && state._indicatorRepOfficeFilter) add(_tc(state._indicatorRepOfficeFilter), () => { state._indicatorRepOfficeFilter = ''; });
-          if (!_repLite && state._indicatorRepTeamFilter) add(indTeamFilterLabel(), () => { state._indicatorRepTeamFilter = ''; });
+          if ((!_repLite || userCan('ind_board')) && state._indicatorRepTeamFilter) add(indTeamFilterLabel(), () => { state._indicatorRepTeamFilter = ''; });
           if (!_repLite && state._indicatorRepTierFilter) add(state._indicatorRepTierFilter === 'rookie' ? 'Rookies' : state._indicatorRepTierFilter === 'vet' ? 'Vets' : state._indicatorRepTierFilter, () => { state._indicatorRepTierFilter = ''; });
           if (!chips.length) return null;
           const chip = (label, clear, quiet) => el('button', {
@@ -2263,7 +2273,7 @@ function viewIndicators() {
       const sort = state._indicatorSort;
 
       // Determine column order (branches sorted by the selected metric)
-      let sortedBranches = [...branches];
+      let sortedBranches = [...visibleBranches];
       if (sort.key === '_points') {
         // Total Points lives outside branchData — sort by it directly. Lower = better (golf scoring).
         // Ties: higher D2D Revenue, then higher Avg Pest Initial.
@@ -2672,7 +2682,7 @@ function viewIndicators() {
       const _hideBranchCharts = false;
       return el('div', { class: 'flex flex-col gap-4' },
         !_hideBranchCharts && el('div', {},
-          indicatorChart('Power Ranking' + _prNote, chartData, branches, '_power_ranking', chartWeeks, true, chartLabels),
+          indicatorChart('Power Ranking' + _prNote, chartData, visibleBranches, '_power_ranking', chartWeeks, true, chartLabels),
         ),
         // Monthly/Weekly PRA + Revenue cards RETIRED (Jul 2026, per Isaac) —
         // the Performance Trends chart covers them via its Scope picker and
@@ -5490,6 +5500,27 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               _lbApplyVis();
             },
           }),
+          // Team picker (per Isaac, Nov 8): the SAME control for every user type — admins, leads and reps alike —
+          // listing the teams this dashboard has (the role's own reach); the viewer's own team sits first as
+          // "My team". It drives the same Team filter as Filters → Team, so chips and Clear all stay in sync.
+          (() => {
+            const teams = (typeof distinctTeams === 'function' ? distinctTeams() : []).filter(t => typeof indWorldTeamOk !== 'function' || indWorldTeamOk(t)).sort();
+            if (!teams.length) return null;
+            const myTeam = (typeof getRepTeam === 'function' && state.profile) ? (getRepTeam(state.profile.full_name) || '') : '';
+            const cur = indTeamFilterList();
+            const val = cur.length === 1 ? cur[0] : (cur.length > 1 ? '__multi__' : '');
+            const on = !!val;
+            return el('select', {
+              class: 'rounded-lg border ' + _lbBtnPad + ' py-1 text-[11px] font-semibold cursor-pointer',
+              style: on ? { borderColor: 'var(--accent)', color: 'var(--accent)', background: 'var(--card)', maxWidth: '160px' } : { borderColor: 'var(--border-2)', color: 'var(--text)', background: 'var(--card)', maxWidth: '160px' },
+              title: 'Show one team on the leaderboard' + (myTeam ? ' — My team = ' + myTeam : ''),
+              onchange: (e) => { const v = e.target.value; if (v === '__multi__') return; state._indicatorRepTeamFilter = v; mountApp(); },
+            },
+              el('option', { value: '', selected: !on }, 'All teams'),
+              myTeam && teams.includes(myTeam) ? el('option', { value: myTeam, selected: val === myTeam }, 'My team · ' + myTeam) : null,
+              ...(cur.length > 1 ? [el('option', { value: '__multi__', selected: true }, cur.length + ' teams (Filters)')] : []),
+              ...teams.filter(t => t !== myTeam).map(t => el('option', { value: t, selected: val === t }, t)));
+          })(),
           // Rep picker — check specific reps to build a downline view.
           (() => {
             const btn = el('button', {
@@ -5638,9 +5669,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 b.disabled = true; b.textContent = '…';
                 try { await downloadRookieVetPdf(reps, { limitOverall: 10, limitRookie: 10 }); }
                 catch (err) { console.error('[ridd] leaderboard PDF threw', err); toast('PDF failed: ' + (err.message || 'unknown'), 'error'); }
-                finally { b.disabled = false; b.textContent = '📄 PDF'; }
+                finally { b.disabled = false; b.textContent = '📄'; }
               },
-            }, '📄 PDF');
+            }, '📄');   // icon only (per Isaac, Nov 8)
             return b;
           })() : null,
 
@@ -6053,7 +6084,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   }
   sections.push(indLazy('agg-records', () => buildAggregateRecordsCard(), { 'data-section': 'agg-records' }, 320)); _profMark('ind:records');
   // Rookie vs Vet lives directly under the Records card (built earlier).
-  if (_tierCardSection && state.indicatorDept !== 'office') sections.push(_tierCardSection); _profMark('ind:class-metrics');
+  // Class Metrics: Sales Reps only — not Office Staff, and (per Isaac, Nov 8) not the Technicians dashboard either (the Technician Metrics table is dropped).
+  if (_tierCardSection && state.indicatorDept !== 'office' && state.indicatorDept !== 'techs') sections.push(_tierCardSection); _profMark('ind:class-metrics');
 
   // ── 3. (Cancel Analysis card retired — per Isaac. Reasons live in the
   // Retention tab's drills; package/office/team attrition lives in the
@@ -7092,7 +7124,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
     });
   }
   const canvasId = 'chart-rep-trend';
-  const canvasWrap = el('div', { style: { position: 'relative', height: '320px', width: '100%' } });
+  const canvasWrap = el('div', { style: { position: 'relative', height: '250px', width: '100%' } });   // shorter (per Isaac, Nov 7 — every user)
   const canvas = el('canvas', { id: canvasId });
   canvasWrap.append(canvas);
 
@@ -11317,6 +11349,11 @@ function indicatorYoYTrendChart() {
     };
     // Compare picks (per Isaac, Oct 28): offices and teams are short lists, shown whole (typing narrows them);
     // reps are searched. Every pick is its own line on the chart.
+    // Name only what the list actually offers (per Isaac, Nov 8): the Office Staff dashboard has offices + reps and no
+    // teams, so the placeholder said "teams" for a section that never appeared.
+    const _hasTeams = teams.filter(indWorldTeamOk).length > 0;
+    const _pickWhat = 'Pick ' + (offices.length ? 'offices, ' : '') + (_hasTeams ? 'teams, ' : '') + 'reps\u2026';
+    const _searchWhat = 'Search ' + (offices.length ? 'offices, ' : '') + (_hasTeams ? 'teams, ' : '') + 'reps\u2026';
     const placeList = el('div', {});
     const paintPlaces = (q) => {
       placeList.innerHTML = '';
@@ -11395,7 +11432,7 @@ function indicatorYoYTrendChart() {
     };
     const btn = el('input', {
       type: 'text', autocomplete: 'off',
-      placeholder: _nReps ? (_nReps === 1 ? _scopeLabelOf(_yoySelScopes[0]) : _nReps + (_yoyCompareOn() ? ' compared' : ' reps')) : (_yoyCompareOn() ? 'Pick offices, teams, reps\u2026' : 'Search rep\u2026'),
+      placeholder: _nReps ? (_nReps === 1 ? _scopeLabelOf(_yoySelScopes[0]) : _nReps + (_yoyCompareOn() ? ' compared' : ' reps')) : (_yoyCompareOn() ? _pickWhat : 'Search rep\u2026'),
       readOnly: _yoyCompareOn(),   // compare on: the panel's own search (top) takes the typing
       class: 'rounded-lg border px-2.5 py-1 text-[11px]',
       style: { borderColor: _nReps ? 'var(--accent)' : 'var(--border-2)', minWidth: '160px', background: 'var(--card)', color: 'var(--text)' },
@@ -11406,7 +11443,7 @@ function indicatorYoYTrendChart() {
     });
     // Compare off: the trigger IS the search, so the panel's own box stays hidden.
     if (!_yoyCompareOn()) repSearch.style.display = 'none';
-    else repSearch.placeholder = 'Search offices, teams, reps\u2026';
+    else repSearch.placeholder = _searchWhat;
     if (state._yoyScopesOpen) { panel.style.display = 'block'; clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
       if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
       if (wrap.contains(ev.target)) return;
@@ -11417,7 +11454,7 @@ function indicatorYoYTrendChart() {
     return wrap;
   })();
 
-  const cvsWrap = el('div', { style: { position: 'relative', height: '280px', width: '100%' } });
+  const cvsWrap = el('div', { style: { position: 'relative', height: '210px', width: '100%' } });   // shorter (per Isaac, Nov 7 — every user)
   const _ownCvs = el('canvas', { id });
   cvsWrap.append(_ownCvs);
   setTimeout(() => {

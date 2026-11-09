@@ -1519,7 +1519,7 @@ function adminReps() {
       st.textContent = 'table.users-tbl td, table.users-tbl th { overflow: hidden; text-overflow: ellipsis; }'; document.head.appendChild(st); } return null; })(),
     el('table', { class: 'w-full text-sm whitespace-nowrap users-tbl', style: { tableLayout: 'fixed', minWidth: '960px' } },
       // (Rep Type column dropped per Isaac, Nov 5 — the tabs already split people by type; it's still in Edit User. Search still matches it.)
-      el('colgroup', {}, ...['6%', '19%', '14%', '20%', '12%', '11%', '9%', '9%'].map(w => el('col', { style: { width: w } }))),
+      el('colgroup', {}, ...['5%', '18%', '13%', '19%', '12%', '10%', '10%', '13%'].map(w => el('col', { style: { width: w } }))),
       el('thead', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, el('tr', {},
         th('ID', null, 'id'), th('Name', 'text-left', 'name'), th('User Name', null, 'username'), th('Access Profile', null, 'role'),
         th('Phone', null, 'phone'),
