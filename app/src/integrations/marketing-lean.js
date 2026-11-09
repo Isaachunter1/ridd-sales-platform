@@ -32,6 +32,7 @@ const _mklNum = (v) => v == null ? '—' : fmt.int(v);
 const _mklAgo = (iso) => { if (!iso) return ''; const h = (Date.now() - Date.parse(iso)) / 3600000; return !isFinite(h) ? '' : h < 1 ? Math.max(1, Math.round(h * 60)) + 'm ago' : h < 48 ? Math.round(h) + 'h ago' : Math.round(h / 24) + 'd ago'; };
 // FieldRoutes source → the channel name the Spend tab and GoHighLevel use (same rules as GHL labels).
 function _mklChannelOfSource(src) {
+  if (typeof frChannelOf === 'function') return frChannelOf(src);   // Configurations → FieldRoutes sources → channel
   const s = String(src || '').trim(); if (!s) return 'Unspecified';
   const p = typeof ghlAutoProvider === 'function' ? ghlAutoProvider(s) : '';
   if (p === GHL_NOT_LEAD) return s;   // e.g. Door to Door on an office sale — shown as is, so the mis-source is visible
@@ -42,7 +43,7 @@ function mklMonth(ym) {
   const subs = state.reportingSubscriptions || [];
   const AL = typeof mkpAllLeads === 'function' ? mkpAllLeads() : null;
   const A = typeof spqAllocMonth === 'function' ? spqAllocMonth(ym) : null;
-  const sig = [ym, subs.length, AL ? AL.leads.length : -1, A ? A.total + '|' + Object.keys(A.waiting || {}).length + '|' + JSON.stringify(Object.keys(A.byProv)) : 'noA'].join('§');
+  const sig = [ym, subs.length, AL ? AL.leads.length : -1, A ? A.total + '|' + Object.keys(A.waiting || {}).length + '|' + JSON.stringify(Object.keys(A.byProv)) : 'noA', typeof frSourceMap === 'function' ? JSON.stringify(frSourceMap()) : ''].join('§');
   const M = state._mklMemo || (state._mklMemo = {});
   if (M[ym] && M[ym].sig === sig && M[ym].subs === subs && M[ym].al === AL) return M[ym].v;
   const br = {}, ch = {};
@@ -149,7 +150,7 @@ function _mktgLeanView() {
   // Branch: spend placed on the Spend tab; waiting vendors are out of this split until their report lands.
   const brTable = table('By branch · ' + _mklLblS(ym), 'Spend as allocated on the Spend tab' + (cur.spendWaiting > 0 ? ' — ' + _mklUsd(cur.spendWaiting) + ' of vendor spend is not in any branch yet (waiting on reports), so branch CAC runs low until it lands' : '') + '. Leads by the lead’s ZIP; new sales by the account’s office.', cur.br, null, null);
   const chTable = table('By channel · ' + _mklLblS(ym), 'Spend by vendor from QuickBooks; leads by GoHighLevel source; new sales by the FieldRoutes source on the account (last touch). Close rate = new sales ÷ leads, so a channel whose GHL label and FieldRoutes source don\u2019t line up will read high or low — map them the same in Configurations.', cur.ch, null,
-    (k, c) => c.waiting > 0 ? 'waiting on its report — not in branches yet' : k === 'Unmapped GHL source' ? 'map these in Configurations → GoHighLevel sources' : k === 'Unspecified' ? 'no source on the account — fix in FieldRoutes' : null);
+    (k, c) => c.waiting > 0 ? 'waiting on its report — not in branches yet' : k === 'Unmapped GHL source' ? 'map these in Configurations → GoHighLevel sources' : k === 'Unspecified' ? 'no source on the account — fix in FieldRoutes' : (c.s && !c.leads) ? 'sales but no leads — no GoHighLevel label maps here (Configurations → sources)' : (c.leads && !c.s && !c.spend) ? 'leads but no sales — no FieldRoutes source maps here' : null);
 
   // ── Chart: spend vs new revenue, last 12 months. ──
   const S = mklSeries(ym), idC = 'mklTrend';

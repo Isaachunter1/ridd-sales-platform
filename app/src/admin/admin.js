@@ -840,7 +840,9 @@ function adminConfigurations(part) {
       typeof reportingProviderIdsPanel === 'function' ? listCard('provids', 'Provider IDs → office', 'LSA · Angi · campaigns', reportingProviderIdsPanel,
         'Account, campaign and report IDs (LSA, Angi, uploaded reports) matched to an office.') : null,   // per Isaac, Oct 9
       typeof reportingGhlSourcesPanel === 'function' ? listCard('ghl', 'GoHighLevel sources → provider', (state._ghl && state._ghl.rows && state._ghl.rows.length) ? n(state._ghl.rows.length) + ' contacts' : 'sync', reportingGhlSourcesPanel,
-        'Which provider each GoHighLevel lead source counts as, so new leads roll up by channel.') : null),
+        'Which provider each GoHighLevel lead source counts as, so new leads roll up by channel.') : null,
+      typeof reportingFrSourcesPanel === 'function' ? listCard('frsrc', 'FieldRoutes sources → channel', 'match GoHighLevel', reportingFrSourcesPanel,
+        'Which channel each FieldRoutes account source counts as, so sales and leads land on the same row (per Isaac, Nov 9).') : null),
     section('targets', null,
       typeof reportingMarketingGoalsPanel === 'function' ? listCard('mgoals', 'Marketing goals & targets', 'CAC · ROAS · spend mix', reportingMarketingGoalsPanel,
         'The CAC, ROAS and spend-mix targets behind the Marketing report’s projections.', ['Marketing targets']) : null));
