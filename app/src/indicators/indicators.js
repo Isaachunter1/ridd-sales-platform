@@ -12409,7 +12409,10 @@ const SCORECARD_DEPTS = [
 
 // Scorecards are for Inside Sales and Loyalty reps (and their leads). The
 // non-selling "Office Staff - Office" role is office staff but has no card.
-function scorecardEligible(p) { return !!p && p.role !== 'office_staff'; }
+// Only the selling office roles get a card (per Isaac, Nov 9 — TJ, a Developer who is Office Staff in FieldRoutes,
+// was showing under Inside Sales): the app role decides, never the FieldRoutes employee type.
+const SCORECARD_ROLES = new Set(['rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead']);
+function scorecardEligible(p) { return !!p && SCORECARD_ROLES.has(String(p.role || '')); }
 function scorecardDeptOf(p) {
   if (!p) return 'inside_sales';
   if (p.rep_type === 'loyalty_rep' || p.role === 'rep_loyalty' || p.role === 'rep_loyalty_lead') return 'loyalty';

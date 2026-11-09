@@ -50,6 +50,7 @@ module.exports = [
   'indicators/indicators.js',
   'indicators/pacer-card.js',
   'admin/scorecards.js',
+  'admin/scorecard-board.js',
   'competitions/tv-board.js',
   'core/semantic.js',
   'reporting/core.js',
