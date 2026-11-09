@@ -49,6 +49,8 @@ function mktgSpendView() {
   const allocTot = vendors.reduce((a, v) => a + Object.values(A.cells[v] || {}).reduce((x, c) => x + c, 0), 0);
   const bookedTot = Object.values(A.booked).reduce((a, v) => a + v, 0);
   const unplaced = A.lines.filter(L => !L.prov);
+  const waiting = Object.entries(A.waiting || {}).sort((a, b) => b[1].amt - a[1].amt);
+  const waitingAmt = waiting.reduce((a, [, w]) => a + w.amt, 0);
   const openCamps = (A.AD.open || []).filter(x => vendors.includes(x.prov));
 
   // CSV for the controller (per Isaac, Nov 9): the By-branch table exactly as shown — one row per branch, a column
@@ -64,7 +66,7 @@ function mktgSpendView() {
     el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-2' },
       stat('QuickBooks · marketing', usd(A.total), A.lines.filter(L => L.prov !== SPQ_SKIP).length + ' lines' + (A.skipped ? ' · ' + usd0(A.skipped) + ' marked not marketing' : '')),
       stat('Allocated to branches', usd(allocTot), branches.length + ' branch' + (branches.length === 1 ? '' : 'es') + ' · ' + vendors.length + ' vendor' + (vendors.length === 1 ? '' : 's')),
-      stat('Still to place', usd(A.unassigned), unplaced.length ? unplaced.length + ' line' + (unplaced.length === 1 ? '' : 's') + ' need a vendor' : 'every line has a vendor', A.unassigned > 0 ? '#B91C1C' : '#3E5A3A'),
+      stat('Still to place', usd(A.unassigned + waitingAmt), [unplaced.length ? unplaced.length + ' line' + (unplaced.length === 1 ? '' : 's') + ' need a vendor' : '', waiting.length ? waiting.length + ' vendor' + (waiting.length === 1 ? '' : 's') + ' waiting on a report' : ''].filter(Boolean).join(' · ') || 'every line has a vendor and a split', A.unassigned + waitingAmt > 0 ? '#B91C1C' : '#3E5A3A'),
       stat('Booked in QuickBooks', bookedTot ? usd(bookedTot) : '—', bookedTot ? (Math.abs(bookedTot - allocTot) > 1 ? 'differs from this table by ' + usd(Math.abs(bookedTot - allocTot)) : 'matches this table') : 'month-end entry not booked yet', bookedTot && Math.abs(bookedTot - allocTot) > 1 ? '#B45309' : undefined)));
 
   // ── Lines that still need a vendor: one row per payee, one pick saves the rule for every month. ──
@@ -92,6 +94,22 @@ function mktgSpendView() {
           td(dateTxt, { fontFamily: 'ui-monospace, monospace', whiteSpace: 'normal', maxWidth: '220px' }), td(ls.every(x => x.journal) ? 'Journal' : ls.some(x => x.journal) ? 'Mixed' : 'Expense', muted),
           td(L.payee || '(no name)', { fontWeight: '600' }), td(L.memo, Object.assign({}, muted, { maxWidth: '380px', overflow: 'hidden', textOverflow: 'ellipsis' })), td(usd(ls.reduce((x, y) => x + y.amt, 0)), null, true),
           el('td', { class: 'px-3 py-1' }, admin ? vendorPick(L) : '—')); }))))) : null;
+
+  // ── Vendors with dollars but nothing to split them by (per Isaac, Nov 9: no guessing — upload the vendor's report). ──
+  const waitRow = ([v, w]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+    td(spqLabel(v), { fontWeight: '700' }), td(usd(w.amt), null, true), td(String(w.n), muted, true),
+    el('td', { class: 'px-3 py-1' }, admin
+      ? el('select', { class: 'rounded border px-1 py-0.5 text-[10px]', style: selSt, onchange: (e) => { const x = e.target.value; if (!x) return; m.qbAlloc[v] = x; state._spqMemo = {}; state._mkpMemo = null; _mktgSave(); mountApp(); } },
+          el('option', { value: '' }, 'Upload its report (below)…'),
+          ...SPQ_METHODS.filter(([x]) => !['auto', 'platform', 'upload'].includes(x)).map(([x, l]) => el('option', { value: x }, l)),
+          ...A.branches.map(b => el('option', { value: 'office:' + b }, 'All to ' + _mktgTC(b))))
+      : el('span', { style: muted }, 'upload its report')));
+  const waitCard = waiting.length ? el('div', { class: 'card overflow-hidden', style: { borderColor: 'rgba(217,119,6,.5)' } },
+    el('div', { class: 'px-5 py-3' }, el('h3', { class: 'text-base font-bold', style: { color: '#B45309' } }, 'Waiting on a report · ' + usd(waitingAmt)),
+      el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'These vendors have QuickBooks dollars this month but no platform spend or uploaded breakout to split them by. Upload the vendor’s report below (branch by branch), or pick a split here.')),
+    el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, th('Vendor'), th('QuickBooks', true), th('Lines', true), th('What places it'))),
+      el('tbody', {}, ...waiting.map(waitRow))))) : null;
 
   // ── The table: branches down, vendors across, how each vendor is split under its name. ──
   const methodLabel = (v) => { const set = m.qbAlloc[v]; if (set && /^office:/.test(set)) return 'All to ' + _mktgTC(set.slice(7)); const L = { platform: 'Platform spend', upload: 'Upload', leads: 'GHL leads', even: 'Even split' }; if (set && L[set]) return L[set]; const how = String((A.byProv[v] || {}).how || ''); return /platform/i.test(how) ? 'Auto · platform' : /upload/i.test(how) ? 'Auto · upload' : /leads/i.test(how) ? 'Auto · leads' : /pro rata/i.test(how) ? 'With the media' : 'Auto · even'; };

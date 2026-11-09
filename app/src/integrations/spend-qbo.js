@@ -135,9 +135,12 @@ function _spqShares(prov, ym, branches, ctx, acct) {
   if (set === 'upload') return upload() || even();
   if (set === 'leads') return leads() || even();
   if (set === 'even') return even();
-  return (/^(Google Ads|Google Local Services|Facebook)$/.test(prov) ? platform() : null) || upload() || leads() || even();
+  // Auto (per Isaac, Nov 9): only when something real drives the split — platform spend or an uploaded breakout.
+  // Otherwise null: the vendor waits for its report instead of being guessed from leads or spread evenly.
+  return (/^(Google Ads|Google Local Services|Facebook)$/.test(prov) ? platform() : null) || upload() || null;
 }
 // The month, allocated. { lines:[{…line, prov, how}], byProv:{prov:{amt, n, how, cells}}, cells:{prov:{B:$}}, total, open, booked, … }
+const usdShort = (v) => '$' + Math.round(v || 0).toLocaleString('en-US');
 function spqAllocMonth(ym) {
   const P = state.reportingIsSpendPayee;
   const raw = P && P.lines && P.lines[ym];
@@ -161,32 +164,45 @@ function spqAllocMonth(ym) {
   if (GL) for (const l of GL.leads) { if (String(l.d).slice(0, 7) !== ym || !l.office || !branches.includes(l.office)) continue; const c = leads[l.prov] || (leads[l.prov] = {}); c[l.office] = (c[l.office] || 0) + 1; }
   const ctx = { m, AD, acctCells, leads };
   const lines = raw.map(L => Object.assign({ day: L[0], payee: L[1], memo: L[2], amt: Number(L[3]) || 0, acctLeaf: L[4] || '', txn: L[5] || '', journal: L[6] === 'J' }, _spqClassify(L, m, gAccts, ym)));
-  // Google charges with no account in the descriptor (the expense-report lines, "GOOGLE ADS") carry PPC and Local
-  // Services together (per Isaac, Nov 9 — LSA showed $2.6K against $46K of platform spend). Split them by the
-  // month's Google platform spend, PPC vs LSA; charges that name an account, and your own picks, are left alone.
-  const gMonth = { ppc: 0, lsa: 0 };
-  for (const r of S.rows || []) { if (r.platform !== 'google' || r.ym !== ym || !(r.spend > 0)) continue; if (adProviderOf(r) === 'Google Local Services') gMonth.lsa += r.spend; else gMonth.ppc += r.spend; }
-  const lsaShare = gMonth.ppc > 0 && gMonth.lsa > 0 ? gMonth.lsa / (gMonth.ppc + gMonth.lsa) : 0;
-  if (lsaShare > 0) for (const L of lines) if (L.prov === 'Google Ads' && L.how === 'payee') { L.lsaSplit = lsaShare; L.how = 'payee · ' + Math.round(lsaShare * 100) + '% to Local Services, the rest PPC (this month\u2019s Google platform spend)'; }
-  const cells = {}, byProv = {}; let total = 0, unassigned = 0, skipped = 0;
+  // QuickBooks can't tell a Local Services charge from a PPC charge (per Isaac, Nov 9 — the card lines just say
+  // "GOOGLE ADS"), so Google is matched separately: every Google charge that wasn't hand-picked goes into one pool;
+  // Local Services takes the month's LSA platform spend out of it, account by account (each account to its offices
+  // by Google's metro report), and Google Ads is the rest, by PPC platform spend by office.
+  const gLsaAccts = {}; let gLsa = 0;
+  for (const r of S.rows || []) { if (r.platform !== 'google' || r.ym !== ym || !(r.spend > 0) || adProviderOf(r) !== 'Google Local Services') continue; gLsaAccts[r.acct] = (gLsaAccts[r.acct] || 0) + r.spend; gLsa += r.spend; }
+  const gPool = lines.filter(L => /^(Google Ads|Google Local Services)$/.test(L.prov) && /^(payee|Google account)/.test(L.how));
+  const gPoolAmt = gPool.reduce((a, L) => a + L.amt, 0);
+  if (gLsa > 0 && gPoolAmt > 0) for (const L of gPool) L.gpool = true;
+  const cells = {}, byProv = {}, waiting = {}; let total = 0, unassigned = 0, skipped = 0;
   const add = (prov, b, v) => { const c = cells[prov] || (cells[prov] = {}); c[b] = (c[b] || 0) + v; };
   const tools = [];
   for (const L of lines) {
     if (L.prov === SPQ_SKIP) { skipped += L.amt; continue; }
     total += L.amt;
     if (!L.prov) { unassigned += L.amt; continue; }
-    if (L.lsaSplit) {   // one charge, two vendors — each part follows its own platform's spend by office
-      for (const [pv, part] of [['Google Local Services', L.amt * L.lsaSplit], ['Google Ads', L.amt * (1 - L.lsaSplit)]]) {
-        const bp = byProv[pv] || (byProv[pv] = { amt: 0, n: 0, hows: new Set() }); bp.amt += part; if (pv === 'Google Ads') bp.n++; else bp.nSplit = (bp.nSplit || 0) + 1;
-        const sh = _spqShares(pv, ym, branches, ctx, null); bp.hows.add(sh.how);
-        for (const b in sh.w) add(pv, b, part * sh.w[b]);
-      }
-      continue;
-    }
-    const bp = byProv[L.prov] || (byProv[L.prov] = { amt: 0, n: 0, hows: new Set() }); bp.amt += L.amt; bp.n++;
-    if (L.prov === SPQ_TOOLS) { tools.push(L); continue; }
-    const sh = _spqShares(L.prov, ym, branches, ctx, L.acct); bp.hows.add(sh.how);
+    if (L.gpool) continue;   // Google: matched below, Local Services first
+    if (L.prov === SPQ_TOOLS) { const bp = byProv[L.prov] || (byProv[L.prov] = { amt: 0, n: 0, hows: new Set() }); bp.amt += L.amt; bp.n++; tools.push(L); continue; }
+    const sh = _spqShares(L.prov, ym, branches, ctx, L.acct);
+    if (!sh) { const w = waiting[L.prov] || (waiting[L.prov] = { amt: 0, n: 0 }); w.amt += L.amt; w.n++; L.how = (L.how ? L.how + ' · ' : '') + 'waiting on a report to place'; continue; }
+    const bp = byProv[L.prov] || (byProv[L.prov] = { amt: 0, n: 0, hows: new Set() }); bp.amt += L.amt; bp.n++; bp.hows.add(sh.how);
     for (const b in sh.w) add(L.prov, b, L.amt * sh.w[b]);
+  }
+  // Google, matched separately (see above): LSA = platform spend by account (capped at what QuickBooks paid Google
+  // this month, if the charges are still catching up), Google Ads = the rest.
+  if (gPool.some(L => L.gpool)) {
+    const lsaAmt = Math.min(gPoolAmt, gLsa), f = lsaAmt / gLsa, nAcct = Object.keys(gLsaAccts).length;
+    const LS = byProv['Google Local Services'] = Object.assign(byProv['Google Local Services'] || { amt: 0, n: 0, hows: new Set() }, {});
+    LS.amt += lsaAmt; LS.n += nAcct;   // one 'line' per LSA account — the charges themselves are counted under Google Ads
+    LS.hows.add('Local Services platform spend ' + usdShort(gLsa) + ' across ' + nAcct + ' account' + (nAcct === 1 ? '' : 's') + ', each to its offices by Google\u2019s metro report' + (lsaAmt < gLsa ? ' \u00b7 capped at the ' + usdShort(gPoolAmt) + ' QuickBooks paid Google' : ''));
+    let placed = 0;
+    for (const acct in gLsaAccts) { const c = acctCells(acct); const t = Object.values(c).reduce((a, v) => a + v, 0); if (!(t > 0)) continue; const amt = gLsaAccts[acct] * f; placed += amt; for (const b in c) add('Google Local Services', b, amt * c[b] / t); }
+    if (lsaAmt - placed > 0.005) { const sh = _spqShares('Google Local Services', ym, branches, ctx, null); if (sh) for (const b in sh.w) add('Google Local Services', b, (lsaAmt - placed) * sh.w[b]); else { const big = Object.keys(cells['Google Local Services'] || {}).sort((a, b) => cells['Google Local Services'][b] - cells['Google Local Services'][a])[0] || branches[0]; if (big) add('Google Local Services', big, lsaAmt - placed); } }
+    const ppcAmt = gPoolAmt - lsaAmt;
+    const GA = byProv['Google Ads'] = Object.assign(byProv['Google Ads'] || { amt: 0, n: 0, hows: new Set() }, {});
+    GA.amt += ppcAmt; GA.n += gPool.length;
+    if (ppcAmt > 0) { const sh = _spqShares('Google Ads', ym, branches, ctx, null) || { w: Object.fromEntries(branches.map(b => [b, 1 / branches.length])), how: 'even across offices (no PPC platform spend this month)' }; GA.hows.add('QuickBooks Google ' + usdShort(gPoolAmt) + ' minus Local Services, by PPC ' + sh.how); for (const b in sh.w) add('Google Ads', b, ppcAmt * sh.w[b]); }
+    else GA.hows.add('QuickBooks paid Google ' + usdShort(gPoolAmt) + ' \u2014 all of it matched to Local Services this month');
+    for (const L of gPool) L.how = 'Google \u00b7 Local Services matched to platform spend first, the rest PPC';
   }
   // Agency & tools follow the media they support: pro rata to every other provider's dollars by office.
   if (tools.length) {
@@ -201,7 +217,7 @@ function spqAllocMonth(ym) {
   // What the controller has booked to the branch accounts this month (the month-end journal entry), for the check.
   const booked = {}; const SP = (state.reportingIsSpend || {})[ym] || {};
   for (const acct in SP) { const off = typeof _mktgQboOffice === 'function' ? _mktgQboOffice(acct) : null; if (off) booked[off] = (booked[off] || 0) + (Number(SP[acct]) || 0); }
-  const v = { ym, lines, cells, byProv, total: Math.round(total * 100) / 100, unassigned, skipped, booked, AD, branches, gAccts };
+  const v = { ym, lines, cells, byProv, waiting, total: Math.round(total * 100) / 100, unassigned, skipped, booked, AD, branches, gAccts };
   state._spqMemo[ym] = { sig, v };
   return v;
 }
