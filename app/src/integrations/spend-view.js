@@ -1,103 +1,144 @@
 // ┌─ src/integrations/spend-view.js ─────────────────────────────────────────
-// │ Marketing → Spend, rebuilt from scratch (per Isaac, Nov 7): two things,
-// │ nothing else yet.
-// │   1. New revenue from FieldRoutes for the range at the top — Office Staff
-// │      new sales (pending / serviced, renewals out, upsells in), the same
-// │      number the CAC matrix and Pulse read.
-// │   2. Every QuickBooks "Advertising & Marketing" line for the range, as
-// │      QuickBooks shows it: date · type · name · memo · account · amount,
-// │      with a total and a by-account strip. No mapping, no allocation —
-// │      breaking it out by branch is Isaac's next step.
-// │ Range = the Marketing year bar + the month picker here (one month, or the
-// │ whole year). Lines come from state.reportingIsSpendPayee.lines[ym]
-// │ ([day, payee, memo, amount, account leaf, txn id, 'J' for a journal entry]),
-// │ pulled by netlify/functions/qbo-spend-refresh-background.js.
-// │ Part of the app.js bundle (tools/bundle.js concatenates src/*.js in name order).
+// │ Marketing → Spend (per Isaac, Nov 9): close the books by branch, simply.
+// │   QuickBooks is the money. Every Advertising & Marketing line for the month
+// │   belongs to a VENDOR (Facebook, Google Ads, DoLead, Angi…), and each
+// │   vendor's dollars are split across BRANCHES by the best driver it has —
+// │   the platform's own spend by branch (Google / Facebook through Windsor),
+// │   a spreadsheet Isaac uploads for that vendor, GoHighLevel leads by branch,
+// │   an even split, or one branch. Columns always add up to QuickBooks to the
+// │   cent, so the Branch × Vendor table IS the month-end journal entry.
+// │ The engine is spend-qbo.js (spqAllocMonth); the vendor spreadsheets are
+// │ spend-uploads.js. This file is only the page: one table, the pieces that
+// │ still need a hand, and the CSV for the controller.
+// │ Part of the app.js bundle (app/src/bundle.order.js).
 // └────────────────────────────────────────────────────────────────────────
 function mktgSpendView() {
   if (typeof reportingLoadQboSpend === 'function') reportingLoadQboSpend();
-  const y = _mktgYearSel();
+  if (typeof ghlLoadLeads === 'function') ghlLoadLeads();
+  const m = _spqStore();
+  const { ym, yms } = _mktgCtrlMonth();
+  const year = Number(ym.slice(0, 4));
+  if (typeof reportingLoadAdSpend === 'function') reportingLoadAdSpend(year);
+  const admin = isAdminRole(state.profile?.role);
   const muted = { color: 'var(--text-muted)' };
-  const usd2 = (v) => (v < 0 ? '−' : '') + '$' + Math.abs(Math.round((v || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const usd = (v) => (v < 0 ? '−' : '') + '$' + Math.abs(Math.round((v || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const usd0 = (v) => (v < 0 ? '−' : '') + '$' + Math.abs(Math.round(v || 0)).toLocaleString('en-US');
   const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
-  // Month picker: the year's months (whole year first), newest first; the pick persists per session.
-  const now = new Date();
-  const months = []; for (let i = 11; i >= 0; i--) { if (y < now.getFullYear() || i <= now.getMonth()) months.push(_mktgYm(y, i)); }
-  const pick = (state._mktSpendMonth && (state._mktSpendMonth === 'year:' + y || months.includes(state._mktSpendMonth))) ? state._mktSpendMonth : 'year:' + y;
-  const yms = pick.startsWith('year:') ? months.slice().reverse() : [pick];
-  const rangeLbl = pick.startsWith('year:') ? String(y) : reportingMonthLbl(pick);
-  const monthSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: selSt, onchange: (e) => { state._mktSpendMonth = e.target.value; mountApp(); } },
-    el('option', { value: 'year:' + y, selected: pick === 'year:' + y }, 'Whole year · ' + y),
-    ...months.map(k => el('option', { value: k, selected: k === pick }, reportingMonthLbl(k))));
-
-  // 1 · New revenue (FieldRoutes) for the range.
-  const A = _mktgActuals(y);
-  let rev = 0, subs = 0;
-  for (const ym of yms) { const i = Number(ym.slice(5, 7)) - 1; const t = A.total[i]; if (t) { rev += t.rev + t.upRev; subs += t.subs + t.upsells; } }
-
-  // 2 · QuickBooks lines for the range.
-  const P = state.reportingIsSpendPayee;
-  const lines = [];
-  if (P && P.lines) for (const ym of yms) for (const L of (P.lines[ym] || [])) {
-    lines.push({ date: ym + '-' + String(L[0] || '').padStart(2, '0'), type: L[6] === 'J' ? 'Journal entry' : 'Expense', name: L[1] || '', memo: L[2] || '', acct: 'Advertising & Marketing' + (L[4] ? ':' + L[4] : ''), amt: Number(L[3]) || 0, txn: L[5] || '' });
-  }
-  lines.sort((a, b) => a.date.localeCompare(b.date) || String(a.name).localeCompare(String(b.name)));
-  const total = lines.reduce((t, L) => t + L.amt, 0);
-  const byAcct = {}; for (const L of lines) byAcct[L.acct] = (byAcct[L.acct] || 0) + L.amt;
-  const accts = Object.entries(byAcct).sort((a, b) => b[1] - a[1]);
-
-  const th = (t, r) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (r ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0 } }, t);
-  const td = (t, st, r) => el('td', { class: 'px-3 py-1.5 whitespace-nowrap' + (r ? ' text-right tabular-nums' : ''), style: st || {} }, t == null || t === '' ? '—' : t);
-  const stat = (label, value, sub) => el('div', { class: 'rounded-xl p-3', style: { background: 'var(--card-2)' } },
+  const monthSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: selSt, onchange: (e) => { state._mktCtrlMonth = e.target.value; mountApp(); } },
+    ...yms.map(k => el('option', { value: k, selected: k === ym }, reportingMonthLbl(k))));
+  const stat = (label, value, sub, color) => el('div', { class: 'rounded-xl p-3', style: { background: 'var(--card-2)' } },
     el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, label),
-    el('div', { class: 'text-xl font-black tabular-nums mt-0.5' }, value),
-    sub ? el('div', { class: 'text-[10px] mt-0.5', style: muted } , sub) : null);
+    el('div', { class: 'text-xl font-black tabular-nums mt-0.5', style: color ? { color } : {} }, value),
+    sub ? el('div', { class: 'text-[10px] mt-0.5', style: muted }, sub) : null);
+  const th = (t, r, extra) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap align-bottom ' + (r ? 'text-right' : 'text-left'), style: Object.assign({ color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0 }, extra || {}) }, t);
+  const td = (t, st, r) => el('td', { class: 'px-3 py-1.5 whitespace-nowrap' + (r ? ' text-right tabular-nums' : ''), style: st || {} }, t == null || t === '' ? '—' : t);
 
-  const head = el('div', { class: 'card px-5 py-3 flex items-center gap-3 flex-wrap' },
-    el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Spend'), el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'QuickBooks Advertising & Marketing, line by line, against FieldRoutes new revenue · ' + rangeLbl)),
+  const P = state.reportingIsSpendPayee;
+  const head = () => el('div', { class: 'card px-5 py-3 flex items-center gap-3 flex-wrap' },
+    el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Spend · ' + reportingMonthLbl(ym)), el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'QuickBooks marketing spend, allocated to branches')),
     el('span', { class: 'ml-auto' }), monthSel);
+  if (!P) return el('div', { class: 'flex flex-col gap-4' }, head(), el('div', { class: 'card p-6 text-sm text-center', style: muted }, state._isSpendLoading ? 'Pulling QuickBooks…' : 'QuickBooks isn’t connected or hasn’t been pulled yet — Settings → Connections.'));
+  if (!P.lines) return el('div', { class: 'flex flex-col gap-4' }, head(), el('div', { class: 'card p-6 text-sm text-center', style: muted }, 'QuickBooks is connected, but the line-by-line detail hasn’t been pulled yet. It arrives with the next QuickBooks refresh.'));
+  const A = spqAllocMonth(ym);
+  if (!A) return el('div', { class: 'flex flex-col gap-4' }, head(), el('div', { class: 'card p-6 text-sm text-center', style: muted }, 'No Advertising & Marketing lines in QuickBooks for ' + reportingMonthLbl(ym) + '.'));
+
+  const vendors = Object.keys(A.byProv).sort((a, b) => A.byProv[b].amt - A.byProv[a].amt);
+  const branches = A.branches.filter(b => vendors.some(v => (A.cells[v] || {})[b]));
+  const brTot = (b) => vendors.reduce((a, v) => a + ((A.cells[v] || {})[b] || 0), 0);
+  branches.sort((a, b) => brTot(b) - brTot(a));
+  const allocTot = vendors.reduce((a, v) => a + Object.values(A.cells[v] || {}).reduce((x, c) => x + c, 0), 0);
+  const bookedTot = Object.values(A.booked).reduce((a, v) => a + v, 0);
+  const unplaced = A.lines.filter(L => !L.prov);
+  const openCamps = (A.AD.open || []).filter(x => vendors.includes(x.prov));
+
+  // CSV for the controller: one row per branch × vendor, plus branch totals — the journal entry.
+  const csv = () => { const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const L = [['Month', 'Branch', 'Vendor', 'Amount'].join(',')];
+    for (const b of branches) { for (const v of vendors) { const c = (A.cells[v] || {})[b]; if (c) L.push([ym, _mktgTC(b), spqLabel(v), c.toFixed(2)].map(esc).join(',')); } L.push([ym, _mktgTC(b), 'TOTAL', brTot(b).toFixed(2)].map(esc).join(',')); }
+    L.push([ym, 'ALL BRANCHES', 'TOTAL', allocTot.toFixed(2)].map(esc).join(','));
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([L.join('\n')], { type: 'text/csv' })); a.download = 'ridd-marketing-by-branch-' + ym + '.csv'; a.click(); };
 
   const top = el('div', { class: 'card p-5' },
     el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-2' },
-      stat('New revenue · FieldRoutes', fmt.usd0(rev), fmt.int(subs) + ' new sale' + (subs === 1 ? '' : 's') + ' · Office Staff · pending / serviced · renewals out'),
-      stat('Marketing spend · QuickBooks', usd2(total), lines.length + ' line' + (lines.length === 1 ? '' : 's') + (P && P.pulledAt ? ' · pulled ' + new Date(P.pulledAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '')),
-      stat('Spend ÷ new revenue', rev > 0 ? (total / rev * 100).toFixed(1) + '%' : '—', 'ad spend only — no wages'),
-      stat('Revenue ÷ spend', total > 0 ? (rev / total).toFixed(2) + '×' : '—', 'contract value per marketing dollar')));
+      stat('QuickBooks · marketing', usd(A.total), A.lines.filter(L => L.prov !== SPQ_SKIP).length + ' lines' + (A.skipped ? ' · ' + usd0(A.skipped) + ' marked not marketing' : '')),
+      stat('Allocated to branches', usd(allocTot), branches.length + ' branch' + (branches.length === 1 ? '' : 'es') + ' · ' + vendors.length + ' vendor' + (vendors.length === 1 ? '' : 's')),
+      stat('Still to place', usd(A.unassigned), unplaced.length ? unplaced.length + ' line' + (unplaced.length === 1 ? '' : 's') + ' need a vendor' : 'every line has a vendor', A.unassigned > 0 ? '#B91C1C' : '#3E5A3A'),
+      stat('Booked in QuickBooks', bookedTot ? usd(bookedTot) : '—', bookedTot ? (Math.abs(bookedTot - allocTot) > 1 ? 'differs from this table by ' + usd(Math.abs(bookedTot - allocTot)) : 'matches this table') : 'month-end entry not booked yet', bookedTot && Math.abs(bookedTot - allocTot) > 1 ? '#B45309' : undefined)));
 
-  if (!P) return el('div', { class: 'flex flex-col gap-4' }, head, top, el('div', { class: 'card p-6 text-sm text-center', style: muted }, state._isSpendLoading ? 'Pulling QuickBooks…' : 'QuickBooks isn’t connected or hasn’t been pulled yet — Settings → Connections.'));
-  if (!P.lines) return el('div', { class: 'flex flex-col gap-4' }, head, top, el('div', { class: 'card p-6 text-sm text-center', style: muted }, 'QuickBooks is connected, but the line-by-line detail hasn’t been pulled yet. It arrives with the next QuickBooks refresh.'));
+  // ── Lines that still need a vendor: one row per payee, one pick saves the rule for every month. ──
+  const chanOpts = typeof spqChannelOptions === 'function' ? spqChannelOptions() : [...new Set([...(m.channels || []), 'Google Ads', 'Google Local Services', 'Facebook'])].sort();
+  const vendorPick = (L, onlyThis) => el('select', { class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: Object.assign({}, selSt, L.prov ? {} : { borderColor: '#DC2626' }),
+    onchange: (e) => { let v = e.target.value; if (v === SPQ_NEW) { v = spqAskNewVendor(); if (!v) { mountApp(); return; } } spqSetRule(ym, L, v, !!onlyThis); } },
+    el('option', { value: '', selected: !L.prov, disabled: true }, 'Pick a vendor…'),
+    ...chanOpts.map(c => el('option', { value: c, selected: L.prov === c }, c)),
+    el('option', { value: SPQ_TOOLS, selected: L.prov === SPQ_TOOLS }, SPQ_TOOLS_LABEL + ' (spread with the media)'),
+    el('option', { value: SPQ_SKIP, selected: L.prov === SPQ_SKIP }, 'Not marketing'),
+    el('option', { value: SPQ_NEW }, '+ New vendor…'));
+  const byPayee = new Map();
+  for (const L of unplaced) { const k = _spqKey(L.payee, L.memo); (byPayee.get(k) || byPayee.set(k, []).get(k)).push(L); }
+  const placeCard = unplaced.length ? el('div', { class: 'card overflow-hidden', style: { borderColor: 'rgba(220,38,38,.45)' } },
+    el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
+      el('div', {}, el('h3', { class: 'text-base font-bold', style: { color: '#B91C1C' } }, 'Place these · ' + usd(A.unassigned)),
+        el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Pick the vendor once per payee — it’s remembered for every month.'))),
+    el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, th('Payee'), th('Memo'), th('Lines'), th('Amount', true), th('Vendor'))),
+      el('tbody', {}, ...[...byPayee.values()].sort((a, b) => b.reduce((x, L) => x + L.amt, 0) - a.reduce((x, L) => x + L.amt, 0)).map(ls => { const L = ls[0];
+        return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          td(L.payee || '(no name)', { fontWeight: '600' }), td(L.memo, Object.assign({}, muted, { maxWidth: '380px', overflow: 'hidden', textOverflow: 'ellipsis' })), td(ls.length, muted), td(usd(ls.reduce((x, y) => x + y.amt, 0)), null, true),
+          el('td', { class: 'px-3 py-1' }, admin ? vendorPick(L) : '—')); }))))) : null;
 
-  // By-account strip (how QuickBooks groups the report), then the lines.
-  const acctStrip = accts.length ? el('div', { class: 'card px-5 py-3 flex items-center gap-4 flex-wrap text-[11px]' },
-    el('span', { class: 'uppercase tracking-widest font-semibold', style: { fontSize: '9px', color: 'var(--text-subtle)' } }, 'By account'),
-    ...accts.map(([a, v]) => el('span', { class: 'tabular-nums' }, el('span', { style: muted }, a.replace(/^Advertising & Marketing:?/, '') || 'Advertising & Marketing'), ' ', el('strong', {}, usd2(v))))) : null;
-
-  const csv = () => {
-    const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
-    const rows = [['Date', 'Transaction type', 'Name', 'Memo/Description', 'Account', 'Amount'].join(',')];
-    for (const L of lines) rows.push([L.date, L.type, L.name, L.memo, L.acct, L.amt.toFixed(2)].map(esc).join(','));
-    rows.push(['', '', '', '', 'Total', total.toFixed(2)].map(esc).join(','));
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([rows.join('\n')], { type: 'text/csv' })); a.download = 'quickbooks-marketing-' + rangeLbl.replace(/\s+/g, '-') + '.csv'; a.click();
-  };
+  // ── The table: branches down, vendors across, how each vendor is split under its name. ──
+  const methodLabel = (v) => { const set = m.qbAlloc[v]; if (set && /^office:/.test(set)) return 'All to ' + _mktgTC(set.slice(7)); const L = { platform: 'Platform spend', upload: 'Upload', leads: 'GHL leads', even: 'Even split' }; if (set && L[set]) return L[set]; const how = String((A.byProv[v] || {}).how || ''); return /platform/i.test(how) ? 'Auto · platform' : /upload/i.test(how) ? 'Auto · upload' : /leads/i.test(how) ? 'Auto · leads' : /pro rata/i.test(how) ? 'With the media' : 'Auto · even'; };
+  const methodSel = (v) => { const cur = m.qbAlloc[v] || 'auto';
+    return el('select', { class: 'rounded border px-1 py-0.5 text-[10px] font-normal normal-case tracking-normal', style: Object.assign({ maxWidth: '130px' }, selSt), title: 'How ' + spqLabel(v) + ' is split across branches · ' + ((A.byProv[v] || {}).how || ''),
+      onchange: (e) => { const x = e.target.value; if (x === 'auto') delete m.qbAlloc[v]; else m.qbAlloc[v] = x; state._spqMemo = {}; state._mkpMemo = null; _mktgSave(); mountApp(); } },
+      el('option', { value: 'auto', selected: cur === 'auto' }, methodLabel(v).startsWith('Auto') ? methodLabel(v) : 'Auto'),
+      ...SPQ_METHODS.filter(([x]) => x !== 'auto').map(([x, l]) => el('option', { value: x, selected: cur === x }, l)),
+      ...A.branches.map(b => el('option', { value: 'office:' + b, selected: cur === 'office:' + b }, 'All to ' + _mktgTC(b)))); };
   const table = el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'px-5 py-3 border-b flex items-center gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-      el('div', {}, el('div', { class: 'text-sm font-bold' }, 'QuickBooks · Advertising & Marketing · ' + rangeLbl), el('div', { class: 'text-[11px]', style: muted }, 'Every line as QuickBooks books it. The month-end entry that only moves spend between the marketing accounts is left out (it nets to $0).')),
-      el('button', { class: 'ml-auto rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: csv }, '⬇ CSV')),
-    lines.length === 0
-      ? el('div', { class: 'p-6 text-sm text-center', style: muted }, 'No Advertising & Marketing lines in QuickBooks for ' + rangeLbl + '.')
-      : el('div', { class: 'scroll-x', style: { maxHeight: '70vh', overflowY: 'auto' } },
-        el('table', { class: 'w-full text-[12px]' },
-          el('thead', {}, el('tr', {}, th('Date'), th('Type'), th('Name'), th('Memo / description'), th('Account'), th('Amount', true))),
-          el('tbody', {},
-            ...lines.map(L => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-              td(L.date.slice(5, 7) + '/' + L.date.slice(8, 10) + '/' + L.date.slice(0, 4), { fontFamily: 'ui-monospace, monospace' }),
-              td(L.type, muted),
-              td(L.name, { fontWeight: '600' }),
-              td(L.memo, Object.assign({}, muted, { maxWidth: '420px', overflow: 'hidden', textOverflow: 'ellipsis' })),
-              td(L.acct.replace(/^Advertising & Marketing:?/, '') || 'Advertising & Marketing', muted),
-              td(usd2(L.amt), L.amt < 0 ? { color: '#B91C1C' } : {}, true))),
-            el('tr', { class: 'border-t', style: { borderColor: 'var(--text)', background: 'var(--card-2)' } },
-              el('td', { class: 'px-3 py-2 font-black', colspan: 5 }, 'Total · ' + rangeLbl),
-              el('td', { class: 'px-3 py-2 text-right tabular-nums font-black' }, usd2(total)))))));
-  return el('div', { class: 'flex flex-col gap-4' }, head, top, acctStrip, table);
+    el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'By branch · ' + reportingMonthLbl(ym)),
+        el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Each vendor’s QuickBooks dollars, split by the driver under its name. Every column adds up to QuickBooks.')),
+      el('button', { class: 'ml-auto rounded-lg px-3 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: csv }, '⬇ Close the books · CSV')),
+    el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)', maxHeight: '70vh', overflowY: 'auto' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, th('Branch'),
+        ...vendors.map(v => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold text-right align-bottom', style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0 } },
+          el('div', {}, spqLabel(v)), el('div', { class: 'mt-1 font-normal normal-case tracking-normal' }, admin && v !== SPQ_TOOLS ? methodSel(v) : el('span', { style: muted }, methodLabel(v))))),
+        th('Total', true, { color: 'var(--text)' }), bookedTot ? th('Booked', true) : null)),
+      el('tbody', {},
+        ...branches.map(b => { const t = brTot(b), bk = A.booked[b] || 0;
+          return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, td(_mktgTC(b), { fontWeight: '700' }),
+            ...vendors.map(v => td((A.cells[v] || {})[b] ? usd((A.cells[v] || {})[b]) : '—', (A.cells[v] || {})[b] ? null : muted, true)),
+            td(usd(t), { fontWeight: '800' }, true), bookedTot ? td(bk ? usd(bk) : '—', Math.abs(bk - t) > 1 ? { color: '#B45309', fontWeight: '600' } : muted, true) : null); }),
+        el('tr', { style: { borderTop: '2px solid var(--text)', background: 'var(--card-2)' } }, td('Total', { fontWeight: '800' }),
+          ...vendors.map(v => td(usd(A.byProv[v].amt), { fontWeight: '700' }, true)), td(usd(allocTot), { fontWeight: '900' }, true), bookedTot ? td(usd(bookedTot), { fontWeight: '700' }, true) : null)))),
+    !branches.length ? el('div', { class: 'px-5 py-4 text-sm text-center', style: muted }, !A.branches.length ? 'The branch list comes from the FieldRoutes snapshot — still loading.' : 'Nothing allocated yet — place the lines above first.') : null);
+
+  // ── Campaigns with no branch (platform spend can't steer a split until they have one). ──
+  const campCard = openCamps.length ? el('details', { class: 'card overflow-hidden' },
+    el('summary', { class: 'px-5 py-3 text-sm font-bold cursor-pointer', style: { color: '#B45309' } }, 'Campaigns with no branch · ' + usd(openCamps.reduce((a, x) => a + x.spend, 0)) + ' of platform spend'),
+    el('div', { class: 'px-5 pb-2 text-[11px]', style: muted }, 'Give each campaign its branch once (remembered). Google campaigns that span branches split themselves by the searchers’ metro.'),
+    el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, th('Vendor'), th('Account'), th('Campaign'), th('Platform spend', true), th('Branch'))),
+      el('tbody', {}, ...openCamps.map(x => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, td(x.prov), td((x.r.acctName ? x.r.acctName + ' · ' : '') + x.r.acct, muted), td(x.r.campaign), td(usd(x.spend), null, true),
+        el('td', { class: 'px-3 py-1' }, admin ? spuBranchPicker(A.branches, [], (picked) => { setAdCampaignOffice(x.k, picked.length === 1 ? picked[0] : picked); mountApp(); }, { empty: 'Pick branches…', save: 'Save · split evenly' }) : '—'))))))) : null;
+
+  // ── Vendor spreadsheets (DoLead, Angi, Baton…): the manual driver. ──
+  const uploads = (typeof mktgSpendUploadCard === 'function') ? el('details', { class: 'card overflow-hidden', open: !!(state._spendPending && state._spendPending.length) },
+    el('summary', { class: 'px-5 py-3 text-sm font-bold cursor-pointer' }, 'Upload a vendor’s breakout by branch'),
+    el('div', { class: 'px-5 pb-2 text-[11px]', style: muted }, 'For vendors that bill one total but send a report by market (DoLead, Angi, Baton…): drop the report, say which column is the location, and that vendor splits by it from then on.'),
+    mktgSpendUploadCard(_mktgBranchList(year), year)) : null;
+
+  // ── Every QuickBooks line as booked, with its vendor (for corrections). ──
+  const lines = A.lines.slice().sort((a, b) => a.day - b.day || String(a.payee).localeCompare(String(b.payee)));
+  const linesCard = el('details', { class: 'card overflow-hidden' },
+    el('summary', { class: 'px-5 py-3 text-sm font-bold cursor-pointer' }, 'QuickBooks lines · ' + lines.length + ' · ' + usd(A.total + A.skipped)),
+    el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)', maxHeight: '60vh', overflowY: 'auto' } }, el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, th('Date'), th('Type'), th('Payee'), th('Memo'), th('Account'), th('Amount', true), th('Vendor'))),
+      el('tbody', {}, ...lines.map(L => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: L.prov ? '' : 'rgba(220,38,38,.06)' } },
+        td(ym.slice(5, 7) + '/' + String(L.day || '').padStart(2, '0') + '/' + ym.slice(0, 4), { fontFamily: 'ui-monospace, monospace' }), td(L.journal ? 'Journal' : 'Expense', muted), td(L.payee, { fontWeight: '600' }),
+        td(L.memo, Object.assign({}, muted, { maxWidth: '360px', overflow: 'hidden', textOverflow: 'ellipsis' })), td(L.acctLeaf || 'Advertising & Marketing', muted), td(usd(L.amt), L.amt < 0 ? { color: '#B91C1C' } : {}, true),
+        el('td', { class: 'px-3 py-1' }, admin ? vendorPick(L, L.how === 'this charge only') : (spqLabel(L.prov) || '—'), L.how && !/your pick|payee|this charge only/.test(L.how) ? el('span', { class: 'ml-2 text-[10px]', style: muted }, L.how) : null)))))));
+
+  return el('div', { class: 'flex flex-col gap-4' }, head(), top, placeCard, table, campCard, uploads, linesCard);
 }
