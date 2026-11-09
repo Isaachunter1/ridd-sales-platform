@@ -145,7 +145,7 @@ function mktgSpendView() {
       el('tbody', {}, ...lines.map(L => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: L.prov ? '' : 'rgba(220,38,38,.06)' } },
         td(ym.slice(5, 7) + '/' + String(L.day || '').padStart(2, '0') + '/' + ym.slice(0, 4), { fontFamily: 'ui-monospace, monospace' }), td(L.journal ? 'Journal' : 'Expense', muted), td(L.payee, { fontWeight: '600' }),
         td(L.memo, Object.assign({}, muted, { maxWidth: '360px', overflow: 'hidden', textOverflow: 'ellipsis' })), td(L.acctLeaf || 'Advertising & Marketing', muted), td(usd(L.amt), L.amt < 0 ? { color: '#B91C1C' } : {}, true),
-        el('td', { class: 'px-3 py-1' }, admin ? vendorPick(L, L.how === 'this charge only') : (spqLabel(L.prov) || '—'), L.how && !/your pick|payee|this charge only/.test(L.how) ? el('span', { class: 'ml-2 text-[10px]', style: muted }, L.how) : null)))))));
+        el('td', { class: 'px-3 py-1' }, admin ? vendorPick(L, L.how === 'this charge only') : (spqLabel(L.prov) || '—'), L.how && !/^(your pick|payee|this charge only)$/.test(L.how) ? el('span', { class: 'ml-2 text-[10px]', style: muted }, L.how) : null)))))));
 
   return el('div', { class: 'flex flex-col gap-4' }, head(), top, placeCard, table, campCard, uploads, linesCard);
 }

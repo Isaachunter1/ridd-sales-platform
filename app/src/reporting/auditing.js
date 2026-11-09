@@ -809,11 +809,28 @@ function auditTaskCard(t) {
 // Memoized like the Needs attention feed (per Isaac, Oct 16): the Auditing tab and the tab bubble both build it.
 // Built off-render (deferredMemo): null until the first build is done.
 function auditTaskItems() {
-  return deferredMemo('auditTasks', () => [state.allSales, state.reportingSubscriptions, state._svcChg, state._feeAudit, state.allProfiles, state._indicatorRawSales, state.unloggedSales, state._crmDeletedIdsRaw, state.reportingSourceConfig],
+  return deferredMemo('auditTasks', () => [state.allSales, state.reportingSubscriptions, state._svcChg, state._feeAudit, state.allProfiles, state._indicatorRawSales, state.unloggedSales, state._crmDeletedIdsRaw, state.reportingSourceConfig, state._ghl, state._attr],
     () => perfT('auditTaskItems', () => _auditTaskItemsRaw()));
+}
+// The CRM Needs-attention checks (src/core/exceptions.js — location, source, cancel reasons, duplicates, lead flow…),
+// as Auditing rows (per Isaac, Nov 9: "put all of these needs attention items inside of the auditing tab"). Same
+// owner-only scope and the same check-off keys ('att:<tag>') as before, so nothing already ticked comes back.
+// Dropped here because Auditing already has them: "No reason" (same rows as Cancelled with no reason) and
+// "Contract" (folded into No signed agreement below).
+function _auditNeedsAttentionItems() {
+  if (typeof exceptionFeedScope !== 'function' || typeof _exceptionFeedItemsRaw !== 'function') return [];
+  const scope = exceptionFeedScope(); if (!scope) return [];
+  let raw = []; try { raw = _exceptionFeedItemsRaw(scope) || []; } catch (e) { console.warn('[auditing] needs-attention checks', e); return []; }
+  const DETAIL = { 'Lead flow': () => mktgLeadFlowTask({ embed: true }), 'ZIP': () => mktgZipFixTask({ embed: true }) };
+  return raw.filter(i => i && !['No reason', 'Contract'].includes(i.tag)).map(i => {
+    const it = { key: 'att:' + i.tag, rvKey: 'att:' + i.tag, tag: i.tag, title: i.text, sev: i.sev, count: i.count != null ? i.count : null, text: i.text, onClick: i.onClick, rvIds: i.rvIds, rvOpen: i.rvOpen };
+    if (DETAIL[i.tag]) Object.defineProperty(it, 'detail', { enumerable: true, get() { try { return DETAIL[i.tag](); } catch (e) { return null; } } });   // built fresh each render (its own buttons)
+    return it;
+  });
 }
 function _auditTaskItemsRaw() {
   const items = [];
+  try { items.push(..._auditNeedsAttentionItems()); } catch (e) { console.warn('[auditing] needs-attention', e); }
   try { items.push(feeCreditAuditCard({ item: true })); } catch (e) { console.warn('[auditing] fee task', e); }
   try { items.push(addOnNoRepAuditCard({ item: true })); } catch (e) { console.warn('[auditing] add-on task', e); }
   try { if (typeof serviceChangeAuditItem === 'function') items.push(serviceChangeAuditItem()); } catch (e) { console.warn('[auditing] service-change task', e); }
@@ -987,9 +1004,9 @@ function auditSubTasks() {
   const mis = rows.filter(r => String(r.sold_date || '').slice(0, 4) === yr && String(r.subscription_source || '').trim().toLowerCase() === 'door to door'
     && ['Office Staff', 'Technician'].includes(String(r.sold_by_type || '').trim()) && !d2dSellers.has(String(r.sold_by || '').trim().toLowerCase()))
     .map(r => ({ ...r, _flagReason: 'Source is Door to Door, but sold by ' + String(r.sold_by_type).trim() + ' ' + (String(r.sold_by || '').trim() || '#' + r.sold_by_id) + ', who has no Sales Rep sales in ' + yr }));
-  tasks.push({ tag: 'D2D source', title: 'Door to Door source on an office or technician sale', noun: 'subscription', tone: 'check', rows: mis,
-    ok: 'All clear — every Door to Door sale this year was sold by someone who knocks doors.',
-    todo: (n) => n + ' sale' + s(n) + ' in ' + yr + ' sourced Door to Door by an office or technician user who has never sold as a Sales Rep — fix the source in FieldRoutes.' });
+  // (Listed under the Source check from Needs attention since Nov 9 — an Office Staff sale left on Door to Door is
+  // one of its rows — so it is not a task of its own any more.)
+  void mis;
   // 4. Service types with no commission category: a Sales Rep sale this year on a service the D2D calculator has no
   //    rule for, so it pays $0 until the service is classified (Settings → Commissions).
   const cats = (typeof commissionConfig === 'function') ? (commissionConfig().serviceCategories || {}) : {};
@@ -1044,9 +1061,13 @@ function auditSubTasks() {
       return String(r.contract_state || 'none') !== 'signed'; })
     .sort((x, y) => String(y.sold_date).localeCompare(String(x.sold_date)))
     .map(r => ({ ...r, _flagReason: 'Customer #' + r.customer_id + ' · sold ' + String(r.sold_date).slice(0, 10) + ' · agreement ' + (String(r.contract_state) === 'sent' ? 'sent, not signed' : 'never sent') }));
-  tasks.push({ tag: 'Agreement', title: 'No signed agreement', noun: 'subscription', tone: 'check', rows: unsigned,
+  // An initial on the books with no signature is the red flag (per Isaac, Nov 7 — "we do NOT want scheduled
+  // appointments without signed contracts"; merged here from Marketing's Contract check, Nov 9).
+  const unsignedSched = unsigned.filter(r => /^pending$/i.test(String(r.initial_status || '').trim())).length;
+  tasks.push({ tag: 'Agreement', title: 'No signed agreement', noun: 'subscription', tone: unsignedSched ? 'fix' : 'check', rows: unsigned,
     ok: 'All clear — every active sale this year has a signed agreement.',
-    todo: (n) => n.toLocaleString() + ' active sale' + s(n) + ' in ' + yr + ' with no signed agreement (' + unsigned.filter(r => String(r.contract_state) === 'sent').length.toLocaleString() + ' sent and waiting) — resend it from Documents in FieldRoutes and get it signed.' });
+    todo: (n) => n.toLocaleString() + ' active sale' + s(n) + ' in ' + yr + ' with no signed agreement (' + unsigned.filter(r => String(r.contract_state) === 'sent').length.toLocaleString() + ' sent and waiting'
+      + (unsignedSched ? ' · ' + unsignedSched.toLocaleString() + ' with an initial appointment scheduled — get it signed or pull the appointment' : '') + ') — resend it from Documents in FieldRoutes and get it signed.' });
   // 7. Cancelled with no reason (per Isaac, Oct 13 — the list he works through in FieldRoutes). Only cancels that
   //    count in the retention book: every year, the first service was completed, not a one-time / non-sale service,
   //    and not a 3-day order reversal (cancelled within 3 days of the sale with under 2 services). Deleted customers
@@ -1110,9 +1131,8 @@ function auditSubTasks() {
     for (const r of rows) { if (!r.state_crm || seen.has(String(r.customer_id))) continue; seen.add(String(r.customer_id));
       const zipWrong = r.state !== r.zip_state;
       bad.push({ ...r, _flagReason: 'Customer #' + r.customer_id + ' \u00b7 state ' + r.state_crm + ', ZIP ' + String(r.zip_code || '').slice(0, 5) + ' is ' + r.zip_state + ' \u2014 ' + (zipWrong ? 'the ZIP looks wrong (kept ' + r.state + ', the office\u2019s state)' : 'the state looks wrong (reporting uses ' + r.state + ')') }); }
-    tasks.push({ tag: 'State', title: 'State doesn\u2019t match the ZIP', noun: 'customer', tone: 'check', rows: bad,
-      ok: 'All clear \u2014 every customer\u2019s state matches their ZIP.',
-      todo: (n) => n.toLocaleString() + ' customer' + s(n) + ' whose state in FieldRoutes doesn\u2019t match the ZIP (e.g. \u201cAC\u201d, \u201cAA\u201d, or the wrong state). Reporting picks whichever matches the office (each row says which looks wrong); fix that field on the customer in FieldRoutes.' });
+    // (Since Nov 9 these customers are rows of the Location check from Needs attention — one list, not two.)
+    void bad;
   }
   auditSubTasks._m = { src: rows, key, tasks };
   return tasks;

@@ -1271,8 +1271,7 @@ function _rptTabTaskCount(k) {
   const hit = C[k]; if (hit && hit.sig === sig && Date.now() - hit.at < 30000) return hit.n;
   let items = [];
   try {
-    if (k === 'marketing' && typeof exceptionFeedScope === 'function' && typeof exceptionFeedItems === 'function') { const sc = exceptionFeedScope(); if (sc) { const raw = exceptionFeedItems(sc); if (raw == null) return 0; items = raw; items.forEach(i => { i.rvKey = i.rvKey || 'att:' + i.tag; }); } }
-    else if (k === 'auditing' && typeof auditTaskItems === 'function') { const raw = auditTaskItems(); if (raw == null) return 0; items = raw; }
+    if (k === 'auditing' && typeof auditTaskItems === 'function') { const raw = auditTaskItems(); if (raw == null) return 0; items = raw; }
     if (items.length && typeof rvApply === 'function') items = rvApply(items).active;
   } catch (e) { items = []; }
   const n = items.filter(i => i && i.sev !== 'ok').length;
@@ -1298,8 +1297,8 @@ function reportingSubTabs() {
   const strip = el('div', { class: 'rpt-subtabs flex items-end gap-1 border-b flex-wrap', style: { borderColor: 'var(--border)' } },
     ...tabs.map(([k, label]) => {
       const active = cur === k;
-      // Red count bubble on the tabs that hold a task list (per Isaac): Marketing = Needs attention (owner only),
-      // Auditing = Auditing tasks. Counts what's still open — checked-off items don't count.
+      // Red count bubble on the tab that holds the task list (per Isaac): Auditing = Auditing tasks + the CRM
+      // Needs-attention checks (moved off Marketing, Nov 9). Counts what's still open — checked-off items don't count.
       const n = _rptTabTaskCount(k);
       const badge = n ? el('span', { class: 'inline-flex items-center justify-center rounded-full font-bold', title: n + ' open task' + (n === 1 ? '' : 's'),
         style: { position: 'absolute', top: '-3px', right: '-5px', background: '#DC2626', color: '#fff', minWidth: '13px', height: '13px', padding: '0 3px', fontSize: '8px', lineHeight: '13px', pointerEvents: 'none' } }, String(n)) : null;

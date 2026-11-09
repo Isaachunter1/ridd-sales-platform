@@ -110,6 +110,9 @@ function _spqClassify(line, m, gAccts, ym) {
   if (/facebk|facebook|\bmeta\b/i.test(txt)) return { prov: 'Facebook', how: 'payee' };
   if (/\brorr?\b/i.test(txt)) return { prov: 'Facebook', how: line[6] === 'J' ? 'ROR accrual / reversal (Facebook agency)' : 'ROR invoice (Facebook agency)' };
   const pv = typeof qboPayeeProvider === 'function' ? qboPayeeProvider(payee) : '';
+  // Sellify (per Isaac, Nov 9): a technician campaign, not inside-sales marketing — the controller pulls it out, so it
+  // is $0 here unless a vendor is picked for it above.
+  if (pv === 'Sellify') return { prov: SPQ_SKIP, how: 'Sellify is a technician campaign — left out of marketing (per Isaac, Nov 9)' };
   if (pv) return { prov: pv, how: 'payee' };
   return { prov: '', how: '' };
 }
@@ -158,6 +161,13 @@ function spqAllocMonth(ym) {
   if (GL) for (const l of GL.leads) { if (String(l.d).slice(0, 7) !== ym || !l.office || !branches.includes(l.office)) continue; const c = leads[l.prov] || (leads[l.prov] = {}); c[l.office] = (c[l.office] || 0) + 1; }
   const ctx = { m, AD, acctCells, leads };
   const lines = raw.map(L => Object.assign({ day: L[0], payee: L[1], memo: L[2], amt: Number(L[3]) || 0, acctLeaf: L[4] || '', txn: L[5] || '', journal: L[6] === 'J' }, _spqClassify(L, m, gAccts, ym)));
+  // Google charges with no account in the descriptor (the expense-report lines, "GOOGLE ADS") carry PPC and Local
+  // Services together (per Isaac, Nov 9 — LSA showed $2.6K against $46K of platform spend). Split them by the
+  // month's Google platform spend, PPC vs LSA; charges that name an account, and your own picks, are left alone.
+  const gMonth = { ppc: 0, lsa: 0 };
+  for (const r of S.rows || []) { if (r.platform !== 'google' || r.ym !== ym || !(r.spend > 0)) continue; if (adProviderOf(r) === 'Google Local Services') gMonth.lsa += r.spend; else gMonth.ppc += r.spend; }
+  const lsaShare = gMonth.ppc > 0 && gMonth.lsa > 0 ? gMonth.lsa / (gMonth.ppc + gMonth.lsa) : 0;
+  if (lsaShare > 0) for (const L of lines) if (L.prov === 'Google Ads' && L.how === 'payee') { L.lsaSplit = lsaShare; L.how = 'payee · ' + Math.round(lsaShare * 100) + '% to Local Services, the rest PPC (this month\u2019s Google platform spend)'; }
   const cells = {}, byProv = {}; let total = 0, unassigned = 0, skipped = 0;
   const add = (prov, b, v) => { const c = cells[prov] || (cells[prov] = {}); c[b] = (c[b] || 0) + v; };
   const tools = [];
@@ -165,6 +175,14 @@ function spqAllocMonth(ym) {
     if (L.prov === SPQ_SKIP) { skipped += L.amt; continue; }
     total += L.amt;
     if (!L.prov) { unassigned += L.amt; continue; }
+    if (L.lsaSplit) {   // one charge, two vendors — each part follows its own platform's spend by office
+      for (const [pv, part] of [['Google Local Services', L.amt * L.lsaSplit], ['Google Ads', L.amt * (1 - L.lsaSplit)]]) {
+        const bp = byProv[pv] || (byProv[pv] = { amt: 0, n: 0, hows: new Set() }); bp.amt += part; if (pv === 'Google Ads') bp.n++; else bp.nSplit = (bp.nSplit || 0) + 1;
+        const sh = _spqShares(pv, ym, branches, ctx, null); bp.hows.add(sh.how);
+        for (const b in sh.w) add(pv, b, part * sh.w[b]);
+      }
+      continue;
+    }
     const bp = byProv[L.prov] || (byProv[L.prov] = { amt: 0, n: 0, hows: new Set() }); bp.amt += L.amt; bp.n++;
     if (L.prov === SPQ_TOOLS) { tools.push(L); continue; }
     const sh = _spqShares(L.prov, ym, branches, ctx, L.acct); bp.hows.add(sh.how);
