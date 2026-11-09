@@ -34,6 +34,19 @@ const GHL_AUTO_RULES = [
 ];
 function ghlSourceMap() { const R = (typeof _adminRules === 'function') ? _adminRules() : null; return (R && R.ghlSourceMap) || {}; }
 function setGhlSourceMap(label, val) { const m = Object.assign({}, ghlSourceMap()); if (val == null) delete m[label]; else m[label] = val; _setAdminRule('ghlSourceMap', m); }
+// FieldRoutes subscription source → channel (per Isaac, Nov 9): so a sale's source and its lead's GoHighLevel label
+// land on the same channel row. Admin pick (Configurations → FieldRoutes sources → channel) → the GHL auto rules →
+// the source's own name. GHL_SELF keeps the source's own name on purpose.
+function frSourceMap() { const R = (typeof _adminRules === 'function') ? _adminRules() : null; return (R && R.frSourceMap) || {}; }
+function setFrSourceMap(src, val) { const m = Object.assign({}, frSourceMap()); if (val == null) delete m[src]; else m[src] = val; _setAdminRule('frSourceMap', m); }
+function frChannelOf(src) {
+  const s = String(src || '').trim(); if (!s) return 'Unspecified';
+  const o = frSourceMap()[s];
+  if (o === GHL_SELF) return s;
+  if (o) return o;
+  const a = ghlAutoProvider(s);
+  return a && a !== GHL_NOT_LEAD ? a : s;
+}
 function ghlAutoProvider(label) { const s = String(label || '').toLowerCase().trim(); for (const [re, p] of GHL_AUTO_RULES) if (re.test(s)) return p; return ''; }
 // → provider name, GHL_NOT_LEAD, or null (blank label).
 function ghlProviderOf(label) {
@@ -160,6 +173,51 @@ function ghlHasContact(phone, email) {
   const p = String(phone || '').replace(/\D/g, '').replace(/^1(\d{10})$/, '$1').slice(0, 10);
   const e = String(email || '').trim().toLowerCase();
   return !!((p && L.phones.has(p)) || (e && L.emails.has(e)));
+}
+
+// Settings → Configurations: FieldRoutes source → channel (per Isaac, Nov 9). Every active FieldRoutes source, plus
+// any source seen on a subscription this year, with its new-sale count, the channel it lands on, and how many
+// GoHighLevel labels land on the same channel — so the two systems can be lined up row by row.
+function reportingFrSourcesPanel() {
+  const muted = { color: 'var(--text-muted)' };
+  const admin = isAdminRole(state.profile?.role);
+  const y = String(new Date().getFullYear());
+  const subs = state.reportingSubscriptions || [];
+  const seen = new Map();
+  for (const r of subs) { const n = String(r.subscription_source || '').trim() || 'Unspecified'; const c = seen.get(n) || { n: 0, office: 0 }; if (String(r.sold_date || '').slice(0, 4) === y) { c.n++; if (String(r.sold_by_type || '').trim() === 'Office Staff') c.office++; } seen.set(n, c); }
+  const names = new Set([...(typeof mkpFrSources === 'function' ? mkpFrSources() : []), ...seen.keys()]);
+  const isRen = (n) => typeof reportingSourceClass === 'function' && reportingSourceClass(n) !== 'new';
+  const list = [...names].map(n => ({ src: n, cnt: seen.get(n) || { n: 0, office: 0 }, renewal: isRen(n) })).sort((a, b) => (b.cnt.office - a.cnt.office) || (b.cnt.n - a.cnt.n) || a.src.localeCompare(b.src));
+  const map = frSourceMap(), gmap = ghlSourceMap();
+  const provs = [...new Set([...(typeof MKTG_DEFAULT_CHANNELS !== 'undefined' ? MKTG_DEFAULT_CHANNELS : []), ...AD_PROVIDERS, 'PestBooker', 'Organic', 'Referral', ...Object.values(map).filter(v => v && v !== GHL_SELF), ...Object.values(gmap).filter(v => v && v !== GHL_NOT_LEAD && v !== GHL_SELF)])].sort();
+  // GoHighLevel labels per channel (what the lead side calls it).
+  const G = state._ghl; const ghlByCh = new Map();
+  if (G && G.labels) for (const lbl of G.labels) { const p = ghlProviderOf(lbl); if (!p || p === GHL_NOT_LEAD) continue; (ghlByCh.get(p) || ghlByCh.set(p, []).get(p)).push(lbl); }
+  const th = (t) => el('th', { class: 'px-2 py-1.5 text-left text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap', style: muted }, t);
+  const td = (v, st) => el('td', { class: 'px-2 py-1.5 whitespace-nowrap', style: st || {} }, v == null || v === '' ? '—' : v);
+  const sel = (x) => {
+    const o = map[x.src]; const a = ghlAutoProvider(x.src); const autoTo = a && a !== GHL_NOT_LEAD ? a : x.src;
+    const autoLbl = 'Auto · ' + autoTo;
+    if (!admin) return o == null ? autoLbl : o === GHL_SELF ? 'Its own name' : o;
+    return el('select', { class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', maxWidth: '240px' },
+      onchange: (e) => { const v = e.target.value; setFrSourceMap(x.src, v === '__auto' ? null : v); state._mklMemo = {}; mountApp(); } },
+      el('option', { value: '__auto', selected: o == null }, autoLbl),
+      el('option', { value: GHL_SELF, selected: o === GHL_SELF }, 'Its own name (' + x.src + ')'),
+      ...provs.map(p => el('option', { value: p, selected: o === p }, p)));
+  };
+  const open = !!state._frCfgOpen;
+  const unmatched = list.filter(x => !x.renewal && x.cnt.office > 0 && !ghlByCh.has(frChannelOf(x.src)));
+  return el('div', { class: 'card p-3', id: 'cfg-frsrc' },
+    el('div', { class: 'flex items-center gap-3 flex-wrap mb-2' },
+      el('div', { class: 'text-sm font-bold' }, 'FieldRoutes sources → channel'),
+      el('div', { class: 'text-[11px] flex-1', style: muted }, 'The source on a FieldRoutes account decides which channel its sale counts under on Marketing → Metrics; the GoHighLevel label decides the lead. Point both at the same channel name and the channel’s close rate, CAC and return line up. Auto uses the same rules as the GoHighLevel list; pick a channel to override.')),
+    el('div', { class: 'text-[11px] mb-2' }, list.length + ' sources · ' + (unmatched.length ? el('span', { style: { color: '#B45309', fontWeight: '600' } }, unmatched.length + ' with Office Staff sales this year but no GoHighLevel label on the same channel: ' + unmatched.slice(0, 6).map(x => x.src).join(', ') + (unmatched.length > 6 ? '…' : '')).textContent : 'every source with Office Staff sales this year has GoHighLevel labels on its channel')),
+    el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => { state._frCfgOpen = !open; mountApp(); } }, (open ? 'Hide' : 'Show') + ' the ' + list.length + ' sources'),
+    open ? el('div', { class: 'scroll-x mt-2' }, el('table', { class: 'w-full text-[11px]' },
+      el('thead', {}, el('tr', {}, th('FieldRoutes source'), th('Class'), th('Sales ' + y), th('Office Staff'), th('Channel'), th('GoHighLevel labels on this channel'))),
+      el('tbody', {}, ...list.map(x => { const ch = frChannelOf(x.src); const g = ghlByCh.get(ch) || []; return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        td(x.src, { fontWeight: '600' }), td(x.renewal ? (typeof reportingSourceClass === 'function' ? reportingSourceClass(x.src) : 'renewal') : 'new', x.renewal ? muted : null), td(x.cnt.n.toLocaleString()), td(x.cnt.office.toLocaleString()), td(sel(x)),
+        td(g.length ? g.slice(0, 4).join(', ') + (g.length > 4 ? ' +' + (g.length - 4) : '') : (x.renewal ? '—' : 'none'), g.length ? muted : x.renewal ? muted : { color: '#B45309', fontWeight: '600' })); })))) : null);
 }
 
 // Settings → Configurations: GHL source → provider, sync status.

@@ -183,7 +183,7 @@ function spqAllocMonth(ym) {
     if (L.gpool) continue;   // Google: matched below, Local Services first
     if (L.prov === SPQ_TOOLS) { const bp = byProv[L.prov] || (byProv[L.prov] = { amt: 0, n: 0, hows: new Set() }); bp.amt += L.amt; bp.n++; tools.push(L); continue; }
     const sh = _spqShares(L.prov, ym, branches, ctx, L.acct);
-    if (!sh) { const w = waiting[L.prov] || (waiting[L.prov] = { amt: 0, n: 0 }); w.amt += L.amt; w.n++; L.how = (L.how ? L.how + ' · ' : '') + 'waiting on a report to place'; continue; }
+    if (!sh) { const plat = /^(Google Ads|Google Local Services|Facebook)$/.test(L.prov); const w = waiting[L.prov] || (waiting[L.prov] = { amt: 0, n: 0, why: plat ? 'campaigns' : 'report' }); w.amt += L.amt; w.n++; L.how = (L.how ? L.how + ' · ' : '') + (plat ? 'waiting — its campaigns have no branch yet' : 'waiting on a report to place'); continue; }
     const bp = byProv[L.prov] || (byProv[L.prov] = { amt: 0, n: 0, hows: new Set() }); bp.amt += L.amt; bp.n++; bp.hows.add(sh.how);
     for (const b in sh.w) add(L.prov, b, L.amt * sh.w[b]);
   }

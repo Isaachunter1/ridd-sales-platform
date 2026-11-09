@@ -32,6 +32,7 @@ const _mklNum = (v) => v == null ? '—' : fmt.int(v);
 const _mklAgo = (iso) => { if (!iso) return ''; const h = (Date.now() - Date.parse(iso)) / 3600000; return !isFinite(h) ? '' : h < 1 ? Math.max(1, Math.round(h * 60)) + 'm ago' : h < 48 ? Math.round(h) + 'h ago' : Math.round(h / 24) + 'd ago'; };
 // FieldRoutes source → the channel name the Spend tab and GoHighLevel use (same rules as GHL labels).
 function _mklChannelOfSource(src) {
+  if (typeof frChannelOf === 'function') return frChannelOf(src);   // Configurations → FieldRoutes sources → channel
   const s = String(src || '').trim(); if (!s) return 'Unspecified';
   const p = typeof ghlAutoProvider === 'function' ? ghlAutoProvider(s) : '';
   if (p === GHL_NOT_LEAD) return s;   // e.g. Door to Door on an office sale — shown as is, so the mis-source is visible
@@ -42,7 +43,7 @@ function mklMonth(ym) {
   const subs = state.reportingSubscriptions || [];
   const AL = typeof mkpAllLeads === 'function' ? mkpAllLeads() : null;
   const A = typeof spqAllocMonth === 'function' ? spqAllocMonth(ym) : null;
-  const sig = [ym, subs.length, AL ? AL.leads.length : -1, A ? A.total + '|' + Object.keys(A.waiting || {}).length + '|' + JSON.stringify(Object.keys(A.byProv)) : 'noA'].join('§');
+  const sig = [ym, subs.length, AL ? AL.leads.length : -1, A ? A.total + '|' + Object.keys(A.waiting || {}).length + '|' + JSON.stringify(Object.keys(A.byProv)) : 'noA', typeof frSourceMap === 'function' ? JSON.stringify(frSourceMap()) : ''].join('§');
   const M = state._mklMemo || (state._mklMemo = {});
   if (M[ym] && M[ym].sig === sig && M[ym].subs === subs && M[ym].al === AL) return M[ym].v;
   const br = {}, ch = {};
@@ -128,13 +129,13 @@ function _mktgLeanView() {
   // ── Tables: by branch, by channel — the same seven columns. ──
   const th = (t, r, extra) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold ' + (r ? 'text-right' : 'text-left'), style: Object.assign({ color: 'var(--text-muted)', background: 'var(--card-2)', whiteSpace: 'nowrap' }, extra || {}) }, t);
   const td = (t, st, r) => el('td', { class: 'px-3 py-1.5 tabular-nums whitespace-nowrap ' + (r ? 'text-right' : ''), style: Object.assign({ fontFamily: 'ui-monospace, monospace' }, st || {}) }, t);
-  const row = (name, c, bold, note) => { const _cac = c.s && c.spend ? c.spend / c.s : null, _ret = c.spend ? c.cv / c.spend : null, _cpl = c.leads && c.spend ? c.spend / c.leads : null;
+  const row = (name, c, bold, note) => { const _cac = c.s && c.spend ? c.spend / c.s : null, _ret = c.spend ? c.cv / c.spend : null, _cpl = c.leads && c.spend ? c.spend / c.leads : null, _close = c.leads ? c.s / c.leads : null;
     return el('tr', { class: 'border-t', style: Object.assign({ borderColor: 'var(--border)' }, bold ? { background: 'var(--card-2)', borderTop: '2px solid var(--text)' } : {}) },
       el('td', { class: 'px-3 py-1.5 whitespace-nowrap', style: { fontWeight: bold ? '800' : '700', fontFamily: 'inherit' } }, name, note ? el('span', { class: 'text-[10px] ml-2 font-normal', style: { color: '#B45309' } }, note) : null),
       td(c.spend ? _mklUsd(c.spend) : '—', c.spend ? null : muted, true), td(c.leads ? _mklNum(c.leads) : '—', c.leads ? null : muted, true), td(c.s ? _mklNum(c.s) : '—', c.s ? null : muted, true), td(c.cv ? _mklUsd(c.cv) : '—', c.cv ? null : muted, true),
-      td(_mklUsd(_cpl), _cpl == null ? muted : null, true), td(_mklUsd(_cac), _cac == null ? muted : null, true),
+      td(_mklPct(_close), _close == null ? muted : null, true), td(_mklUsd(_cpl), _cpl == null ? muted : null, true), td(_mklUsd(_cac), _cac == null ? muted : null, true),
       td(_mklX(_ret), _ret == null ? muted : { fontWeight: '700', color: _ret >= 1 ? '#3E5A3A' : '#B91C1C' }, true)); };
-  const head = el('tr', {}, th('', false, { background: 'var(--card-2)' }), th('Spend', true), th('Leads', true), th('New sales', true), th('New revenue', true), th('Cost / lead', true), th('CAC', true), th('Return', true));
+  const head = el('tr', {}, th('', false, { background: 'var(--card-2)' }), th('Spend', true), th('Leads', true), th('New sales', true), th('New revenue', true), th('Close rate', true), th('Cost / lead', true), th('CAC', true), th('Return', true));
   const sumOf = (o, keys) => keys.reduce((t, k) => { const c = o[k]; t.spend += c.spend; t.leads += c.leads; t.s += c.s; t.cv += c.cv; return t; }, { spend: 0, leads: 0, s: 0, cv: 0 });
   const table = (title, sub, o, extraRows, noteOf) => {
     const keys = Object.keys(o).filter(k => o[k].spend || o[k].leads || o[k].s).sort((a, b) => (o[b].spend - o[a].spend) || (o[b].cv - o[a].cv) || (o[b].leads - o[a].leads));
@@ -148,8 +149,8 @@ function _mktgLeanView() {
   };
   // Branch: spend placed on the Spend tab; waiting vendors are out of this split until their report lands.
   const brTable = table('By branch · ' + _mklLblS(ym), 'Spend as allocated on the Spend tab' + (cur.spendWaiting > 0 ? ' — ' + _mklUsd(cur.spendWaiting) + ' of vendor spend is not in any branch yet (waiting on reports), so branch CAC runs low until it lands' : '') + '. Leads by the lead’s ZIP; new sales by the account’s office.', cur.br, null, null);
-  const chTable = table('By channel · ' + _mklLblS(ym), 'Spend by vendor from QuickBooks; leads by GoHighLevel source; new sales by the FieldRoutes source on the account (last touch).', cur.ch, null,
-    (k, c) => c.waiting > 0 ? 'waiting on its report — not in branches yet' : k === 'Unmapped GHL source' ? 'map these in Configurations → GoHighLevel sources' : k === 'Unspecified' ? 'no source on the account — fix in FieldRoutes' : null);
+  const chTable = table('By channel · ' + _mklLblS(ym), 'Spend by vendor from QuickBooks; leads by GoHighLevel source; new sales by the FieldRoutes source on the account (last touch). Close rate = new sales ÷ leads, so a channel whose GHL label and FieldRoutes source don\u2019t line up will read high or low — map them the same in Configurations.', cur.ch, null,
+    (k, c) => c.waiting > 0 ? 'waiting on its report — not in branches yet' : k === 'Unmapped GHL source' ? 'map these in Configurations → GoHighLevel sources' : k === 'Unspecified' ? 'no source on the account — fix in FieldRoutes' : (c.s && !c.leads) ? 'sales but no leads — no GoHighLevel label maps here (Configurations → sources)' : (c.leads && !c.s && !c.spend) ? 'leads but no sales — no FieldRoutes source maps here' : null);
 
   // ── Chart: spend vs new revenue, last 12 months. ──
   const S = mklSeries(ym), idC = 'mklTrend';
