@@ -51,11 +51,13 @@ function mktgSpendView() {
   const unplaced = A.lines.filter(L => !L.prov);
   const openCamps = (A.AD.open || []).filter(x => vendors.includes(x.prov));
 
-  // CSV for the controller: one row per branch × vendor, plus branch totals — the journal entry.
+  // CSV for the controller (per Isaac, Nov 9): the By-branch table exactly as shown — one row per branch, a column
+  // per vendor, a Total column, and a Total row — so the branch totals read straight off it.
   const csv = () => { const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
-    const L = [['Month', 'Branch', 'Vendor', 'Amount'].join(',')];
-    for (const b of branches) { for (const v of vendors) { const c = (A.cells[v] || {})[b]; if (c) L.push([ym, _mktgTC(b), spqLabel(v), c.toFixed(2)].map(esc).join(',')); } L.push([ym, _mktgTC(b), 'TOTAL', brTot(b).toFixed(2)].map(esc).join(',')); }
-    L.push([ym, 'ALL BRANCHES', 'TOTAL', allocTot.toFixed(2)].map(esc).join(','));
+    const L = [['Branch', ...vendors.map(spqLabel), 'Total', ...(bookedTot ? ['Booked in QuickBooks'] : [])].map(esc).join(',')];
+    for (const b of branches) L.push([_mktgTC(b), ...vendors.map(v => ((A.cells[v] || {})[b] || 0).toFixed(2)), brTot(b).toFixed(2), ...(bookedTot ? [(A.booked[b] || 0).toFixed(2)] : [])].map(esc).join(','));
+    L.push(['Total', ...vendors.map(v => A.byProv[v].amt.toFixed(2)), allocTot.toFixed(2), ...(bookedTot ? [bookedTot.toFixed(2)] : [])].map(esc).join(','));
+    L.push(''); L.push(['Marketing spend by branch · ' + reportingMonthLbl(ym) + ' · QuickBooks Advertising & Marketing ' + usd(A.total) + (A.unassigned ? ' · ' + usd(A.unassigned) + ' not yet placed' : '')].map(esc).join(','));
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([L.join('\n')], { type: 'text/csv' })); a.download = 'ridd-marketing-by-branch-' + ym + '.csv'; a.click(); };
 
   const top = el('div', { class: 'card p-5' },
