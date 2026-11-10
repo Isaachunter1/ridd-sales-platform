@@ -61,10 +61,8 @@ function payCommissionCards(repId, prof, period, x, ctx) {
   const B = backendFigures(repId, ctx.backend);
   const n = (k, w) => k + ' ' + (w || 'account') + (k === 1 ? '' : 's');
   const upfrontTier = (() => { try { const s = effectivePaySettings(repId); const t = (s.upfront_tiers || []).slice().sort((a, b) => Number(b.min) - Number(a.min)).find(t => (x.pct || 0) * 100 >= Number(t.min)); return t ? Number(t.min) + '% +' : null; } catch (e) { return null; } })();
-  const head = (t) => el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-', style: { marginTop: '4px' } }, t);
-  return el('div', { class: 'flex flex-col gap-3' },
-    head((ctx.isCurrent ? 'Upfront · if payroll ran now · ' : 'Upfront · paid · ') + period.label),
-    _payGrid(
+  const head = (t) => ctx.part ? null : el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-', style: { marginTop: '4px' } }, t);
+  const upfrontGrid = ctx.part === 'backend' ? null : _payGrid(
       _payTile('Total pay', money(x.total), n(lines.length) + (extras ? ' · ' + money(extras) + ' other pay' : ''), '#3E5A3A', 'Sales pay + Below Minimums pay + other pay lines (Golden Phone, Loyalty, adjustments) — what the stub pays.'),
       _payTile('Sales pay', money(salesPay), n(full.length) + ' commissionable', undefined, 'Commissionable accounts at the full rate × the Passed Audit tier.'),
       _payTile('Below Minimums', money(belowPay), n(below.length) + ' · half upfront', below.length ? '#B8862B' : undefined, 'Sold under the Standard sheet: half the upfront commission; backend pays in full.'),
@@ -73,16 +71,18 @@ function payCommissionCards(repId, prof, period, x, ctx) {
       _payTile('Below Minimums %', lines.length ? Math.round(below.length / lines.length * 100) + '%' : '—', 'of accounts on the stub', undefined, 'Share of this period’s accounts sold under Standard pricing.'),
       B.closeRateInfo
         ? _payTile('Close rate · Plaibook', pct(B.closeRate), B.closeRateInfo.sold + ' sold / ' + B.closeRateInfo.qualified + ' qualified' + (B.closeRateInfo.window && B.closeRateInfo.window.label ? ' · ' + B.closeRateInfo.window.label : ''), undefined, 'Plaibook’s Sales team page close rate for this rep (sold ÷ qualified) — picks the close-rate bonus tier paid at the backend lock.')
-        : _payTile('Close rate', 'No Close Rate', 'no seat in Plaibook · no close-rate bonus', '#B91C1C', 'This rep has no seat in Plaibook, so there is no close rate to read and the close-rate bonus does not pay. Configurations → Commission rules → Close rates.')),
-    head('Backend · ' + n(B.eligible, 'account') + ' waiting on the lock'),
-    _payGrid(
+        : _payTile('Close rate', 'No Close Rate', 'no seat in Plaibook · no close-rate bonus', '#B91C1C', 'This rep has no seat in Plaibook, so there is no close rate to read and the close-rate bonus does not pay. Configurations → Commission rules → Close rates.'));
+  const backendGrid = ctx.part === 'upfront' ? null : _payGrid(
       _payTile('Eligible subscriptions', String(B.eligible), money(B.revenue) + ' eligible revenue', undefined, 'Paid upfront, waiting on the backend lock (4 paid invoices); chargebacks left out.'),
       _payTile('Est. multi-year pay', money(B.multiYear), '18 / 24-month plans', undefined, 'Backend on 18- and 24-month plans at the multi-year rates.'),
       _payTile('Est. renewal pay', money(B.renewal), 'renewal-source plans', undefined, 'Backend on renewals at the renewal backend rate.'),
       _payTile('Est. close rate % pay', money(B.closeBonus), B.closeRateInfo ? 'on ' + money(B.subRev) + ' subscription revenue' : 'No Close Rate — nothing pays', B.closeRateInfo ? undefined : '#B91C1C', 'Close-rate bonus tier × the subscription revenue (12/18/24-month + PIF base plans) of the accounts waiting to lock.'),
       _payTile('Pending backend pay', money(B.pending), 'multi-year + renewal + close rate', '#3E5A3A', 'What the quarterly backend run would pay if every waiting account locked today.'),
       _payTile('Chargebacks', money(B.chargebacks), (ctx.backend || []).filter(s => s.lock_status === 'chargeback').length + ' to recoup', B.chargebacks ? '#B91C1C' : undefined, 'Upfront pay to recoup on accounts marked Chargeback, taken off the next backend run.'),
-      ctx.backendPaidYear != null ? _payTile('Backend paid · ' + ctx.year, money(ctx.backendPaidYear), 'quarterly runs this year') : null));
+      ctx.backendPaidYear != null ? _payTile('Backend paid · ' + ctx.year, money(ctx.backendPaidYear), 'quarterly runs this year') : null);
+  return el('div', { class: 'flex flex-col gap-3' },
+    upfrontGrid ? head((ctx.isCurrent ? 'Upfront · if payroll ran now · ' : 'Upfront · paid · ') + period.label) : null, upfrontGrid,
+    backendGrid ? head('Backend · ' + n(B.eligible, 'account') + ' waiting on the lock') : null, backendGrid);
 }
 
 // Sales tab → Pending Backend Lock: the backend row over the rows on screen (every rep, or the rep picked in the filter).

@@ -35,7 +35,7 @@ function mktgSpendView() {
 
   const P = state.reportingIsSpendPayee;
   const head = () => el('div', { class: 'card px-5 py-3 flex items-center gap-3 flex-wrap' },
-    el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Spend · ' + reportingMonthLbl(ym)), el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'QuickBooks marketing spend, allocated to branches')),
+    el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Spend · ' + reportingMonthLbl(ym)), el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'QuickBooks marketing spend by provider and by branch, each provider’s own statement beside it, and the month’s wages')),
     el('span', { class: 'ml-auto' }), monthSel);
   if (!P) return el('div', { class: 'flex flex-col gap-4' }, head(), el('div', { class: 'card p-6 text-sm text-center', style: muted }, state._isSpendLoading ? 'Pulling QuickBooks…' : 'QuickBooks isn’t connected or hasn’t been pulled yet — Settings → Connections.'));
   if (!P.lines) return el('div', { class: 'flex flex-col gap-4' }, head(), el('div', { class: 'card p-6 text-sm text-center', style: muted }, 'QuickBooks is connected, but the line-by-line detail hasn’t been pulled yet. It arrives with the next QuickBooks refresh.'));
@@ -117,6 +117,70 @@ function mktgSpendView() {
       el('thead', {}, el('tr', {}, th('Vendor'), th('QuickBooks', true), th('Lines', true), th('What places it'))),
       el('tbody', {}, ...waiting.map(waitRow))))) : null;
 
+  // ── Providers (per Isaac, Nov 9): one row per provider — QuickBooks vs the provider's own statement, leads, sales. ──
+  const PM = typeof prvMonthsFor === 'function' ? prvMonthsFor(ym) : {};
+  const L = typeof mklMonth === 'function' ? (() => { try { return mklMonth(ym); } catch (e) { return null; } })() : null;   // GHL leads + FieldRoutes new sales by channel (Metrics page math)
+  const qbOf = (v) => (A.byProv[v] ? A.byProv[v].amt : 0) + ((A.waiting || {})[v] ? A.waiting[v].amt : 0);
+  const upOf = (v) => { const u = ((m.spend || {})[ym] || {})[v]; return u ? Object.values(u).reduce((a, x) => a + (Number(x) || 0), 0) : null; };
+  const provNames = [...new Set([...Object.keys(A.byProv), ...Object.keys(A.waiting || {}), ...Object.keys(PM), ...(L ? Object.keys(L.ch).filter(k => L.ch[k].leads || L.ch[k].s) : [])])]
+    .filter(v => v !== SPQ_TOOLS && v !== SPQ_SKIP && v && !/^unmapped|^unspecified$/i.test(v));
+  const prow = (v) => {
+    const qb = qbOf(v), st = PM[v] || null, up = upOf(v);
+    const stmt = st ? st.net : up;                                  // the provider's own number for the month
+    const spend = qb || stmt || 0;                                   // what CPL / CAC divide by: QuickBooks first
+    const c = (L && L.ch[v]) || { leads: 0, s: 0, cv: 0 };
+    const leadsRep = st ? st.leads : null;
+    const diff = qb && stmt != null ? qb - stmt : null;
+    const flag = diff != null && Math.abs(diff) > Math.max(25, Math.abs(stmt) * 0.1);
+    const plat = /^(Google Ads|Google Local Services|Facebook)$/.test(v);
+    const muted2 = { color: 'var(--text-muted)' };
+    return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+      td(v, { fontWeight: '700' }),
+      td(qb ? usd(qb) : '—', qb ? null : muted2, true),
+      td(stmt != null ? usd(stmt) : (plat ? 'platform' : '—'), stmt != null ? null : muted2, true),
+      td(diff == null ? '—' : (diff > 0 ? '+' : '') + usd(diff), diff == null ? muted2 : flag ? { color: '#B45309', fontWeight: '700' } : muted2, true),
+      td(leadsRep != null ? String(leadsRep) : '—', leadsRep != null ? null : muted2, true),
+      td(c.leads ? String(c.leads) : '—', c.leads ? null : muted2, true),
+      td(c.s ? String(c.s) : '—', c.s ? null : muted2, true),
+      td(c.cv ? usd0(c.cv) : '—', c.cv ? null : muted2, true),
+      td(spend && (leadsRep || c.leads) ? usd0(spend / (leadsRep || c.leads)) : '—', null, true),
+      td(spend && c.s ? usd0(spend / c.s) : '—', null, true),
+      td(spend ? (c.cv / spend).toFixed(2) + 'x' : '—', spend ? { fontWeight: '700', color: c.cv / spend >= 1 ? '#3E5A3A' : '#B91C1C' } : muted2, true),
+      el('td', { class: 'px-3 py-1' }, st ? el('span', { class: 'text-[10px]', style: muted2, title: st.from || '' }, 'statement · ' + new Date(st.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }))
+        : up != null ? el('span', { class: 'text-[10px]', style: muted2 }, 'uploaded breakout') : (!plat && admin) ? rowUpload(v) : plat ? el('span', { class: 'text-[10px]', style: muted2 }, 'Windsor') : null));
+  };
+  const provTable = provNames.length ? el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-5 py-3' }, el('h3', { class: 'text-base font-bold' }, 'By provider · ' + reportingMonthLbl(ym)),
+      el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'QuickBooks is what left the bank; Statement is the provider’s own bill for the month (Baton nets what they owe RIDD for referrals sent). Leads from the statement and from GoHighLevel side by side; sales and revenue from FieldRoutes by the account’s source. Cost per lead and CAC use QuickBooks when it has the charge, else the statement.')),
+    el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, th('Provider'), th('QuickBooks', true), th('Statement', true), th('Δ', true), th('Leads · stmt', true), th('Leads · GHL', true), th('New sales', true), th('New revenue', true), th('Cost / lead', true), th('CAC', true), th('Return', true), th(''))),
+      el('tbody', {}, ...provNames.sort((a, b) => (qbOf(b) || (PM[b] ? PM[b].net : 0)) - (qbOf(a) || (PM[a] ? PM[a].net : 0))).map(prow))))) : null;
+
+  // ── Wages & incentives (per Isaac, Nov 9): typed in once a month from the controller; part of fully-loaded CAC. ──
+  m.wages = (m.wages && typeof m.wages === 'object') ? m.wages : {}; m.incentives = (m.incentives && typeof m.incentives === 'object') ? m.incentives : {};
+  const W = m.wages[ym] || {}, I = m.incentives[ym] || {};
+  const pm = (() => { const d = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 2, 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); })();
+  const wTot = Object.values(W).reduce((a, v) => a + (Number(v) || 0), 0), iTot = Object.values(I).reduce((a, v) => a + (Number(v) || 0), 0);
+  const moneyIn = (val, onSave) => el('input', { type: 'text', inputmode: 'decimal', value: val ? String(Math.round(Number(val) * 100) / 100) : '', placeholder: '0', class: 'rounded-lg border px-2 py-1 text-[11px] tabular-nums', style: Object.assign({ width: '96px', textAlign: 'right' }, selSt),
+    onchange: (e) => { const n = parseFloat(String(e.target.value).replace(/[^0-9.-]/g, '')); onSave(isNaN(n) ? 0 : n); } });
+  const setW = (store, b, n) => { const S = m[store][ym] = m[store][ym] || {}; if (n) S[b] = Math.round(n * 100) / 100; else delete S[b]; if (!Object.keys(S).length) delete m[store][ym]; state._mkpMemo = null; state._mklMemo = {}; _mktgSave(); mountApp(); };
+  const wagesOpen = state._spendWagesOpen != null ? state._spendWagesOpen : !(wTot || iTot);
+  const wagesCard = el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap cursor-pointer', onclick: () => { state._spendWagesOpen = !wagesOpen; mountApp(); } },
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Wages & incentives · ' + reportingMonthLbl(ym)),
+        el('div', { class: 'text-[11px] mt-0.5', style: muted }, (wTot || iTot) ? usd(wTot) + ' wages · ' + usd(iTot) + ' incentives — in fully-loaded CAC on Metrics' : 'From the controller, once a month — not entered yet for ' + reportingMonthLbl(ym) + '. Goes into fully-loaded CAC on Metrics.')),
+      el('span', { class: 'ml-auto text-[11px]', style: muted }, wagesOpen ? '▴' : '▾')),
+    wagesOpen ? el('div', { style: { borderTop: '1px solid var(--border)' } },
+      admin && (m.wages[pm] || m.incentives[pm]) && !(wTot || iTot) ? el('div', { class: 'px-5 py-2 text-[11px] flex items-center gap-2', style: muted }, 'Nothing entered yet.',
+        el('button', { class: 'font-semibold underline', style: { color: 'var(--accent)' }, onclick: () => { if (m.wages[pm]) m.wages[ym] = Object.assign({}, m.wages[pm]); if (m.incentives[pm]) m.incentives[ym] = Object.assign({}, m.incentives[pm]); state._mkpMemo = null; state._mklMemo = {}; _mktgSave(); mountApp(); } }, 'Copy ' + reportingMonthLbl(pm) + '’s numbers to start')) : null,
+      el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+        el('thead', {}, el('tr', {}, th('Branch'), th('Wages', true), th('Incentives', true), th('Total', true))),
+        el('tbody', {}, ...A.branches.map(b => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, td(_mktgTC(b), { fontWeight: '700' }),
+            el('td', { class: 'px-3 py-1 text-right' }, admin ? moneyIn(W[b], (n) => setW('wages', b, n)) : usd(Number(W[b]) || 0)),
+            el('td', { class: 'px-3 py-1 text-right' }, admin ? moneyIn(I[b], (n) => setW('incentives', b, n)) : usd(Number(I[b]) || 0)),
+            td(usd((Number(W[b]) || 0) + (Number(I[b]) || 0)), { fontWeight: '700' }, true))),
+          el('tr', { style: { borderTop: '2px solid var(--text)', background: 'var(--card-2)' } }, td('Total', { fontWeight: '800' }), td(usd(wTot), { fontWeight: '700' }, true), td(usd(iTot), { fontWeight: '700' }, true), td(usd(wTot + iTot), { fontWeight: '900' }, true)))))) : null);
+
   // ── The table: branches down, vendors across, how each vendor is split under its name. ──
   const methodLabel = (v) => { const set = m.qbAlloc[v]; if (set && /^office:/.test(set)) return 'All to ' + _mktgTC(set.slice(7)); const L = { platform: 'Platform spend', upload: 'Upload', leads: 'GHL leads', even: 'Even split' }; if (set && L[set]) return L[set]; const how = String((A.byProv[v] || {}).how || ''); return /platform/i.test(how) ? 'Auto · platform' : /upload/i.test(how) ? 'Auto · upload' : /leads/i.test(how) ? 'Auto · leads' : /pro rata/i.test(how) ? 'With the media' : 'Auto · even'; };
   const methodSel = (v) => { const cur = m.qbAlloc[v] || 'auto';
@@ -174,5 +238,5 @@ function mktgSpendView() {
 
   // A report just uploaded maps right under the Waiting list (per Isaac, Nov 9 — it used to land below the big table,
   // out of sight); with nothing pending the upload card keeps its usual place lower down.
-  return el('div', { class: 'flex flex-col gap-4' }, head(), top, placeCard, waitCard, pendingN ? uploads : null, table, campCard, pendingN ? null : uploads, linesCard);
+  return el('div', { class: 'flex flex-col gap-4' }, head(), top, placeCard, waitCard, pendingN ? uploads : null, provTable, table, wagesCard, campCard, pendingN ? null : uploads, linesCard);
 }

@@ -16,6 +16,12 @@ function _spuStore() {
   const m = _mktgStore();
   m.spendUploads = Array.isArray(m.spendUploads) ? m.spendUploads : [];   // [{ id, fileName, channel, at, by, total, n, cells: { ym: { BRANCH: amt } } }]
   m.spendLocMap = (m.spendLocMap && typeof m.spendLocMap === 'object') ? m.spendLocMap : {};   // { 'location value' (lowercase): BRANCH | SPU_SPLIT | SPU_SKIP }
+  // Built-in provider IDs (per Isaac, Nov 9 — Angi's company ID per branch, from his sheet). Seeded once into the
+  // saved map so an Angi report places itself before anyone maps it; an admin can still re-point or remove them
+  // on Configurations → Provider IDs → office (a removed one stays removed — it is remembered in spendLocSeeded).
+  m.spendLocMeta = (m.spendLocMeta && typeof m.spendLocMeta === 'object') ? m.spendLocMeta : {};
+  m.spendLocSeeded = (m.spendLocSeeded && typeof m.spendLocSeeded === 'object') ? m.spendLocSeeded : {};
+  for (const [id, b] of Object.entries(SPU_BUILTIN_LOC_IDS.angi)) { const k = _spuKey(id); if (m.spendLocSeeded[k]) continue; m.spendLocSeeded[k] = 1; if (!m.spendLocMap[k]) { m.spendLocMap[k] = b; m.spendLocMeta[k] = { ch: 'Angi', col: 'Angi company ID' }; } }
   // Remembered mappings (per Isaac, Oct 9): a provider/vendor value → channel, and each report LAYOUT (its column
   // headers) → the columns, channel and default office picked last time — so the next file of the same kind maps itself.
   m.spendProvMap = (m.spendProvMap && typeof m.spendProvMap === 'object') ? m.spendProvMap : {};   // { 'vendor value' (lowercase): channel | SPU_SKIP }
@@ -117,6 +123,8 @@ function _spuGridRows(ws) {
 }
 const _spuNum = (v) => { if (typeof v === 'number') return isFinite(v) ? v : 0; const s = String(v == null ? '' : v).trim(); if (!s) return 0; const neg = /^\(.*\)$/.test(s) || /^-/.test(s); const n = parseFloat(s.replace(/[^0-9.]/g, '')); return isFinite(n) ? (neg ? -n : n) : 0; };
 const _spuKey = (v) => String(v == null ? '' : v).trim().toLowerCase();
+// Angi company IDs → branch (per Isaac, Nov 9). Detroit has no Angi company.
+const SPU_BUILTIN_LOC_IDS = { angi: { '156010936': 'ATLANTA', '154527321': 'VIRGINIA BEACH', '154557933': 'CHARLESTON', '154557967': 'RALEIGH', '140133752': 'MYRTLE BEACH', '154534497': 'DESTIN', '164862640': 'JOPLIN', '164862711': 'LITTLE ROCK', '132204858': 'SALT LAKE' } };
 const _spuSig = (headers) => (headers || []).map(h => String(h).trim().toLowerCase()).filter(h => h && !/^__empty/.test(h)).sort().join('|');
 // A provider/vendor value → channel: this file's pick, else remembered, else a channel name inside the value.
 function _spuChanOf(val, P, m) {
@@ -279,6 +287,8 @@ async function _spuUpload(files) {
   for (const file of list) {
     try {
       const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
+      // Provider statements with their own shape (per Isaac, Nov 9): Baton's Net Spend workbook, Pest Net's CPL report.
+      if (typeof prvParseWorkbook === 'function') { try { const R = prvParseWorkbook(wb, file.name, (typeof _mktgBranchList === 'function' ? _mktgBranchList(new Date().getFullYear()).all : [])); if (R) { state._spendPending.push({ key: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), fileName: file.name, provider: R }); continue; } } catch (e) { console.warn('[spend] provider statement', e); } }
       const cands = []; let credits = null;
       for (const sheet of wb.SheetNames) {
         const ws = wb.Sheets[sheet];
@@ -382,6 +392,7 @@ function mktgSpendUploadCard(B, year) {
       el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Drop any spend report (CSV or Excel, one or many). Map it once — the columns, the provider and the office — and the app remembers: the next report with the same layout, provider names or locations fills itself in.')),
     el('label', { class: 'ml-auto rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, '↑ Choose files', fileIn));
   const pending = (state._spendPending || []).map(P => {
+    if (P.provider && typeof prvPendingCard === 'function') return prvPendingCard(P, branches);
     const A = _spuComputeAll(P, branches, m);
     // Locations are listed across the whole file (whatever channel each row goes to).
     const C = _spuCompute(Object.assign({}, P, { channel: P.channel || (A.groups[0] && A.groups[0].ch) || '' }), branches, m);
@@ -649,7 +660,8 @@ function reportingProviderIdsPanel() {
     rows.push({ kind: 'camp', key: k, prov: plat === 'facebook' ? 'Facebook' : /^LocalServicesCampaign/i.test(c) ? 'Google Local Services' : 'Google Ads', id: acct, detail: /^LocalServicesCampaign/i.test(c) ? 'LSA account' : c, to: v === '' ? [] : Array.isArray(v) ? v : [v] }); }
   const acc = (typeof adAccountOfficeMap === 'function') ? adAccountOfficeMap() : {};
   for (const k in acc) { const [plat, acctId, prov] = k.split('|'); const v = acc[k];
-    rows.push({ kind: 'acct', key: k, prov: prov || (plat === 'facebook' ? 'Facebook' : 'Google'), id: acctId, detail: 'Whole account', to: v === '' ? [] : Array.isArray(v) ? v : [v] }); }
+    const nm = (() => { try { const S = (state._adSpend || {})[y] || {}; const r = (S.rows || []).find(x => x.acct === acctId); return r && r.acctName ? r.acctName : ''; } catch (e) { return ''; } })();
+    rows.push({ kind: 'acct', key: k, prov: prov || (plat === 'facebook' ? 'Facebook' : 'Google'), id: acctId, detail: (nm ? nm + ' · ' : '') + 'whole account', to: v === '' ? [] : Array.isArray(v) ? v : [v] }); }
   for (const k in m.spendLocMap) { const meta = m.spendLocMeta[k] || {}; const v = m.spendLocMap[k];
     rows.push({ kind: 'loc', key: k, prov: meta.ch || 'Uploaded reports', id: k, detail: meta.col ? 'column “' + meta.col + '”' : 'report location', to: v === SPU_SPLIT ? ['split'] : v === SPU_SKIP ? ['skip'] : [v] }); }
   const shown = rows.filter(r => !q || (r.prov + ' ' + r.id + ' ' + r.detail + ' ' + r.to.join(' ')).toLowerCase().includes(q));

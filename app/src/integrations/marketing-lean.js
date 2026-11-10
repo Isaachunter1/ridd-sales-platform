@@ -74,7 +74,10 @@ function mklMonth(ym) {
     leads = 0;
     for (const l of AL.leads) { if (String(l.d).slice(0, 7) !== ym) continue; leads++; cell(br, l.market || 'No branch').leads++; cell(ch, l.prov === 'Unmapped' ? 'Unmapped GHL source' : l.prov).leads++; }
   }
-  const v = { ym, A, spend, spendWaiting, spendUnassigned, spendLines, s, cv, sales, leads, br, ch, hasSpend: !!A, hasLeads: !!AL, hasSubs: subs.length > 0 };
+  // Wages + incentives by branch (Spend tab → Wages & incentives; per Isaac, Nov 9 — part of CAC).
+  let labor = 0, hasLabor = false;
+  try { const m = _mktgStore(); const W = (m.wages || {})[ym] || {}, I = (m.incentives || {})[ym] || {}; for (const b of new Set([...Object.keys(W), ...Object.keys(I)])) { const v = (Number(W[b]) || 0) + (Number(I[b]) || 0); if (!v) continue; hasLabor = true; labor += v; cell(br, TC(b)).labor = (cell(br, TC(b)).labor || 0) + v; } } catch (e) { /* no store yet */ }
+  const v = { ym, A, spend, spendWaiting, spendUnassigned, spendLines, s, cv, sales, leads, br, ch, labor, hasLabor, hasSpend: !!A, hasLeads: !!AL, hasSubs: subs.length > 0 };
   M[ym] = { sig, subs, al: AL, v };
   return v;
 }
@@ -121,7 +124,8 @@ function _mktgLeanView() {
     tile('New revenue · FieldRoutes', _mklUsd(cur.hasSubs ? cur.cv : null), delta(d(cur.cv, prev.hasSubs ? prev.cv : null), true), cur.s + ' new sale' + (cur.s === 1 ? '' : 's') + ' · Office Staff · contract value', () => mklOpenSales(cur, 'New sales · ' + _mklLbl(ym))),
     tile('New leads · GoHighLevel', _mklNum(cur.leads), delta(d(cur.leads, prev.leads), true), cur.hasLeads ? 'opportunities, one per person per 30 days' : 'GoHighLevel not loaded'),
     tile('Return on spend', _mklX(ret(cur)), delta(d(ret(cur), ret(prev)), true), 'new revenue ÷ spend'),
-    tile('CAC', _mklUsd(cac(cur)), delta(d(cac(cur), cac(prev)), false), 'spend ÷ new sales'),
+    tile('CAC', _mklUsd(cac(cur)), delta(d(cac(cur), cac(prev)), false), 'marketing spend ÷ new sales'),
+    tile('CAC · fully loaded', cur.hasLabor && cur.s ? _mklUsd(((cur.hasSpend ? cur.spend : 0) + cur.labor) / cur.s) : '—', cur.hasLabor && prev.hasLabor ? delta(d(cur.s ? ((cur.hasSpend ? cur.spend : 0) + cur.labor) / cur.s : null, prev.s ? ((prev.hasSpend ? prev.spend : 0) + prev.labor) / prev.s : null), false) : el('span', { class: 'text-[11px]', style: muted }, cur.hasLabor ? 'no prior' : 'wages not entered'), cur.hasLabor ? '(spend + ' + _mklUsd(cur.labor) + ' wages & incentives) ÷ new sales' : 'enter wages on the Spend tab'),
     tile('Cost per lead', _mklUsd(cpl(cur)), delta(d(cpl(cur), cpl(prev)), false), 'spend ÷ leads'),
     tile('Close rate', _mklPct(close(cur)), delta(d(close(cur), close(prev)), true), 'new sales ÷ leads'),
     tile('Avg contract', _mklUsd(cur.s ? cur.cv / cur.s : null), delta(d(cur.s ? cur.cv / cur.s : null, prev.s ? prev.cv / prev.s : null), true), 'new revenue ÷ new sales'));
@@ -129,26 +133,29 @@ function _mktgLeanView() {
   // ── Tables: by branch, by channel — the same seven columns. ──
   const th = (t, r, extra) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold ' + (r ? 'text-right' : 'text-left'), style: Object.assign({ color: 'var(--text-muted)', background: 'var(--card-2)', whiteSpace: 'nowrap' }, extra || {}) }, t);
   const td = (t, st, r) => el('td', { class: 'px-3 py-1.5 tabular-nums whitespace-nowrap ' + (r ? 'text-right' : ''), style: Object.assign({ fontFamily: 'ui-monospace, monospace' }, st || {}) }, t);
-  const row = (name, c, bold, note) => { const _cac = c.s && c.spend ? c.spend / c.s : null, _ret = c.spend ? c.cv / c.spend : null, _cpl = c.leads && c.spend ? c.spend / c.leads : null, _close = c.leads ? c.s / c.leads : null;
+  const row = (name, c, bold, note) => { const _cac = c.s && c.spend ? c.spend / c.s : null, _ret = c.spend ? c.cv / c.spend : null, _cpl = c.leads && c.spend ? c.spend / c.leads : null, _close = c.leads ? c.s / c.leads : null, _lab = c.labor || 0, _fcac = c.s && (c.spend || _lab) ? (c.spend + _lab) / c.s : null;
     return el('tr', { class: 'border-t', style: Object.assign({ borderColor: 'var(--border)' }, bold ? { background: 'var(--card-2)', borderTop: '2px solid var(--text)' } : {}) },
       el('td', { class: 'px-3 py-1.5 whitespace-nowrap', style: { fontWeight: bold ? '800' : '700', fontFamily: 'inherit' } }, name, note ? el('span', { class: 'text-[10px] ml-2 font-normal', style: { color: '#B45309' } }, note) : null),
       td(c.spend ? _mklUsd(c.spend) : '—', c.spend ? null : muted, true), td(c.leads ? _mklNum(c.leads) : '—', c.leads ? null : muted, true), td(c.s ? _mklNum(c.s) : '—', c.s ? null : muted, true), td(c.cv ? _mklUsd(c.cv) : '—', c.cv ? null : muted, true),
       td(_mklPct(_close), _close == null ? muted : null, true), td(_mklUsd(_cpl), _cpl == null ? muted : null, true), td(_mklUsd(_cac), _cac == null ? muted : null, true),
+      ...(showLabor ? [td(_lab ? _mklUsd(_lab) : '—', _lab ? null : muted, true), td(_mklUsd(_fcac), _fcac == null ? muted : null, true)] : []),
       td(_mklX(_ret), _ret == null ? muted : { fontWeight: '700', color: _ret >= 1 ? '#3E5A3A' : '#B91C1C' }, true)); };
-  const head = el('tr', {}, th('', false, { background: 'var(--card-2)' }), th('Spend', true), th('Leads', true), th('New sales', true), th('New revenue', true), th('Close rate', true), th('Cost / lead', true), th('CAC', true), th('Return', true));
-  const sumOf = (o, keys) => keys.reduce((t, k) => { const c = o[k]; t.spend += c.spend; t.leads += c.leads; t.s += c.s; t.cv += c.cv; return t; }, { spend: 0, leads: 0, s: 0, cv: 0 });
-  const table = (title, sub, o, extraRows, noteOf) => {
-    const keys = Object.keys(o).filter(k => o[k].spend || o[k].leads || o[k].s).sort((a, b) => (o[b].spend - o[a].spend) || (o[b].cv - o[a].cv) || (o[b].leads - o[a].leads));
+  let showLabor = false;   // set per table: the branch table shows wages + fully-loaded CAC when any are entered
+  const head = () => el('tr', {}, th('', false, { background: 'var(--card-2)' }), th('Spend', true), th('Leads', true), th('New sales', true), th('New revenue', true), th('Close rate', true), th('Cost / lead', true), th('CAC', true), ...(showLabor ? [th('Wages', true), th('CAC · loaded', true)] : []), th('Return', true));
+  const sumOf = (o, keys) => keys.reduce((t, k) => { const c = o[k]; t.spend += c.spend; t.leads += c.leads; t.s += c.s; t.cv += c.cv; t.labor += c.labor || 0; return t; }, { spend: 0, leads: 0, s: 0, cv: 0, labor: 0 });
+  const table = (title, sub, o, extraRows, noteOf, withLabor) => {
+    showLabor = !!withLabor && Object.values(o).some(c => c.labor);
+    const keys = Object.keys(o).filter(k => o[k].spend || o[k].leads || o[k].s || o[k].labor).sort((a, b) => (o[b].spend - o[a].spend) || (o[b].cv - o[a].cv) || (o[b].leads - o[a].leads));
     const tot = sumOf(o, keys);
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-5 py-3' }, el('h3', { class: 'text-base font-bold' }, title), el('div', { class: 'text-[11px] mt-0.5', style: muted }, sub)),
       el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-        el('thead', {}, head.cloneNode(true)),
+        el('thead', {}, head()),
         el('tbody', {}, ...keys.map(k => row(k, o[k], false, noteOf ? noteOf(k, o[k]) : null)), ...(extraRows || []), keys.length ? row('Total', tot, true) : null))),
       !keys.length ? el('div', { class: 'px-5 py-4 text-sm text-center', style: muted }, 'Nothing for ' + _mklLbl(ym) + ' yet.') : null);
   };
   // Branch: spend placed on the Spend tab; waiting vendors are out of this split until their report lands.
-  const brTable = table('By branch · ' + _mklLblS(ym), 'Spend as allocated on the Spend tab' + (cur.spendWaiting > 0 ? ' — ' + _mklUsd(cur.spendWaiting) + ' of vendor spend is not in any branch yet (waiting on reports), so branch CAC runs low until it lands' : '') + '. Leads by the lead’s ZIP; new sales by the account’s office.', cur.br, null, null);
+  const brTable = table('By branch · ' + _mklLblS(ym), 'Spend as allocated on the Spend tab' + (cur.spendWaiting > 0 ? ' — ' + _mklUsd(cur.spendWaiting) + ' of vendor spend is not in any branch yet (waiting on reports), so branch CAC runs low until it lands' : '') + '. Leads by the lead’s ZIP; new sales by the account’s office.' + (cur.hasLabor ? ' Wages & incentives from the Spend tab; CAC · loaded = (spend + wages) ÷ new sales.' : ''), cur.br, null, null, true);
   const chTable = table('By channel · ' + _mklLblS(ym), 'Spend by vendor from QuickBooks; leads by GoHighLevel source; new sales by the FieldRoutes source on the account (last touch). Close rate = new sales ÷ leads, so a channel whose GHL label and FieldRoutes source don\u2019t line up will read high or low — map them the same in Configurations.', cur.ch, null,
     (k, c) => c.waiting > 0 ? 'waiting on its report — not in branches yet' : k === 'Unmapped GHL source' ? 'map these in Configurations → GoHighLevel sources' : k === 'Unspecified' ? 'no source on the account — fix in FieldRoutes' : (c.s && !c.leads) ? 'sales but no leads — no GoHighLevel label maps here (Configurations → sources)' : (c.leads && !c.s && !c.spend) ? 'leads but no sales — no FieldRoutes source maps here' : null);
 

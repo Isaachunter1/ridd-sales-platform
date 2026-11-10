@@ -195,7 +195,7 @@ function viewAdmin() {
       ['comps',     'Competitions',         'Schedule and calendar'],
     ] },
     { label: 'Rules', items: [
-      ['config',    'Configurations',       'Book, churn, services, cancel reasons, Indicators, shift templates'],
+      ['config',    'Configurations',       'Book, churn, services, cancel reasons, Indicators'],
       ['marketing', 'Marketing & lead sources', 'Sources, paid channels, ad accounts, GoHighLevel, targets'],
     ] },
     { label: 'System', items: [
@@ -506,10 +506,12 @@ function adminConfigurations(part) {
     return el('div', { class: 'flex items-center gap-1.5 flex-wrap', style: { justifyContent: 'flex-start' } },
       ...terms.map(t => el('span', { class: 'inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full', style: { background: 'rgba(223,100,58,.10)', color: 'var(--text)' } }, t,
         el('button', { class: 'text-[13px] leading-none', 'aria-label': 'Remove ' + t, style: { color: 'var(--text-muted)', minWidth: '28px', minHeight: '28px', margin: '-6px -8px -6px 0' }, onclick: () => onChange(terms.filter(x => x !== t)) }, '×'))),
-      el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', maxWidth: '180px' },
-        onchange: (e) => { const v = e.target.value; if (v) onChange([...terms, v.toLowerCase()]); } },
-        el('option', { value: '' }, '+ add service'),
-        ...svcNames.filter(nm => !covered(nm)).map(nm => el('option', { value: nm }, nm))));
+      // Type to find a service (per Isaac, Nov 9 — the 260-option dropdown was the jumble); Enter or pick from the list adds it.
+      (() => { const id = 'svc-dl-' + Math.random().toString(36).slice(2, 8); const opts = svcNames.filter(nm => !covered(nm));
+        const inp = el('input', { type: 'text', list: id, placeholder: '+ add service…', class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '170px' },
+          onchange: (e) => { const v = String(e.target.value || '').trim(); if (!v) return; const hit = opts.find(nm => nm.toLowerCase() === v.toLowerCase()) || v; onChange([...terms, hit.toLowerCase()]); e.target.value = ''; },
+          onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.dispatchEvent(new Event('change')); } } });
+        return el('span', { class: 'inline-flex' }, inp, el('datalist', { id }, ...opts.map(nm => el('option', { value: nm })))); })());
   };
   const num = (value, onSave) => el('input', { type: 'number', min: '0', value: String(value), class: 'rounded-lg border px-2 py-1 text-[11px] tabular-nums', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '64px', textAlign: 'right' }, onchange: (e) => onSave(e.target.value) });
   const pill = (t, color) => el('span', { class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full', style: color ? { background: color + '18', color } : { background: 'var(--card-2)', color: 'var(--text-muted)' } }, t);
@@ -549,25 +551,27 @@ function adminConfigurations(part) {
   const _scanDate = crmMeta && crmMeta.scanned_at ? new Date(crmMeta.scanned_at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '';
   const reportingRules = card('Customer book & churn', { sub: 'How the active book, churn and retention are counted on Reporting, Retention and the dashboards.' },
     row('Reinstatement grace', [num(reportingReinstateGraceDays(), (v) => { setReportingReinstateGraceDays(v); mountApp(); }), el('span', { class: 'text-[11px] text-muted-' }, 'days')],
-      { desc: 'A cancelled account that’s reactivated within this many days counts as never churned.', tip: 'A cancelled account that is active again within this many days is treated as retained. Reactivated later than this, the cancel stands as churn (revenue was missed) and the reactivation counts as a win-back. Needs the reactivation date from the CRM feed; until it arrives, an active account with an old cancel date is treated as reinstated in time.' }),
+      { desc: 'Reactivated within this many days = never churned.', tip: 'A cancelled account that is active again within this many days is treated as retained. Reactivated later than this, the cancel stands as churn (revenue was missed) and the reactivation counts as a win-back. Needs the reactivation date from the CRM feed; until it arrives, an active account with an old cancel date is treated as reinstated in time.' }),
     row('At-risk after', [num(reportingAgingDays(), (v) => { setReportingAgingDays(v); mountApp(); }), el('span', { class: 'text-[11px] text-muted-' }, 'days past due')],
-      { desc: 'An account with a balance this many days past due (or more) counts as aging / at-risk.', tip: 'A sub counts as aging / at-risk when its days past due is greater than or equal to this number.' }),
+      { desc: 'Past due this long = at-risk.', tip: 'A sub counts as aging / at-risk when its days past due is greater than or equal to this number.' }),
     row('Leave out accounts deleted in FieldRoutes', sw(autoOrph, () => { setReportingAutoExcludeOrphans(!autoOrph); mountApp(); }),
       { desc: el('span', {}, orphans.length
-          ? [n(orphanCust) + ' customer' + (orphanCust === 1 ? ' has' : 's have') + ' subscriptions with no FieldRoutes customer record any more. ',
+          ? [n(orphanCust) + ' customer' + (orphanCust === 1 ? '' : 's') + ' with no FieldRoutes record · ',
              el('button', { class: 'font-semibold underline', style: { color: 'var(--accent)' }, onclick: () => openReportingDrillModal({ chartTitle: 'Subscriptions with no FieldRoutes customer record', sliceLabel: n(orphans.length) + ' subscriptions · deleted in the CRM', rows: orphans, formatValue: fmt.usd0 }) }, 'View them'),
-             ' · On = left out of every report.']
-          : 'No subscriptions are missing their FieldRoutes customer record right now. On = any that appear are left out of every report.') }),
-    sub2('Also use the nightly FieldRoutes check', [isAdminRole(state.profile?.role) ? (() => { const btn = el('button', { class: 'rounded-lg border px-2 py-0.5 text-[11px] font-bold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, title: 'Ask FieldRoutes which customer ids still exist (about two minutes), then reload',
+             '']
+          : 'None right now.') }),
+    sub2('Treat never-started signups as deleted', [num(reportingStalePendingDays(), (v) => { setReportingStalePendingDays(v); mountApp(); }), el('span', { class: 'text-[11px] text-muted-' }, 'days'), sw(reportingExclStalePending(), () => { setReportingExclStalePending(!reportingExclStalePending()); mountApp(); })],
+      { desc: n(_stalePend) + ' customer' + (_stalePend === 1 ? '' : 's') + ' right now — active, never serviced, initial appointment this many days past.',
+        tip: 'Accounts deleted in FieldRoutes right after signup stay Active + Pending in the mirror forever. Customers whose every subscription is active, never serviced, and whose initial appointment passed this many days ago (or has no appointment and was sold 14+ days ago) are treated as deleted and left out of every report.' }));
+  // Off by default and known to over-flag — lives under Advanced (per Isaac, Nov 9).
+  const nightlyCheck = card('Nightly FieldRoutes deleted-customer check', { sub: 'Off by default — it flagged live customers in September. On = customers the nightly check can’t find are removed app-wide.' },
+    sub2('Use the nightly check', [isAdminRole(state.profile?.role) ? (() => { const btn = el('button', { class: 'rounded-lg border px-2 py-0.5 text-[11px] font-bold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, title: 'Ask FieldRoutes which customer ids still exist (about two minutes), then reload',
         onclick: async (e) => { e.stopPropagation(); btn.disabled = true; btn.textContent = 'Starting\u2026';
           try { const h = await _apiAuthHeaders({ 'Content-Type': 'application/json' }); const r = await fetch('/api/crm-deleted-scan-now', { method: 'POST', headers: h }); const j = await r.json().catch(() => ({}));
             if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); toast(j.message || 'FieldRoutes check started', 'success'); btn.textContent = 'Running \u2014 reload in ~2 min';
           } catch (err) { toast('Could not start the check: ' + (err && err.message || err), 'error'); btn.disabled = false; btn.textContent = '\u21bb Run check now'; } } }, '\u21bb Run check now'); return btn; })() : null, sw(useScan, () => { setReportingUseCrmDeletedScan(!useScan); mountApp(); })],
       { desc: (crmDelN ? n(crmDelN) + ' customer IDs the check couldn’t find' + (_scanDate ? ' (' + _scanDate + ')' : '') : 'The check hasn’t run yet') + '. Off by default — it flagged live customers in September.',
         tip: 'Off by default. When on, customers the nightly FieldRoutes check could not find are removed app-wide (leaderboard, reporting, retention). Turned off Sep 29 after the check flagged 2,355 live customers.' }),
-    sub2('Treat never-started signups as deleted', [num(reportingStalePendingDays(), (v) => { setReportingStalePendingDays(v); mountApp(); }), el('span', { class: 'text-[11px] text-muted-' }, 'days'), sw(reportingExclStalePending(), () => { setReportingExclStalePending(!reportingExclStalePending()); mountApp(); })],
-      { desc: n(_stalePend) + ' customer' + (_stalePend === 1 ? '' : 's') + ' right now: every subscription active but never serviced, and the initial appointment passed this many days ago (or none booked and sold 14+ days ago).',
-        tip: 'Accounts deleted in FieldRoutes right after signup stay Active + Pending in the mirror forever. Customers whose every subscription is active, never serviced, and whose initial appointment passed this many days ago (or has no appointment and was sold 14+ days ago) are treated as deleted app-wide. On by default.' }),
   );
 
   // (Attrition steps card retired Sep 23 per Isaac — the Retention tab's own
@@ -780,16 +784,15 @@ function adminConfigurations(part) {
   const _exSvcTip = 'Services left out of every Indicators metric (fees, chargebacks, follow-ups, inspections, removals — not real new production). Starts from the built-in list.';
   const indicators = card('Indicators', { sub: 'What the leaderboard, player cards, TV boards and competitions count.' },
     sub('Left out of every Indicators number'),
-    row('Excluded services', svcPicker(_exSvc, (l) => { state.indicatorExclServices = l; saveIndicatorState(); toast(l.length + ' service' + (l.length === 1 ? '' : 's') + ' left out of Indicators', 'success'); mountApp(); }), { desc: 'Fees, chargebacks, follow-ups and other non-sales.', stack: true, tip: _exSvcTip }),
+    row('Excluded services', svcPicker(_exSvc, (l) => { state.indicatorExclServices = l; saveIndicatorState(); toast(l.length + ' service' + (l.length === 1 ? '' : 's') + ' left out of Indicators', 'success'); mountApp(); }), { desc: 'Fees, follow-ups, removals — not new production.', stack: true, tip: _exSvcTip }),
     _exTeams.length ? row('Excluded teams', el('span', { class: 'text-[11px] font-semibold' }, _exTeams.join(', ')), { desc: 'Set per team in Settings → Teams → a team’s Settings → Leave out of Indicators.' }) : null,
     sub('Specific metrics'),
     row('MY % exclusions', svcPicker(myExcludeTerms(), (l) => { state.indicatorMyExclServiceTerms = l.length ? l : null; saveIndicatorState(); toast(l.length ? l.length + ' service' + (l.length === 1 ? '' : 's') + ' excluded from MY %' : 'Reset to the default (sentricon)', 'success'); mountApp(); }), { desc: 'Left out of both sides of MY %.', stack: true, tip: 'Services dropped from both sides of the MY % (multi-year) ratio — they still count everywhere else.' }),
     row('Last Resort · initial under', el('span', { class: 'inline-flex items-center gap-1 text-[11px]' }, '$', num(lastResortMin(), (v) => { const n = Number(v); _setAdminRule('lastResortMin', Number.isFinite(n) && n >= 0 && n !== LAST_RESORT_MIN_DEFAULT ? n : null); toast('Last Resort = initial under $' + lastResortMin(), 'success'); mountApp(); })),
       { desc: 'Last Resort % and every competition’s Failed bucket.', tip: 'Sales whose initial price is under this are “Last Resort”: shown in Last Resort %, and out of every competition (PRA, King of the Hill, Top Gun, raffles). Default $' + LAST_RESORT_MIN_DEFAULT + '. 0 turns it off.' }),
     row('Pest initial exclusions', svcPicker(pestInitialExclList(), (l) => { _setAdminRule('pestInitialExcl', l.length ? l : []); toast(l.length ? l.length + ' service' + (l.length === 1 ? '' : 's') + ' left out of Pest Init' : 'Nothing left out of Pest Init', 'success'); mountApp(); }),
-      { desc: 'Left out of Avg Pest / Pest Init (boards, player cards, raffles, exports).', stack: true, tip: 'Services matched by name (partial, any case). Default Sentricon, German Roach, Interior Flea.' + (Array.isArray(_adminRules() && _adminRules().pestInitialExcl) ? '' : ' (default)') }),
-    row('Failed-audit flag', el('span', { class: 'text-[11px] font-semibold' }, auditFailFlag() || '— none —'), { desc: 'Audit %, competitions’ Failed bucket and the pay hold all read this one flag. Edit it in Commissions & payroll → Pay automation.' }),
-  );
+      { desc: 'Left out of Avg Pest / Pest Init everywhere.', stack: true, tip: 'Services matched by name (partial, any case). Default Sentricon, German Roach, Interior Flea.' + (Array.isArray(_adminRules() && _adminRules().pestInitialExcl) ? '' : ' (default)') }),
+  );   // (Failed-audit flag pointer removed Nov 9 — it is set in Commissions & payroll → Pay automation.)
 
   // ── 5. Lists — collapsed one-liners ──
   // A panel built for its own page arrives as a card with its own title —
@@ -835,10 +838,10 @@ function adminConfigurations(part) {
       listCard('source', 'Lead sources', _srcN ? n(_srcN) + ' sources' : '', reportingSourceConfigPanel,
         'Each FieldRoutes source: new, renewal or upsell; paid or not; how a sale gets credited; and where it shows.')),
     section('spend', 'Where spend and leads land',
+      typeof reportingProviderIdsPanel === 'function' ? listCard('provids', 'Location IDs → office', 'Angi · Google LSA · campaigns', reportingProviderIdsPanel,
+        'Angi company IDs, Google Local Services account IDs, campaigns and uploaded-report locations, each with its office (per Isaac, Nov 9).') : null,
       typeof reportingAdAccountsPanel === 'function' ? listCard('adacc', 'Ad accounts → office', 'Facebook + Google', reportingAdAccountsPanel,
         'Which office each Facebook and Google Ads account’s spend belongs to.') : null,
-      typeof reportingProviderIdsPanel === 'function' ? listCard('provids', 'Provider IDs → office', 'LSA · Angi · campaigns', reportingProviderIdsPanel,
-        'Account, campaign and report IDs (LSA, Angi, uploaded reports) matched to an office.') : null,   // per Isaac, Oct 9
       typeof reportingGhlSourcesPanel === 'function' ? listCard('ghl', 'GoHighLevel sources → provider', (state._ghl && state._ghl.rows && state._ghl.rows.length) ? n(state._ghl.rows.length) + ' contacts' : 'sync', reportingGhlSourcesPanel,
         'Which provider each GoHighLevel lead source counts as, so new leads roll up by channel.') : null,
       typeof reportingFrSourcesPanel === 'function' ? listCard('frsrc', 'FieldRoutes sources → channel', 'match GoHighLevel', reportingFrSourcesPanel,
@@ -848,8 +851,8 @@ function adminConfigurations(part) {
         'The CAC, ROAS and spend-mix targets behind the Marketing report’s projections.', ['Marketing targets']) : null));
   // ── Configurations (cleanup, Oct 16): sections top to bottom, the big lists collapsed.
   return el('div', { class: 'flex flex-col gap-4' },
-    head('Configurations', 'The rules behind every number in the app — how the customer book, churn and the Indicators are counted.', configInfoBtn('How reporting works', howItWorks())),
-    jump([['book', 'Customer book'], ['ind', 'Indicators'], ['lists', 'Services & cancels'], ['cal', 'Calendar'], ['adv', 'Advanced']]),
+    head('Configurations', 'How the customer book, churn and the Indicators are counted.', configInfoBtn('How reporting works', howItWorks())),
+    jump([['book', 'Customer book'], ['ind', 'Indicators'], ['lists', 'Services & cancels'], ['adv', 'Advanced']]),
     section('book', null, reportingRules),
     section('ind', null, indicators,
       typeof indicatorMetricRulesTable === 'function' ? listCard('metrics', 'Metric rules by user type', 'per metric', indicatorMetricRulesTable,
@@ -862,11 +865,9 @@ function adminConfigurations(part) {
       // Definitions moved here from its own Reporting tab (per Isaac, Oct 14).
       typeof viewSemanticDefinitions === 'function' ? listCard('defs', 'Definitions', 'how every number is built', () => viewSemanticDefinitions({ embedded: true }),
         'Plain-English formula for every metric, with the rule each one reads.') : null),
-    // Shift templates + swap approval (per Isaac, Oct 16 — moved from Calendar settings).
-    section('cal', 'Calendar',
-      typeof calendarRulesPanel === 'function' ? listCard('calrules', 'Shift templates & swap rules', (() => { try { const t = (calendarSettings().templates || []).length; return t + ' template' + (t === 1 ? '' : 's'); } catch (e) { return ''; } })(), calendarRulesPanel,
-        'Named shifts for one-click scheduling, and whether shift swaps need a lead’s sign-off.') : null),
+    // (Shift templates + swap rules back on Settings → Calendar, Nov 9 — they are calendar settings, not reporting rules.)
     section('adv', 'Advanced — rarely changed',
+      nightlyCheck,
       typeof reportingCrmVocabPanel === 'function' ? listCard('vocab', 'CRM vocabulary', 'seller types · reasons · ROR window', reportingCrmVocabPanel,
         'How FieldRoutes words map into the app: seller types, cancel reasons, the right-of-rescission window.') : null,
       typeof reportingOpsBaselinePanel === 'function' ? listCard('ops', 'Operations baseline', 'benchmarks', reportingOpsBaselinePanel,

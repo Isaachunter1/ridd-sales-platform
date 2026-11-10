@@ -73,6 +73,7 @@ module.exports = [
   'integrations/spend-qbo.js',
   'integrations/spend-view.js',
   'integrations/spend-uploads.js',
+  'integrations/provider-reports.js',
   'indicators/indicator-metrics.js',
   'integrations/disposition.js',
   'reporting/geographic.js',
