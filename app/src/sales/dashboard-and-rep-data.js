@@ -4711,7 +4711,9 @@ function openIndicatorRepCard(rep, allReps = []) {
       const st = _stat(x);
       if (st === 'pending') { if ((x.status || '').toLowerCase() !== 'frozen' && !(x.cancelDate && !svc)) audit.pending++; }
       else audit[st]++;
-      if (st === 'passed' || st === 'failed') { attr[st][1]++; if (_realCancel(x)) attr[st][0]++; }
+      // Attrition by audit status (per Isaac, Nov 10): serviced revenue, ROR + one-time out of both sides — the same
+      // basis as the Excl. 3-day ROR card, so the two agree (it used to count every account, serviced or not).
+      if ((st === 'passed' || st === 'failed') && svc && !_ror(x) && !_isOTS(x)) { attr[st][1] += cv; if (_cxlR(x)) attr[st][0] += cv; }
     }
     const passBase = audit.passed + audit.failed + audit.noaudit;
     const passPct = passBase > 0 ? (audit.passed + audit.noaudit) / passBase : null;
@@ -4781,7 +4783,7 @@ function openIndicatorRepCard(rep, allReps = []) {
         tile('Failed', fmt.int(audit.failed), null, audit.failed > 0 ? bad : null, drill('Failed', x => _stat(x) === 'failed')),
         tile('No Audit', fmt.int(audit.noaudit), 'counts as passed', null, drill('No Audit', x => _stat(x) === 'noaudit')),
         tile('Pending', fmt.int(audit.pending), null, null, drill('Pending', x => _stat(x) === 'pending' && (x.status || '').toLowerCase() !== 'frozen' && !(x.cancelDate && !_svcR(x)))),
-        tile('Attrition on Audits: Pass / Fail', pctS(rateOf(attr.passed)) + ' / ' + pctS(rateOf(attr.failed))),
+        tile('Attrition on Audits: Pass / Fail', pctS(rateOf(attr.passed)) + ' / ' + pctS(rateOf(attr.failed)), 'cancelled ÷ serviced revenue · excl. 3-day ROR & one-time'),
       ]),
       group('Revenue · contract value  (Serviced = Active + Cancelled)', [
         tile('Sold', money(soldRev), 'all sold (incl. pre-service)', null, drill('Sold revenue', () => true)),
@@ -4791,56 +4793,13 @@ function openIndicatorRepCard(rep, allReps = []) {
         tile('Cancelled · ROR + One-Time', money(rorRev + otsCancelRev), '3-day ROR ' + money(rorRev) + ' · one-time ' + money(otsCancelRev) + ' — not attrition', (rorRev + otsCancelRev) > 0 ? bad : null, drill('3-Day ROR + one-time (cancelled)', x => _svcR(x) && (_ror(x) || (_cxlR(x) && _isOTS(x))))),
         tile('Aging', money(agingRev), 'at-risk slice of Active', agingRev > 0 ? bad : null, drill('Aging', x => _svcR(x) && _isAging(x))),
       ]),
+      // Three attrition reads + retention (per Isaac, Nov 10 — the True attrition bar is retired).
       group('Attrition · of serviced', [
-        // One card for both reads (per Isaac): excl. ROR + OTS beside incl.
-        attrTile(attrExclRor, attrInclRor),
-        tile('If aging churns', pctS(cancelIfAging), '(cancelled + aging) \u00f7 serviced \u00b7 incl. 3-day ROR \u2212 OTS', '#A9441F'),
-          // ('Active retention' tile removed per Isaac - it duplicated 1 - attrition and left the grid uneven.)
+        tile('Attrition · excl. 3-day ROR', pctS(attrExclRor), 'cancelled ÷ serviced · ROR + one-time out of both', good),
+        tile('Attrition · incl. 3-day ROR', pctS(attrInclRor), 'cancelled ÷ serviced · one-time out of both'),
+        tile('3-day ROR + aging', pctS(cancelIfAging), '(cancelled + aging) ÷ serviced', '#A9441F'),
+        tile('Retention', pctS(activeRetention), 'active ÷ serviced', activeRetention == null ? null : (activeRetention >= 0.85 ? good : activeRetention < 0.65 ? bad : null)),
       ]),
-      // \u2500\u2500 "True Attrition" bar (per Isaac) \u2014 same fixed definition as
-      // the Reporting > Retention bar: cancels EXCLUDING 3-day RORs,
-      // one-time services, and renewals (removed from BOTH sides), PLUS
-      // aging actives counted as churn. Revenue-weighted like the tiles
-      // above; the counts underneath drill into the exact accounts.
-      (() => {
-        const _tx = (x) => _svcR(x) && !_ror(x) && !_isOTS(x) && !_isRenewalCancel(x);
-        let tSvc = 0, tCxl = 0, tAging = 0, nSvc = 0, nCxl = 0, nAging = 0;
-        for (const x of all) {
-          if (!_tx(x)) continue;
-          const cv = Number(x.contractValue) || 0;
-          tSvc += cv; nSvc++;
-          if (_realCancel(x)) { tCxl += cv; nCxl++; }
-          else if (_isAging(x)) { tAging += cv; nAging++; }
-        }
-        if (!(tSvc > 0)) return null;
-        const rate = (tCxl + tAging) / tSvc;
-        const kept = tSvc - tCxl - tAging;
-        const seg = (v, color, label) => v > 0 ? el('div', {
-          style: { width: Math.max(0, Math.min(100, v / tSvc * 100)).toFixed(2) + '%', background: color, height: '100%' },
-          title: label + ' \u2014 ' + money(v) + ' (' + (v / tSvc * 100).toFixed(1) + '%)',
-        }) : null;
-        return el('div', { class: 'rounded-xl p-3', style: { background: 'var(--card-2)' } },
-          el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
-            el('div', {},
-              el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } },
-                'True attrition \u00b7 excl. ROR + OTS + renewals \u00b7 aging counts as churn'),
-              el('div', { class: 'text-[10px] text-muted- mt-0.5' },
-                '(cancelled ' + money(tCxl) + ' + aging ' + money(tAging) + ') \u00f7 ' + money(tSvc) + ' serviced'),
-              // Same basis as Reporting → Retention (aging is still an active account there), per Isaac Oct 12.
-              el('div', { class: 'text-[10px] mt-0.5' }, el('span', { class: 'font-semibold' }, 'Cancelled only: ' + pctS(tCxl / tSvc) + ' · ' + fmt.int(nCxl) + ' of ' + fmt.int(nSvc) + ' accounts'),
-                el('span', { class: 'text-muted-' }, ' — aging counted as still active, the way the Retention tab reads it'))),
-            el('div', { class: 'text-xl font-black tabular-nums', style: { color: rate >= 0.15 ? bad : rate < 0.08 ? good : '#A9441F' } }, pctS(rate))),
-          el('div', { class: 'w-full rounded-full overflow-hidden flex mt-2', style: { height: '10px', background: 'var(--card)' } },
-            seg(kept, good, 'Retained'),
-            seg(tAging, '#A9441F', 'Aging'),
-            seg(tCxl, bad, 'Cancelled')),
-          el('div', { class: 'flex items-center justify-between mt-1 text-[10px] text-muted-' },
-            el('span', {},
-              el('span', { class: 'cursor-pointer underline', onclick: drill('True attrition \u00b7 cancelled', x => _tx(x) && _realCancel(x)) }, fmt.int(nCxl) + ' cancelled'),
-              ' \u00b7 ',
-              el('span', { class: 'cursor-pointer underline', onclick: drill('True attrition \u00b7 aging', x => _tx(x) && _actR(x) && _isAging(x)) }, fmt.int(nAging) + ' aging')),
-            el('span', {}, fmt.int(nSvc) + ' serviced accounts in this view')));
-      })(),
       drillPanel() || el('div', {}),
     );
   }
