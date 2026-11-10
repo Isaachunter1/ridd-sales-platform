@@ -924,7 +924,7 @@ const _mktgDiv = (a, b) => (b > 0 ? a / b : null);
 function _mktgYearBar(sub) {
   const y = _mktgYearSel();
   // Attribution (lead reconciliation) is a tab of its own (per Isaac, Oct 2) — it lived behind a button on the right.
-  const SUBS = [['providers', 'Metrics'], ['recon', 'Attribution'], ['pnl', 'P&L'], ['spend', 'Spend']];   // Projections hidden (per Isaac, Oct 9); Disposition removed (Nov 5)
+  const SUBS = [['providers', 'Metrics'], ['recon', 'Channels'], ['pnl', 'P&L'], ['spend', 'Spend']];   // Attribution → Channels (per Isaac, Nov 10)   // Projections hidden (per Isaac, Oct 9); Disposition removed (Nov 5)
   const _recon = sub === 'providers' && state._mktProvView === 'recon';
   return el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
     el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
@@ -1554,7 +1554,8 @@ function reportingMarketingPnl() {
   // reconciliation are buttons to the right of the Office dropdown.
   // Lead providers now sits directly under the CAC table (per Isaac, Sep 30).
   const provView = state._mktProvView === 'recon' ? 'recon' : 'cac';
-  const body = sub === 'providers' ? (provView === 'recon' ? el('div', { class: 'flex flex-col gap-4' }, mktgAttributionView())
+  // Channels (per Isaac, Nov 10) replaces the Attribution view — src/integrations/channels.js; the old view stays in the code.
+  const body = sub === 'providers' ? (provView === 'recon' ? el('div', { class: 'flex flex-col gap-4' }, (() => { try { return typeof channelsView === 'function' ? channelsView() : mktgAttributionView(); } catch (e) { console.warn('[channels]', e); return el('div', { class: 'card p-6 text-sm' }, 'Channels hit an error: ' + (e.message || e)); } })())
       // Rebuilt around the GoHighLevel lead cohort (per Isaac, Oct 15) — src/85-marketing-metrics.js. The old
       // Demand / CAC / provider cards stay in the code, unreached.
       // Marketing Pulse (per Isaac's brief, Oct 15) — src/85-marketing-pulse.js; the cohort view is the fallback.
