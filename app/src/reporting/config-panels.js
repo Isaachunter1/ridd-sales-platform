@@ -687,7 +687,7 @@ function reportingLoadQboSpend(force) {
   // No static / hand-entered fallback (per Isaac): QuickBooks via Windsor or
   // nothing — an unbooked month shows blank rather than a made-up number.
   const useFile = () => { state.reportingIsSpend = {}; state._isSpendSource = 'none'; state._isSpendLoading = false; mountApp(); };
-  _apiAuthHeaders().then(h => fetch('/api/qbo-spend' + (force ? '?_=' + Date.now() : ''), { headers: h })).then(r => r.ok ? r.json() : null).then(j => {
+  _apiAuthHeaders().then(h => fetch('/api/qbo-spend' + (force ? '?_=' + Date.now() : ''), { headers: h })).then(r => { state._qboHttp = r.status; if (r.status === 401 || r.status === 403) _apiAuthExpired(r.status); return r.ok ? r.json() : null; }).then(j => {
     if (j && j.bySourceMonth && Object.keys(j.bySourceMonth).length) {
       state.reportingIsSpendPayee = j.byPayee || null;
       state.reportingIsSpend = j.bySourceMonth; state._isSpendSource = 'QuickBooks'; state._isSpendPulledAt = j.pulledAt; state._isSpendLoading = false; if (typeof healthReport === 'function') healthReport('qbo', true); mountApp();
@@ -697,7 +697,7 @@ function reportingLoadQboSpend(force) {
       // First pull is running in the background (Windsor ledger takes ~30s) — poll.
       state._isSpendLoading = false; state.reportingIsSpend = null;
       setTimeout(() => reportingLoadQboSpend(false), 25000);
-    } else { if (typeof healthReport === 'function') healthReport('qbo', false, 'QuickBooks spend unavailable — using the uploaded file'); useFile(); }
+    } else { if (typeof healthReport === 'function') healthReport('qbo', false, state._qboHttp === 401 || state._qboHttp === 403 ? 'Sign-in expired (HTTP ' + state._qboHttp + ') — reload the app and sign in again' : 'QuickBooks spend unavailable (HTTP ' + (state._qboHttp || '?') + ')'); useFile(); }
   }).catch((e) => { if (typeof healthReport === 'function') healthReport('qbo', false, e); useFile(); });
 }
 // QuickBooks branch accounts → sales-data office names.

@@ -18,7 +18,7 @@ function reportingLoadAdSpend(year, force) {
   state._adSpend[year] = { loading: true, rows: cur && cur.rows ? cur.rows : null };
   _apiAuthHeaders({ accept: 'application/json' })
     .then(h => fetch('/api/ad-spend?year=' + year + (force ? '&_=' + Date.now() : ''), { headers: h }))
-    .then(r => r.ok ? r.json() : r.json().catch(() => ({})).then(j => { throw new Error(j.error || ('HTTP ' + r.status)); }))
+    .then(r => { if (r.status === 401 || r.status === 403) _apiAuthExpired(r.status); return r.ok ? r.json() : r.json().catch(() => ({})).then(j => { throw new Error(j.error || ('HTTP ' + r.status)); }); })
     .then(j => { state._adSpend[year] = { rows: j.rows || [], geo: j.geo || [], pulledAt: j.pulledAt, errors: j.errors || [] }; mountApp(); })
     .catch(e => { state._adSpend[year] = { failAt: Date.now(), error: String((e && e.message) || e), rows: cur && cur.rows ? cur.rows : null }; mountApp(); });
 }

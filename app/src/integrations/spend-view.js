@@ -37,7 +37,10 @@ function mktgSpendView() {
   const head = () => el('div', { class: 'card px-5 py-3 flex items-center gap-3 flex-wrap' },
     el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Spend · ' + reportingMonthLbl(ym)), el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'QuickBooks marketing spend by provider and by branch, each provider’s own statement beside it, and the month’s wages')),
     el('span', { class: 'ml-auto' }), monthSel);
-  if (!P) return el('div', { class: 'flex flex-col gap-4' }, head(), el('div', { class: 'card p-6 text-sm text-center', style: muted }, state._isSpendLoading ? 'Pulling QuickBooks…' : 'QuickBooks isn’t connected or hasn’t been pulled yet — Settings → Connections.'));
+  const authGone = state._authExpired ? el('div', { class: 'card p-4 flex items-center gap-3 flex-wrap', style: { borderColor: 'rgba(220,38,38,.5)' } },
+    el('div', { class: 'text-sm' }, el('span', { class: 'font-bold', style: { color: '#B91C1C' } }, 'Your sign-in has expired. '), 'QuickBooks and Windsor data can’t load until you sign in again.'),
+    el('button', { class: 'ml-auto rounded-lg px-3 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => location.reload() }, 'Reload & sign in')) : null;
+  if (!P) return el('div', { class: 'flex flex-col gap-4' }, head(), authGone, el('div', { class: 'card p-6 text-sm text-center', style: muted }, state._isSpendLoading ? 'Pulling QuickBooks…' : state._authExpired ? 'Reload the app to sign in again.' : 'QuickBooks isn’t connected or hasn’t been pulled yet — Settings → Connections.'));
   if (!P.lines) return el('div', { class: 'flex flex-col gap-4' }, head(), el('div', { class: 'card p-6 text-sm text-center', style: muted }, 'QuickBooks is connected, but the line-by-line detail hasn’t been pulled yet. It arrives with the next QuickBooks refresh.'));
   const A = spqAllocMonth(ym);
   if (!A) return el('div', { class: 'flex flex-col gap-4' }, head(), el('div', { class: 'card p-6 text-sm text-center', style: muted }, 'No Advertising & Marketing lines in QuickBooks for ' + reportingMonthLbl(ym) + '.'));

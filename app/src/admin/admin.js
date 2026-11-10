@@ -2142,9 +2142,64 @@ function adminDataSources() {
       brandAsset('ridd-logo.png', 'PNG · charcoal on white · 888 × 252', '#FFFFFF', '44px'),
       brandAsset('ridd-logo-dark.png', 'PNG · cream on charcoal, padded · 1191 × 966', '#2D2C2A', '96px'),
       brandAsset('ridd-mark-v2.gif', 'GIF · animated RIDD mark v2, orange on transparent — the email-signature version: full logo 10s, then the spider dissolves (~2.6s) while RIDD stays, loops · 245 × 340', '#FFFFFF', '96px')) : null);
+  // ── Marketing feeds (per Isaac, Nov 10): QuickBooks via Windsor, the Windsor ad accounts, GoHighLevel, Plaibook —
+  //    what each last pulled, and a Pull now. A 401 anywhere means the sign-in expired, not the feed.
+  const y = new Date().getFullYear();
+  if (typeof reportingLoadQboSpend === 'function') reportingLoadQboSpend();
+  if (typeof reportingLoadAdSpend === 'function') reportingLoadAdSpend(y);
+  if (typeof ghlLoadLeads === 'function' && state._ghl === undefined) ghlLoadLeads();
+  const CR = typeof _closeRatesStore === 'function' ? _closeRatesStore() : null;
+  const feedCard = (title, desc, status, rows, actions) => el('div', { class: 'card p-5' },
+    el('div', { class: 'flex items-start justify-between gap-3 flex-wrap mb-2' },
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, title), el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, desc)), status),
+    ...rows.filter(Boolean), actions ? el('div', { class: 'flex items-center gap-2 mt-3 flex-wrap' }, ...actions) : null);
+  const authNote = state._authExpired ? el('div', { class: 'card p-4 flex items-center gap-3 flex-wrap', style: { borderColor: 'rgba(220,38,38,.5)' } },
+    el('div', { class: 'text-sm' }, el('span', { class: 'font-bold', style: { color: '#B91C1C' } }, 'Your sign-in has expired (HTTP ' + state._authExpired + '). '), 'Every API feed below will fail until you sign in again.'),
+    el('button', { class: 'ml-auto rounded-lg px-3 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => location.reload() }, 'Reload & sign in')) : null;
+  const P = state.reportingIsSpendPayee, qboMonths = P && P.lines ? Object.keys(P.lines).sort() : [];
+  const qboOk = state._isSpendSource === 'QuickBooks';
+  const qboCard = feedCard('QuickBooks (via Windsor)', 'The Advertising & Marketing expense lines behind Marketing → Spend and Metrics. Windsor pulls the QuickBooks ledger; the app reads Windsor.',
+    pill(state._isSpendLoading ? null : qboOk, state._isSpendLoading ? 'pulling…' : qboOk ? 'Connected' : state._authExpired ? 'Sign-in expired' : state._isSpendSource === 'none' ? 'Not loading' : 'checking…'),
+    [row('Last pull', state._isSpendPulledAt ? ago(state._isSpendPulledAt) + ' · ' + when(state._isSpendPulledAt) : '—'),
+     row('Months on file', qboMonths.length ? qboMonths.length + ' · ' + qboMonths[0] + ' → ' + qboMonths[qboMonths.length - 1] : '—'),
+     row('Lines (latest month)', qboMonths.length ? Number((P.lines[qboMonths[qboMonths.length - 1]] || []).length).toLocaleString() : '—'),
+     !qboOk && !state._isSpendLoading ? row('Last answer', state._authExpired ? 'HTTP ' + state._authExpired + ' — sign-in expired' : state._qboHttp ? 'HTTP ' + state._qboHttp : '—') : null],
+    [btn('Pull now', () => { state._isSpendRepoll = false; reportingLoadQboSpend(true); toast('Pulling QuickBooks…', 'success'); }, true),
+     el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Windsor refreshes QuickBooks on its own schedule; Pull now re-reads the latest Windsor copy and asks it to refresh.')]);
+  const AS = (state._adSpend || {})[y] || {};
+  const accts = (() => { const m = new Map(); for (const r of AS.rows || []) { const k = r.platform + '|' + r.acct; const x = m.get(k) || m.set(k, { platform: r.platform, acct: r.acct, name: r.acctName || '', lsa: false, ppc: false, fb: r.platform === 'facebook', spend: 0 }).get(k); if (r.platform === 'google') { if (adProviderOf(r) === 'Google Local Services') x.lsa = true; else x.ppc = true; } x.spend += Number(r.spend) || 0; } return [...m.values()].sort((a2, b2) => b2.spend - a2.spend); })();
+  const adOk = !!(AS.rows && AS.rows.length);
+  const adCard = feedCard('Windsor · Google Ads, Local Services, Facebook', 'Campaign spend, clicks and leads by account and month, plus Google’s metro report — what places platform spend by branch.',
+    pill(AS.loading ? null : adOk, AS.loading ? 'loading…' : adOk ? 'Connected' : AS.error ? 'Failed' : 'checking…'),
+    [row('Last pull', AS.pulledAt ? ago(AS.pulledAt) + ' · ' + when(AS.pulledAt) : '—'),
+     row('Rows this year', AS.rows ? Number(AS.rows.length).toLocaleString() + ' campaign-months · ' + Number((AS.geo || []).length).toLocaleString() + ' metro rows' : '—'),
+     AS.error ? row('Last error', String(AS.error)) : null,
+     (AS.errors || []).length ? row('Feed warnings', AS.errors.map(e => typeof e === 'string' ? e : (e.source || '') + ' ' + (e.message || e.error || '')).join(' · ')) : null,
+     accts.length ? el('div', { class: 'mt-2' }, el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-1', style: { color: 'var(--text-subtle)' } }, 'Accounts in the feed · ' + accts.length),
+       el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]', style: { borderCollapse: 'collapse' } }, el('tbody', {}, ...accts.map(a2 => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+         el('td', { class: 'px-2 py-1 font-semibold whitespace-nowrap' }, a2.fb ? 'Facebook' : a2.lsa && a2.ppc ? 'Google Ads + LSA' : a2.lsa ? 'Google LSA' : 'Google Ads'),
+         el('td', { class: 'px-2 py-1 tabular-nums whitespace-nowrap' }, a2.acct), el('td', { class: 'px-2 py-1', style: { color: 'var(--text-muted)' } }, a2.name || '—'),
+         el('td', { class: 'px-2 py-1 text-right tabular-nums whitespace-nowrap' }, fmt.usd0(a2.spend) + ' · ' + y))))))) : null],
+    [btn('Pull now', () => { reportingLoadAdSpend(y, true); toast('Pulling Windsor ad feeds…', 'success'); }, true),
+     el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Which branch each account counts for: Marketing & lead sources → Location IDs → office.')]);
+  const G = state._ghl;
+  const ghlCard = feedCard('GoHighLevel', 'Leads (opportunities) by source — the lead counts on Metrics and the close rates by channel.',
+    pill(G === null || G === undefined ? null : !!(G && G.opps && G.opps.length), G === null || G === undefined ? 'loading…' : G && G.opps && G.opps.length ? 'Connected' : G && G.missing ? 'No sync yet' : G && G.error ? 'Failed' : 'Empty'),
+    [row('Last sync', G && G.at ? ago(G.at) + ' · ' + when(G.at) : '—'),
+     row('On file', G && G.rows ? Number(G.rows.length).toLocaleString() + ' contacts · ' + Number((G.opps || []).length).toLocaleString() + ' opportunities' + (G.backfillDone ? '' : ' · history still loading') : '—'),
+     G && G.error ? row('Last error', G.error) : null],
+    [typeof ghlSyncNow === 'function' ? btn('Sync now', () => ghlSyncNow(), true) : null, btn('Reload', () => { state._ghl = undefined; ghlLoadLeads(true); }),
+     el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Source labels → channel: Marketing & lead sources → GoHighLevel sources.')]);
+  const crReps = CR && CR.reps ? Object.keys(CR.reps).length : 0;
+  const pbCard = feedCard('Plaibook', 'Close rates by rep (sold ÷ qualified) for the pay stub, the close-rate bonus and the TV board. Pulled hourly by the server job once it is deployed; until then, pasted in Configurations.',
+    pill(CR === null ? null : crReps > 0, CR === null ? 'loading…' : crReps ? 'Loaded' : 'Nothing yet'),
+    [row('Last pull', CR && CR.pulled_at ? ago(CR.pulled_at) + ' · ' + when(CR.pulled_at) : '—'), row('Reps with a close rate', crReps ? String(crReps) : '—'), row('Window', CR && CR.window && CR.window.label ? CR.window.label : '—')],
+    [el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Server job: plaibook-close-rates (needs PLAIBOOK_MCP_TOKEN on Cloud Run).')]);
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'flex items-center gap-2' }, el('h2', { class: 'text-lg font-bold' }, 'Connections'), state._integrationsErr ? pill(false, 'run migrations/20260923_integrations.sql') : null),
-    frCard, rvCard, sbCard, diCard, baCard);
+    authNote, frCard, rvCard,
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-bold pt-2', style: { color: 'var(--text-subtle)' } }, 'Marketing feeds'),
+    qboCard, adCard, ghlCard, pbCard, sbCard, diCard, baCard);
 }
 
 // ── Upsells → ticket items (per Isaac, Sep 30) ───────────────────────────
