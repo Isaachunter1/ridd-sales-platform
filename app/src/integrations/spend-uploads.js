@@ -29,6 +29,9 @@ function _spuStore() {
   // Fixed cost per lead (per Isaac, Oct 9 — DoLead bills $60 a lead): a provider with a price here is billed that
   // price for every row of its uploaded lead report; the sheet needs no amount column.
   m.spendCpl = (m.spendCpl && typeof m.spendCpl === 'object') ? m.spendCpl : {};   // { channel: dollars per lead }
+  // DoLead bills $60 a lead (per Isaac, Nov 10) — seeded once; the Spend tab's per-lead box changes it from then on.
+  m.spendCplSeeded = (m.spendCplSeeded && typeof m.spendCplSeeded === 'object') ? m.spendCplSeeded : {};
+  if (!m.spendCplSeeded.DoLead) { m.spendCplSeeded.DoLead = 1; if (!(Number(m.spendCpl.DoLead) > 0)) m.spendCpl.DoLead = 60; }
   return m;
 }
 function _spuCpl(ch) { const m = _mktgStore(); const v = Number(m.spendCpl && m.spendCpl[ch]); return v > 0 ? v : 0; }
@@ -152,10 +155,29 @@ function _spuAutoOffice(val, branches, m) {
   for (const [re, to] of SPU_MARKET_BRANCH) if (re.test(k)) { const hit = branches.find(x => String(x).toLowerCase() === to.toLowerCase()); if (hit) return hit; }
   const z = /^\D*(\d{5})(?:-\d{4})?\D*$/.exec(String(val));
   if (z && typeof _ghlZipOffice === 'function') { const o = _ghlZipOffice().get(z[1]); if (o && branches.includes(o)) return o; }
+  // A ZIP no customer of ours has yet (DoLead leads, per Isaac Nov 10): the branch that serves that ZIP prefix.
+  if (z) { const o = _spuZip3Office(z[1]); const hit = o && branches.find(b => String(b).toUpperCase() === o); if (hit) return hit; }
   // A city (DoLead reports, per Isaac Oct 9): the branch that services most of our customers in that city.
   const c = _spuCityOffice(val); if (c && branches.includes(c)) return c;
   return SPU_SPLIT;
 }
+// ZIP prefix (first 3 digits) → branch for RIDD's markets, used only when no customer carries the ZIP. Savannah-side
+// GA (313–314) and Wilmington NC (284) go where those markets are served; ZIPs outside every market come back ''.
+const SPU_ZIP3_BRANCH = (() => {
+  const t = {};
+  const put = (from, to, b) => { for (let i = from; i <= to; i++) t[String(i).padStart(3, '0')] = b; };
+  put(300, 312, 'ATLANTA'); put(315, 319, 'ATLANTA'); put(313, 314, 'CHARLESTON');            // Georgia
+  put(290, 294, 'CHARLESTON'); put(295, 296, 'MYRTLE BEACH'); put(297, 299, 'CHARLESTON');     // South Carolina
+  put(270, 279, 'RALEIGH'); put(280, 283, 'RALEIGH'); put(284, 284, 'MYRTLE BEACH'); put(285, 289, 'RALEIGH');   // North Carolina
+  put(220, 246, 'VIRGINIA BEACH');                                                             // Virginia
+  put(320, 329, 'DESTIN'); put(330, 349, 'DESTIN');                                            // Florida (Destin / Panama City side; the rest falls here too)
+  put(480, 499, 'DETROIT');                                                                    // Michigan
+  put(630, 658, 'JOPLIN');                                                                     // Missouri
+  put(716, 729, 'LITTLE ROCK');                                                                // Arkansas
+  put(840, 847, 'SALT LAKE');                                                                  // Utah
+  return t;
+})();
+function _spuZip3Office(zip) { return SPU_ZIP3_BRANCH[String(zip || '').slice(0, 3)] || ''; }
 // City → branch from FieldRoutes customers (city + state when the value has a state, e.g. "Conway, SC").
 // Cities where we have no customers come back empty and are picked by hand once (remembered).
 const _SPU_STATES = /\b(AL|AR|FL|GA|MI|MO|NC|SC|TN|UT|VA)\b/;

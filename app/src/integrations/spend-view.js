@@ -149,8 +149,11 @@ function mktgSpendView() {
       td(spend && (leadsRep || c.leads) ? usd0(spend / (leadsRep || c.leads)) : '—', null, true),
       td(spend && c.s ? usd0(spend / c.s) : '—', null, true),
       td(spend ? (c.cv / spend).toFixed(2) + 'x' : '—', spend ? { fontWeight: '700', color: c.cv / spend >= 1 ? '#3E5A3A' : '#B91C1C' } : muted2, true),
-      el('td', { class: 'px-3 py-1' }, st ? el('span', { class: 'text-[10px]', style: muted2, title: st.from || '' }, 'statement · ' + new Date(st.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }))
-        : up != null ? el('span', { class: 'text-[10px]', style: muted2 }, 'uploaded breakout') : (!plat && admin) ? rowUpload(v) : plat ? el('span', { class: 'text-[10px]', style: muted2 }, 'Windsor') : null));
+      el('td', { class: 'px-3 py-1' }, el('div', { class: 'flex items-center gap-2 flex-wrap' },
+        st ? el('span', { class: 'text-[10px]', style: muted2, title: st.from || '' }, 'statement · ' + new Date(st.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }))
+          : up != null ? el('span', { class: 'text-[10px]', style: muted2 }, 'uploaded ' + (typeof _spuCpl === 'function' && _spuCpl(v) ? 'lead report' : 'breakout')) : (!plat && admin) ? rowUpload(v) : plat ? el('span', { class: 'text-[10px]', style: muted2 }, 'Windsor') : null,
+        // Per-lead price (DoLead $60, per Isaac Nov 10): every row of the lead report bills this; editable here.
+        !plat && admin && typeof _spuCplInput === 'function' && (typeof _spuCpl === 'function' && _spuCpl(v) || /dolead/i.test(v)) ? el('span', { class: 'inline-flex items-center gap-1 text-[10px]', style: muted2, title: 'Fixed cost per lead — every lead on the report bills this' }, _spuCplInput(v, true), 'per lead') : null)));
   };
   const provTable = provNames.length ? el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3' }, el('h3', { class: 'text-base font-bold' }, 'By provider · ' + reportingMonthLbl(ym)),
