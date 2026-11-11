@@ -1598,7 +1598,8 @@ function adminCommissions() {
           : 'Commission rules by rep type. The Commission Calculator uses these; a specific rep can still be overridden there.')),
     serviceFeeCommissionCard(),   // every rep type (per Isaac, Oct 17)
     tabs,
-    body);
+    body,
+    isOfficeStaff && typeof closeRatesCard === 'function' ? closeRatesCard() : null);   // Plaibook close rates by rep + the user ↔ Plaibook match (per Isaac, Nov 11)
 }
 
 // ── Office Staff commissions — ONE plain metrics table (per Isaac): every

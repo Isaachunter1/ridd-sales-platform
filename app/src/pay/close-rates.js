@@ -27,16 +27,58 @@ function _closeRatesStore() {
   return state._closeRates;
 }
 const _crKey = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+// Matching an app user to a Plaibook rep (per Isaac, Nov 11 — "match the sales reps up from Plaibook to the same
+// users making sales on the TV display"): exact name, then the saved alias (Configurations → Close rates), then
+// the names with spaces and punctuation ignored ("Pere LeSueur" ↔ "Pere Le Sueur"). Returns the row's key, or null.
+const _crLoose = (s) => _crKey(s).replace(/[^a-z0-9]/g, '');
+function _crMatchKey(reps, aliases, fullName) {
+  if (!reps) return null;
+  const k = _crKey(fullName);
+  if (reps[k]) return k;
+  const a = (aliases || {})[k]; if (a && reps[a]) return a;
+  const loose = _crLoose(fullName); if (!loose) return null;
+  const hit = Object.keys(reps).find(x => _crLoose(x) === loose);
+  return hit || null;
+}
+
+// The TV Display's copy (per Isaac, Nov 11): app_settings.close_rates_tv holds the same pull once per board
+// range — { tz, pulled_at, seats, windows: { today: { start, end, label, reps: {…} }, … } } — written hourly by
+// the Cloud Run job (server/services/pay/jobs/plaibook-close-rates.js). Only the board loads it (it is big).
+function _closeRatesTvStore() {
+  if (typeof DEMO !== 'undefined' && DEMO) return state._closeRatesTv || (state._closeRatesTv = { windows: {}, seats: [] });
+  if (state._closeRatesTv === undefined) {
+    state._closeRatesTv = null;
+    if (typeof supabase !== 'undefined' && supabase) supabase.from('app_settings').select('value, updated_at').eq('key', 'close_rates_tv').maybeSingle().then(({ data }) => {
+      state._closeRatesTv = Object.assign({ windows: {}, seats: [] }, (data && data.value) || {});
+      state._closeRatesTvAt = Date.now();
+      mountApp();
+    }).catch(() => { state._closeRatesTv = { windows: {}, seats: [] }; });
+  } else if (state._closeRatesTv && state._closeRatesTvAt && Date.now() - state._closeRatesTvAt > 10 * 60 * 1000) { state._closeRatesTv = undefined; return _closeRatesTvStore(); }   // the board runs for days: re-read every 10 min
+  return state._closeRatesTv;
+}
 
 // The rep's Plaibook close rate, or null = no seat in Plaibook → No Close Rate.
-function repCloseRate(repOrId) {
+// With a board range id (today … this_year) the TV copy answers for THAT range: a seated rep with nothing
+// qualified in the range comes back with rate null and 0 / 0 (shown as "—", not "No close rate").
+function repCloseRate(repOrId, rangeId) {
   const prof = typeof repOrId === 'string' ? ((state.allProfiles || []).find(p => p.id === repOrId) || (state.profile && state.profile.id === repOrId ? state.profile : null)) : repOrId;
   const S = _closeRatesStore();
   if (!prof || !S || !S.reps) return null;
-  const k = _crKey(prof.full_name);
-  const hit = S.reps[k] || S.reps[(S.aliases || {})[k]] || null;
+  const k = _crMatchKey(S.reps, S.aliases, prof.full_name);
+  if (rangeId) {
+    const TV = _closeRatesTvStore();
+    const W = TV && TV.windows && TV.windows[rangeId];
+    if (W && W.reps) {
+      const hit = (k && W.reps[k]) || W.reps[_crMatchKey(W.reps, S.aliases, prof.full_name)] || null;
+      if (hit) { const rate = Number(hit.rate); return { rate: Number.isFinite(rate) ? rate : null, sold: Number(hit.sold) || 0, qualified: Number(hit.qualified) || 0, name: hit.name || prof.full_name, window: { start: W.start, end: W.end, label: W.label, id: W.id }, pulledAt: TV.pulled_at || null, lists: hit, rangeId }; }
+      if (!k) return null;   // no seat at all
+      return { rate: null, sold: 0, qualified: 0, name: prof.full_name, window: { start: W.start, end: W.end, label: W.label, id: W.id }, pulledAt: TV.pulled_at || null, lists: { closed: [], closed_n: 0, qualified_not_closed: [], qualified_not_closed_n: 0, unqualified: [], unqualified_n: 0 }, rangeId };
+    }
+    // TV copy not pulled yet for this range → fall through to the pay window, labelled as such.
+  }
+  const hit = k ? S.reps[k] : null;
   if (!hit || !Number.isFinite(Number(hit.rate))) return null;
-  return { rate: Number(hit.rate), sold: Number(hit.sold) || 0, qualified: Number(hit.qualified) || 0, name: hit.name || prof.full_name, window: S.window || null, pulledAt: S.pulled_at || null };
+  return { rate: Number(hit.rate), sold: Number(hit.sold) || 0, qualified: Number(hit.qualified) || 0, name: hit.name || prof.full_name, window: S.window || null, pulledAt: S.pulled_at || null, lists: hit };
 }
 const repCloseRateValue = (repOrId) => { const r = repCloseRate(repOrId); return r ? r.rate : null; };
 function closeRateLabel(repOrId) {
@@ -53,12 +95,29 @@ function closeRatesCard() {
   const muted = { color: 'var(--text-muted)' };
   const th = (t, r) => el('th', { class: 'px-2 py-1.5 text-[10px] uppercase tracking-wider font-semibold ' + (r ? 'text-right' : 'text-left'), style: muted }, t);
   const td = (t, r, st) => el('td', { class: 'px-2 py-1.5 tabular-nums ' + (r ? 'text-right' : ''), style: st || {} }, t);
-  const rows = reps.map(p => { const r = repCloseRate(p); return el('tr', { style: { borderTop: '1px solid var(--border)' } },
+  const matchedKeys = new Set(reps.map(p => S && _crMatchKey(S.reps, S.aliases, p.full_name)).filter(Boolean));
+  const extra = Object.entries((S && S.reps) || {}).filter(([k]) => !matchedKeys.has(k)).map(([k, x]) => ({ key: k, name: x.name || k, rate: x.rate }));
+  // Match a user to a Plaibook rep by hand (per Isaac, Nov 11): saves aliases[app name] = Plaibook key; the job keeps aliases across pulls.
+  const saveAlias = async (p, key) => {
+    const next = Object.assign({ source: 'plaibook', reps: {}, aliases: {} }, S || {}); next.aliases = Object.assign({}, next.aliases || {});
+    if (key) next.aliases[_crKey(p.full_name)] = key; else delete next.aliases[_crKey(p.full_name)];
+    if (typeof DEMO !== 'undefined' && DEMO) { state._closeRates = next; mountApp(); return; }
+    const r = await saveAppSettingCas('close_rates', next, async () => { state._closeRates = undefined; _closeRatesStore(); });
+    if (!r || !r.ok) { toast('Could not save the match' + (r && r.error ? ': ' + r.error.message : ''), 'error'); return; }
+    state._closeRates = next; toast(key ? p.full_name + ' → ' + ((S.reps[key] || {}).name || key) : 'Match cleared', 'success');
+    try { logActivity('config_change', { detail: 'Close rates: ' + p.full_name + ' matched to Plaibook ' + (key || '(cleared)') }); } catch (e) { /* optional */ }
+    mountApp();
+  };
+  const picker = (p) => el('select', { class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, title: 'Which Plaibook rep is this user?', onchange: (e) => saveAlias(p, e.target.value) },
+    el('option', { value: '' }, 'Match to a Plaibook rep…'), ...extra.map(x => el('option', { value: x.key }, x.name + ' · ' + Math.round(x.rate * 1000) / 10 + '%')));
+  const rows = reps.map(p => { const r = repCloseRate(p); const k = S && _crMatchKey(S.reps, S.aliases, p.full_name); const viaAlias = k && (S.aliases || {})[_crKey(p.full_name)] === k; const loose = k && !viaAlias && k !== _crKey(p.full_name);
+    return el('tr', { style: { borderTop: '1px solid var(--border)' } },
     td(p.full_name || '—'),
     td(r ? Math.round(r.rate * 1000) / 10 + '%' : 'No Close Rate', true, r ? { fontWeight: '700' } : { color: '#B91C1C', fontWeight: '600' }),
     td(r ? r.sold + ' / ' + r.qualified : '—', true, muted),
-    td(r ? 'close-rate bonus on' : 'no seat in Plaibook — no close-rate bonus', false, muted)); });
-  const extra = Object.values((S && S.reps) || {}).filter(x => !reps.some(p => _crKey(p.full_name) === _crKey(x.name) || ((S.aliases || {})[_crKey(p.full_name)] === _crKey(x.name))));
+    td(r ? el('span', {}, 'close-rate bonus on' + (loose ? ' · Plaibook: ' + ((S.reps[k] || {}).name || k) + ' (matched by name)' : viaAlias ? ' · Plaibook: ' + ((S.reps[k] || {}).name || k) + ' (matched by hand · ' : ''),
+          viaAlias ? el('button', { class: 'underline', style: muted, onclick: () => saveAlias(p, '') }, 'clear') : null, viaAlias ? ')' : '')
+      : (extra.length ? picker(p) : 'no seat in Plaibook — no close-rate bonus'), false, muted)); });
   const box = el('textarea', { class: 'w-full rounded-lg border px-2 py-1 text-[11px]', rows: 4, placeholder: 'One rep per line, as Plaibook shows them:\nDrew Sauer, 45.1%, 390 / 865\nDom Polk, 37.5, 138/368', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', fontFamily: 'ui-monospace, monospace' } });
   const win = el('input', { type: 'text', value: (S && S.window && S.window.label) || '', placeholder: 'window, e.g. Aug 8 – Nov 6 (90 days)', class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '240px' } });
   const save = el('button', { class: 'rounded-lg px-3 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: async () => {

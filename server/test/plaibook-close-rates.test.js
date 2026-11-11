@@ -2,6 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseSalesKpis, parseSalesKpisTable, parseRecords, recordCount, PlaibookMcp } from '../services/pay/functions/plaibookMcp.js';
+import { tvWindow, tvWindows, TV_RANGE_IDS } from '../services/pay/functions/tvWindows.js';
 
 const kpis = { metadata: { action: 'query_sales_kpis', metrics: {
   a: { label: 'close rate, Drew Sauer', text: '45.1% (390/865)' }, b: { label: 'revenue, Drew Sauer', text: '$268,092.92' }, c: { label: 'opportunities, Drew Sauer', text: '1,584' },
@@ -75,4 +76,21 @@ test('parseRecords / recordCount: the prose + json-block shape', () => {
   assert.equal(closed.length, 2); assert.equal(closed[1].sub, 'Bundle · $1072');
   assert.equal(recordCount(recText), 21);
   assert.equal(recordCount('nothing'), 0);
+});
+
+// TV ranges on the board's Mountain calendar: 2026-11-11 05:46Z is still Tue Nov 10, 10:46 pm in Denver.
+test('tvWindows: the board\'s ranges, on Mountain time, Sun–Sat weeks, whole past periods', () => {
+  const now = new Date('2026-11-11T05:46:00Z');
+  const w = Object.fromEntries(tvWindows(now).map(x => [x.id, x]));
+  assert.deepEqual(TV_RANGE_IDS, Object.keys(w));
+  assert.deepEqual([w.today.start, w.today.end, w.today.label], ['2026-11-10', '2026-11-10', 'Today']);
+  assert.deepEqual([w.yesterday.start, w.yesterday.end], ['2026-11-09', '2026-11-09']);
+  assert.deepEqual([w.this_week.start, w.this_week.end], ['2026-11-08', '2026-11-10']);     // Sunday Nov 8 → Tue Nov 10
+  assert.deepEqual([w.last_week.start, w.last_week.end], ['2026-11-01', '2026-11-07']);
+  assert.deepEqual([w.this_month.start, w.this_month.end, w.this_month.label], ['2026-11-01', '2026-11-10', 'November']);
+  assert.deepEqual([w.last_month.start, w.last_month.end, w.last_month.label], ['2026-10-01', '2026-10-31', 'October']);
+  assert.deepEqual([w.this_year.start, w.this_year.end, w.this_year.label], ['2026-01-01', '2026-11-10', '2026']);
+  // January: last month rolls into the prior year.
+  const j = tvWindow('last_month', new Date('2026-01-05T18:00:00Z'));
+  assert.deepEqual([j.start, j.end, j.label], ['2025-12-01', '2025-12-31', 'December']);
 });
