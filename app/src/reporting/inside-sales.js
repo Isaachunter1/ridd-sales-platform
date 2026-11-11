@@ -1056,43 +1056,55 @@ function initReportingGeoMap(containerId, states, metricKey, metricLabel, fmtMet
 // with an account count per ZIP, ready to hand to a lead provider. `kind` is
 // 'zip' | 'county'; `scopeTag` labels the file ('all' at country level, the
 // state code when drilled in).
+const ZIP_DENSE_MIN_ACTIVE = 5;   // under 5 active customers = too thin to point a lead provider at (per Isaac, Nov 11)
 function exportReportingGeoCsv(items, kind, scopeTag) {
   if (!items || !items.length) { toast('Nothing to export', 'warn'); return; }
   const firstCol = kind === 'county' ? 'county' : 'zip';
-  // Per Isaac: the export is a lean list — ZIP (or county), office, active subs.
-  // `office` is ONE market per row.
-  const headers = [firstCol, 'office', 'active_subscriptions'];
+  // Per Isaac (Nov 11): EVERY ZIP stays in the file (other uses need the full list), broken out into columns —
+  // market, state, county, active customers, active subscriptions, all customers — plus a target flag: a ZIP with
+  // under 5 active customers isn't dense enough to hand a lead provider, so it says No with the reason.
+  const headers = kind === 'county'
+    ? ['county', 'state', 'office', 'active_customers', 'active_subscriptions', 'all_customers', 'target_lead_providers', 'note']
+    : ['zip', 'office', 'state', 'county', 'active_customers', 'active_subscriptions', 'all_customers', 'target_lead_providers', 'note'];
   const lines = [headers.join(',')];
-  let n = 0;
+  let n = 0, thin = 0;
+  const isAct = (r) => String(r.subscription_status || '').trim().toLowerCase() === 'active' && !r.subscription_date_canceled;
+  const mostOf = (rows, key) => { const c = new Map(); for (const r of rows) { const v = String(r[key] || '').trim(); if (v) c.set(v, (c.get(v) || 0) + 1); } return [...c.entries()].sort((a, b) => b[1] - a[1]).map(x => x[0])[0] || ''; };
   // The breakdown can hold one ZIP on several lines (one per office, or ZIP+4 spellings): merge to one line per
   // 5-digit ZIP before picking its market.
   if (kind !== 'county') {
     const byZip = new Map();
     for (const it of items) {
       const z = String(it.zip || '').trim().slice(0, 5);
-      const cur = byZip.get(z) || { zip: z, active: 0, rows: [] };
-      cur.active += Number(it.active) || 0; cur.rows = cur.rows.concat(it.rows || []); if (!cur.office || (Number(it.active) || 0) > (cur._a || 0)) { cur.office = it.office; cur._a = Number(it.active) || 0; } byZip.set(z, cur);
+      const cur = byZip.get(z) || { zip: z, rows: [] };
+      cur.rows = cur.rows.concat(it.rows || []); byZip.set(z, cur);
     }
-    items = [...byZip.values()].sort((a, b) => b.active - a.active);
+    items = [...byZip.values()];
   }
+  const out = [];
   for (const it of items) {
+    if (kind !== 'county' && !/^\d{5}$/.test(String(it.zip || ''))) continue;   // no-ZIP rows are left out
+    const rows = it.rows || [];
+    const actRows = rows.filter(isAct);
+    const activeCustomers = new Set(actRows.map(r => r.customer_id).filter(Boolean)).size;
+    const allCustomers = new Set(rows.map(r => r.customer_id).filter(Boolean)).size;
     // One market per ZIP (per Isaac, Oct 9 — providers target by it, and a ZIP is never in two markets): the
-    // office with the most ACTIVE accounts there, then the most accounts overall. A stray account coded to
-    // another office (an old cancel, a typo) no longer adds a second market. No-ZIP rows are left out.
-    if (kind !== 'county' && !/^\d{5}$/.test(String(it.zip || ''))) continue;
-    if (!(Number(it.active) > 0)) continue;   // only areas with ACTIVE customers (per Isaac) — that's what providers target
-    let offices = it.office || '';
-    if (!offices) {   // items without a precomputed market: same rule as the breakdown
-      const act = new Map(), all = new Map();
-      for (const r of (it.rows || [])) { const o = r.office_name; if (!o) continue; all.set(o, (all.get(o) || 0) + 1); if (String(r.subscription_status || '').trim().toLowerCase() === 'active') act.set(o, (act.get(o) || 0) + 1); }
-      offices = [...all.keys()].sort((a, b) => ((act.get(b) || 0) - (act.get(a) || 0)) || (all.get(b) - all.get(a)) || a.localeCompare(b))[0] || '';
-    }
+    // office with the most ACTIVE accounts there, then the most accounts overall.
+    const act = new Map(), all = new Map();
+    for (const r of rows) { const o = r.office_name; if (!o) continue; all.set(o, (all.get(o) || 0) + 1); if (isAct(r)) act.set(o, (act.get(o) || 0) + 1); }
+    const office = [...all.keys()].sort((a, b) => ((act.get(b) || 0) - (act.get(a) || 0)) || (all.get(b) - all.get(a)) || a.localeCompare(b))[0] || it.office || '';
+    const dense = activeCustomers >= ZIP_DENSE_MIN_ACTIVE;
+    if (!dense) thin++;
+    out.push({ label: kind === 'county' ? (it.county || 'Unknown') : it.zip, state: it.state || mostOf(rows, 'state'), county: it.county || mostOf(rows, 'county'), office, activeCustomers, activeSubs: actRows.length, allCustomers, dense });
+  }
+  out.sort((a, b) => b.activeCustomers - a.activeCustomers || b.allCustomers - a.allCustomers || String(a.label).localeCompare(String(b.label)));
+  for (const o of out) {
     n++;
-    lines.push([
-      csvEsc(kind === 'county' ? (it.county || 'Unknown') : it.zip),
-      csvEsc(offices),
-      it.active,
-    ].join(','));
+    const flag = o.dense ? 'Yes' : 'No';
+    const note = o.dense ? '' : (o.activeCustomers ? o.activeCustomers + ' active customer' + (o.activeCustomers === 1 ? '' : 's') + ' — under ' + ZIP_DENSE_MIN_ACTIVE + ', not dense enough for a lead provider' : 'no active customers');
+    lines.push((kind === 'county'
+      ? [csvEsc(o.label), csvEsc(o.state), csvEsc(o.office), o.activeCustomers, o.activeSubs, o.allCustomers, flag, csvEsc(note)]
+      : [csvEsc(o.label), csvEsc(o.office), csvEsc(o.state), csvEsc(o.county), o.activeCustomers, o.activeSubs, o.allCustomers, flag, csvEsc(note)]).join(','));
   }
   const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
@@ -1100,6 +1112,6 @@ function exportReportingGeoCsv(items, kind, scopeTag) {
   const a = el('a', { href: url, download: 'ridd-accounts-by-' + firstCol + '-' + scopeTag + '-' + date + '.csv' });
   document.body.append(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
-  toast('Exported ' + n.toLocaleString() + ' ' + (kind === 'county' ? 'counties' : 'ZIPs'), 'success');
+  toast('Exported ' + n.toLocaleString() + ' ' + (kind === 'county' ? 'counties' : 'ZIPs') + ' · ' + thin.toLocaleString() + ' under ' + ZIP_DENSE_MIN_ACTIVE + ' active customers (flagged, kept)', 'success');
 }
 

@@ -434,7 +434,7 @@ function reportingGeographic() {
         el('button', {
           class: 'shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
           style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-          title: 'Export CSV — ' + (breakdown.labelKey === 'county' ? 'county' : 'ZIP') + ', office, active subscriptions',
+          title: 'Export CSV — every ' + (breakdown.labelKey === 'county' ? 'county' : 'ZIP') + ': office, state, county, active customers, active subscriptions, all customers, and whether to target it with lead providers (No under 5 active customers)',
           'aria-label': 'Export CSV',
           onclick: () => exportReportingGeoCsv(sortedItems, breakdown.labelKey, exportScopeTag + (bOffice !== 'all' ? '-' + (bOffice === 'multi' ? bPicked.length + '-offices' : bOffice.toLowerCase().replace(/\s+/g, '_')) : '')),
         }, '⬇')),

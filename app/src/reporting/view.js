@@ -952,11 +952,12 @@ function reportingRenewals(srcRows, opts) {
   // No Answer / Follow Up → Contacting, Resigned → Renewed.
   const LOG = state._renewalLog || {};
   const logOf = (x) => LOG[String(x.id)] || {};
-  // Three stages (per Isaac, Nov 4): no Contacting column — everyone being worked stays in Eligible, where call
-  // attempts bump a customer down the list (tried in the last 2 days = bottom) and a Needs follow-up time pops
-  // them back to the top when it comes due. Nobody gets dialed five times in two days.
+  // Four stages (per Isaac, Nov 11): a No Contact column — the moment a rep logs a call as No answer the card moves
+  // there (ready-to-retry first: oldest attempt on top, tried today at the bottom). Follow-ups keep their day and
+  // time in Eligible, where a due follow-up pops to the top. The 5th no answer → Not Interested, as before.
   const STAGES = [
     { key: 'Eligible',       label: 'Eligible',       emoji: '🟢', color: '#5F6C5B', bg: 'rgba(95,108,91,.10)',  blurb: 'Final 2 months of the agreement (signed date + contract length), or past term and month-to-month · any recurring plan · never renewed before · no Sentricon, no one-time. Follow-ups due on top, then by priority; tried in the last 2 days sinks to the bottom' },
+    { key: 'No Contact',     label: 'No Contact',     emoji: '📵', color: '#B45309', bg: 'rgba(180,83,9,.10)',   blurb: 'Tried, no answer — lands here as soon as the call is logged. Oldest attempt on top (ready to try again), tried today at the bottom. The 5th no answer moves them to Not Interested' },
     { key: 'Renewed',        label: 'Renewed',        emoji: '✅', color: 'var(--ok)', bg: 'rgba(22,163,74,.10)',  blurb: 'Re-signed. Cards marked CRM came in through a Renewal source automatically' },
     { key: 'Not Interested', label: 'Not Interested', emoji: '❌', color: '#DC2626', bg: 'rgba(220,38,38,.10)',  blurb: 'Declined — stays here so nobody calls them again' },
   ];
@@ -964,6 +965,7 @@ function reportingRenewals(srcRows, opts) {
     const r = String(logOf(x).result || '');
     if (r === 'Renewed' || r === 'Resigned') return 'Renewed';
     if (/^Not Interested/.test(r)) return 'Not Interested';   // incl. 'Not Interested · no answer x5'
+    if (/^No Contact/.test(r) || r === 'Contacting') return 'No Contact';   // 'Contacting' = the queue's older no-answer label
     return 'Eligible';
   };
   const q = String(state._renewalQ || '').trim().toLowerCase();
@@ -995,6 +997,8 @@ function reportingRenewals(srcRows, opts) {
       : a._lane === 3 ? _renewalFollowUpKey(logOf(a)).localeCompare(_renewalFollowUpKey(logOf(b)))
       : _renewalPriority(a, b, logOf)));
   ['Renewed', 'Not Interested'].forEach(k => cols[k].sort((a, b) => touched(b).localeCompare(touched(a))));
+  // No Contact: the ones ready to try again first (oldest attempt), the ones tried today last.
+  cols['No Contact'].sort((a, b) => String(_renewalLastAttempt(logOf(a)) || '').localeCompare(String(_renewalLastAttempt(logOf(b)) || '')) || _renewalPriority(a, b, logOf));
   // A follow-up coming due while the board is open re-sorts it on time (per Isaac: the card pops to the top).
   _renewalScheduleDue(cols.Eligible.map(x => logOf(x)), _now);
   // Renewed → checked against FieldRoutes (per Isaac, Oct 28). A rep's "Renewed" is a claim until FieldRoutes has a
@@ -1012,7 +1016,7 @@ function reportingRenewals(srcRows, opts) {
   };
   const moveTo = (x, stage) => {
     if (x.crm) return;
-    _renewalLogSave(x.id, { result: stage === 'Eligible' ? '' : stage });
+    _renewalLogSave(x.id, Object.assign({ result: stage === 'Eligible' ? '' : stage }, stage === 'No Contact' ? { last_attempt_at: new Date().toISOString() } : {}));   // a drag into No Contact stamps the try so the column sorts it
     mountApp();
   };
   const dragKey = { cur: null };
@@ -1032,8 +1036,10 @@ function reportingRenewals(srcRows, opts) {
     }, ...STAGES.map(s => { const o = el('option', { value: s.key }, s.emoji + ' ' + s.label); if (s.key === stage) o.selected = true; return o; }));
     // Where the card is in the Eligible rotation (per Isaac, Nov 4): follow-up due / booked, or cooling off after a try.
     const laneLine = (() => {
-      if (x.crm || stage !== 'Eligible') return null;
+      if (x.crm) return null;
       const fu = _renewalFollowUpKey(g), la = _renewalLastAttempt(g);
+      if (stage === 'No Contact') return la ? el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '📵 no answer · tried ' + _renewalAgo(la)) : null;
+      if (stage !== 'Eligible') return null;
       if (x._lane === 0) return el('span', { class: 'text-[10px] font-black', style: { color: '#7C3AED' } }, '⏰ Follow up now · ' + _renewalCallbackLabel(g));
       if (x._lane === 3) return el('span', { class: 'text-[10px] font-bold', style: { color: '#7C3AED' } }, '📅 Follow up ' + _renewalCallbackLabel(g));
       if (x._lane === 2 && la) return el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '📵 tried ' + _renewalAgo(la) + ' · back up ' + _renewalAgo(new Date(Date.parse(la) + RENEWAL_COOLDOWN_MS)));
@@ -1135,7 +1141,7 @@ function reportingRenewals(srcRows, opts) {
       el('div', { class: 'flex items-center gap-2 flex-wrap' }, search, branchSel, scoreboard,
         el('span', { class: 'text-[11px] tabular-nums ml-auto', style: { color: 'var(--text-muted)' } }, cols.Eligible.filter(matchQ).length.toLocaleString() + ' eligible · ' + fmt.usd0(arrOf(cols.Eligible.filter(matchQ))) + ' ARR'),
         exportAll),
-      el('div', { class: 'grid gap-3 renewal-board', style: { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' } }, ...STAGES.map(column)));
+      el('div', { class: 'grid gap-3 renewal-board', style: { gridTemplateColumns: 'repeat(' + STAGES.length + ', minmax(0, 1fr))' } }, ...STAGES.map(column)));
   }
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'card p-4' },
@@ -1143,14 +1149,14 @@ function reportingRenewals(srcRows, opts) {
         el('div', {},
           el('h2', { class: 'text-lg font-bold' }, '🔁 Renewals pipeline'),
           el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
-            'Eligible = inside the final 2 months of the contract (start date + contract length) or past term and still month-to-month, never renewed before (any Renewal-source sub on the account rules it out), and not Sentricon. Refreshes from the CRM sync. Eligible is the call order: follow-ups due on top, then priority; a customer tried in the last 2 days drops to the bottom. Click a card to log the call. Drag a card between stages or use the stage picker on it; attempts and notes save instantly for everyone.')),
+            'Eligible = inside the final 2 months of the contract (start date + contract length) or past term and still month-to-month, never renewed before (any Renewal-source sub on the account rules it out), and not Sentricon. Refreshes from the CRM sync. Eligible is the call order: follow-ups due on top, then priority. A call logged as No answer moves the card to No Contact at once (oldest attempt on top there, so the column is its own call order); the 5th no answer moves it to Not Interested. Click a card to log the call. Drag a card between stages or use the stage picker on it; attempts and notes save instantly for everyone.')),
         el('div', { class: 'flex items-center gap-2 flex-wrap' }, search, branchSel, exportAll)),
       el('div', { class: 'flex gap-x-4 gap-y-1 flex-wrap mt-2 text-[11px] tabular-nums', style: { color: 'var(--text-muted)' } },
         el('span', {}, el('b', {}, allRecs.length.toLocaleString()), ' eligible contracts · ', el('b', {}, fmt.usd0(arrOf(allRecs))), ' ARR in play'),
         el('span', {}, el('b', {}, worked.toLocaleString()), ' worked · ', el('b', { style: { color: 'var(--ok)' } }, renewedManual.toLocaleString()), ' marked renewed, awaiting FieldRoutes'),
         crmRenewed.length ? el('span', {}, el('b', {}, crmRenewed.length.toLocaleString()), ' renewed via a Renewal source in the CRM · ', el('b', {}, fmt.usd0(arrOf(crmRenewed))), ' ARR') : null,
         scoreboard)),
-    el('div', { class: 'grid gap-3 renewal-board', style: { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' } }, ...STAGES.map(column)));
+    el('div', { class: 'grid gap-3 renewal-board', style: { gridTemplateColumns: 'repeat(' + STAGES.length + ', minmax(0, 1fr))' } }, ...STAGES.map(column)));
 }
 
 // ── RENEWAL CALL QUEUE (per Isaac, Oct 12) ─────────────────────────────
@@ -1240,8 +1246,8 @@ function _renewalScheduleDue(logs, now) {
   if (next < n + 6 * 3600000) state._renewalDueT = setTimeout(() => { if (state.view === 'loyalty_renewals' || state.view === 'queues') mountApp(); }, Math.max(1000, next - n + 500));
 }
 // One disposition panel for a renewal card (per Isaac, Nov 4 — the queue's panel, moved onto the board):
-//   No answer       → +1 attempt, stays in Eligible, drops to the bottom for 2 days. On a follow-up that is due: re-booked
-//                     next weekday same time (twice), then the regular list. The 5th no-answer → Not interested.
+//   No answer       → +1 attempt, straight to the No Contact column (per Isaac, Nov 11). On a follow-up that is due:
+//                     re-booked next weekday same time (twice), then No Contact. The 5th no-answer → Not interested.
 //   Needs follow up → +1 attempt and a day AND time (both required); under the list until then, then on top.
 //   Renewed / Not interested → +1 attempt; off to that column.
 function _renewalDispPanel(x, g, o) {
@@ -1256,7 +1262,7 @@ function _renewalDispPanel(x, g, o) {
     btn('📝 Log the call', 'How did the call go?', () => { state._renewalDispOpen = String(x.id); state._renewalDispPick = ''; state._renewalDispDate = ''; state._renewalDispTime = ''; mountApp(); },
       { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }));
   const DISPOS = [
-    { k: 'noanswer', label: '📵 No answer', tip: 'Stays in Eligible — drops to the bottom for 2 days' },
+    { k: 'noanswer', label: '📵 No answer', tip: 'Moves to the No Contact column right away' },
     { k: 'callback', label: '⏰ Needs follow up', tip: 'Pick a day and time — under the list until then, then back on top' },
     { k: 'renewed', label: '✅ Renewed', tip: 'Signed a new agreement — confirmed when the renewal (Renewal source) shows up in FieldRoutes' },
     { k: 'notint', label: '❌ Not interested', tip: 'Declined — off the list for everyone' },
@@ -1276,8 +1282,8 @@ function _renewalDispPanel(x, g, o) {
       patch = { attempts: att + 1, result: 'Callback ' + next + (cbT ? ' ' + cbT : '') + ' · missed ' + (misses + 1), last_attempt_at: stamp };
       msg = 'Missed follow-up — re-booked for ' + next + (cbT ? ' at ' + _renewalTime12(cbT) : '') + ' (' + (misses + 1) + ' of ' + RENEWAL_CB_MAX_MISSES + ')';
     } else if (pick === 'noanswer') {
-      patch = { attempts: att + 1, result: '', last_attempt_at: stamp };
-      msg = cbDue ? 'Follow-up missed ' + (misses + 1) + ' times — back on the regular list' : 'No answer logged — back up the list in 2 days';
+      patch = { attempts: att + 1, result: 'No Contact', last_attempt_at: stamp };   // → the No Contact column (per Isaac, Nov 11)
+      msg = cbDue ? 'Follow-up missed ' + (misses + 1) + ' times — moved to No Contact' : 'No answer — moved to No Contact';
     } else if (pick === 'callback') {
       patch = { attempts: att + 1, result: 'Callback ' + cbDate + ' ' + cbTime, last_attempt_at: stamp };
       msg = 'Follow up set for ' + cbDate + ' at ' + _renewalTime12(cbTime) + ' — pops to the top then';

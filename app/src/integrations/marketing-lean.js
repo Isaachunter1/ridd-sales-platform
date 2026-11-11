@@ -92,8 +92,11 @@ function mktgLeanView() { return perfT('lean:view', () => _mktgLeanView()); }
 function _mktgLeanView() {
   if (typeof reportingLoadQboSpend === 'function') reportingLoadQboSpend();
   if (typeof ghlLoadLeads === 'function' && state._ghl === undefined) ghlLoadLeads();
-  const F = mklState(); const ym = F.ym, pm = _mklShift(ym, -1);
-  if (typeof reportingLoadAdSpend === 'function') { reportingLoadAdSpend(Number(ym.slice(0, 4))); if (pm.slice(0, 4) !== ym.slice(0, 4)) reportingLoadAdSpend(Number(pm.slice(0, 4))); }
+  const F = mklState(); const ym = F.ym;
+  // Compare to (per Isaac, Nov 11 — the key-metrics tile look): the previous month, or the same month last year.
+  const cmp = F.cmp === 'year' ? 'year' : 'prev';
+  const pm = _mklShift(ym, cmp === 'year' ? -12 : -1);
+  if (typeof reportingLoadAdSpend === 'function') { reportingLoadAdSpend(Number(ym.slice(0, 4))); if (pm.slice(0, 4) !== ym.slice(0, 4)) reportingLoadAdSpend(Number(pm.slice(0, 4))); const y0 = Number(_mklShift(ym, -11).slice(0, 4)); if (y0 !== Number(ym.slice(0, 4)) && y0 !== Number(pm.slice(0, 4))) reportingLoadAdSpend(y0); }   // the 12-month sparklines
   const cur = mklMonth(ym), prev = mklMonth(pm);
   const muted = { color: 'var(--text-muted)' };
   const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
@@ -112,23 +115,80 @@ function _mktgLeanView() {
     dot(!!(G && G.opps), 'GoHighLevel leads' + (G && G.at ? ' · ' + _mklAgo(G.at) : G === undefined || (G && G.loading) ? ' · loading' : '')));
 
   // ── Tiles: the three truths, then what they make. ──
-  const d = (a, b) => a == null || b == null || !isFinite(a) || !isFinite(b) || b === 0 ? null : (a - b) / Math.abs(b);
-  const delta = (v, upGood) => { if (v == null) return el('span', { class: 'text-[11px]', style: muted }, 'no prior'); const good = upGood == null ? null : (v >= 0) === upGood; return el('span', { class: 'text-[11px] font-semibold tabular-nums', style: { color: good == null ? 'var(--text-muted)' : good ? '#3E5A3A' : '#B91C1C' } }, (v >= 0 ? '▲ ' : '▼ ') + Math.abs(Math.round(v * 100)) + '% vs ' + _mklLblS(pm)); };
-  const tile = (label, val, dl, note, onClick) => el('div', { class: 'card p-4 flex flex-col gap-1' + (onClick ? ' cursor-pointer' : ''), onclick: onClick || null },
-    el('div', { class: 'text-[10px] uppercase tracking-widest font-bold', style: muted }, label),
-    el('div', { class: 'text-2xl font-black tabular-nums', style: { fontFamily: 'ui-monospace, monospace' } }, val), dl, note ? el('div', { class: 'text-[11px]', style: muted }, note) : null);
+  // ── Key metrics (per Isaac, Nov 11 — the dashboard-tile look): icon, label, the number, ↑/↓ vs the compare
+  // month with its value, and a 12-month sparkline of the metric. Click a tile for its drill where there is one.
   const cac = (D) => D.hasSpend && D.spend && D.s ? D.spend / D.s : null, ret = (D) => D.hasSpend && D.spend ? D.cv / D.spend : null, cpl = (D) => D.hasSpend && D.spend && D.leads ? D.spend / D.leads : null, close = (D) => D.leads ? D.s / D.leads : null;
+  const fcac = (D) => D.hasLabor && D.s ? ((D.hasSpend ? D.spend : 0) + D.labor) / D.s : null, avgC = (D) => D.s ? D.cv / D.s : null;
+  const spendOf = (D) => D.hasSpend ? D.spend : null, cvOf = (D) => D.hasSubs ? D.cv : null, leadsOf = (D) => D.hasLeads ? D.leads : null, salesOf = (D) => D.hasSubs ? D.s : null;
   const spendNote = !cur.hasSpend ? 'No QuickBooks lines for this month yet' : [cur.spendLines + ' charges', cur.spendUnassigned > 0 ? _mklUsd(cur.spendUnassigned) + ' need a vendor' : '', cur.spendWaiting > 0 ? _mklUsd(cur.spendWaiting) + ' waiting on vendor reports' : ''].filter(Boolean).join(' · ') + ' → Spend tab';
-  const tiles = el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-3' },
-    tile('Marketing spend · QuickBooks', _mklUsd(cur.hasSpend ? cur.spend : null), delta(d(cur.spend, prev.hasSpend ? prev.spend : null), null), spendNote, goSpend),
-    tile('New revenue · FieldRoutes', _mklUsd(cur.hasSubs ? cur.cv : null), delta(d(cur.cv, prev.hasSubs ? prev.cv : null), true), cur.s + ' new sale' + (cur.s === 1 ? '' : 's') + ' · Office Staff · contract value', () => mklOpenSales(cur, 'New sales · ' + _mklLbl(ym))),
-    tile('New leads · GoHighLevel', _mklNum(cur.leads), delta(d(cur.leads, prev.leads), true), cur.hasLeads ? 'opportunities, one per person per 30 days' : 'GoHighLevel not loaded'),
-    tile('Return on spend', _mklX(ret(cur)), delta(d(ret(cur), ret(prev)), true), 'new revenue ÷ spend'),
-    tile('CAC', _mklUsd(cac(cur)), delta(d(cac(cur), cac(prev)), false), 'marketing spend ÷ new sales'),
-    tile('CAC · fully loaded', cur.hasLabor && cur.s ? _mklUsd(((cur.hasSpend ? cur.spend : 0) + cur.labor) / cur.s) : '—', cur.hasLabor && prev.hasLabor ? delta(d(cur.s ? ((cur.hasSpend ? cur.spend : 0) + cur.labor) / cur.s : null, prev.s ? ((prev.hasSpend ? prev.spend : 0) + prev.labor) / prev.s : null), false) : el('span', { class: 'text-[11px]', style: muted }, cur.hasLabor ? 'no prior' : 'wages not entered'), cur.hasLabor ? '(spend + ' + _mklUsd(cur.labor) + ' wages & incentives) ÷ new sales' : 'enter wages on the Spend tab'),
-    tile('Cost per lead', _mklUsd(cpl(cur)), delta(d(cpl(cur), cpl(prev)), false), 'spend ÷ leads'),
-    tile('Close rate', _mklPct(close(cur)), delta(d(close(cur), close(prev)), true), 'new sales ÷ leads'),
-    tile('Avg contract', _mklUsd(cur.s ? cur.cv / cur.s : null), delta(d(cur.s ? cur.cv / cur.s : null, prev.s ? prev.cv / prev.s : null), true), 'new revenue ÷ new sales'));
+  const MONTHS12 = []; for (let i = 11; i >= 0; i--) MONTHS12.push(_mklShift(ym, -i));
+  const series = (fn) => MONTHS12.map(m => { const v = fn(mklMonth(m)); return v == null || !isFinite(v) ? null : v; });
+  const spark = (vals, color) => {
+    const pts = vals.map((v, i) => [i, v]).filter(x => x[1] != null);
+    if (pts.length < 2) return el('div', { style: { height: '34px' } });
+    const W = 100, H = 34, min = Math.min(...pts.map(x => x[1])), max = Math.max(...pts.map(x => x[1])), span = max - min || 1;
+    const X = (i) => (i / (vals.length - 1)) * W, Y = (v) => H - 3 - ((v - min) / span) * (H - 8);
+    const d = pts.map((x, i) => (i ? 'L' : 'M') + X(x[0]).toFixed(1) + ' ' + Y(x[1]).toFixed(1)).join(' ');
+    const area = d + ' L' + X(pts[pts.length - 1][0]).toFixed(1) + ' ' + H + ' L' + X(pts[0][0]).toFixed(1) + ' ' + H + ' Z';
+    const last = pts[pts.length - 1];
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H); svg.setAttribute('preserveAspectRatio', 'none'); svg.style.cssText = 'width:100%;height:34px;display:block;overflow:visible';
+    svg.innerHTML = '<path d="' + area + '" fill="' + color + '" fill-opacity=".12"/><path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>'
+      + '<circle cx="' + X(last[0]).toFixed(1) + '" cy="' + Y(last[1]).toFixed(1) + '" r="2.2" fill="' + color + '" vector-effect="non-scaling-stroke"/>'
+      + '<line x1="0" y1="' + (H - 0.5) + '" x2="' + W + '" y2="' + (H - 0.5) + '" stroke="var(--border-2)" stroke-width="1" vector-effect="non-scaling-stroke"/>';
+    svg.setAttribute('title', MONTHS12.map((m, i) => _mklLblS(m) + ' ' + (vals[i] == null ? '—' : vals[i])).join(' · '));
+    return svg;
+  };
+  const ICON = {
+    spend: '<rect x="2" y="6" width="20" height="13" rx="2"/><circle cx="12" cy="12.5" r="3"/><path d="M2 10h2M20 10h2M2 15h2M20 15h2"/>',
+    revenue: '<path d="M12 2v20M17 6.5a4 4 0 0 0-4-2.5H11a3.5 3.5 0 0 0 0 7h2a3.5 3.5 0 0 1 0 7h-2a4 4 0 0 1-4-2.5"/>',
+    sales: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+    leads: '<circle cx="9" cy="8" r="3.5"/><path d="M2 20a7 7 0 0 1 14 0M19 8v6M16 11h6"/>',
+    ret: '<path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/>',
+    cac: '<circle cx="12" cy="12" r="9"/><path d="M12 7v10M9.5 9.5h3.5a1.75 1.75 0 0 1 0 3.5h-2a1.75 1.75 0 0 0 0 3.5H15"/>',
+    cpl: '<path d="M20 6H4l8 9z"/><path d="M12 15v6"/>',
+    close: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/>',
+    avg: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/>',
+    fcac: '<path d="M4 20h16M6 20V9l6-5 6 5v11"/><path d="M10 20v-5h4v5"/>',
+  };
+  const icon = (k) => { const w = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); w.setAttribute('viewBox', '0 0 24 24'); w.setAttribute('fill', 'none'); w.setAttribute('stroke', 'currentColor'); w.setAttribute('stroke-width', '1.8'); w.setAttribute('stroke-linecap', 'round'); w.setAttribute('stroke-linejoin', 'round'); w.style.cssText = 'width:18px;height:18px;flex:none;color:var(--text-subtle)'; w.innerHTML = ICON[k] || ''; return w; };
+  const cmpLbl = cmp === 'year' ? 'last year' : 'prior month';
+  const tile = (o) => {
+    const a = o.get(cur), b = o.get(prev);
+    const dv = a != null && b != null && isFinite(a) && isFinite(b) && b !== 0 ? (a - b) / Math.abs(b) : null;
+    const good = dv == null ? null : o.upGood == null ? null : (dv >= 0) === o.upGood;
+    const col = good == null ? 'var(--text-muted)' : good ? '#16A34A' : '#DC2626';
+    const vals = series(o.get);
+    const noPrior = b == null || !isFinite(b);
+    const cmpLine = el('div', { class: 'flex items-baseline gap-1.5 text-[12px] tabular-nums', style: { color: 'var(--text-muted)' } },
+      dv == null ? el('span', {}, noPrior ? '—' : '—') : el('span', { class: 'font-bold', style: { color: col } }, (dv >= 0 ? '↑ +' : '↓ ') + (dv * 100).toFixed(1) + '%'),
+      el('span', {}, 'vs. ' + (noPrior ? 'no ' + cmpLbl : o.fmt(b)), el('span', { class: 'ml-1', style: { color: 'var(--text-subtle)' } }, '· ' + _mklLblS(pm))));
+    return el('div', { class: 'card p-4 flex flex-col gap-2' + (o.onClick ? ' cursor-pointer' : ''), style: { borderTop: '3px solid ' + (o.color || 'var(--accent)') }, title: o.tip || '', onclick: o.onClick || null },
+      el('div', { class: 'flex items-center justify-between gap-2' },
+        el('div', { class: 'text-[12px] font-semibold', style: { color: 'var(--text-muted)' } }, o.label, o.tip ? el('span', { class: 'ml-1 text-[10px]', style: { color: 'var(--text-subtle)' }, title: o.tip }, 'ⓘ') : null),
+        icon(o.icon)),
+      el('div', { class: 'leading-none font-black tabular-nums', style: { fontFamily: 'ui-monospace, monospace', fontSize: '28px' } }, a == null || !isFinite(a) ? '—' : o.fmt(a)),
+      cmpLine,
+      spark(vals, o.color || 'var(--accent)'),
+      o.note ? el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-subtle)' }, title: o.note }, o.note) : null);
+  };
+  const cmpBtn = (k, l) => el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition', style: cmp === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card)', color: 'var(--text)', border: '1px solid var(--border-2)' }, onclick: () => { F.cmp = k; mountApp(); } }, l);
+  const cmpBar = el('div', { class: 'flex items-center gap-2 flex-wrap' },
+    el('span', { class: 'uppercase tracking-widest text-[10px] font-bold', style: muted }, 'Key metrics'),
+    el('span', { class: 'text-[11px] ml-2', style: muted }, 'Compare to:'), cmpBtn('prev', 'Previous month'), cmpBtn('year', 'Last year'),
+    el('span', { class: 'text-[11px]', style: muted }, _mklLbl(ym) + ' vs ' + _mklLbl(pm) + ' · sparkline = last 12 months'));
+  const TEAL = '#2F7F86', EMBER = '#DF643A', INK = 'var(--text)';
+  const tiles = el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' } },
+    tile({ label: 'Marketing spend', icon: 'spend', get: spendOf, fmt: _mklUsd, upGood: null, color: INK, tip: 'QuickBooks marketing charges, allocated on the Spend tab', note: spendNote, onClick: goSpend }),
+    tile({ label: 'New revenue', icon: 'revenue', get: cvOf, fmt: _mklUsd, upGood: true, color: EMBER, tip: 'FieldRoutes: Office Staff new sales sold this month, initial booked or done, renewals out — contract value', note: cur.s + ' new sale' + (cur.s === 1 ? '' : 's') + ' · Office Staff', onClick: () => mklOpenSales(cur, 'New sales · ' + _mklLbl(ym)) }),
+    tile({ label: 'New sales', icon: 'sales', get: salesOf, fmt: _mklNum, upGood: true, color: EMBER, tip: 'Count of the new sales behind New revenue', onClick: () => mklOpenSales(cur, 'New sales · ' + _mklLbl(ym)) }),
+    tile({ label: 'New leads', icon: 'leads', get: leadsOf, fmt: _mklNum, upGood: true, color: TEAL, tip: 'GoHighLevel opportunities, one per person per 30 days', note: cur.hasLeads ? '' : 'GoHighLevel not loaded' }),
+    tile({ label: 'Return on spend', icon: 'ret', get: ret, fmt: _mklX, upGood: true, color: TEAL, tip: 'New revenue ÷ marketing spend' }),
+    tile({ label: 'CAC', icon: 'cac', get: cac, fmt: _mklUsd, upGood: false, color: INK, tip: 'Marketing spend ÷ new sales' }),
+    tile({ label: 'CAC · fully loaded', icon: 'fcac', get: fcac, fmt: _mklUsd, upGood: false, color: INK, tip: '(Spend + wages & incentives) ÷ new sales', note: cur.hasLabor ? _mklUsd(cur.labor) + ' wages & incentives' : 'enter wages on the Spend tab' }),
+    tile({ label: 'Cost per lead', icon: 'cpl', get: cpl, fmt: _mklUsd, upGood: false, color: TEAL, tip: 'Marketing spend ÷ new leads' }),
+    tile({ label: 'Close rate', icon: 'close', get: close, fmt: _mklPct, upGood: true, color: TEAL, tip: 'New sales ÷ new leads' }),
+    tile({ label: 'Avg contract', icon: 'avg', get: avgC, fmt: _mklUsd, upGood: true, color: EMBER, tip: 'New revenue ÷ new sales' }));
 
   // ── Tables: by branch, by channel — the same seven columns. ──
   const th = (t, r, extra) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold ' + (r ? 'text-right' : 'text-left'), style: Object.assign({ color: 'var(--text-muted)', background: 'var(--card-2)', whiteSpace: 'nowrap' }, extra || {}) }, t);
@@ -180,7 +240,7 @@ function _mktgLeanView() {
   const headBar = el('div', { class: 'card px-5 py-3 flex items-center gap-3 flex-wrap' },
     el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Marketing · ' + _mklLbl(ym)), el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Spend from QuickBooks, new revenue from FieldRoutes, leads from GoHighLevel — compared with ' + _mklLblS(pm) + '.')),
     el('span', { class: 'ml-auto' }), monthSel);
-  return el('div', { class: 'flex flex-col gap-4' }, headBar, fresh, tiles, brTable, chTable, chart);
+  return el('div', { class: 'flex flex-col gap-4' }, headBar, fresh, cmpBar, tiles, brTable, chTable, chart);
 }
 // The month's new sales behind the New revenue tile (same rows the table counts).
 function mklOpenSales(D, title) {

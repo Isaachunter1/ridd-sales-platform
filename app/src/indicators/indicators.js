@@ -151,13 +151,15 @@ function _dashLensCompanyOk() {
 }
 function dashLensOn() { return !!(typeof IND_WORLD !== 'undefined' && IND_WORLD[state.view]) && !state.indicatorsComps; }
 function dashLens() {
-  // Default lens (per Isaac, Oct 27): admins open on the company view, everyone else on Me — a rep's own numbers
-  // first, the company second. New storage key so the old saved pick doesn't override the new default once.
+  // Default lens (per Isaac, Nov 11): EVERYONE opens on All (was: admins on All, everyone else on Me, Oct 27);
+  // Me is a toggle away, and the rep's own row is pinned first on the All leaderboard. A pick the user makes is
+  // kept (same storage key — their own choice still wins over the default).
   if (state._dashLens === undefined) { try { state._dashLens = localStorage.getItem('ridd_dash_lens_v2') || ''; } catch (e) { state._dashLens = ''; } }
   const o = dashLensOptions();
   if (o.some(x => x[0] === state._dashLens)) return state._dashLens;
-  if (isAdminRole(state.profile?.role) && o.some(x => x[0] === 'all')) return 'all';
-  return o[0] ? o[0][0] : 'all';
+  if (o.some(x => x[0] === 'all')) return 'all';
+  const team = o.find(x => x[0].indexOf('team:') === 0);   // no company view for this role → the widest they have
+  return team ? team[0] : o[0] ? o[0][0] : 'all';
 }
 // Player cards only on the Me lens (per Isaac, Oct 28) — My Team / the department view show none. A user with no
 // lens choice (no Me / Team / All buttons) keeps theirs.
@@ -5904,9 +5906,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   // Frozen under the sticky header + Total row (per Isaac): the
                   // rep scrolls the board and still sees themselves AND the
                   // company. `top` = the thead's live height, measured on mount.
-                  // Pinned own row retired (per Isaac, Sep 30): the player card at
-                  // the top already shows the rep — their name appears once, in rank.
-                  const _pinTr = false ? el('tr', {
+                  // Pinned own row: retired Sep 30 (the player card showed the rep), back on Nov 11 (per Isaac) now
+                  // that everyone opens on All — the rep's own live row sits first so their stats are one glance
+                  // away without switching to Me. Under Me there is only them, so nothing to pin.
+                  const _pinOn = myIdx >= 0 && !(typeof dashLens === 'function' && dashLens() === 'me');
+                  const _pinTr = _pinOn ? el('tr', {
                     class: 'border-t cursor-pointer transition hover:brightness-95',
                     style: { background: 'color-mix(in srgb, var(--accent) 10%, var(--card))', boxShadow: 'inset 3px 0 0 var(--accent), inset 0 -1px 0 var(--border-2)', position: 'sticky', top: '0px', zIndex: 2 },
                     title: 'You — your live spot on the board (rank #' + (myIdx + 1) + ')',
