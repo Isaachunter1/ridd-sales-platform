@@ -1,7 +1,7 @@
 // Plaibook payload parsers pinned on the shapes the MCP returned on Nov 7 2026. Run: npm test --workspace server
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSalesKpis, parseRecords, recordCount, PlaibookMcp } from '../services/pay/functions/plaibookMcp.js';
+import { parseSalesKpis, parseSalesKpisTable, parseRecords, recordCount, PlaibookMcp } from '../services/pay/functions/plaibookMcp.js';
 
 const kpis = { metadata: { action: 'query_sales_kpis', metrics: {
   a: { label: 'close rate, Drew Sauer', text: '45.1% (390/865)' }, b: { label: 'revenue, Drew Sauer', text: '$268,092.92' }, c: { label: 'opportunities, Drew Sauer', text: '1,584' },
@@ -45,4 +45,34 @@ test('PlaibookMcp: initialize then tools/call, plain JSON and SSE replies, sessi
   assert.deepEqual(r, { metadata: { metrics: {} } });
   assert.deepEqual(calls.map(x => x.method), ['initialize', 'notifications/initialized', 'tools/call']);
   assert.equal(calls[0].auth, 'Bearer tok'); assert.equal(calls[2].sid, 'sess-1');
+});
+
+// The live MCP server (Nov 11) answers as markdown text, not the metadata JSON above.
+const kpiText = `Sales KPIs by rep for the team, 2026-08-13 → 2026-11-12.
+
+| group | opportunities | calls | unique leads | qualified | booked | sold | qualification rate | close rate | new-customer close rate | booked rate | commit rate | revenue | avg sale | missed calls |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Drew Sauer | 1,729 | 1,363 | 1,706 | 857 | 472 | 398 | 49.6% (857/1729) | 46.4% (398/857) | 46.4% (398/857) | 55.1% (472/857) | 84.3% (398/472) | $267,254.59 from 375 sales | $712.68 | — |
+| Pere Le Sueur | 525 | 503 | 522 | 341 | 160 | 127 | 65.0% (341/525) | 37.2% (127/341) | 37.2% (127/341) | 46.9% (160/341) | 79.4% (127/160) | $88,880.93 from 115 sales | $772.88 | — |
+| unattributed (no seated rep credited) | 326 | 0 | 313 | 323 | 322 | 193 | 99.1% (323/326) | 59.8% (193/323) | 59.8% (193/323) | 99.7% (322/323) | 59.9% (193/322) | $30,335.73 from 38 sales | $798.31 | — |
+
+Close rate is sold over qualified.`;
+
+test('parseSalesKpis: the markdown table the live server sends', () => {
+  const rows = parseSalesKpis(kpiText);
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows[0], { name: 'Drew Sauer', rate: 0.464, sold: 398, qualified: 857, revenue: 267254.59, opportunities: 1729 });
+  assert.equal(rows[1].name, 'Pere Le Sueur'); assert.equal(rows[1].qualified, 341);
+  assert.deepEqual(parseSalesKpisTable('no table here'), []);
+});
+
+const recText = 'Sales records for Pere Le Sueur. All 21 matching sales below; the link opens every one.\n\n**Sample (all 21 rows):**\n```json\n' + JSON.stringify([
+  { _id: '1', customer: 'A B', phone: '+19196237810', status: 'sold', serviceLine: 'general_pest', value: 631.57, closureReason: 'sale_completed' },
+  { _id: '2', customer: 'C D', phone: '+18015550100', status: 'sold', serviceLine: 'bundle', value: 1071.57, closureReason: 'sale_completed' } ]) + '\n```\n';
+
+test('parseRecords / recordCount: the prose + json-block shape', () => {
+  const closed = parseRecords(recText, 'closed', () => null);
+  assert.equal(closed.length, 2); assert.equal(closed[1].sub, 'Bundle · $1072');
+  assert.equal(recordCount(recText), 21);
+  assert.equal(recordCount('nothing'), 0);
 });
