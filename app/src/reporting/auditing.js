@@ -131,6 +131,9 @@ function reportingAuditing() {
       if (r.subscription_date_canceled) a.exclCancelRev += cv;
     }
     if (serviced && _otsRowX && r.subscription_date_canceled) a.otsCancelRev += cv;
+    // Attrition by audit status (per Isaac, Nov 10 — it read far lower than the attrition tiles because it counted
+    // every subscription, serviced or not): serviced revenue with ROR + one-time out of both sides, like Excl. 3-day ROR.
+    if (serviced && !(isRorRow(r) || _otsRowX)) { a.attrSvcRev = (a.attrSvcRev || 0) + cv; if (r.subscription_date_canceled) a.attrCxlRev = (a.attrCxlRev || 0) + cv; }
     // Pending-eligible = actually needs an audit: NOT frozen status, and not a
     // pre-service cancel (sold then cancelled before any service ran). Drives the
     // Pending count — frozen / on-hold and pre-service cancels never need auditing.
@@ -190,7 +193,7 @@ function reportingAuditing() {
       else b[a.status] += a.subs;
       b.soldRev += a.soldRev; b.servicedRev += a.servicedRev; b.activeRev += a.activeRev; b.cancelledRev += a.cancelledRev; b.agingRev += a.agingRev; b.frozenRev += a.frozenRev; b.rorRev += a.rorRev;
       b.exclRev += a.exclRev; b.exclCancelRev += a.exclCancelRev; b.otsCancelRev += a.otsCancelRev;
-      b.attr[a.status][1] += a.subs; b.attr[a.status][0] += a.cancelledSubs;
+      b.attr[a.status][1] += (a.attrSvcRev || 0); b.attr[a.status][0] += (a.attrCxlRev || 0);
       b.coll[a.status][1] += a.subs; b.coll[a.status][0] += a.collSubs;
     }
   }
@@ -304,7 +307,7 @@ function reportingAuditing() {
           tile('Failed', fmt.int(s.failed), null, s.failed > 0 ? bad : null, drill('Failed', r => _stat(r) === 'failed')),
           tile('No Audit', fmt.int(s.noaudit), 'counts as passed', null, drill('No Audit', r => _stat(r) === 'noaudit')),
           tile('Pending', fmt.int(s.pending), null, null, drill('Pending', r => _stat(r) === 'pending' && (r.subscription_status || '').toLowerCase() !== 'frozen' && !(r.subscription_date_canceled && !_svc(r)))),
-          tile('Attrition on Audits: Pass / Fail', pctS(aP) + ' / ' + pctS(aF)),
+          tile('Attrition on Audits: Pass / Fail', pctS(aP) + ' / ' + pctS(aF), 'cancelled ÷ serviced revenue · excl. 3-day ROR & one-time'),
         ]),
         group('Revenue · contract value  (Serviced = Active + Cancelled)', [
           tile('Sold', money(s.soldRev), 'all sold (incl. pre-service)', null, drill('Sold revenue', () => true)),
@@ -315,40 +318,13 @@ function reportingAuditing() {
           tile('Cancelled · One-Time', money(s.otsCancelRev || 0), 'completed one-time services — not attrition', null, drill('One-time services (cancelled)', r => _svc(r) && !!r.subscription_date_canceled && /^\\s*one[\\s-]?time/i.test(String(r.subscription || '')))),
           tile('Aging', money(s.agingRev), 'at-risk slice of Active', s.agingRev > 0 ? bad : null, drill('Aging', r => _svc(r) && _act(r) && (Number(r.days_past_due) || 0) >= reportingAgingDays())),
         ]),
+        // Three attrition reads + retention (per Isaac, Nov 10 — the True attrition bar is retired).
         group('Attrition · of serviced', [
-          // One card for both reads (per Isaac): excl. ROR + OTS beside incl.
-          attrTile(attrExclRor, attrInclRor),
-          tile('Incl. 3-day ROR + aging', pctS(cancelIfAging), '(cancelled + aging) \u00f7 serviced', '#A9441F'),
-          tile('Active retention', pctS(activeRetention), 'active ÷ serviced', activeRetention == null ? null : (activeRetention >= 0.85 ? good : activeRetention < 0.65 ? bad : null)),
-        ]),
-        // ── "True Attrition" bar (per Isaac) — same definition as the rep
-        // player card and the Retention tab: cancels EXCLUDING 3-day RORs,
-        // one-time services and renewals (removed from BOTH sides), PLUS
-        // aging actives counted as churn. Contract-value weighted; counts drill.
-        (() => {
-          const _cv = (r) => Number(r.subscription_contract_value) || 0;
-          const _rorT = (r) => typeof _reporting3dayRor === 'function' && _reporting3dayRor(r);
-          const _otsT = (r) => /^\s*one[\s-]?time/i.test(String(r.subscription || ''));
-          const _renT = (r) => /^renewal/i.test(String(r.subscription_cancellation_reason || '').trim()) || (typeof reportingSourceClass === 'function' && reportingSourceClass(r.subscription_source) === 'renewal');
-          const _exclR = (typeof reportingExcludedCancelReasons === 'function') ? reportingExcludedCancelReasons() : new Set();
-          const _cxlT = (r) => !!r.subscription_date_canceled && !_act(r) && (typeof reportingCancelCountsByReason === 'function' ? reportingCancelCountsByReason(r) : !_exclR.has(_normCancelReason(r.subscription_cancellation_reason)));
-          const _agingT = (r) => _act(r) && (Number(r.days_past_due) || 0) >= (typeof reportingAgingDays === 'function' ? reportingAgingDays() : 60);
-          const _tx = (r) => _svc(r) && !_rorT(r) && !_otsT(r) && !_renT(r);
-          let tSvc = 0, tCxl = 0, tAging = 0, nSvc = 0, nCxl = 0, nAging = 0;
-          for (const r of entityRows) { if (!_tx(r)) continue; const cv = _cv(r); tSvc += cv; nSvc++; if (_cxlT(r)) { tCxl += cv; nCxl++; } else if (_agingT(r)) { tAging += cv; nAging++; } }
-          if (!(tSvc > 0)) return null;
-          const rate = (tCxl + tAging) / tSvc, kept = tSvc - tCxl - tAging;
-          const seg = (v, color, label) => v > 0 ? el('div', { style: { width: Math.max(0, Math.min(100, v / tSvc * 100)).toFixed(2) + '%', background: color, height: '100%' }, title: label + ' — ' + money(v) + ' (' + (v / tSvc * 100).toFixed(1) + '%)' }) : null;
-          const cnt = (label, n, pred) => el('button', { class: 'text-[10px] font-semibold hover:underline', style: { color: 'var(--text-muted)' }, onclick: drill(label, r => _tx(r) && pred(r)) }, label + ' ' + fmt.int(n));
-          return el('div', { class: 'rounded-xl p-3', style: { background: 'var(--card-2)' } },
-            el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
-              el('div', {},
-                el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'True attrition \u00b7 excl. 3-day ROR + aging'),
-                el('div', { class: 'text-[10px] text-muted- mt-0.5' }, '(cancelled ' + money(tCxl) + ' + aging ' + money(tAging) + ') ÷ ' + money(tSvc) + ' serviced')),
-              el('div', { class: 'text-xl font-black tabular-nums', style: { color: rate >= 0.15 ? bad : rate < 0.08 ? good : '#A9441F' } }, pctS(rate))),
-            el('div', { class: 'flex overflow-hidden rounded-full mt-2', style: { height: '10px', background: 'var(--border)' } }, seg(tCxl, bad, 'Cancelled'), seg(tAging, '#A9441F', 'Aging'), seg(kept, good, 'Kept')),
-            el('div', { class: 'flex items-center gap-3 mt-1.5 flex-wrap' }, cnt('Serviced', nSvc, () => true), cnt('Cancelled', nCxl, _cxlT), cnt('Aging', nAging, _agingT)));
-        })()));
+          tile('Attrition · excl. 3-day ROR', pctS(attrExclRor), 'cancelled ÷ serviced · ROR + one-time out of both', good),
+          tile('Attrition · incl. 3-day ROR', pctS(attrInclRor), 'cancelled ÷ serviced · one-time out of both'),
+          tile('3-day ROR + aging', pctS(cancelIfAging), '(cancelled + aging) ÷ serviced', '#A9441F'),
+          tile('Retention', pctS(activeRetention), 'active ÷ serviced', activeRetention == null ? null : (activeRetention >= 0.85 ? good : activeRetention < 0.65 ? bad : null)),
+        ])));
     overlay.append(card);
     document.body.append(overlay);
   };

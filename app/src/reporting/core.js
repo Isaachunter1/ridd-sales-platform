@@ -1536,6 +1536,14 @@ function reportingColorMap(slicesA, slicesB) {
 const MK_CACHE_MS = 30 * 60 * 1000;
 // Session bearer token for the app's own /api endpoints (they're all
 // auth-gated server-side now — closed by default, Apple style).
+// The API answered 401/403: the Supabase session is gone (expired, or signed in elsewhere). Shown once per load;
+// the Spend / Metrics pages and the Connections page read state._authExpired.
+function _apiAuthExpired(status) {
+  if (state._authExpired) return;
+  state._authExpired = status || 401;
+  try { toast('Your sign-in has expired — reload the app and sign in again to load QuickBooks and Windsor data', 'error'); } catch (e) { /* noop */ }
+  mountApp();
+}
 async function _apiAuthHeaders(extra) {
   try {
     const { data: { session } } = await supabase.auth.getSession();

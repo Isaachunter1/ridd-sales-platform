@@ -74,6 +74,7 @@ module.exports = [
   'integrations/spend-view.js',
   'integrations/spend-uploads.js',
   'integrations/provider-reports.js',
+  'integrations/channels.js',
   'indicators/indicator-metrics.js',
   'integrations/disposition.js',
   'reporting/geographic.js',

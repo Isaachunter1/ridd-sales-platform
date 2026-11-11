@@ -54,16 +54,40 @@ export class PlaibookMcp {
     const res = await this.rpc('tools/call', { name, arguments: args });
     if (res && res.isError) throw new Error('Plaibook ' + name + ': ' + JSON.stringify(res.content || res).slice(0, 300));
     const text = ((res && res.content) || []).filter(c => c.type === 'text').map(c => c.text).join('\n');
-    try { return JSON.parse(text); } catch (e) { return (res && res.structuredContent) || text; }
+    try { return JSON.parse(text); } catch (e) { const sc = res && res.structuredContent; return sc && sc.metadata ? sc : text; }   // the live server answers in prose; the parsers read both
   }
 }
 
 // ── Parsers (pure, pinned by test/plaibook-close-rates.test.js) ──
-const pctOf = (text) => { const m = String(text || '').match(/([\d.]+)\s*%\s*\((\d[\d,]*)\s*\/\s*(\d[\d,]*)\)/); return m ? { rate: Number(m[1]) / 100, sold: Number(m[2].replace(/,/g, '')), qualified: Number(m[3].replace(/,/g, '')) } : null; };
+const pctOf = (text) => { const m = String(text || '').match(/([\d.]+)\s*%\s*\((\d[\d,]*)\s*\/\s*(\d[\d,]*)\)/); return m ? { rate: Math.round(Number(m[1]) * 10) / 1000, sold: Number(m[2].replace(/,/g, '')), qualified: Number(m[3].replace(/,/g, '')) } : null; };
 const moneyOf = (text) => Number(String(text || '').replace(/[^0-9.-]/g, '')) || 0;
 
 // query_sales_kpis (groupBy agent) → one row per rep, Plaibook's own numbers.
+// Two shapes: the JSON payload (metadata.metrics, Nov 7) and the markdown table the live MCP server
+// sends as plain text (Nov 11 — first Cloud Run run failed with "no per-rep close rates" on it).
+const cellNum = (t) => Number(String(t || '').replace(/[^0-9.-]/g, '').split('.').slice(0, 2).join('.')) || 0;
+export function parseSalesKpisTable(text) {
+  const lines = String(text || '').split(/\r?\n/).filter(l => l.trim().startsWith('|'));
+  const hi = lines.findIndex(l => /\|\s*group\s*\|/i.test(l) && /close rate/i.test(l));
+  if (hi < 0) return [];
+  const cells = (l) => l.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+  const head = cells(lines[hi]).map(h => h.toLowerCase());
+  const col = (name) => head.indexOf(name);
+  const iName = col('group'), iRate = col('close rate'), iRev = col('revenue'), iOpp = col('opportunities');
+  const out = [];
+  for (const l of lines.slice(hi + 1)) {
+    const c = cells(l); if (c.length < head.length || /^-+$/.test(c[0])) continue;
+    const name = c[iName]; if (!name || /unattributed|no seated rep/i.test(name)) continue;
+    const p = pctOf(c[iRate]); if (!p) continue;
+    const r = { name, ...p };
+    if (iRev >= 0) r.revenue = moneyOf((c[iRev] || '').split(' from ')[0]);
+    if (iOpp >= 0) r.opportunities = cellNum(c[iOpp]);
+    out.push(r);
+  }
+  return out;
+}
 export function parseSalesKpis(payload) {
+  if (typeof payload === 'string') return parseSalesKpisTable(payload);
   const metrics = (payload && payload.metadata && payload.metadata.metrics) || {};
   const by = new Map();
   for (const v of Object.values(metrics)) {
@@ -81,8 +105,13 @@ export function parseSalesKpis(payload) {
 // query_opportunities (show records) → the sample rows as the job's list items.
 const SERVICE = { general_pest: 'Pest', termite: 'Termite', mosquito: 'Mosquito', rodent_wildlife: 'Rodent', bed_bug: 'Bed bug', bundle: 'Bundle' };
 const human = (s) => String(s || '').replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+// The live server answers "show records" as prose + a ```json block of the rows ("All 21 matching sales below").
+export function sampleRows(payload) {
+  if (typeof payload === 'string') { const m = payload.match(/```json\s*([\s\S]*?)```/); if (m) { try { const a = JSON.parse(m[1]); return Array.isArray(a) ? a : []; } catch (e) { return []; } } return []; }
+  return (payload && payload.metadata && payload.metadata.queryResult && payload.metadata.queryResult.sample) || [];
+}
 export function parseRecords(payload, kind, planOf) {
-  const rows = (payload && payload.metadata && payload.metadata.queryResult && payload.metadata.queryResult.sample) || [];
+  const rows = sampleRows(payload);
   return rows.map(x => {
     const name = x.unnamed ? (x.customer || 'Unnamed lead') + (x.phone ? ' · ' + x.phone.replace(/^\+1/, '') : '') : (x.customer || '—');
     let sub;
@@ -92,4 +121,7 @@ export function parseRecords(payload, kind, planOf) {
     return { name, sub, phone: x.phone || null, id: x._id || null };
   });
 }
-export const recordCount = (payload) => Number((payload && payload.metadata && payload.metadata.queryResult && payload.metadata.queryResult.documentCount) || 0);
+export const recordCount = (payload) => {
+  if (typeof payload === 'string') { const m = payload.match(/All\s+([\d,]+)\s+matching/i) || payload.match(/\(all\s+([\d,]+)\s+rows\)/i) || payload.match(/first\s+[\d,]+\s+of\s+([\d,]+)/i); return m ? Number(m[1].replace(/,/g, '')) : sampleRows(payload).length; }
+  return Number((payload && payload.metadata && payload.metadata.queryResult && payload.metadata.queryResult.documentCount) || 0);
+};

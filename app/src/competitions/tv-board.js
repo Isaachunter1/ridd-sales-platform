@@ -442,23 +442,25 @@ function openTvBoard() {
   // (green = top tier, yellow = a tier, red = no tier); no Plaibook seat = NO CLOSE RATE. Tap for the drill.
   const closeTiers = (() => { try { const s = ensurePaySettings(); return (s.close_rate_tiers || []).map(t => Number(t.min_close_rate)).filter(Number.isFinite).sort((a, b) => a - b); } catch (e) { return [50, 60]; } })();
   const closeColor = (rate) => { if (rate == null) return T.dim; const p = rate * 100; if (!closeTiers.length) return T.ink; return p >= closeTiers[closeTiers.length - 1] ? BAND.green : p >= closeTiers[0] ? BAND.yellow : BAND.red; };
-  const closeOf = (r) => { try { const prof = (state.allProfiles || []).find(p => p.id === r.key) || { full_name: r.name }; return typeof repCloseRate === 'function' ? repCloseRate(prof) : null; } catch (e) { return null; } };
-  const closeCell = (r) => { const c = closeOf(r); return el('div', { title: c ? 'Close rate · Plaibook · tap for the calls behind it' : 'No seat in Plaibook — no close rate', style: { textAlign: 'right', cursor: c ? 'pointer' : 'default', minWidth: '150px' },
+  // The rate for the board's OWN range (per Isaac, Nov 11) — app_settings.close_rates_tv, pulled hourly per range;
+  // until that copy exists for the range it falls back to the pay window and says so under the number.
+  const closeOf = (r) => { try { const prof = (state.allProfiles || []).find(p => p.id === r.key) || { full_name: r.name }; return typeof repCloseRate === 'function' ? repCloseRate(prof, state._tvRange) : null; } catch (e) { return null; } };
+  const closeCell = (r) => { const c = closeOf(r); const has = c && c.rate != null; return el('div', { title: c ? 'Close rate · Plaibook · ' + (c.window && c.window.label || '') + ' · tap for the three lists behind it' : 'No seat in Plaibook — no close rate', style: { textAlign: 'right', cursor: c ? 'pointer' : 'default', minWidth: '150px' },
       onclick: (e) => { if (!c) return; e.stopPropagation(); openCloseDrill(r, c); } },
-    c ? figure(Math.round(c.rate * 1000) / 10 + '%', 'clamp(26px, 2.4cqw, 40px)', closeColor(c.rate)) : el('div', { style: { fontFamily: HEAD, fontSize: '16px', letterSpacing: '.06em', color: T.dim, textTransform: 'uppercase', lineHeight: '1.1' } }, 'No close rate'),
-    el('div', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, marginTop: '4px', letterSpacing: '.06em' } }, c ? c.sold + ' / ' + c.qualified + ' qualified' : 'not in Plaibook')); };
+    has ? figure(Math.round(c.rate * 1000) / 10 + '%', 'clamp(26px, 2.4cqw, 40px)', closeColor(c.rate)) : el('div', { style: { fontFamily: HEAD, fontSize: c ? '28px' : '16px', letterSpacing: '.06em', color: T.dim, textTransform: 'uppercase', lineHeight: '1.1' } }, c ? '\u2014' : 'No close rate'),
+    el('div', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, marginTop: '4px', letterSpacing: '.06em' } }, c ? c.sold + ' / ' + c.qualified + ' qualified' + (c.rangeId ? '' : c.window && c.window.label ? ' · ' + c.window.label : '') : 'not in Plaibook')); };
   const openCloseDrill = (r, c) => {
     const back = el('div', { 'data-tv-drill': '1', style: { position: 'fixed', inset: '0', background: 'rgba(10,11,13,.82)', zIndex: '10000', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px' } });
     const close = () => { back.remove(); document.removeEventListener('keydown', esc, true); try { render(); } catch (e) { /* keep the board up */ } };
     back.addEventListener('click', (e) => { if (e.target === back) close(); });
     const esc = (e) => { if (e.key === 'Escape') { close(); e.stopPropagation(); } };
     document.addEventListener('keydown', esc, true);
-    const S = typeof _closeRatesStore === 'function' ? _closeRatesStore() : null;
-    const rec = S && S.reps ? (S.reps[String(c.name || r.name).trim().toLowerCase()] || null) : null;
+    // The three lists for the range on the board (c.lists comes from close_rates_tv for that range; the pay window's otherwise).
+    const rec = c.lists || null;
     const col = (label, color, rows, n) => el('div', { style: { minWidth: '0', display: 'flex', flexDirection: 'column', background: T.void, border: '1px solid ' + T.hair, padding: '16px' } },
       el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '12px' } },
         el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } }, el('span', { style: { width: '10px', height: '10px', borderRadius: '50%', background: color, display: 'inline-block' } }), el('span', { style: { fontFamily: VOICE, fontWeight: 700, fontSize: '20px' } }, label)),
-        figure(String(n == null ? (rows || []).length : n), '22px', T.dim)),
+        el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '8px' } }, rows && rows.length && n != null && rows.length < n ? el('span', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim } }, 'first ' + rows.length + ' of') : null, figure(String(n == null ? (rows || []).length : n), '22px', T.dim))),
       el('div', { style: { overflow: 'auto', maxHeight: '58vh', display: 'flex', flexDirection: 'column', gap: '8px' } },
         ...((rows && rows.length) ? rows.map(x => el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, padding: '12px 16px' } },
           el('div', { style: { fontFamily: VOICE, fontWeight: 600, fontSize: '18px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, x.name || '—'),
@@ -469,7 +471,7 @@ function openTvBoard() {
         el('div', {},
           el('div', { style: { fontFamily: VOICE, fontSize: '16px', color: T.dim } }, 'Close rate \u00b7 ' + r.name + (c.window && c.window.label ? ' \u00b7 ' + c.window.label : '')),
           el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '16px' } },
-            el('div', { style: { fontFamily: HEAD, fontSize: '56px', lineHeight: '1', color: closeColor(c.rate) } }, Math.round(c.rate * 1000) / 10 + '%'),
+            el('div', { style: { fontFamily: HEAD, fontSize: '56px', lineHeight: '1', color: closeColor(c.rate) } }, c.rate == null ? '\u2014' : Math.round(c.rate * 1000) / 10 + '%'),
             el('div', { style: { fontFamily: VOICE, fontSize: '18px', color: T.dim } }, c.sold + ' closed of ' + c.qualified + ' qualified' + (c.pulledAt ? ' \u00b7 Plaibook ' + ago(c.pulledAt) : '')))),
         el('button', { style: { width: '36px', height: '36px', background: 'transparent', border: '1px solid ' + T.hair, color: T.dim, cursor: 'pointer', fontSize: '18px' }, onclick: close }, '\u00d7')),
       el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' } },

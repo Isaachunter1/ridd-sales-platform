@@ -687,7 +687,7 @@ function reportingLoadQboSpend(force) {
   // No static / hand-entered fallback (per Isaac): QuickBooks via Windsor or
   // nothing — an unbooked month shows blank rather than a made-up number.
   const useFile = () => { state.reportingIsSpend = {}; state._isSpendSource = 'none'; state._isSpendLoading = false; mountApp(); };
-  _apiAuthHeaders().then(h => fetch('/api/qbo-spend' + (force ? '?_=' + Date.now() : ''), { headers: h })).then(r => r.ok ? r.json() : null).then(j => {
+  _apiAuthHeaders().then(h => fetch('/api/qbo-spend' + (force ? '?_=' + Date.now() : ''), { headers: h })).then(r => { state._qboHttp = r.status; if (r.status === 401 || r.status === 403) _apiAuthExpired(r.status); return r.ok ? r.json() : null; }).then(j => {
     if (j && j.bySourceMonth && Object.keys(j.bySourceMonth).length) {
       state.reportingIsSpendPayee = j.byPayee || null;
       state.reportingIsSpend = j.bySourceMonth; state._isSpendSource = 'QuickBooks'; state._isSpendPulledAt = j.pulledAt; state._isSpendLoading = false; if (typeof healthReport === 'function') healthReport('qbo', true); mountApp();
@@ -697,7 +697,7 @@ function reportingLoadQboSpend(force) {
       // First pull is running in the background (Windsor ledger takes ~30s) — poll.
       state._isSpendLoading = false; state.reportingIsSpend = null;
       setTimeout(() => reportingLoadQboSpend(false), 25000);
-    } else { if (typeof healthReport === 'function') healthReport('qbo', false, 'QuickBooks spend unavailable — using the uploaded file'); useFile(); }
+    } else { if (typeof healthReport === 'function') healthReport('qbo', false, state._qboHttp === 401 || state._qboHttp === 403 ? 'Sign-in expired (HTTP ' + state._qboHttp + ') — reload the app and sign in again' : 'QuickBooks spend unavailable (HTTP ' + (state._qboHttp || '?') + ')'); useFile(); }
   }).catch((e) => { if (typeof healthReport === 'function') healthReport('qbo', false, e); useFile(); });
 }
 // QuickBooks branch accounts → sales-data office names.
@@ -924,7 +924,7 @@ const _mktgDiv = (a, b) => (b > 0 ? a / b : null);
 function _mktgYearBar(sub) {
   const y = _mktgYearSel();
   // Attribution (lead reconciliation) is a tab of its own (per Isaac, Oct 2) — it lived behind a button on the right.
-  const SUBS = [['providers', 'Metrics'], ['recon', 'Attribution'], ['pnl', 'P&L'], ['spend', 'Spend']];   // Projections hidden (per Isaac, Oct 9); Disposition removed (Nov 5)
+  const SUBS = [['providers', 'Metrics'], ['recon', 'Channels'], ['pnl', 'P&L'], ['spend', 'Spend']];   // Attribution → Channels (per Isaac, Nov 10)   // Projections hidden (per Isaac, Oct 9); Disposition removed (Nov 5)
   const _recon = sub === 'providers' && state._mktProvView === 'recon';
   return el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
     el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
@@ -1554,7 +1554,8 @@ function reportingMarketingPnl() {
   // reconciliation are buttons to the right of the Office dropdown.
   // Lead providers now sits directly under the CAC table (per Isaac, Sep 30).
   const provView = state._mktProvView === 'recon' ? 'recon' : 'cac';
-  const body = sub === 'providers' ? (provView === 'recon' ? el('div', { class: 'flex flex-col gap-4' }, mktgAttributionView())
+  // Channels (per Isaac, Nov 10) replaces the Attribution view — src/integrations/channels.js; the old view stays in the code.
+  const body = sub === 'providers' ? (provView === 'recon' ? el('div', { class: 'flex flex-col gap-4' }, (() => { try { return typeof channelsView === 'function' ? channelsView() : mktgAttributionView(); } catch (e) { console.warn('[channels]', e); return el('div', { class: 'card p-6 text-sm' }, 'Channels hit an error: ' + (e.message || e)); } })())
       // Rebuilt around the GoHighLevel lead cohort (per Isaac, Oct 15) — src/85-marketing-metrics.js. The old
       // Demand / CAC / provider cards stay in the code, unreached.
       // Marketing Pulse (per Isaac's brief, Oct 15) — src/85-marketing-pulse.js; the cohort view is the fallback.
