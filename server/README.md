@@ -33,6 +33,19 @@ curl -X POST localhost:8080/jobs/ops-stats -H "X-API-TOKEN: $API_TOKEN"
 curl localhost:8080/api/sync-status
 ```
 
+## Deploy with one script (simplest)
+
+No Cloud Build trigger or Artifact Registry setup: `gcloud run deploy --source` builds the container itself.
+
+```bash
+# once: install gcloud (https://cloud.google.com/sdk/docs/install) and sign in
+gcloud auth login
+# from the repo root — prompts only for secrets that don't exist yet, never echoes them
+server/scripts/deploy.sh
+```
+
+It enables the APIs, creates any missing secret in Secret Manager, deploys `server/` to Cloud Run as `ridd-server` with the env vars and secrets attached, checks `/health`, and writes the Cloud Scheduler entries. Re-run it after any `server/` change. The console path below is the long-hand version of the same thing, with a Cloud Build trigger so a merge to `main` redeploys on its own.
+
 ## Deploy with the web consoles
 
 Everything below is one-time. After it, **a merge to `main` is a deploy.**
