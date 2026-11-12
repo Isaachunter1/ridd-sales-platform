@@ -117,8 +117,14 @@ function _mktgLeanView() {
   // ── Tiles: the three truths, then what they make. ──
   // ── Key metrics (per Isaac, Nov 11 — the dashboard-tile look): icon, label, the number, ↑/↓ vs the compare
   // month with its value, and a 12-month sparkline of the metric. Click a tile for its drill where there is one.
-  const cac = (D) => D.hasSpend && D.spend && D.s ? D.spend / D.s : null, ret = (D) => D.hasSpend && D.spend ? D.cv / D.spend : null, cpl = (D) => D.hasSpend && D.spend && D.leads ? D.spend / D.leads : null, close = (D) => D.leads ? D.s / D.leads : null;
+  const cac = (D) => D.hasSpend && D.spend && D.s ? D.spend / D.s : null, ret = (D) => D.hasSpend && D.spend ? D.cv / D.spend : null, cpl = (D) => D.hasSpend && D.spend && D.leads ? D.spend / D.leads : null;
   const fcac = (D) => D.hasLabor && D.s ? ((D.hasSpend ? D.spend : 0) + D.labor) / D.s : null, avgC = (D) => D.s ? D.cv / D.s : null;
+  // Close rate = Plaibook's department number for the month (sold ÷ qualified, per Isaac, Nov 11), written hourly by
+  // the Cloud Run job to app_settings.close_rates_dept; new sales ÷ GHL leads only until that exists for the month.
+  const DEPT = typeof _closeRatesDeptStore === 'function' ? _closeRatesDeptStore() : null;
+  const deptOf = (D) => DEPT && DEPT.months && DEPT.months[D.ym] ? DEPT.months[D.ym] : null;
+  const close = (D) => { const m = deptOf(D); return m && Number.isFinite(Number(m.rate)) ? Number(m.rate) : D.leads ? D.s / D.leads : null; };
+  const closeNote = (() => { const m = deptOf(cur); return m ? 'Plaibook · ' + fmt.int(m.sold) + ' sold of ' + fmt.int(m.qualified) + ' qualified' : DEPT === null || DEPT === undefined ? 'Plaibook loading…' : 'Plaibook has no ' + _mklLblS(ym) + ' yet — new sales ÷ GHL leads shown'; })();
   const spendOf = (D) => D.hasSpend ? D.spend : null, cvOf = (D) => D.hasSubs ? D.cv : null, leadsOf = (D) => D.hasLeads ? D.leads : null, salesOf = (D) => D.hasSubs ? D.s : null;
   const spendNote = !cur.hasSpend ? 'No QuickBooks lines for this month yet' : [cur.spendLines + ' charges', cur.spendUnassigned > 0 ? _mklUsd(cur.spendUnassigned) + ' need a vendor' : '', cur.spendWaiting > 0 ? _mklUsd(cur.spendWaiting) + ' waiting on vendor reports' : ''].filter(Boolean).join(' · ') + ' → Spend tab';
   const MONTHS12 = []; for (let i = 11; i >= 0; i--) MONTHS12.push(_mklShift(ym, -i));
@@ -178,17 +184,18 @@ function _mktgLeanView() {
     el('span', { class: 'text-[11px] ml-2', style: muted }, 'Compare to:'), cmpBtn('prev', 'Previous month'), cmpBtn('year', 'Last year'),
     el('span', { class: 'text-[11px]', style: muted }, _mklLbl(ym) + ' vs ' + _mklLbl(pm) + ' · sparkline = last 12 months'));
   const TEAL = '#2F7F86', EMBER = '#DF643A', INK = 'var(--text)';
-  const tiles = el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' } },
+  // Two rows of five, full width (per Isaac, Nov 11): what came in, then what it cost.
+  const tiles = el('div', { class: 'grid gap-3 mkl-tiles' },
     tile({ label: 'Marketing spend', icon: 'spend', get: spendOf, fmt: _mklUsd, upGood: null, color: INK, tip: 'QuickBooks marketing charges, allocated on the Spend tab', note: spendNote, onClick: goSpend }),
     tile({ label: 'New revenue', icon: 'revenue', get: cvOf, fmt: _mklUsd, upGood: true, color: EMBER, tip: 'FieldRoutes: Office Staff new sales sold this month, initial booked or done, renewals out — contract value', note: cur.s + ' new sale' + (cur.s === 1 ? '' : 's') + ' · Office Staff', onClick: () => mklOpenSales(cur, 'New sales · ' + _mklLbl(ym)) }),
     tile({ label: 'New sales', icon: 'sales', get: salesOf, fmt: _mklNum, upGood: true, color: EMBER, tip: 'Count of the new sales behind New revenue', onClick: () => mklOpenSales(cur, 'New sales · ' + _mklLbl(ym)) }),
+    tile({ label: 'Avg contract', icon: 'avg', get: avgC, fmt: _mklUsd, upGood: true, color: EMBER, tip: 'New revenue ÷ new sales' }),
     tile({ label: 'New leads', icon: 'leads', get: leadsOf, fmt: _mklNum, upGood: true, color: TEAL, tip: 'GoHighLevel opportunities, one per person per 30 days', note: cur.hasLeads ? '' : 'GoHighLevel not loaded' }),
     tile({ label: 'Return on spend', icon: 'ret', get: ret, fmt: _mklX, upGood: true, color: TEAL, tip: 'New revenue ÷ marketing spend' }),
-    tile({ label: 'CAC', icon: 'cac', get: cac, fmt: _mklUsd, upGood: false, color: INK, tip: 'Marketing spend ÷ new sales' }),
-    tile({ label: 'CAC · fully loaded', icon: 'fcac', get: fcac, fmt: _mklUsd, upGood: false, color: INK, tip: '(Spend + wages & incentives) ÷ new sales', note: cur.hasLabor ? _mklUsd(cur.labor) + ' wages & incentives' : 'enter wages on the Spend tab' }),
+    tile({ label: 'Marketing CAC', icon: 'cac', get: cac, fmt: _mklUsd, upGood: false, color: INK, tip: 'Marketing spend ÷ new sales' }),
+    tile({ label: 'CAC', icon: 'fcac', get: fcac, fmt: _mklUsd, upGood: false, color: INK, tip: '(Marketing spend + wages & incentives) ÷ new sales', note: cur.hasLabor ? _mklUsd(cur.labor) + ' wages & incentives' : 'enter wages on the Spend tab' }),
     tile({ label: 'Cost per lead', icon: 'cpl', get: cpl, fmt: _mklUsd, upGood: false, color: TEAL, tip: 'Marketing spend ÷ new leads' }),
-    tile({ label: 'Close rate', icon: 'close', get: close, fmt: _mklPct, upGood: true, color: TEAL, tip: 'New sales ÷ new leads' }),
-    tile({ label: 'Avg contract', icon: 'avg', get: avgC, fmt: _mklUsd, upGood: true, color: EMBER, tip: 'New revenue ÷ new sales' }));
+    tile({ label: 'Close rate', icon: 'close', get: close, fmt: _mklPct, upGood: true, color: TEAL, tip: 'Plaibook — the Inside Sales department\u2019s sold ÷ qualified for the month', note: closeNote }));
 
   // ── Tables: by branch, by channel — the same seven columns. ──
   const th = (t, r, extra) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold ' + (r ? 'text-right' : 'text-left'), style: Object.assign({ color: 'var(--text-muted)', background: 'var(--card-2)', whiteSpace: 'nowrap' }, extra || {}) }, t);
@@ -201,7 +208,7 @@ function _mktgLeanView() {
       ...(showLabor ? [td(_lab ? _mklUsd(_lab) : '—', _lab ? null : muted, true), td(_mklUsd(_fcac), _fcac == null ? muted : null, true)] : []),
       td(_mklX(_ret), _ret == null ? muted : { fontWeight: '700', color: _ret >= 1 ? '#3E5A3A' : '#B91C1C' }, true)); };
   let showLabor = false;   // set per table: the branch table shows wages + fully-loaded CAC when any are entered
-  const head = () => el('tr', {}, th('', false, { background: 'var(--card-2)' }), th('Spend', true), th('Leads', true), th('New sales', true), th('New revenue', true), th('Close rate', true), th('Cost / lead', true), th('CAC', true), ...(showLabor ? [th('Wages', true), th('CAC · loaded', true)] : []), th('Return', true));
+  const head = () => el('tr', {}, th('', false, { background: 'var(--card-2)' }), th('Spend', true), th('Leads', true), th('New sales', true), th('New revenue', true), th('Close rate', true), th('Cost / lead', true), th('Marketing CAC', true), ...(showLabor ? [th('Wages', true), th('CAC', true)] : []), th('Return', true));
   const sumOf = (o, keys) => keys.reduce((t, k) => { const c = o[k]; t.spend += c.spend; t.leads += c.leads; t.s += c.s; t.cv += c.cv; t.labor += c.labor || 0; return t; }, { spend: 0, leads: 0, s: 0, cv: 0, labor: 0 });
   const table = (title, sub, o, extraRows, noteOf, withLabor) => {
     showLabor = !!withLabor && Object.values(o).some(c => c.labor);

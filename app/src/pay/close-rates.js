@@ -57,6 +57,20 @@ function _closeRatesTvStore() {
   return state._closeRatesTv;
 }
 
+// Department close rate by month (per Isaac, Nov 11 — Marketing → Metrics): app_settings.close_rates_dept =
+// { pulled_at, months: { 'YYYY-MM': { rate, sold, qualified, opportunities, revenue } } }, hourly from the job.
+function _closeRatesDeptStore() {
+  if (typeof DEMO !== 'undefined' && DEMO) return state._closeRatesDept || (state._closeRatesDept = { months: {} });
+  if (state._closeRatesDept === undefined) {
+    state._closeRatesDept = null;
+    if (typeof supabase !== 'undefined' && supabase) supabase.from('app_settings').select('value').eq('key', 'close_rates_dept').maybeSingle().then(({ data }) => {
+      state._closeRatesDept = Object.assign({ months: {} }, (data && data.value) || {});
+      mountApp();
+    }).catch(() => { state._closeRatesDept = { months: {} }; });
+  }
+  return state._closeRatesDept;
+}
+
 // The rep's Plaibook close rate, or null = no seat in Plaibook → No Close Rate.
 // With a board range id (today … this_year) the TV copy answers for THAT range: a seated rep with nothing
 // qualified in the range comes back with rate null and 0 / 0 (shown as "—", not "No close rate").
