@@ -142,7 +142,71 @@ function channelsView() {
       el('tbody', {}, ...entries.map(([n, s]) => row(n, s, false)), row('TOTAL', tot, true)))),
     el('div', { class: 'px-4 py-2 border-t text-[10px]', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } },
       'Leads: GoHighLevel. Sold / Booked / Serviced and revenue: FieldRoutes Office Staff new sales by the account’s source. Spend: QuickBooks by vendor for ' + (months.length === 1 ? months[0] : months[0] + ' → ' + months[months.length - 1]) + ' (whole months)' + (off !== 'all' ? ', the vendor’s ' + off + ' share' : '') + '. A channel with leads but no sales (or the reverse) usually means its GoHighLevel label and FieldRoutes source aren’t mapped to the same name — Settings → Marketing & lead sources.'));
-  return el('div', { class: 'flex flex-col gap-4' }, bar, table);
+  const audit = (() => { try { return chAttributionAudit(subsAll.filter(s => { if (String(s.sold_by_type || '').trim() !== 'Office Staff') return false; const d = String(s.sold_date || '').slice(0, 10); if (!d || d < from || d > to) return false; if (!notRen(s)) return false; if (typeof reportingNonSaleService === 'function' && reportingNonSaleService(s.subscription)) return false; return off === 'all' || TC(s.office_name) === off; }), from, to); } catch (e) { console.warn('[channels] audit', e); return null; } })();
+  return el('div', { class: 'flex flex-col gap-4' }, bar, table, audit);
+}
+
+// ── Misattributed in FieldRoutes (per Isaac, Nov 13): Pest AI's opportunity timestamps are the one source of truth
+// for last touch. For every Office Staff new sale in the range, the latest GoHighLevel opportunity on that phone at
+// or before the sale is the touch that should have been credited; when FieldRoutes' source lands on a different
+// channel, the sale is listed with both and the gap, and the list exports. Phone-less sales and phones GoHighLevel
+// never saw are counted, not guessed. ──
+const _chPhone10 = (v) => { let d = String(v == null ? '' : v).replace(/\D/g, ''); if (d.length === 11 && d[0] === '1') d = d.slice(1); return d.length >= 10 ? d.slice(0, 10) : ''; };
+function chAttributionAudit(sales, from, to) {
+  const G = state._ghl;
+  const muted = { color: 'var(--text-muted)' };
+  const card = (...kids) => el('div', { class: 'card overflow-hidden' }, ...kids);
+  const head = (sub) => el('div', { class: 'px-4 pt-4 pb-2 flex items-center justify-between gap-3 flex-wrap' },
+    el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Misattributed in FieldRoutes'), el('div', { class: 'text-[11px] mt-0.5', style: muted }, sub)));
+  if (!G || !G.opps || !G.opps.length) return card(head('Pest AI (GoHighLevel) opportunities ' + (G === null || G === undefined ? 'loading…' : 'not loaded — nothing to compare against')));
+  const lab = G.labels || [];
+  // Opportunities by phone, each [date, HH:MM, provider, label].
+  const byPhone = new Map();
+  for (const o of G.opps) {
+    const ph = _chPhone10(o[2]); if (!ph) continue;
+    const pv = o[1] >= 0 ? ghlProviderOf(lab[o[1]]) : null; if (!pv || pv === GHL_NOT_LEAD) continue;
+    (byPhone.get(ph) || byPhone.set(ph, []).get(ph)).push([o[0], o[4] || '', pv, lab[o[1]]]);
+  }
+  for (const v of byPhone.values()) v.sort((a, b) => (a[0] + a[1]).localeCompare(b[0] + b[1]));
+  const rows = []; let noPhone = 0, unseen = 0, agree = 0, noPrior = 0;
+  for (const s of sales) {
+    const ph = _chPhone10(s.phone); if (!ph) { noPhone++; continue; }
+    const ops = byPhone.get(ph); if (!ops) { unseen++; continue; }
+    const sold = String(s.sold_date || '').slice(0, 10);
+    const before = ops.filter(o => o[0] <= sold);               // the sale day counts: the touch that opened the call
+    if (!before.length) { noPrior++; continue; }
+    const last = before[before.length - 1];
+    const frSrc = reportingSourceOf(s), frCh = typeof frChannelOf === 'function' ? frChannelOf(frSrc) : String(frSrc || 'Unspecified');
+    if (String(frCh).toLowerCase() === String(last[2]).toLowerCase()) { agree++; continue; }
+    const others = before.slice(0, -1).map(o => o[2]).filter((v, i, a) => a.indexOf(v) === i);
+    rows.push({ s, ph, sold, frSrc: frSrc || '(blank)', frCh, last, others, after: ops.filter(o => o[0] > sold).length });
+  }
+  rows.sort((a, b) => b.sold.localeCompare(a.sold));
+  const sub = fmt.int(sales.length) + ' Office Staff new sales ' + from + ' → ' + to + ' · ' + fmt.int(agree) + ' agree with Pest AI’s last touch · ' + fmt.int(rows.length) + ' do not' + (noPrior ? ' · ' + fmt.int(noPrior) + ' had no Pest AI touch before the sale' : '') + (unseen ? ' · ' + fmt.int(unseen) + ' phones Pest AI never saw' : '') + (noPhone ? ' · ' + fmt.int(noPhone) + ' with no phone on the account' : '');
+  const th = (t) => el('th', { class: 'px-3 py-2 text-left text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap', style: Object.assign({ background: 'var(--card-2)' }, muted) }, t);
+  const td = (t, st) => el('td', { class: 'px-3 py-1.5 whitespace-nowrap tabular-nums', style: st || {} }, t);
+  const stamp = (o) => o[0] + (o[1] ? ' ' + o[1] + ' UTC' : '');
+  const tr = (r) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+    td('#' + (r.s.customer_id || '—')), td(r.sold), td(typeof _mktgTC === 'function' ? _mktgTC(r.s.office_name) : r.s.office_name || '—'),
+    td(r.frSrc + (r.frCh !== r.frSrc ? ' → ' + r.frCh : ''), { color: '#B91C1C', fontWeight: '700' }),
+    td(r.last[2] + (r.last[3] && r.last[3] !== r.last[2] ? ' (' + r.last[3] + ')' : ''), { color: 'var(--ok)', fontWeight: '700' }), td(stamp(r.last), muted),
+    td(r.others.length ? r.others.join(' · ') : '—', muted), td(r.after ? String(r.after) : '—', muted), td(fmt.usd0(Number(r.s.subscription_contract_value) || 0)));
+  const csv = () => {
+    const esc = (v) => { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    const lines = [['customer_number', 'sold_date', 'office', 'fieldroutes_source', 'fieldroutes_channel', 'pest_ai_last_touch', 'pest_ai_label', 'last_touch_at_utc', 'earlier_touches', 'touches_after_sale', 'contract_value'].join(',')];
+    for (const r of rows) lines.push([r.s.customer_id, r.sold, r.s.office_name, r.frSrc, r.frCh, r.last[2], r.last[3], stamp(r.last), r.others.join(' | '), r.after, Number(r.s.subscription_contract_value) || 0].map(esc).join(','));
+    const a = el('a', { href: URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' })), download: 'ridd-misattributed-' + from + '-to-' + to + '.csv' }); document.body.append(a); a.click(); a.remove();
+  };
+  return card(
+    el('div', { class: 'px-4 pt-4 pb-2 flex items-center justify-between gap-3 flex-wrap' },
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Misattributed in FieldRoutes'), el('div', { class: 'text-[11px] mt-0.5', style: muted }, sub)),
+      rows.length ? el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: csv }, '⬇ Export ' + rows.length) : null),
+    rows.length ? el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '60vh', borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full', style: { borderCollapse: 'collapse', fontSize: '11px' } },
+      el('thead', { style: { position: 'sticky', top: 0, zIndex: 2 } }, el('tr', {}, th('Customer'), th('Sold'), th('Office'), th('FieldRoutes source'), th('Pest AI last touch'), th('Touched at'), th('Earlier touches'), th('After sale'), th('Contract'))),
+      el('tbody', {}, ...rows.map(tr))))
+      : el('div', { class: 'px-4 py-4 text-sm text-center', style: muted }, 'Every sale with a Pest AI touch agrees with its last touch.'),
+    el('div', { class: 'px-4 py-2 border-t text-[10px]', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } },
+      'Last touch = the latest GoHighLevel opportunity on the account’s phone on or before the sold date (opportunity timestamps, UTC). FieldRoutes source is read through Configurations → FieldRoutes sources → channel, so a different spelling of the same channel is not a mismatch. Fix the source in FieldRoutes; the next sync clears the row.'));
 }
 
 // One channel's card: the table's numbers as grouped tiles, each sales tile drilling to the accounts.
