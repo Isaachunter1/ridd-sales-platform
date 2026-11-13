@@ -94,3 +94,9 @@ test('tvWindows: the board\'s ranges, on Mountain time, Sun–Sat weeks, whole p
   const j = tvWindow('last_month', new Date('2026-01-05T18:00:00Z'));
   assert.deepEqual([j.start, j.end, j.label], ['2025-12-01', '2025-12-31', 'December']);
 });
+
+test('parseSalesKpis: the team-level table (no groupBy) keeps the "team" row', () => {
+  const txt = '| group | opportunities | qualified | sold | close rate | revenue |\n|---|---|---|---|---|---|\n| team | 2,401 | 1,157 | 420 | 36.3% (420/1157) | $301,252.89 from 380 sales |\n';
+  const rows = parseSalesKpis(txt);
+  assert.equal(rows.length, 1); assert.equal(rows[0].name, 'team'); assert.deepEqual([rows[0].rate, rows[0].sold, rows[0].qualified, rows[0].opportunities], [0.363, 420, 1157, 2401]);
+});

@@ -23,7 +23,7 @@
 // └─────────────────────────────────────────────────────────────────────────
 import { job } from '../../../runtime/job.js';
 import { PlaibookMcp, parseSalesKpis, parseRecords, recordCount } from '../functions/plaibookMcp.js';
-import { tvWindows, BOARD_TZ } from '../functions/tvWindows.js';
+import { tvWindows, localParts, BOARD_TZ } from '../functions/tvWindows.js';
 
 const LIST_CAP = 250;   // rows kept per drill column per rep per window; the header shows "first 250 of N"
 
@@ -103,7 +103,24 @@ export default job('plaibook-close-rates', {
     tv.windows[win.id] = block;
   }
 
+  // Department close rate by month (per Isaac, Nov 11 — the Marketing → Metrics tile): Plaibook's team-level
+  // sold ÷ qualified for each of the last 13 calendar months (board calendar), one call per month, tiny row.
+  await ctx.stage('months');
+  const dept = { source: 'plaibook', tz: BOARD_TZ, pulled_at: ctx.now.toISOString(), months: {} };
+  const { y: ly, m: lm } = localParts(ctx.now);
+  for (let i = 12; i >= 0; i--) {
+    const d = new Date(Date.UTC(ly, lm - i, 1)); const y = d.getUTCFullYear(), m = d.getUTCMonth();
+    const ym = y + '-' + String(m + 1).padStart(2, '0');
+    const start = ym + '-01', end = y + '-' + String(m + 1).padStart(2, '0') + '-' + String(new Date(Date.UTC(y, m + 1, 0)).getUTCDate()).padStart(2, '0');
+    try {
+      const k = await mcp.call('query_sales_kpis', { content: 'RIDD Sales Platform: department close rate · ' + ym, startDate: start, endDate: end });
+      const row = parseSalesKpis(k).find(x => /^team$/i.test(x.name)) || parseSalesKpis(k)[0] || null;
+      if (row) dept.months[ym] = { rate: row.rate, sold: row.sold, qualified: row.qualified, opportunities: row.opportunities || null, revenue: row.revenue || null, start, end };
+    } catch (e) { ctx.log.warn('dept close rate ' + ym + ' skipped: ' + (e && e.message)); }
+  }
+
   if (ctx.dryRun) {
+    await ctx.publish('pay/plaibook-close-rates-dept.json', Buffer.from(JSON.stringify(dept, null, 1)));
     await ctx.publish('pay/plaibook-close-rates.json', Buffer.from(JSON.stringify(next, null, 1)));
     await ctx.publish('pay/plaibook-close-rates-tv.json', Buffer.from(JSON.stringify(tv, null, 1)));
     return { reps: reps.length, window: window.label, tvWindows: Object.keys(tv.windows).length };
@@ -113,5 +130,7 @@ export default job('plaibook-close-rates', {
   if (error) throw new Error('app_settings.close_rates write failed: ' + error.message);
   const { error: e2 } = await supabase.from('app_settings').upsert({ key: 'close_rates_tv', value: tv }, { onConflict: 'key' });
   if (e2) throw new Error('app_settings.close_rates_tv write failed: ' + e2.message);
-  return { reps: reps.length, window: window.label, tvWindows: Object.keys(tv.windows).length, lists: Object.values(out).reduce((a, r) => a + ((r.closed || []).length + (r.qualified_not_closed || []).length + (r.unqualified || []).length), 0) + tvLists };
+  const { error: e3 } = await supabase.from('app_settings').upsert({ key: 'close_rates_dept', value: dept }, { onConflict: 'key' });
+  if (e3) throw new Error('app_settings.close_rates_dept write failed: ' + e3.message);
+  return { reps: reps.length, window: window.label, tvWindows: Object.keys(tv.windows).length, deptMonths: Object.keys(dept.months).length, lists: Object.values(out).reduce((a, r) => a + ((r.closed || []).length + (r.qualified_not_closed || []).length + (r.unqualified || []).length), 0) + tvLists };
 });
