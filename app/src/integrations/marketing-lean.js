@@ -53,7 +53,8 @@ function mklMonth(ym, cap) {
   const M = state._mklMemo || (state._mklMemo = {});
   const mk = cap ? ym + '@' + cap : ym;
   if (M[mk] && M[mk].sig === sig && M[mk].subs === subs && M[mk].al === AL) return M[mk].v;
-  const br = {}, ch = {};
+  const br = {}, ch = {}, x = {};   // x = office → channel → cell (per Isaac, Nov 16: the grid's cell pop-up breaks an office down by channel and a channel by office)
+  const xcell = (b, c) => { const o = x[b] || (x[b] = {}); return cell(o, c); };
   const cell = (o, k) => o[k] || (o[k] = { spend: 0, leads: 0, s: 0, svc: 0, cv: 0, waiting: 0 });
   const TC = (b) => typeof _mktgTC === 'function' ? _mktgTC(b) : String(b || '');
   // Spend (QuickBooks, allocated).
@@ -62,7 +63,7 @@ function mklMonth(ym, cap) {
     // Capped: the share of the month's QuickBooks dollars charged through the cap day scales every allocation.
     const _capF = (() => { if (!cap) return 1; const L = A.lines.filter(L => L.prov !== SPQ_SKIP); const t = L.reduce((x, y) => x + y.amt, 0); return t > 0 ? L.filter(L => dayOf(L.day) <= cap).reduce((x, y) => x + y.amt, 0) / t : 0; })();
     spend = A.total * _capF; spendUnassigned = (A.unassigned || 0) * _capF; spendLines = A.lines.filter(L => L.prov !== SPQ_SKIP && inCap(L.day)).length;
-    for (const p in A.cells) for (const b in A.cells[p]) { cell(br, TC(b)).spend += A.cells[p][b] * _capF; }
+    for (const p in A.cells) for (const b in A.cells[p]) { cell(br, TC(b)).spend += A.cells[p][b] * _capF; xcell(TC(b), typeof spqLabel === 'function' ? spqLabel(p) : p).spend += A.cells[p][b] * _capF; }
     for (const p in A.byProv) cell(ch, typeof spqLabel === 'function' ? spqLabel(p) : p).spend += A.byProv[p].amt * _capF;
     for (const p in (A.waiting || {})) { const c = cell(ch, p); c.spend += A.waiting[p].amt * _capF; c.waiting += A.waiting[p].amt * _capF; spendWaiting += A.waiting[p].amt * _capF; }
   }
@@ -83,12 +84,13 @@ function mklMonth(ym, cap) {
     const v = Number(r.subscription_contract_value) || 0, done = 1; s++; svc += done; cv += v; sales.push(r);   // pending or serviced both count (per Isaac)
     const b = cell(br, TC(r.office_name || 'No branch')); b.s++; b.svc += done; b.cv += v;
     const c = cell(ch, _mklChannelOfSource(reportingSourceOf(r))); c.s++; c.svc += done; c.cv += v;
+    const xc = xcell(TC(r.office_name || 'No branch'), _mklChannelOfSource(reportingSourceOf(r))); xc.s++; xc.svc += done; xc.cv += v; xc.sales = xc.sales || []; xc.sales.push(r);
   }
   // Leads (GoHighLevel, deduped).
   let leads = null;
   if (AL) {
     leads = 0;
-    for (const l of AL.leads) { if (String(l.d).slice(0, 7) !== ym || !inCap(l.d)) continue; leads++; cell(br, l.market || 'No branch').leads++; cell(ch, l.prov === 'Unmapped' ? 'Unmapped GHL source' : l.prov).leads++; }
+    for (const l of AL.leads) { if (String(l.d).slice(0, 7) !== ym || !inCap(l.d)) continue; leads++; cell(br, l.market || 'No branch').leads++; cell(ch, l.prov === 'Unmapped' ? 'Unmapped GHL source' : l.prov).leads++; xcell(l.market || 'No branch', l.prov === 'Unmapped' ? 'Unmapped GHL source' : l.prov).leads++; }
   }
   // Wages (Spend tab → Wages, per rep per month; per Isaac, Nov 16 — part of CAC), spread to offices by their share
   // of the month's new revenue (mktgWagesMonth); Nov 9's by-office entries still count for months that only have those.
@@ -100,7 +102,7 @@ function mklMonth(ym, cap) {
     wages = (W.total || 0) * _laborF; incentives = (I.total || 0) * _laborF;
     for (const b of new Set([...Object.keys(W.by), ...Object.keys(I.by)])) { const w = (Number(W.by[b]) || 0) * _laborF, inc = (Number(I.by[b]) || 0) * _laborF, v = w + inc; if (!v) continue; hasLabor = true; labor += v; const c = cell(br, TC(b)); c.labor = (c.labor || 0) + v; c.wages = (c.wages || 0) + w; c.inc = (c.inc || 0) + inc; }
   } catch (e) { /* no store yet */ }
-  const v = { ym, cap, A, spend, spendWaiting, spendUnassigned, spendLines, s, svc, cv, sales, leads, br, ch, labor, wages, incentives, hasLabor, hasSpend: !!A, hasLeads: !!AL, hasSubs: subs.length > 0 };
+  const v = { ym, cap, A, spend, spendWaiting, spendUnassigned, spendLines, s, svc, cv, sales, leads, br, ch, x, labor, wages, incentives, hasLabor, hasSpend: !!A, hasLeads: !!AL, hasSubs: subs.length > 0 };
   M[mk] = { sig, subs, al: AL, v };
   return v;
 }
@@ -362,7 +364,12 @@ function mklYearGrid(ym) {
   const muted = { color: 'var(--text-muted)' };
   const th = (t, r, extra) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (r ? 'text-right' : 'text-left'), style: Object.assign({ color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0 }, extra || {}) }, t);
   const show = (c) => { const v = M.get(c); return v == null || !isFinite(v) ? '—' : M.fmt(v); };
-  const td = (c, bold, future, base) => {
+  const td = (c, bold, future, base, pop) => {
+    const cellEl = _td(c, bold, future, base);
+    if (pop && !future) { cellEl.classList.add('cursor-pointer', 'hover:underline'); cellEl.title = 'Click for every metric here'; cellEl.onclick = (e) => { e.stopPropagation(); mklCellPop(pop); }; }
+    return cellEl;
+  };
+  const _td = (c, bold, future, base) => {
     if (chg !== 'none') {
       const a = M.get(c), b = base ? M.get(base) : null;
       const p = a == null || b == null || !isFinite(a) || !isFinite(b) || !b || future ? null : (a - b) / Math.abs(b);
@@ -374,10 +381,10 @@ function mklYearGrid(ym) {
   const sticky = (bg) => ({ position: 'sticky', left: 0, background: bg, zIndex: 1, boxShadow: '1px 0 0 var(--border)' });
   const rowOf = (k) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
     el('td', { class: 'px-3 py-1.5 whitespace-nowrap font-semibold', style: sticky('var(--card)') }, k),
-    ...MON.map((_, i) => td(cellOf(k, i), i === curMi, months[i].ym > ym, baseOf((j) => cellOf(k, j), (j) => pcellOf(k, j), i))), td(ytdOf(k), true, false, chg === 'yoy' ? pytdOf(k) : null));
+    ...MON.map((_, i) => td(cellOf(k, i), i === curMi, months[i].ym > ym, baseOf((j) => cellOf(k, j), (j) => pcellOf(k, j), i), { by, key: k, ym: months[i].ym, cell: cellOf(k, i), D: months[i] })), td(ytdOf(k), true, false, chg === 'yoy' ? pytdOf(k) : null, { by, key: k, ym: null, cell: ytdOf(k), months: months.filter(D => D.ym <= ym) }));
   const totRow = el('tr', { style: { borderTop: '2px solid var(--text)', background: 'var(--card-2)' } },
     el('td', { class: 'px-3 py-1.5 whitespace-nowrap font-black', style: sticky('var(--card-2)') }, 'RIDD'),
-    ...MON.map((_, i) => td(totOf(i), true, months[i].ym > ym, baseOf(totOf, ptotOf, i))), td(totYtd(), true, false, chg === 'yoy' ? ptotYtd() : null));
+    ...MON.map((_, i) => td(totOf(i), true, months[i].ym > ym, baseOf(totOf, ptotOf, i), { by, key: null, ym: months[i].ym, cell: totOf(i), D: months[i] })), td(totYtd(), true, false, chg === 'yoy' ? ptotYtd() : null, { by, key: null, ym: null, cell: totYtd(), months: months.filter(D => D.ym <= ym) }));
   const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
   const metricSel = el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: selSt, onchange: (e) => { state._mklGridMetric = e.target.value; mountApp(); } },
     ...MKL_GRID_METRICS.map(x => el('option', { value: x.k, selected: x.k === M.k }, x.label)));
@@ -394,4 +401,48 @@ function mklYearGrid(ym) {
       el('thead', {}, el('tr', {}, th(by === 'br' ? 'Office' : 'Channel', false, { position: 'sticky', left: 0, zIndex: 2 }), ...MON.map((m, i) => th(m, true, i === curMi ? { color: 'var(--accent)' } : null)), th('YTD', true))),
       el('tbody', {}, ...keys.map(rowOf), totRow))),
     !keys.length ? el('div', { class: 'px-5 py-4 text-sm text-center', style: muted }, 'Nothing for ' + year + ' yet.') : null);
+}
+
+// One cell's pop-up (per Isaac, Nov 16): every metric for that office (or channel) in that month or YTD, then the
+// same office broken down by channel — or the channel by office. Click outside or Esc to close.
+function mklCellPop(p) {
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
+  const key = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', key);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  const muted = { color: 'var(--text-muted)' };
+  const who = p.key == null ? 'RIDD' : p.key, when = p.ym ? _mklLbl(p.ym) : 'YTD';
+  const otherLbl = p.by === 'br' ? 'By channel' : 'By office';
+  // Breakdown by the other dimension, summed over the months in play.
+  const Ds = p.ym ? [p.D] : (p.months || []);
+  const agg = {};
+  const addTo = (k, c) => { const t = agg[k] || (agg[k] = { spend: 0, leads: 0, s: 0, cv: 0 }); t.spend += c.spend || 0; t.leads += c.leads || 0; t.s += c.s || 0; t.cv += c.cv || 0; };
+  for (const D of Ds) {
+    const X = D.x || {};
+    if (p.by === 'br') { const offs = p.key == null ? Object.keys(X) : [p.key]; for (const o of offs) for (const c in (X[o] || {})) addTo(c, X[o][c]); }
+    else { for (const o in X) { if (p.key == null) { for (const c in X[o]) addTo(o, X[o][c]); } else if (X[o][p.key]) addTo(o, X[o][p.key]); } }
+  }
+  const rows = Object.entries(agg).filter(([, c]) => c.spend || c.leads || c.s).sort((a, b) => (b[1].cv - a[1].cv) || (b[1].spend - a[1].spend));
+  const th = (t, r) => el('th', { class: 'px-3 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (r ? 'text-right' : 'text-left'), style: Object.assign({ background: 'var(--card-2)' }, muted) }, t);
+  const td = (t, r, st) => el('td', { class: 'px-3 py-1 whitespace-nowrap' + (r ? ' text-right tabular-nums' : ''), style: Object.assign({ fontFamily: r ? 'ui-monospace, monospace' : 'inherit' }, st || {}) }, t);
+  const val = (M, c) => { const v = M.get(c); return v == null || !isFinite(v) ? '—' : M.fmt(v); };
+  const metricsEl = el('div', { class: 'grid gap-x-6 gap-y-1', style: { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' } },
+    ...MKL_GRID_METRICS.map(M => el('div', { class: 'flex items-baseline justify-between gap-3 border-b', style: { borderColor: 'var(--border)', padding: '3px 0' }, title: M.tip },
+      el('span', { class: 'text-[11px]', style: muted }, M.label), el('span', { class: 'text-sm font-bold tabular-nums', style: { fontFamily: 'ui-monospace, monospace' } }, val(M, p.cell)))));
+  const salesOf = (k) => { const out = []; for (const D of Ds) { const X = D.x || {}; if (p.by === 'br') { const offs = p.key == null ? Object.keys(X) : [p.key]; for (const o of offs) if (X[o] && X[o][k] && X[o][k].sales) out.push(...X[o][k].sales); } else { for (const o in X) { if (p.key == null) { for (const c in X[o]) if (o === k && X[o][c].sales) out.push(...X[o][c].sales); } else if (o === k && X[o][p.key] && X[o][p.key].sales) out.push(...X[o][p.key].sales); } } } return out; };
+  const brk = rows.length ? el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+    el('thead', {}, el('tr', {}, th(otherLbl.replace('By ', '')), th('Spend', true), th('Leads', true), th('Sales', true), th('Revenue', true), th('CPL', true), th('Mkt CAC', true), th('ROAS', true))),
+    el('tbody', {}, ...rows.map(([k, c]) => { const sl = salesOf(k); return el('tr', { class: 'border-t' + (sl.length ? ' cursor-pointer hover:brightness-95' : ''), style: { borderColor: 'var(--border)' }, title: sl.length ? 'Click for the accounts' : '', onclick: sl.length ? () => openReportingDrillModal({ chartTitle: who + ' · ' + k + ' · ' + when, sliceLabel: sl.length + ' new sale' + (sl.length === 1 ? '' : 's') + ' · ' + fmt.usd0(c.cv), rows: sl, formatValue: fmt.usd0 }) : null },
+      td(k, false, { fontWeight: '700' }), td(c.spend ? fmt.usd0(c.spend) : '—', true), td(c.leads ? fmt.int(c.leads) : '—', true), td(c.s ? fmt.int(c.s) : '—', true), td(c.cv ? fmt.usd0(c.cv) : '—', true),
+      td(c.spend && c.leads ? fmt.usd0(c.spend / c.leads) : '—', true), td(c.spend && c.s ? fmt.usd0(c.spend / c.s) : '—', true), td(c.spend ? (c.cv / c.spend).toFixed(2) + 'x' : '—', true, c.spend ? { fontWeight: '700', color: c.cv / c.spend >= 1 ? '#3E5A3A' : '#B91C1C' } : {})); })))
+    : el('div', { class: 'text-[11px] py-2', style: muted }, 'Nothing to break down here.');
+  const card = el('div', { class: 'card', style: { width: 'min(820px, calc(100vw - 32px))', maxHeight: '86vh', overflow: 'auto', margin: '6vh auto 0' }, onclick: (e) => e.stopPropagation() },
+    el('div', { class: 'px-5 py-3 border-b flex items-start gap-3', style: { borderColor: 'var(--border)' } },
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, who + ' · ' + when), el('div', { class: 'text-[11px] mt-0.5', style: muted }, p.key == null ? 'Every office' : (p.by === 'br' ? 'Office' : 'Channel') + ' · every metric, then ' + otherLbl.toLowerCase())),
+      el('button', { class: 'ml-auto text-2xl leading-none', style: muted, 'aria-label': 'Close', onclick: close }, '×')),
+    el('div', { class: 'px-5 py-3' }, metricsEl),
+    el('div', { class: 'px-5 pt-2 pb-1 text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, otherLbl + (p.ym ? '' : ' · YTD')),
+    el('div', { class: 'scroll-x px-2 pb-3' }, brk));
+  overlay.append(card); document.body.append(overlay);
 }
