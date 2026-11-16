@@ -378,7 +378,8 @@ function mklYearGrid(ym) {
   // Change view (per Isaac, Nov 16): No change · MoM change · YoY change — the same cells as % against the month
   // before (Jan reads against last December) or the same month a year earlier; YTD compares year to date to the
   // same stretch of last year.
-  const chg = state._mklGridChg === 'mom' || state._mklGridChg === 'yoy' ? state._mklGridChg : 'none';
+  // The grid follows the change dropdown on the Metrics/Spend bar (per Isaac, Nov 16) — one control for tiles and grid.
+  const _cmpF = mklState().cmp; const chg = _cmpF === 'year' ? 'yoy' : _cmpF === 'none' ? 'none' : 'mom';
   const prevMonths = chg === 'none' ? null : (() => { const o = []; for (let i = 0; i < 12; i++) o.push(mklMonth((year - 1) + '-' + String(i + 1).padStart(2, '0'))); return o; })();
   const zero = () => ({ spend: 0, leads: 0, s: 0, svc: 0, cv: 0, labor: 0, wages: 0, inc: 0 });
   const add = (t, c) => { t.spend += c.spend || 0; t.leads += c.leads || 0; t.s += c.s || 0; t.svc += c.svc || 0; t.cv += c.cv || 0; t.labor += c.labor || 0; t.wages += c.wages || 0; t.inc += c.inc || 0; return t; };
@@ -424,13 +425,11 @@ function mklYearGrid(ym) {
     ...MKL_GRID_METRICS.map(x => el('option', { value: x.k, selected: x.k === M.k }, x.label)));
   const byBtn = (v, l) => el('button', { class: 'px-2.5 py-1 text-[11px] font-bold', style: by === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._mklGridBy = v; mountApp(); } }, l);
   const bySel = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } }, byBtn('br', 'By office'), byBtn('ch', 'By channel'));
-  const chgSel = el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: selSt, onchange: (e) => { state._mklGridChg = e.target.value; mountApp(); } },
-    ...[['none', 'No change'], ['mom', 'MoM change'], ['yoy', 'YoY change']].map(([v, l]) => el('option', { value: v, selected: v === chg }, l)));
   const chgLbl = chg === 'mom' ? ' · MoM change' : chg === 'yoy' ? ' · YoY change' : '';
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
       el('h3', { class: 'text-base font-bold', title: M.tip + '. YTD runs through ' + _mklLblS(ym) + '; ratios in YTD come from the summed dollars.' + (chg === 'mom' ? ' MoM: against the month before (Jan against last December); YTD has no MoM.' : chg === 'yoy' ? ' YoY: against the same month last year; YTD against the same stretch of last year.' : '') }, M.label + ' · ' + year + chgLbl),
-      el('span', { class: 'ml-auto' }), bySel, metricSel, chgSel),
+      el('span', { class: 'ml-auto' }), bySel, metricSel),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th(by === 'br' ? 'Office' : 'Channel', false, { position: 'sticky', left: 0, zIndex: 2 }), ...MON.map((m, i) => th(m, true, i === curMi ? { color: 'var(--accent)' } : null)), th('YTD', true))),
       el('tbody', {}, ...keys.map(rowOf), totRow))),
