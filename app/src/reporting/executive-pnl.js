@@ -563,6 +563,7 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
   const signedRow = (row, v) => v == null || !isFinite(v) ? '' : row.kind === 'pct' ? _putisSigned(v, true) : row.kind === 'x' ? (v > 0 ? '+' : '') + v.toFixed(2) + 'x' : row.kind === 'mo' ? (v > 0 ? '+' : '') + v.toFixed(1) + ' mo' : row.kind === 'int' ? (v > 0 ? '+' : '') + Math.round(v).toLocaleString() : row.kind === 'usd2' ? (v > 0 ? '+' : v < 0 ? '-' : '') + '$' + Math.abs(v).toFixed(2) : _putisSigned(v, false);
   const ytdVal = (row) => row.unit ? (ytdU ? ytdU[row.id] : null) : row.point ? latestPoint(year, row.id) : (ytd.months ? ytd[row.id] : null);
   const priorVal = (row) => row.unit ? (priorU ? priorU[row.id] : null) : row.point ? latestPoint(year - 1, row.id) : (prior.months ? prior[row.id] : null);
+  const sumTtm = state._putisSumCol === 'ttm';   // which summary the last column shows (header toggles it)
   const yoy = (row) => {
     const a = ytdVal(row), b = priorVal(row);
     if (a == null || b == null || !isFinite(a) || !isFinite(b)) return '—';
@@ -570,8 +571,11 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
   };
   const table = el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse' } },
     el('thead', {}, el('tr', {}, th('', 'sticky left-0'), ...shownIdx.map(i => { const m = MKTG_MONTHS[i]; const isOpen = _mktgYm(year, i) === putisOpenMonth(); return th(isOpen ? m + ' · open' : (rangeYm ? m + ' ' + year : m), isOpen ? 'italic' : '', isOpen ? 'Current month — books not closed yet, numbers move daily. Not included in YTD.' : PUTIS_COL_TIPS.month); }),
-      th(year + ' YTD' + (ytd.months ? ' (thru ' + MKTG_MONTHS[Math.min(upto, Math.max(0, (String(year) === openYm.slice(0, 4) ? new Date().getMonth() - 1 : 11)))] + ')' : ''), '', PUTIS_COL_TIPS.ytd + ' The open (current) month is excluded.'),
-      th('Trailing 12 mo', '', ttm.months ? 'The last twelve closed months, ' + ttm.ks[ttm.ks.length - 1] + ' through ' + ttm.ks[0] + (ttm.months < 12 ? ' (' + ttm.months + ' available in the feed)' : '') + '. Percentage rows are recomputed from the summed dollars.' : 'No closed months yet.'))),
+      // One summary column (per Isaac, Nov 16 — Trailing 12 was getting cut off): its header toggles YTD ⇄ Trailing 12.
+      (() => { const ytdLbl = year + ' YTD' + (ytd.months ? ' (thru ' + MKTG_MONTHS[Math.min(upto, Math.max(0, (String(year) === openYm.slice(0, 4) ? new Date().getMonth() - 1 : 11)))] + ')' : '');
+        const ttmTip = ttm.months ? 'The last twelve closed months, ' + ttm.ks[ttm.ks.length - 1] + ' through ' + ttm.ks[0] + (ttm.months < 12 ? ' (' + ttm.months + ' available in the feed)' : '') + '. Percentage rows are recomputed from the summed dollars.' : 'No closed months yet.';
+        const h = th(sumTtm ? 'Trailing 12 mo' : ytdLbl, 'cursor-pointer select-none', (sumTtm ? ttmTip : PUTIS_COL_TIPS.ytd + ' The open (current) month is excluded.') + ' · click to switch to ' + (sumTtm ? 'YTD' : 'Trailing 12'));
+        h.style.color = 'var(--accent)'; h.append(el('span', { class: 'ml-1', style: { fontSize: '8px' } }, '⇄')); h.onclick = () => { state._putisSumCol = sumTtm ? 'ytd' : 'ttm'; mountApp(); }; return h; })())),
     el('tbody', {}, ...rowsShown.map(row => row.head
       ? el('tr', { class: 'border-t border-' }, el('td', { colspan: '16', class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)', position: 'sticky', left: 0 } }, row.head))
       : el('tr', { class: 'border-t border-' + (row.bold ? ' font-semibold' : ''), style: row.bold ? { background: 'var(--card-2)' } : {} },
@@ -586,8 +590,7 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
         }
         return c;
       }),
-      td(fmtRow(row, ytdVal(row)), { bold: true, title: row.point ? 'Latest closed month with a value' : '', style: row.signed && ytdVal(row) != null ? { color: ytdVal(row) < 0 ? '#DC2626' : '#5F6C5B' } : {} }),
-      (() => { const v = row.point ? ytdVal(row) : (ttm.months ? ttm[row.id] : null); return td(fmtRow(row, v), { bold: true, title: row.point ? 'Latest closed month with a value' : '', style: row.signed && v != null ? { color: v < 0 ? '#DC2626' : '#5F6C5B' } : {} }); })()))));
+      (() => { const v = sumTtm ? (row.point ? ytdVal(row) : (ttm.months ? ttm[row.id] : null)) : ytdVal(row); return td(fmtRow(row, v), { bold: true, title: row.point ? 'Latest closed month with a value' : '', style: Object.assign({ background: 'var(--card-2)' }, row.signed && v != null ? { color: v < 0 ? '#DC2626' : '#5F6C5B' } : {}) }); })()))));
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-center gap-3' + (opts.compact ? '' : ' flex-wrap'), style: { borderColor: 'var(--border)' } },
       el('div', { class: 'min-w-0' }, el('h3', { class: 'text-base font-bold' }, title), subtitle ? el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, subtitle) : null),
@@ -735,8 +738,11 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
     lineT('Net income', d => d.netIncome, { bold: true, signed: true }),
     lineT('Adjusted EBITDA', d => d.adjEbitda, { bold: true, signed: true, tip: 'EBITDA + selling expense: the service business on its own, before growth spend.' }),
     'BOOK',
-    lineT('Recurring revenue (active ARR)', (d, k) => fr(k).arr, { bold: true, tip: 'Annual recurring value of every recurring subscription on the books at the end of the period (any cancel reason removes it).' }),
-    lineT('Active accounts', (d, k) => fr(k).active, { num: true, tip: 'Recurring subscriptions on the books at the end of the period.' }),
+    // Book at the END of the period (per Isaac, Nov 16 — asked why this and the Overview's Active ARR differ): this is
+    // the book as of the last day of the month shown — sold by then, not cancelled by then — rebuilt from sold and
+    // cancel dates; the Overview is the book TODAY, status Active and serviced only. Same rules, different day.
+    lineT('Recurring revenue (ARR · end of ' + endLabel + ')', (d, k) => fr(k).arr, { bold: true, tip: 'Annual recurring value of every recurring subscription on the books on the last day of ' + endLabel + ' — sold by then and not cancelled by then (any cancel reason removes it). The Overview’s Active ARR is the same book as of today, status Active and serviced only, so the two move apart by what was sold, serviced or cancelled since.' }),
+    lineT('Active accounts (end of ' + endLabel + ')', (d, k) => fr(k).active, { num: true, tip: 'Recurring subscriptions on the books on the last day of ' + endLabel + '. The Overview counts today’s.' }),
     lineT('ACV (ARR ÷ active accounts)', (d, k) => { const f = fr(k); return f.active ? f.arr / f.active : null; }),
     lineT('Revenue ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.revenue / f.active : null; }, { tip: 'Booked revenue for the period ÷ accounts on the books at period end.' }),
     lineT('EBITDA ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.ebitda / f.active : null; }, { signed: true, tip: 'EBITDA for the period ÷ accounts on the books at period end.' }),
@@ -808,7 +814,7 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
           if (_minor.length) { h.classList.add('cursor-pointer', 'select-none'); h.style.color = 'var(--accent)'; h.title = (state._putisShowMinor ? 'Collapse ' : 'Expand ') + _minor.join(' and ') + ' (always included in RIDD)'; h.onclick = () => { state._putisShowMinor = !state._putisShowMinor; mountApp(); }; }
           return h; })(), ...cols.flatMap(c => {
         const on = pctOn(c.key);
-        const h = th(c.label + (withPct && !opts.onlyCol ? (on ? ' ▾' : ' ▸') : ''), withPct && !opts.onlyCol ? (on ? 'Click to hide the % of revenue column' : 'Click to show % of revenue for ' + c.label) : '');
+        const h = th(c.label, withPct && !opts.onlyCol ? (on ? 'Click to hide the % of revenue column' : 'Click to show % of revenue for ' + c.label) : '');   // no ▸/▾ in the header (per Isaac, Nov 16 — Virginia Beach was getting cut off); the click still toggles % rev
         h.style.borderLeft = '1px solid var(--border)';
         if (withPct && !opts.onlyCol) { h.classList.add('cursor-pointer', 'select-none'); h.onclick = () => { if (pctSet.has(c.key)) pctSet.delete(c.key); else pctSet.add(c.key); mountApp(); }; }
         return on ? [h, th('% rev', '')] : [h]; }))),

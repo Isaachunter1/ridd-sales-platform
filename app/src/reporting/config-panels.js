@@ -789,6 +789,26 @@ function _mktgSave() {
   if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {});
 }
 const _mktgYm = (y, i) => y + '-' + String(i + 1).padStart(2, '0');
+// Wages for one month (per Isaac, Nov 16): the Spend tab's per-rep table (m.repWages[ym][profileId]) is the number;
+// it reaches the Marketing P&L and CAC by office spread by each office's share of that month's new revenue (inside
+// sales reps sell into every market — there is no rep-to-office wage). A month with only Nov 9's hand-entered
+// by-office wages keeps those. Returns { total, by: { BRANCH: $ }, src: 'reps' | 'offices' | null }.
+function mktgWagesMonth(ym, branches) {
+  const m = _mktgStore(), RW = (m.repWages || {})[ym] || {};
+  const total = Object.values(RW).reduce((t, v) => t + (Number(v) || 0), 0);
+  const by = {};
+  if (total > 0) {
+    const y = Number(ym.slice(0, 4)), i = Number(ym.slice(5, 7)) - 1, a = _mktgActuals(y);
+    const bs = (branches && branches.length ? branches : Object.keys(a.branch || {}));
+    const rev = (b) => (a.branch[b] && a.branch[b][i]) ? (a.branch[b][i].rev || 0) + (a.branch[b][i].upRev || 0) : 0;
+    const tr = bs.reduce((t, b) => t + rev(b), 0);
+    for (const b of bs) by[b] = tr > 0 ? total * rev(b) / tr : total / bs.length;
+    return { total, by, src: 'reps' };
+  }
+  const W = (m.wages || {})[ym] || {}; let t2 = 0;
+  for (const b in W) { const v = Number(W[b]) || 0; if (v) { by[b] = v; t2 += v; } }
+  return { total: t2, by, src: t2 ? 'offices' : null };
+}
 const _mktgTC = (o) => String(o || '').split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w).join(' ');
 // FieldRoutes actuals for one calendar year: per branch/month + per source/month.
 const MKTG_UPSELL_SINCE = '2026-10-12';   // office-staff add-ons go live — upsells count from here
@@ -924,7 +944,7 @@ const _mktgDiv = (a, b) => (b > 0 ? a / b : null);
 function _mktgYearBar(sub) {
   const y = _mktgYearSel();
   // Attribution (lead reconciliation) is a tab of its own (per Isaac, Oct 2) — it lived behind a button on the right.
-  const SUBS = [['providers', 'Metrics'], ['recon', 'Channels'], ['pnl', 'P&L'], ['spend', 'Spend']];   // Attribution → Channels (per Isaac, Nov 10)   // Projections hidden (per Isaac, Oct 9); Disposition removed (Nov 5)
+  const SUBS = [['providers', 'Metrics'], ['spend', 'Spend']];   // Just Metrics and Spend (per Isaac, Nov 16): P&L folded into the Metrics year grid, Channels = its By channel rows   // Attribution → Channels (per Isaac, Nov 10)   // Projections hidden (per Isaac, Oct 9); Disposition removed (Nov 5)
   const _recon = sub === 'providers' && state._mktProvView === 'recon';
   return el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
     el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
@@ -975,7 +995,8 @@ function _mktgPnl() {
   // sub-accounts under Advertising & Marketing on the P&L — with the
   // hand-entered allocation only filling months QuickBooks hasn't booked yet.
   const ad  = (rk, i) => sum(rk, b => qbo(b, i));   // QuickBooks only — no allocation fallback (per Isaac)
-  const wg  = (rk, i) => sum(rk, b => Number((m.wages[_mktgYm(y, i)] || {})[b]) || 0);
+  const _wm = []; for (let i = 0; i < 12; i++) _wm.push(mktgWagesMonth(_mktgYm(y, i), B.all));   // Spend tab → Wages (per rep), by office share of new revenue
+  const wg  = (rk, i) => sum(rk, b => Number(_wm[i].by[b]) || 0);
   const inc = (rk, i) => sum(rk, b => Number((m.incentives[_mktgYm(y, i)] || {})[b]) || 0);
   const tot = (rk, i) => ad(rk, i) + wg(rk, i) + inc(rk, i);
   const jobs = (rk, i) => sum(rk, b => (a.branch[b] ? a.branch[b][i].subs + a.branch[b][i].upsells : 0));
@@ -992,7 +1013,7 @@ function _mktgPnl() {
       const SPEND = {
         total: { label: 'Total spend', note: 'ad spend + wages + incentives', cell: tot },
         ad:    { label: 'Ad spend',    note: qboNote,                          cell: ad },
-        wages: { label: 'Wages',       note: 'hand-entered (Spend entry)',     cell: wg },
+        wages: { label: 'Wages',       note: 'Spend tab → Wages (per rep, from payroll) · spread to offices by each office’s share of the month’s new revenue', cell: wg },
         inc:   { label: 'Incentives',  note: 'hand-entered (Spend entry)',     cell: inc },
       };
       const key = SPEND[state._mktSpendMetric] ? state._mktSpendMetric : 'total';
@@ -1035,7 +1056,7 @@ function _mktgCac() {
   // falls back to what is booked on the branch accounts.
   const ad = (i) => { const o = typeof spqOfficeTotals === 'function' ? spqOfficeTotals(_mktgYm(y, i)) : null;
     return o ? scopeBranches.reduce((t, b) => t + (Number(o[b]) || 0), 0) : scopeBranches.reduce((t, b) => t + qbo(b, i), 0); };
-  const wg = (i) => scopeBranches.reduce((t, b) => t + (Number((m.wages[_mktgYm(y, i)] || {})[b]) || 0), 0);
+  const wg = (i) => { const W = mktgWagesMonth(_mktgYm(y, i), B.all); return scopeBranches.reduce((t, b) => t + (Number(W.by[b]) || 0), 0); };   // Spend tab → Wages (per rep)
   const inc = (i) => scopeBranches.reduce((t, b) => t + (Number((m.incentives[_mktgYm(y, i)] || {})[b]) || 0), 0);
   const tot = (i) => ad(i) + wg(i) + inc(i);
   const proj = (i) => { let t = 0; for (const b of scopeBranches) t += (Number(s.branchGoals[b]) || 0) * (_mktgSeasonal()[i] || 0); return t; };
@@ -1549,11 +1570,12 @@ function reportingMarketingPnl() {
   if (state._mktSub === 'cac') { state._mktSub = 'providers'; state._mktProvView = 'cac'; }
   if (state._mktSub === 'acq') state._mktSub = 'providers';
   if (state._mktSub === 'demand') state._mktSub = 'providers';   // Demand folded into Metrics (per Isaac, Oct 6)
-  const sub = ['pnl', 'providers', 'spend', 'disp'].includes(state._mktSub) ? state._mktSub : 'providers';   // Metrics opens first (per Isaac)
+  if (state._mktSub === 'pnl' || state._mktSub === 'recon') { state._mktSub = 'providers'; state._mktProvView = 'cac'; }   // P&L and Channels tabs retired (per Isaac, Nov 16) — the Metrics grid has By office / By channel
+  const sub = ['providers', 'spend', 'disp'].includes(state._mktSub) ? state._mktSub : 'providers';   // Metrics opens first (per Isaac)
   // Metrics (per Isaac, Sep 30): CAC on the page; Lead providers and Lead
   // reconciliation are buttons to the right of the Office dropdown.
   // Lead providers now sits directly under the CAC table (per Isaac, Sep 30).
-  const provView = state._mktProvView === 'recon' ? 'recon' : 'cac';
+  const provView = 'cac';   // Channels view retired (per Isaac, Nov 16) — channelsView() stays in the code
   // Channels (per Isaac, Nov 10) replaces the Attribution view — src/integrations/channels.js; the old view stays in the code.
   const body = sub === 'providers' ? (provView === 'recon' ? el('div', { class: 'flex flex-col gap-4' }, (() => { try { return typeof channelsView === 'function' ? channelsView() : mktgAttributionView(); } catch (e) { console.warn('[channels]', e); return el('div', { class: 'card p-6 text-sm' }, 'Channels hit an error: ' + (e.message || e)); } })())
       // Rebuilt around the GoHighLevel lead cohort (per Isaac, Oct 15) — src/85-marketing-metrics.js. The old
@@ -1568,7 +1590,10 @@ function reportingMarketingPnl() {
         : el('div', { class: 'flex flex-col gap-4' }, (() => { try { return _mktgDemand(); } catch (e) { console.warn('[marketing] demand section skipped', e); return null; } })(), _mktgCac(), _mktgProviders())))
     : sub === 'spend' ? _mktgSpendEntry() : sub === 'projections' ? _mktgProjections() : _mktgPnl();
   // Needs attention moved to the Auditing task list (per Isaac, Nov 9) — one place for everything to fix in the CRM.
-  return el('div', { class: 'flex flex-col gap-4' }, _mktgYearBar(sub), body);
+  // Unmapped GoHighLevel sources to-do (per Isaac, Nov 16): pinned under the sub-tab bar on every Marketing view.
+  const todo = (() => { try { return typeof ghlUnmappedTodoCard === 'function' ? ghlUnmappedTodoCard() : null; } catch (e) { console.warn('[marketing] unmapped to-do', e); return null; } })();
+  const todoAds = (() => { try { return typeof adOpenCampaignsTodoCard === 'function' ? adOpenCampaignsTodoCard() : null; } catch (e) { console.warn('[marketing] campaigns to-do', e); return null; } })();
+  return el('div', { class: 'flex flex-col gap-4' }, _mktgYearBar(sub), todo, todoAds, body);
 }
 
 const REPORTING_MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];

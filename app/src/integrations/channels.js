@@ -50,6 +50,7 @@ function channelsView() {
   const mk = () => ({ leads: 0, sold: 0, booked: 0, serviced: 0, active: 0, cancelled: 0, soldRev: 0, servicedRev: 0, activeRev: 0, cancelledRev: 0, spend: 0, spendWaiting: 0, sales: [], leadRows: [] });
   const C = {}, tot = mk();
   const cell = (k) => C[k] || (C[k] = mk());
+  const aside = { sales: {}, labels: {}, unmappedLeads: [] };   // what stays out of the rows (per Isaac, Nov 16) — shown under the table instead
   for (const s of subsAll) {
     if (String(s.sold_by_type || '').trim() !== 'Office Staff') continue;
     const d = String(s.sold_date || '').slice(0, 10); if (!d || d < from || d > to) continue;
@@ -57,6 +58,11 @@ function channelsView() {
     if (typeof reportingNonSaleService === 'function' && reportingNonSaleService(s.subscription)) continue;
     if (off !== 'all' && TC(s.office_name) !== off) continue;
     const cv = Number(s.subscription_contract_value) || 0;
+    // Not a lead channel (per Isaac, Nov 16): a blank source, or a source the lead rules call not-a-lead (Door to
+    // Door, current customer…) on an Office Staff sale — kept out of the rows, listed under the table to fix.
+    const _src = String(reportingSourceOf(s) || '').trim();
+    const _notLead = typeof ghlAutoProvider === 'function' && ghlAutoProvider(_src) === GHL_NOT_LEAD;
+    if (!_src || _notLead) { const k = !_src ? '(no source)' : _src; const g = aside.sales[k] || (aside.sales[k] = { n: 0, cv: 0, rows: [] }); g.n++; g.cv += cv; g.rows.push(s); continue; }
     const c = cell(chOf(s));
     for (const x of [c, tot]) {
       x.sold++; x.soldRev += cv; x.sales.push(s);
@@ -69,15 +75,19 @@ function channelsView() {
   if (AL) for (const l of AL.leads) {
     const d = String(l.d).slice(0, 10); if (d < from || d > to) continue;
     if (off !== 'all' && l.market !== off) continue;
-    const k = l.prov === 'Unmapped' ? 'Unmapped GHL source' : l.prov;
-    const c = cell(k); c.leads++; tot.leads++; c.leadRows.push(l);
+    if (l.prov === 'Unmapped') { const lb = l.label || '(blank label)'; aside.labels[lb] = (aside.labels[lb] || 0) + 1; aside.unmappedLeads.push(l); continue; }
+    const c = cell(l.prov); c.leads++; tot.leads++; c.leadRows.push(l);
   }
   // ── Spend (QuickBooks, whole months the range touches). ──
   let spendMonths = 0;
   for (const ym of months) {
     const A = typeof spqAllocMonth === 'function' ? spqAllocMonth(ym) : null; if (!A) continue; spendMonths++;
     const lbl = (p) => typeof spqLabel === 'function' ? spqLabel(p) : p;
-    for (const p in A.byProv) { if (p === SPQ_SKIP) continue; const amt = off === 'all' ? A.byProv[p].amt : ((A.cells[p] || {})[Object.keys(A.cells[p] || {}).find(b => TC(b) === off)] || 0); if (!amt) continue; const c = cell(lbl(p)); c.spend += amt; tot.spend += amt; }
+    const amtOf = (p) => off === 'all' ? A.byProv[p].amt : ((A.cells[p] || {})[Object.keys(A.cells[p] || {}).find(b => TC(b) === off)] || 0);
+    // Agency & tools isn't a channel (per Isaac, Nov 16): its dollars ride on the media channels pro rata to their spend.
+    const media = Object.keys(A.byProv).filter(p => p !== SPQ_SKIP && p !== SPQ_TOOLS); const mediaTot = media.reduce((t, p) => t + (amtOf(p) || 0), 0);
+    const agency = A.byProv[SPQ_TOOLS] ? (amtOf(SPQ_TOOLS) || 0) : 0;
+    for (const p of media) { const amt = amtOf(p); if (!amt) continue; const add = amt + (mediaTot > 0 ? agency * amt / mediaTot : 0); const c = cell(lbl(p)); c.spend += add; tot.spend += add; }
     if (off === 'all') for (const p in (A.waiting || {})) { const c = cell(p); c.spend += A.waiting[p].amt; c.spendWaiting += A.waiting[p].amt; tot.spend += A.waiting[p].amt; tot.spendWaiting += A.waiting[p].amt; }
   }
 
@@ -141,9 +151,24 @@ function channelsView() {
       el('thead', { style: { position: 'sticky', top: 0, zIndex: 3 } }, grpRow, el('tr', {}, ...cols.map(th))),
       el('tbody', {}, ...entries.map(([n, s]) => row(n, s, false)), row('TOTAL', tot, true)))),
     el('div', { class: 'px-4 py-2 border-t text-[10px]', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } },
-      'Leads: GoHighLevel. Sold / Booked / Serviced and revenue: FieldRoutes Office Staff new sales by the account’s source. Spend: QuickBooks by vendor for ' + (months.length === 1 ? months[0] : months[0] + ' → ' + months[months.length - 1]) + ' (whole months)' + (off !== 'all' ? ', the vendor’s ' + off + ' share' : '') + '. A channel with leads but no sales (or the reverse) usually means its GoHighLevel label and FieldRoutes source aren’t mapped to the same name — Settings → Marketing & lead sources.'));
+      'Leads: GoHighLevel. Sold / Booked / Serviced and revenue: FieldRoutes Office Staff new sales by the account’s source. Spend: QuickBooks by vendor for ' + (months.length === 1 ? months[0] : months[0] + ' → ' + months[months.length - 1]) + ' (whole months)' + (off !== 'all' ? ', the vendor’s ' + off + ' share' : '') + '. Agency & tools spend rides on the media channels pro rata. Leads are counted on the lead’s date and sales on the sold date, so a channel can show more sold than leads in a short range when the leads came in earlier. More sold than leads over a long range means a GoHighLevel label isn’t mapped to that channel — Settings → Configurations → GoHighLevel sources.'));
+  // Under the table (per Isaac, Nov 16): what was kept out of the rows, and what to fix so it lands in one.
+  const asideCard = (() => {
+    const sk = Object.keys(aside.sales).sort((a, b) => aside.sales[b].n - aside.sales[a].n), lk = Object.entries(aside.labels).sort((a, b) => b[1] - a[1]);
+    if (!sk.length && !lk.length) return null;
+    const line = (...kids) => el('div', { class: 'flex items-start gap-2 text-[11px] flex-wrap' }, ...kids);
+    const lk8 = lk.slice(0, 10), more = lk.length - lk8.length, unN = lk.reduce((t, [, n]) => t + n, 0);
+    const openRows = (title, rows) => () => openReportingDrillModal({ chartTitle: 'Channels · ' + title, sliceLabel: rows.length + ' sale' + (rows.length === 1 ? '' : 's') + ' · ' + from + ' → ' + to, rows, formatValue: fmt.usd0 });
+    return el('div', { class: 'card p-4 flex flex-col gap-2', style: { borderColor: 'rgba(217,119,6,.5)' } },
+      el('div', { class: 'text-[11px] uppercase tracking-widest font-bold', style: { color: '#B45309' } }, 'Not in a channel yet — fix these'),
+      ...sk.map(k => { const g = aside.sales[k]; return line(el('span', { class: 'font-bold', style: { color: '#B91C1C' } }, fmt.int(g.n) + ' sale' + (g.n === 1 ? '' : 's') + ' · ' + fmt.usd0(g.cv)),
+        el('span', {}, k === '(no source)' ? 'with no source on the FieldRoutes account — set the source on each account.' : 'sourced “' + k + '” by Office Staff — not a lead channel; re-source them in FieldRoutes (Auditing → Source lists them too).'),
+        el('button', { class: 'font-semibold underline', style: { color: 'var(--accent)' }, onclick: openRows(k, g.rows) }, 'See them →')); }),
+      lk.length ? line(el('span', { class: 'font-bold', style: { color: '#B91C1C' } }, fmt.int(unN) + ' lead' + (unN === 1 ? '' : 's')),
+        el('span', {}, 'on GoHighLevel labels with no channel — map each in Settings → Configurations → GoHighLevel sources: ' + lk8.map(([l, n]) => l + ' (' + n + ')').join(' · ') + (more > 0 ? ' · +' + more + ' more' : ''))) : null);
+  })();
   const audit = (() => { try { return chAttributionAudit(subsAll.filter(s => { if (String(s.sold_by_type || '').trim() !== 'Office Staff') return false; const d = String(s.sold_date || '').slice(0, 10); if (!d || d < from || d > to) return false; if (!notRen(s)) return false; if (typeof reportingNonSaleService === 'function' && reportingNonSaleService(s.subscription)) return false; return off === 'all' || TC(s.office_name) === off; }), from, to); } catch (e) { console.warn('[channels] audit', e); return null; } })();
-  return el('div', { class: 'flex flex-col gap-4' }, bar, table, audit);
+  return el('div', { class: 'flex flex-col gap-4' }, bar, table, asideCard, audit);
 }
 
 // ── Misattributed in FieldRoutes (per Isaac, Nov 13): Pest AI's opportunity timestamps are the one source of truth
