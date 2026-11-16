@@ -153,7 +153,7 @@ function mktgSpendView() {
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
       el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Wages · ' + year),
         el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Inside Sales reps, by month, typed in from payroll. ' + (yearTot ? usd0(yearTot) + ' entered for ' + year + ' · ' : '') + 'Each month’s total is the wages line in CAC on Metrics.')),
-      el('span', { class: 'ml-auto text-[11px]', style: muted }, repsOn.length + ' active · ' + repsOff.length + ' inactive')),
+      el('span', { class: 'ml-auto text-[11px]', style: muted }, repsOn.length + ' active · ' + repsOff.length + ' inactive'), monthSel),   // the month picker lives here now (per Isaac, Nov 16 — the Spend header card is gone)
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } },
       el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
         el('thead', {}, el('tr', {}, th('Rep', false, { position: 'sticky', left: 0, zIndex: 2 }), ...MON.map(thM), th('Total', true))),
@@ -196,5 +196,5 @@ function mktgSpendView() {
   // Wages first; Spend by channel / by market are built but parked off the page for now (per Isaac, Nov 16 —
   // "get rid of them for now, I'll come back to that"). Put chanCard / mktCard back in this list to bring them back.
   void chanCard; void mktCard;
-  return el('div', { class: 'flex flex-col gap-4' }, head(), wagesCard, incCard, linesCard);
+  return el('div', { class: 'flex flex-col gap-4' }, wagesCard, incCard, linesCard);
 }
