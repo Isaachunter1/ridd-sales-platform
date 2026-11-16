@@ -789,6 +789,26 @@ function _mktgSave() {
   if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {});
 }
 const _mktgYm = (y, i) => y + '-' + String(i + 1).padStart(2, '0');
+// Wages for one month (per Isaac, Nov 16): the Spend tab's per-rep table (m.repWages[ym][profileId]) is the number;
+// it reaches the Marketing P&L and CAC by office spread by each office's share of that month's new revenue (inside
+// sales reps sell into every market — there is no rep-to-office wage). A month with only Nov 9's hand-entered
+// by-office wages keeps those. Returns { total, by: { BRANCH: $ }, src: 'reps' | 'offices' | null }.
+function mktgWagesMonth(ym, branches) {
+  const m = _mktgStore(), RW = (m.repWages || {})[ym] || {};
+  const total = Object.values(RW).reduce((t, v) => t + (Number(v) || 0), 0);
+  const by = {};
+  if (total > 0) {
+    const y = Number(ym.slice(0, 4)), i = Number(ym.slice(5, 7)) - 1, a = _mktgActuals(y);
+    const bs = (branches && branches.length ? branches : Object.keys(a.branch || {}));
+    const rev = (b) => (a.branch[b] && a.branch[b][i]) ? (a.branch[b][i].rev || 0) + (a.branch[b][i].upRev || 0) : 0;
+    const tr = bs.reduce((t, b) => t + rev(b), 0);
+    for (const b of bs) by[b] = tr > 0 ? total * rev(b) / tr : total / bs.length;
+    return { total, by, src: 'reps' };
+  }
+  const W = (m.wages || {})[ym] || {}; let t2 = 0;
+  for (const b in W) { const v = Number(W[b]) || 0; if (v) { by[b] = v; t2 += v; } }
+  return { total: t2, by, src: t2 ? 'offices' : null };
+}
 const _mktgTC = (o) => String(o || '').split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w).join(' ');
 // FieldRoutes actuals for one calendar year: per branch/month + per source/month.
 const MKTG_UPSELL_SINCE = '2026-10-12';   // office-staff add-ons go live — upsells count from here
@@ -975,7 +995,8 @@ function _mktgPnl() {
   // sub-accounts under Advertising & Marketing on the P&L — with the
   // hand-entered allocation only filling months QuickBooks hasn't booked yet.
   const ad  = (rk, i) => sum(rk, b => qbo(b, i));   // QuickBooks only — no allocation fallback (per Isaac)
-  const wg  = (rk, i) => sum(rk, b => Number((m.wages[_mktgYm(y, i)] || {})[b]) || 0);
+  const _wm = []; for (let i = 0; i < 12; i++) _wm.push(mktgWagesMonth(_mktgYm(y, i), B.all));   // Spend tab → Wages (per rep), by office share of new revenue
+  const wg  = (rk, i) => sum(rk, b => Number(_wm[i].by[b]) || 0);
   const inc = (rk, i) => sum(rk, b => Number((m.incentives[_mktgYm(y, i)] || {})[b]) || 0);
   const tot = (rk, i) => ad(rk, i) + wg(rk, i) + inc(rk, i);
   const jobs = (rk, i) => sum(rk, b => (a.branch[b] ? a.branch[b][i].subs + a.branch[b][i].upsells : 0));
@@ -992,7 +1013,7 @@ function _mktgPnl() {
       const SPEND = {
         total: { label: 'Total spend', note: 'ad spend + wages + incentives', cell: tot },
         ad:    { label: 'Ad spend',    note: qboNote,                          cell: ad },
-        wages: { label: 'Wages',       note: 'hand-entered (Spend entry)',     cell: wg },
+        wages: { label: 'Wages',       note: 'Spend tab → Wages (per rep, from payroll) · spread to offices by each office’s share of the month’s new revenue', cell: wg },
         inc:   { label: 'Incentives',  note: 'hand-entered (Spend entry)',     cell: inc },
       };
       const key = SPEND[state._mktSpendMetric] ? state._mktSpendMetric : 'total';
@@ -1035,7 +1056,7 @@ function _mktgCac() {
   // falls back to what is booked on the branch accounts.
   const ad = (i) => { const o = typeof spqOfficeTotals === 'function' ? spqOfficeTotals(_mktgYm(y, i)) : null;
     return o ? scopeBranches.reduce((t, b) => t + (Number(o[b]) || 0), 0) : scopeBranches.reduce((t, b) => t + qbo(b, i), 0); };
-  const wg = (i) => scopeBranches.reduce((t, b) => t + (Number((m.wages[_mktgYm(y, i)] || {})[b]) || 0), 0);
+  const wg = (i) => { const W = mktgWagesMonth(_mktgYm(y, i), B.all); return scopeBranches.reduce((t, b) => t + (Number(W.by[b]) || 0), 0); };   // Spend tab → Wages (per rep)
   const inc = (i) => scopeBranches.reduce((t, b) => t + (Number((m.incentives[_mktgYm(y, i)] || {})[b]) || 0), 0);
   const tot = (i) => ad(i) + wg(i) + inc(i);
   const proj = (i) => { let t = 0; for (const b of scopeBranches) t += (Number(s.branchGoals[b]) || 0) * (_mktgSeasonal()[i] || 0); return t; };
