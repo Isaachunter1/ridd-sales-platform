@@ -738,8 +738,11 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
     lineT('Net income', d => d.netIncome, { bold: true, signed: true }),
     lineT('Adjusted EBITDA', d => d.adjEbitda, { bold: true, signed: true, tip: 'EBITDA + selling expense: the service business on its own, before growth spend.' }),
     'BOOK',
-    lineT('Recurring revenue (active ARR)', (d, k) => fr(k).arr, { bold: true, tip: 'Annual recurring value of every recurring subscription on the books at the end of the period (any cancel reason removes it).' }),
-    lineT('Active accounts', (d, k) => fr(k).active, { num: true, tip: 'Recurring subscriptions on the books at the end of the period.' }),
+    // Book at the END of the period (per Isaac, Nov 16 — asked why this and the Overview's Active ARR differ): this is
+    // the book as of the last day of the month shown — sold by then, not cancelled by then — rebuilt from sold and
+    // cancel dates; the Overview is the book TODAY, status Active and serviced only. Same rules, different day.
+    lineT('Recurring revenue (ARR · end of ' + endLabel + ')', (d, k) => fr(k).arr, { bold: true, tip: 'Annual recurring value of every recurring subscription on the books on the last day of ' + endLabel + ' — sold by then and not cancelled by then (any cancel reason removes it). The Overview’s Active ARR is the same book as of today, status Active and serviced only, so the two move apart by what was sold, serviced or cancelled since.' }),
+    lineT('Active accounts (end of ' + endLabel + ')', (d, k) => fr(k).active, { num: true, tip: 'Recurring subscriptions on the books on the last day of ' + endLabel + '. The Overview counts today’s.' }),
     lineT('ACV (ARR ÷ active accounts)', (d, k) => { const f = fr(k); return f.active ? f.arr / f.active : null; }),
     lineT('Revenue ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.revenue / f.active : null; }, { tip: 'Booked revenue for the period ÷ accounts on the books at period end.' }),
     lineT('EBITDA ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.ebitda / f.active : null; }, { signed: true, tip: 'EBITDA for the period ÷ accounts on the books at period end.' }),
@@ -811,7 +814,7 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
           if (_minor.length) { h.classList.add('cursor-pointer', 'select-none'); h.style.color = 'var(--accent)'; h.title = (state._putisShowMinor ? 'Collapse ' : 'Expand ') + _minor.join(' and ') + ' (always included in RIDD)'; h.onclick = () => { state._putisShowMinor = !state._putisShowMinor; mountApp(); }; }
           return h; })(), ...cols.flatMap(c => {
         const on = pctOn(c.key);
-        const h = th(c.label + (withPct && !opts.onlyCol ? (on ? ' ▾' : ' ▸') : ''), withPct && !opts.onlyCol ? (on ? 'Click to hide the % of revenue column' : 'Click to show % of revenue for ' + c.label) : '');
+        const h = th(c.label, withPct && !opts.onlyCol ? (on ? 'Click to hide the % of revenue column' : 'Click to show % of revenue for ' + c.label) : '');   // no ▸/▾ in the header (per Isaac, Nov 16 — Virginia Beach was getting cut off); the click still toggles % rev
         h.style.borderLeft = '1px solid var(--border)';
         if (withPct && !opts.onlyCol) { h.classList.add('cursor-pointer', 'select-none'); h.onclick = () => { if (pctSet.has(c.key)) pctSet.delete(c.key); else pctSet.add(c.key); mountApp(); }; }
         return on ? [h, th('% rev', '')] : [h]; }))),
