@@ -333,14 +333,19 @@ function _mktgLeanView() {
     el('div', { class: 'px-5 py-3' }, el('h3', { class: 'text-base font-bold' }, 'Spend vs new revenue · last 12 months'), el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Bars are QuickBooks marketing spend by charge month; the line is Office Staff new-sale contract value by sale month. A month with no QuickBooks lines shows no bar, not $0.')),
     el('div', { class: 'p-3', style: { height: '240px' } }, el('canvas', { id: idC })));
 
+  // One header (per Isaac, Nov 16): title + compare note on the left; Previous month / Last year beside the month
+  // picker on the right. The Sources line and the Key metrics bar are folded in here.
+  const ownerHint = (typeof isOwnerUser === 'function' && isOwnerUser()) ? el('span', { class: 'text-[11px]', style: muted }, 'Drag tiles to reorder', Array.isArray(_mktgStore().tileOrder) && _mktgStore().tileOrder.length ? el('button', { class: 'ml-2 font-semibold underline', style: { color: 'var(--accent)' }, onclick: () => { delete _mktgStore().tileOrder; _mktgSave(); mountApp(); } }, 'Reset') : null) : null;
+  const srcTip = 'Sources · QuickBooks marketing' + (P && P.pulledAt ? ' ' + _mklAgo(P.pulledAt) : cur.hasSpend ? '' : ' (no lines for ' + _mklLblS(ym) + ')') + ' · FieldRoutes new sales' + (state.reportingSubscriptions ? '' : ' (loading)') + ' · GoHighLevel leads' + (G && G.at ? ' ' + _mklAgo(G.at) : ' (loading)');
   const headBar = el('div', { class: 'card px-5 py-3 flex items-center gap-3 flex-wrap' },
-    el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Marketing · ' + _mklLbl(ym)), el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Spend from QuickBooks, new revenue from FieldRoutes, leads from GoHighLevel — compared with ' + _mklLblS(pm) + '.')),
-    el('span', { class: 'ml-auto' }), monthSel);
+    el('div', { title: srcTip }, el('h3', { class: 'text-base font-bold' }, 'Marketing · ' + _mklLbl(ym)), el('div', { class: 'text-[11px] mt-0.5', style: muted }, _mklLbl(ym) + (_cap ? ' to date' : '') + ' vs ' + _mklLbl(pm) + (_cap ? ' 1\u2013' + _cap : '') + ' · QuickBooks spend, FieldRoutes new sales, GoHighLevel leads' + (!cur.hasSpend || !(G && G.opps) ? ' · ' + [!cur.hasSpend ? 'no QuickBooks lines for ' + _mklLblS(ym) : '', !(G && G.opps) ? 'GoHighLevel loading' : ''].filter(Boolean).join(', ') : ''))),
+    el('span', { class: 'ml-auto' }), ownerHint, cmpBtn('prev', 'Previous month'), cmpBtn('year', 'Last year'), monthSel);
   // ── The one grid (per Isaac, Nov 16): rows = offices (or channels), Jan–Dec + YTD, one metric at a time — the
   // old Marketing P&L table with every metric in its dropdown. Replaces the two single-month tables and the P&L tab.
   const grid = mklYearGrid(ym);
   void brTable; void chTable;
-  return el('div', { class: 'flex flex-col gap-4' }, headBar, fresh, cmpBar, tiles, grid, chart);
+  void fresh; void cmpBar;
+  return el('div', { class: 'flex flex-col gap-4' }, headBar, tiles, grid, chart);
 }
 // The month's new sales behind the New revenue tile (same rows the table counts).
 function mklOpenSales(D, title) {
