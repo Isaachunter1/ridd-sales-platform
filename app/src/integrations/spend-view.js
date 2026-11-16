@@ -35,7 +35,7 @@ function mktgSpendView() {
 
   const P = state.reportingIsSpendPayee;
   const head = () => el('div', { class: 'card px-5 py-3 flex items-center gap-3 flex-wrap' },
-    el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Spend · ' + reportingMonthLbl(ym)), el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'QuickBooks marketing spend by provider and by branch, each provider’s own statement beside it, and the month’s wages')),
+    el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Spend · ' + reportingMonthLbl(ym)), el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'QuickBooks marketing spend by provider and by branch, each provider’s own statement beside it, and the year’s wages by rep')),
     el('span', { class: 'ml-auto' }), monthSel);
   const authGone = state._authExpired ? el('div', { class: 'card p-4 flex items-center gap-3 flex-wrap', style: { borderColor: 'rgba(220,38,38,.5)' } },
     el('div', { class: 'text-sm' }, el('span', { class: 'font-bold', style: { color: '#B91C1C' } }, 'Your sign-in has expired. '), 'QuickBooks and Windsor data can’t load until you sign in again.'),
@@ -162,30 +162,49 @@ function mktgSpendView() {
       el('thead', {}, el('tr', {}, th('Provider'), th('QuickBooks', true), th('Statement', true), th('Δ', true), th('Leads · stmt', true), th('Leads · GHL', true), th('New sales', true), th('New revenue', true), th('Cost / lead', true), th('CAC', true), th('Return', true), th(''))),
       el('tbody', {}, ...provNames.sort((a, b) => (qbOf(b) || (PM[b] ? PM[b].net : 0)) - (qbOf(a) || (PM[a] ? PM[a].net : 0))).map(prow))))) : null;
 
-  // ── Wages & incentives (per Isaac, Nov 9): typed in once a month from the controller; part of fully-loaded CAC. ──
-  m.wages = (m.wages && typeof m.wages === 'object') ? m.wages : {}; m.incentives = (m.incentives && typeof m.incentives === 'object') ? m.incentives : {};
-  const W = m.wages[ym] || {}, I = m.incentives[ym] || {};
-  const pm = (() => { const d = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 2, 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); })();
-  const wTot = Object.values(W).reduce((a, v) => a + (Number(v) || 0), 0), iTot = Object.values(I).reduce((a, v) => a + (Number(v) || 0), 0);
-  const moneyIn = (val, onSave) => el('input', { type: 'text', inputmode: 'decimal', value: val ? String(Math.round(Number(val) * 100) / 100) : '', placeholder: '0', class: 'rounded-lg border px-2 py-1 text-[11px] tabular-nums', style: Object.assign({ width: '96px', textAlign: 'right' }, selSt),
-    onchange: (e) => { const n = parseFloat(String(e.target.value).replace(/[^0-9.-]/g, '')); onSave(isNaN(n) ? 0 : n); } });
-  const setW = (store, b, n) => { const S = m[store][ym] = m[store][ym] || {}; if (n) S[b] = Math.round(n * 100) / 100; else delete S[b]; if (!Object.keys(S).length) delete m[store][ym]; state._mkpMemo = null; state._mklMemo = {}; _mktgSave(); mountApp(); };
-  const wagesOpen = state._spendWagesOpen != null ? state._spendWagesOpen : !(wTot || iTot);
+  // ── Wages (per Isaac, Nov 16): one Jan–Dec table of every Inside Sales rep, typed in by hand. Active reps on top;
+  // inactive reps fold away under a bar at the bottom so an old month can still be filled in. Saved per rep per
+  // month (m.repWages[ym][profileId]); the month's total is the wages line in CAC on Metrics. Replaces Nov 9's
+  // by-branch Wages & incentives card.
+  m.repWages = (m.repWages && typeof m.repWages === 'object') ? m.repWages : {};
+  const IS_ROLES = ['rep_office', 'rep_office_lead'];
+  const repsAll = (state.allProfiles || []).filter(p => p && IS_ROLES.includes(String(p.role || ''))).sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || '')));
+  const repsOn = repsAll.filter(p => p.is_active !== false), repsOff = repsAll.filter(p => p.is_active === false);
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const ymOf = (i) => year + '-' + String(i + 1).padStart(2, '0');
+  const wOf = (pid, i) => Number((m.repWages[ymOf(i)] || {})[pid]) || 0;
+  const setRepW = (pid, i, n) => { const k = ymOf(i); const S = m.repWages[k] = m.repWages[k] || {}; if (n) S[pid] = Math.round(n * 100) / 100; else delete S[pid]; if (!Object.keys(S).length) delete m.repWages[k]; state._mkpMemo = null; state._mklMemo = {}; _mktgSave(); };
+  const moneyIn = (val, onSave) => el('input', { type: 'text', inputmode: 'decimal', value: val ? String(Math.round(Number(val) * 100) / 100) : '', placeholder: '—', class: 'rounded border px-1.5 py-0.5 text-[11px] tabular-nums', style: Object.assign({ width: '78px', textAlign: 'right' }, selSt),
+    onchange: (e) => { const n = parseFloat(String(e.target.value).replace(/[^0-9.-]/g, '')); onSave(isNaN(n) ? 0 : n, e.target); e.target.value = isNaN(n) || !n ? '' : String(Math.round(n * 100) / 100); } });
+  const monTot = (i, list) => list.reduce((a, p) => a + wOf(p.id, i), 0);
+  const repTot = (p) => MON.reduce((a, _, i) => a + wOf(p.id, i), 0);
+  const yearTot = MON.reduce((a, _, i) => a + monTot(i, repsAll), 0);
+  const curMi = Number(ym.slice(5, 7)) - 1;
+  const thM = (t, i) => th(t, true, i === curMi ? { color: 'var(--accent)' } : null);
+  const wRow = (p) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+    el('td', { class: 'px-3 py-1 whitespace-nowrap font-semibold', style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1 } }, p.full_name || '—', p.is_active === false ? el('span', { class: 'ml-1.5 text-[9px] uppercase tracking-wider', style: muted }, 'inactive') : null),
+    ...MON.map((_, i) => el('td', { class: 'px-1.5 py-1 text-right' }, admin ? moneyIn(wOf(p.id, i), (n, inp) => { setRepW(p.id, i, n); const row = inp.closest('tr'); const t = row && row.querySelector('[data-tot]'); if (t) t.textContent = usd0(repTot(p)); refreshFoot(); }) : usd0(wOf(p.id, i)))),
+    el('td', { class: 'px-3 py-1 text-right tabular-nums font-bold', 'data-tot': '1' }, usd0(repTot(p))));
+  // Totals update in place as numbers are typed (no full re-render per cell).
+  let footCells = [];
+  const refreshFoot = () => { footCells.forEach((c, i) => { c.textContent = i < 12 ? usd0(monTot(i, repsAll)) : usd0(MON.reduce((a, _, j) => a + monTot(j, repsAll), 0)); }); };
+  const footRow = () => { footCells = MON.map((_, i) => td(usd0(monTot(i, repsAll)), { fontWeight: '700' }, true)); const tot = td(usd0(yearTot), { fontWeight: '900' }, true); footCells.push(tot);
+    return el('tr', { style: { borderTop: '2px solid var(--text)', background: 'var(--card-2)' } }, el('td', { class: 'px-3 py-1.5 font-black', style: { position: 'sticky', left: 0, background: 'var(--card-2)', zIndex: 1 } }, 'Total'), ...footCells); };
+  const rowOf = (p) => wRow(p);
+  const offOpen = !!state._spendWagesOffOpen;
   const wagesCard = el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap cursor-pointer', onclick: () => { state._spendWagesOpen = !wagesOpen; mountApp(); } },
-      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Wages & incentives · ' + reportingMonthLbl(ym)),
-        el('div', { class: 'text-[11px] mt-0.5', style: muted }, (wTot || iTot) ? usd(wTot) + ' wages · ' + usd(iTot) + ' incentives — in fully-loaded CAC on Metrics' : 'From the controller, once a month — not entered yet for ' + reportingMonthLbl(ym) + '. Goes into fully-loaded CAC on Metrics.')),
-      el('span', { class: 'ml-auto text-[11px]', style: muted }, wagesOpen ? '▴' : '▾')),
-    wagesOpen ? el('div', { style: { borderTop: '1px solid var(--border)' } },
-      admin && (m.wages[pm] || m.incentives[pm]) && !(wTot || iTot) ? el('div', { class: 'px-5 py-2 text-[11px] flex items-center gap-2', style: muted }, 'Nothing entered yet.',
-        el('button', { class: 'font-semibold underline', style: { color: 'var(--accent)' }, onclick: () => { if (m.wages[pm]) m.wages[ym] = Object.assign({}, m.wages[pm]); if (m.incentives[pm]) m.incentives[ym] = Object.assign({}, m.incentives[pm]); state._mkpMemo = null; state._mklMemo = {}; _mktgSave(); mountApp(); } }, 'Copy ' + reportingMonthLbl(pm) + '’s numbers to start')) : null,
-      el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-        el('thead', {}, el('tr', {}, th('Branch'), th('Wages', true), th('Incentives', true), th('Total', true))),
-        el('tbody', {}, ...A.branches.map(b => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, td(_mktgTC(b), { fontWeight: '700' }),
-            el('td', { class: 'px-3 py-1 text-right' }, admin ? moneyIn(W[b], (n) => setW('wages', b, n)) : usd(Number(W[b]) || 0)),
-            el('td', { class: 'px-3 py-1 text-right' }, admin ? moneyIn(I[b], (n) => setW('incentives', b, n)) : usd(Number(I[b]) || 0)),
-            td(usd((Number(W[b]) || 0) + (Number(I[b]) || 0)), { fontWeight: '700' }, true))),
-          el('tr', { style: { borderTop: '2px solid var(--text)', background: 'var(--card-2)' } }, td('Total', { fontWeight: '800' }), td(usd(wTot), { fontWeight: '700' }, true), td(usd(iTot), { fontWeight: '700' }, true), td(usd(wTot + iTot), { fontWeight: '900' }, true)))))) : null);
+    el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Wages · ' + year),
+        el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Inside Sales reps, by month, typed in from payroll. ' + (yearTot ? usd0(yearTot) + ' entered for ' + year + ' · ' : '') + 'Each month’s total is the wages line in CAC on Metrics.')),
+      el('span', { class: 'ml-auto text-[11px]', style: muted }, repsOn.length + ' active · ' + repsOff.length + ' inactive')),
+    el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } },
+      el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+        el('thead', {}, el('tr', {}, th('Rep', false, { position: 'sticky', left: 0, zIndex: 2 }), ...MON.map(thM), th('Total', true))),
+        el('tbody', {}, ...repsOn.map(rowOf),
+          repsOff.length ? el('tr', { class: 'border-t cursor-pointer', style: { borderColor: 'var(--border)', background: 'var(--card-2)' }, onclick: () => { state._spendWagesOffOpen = !offOpen; mountApp(); } },
+            el('td', { class: 'px-3 py-1.5 text-[11px] font-semibold', colspan: 14, style: muted }, (offOpen ? '▴ ' : '▾ ') + repsOff.length + ' inactive rep' + (repsOff.length === 1 ? '' : 's') + (offOpen ? '' : ' — expand to add wages for a past month'))) : null,
+          ...(offOpen ? repsOff.map(rowOf) : []),
+          footRow()))));
 
   // ── The table: branches down, vendors across, how each vendor is split under its name. ──
   const methodLabel = (v) => { const set = m.qbAlloc[v]; if (set && /^office:/.test(set)) return 'All to ' + _mktgTC(set.slice(7)); const L = { platform: 'Platform spend', upload: 'Upload', leads: 'GHL leads', even: 'Even split' }; if (set && L[set]) return L[set]; const how = String((A.byProv[v] || {}).how || ''); return /platform/i.test(how) ? 'Auto · platform' : /upload/i.test(how) ? 'Auto · upload' : /leads/i.test(how) ? 'Auto · leads' : /pro rata/i.test(how) ? 'With the media' : 'Auto · even'; };

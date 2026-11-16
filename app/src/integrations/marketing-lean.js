@@ -83,10 +83,17 @@ function mklMonth(ym, cap) {
     leads = 0;
     for (const l of AL.leads) { if (String(l.d).slice(0, 7) !== ym || !inCap(l.d)) continue; leads++; cell(br, l.market || 'No branch').leads++; cell(ch, l.prov === 'Unmapped' ? 'Unmapped GHL source' : l.prov).leads++; }
   }
-  // Wages + incentives by branch (Spend tab → Wages & incentives; per Isaac, Nov 9 — part of CAC).
+  // Wages (Spend tab → Wages, per rep per month; per Isaac, Nov 16 — part of CAC). The month's rep total is the
+  // company wages line; it has no branch, so branch CAC stays marketing-only. Falls back to Nov 9's by-branch wages +
+  // incentives entries for months that only have those.
   let labor = 0, hasLabor = false;
   const _dim = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0).getDate(), _laborF = cap ? Math.min(1, cap / _dim) : 1;
-  try { const m = _mktgStore(); const W = (m.wages || {})[ym] || {}, I = (m.incentives || {})[ym] || {}; for (const b of new Set([...Object.keys(W), ...Object.keys(I)])) { const v = ((Number(W[b]) || 0) + (Number(I[b]) || 0)) * _laborF; if (!v) continue; hasLabor = true; labor += v; cell(br, TC(b)).labor = (cell(br, TC(b)).labor || 0) + v; } } catch (e) { /* no store yet */ }
+  try {
+    const m = _mktgStore(); const RW = (m.repWages || {})[ym] || {};
+    const rt = Object.values(RW).reduce((a, v) => a + (Number(v) || 0), 0);
+    if (rt > 0) { hasLabor = true; labor = rt * _laborF; }
+    else { const W = (m.wages || {})[ym] || {}, I = (m.incentives || {})[ym] || {}; for (const b of new Set([...Object.keys(W), ...Object.keys(I)])) { const v = ((Number(W[b]) || 0) + (Number(I[b]) || 0)) * _laborF; if (!v) continue; hasLabor = true; labor += v; cell(br, TC(b)).labor = (cell(br, TC(b)).labor || 0) + v; } }
+  } catch (e) { /* no store yet */ }
   const v = { ym, cap, A, spend, spendWaiting, spendUnassigned, spendLines, s, cv, sales, leads, br, ch, labor, hasLabor, hasSpend: !!A, hasLeads: !!AL, hasSubs: subs.length > 0 };
   M[mk] = { sig, subs, al: AL, v };
   return v;
