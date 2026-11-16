@@ -765,14 +765,14 @@ function reportingGeoTipHtml(name, o, colorLabel, colorDisplay) {
   const n = (v) => Math.round(v || 0).toLocaleString();
   const usd = (v) => '$' + n(v);
   const pct = (v) => (Math.round((v || 0) * 1000) / 10).toFixed(1) + '%';
-  const attr = o.attritionEligible ? pct(o.cancelRate) + ' <span style="opacity:.7">(' + pct(1 - (o.cancelRate || 0)) + ' kept)</span>' : '<span style="opacity:.7">&lt; 10 subs</span>';
+  // (Lifetime attrition line dropped from the hover — per Isaac, Nov 16; the breakdown tables still carry Attrition %.)
   const line = (k, v) => '<span style="opacity:.7">' + k + '</span> ' + v;
   return '<b>' + name + '</b>'
     + (colorLabel ? '<br><span style="opacity:.7">' + colorLabel + ':</span> <b>' + colorDisplay + '</b>' : '')
     + '<div style="margin-top:4px;display:grid;grid-template-columns:auto auto;gap:1px 10px;font-variant-numeric:tabular-nums">'
     + line('Customers', n(o.customers)) + line('Subs', n(o.subs))
     + line('Active ARR', usd(o.arv)) + line('ACV', usd(o.avgContract))
-    + line('Cancels', n(o.cancellations)) + line('Lifetime attrition', attr)
+    + line('Cancels', n(o.cancellations))
     + line('Avg tenure', o.avgTenure ? o.avgTenure.toFixed(1) + ' mo' : '—') + line('2yr+', pct(o.twoYrPct))
     + line('Sentricon', pct(o.sentriconPct)) + line('LTV / cust', usd(o.ltv))
     + '</div>';
