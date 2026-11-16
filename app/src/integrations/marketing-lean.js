@@ -182,7 +182,7 @@ function _mktgLeanView() {
       el('table', { style: { width: '100%', borderCollapse: 'collapse', fontVariantNumeric: 'tabular-nums' } },
         el('thead', {}, el('tr', {}, ...['Month', '', 'MoM', 'YoY'].map((h, i) => el('th', { style: { textAlign: i ? 'right' : 'left', fontWeight: '600', color: '#C9C9BE', padding: '0 0 3px', fontSize: '9px', letterSpacing: '.06em', textTransform: 'uppercase' } }, h)))),
         el('tbody', {}, ...MONTHS12.map((m, i) => { const j = i + 12; const v = v24[j]; return el('tr', { style: { borderTop: '1px solid rgba(255,255,255,.08)' } },
-          el('td', { style: { padding: '2px 0', color: m === ym ? '#FFFFFF' : '#C9C9BE', fontWeight: m === ym ? '700' : '400' } }, _mklLblS(m) + (m === ym && _cap ? ' · to date' : '')),
+          el('td', { style: { padding: '2px 0', color: m === ym ? '#FFFFFF' : '#C9C9BE', fontWeight: m === ym ? '700' : '400', whiteSpace: 'nowrap' } }, _mklLblS(m) + (m === ym && _cap ? ' · to date' : '')),
           el('td', { style: { padding: '2px 0', textAlign: 'right', fontWeight: '600' } }, v == null ? '—' : o.fmt(v)),
           el('td', { style: { padding: '2px 0 2px 10px', textAlign: 'right' } }, pctEl(pct(v, v24[j - 1]))),
           el('td', { style: { padding: '2px 0 2px 10px', textAlign: 'right' } }, pctEl(pct(v, v24[j - 12])))); }))));
@@ -216,7 +216,7 @@ function _mktgLeanView() {
     const cmpLine = el('div', { class: 'flex items-baseline gap-1.5 text-[12px] tabular-nums', style: { color: 'var(--text-muted)' } },
       dv == null ? el('span', {}, noPrior ? '—' : '—') : el('span', { class: 'font-bold', style: { color: col } }, (dv >= 0 ? '↑ +' : '↓ ') + (dv * 100).toFixed(1) + '%'),
       el('span', {}, 'vs. ' + (noPrior ? 'no ' + cmpLbl : o.fmt(b)), el('span', { class: 'ml-1', style: { color: 'var(--text-subtle)' } }, '· ' + _mklLblS(pm) + _mtdLbl)));
-    return el('div', { class: 'card p-4 flex flex-col gap-2' + (o.onClick ? ' cursor-pointer' : ''), style: { borderTop: '3px solid ' + (o.color || 'var(--accent)') }, title: o.tip || '', onclick: o.onClick || null },
+    return el('div', { class: 'card p-4 flex flex-col gap-2' + (o.onClick ? ' cursor-pointer' : ''), style: { borderTop: '3px solid ' + (o.color || 'var(--accent)') }, onclick: o.onClick || null },   // no title on the card itself — the browser tooltip sat on top of the sparkline table (per Isaac, Nov 16); the ⓘ carries the tip
       el('div', { class: 'flex items-center justify-between gap-2' },
         el('div', { class: 'text-[12px] font-semibold', style: { color: 'var(--text-muted)' } }, o.label, o.tip ? el('span', { class: 'ml-1 text-[10px]', style: { color: 'var(--text-subtle)' }, title: o.tip }, 'ⓘ') : null),
         icon(o.icon)),
@@ -265,7 +265,7 @@ function _mktgLeanView() {
     const node = TILE_DEFS.find(d => d[0] === k)[1];
     node.dataset.tile = k;
     if (owner) {
-      node.draggable = true; node.style.cursor = 'grab'; node.title = (node.title ? node.title + ' · ' : '') + 'Drag to reorder (owner only)';
+      node.draggable = true; node.style.cursor = 'grab';
       node.addEventListener('dragstart', (e) => { dragKey = k; node.style.opacity = '.5'; try { e.dataTransfer.setData('text/plain', k); e.dataTransfer.effectAllowed = 'move'; } catch (x) { /* ok */ } });
       node.addEventListener('dragend', () => { node.style.opacity = '1'; dragKey = null; });
       node.addEventListener('dragover', (e) => { if (dragKey && dragKey !== k) { e.preventDefault(); node.style.outline = '2px dashed var(--accent)'; } });
@@ -331,14 +331,13 @@ function _mktgLeanView() {
   // picker on the right. The Sources line and the Key metrics bar are folded in here.
   const ownerHint = (typeof isOwnerUser === 'function' && isOwnerUser()) ? el('span', { class: 'text-[11px]', style: muted }, 'Drag tiles to reorder', Array.isArray(_mktgStore().tileOrder) && _mktgStore().tileOrder.length ? el('button', { class: 'ml-2 font-semibold underline', style: { color: 'var(--accent)' }, onclick: () => { delete _mktgStore().tileOrder; _mktgSave(); mountApp(); } }, 'Reset') : null) : null;
   const srcTip = 'Sources · QuickBooks marketing' + (P && P.pulledAt ? ' ' + _mklAgo(P.pulledAt) : cur.hasSpend ? '' : ' (no lines for ' + _mklLblS(ym) + ')') + ' · FieldRoutes new sales' + (state.reportingSubscriptions ? '' : ' (loading)') + ' · GoHighLevel leads' + (G && G.at ? ' ' + _mklAgo(G.at) : ' (loading)');
-  const headBar = el('div', { class: 'card px-5 py-3 flex items-center gap-3 flex-wrap' },
-    el('div', { title: srcTip }, el('h3', { class: 'text-base font-bold' }, 'Marketing · ' + _mklLbl(ym)), el('div', { class: 'text-[11px] mt-0.5', style: muted }, _mklLbl(ym) + (_cap ? ' to date' : '') + (cmp === 'none' ? '' : ' vs ' + _mklLbl(pm) + (_cap ? ' 1\u2013' + _cap : '')) + ' · QuickBooks spend, FieldRoutes new sales, GoHighLevel leads' + (!cur.hasSpend || !(G && G.opps) ? ' · ' + [!cur.hasSpend ? 'no QuickBooks lines for ' + _mklLblS(ym) : '', !(G && G.opps) ? 'GoHighLevel loading' : ''].filter(Boolean).join(', ') : ''))),
-    el('span', { class: 'ml-auto' }), ownerHint, cmpSel, monthSel);
+  // Header controls ride on the Marketing sub-tab bar (per Isaac, Nov 16) — see mklHeaderControls(); no header card here.
+  void ownerHint; void cmpSel; void monthSel; void srcTip;
   // ── The one grid (per Isaac, Nov 16): rows = offices (or channels), Jan–Dec + YTD, one metric at a time — the
   // old Marketing P&L table with every metric in its dropdown. Replaces the two single-month tables and the P&L tab.
   const grid = mklYearGrid(ym);
   void brTable; void chTable;
-  return el('div', { class: 'flex flex-col gap-4' }, headBar, chart, tiles, grid);   // chart above the tiles (per Isaac, Nov 16)
+  return el('div', { class: 'flex flex-col gap-4' }, chart, tiles, grid);   // chart above the tiles; the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
 }
 // The month's new sales behind the New revenue tile (same rows the table counts).
 function mklOpenSales(D, title) {
@@ -513,4 +512,19 @@ function mklMetricPop(k, D, ym, cap) {
     el('div', { class: 'p-4 grid gap-4', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))' } }, tableOf('br', D.br, 'By office'), tableOf('ch', D.ch, 'By channel')),
     /^(spend|wages|inc|tot)$/.test(k) ? el('div', { class: 'px-5 pb-3 text-[11px]' }, el('button', { class: 'font-semibold underline', style: { color: 'var(--accent)' }, onclick: () => { close(); state._mktSub = 'spend'; state._mktCtrlMonth = ym; mountApp(); } }, 'Open the Spend tab →')) : null);
   overlay.append(card); document.body.append(overlay);
+}
+
+// The Metrics controls for the Marketing sub-tab bar (per Isaac, Nov 16): owner's drag hint + Reset, the compare
+// dropdown, the month picker.
+function mklHeaderControls() {
+  const F = mklState(); const ym = F.ym, cmp = F.cmp === 'year' ? 'year' : F.cmp === 'none' ? 'none' : 'prev';
+  const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
+  const months = []; for (let i = 0; i < 18; i++) months.push(_mklYm(new Date(new Date().getFullYear(), new Date().getMonth() - i, 1)));
+  const monthSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: selSt, onchange: (e) => { F.ym = e.target.value; mountApp(); } },
+    ...months.map(k => el('option', { value: k, selected: k === ym }, _mklLblS(k) + (k === months[0] ? ' · open' : ''))));
+  const cmpSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: selSt, onchange: (e) => { F.cmp = e.target.value; mountApp(); } },
+    ...[['none', 'No change'], ['prev', 'MoM change'], ['year', 'YoY change']].map(([v, l]) => el('option', { value: v, selected: v === cmp }, l)));
+  const m = _mktgStore();
+  const ownerHint = (typeof isOwnerUser === 'function' && isOwnerUser()) ? el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Drag tiles to reorder', Array.isArray(m.tileOrder) && m.tileOrder.length ? el('button', { class: 'ml-2 font-semibold underline', style: { color: 'var(--accent)' }, onclick: () => { delete m.tileOrder; _mktgSave(); mountApp(); } }, 'Reset') : null) : null;
+  return [ownerHint, cmpSel, monthSel].filter(Boolean);
 }

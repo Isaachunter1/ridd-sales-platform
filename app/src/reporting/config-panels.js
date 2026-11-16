@@ -970,7 +970,8 @@ function _mktgYearBar(sub) {
         style: (v === 'recon' ? _recon : (sub === v && !_recon)) ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
         onclick: () => { if (v === 'recon') { state._mktSub = 'providers'; state._mktProvView = 'recon'; } else { state._mktSub = v; state._mktProvView = 'cac'; } mountApp(); },
       }, l))),
-    // Metrics runs on a date range (per Isaac, Oct 15); the other tabs keep the year.
+    // Metrics (per Isaac, Nov 16): its month picker, compare dropdown and the owner's drag hint ride here, right-aligned; the other tabs keep the year.
+    sub === 'providers' && !_recon && typeof mklHeaderControls === 'function' ? el('div', { class: 'ml-auto flex items-center gap-2 flex-wrap' }, ...mklHeaderControls()) :
     sub === 'providers' && !_recon && (typeof mktgLeanView === 'function' || typeof mktgPulseView === 'function') ? null : sub === 'providers' && !_recon && typeof mkmRangeControl === 'function' ? mkmRangeControl() : el('div', { class: 'inline-flex items-center gap-1 ' },
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = y - 1; mountApp(); } }, '‹'),
       el('span', { class: 'text-sm font-black tabular-nums px-1' }, String(y)),
