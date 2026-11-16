@@ -119,7 +119,7 @@ function _mktgLeanView() {
   if (typeof ghlLoadLeads === 'function' && state._ghl === undefined) ghlLoadLeads();
   const F = mklState(); const ym = F.ym;
   // Compare to (per Isaac, Nov 11 — the key-metrics tile look): the previous month, or the same month last year.
-  const cmp = F.cmp === 'year' ? 'year' : 'prev';
+  const cmp = F.cmp === 'year' ? 'year' : F.cmp === 'none' ? 'none' : 'prev';   // No change hides the compare line on the tiles (per Isaac, Nov 16)
   const pm = _mklShift(ym, cmp === 'year' ? -12 : -1);
   if (typeof reportingLoadAdSpend === 'function') { reportingLoadAdSpend(Number(ym.slice(0, 4))); if (pm.slice(0, 4) !== ym.slice(0, 4)) reportingLoadAdSpend(Number(pm.slice(0, 4))); const y0 = Number(_mklShift(ym, -11).slice(0, 4)); if (y0 !== Number(ym.slice(0, 4)) && y0 !== Number(pm.slice(0, 4))) reportingLoadAdSpend(y0); }   // the 12-month sparklines
   // Month to date (per Isaac, Nov 16): while the open month is showing, the compare month is cut at today's day of
@@ -229,11 +229,12 @@ function _mktgLeanView() {
       el('div', { class: 'leading-none font-black tabular-nums', style: { fontFamily: 'ui-monospace, monospace', fontSize: '28px' } }, a == null || !isFinite(a) ? '—' : o.fmt(a),
         // * = a cost input isn't in for this month yet (per Isaac, Nov 16), so the number will move when it is.
         o.star ? el('span', { class: 'ml-1', style: { color: '#B45309', fontSize: '18px', verticalAlign: 'top' }, title: o.star }, '*') : null),
-      cmpLine,
+      cmp === 'none' ? null : cmpLine,
       sparkPop(o, el('div', {}, spark(vals, o.color || 'var(--accent)'))),
       o.note ? el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-subtle)' }, title: o.note }, o.note) : null);
   };
-  const cmpBtn = (k, l) => el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition', style: cmp === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card)', color: 'var(--text)', border: '1px solid var(--border-2)' }, onclick: () => { F.cmp = k; mountApp(); } }, l);
+  const cmpSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: selSt, onchange: (e) => { F.cmp = e.target.value; mountApp(); } },
+    ...[['none', 'No change'], ['prev', 'MoM change'], ['year', 'YoY change']].map(([v, l]) => el('option', { value: v, selected: v === cmp }, l)));
   const cmpBar = el('div', { class: 'flex items-center gap-2 flex-wrap' },
     el('span', { class: 'uppercase tracking-widest text-[10px] font-bold', style: muted }, 'Key metrics'),
     el('span', { class: 'text-[11px] ml-2', style: muted }, 'Compare to:'), cmpBtn('prev', 'Previous month'), cmpBtn('year', 'Last year'),
@@ -338,8 +339,8 @@ function _mktgLeanView() {
   const ownerHint = (typeof isOwnerUser === 'function' && isOwnerUser()) ? el('span', { class: 'text-[11px]', style: muted }, 'Drag tiles to reorder', Array.isArray(_mktgStore().tileOrder) && _mktgStore().tileOrder.length ? el('button', { class: 'ml-2 font-semibold underline', style: { color: 'var(--accent)' }, onclick: () => { delete _mktgStore().tileOrder; _mktgSave(); mountApp(); } }, 'Reset') : null) : null;
   const srcTip = 'Sources · QuickBooks marketing' + (P && P.pulledAt ? ' ' + _mklAgo(P.pulledAt) : cur.hasSpend ? '' : ' (no lines for ' + _mklLblS(ym) + ')') + ' · FieldRoutes new sales' + (state.reportingSubscriptions ? '' : ' (loading)') + ' · GoHighLevel leads' + (G && G.at ? ' ' + _mklAgo(G.at) : ' (loading)');
   const headBar = el('div', { class: 'card px-5 py-3 flex items-center gap-3 flex-wrap' },
-    el('div', { title: srcTip }, el('h3', { class: 'text-base font-bold' }, 'Marketing · ' + _mklLbl(ym)), el('div', { class: 'text-[11px] mt-0.5', style: muted }, _mklLbl(ym) + (_cap ? ' to date' : '') + ' vs ' + _mklLbl(pm) + (_cap ? ' 1\u2013' + _cap : '') + ' · QuickBooks spend, FieldRoutes new sales, GoHighLevel leads' + (!cur.hasSpend || !(G && G.opps) ? ' · ' + [!cur.hasSpend ? 'no QuickBooks lines for ' + _mklLblS(ym) : '', !(G && G.opps) ? 'GoHighLevel loading' : ''].filter(Boolean).join(', ') : ''))),
-    el('span', { class: 'ml-auto' }), ownerHint, cmpBtn('prev', 'Previous month'), cmpBtn('year', 'Last year'), monthSel);
+    el('div', { title: srcTip }, el('h3', { class: 'text-base font-bold' }, 'Marketing · ' + _mklLbl(ym)), el('div', { class: 'text-[11px] mt-0.5', style: muted }, _mklLbl(ym) + (_cap ? ' to date' : '') + (cmp === 'none' ? '' : ' vs ' + _mklLbl(pm) + (_cap ? ' 1\u2013' + _cap : '')) + ' · QuickBooks spend, FieldRoutes new sales, GoHighLevel leads' + (!cur.hasSpend || !(G && G.opps) ? ' · ' + [!cur.hasSpend ? 'no QuickBooks lines for ' + _mklLblS(ym) : '', !(G && G.opps) ? 'GoHighLevel loading' : ''].filter(Boolean).join(', ') : ''))),
+    el('span', { class: 'ml-auto' }), ownerHint, cmpSel, monthSel);
   // ── The one grid (per Isaac, Nov 16): rows = offices (or channels), Jan–Dec + YTD, one metric at a time — the
   // old Marketing P&L table with every metric in its dropdown. Replaces the two single-month tables and the P&L tab.
   const grid = mklYearGrid(ym);
