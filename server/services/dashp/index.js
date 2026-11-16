@@ -22,15 +22,16 @@ const client = createDashpClient({ baseUrl: env.DASHP_API_URL, token: env.DASHP_
 
 export const router = Router();
 export const jobs = [];
+const DASHP_ROLES = [...ADMIN_ROLES, 'developer'];
 
-router.get('/dashp/status', requireRole(ADMIN_ROLES), async (_req, res, next) => {
+router.get('/dashp/status', requireRole(DASHP_ROLES), async (_req, res, next) => {
   try {
     res.set('cache-control', 'no-store');
     res.json(await client.status());
   } catch (e) { next(e); }
 });
 
-router.get('/dashp/:route', requireRole(ADMIN_ROLES), async (req, res, next) => {
+router.get('/dashp/:route', requireRole(DASHP_ROLES), async (req, res, next) => {
   try {
     const r = await client.get(req.params.route, req.query);
     res.set('cache-control', 'no-store');          // commission figures: never cached by a browser or proxy
