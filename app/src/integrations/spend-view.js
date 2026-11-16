@@ -127,16 +127,9 @@ function mktgSpendView() {
   // by-branch Wages & incentives card.
   m.repWages = (m.repWages && typeof m.repWages === 'object') ? m.repWages : {};
   const IS_ROLES = ['rep_office', 'rep_office_lead'];
-  const _profiles = (state.allProfiles || []).filter(p => p && p.id);
-  // Who has a wage entry this year that isn't an Inside Sales login: other office roles (Loyalty, D2D…) and payroll
-  // names with no app login at all (keys 'name:Last, First' — per Isaac, Nov 16, the payroll report has people the
-  // app doesn't). They sit in the inactive section so every dollar on the report is on the page.
-  const _withWages = new Set(); for (let i = 0; i < 12; i++) for (const k in (m.repWages[year + '-' + String(i + 1).padStart(2, '0')] || {})) _withWages.add(k);
-  const byName = (a, b) => String(a.full_name || '').localeCompare(String(b.full_name || ''));
-  const isReps = _profiles.filter(p => IS_ROLES.includes(String(p.role || '')));
-  const extraReps = _profiles.filter(p => !IS_ROLES.includes(String(p.role || '')) && _withWages.has(p.id)).map(p => Object.assign({}, p, { is_active: false, _other: true }));
-  const nameReps = [..._withWages].filter(k => /^name:/.test(k)).map(k => ({ id: k, full_name: k.slice(5), is_active: false, _noLogin: true }));
-  const repsAll = [...isReps, ...extraReps, ...nameReps].sort(byName);
+  // Inside Sales only (per Isaac, Nov 16 — "don't include other office roles"): Loyalty, D2D and anyone without an
+  // Inside Sales login stay out of this table and out of CAC.
+  const repsAll = (state.allProfiles || []).filter(p => p && p.id && IS_ROLES.includes(String(p.role || ''))).sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || '')));
   const repsOn = repsAll.filter(p => p.is_active !== false), repsOff = repsAll.filter(p => p.is_active === false);
   const wOf = (pid, i) => Number((m.repWages[ymOf(i)] || {})[pid]) || 0;
   const setRepW = (pid, i, n) => { const k = ymOf(i); const S = m.repWages[k] = m.repWages[k] || {}; if (n) S[pid] = Math.round(n * 100) / 100; else delete S[pid]; if (!Object.keys(S).length) delete m.repWages[k]; state._mkpMemo = null; state._mklMemo = {}; _mktgSave(); };
@@ -146,7 +139,7 @@ function mktgSpendView() {
   const repTot = (p) => MON.reduce((a, _, i) => a + wOf(p.id, i), 0);
   const yearTot = MON.reduce((a, _, i) => a + monTot(i, repsAll), 0);
   const wRow = (p) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-    el('td', { class: 'px-3 py-1 whitespace-nowrap font-semibold', style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1 } }, p.full_name || '—', p.is_active === false ? el('span', { class: 'ml-1.5 text-[9px] uppercase tracking-wider', style: muted }, p._noLogin ? 'no app login' : p._other ? 'other office role' : 'inactive') : null),
+    el('td', { class: 'px-3 py-1 whitespace-nowrap font-semibold', style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1 } }, p.full_name || '—', p.is_active === false ? el('span', { class: 'ml-1.5 text-[9px] uppercase tracking-wider', style: muted }, 'inactive') : null),
     ...MON.map((_, i) => el('td', { class: 'px-1.5 py-1 text-right' }, admin ? moneyIn(wOf(p.id, i), (n, inp) => { setRepW(p.id, i, n); const row = inp.closest('tr'); const t = row && row.querySelector('[data-tot]'); if (t) t.textContent = usd0(repTot(p)); refreshFoot(); }) : usd0(wOf(p.id, i)))),
     el('td', { class: 'px-3 py-1 text-right tabular-nums font-bold', 'data-tot': '1' }, usd0(repTot(p))));
   // Totals update in place as numbers are typed (no full re-render per cell).
