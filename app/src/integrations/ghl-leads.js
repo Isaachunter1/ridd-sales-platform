@@ -220,6 +220,51 @@ function reportingFrSourcesPanel() {
         td(g.length ? g.slice(0, 4).join(', ') + (g.length > 4 ? ' +' + (g.length - 4) : '') : (x.renewal ? '—' : 'none'), g.length ? muted : x.renewal ? muted : { color: '#B45309', fontWeight: '600' })); })))) : null);
 }
 
+// Marketing to-do (per Isaac, Nov 16): every GoHighLevel source label with opportunities in the last 90 days that
+// maps to nothing yet — pick its channel right here (or "Its own source" / "Not a new lead"); the pick is the same
+// one Settings → Configurations → GoHighLevel sources keeps, so Channels, Metrics and the misattribution audit all
+// read it at once. Nothing to map → no card.
+function ghlUnmappedTodoCard() {
+  const G = state._ghl; if (!G || !G.opps || !G.labels) return null;
+  const admin = isAdminRole(state.profile?.role);
+  const since = new Date(); since.setDate(since.getDate() - 90); const sinceIso = since.toISOString().slice(0, 10);
+  const map = ghlSourceMap(), lab = G.labels;
+  const chSet = typeof mkmChannelSet === 'function' ? mkmChannelSet() : null;
+  const isMapped = (label) => { const pv = ghlProviderOf(label); if (!pv) return false; if (pv === GHL_NOT_LEAD) return true; return !chSet || chSet.has(pv); };
+  const cnt = new Map(); let blank = 0, blankRecent = 0;
+  for (const o of G.opps) {
+    if (!o || !o[0]) continue;
+    if (o[1] == null || o[1] < 0) { blank++; if (o[0] >= sinceIso) blankRecent++; continue; }
+    const label = lab[o[1]]; if (!label || isMapped(label)) continue;
+    const c = cnt.get(label) || { n: 0, recent: 0, last: '' }; c.n++; if (o[0] >= sinceIso) c.recent++; if (o[0] > c.last) c.last = o[0]; cnt.set(label, c);
+  }
+  const list = [...cnt.entries()].filter(([, c]) => c.recent > 0).map(([label, c]) => ({ label, ...c })).sort((a, b) => b.recent - a.recent);
+  if (!list.length) return null;
+  const muted = { color: 'var(--text-muted)' };
+  const provs = [...new Set([...(typeof MKTG_DEFAULT_CHANNELS !== 'undefined' ? MKTG_DEFAULT_CHANNELS : []), ...(typeof AD_PROVIDERS !== 'undefined' ? AD_PROVIDERS : []), 'PestBooker', 'Organic', ...Object.values(map).filter(v => v && v !== GHL_NOT_LEAD && v !== GHL_SELF), ...(chSet ? [...chSet] : [])])].filter(Boolean).sort();
+  const pick = (x) => el('select', { class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: { borderColor: '#DC2626', background: 'var(--card)', maxWidth: '240px' }, disabled: !admin,
+      onchange: (e) => { const v = e.target.value; if (!v) return; setGhlSourceMap(x.label, v); if (typeof mkpAllLeads === 'function') mkpAllLeads._m = null; state._mklMemo = {}; state._mkpMemo = null; mountApp(); } },
+    el('option', { value: '', selected: true, disabled: true }, 'Map to…'),
+    ...provs.map(p => el('option', { value: p }, p)),
+    el('option', { value: GHL_SELF }, 'Its own channel (' + x.label + ')'),
+    el('option', { value: GHL_NOT_LEAD }, 'Not a new lead'));
+  const open = state._ghlTodoOpen !== false;
+  const total = list.reduce((t, x) => t + x.recent, 0);
+  const head = el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', onclick: () => { state._ghlTodoOpen = !open; mountApp(); } },
+    el('span', { class: 'inline-block rounded-full', style: { width: '8px', height: '8px', background: '#DC2626' } }),
+    el('span', { class: 'text-[11px] uppercase tracking-widest font-bold' }, 'Unmapped GoHighLevel sources'),
+    el('span', { class: 'text-[11px]', style: muted }, list.length + ' label' + (list.length === 1 ? '' : 's') + ' · ' + total.toLocaleString() + ' lead' + (total === 1 ? '' : 's') + ' in the last 90 days with no channel' + (open ? '' : ' · ' + list.slice(0, 3).map(x => x.label).join(', ') + (list.length > 3 ? '…' : ''))),
+    el('span', { class: 'ml-auto text-[11px]', style: muted }, open ? '▴' : '▾'));
+  const th = (t) => el('th', { class: 'px-3 py-1.5 text-left text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap', style: Object.assign({ background: 'var(--card-2)' }, muted) }, t);
+  const td = (v, st) => el('td', { class: 'px-3 py-1 whitespace-nowrap tabular-nums', style: st || {} }, v);
+  return el('div', { class: 'card overflow-hidden', style: { borderColor: 'rgba(220,38,38,.45)' } }, head,
+    open ? el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)', maxHeight: '40vh', overflowY: 'auto' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, th('GoHighLevel label'), th('Leads · 90 days'), th('All time'), th('Last seen'), th('Channel'))),
+      el('tbody', {}, ...list.map(x => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, td(x.label, { fontWeight: '700' }), td(x.recent.toLocaleString()), td(x.n.toLocaleString(), muted), td(x.last, muted), el('td', { class: 'px-3 py-1' }, pick(x)))),
+        blankRecent ? el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, td('(no source label on the opportunity)', Object.assign({ fontStyle: 'italic' }, muted)), td(blankRecent.toLocaleString()), td(blank.toLocaleString(), muted), td('—', muted), td('Nothing to map — these need a source set in GoHighLevel.', muted)) : null))) : null,
+    open ? el('div', { class: 'px-4 py-2 border-t text-[10px]', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } }, 'A pick here is the same mapping as Settings → Configurations → GoHighLevel sources; Channels, Metrics and the misattribution audit use it right away. New labels show up here as GoHighLevel starts sending them.') : null);
+}
+
 // Settings → Configurations: GHL source → provider, sync status.
 function reportingGhlSourcesPanel() {
   ghlLoadLeads();

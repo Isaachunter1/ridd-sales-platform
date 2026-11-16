@@ -1589,7 +1589,9 @@ function reportingMarketingPnl() {
         : el('div', { class: 'flex flex-col gap-4' }, (() => { try { return _mktgDemand(); } catch (e) { console.warn('[marketing] demand section skipped', e); return null; } })(), _mktgCac(), _mktgProviders())))
     : sub === 'spend' ? _mktgSpendEntry() : sub === 'projections' ? _mktgProjections() : _mktgPnl();
   // Needs attention moved to the Auditing task list (per Isaac, Nov 9) — one place for everything to fix in the CRM.
-  return el('div', { class: 'flex flex-col gap-4' }, _mktgYearBar(sub), body);
+  // Unmapped GoHighLevel sources to-do (per Isaac, Nov 16): pinned under the sub-tab bar on every Marketing view.
+  const todo = (() => { try { return typeof ghlUnmappedTodoCard === 'function' ? ghlUnmappedTodoCard() : null; } catch (e) { console.warn('[marketing] unmapped to-do', e); return null; } })();
+  return el('div', { class: 'flex flex-col gap-4' }, _mktgYearBar(sub), todo, body);
 }
 
 const REPORTING_MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
