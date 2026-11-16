@@ -39,30 +39,39 @@ function _mklChannelOfSource(src) {
   return p || s;
 }
 // One month's truth, by branch and by channel. Memoized per month + data identity.
-function mklMonth(ym) {
+// cap (optional, per Isaac, Nov 16): a day of the month — only count through that day, so a partial current month
+// compares against the same stretch of the compare month (Nov 1–16 vs Oct 1–16). Sales by sold date, leads by lead
+// date, QuickBooks spend by charge date; wages & incentives (a monthly figure) are prorated by days.
+function mklMonth(ym, cap) {
+  cap = cap > 0 ? Math.min(31, Math.floor(cap)) : 0;
   const subs = state.reportingSubscriptions || [];
   const AL = typeof mkpAllLeads === 'function' ? mkpAllLeads() : null;
   const A = typeof spqAllocMonth === 'function' ? spqAllocMonth(ym) : null;
-  const sig = [ym, subs.length, AL ? AL.leads.length : -1, A ? A.total + '|' + Object.keys(A.waiting || {}).length + '|' + JSON.stringify(Object.keys(A.byProv)) : 'noA', typeof frSourceMap === 'function' ? JSON.stringify(frSourceMap()) : ''].join('§');
+  const dayOf = (d) => Number(String(d || '').slice(8, 10)) || 0;
+  const inCap = (d) => !cap || dayOf(d) <= cap;
+  const sig = [ym, cap, subs.length, AL ? AL.leads.length : -1, A ? A.total + '|' + Object.keys(A.waiting || {}).length + '|' + JSON.stringify(Object.keys(A.byProv)) : 'noA', typeof frSourceMap === 'function' ? JSON.stringify(frSourceMap()) : ''].join('§');
   const M = state._mklMemo || (state._mklMemo = {});
-  if (M[ym] && M[ym].sig === sig && M[ym].subs === subs && M[ym].al === AL) return M[ym].v;
+  const mk = cap ? ym + '@' + cap : ym;
+  if (M[mk] && M[mk].sig === sig && M[mk].subs === subs && M[mk].al === AL) return M[mk].v;
   const br = {}, ch = {};
   const cell = (o, k) => o[k] || (o[k] = { spend: 0, leads: 0, s: 0, cv: 0, waiting: 0 });
   const TC = (b) => typeof _mktgTC === 'function' ? _mktgTC(b) : String(b || '');
   // Spend (QuickBooks, allocated).
   let spend = null, spendWaiting = 0, spendUnassigned = 0, spendLines = 0;
   if (A) {
-    spend = A.total; spendUnassigned = A.unassigned || 0; spendLines = A.lines.filter(L => L.prov !== SPQ_SKIP).length;
-    for (const p in A.cells) for (const b in A.cells[p]) { cell(br, TC(b)).spend += A.cells[p][b]; }
-    for (const p in A.byProv) cell(ch, typeof spqLabel === 'function' ? spqLabel(p) : p).spend += A.byProv[p].amt;
-    for (const p in (A.waiting || {})) { const c = cell(ch, p); c.spend += A.waiting[p].amt; c.waiting += A.waiting[p].amt; spendWaiting += A.waiting[p].amt; }
+    // Capped: the share of the month's QuickBooks dollars charged through the cap day scales every allocation.
+    const _capF = (() => { if (!cap) return 1; const L = A.lines.filter(L => L.prov !== SPQ_SKIP); const t = L.reduce((x, y) => x + y.amt, 0); return t > 0 ? L.filter(L => dayOf(L.day) <= cap).reduce((x, y) => x + y.amt, 0) / t : 0; })();
+    spend = A.total * _capF; spendUnassigned = (A.unassigned || 0) * _capF; spendLines = A.lines.filter(L => L.prov !== SPQ_SKIP && inCap(L.day)).length;
+    for (const p in A.cells) for (const b in A.cells[p]) { cell(br, TC(b)).spend += A.cells[p][b] * _capF; }
+    for (const p in A.byProv) cell(ch, typeof spqLabel === 'function' ? spqLabel(p) : p).spend += A.byProv[p].amt * _capF;
+    for (const p in (A.waiting || {})) { const c = cell(ch, p); c.spend += A.waiting[p].amt * _capF; c.waiting += A.waiting[p].amt * _capF; spendWaiting += A.waiting[p].amt * _capF; }
   }
   // New revenue (FieldRoutes): Office Staff, initial booked or done, renewals out, sold this month.
   const booked = (s) => { const ist = String(s.initial_status || '').trim().toLowerCase(); return !!s.initial_serviced_date || ist === 'completed' || ist === 'pending'; };
   const notRen = (s) => typeof reportingSourceClass !== 'function' || reportingSourceClass(reportingSourceOf(s)) !== 'renewal';
   let s = 0, cv = 0; const sales = [];
   for (const r of subs) {
-    if (String(r.sold_by_type || '').trim() !== 'Office Staff' || String(r.sold_date || '').slice(0, 7) !== ym || !booked(r) || !notRen(r)) continue;
+    if (String(r.sold_by_type || '').trim() !== 'Office Staff' || String(r.sold_date || '').slice(0, 7) !== ym || !inCap(r.sold_date) || !booked(r) || !notRen(r)) continue;
     if (typeof reportingNonSaleService === 'function' && reportingNonSaleService(r.subscription)) continue;
     const v = Number(r.subscription_contract_value) || 0; s++; cv += v; sales.push(r);
     const b = cell(br, TC(r.office_name || 'No branch')); b.s++; b.cv += v;
@@ -72,13 +81,14 @@ function mklMonth(ym) {
   let leads = null;
   if (AL) {
     leads = 0;
-    for (const l of AL.leads) { if (String(l.d).slice(0, 7) !== ym) continue; leads++; cell(br, l.market || 'No branch').leads++; cell(ch, l.prov === 'Unmapped' ? 'Unmapped GHL source' : l.prov).leads++; }
+    for (const l of AL.leads) { if (String(l.d).slice(0, 7) !== ym || !inCap(l.d)) continue; leads++; cell(br, l.market || 'No branch').leads++; cell(ch, l.prov === 'Unmapped' ? 'Unmapped GHL source' : l.prov).leads++; }
   }
   // Wages + incentives by branch (Spend tab → Wages & incentives; per Isaac, Nov 9 — part of CAC).
   let labor = 0, hasLabor = false;
-  try { const m = _mktgStore(); const W = (m.wages || {})[ym] || {}, I = (m.incentives || {})[ym] || {}; for (const b of new Set([...Object.keys(W), ...Object.keys(I)])) { const v = (Number(W[b]) || 0) + (Number(I[b]) || 0); if (!v) continue; hasLabor = true; labor += v; cell(br, TC(b)).labor = (cell(br, TC(b)).labor || 0) + v; } } catch (e) { /* no store yet */ }
-  const v = { ym, A, spend, spendWaiting, spendUnassigned, spendLines, s, cv, sales, leads, br, ch, labor, hasLabor, hasSpend: !!A, hasLeads: !!AL, hasSubs: subs.length > 0 };
-  M[ym] = { sig, subs, al: AL, v };
+  const _dim = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0).getDate(), _laborF = cap ? Math.min(1, cap / _dim) : 1;
+  try { const m = _mktgStore(); const W = (m.wages || {})[ym] || {}, I = (m.incentives || {})[ym] || {}; for (const b of new Set([...Object.keys(W), ...Object.keys(I)])) { const v = ((Number(W[b]) || 0) + (Number(I[b]) || 0)) * _laborF; if (!v) continue; hasLabor = true; labor += v; cell(br, TC(b)).labor = (cell(br, TC(b)).labor || 0) + v; } } catch (e) { /* no store yet */ }
+  const v = { ym, cap, A, spend, spendWaiting, spendUnassigned, spendLines, s, cv, sales, leads, br, ch, labor, hasLabor, hasSpend: !!A, hasLeads: !!AL, hasSubs: subs.length > 0 };
+  M[mk] = { sig, subs, al: AL, v };
   return v;
 }
 // Spend vs new revenue, last 12 months ending at ym — totals only (cheap).
@@ -97,7 +107,11 @@ function _mktgLeanView() {
   const cmp = F.cmp === 'year' ? 'year' : 'prev';
   const pm = _mklShift(ym, cmp === 'year' ? -12 : -1);
   if (typeof reportingLoadAdSpend === 'function') { reportingLoadAdSpend(Number(ym.slice(0, 4))); if (pm.slice(0, 4) !== ym.slice(0, 4)) reportingLoadAdSpend(Number(pm.slice(0, 4))); const y0 = Number(_mklShift(ym, -11).slice(0, 4)); if (y0 !== Number(ym.slice(0, 4)) && y0 !== Number(pm.slice(0, 4))) reportingLoadAdSpend(y0); }   // the 12-month sparklines
-  const cur = mklMonth(ym), prev = mklMonth(pm);
+  // Month to date (per Isaac, Nov 16): while the open month is showing, the compare month is cut at today's day of
+  // the month — Nov 1–16 vs Oct 1–16 — so the arrows don't read low against a full month. A closed month compares whole.
+  const _today = new Date(), _isOpen = ym === _mklYm(_today), _cap = _isOpen ? _today.getDate() : 0;
+  const cur = mklMonth(ym), prev = mklMonth(pm, _cap);
+  const _mtdLbl = _cap ? ' 1\u2013' + _cap : '';
   const muted = { color: 'var(--text-muted)' };
   const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
   const months = []; for (let i = 0; i < 18; i++) months.push(_mklYm(new Date(new Date().getFullYear(), new Date().getMonth() - i, 1)));
@@ -168,7 +182,7 @@ function _mktgLeanView() {
     const noPrior = b == null || !isFinite(b);
     const cmpLine = el('div', { class: 'flex items-baseline gap-1.5 text-[12px] tabular-nums', style: { color: 'var(--text-muted)' } },
       dv == null ? el('span', {}, noPrior ? '—' : '—') : el('span', { class: 'font-bold', style: { color: col } }, (dv >= 0 ? '↑ +' : '↓ ') + (dv * 100).toFixed(1) + '%'),
-      el('span', {}, 'vs. ' + (noPrior ? 'no ' + cmpLbl : o.fmt(b)), el('span', { class: 'ml-1', style: { color: 'var(--text-subtle)' } }, '· ' + _mklLblS(pm))));
+      el('span', {}, 'vs. ' + (noPrior ? 'no ' + cmpLbl : o.fmt(b)), el('span', { class: 'ml-1', style: { color: 'var(--text-subtle)' } }, '· ' + _mklLblS(pm) + _mtdLbl)));
     return el('div', { class: 'card p-4 flex flex-col gap-2' + (o.onClick ? ' cursor-pointer' : ''), style: { borderTop: '3px solid ' + (o.color || 'var(--accent)') }, title: o.tip || '', onclick: o.onClick || null },
       el('div', { class: 'flex items-center justify-between gap-2' },
         el('div', { class: 'text-[12px] font-semibold', style: { color: 'var(--text-muted)' } }, o.label, o.tip ? el('span', { class: 'ml-1 text-[10px]', style: { color: 'var(--text-subtle)' }, title: o.tip }, 'ⓘ') : null),
@@ -182,7 +196,7 @@ function _mktgLeanView() {
   const cmpBar = el('div', { class: 'flex items-center gap-2 flex-wrap' },
     el('span', { class: 'uppercase tracking-widest text-[10px] font-bold', style: muted }, 'Key metrics'),
     el('span', { class: 'text-[11px] ml-2', style: muted }, 'Compare to:'), cmpBtn('prev', 'Previous month'), cmpBtn('year', 'Last year'),
-    el('span', { class: 'text-[11px]', style: muted }, _mklLbl(ym) + ' vs ' + _mklLbl(pm) + ' · sparkline = last 12 months'));
+    el('span', { class: 'text-[11px]', style: muted }, _mklLbl(ym) + (_cap ? ' to date' : '') + ' vs ' + _mklLbl(pm) + (_cap ? ' 1\u2013' + _cap + ' (month to date)' : '') + ' · sparkline = last 12 months'));
   const TEAL = '#2F7F86', EMBER = '#DF643A', INK = 'var(--text)';
   // Two rows of five, full width (per Isaac, Nov 11): what came in, then what it cost.
   const tiles = el('div', { class: 'grid gap-3 mkl-tiles' },
