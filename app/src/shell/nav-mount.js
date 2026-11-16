@@ -1499,15 +1499,17 @@ function _mountAppRender() {
     scorecards:   viewScorecards,
     reporting:    viewReporting,
     marketing:    viewMarketing,
-    commission:   () => viewUnderConstruction('Sales Rep pay'),   // (per Isaac, Oct 15 — viewCommission comes back with the D2D build-out)
+    commission:   () => dashpPayTab('d2d', 'Sales Rep pay'),      // DASHP commission results (app/src/dashp)
     d2d_dashboard: viewWorldDashboard,    // Indicators preset to D2D Sales
     d2d_sales:    viewSales,
     all_dashboard: viewWorldDashboard,    // Indicators with every user type (admins / developers)
     techs:        viewWorldDashboard,     // Indicators preset to Technicians
     tech_sales:   viewSales,
-    tech_pay:     () => viewUnderConstruction('Technician pay'),  // (per Isaac, Oct 15 — viewTechPay comes back with the Technician build-out)
+    tech_pay:     () => dashpPayTab('tech', 'Technician pay'),    // DASHP commission results (app/src/dashp)
     admin:        viewAdmin,
   }[state.view];
+      
+    
   // Registered module views render through their own render(ctx).
   const _mod = typeof view !== 'function' ? _visibleModules().find(m => m.id === state.view) : null;
   if (_mod) {
