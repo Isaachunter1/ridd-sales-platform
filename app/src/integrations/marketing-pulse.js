@@ -89,12 +89,14 @@ function mkpAllLeads() {
   const lab = G.labels, paid = ghlPaidSet(), stages = G.stages || [], first = mkpFilters().attr === 'first';
   const _pc = new Map();
   const provOf = (i) => { if (i == null || i < 0) return 'Unmapped'; if (_pc.has(i)) return _pc.get(i); const r = _provOf(i); _pc.set(i, r); return r; };
-  const _provOf = (i) => { const p = ghlProviderOf(lab[i]); if (!p || p === GHL_NOT_LEAD) return p === GHL_NOT_LEAD ? GHL_NOT_LEAD : 'Unmapped'; return chSet && !chSet.has(p) ? 'Unmapped' : p; };
+  // No decent match → not a lead (per Isaac, Nov 16): an opportunity source nothing maps is left out of lead counts
+  // until someone maps it on the Marketing to-do card, instead of piling up under 'Unmapped'.
+  const _provOf = (i) => { const p = ghlProviderOf(lab[i]); if (!p || p === GHL_NOT_LEAD) return GHL_NOT_LEAD; return chSet && !chSet.has(p) ? GHL_NOT_LEAD : p; };
   const sorted = G.opps.filter(o => o && o[0] && (o[2] || o[3])).slice().sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : (a[4] || '') < (b[4] || '') ? -1 : (a[4] || '') > (b[4] || '') ? 1 : 0);   // plain compares: localeCompare on 36K rows cost ~1s
   const lastAt = new Map(), leads = []; let raw = 0, notLead = 0;
   for (const o of sorted) {
     const c = (o[2] && CI && CI.byP.get(o[2])) || (o[3] && CI && CI.byE.get(o[3])) || null;
-    let prov = provOf(o[1]);
+    let prov = o[1] == null || o[1] < 0 ? GHL_NOT_LEAD : provOf(o[1]);   // no source on the opportunity → not a lead either
     if (first && c) { const fp = provOf(c[1] >= 0 ? c[1] : c[2]); if (fp && fp !== 'Unmapped' && fp !== GHL_NOT_LEAD) prov = fp; }
     if (prov === GHL_NOT_LEAD) { notLead++; continue; }
     raw++;

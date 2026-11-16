@@ -67,10 +67,10 @@ function mklMonth(ym, cap) {
     for (const p in (A.waiting || {})) { const c = cell(ch, p); c.spend += A.waiting[p].amt * _capF; c.waiting += A.waiting[p].amt * _capF; spendWaiting += A.waiting[p].amt * _capF; }
   }
   // New revenue (FieldRoutes): Office Staff, initial booked or done, renewals out, sold this month.
-  const booked = (s) => { const ist = String(s.initial_status || '').trim().toLowerCase(); return !!s.initial_serviced_date || ist === 'completed' || ist === 'pending'; };
-  // Bookings (per Isaac, Nov 16): the initial service actually COMPLETED in FieldRoutes — not a card, not a sub.
-  // Cost per job and CAC divide by this; New sales (sold) stays the booked-or-done count.
+  // A new sale (per Isaac, Nov 16): the initial service actually COMPLETED in FieldRoutes — not a card, not a sub,
+  // not a pending appointment. New sales and bookings are one and the same number; revenue is theirs.
   const servicedInit = (s) => !!s.initial_serviced_date || String(s.initial_status || '').trim().toLowerCase() === 'completed';
+  const booked = servicedInit;
   const srcClass = (s) => typeof reportingSourceClass === 'function' ? reportingSourceClass(reportingSourceOf(s)) : '';
   const notRen = (s) => srcClass(s) !== 'renewal';
   // ACV = contract value at sale (per Isaac, Nov 16): upsell-sourced sales (add-ons to existing customers) are out.
@@ -212,14 +212,14 @@ function _mktgLeanView() {
   // Two rows of five, full width (per Isaac, Nov 11): what came in, then what it cost.
   const tiles = el('div', { class: 'grid gap-3 mkl-tiles' },
     tile({ label: 'Marketing spend', icon: 'spend', get: spendOf, fmt: _mklUsd, upGood: null, color: INK, tip: 'QuickBooks marketing charges, allocated on the Spend tab', note: spendNote, onClick: goSpend }),
-    tile({ label: 'New revenue', icon: 'revenue', get: cvOf, fmt: _mklUsd, upGood: true, color: EMBER, tip: 'FieldRoutes: Office Staff new sales sold this month, initial booked or done; renewals and upsells out — contract value at sale', note: cur.s + ' new sale' + (cur.s === 1 ? '' : 's') + ' · Office Staff', onClick: () => mklOpenSales(cur, 'New sales · ' + _mklLbl(ym)) }),
-    tile({ label: 'New sales', icon: 'sales', get: salesOf, fmt: _mklNum, upGood: true, color: EMBER, tip: 'Count of the new sales behind New revenue', onClick: () => mklOpenSales(cur, 'New sales · ' + _mklLbl(ym)) }),
+    tile({ label: 'New revenue', icon: 'revenue', get: cvOf, fmt: _mklUsd, upGood: true, color: EMBER, tip: 'FieldRoutes: Office Staff new sales sold this month whose initial service is completed; renewals and upsells out — contract value at sale', note: cur.s + ' new sale' + (cur.s === 1 ? '' : 's') + ' · Office Staff', onClick: () => mklOpenSales(cur, 'New sales · ' + _mklLbl(ym)) }),
+    tile({ label: 'New sales', icon: 'sales', get: salesOf, fmt: _mklNum, upGood: true, color: EMBER, tip: 'New sales whose initial service is completed in FieldRoutes — a card or a pending appointment is not a sale yet', onClick: () => mklOpenSales(cur, 'New sales · ' + _mklLbl(ym)) }),
     tile({ label: 'Avg contract', icon: 'avg', get: avgC, fmt: _mklUsd, upGood: true, color: EMBER, tip: 'New revenue ÷ new sales — contract value at sale, no add-ons or upsells' }),
-    tile({ label: 'New leads', icon: 'leads', get: leadsOf, fmt: _mklNum, upGood: true, color: TEAL, tip: 'GoHighLevel opportunities, one per person per 30 days', note: cur.hasLeads ? '' : 'GoHighLevel not loaded' }),
+    tile({ label: 'Leads', icon: 'leads', get: leadsOf, fmt: _mklNum, upGood: true, color: TEAL, tip: 'GoHighLevel opportunities, one per person per 30 days', note: cur.hasLeads ? '' : 'GoHighLevel not loaded' }),
     tile({ label: 'Return on spend', icon: 'ret', get: ret, fmt: _mklX, upGood: true, color: TEAL, tip: 'New revenue ÷ marketing spend' }),
-    tile({ label: 'Marketing CAC', icon: 'cac', get: cac, fmt: _mklUsd, upGood: false, color: INK, tip: 'Marketing spend ÷ bookings (initials completed in FieldRoutes)', note: fmt.int(cur.svc) + ' booking' + (cur.svc === 1 ? '' : 's') + ' completed' }),
-    tile({ label: 'CAC', icon: 'fcac', get: fcac, fmt: _mklUsd, upGood: false, color: INK, tip: '(Marketing spend + wages) ÷ bookings (initials completed in FieldRoutes)', note: cur.hasLabor ? _mklUsd(cur.labor) + ' wages' : 'enter wages on the Spend tab' }),
-    tile({ label: 'Cost per lead', icon: 'cpl', get: cpl, fmt: _mklUsd, upGood: false, color: TEAL, tip: 'Marketing spend ÷ new leads' }),
+    tile({ label: 'Marketing CAC', icon: 'cac', get: cac, fmt: _mklUsd, upGood: false, color: INK, tip: 'Marketing spend ÷ new sales (initials completed in FieldRoutes)' }),
+    tile({ label: 'CAC', icon: 'fcac', get: fcac, fmt: _mklUsd, upGood: false, color: INK, tip: '(Marketing spend + wages) ÷ new sales (initials completed in FieldRoutes)', note: cur.hasLabor ? _mklUsd(cur.labor) + ' wages' : 'enter wages on the Spend tab' }),
+    tile({ label: 'Cost per lead', icon: 'cpl', get: cpl, fmt: _mklUsd, upGood: false, color: TEAL, tip: 'Marketing spend ÷ leads' }),
     tile({ label: 'Close rate', icon: 'close', get: close, fmt: _mklPct, upGood: true, color: TEAL, tip: 'Plaibook — the Inside Sales department\u2019s sold ÷ qualified for the month', note: closeNote }));
 
   // ── Tables: by branch, by channel — the same seven columns. ──
@@ -290,17 +290,16 @@ function mklOpenSales(D, title) {
 // in the YTD column are recomputed from the summed dollars, never averaged.
 const MKL_GRID_METRICS = [
   { k: 'cv',    label: 'New revenue',     fmt: (v) => fmt.usd0(v),  get: (c) => c.cv,                                              tip: 'FieldRoutes Office Staff new sales — contract value, by sold month' },
-  { k: 's',     label: 'New sales',       fmt: (v) => fmt.int(v),   get: (c) => c.s,                                               tip: 'New sales sold — initial booked or done' },
-  { k: 'svc',   label: 'Bookings',        fmt: (v) => fmt.int(v),   get: (c) => c.svc,                                             tip: 'Initials actually completed in FieldRoutes (what cost per job and CAC divide by)' },
+  { k: 's',     label: 'New sales',       fmt: (v) => fmt.int(v),   get: (c) => c.s,                                               tip: 'New sales — initial service completed in FieldRoutes (the same thing as a booking)' },
   { k: 'avg',   label: 'Avg contract',    fmt: (v) => fmt.usd0(v),  get: (c) => c.s ? c.cv / c.s : null,                           tip: 'New revenue ÷ new sales — contract value at sale, no add-ons or upsells' },
-  { k: 'leads', label: 'New leads',       fmt: (v) => fmt.int(v),   get: (c) => c.leads,                                           tip: 'GoHighLevel opportunities, one per person per 30 days' },
+  { k: 'leads', label: 'Leads',       fmt: (v) => fmt.int(v),   get: (c) => c.leads,                                           tip: 'GoHighLevel opportunities, one per person per 30 days' },
   { k: 'close', label: 'Close rate',      fmt: (v) => (v * 100).toFixed(1) + '%', get: (c) => c.leads ? c.s / c.leads : null,     tip: 'New sales ÷ new leads' },
   { k: 'spend', label: 'Marketing spend', fmt: (v) => fmt.usd0(v),  get: (c) => c.spend,                                           tip: 'QuickBooks Advertising & Marketing, as allocated on the Spend tab' },
   { k: 'labor', label: 'Wages',           fmt: (v) => fmt.usd0(v),  get: (c) => c.labor || 0,                                      tip: 'Spend tab → Wages, spread to offices by share of the month’s new revenue' },
   { k: 'tot',   label: 'Total spend',     fmt: (v) => fmt.usd0(v),  get: (c) => c.spend + (c.labor || 0),                          tip: 'Marketing spend + wages' },
-  { k: 'cpl',   label: 'Cost per lead',   fmt: (v) => fmt.usd0(v),  get: (c) => c.leads && c.spend ? c.spend / c.leads : null,     tip: 'Marketing spend ÷ new leads' },
-  { k: 'mcac',  label: 'Marketing CAC',   fmt: (v) => fmt.usd0(v),  get: (c) => c.svc && c.spend ? c.spend / c.svc : null,         tip: 'Marketing spend ÷ bookings (initials completed)' },
-  { k: 'cac',   label: 'CAC',             fmt: (v) => fmt.usd0(v),  get: (c) => c.svc && (c.spend || c.labor) ? (c.spend + (c.labor || 0)) / c.svc : null, tip: '(Marketing spend + wages) ÷ bookings (initials completed)' },
+  { k: 'cpl',   label: 'Cost per lead',   fmt: (v) => fmt.usd0(v),  get: (c) => c.leads && c.spend ? c.spend / c.leads : null,     tip: 'Marketing spend ÷ leads' },
+  { k: 'mcac',  label: 'Marketing CAC',   fmt: (v) => fmt.usd0(v),  get: (c) => c.svc && c.spend ? c.spend / c.svc : null,         tip: 'Marketing spend ÷ new sales (initials completed)' },
+  { k: 'cac',   label: 'CAC',             fmt: (v) => fmt.usd0(v),  get: (c) => c.svc && (c.spend || c.labor) ? (c.spend + (c.labor || 0)) / c.svc : null, tip: '(Marketing spend + wages) ÷ new sales (initials completed)' },
   { k: 'cacp',  label: 'CAC %',           fmt: (v) => (v * 100).toFixed(0) + '%', get: (c) => c.cv ? (c.spend + (c.labor || 0)) / c.cv : null, tip: 'Total spend ÷ new revenue' },
   { k: 'ret',   label: 'Return on spend', fmt: (v) => v.toFixed(2) + 'x', get: (c) => c.spend ? c.cv / c.spend : null,             tip: 'New revenue ÷ marketing spend' },
 ];
