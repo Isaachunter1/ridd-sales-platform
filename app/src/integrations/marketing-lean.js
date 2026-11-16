@@ -137,12 +137,6 @@ function _mktgLeanView() {
   // ── Data line: where each number comes from and how fresh it is. ──
   const G = state._ghl, P = state.reportingIsSpendPayee;
   const dot = (ok, label) => el('span', { class: 'inline-flex items-center gap-1.5 text-[11px]', style: muted }, el('span', { class: 'inline-block rounded-full', style: { width: '7px', height: '7px', background: ok ? 'var(--ok)' : '#DC2626' } }), label);
-  const fresh = el('div', { class: 'flex items-center gap-4 flex-wrap text-[11px]' },
-    el('span', { class: 'uppercase tracking-widest text-[10px] font-bold', style: muted }, 'Sources'),
-    dot(cur.hasSpend, 'QuickBooks marketing' + (P && P.pulledAt ? ' · ' + _mklAgo(P.pulledAt) : cur.hasSpend ? '' : ' · no lines for ' + _mklLblS(ym))),
-    dot(cur.hasSubs, 'FieldRoutes new sales' + (state.reportingSubscriptions ? '' : ' · loading')),
-    dot(!!(G && G.opps), 'GoHighLevel leads' + (G && G.at ? ' · ' + _mklAgo(G.at) : G === undefined || (G && G.loading) ? ' · loading' : '')));
-
   // ── Tiles: the three truths, then what they make. ──
   // ── Key metrics (per Isaac, Nov 11 — the dashboard-tile look): icon, label, the number, ↑/↓ vs the compare
   // month with its value, and a 12-month sparkline of the metric. Click a tile for its drill where there is one.
@@ -235,11 +229,7 @@ function _mktgLeanView() {
   };
   const cmpSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: selSt, onchange: (e) => { F.cmp = e.target.value; mountApp(); } },
     ...[['none', 'No change'], ['prev', 'MoM change'], ['year', 'YoY change']].map(([v, l]) => el('option', { value: v, selected: v === cmp }, l)));
-  const cmpBar = el('div', { class: 'flex items-center gap-2 flex-wrap' },
-    el('span', { class: 'uppercase tracking-widest text-[10px] font-bold', style: muted }, 'Key metrics'),
-    el('span', { class: 'text-[11px] ml-2', style: muted }, 'Compare to:'), cmpBtn('prev', 'Previous month'), cmpBtn('year', 'Last year'),
-    el('span', { class: 'text-[11px]', style: muted }, _mklLbl(ym) + (_cap ? ' to date' : '') + ' vs ' + _mklLbl(pm) + (_cap ? ' 1\u2013' + _cap + ' (month to date)' : '') + ' · sparkline = last 12 months'),
-    (typeof isOwnerUser === 'function' && isOwnerUser()) ? el('span', { class: 'ml-auto text-[11px]', style: muted }, 'Drag tiles to reorder', Array.isArray(_mktgStore().tileOrder) && _mktgStore().tileOrder.length ? el('button', { class: 'ml-2 font-semibold underline', style: { color: 'var(--accent)' }, onclick: () => { delete _mktgStore().tileOrder; _mktgSave(); mountApp(); } }, 'Reset') : null) : null);
+  // (The old Key metrics bar and Sources line are gone — folded into the header, per Isaac Nov 16.)
   const TEAL = '#2F7F86', EMBER = '#DF643A', INK = 'var(--text)';
   // Two rows of five, full width (per Isaac, Nov 11): what came in, then what it cost.
   // Every grid metric is a tile (per Isaac, Nov 16); click a tile for its drill-down — by office and by channel for
@@ -348,7 +338,6 @@ function _mktgLeanView() {
   // old Marketing P&L table with every metric in its dropdown. Replaces the two single-month tables and the P&L tab.
   const grid = mklYearGrid(ym);
   void brTable; void chTable;
-  void fresh; void cmpBar;
   return el('div', { class: 'flex flex-col gap-4' }, headBar, chart, tiles, grid);   // chart above the tiles (per Isaac, Nov 16)
 }
 // The month's new sales behind the New revenue tile (same rows the table counts).
