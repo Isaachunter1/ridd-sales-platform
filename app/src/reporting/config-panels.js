@@ -944,7 +944,7 @@ const _mktgDiv = (a, b) => (b > 0 ? a / b : null);
 function _mktgYearBar(sub) {
   const y = _mktgYearSel();
   // Attribution (lead reconciliation) is a tab of its own (per Isaac, Oct 2) — it lived behind a button on the right.
-  const SUBS = [['providers', 'Metrics'], ['recon', 'Channels'], ['pnl', 'P&L'], ['spend', 'Spend']];   // Attribution → Channels (per Isaac, Nov 10)   // Projections hidden (per Isaac, Oct 9); Disposition removed (Nov 5)
+  const SUBS = [['providers', 'Metrics'], ['recon', 'Channels'], ['spend', 'Spend']];   // P&L folded into the Metrics year grid (per Isaac, Nov 16)   // Attribution → Channels (per Isaac, Nov 10)   // Projections hidden (per Isaac, Oct 9); Disposition removed (Nov 5)
   const _recon = sub === 'providers' && state._mktProvView === 'recon';
   return el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
     el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
@@ -1570,7 +1570,8 @@ function reportingMarketingPnl() {
   if (state._mktSub === 'cac') { state._mktSub = 'providers'; state._mktProvView = 'cac'; }
   if (state._mktSub === 'acq') state._mktSub = 'providers';
   if (state._mktSub === 'demand') state._mktSub = 'providers';   // Demand folded into Metrics (per Isaac, Oct 6)
-  const sub = ['pnl', 'providers', 'spend', 'disp'].includes(state._mktSub) ? state._mktSub : 'providers';   // Metrics opens first (per Isaac)
+  if (state._mktSub === 'pnl') state._mktSub = 'providers';   // P&L tab retired (per Isaac, Nov 16) — its table lives on Metrics
+  const sub = ['providers', 'spend', 'disp'].includes(state._mktSub) ? state._mktSub : 'providers';   // Metrics opens first (per Isaac)
   // Metrics (per Isaac, Sep 30): CAC on the page; Lead providers and Lead
   // reconciliation are buttons to the right of the Office dropdown.
   // Lead providers now sits directly under the CAC table (per Isaac, Sep 30).
