@@ -1438,7 +1438,7 @@ function adminReps() {
   // Tier cell. Currently writes the manual Rookie/Vet tag (shared with Manage
   // Teams). TODO: once FieldRoutes carries a rookie/vet designation, source this
   // read-only from the roster instead of the manual tag.
-  const tierCell = (x) => el('td', { class: 'px-3 py-3' }, repTierSelect(repKeyForPerson(x), mountApp));
+  const tierCell = (x) => el('td', { class: 'px-3 py-3 no-ellipsis' }, repTierSelect(repKeyForPerson(x), mountApp));
 
   // Avatar that opens a photo picker on click (app users only) — saves straight
   // from the table without opening the editor. Hover shows an accent ring + 📷.
@@ -1516,7 +1516,7 @@ function adminReps() {
   host.append(el('div', { class: 'card overflow-hidden' }, el('div', { class: 'scroll-x' },
     // Fixed column widths (per Isaac, Oct 16): Active, Inactive and All line up the same whatever the names are.
     (() => { if (!document.getElementById('users-tbl-css')) { const st = document.createElement('style'); st.id = 'users-tbl-css';
-      st.textContent = 'table.users-tbl td, table.users-tbl th { overflow: hidden; text-overflow: ellipsis; }'; document.head.appendChild(st); } return null; })(),
+      st.textContent = 'table.users-tbl td, table.users-tbl th { overflow: hidden; text-overflow: ellipsis; } table.users-tbl td.no-ellipsis { text-overflow: clip; } table.users-tbl td.no-ellipsis select { max-width: 100%; }'; /* the Tier select overflowing its cell drew a stray “…” after it (per Isaac, Nov 16) */ document.head.appendChild(st); } return null; })(),
     el('table', { class: 'w-full text-sm whitespace-nowrap users-tbl', style: { tableLayout: 'fixed', minWidth: '960px' } },
       // (Rep Type column dropped per Isaac, Nov 5 — the tabs already split people by type; it's still in Edit User. Search still matches it.)
       el('colgroup', {}, ...['5%', '18%', '13%', '19%', '12%', '10%', '10%', '13%'].map(w => el('col', { style: { width: w } }))),
