@@ -50,6 +50,9 @@ const SPEC = {
   // (services/pay → plaibook-close-rates) Plaibook's MCP server: close rates by rep, hourly (per Isaac, Nov 7)
   PLAIBOOK_MCP_URL:           { required: false, default: 'https://app.plaibook.tech/api/mcp' },   // Plaibook's MCP endpoint (per Isaac, Nov 9)
   PLAIBOOK_MCP_TOKEN:         { required: false, secret: true },         // its API key / server token (Bearer)
+  // (services/dashp) DASHP commission API — read-only pass-through for the Commissions screens
+  DASHP_API_URL:              { required: false, default: '' },          // the DASHP function URL, no trailing path
+  DASHP_API_TOKEN:            { required: false, secret: true },         // its read key (sent as X-API-Token)
 };
 
 const env = {};
