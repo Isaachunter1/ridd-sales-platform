@@ -813,7 +813,7 @@ function _auditTaskItemsRaw() {
   for (const t of auditSubTasks()) {
     if (t.warn) { items.push({ key: t.title, tag: t.tag || 'Setup', title: t.title, sev: 'amber', count: null, text: t.warn }); continue; }
     const n = t.rows.length;
-    const _drill = (rs) => openReportingDrillModal({ chartTitle: 'Auditing · ' + t.title, sliceLabel: rs.length.toLocaleString() + ' ' + (rs.length === 1 ? t.noun : t.noun + 's'), rows: rs, formatValue: fmt.usd0 });
+    const _drill = (rs) => openReportingDrillModal({ chartTitle: 'Auditing · ' + t.title, sliceLabel: rs.length.toLocaleString() + ' ' + (rs.length === 1 ? t.noun : t.noun + 's'), rows: rs, formatValue: fmt.usd0, review: { key: t.title, idOf: (r) => r.subscription_id } });
     items.push({ key: t.title, tag: t.tag || t.title, title: t.title, sev: n ? (t.tone === 'check' ? 'amber' : 'red') : 'ok', count: n, text: n ? t.todo(n) : t.ok,
       onClick: n ? () => _drill(t.rows) : null,
       // Check-offs (per Isaac, Oct 15): accounts that weren't in the task when it was ticked bring it back, alone.

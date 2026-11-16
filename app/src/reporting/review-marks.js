@@ -28,6 +28,16 @@ function rvSet(key, item, on) {
   state._reviewMarks = M; _rvSave(); mountApp();
 }
 function _rvSig(i) { return i.count != null ? 'n:' + i.count : String(i.text || ''); }
+// Per-account check-offs (per Isaac, Nov 16): the boxes live in the task's Review table, one per row. A task leaves
+// the Auditing list once every account in it is ticked; a new account brings it back with just what's left.
+function rvHasId(key, id) { rvLoad(); const m = (state._reviewMarks || {})[key]; return !!(m && m.ids && m.ids.indexOf(String(id)) >= 0); }
+function rvSetId(key, id, on) {
+  rvLoad();
+  const M = Object.assign({}, state._reviewMarks || {}); const cur = M[key] && M[key].ids ? M[key].ids.map(String) : [];
+  const set = new Set(cur); if (on) set.add(String(id)); else set.delete(String(id));
+  if (set.size) M[key] = { ids: [...set].slice(0, 20000), sig: null, at: new Date().toISOString(), by: (state.profile && state.profile.full_name) || '' }; else delete M[key];
+  state._reviewMarks = M; _rvSave();
+}
 // Split items into what still needs a look and what's been checked off. A checked task with new accounts comes
 // back with just the new ones (count, text and — when it can — its Review list).
 function rvApply(items) {
@@ -41,9 +51,10 @@ function rvApply(items) {
     if (i.rvIds && m.ids) {
       const seen = new Set(m.ids.map(String)); const nw = i.rvIds.map(String).filter(id => !seen.has(id));
       if (!nw.length) { done.push(Object.assign({}, i, { _rvMark: m })); continue; }
-      const nset = new Set(nw);
-      active.push(Object.assign({}, i, { count: nw.length, _rvNew: m, text: nw.length + ' new since it was checked off ' + fmt.dateShort(String(m.at).slice(0, 10)) + ' · ' + i.text,
-        onClick: i.rvOpen ? () => i.rvOpen(nset) : i.onClick }));
+      // Some accounts ticked in the Review table, some not (per Isaac, Nov 16): the count is what's left; Review
+      // opens the whole list with the ticked rows greyed, so one can be unticked.
+      const nDone = i.rvIds.length - nw.length;
+      active.push(Object.assign({}, i, { count: nw.length, _rvNew: m, text: i.text + (nDone ? ' · ' + nDone + ' checked off' : '') }));
       continue;
     }
     if (m.sig === _rvSig(i)) done.push(Object.assign({}, i, { _rvMark: m })); else active.push(Object.assign({}, i, { _rvNew: m }));
@@ -51,7 +62,8 @@ function rvApply(items) {
   return { active, done };
 }
 function rvBox(i) {
-  if (!i || i.sev === 'ok') return el('span', { style: { width: '15px', flexShrink: '0' } });
+  // Tasks with a Review table are ticked row by row inside it (per Isaac, Nov 16) — no box on the list.
+  if (!i || i.sev === 'ok' || (i.rvIds && !i._rvMark)) return el('span', { style: { width: '15px', flexShrink: '0' } });
   const k = i.rvKey || i.key || i.tag;
   return el('input', { type: 'checkbox', checked: !!i._rvMark, title: i._rvMark ? 'Checked off by ' + (i._rvMark.by || 'an admin') + ' ' + fmt.dateShort(String(i._rvMark.at).slice(0, 10)) + ' — untick to bring it back' : 'Reviewed — check it off (it comes back if something new shows up)',
     style: { width: '15px', height: '15px', accentColor: 'var(--accent)', cursor: 'pointer', flexShrink: '0' },

@@ -135,9 +135,10 @@ function _spqShares(prov, ym, branches, ctx, acct) {
   if (set === 'upload') return upload() || even();
   if (set === 'leads') return leads() || even();
   if (set === 'even') return even();
-  // Auto (per Isaac, Nov 9): only when something real drives the split — platform spend or an uploaded breakout.
-  // Otherwise null: the vendor waits for its report instead of being guessed from leads or spread evenly.
-  return (/^(Google Ads|Google Local Services|Facebook)$/.test(prov) ? platform() : null) || upload() || null;
+  // Auto (per Isaac, Nov 16 — the simplest Spend tab): platform spend → uploaded breakout → GoHighLevel leads → even.
+  // Nothing waits; a channel's rule can be pinned on the Spend tab's "How each channel splits" line.
+  // (Nov 9 had it stop at upload and hold the dollars as "waiting on a report".)
+  return (/^(Google Ads|Google Local Services|Facebook)$/.test(prov) ? platform() : null) || upload() || leads() || even();
 }
 // The month, allocated. { lines:[{…line, prov, how}], byProv:{prov:{amt, n, how, cells}}, cells:{prov:{B:$}}, total, open, booked, … }
 const usdShort = (v) => '$' + Math.round(v || 0).toLocaleString('en-US');
