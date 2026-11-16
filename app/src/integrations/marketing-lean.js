@@ -53,7 +53,8 @@ function mklMonth(ym, cap) {
   const M = state._mklMemo || (state._mklMemo = {});
   const mk = cap ? ym + '@' + cap : ym;
   if (M[mk] && M[mk].sig === sig && M[mk].subs === subs && M[mk].al === AL) return M[mk].v;
-  const br = {}, ch = {};
+  const br = {}, ch = {}, x = {};   // x = office → channel → cell (per Isaac, Nov 16: the grid's cell pop-up breaks an office down by channel and a channel by office)
+  const xcell = (b, c) => { const o = x[b] || (x[b] = {}); return cell(o, c); };
   const cell = (o, k) => o[k] || (o[k] = { spend: 0, leads: 0, s: 0, svc: 0, cv: 0, waiting: 0 });
   const TC = (b) => typeof _mktgTC === 'function' ? _mktgTC(b) : String(b || '');
   // Spend (QuickBooks, allocated).
@@ -62,7 +63,7 @@ function mklMonth(ym, cap) {
     // Capped: the share of the month's QuickBooks dollars charged through the cap day scales every allocation.
     const _capF = (() => { if (!cap) return 1; const L = A.lines.filter(L => L.prov !== SPQ_SKIP); const t = L.reduce((x, y) => x + y.amt, 0); return t > 0 ? L.filter(L => dayOf(L.day) <= cap).reduce((x, y) => x + y.amt, 0) / t : 0; })();
     spend = A.total * _capF; spendUnassigned = (A.unassigned || 0) * _capF; spendLines = A.lines.filter(L => L.prov !== SPQ_SKIP && inCap(L.day)).length;
-    for (const p in A.cells) for (const b in A.cells[p]) { cell(br, TC(b)).spend += A.cells[p][b] * _capF; }
+    for (const p in A.cells) for (const b in A.cells[p]) { cell(br, TC(b)).spend += A.cells[p][b] * _capF; xcell(TC(b), typeof spqLabel === 'function' ? spqLabel(p) : p).spend += A.cells[p][b] * _capF; }
     for (const p in A.byProv) cell(ch, typeof spqLabel === 'function' ? spqLabel(p) : p).spend += A.byProv[p].amt * _capF;
     for (const p in (A.waiting || {})) { const c = cell(ch, p); c.spend += A.waiting[p].amt * _capF; c.waiting += A.waiting[p].amt * _capF; spendWaiting += A.waiting[p].amt * _capF; }
   }
@@ -83,12 +84,13 @@ function mklMonth(ym, cap) {
     const v = Number(r.subscription_contract_value) || 0, done = 1; s++; svc += done; cv += v; sales.push(r);   // pending or serviced both count (per Isaac)
     const b = cell(br, TC(r.office_name || 'No branch')); b.s++; b.svc += done; b.cv += v;
     const c = cell(ch, _mklChannelOfSource(reportingSourceOf(r))); c.s++; c.svc += done; c.cv += v;
+    const xc = xcell(TC(r.office_name || 'No branch'), _mklChannelOfSource(reportingSourceOf(r))); xc.s++; xc.svc += done; xc.cv += v; xc.sales = xc.sales || []; xc.sales.push(r);
   }
   // Leads (GoHighLevel, deduped).
   let leads = null;
   if (AL) {
     leads = 0;
-    for (const l of AL.leads) { if (String(l.d).slice(0, 7) !== ym || !inCap(l.d)) continue; leads++; cell(br, l.market || 'No branch').leads++; cell(ch, l.prov === 'Unmapped' ? 'Unmapped GHL source' : l.prov).leads++; }
+    for (const l of AL.leads) { if (String(l.d).slice(0, 7) !== ym || !inCap(l.d)) continue; leads++; cell(br, l.market || 'No branch').leads++; cell(ch, l.prov === 'Unmapped' ? 'Unmapped GHL source' : l.prov).leads++; xcell(l.market || 'No branch', l.prov === 'Unmapped' ? 'Unmapped GHL source' : l.prov).leads++; }
   }
   // Wages (Spend tab → Wages, per rep per month; per Isaac, Nov 16 — part of CAC), spread to offices by their share
   // of the month's new revenue (mktgWagesMonth); Nov 9's by-office entries still count for months that only have those.
@@ -100,7 +102,7 @@ function mklMonth(ym, cap) {
     wages = (W.total || 0) * _laborF; incentives = (I.total || 0) * _laborF;
     for (const b of new Set([...Object.keys(W.by), ...Object.keys(I.by)])) { const w = (Number(W.by[b]) || 0) * _laborF, inc = (Number(I.by[b]) || 0) * _laborF, v = w + inc; if (!v) continue; hasLabor = true; labor += v; const c = cell(br, TC(b)); c.labor = (c.labor || 0) + v; c.wages = (c.wages || 0) + w; c.inc = (c.inc || 0) + inc; }
   } catch (e) { /* no store yet */ }
-  const v = { ym, cap, A, spend, spendWaiting, spendUnassigned, spendLines, s, svc, cv, sales, leads, br, ch, labor, wages, incentives, hasLabor, hasSpend: !!A, hasLeads: !!AL, hasSubs: subs.length > 0 };
+  const v = { ym, cap, A, spend, spendWaiting, spendUnassigned, spendLines, s, svc, cv, sales, leads, br, ch, x, labor, wages, incentives, hasLabor, hasSpend: !!A, hasLeads: !!AL, hasSubs: subs.length > 0 };
   M[mk] = { sig, subs, al: AL, v };
   return v;
 }
@@ -238,19 +240,27 @@ function _mktgLeanView() {
     el('span', { class: 'text-[11px]', style: muted }, _mklLbl(ym) + (_cap ? ' to date' : '') + ' vs ' + _mklLbl(pm) + (_cap ? ' 1\u2013' + _cap + ' (month to date)' : '') + ' · sparkline = last 12 months'));
   const TEAL = '#2F7F86', EMBER = '#DF643A', INK = 'var(--text)';
   // Two rows of five, full width (per Isaac, Nov 11): what came in, then what it cost.
+  // Every grid metric is a tile (per Isaac, Nov 16); click a tile for its drill-down — by office and by channel for
+  // the month, each row opening the full cell pop-up. The CAC star / notes stay.
+  const drill = (k) => () => mklMetricPop(k, cur, ym, _cap);
   const tiles = el('div', { class: 'grid gap-3 mkl-tiles' },
-    tile({ label: 'Marketing spend', icon: 'spend', get: spendOf, fmt: _mklUsd, upGood: null, color: INK, tip: 'QuickBooks marketing charges, allocated on the Spend tab', note: spendNote, onClick: goSpend }),
-    tile({ label: 'New revenue', icon: 'revenue', get: cvOf, fmt: _mklUsd, upGood: true, color: EMBER, tip: 'FieldRoutes: Office Staff new sales sold this month with the initial pending or serviced (the leaderboard rule); renewals and upsells out — contract value at sale', note: cur.s + ' new sale' + (cur.s === 1 ? '' : 's') + ' · Office Staff', onClick: () => mklOpenSales(cur, 'New sales · ' + _mklLbl(ym)) }),
-    tile({ label: 'New sales', icon: 'sales', get: salesOf, fmt: _mklNum, upGood: true, color: EMBER, tip: 'New sales with the initial pending or serviced in FieldRoutes — a bare card with no appointment is not a sale', onClick: () => mklOpenSales(cur, 'New sales · ' + _mklLbl(ym)) }),
-    tile({ label: 'ACV', icon: 'avg', get: avgC, fmt: _mklUsd, upGood: true, color: EMBER, tip: 'New revenue ÷ new sales — contract value at sale, no add-ons or upsells' }),
-    tile({ label: 'Leads', icon: 'leads', get: leadsOf, fmt: _mklNum, upGood: true, color: TEAL, tip: 'GoHighLevel opportunities, one per person per 30 days', note: cur.hasLeads ? '' : 'GoHighLevel not loaded' }),
-    tile({ label: 'ROAS', icon: 'ret', get: ret, fmt: _mklX, upGood: true, color: TEAL, tip: 'New revenue ÷ marketing spend' }),
-    tile({ label: 'Marketing CAC', icon: 'cac', get: cac, fmt: _mklUsd, upGood: false, color: INK, tip: 'Marketing spend ÷ new sales (initial pending or serviced)' }),
+    tile({ label: 'Marketing spend', icon: 'spend', get: spendOf, fmt: _mklUsd, upGood: null, color: INK, tip: 'QuickBooks marketing charges, allocated on the Spend tab', note: spendNote, onClick: drill('spend') }),
+    tile({ label: 'New revenue', icon: 'revenue', get: cvOf, fmt: _mklUsd, upGood: true, color: EMBER, tip: 'FieldRoutes: Office Staff new sales sold this month with the initial pending or serviced (the leaderboard rule); renewals and upsells out — contract value at sale', note: cur.s + ' new sale' + (cur.s === 1 ? '' : 's') + ' · Office Staff', onClick: drill('cv') }),
+    tile({ label: 'New sales', icon: 'sales', get: salesOf, fmt: _mklNum, upGood: true, color: EMBER, tip: 'New sales with the initial pending or serviced in FieldRoutes — a bare card with no appointment is not a sale', onClick: drill('s') }),
+    tile({ label: 'ACV', icon: 'avg', get: avgC, fmt: _mklUsd, upGood: true, color: EMBER, tip: 'New revenue ÷ new sales — contract value at sale, no add-ons or upsells', onClick: drill('avg') }),
+    tile({ label: 'Leads', icon: 'leads', get: leadsOf, fmt: _mklNum, upGood: true, color: TEAL, tip: 'GoHighLevel opportunities, one per person per 30 days', note: cur.hasLeads ? '' : 'GoHighLevel not loaded', onClick: drill('leads') }),
+    tile({ label: 'ROAS', icon: 'ret', get: ret, fmt: _mklX, upGood: true, color: TEAL, tip: 'New revenue ÷ marketing spend', onClick: drill('ret') }),
+    tile({ label: 'Marketing CAC', icon: 'cac', get: cac, fmt: _mklUsd, upGood: false, color: INK, tip: 'Marketing spend ÷ new sales (initial pending or serviced)', onClick: drill('mcac') }),
     tile({ label: 'CAC', icon: 'fcac', get: fcac, fmt: _mklUsd, upGood: false, color: INK, tip: '(Marketing spend + wages + incentives) ÷ new sales (initial pending or serviced)',
       star: !cur.wages && !cur.incentives ? '* wages and incentives not entered for ' + _mklLblS(ym) + ' yet — marketing spend only' : !cur.wages ? '* wages not entered for ' + _mklLblS(ym) + ' yet' : !cur.incentives ? '* incentives not entered for ' + _mklLblS(ym) + ' yet' : '',
-      note: (!cur.wages && !cur.incentives ? '* wages & incentives not in yet' : !cur.wages ? '* wages not in yet' : !cur.incentives ? '* incentives not in yet' : _mklUsd(cur.wages) + ' wages · ' + _mklUsd(cur.incentives) + ' incentives') + ' → Spend tab', onClick: goSpend }),
-    tile({ label: 'CPL', icon: 'cpl', get: cpl, fmt: _mklUsd, upGood: false, color: TEAL, tip: 'Marketing spend ÷ leads' }),
-    tile({ label: 'Close rate', icon: 'close', get: close, fmt: _mklPct, upGood: true, color: TEAL, tip: 'Plaibook — the Inside Sales department\u2019s sold ÷ qualified for the month', note: closeNote }));
+      note: (!cur.wages && !cur.incentives ? '* wages & incentives not in yet' : !cur.wages ? '* wages not in yet' : !cur.incentives ? '* incentives not in yet' : _mklUsd(cur.wages) + ' wages · ' + _mklUsd(cur.incentives) + ' incentives'), onClick: drill('cac') }),
+    tile({ label: 'CPL', icon: 'cpl', get: cpl, fmt: _mklUsd, upGood: false, color: TEAL, tip: 'Marketing spend ÷ leads', onClick: drill('cpl') }),
+    tile({ label: 'Close rate', icon: 'close', get: close, fmt: _mklPct, upGood: true, color: TEAL, tip: 'Plaibook — the Inside Sales department\u2019s sold ÷ qualified for the month', note: closeNote, onClick: drill('close') }),
+    tile({ label: 'Wages', icon: 'fcac', get: (D) => D.hasLabor || D.wages ? D.wages : null, fmt: _mklUsd, upGood: null, color: INK, tip: 'Spend tab → Wages (Inside Sales), spread to offices by share of the month’s new revenue', note: cur.wages ? '' : 'enter on the Spend tab', onClick: drill('wages') }),
+    tile({ label: 'Incentives', icon: 'avg', get: (D) => D.hasLabor || D.incentives ? D.incentives : null, fmt: _mklUsd, upGood: null, color: INK, tip: 'Spend tab → Incentives, spread to offices by share of the month’s new revenue', note: cur.incentives ? '' : 'enter on the Spend tab', onClick: drill('inc') }),
+    tile({ label: 'Total spend', icon: 'spend', get: (D) => D.hasSpend || D.hasLabor ? (D.hasSpend ? D.spend : 0) + D.labor : null, fmt: _mklUsd, upGood: null, color: INK, tip: 'Marketing spend + wages + incentives', onClick: drill('tot') }),
+    tile({ label: 'CAC %', icon: 'cac', get: (D) => D.cv && (D.hasSpend || D.hasLabor) ? ((D.hasSpend ? D.spend : 0) + D.labor) / D.cv : null, fmt: _mklPct, upGood: false, color: INK, tip: 'Total spend ÷ new revenue', onClick: drill('cacp') }),
+    tile({ label: 'Revenue per lead', icon: 'leads', get: (D) => D.hasLeads && D.leads ? D.cv / D.leads : null, fmt: _mklUsd, upGood: true, color: TEAL, tip: 'New revenue ÷ leads — what a lead is worth before any cost; next to CPL it is the lead margin', onClick: drill('rpl') }));
 
   // ── Tables: by branch, by channel — the same seven columns. ──
   const th = (t, r, extra) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold ' + (r ? 'text-right' : 'text-left'), style: Object.assign({ color: 'var(--text-muted)', background: 'var(--card-2)', whiteSpace: 'nowrap' }, extra || {}) }, t);
@@ -333,43 +343,152 @@ const MKL_GRID_METRICS = [
   { k: 'cac',   label: 'CAC',             fmt: (v) => fmt.usd0(v),  get: (c) => c.svc && (c.spend || c.labor) ? (c.spend + (c.labor || 0)) / c.svc : null, tip: '(Marketing spend + wages + incentives) ÷ new sales (initial pending or serviced)' },
   { k: 'cacp',  label: 'CAC %',           fmt: (v) => (v * 100).toFixed(0) + '%', get: (c) => c.cv ? (c.spend + (c.labor || 0)) / c.cv : null, tip: 'Total spend ÷ new revenue' },
   { k: 'ret',   label: 'ROAS',            fmt: (v) => v.toFixed(2) + 'x', get: (c) => c.spend ? c.cv / c.spend : null,             tip: 'New revenue ÷ marketing spend' },
+  { k: 'rpl',   label: 'Revenue per lead', fmt: (v) => fmt.usd0(v),  get: (c) => c.leads ? c.cv / c.leads : null,                 tip: 'New revenue ÷ leads — what a lead is worth before any cost' },
 ];
 function mklYearGrid(ym) {
   const year = Number(ym.slice(0, 4)), curMi = Number(ym.slice(5, 7)) - 1;
   const by = state._mklGridBy === 'ch' ? 'ch' : 'br';
   const M = MKL_GRID_METRICS.find(x => x.k === state._mklGridMetric) || MKL_GRID_METRICS[0];
   const months = []; for (let i = 0; i < 12; i++) months.push(mklMonth(year + '-' + String(i + 1).padStart(2, '0')));
+  // Change view (per Isaac, Nov 16): No change · MoM change · YoY change — the same cells as % against the month
+  // before (Jan reads against last December) or the same month a year earlier; YTD compares year to date to the
+  // same stretch of last year.
+  const chg = state._mklGridChg === 'mom' || state._mklGridChg === 'yoy' ? state._mklGridChg : 'none';
+  const prevMonths = chg === 'none' ? null : (() => { const o = []; for (let i = 0; i < 12; i++) o.push(mklMonth((year - 1) + '-' + String(i + 1).padStart(2, '0'))); return o; })();
   const zero = () => ({ spend: 0, leads: 0, s: 0, svc: 0, cv: 0, labor: 0, wages: 0, inc: 0 });
   const add = (t, c) => { t.spend += c.spend || 0; t.leads += c.leads || 0; t.s += c.s || 0; t.svc += c.svc || 0; t.cv += c.cv || 0; t.labor += c.labor || 0; t.wages += c.wages || 0; t.inc += c.inc || 0; return t; };
   const keys = [...new Set(months.flatMap(D => Object.keys(D[by] || {})))].filter(k => !/^(Unspecified|Unmapped GHL source|No branch)$/.test(k));
   const cellOf = (k, i) => (months[i][by] || {})[k] || zero();
+  const pcellOf = (k, i) => prevMonths ? ((prevMonths[i][by] || {})[k] || zero()) : zero();
   const ytdOf = (k) => { const t = zero(); for (let i = 0; i < 12; i++) if (months[i].ym <= ym) add(t, cellOf(k, i)); return t; };
+  const pytdOf = (k) => { const t = zero(); for (let i = 0; i < 12; i++) if (months[i].ym <= ym) add(t, pcellOf(k, i)); return t; };
   keys.sort((a, b) => (ytdOf(b).cv - ytdOf(a).cv) || (ytdOf(b).spend - ytdOf(a).spend));
   const totOf = (i) => keys.reduce((t, k) => add(t, cellOf(k, i)), zero());
+  const ptotOf = (i) => keys.reduce((t, k) => add(t, pcellOf(k, i)), zero());
   const totYtd = () => { const t = zero(); for (let i = 0; i < 12; i++) if (months[i].ym <= ym) add(t, totOf(i)); return t; };
+  const ptotYtd = () => { const t = zero(); for (let i = 0; i < 12; i++) if (months[i].ym <= ym) add(t, ptotOf(i)); return t; };
+  // The cell a change compares against: MoM = the month before (Jan → last Dec), YoY = same month last year.
+  const baseOf = (getCur, getPrev, i) => chg === 'yoy' ? getPrev(i) : i > 0 ? getCur(i - 1) : getPrev(11);
+  const UP_GOOD = { cv: true, s: true, avg: true, leads: true, close: true, spend: null, wages: null, inc: null, tot: null, cpl: false, mcac: false, cac: false, cacp: false, ret: true, rpl: true };
   const muted = { color: 'var(--text-muted)' };
   const th = (t, r, extra) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (r ? 'text-right' : 'text-left'), style: Object.assign({ color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0 }, extra || {}) }, t);
   const show = (c) => { const v = M.get(c); return v == null || !isFinite(v) ? '—' : M.fmt(v); };
-  const td = (c, bold, future) => { const t = show(c); return el('td', { class: 'px-3 py-1.5 text-right tabular-nums whitespace-nowrap', style: Object.assign({ fontFamily: 'ui-monospace, monospace' }, t === '—' || future ? muted : {}, bold ? { fontWeight: '700' } : {}) }, t); };
+  const td = (c, bold, future, base, pop) => {
+    const cellEl = _td(c, bold, future, base);
+    if (pop && !future) { cellEl.classList.add('cursor-pointer', 'hover:underline'); cellEl.title = 'Click for every metric here'; cellEl.onclick = (e) => { e.stopPropagation(); mklCellPop(pop); }; }
+    return cellEl;
+  };
+  const _td = (c, bold, future, base) => {
+    if (chg !== 'none') {
+      const a = M.get(c), b = base ? M.get(base) : null;
+      const p = a == null || b == null || !isFinite(a) || !isFinite(b) || !b || future ? null : (a - b) / Math.abs(b);
+      const good = p == null || UP_GOOD[M.k] == null ? null : (p >= 0) === UP_GOOD[M.k];
+      return el('td', { class: 'px-3 py-1.5 text-right tabular-nums whitespace-nowrap', style: Object.assign({ fontFamily: 'ui-monospace, monospace' }, p == null ? muted : { color: good == null ? 'var(--text)' : good ? '#16A34A' : '#DC2626' }, bold ? { fontWeight: '700' } : {}) }, p == null ? '—' : (p >= 0 ? '+' : '') + (p * 100).toFixed(1) + '%');
+    }
+    const t = show(c); return el('td', { class: 'px-3 py-1.5 text-right tabular-nums whitespace-nowrap', style: Object.assign({ fontFamily: 'ui-monospace, monospace' }, t === '—' || future ? muted : {}, bold ? { fontWeight: '700' } : {}) }, t); };
   const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const sticky = (bg) => ({ position: 'sticky', left: 0, background: bg, zIndex: 1, boxShadow: '1px 0 0 var(--border)' });
   const rowOf = (k) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
     el('td', { class: 'px-3 py-1.5 whitespace-nowrap font-semibold', style: sticky('var(--card)') }, k),
-    ...MON.map((_, i) => td(cellOf(k, i), i === curMi, months[i].ym > ym)), td(ytdOf(k), true));
+    ...MON.map((_, i) => td(cellOf(k, i), i === curMi, months[i].ym > ym, baseOf((j) => cellOf(k, j), (j) => pcellOf(k, j), i), { by, key: k, ym: months[i].ym, cell: cellOf(k, i), D: months[i] })), td(ytdOf(k), true, false, chg === 'yoy' ? pytdOf(k) : null, { by, key: k, ym: null, cell: ytdOf(k), months: months.filter(D => D.ym <= ym) }));
   const totRow = el('tr', { style: { borderTop: '2px solid var(--text)', background: 'var(--card-2)' } },
     el('td', { class: 'px-3 py-1.5 whitespace-nowrap font-black', style: sticky('var(--card-2)') }, 'RIDD'),
-    ...MON.map((_, i) => td(totOf(i), true, months[i].ym > ym)), td(totYtd(), true));
+    ...MON.map((_, i) => td(totOf(i), true, months[i].ym > ym, baseOf(totOf, ptotOf, i), { by, key: null, ym: months[i].ym, cell: totOf(i), D: months[i] })), td(totYtd(), true, false, chg === 'yoy' ? ptotYtd() : null, { by, key: null, ym: null, cell: totYtd(), months: months.filter(D => D.ym <= ym) }));
   const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
   const metricSel = el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: selSt, onchange: (e) => { state._mklGridMetric = e.target.value; mountApp(); } },
     ...MKL_GRID_METRICS.map(x => el('option', { value: x.k, selected: x.k === M.k }, x.label)));
   const byBtn = (v, l) => el('button', { class: 'px-2.5 py-1 text-[11px] font-bold', style: by === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._mklGridBy = v; mountApp(); } }, l);
   const bySel = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } }, byBtn('br', 'By office'), byBtn('ch', 'By channel'));
+  const chgSel = el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: selSt, onchange: (e) => { state._mklGridChg = e.target.value; mountApp(); } },
+    ...[['none', 'No change'], ['mom', 'MoM change'], ['yoy', 'YoY change']].map(([v, l]) => el('option', { value: v, selected: v === chg }, l)));
+  const chgLbl = chg === 'mom' ? ' · MoM change' : chg === 'yoy' ? ' · YoY change' : '';
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
-      el('div', {}, el('h3', { class: 'text-base font-bold', title: M.tip }, M.label + ' · ' + year), el('div', { class: 'text-[11px] mt-0.5', style: muted }, M.tip + '. YTD runs through ' + _mklLblS(ym) + '; ratios in YTD come from the summed dollars.')),
-      el('span', { class: 'ml-auto' }), bySel, metricSel),
+      el('h3', { class: 'text-base font-bold', title: M.tip + '. YTD runs through ' + _mklLblS(ym) + '; ratios in YTD come from the summed dollars.' + (chg === 'mom' ? ' MoM: against the month before (Jan against last December); YTD has no MoM.' : chg === 'yoy' ? ' YoY: against the same month last year; YTD against the same stretch of last year.' : '') }, M.label + ' · ' + year + chgLbl),
+      el('span', { class: 'ml-auto' }), bySel, metricSel, chgSel),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th(by === 'br' ? 'Office' : 'Channel', false, { position: 'sticky', left: 0, zIndex: 2 }), ...MON.map((m, i) => th(m, true, i === curMi ? { color: 'var(--accent)' } : null)), th('YTD', true))),
       el('tbody', {}, ...keys.map(rowOf), totRow))),
     !keys.length ? el('div', { class: 'px-5 py-4 text-sm text-center', style: muted }, 'Nothing for ' + year + ' yet.') : null);
+}
+
+// One cell's pop-up (per Isaac, Nov 16): every metric for that office (or channel) in that month or YTD, then the
+// same office broken down by channel — or the channel by office. Click outside or Esc to close.
+function mklCellPop(p) {
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
+  const key = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', key);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  const muted = { color: 'var(--text-muted)' };
+  const who = p.key == null ? 'RIDD' : p.key, when = p.ym ? _mklLbl(p.ym) : 'YTD';
+  const otherLbl = p.by === 'br' ? 'By channel' : 'By office';
+  // Breakdown by the other dimension, summed over the months in play.
+  const Ds = p.ym ? [p.D] : (p.months || []);
+  const agg = {};
+  const addTo = (k, c) => { const t = agg[k] || (agg[k] = { spend: 0, leads: 0, s: 0, cv: 0 }); t.spend += c.spend || 0; t.leads += c.leads || 0; t.s += c.s || 0; t.cv += c.cv || 0; };
+  for (const D of Ds) {
+    const X = D.x || {};
+    if (p.by === 'br') { const offs = p.key == null ? Object.keys(X) : [p.key]; for (const o of offs) for (const c in (X[o] || {})) addTo(c, X[o][c]); }
+    else { for (const o in X) { if (p.key == null) { for (const c in X[o]) addTo(o, X[o][c]); } else if (X[o][p.key]) addTo(o, X[o][p.key]); } }
+  }
+  const rows = Object.entries(agg).filter(([, c]) => c.spend || c.leads || c.s).sort((a, b) => (b[1].cv - a[1].cv) || (b[1].spend - a[1].spend));
+  const th = (t, r) => el('th', { class: 'px-3 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (r ? 'text-right' : 'text-left'), style: Object.assign({ background: 'var(--card-2)' }, muted) }, t);
+  const td = (t, r, st) => el('td', { class: 'px-3 py-1 whitespace-nowrap' + (r ? ' text-right tabular-nums' : ''), style: Object.assign({ fontFamily: r ? 'ui-monospace, monospace' : 'inherit' }, st || {}) }, t);
+  const val = (M, c) => { const v = M.get(c); return v == null || !isFinite(v) ? '—' : M.fmt(v); };
+  const metricsEl = el('div', { class: 'grid gap-x-6 gap-y-1', style: { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' } },
+    ...MKL_GRID_METRICS.map(M => el('div', { class: 'flex items-baseline justify-between gap-3 border-b', style: { borderColor: 'var(--border)', padding: '3px 0' }, title: M.tip },
+      el('span', { class: 'text-[11px]', style: muted }, M.label), el('span', { class: 'text-sm font-bold tabular-nums', style: { fontFamily: 'ui-monospace, monospace' } }, val(M, p.cell)))));
+  const salesOf = (k) => { const out = []; for (const D of Ds) { const X = D.x || {}; if (p.by === 'br') { const offs = p.key == null ? Object.keys(X) : [p.key]; for (const o of offs) if (X[o] && X[o][k] && X[o][k].sales) out.push(...X[o][k].sales); } else { for (const o in X) { if (p.key == null) { for (const c in X[o]) if (o === k && X[o][c].sales) out.push(...X[o][c].sales); } else if (o === k && X[o][p.key] && X[o][p.key].sales) out.push(...X[o][p.key].sales); } } } return out; };
+  const brk = rows.length ? el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+    el('thead', {}, el('tr', {}, th(otherLbl.replace('By ', '')), th('Spend', true), th('Leads', true), th('Sales', true), th('Revenue', true), th('CPL', true), th('Mkt CAC', true), th('ROAS', true))),
+    el('tbody', {}, ...rows.map(([k, c]) => { const sl = salesOf(k); return el('tr', { class: 'border-t' + (sl.length ? ' cursor-pointer hover:brightness-95' : ''), style: { borderColor: 'var(--border)' }, title: sl.length ? 'Click for the accounts' : '', onclick: sl.length ? () => openReportingDrillModal({ chartTitle: who + ' · ' + k + ' · ' + when, sliceLabel: sl.length + ' new sale' + (sl.length === 1 ? '' : 's') + ' · ' + fmt.usd0(c.cv), rows: sl, formatValue: fmt.usd0 }) : null },
+      td(k, false, { fontWeight: '700' }), td(c.spend ? fmt.usd0(c.spend) : '—', true), td(c.leads ? fmt.int(c.leads) : '—', true), td(c.s ? fmt.int(c.s) : '—', true), td(c.cv ? fmt.usd0(c.cv) : '—', true),
+      td(c.spend && c.leads ? fmt.usd0(c.spend / c.leads) : '—', true), td(c.spend && c.s ? fmt.usd0(c.spend / c.s) : '—', true), td(c.spend ? (c.cv / c.spend).toFixed(2) + 'x' : '—', true, c.spend ? { fontWeight: '700', color: c.cv / c.spend >= 1 ? '#3E5A3A' : '#B91C1C' } : {})); })))
+    : el('div', { class: 'text-[11px] py-2', style: muted }, 'Nothing to break down here.');
+  const card = el('div', { class: 'card', style: { width: 'min(820px, calc(100vw - 32px))', maxHeight: '86vh', overflow: 'auto', margin: '6vh auto 0' }, onclick: (e) => e.stopPropagation() },
+    el('div', { class: 'px-5 py-3 border-b flex items-start gap-3', style: { borderColor: 'var(--border)' } },
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, who + ' · ' + when), el('div', { class: 'text-[11px] mt-0.5', style: muted }, p.key == null ? 'Every office' : (p.by === 'br' ? 'Office' : 'Channel') + ' · every metric, then ' + otherLbl.toLowerCase())),
+      el('button', { class: 'ml-auto text-2xl leading-none', style: muted, 'aria-label': 'Close', onclick: close }, '×')),
+    el('div', { class: 'px-5 py-3' }, metricsEl),
+    el('div', { class: 'px-5 pt-2 pb-1 text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, otherLbl + (p.ym ? '' : ' · YTD')),
+    el('div', { class: 'scroll-x px-2 pb-3' }, brk));
+  overlay.append(card); document.body.append(overlay);
+}
+
+// A tile's drill-down (per Isaac, Nov 16): the metric for the month by office and by channel side by side; each row
+// opens the cell pop-up (every metric + the other breakdown). Sales rows are one click further from there.
+function mklMetricPop(k, D, ym, cap) {
+  const M = MKL_GRID_METRICS.find(x => x.k === k) || MKL_GRID_METRICS[0];
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
+  const key = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', key);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  const muted = { color: 'var(--text-muted)' };
+  const when = _mklLbl(ym) + (cap ? ' to date' : '');
+  const val = (c) => { const v = M.get(c); return v == null || !isFinite(v) ? '—' : M.fmt(v); };
+  const th = (t, r) => el('th', { class: 'px-3 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (r ? 'text-right' : 'text-left'), style: Object.assign({ background: 'var(--card-2)' }, muted) }, t);
+  const td = (t, r, st) => el('td', { class: 'px-3 py-1 whitespace-nowrap' + (r ? ' text-right tabular-nums' : ''), style: Object.assign({ fontFamily: r ? 'ui-monospace, monospace' : 'inherit' }, st || {}) }, t);
+  const tableOf = (by, o, label) => {
+    const keys = Object.keys(o || {}).filter(x => !/^(Unspecified|Unmapped GHL source|No branch)$/.test(x) && (o[x].spend || o[x].leads || o[x].s || o[x].labor)).sort((a, b) => { const va = M.get(o[a]), vb = M.get(o[b]); return (vb == null ? -Infinity : vb) - (va == null ? -Infinity : va); });
+    const tot = keys.reduce((t, x) => { const c = o[x]; t.spend += c.spend || 0; t.leads += c.leads || 0; t.s += c.s || 0; t.cv += c.cv || 0; t.labor += c.labor || 0; t.wages += c.wages || 0; t.inc += c.inc || 0; return t; }, { spend: 0, leads: 0, s: 0, cv: 0, labor: 0, wages: 0, inc: 0 });
+    const row = (x, c, total) => el('tr', { class: 'border-t' + (total ? '' : ' cursor-pointer hover:brightness-95'), style: Object.assign({ borderColor: 'var(--border)' }, total ? { background: 'var(--card-2)', borderTop: '2px solid var(--text)', fontWeight: '800' } : {}), title: total ? '' : 'Click for every metric for ' + x,
+        onclick: total ? null : () => mklCellPop({ by, key: x, ym, cell: c, D }) },
+      td(x, false, { fontWeight: total ? '800' : '700' }), td(val(c), true, { fontWeight: '700' }), td(c.spend ? fmt.usd0(c.spend) : '—', true), td(c.leads ? fmt.int(c.leads) : '—', true), td(c.s ? fmt.int(c.s) : '—', true), td(c.cv ? fmt.usd0(c.cv) : '—', true));
+    return el('div', { class: 'min-w-0' },
+      el('div', { class: 'px-1 pb-1 text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, label),
+      keys.length ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+        el('thead', {}, el('tr', {}, th(label.replace('By ', '')), th(M.label, true), th('Spend', true), th('Leads', true), th('Sales', true), th('Revenue', true))),
+        el('tbody', {}, ...keys.map(x => row(x, o[x], false)), row('RIDD', tot, true)))) : el('div', { class: 'text-[11px] py-2 px-1', style: muted }, 'Nothing for ' + when + '.'));
+  };
+  const big = (() => { const c = { spend: D.hasSpend ? D.spend : 0, leads: D.leads || 0, s: D.s, svc: D.svc, cv: D.cv, labor: D.labor, wages: D.wages, inc: D.incentives }; return val(c); })();
+  const card = el('div', { class: 'card', style: { width: 'min(1100px, calc(100vw - 32px))', maxHeight: '86vh', overflow: 'auto', margin: '6vh auto 0' }, onclick: (e) => e.stopPropagation() },
+    el('div', { class: 'px-5 py-3 border-b flex items-start gap-3', style: { borderColor: 'var(--border)' } },
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, M.label + ' · ' + when), el('div', { class: 'text-[11px] mt-0.5', style: muted }, M.tip)),
+      el('div', { class: 'ml-auto text-2xl font-black tabular-nums', style: { fontFamily: 'ui-monospace, monospace' } }, big),
+      el('button', { class: 'text-2xl leading-none', style: muted, 'aria-label': 'Close', onclick: close }, '×')),
+    el('div', { class: 'p-4 grid gap-4', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))' } }, tableOf('br', D.br, 'By office'), tableOf('ch', D.ch, 'By channel')),
+    /^(spend|wages|inc|tot)$/.test(k) ? el('div', { class: 'px-5 pb-3 text-[11px]' }, el('button', { class: 'font-semibold underline', style: { color: 'var(--accent)' }, onclick: () => { close(); state._mktSub = 'spend'; state._mktCtrlMonth = ym; mountApp(); } }, 'Open the Spend tab →')) : null);
+  overlay.append(card); document.body.append(overlay);
 }
