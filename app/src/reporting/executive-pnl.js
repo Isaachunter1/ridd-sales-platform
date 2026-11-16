@@ -741,8 +741,8 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
     // Book at the END of the period (per Isaac, Nov 16 — asked why this and the Overview's Active ARR differ): this is
     // the book as of the last day of the month shown — sold by then, not cancelled by then — rebuilt from sold and
     // cancel dates; the Overview is the book TODAY, status Active and serviced only. Same rules, different day.
-    lineT('Recurring revenue (ARR · end of ' + endLabel + ')', (d, k) => fr(k).arr, { bold: true, tip: 'Annual recurring value of every recurring subscription on the books on the last day of ' + endLabel + ' — sold by then and not cancelled by then (any cancel reason removes it). The Overview’s Active ARR is the same book as of today, status Active and serviced only, so the two move apart by what was sold, serviced or cancelled since.' }),
-    lineT('Active accounts (end of ' + endLabel + ')', (d, k) => fr(k).active, { num: true, tip: 'Recurring subscriptions on the books on the last day of ' + endLabel + '. The Overview counts today’s.' }),
+    lineT('Recurring revenue (ARR)', (d, k) => fr(k).arr, { bold: true, tip: 'Annual recurring value of every recurring subscription on the books on the last day of ' + endLabel + ' — sold by then and not cancelled by then (any cancel reason removes it). The Overview’s Active ARR is the same book as of today, status Active and serviced only, so the two move apart by what was sold, serviced or cancelled since.' }),
+    lineT('Active accounts', (d, k) => fr(k).active, { num: true, tip: 'Recurring subscriptions on the books on the last day of ' + endLabel + '. The Overview counts today’s.' }),
     lineT('ACV (ARR ÷ active accounts)', (d, k) => { const f = fr(k); return f.active ? f.arr / f.active : null; }),
     lineT('Revenue ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.revenue / f.active : null; }, { tip: 'Booked revenue for the period ÷ accounts on the books at period end.' }),
     lineT('EBITDA ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.ebitda / f.active : null; }, { signed: true, tip: 'EBITDA for the period ÷ accounts on the books at period end.' }),
@@ -802,7 +802,7 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-center justify-between gap-3' + (opts.compact ? '' : ' flex-wrap'), style: { borderColor: 'var(--border)' } },
       el('div', { class: 'min-w-0' },
-        el('h3', { class: 'text-base font-bold' + (opts.compact ? ' truncate' : '') }, (opts.title || ({ book: 'Recurring Book', margins: 'Margins', unit: 'Unit Economics' })[part] || 'P&L Indicators') + (opts.compact ? '' : ' · ' + periodLabel)),
+        el('h3', { class: 'text-base font-bold' + (opts.compact ? ' truncate' : '') }, (opts.title || ({ book: 'Recurring Book', margins: 'Margins', unit: 'Unit Economics' })[part] || 'P&L Indicators') + (opts.compact ? '' : ' · ' + periodLabel) + (part === 'book' && !opts.compact ? ' · as of ' + endLabel + ' month end' : '')),
         null),
       opts.headerExtra || null),
     // Fixed column grid (per Isaac, Sep 30): the same label width and equal

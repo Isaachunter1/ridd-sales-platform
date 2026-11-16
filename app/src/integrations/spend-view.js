@@ -39,7 +39,7 @@ function mktgSpendView() {
 
   const P = state.reportingIsSpendPayee;
   const head = () => el('div', { class: 'card px-5 py-3 flex items-center gap-3 flex-wrap' },
-    el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Spend · ' + year), el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Wages by rep for the year — the month picked is highlighted. QuickBooks lines for that month sit at the bottom.')),
+    el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Spend · ' + year), el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Wages by rep and incentives by month for the year — the month picked is highlighted. QuickBooks lines for that month sit at the bottom.')),
     el('span', { class: 'ml-auto' }), monthSel);
   const authGone = state._authExpired ? el('div', { class: 'card p-4 flex items-center gap-3 flex-wrap', style: { borderColor: 'rgba(220,38,38,.5)' } },
     el('div', { class: 'text-sm' }, el('span', { class: 'font-bold', style: { color: '#B91C1C' } }, 'Your sign-in has expired. '), 'QuickBooks and Windsor data can’t load until you sign in again.'),
@@ -127,16 +127,9 @@ function mktgSpendView() {
   // by-branch Wages & incentives card.
   m.repWages = (m.repWages && typeof m.repWages === 'object') ? m.repWages : {};
   const IS_ROLES = ['rep_office', 'rep_office_lead'];
-  const _profiles = (state.allProfiles || []).filter(p => p && p.id);
-  // Who has a wage entry this year that isn't an Inside Sales login: other office roles (Loyalty, D2D…) and payroll
-  // names with no app login at all (keys 'name:Last, First' — per Isaac, Nov 16, the payroll report has people the
-  // app doesn't). They sit in the inactive section so every dollar on the report is on the page.
-  const _withWages = new Set(); for (let i = 0; i < 12; i++) for (const k in (m.repWages[year + '-' + String(i + 1).padStart(2, '0')] || {})) _withWages.add(k);
-  const byName = (a, b) => String(a.full_name || '').localeCompare(String(b.full_name || ''));
-  const isReps = _profiles.filter(p => IS_ROLES.includes(String(p.role || '')));
-  const extraReps = _profiles.filter(p => !IS_ROLES.includes(String(p.role || '')) && _withWages.has(p.id)).map(p => Object.assign({}, p, { is_active: false, _other: true }));
-  const nameReps = [..._withWages].filter(k => /^name:/.test(k)).map(k => ({ id: k, full_name: k.slice(5), is_active: false, _noLogin: true }));
-  const repsAll = [...isReps, ...extraReps, ...nameReps].sort(byName);
+  // Inside Sales only (per Isaac, Nov 16 — "don't include other office roles"): Loyalty, D2D and anyone without an
+  // Inside Sales login stay out of this table and out of CAC.
+  const repsAll = (state.allProfiles || []).filter(p => p && p.id && IS_ROLES.includes(String(p.role || ''))).sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || '')));
   const repsOn = repsAll.filter(p => p.is_active !== false), repsOff = repsAll.filter(p => p.is_active === false);
   const wOf = (pid, i) => Number((m.repWages[ymOf(i)] || {})[pid]) || 0;
   const setRepW = (pid, i, n) => { const k = ymOf(i); const S = m.repWages[k] = m.repWages[k] || {}; if (n) S[pid] = Math.round(n * 100) / 100; else delete S[pid]; if (!Object.keys(S).length) delete m.repWages[k]; state._mkpMemo = null; state._mklMemo = {}; _mktgSave(); };
@@ -146,7 +139,7 @@ function mktgSpendView() {
   const repTot = (p) => MON.reduce((a, _, i) => a + wOf(p.id, i), 0);
   const yearTot = MON.reduce((a, _, i) => a + monTot(i, repsAll), 0);
   const wRow = (p) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-    el('td', { class: 'px-3 py-1 whitespace-nowrap font-semibold', style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1 } }, p.full_name || '—', p.is_active === false ? el('span', { class: 'ml-1.5 text-[9px] uppercase tracking-wider', style: muted }, p._noLogin ? 'no app login' : p._other ? 'other office role' : 'inactive') : null),
+    el('td', { class: 'px-3 py-1 whitespace-nowrap font-semibold', style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1 } }, p.full_name || '—', p.is_active === false ? el('span', { class: 'ml-1.5 text-[9px] uppercase tracking-wider', style: muted }, 'inactive') : null),
     ...MON.map((_, i) => el('td', { class: 'px-1.5 py-1 text-right' }, admin ? moneyIn(wOf(p.id, i), (n, inp) => { setRepW(p.id, i, n); const row = inp.closest('tr'); const t = row && row.querySelector('[data-tot]'); if (t) t.textContent = usd0(repTot(p)); refreshFoot(); }) : usd0(wOf(p.id, i)))),
     el('td', { class: 'px-3 py-1 text-right tabular-nums font-bold', 'data-tot': '1' }, usd0(repTot(p))));
   // Totals update in place as numbers are typed (no full re-render per cell).
@@ -170,6 +163,25 @@ function mktgSpendView() {
           ...(offOpen ? repsOff.map(rowOf) : []),
           footRow()))));
 
+  // ── Incentives (per Isaac, Nov 16): one company number a month, typed in; spread to offices by share of the
+  // month's new revenue (mktgIncentivesMonth) and part of CAC with wages. ──
+  m.incentivesCo = (m.incentivesCo && typeof m.incentivesCo === 'object') ? m.incentivesCo : {};
+  const incOf = (i) => Number(m.incentivesCo[ymOf(i)]) || 0;
+  const setInc = (i, n) => { const k = ymOf(i); if (n) m.incentivesCo[k] = Math.round(n * 100) / 100; else delete m.incentivesCo[k]; state._mkpMemo = null; state._mklMemo = {}; _mktgSave(); };
+  const incYear = () => MON.reduce((a, _, i) => a + incOf(i), 0);
+  let incTot;
+  const incCard = el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Incentives · ' + year),
+        el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Inside Sales incentive cost by month, typed in. Spread to offices by each office’s share of the month’s new revenue; in CAC with wages.')),
+      el('span', { class: 'ml-auto text-sm font-black tabular-nums' }, usd0(incYear()))),
+    el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, th('', false, { position: 'sticky', left: 0, zIndex: 2 }), ...MON.map(thM), th('Total', true))),
+      el('tbody', {}, el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        el('td', { class: 'px-3 py-1 whitespace-nowrap font-semibold', style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1 } }, 'Incentives'),
+        ...MON.map((_, i) => el('td', { class: 'px-1.5 py-1 text-right' }, admin ? moneyIn(incOf(i), (n) => { setInc(i, n); if (incTot) incTot.textContent = usd0(incYear()); }) : usd0(incOf(i)))),
+        (incTot = el('td', { class: 'px-3 py-1 text-right tabular-nums font-bold' }, usd0(incYear()))))))));
+
   // ── 4. QuickBooks lines for the picked month — folded away; fix one charge's channel here. ──
   const lines = A ? A.lines.slice().sort((a, b) => (Number(a.day) || 0) - (Number(b.day) || 0)) : [];
   const linesCard = A ? el('details', { class: 'card overflow-hidden' },
@@ -184,5 +196,5 @@ function mktgSpendView() {
   // Wages first; Spend by channel / by market are built but parked off the page for now (per Isaac, Nov 16 —
   // "get rid of them for now, I'll come back to that"). Put chanCard / mktCard back in this list to bring them back.
   void chanCard; void mktCard;
-  return el('div', { class: 'flex flex-col gap-4' }, head(), wagesCard, linesCard);
+  return el('div', { class: 'flex flex-col gap-4' }, head(), wagesCard, incCard, linesCard);
 }

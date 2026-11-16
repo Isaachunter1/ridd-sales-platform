@@ -809,6 +809,23 @@ function mktgWagesMonth(ym, branches) {
   for (const b in W) { const v = Number(W[b]) || 0; if (v) { by[b] = v; t2 += v; } }
   return { total: t2, by, src: t2 ? 'offices' : null };
 }
+// Incentives for one month (per Isaac, Nov 16): one company number a month, typed on the Spend tab
+// (m.incentivesCo[ym]), spread to offices by each office's share of the month's new revenue — same as wages. A month
+// with only Nov 9's by-office incentive entries keeps those. Returns { total, by }.
+function mktgIncentivesMonth(ym, branches) {
+  const m = _mktgStore(); const total = Number((m.incentivesCo || {})[ym]) || 0; const by = {};
+  if (total > 0) {
+    const y = Number(ym.slice(0, 4)), i = Number(ym.slice(5, 7)) - 1, a = _mktgActuals(y);
+    const bs = (branches && branches.length ? branches : Object.keys(a.branch || {}));
+    const rev = (b) => (a.branch[b] && a.branch[b][i]) ? (a.branch[b][i].rev || 0) + (a.branch[b][i].upRev || 0) : 0;
+    const tr = bs.reduce((t, b) => t + rev(b), 0);
+    for (const b of bs) by[b] = tr > 0 ? total * rev(b) / tr : total / bs.length;
+    return { total, by };
+  }
+  const I = (m.incentives || {})[ym] || {}; let t2 = 0;
+  for (const b in I) { const v = Number(I[b]) || 0; if (v) { by[b] = v; t2 += v; } }
+  return { total: t2, by };
+}
 const _mktgTC = (o) => String(o || '').split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w).join(' ');
 // FieldRoutes actuals for one calendar year: per branch/month + per source/month.
 const MKTG_UPSELL_SINCE = '2026-10-12';   // office-staff add-ons go live — upsells count from here
