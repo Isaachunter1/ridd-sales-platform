@@ -944,7 +944,7 @@ const _mktgDiv = (a, b) => (b > 0 ? a / b : null);
 function _mktgYearBar(sub) {
   const y = _mktgYearSel();
   // Attribution (lead reconciliation) is a tab of its own (per Isaac, Oct 2) — it lived behind a button on the right.
-  const SUBS = [['providers', 'Metrics'], ['recon', 'Channels'], ['spend', 'Spend']];   // P&L folded into the Metrics year grid (per Isaac, Nov 16)   // Attribution → Channels (per Isaac, Nov 10)   // Projections hidden (per Isaac, Oct 9); Disposition removed (Nov 5)
+  const SUBS = [['providers', 'Metrics'], ['spend', 'Spend']];   // Just Metrics and Spend (per Isaac, Nov 16): P&L folded into the Metrics year grid, Channels = its By channel rows   // Attribution → Channels (per Isaac, Nov 10)   // Projections hidden (per Isaac, Oct 9); Disposition removed (Nov 5)
   const _recon = sub === 'providers' && state._mktProvView === 'recon';
   return el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
     el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
@@ -1570,12 +1570,12 @@ function reportingMarketingPnl() {
   if (state._mktSub === 'cac') { state._mktSub = 'providers'; state._mktProvView = 'cac'; }
   if (state._mktSub === 'acq') state._mktSub = 'providers';
   if (state._mktSub === 'demand') state._mktSub = 'providers';   // Demand folded into Metrics (per Isaac, Oct 6)
-  if (state._mktSub === 'pnl') state._mktSub = 'providers';   // P&L tab retired (per Isaac, Nov 16) — its table lives on Metrics
+  if (state._mktSub === 'pnl' || state._mktSub === 'recon') { state._mktSub = 'providers'; state._mktProvView = 'cac'; }   // P&L and Channels tabs retired (per Isaac, Nov 16) — the Metrics grid has By office / By channel
   const sub = ['providers', 'spend', 'disp'].includes(state._mktSub) ? state._mktSub : 'providers';   // Metrics opens first (per Isaac)
   // Metrics (per Isaac, Sep 30): CAC on the page; Lead providers and Lead
   // reconciliation are buttons to the right of the Office dropdown.
   // Lead providers now sits directly under the CAC table (per Isaac, Sep 30).
-  const provView = state._mktProvView === 'recon' ? 'recon' : 'cac';
+  const provView = 'cac';   // Channels view retired (per Isaac, Nov 16) — channelsView() stays in the code
   // Channels (per Isaac, Nov 10) replaces the Attribution view — src/integrations/channels.js; the old view stays in the code.
   const body = sub === 'providers' ? (provView === 'recon' ? el('div', { class: 'flex flex-col gap-4' }, (() => { try { return typeof channelsView === 'function' ? channelsView() : mktgAttributionView(); } catch (e) { console.warn('[channels]', e); return el('div', { class: 'card p-6 text-sm' }, 'Channels hit an error: ' + (e.message || e)); } })())
       // Rebuilt around the GoHighLevel lead cohort (per Isaac, Oct 15) — src/85-marketing-metrics.js. The old
