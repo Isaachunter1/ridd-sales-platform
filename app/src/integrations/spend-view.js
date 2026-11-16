@@ -131,22 +131,29 @@ function mktgSpendView() {
   // Inside Sales only (per Isaac, Nov 16 — "don't include other office roles"): Loyalty, D2D and anyone without an
   // Inside Sales login stay out of this table and out of CAC.
   const repsAll = (state.allProfiles || []).filter(p => p && p.id && IS_ROLES.includes(String(p.role || ''))).sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || '')));
-  const repsOn = repsAll.filter(p => p.is_active !== false), repsOff = repsAll.filter(p => p.is_active === false);
+  // Payroll names with no app login (per Isaac, Nov 16 — Conner Bryan's 2025 wages): keys in repWages that match
+  // no profile show as rows of their own, named from m.repNames, folded with the inactive reps. Their months still
+  // count in the total and in CAC (mktgWagesMonth sums every key).
+  const _known = new Set(repsAll.map(p => p.id)), _extra = new Map();
+  for (let i = 0; i < 12; i++) for (const k of Object.keys(m.repWages[ymOf(i)] || {})) if (!_known.has(k)) _extra.set(k, true);
+  const repsExtra = [..._extra.keys()].map(k => ({ id: k, full_name: (m.repNames || {})[k] || ('Payroll · ' + k), is_active: false, noLogin: true })).sort((a, b) => a.full_name.localeCompare(b.full_name));
+  const repsOn = repsAll.filter(p => p.is_active !== false), repsOff = repsAll.filter(p => p.is_active === false).concat(repsExtra);
   const wOf = (pid, i) => Number((m.repWages[ymOf(i)] || {})[pid]) || 0;
   const setRepW = (pid, i, n) => { const k = ymOf(i); const S = m.repWages[k] = m.repWages[k] || {}; if (n) S[pid] = Math.round(n * 100) / 100; else delete S[pid]; if (!Object.keys(S).length) delete m.repWages[k]; state._mkpMemo = null; state._mklMemo = {}; _mktgSave(); };
   const moneyIn = (val, onSave) => el('input', { type: 'text', inputmode: 'decimal', value: val ? String(Math.round(Number(val) * 100) / 100) : '', placeholder: '—', class: 'rounded border px-1.5 py-0.5 text-[11px] tabular-nums', style: Object.assign({ width: '78px', textAlign: 'right' }, selSt),
     onchange: (e) => { const n = parseFloat(String(e.target.value).replace(/[^0-9.-]/g, '')); onSave(isNaN(n) ? 0 : n, e.target); e.target.value = isNaN(n) || !n ? '' : String(Math.round(n * 100) / 100); } });
   const monTot = (i, list) => list.reduce((a, p) => a + wOf(p.id, i), 0);
   const repTot = (p) => MON.reduce((a, _, i) => a + wOf(p.id, i), 0);
-  const yearTot = MON.reduce((a, _, i) => a + monTot(i, repsAll), 0);
+  const repsSum = repsAll.concat(repsExtra);
+  const yearTot = MON.reduce((a, _, i) => a + monTot(i, repsSum), 0);
   const wRow = (p) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-    el('td', { class: 'px-3 py-1 whitespace-nowrap font-semibold', style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1 } }, p.full_name || '—', p.is_active === false ? el('span', { class: 'ml-1.5 text-[9px] uppercase tracking-wider', style: muted }, 'inactive') : null),
+    el('td', { class: 'px-3 py-1 whitespace-nowrap font-semibold', style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1 } }, p.full_name || '—', p.is_active === false ? el('span', { class: 'ml-1.5 text-[9px] uppercase tracking-wider', style: muted }, p.noLogin ? 'payroll only' : 'inactive') : null),
     ...MON.map((_, i) => el('td', { class: 'px-1.5 py-1 text-right' }, admin ? moneyIn(wOf(p.id, i), (n, inp) => { setRepW(p.id, i, n); const row = inp.closest('tr'); const t = row && row.querySelector('[data-tot]'); if (t) t.textContent = usd0(repTot(p)); refreshFoot(); }) : usd0(wOf(p.id, i)))),
     el('td', { class: 'px-3 py-1 text-right tabular-nums font-bold', 'data-tot': '1' }, usd0(repTot(p))));
   // Totals update in place as numbers are typed (no full re-render per cell).
   let footCells = [];
-  const refreshFoot = () => { footCells.forEach((c, i) => { c.textContent = i < 12 ? usd0(monTot(i, repsAll)) : usd0(MON.reduce((a, _, j) => a + monTot(j, repsAll), 0)); }); };
-  const footRow = () => { footCells = MON.map((_, i) => td(usd0(monTot(i, repsAll)), { fontWeight: '700' }, true)); const tot = td(usd0(yearTot), { fontWeight: '900' }, true); footCells.push(tot);
+  const refreshFoot = () => { footCells.forEach((c, i) => { c.textContent = i < 12 ? usd0(monTot(i, repsSum)) : usd0(MON.reduce((a, _, j) => a + monTot(j, repsSum), 0)); }); };
+  const footRow = () => { footCells = MON.map((_, i) => td(usd0(monTot(i, repsSum)), { fontWeight: '700' }, true)); const tot = td(usd0(yearTot), { fontWeight: '900' }, true); footCells.push(tot);
     return el('tr', { style: { borderTop: '2px solid var(--text)', background: 'var(--card-2)' } }, el('td', { class: 'px-3 py-1.5 font-black', style: { position: 'sticky', left: 0, background: 'var(--card-2)', zIndex: 1 } }, 'Total'), ...footCells); };
   const rowOf = (p) => wRow(p);
   const offOpen = !!state._spendWagesOffOpen;
