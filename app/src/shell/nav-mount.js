@@ -42,6 +42,7 @@ const INSIDE_SALES_TABS = [
   ['pay',          'Pay'],
   ['scorecards',   'Scorecards'],
   ['calendar',     'Calendar'],
+  ['wallet',       'Wallet'],       // RIDDCOIN balance + history (per Isaac, Nov 16)
   // 'competitions' sub-tab hidden — comps live on the top-level Competitions
   // tab now. The VIEW stays reachable (deep links / legacy hash) via the key
   // set below, it just doesn't render a sub-tab button anymore.
@@ -54,6 +55,7 @@ const D2D_SALES_TABS = [
   ['d2d_dashboard', 'Dashboard'],
   ['d2d_sales',     'Sales'],
   ['commission',    'Pay'],
+  ['wallet',        'Wallet'],
 ];
 const D2D_SALES_TAB_KEYS = new Set(D2D_SALES_TABS.map(([k]) => k));
 // ── TECHNICIAN GROUP (per Isaac, Sep 2026) — same shape: Dashboard + the
@@ -62,6 +64,7 @@ const TECH_TABS = [
   ['techs',      'Dashboard'],
   ['tech_sales', 'Sales'],
   ['tech_pay',   'Pay'],
+  ['wallet',     'Wallet'],
 ];
 const TECH_TAB_KEYS = new Set(TECH_TABS.map(([k]) => k));
 // ── LOYALTY GROUP (per Isaac, Sep 23) — the loyalty team's working tabs:
@@ -1497,6 +1500,7 @@ function _mountAppRender() {
     indicators:   viewIndicators,
     nrla:         viewNrlaPublic,
     scorecards:   viewScorecards,
+    wallet:       viewWallet,             // RIDDCOIN (per Isaac, Nov 16)
     reporting:    viewReporting,
     marketing:    viewMarketing,
     commission:   () => viewUnderConstruction('Sales Rep pay'),   // (per Isaac, Oct 15 — viewCommission comes back with the D2D build-out)

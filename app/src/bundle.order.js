@@ -57,6 +57,7 @@ module.exports = [
   'integrations/marketing.js',
   'integrations/attribution.js',
   'competitions/riddcoin.js',
+  'competitions/riddcoin-wallet.js',
   'reporting/view.js',
   'sales/queues.js',
   'reporting/executive-pnl.js',
