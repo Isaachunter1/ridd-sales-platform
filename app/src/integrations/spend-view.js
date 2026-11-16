@@ -39,7 +39,7 @@ function mktgSpendView() {
 
   const P = state.reportingIsSpendPayee;
   const head = () => el('div', { class: 'card px-5 py-3 flex items-center gap-3 flex-wrap' },
-    el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Spend · ' + year), el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'QuickBooks marketing dollars by channel and by market, and wages by rep — the month picked is highlighted.')),
+    el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Spend · ' + year), el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Wages by rep for the year — the month picked is highlighted. QuickBooks lines for that month sit at the bottom.')),
     el('span', { class: 'ml-auto' }), monthSel);
   const authGone = state._authExpired ? el('div', { class: 'card p-4 flex items-center gap-3 flex-wrap', style: { borderColor: 'rgba(220,38,38,.5)' } },
     el('div', { class: 'text-sm' }, el('span', { class: 'font-bold', style: { color: '#B91C1C' } }, 'Your sign-in has expired. '), 'QuickBooks and Windsor data can’t load until you sign in again.'),
@@ -172,5 +172,8 @@ function mktgSpendView() {
         td(L.memo, Object.assign({}, muted, { maxWidth: '360px', overflow: 'hidden', textOverflow: 'ellipsis' })), td(L.acctLeaf || 'Advertising & Marketing', muted), td(usd(L.amt), L.amt < 0 ? { color: '#B91C1C' } : {}, true),
         el('td', { class: 'px-3 py-1' }, admin ? vendorPick(ym, L, L.how === 'this charge only') : (spqLabel(L.prov) || '—'), L.how && !/^(your pick|payee|this charge only)$/.test(L.how) ? el('span', { class: 'ml-2 text-[10px]', style: muted }, L.how) : null))))))) : null;
 
-  return el('div', { class: 'flex flex-col gap-4' }, head(), chanCard, mktCard, wagesCard, linesCard);
+  // Wages first; Spend by channel / by market are built but parked off the page for now (per Isaac, Nov 16 —
+  // "get rid of them for now, I'll come back to that"). Put chanCard / mktCard back in this list to bring them back.
+  void chanCard; void mktCard;
+  return el('div', { class: 'flex flex-col gap-4' }, head(), wagesCard, linesCard);
 }
