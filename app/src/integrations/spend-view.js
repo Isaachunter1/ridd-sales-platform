@@ -17,16 +17,17 @@ function mktgSpendView() {
   if (typeof reportingLoadQboSpend === 'function') reportingLoadQboSpend();
   if (typeof ghlLoadLeads === 'function') ghlLoadLeads();
   const m = _spqStore();
-  const { ym, yms } = _mktgCtrlMonth();
-  const year = Number(ym.slice(0, 4));
+  // The year bar at the top of Marketing drives this tab (per Isaac, Nov 16): the open year shows through the
+  // current month; a past year shows all twelve. The QuickBooks lines card shows that month.
+  const year = typeof _mktgYearSel === 'function' ? Number(_mktgYearSel()) : new Date().getFullYear();
+  const _now = new Date(); const ym = year === _now.getFullYear() ? year + '-' + String(_now.getMonth() + 1).padStart(2, '0') : year + '-12';
+  state._mktCtrlMonth = ym;
   if (typeof reportingLoadAdSpend === 'function') reportingLoadAdSpend(year);
   const admin = isAdminRole(state.profile?.role);
   const muted = { color: 'var(--text-muted)' };
   const usd = (v) => (v < 0 ? '−' : '') + '$' + Math.abs(Math.round((v || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const usd0 = (v) => (v < 0 ? '−' : '') + '$' + Math.abs(Math.round(v || 0)).toLocaleString('en-US');
   const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
-  const monthSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: selSt, onchange: (e) => { state._mktCtrlMonth = e.target.value; mountApp(); } },
-    ...yms.map(k => el('option', { value: k, selected: k === ym }, reportingMonthLbl(k))));
   const th = (t, r, extra) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap align-bottom ' + (r ? 'text-right' : 'text-left'), style: Object.assign({ color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0 }, extra || {}) }, t);
   const td = (t, st, r) => el('td', { class: 'px-3 py-1.5 whitespace-nowrap' + (r ? ' text-right tabular-nums' : ''), style: st || {} }, t == null || t === '' ? '—' : t);
   const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -40,7 +41,7 @@ function mktgSpendView() {
   const P = state.reportingIsSpendPayee;
   const head = () => el('div', { class: 'card px-5 py-3 flex items-center gap-3 flex-wrap' },
     el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Spend · ' + year), el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Wages by rep and incentives by month for the year — the month picked is highlighted. QuickBooks lines for that month sit at the bottom.')),
-    el('span', { class: 'ml-auto' }), monthSel);
+    el('span', { class: 'ml-auto' }));
   const authGone = state._authExpired ? el('div', { class: 'card p-4 flex items-center gap-3 flex-wrap', style: { borderColor: 'rgba(220,38,38,.5)' } },
     el('div', { class: 'text-sm' }, el('span', { class: 'font-bold', style: { color: '#B91C1C' } }, 'Your sign-in has expired. '), 'QuickBooks and Windsor data can’t load until you sign in again.'),
     el('button', { class: 'ml-auto rounded-lg px-3 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => location.reload() }, 'Reload & sign in')) : null;
@@ -153,7 +154,7 @@ function mktgSpendView() {
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
       el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Wages · ' + year),
         el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Inside Sales reps, by month, typed in from payroll. ' + (yearTot ? usd0(yearTot) + ' entered for ' + year + ' · ' : '') + 'Each month’s total is the wages line in CAC on Metrics.')),
-      el('span', { class: 'ml-auto text-[11px]', style: muted }, repsOn.length + ' active · ' + repsOff.length + ' inactive'), monthSel),   // the month picker lives here now (per Isaac, Nov 16 — the Spend header card is gone)
+      el('span', { class: 'ml-auto text-[11px]', style: muted }, repsOn.length + ' active · ' + repsOff.length + ' inactive')),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } },
       el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
         el('thead', {}, el('tr', {}, th('Rep', false, { position: 'sticky', left: 0, zIndex: 2 }), ...MON.map(thM), th('Total', true))),
