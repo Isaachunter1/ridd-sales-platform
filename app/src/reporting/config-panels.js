@@ -1591,7 +1591,8 @@ function reportingMarketingPnl() {
   // Needs attention moved to the Auditing task list (per Isaac, Nov 9) — one place for everything to fix in the CRM.
   // Unmapped GoHighLevel sources to-do (per Isaac, Nov 16): pinned under the sub-tab bar on every Marketing view.
   const todo = (() => { try { return typeof ghlUnmappedTodoCard === 'function' ? ghlUnmappedTodoCard() : null; } catch (e) { console.warn('[marketing] unmapped to-do', e); return null; } })();
-  return el('div', { class: 'flex flex-col gap-4' }, _mktgYearBar(sub), todo, body);
+  const todoAds = (() => { try { return typeof adOpenCampaignsTodoCard === 'function' ? adOpenCampaignsTodoCard() : null; } catch (e) { console.warn('[marketing] campaigns to-do', e); return null; } })();
+  return el('div', { class: 'flex flex-col gap-4' }, _mktgYearBar(sub), todo, todoAds, body);
 }
 
 const REPORTING_MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];

@@ -138,6 +138,8 @@ function _spqShares(prov, ym, branches, ctx, acct) {
   // Auto (per Isaac, Nov 16 — the simplest Spend tab): platform spend → uploaded breakout → GoHighLevel leads → even.
   // Nothing waits; a channel's rule can be pinned on the Spend tab's "How each channel splits" line.
   // (Nov 9 had it stop at upload and hold the dollars as "waiting on a report".)
+  // DoLead bills per lead (per Isaac, Nov 10 — $60 each), so its GoHighLevel leads by office ARE the split: leads first.
+  if (/^do ?lead/i.test(prov)) return leads() || upload() || even();
   return (/^(Google Ads|Google Local Services|Facebook)$/.test(prov) ? platform() : null) || upload() || leads() || even();
 }
 // The month, allocated. { lines:[{…line, prov, how}], byProv:{prov:{amt, n, how, cells}}, cells:{prov:{B:$}}, total, open, booked, … }

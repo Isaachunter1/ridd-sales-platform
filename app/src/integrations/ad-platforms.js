@@ -122,6 +122,37 @@ function adOfficesOf(r, branches) {
   return adAutoOffices(r, branches);
 }
 
+// Marketing to-do (per Isaac, Nov 16 — "attribute every dollar properly by office"): Google / Facebook campaigns
+// with platform spend in the last two months that no rule places in an office — not named for one, no account
+// target, and no metro report to split them. Pick the office(s) once; the pick is remembered for every month and
+// the Spend engine's platform split picks it up at once. Nothing open → no card.
+function adOpenCampaignsTodoCard() {
+  if (typeof _mktgAdSpendMonth !== 'function' || typeof _mktgBranchList !== 'function') return null;
+  const now = new Date(), yms = [];
+  for (let i = 0; i < 2; i++) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); yms.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')); }
+  const branches = _mktgBranchList(now.getFullYear()).all;
+  const by = new Map(); let loading = false;
+  for (const ym of yms) { const A = _mktgAdSpendMonth(ym, branches); if (A.loading) loading = true; for (const x of A.open || []) { const c = by.get(x.k) || { k: x.k, r: x.r, prov: x.prov, spend: 0, months: [] }; c.spend += x.spend; c.months.push(ym.slice(5)); by.set(x.k, c); } }
+  const list = [...by.values()].sort((a, b) => b.spend - a.spend);
+  if (!list.length) return null;
+  const admin = isAdminRole(state.profile?.role), muted = { color: 'var(--text-muted)' };
+  const usd = (v) => '$' + Math.round(v || 0).toLocaleString('en-US');
+  const open = state._adTodoOpen !== false, total = list.reduce((t, x) => t + x.spend, 0);
+  const head = el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', onclick: () => { state._adTodoOpen = !open; mountApp(); } },
+    el('span', { class: 'inline-block rounded-full', style: { width: '8px', height: '8px', background: '#D97706' } }),
+    el('span', { class: 'text-[11px] uppercase tracking-widest font-bold' }, 'Ad campaigns with no office'),
+    el('span', { class: 'text-[11px]', style: muted }, list.length + ' campaign' + (list.length === 1 ? '' : 's') + ' · ' + usd(total) + ' of platform spend over the last two months' + (loading ? ' · still loading' : '') + (open ? '' : ' · ' + list.slice(0, 2).map(x => x.r.campaign).join(', ') + (list.length > 2 ? '…' : ''))),
+    el('span', { class: 'ml-auto text-[11px]', style: muted }, open ? '▴' : '▾'));
+  const th = (t, r) => el('th', { class: 'px-3 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (r ? 'text-right' : 'text-left'), style: Object.assign({ background: 'var(--card-2)' }, muted) }, t);
+  const td = (v, st, r) => el('td', { class: 'px-3 py-1 whitespace-nowrap' + (r ? ' text-right tabular-nums' : ''), style: st || {} }, v);
+  return el('div', { class: 'card overflow-hidden', style: { borderColor: 'rgba(217,119,6,.5)' } }, head,
+    open ? el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)', maxHeight: '40vh', overflowY: 'auto' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, th('Vendor'), th('Account'), th('Campaign'), th('Months'), th('Platform spend', true), th('Office'))),
+      el('tbody', {}, ...list.map(x => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, td(x.prov, { fontWeight: '700' }), td((x.r.acctName ? x.r.acctName + ' · ' : '') + x.r.acct, muted), td(x.r.campaign), td(x.months.join(', '), muted), td(usd(x.spend), null, true),
+        el('td', { class: 'px-3 py-1' }, admin && typeof spuBranchPicker === 'function' ? spuBranchPicker(branches, [], (picked) => { setAdCampaignOffice(x.k, picked.length === 1 ? picked[0] : picked); state._spqMemo = {}; state._mkpMemo = null; state._mklMemo = {}; mountApp(); }, { empty: 'Pick office(s)…', save: 'Save · split evenly' }) : '—')))))) : null,
+    open ? el('div', { class: 'px-4 py-2 border-t text-[10px]', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } }, 'Until a campaign has an office its dollars can’t steer that vendor’s QuickBooks split, so the vendor falls back to GoHighLevel leads or an even split. Campaigns named for an office, accounts mapped in Settings → Connections, and Google campaigns with a metro report place themselves. A pick here is remembered for every month.') : null);
+}
+
 // Settings → Connections: map each ad account (× PPC / LSA) to branches.
 function reportingAdAccountsPanel() {
   const y = new Date().getFullYear();
