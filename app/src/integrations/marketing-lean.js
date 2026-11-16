@@ -91,13 +91,15 @@ function mklMonth(ym, cap) {
   }
   // Wages (Spend tab → Wages, per rep per month; per Isaac, Nov 16 — part of CAC), spread to offices by their share
   // of the month's new revenue (mktgWagesMonth); Nov 9's by-office entries still count for months that only have those.
-  let labor = 0, hasLabor = false;
+  let labor = 0, wages = 0, incentives = 0, hasLabor = false;
   const _dim = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0).getDate(), _laborF = cap ? Math.min(1, cap / _dim) : 1;
   try {
-    const m = _mktgStore(); const W = typeof mktgWagesMonth === 'function' ? mktgWagesMonth(ym) : { total: 0, by: {} }, I = (m.incentives || {})[ym] || {};
-    for (const b of new Set([...Object.keys(W.by), ...Object.keys(I)])) { const v = ((Number(W.by[b]) || 0) + (Number(I[b]) || 0)) * _laborF; if (!v) continue; hasLabor = true; labor += v; cell(br, TC(b)).labor = (cell(br, TC(b)).labor || 0) + v; }
+    const W = typeof mktgWagesMonth === 'function' ? mktgWagesMonth(ym) : { total: 0, by: {} };
+    const I = typeof mktgIncentivesMonth === 'function' ? mktgIncentivesMonth(ym) : { total: 0, by: {} };
+    wages = (W.total || 0) * _laborF; incentives = (I.total || 0) * _laborF;
+    for (const b of new Set([...Object.keys(W.by), ...Object.keys(I.by)])) { const v = ((Number(W.by[b]) || 0) + (Number(I.by[b]) || 0)) * _laborF; if (!v) continue; hasLabor = true; labor += v; cell(br, TC(b)).labor = (cell(br, TC(b)).labor || 0) + v; }
   } catch (e) { /* no store yet */ }
-  const v = { ym, cap, A, spend, spendWaiting, spendUnassigned, spendLines, s, svc, cv, sales, leads, br, ch, labor, hasLabor, hasSpend: !!A, hasLeads: !!AL, hasSubs: subs.length > 0 };
+  const v = { ym, cap, A, spend, spendWaiting, spendUnassigned, spendLines, s, svc, cv, sales, leads, br, ch, labor, wages, incentives, hasLabor, hasSpend: !!A, hasLeads: !!AL, hasSubs: subs.length > 0 };
   M[mk] = { sig, subs, al: AL, v };
   return v;
 }
@@ -143,7 +145,9 @@ function _mktgLeanView() {
   // month with its value, and a 12-month sparkline of the metric. Click a tile for its drill where there is one.
   // CAC / cost per job divide by BOOKINGS — initials completed in FieldRoutes (per Isaac, Nov 16), not by sold.
   const cac = (D) => D.hasSpend && D.spend && D.svc ? D.spend / D.svc : null, ret = (D) => D.hasSpend && D.spend ? D.cv / D.spend : null, cpl = (D) => D.hasSpend && D.spend && D.leads ? D.spend / D.leads : null;
-  const fcac = (D) => D.hasLabor && D.svc ? ((D.hasSpend ? D.spend : 0) + D.labor) / D.svc : null, avgC = (D) => D.s ? D.cv / D.s : null, svcOf = (D) => D.hasSubs ? D.svc : null;
+  // CAC (per Isaac, Nov 16): (marketing spend + wages + incentives) ÷ new sales, with whatever of the three is in for the
+  // month — the note says what's still missing rather than the tile going blank.
+  const fcac = (D) => (D.hasSpend || D.hasLabor) && D.svc ? ((D.hasSpend ? D.spend : 0) + D.labor) / D.svc : null, avgC = (D) => D.s ? D.cv / D.s : null, svcOf = (D) => D.hasSubs ? D.svc : null;
   // Close rate = Plaibook's department number for the month (sold ÷ qualified, per Isaac, Nov 11), written hourly by
   // the Cloud Run job to app_settings.close_rates_dept; new sales ÷ GHL leads only until that exists for the month.
   const DEPT = typeof _closeRatesDeptStore === 'function' ? _closeRatesDeptStore() : null;
@@ -218,7 +222,7 @@ function _mktgLeanView() {
     tile({ label: 'Leads', icon: 'leads', get: leadsOf, fmt: _mklNum, upGood: true, color: TEAL, tip: 'GoHighLevel opportunities, one per person per 30 days', note: cur.hasLeads ? '' : 'GoHighLevel not loaded' }),
     tile({ label: 'Return on spend', icon: 'ret', get: ret, fmt: _mklX, upGood: true, color: TEAL, tip: 'New revenue ÷ marketing spend' }),
     tile({ label: 'Marketing CAC', icon: 'cac', get: cac, fmt: _mklUsd, upGood: false, color: INK, tip: 'Marketing spend ÷ new sales (initials completed in FieldRoutes)' }),
-    tile({ label: 'CAC', icon: 'fcac', get: fcac, fmt: _mklUsd, upGood: false, color: INK, tip: '(Marketing spend + wages) ÷ new sales (initials completed in FieldRoutes)', note: cur.hasLabor ? _mklUsd(cur.labor) + ' wages' : 'enter wages on the Spend tab' }),
+    tile({ label: 'CAC', icon: 'fcac', get: fcac, fmt: _mklUsd, upGood: false, color: INK, tip: '(Marketing spend + wages + incentives) ÷ new sales (initials completed in FieldRoutes)', note: [cur.wages ? _mklUsd(cur.wages) + ' wages' : 'no wages for ' + _mklLblS(ym) + ' yet', cur.incentives ? _mklUsd(cur.incentives) + ' incentives' : 'no incentives yet'].join(' · ') + ' → Spend tab', onClick: goSpend }),
     tile({ label: 'Cost per lead', icon: 'cpl', get: cpl, fmt: _mklUsd, upGood: false, color: TEAL, tip: 'Marketing spend ÷ leads' }),
     tile({ label: 'Close rate', icon: 'close', get: close, fmt: _mklPct, upGood: true, color: TEAL, tip: 'Plaibook — the Inside Sales department\u2019s sold ÷ qualified for the month', note: closeNote }));
 
@@ -295,11 +299,11 @@ const MKL_GRID_METRICS = [
   { k: 'leads', label: 'Leads',       fmt: (v) => fmt.int(v),   get: (c) => c.leads,                                           tip: 'GoHighLevel opportunities, one per person per 30 days' },
   { k: 'close', label: 'Close rate',      fmt: (v) => (v * 100).toFixed(1) + '%', get: (c) => c.leads ? c.s / c.leads : null,     tip: 'New sales ÷ new leads' },
   { k: 'spend', label: 'Marketing spend', fmt: (v) => fmt.usd0(v),  get: (c) => c.spend,                                           tip: 'QuickBooks Advertising & Marketing, as allocated on the Spend tab' },
-  { k: 'labor', label: 'Wages',           fmt: (v) => fmt.usd0(v),  get: (c) => c.labor || 0,                                      tip: 'Spend tab → Wages, spread to offices by share of the month’s new revenue' },
-  { k: 'tot',   label: 'Total spend',     fmt: (v) => fmt.usd0(v),  get: (c) => c.spend + (c.labor || 0),                          tip: 'Marketing spend + wages' },
+  { k: 'labor', label: 'Wages & incentives', fmt: (v) => fmt.usd0(v), get: (c) => c.labor || 0,                                    tip: 'Spend tab → Wages + Incentives, spread to offices by share of the month’s new revenue' },
+  { k: 'tot',   label: 'Total spend',     fmt: (v) => fmt.usd0(v),  get: (c) => c.spend + (c.labor || 0),                          tip: 'Marketing spend + wages + incentives' },
   { k: 'cpl',   label: 'Cost per lead',   fmt: (v) => fmt.usd0(v),  get: (c) => c.leads && c.spend ? c.spend / c.leads : null,     tip: 'Marketing spend ÷ leads' },
   { k: 'mcac',  label: 'Marketing CAC',   fmt: (v) => fmt.usd0(v),  get: (c) => c.svc && c.spend ? c.spend / c.svc : null,         tip: 'Marketing spend ÷ new sales (initials completed)' },
-  { k: 'cac',   label: 'CAC',             fmt: (v) => fmt.usd0(v),  get: (c) => c.svc && (c.spend || c.labor) ? (c.spend + (c.labor || 0)) / c.svc : null, tip: '(Marketing spend + wages) ÷ new sales (initials completed)' },
+  { k: 'cac',   label: 'CAC',             fmt: (v) => fmt.usd0(v),  get: (c) => c.svc && (c.spend || c.labor) ? (c.spend + (c.labor || 0)) / c.svc : null, tip: '(Marketing spend + wages + incentives) ÷ new sales (initials completed)' },
   { k: 'cacp',  label: 'CAC %',           fmt: (v) => (v * 100).toFixed(0) + '%', get: (c) => c.cv ? (c.spend + (c.labor || 0)) / c.cv : null, tip: 'Total spend ÷ new revenue' },
   { k: 'ret',   label: 'Return on spend', fmt: (v) => v.toFixed(2) + 'x', get: (c) => c.spend ? c.cv / c.spend : null,             tip: 'New revenue ÷ marketing spend' },
 ];
