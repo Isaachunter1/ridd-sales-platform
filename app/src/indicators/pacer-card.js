@@ -84,8 +84,8 @@ function _pacerStream(s, o) {
   else if (v.kind === 'missed') { gapEl = _pacerSigned(v.gap); gapNote = 'to the ' + _pacerUsd(s.target) + ' goal'; }
   else if (v.kind === 'start') { gapNote = _pacerUsd(s.target) + ' goal for ' + (o.rangeLabel || 'the range').toLowerCase(); }
   else if (v.kind !== 'none') { gapEl = _pacerSigned(v.gap); gapNote = (v.gap >= 0 ? 'over ' : 'to ') + (o.rangeLabel ? o.rangeLabel.toLowerCase() + '’s ' : '') + _pacerUsd(v.expected) + ' pace'; }
-  // The quiet line under the bar: left = where the tick is; right = what it takes from here.
-  const leftTxt = v.kind === 'none' ? (s.hint || '') : v.kind === 'hit' ? (s.left > 0 ? 'Goal hit · anything from here is upside' : 'Goal hit') : v.kind === 'missed' ? 'Range over' : v.kind === 'start' ? '' : Math.round(pct * 100) + '% of goal' + (s.tickLabel ? ' · tick = ' + s.tickLabel : '');
+  // Under the bar: % of goal. What it takes from here (rightTxt) is shown up by the big number.
+  const leftTxt = v.kind === 'none' ? (s.hint || '') : v.kind === 'hit' ? (s.left > 0 ? 'Goal hit · anything from here is upside' : 'Goal hit') : v.kind === 'missed' ? 'Range over' : v.kind === 'start' ? '' : Math.round(pct * 100) + '% of goal';
   let rightTxt = '';
   if (v.kind === 'behind' || v.kind === 'pace' || v.kind === 'ahead' || v.kind === 'start') {
     const toGo = Math.max(0, s.target - s.actual);
@@ -106,8 +106,7 @@ function _pacerStream(s, o) {
         el('span', { class: 'uppercase font-bold', style: { fontSize: '9px', letterSpacing: '.08em', color: 'var(--text-subtle)' } }, 'Year'),
         el('strong', { style: { color: 'var(--text)' } }, phone ? _pacerShort(A.actual) : _pacerUsd(A.actual)),
         el('span', {}, 'of ' + _pacerShort(A.target) + ' · ' + Math.round(ap * 100) + '%'),
-        proj != null ? el('span', { class: 'font-semibold', style: { color: projOk ? PACER_SAGE : '#A9441F' } }, (phone ? '' : '· ') + (projOk ? 'on track for' : 'tracking to') + ' ~' + _pacerShort(proj)) : null),
-      el('div', { class: 'shrink-0', style: { width: phone ? '96px' : '180px' } }, _pacerBar(ap, A.sp > 0 ? A.sp : null, ap >= 1 ? PACER_SAGE : (proj != null ? (projOk ? PACER_SAGE : PACER_ORANGE) : 'var(--text-subtle)'), 5)));
+        proj != null ? el('span', { class: 'font-semibold', style: { color: projOk ? PACER_SAGE : '#A9441F' } }, (phone ? '' : '· ') + (projOk ? 'on track for' : 'tracking to') + ' ~' + _pacerShort(proj)) : null));
   }
   return el('div', { class: 'flex flex-col min-w-0', style: { gap: '10px' } },
     el('div', { class: 'flex items-center justify-between gap-2 min-w-0' },
@@ -116,10 +115,13 @@ function _pacerStream(s, o) {
         el('span', { class: 'font-bold whitespace-nowrap', style: { fontSize: phone ? '13px' : '14px' } }, s.label),
         s.sub ? el('span', { class: 'text-[11px] truncate', style: { color: 'var(--text-muted)' } }, s.sub) : null),
       _pacerChip(v)),
-    el('div', { class: 'flex items-baseline gap-3 flex-wrap min-w-0' },
-      el('span', { class: 'font-black tabular-nums', style: { fontSize: big, lineHeight: '1', letterSpacing: '-.01em' } }, _pacerUsd(s.actual)),
-      gapEl ? el('span', { class: 'font-bold tabular-nums', style: { fontSize: '15px', color: v.color } }, gapEl) : null,
-      gapNote ? el('span', { class: 'text-[12px]', style: { color: 'var(--text-muted)' } }, gapNote) : null),
+    // "$X to go today" / "need $/day" sits up here beside the big number (per Isaac, Nov 16), not under the bar.
+    el('div', { class: 'flex items-end justify-between gap-3 min-w-0' },
+      el('div', { class: 'flex items-baseline gap-3 flex-wrap min-w-0' },
+        el('span', { class: 'font-black tabular-nums', style: { fontSize: big, lineHeight: '1', letterSpacing: '-.01em' } }, _pacerUsd(s.actual)),
+        gapEl ? el('span', { class: 'font-bold tabular-nums', style: { fontSize: '15px', color: v.color } }, gapEl) : null,
+        gapNote ? el('span', { class: 'text-[12px]', style: { color: 'var(--text-muted)' } }, gapNote) : null),
+      rightTxt ? el('span', { class: 'shrink-0 text-[11px] tabular-nums font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)' } }, rightTxt) : null),
     el('div', { class: 'flex flex-col', style: { gap: '5px' }, title: s.tip || '' },
       _pacerBar(pct, s.target > 0 && v.kind !== 'hit' && v.kind !== 'missed' ? s.sp : null, barColor, phone ? 14 : 12, s.target > 0 ? 'Where you should be by now: ' + _pacerUsd(v.expected) : '', s.parts && s.actual > 0 ? (Number(s.parts[0].value) || 0) / s.actual : null),
       // Breakout (Loyalty — per Isaac, Nov 6): the Total bar is renewals + the overflow new sales they take.
@@ -128,9 +130,7 @@ function _pacerStream(s, o) {
           el('span', { style: { width: '8px', height: '8px', background: barColor, opacity: i === 0 ? '1' : '.55', flexShrink: 0 }, 'aria-hidden': 'true' }),
           el('span', {}, pt.label + ' '), el('strong', { style: { color: 'var(--text)' } }, _pacerUsd(pt.value)))),
         el('span', {}, '= ' + s.label.toLowerCase())) : null,
-      el('div', { class: 'flex items-center justify-between gap-3 text-[11px] tabular-nums', style: { color: 'var(--text-muted)' } },
-        el('span', { class: 'truncate', style: v.kind === 'none' ? { color: 'var(--accent)', fontWeight: '600' } : {} }, leftTxt),
-        rightTxt ? el('span', { class: 'shrink-0' }, rightTxt) : null)),
+      leftTxt ? el('div', { class: 'text-[11px] tabular-nums truncate', style: { color: v.kind === 'none' ? 'var(--accent)' : 'var(--text-muted)', fontWeight: v.kind === 'none' ? '600' : undefined } }, leftTxt) : null),
     annual);
 }
 // Side panel (admin dept pacer: offices; team pacer: reps). rows = [{ label, pct, tick, gap, text }]
