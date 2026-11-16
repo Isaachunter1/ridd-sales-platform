@@ -219,6 +219,13 @@
   status = 200
   force = true
 
+# DASHP commission reads (technician + d2d results): GET /api/dashp/<route> with the Supabase JWT.
+[[redirects]]
+  from = "/api/dashp/*"
+  to   = "https://ridd-sales-platform-69617826151.us-west3.run.app/api/dashp/:splat"
+  status = 200
+  force = true
+  
 [[redirects]]
   from = "/api/integrations-admin"
   to   = "/.netlify/functions/integrations-admin"
@@ -238,6 +245,7 @@
   from = "/api/crm-deleted-scan-now"
   to   = "/.netlify/functions/crm-deleted-scan-now"
   status = 200
+  
 
 [[redirects]]
   from = "/*"
