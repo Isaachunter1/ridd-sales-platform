@@ -171,8 +171,29 @@ function _mktgLeanView() {
     svg.innerHTML = '<path d="' + area + '" fill="' + color + '" fill-opacity=".12"/><path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>'
       + '<circle cx="' + X(last[0]).toFixed(1) + '" cy="' + Y(last[1]).toFixed(1) + '" r="2.2" fill="' + color + '" vector-effect="non-scaling-stroke"/>'
       + '<line x1="0" y1="' + (H - 0.5) + '" x2="' + W + '" y2="' + (H - 0.5) + '" stroke="var(--border-2)" stroke-width="1" vector-effect="non-scaling-stroke"/>';
-    svg.setAttribute('title', MONTHS12.map((m, i) => _mklLblS(m) + ' ' + (vals[i] == null ? '—' : vals[i])).join(' · '));
     return svg;
+  };
+  // Hover table for a tile's sparkline (per Isaac, Nov 16): one line per month — value, MoM, YoY — instead of the
+  // raw number dump. YoY needs the month a year earlier, so the series is read over 24 months.
+  const MONTHS24 = []; for (let i = 23; i >= 0; i--) MONTHS24.push(_mklShift(ym, -i));
+  const sparkPop = (o, node) => {
+    const v24 = MONTHS24.map(m => { const v = o.get(mklMonth(m)); return v == null || !isFinite(v) ? null : v; });
+    const pct = (a, b) => a == null || b == null || !b ? null : (a - b) / Math.abs(b);
+    const pctEl = (p) => p == null ? el('span', { style: { color: 'var(--text-subtle)' } }, '—') : el('span', { style: { color: o.upGood == null ? 'inherit' : ((p >= 0) === o.upGood ? '#4ADE80' : '#F87171'), fontWeight: '600' } }, (p >= 0 ? '+' : '') + (p * 100).toFixed(1) + '%');
+    const pop = el('div', { style: { position: 'absolute', left: '8px', right: '8px', bottom: '100%', marginBottom: '6px', zIndex: '30', background: '#323230', color: '#F4F4EE', borderRadius: '10px', padding: '8px 10px', boxShadow: 'var(--shadow-lg)', fontSize: '11px', display: 'none', pointerEvents: 'none' } },
+      el('div', { class: 'font-bold mb-1', style: { fontSize: '10px', letterSpacing: '.06em', textTransform: 'uppercase', color: '#C9C9BE' } }, o.label + ' · last 12 months'),
+      el('table', { style: { width: '100%', borderCollapse: 'collapse', fontVariantNumeric: 'tabular-nums' } },
+        el('thead', {}, el('tr', {}, ...['Month', '', 'MoM', 'YoY'].map((h, i) => el('th', { style: { textAlign: i ? 'right' : 'left', fontWeight: '600', color: '#C9C9BE', padding: '0 0 3px', fontSize: '9px', letterSpacing: '.06em', textTransform: 'uppercase' } }, h)))),
+        el('tbody', {}, ...MONTHS12.map((m, i) => { const j = i + 12; const v = v24[j]; return el('tr', { style: { borderTop: '1px solid rgba(255,255,255,.08)' } },
+          el('td', { style: { padding: '2px 0', color: m === ym ? '#FFFFFF' : '#C9C9BE', fontWeight: m === ym ? '700' : '400' } }, _mklLblS(m) + (m === ym && _cap ? ' · to date' : '')),
+          el('td', { style: { padding: '2px 0', textAlign: 'right', fontWeight: '600' } }, v == null ? '—' : o.fmt(v)),
+          el('td', { style: { padding: '2px 0 2px 10px', textAlign: 'right' } }, pctEl(pct(v, v24[j - 1]))),
+          el('td', { style: { padding: '2px 0 2px 10px', textAlign: 'right' } }, pctEl(pct(v, v24[j - 12])))); }))));
+    node.style.position = 'relative'; node.style.cursor = 'default';
+    node.addEventListener('mouseenter', () => { pop.style.display = 'block'; });
+    node.addEventListener('mouseleave', () => { pop.style.display = 'none'; });
+    node.append(pop);
+    return node;
   };
   const ICON = {
     spend: '<rect x="2" y="6" width="20" height="13" rx="2"/><circle cx="12" cy="12.5" r="3"/><path d="M2 10h2M20 10h2M2 15h2M20 15h2"/>',
@@ -206,7 +227,7 @@ function _mktgLeanView() {
         // * = a cost input isn't in for this month yet (per Isaac, Nov 16), so the number will move when it is.
         o.star ? el('span', { class: 'ml-1', style: { color: '#B45309', fontSize: '18px', verticalAlign: 'top' }, title: o.star }, '*') : null),
       cmpLine,
-      spark(vals, o.color || 'var(--accent)'),
+      sparkPop(o, el('div', {}, spark(vals, o.color || 'var(--accent)'))),
       o.note ? el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-subtle)' }, title: o.note }, o.note) : null);
   };
   const cmpBtn = (k, l) => el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition', style: cmp === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card)', color: 'var(--text)', border: '1px solid var(--border-2)' }, onclick: () => { F.cmp = k; mountApp(); } }, l);
