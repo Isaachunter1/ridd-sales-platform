@@ -339,35 +339,57 @@ function mklYearGrid(ym) {
   const by = state._mklGridBy === 'ch' ? 'ch' : 'br';
   const M = MKL_GRID_METRICS.find(x => x.k === state._mklGridMetric) || MKL_GRID_METRICS[0];
   const months = []; for (let i = 0; i < 12; i++) months.push(mklMonth(year + '-' + String(i + 1).padStart(2, '0')));
+  // Change view (per Isaac, Nov 16): No change · MoM change · YoY change — the same cells as % against the month
+  // before (Jan reads against last December) or the same month a year earlier; YTD compares year to date to the
+  // same stretch of last year.
+  const chg = state._mklGridChg === 'mom' || state._mklGridChg === 'yoy' ? state._mklGridChg : 'none';
+  const prevMonths = chg === 'none' ? null : (() => { const o = []; for (let i = 0; i < 12; i++) o.push(mklMonth((year - 1) + '-' + String(i + 1).padStart(2, '0'))); return o; })();
   const zero = () => ({ spend: 0, leads: 0, s: 0, svc: 0, cv: 0, labor: 0, wages: 0, inc: 0 });
   const add = (t, c) => { t.spend += c.spend || 0; t.leads += c.leads || 0; t.s += c.s || 0; t.svc += c.svc || 0; t.cv += c.cv || 0; t.labor += c.labor || 0; t.wages += c.wages || 0; t.inc += c.inc || 0; return t; };
   const keys = [...new Set(months.flatMap(D => Object.keys(D[by] || {})))].filter(k => !/^(Unspecified|Unmapped GHL source|No branch)$/.test(k));
   const cellOf = (k, i) => (months[i][by] || {})[k] || zero();
+  const pcellOf = (k, i) => prevMonths ? ((prevMonths[i][by] || {})[k] || zero()) : zero();
   const ytdOf = (k) => { const t = zero(); for (let i = 0; i < 12; i++) if (months[i].ym <= ym) add(t, cellOf(k, i)); return t; };
+  const pytdOf = (k) => { const t = zero(); for (let i = 0; i < 12; i++) if (months[i].ym <= ym) add(t, pcellOf(k, i)); return t; };
   keys.sort((a, b) => (ytdOf(b).cv - ytdOf(a).cv) || (ytdOf(b).spend - ytdOf(a).spend));
   const totOf = (i) => keys.reduce((t, k) => add(t, cellOf(k, i)), zero());
+  const ptotOf = (i) => keys.reduce((t, k) => add(t, pcellOf(k, i)), zero());
   const totYtd = () => { const t = zero(); for (let i = 0; i < 12; i++) if (months[i].ym <= ym) add(t, totOf(i)); return t; };
+  const ptotYtd = () => { const t = zero(); for (let i = 0; i < 12; i++) if (months[i].ym <= ym) add(t, ptotOf(i)); return t; };
+  // The cell a change compares against: MoM = the month before (Jan → last Dec), YoY = same month last year.
+  const baseOf = (getCur, getPrev, i) => chg === 'yoy' ? getPrev(i) : i > 0 ? getCur(i - 1) : getPrev(11);
+  const UP_GOOD = { cv: true, s: true, avg: true, leads: true, close: true, spend: null, wages: null, inc: null, tot: null, cpl: false, mcac: false, cac: false, cacp: false, ret: true };
   const muted = { color: 'var(--text-muted)' };
   const th = (t, r, extra) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (r ? 'text-right' : 'text-left'), style: Object.assign({ color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0 }, extra || {}) }, t);
   const show = (c) => { const v = M.get(c); return v == null || !isFinite(v) ? '—' : M.fmt(v); };
-  const td = (c, bold, future) => { const t = show(c); return el('td', { class: 'px-3 py-1.5 text-right tabular-nums whitespace-nowrap', style: Object.assign({ fontFamily: 'ui-monospace, monospace' }, t === '—' || future ? muted : {}, bold ? { fontWeight: '700' } : {}) }, t); };
+  const td = (c, bold, future, base) => {
+    if (chg !== 'none') {
+      const a = M.get(c), b = base ? M.get(base) : null;
+      const p = a == null || b == null || !isFinite(a) || !isFinite(b) || !b || future ? null : (a - b) / Math.abs(b);
+      const good = p == null || UP_GOOD[M.k] == null ? null : (p >= 0) === UP_GOOD[M.k];
+      return el('td', { class: 'px-3 py-1.5 text-right tabular-nums whitespace-nowrap', style: Object.assign({ fontFamily: 'ui-monospace, monospace' }, p == null ? muted : { color: good == null ? 'var(--text)' : good ? '#16A34A' : '#DC2626' }, bold ? { fontWeight: '700' } : {}) }, p == null ? '—' : (p >= 0 ? '+' : '') + (p * 100).toFixed(1) + '%');
+    }
+    const t = show(c); return el('td', { class: 'px-3 py-1.5 text-right tabular-nums whitespace-nowrap', style: Object.assign({ fontFamily: 'ui-monospace, monospace' }, t === '—' || future ? muted : {}, bold ? { fontWeight: '700' } : {}) }, t); };
   const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const sticky = (bg) => ({ position: 'sticky', left: 0, background: bg, zIndex: 1, boxShadow: '1px 0 0 var(--border)' });
   const rowOf = (k) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
     el('td', { class: 'px-3 py-1.5 whitespace-nowrap font-semibold', style: sticky('var(--card)') }, k),
-    ...MON.map((_, i) => td(cellOf(k, i), i === curMi, months[i].ym > ym)), td(ytdOf(k), true));
+    ...MON.map((_, i) => td(cellOf(k, i), i === curMi, months[i].ym > ym, baseOf((j) => cellOf(k, j), (j) => pcellOf(k, j), i))), td(ytdOf(k), true, false, chg === 'yoy' ? pytdOf(k) : null));
   const totRow = el('tr', { style: { borderTop: '2px solid var(--text)', background: 'var(--card-2)' } },
     el('td', { class: 'px-3 py-1.5 whitespace-nowrap font-black', style: sticky('var(--card-2)') }, 'RIDD'),
-    ...MON.map((_, i) => td(totOf(i), true, months[i].ym > ym)), td(totYtd(), true));
+    ...MON.map((_, i) => td(totOf(i), true, months[i].ym > ym, baseOf(totOf, ptotOf, i))), td(totYtd(), true, false, chg === 'yoy' ? ptotYtd() : null));
   const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
   const metricSel = el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: selSt, onchange: (e) => { state._mklGridMetric = e.target.value; mountApp(); } },
     ...MKL_GRID_METRICS.map(x => el('option', { value: x.k, selected: x.k === M.k }, x.label)));
   const byBtn = (v, l) => el('button', { class: 'px-2.5 py-1 text-[11px] font-bold', style: by === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._mklGridBy = v; mountApp(); } }, l);
   const bySel = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } }, byBtn('br', 'By office'), byBtn('ch', 'By channel'));
+  const chgSel = el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: selSt, onchange: (e) => { state._mklGridChg = e.target.value; mountApp(); } },
+    ...[['none', 'No change'], ['mom', 'MoM change'], ['yoy', 'YoY change']].map(([v, l]) => el('option', { value: v, selected: v === chg }, l)));
+  const chgLbl = chg === 'mom' ? ' · MoM change' : chg === 'yoy' ? ' · YoY change' : '';
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
-      el('div', {}, el('h3', { class: 'text-base font-bold', title: M.tip }, M.label + ' · ' + year), el('div', { class: 'text-[11px] mt-0.5', style: muted }, M.tip + '. YTD runs through ' + _mklLblS(ym) + '; ratios in YTD come from the summed dollars.')),
-      el('span', { class: 'ml-auto' }), bySel, metricSel),
+      el('h3', { class: 'text-base font-bold', title: M.tip + '. YTD runs through ' + _mklLblS(ym) + '; ratios in YTD come from the summed dollars.' + (chg === 'mom' ? ' MoM: against the month before (Jan against last December); YTD has no MoM.' : chg === 'yoy' ? ' YoY: against the same month last year; YTD against the same stretch of last year.' : '') }, M.label + ' · ' + year + chgLbl),
+      el('span', { class: 'ml-auto' }), bySel, metricSel, chgSel),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th(by === 'br' ? 'Office' : 'Channel', false, { position: 'sticky', left: 0, zIndex: 2 }), ...MON.map((m, i) => th(m, true, i === curMi ? { color: 'var(--accent)' } : null)), th('YTD', true))),
       el('tbody', {}, ...keys.map(rowOf), totRow))),
