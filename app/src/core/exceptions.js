@@ -150,7 +150,8 @@ function _exceptionFeedItemsRaw(scope) {
     const mk = (tag, label, rows, action) => {
       if (!rows.length) return;
       const recent = rows.filter(r => r.sold_date && r.sold_date >= d30).length;
-      const _drill = (rs) => openReportingDrillModal({ chartTitle: 'CRM fixes \u00b7 ' + tag, sliceLabel: rs.length + ' account' + (rs.length === 1 ? '' : 's') + ' \u00b7 newest first', rows: rs, formatValue: fmt.usd0 });
+      const _idOf = (r) => r.subscription_id != null ? r.subscription_id : r.customer_id;
+      const _drill = (rs) => openReportingDrillModal({ chartTitle: 'CRM fixes \u00b7 ' + tag, sliceLabel: rs.length + ' account' + (rs.length === 1 ? '' : 's') + ' \u00b7 newest first', rows: rs, formatValue: fmt.usd0, review: { key: 'att:' + tag, idOf: _idOf } });
       items.push({ sev: recent ? 'red' : 'amber', tag, count: rows.length, text: label + (recent ? ' \u00b7 ' + recent + ' sold in the last 30 days' : ''), action: 'Review',
         onClick: () => _drill(rows),
         rvIds: rows.map(r => String(r.subscription_id != null ? r.subscription_id : r.customer_id)), rvOpen: (ids) => _drill(rows.filter(r => ids.has(String(r.subscription_id != null ? r.subscription_id : r.customer_id)))) });
@@ -329,7 +330,9 @@ function crmReconciliationChecks(subs) {
     const ghosts = rs.filter(_ghost), real = rs.filter(r => !_ghost(r));
     const desc = (r) => '#' + (r.subscription_id || '?') + ' (sold ' + String(r.sold_date || '').slice(0, 10) + ', initial ' + (r.initial_status || '—') + ')';
     if (ghosts.length && real.length) ghosts.forEach(r => out.dupes.push(flag(r, String(r.subscription || '') + ' ' + desc(r) + ' never got an appointment and sits beside the real ' + real.map(desc).join(', ') + ' — most likely deleted in FieldRoutes but still Active in the data feed. Not on the customer card? Nothing to fix in FieldRoutes; it drops out once the feed catches up.')));
-    else rs.forEach(r => out.dupes.push(flag(r, String(r.subscription || '') + ' is Active ' + rs.length + '\u00d7 on customer ' + r.customer_id + ': ' + rs.map(desc).join(' · ') + ' — cancel or merge the extra one in FieldRoutes')));
+    // One row per ACCOUNT, not per copy (per Isaac, Nov 16 — "technically 2 accounts that need to be fixed even
+    // though it's 4 subscriptions"): the newest copy carries the flag and names every copy.
+    else { const nw = rs.slice().sort(newest)[0]; out.dupes.push(flag(nw, String(nw.subscription || '') + ' is Active ' + rs.length + '\u00d7 on customer ' + nw.customer_id + ': ' + rs.map(desc).join(' · ') + ' — cancel or merge the extra one in FieldRoutes')); }
   }
   for (const k in out) out[k].sort(newest);
   return out;

@@ -774,7 +774,10 @@ function reportingPinBar(key, bar) {
   return spacer;
 }
 
-function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, summary }) {
+// review (optional, per Isaac, Nov 16): { key, idOf } — the Auditing task this list belongs to. Each row gets a
+// "Fixed" box; ticking it checks that account off the task (shared with every admin, review-marks.js). The task's
+// count on the Auditing tab is what's left unticked; the list re-renders when the modal closes.
+function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, summary, review }) {
   if (typeof trackAction === 'function') trackAction('drill', String(chartTitle || '').split(' · ')[0].slice(0, 60), { rows: (rows || []).length });
   const overlay = el('div', { class: 'modal-overlay' });
   let closeMenu = null;   // set while a column filter menu is open
@@ -783,6 +786,11 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) { overlay.remove(); document.removeEventListener('keydown', closeKey); }
   });
+  const rv = review && review.key && typeof rvHasId === 'function' ? review : null;
+  if (rv) { let _touched = false; rv._touch = () => { _touched = true; }; const _obs = new MutationObserver(() => { if (!overlay.isConnected) { _obs.disconnect(); if (_touched && typeof mountApp === 'function') mountApp(); } }); _obs.observe(document.body, { childList: true }); }
+  const rvCell = (r) => { if (!rv) return null; const id = String(rv.idOf(r)); const on = rvHasId(rv.key, id);
+    return el('td', { class: 'px-2 py-2 text-center' }, el('input', { type: 'checkbox', checked: on, title: on ? 'Fixed — untick to bring it back' : 'Fixed in FieldRoutes — check it off', style: { width: '15px', height: '15px', accentColor: 'var(--accent)', cursor: 'pointer' },
+      onchange: (e) => { rvSetId(rv.key, id, e.target.checked); rv._touch(); const tr = e.target.closest('tr'); if (tr) tr.style.opacity = e.target.checked ? '.45' : '1'; } })); };
 
   const hasFlags = rows.some(r => r._flagReason);
   const hasLoc = rows.some(r => r.state || r.zip_code);   // location columns (fixing CRM addresses)
@@ -803,6 +811,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
   // they can never drift out of order. `get` returns a comparable value used
   // for sorting; `type` decides the default sort direction on first click.
   const cols = [
+    ...(rv ? [{ key: 'rv', label: 'Fixed', align: 'left', type: 'num', get: r => rvHasId(rv.key, String(rv.idOf(r))) ? 1 : 0 }] : []),
     { key: 'num',          label: '#',               align: 'right', type: 'num', get: () => 0, noSort: true },   // row number (per Isaac) — follows the current sort
     { key: 'customer',     label: 'Customer',        align: 'left',  type: 'str', get: r => customerName(r).toLowerCase() },
     { key: 'office',       label: 'Office',          align: 'left',  type: 'str', get: r => (r.office_name || '').toLowerCase() },
@@ -883,7 +892,8 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, su
     });
   };
 
-  const rowFor = (r, i) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+  const rowFor = (r, i) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', opacity: rv && rvHasId(rv.key, String(rv.idOf(r))) ? '.45' : '1' } },
+    rvCell(r),
     el('td', { class: 'px-3 py-2 text-right tabular-nums', style: { color: 'var(--text-subtle)' } }, String((i || 0) + 1)),
     el('td', { class: 'px-3 py-2' },
       el('div', { class: 'font-medium' }, customerName(r)),
