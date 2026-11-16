@@ -10974,8 +10974,11 @@ function indicatorYoYTrendChart() {
     for (const b of (aT ? [a, aT] : [a])) {
       if (_repNm) b.repSet.add(_repNm);   // PRA denominator: unique sellers in the bucket
       b.rev += cv;
-      // Revenue splits (per Isaac, Oct 16): Renewal, One-time service, New (everything else) — they add up to Total.
-      if (_indicatorIsRenewal(s)) b.revRenewal += cv; else if (typeof _indIsOneTimeSale === 'function' && _indIsOneTimeSale(s)) b.revOts += cv; else { b.revNew += cv; b.acvRev += cv; b.acvN++; }   // ACV = recurring new only (Oct 28)
+      // Revenue splits: Renewal, and New = every non-renewal sale, one-time services INCLUDED (per Isaac, Nov 16 — the
+      // same New revenue the pacer and the leaderboard count; Oct 16's split had left one-time out). One-time service
+      // is still its own view, a slice inside New. New + Renewal = Total.
+      if (_indicatorIsRenewal(s)) b.revRenewal += cv;
+      else { b.revNew += cv; if (typeof _indIsOneTimeSale === 'function' && _indIsOneTimeSale(s)) b.revOts += cv; else { b.acvRev += cv; b.acvN++; } }   // ACV = recurring new only (Oct 28)
       b.n++;
       const _myb = myBucketOf(s);
       if (_myb === 'multi') b.multi++; else if (_myb === 'twelve') b.twelve++;
