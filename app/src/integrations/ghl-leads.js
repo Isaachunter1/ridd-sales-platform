@@ -255,7 +255,7 @@ function ghlUnmappedTodoCard() {
     ...provs.map(p => el('option', { value: p }, p)),
     el('option', { value: GHL_SELF }, 'Its own channel (' + x.label + ')'),
     el('option', { value: GHL_NOT_LEAD }, 'Not a new lead'));
-  const open = state._ghlTodoOpen !== false;
+  const open = state._ghlTodoOpen === true;   // closed by default (per Isaac, Nov 16)
   const total = list.reduce((t, x) => t + x.recent, 0);
   const head = el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', onclick: () => { state._ghlTodoOpen = !open; mountApp(); } },
     el('span', { class: 'inline-block rounded-full', style: { width: '8px', height: '8px', background: '#DC2626' } }),

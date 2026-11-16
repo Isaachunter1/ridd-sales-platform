@@ -119,7 +119,7 @@ function _mktgLeanView() {
   if (typeof ghlLoadLeads === 'function' && state._ghl === undefined) ghlLoadLeads();
   const F = mklState(); const ym = F.ym;
   // Compare to (per Isaac, Nov 11 — the key-metrics tile look): the previous month, or the same month last year.
-  const cmp = F.cmp === 'year' ? 'year' : 'prev';
+  const cmp = F.cmp === 'year' ? 'year' : F.cmp === 'none' ? 'none' : 'prev';   // No change hides the compare line on the tiles (per Isaac, Nov 16)
   const pm = _mklShift(ym, cmp === 'year' ? -12 : -1);
   if (typeof reportingLoadAdSpend === 'function') { reportingLoadAdSpend(Number(ym.slice(0, 4))); if (pm.slice(0, 4) !== ym.slice(0, 4)) reportingLoadAdSpend(Number(pm.slice(0, 4))); const y0 = Number(_mklShift(ym, -11).slice(0, 4)); if (y0 !== Number(ym.slice(0, 4)) && y0 !== Number(pm.slice(0, 4))) reportingLoadAdSpend(y0); }   // the 12-month sparklines
   // Month to date (per Isaac, Nov 16): while the open month is showing, the compare month is cut at today's day of
@@ -229,11 +229,12 @@ function _mktgLeanView() {
       el('div', { class: 'leading-none font-black tabular-nums', style: { fontFamily: 'ui-monospace, monospace', fontSize: '28px' } }, a == null || !isFinite(a) ? '—' : o.fmt(a),
         // * = a cost input isn't in for this month yet (per Isaac, Nov 16), so the number will move when it is.
         o.star ? el('span', { class: 'ml-1', style: { color: '#B45309', fontSize: '18px', verticalAlign: 'top' }, title: o.star }, '*') : null),
-      cmpLine,
+      cmp === 'none' ? null : cmpLine,
       sparkPop(o, el('div', {}, spark(vals, o.color || 'var(--accent)'))),
       o.note ? el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-subtle)' }, title: o.note }, o.note) : null);
   };
-  const cmpBtn = (k, l) => el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition', style: cmp === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card)', color: 'var(--text)', border: '1px solid var(--border-2)' }, onclick: () => { F.cmp = k; mountApp(); } }, l);
+  const cmpSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: selSt, onchange: (e) => { F.cmp = e.target.value; mountApp(); } },
+    ...[['none', 'No change'], ['prev', 'MoM change'], ['year', 'YoY change']].map(([v, l]) => el('option', { value: v, selected: v === cmp }, l)));
   const cmpBar = el('div', { class: 'flex items-center gap-2 flex-wrap' },
     el('span', { class: 'uppercase tracking-widest text-[10px] font-bold', style: muted }, 'Key metrics'),
     el('span', { class: 'text-[11px] ml-2', style: muted }, 'Compare to:'), cmpBtn('prev', 'Previous month'), cmpBtn('year', 'Last year'),
@@ -252,7 +253,7 @@ function _mktgLeanView() {
     ['leads', tile({ label: 'Leads', icon: 'leads', get: leadsOf, fmt: _mklNum, upGood: true, color: TEAL, tip: 'GoHighLevel opportunities, one per person per 30 days', note: cur.hasLeads ? '' : 'GoHighLevel not loaded', onClick: drill('leads') })],
     ['ret', tile({ label: 'ROAS', icon: 'ret', get: ret, fmt: _mklX, upGood: true, color: TEAL, tip: 'New revenue ÷ marketing spend', onClick: drill('ret') })],
     ['mcac', tile({ label: 'Marketing CAC', icon: 'cac', get: cac, fmt: _mklUsd, upGood: false, color: INK, tip: 'Marketing spend ÷ new sales (initial pending or serviced)', onClick: drill('mcac') })],
-    ['cac', tile({ label: 'CAC', icon: 'fcac', get: fcac, fmt: _mklUsd, upGood: false, color: INK, tip: '(Marketing spend + wages + incentives) ÷ new sales (initial pending or serviced)',
+    ['cac', tile({ label: 'Cost per job', icon: 'fcac', get: fcac, fmt: _mklUsd, upGood: false, color: INK, tip: '(Marketing spend + wages + incentives) ÷ new sales (initial pending or serviced)',
       star: !cur.wages && !cur.incentives ? '* wages and incentives not entered for ' + _mklLblS(ym) + ' yet — marketing spend only' : !cur.wages ? '* wages not entered for ' + _mklLblS(ym) + ' yet' : !cur.incentives ? '* incentives not entered for ' + _mklLblS(ym) + ' yet' : '',
       note: (!cur.wages && !cur.incentives ? '* wages & incentives not in yet' : !cur.wages ? '* wages not in yet' : !cur.incentives ? '* incentives not in yet' : _mklUsd(cur.wages) + ' wages · ' + _mklUsd(cur.incentives) + ' incentives'), onClick: drill('cac') })],
     ['cpl', tile({ label: 'CPL', icon: 'cpl', get: cpl, fmt: _mklUsd, upGood: false, color: TEAL, tip: 'Marketing spend ÷ leads', onClick: drill('cpl') })],
@@ -316,7 +317,10 @@ function _mktgLeanView() {
     (k, c) => c.waiting > 0 ? 'waiting on its report — not in branches yet' : k === 'Unmapped GHL source' ? 'map these in Configurations → GoHighLevel sources' : k === 'Unspecified' ? 'no source on the account — fix in FieldRoutes' : (c.s && !c.leads) ? 'sales but no leads — no GoHighLevel label maps here (Configurations → sources)' : (c.leads && !c.s && !c.spend) ? 'leads but no sales — no FieldRoutes source maps here' : null);
 
   // ── Chart: spend vs new revenue, last 12 months. ──
-  const S = mklSeries(ym), idC = 'mklTrend';
+  // The chart follows the grid's year (per Isaac, Nov 16): Jan–Dec of the year shown; months after the picked one are
+  // left empty rather than drawn as $0.
+  const _gy = Number(ym.slice(0, 4));
+  const S = (() => { const out = []; for (let i = 0; i < 12; i++) { const m = _gy + '-' + String(i + 1).padStart(2, '0'); if (m > ym) { out.push({ ym: m, spend: null, cv: null, s: 0 }); continue; } const D = mklMonth(m); out.push({ ym: m, spend: D.hasSpend ? D.spend : null, cv: D.hasSubs ? D.cv : null, s: D.s }); } return out; })(), idC = 'mklTrend';
   setTimeout(() => {
     if (typeof Chart === 'undefined') return; const c = document.getElementById(idC); if (!c) return;
     const reg = typeof _chartInstances !== 'undefined' ? _chartInstances : (window._mklCharts = window._mklCharts || {});
@@ -330,17 +334,22 @@ function _mktgLeanView() {
         scales: { x: { grid: { display: false }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0 } }, y: { beginAtZero: true, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => fmt.usd0(v) } } } } });
   }, 40);
   const chart = el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'px-5 py-3' }, el('h3', { class: 'text-base font-bold' }, 'Spend vs new revenue · last 12 months'), el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Bars are QuickBooks marketing spend by charge month; the line is Office Staff new-sale contract value by sale month. A month with no QuickBooks lines shows no bar, not $0.')),
-    el('div', { class: 'p-3', style: { height: '240px' } }, el('canvas', { id: idC })));
+    el('div', { class: 'px-5 py-3' }, el('h3', { class: 'text-base font-bold', title: 'Bars are QuickBooks marketing spend by charge month; the line is Office Staff new-sale contract value by sale month. A month with no QuickBooks lines shows no bar, not $0.' }, 'Spend vs new revenue · ' + _gy)),
+    el('div', { class: 'p-3', style: { height: '190px' } }, el('canvas', { id: idC })));
 
+  // One header (per Isaac, Nov 16): title + compare note on the left; Previous month / Last year beside the month
+  // picker on the right. The Sources line and the Key metrics bar are folded in here.
+  const ownerHint = (typeof isOwnerUser === 'function' && isOwnerUser()) ? el('span', { class: 'text-[11px]', style: muted }, 'Drag tiles to reorder', Array.isArray(_mktgStore().tileOrder) && _mktgStore().tileOrder.length ? el('button', { class: 'ml-2 font-semibold underline', style: { color: 'var(--accent)' }, onclick: () => { delete _mktgStore().tileOrder; _mktgSave(); mountApp(); } }, 'Reset') : null) : null;
+  const srcTip = 'Sources · QuickBooks marketing' + (P && P.pulledAt ? ' ' + _mklAgo(P.pulledAt) : cur.hasSpend ? '' : ' (no lines for ' + _mklLblS(ym) + ')') + ' · FieldRoutes new sales' + (state.reportingSubscriptions ? '' : ' (loading)') + ' · GoHighLevel leads' + (G && G.at ? ' ' + _mklAgo(G.at) : ' (loading)');
   const headBar = el('div', { class: 'card px-5 py-3 flex items-center gap-3 flex-wrap' },
-    el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Marketing · ' + _mklLbl(ym)), el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Spend from QuickBooks, new revenue from FieldRoutes, leads from GoHighLevel — compared with ' + _mklLblS(pm) + '.')),
-    el('span', { class: 'ml-auto' }), monthSel);
+    el('div', { title: srcTip }, el('h3', { class: 'text-base font-bold' }, 'Marketing · ' + _mklLbl(ym)), el('div', { class: 'text-[11px] mt-0.5', style: muted }, _mklLbl(ym) + (_cap ? ' to date' : '') + (cmp === 'none' ? '' : ' vs ' + _mklLbl(pm) + (_cap ? ' 1\u2013' + _cap : '')) + ' · QuickBooks spend, FieldRoutes new sales, GoHighLevel leads' + (!cur.hasSpend || !(G && G.opps) ? ' · ' + [!cur.hasSpend ? 'no QuickBooks lines for ' + _mklLblS(ym) : '', !(G && G.opps) ? 'GoHighLevel loading' : ''].filter(Boolean).join(', ') : ''))),
+    el('span', { class: 'ml-auto' }), ownerHint, cmpSel, monthSel);
   // ── The one grid (per Isaac, Nov 16): rows = offices (or channels), Jan–Dec + YTD, one metric at a time — the
   // old Marketing P&L table with every metric in its dropdown. Replaces the two single-month tables and the P&L tab.
   const grid = mklYearGrid(ym);
   void brTable; void chTable;
-  return el('div', { class: 'flex flex-col gap-4' }, headBar, fresh, cmpBar, tiles, grid, chart);
+  void fresh; void cmpBar;
+  return el('div', { class: 'flex flex-col gap-4' }, headBar, chart, tiles, grid);   // chart above the tiles (per Isaac, Nov 16)
 }
 // The month's new sales behind the New revenue tile (same rows the table counts).
 function mklOpenSales(D, title) {
@@ -364,7 +373,7 @@ const MKL_GRID_METRICS = [
   { k: 'tot',   label: 'Total spend',     fmt: (v) => fmt.usd0(v),  get: (c) => c.spend + (c.labor || 0),                          tip: 'Marketing spend + wages + incentives' },
   { k: 'cpl',   label: 'CPL',             fmt: (v) => fmt.usd0(v),  get: (c) => c.leads && c.spend ? c.spend / c.leads : null,     tip: 'Marketing spend ÷ leads' },
   { k: 'mcac',  label: 'Marketing CAC',   fmt: (v) => fmt.usd0(v),  get: (c) => c.svc && c.spend ? c.spend / c.svc : null,         tip: 'Marketing spend ÷ new sales (initial pending or serviced)' },
-  { k: 'cac',   label: 'CAC',             fmt: (v) => fmt.usd0(v),  get: (c) => c.svc && (c.spend || c.labor) ? (c.spend + (c.labor || 0)) / c.svc : null, tip: '(Marketing spend + wages + incentives) ÷ new sales (initial pending or serviced)' },
+  { k: 'cac',   label: 'Cost per job',    fmt: (v) => fmt.usd0(v),  get: (c) => c.svc && (c.spend || c.labor) ? (c.spend + (c.labor || 0)) / c.svc : null, tip: '(Marketing spend + wages + incentives) ÷ new sales (initial pending or serviced)' },
   { k: 'cacp',  label: 'CAC %',           fmt: (v) => (v * 100).toFixed(0) + '%', get: (c) => c.cv ? (c.spend + (c.labor || 0)) / c.cv : null, tip: 'Total spend ÷ new revenue' },
   { k: 'ret',   label: 'ROAS',            fmt: (v) => v.toFixed(2) + 'x', get: (c) => c.spend ? c.cv / c.spend : null,             tip: 'New revenue ÷ marketing spend' },
   { k: 'rpl',   label: 'Revenue per lead', fmt: (v) => fmt.usd0(v),  get: (c) => c.leads ? c.cv / c.leads : null,                 tip: 'New revenue ÷ leads — what a lead is worth before any cost' },
