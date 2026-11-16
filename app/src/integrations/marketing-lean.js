@@ -240,19 +240,26 @@ function _mktgLeanView() {
     el('span', { class: 'text-[11px]', style: muted }, _mklLbl(ym) + (_cap ? ' to date' : '') + ' vs ' + _mklLbl(pm) + (_cap ? ' 1\u2013' + _cap + ' (month to date)' : '') + ' · sparkline = last 12 months'));
   const TEAL = '#2F7F86', EMBER = '#DF643A', INK = 'var(--text)';
   // Two rows of five, full width (per Isaac, Nov 11): what came in, then what it cost.
+  // Every grid metric is a tile (per Isaac, Nov 16); click a tile for its drill-down — by office and by channel for
+  // the month, each row opening the full cell pop-up. The CAC star / notes stay.
+  const drill = (k) => () => mklMetricPop(k, cur, ym, _cap);
   const tiles = el('div', { class: 'grid gap-3 mkl-tiles' },
-    tile({ label: 'Marketing spend', icon: 'spend', get: spendOf, fmt: _mklUsd, upGood: null, color: INK, tip: 'QuickBooks marketing charges, allocated on the Spend tab', note: spendNote, onClick: goSpend }),
-    tile({ label: 'New revenue', icon: 'revenue', get: cvOf, fmt: _mklUsd, upGood: true, color: EMBER, tip: 'FieldRoutes: Office Staff new sales sold this month with the initial pending or serviced (the leaderboard rule); renewals and upsells out — contract value at sale', note: cur.s + ' new sale' + (cur.s === 1 ? '' : 's') + ' · Office Staff', onClick: () => mklOpenSales(cur, 'New sales · ' + _mklLbl(ym)) }),
-    tile({ label: 'New sales', icon: 'sales', get: salesOf, fmt: _mklNum, upGood: true, color: EMBER, tip: 'New sales with the initial pending or serviced in FieldRoutes — a bare card with no appointment is not a sale', onClick: () => mklOpenSales(cur, 'New sales · ' + _mklLbl(ym)) }),
-    tile({ label: 'ACV', icon: 'avg', get: avgC, fmt: _mklUsd, upGood: true, color: EMBER, tip: 'New revenue ÷ new sales — contract value at sale, no add-ons or upsells' }),
-    tile({ label: 'Leads', icon: 'leads', get: leadsOf, fmt: _mklNum, upGood: true, color: TEAL, tip: 'GoHighLevel opportunities, one per person per 30 days', note: cur.hasLeads ? '' : 'GoHighLevel not loaded' }),
-    tile({ label: 'ROAS', icon: 'ret', get: ret, fmt: _mklX, upGood: true, color: TEAL, tip: 'New revenue ÷ marketing spend' }),
-    tile({ label: 'Marketing CAC', icon: 'cac', get: cac, fmt: _mklUsd, upGood: false, color: INK, tip: 'Marketing spend ÷ new sales (initial pending or serviced)' }),
+    tile({ label: 'Marketing spend', icon: 'spend', get: spendOf, fmt: _mklUsd, upGood: null, color: INK, tip: 'QuickBooks marketing charges, allocated on the Spend tab', note: spendNote, onClick: drill('spend') }),
+    tile({ label: 'New revenue', icon: 'revenue', get: cvOf, fmt: _mklUsd, upGood: true, color: EMBER, tip: 'FieldRoutes: Office Staff new sales sold this month with the initial pending or serviced (the leaderboard rule); renewals and upsells out — contract value at sale', note: cur.s + ' new sale' + (cur.s === 1 ? '' : 's') + ' · Office Staff', onClick: drill('cv') }),
+    tile({ label: 'New sales', icon: 'sales', get: salesOf, fmt: _mklNum, upGood: true, color: EMBER, tip: 'New sales with the initial pending or serviced in FieldRoutes — a bare card with no appointment is not a sale', onClick: drill('s') }),
+    tile({ label: 'ACV', icon: 'avg', get: avgC, fmt: _mklUsd, upGood: true, color: EMBER, tip: 'New revenue ÷ new sales — contract value at sale, no add-ons or upsells', onClick: drill('avg') }),
+    tile({ label: 'Leads', icon: 'leads', get: leadsOf, fmt: _mklNum, upGood: true, color: TEAL, tip: 'GoHighLevel opportunities, one per person per 30 days', note: cur.hasLeads ? '' : 'GoHighLevel not loaded', onClick: drill('leads') }),
+    tile({ label: 'ROAS', icon: 'ret', get: ret, fmt: _mklX, upGood: true, color: TEAL, tip: 'New revenue ÷ marketing spend', onClick: drill('ret') }),
+    tile({ label: 'Marketing CAC', icon: 'cac', get: cac, fmt: _mklUsd, upGood: false, color: INK, tip: 'Marketing spend ÷ new sales (initial pending or serviced)', onClick: drill('mcac') }),
     tile({ label: 'CAC', icon: 'fcac', get: fcac, fmt: _mklUsd, upGood: false, color: INK, tip: '(Marketing spend + wages + incentives) ÷ new sales (initial pending or serviced)',
       star: !cur.wages && !cur.incentives ? '* wages and incentives not entered for ' + _mklLblS(ym) + ' yet — marketing spend only' : !cur.wages ? '* wages not entered for ' + _mklLblS(ym) + ' yet' : !cur.incentives ? '* incentives not entered for ' + _mklLblS(ym) + ' yet' : '',
-      note: (!cur.wages && !cur.incentives ? '* wages & incentives not in yet' : !cur.wages ? '* wages not in yet' : !cur.incentives ? '* incentives not in yet' : _mklUsd(cur.wages) + ' wages · ' + _mklUsd(cur.incentives) + ' incentives') + ' → Spend tab', onClick: goSpend }),
-    tile({ label: 'CPL', icon: 'cpl', get: cpl, fmt: _mklUsd, upGood: false, color: TEAL, tip: 'Marketing spend ÷ leads' }),
-    tile({ label: 'Close rate', icon: 'close', get: close, fmt: _mklPct, upGood: true, color: TEAL, tip: 'Plaibook — the Inside Sales department\u2019s sold ÷ qualified for the month', note: closeNote }));
+      note: (!cur.wages && !cur.incentives ? '* wages & incentives not in yet' : !cur.wages ? '* wages not in yet' : !cur.incentives ? '* incentives not in yet' : _mklUsd(cur.wages) + ' wages · ' + _mklUsd(cur.incentives) + ' incentives'), onClick: drill('cac') }),
+    tile({ label: 'CPL', icon: 'cpl', get: cpl, fmt: _mklUsd, upGood: false, color: TEAL, tip: 'Marketing spend ÷ leads', onClick: drill('cpl') }),
+    tile({ label: 'Close rate', icon: 'close', get: close, fmt: _mklPct, upGood: true, color: TEAL, tip: 'Plaibook — the Inside Sales department\u2019s sold ÷ qualified for the month', note: closeNote, onClick: drill('close') }),
+    tile({ label: 'Wages', icon: 'fcac', get: (D) => D.hasLabor || D.wages ? D.wages : null, fmt: _mklUsd, upGood: null, color: INK, tip: 'Spend tab → Wages (Inside Sales), spread to offices by share of the month’s new revenue', note: cur.wages ? '' : 'enter on the Spend tab', onClick: drill('wages') }),
+    tile({ label: 'Incentives', icon: 'avg', get: (D) => D.hasLabor || D.incentives ? D.incentives : null, fmt: _mklUsd, upGood: null, color: INK, tip: 'Spend tab → Incentives, spread to offices by share of the month’s new revenue', note: cur.incentives ? '' : 'enter on the Spend tab', onClick: drill('inc') }),
+    tile({ label: 'Total spend', icon: 'spend', get: (D) => D.hasSpend || D.hasLabor ? (D.hasSpend ? D.spend : 0) + D.labor : null, fmt: _mklUsd, upGood: null, color: INK, tip: 'Marketing spend + wages + incentives', onClick: drill('tot') }),
+    tile({ label: 'CAC %', icon: 'cac', get: (D) => D.cv && (D.hasSpend || D.hasLabor) ? ((D.hasSpend ? D.spend : 0) + D.labor) / D.cv : null, fmt: _mklPct, upGood: false, color: INK, tip: 'Total spend ÷ new revenue', onClick: drill('cacp') }));
 
   // ── Tables: by branch, by channel — the same seven columns. ──
   const th = (t, r, extra) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold ' + (r ? 'text-right' : 'text-left'), style: Object.assign({ color: 'var(--text-muted)', background: 'var(--card-2)', whiteSpace: 'nowrap' }, extra || {}) }, t);
@@ -444,5 +451,42 @@ function mklCellPop(p) {
     el('div', { class: 'px-5 py-3' }, metricsEl),
     el('div', { class: 'px-5 pt-2 pb-1 text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, otherLbl + (p.ym ? '' : ' · YTD')),
     el('div', { class: 'scroll-x px-2 pb-3' }, brk));
+  overlay.append(card); document.body.append(overlay);
+}
+
+// A tile's drill-down (per Isaac, Nov 16): the metric for the month by office and by channel side by side; each row
+// opens the cell pop-up (every metric + the other breakdown). Sales rows are one click further from there.
+function mklMetricPop(k, D, ym, cap) {
+  const M = MKL_GRID_METRICS.find(x => x.k === k) || MKL_GRID_METRICS[0];
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
+  const key = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', key);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  const muted = { color: 'var(--text-muted)' };
+  const when = _mklLbl(ym) + (cap ? ' to date' : '');
+  const val = (c) => { const v = M.get(c); return v == null || !isFinite(v) ? '—' : M.fmt(v); };
+  const th = (t, r) => el('th', { class: 'px-3 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (r ? 'text-right' : 'text-left'), style: Object.assign({ background: 'var(--card-2)' }, muted) }, t);
+  const td = (t, r, st) => el('td', { class: 'px-3 py-1 whitespace-nowrap' + (r ? ' text-right tabular-nums' : ''), style: Object.assign({ fontFamily: r ? 'ui-monospace, monospace' : 'inherit' }, st || {}) }, t);
+  const tableOf = (by, o, label) => {
+    const keys = Object.keys(o || {}).filter(x => !/^(Unspecified|Unmapped GHL source|No branch)$/.test(x) && (o[x].spend || o[x].leads || o[x].s || o[x].labor)).sort((a, b) => { const va = M.get(o[a]), vb = M.get(o[b]); return (vb == null ? -Infinity : vb) - (va == null ? -Infinity : va); });
+    const tot = keys.reduce((t, x) => { const c = o[x]; t.spend += c.spend || 0; t.leads += c.leads || 0; t.s += c.s || 0; t.cv += c.cv || 0; t.labor += c.labor || 0; t.wages += c.wages || 0; t.inc += c.inc || 0; return t; }, { spend: 0, leads: 0, s: 0, cv: 0, labor: 0, wages: 0, inc: 0 });
+    const row = (x, c, total) => el('tr', { class: 'border-t' + (total ? '' : ' cursor-pointer hover:brightness-95'), style: Object.assign({ borderColor: 'var(--border)' }, total ? { background: 'var(--card-2)', borderTop: '2px solid var(--text)', fontWeight: '800' } : {}), title: total ? '' : 'Click for every metric for ' + x,
+        onclick: total ? null : () => mklCellPop({ by, key: x, ym, cell: c, D }) },
+      td(x, false, { fontWeight: total ? '800' : '700' }), td(val(c), true, { fontWeight: '700' }), td(c.spend ? fmt.usd0(c.spend) : '—', true), td(c.leads ? fmt.int(c.leads) : '—', true), td(c.s ? fmt.int(c.s) : '—', true), td(c.cv ? fmt.usd0(c.cv) : '—', true));
+    return el('div', { class: 'min-w-0' },
+      el('div', { class: 'px-1 pb-1 text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, label),
+      keys.length ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+        el('thead', {}, el('tr', {}, th(label.replace('By ', '')), th(M.label, true), th('Spend', true), th('Leads', true), th('Sales', true), th('Revenue', true))),
+        el('tbody', {}, ...keys.map(x => row(x, o[x], false)), row('RIDD', tot, true)))) : el('div', { class: 'text-[11px] py-2 px-1', style: muted }, 'Nothing for ' + when + '.'));
+  };
+  const big = (() => { const c = { spend: D.hasSpend ? D.spend : 0, leads: D.leads || 0, s: D.s, svc: D.svc, cv: D.cv, labor: D.labor, wages: D.wages, inc: D.incentives }; return val(c); })();
+  const card = el('div', { class: 'card', style: { width: 'min(1100px, calc(100vw - 32px))', maxHeight: '86vh', overflow: 'auto', margin: '6vh auto 0' }, onclick: (e) => e.stopPropagation() },
+    el('div', { class: 'px-5 py-3 border-b flex items-start gap-3', style: { borderColor: 'var(--border)' } },
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, M.label + ' · ' + when), el('div', { class: 'text-[11px] mt-0.5', style: muted }, M.tip)),
+      el('div', { class: 'ml-auto text-2xl font-black tabular-nums', style: { fontFamily: 'ui-monospace, monospace' } }, big),
+      el('button', { class: 'text-2xl leading-none', style: muted, 'aria-label': 'Close', onclick: close }, '×')),
+    el('div', { class: 'p-4 grid gap-4', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))' } }, tableOf('br', D.br, 'By office'), tableOf('ch', D.ch, 'By channel')),
+    /^(spend|wages|inc|tot)$/.test(k) ? el('div', { class: 'px-5 pb-3 text-[11px]' }, el('button', { class: 'font-semibold underline', style: { color: 'var(--accent)' }, onclick: () => { close(); state._mktSub = 'spend'; state._mktCtrlMonth = ym; mountApp(); } }, 'Open the Spend tab →')) : null);
   overlay.append(card); document.body.append(overlay);
 }
