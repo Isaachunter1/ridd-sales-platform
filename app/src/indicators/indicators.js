@@ -1750,7 +1750,16 @@ function viewIndicators() {
                 const hl = (node, on) => { if (node && on) { node.style.borderColor = 'var(--accent)'; node.style.boxShadow = '0 0 0 2px rgba(223,100,58,.25)'; } return node; };
                 return [
                   _fRow('Presets', indPresetRibbon({ inline: true })),
-                  // (Rep type moved OUT of Filters onto the bar beside Me / All — per Isaac, Oct 28.)
+                  // Rep type + ★ default (per Isaac, Nov 16): back inside Filters, right above Audit — the same joined
+                  // picker-and-star control the other tabs show on their bar. It switches at once (whole section), no Apply.
+                  (() => {
+                    if (typeof repWorldPicker !== 'function' || !_fWorld) return null;
+                    const wp = repWorldPicker(_staged.world, 'flex items-stretch w-full');
+                    if (!wp) return null;
+                    const box = wp.firstElementChild; if (box) { box.style.width = '100%'; }
+                    const s2 = wp.querySelector('select'); if (s2) { s2.style.flex = '1 1 auto'; s2.style.minWidth = '0'; }
+                    return _fRow('Rep type', wp);
+                  })(),
                   _metricLocked ? null : _fRow('Audit', auditBtn),   // right under Saved views (per Isaac, Oct 16)
                   _metricLocked ? null : _fRow('Revenue metric', hl(metricSel, (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced')),
                   // Type is the Office Staff / D2D / Technicians switch on the Sales dashboards — only the stand-alone page still picks it here.
@@ -1842,8 +1851,9 @@ function viewIndicators() {
         // when the Date preset is Custom (see the dedicated row after the
         // toolbar div).
           // (🏆 Manage Teams button removed from the dashboard per Isaac, Oct 28 — it lives in ⚙ Settings → Teams.)
-          // Rep type picker + ★ at the far right (per Isaac, Oct 28) — same control and spot as the Sales / Pay tabs.
-          (typeof repWorldPicker === 'function' && IND_WORLD[state.view]) ? repWorldPicker(({ office: 'inside', d2d: 'd2d', techs: 'techs', all: 'all' })[IND_WORLD[state.view]]) : null,
+          // (Rep type picker + ★ moved off the bar into Filters, above Audit — per Isaac, Nov 16. On phones the
+          // Dashboard dropdown now takes the whole first row; see nav-mount's _placeBar.)
+          null,
         // Manual-data mode (admin, THIS browser only): upload the CRM's
         // SalesReport CSV and pin the whole Indicators tab to it — a
         // side-by-side truth check against the sync. Amber pill = active.

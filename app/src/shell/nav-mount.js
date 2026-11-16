@@ -161,8 +161,8 @@ function salesModeToggle(mode) {
   const role = state.profile?.role;
   const opts = repWorldOptions(role);
   if (!opts.length) return null;
-  // On a dashboard the same picker rides in the dashboard's own control row (indicators: repWorldPicker), first in
-  // line before Me / All, Today and Filters — so it isn't drawn twice here.
+  // On a dashboard the same picker sits inside the dashboard's Filters panel (indicators: Rep type row, per Isaac
+  // Nov 16) — so it isn't drawn twice here.
   if (typeof IND_WORLD !== 'undefined' && IND_WORLD[state.view]) return null;
   return repWorldPicker(mode, 'sales-mode-toggle flex items-stretch gap-1.5 ml-auto shrink-0 py-1.5');
 }
@@ -1597,7 +1597,8 @@ function _mountAppRender() {
       let _phone = false; try { _phone = window.matchMedia('(max-width: 640px)').matches; } catch (e) { /* desktop */ }
       if (_phone) {
         const sel = bar.querySelector('.sales-tab-select');
-        // Rep type picker shares the tab row on phones (per Isaac, Oct 28) — the control row below stays one line.
+        // Rep type picker used to share the tab row on phones (Oct 28); it lives in Filters since Nov 16, so the
+        // Dashboard dropdown stretches across the whole row (per Isaac). The `wp` branch stays for any tab that still draws it.
         const wp = ctl.querySelector('[data-world-pick]');
         if (sel && wp) { sel.style.flex = '1 1 0'; wp.style.flex = '1 1 0'; wp.style.minWidth = '0'; const s2 = wp.querySelector('select'); if (s2) { s2.style.flex = '1 1 auto'; s2.style.minWidth = '0'; } sel.after(wp); }
         else if (sel) sel.style.flex = '1 1 100%';
