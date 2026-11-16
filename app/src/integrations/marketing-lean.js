@@ -1,7 +1,7 @@
 // ┌─ src/integrations/marketing-lean.js ───────────────────────────────────
 // │ Marketing → Metrics, cut down to what decides budget (per Isaac, Nov 9 —
 // │ "QuickBooks and FieldRoutes new revenue are the most true numbers… GHL is
-// │ also a good one… information overload"). One closed month at a time:
+// │ also a good one… information overload"). One month at a time (opens on the current month):
 // │   Spend        = QuickBooks Advertising & Marketing, allocated on the Spend
 // │                  tab (spqAllocMonth) — the same dollars the controller books.
 // │   New revenue  = FieldRoutes Office Staff new sales (initial booked or
@@ -18,11 +18,11 @@ const _mklYm = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(
 const _mklShift = (ym, n) => { const d = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1 + n, 1); return _mklYm(d); };
 const _mklLbl = (ym) => new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 const _mklLblS = (ym) => new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-// Default month = the last CLOSED month (per Isaac, Nov 9: QuickBooks is only complete once the month closes).
+// Default month = the CURRENT month (per Isaac, Nov 16: GHL, QuickBooks and new revenue all land close to real time
+// now). Replaces Nov 9's last-closed-month default.
 function mklState() {
   const F = state._mkl || (state._mkl = {});
-  const now = new Date(), lastClosed = _mklYm(new Date(now.getFullYear(), now.getMonth() - 1, 1));
-  if (!/^\d{4}-\d{2}$/.test(F.ym || '')) F.ym = lastClosed;
+  if (!/^\d{4}-\d{2}$/.test(F.ym || '')) F.ym = _mklYm(new Date());
   return F;
 }
 const _mklUsd = (v) => v == null || !isFinite(v) ? '—' : fmt.usd0(v);
