@@ -304,7 +304,7 @@ function reportingOverview() {
   const _rangeLbl = scope.dateStart || scope.dateEnd ? (scope.dateLabel || 'the selected range') : 'all time';
   const _pctS = (a, b) => b ? (Math.round(a / b * 1000) / 10) + '%' : '—';
   const COLUMN_CARDS = [
-    { key: 'arr',       label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: (dataA.stats.pendingArr > 0 ? (dataA.stats.pendingInArr ? 'Includes $' : 'Excludes $') + Math.round(dataA.stats.pendingArr).toLocaleString() + ' from ' + Number(dataA.stats.pendingArrSubs || 0).toLocaleString() + ' subscription' + (Number(dataA.stats.pendingArrSubs) === 1 ? '' : 's') + ' sold but not yet serviced' : 'serviced, active recurring subs'),                                        chartIds: ['rarr', 'rarrOffice'] },   // (One-Time Revenue donut folded into the One-Time Subscriptions toggle)
+    { key: 'arr',       label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: (dataA.stats.pendingArr > 0 ? (dataA.stats.pendingInArr ? 'Includes $' : 'Excludes $') + Math.round(dataA.stats.pendingArr).toLocaleString() + ' from ' + Number(dataA.stats.pendingArrSubs || 0).toLocaleString() + ' subscription' + (Number(dataA.stats.pendingArrSubs) === 1 ? '' : 's') + ' sold but not yet serviced' : 'serviced, active recurring subs') + ((typeof reportingArrOnRevHawkBasis === 'function' && reportingArrOnRevHawkBasis()) ? ' \u00b7 RevHawk basis' : ''),   chartIds: ['rarr', 'rarrOffice'] },   // (One-Time Revenue donut folded into the One-Time Subscriptions toggle)
     { key: 'subs',      label: 'Subscriptions Serviced',  value: _cohort.rec.length.toLocaleString(), sub: 'new recurring · ' + _cohort.one.length.toLocaleString() + ' one-time · ' + _cohort.rows.length.toLocaleString() + ' total · ' + _rangeLbl, chartIds: ['sources', 'onetimeSubs', 'retiredSubs'] },
     { key: 'active',    label: 'Subscriptions Active',    value: _cohort.act.length.toLocaleString(), sub: _pctS(_cohort.act.length, _cohort.rec.length) + ' of the ' + _cohort.rec.length.toLocaleString() + ' new recurring still active', chartIds: ['activesubs', 'agreement'] },   // (Agreement Length Mix moved here from column 1, per Isaac)
     { key: 'customers', label: 'Customers Active',        value: (dataA.stats.activeCustomers != null ? dataA.stats.activeCustomers : dataA.stats.uniqueCustomers).toLocaleString(), sub: (dataA.stats.distinctActiveServices != null ? dataA.stats.distinctActiveServices : dataA.stats.distinctServices) + ' active services', chartIds: ['custDepth', 'tenure'] },   // (Active Customers donut retired, per Isaac; Services per Customer added)
@@ -798,6 +798,25 @@ function reportingOverview() {
 // The same rules reportingFilters() / reportingChartData() apply, replayed
 // one at a time with what each one removes (subs + ARR) and what remains, so
 // the headline reconciles to the last line. Every step drills to its rows.
+// RevHawk basis (per Isaac, Nov 16 — "which one is right?"): RevHawk's Growth
+// chart counts a sub in the book only once its initial service is COMPLETED
+// and never drops it for a past-due balance. That is step 8 on + step 9 off.
+// One switch sets both, and reads back whether the card is on that basis now,
+// so Active ARR here ties to RevHawk's period-end book (checked for Myrtle
+// Beach, Nov 16: $8.86M both ways). What still differs is tiny and listed in
+// the switch's tooltip, so nobody has to guess.
+function reportingArrOnRevHawkBasis() { return reportingArrServicedOnly() && !reportingArrExclPastDue(); }
+function _arrRevHawkSwitch(rerender) {
+  const on = reportingArrOnRevHawkBasis();
+  const tip = on
+    ? 'Active ARR is on the RevHawk basis: initial service completed (step 8 on), past-due balances kept (step 9 off). Ties to the RevHawk Growth chart\u2019s book. Remaining differences RevHawk also drops: subs tied to a FieldRoutes lead record and Commercial-Account customers (under $30K company-wide).'
+    : 'Click to read Active ARR the way RevHawk\u2019s Growth chart does: step 8 on (initial service completed), step 9 off (past-due balances kept).';
+  return el('button', { class: 'text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full', title: tip,
+      style: { color: on ? '#fff' : 'var(--text-muted)', background: on ? 'var(--accent)' : 'transparent', border: '1px solid ' + (on ? 'var(--accent)' : 'var(--border-2)'), cursor: on ? 'default' : 'pointer' },
+      onclick: (e) => { e.stopPropagation(); if (on) return; setReportingArrServicedOnly(true); setReportingArrExclPastDue(false); if (typeof rerender === 'function') rerender(); } },
+    on ? '\u2713 RevHawk basis' : 'Match RevHawk');
+}
+
 function openArrStepsModal(scope, dataA) {
   const F = reportingFilters();
   const arr = (r) => Number(r.annual_recurring_value) || 0;
@@ -878,7 +897,8 @@ function openArrStepsModal(scope, dataA) {
       el('div', {}, el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Active ARR · step by step'),
         el('div', { class: 'text-lg font-black' }, 'Everything in FieldRoutes → Active ARR'),
         el('div', { class: 'text-[11px] text-muted-' }, 'The same rules the Overview applies, one at a time. ARR = each subscription’s annual recurring revenue in FieldRoutes. Click any number for the accounts.')),
-      el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', onclick: () => { overlay.remove(); document.removeEventListener('keydown', closeKey); } }, '×')),
+      el('div', { class: 'flex items-center gap-2 shrink-0' }, _arrRevHawkSwitch(() => { overlay.remove(); document.removeEventListener('keydown', closeKey); mountApp(); setTimeout(() => openArrStepsModal(scope, null), 50); }),
+        el('button', { class: 'text-2xl leading-none text-muted-', 'aria-label': 'Close', title: 'Close', onclick: () => { overlay.remove(); document.removeEventListener('keydown', closeKey); } }, '×'))),
     totalRow('Everything in FieldRoutes', raw, 'Every subscription in the synced snapshot, any status, any service type — the top of the funnel.', false),
     ...steps.map((st, i) => row(i + 1, st)),
     totalRow('Active ARR', active, zeroArr.length ? n(zeroArr.length) + ' of these active subs carry $0 ARR in FieldRoutes and add nothing — click to see them' : 'Sum of ARR across serviced, active recurring subscriptions.', true),

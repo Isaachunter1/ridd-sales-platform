@@ -235,8 +235,12 @@ function _mktgLeanView() {
   // Every grid metric is a tile (per Isaac, Nov 16); click a tile for its drill-down — by office and by channel for
   // the month, each row opening the full cell pop-up. The CAC star / notes stay.
   const drill = (k) => () => mklMetricPop(k, cur, ym, _cap);
+  // Share of total spend / of CAC % (per Isaac, Nov 16): on the three cost tiles, what slice of total spend this is
+  // and how many points of CAC % it accounts for (its dollars ÷ new revenue).
+  const _totSpend = (cur.hasSpend ? cur.spend : 0) + cur.labor;
+  const shareNote = (v) => !v || !_totSpend ? '' : Math.round(v / _totSpend * 100) + '% of total spend' + (cur.cv ? ' · ' + (v / cur.cv * 100).toFixed(1) + ' pts of CAC %' : '');
   const TILE_DEFS = [
-    ['spend', tile({ label: 'Marketing spend', icon: 'spend', get: spendOf, fmt: _mklUsd, upGood: null, color: INK, tip: 'QuickBooks marketing charges, allocated on the Spend tab', note: spendNote, onClick: drill('spend') })],
+    ['spend', tile({ label: 'Marketing spend', icon: 'spend', get: spendOf, fmt: _mklUsd, upGood: null, color: INK, tip: 'QuickBooks marketing charges, allocated on the Spend tab', note: [shareNote(cur.hasSpend ? cur.spend : 0), spendNote].filter(Boolean).join(' · '), onClick: drill('spend') })],
     ['cv', tile({ label: 'New revenue', icon: 'revenue', get: cvOf, fmt: _mklUsd, upGood: true, color: EMBER, tip: 'FieldRoutes: Office Staff new sales sold this month with the initial pending or serviced (the leaderboard rule); renewals and upsells out — contract value at sale', note: cur.s + ' new sale' + (cur.s === 1 ? '' : 's') + ' · Office Staff', onClick: drill('cv') })],
     ['s', tile({ label: 'New sales', icon: 'sales', get: salesOf, fmt: _mklNum, upGood: true, color: EMBER, tip: 'New sales with the initial pending or serviced in FieldRoutes — a bare card with no appointment is not a sale', onClick: drill('s') })],
     ['avg', tile({ label: 'ACV', icon: 'avg', get: avgC, fmt: _mklUsd, upGood: true, color: EMBER, tip: 'New revenue ÷ new sales — contract value at sale, no add-ons or upsells', onClick: drill('avg') })],
@@ -248,9 +252,9 @@ function _mktgLeanView() {
       note: (!cur.wages && !cur.incentives ? '* wages & incentives not in yet' : !cur.wages ? '* wages not in yet' : !cur.incentives ? '* incentives not in yet' : _mklUsd(cur.wages) + ' wages · ' + _mklUsd(cur.incentives) + ' incentives'), onClick: drill('cac') })],
     ['cpl', tile({ label: 'CPL', icon: 'cpl', get: cpl, fmt: _mklUsd, upGood: false, color: TEAL, tip: 'Marketing spend ÷ leads', onClick: drill('cpl') })],
     ['close', tile({ label: 'Close rate', icon: 'close', get: close, fmt: _mklPct, upGood: true, color: TEAL, tip: 'Plaibook — the Inside Sales department\u2019s sold ÷ qualified for the month', note: closeNote, onClick: drill('close') })],
-    ['wages', tile({ label: 'Wages', icon: 'fcac', get: (D) => D.hasLabor || D.wages ? D.wages : null, fmt: _mklUsd, upGood: null, color: INK, tip: 'Spend tab → Wages (Inside Sales), spread to offices by share of the month’s new revenue', note: cur.wages ? '' : 'enter on the Spend tab', onClick: drill('wages') })],
-    ['inc', tile({ label: 'Incentives', icon: 'avg', get: (D) => D.hasLabor || D.incentives ? D.incentives : null, fmt: _mklUsd, upGood: null, color: INK, tip: 'Spend tab → Incentives, spread to offices by share of the month’s new revenue', note: cur.incentives ? '' : 'enter on the Spend tab', onClick: drill('inc') })],
-    ['tot', tile({ label: 'Total spend', icon: 'spend', get: (D) => D.hasSpend || D.hasLabor ? (D.hasSpend ? D.spend : 0) + D.labor : null, fmt: _mklUsd, upGood: null, color: INK, tip: 'Marketing spend + wages + incentives', onClick: drill('tot') })],
+    ['wages', tile({ label: 'Wages', icon: 'fcac', get: (D) => D.hasLabor || D.wages ? D.wages : null, fmt: _mklUsd, upGood: null, color: INK, tip: 'Spend tab → Wages (Inside Sales), spread to offices by share of the month’s new revenue', note: cur.wages ? shareNote(cur.wages) : 'enter on the Spend tab', onClick: drill('wages') })],
+    ['inc', tile({ label: 'Incentives', icon: 'avg', get: (D) => D.hasLabor || D.incentives ? D.incentives : null, fmt: _mklUsd, upGood: null, color: INK, tip: 'Spend tab → Incentives, spread to offices by share of the month’s new revenue', note: cur.incentives ? shareNote(cur.incentives) : 'enter on the Spend tab', onClick: drill('inc') })],
+    ['tot', tile({ label: 'Total spend', icon: 'spend', get: (D) => D.hasSpend || D.hasLabor ? (D.hasSpend ? D.spend : 0) + D.labor : null, fmt: _mklUsd, upGood: null, color: INK, tip: 'Marketing spend + wages + incentives', note: cur.cv && _totSpend ? (_totSpend / cur.cv * 100).toFixed(1) + '% of new revenue = CAC %' : '', onClick: drill('tot') })],
     ['cacp', tile({ label: 'CAC %', icon: 'cac', get: (D) => D.cv && (D.hasSpend || D.hasLabor) ? ((D.hasSpend ? D.spend : 0) + D.labor) / D.cv : null, fmt: _mklPct, upGood: false, color: INK, tip: 'Total spend ÷ new revenue', onClick: drill('cacp') })],
     ['rpl', tile({ label: 'Revenue per lead', icon: 'leads', get: (D) => D.hasLeads && D.leads ? D.cv / D.leads : null, fmt: _mklUsd, upGood: true, color: TEAL, tip: 'New revenue ÷ leads — what a lead is worth before any cost; next to CPL it is the lead margin', onClick: drill('rpl') })]
   ];
