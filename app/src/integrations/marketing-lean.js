@@ -317,7 +317,10 @@ function _mktgLeanView() {
     (k, c) => c.waiting > 0 ? 'waiting on its report — not in branches yet' : k === 'Unmapped GHL source' ? 'map these in Configurations → GoHighLevel sources' : k === 'Unspecified' ? 'no source on the account — fix in FieldRoutes' : (c.s && !c.leads) ? 'sales but no leads — no GoHighLevel label maps here (Configurations → sources)' : (c.leads && !c.s && !c.spend) ? 'leads but no sales — no FieldRoutes source maps here' : null);
 
   // ── Chart: spend vs new revenue, last 12 months. ──
-  const S = mklSeries(ym), idC = 'mklTrend';
+  // The chart follows the grid's year (per Isaac, Nov 16): Jan–Dec of the year shown; months after the picked one are
+  // left empty rather than drawn as $0.
+  const _gy = Number(ym.slice(0, 4));
+  const S = (() => { const out = []; for (let i = 0; i < 12; i++) { const m = _gy + '-' + String(i + 1).padStart(2, '0'); if (m > ym) { out.push({ ym: m, spend: null, cv: null, s: 0 }); continue; } const D = mklMonth(m); out.push({ ym: m, spend: D.hasSpend ? D.spend : null, cv: D.hasSubs ? D.cv : null, s: D.s }); } return out; })(), idC = 'mklTrend';
   setTimeout(() => {
     if (typeof Chart === 'undefined') return; const c = document.getElementById(idC); if (!c) return;
     const reg = typeof _chartInstances !== 'undefined' ? _chartInstances : (window._mklCharts = window._mklCharts || {});
@@ -331,8 +334,8 @@ function _mktgLeanView() {
         scales: { x: { grid: { display: false }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0 } }, y: { beginAtZero: true, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => fmt.usd0(v) } } } } });
   }, 40);
   const chart = el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'px-5 py-3' }, el('h3', { class: 'text-base font-bold' }, 'Spend vs new revenue · last 12 months'), el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Bars are QuickBooks marketing spend by charge month; the line is Office Staff new-sale contract value by sale month. A month with no QuickBooks lines shows no bar, not $0.')),
-    el('div', { class: 'p-3', style: { height: '240px' } }, el('canvas', { id: idC })));
+    el('div', { class: 'px-5 py-3' }, el('h3', { class: 'text-base font-bold', title: 'Bars are QuickBooks marketing spend by charge month; the line is Office Staff new-sale contract value by sale month. A month with no QuickBooks lines shows no bar, not $0.' }, 'Spend vs new revenue · ' + _gy)),
+    el('div', { class: 'p-3', style: { height: '190px' } }, el('canvas', { id: idC })));
 
   // One header (per Isaac, Nov 16): title + compare note on the left; Previous month / Last year beside the month
   // picker on the right. The Sources line and the Key metrics bar are folded in here.
@@ -346,7 +349,7 @@ function _mktgLeanView() {
   const grid = mklYearGrid(ym);
   void brTable; void chTable;
   void fresh; void cmpBar;
-  return el('div', { class: 'flex flex-col gap-4' }, headBar, tiles, grid, chart);
+  return el('div', { class: 'flex flex-col gap-4' }, headBar, chart, tiles, grid);   // chart above the tiles (per Isaac, Nov 16)
 }
 // The month's new sales behind the New revenue tile (same rows the table counts).
 function mklOpenSales(D, title) {
