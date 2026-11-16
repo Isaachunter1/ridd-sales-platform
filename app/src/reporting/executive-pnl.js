@@ -569,7 +569,7 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
     if (a == null || b == null || !isFinite(a) || !isFinite(b)) return '—';
     return signedRow(row, a - b) || '—';
   };
-  const table = el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse' } },
+  const table = el('table', { class: 'w-full text-xs frozen-table pnl-fit', style: { borderCollapse: 'collapse' } },
     el('thead', {}, el('tr', {}, th('', 'sticky left-0'), ...shownIdx.map(i => { const m = MKTG_MONTHS[i]; const isOpen = _mktgYm(year, i) === putisOpenMonth(); return th(isOpen ? m + ' · open' : (rangeYm ? m + ' ' + year : m), isOpen ? 'italic' : '', isOpen ? 'Current month — books not closed yet, numbers move daily. Not included in YTD.' : PUTIS_COL_TIPS.month); }),
       // One summary column (per Isaac, Nov 16 — Trailing 12 was getting cut off): its header toggles YTD ⇄ Trailing 12.
       (() => { const ytdLbl = year + ' YTD' + (ytd.months ? ' (thru ' + MKTG_MONTHS[Math.min(upto, Math.max(0, (String(year) === openYm.slice(0, 4) ? new Date().getMonth() - 1 : 11)))] + ')' : '');
@@ -808,8 +808,8 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
     // Fixed column grid (per Isaac, Sep 30): the same label width and equal
     // branch columns on every branch card, so Atlanta … RIDD line up from
     // Recurring Book to Margins to Unit Economics.
-    el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: (260 + cols.reduce((t, c) => t + (pctOn(c.key) ? 2 : 1), 0) * 96) + 'px' } },
-      el('colgroup', {}, el('col', { style: { width: '260px' } }), ...cols.flatMap(c => pctOn(c.key) ? [el('col', {}), el('col', {})] : [el('col', {})])),
+    el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-xs frozen-table pnl-fit', style: { borderCollapse: 'collapse', tableLayout: 'fixed' } },   // fits the card (per Isaac, Nov 16): no min width, tight cells — see .pnl-fit
+      el('colgroup', {}, el('col', { style: { width: '200px' } }), ...cols.flatMap(c => pctOn(c.key) ? [el('col', {}), el('col', {})] : [el('col', {})])),
       el('thead', {}, el('tr', {}, (() => { const h = th(_minor.length ? (state._putisShowMinor ? '▾ Hide ' : '▸ Show ') + _minor.join(' · ') : '', '', true);
           if (_minor.length) { h.classList.add('cursor-pointer', 'select-none'); h.style.color = 'var(--accent)'; h.title = (state._putisShowMinor ? 'Collapse ' : 'Expand ') + _minor.join(' and ') + ' (always included in RIDD)'; h.onclick = () => { state._putisShowMinor = !state._putisShowMinor; mountApp(); }; }
           return h; })(), ...cols.flatMap(c => {
@@ -1011,7 +1011,7 @@ function putisBranchScorecard(M, U, yms, branches, title) {
       el('div', {}, el('h3', { class: 'text-base font-bold' }, title),
         el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'Green = best in column · red = worst · click a header to sort' + (topShare != null ? ' · top-office concentration ' + _putisPct1(topShare) : ''))),
     ),
-    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse' } },
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs frozen-table pnl-fit', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold text-left', style: { color: 'var(--text-muted)' } }, 'Office'), ...COLS.map(th))),
       el('tbody', {},
         ...rows.map(r => el('tr', { class: 'border-t border-' }, el('td', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap', style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }, r.name), ...COLS.map(c => td(c, r.m, false)))),
@@ -1090,7 +1090,7 @@ function putisComparativeCard(M, ym, branches, title, headerExtra, opts = {}) {
     el('div', { class: 'px-5 py-3 border-b flex items-start gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
       el('div', {}, el('h3', { class: 'text-base font-bold' }, title + (ym === openYm ? ' · open month' : ''))),
       headerExtra || null),
-    el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-xs frozen-table', style: { borderCollapse: 'collapse' } }, el('thead', {}, head), el('tbody', {}, ...body))));
+    el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-xs frozen-table pnl-fit', style: { borderCollapse: 'collapse' } }, el('thead', {}, head), el('tbody', {}, ...body))));
 }
 
 function reportingPutis() {

@@ -283,6 +283,13 @@
     /* A frozen table with only a couple of columns fills the card instead
        of leaving white space to the right (P&L single-branch view). */
     .card table.frozen-table { width: 100% !important; }
+    /* P&L tables (per Isaac, Nov 16): fit the card on a laptop instead of scrolling sideways — smaller type,
+       tight cells, a narrower label column, and the table sized to the card rather than to its content. */
+    .card table.frozen-table.pnl-fit { width: 100% !important; min-width: 0 !important; font-size: 11px; }
+    .pnl-fit > thead th, .pnl-fit > tbody td { padding: 4px 6px !important; white-space: nowrap; }
+    .pnl-fit > thead th { font-size: 8.5px; letter-spacing: .04em; }
+    .pnl-fit > thead th:first-child, .pnl-fit > tbody td:first-child { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+    @media (max-width: 1280px) { .card table.frozen-table.pnl-fit { font-size: 10px; } .pnl-fit > thead th, .pnl-fit > tbody td { padding: 3px 4px !important; } }
     /* Phones: the frozen label column never eats more than ~half the
        screen — long labels ellipsise so more numbers show before a swipe. */
     @media (max-width: 640px) {
