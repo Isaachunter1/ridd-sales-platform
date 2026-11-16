@@ -331,14 +331,13 @@ function _mktgLeanView() {
   // picker on the right. The Sources line and the Key metrics bar are folded in here.
   const ownerHint = (typeof isOwnerUser === 'function' && isOwnerUser()) ? el('span', { class: 'text-[11px]', style: muted }, 'Drag tiles to reorder', Array.isArray(_mktgStore().tileOrder) && _mktgStore().tileOrder.length ? el('button', { class: 'ml-2 font-semibold underline', style: { color: 'var(--accent)' }, onclick: () => { delete _mktgStore().tileOrder; _mktgSave(); mountApp(); } }, 'Reset') : null) : null;
   const srcTip = 'Sources · QuickBooks marketing' + (P && P.pulledAt ? ' ' + _mklAgo(P.pulledAt) : cur.hasSpend ? '' : ' (no lines for ' + _mklLblS(ym) + ')') + ' · FieldRoutes new sales' + (state.reportingSubscriptions ? '' : ' (loading)') + ' · GoHighLevel leads' + (G && G.at ? ' ' + _mklAgo(G.at) : ' (loading)');
-  const headBar = el('div', { class: 'card px-5 py-3 flex items-center gap-3 flex-wrap' },
-    el('div', { title: srcTip }, el('h3', { class: 'text-base font-bold' }, 'Marketing · ' + _mklLbl(ym)), el('div', { class: 'text-[11px] mt-0.5', style: muted }, _mklLbl(ym) + (_cap ? ' to date' : '') + (cmp === 'none' ? '' : ' vs ' + _mklLbl(pm) + (_cap ? ' 1\u2013' + _cap : '')) + ' · QuickBooks spend, FieldRoutes new sales, GoHighLevel leads' + (!cur.hasSpend || !(G && G.opps) ? ' · ' + [!cur.hasSpend ? 'no QuickBooks lines for ' + _mklLblS(ym) : '', !(G && G.opps) ? 'GoHighLevel loading' : ''].filter(Boolean).join(', ') : ''))),
-    el('span', { class: 'ml-auto' }), ownerHint, cmpSel, monthSel);
+  // Header controls ride on the Marketing sub-tab bar (per Isaac, Nov 16) — see mklHeaderControls(); no header card here.
+  void ownerHint; void cmpSel; void monthSel; void srcTip;
   // ── The one grid (per Isaac, Nov 16): rows = offices (or channels), Jan–Dec + YTD, one metric at a time — the
   // old Marketing P&L table with every metric in its dropdown. Replaces the two single-month tables and the P&L tab.
   const grid = mklYearGrid(ym);
   void brTable; void chTable;
-  return el('div', { class: 'flex flex-col gap-4' }, headBar, chart, tiles, grid);   // chart above the tiles (per Isaac, Nov 16)
+  return el('div', { class: 'flex flex-col gap-4' }, chart, tiles, grid);   // chart above the tiles; the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
 }
 // The month's new sales behind the New revenue tile (same rows the table counts).
 function mklOpenSales(D, title) {
@@ -513,4 +512,19 @@ function mklMetricPop(k, D, ym, cap) {
     el('div', { class: 'p-4 grid gap-4', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))' } }, tableOf('br', D.br, 'By office'), tableOf('ch', D.ch, 'By channel')),
     /^(spend|wages|inc|tot)$/.test(k) ? el('div', { class: 'px-5 pb-3 text-[11px]' }, el('button', { class: 'font-semibold underline', style: { color: 'var(--accent)' }, onclick: () => { close(); state._mktSub = 'spend'; state._mktCtrlMonth = ym; mountApp(); } }, 'Open the Spend tab →')) : null);
   overlay.append(card); document.body.append(overlay);
+}
+
+// The Metrics controls for the Marketing sub-tab bar (per Isaac, Nov 16): owner's drag hint + Reset, the compare
+// dropdown, the month picker.
+function mklHeaderControls() {
+  const F = mklState(); const ym = F.ym, cmp = F.cmp === 'year' ? 'year' : F.cmp === 'none' ? 'none' : 'prev';
+  const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
+  const months = []; for (let i = 0; i < 18; i++) months.push(_mklYm(new Date(new Date().getFullYear(), new Date().getMonth() - i, 1)));
+  const monthSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: selSt, onchange: (e) => { F.ym = e.target.value; mountApp(); } },
+    ...months.map(k => el('option', { value: k, selected: k === ym }, _mklLblS(k) + (k === months[0] ? ' · open' : ''))));
+  const cmpSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: selSt, onchange: (e) => { F.cmp = e.target.value; mountApp(); } },
+    ...[['none', 'No change'], ['prev', 'MoM change'], ['year', 'YoY change']].map(([v, l]) => el('option', { value: v, selected: v === cmp }, l)));
+  const m = _mktgStore();
+  const ownerHint = (typeof isOwnerUser === 'function' && isOwnerUser()) ? el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Drag tiles to reorder', Array.isArray(m.tileOrder) && m.tileOrder.length ? el('button', { class: 'ml-2 font-semibold underline', style: { color: 'var(--accent)' }, onclick: () => { delete m.tileOrder; _mktgSave(); mountApp(); } }, 'Reset') : null) : null;
+  return [ownerHint, cmpSel, monthSel].filter(Boolean);
 }
