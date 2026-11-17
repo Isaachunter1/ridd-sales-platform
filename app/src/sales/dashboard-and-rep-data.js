@@ -3658,6 +3658,7 @@ function openIndicatorRepCard(rep, allReps = []) {
   // Revenue tile mode (per Isaac, Oct 15): Office Staff default New (renewal-source sales out), toggle Total / Renewal.
   let cardRevMode = 'total';   // the Office Staff New / Total / Renewal switch is retired (per Isaac, Oct 16) — every board counts total
   let retDrill = null;               // retention tile drill { label, pred }
+  let retAsOf = '';                  // retention card 'as of' date (YYYY-MM-DD) — blank = today (per Isaac, Nov 17)
   const isAutoPayOn = (s) => s.autoPay && s.autoPay !== 'No' && String(s.autoPay).trim() !== '';
 
   // Scoped views — recomputed on every render via applyScope() so the
@@ -4670,12 +4671,21 @@ function openIndicatorRepCard(rep, allReps = []) {
   // buckets come from Customer Flags (No Audit counts as passed). All tiles
   // respect the scope dropdown, and clicking one drills to its accounts.
   function retentionBlock() {
-    const all = scopedRep.sales || [];
-    const _svcR = (x) => (Number(x.services) || 0) > 0 || !!x.servicedDate;
+    // "As of" (per Isaac, Nov 17 — the Holcombs' peak active revenue after Oct 1): replay the card to a past date.
+    // Sold, serviced and cancelled follow their dates (a cancel after the date hasn't happened yet, so the account is
+    // still Active); status Active today still wins (a saved account was never lost). Audit flags and aging have no
+    // history in FieldRoutes, so they read as of now. Blank = today, exactly as before.
+    const asOf = retAsOf || null;
+    const _day = (v) => { const t = String(v || '').trim(); if (!t) return ''; let m = t.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return m[1] + '-' + m[2] + '-' + m[3]; m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/); if (m) { const y = m[3].length === 2 ? '20' + m[3] : m[3]; return y + '-' + m[1].padStart(2, '0') + '-' + m[2].padStart(2, '0'); } const d = new Date(t); return isNaN(d) ? '' : d.toISOString().slice(0, 10); };
+    const all = (scopedRep.sales || []).filter(x => !asOf || !_day(x.dateSold) || _day(x.dateSold) <= asOf);
+    const _svcR = (x) => asOf
+      ? (!!x.servicedDate ? _day(x.servicedDate) <= asOf : (Number(x.services) || 0) > 0)
+      : ((Number(x.services) || 0) > 0 || !!x.servicedDate);
     // Save-back rule: status Active wins over a logged cancel date, so a
     // saved account sits in Active (and can age), never in Cancelled.
     const _actR = (x) => (x.status || '').toLowerCase() === 'active'
-      || ((x.status || '') === '' && _subAliveNow(x) === true);
+      || ((x.status || '') === '' && _subAliveNow(x) === true)
+      || (!!asOf && !!x.cancelDate && _day(x.cancelDate) > asOf);   // cancelled after the as-of date → still on the books then
     const _cxlR = (x) => !!x.cancelDate && !_actR(x);
     const _agingDays = (typeof reportingAgingDays === 'function') ? reportingAgingDays() : 7;
     const _isAging = (x) => _actR(x) && (Number(x.age) || 0) >= _agingDays;
@@ -4891,6 +4901,10 @@ function openIndicatorRepCard(rep, allReps = []) {
           class: 'text-[10px] text-muted- tabular-nums whitespace-nowrap px-2 py-0.5 rounded',
           style: { background: 'var(--card-2)', border: '1px solid var(--border)' },
         }, scopeRangeLabel),
+        // Retention "as of" (per Isaac, Nov 17): replay the card to a past date. Blank = today.
+        cardView === 'retention' ? el('label', { class: 'text-[10px] text-muted- whitespace-nowrap inline-flex items-center gap-1', title: 'Read the Retention card as it stood on this date: sales sold by then, serviced by then, cancels after it not yet counted. Audit and aging are as of today.' },
+          'as of', el('input', { type: 'date', value: retAsOf, max: new Date().toISOString().slice(0, 10), class: 'rounded border px-1 py-0.5 text-[10px] tabular-nums', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+            onchange: (e) => { retAsOf = e.target.value || ''; retDrill = null; renderBody(); } })) : null,
         el('button', {
           class: 'text-2xl leading-none text-muted- hidden sm:block hover:text-default transition -mr-1', 'aria-label': 'Close', title: 'Close',
           style: { lineHeight: '1' },
