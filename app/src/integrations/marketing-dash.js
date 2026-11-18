@@ -30,38 +30,43 @@ function mktgDashGridCard(D, lbl) {
   const rate = (c) => c.leads ? c.s / c.leads : null;
   const leadsAll = D.leads || 0, booked = D.s || 0, unm = (D.ch[unmappedKey] && D.ch[unmappedKey].leads) || 0;
   const pct = (v) => v == null ? '—' : (v * 100).toFixed(0) + '%';
+  const unl = (c) => (c.unlinked || []).length;
+  const linkedOf = (c) => c.linked != null ? c.linked : (c.s || 0) - unl(c);
+  const rateL = (c) => c.leads ? linkedOf(c) / c.leads : null;
+  const orphan = (c) => unl(c) > 0;
 
   // Grid: channels × offices. Shade = booking rate (darker = better), capped so one outlier cell doesn't flatten the rest.
-  const maxRate = Math.max(0.05, ...channels.flatMap(c => offices.map(o => rate(cellOf(o, c)) || 0)));
+  const maxRate = Math.max(0.05, ...channels.flatMap(c => offices.map(o => rateL(cellOf(o, c)) || 0)));
   const shade = (r) => r == null ? 'transparent' : 'rgba(95,108,91,' + (0.08 + 0.62 * Math.min(1, r / maxRate)).toFixed(2) + ')';
   const fg = (r) => r != null && r / maxRate > 0.55 ? '#fff' : 'var(--text)';
   const th = (t, right, st) => el('th', { class: 'px-2 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap' + (right ? ' text-right' : ' text-left'), style: Object.assign({ color: 'var(--text-muted)', background: 'var(--card-2)' }, st || {}) }, t);
-  // Red (per Isaac, Nov 18): bookings with no lead behind them — every booking should trace back to a GoHighLevel
-  // opportunity, so a red cell is either a lead booked under a different name / phone / email (expected now and then)
-  // or a sale with no opportunity at all. Click it to see the sales.
-  const orphan = (c) => !c.leads && c.s > 0;
+  // Red (per Isaac, Nov 18): sales with no GoHighLevel lead behind them — each sale is matched to the latest
+  // opportunity on its phone or email on or before the sold date (mklMonth). A red cell has at least one such sale:
+  // a lead that booked under another name / phone / email (expected now and then) or a sale with no opportunity at
+  // all. Booking rate = linked sales ÷ leads, so a sale with no lead never inflates a channel's rate.
   const cellTd = (c, title, strong) => {
-    const r = rate(c), has = c.leads || c.s, red = orphan(c);
+    const r = rateL(c), has = c.leads || c.s, red = orphan(c);
     return el('td', { class: 'px-1.5 py-1 text-center align-middle' + (has ? ' cursor-pointer' : ''), style: { background: red ? 'rgba(220,38,38,.14)' : has ? shade(r) : 'transparent', color: red ? '#B91C1C' : has ? fg(r) : 'var(--text-subtle)', minWidth: '84px', borderLeft: '1px solid var(--border)' },
-      title: red ? 'Booked with no lead in GoHighLevel for this office + channel this month — click for the sales' : has ? 'Click for the leads and sales behind this cell' : '', onclick: has ? () => _mkdOpenCell(title, c, D) : null },
+      title: red ? unl(c) + ' sale' + (unl(c) === 1 ? '' : 's') + ' with no GoHighLevel lead on the phone or email — click for the list' : has ? 'Click for the leads and sales behind this cell' : '', onclick: has ? () => _mkdOpenCell(title, c, D) : null },
       has ? el('div', { class: 'leading-tight' },
-        el('div', { class: 'text-[11px] tabular-nums' + (strong ? ' font-bold' : '') }, fmt.int(c.leads || 0) + ' · ' + fmt.int(c.s || 0)),
-        el('div', { class: 'text-[13px] font-black tabular-nums' }, pct(r))) : '—');
+        el('div', { class: 'text-[11px] tabular-nums' + (strong ? ' font-bold' : '') }, fmt.int(c.leads || 0) + ' · ' + fmt.int(linkedOf(c))),
+        el('div', { class: 'text-[13px] font-black tabular-nums' }, pct(r)),
+        red ? el('div', { class: 'text-[9px] font-bold' }, '+' + fmt.int(unl(c)) + ' no lead') : null) : '—');
   };
   const rowOf = (ch) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
     el('td', { class: 'px-3 py-1 text-xs font-semibold whitespace-nowrap', style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1 } }, ch),
     ...offices.map(o => cellTd(cellOf(o, ch), ch + ' · ' + o)),
-    cellTd(Object.assign({ leadRows: _mkdLeadsOf(D, null, ch) }, rowTot(ch), { sales: _mkdSalesOf(D, null, ch) }), ch + ' · all offices', true));
+    cellTd(_mkdAgg(D, null, ch, rowTot(ch)), ch + ' · all offices', true));
   const totRow = el('tr', { style: { borderTop: '2px solid var(--text)', background: 'var(--card-2)' } },
     el('td', { class: 'px-3 py-1.5 text-xs font-black', style: { position: 'sticky', left: 0, background: 'var(--card-2)', zIndex: 1 } }, 'All channels'),
-    ...offices.map(o => cellTd(Object.assign({ leadRows: _mkdLeadsOf(D, o, null) }, colTot(o), { sales: _mkdSalesOf(D, o, null) }), o + ' · all channels', true)),
-    cellTd({ leads: leadsAll, s: booked, cv: D.cv, sales: D.sales, leadRows: _mkdLeadsOf(D, null, null) }, 'RIDD · ' + lbl, true));
-  const orphanN = channels.reduce((a, c) => a + offices.reduce((b, o) => b + (orphan(cellOf(o, c)) ? cellOf(o, c).s : 0), 0), 0);
+    ...offices.map(o => cellTd(_mkdAgg(D, o, null, colTot(o)), o + ' · all channels', true)),
+    cellTd(_mkdAgg(D, null, null, { leads: leadsAll, s: booked, cv: D.cv }), 'RIDD · ' + lbl, true));
+  const orphanN = (D.unlinked || []).length;
   const grid = el('div', { class: 'card overflow-hidden bar-sage' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
       el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Channels × offices · ' + lbl),
-        el('div', { class: 'text-[11px]', style: muted }, 'Each cell: leads · booked, then booking rate. Darker = higher booking rate; red = booked with no lead to link back to. Click a cell for the leads and the sales behind it.')),
-      el('span', { class: 'ml-auto text-[11px]', style: muted }, channels.length + ' channels · ' + offices.length + ' offices' + (orphanN ? ' · ' : ''), orphanN ? el('span', { style: { color: '#B91C1C', fontWeight: 700 } }, orphanN + ' booked without a lead') : null)),
+        el('div', { class: 'text-[11px]', style: muted }, 'Each cell: leads · booked (sales linked to a GoHighLevel lead by phone or email), then booking rate. Darker = higher; red = sales with no lead to link back to. Click a cell for the leads and the sales behind it.')),
+      el('span', { class: 'ml-auto text-[11px]', style: muted }, channels.length + ' channels · ' + offices.length + ' offices' + (orphanN ? ' · ' : ''), orphanN ? el('span', { style: { color: '#B91C1C', fontWeight: 700 } }, orphanN + ' sale' + (orphanN === 1 ? '' : 's') + ' with no lead') : null)),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } },
       el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
         el('thead', {}, el('tr', {}, th('Channel', false, { position: 'sticky', left: 0, zIndex: 2 }), ...offices.map(o => th(o, false, { textAlign: 'center' })), th('All offices', false, { textAlign: 'center' }))),
@@ -69,6 +74,12 @@ function mktgDashGridCard(D, lbl) {
     !channels.length ? el('div', { class: 'px-5 py-4 text-sm text-center', style: muted }, D.hasLeads ? 'No leads or sales for ' + lbl + ' yet.' : 'Waiting on GoHighLevel leads…') : null);
 
   return grid;
+}
+// Totals for a row / column / the whole grid, carrying the lead rows, sales, and the linked / unlinked split.
+function _mkdAgg(D, office, channel, base) {
+  const sales = _mkdSalesOf(D, office, channel);
+  const unlinked = sales.filter(s => !s._mklLead);
+  return Object.assign({ leadRows: _mkdLeadsOf(D, office, channel) }, base, { sales, unlinked, linked: sales.length - unlinked.length });
 }
 // Leads behind an office / channel / both (null = all) for the month.
 function _mkdLeadsOf(D, office, channel) {
@@ -88,17 +99,20 @@ function _mkdOpenCell(title, c, D) {
   const esc = (e) => { if (e.key === 'Escape') close(); };
   document.addEventListener('keydown', esc);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-  const r = c.leads ? c.s / c.leads : null;
+  const unlinked = c.unlinked || sales.filter(s => !s._mklLead), linkedN = c.linked != null ? c.linked : sales.length - unlinked.length;
+  const r = c.leads ? linkedN / c.leads : null;
   const btn = (t, on, cls) => el('button', { class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold ' + (cls || ''), style: { background: 'var(--accent)', color: 'var(--accent-text)' }, disabled: !on, onclick: on || null }, t);
   overlay.append(el('div', { class: 'card p-5 w-full flex flex-col gap-3', style: { maxWidth: '520px' } },
     el('div', { class: 'flex items-start justify-between gap-3' },
       el('div', {}, el('h3', { class: 'text-base font-bold' }, title),
-        el('div', { class: 'text-xs', style: { color: 'var(--text-muted)' } }, fmt.int(c.leads || 0) + ' leads · ' + fmt.int(c.s || 0) + ' booked · ' + (r == null ? '—' : (r * 100).toFixed(1) + '%') + ' booking rate' + (c.cv ? ' · ' + fmt.usd0(c.cv) + ' contracted' : ''))),
+        el('div', { class: 'text-xs', style: { color: 'var(--text-muted)' } }, fmt.int(c.leads || 0) + ' leads · ' + fmt.int(linkedN) + ' booked from a lead · ' + (r == null ? '—' : (r * 100).toFixed(1) + '%') + ' booking rate' + (c.cv ? ' · ' + fmt.usd0(c.cv) + ' contracted' : '')),
+        unlinked.length ? el('div', { class: 'text-xs font-semibold', style: { color: '#B91C1C' } }, fmt.int(unlinked.length) + ' sale' + (unlinked.length === 1 ? '' : 's') + ' with no GoHighLevel lead on the phone or email') : null),
       el('button', { class: 'text-2xl leading-none text-muted- px-1', 'aria-label': 'Close', onclick: close }, '×')),
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
       btn('Leads (' + fmt.int(leads.length) + ')', leads.length ? () => { close(); _mkdOpenLeads(title + ' · leads', leads); } : null),
-      btn('Booked sales (' + fmt.int(sales.length) + ')', sales.length ? () => { close(); mklOpenSales({ s: sales.length, cv: sales.reduce((a, s) => a + (Number(s.subscription_contract_value) || 0), 0), sales }, title + ' · booked'); } : null)),
-    el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Leads are GoHighLevel opportunities by lead date and the office their ZIP maps to; booked are FieldRoutes new sales by sold date and office. The two are counted separately, so a lead and its sale can sit in different months.')));
+      btn('Booked sales (' + fmt.int(sales.length) + ')', sales.length ? () => { close(); mklOpenSales({ s: sales.length, cv: sales.reduce((a, s) => a + (Number(s.subscription_contract_value) || 0), 0), sales }, title + ' · booked'); } : null),
+      unlinked.length ? el('button', { class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold border', style: { borderColor: '#DC2626', color: '#DC2626' }, onclick: () => { close(); mklOpenSales({ s: unlinked.length, cv: unlinked.reduce((a, s) => a + (Number(s.subscription_contract_value) || 0), 0), sales: unlinked }, title + ' · booked with no lead'); } }, 'No lead (' + fmt.int(unlinked.length) + ')') : null),
+    el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Leads are GoHighLevel opportunities by lead date and office; booked are FieldRoutes new sales by sold date and office, each matched to the latest opportunity on its phone or email on or before the sale (up to 180 days back). A lead and its sale can sit in different months.')));
   document.body.append(overlay);
 }
 // The leads behind a number: date, source label, channel, office, stage, type. No names on screen — GoHighLevel

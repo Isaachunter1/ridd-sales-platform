@@ -176,19 +176,30 @@ function mktgSpendView() {
   m.incentivesCo = (m.incentivesCo && typeof m.incentivesCo === 'object') ? m.incentivesCo : {};
   const incOf = (i) => Number(m.incentivesCo[ymOf(i)]) || 0;
   const setInc = (i, n) => { const k = ymOf(i); if (n) m.incentivesCo[k] = Math.round(n * 100) / 100; else delete m.incentivesCo[k]; state._mkpMemo = null; state._mklMemo = {}; _mktgSave(); };
+  if (typeof rcEnsureLedger === 'function') rcEnsureLedger();
+  const rcOf = (i) => typeof rcIncentivesMonth === 'function' ? rcIncentivesMonth(ymOf(i)).total : 0;
   const incYear = () => MON.reduce((a, _, i) => a + incOf(i), 0);
-  let incTot;
+  const rcYear = () => MON.reduce((a, _, i) => a + rcOf(i), 0);
+  let incTot, totCells = [];
+  const refreshIncTot = () => { if (incTot) incTot.textContent = usd0(incYear()); totCells.forEach((c, i) => { c.textContent = i < 12 ? usd0(incOf(i) + rcOf(i)) : usd0(incYear() + rcYear()); }); };
   const incCard = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
       el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Incentives · ' + year),
-        el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'Inside Sales incentive cost by month, typed in. Spread to offices by each office’s share of the month’s new revenue; in CAC with wages.')),
-      el('span', { class: 'ml-auto text-sm font-black tabular-nums' }, usd0(incYear()))),
+        el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'RIDDCOIN added to office reps’ wallets lands here automatically in the month it was added (1 ¤ = $1); anything else is typed in. The total is spread to offices by each office’s share of the month’s new revenue; in CAC with wages.')),
+      el('span', { class: 'ml-auto text-sm font-black tabular-nums' }, usd0(incYear() + rcYear()))),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('', false, { position: 'sticky', left: 0, zIndex: 2 }), ...MON.map(thM), th('Total', true))),
-      el('tbody', {}, el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-        el('td', { class: 'px-3 py-1 whitespace-nowrap font-semibold', style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1 } }, 'Incentives'),
-        ...MON.map((_, i) => el('td', { class: 'px-1.5 py-1 text-right' }, admin ? moneyIn(incOf(i), (n) => { setInc(i, n); if (incTot) incTot.textContent = usd0(incYear()); }) : usd0(incOf(i)))),
-        (incTot = el('td', { class: 'px-3 py-1 text-right tabular-nums font-bold' }, usd0(incYear()))))))));
+      el('tbody', {},
+        el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          el('td', { class: 'px-3 py-1 whitespace-nowrap font-semibold', style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1 } }, 'RIDDCOIN', el('span', { class: 'ml-1.5 text-[9px] uppercase tracking-wider', style: muted }, 'auto · click a month for the log')),
+          ...MON.map((_, i) => el('td', { class: 'px-1.5 py-1 text-right tabular-nums' + (rcOf(i) ? ' cursor-pointer hover:underline' : ''), title: rcOf(i) ? rcIncentivesMonth(ymOf(i)).n + ' add' + (rcIncentivesMonth(ymOf(i)).n === 1 ? '' : 's') + ' to office reps — click for the log' : '', onclick: rcOf(i) && typeof rcOpenIncentiveLog === 'function' ? () => rcOpenIncentiveLog(year, ymOf(i)) : null }, rcOf(i) ? usd0(rcOf(i)) : el('span', { style: muted }, '—'))),
+          el('td', { class: 'px-3 py-1 text-right tabular-nums font-bold' + (rcYear() ? ' cursor-pointer hover:underline' : ''), title: rcYear() ? 'Every add this year — click for the log' : '', onclick: rcYear() && typeof rcOpenIncentiveLog === 'function' ? () => rcOpenIncentiveLog(year, null) : null }, usd0(rcYear()))),
+        el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          el('td', { class: 'px-3 py-1 whitespace-nowrap font-semibold', style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1 } }, 'Other incentives', el('span', { class: 'ml-1.5 text-[9px] uppercase tracking-wider', style: muted }, 'typed')),
+          ...MON.map((_, i) => el('td', { class: 'px-1.5 py-1 text-right' }, admin ? moneyIn(incOf(i), (n) => { setInc(i, n); refreshIncTot(); }) : usd0(incOf(i)))),
+          (incTot = el('td', { class: 'px-3 py-1 text-right tabular-nums font-bold' }, usd0(incYear())))),
+        (() => { totCells = MON.map((_, i) => td(usd0(incOf(i) + rcOf(i)), { fontWeight: '700' }, true)); const t = td(usd0(incYear() + rcYear()), { fontWeight: '900' }, true); totCells.push(t);
+          return el('tr', { style: { borderTop: '2px solid var(--text)', background: 'var(--card-2)' } }, el('td', { class: 'px-3 py-1.5 font-black', style: { position: 'sticky', left: 0, background: 'var(--card-2)', zIndex: 1 } }, 'Total'), ...totCells); })()))));
 
   // ── 4. QuickBooks lines for the picked month — folded away; fix one charge's channel here. ──
   const lines = A ? A.lines.slice().sort((a, b) => (Number(a.day) || 0) - (Number(b.day) || 0)) : [];

@@ -114,7 +114,10 @@ function _pacerStream(s, o) {
         el('span', { style: { width: '9px', height: '9px', background: barColor, flexShrink: 0 }, 'aria-hidden': 'true' }),
         el('span', { class: 'font-bold whitespace-nowrap', style: { fontSize: phone ? '13px' : '14px' } }, s.label),
         s.sub ? el('span', { class: 'text-[11px] truncate', style: { color: 'var(--text-muted)' } }, s.sub) : null),
-      _pacerChip(v)),
+      // "% of goal" sits left of the verdict chip (per Isaac, Nov 18), not under the bar.
+      el('div', { class: 'flex items-center gap-2 shrink-0' },
+        leftTxt ? el('span', { class: 'text-[11px] tabular-nums whitespace-nowrap', style: { color: v.kind === 'none' ? 'var(--accent)' : 'var(--text-muted)', fontWeight: v.kind === 'none' ? '600' : undefined } }, leftTxt) : null,
+        _pacerChip(v))),
     // "$X to go today" / "need $/day" sits up here beside the big number (per Isaac, Nov 16), not under the bar.
     el('div', { class: 'flex items-end justify-between gap-3 min-w-0' },
       el('div', { class: 'flex items-baseline gap-3 flex-wrap min-w-0' },
@@ -129,8 +132,7 @@ function _pacerStream(s, o) {
         ...s.parts.map((pt, i) => el('span', { class: 'inline-flex items-center gap-1.5' },
           el('span', { style: { width: '8px', height: '8px', background: barColor, opacity: i === 0 ? '1' : '.55', flexShrink: 0 }, 'aria-hidden': 'true' }),
           el('span', {}, pt.label + ' '), el('strong', { style: { color: 'var(--text)' } }, _pacerUsd(pt.value)))),
-        el('span', {}, '= ' + s.label.toLowerCase())) : null,
-      leftTxt ? el('div', { class: 'text-[11px] tabular-nums truncate', style: { color: v.kind === 'none' ? 'var(--accent)' : 'var(--text-muted)', fontWeight: v.kind === 'none' ? '600' : undefined } }, leftTxt) : null),
+        el('span', {}, '= ' + s.label.toLowerCase())) : null),
     annual);
 }
 // Side panel (admin dept pacer: offices; team pacer: reps). rows = [{ label, pct, tick, gap, text }]

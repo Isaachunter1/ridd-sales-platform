@@ -136,9 +136,13 @@ function adminRiddcoin() {
         el('button', { class: 'px-2 py-0.5 rounded-lg text-[11px] font-bold border mr-1', style: { borderColor: '#DC2626', color: '#DC2626' }, title: 'Subtract RIDDCOIN', onclick: () => openAdjust(p, -1) }, '−'),
         el('button', { class: 'px-2 py-0.5 rounded-lg text-[11px] font-semibold border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: () => openHistory(p) }, 'History')));
   };
+  // Role filter (per Isaac, Nov 18): everyone can hold RIDDCOIN, so the list is all users; this narrows it by rep type.
+  const kindOf = (p) => { const g = typeof repTypeGroup === 'function' ? repTypeGroup(p) : ''; if (g === 'office') return ((p.rep_type || '') === 'loyalty_rep' || /loyalty/.test(String(p.role || ''))) ? 'loyalty' : 'inside'; return g || 'other'; };
+  const KINDS = [['all', 'All roles'], ['inside', 'Inside Sales'], ['loyalty', 'Loyalty'], ['d2d', 'Sales Reps'], ['tech', 'Technicians'], ['admin', 'Admins'], ['other', 'Other']];
+  const kind = state._rcAdminKind || 'all';
   const tableBody = () => {
     const qq = String(state._rcAdminQ || '').toLowerCase();
-    const rows = profiles.filter(p => showInactive || p.is_active !== false).filter(p => !qq || String(p.full_name || '').toLowerCase().includes(qq)).sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || '')));
+    const rows = profiles.filter(p => showInactive || p.is_active !== false).filter(p => kind === 'all' || kindOf(p) === kind).filter(p => !qq || String(p.full_name || '').toLowerCase().includes(qq)).sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || '')));
     return el('tbody', { id: 'rc-admin-body' }, rows.length ? rows.map(row) : [el('tr', {}, el('td', { class: 'py-6 text-center text-muted-', colspan: 5 }, 'No users match.'))]);
   };
   const search = el('input', { type: 'search', placeholder: 'Find a user…', value: state._rcAdminQ || '', class: 'rounded-lg border px-2.5 py-1 text-[11px]', style: Object.assign({ width: '180px' }, inSt),
@@ -146,7 +150,7 @@ function adminRiddcoin() {
   const setup = _rcSetupCard();
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'card p-4 flex items-center gap-4 flex-wrap' },
-      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'RIDDCOIN'),
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'RIDDCOIN Wallet'),
         el('div', { class: 'text-[11px] text-muted-' }, 'Add or subtract coins for any user; every change needs a reason and lands in that user’s history. Reps see their balance on Sales › Wallet.')),
       el('div', { class: 'ml-auto text-right' },
         el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'In circulation'),
@@ -154,6 +158,8 @@ function adminRiddcoin() {
     setup || el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-2.5 flex items-center gap-2 flex-wrap', style: { borderBottom: '1px solid var(--border)' } },
         search,
+        el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: inSt, onchange: (e) => { state._rcAdminKind = e.target.value; const body = document.getElementById('rc-admin-body'); if (body) body.replaceWith(tableBody()); } },
+          ...KINDS.map(([v, l]) => el('option', { value: v, selected: v === kind }, l + (v === 'all' ? '' : ' (' + profiles.filter(p => (showInactive || p.is_active !== false) && kindOf(p) === v).length + ')')))),
         el('label', { class: 'text-[11px] flex items-center gap-1.5 cursor-pointer', style: { color: 'var(--text-muted)' } },
           el('input', { type: 'checkbox', checked: showInactive, onchange: (e) => { state._rcAdminInactive = e.target.checked; mountApp(); } }), 'Show inactive'),
         el('span', { class: 'ml-auto text-[11px]', style: { color: 'var(--text-muted)' } }, ledger.length + ' ledger entries')),
@@ -161,4 +167,55 @@ function adminRiddcoin() {
         el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, el('tr', {},
           el('th', { class: 'px-3 py-2 text-left' }, 'User'), el('th', { class: 'px-3 py-2 text-left hidden sm:table-cell' }, 'Role'), el('th', { class: 'px-3 py-2 text-right' }, 'Balance'), el('th', { class: 'px-3 py-2 text-left hidden sm:table-cell' }, 'Last change'), el('th', { class: 'px-3 py-2' }, ''))),
         tableBody()))));
+}
+
+// ── RIDDCOIN → Marketing incentives (per Isaac, Nov 18) ────────────────────
+// Coins added to an office rep's wallet (Inside Sales / Loyalty) are an incentive cost in the month they were
+// added: 1 ¤ = $1. Only admin adds count (positive, not a store sell-back, which carries ref_id); spends and
+// subtractions never reduce it — the money was already given. Spend tab → Incentives reads this and CAC follows.
+function rcIncentivesMonth(ym) {
+  const led = state._rcLedger || []; if (!led.length) return { total: 0, n: 0, loaded: !!state._rcLoadedAt };
+  const office = new Set((state.allProfiles || []).filter(dashpOfficeIsRep).map(p => p.id));
+  let total = 0, n = 0; const rows = [];
+  for (const r of led) { if (!(Number(r.delta) > 0) || r.ref_id || !office.has(r.user_id) || String(r.created_at || '').slice(0, 7) !== ym) continue; total += Number(r.delta); n++; rows.push(r); }
+  return { total, n, loaded: true, rows };
+}
+// The log behind the Spend tab's RIDDCOIN row (per Isaac, Nov 18): every add that counted for a month (or the
+// whole year), who got it, what it was for, who gave it, when — so anything that should not be there is easy to
+// spot and reverse in Settings › RIDDCOIN.
+function rcOpenIncentiveLog(year, ym) {
+  const names = Object.fromEntries((state.allProfiles || []).map(p => [p.id, p.full_name || '—']));
+  const months = ym ? [ym] : Array.from({ length: 12 }, (_, i) => year + '-' + String(i + 1).padStart(2, '0'));
+  const rows = months.flatMap(m => rcIncentivesMonth(m).rows || []).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  const total = rows.reduce((a, r) => a + Number(r.delta), 0);
+  const lbl = ym ? new Date(ym + '-15T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : String(year);
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', esc); };
+  const esc = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', esc);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  const th = (t, right) => el('th', { class: 'py-1.5 pr-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)' } }, t);
+  overlay.append(el('div', { class: 'card p-5 w-full', style: { maxWidth: '760px' } },
+    el('div', { class: 'flex items-center justify-between gap-3 mb-3' },
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'RIDDCOIN counted as incentives · ' + lbl),
+        el('div', { class: 'text-xs text-muted-' }, rows.length + ' add' + (rows.length === 1 ? '' : 's') + ' to office reps · ', el('span', { class: 'font-black tabular-nums', style: { color: '#DF643A' } }, _rcCoin(total)), ' = ' + fmt.usd0(total) + ' · subtractions and sell-backs are not in here; fix a wrong add in Settings › RIDDCOIN and it drops out on the next load')),
+      el('button', { class: 'text-2xl leading-none text-muted- px-1', 'aria-label': 'Close', onclick: close }, '×')),
+    el('div', { style: { maxHeight: '62vh', overflowY: 'auto' } },
+      el('table', { class: 'w-full text-xs' },
+        el('thead', {}, el('tr', {}, th('When'), th('Rep'), th('Amount', true), th('Incentive'), th('Added by'))),
+        el('tbody', {},
+          rows.length ? rows.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+            el('td', { class: 'py-1.5 pr-2 whitespace-nowrap text-muted- tabular-nums' }, _rcWhen(r.created_at)),
+            el('td', { class: 'py-1.5 pr-2 font-semibold whitespace-nowrap' }, names[r.user_id] || '—'),
+            el('td', { class: 'py-1.5 pr-2 text-right tabular-nums font-black whitespace-nowrap', style: { color: '#DF643A' } }, '+' + _rcCoin(r.delta)),
+            el('td', { class: 'py-1.5 pr-2' }, r.reason || '—'),
+            el('td', { class: 'py-1.5 text-muted- whitespace-nowrap' }, names[r.created_by] || '—')))
+          : [el('tr', {}, el('td', { class: 'py-6 text-center text-muted-', colspan: 5 }, 'No RIDDCOIN added to office reps in ' + lbl + '.'))])))));
+  document.body.append(overlay);
+}
+// Make sure the ledger is in memory wherever incentives are read (Spend tab, Dashboard tiles, P&L).
+function rcEnsureLedger() {
+  if (!state._rcLoading && (!state._rcLoadedAt || Date.now() - state._rcLoadedAt > 60000) && typeof loadRiddcoin === 'function') {
+    loadRiddcoin().then((fetched) => { if (fetched) { state._mkpMemo = null; state._mklMemo = {}; mountApp(); } });
+  }
 }

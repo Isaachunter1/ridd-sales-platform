@@ -34,6 +34,11 @@ function attrLabel(a) {
 function attrCampaign(a) { if (!a || typeof a !== 'object') return ''; return String(a.utmCampaign || a.utm_campaign || a.campaign || a.campaignName || a.utmCampaignId || a.campaignId || '').trim().slice(0, 160); }
 function attrClick(a) { if (!a || typeof a !== 'object') return ''; return a.gclid ? 'gclid' : a.fbclid ? 'fbclid' : (a.wbraid || a.gbraid) ? 'gclid' : ''; }
 let CAMPAIGN_COLS = true;
+// An office written on the contact as a tag: "office: Atlanta", "Office - Myrtle Beach", "office_destin". Blank = none.
+function officeTag(tags) {
+  for (const t of Array.isArray(tags) ? tags : []) { const m = /^\s*office\s*[:\-_|]\s*(.+?)\s*$/i.exec(String(t || '')); if (m) return m[1].replace(/[_-]+/g, ' ').trim(); }
+  return '';
+}
 function toRow(c, loc) {
   const added = c.dateAdded || c.createdAt || null, upd = c.dateUpdated || added;
   return {
@@ -234,12 +239,14 @@ exports.handler = async (event) => {
     const hhmm = (iso) => { const m = /T(\d{2}:\d{2})/.exec(String(iso || '')); return m ? m[1] : ''; };
     const from = new Date(CUTOFF).toISOString();
     for (let off = 0; off < 1000000; off += 1000) {
-      const { data, error } = await sb.from('ghl_contacts').select('id,date_added,source,first_attr,last_attr,phone10,email,postal_code' + (CAMPAIGN_COLS ? ',first_campaign,last_campaign,first_click,last_click' : ''))
+      const { data, error } = await sb.from('ghl_contacts').select('id,date_added,source,first_attr,last_attr,phone10,email,postal_code,tags' + (CAMPAIGN_COLS ? ',first_campaign,last_campaign,first_click,last_click' : ''))
         .gte('date_added', from).order('date_added', { ascending: true }).order('id', { ascending: true }).range(off, off + 999);
       if (error) throw new Error('read: ' + error.message);
       for (const r of data || []) { rows.push([String(r.date_added || '').slice(0, 10), L(r.source), L(r.first_attr), L(r.last_attr), r.phone10 || '', r.email || '', String(r.postal_code || '').slice(0, 5), hhmm(r.date_added),
         // [8] first campaign, [9] last campaign (label indexes), [10] click id kind 'g' / 'f' / '' (per Isaac, Oct 15).
-        L(r.first_campaign), L(r.last_campaign), (r.last_click || r.first_click) === 'gclid' ? 'g' : (r.last_click || r.first_click) === 'fbclid' ? 'f' : '']);
+        L(r.first_campaign), L(r.last_campaign), (r.last_click || r.first_click) === 'gclid' ? 'g' : (r.last_click || r.first_click) === 'fbclid' ? 'f' : '',
+        // [11] office Pest AI stamps on the contact as a tag "office: Atlanta" / "Office - Atlanta" (per Isaac, Nov 18) — beats the ZIP guess in the app.
+        L(officeTag(r.tags))]);
         if (r.id) byContact.set(String(r.id), [r.phone10 || '', r.email || '', r.last_campaign || r.first_campaign || '']); }
       if (!data || data.length < 1000) break;
     }

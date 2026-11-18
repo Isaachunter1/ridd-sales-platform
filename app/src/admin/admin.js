@@ -193,7 +193,7 @@ function viewAdmin() {
       ['pricing',   'Commissions & payroll', 'Rates by rep type · when sales pay and lock'],
       ['goals',     'Goals',                'Company and rep targets'],
       ['comps',     'Competitions',         'Schedule and calendar'],
-      ['riddcoin',  'RIDDCOIN',             'Balances, add / subtract, history'],
+      ['riddcoin',  'RIDDCOIN Wallet',      'Balances, add / subtract, history'],
     ] },
     { label: 'Rules', items: [
       ['config',    'Configurations',       'Book, churn, services, cancel reasons, Indicators'],
@@ -1041,7 +1041,7 @@ function goalCurveSumCell(pct) { const off = Math.abs(pct - 100) >= 0.005;
   return el('span', { style: off ? { color: '#DC2626' } : {}, title: off ? 'The months add up to ' + pct.toFixed(2) + '% — they need to total 100%' : 'Adds up to 100%' }, pct.toFixed(2) + '%'); }
 function goalCurveInput(curve, m, onDone, cls) {
   return el('input', { type: 'text', inputmode: 'decimal', value: ((Number(curve[m]) || 0) * 100).toFixed(2) + '%',
-    class: cls || 'text-left text-[11px] rounded border px-1.5 py-1 tabular-nums', style: { borderColor: 'var(--border-2)', width: '100%', minWidth: '0' },
+    class: cls || 'text-right text-[11px] rounded border px-1.5 py-1 tabular-nums', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '100%', minWidth: '0' },
     onchange: (e) => { const v = parseFloat(String(e.target.value).replace(/[^0-9.]/g, '')); curve[m] = Math.round(Math.max(0, Math.min(100, Number.isFinite(v) ? v : 0)) * 100) / 10000; onDone(); } });
 }
 
@@ -1100,18 +1100,19 @@ function pacerHoursCard(type) {
   const field = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
   const a = el('input', { type: 'time', value: hhmm(cur[0]), class: 'rounded-lg border px-2 py-1 text-[12px]', style: field });
   const b = el('input', { type: 'time', value: hhmm(cur[1]), class: 'rounded-lg border px-2 py-1 text-[12px]', style: field });
-  const note = el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } });
+  const note = el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } });
   const paint = () => { const x = toH(a.value), y = toH(b.value); note.textContent = (Number.isFinite(x) && Number.isFinite(y) && y > x) ? 'At ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) + ' the pacer expects ' + Math.round(Math.max(0, Math.min(1, ((new Date().getHours() + new Date().getMinutes() / 60) - x) / (y - x))) * 100) + '% of today\u2019s goal in.' : 'End must be after start.'; };
   paint(); a.oninput = paint; b.oninput = paint;
   const save = el('button', { class: 'rounded-lg px-3 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
     onclick: () => { const x = toH(a.value), y = toH(b.value); if (!(Number.isFinite(x) && Number.isFinite(y) && y > x)) { toast('End must be after start', 'error'); return; }
       const r = _adminRules() || {}; const ph = Object.assign({}, r.pacerHours || {}); ph[type] = [Math.round(x * 100) / 100, Math.round(y * 100) / 100]; _setAdminRule('pacerHours', ph);
       toast(label + ' pacer hours saved \u2014 ' + a.value + '\u2013' + b.value, 'success'); mountApp(); } }, 'Save');
-  return el('div', { class: 'card p-5' },
-    el('h3', { class: 'text-base font-bold mb-1' }, 'Pacer hours \u00b7 ' + label),
-    el('div', { class: 'text-[11px] mb-3', style: { color: 'var(--text-muted)' } }, 'The work day the Revenue Pacer\u2019s tick runs on: how much of today\u2019s goal should be in by the current time. Shared by every device.'),
-    el('div', { class: 'flex items-center gap-2 flex-wrap' }, a, el('span', { class: 'text-[12px]' }, 'to'), b, save),
-    el('div', { class: 'mt-2' }, note));
+  // Compact (per Isaac, Nov 18): one row — title and note on the left, the two times and Save on the right.
+  return el('div', { class: 'card p-4 flex items-center gap-4 flex-wrap bar-none' },
+    el('div', { class: 'min-w-0 flex-1' },
+      el('h3', { class: 'text-sm font-bold' }, 'Pacer hours \u00b7 ' + label),
+      el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'The work day the Revenue Pacer paces against. ', note)),
+    el('div', { class: 'flex items-center gap-2 flex-wrap' }, a, el('span', { class: 'text-[12px]' }, 'to'), b, save));
 }
 function adminGoals() {
   // My Goal on top for anyone with a player card (per Isaac, Oct 16 — moved off the Revenue Pacer).
@@ -1188,20 +1189,22 @@ function _adminGoalsBody() {
   const tabs = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
     ...GOAL_DEPTS.map(d => el('button', { class: 'px-3 py-1.5 text-[11px] font-bold transition', style: d.id === dept.id ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._goalDept = d.id; mountApp(); } }, d.label)));
 
+  // Cleaned up (per Isaac, Nov 18): targets first, the quota grid in two labelled sections, pacer hours last and small.
   return el('div', { class: 'flex flex-col gap-5' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' }, el('h2', { class: 'text-xl font-bold' }, 'Goals'), tabs),
-    pacerHoursCard('office'),
 
-    // ── Annual targets + team size ──
+    // ── Annual targets ──
     el('div', { class: 'card p-5' },
-      el('h3', { class: 'text-base font-bold mb-4' }, 'Annual targets & team'),
+      el('div', { class: 'mb-4' }, el('h3', { class: 'text-base font-bold' }, 'Annual targets · ' + new Date().getFullYear()),
+        el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Type the two lines; Total is their sum. Months and quarters below follow each line’s seasonal curve.')),
       el('div', { class: 'grid grid-cols-1 sm:grid-cols-3 gap-4' },
-        goalTargetCard('Total Revenue', g.amount, ytd.total, null, true),
         goalTargetCard(dept.lines.a, g.new_amount, ytd.new, (val) => reseed('new', val)),
-        goalTargetCard(dept.lines.b, g.renewal_amount, ytd.renewal, (val) => reseed('renewal', val)))),
+        goalTargetCard(dept.lines.b, g.renewal_amount, ytd.renewal, (val) => reseed('renewal', val)),
+        goalTargetCard('Total Revenue', g.amount, ytd.total, null, true))),
 
-    // ── Quota grid: monthly allocation + quarterly rollup in one table (per Isaac, Sep 23) ──
+    // ── Quota grid: monthly allocation + quarterly rollup (per Isaac, Sep 23) ──
     goalMonthlyCard(g, persist, dept),
+    pacerHoursCard('office'),
   );
 }
 
@@ -1255,12 +1258,13 @@ function goalMonthlyCard(g, persist, dept) {
   const yrA = [0, 1, 2, 3].reduce((a, q) => a + repsA(q), 0) / 4, yrB = [0, 1, 2, 3].reduce((a, q) => a + repsB(q), 0) / 4;   // year /rep = avg head count
   const repCell = (arr, q) => el('input', {
     type: 'number', min: '1', step: '1', value: Math.max(1, Number(arr[q]) || 1), title: 'Reps on the floor this quarter',
-    class: 'text-left text-[11px] rounded border px-1.5 py-0.5 tabular-nums', style: { borderColor: 'var(--border-2)', width: '56px' },
+    class: 'text-right text-[11px] rounded border px-1.5 py-1 tabular-nums', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '56px' },
     onchange: (e) => { arr[q] = Math.max(1, parseInt(e.target.value, 10) || 1); persist(); mountApp(); },
   });
   return el('div', { class: 'card p-4' },
     el('div', { class: 'flex items-center justify-between flex-wrap gap-2 mb-3' },
-      el('h3', { class: 'text-base font-bold' }, dept.label + ' Quota'),
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, dept.label + ' quota'),
+        el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Type each month’s share of the year (the boxes) and the reps on the floor each quarter; every dollar figure follows from the annual targets above.')),
       phone ? el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
         onchange: (e) => { state._goalMonth = Number(e.target.value); mountApp(); } },
         ...M.map((lbl, m) => el('option', { value: m, selected: m === state._goalMonth }, lbl + (m === curM ? ' (current)' : '')))) : null,
@@ -1277,18 +1281,26 @@ function goalMonthlyCard(g, persist, dept) {
             ...months.map((m) => el('th', { class: 'text-left px-1.5 py-2 font-semibold whitespace-nowrap', style: m === curM ? { color: 'var(--accent)' } : {} }, M[m] + (m === curM ? ' ·' : ''))),
             el('th', { class: 'text-left px-2 py-2 font-semibold whitespace-nowrap', style: { borderLeft: '2px solid var(--border)' } }, 'Year'))),
         el('tbody', {},
-          ...[
-            [N.curveA || (lineA + ' curve %'), (m) => curveCell(g.curve_new, m),                          sumCell(curveSum(g.curve_new)), false],
-            [N.revA || lineA, (m) => usd(g.monthly_new[m] || 0),                         usd(totNew),            true],
-            [N.perA || (lineA + ' /rep'), (m) => usd((g.monthly_new[m] || 0) / repsA(qOf(m))),         usd(totNew / yrA),      false],
-            [N.curveB || (lineB + ' curve %'), (m) => curveCell(g.curve_renewal, m),                    sumCell(curveSum(g.curve_renewal)), false],
-            [N.revB || lineB, (m) => usd(g.monthly_renewal[m] || 0),                     usd(totRen),            true],
-            [N.perB || (lineB + ' /rep'), (m) => usd((g.monthly_renewal[m] || 0) / repsB(qOf(m))),     usd(totRen / yrB),      false],
-            [N.total || 'Total', (m) => usd((g.monthly_new[m] || 0) + (g.monthly_renewal[m] || 0)), usd(totNew + totRen), true],
-          ].map(([label, cellOf, yearVal, bold], ri) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: label === 'Total' ? 'var(--card-2)' : 'transparent', borderTop: label === 'Total' ? '2px solid var(--border)' : undefined } },
-            el('td', { class: 'px-2 py-1.5 text-left font-semibold', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, label),
-            ...months.map((m) => el('td', { class: 'px-1.5 py-1.5 text-left tabular-nums whitespace-nowrap' + (bold && typeof cellOf(m) === 'string' ? ' font-semibold' : ''), style: Object.assign({ overflow: 'hidden' }, m === curM ? { background: 'rgba(223,100,58,.06)' } : {}) }, cellOf(m))),
-            el('td', { class: 'px-2 py-1.5 text-left tabular-nums font-bold whitespace-nowrap', style: { borderLeft: '2px solid var(--border)', overflow: 'hidden' } }, yearVal))),
+          // Grouped rows with short labels (per Isaac, Nov 18): a section line per revenue line, then curve / revenue / per rep.
+          ...(() => {
+            const groupA = N.curveA ? 'Inside Sales' : lineA, groupB = N.curveB ? 'Loyalty' : lineB;
+            const sect = (t) => el('tr', { style: { background: 'var(--card-2)' } }, el('td', { colspan: String(months.length + 2), class: 'px-2 py-1 text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, t));
+            const row = ([label, cellOf, yearVal, kind]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: kind === 'total' ? 'var(--card-2)' : 'transparent', borderTop: kind === 'total' ? '2px solid var(--text)' : undefined } },
+              el('td', { class: 'px-2 py-1.5 text-left' + (kind === 'total' ? ' font-black' : kind === 'derived' ? ' font-medium' : ' font-semibold'), style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: kind === 'derived' ? 'var(--text-muted)' : 'var(--text)' } }, label),
+              ...months.map((m) => el('td', { class: 'px-1.5 py-1.5 text-left tabular-nums whitespace-nowrap' + (kind === 'total' ? ' font-bold' : ''), style: Object.assign({ overflow: 'hidden', color: kind === 'derived' ? 'var(--text-muted)' : 'var(--text)' }, m === curM ? { background: 'rgba(223,100,58,.06)' } : {}) }, cellOf(m))),
+              el('td', { class: 'px-2 py-1.5 text-left tabular-nums font-bold whitespace-nowrap', style: { borderLeft: '2px solid var(--border)', overflow: 'hidden' } }, yearVal));
+            return [
+              sect(groupA),
+              row(['Seasonal curve', (m) => curveCell(g.curve_new, m), sumCell(curveSum(g.curve_new)), 'input']),
+              row(['Revenue', (m) => usd(g.monthly_new[m] || 0), usd(totNew), 'value']),
+              row(['Per rep', (m) => usd((g.monthly_new[m] || 0) / repsA(qOf(m))), usd(totNew / yrA), 'derived']),
+              sect(groupB),
+              row(['Seasonal curve', (m) => curveCell(g.curve_renewal, m), sumCell(curveSum(g.curve_renewal)), 'input']),
+              row(['Revenue', (m) => usd(g.monthly_renewal[m] || 0), usd(totRen), 'value']),
+              row(['Per rep', (m) => usd((g.monthly_renewal[m] || 0) / repsB(qOf(m))), usd(totRen / yrB), 'derived']),
+              row(['Total revenue', (m) => usd((g.monthly_new[m] || 0) + (g.monthly_renewal[m] || 0)), usd(totNew + totRen), 'total']),
+            ];
+          })(),
           // ── Quarterly rollup — each quarter cell spans its three months (3× box) ──
           el('tr', { style: { background: 'var(--card-2)', borderTop: '2px solid var(--border)' } },
             el('th', { class: 'text-left px-2 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)' } }, 'Quarterly'),
@@ -1298,20 +1310,25 @@ function goalMonthlyCard(g, persist, dept) {
             const qsum = (arr, q) => (arr[q * 3] || 0) + (arr[q * 3 + 1] || 0) + (arr[q * 3 + 2] || 0);
             const qn = [0, 1, 2, 3].map(q => qsum(g.monthly_new, q)), qr = [0, 1, 2, 3].map(q => qsum(g.monthly_renewal, q));
             const pctOf = (a, t) => (t > 0 ? (a / t * 100).toFixed(1) : '0.0') + '%';   // = the three months' curve % added up
+            const groupA = N.curveA ? 'Inside Sales' : lineA, groupB = N.curveB ? 'Loyalty' : lineB;
+            const qpct = (curve, q) => (((Number(curve[q * 3]) || 0) + (Number(curve[q * 3 + 1]) || 0) + (Number(curve[q * 3 + 2]) || 0)) * 100).toFixed(1) + '%';
+            const sect = (t) => el('tr', { style: { background: 'var(--card-2)' } }, el('td', { colspan: String((phone ? 1 : 12) + 2), class: 'px-2 py-1 text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, t));
             const rows = [
-              [N.qPctA || (lineA + ' quarterly %'), q => (((Number(g.curve_new[q * 3]) || 0) + (Number(g.curve_new[q * 3 + 1]) || 0) + (Number(g.curve_new[q * 3 + 2]) || 0)) * 100).toFixed(2) + '%', sumCell(curveSum(g.curve_new)), false],
-              [N.qA || (lineA + ' quarterly'), q => usd(qn[q]), usd(totNew), true],
-              [N.repsA || dept.reps.a, q => repCell(g.is_reps_q, q), (Math.round(yrA * 10) / 10) + ' avg', false],
-              [N.quotaA || (lineA + ' /rep quota'), q => usd(qn[q] / repsA(q)), usd(totNew / yrA), true],
-              [N.qPctB || (lineB + ' quarterly %'), q => (((Number(g.curve_renewal[q * 3]) || 0) + (Number(g.curve_renewal[q * 3 + 1]) || 0) + (Number(g.curve_renewal[q * 3 + 2]) || 0)) * 100).toFixed(2) + '%', sumCell(curveSum(g.curve_renewal)), false],
-              [N.qB || (lineB + ' quarterly'), q => usd(qr[q]), usd(totRen), true],
-              [N.repsB || dept.reps.b, q => repCell(g.loyalty_reps_q, q), (Math.round(yrB * 10) / 10) + ' avg', false],
-              [N.quotaB || (lineB + ' /rep quota'), q => usd(qr[q] / repsB(q)), usd(totRen / yrB), true],
-              [N.qTotal || 'Total quarterly', q => usd(qn[q] + qr[q]), usd(totNew + totRen), true],
+              ['sect', groupA],
+              ['Share of year', q => qpct(g.curve_new, q), sumCell(curveSum(g.curve_new)), 'derived'],
+              ['Revenue', q => usd(qn[q]), usd(totNew), 'value'],
+              ['Reps on the floor', q => repCell(g.is_reps_q, q), (Math.round(yrA * 10) / 10) + ' avg', 'input'],
+              ['Quota per rep', q => usd(qn[q] / repsA(q)), usd(totNew / yrA), 'quota'],
+              ['sect', groupB],
+              ['Share of year', q => qpct(g.curve_renewal, q), sumCell(curveSum(g.curve_renewal)), 'derived'],
+              ['Revenue', q => usd(qr[q]), usd(totRen), 'value'],
+              ['Reps on the floor', q => repCell(g.loyalty_reps_q, q), (Math.round(yrB * 10) / 10) + ' avg', 'input'],
+              ['Quota per rep', q => usd(qr[q] / repsB(q)), usd(totRen / yrB), 'quota'],
+              ['Total revenue', q => usd(qn[q] + qr[q]), usd(totNew + totRen), 'total'],
             ];
-            return rows.map(([label, cellOf, yearVal, bold]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: label === 'Total quarterly' ? 'var(--card-2)' : (/\/rep/.test(label) ? 'rgba(223,100,58,.06)' : 'transparent'), borderTop: label === 'Total quarterly' ? '2px solid var(--border)' : undefined } },
-              el('td', { class: 'px-2 py-1.5 text-left font-semibold', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, label),
-              ...quarters.map(q => el('td', { colspan: phone ? '1' : '3', class: 'px-1.5 py-1.5 text-left tabular-nums whitespace-nowrap' + (bold ? ' font-semibold' : ''), style: Math.floor(curM / 3) === q ? { background: 'rgba(223,100,58,.06)' } : {} }, cellOf(q))),
+            return rows.map(([label, cellOf, yearVal, kind]) => label === 'sect' ? sect(cellOf) : el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: kind === 'total' ? 'var(--card-2)' : 'transparent', borderTop: kind === 'total' ? '2px solid var(--text)' : undefined } },
+              el('td', { class: 'px-2 py-1.5 text-left' + (kind === 'total' || kind === 'quota' ? ' font-black' : kind === 'derived' ? ' font-medium' : ' font-semibold'), style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: kind === 'derived' ? 'var(--text-muted)' : kind === 'quota' ? 'var(--accent)' : 'var(--text)' } }, label),
+              ...quarters.map(q => el('td', { colspan: phone ? '1' : '3', class: 'px-1.5 py-1.5 text-left tabular-nums whitespace-nowrap' + (kind === 'total' || kind === 'quota' ? ' font-bold' : ''), style: Object.assign({ color: kind === 'derived' ? 'var(--text-muted)' : kind === 'quota' ? 'var(--accent)' : 'var(--text)' }, Math.floor(curM / 3) === q ? { background: 'rgba(223,100,58,.06)' } : {}) }, cellOf(q))),
               el('td', { class: 'px-2 py-1.5 text-left tabular-nums font-bold whitespace-nowrap', style: { borderLeft: '2px solid var(--border)' } }, yearVal)));
           })()))));
 }
@@ -1319,28 +1336,26 @@ function goalMonthlyCard(g, persist, dept) {
 // Helper card for the Goals section — shows target, YTD actual, and a mini progress bar
 function goalTargetCard(label, target, actual, onInput, readOnly = false) {
   const pct = target > 0 ? Math.min(1, actual / target) : 0;
-  return el('div', { class: 'card-2 rounded-xl border border- p-4' },
-    el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' }, label),
+  const withCommas = (n) => Math.round(Number(n) || 0).toLocaleString('en-US');
+  return el('div', { class: 'card-2 rounded-xl border border- p-4 flex flex-col gap-2' },
+    el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, label + (readOnly ? '' : ' · annual')),
     readOnly
-      ? el('div', { class: 'text-2xl font-black tabular-nums mb-1' }, fmt.usd0(target))
-      : el('div', { class: 'relative mb-1' },
-          el('span', { class: 'absolute left-3 top-1/2 -translate-y-1/2 text-muted- text-sm' }, '$'),
+      ? el('div', { class: 'text-2xl font-black tabular-nums', style: { padding: '6px 0' } }, fmt.usd0(target))
+      : el('div', { class: 'relative' },
+          el('span', { class: 'absolute left-3 top-1/2 -translate-y-1/2 text-muted- text-base font-bold' }, '$'),
           el('input', {
-            type: 'text',
-            inputmode: 'numeric',
-            class: 'w-full rounded-lg border pl-7 pr-3 py-2 text-sm font-bold text-left',
-            value: target,
-            onchange: (e) => onInput(parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0),
-          }),
-        ),
-    el('div', { class: 'goal-track mb-1', style: { height: '6px' } },
-      el('div', { class: 'goal-fill', style: { width: (pct * 100).toFixed(1) + '%' } }),
-    ),
-    el('div', { class: 'flex items-center gap-2 text-[10px]' },
-      el('span', { class: 'text-muted-' }, fmt.usd0(actual) + ' YTD'),
-      el('span', { class: 'font-semibold', style: { color: 'var(--accent)' } }, fmt.pct(pct)),
-    ),
-  );
+            type: 'text', inputmode: 'numeric', value: withCommas(target), title: 'Annual target — months and quarters re-spread on this line’s curve',
+            class: 'w-full rounded-lg border pl-7 pr-3 py-2 text-xl font-black text-left tabular-nums',
+            style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+            onfocus: (e) => { e.target.value = String(Math.round(Number(String(e.target.value).replace(/[^0-9.]/g, '')) || 0)); e.target.select(); },
+            onblur: (e) => { e.target.value = withCommas(String(e.target.value).replace(/[^0-9.]/g, '')); },
+            onchange: (e) => onInput(parseFloat(String(e.target.value).replace(/[^0-9.]/g, '')) || 0),
+          })),
+    el('div', { class: 'goal-track', style: { height: '6px' } },
+      el('div', { class: 'goal-fill', style: { width: (pct * 100).toFixed(1) + '%' } })),
+    el('div', { class: 'flex items-center justify-between text-[11px] tabular-nums' },
+      el('span', { class: 'text-muted-' }, fmt.usd0(actual) + ' so far this year'),
+      el('span', { class: 'font-bold', style: { color: 'var(--accent)' } }, fmt.pct(pct) + ' of goal')));
 }
 
 // (quarterlyMilestonesCard removed — unreferenced; settings audit, Sep 30)
