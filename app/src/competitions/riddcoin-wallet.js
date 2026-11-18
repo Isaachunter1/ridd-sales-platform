@@ -170,9 +170,42 @@ function adminRiddcoin() {
 function rcIncentivesMonth(ym) {
   const led = state._rcLedger || []; if (!led.length) return { total: 0, n: 0, loaded: !!state._rcLoadedAt };
   const office = new Set((state.allProfiles || []).filter(dashpOfficeIsRep).map(p => p.id));
-  let total = 0, n = 0;
-  for (const r of led) { if (!(Number(r.delta) > 0) || r.ref_id || !office.has(r.user_id) || String(r.created_at || '').slice(0, 7) !== ym) continue; total += Number(r.delta); n++; }
-  return { total, n, loaded: true };
+  let total = 0, n = 0; const rows = [];
+  for (const r of led) { if (!(Number(r.delta) > 0) || r.ref_id || !office.has(r.user_id) || String(r.created_at || '').slice(0, 7) !== ym) continue; total += Number(r.delta); n++; rows.push(r); }
+  return { total, n, loaded: true, rows };
+}
+// The log behind the Spend tab's RIDDCOIN row (per Isaac, Nov 18): every add that counted for a month (or the
+// whole year), who got it, what it was for, who gave it, when — so anything that should not be there is easy to
+// spot and reverse in Settings › RIDDCOIN.
+function rcOpenIncentiveLog(year, ym) {
+  const names = Object.fromEntries((state.allProfiles || []).map(p => [p.id, p.full_name || '—']));
+  const months = ym ? [ym] : Array.from({ length: 12 }, (_, i) => year + '-' + String(i + 1).padStart(2, '0'));
+  const rows = months.flatMap(m => rcIncentivesMonth(m).rows || []).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  const total = rows.reduce((a, r) => a + Number(r.delta), 0);
+  const lbl = ym ? new Date(ym + '-15T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : String(year);
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', esc); };
+  const esc = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', esc);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  const th = (t, right) => el('th', { class: 'py-1.5 pr-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)' } }, t);
+  overlay.append(el('div', { class: 'card p-5 w-full', style: { maxWidth: '760px' } },
+    el('div', { class: 'flex items-center justify-between gap-3 mb-3' },
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'RIDDCOIN counted as incentives · ' + lbl),
+        el('div', { class: 'text-xs text-muted-' }, rows.length + ' add' + (rows.length === 1 ? '' : 's') + ' to office reps · ', el('span', { class: 'font-black tabular-nums', style: { color: '#DF643A' } }, _rcCoin(total)), ' = ' + fmt.usd0(total) + ' · subtractions and sell-backs are not in here; fix a wrong add in Settings › RIDDCOIN and it drops out on the next load')),
+      el('button', { class: 'text-2xl leading-none text-muted- px-1', 'aria-label': 'Close', onclick: close }, '×')),
+    el('div', { style: { maxHeight: '62vh', overflowY: 'auto' } },
+      el('table', { class: 'w-full text-xs' },
+        el('thead', {}, el('tr', {}, th('When'), th('Rep'), th('Amount', true), th('Incentive'), th('Added by'))),
+        el('tbody', {},
+          rows.length ? rows.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+            el('td', { class: 'py-1.5 pr-2 whitespace-nowrap text-muted- tabular-nums' }, _rcWhen(r.created_at)),
+            el('td', { class: 'py-1.5 pr-2 font-semibold whitespace-nowrap' }, names[r.user_id] || '—'),
+            el('td', { class: 'py-1.5 pr-2 text-right tabular-nums font-black whitespace-nowrap', style: { color: '#DF643A' } }, '+' + _rcCoin(r.delta)),
+            el('td', { class: 'py-1.5 pr-2' }, r.reason || '—'),
+            el('td', { class: 'py-1.5 text-muted- whitespace-nowrap' }, names[r.created_by] || '—')))
+          : [el('tr', {}, el('td', { class: 'py-6 text-center text-muted-', colspan: 5 }, 'No RIDDCOIN added to office reps in ' + lbl + '.'))])))));
+  document.body.append(overlay);
 }
 // Make sure the ledger is in memory wherever incentives are read (Spend tab, Dashboard tiles, P&L).
 function rcEnsureLedger() {
