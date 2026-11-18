@@ -102,10 +102,38 @@ function mklMonth(ym, cap) {
     wages = (W.total || 0) * _laborF; incentives = (I.total || 0) * _laborF;
     for (const b of new Set([...Object.keys(W.by), ...Object.keys(I.by)])) { const w = (Number(W.by[b]) || 0) * _laborF, inc = (Number(I.by[b]) || 0) * _laborF, v = w + inc; if (!v) continue; hasLabor = true; labor += v; const c = cell(br, TC(b)); c.labor = (c.labor || 0) + v; c.wages = (c.wages || 0) + w; c.inc = (c.inc || 0) + inc; }
   } catch (e) { /* no store yet */ }
-  const v = { ym, cap, A, spend, spendWaiting, spendUnassigned, spendLines, s, svc, cv, sales, leads, br, ch, x, labor, wages, incentives, hasLabor, hasSpend: !!A, hasLeads: !!AL, hasSubs: subs.length > 0 };
+  // Per-sale link to a GoHighLevel lead (per Isaac, Nov 18): the latest opportunity on the account's phone or email on
+  // or before the sold date (back to 180 days). A sale with none is "booked without a lead" — a lead that booked under
+  // another name / phone / email, or a sale with no opportunity at all. The grid's red reads from this, not from a
+  // cell happening to have zero leads. Leads from any month count as the link; only the sale has to be in this month.
+  let linked = 0; const unlinked = [];
+  if (AL && sales.length) {
+    const idx = _mklLeadIndex(AL);
+    const p10 = (v) => (typeof _chPhone10 === 'function') ? _chPhone10(v) : String(v || '').replace(/\D/g, '').slice(-10);
+    for (const r of sales) {
+      const sold = String(r.sold_date || '').slice(0, 10), floor = _mklShiftDay(sold, -180), ceil = _mklShiftDay(sold, 1);
+      const cands = [].concat(idx.p.get(p10(r.phone)) || [], idx.e.get(String(r.email || '').trim().toLowerCase()) || []);
+      let best = null; for (const l of cands) if (l.d >= floor && l.d <= ceil && (!best || l.d > best.d)) best = l;
+      r._mklLead = best || null;
+      if (best) linked++; else unlinked.push(r);
+      const xc = xcell(TC(r.office_name || 'No branch'), _mklChannelOfSource(reportingSourceOf(r)));
+      if (best) xc.linked = (xc.linked || 0) + 1; else (xc.unlinked || (xc.unlinked = [])).push(r);
+    }
+  }
+  const v = { ym, cap, A, spend, spendWaiting, spendUnassigned, spendLines, s, svc, cv, sales, leads, linked: AL ? linked : null, unlinked, br, ch, x, labor, wages, incentives, hasLabor, hasSpend: !!A, hasLeads: !!AL, hasSubs: subs.length > 0 };
   M[mk] = { sig, subs, al: AL, v };
   return v;
 }
+
+// Leads by phone / email (every month), built once per lead set.
+function _mklLeadIndex(AL) {
+  if (_mklLeadIndex._m && _mklLeadIndex._m.src === AL.leads) return _mklLeadIndex._m.idx;
+  const p = new Map(), e = new Map();
+  for (const l of AL.leads) { if (l.p) (p.get(l.p) || p.set(l.p, []).get(l.p)).push(l); if (l.e) (e.get(l.e) || e.set(l.e, []).get(l.e)).push(l); }
+  _mklLeadIndex._m = { src: AL.leads, idx: { p, e } };
+  return _mklLeadIndex._m.idx;
+}
+function _mklShiftDay(iso, days) { const d = new Date((iso || '1970-01-01') + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10); }
 // Spend vs new revenue, last 12 months ending at ym — totals only (cheap).
 function mklSeries(ym) {
   const out = [];

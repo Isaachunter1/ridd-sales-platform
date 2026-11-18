@@ -119,7 +119,7 @@ function mkpAllLeads() {
     const typeBySource = /message lead/i.test(srcLabel) ? 'form' : /local services|\blsa\b|service direct/i.test(srcLabel) ? 'call' : /voice ai/i.test(srcLabel) ? 'ai' : /pest ?booker/i.test(srcLabel) ? 'form' : '';
     leads.push({ d: o[0], t: o[4] || '', p: o[2] || '', e: o[3] || '', prov, label: srcLabel, group: mkpGroupOf(prov), paid: paid.has(prov),
       campaign: o[7] != null && o[7] >= 0 ? lab[o[7]] : '', status: String(o[5] || '').toLowerCase(), stage, firstStage,
-      type: typeOf(firstStage) || typeOf(stage) || typeBySource, typeSure: !!typeOf(firstStage), market: c ? mkpMarketOf(zipOff.get(c[6])) : '' });
+      type: typeOf(firstStage) || typeOf(stage) || typeBySource, typeSure: !!typeOf(firstStage), market: c ? (c[11] >= 0 && lab[c[11]] ? mkpMarketOf(lab[c[11]]) : mkpMarketOf(zipOff.get(c[6]))) : '' });   // office tag from Pest AI first, ZIP second (per Isaac, Nov 18)
   }
   const out = { leads, raw, notLead };
   mkpAllLeads._m = { src: G.opps, sig, zip: zipOff, out };
