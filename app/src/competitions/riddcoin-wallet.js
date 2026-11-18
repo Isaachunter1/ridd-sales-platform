@@ -162,3 +162,21 @@ function adminRiddcoin() {
           el('th', { class: 'px-3 py-2 text-left' }, 'User'), el('th', { class: 'px-3 py-2 text-left hidden sm:table-cell' }, 'Role'), el('th', { class: 'px-3 py-2 text-right' }, 'Balance'), el('th', { class: 'px-3 py-2 text-left hidden sm:table-cell' }, 'Last change'), el('th', { class: 'px-3 py-2' }, ''))),
         tableBody()))));
 }
+
+// ── RIDDCOIN → Marketing incentives (per Isaac, Nov 18) ────────────────────
+// Coins added to an office rep's wallet (Inside Sales / Loyalty) are an incentive cost in the month they were
+// added: 1 ¤ = $1. Only admin adds count (positive, not a store sell-back, which carries ref_id); spends and
+// subtractions never reduce it — the money was already given. Spend tab → Incentives reads this and CAC follows.
+function rcIncentivesMonth(ym) {
+  const led = state._rcLedger || []; if (!led.length) return { total: 0, n: 0, loaded: !!state._rcLoadedAt };
+  const office = new Set((state.allProfiles || []).filter(dashpOfficeIsRep).map(p => p.id));
+  let total = 0, n = 0;
+  for (const r of led) { if (!(Number(r.delta) > 0) || r.ref_id || !office.has(r.user_id) || String(r.created_at || '').slice(0, 7) !== ym) continue; total += Number(r.delta); n++; }
+  return { total, n, loaded: true };
+}
+// Make sure the ledger is in memory wherever incentives are read (Spend tab, Dashboard tiles, P&L).
+function rcEnsureLedger() {
+  if (!state._rcLoading && (!state._rcLoadedAt || Date.now() - state._rcLoadedAt > 60000) && typeof loadRiddcoin === 'function') {
+    loadRiddcoin().then((fetched) => { if (fetched) { state._mkpMemo = null; state._mklMemo = {}; mountApp(); } });
+  }
+}

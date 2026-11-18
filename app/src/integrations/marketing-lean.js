@@ -145,6 +145,7 @@ function mktgLeanView() { return perfT('lean:view', () => _mktgLeanView()); }
 function _mktgLeanView() {
   if (typeof reportingLoadQboSpend === 'function') reportingLoadQboSpend();
   if (typeof ghlLoadLeads === 'function' && state._ghl === undefined) ghlLoadLeads();
+  if (typeof rcEnsureLedger === 'function') rcEnsureLedger();   // RIDDCOIN adds are incentives (per Isaac, Nov 18)
   const F = mklState(); const ym = F.ym;
   // Compare to (per Isaac, Nov 11 — the key-metrics tile look): the previous month, or the same month last year.
   const cmp = F.cmp === 'year' ? 'year' : F.cmp === 'none' ? 'none' : 'prev';   // No change hides the compare line on the tiles (per Isaac, Nov 16)

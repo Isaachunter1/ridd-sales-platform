@@ -813,7 +813,9 @@ function mktgWagesMonth(ym, branches) {
 // (m.incentivesCo[ym]), spread to offices by each office's share of the month's new revenue — same as wages. A month
 // with only Nov 9's by-office incentive entries keeps those. Returns { total, by }.
 function mktgIncentivesMonth(ym, branches) {
-  const m = _mktgStore(); const total = Number((m.incentivesCo || {})[ym]) || 0; const by = {};
+  // Typed incentives + RIDDCOIN added to office reps' wallets that month (1 ¤ = $1, per Isaac, Nov 18 — rcIncentivesMonth).
+  const m = _mktgStore(); const rc = (typeof rcIncentivesMonth === 'function') ? rcIncentivesMonth(ym).total : 0;
+  const total = (Number((m.incentivesCo || {})[ym]) || 0) + rc; const by = {};
   if (total > 0) {
     const y = Number(ym.slice(0, 4)), i = Number(ym.slice(5, 7)) - 1, a = _mktgActuals(y);
     const bs = (branches && branches.length ? branches : Object.keys(a.branch || {}));
