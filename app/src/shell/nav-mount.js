@@ -1269,7 +1269,9 @@ function _mountAppRender() {
           // status words: a stale time says it's down, the colour backs it up,
           // and the detail is a tap away. Falls back to the sync time only
           // when the data-as-of stamp isn't available yet.
-          (() => { const d = (typeof crmDataAsOfStr === 'function') ? crmDataAsOfStr(false) : ''; return [_phone ? 'Sync ' : 'Last Sync: ', el('span', { class: 'font-semibold', style: { color: c || 'var(--text)' } }, d || txt)]; })()) : null;
+          (() => { const d = (typeof crmDataAsOfStr === 'function') ? crmDataAsOfStr(false) : ''; return [_phone ? 'Sync ' : 'Last Sync: ', el('span', { class: 'font-semibold', style: { color: c || 'var(--text)' } }, d || txt),
+            // A newer snapshot downloading behind the rows on screen (per Isaac, Nov 18) — say so instead of blanking the tab.
+            (state.view === 'reporting' && state._reportingRefreshing) ? el('span', { class: 'ml-2 text-[10px] font-semibold', style: { color: 'var(--text-muted)' }, title: 'The tables show the previous snapshot while the newest one downloads; they refresh on their own when it lands.' }, '\u21bb updating\u2026') : null]; })()) : null;
       })();
   const pageHeader = el('header', {
     class: 'page-header px-4 sm:px-6 py-4',
