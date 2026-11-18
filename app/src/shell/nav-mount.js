@@ -39,7 +39,7 @@ function riddSpiderMark(px) { const B = _brand(); if (B.MARK_SVG && Array.isArra
 const INSIDE_SALES_TABS = [
   ['dashboard',    'Dashboard'],
   ['sales',        'Sales'],
-  ['pay',          'Pay'],
+  // 'pay' moved to the Commissions tab → Office Staff (per Isaac, Nov 18); the view key still resolves (redirect below).
   ['scorecards',   'Scorecards'],
   ['calendar',     'Calendar'],
   ['wallet',       'Wallet'],       // RIDDCOIN balance + history (per Isaac, Nov 16)
@@ -1486,7 +1486,7 @@ function _mountAppRender() {
   const view = {
     dashboard:    viewWorldDashboard,     // Indicators preset to Office Staff (+ revenue-goal pacer)
     sales:        viewSales,
-    pay:          viewPay,
+    pay:          () => { const S = (typeof dashpStore === 'function') ? dashpStore() : null; if (S && typeof dashpOfficeList === 'function') { S.tab = 'office'; S.detail = null; state.view = 'dashp'; try { history.replaceState(null, '', '#dashp'); } catch (e) {} return mountApp(); } return viewPay(); },   // Pay lives on Commissions → Office Staff now (per Isaac, Nov 18)
     calendar:     viewCalendar,
     competitions: viewCompetitions,
     // Hall of Fame retired (per Isaac, Oct 13 — the Records table covers it). Old links land on that world's dashboard.

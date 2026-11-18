@@ -7,7 +7,7 @@ function viewReporting() {
   if (!_adminHere && !userCan('view_reporting')) {
     return el('div', { class: 'card p-6 text-center text-sm text-muted-' }, 'Reporting is an admin-only tab.');
   }
-  if (!state.reportingSubTab) state.reportingSubTab = 'overview';
+  if (!state.reportingSubTab || state.reportingSubTab === 'ops') state.reportingSubTab = 'overview';   // Operations hidden (per Isaac, Nov 18)
   // A non-admin granted Reporting (Settings → Permissions) gets the read-only
   // tabs; Marketing / P&L (spend, QuickBooks) and Configurations / Uploads stay admin.
   if (!_adminHere && (devSampleData() ? ['config', 'uploads'] : ['marketing', 'putis', 'config', 'uploads']).includes(state.reportingSubTab)) state.reportingSubTab = 'overview';

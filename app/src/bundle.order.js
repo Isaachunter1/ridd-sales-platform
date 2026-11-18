@@ -90,6 +90,7 @@ module.exports = [
   'dashp/ui.js',
   'dashp/technicians.js',
   'dashp/d2d.js',
+  'dashp/office.js',
   'dashp/module.js',
   'reporting/renewal-cohorts.js',
   'reporting/retention-insights.js',
