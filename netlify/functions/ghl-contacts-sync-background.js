@@ -70,10 +70,18 @@ async function oppSearch(headers, qs) {
     return { ok: r.ok, status: r.status, j, txt };
   } finally { clearTimeout(t); }
 }
-function oppRow(o) {
+function oppRow(o, prev) {
   const c = (o.contact && typeof o.contact === 'object') ? o.contact : {};
   // [6] = pipeline stage id (per Isaac, Oct 6: the Demand drill shows where each lead sits in GoHighLevel).
-  return [o.createdAt || o.dateAdded || '', String(o.source == null ? '' : o.source).trim(), phone10(c.phone), String(c.email || '').trim().toLowerCase(), String(o.status || ''), String(o.contactId || c.id || ''), String(o.pipelineStageId || '')];
+  // [7] = the FIRST stage this opportunity was seen in (per Isaac, Nov 18 — calls vs forms vs AI calls by hour):
+  //   every opportunity lands in New Lead - Calls / New Lead - Forms / AI Calls first and reps move it on from
+  //   there, so the current stage loses how it arrived. Kept from the earlier stored row once set. On first sight,
+  //   the current stage counts as the entry stage only if GoHighLevel says the stage has not changed since the
+  //   opportunity was created (lastStageChangeAt within a minute of createdAt, or absent); otherwise '' = unknown.
+  const created = Date.parse(o.createdAt || o.dateAdded || '') || 0, changed = Date.parse(o.lastStageChangeAt || '') || 0;
+  const moved = created && changed && (changed - created) > 60 * 1000;
+  const first = (prev && prev[7] != null) ? String(prev[7]) : (moved ? '' : String(o.pipelineStageId || ''));
+  return [o.createdAt || o.dateAdded || '', String(o.source == null ? '' : o.source).trim(), phone10(c.phone), String(c.email || '').trim().toLowerCase(), String(o.status || ''), String(o.contactId || c.id || ''), String(o.pipelineStageId || ''), first];
 }
 // Pipeline stage id → "Pipeline · Stage" (one small call per run; a failure just leaves stages blank).
 async function stageNames(headers, loc) {
@@ -110,7 +118,7 @@ async function syncOpps(sb, headers, loc, st, CUTOFF, started, log) {
       if (!res.ok) { log.errors.push('opportunities ' + res.status + ' ' + String(res.txt).slice(0, 160)); return 'error'; }
       const os = (res.j && res.j.opportunities) || [];
       if (!os.length) return 'end';
-      for (const x of os) if (x && x.id) store[String(x.id)] = oppRow(x);
+      for (const x of os) if (x && x.id) store[String(x.id)] = oppRow(x, store[String(x.id)]);
       pulled += os.length;
       const meta = (res.j && res.j.meta) || {};
       const oldest = Math.min(...os.map(x => Date.parse(x.createdAt || x.dateAdded || 0) || Infinity));
@@ -235,7 +243,7 @@ exports.handler = async (event) => {
         if (r.id) byContact.set(String(r.id), [r.phone10 || '', r.email || '', r.last_campaign || r.first_campaign || '']); }
       if (!data || data.length < 1000) break;
     }
-    // One row per opportunity: [date, source label, phone, email, HH:MM (UTC), status, stage index (into `stages`, -1 = none), campaign label].
+    // One row per opportunity: [date, source label, phone, email, HH:MM (UTC), status, stage index (into `stages`, -1 = none), campaign label, FIRST stage index (-1 = unknown)].
     const stageMap = await stageNames(headers, loc); const stages = []; const stageIx = new Map();
     const SI = (id) => { const nm = stageMap[String(id || '')]; if (!nm) return -1; if (!stageIx.has(nm)) { stageIx.set(nm, stages.length); stages.push(nm); } return stageIx.get(nm); };
     const opps = [];
@@ -243,7 +251,7 @@ exports.handler = async (event) => {
       const o = oppStore[id]; const iso = String(o[0] || ''); if (!iso || Date.parse(iso) < CUTOFF) continue;
       const c = byContact.get(o[5]) || ['', ''];
       const ph = o[2] || c[0], em = o[3] || c[1]; if (!ph && !em) continue;
-      opps.push([iso.slice(0, 10), L(o[1]), ph, em, hhmm(iso), o[4] || '', SI(o[6]), L(c[2] || '')]);   // [7] the contact's campaign
+      opps.push([iso.slice(0, 10), L(o[1]), ph, em, hhmm(iso), o[4] || '', SI(o[6]), L(c[2] || ''), SI(o[7])]);   // [7] the contact's campaign · [8] first stage seen (per Isaac, Nov 18)
     }
     const gz = zlib.gzipSync(Buffer.from(JSON.stringify({ v: 2, at: new Date().toISOString(), backfillDone: !!st.backfillDone, oppBackfillDone: !!(st.opp && st.opp.backfillDone), labels, rows, opps, stages })));
     const { error } = await sb.storage.from('reporting').upload('ghl/leads.json.gz', gz, { contentType: 'application/gzip', upsert: true });

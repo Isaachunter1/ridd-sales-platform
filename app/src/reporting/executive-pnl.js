@@ -1291,7 +1291,7 @@ function reportingSubTabs() {
     ['waterfall',  'Retention'],
     ['auditing',   'Auditing'],
     ['marketing',  'Marketing'],
-    ['ops',        'Operations'],
+    // ['ops', 'Operations'] hidden for now (per Isaac, Nov 18) — reportingOpsHub() stays in the code; a saved 'ops' tab lands on Overview.
     ['putis',      'P&L'],
     // (Definitions moved to Settings → Reporting rules, per Isaac, Oct 14.)
   ].filter(([k]) => isAdminRole(state.profile?.role) || devSampleData() || !['marketing', 'putis'].includes(k));   // developer: the UI, with sample data   // granted non-admins: read-only tabs only

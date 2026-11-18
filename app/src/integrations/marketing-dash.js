@@ -10,12 +10,14 @@
 // │ GoHighLevel conversations, which the sync does not pull yet — the card at
 // │ the bottom says so instead of showing a zero.
 // └────────────────────────────────────────────────────────────────────────
-function mktgDashView() {
-  if (typeof reportingLoadQboSpend === 'function') reportingLoadQboSpend();
-  if (typeof ghlLoadLeads === 'function' && state._ghl === undefined) ghlLoadLeads();
-  const F = mklState(); const ym = F.ym;
+// Folded into Marketing › Dashboard (the old Metrics tab) per Isaac, Nov 18: the channels × offices grid and the
+// hour chart sit below the tiles and above the year grid; the separate tab and its headline cards are gone.
+function mktgDashBlocks(ym) {
   const D = mklMonth(ym);
   const lbl = typeof _mklLblS === 'function' ? _mklLblS(ym) : ym;
+  return [mktgDashGridCard(D, lbl), mktgDashHoursCard(D, lbl)];
+}
+function mktgDashGridCard(D, lbl) {
   const muted = { color: 'var(--text-muted)' };
   const skip = (k) => /^(Unspecified|No branch)$/.test(k);
   const unmappedKey = 'Unmapped GHL source';
@@ -29,27 +31,19 @@ function mktgDashView() {
   const leadsAll = D.leads || 0, booked = D.s || 0, unm = (D.ch[unmappedKey] && D.ch[unmappedKey].leads) || 0;
   const pct = (v) => v == null ? '—' : (v * 100).toFixed(0) + '%';
 
-  // Headline cards — the color bar on top is the one Isaac asked for across the app (card-bar classes, app.css).
-  const card = (bar, label, value, sub, onClick) => el('div', { class: 'card p-4 flex flex-col gap-1 ' + bar + (onClick ? ' cursor-pointer hover:brightness-95' : ''), onclick: onClick || null },
-    el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, label),
-    el('div', { class: 'text-2xl font-black tabular-nums' }, value),
-    sub ? el('div', { class: 'text-[10px]', style: muted }, sub) : null);
-  const openLeads = (title, rows) => _mkdOpenLeads(title, rows);
-  const cards = el('div', { class: 'grid grid-cols-2 lg:grid-cols-4 gap-3' },
-    card('bar-charcoal', 'Leads · ' + lbl, D.hasLeads ? fmt.int(leadsAll) : '—', D.hasLeads ? 'GoHighLevel opportunities, one per person per 30 days' : 'GoHighLevel not loaded'),
-    card('bar-sage', 'Booked', fmt.int(booked), 'FieldRoutes new sales · initial pending or serviced', booked ? () => mklOpenSales(D, 'Booked · ' + lbl) : null),
-    card('', 'Booking rate', D.hasLeads && leadsAll ? pct(booked / leadsAll) : '—', 'booked ÷ leads'),
-    card('bar-red', 'Unmapped leads', D.hasLeads ? fmt.int(unm) : '—', D.hasLeads && leadsAll ? pct(unm / (leadsAll)) + ' of leads · not counted in any channel until mapped' : 'map them on Metrics', unm ? () => openLeads('Unmapped GoHighLevel sources · ' + lbl, (D.ch[unmappedKey] && D.ch[unmappedKey].leadRows) || _mkdLeadsOf(D, null, unmappedKey)) : null));
-
   // Grid: channels × offices. Shade = booking rate (darker = better), capped so one outlier cell doesn't flatten the rest.
   const maxRate = Math.max(0.05, ...channels.flatMap(c => offices.map(o => rate(cellOf(o, c)) || 0)));
   const shade = (r) => r == null ? 'transparent' : 'rgba(95,108,91,' + (0.08 + 0.62 * Math.min(1, r / maxRate)).toFixed(2) + ')';
   const fg = (r) => r != null && r / maxRate > 0.55 ? '#fff' : 'var(--text)';
   const th = (t, right, st) => el('th', { class: 'px-2 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap' + (right ? ' text-right' : ' text-left'), style: Object.assign({ color: 'var(--text-muted)', background: 'var(--card-2)' }, st || {}) }, t);
+  // Red (per Isaac, Nov 18): bookings with no lead behind them — every booking should trace back to a GoHighLevel
+  // opportunity, so a red cell is either a lead booked under a different name / phone / email (expected now and then)
+  // or a sale with no opportunity at all. Click it to see the sales.
+  const orphan = (c) => !c.leads && c.s > 0;
   const cellTd = (c, title, strong) => {
-    const r = rate(c), has = c.leads || c.s;
-    return el('td', { class: 'px-1.5 py-1 text-center align-middle' + (has ? ' cursor-pointer' : ''), style: { background: has ? shade(r) : 'transparent', color: has ? fg(r) : 'var(--text-subtle)', minWidth: '84px', borderLeft: '1px solid var(--border)' },
-      title: has ? 'Click for the leads and sales behind this cell' : '', onclick: has ? () => _mkdOpenCell(title, c, D) : null },
+    const r = rate(c), has = c.leads || c.s, red = orphan(c);
+    return el('td', { class: 'px-1.5 py-1 text-center align-middle' + (has ? ' cursor-pointer' : ''), style: { background: red ? 'rgba(220,38,38,.14)' : has ? shade(r) : 'transparent', color: red ? '#B91C1C' : has ? fg(r) : 'var(--text-subtle)', minWidth: '84px', borderLeft: '1px solid var(--border)' },
+      title: red ? 'Booked with no lead in GoHighLevel for this office + channel this month — click for the sales' : has ? 'Click for the leads and sales behind this cell' : '', onclick: has ? () => _mkdOpenCell(title, c, D) : null },
       has ? el('div', { class: 'leading-tight' },
         el('div', { class: 'text-[11px] tabular-nums' + (strong ? ' font-bold' : '') }, fmt.int(c.leads || 0) + ' · ' + fmt.int(c.s || 0)),
         el('div', { class: 'text-[13px] font-black tabular-nums' }, pct(r))) : '—');
@@ -62,23 +56,19 @@ function mktgDashView() {
     el('td', { class: 'px-3 py-1.5 text-xs font-black', style: { position: 'sticky', left: 0, background: 'var(--card-2)', zIndex: 1 } }, 'All channels'),
     ...offices.map(o => cellTd(Object.assign({ leadRows: _mkdLeadsOf(D, o, null) }, colTot(o), { sales: _mkdSalesOf(D, o, null) }), o + ' · all channels', true)),
     cellTd({ leads: leadsAll, s: booked, cv: D.cv, sales: D.sales, leadRows: _mkdLeadsOf(D, null, null) }, 'RIDD · ' + lbl, true));
+  const orphanN = channels.reduce((a, c) => a + offices.reduce((b, o) => b + (orphan(cellOf(o, c)) ? cellOf(o, c).s : 0), 0), 0);
   const grid = el('div', { class: 'card overflow-hidden bar-sage' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
       el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Channels × offices · ' + lbl),
-        el('div', { class: 'text-[11px]', style: muted }, 'Each cell: leads · booked, then booking rate. Darker = higher booking rate. Click a cell for the leads and the sales behind it.')),
-      el('span', { class: 'ml-auto text-[11px]', style: muted }, channels.length + ' channels · ' + offices.length + ' offices')),
+        el('div', { class: 'text-[11px]', style: muted }, 'Each cell: leads · booked, then booking rate. Darker = higher booking rate; red = booked with no lead to link back to. Click a cell for the leads and the sales behind it.')),
+      el('span', { class: 'ml-auto text-[11px]', style: muted }, channels.length + ' channels · ' + offices.length + ' offices' + (orphanN ? ' · ' : ''), orphanN ? el('span', { style: { color: '#B91C1C', fontWeight: 700 } }, orphanN + ' booked without a lead') : null)),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } },
       el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
         el('thead', {}, el('tr', {}, th('Channel', false, { position: 'sticky', left: 0, zIndex: 2 }), ...offices.map(o => th(o, false, { textAlign: 'center' })), th('All offices', false, { textAlign: 'center' }))),
         el('tbody', {}, ...channels.map(rowOf), totRow))),
     !channels.length ? el('div', { class: 'px-5 py-4 text-sm text-center', style: muted }, D.hasLeads ? 'No leads or sales for ' + lbl + ' yet.' : 'Waiting on GoHighLevel leads…') : null);
 
-  // What the plan asks for that the data can't answer yet — said plainly instead of a zero.
-  const soon = el('div', { class: 'card p-4 bar-charcoal' },
-    el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Not here yet'),
-    el('div', { class: 'text-sm mt-1' }, 'Contact rate, attempts and the Untouched · Chasing · Waiting on RIDD · Engaged buckets need GoHighLevel conversations (calls, texts, emails with direction). The hourly sync pulls contacts and opportunities only; once it pulls conversations, those land here as columns per channel and office.'));
-
-  return el('div', { class: 'flex flex-col gap-4' }, cards, grid, soon);
+  return grid;
 }
 // Leads behind an office / channel / both (null = all) for the month.
 function _mkdLeadsOf(D, office, channel) {
@@ -134,4 +124,44 @@ function _mkdOpenLeads(title, rows) {
           td(l.d, 'tabular-nums'), td(l.label), td(l.prov === 'Unmapped' ? 'Unmapped' : l.prov), td(l.market), td(l.stage), td(l.type), td(mask(l.p), 'tabular-nums')))))),
     sorted.length > 1500 ? el('div', { class: 'text-[10px] mt-2', style: { color: 'var(--text-subtle)' } }, 'Showing the newest 1,500.') : null));
   document.body.append(overlay);
+}
+
+// ── Traffic by hour (per Isaac, Nov 18): when leads come in — Calls, Forms, AI calls — as bars by hour of the
+// day for the month on the bar. The sync stores each opportunity's time in UTC; every lead is shifted to its
+// office's local clock (Eastern unless the office is Central or Mountain) so "after hours" means after hours.
+// Lead type = the first stage the sync saw it in (AI Calls / New Lead - Forms / New Lead - Calls); leads that had
+// already moved stage before the sync first saw them are "unknown" and shown as their own count, not guessed.
+const MKD_OFFICE_TZ = { 'DESTIN': 'America/Chicago', 'JOPLIN': 'America/Chicago', 'LITTLE ROCK': 'America/Chicago', 'SALT LAKE': 'America/Denver', 'SALT LAKE CITY': 'America/Denver' };
+function _mkdLocalHour(l) {
+  if (!l.d || !l.t) return null;
+  const tz = MKD_OFFICE_TZ[String(l.market || '').toUpperCase()] || 'America/New_York';
+  const dt = new Date(l.d + 'T' + l.t + ':00Z');
+  if (isNaN(dt)) return null;
+  try { return Number(new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: false }).format(dt)) % 24; } catch (e) { return dt.getUTCHours(); }
+}
+function mktgDashHoursCard(D, lbl) {
+  const kind = state._mkdHourKind || 'call';
+  const leads = _mkdLeadsOf(D, null, null);
+  const typed = leads.filter(l => l.type === kind);
+  const unknown = leads.filter(l => !l.type).length;
+  const hours = new Array(24).fill(0); let counted = 0;
+  for (const l of typed) { const h = _mkdLocalHour(l); if (h == null) continue; hours[h]++; counted++; }
+  const max = Math.max(1, ...hours);
+  const biz = (h) => h >= 8 && h < 18;   // shaded bars = 8am–6pm local
+  const afterN = hours.reduce((a, v, h) => a + (biz(h) ? 0 : v), 0);
+  const lab = (h) => h === 0 ? '12a' : h < 12 ? h + 'a' : h === 12 ? '12p' : (h - 12) + 'p';
+  const COL = { call: '#DF643A', form: '#5F6C5B', ai: '#323230' };
+  const toggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+    ...[['call', 'Calls'], ['form', 'Forms'], ['ai', 'AI calls']].map(([v, t]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-bold', style: kind === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._mkdHourKind = v; mountApp(); } }, t + ' ' + fmt.int(leads.filter(l => l.type === v).length))));
+  const bars = el('div', { class: 'flex items-end gap-1', style: { height: '150px' } },
+    ...hours.map((v, h) => el('div', { class: 'flex-1 flex flex-col items-center justify-end gap-1', title: lab(h) + ' · ' + fmt.int(v) + (biz(h) ? ' · business hours' : ' · after hours') },
+      v ? el('div', { class: 'text-[9px] tabular-nums', style: { color: 'var(--text-muted)' } }, fmt.int(v)) : null,
+      el('div', { style: { width: '100%', height: Math.max(2, Math.round(120 * v / max)) + 'px', background: COL[kind], opacity: biz(h) ? '1' : '.45', borderRadius: '2px 2px 0 0' } }))));
+  const axis = el('div', { class: 'flex gap-1 mt-1' }, ...hours.map((_, h) => el('div', { class: 'flex-1 text-center text-[9px] tabular-nums', style: { color: h % 3 === 0 ? 'var(--text-muted)' : 'transparent' } }, lab(h))));
+  return el('div', { class: 'card p-4', style: { borderTopColor: COL[kind] } },
+    el('div', { class: 'flex items-center gap-3 flex-wrap mb-3' },
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Traffic by hour · ' + lbl),
+        el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Each office’s local time · solid = 8am–6pm, faded = after hours · ' + fmt.int(afterN) + ' of ' + fmt.int(counted) + ' after hours' + (unknown ? ' · ' + fmt.int(unknown) + ' leads of unknown type (moved stage before the sync saw them)' : ''))),
+      el('span', { class: 'ml-auto' }), toggle),
+    counted ? el('div', {}, bars, axis) : el('div', { class: 'py-8 text-center text-sm', style: { color: 'var(--text-muted)' } }, 'No ' + ({ call: 'calls', form: 'forms', ai: 'AI calls' })[kind] + ' for ' + lbl + ' yet' + (unknown ? ' — the sync started keeping the entry stage on Nov 18; older leads show as unknown.' : '.')));
 }
