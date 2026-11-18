@@ -72,7 +72,8 @@ export async function createApp() {
     if (!j) return res.status(404).json({ error: 'no such job: ' + req.params.name });
     const trigger = req.caller.kind === 'scheduler' ? 'scheduler' : 'admin:' + (req.user && req.user.email || req.caller.id);
     try {
-      const r = await j.run({ trigger, dryRun: req.query.dry === '1' ? true : undefined });
+      const { dry, ...params } = req.query || {};   // the rest of the query string reaches the job as ctx.params (rep-eod: force / preview)
+      const r = await j.run({ trigger, dryRun: dry === '1' ? true : undefined, params });
       res.json(r);
     } catch (e) {
       if (e.code === 'LOCKED') return res.status(409).json({ ok: false, error: e.message, message: 'A run is already in progress — give it a minute and reload.' });

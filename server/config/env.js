@@ -30,6 +30,7 @@ const SPEC = {
   // ── Slack ─────────────────────────────────────────────────────────────
   SLACK_ADMIN_WEBHOOK:        { required: false, secret: true },         // job wake-up / result / failure lines; unset = logs only
   SLACK_SYNC_WEBHOOK:         { required: false, secret: true },         // the sales channel — NOT for job lines (it pinged the whole team); kept for services/slack when it ports
+  SLACK_BOT_TOKEN:            { required: false, secret: true },         // the RIDD Slack app's bot token (chat:write + im:write) — per-rep DMs (services/slack → rep-eod). Same value the Netlify slack-dm function holds
 
   // ── Not used yet — declared so Cloud Run can hold them ahead of each port ──
   // (services/crm + services/addons) FieldRoutes API direct, until retired
