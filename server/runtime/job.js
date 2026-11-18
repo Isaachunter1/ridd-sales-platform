@@ -30,7 +30,7 @@ export function job(name, opts, fn) {
   if (typeof opts === 'function') { fn = opts; opts = {}; }
   if (!/^[a-z0-9-]+$/.test(name)) throw new Error('job name must be kebab-case: ' + name);
 
-  async function run({ trigger = 'manual', dryRun = DRY_RUN } = {}) {
+  async function run({ trigger = 'manual', dryRun = DRY_RUN, params = {} } = {}) {   // params: the kick's query string (?force=1, ?preview=<id>) — jobs that take options read ctx.params
     const started = Date.now();
     const log = jobLogger(name, dryRun ? 'dry' : 'pending');
     const dryDir = path.resolve(process.cwd(), 'dryrun');
@@ -47,7 +47,7 @@ export function job(name, opts, fn) {
     const ctx = {
       log, bq, supabase, env, dryRun,
       now: new Date(),
-      trigger,
+      trigger, params: params || {},
       // Progress stamps: a run that dies mid-flight leaves its last stage behind.
       stage: async (s) => { log.info('stage ' + s); if (opts.heartbeat && !dryRun) await writeHeartbeat(opts.heartbeat, { stage: s, job: name }); },
       // The one write path for published files. Dry run → disk.
