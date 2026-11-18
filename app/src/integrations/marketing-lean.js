@@ -341,7 +341,9 @@ function _mktgLeanView() {
   // old Marketing P&L table with every metric in its dropdown. Replaces the two single-month tables and the P&L tab.
   const grid = mklYearGrid(ym);
   void brTable; void chTable;
-  return el('div', { class: 'flex flex-col gap-4' }, chart, tiles, grid);   // chart above the tiles; the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
+  // Channels × offices grid + traffic by hour (marketing-dash.js) sit between the tiles and the year grid (per Isaac, Nov 18).
+  const dash = typeof mktgDashBlocks === 'function' ? (() => { try { return mktgDashBlocks(ym); } catch (e) { console.warn('[marketing] dash blocks', e); return []; } })() : [];
+  return el('div', { class: 'flex flex-col gap-4' }, chart, tiles, ...dash, grid);   // chart above the tiles; the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
 }
 // The month's new sales behind the New revenue tile (same rows the table counts).
 function mklOpenSales(D, title) {

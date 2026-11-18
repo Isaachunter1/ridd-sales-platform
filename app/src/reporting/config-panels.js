@@ -961,7 +961,7 @@ const _mktgDiv = (a, b) => (b > 0 ? a / b : null);
 function _mktgYearBar(sub) {
   const y = _mktgYearSel();
   // Attribution (lead reconciliation) is a tab of its own (per Isaac, Oct 2) — it lived behind a button on the right.
-  const SUBS = [['dash', 'Dashboard'], ['providers', 'Metrics'], ['spend', 'Spend']];   // Dashboard (per Isaac, Nov 18): channels × offices, leads → booked   // Just Metrics and Spend (per Isaac, Nov 16): P&L folded into the Metrics year grid, Channels = its By channel rows   // Attribution → Channels (per Isaac, Nov 10)   // Projections hidden (per Isaac, Oct 9); Disposition removed (Nov 5)
+  const SUBS = [['providers', 'Dashboard'], ['spend', 'Spend']];   // Metrics renamed Dashboard, the channels × offices grid folded in (per Isaac, Nov 18)   // Just Metrics and Spend (per Isaac, Nov 16): P&L folded into the Metrics year grid, Channels = its By channel rows   // Attribution → Channels (per Isaac, Nov 10)   // Projections hidden (per Isaac, Oct 9); Disposition removed (Nov 5)
   const _recon = sub === 'providers' && state._mktProvView === 'recon';
   return el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
     el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
@@ -971,7 +971,7 @@ function _mktgYearBar(sub) {
         onclick: () => { if (v === 'recon') { state._mktSub = 'providers'; state._mktProvView = 'recon'; } else { state._mktSub = v; state._mktProvView = 'cac'; } mountApp(); },
       }, l))),
     // Metrics (per Isaac, Nov 16): its month picker, compare dropdown and the owner's drag hint ride here, right-aligned; the other tabs keep the year.
-    (sub === 'providers' || sub === 'dash') && !_recon && typeof mklHeaderControls === 'function' ? el('div', { class: 'ml-auto flex items-center gap-2 flex-wrap' }, ...mklHeaderControls(sub === 'dash')) :
+    sub === 'providers' && !_recon && typeof mklHeaderControls === 'function' ? el('div', { class: 'ml-auto flex items-center gap-2 flex-wrap' }, ...mklHeaderControls()) :
     sub === 'providers' && !_recon && (typeof mktgLeanView === 'function' || typeof mktgPulseView === 'function') ? null : sub === 'providers' && !_recon && typeof mkmRangeControl === 'function' ? mkmRangeControl() : el('div', { class: 'inline-flex items-center gap-1 ' },
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = y - 1; mountApp(); } }, '‹'),
       el('span', { class: 'text-sm font-black tabular-nums px-1' }, String(y)),
@@ -1589,7 +1589,8 @@ function reportingMarketingPnl() {
   if (state._mktSub === 'acq') state._mktSub = 'providers';
   if (state._mktSub === 'demand') state._mktSub = 'providers';   // Demand folded into Metrics (per Isaac, Oct 6)
   if (state._mktSub === 'pnl' || state._mktSub === 'recon') { state._mktSub = 'providers'; state._mktProvView = 'cac'; }   // P&L and Channels tabs retired (per Isaac, Nov 16) — the Metrics grid has By office / By channel
-  const sub = ['providers', 'spend', 'disp', 'dash'].includes(state._mktSub) ? state._mktSub : 'providers';   // Metrics opens first (per Isaac)
+  if (state._mktSub === 'dash') state._mktSub = 'providers';   // the separate Dashboard tab folded into Metrics → Dashboard (per Isaac, Nov 18)
+  const sub = ['providers', 'spend', 'disp'].includes(state._mktSub) ? state._mktSub : 'providers';   // Metrics opens first (per Isaac)
   // Metrics (per Isaac, Sep 30): CAC on the page; Lead providers and Lead
   // reconciliation are buttons to the right of the Office dropdown.
   // Lead providers now sits directly under the CAC table (per Isaac, Sep 30).
@@ -1606,7 +1607,7 @@ function reportingMarketingPnl() {
       : typeof mktgPulseView === 'function' ? (() => { try { return mktgPulseView(); } catch (e) { console.warn('[marketing] pulse skipped', e); return el('div', { class: 'card p-6 text-sm' }, 'Marketing Pulse hit an error: ' + (e.message || e)); } })()
       : (typeof mktgMetricsView === 'function' ? (() => { try { return mktgMetricsView(); } catch (e) { console.warn('[marketing] metrics skipped', e); return el('div', { class: 'card p-6 text-sm' }, 'Metrics hit an error: ' + (e.message || e)); } })()
         : el('div', { class: 'flex flex-col gap-4' }, (() => { try { return _mktgDemand(); } catch (e) { console.warn('[marketing] demand section skipped', e); return null; } })(), _mktgCac(), _mktgProviders())))
-    : sub === 'spend' ? _mktgSpendEntry() : sub === 'dash' && typeof mktgDashView === 'function' ? mktgDashView() : sub === 'projections' ? _mktgProjections() : _mktgPnl();
+    : sub === 'spend' ? _mktgSpendEntry() : sub === 'projections' ? _mktgProjections() : _mktgPnl();
   // Needs attention moved to the Auditing task list (per Isaac, Nov 9) — one place for everything to fix in the CRM.
   // Unmapped GoHighLevel sources to-do (per Isaac, Nov 16): pinned under the sub-tab bar on every Marketing view.
   // The two to-do cards show on Metrics only (per Isaac, Nov 16) — not on Spend.

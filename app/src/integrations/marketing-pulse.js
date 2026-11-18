@@ -105,9 +105,14 @@ function mkpAllLeads() {
     if (prev != null && ms - prev < 30 * 86400000) continue;
     lastAt.set(key, ms);
     const stage = o[6] != null && o[6] >= 0 ? stages[o[6]] || '' : '';
+    // How the lead arrived (per Isaac, Nov 18): the FIRST stage the sync saw it in ([8]) — every opportunity lands in
+    // AI Calls, New Lead - Forms or New Lead - Calls first — falling back to the current stage for rows synced before
+    // the sync kept that. 'ai' = AI Calls, 'call', 'form', '' = unknown (moved before the sync first saw it).
+    const firstStage = o[8] != null && o[8] >= 0 ? stages[o[8]] || '' : '';
+    const typeOf = (st) => /\bai\b/i.test(st) ? 'ai' : /forms?/i.test(st) ? 'form' : /calls?/i.test(st) ? 'call' : '';
     leads.push({ d: o[0], t: o[4] || '', p: o[2] || '', e: o[3] || '', prov, label: o[1] >= 0 ? lab[o[1]] : '', group: mkpGroupOf(prov), paid: paid.has(prov),
-      campaign: o[7] != null && o[7] >= 0 ? lab[o[7]] : '', status: String(o[5] || '').toLowerCase(), stage,
-      type: /forms/i.test(stage) ? 'form' : /calls/i.test(stage) ? 'call' : '', market: c ? mkpMarketOf(zipOff.get(c[6])) : '' });
+      campaign: o[7] != null && o[7] >= 0 ? lab[o[7]] : '', status: String(o[5] || '').toLowerCase(), stage, firstStage,
+      type: typeOf(firstStage) || typeOf(stage), typeSure: !!typeOf(firstStage), market: c ? mkpMarketOf(zipOff.get(c[6])) : '' });
   }
   const out = { leads, raw, notLead };
   mkpAllLeads._m = { src: G.opps, sig, zip: zipOff, out };
