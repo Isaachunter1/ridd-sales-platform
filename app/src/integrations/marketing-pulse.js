@@ -26,6 +26,7 @@
 // └────────────────────────────────────────────────────────────────────────
 const MKP_C = { get ink() { return state.theme === 'dark' ? '#E6E6DC' : '#323230'; }, accent: '#DF643A', sage: '#5F6C5B', amber: '#B4762A', red: '#C2412D', get grid() { return state.theme === 'dark' ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)'; }, get txt() { return state.theme === 'dark' ? '#C9C9BE' : '#555'; } };
 const MKP_PLATFORM = new Set(['Facebook', 'Google Ads', 'Google Local Services']);
+const MKP_NOT_A_SOURCE = /^\s*local\s*presence\b/i;   // callback tracking number, not a lead source (per Isaac, Nov 18)
 const MKP_GROUPS = [['Google Ads', ['Google Ads', 'Google Local Services']], ['Meta Ads', ['Facebook']], ['Organic', ['Organic', 'PestBooker', 'Click-To-Buy']], ['Referral', ['Referral']]];
 function mkpGroupOf(prov) {
   for (const [g, list] of MKP_GROUPS) if (list.includes(prov)) return g;
@@ -96,8 +97,12 @@ function mkpAllLeads() {
   const lastAt = new Map(), leads = []; let raw = 0, notLead = 0;
   for (const o of sorted) {
     const c = (o[2] && CI && CI.byP.get(o[2])) || (o[3] && CI && CI.byE.get(o[3])) || null;
-    let prov = o[1] == null || o[1] < 0 ? GHL_NOT_LEAD : provOf(o[1]);   // no source on the opportunity → not a lead either
-    if (first && c) { const fp = provOf(c[1] >= 0 ? c[1] : c[2]); if (fp && fp !== 'Unmapped' && fp !== GHL_NOT_LEAD) prov = fp; }
+    // "Local Presence | <office>" is not a source (per Isaac, Nov 18): it is the tracking number people call back on
+    // after an outbound call, so an opportunity stamped with it keeps the source that actually brought the lead in —
+    // the contact's. Treated like a blank opportunity source that falls through to the contact.
+    const passThrough = o[1] >= 0 && MKP_NOT_A_SOURCE.test(String(lab[o[1]] || ''));
+    let prov = o[1] == null || o[1] < 0 || passThrough ? GHL_NOT_LEAD : provOf(o[1]);   // no source on the opportunity → not a lead either
+    if ((first || passThrough) && c) { const fp = provOf(c[1] >= 0 ? c[1] : c[2]); if (fp && fp !== 'Unmapped' && fp !== GHL_NOT_LEAD) prov = fp; }
     if (prov === GHL_NOT_LEAD) { notLead++; continue; }
     raw++;
     const key = o[2] ? 'p' + o[2] : 'e' + o[3];
@@ -115,7 +120,7 @@ function mkpAllLeads() {
     // source label settles it (per Isaac, Nov 18 — Google Local Services and Service Direct calls were showing as a
     // handful): LSA = calls (its "Message Lead" = form), Service Direct = calls, Voice AI Line = AI calls,
     // PestBooker = form. Mixed sources (Facebook, DoLead, Angi, Google Ads) stay unknown rather than guessed.
-    const srcLabel = o[1] >= 0 ? String(lab[o[1]] || '') : '';
+    const srcLabel = passThrough && c ? String(lab[c[1] >= 0 ? c[1] : c[2]] || '') : o[1] >= 0 ? String(lab[o[1]] || '') : '';
     const typeBySource = /message lead/i.test(srcLabel) ? 'form' : /local services|\blsa\b|service direct/i.test(srcLabel) ? 'call' : /voice ai/i.test(srcLabel) ? 'ai' : /pest ?booker/i.test(srcLabel) ? 'form' : '';
     leads.push({ d: o[0], t: o[4] || '', p: o[2] || '', e: o[3] || '', prov, label: srcLabel, group: mkpGroupOf(prov), paid: paid.has(prov),
       campaign: o[7] != null && o[7] >= 0 ? lab[o[7]] : '', status: String(o[5] || '').toLowerCase(), stage, firstStage,
