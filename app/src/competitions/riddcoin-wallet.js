@@ -136,9 +136,13 @@ function adminRiddcoin() {
         el('button', { class: 'px-2 py-0.5 rounded-lg text-[11px] font-bold border mr-1', style: { borderColor: '#DC2626', color: '#DC2626' }, title: 'Subtract RIDDCOIN', onclick: () => openAdjust(p, -1) }, '−'),
         el('button', { class: 'px-2 py-0.5 rounded-lg text-[11px] font-semibold border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: () => openHistory(p) }, 'History')));
   };
+  // Role filter (per Isaac, Nov 18): everyone can hold RIDDCOIN, so the list is all users; this narrows it by rep type.
+  const kindOf = (p) => { const g = typeof repTypeGroup === 'function' ? repTypeGroup(p) : ''; if (g === 'office') return ((p.rep_type || '') === 'loyalty_rep' || /loyalty/.test(String(p.role || ''))) ? 'loyalty' : 'inside'; return g || 'other'; };
+  const KINDS = [['all', 'All roles'], ['inside', 'Inside Sales'], ['loyalty', 'Loyalty'], ['d2d', 'Sales Reps'], ['tech', 'Technicians'], ['admin', 'Admins'], ['other', 'Other']];
+  const kind = state._rcAdminKind || 'all';
   const tableBody = () => {
     const qq = String(state._rcAdminQ || '').toLowerCase();
-    const rows = profiles.filter(p => showInactive || p.is_active !== false).filter(p => !qq || String(p.full_name || '').toLowerCase().includes(qq)).sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || '')));
+    const rows = profiles.filter(p => showInactive || p.is_active !== false).filter(p => kind === 'all' || kindOf(p) === kind).filter(p => !qq || String(p.full_name || '').toLowerCase().includes(qq)).sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || '')));
     return el('tbody', { id: 'rc-admin-body' }, rows.length ? rows.map(row) : [el('tr', {}, el('td', { class: 'py-6 text-center text-muted-', colspan: 5 }, 'No users match.'))]);
   };
   const search = el('input', { type: 'search', placeholder: 'Find a user…', value: state._rcAdminQ || '', class: 'rounded-lg border px-2.5 py-1 text-[11px]', style: Object.assign({ width: '180px' }, inSt),
@@ -154,6 +158,8 @@ function adminRiddcoin() {
     setup || el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-2.5 flex items-center gap-2 flex-wrap', style: { borderBottom: '1px solid var(--border)' } },
         search,
+        el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: inSt, onchange: (e) => { state._rcAdminKind = e.target.value; const body = document.getElementById('rc-admin-body'); if (body) body.replaceWith(tableBody()); } },
+          ...KINDS.map(([v, l]) => el('option', { value: v, selected: v === kind }, l + (v === 'all' ? '' : ' (' + profiles.filter(p => (showInactive || p.is_active !== false) && kindOf(p) === v).length + ')')))),
         el('label', { class: 'text-[11px] flex items-center gap-1.5 cursor-pointer', style: { color: 'var(--text-muted)' } },
           el('input', { type: 'checkbox', checked: showInactive, onchange: (e) => { state._rcAdminInactive = e.target.checked; mountApp(); } }), 'Show inactive'),
         el('span', { class: 'ml-auto text-[11px]', style: { color: 'var(--text-muted)' } }, ledger.length + ' ledger entries')),
