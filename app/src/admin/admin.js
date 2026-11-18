@@ -200,7 +200,7 @@ function viewAdmin() {
       ['marketing', 'Marketing & lead sources', 'Sources, paid channels, ad accounts, GoHighLevel, targets'],
     ] },
     { label: 'System', items: [
-      ['slack',     'Notifications',        'Slack channels and DMs'],
+      ['slack',     'Notifications',        'Slack & the end-of-day rep report'],
       ['data',      'Connections',          'FieldRoutes, data health, setup'],
       ['usage',     'Usage',                'Who uses the app'],
     ] },

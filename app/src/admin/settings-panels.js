@@ -235,289 +235,131 @@ function adminCompetitionSchedule() {
 }
 
 function adminSlack() {
+  // Notifications, cleared down (per Isaac, Nov 18): the Slack connection, the end-of-day rep report, and the rep
+  // Slack IDs the DMs need. Sale Broadcast, First Blood and Pay Stub DMs came off this page; their switches are
+  // forced off below so nothing keeps firing from a setting nobody can see.
   const s = state.appSettings || (state.appSettings = {});
-  s.slack_bot_token = s.slack_bot_token || '';
-  if (!s.slack_channels) s.slack_channels = [
-    { id: 1, name: '#insidesales', webhook: '' },
-  ];
-  s.first_blood = s.first_blood || {
-    enabled: true,
-    message: '[Rep name] first blood today!',
-    image_url: 'https://i.imgur.com/TjjGnM1.png',
-  };
-  s.daily_update = s.daily_update || {
-    enabled: false,
-    send_time: '17:00',
-    include_week: true,
-    include_month: true,
-    include_year: true,
-  };
-  if (s.paystub_dm_enabled == null) s.paystub_dm_enabled = true;
-
-  // Saves to the shared pay_settings row (it only saved locally before —
-  // settings audit, Sep 30). Debounced so typing a webhook isn't a write per key.
+  if (!s.slack_channels) s.slack_channels = [{ id: 1, name: '#insidesales', webhook: '' }];
+  let _retired = false;
+  for (const k of ['sale_broadcast', 'first_blood']) if (s[k] && s[k].enabled) { s[k].enabled = false; _retired = true; }
+  if (s.paystub_dm_enabled) { s.paystub_dm_enabled = false; _retired = true; }
+  const E = s.eod_report || (s.eod_report = {});
+  const EOD_DEF = { enabled: false, send_hour: 18, acv_min: 700, my_min: 60, include: { revenue: true, subs: true, pace: true, acv: true, my: true, close: true }, channel_webhook: '' };
+  for (const k of Object.keys(EOD_DEF)) if (E[k] == null) E[k] = k === 'include' ? Object.assign({}, EOD_DEF.include) : EOD_DEF[k];
   const persist = () => { saveDemoData(); clearTimeout(state._slackSaveT); state._slackSaveT = setTimeout(() => { if (typeof saveAppSettings === 'function') saveAppSettings(); }, 700); };
+  if (_retired) persist();
 
   const profiles = state.allProfiles.length ? state.allProfiles : [state.profile];
-  const _slackAdmin = isAdminRole(state.profile?.role);   // admins see webhook URLs; View-as Developer shows the masked version
+  const _slackAdmin = isAdminRole(state.profile?.role);
+  const muted = { color: 'var(--text-muted)' };
+  const label = (t) => el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-1', style: muted }, t);
+  const check = (checked, onchange, text, hint) => el('label', { class: 'flex items-center gap-2 text-sm' },
+    el('input', { type: 'checkbox', class: 'accent-lime w-4 h-4', checked: !!checked, onchange }), text, hint ? el('span', { class: 'text-[11px]', style: muted }, hint) : null);
+  const numInput = (value, onchange, w) => el('input', { type: 'number', class: 'rounded-lg border px-2.5 py-1 text-[12px] tabular-nums', style: { width: w || '90px', borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, value, onchange });
 
-  // Status pills surface the wiring state of each card so the UI doesn't lie
-  // about which feature actually fires. live = browser webhook;
-  // server = bot-token DM, needs Netlify Function (demo stub fires today);
-  // cron = needs an external scheduler (won't fire from the browser).
-  const statusPill = (kind) => {
-    const m = {
-      live:   { label: 'Live · webhook',                                         bg: 'rgba(223,100,58,.18)', fg: '#DF643A' },
-      server: { label: DEMO ? 'Demo stub · needs server' : 'Live · server',      bg: 'rgba(95,108,91,.14)', fg: '#5F6C5B' },
-      cron:   { label: 'Needs cron host',                                        bg: 'rgba(223,100,58,.16)', fg: '#A9441F' },
-    };
-    const meta = m[kind] || m.live;
-    return el('span', {
-      class: 'text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded',
-      style: { background: meta.bg, color: meta.fg, whiteSpace: 'nowrap' },
-    }, meta.label);
+  // Last run of the end-of-day job (app_settings.eod_report_state) — loaded once per mount, rendered into a slot.
+  const stateSlot = el('div', { class: 'text-[11px]', style: muted }, 'Checking last send…');
+  (async () => {
+    try {
+      if (typeof DEMO !== 'undefined' && DEMO) { stateSlot.textContent = 'Demo — nothing is sent.'; return; }
+      const { data } = await supabase.from('app_settings').select('value').eq('key', 'eod_report_state').maybeSingle();
+      const v = data && data.value;
+      stateSlot.textContent = v && v.sent_at ? 'Last sent ' + fmt.dateShort(String(v.last_sent_day || v.sent_at).slice(0, 10)) + ' · ' + (v.sent || 0) + ' DM' + (v.sent === 1 ? '' : 's') + (v.failed ? ' · ' + v.failed + ' failed' : '') + ((v.errors || []).length ? ' — ' + v.errors.slice(0, 3).join('; ') : '') : 'Never sent yet.';
+    } catch (e) { stateSlot.textContent = 'Last send unknown (' + (e && e.message || e) + ')'; }
+  })();
+
+  // Kick the server job: preview = DM only me; force = everyone, now. Both are admin POSTs to /api/jobs/rep-eod.
+  const kick = async (btn, q, okText) => {
+    if (typeof DEMO !== 'undefined' && DEMO) { toast('Demo mode — nothing is sent', 'warn'); return; }
+    const orig = btn.textContent; btn.textContent = 'Sending…'; btn.disabled = true;
+    try {
+      const headers = typeof _apiAuthHeaders === 'function' ? await _apiAuthHeaders({ 'Content-Type': 'application/json' }) : { 'Content-Type': 'application/json' };
+      const r = await fetch('/api/jobs/rep-eod?' + q, { method: 'POST', headers, body: '{}' });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error((j && (j.message || j.error)) || ('HTTP ' + r.status));
+      const sm = j.summary || {};
+      if (sm.skipped) toast(sm.skipped, 'warn');
+      else toast(okText + (sm.sent != null ? ' — ' + sm.sent + ' sent' + (sm.failed ? ', ' + sm.failed + ' failed' : '') : ''), sm.failed ? 'warn' : 'success');
+      if (sm.errors && sm.errors.length) toast(sm.errors.join(' · '), 'warn');
+    } catch (e) { toast('Could not send: ' + (e && e.message || e), 'error'); }
+    btn.textContent = orig; btn.disabled = false;
   };
 
-  // Subsection inside a consolidated card. The first subsection in a card
-  // skips the top divider; we pass `first` to control that.
-  const subsection = (opts, ...children) => el('div', {
-    style: opts.first ? {} : { borderTop: '1px solid var(--border)', paddingTop: '20px', marginTop: '20px' },
-  },
-    el('div', { class: 'flex items-center gap-2 mb-1 flex-wrap' },
-      opts.icon ? el('span', { class: 'text-base' }, opts.icon) : null,
-      el('h4', { class: 'text-sm font-bold' }, opts.title),
-      opts.statusKind ? statusPill(opts.statusKind) : null,
-    ),
-    opts.hint ? el('p', { class: 'text-xs text-muted- mb-3' }, opts.hint) : null,
-    ...children,
-  );
+  // The admin override writes to profiles.slack_user_id (it never had a write path before — settings audit, Nov 18).
+  const saveSlackId = (p) => { saveDemoData(); clearTimeout(p._slackIdT); p._slackIdT = setTimeout(async () => { if (typeof DEMO !== 'undefined' && DEMO) return; const { error } = await supabase.from('profiles').update({ slack_user_id: p.slack_user_id || null }).eq('id', p.id); if (error) toast('Slack ID not saved: ' + error.message, 'error'); }, 700); };
+  const HOURS = [15, 16, 17, 18, 19, 20, 21].map(h => [h, (h > 12 ? h - 12 : h) + ':00 ' + (h >= 12 ? 'PM' : 'AM')]);
+  const INCLUDE = [['revenue', 'Revenue'], ['subs', 'Subscriptions'], ['pace', 'Pace vs goal (day · week · month · year)'], ['acv', 'ACV'], ['my', 'Multi-year %'], ['close', 'Close rate (Plaibook)']];
 
-  // Generic "enable + channel picker" combo used by Sale Broadcast and
-  // Competition Updates — both just route to a channel webhook.
-  const channelToggleBlock = (key, defaultObj, label) => {
-    if (!s[key]) s[key] = defaultObj;
-    return el('div', { class: 'flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3' },
-      el('label', { class: 'flex items-center gap-2 text-sm' },
-        el('input', {
-          type: 'checkbox', class: 'accent-lime w-4 h-4',
-          checked: s[key].enabled || false,
-          onchange: (e) => { s[key].enabled = e.target.checked; persist(); },
-        }),
-        label,
-      ),
-      el('select', {
-        class: 'rounded-lg border px-2.5 py-1 text-[11px] flex-1',
-        onchange: (e) => { s[key].channel = e.target.value; persist(); },
-      },
-        el('option', { value: '' }, 'Select channel…'),
-        ...s.slack_channels.map(ch => el('option', { value: ch.name, selected: s[key].channel === ch.name }, ch.name)),
-      ),
-    );
-  };
+  return el('div', { class: 'flex flex-col gap-5' },
+    el('div', { class: 'flex items-center justify-between mb-1' }, el('h2', { class: 'text-xl font-bold' }, 'Notifications · Slack')),
 
-  return el('div', { class: 'flex flex-col gap-4' },
-    el('div', { class: 'flex items-center justify-between mb-1' },
-      el('h2', { class: 'text-xl font-bold' }, 'Notifications · Slack'),
-    ),
-    (typeof slackTypesCard === 'function') ? slackTypesCard() : null,
-
-    // (Architecture banner removed — implementation detail; settings audit, Sep 30)
-    // ── 2. Connection — Bot Token + Channels ──
+    // ── 1. End-of-day rep report ──
     el('div', { class: 'card p-5' },
-      el('h3', { class: 'text-base font-bold mb-3' }, 'Connection'),
+      el('div', { class: 'flex items-start justify-between gap-3 flex-wrap mb-3' },
+        el('div', {},
+          el('h3', { class: 'text-base font-bold' }, 'End-of-day rep report'),
+          el('div', { class: 'text-[12px] mt-0.5', style: muted }, 'Every Inside Sales and Loyalty rep with a Slack ID gets a DM when the day closes: what they sold, how they are pacing for the day, week, month and year, ACV and multi-year % against the targets, and their Plaibook close rate. Same numbers as their Revenue Pacer and the TV board.')),
+        check(E.enabled, (e) => { E.enabled = e.target.checked; persist(); logActivity('config_change', { detail: 'End-of-day rep report ' + (E.enabled ? 'on' : 'off') }); }, el('span', { class: 'font-semibold' }, E.enabled ? 'On' : 'Off'))),
+      el('div', { class: 'grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4' },
+        el('div', {}, label('Sends at (Mountain)'),
+          el('select', { class: 'rounded-lg border px-2.5 py-1 text-[12px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { E.send_hour = Number(e.target.value); persist(); } },
+            ...HOURS.map(([h, t]) => el('option', { value: String(h), selected: Number(E.send_hour) === h }, t))),
+          el('div', { class: 'text-[11px] mt-1', style: muted }, 'Work days only (Mon–Fri, company holidays off). The job checks hourly and sends once.')),
+        el('div', {}, label('ACV target'),
+          el('div', { class: 'flex items-center gap-1 text-sm' }, '$', numInput(E.acv_min, (e) => { E.acv_min = Math.max(0, Number(e.target.value) || 0); persist(); })),
+          el('div', { class: 'text-[11px] mt-1', style: muted }, 'Green at or above. The TV board uses the same $700 line.')),
+        el('div', {}, label('Multi-year target'),
+          el('div', { class: 'flex items-center gap-1 text-sm' }, numInput(E.my_min, (e) => { E.my_min = Math.max(0, Math.min(100, Number(e.target.value) || 0)); persist(); }, '70px'), '%'),
+          el('div', { class: 'text-[11px] mt-1', style: muted }, '18-month and longer contracts, Sentricon and renewals out.'))),
+      el('div', { class: 'mb-4' }, label('Include'),
+        el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1' },
+          ...INCLUDE.map(([k, t]) => check(E.include[k] !== false, (e) => { E.include[k] = e.target.checked; persist(); }, t)))),
+      el('div', { class: 'mb-4' }, label('Team roll-up to a channel (optional)'),
+        el('select', { class: 'rounded-lg border px-2.5 py-1 text-[12px] w-full sm:w-auto', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { E.channel_webhook = e.target.value; persist(); } },
+          el('option', { value: '', selected: !E.channel_webhook }, 'No channel post — DMs only'),
+          ...s.slack_channels.filter(ch => ch.webhook).map(ch => el('option', { value: ch.webhook, selected: E.channel_webhook === ch.webhook }, ch.name))),
+        el('div', { class: 'text-[11px] mt-1', style: muted }, 'One line per rep — today’s revenue and subs, month pace, ACV, multi-year — posted after the DMs.')),
+      el('div', { class: 'flex items-center gap-2 flex-wrap pt-3', style: { borderTop: '1px solid var(--border)' } },
+        el('button', { class: 'px-3 py-1.5 rounded-lg border text-[12px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: (ev) => kick(ev.currentTarget, 'preview=' + encodeURIComponent(state.profile.id), 'Preview sent to you') }, 'Send me a preview'),
+        el('button', { class: 'px-3 py-1.5 rounded-lg text-[12px] font-semibold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: (ev) => { if (confirm('DM every Inside Sales and Loyalty rep their end-of-day report right now?')) kick(ev.currentTarget, 'force=1', 'Sent to the team'); } }, 'Send to everyone now'),
+        el('div', { class: 'flex-1' }), stateSlot),
+      (!state.profile || !(state.profile.slack_member_id || state.profile.slack_user_id)) ? el('div', { class: 'text-[11px] mt-2', style: { color: 'var(--accent)' } }, 'Add your own Slack Member ID (⚙ My Settings) to receive the preview.') : null),
 
-/* (Bot Token removed — nothing read it; settings audit, Sep 30) */
-
-      subsection({ title: 'Channels', statusKind: 'live',
-        hint: 'Each row is a Slack channel + its incoming webhook URL. Test posts straight from your browser — no server needed.',
-      },
-        el('div', { class: 'flex flex-col gap-2' },
-          ...s.slack_channels.map((ch, i) => el('div', { class: 'flex items-center gap-2 flex-wrap' },
-            el('input', {
-              class: 'rounded-lg border px-2.5 py-1 text-[11px]',
-              style: { width: '160px' },
-              value: ch.name,
-              oninput: (e) => { ch.name = e.target.value; persist(); },
-            }),
-            // Webhook URLs are secrets — anyone holding one can post into the
-            // channel. Non-admins (Developer) see a saved one masked and can't
-            // edit or remove it (per Isaac, Oct 13); admins see and edit as before.
-            (!_slackAdmin && ch.webhook)
-              ? el('span', { class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px] font-mono', style: { minWidth: '240px', color: 'var(--text-muted)', borderColor: 'var(--border)' }, title: 'Webhook saved — only an admin can view or change it' }, '\u2022\u2022\u2022\u2022\u2022\u2022 webhook saved (admin only)')
-              : el('input', {
-                  class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px] font-mono',
-                  style: { minWidth: '240px' },
-                  placeholder: 'https://hooks.slack.com/services/...',
-                  value: ch.webhook,
-                  oninput: (e) => { ch.webhook = e.target.value; persist(); },
-                }),
-            el('button', {
-              class: 'px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition',
-              style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-              onclick: async (ev) => {
-                if (!ch.webhook) { toast('Add a webhook URL first', 'warn'); return; }
-                const btn = ev.currentTarget;
-                const orig = btn.textContent;
-                btn.textContent = '…'; btn.disabled = true;
-                const res = await slack.postWebhook(ch.webhook, {
-                  text: '✅ Test post from RIDD Sales App — webhook for ' + ch.name + ' is wired up.',
-                });
-                btn.textContent = orig; btn.disabled = false;
-                toast(res.ok ? 'Posted to ' + ch.name : 'Failed: ' + res.error, res.ok ? 'success' : 'error');
-              },
-            }, 'Test'),
-            (!_slackAdmin && ch.webhook) ? null : el('button', {
-              class: 'text-xs text-muted- hover:text-red-500 transition px-2',
-              onclick: () => { s.slack_channels.splice(i, 1); persist(); mountApp(); },
-              title: 'Remove',
-            }, '×'),
-          )),
-        ),
-        el('button', {
-          class: 'mt-3 px-2.5 py-1 rounded-lg border text-[11px] font-medium',
-          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-          onclick: () => {
-            const nextId = Math.max(0, ...s.slack_channels.map(c => c.id)) + 1;
-            s.slack_channels.push({ id: nextId, name: '#new-channel', webhook: '' });
-            persist();
-            mountApp();
-          },
-        }, '+ Add Channel'),
-      ),
-    ),
-
-    // ── 3. Channel Posts — Sale Broadcast / First Blood / Weekly Digest / Competition Updates ──
+    // ── 2. Connection — channels + webhooks ──
     el('div', { class: 'card p-5' },
-      el('h3', { class: 'text-base font-bold mb-3' }, 'Channel Posts'),
-
-      subsection({ first: true, icon: '📢', title: 'Sale Broadcast', statusKind: 'live',
-        hint: 'Every sale logged auto-posts the rep, customer, service, and ACV to the chosen channel.',
-      },
-        channelToggleBlock('sale_broadcast', { enabled: false, channel: '' }, 'Enabled'),
-      ),
-
-      subsection({ icon: '🩸', title: 'First Blood', statusKind: 'live',
-        hint: 'Fires automatically on the rep\'s first sale of the day. Posts to the Sale Broadcast channel.',
-      },
-        el('label', { class: 'flex items-center gap-2 mb-3 text-sm' },
-          el('input', {
-            type: 'checkbox', class: 'accent-lime w-4 h-4',
-            checked: s.first_blood.enabled,
-            onchange: (e) => { s.first_blood.enabled = e.target.checked; persist(); },
-          }),
-          'Enabled',
-        ),
-        el('div', { class: 'grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-2 items-center mb-2' },
-          el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Message'),
-          el('div', { class: 'flex items-center gap-2' },
-            el('span', { class: 'text-xs text-muted- font-mono shrink-0' }, '[Rep name]'),
-            el('input', {
-              class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px]',
-              value: s.first_blood.message,
-              oninput: (e) => { s.first_blood.message = e.target.value; persist(); },
-            }),
-          ),
-        ),
-        el('div', { class: 'grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-2 items-center' },
-          el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Image URL'),
-          el('input', {
-            class: 'rounded-lg border px-2.5 py-1 text-[11px]',
-            placeholder: 'https://i.imgur.com/...',
-            value: s.first_blood.image_url,
-            oninput: (e) => { s.first_blood.image_url = e.target.value; persist(); },
-          }),
-        ),
-      ),
-
-/* (Weekly Digest removed — nothing read it; settings audit, Sep 30) */
-
-/* (Competition Updates removed — nothing read it; settings audit, Sep 30) */
-    ),
-
-    // ── 4. Direct Messages — Pay Stub DMs + Daily Update ──
-    el('div', { class: 'card p-5' },
-      el('h3', { class: 'text-base font-bold mb-3' }, 'Direct Messages'),
-
-      subsection({ first: true, icon: '💰', title: 'Pay Stub DMs', statusKind: 'server',
-        hint: 'DM each rep their pay stub the moment payroll runs. Demo mode logs the intent to Admin → Activity Log.',
-      },
-        el('label', { class: 'flex items-center gap-2 mb-3 text-sm' },
-          el('input', {
-            type: 'checkbox', class: 'accent-lime w-4 h-4',
-            checked: s.paystub_dm_enabled,
-            onchange: (e) => { s.paystub_dm_enabled = e.target.checked; persist(); },
-          }),
-          'Auto-DM when payroll runs',
-          el('span', { class: 'text-[10px] text-muted- italic' }, '(Upfront + Backend)'),
-        ),
-        el('div', { class: 'grid grid-cols-1 sm:grid-cols-[auto_1fr_auto] gap-2 items-center' },
-          el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Manual send'),
-          el('select', {
-            id: 'paystub-rep-picker',
-            class: 'rounded-lg border px-2.5 py-1 text-[11px]',
-          },
-            el('option', { value: '' }, 'Select a rep…'),
-            el('option', { value: '__all__' }, '— All active reps —'),
-            ...profiles.filter(p => p.is_active !== false).map(p => el('option', { value: p.id }, p.full_name)),
-          ),
-          el('button', {
-            class: 'px-2.5 py-1 rounded-lg text-[11px] font-semibold',
-            style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-            onclick: () => {
-              const sel = document.getElementById('paystub-rep-picker');
-              if (!sel.value) return toast('Pick a rep first', 'warn');
-              const today = new Date();
-              const periodId = currentPayPeriodId(today.getFullYear());
-              const period = getPayPeriods(today.getFullYear()).find(p => p.id === periodId);
-              if (!period) return toast('Could not resolve current pay period', 'warn');
-              const repIds = sel.value === '__all__'
-                ? profiles.filter(p => p.is_active !== false && p.role !== 'auditor').map(p => p.id)
-                : [sel.value];
-              const sales = (state.allSales || []).filter(x =>
-                repIds.includes(x.rep_id) &&
-                new Date(x.sold_date + 'T00:00') >= period.start &&
-                new Date(x.sold_date + 'T00:00') <= period.end
-              );
-              if (!sales.length) return toast('No sales in the current period for that selection', 'warn');
-              const prev = s.paystub_dm_enabled;
-              s.paystub_dm_enabled = true;
-              notifyPayrollRun(sales, period, 'upfront');
-              s.paystub_dm_enabled = prev;
-            },
-          }, 'Send'),
-        ),
-      ),
-
-/* (Daily Update removed — nothing read it; settings audit, Sep 30) */
-    ),
-
-    // ── 5. Rep Slack User IDs ──
-    el('div', { class: 'card p-5' },
-      el('h3', { class: 'text-base font-bold mb-1' }, 'Rep Slack User IDs'),
-      el('p', { class: 'text-xs text-muted- mb-3' },
-        'Find a rep\'s Slack User ID in their Slack profile → ⋮ → Copy member ID. Looks like ',
-        el('code', { style: { color: 'var(--accent)' } }, 'U01AB2CD3EF'),
-        '. Required for DMs. Office staff only — sales reps and technicians don\'t use Slack.',
-      ),
+      el('h3', { class: 'text-base font-bold mb-1' }, 'Slack connection'),
+      el('p', { class: 'text-xs mb-3', style: muted }, 'Direct messages go out through the RIDD Slack app’s bot token (SLACK_BOT_TOKEN on the server — never stored here). Channel posts use an incoming webhook per channel; Test posts straight from your browser.'),
       el('div', { class: 'flex flex-col gap-2' },
-        // Office staff only (per Isaac, Sep 23): D2D reps and techs never get Slack DMs.
+        ...s.slack_channels.map((ch, i) => el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          el('input', { class: 'rounded-lg border px-2.5 py-1 text-[11px]', style: { width: '160px' }, value: ch.name, oninput: (e) => { ch.name = e.target.value; persist(); } }),
+          // Webhook URLs are secrets — non-admins (Developer) see a saved one masked (per Isaac, Oct 13).
+          (!_slackAdmin && ch.webhook)
+            ? el('span', { class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px] font-mono', style: { minWidth: '240px', color: 'var(--text-muted)', borderColor: 'var(--border)' }, title: 'Webhook saved — only an admin can view or change it' }, '•••••• webhook saved (admin only)')
+            : el('input', { class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px] font-mono', style: { minWidth: '240px' }, placeholder: 'https://hooks.slack.com/services/...', value: ch.webhook, oninput: (e) => { ch.webhook = e.target.value; persist(); } }),
+          el('button', { class: 'px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition', style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+            onclick: async (ev) => {
+              if (!ch.webhook) { toast('Add a webhook URL first', 'warn'); return; }
+              const btn = ev.currentTarget; const orig = btn.textContent; btn.textContent = '…'; btn.disabled = true;
+              const res = await slack.postWebhook(ch.webhook, { text: '✅ Test post from RIDD Sales App — webhook for ' + ch.name + ' is wired up.' });
+              btn.textContent = orig; btn.disabled = false;
+              toast(res.ok ? 'Posted to ' + ch.name : 'Failed: ' + res.error, res.ok ? 'success' : 'error');
+            } }, 'Test'),
+          (!_slackAdmin && ch.webhook) ? null : el('button', { class: 'text-xs text-muted- hover:text-red-500 transition px-2', onclick: () => { s.slack_channels.splice(i, 1); persist(); mountApp(); }, title: 'Remove' }, '×')))),
+      el('button', { class: 'mt-3 px-2.5 py-1 rounded-lg border text-[11px] font-medium', style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        onclick: () => { const nextId = Math.max(0, ...s.slack_channels.map(c => c.id)) + 1; s.slack_channels.push({ id: nextId, name: '#new-channel', webhook: '' }); persist(); mountApp(); } }, '+ Add Channel'),
+      (typeof slackTypesCard === 'function') ? el('div', { class: 'mt-4 pt-4', style: { borderTop: '1px solid var(--border)' } }, slackTypesCard()) : null),
+
+    // ── 3. Rep Slack IDs ──
+    el('div', { class: 'card p-5' },
+      el('h3', { class: 'text-base font-bold mb-1' }, 'Rep Slack IDs'),
+      el('p', { class: 'text-xs mb-3', style: muted }, 'Reps set their own in ⚙ My Settings; this is the admin override. Slack profile → ⋮ → Copy member ID (looks like ', el('code', { style: { color: 'var(--accent)' } }, 'U01AB2CD3EF'), '). Office staff only — sales reps and technicians don’t get Slack DMs.'),
+      el('div', { class: 'flex flex-col gap-2' },
         ...profiles.filter(p => p.is_active !== false && (isAdminRole(p.role) || (typeof isOfficeStaffProfile === 'function' ? isOfficeStaffProfile(p) : isOfficeStaffRole(p.role)))).map(p => el('div', { class: 'flex items-center gap-3' },
-          el('div', { class: 'flex items-center gap-2 w-44 shrink-0' },
-            avatarNode(p.avatar_url, p.initials, 'w-6 h-6 text-[8px]'),
-            el('span', { class: 'text-sm font-medium truncate' }, p.full_name),
-          ),
-          el('input', {
-            class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px] font-mono',
-            placeholder: 'U01AB2CD3EF',
-            value: p.slack_user_id || '',
-            oninput: (e) => { p.slack_user_id = e.target.value; persist(); },
-          }),
-          p.slack_user_id
+          el('div', { class: 'flex items-center gap-2 w-44 shrink-0' }, avatarNode(p.avatar_url, p.initials, 'w-6 h-6 text-[8px]'), el('span', { class: 'text-sm font-medium truncate' }, p.full_name)),
+          el('input', { class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px] font-mono', placeholder: p.slack_member_id ? p.slack_member_id + ' (set by the rep)' : 'U01AB2CD3EF', value: p.slack_user_id || '', oninput: (e) => { p.slack_user_id = e.target.value.trim() || null; saveSlackId(p); } }),
+          (p.slack_member_id || p.slack_user_id)
             ? el('span', { class: 'text-[10px] font-bold shrink-0', style: { color: '#DF643A' } }, '✓')
-            : el('span', { class: 'text-[10px] text-muted- italic shrink-0', style: { whiteSpace: 'nowrap' } }, 'no DM'),
-        )),
-      ),
-    ),
+            : el('span', { class: 'text-[10px] text-muted- italic shrink-0', style: { whiteSpace: 'nowrap' } }, 'no DM'))))),
   );
 }
 
