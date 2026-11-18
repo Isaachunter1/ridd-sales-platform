@@ -4890,16 +4890,15 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         vSub = pctOfCo(vVal, companyTotalRevenue);
       }
       if (_two) {
-        // Two scopes (per Isaac, Oct 29): each class side by side — Rookie A · Rookie B · Vet A · Vet B · All A · All B.
+        // Two scopes, grouped by scope (per Isaac, Nov 18 — was every other column): A Rookie · Vet · All | B Rookie · Vet · All.
+        // The leader highlight still compares the same class across the two scopes.
         const [A, B] = _S;
-        const pair = (k2, color) => {
-          const va = A[k2][key], vb = B[k2][key];
-          const sub = (S, v) => key === 'sold' ? pctOfCo(v, S.coSold) : key === 'revenue' ? pctOfCo(v, S.coRev) : null;
-          return [sideCell(fmtVal[key](va), color, va > vb, sub(A, va)), sideCell(fmtVal[key](vb), color, vb > va, sub(B, vb))];
-        };
+        const sub = (S, v) => key === 'sold' ? pctOfCo(v, S.coSold) : key === 'revenue' ? pctOfCo(v, S.coRev) : null;
+        const side = (S, O, k2, color, first) => { const v = S[k2][key], o = O[k2][key]; const c = sideCell(fmtVal[key](v), color, v > o, sub(S, v)); if (first) c.style.borderLeft = '2px solid var(--border-2)'; return c; };
         return el('div', { class: 'grid items-center gap-1 px-3 py-1.5', style: { gridTemplateColumns: _cmTech ? _cmGrid2T : _cmGrid2, borderTop: '1px solid var(--border)' } },
           el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
-          ...(_cmTech ? [] : [...pair('rookie', ROOKIE_COLOR), ...pair('vet', VET_COLOR)]), ...pair('alls', ALL_COLOR));
+          ..._cmClasses.map(([, color, k2]) => side(A, B, k2, color, false)),
+          ..._cmClasses.map(([, color, k2], i) => side(B, A, k2, color, i === 0)));
       }
       if (_cmTech) return el('div', { class: 'flex items-center justify-between gap-3 px-5 py-2', style: { borderTop: '1px solid var(--border)' } },
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
@@ -4924,6 +4923,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     );
 
     const _cmGrid2 = 'minmax(88px,1.1fr) repeat(6, minmax(0,1fr))', _cmGrid2T = 'minmax(88px,1.1fr) repeat(2, minmax(0,1fr))';
+    const _cmClasses = _cmTech ? [['All', ALL_COLOR, 'alls']] : [['Rookie', ROOKIE_COLOR, 'rookie'], ['Vet', VET_COLOR, 'vet'], ['All', ALL_COLOR, 'alls']];
     // Scope picker (per Isaac, Oct 29): a checkbox dropdown, up to two at once. A third tick drops the oldest pick.
     // Nothing to pick (a rep who only sees RIDD): a plain label, not a one-item dropdown.
     const scopePicker = (_cmReach && !_teamOpts.length) ? el('span', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } }, 'RIDD') : (() => {
@@ -4954,13 +4954,17 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         el('h3', { class: 'text-base font-bold', title: 'Tiers auto-set from sales history \u2014 first season selling = Rookie, returning reps = Vet. Manage Teams tags override. PRA divides by the Reps > $20K row; PRA \u00b7 Serviced divides by Reps W/ Serviced.' }, _cmTech ? 'Technician Metrics' : 'Class Metrics'),
         _cmTech ? el('div', { class: 'flex items-center gap-2' }, el('span', { class: 'text-xs font-semibold', style: { color: 'var(--text-muted)' } }, alls.reps + ' tech' + (alls.reps === 1 ? '' : 's')), scopePicker) : scopePicker,
       ),
-      _two ? el('div', { class: 'grid items-end gap-1 px-3 pt-2', style: { gridTemplateColumns: _cmTech ? _cmGrid2T : _cmGrid2 } },
-        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pb-1', style: { color: 'var(--text-muted)' } }, 'Class'),
-        ...(_cmTech ? [['All', ALL_COLOR, 'alls']] : [['Rookie', ROOKIE_COLOR, 'rookie'], ['Vet', VET_COLOR, 'vet'], ['All', ALL_COLOR, 'alls']]).flatMap(([lab, color, k2]) => _S.map((S, si) =>
-          el('div', { class: 'flex flex-col items-center justify-center py-1 px-1 min-w-0', style: { borderBottom: '2px solid ' + color } },
-            si === 0 ? el('div', { class: 'text-[11px] font-black uppercase tracking-wide', style: { color } }, lab) : el('div', { class: 'text-[11px]', style: { visibility: 'hidden' } }, lab),
-            el('div', { class: 'text-[10px] font-bold truncate', style: { color: 'var(--text)', maxWidth: '100%' }, title: S.label }, S.label),
-            el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, S[k2].reps + ' rep' + (S[k2].reps === 1 ? '' : 's')))))) : null,
+      // Two scopes: the scope name once over its three class columns, then Rookie · Vet · All under it (per Isaac, Nov 18).
+      _two ? el('div', { class: 'px-3 pt-2' },
+        el('div', { class: 'grid items-end gap-1', style: { gridTemplateColumns: _cmTech ? _cmGrid2T : _cmGrid2 } },
+          el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pb-1', style: { color: 'var(--text-muted)' } }, 'Class'),
+          ..._S.map((S, si) => el('div', { class: 'text-center text-[12px] font-black truncate pb-1', style: Object.assign({ gridColumn: 'span ' + _cmClasses.length, color: 'var(--text)', borderBottom: '1px solid var(--border-2)' }, si ? { borderLeft: '2px solid var(--border-2)' } : {}), title: S.label }, S.label))),
+        el('div', { class: 'grid items-end gap-1', style: { gridTemplateColumns: _cmTech ? _cmGrid2T : _cmGrid2 } },
+          el('div', {}),
+          ..._S.flatMap((S, si) => _cmClasses.map(([lab, color, k2], ci) =>
+            el('div', { class: 'flex flex-col items-center justify-center py-1 px-1 min-w-0', style: Object.assign({ borderBottom: '2px solid ' + color }, si && ci === 0 ? { borderLeft: '2px solid var(--border-2)' } : {}) },
+              el('div', { class: 'text-[11px] font-black uppercase tracking-wide', style: { color } }, lab),
+              el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, S[k2].reps + ' rep' + (S[k2].reps === 1 ? '' : 's'))))))) : null,
       (_cmTech || _two) ? null : el('div', { class: 'grid items-center gap-2 px-3', style: { gridTemplateColumns: 'minmax(88px,1.1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)' } },
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, 'Class'),
         headerCell('Rookie', ROOKIE_COLOR, rookie.reps),

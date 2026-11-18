@@ -1286,11 +1286,12 @@ function _rptTabTaskCount(k) {
 }
 function reportingSubTabs() {
   const tabs = [
+    // Order (per Isaac, Nov 18): Overview · Marketing · Retention · Auditing · Geographic · P&L.
     ['overview',   'Overview'],
-    ['geographic', 'Geographic'],
+    ['marketing',  'Marketing'],
     ['waterfall',  'Retention'],
     ['auditing',   'Auditing'],
-    ['marketing',  'Marketing'],
+    ['geographic', 'Geographic'],
     // ['ops', 'Operations'] hidden for now (per Isaac, Nov 18) — reportingOpsHub() stays in the code; a saved 'ops' tab lands on Overview.
     ['putis',      'P&L'],
     // (Definitions moved to Settings → Reporting rules, per Isaac, Oct 14.)

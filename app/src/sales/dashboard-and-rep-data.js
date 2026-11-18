@@ -3443,10 +3443,7 @@ const showRep = !!(opts && opts.showRep);
           hSort('customer',     'Customer',      'text-left px-2 py-1.5 whitespace-nowrap'),
           hSort('customerId',   'Cust ID',       'text-left px-2 py-1.5'),
           hSort('subscription', 'Subscription',  'text-left px-2 py-1.5 whitespace-nowrap'),
-          // Initial + Recurring (per service) left of ACV (per Isaac, Oct 15). The feed's `recurring` is FieldRoutes'
-          // annual recurring value = charge × 12, so ÷ 12 is the per-service charge.
-          hSort('initial',      'Initial',       'text-right px-2 py-1.5'),
-          hSort('recurring',    'Recurring',     'text-right px-2 py-1.5'),
+          // Initial + Recurring columns hidden (per Isaac, Nov 18 — were added Oct 15); ACV carries the money. The sort keys stay.
           hSort('value',        'ACV',           'text-right px-2 py-1.5'),
           hSort('autopay',      'Auto Pay',      'text-center px-2 py-1.5'),
           hSort('status',       'Status',        'text-center px-2 py-1.5'),
@@ -3474,9 +3471,7 @@ const showRep = !!(opts && opts.showRep);
             el('td', { class: 'px-2 py-1.5 font-medium whitespace-nowrap', title: s.customer || '' }, s.customer || '—'),
             el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums' }, s.customerId || '—'),
             el('td', { class: 'px-2 py-1.5 text-muted- max-w-[200px] truncate', title: s.subscription || '' }, s.subscription || '—'),
-            el('td', { class: 'px-2 py-1.5 text-right tabular-nums' }, s.initialPrice != null && s.initialPrice !== '' ? fmt.usd(Number(s.initialPrice) || 0) : '\u2014'),
-            el('td', { class: 'px-2 py-1.5 text-right tabular-nums' }, (Number(s.recurring) || 0) > 0 ? fmt.usd((Number(s.recurring) || 0) / 12) : '\u2014'),
-            el('td', { class: 'px-2 py-1.5 text-right tabular-nums font-semibold' }, fmt.usd0(s.contractValue)),
+            el('td', { class: 'px-2 py-1.5 text-right tabular-nums font-semibold', title: (s.initialPrice != null && s.initialPrice !== '' ? 'Initial ' + fmt.usd(Number(s.initialPrice) || 0) : '') + ((Number(s.recurring) || 0) > 0 ? ' · Recurring ' + fmt.usd((Number(s.recurring) || 0) / 12) : '') }, fmt.usd0(s.contractValue)),
             el('td', { class: 'px-2 py-1.5 text-center' },
               el('span', {
                 class: 'text-[10px] font-semibold px-1.5 py-0.5 rounded',
@@ -3544,19 +3539,40 @@ function openLandingTileDrill(title, subtitle, rows, opts) {
     ? _indAccountsTable(rows, sort, (st) => { sort = st; paint(); }, opts)
     : el('div', { class: 'p-6 text-center text-xs text-muted- italic' }, 'No accounts in this bucket.'));
   paint();
-  const csv = () => {
+  // Export carries the account's FieldRoutes notes too (per Isaac, Nov 18): general notes and cancellation notes, newest
+  // first, so a rep can see what is going on with a customer. Fetched from the server (POST /api/crm/customer-notes)
+  // in batches of 400 ids; if that call fails the export still goes out, with the two columns empty and a toast.
+  const csv = async (ev) => {
+    const btn = ev && ev.currentTarget; const orig = btn ? btn.textContent : '';
+    if (btn) { btn.textContent = 'Fetching notes…'; btn.disabled = true; }
+    const notes = {};
     try {
-      const cols = ['Rep', 'Customer', 'Cust ID', 'Subscription', 'Value', 'Auto Pay', 'Status', 'Sold', 'Aged', 'Cancel Date', 'Cancel Reason'];
+      if (!DEMO) {
+        const ids = [...new Set(rows.map(s => String(s.customerId || '').replace(/\D/g, '')).filter(Boolean))];
+        const headers = typeof _apiAuthHeaders === 'function' ? await _apiAuthHeaders({ 'Content-Type': 'application/json' }) : { 'Content-Type': 'application/json' };
+        for (let i = 0; i < ids.length; i += 400) {
+          const r = await fetch('/api/crm/customer-notes', { method: 'POST', headers, body: JSON.stringify({ customer_ids: ids.slice(i, i + 400) }) });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+          Object.assign(notes, j.notes || {});
+        }
+      }
+    } catch (e) { toast('Notes not included: ' + (e && e.message || e), 'warn'); }
+    const noteText = (list) => (list || []).map(n => [n.d, n.who, n.reason ? '[' + n.reason + ']' : '', n.text].filter(Boolean).join(' · ')).join(' | ');
+    try {
+      const cols = ['Rep', 'Customer', 'Cust ID', 'Subscription', 'Value', 'Auto Pay', 'Status', 'Sold', 'Aged', 'Cancel Date', 'Cancel Reason', 'General Notes', 'Cancellation Notes'];
       const q = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
-      const lines = [cols.map(q).join(',')].concat(rows.map(s => [
+      const lines = [cols.map(q).join(',')].concat(rows.map(s => { const N = notes[String(s.customerId || '').replace(/\D/g, '')] || {}; return [
         (typeof getCanonicalRepName === 'function' ? getCanonicalRepName(s.rep) : s.rep) || '', s.customer || '', s.customerId || '', s.subscription || '',
         Number(s.contractValue) || 0, isAutoPayOn(s) ? 'On' : 'Off', _repCancelCounts(s) ? 'Cancelled' : (_subCancelledNow(s) && _isOneTimeCancel(s)) ? 'Completed' : 'Active',
         (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || s.dateSold || '', Number(s.age) || 0, s.cancelDate || '', s.cancelReason || '',
-      ].map(q).join(',')));
+        noteText(N.general), noteText(N.cancel),
+      ].map(q).join(','); }));
       const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
       const a = el('a', { href: URL.createObjectURL(blob), download: title.replace(/[^a-z0-9]+/gi, '_').toLowerCase() + '.csv' });
       document.body.append(a); a.click(); a.remove();
     } catch (e) { toast('Export failed', 'error'); }
+    if (btn) { btn.textContent = orig; btn.disabled = false; }
   };
   overlay.append(el('div', { class: 'card w-full max-w-5xl overflow-hidden flex flex-col', onclick: (e) => e.stopPropagation() },
     el('div', { class: 'flex items-center justify-between gap-3 px-5 pt-4 pb-3 border-b', style: { borderColor: 'var(--border)' } },
