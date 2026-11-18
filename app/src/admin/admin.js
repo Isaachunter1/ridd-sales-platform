@@ -193,6 +193,7 @@ function viewAdmin() {
       ['pricing',   'Commissions & payroll', 'Rates by rep type · when sales pay and lock'],
       ['goals',     'Goals',                'Company and rep targets'],
       ['comps',     'Competitions',         'Schedule and calendar'],
+      ['riddcoin',  'RIDDCOIN',             'Balances, add / subtract, history'],
     ] },
     { label: 'Rules', items: [
       ['config',    'Configurations',       'Book, churn, services, cancel reasons, Indicators'],
@@ -249,6 +250,7 @@ function viewAdmin() {
     perms:   adminPermissions,
     slack:   adminSlack,
     comps:   adminCompetitionSchedule,
+    riddcoin: adminRiddcoin,
     calendar: () => (typeof calendarCanManage === 'function' && calendarCanManage(state.profile && state.profile.role)) ? viewCalendarSettings({ embedded: true }) : el('div', { class: 'card p-6 text-sm text-muted-' }, 'Calendar settings are for team leads and admins.'),
     usage:   adminUsage,
     data:    adminDataSources,
