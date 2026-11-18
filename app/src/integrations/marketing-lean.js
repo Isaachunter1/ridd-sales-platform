@@ -90,7 +90,7 @@ function mklMonth(ym, cap) {
   let leads = null;
   if (AL) {
     leads = 0;
-    for (const l of AL.leads) { if (String(l.d).slice(0, 7) !== ym || !inCap(l.d)) continue; leads++; cell(br, l.market || 'No branch').leads++; cell(ch, l.prov === 'Unmapped' ? 'Unmapped GHL source' : l.prov).leads++; xcell(l.market || 'No branch', l.prov === 'Unmapped' ? 'Unmapped GHL source' : l.prov).leads++; }
+    for (const l of AL.leads) { if (String(l.d).slice(0, 7) !== ym || !inCap(l.d)) continue; leads++; cell(br, l.market || 'No branch').leads++; cell(ch, l.prov === 'Unmapped' ? 'Unmapped GHL source' : l.prov).leads++; const xl = xcell(l.market || 'No branch', l.prov === 'Unmapped' ? 'Unmapped GHL source' : l.prov); xl.leads++; (xl.leadRows || (xl.leadRows = [])).push(l); }
   }
   // Wages (Spend tab → Wages, per rep per month; per Isaac, Nov 16 — part of CAC), spread to offices by their share
   // of the month's new revenue (mktgWagesMonth); Nov 9's by-office entries still count for months that only have those.
@@ -519,7 +519,7 @@ function mklMetricPop(k, D, ym, cap) {
 
 // The Metrics controls for the Marketing sub-tab bar (per Isaac, Nov 16): owner's drag hint + Reset, the compare
 // dropdown, the month picker.
-function mklHeaderControls() {
+function mklHeaderControls(monthOnly) {
   const F = mklState(); const ym = F.ym, cmp = F.cmp === 'year' ? 'year' : F.cmp === 'none' ? 'none' : 'prev';
   const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
   const months = []; for (let i = 0; i < 18; i++) months.push(_mklYm(new Date(new Date().getFullYear(), new Date().getMonth() - i, 1)));
@@ -529,5 +529,5 @@ function mklHeaderControls() {
     ...[['none', 'No change'], ['prev', 'MoM change'], ['year', 'YoY change']].map(([v, l]) => el('option', { value: v, selected: v === cmp }, l)));
   const m = _mktgStore();
   const ownerHint = (typeof isOwnerUser === 'function' && isOwnerUser()) ? el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Drag tiles to reorder', Array.isArray(m.tileOrder) && m.tileOrder.length ? el('button', { class: 'ml-2 font-semibold underline', style: { color: 'var(--accent)' }, onclick: () => { delete m.tileOrder; _mktgSave(); mountApp(); } }, 'Reset') : null) : null;
-  return [ownerHint, cmpSel, monthSel].filter(Boolean);
+  return (monthOnly ? [monthSel] : [ownerHint, cmpSel, monthSel]).filter(Boolean);   // Dashboard shows just the month (per Isaac, Nov 18)
 }

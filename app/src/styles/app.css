@@ -231,6 +231,13 @@
     background: var(--card-2);
     border-radius: 0;
   }
+  /* Color bar along the top of every card (per Isaac, Nov 18 — from the Lead Command Center mockup). Accent by
+     default; .bar-sage / .bar-charcoal / .bar-red / .bar-none pick another or drop it. Inline borderTop still wins. */
+  .card { border-top: 3px solid var(--accent); }
+  .card.bar-sage { border-top-color: #5F6C5B; }
+  .card.bar-charcoal { border-top-color: #323230; }
+  .card.bar-red { border-top-color: #DC2626; }
+  .card.bar-none, .modal-overlay > .card, .card .card { border-top: 1px solid var(--border); }
   /* Hypebeast display type — Anton poster face for tab titles + hero numbers. */
   .font-display { font-family: var(--font-display); font-weight: 400 !important; letter-spacing: .015em; }
   .hb-kicker { text-transform: uppercase; letter-spacing: .18em; font-weight: 700; }
