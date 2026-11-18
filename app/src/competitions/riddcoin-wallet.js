@@ -146,7 +146,7 @@ function adminRiddcoin() {
   const setup = _rcSetupCard();
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'card p-4 flex items-center gap-4 flex-wrap' },
-      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'RIDDCOIN'),
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'RIDDCOIN Wallet'),
         el('div', { class: 'text-[11px] text-muted-' }, 'Add or subtract coins for any user; every change needs a reason and lands in that user’s history. Reps see their balance on Sales › Wallet.')),
       el('div', { class: 'ml-auto text-right' },
         el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'In circulation'),

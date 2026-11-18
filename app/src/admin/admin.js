@@ -193,7 +193,7 @@ function viewAdmin() {
       ['pricing',   'Commissions & payroll', 'Rates by rep type · when sales pay and lock'],
       ['goals',     'Goals',                'Company and rep targets'],
       ['comps',     'Competitions',         'Schedule and calendar'],
-      ['riddcoin',  'RIDDCOIN',             'Balances, add / subtract, history'],
+      ['riddcoin',  'RIDDCOIN Wallet',      'Balances, add / subtract, history'],
     ] },
     { label: 'Rules', items: [
       ['config',    'Configurations',       'Book, churn, services, cancel reasons, Indicators'],
