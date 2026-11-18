@@ -85,7 +85,7 @@ function _pacerStream(s, o) {
   else if (v.kind === 'start') { gapNote = _pacerUsd(s.target) + ' goal for ' + (o.rangeLabel || 'the range').toLowerCase(); }
   else if (v.kind !== 'none') { gapEl = _pacerSigned(v.gap); gapNote = (v.gap >= 0 ? 'over ' : 'to ') + (o.rangeLabel ? o.rangeLabel.toLowerCase() + '’s ' : '') + _pacerUsd(v.expected) + ' pace'; }
   // The quiet line under the bar: left = where the tick is; right = what it takes from here.
-  const leftTxt = v.kind === 'none' ? (s.hint || '') : v.kind === 'hit' ? (s.left > 0 ? 'Goal hit · anything from here is upside' : 'Goal hit') : v.kind === 'missed' ? 'Range over' : v.kind === 'start' ? '' : Math.round(pct * 100) + '% of goal' + (s.tickLabel ? ' · tick = ' + s.tickLabel : '');
+  const leftTxt = v.kind === 'none' ? (s.hint || '') : v.kind === 'hit' ? (s.left > 0 ? 'Goal hit · anything from here is upside' : 'Goal hit') : v.kind === 'missed' ? 'Range over' : v.kind === 'start' ? '' : (s.tickLabel ? 'tick = ' + s.tickLabel : '');
   let rightTxt = '';
   if (v.kind === 'behind' || v.kind === 'pace' || v.kind === 'ahead' || v.kind === 'start') {
     const toGo = Math.max(0, s.target - s.actual);
@@ -115,7 +115,10 @@ function _pacerStream(s, o) {
         el('span', { style: { width: '9px', height: '9px', background: barColor, flexShrink: 0 }, 'aria-hidden': 'true' }),
         el('span', { class: 'font-bold whitespace-nowrap', style: { fontSize: phone ? '13px' : '14px' } }, s.label),
         s.sub ? el('span', { class: 'text-[11px] truncate', style: { color: 'var(--text-muted)' } }, s.sub) : null),
-      _pacerChip(v)),
+      // % of goal sits beside the verdict chip, not under the bar (per Isaac, Nov 18).
+      v.kind !== 'none' ? el('div', { class: 'flex items-center gap-2 shrink-0' },
+        el('span', { class: 'text-[11px] tabular-nums whitespace-nowrap', style: { color: 'var(--text-muted)' } }, Math.round(pct * 100) + '% of goal'),
+        _pacerChip(v)) : null),
     el('div', { class: 'flex items-baseline gap-3 flex-wrap min-w-0' },
       el('span', { class: 'font-black tabular-nums', style: { fontSize: big, lineHeight: '1', letterSpacing: '-.01em' } }, _pacerUsd(s.actual)),
       gapEl ? el('span', { class: 'font-bold tabular-nums', style: { fontSize: '15px', color: v.color } }, gapEl) : null,
