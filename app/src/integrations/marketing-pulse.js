@@ -110,9 +110,16 @@ function mkpAllLeads() {
     // the sync kept that. 'ai' = AI Calls, 'call', 'form', '' = unknown (moved before the sync first saw it).
     const firstStage = o[8] != null && o[8] >= 0 ? stages[o[8]] || '' : '';
     const typeOf = (st) => /\bai\b/i.test(st) ? 'ai' : /forms?/i.test(st) ? 'form' : /calls?/i.test(st) ? 'call' : '';
-    leads.push({ d: o[0], t: o[4] || '', p: o[2] || '', e: o[3] || '', prov, label: o[1] >= 0 ? lab[o[1]] : '', group: mkpGroupOf(prov), paid: paid.has(prov),
+    // Before the sync kept the entry stage (Nov 18), most opportunities had already been moved to Lost / No Contact /
+    // Follow Up, so the stage says nothing about how they arrived. For sources that only ever arrive one way the
+    // source label settles it (per Isaac, Nov 18 — Google Local Services and Service Direct calls were showing as a
+    // handful): LSA = calls (its "Message Lead" = form), Service Direct = calls, Voice AI Line = AI calls,
+    // PestBooker = form. Mixed sources (Facebook, DoLead, Angi, Google Ads) stay unknown rather than guessed.
+    const srcLabel = o[1] >= 0 ? String(lab[o[1]] || '') : '';
+    const typeBySource = /message lead/i.test(srcLabel) ? 'form' : /local services|\blsa\b|service direct/i.test(srcLabel) ? 'call' : /voice ai/i.test(srcLabel) ? 'ai' : /pest ?booker/i.test(srcLabel) ? 'form' : '';
+    leads.push({ d: o[0], t: o[4] || '', p: o[2] || '', e: o[3] || '', prov, label: srcLabel, group: mkpGroupOf(prov), paid: paid.has(prov),
       campaign: o[7] != null && o[7] >= 0 ? lab[o[7]] : '', status: String(o[5] || '').toLowerCase(), stage, firstStage,
-      type: typeOf(firstStage) || typeOf(stage), typeSure: !!typeOf(firstStage), market: c ? mkpMarketOf(zipOff.get(c[6])) : '' });
+      type: typeOf(firstStage) || typeOf(stage) || typeBySource, typeSure: !!typeOf(firstStage), market: c ? mkpMarketOf(zipOff.get(c[6])) : '' });
   }
   const out = { leads, raw, notLead };
   mkpAllLeads._m = { src: G.opps, sig, zip: zipOff, out };
