@@ -2712,6 +2712,15 @@ function reportingWaterfall() {
     }
     const groups = new Map([...gL].map(([k, L]) => [k, stat(L, renAnchor)]));
     const all = stat(allL, renAnchor), m2m = stat(m2mL, endAnchor);
+    // Same-cohort comparison (per Isaac, Nov 19): the type rows above compare renewers with EVERY month-to-month
+    // customer, which mixes 2021 lifers with 2025 sign-ups. Here each START YEAR (first service) is its own cohort:
+    // the customers from that year who renewed vs the ones from the same year who reached contract end and rode
+    // month-to-month — read at the same horizons, so the renewal's effect on attrition is apples to apples.
+    const byYear = new Map();
+    const _yr = (c) => c.start != null ? String(new Date(c.start).getFullYear()) : null;
+    for (const c of allL) { const y = _yr(c); if (!y) continue; (byYear.get(y) || byYear.set(y, { ren: [], m2m: [] }).get(y)).ren.push(c); }
+    for (const c of m2mL) { const y = _yr(c); if (!y) continue; (byYear.get(y) || byYear.set(y, { ren: [], m2m: [] }).get(y)).m2m.push(c); }
+    const yearRows = [...byYear.keys()].sort((a, b) => b.localeCompare(a)).map(y => ({ y, ren: stat(byYear.get(y).ren, renAnchor), m2m: stat(byYear.get(y).m2m, endAnchor) })).filter(x => x.ren.n || x.m2m.n);
     if (!all.n && !m2m.n) return null;
     const pct = (n, d) => d ? (n / d * 100).toFixed(1) + '%' : '—';
     const mo = (v) => v == null ? '—' : v.toFixed(1) + ' mo';
@@ -2755,7 +2764,20 @@ function reportingWaterfall() {
             ...keys.map(k => row(grp === 'year' ? k : 'Renewal - ' + k, groups.get(k), false, m2m)),
             row('All customers who renewed', all, true, m2m),
             el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, el('td', { class: 'px-3 pt-3 pb-1 text-[10px] uppercase tracking-widest font-semibold', colspan: '10', style: { color: 'var(--text-subtle)' } }, 'The comparison · reached the end of their first contract still a customer and never renewed')),
-            row('Did not renew', m2m, true)))));
+            row('Did not renew', m2m, true),
+            // Same start year, side by side (per Isaac, Nov 19): renewed vs stayed month-to-month, cohort by cohort.
+            ...(yearRows.length ? [el('tr', { class: 'border-t', style: { borderColor: 'var(--border-2)', borderTopWidth: '2px' } }, el('td', { class: 'px-3 pt-3 pb-1 text-[10px] uppercase tracking-widest font-semibold', colspan: '10', style: { color: 'var(--text-subtle)' } },
+                'Same start year \u00b7 customers who renewed vs the same cohort that reached contract end and stayed month-to-month \u00b7 attrition = churned \u00f7 customers'))] : []),
+            ...yearRows.flatMap(x => {
+              const attr = (o) => o.n ? o.left / o.n : null;
+              const a = attr(x.ren), b = attr(x.m2m);
+              const delta = (a != null && b != null) ? el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+                el('td', { class: 'px-3 py-1.5 text-[11px] font-semibold', style: { color: 'var(--text-muted)' } }, '   ' + x.y + ' \u00b7 difference'),
+                el('td', { class: 'px-3 py-1.5 text-[11px] tabular-nums', colspan: '3', style: { color: 'var(--text-muted)' } }, 'attrition ' + pct(x.ren.left, x.ren.n) + ' renewed vs ' + pct(x.m2m.left, x.m2m.n) + ' month-to-month'),
+                el('td', { class: 'px-3 py-1.5 text-[11px] font-black tabular-nums', style: { color: a <= b ? '#15803D' : '#DC2626' } }, (a <= b ? '\u2212' : '+') + Math.abs((a - b) * 100).toFixed(1) + ' pts attrition'),
+                el('td', { class: 'px-3 py-1.5 text-[11px] tabular-nums', colspan: '5', style: { color: 'var(--text-muted)' } }, (x.ren.tenure != null && x.m2m.tenure != null) ? ('tenure ' + mo(x.ren.tenure) + ' vs ' + mo(x.m2m.tenure)) : '')) : null;
+              return [row(x.y + ' \u00b7 Renewed', x.ren, false, x.m2m), row(x.y + ' \u00b7 Month-to-month', x.m2m, false), delta].filter(Boolean);
+            })))));
   })();
 
   // (Renewal Timing card retired per Isaac, Sep 2026.)
