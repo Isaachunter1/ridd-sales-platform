@@ -993,11 +993,13 @@ function _mountAppRender() {
     state.view = isAuditor ? 'sales' : (typeof indHomeView === 'function' ? indHomeView() : 'dashboard');
     history.replaceState(null, '', VIEW_TO_HASH[state.view] || '#' + state.view);
   }
-  if (state.profile && state.profile.role === 'office_staff') {
+  // Wallet sits in every world's tab group (Inside Sales, D2D, Technicians), so it's never a "wrong world" view — the
+  // cross-world bounces below skip it (per Isaac, Nov 19: Sales Reps clicking Wallet landed back on their dashboard).
+  if (state.profile && state.profile.role === 'office_staff' && state.view !== 'wallet') {
     if (D2D_SALES_TAB_KEYS.has(state.view) && state.view !== 'd2d_dashboard') { state.view = 'd2d_dashboard'; history.replaceState(null, '', VIEW_TO_HASH.d2d_dashboard || '#d2d_dashboard'); }
     else if (TECH_TAB_KEYS.has(state.view) && state.view !== 'techs') { state.view = 'techs'; history.replaceState(null, '', VIEW_TO_HASH.techs || '#techs'); }
   }
-  if (!isAdmin && !isAuditor && state.profile && !canWalkWorlds(state.profile.role)) {
+  if (!isAdmin && !isAuditor && state.profile && !canWalkWorlds(state.profile.role) && state.view !== 'wallet') {
     const _grp = repTypeGroup(state.profile);
     const _isTabNotComp = INSIDE_SALES_TAB_KEYS.has(state.view) && state.view !== 'competitions';
     const _isD2dTab = D2D_SALES_TAB_KEYS.has(state.view);
