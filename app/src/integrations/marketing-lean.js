@@ -325,11 +325,12 @@ function _mktgLeanView() {
     const noPrior = b == null || !isFinite(b);
     const cmpLine = el('div', { class: 'flex items-baseline gap-1.5 text-[12px] tabular-nums', style: { color: 'var(--text-muted)' } },
       dv == null ? el('span', {}, noPrior ? '—' : '—') : el('span', { class: 'font-bold', style: { color: col } }, (dv >= 0 ? '↑ +' : '↓ ') + (dv * 100).toFixed(1) + '%'),
-      el('span', {}, 'vs. ' + (noPrior ? 'no ' + cmpLbl : o.fmt(b)), el('span', { class: 'ml-1', style: { color: 'var(--text-subtle)' } }, '· ' + _cmpTag)));
+      el('span', { class: 'whitespace-nowrap' }, 'vs. ' + (noPrior ? 'no ' + cmpLbl : o.fmt(b))));
     return el('div', { class: 'card p-4 flex flex-col gap-2' + (o.onClick ? ' cursor-pointer' : ''), style: { borderTop: '3px solid ' + (o.color || 'var(--accent)') }, onclick: o.onClick || null },   // no title on the card itself — the browser tooltip sat on top of the sparkline table (per Isaac, Nov 16); the ⓘ carries the tip
       el('div', { class: 'flex items-center justify-between gap-2' },
         el('div', { class: 'text-[12px] font-semibold', style: { color: 'var(--text-muted)' } }, o.label, o.tip ? el('span', { class: 'ml-1 text-[10px]', style: { color: 'var(--text-subtle)' }, title: o.tip }, 'ⓘ') : null),
-        icon(o.icon)),
+        // The comparison period sits beside the icon (per Isaac, Nov 19) — the line under the number keeps just the change.
+        el('div', { class: 'flex items-center gap-2 shrink-0' }, cmp === 'none' ? null : el('span', { class: 'text-[10px] tabular-nums whitespace-nowrap', style: { color: 'var(--text-subtle)' } }, _cmpTag), icon(o.icon))),
       el('div', { class: 'leading-none font-black tabular-nums', style: { fontFamily: 'ui-monospace, monospace', fontSize: '28px' } }, a == null || !isFinite(a) ? '—' : o.fmt(a),
         // * = a cost input isn't in for this month yet (per Isaac, Nov 16), so the number will move when it is.
         o.star ? el('span', { class: 'ml-1', style: { color: '#B45309', fontSize: '18px', verticalAlign: 'top' }, title: o.star }, '*') : null),
