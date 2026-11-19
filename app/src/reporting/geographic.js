@@ -2,6 +2,23 @@
 // │ Reporting → Geographic (map, ZIP tables).
 // │ Part of the app.js bundle (tools/bundle.js concatenates src/*.js in name order).
 // └────────────────────────────────────────────────────────────────────────
+// RIDD total row (per Isaac, Nov 19): every cell gets the 2px rule (a box-shadow on the <tr> was hidden under the
+// sticky first cell, so the line looked like it started one column in) and the row sticks right under the header,
+// measured after paint so it follows the header's real height on phones and desktops alike.
+function _geoStickTotal(table) {
+  const run = () => {
+    const thead = table.querySelector('thead'), tr = table.querySelector('tbody > tr');
+    if (!thead || !tr) return;
+    const top = thead.offsetHeight + 'px';
+    for (const td of tr.children) {
+      td.style.position = 'sticky'; td.style.top = top; td.style.borderBottom = '2px solid var(--border-2)';
+      td.style.background = td.style.background || 'var(--card-2)';
+      td.style.zIndex = td.style.left ? '3' : '1';   // the frozen label cells sit above the scrolling ones
+    }
+  };
+  requestAnimationFrame(() => { run(); setTimeout(run, 250); });   // once laid out, once more after fonts settle
+  return table;
+}
 function reportingGeographic() {
   const gate = reportingDataGate();
   if (gate) return gate;
@@ -442,7 +459,7 @@ function reportingGeographic() {
     el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '500px' } },
       // frozen-table: stays a REAL table on phones so the sticky # / ZIP
       // columns pin properly instead of drifting off a blank gutter (per Isaac).
-      el('table', { class: 'w-full text-xs frozen-table' },
+      _geoStickTotal(el('table', { class: 'w-full text-xs frozen-table' },
         el('thead', { class: 'text-[10px] uppercase tracking-wider sticky top-0', style: { background: 'var(--card-2)', color: 'var(--text-muted)', zIndex: 2 } },
           el('tr', {},
             el('th', { class: 'px-3 py-2 font-semibold text-left', style: { background: 'var(--card-2)', width: '40px', position: 'sticky', left: 0, zIndex: 3 } }, '#'),
@@ -467,7 +484,7 @@ function reportingGeographic() {
             const T = reportingGeoTotal(sortedItems);
             if (!T.subs) return null;
             const td = (v, cls) => el('td', { class: 'px-3 py-2 text-left font-black ' + (cls || '') }, v);
-            return el('tr', { class: 'tabular-nums', style: { background: 'var(--card-2)', boxShadow: 'inset 0 -2px 0 var(--border-2)' } },
+            return el('tr', { class: 'tabular-nums', style: { background: 'var(--card-2)' } },
               el('td', { class: 'px-3 py-2 text-base leading-none', style: { fontFamily: 'Georgia, "Times New Roman", serif', position: 'sticky', left: 0, zIndex: 1, background: 'var(--card-2)' } }, '\ud835\udd7d'),
               el('td', { class: 'px-3 py-2 text-left font-black', style: { position: 'sticky', left: '40px', zIndex: 1, background: 'var(--card-2)', boxShadow: '1px 0 0 var(--border)' } }, 'RIDD'), td('All'), td(bOffice !== 'all' ? _mktgTC(bOffice) : 'All'),
               td(T.customers.toLocaleString()), td(T.subs.toLocaleString()),
@@ -516,7 +533,7 @@ function reportingGeographic() {
             el('td', { class: 'px-3 py-2 text-left font-semibold', title: 'Realized recurring revenue per customer — ARV ÷ 12 × months on the books' }, it.ltv ? '$' + Math.round(it.ltv).toLocaleString() : '—'),
           )),
         ),
-      ),
+      )),
     ),
   );
 
@@ -549,7 +566,7 @@ function reportingGeographic() {
           el('h2', { class: 'text-lg font-bold' }, summaryBy === 'state' ? 'State breakdown' : 'Office breakdown')),
         byToggle),
       el('div', { style: { overflow: 'auto', maxHeight: '70vh' } },
-        el('table', { class: 'w-full text-xs' },
+        _geoStickTotal(el('table', { class: 'w-full text-xs' },
           el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)', position: 'sticky', top: 0, zIndex: 2 } },
             el('tr', {},
               el('th', { class: 'px-3 py-2 text-left font-semibold', style: { position: 'sticky', left: 0, zIndex: 3, background: 'var(--card-2)', boxShadow: '1px 0 0 var(--border)' }, title: summaryBy === 'state' ? 'Click a row to drill the map into that state' : 'Office' }, summaryBy === 'state' ? 'State' : 'Office'),
@@ -570,7 +587,7 @@ function reportingGeographic() {
               const T = reportingGeoTotal(rows);
               if (!T.subs) return null;
               const td = (v, o = {}) => el('td', { class: 'px-3 py-2 text-left font-black', style: o.style || {} }, v);
-              return el('tr', { class: 'tabular-nums', style: { background: 'var(--card-2)', boxShadow: 'inset 0 -2px 0 var(--border-2)' } },
+              return el('tr', { class: 'tabular-nums', style: { background: 'var(--card-2)' } },
                 td('RIDD', { style: { position: 'sticky', left: 0, zIndex: 1, background: 'var(--card-2)', boxShadow: '1px 0 0 var(--border)' } }),
                 td(T.customers.toLocaleString()), td(T.subs.toLocaleString()), td(T.active.toLocaleString()),
                 td('$' + Math.round(T.avgContract).toLocaleString()), td('$' + Math.round(T.arv).toLocaleString()),
@@ -654,7 +671,7 @@ function reportingGeographic() {
                         },
                       }, (o || '??') + ' \u00b7 ' + n.toLocaleString())));
                 })()));
-            })))));
+            }))))));
   })() : null;
 
   return el('div', { class: 'flex flex-col gap-4' },
