@@ -133,9 +133,9 @@ function _mkdOpenLeads(title, rows) {
       el('button', { class: 'text-2xl leading-none text-muted- px-1', 'aria-label': 'Close', onclick: close }, '×')),
     el('div', { style: { maxHeight: '62vh', overflowY: 'auto' } },
       el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-        el('thead', {}, el('tr', {}, th('Date'), th('Source (GoHighLevel)'), th('Channel'), th('Office'), th('Stage'), th('Type'), th('Phone'))),
+        el('thead', {}, el('tr', {}, th('Date'), th('Time'), th('Source (GoHighLevel)'), th('Channel'), th('Office'), th('Stage'), th('Type'), th('Phone'))),
         el('tbody', {}, ...sorted.slice(0, 1500).map(l => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-          td(l.d, 'tabular-nums'), td(l.label), td(l.prov === 'Unmapped' ? 'Unmapped' : l.prov), td(l.market), td(l.stage), td(l.type), td(mask(l.p), 'tabular-nums')))))),
+          td(l.d, 'tabular-nums'), td(l._lt || (l.t ? l.t + ' UTC' : ''), 'tabular-nums'), td(l.label), td(l.prov === 'Unmapped' ? 'Unmapped' : l.prov), td(l.market), td(l.stage), td(l.type), td(mask(l.p), 'tabular-nums')))))),
     sorted.length > 1500 ? el('div', { class: 'text-[10px] mt-2', style: { color: 'var(--text-subtle)' } }, 'Showing the newest 1,500.') : null));
   document.body.append(overlay);
 }
@@ -159,7 +159,8 @@ function mktgDashHoursCard(D, lbl) {
   const typed = leads.filter(l => l.type === kind);
   const unknown = leads.filter(l => !l.type).length;
   const hours = new Array(24).fill(0); let counted = 0;
-  for (const l of typed) { const h = _mkdLocalHour(l); if (h == null) continue; hours[h]++; counted++; }
+  const byHour = Array.from({ length: 24 }, () => []);   // the leads behind each bar — click a bar to see them (per Isaac, Nov 19)
+  for (const l of typed) { const h = _mkdLocalHour(l); if (h == null) continue; hours[h]++; counted++; byHour[h].push(l); }
   const max = Math.max(1, ...hours);
   const biz = (h) => h >= 8 && h < 18;   // shaded bars = 8am–6pm local
   const afterN = hours.reduce((a, v, h) => a + (biz(h) ? 0 : v), 0);
@@ -168,7 +169,12 @@ function mktgDashHoursCard(D, lbl) {
   const toggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
     ...[['call', 'Calls'], ['form', 'Forms'], ['ai', 'AI calls']].map(([v, t]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-bold', style: kind === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._mkdHourKind = v; mountApp(); } }, t + ' ' + fmt.int(leads.filter(l => l.type === v).length))));
   const bars = el('div', { class: 'flex items-end gap-1', style: { height: '150px' } },
-    ...hours.map((v, h) => el('div', { class: 'flex-1 flex flex-col items-center justify-end gap-1', title: lab(h) + ' · ' + fmt.int(v) + (biz(h) ? ' · business hours' : ' · after hours') },
+    ...hours.map((v, h) => el('div', { class: 'flex-1 flex flex-col items-center justify-end gap-1' + (v ? ' cursor-pointer hover:brightness-90' : ''), title: lab(h) + ' · ' + fmt.int(v) + (biz(h) ? ' · business hours' : ' · after hours') + (v ? ' · click for the leads' : ''),
+      onclick: v ? () => {
+        const tzOf = (l) => MKD_OFFICE_TZ[String(l.market || '').toUpperCase()] || 'America/New_York';
+        const rows = byHour[h].map(l => { let lt = ''; try { lt = new Intl.DateTimeFormat('en-US', { timeZone: tzOf(l), hour: 'numeric', minute: '2-digit' }).format(new Date(l.d + 'T' + l.t + ':00Z')); } catch (e) { lt = l.t; } return Object.assign({}, l, { _lt: lt }); });
+        _mkdOpenLeads(({ call: 'Calls', form: 'Forms', ai: 'AI calls' })[kind] + ' · ' + lab(h) + '–' + lab((h + 1) % 24) + ' local · ' + lbl, rows);
+      } : null },
       v ? el('div', { class: 'text-[9px] tabular-nums', style: { color: 'var(--text-muted)' } }, fmt.int(v)) : null,
       el('div', { style: { width: '100%', height: Math.max(2, Math.round(120 * v / max)) + 'px', background: COL[kind], opacity: biz(h) ? '1' : '.45', borderRadius: '2px 2px 0 0' } }))));
   const axis = el('div', { class: 'flex gap-1 mt-1' }, ...hours.map((_, h) => el('div', { class: 'flex-1 text-center text-[9px] tabular-nums', style: { color: h % 3 === 0 ? 'var(--text-muted)' : 'transparent' } }, lab(h))));
