@@ -457,8 +457,9 @@ function _mktgLeanView() {
   // Channels × offices grid + traffic by hour (marketing-dash.js) sit between the tiles and the year grid (per Isaac, Nov 18).
   const dash = typeof mktgDashBlocks === 'function' ? (() => { try { return mktgDashBlocks(ym); } catch (e) { console.warn('[marketing] dash blocks', e); return []; } })() : [];
   const ltvSec = typeof mklLtvSection === 'function' ? (() => { try { return mklLtvSection(cur, ym, _cap); } catch (e) { console.warn('[marketing] ltv section', e); return null; } })() : null;   // LTV / CAC section (per Isaac, Nov 19)
+  const ttc = (() => { try { return mklTimeToCloseCard(cur, RNG ? _mklLblS(ym) : _mklLblS(ym)); } catch (e) { console.warn('[marketing] time to close', e); return null; } })();   // (per Isaac, Nov 19)
   const oppMon = typeof leadOppMonitorCard === 'function' ? (() => { try { return leadOppMonitorCard(); } catch (e) { console.warn('[marketing] lead-opp monitor', e); return null; } })() : null;   // Lead → opportunity monitor (per Isaac, Nov 19) — one line unless a source breaks
-  return el('div', { class: 'flex flex-col gap-4' }, oppMon, tiles, chart, ltvSec, ...dash, grid);   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
+  return el('div', { class: 'flex flex-col gap-4' }, oppMon, tiles, chart, ltvSec, ttc, ...dash, grid);   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
 }
 // The month's new sales behind the New revenue tile (same rows the table counts).
 function mklOpenSales(D, title) {
@@ -467,6 +468,40 @@ function mklOpenSales(D, title) {
 }
 
 
+// ── Time to close by channel (per Isaac, Nov 19 — "see WHEN a lead comes through as well as WHEN it closes, just
+// from the time stamps … average time to close by channel"). Each new sale in the period is already matched to the
+// latest GoHighLevel lead on its phone / email (mklMonth → r._mklLead, up to 180 days back). Lead time = the
+// opportunity's stamp (UTC); close time = FieldRoutes' sold_at (company clock, UTC−7). Channel = the lead's (last
+// touch). A lead stamped after the sale (made by the sync, not by marketing) isn't timed.
+function mklTimeToCloseCard(D, lbl) {
+  const sales = (D && D.sales) || []; if (!sales.length) return null;
+  const leadMs = (l) => { const d = l.dUtc || l.d; if (!d) return NaN; return Date.parse(d + 'T' + (/^\d{1,2}:\d{2}/.test(String(l.t || '')) ? String(l.t).padStart(5, '0').slice(0, 5) : '12:00') + ':00Z'); };
+  const saleMs = (r) => { const a = String(r.sold_at || ''); if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(a)) return Date.parse(a.slice(0, 10) + 'T' + a.slice(11, 19).padEnd(8, ':00').slice(0, 8) + 'Z') + 7 * 3600000; const d = String(r.sold_date || '').slice(0, 10); return d ? Date.parse(d + 'T19:00:00Z') : NaN; };
+  const by = new Map(); let after = 0, noLead = 0;
+  for (const r of sales) {
+    const l = r._mklLead; if (!l) { noLead++; continue; }
+    const ch = l.prov || 'Unknown'; if (typeof mktgChannelShown === 'function' && !mktgChannelShown(ch)) continue;
+    const h = (saleMs(r) - leadMs(l)) / 3600000; if (!isFinite(h)) continue;
+    if (h < 0) { after++; continue; }
+    (by.get(ch) || by.set(ch, []).get(ch)).push(h);
+  }
+  const all = [].concat(...by.values()); if (!all.length) return null;
+  const med = (a) => { const b = a.slice().sort((x, y) => x - y), m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
+  const dur = (h) => h == null ? '—' : h < 1 ? Math.round(h * 60) + ' min' : h < 24 ? h.toFixed(1) + ' h' : (h / 24).toFixed(1) + ' days';
+  const pc = (a, f) => Math.round(a.filter(f).length / a.length * 100) + '%';
+  const rows = [...by.entries()].sort((a, b) => b[1].length - a[1].length);
+  const th = (t, tip, r) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (r ? 'text-right' : 'text-left'), title: tip || '', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
+  const td = (v, b, r) => el('td', { class: 'px-3 py-1.5 tabular-nums whitespace-nowrap ' + (r ? 'text-right' : '') + (b ? ' font-black' : ''), style: { fontFamily: r ? 'ui-monospace, monospace' : undefined } }, v);
+  const line = (k, a, tot) => el('tr', { class: 'border-t', style: tot ? { borderTop: '2px solid var(--text)', background: 'var(--card-2)' } : { borderColor: 'var(--border)' } },
+    td(k, true), td(a.length.toLocaleString(), tot, true), td(dur(a.reduce((x, y) => x + y, 0) / a.length), true, true), td(dur(med(a)), tot, true),
+    td(pc(a, h => h < 24), tot, true), td(pc(a, h => h < 168), tot, true), td(pc(a, h => h >= 720), tot, true));
+  return el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkt-ttc' },
+    el('div', { class: 'px-5 py-3' }, el('h3', { class: 'text-base font-bold' }, 'Time to close · ' + lbl),
+      el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'From the lead’s GoHighLevel time stamp to the FieldRoutes sale time, by the lead’s channel (last touch). New sales in the period with a lead on the same phone or email' + (noLead ? ' · ' + noLead.toLocaleString() + (noLead === 1 ? ' sale with no lead isn\u2019t timed' : ' sales with no lead aren\u2019t timed') : '') + (after ? ' · ' + after.toLocaleString() + ' with the lead logged after the sale left out' : '') + '.')),
+    el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, th('Channel'), th('Sales', 'New sales timed', 1), th('Average', 'Mean time from lead to sale', 1), th('Median', 'Half close faster, half slower — not pulled by a few slow ones', 1), th('Same day', 'Closed within 24 hours of the lead', 1), th('Within 7 days', '', 1), th('30+ days', '', 1))),
+      el('tbody', {}, ...rows.map(([k, a]) => line(k, a)), line('All channels', all, true)))));
+}
 // ── Year grid (per Isaac, Nov 16): offices (or channels) × Jan–Dec + YTD, metric picker. ──
 // Cells read mklMonth(ym).br / .ch, so every number here is the same one the tiles and the Spend tab show; ratios
 // in the YTD column are recomputed from the summed dollars, never averaged.
