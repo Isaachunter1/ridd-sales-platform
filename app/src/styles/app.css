@@ -1249,3 +1249,13 @@
 .mkl-tiles { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 @media (max-width: 1023px) { .mkl-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .mkl-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Drag to rearrange (per Isaac, Nov 19 — shell/arrange.js). The grip shows on hover, owner only. */
+.arr-grip { position: absolute; top: 6px; left: 50%; transform: translateX(-50%); z-index: 6; padding: 0 6px; line-height: 14px; font-size: 12px; letter-spacing: -2px;
+  border-radius: 6px; border: 1px solid var(--border-2); background: var(--card); color: var(--text-muted); cursor: grab; opacity: 0; transition: opacity .12s; }
+*:hover > .arr-grip { opacity: .9; }
+.arr-grip:active { cursor: grabbing; }
+.arr-dragging { opacity: .45; }
+.arr-over-before { box-shadow: inset 0 3px 0 var(--accent, #D9663A); }
+.arr-over-after { box-shadow: inset 0 -3px 0 var(--accent, #D9663A); }
+@media (hover: none) { .arr-grip { opacity: .7; } }

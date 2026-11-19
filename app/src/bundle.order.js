@@ -33,6 +33,7 @@ module.exports = [
   'reporting/auditing.js',
   'reporting/account-integrity.js',
   'reporting/review-marks.js',
+  'shell/arrange.js',
   'shell/nav-mount.js',
   'sales/dashboard-and-rep-data.js',
   'sales/sales-queue.js',
