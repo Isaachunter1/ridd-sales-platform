@@ -112,6 +112,11 @@ function mkpAllLeads() {
     let prov = o[1] == null || o[1] < 0 || passThrough ? GHL_NOT_LEAD : provOf(o[1]);   // no source on the opportunity → not a lead either
     if ((first || passThrough) && c) { const fp = provOf(c[1] >= 0 ? c[1] : c[2]); if (fp && fp !== 'Unmapped' && fp !== GHL_NOT_LEAD) prov = fp; }
     if (prov === GHL_NOT_LEAD) { notLead++; continue; }
+    // Vendor rule (per Isaac, Oct 9 + Nov 19): DoLead and ElectGen run their own Meta ads, so their lead lands with a
+    // Facebook tag on the opportunity ("FB - $39", "Paid Social"). When the person's contact was CREATED by the vendor
+    // within a day of that opportunity, it's the vendor's lead — one touch, not a Facebook touch after it. (218
+    // opportunities in 2026 were reading as Facebook.)
+    if (prov === 'Facebook' && c && c[1] >= 0) { const v = provOf(c[1]); if ((v === 'DoLead' || v === 'ElectGen') && Math.abs(_mkpMs(c[0]) - _mkpMs(o[0])) <= 86400000) prov = v; }
     // A current customer calling or writing in is not a lead (per Isaac, Nov 19 — brand-search calls are mostly them).
     if (o[2] && typeof ghlIsCurrentCustomer === 'function' && ghlIsCurrentCustomer(o[2], o[0])) { notLead++; curCust++; continue; }
     raw++;
