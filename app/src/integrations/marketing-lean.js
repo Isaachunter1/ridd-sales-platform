@@ -444,7 +444,11 @@ function mklYearGrid(ym) {
       const a = M.get(c), b = base ? M.get(base) : null;
       const p = a == null || b == null || !isFinite(a) || !isFinite(b) || !b || future ? null : (a - b) / Math.abs(b);
       const good = p == null || UP_GOOD[M.k] == null ? null : (p >= 0) === UP_GOOD[M.k];
-      return el('td', { class: 'px-3 py-1.5 text-right tabular-nums whitespace-nowrap', style: Object.assign({ fontFamily: 'ui-monospace, monospace' }, p == null ? muted : { color: good == null ? 'var(--text)' : good ? '#16A34A' : '#DC2626' }, bold ? { fontWeight: '700' } : {}) }, p == null ? '—' : (p >= 0 ? '+' : '') + (p * 100).toFixed(1) + '%');
+      // Value AND change (per Isaac, Nov 19 — "like the cards up above"): the metric on top, the % change under it.
+      const t = show(c);
+      return el('td', { class: 'px-3 py-1.5 text-right tabular-nums whitespace-nowrap', style: Object.assign({ fontFamily: 'ui-monospace, monospace' }, bold ? { fontWeight: '700' } : {}) },
+        el('div', { style: t === '—' || future ? muted : {} }, t),
+        el('div', { class: 'text-[10px]', style: p == null ? muted : { color: good == null ? 'var(--text-muted)' : good ? '#16A34A' : '#DC2626' } }, p == null ? '—' : (p >= 0 ? '+' : '') + (p * 100).toFixed(1) + '%'));
     }
     const t = show(c); return el('td', { class: 'px-3 py-1.5 text-right tabular-nums whitespace-nowrap', style: Object.assign({ fontFamily: 'ui-monospace, monospace' }, t === '—' || future ? muted : {}, bold ? { fontWeight: '700' } : {}) }, t); };
   const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
