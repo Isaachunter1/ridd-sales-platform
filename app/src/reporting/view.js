@@ -1086,10 +1086,21 @@ function reportingRenewals(srcRows, opts) {
 
   const column = (s) => {
     const L = cols[s.key].filter(matchQ);
-    const shownN = state['_renewalMore_' + s.key] ? L.length : Math.min(L.length, CARD_LIMIT);
+    // Booked follow-ups (per Isaac, Nov 19 — "I clicked on a card that had a scheduled call back and it just
+    // disappeared"): a follow-up booked for later sorted under the whole rotation, past the 120-card cap, so it
+    // vanished until it came due. They now sit in their own strip right under the due ones, never capped.
+    const booked = s.key === 'Eligible' ? L.filter(x => x._lane === 3) : [];
+    const due = s.key === 'Eligible' ? L.filter(x => x._lane === 0) : [];
+    const rest = s.key === 'Eligible' ? L.filter(x => x._lane !== 3 && x._lane !== 0) : L;
+    const shownN = state['_renewalMore_' + s.key] ? rest.length : Math.min(rest.length, CARD_LIMIT);
+    const bookedOpen = state._renewalBookedOpen !== false;
+    const strip = booked.length ? [el('button', { class: 'flex items-center justify-between gap-2 rounded-lg px-2 py-1 text-[10px] font-black uppercase tracking-wider', style: { background: 'rgba(124,58,237,.10)', color: '#7C3AED' },
+        onclick: () => { state._renewalBookedOpen = !bookedOpen; mountApp(); } }, el('span', {}, '📅 Follow-ups booked · ' + booked.length), el('span', {}, bookedOpen ? '▴' : '▾')),
+      ...(bookedOpen ? booked.map(x => card(x, s.key)) : []),
+      rest.length ? el('div', { class: 'text-[10px] font-black uppercase tracking-wider px-1 pt-1', style: { color: 'var(--text-subtle)' } }, 'Call order') : null] : [];
     const body = el('div', { class: 'flex flex-col gap-2 p-2 overflow-y-auto', style: { maxHeight: '68vh', minHeight: '120px' } },
-      ...(L.length ? L.slice(0, shownN).map(x => card(x, s.key)) : [el('div', { class: 'text-[11px] text-center py-6', style: { color: 'var(--text-subtle)' } }, 'Nothing here' + (q ? ' for “' + q + '”' : ''))]),
-      L.length > shownN ? el('button', { class: 'rounded-lg border px-2 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: () => { state['_renewalMore_' + s.key] = true; mountApp(); } }, 'Show all ' + L.length.toLocaleString()) : null);
+      ...(L.length ? [...due.map(x => card(x, s.key)), ...strip, ...rest.slice(0, shownN).map(x => card(x, s.key))] : [el('div', { class: 'text-[11px] text-center py-6', style: { color: 'var(--text-subtle)' } }, 'Nothing here' + (q ? ' for “' + q + '”' : ''))]),
+      rest.length > shownN ? el('button', { class: 'rounded-lg border px-2 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: () => { state['_renewalMore_' + s.key] = true; mountApp(); } }, 'Show all ' + rest.length.toLocaleString()) : null);
     const col = el('div', { class: 'rounded-2xl border flex flex-col min-w-0', style: { borderColor: 'var(--border)', background: 'var(--card-2)' },
       ondragover: (e) => { if (!dragKey.cur) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; col.style.outline = '2px solid ' + s.color; },
       ondragleave: () => { col.style.outline = ''; },
