@@ -81,6 +81,14 @@ function _mkpContactIdx() {
 }
 // Every opportunity → lead record, deduped: a person's opportunity within 30 days of their last counted one is a
 // repeat (a second call, a second form), not a new lead. { leads, raw } over the whole file, memoized.
+const _mkpTzFmt = new Map();
+function _mkpLocalDay(d, t, market) {
+  if (!d || !t || !/^\d{1,2}:\d{2}/.test(String(t))) return d;
+  const tz = (typeof MKD_OFFICE_TZ !== 'undefined' && MKD_OFFICE_TZ[String(market || '').toUpperCase()]) || 'America/New_York';
+  let f = _mkpTzFmt.get(tz); if (!f) { try { f = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }); } catch (e) { return d; } _mkpTzFmt.set(tz, f); }
+  const dt = new Date(d + 'T' + String(t).padStart(5, '0').slice(0, 5) + ':00Z'); if (isNaN(dt)) return d;
+  return f.format(dt);
+}
 function mkpAllLeads() {
   const G = state._ghl; if (!G || !G.opps) return null;
   const sig = JSON.stringify(ghlSourceMap()) + '|' + mkpFilters().attr + '|' + (typeof _mktgStore === 'function' ? (_mktgStore().channels || []).join(',') : '') + '|' + (typeof mkpFrSources === 'function' ? mkpFrSources().join(',') : '');
@@ -124,9 +132,14 @@ function mkpAllLeads() {
     // PestBooker = form. Mixed sources (Facebook, DoLead, Angi, Google Ads) stay unknown rather than guessed.
     const srcLabel = passThrough && c ? String(lab[c[1] >= 0 ? c[1] : c[2]] || '') : o[1] >= 0 ? String(lab[o[1]] || '') : '';
     const typeBySource = /message lead/i.test(srcLabel) ? 'form' : /local services|\blsa\b|service direct/i.test(srcLabel) ? 'call' : /voice ai/i.test(srcLabel) ? 'ai' : /pest ?booker/i.test(srcLabel) ? 'form' : '';
-    leads.push({ d: o[0], t: o[4] || '', p: o[2] || '', e: o[3] || '', prov, label: srcLabel, group: mkpGroupOf(prov), paid: paid.has(prov),
+    // Office-local date (per Isaac, Nov 19 — leads dated Nov 19 on the evening of Nov 18): GoHighLevel stamps the
+    // opportunity in UTC, so anything after ~7 pm Eastern landed on the next day (and the next month on the 31st).
+    // d = the date in the office's time zone; dUtc + t keep the raw stamp for the hour chart.
+    const mkt = c ? (c[11] >= 0 && lab[c[11]] ? mkpMarketOf(lab[c[11]]) : mkpMarketOf(zipOff.get(c[6]))) : '';
+    const ld = _mkpLocalDay(o[0], o[4], mkt);
+    leads.push({ d: ld, dUtc: o[0], t: o[4] || '', p: o[2] || '', e: o[3] || '', prov, label: srcLabel, group: mkpGroupOf(prov), paid: paid.has(prov),
       campaign: o[7] != null && o[7] >= 0 ? lab[o[7]] : '', status: String(o[5] || '').toLowerCase(), stage, firstStage,
-      type: typeOf(firstStage) || typeOf(stage) || typeBySource, typeSure: !!typeOf(firstStage), market: c ? (c[11] >= 0 && lab[c[11]] ? mkpMarketOf(lab[c[11]]) : mkpMarketOf(zipOff.get(c[6]))) : '' });   // office tag from Pest AI first, ZIP second (per Isaac, Nov 18)
+      type: typeOf(firstStage) || typeOf(stage) || typeBySource, typeSure: !!typeOf(firstStage), market: mkt });   // office tag from Pest AI first, ZIP second (per Isaac, Nov 18)
   }
   const out = { leads, raw, notLead, curCust };
   mkpAllLeads._m = { src: G.opps, sig, subs: state.reportingSubscriptions, zip: zipOff, out };
