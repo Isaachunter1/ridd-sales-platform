@@ -274,15 +274,27 @@ function _mktgLeanView() {
     const v24 = MONTHS24.map(m => { const v = o.get(mklMonth(m)); return v == null || !isFinite(v) ? null : v; });
     const pct = (a, b) => a == null || b == null || !b ? null : (a - b) / Math.abs(b);
     const pctEl = (p) => p == null ? el('span', { style: { color: 'var(--text-subtle)' } }, '—') : el('span', { style: { color: o.upGood == null ? 'inherit' : ((p >= 0) === o.upGood ? '#4ADE80' : '#F87171'), fontWeight: '600' } }, (p >= 0 ? '+' : '') + (p * 100).toFixed(1) + '%');
-    const pop = el('div', { style: { position: 'absolute', left: '8px', right: '8px', bottom: '100%', marginBottom: '6px', zIndex: '30', background: '#323230', color: '#F4F4EE', borderRadius: '10px', padding: '8px 10px', boxShadow: 'var(--shadow-lg)', fontSize: '11px', display: 'none', pointerEvents: 'none' } },
+    // Total row (per Isaac, Nov 19): the 12 months summed into one month-shaped record and read through the tile's own
+    // formula, so a ratio (ACV, close rate, CAC) is the 12-month ratio, not an average of months. YoY = the 12 before.
+    const sumOf = (ms) => { const T = { spend: 0, leads: 0, s: 0, svc: 0, cv: 0, labor: 0, wages: 0, incentives: 0, linked: 0, sales: [], hasSpend: false, hasLeads: false, hasSubs: false, hasLabor: false };
+      for (const m of ms) { const D = mklMonth(m); for (const f of ['spend', 'leads', 's', 'svc', 'cv', 'labor', 'wages', 'incentives', 'linked']) T[f] += Number(D[f]) || 0; T.hasSpend = T.hasSpend || D.hasSpend; T.hasLeads = T.hasLeads || D.hasLeads; T.hasSubs = T.hasSubs || D.hasSubs; T.hasLabor = T.hasLabor || D.hasLabor; }
+      return T; };
+    const tv = (ms) => { try { const v = o.get(sumOf(ms)); return v == null || !isFinite(v) ? null : v; } catch (e) { return null; } };
+    const tot = tv(MONTHS24.slice(12)), ptot = tv(MONTHS24.slice(0, 12));
+    const pop = el('div', { style: { position: 'absolute', left: '0', width: 'max-content', minWidth: '100%', bottom: '100%', marginBottom: '6px', zIndex: '30', background: '#323230', color: '#F4F4EE', borderRadius: '10px', padding: '10px 16px', boxShadow: 'var(--shadow-lg)', fontSize: '11px', display: 'none', pointerEvents: 'none' } },
       el('div', { class: 'font-bold mb-1', style: { fontSize: '10px', letterSpacing: '.06em', textTransform: 'uppercase', color: '#C9C9BE' } }, o.label + ' · last 12 months'),
       el('table', { style: { width: '100%', borderCollapse: 'collapse', fontVariantNumeric: 'tabular-nums' } },
         el('thead', {}, el('tr', {}, ...['Month', '', 'MoM', 'YoY'].map((h, i) => el('th', { style: { textAlign: i ? 'right' : 'left', fontWeight: '600', color: '#C9C9BE', padding: '0 0 3px', fontSize: '9px', letterSpacing: '.06em', textTransform: 'uppercase' } }, h)))),
         el('tbody', {}, ...MONTHS12.map((m, i) => { const j = i + 12; const v = v24[j]; return el('tr', { style: { borderTop: '1px solid rgba(255,255,255,.08)' } },
           el('td', { style: { padding: '2px 0', color: m === ym ? '#FFFFFF' : '#C9C9BE', fontWeight: m === ym ? '700' : '400', whiteSpace: 'nowrap' } }, _mklLblS(m) + (m === ym && _cap ? ' · to date' : '')),
-          el('td', { style: { padding: '2px 0', textAlign: 'right', fontWeight: '600' } }, v == null ? '—' : o.fmt(v)),
-          el('td', { style: { padding: '2px 0 2px 10px', textAlign: 'right' } }, pctEl(pct(v, v24[j - 1]))),
-          el('td', { style: { padding: '2px 0 2px 10px', textAlign: 'right' } }, pctEl(pct(v, v24[j - 12])))); }))));
+          el('td', { style: { padding: '2px 0 2px 14px', textAlign: 'right', fontWeight: '600' } }, v == null ? '—' : o.fmt(v)),
+          el('td', { style: { padding: '2px 0 2px 14px', textAlign: 'right' } }, pctEl(pct(v, v24[j - 1]))),
+          el('td', { style: { padding: '2px 0 2px 14px', textAlign: 'right' } }, pctEl(pct(v, v24[j - 12])))); }),
+          el('tr', { style: { borderTop: '1px solid rgba(255,255,255,.35)' } },
+            el('td', { style: { padding: '4px 0 2px', fontWeight: '800', color: '#FFFFFF', whiteSpace: 'nowrap' } }, 'Total · 12 mo'),
+            el('td', { style: { padding: '4px 0 2px 14px', textAlign: 'right', fontWeight: '800' } }, tot == null ? '—' : o.fmt(tot)),
+            el('td', { style: { padding: '4px 0 2px 14px', textAlign: 'right' } }, el('span', { style: { color: 'var(--text-subtle)' } }, '')),
+            el('td', { style: { padding: '4px 0 2px 14px', textAlign: 'right' } }, pctEl(pct(tot, ptot)))))));
     node.style.position = 'relative'; node.style.cursor = 'default';
     node.addEventListener('mouseenter', () => { pop.style.display = 'block'; });
     node.addEventListener('mouseleave', () => { pop.style.display = 'none'; });
