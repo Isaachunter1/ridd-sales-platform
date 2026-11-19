@@ -142,6 +142,7 @@ function adminRiddcoin() {
   const kind = state._rcAdminKind || 'all';
   const tableBody = () => {
     const qq = String(state._rcAdminQ || '').toLowerCase();
+    const kind = state._rcAdminKind || 'all';   // read live — the role picker swaps the body in place, so a value captured at render went stale (per Isaac, Nov 19: 'nothing updates')
     const rows = profiles.filter(p => showInactive || p.is_active !== false).filter(p => kind === 'all' || kindOf(p) === kind).filter(p => !qq || String(p.full_name || '').toLowerCase().includes(qq)).sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || '')));
     return el('tbody', { id: 'rc-admin-body' }, rows.length ? rows.map(row) : [el('tr', {}, el('td', { class: 'py-6 text-center text-muted-', colspan: 5 }, 'No users match.'))]);
   };
