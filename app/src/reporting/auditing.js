@@ -908,8 +908,8 @@ function auditTasksCard() {
   if (_items == null) return el('div', { class: 'card overflow-hidden' }, el('div', { class: 'w-full flex items-center gap-2 px-4 py-2.5' },
     el('span', { class: 'inline-block rounded-full', style: { width: '8px', height: '8px', background: 'var(--border-2)' } }),
     el('span', { class: 'text-[11px] uppercase tracking-widest font-bold' }, 'Auditing tasks'), el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'checking…')));
-  const _rv = rvApply(_items);   // checked-off tasks drop out until something new shows up (per Isaac, Oct 15)
-  const all = _rv.active;
+  // No check-off boxes (per Isaac, Nov 19): every task shows while it has rows, and leaves when it's clear.
+  const all = _items;
   const RANK = { red: 0, amber: 1, ok: 2 };
   const todo = all.filter(i => i.sev !== 'ok').sort((a, b) => RANK[a.sev] - RANK[b.sev]);
   const clear = all.filter(i => i.sev === 'ok');
@@ -927,7 +927,6 @@ function auditTasksCard() {
     const click = hasDetail ? () => { state._auditDetail = showing ? null : i.key; mountApp(); } : i.onClick;
     const red = i.sev === 'red';
     return [el('div', { class: 'flex items-center gap-3 px-4 py-2 border-t text-xs', style: { borderColor: 'var(--border)' }, title: i.title || '' },
-      rvBox(i),
       el('span', { class: 'text-[10px] font-bold tabular-nums shrink-0', style: { color: 'var(--text-subtle)', width: '18px', textAlign: 'right' } }, String(idx + 1) + '.'),
       el('span', { class: 'text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded shrink-0', style: { background: red ? 'rgba(220,38,38,.12)' : 'rgba(217,119,6,.14)', color: red ? '#DC2626' : '#B45309', minWidth: '72px', textAlign: 'center' } }, i.tag),
       el('span', { class: 'text-sm font-black tabular-nums shrink-0', style: { minWidth: '52px', textAlign: 'right', color: red ? '#DC2626' : 'var(--text)' } }, i.count != null ? Number(i.count).toLocaleString() : '…'),
@@ -937,7 +936,6 @@ function auditTasksCard() {
   };
   return el('div', { class: 'card overflow-hidden' }, head,
     todo.length ? el('div', { class: 'border-t', style: { borderColor: 'var(--border)' } }, ...todo.flatMap(row)) : null,
-    rvDoneLine(_rv.done),
     clear.length ? el('div', { class: 'px-4 py-2 border-t text-[11px]', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } },
       el('span', { style: { color: 'var(--ok)', fontWeight: 700 } }, '✓ All clear: '), clear.map(i => i.title || i.tag).join(' · ')) : null);
 }
