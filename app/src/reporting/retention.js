@@ -317,9 +317,12 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     // credit, so the fix-it lists and the raw → official bridge read cleanly.
     // Order (per Isaac, Nov 2): combined first (step 5), then coded RORs (6) with the timing RORs right under them (6a),
     // then never started, renewals, replaced, $0 ARR, take and pay. The book is the same in any order.
-    const sZ = s2.filter(r => _retenPaying(r));                                   // minus $0 ARR — step 5, always on (per Isaac, Nov 2)
-    const sCb = sZ.filter(r => !closedBy(r, 'combined'));                          // minus combined
-    const s2r = sCb.filter(r => !(rorOn && rorByReason(r)));                      // minus RORs coded as such (the sheet's rule)
+    // Order (per Isaac, Nov 19): combined subscriptions come OUT before the $0-ARR step — nearly every $0 sub is a
+    // plan merged into another on the account, so taking combined first leaves the $0 step holding only what matters:
+    // subscriptions billing nothing that are NOT a merge, i.e. someone possibly getting pest control for free.
+    const sCb = s2.filter(r => !closedBy(r, 'combined'));                          // minus combined — step 5
+    const sZ = sCb.filter(r => _retenPaying(r));                                   // minus $0 ARR — step 6, always on (per Isaac, Nov 2)
+    const s2r = sZ.filter(r => !(rorOn && rorByReason(r)));                       // minus RORs coded as such (the sheet's rule)
     const s2t = s2r.filter(r => !(rorOn && rorTimingOn && _reporting3dayRor(r)));   // minus RORs caught by timing (6a)
     const noStartOn = _retenWhatIf('popNoStart', true);
     const stepNS = s2t.filter(r => !(noStartOn && retenNotStartedSub(r)));      // minus “never started” cancels (all have a completed initial)
@@ -470,13 +473,25 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       return node;
     }),
     // (one-time / retired / status steps now run in the locked scope chain above)
-    step(next(), 'Remove subs with no ARR', '$0 ARR and no per-visit charge — bills nothing. Anything here with ARR above $0 is a data fix, not a judgment call.', s2.length - sZ.length, null, null, notIn(s2, sZ), sZ),
-    step(next(), 'Remove combined subscriptions', 'Cancelled as “Combined Subscriptions” — merged into another plan on the account.', sZ.length - sCb.length, 'popCombined', null, notIn(sZ, sCb), sCb),
+    step(next(), 'Remove combined subscriptions', 'Cancelled as “Combined Subscriptions” — merged into another plan on the account.', s2.length - sCb.length, 'popCombined', null, notIn(s2, sCb), sCb),
+    (() => {
+      // What is left here after combined are out is the list Isaac wants watched (Nov 19): subs that bill nothing and are
+      // not a merge. The ACTIVE ones are the risk — a customer being serviced for free — so they get their own flag.
+      const zero = notIn(sCb, sZ);
+      const freeActive = zero.filter(r => !r.subscription_date_canceled && !/cancel|inactive|frozen/i.test(String(r.subscription_status || r.status || '')));
+      const node = step(next(), 'Remove subs with no ARR', '$0 ARR and no per-visit charge — bills nothing. Combined plans are already out, so anything left here is either a data fix (ARR above $0) or a plan being serviced for nothing.', sCb.length - sZ.length, null, null, zero, sZ);
+      if (freeActive.length) node.children[1].append(el('button', {
+        class: 'mt-1.5 rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.3)' },
+        title: 'Active subscriptions with $0 ARR and no per-visit charge that were not combined into another plan — check each one is meant to be free (Sentricon add-on, house account) and fix the rest in FieldRoutes.',
+        onclick: (e) => { e.stopPropagation(); openReportingDrillModal({ chartTitle: 'Attrition steps · active subs billing nothing', sliceLabel: n(freeActive.length) + ' active subscription' + (freeActive.length === 1 ? '' : 's') + ' · $0 ARR, not a combined plan — is anyone getting service for free?', rows: freeActive, formatValue: fmt.usd0 }); },
+      }, '⚑ ' + n(freeActive.length) + ' active and billing nothing — check nobody is serviced for free'));
+      return node;
+    })(),
     (() => {
       // Coded "3 Day ROR" on an office-staff / technician sale (per Isaac, Oct 13):
       // those sales never get a rescission, so they stay in as real cancels — fix the reason in FieldRoutes.
-      const badRor = rorOn ? sCb.filter(r => rorCoded(r) && !_rorCodedOk(r)) : [];
-      const node = step(next(), 'Remove 3-day RORs coded in the CRM', 'Cancelled as “3 Day ROR” — rescinded before service.', sCb.length - s2r.length, 'popRor', null, notIn(sCb, s2r), s2r);
+      const badRor = rorOn ? sZ.filter(r => rorCoded(r) && !_rorCodedOk(r)) : [];
+      const node = step(next(), 'Remove 3-day RORs coded in the CRM', 'Cancelled as “3 Day ROR” — rescinded before service.', sZ.length - s2r.length, 'popRor', null, notIn(sZ, s2r), s2r);
       if (badRor.length) node.children[1].append(el('button', {
         class: 'mt-1.5 rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.3)' },
         title: 'Coded “3 Day ROR” but sold by office staff or a technician — no rescission right, so these count as real cancels. Fix the reason in the CRM.',
@@ -530,7 +545,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     // equal the book. Anything that fell out without a step shows here in red.
     (() => {
       const key = (r) => String(r.subscription_id) + '|' + String(r.customer_id);
-      const removedLists = [...scopeSteps.map(st => st.removed), notIn(s2, sZ), notIn(sZ, sCb), notIn(sCb, s2r), notIn(s2r, s2t), notIn(s2t, stepNS), notIn(step1b, step1), notIn(step1, stepRp), notIn(stepZ, step2)];
+      const removedLists = [...scopeSteps.map(st => st.removed), notIn(s2, sCb), notIn(sCb, sZ), notIn(sZ, s2r), notIn(s2r, s2t), notIn(s2t, stepNS), notIn(step1b, step1), notIn(step1, stepRp), notIn(stepZ, step2)];
       const gone = new Set(); let removedN = 0;
       for (const L of removedLists) for (const r of L) { const k = key(r); if (!gone.has(k)) { gone.add(k); removedN++; } }
       const inBook = new Set(book.map(key));
