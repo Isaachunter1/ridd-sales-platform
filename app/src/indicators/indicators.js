@@ -5668,7 +5668,16 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 if (info) row.append(info);
                 return (_ii === _onItems.length && _ii > 0) ? [el('div', { class: 'px-2.5 pt-2 pb-1 text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)', borderTop: '1px solid var(--border)' } }, 'Not showing'), row] : [row]; }));
             const wrap = el('span', { style: { position: 'relative' }, 'data-dd': 'lbcols' }, btn, panel);
-            try { clampDropdownPanel(panel); } catch (err) { /* optional helper */ }
+            // Float it (per Isaac, Nov 19 — "it doesn't let me keep scrolling to select a column that's not displayed"): the
+            // list hung below the leaderboard card, whose overflow clipped it, so the unticked columns at the bottom were
+            // out of reach. Fixed to the viewport under the button, sized to the room left on screen, it scrolls to the end.
+            requestAnimationFrame(() => { try {
+              if (!panel.isConnected) return;
+              const place = () => { if (!panel.isConnected) { window.removeEventListener('scroll', place, true); window.removeEventListener('resize', place); return; }
+                const b = btn.getBoundingClientRect(), top = b.bottom + 6;
+                Object.assign(panel.style, { position: 'fixed', top: top + 'px', right: Math.max(8, window.innerWidth - b.right) + 'px', maxHeight: Math.max(220, window.innerHeight - top - 12) + 'px', transform: '' }); };
+              place(); window.addEventListener('scroll', place, true); window.addEventListener('resize', place);
+            } catch (err) { /* layout only */ } });
             setTimeout(() => document.addEventListener('mousedown', function closer(ev) { if (!(ev.target.closest && ev.target.closest('[data-dd="lbcols"]'))) { document.removeEventListener('mousedown', closer); if (state._indLbColsOpen) { state._indLbColsOpen = false; mountApp(); } } }), 0);
             return wrap;
           })(),
