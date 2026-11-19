@@ -80,12 +80,12 @@ function mktgSpendView() {
   const yearTotal = MON.reduce((a, _, i) => a + monthTotal(i), 0);
   const chanCard = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
-      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Spend by channel · ' + year),
+      el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Marketing spend · ' + year),
         el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'QuickBooks Advertising & Marketing, each payee under its channel. ' + (unRows.length ? unRows.length + (unRows.length === 1 ? ' payee still needs' : ' payees still need') + ' a channel (red) — pick once, it sticks for every month.' : 'Every charge has a channel.'))),
       el('span', { class: 'ml-auto text-sm font-black tabular-nums' }, usd0(yearTotal))),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('Channel', false, { position: 'sticky', left: 0, zIndex: 2 }), ...MON.map(thM), th('Total', true))),
-      el('tbody', {}, ...channels.map(chRow), ...unRows.map(unRow), totRow('Total', [...MON.map((_, i) => monthTotal(i)), yearTotal])))));
+      el('tbody', {}, ...unRows.map(unRow), ...channels.map(chRow), totRow('Total', [...MON.map((_, i) => monthTotal(i)), yearTotal])))));
 
   // ── 2. Spend by market ──
   const markets = [...new Set(AY.flatMap(X => X ? X.branches : []))];
@@ -202,7 +202,8 @@ function mktgSpendView() {
           return el('tr', { style: { borderTop: '2px solid var(--text)', background: 'var(--card-2)' } }, el('td', { class: 'px-3 py-1.5 font-black', style: { position: 'sticky', left: 0, background: 'var(--card-2)', zIndex: 1 } }, 'Total'), ...totCells); })()))));
 
   // ── 4. QuickBooks lines for the picked month — folded away; fix one charge's channel here. ──
-  const lines = A ? A.lines.slice().sort((a, b) => (Number(a.day) || 0) - (Number(b.day) || 0)) : [];
+  // Lines with no channel yet come first (per Isaac, Nov 19), then by date.
+  const lines = A ? A.lines.slice().sort((a, b) => (!!a.prov - !!b.prov) || (Number(a.day) || 0) - (Number(b.day) || 0)) : [];
   const linesCard = A ? el('details', { class: 'card overflow-hidden' },
     el('summary', { class: 'px-5 py-3 text-sm font-bold cursor-pointer' }, 'QuickBooks lines · ' + reportingMonthLbl(ym) + ' · ' + lines.length + ' · ' + usd(A.total + A.skipped)),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)', maxHeight: '60vh', overflowY: 'auto' } }, el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
@@ -212,8 +213,9 @@ function mktgSpendView() {
         td(L.memo, Object.assign({}, muted, { maxWidth: '360px', overflow: 'hidden', textOverflow: 'ellipsis' })), td(L.acctLeaf || 'Advertising & Marketing', muted), td(usd(L.amt), L.amt < 0 ? { color: '#B91C1C' } : {}, true),
         el('td', { class: 'px-3 py-1' }, admin ? vendorPick(ym, L, L.how === 'this charge only') : (spqLabel(L.prov) || '—'), L.how && !/^(your pick|payee|this charge only)$/.test(L.how) ? el('span', { class: 'ml-2 text-[10px]', style: muted }, L.how) : null))))))) : null;
 
-  // Wages first; Spend by channel / by market are built but parked off the page for now (per Isaac, Nov 16 —
-  // "get rid of them for now, I'll come back to that"). Put chanCard / mktCard back in this list to bring them back.
-  void chanCard; void mktCard;
-  return el('div', { class: 'flex flex-col gap-4' }, wagesCard, incCard, linesCard);
+  // Marketing spend leads the page, laid out like Wages and Incentives (per Isaac, Nov 19 — channels × months, payees with
+  // no channel yet at the top in red with their picker); it is the same allocation (spqAllocMonth) the Dashboard tiles,
+  // Metrics, Channels and CAC read. Spend by market stays parked (Nov 16). QuickBooks lines stay folded below for one-off fixes.
+  void mktCard;
+  return el('div', { class: 'flex flex-col gap-4' }, chanCard, wagesCard, incCard, linesCard);
 }
