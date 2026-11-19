@@ -568,5 +568,6 @@ function mklHeaderControls(monthOnly) {
     ...[['none', 'No change'], ['prev', 'MoM change'], ['year', 'YoY change']].map(([v, l]) => el('option', { value: v, selected: v === cmp }, l)));
   const m = _mktgStore();
   const ownerHint = (typeof isOwnerUser === 'function' && isOwnerUser()) ? el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Drag tiles to reorder', Array.isArray(m.tileOrder) && m.tileOrder.length ? el('button', { class: 'ml-2 font-semibold underline', style: { color: 'var(--accent)' }, onclick: () => { delete m.tileOrder; _mktgSave(); mountApp(); } }, 'Reset') : null) : null;
-  return (monthOnly ? [monthSel] : [ownerHint, cmpSel, monthSel]).filter(Boolean);   // Dashboard shows just the month (per Isaac, Nov 18)
+  void ownerHint;   // the "Drag tiles to reorder · Reset" hint is gone (per Isaac, Nov 19) — the tiles still drag
+  return (monthOnly ? [monthSel] : [cmpSel, monthSel]).filter(Boolean);   // Dashboard shows just the month (per Isaac, Nov 18)
 }
