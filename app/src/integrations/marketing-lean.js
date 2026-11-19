@@ -48,7 +48,7 @@ function mklWindow() {
 function mklRange(year, last, cap) {
   const parts = []; for (let i = 0; i <= last; i++) parts.push(mklMonth(year + '-' + String(i + 1).padStart(2, '0'), i === last ? cap : 0));
   const z = () => ({ spend: 0, leads: 0, s: 0, svc: 0, cv: 0, waiting: 0 });
-  const addCell = (t, c) => { t.spend += c.spend || 0; t.leads += c.leads || 0; t.s += c.s || 0; t.svc += c.svc || 0; t.cv += c.cv || 0; t.waiting += c.waiting || 0; if (c.linked) t.linked = (t.linked || 0) + c.linked; if (c.sales) t.sales = (t.sales || []).concat(c.sales); if (c.unlinked) t.unlinked = (t.unlinked || []).concat(c.unlinked); };
+  const addCell = (t, c) => { t.spend += c.spend || 0; t.leads += c.leads || 0; t.s += c.s || 0; t.svc += c.svc || 0; t.cv += c.cv || 0; t.waiting += c.waiting || 0; if (c.linked) t.linked = (t.linked || 0) + c.linked; if (c.sales) t.sales = (t.sales || []).concat(c.sales); if (c.unlinked) t.unlinked = (t.unlinked || []).concat(c.unlinked); for (const f of ['labor', 'wages', 'inc']) if (c[f]) t[f] = (t[f] || 0) + c[f]; };
   const br = {}, ch = {}, x = {}, rep = {};
   const out = { ym: year + '-range', cap, A: null, spend: 0, spendWaiting: 0, spendUnassigned: 0, spendLines: 0, s: 0, svc: 0, cv: 0, sales: [], leads: 0, linked: 0, unlinked: [], br, ch, x, rep, labor: 0, wages: 0, incentives: 0, hasLabor: false, hasSpend: false, hasLeads: false, hasSubs: false, range: true };
   for (const D of parts) {
@@ -153,6 +153,18 @@ function mklMonth(ym, cap) {
     wages = (W.total || 0) * _laborF; incentives = (I.total || 0) * _laborF;
     for (const b of new Set([...Object.keys(W.by), ...Object.keys(I.by)])) { const w = (Number(W.by[b]) || 0) * _laborF, inc = (Number(I.by[b]) || 0) * _laborF, v = w + inc; if (!v) continue; hasLabor = true; labor += v; const c = cell(br, TC(b)); c.labor = (c.labor || 0) + v; c.wages = (c.wages || 0) + w; c.inc = (c.inc || 0) + inc; }
   } catch (e) { /* no store yet */ }
+  // Per-rep labor (per Isaac, Nov 19 — By rep keeps wages and incentives): Spend tab wages per profile, and RIDDCOIN
+  // added to that rep's wallet (the typed company incentive has no rep, so it stays out of the rep view).
+  try {
+    const norm = (n) => String(n || '').toLowerCase().replace(/[^a-z ]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+    const keyOf = new Map(Object.keys(rep).map(k => [norm(k), k]));
+    const repCell = (name) => { const k = keyOf.get(norm(name)) || name; keyOf.set(norm(name), k); return cell(rep, k); };
+    const prof = new Map((state.allProfiles || []).map(p => [String(p.id), p.full_name || '']));
+    const RW = ((typeof _mktgStore === 'function' ? _mktgStore().repWages : null) || {})[ym] || {};
+    for (const pid in RW) { const v = (Number(RW[pid]) || 0) * _laborF; if (!v) continue; const c = repCell(prof.get(String(pid)) || pid); c.wages = (c.wages || 0) + v; c.labor = (c.labor || 0) + v; }
+    const RC = typeof rcIncentivesMonth === 'function' ? rcIncentivesMonth(ym) : null;
+    for (const r of ((RC && RC.rows) || [])) { if (cap && Number(String(r.created_at || '').slice(8, 10)) > cap) continue; const v = typeof rcCoinsToUsd === 'function' ? rcCoinsToUsd(r.delta) : 0; if (!v) continue; const c = repCell(prof.get(String(r.user_id)) || 'Unknown rep'); c.inc = (c.inc || 0) + v; c.labor = (c.labor || 0) + v; }
+  } catch (e) { /* per-rep labor is best effort */ }
   // Per-sale link to a GoHighLevel lead (per Isaac, Nov 18): the latest opportunity on the account's phone or email on
   // or before the sold date (back to 180 days). A sale with none is "booked without a lead" — a lead that booked under
   // another name / phone / email, or a sale with no opportunity at all. The grid's red reads from this, not from a
@@ -446,26 +458,29 @@ function mklOpenSales(D, title) {
 // Cells read mklMonth(ym).br / .ch, so every number here is the same one the tiles and the Spend tab show; ratios
 // in the YTD column are recomputed from the summed dollars, never averaged.
 const MKL_GRID_METRICS = [
-  { k: 'cv',    label: 'New revenue',     fmt: (v) => fmt.usd0(v),  get: (c) => c.cv,                                              tip: 'FieldRoutes Office Staff new sales — contract value, by sold month' },
-  { k: 's',     label: 'New sales',       fmt: (v) => fmt.int(v),   get: (c) => c.s,                                               tip: 'New sales — initial pending or serviced in FieldRoutes, the leaderboard rule (the same thing as a booking)' },
-  { k: 'avg',   label: 'ACV',             fmt: (v) => fmt.usd0(v),  get: (c) => c.s ? c.cv / c.s : null,                           tip: 'New revenue ÷ new sales — contract value at sale, no add-ons or upsells' },
-  { k: 'leads', label: 'Leads',       fmt: (v) => fmt.int(v),   get: (c) => c.leads,                                           tip: 'GoHighLevel opportunities, one per person per 30 days' },
-  { k: 'close', label: 'Close rate',      fmt: (v) => (v * 100).toFixed(1) + '%', get: (c) => c.leads ? c.s / c.leads : null,     tip: 'New sales ÷ new leads' },
-  { k: 'spend', label: 'Marketing spend', fmt: (v) => fmt.usd0(v),  get: (c) => c.spend,                                           tip: 'QuickBooks Advertising & Marketing, as allocated on the Spend tab' },
-  { k: 'wages', label: 'Wages',           fmt: (v) => fmt.usd0(v),  get: (c) => c.wages || 0,                                      tip: 'Spend tab → Wages, spread to offices by share of the month’s new revenue' },
-  { k: 'inc',   label: 'Incentives',      fmt: (v) => fmt.usd0(v),  get: (c) => c.inc || 0,                                        tip: 'Spend tab → Incentives, spread to offices by share of the month’s new revenue' },
-  { k: 'tot',   label: 'Total spend',     fmt: (v) => fmt.usd0(v),  get: (c) => c.spend + (c.labor || 0),                          tip: 'Marketing spend + wages + incentives' },
-  { k: 'cpl',   label: 'CPL',             fmt: (v) => fmt.usd0(v),  get: (c) => c.leads && c.spend ? c.spend / c.leads : null,     tip: 'Marketing spend ÷ leads' },
-  { k: 'mcac',  label: 'Marketing CAC',   fmt: (v) => fmt.usd0(v),  get: (c) => c.svc && c.spend ? c.spend / c.svc : null,         tip: 'Marketing spend ÷ new sales (initial pending or serviced)' },
-  { k: 'cac',   label: 'Cost per job',    fmt: (v) => fmt.usd0(v),  get: (c) => c.svc && (c.spend || c.labor) ? (c.spend + (c.labor || 0)) / c.svc : null, tip: '(Marketing spend + wages + incentives) ÷ new sales (initial pending or serviced)' },
-  { k: 'cacp',  label: 'CAC %',           fmt: (v) => (v * 100).toFixed(0) + '%', get: (c) => c.cv ? (c.spend + (c.labor || 0)) / c.cv : null, tip: 'Total spend ÷ new revenue' },
-  { k: 'ret',   label: 'ROAS',            fmt: (v) => v.toFixed(2) + 'x', get: (c) => c.spend ? c.cv / c.spend : null,             tip: 'New revenue ÷ marketing spend' },
-  { k: 'rpl',   label: 'Revenue per lead', fmt: (v) => fmt.usd0(v),  get: (c) => c.leads ? c.cv / c.leads : null,                 tip: 'New revenue ÷ leads — what a lead is worth before any cost' },
+  { k: 'cv', in: 'br ch rep',    label: 'New revenue',     fmt: (v) => fmt.usd0(v),  get: (c) => c.cv,                                              tip: 'FieldRoutes Office Staff new sales — contract value, by sold month' },
+  { k: 's', in: 'br ch rep',     label: 'New sales',       fmt: (v) => fmt.int(v),   get: (c) => c.s,                                               tip: 'New sales — initial pending or serviced in FieldRoutes, the leaderboard rule (the same thing as a booking)' },
+  { k: 'avg', in: 'br ch rep',   label: 'ACV',             fmt: (v) => fmt.usd0(v),  get: (c) => c.s ? c.cv / c.s : null,                           tip: 'New revenue ÷ new sales — contract value at sale, no add-ons or upsells' },
+  { k: 'leads', in: 'br ch', label: 'Leads',       fmt: (v) => fmt.int(v),   get: (c) => c.leads,                                           tip: 'GoHighLevel opportunities, one per person per 30 days' },
+  { k: 'close', in: 'br ch', label: 'Close rate',      fmt: (v) => (v * 100).toFixed(1) + '%', get: (c) => c.leads ? c.s / c.leads : null,     tip: 'New sales ÷ new leads' },
+  { k: 'spend', in: 'br ch', label: 'Marketing spend', fmt: (v) => fmt.usd0(v),  get: (c) => c.spend,                                           tip: 'QuickBooks Advertising & Marketing, as allocated on the Spend tab' },
+  { k: 'wages', in: 'br rep', label: 'Wages',           fmt: (v) => fmt.usd0(v),  get: (c) => c.wages || 0,                                      tip: 'Spend tab → Wages, spread to offices by share of the month’s new revenue' },
+  { k: 'inc', in: 'br rep',   label: 'Incentives',      fmt: (v) => fmt.usd0(v),  get: (c) => c.inc || 0,                                        tip: 'Spend tab → Incentives, spread to offices by share of the month’s new revenue' },
+  { k: 'tot', in: 'br',   label: 'Total spend',     fmt: (v) => fmt.usd0(v),  get: (c) => c.spend + (c.labor || 0),                          tip: 'Marketing spend + wages + incentives' },
+  { k: 'cpl', in: 'br ch',   label: 'CPL',             fmt: (v) => fmt.usd0(v),  get: (c) => c.leads && c.spend ? c.spend / c.leads : null,     tip: 'Marketing spend ÷ leads' },
+  { k: 'mcac', in: 'br ch',  label: 'Marketing CAC',   fmt: (v) => fmt.usd0(v),  get: (c) => c.svc && c.spend ? c.spend / c.svc : null,         tip: 'Marketing spend ÷ new sales (initial pending or serviced)' },
+  { k: 'cac', in: 'br rep',   label: 'Cost per job',    fmt: (v) => fmt.usd0(v),  get: (c) => c.svc && (c.spend || c.labor) ? (c.spend + (c.labor || 0)) / c.svc : null, tip: '(Marketing spend + wages + incentives) ÷ new sales (initial pending or serviced)' },
+  { k: 'cacp', in: 'br',  label: 'CAC %',           fmt: (v) => (v * 100).toFixed(0) + '%', get: (c) => c.cv ? (c.spend + (c.labor || 0)) / c.cv : null, tip: 'Total spend ÷ new revenue' },
+  { k: 'ret', in: 'br ch',   label: 'ROAS',            fmt: (v) => v.toFixed(2) + 'x', get: (c) => c.spend ? c.cv / c.spend : null,             tip: 'New revenue ÷ marketing spend' },
+  { k: 'rpl', in: 'br ch',   label: 'Revenue per lead', fmt: (v) => fmt.usd0(v),  get: (c) => c.leads ? c.cv / c.leads : null,                 tip: 'New revenue ÷ leads — what a lead is worth before any cost' },
 ];
 function mklYearGrid(ym) {
   const year = Number(ym.slice(0, 4)), curMi = Number(ym.slice(5, 7)) - 1;
   const by = ['ch', 'rep'].includes(state._mklGridBy) ? state._mklGridBy : 'br';
-  const M = MKL_GRID_METRICS.find(x => x.k === state._mklGridMetric) || MKL_GRID_METRICS[0];
+  // Only the metrics that mean something for the view (per Isaac, Nov 19): channels carry no wages / incentives,
+  // reps carry no spend or leads — so By rep keeps revenue, sales, ACV, wages, incentives and cost per job.
+  const METS = MKL_GRID_METRICS.filter(x => !x.in || x.in.split(' ').includes(by));
+  const M = METS.find(x => x.k === state._mklGridMetric) || METS[0];
   const months = []; for (let i = 0; i < 12; i++) months.push(mklMonth(year + '-' + String(i + 1).padStart(2, '0')));
   // Change view (per Isaac, Nov 16): No change · MoM change · YoY change — the same cells as % against the month
   // before (Jan reads against last December) or the same month a year earlier; YTD compares year to date to the
@@ -521,7 +536,7 @@ function mklYearGrid(ym) {
     ...MON.map((_, i) => td(totOf(i), true, months[i].ym > ym, baseOf(totOf, ptotOf, i), { by, key: null, ym: months[i].ym, cell: totOf(i), D: months[i] })), td(totYtd(), true, false, chg === 'yoy' ? ptotYtd() : null, { by, key: null, ym: null, cell: totYtd(), months: months.filter(D => D.ym <= ym) }));
   const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
   const metricSel = el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: selSt, onchange: (e) => { state._mklGridMetric = e.target.value; mountApp(); } },
-    ...MKL_GRID_METRICS.map(x => el('option', { value: x.k, selected: x.k === M.k }, x.label)));
+    ...METS.map(x => el('option', { value: x.k, selected: x.k === M.k }, by === 'rep' && x.k === 'cac' ? 'Cost per job (wages + incentives)' : x.label)));
   // One dropdown (per Isaac, Nov 19): By office · By channel · By rep (Office Staff reps — the only sales counted here).
   const bySel = el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: selSt, onchange: (e) => { state._mklGridBy = e.target.value; mountApp(); } },
     ...[['br', 'By office'], ['ch', 'By channel'], ['rep', 'By rep']].map(([v, l]) => el('option', { value: v, selected: by === v }, l)));
