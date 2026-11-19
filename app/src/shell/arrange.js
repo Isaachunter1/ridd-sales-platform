@@ -167,3 +167,33 @@ function arrangeSchedule() {
   clearTimeout(_arrTimer);
   _arrTimer = setTimeout(() => { try { arrangeApply(); } catch (e) { /* best effort */ } }, 600);
 }
+
+// ── Auto-scroll while dragging (per Isaac, Nov 19 — "is it possible for the screen to drag too?") ──
+// Any drag in the app (cards here, the Marketing tiles' own drag) scrolls the page when the pointer comes within
+// 90px of the top or bottom of the window — faster the closer it gets — so a card can travel past a long page.
+// Scrolls the nearest scrollable ancestor of whatever is being dragged, else the page itself.
+const _arrAuto = { on: false, y: 0, el: null, raf: 0 };
+function _arrScrollerOf(node) {
+  for (let n = node && node.parentElement; n && n !== document.body; n = n.parentElement) {
+    const cs = getComputedStyle(n);
+    if (/(auto|scroll)/.test(cs.overflowY) && n.scrollHeight > n.clientHeight + 4) return n;
+  }
+  return document.scrollingElement || document.documentElement;
+}
+function _arrAutoTick() {
+  if (!_arrAuto.on) { _arrAuto.raf = 0; return; }
+  const edge = 90, h = window.innerHeight, y = _arrAuto.y;
+  let v = 0;
+  if (y > 0 && y < edge) v = -Math.ceil((edge - y) / edge * 24);
+  else if (y > h - edge && y < h) v = Math.ceil((y - (h - edge)) / edge * 24);
+  if (v && _arrAuto.el) _arrAuto.el.scrollTop += v;
+  _arrAuto.raf = requestAnimationFrame(_arrAutoTick);
+}
+if (typeof document !== 'undefined' && !window._arrAutoWired) {
+  window._arrAutoWired = true;
+  document.addEventListener('dragstart', (e) => { _arrAuto.on = true; _arrAuto.y = e.clientY; _arrAuto.el = _arrScrollerOf(e.target); if (!_arrAuto.raf) _arrAuto.raf = requestAnimationFrame(_arrAutoTick); }, true);
+  document.addEventListener('dragover', (e) => { if (_arrAuto.on) _arrAuto.y = e.clientY; }, true);
+  const stop = () => { _arrAuto.on = false; };
+  document.addEventListener('dragend', stop, true);
+  document.addEventListener('drop', stop, true);
+}

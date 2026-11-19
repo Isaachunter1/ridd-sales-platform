@@ -376,7 +376,7 @@ function _mktgLeanView() {
   void brTable; void chTable;
   // Channels × offices grid + traffic by hour (marketing-dash.js) sit between the tiles and the year grid (per Isaac, Nov 18).
   const dash = typeof mktgDashBlocks === 'function' ? (() => { try { return mktgDashBlocks(ym); } catch (e) { console.warn('[marketing] dash blocks', e); return []; } })() : [];
-  return el('div', { class: 'flex flex-col gap-4' }, chart, tiles, ...dash, grid);   // chart above the tiles; the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
+  return el('div', { class: 'flex flex-col gap-4' }, tiles, chart, ...dash, grid);   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
 }
 // The month's new sales behind the New revenue tile (same rows the table counts).
 function mklOpenSales(D, title) {
@@ -444,7 +444,11 @@ function mklYearGrid(ym) {
       const a = M.get(c), b = base ? M.get(base) : null;
       const p = a == null || b == null || !isFinite(a) || !isFinite(b) || !b || future ? null : (a - b) / Math.abs(b);
       const good = p == null || UP_GOOD[M.k] == null ? null : (p >= 0) === UP_GOOD[M.k];
-      return el('td', { class: 'px-3 py-1.5 text-right tabular-nums whitespace-nowrap', style: Object.assign({ fontFamily: 'ui-monospace, monospace' }, p == null ? muted : { color: good == null ? 'var(--text)' : good ? '#16A34A' : '#DC2626' }, bold ? { fontWeight: '700' } : {}) }, p == null ? '—' : (p >= 0 ? '+' : '') + (p * 100).toFixed(1) + '%');
+      // Value AND change (per Isaac, Nov 19 — "like the cards up above"): the metric on top, the % change under it.
+      const t = show(c);
+      return el('td', { class: 'px-3 py-1.5 text-right tabular-nums whitespace-nowrap', style: Object.assign({ fontFamily: 'ui-monospace, monospace' }, bold ? { fontWeight: '700' } : {}) },
+        el('div', { style: t === '—' || future ? muted : {} }, t),
+        el('div', { class: 'text-[10px]', style: p == null ? muted : { color: good == null ? 'var(--text-muted)' : good ? '#16A34A' : '#DC2626' } }, p == null ? '—' : (p >= 0 ? '+' : '') + (p * 100).toFixed(1) + '%'));
     }
     const t = show(c); return el('td', { class: 'px-3 py-1.5 text-right tabular-nums whitespace-nowrap', style: Object.assign({ fontFamily: 'ui-monospace, monospace' }, t === '—' || future ? muted : {}, bold ? { fontWeight: '700' } : {}) }, t); };
   const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -564,5 +568,6 @@ function mklHeaderControls(monthOnly) {
     ...[['none', 'No change'], ['prev', 'MoM change'], ['year', 'YoY change']].map(([v, l]) => el('option', { value: v, selected: v === cmp }, l)));
   const m = _mktgStore();
   const ownerHint = (typeof isOwnerUser === 'function' && isOwnerUser()) ? el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Drag tiles to reorder', Array.isArray(m.tileOrder) && m.tileOrder.length ? el('button', { class: 'ml-2 font-semibold underline', style: { color: 'var(--accent)' }, onclick: () => { delete m.tileOrder; _mktgSave(); mountApp(); } }, 'Reset') : null) : null;
-  return (monthOnly ? [monthSel] : [ownerHint, cmpSel, monthSel]).filter(Boolean);   // Dashboard shows just the month (per Isaac, Nov 18)
+  void ownerHint;   // the "Drag tiles to reorder · Reset" hint is gone (per Isaac, Nov 19) — the tiles still drag
+  return (monthOnly ? [monthSel] : [cmpSel, monthSel]).filter(Boolean);   // Dashboard shows just the month (per Isaac, Nov 18)
 }

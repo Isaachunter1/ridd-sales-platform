@@ -185,7 +185,7 @@ function mktgSpendView() {
   const incCard = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
       el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Incentives · ' + year),
-        el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'RIDDCOIN added to office reps’ wallets lands here automatically in the month it was added (1 ¤ = $1); anything else is typed in. The total is spread to offices by each office’s share of the month’s new revenue; in CAC with wages.')),
+        el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'RIDDCOIN added to office reps’ wallets lands here automatically in the month it was added (100,000 ¤ = $100; counted from Nov 18, after the DashP transfer); anything else is typed in. The total is spread to offices by each office’s share of the month’s new revenue; in CAC with wages.')),
       el('span', { class: 'ml-auto text-sm font-black tabular-nums' }, usd0(incYear() + rcYear()))),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('', false, { position: 'sticky', left: 0, zIndex: 2 }), ...MON.map(thM), th('Total', true))),
