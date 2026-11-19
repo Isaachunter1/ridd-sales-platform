@@ -269,6 +269,25 @@ function reportingFrSourcesPanel() {
         td(g.length ? g.slice(0, 4).join(', ') + (g.length > 4 ? ' +' + (g.length - 4) : '') : (x.renewal ? '—' : 'none'), g.length ? muted : x.renewal ? muted : { color: '#B45309', fontWeight: '600' })); })))) : null);
 }
 
+// Scroll one way at a time (per Isaac, Nov 19 — "I should only be able to slide horizontal or vertical"): a trackpad
+// swipe moves a wide table sideways OR up and down, whichever way it mostly went, never both. When the box can't
+// scroll further up / down, the page takes the vertical swipe.
+function axisLockScroll(n) {
+  if (!n || n._axisLock) return n; n._axisLock = true;
+  n.addEventListener('wheel', (e) => {
+    if (e.ctrlKey) return;
+    const k = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? n.clientHeight : 1, dx = e.deltaX * k, dy = e.deltaY * k;
+    if (!dx || !dy) return;
+    e.preventDefault();
+    if (Math.abs(dx) > Math.abs(dy)) { n.scrollLeft += dx; return; }
+    const atEnd = dy < 0 ? n.scrollTop <= 0 : n.scrollTop + n.clientHeight >= n.scrollHeight - 1;
+    if (n.scrollHeight > n.clientHeight && !atEnd) { n.scrollTop += dy; return; }
+    let p = n.parentElement; while (p && !(p.scrollHeight > p.clientHeight && /auto|scroll/.test(getComputedStyle(p).overflowY))) p = p.parentElement;
+    if (p) p.scrollTop += dy; else window.scrollBy(0, dy);
+  }, { passive: false });
+  return n;
+}
+const _axisLockEl = (...a) => axisLockScroll(el(...a));
 // Marketing to-do (per Isaac, Nov 16): every GoHighLevel source label with opportunities in the selected month (was the last 90 days until Nov 19) that
 // maps to nothing yet — pick its channel right here (or "Its own source" / "Not a new lead"); the pick is the same
 // one Settings → Configurations → GoHighLevel sources keeps, so Channels, Metrics and the misattribution audit all
@@ -319,7 +338,7 @@ function ghlUnmappedTodoCard() {
   const th = (t) => el('th', { class: 'px-3 py-1.5 text-left text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap', style: Object.assign({ background: 'var(--card-2)' }, muted) }, t);
   const td = (v, st) => el('td', { class: 'px-3 py-1 whitespace-nowrap tabular-nums', style: st || {} }, v);
   return el('div', { class: 'card overflow-hidden', style: { borderColor: 'rgba(220,38,38,.45)' } }, head,
-    open ? el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)', maxHeight: '40vh', overflowY: 'auto' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+    open ? _axisLockEl('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)', maxHeight: '40vh', overflowY: 'auto', touchAction: 'pan-x pan-y' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('Opportunity source'), th('Leads · ' + ymLbl), th('All time'), th('Last seen'), th('Contact source (most common)'), th('Channel'))),
       el('tbody', {}, ...list.map(x => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, td(x.label, { fontWeight: '700' }), td(x.recent.toLocaleString()), td(x.n.toLocaleString(), muted), td(x.last, muted), td(csTop(x) || '—', muted), el('td', { class: 'px-3 py-1' }, pick(x)))),
         blankRecent ? el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, td('(no source on the opportunity)', Object.assign({ fontStyle: 'italic' }, muted)), td(blankRecent.toLocaleString()), td(blank.toLocaleString(), muted), td('—', muted), td('—', muted), td('Nothing to map — these need a source set in GoHighLevel.', muted)) : null))) : null,

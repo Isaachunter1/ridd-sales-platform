@@ -147,9 +147,9 @@ function _mkdOpenLeads(title, rows) {
 // already moved stage before the sync first saw them are "unknown" and shown as their own count, not guessed.
 const MKD_OFFICE_TZ = { 'DESTIN': 'America/Chicago', 'JOPLIN': 'America/Chicago', 'LITTLE ROCK': 'America/Chicago', 'SALT LAKE': 'America/Denver', 'SALT LAKE CITY': 'America/Denver' };
 function _mkdLocalHour(l) {
-  if (!l.d || !l.t) return null;
+  if (!(l.dUtc || l.d) || !l.t) return null;
   const tz = MKD_OFFICE_TZ[String(l.market || '').toUpperCase()] || 'America/New_York';
-  const dt = new Date(l.d + 'T' + l.t + ':00Z');
+  const dt = new Date((l.dUtc || l.d) + 'T' + l.t + ':00Z');
   if (isNaN(dt)) return null;
   try { return Number(new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: false }).format(dt)) % 24; } catch (e) { return dt.getUTCHours(); }
 }
@@ -172,7 +172,7 @@ function mktgDashHoursCard(D, lbl) {
     ...hours.map((v, h) => el('div', { class: 'flex-1 flex flex-col items-center justify-end gap-1' + (v ? ' cursor-pointer hover:brightness-90' : ''), title: lab(h) + ' · ' + fmt.int(v) + (biz(h) ? ' · business hours' : ' · after hours') + (v ? ' · click for the leads' : ''),
       onclick: v ? () => {
         const tzOf = (l) => MKD_OFFICE_TZ[String(l.market || '').toUpperCase()] || 'America/New_York';
-        const rows = byHour[h].map(l => { let lt = ''; try { lt = new Intl.DateTimeFormat('en-US', { timeZone: tzOf(l), hour: 'numeric', minute: '2-digit' }).format(new Date(l.d + 'T' + l.t + ':00Z')); } catch (e) { lt = l.t; } return Object.assign({}, l, { _lt: lt }); });
+        const rows = byHour[h].map(l => { let lt = ''; try { lt = new Intl.DateTimeFormat('en-US', { timeZone: tzOf(l), hour: 'numeric', minute: '2-digit' }).format(new Date((l.dUtc || l.d) + 'T' + l.t + ':00Z')); } catch (e) { lt = l.t; } return Object.assign({}, l, { _lt: lt }); });
         _mkdOpenLeads(({ call: 'Calls', form: 'Forms', ai: 'AI calls' })[kind] + ' · ' + lab(h) + '–' + lab((h + 1) % 24) + ' local · ' + lbl, rows);
       } : null },
       v ? el('div', { class: 'text-[9px] tabular-nums', style: { color: 'var(--text-muted)' } }, fmt.int(v)) : null,
