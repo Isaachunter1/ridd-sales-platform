@@ -22,8 +22,56 @@ const _mklLblS = (ym) => new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7))
 // now). Replaces Nov 9's last-closed-month default.
 function mklState() {
   const F = state._mkl || (state._mkl = {});
-  if (!/^\d{4}-\d{2}$/.test(F.ym || '')) F.ym = _mklYm(new Date());
+  if (!/^\d{4}-(\d{2}|ytd|yr)$/.test(F.ym || '')) F.ym = _mklYm(new Date());
   return F;
+}
+// Ranges in the month picker (per Isaac, Nov 19 — "a YTD option … and numbers from last year too"):
+//   'YYYY-ytd' = Jan 1 through the same point in the year as today (this year: to date; a past year: Jan 1 → today's
+//                month and day, so 2025 YTD lines up with 2026 YTD) · 'YYYY-yr' = the whole calendar year.
+// Returns null for a plain month, else { year, last (0-based month index), cap (day cut on the last month, 0 = whole),
+// through ('YYYY-MM', the last month — what the grid, the dash blocks and the sparklines key on), label }.
+function mklRangeOf(v) {
+  const m = /^(\d{4})-(ytd|yr)$/.exec(String(v || '')); if (!m) return null;
+  const year = Number(m[1]), now = new Date(), cy = now.getFullYear();
+  if (m[2] === 'yr') { const last = year === cy ? now.getMonth() : 11; return { year, last, cap: 0, through: year + '-' + String(last + 1).padStart(2, '0'), label: year + (year === cy ? ' to date' : ' full year'), kind: 'yr' }; }
+  const last = now.getMonth(), cap = year === cy ? 0 : now.getDate();
+  return { year, last, cap, through: year + '-' + String(last + 1).padStart(2, '0'), label: year + ' YTD' + (year === cy ? '' : ' (Jan 1–' + new Date(cy, last, now.getDate()).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ')'), kind: 'ytd' };
+}
+// The picked window as dates, for anything that filters by date (Unmapped GoHighLevel sources).
+function mklWindow() {
+  const v = mklState().ym, R = mklRangeOf(v);
+  if (!R) return { from: v + '-01', to: v + '-31', label: new Date(v + '-15T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) };
+  const to = R.through + '-' + (R.cap ? String(R.cap).padStart(2, '0') : '31');
+  return { from: R.year + '-01-01', to, label: R.label };
+}
+// Several months summed into one month-shaped object, so every tile reads a range exactly as it reads a month.
+function mklRange(year, last, cap) {
+  const parts = []; for (let i = 0; i <= last; i++) parts.push(mklMonth(year + '-' + String(i + 1).padStart(2, '0'), i === last ? cap : 0));
+  const z = () => ({ spend: 0, leads: 0, s: 0, svc: 0, cv: 0, waiting: 0 });
+  const addCell = (t, c) => { t.spend += c.spend || 0; t.leads += c.leads || 0; t.s += c.s || 0; t.svc += c.svc || 0; t.cv += c.cv || 0; t.waiting += c.waiting || 0; if (c.linked) t.linked = (t.linked || 0) + c.linked; if (c.sales) t.sales = (t.sales || []).concat(c.sales); if (c.unlinked) t.unlinked = (t.unlinked || []).concat(c.unlinked); };
+  const br = {}, ch = {}, x = {};
+  const out = { ym: year + '-range', cap, A: null, spend: 0, spendWaiting: 0, spendUnassigned: 0, spendLines: 0, s: 0, svc: 0, cv: 0, sales: [], leads: 0, linked: 0, unlinked: [], br, ch, x, labor: 0, wages: 0, incentives: 0, hasLabor: false, hasSpend: false, hasLeads: false, hasSubs: false, range: true };
+  for (const D of parts) {
+    out.spend += D.spend || 0; out.spendWaiting += D.spendWaiting || 0; out.spendUnassigned += D.spendUnassigned || 0; out.spendLines += D.spendLines || 0;
+    out.s += D.s; out.svc += D.svc; out.cv += D.cv; out.sales = out.sales.concat(D.sales || []); out.leads += D.leads || 0; out.linked += D.linked || 0; out.unlinked = out.unlinked.concat(D.unlinked || []);
+    out.labor += D.labor || 0; out.wages += D.wages || 0; out.incentives += D.incentives || 0;
+    out.hasLabor = out.hasLabor || D.hasLabor; out.hasSpend = out.hasSpend || D.hasSpend; out.hasLeads = out.hasLeads || D.hasLeads; out.hasSubs = out.hasSubs || D.hasSubs;
+    for (const k in D.br) addCell(br[k] || (br[k] = z()), D.br[k]);
+    for (const k in D.ch) addCell(ch[k] || (ch[k] = z()), D.ch[k]);
+    for (const b in D.x) { const o = x[b] || (x[b] = {}); for (const c in D.x[b]) addCell(o[c] || (o[c] = z()), D.x[b][c]); }
+  }
+  if (!out.hasSpend) out.spend = null; if (!out.hasLeads) { out.leads = null; out.linked = null; }
+  return out;
+}
+// Picker options: this year's YTD, last year's YTD and full year, then the last 24 months.
+function _mklPickerOptions(selected) {
+  const cy = new Date().getFullYear();
+  const months = []; for (let i = 0; i < 24; i++) months.push(_mklYm(new Date(cy, new Date().getMonth() - i, 1)));
+  const opt = (v, l) => el('option', { value: v, selected: v === selected }, l);
+  return [
+    el('optgroup', { label: 'Ranges' }, opt(cy + '-ytd', cy + ' YTD'), opt((cy - 1) + '-ytd', (cy - 1) + ' YTD (same stretch)'), opt((cy - 1) + '-yr', (cy - 1) + ' full year')),
+    el('optgroup', { label: 'Months' }, ...months.map(k => opt(k, _mklLblS(k) + (k === months[0] ? ' · open' : '')))),
+  ];
 }
 const _mklUsd = (v) => v == null || !isFinite(v) ? '—' : fmt.usd0(v);
 const _mklPct = (v) => v == null || !isFinite(v) ? '—' : (v * 100).toFixed(1) + '%';
@@ -147,7 +195,7 @@ function _mktgLeanView() {
   if (typeof ghlLoadLeads === 'function' && state._ghl === undefined) ghlLoadLeads();
   if (typeof rcEnsureLedger === 'function') rcEnsureLedger();   // RIDDCOIN adds are incentives (per Isaac, Nov 18)
   if (typeof refreshLtvFromCloud === 'function') refreshLtvFromCloud();   // LTV cohorts for the LTV / CAC tile (per Isaac, Nov 18)
-  const F = mklState(); const ym = F.ym;
+  const F = mklState(); const RNG = mklRangeOf(F.ym); const ym = RNG ? RNG.through : F.ym;   // a range keys the grid / sparklines on its last month
   // Compare to (per Isaac, Nov 11 — the key-metrics tile look): the previous month, or the same month last year.
   const cmp = F.cmp === 'year' ? 'year' : F.cmp === 'none' ? 'none' : 'prev';   // No change hides the compare line on the tiles (per Isaac, Nov 16)
   const pm = _mklShift(ym, cmp === 'year' ? -12 : -1);
@@ -155,13 +203,17 @@ function _mktgLeanView() {
   // Month to date (per Isaac, Nov 16): while the open month is showing, the compare month is cut at today's day of
   // the month — Nov 1–16 vs Oct 1–16 — so the arrows don't read low against a full month. A closed month compares whole.
   const _today = new Date(), _isOpen = ym === _mklYm(_today), _cap = _isOpen ? _today.getDate() : 0;
-  const cur = mklMonth(ym), prev = mklMonth(pm, _cap);
+  // A range (YTD / full year) compares with the same stretch a year earlier, whichever change is picked (MoM has no
+  // meaning for a year); the open month of the earlier year is cut at today's day, as month-to-date is.
+  const _rCap = RNG ? (RNG.cap || (RNG.year === _today.getFullYear() ? _today.getDate() : 0)) : 0;
+  const cur = RNG ? mklRange(RNG.year, RNG.last, RNG.cap) : mklMonth(ym), prev = RNG ? mklRange(RNG.year - 1, RNG.last, RNG.kind === 'yr' && RNG.year !== _today.getFullYear() ? 0 : _rCap) : mklMonth(pm, _cap);
   const _mtdLbl = _cap ? ' 1\u2013' + _cap : '';
+  const _cmpTag = RNG ? (RNG.year - 1) + (RNG.kind === 'yr' && RNG.year !== _today.getFullYear() ? ' full year' : ' same stretch') : _mklLblS(pm) + _mtdLbl;
   const muted = { color: 'var(--text-muted)' };
   const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
   const months = []; for (let i = 0; i < 18; i++) months.push(_mklYm(new Date(new Date().getFullYear(), new Date().getMonth() - i, 1)));
-  const monthSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: selSt, onchange: (e) => { F.ym = e.target.value; mountApp(); } },
-    ...months.map(k => el('option', { value: k, selected: k === ym }, _mklLblS(k) + (k === months[0] ? ' · open' : ''))));
+  const monthSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: selSt, onchange: (e) => { F.ym = e.target.value; mountApp(); } }, ..._mklPickerOptions(F.ym));
+  void months;
   const goSpend = () => { state._mktSub = 'spend'; state._mktCtrlMonth = ym; mountApp(); };
 
   // ── Data line: where each number comes from and how fresh it is. ──
@@ -236,7 +288,7 @@ function _mktgLeanView() {
     ltv: '<path d="M3 20h18"/><path d="M4 16c3-9 6-12 9-12 2 0 4 2 7 8"/><path d="M14 4h6v6"/>',
   };
   const icon = (k) => { const w = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); w.setAttribute('viewBox', '0 0 24 24'); w.setAttribute('fill', 'none'); w.setAttribute('stroke', 'currentColor'); w.setAttribute('stroke-width', '1.8'); w.setAttribute('stroke-linecap', 'round'); w.setAttribute('stroke-linejoin', 'round'); w.style.cssText = 'width:18px;height:18px;flex:none;color:var(--text-subtle)'; w.innerHTML = ICON[k] || ''; return w; };
-  const cmpLbl = cmp === 'year' ? 'last year' : 'prior month';
+  const cmpLbl = RNG ? 'last year' : cmp === 'year' ? 'last year' : 'prior month';
   const tile = (o) => {
     const a = o.get(cur), b = o.get(prev);
     const dv = a != null && b != null && isFinite(a) && isFinite(b) && b !== 0 ? (a - b) / Math.abs(b) : null;
@@ -246,7 +298,7 @@ function _mktgLeanView() {
     const noPrior = b == null || !isFinite(b);
     const cmpLine = el('div', { class: 'flex items-baseline gap-1.5 text-[12px] tabular-nums', style: { color: 'var(--text-muted)' } },
       dv == null ? el('span', {}, noPrior ? '—' : '—') : el('span', { class: 'font-bold', style: { color: col } }, (dv >= 0 ? '↑ +' : '↓ ') + (dv * 100).toFixed(1) + '%'),
-      el('span', {}, 'vs. ' + (noPrior ? 'no ' + cmpLbl : o.fmt(b)), el('span', { class: 'ml-1', style: { color: 'var(--text-subtle)' } }, '· ' + _mklLblS(pm) + _mtdLbl)));
+      el('span', {}, 'vs. ' + (noPrior ? 'no ' + cmpLbl : o.fmt(b)), el('span', { class: 'ml-1', style: { color: 'var(--text-subtle)' } }, '· ' + _cmpTag)));
     return el('div', { class: 'card p-4 flex flex-col gap-2' + (o.onClick ? ' cursor-pointer' : ''), style: { borderTop: '3px solid ' + (o.color || 'var(--accent)') }, onclick: o.onClick || null },   // no title on the card itself — the browser tooltip sat on top of the sparkline table (per Isaac, Nov 16); the ⓘ carries the tip
       el('div', { class: 'flex items-center justify-between gap-2' },
         el('div', { class: 'text-[12px] font-semibold', style: { color: 'var(--text-muted)' } }, o.label, o.tip ? el('span', { class: 'ml-1 text-[10px]', style: { color: 'var(--text-subtle)' }, title: o.tip }, 'ⓘ') : null),
@@ -559,11 +611,9 @@ function mklMetricPop(k, D, ym, cap) {
 // The Metrics controls for the Marketing sub-tab bar (per Isaac, Nov 16): owner's drag hint + Reset, the compare
 // dropdown, the month picker.
 function mklHeaderControls(monthOnly) {
-  const F = mklState(); const ym = F.ym, cmp = F.cmp === 'year' ? 'year' : F.cmp === 'none' ? 'none' : 'prev';
+  const F = mklState(); const cmp = F.cmp === 'year' ? 'year' : F.cmp === 'none' ? 'none' : 'prev';
   const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
-  const months = []; for (let i = 0; i < 18; i++) months.push(_mklYm(new Date(new Date().getFullYear(), new Date().getMonth() - i, 1)));
-  const monthSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: selSt, onchange: (e) => { F.ym = e.target.value; mountApp(); } },
-    ...months.map(k => el('option', { value: k, selected: k === ym }, _mklLblS(k) + (k === months[0] ? ' · open' : ''))));
+  const monthSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: selSt, onchange: (e) => { F.ym = e.target.value; mountApp(); } }, ..._mklPickerOptions(F.ym));
   const cmpSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: selSt, onchange: (e) => { F.cmp = e.target.value; mountApp(); } },
     ...[['none', 'No change'], ['prev', 'MoM change'], ['year', 'YoY change']].map(([v, l]) => el('option', { value: v, selected: v === cmp }, l)));
   const m = _mktgStore();

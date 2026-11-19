@@ -229,10 +229,10 @@ function ghlUnmappedTodoCard() {
   const admin = isAdminRole(state.profile?.role);
   // Window = the month picked top-right on Marketing (per Isaac, Nov 19 — it should run down toward zero as sources get
   // mapped), not a trailing 90 days. "recent" below means "in that month".
-  const ym = (typeof mklState === 'function' ? mklState().ym : null) || new Date().toISOString().slice(0, 7);
-  const sinceIso = ym + '-01', untilIso = ym + '-31';
+  const W = typeof mklWindow === 'function' ? mklWindow() : (() => { const v = new Date().toISOString().slice(0, 7); return { from: v + '-01', to: v + '-31', label: v }; })();   // month, YTD or full year
+  const sinceIso = W.from, untilIso = W.to;
   const inWin = (d) => d >= sinceIso && d <= untilIso;
-  const ymLbl = new Date(ym + '-15T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  const ymLbl = W.label;
   const map = ghlSourceMap(), lab = G.labels;
   const chSet = typeof mkmChannelSet === 'function' ? mkmChannelSet() : null;
   const isMapped = (label) => { const pv = ghlProviderOf(label); if (!pv) return false; if (pv === GHL_NOT_LEAD) return true; return !chSet || chSet.has(pv); };
