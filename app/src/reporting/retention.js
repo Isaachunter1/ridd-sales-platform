@@ -2727,57 +2727,49 @@ function reportingWaterfall() {
     const th = (t, right, help) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap text-left', /* left-justified (per Isaac, Oct 14) */ style: { color: 'var(--text-muted)', background: 'var(--card-2)' }, title: help || '' }, t);
     const td = (t, o = {}) => el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap text-left' + (o.left ? ' font-semibold' : '') + (o.bold ? ' font-black' : ''), style: { color: o.color, cursor: o.onclick ? 'pointer' : undefined }, onclick: o.onclick, title: o.title || '' }, t);
     const open = (title, n, rs) => rs.length ? () => openReportingDrillModal({ chartTitle: 'Renewal Retention · ' + title, sliceLabel: fmt.int(n) + ' customer' + (n === 1 ? '' : 's') + ' · every subscription they have had', rows: rs, formatValue: (v) => fmt.usd0(v) }) : undefined;
-    const row = (label, o, strong, vs) => {
-      const keep = o.n ? o.here / o.n : null, base = vs && vs.n ? vs.here / vs.n : null;
+    // One plain table (per Isaac, Nov 19 — "I just want to compare renewals to the same cohort that is month to
+    // month"): the renewal-type rows and the all-vs-all comparison are gone. One row per START YEAR, the customers
+    // from that year who renewed side by side with the ones from the same year who reached contract end and stayed
+    // month-to-month. Total row = every year together.
+    const attr = (o) => o.n ? o.left / o.n : null;
+    const pair = (x, y) => x + ' / ' + y;
+    const sep = { borderLeft: '1px solid var(--border)' };
+    const cell = (t, o = {}) => el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap text-left' + (o.bold ? ' font-black' : o.semi ? ' font-semibold' : ''), style: Object.assign({ color: o.color, cursor: o.onclick ? 'pointer' : undefined }, o.sep ? sep : {}), onclick: o.onclick, title: o.title || '' }, t);
+    const line = (label, R, M, strong) => {
+      const a = attr(R), b = attr(M), d = (a != null && b != null) ? a - b : null;
       return el('tr', { class: 'border-t', style: { borderColor: strong ? 'var(--border-2)' : 'var(--border)', background: strong ? 'var(--card-2)' : undefined, borderTopWidth: strong ? '2px' : undefined } },
-        td(label, { left: true, bold: strong, title: 'Click for every customer in the row', onclick: open(label, o.n, o.rows) }),
-        td(fmt.int(o.n), { bold: strong }), td(fmt.int(o.here)),
-        td(fmt.int(o.left), { title: 'Click for the customers who churned', onclick: open(label + ' · churned', o.left, o.leftRows) }),
-        td(pct(o.here, o.n), { bold: true, color: keep != null && base != null ? (keep >= base ? '#15803D' : '#DC2626') : undefined }),
-        td(pct(o.h12k, o.h12n), { title: fmt.int(o.h12k) + ' of ' + fmt.int(o.h12n) + ' customers whose decision point is at least 12 months old' }),
-        td(pct(o.h24k, o.h24n), { title: fmt.int(o.h24k) + ' of ' + fmt.int(o.h24n) + ' customers whose decision point is at least 24 months old' }),
-        td(mo(o.ageAt)), td(mo(o.after)), td(mo(o.tenure), { bold: true }));
+        cell(label, { semi: !strong, bold: strong }),
+        cell(fmt.int(R.n), { sep: true, bold: strong, title: 'Click for every customer who renewed', onclick: open(label + ' · renewed', R.n, R.rows) }),
+        cell(pct(R.left, R.n), { bold: true, title: fmt.int(R.left) + ' of ' + fmt.int(R.n) + ' churned · click for them', onclick: open(label + ' · renewed · churned', R.left, R.leftRows) }),
+        cell(fmt.int(M.n), { sep: true, bold: strong, title: 'Click for every month-to-month customer', onclick: open(label + ' · month-to-month', M.n, M.rows) }),
+        cell(pct(M.left, M.n), { bold: true, title: fmt.int(M.left) + ' of ' + fmt.int(M.n) + ' churned · click for them', onclick: open(label + ' · month-to-month · churned', M.left, M.leftRows) }),
+        cell(d == null ? '—' : (d <= 0 ? '−' : '+') + Math.abs(d * 100).toFixed(1) + ' pts', { sep: true, bold: true, color: d == null ? undefined : d <= 0 ? '#15803D' : '#DC2626', title: 'Renewed attrition minus month-to-month attrition — green = renewers churn less' }),
+        cell(pair(pct(R.h12k, R.h12n), pct(M.h12k, M.h12n)), { sep: true, title: 'Renewed ' + fmt.int(R.h12k) + ' of ' + fmt.int(R.h12n) + ' · month-to-month ' + fmt.int(M.h12k) + ' of ' + fmt.int(M.h12n) + ' (customers whose renewal / contract end is at least 12 months old)' }),
+        cell(pair(pct(R.h24k, R.h24n), pct(M.h24k, M.h24n)), { title: 'Renewed ' + fmt.int(R.h24k) + ' of ' + fmt.int(R.h24n) + ' · month-to-month ' + fmt.int(M.h24k) + ' of ' + fmt.int(M.h24n) + ' (at least 24 months old)' }),
+        cell(pair(mo(R.tenure), mo(M.tenure)), { sep: true }));
     };
-    const keys = [...groups.keys()].sort((x, y) => grp === 'year' ? String(y).localeCompare(String(x)) : groups.get(y).n - groups.get(x).n);
-    // The headline: the answer in one line.
-    const tA = all.tenure, tB = m2m.tenure;
-    const head = (all.n && m2m.n && tA != null && tB != null)
-      ? 'Customers who renewed have stayed ' + tA.toFixed(1) + ' months on average, against ' + tB.toFixed(1) + ' for customers who reached contract end and did not renew. ' + pct(all.here, all.n) + ' of renewers are still customers, against ' + pct(m2m.here, m2m.n) + '.'
+    const tot = { ren: stat(yearRows.flatMap(x => byYear.get(x.y).ren), renAnchor), m2m: stat(yearRows.flatMap(x => byYear.get(x.y).m2m), endAnchor) };
+    const ta = attr(tot.ren), tb = attr(tot.m2m);
+    const head = (ta != null && tb != null)
+      ? 'Across every start year, ' + pct(tot.ren.left, tot.ren.n) + ' of customers who renewed have churned, against ' + pct(tot.m2m.left, tot.m2m.n) + ' of the same cohorts that stayed month-to-month.'
       : null;
+    const gh = (t, span) => el('th', { class: 'px-3 pt-2 text-[10px] uppercase tracking-wider font-bold text-left', colspan: String(span), style: Object.assign({ color: 'var(--text)', background: 'var(--card-2)' }, t ? sep : {}) }, t);
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
         el('div', {},
-          el('h3', { class: 'text-base font-bold', title: 'Counted by CUSTOMER, not subscription: every subscription a customer has had is linked into one life. Still a customer = any active subscription. Sentricon excluded.' }, 'Renewal Retention' + (office !== 'all' ? ' · ' + officeLabel : '')),
-          head ? el('div', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } }, head) : null),
-        // The footnote moved into an ⓘ on the right (per Isaac, Oct 29).
-        configInfoBtn('Renewal Retention', 'Decision point = the day the first renewal was sold, or the first contract’s end date for customers who never renewed.' + (noLink ? ' ' + fmt.int(noLink) + ' renewal customer' + (noLink === 1 ? ' has' : 's have') + ' no earlier subscription in this view, so their tenure starts at the renewal.' : '') + ' Counted by customer, not subscription: every subscription a customer has had is linked into one life. Still a customer = any active subscription. Sentricon excluded.')),
+          el('h3', { class: 'text-base font-bold' }, 'Renewal Retention' + (office !== 'all' ? ' · ' + officeLabel : '')),
+          el('div', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } }, 'Renewed vs month-to-month, same start year' + (head ? ' · ' + head : ''))),
+        configInfoBtn('Renewal Retention', 'Each row is a cohort: customers whose first service was in that year. Renewed = bought a renewal subscription (decision point = the day the first renewal was sold). Month-to-month = reached the end of their first contract still a customer and never renewed (decision point = that contract end). Attrition = customers with no active subscription left ÷ customers. +12 / +24 mo = still a customer that long after the decision point, counting only customers whose decision point is that old.' + (noLink ? ' ' + fmt.int(noLink) + ' renewal customer' + (noLink === 1 ? ' has' : 's have') + ' no earlier subscription in this view, so their tenure starts at the renewal.' : '') + ' Counted by customer, not subscription. Sentricon excluded.')),
       el('div', { class: 'scroll-x' },
         el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-          el('thead', {}, el('tr', {},
-            th(grp === 'year' ? 'Renewed in' : 'Renewal type'), th('Customers', 1), th('Still customers', 1), th('Churned', 1, 'Customers with no active subscription left'), th('Retention %', 1, 'Still customers ÷ customers'),
-            th('Retained +12 mo', 1, 'Of the customers whose renewal (or first contract end) was at least 12 months ago: the share who were still customers 12 months after it'),
-            th('Retained +24 mo', 1, 'Of the customers whose renewal (or first contract end) was at least 24 months ago: the share who were still customers 24 months after it'),
-            th('Tenure at renewal', 1, 'Average months as a customer on the day the renewal subscription was sold. For the Did not renew row: on the day the first contract ended.'),
-            th('Stayed after', 1, 'Average months as a customer since the renewal was sold (to today, or to the day they churned). For the Did not renew row: since the first contract ended.'),
-            th('Total tenure', 1, 'Average months as a customer, first service to today (or to the day their last subscription ended)'))),
+          el('thead', {},
+            el('tr', {}, gh('', 1), gh('Renewed', 2), gh('Month-to-month', 2), gh('Difference', 1), gh('Still a customer · renewed / M2M', 2), gh('Tenure', 1)),
+            el('tr', {},
+              th('Start year'), th('Customers'), th('Attrition', 1, 'Churned ÷ customers'), th('Customers'), th('Attrition', 1, 'Churned ÷ customers'),
+              th('Attrition', 1, 'Renewed minus month-to-month'), th('+12 mo'), th('+24 mo'), th('Renewed / M2M', 1, 'Average months as a customer, first service to today or to the day they left'))),
           el('tbody', {},
-            ...keys.map(k => row(grp === 'year' ? k : 'Renewal - ' + k, groups.get(k), false, m2m)),
-            row('All customers who renewed', all, true, m2m),
-            el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, el('td', { class: 'px-3 pt-3 pb-1 text-[10px] uppercase tracking-widest font-semibold', colspan: '10', style: { color: 'var(--text-subtle)' } }, 'The comparison · reached the end of their first contract still a customer and never renewed')),
-            row('Did not renew', m2m, true),
-            // Same start year, side by side (per Isaac, Nov 19): renewed vs stayed month-to-month, cohort by cohort.
-            ...(yearRows.length ? [el('tr', { class: 'border-t', style: { borderColor: 'var(--border-2)', borderTopWidth: '2px' } }, el('td', { class: 'px-3 pt-3 pb-1 text-[10px] uppercase tracking-widest font-semibold', colspan: '10', style: { color: 'var(--text-subtle)' } },
-                'Same start year \u00b7 customers who renewed vs the same cohort that reached contract end and stayed month-to-month \u00b7 attrition = churned \u00f7 customers'))] : []),
-            ...yearRows.flatMap(x => {
-              const attr = (o) => o.n ? o.left / o.n : null;
-              const a = attr(x.ren), b = attr(x.m2m);
-              const delta = (a != null && b != null) ? el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-                el('td', { class: 'px-3 py-1.5 text-[11px] font-semibold', style: { color: 'var(--text-muted)' } }, '   ' + x.y + ' \u00b7 difference'),
-                el('td', { class: 'px-3 py-1.5 text-[11px] tabular-nums', colspan: '3', style: { color: 'var(--text-muted)' } }, 'attrition ' + pct(x.ren.left, x.ren.n) + ' renewed vs ' + pct(x.m2m.left, x.m2m.n) + ' month-to-month'),
-                el('td', { class: 'px-3 py-1.5 text-[11px] font-black tabular-nums', style: { color: a <= b ? '#15803D' : '#DC2626' } }, (a <= b ? '\u2212' : '+') + Math.abs((a - b) * 100).toFixed(1) + ' pts attrition'),
-                el('td', { class: 'px-3 py-1.5 text-[11px] tabular-nums', colspan: '5', style: { color: 'var(--text-muted)' } }, (x.ren.tenure != null && x.m2m.tenure != null) ? ('tenure ' + mo(x.ren.tenure) + ' vs ' + mo(x.m2m.tenure)) : '')) : null;
-              return [row(x.y + ' \u00b7 Renewed', x.ren, false, x.m2m), row(x.y + ' \u00b7 Month-to-month', x.m2m, false), delta].filter(Boolean);
-            })))));
+            ...yearRows.map(x => line(x.y, x.ren, x.m2m, false)),
+            line('All years', tot.ren, tot.m2m, true)))));
   })();
 
   // (Renewal Timing card retired per Isaac, Sep 2026.)
