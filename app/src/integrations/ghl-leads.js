@@ -29,6 +29,11 @@ const GHL_AUTO_RULES = [
   [/sellify/, 'Sellify'],
   [/pest ?booker/, 'PestBooker'],
   [/clicki/, 'Referral'],                       // old referral tool (per Isaac)
+  // Pest AI's Nov 19 source rename ("<Source> | <Office>", 16 names): the providers that had no rule yet.
+  [/marchex/, 'Marchex'],
+  [/flow ?bridge/, 'FlowBridge'],
+  [/click ?thesis/, 'Click Thesis'],
+  [/chat ?gpt/, 'Organic'],
   [/click[- ]?to[- ]?buy/, 'Click-To-Buy'],    // the old online booker, before PestBooker
   [/organic|direct traffic|social media|referral|ridd form|website|vip marketing|pest lead form/, 'Organic'],
 ];
