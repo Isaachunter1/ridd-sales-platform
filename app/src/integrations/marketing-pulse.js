@@ -84,7 +84,7 @@ function _mkpContactIdx() {
 function mkpAllLeads() {
   const G = state._ghl; if (!G || !G.opps) return null;
   const sig = JSON.stringify(ghlSourceMap()) + '|' + mkpFilters().attr + '|' + (typeof _mktgStore === 'function' ? (_mktgStore().channels || []).join(',') : '') + '|' + (typeof mkpFrSources === 'function' ? mkpFrSources().join(',') : '');
-  const M = mkpAllLeads._m; if (M && M.src === G.opps && M.sig === sig && M.zip === (typeof _ghlZipOffice === 'function' ? _ghlZipOffice() : null)) return M.out;
+  const M = mkpAllLeads._m; if (M && M.src === G.opps && M.sig === sig && M.subs === state.reportingSubscriptions && M.zip === (typeof _ghlZipOffice === 'function' ? _ghlZipOffice() : null)) return M.out;
   const CI = _mkpContactIdx(), zipOff = typeof _ghlZipOffice === 'function' ? _ghlZipOffice() : new Map();
   const chSet = typeof mkmChannelSet === 'function' ? mkmChannelSet() : null;
   const lab = G.labels, paid = ghlPaidSet(), stages = G.stages || [], first = mkpFilters().attr === 'first';
@@ -94,7 +94,7 @@ function mkpAllLeads() {
   // until someone maps it on the Marketing to-do card, instead of piling up under 'Unmapped'.
   const _provOf = (i) => { const p = ghlProviderOf(lab[i]); if (!p || p === GHL_NOT_LEAD) return GHL_NOT_LEAD; return chSet && !chSet.has(p) ? GHL_NOT_LEAD : p; };
   const sorted = G.opps.filter(o => o && o[0] && (o[2] || o[3])).slice().sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : (a[4] || '') < (b[4] || '') ? -1 : (a[4] || '') > (b[4] || '') ? 1 : 0);   // plain compares: localeCompare on 36K rows cost ~1s
-  const lastAt = new Map(), leads = []; let raw = 0, notLead = 0;
+  const lastAt = new Map(), leads = []; let raw = 0, notLead = 0, curCust = 0;
   for (const o of sorted) {
     const c = (o[2] && CI && CI.byP.get(o[2])) || (o[3] && CI && CI.byE.get(o[3])) || null;
     // "Local Presence | <office>" is not a source (per Isaac, Nov 18): it is the tracking number people call back on
@@ -104,6 +104,8 @@ function mkpAllLeads() {
     let prov = o[1] == null || o[1] < 0 || passThrough ? GHL_NOT_LEAD : provOf(o[1]);   // no source on the opportunity → not a lead either
     if ((first || passThrough) && c) { const fp = provOf(c[1] >= 0 ? c[1] : c[2]); if (fp && fp !== 'Unmapped' && fp !== GHL_NOT_LEAD) prov = fp; }
     if (prov === GHL_NOT_LEAD) { notLead++; continue; }
+    // A current customer calling or writing in is not a lead (per Isaac, Nov 19 — brand-search calls are mostly them).
+    if (o[2] && typeof ghlIsCurrentCustomer === 'function' && ghlIsCurrentCustomer(o[2], o[0])) { notLead++; curCust++; continue; }
     raw++;
     const key = o[2] ? 'p' + o[2] : 'e' + o[3];
     const ms = _mkpMs(o[0]), prev = lastAt.get(key);
@@ -126,8 +128,8 @@ function mkpAllLeads() {
       campaign: o[7] != null && o[7] >= 0 ? lab[o[7]] : '', status: String(o[5] || '').toLowerCase(), stage, firstStage,
       type: typeOf(firstStage) || typeOf(stage) || typeBySource, typeSure: !!typeOf(firstStage), market: c ? (c[11] >= 0 && lab[c[11]] ? mkpMarketOf(lab[c[11]]) : mkpMarketOf(zipOff.get(c[6]))) : '' });   // office tag from Pest AI first, ZIP second (per Isaac, Nov 18)
   }
-  const out = { leads, raw, notLead };
-  mkpAllLeads._m = { src: G.opps, sig, zip: zipOff, out };
+  const out = { leads, raw, notLead, curCust };
+  mkpAllLeads._m = { src: G.opps, sig, subs: state.reportingSubscriptions, zip: zipOff, out };
   return out;
 }
 

@@ -22,8 +22,57 @@ const _mklLblS = (ym) => new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7))
 // now). Replaces Nov 9's last-closed-month default.
 function mklState() {
   const F = state._mkl || (state._mkl = {});
-  if (!/^\d{4}-\d{2}$/.test(F.ym || '')) F.ym = _mklYm(new Date());
+  if (!/^\d{4}-(\d{2}|ytd|yr)$/.test(F.ym || '')) F.ym = _mklYm(new Date());
   return F;
+}
+// Ranges in the month picker (per Isaac, Nov 19 — "a YTD option … and numbers from last year too"):
+//   'YYYY-ytd' = Jan 1 through the same point in the year as today (this year: to date; a past year: Jan 1 → today's
+//                month and day, so 2025 YTD lines up with 2026 YTD) · 'YYYY-yr' = the whole calendar year.
+// Returns null for a plain month, else { year, last (0-based month index), cap (day cut on the last month, 0 = whole),
+// through ('YYYY-MM', the last month — what the grid, the dash blocks and the sparklines key on), label }.
+function mklRangeOf(v) {
+  const m = /^(\d{4})-(ytd|yr)$/.exec(String(v || '')); if (!m) return null;
+  const year = Number(m[1]), now = new Date(), cy = now.getFullYear();
+  if (m[2] === 'yr') { const last = year === cy ? now.getMonth() : 11; return { year, last, cap: 0, through: year + '-' + String(last + 1).padStart(2, '0'), label: year + (year === cy ? ' to date' : ' full year'), kind: 'yr' }; }
+  const last = now.getMonth(), cap = year === cy ? 0 : now.getDate();
+  return { year, last, cap, through: year + '-' + String(last + 1).padStart(2, '0'), label: year + ' YTD' + (year === cy ? '' : ' (Jan 1–' + new Date(cy, last, now.getDate()).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ')'), kind: 'ytd' };
+}
+// The picked window as dates, for anything that filters by date (Unmapped GoHighLevel sources).
+function mklWindow() {
+  const v = mklState().ym, R = mklRangeOf(v);
+  if (!R) return { from: v + '-01', to: v + '-31', label: new Date(v + '-15T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) };
+  const to = R.through + '-' + (R.cap ? String(R.cap).padStart(2, '0') : '31');
+  return { from: R.year + '-01-01', to, label: R.label };
+}
+// Several months summed into one month-shaped object, so every tile reads a range exactly as it reads a month.
+function mklRange(year, last, cap) {
+  const parts = []; for (let i = 0; i <= last; i++) parts.push(mklMonth(year + '-' + String(i + 1).padStart(2, '0'), i === last ? cap : 0));
+  const z = () => ({ spend: 0, leads: 0, s: 0, svc: 0, cv: 0, waiting: 0 });
+  const addCell = (t, c) => { t.spend += c.spend || 0; t.leads += c.leads || 0; t.s += c.s || 0; t.svc += c.svc || 0; t.cv += c.cv || 0; t.waiting += c.waiting || 0; if (c.linked) t.linked = (t.linked || 0) + c.linked; if (c.sales) t.sales = (t.sales || []).concat(c.sales); if (c.unlinked) t.unlinked = (t.unlinked || []).concat(c.unlinked); };
+  const br = {}, ch = {}, x = {}, rep = {};
+  const out = { ym: year + '-range', cap, A: null, spend: 0, spendWaiting: 0, spendUnassigned: 0, spendLines: 0, s: 0, svc: 0, cv: 0, sales: [], leads: 0, linked: 0, unlinked: [], br, ch, x, rep, labor: 0, wages: 0, incentives: 0, hasLabor: false, hasSpend: false, hasLeads: false, hasSubs: false, range: true };
+  for (const D of parts) {
+    out.spend += D.spend || 0; out.spendWaiting += D.spendWaiting || 0; out.spendUnassigned += D.spendUnassigned || 0; out.spendLines += D.spendLines || 0;
+    out.s += D.s; out.svc += D.svc; out.cv += D.cv; out.sales = out.sales.concat(D.sales || []); out.leads += D.leads || 0; out.linked += D.linked || 0; out.unlinked = out.unlinked.concat(D.unlinked || []);
+    out.labor += D.labor || 0; out.wages += D.wages || 0; out.incentives += D.incentives || 0;
+    out.hasLabor = out.hasLabor || D.hasLabor; out.hasSpend = out.hasSpend || D.hasSpend; out.hasLeads = out.hasLeads || D.hasLeads; out.hasSubs = out.hasSubs || D.hasSubs;
+    for (const k in D.br) addCell(br[k] || (br[k] = z()), D.br[k]);
+    for (const k in D.ch) addCell(ch[k] || (ch[k] = z()), D.ch[k]);
+    for (const k in (D.rep || {})) addCell(rep[k] || (rep[k] = z()), D.rep[k]);
+    for (const b in D.x) { const o = x[b] || (x[b] = {}); for (const c in D.x[b]) addCell(o[c] || (o[c] = z()), D.x[b][c]); }
+  }
+  if (!out.hasSpend) out.spend = null; if (!out.hasLeads) { out.leads = null; out.linked = null; }
+  return out;
+}
+// Picker options: this year's YTD, last year's YTD and full year, then the last 24 months.
+function _mklPickerOptions(selected) {
+  const cy = new Date().getFullYear();
+  const months = []; for (let i = 0; i < 24; i++) months.push(_mklYm(new Date(cy, new Date().getMonth() - i, 1)));
+  const opt = (v, l) => el('option', { value: v, selected: v === selected }, l);
+  return [
+    el('optgroup', { label: 'Ranges' }, opt(cy + '-ytd', cy + ' YTD'), opt((cy - 1) + '-ytd', (cy - 1) + ' YTD (same stretch)'), opt((cy - 1) + '-yr', (cy - 1) + ' full year')),
+    el('optgroup', { label: 'Months' }, ...months.map(k => opt(k, _mklLblS(k) + (k === months[0] ? ' · open' : '')))),
+  ];
 }
 const _mklUsd = (v) => v == null || !isFinite(v) ? '—' : fmt.usd0(v);
 const _mklPct = (v) => v == null || !isFinite(v) ? '—' : (v * 100).toFixed(1) + '%';
@@ -53,7 +102,7 @@ function mklMonth(ym, cap) {
   const M = state._mklMemo || (state._mklMemo = {});
   const mk = cap ? ym + '@' + cap : ym;
   if (M[mk] && M[mk].sig === sig && M[mk].subs === subs && M[mk].al === AL) return M[mk].v;
-  const br = {}, ch = {}, x = {};   // x = office → channel → cell (per Isaac, Nov 16: the grid's cell pop-up breaks an office down by channel and a channel by office)
+  const br = {}, ch = {}, x = {}, rep = {};   // rep = Office Staff rep → cell (per Isaac, Nov 19 — By rep on the year grid); x = office → channel → cell (per Isaac, Nov 16: the grid's cell pop-up breaks an office down by channel and a channel by office)
   const xcell = (b, c) => { const o = x[b] || (x[b] = {}); return cell(o, c); };
   const cell = (o, k) => o[k] || (o[k] = { spend: 0, leads: 0, s: 0, svc: 0, cv: 0, waiting: 0 });
   const TC = (b) => typeof _mktgTC === 'function' ? _mktgTC(b) : String(b || '');
@@ -85,6 +134,8 @@ function mklMonth(ym, cap) {
     const b = cell(br, TC(r.office_name || 'No branch')); b.s++; b.svc += done; b.cv += v;
     const c = cell(ch, _mklChannelOfSource(reportingSourceOf(r))); c.s++; c.svc += done; c.cv += v;
     const xc = xcell(TC(r.office_name || 'No branch'), _mklChannelOfSource(reportingSourceOf(r))); xc.s++; xc.svc += done; xc.cv += v; xc.sales = xc.sales || []; xc.sales.push(r);
+    const rn = String(r.sold_by || '').trim() ? (typeof flipLastFirst === 'function' ? flipLastFirst(String(r.sold_by).trim()) : String(r.sold_by).trim()) : 'No rep';
+    const rc = cell(rep, rn); rc.s++; rc.svc += done; rc.cv += v;
   }
   // Leads (GoHighLevel, deduped).
   let leads = null;
@@ -120,7 +171,7 @@ function mklMonth(ym, cap) {
       if (best) xc.linked = (xc.linked || 0) + 1; else (xc.unlinked || (xc.unlinked = [])).push(r);
     }
   }
-  const v = { ym, cap, A, spend, spendWaiting, spendUnassigned, spendLines, s, svc, cv, sales, leads, linked: AL ? linked : null, unlinked, br, ch, x, labor, wages, incentives, hasLabor, hasSpend: !!A, hasLeads: !!AL, hasSubs: subs.length > 0 };
+  const v = { ym, cap, A, spend, spendWaiting, spendUnassigned, spendLines, s, svc, cv, sales, leads, linked: AL ? linked : null, unlinked, br, ch, x, rep, labor, wages, incentives, hasLabor, hasSpend: !!A, hasLeads: !!AL, hasSubs: subs.length > 0 };
   M[mk] = { sig, subs, al: AL, v };
   return v;
 }
@@ -147,7 +198,7 @@ function _mktgLeanView() {
   if (typeof ghlLoadLeads === 'function' && state._ghl === undefined) ghlLoadLeads();
   if (typeof rcEnsureLedger === 'function') rcEnsureLedger();   // RIDDCOIN adds are incentives (per Isaac, Nov 18)
   if (typeof refreshLtvFromCloud === 'function') refreshLtvFromCloud();   // LTV cohorts for the LTV / CAC tile (per Isaac, Nov 18)
-  const F = mklState(); const ym = F.ym;
+  const F = mklState(); const RNG = mklRangeOf(F.ym); const ym = RNG ? RNG.through : F.ym;   // a range keys the grid / sparklines on its last month
   // Compare to (per Isaac, Nov 11 — the key-metrics tile look): the previous month, or the same month last year.
   const cmp = F.cmp === 'year' ? 'year' : F.cmp === 'none' ? 'none' : 'prev';   // No change hides the compare line on the tiles (per Isaac, Nov 16)
   const pm = _mklShift(ym, cmp === 'year' ? -12 : -1);
@@ -155,13 +206,17 @@ function _mktgLeanView() {
   // Month to date (per Isaac, Nov 16): while the open month is showing, the compare month is cut at today's day of
   // the month — Nov 1–16 vs Oct 1–16 — so the arrows don't read low against a full month. A closed month compares whole.
   const _today = new Date(), _isOpen = ym === _mklYm(_today), _cap = _isOpen ? _today.getDate() : 0;
-  const cur = mklMonth(ym), prev = mklMonth(pm, _cap);
+  // A range (YTD / full year) compares with the same stretch a year earlier, whichever change is picked (MoM has no
+  // meaning for a year); the open month of the earlier year is cut at today's day, as month-to-date is.
+  const _rCap = RNG ? (RNG.cap || (RNG.year === _today.getFullYear() ? _today.getDate() : 0)) : 0;
+  const cur = RNG ? mklRange(RNG.year, RNG.last, RNG.cap) : mklMonth(ym), prev = RNG ? mklRange(RNG.year - 1, RNG.last, RNG.kind === 'yr' && RNG.year !== _today.getFullYear() ? 0 : _rCap) : mklMonth(pm, _cap);
   const _mtdLbl = _cap ? ' 1\u2013' + _cap : '';
+  const _cmpTag = RNG ? (RNG.year - 1) + (RNG.kind === 'yr' && RNG.year !== _today.getFullYear() ? ' full year' : ' same stretch') : _mklLblS(pm) + _mtdLbl;
   const muted = { color: 'var(--text-muted)' };
   const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
   const months = []; for (let i = 0; i < 18; i++) months.push(_mklYm(new Date(new Date().getFullYear(), new Date().getMonth() - i, 1)));
-  const monthSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: selSt, onchange: (e) => { F.ym = e.target.value; mountApp(); } },
-    ...months.map(k => el('option', { value: k, selected: k === ym }, _mklLblS(k) + (k === months[0] ? ' · open' : ''))));
+  const monthSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: selSt, onchange: (e) => { F.ym = e.target.value; mountApp(); } }, ..._mklPickerOptions(F.ym));
+  void months;
   const goSpend = () => { state._mktSub = 'spend'; state._mktCtrlMonth = ym; mountApp(); };
 
   // ── Data line: where each number comes from and how fresh it is. ──
@@ -236,7 +291,7 @@ function _mktgLeanView() {
     ltv: '<path d="M3 20h18"/><path d="M4 16c3-9 6-12 9-12 2 0 4 2 7 8"/><path d="M14 4h6v6"/>',
   };
   const icon = (k) => { const w = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); w.setAttribute('viewBox', '0 0 24 24'); w.setAttribute('fill', 'none'); w.setAttribute('stroke', 'currentColor'); w.setAttribute('stroke-width', '1.8'); w.setAttribute('stroke-linecap', 'round'); w.setAttribute('stroke-linejoin', 'round'); w.style.cssText = 'width:18px;height:18px;flex:none;color:var(--text-subtle)'; w.innerHTML = ICON[k] || ''; return w; };
-  const cmpLbl = cmp === 'year' ? 'last year' : 'prior month';
+  const cmpLbl = RNG ? 'last year' : cmp === 'year' ? 'last year' : 'prior month';
   const tile = (o) => {
     const a = o.get(cur), b = o.get(prev);
     const dv = a != null && b != null && isFinite(a) && isFinite(b) && b !== 0 ? (a - b) / Math.abs(b) : null;
@@ -246,7 +301,7 @@ function _mktgLeanView() {
     const noPrior = b == null || !isFinite(b);
     const cmpLine = el('div', { class: 'flex items-baseline gap-1.5 text-[12px] tabular-nums', style: { color: 'var(--text-muted)' } },
       dv == null ? el('span', {}, noPrior ? '—' : '—') : el('span', { class: 'font-bold', style: { color: col } }, (dv >= 0 ? '↑ +' : '↓ ') + (dv * 100).toFixed(1) + '%'),
-      el('span', {}, 'vs. ' + (noPrior ? 'no ' + cmpLbl : o.fmt(b)), el('span', { class: 'ml-1', style: { color: 'var(--text-subtle)' } }, '· ' + _mklLblS(pm) + _mtdLbl)));
+      el('span', {}, 'vs. ' + (noPrior ? 'no ' + cmpLbl : o.fmt(b)), el('span', { class: 'ml-1', style: { color: 'var(--text-subtle)' } }, '· ' + _cmpTag)));
     return el('div', { class: 'card p-4 flex flex-col gap-2' + (o.onClick ? ' cursor-pointer' : ''), style: { borderTop: '3px solid ' + (o.color || 'var(--accent)') }, onclick: o.onClick || null },   // no title on the card itself — the browser tooltip sat on top of the sparkline table (per Isaac, Nov 16); the ⓘ carries the tip
       el('div', { class: 'flex items-center justify-between gap-2' },
         el('div', { class: 'text-[12px] font-semibold', style: { color: 'var(--text-muted)' } }, o.label, o.tip ? el('span', { class: 'ml-1 text-[10px]', style: { color: 'var(--text-subtle)' }, title: o.tip }, 'ⓘ') : null),
@@ -289,12 +344,12 @@ function _mktgLeanView() {
     ['cacp', tile({ label: 'CAC %', icon: 'cac', get: (D) => D.cv && (D.hasSpend || D.hasLabor) ? ((D.hasSpend ? D.spend : 0) + D.labor) / D.cv : null, fmt: _mklPct, upGood: false, color: INK, tip: 'Total spend ÷ new revenue', onClick: drill('cacp') })],
     // LTV / CAC replaced Revenue per lead (per Isaac, Nov 18): lifetime value of an Inside Sales customer (marketing-ltv.js)
     // over the month's cost per job. Its drill is its own pop-up, not the office × channel grid.
-    ['ltv', tile({ label: 'LTV / CAC', icon: 'ltv', get: (D) => typeof ltvTileValue === 'function' ? ltvTileValue(D) : null, fmt: (v) => v == null || !isFinite(v) ? '—' : v.toFixed(1) + 'x', upGood: true, color: TEAL, tip: 'Lifetime value of a new Inside Sales customer (collected revenue over the horizon set on the drill, projected on RIDD\u2019s cohort curve) ÷ this month\u2019s cost per job', note: typeof ltvTileNote === 'function' ? ltvTileNote(cur) : '', onClick: () => mklLtvPop(cur, ym, _cap) })]
+    ['rpl', tile({ label: 'Revenue per lead', icon: 'leads', get: (D) => D.hasLeads && D.leads ? D.cv / D.leads : null, fmt: _mklUsd, upGood: true, color: TEAL, tip: 'New revenue ÷ leads — what a lead is worth before any cost; next to CPL it is the lead margin', onClick: drill('rpl') })]   // back from LTV / CAC (per Isaac, Nov 19 — LTV / CAC has its own section below)
   ];
   // Owner-only ordering (per Isaac, Nov 16): the Admin – Owner drags tiles into place; the order is saved in the
   // shared marketing config and is what every other admin sees. New tiles append at the end.
   const _m = _mktgStore(); const saved = Array.isArray(_m.tileOrder) ? _m.tileOrder : [];
-  const order = [...saved.map(k => k === 'rpl' ? 'ltv' : k).filter(k => TILE_DEFS.some(d => d[0] === k)), ...TILE_DEFS.map(d => d[0]).filter(k => !saved.includes(k) && !(k === 'ltv' && saved.includes('rpl')))];   // 'rpl' became 'ltv' (Nov 18) — a saved order keeps its slot
+  const order = [...saved.map(k => k === 'ltv' ? 'rpl' : k).filter(k => TILE_DEFS.some(d => d[0] === k)), ...TILE_DEFS.map(d => d[0]).filter(k => !saved.includes(k) && !(k === 'rpl' && saved.includes('ltv')))];   // 'ltv' went back to 'rpl' (Nov 19) — a saved order keeps its slot
   const owner = typeof isOwnerUser === 'function' && isOwnerUser();
   const tiles = el('div', { class: 'grid gap-3 mkl-tiles' });
   let dragKey = null;
@@ -329,7 +384,7 @@ function _mktgLeanView() {
   const sumOf = (o, keys) => keys.reduce((t, k) => { const c = o[k]; t.spend += c.spend; t.leads += c.leads; t.s += c.s; t.cv += c.cv; t.labor += c.labor || 0; return t; }, { spend: 0, leads: 0, s: 0, cv: 0, labor: 0 });
   const table = (title, sub, o, extraRows, noteOf, withLabor) => {
     showLabor = !!withLabor && Object.values(o).some(c => c.labor);
-    const keys = Object.keys(o).filter(k => o[k].spend || o[k].leads || o[k].s || o[k].labor).sort((a, b) => (o[b].spend - o[a].spend) || (o[b].cv - o[a].cv) || (o[b].leads - o[a].leads));
+    const keys = Object.keys(o).filter(k => (o[k].spend || o[k].leads || o[k].s || o[k].labor) && (o !== cur.ch || typeof mktgChannelShown !== 'function' || /^(Unmapped GHL source|Unspecified)$/.test(k) || mktgChannelShown(k))).sort((a, b) => (o[b].spend - o[a].spend) || (o[b].cv - o[a].cv) || (o[b].leads - o[a].leads));
     const tot = sumOf(o, keys);
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-5 py-3' }, el('h3', { class: 'text-base font-bold' }, title), el('div', { class: 'text-[11px] mt-0.5', style: muted }, sub)),
@@ -376,7 +431,9 @@ function _mktgLeanView() {
   void brTable; void chTable;
   // Channels × offices grid + traffic by hour (marketing-dash.js) sit between the tiles and the year grid (per Isaac, Nov 18).
   const dash = typeof mktgDashBlocks === 'function' ? (() => { try { return mktgDashBlocks(ym); } catch (e) { console.warn('[marketing] dash blocks', e); return []; } })() : [];
-  return el('div', { class: 'flex flex-col gap-4' }, tiles, chart, ...dash, grid);   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
+  const ltvSec = typeof mklLtvSection === 'function' ? (() => { try { return mklLtvSection(cur, ym, _cap); } catch (e) { console.warn('[marketing] ltv section', e); return null; } })() : null;   // LTV / CAC section (per Isaac, Nov 19)
+  const oppMon = typeof leadOppMonitorCard === 'function' ? (() => { try { return leadOppMonitorCard(); } catch (e) { console.warn('[marketing] lead-opp monitor', e); return null; } })() : null;   // Lead → opportunity monitor (per Isaac, Nov 19) — one line unless a source breaks
+  return el('div', { class: 'flex flex-col gap-4' }, oppMon, tiles, chart, ltvSec, ...dash, grid);   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
 }
 // The month's new sales behind the New revenue tile (same rows the table counts).
 function mklOpenSales(D, title) {
@@ -407,7 +464,7 @@ const MKL_GRID_METRICS = [
 ];
 function mklYearGrid(ym) {
   const year = Number(ym.slice(0, 4)), curMi = Number(ym.slice(5, 7)) - 1;
-  const by = state._mklGridBy === 'ch' ? 'ch' : 'br';
+  const by = ['ch', 'rep'].includes(state._mklGridBy) ? state._mklGridBy : 'br';
   const M = MKL_GRID_METRICS.find(x => x.k === state._mklGridMetric) || MKL_GRID_METRICS[0];
   const months = []; for (let i = 0; i < 12; i++) months.push(mklMonth(year + '-' + String(i + 1).padStart(2, '0')));
   // Change view (per Isaac, Nov 16): No change · MoM change · YoY change — the same cells as % against the month
@@ -418,14 +475,17 @@ function mklYearGrid(ym) {
   const prevMonths = chg === 'none' ? null : (() => { const o = []; for (let i = 0; i < 12; i++) o.push(mklMonth((year - 1) + '-' + String(i + 1).padStart(2, '0'))); return o; })();
   const zero = () => ({ spend: 0, leads: 0, s: 0, svc: 0, cv: 0, labor: 0, wages: 0, inc: 0 });
   const add = (t, c) => { t.spend += c.spend || 0; t.leads += c.leads || 0; t.s += c.s || 0; t.svc += c.svc || 0; t.cv += c.cv || 0; t.labor += c.labor || 0; t.wages += c.wages || 0; t.inc += c.inc || 0; return t; };
-  const keys = [...new Set(months.flatMap(D => Object.keys(D[by] || {})))].filter(k => !/^(Unspecified|Unmapped GHL source|No branch)$/.test(k));
+  // Channels: Office Staff departments only (per Isaac, Nov 19 — Settings → Configurations → FieldRoutes sources). The
+  // RIDD total row still adds every channel, so it matches the By office view.
+  const keys = [...new Set(months.flatMap(D => Object.keys(D[by] || {})))].filter(k => !/^(Unspecified|Unmapped GHL source|No branch)$/.test(k) && (by !== 'ch' || typeof mktgChannelShown !== 'function' || mktgChannelShown(k)));
+  const allKeys = [...new Set(months.flatMap(D => Object.keys(D[by] || {})))].filter(k => !/^(Unspecified|Unmapped GHL source|No branch)$/.test(k));
   const cellOf = (k, i) => (months[i][by] || {})[k] || zero();
   const pcellOf = (k, i) => prevMonths ? ((prevMonths[i][by] || {})[k] || zero()) : zero();
   const ytdOf = (k) => { const t = zero(); for (let i = 0; i < 12; i++) if (months[i].ym <= ym) add(t, cellOf(k, i)); return t; };
   const pytdOf = (k) => { const t = zero(); for (let i = 0; i < 12; i++) if (months[i].ym <= ym) add(t, pcellOf(k, i)); return t; };
   keys.sort((a, b) => (ytdOf(b).cv - ytdOf(a).cv) || (ytdOf(b).spend - ytdOf(a).spend));
-  const totOf = (i) => keys.reduce((t, k) => add(t, cellOf(k, i)), zero());
-  const ptotOf = (i) => keys.reduce((t, k) => add(t, pcellOf(k, i)), zero());
+  const totOf = (i) => allKeys.reduce((t, k) => add(t, cellOf(k, i)), zero());
+  const ptotOf = (i) => allKeys.reduce((t, k) => add(t, pcellOf(k, i)), zero());
   const totYtd = () => { const t = zero(); for (let i = 0; i < 12; i++) if (months[i].ym <= ym) add(t, totOf(i)); return t; };
   const ptotYtd = () => { const t = zero(); for (let i = 0; i < 12; i++) if (months[i].ym <= ym) add(t, ptotOf(i)); return t; };
   // The cell a change compares against: MoM = the month before (Jan → last Dec), YoY = same month last year.
@@ -436,7 +496,7 @@ function mklYearGrid(ym) {
   const show = (c) => { const v = M.get(c); return v == null || !isFinite(v) ? '—' : M.fmt(v); };
   const td = (c, bold, future, base, pop) => {
     const cellEl = _td(c, bold, future, base);
-    if (pop && !future) { cellEl.classList.add('cursor-pointer', 'hover:underline'); cellEl.title = 'Click for every metric here'; cellEl.onclick = (e) => { e.stopPropagation(); mklCellPop(pop); }; }
+    if (pop && !future && pop.by !== 'rep') { cellEl.classList.add('cursor-pointer', 'hover:underline'); cellEl.title = 'Click for every metric here'; cellEl.onclick = (e) => { e.stopPropagation(); mklCellPop(pop); }; }
     return cellEl;
   };
   const _td = (c, bold, future, base) => {
@@ -462,15 +522,16 @@ function mklYearGrid(ym) {
   const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
   const metricSel = el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: selSt, onchange: (e) => { state._mklGridMetric = e.target.value; mountApp(); } },
     ...MKL_GRID_METRICS.map(x => el('option', { value: x.k, selected: x.k === M.k }, x.label)));
-  const byBtn = (v, l) => el('button', { class: 'px-2.5 py-1 text-[11px] font-bold', style: by === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._mklGridBy = v; mountApp(); } }, l);
-  const bySel = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } }, byBtn('br', 'By office'), byBtn('ch', 'By channel'));
+  // One dropdown (per Isaac, Nov 19): By office · By channel · By rep (Office Staff reps — the only sales counted here).
+  const bySel = el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: selSt, onchange: (e) => { state._mklGridBy = e.target.value; mountApp(); } },
+    ...[['br', 'By office'], ['ch', 'By channel'], ['rep', 'By rep']].map(([v, l]) => el('option', { value: v, selected: by === v }, l)));
   const chgLbl = chg === 'mom' ? ' · MoM change' : chg === 'yoy' ? ' · YoY change' : '';
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
       el('h3', { class: 'text-base font-bold', title: M.tip + '. YTD runs through ' + _mklLblS(ym) + '; ratios in YTD come from the summed dollars.' + (chg === 'mom' ? ' MoM: against the month before (Jan against last December); YTD has no MoM.' : chg === 'yoy' ? ' YoY: against the same month last year; YTD against the same stretch of last year.' : '') }, M.label + ' · ' + year + chgLbl),
       el('span', { class: 'ml-auto' }), bySel, metricSel),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-      el('thead', {}, el('tr', {}, th(by === 'br' ? 'Office' : 'Channel', false, { position: 'sticky', left: 0, zIndex: 2 }), ...MON.map((m, i) => th(m, true, i === curMi ? { color: 'var(--accent)' } : null)), th('YTD', true))),
+      el('thead', {}, el('tr', {}, th(by === 'br' ? 'Office' : by === 'rep' ? 'Rep · Office Staff' : 'Channel', false, { position: 'sticky', left: 0, zIndex: 2 }), ...MON.map((m, i) => th(m, true, i === curMi ? { color: 'var(--accent)' } : null)), th('YTD', true))),
       el('tbody', {}, ...keys.map(rowOf), totRow))),
     !keys.length ? el('div', { class: 'px-5 py-4 text-sm text-center', style: muted }, 'Nothing for ' + year + ' yet.') : null);
 }
@@ -536,6 +597,7 @@ function mklMetricPop(k, D, ym, cap) {
   const tableOf = (by, o, label) => {
     const keys = Object.keys(o || {}).filter(x => !/^(Unspecified|Unmapped GHL source|No branch)$/.test(x) && (o[x].spend || o[x].leads || o[x].s || o[x].labor)).sort((a, b) => { const va = M.get(o[a]), vb = M.get(o[b]); return (vb == null ? -Infinity : vb) - (va == null ? -Infinity : va); });
     const tot = keys.reduce((t, x) => { const c = o[x]; t.spend += c.spend || 0; t.leads += c.leads || 0; t.s += c.s || 0; t.cv += c.cv || 0; t.labor += c.labor || 0; t.wages += c.wages || 0; t.inc += c.inc || 0; return t; }, { spend: 0, leads: 0, s: 0, cv: 0, labor: 0, wages: 0, inc: 0 });
+    if (by === 'ch' && typeof mktgChannelShown === 'function') { const sh = keys.filter(mktgChannelShown); keys.length = 0; keys.push(...sh); }   // Office Staff channels only; the total above keeps everything (per Isaac, Nov 19)
     const row = (x, c, total) => el('tr', { class: 'border-t' + (total ? '' : ' cursor-pointer hover:brightness-95'), style: Object.assign({ borderColor: 'var(--border)' }, total ? { background: 'var(--card-2)', borderTop: '2px solid var(--text)', fontWeight: '800' } : {}), title: total ? '' : 'Click for every metric for ' + x,
         onclick: total ? null : () => mklCellPop({ by, key: x, ym, cell: c, D }) },
       td(x, false, { fontWeight: total ? '800' : '700' }), td(val(c), true, { fontWeight: '700' }), td(c.spend ? fmt.usd0(c.spend) : '—', true), td(c.leads ? fmt.int(c.leads) : '—', true), td(c.s ? fmt.int(c.s) : '—', true), td(c.cv ? fmt.usd0(c.cv) : '—', true));
@@ -559,11 +621,9 @@ function mklMetricPop(k, D, ym, cap) {
 // The Metrics controls for the Marketing sub-tab bar (per Isaac, Nov 16): owner's drag hint + Reset, the compare
 // dropdown, the month picker.
 function mklHeaderControls(monthOnly) {
-  const F = mklState(); const ym = F.ym, cmp = F.cmp === 'year' ? 'year' : F.cmp === 'none' ? 'none' : 'prev';
+  const F = mklState(); const cmp = F.cmp === 'year' ? 'year' : F.cmp === 'none' ? 'none' : 'prev';
   const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
-  const months = []; for (let i = 0; i < 18; i++) months.push(_mklYm(new Date(new Date().getFullYear(), new Date().getMonth() - i, 1)));
-  const monthSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: selSt, onchange: (e) => { F.ym = e.target.value; mountApp(); } },
-    ...months.map(k => el('option', { value: k, selected: k === ym }, _mklLblS(k) + (k === months[0] ? ' · open' : ''))));
+  const monthSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: selSt, onchange: (e) => { F.ym = e.target.value; mountApp(); } }, ..._mklPickerOptions(F.ym));
   const cmpSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: selSt, onchange: (e) => { F.cmp = e.target.value; mountApp(); } },
     ...[['none', 'No change'], ['prev', 'MoM change'], ['year', 'YoY change']].map(([v, l]) => el('option', { value: v, selected: v === cmp }, l)));
   const m = _mktgStore();

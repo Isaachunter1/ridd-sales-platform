@@ -908,8 +908,8 @@ function auditTasksCard() {
   if (_items == null) return el('div', { class: 'card overflow-hidden' }, el('div', { class: 'w-full flex items-center gap-2 px-4 py-2.5' },
     el('span', { class: 'inline-block rounded-full', style: { width: '8px', height: '8px', background: 'var(--border-2)' } }),
     el('span', { class: 'text-[11px] uppercase tracking-widest font-bold' }, 'Auditing tasks'), el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'checking…')));
-  const _rv = rvApply(_items);   // checked-off tasks drop out until something new shows up (per Isaac, Oct 15)
-  const all = _rv.active;
+  // No check-off boxes (per Isaac, Nov 19): every task shows while it has rows, and leaves when it's clear.
+  const all = _items;
   const RANK = { red: 0, amber: 1, ok: 2 };
   const todo = all.filter(i => i.sev !== 'ok').sort((a, b) => RANK[a.sev] - RANK[b.sev]);
   const clear = all.filter(i => i.sev === 'ok');
@@ -927,7 +927,6 @@ function auditTasksCard() {
     const click = hasDetail ? () => { state._auditDetail = showing ? null : i.key; mountApp(); } : i.onClick;
     const red = i.sev === 'red';
     return [el('div', { class: 'flex items-center gap-3 px-4 py-2 border-t text-xs', style: { borderColor: 'var(--border)' }, title: i.title || '' },
-      rvBox(i),
       el('span', { class: 'text-[10px] font-bold tabular-nums shrink-0', style: { color: 'var(--text-subtle)', width: '18px', textAlign: 'right' } }, String(idx + 1) + '.'),
       el('span', { class: 'text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded shrink-0', style: { background: red ? 'rgba(220,38,38,.12)' : 'rgba(217,119,6,.14)', color: red ? '#DC2626' : '#B45309', minWidth: '72px', textAlign: 'center' } }, i.tag),
       el('span', { class: 'text-sm font-black tabular-nums shrink-0', style: { minWidth: '52px', textAlign: 'right', color: red ? '#DC2626' : 'var(--text)' } }, i.count != null ? Number(i.count).toLocaleString() : '…'),
@@ -937,7 +936,6 @@ function auditTasksCard() {
   };
   return el('div', { class: 'card overflow-hidden' }, head,
     todo.length ? el('div', { class: 'border-t', style: { borderColor: 'var(--border)' } }, ...todo.flatMap(row)) : null,
-    rvDoneLine(_rv.done),
     clear.length ? el('div', { class: 'px-4 py-2 border-t text-[11px]', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } },
       el('span', { style: { color: 'var(--ok)', fontWeight: 700 } }, '✓ All clear: '), clear.map(i => i.title || i.tag).join(' · ')) : null);
 }
@@ -1009,12 +1007,19 @@ function auditSubTasks() {
   const stale = rows.filter(r => { if (r.subscription_date_canceled || notSale(r.subscription)) return false;
       const sd = Date.parse(String(r.sold_date || '').slice(0, 10)); if (isNaN(sd)) return false; const age = (nowMs - sd) / dayMs; if (age < 14 || age > 365) return false;
       if (String(r.subscription_status || '').trim().toLowerCase() !== 'active') return false;
-      return !r.initial_service && !r.initial_serviced_date && String(r.initial_status || '').trim().toLowerCase() !== 'completed'; })
+      if (r.initial_service || r.initial_serviced_date || String(r.initial_status || '').trim().toLowerCase() === 'completed') return false;
+      // Not errors (per Isaac, Nov 19 audit review): an initial booked for a future date is scheduled, not stuck
+      // (Sentricon installs book weeks out); a Pending initial more than 7 days past is the "Deleted?" task's list —
+      // reviewed there, not twice.
+      const ap = Date.parse(String(r.initial_appt_date || '').slice(0, 10));
+      if (!isNaN(ap) && ap >= nowMs - dayMs) return false;
+      if (!isNaN(ap) && /^pending$/i.test(String(r.initial_status || '').trim()) && (nowMs - ap) / dayMs > 7) return false;
+      return true; })
     .map(r => { const age = Math.round((nowMs - Date.parse(String(r.sold_date).slice(0, 10))) / dayMs); const ist = String(r.initial_status || '').trim();
       return { ...r, _flagReason: 'Sold ' + age + ' days ago, initial service ' + (ist ? 'is ' + ist : 'has no appointment') + ' — schedule it or close the subscription' }; });
   tasks.push({ tag: 'Not started', title: 'Sold but never started', noun: 'subscription', rows: stale,
     ok: 'All clear — nothing sold more than two weeks ago is still waiting on its first service.',
-    todo: (n) => n + ' active subscription' + s(n) + ' sold more than 14 days ago with no completed initial service — schedule the first visit or close ' + (n === 1 ? 'it' : 'them') + '.' });
+    todo: (n) => n + ' active subscription' + s(n) + ' sold more than 14 days ago with no completed initial service and nothing booked ahead — schedule the first visit or close ' + (n === 1 ? 'it' : 'them') + '. (Pending initials more than a week past are under Deleted?.)' });
   // 6a. Renewal sold under a non-Renewal source (per Isaac, Oct 13 — moved here from the Renewals queue).
   const misSrc = (typeof renewalMisSourcedRows === 'function') ? renewalMisSourcedRows(rows).sort((x, y) => String(y.sold).localeCompare(String(x.sold))) : [];
   tasks.push({ tag: 'Renewal source', title: 'Renewals sold under a non-Renewal source', noun: 'subscription', tone: 'check', rows: misSrc,
@@ -1084,7 +1089,9 @@ function auditSubTasks() {
       if (o) replaced.push({ ...r, _flagReason: 'Customer #' + r.customer_id + ' · cancelled ' + cx + ' (' + (why || 'no reason') + ') · new plan ' + (o.subscription || '') + ' #' + o.subscription_id + ' sold ' + d10(o.sold_date || o.initial_service) + (o.subscription_date_canceled ? ' (cancelled ' + d10(o.subscription_date_canceled) + ')' : ' (active)') });
     }
     replaced.sort((x, y) => String(y.subscription_date_canceled).localeCompare(String(x.subscription_date_canceled)));
-    tasks.push({ tag: 'Replaced', title: 'Cancelled, then replaced by a new plan within 30 days', noun: 'subscription', tone: 'check', rows: replaced,
+    // Removed from the task list (per Isaac, Nov 19 audit review): mostly same-day downgrades that retention already
+    // links ("Link cancels replaced within 30 days"), so there's nothing to fix in FieldRoutes.
+    if (false) tasks.push({ tag: 'Replaced', title: 'Cancelled, then replaced by a new plan within 30 days', noun: 'subscription', tone: 'check', rows: replaced,
       ok: 'All clear — no cancels were replaced by a new plan.',
       todo: (n) => n.toLocaleString() + ' cancel' + s(n) + ' where the customer got a new plan within 30 days, not coded as a renewal — likely uncoded renewals or re-entries. Retention now links these like renewals (step "Link cancels replaced within 30 days"), so they no longer count as churn — still recode the reason to a Renewal in FieldRoutes if it was one.' });
   }
@@ -1094,11 +1101,13 @@ function auditSubTasks() {
   {
     const sentNoTerm = rows.filter(r => /sentricon/i.test(String(r.subscription || '')) && !/install/i.test(String(r.subscription || ''))
       && (!!r.initial_service || String(r.initial_status || '').toLowerCase() === 'completed')
-      && !((Number(r.agreement_length) || 0) >= 12))
+      && !((Number(r.agreement_length) || 0) >= 12)
+      // Active, or cancelled in the last 90 days (per Isaac, Nov 19 audit review).
+      && (isActive(r) || (Date.now() - Date.parse(String(r.subscription_date_canceled || '').slice(0, 10))) <= 90 * 86400000))
       .map(r => ({ ...r, _flagReason: 'Customer #' + r.customer_id + ' \u00b7 ' + (r.subscription || 'Sentricon') + ' \u00b7 ' + (/active/i.test(String(r.subscription_status || '')) && !r.subscription_date_canceled ? 'active' : 'frozen') + ' \u00b7 serviced ' + String(r.initial_service || '').slice(0, 10) + ' \u00b7 contract ' + ((Number(r.agreement_length) || 0) ? r.agreement_length + ' mo' : 'none') + ' \u2014 set to 12' }));
     tasks.push({ tag: 'Sentricon', title: 'Sentricon with no 12-month contract', noun: 'subscription', tone: 'check', rows: sentNoTerm,
       ok: 'All clear \u2014 every serviced Sentricon is on a 12-month (or longer) contract.',
-      todo: (n) => n.toLocaleString() + ' Sentricon plan' + s(n) + ' (active or frozen) with its initial service done but no contract or under 12 months \u2014 set the agreement length to 12 in FieldRoutes.' });
+      todo: (n) => n.toLocaleString() + ' Sentricon plan' + s(n) + ' (active, or cancelled in the last 90 days) with its initial service done but no contract or under 12 months \u2014 set the agreement length to 12 in FieldRoutes.' });
   }
   // 9. State doesn't match the ZIP (per Isaac, Oct 14): reporting already uses the
   //    ZIP's state; these are the customers to correct in FieldRoutes.

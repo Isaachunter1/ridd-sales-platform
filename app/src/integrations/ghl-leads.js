@@ -47,6 +47,25 @@ function frChannelOf(src) {
   const a = ghlAutoProvider(s);
   return a && a !== GHL_NOT_LEAD ? a : s;
 }
+// Source → department (per Isaac, Nov 19 — "map sources to a department type and only display those sources [on
+// Marketing] if it's office staff, cause this is all marketing related"). Settings → Configurations → FieldRoutes
+// sources keeps the pick; unset sources get a default: door-to-door and termite-upsell sources → Door to Door, the
+// technician-upsell source → Technician, Agency → Not a channel, everything else → Office Staff. Keyed by name, so a
+// channel reads the department of the source (or channel) with that name.
+const FR_DEPTS = [['office', 'Office Staff'], ['d2d', 'Door to Door'], ['tech', 'Technician'], ['none', 'Not a channel']];
+function frSourceDeptMap() { const R = (typeof _adminRules === 'function') ? _adminRules() : null; return (R && R.frSourceDept) || {}; }
+function setFrSourceDept(src, val) { const m = Object.assign({}, frSourceDeptMap()); if (val == null) delete m[src]; else m[src] = val; _setAdminRule('frSourceDept', m); }
+function frSourceDeptDefault(name) {
+  const s = String(name || '').trim();
+  const is = (k) => typeof crmSourceIs === 'function' && crmSourceIs(k, s);
+  if (is('d2d') || is('termite_upsell') || /^door\s*to\s*door$|termite pro/i.test(s)) return 'd2d';
+  if (is('tech_upsell') || /service pro/i.test(s)) return 'tech';
+  if (/^agency$/i.test(s)) return 'none';
+  return 'office';
+}
+function frSourceDept(name) { const s = String(name || '').trim(); const o = frSourceDeptMap()[s]; return o || frSourceDeptDefault(s); }
+// A channel shows on Marketing only when its department is Office Staff.
+function mktgChannelShown(ch) { return frSourceDept(ch) === 'office'; }
 function ghlAutoProvider(label) { const s = String(label || '').toLowerCase().trim(); for (const [re, p] of GHL_AUTO_RULES) if (re.test(s)) return p; return ''; }
 // → provider name, GHL_NOT_LEAD, or null (blank label).
 function ghlProviderOf(label) {
@@ -103,6 +122,25 @@ function _ghlZipOffice() {
   return map;
 }
 
+// Current customers aren't leads (per Isaac, Nov 19): a phone on a FieldRoutes plan sold at least a day before the
+// contact / opportunity came in, and not cancelled before it, was already a customer — left out of every lead count
+// (contacts here, opportunities on the Marketing dashboard). Former customers (every plan cancelled) still count.
+function ghlIsCurrentCustomer(phone, day) {
+  const subs = state.reportingSubscriptions || [];
+  let M = ghlIsCurrentCustomer._m;
+  if (!M || M.src !== subs) {
+    const by = new Map();
+    for (const r of subs) {
+      const p = String(r.phone || '').replace(/\D/g, '').slice(-10); if (p.length !== 10) continue;
+      const sd = String(r.sold_date || r.initial_service || '').slice(0, 10); if (!sd) continue;
+      (by.get(p) || by.set(p, []).get(p)).push([sd, r.subscription_date_canceled ? String(r.subscription_date_canceled).slice(0, 10) : '9999-12-31']);
+    }
+    M = ghlIsCurrentCustomer._m = { src: subs, by };
+  }
+  const L = phone && M.by.get(String(phone).replace(/\D/g, '').slice(-10)); if (!L || !day) return false;
+  const d = String(day).slice(0, 10); const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() - 1); const cut = x.toISOString().slice(0, 10);
+  return L.some(([sd, cx]) => sd < cut && cx >= d);
+}
 // Every GHL lead with its credited provider + office. Memoized on the file,
 // the source map and the paid-channel list.
 function ghlLeads() {
@@ -111,8 +149,10 @@ function ghlLeads() {
   const paid = ghlPaidSet();
   const sig = JSON.stringify(ghlSourceMap()) + '|' + [...paid].sort().join(',');
   const zipOff = _ghlZipOffice();
+  const subs = state.reportingSubscriptions || null;
   const memo = state._ghlMemo;
-  if (memo && memo.rows === G.rows && memo.opps === G.opps && memo.sig === sig && memo.zipOff === zipOff) return memo.out;
+  if (memo && memo.rows === G.rows && memo.opps === G.opps && memo.sig === sig && memo.zipOff === zipOff && memo.subs === subs) return memo.out;
+  const isCurrent = ghlIsCurrentCustomer;
   const lab = G.labels;
   const pOf = (i) => i >= 0 ? ghlProviderOf(lab[i]) : null;
   // People: same phone or email = one person.
@@ -138,6 +178,7 @@ function ghlLeads() {
   G.rows.forEach((r, k) => {
     const own = pOf(r[1]);
     if (own === GHL_NOT_LEAD) { notLead.set(lab[r[1]], (notLead.get(lab[r[1]]) || 0) + 1); return; }
+    if (isCurrent(r[4], r[0])) { notLead.set('Current customer (FieldRoutes)', (notLead.get('Current customer (FieldRoutes)') || 0) + 1); return; }
     let credit = null, how = 'source';
     // LAST TOUCH = OPPORTUNITY SOURCE (per Isaac, Oct 7, from the GoHighLevel
     // admin): the contact's source never changes after the first touch, but
@@ -155,7 +196,7 @@ function ghlLeads() {
     leads.push({ d: r[0], mi: Number(r[0].slice(5, 7)) - 1, y: r[0].slice(0, 4), prov: credit, own: own || 'Unknown', how, office: zipOff.get(r[6]) || null, p: r[4], e: r[5], t: r[7] || '' });
   });
   const out = { leads, notLead, people: nextId, phones: byPhone, emails: byEmail };
-  state._ghlMemo = { rows: G.rows, opps: G.opps, sig, zipOff, out };
+  state._ghlMemo = { rows: G.rows, opps: G.opps, sig, zipOff, subs, out };
   return out;
 }
 // Month × provider × office counts for one year (Metrics).
@@ -205,18 +246,26 @@ function reportingFrSourcesPanel() {
       el('option', { value: GHL_SELF, selected: o === GHL_SELF }, 'Its own name (' + x.src + ')'),
       ...provs.map(p => el('option', { value: p, selected: o === p }, p)));
   };
+  const deptSel = (x) => {
+    const o = frSourceDeptMap()[x.src], d = frSourceDeptDefault(x.src), lbl = (k) => (FR_DEPTS.find(z => z[0] === k) || [k, k])[1];
+    if (!admin) return lbl(o || d);
+    return el('select', { class: 'rounded-lg border px-2 py-0.5 text-[11px]', title: 'Only Office Staff sources show as channels on Marketing', style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+      onchange: (e) => { const v = e.target.value; setFrSourceDept(x.src, v === '__auto' ? null : v); state._mklMemo = {}; mountApp(); } },
+      el('option', { value: '__auto', selected: o == null }, 'Auto · ' + lbl(d)),
+      ...FR_DEPTS.map(([k, l]) => el('option', { value: k, selected: o === k }, l)));
+  };
   const open = !!state._frCfgOpen;
   const unmatched = list.filter(x => !x.renewal && x.cnt.office > 0 && !ghlByCh.has(frChannelOf(x.src)));
   return el('div', { class: 'card p-3', id: 'cfg-frsrc' },
     el('div', { class: 'flex items-center gap-3 flex-wrap mb-2' },
       el('div', { class: 'text-sm font-bold' }, 'FieldRoutes sources → channel'),
-      el('div', { class: 'text-[11px] flex-1', style: muted }, 'The source on a FieldRoutes account decides which channel its sale counts under on Marketing → Metrics; the GoHighLevel label decides the lead. Point both at the same channel name and the channel’s close rate, CAC and return line up. Auto uses the same rules as the GoHighLevel list; pick a channel to override.')),
+      el('div', { class: 'text-[11px] flex-1', style: muted }, 'The source on a FieldRoutes account decides which channel its sale counts under on Marketing → Metrics; the GoHighLevel label decides the lead. Department: only Office Staff sources show as channels on Marketing. Point both at the same channel name and the channel’s close rate, CAC and return line up. Auto uses the same rules as the GoHighLevel list; pick a channel to override.')),
     el('div', { class: 'text-[11px] mb-2' }, list.length + ' sources · ' + (unmatched.length ? el('span', { style: { color: '#B45309', fontWeight: '600' } }, unmatched.length + ' with Office Staff sales this year but no GoHighLevel label on the same channel: ' + unmatched.slice(0, 6).map(x => x.src).join(', ') + (unmatched.length > 6 ? '…' : '')).textContent : 'every source with Office Staff sales this year has GoHighLevel labels on its channel')),
     el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => { state._frCfgOpen = !open; mountApp(); } }, (open ? 'Hide' : 'Show') + ' the ' + list.length + ' sources'),
     open ? el('div', { class: 'scroll-x mt-2' }, el('table', { class: 'w-full text-[11px]' },
-      el('thead', {}, el('tr', {}, th('FieldRoutes source'), th('Class'), th('Sales ' + y), th('Office Staff'), th('Channel'), th('GoHighLevel labels on this channel'))),
+      el('thead', {}, el('tr', {}, th('FieldRoutes source'), th('Class'), th('Sales ' + y), th('Office Staff'), th('Department'), th('Channel'), th('GoHighLevel labels on this channel'))),
       el('tbody', {}, ...list.map(x => { const ch = frChannelOf(x.src); const g = ghlByCh.get(ch) || []; return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-        td(x.src, { fontWeight: '600' }), td(x.renewal ? (typeof reportingSourceClass === 'function' ? reportingSourceClass(x.src) : 'renewal') : 'new', x.renewal ? muted : null), td(x.cnt.n.toLocaleString()), td(x.cnt.office.toLocaleString()), td(sel(x)),
+        td(x.src, { fontWeight: '600' }), td(x.renewal ? (typeof reportingSourceClass === 'function' ? reportingSourceClass(x.src) : 'renewal') : 'new', x.renewal ? muted : null), td(x.cnt.n.toLocaleString()), td(x.cnt.office.toLocaleString()), td(deptSel(x)), td(sel(x)),
         td(g.length ? g.slice(0, 4).join(', ') + (g.length > 4 ? ' +' + (g.length - 4) : '') : (x.renewal ? '—' : 'none'), g.length ? muted : x.renewal ? muted : { color: '#B45309', fontWeight: '600' })); })))) : null);
 }
 
@@ -229,10 +278,10 @@ function ghlUnmappedTodoCard() {
   const admin = isAdminRole(state.profile?.role);
   // Window = the month picked top-right on Marketing (per Isaac, Nov 19 — it should run down toward zero as sources get
   // mapped), not a trailing 90 days. "recent" below means "in that month".
-  const ym = (typeof mklState === 'function' ? mklState().ym : null) || new Date().toISOString().slice(0, 7);
-  const sinceIso = ym + '-01', untilIso = ym + '-31';
+  const W = typeof mklWindow === 'function' ? mklWindow() : (() => { const v = new Date().toISOString().slice(0, 7); return { from: v + '-01', to: v + '-31', label: v }; })();   // month, YTD or full year
+  const sinceIso = W.from, untilIso = W.to;
   const inWin = (d) => d >= sinceIso && d <= untilIso;
-  const ymLbl = new Date(ym + '-15T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  const ymLbl = W.label;
   const map = ghlSourceMap(), lab = G.labels;
   const chSet = typeof mkmChannelSet === 'function' ? mkmChannelSet() : null;
   const isMapped = (label) => { const pv = ghlProviderOf(label); if (!pv) return false; if (pv === GHL_NOT_LEAD) return true; return !chSet || chSet.has(pv); };

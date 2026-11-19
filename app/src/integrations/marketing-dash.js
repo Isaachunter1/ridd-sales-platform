@@ -23,7 +23,7 @@ function mktgDashGridCard(D, lbl) {
   const unmappedKey = 'Unmapped GHL source';
   const X = D.x || {};
   const offices = Object.keys(D.br || {}).filter(k => !skip(k) && ((D.br[k].leads || 0) || (D.br[k].s || 0))).sort((a, b) => (D.br[b].leads || 0) - (D.br[a].leads || 0) || a.localeCompare(b));
-  const channels = Object.keys(D.ch || {}).filter(k => !skip(k) && k !== unmappedKey && ((D.ch[k].leads || 0) || (D.ch[k].s || 0))).sort((a, b) => (D.ch[b].leads || 0) - (D.ch[a].leads || 0) || a.localeCompare(b));
+  const channels = Object.keys(D.ch || {}).filter(k => !skip(k) && k !== unmappedKey && (typeof mktgChannelShown !== 'function' || mktgChannelShown(k)) && ((D.ch[k].leads || 0) || (D.ch[k].s || 0))).sort((a, b) => (D.ch[b].leads || 0) - (D.ch[a].leads || 0) || a.localeCompare(b));
   const cellOf = (o, c) => (X[o] && X[o][c]) || { leads: 0, s: 0, cv: 0, sales: [], leadRows: [] };
   const rowTot = (c) => D.ch[c] || { leads: 0, s: 0, cv: 0 };
   const colTot = (o) => D.br[o] || { leads: 0, s: 0, cv: 0 };

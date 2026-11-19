@@ -1138,7 +1138,8 @@ function manageTeamsPanel(opts) {
       // Empty teams of this rep type still list (a team just made under this
       // tab has nobody on it yet) — unless a search / filter is narrowing.
       if (!search && !teamView && !tierSelect && !activeSelect) distinctTeamsForYear(teamYear).forEach(t => { if (t !== '(unassigned)' && !byTeam.has(t) && _inTab(t) && !isTeamExcluded(t)) byTeam.set(t, []); });
-      const teamOrder = [...byTeam.keys()].sort((a, b) => byTeam.get(b).length - byTeam.get(a).length || a.localeCompare(b));
+      // RIDD first (per Isaac, Nov 19) — it's the unassigned team; the rest by size.
+      const teamOrder = [...byTeam.keys()].sort((a, b) => (b === 'RIDD') - (a === 'RIDD') || byTeam.get(b).length - byTeam.get(a).length || a.localeCompare(b));
       const openSet = state._mtOpenTeams instanceof Set ? state._mtOpenTeams : (state._mtOpenTeams = new Set());
       // Every section's rows are ALWAYS in the DOM (hidden when closed), so
       // opening / closing and the search box work in place — no re-render,

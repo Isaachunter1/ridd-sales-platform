@@ -69,6 +69,7 @@ module.exports = [
   'integrations/marketing-demand.js',
   'integrations/marketing-metrics.js',
   'integrations/marketing-pulse.js',
+  'integrations/lead-opp-monitor.js',
   'integrations/marketing-lean.js',
   'integrations/marketing-dash.js',
   'integrations/marketing-ltv.js',

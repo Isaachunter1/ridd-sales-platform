@@ -179,7 +179,9 @@ function _exceptionFeedItemsRaw(scope) {
         const rec = (typeof reportingServiceRecurringMap === 'function') ? reportingServiceRecurringMap() : null;
         const never = subs.filter(r => r.subscription_date_canceled && (!rec || rec.get(r.subscription)) && crmReasonIs('renewal', String(reportingCancelReasonOf(r) || '')) && !_renewalLinked(r))
           .map(r => ({ ...r, _flagReason: 'Closed ' + String(r.subscription_date_canceled).slice(0, 10) + ' as \u201c' + String(reportingCancelReasonOf(r) || '').trim() + '\u201d but the customer has no later plan \u2014 fix the reason, or enter the renewal' }));
-        const wrong = (typeof retenRenewalsEnteredWrong === 'function') ? retenRenewalsEnteredWrong(subs) : [];
+        let wrong = (typeof retenRenewalsEnteredWrong === 'function') ? retenRenewalsEnteredWrong(subs) : [];
+        // Renewal source has its own task (per Isaac, Nov 19 audit review) — its customers aren't listed here too.
+        if (typeof renewalMisSourcedRows === 'function') { const ms = new Set(renewalMisSourcedRows(subs).map(r => String(r.customer_id))); wrong = wrong.filter(r => !ms.has(String(r.customer_id))); }
         return { never, wrong };
       }));
       mk('Renewal · not renewed', pl(R.never.length, 'plan closed as a renewal whose customer never renewed', 'plans closed as a renewal whose customer never renewed'), R.never);
@@ -267,7 +269,12 @@ function crmReconciliationChecks(subs) {
     const st = String(r.state || '').trim().toUpperCase();
     const hs = home.get(o);
     const zs = crmZipState(r.zip_code);
-    if (!st) out.location.push(flag(r, 'No state on the customer' + (zs ? ' \u2014 ZIP ' + r.zip_code + ' is ' + zs : '')));
+    // Scope (per Isaac, Nov 19 audit review): Location and Source list active accounts and anything cancelled in the
+    // last 90 days — fixing a years-old frozen account changes nothing anyone acts on.
+    const _cx = Date.parse(String(r.subscription_date_canceled || '').slice(0, 10));
+    const live = isActive(r) || (!isNaN(_cx) && Date.now() - _cx <= 90 * 86400000);
+    if (!live) { /* out of scope for Location / Source */ }
+    else if (!st) out.location.push(flag(r, 'No state on the customer' + (zs ? ' \u2014 ZIP ' + r.zip_code + ' is ' + zs : '')));
     else if (hs && hs.size && !hs.has(st)) out.location.push(flag(r, st + ' is not a ' + o + ' state (' + [...hs].join('/') + ')' + (zs && zs !== st ? ' \u2014 ZIP ' + r.zip_code + ' is ' + zs : '')));
     else if (zs && zs !== st) out.location.push(flag(r, 'ZIP ' + r.zip_code + ' is a ' + zs + ' ZIP but the state says ' + st));
     // Status / duplicates / seller / no reason
@@ -288,7 +295,8 @@ function crmReconciliationChecks(subs) {
       out.contract.push(flag(r, 'Initial scheduled, agreement ' + (String(r.contract_state) === 'sent' ? 'sent but not signed' : 'never sent') + ' \u2014 get it signed or pull the appointment'));
     // Source
     const t = TYPE(r), src = SRC(r);
-    if (t === 'technician') { if (!crmSourceIs('tech_upsell', src)) out.source.push(flag(r, 'Technician sale sourced "' + (src || 'blank') + '" \u2014 should be a technician-upsell source')); }
+    if (!live) { /* out of scope for Source */ }
+    else if (t === 'technician') { if (!crmSourceIs('tech_upsell', src)) out.source.push(flag(r, 'Technician sale sourced "' + (src || 'blank') + '" \u2014 should be a technician-upsell source')); }
     else if (t === 'sales_rep') { if (!crmSourceIs('d2d', src) && !crmSourceIs('termite_upsell', src)) out.source.push(flag(r, 'Sales Rep sale sourced "' + (src || 'blank') + '" \u2014 should be a door-to-door or termite-upsell source')); }
     else if (t === 'office_staff') { if (crmSourceIs('d2d', src) || crmSourceIs('unset', src)) out.source.push(flag(r, 'Office Staff sale left on the default source "' + (src || 'blank') + '"')); }
     // Cancellation
@@ -309,13 +317,17 @@ function crmReconciliationChecks(subs) {
     else if (cxlDate && r.sold_date && String(r.sold_by_type || '').trim() === 'Sales Rep' && !(typeof _rorReasonHit === 'function' && _rorReasonHit(reason))) {
       const dIn = (new Date(cxlDate) - new Date(r.sold_date)) / 86400000;
       const win = typeof crmRorWindowDays === 'function' ? crmRorWindowDays() : 3;
-      if (dIn >= 0 && dIn <= win) out.cancel.push(flag(r, 'Sales Rep cancel ' + Math.round(dIn) + ' day' + (Math.round(dIn) === 1 ? '' : 's') + ' after the sale coded "' + (reason || 'no reason') + '" — re-code to 3 Day ROR'));
+      // "Sold Not Started" inside the window is accepted as-is (per Isaac, Nov 19 audit review) — it says what
+      // happened and the app already counts it as the ROR.
+      if (dIn >= 0 && dIn <= win && !/sold,?\s*not\s*started/i.test(reason)) out.cancel.push(flag(r, 'Sales Rep cancel ' + Math.round(dIn) + ' day' + (Math.round(dIn) === 1 ? '' : 's') + ' after the sale coded "' + (reason || 'no reason') + '" — re-code to 3 Day ROR'));
     }
     // One-time plans always close as "One Time Service" (per Isaac, Nov 7); a recurring plan never does.
     if (cxlDate && typeof reportingServiceLifecycleMap === 'function') {
       const lc = reportingServiceLifecycleMap().get(String(r.subscription || '').trim());
       const otsReason = /\b(one[\s-]?time|ots)\b/i.test(reason);
-      if (lc === 'onetime' && !otsReason) out.cancel.push(flag(r, 'One-time plan closed as "' + (reason || 'no reason') + '" — re-code to One Time Service'));
+      // A one-time job that never happened, closed Sold Not Started, is right as it is (per Isaac, Nov 19 audit review).
+      if (lc === 'onetime' && !otsReason && /sold,?\s*not\s*started/i.test(reason) && !initialDone(r)) { /* accepted */ }
+      else if (lc === 'onetime' && !otsReason) out.cancel.push(flag(r, 'One-time plan closed as "' + (reason || 'no reason') + '" — re-code to One Time Service'));
       else if (lc === 'recurring' && otsReason) out.cancel.push(flag(r, 'Recurring plan closed as One Time Service — code the real reason'));
     }
   }
