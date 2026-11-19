@@ -47,6 +47,25 @@ function frChannelOf(src) {
   const a = ghlAutoProvider(s);
   return a && a !== GHL_NOT_LEAD ? a : s;
 }
+// Source → department (per Isaac, Nov 19 — "map sources to a department type and only display those sources [on
+// Marketing] if it's office staff, cause this is all marketing related"). Settings → Configurations → FieldRoutes
+// sources keeps the pick; unset sources get a default: door-to-door and termite-upsell sources → Door to Door, the
+// technician-upsell source → Technician, Agency → Not a channel, everything else → Office Staff. Keyed by name, so a
+// channel reads the department of the source (or channel) with that name.
+const FR_DEPTS = [['office', 'Office Staff'], ['d2d', 'Door to Door'], ['tech', 'Technician'], ['none', 'Not a channel']];
+function frSourceDeptMap() { const R = (typeof _adminRules === 'function') ? _adminRules() : null; return (R && R.frSourceDept) || {}; }
+function setFrSourceDept(src, val) { const m = Object.assign({}, frSourceDeptMap()); if (val == null) delete m[src]; else m[src] = val; _setAdminRule('frSourceDept', m); }
+function frSourceDeptDefault(name) {
+  const s = String(name || '').trim();
+  const is = (k) => typeof crmSourceIs === 'function' && crmSourceIs(k, s);
+  if (is('d2d') || is('termite_upsell') || /^door\s*to\s*door$|termite pro/i.test(s)) return 'd2d';
+  if (is('tech_upsell') || /service pro/i.test(s)) return 'tech';
+  if (/^agency$/i.test(s)) return 'none';
+  return 'office';
+}
+function frSourceDept(name) { const s = String(name || '').trim(); const o = frSourceDeptMap()[s]; return o || frSourceDeptDefault(s); }
+// A channel shows on Marketing only when its department is Office Staff.
+function mktgChannelShown(ch) { return frSourceDept(ch) === 'office'; }
 function ghlAutoProvider(label) { const s = String(label || '').toLowerCase().trim(); for (const [re, p] of GHL_AUTO_RULES) if (re.test(s)) return p; return ''; }
 // → provider name, GHL_NOT_LEAD, or null (blank label).
 function ghlProviderOf(label) {
@@ -227,18 +246,26 @@ function reportingFrSourcesPanel() {
       el('option', { value: GHL_SELF, selected: o === GHL_SELF }, 'Its own name (' + x.src + ')'),
       ...provs.map(p => el('option', { value: p, selected: o === p }, p)));
   };
+  const deptSel = (x) => {
+    const o = frSourceDeptMap()[x.src], d = frSourceDeptDefault(x.src), lbl = (k) => (FR_DEPTS.find(z => z[0] === k) || [k, k])[1];
+    if (!admin) return lbl(o || d);
+    return el('select', { class: 'rounded-lg border px-2 py-0.5 text-[11px]', title: 'Only Office Staff sources show as channels on Marketing', style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+      onchange: (e) => { const v = e.target.value; setFrSourceDept(x.src, v === '__auto' ? null : v); state._mklMemo = {}; mountApp(); } },
+      el('option', { value: '__auto', selected: o == null }, 'Auto · ' + lbl(d)),
+      ...FR_DEPTS.map(([k, l]) => el('option', { value: k, selected: o === k }, l)));
+  };
   const open = !!state._frCfgOpen;
   const unmatched = list.filter(x => !x.renewal && x.cnt.office > 0 && !ghlByCh.has(frChannelOf(x.src)));
   return el('div', { class: 'card p-3', id: 'cfg-frsrc' },
     el('div', { class: 'flex items-center gap-3 flex-wrap mb-2' },
       el('div', { class: 'text-sm font-bold' }, 'FieldRoutes sources → channel'),
-      el('div', { class: 'text-[11px] flex-1', style: muted }, 'The source on a FieldRoutes account decides which channel its sale counts under on Marketing → Metrics; the GoHighLevel label decides the lead. Point both at the same channel name and the channel’s close rate, CAC and return line up. Auto uses the same rules as the GoHighLevel list; pick a channel to override.')),
+      el('div', { class: 'text-[11px] flex-1', style: muted }, 'The source on a FieldRoutes account decides which channel its sale counts under on Marketing → Metrics; the GoHighLevel label decides the lead. Department: only Office Staff sources show as channels on Marketing. Point both at the same channel name and the channel’s close rate, CAC and return line up. Auto uses the same rules as the GoHighLevel list; pick a channel to override.')),
     el('div', { class: 'text-[11px] mb-2' }, list.length + ' sources · ' + (unmatched.length ? el('span', { style: { color: '#B45309', fontWeight: '600' } }, unmatched.length + ' with Office Staff sales this year but no GoHighLevel label on the same channel: ' + unmatched.slice(0, 6).map(x => x.src).join(', ') + (unmatched.length > 6 ? '…' : '')).textContent : 'every source with Office Staff sales this year has GoHighLevel labels on its channel')),
     el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => { state._frCfgOpen = !open; mountApp(); } }, (open ? 'Hide' : 'Show') + ' the ' + list.length + ' sources'),
     open ? el('div', { class: 'scroll-x mt-2' }, el('table', { class: 'w-full text-[11px]' },
-      el('thead', {}, el('tr', {}, th('FieldRoutes source'), th('Class'), th('Sales ' + y), th('Office Staff'), th('Channel'), th('GoHighLevel labels on this channel'))),
+      el('thead', {}, el('tr', {}, th('FieldRoutes source'), th('Class'), th('Sales ' + y), th('Office Staff'), th('Department'), th('Channel'), th('GoHighLevel labels on this channel'))),
       el('tbody', {}, ...list.map(x => { const ch = frChannelOf(x.src); const g = ghlByCh.get(ch) || []; return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-        td(x.src, { fontWeight: '600' }), td(x.renewal ? (typeof reportingSourceClass === 'function' ? reportingSourceClass(x.src) : 'renewal') : 'new', x.renewal ? muted : null), td(x.cnt.n.toLocaleString()), td(x.cnt.office.toLocaleString()), td(sel(x)),
+        td(x.src, { fontWeight: '600' }), td(x.renewal ? (typeof reportingSourceClass === 'function' ? reportingSourceClass(x.src) : 'renewal') : 'new', x.renewal ? muted : null), td(x.cnt.n.toLocaleString()), td(x.cnt.office.toLocaleString()), td(deptSel(x)), td(sel(x)),
         td(g.length ? g.slice(0, 4).join(', ') + (g.length > 4 ? ' +' + (g.length - 4) : '') : (x.renewal ? '—' : 'none'), g.length ? muted : x.renewal ? muted : { color: '#B45309', fontWeight: '600' })); })))) : null);
 }
 

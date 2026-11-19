@@ -49,8 +49,8 @@ function mklRange(year, last, cap) {
   const parts = []; for (let i = 0; i <= last; i++) parts.push(mklMonth(year + '-' + String(i + 1).padStart(2, '0'), i === last ? cap : 0));
   const z = () => ({ spend: 0, leads: 0, s: 0, svc: 0, cv: 0, waiting: 0 });
   const addCell = (t, c) => { t.spend += c.spend || 0; t.leads += c.leads || 0; t.s += c.s || 0; t.svc += c.svc || 0; t.cv += c.cv || 0; t.waiting += c.waiting || 0; if (c.linked) t.linked = (t.linked || 0) + c.linked; if (c.sales) t.sales = (t.sales || []).concat(c.sales); if (c.unlinked) t.unlinked = (t.unlinked || []).concat(c.unlinked); };
-  const br = {}, ch = {}, x = {};
-  const out = { ym: year + '-range', cap, A: null, spend: 0, spendWaiting: 0, spendUnassigned: 0, spendLines: 0, s: 0, svc: 0, cv: 0, sales: [], leads: 0, linked: 0, unlinked: [], br, ch, x, labor: 0, wages: 0, incentives: 0, hasLabor: false, hasSpend: false, hasLeads: false, hasSubs: false, range: true };
+  const br = {}, ch = {}, x = {}, rep = {};
+  const out = { ym: year + '-range', cap, A: null, spend: 0, spendWaiting: 0, spendUnassigned: 0, spendLines: 0, s: 0, svc: 0, cv: 0, sales: [], leads: 0, linked: 0, unlinked: [], br, ch, x, rep, labor: 0, wages: 0, incentives: 0, hasLabor: false, hasSpend: false, hasLeads: false, hasSubs: false, range: true };
   for (const D of parts) {
     out.spend += D.spend || 0; out.spendWaiting += D.spendWaiting || 0; out.spendUnassigned += D.spendUnassigned || 0; out.spendLines += D.spendLines || 0;
     out.s += D.s; out.svc += D.svc; out.cv += D.cv; out.sales = out.sales.concat(D.sales || []); out.leads += D.leads || 0; out.linked += D.linked || 0; out.unlinked = out.unlinked.concat(D.unlinked || []);
@@ -58,6 +58,7 @@ function mklRange(year, last, cap) {
     out.hasLabor = out.hasLabor || D.hasLabor; out.hasSpend = out.hasSpend || D.hasSpend; out.hasLeads = out.hasLeads || D.hasLeads; out.hasSubs = out.hasSubs || D.hasSubs;
     for (const k in D.br) addCell(br[k] || (br[k] = z()), D.br[k]);
     for (const k in D.ch) addCell(ch[k] || (ch[k] = z()), D.ch[k]);
+    for (const k in (D.rep || {})) addCell(rep[k] || (rep[k] = z()), D.rep[k]);
     for (const b in D.x) { const o = x[b] || (x[b] = {}); for (const c in D.x[b]) addCell(o[c] || (o[c] = z()), D.x[b][c]); }
   }
   if (!out.hasSpend) out.spend = null; if (!out.hasLeads) { out.leads = null; out.linked = null; }
@@ -101,7 +102,7 @@ function mklMonth(ym, cap) {
   const M = state._mklMemo || (state._mklMemo = {});
   const mk = cap ? ym + '@' + cap : ym;
   if (M[mk] && M[mk].sig === sig && M[mk].subs === subs && M[mk].al === AL) return M[mk].v;
-  const br = {}, ch = {}, x = {};   // x = office → channel → cell (per Isaac, Nov 16: the grid's cell pop-up breaks an office down by channel and a channel by office)
+  const br = {}, ch = {}, x = {}, rep = {};   // rep = Office Staff rep → cell (per Isaac, Nov 19 — By rep on the year grid); x = office → channel → cell (per Isaac, Nov 16: the grid's cell pop-up breaks an office down by channel and a channel by office)
   const xcell = (b, c) => { const o = x[b] || (x[b] = {}); return cell(o, c); };
   const cell = (o, k) => o[k] || (o[k] = { spend: 0, leads: 0, s: 0, svc: 0, cv: 0, waiting: 0 });
   const TC = (b) => typeof _mktgTC === 'function' ? _mktgTC(b) : String(b || '');
@@ -133,6 +134,8 @@ function mklMonth(ym, cap) {
     const b = cell(br, TC(r.office_name || 'No branch')); b.s++; b.svc += done; b.cv += v;
     const c = cell(ch, _mklChannelOfSource(reportingSourceOf(r))); c.s++; c.svc += done; c.cv += v;
     const xc = xcell(TC(r.office_name || 'No branch'), _mklChannelOfSource(reportingSourceOf(r))); xc.s++; xc.svc += done; xc.cv += v; xc.sales = xc.sales || []; xc.sales.push(r);
+    const rn = String(r.sold_by || '').trim() ? (typeof flipLastFirst === 'function' ? flipLastFirst(String(r.sold_by).trim()) : String(r.sold_by).trim()) : 'No rep';
+    const rc = cell(rep, rn); rc.s++; rc.svc += done; rc.cv += v;
   }
   // Leads (GoHighLevel, deduped).
   let leads = null;
@@ -168,7 +171,7 @@ function mklMonth(ym, cap) {
       if (best) xc.linked = (xc.linked || 0) + 1; else (xc.unlinked || (xc.unlinked = [])).push(r);
     }
   }
-  const v = { ym, cap, A, spend, spendWaiting, spendUnassigned, spendLines, s, svc, cv, sales, leads, linked: AL ? linked : null, unlinked, br, ch, x, labor, wages, incentives, hasLabor, hasSpend: !!A, hasLeads: !!AL, hasSubs: subs.length > 0 };
+  const v = { ym, cap, A, spend, spendWaiting, spendUnassigned, spendLines, s, svc, cv, sales, leads, linked: AL ? linked : null, unlinked, br, ch, x, rep, labor, wages, incentives, hasLabor, hasSpend: !!A, hasLeads: !!AL, hasSubs: subs.length > 0 };
   M[mk] = { sig, subs, al: AL, v };
   return v;
 }
@@ -381,7 +384,7 @@ function _mktgLeanView() {
   const sumOf = (o, keys) => keys.reduce((t, k) => { const c = o[k]; t.spend += c.spend; t.leads += c.leads; t.s += c.s; t.cv += c.cv; t.labor += c.labor || 0; return t; }, { spend: 0, leads: 0, s: 0, cv: 0, labor: 0 });
   const table = (title, sub, o, extraRows, noteOf, withLabor) => {
     showLabor = !!withLabor && Object.values(o).some(c => c.labor);
-    const keys = Object.keys(o).filter(k => o[k].spend || o[k].leads || o[k].s || o[k].labor).sort((a, b) => (o[b].spend - o[a].spend) || (o[b].cv - o[a].cv) || (o[b].leads - o[a].leads));
+    const keys = Object.keys(o).filter(k => (o[k].spend || o[k].leads || o[k].s || o[k].labor) && (o !== cur.ch || typeof mktgChannelShown !== 'function' || /^(Unmapped GHL source|Unspecified)$/.test(k) || mktgChannelShown(k))).sort((a, b) => (o[b].spend - o[a].spend) || (o[b].cv - o[a].cv) || (o[b].leads - o[a].leads));
     const tot = sumOf(o, keys);
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-5 py-3' }, el('h3', { class: 'text-base font-bold' }, title), el('div', { class: 'text-[11px] mt-0.5', style: muted }, sub)),
@@ -461,7 +464,7 @@ const MKL_GRID_METRICS = [
 ];
 function mklYearGrid(ym) {
   const year = Number(ym.slice(0, 4)), curMi = Number(ym.slice(5, 7)) - 1;
-  const by = state._mklGridBy === 'ch' ? 'ch' : 'br';
+  const by = ['ch', 'rep'].includes(state._mklGridBy) ? state._mklGridBy : 'br';
   const M = MKL_GRID_METRICS.find(x => x.k === state._mklGridMetric) || MKL_GRID_METRICS[0];
   const months = []; for (let i = 0; i < 12; i++) months.push(mklMonth(year + '-' + String(i + 1).padStart(2, '0')));
   // Change view (per Isaac, Nov 16): No change · MoM change · YoY change — the same cells as % against the month
@@ -472,14 +475,17 @@ function mklYearGrid(ym) {
   const prevMonths = chg === 'none' ? null : (() => { const o = []; for (let i = 0; i < 12; i++) o.push(mklMonth((year - 1) + '-' + String(i + 1).padStart(2, '0'))); return o; })();
   const zero = () => ({ spend: 0, leads: 0, s: 0, svc: 0, cv: 0, labor: 0, wages: 0, inc: 0 });
   const add = (t, c) => { t.spend += c.spend || 0; t.leads += c.leads || 0; t.s += c.s || 0; t.svc += c.svc || 0; t.cv += c.cv || 0; t.labor += c.labor || 0; t.wages += c.wages || 0; t.inc += c.inc || 0; return t; };
-  const keys = [...new Set(months.flatMap(D => Object.keys(D[by] || {})))].filter(k => !/^(Unspecified|Unmapped GHL source|No branch)$/.test(k));
+  // Channels: Office Staff departments only (per Isaac, Nov 19 — Settings → Configurations → FieldRoutes sources). The
+  // RIDD total row still adds every channel, so it matches the By office view.
+  const keys = [...new Set(months.flatMap(D => Object.keys(D[by] || {})))].filter(k => !/^(Unspecified|Unmapped GHL source|No branch)$/.test(k) && (by !== 'ch' || typeof mktgChannelShown !== 'function' || mktgChannelShown(k)));
+  const allKeys = [...new Set(months.flatMap(D => Object.keys(D[by] || {})))].filter(k => !/^(Unspecified|Unmapped GHL source|No branch)$/.test(k));
   const cellOf = (k, i) => (months[i][by] || {})[k] || zero();
   const pcellOf = (k, i) => prevMonths ? ((prevMonths[i][by] || {})[k] || zero()) : zero();
   const ytdOf = (k) => { const t = zero(); for (let i = 0; i < 12; i++) if (months[i].ym <= ym) add(t, cellOf(k, i)); return t; };
   const pytdOf = (k) => { const t = zero(); for (let i = 0; i < 12; i++) if (months[i].ym <= ym) add(t, pcellOf(k, i)); return t; };
   keys.sort((a, b) => (ytdOf(b).cv - ytdOf(a).cv) || (ytdOf(b).spend - ytdOf(a).spend));
-  const totOf = (i) => keys.reduce((t, k) => add(t, cellOf(k, i)), zero());
-  const ptotOf = (i) => keys.reduce((t, k) => add(t, pcellOf(k, i)), zero());
+  const totOf = (i) => allKeys.reduce((t, k) => add(t, cellOf(k, i)), zero());
+  const ptotOf = (i) => allKeys.reduce((t, k) => add(t, pcellOf(k, i)), zero());
   const totYtd = () => { const t = zero(); for (let i = 0; i < 12; i++) if (months[i].ym <= ym) add(t, totOf(i)); return t; };
   const ptotYtd = () => { const t = zero(); for (let i = 0; i < 12; i++) if (months[i].ym <= ym) add(t, ptotOf(i)); return t; };
   // The cell a change compares against: MoM = the month before (Jan → last Dec), YoY = same month last year.
@@ -490,7 +496,7 @@ function mklYearGrid(ym) {
   const show = (c) => { const v = M.get(c); return v == null || !isFinite(v) ? '—' : M.fmt(v); };
   const td = (c, bold, future, base, pop) => {
     const cellEl = _td(c, bold, future, base);
-    if (pop && !future) { cellEl.classList.add('cursor-pointer', 'hover:underline'); cellEl.title = 'Click for every metric here'; cellEl.onclick = (e) => { e.stopPropagation(); mklCellPop(pop); }; }
+    if (pop && !future && pop.by !== 'rep') { cellEl.classList.add('cursor-pointer', 'hover:underline'); cellEl.title = 'Click for every metric here'; cellEl.onclick = (e) => { e.stopPropagation(); mklCellPop(pop); }; }
     return cellEl;
   };
   const _td = (c, bold, future, base) => {
@@ -516,15 +522,16 @@ function mklYearGrid(ym) {
   const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
   const metricSel = el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: selSt, onchange: (e) => { state._mklGridMetric = e.target.value; mountApp(); } },
     ...MKL_GRID_METRICS.map(x => el('option', { value: x.k, selected: x.k === M.k }, x.label)));
-  const byBtn = (v, l) => el('button', { class: 'px-2.5 py-1 text-[11px] font-bold', style: by === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._mklGridBy = v; mountApp(); } }, l);
-  const bySel = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } }, byBtn('br', 'By office'), byBtn('ch', 'By channel'));
+  // One dropdown (per Isaac, Nov 19): By office · By channel · By rep (Office Staff reps — the only sales counted here).
+  const bySel = el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: selSt, onchange: (e) => { state._mklGridBy = e.target.value; mountApp(); } },
+    ...[['br', 'By office'], ['ch', 'By channel'], ['rep', 'By rep']].map(([v, l]) => el('option', { value: v, selected: by === v }, l)));
   const chgLbl = chg === 'mom' ? ' · MoM change' : chg === 'yoy' ? ' · YoY change' : '';
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
       el('h3', { class: 'text-base font-bold', title: M.tip + '. YTD runs through ' + _mklLblS(ym) + '; ratios in YTD come from the summed dollars.' + (chg === 'mom' ? ' MoM: against the month before (Jan against last December); YTD has no MoM.' : chg === 'yoy' ? ' YoY: against the same month last year; YTD against the same stretch of last year.' : '') }, M.label + ' · ' + year + chgLbl),
       el('span', { class: 'ml-auto' }), bySel, metricSel),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-      el('thead', {}, el('tr', {}, th(by === 'br' ? 'Office' : 'Channel', false, { position: 'sticky', left: 0, zIndex: 2 }), ...MON.map((m, i) => th(m, true, i === curMi ? { color: 'var(--accent)' } : null)), th('YTD', true))),
+      el('thead', {}, el('tr', {}, th(by === 'br' ? 'Office' : by === 'rep' ? 'Rep · Office Staff' : 'Channel', false, { position: 'sticky', left: 0, zIndex: 2 }), ...MON.map((m, i) => th(m, true, i === curMi ? { color: 'var(--accent)' } : null)), th('YTD', true))),
       el('tbody', {}, ...keys.map(rowOf), totRow))),
     !keys.length ? el('div', { class: 'px-5 py-4 text-sm text-center', style: muted }, 'Nothing for ' + year + ' yet.') : null);
 }
@@ -590,6 +597,7 @@ function mklMetricPop(k, D, ym, cap) {
   const tableOf = (by, o, label) => {
     const keys = Object.keys(o || {}).filter(x => !/^(Unspecified|Unmapped GHL source|No branch)$/.test(x) && (o[x].spend || o[x].leads || o[x].s || o[x].labor)).sort((a, b) => { const va = M.get(o[a]), vb = M.get(o[b]); return (vb == null ? -Infinity : vb) - (va == null ? -Infinity : va); });
     const tot = keys.reduce((t, x) => { const c = o[x]; t.spend += c.spend || 0; t.leads += c.leads || 0; t.s += c.s || 0; t.cv += c.cv || 0; t.labor += c.labor || 0; t.wages += c.wages || 0; t.inc += c.inc || 0; return t; }, { spend: 0, leads: 0, s: 0, cv: 0, labor: 0, wages: 0, inc: 0 });
+    if (by === 'ch' && typeof mktgChannelShown === 'function') { const sh = keys.filter(mktgChannelShown); keys.length = 0; keys.push(...sh); }   // Office Staff channels only; the total above keeps everything (per Isaac, Nov 19)
     const row = (x, c, total) => el('tr', { class: 'border-t' + (total ? '' : ' cursor-pointer hover:brightness-95'), style: Object.assign({ borderColor: 'var(--border)' }, total ? { background: 'var(--card-2)', borderTop: '2px solid var(--text)', fontWeight: '800' } : {}), title: total ? '' : 'Click for every metric for ' + x,
         onclick: total ? null : () => mklCellPop({ by, key: x, ym, cell: c, D }) },
       td(x, false, { fontWeight: total ? '800' : '700' }), td(val(c), true, { fontWeight: '700' }), td(c.spend ? fmt.usd0(c.spend) : '—', true), td(c.leads ? fmt.int(c.leads) : '—', true), td(c.s ? fmt.int(c.s) : '—', true), td(c.cv ? fmt.usd0(c.cv) : '—', true));
