@@ -327,7 +327,10 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     const noStartOn = _retenWhatIf('popNoStart', true);
     const stepNS = s2t.filter(r => !(noStartOn && retenNotStartedSub(r)));      // minus “never started” cancels (all have a completed initial)
     const step1b = stepNS;                                                        // (combined already out — kept as a name for the renewal lines below)
-    const renLinked = (r) => closedBy(r, 'renewal') && _renewalLinked(r);          // renewal pieced to the customer's next plan
+    // Linked by the old plan's Renewal REASON (as before) OR by the customer's Renewal-SOURCE plan (per Isaac, Nov 19 —
+    // 42% of 2026 renewals had the old plan closed as Finances / Combined / Sold-Not-Started / nothing).
+    const renOn = _retenWhatIf('popRenew', true);
+    const renLinked = (r) => (closedBy(r, 'renewal') && _renewalLinked(r)) || (renOn && !!r.subscription_date_canceled && _renewalBySource(r));
     const renUnlinked = step1b.filter(r => closedBy(r, 'renewal') && !_renewalLinked(r));   // renewal-coded but no later plan = real loss
     const step1 = step1b.filter(r => !renLinked(r));                             // minus renewals linked at the customer level
     const byReason1 = {}; step1b.forEach(r => { if (renLinked(r)) { const k = String(reportingCancelReasonOf(r) || '').trim(); byReason1[k] = (byReason1[k] || 0) + 1; } });
@@ -514,7 +517,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     step(next(), 'Sold Not Started Cancellation Reasons with a Completed Service',   // renamed per Isaac, Nov 2
       'Cancelled as “Sold, Not Started” or “Initial Appointment Canceled.”', s2t.length - stepNS.length, 'popNoStart', null, notIn(s2t, stepNS), stepNS),
     (() => {
-      const node = step(next(), 'Link renewals to the customer', 'A plan closed for a renewal reason is folded into the customer’s newer plan, so the renewal counts as retained.' + (reasonList() ? ' Removed: ' + reasonList() + '.' : ''), step1b.length - step1.length, 'popRenew', null, notIn(step1b, step1), step1);
+      const node = step(next(), 'Link renewals to the customer', 'A plan is folded into the customer’s newer plan — and counts as retained — when it was closed for a renewal reason, OR when the customer bought a Renewal-source plan after it (sold by 45 days after the close, still running at the close), whatever reason the old plan carries.' + (reasonList() ? ' Removed: ' + reasonList() + '.' : ''), step1b.length - step1.length, 'popRenew', null, notIn(step1b, step1), step1);
       if (renUnlinked.length) node.children[1].append(el('button', {
         class: 'mt-1.5 rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.3)' },
         title: 'Cancelled with a Renewal reason but the customer has no newer plan — counted as a real cancel. Fix the reason in the CRM if it was not a renewal.',
