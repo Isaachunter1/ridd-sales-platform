@@ -103,6 +103,25 @@ function _ghlZipOffice() {
   return map;
 }
 
+// Current customers aren't leads (per Isaac, Nov 19): a phone on a FieldRoutes plan sold at least a day before the
+// contact / opportunity came in, and not cancelled before it, was already a customer — left out of every lead count
+// (contacts here, opportunities on the Marketing dashboard). Former customers (every plan cancelled) still count.
+function ghlIsCurrentCustomer(phone, day) {
+  const subs = state.reportingSubscriptions || [];
+  let M = ghlIsCurrentCustomer._m;
+  if (!M || M.src !== subs) {
+    const by = new Map();
+    for (const r of subs) {
+      const p = String(r.phone || '').replace(/\D/g, '').slice(-10); if (p.length !== 10) continue;
+      const sd = String(r.sold_date || r.initial_service || '').slice(0, 10); if (!sd) continue;
+      (by.get(p) || by.set(p, []).get(p)).push([sd, r.subscription_date_canceled ? String(r.subscription_date_canceled).slice(0, 10) : '9999-12-31']);
+    }
+    M = ghlIsCurrentCustomer._m = { src: subs, by };
+  }
+  const L = phone && M.by.get(String(phone).replace(/\D/g, '').slice(-10)); if (!L || !day) return false;
+  const d = String(day).slice(0, 10); const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() - 1); const cut = x.toISOString().slice(0, 10);
+  return L.some(([sd, cx]) => sd < cut && cx >= d);
+}
 // Every GHL lead with its credited provider + office. Memoized on the file,
 // the source map and the paid-channel list.
 function ghlLeads() {
@@ -111,8 +130,10 @@ function ghlLeads() {
   const paid = ghlPaidSet();
   const sig = JSON.stringify(ghlSourceMap()) + '|' + [...paid].sort().join(',');
   const zipOff = _ghlZipOffice();
+  const subs = state.reportingSubscriptions || null;
   const memo = state._ghlMemo;
-  if (memo && memo.rows === G.rows && memo.opps === G.opps && memo.sig === sig && memo.zipOff === zipOff) return memo.out;
+  if (memo && memo.rows === G.rows && memo.opps === G.opps && memo.sig === sig && memo.zipOff === zipOff && memo.subs === subs) return memo.out;
+  const isCurrent = ghlIsCurrentCustomer;
   const lab = G.labels;
   const pOf = (i) => i >= 0 ? ghlProviderOf(lab[i]) : null;
   // People: same phone or email = one person.
@@ -138,6 +159,7 @@ function ghlLeads() {
   G.rows.forEach((r, k) => {
     const own = pOf(r[1]);
     if (own === GHL_NOT_LEAD) { notLead.set(lab[r[1]], (notLead.get(lab[r[1]]) || 0) + 1); return; }
+    if (isCurrent(r[4], r[0])) { notLead.set('Current customer (FieldRoutes)', (notLead.get('Current customer (FieldRoutes)') || 0) + 1); return; }
     let credit = null, how = 'source';
     // LAST TOUCH = OPPORTUNITY SOURCE (per Isaac, Oct 7, from the GoHighLevel
     // admin): the contact's source never changes after the first touch, but
@@ -155,7 +177,7 @@ function ghlLeads() {
     leads.push({ d: r[0], mi: Number(r[0].slice(5, 7)) - 1, y: r[0].slice(0, 4), prov: credit, own: own || 'Unknown', how, office: zipOff.get(r[6]) || null, p: r[4], e: r[5], t: r[7] || '' });
   });
   const out = { leads, notLead, people: nextId, phones: byPhone, emails: byEmail };
-  state._ghlMemo = { rows: G.rows, opps: G.opps, sig, zipOff, out };
+  state._ghlMemo = { rows: G.rows, opps: G.opps, sig, zipOff, subs, out };
   return out;
 }
 // Month × provider × office counts for one year (Metrics).
