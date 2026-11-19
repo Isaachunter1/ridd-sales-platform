@@ -341,12 +341,12 @@ function _mktgLeanView() {
     ['cacp', tile({ label: 'CAC %', icon: 'cac', get: (D) => D.cv && (D.hasSpend || D.hasLabor) ? ((D.hasSpend ? D.spend : 0) + D.labor) / D.cv : null, fmt: _mklPct, upGood: false, color: INK, tip: 'Total spend ÷ new revenue', onClick: drill('cacp') })],
     // LTV / CAC replaced Revenue per lead (per Isaac, Nov 18): lifetime value of an Inside Sales customer (marketing-ltv.js)
     // over the month's cost per job. Its drill is its own pop-up, not the office × channel grid.
-    ['ltv', tile({ label: 'LTV / CAC', icon: 'ltv', get: (D) => typeof ltvTileValue === 'function' ? ltvTileValue(D) : null, fmt: (v) => v == null || !isFinite(v) ? '—' : v.toFixed(1) + 'x', upGood: true, color: TEAL, tip: 'Lifetime value of a new Inside Sales customer (collected revenue over the horizon set on the drill, projected on RIDD\u2019s cohort curve) ÷ this month\u2019s cost per job', note: typeof ltvTileNote === 'function' ? ltvTileNote(cur) : '', onClick: () => mklLtvPop(cur, ym, _cap) })]
+    ['rpl', tile({ label: 'Revenue per lead', icon: 'leads', get: (D) => D.hasLeads && D.leads ? D.cv / D.leads : null, fmt: _mklUsd, upGood: true, color: TEAL, tip: 'New revenue ÷ leads — what a lead is worth before any cost; next to CPL it is the lead margin', onClick: drill('rpl') })]   // back from LTV / CAC (per Isaac, Nov 19 — LTV / CAC has its own section below)
   ];
   // Owner-only ordering (per Isaac, Nov 16): the Admin – Owner drags tiles into place; the order is saved in the
   // shared marketing config and is what every other admin sees. New tiles append at the end.
   const _m = _mktgStore(); const saved = Array.isArray(_m.tileOrder) ? _m.tileOrder : [];
-  const order = [...saved.map(k => k === 'rpl' ? 'ltv' : k).filter(k => TILE_DEFS.some(d => d[0] === k)), ...TILE_DEFS.map(d => d[0]).filter(k => !saved.includes(k) && !(k === 'ltv' && saved.includes('rpl')))];   // 'rpl' became 'ltv' (Nov 18) — a saved order keeps its slot
+  const order = [...saved.map(k => k === 'ltv' ? 'rpl' : k).filter(k => TILE_DEFS.some(d => d[0] === k)), ...TILE_DEFS.map(d => d[0]).filter(k => !saved.includes(k) && !(k === 'rpl' && saved.includes('ltv')))];   // 'ltv' went back to 'rpl' (Nov 19) — a saved order keeps its slot
   const owner = typeof isOwnerUser === 'function' && isOwnerUser();
   const tiles = el('div', { class: 'grid gap-3 mkl-tiles' });
   let dragKey = null;
@@ -428,7 +428,8 @@ function _mktgLeanView() {
   void brTable; void chTable;
   // Channels × offices grid + traffic by hour (marketing-dash.js) sit between the tiles and the year grid (per Isaac, Nov 18).
   const dash = typeof mktgDashBlocks === 'function' ? (() => { try { return mktgDashBlocks(ym); } catch (e) { console.warn('[marketing] dash blocks', e); return []; } })() : [];
-  return el('div', { class: 'flex flex-col gap-4' }, tiles, chart, ...dash, grid);   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
+  const ltvSec = typeof mklLtvSection === 'function' ? (() => { try { return mklLtvSection(cur, ym, _cap); } catch (e) { console.warn('[marketing] ltv section', e); return null; } })() : null;   // LTV / CAC section (per Isaac, Nov 19)
+  return el('div', { class: 'flex flex-col gap-4' }, tiles, chart, ltvSec, ...dash, grid);   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
 }
 // The month's new sales behind the New revenue tile (same rows the table counts).
 function mklOpenSales(D, title) {

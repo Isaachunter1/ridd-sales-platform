@@ -133,6 +133,48 @@ async function _ltvKick(btn) {
   btn.textContent = orig; btn.disabled = false;
 }
 
+// ── LTV / CAC section on the Marketing dashboard (per Isaac, Nov 19 — the tile went back to Revenue / lead) ──
+// One compact card: the ratio for the picked month / range and against 3-month and YTD CAC, the LTV behind it,
+// payback and retention, an Inside Sales vs all-RIDD toggle, and "Full breakdown" for the charts and tables.
+function mklLtvSection(D, ym, cap) {
+  const muted = { color: 'var(--text-muted)' }, mono = { fontFamily: 'ui-monospace, monospace' };
+  const L = state._ltv;
+  const head = (right) => el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap', style: { borderBottom: '1px solid var(--border)' } },
+    el('h3', { class: 'text-base font-bold' }, 'LTV / CAC'), el('span', { class: 'ml-auto' }), ...(right || []));
+  if (!L) return el('div', { class: 'card overflow-hidden' }, head(),
+    el('div', { class: 'px-5 py-4 text-sm', style: muted }, state._ltvMissing ? 'The LTV cohort file has not been published yet — it is built nightly by the ltv-cohorts job.' : 'Loading the LTV cohorts…',
+      state._ltvMissing && isAdminRole(state.profile?.role) ? el('button', { class: 'ml-3 px-2.5 py-1 rounded-lg text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: (ev) => _ltvKick(ev.currentTarget) }, 'Build now') : null));
+  const pop = state._ltvPop || 'seller:office';
+  const M = ltvModel(pop, { horizon: ltvHorizon(), margin: ltvMargin() });
+  const cac = ltvCacOf(D);
+  const cacOver = (ms) => { let spend = 0, labor = 0, svc = 0, any = false; for (const m of ms) { const X = mklMonth(m); if (!X.svc) continue; if (X.hasSpend || X.hasLabor) { any = true; spend += X.hasSpend ? X.spend : 0; labor += X.hasLabor ? X.labor : 0; svc += X.svc; } } return any && svc ? (spend + labor) / svc : null; };
+  const back = (n) => { const o = []; for (let i = 0; i < n; i++) o.push(_mklShift(ym, -i)); return o; };
+  const ytd = (() => { const o = []; let m = ym; const y = ym.slice(0, 4); while (m.slice(0, 4) === y) { o.push(m); m = _mklShift(m, -1); } return o; })();
+  const cac3 = cacOver(back(3)), cacY = cacOver(ytd);
+  const ltv = M && M.ltv ? M.ltv : null;
+  const r = (c) => ltv && c ? ltv / c : null;
+  const x = (v) => v == null || !isFinite(v) ? '—' : v.toFixed(1) + 'x', usd = (v) => v == null || !isFinite(v) ? '—' : fmt.usd0(v), pct = (v) => v == null ? '—' : Math.round(v * 100) + '%';
+  const col = (v) => v == null ? 'var(--text)' : v >= 3 ? '#16A34A' : v >= 2 ? '#B45309' : '#DC2626';
+  const when = D && D.range ? 'this range' : _mklLblS(ym) + (cap ? ' to date' : '');
+  const stat = (label, value, sub, color, big) => el('div', { class: 'px-4 py-3 min-w-0', style: { borderRight: '1px solid var(--border)' } },
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: muted }, label),
+    el('div', { class: (big ? 'text-2xl' : 'text-lg') + ' font-black tabular-nums mt-0.5', style: Object.assign({}, mono, color ? { color } : {}) }, value),
+    sub ? el('div', { class: 'text-[11px] mt-0.5', style: muted }, sub) : null);
+  const popSel = el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { state._ltvPop = e.target.value; mountApp(); } },
+    el('option', { value: 'seller:office', selected: pop === 'seller:office' }, 'Inside Sales customers'), el('option', { value: 'all:all', selected: pop === 'all:all' }, 'All RIDD customers'));
+  const more = el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: () => mklLtvPop(D, ym, cap) }, 'Full breakdown →');
+  return el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkt-ltv' },
+    head([popSel, more]),
+    el('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))' } },
+      stat('LTV / CAC · ' + when, x(r(cac)), cac ? 'CAC ' + usd(cac) : 'needs spend for ' + when, col(r(cac)), true),
+      stat('vs 3-month CAC', x(r(cac3)), cac3 ? 'CAC ' + usd(cac3) : '—', col(r(cac3))),
+      stat('vs YTD CAC', x(r(cacY)), cacY ? 'CAC ' + usd(cacY) : '—', col(r(cacY))),
+      stat('LTV · ' + (M ? M.horizon : ltvHorizon()) + ' mo', usd(ltv), M ? (M.margin ? Math.round(M.margin * 100) + '% margin · ' : 'collected revenue · ') + (M.observedTo >= M.horizon ? 'all observed' : M.observedTo + ' mo observed') : ''),
+      stat('Payback', M && cac && M.payback(cac) != null ? M.payback(cac) + ' mo' : '—', 'months to earn back CAC'),
+      stat('Retained · 12 mo', M ? pct(M.ret12) : '—', M ? '24 mo ' + pct(M.ret24) : '')),
+    el('div', { class: 'px-5 py-2 text-[10px]', style: { borderTop: '1px solid var(--border)', color: 'var(--text-subtle)' } }, 'Green at 3x and up, amber 2–3x, red under 2x. CAC = (marketing spend + wages + incentives) ÷ new sales; LTV from the nightly cohort file' + (L.asOf ? ' (as of ' + fmt.dateShort(String(L.asOf).slice(0, 10)) + ')' : '') + '.'));
+}
+
 // ── Drill-down ─────────────────────────────────────────────────────────────
 function mklLtvPop(D, ym, cap) {
   const overlay = el('div', { class: 'modal-overlay' });
