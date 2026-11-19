@@ -181,17 +181,36 @@ const RC_USD_PER_COIN = 0.001;
 const RC_INCENTIVE_FROM = '2026-11-18T17:30:00Z';
 const _rcIsTransfer = (r) => /dash\s*p\b.*transfer|transfer.*dash\s*p\b/i.test(String(r.reason || ''));
 function rcCoinsToUsd(c) { return (Number(c) || 0) * RC_USD_PER_COIN; }
-function rcIncentivesMonth(ym) {
-  const led = state._rcLedger || []; if (!led.length) return { total: 0, coins: 0, n: 0, loaded: !!state._rcLoadedAt };
+// Owner override per ledger add (per Isaac, Nov 19 — "give me the option to zero out amounts that shouldn't count"):
+// adminRules.rcIncentiveOverride = { ledgerId: 'out' | 'in' } — 'out' never counts, 'in' counts even if the automatic
+// rules (DashP transfer, before the cut-over) would leave it out. Saved company-wide; only the owner can change it.
+function _rcOverrides() { const r = typeof _adminRules === 'function' ? _adminRules() : null; return (r && r.rcIncentiveOverride && typeof r.rcIncentiveOverride === 'object') ? r.rcIncentiveOverride : {}; }
+function rcSetIncentiveOverride(id, v) {
+  if (!(typeof isOwnerUser === 'function' && isOwnerUser())) return;
+  const next = Object.assign({}, _rcOverrides()); if (v) next[id] = v; else delete next[id];
+  if (typeof _setAdminRule === 'function') _setAdminRule('rcIncentiveOverride', next);
+  try { if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {}); } catch (e) { /* synced on next save */ }
+  state._mklMemo = {}; state._mkpMemo = null;
+}
+// Why an add does or doesn't count: { counts, why } — the automatic rule, then the owner's override on top.
+function rcIncentiveStatus(r) {
+  const auto = _rcIsTransfer(r) ? 'Carried over from DashP' : !(Date.parse(r.created_at) >= Date.parse(RC_INCENTIVE_FROM)) ? 'Before the DashP cut-over' : null;
+  const o = _rcOverrides()[r.id];
+  if (o === 'out') return { counts: false, why: 'Zeroed out by the owner', override: true };
+  if (o === 'in') return { counts: true, why: 'Counted by the owner' + (auto ? ' (' + auto.toLowerCase() + ')' : ''), override: true };
+  return auto ? { counts: false, why: auto } : { counts: true, why: '' };
+}
+function rcIncentivesMonth(ym, opts) {
+  const led = state._rcLedger || []; if (!led.length) return { total: 0, coins: 0, n: 0, loaded: !!state._rcLoadedAt, rows: [], all: [] };
   const office = new Set((state.allProfiles || []).filter(dashpOfficeIsRep).map(p => p.id));
-  const from = Date.parse(RC_INCENTIVE_FROM);
-  let coins = 0, n = 0; const rows = [];
+  let coins = 0, n = 0; const rows = [], all = [];
   for (const r of led) {
     if (!(Number(r.delta) > 0) || r.ref_id || !office.has(r.user_id) || String(r.created_at || '').slice(0, 7) !== ym) continue;
-    if (_rcIsTransfer(r) || !(Date.parse(r.created_at) >= from)) continue;
+    all.push(r);
+    if (!rcIncentiveStatus(r).counts) continue;
     coins += Number(r.delta); n++; rows.push(r);
   }
-  return { total: rcCoinsToUsd(coins), coins, n, loaded: true, rows };   // total is DOLLARS
+  return { total: rcCoinsToUsd(coins), coins, n, loaded: true, rows, all };   // total is DOLLARS; all = every add, counted or not
 }
 // The log behind the Spend tab's RIDDCOIN row (per Isaac, Nov 18): every add that counted for a month (or the
 // whole year), who got it, what it was for, who gave it, when — so anything that should not be there is easy to
@@ -199,7 +218,9 @@ function rcIncentivesMonth(ym) {
 function rcOpenIncentiveLog(year, ym) {
   const names = Object.fromEntries((state.allProfiles || []).map(p => [p.id, p.full_name || '—']));
   const months = ym ? [ym] : Array.from({ length: 12 }, (_, i) => year + '-' + String(i + 1).padStart(2, '0'));
-  const rows = months.flatMap(m => rcIncentivesMonth(m).rows || []).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  const owner = typeof isOwnerUser === 'function' && isOwnerUser();
+  const allRows = months.flatMap(m => rcIncentivesMonth(m).all || []).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  const rows = allRows.filter(r => rcIncentiveStatus(r).counts);
   const total = rows.reduce((a, r) => a + Number(r.delta), 0);   // coins
   const usd = rcCoinsToUsd(total);
   const lbl = ym ? new Date(ym + '-15T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : String(year);
@@ -216,15 +237,20 @@ function rcOpenIncentiveLog(year, ym) {
       el('button', { class: 'text-2xl leading-none text-muted- px-1', 'aria-label': 'Close', onclick: close }, '×')),
     el('div', { style: { maxHeight: '62vh', overflowY: 'auto' } },
       el('table', { class: 'w-full text-xs' },
-        el('thead', {}, el('tr', {}, th('When'), th('Rep'), th('Amount', true), th('Incentive'), th('Added by'))),
+        el('thead', {}, el('tr', {}, th('When'), th('Rep'), th('Amount', true), th('Incentive'), th('Added by'), th('Counts?'))),
         el('tbody', {},
-          rows.length ? rows.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          allRows.length ? allRows.map(r => { const S = rcIncentiveStatus(r); return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', opacity: S.counts ? '1' : '.5' } },
             el('td', { class: 'py-1.5 pr-2 whitespace-nowrap text-muted- tabular-nums' }, _rcWhen(r.created_at)),
             el('td', { class: 'py-1.5 pr-2 font-semibold whitespace-nowrap' }, names[r.user_id] || '—'),
             el('td', { class: 'py-1.5 pr-2 text-right tabular-nums font-black whitespace-nowrap', style: { color: '#DF643A' }, title: '= $' + rcCoinsToUsd(r.delta).toFixed(2) }, '+' + _rcCoin(r.delta)),
             el('td', { class: 'py-1.5 pr-2' }, r.reason || '—'),
-            el('td', { class: 'py-1.5 text-muted- whitespace-nowrap' }, names[r.created_by] || '—')))
-          : [el('tr', {}, el('td', { class: 'py-6 text-center text-muted-', colspan: 5 }, 'No RIDDCOIN added to office reps in ' + lbl + '.'))])))));
+            el('td', { class: 'py-1.5 text-muted- whitespace-nowrap' }, names[r.created_by] || '—'),
+            el('td', { class: 'py-1.5 pl-2 whitespace-nowrap' },
+              owner ? el('button', { class: 'rounded-md border px-2 py-0.5 text-[10px] font-bold', style: S.counts ? { borderColor: '#16A34A', color: '#16A34A' } : { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: (S.why ? S.why + ' · ' : '') + 'Click to ' + (S.counts ? 'zero this out' : 'count it') + ' — saved for everyone',
+                  onclick: () => { rcSetIncentiveOverride(r.id, S.counts ? 'out' : 'in'); close(); rcOpenIncentiveLog(year, ym); mountApp(); } }, S.counts ? 'Counts' : 'Zeroed')
+                : el('span', { class: 'text-[10px]', style: { color: S.counts ? '#16A34A' : 'var(--text-muted)' }, title: S.why }, S.counts ? 'Counts' : 'Zeroed')),
+            ); })
+          : [el('tr', {}, el('td', { class: 'py-6 text-center text-muted-', colspan: 6 }, 'No RIDDCOIN added to office reps in ' + lbl + '.'))])))));
   document.body.append(overlay);
 }
 // Make sure the ledger is in memory wherever incentives are read (Spend tab, Dashboard tiles, P&L).
