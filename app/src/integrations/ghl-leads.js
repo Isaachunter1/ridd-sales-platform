@@ -34,6 +34,7 @@ const GHL_AUTO_RULES = [
   [/flow ?bridge/, 'FlowBridge'],
   [/click ?thesis/, 'Click Thesis'],
   [/chat ?gpt/, 'Organic'],
+  [/^google\s*\|/, 'Organic'],                // 'Google | Office' = Google Reserve, organic (per Isaac, Nov 19)
   [/click[- ]?to[- ]?buy/, 'Click-To-Buy'],    // the old online booker, before PestBooker
   [/organic|direct traffic|social media|referral|ridd form|website|vip marketing|pest lead form/, 'Organic'],
 ];
