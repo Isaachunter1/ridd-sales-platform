@@ -317,14 +317,20 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     // credit, so the fix-it lists and the raw → official bridge read cleanly.
     // Order (per Isaac, Nov 2): combined first (step 5), then coded RORs (6) with the timing RORs right under them (6a),
     // then never started, renewals, replaced, $0 ARR, take and pay. The book is the same in any order.
-    const sZ = s2.filter(r => _retenPaying(r));                                   // minus $0 ARR — step 5, always on (per Isaac, Nov 2)
-    const sCb = sZ.filter(r => !closedBy(r, 'combined'));                          // minus combined
-    const s2r = sCb.filter(r => !(rorOn && rorByReason(r)));                      // minus RORs coded as such (the sheet's rule)
+    // Order (per Isaac, Nov 19): combined subscriptions come OUT before the $0-ARR step — nearly every $0 sub is a
+    // plan merged into another on the account, so taking combined first leaves the $0 step holding only what matters:
+    // subscriptions billing nothing that are NOT a merge, i.e. someone possibly getting pest control for free.
+    const sCb = s2.filter(r => !closedBy(r, 'combined'));                          // minus combined — step 5
+    const sZ = sCb.filter(r => _retenPaying(r));                                   // minus $0 ARR — step 6, always on (per Isaac, Nov 2)
+    const s2r = sZ.filter(r => !(rorOn && rorByReason(r)));                       // minus RORs coded as such (the sheet's rule)
     const s2t = s2r.filter(r => !(rorOn && rorTimingOn && _reporting3dayRor(r)));   // minus RORs caught by timing (6a)
     const noStartOn = _retenWhatIf('popNoStart', true);
     const stepNS = s2t.filter(r => !(noStartOn && retenNotStartedSub(r)));      // minus “never started” cancels (all have a completed initial)
     const step1b = stepNS;                                                        // (combined already out — kept as a name for the renewal lines below)
-    const renLinked = (r) => closedBy(r, 'renewal') && _renewalLinked(r);          // renewal pieced to the customer's next plan
+    // Linked by the old plan's Renewal REASON (as before) OR by the customer's Renewal-SOURCE plan (per Isaac, Nov 19 —
+    // 42% of 2026 renewals had the old plan closed as Finances / Combined / Sold-Not-Started / nothing).
+    const renOn = _retenWhatIf('popRenew', true);
+    const renLinked = (r) => (closedBy(r, 'renewal') && _renewalLinked(r)) || (renOn && !!r.subscription_date_canceled && _renewalBySource(r));
     const renUnlinked = step1b.filter(r => closedBy(r, 'renewal') && !_renewalLinked(r));   // renewal-coded but no later plan = real loss
     const step1 = step1b.filter(r => !renLinked(r));                             // minus renewals linked at the customer level
     const byReason1 = {}; step1b.forEach(r => { if (renLinked(r)) { const k = String(reportingCancelReasonOf(r) || '').trim(); byReason1[k] = (byReason1[k] || 0) + 1; } });
@@ -470,13 +476,25 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       return node;
     }),
     // (one-time / retired / status steps now run in the locked scope chain above)
-    step(next(), 'Remove subs with no ARR', '$0 ARR and no per-visit charge — bills nothing. Anything here with ARR above $0 is a data fix, not a judgment call.', s2.length - sZ.length, null, null, notIn(s2, sZ), sZ),
-    step(next(), 'Remove combined subscriptions', 'Cancelled as “Combined Subscriptions” — merged into another plan on the account.', sZ.length - sCb.length, 'popCombined', null, notIn(sZ, sCb), sCb),
+    step(next(), 'Remove combined subscriptions', 'Cancelled as “Combined Subscriptions” — merged into another plan on the account.', s2.length - sCb.length, 'popCombined', null, notIn(s2, sCb), sCb),
+    (() => {
+      // What is left here after combined are out is the list Isaac wants watched (Nov 19): subs that bill nothing and are
+      // not a merge. The ACTIVE ones are the risk — a customer being serviced for free — so they get their own flag.
+      const zero = notIn(sCb, sZ);
+      const freeActive = zero.filter(r => !r.subscription_date_canceled && !/cancel|inactive|frozen/i.test(String(r.subscription_status || r.status || '')));
+      const node = step(next(), 'Remove subs with no ARR', '$0 ARR and no per-visit charge — bills nothing. Combined plans are already out, so anything left here is either a data fix (ARR above $0) or a plan being serviced for nothing.', sCb.length - sZ.length, null, null, zero, sZ);
+      if (freeActive.length) node.children[1].append(el('button', {
+        class: 'mt-1.5 rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.3)' },
+        title: 'Active subscriptions with $0 ARR and no per-visit charge that were not combined into another plan — check each one is meant to be free (Sentricon add-on, house account) and fix the rest in FieldRoutes.',
+        onclick: (e) => { e.stopPropagation(); openReportingDrillModal({ chartTitle: 'Attrition steps · active subs billing nothing', sliceLabel: n(freeActive.length) + ' active subscription' + (freeActive.length === 1 ? '' : 's') + ' · $0 ARR, not a combined plan — is anyone getting service for free?', rows: freeActive, formatValue: fmt.usd0 }); },
+      }, '⚑ ' + n(freeActive.length) + ' active and billing nothing — check nobody is serviced for free'));
+      return node;
+    })(),
     (() => {
       // Coded "3 Day ROR" on an office-staff / technician sale (per Isaac, Oct 13):
       // those sales never get a rescission, so they stay in as real cancels — fix the reason in FieldRoutes.
-      const badRor = rorOn ? sCb.filter(r => rorCoded(r) && !_rorCodedOk(r)) : [];
-      const node = step(next(), 'Remove 3-day RORs coded in the CRM', 'Cancelled as “3 Day ROR” — rescinded before service.', sCb.length - s2r.length, 'popRor', null, notIn(sCb, s2r), s2r);
+      const badRor = rorOn ? sZ.filter(r => rorCoded(r) && !_rorCodedOk(r)) : [];
+      const node = step(next(), 'Remove 3-day RORs coded in the CRM', 'Cancelled as “3 Day ROR” — rescinded before service.', sZ.length - s2r.length, 'popRor', null, notIn(sZ, s2r), s2r);
       if (badRor.length) node.children[1].append(el('button', {
         class: 'mt-1.5 rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.3)' },
         title: 'Coded “3 Day ROR” but sold by office staff or a technician — no rescission right, so these count as real cancels. Fix the reason in the CRM.',
@@ -499,7 +517,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     step(next(), 'Sold Not Started Cancellation Reasons with a Completed Service',   // renamed per Isaac, Nov 2
       'Cancelled as “Sold, Not Started” or “Initial Appointment Canceled.”', s2t.length - stepNS.length, 'popNoStart', null, notIn(s2t, stepNS), stepNS),
     (() => {
-      const node = step(next(), 'Link renewals to the customer', 'A plan closed for a renewal reason is folded into the customer’s newer plan, so the renewal counts as retained.' + (reasonList() ? ' Removed: ' + reasonList() + '.' : ''), step1b.length - step1.length, 'popRenew', null, notIn(step1b, step1), step1);
+      const node = step(next(), 'Link renewals to the customer', 'A plan is folded into the customer’s newer plan — and counts as retained — when it was closed for a renewal reason, OR when the customer bought a Renewal-source plan after it (sold by 45 days after the close, still running at the close), whatever reason the old plan carries.' + (reasonList() ? ' Removed: ' + reasonList() + '.' : ''), step1b.length - step1.length, 'popRenew', null, notIn(step1b, step1), step1);
       if (renUnlinked.length) node.children[1].append(el('button', {
         class: 'mt-1.5 rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.3)' },
         title: 'Cancelled with a Renewal reason but the customer has no newer plan — counted as a real cancel. Fix the reason in the CRM if it was not a renewal.',
@@ -530,7 +548,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     // equal the book. Anything that fell out without a step shows here in red.
     (() => {
       const key = (r) => String(r.subscription_id) + '|' + String(r.customer_id);
-      const removedLists = [...scopeSteps.map(st => st.removed), notIn(s2, sZ), notIn(sZ, sCb), notIn(sCb, s2r), notIn(s2r, s2t), notIn(s2t, stepNS), notIn(step1b, step1), notIn(step1, stepRp), notIn(stepZ, step2)];
+      const removedLists = [...scopeSteps.map(st => st.removed), notIn(s2, sCb), notIn(sCb, sZ), notIn(sZ, s2r), notIn(s2r, s2t), notIn(s2t, stepNS), notIn(step1b, step1), notIn(step1, stepRp), notIn(stepZ, step2)];
       const gone = new Set(); let removedN = 0;
       for (const L of removedLists) for (const r of L) { const k = key(r); if (!gone.has(k)) { gone.add(k); removedN++; } }
       const inBook = new Set(book.map(key));
@@ -2694,6 +2712,15 @@ function reportingWaterfall() {
     }
     const groups = new Map([...gL].map(([k, L]) => [k, stat(L, renAnchor)]));
     const all = stat(allL, renAnchor), m2m = stat(m2mL, endAnchor);
+    // Same-cohort comparison (per Isaac, Nov 19): the type rows above compare renewers with EVERY month-to-month
+    // customer, which mixes 2021 lifers with 2025 sign-ups. Here each START YEAR (first service) is its own cohort:
+    // the customers from that year who renewed vs the ones from the same year who reached contract end and rode
+    // month-to-month — read at the same horizons, so the renewal's effect on attrition is apples to apples.
+    const byYear = new Map();
+    const _yr = (c) => c.start != null ? String(new Date(c.start).getFullYear()) : null;
+    for (const c of allL) { const y = _yr(c); if (!y) continue; (byYear.get(y) || byYear.set(y, { ren: [], m2m: [] }).get(y)).ren.push(c); }
+    for (const c of m2mL) { const y = _yr(c); if (!y) continue; (byYear.get(y) || byYear.set(y, { ren: [], m2m: [] }).get(y)).m2m.push(c); }
+    const yearRows = [...byYear.keys()].sort((a, b) => b.localeCompare(a)).map(y => ({ y, ren: stat(byYear.get(y).ren, renAnchor), m2m: stat(byYear.get(y).m2m, endAnchor) })).filter(x => x.ren.n || x.m2m.n);
     if (!all.n && !m2m.n) return null;
     const pct = (n, d) => d ? (n / d * 100).toFixed(1) + '%' : '—';
     const mo = (v) => v == null ? '—' : v.toFixed(1) + ' mo';
@@ -2737,7 +2764,20 @@ function reportingWaterfall() {
             ...keys.map(k => row(grp === 'year' ? k : 'Renewal - ' + k, groups.get(k), false, m2m)),
             row('All customers who renewed', all, true, m2m),
             el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, el('td', { class: 'px-3 pt-3 pb-1 text-[10px] uppercase tracking-widest font-semibold', colspan: '10', style: { color: 'var(--text-subtle)' } }, 'The comparison · reached the end of their first contract still a customer and never renewed')),
-            row('Did not renew', m2m, true)))));
+            row('Did not renew', m2m, true),
+            // Same start year, side by side (per Isaac, Nov 19): renewed vs stayed month-to-month, cohort by cohort.
+            ...(yearRows.length ? [el('tr', { class: 'border-t', style: { borderColor: 'var(--border-2)', borderTopWidth: '2px' } }, el('td', { class: 'px-3 pt-3 pb-1 text-[10px] uppercase tracking-widest font-semibold', colspan: '10', style: { color: 'var(--text-subtle)' } },
+                'Same start year \u00b7 customers who renewed vs the same cohort that reached contract end and stayed month-to-month \u00b7 attrition = churned \u00f7 customers'))] : []),
+            ...yearRows.flatMap(x => {
+              const attr = (o) => o.n ? o.left / o.n : null;
+              const a = attr(x.ren), b = attr(x.m2m);
+              const delta = (a != null && b != null) ? el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+                el('td', { class: 'px-3 py-1.5 text-[11px] font-semibold', style: { color: 'var(--text-muted)' } }, '   ' + x.y + ' \u00b7 difference'),
+                el('td', { class: 'px-3 py-1.5 text-[11px] tabular-nums', colspan: '3', style: { color: 'var(--text-muted)' } }, 'attrition ' + pct(x.ren.left, x.ren.n) + ' renewed vs ' + pct(x.m2m.left, x.m2m.n) + ' month-to-month'),
+                el('td', { class: 'px-3 py-1.5 text-[11px] font-black tabular-nums', style: { color: a <= b ? '#15803D' : '#DC2626' } }, (a <= b ? '\u2212' : '+') + Math.abs((a - b) * 100).toFixed(1) + ' pts attrition'),
+                el('td', { class: 'px-3 py-1.5 text-[11px] tabular-nums', colspan: '5', style: { color: 'var(--text-muted)' } }, (x.ren.tenure != null && x.m2m.tenure != null) ? ('tenure ' + mo(x.ren.tenure) + ' vs ' + mo(x.m2m.tenure)) : '')) : null;
+              return [row(x.y + ' \u00b7 Renewed', x.ren, false, x.m2m), row(x.y + ' \u00b7 Month-to-month', x.m2m, false), delta].filter(Boolean);
+            })))));
   })();
 
   // (Renewal Timing card retired per Isaac, Sep 2026.)

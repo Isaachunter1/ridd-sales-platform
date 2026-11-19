@@ -146,6 +146,7 @@ function _mktgLeanView() {
   if (typeof reportingLoadQboSpend === 'function') reportingLoadQboSpend();
   if (typeof ghlLoadLeads === 'function' && state._ghl === undefined) ghlLoadLeads();
   if (typeof rcEnsureLedger === 'function') rcEnsureLedger();   // RIDDCOIN adds are incentives (per Isaac, Nov 18)
+  if (typeof refreshLtvFromCloud === 'function') refreshLtvFromCloud();   // LTV cohorts for the LTV / CAC tile (per Isaac, Nov 18)
   const F = mklState(); const ym = F.ym;
   // Compare to (per Isaac, Nov 11 — the key-metrics tile look): the previous month, or the same month last year.
   const cmp = F.cmp === 'year' ? 'year' : F.cmp === 'none' ? 'none' : 'prev';   // No change hides the compare line on the tiles (per Isaac, Nov 16)
@@ -232,6 +233,7 @@ function _mktgLeanView() {
     close: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/>',
     avg: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/>',
     fcac: '<path d="M4 20h16M6 20V9l6-5 6 5v11"/><path d="M10 20v-5h4v5"/>',
+    ltv: '<path d="M3 20h18"/><path d="M4 16c3-9 6-12 9-12 2 0 4 2 7 8"/><path d="M14 4h6v6"/>',
   };
   const icon = (k) => { const w = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); w.setAttribute('viewBox', '0 0 24 24'); w.setAttribute('fill', 'none'); w.setAttribute('stroke', 'currentColor'); w.setAttribute('stroke-width', '1.8'); w.setAttribute('stroke-linecap', 'round'); w.setAttribute('stroke-linejoin', 'round'); w.style.cssText = 'width:18px;height:18px;flex:none;color:var(--text-subtle)'; w.innerHTML = ICON[k] || ''; return w; };
   const cmpLbl = cmp === 'year' ? 'last year' : 'prior month';
@@ -285,12 +287,14 @@ function _mktgLeanView() {
     ['inc', tile({ label: 'Incentives', icon: 'avg', get: (D) => D.hasLabor || D.incentives ? D.incentives : null, fmt: _mklUsd, upGood: null, color: INK, tip: 'Spend tab → Incentives, spread to offices by share of the month’s new revenue', note: cur.incentives ? shareNote(cur.incentives) : 'enter on the Spend tab', onClick: drill('inc') })],
     ['tot', tile({ label: 'Total spend', icon: 'spend', get: (D) => D.hasSpend || D.hasLabor ? (D.hasSpend ? D.spend : 0) + D.labor : null, fmt: _mklUsd, upGood: null, color: INK, tip: 'Marketing spend + wages + incentives', note: cur.cv && _totSpend ? (_totSpend / cur.cv * 100).toFixed(1) + '% of new revenue = CAC %' : '', onClick: drill('tot') })],
     ['cacp', tile({ label: 'CAC %', icon: 'cac', get: (D) => D.cv && (D.hasSpend || D.hasLabor) ? ((D.hasSpend ? D.spend : 0) + D.labor) / D.cv : null, fmt: _mklPct, upGood: false, color: INK, tip: 'Total spend ÷ new revenue', onClick: drill('cacp') })],
-    ['rpl', tile({ label: 'Revenue per lead', icon: 'leads', get: (D) => D.hasLeads && D.leads ? D.cv / D.leads : null, fmt: _mklUsd, upGood: true, color: TEAL, tip: 'New revenue ÷ leads — what a lead is worth before any cost; next to CPL it is the lead margin', onClick: drill('rpl') })]
+    // LTV / CAC replaced Revenue per lead (per Isaac, Nov 18): lifetime value of an Inside Sales customer (marketing-ltv.js)
+    // over the month's cost per job. Its drill is its own pop-up, not the office × channel grid.
+    ['ltv', tile({ label: 'LTV / CAC', icon: 'ltv', get: (D) => typeof ltvTileValue === 'function' ? ltvTileValue(D) : null, fmt: (v) => v == null || !isFinite(v) ? '—' : v.toFixed(1) + 'x', upGood: true, color: TEAL, tip: 'Lifetime value of a new Inside Sales customer (collected revenue over the horizon set on the drill, projected on RIDD\u2019s cohort curve) ÷ this month\u2019s cost per job', note: typeof ltvTileNote === 'function' ? ltvTileNote(cur) : '', onClick: () => mklLtvPop(cur, ym, _cap) })]
   ];
   // Owner-only ordering (per Isaac, Nov 16): the Admin – Owner drags tiles into place; the order is saved in the
   // shared marketing config and is what every other admin sees. New tiles append at the end.
   const _m = _mktgStore(); const saved = Array.isArray(_m.tileOrder) ? _m.tileOrder : [];
-  const order = [...saved.filter(k => TILE_DEFS.some(d => d[0] === k)), ...TILE_DEFS.map(d => d[0]).filter(k => !saved.includes(k))];
+  const order = [...saved.map(k => k === 'rpl' ? 'ltv' : k).filter(k => TILE_DEFS.some(d => d[0] === k)), ...TILE_DEFS.map(d => d[0]).filter(k => !saved.includes(k) && !(k === 'ltv' && saved.includes('rpl')))];   // 'rpl' became 'ltv' (Nov 18) — a saved order keeps its slot
   const owner = typeof isOwnerUser === 'function' && isOwnerUser();
   const tiles = el('div', { class: 'grid gap-3 mkl-tiles' });
   let dragKey = null;

@@ -3443,10 +3443,7 @@ const showRep = !!(opts && opts.showRep);
           hSort('customer',     'Customer',      'text-left px-2 py-1.5 whitespace-nowrap'),
           hSort('customerId',   'Cust ID',       'text-left px-2 py-1.5'),
           hSort('subscription', 'Subscription',  'text-left px-2 py-1.5 whitespace-nowrap'),
-          // Initial + Recurring (per service) left of ACV (per Isaac, Oct 15). The feed's `recurring` is FieldRoutes'
-          // annual recurring value = charge × 12, so ÷ 12 is the per-service charge.
-          hSort('initial',      'Initial',       'text-right px-2 py-1.5'),
-          hSort('recurring',    'Recurring',     'text-right px-2 py-1.5'),
+          // Initial + Recurring columns hidden (per Isaac, Nov 18 — were added Oct 15); ACV carries the money. The sort keys stay.
           hSort('value',        'ACV',           'text-right px-2 py-1.5'),
           hSort('autopay',      'Auto Pay',      'text-center px-2 py-1.5'),
           hSort('status',       'Status',        'text-center px-2 py-1.5'),
@@ -3474,9 +3471,7 @@ const showRep = !!(opts && opts.showRep);
             el('td', { class: 'px-2 py-1.5 font-medium whitespace-nowrap', title: s.customer || '' }, s.customer || '—'),
             el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums' }, s.customerId || '—'),
             el('td', { class: 'px-2 py-1.5 text-muted- max-w-[200px] truncate', title: s.subscription || '' }, s.subscription || '—'),
-            el('td', { class: 'px-2 py-1.5 text-right tabular-nums' }, s.initialPrice != null && s.initialPrice !== '' ? fmt.usd(Number(s.initialPrice) || 0) : '\u2014'),
-            el('td', { class: 'px-2 py-1.5 text-right tabular-nums' }, (Number(s.recurring) || 0) > 0 ? fmt.usd((Number(s.recurring) || 0) / 12) : '\u2014'),
-            el('td', { class: 'px-2 py-1.5 text-right tabular-nums font-semibold' }, fmt.usd0(s.contractValue)),
+            el('td', { class: 'px-2 py-1.5 text-right tabular-nums font-semibold', title: (s.initialPrice != null && s.initialPrice !== '' ? 'Initial ' + fmt.usd(Number(s.initialPrice) || 0) : '') + ((Number(s.recurring) || 0) > 0 ? ' · Recurring ' + fmt.usd((Number(s.recurring) || 0) / 12) : '') }, fmt.usd0(s.contractValue)),
             el('td', { class: 'px-2 py-1.5 text-center' },
               el('span', {
                 class: 'text-[10px] font-semibold px-1.5 py-0.5 rounded',
@@ -3544,19 +3539,40 @@ function openLandingTileDrill(title, subtitle, rows, opts) {
     ? _indAccountsTable(rows, sort, (st) => { sort = st; paint(); }, opts)
     : el('div', { class: 'p-6 text-center text-xs text-muted- italic' }, 'No accounts in this bucket.'));
   paint();
-  const csv = () => {
+  // Export carries the account's FieldRoutes notes too (per Isaac, Nov 18): general notes and cancellation notes, newest
+  // first, so a rep can see what is going on with a customer. Fetched from the server (POST /api/crm/customer-notes)
+  // in batches of 400 ids; if that call fails the export still goes out, with the two columns empty and a toast.
+  const csv = async (ev) => {
+    const btn = ev && ev.currentTarget; const orig = btn ? btn.textContent : '';
+    if (btn) { btn.textContent = 'Fetching notes…'; btn.disabled = true; }
+    const notes = {};
     try {
-      const cols = ['Rep', 'Customer', 'Cust ID', 'Subscription', 'Value', 'Auto Pay', 'Status', 'Sold', 'Aged', 'Cancel Date', 'Cancel Reason'];
+      if (!DEMO) {
+        const ids = [...new Set(rows.map(s => String(s.customerId || '').replace(/\D/g, '')).filter(Boolean))];
+        const headers = typeof _apiAuthHeaders === 'function' ? await _apiAuthHeaders({ 'Content-Type': 'application/json' }) : { 'Content-Type': 'application/json' };
+        for (let i = 0; i < ids.length; i += 400) {
+          const r = await fetch('/api/crm/customer-notes', { method: 'POST', headers, body: JSON.stringify({ customer_ids: ids.slice(i, i + 400) }) });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+          Object.assign(notes, j.notes || {});
+        }
+      }
+    } catch (e) { toast('Notes not included: ' + (e && e.message || e), 'warn'); }
+    const noteText = (list) => (list || []).map(n => [n.d, n.who, n.reason ? '[' + n.reason + ']' : '', n.text].filter(Boolean).join(' · ')).join(' | ');
+    try {
+      const cols = ['Rep', 'Customer', 'Cust ID', 'Subscription', 'Value', 'Auto Pay', 'Status', 'Sold', 'Aged', 'Cancel Date', 'Cancel Reason', 'General Notes', 'Cancellation Notes'];
       const q = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
-      const lines = [cols.map(q).join(',')].concat(rows.map(s => [
+      const lines = [cols.map(q).join(',')].concat(rows.map(s => { const N = notes[String(s.customerId || '').replace(/\D/g, '')] || {}; return [
         (typeof getCanonicalRepName === 'function' ? getCanonicalRepName(s.rep) : s.rep) || '', s.customer || '', s.customerId || '', s.subscription || '',
         Number(s.contractValue) || 0, isAutoPayOn(s) ? 'On' : 'Off', _repCancelCounts(s) ? 'Cancelled' : (_subCancelledNow(s) && _isOneTimeCancel(s)) ? 'Completed' : 'Active',
         (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || s.dateSold || '', Number(s.age) || 0, s.cancelDate || '', s.cancelReason || '',
-      ].map(q).join(',')));
+        noteText(N.general), noteText(N.cancel),
+      ].map(q).join(','); }));
       const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
       const a = el('a', { href: URL.createObjectURL(blob), download: title.replace(/[^a-z0-9]+/gi, '_').toLowerCase() + '.csv' });
       document.body.append(a); a.click(); a.remove();
     } catch (e) { toast('Export failed', 'error'); }
+    if (btn) { btn.textContent = orig; btn.disabled = false; }
   };
   overlay.append(el('div', { class: 'card w-full max-w-5xl overflow-hidden flex flex-col', onclick: (e) => e.stopPropagation() },
     el('div', { class: 'flex items-center justify-between gap-3 px-5 pt-4 pb-3 border-b', style: { borderColor: 'var(--border)' } },
@@ -3570,10 +3586,12 @@ function openLandingTileDrill(title, subtitle, rows, opts) {
   document.body.append(overlay);
 }
 
-// Peak value per account (per Isaac + CSO, Oct 15): what the account was worth from AFTER its initial service
-// was completed, before any later reduction (a rate lowered to save the customer, a plan adjusted down).
-// customer # + current plan name → peak contract value, from the RevHawk sync's indicators/peak-values.json
-// (FieldRoutes' change history — whatever RevHawk has on file; the 2026 backfill flows in automatically).
+// Peak value per account (per Isaac + CSO, Oct 15; rule settled Nov 19): what the subscription was worth right
+// AFTER its initial service was completed — before any later change, a rate lowered to save the customer OR an
+// upsell added later (so peak can sit below today's value). Same-day changes by the tech are part of the sale.
+// customer # + current plan name → peak contract value, from the server's indicators/peak-values-v2.json
+// (services/indicators/jobs/peak-values.js over FieldRoutes' change history, backfilled to Jan 2026). Only
+// accounts that changed are in the file; anything else is worth what it is today.
 let _cardPeak = { file: null, map: new Map() };
 let _peakFile = null, _peakFileAt = 0;
 let _peakFileCb = null;   // the open card re-renders when the file lands
@@ -3581,13 +3599,13 @@ function _loadPeakFile(cb) {
   if (cb) _peakFileCb = cb;
   if (Date.now() - _peakFileAt < 10 * 60000 || typeof supabase === 'undefined' || !supabase || (typeof DEMO !== 'undefined' && DEMO)) return;
   _peakFileAt = Date.now();
-  Promise.resolve(supabase.storage.from('reporting').download('indicators/peak-values.json?t=' + Date.now()))
+  Promise.resolve(supabase.storage.from('reporting').download('indicators/peak-values-v2.json?t=' + Date.now()))
     .then(async ({ data }) => { if (!data) return; const j = JSON.parse(await data.text()); if (j && j.peaks) { _peakFile = j; try { if (_peakFileCb) _peakFileCb(); } catch (e) { /* card closed */ } try { if (typeof mountApp === 'function') mountApp(); } catch (e) { /* the leaderboard's Peak column fills in */ } } })
     .catch(() => { /* no file yet — Peak reads as today's value */ });
 }
 function _peakSinceLabel() {
   const d = _peakFile && _peakFile.changelog_since;
-  return d && typeof fmt !== 'undefined' && fmt.dateShortYear ? fmt.dateShortYear(String(d).slice(0, 10)) : '9/14/26';
+  return d && typeof fmt !== 'undefined' && fmt.dateShortYear ? fmt.dateShortYear(String(d).slice(0, 10)) : '1/1/26';
 }
 function _cardPeakIdx() {
   _loadPeakFile();
@@ -3704,9 +3722,9 @@ function openIndicatorRepCard(rep, allReps = []) {
     const sellDays = new Set(allSales.map(s => dateSoldToIso(s.dateSold)).filter(Boolean)).size;
     const _isRen = (x) => typeof _indicatorIsRenewal === 'function' && _indicatorIsRenewal(x);
     const revSales = (cardRevMode === 'total' || cardRevMode === 'peak') ? allSales : allSales.filter(x => cardRevMode === 'renewal' ? _isRen(x) : !_isRen(x));
-    // Peak (per Isaac + CSO, Oct 15): each account at its value from after the initial was completed, before any
-    // later reduction — so rates lowered to save a customer don't shrink what the rep's serviced book was.
-    const _peakOf = (x) => { const v = Number(x.contractValue) || 0; const hit = _cardPeakIdx().get(String(x.customerId || '') + '|' + String(x.subscription || '').trim().toLowerCase()); return Math.max(v, hit || 0); };
+    // Peak (per Isaac + CSO, Oct 15; Nov 19): each account at its value right after the initial was completed —
+    // before later saves (which lower it) and later upsells (which raise it). No entry = unchanged = today's value.
+    const _peakOf = (x) => { const v = Number(x.contractValue) || 0; const hit = _cardPeakIdx().get(String(x.customerId || '') + '|' + String(x.subscription || '').trim().toLowerCase()); return hit != null ? hit : v; };
     const revAmt = cardRevMode === 'peak' ? revSales.reduce((a, x) => a + _peakOf(x), 0)
       : cardRevMode === 'total' && _mo.revenue == null ? (scopedRep.revenue || 0) : revSales.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
     const _nowAmt = revSales.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
@@ -3723,7 +3741,7 @@ function openIndicatorRepCard(rep, allReps = []) {
     scopedStats = [
       { key: 'sales',      label: 'Subscriptions',      value: fmt.int(count) },
       { key: 'revenue',    label: cardRevMode === 'new' ? 'New Revenue' : cardRevMode === 'renewal' ? 'Renewal Revenue' : cardRevMode === 'peak' ? 'Peak Revenue' : 'Total Revenue', value: fmt.usd0(revAmt), sub: revToggle,
-        title: cardRevMode === 'peak' ? 'Peak ' + fmt.usd0(revAmt) + ' vs ' + fmt.usd0(_nowAmt) + ' today \u2014 ' + fmt.usd0(Math.max(0, revAmt - _nowAmt)) + ' lowered since the initial was completed (rate cuts to save customers, downgrades) \u00b7 change history from ' + _peakSinceLabel() : 'Sales sold in this window · New = renewal-source sales out (the leaderboard default for Office Staff) · Production/Day follows this toggle' },
+        title: cardRevMode === 'peak' ? 'Peak ' + fmt.usd0(revAmt) + ' = every account at its value right after the initial was completed \u00b7 today ' + fmt.usd0(_nowAmt) + ' (' + (_nowAmt >= revAmt ? '+' : '\u2212') + fmt.usd0(Math.abs(_nowAmt - revAmt)) + ' from later upsells and saves) \u00b7 change history from ' + _peakSinceLabel() : 'Sales sold in this window · New = renewal-source sales out (the leaderboard default for Office Staff) · Production/Day follows this toggle' },
       { key: 'revPerDay',  label: 'Production/Day',
         value: _mo.revPerDay != null && cardRevMode === 'total' ? fmt.usd0(_mo.revPerDay) + (_mo.acctsPerDay != null ? ' / ' + Math.round(_mo.acctsPerDay) : '') : revDays > 0 ? fmt.usd0(revAmt / revDays) + ' / ' + Math.round(revSales.length / revDays) : '—' },   // whole accounts/day — decimals clipped the tile (per Isaac)
       { key: 'acv',        label: 'ACV',        value: fmt.usd(acv) },
@@ -5016,13 +5034,15 @@ function openIndicatorRepCard(rep, allReps = []) {
       }
     });
   }
-  // Peak vs current (per Isaac, Oct 15): with Peak on, the accounts whose value came down after the initial
-  // was completed — peak, today, and the reduction — so leads and reps can see every save / downgrade.
+  // Peak vs current (per Isaac, Oct 15; Nov 19): with Peak on, the accounts whose value came DOWN after the
+  // initial was completed — peak, today, and the reduction — so leads and reps can see every save / downgrade.
+  // (Accounts upsold since the initial sit above their peak and are not a reduction, so they are not listed.)
   function peakTable() {
     const idx = _cardPeakIdx();
     const rows = (scopedRep.sales || []).map(x => {
       const now = Number(x.contractValue) || 0;
-      const pk = Math.max(now, idx.get(String(x.customerId || '') + '|' + String(x.subscription || '').trim().toLowerCase()) || 0);
+      const hit = idx.get(String(x.customerId || '') + '|' + String(x.subscription || '').trim().toLowerCase());
+      const pk = hit != null ? hit : now;
       return { x, now, pk, cut: pk - now };
     }).filter(r => r.cut > 0.5).sort((a, b) => b.cut - a.cut);
     const T = rows.reduce((a, r) => ({ pk: a.pk + r.pk, now: a.now + r.now, cut: a.cut + r.cut }), { pk: 0, now: 0, cut: 0 });

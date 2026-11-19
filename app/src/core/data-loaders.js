@@ -381,7 +381,7 @@ async function loadData() {
   // Competitions/rules/progress + the legacy leaderboard table hydrate
   // right after first paint instead of holding the splash hostage.
   const [salesRes, profiles] = await Promise.all([salesQuery, profilesQuery]);
-  loadUnloggedSales().then(gh => { if (gh) { state.unloggedSales = gh; if (state.view === 'sales') mountApp(); } });
+  loadUnloggedSales().then(gh => { if (gh) { state.unloggedSales = gh; if (state.view === 'sales' || state.view === 'dashp') mountApp(); } });   // Sales renders under Commissions too (per Isaac, Nov 18)
   loadAutologSwitch();   // upsells are always automatic now — no remount needed
   setTimeout(() => {
     Promise.all([

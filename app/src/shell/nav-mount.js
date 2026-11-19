@@ -38,7 +38,8 @@ function riddSpiderMark(px) { const B = _brand(); if (B.MARK_SVG && Array.isArra
 // Views/hashes/permissions are untouched — this is purely a nav grouping.
 const INSIDE_SALES_TABS = [
   ['dashboard',    'Dashboard'],
-  ['sales',        'Sales'],
+  // 'sales' moved to the Commissions tab → Sales (per Isaac, Nov 18); the view key still resolves (redirect below) so
+  // every #sales deep link, auditor guard and _lastIsTab keeps working.
   // 'pay' moved to the Commissions tab → Office Staff (per Isaac, Nov 18); the view key still resolves (redirect below).
   ['scorecards',   'Scorecards'],
   ['calendar',     'Calendar'],
@@ -47,7 +48,7 @@ const INSIDE_SALES_TABS = [
   // tab now. The VIEW stays reachable (deep links / legacy hash) via the key
   // set below, it just doesn't render a sub-tab button anymore.
 ];
-const INSIDE_SALES_TAB_KEYS = new Set([...INSIDE_SALES_TABS.map(([k]) => k), 'competitions']);
+const INSIDE_SALES_TAB_KEYS = new Set([...INSIDE_SALES_TABS.map(([k]) => k), 'competitions', 'sales']);
 // ── D2D SALES GROUP (per Isaac) — the door-to-door mirror of the Inside
 // Sales world: Dashboard (war room on CRM D2D rows) · Sales (accounts list)
 // · Pay (the commission calculator / My Commission, now a sub-tab).
@@ -872,7 +873,7 @@ function mountApp() {
   if (_mountCoalesce()) return;
   clearTimeout(_mountGate.timer); _mountGate.timer = null; _mountGate.since = 0;
   _mountGate.at = Date.now();
-  try { return _mountAppRender(); } finally { _mountGate.at = Date.now(); }   // stamped after the render too, so a slow one still holds the next burst
+  try { return _mountAppRender(); } finally { _mountGate.at = Date.now(); if (typeof arrangeSchedule === 'function') arrangeSchedule(); }   // stamped after the render too, so a slow one still holds the next burst · owner's card order applied after every render (shell/arrange.js)
 }
 function _mountAppRender() {
   window._riddSeq = (window._riddSeq || 0) + 1;   // one render = one tick (per-render memos key on it)
@@ -1269,7 +1270,9 @@ function _mountAppRender() {
           // status words: a stale time says it's down, the colour backs it up,
           // and the detail is a tap away. Falls back to the sync time only
           // when the data-as-of stamp isn't available yet.
-          (() => { const d = (typeof crmDataAsOfStr === 'function') ? crmDataAsOfStr(false) : ''; return [_phone ? 'Sync ' : 'Last Sync: ', el('span', { class: 'font-semibold', style: { color: c || 'var(--text)' } }, d || txt)]; })()) : null;
+          (() => { const d = (typeof crmDataAsOfStr === 'function') ? crmDataAsOfStr(false) : ''; return [_phone ? 'Sync ' : 'Last Sync: ', el('span', { class: 'font-semibold', style: { color: c || 'var(--text)' } }, d || txt),
+            // A newer snapshot downloading behind the rows on screen (per Isaac, Nov 18) — say so instead of blanking the tab.
+            (state.view === 'reporting' && state._reportingRefreshing) ? el('span', { class: 'ml-2 text-[10px] font-semibold', style: { color: 'var(--text-muted)' }, title: 'The tables show the previous snapshot while the newest one downloads; they refresh on their own when it lands.' }, '\u21bb updating\u2026') : null]; })()) : null;
       })();
   const pageHeader = el('header', {
     class: 'page-header px-4 sm:px-6 py-4',
@@ -1485,8 +1488,8 @@ function _mountAppRender() {
   // Render the view's body
   const view = {
     dashboard:    viewWorldDashboard,     // Indicators preset to Office Staff (+ revenue-goal pacer)
-    sales:        viewSales,
-    pay:          () => { const S = (typeof dashpStore === 'function') ? dashpStore() : null; if (S && typeof dashpOfficeList === 'function') { S.tab = 'office'; S.detail = null; state.view = 'dashp'; try { history.replaceState(null, '', '#dashp'); } catch (e) {} return mountApp(); } return viewPay(); },   // Pay lives on Commissions → Office Staff now (per Isaac, Nov 18)
+    sales:        () => { const S = (typeof dashpStore === 'function') ? dashpStore() : null; const mod = (window.RIDD_MODULES || []).find(m => m.id === 'dashp'); if (S && mod && mod.canView()) { S.tab = 'sales'; S.detail = null; state.view = 'dashp'; try { history.replaceState(null, '', '#dashp'); } catch (e) {} return mod.render(); } return viewSales(); },   // Sales lives on Commissions → Sales now (per Isaac, Nov 18); anyone without Commissions still gets the page itself
+    pay:          () => { const S = (typeof dashpStore === 'function') ? dashpStore() : null; const mod = (window.RIDD_MODULES || []).find(m => m.id === 'dashp'); if (S && mod && mod.canView()) { S.tab = 'office'; S.detail = null; state.view = 'dashp'; try { history.replaceState(null, '', '#dashp'); } catch (e) {} return mod.render(); } return viewPay(); },   // Pay lives on Commissions → Office Staff now (per Isaac, Nov 18)
     calendar:     viewCalendar,
     competitions: viewCompetitions,
     // Hall of Fame retired (per Isaac, Oct 13 — the Records table covers it). Old links land on that world's dashboard.

@@ -1864,6 +1864,38 @@ function _renewalLinked(r) {
   const me = String(r.subscription_id);
   return (_renLinkMemo.idx.get(c) || []).some(([id, d, oc]) => id !== me && d > sold && (!oc || oc >= grace));
 }
+// Renewal by SOURCE (per Isaac, Nov 19 — "we have way more renewals than step 9 shows"): of the 1,113 renewal-sourced
+// plans sold in 2026, only 58% had the old plan closed with a Renewal reason; ~10% were closed as Combined, and ~140
+// as Finances / Price Increase / Moved / Sold-Not-Started — real cancels on paper, renewed customers in fact. So a
+// closed plan is also a renewal when the same customer bought a Renewal-* sourced recurring plan after it that was
+// sold no later than 45 days after the close and was still running at the close (7-day grace, as _renewalLinked).
+// The old plan's reason no longer decides; the "renewals entered wrong" flag keeps listing the mis-coded ones.
+const _renSrcMemo = { src: null, idx: null };
+function _renewalBySource(r) {
+  const all = state.reportingSubscriptions || [];
+  if (_renSrcMemo.src !== all) {
+    const rec = (typeof reportingServiceRecurringMap === 'function') ? reportingServiceRecurringMap() : null;
+    const isRen = (x) => /^renewal\b/i.test(String(x.subscription_source || '').trim()) || (typeof reportingSourceClass === 'function' && reportingSourceClass(x.subscription_source) === 'renewal');
+    const idx = new Map();
+    const add = (x) => {
+      if (!isRen(x)) return;
+      if (rec && !rec.get(x.subscription)) return;
+      const c = String(x.customer_id != null ? x.customer_id : ''); if (!c) return;
+      const d = String(x.sold_date || x.initial_service || '').slice(0, 10); if (!d) return;
+      (idx.get(c) || idx.set(c, []).get(c)).push([String(x.subscription_id), d, String(x.subscription_date_canceled || '').slice(0, 10)]);
+    };
+    all.forEach(add); (state._deletedSubs || []).forEach(add);
+    _renSrcMemo.src = all; _renSrcMemo.idx = idx;
+  }
+  const c = String(r.customer_id != null ? r.customer_id : ''); const cx = String(r.subscription_date_canceled || '').slice(0, 10);
+  if (!c || !cx) return false;
+  const list = _renSrcMemo.idx.get(c); if (!list || !list.length) return false;
+  const sold = String(r.sold_date || r.initial_service || '').slice(0, 10);
+  const g = new Date(cx + 'T00:00'); g.setDate(g.getDate() - 7); const grace = g.toISOString().slice(0, 10);
+  const late = new Date(cx + 'T00:00'); late.setDate(late.getDate() + 45); const latest = late.toISOString().slice(0, 10);
+  const me = String(r.subscription_id);
+  return list.some(([id, d, oc]) => id !== me && d > sold && d <= latest && (!oc || oc >= grace));
+}
 // "Never started" cancels (per Isaac, Oct 14): a plan closed as "Sold, Not
 // Started (No Initial)" or "Initial Appointment Canceled" says the customer
 // never began — so it leaves the book (not kept as retained). Every one that
@@ -1941,6 +1973,7 @@ function _reportingCancelCarriedOn(r) {
   const why = reportingCancelReasonOf(r);
   if (_retenWhatIf('popCombined', true) && crmReasonIs('combined', why)) return true;
   if (_retenWhatIf('popRenew', true) && crmReasonIs('renewal', why) && _renewalLinked(r)) return true;
+  if (_retenWhatIf('popRenew', true) && _renewalBySource(r)) return true;   // renewed onto a Renewal-* plan, whatever the old plan's reason says (per Isaac, Nov 19)
   if (_retenWhatIf('popReplaced', true) && _replacedLinked(r)) return true;
   return false;
 }
@@ -2048,6 +2081,7 @@ function _retenPopulationExcluded(r) {
   if ([...popSet].some(_isRorReason) && retenIsRorSub(r)) return 'closed by 3 Day ROR';
   if (_retenWhatIf('popNoStart', true) && retenNotStartedSub(r)) return 'closed as never started';
   if (r.subscription_date_canceled && popSet.has(_normCancelReason(reportingCancelReasonOf(r))) && !_isRorReason(_normCancelReason(reportingCancelReasonOf(r))) && !(crmReasonIs('renewal', reportingCancelReasonOf(r)) && !_renewalLinked(r))) return 'closed by ' + String(reportingCancelReasonOf(r) || '').trim();
+  if (_retenWhatIf('popRenew', true) && r.subscription_date_canceled && _renewalBySource(r)) return 'closed by renewal (customer bought a Renewal-source plan)';
   if (_retenWhatIf('popReplaced', true) && _replacedLinked(r)) return 'replaced by a new plan within 30 days';
   if (retenExclRenewalSubs() && reportingSourceClass(r.subscription_source) === 'renewal') return 'renewal sub';
   if (retenExclZeroPay() && !_retenPaying(r)) return '$0 paying';

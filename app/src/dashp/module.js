@@ -22,8 +22,18 @@ function dashpView() {
   if (!S.year) S.year = new Date().getFullYear();
   // Office Staff (per Isaac, Nov 18): the Pay sub-tab moved here. Office reps see only that tab and only themselves.
   const _officeOnly = typeof dashpOfficeCanSeeAll === 'function' && !dashpOfficeCanSeeAll();
-  if (_officeOnly) S.tab = 'office';
-  if (!S.tab) S.tab = 'tech';
+  // Sales (per Isaac, Nov 18): the Inside Sales → Sales tab (log a sale, the rep's list, the auditing queue) moved
+  // here too, so everything money-related is one tab. Same renderer (viewSales), same permissions row.
+  const _r = state.profile && state.profile.role, _aud = _r === 'auditor';
+  const _canSales = typeof viewSales === 'function' && (isAdminRole(_r) || _aud || typeof VIEW_TAB_PERM === 'undefined' || !VIEW_TAB_PERM.sales || (typeof userCan === 'function' && userCan(VIEW_TAB_PERM.sales)));
+  const _tabs = _aud ? [['sales', 'Sales']] : _officeOnly ? [['office', 'Office Staff'], ...(_canSales ? [['sales', 'Sales']] : [])] : [['tech', 'Technicians'], ['d2d', 'Sales Reps'], ['office', 'Office Staff'], ...(_canSales ? [['sales', 'Sales']] : [])];
+  if (!_tabs.some(([k]) => k === S.tab)) S.tab = _tabs[0][0];
+  if (S.tab === 'sales') {
+    return el('div', { class: 'flex flex-col gap-4' },
+      _tabs.length > 1 ? el('div', { class: 'card p-3 flex items-center gap-3 flex-wrap' }, dashpTabs(_tabs, S.tab, (v) => { S.tab = v; S.detail = null; mountApp(); }),
+        el('div', { class: 'text-[10px] flex-1 text-right', style: { color: 'var(--text-subtle)' } }, 'Log a sale, your sales, and the auditing queue \u2014 what payroll pays from')) : null,
+      viewSales());
+  }
   const thisYear = new Date().getFullYear();
   const years = []; for (let y = thisYear; y >= 2024; y--) years.push([y, String(y)]);   // DASHP has no "which years exist" list; an empty year just shows an empty table
 
@@ -45,7 +55,7 @@ function dashpView() {
   const body = S.tab === 'tech' ? dashpTechList(S) : S.tab === 'office' ? dashpOfficeList(S) : dashpD2dList(S);
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'card p-3 flex items-center gap-3 flex-wrap' },
-      dashpTabs([['tech', 'Technicians'], ['d2d', 'Sales Reps'], ['office', 'Office Staff']], S.tab, (v) => { S.tab = v; S.detail = null; mountApp(); }),
+      dashpTabs(_tabs, S.tab, (v) => { S.tab = v; S.detail = null; mountApp(); }),
       dashpSelect('Year', S.year, years, (v) => { S.year = Number(v); S.techQuarter = null; mountApp(); }),
       S.tab === 'office'
         ? dashpSelect('Period', S.osPeriodShown == null ? 'year' : S.osPeriodShown, [['year', 'Full year'], ...getPayPeriods(S.year).map(p => [p.id, p.label])], (v) => { S.osPeriod = v === 'year' ? 'year' : Number(v); mountApp(); })
@@ -62,6 +72,6 @@ registerRiddModule({
   label: 'Commissions',
   title: 'COMMISSIONS',
   icon: () => (typeof svg === 'function' ? svg('<path d="M12 2v20"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>') : el('span', {}, '$')),
-  canView: () => { const r = state.profile && state.profile.role; return isAdminRole(r) || isDeveloperRole(r) || (typeof dashpOfficeIsRep === 'function' && dashpOfficeIsRep(state.profile)); },   // office reps: their own pay (per Isaac, Nov 18)
+  canView: () => { const r = state.profile && state.profile.role; return isAdminRole(r) || isDeveloperRole(r) || r === 'auditor' || (typeof dashpOfficeIsRep === 'function' && dashpOfficeIsRep(state.profile)); },   // office reps: their own pay + Sales; auditors: the Sales queue (per Isaac, Nov 18)
   render: () => dashpView(),
 });

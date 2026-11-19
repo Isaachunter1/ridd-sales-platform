@@ -1286,11 +1286,12 @@ function _rptTabTaskCount(k) {
 }
 function reportingSubTabs() {
   const tabs = [
+    // Order (per Isaac, Nov 18): Overview · Marketing · Retention · Auditing · Geographic · P&L.
     ['overview',   'Overview'],
-    ['geographic', 'Geographic'],
+    ['marketing',  'Marketing'],
     ['waterfall',  'Retention'],
     ['auditing',   'Auditing'],
-    ['marketing',  'Marketing'],
+    ['geographic', 'Geographic'],
     // ['ops', 'Operations'] hidden for now (per Isaac, Nov 18) — reportingOpsHub() stays in the code; a saved 'ops' tab lands on Overview.
     ['putis',      'P&L'],
     // (Definitions moved to Settings → Reporting rules, per Isaac, Oct 14.)
@@ -1347,8 +1348,14 @@ function reportingDataGate() {
   if (state.reportingSubscriptionsLoadedFor !== activeId) {
     // Opening the tab is itself a kick (per Isaac, Nov 2): if no pull is in flight, start one — a no-op otherwise.
     try { if (typeof prefetchReportingSnapshot === 'function' && !state._reportingPrefetching) prefetchReportingSnapshot(); } catch (e) { /* best effort */ }
+    // A newer snapshot is on its way but an older one is already here (per Isaac, Nov 18 — "really slow loading up"):
+    // the sync publishes a new 12 MB file every five minutes, and this gate used to blank every Reporting tab to
+    // "Loading snapshot…" for the 15–20 s download each time. Keep showing the rows we have; the prefetch swaps
+    // them in and re-renders when the new file lands. Only a first-ever load still waits.
+    if (state.reportingSubscriptionsLoadedFor && Array.isArray(state.reportingSubscriptions) && state.reportingSubscriptions.length) { state._reportingRefreshing = true; return null; }
     return emptyCard('Loading snapshot…');
   }
+  state._reportingRefreshing = false;
   if (DEMO && (state.reportingSubscriptions || []).length === 0) {
     return el('div', { class: 'card p-12 text-center flex flex-col gap-2' },
       el('div', { class: 'text-sm font-semibold' }, 'Snapshot metadata restored, but rows aren’t persisted in demo mode.'),
