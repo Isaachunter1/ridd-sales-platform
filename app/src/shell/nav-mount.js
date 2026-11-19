@@ -52,22 +52,20 @@ const INSIDE_SALES_TAB_KEYS = new Set([...INSIDE_SALES_TABS.map(([k]) => k), 'co
 // ── D2D SALES GROUP (per Isaac) — the door-to-door mirror of the Inside
 // Sales world: Dashboard (war room on CRM D2D rows) · Sales (accounts list)
 // · Pay (the commission calculator / My Commission, now a sub-tab).
+// Sales and Pay sub-tabs removed (per Isaac, Nov 19 — pay lives on the Commissions tab; D2D Sales was a placeholder).
+// Their keys stay in the group so old links resolve inside the D2D world instead of bouncing.
 const D2D_SALES_TABS = [
   ['d2d_dashboard', 'Dashboard'],
-  ['d2d_sales',     'Sales'],
-  ['commission',    'Pay'],
   ['wallet',        'Wallet'],
 ];
-const D2D_SALES_TAB_KEYS = new Set(D2D_SALES_TABS.map(([k]) => k));
+const D2D_SALES_TAB_KEYS = new Set([...D2D_SALES_TABS.map(([k]) => k), 'd2d_sales', 'commission']);
 // ── TECHNICIAN GROUP (per Isaac, Sep 2026) — same shape: Dashboard + the
 // auto-logged Sales queue (Upfront / Pending Backend Lock / Archived / History).
 const TECH_TABS = [
   ['techs',      'Dashboard'],
-  ['tech_sales', 'Sales'],
-  ['tech_pay',   'Pay'],
   ['wallet',     'Wallet'],
 ];
-const TECH_TAB_KEYS = new Set(TECH_TABS.map(([k]) => k));
+const TECH_TAB_KEYS = new Set([...TECH_TABS.map(([k]) => k), 'tech_sales', 'tech_pay']);   // Sales (a placeholder) and Pay sub-tabs removed (per Isaac, Nov 19 — pay lives on the Commissions tab)
 // ── LOYALTY GROUP (per Isaac, Sep 23) — the loyalty team's working tabs:
 // Renewals pipeline (the shared drag-and-drop board) and Customer Health.
 // Office staff only (Permissions → Loyalty); admins always.
@@ -1508,13 +1506,15 @@ function _mountAppRender() {
     wallet:       viewWallet,             // RIDDCOIN (per Isaac, Nov 16)
     reporting:    viewReporting,
     marketing:    viewMarketing,
-    commission:   () => dashpPayTab('d2d', 'Sales Rep pay'),      // DASHP commission results (app/src/dashp)
+    // dashpPayTab was never written (Nov 16), so opening Pay threw and — the view being remembered — the app wouldn't
+    // load again (per Isaac, Nov 19). Pay lives on the Commissions tab; these keys fall back instead of crashing.
+    commission:   () => (typeof dashpPayTab === 'function' ? dashpPayTab('d2d', 'Sales Rep pay') : viewUnderConstruction('Sales Rep pay — open the Commissions tab')),
     d2d_dashboard: viewWorldDashboard,    // Indicators preset to D2D Sales
     d2d_sales:    viewSales,
     all_dashboard: viewWorldDashboard,    // Indicators with every user type (admins / developers)
     techs:        viewWorldDashboard,     // Indicators preset to Technicians
     tech_sales:   viewSales,
-    tech_pay:     () => dashpPayTab('tech', 'Technician pay'),    // DASHP commission results (app/src/dashp)
+    tech_pay:     () => (typeof dashpPayTab === 'function' ? dashpPayTab('tech', 'Technician pay') : viewUnderConstruction('Technician pay — open the Commissions tab')),
     admin:        viewAdmin,
   }[state.view];
       
