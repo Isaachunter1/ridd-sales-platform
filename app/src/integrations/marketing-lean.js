@@ -87,6 +87,13 @@ function _mklChannelOfSource(src) {
   if (p === GHL_NOT_LEAD) return s;   // e.g. Door to Door on an office sale — shown as is, so the mis-source is visible
   return p || s;
 }
+// A sale's channel: its FieldRoutes source — except 6 Brothers, a marketing vendor that sells its own leads as a rep
+// (per Isaac, Nov 19: "6 Brothers isn't a source, it is a sales rep"; Mark Christensen's seat). Its sales are re-sourced
+// to their real last touch (mostly Organic), so the vendor's revenue is found by who sold it, not by the source.
+function _mklSaleChannel(r) {
+  if (/6 ?brothers|six brothers|christensen,?\s*mark|mark christensen/i.test(String(r.sold_by || ''))) return '6 Brothers';
+  return _mklChannelOfSource(reportingSourceOf(r));
+}
 // One month's truth, by branch and by channel. Memoized per month + data identity.
 // cap (optional, per Isaac, Nov 16): a day of the month — only count through that day, so a partial current month
 // compares against the same stretch of the compare month (Nov 1–16 vs Oct 1–16). Sales by sold date, leads by lead
@@ -132,8 +139,8 @@ function mklMonth(ym, cap) {
     if (typeof reportingNonSaleService === 'function' && reportingNonSaleService(r.subscription)) continue;
     const v = Number(r.subscription_contract_value) || 0, done = 1; s++; svc += done; cv += v; sales.push(r);   // pending or serviced both count (per Isaac)
     const b = cell(br, TC(r.office_name || 'No branch')); b.s++; b.svc += done; b.cv += v;
-    const c = cell(ch, _mklChannelOfSource(reportingSourceOf(r))); c.s++; c.svc += done; c.cv += v;
-    const xc = xcell(TC(r.office_name || 'No branch'), _mklChannelOfSource(reportingSourceOf(r))); xc.s++; xc.svc += done; xc.cv += v; xc.sales = xc.sales || []; xc.sales.push(r);
+    const c = cell(ch, _mklSaleChannel(r)); c.s++; c.svc += done; c.cv += v;
+    const xc = xcell(TC(r.office_name || 'No branch'), _mklSaleChannel(r)); xc.s++; xc.svc += done; xc.cv += v; xc.sales = xc.sales || []; xc.sales.push(r);
     const rn = String(r.sold_by || '').trim() ? (typeof flipLastFirst === 'function' ? flipLastFirst(String(r.sold_by).trim()) : String(r.sold_by).trim()) : 'No rep';
     const rc = cell(rep, rn); rc.s++; rc.svc += done; rc.cv += v;
   }
@@ -179,7 +186,7 @@ function mklMonth(ym, cap) {
       let best = null; for (const l of cands) if (l.d >= floor && l.d <= ceil && (!best || l.d > best.d)) best = l;
       r._mklLead = best || null;
       if (best) linked++; else unlinked.push(r);
-      const xc = xcell(TC(r.office_name || 'No branch'), _mklChannelOfSource(reportingSourceOf(r)));
+      const xc = xcell(TC(r.office_name || 'No branch'), _mklSaleChannel(r));
       if (best) xc.linked = (xc.linked || 0) + 1; else (xc.unlinked || (xc.unlinked = [])).push(r);
     }
   }
