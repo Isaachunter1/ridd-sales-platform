@@ -7,11 +7,11 @@
 // │ toggle and the leaderboard's Peak Rev column. Ported from the frozen
 // │ Netlify sync (which still writes the old indicators/peak-values.json with
 // │ the old high-water-mark rule until it is retired — hence the new path).
-// │ Once a day: the change-log scan bills ~2 GB.
+// │ Once a day: the change-log scan bills ~10 GB (~33k change rows over ~21k subscriptions, Nov 2026).
 // └─────────────────────────────────────────────────────────────────────────
 import { job } from '../../../runtime/job.js';
 import { sql, getAccessToken, queryObjects, PROJECT, DATASET } from '../../../config/bigquery.js';
-import { legacyPeaks } from '../functions/peakValues.js';
+import { computePeaks } from '../functions/peakValues.js';
 
 const PEAK_SQL = sql(import.meta.url, 'peakValues');
 const SINCE_SQL = 'SELECT CAST(MIN(dateChangedDate) AS STRING) AS since FROM `' + PROJECT + '.' + DATASET + '.FieldRoutesChangelog` WHERE classID = 7';
@@ -31,7 +31,7 @@ export default job('peak-values', {
   const changelogSince = ((since || [])[0] || {}).since || null;
 
   await ctx.stage('computing');
-  const { peaks, stats } = legacyPeaks(rows);
+  const { peaks, stats } = computePeaks(rows);
   const payload = { at: ctx.now.toISOString(), changelog_since: changelogSince, rule: PEAK_RULE, peaks };
   await ctx.publish(PEAK_FILE, Buffer.from(JSON.stringify(payload)), 'application/json');
   return Object.assign({ rows: rows.length, published: Object.keys(peaks).length, changelogSince }, stats);

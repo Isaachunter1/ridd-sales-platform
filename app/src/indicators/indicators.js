@@ -5057,7 +5057,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     { key: 'revPerDay',   label: '$/Day',     align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Average revenue per SELLING day (days off don\'t count)' }, fmt.usd0(r.revPerDay || 0)) },
     { key: 'revenue',    label: 'Revenue',  align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums font-semibold' }, fmt.usd0(r.revenue)) },
     // Off by default on every board (per Isaac, Oct 15) — tick it on under Columns.
-    { key: 'peakRevenue', label: 'Peak Rev', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'Peak revenue \u2014 every account at its value once the initial was completed, before any later reduction (rates lowered to save it, plans adjusted down)',
+    { key: 'peakRevenue', label: 'Peak Rev', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'Peak revenue \u2014 every account at its value right after the initial was completed, before any later change (rates lowered to save it, or upsells added after)',
       cell: r => { const cut = (r.peakRevenue || 0) - (r.revenue || 0); return el('td', { class: 'px-2 py-2 text-left tabular-nums', title: cut > 0.5 ? fmt.usd0(cut) + ' lowered since the initials were completed' : 'No reductions' },
         fmt.usd0(r.peakRevenue || r.revenue || 0), cut > 0.5 ? el('div', { class: 'text-[10px]', style: { color: '#B91C1C' } }, '\u2212' + fmt.usd0(cut)) : null); } },
     // 12-week revenue sparkline with WoW slope. Sort key = trendSlope so
@@ -5403,10 +5403,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // The feed's `recurring` is FieldRoutes' annual recurring value, which is always charge × 12 (verified on the
   // live snapshot: ARV ÷ recurringCharge = 12 for monthly, bi-monthly and quarterly alike), so ÷ 12 = the charge.
   boardReps = boardReps.map(r => { let n = 0, t = 0; for (const x of (r.sales || [])) { const v = Number(x.recurring) || 0; if (v > 0) { n++; t += v / 12; } }
-    // Peak Revenue (per Isaac, Oct 15): every account at its value from after the initial was completed, before
-    // any later reduction (same map as the player card's Peak — indicators/peak-values.json).
+    // Peak Revenue (per Isaac, Oct 15; Nov 19): every account at its value right after the initial was completed,
+    // before later saves or upsells (same map as the player card's Peak — indicators/peak-values-v2.json).
     let pk = 0; const _pi = typeof _cardPeakIdx === 'function' ? _cardPeakIdx() : null;
-    for (const x of (r.sales || [])) { const v = Number(x.contractValue) || 0; const h = _pi ? (_pi.get(String(x.customerId || '') + '|' + String(x.subscription || '').trim().toLowerCase()) || 0) : 0; pk += Math.max(v, h); }
+    for (const x of (r.sales || [])) { const v = Number(x.contractValue) || 0; const h = _pi ? _pi.get(String(x.customerId || '') + '|' + String(x.subscription || '').trim().toLowerCase()) : null; pk += (h != null ? h : v); }
     return Object.assign({}, r, { avgRecurring: n ? t / n : 0, recN: n, recSum: t, peakRevenue: pk }); });
   // Sort by the selected column. Record columns no longer sort (per Isaac, Oct 16 —
   // the "by $ / by date" toggle is gone); an old saved record sort falls back to Total Revenue.

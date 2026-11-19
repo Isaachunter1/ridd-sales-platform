@@ -30,3 +30,4 @@ Each row: the symptom as a person sees it, the question to ask Claude, and the o
 | Config + secrets | Cloud Run → `ridd-server` → Edit & deploy → Variables & Secrets; values in Secret Manager |
 | Cron table | the `schedule` field on each job; `server/infra/scheduler.yaml` is generated |
 | Deploys | Cloud Build → History (server) · Netlify → Deploys (app) |
+| Player card Peak / leaderboard Peak Rev looks wrong or stale | `job_runs` for `peak-values` (daily 4:40am ET); `indicators/peak-values-v2.json` → `at`, `rule`, `changelog_since`. Peak below today = the account was upsold after the initial (expected since Nov 19). No file → Peak reads as today's value. Rebuild: `POST /api/jobs/peak-values`. Rule + fixture: `server/test/peak-values.test.js`. |
