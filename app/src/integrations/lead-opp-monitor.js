@@ -2,9 +2,11 @@
 // │ Every inbound contact in GoHighLevel should get an opportunity. In Nov 2026
 // │ Google Local Services calls stopped getting them around Oct 29 and Google Ads
 // │ around Nov 6 (73% → 6%, 93% → 8%) and nobody saw it for three weeks. This card
-// │ checks it every day: per source group, the share of new contacts (current
-// │ customers left out) with an opportunity on the same phone / email within 5 days,
-// │ last 7 days against the 28 days before. Red when a source that normally gets
+// │ checks it every day: per source group, every new contact splits into Opportunity
+// │ (an opportunity on the same phone / email within 5 days) or Contact only — the two
+// │ add to 100% (per Isaac, Nov 19). Contact only is expected for current customers
+// │ (they're kept out of the sales pipeline) and a miss for everyone else. Last 7 days
+// │ against the 28 days before; the alarm reads non-customers only. Red when a source that normally gets
 // │ opportunities falls under half its usual rate.
 // └────────────────────────────────────────────────────────────────────────────
 const LOM_GROUPS = [
@@ -30,13 +32,17 @@ function _lomData() {
   const last = G.rows.reduce((a, r) => r[0] > a ? r[0] : a, '');
   // Windows end 2 days before the newest contact so a contact has had time to get its opportunity.
   const end = day(last, -2), curFrom = day(end, -6), prevFrom = day(curFrom, -28), prevTo = day(curFrom, -1);
-  const S = {}; LOM_GROUPS.forEach(([g]) => { S[g] = { cur: [0, 0], prev: [0, 0], days: {} }; });
+  // Per window: [non-customer contacts, …with an opportunity] (the alarm) and the full split
+  // all = [contacts, opportunity, contact only · current customer, contact only · not a customer].
+  const S = {}; LOM_GROUPS.forEach(([g]) => { S[g] = { cur: [0, 0], prev: [0, 0], all: [0, 0, 0, 0], pall: [0, 0, 0, 0], days: {} }; });
   for (const r of G.rows) {
     const d = r[0]; if (!d || d < prevFrom || d > end) continue;
     const g = gOf(r[1]); if (!g) continue;
-    if (r[4] && typeof ghlIsCurrentCustomer === 'function' && ghlIsCurrentCustomer(r[4], d)) continue;
+    const cust = !!(r[4] && typeof ghlIsCurrentCustomer === 'function' && ghlIsCurrentCustomer(r[4], d));
     const hi = day(d, 5), lo = day(d, -1);
     const has = [].concat((r[4] && byP.get(r[4])) || [], (r[5] && byE.get(r[5])) || []).some(x => x >= lo && x <= hi);
+    const A = d >= curFrom ? S[g].all : S[g].pall; A[0]++; if (has) A[1]++; else if (cust) A[2]++; else A[3]++;
+    if (cust) continue;
     const b = d >= curFrom ? S[g].cur : S[g].prev; b[0]++; if (has) b[1]++;
     if (d >= day(end, -13)) { const k = S[g].days[d] || (S[g].days[d] = [0, 0]); k[0]++; if (has) k[1]++; }
   }
@@ -47,8 +53,8 @@ function _lomData() {
     const soft = !broken && pr != null && pr >= 0.5 && s.cur[0] >= 5 && cr != null && cr < pr - 0.2;
     // Contacts dried up (PestBooker went from ~45 a week to 0 in Nov 2026): under a quarter of its usual weekly volume.
     const wk = s.prev[0] / 4, dry = wk >= 10 && s.cur[0] < wk * 0.25;
-    return { g, cur: s.cur, prev: s.prev, cr, pr, broken: broken || dry, dry, soft, days: s.days };
-  }).filter(r => r.cur[0] || r.prev[0]);
+    return { g, cur: s.cur, prev: s.prev, all: s.all, pall: s.pall, cr, pr, broken: broken || dry, dry, soft, days: s.days };
+  }).filter(r => r.all[0] || r.pall[0]);
   const out = { rows, end, curFrom, prevFrom, prevTo };
   _lomData._m = { rows: G.rows, opps: G.opps, subs: state.reportingSubscriptions, out };
   return out;
@@ -77,11 +83,13 @@ function leadOppMonitorCard() {
   return el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkt-oppmon' }, head,
     el('div', { class: 'scroll-x border-t', style: { borderColor: 'var(--border)' } },
       el('table', { class: 'w-full text-xs' },
-        el('thead', {}, el('tr', {}, th('Source'), th(fmtD(D.curFrom) + '–' + fmtD(D.end), 'New contacts in the last 7 days (current customers left out) that got an opportunity within 5 days'), th('Usual', fmtD(D.prevFrom) + '–' + fmtD(D.prevTo) + ', the 28 days before'), th('Last 14 days'))),
+        el('thead', {}, el('tr', {}, th('Source'), th('Contacts', fmtD(D.curFrom) + '–' + fmtD(D.end) + ' — every new contact'), th('Opportunity', 'Got an opportunity within 5 days'), th('Contact only', 'No opportunity — current customers (expected) and everyone else (missed)'), th('Usual', 'Opportunity share ' + fmtD(D.prevFrom) + '–' + fmtD(D.prevTo) + ', the 28 days before'), th('Last 14 days', 'Non-customer contacts that got an opportunity, by day'))),
         el('tbody', {}, ...D.rows.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
           td(el('span', { class: 'inline-flex items-center gap-2' }, dot(r.broken ? '#DC2626' : r.soft ? '#D97706' : r.pr != null && r.pr < 0.5 ? 'var(--border-2)' : 'var(--ok)'), el('span', { class: 'font-semibold' }, r.g))),
-          td(pct(r.cr) + ' · ' + r.cur[1] + ' of ' + r.cur[0], { b: true, c: r.broken ? '#B91C1C' : r.soft ? '#B45309' : undefined }),
-          td(pct(r.pr) + ' · ' + r.prev[1] + ' of ' + r.prev[0], { c: 'var(--text-muted)' }),
+          td(r.all[0].toLocaleString()),
+          td(pct(r.all[0] ? r.all[1] / r.all[0] : null) + ' · ' + r.all[1], { b: true, c: r.broken ? '#B91C1C' : r.soft ? '#B45309' : undefined }),
+          td(el('span', {}, pct(r.all[0] ? (r.all[2] + r.all[3]) / r.all[0] : null) + ' · ', el('span', { title: 'Current customers — expected' }, r.all[2] + ' customer' + (r.all[2] === 1 ? '' : 's')), ' · ', el('span', { title: 'Not a customer — should have an opportunity', style: { color: r.all[3] ? '#B91C1C' : undefined, fontWeight: r.all[3] ? '700' : undefined } }, r.all[3] + ' missed'))),
+          td(pct(r.pall[0] ? r.pall[1] / r.pall[0] : null), { c: 'var(--text-muted)' }),
           td(el('span', { class: 'inline-flex gap-0.5' }, ...days.map(d => sq(r.days[d])))))))),
-      el('div', { class: 'px-3 py-2 text-[10px]', style: { color: 'var(--text-subtle)' } }, 'GoHighLevel contacts by source, current customers left out. An opportunity counts when the same phone or email has one from the day before to 5 days after. The week ends 2 days before the newest contact so each one has had time. Grey dot = a source that rarely gets opportunities anyway.')));
+      el('div', { class: 'px-3 py-2 text-[10px]', style: { color: 'var(--text-subtle)' } }, 'GoHighLevel contacts by source. Opportunity + Contact only = 100% of contacts. Contact only splits into current customers (kept out of the pipeline on purpose) and missed — anyone else with no opportunity. An opportunity counts when the same phone or email has one from the day before to 5 days after; the alarm reads non-customers only. The week ends 2 days before the newest contact so each one has had time. Grey dot = a source that rarely gets opportunities anyway.')));
 }
