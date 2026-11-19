@@ -1009,12 +1009,19 @@ function auditSubTasks() {
   const stale = rows.filter(r => { if (r.subscription_date_canceled || notSale(r.subscription)) return false;
       const sd = Date.parse(String(r.sold_date || '').slice(0, 10)); if (isNaN(sd)) return false; const age = (nowMs - sd) / dayMs; if (age < 14 || age > 365) return false;
       if (String(r.subscription_status || '').trim().toLowerCase() !== 'active') return false;
-      return !r.initial_service && !r.initial_serviced_date && String(r.initial_status || '').trim().toLowerCase() !== 'completed'; })
+      if (r.initial_service || r.initial_serviced_date || String(r.initial_status || '').trim().toLowerCase() === 'completed') return false;
+      // Not errors (per Isaac, Nov 19 audit review): an initial booked for a future date is scheduled, not stuck
+      // (Sentricon installs book weeks out); a Pending initial more than 7 days past is the "Deleted?" task's list —
+      // reviewed there, not twice.
+      const ap = Date.parse(String(r.initial_appt_date || '').slice(0, 10));
+      if (!isNaN(ap) && ap >= nowMs - dayMs) return false;
+      if (!isNaN(ap) && /^pending$/i.test(String(r.initial_status || '').trim()) && (nowMs - ap) / dayMs > 7) return false;
+      return true; })
     .map(r => { const age = Math.round((nowMs - Date.parse(String(r.sold_date).slice(0, 10))) / dayMs); const ist = String(r.initial_status || '').trim();
       return { ...r, _flagReason: 'Sold ' + age + ' days ago, initial service ' + (ist ? 'is ' + ist : 'has no appointment') + ' — schedule it or close the subscription' }; });
   tasks.push({ tag: 'Not started', title: 'Sold but never started', noun: 'subscription', rows: stale,
     ok: 'All clear — nothing sold more than two weeks ago is still waiting on its first service.',
-    todo: (n) => n + ' active subscription' + s(n) + ' sold more than 14 days ago with no completed initial service — schedule the first visit or close ' + (n === 1 ? 'it' : 'them') + '.' });
+    todo: (n) => n + ' active subscription' + s(n) + ' sold more than 14 days ago with no completed initial service and nothing booked ahead — schedule the first visit or close ' + (n === 1 ? 'it' : 'them') + '. (Pending initials more than a week past are under Deleted?.)' });
   // 6a. Renewal sold under a non-Renewal source (per Isaac, Oct 13 — moved here from the Renewals queue).
   const misSrc = (typeof renewalMisSourcedRows === 'function') ? renewalMisSourcedRows(rows).sort((x, y) => String(y.sold).localeCompare(String(x.sold))) : [];
   tasks.push({ tag: 'Renewal source', title: 'Renewals sold under a non-Renewal source', noun: 'subscription', tone: 'check', rows: misSrc,

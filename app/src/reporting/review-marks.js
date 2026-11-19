@@ -107,15 +107,17 @@ function serviceChangeAuditItem() {
     const chain = (rs) => rs.slice().reverse().map(r => (r.oldSvc || '?') + ' → ' + (r.newSvc || '?') + (r.lenOld != null && r.lenNew != null && r.lenOld !== r.lenNew ? ' (' + r.lenOld + ' → ' + r.lenNew + ' mo)' : '') + ' on ' + String(r.at).slice(0, 10)).join('; ');
     if (sale && afterSale.length && paidM > 1 && cur > 0 && paidM !== cur && String(last.status).toLowerCase() === 'active') {
       out.push({ sid, sev: 'red', last, sale, paidM, cur, text: 'Paid as ' + paidM + ' mo, FieldRoutes now ' + cur + ' mo after ' + chain(afterSale) + (sale.payroll_processed_at ? ' — already paid, likely ' + (paidM > cur ? 'over' : 'under') + 'paid' : ' — not paid yet, fix the term before payroll') });
-    } else if (moved.length) {
-      out.push({ sid, sev: 'amber', last, sale, paidM, cur, text: 'Contract length moved with the service: ' + chain(moved) + (sale ? ' · paid as ' + paidM + ' mo' : '') });
     }
+    // (The amber "contract length moved with the service" rows — 2,231 on Nov 19 — are gone, per Isaac's audit review:
+    // a service change that resets the term is normal, not an error. Only a sale PAID on a term the plan no longer
+    // has is a task.)
+    void moved;
   }
   out.sort((a, b) => (a.sev === b.sev ? 0 : a.sev === 'red' ? -1 : 1) || String(b.last.at).localeCompare(String(a.last.at)));
   const reds = out.filter(x => x.sev === 'red').length;
   const status = !D ? 'checking…' : D.missing || D.error ? 'waiting on the first change-log pull (the RevHawk sync builds it every 6 hours)'
     : !out.length ? 'All clear — no service change left a plan on a different contract length.'
-    : (reds ? reds + ' sale' + (reds === 1 ? '' : 's') + ' paid on a term the plan no longer has · ' : '') + (out.length - reds) + ' plan' + (out.length - reds === 1 ? '' : 's') + ' whose contract length moved when the service was changed — check the term is right' + (D.since ? ' (change log since ' + fmt.dateShort(String(D.since).slice(0, 10)) + ')' : '');
+    : out.length + ' sale' + (out.length === 1 ? '' : 's') + ' paid on a term the plan no longer has after a service change — fix the term (or the pay) before payroll' + (D.since ? ' (change log since ' + fmt.dateShort(String(D.since).slice(0, 10)) + ')' : '');
   const detail = el('div', { class: 'border-t', style: { borderColor: 'var(--border)' } }, ...out.slice(0, 600).map((x, i) =>
     el('div', { class: 'flex items-center gap-3 px-4 py-2 border-t text-xs', style: { borderColor: 'var(--border)' } },
       el('span', { class: 'text-[10px] font-bold tabular-nums shrink-0', style: { color: 'var(--text-subtle)', width: '22px', textAlign: 'right' } }, (i + 1) + '.'),
