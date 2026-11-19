@@ -1091,7 +1091,9 @@ function auditSubTasks() {
       if (o) replaced.push({ ...r, _flagReason: 'Customer #' + r.customer_id + ' · cancelled ' + cx + ' (' + (why || 'no reason') + ') · new plan ' + (o.subscription || '') + ' #' + o.subscription_id + ' sold ' + d10(o.sold_date || o.initial_service) + (o.subscription_date_canceled ? ' (cancelled ' + d10(o.subscription_date_canceled) + ')' : ' (active)') });
     }
     replaced.sort((x, y) => String(y.subscription_date_canceled).localeCompare(String(x.subscription_date_canceled)));
-    tasks.push({ tag: 'Replaced', title: 'Cancelled, then replaced by a new plan within 30 days', noun: 'subscription', tone: 'check', rows: replaced,
+    // Removed from the task list (per Isaac, Nov 19 audit review): mostly same-day downgrades that retention already
+    // links ("Link cancels replaced within 30 days"), so there's nothing to fix in FieldRoutes.
+    if (false) tasks.push({ tag: 'Replaced', title: 'Cancelled, then replaced by a new plan within 30 days', noun: 'subscription', tone: 'check', rows: replaced,
       ok: 'All clear — no cancels were replaced by a new plan.',
       todo: (n) => n.toLocaleString() + ' cancel' + s(n) + ' where the customer got a new plan within 30 days, not coded as a renewal — likely uncoded renewals or re-entries. Retention now links these like renewals (step "Link cancels replaced within 30 days"), so they no longer count as churn — still recode the reason to a Renewal in FieldRoutes if it was one.' });
   }
@@ -1101,11 +1103,13 @@ function auditSubTasks() {
   {
     const sentNoTerm = rows.filter(r => /sentricon/i.test(String(r.subscription || '')) && !/install/i.test(String(r.subscription || ''))
       && (!!r.initial_service || String(r.initial_status || '').toLowerCase() === 'completed')
-      && !((Number(r.agreement_length) || 0) >= 12))
+      && !((Number(r.agreement_length) || 0) >= 12)
+      // Active, or cancelled in the last 90 days (per Isaac, Nov 19 audit review).
+      && (isActive(r) || (Date.now() - Date.parse(String(r.subscription_date_canceled || '').slice(0, 10))) <= 90 * 86400000))
       .map(r => ({ ...r, _flagReason: 'Customer #' + r.customer_id + ' \u00b7 ' + (r.subscription || 'Sentricon') + ' \u00b7 ' + (/active/i.test(String(r.subscription_status || '')) && !r.subscription_date_canceled ? 'active' : 'frozen') + ' \u00b7 serviced ' + String(r.initial_service || '').slice(0, 10) + ' \u00b7 contract ' + ((Number(r.agreement_length) || 0) ? r.agreement_length + ' mo' : 'none') + ' \u2014 set to 12' }));
     tasks.push({ tag: 'Sentricon', title: 'Sentricon with no 12-month contract', noun: 'subscription', tone: 'check', rows: sentNoTerm,
       ok: 'All clear \u2014 every serviced Sentricon is on a 12-month (or longer) contract.',
-      todo: (n) => n.toLocaleString() + ' Sentricon plan' + s(n) + ' (active or frozen) with its initial service done but no contract or under 12 months \u2014 set the agreement length to 12 in FieldRoutes.' });
+      todo: (n) => n.toLocaleString() + ' Sentricon plan' + s(n) + ' (active, or cancelled in the last 90 days) with its initial service done but no contract or under 12 months \u2014 set the agreement length to 12 in FieldRoutes.' });
   }
   // 9. State doesn't match the ZIP (per Isaac, Oct 14): reporting already uses the
   //    ZIP's state; these are the customers to correct in FieldRoutes.
