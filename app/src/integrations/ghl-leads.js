@@ -220,14 +220,19 @@ function reportingFrSourcesPanel() {
         td(g.length ? g.slice(0, 4).join(', ') + (g.length > 4 ? ' +' + (g.length - 4) : '') : (x.renewal ? '—' : 'none'), g.length ? muted : x.renewal ? muted : { color: '#B45309', fontWeight: '600' })); })))) : null);
 }
 
-// Marketing to-do (per Isaac, Nov 16): every GoHighLevel source label with opportunities in the last 90 days that
+// Marketing to-do (per Isaac, Nov 16): every GoHighLevel source label with opportunities in the selected month (was the last 90 days until Nov 19) that
 // maps to nothing yet — pick its channel right here (or "Its own source" / "Not a new lead"); the pick is the same
 // one Settings → Configurations → GoHighLevel sources keeps, so Channels, Metrics and the misattribution audit all
 // read it at once. Nothing to map → no card.
 function ghlUnmappedTodoCard() {
   const G = state._ghl; if (!G || !G.opps || !G.labels) return null;
   const admin = isAdminRole(state.profile?.role);
-  const since = new Date(); since.setDate(since.getDate() - 90); const sinceIso = since.toISOString().slice(0, 10);
+  // Window = the month picked top-right on Marketing (per Isaac, Nov 19 — it should run down toward zero as sources get
+  // mapped), not a trailing 90 days. "recent" below means "in that month".
+  const ym = (typeof mklState === 'function' ? mklState().ym : null) || new Date().toISOString().slice(0, 7);
+  const sinceIso = ym + '-01', untilIso = ym + '-31';
+  const inWin = (d) => d >= sinceIso && d <= untilIso;
+  const ymLbl = new Date(ym + '-15T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
   const map = ghlSourceMap(), lab = G.labels;
   const chSet = typeof mkmChannelSet === 'function' ? mkmChannelSet() : null;
   const isMapped = (label) => { const pv = ghlProviderOf(label); if (!pv) return false; if (pv === GHL_NOT_LEAD) return true; return !chSet || chSet.has(pv); };
@@ -238,10 +243,10 @@ function ghlUnmappedTodoCard() {
   const cnt = new Map(); let blank = 0, blankRecent = 0;
   for (const o of G.opps) {
     if (!o || !o[0]) continue;
-    if (o[1] == null || o[1] < 0) { blank++; if (o[0] >= sinceIso) blankRecent++; continue; }
+    if (o[1] == null || o[1] < 0) { blank++; if (inWin(o[0])) blankRecent++; continue; }
     const label = lab[o[1]]; if (!label || isMapped(label)) continue;
-    const c = cnt.get(label) || { n: 0, recent: 0, last: '', cs: new Map() }; c.n++; if (o[0] >= sinceIso) c.recent++; if (o[0] > c.last) c.last = o[0];
-    const cs = (o[2] && byP.get(o[2])) || (o[3] && byE.get(o[3])) || ''; if (cs && o[0] >= sinceIso) c.cs.set(cs, (c.cs.get(cs) || 0) + 1);
+    const c = cnt.get(label) || { n: 0, recent: 0, last: '', cs: new Map() }; c.n++; if (inWin(o[0])) c.recent++; if (o[0] > c.last) c.last = o[0];
+    const cs = (o[2] && byP.get(o[2])) || (o[3] && byE.get(o[3])) || ''; if (cs && inWin(o[0])) c.cs.set(cs, (c.cs.get(cs) || 0) + 1);
     cnt.set(label, c);
   }
   const csTop = (c) => [...c.cs.entries()].sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k, n]) => k + ' (' + n + ')').join(' · ');
@@ -260,13 +265,13 @@ function ghlUnmappedTodoCard() {
   const head = el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', onclick: () => { state._ghlTodoOpen = !open; mountApp(); } },
     el('span', { class: 'inline-block rounded-full', style: { width: '8px', height: '8px', background: '#DC2626' } }),
     el('span', { class: 'text-[11px] uppercase tracking-widest font-bold' }, 'Unmapped GoHighLevel sources'),
-    el('span', { class: 'text-[11px]', style: muted }, list.length + ' source' + (list.length === 1 ? '' : 's') + ' · ' + total.toLocaleString() + ' opportunit' + (total === 1 ? 'y' : 'ies') + ' in the last 90 days with no channel — counted as not a lead until mapped' + (open ? '' : ' · ' + list.slice(0, 3).map(x => x.label).join(', ') + (list.length > 3 ? '…' : ''))),
+    el('span', { class: 'text-[11px]', style: muted }, list.length + ' source' + (list.length === 1 ? '' : 's') + ' · ' + total.toLocaleString() + ' opportunit' + (total === 1 ? 'y' : 'ies') + ' in ' + ymLbl + ' with no channel — counted as not a lead until mapped' + (open ? '' : ' · ' + list.slice(0, 3).map(x => x.label).join(', ') + (list.length > 3 ? '…' : ''))),
     el('span', { class: 'ml-auto text-[11px]', style: muted }, open ? '▴' : '▾'));
   const th = (t) => el('th', { class: 'px-3 py-1.5 text-left text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap', style: Object.assign({ background: 'var(--card-2)' }, muted) }, t);
   const td = (v, st) => el('td', { class: 'px-3 py-1 whitespace-nowrap tabular-nums', style: st || {} }, v);
   return el('div', { class: 'card overflow-hidden', style: { borderColor: 'rgba(220,38,38,.45)' } }, head,
     open ? el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)', maxHeight: '40vh', overflowY: 'auto' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-      el('thead', {}, el('tr', {}, th('Opportunity source'), th('Leads · 90 days'), th('All time'), th('Last seen'), th('Contact source (most common)'), th('Channel'))),
+      el('thead', {}, el('tr', {}, th('Opportunity source'), th('Leads · ' + ymLbl), th('All time'), th('Last seen'), th('Contact source (most common)'), th('Channel'))),
       el('tbody', {}, ...list.map(x => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, td(x.label, { fontWeight: '700' }), td(x.recent.toLocaleString()), td(x.n.toLocaleString(), muted), td(x.last, muted), td(csTop(x) || '—', muted), el('td', { class: 'px-3 py-1' }, pick(x)))),
         blankRecent ? el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, td('(no source on the opportunity)', Object.assign({ fontStyle: 'italic' }, muted)), td(blankRecent.toLocaleString()), td(blank.toLocaleString(), muted), td('—', muted), td('—', muted), td('Nothing to map — these need a source set in GoHighLevel.', muted)) : null))) : null,
     open ? el('div', { class: 'px-4 py-2 border-t text-[10px]', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } }, 'These are the source field on the OPPORTUNITY (what the workflow that created it wrote), not the contact’s source — the contact’s is shown beside it to help place odd ones. Until mapped they count as not a lead (per Isaac, Nov 16). A pick here is the same mapping as Settings → Configurations → GoHighLevel sources; Metrics and the misattribution audit use it right away. New labels show up here as GoHighLevel starts sending them.') : null);
