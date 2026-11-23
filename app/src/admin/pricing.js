@@ -444,7 +444,7 @@ function viewPricing() {
         const on = CORE.filter(s => pk.custom[s]);
         return { id, label: 'Custom Protection', custName: 'Custom Protection', base: on[0] || null, addons: on.slice(1), termite: !!pk.custom.termite };
       }
-      if (id === 'termite') return { id, label: 'Termite Defense', custName: 'Termite Defense', base: null, addons: [], termite: true, blurb: 'Annual termite contract' };
+      if (id === 'termite') return { id, label: 'Termite Defense', custName: 'Termite Defense', base: null, addons: [], termite: true, blurb: 'Annual termite contract · adds to any plan' };
       return null;
     };
     const PKGS = ['home', 'homeyard', 'custom', 'termite'].map(cfgOf);
@@ -475,6 +475,14 @@ function viewPricing() {
     const svcPill = (txt, on, onTap) => el('button', { onclick: (e) => { e.stopPropagation(); onTap(); }, 'aria-pressed': on ? 'true' : 'false', style: { font: '500 8.5px/1 ' + MONO, letterSpacing: '.06em', textTransform: 'uppercase', background: on ? C.char : '#fff', color: on ? '#fff' : C.ink2, border: '1px solid ' + (on ? C.char : 'rgba(0,0,0,.18)'), borderStyle: on ? 'solid' : 'dashed', borderRadius: '999px', padding: '5px 8px', cursor: 'pointer' } }, (on ? '✓ ' : '+ ') + txt);
     const L = (id) => id === 'termite' ? 'Termite' : PRICING_SERVICES[id].label;
     const pickThen = (id, fn) => () => { fn(); applyPkg(cfgOf(id)); rerender(); };
+    // Termite Defense is its own subscription (per Isaac): its card is an on/off box that rides alongside whatever
+    // plan is picked (or stands alone), not a fourth package.
+    const toggleTermite = () => {
+      const nv = !st.termite; st.termite = nv;
+      if (nv) st.extras.termite = true; else delete st.extras.termite;
+      if (st.pkg === 'custom') pk.custom.termite = nv;
+      rerender();
+    };
     const pillsFor = (c) => {
       if (c.id === 'home') return ['pest', 'rodent'].map(s => svcPill(L(s), pk.home === s, pickThen('home', () => { pk.home = s; })));
       if (c.id === 'homeyard') return [
@@ -482,15 +490,15 @@ function viewPricing() {
         el('span', { style: { font: '400 10px/22px ' + MONO, color: C.ink3, padding: '0 2px' } }, '+'),
         ...['tfm', 'mole'].map(s => svcPill(L(s), pk.hy.yard === s, pickThen('homeyard', () => { pk.hy.yard = s; })))];
       if (c.id === 'custom') return [...CORE, 'termite'].map(s => svcPill(L(s), !!pk.custom[s], pickThen('custom', () => { pk.custom[s] = !pk.custom[s]; })));
-      return [svcPill('Termite', true, pickThen('termite', () => {}))];
+      return [svcPill('Termite', !!st.termite, toggleTermite)];
     };
 
     const pkgCard = (c) => {
       const empty = !c.base && !c.termite;
       const pq = empty ? { mo: 0, init: 0, savings: 0 } : pkgMo(c), sep = separateMo(c), save = pq.savings;   // same yearly savings math as the quote (Bundle & Save)
-      const on = st.pkg === c.id && !!curPkg;
       const isT = c.id === 'termite';
-      return el('div', { role: 'button', tabindex: '0', onclick: () => { if (!empty) { applyPkg(c); rerender(); } }, 'aria-pressed': on ? 'true' : 'false', style: { position: 'relative', display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', background: isT ? '#FBE9E1' : C.card, color: C.char, borderRadius: '12px', padding: '13px 13px 11px', border: on ? '3px solid ' + C.orange : '1.5px solid ' + (isT ? C.orange : C.line), boxShadow: on ? '0 10px 22px -14px rgba(217,72,15,.9)' : 'none' } },
+      const on = isT ? !!st.termite : (st.pkg === c.id && !!curPkg);
+      return el('div', { role: 'button', tabindex: '0', onclick: () => { if (isT) return toggleTermite(); if (on) { st.pkg = null; st.base = null; st.addons = {}; rerender(); return; } if (!empty) { applyPkg(c); rerender(); } }, 'aria-pressed': on ? 'true' : 'false', style: { position: 'relative', display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', background: C.card, color: C.char, borderRadius: '12px', padding: '13px 13px 11px', border: on ? '3px solid ' + C.orange : '1.5px solid ' + C.line, boxShadow: on ? '0 10px 22px -14px rgba(217,72,15,.9)' : 'none' } },
         c.popular ? el('span', { style: { position: 'absolute', top: '-9px', right: '12px', background: C.orange, color: '#fff', font: '700 7.5px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', padding: '4px 8px', borderRadius: '999px' } }, 'Most homeowners pick this' + (on ? ' ✓' : '')) : (on ? el('span', { style: { position: 'absolute', top: '-9px', right: '12px', background: C.char, color: '#fff', font: '700 7.5px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', padding: '4px 8px', borderRadius: '999px' } }, 'Picked ✓') : null),
         el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '10px' } },
           el('div', { style: { font: '800 16px/1 ' + SANS, textTransform: 'uppercase' } }, c.label),
@@ -514,7 +522,7 @@ function viewPricing() {
         mono('Add extras', { size: 9, style: { margin: '14px 0 6px' } }),
         el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px' } },
           ...ids.map(([id, , mo]) => chipX(id, PRICING_SERVICES[id].label, mo, !!st.addons[id], () => { if (st.addons[id]) { delete st.addons[id]; delete st.extras[id]; } else { st.addons[id] = true; st.extras[id] = true; } rerender(); })),
-          curPkg.termite ? null : chipX('termite', 'Termite', T.termite[1], !!st.termite, () => { st.termite = !st.termite; st.extras.termite = st.termite; if (!st.termite) delete st.extras.termite; rerender(); })));
+          null));   // no Termite chip (per Isaac, Nov 23) — the Termite Defense box adds it
     };
 
     const extrasNames = () => curPkg ? [...Object.keys(st.addons).filter(id => !curPkg.addons.includes(id)).map(id => PRICING_SERVICES[id].label), ...(st.termite && !curPkg.termite ? ['Termite'] : [])] : [];
@@ -543,7 +551,7 @@ function viewPricing() {
         el('span', { style: { font: '400 10px/1.2 ' + MONO, color: C.ink2, whiteSpace: 'nowrap' } }, b));
       return el('div', { style: { background: C.page, borderRadius: '14px', border: '1px solid rgba(43,43,41,.18)', boxShadow: '0 18px 40px -28px rgba(0,0,0,.45)', padding: '18px 20px 20px', textAlign: 'center', color: C.char } },
         el('button', { onclick: () => { st.cust = false; rerender(); }, style: { display: 'block', marginLeft: 'auto', font: '600 9px/1 ' + MONO, letterSpacing: '.12em', textTransform: 'uppercase', background: 'transparent', border: '1.2px solid ' + C.ink3, borderRadius: '999px', padding: '6px 10px', cursor: 'pointer', color: C.char } }, '← Back to the builder'),
-        el('div', { style: { font: '800 26px/1.1 ' + SANS, textTransform: 'uppercase', marginTop: '10px' } }, (curPkg ? curPkg.custName : 'Your Plan')),
+        el('div', { style: { font: '800 26px/1.1 ' + SANS, textTransform: 'uppercase', marginTop: '10px' } }, (curPkg ? curPkg.custName + (st.termite && !curPkg.termite ? ' + Termite' : '') : (st.termite && !st.base ? 'Termite Defense' : 'Your Plan'))),
         mono(PRICING_FREQ[fiB][1] + ' service', { size: 9.5, style: { marginTop: '4px' } }),
         sep > q.mo + 0.5 ? el('div', { style: { font: '400 11px/1 ' + MONO, color: C.ink3, textDecoration: 'line-through', marginTop: '12px' } }, money(sep) + '/mo if bought separately') : null,
         el('div', { style: { font: '300 68px/1 ' + SANS, letterSpacing: '-.03em', marginTop: '8px', fontVariantNumeric: 'tabular-nums' } }, money(q.mo), el('span', { style: { font: '400 13px/1 ' + MONO, color: C.ink2, letterSpacing: 0 } }, '/mo')),
