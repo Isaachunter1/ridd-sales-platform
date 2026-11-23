@@ -427,57 +427,89 @@ function viewPricing() {
     // price comes from this tier's numbers and custom prices / floors behave exactly as on the sheet.
   let builder = null;
   if (st.mode !== 'sheet') {
-    const PKGS = [
-      { id: 'home',     label: 'Home',             base: 'pest', addons: [],                        termite: false, blurb: 'Inside + outside the home' },
-      { id: 'homeyard', label: 'Home + Yard',      base: 'pest', addons: ['tfm'],                   termite: false, popular: true },
-      { id: 'total',    label: 'Total Protection', base: 'pest', addons: ['tfm', 'mole', 'rodent'], termite: true },
-    ];
+    // Packages (per Isaac, Nov 23): Home (Pest or Rodent), Home + Yard (one Home service + one Yard service — Pest +
+    // Tick, Flea & Mosquito picked, Rodent / Mole one tap away), Custom Protection (tap any services on or off) and
+    // the Termite Defense contract on its own. Each card's picks live in st.pk; the card's config is a preset over
+    // the quote (base + add-ons + termite), so prices, tiers, custom prices and floors are unchanged.
+    if (!st.pk) st.pk = {};
+    const pk = st.pk;
+    if (!pk.home) pk.home = 'pest';
+    if (!pk.hy) pk.hy = { home: 'pest', yard: 'tfm' };
+    if (!pk.custom) pk.custom = { pest: true, tfm: true, mole: true, rodent: true, termite: true };
+    const CORE = ['pest', 'rodent', 'tfm', 'mole'];
+    const cfgOf = (id) => {
+      if (id === 'home') return { id, label: 'Home', custName: 'Home Protection', base: pk.home, addons: [], termite: false, blurb: 'Inside + outside the home' };
+      if (id === 'homeyard') return { id, label: 'Home + Yard', custName: 'Home + Yard Protection', base: pk.hy.home, addons: [pk.hy.yard], termite: false, popular: true };
+      if (id === 'custom') {
+        const on = CORE.filter(s => pk.custom[s]);
+        return { id, label: 'Custom Protection', custName: 'Custom Protection', base: on[0] || null, addons: on.slice(1), termite: !!pk.custom.termite };
+      }
+      if (id === 'termite') return { id, label: 'Termite Defense', custName: 'Termite Defense', base: null, addons: [], termite: true, blurb: 'Annual termite contract' };
+      return null;
+    };
+    const PKGS = ['home', 'homeyard', 'custom', 'termite'].map(cfgOf);
     const fiB = Math.max(0, PRICING_FREQ.findIndex(([k]) => k === st.freq));
     const freqWord = { q: 'every 3 months', b: 'every 2 months', m: 'every month' }[st.freq] || '';
     if (!st.extras) st.extras = {};
-    const pkgOf = (id) => PKGS.find(p => p.id === id) || null;
-    const pkgMo = (pk) => pricingQuote(Object.assign({}, st, { base: pk.base, addons: Object.fromEntries(pk.addons.map(a => [a, true])), termite: pk.termite, onetime: {}, custom: {} }));
+    const pkgOf = (id) => cfgOf(id);
+    const pkgMo = (c) => pricingQuote(Object.assign({}, st, { base: c.base, addons: Object.fromEntries(c.addons.map(a => [a, true])), termite: c.termite, onetime: {}, custom: {} }));
     // What the same coverage costs bought as separate plans (each service as its own Home / Yard plan; an add-on with
     // no plan of its own counts at its add-on price) — the struck-out anchor next to every bundle price.
-    const aloneMo = (id) => { const prog = (PRICING_SERVICES[id] || {}).program; if (prog && T[prog]) return T[prog][fiB]; const a = T.addons.find(x => x[0] === id); return a ? a[2] : 0; };
-    const separateMo = (pk) => aloneMo(pk.base) + pk.addons.reduce((a, id) => a + aloneMo(id), 0) + (pk.termite ? T.termite[1] : 0);
-    const applyPkg = (pk) => {
-      st.pkg = pk.id; st.base = pk.base; st.termite = pk.termite || !!st.extras.termite;
-      st.addons = Object.fromEntries(pk.addons.map(a => [a, true]));
-      for (const id of Object.keys(st.extras)) if (id !== 'termite' && !pricingCoveredBy(pk.base, id) && T.addons.some(x => x[0] === id)) st.addons[id] = true;
+    const aloneMo = (id) => { if (!id) return 0; const prog = (PRICING_SERVICES[id] || {}).program; if (prog && T[prog]) return T[prog][fiB]; const a = T.addons.find(x => x[0] === id); return a ? a[2] : 0; };
+    const separateMo = (c) => aloneMo(c.base) + c.addons.reduce((a, id) => a + aloneMo(id), 0) + (c.termite ? T.termite[1] : 0);
+    const applyPkg = (c) => {
+      st.pkg = c.id; st.base = c.base; st.termite = c.termite || !!st.extras.termite;
+      st.addons = Object.fromEntries(c.addons.map(a => [a, true]));
+      for (const id of Object.keys(st.extras)) if (id !== 'termite' && !CORE.includes(id) && (!c.base || !pricingCoveredBy(c.base, id)) && T.addons.some(x => x[0] === id)) st.addons[id] = true;
+      if (!st.base) st.addons = {};   // add-ons need a Home / Yard plan; Termite Defense stands alone
     };
     // The package the quote still matches (an edit on the sheet can move it off every package).
-    const fits = (pk) => !!pk && st.base === pk.base && pk.addons.every(a => st.addons[a]) && (!pk.termite || !!st.termite);
+    const fits = (c) => !!c && (st.base || null) === c.base && c.addons.every(a => st.addons[a]) && (!c.termite || !!st.termite);
     const curPkg = fits(pkgOf(st.pkg)) ? pkgOf(st.pkg) : null;
     const perDay = (mo) => '$' + (mo * 12 / 365).toFixed(2) + '/day';
 
     const seg = el('div', { style: { display: 'flex', border: '1.5px solid ' + C.line, borderRadius: '8px', overflow: 'hidden' } },
       ...PRICING_FREQ.map(([k, lbl]) => el('button', { onclick: () => { st.freq = k; rerender(); }, 'aria-pressed': st.freq === k ? 'true' : 'false', style: { flex: '1 1 0', padding: '10px 0', font: '600 9.5px/1 ' + MONO, letterSpacing: '.1em', textTransform: 'uppercase', background: st.freq === k ? C.char : 'transparent', color: st.freq === k ? '#fff' : C.char, border: 0, cursor: 'pointer' } }, lbl)));
 
-    const pkgCard = (pk) => {
-      const pq = pkgMo(pk), sep = separateMo(pk), save = pq.savings;   // same yearly savings math as the quote (Bundle & Save)
-      const on = st.pkg === pk.id;
-      const inc = [PRICING_SERVICES[pk.base].label, ...pk.addons.map(a => PRICING_SERVICES[a].label), ...(pk.termite ? ['Termite'] : [])];
-      const pillS = { font: '500 8.5px/1 ' + MONO, letterSpacing: '.06em', textTransform: 'uppercase', background: '#fff', border: '1px solid rgba(0,0,0,.15)', borderRadius: '999px', padding: '4px 7px' };
-      return el('button', { onclick: () => { applyPkg(pk); rerender(); }, 'aria-pressed': on ? 'true' : 'false', style: { position: 'relative', display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', background: C.card, color: C.char, borderRadius: '12px', padding: '13px 13px 11px', border: on ? '3px solid ' + C.orange : '1.5px solid ' + C.line, boxShadow: on ? '0 10px 22px -14px rgba(217,72,15,.9)' : 'none' } },
-        pk.popular ? el('span', { style: { position: 'absolute', top: '-9px', right: '12px', background: C.orange, color: '#fff', font: '700 7.5px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', padding: '4px 8px', borderRadius: '999px' } }, 'Most homeowners pick this' + (on ? ' ✓' : '')) : (on ? el('span', { style: { position: 'absolute', top: '-9px', right: '12px', background: C.char, color: '#fff', font: '700 7.5px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', padding: '4px 8px', borderRadius: '999px' } }, 'Picked ✓') : null),
-        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '10px' } },
-          el('div', { style: { font: '800 16px/1 ' + SANS, textTransform: 'uppercase' } }, pk.label),
-          el('div', { style: { whiteSpace: 'nowrap' } },
-            sep > pq.mo + 0.5 ? el('span', { style: { font: '400 11px/1 ' + MONO, color: C.ink3, textDecoration: 'line-through', marginRight: '6px' } }, money(sep)) : null,
-            el('span', { style: { font: '300 30px/1 ' + SANS, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums' } }, money(pq.mo)),
-            el('span', { style: { font: '400 10px/1 ' + MONO, color: C.ink2 } }, '/mo'))),
-        el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '9px' } }, ...inc.map(t => el('span', { style: pillS }, t))),
-        el('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '8px', marginTop: '9px', font: '400 9.5px/1.3 ' + MONO, color: C.ink2 } },
-          el('span', {}, money(pq.init) + ' initial · about ' + perDay(pq.mo)),
-          save > 0 ? el('b', { style: { color: '#2F7D32' } }, 'Saves ' + money(save) + '/yr') : el('span', {}, pk.blurb || '')));
+    // A service pill on a card: filled = in the plan, outline = available. Tapping one also picks the card.
+    const svcPill = (txt, on, onTap) => el('button', { onclick: (e) => { e.stopPropagation(); onTap(); }, 'aria-pressed': on ? 'true' : 'false', style: { font: '500 8.5px/1 ' + MONO, letterSpacing: '.06em', textTransform: 'uppercase', background: on ? C.char : '#fff', color: on ? '#fff' : C.ink2, border: '1px solid ' + (on ? C.char : 'rgba(0,0,0,.18)'), borderStyle: on ? 'solid' : 'dashed', borderRadius: '999px', padding: '5px 8px', cursor: 'pointer' } }, (on ? '✓ ' : '+ ') + txt);
+    const L = (id) => id === 'termite' ? 'Termite' : PRICING_SERVICES[id].label;
+    const pickThen = (id, fn) => () => { fn(); applyPkg(cfgOf(id)); rerender(); };
+    const pillsFor = (c) => {
+      if (c.id === 'home') return ['pest', 'rodent'].map(s => svcPill(L(s), pk.home === s, pickThen('home', () => { pk.home = s; })));
+      if (c.id === 'homeyard') return [
+        ...['pest', 'rodent'].map(s => svcPill(L(s), pk.hy.home === s, pickThen('homeyard', () => { pk.hy.home = s; }))),
+        el('span', { style: { font: '400 10px/22px ' + MONO, color: C.ink3, padding: '0 2px' } }, '+'),
+        ...['tfm', 'mole'].map(s => svcPill(L(s), pk.hy.yard === s, pickThen('homeyard', () => { pk.hy.yard = s; })))];
+      if (c.id === 'custom') return [...CORE, 'termite'].map(s => svcPill(L(s), !!pk.custom[s], pickThen('custom', () => { pk.custom[s] = !pk.custom[s]; })));
+      return [svcPill('Termite', true, pickThen('termite', () => {}))];
     };
 
-    // Extras: every add-on the picked package doesn't already include, plus Termite when it isn't in the package.
+    const pkgCard = (c) => {
+      const empty = !c.base && !c.termite;
+      const pq = empty ? { mo: 0, init: 0, savings: 0 } : pkgMo(c), sep = separateMo(c), save = pq.savings;   // same yearly savings math as the quote (Bundle & Save)
+      const on = st.pkg === c.id && !!curPkg;
+      const isT = c.id === 'termite';
+      return el('div', { role: 'button', tabindex: '0', onclick: () => { if (!empty) { applyPkg(c); rerender(); } }, 'aria-pressed': on ? 'true' : 'false', style: { position: 'relative', display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', background: isT ? '#FBE9E1' : C.card, color: C.char, borderRadius: '12px', padding: '13px 13px 11px', border: on ? '3px solid ' + C.orange : '1.5px solid ' + (isT ? C.orange : C.line), boxShadow: on ? '0 10px 22px -14px rgba(217,72,15,.9)' : 'none' } },
+        c.popular ? el('span', { style: { position: 'absolute', top: '-9px', right: '12px', background: C.orange, color: '#fff', font: '700 7.5px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', padding: '4px 8px', borderRadius: '999px' } }, 'Most homeowners pick this' + (on ? ' ✓' : '')) : (on ? el('span', { style: { position: 'absolute', top: '-9px', right: '12px', background: C.char, color: '#fff', font: '700 7.5px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', padding: '4px 8px', borderRadius: '999px' } }, 'Picked ✓') : null),
+        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '10px' } },
+          el('div', { style: { font: '800 16px/1 ' + SANS, textTransform: 'uppercase' } }, c.label),
+          el('div', { style: { whiteSpace: 'nowrap' } },
+            !empty && sep > pq.mo + 0.5 ? el('span', { style: { font: '400 11px/1 ' + MONO, color: C.ink3, textDecoration: 'line-through', marginRight: '6px' } }, money(sep)) : null,
+            el('span', { style: { font: '300 30px/1 ' + SANS, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums' } }, empty ? '—' : money(pq.mo)),
+            el('span', { style: { font: '400 10px/1 ' + MONO, color: C.ink2 } }, '/mo'))),
+        el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '9px' } }, ...pillsFor(c)),
+        el('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '8px', marginTop: '9px', font: '400 9.5px/1.3 ' + MONO, color: C.ink2 } },
+          el('span', {}, empty ? 'Tap the services this home needs' : money(pq.init) + ' initial · about ' + perDay(pq.mo)),
+          save > 0 ? el('b', { style: { color: '#2F7D32' } }, 'Saves ' + money(save) + '/yr') : el('span', {}, c.blurb || '')));
+    };
+
+    // Extras: every add-on the picked package doesn't already include (the core four are picked on the cards),
+    // plus Termite when it isn't in the package.
     const extrasRow = () => {
-      if (!curPkg) return null;
+      if (!curPkg || !curPkg.base) return null;
       const chipX = (id, label, mo, on, toggle) => el('button', { onclick: toggle, 'aria-pressed': on ? 'true' : 'false', style: { font: '500 9.5px/1 ' + MONO, border: '1.2px solid ' + (on ? C.char : C.ink3), borderRadius: '999px', padding: '7px 9px', background: on ? C.char : '#fff', color: on ? '#fff' : C.char, cursor: 'pointer' } }, (on ? '' : '+ ') + label + ' ' + money(mo) + (on ? ' ✓' : ''));
-      const ids = T.addons.filter(([id]) => id !== curPkg.base && !curPkg.addons.includes(id) && !pricingCoveredBy(curPkg.base, id) && !(curPkg.addons.includes('tfm') && id === 'seasonal'));
+      const ids = T.addons.filter(([id]) => !CORE.includes(id) && !pricingCoveredBy(curPkg.base, id) && !(curPkg.addons.includes('tfm') && id === 'seasonal'));
       return el('div', {},
         mono('Add extras', { size: 9, style: { margin: '14px 0 6px' } }),
         el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px' } },
@@ -501,7 +533,7 @@ function viewPricing() {
       const sep = (curPkg ? separateMo(curPkg) : 0) + (q.mo - (curPkg ? pkgMo(curPkg).mo : 0));
       const save = q.savings;   // same yearly savings the rep's quote shows
       const lines = [
-        ...(st.base ? [[PRICING_SERVICES[st.base].label + ' control, inside + out', freqWord]] : []),
+        ...(st.base ? [[PRICING_SERVICES[st.base].label + (PRICING_SERVICES[st.base].program === 'yard' ? ', yard treatment' : ' control, inside + out'), freqWord]] : []),
         ...Object.keys(st.addons).map(id => [PRICING_SERVICES[id].label, curPkg && curPkg.addons.includes(id) ? freqWord : 'included']),
         ...(st.termite ? [['Termite Defense', 'yearly']] : []),
         ['Free re-services between visits', 'unlimited'],
@@ -511,7 +543,7 @@ function viewPricing() {
         el('span', { style: { font: '400 10px/1.2 ' + MONO, color: C.ink2, whiteSpace: 'nowrap' } }, b));
       return el('div', { style: { background: C.page, borderRadius: '14px', border: '1px solid rgba(43,43,41,.18)', boxShadow: '0 18px 40px -28px rgba(0,0,0,.45)', padding: '18px 20px 20px', textAlign: 'center', color: C.char } },
         el('button', { onclick: () => { st.cust = false; rerender(); }, style: { display: 'block', marginLeft: 'auto', font: '600 9px/1 ' + MONO, letterSpacing: '.12em', textTransform: 'uppercase', background: 'transparent', border: '1.2px solid ' + C.ink3, borderRadius: '999px', padding: '6px 10px', cursor: 'pointer', color: C.char } }, '← Back to the builder'),
-        el('div', { style: { font: '800 26px/1.1 ' + SANS, textTransform: 'uppercase', marginTop: '10px' } }, (curPkg ? curPkg.label : 'Your plan') + ' Protection'),
+        el('div', { style: { font: '800 26px/1.1 ' + SANS, textTransform: 'uppercase', marginTop: '10px' } }, (curPkg ? curPkg.custName : 'Your Plan')),
         mono(PRICING_FREQ[fiB][1] + ' service', { size: 9.5, style: { marginTop: '4px' } }),
         sep > q.mo + 0.5 ? el('div', { style: { font: '400 11px/1 ' + MONO, color: C.ink3, textDecoration: 'line-through', marginTop: '12px' } }, money(sep) + '/mo if bought separately') : null,
         el('div', { style: { font: '300 68px/1 ' + SANS, letterSpacing: '-.03em', marginTop: '8px', fontVariantNumeric: 'tabular-nums' } }, money(q.mo), el('span', { style: { font: '400 13px/1 ' + MONO, color: C.ink2, letterSpacing: 0 } }, '/mo')),
