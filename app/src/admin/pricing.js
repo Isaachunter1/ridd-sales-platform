@@ -9,16 +9,18 @@
 // one-time services where the tier has them) — with the combined INITIAL and
 // MONTHLY totals pinned at the bottom.
 //
-// Numbers mirror the printed slicks exactly. Edit here and the PDFs together.
+// Numbers mirror the printed slicks exactly. Edit here and the PDFs together. Standard + Loyalty match the
+// RIDD_Price_Sheet_Letter Google Slides deck (Nov 23 2026): German Roach / Interior Flea add-on initial $299 / $199,
+// Loyalty Mole / Tick, Flea & Mosquito add-ons +$20.
 const PRICING_TIERS = [
   { id: 'd2d',      label: 'D2D',          badge: null,       init: 399, home: [79, 99, 149],  yard: [99, 119, 169],  termite: [999, 49],
-    addons: [['mole', 100, 50], ['tfm', 100, 50], ['seasonal', 100, 45], ['roach', 200, 30], ['flea', 200, 30], ['pest', 100, 30], ['snake', 100, 30], ['cbee', 100, 30], ['rodent', 100, 30]], onetime: false },
+    addons: [['mole', 100, 50], ['tfm', 100, 50], ['seasonal', 100, 45], ['pest', 100, 30], ['snake', 100, 30], ['cbee', 100, 30], ['rodent', 100, 30], ['roach', 200, 30], ['flea', 200, 30]], onetime: false },
   { id: 'd2d_min',  label: 'D2D',          badge: 'Minimums', init: 99,  home: [49, 69, 119],  yard: [69, 89, 139],   termite: [399, 29],
-    addons: [['mole', 0, 40], ['tfm', 0, 40], ['seasonal', 0, 30], ['roach', 200, 20], ['flea', 200, 20], ['pest', 0, 20], ['snake', 0, 20], ['cbee', 0, 20], ['rodent', 0, 20]], onetime: false },
+    addons: [['mole', 0, 40], ['tfm', 0, 40], ['seasonal', 0, 30], ['pest', 0, 20], ['snake', 0, 20], ['cbee', 0, 20], ['rodent', 0, 20], ['roach', 200, 20], ['flea', 200, 20]], onetime: false },
   { id: 'standard', label: 'Standard',     badge: 'Standard', init: 99,  home: [49, 69, 119],  yard: [69, 89, 139],   termite: [399, 29],
-    addons: [['mole', 0, 40], ['tfm', 0, 40], ['seasonal', 0, 30], ['roach', 200, 20], ['flea', 200, 20], ['pest', 0, 20], ['snake', 0, 20], ['cbee', 0, 20], ['rodent', 0, 20]], onetime: true },
+    addons: [['mole', 0, 40], ['tfm', 0, 40], ['seasonal', 0, 30], ['pest', 0, 20], ['snake', 0, 20], ['cbee', 0, 20], ['rodent', 0, 20], ['roach', 299, 20], ['flea', 299, 20]], onetime: true },
   { id: 'loyalty',  label: 'Loyalty',      badge: 'Loyalty Pricing', init: 99, home: [29, 49, 99], yard: [49, 69, 119], termite: [399, 29],
-    addons: [['mole', 0, 30], ['tfm', 0, 30], ['seasonal', 0, 15], ['roach', 200, 10], ['flea', 200, 10], ['pest', 0, 10], ['snake', 0, 10], ['cbee', 0, 10], ['rodent', 0, 10]], onetime: true },
+    addons: [['mole', 0, 20], ['tfm', 0, 20], ['seasonal', 0, 15], ['pest', 0, 10], ['snake', 0, 10], ['cbee', 0, 10], ['rodent', 0, 10], ['roach', 199, 10], ['flea', 199, 10]], onetime: true },
 ];
 const PRICING_SERVICES = {
   pest:     { label: 'Pest',                    program: 'home' },
@@ -71,22 +73,24 @@ const PRICING_ONETIME = [
   ['ot_suv',     'Vehicle — SUV',         249, 249],
 ];
 
-// Which tier opens first for this user (per Isaac).
+// Who sees which sheets (per Isaac, Nov 23): sales reps get D2D + Standard, office staff (loyalty included) get
+// Standard + Loyalty, admins get all three.
+function pricingIsSalesRep(profile) {
+  const role = String(profile?.role || '');
+  if (role === 'rep_sales' || role === 'rep_partner' || role === 'rep_team_lead') return true;
+  return typeof isOfficeStaffProfile === 'function' && !isAdminRole(role) && !isOfficeStaffProfile(profile);
+}
+function pricingTierChoices(profile) {
+  const role = String(profile?.role || '');
+  if (typeof isAdminRole === 'function' && isAdminRole(role)) return ['d2d', 'standard', 'loyalty'];
+  return pricingIsSalesRep(profile) ? ['d2d', 'standard'] : ['standard', 'loyalty'];
+}
+// Which tier opens first: sales reps on D2D, loyalty reps on Loyalty, everyone else on Standard.
 function pricingDefaultTier(profile) {
   const role = String(profile?.role || '');
   if (/loyalty/.test(role)) return 'loyalty';
-  if (role === 'rep_sales' || role === 'rep_partner' || role === 'rep_team_lead') return 'd2d';
-  if (typeof isOfficeStaffProfile === 'function' && !isAdminRole(role) && !isOfficeStaffProfile(profile)) return 'd2d';
+  if (pricingIsSalesRep(profile)) return 'd2d';
   return 'standard';
-}
-
-// Sales-rep user types only ever see the D2D slick (per Isaac); everyone
-// else can switch tiers from the badge bubble on the board.
-function pricingLockedToD2D(profile) {
-  const role = String(profile?.role || '');
-  if (role === 'rep_sales' || role === 'rep_partner' || role === 'rep_team_lead') return true;
-  if (typeof isOfficeStaffProfile === 'function' && !isAdminRole(role) && !isOfficeStaffProfile(profile)) return true;
-  return false;
 }
 
 function pricingStore() {
@@ -95,7 +99,8 @@ function pricingStore() {
   if (!st.tier) st.tier = pricingDefaultTier(state.profile);
   if (st.tier === 'd2d_min') { st.tier = 'd2d'; st.min = true; }   // legacy value from an earlier build
   if (st.min == null) st.min = false;
-  if (pricingLockedToD2D(state.profile)) st.tier = 'd2d';
+  // A saved choice this user can't see any more (sheets per role, Nov 23) falls back to their default.
+  if (!pricingTierChoices(state.profile).includes(st.tier)) { st.tier = pricingDefaultTier(state.profile); st.min = false; }
   // Termite Defense is its own subscription in the CRM (per Isaac): it sits
   // ALONGSIDE whichever Home/Yard base plan is picked, never instead of it.
   if (st.termite == null) st.termite = false;
@@ -204,23 +209,25 @@ function viewPricing() {
   const root = el('div', { class: 'w-full mx-auto pricing-layout' });
   const money = (v) => '$' + Math.round(v).toLocaleString();
   let editKey = null;   // receipt line whose price is being typed in
-  const C = { sage: '#5F6C5B', cream: '#FBF4DA', cream2: '#F3EBCD', char: '#323230', orange: '#DF643A', ink2: '#5A5A56', ink3: '#8C8A80' };
+  // Look of the printed price sheet (per Isaac, Nov 23 2026 — RIDD_Price_Sheet_Letter): white page, big
+  // PRICE SHEET heading with the tier on an orange tag, stone cards with a thin ink border, dark-green price
+  // tiles with light numbers, IBM Plex Mono for the small print (labels, "$99 initial", the tables) and the
+  // RIDD wordmark + spider at the foot. Everything stays a control: tiles pick the plan, rows tick add-ons.
+  const C = { page: '#FFFFFF', card: '#EFEFEA', line: '#2B2B29', green: '#4D574A', greenLine: '#2C3329', char: '#1C1C1A', cream: '#FAFAF7', cream2: '#E4E4DD', orange: '#D9480F', ink2: '#5A5A56', ink3: '#9A988F', light: '#F2F1EA' };
+  const SANS = 'Archivo, "Helvetica Neue", Arial, sans-serif', MONO = '"IBM Plex Mono", "Courier New", ui-monospace, monospace';
   const render = () => {
     const st = pricingStore();
     const T = pricingTierOf(st);
-    const isMin = T.id !== 'd2d';
-    const PICK = PRICING_TIERS.filter(t => t.id !== 'd2d_min');   // three choices; minimums is the Ⓜ toggle on D2D
-    const price = isMin ? { color: C.orange } : { color: C.char };
+    const isMin = T.id === 'd2d_min';   // the sheet's numbers are white; only D2D minimums keep a warm tint
+    const PICK = pricingTierChoices(state.profile).map(id => PRICING_TIERS.find(t => t.id === id));   // sheets this user may see (per Isaac, Nov 23); D2D minimums is the Ⓜ toggle
     const baseSvc = st.base ? PRICING_SERVICES[st.base] : null;
     const hasPlan = !!baseSvc;
-    const fi = Math.max(0, PRICING_FREQ.findIndex(([k]) => k === st.freq));
     const q = pricingQuote(st);
     const rerender = () => { const y = window.scrollY; render(); window.scrollTo(0, y); onScroll(); };
 
-    // ── tier switch lives IN the badge bubble on the board (no separate
-    // "change" bar — most users never switch). Sales reps are locked to D2D,
-    // so for them the bubble is just a label.
-    const locked = pricingLockedToD2D(state.profile);
+    // ── tier switch: admins get every sheet as its own tag; everyone else gets one orange tag with a dropdown of
+    // the two sheets their role sees.
+    const locked = PICK.length < 2;
     const isAdmin = typeof isAdminRole === 'function' && isAdminRole(String(state.profile?.role || ''));
     const sel = locked ? null : el('select', {
       style: { position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer', appearance: 'none', WebkitAppearance: 'none' },
@@ -228,31 +235,41 @@ function viewPricing() {
       title: 'Switch pricing tier',
       onchange: (e) => { const t = PICK.find(x => x.id === e.target.value); if (!t) return; st.tier = t.id; if (!t.onetime) st.onetime = {}; rerender(); },
     }, ...PICK.map(t => el('option', { value: t.id, selected: t.id === st.tier }, t.label)));
-    // Ⓜ — D2D only: flips the card to minimum pricing (per Isaac). Sits just
-    // left of the D2D bubble in the ribbon.
+    // Ⓜ — D2D only: flips the sheet to minimum pricing (per Isaac).
     const mBtn = st.tier === 'd2d' ? el('button', {
       title: st.min ? 'Showing minimums — tap for display pricing' : 'Tap for minimum pricing',
       'aria-pressed': st.min ? 'true' : 'false',
       class: 'inline-flex items-center justify-center font-black transition',
-      style: { width: '28px', height: '28px', borderRadius: '50%', border: '2px solid ' + (st.min ? C.orange : 'rgba(251,244,218,.6)'), background: st.min ? C.orange : 'transparent', color: C.cream, fontSize: '13px', lineHeight: 1, flexShrink: 0 },
+      style: { width: '30px', height: '30px', borderRadius: '50%', border: '2px solid ' + (st.min ? C.orange : C.line), background: st.min ? C.orange : 'transparent', color: st.min ? '#fff' : C.char, fontSize: '13px', lineHeight: 1, flexShrink: 0 },
       onclick: (e) => { e.stopPropagation(); st.min = !st.min; rerender(); },
     }, 'M') : null;
+    const tierName = (t) => t.id === 'd2d' ? (st.min ? 'D2D Minimums' : 'D2D Pricing') : (t.label + ' Pricing');
 
-    // ── card primitives (brand look, fixed colours — the slick doesn't theme) ──
-    const card = (...kids) => el('div', { style: { background: C.cream, borderRadius: '12px', overflow: 'hidden', color: C.char } }, ...kids);
+    // ── sheet primitives (fixed colours — the sheet doesn't theme) ──
+    const card = (...kids) => el('div', { style: { background: C.card, border: '1.5px solid ' + C.line, borderRadius: '12px', overflow: 'hidden', color: C.char } }, ...kids);
+    const mono = (txt, o = {}) => el('div', { style: Object.assign({ font: '400 ' + (o.size || 9) + 'px/1.25 ' + MONO, letterSpacing: '.12em', textTransform: 'uppercase', color: o.color || C.ink2 }, o.style || {}) }, txt);
     // `extra` (the New / Existing toggle) sits at the right edge of the header (per Isaac).
-    const secH = (title, sub, extra) => el('div', { class: 'flex items-center justify-between gap-3 flex-wrap', style: { padding: '12px 16px 4px' } },
-      el('div', { style: { font: '700 14px/1 Archivo, "Helvetica Neue", Arial, sans-serif', textTransform: 'uppercase', color: C.char } }, title),
-      extra || (sub ? el('div', { style: { font: '400 9px/1.2 Archivo, Arial, sans-serif', color: C.ink2, textAlign: 'right' } }, sub) : null));
-    const pill = (txt, on, onclick) => el('button', { onclick, style: { background: on ? C.orange : 'transparent', color: on ? C.cream : C.char, border: '1.5px solid ' + (on ? C.orange : C.ink3), font: '700 10px/1 Archivo, Arial, sans-serif', letterSpacing: '.08em', textTransform: 'uppercase', padding: '6px 10px', borderRadius: '999px', cursor: 'pointer' } }, txt);
-    // Selected tile = solid orange with cream type (per Isaac), not just an outline.
-    const tile = (label, sub, val, on, onclick, o = {}) => {
-      const inv = o.dark || on;                                   // inverted (light-on-dark) type
-      const dim = o.dark ? 'rgba(251,244,218,.7)' : 'rgba(251,244,218,.85)';
-      return el('button', { onclick, 'aria-pressed': on ? 'true' : 'false', style: { background: o.dark ? C.char : (on ? C.orange : C.cream2), color: inv ? C.cream : C.char, borderRadius: '10px', padding: '9px 10px 8px', textAlign: 'center', border: '2px solid ' + (on ? C.orange : 'transparent'), cursor: onclick ? 'pointer' : 'default', minWidth: 0, boxShadow: on ? '0 6px 16px -8px rgba(223,100,58,.7)' : 'none' } },
-        el('div', { style: { font: '700 10px/1 Archivo, Arial, sans-serif', letterSpacing: '.14em', textTransform: 'uppercase', color: inv ? dim : C.ink2 } }, label),
-        el('div', { style: { fontSize: '9.5px', color: inv ? dim : C.ink3, marginTop: '3px' } }, sub),
-        el('div', { style: { marginTop: '6px', font: '700 26px/1 Archivo, Arial, sans-serif', letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color: o.dark ? (isMin ? C.orange : C.cream) : (on ? C.cream : price.color) } }, money(val), o.mo ? el('span', { style: { font: '500 10px/1 Archivo, Arial, sans-serif', color: inv ? dim : C.ink2, marginLeft: '2px' } }, '/mo') : null));
+    const secH = (title, sub, extra) => el('div', { class: 'flex items-center justify-between gap-3 flex-wrap', style: { padding: '12px 14px 6px' } },
+      el('div', { style: { font: '400 10px/1 ' + MONO, letterSpacing: '.16em', textTransform: 'uppercase', color: C.char } }, title),
+      extra || (sub ? mono(sub, { size: 8, style: { textAlign: 'right' } }) : null));
+    // Service pickers (Pest / Rodent …) sit at the top-right in the sheet's small mono caps; the picked one turns
+    // into an orange tag.
+    const svcPick = (txt, on, onclick) => el('button', { onclick, 'aria-pressed': on ? 'true' : 'false', style: { background: on ? C.orange : 'transparent', color: on ? '#fff' : C.char, border: '1.2px solid ' + (on ? C.orange : C.ink3), font: '500 9px/1 ' + MONO, letterSpacing: '.12em', textTransform: 'uppercase', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' } }, txt);
+    // Price tile — dark green, mono caps on top, "$99 initial", the big light number, "monthly". Orange = the
+    // highlighted plan (Standard's Bi-Monthly is MOST POPULAR, per Isaac); the picked tile gets a thick ink ring
+    // and a check so it reads on either colour.
+    const PICKED = { border: '3px solid ' + C.char, boxShadow: '0 0 0 2px #fff inset, 0 10px 20px -12px rgba(0,0,0,.8)' };
+    const tick = () => el('span', { style: { position: 'absolute', top: '-8px', right: '-8px', width: '20px', height: '20px', borderRadius: '50%', background: C.char, color: '#fff', font: '900 11px/20px ' + SANS, textAlign: 'center', boxShadow: '0 0 0 2px #fff' } }, '✓');
+    const tile = (label, initV, val, on, onclick, o = {}) => {
+      const hot = !!o.popular;
+      const dim = hot ? 'rgba(255,255,255,.88)' : 'rgba(242,241,234,.72)';
+      return el('button', { onclick, 'aria-pressed': on ? 'true' : 'false', style: Object.assign({ position: 'relative', background: hot ? C.orange : C.green, color: '#fff', borderRadius: '8px', padding: (hot ? '15px' : '10px') + ' 4px 9px', textAlign: 'center', border: '1.5px solid ' + (hot ? '#9C3209' : C.greenLine), cursor: onclick ? 'pointer' : 'default', minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '7px' }, on ? PICKED : {}) },
+        hot ? el('span', { style: { position: 'absolute', top: '-9px', left: '50%', transform: 'translateX(-50%)', background: C.char, color: '#fff', font: '700 7.5px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', padding: '4px 7px', borderRadius: '999px', whiteSpace: 'nowrap' } }, 'Most popular') : null,
+        on ? tick() : null,
+        el('div', { style: { font: '400 9px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', color: dim } }, label),
+        el('div', { style: { font: '400 9px/1 ' + MONO, color: dim } }, money(initV) + ' initial'),
+        el('div', { class: 'ps-big', style: { font: '300 34px/1 ' + SANS, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color: hot ? '#fff' : (isMin ? '#F2A27E' : C.light) } }, money(val)),
+        el('div', { style: { font: '400 9px/1 ' + MONO, letterSpacing: '.06em', color: dim } }, 'monthly'));
     };
 
     // ── program blocks (Home · Yard · Termite) ──
@@ -260,32 +277,46 @@ function viewPricing() {
       const isT = p.id === 'termite';
       const onProg = isT ? !!st.termite : (!!baseSvc && baseSvc.program === p.id);
       const toggleT = () => { st.termite = !st.termite; rerender(); };
-      const initV = isT ? T.termite[0] : T.init;
-      return card(
-        el('div', { class: 'flex items-center justify-between gap-3 flex-wrap', style: { padding: '14px 18px 6px' } },
-          el('div', { class: 'flex items-center gap-2', style: { font: '700 20px/1 Archivo, Arial, sans-serif', letterSpacing: '-.01em', textTransform: 'uppercase' } }, pricingIcon(p.id, 22, C.orange), p.label),
-          isT
-            ? el('div', { class: 'flex items-center gap-2' },
-                pill(st.termite ? 'Added ✓' : 'Add', !!st.termite, toggleT))
-            : el('div', { class: 'flex gap-1.5 flex-wrap' }, ...p.services.map(sid => pill(PRICING_SERVICES[sid].label, st.base === sid, () => { if (st.base === sid) { st.base = null; st.addons = {}; } else { st.base = sid; delete st.addons[sid]; } rerender(); })))),
-        el('div', { class: 'grid gap-2', style: { gridTemplateColumns: isT ? '1fr 1fr' : '1.05fr 1fr 1fr 1fr', padding: '6px 14px 12px' } },
-          tile('Initial', 'first visit', initV, false, null, { dark: true }),
-          ...(isT
-            ? [tile('Annual', 'serviced once a year · tap to add', T.termite[1], onProg, toggleT, { mo: true })]
-            : PRICING_FREQ.map(([k, lbl, visits], i) => tile(lbl, visits + ' visits', T[p.id][i], onProg && st.freq === k, () => { if (onProg && st.freq === k) { st.base = null; st.addons = {}; } else { if (!onProg) { st.base = p.services[0]; delete st.addons[st.base]; } st.freq = k; } rerender(); }, { mo: true })))));
+      const head = el('div', { class: 'flex items-start justify-between gap-3', style: { padding: '14px 14px 10px' } },
+        el('div', { style: { font: '700 16px/1.1 ' + SANS, textTransform: 'uppercase', letterSpacing: '-.005em', color: C.char, whiteSpace: 'nowrap' } }, p.label),
+        isT
+          ? svcPick(st.termite ? 'Added ✓' : 'Termite · add', !!st.termite, toggleT)
+          : el('div', { class: 'flex flex-col items-end gap-1' }, ...p.services.map(sid => svcPick(PRICING_SERVICES[sid].label, st.base === sid, () => { if (st.base === sid) { st.base = null; st.addons = {}; } else { st.base = sid; delete st.addons[sid]; } rerender(); }))));
+      if (isT) {
+        // The termite bar: one wide orange strip (per Isaac) — ANNUAL · $399 initial · $29 monthly — tap to add.
+        const on = !!st.termite;
+        const dim = 'rgba(255,255,255,.88)';
+        return card(head, el('div', { style: { padding: '0 14px 14px' } },
+          el('button', { onclick: toggleT, 'aria-pressed': on ? 'true' : 'false', style: Object.assign({ position: 'relative', width: '100%', display: 'flex', alignItems: 'center', gap: '10px', background: C.orange, border: '1.5px solid #9C3209', borderRadius: '8px', padding: '10px 14px', cursor: 'pointer', color: '#fff' }, on ? PICKED : {}) },
+            on ? tick() : null,
+            el('span', { style: { font: '400 9px/1 ' + MONO, letterSpacing: '.16em', textTransform: 'uppercase', color: dim } }, 'Annual'),
+            el('span', { style: { marginLeft: 'auto', font: '400 9px/1 ' + MONO, color: dim } }, money(T.termite[0]) + ' initial'),
+            el('span', { class: 'ps-big', style: { font: '300 30px/1 ' + SANS, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color: '#fff', marginLeft: '8px' } }, money(T.termite[1])),
+            el('span', { style: { font: '400 9px/1 ' + MONO, color: dim } }, 'monthly'))));
+      }
+      return card(head,
+        el('div', { class: 'grid gap-2 ps-tiles', style: { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', padding: '0 14px 14px' } },
+          ...PRICING_FREQ.map(([k, lbl], i) => tile(lbl, T.init, T[p.id][i], onProg && st.freq === k, () => { if (onProg && st.freq === k) { st.base = null; st.addons = {}; } else { if (!onProg) { st.base = p.services[0]; delete st.addons[st.base]; } st.freq = k; } rerender(); }, { popular: T.id === 'standard' && k === 'b' }))));
     };
 
-    // ── add-ons table (rows are toggles) ──
-    const box = (on) => el('span', { style: { display: 'inline-flex', width: '14px', height: '14px', borderRadius: '3px', border: '1.5px solid ' + (on ? C.orange : C.ink3), background: on ? C.orange : 'transparent', color: C.cream, font: '900 10px/14px Archivo, Arial, sans-serif', justifyContent: 'center', alignItems: 'center', marginRight: '8px', flexShrink: 0 } }, on ? '✓' : '');
-    // `valueColor` (optional): savings read green on Bundle & Save (per Isaac).
-    const trow = (cells, on, onclick, i, valueColor) => el('tr', { onclick, style: { cursor: onclick ? 'pointer' : 'default', background: on ? 'rgba(223,100,58,.14)' : (i % 2 === 0 ? C.cream2 : C.cream) } },
-      ...cells.map((c, j) => el('td', { style: { padding: '5px 8px', fontSize: '11px', textAlign: j === 0 ? 'left' : 'center', fontWeight: j === 0 ? 500 : 700, fontVariantNumeric: 'tabular-nums', color: j === 0 ? C.char : (valueColor || price.color), borderRadius: j === 0 ? '6px 0 0 6px' : (j === cells.length - 1 ? '0 6px 6px 0' : '0'), whiteSpace: 'nowrap' } }, c)));
-    const thead = (cols) => el('thead', {}, el('tr', {}, ...cols.map((c, j) => el('th', { style: { padding: '4px 8px 2px', fontSize: '10px', letterSpacing: '.04em', textTransform: 'uppercase', color: C.ink2, fontWeight: 500, textAlign: j === 0 ? 'left' : 'center' } }, c))));
-    const table = (cols, rows) => el('table', { style: { width: '100%', borderCollapse: 'separate', borderSpacing: '0 3px', padding: '4px 8px 8px' } }, thead(cols), el('tbody', {}, ...rows));
+    // ── tables (add-ons / one-time / bundle & save) in the sheet's ledger style ──
+    const box = (on) => el('span', { style: { display: 'inline-flex', width: '13px', height: '13px', borderRadius: '3px', border: '1.3px solid ' + (on ? C.orange : C.ink3), background: on ? C.orange : 'transparent', color: '#fff', font: '900 9px/13px ' + SANS, justifyContent: 'center', alignItems: 'center', marginRight: '8px', flexShrink: 0 } }, on ? '✓' : '');
+    // cells: [label, ...values]; a value can be { v, muted } — muted values print light grey, like "$0" and the
+    // Existing column on the sheet. `valueColor` (optional): savings read green on Bundle & Save (per Isaac).
+    const trow = (cells, on, onclick, i, valueColor) => el('tr', { onclick, style: { cursor: onclick ? 'pointer' : 'default', background: on ? 'rgba(217,72,15,.13)' : 'transparent' } },
+      ...cells.map((c, j) => {
+        const boxed = c && typeof c === 'object' && !(c instanceof Node) && 'v' in c;
+        const muted = boxed && c.muted, v = boxed ? c.v : c;
+        return el('td', { style: { padding: '5px 6px', textAlign: j === 0 ? 'left' : 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums',
+          font: j === 0 ? '400 12px/1.25 ' + SANS : (muted ? '400 11px/1.25 ' + MONO : '700 11.5px/1.25 ' + MONO),
+          color: j === 0 ? C.char : (valueColor || (muted ? C.ink3 : C.char)), borderRadius: j === 0 ? '5px 0 0 5px' : (j === cells.length - 1 ? '0 5px 5px 0' : '0') } }, v);
+      }));
+    const thead = (cols) => el('thead', {}, el('tr', {}, ...cols.map((c, j) => el('th', { style: { padding: '2px 6px 7px', font: '400 8.5px/1 ' + MONO, letterSpacing: '.12em', textTransform: 'uppercase', color: j === 0 ? C.char : C.ink2, fontWeight: 400, textAlign: j === 0 ? 'left' : 'right', borderBottom: '1px solid rgba(43,43,41,.25)' } }, c))));
+    const table = (cols, rows) => el('div', { style: { padding: '0 8px 10px' } }, el('table', { style: { width: '100%', borderCollapse: 'separate', borderSpacing: '0 1px' } }, thead(cols), el('tbody', {}, ...rows)));
     const addonsCard = card(
-      secH('Add-Ons', null),
-      el('div', { style: hasPlan ? {} : { opacity: '.45' } },
-        table(['Add-On Service', 'Initial', 'Monthly'],
+      el('div', { style: { height: '10px' } }),
+      el('div', { style: hasPlan ? {} : { opacity: '.5' } },
+        table(['Add-ons w/ base plan', 'Initial', 'Monthly'],
           // Every add-on row always renders (the base plan's own row, and any
           // add-on it already covers, just dims — no label, reps know why) so the card never changes height and nothing below it
           // shifts when a plan is picked (per Isaac).
@@ -293,77 +324,88 @@ function viewPricing() {
             const isBase = id === st.base;
             const covered = !isBase && pricingCoveredBy(st.base, id);
             const on = !isBase && !covered && !!st.addons[id];
-            const row = trow([el('span', { class: 'inline-flex items-center' }, box(on), PRICING_SERVICES[id].label), money(init), '+' + money(mo)], on, (hasPlan && !isBase && !covered) ? () => { if (on) delete st.addons[id]; else st.addons[id] = true; rerender(); } : null, i);
+            const row = trow([el('span', { class: 'inline-flex items-center' }, box(on), PRICING_SERVICES[id].label), { v: money(init), muted: !init }, '+' + money(mo)], on, (hasPlan && !isBase && !covered) ? () => { if (on) delete st.addons[id]; else st.addons[id] = true; rerender(); } : null, i);
             if (isBase || covered) row.style.opacity = '.4';
             return row;
-          }))));
+          }))),
+      hasPlan ? null : mono('Pick a Home or Yard plan to add these', { size: 8, style: { padding: '0 14px 12px' } }));
 
     // ── one-time (Standard / Loyalty) ──
     const oneTimeCard = T.onetime ? card(
-      secH('One-Time Services', null, el('div', { class: 'inline-flex rounded-full overflow-hidden', style: { border: '1.5px solid ' + C.ink3 } },
-        ...[['new', 'New'], ['current', 'Existing']].map(([v, l]) => el('button', { onclick: () => { st.customer = v; rerender(); }, style: { padding: '3px 10px', font: '700 9px/1.4 Archivo, Arial, sans-serif', letterSpacing: '.08em', textTransform: 'uppercase', background: st.customer === v ? C.orange : 'transparent', color: st.customer === v ? C.cream : C.char, border: 0, cursor: 'pointer' } }, l)))),
+      secH('One-time services', null, el('div', { class: 'inline-flex rounded-full overflow-hidden', style: { border: '1.2px solid ' + C.ink3 } },
+        ...[['new', 'New'], ['current', 'Existing']].map(([v, l]) => el('button', { onclick: () => { st.customer = v; rerender(); }, style: { padding: '3px 10px', font: '500 8.5px/1.4 ' + MONO, letterSpacing: '.1em', textTransform: 'uppercase', background: st.customer === v ? C.orange : 'transparent', color: st.customer === v ? '#fff' : C.char, border: 0, cursor: 'pointer' } }, l)))),
       table(['Service', 'New', 'Existing'],
         PRICING_ONETIME.map(([id, label, nw, cur], i) => {
           const on = !!st.onetime[id];
           const otp = (v) => v > 0 ? money(v) : 'FREE';
-          return trow([el('span', { class: 'inline-flex items-center' }, box(on), label), otp(nw), otp(cur)], on, () => { if (on) delete st.onetime[id]; else st.onetime[id] = true; rerender(); }, i);
+          return trow([el('span', { class: 'inline-flex items-center' }, box(on), label), { v: otp(nw), muted: st.customer === 'current' }, { v: otp(cur), muted: st.customer !== 'current' }], on, () => { if (on) delete st.onetime[id]; else st.onetime[id] = true; rerender(); }, i);
         }))) : null;
 
     // ── bundle & save (informational, computed from this tier's numbers) ──
     const saveCard = card(
-      secH('Bundle & Save', 'Annual savings vs buying separately'),
+      secH('Bundle & save', 'Annual savings vs separate'),
       table(['Plan', '+ TFM', '+ Mole', '+ Rodent'],
         PRICING_FREQ.map(([k, lbl], i) => trow([lbl, money(pricingSavings(T, 'tfm', i)), money(pricingSavings(T, 'mole', i)), money(pricingSavings(T, 'rodent', i))], false, null, i, '#2F7D32'))));
 
-    // ── chips + reviews (D2D cards) ──
-    const chip = (big, txt, sub) => el('div', { class: 'pricing-chip', style: { background: C.cream, borderRadius: '12px', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '14px', minHeight: '76px', overflow: 'hidden' } },
-      el('div', { class: 'pricing-chip-big', style: { font: '700 ' + (big.length > 2 ? '30px' : '40px') + '/1 Archivo, Arial, sans-serif', color: C.orange, flexShrink: 0, letterSpacing: '-.02em' } }, big),
+    // ── trust chips + reviews (D2D sheets) ──
+    const chip = (big, txt, sub) => el('div', { class: 'pricing-chip', style: { background: C.card, border: '1.5px solid ' + C.line, borderRadius: '12px', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '14px', minHeight: '76px', overflow: 'hidden' } },
+      el('div', { class: 'pricing-chip-big', style: { font: '700 ' + (big.length > 2 ? '30px' : '40px') + '/1 ' + SANS, color: C.orange, flexShrink: 0, letterSpacing: '-.02em' } }, big),
       el('div', { style: { minWidth: 0, flex: '1 1 0', overflowWrap: 'anywhere' } },
-        el('div', { class: 'pricing-chip-txt', style: { font: 'italic 700 16px/1.15 Archivo, Arial, sans-serif', color: C.char } }, txt),
-        sub ? el('div', { style: { font: '400 11px/1.25 Archivo, Arial, sans-serif', marginTop: '3px', color: C.ink2 } }, sub) : null));
+        el('div', { class: 'pricing-chip-txt', style: { font: '700 15px/1.15 ' + SANS, color: C.char, textTransform: 'uppercase' } }, txt),
+        sub ? mono(sub, { size: 8.5, style: { marginTop: '4px', letterSpacing: '.04em', textTransform: 'none' } }) : null));
     // Stretches to fill whatever height the add-ons column leaves (per Isaac).
-    const reviews = el('div', { style: { background: C.cream, borderRadius: '12px', padding: '18px 14px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', justifyContent: 'center', flex: '1 1 auto', minHeight: '150px' } },
-      el('span', { style: { width: '40px', height: '40px', borderRadius: '50%', background: C.char, color: C.cream, font: '700 22px/40px Archivo, Arial, sans-serif', display: 'inline-block' } }, 'G'),
+    const reviews = el('div', { style: { background: C.card, border: '1.5px solid ' + C.line, borderRadius: '12px', padding: '18px 14px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', justifyContent: 'center', flex: '1 1 auto', minHeight: '150px' } },
+      el('span', { style: { width: '40px', height: '40px', borderRadius: '50%', background: C.green, color: C.light, font: '700 22px/40px ' + SANS, display: 'inline-block' } }, 'G'),
       el('span', { style: { color: C.orange, fontSize: '22px', letterSpacing: '.08em', lineHeight: 1 } }, '★★★★★'),
-      el('b', { style: { font: '700 14px/1.2 Archivo, Arial, sans-serif', color: C.char } }, 'Over 15,000+ Google Reviews'),
-      el('small', { style: { font: '500 9px/1 Archivo, Arial, sans-serif', color: C.ink2, letterSpacing: '.12em', textTransform: 'uppercase' } }, '5-star rated'));
+      el('b', { style: { font: '700 14px/1.2 ' + SANS, color: C.char } }, 'Over 15,000+ Google Reviews'),
+      mono('5-star rated', { size: 8.5 }));
 
-    // ── the board ──
-    const ribbon = el('div', { class: 'flex items-center justify-between gap-3', style: { padding: '14px 24px', borderBottom: '1px solid rgba(251,244,218,.18)' } },
-      typeof riddSpiderMark === 'function' ? riddSpiderMark(28) : el('span', {}, ''),
-      el('div', { style: { font: '700 16px/1 Archivo, Arial, sans-serif', letterSpacing: '.3em', textTransform: 'uppercase', color: C.cream } }, 'Pricing'),
-      // Admins get every slick as its own bubble (per Isaac); office/loyalty
-      // users get one bubble with a dropdown; sales reps get a plain D2D label.
+    // ── the sheet ──
+    const header = el('div', { class: 'flex items-center justify-between gap-3 flex-wrap ps-head', style: { padding: '22px 22px 4px' } },
+      el('div', { class: 'ps-title', style: { font: '800 34px/1 ' + SANS, letterSpacing: '-.015em', color: C.char, textTransform: 'uppercase' } }, 'Price Sheet'),
+      // Admins get every tier as its own tag (per Isaac); office/loyalty users get one tag with a dropdown;
+      // sales reps get a plain D2D label.
       isAdmin
         ? el('div', { class: 'flex items-center gap-1.5 flex-wrap justify-end' },
             mBtn,
             ...PICK.map(t => el('button', {
               onclick: () => { if (st.tier === t.id) return; st.tier = t.id; if (!t.onetime) st.onetime = {}; editKey = null; rerender(); },
               'aria-pressed': st.tier === t.id ? 'true' : 'false',
-              style: { background: st.tier === t.id ? C.orange : 'transparent', color: C.cream, border: '1.5px solid ' + (st.tier === t.id ? C.orange : 'rgba(251,244,218,.5)'), font: '700 10px/1 Archivo, Arial, sans-serif', letterSpacing: '.16em', textTransform: 'uppercase', padding: '6px 11px', borderRadius: '999px', cursor: 'pointer' },
-            }, t.label)))
+              style: { background: st.tier === t.id ? C.orange : 'transparent', color: st.tier === t.id ? '#fff' : C.char, border: '1.5px solid ' + (st.tier === t.id ? '#9C3209' : C.line), font: '700 12px/1 ' + SANS, padding: '8px 14px', borderRadius: '6px', cursor: 'pointer' },
+            }, st.tier === t.id ? tierName(t) : t.label)))
         : el('div', { class: 'flex items-center gap-2' },
             mBtn,
-            el('span', { class: 'relative inline-flex items-center gap-1', style: { background: C.orange, color: C.cream, font: '700 10px/1 Archivo, Arial, sans-serif', letterSpacing: '.16em', textTransform: 'uppercase', padding: '7px 12px', borderRadius: '999px', cursor: locked ? 'default' : 'pointer' } },
-              st.tier === 'd2d' ? 'D2D' : T.badge,
-              locked ? null : el('span', { style: { opacity: '.8', letterSpacing: 0 } }, '▾'),
+            el('span', { class: 'relative inline-flex items-center gap-2', style: { background: C.orange, color: '#fff', font: '700 13px/1 ' + SANS, padding: '9px 18px', borderRadius: '6px', border: '1.5px solid #9C3209', cursor: locked ? 'default' : 'pointer', minWidth: '170px', justifyContent: 'center' } },
+              tierName(PRICING_TIERS.find(t => t.id === st.tier) || T),
+              locked ? null : el('span', { style: { opacity: '.85' } }, '▾'),
               sel)));
-    const board = el('div', { style: { background: C.sage, borderRadius: '14px', overflow: 'hidden' } },
-      ribbon,
-      el('div', { class: 'flex flex-col gap-3', style: { padding: '18px 24px 24px' } },
-        ...PRICING_PROGRAMS.map(program),
-        el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' } },
+    const footer = el('div', { class: 'flex items-center justify-between', style: { margin: '2px 22px 18px', paddingTop: '12px', borderTop: '1px solid rgba(43,43,41,.25)', color: C.char } },
+      el('img', { src: 'ridd-logo.png', alt: 'RIDD', style: { height: '24px', width: 'auto', display: 'block' } }),
+      (() => {   // RIDD's mark (the same path the header uses), in ink like the printed sheet
+        if (typeof RIDD_SPIDER_PATH !== 'string') return typeof riddSpiderMark === 'function' ? riddSpiderMark(24) : el('span', {}, '');
+        const NS = 'http://www.w3.org/2000/svg', sv = document.createElementNS(NS, 'svg'), pa = document.createElementNS(NS, 'path');
+        sv.setAttribute('viewBox', '0 0 109.2 117.4'); sv.setAttribute('width', 24); sv.setAttribute('height', 26); sv.setAttribute('aria-label', 'RIDD');
+        pa.setAttribute('d', RIDD_SPIDER_PATH); pa.setAttribute('fill', C.char); sv.append(pa); sv.style.display = 'block';
+        return sv;
+      })());
+    const board = el('div', { style: { background: C.page, borderRadius: '14px', overflow: 'hidden', border: '1px solid rgba(43,43,41,.18)', boxShadow: '0 18px 40px -28px rgba(0,0,0,.45)' } },
+      header,
+      el('div', { class: 'flex flex-col gap-3 ps-body', style: { padding: '14px 22px 18px' } },
+        el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))' } }, program(PRICING_PROGRAMS[0]), program(PRICING_PROGRAMS[1])),
+        program(PRICING_PROGRAMS[2]),
+        el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))' } },
           addonsCard,
           el('div', { class: 'flex flex-col gap-3' }, oneTimeCard, saveCard, T.onetime ? null : reviews)),
-        el('div', { class: 'grid gap-3 pricing-chips', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' } },
-          chip('🐾', 'Kid & Pet Safe'), chip('100%', 'Satisfaction Guarantee', 'Backed by unlimited free re-services'), chip('✓', 'Licensed & Insured'))));
+        T.onetime ? null : el('div', { class: 'grid gap-3 pricing-chips', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' } },
+          chip('🐾', 'Kid & Pet Safe'), chip('100%', 'Satisfaction Guarantee', 'Backed by unlimited free re-services'), chip('✓', 'Licensed & Insured'))),
+      footer);
 
     // ── quote, laid out like a receipt in the slick's cream (per Isaac) ──
     // Every line has a pencil: tap it to type a custom initial / monthly.
     // The floor (D2D minimum, or the tier's list price if lower) is hard —
     // anything under it is refused with the floor shown, so nobody sets an
     // expectation the office can't honor (per Isaac).
-    const F = 'Archivo, Arial, sans-serif';
+    const F = MONO;   // the quote reads like an invoice: typewriter mono throughout
     const pencil = () => { const ns = 'http://www.w3.org/2000/svg'; const sv = document.createElementNS(ns, 'svg'); sv.setAttribute('viewBox', '0 0 24 24'); sv.setAttribute('width', 13); sv.setAttribute('height', 13); sv.setAttribute('fill', 'none'); sv.setAttribute('stroke', 'currentColor'); sv.setAttribute('stroke-width', '2.2'); sv.setAttribute('stroke-linecap', 'round'); sv.setAttribute('stroke-linejoin', 'round'); sv.innerHTML = '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>'; return sv; };
     const priceCol = (l) => el('div', { style: { textAlign: 'right', flexShrink: 0, fontVariantNumeric: 'tabular-nums' } },
       el('div', { style: { font: '700 13px/1.2 ' + F, color: C.char } }, money(l.init), el('span', { style: { font: '500 10px/1 ' + F, color: C.ink2 } }, ' initial')),
@@ -407,8 +449,8 @@ function viewPricing() {
           editable ? el('button', { title: 'Custom price for this line', 'aria-label': 'Edit price', onclick: () => { editKey = l.key; rerender(); }, style: { width: '26px', height: '26px', borderRadius: '50%', border: '1.5px solid ' + C.ink3, background: 'transparent', color: C.char, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 } }, pencil()) : null));
     };
     const total = (lbl, val, o = {}) => el(o.onclick ? 'button' : 'div', { onclick: o.onclick, title: o.title, style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px', width: '100%', textAlign: 'left', cursor: o.onclick ? 'pointer' : 'default', background: 'transparent', border: 0, padding: 0, color: 'inherit' } },
-      el('span', { style: { font: '700 9px/1 ' + F, letterSpacing: '.14em', textTransform: 'uppercase', color: o.green ? '#8FD19E' : o.accent ? C.orange : 'rgba(251,244,218,.7)' } }, lbl),
-      el('span', { style: { font: '700 ' + (o.big ? '24px' : '14px') + '/1.1 ' + F, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color: o.green ? '#8FD19E' : o.accent ? C.orange : C.cream } }, val));
+      el('span', { style: { font: '700 9px/1 ' + F, letterSpacing: '.14em', textTransform: 'uppercase', color: o.green ? '#8FD19E' : o.accent ? '#F6A47F' : 'rgba(251,244,218,.7)' } }, lbl),
+      el('span', { style: { font: '700 ' + (o.big ? '24px' : '14px') + '/1.1 ' + F, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color: o.green ? '#8FD19E' : o.accent ? '#F6A47F' : C.cream } }, val));
     const tierLabel = 'Quote \u00b7 ' + (st.tier === 'd2d' ? (st.min ? 'D2D minimums' : 'D2D') : T.label);
     // EMPTY quote (per Isaac): one row that says where the quote will appear
     // — no totals block, no Reset (nothing to reset). ~44px instead of ~200.
@@ -421,7 +463,7 @@ function viewPricing() {
         el('button', { style: { padding: '5px 12px', borderRadius: '999px', border: '1.5px solid ' + C.ink3, background: 'transparent', color: C.char, font: '700 9px/1.2 ' + F, letterSpacing: '.1em', textTransform: 'uppercase', cursor: 'pointer' }, onclick: () => { st.base = null; st.addons = {}; st.onetime = {}; st.termite = false; st.custom = {}; editKey = null; rerender(); } }, 'Reset')),
       el('div', { class: 'grid gap-3 items-start pricing-qgrid', style: { gridTemplateColumns: 'minmax(0, 1fr) auto' } },
         el('div', { style: { minWidth: 0 } }, ...q.lines.map(rline)),
-        el('div', { style: { background: C.char, color: C.cream, borderRadius: '10px', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '7px', flexShrink: 0, minWidth: '150px', opacity: q.ok ? 1 : .55 } },
+        el('div', { style: { background: C.green, color: C.cream, borderRadius: '8px', border: '1.5px solid ' + C.greenLine, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '7px', flexShrink: 0, minWidth: '150px', opacity: q.ok ? 1 : .55 } },
           total('Initial', money(q.init), { big: true }),
           // D2D: first-year cost is tucked away — tap Monthly to flip it into
           // view, tap again to hide (per Isaac). Standard / Loyalty show it.

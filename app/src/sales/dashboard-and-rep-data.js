@@ -3722,8 +3722,8 @@ function openIndicatorRepCard(rep, allReps = []) {
     const sellDays = new Set(allSales.map(s => dateSoldToIso(s.dateSold)).filter(Boolean)).size;
     const _isRen = (x) => typeof _indicatorIsRenewal === 'function' && _indicatorIsRenewal(x);
     const revSales = (cardRevMode === 'total' || cardRevMode === 'peak') ? allSales : allSales.filter(x => cardRevMode === 'renewal' ? _isRen(x) : !_isRen(x));
-    // Peak (per Isaac + CSO, Oct 15; Nov 23): each account at the contract the rep signed, just before the initial
-    // was completed — before tech upsells and later saves (which lower it) and later upsells (which raise it). No entry = unchanged = today's value.
+    // Peak (per Isaac + CSO, Oct 15; Nov 23): each account as the rep sold it + the rep's own later changes + the
+    // $4.87 service fee — office / tech saves (which lower it) and upsells (which raise it) don't count. No entry = unchanged = today's value.
     const _peakOf = (x) => { const v = Number(x.contractValue) || 0; const hit = _cardPeakIdx().get(String(x.customerId || '') + '|' + String(x.subscription || '').trim().toLowerCase()); return hit != null ? hit : v; };
     const revAmt = cardRevMode === 'peak' ? revSales.reduce((a, x) => a + _peakOf(x), 0)
       : cardRevMode === 'total' && _mo.revenue == null ? (scopedRep.revenue || 0) : revSales.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
@@ -3736,12 +3736,12 @@ function openIndicatorRepCard(rep, allReps = []) {
       // Office Staff: New / Total / Renewal / Peak · everyone else: Revenue / Peak (per Isaac, Oct 15).
       ...(state.indicatorDept === 'office' ? [['new', 'New'], ['total', 'Total'], ['renewal', 'Renewal'], ['peak', 'Peak']] : [['total', 'Revenue'], ['peak', 'Peak']]).map(([v, l]) => el('button', { type: 'button',
         style: { fontSize: _rt4 ? '8px' : '9px', fontWeight: '700', padding: _rt4 ? '0 4px' : '0 5px', lineHeight: '14px', border: '0', cursor: 'pointer', whiteSpace: 'nowrap', background: cardRevMode === v ? 'var(--accent)' : 'transparent', color: cardRevMode === v ? 'var(--accent-text)' : 'var(--text-muted)' },
-        title: v === 'new' ? 'New business only' : v === 'renewal' ? 'Renewal-source sales only' : v === 'peak' ? 'Every account at the contract the rep signed, just before the initial was completed \u2014 before any tech upsell or later reduction (rates lowered to save it, plans adjusted down)' : 'Everything',
+        title: v === 'new' ? 'New business only' : v === 'renewal' ? 'Renewal-source sales only' : v === 'peak' ? 'Every account as the rep sold it, plus anything the rep added later and the $4.87 service fee \u2014 office and tech changes don\u2019t count' : 'Everything',
         onclick: (e) => { e.stopPropagation(); cardRevMode = v; renderBody(); } }, l)));
     scopedStats = [
       { key: 'sales',      label: 'Subscriptions',      value: fmt.int(count) },
       { key: 'revenue',    label: cardRevMode === 'new' ? 'New Revenue' : cardRevMode === 'renewal' ? 'Renewal Revenue' : cardRevMode === 'peak' ? 'Peak Revenue' : 'Total Revenue', value: fmt.usd0(revAmt), sub: revToggle,
-        title: cardRevMode === 'peak' ? 'Peak ' + fmt.usd0(revAmt) + ' = every account at the rep\u2019s contract just before the initial was completed \u00b7 today ' + fmt.usd0(_nowAmt) + ' (' + (_nowAmt >= revAmt ? '+' : '\u2212') + fmt.usd0(Math.abs(_nowAmt - revAmt)) + ' from later upsells and saves) \u00b7 change history from ' + _peakSinceLabel() : 'Sales sold in this window · New = renewal-source sales out (the leaderboard default for Office Staff) · Production/Day follows this toggle' },
+        title: cardRevMode === 'peak' ? 'Peak ' + fmt.usd0(revAmt) + ' = every account as sold + the rep\u2019s own adds + the service fee \u00b7 today ' + fmt.usd0(_nowAmt) + ' (' + (_nowAmt >= revAmt ? '+' : '\u2212') + fmt.usd0(Math.abs(_nowAmt - revAmt)) + ' from later upsells and saves) \u00b7 change history from ' + _peakSinceLabel() : 'Sales sold in this window · New = renewal-source sales out (the leaderboard default for Office Staff) · Production/Day follows this toggle' },
       { key: 'revPerDay',  label: 'Production/Day',
         value: _mo.revPerDay != null && cardRevMode === 'total' ? fmt.usd0(_mo.revPerDay) + (_mo.acctsPerDay != null ? ' / ' + Math.round(_mo.acctsPerDay) : '') : revDays > 0 ? fmt.usd0(revAmt / revDays) + ' / ' + Math.round(revSales.length / revDays) : '—' },   // whole accounts/day — decimals clipped the tile (per Isaac)
       { key: 'acv',        label: 'ACV',        value: fmt.usd(acv) },

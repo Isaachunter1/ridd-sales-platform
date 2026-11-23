@@ -12,7 +12,7 @@ import { job } from '../../../runtime/job.js';
 import { sql, getAccessToken, queryObjects } from '../../../config/bigquery.js';
 import { rollupLtv, officeNamesFromRoster } from '../functions/rollupLtv.js';
 
-const LTV_SQL = sql(import.meta.url, 'ltvCohorts');
+const LTV_SQL = sql(import.meta.url, '../functions/ltvCohorts');
 const MAX_K = 47;          // four years of months since start
 const START = '2021-01-01';
 

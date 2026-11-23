@@ -1,26 +1,31 @@
-// Peak value per subscription (per Isaac + CSO, Oct 15 2026; rule changed by Isaac Nov 23 2026).
+// Peak value per subscription (per Isaac + CSO, Oct 15 2026; definition set by Isaac Nov 23 2026).
 //
-// Nov 23: "contract values just PRIOR to appointments being completed" — "sum revenue AFTER the contract is signed
-// from the sales reps". Peak is the contract the rep signed, as it stood the moment before the initial service was
-// completed. Anything a technician or the office changes at or after the initial — an upsell on the initial visit,
-// a rate lowered to save a cancel — is a modification and is undone. (Nov 19 rule, superseded: value at the END of
-// the completion day, so same-day tech upsells counted.)
+// "peak revenue = revenue when contract is sold + any additional revenue that the sales rep added to an account
+//  after the fact … then the downgrades and tech upsells and office upsells aren't even relevant" — and "you need
+// to also add the service fees to peak revenue too".
 //
-//   peak = initial + recurring × 11                      when billed monthly (billingFrequency 30)
-//   peak = initial + recurring × annualRecurringServices  when billed per service (billingFrequency 0 / -1)
+//   peak = the contract as the rep sold it
+//        + every later change the selling rep made themselves (any of their FieldRoutes employee IDs)
+//        + the +$4.87/mo service fee (SERVICE_FEE), whoever added it
+//   Every other change — office or tech upsells, saves, downgrades — is taken back out.
 //
-// with initial / recurring / services / billing as they stood just BEFORE the initial was completed (done_at, to the
-// second). Changes before that (the rep's own edits after signing) stay; any change at or after it is undone. A
-// subscription with no such change — or whose initial isn't completed yet — is worth what it is today, so it is not
-// published and the app falls back to the current contract value.
+//   value = initial + recurring × 11                      when billed monthly (billingFrequency 30)
+//   value = initial + recurring × annualRecurringServices  when billed per service (billingFrequency 0 / -1)
 //
-// Rows come from peakValues.sql: one row per (subscription, change), newest change first, each row carrying
-// today's values and the change's field `k` and its value BEFORE the change `o`.
+// Changes are undone as DELTAS (new − old), not by restoring the old value, so a rep's own later change survives
+// an office change made before it. Billing frequency is a setting, not an amount: an office change to it restores
+// the old setting. A subscription whose peak equals today is not published; the app falls back to today's value.
+// Rows come from peakValues.sql: one row per (subscription, change, field) with the field `k`, its value before `o`
+// and after `n`, and who made it `emp`; each row also carries today's values and the seller `rep`.
 
 export const PEAK_KEYS = ['recurringCharge', 'annualRecurringServices', 'billingFrequency', 'initialQuote', 'initialDiscount'];
 
+// The service fee (per Isaac, Nov 23): the office adds a flat +$4.87 to the recurring charge (e.g. $49 → $53.87,
+// $99 → $103.87 — 504 times on Reggie Grayek's 2026 accounts). It is revenue that counts to the rep, so a
+// recurring-charge change of exactly +$4.87 is always kept.
+export const SERVICE_FEE = 4.87;
+
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
-const day = (s) => String(s || '').slice(0, 10);
 
 /** Contract value from its parts, by Isaac's rule. Monthly billing = 11 recurring payments after the initial. */
 export function contractValue({ init, rec, ars, bf }) {
@@ -32,41 +37,44 @@ export function contractValue({ init, rec, ars, bf }) {
 
 /**
  * rows → { peaks: { 'cust|svc': peak }, stats }
- * Only subscriptions whose peak differs from today's contract value are kept (either direction).
+ * sameRep(soldBy, employeeId) → true when the change was made by the selling rep (default: same employee ID; the
+ * job passes the roster so a rep's other branch IDs count too).
  */
-export function computePeaks(rows) {
+export function computePeaks(rows, sameRep = (a, b) => String(a || '') === String(b || '')) {
   const bySid = new Map();
   for (const x of rows || []) { const k = String(x.sid); (bySid.get(k) || bySid.set(k, []).get(k)).push(x); }
   const peaks = {};
-  let up = 0, down = 0, same = 0, skipped = 0;
+  let up = 0, down = 0, same = 0, skipped = 0, repKept = 0, feeKept = 0, undone = 0;
   for (const list of bySid.values()) {
     const h = list[0];
     const cv = num(h.cv);
     if (cv == null || cv <= 0) { skipped++; continue; }
-    const doneAt = String(h.done_at || '');
-    // today's parts
-    let rec = num(h.rec) || 0, ars = num(h.ars) || 0, bf = num(h.bf), iq = num(h.iq), idisc = num(h.idisc);
-    // Walk newest → oldest; undo every change made at or after the moment the initial was completed.
-    const later = list.filter(c => doneAt && String(c.at_ || '') >= doneAt).sort((a, b) => (a.at_ < b.at_ ? 1 : a.at_ > b.at_ ? -1 : 0));
-    for (const c of later) {
-      const o = num(c.o);
-      if (o == null) continue;
-      if (c.k === 'recurringCharge') rec = o;
-      else if (c.k === 'annualRecurringServices') ars = o;
-      else if (c.k === 'billingFrequency') bf = o;
-      else if (c.k === 'initialQuote') iq = o;
-      else if (c.k === 'initialDiscount') idisc = o;
+    let rec = num(h.rec) || 0, ars = num(h.ars) || 0, bf = num(h.bf), iq = num(h.iq), idisc = num(h.idisc) || 0;
+    // newest → oldest, so a billing-frequency restore lands on the earliest office change last
+    const changes = list.filter(c => c.k).sort((a, b) => (a.at_ < b.at_ ? 1 : a.at_ > b.at_ ? -1 : String(b.cid_).localeCompare(String(a.cid_))));
+    for (const c of changes) {
+      const o = num(c.o), n = num(c.n);
+      if (sameRep(h.rep, c.emp)) { repKept++; continue; }
+      if (c.k === 'billingFrequency') { if (o != null) { bf = o; undone++; } continue; }
+      if (o == null || n == null) continue;
+      const d = n - o;
+      if (c.k === 'recurringCharge' && Math.abs(d - SERVICE_FEE) < 0.005) { feeKept++; continue; }
+      undone++;
+      if (c.k === 'recurringCharge') rec -= d;
+      else if (c.k === 'annualRecurringServices') ars -= d;
+      else if (c.k === 'initialQuote') iq = (iq == null ? null : iq - d);
+      else if (c.k === 'initialDiscount') idisc -= d;
     }
-    // initial before completion: quote − discount when both are known, else today's initialServiceTotal
+    // initial: quote − discount when the quote is known, else today's initialServiceTotal
     const init = (iq != null) ? Math.max(0, iq - (idisc || 0)) : (num(h.init) || 0);
     const peak = contractValue({ init, rec, ars, bf });
     if (Math.abs(peak - cv) <= 0.5) { same++; continue; }
-    if (peak > cv) down++; else up++;   // down = account was reduced since the initial; up = upsold
+    if (peak > cv) down++; else up++;   // down = account was cut by someone else; up = someone else upsold it
     const key = String(h.cust) + '|' + String(h.svc || '').trim().toLowerCase();
     // one customer can hold two plans with the same name: keep the larger peak, as the old build did
     if (!(key in peaks) || peak > peaks[key]) peaks[key] = peak;
   }
-  return { peaks, stats: { subscriptions: bySid.size, reduced: down, upsold: up, unchanged: same, skipped } };
+  return { peaks, stats: { subscriptions: bySid.size, reduced: down, upsold: up, unchanged: same, skipped, repChangesKept: repKept, serviceFeesKept: feeKept, changesUndone: undone } };
 }
 
 /**
