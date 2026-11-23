@@ -73,21 +73,24 @@ const PRICING_ONETIME = [
   ['ot_suv',     'Vehicle — SUV',         249, 249],
 ];
 
-// Which tier opens first for this user (per Isaac).
-function pricingDefaultTier(profile) {
-  const role = String(profile?.role || '');
-  // Only Standard and Loyalty are offered (per Isaac, Nov 23): loyalty reps open on Loyalty, everyone else on Standard.
-  if (/loyalty/.test(role)) return 'loyalty';
-  return 'standard';
-}
-
-// Sales-rep user types only ever see one sheet — Standard since Nov 23 (it was the D2D slick); everyone else can
-// switch between Standard and Loyalty from the orange tag.
-function pricingLockedToD2D(profile) {
+// Who sees which sheets (per Isaac, Nov 23): sales reps get D2D + Standard, office staff (loyalty included) get
+// Standard + Loyalty, admins get all three.
+function pricingIsSalesRep(profile) {
   const role = String(profile?.role || '');
   if (role === 'rep_sales' || role === 'rep_partner' || role === 'rep_team_lead') return true;
-  if (typeof isOfficeStaffProfile === 'function' && !isAdminRole(role) && !isOfficeStaffProfile(profile)) return true;
-  return false;
+  return typeof isOfficeStaffProfile === 'function' && !isAdminRole(role) && !isOfficeStaffProfile(profile);
+}
+function pricingTierChoices(profile) {
+  const role = String(profile?.role || '');
+  if (typeof isAdminRole === 'function' && isAdminRole(role)) return ['d2d', 'standard', 'loyalty'];
+  return pricingIsSalesRep(profile) ? ['d2d', 'standard'] : ['standard', 'loyalty'];
+}
+// Which tier opens first: sales reps on D2D, loyalty reps on Loyalty, everyone else on Standard.
+function pricingDefaultTier(profile) {
+  const role = String(profile?.role || '');
+  if (/loyalty/.test(role)) return 'loyalty';
+  if (pricingIsSalesRep(profile)) return 'd2d';
+  return 'standard';
 }
 
 function pricingStore() {
@@ -96,10 +99,8 @@ function pricingStore() {
   if (!st.tier) st.tier = pricingDefaultTier(state.profile);
   if (st.tier === 'd2d_min') { st.tier = 'd2d'; st.min = true; }   // legacy value from an earlier build
   if (st.min == null) st.min = false;
-  // Only Standard and Loyalty are offered (per Isaac, Nov 23) — a saved D2D choice from an earlier build falls back,
-  // and sales reps stay on Standard (they used to be locked to the D2D sheet).
-  if (st.tier !== 'standard' && st.tier !== 'loyalty') { st.tier = pricingDefaultTier(state.profile); st.min = false; }
-  if (pricingLockedToD2D(state.profile)) st.tier = 'standard';
+  // A saved choice this user can't see any more (sheets per role, Nov 23) falls back to their default.
+  if (!pricingTierChoices(state.profile).includes(st.tier)) { st.tier = pricingDefaultTier(state.profile); st.min = false; }
   // Termite Defense is its own subscription in the CRM (per Isaac): it sits
   // ALONGSIDE whichever Home/Yard base plan is picked, never instead of it.
   if (st.termite == null) st.termite = false;
@@ -218,15 +219,15 @@ function viewPricing() {
     const st = pricingStore();
     const T = pricingTierOf(st);
     const isMin = T.id === 'd2d_min';   // the sheet's numbers are white; only D2D minimums keep a warm tint
-    const PICK = PRICING_TIERS.filter(t => t.id === 'standard' || t.id === 'loyalty');   // Standard + Loyalty only (per Isaac, Nov 23)
+    const PICK = pricingTierChoices(state.profile).map(id => PRICING_TIERS.find(t => t.id === id));   // sheets this user may see (per Isaac, Nov 23); D2D minimums is the Ⓜ toggle
     const baseSvc = st.base ? PRICING_SERVICES[st.base] : null;
     const hasPlan = !!baseSvc;
     const q = pricingQuote(st);
     const rerender = () => { const y = window.scrollY; render(); window.scrollTo(0, y); onScroll(); };
 
-    // ── tier switch lives in the orange tag next to PRICE SHEET (most users never switch). Sales reps are
-    // locked to D2D, so for them the tag is just a label; admins get every tier as its own tag.
-    const locked = pricingLockedToD2D(state.profile);
+    // ── tier switch: admins get every sheet as its own tag; everyone else gets one orange tag with a dropdown of
+    // the two sheets their role sees.
+    const locked = PICK.length < 2;
     const isAdmin = typeof isAdminRole === 'function' && isAdminRole(String(state.profile?.role || ''));
     const sel = locked ? null : el('select', {
       style: { position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer', appearance: 'none', WebkitAppearance: 'none' },
@@ -254,13 +255,20 @@ function viewPricing() {
     // Service pickers (Pest / Rodent …) sit at the top-right in the sheet's small mono caps; the picked one turns
     // into an orange tag.
     const svcPick = (txt, on, onclick) => el('button', { onclick, 'aria-pressed': on ? 'true' : 'false', style: { background: on ? C.orange : 'transparent', color: on ? '#fff' : C.char, border: '1.2px solid ' + (on ? C.orange : C.ink3), font: '500 9px/1 ' + MONO, letterSpacing: '.12em', textTransform: 'uppercase', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' } }, txt);
-    // Price tile — dark green, mono caps on top, "$99 initial", the big light number, "monthly". Selected = orange.
-    const tile = (label, initV, val, on, onclick) => {
-      const dim = on ? 'rgba(255,255,255,.85)' : 'rgba(242,241,234,.72)';
-      return el('button', { onclick, 'aria-pressed': on ? 'true' : 'false', style: { background: on ? C.orange : C.green, color: '#fff', borderRadius: '8px', padding: '10px 4px 9px', textAlign: 'center', border: '1.5px solid ' + (on ? C.orange : C.greenLine), cursor: onclick ? 'pointer' : 'default', minWidth: 0, boxShadow: on ? '0 8px 18px -10px rgba(217,72,15,.9)' : 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '7px' } },
+    // Price tile — dark green, mono caps on top, "$99 initial", the big light number, "monthly". Orange = the
+    // highlighted plan (Standard's Bi-Monthly is MOST POPULAR, per Isaac); the picked tile gets a thick ink ring
+    // and a check so it reads on either colour.
+    const PICKED = { border: '3px solid ' + C.char, boxShadow: '0 0 0 2px #fff inset, 0 10px 20px -12px rgba(0,0,0,.8)' };
+    const tick = () => el('span', { style: { position: 'absolute', top: '-8px', right: '-8px', width: '20px', height: '20px', borderRadius: '50%', background: C.char, color: '#fff', font: '900 11px/20px ' + SANS, textAlign: 'center', boxShadow: '0 0 0 2px #fff' } }, '✓');
+    const tile = (label, initV, val, on, onclick, o = {}) => {
+      const hot = !!o.popular;
+      const dim = hot ? 'rgba(255,255,255,.88)' : 'rgba(242,241,234,.72)';
+      return el('button', { onclick, 'aria-pressed': on ? 'true' : 'false', style: Object.assign({ position: 'relative', background: hot ? C.orange : C.green, color: '#fff', borderRadius: '8px', padding: (hot ? '15px' : '10px') + ' 4px 9px', textAlign: 'center', border: '1.5px solid ' + (hot ? '#9C3209' : C.greenLine), cursor: onclick ? 'pointer' : 'default', minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '7px' }, on ? PICKED : {}) },
+        hot ? el('span', { style: { position: 'absolute', top: '-9px', left: '50%', transform: 'translateX(-50%)', background: C.char, color: '#fff', font: '700 7.5px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', padding: '4px 7px', borderRadius: '999px', whiteSpace: 'nowrap' } }, 'Most popular') : null,
+        on ? tick() : null,
         el('div', { style: { font: '400 9px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', color: dim } }, label),
         el('div', { style: { font: '400 9px/1 ' + MONO, color: dim } }, money(initV) + ' initial'),
-        el('div', { class: 'ps-big', style: { font: '300 34px/1 ' + SANS, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color: on ? '#fff' : (isMin ? '#F2A27E' : C.light) } }, money(val)),
+        el('div', { class: 'ps-big', style: { font: '300 34px/1 ' + SANS, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color: hot ? '#fff' : (isMin ? '#F2A27E' : C.light) } }, money(val)),
         el('div', { style: { font: '400 9px/1 ' + MONO, letterSpacing: '.06em', color: dim } }, 'monthly'));
     };
 
@@ -275,19 +283,20 @@ function viewPricing() {
           ? svcPick(st.termite ? 'Added ✓' : 'Termite · add', !!st.termite, toggleT)
           : el('div', { class: 'flex flex-col items-end gap-1' }, ...p.services.map(sid => svcPick(PRICING_SERVICES[sid].label, st.base === sid, () => { if (st.base === sid) { st.base = null; st.addons = {}; } else { st.base = sid; delete st.addons[sid]; } rerender(); }))));
       if (isT) {
-        // The termite bar: one wide green strip — ANNUAL · $399 initial · $29 monthly — tap to add.
+        // The termite bar: one wide orange strip (per Isaac) — ANNUAL · $399 initial · $29 monthly — tap to add.
         const on = !!st.termite;
-        const dim = on ? 'rgba(255,255,255,.85)' : 'rgba(242,241,234,.72)';
+        const dim = 'rgba(255,255,255,.88)';
         return card(head, el('div', { style: { padding: '0 14px 14px' } },
-          el('button', { onclick: toggleT, 'aria-pressed': on ? 'true' : 'false', style: { width: '100%', display: 'flex', alignItems: 'center', gap: '10px', background: on ? C.orange : C.green, border: '1.5px solid ' + (on ? C.orange : C.greenLine), borderRadius: '8px', padding: '10px 14px', cursor: 'pointer', color: '#fff', boxShadow: on ? '0 8px 18px -10px rgba(217,72,15,.9)' : 'none' } },
+          el('button', { onclick: toggleT, 'aria-pressed': on ? 'true' : 'false', style: Object.assign({ position: 'relative', width: '100%', display: 'flex', alignItems: 'center', gap: '10px', background: C.orange, border: '1.5px solid #9C3209', borderRadius: '8px', padding: '10px 14px', cursor: 'pointer', color: '#fff' }, on ? PICKED : {}) },
+            on ? tick() : null,
             el('span', { style: { font: '400 9px/1 ' + MONO, letterSpacing: '.16em', textTransform: 'uppercase', color: dim } }, 'Annual'),
             el('span', { style: { marginLeft: 'auto', font: '400 9px/1 ' + MONO, color: dim } }, money(T.termite[0]) + ' initial'),
-            el('span', { class: 'ps-big', style: { font: '300 30px/1 ' + SANS, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color: on ? '#fff' : (isMin ? '#F2A27E' : C.light), marginLeft: '8px' } }, money(T.termite[1])),
+            el('span', { class: 'ps-big', style: { font: '300 30px/1 ' + SANS, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color: '#fff', marginLeft: '8px' } }, money(T.termite[1])),
             el('span', { style: { font: '400 9px/1 ' + MONO, color: dim } }, 'monthly'))));
       }
       return card(head,
         el('div', { class: 'grid gap-2 ps-tiles', style: { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', padding: '0 14px 14px' } },
-          ...PRICING_FREQ.map(([k, lbl], i) => tile(lbl, T.init, T[p.id][i], onProg && st.freq === k, () => { if (onProg && st.freq === k) { st.base = null; st.addons = {}; } else { if (!onProg) { st.base = p.services[0]; delete st.addons[st.base]; } st.freq = k; } rerender(); }))));
+          ...PRICING_FREQ.map(([k, lbl], i) => tile(lbl, T.init, T[p.id][i], onProg && st.freq === k, () => { if (onProg && st.freq === k) { st.base = null; st.addons = {}; } else { if (!onProg) { st.base = p.services[0]; delete st.addons[st.base]; } st.freq = k; } rerender(); }, { popular: T.id === 'standard' && k === 'b' }))));
     };
 
     // ── tables (add-ons / one-time / bundle & save) in the sheet's ledger style ──
