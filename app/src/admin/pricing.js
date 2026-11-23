@@ -434,6 +434,7 @@ function viewPricing() {
     if (!st.pk) st.pk = {};
     const pk = st.pk;
     if (!pk.home) pk.home = 'pest';
+    if (!pk.yard) pk.yard = 'tfm';
     if (!pk.hy) pk.hy = { home: 'pest', yard: 'tfm' };
     if (pk.hy.yard === 'mole') pk.hy.yard = 'tfm';   // Mole left the Home + Yard card (it's an extra now)
     // Custom starts on Pest + Rodent + Tick, Flea & Mosquito; Mole and Seasonal one tap away; Termite rides on top via
@@ -443,6 +444,8 @@ function viewPricing() {
     const CORE = ['pest', 'rodent', 'tfm', 'mole'];
     const cfgOf = (id) => {
       if (id === 'home') return { id, label: 'Home', custName: 'Home Protection', base: pk.home, addons: [], termite: false };
+      // Yard on its own (per Isaac, Nov 23): Tick, Flea & Mosquito or Mole as the plan.
+      if (id === 'yard') return { id, label: 'Yard', custName: 'Yard Protection', base: pk.yard, addons: [], termite: false };
       if (id === 'homeyard') return { id, label: 'RIDD Package', custName: 'RIDD Package',   // branded RIDD Package (per Isaac, Nov 23)
          base: pk.hy.home, addons: [pk.hy.yard], termite: false, popular: true };
       if (id === 'custom') {
@@ -453,7 +456,7 @@ function viewPricing() {
       if (id === 'termite') return { id, label: 'Termite Defense', custName: 'Termite Defense', base: null, addons: [], termite: true };
       return null;
     };
-    const PKGS = ['home', 'homeyard', 'custom', 'termite'].map(cfgOf);
+    const PKGS = ['home', 'yard', 'homeyard', 'custom', 'termite'].map(cfgOf);
     const fiB = Math.max(0, PRICING_FREQ.findIndex(([k]) => k === st.freq));
     const freqWord = { q: 'every 3 months', b: 'every 2 months', m: 'every month' }[st.freq] || '';
     if (!st.extras) st.extras = {};
@@ -490,6 +493,7 @@ function viewPricing() {
     };
     const pillsFor = (c) => {
       if (c.id === 'home') return ['pest', 'rodent'].map(s => svcPill(L(s), pk.home === s, pickThen('home', () => { pk.home = s; })));
+      if (c.id === 'yard') return ['tfm', 'mole'].map(s => svcPill(L(s), pk.yard === s, pickThen('yard', () => { pk.yard = s; })));
       if (c.id === 'homeyard') return [
         ...['pest', 'rodent'].map(s => svcPill(L(s), pk.hy.home === s, pickThen('homeyard', () => { pk.hy.home = s; }))),
         el('span', { style: { font: '400 10px/22px ' + MONO, color: C.ink3, padding: '0 2px' } }, '+'),
