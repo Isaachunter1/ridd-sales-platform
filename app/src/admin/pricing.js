@@ -76,14 +76,13 @@ const PRICING_ONETIME = [
 // Which tier opens first for this user (per Isaac).
 function pricingDefaultTier(profile) {
   const role = String(profile?.role || '');
+  // Only Standard and Loyalty are offered (per Isaac, Nov 23): loyalty reps open on Loyalty, everyone else on Standard.
   if (/loyalty/.test(role)) return 'loyalty';
-  if (role === 'rep_sales' || role === 'rep_partner' || role === 'rep_team_lead') return 'd2d';
-  if (typeof isOfficeStaffProfile === 'function' && !isAdminRole(role) && !isOfficeStaffProfile(profile)) return 'd2d';
   return 'standard';
 }
 
-// Sales-rep user types only ever see the D2D slick (per Isaac); everyone
-// else can switch tiers from the badge bubble on the board.
+// Sales-rep user types only ever see one sheet — Standard since Nov 23 (it was the D2D slick); everyone else can
+// switch between Standard and Loyalty from the orange tag.
 function pricingLockedToD2D(profile) {
   const role = String(profile?.role || '');
   if (role === 'rep_sales' || role === 'rep_partner' || role === 'rep_team_lead') return true;
@@ -97,7 +96,10 @@ function pricingStore() {
   if (!st.tier) st.tier = pricingDefaultTier(state.profile);
   if (st.tier === 'd2d_min') { st.tier = 'd2d'; st.min = true; }   // legacy value from an earlier build
   if (st.min == null) st.min = false;
-  if (pricingLockedToD2D(state.profile)) st.tier = 'd2d';
+  // Only Standard and Loyalty are offered (per Isaac, Nov 23) — a saved D2D choice from an earlier build falls back,
+  // and sales reps stay on Standard (they used to be locked to the D2D sheet).
+  if (st.tier !== 'standard' && st.tier !== 'loyalty') { st.tier = pricingDefaultTier(state.profile); st.min = false; }
+  if (pricingLockedToD2D(state.profile)) st.tier = 'standard';
   // Termite Defense is its own subscription in the CRM (per Isaac): it sits
   // ALONGSIDE whichever Home/Yard base plan is picked, never instead of it.
   if (st.termite == null) st.termite = false;
@@ -216,7 +218,7 @@ function viewPricing() {
     const st = pricingStore();
     const T = pricingTierOf(st);
     const isMin = T.id === 'd2d_min';   // the sheet's numbers are white; only D2D minimums keep a warm tint
-    const PICK = PRICING_TIERS.filter(t => t.id !== 'd2d_min');   // three choices; minimums is the Ⓜ toggle on D2D
+    const PICK = PRICING_TIERS.filter(t => t.id === 'standard' || t.id === 'loyalty');   // Standard + Loyalty only (per Isaac, Nov 23)
     const baseSvc = st.base ? PRICING_SERVICES[st.base] : null;
     const hasPlan = !!baseSvc;
     const q = pricingQuote(st);
@@ -370,7 +372,13 @@ function viewPricing() {
               sel)));
     const footer = el('div', { class: 'flex items-center justify-between', style: { margin: '2px 22px 18px', paddingTop: '12px', borderTop: '1px solid rgba(43,43,41,.25)', color: C.char } },
       el('img', { src: 'ridd-logo.png', alt: 'RIDD', style: { height: '24px', width: 'auto', display: 'block' } }),
-      typeof riddSpiderMark === 'function' ? riddSpiderMark(24) : el('span', {}, ''));
+      (() => {   // RIDD's mark (the same path the header uses), in ink like the printed sheet
+        if (typeof RIDD_SPIDER_PATH !== 'string') return typeof riddSpiderMark === 'function' ? riddSpiderMark(24) : el('span', {}, '');
+        const NS = 'http://www.w3.org/2000/svg', sv = document.createElementNS(NS, 'svg'), pa = document.createElementNS(NS, 'path');
+        sv.setAttribute('viewBox', '0 0 109.2 117.4'); sv.setAttribute('width', 24); sv.setAttribute('height', 26); sv.setAttribute('aria-label', 'RIDD');
+        pa.setAttribute('d', RIDD_SPIDER_PATH); pa.setAttribute('fill', C.char); sv.append(pa); sv.style.display = 'block';
+        return sv;
+      })());
     const board = el('div', { style: { background: C.page, borderRadius: '14px', overflow: 'hidden', border: '1px solid rgba(43,43,41,.18)', boxShadow: '0 18px 40px -28px rgba(0,0,0,.45)' } },
       header,
       el('div', { class: 'flex flex-col gap-3 ps-body', style: { padding: '14px 22px 18px' } },
