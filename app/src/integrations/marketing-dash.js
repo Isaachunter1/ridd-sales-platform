@@ -24,6 +24,19 @@ function mktgDashGridCard(D, lbl) {
   const X = D.x || {};
   const offices = Object.keys(D.br || {}).filter(k => !skip(k) && ((D.br[k].leads || 0) || (D.br[k].s || 0))).sort((a, b) => (D.br[b].leads || 0) - (D.br[a].leads || 0) || a.localeCompare(b));
   const channels = Object.keys(D.ch || {}).filter(k => !skip(k) && k !== unmappedKey && (typeof mktgChannelShown !== 'function' || mktgChannelShown(k)) && ((D.ch[k].leads || 0) || (D.ch[k].s || 0))).sort((a, b) => (D.ch[b].leads || 0) - (D.ch[a].leads || 0) || a.localeCompare(b));
+  // Every active FieldRoutes source is a row (per Isaac, Nov 23 — "Click Thesis and Win-Back were added in FieldRoutes
+  // but nothing shows"): the nightly source sync adds new ones to the sources list; a NEW source (added in the last 60
+  // days) with no leads or sales this month still gets its row (zeros, at the bottom) so it's visible from day one.
+  // Renewal / upsell / door-to-door sources stay off (not Office Staff marketing).
+  try {
+    const have = new Set(channels.map(c => c.toLowerCase()));
+    const recent = Date.now() - 60 * 86400000;   // zero rows only for sources the sync added in the last 60 days, so dead sources don't pile up
+    const extra = (state.sources || []).filter(x => x && x.fr_source_id && x.is_active !== false && x.fr_visible !== false && !x.is_renewal && Date.parse(x.created_at || 0) >= recent)
+      .map(x => typeof frChannelOf === 'function' ? frChannelOf(x.name) : x.name)
+      .filter(c => c && !skip(c) && c !== unmappedKey && (typeof reportingSourceClass !== 'function' || reportingSourceClass(c) === 'new') && (typeof mktgChannelShown !== 'function' || mktgChannelShown(c)) && !have.has(c.toLowerCase()) && (have.add(c.toLowerCase()), true))
+      .sort((a, b) => a.localeCompare(b));
+    channels.push(...extra);
+  } catch (e) { /* optional */ }
   const cellOf = (o, c) => (X[o] && X[o][c]) || { leads: 0, s: 0, cv: 0, sales: [], leadRows: [] };
   const rowTot = (c) => D.ch[c] || { leads: 0, s: 0, cv: 0 };
   const colTot = (o) => D.br[o] || { leads: 0, s: 0, cv: 0 };
