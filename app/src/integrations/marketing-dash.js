@@ -154,34 +154,50 @@ function _mkdLocalHour(l) {
   try { return Number(new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: false }).format(dt)) % 24; } catch (e) { return dt.getUTCHours(); }
 }
 function mktgDashHoursCard(D, lbl) {
-  const kind = state._mkdHourKind || 'call';
+  // Two views (per Isaac, Nov 23): Calls = every phone lead, as stacked bars — calls the office handled on the bottom,
+  // AI calls (the Voice AI line) on top — and Forms.
+  const kind = state._mkdHourKind === 'form' ? 'form' : 'call';
   const leads = _mkdLeadsOf(D, null, null);
-  const typed = leads.filter(l => l.type === kind);
   const unknown = leads.filter(l => !l.type).length;
-  const hours = new Array(24).fill(0); let counted = 0;
+  const noHour = leads.filter(l => l.type && l.batch && !l.t).length;
+  const parts = kind === 'call' ? ['call', 'ai'] : ['form'];
+  const hours = parts.map(() => new Array(24).fill(0)); let counted = 0;
   const byHour = Array.from({ length: 24 }, () => []);   // the leads behind each bar — click a bar to see them (per Isaac, Nov 19)
-  for (const l of typed) { const h = _mkdLocalHour(l); if (h == null) continue; hours[h]++; counted++; byHour[h].push(l); }
-  const max = Math.max(1, ...hours);
-  const biz = (h) => h >= 8 && h < 18;   // shaded bars = 8am–6pm local
-  const afterN = hours.reduce((a, v, h) => a + (biz(h) ? 0 : v), 0);
+  for (const l of leads) { const pi = parts.indexOf(l.type); if (pi < 0) continue; const h = _mkdLocalHour(l); if (h == null) continue; hours[pi][h]++; counted++; byHour[h].push(l); }
+  const tot = (h) => parts.reduce((a, _, i) => a + hours[i][h], 0);
+  const max = Math.max(1, ...Array.from({ length: 24 }, (_, h) => tot(h)));
+  const biz = (h) => h >= 8 && h < 18;   // solid bars = 8am–6pm local
+  const afterN = Array.from({ length: 24 }, (_, h) => biz(h) ? 0 : tot(h)).reduce((a, v) => a + v, 0);
   const lab = (h) => h === 0 ? '12a' : h < 12 ? h + 'a' : h === 12 ? '12p' : (h - 12) + 'p';
-  const COL = { call: '#DF643A', form: '#5F6C5B', ai: '#323230' };
+  const COL = { call: '#DF643A', ai: '#323230', form: '#5F6C5B' };
+  const NAME = { call: 'Calls handled', ai: 'AI calls', form: 'Forms' };
+  const nOf = (t) => leads.filter(l => l.type === t).length;
   const toggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
-    ...[['call', 'Calls'], ['form', 'Forms'], ['ai', 'AI calls']].map(([v, t]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-bold', style: kind === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._mkdHourKind = v; mountApp(); } }, t + ' ' + fmt.int(leads.filter(l => l.type === v).length))));
+    ...[['call', 'Calls', nOf('call') + nOf('ai')], ['form', 'Forms', nOf('form')]].map(([v, t, n]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-bold', style: kind === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._mkdHourKind = v; mountApp(); } }, t + ' ' + fmt.int(n))));
+  const legend = el('div', { class: 'flex items-center gap-3 text-[11px]', style: { color: 'var(--text-muted)' } },
+    ...parts.slice().reverse().map(t => el('span', { class: 'inline-flex items-center gap-1' }, el('span', { style: { width: '10px', height: '10px', borderRadius: '2px', background: COL[t], display: 'inline-block' } }), NAME[t] + ' ' + fmt.int(hours[parts.indexOf(t)].reduce((a, v) => a + v, 0)))));
   const bars = el('div', { class: 'flex items-end gap-1', style: { height: '150px' } },
-    ...hours.map((v, h) => el('div', { class: 'flex-1 flex flex-col items-center justify-end gap-1' + (v ? ' cursor-pointer hover:brightness-90' : ''), title: lab(h) + ' · ' + fmt.int(v) + (biz(h) ? ' · business hours' : ' · after hours') + (v ? ' · click for the leads' : ''),
-      onclick: v ? () => {
-        const tzOf = (l) => MKD_OFFICE_TZ[String(l.market || '').toUpperCase()] || 'America/New_York';
-        const rows = byHour[h].map(l => { let lt = ''; try { lt = new Intl.DateTimeFormat('en-US', { timeZone: tzOf(l), hour: 'numeric', minute: '2-digit' }).format(new Date((l.dUtc || l.d) + 'T' + l.t + ':00Z')); } catch (e) { lt = l.t; } return Object.assign({}, l, { _lt: lt }); });
-        _mkdOpenLeads(({ call: 'Calls', form: 'Forms', ai: 'AI calls' })[kind] + ' · ' + lab(h) + '–' + lab((h + 1) % 24) + ' local · ' + lbl, rows);
-      } : null },
-      v ? el('div', { class: 'text-[9px] tabular-nums', style: { color: 'var(--text-muted)' } }, fmt.int(v)) : null,
-      el('div', { style: { width: '100%', height: Math.max(2, Math.round(120 * v / max)) + 'px', background: COL[kind], opacity: biz(h) ? '1' : '.45', borderRadius: '2px 2px 0 0' } }))));
-  const axis = el('div', { class: 'flex gap-1 mt-1' }, ...hours.map((_, h) => el('div', { class: 'flex-1 text-center text-[9px] tabular-nums', style: { color: h % 3 === 0 ? 'var(--text-muted)' : 'transparent' } }, lab(h))));
-  return el('div', { class: 'card p-4', style: { borderTopColor: COL[kind] } },
+    ...Array.from({ length: 24 }, (_, h) => {
+      const v = tot(h);
+      const tip = lab(h) + ' · ' + parts.map((t, i) => NAME[t] + ' ' + fmt.int(hours[i][h])).join(' · ') + (biz(h) ? ' · business hours' : ' · after hours') + (v ? ' · click for the leads' : '');
+      return el('div', { class: 'flex-1 flex flex-col items-center justify-end' + (v ? ' cursor-pointer hover:brightness-90' : ''), title: tip,
+        onclick: v ? () => {
+          const tzOf = (l) => MKD_OFFICE_TZ[String(l.market || '').toUpperCase()] || 'America/New_York';
+          const rows = byHour[h].map(l => { let lt = ''; try { lt = new Intl.DateTimeFormat('en-US', { timeZone: tzOf(l), hour: 'numeric', minute: '2-digit' }).format(new Date((l.dUtc || l.d) + 'T' + l.t + ':00Z')); } catch (e) { lt = l.t; } return Object.assign({}, l, { _lt: lt }); });
+          _mkdOpenLeads((kind === 'call' ? 'Calls' : 'Forms') + ' · ' + lab(h) + '–' + lab((h + 1) % 24) + ' local · ' + lbl, rows);
+        } : null },
+        v ? el('div', { class: 'text-[9px] tabular-nums mb-1', style: { color: 'var(--text-muted)' } }, fmt.int(v)) : null,
+        // stacked: the last part (AI calls) on top, calls handled underneath
+        ...parts.slice().reverse().map((t, k, arr) => { const n = hours[parts.indexOf(t)][h]; if (!n && v) return null;
+          return el('div', { style: { width: '100%', height: (v ? Math.max(2, Math.round(120 * n / max)) : 2) + 'px', background: COL[t], opacity: biz(h) ? '1' : '.45', borderRadius: k === 0 || !arr.slice(0, k).some(x => hours[parts.indexOf(x)][h]) ? '2px 2px 0 0' : '0' } }); }));
+    }));
+  const axis = el('div', { class: 'flex gap-1 mt-1' }, ...Array.from({ length: 24 }, (_, h) => el('div', { class: 'flex-1 text-center text-[9px] tabular-nums', style: { color: h % 3 === 0 ? 'var(--text-muted)' : 'transparent' } }, lab(h))));
+  return el('div', { class: 'card p-4', style: { borderTopColor: COL[parts[0]] } },
     el('div', { class: 'flex items-center gap-3 flex-wrap mb-3' },
       el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Traffic by hour · ' + lbl),
-        el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Each office’s local time · solid = 8am–6pm, faded = after hours · ' + fmt.int(afterN) + ' of ' + fmt.int(counted) + ' after hours' + (unknown ? ' · ' + fmt.int(unknown) + ' leads of unknown type (moved stage before the sync saw them)' : ''))),
-      el('span', { class: 'ml-auto' }), toggle),
-    counted ? el('div', {}, bars, axis) : el('div', { class: 'py-8 text-center text-sm', style: { color: 'var(--text-muted)' } }, 'No ' + ({ call: 'calls', form: 'forms', ai: 'AI calls' })[kind] + ' for ' + lbl + ' yet' + (unknown ? ' — the sync started keeping the entry stage on Nov 18; older leads show as unknown.' : '.')));
+        el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Each office’s local time · solid = 8am–6pm, faded = after hours · ' + fmt.int(afterN) + ' of ' + fmt.int(counted) + ' after hours'
+          + (noHour ? ' · ' + fmt.int(noHour) + ' back-filled by Pest AI with no real time, left off' : '')
+          + (unknown ? ' · ' + fmt.int(unknown) + ' leads of unknown type (moved stage before the sync saw them)' : ''))),
+      el('span', { class: 'ml-auto' }), legend, toggle),
+    counted ? el('div', {}, bars, axis) : el('div', { class: 'py-8 text-center text-sm', style: { color: 'var(--text-muted)' } }, 'No ' + (kind === 'call' ? 'calls' : 'forms') + ' for ' + lbl + ' yet' + (unknown ? ' — the sync started keeping the entry stage on Nov 18; older leads show as unknown.' : '.')));
 }
