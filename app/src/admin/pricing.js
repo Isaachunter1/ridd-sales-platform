@@ -438,13 +438,13 @@ function viewPricing() {
     if (!pk.custom) pk.custom = { pest: true, tfm: true, mole: true, rodent: true, termite: true };
     const CORE = ['pest', 'rodent', 'tfm', 'mole'];
     const cfgOf = (id) => {
-      if (id === 'home') return { id, label: 'Home', custName: 'Home Protection', base: pk.home, addons: [], termite: false, blurb: 'Inside + outside the home' };
+      if (id === 'home') return { id, label: 'Home', custName: 'Home Protection', base: pk.home, addons: [], termite: false };
       if (id === 'homeyard') return { id, label: 'Home + Yard', custName: 'Home + Yard Protection', base: pk.hy.home, addons: [pk.hy.yard], termite: false, popular: true };
       if (id === 'custom') {
         const on = CORE.filter(s => pk.custom[s]);
         return { id, label: 'Custom Protection', custName: 'Custom Protection', base: on[0] || null, addons: on.slice(1), termite: !!pk.custom.termite };
       }
-      if (id === 'termite') return { id, label: 'Termite Defense', custName: 'Termite Defense', base: null, addons: [], termite: true, blurb: 'Annual termite contract · adds to any plan' };
+      if (id === 'termite') return { id, label: 'Termite Defense', custName: 'Termite Defense', base: null, addons: [], termite: true };
       return null;
     };
     const PKGS = ['home', 'homeyard', 'custom', 'termite'].map(cfgOf);
