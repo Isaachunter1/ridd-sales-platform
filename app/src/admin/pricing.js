@@ -435,6 +435,7 @@ function viewPricing() {
     const pk = st.pk;
     if (!pk.home) pk.home = 'pest';
     if (!pk.hy) pk.hy = { home: 'pest', yard: 'tfm' };
+    if (pk.hy.yard === 'mole') pk.hy.yard = 'tfm';   // Mole left the Home + Yard card (it's an extra now)
     // Custom starts on Pest + Rodent + Tick, Flea & Mosquito; Mole and Seasonal one tap away; Termite rides on top via
     // the Termite Defense box (per Isaac, Nov 23).
     if (!pk.custom) pk.custom = { pest: true, rodent: true, tfm: true };
@@ -490,8 +491,9 @@ function viewPricing() {
       if (c.id === 'homeyard') return [
         ...['pest', 'rodent'].map(s => svcPill(L(s), pk.hy.home === s, pickThen('homeyard', () => { pk.hy.home = s; }))),
         el('span', { style: { font: '400 10px/22px ' + MONO, color: C.ink3, padding: '0 2px' } }, '+'),
-        // Yard half: the full Tick, Flea & Mosquito program, the seasonal one (per Isaac, Nov 23), or Mole.
-        ...['tfm', 'seasonal', 'mole'].map(s => svcPill(s === 'seasonal' ? 'Seasonal TFM' : L(s), pk.hy.yard === s, pickThen('homeyard', () => { pk.hy.yard = s; })))];
+        // Yard half: the full Tick, Flea & Mosquito program or the seasonal one (per Isaac, Nov 23). Mole is an add-on
+        // in Add extras, not a yard choice here.
+        ...['tfm', 'seasonal'].map(s => svcPill(s === 'seasonal' ? 'Seasonal TFM' : L(s), pk.hy.yard === s, pickThen('homeyard', () => { pk.hy.yard = s; })))];
       // Tick, Flea & Mosquito and Seasonal TFM are either/or (the full program covers the season).
       if (c.id === 'custom') return ['pest', 'rodent', 'tfm', 'seasonal', 'mole'].map(s => svcPill(s === 'seasonal' ? 'Seasonal TFM' : L(s), !!pk.custom[s], pickThen('custom', () => {
         pk.custom[s] = !pk.custom[s];
