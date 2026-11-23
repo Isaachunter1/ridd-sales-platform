@@ -73,21 +73,29 @@ const PRICING_ONETIME = [
   ['ot_suv',     'Vehicle — SUV',         249, 249],
 ];
 
-// Who sees which sheets (per Isaac, Nov 23): sales reps get D2D + Standard, office staff (loyalty included) get
-// Standard + Loyalty, admins get all three.
+// Who sees which sheets (per Isaac, Nov 23): sales reps get D2D only (with the Ⓜ minimums toggle), office staff
+// (loyalty included) get Standard + Loyalty, technicians get Standard only, admins get all three.
+function pricingIsTechnician(profile) {
+  const role = String(profile?.role || '');
+  if (/^tech/.test(role)) return true;   // tech, tech_pro, tech_branch, tech_regional, tech_senior_lead
+  try { const emp = typeof frRosterRowForProfile === 'function' ? frRosterRowForProfile(profile) : null; return !!(emp && emp.type_label && typeof crmSellerIs === 'function' && crmSellerIs('technician', emp.type_label)); } catch (e) { return false; }
+}
 function pricingIsSalesRep(profile) {
   const role = String(profile?.role || '');
   if (role === 'rep_sales' || role === 'rep_partner' || role === 'rep_team_lead') return true;
+  if (pricingIsTechnician(profile)) return false;
   return typeof isOfficeStaffProfile === 'function' && !isAdminRole(role) && !isOfficeStaffProfile(profile);
 }
 function pricingTierChoices(profile) {
   const role = String(profile?.role || '');
   if (typeof isAdminRole === 'function' && isAdminRole(role)) return ['d2d', 'standard', 'loyalty'];
-  return pricingIsSalesRep(profile) ? ['d2d', 'standard'] : ['standard', 'loyalty'];
+  if (pricingIsTechnician(profile)) return ['standard'];
+  return pricingIsSalesRep(profile) ? ['d2d'] : ['standard', 'loyalty'];
 }
-// Which tier opens first: sales reps on D2D, loyalty reps on Loyalty, everyone else on Standard.
+// Which tier opens first: sales reps on D2D, loyalty reps on Loyalty, everyone else (technicians, office) on Standard.
 function pricingDefaultTier(profile) {
   const role = String(profile?.role || '');
+  if (pricingIsTechnician(profile)) return 'standard';
   if (/loyalty/.test(role)) return 'loyalty';
   if (pricingIsSalesRep(profile)) return 'd2d';
   return 'standard';
@@ -225,8 +233,8 @@ function viewPricing() {
     const q = pricingQuote(st);
     const rerender = () => { const y = window.scrollY; render(); window.scrollTo(0, y); onScroll(); };
 
-    // ── tier switch: admins get every sheet as its own tag; everyone else gets one orange tag with a dropdown of
-    // the two sheets their role sees.
+    // ── tier switch: admins get every sheet as its own tag; office staff get one orange tag with a Standard /
+    // Loyalty dropdown; sales reps (D2D) and technicians (Standard) see a plain label.
     const locked = PICK.length < 2;
     const isAdmin = typeof isAdminRole === 'function' && isAdminRole(String(state.profile?.role || ''));
     const sel = locked ? null : el('select', {
