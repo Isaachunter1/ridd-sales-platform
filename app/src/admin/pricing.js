@@ -357,10 +357,10 @@ function viewPricing() {
 
     // ── trust chips + reviews (D2D sheets) ──
     const chip = (big, txt, sub) => el('div', { class: 'pricing-chip', style: { background: C.card, border: '1.5px solid ' + C.line, borderRadius: '12px', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '14px', minHeight: '76px', overflow: 'hidden' } },
-      el('div', { class: 'pricing-chip-big', style: { font: '700 ' + (big.length > 2 ? '30px' : '40px') + '/1 ' + SANS, color: C.orange, flexShrink: 0, letterSpacing: '-.02em' } }, big),
-      el('div', { style: { minWidth: 0, flex: '1 1 0', overflowWrap: 'anywhere' } },
-        el('div', { class: 'pricing-chip-txt', style: { font: '700 15px/1.15 ' + SANS, color: C.char, textTransform: 'uppercase' } }, txt),
-        sub ? mono(sub, { size: 8.5, style: { marginTop: '4px', letterSpacing: '.04em', textTransform: 'none' } }) : null));
+      el('div', { class: 'pricing-chip-big', style: { font: '700 ' + (big.length > 2 ? '24px' : '32px') + '/1 ' + SANS, color: C.orange, flexShrink: 0, letterSpacing: '-.02em' } }, big),
+      el('div', { style: { minWidth: 0, flex: '1 1 0' } },   // words wrap whole — never split mid-word (per Isaac)
+        el('div', { class: 'pricing-chip-txt', style: { font: '700 12px/1.2 ' + SANS, color: C.char, textTransform: 'uppercase', letterSpacing: '.01em', overflowWrap: 'normal', wordBreak: 'keep-all', hyphens: 'none' } }, txt),
+        sub ? mono(sub, { size: 8, style: { marginTop: '4px', letterSpacing: '.02em', textTransform: 'none', hyphens: 'none' } }) : null));
     // Stretches to fill whatever height the add-ons column leaves (per Isaac).
     const reviews = el('div', { style: { background: C.card, border: '1.5px solid ' + C.line, borderRadius: '12px', padding: '18px 14px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', justifyContent: 'center', flex: '1 1 auto', minHeight: '150px' } },
       el('span', { style: { width: '40px', height: '40px', borderRadius: '50%', background: C.green, color: C.light, font: '700 22px/40px ' + SANS, display: 'inline-block' } }, 'G'),
@@ -404,8 +404,10 @@ function viewPricing() {
         el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))' } },
           addonsCard,
           el('div', { class: 'flex flex-col gap-3' }, oneTimeCard, saveCard, T.onetime ? null : reviews)),
+        // Trust chips — the guarantee goes last: on phones the last chip spans the full width, so its long word
+        // never has to squeeze (per Isaac).
         T.onetime ? null : el('div', { class: 'grid gap-3 pricing-chips', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' } },
-          chip('🐾', 'Kid & Pet Safe'), chip('100%', 'Satisfaction Guarantee', 'Backed by unlimited free re-services'), chip('✓', 'Licensed & Insured'))),
+          chip('🐾', 'Kid & Pet Safe'), chip('✓', 'Licensed & Insured'), chip('100%', 'Satisfaction Guarantee', 'Backed by unlimited free re\u2011services'))),
       footer);
 
     // ── quote, laid out like a receipt in the slick's cream (per Isaac) ──
