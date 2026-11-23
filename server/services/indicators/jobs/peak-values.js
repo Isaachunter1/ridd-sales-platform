@@ -1,7 +1,7 @@
 // ┌─ peak-values ────────────────────────────────────────────────────────────
 // │ Peak value per account (per Isaac + CSO, Oct 15 2026; rule per Isaac,
-// │ Nov 19 2026): what each subscription was worth right after its initial
-// │ service was completed, before any later upsell or save. Published as
+// │ Nov 23 2026): the contract the rep signed, as it stood just before the
+// │ initial was completed — no tech upsell, no later save. Published as
 // │ indicators/peak-values-v2.json → { at, changelog_since, rule, peaks:
 // │ { 'customer|plan name (lower)': peak } }, read by the player card's Peak
 // │ toggle and the leaderboard's Peak Rev column. Ported from the frozen
@@ -16,7 +16,7 @@ import { computePeaks } from '../functions/peakValues.js';
 const PEAK_SQL = sql(import.meta.url, 'peakValues');
 const SINCE_SQL = 'SELECT CAST(MIN(dateChangedDate) AS STRING) AS since FROM `' + PROJECT + '.' + DATASET + '.FieldRoutesChangelog` WHERE classID = 7';
 export const PEAK_FILE = 'indicators/peak-values-v2.json';
-export const PEAK_RULE = 'value at end of the initial’s completion day: initial + recurring × 11 (monthly) or × annual services (per service)';
+export const PEAK_RULE = 'the rep’s contract just before the initial was completed: initial + recurring × 11 (monthly) or × annual services (per service)';
 
 export default job('peak-values', {
   schedule: '40 9 * * *',   // 4:40am ET / 2:40am MT, after the night's sync
