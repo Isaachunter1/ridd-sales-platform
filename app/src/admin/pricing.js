@@ -460,7 +460,7 @@ function viewPricing() {
     const applyPkg = (c) => {
       st.pkg = c.id; st.base = c.base; st.termite = c.termite || !!st.extras.termite;
       st.addons = Object.fromEntries(c.addons.map(a => [a, true]));
-      for (const id of Object.keys(st.extras)) if (id !== 'termite' && !CORE.includes(id) && (!c.base || !pricingCoveredBy(c.base, id)) && T.addons.some(x => x[0] === id)) st.addons[id] = true;
+      for (const id of Object.keys(st.extras)) if (id !== 'termite' && id !== c.base && !c.addons.includes(id) && (!c.base || !pricingCoveredBy(c.base, id)) && T.addons.some(x => x[0] === id)) st.addons[id] = true;
       if (!st.base) st.addons = {};   // add-ons need a Home / Yard plan; Termite Defense stands alone
     };
     // The package the quote still matches (an edit on the sheet can move it off every package).
@@ -512,12 +512,13 @@ function viewPricing() {
           save > 0 ? el('b', { style: { color: '#2F7D32' } }, 'Saves ' + money(save) + '/yr') : el('span', {}, c.blurb || '')));
     };
 
-    // Extras: every add-on the picked package doesn't already include (the core four are picked on the cards),
-    // plus Termite when it isn't in the package.
+    // Extras: every add-on the picked package doesn't already include. Termite is its own box above.
     const extrasRow = () => {
       if (!curPkg || !curPkg.base) return null;
       const chipX = (id, label, mo, on, toggle) => el('button', { onclick: toggle, 'aria-pressed': on ? 'true' : 'false', style: { font: '500 9.5px/1 ' + MONO, border: '1.2px solid ' + (on ? C.char : C.ink3), borderRadius: '999px', padding: '7px 9px', background: on ? C.char : '#fff', color: on ? '#fff' : C.char, cursor: 'pointer' } }, (on ? '' : '+ ') + label + ' ' + money(mo) + (on ? ' ✓' : ''));
-      const ids = T.addons.filter(([id]) => !CORE.includes(id) && !pricingCoveredBy(curPkg.base, id) && !(curPkg.addons.includes('tfm') && id === 'seasonal'));
+      // Anything not already in the plan — incl. the other core services as add-ons (Home on Pest offers Rodent and
+      // vice versa, per Isaac, Nov 23).
+      const ids = T.addons.filter(([id]) => id !== curPkg.base && !curPkg.addons.includes(id) && !pricingCoveredBy(curPkg.base, id) && !(curPkg.addons.includes('tfm') && id === 'seasonal'));
       return el('div', {},
         mono('Add extras', { size: 9, style: { margin: '14px 0 6px' } }),
         el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px' } },
