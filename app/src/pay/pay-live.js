@@ -14,10 +14,11 @@ function viewPayLive() {
   const nowPid = currentPayPeriodId(today.getFullYear());
   const isCurrent = state.payYear === today.getFullYear() && period.id === nowPid;
   const isAdmin = isAdminRole(state.profile?.role);
-  const pickable = (state.allProfiles || []).filter(p => p.is_active !== false && p.role !== 'auditor' && p.role !== 'disabled'
-    && (p.id === state.profile.id || (typeof repTypeGroup === 'function' ? repTypeGroup(p) === 'office' : true)))
+  // Inside Sales + Loyalty reps (per Isaac, Nov 23) — same set as Commissions → Office Staff.
+  const pickable = (state.allProfiles || []).filter(p => typeof dashpOfficeIsRep === 'function' ? dashpOfficeIsRep(p)
+      : (p.is_active !== false && p.role !== 'auditor' && p.role !== 'disabled' && (typeof repTypeGroup === 'function' ? repTypeGroup(p) === 'office' : true)))
     .sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || '')));
-  const prof = (isAdmin && state.payViewRepId) ? (pickable.find(p => p.id === state.payViewRepId) || state.profile) : state.profile;
+  const prof = isAdmin ? (pickable.find(p => p.id === state.payViewRepId) || pickable[0] || state.profile) : state.profile;   // an admin isn't on the list — open on a rep
   const repId = prof.id;
   const money = (v) => fmt.usd(Math.round((Number(v) || 0) * 100) / 100);
 

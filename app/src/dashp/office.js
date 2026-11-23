@@ -15,8 +15,11 @@
 // │ (the list collapses straight to their stub).
 // └────────────────────────────────────────────────────────────────────────
 
+// Inside Sales + Loyalty reps only (per Isaac, Nov 23): the Office Staff pay is theirs. Office-office staff
+// (role office_staff, e.g. Cameron Prymak) aren't paid on it, so they stay off the list and the rep picker.
+const OFFICE_PAY_ROLES = new Set(['rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead']);
 function dashpOfficeIsRep(p) {
-  return !!p && typeof repTypeGroup === 'function' && repTypeGroup(p) === 'office' && p.role !== 'auditor' && p.role !== 'disabled';
+  return !!p && OFFICE_PAY_ROLES.has(String(p.role || '')) && p.is_active !== false;
 }
 function dashpOfficeCanSeeAll() { const r = state.profile && state.profile.role; return isAdminRole(r) || (typeof isDeveloperRole === 'function' && isDeveloperRole(r)); }
 
@@ -135,9 +138,14 @@ function dashpOfficeList(S) {
 // at the row that was clicked and render it. The stub's own rep + period pickers keep working inside.
 function dashpOfficeDetailView(S) {
   const d = S.detail;
-  if (dashpOfficeCanSeeAll()) state.payViewRepId = d.id;
-  if (d.year) state.payYear = d.year;
-  if (d.period) state.payPeriodId = Number(d.period);
+  // Seed the stub from the row that was opened ONCE — re-applying it every render undid the stub's own rep and
+  // period pickers (per Isaac, Nov 23: "nothing happens when i switch from rep to rep").
+  if (!d._seeded) {
+    if (dashpOfficeCanSeeAll()) state.payViewRepId = d.id;
+    if (d.year) state.payYear = d.year;
+    if (d.period) state.payPeriodId = Number(d.period);
+    d._seeded = true;
+  }
   if (typeof viewPayLive !== 'function') return dashpNotice('The pay stub is not available in this build.');
   try { return viewPayLive(); } catch (e) { console.warn('[commissions] office detail', e); return dashpNotice('The pay stub hit an error: ' + (e.message || e)); }
 }
