@@ -780,8 +780,6 @@ function reportingOverview() {
       const valOf = (r) => unitSubs ? 1 : (Number(r.annual_recurring_value) || 0);
       const svcDate = (r) => { const done = String(r.initial_status || '').toLowerCase() === 'completed' || !!r.initial_serviced_date; return done ? String(r.initial_serviced_date || r.initial_service || r.sold_date || '').slice(0, 10) : ''; };
       const cxlDate = (r) => String(r.subscription_date_canceled || '').slice(0, 10);
-      // Same window one year earlier, for the year-over-year change (per Isaac, Nov 23).
-      const yr = (d) => { const x = new Date(d + 'T00:00'); x.setFullYear(x.getFullYear() - 1); return iso(x); };
       const measure = (start, end) => {
         let book = 0; const add = [], cxl = []; let addV = 0, cxlV = 0;
         for (const r of rows) {
@@ -793,22 +791,10 @@ function reportingOverview() {
         return { start, book, add, cxl, addV, cxlV };
       };
       const wins = [['7 days', back(7)], ['30 days', back(30)], ['12 months', back(365)]].map(([label, start]) => {
-        const w = measure(start, end), ly = measure(yr(start), yr(end));
-        return Object.assign(w, { label, ly });
+        return Object.assign(measure(start, end), { label });
       });
       const pct = (v, b) => b > 0 ? (Math.round(v / b * 1000) / 10).toFixed(1) + '%' : '—';
       const money = (v) => unitSubs ? fmt.int(v) : (Math.abs(v) >= 1e6 ? '$' + (Math.round(v / 1e4) / 100).toFixed(2) + 'M' : fmt.usd0(v));
-      // YoY: the change in the rate, in percentage points, vs the same window last year. Up is good for growth,
-      // down is good for churn; the arrow's color says which. Blank when last year had no book to divide by.
-      const rate = (v, b) => b > 0 ? v / b * 100 : null;
-      const yoy = (w, kind) => {
-        const cur = rate(kind === 'svc' ? w.addV : w.cxlV, w.book), prev = rate(kind === 'svc' ? w.ly.addV : w.ly.cxlV, w.ly.book);
-        if (cur == null || prev == null) return el('div', { class: 'tabular-nums', style: { fontSize: '10px', color: 'var(--text-subtle)' } }, 'no data last year');
-        const d = Math.round((cur - prev) * 10) / 10, good = kind === 'svc' ? d >= 0 : d <= 0;
-        return el('div', { class: 'tabular-nums', style: { fontSize: '10px', fontWeight: 600, color: d === 0 ? 'var(--text-subtle)' : good ? C.sold : C.cxl },
-            title: 'Same ' + w.label + ' last year (' + w.ly.start + ' \u2192 ' + yr(end) + '): ' + money(kind === 'svc' ? w.ly.addV : w.ly.cxlV) + ' \u00b7 ' + prev.toFixed(1) + '% of a ' + money(w.ly.book) + ' book' },
-          (d > 0 ? '\u25b2 ' : d < 0 ? '\u25bc ' : '') + Math.abs(d).toFixed(1) + ' pts vs last yr');
-      };
       const cell = (w, kind) => {
         const v = kind === 'svc' ? w.addV : w.cxlV, color = kind === 'svc' ? C.sold : C.cxl;
         const net = w.addV - w.cxlV;
@@ -816,8 +802,7 @@ function reportingOverview() {
             title: (kind === 'svc' ? 'New recurring ARR serviced' : 'Recurring ARR churned') + ' in the last ' + w.label + ' (' + w.start + ' → ' + end + '), as a share of the ' + money(w.book) + ' book on ' + w.start + '. Net: ' + (net < 0 ? '−' : '+') + money(Math.abs(net)) + ' (' + (net < 0 ? '−' : '+') + pct(Math.abs(net), w.book) + '). Click for the accounts.',
             onclick: () => openPulseDayDrill('Last ' + w.label, 'Last ' + w.label + ' · ' + w.start + ' → ' + end, { sold: [], svc: w.add, cxl: w.cxl }, kind) },
           el('span', { class: 'text-sm font-black tabular-nums', style: { color } }, money(v)),
-          el('span', { class: 'tabular-nums', style: { color, fontSize: '11px', fontWeight: 700, marginLeft: '6px' } }, pct(v, w.book)),
-          yoy(w, kind));
+          el('span', { class: 'tabular-nums', style: { color, fontSize: '11px', fontWeight: 700, marginLeft: '6px' } }, pct(v, w.book)));
       };
       const lab = (t, color) => el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color, alignSelf: 'center' } }, t);
       return el('div', { style: { display: 'grid', gridTemplateColumns: 'auto repeat(3, minmax(96px, auto))', columnGap: '14px', rowGap: '2px', alignItems: 'baseline' } },
