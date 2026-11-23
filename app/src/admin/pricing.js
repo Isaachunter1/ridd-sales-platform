@@ -435,14 +435,17 @@ function viewPricing() {
     const pk = st.pk;
     if (!pk.home) pk.home = 'pest';
     if (!pk.hy) pk.hy = { home: 'pest', yard: 'tfm' };
-    if (!pk.custom) pk.custom = { pest: true, tfm: true, mole: true, rodent: true, termite: true };
+    // Custom starts on Pest + Rodent + Tick, Flea & Mosquito; Mole and Seasonal one tap away; Termite rides on top via
+    // the Termite Defense box (per Isaac, Nov 23).
+    if (!pk.custom) pk.custom = { pest: true, rodent: true, tfm: true };
     const CORE = ['pest', 'rodent', 'tfm', 'mole'];
     const cfgOf = (id) => {
       if (id === 'home') return { id, label: 'Home', custName: 'Home Protection', base: pk.home, addons: [], termite: false };
       if (id === 'homeyard') return { id, label: 'Home + Yard', custName: 'Home + Yard Protection', base: pk.hy.home, addons: [pk.hy.yard], termite: false, popular: true };
       if (id === 'custom') {
         const on = CORE.filter(s => pk.custom[s]);
-        return { id, label: 'Custom Protection', custName: 'Custom Protection', base: on[0] || null, addons: on.slice(1), termite: !!pk.custom.termite };
+        const extra = pk.custom.seasonal && !pk.custom.tfm && on.length ? ['seasonal'] : [];   // Seasonal TFM is an add-on only
+        return { id, label: 'Custom Protection', custName: 'Custom Protection', base: on[0] || null, addons: [...on.slice(1), ...extra], termite: false };
       }
       if (id === 'termite') return { id, label: 'Termite Defense', custName: 'Termite Defense', base: null, addons: [], termite: true };
       return null;
@@ -480,7 +483,6 @@ function viewPricing() {
     const toggleTermite = () => {
       const nv = !st.termite; st.termite = nv;
       if (nv) st.extras.termite = true; else delete st.extras.termite;
-      if (st.pkg === 'custom') pk.custom.termite = nv;
       rerender();
     };
     const pillsFor = (c) => {
@@ -489,7 +491,12 @@ function viewPricing() {
         ...['pest', 'rodent'].map(s => svcPill(L(s), pk.hy.home === s, pickThen('homeyard', () => { pk.hy.home = s; }))),
         el('span', { style: { font: '400 10px/22px ' + MONO, color: C.ink3, padding: '0 2px' } }, '+'),
         ...['tfm', 'mole'].map(s => svcPill(L(s), pk.hy.yard === s, pickThen('homeyard', () => { pk.hy.yard = s; })))];
-      if (c.id === 'custom') return [...CORE, 'termite'].map(s => svcPill(L(s), !!pk.custom[s], pickThen('custom', () => { pk.custom[s] = !pk.custom[s]; })));
+      // Tick, Flea & Mosquito and Seasonal TFM are either/or (the full program covers the season).
+      if (c.id === 'custom') return ['pest', 'rodent', 'tfm', 'seasonal', 'mole'].map(s => svcPill(s === 'seasonal' ? 'Seasonal TFM' : L(s), !!pk.custom[s], pickThen('custom', () => {
+        pk.custom[s] = !pk.custom[s];
+        if (pk.custom[s] && s === 'tfm') pk.custom.seasonal = false;
+        if (pk.custom[s] && s === 'seasonal') pk.custom.tfm = false;
+      })));
       return [svcPill('Termite', !!st.termite, toggleTermite)];
     };
 
@@ -518,7 +525,7 @@ function viewPricing() {
       const chipX = (id, label, mo, on, toggle) => el('button', { onclick: toggle, 'aria-pressed': on ? 'true' : 'false', style: { font: '500 9.5px/1 ' + MONO, border: '1.2px solid ' + (on ? C.char : C.ink3), borderRadius: '999px', padding: '7px 9px', background: on ? C.char : '#fff', color: on ? '#fff' : C.char, cursor: 'pointer' } }, (on ? '' : '+ ') + label + ' ' + money(mo) + (on ? ' ✓' : ''));
       // Anything not already in the plan — incl. the other core services as add-ons (Home on Pest offers Rodent and
       // vice versa, per Isaac, Nov 23).
-      const ids = T.addons.filter(([id]) => id !== curPkg.base && !curPkg.addons.includes(id) && !pricingCoveredBy(curPkg.base, id) && !(curPkg.addons.includes('tfm') && id === 'seasonal'));
+      const ids = T.addons.filter(([id]) => id !== curPkg.base && !curPkg.addons.includes(id) && !pricingCoveredBy(curPkg.base, id) && !(curPkg.addons.includes('tfm') && id === 'seasonal') && !(curPkg.addons.includes('seasonal') && id === 'tfm'));
       return el('div', {},
         mono('Add extras', { size: 9, style: { margin: '14px 0 6px' } }),
         el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px' } },
