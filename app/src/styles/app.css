@@ -205,6 +205,20 @@
     .rep-filter-row .rep-filter-pick select { min-width: 0 !important; width: 100%; }
     .rep-filter-row .rep-filter-pick > div:last-child { flex-wrap: nowrap; }
     .rep-filter-row .rep-filter-spacer { display: none; }
+    /* The office checklist button carries an inline min-width (180px) that pushed it under Time range on phones. */
+    .rep-filter-row .rep-filter-pick button { min-width: 0 !important; width: 100% !important; }
+    /* Marketing bar (per Isaac, Nov 23 — "the buttons don't align"): Dashboard | Spend fills the first row,
+       the compare and month pickers split the second row 50/50, all the same height. */
+    .mktg-bar { display: grid !important; grid-template-columns: 1fr; gap: 8px !important; }
+    .mktg-bar .mktg-bar-tabs { display: flex !important; width: 100%; }
+    .mktg-bar .mktg-bar-tabs > button { flex: 1 1 0; padding: 7px 8px !important; font-size: 12px !important; text-align: center; }
+    .mktg-bar .mktg-bar-ctl { margin-left: 0 !important; display: grid !important; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 8px !important; width: 100%; }
+    /* Auditing task rows (per Isaac, Nov 23 sweep): number · tag · count · Review → on one line, the description
+       full width underneath — on a phone it was squeezed into a 70px column, one word (or letter) per line. */
+    .audit-task-row { flex-wrap: wrap; row-gap: 4px; }
+    .audit-task-row > .audit-task-text { flex: 1 1 100% !important; order: 5; padding-left: 30px; }
+    .audit-task-row > button { margin-left: auto; }
+    .mktg-bar .mktg-bar-ctl > select { width: 100%; min-width: 0; padding: 7px 8px !important; font-size: 12px !important; }
     /* Indicators leaderboard header: title + tools on one row, search on
        its own full-width row underneath; the rep count is dropped. */
     .lb-head .lb-tools { display: contents; }
@@ -1259,3 +1273,9 @@
 .arr-over-before { box-shadow: inset 0 3px 0 var(--accent, #D9663A); }
 .arr-over-after { box-shadow: inset 0 -3px 0 var(--accent, #D9663A); }
 @media (hover: none) { .arr-grip { opacity: .7; } }
+
+/* Phone sweep (per Isaac, Nov 23): the page title ("REPORTING") was cut to "REPORTI…" — the clamp() above (later in the
+   file) won over the phone size. A touch smaller and tighter on phones so the full word fits beside Sync / theme / ⚙. */
+@media (max-width: 640px) {
+  .hb-topbar-title { font-size: 1.2rem !important; letter-spacing: 0.06em !important; }
+}

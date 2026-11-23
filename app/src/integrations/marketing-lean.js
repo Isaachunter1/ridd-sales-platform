@@ -330,7 +330,9 @@ function _mktgLeanView() {
     const col = good == null ? 'var(--text-muted)' : good ? '#16A34A' : '#DC2626';
     const vals = series(o.get);
     const noPrior = b == null || !isFinite(b);
-    const cmpLine = el('div', { class: 'flex items-baseline gap-1.5 text-[12px] tabular-nums', style: { color: 'var(--text-muted)' } },
+    // The change sits to the RIGHT of the big number, a size smaller, stacked: % on top, the comparison under it
+    // (per Isaac, Nov 23) — frees the line under the number so the sparkline moves up.
+    const cmpLine = el('div', { class: 'flex flex-col items-end text-[11px] tabular-nums leading-tight text-right shrink-0', style: { color: 'var(--text-muted)' } },
       dv == null ? el('span', {}, noPrior ? '—' : '—') : el('span', { class: 'font-bold', style: { color: col } }, (dv >= 0 ? '↑ +' : '↓ ') + (dv * 100).toFixed(1) + '%'),
       el('span', { class: 'whitespace-nowrap' }, 'vs. ' + (noPrior ? 'no ' + cmpLbl : o.fmt(b))));
     return el('div', { class: 'card p-4 flex flex-col gap-2' + (o.onClick ? ' cursor-pointer' : ''), style: { borderTop: '3px solid ' + (o.color || 'var(--accent)') }, onclick: o.onClick || null },   // no title on the card itself — the browser tooltip sat on top of the sparkline table (per Isaac, Nov 16); the ⓘ carries the tip
@@ -338,10 +340,11 @@ function _mktgLeanView() {
         el('div', { class: 'text-[12px] font-semibold', style: { color: 'var(--text-muted)' } }, o.label, o.tip ? el('span', { class: 'ml-1 text-[10px]', style: { color: 'var(--text-subtle)' }, title: o.tip }, 'ⓘ') : null),
         // The comparison period sits beside the icon (per Isaac, Nov 19) — the line under the number keeps just the change.
         el('div', { class: 'flex items-center gap-2 shrink-0' }, cmp === 'none' ? null : el('span', { class: 'text-[10px] tabular-nums whitespace-nowrap', style: { color: 'var(--text-subtle)' } }, _cmpTag), icon(o.icon))),
-      el('div', { class: 'leading-none font-black tabular-nums', style: { fontFamily: 'ui-monospace, monospace', fontSize: '28px' } }, a == null || !isFinite(a) ? '—' : o.fmt(a),
-        // * = a cost input isn't in for this month yet (per Isaac, Nov 16), so the number will move when it is.
-        o.star ? el('span', { class: 'ml-1', style: { color: '#B45309', fontSize: '18px', verticalAlign: 'top' }, title: o.star }, '*') : null),
-      cmp === 'none' ? null : cmpLine,
+      el('div', { class: 'flex items-end justify-between gap-2 flex-wrap' },
+        el('div', { class: 'leading-none font-black tabular-nums', style: { fontFamily: 'ui-monospace, monospace', fontSize: '28px' } }, a == null || !isFinite(a) ? '—' : o.fmt(a),
+          // * = a cost input isn't in for this month yet (per Isaac, Nov 16), so the number will move when it is.
+          o.star ? el('span', { class: 'ml-1', style: { color: '#B45309', fontSize: '18px', verticalAlign: 'top' }, title: o.star }, '*') : null),
+        cmp === 'none' ? null : cmpLine),
       sparkPop(o, el('div', {}, spark(vals, o.color || 'var(--accent)'))),
       o.note ? el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-subtle)' }, title: o.note }, o.note) : null);
   };

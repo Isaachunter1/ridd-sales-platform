@@ -16,8 +16,9 @@ function _lomData() {
   const grpOf = new Map();
   // Every lead source (per Isaac, Nov 19): grouped the way the rest of Marketing groups them — the GoHighLevel label's
   // provider (Settings → Configurations → GoHighLevel sources). Labels that aren't a new lead (door to door, CRM
-  // workflows) stay out; a label nothing maps keeps its own name.
-  const gOf = (i) => { if (i == null || i < 0) return null; if (grpOf.has(i)) return grpOf.get(i); const l = String(lab[i] || '').trim(); let g = l ? (typeof ghlProviderOf === 'function' ? ghlProviderOf(l) : '') || l : null; if (g === (typeof GHL_NOT_LEAD !== 'undefined' ? GHL_NOT_LEAD : '__')) g = null; grpOf.set(i, g); return g; };
+  // workflows) stay out; a label nothing maps goes under one Unmapped row
+  // (not every raw label: Premiere League, Loyalty, null…); Local Presence is a callback number, not a source (per Isaac, Nov 23).
+  const gOf = (i) => { if (i == null || i < 0) return null; if (grpOf.has(i)) return grpOf.get(i); const l = String(lab[i] || '').trim(); let g = l && !/^null$/i.test(l) && !(typeof MKP_NOT_A_SOURCE !== 'undefined' && MKP_NOT_A_SOURCE.test(l)) ? (typeof ghlProviderOf === 'function' ? ghlProviderOf(l) : '') || 'Unmapped' : null; if (g === (typeof GHL_NOT_LEAD !== 'undefined' ? GHL_NOT_LEAD : '__')) g = null; grpOf.set(i, g); return g; };
   const byP = new Map(), byE = new Map();
   for (const o of G.opps) { if (!o || !o[0]) continue; if (o[2]) (byP.get(o[2]) || byP.set(o[2], []).get(o[2])).push(o[0]); if (o[3]) (byE.get(o[3]) || byE.set(o[3], []).get(o[3])).push(o[0]); }
   const day = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };

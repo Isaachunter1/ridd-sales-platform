@@ -937,11 +937,11 @@ function auditTasksCard() {
     const showing = hasDetail && state._auditDetail === i.key;
     const click = hasDetail ? () => { state._auditDetail = showing ? null : i.key; mountApp(); } : i.onClick;
     const red = i.sev === 'red';
-    return [el('div', { class: 'flex items-center gap-3 px-4 py-2 border-t text-xs', style: { borderColor: 'var(--border)' }, title: i.title || '' },
+    return [el('div', { class: 'flex items-center gap-3 px-4 py-2 border-t text-xs audit-task-row', style: { borderColor: 'var(--border)' }, title: i.title || '' },
       el('span', { class: 'text-[10px] font-bold tabular-nums shrink-0', style: { color: 'var(--text-subtle)', width: '18px', textAlign: 'right' } }, String(idx + 1) + '.'),
       el('span', { class: 'text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded shrink-0', style: { background: red ? 'rgba(220,38,38,.12)' : 'rgba(217,119,6,.14)', color: red ? '#DC2626' : '#B45309', minWidth: '72px', textAlign: 'center' } }, i.tag),
       el('span', { class: 'text-sm font-black tabular-nums shrink-0', style: { minWidth: '52px', textAlign: 'right', color: red ? '#DC2626' : 'var(--text)' } }, i.count != null ? Number(i.count).toLocaleString() : '…'),
-      el('span', { class: 'flex-1 min-w-0', style: { overflowWrap: 'anywhere' } }, i.text),
+      el('span', { class: 'flex-1 min-w-0 audit-task-text', style: { overflowWrap: 'anywhere' } }, i.text),
       click && (i.count == null || i.count > 0) ? el('button', { class: 'text-[11px] font-bold whitespace-nowrap shrink-0', style: { color: 'var(--accent)' }, onclick: click }, (showing ? 'Hide' : 'Review') + ' →') : null),
       showing ? i.detail : null];
   };
