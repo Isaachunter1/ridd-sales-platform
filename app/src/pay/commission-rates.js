@@ -327,6 +327,22 @@ function getBackendAmount(sale) {
 // Close-rate bonus: highest tier whose threshold the rep's close rate
 // meets, applied to subscription revenue (serviced 12/18/24/PIF revenue
 // from standard sources — no commercial, OTS, upsells, or renewals).
+// Office Staff backend goes MONTHLY on Jan 1 2027 (per Isaac, Nov 23): an account belongs to the month it locked
+// (4 paid invoices since its own sale — audit_2_at is the lock stamp), and every account that locked in a month
+// pays — or charges back — on the first payroll run of the next month, with the close-rate bonus on that month's
+// close rate. Before the switch the backend is the quarterly run, as it always was.
+const BACKEND_MONTHLY_FROM = '2027-01-01';
+const BACKEND_MONTHLY_FIRST_RUN = '2027-02-01';
+function backendIsMonthly(d) { return (d instanceof Date ? d.toISOString() : String(d || new Date().toISOString())).slice(0, 10) >= BACKEND_MONTHLY_FROM; }
+function backendCadenceWord(d) { return backendIsMonthly(d || new Date()) ? 'monthly' : 'quarterly'; }
+// The month a monthly backend run pays: the calendar month before `today`, as { start, end (exclusive), label }.
+function backendRunMonth(today) {
+  const t = today || new Date(), y = t.getFullYear(), m = t.getMonth();
+  const start = new Date(y, m - 1, 1), end = new Date(y, m, 1);
+  const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-01';
+  return { start: iso(start), end: iso(end), label: start.toLocaleString('en-US', { month: 'long', year: 'numeric' }) };
+}
+
 function closeRateBonusFor(closeRate, subscriptionRevenue, repId) {
   if (closeRate == null || !Number.isFinite(Number(closeRate))) return 0;   // No Close Rate (no Plaibook seat) → no bonus (per Isaac, Nov 7)
   return subscriptionRevenue * (closeRateTierPct(closeRate, repId ? effectivePaySettings(repId) : null) / 100);

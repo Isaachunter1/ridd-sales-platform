@@ -91,7 +91,7 @@ function dashpOfficeList(S) {
         dashpStat('Office reps', fmt.int(rows.filter(r => r.has).length), year + ' · with pay activity'),
         dashpStat('Sales', fmt.int(sum('sold')), money(sum('soldRev')) + ' sold'),
         dashpStat('Upfront paid', money(sum('paid')), fmt.int(sum('paidN')) + ' accounts · ' + year),
-        dashpStat('Backend paid', money(sum('backendPaid')), 'quarterly runs'),
+        dashpStat('Backend paid', money(sum('backendPaid')), (typeof backendCadenceWord === 'function' ? backendCadenceWord() : 'quarterly') + ' runs'),
         dashpStat('Ready now', money(sum('ready')), fmt.int(sum('readyN')) + ' accounts · if payroll ran today'),
         dashpStat('Building backend', money(sum('backend')), fmt.int(sum('backendN')) + ' accounts waiting on the lock'),
         dashpStat('Total paid', money(sum('total')), year)),

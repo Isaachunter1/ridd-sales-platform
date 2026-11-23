@@ -2547,7 +2547,7 @@ function openSaleCommissionCard(s, { isAdmin = false, backend = false } = {}) {
     body.push(row(paidUp ? 'Upfront paid' : 'Upfront pay', money(l.amount), { top: true, big: true, color: 'var(--accent)',
       sub: paidUp ? 'On the ' + fmt.dateShort(String(s.payroll_processed_at).slice(0, 10)) + ' payroll' : (['serviced', 'below_minimums'].includes(s.audit_status) ? 'On the next payroll' : 'Once it’s Commissionable') }));
   }
-  body.push(row('Backend (quarterly)', backendAmt > 0 ? money(backendAmt) : '$0', { top: true,
+  body.push(row('Backend (' + (typeof backendCadenceWord === 'function' ? backendCadenceWord() : 'quarterly') + ')', backendAmt > 0 ? money(backendAmt) : '$0', { top: true,
     sub: (backendAmt > 0 ? 'At the lock — 4 paid invoices' : (Number(s.contract_months) === 12 ? '12-month plans have no backend' : 'No backend on this plan')) + (s.crm_paid_invoices != null ? ' · ' + (Number(s.crm_paid_invoices) || 0) + ' / 4 paid' : '') }));
   if (backend && s.lock_status === 'chargeback') body.push(row('Chargeback', '−' + money(l ? l.amount : 0), { color: '#DC2626', sub: 'The upfront commission comes back on the quarterly backend run' }));
   const back = el('div', { style: { position: 'fixed', inset: '0', zIndex: '9000', background: 'rgba(20,20,20,.38)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' } });
@@ -2626,7 +2626,8 @@ function payrollRunStub(repId, sales, period, backendSales) {
     return { sale_id: b.id, customer: b.customer_name || '', customer_number: b.customer_number || '', sold_date: b.sold_date || '', months: Number(b.contract_months) || 0,
       kind: cb ? 'chargeback' : 'lock', est, invoices: Number(b.crm_paid_invoices) || 0, revenue: Number(b.revenue_amount) || 0,
       amount: cb ? -amt : amt }; });
-  // Close-rate bonus (per Isaac, Oct 15) — rides the quarterly backend: the rep's own close rate (set per rep)
+  // Close-rate bonus (per Isaac, Oct 15) — rides the backend run (quarterly; monthly from Feb 2027 on the month's close
+  // rate, per Isaac, Nov 23): the rep's own close rate (set per rep)
   // picks the tier (Settings → close-rate tiers), paid on the subscription revenue (12/18/24-month + PIF base
   // plans, no renewals / add-ons — subscriptionRevenueOf) of the accounts that LOCKED in this run.
   const lockedB = (backendSales || []).filter(b => b.lock_status !== 'chargeback');
@@ -2875,7 +2876,13 @@ function openPayrollRun(rows, opts = {}) {
   const sales = payrollRunCandidates(rows);
   const held = (rows || []).filter(s => (s.audit_status === 'serviced' || s.audit_status === 'below_minimums') && !s.payroll_processed_at && !s.rep_id);
   // Quarterly backend (per Isaac, Oct 15): tick to add the decided Pending Backend Lock accounts to this run.
-  const backendAll = (opts.backend || []).filter(s => s.rep_id);
+  // Monthly from Feb 2027 (per Isaac, Nov 23): the box carries every account decided (Lock / Chargeback) BEFORE this
+  // month began — last month's locks plus any straggler — and anything that locked this month waits for next month's.
+  const _monthly = typeof backendIsMonthly === 'function' && today.toISOString().slice(0, 10) >= BACKEND_MONTHLY_FIRST_RUN;
+  const _bm = _monthly ? backendRunMonth(today) : null;
+  const _decidedBefore = (s) => !_monthly || String(s.audit_2_at || '').slice(0, 10) < _bm.end;
+  const backendWaitingThisMonth = (opts.backend || []).filter(s => s.rep_id && !_decidedBefore(s)).length;
+  const backendAll = (opts.backend || []).filter(s => s.rep_id && _decidedBefore(s));
   const incB = !!opts.includeBackend && backendAll.length > 0;
   // Chargebacks recoup what was actually paid upfront: read it off the stored upfront pay runs once, then re-open.
   if (incB && !opts._recoupLoaded && backendAll.some(s => s.lock_status === 'chargeback') && typeof supabase !== 'undefined' && supabase && !(typeof DEMO !== 'undefined' && DEMO)) {
@@ -2899,7 +2906,7 @@ function openPayrollRun(rows, opts = {}) {
   const backendToggle = backendAll.length ? el('label', { class: 'card flex items-center gap-3 px-4 py-3 cursor-pointer text-sm' },
     el('input', { type: 'checkbox', checked: incB, style: { width: '18px', height: '18px', accentColor: 'var(--accent)' },
       onchange: () => { back.remove(); openPayrollRun(rows, Object.assign({}, opts, { includeBackend: !incB })); } }),
-    el('div', {}, el('div', { class: 'font-bold' }, 'Include Pending Backend Lock (quarterly backend)'),
+    el('div', {}, el('div', { class: 'font-bold' }, _monthly ? 'Include monthly backend · ' + _bm.label + (backendWaitingThisMonth ? ' (' + backendWaitingThisMonth + ' locked this month wait for next month)' : '') : 'Include Pending Backend Lock (quarterly backend)'),
       el('div', { class: 'text-[11px] text-muted-' }, nLock + ' locked (4 paid invoices) \u00b7 ' + nCb + ' chargeback' + (nCb === 1 ? '' : 's') + ' \u2014 Lock pays the account\u2019s backend (multi-year / renewal; $0 on 12-month plans), Chargeback takes back the upfront commission paid on it. Confirm moves Locks to History and Chargebacks to Archived. Accounts still waiting on invoices stay put.'))) : null;
   const money = (v) => fmt.usd(Math.round((Number(v) || 0) * 100) / 100);
   const pct = (v) => v == null ? '—' : Math.round(v * 100) + '%';

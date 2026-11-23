@@ -40,10 +40,14 @@ export default job('plaibook-close-rates', {
   if (!ctx.env.PLAIBOOK_MCP_URL || !ctx.env.PLAIBOOK_MCP_TOKEN) { ctx.log.warn('Plaibook not configured (PLAIBOOK_MCP_URL / PLAIBOOK_MCP_TOKEN) — nothing pulled'); return { configured: false }; }
   const { data: cur } = await supabase.from('app_settings').select('value').eq('key', 'close_rates').maybeSingle();
   const prev = (cur && cur.value) || {};
-  const mode = String((prev.window && prev.window.mode) || '90d');
-  const end = new Date(ctx.now);
-  const start = mode === 'quarter' ? new Date(Date.UTC(end.getUTCFullYear(), Math.floor(end.getUTCMonth() / 3) * 3, 1)) : new Date(end.getTime() - 90 * 86400000);
-  const window = { mode, start: iso(start), end: iso(end), label: (mode === 'quarter' ? 'Q' + (Math.floor(end.getUTCMonth() / 3) + 1) + ' to date' : 'last 90 days') + ' · ' + iso(start) + ' → ' + iso(end) };
+  // Backend goes monthly on Jan 1 2027 (per Isaac, Nov 23): from then on the pay window is the LAST FULL calendar
+  // month — the month the next monthly backend run pays (February's run pays January locks on January's rate).
+  const monthly = iso(new Date(ctx.now)) >= '2027-01-01';
+  const mode = monthly ? 'month' : String((prev.window && prev.window.mode) || '90d');
+  let end = new Date(ctx.now);
+  let start = mode === 'quarter' ? new Date(Date.UTC(end.getUTCFullYear(), Math.floor(end.getUTCMonth() / 3) * 3, 1)) : new Date(end.getTime() - 90 * 86400000);
+  if (mode === 'month') { start = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth() - 1, 1)); end = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 0)); }
+  const window = { mode, start: iso(start), end: iso(end), label: (mode === 'month' ? start.toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : mode === 'quarter' ? 'Q' + (Math.floor(end.getUTCMonth() / 3) + 1) + ' to date' : 'last 90 days') + ' · ' + iso(start) + ' → ' + iso(end) };
 
   await ctx.stage('rates');
   const mcp = new PlaibookMcp({ url: ctx.env.PLAIBOOK_MCP_URL, token: ctx.env.PLAIBOOK_MCP_TOKEN });
