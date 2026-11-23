@@ -3,7 +3,7 @@
 // Nov 23: "contract values just PRIOR to appointments being completed" — "sum revenue AFTER the contract is signed
 // from the sales reps". Peak is the contract the rep signed, as it stood the moment before the initial service was
 // completed. Anything a technician or the office changes at or after the initial — an upsell on the initial visit,
-// a rate lowered to save a cancel — is a modification and is undone. (Nov 19 rule, superseded: value at the END of
+// a rate lowered to save a cancel — is a modification and is undone, except the +$4.87 service fee (SERVICE_FEE). (Nov 19 rule, superseded: value at the END of
 // the completion day, so same-day tech upsells counted.)
 //
 //   peak = initial + recurring × 11                      when billed monthly (billingFrequency 30)
@@ -18,6 +18,13 @@
 // today's values and the change's field `k` and its value BEFORE the change `o`.
 
 export const PEAK_KEYS = ['recurringCharge', 'annualRecurringServices', 'billingFrequency', 'initialQuote', 'initialDiscount'];
+
+// The service fee (per Isaac, Nov 23): the office adds a flat +$4.87 to the recurring charge after the initial
+// (e.g. $49 → $53.87, $99 → $103.87 — 292 of Reggie Grayek's 332 changed accounts, Nov 2026). It is revenue that
+// still counts to the rep, so a recurring-charge change of exactly +$4.87 is kept in peak, never undone. Everything
+// else after the initial nets out: saves are added back, upsells taken off. Once add-ons / ticket items carry who
+// sold what, this rule moves there.
+export const SERVICE_FEE = 4.87;
 
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
 const day = (s) => String(s || '').slice(0, 10);
@@ -48,10 +55,11 @@ export function computePeaks(rows) {
     let rec = num(h.rec) || 0, ars = num(h.ars) || 0, bf = num(h.bf), iq = num(h.iq), idisc = num(h.idisc);
     // Walk newest → oldest; undo every change made at or after the moment the initial was completed.
     const later = list.filter(c => doneAt && String(c.at_ || '') >= doneAt).sort((a, b) => (a.at_ < b.at_ ? 1 : a.at_ > b.at_ ? -1 : 0));
+    let feeKept = 0;
     for (const c of later) {
       const o = num(c.o);
       if (o == null) continue;
-      if (c.k === 'recurringCharge') rec = o;
+      if (c.k === 'recurringCharge') { if (Math.abs((rec - o) - SERVICE_FEE) < 0.005) feeKept += SERVICE_FEE; rec = o; }
       else if (c.k === 'annualRecurringServices') ars = o;
       else if (c.k === 'billingFrequency') bf = o;
       else if (c.k === 'initialQuote') iq = o;
@@ -59,7 +67,7 @@ export function computePeaks(rows) {
     }
     // initial before completion: quote − discount when both are known, else today's initialServiceTotal
     const init = (iq != null) ? Math.max(0, iq - (idisc || 0)) : (num(h.init) || 0);
-    const peak = contractValue({ init, rec, ars, bf });
+    const peak = contractValue({ init, rec: rec + feeKept, ars, bf });   // the service fee stays the rep's
     if (Math.abs(peak - cv) <= 0.5) { same++; continue; }
     if (peak > cv) down++; else up++;   // down = account was reduced since the initial; up = upsold
     const key = String(h.cust) + '|' + String(h.svc || '').trim().toLowerCase();

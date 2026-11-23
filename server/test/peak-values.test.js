@@ -1,7 +1,7 @@
 // Peak value rule (per Isaac, Nov 23 2026: the rep's contract just before the initial was completed) pinned with a small fixture. Run: npm test --workspace server
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { computePeaks, contractValue, legacyPeaks } from '../services/indicators/functions/peakValues.js';
+import { computePeaks, contractValue, legacyPeaks, SERVICE_FEE } from '../services/indicators/functions/peakValues.js';
 
 const base = { sid: '1', cust: '500', svc: 'Pest 4', rec: 60, ars: 4, bf: 30, cv: 859, init: 199, iq: 249, idisc: 50, done_at: '2026-03-10 14:02:00' };
 
@@ -62,4 +62,23 @@ test('legacy rule (the Netlify build) is the high-water mark and only publishes 
   assert.equal(legacyPeaks(rows).peaks['500|pest 4'], 199 + (694 - 199) * (240 / 180));
   const up = [{ ...base, rec: 75, cv: 1024, at_: '2026-06-15 10:00:00', cid_: 'c3', k: 'recurringCharge', o: '60' }];
   assert.deepEqual(legacyPeaks(up).peaks, {});
+});
+
+test('the +$4.87 service fee after the initial stays in peak; a save on top of it is added back', () => {
+  assert.equal(SERVICE_FEE, 4.87);
+  // fee only: $60 → $64.87 the day after → peak = today, nothing published
+  const fee = [{ ...base, rec: 64.87, cv: 912.57, at_: '2026-03-11 09:00:00', cid_: 'f1', k: 'recurringCharge', o: '60' }];
+  assert.deepEqual(computePeaks(fee).peaks, {});
+  // fee, then a save to $50: peak = 199 + 64.87 × 11 = 912.57 (the save comes back, the fee stays)
+  const save = [
+    { ...base, rec: 50, cv: 749, at_: '2026-06-01 09:00:00', cid_: 'f3', k: 'recurringCharge', o: '64.87' },
+    { ...base, rec: 50, cv: 749, at_: '2026-03-11 09:00:00', cid_: 'f2', k: 'recurringCharge', o: '60' },
+  ];
+  assert.equal(computePeaks(save).peaks['500|pest 4'], 912.57);
+  // tech upsell at the initial ($60 → $75), then the fee ($79.87): the upsell comes off, the fee stays → 199 + 64.87 × 11
+  const up = [
+    { ...base, rec: 79.87, cv: 1077.57, at_: '2026-03-11 09:00:00', cid_: 'f5', k: 'recurringCharge', o: '75' },
+    { ...base, rec: 79.87, cv: 1077.57, at_: '2026-03-10 16:30:00', cid_: 'f4', k: 'recurringCharge', o: '60' },
+  ];
+  assert.equal(computePeaks(up).peaks['500|pest 4'], 912.57);
 });

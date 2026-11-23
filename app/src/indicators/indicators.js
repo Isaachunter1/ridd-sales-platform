@@ -5057,7 +5057,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     { key: 'revPerDay',   label: '$/Day',     align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Average revenue per SELLING day (days off don\'t count)' }, fmt.usd0(r.revPerDay || 0)) },
     { key: 'revenue',    label: 'Revenue',  align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums font-semibold' }, fmt.usd0(r.revenue)) },
     // Off by default on every board (per Isaac, Oct 15) — tick it on under Columns.
-    { key: 'peakRevenue', label: 'Peak Rev', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'Peak revenue \u2014 every account at the contract the rep signed, as it stood just before the initial was completed: no tech upsell, no later save',
+    { key: 'peakRevenue', label: 'Peak Rev', align: 'left', defaultDir: 'desc', defaultHidden: true, title: 'Peak revenue \u2014 every account at the contract the rep signed, as it stood just before the initial was completed: saves added back, upsells taken off, the $4.87 service fee kept',
       cell: r => { const cut = (r.peakRevenue || 0) - (r.revenue || 0); return el('td', { class: 'px-2 py-2 text-left tabular-nums', title: cut > 0.5 ? fmt.usd0(cut) + ' lowered since the rep sold it' : 'No reductions' },
         fmt.usd0(r.peakRevenue || r.revenue || 0), cut > 0.5 ? el('div', { class: 'text-[10px]', style: { color: '#B91C1C' } }, '\u2212' + fmt.usd0(cut)) : null); } },
     // 12-week revenue sparkline with WoW slope. Sort key = trendSlope so
@@ -5214,7 +5214,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     recRevenue: 'New recurring revenue: New Revenue minus one-time services.',
     avgPest: 'Average initial price, leaving out ' + ((typeof pestInitialExclList === 'function' ? pestInitialExclList() : []).join(', ') || 'nothing') + '.',
     avgInitial: 'Average initial price across every sale.',
-    peakRevenue: 'Every account at the contract the rep signed, as it stood just before the initial service was completed \u2014 before any tech upsell or later reduction (a rate lowered to save the customer, a plan adjusted down). The red figure under it is how much has been lowered since.',
+    peakRevenue: 'Every account at the contract the rep signed, as it stood just before the initial service was completed \u2014 before any tech upsell or later reduction (a rate lowered to save the customer, a plan adjusted down); the $4.87 service fee still counts. The red figure under it is how much has been lowered since.',
     avgRecurring: 'Average recurring charge per service (what the customer pays each visit) across recurring sales \u2014 one-time services left out. As billed in FieldRoutes.',
     acv: 'Average contract value of recurring new sales — one-time services and renewals left out.',
     acvW: 'Average contract value of every sale, one-time and renewals included.',

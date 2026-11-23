@@ -3736,7 +3736,7 @@ function openIndicatorRepCard(rep, allReps = []) {
       // Office Staff: New / Total / Renewal / Peak · everyone else: Revenue / Peak (per Isaac, Oct 15).
       ...(state.indicatorDept === 'office' ? [['new', 'New'], ['total', 'Total'], ['renewal', 'Renewal'], ['peak', 'Peak']] : [['total', 'Revenue'], ['peak', 'Peak']]).map(([v, l]) => el('button', { type: 'button',
         style: { fontSize: _rt4 ? '8px' : '9px', fontWeight: '700', padding: _rt4 ? '0 4px' : '0 5px', lineHeight: '14px', border: '0', cursor: 'pointer', whiteSpace: 'nowrap', background: cardRevMode === v ? 'var(--accent)' : 'transparent', color: cardRevMode === v ? 'var(--accent-text)' : 'var(--text-muted)' },
-        title: v === 'new' ? 'New business only' : v === 'renewal' ? 'Renewal-source sales only' : v === 'peak' ? 'Every account at the contract the rep signed, just before the initial was completed \u2014 before any tech upsell or later reduction (rates lowered to save it, plans adjusted down)' : 'Everything',
+        title: v === 'new' ? 'New business only' : v === 'renewal' ? 'Renewal-source sales only' : v === 'peak' ? 'Every account at the contract the rep signed, just before the initial was completed \u2014 saves added back, upsells taken off, the $4.87 service fee kept' : 'Everything',
         onclick: (e) => { e.stopPropagation(); cardRevMode = v; renderBody(); } }, l)));
     scopedStats = [
       { key: 'sales',      label: 'Subscriptions',      value: fmt.int(count) },
