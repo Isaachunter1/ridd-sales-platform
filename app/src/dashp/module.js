@@ -26,14 +26,20 @@ function dashpView() {
   // here too, so everything money-related is one tab. Same renderer (viewSales), same permissions row.
   const _r = state.profile && state.profile.role, _aud = _r === 'auditor';
   const _canSales = typeof viewSales === 'function' && (isAdminRole(_r) || _aud || typeof VIEW_TAB_PERM === 'undefined' || !VIEW_TAB_PERM.sales || (typeof userCan === 'function' && userCan(VIEW_TAB_PERM.sales)));
-  const _tabs = _aud ? [['sales', 'Sales']] : _officeOnly ? [['office', 'Office Staff'], ...(_canSales ? [['sales', 'Sales']] : [])] : [['tech', 'Technicians'], ['d2d', 'Sales Reps'], ['office', 'Office Staff'], ...(_canSales ? [['sales', 'Sales']] : [])];
+  // Sales sub-tab retired (per Isaac, Nov 23): the same screen (log a sale, the sales list, the auditing queue) now
+  // folds open at the foot of Office Staff. Auditors have no pay to look at, so they land straight on it.
+  const _tabs = _officeOnly ? [['office', 'Office Staff']] : [['tech', 'Technicians'], ['d2d', 'Sales Reps'], ['office', 'Office Staff']];
   if (!_tabs.some(([k]) => k === S.tab)) S.tab = _tabs[0][0];
-  if (S.tab === 'sales') {
-    return el('div', { class: 'flex flex-col gap-4' },
-      _tabs.length > 1 ? el('div', { class: 'card p-3 flex items-center gap-3 flex-wrap' }, dashpTabs(_tabs, S.tab, (v) => { S.tab = v; S.detail = null; mountApp(); }),
-        el('div', { class: 'text-[10px] flex-1 text-right', style: { color: 'var(--text-subtle)' } }, 'Log a sale, your sales, and the auditing queue \u2014 what payroll pays from')) : null,
-      viewSales());
-  }
+  const salesSection = (open) => {
+    if (!_canSales) return null;
+    const isOpen = S.salesOpen == null ? open : S.salesOpen;
+    return el('div', { class: 'flex flex-col gap-3' },
+      el('button', { class: 'card p-3 flex items-center gap-3 w-full text-left', onclick: () => { S.salesOpen = !isOpen; mountApp(); } },
+        el('span', { class: 'text-sm font-black' }, (isOpen ? '\u25be ' : '\u25b8 ') + (isAdminRole(_r) || _aud ? 'Sales & audit queue' : 'Your sales')),
+        el('span', { class: 'text-[10px] flex-1 text-right', style: { color: 'var(--text-subtle)' } }, 'Log a sale, the sales list and the auditing queue \u2014 what payroll pays from')),
+      isOpen ? viewSales() : null);
+  };
+  if (_aud) return el('div', { class: 'flex flex-col gap-4' }, salesSection(true));
   const thisYear = new Date().getFullYear();
   const years = []; for (let y = thisYear; y >= 2024; y--) years.push([y, String(y)]);   // DASHP has no "which years exist" list; an empty year just shows an empty table
 
@@ -64,7 +70,8 @@ function dashpView() {
         : dashpSelect('Version', S.d2dType || 'live', [['live', 'Live'], ['pinned', 'Pinned'], ['final', 'Final']], (v) => { S.d2dType = v; mountApp(); }),
       el('div', { class: 'text-[10px] flex-1 text-right', style: { color: 'var(--text-subtle)' } }, S.tab === 'office' ? 'Live · the app’s own pay engine (FieldRoutes via RevHawk), the same numbers payroll runs' : 'Read-only · calculated by DASHP, refreshed hourly'),
       S.tab === 'office' ? null : el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: () => dashpRefresh() }, '↻ Refresh')),
-    body);
+    body,
+    S.tab === 'office' ? salesSection(false) : null);
 }
 
 registerRiddModule({
@@ -72,6 +79,6 @@ registerRiddModule({
   label: 'Commissions',
   title: 'COMMISSIONS',
   icon: () => (typeof svg === 'function' ? svg('<path d="M12 2v20"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>') : el('span', {}, '$')),
-  canView: () => { const r = state.profile && state.profile.role; return isAdminRole(r) || isDeveloperRole(r) || r === 'auditor' || (typeof dashpOfficeIsRep === 'function' && dashpOfficeIsRep(state.profile)); },   // office reps: their own pay + Sales; auditors: the Sales queue (per Isaac, Nov 18)
+  canView: () => { const r = state.profile && state.profile.role; return isAdminRole(r) || isDeveloperRole(r) || r === 'auditor' || (typeof dashpOfficeIsRep === 'function' && dashpOfficeIsRep(state.profile)); },   // office reps: their own pay (+ their sales, folded under it); auditors: the audit queue (per Isaac, Nov 18 / 23)
   render: () => dashpView(),
 });
