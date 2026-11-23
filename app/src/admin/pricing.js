@@ -11,12 +11,13 @@
 //
 // Numbers mirror the printed slicks exactly. Edit here and the PDFs together. Standard + Loyalty match the
 // RIDD_Price_Sheet_Letter Google Slides deck (Nov 23 2026): German Roach / Interior Flea add-on initial $299 / $199,
-// Loyalty Mole / Tick, Flea & Mosquito add-ons +$20.
+// Loyalty Mole / Tick, Flea & Mosquito add-ons +$20. D2D German Roach / Interior Flea add-on initial $499,
+// $299 on D2D minimums (per Isaac, Nov 23).
 const PRICING_TIERS = [
   { id: 'd2d',      label: 'D2D',          badge: null,       init: 399, home: [79, 99, 149],  yard: [99, 119, 169],  termite: [999, 49],
-    addons: [['mole', 100, 50], ['tfm', 100, 50], ['seasonal', 100, 45], ['pest', 100, 30], ['snake', 100, 30], ['cbee', 100, 30], ['rodent', 100, 30], ['roach', 200, 30], ['flea', 200, 30]], onetime: false },
+    addons: [['mole', 100, 50], ['tfm', 100, 50], ['seasonal', 100, 45], ['pest', 100, 30], ['snake', 100, 30], ['cbee', 100, 30], ['rodent', 100, 30], ['roach', 499, 30], ['flea', 499, 30]], onetime: false },
   { id: 'd2d_min',  label: 'D2D',          badge: 'Minimums', init: 99,  home: [49, 69, 119],  yard: [69, 89, 139],   termite: [399, 29],
-    addons: [['mole', 0, 40], ['tfm', 0, 40], ['seasonal', 0, 30], ['pest', 0, 20], ['snake', 0, 20], ['cbee', 0, 20], ['rodent', 0, 20], ['roach', 200, 20], ['flea', 200, 20]], onetime: false },
+    addons: [['mole', 0, 40], ['tfm', 0, 40], ['seasonal', 0, 30], ['pest', 0, 20], ['snake', 0, 20], ['cbee', 0, 20], ['rodent', 0, 20], ['roach', 299, 20], ['flea', 299, 20]], onetime: false },
   { id: 'standard', label: 'Standard',     badge: 'Standard', init: 99,  home: [49, 69, 119],  yard: [69, 89, 139],   termite: [399, 29],
     addons: [['mole', 0, 40], ['tfm', 0, 40], ['seasonal', 0, 30], ['pest', 0, 20], ['snake', 0, 20], ['cbee', 0, 20], ['rodent', 0, 20], ['roach', 299, 20], ['flea', 299, 20]], onetime: true },
   { id: 'loyalty',  label: 'Loyalty',      badge: 'Loyalty Pricing', init: 99, home: [29, 49, 99], yard: [49, 69, 119], termite: [399, 29],
@@ -407,7 +408,7 @@ function viewPricing() {
         // Trust chips — the guarantee goes last: on phones the last chip spans the full width, so its long word
         // never has to squeeze (per Isaac).
         T.onetime ? null : el('div', { class: 'grid gap-3 pricing-chips', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' } },
-          chip('🐾', 'Kid & Pet Safe'), chip('✓', 'Licensed & Insured'), chip('100%', 'Satisfaction Guarantee', 'Backed by unlimited free re\u2011services'))),
+          chip('🐾', 'Kid & Pet Friendly'), chip('✓', 'Licensed & Insured'), chip('100%', 'Satisfaction Guarantee', 'Backed by unlimited free re\u2011services'))),
       footer);
 
     // ── quote, laid out like a receipt in the slick's cream (per Isaac) ──
