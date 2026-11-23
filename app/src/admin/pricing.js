@@ -446,7 +446,7 @@ function viewPricing() {
       if (id === 'home') return { id, label: 'Home', custName: 'Home Protection', base: pk.home, addons: [], termite: false };
       // Yard on its own (per Isaac, Nov 23): Tick, Flea & Mosquito or Mole as the plan.
       if (id === 'yard') return { id, label: 'Yard', custName: 'Yard Protection', base: pk.yard, addons: [], termite: false };
-      if (id === 'homeyard') return { id, label: 'RIDD Package', custName: 'RIDD Package',   // branded RIDD Package (per Isaac, Nov 23)
+      if (id === 'homeyard') return { id, label: 'RIDD Package (Home + Yard)', custName: 'RIDD Package',   // branded RIDD Package (per Isaac, Nov 23)
          base: pk.hy.home, addons: [pk.hy.yard], termite: false, popular: true };
       if (id === 'custom') {
         const on = CORE.filter(s => pk.custom[s]);
