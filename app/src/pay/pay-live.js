@@ -78,6 +78,7 @@ function viewPayLive() {
   const saleById = new Map([...stubSales, ...pending, ...nsf, ...reAudit, ...noInitial, ...backend].map(s => [s.id, s]));
   const stub = payStubCard(x, period, saleById, {
     label: (isCurrent ? 'Pay stub so far · ' : 'Paid · ') + period.label,
+    audit: isCurrent,   // pass audit right on the stub (per Isaac, Nov 23) — current period only; paid periods stay read-only
     note: isCurrent ? 'Live: this is what payroll pays if it runs now. It fills in as sales are approved; Pending, NSF and Re-Audit accounts join once they’re Commissionable.' : null,
   });
 
@@ -105,7 +106,7 @@ function viewPayLive() {
       el('thead', {}, el('tr', {}, th('Customer'), th('Plan'), th('Sold'), th('Status'), th('Why it’s waiting'), th('Est. pay', 1))),
       el('tbody', {}, ...holdRows.map(s => el('tr', { class: 'border-t border-', style: { background: typeof saleStatusTint === 'function' ? saleStatusTint(s.audit_status) : '' } },
         td(el('span', {}, el('span', { class: 'text-muted-' }, '#' + (s.customer_number || '')), ' ', s.customer_name || '')),
-        td(plan(s)), td(fmt.dateShortYear(s.sold_date)), td(statusOf(s)),
+        td(plan(s)), td(fmt.dateShortYear(s.sold_date)), td(typeof statusSelect === 'function' ? statusSelect(s.id) : statusOf(s)),   // auditors pass it here (per Isaac, Nov 23)
         td(why(s), 0, { color: 'var(--text-muted)' }),
         td(money(estLine.get(s.id) || 0), 1, { fontWeight: '700' }))))))) : null;
   const backendCard = backend.length ? el('div', { class: 'card overflow-hidden' },

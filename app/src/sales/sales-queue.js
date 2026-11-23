@@ -2806,6 +2806,10 @@ async function slackPaystubPdfs(stubs, period, saleById) {
 // The pay stub card (per Isaac, Oct 15) — shared by Run payroll and the Office Staff Pay tab's live stub.
 // opts: { label } replaces 'Pay stub · <period>' in the header; { note } adds a line under the footnote.
 function payStubCard(x, period, saleById, opts = {}) {
+  // opts.audit (per Isaac, Nov 23): an Audit column on every account row — the same status control as the audit
+  // queue (statusSelect: admins / auditors edit, reps see the chip), so a sale can be passed right on the stub.
+  const A = !!opts.audit && typeof statusSelect === 'function';
+  const blank = () => A ? [el('td', {})] : [];
   const money = (v) => fmt.usd(Math.round((Number(v) || 0) * 100) / 100);
   const pct = (v) => v == null ? '\u2014' : Math.round(v * 100) + '%';
   const th = (t, right) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
@@ -2826,7 +2830,7 @@ function payStubCard(x, period, saleById, opts = {}) {
           el('div', { class: 'px-4 py-2', style: { borderLeft: i ? '1px solid var(--border)' : '0' } },
             el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold text-muted-' }, k), el('div', { class: 'text-sm font-bold tabular-nums' }, v)))),
       el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs' },
-        el('thead', {}, el('tr', {}, th('Customer'), th('Plan'), th('Term'), th('Sold'), th('Revenue', 1), th('Commission', 1), th('× Tier', 1), th('Pay', 1))),
+        el('thead', {}, el('tr', {}, th('Customer'), th('Plan'), th('Term'), th('Sold'), th('Revenue', 1), th('Commission', 1), th('× Tier', 1), th('Pay', 1), A ? th('Audit') : null)),
         el('tbody', {}, ...ownLines.map(({ l, s }) => el('tr', { class: 'border-t border-' },
           td(el('span', {}, el('span', { class: 'text-muted-' }, '#' + (l.customer_number || '')), ' ', l.customer || '')),
           td(el('span', { style: { fontSize: '12px' } }, saleServiceWithAddOns(s, (typeof nameFromId === 'function' ? nameFromId(state.serviceTypes, s.service_type_id) : '') || s.crm_subscription || '—', saleAddOnsFor(s), { size: '12px', weight: '600' })),
@@ -2837,11 +2841,12 @@ function payStubCard(x, period, saleById, opts = {}) {
           /* Rate column hidden on the stubs (per Isaac, Oct 15) — commission already reflects it */
           td(money(l.base), 1),
           td(Math.round((l.tier_mult || 1) * 100) + '%', 1, { color: 'var(--text-muted)' }),
-          td(money(l.amount), 1, { fontWeight: '700' }))),
-          el('tr', { class: 'border-t', style: { borderColor: 'var(--text)' } }, td('Sales pay', 0, { fontWeight: '700' }), td(''), td(''), td(''), td(money(x.revenue), 1), td(''), td(''), td(money(x.salesPay), 1, { fontWeight: '800' })),
+          td(money(l.amount), 1, { fontWeight: '700' }),
+          A ? td(statusSelect(l.sale_id)) : null)),
+          el('tr', { class: 'border-t', style: { borderColor: 'var(--text)' } }, td('Sales pay', 0, { fontWeight: '700' }), td(''), td(''), td(''), td(money(x.revenue), 1), td(''), td(''), td(money(x.salesPay), 1, { fontWeight: '800' }), ...blank()),
           // Backend lock (per Isaac, Oct 15) — the decided Pending Backend Lock accounts in this run.
           ...((x.backendLines || []).length ? [
-            el('tr', {}, el('td', { colspan: '8', class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, 'Backend lock \u00b7 ' + x.backendLines.length + ' account' + (x.backendLines.length === 1 ? '' : 's'))),
+            el('tr', {}, el('td', { colspan: A ? '9' : '8', class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, 'Backend lock \u00b7 ' + x.backendLines.length + ' account' + (x.backendLines.length === 1 ? '' : 's'))),
             ...x.backendLines.map(l => { const sb = saleById.get(l.sale_id) || {}; return el('tr', { class: 'border-t border-', style: { background: typeof backendTint === 'function' ? backendTint(l.kind) : '' } },
               td(el('span', {}, el('span', { class: 'text-muted-' }, '#' + (l.customer_number || '')), ' ', l.customer || '')),
               td(el('span', { style: { fontSize: '12px' } }, saleServiceWithAddOns(sb, (typeof nameFromId === 'function' ? nameFromId(state.serviceTypes, sb.service_type_id) : '') || sb.crm_subscription || '\u2014', saleAddOnsFor(sb), { size: '12px', weight: '600' }))),
@@ -2850,15 +2855,15 @@ function payStubCard(x, period, saleById, opts = {}) {
               td(money(l.revenue), 1),
               td(l.kind === 'chargeback' ? 'Chargeback \u00b7 upfront back' + (l.est ? ' (est.)' : '') : 'Lock \u00b7 ' + l.invoices + '/4 paid', 0, { color: l.kind === 'chargeback' ? '#B91C1C' : '#3E5A3A', fontWeight: '700' }),
               td(''),
-              td(money(l.amount), 1, { fontWeight: '700', color: l.amount < 0 ? '#B91C1C' : 'var(--text)' })); }),
+              td(money(l.amount), 1, { fontWeight: '700', color: l.amount < 0 ? '#B91C1C' : 'var(--text)' }), ...blank()); }),
             x.closeBonus ? el('tr', { class: 'border-t border-' },
               td(el('div', {}, el('div', { style: { fontWeight: '700' } }, 'Close rate bonus'),
                 el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)', whiteSpace: 'normal' } }, (x.closeBonus.rate == null ? 'No Close Rate (no Plaibook seat)' : Math.round(x.closeBonus.rate * 100) + '% close rate \u00b7 Plaibook') + ' \u2192 ' + (x.closeBonus.tierPct == null ? '\u2014' : x.closeBonus.tierPct + '%') + ' of locked subscription revenue'))),
-              td(''), td(''), td(''), td(money(x.closeBonus.subRev), 1), td(''), td(''), td(money(x.closeBonus.amount), 1, { fontWeight: '700' })) : null,
-            el('tr', { class: 'border-t', style: { borderColor: 'var(--text)' } }, td('Backend pay', 0, { fontWeight: '700' }), td(''), td(''), td(''), td(''), td(''), td(''), td(money(x.backendPay), 1, { fontWeight: '800', color: x.backendPay < 0 ? '#B91C1C' : 'var(--text)' })),
+              td(''), td(''), td(''), td(money(x.closeBonus.subRev), 1), td(''), td(''), td(money(x.closeBonus.amount), 1, { fontWeight: '700' }), ...blank()) : null,
+            el('tr', { class: 'border-t', style: { borderColor: 'var(--text)' } }, td('Backend pay', 0, { fontWeight: '700' }), td(''), td(''), td(''), td(''), td(''), td(''), td(money(x.backendPay), 1, { fontWeight: '800', color: x.backendPay < 0 ? '#B91C1C' : 'var(--text)' }), ...blank()),
           ] : []),
-          ...x.extras.map(([k, v]) => el('tr', { class: 'border-t border-' }, td(k), td(''), td(''), td(''), td(''), td(''), td(''), td(money(v), 1))),
-          el('tr', { style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, td('Total pay', 0, { fontWeight: '800' }), td(''), td(''), td(''), td(''), td(''), td(''), td(money(x.total), 1, { fontWeight: '800' }))))),
+          ...x.extras.map(([k, v]) => el('tr', { class: 'border-t border-' }, td(k), td(''), td(''), td(''), td(''), td(''), td(''), td(money(v), 1), ...blank())),
+          el('tr', { style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, td('Total pay', 0, { fontWeight: '800' }), td(''), td(''), td(''), td(''), td(''), td(''), td(money(x.total), 1, { fontWeight: '800' }), ...blank())))),
       el('div', { class: 'px-4 py-2 text-[10px] text-muted-' },
         'Commission = revenue × the rep’s commission rate for that contract (renewals pay the flat renewal amount; Below Minimums pays half), then × the Passed Audit tier for the period (Sentricon, add-ons and renewals pay 100%). Backend (multi-year / renewal) pays at the backend lock, not on this stub.'),
       opts.note ? el('div', { class: 'px-4 pb-2 text-[10px]', style: { color: 'var(--text-subtle)' } }, opts.note) : null);
