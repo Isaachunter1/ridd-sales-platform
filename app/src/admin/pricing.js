@@ -456,7 +456,8 @@ function viewPricing() {
       if (id === 'termite') return { id, label: 'Termite Defense', custName: 'Termite Defense', base: null, addons: [], termite: true };
       return null;
     };
-    const PKGS = ['home', 'yard', 'homeyard', 'custom', 'termite'].map(cfgOf);
+    // Custom Protection retired (per Isaac, Nov 23): any custom plan is a base package + extras.
+    const PKGS = ['home', 'yard', 'homeyard', 'termite'].map(cfgOf);
     const fiB = Math.max(0, PRICING_FREQ.findIndex(([k]) => k === st.freq));
     const freqWord = { q: 'every 3 months', b: 'every 2 months', m: 'every month' }[st.freq] || '';
     if (!st.extras) st.extras = {};
