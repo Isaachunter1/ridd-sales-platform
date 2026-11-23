@@ -1488,7 +1488,7 @@ function _mountAppRender() {
   // Render the view's body
   const view = {
     dashboard:    viewWorldDashboard,     // Indicators preset to Office Staff (+ revenue-goal pacer)
-    sales:        () => { const S = (typeof dashpStore === 'function') ? dashpStore() : null; const mod = (window.RIDD_MODULES || []).find(m => m.id === 'dashp'); if (S && mod && mod.canView()) { S.tab = 'sales'; S.detail = null; state.view = 'dashp'; try { history.replaceState(null, '', '#dashp'); } catch (e) {} return mod.render(); } return viewSales(); },   // Sales lives on Commissions → Sales now (per Isaac, Nov 18); anyone without Commissions still gets the page itself
+    sales:        () => { const S = (typeof dashpStore === 'function') ? dashpStore() : null; const mod = (window.RIDD_MODULES || []).find(m => m.id === 'dashp'); if (S && mod && mod.canView()) { S.tab = 'office'; S.salesOpen = true; S.detail = null; state.view = 'dashp'; try { history.replaceState(null, '', '#dashp'); } catch (e) {} return mod.render(); } return viewSales(); },   // Sales lives at the foot of Commissions → Office Staff now (per Isaac, Nov 18 / 23) — a #sales link opens it unfolded; anyone without Commissions still gets the page itself
     pay:          () => { const S = (typeof dashpStore === 'function') ? dashpStore() : null; const mod = (window.RIDD_MODULES || []).find(m => m.id === 'dashp'); if (S && mod && mod.canView()) { S.tab = 'office'; S.detail = null; state.view = 'dashp'; try { history.replaceState(null, '', '#dashp'); } catch (e) {} return mod.render(); } return viewPay(); },   // Pay lives on Commissions → Office Staff now (per Isaac, Nov 18)
     calendar:     viewCalendar,
     competitions: viewCompetitions,
