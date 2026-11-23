@@ -379,6 +379,12 @@
     .pricing-board [style*="padding: 14px 18px 6px"] { padding: 12px 12px 4px !important; }
     .pricing-board [style*="padding: 6px 14px 12px"] { padding: 4px 10px 10px !important; }
     .pricing-board [style*="1.05fr 1fr 1fr 1fr"] { grid-template-columns: 1fr 1fr !important; }
+    /* Price-sheet look (Nov 23): tighter page margins, smaller heading and tile numbers so three tiles still fit across. */
+    .pricing-board .ps-head { padding: 16px 14px 2px !important; }
+    .pricing-board .ps-title { font-size: 26px !important; }
+    .pricing-board .ps-body { padding: 10px 12px 14px !important; }
+    .pricing-board .ps-big { font-size: 26px !important; }
+    .pricing-board .ps-tiles { gap: 6px !important; padding: 0 10px 12px !important; }
     /* Trust chips: two up, the third stretches the full width; the
        "100%" and the italic label shrink so nothing bleeds out (per Isaac). */
     .pricing-chips { grid-template-columns: 1fr 1fr !important; }
