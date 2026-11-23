@@ -637,12 +637,10 @@ function viewPricing() {
           total('Initial', money(q.init), { big: true }),
           // D2D: first-year cost is tucked away — tap Monthly to flip it into
           // view, tap again to hide (per Isaac). Standard / Loyalty show it.
-          ...(st.tier === 'd2d'
-            ? [total('Monthly', money(q.mo) + '/mo', { accent: true, title: st.showAcv ? 'Tap to hide first-year cost' : 'Tap to show first-year cost', onclick: () => { st.showAcv = !st.showAcv; rerender(); } }),
-               ...(st.showAcv ? [el('div', { style: { borderTop: '1px dashed rgba(251,244,218,.35)', margin: '1px 0' } }), total('First year', money(q.acv))] : [])]
-            : [total('Monthly', money(q.mo) + '/mo', { accent: true }),
-               el('div', { style: { borderTop: '1px dashed rgba(251,244,218,.35)', margin: '1px 0' } }),
-               total('First year', money(q.acv))]),
+          // First-year cost is tucked away on every tier (per Isaac, Nov 23 — it was D2D-only): tap Monthly to flip it
+          // into view, tap again to hide.
+          total('Monthly', money(q.mo) + '/mo', { accent: true, title: st.showAcv ? 'Tap to hide first-year cost' : 'Tap to show first-year cost', onclick: () => { st.showAcv = !st.showAcv; rerender(); } }),
+          ...(st.showAcv ? [el('div', { style: { borderTop: '1px dashed rgba(251,244,218,.35)', margin: '1px 0' } }), total('First year', money(q.acv))] : []),
           // Annual savings from bundling (per Isaac) — builds as add-ons are ticked; green like Bundle & Save.
           ...(q.savings > 0 ? [el('div', { style: { borderTop: '1px dashed rgba(251,244,218,.35)', margin: '1px 0' } }), total('You save / yr', money(q.savings), { green: true, title: 'Annual savings vs buying each add-on as its own plan' })] : []))));
 
