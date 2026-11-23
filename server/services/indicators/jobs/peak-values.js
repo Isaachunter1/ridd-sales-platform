@@ -13,7 +13,7 @@ import { job } from '../../../runtime/job.js';
 import { sql, getAccessToken, queryObjects, PROJECT, DATASET } from '../../../config/bigquery.js';
 import { computePeaks } from '../functions/peakValues.js';
 
-const PEAK_SQL = sql(import.meta.url, 'peakValues');
+const PEAK_SQL = sql(import.meta.url, '../functions/peakValues');
 const SINCE_SQL = 'SELECT CAST(MIN(dateChangedDate) AS STRING) AS since FROM `' + PROJECT + '.' + DATASET + '.FieldRoutesChangelog` WHERE classID = 7';
 export const PEAK_FILE = 'indicators/peak-values-v2.json';
 export const PEAK_RULE = 'the rep’s contract just before the initial was completed: initial + recurring × 11 (monthly) or × annual services (per service)';
