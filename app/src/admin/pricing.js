@@ -119,7 +119,7 @@ function pricingStore() {
   // Loyalty) can stand alone too.
   if (st.base && (!PRICING_SERVICES[st.base] || PRICING_SERVICES[st.base].program === 'termite')) st.base = null;
   if (!st.base) st.addons = {};
-  if (!st.freq) st.freq = 'q';
+  if (!st.freq) st.freq = 'b';   // Bi-Monthly opens first — the most popular frequency (per Isaac, Nov 23)
   if (!st.addons) st.addons = {};
   for (const id of Object.keys(st.addons)) { if (pricingCoveredBy(st.base, id)) delete st.addons[id]; }   // a base plan drops the add-ons it already covers
   if (!st.onetime) st.onetime = {};
