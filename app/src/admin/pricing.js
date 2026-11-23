@@ -519,18 +519,48 @@ function viewPricing() {
           save > 0 ? el('b', { style: { color: '#2F7D32' } }, 'Saves ' + money(save) + '/yr') : el('span', {}, c.blurb || '')));
     };
 
-    // Extras: every add-on the picked package doesn't already include. Termite is its own box above.
+    // Extras (per Isaac, Nov 23): a fixed grid — every service always in the same spot with a small icon, so swapping
+    // Pest ⇄ Rodent never reshuffles it. A service already in the plan reads "In plan", one the plan covers reads
+    // "Covered", a picked extra turns dark with a check. Termite is its own box above.
+    const EXTRA_ORDER = ['pest', 'rodent', 'tfm', 'seasonal', 'mole', 'snake', 'cbee', 'roach', 'flea'];
+    const EXTRA_ICON = {
+      pest:     'M12 6.5a2.2 2.2 0 1 0 0 .01M8.5 13.5a3.5 4.5 0 1 0 7 0a3.5 4.5 0 1 0 -7 0M8.6 11.5 4.5 9.5M15.4 11.5l4.1-2M8.6 15.5l-4.1 2M15.4 15.5l4.1 2M10.8 4.6 9.6 2.5M13.2 4.6l1.2-2.1',
+      rodent:   'M3.5 16.5c0-4.4 3.6-7.5 8-7.5 4.6 0 8 3 8 7.5zM16.5 9.6a2.3 2.3 0 1 1 3.4 2.6M19.5 16.5c1.8.2 2.3 2.6.5 3.5M7.5 13.2h.01',
+      tfm:      'M12 3.5c3 4 5.2 7 5.2 10a5.2 5.2 0 0 1-10.4 0c0-3 2.2-6 5.2-10z',
+      seasonal: 'M12 8.2a3.8 3.8 0 1 0 .01 0M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6',
+      mole:     'M2.5 19.5h19M5 19.5c1.2-5.2 4-8 7-8s5.8 2.8 7 8M10.2 9.2 12 6.5l1.8 2.7',
+      snake:    'M4 17.5c3.5 0 3.5-3.5 7-3.5s3.5 3.5 7 3.5M17 7.5c-1.6-1.6-4.5-1.6-6 0s-1.4 4 .6 4.6',
+      cbee:     'M8.5 9.5h7v8.5a3.5 3.5 0 0 1-7 0zM8.5 12.5h7M8.5 15.3h7M9.5 9.5c-3.4-3.6-7-1.4-5.6 1.2M14.5 9.5c3.4-3.6 7-1.4 5.6 1.2M12 9.5V7',
+      roach:    'M12 6.5c3 0 5 3.2 5 7s-2 7-5 7-5-3.2-5-7 2-7 5-7zM12 6.5v14M10.4 5 7.5 2M13.6 5l2.9-3M7 12.5H3.5M17 12.5h3.5M7.4 16.5l-3 2M16.6 16.5l3 2',
+      flea:     'M8.5 13.5a5 4 0 1 0 10 0a5 4 0 1 0-10 0M9.2 11.6 4 7.5M11 17.2 8 21M15.5 17.4l1.2 3.6M18 11.2a1 1 0 0 1 2 0',
+    };
+    const extraIcon = (id, color) => {
+      const NS = 'http://www.w3.org/2000/svg', sv = document.createElementNS(NS, 'svg'), pa = document.createElementNS(NS, 'path');
+      sv.setAttribute('viewBox', '0 0 24 24'); sv.setAttribute('width', 18); sv.setAttribute('height', 18); sv.setAttribute('aria-hidden', 'true');
+      pa.setAttribute('d', EXTRA_ICON[id] || ''); pa.setAttribute('fill', 'none'); pa.setAttribute('stroke', color); pa.setAttribute('stroke-width', '1.6'); pa.setAttribute('stroke-linecap', 'round'); pa.setAttribute('stroke-linejoin', 'round');
+      sv.append(pa); sv.style.cssText = 'display:block;flex-shrink:0';
+      return sv;
+    };
     const extrasRow = () => {
       if (!curPkg || !curPkg.base) return null;
-      const chipX = (id, label, mo, on, toggle) => el('button', { onclick: toggle, 'aria-pressed': on ? 'true' : 'false', style: { font: '500 9.5px/1 ' + MONO, border: '1.2px solid ' + (on ? C.char : C.ink3), borderRadius: '999px', padding: '7px 9px', background: on ? C.char : '#fff', color: on ? '#fff' : C.char, cursor: 'pointer' } }, (on ? '' : '+ ') + label + ' ' + money(mo) + (on ? ' ✓' : ''));
-      // Anything not already in the plan — incl. the other core services as add-ons (Home on Pest offers Rodent and
-      // vice versa, per Isaac, Nov 23).
-      const ids = T.addons.filter(([id]) => id !== curPkg.base && !curPkg.addons.includes(id) && !pricingCoveredBy(curPkg.base, id) && !(curPkg.addons.includes('tfm') && id === 'seasonal') && !(curPkg.addons.includes('seasonal') && id === 'tfm'));
+      const inPlan = (id) => id === curPkg.base || curPkg.addons.includes(id);
+      const covered = (id) => pricingCoveredBy(curPkg.base, id) || (inPlan('tfm') && id === 'seasonal') || (inPlan('seasonal') && id === 'tfm');
+      const tile = (id) => {
+        const a = T.addons.find(x => x[0] === id); if (!a) return null;
+        const plan = inPlan(id), cov = !plan && covered(id), on = !plan && !cov && !!st.addons[id], off = plan || cov;
+        const toggle = () => { if (st.addons[id]) { delete st.addons[id]; delete st.extras[id]; } else { st.addons[id] = true; st.extras[id] = true; } rerender(); };
+        return el('button', { onclick: off ? null : toggle, disabled: off ? true : null, 'aria-pressed': on ? 'true' : 'false', title: off ? (plan ? 'Already in this plan' : 'Covered by this plan') : ((on ? 'Tap to remove' : 'Tap to add') + (a[1] ? ' · ' + money(a[1]) + ' initial' : '')),
+          style: { display: 'flex', alignItems: 'center', gap: '9px', textAlign: 'left', minWidth: 0, padding: '9px 10px', borderRadius: '10px', cursor: off ? 'default' : 'pointer', opacity: off ? .45 : 1,
+            background: on ? C.char : '#fff', color: on ? '#fff' : C.char, border: '1.2px ' + (off ? 'dashed ' : 'solid ') + (on ? C.char : 'rgba(43,43,41,.22)') } },
+          el('span', { style: { width: '30px', height: '30px', borderRadius: '8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, background: on ? 'rgba(255,255,255,.12)' : C.card } }, extraIcon(id, on ? '#fff' : C.green)),
+          el('span', { style: { minWidth: 0, flex: '1 1 auto' } },
+            el('span', { style: { display: 'block', font: '600 11px/1.2 ' + SANS, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, id === 'seasonal' ? 'Seasonal TFM' : id === 'tfm' ? 'Tick, Flea & Mosquito' : PRICING_SERVICES[id].label),
+            el('span', { style: { display: 'block', marginTop: '3px', font: '400 9.5px/1 ' + MONO, color: on ? 'rgba(255,255,255,.75)' : C.ink2 } }, plan ? 'In plan' : cov ? 'Covered' : '+' + money(a[2]) + '/mo')),   // any add-on initial shows on the receipt
+          on ? el('span', { style: { font: '900 12px/1 ' + SANS, flexShrink: 0 } }, '✓') : null);
+      };
       return el('div', {},
-        mono('Add extras', { size: 9, style: { margin: '14px 0 6px' } }),
-        el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px' } },
-          ...ids.map(([id, , mo]) => chipX(id, PRICING_SERVICES[id].label, mo, !!st.addons[id], () => { if (st.addons[id]) { delete st.addons[id]; delete st.extras[id]; } else { st.addons[id] = true; st.extras[id] = true; } rerender(); })),
-          null));   // no Termite chip (per Isaac, Nov 23) — the Termite Defense box adds it
+        mono('Add extras', { size: 9, style: { margin: '16px 0 7px' } }),
+        el('div', { class: 'ps-extras', style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(165px, 1fr))', gap: '7px' } }, ...EXTRA_ORDER.map(tile)));
     };
 
     const extrasNames = () => curPkg ? [...Object.keys(st.addons).filter(id => !curPkg.addons.includes(id)).map(id => PRICING_SERVICES[id].label), ...(st.termite && !curPkg.termite ? ['Termite'] : [])] : [];

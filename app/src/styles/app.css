@@ -385,6 +385,7 @@
     .pricing-board .ps-body { padding: 10px 12px 14px !important; }
     .pricing-board .ps-big { font-size: 26px !important; }
     .pricing-board .ps-tiles { gap: 6px !important; padding: 0 10px 12px !important; }
+    .pricing-board .ps-extras { grid-template-columns: 1fr 1fr !important; gap: 6px !important; }   /* Build a plan extras: two across on phones */
     /* Trust chips: two up, the third stretches the full width; the
        "100%" and the italic label shrink so nothing bleeds out (per Isaac). */
     .pricing-chips { grid-template-columns: 1fr 1fr !important; }
