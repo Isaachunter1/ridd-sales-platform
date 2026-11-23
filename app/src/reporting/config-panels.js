@@ -1614,7 +1614,7 @@ function reportingMarketingPnl() {
   // Needs attention moved to the Auditing task list (per Isaac, Nov 9) — one place for everything to fix in the CRM.
   // Unmapped GoHighLevel sources to-do (per Isaac, Nov 16): pinned under the sub-tab bar on every Marketing view.
   // The two to-do cards show on Metrics only (per Isaac, Nov 16) — not on Spend.
-  const todo = sub !== 'providers' ? null : (() => { try { return typeof ghlUnmappedTodoCard === 'function' ? ghlUnmappedTodoCard() : null; } catch (e) { console.warn('[marketing] unmapped to-do', e); return null; } })();
+  const todo = null;   // Unmapped GoHighLevel sources moved to the Auditing tab (per Isaac, Nov 23)
   const todoAds = sub !== 'providers' ? null : (() => { try { return typeof adOpenCampaignsTodoCard === 'function' ? adOpenCampaignsTodoCard() : null; } catch (e) { console.warn('[marketing] campaigns to-do', e); return null; } })();
   // The Metrics/Spend bar pins under the Reporting tabs while the page scrolls (per Isaac, Nov 16).
   const _bar = _mktgYearBar(sub);

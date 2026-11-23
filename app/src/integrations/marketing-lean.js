@@ -465,8 +465,8 @@ function _mktgLeanView() {
   const dash = typeof mktgDashBlocks === 'function' ? (() => { try { return mktgDashBlocks(ym); } catch (e) { console.warn('[marketing] dash blocks', e); return []; } })() : [];
   const ltvSec = typeof mklLtvSection === 'function' ? (() => { try { return mklLtvSection(cur, ym, _cap); } catch (e) { console.warn('[marketing] ltv section', e); return null; } })() : null;   // LTV / CAC section (per Isaac, Nov 19)
   const ttc = (() => { try { return mklTimeToCloseCard(cur, RNG ? _mklLblS(ym) : _mklLblS(ym)); } catch (e) { console.warn('[marketing] time to close', e); return null; } })();   // (per Isaac, Nov 19)
-  const oppMon = typeof leadOppMonitorCard === 'function' ? (() => { try { return leadOppMonitorCard(); } catch (e) { console.warn('[marketing] lead-opp monitor', e); return null; } })() : null;   // Lead → opportunity monitor (per Isaac, Nov 19) — one line unless a source breaks
-  return el('div', { class: 'flex flex-col gap-4' }, oppMon, tiles, chart, ltvSec, ttc, ...dash, grid);   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
+  // Lead → opportunity monitor moved to the Auditing tab (per Isaac, Nov 23).
+  return el('div', { class: 'flex flex-col gap-4' }, tiles, chart, ltvSec, ttc, ...dash, grid);   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
 }
 // The month's new sales behind the New revenue tile (same rows the table counts).
 function mklOpenSales(D, title) {

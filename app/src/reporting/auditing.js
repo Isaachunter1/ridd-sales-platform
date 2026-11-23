@@ -11,6 +11,13 @@
 //   effective pass rate). 'Sent to Collections' powers the collections
 //   split; cancels (minus ROR / Sold-Not-Started churn) power attrition.
 // ════════════════════════════════════════════════════════════════════════
+// Lead data checks shown at the top of Auditing (per Isaac, Nov 23): moved off the Marketing tab.
+function _auditLeadChecks() {
+  if (state._ghl === undefined && typeof ghlLoadLeads === 'function') ghlLoadLeads();   // the leads file, if Marketing hasn't loaded it yet
+  const safe = (fn, tag) => { try { return typeof fn === 'function' ? fn() : null; } catch (e) { console.warn('[auditing] ' + tag, e); return null; } };
+  return [safe(typeof leadOppMonitorCard === 'function' ? leadOppMonitorCard : null, 'lead-opp monitor'),
+    safe(typeof ghlUnmappedTodoCard === 'function' ? ghlUnmappedTodoCard : null, 'unmapped GHL sources')].filter(Boolean);
+}
 function _auditStatusOf(flagsStr) {
   const f = (flagsStr || '').toLowerCase();
   if (f.includes('failed audit')) return 'failed';
@@ -505,7 +512,7 @@ function reportingAuditing() {
     inRange(a) && (offFilter === 'all' || a.office === offFilter) && (teamFilter === 'all' || a.team === teamFilter));
 
   if (!anyFlags) {
-    return el('div', { class: 'flex flex-col gap-4 max-w-3xl mx-auto' },
+    return el('div', { class: 'flex flex-col gap-4 max-w-3xl mx-auto' }, ..._auditLeadChecks(),
       el('div', { class: 'card p-10 text-center' },
         el('div', { class: 'text-4xl mb-3' }, '🛡️'),
         el('h2', { class: 'text-lg font-bold mb-2' }, 'This snapshot has no Customer Flags yet'),
@@ -552,6 +559,10 @@ function reportingAuditing() {
       const _f = _auditCtl.slice(); _f.splice(_f.length - 1, 0, el('div', { class: 'flex-1' }));
       return reportingPinBar('audit', el('div', { class: 'card p-4 flex items-center gap-2 flex-wrap' }, ..._f));
     })(),
+
+    // Lead data checks (per Isaac, Nov 23 — moved here from Marketing): the lead → opportunity monitor (starts
+    // closed) and the unmapped GoHighLevel sources to-do.
+    ..._auditLeadChecks(),
 
     // ONE rollup table with an Office ⇄ Teams toggle (per Isaac), then the per-rep detail table.
     (() => {

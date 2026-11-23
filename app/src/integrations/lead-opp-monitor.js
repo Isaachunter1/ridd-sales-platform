@@ -57,7 +57,7 @@ function _lomData() {
 function leadOppMonitorCard() {
   const D = _lomData(); if (!D || !D.rows.length) return null;
   const bad = D.rows.filter(r => r.broken).length, soft = D.rows.filter(r => r.soft).length;
-  const open = state._lomOpen === true || (state._lomOpen == null && bad > 0);
+  const open = state._lomOpen === true;   // starts closed (per Isaac, Nov 23) — the header line still says when a source is off
   const pct = (v) => v == null ? '—' : Math.round(v * 100) + '%';
   const fmtD = (d) => { const [y, m, dd] = d.split('-'); return Number(m) + '/' + Number(dd); };
   const dot = (c) => el('span', { class: 'inline-block rounded-full shrink-0', style: { width: '8px', height: '8px', background: c } });
