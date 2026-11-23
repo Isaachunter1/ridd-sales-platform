@@ -1,4 +1,4 @@
-// Peak value rule (per Isaac, Nov 19 2026) pinned with a small fixture. Run: npm test --workspace server
+// Peak value rule (per Isaac, Nov 23 2026: the rep's contract just before the initial was completed) pinned with a small fixture. Run: npm test --workspace server
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { computePeaks, contractValue, legacyPeaks } from '../services/indicators/functions/peakValues.js';
@@ -25,10 +25,23 @@ test('an upsell after the initial: peak is the pre-upsell value (below today) â€
   assert.equal(stats.upsold, 1);
 });
 
-test('a change on the completion day is part of the sale, not a modification', () => {
+test('a tech upsell later on the completion day is a modification, not part of the rep\'s sale (Nov 23)', () => {
   const rows = [{ ...base, rec: 75, cv: 1024, at_: '2026-03-10 16:30:00', cid_: 'c1', k: 'recurringCharge', o: '60' }];
   const { peaks, stats } = computePeaks(rows);
-  assert.deepEqual(peaks, {});           // value right after the initial = today's â†’ nothing to publish
+  assert.equal(peaks['500|pest 4'], 859);
+  assert.equal(stats.upsold, 1);
+});
+
+test('a change logged the same second the initial completes is undone too', () => {
+  const rows = [{ ...base, rec: 75, cv: 1024, at_: '2026-03-10 14:02:00', cid_: 'c1', k: 'recurringCharge', o: '60' }];
+  assert.equal(computePeaks(rows).peaks['500|pest 4'], 859);
+});
+
+test('the rep\'s own edit before the initial is completed is part of the sale', () => {
+  // the SQL only returns changes at/after completion; one that slips through earlier is still kept
+  const rows = [{ ...base, rec: 75, cv: 1024, at_: '2026-03-09 18:00:00', cid_: 'c0', k: 'recurringCharge', o: '60' }];
+  const { peaks, stats } = computePeaks(rows);
+  assert.deepEqual(peaks, {});
   assert.equal(stats.unchanged, 1);
 });
 

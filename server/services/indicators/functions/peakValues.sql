@@ -1,6 +1,7 @@
 -- Peak values (per Isaac + CSO, Oct 15 2026; ported from netlify/functions/revhawk-sync-background.js, Nov 19):
 -- every subscription whose initial service has been completed, with today's values and every change made to
--- its money fields AFTER the initial's completion day — walked backwards in JS, each change's "old" restores the
+-- its money fields AT OR AFTER the initial's completion (per Isaac, Nov 23: peak = the rep's contract just before
+-- the initial was completed) — walked backwards in JS, each change's "old" restores the
 -- earlier state. Only subscriptions that changed are returned; an untouched one is worth exactly what it is today.
 --   done_at    = the initial's completion (first completed appointment on the subscription), 'YYYY-MM-DD HH:MM:SS'
 --   at_        = when the change happened; k / o = the field and its value BEFORE the change
@@ -20,7 +21,7 @@ ch AS (
   JOIN done ON done.sid = c.referenceID
   WHERE c.classID = 7
     AND JSON_VALUE(e, '$.key') IN ('recurringCharge', 'annualRecurringServices', 'billingFrequency', 'initialQuote', 'initialDiscount')
-    AND LEFT(c.dateChanged, 19) > done.done_at
+    AND LEFT(c.dateChanged, 19) >= done.done_at
   QUALIFY ROW_NUMBER() OVER (PARTITION BY c.referenceID, c.changeID, JSON_VALUE(e, '$.key') ORDER BY c.ingestedAt DESC) = 1
 ),
 sub AS (

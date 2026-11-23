@@ -1,16 +1,18 @@
-// Peak value per subscription (per Isaac + CSO, Oct 15 2026; rule settled with Isaac Nov 19 2026).
+// Peak value per subscription (per Isaac + CSO, Oct 15 2026; rule changed by Isaac Nov 23 2026).
 //
-// "Peak revenue is the revenue of a subscription immediately after the initial service was completed — before
-//  any technician or office rep changed or modified it." Later we adjust subscriptions UP for upsells and DOWN to
-// save a cancel; peak is the value before either.
+// Nov 23: "contract values just PRIOR to appointments being completed" — "sum revenue AFTER the contract is signed
+// from the sales reps". Peak is the contract the rep signed, as it stood the moment before the initial service was
+// completed. Anything a technician or the office changes at or after the initial — an upsell on the initial visit,
+// a rate lowered to save a cancel — is a modification and is undone. (Nov 19 rule, superseded: value at the END of
+// the completion day, so same-day tech upsells counted.)
 //
 //   peak = initial + recurring × 11                      when billed monthly (billingFrequency 30)
 //   peak = initial + recurring × annualRecurringServices  when billed per service (billingFrequency 0 / -1)
 //
-// with initial / recurring / services / billing as they stood at the END of the initial's completion day. A change
-// made on that day counts as part of the sale (the tech can sell on the initial visit — per Isaac, Nov 19); a change
-// on any later day is a modification and is undone. A subscription with no later change is worth what it is today,
-// so it is not published — the app falls back to the current contract value.
+// with initial / recurring / services / billing as they stood just BEFORE the initial was completed (done_at, to the
+// second). Changes before that (the rep's own edits after signing) stay; any change at or after it is undone. A
+// subscription with no such change — or whose initial isn't completed yet — is worth what it is today, so it is not
+// published and the app falls back to the current contract value.
 //
 // Rows come from peakValues.sql: one row per (subscription, change), newest change first, each row carrying
 // today's values and the change's field `k` and its value BEFORE the change `o`.
@@ -41,11 +43,11 @@ export function computePeaks(rows) {
     const h = list[0];
     const cv = num(h.cv);
     if (cv == null || cv <= 0) { skipped++; continue; }
-    const doneDay = day(h.done_at);
+    const doneAt = String(h.done_at || '');
     // today's parts
     let rec = num(h.rec) || 0, ars = num(h.ars) || 0, bf = num(h.bf), iq = num(h.iq), idisc = num(h.idisc);
-    // Walk newest → oldest; undo every change made on a day AFTER the initial's completion day.
-    const later = list.filter(c => day(c.at_) > doneDay).sort((a, b) => (a.at_ < b.at_ ? 1 : a.at_ > b.at_ ? -1 : 0));
+    // Walk newest → oldest; undo every change made at or after the moment the initial was completed.
+    const later = list.filter(c => doneAt && String(c.at_ || '') >= doneAt).sort((a, b) => (a.at_ < b.at_ ? 1 : a.at_ > b.at_ ? -1 : 0));
     for (const c of later) {
       const o = num(c.o);
       if (o == null) continue;
@@ -55,7 +57,7 @@ export function computePeaks(rows) {
       else if (c.k === 'initialQuote') iq = o;
       else if (c.k === 'initialDiscount') idisc = o;
     }
-    // initial at completion: quote − discount when both are known, else today's initialServiceTotal
+    // initial before completion: quote − discount when both are known, else today's initialServiceTotal
     const init = (iq != null) ? Math.max(0, iq - (idisc || 0)) : (num(h.init) || 0);
     const peak = contractValue({ init, rec, ars, bf });
     if (Math.abs(peak - cv) <= 0.5) { same++; continue; }
