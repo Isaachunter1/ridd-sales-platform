@@ -296,15 +296,16 @@ function viewPricing() {
           ? svcPick(st.termite ? 'Added ✓' : 'Termite · add', !!st.termite, toggleT)
           : el('div', { class: 'flex flex-col items-end gap-1' }, ...(p.show || p.services).map(sid => svcPick(PRICING_SERVICES[sid].label, st.base === sid, () => { if (st.base === sid) { st.base = null; st.addons = {}; } else { st.base = sid; delete st.addons[sid]; } rerender(); }))));
       if (isT) {
-        // The termite bar: one wide orange strip (per Isaac) — ANNUAL · $399 initial · $29 monthly — tap to add.
+        // The termite bar: one wide green strip like the price tiles (per Isaac, Nov 23 — was orange) — ANNUAL ·
+        // $399 initial · $29 monthly — tap to add.
         const on = !!st.termite;
-        const dim = 'rgba(255,255,255,.88)';
+        const dim = 'rgba(242,241,234,.72)';
         return card(head, el('div', { style: { padding: '0 14px 14px' } },
-          el('button', { onclick: toggleT, 'aria-pressed': on ? 'true' : 'false', style: Object.assign({ position: 'relative', width: '100%', display: 'flex', alignItems: 'center', gap: '10px', background: C.orange, border: '1.5px solid #9C3209', borderRadius: '8px', padding: '10px 14px', cursor: 'pointer', color: '#fff' }, on ? PICKED : {}) },
+          el('button', { onclick: toggleT, 'aria-pressed': on ? 'true' : 'false', style: Object.assign({ position: 'relative', width: '100%', display: 'flex', alignItems: 'center', gap: '10px', background: C.green, border: '1.5px solid ' + C.greenLine, borderRadius: '8px', padding: '10px 14px', cursor: 'pointer', color: '#fff' }, on ? PICKED : {}) },
             on ? tick() : null,
             el('span', { style: { font: '400 9px/1 ' + MONO, letterSpacing: '.16em', textTransform: 'uppercase', color: dim } }, 'Annual'),
             el('span', { style: { marginLeft: 'auto', font: '400 9px/1 ' + MONO, color: dim } }, money(T.termite[0]) + ' initial'),
-            el('span', { class: 'ps-big', style: { font: '300 30px/1 ' + SANS, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color: '#fff', marginLeft: '8px' } }, money(T.termite[1])),
+            el('span', { class: 'ps-big', style: { font: '300 30px/1 ' + SANS, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color: C.light, marginLeft: '8px' } }, money(T.termite[1])),
             el('span', { style: { font: '400 9px/1 ' + MONO, color: dim } }, 'monthly'))));
       }
       return card(head,
