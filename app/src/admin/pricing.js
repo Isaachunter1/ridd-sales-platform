@@ -443,7 +443,8 @@ function viewPricing() {
     const CORE = ['pest', 'rodent', 'tfm', 'mole'];
     const cfgOf = (id) => {
       if (id === 'home') return { id, label: 'Home', custName: 'Home Protection', base: pk.home, addons: [], termite: false };
-      if (id === 'homeyard') return { id, label: 'Home + Yard', custName: 'Home + Yard Protection', base: pk.hy.home, addons: [pk.hy.yard], termite: false, popular: true };
+      if (id === 'homeyard') return { id, label: 'RIDD Package', custName: 'RIDD Package',   // branded RIDD Package (per Isaac, Nov 23)
+         base: pk.hy.home, addons: [pk.hy.yard], termite: false, popular: true };
       if (id === 'custom') {
         const on = CORE.filter(s => pk.custom[s]);
         const extra = pk.custom.seasonal && !pk.custom.tfm && on.length ? ['seasonal'] : [];   // Seasonal TFM is an add-on only
