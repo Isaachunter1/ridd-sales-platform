@@ -475,7 +475,7 @@ function viewPricing() {
     // The package the quote still matches (an edit on the sheet can move it off every package).
     const fits = (c) => !!c && (st.base || null) === c.base && c.addons.every(a => st.addons[a]) && (!c.termite || !!st.termite);
     const curPkg = fits(pkgOf(st.pkg)) ? pkgOf(st.pkg) : null;
-    const perDay = (mo) => '$' + (mo * 12 / 365).toFixed(2) + '/day';
+    const perDay = (mo) => '$' + (mo * 12 / 365).toFixed(2) + '/day';   // shown as 'about $X/day' in the customer view
 
     const seg = el('div', { style: { display: 'flex', border: '1.5px solid ' + C.line, borderRadius: '8px', overflow: 'hidden' } },
       ...PRICING_FREQ.map(([k, lbl]) => el('button', { onclick: () => { st.freq = k; rerender(); }, 'aria-pressed': st.freq === k ? 'true' : 'false', style: { flex: '1 1 0', padding: '10px 0', font: '600 9.5px/1 ' + MONO, letterSpacing: '.1em', textTransform: 'uppercase', background: st.freq === k ? C.char : 'transparent', color: st.freq === k ? '#fff' : C.char, border: 0, cursor: 'pointer' } }, lbl)));
@@ -515,18 +515,21 @@ function viewPricing() {
       const pq = empty ? { mo: 0, init: 0, savings: 0 } : pkgMo(c), sep = separateMo(c), save = pq.savings;   // same yearly savings math as the quote (Bundle & Save)
       const isT = c.id === 'termite';
       const on = isT ? !!st.termite : (st.pkg === c.id && !!curPkg);
-      return el('div', { role: 'button', tabindex: '0', onclick: () => { if (isT) return toggleTermite(); if (on) { st.pkg = null; st.base = null; st.addons = {}; rerender(); return; } if (!empty) { applyPkg(c); rerender(); } }, 'aria-pressed': on ? 'true' : 'false', style: { position: 'relative', display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', background: C.card, color: C.char, borderRadius: '12px', padding: '13px 13px 11px', border: on ? '3px solid ' + C.orange : '1.5px solid ' + C.line, boxShadow: on ? '0 10px 22px -14px rgba(217,72,15,.9)' : 'none' } },
+      return el('div', { role: 'button', tabindex: '0', onclick: () => { if (isT) return toggleTermite(); if (on) { st.pkg = null; st.base = null; st.addons = {}; rerender(); return; } if (!empty) { applyPkg(c); rerender(); } }, 'aria-pressed': on ? 'true' : 'false', style: { position: 'relative', display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', background: C.card, color: C.char, borderRadius: '10px', padding: '10px 12px', border: on ? '3px solid ' + C.orange : '1.5px solid ' + C.line, boxShadow: on ? '0 10px 22px -14px rgba(217,72,15,.9)' : 'none' } },
         c.popular ? el('span', { style: { position: 'absolute', top: '-9px', right: '12px', background: C.orange, color: '#fff', font: '700 7.5px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', padding: '4px 8px', borderRadius: '999px' } }, 'Most homeowners pick this' + (on ? ' ✓' : '')) : (on ? el('span', { style: { position: 'absolute', top: '-9px', right: '12px', background: C.char, color: '#fff', font: '700 7.5px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', padding: '4px 8px', borderRadius: '999px' } }, 'Picked ✓') : null),
-        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '10px' } },
-          el('div', { style: { font: '800 16px/1 ' + SANS, textTransform: 'uppercase' } }, c.label),
-          el('div', { style: { whiteSpace: 'nowrap' } },
-            !empty && sep > pq.mo + 0.5 ? el('span', { style: { font: '400 11px/1 ' + MONO, color: C.ink3, textDecoration: 'line-through', marginRight: '6px' } }, money(sep)) : null,
-            el('span', { style: { font: '300 30px/1 ' + SANS, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums' } }, empty ? '—' : money(pq.mo)),
-            el('span', { style: { font: '400 10px/1 ' + MONO, color: C.ink2 } }, '/mo'))),
-        el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '9px' } }, ...pillsFor(c)),
-        el('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '8px', marginTop: '9px', font: '400 9.5px/1.3 ' + MONO, color: C.ink2 } },
-          el('span', {}, empty ? 'Tap the services this home needs' : money(pq.init) + ' initial · about ' + perDay(pq.mo)),
-          save > 0 ? el('b', { style: { color: '#2F7D32' } }, 'Saves ' + money(save) + '/yr') : el('span', {}, c.blurb || '')));
+        // Compact card (per Isaac, Nov 23): name + service pills on the left; price, then initial · per day, then
+        // savings stacked on the right.
+        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' } },
+          el('div', { style: { minWidth: 0, flex: '1 1 auto' } },
+            el('div', { style: { font: '800 14px/1 ' + SANS, textTransform: 'uppercase' } }, c.label),
+            el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '8px' } }, ...pillsFor(c))),
+          el('div', { style: { textAlign: 'right', flexShrink: 0 } },
+            el('div', { style: { whiteSpace: 'nowrap' } },
+              !empty && sep > pq.mo + 0.5 ? el('span', { style: { font: '400 10px/1 ' + MONO, color: C.ink3, textDecoration: 'line-through', marginRight: '5px' } }, money(sep)) : null,
+              el('span', { style: { font: '300 25px/1 ' + SANS, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums' } }, empty ? '—' : money(pq.mo)),
+              el('span', { style: { font: '400 9.5px/1 ' + MONO, color: C.ink2 } }, '/mo')),
+            el('div', { style: { font: '400 9px/1.35 ' + MONO, color: C.ink2, marginTop: '4px', whiteSpace: 'nowrap' } }, empty ? 'Tap the services' : money(pq.init) + ' initial · ' + perDay(pq.mo)),
+            save > 0 ? el('div', { style: { font: '700 9px/1.35 ' + MONO, color: '#2F7D32', whiteSpace: 'nowrap' } }, 'Saves ' + money(save) + '/yr') : null)));
     };
 
     // Extras (per Isaac, Nov 23): a fixed grid — every service always in the same spot with a small icon, so swapping
@@ -618,7 +621,7 @@ function viewPricing() {
       el('div', { class: 'ps-body', style: { padding: '14px 22px 20px' } },
         mono('How often?', { size: 9, style: { marginBottom: '6px' } }),
         seg,
-        el('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' } }, ...PKGS.map(pkgCard)),
+        el('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '14px' } }, ...PKGS.map(pkgCard)),
         extrasRow(),
         // No running total and no Show customer button (per Isaac, Nov 23) — the receipt alongside covers it.
         el('div', { style: { height: '4px' } })),
