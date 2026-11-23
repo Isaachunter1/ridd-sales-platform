@@ -42,7 +42,7 @@ const PRICING_COVERED = { tfm: ['seasonal'] };
 const pricingCoveredBy = (base, id) => !!base && (id === base || (PRICING_COVERED[base] || []).includes(id));
 const PRICING_PROGRAMS = [
   { id: 'home',    label: 'Home Essentials', services: ['pest', 'rodent'] },
-  { id: 'yard',    label: 'Yard Essentials', services: ['tfm', 'mole'] },
+  { id: 'yard',    label: 'Yard Essentials', services: ['tfm', 'mole'], show: ['mole', 'tfm'] },   // Mole listed on top (per Isaac, Nov 23); tapping a tile with nothing picked still starts on TFM
   { id: 'termite', label: 'Termite Defense', services: ['termite'] },
 ];
 // Program glyphs — flat orange silhouettes in the same cut as the RIDD spider mark.
@@ -290,7 +290,7 @@ function viewPricing() {
         el('div', { style: { font: '700 16px/1.1 ' + SANS, textTransform: 'uppercase', letterSpacing: '-.005em', color: C.char, whiteSpace: 'nowrap' } }, p.label),
         isT
           ? svcPick(st.termite ? 'Added ✓' : 'Termite · add', !!st.termite, toggleT)
-          : el('div', { class: 'flex flex-col items-end gap-1' }, ...p.services.map(sid => svcPick(PRICING_SERVICES[sid].label, st.base === sid, () => { if (st.base === sid) { st.base = null; st.addons = {}; } else { st.base = sid; delete st.addons[sid]; } rerender(); }))));
+          : el('div', { class: 'flex flex-col items-end gap-1' }, ...(p.show || p.services).map(sid => svcPick(PRICING_SERVICES[sid].label, st.base === sid, () => { if (st.base === sid) { st.base = null; st.addons = {}; } else { st.base = sid; delete st.addons[sid]; } rerender(); }))));
       if (isT) {
         // The termite bar: one wide orange strip (per Isaac) — ANNUAL · $399 initial · $29 monthly — tap to add.
         const on = !!st.termite;
