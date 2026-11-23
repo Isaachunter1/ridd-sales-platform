@@ -226,7 +226,7 @@ function viewPricing() {
   const render = () => {
     const st = pricingStore();
     const T = pricingTierOf(st);
-    const isMin = T.id === 'd2d_min';   // the sheet's numbers are white; only D2D minimums keep a warm tint
+    const isMin = false;   // the sheet's numbers stay white on green, minimums included (per Isaac, Nov 23)
     const PICK = pricingTierChoices(state.profile).map(id => PRICING_TIERS.find(t => t.id === id));   // sheets this user may see (per Isaac, Nov 23); D2D minimums is the Ⓜ toggle
     const baseSvc = st.base ? PRICING_SERVICES[st.base] : null;
     const hasPlan = !!baseSvc;
@@ -251,7 +251,7 @@ function viewPricing() {
       style: { width: '30px', height: '30px', borderRadius: '50%', border: '2px solid ' + (st.min ? C.orange : C.line), background: st.min ? C.orange : 'transparent', color: st.min ? '#fff' : C.char, fontSize: '13px', lineHeight: 1, flexShrink: 0 },
       onclick: (e) => { e.stopPropagation(); st.min = !st.min; rerender(); },
     }, 'M') : null;
-    const tierName = (t) => t.id === 'd2d' ? (st.min ? 'D2D Minimums' : 'D2D Pricing') : (t.label + ' Pricing');
+    const tierName = (t) => t.id === 'd2d' ? 'D2D Pricing' : (t.label + ' Pricing');   // the Ⓜ button shows minimums are on; the tag stays 'D2D Pricing' (per Isaac)
 
     // ── sheet primitives (fixed colours — the sheet doesn't theme) ──
     const card = (...kids) => el('div', { style: { background: C.card, border: '1.5px solid ' + C.line, borderRadius: '12px', overflow: 'hidden', color: C.char } }, ...kids);
