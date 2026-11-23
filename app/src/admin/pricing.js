@@ -73,21 +73,29 @@ const PRICING_ONETIME = [
   ['ot_suv',     'Vehicle — SUV',         249, 249],
 ];
 
-// Who sees which sheets (per Isaac, Nov 23): sales reps get D2D + Standard, office staff (loyalty included) get
-// Standard + Loyalty, admins get all three.
+// Who sees which sheets (per Isaac, Nov 23): sales reps get D2D only (with the Ⓜ minimums toggle), office staff
+// (loyalty included) get Standard + Loyalty, technicians get Standard only, admins get all three.
+function pricingIsTechnician(profile) {
+  const role = String(profile?.role || '');
+  if (/^tech/.test(role)) return true;   // tech, tech_pro, tech_branch, tech_regional, tech_senior_lead
+  try { const emp = typeof frRosterRowForProfile === 'function' ? frRosterRowForProfile(profile) : null; return !!(emp && emp.type_label && typeof crmSellerIs === 'function' && crmSellerIs('technician', emp.type_label)); } catch (e) { return false; }
+}
 function pricingIsSalesRep(profile) {
   const role = String(profile?.role || '');
   if (role === 'rep_sales' || role === 'rep_partner' || role === 'rep_team_lead') return true;
+  if (pricingIsTechnician(profile)) return false;
   return typeof isOfficeStaffProfile === 'function' && !isAdminRole(role) && !isOfficeStaffProfile(profile);
 }
 function pricingTierChoices(profile) {
   const role = String(profile?.role || '');
   if (typeof isAdminRole === 'function' && isAdminRole(role)) return ['d2d', 'standard', 'loyalty'];
-  return pricingIsSalesRep(profile) ? ['d2d', 'standard'] : ['standard', 'loyalty'];
+  if (pricingIsTechnician(profile)) return ['standard'];
+  return pricingIsSalesRep(profile) ? ['d2d'] : ['standard', 'loyalty'];
 }
-// Which tier opens first: sales reps on D2D, loyalty reps on Loyalty, everyone else on Standard.
+// Which tier opens first: sales reps on D2D, loyalty reps on Loyalty, everyone else (technicians, office) on Standard.
 function pricingDefaultTier(profile) {
   const role = String(profile?.role || '');
+  if (pricingIsTechnician(profile)) return 'standard';
   if (/loyalty/.test(role)) return 'loyalty';
   if (pricingIsSalesRep(profile)) return 'd2d';
   return 'standard';
@@ -218,15 +226,15 @@ function viewPricing() {
   const render = () => {
     const st = pricingStore();
     const T = pricingTierOf(st);
-    const isMin = T.id === 'd2d_min';   // the sheet's numbers are white; only D2D minimums keep a warm tint
+    const isMin = false;   // the sheet's numbers stay white on green, minimums included (per Isaac, Nov 23)
     const PICK = pricingTierChoices(state.profile).map(id => PRICING_TIERS.find(t => t.id === id));   // sheets this user may see (per Isaac, Nov 23); D2D minimums is the Ⓜ toggle
     const baseSvc = st.base ? PRICING_SERVICES[st.base] : null;
     const hasPlan = !!baseSvc;
     const q = pricingQuote(st);
     const rerender = () => { const y = window.scrollY; render(); window.scrollTo(0, y); onScroll(); };
 
-    // ── tier switch: admins get every sheet as its own tag; everyone else gets one orange tag with a dropdown of
-    // the two sheets their role sees.
+    // ── tier switch: admins get every sheet as its own tag; office staff get one orange tag with a Standard /
+    // Loyalty dropdown; sales reps (D2D) and technicians (Standard) see a plain label.
     const locked = PICK.length < 2;
     const isAdmin = typeof isAdminRole === 'function' && isAdminRole(String(state.profile?.role || ''));
     const sel = locked ? null : el('select', {
@@ -243,7 +251,7 @@ function viewPricing() {
       style: { width: '30px', height: '30px', borderRadius: '50%', border: '2px solid ' + (st.min ? C.orange : C.line), background: st.min ? C.orange : 'transparent', color: st.min ? '#fff' : C.char, fontSize: '13px', lineHeight: 1, flexShrink: 0 },
       onclick: (e) => { e.stopPropagation(); st.min = !st.min; rerender(); },
     }, 'M') : null;
-    const tierName = (t) => t.id === 'd2d' ? (st.min ? 'D2D Minimums' : 'D2D Pricing') : (t.label + ' Pricing');
+    const tierName = (t) => t.id === 'd2d' ? 'D2D Pricing' : (t.label + ' Pricing');   // the Ⓜ button shows minimums are on; the tag stays 'D2D Pricing' (per Isaac)
 
     // ── sheet primitives (fixed colours — the sheet doesn't theme) ──
     const card = (...kids) => el('div', { style: { background: C.card, border: '1.5px solid ' + C.line, borderRadius: '12px', overflow: 'hidden', color: C.char } }, ...kids);
@@ -349,10 +357,10 @@ function viewPricing() {
 
     // ── trust chips + reviews (D2D sheets) ──
     const chip = (big, txt, sub) => el('div', { class: 'pricing-chip', style: { background: C.card, border: '1.5px solid ' + C.line, borderRadius: '12px', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '14px', minHeight: '76px', overflow: 'hidden' } },
-      el('div', { class: 'pricing-chip-big', style: { font: '700 ' + (big.length > 2 ? '30px' : '40px') + '/1 ' + SANS, color: C.orange, flexShrink: 0, letterSpacing: '-.02em' } }, big),
-      el('div', { style: { minWidth: 0, flex: '1 1 0', overflowWrap: 'anywhere' } },
-        el('div', { class: 'pricing-chip-txt', style: { font: '700 15px/1.15 ' + SANS, color: C.char, textTransform: 'uppercase' } }, txt),
-        sub ? mono(sub, { size: 8.5, style: { marginTop: '4px', letterSpacing: '.04em', textTransform: 'none' } }) : null));
+      el('div', { class: 'pricing-chip-big', style: { font: '700 ' + (big.length > 2 ? '24px' : '32px') + '/1 ' + SANS, color: C.orange, flexShrink: 0, letterSpacing: '-.02em' } }, big),
+      el('div', { style: { minWidth: 0, flex: '1 1 0' } },   // words wrap whole — never split mid-word (per Isaac)
+        el('div', { class: 'pricing-chip-txt', style: { font: '700 12px/1.2 ' + SANS, color: C.char, textTransform: 'uppercase', letterSpacing: '.01em', overflowWrap: 'normal', wordBreak: 'keep-all', hyphens: 'none' } }, txt),
+        sub ? mono(sub, { size: 8, style: { marginTop: '4px', letterSpacing: '.02em', textTransform: 'none', hyphens: 'none' } }) : null));
     // Stretches to fill whatever height the add-ons column leaves (per Isaac).
     const reviews = el('div', { style: { background: C.card, border: '1.5px solid ' + C.line, borderRadius: '12px', padding: '18px 14px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', justifyContent: 'center', flex: '1 1 auto', minHeight: '150px' } },
       el('span', { style: { width: '40px', height: '40px', borderRadius: '50%', background: C.green, color: C.light, font: '700 22px/40px ' + SANS, display: 'inline-block' } }, 'G'),
@@ -396,8 +404,10 @@ function viewPricing() {
         el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))' } },
           addonsCard,
           el('div', { class: 'flex flex-col gap-3' }, oneTimeCard, saveCard, T.onetime ? null : reviews)),
+        // Trust chips — the guarantee goes last: on phones the last chip spans the full width, so its long word
+        // never has to squeeze (per Isaac).
         T.onetime ? null : el('div', { class: 'grid gap-3 pricing-chips', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' } },
-          chip('🐾', 'Kid & Pet Safe'), chip('100%', 'Satisfaction Guarantee', 'Backed by unlimited free re-services'), chip('✓', 'Licensed & Insured'))),
+          chip('🐾', 'Kid & Pet Safe'), chip('✓', 'Licensed & Insured'), chip('100%', 'Satisfaction Guarantee', 'Backed by unlimited free re\u2011services'))),
       footer);
 
     // ── quote, laid out like a receipt in the slick's cream (per Isaac) ──
