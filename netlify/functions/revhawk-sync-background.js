@@ -1963,6 +1963,15 @@ WHERE a.fieldRoutes_statusText = 'Completed' AND a.fieldRoutes_dateCompleted NOT
               if (upd.audit_status === 'below_minimums') upd.notes = ((s.notes || '') + ' · Auto: Below Minimums — ' + bm).trim();
             }
           }
+          // Pre-service cancel before payroll (per Isaac, Nov 23 2026): an Office Staff sale approved on a paid
+          // initial (before the appointment) is payable — but if the customer cancels before the initial is
+          // serviced and before the payroll run, it comes back off (Cancelled). Once payroll has run, the
+          // cancel is a chargeback on the next monthly run instead (the lock pass below handles that).
+          if (!upd.audit_status && ['serviced', 'below_minimums'].includes(s.audit_status) && !s.payroll_processed_at
+              && (s.queue_type || 'office') === 'office' && cancelled && !serviced) {
+            upd.audit_status = 'cancelled'; upd.audited_at = stamp;
+            upd.notes = ((s.notes || '') + ' · Auto: cancelled before the initial service, before payroll — taken off').trim();
+          }
           // Already approved, not paid yet: Commissionable under a minimum → Below Minimums; an auto Below Minimums
           // that's back at/above the minimums (pricing changed) → Commissionable. A manual call is left alone.
           if (PR.auto && !s.payroll_processed_at && !upd.audit_status && belowMin.has(s.id) && _autoApproveOn(s)) {

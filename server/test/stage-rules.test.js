@@ -62,3 +62,22 @@ test('paid since the sale: a decline and no payment → NSF; a later payment fli
   assert.equal(b.upd.audit_status, 'pending');
   assert.equal(b.v.paidAt, '2026-10-23');
 });
+
+test('paid initial approved before the appointment, cancels pre-service before payroll → taken off', () => {
+  const r = row({ initial_serviced_date: null, initial_status: 'Pending', subscription_status: 'Cancelled', subscription_date_canceled: '2026-10-27' });
+  const u = decideStage(sale({ audit_status: 'serviced' }), r, ctx());
+  assert.equal(u.audit_status, 'cancelled');
+  assert.match(u.notes, /before the initial service, before payroll/);
+});
+
+test('same cancel after payroll ran → not taken off; the lock pass charges it back', () => {
+  const r = row({ initial_serviced_date: null, initial_status: 'Pending', subscription_status: 'Cancelled', subscription_date_canceled: '2026-10-27' });
+  const u = decideStage(sale({ audit_status: 'serviced', payroll_processed_at: '2026-10-26T12:00:00Z' }), r, ctx());
+  assert.equal(u.audit_status, undefined);
+  assert.equal(u.lock_status, 'chargeback');
+});
+
+test('approved, serviced, then cancels before payroll → left alone (not a pre-service cancel)', () => {
+  const r = row({ subscription_status: 'Cancelled', subscription_date_canceled: '2026-10-27' });
+  assert.equal(decideStage(sale({ audit_status: 'serviced' }), r, ctx()).audit_status, undefined);
+});
