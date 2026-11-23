@@ -11,6 +11,13 @@
 //   effective pass rate). 'Sent to Collections' powers the collections
 //   split; cancels (minus ROR / Sold-Not-Started churn) power attrition.
 // ════════════════════════════════════════════════════════════════════════
+// Lead data checks shown at the top of Auditing (per Isaac, Nov 23): moved off the Marketing tab.
+function _auditLeadChecks() {
+  if (state._ghl === undefined && typeof ghlLoadLeads === 'function') ghlLoadLeads();   // the leads file, if Marketing hasn't loaded it yet
+  const safe = (fn, tag) => { try { return typeof fn === 'function' ? fn() : null; } catch (e) { console.warn('[auditing] ' + tag, e); return null; } };
+  return [safe(typeof leadOppMonitorCard === 'function' ? leadOppMonitorCard : null, 'lead-opp monitor'),
+    safe(typeof ghlUnmappedTodoCard === 'function' ? ghlUnmappedTodoCard : null, 'unmapped GHL sources')].filter(Boolean);
+}
 function _auditStatusOf(flagsStr) {
   const f = (flagsStr || '').toLowerCase();
   if (f.includes('failed audit')) return 'failed';
@@ -505,7 +512,7 @@ function reportingAuditing() {
     inRange(a) && (offFilter === 'all' || a.office === offFilter) && (teamFilter === 'all' || a.team === teamFilter));
 
   if (!anyFlags) {
-    return el('div', { class: 'flex flex-col gap-4 max-w-3xl mx-auto' },
+    return el('div', { class: 'flex flex-col gap-4 max-w-3xl mx-auto' }, ..._auditLeadChecks(),
       el('div', { class: 'card p-10 text-center' },
         el('div', { class: 'text-4xl mb-3' }, '🛡️'),
         el('h2', { class: 'text-lg font-bold mb-2' }, 'This snapshot has no Customer Flags yet'),
@@ -552,6 +559,10 @@ function reportingAuditing() {
       const _f = _auditCtl.slice(); _f.splice(_f.length - 1, 0, el('div', { class: 'flex-1' }));
       return reportingPinBar('audit', el('div', { class: 'card p-4 flex items-center gap-2 flex-wrap' }, ..._f));
     })(),
+
+    // Lead data checks (per Isaac, Nov 23 — moved here from Marketing): the lead → opportunity monitor (starts
+    // closed) and the unmapped GoHighLevel sources to-do.
+    ..._auditLeadChecks(),
 
     // ONE rollup table with an Office ⇄ Teams toggle (per Isaac), then the per-rep detail table.
     (() => {
@@ -926,11 +937,11 @@ function auditTasksCard() {
     const showing = hasDetail && state._auditDetail === i.key;
     const click = hasDetail ? () => { state._auditDetail = showing ? null : i.key; mountApp(); } : i.onClick;
     const red = i.sev === 'red';
-    return [el('div', { class: 'flex items-center gap-3 px-4 py-2 border-t text-xs', style: { borderColor: 'var(--border)' }, title: i.title || '' },
+    return [el('div', { class: 'flex items-center gap-3 px-4 py-2 border-t text-xs audit-task-row', style: { borderColor: 'var(--border)' }, title: i.title || '' },
       el('span', { class: 'text-[10px] font-bold tabular-nums shrink-0', style: { color: 'var(--text-subtle)', width: '18px', textAlign: 'right' } }, String(idx + 1) + '.'),
       el('span', { class: 'text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded shrink-0', style: { background: red ? 'rgba(220,38,38,.12)' : 'rgba(217,119,6,.14)', color: red ? '#DC2626' : '#B45309', minWidth: '72px', textAlign: 'center' } }, i.tag),
       el('span', { class: 'text-sm font-black tabular-nums shrink-0', style: { minWidth: '52px', textAlign: 'right', color: red ? '#DC2626' : 'var(--text)' } }, i.count != null ? Number(i.count).toLocaleString() : '…'),
-      el('span', { class: 'flex-1 min-w-0', style: { overflowWrap: 'anywhere' } }, i.text),
+      el('span', { class: 'flex-1 min-w-0 audit-task-text', style: { overflowWrap: 'anywhere' } }, i.text),
       click && (i.count == null || i.count > 0) ? el('button', { class: 'text-[11px] font-bold whitespace-nowrap shrink-0', style: { color: 'var(--accent)' }, onclick: click }, (showing ? 'Hide' : 'Review') + ' →') : null),
       showing ? i.detail : null];
   };

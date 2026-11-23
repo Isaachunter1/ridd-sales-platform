@@ -966,15 +966,15 @@ function _mktgYearBar(sub) {
   // Attribution (lead reconciliation) is a tab of its own (per Isaac, Oct 2) — it lived behind a button on the right.
   const SUBS = [['providers', 'Dashboard'], ['spend', 'Spend']];   // Metrics renamed Dashboard, the channels × offices grid folded in (per Isaac, Nov 18)   // Just Metrics and Spend (per Isaac, Nov 16): P&L folded into the Metrics year grid, Channels = its By channel rows   // Attribution → Channels (per Isaac, Nov 10)   // Projections hidden (per Isaac, Oct 9); Disposition removed (Nov 5)
   const _recon = sub === 'providers' && state._mktProvView === 'recon';
-  return el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
-    el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+  return el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap mktg-bar' },
+    el('div', { class: 'inline-flex rounded-lg border overflow-hidden mktg-bar-tabs', style: { borderColor: 'var(--border-2)' } },
       ...SUBS.map(([v, l]) => el('button', {
         class: 'px-2.5 py-1 text-[11px] font-semibold transition',
         style: (v === 'recon' ? _recon : (sub === v && !_recon)) ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
         onclick: () => { if (v === 'recon') { state._mktSub = 'providers'; state._mktProvView = 'recon'; } else { state._mktSub = v; state._mktProvView = 'cac'; } mountApp(); },
       }, l))),
     // Metrics (per Isaac, Nov 16): its month picker, compare dropdown and the owner's drag hint ride here, right-aligned; the other tabs keep the year.
-    sub === 'providers' && !_recon && typeof mklHeaderControls === 'function' ? el('div', { class: 'ml-auto flex items-center gap-2 flex-wrap' }, ...mklHeaderControls()) :
+    sub === 'providers' && !_recon && typeof mklHeaderControls === 'function' ? el('div', { class: 'ml-auto flex items-center gap-2 flex-wrap mktg-bar-ctl' }, ...mklHeaderControls()) :
     sub === 'providers' && !_recon && (typeof mktgLeanView === 'function' || typeof mktgPulseView === 'function') ? null : sub === 'providers' && !_recon && typeof mkmRangeControl === 'function' ? mkmRangeControl() : el('div', { class: 'inline-flex items-center gap-1 ' },
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = y - 1; mountApp(); } }, '‹'),
       el('span', { class: 'text-sm font-black tabular-nums px-1' }, String(y)),
@@ -1614,7 +1614,7 @@ function reportingMarketingPnl() {
   // Needs attention moved to the Auditing task list (per Isaac, Nov 9) — one place for everything to fix in the CRM.
   // Unmapped GoHighLevel sources to-do (per Isaac, Nov 16): pinned under the sub-tab bar on every Marketing view.
   // The two to-do cards show on Metrics only (per Isaac, Nov 16) — not on Spend.
-  const todo = sub !== 'providers' ? null : (() => { try { return typeof ghlUnmappedTodoCard === 'function' ? ghlUnmappedTodoCard() : null; } catch (e) { console.warn('[marketing] unmapped to-do', e); return null; } })();
+  const todo = null;   // Unmapped GoHighLevel sources moved to the Auditing tab (per Isaac, Nov 23)
   const todoAds = sub !== 'providers' ? null : (() => { try { return typeof adOpenCampaignsTodoCard === 'function' ? adOpenCampaignsTodoCard() : null; } catch (e) { console.warn('[marketing] campaigns to-do', e); return null; } })();
   // The Metrics/Spend bar pins under the Reporting tabs while the page scrolls (per Isaac, Nov 16).
   const _bar = _mktgYearBar(sub);

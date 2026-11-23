@@ -107,6 +107,8 @@ function mkmChannelSet() {
   // FieldRoutes sources a GHL source is mapped to are channels (per Isaac, Oct 16), as are vendors added on the Spend tab / Pulse.
   if (typeof mkpFrSources === 'function') for (const n of mkpFrSources()) s.add(n);
   try { for (const c of ((typeof _mktgStore === 'function' ? _mktgStore().channels : null) || [])) if (c) s.add(c); } catch (e) { /* optional */ }
+  // Active FieldRoutes sources from the nightly source sync are channels too (per Isaac, Nov 23).
+  for (const x of (state.sources || [])) if (x && x.fr_source_id && x.is_active !== false && !x.is_renewal && x.name) s.add(typeof frChannelOf === 'function' ? frChannelOf(x.name) : x.name);
   return s;
 }
 function mkmLeads(leads) {

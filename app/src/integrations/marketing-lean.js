@@ -87,6 +87,13 @@ function _mklChannelOfSource(src) {
   if (p === GHL_NOT_LEAD) return s;   // e.g. Door to Door on an office sale — shown as is, so the mis-source is visible
   return p || s;
 }
+// A sale's channel: its FieldRoutes source — except 6 Brothers, a marketing vendor that sells its own leads as a rep
+// (per Isaac, Nov 19: "6 Brothers isn't a source, it is a sales rep"; Mark Christensen's seat). Its sales are re-sourced
+// to their real last touch (mostly Organic), so the vendor's revenue is found by who sold it, not by the source.
+function _mklSaleChannel(r) {
+  if (/6 ?brothers|six brothers|christensen,?\s*mark|mark christensen/i.test(String(r.sold_by || ''))) return '6 Brothers';
+  return _mklChannelOfSource(reportingSourceOf(r));
+}
 // One month's truth, by branch and by channel. Memoized per month + data identity.
 // cap (optional, per Isaac, Nov 16): a day of the month — only count through that day, so a partial current month
 // compares against the same stretch of the compare month (Nov 1–16 vs Oct 1–16). Sales by sold date, leads by lead
@@ -132,8 +139,8 @@ function mklMonth(ym, cap) {
     if (typeof reportingNonSaleService === 'function' && reportingNonSaleService(r.subscription)) continue;
     const v = Number(r.subscription_contract_value) || 0, done = 1; s++; svc += done; cv += v; sales.push(r);   // pending or serviced both count (per Isaac)
     const b = cell(br, TC(r.office_name || 'No branch')); b.s++; b.svc += done; b.cv += v;
-    const c = cell(ch, _mklChannelOfSource(reportingSourceOf(r))); c.s++; c.svc += done; c.cv += v;
-    const xc = xcell(TC(r.office_name || 'No branch'), _mklChannelOfSource(reportingSourceOf(r))); xc.s++; xc.svc += done; xc.cv += v; xc.sales = xc.sales || []; xc.sales.push(r);
+    const c = cell(ch, _mklSaleChannel(r)); c.s++; c.svc += done; c.cv += v;
+    const xc = xcell(TC(r.office_name || 'No branch'), _mklSaleChannel(r)); xc.s++; xc.svc += done; xc.cv += v; xc.sales = xc.sales || []; xc.sales.push(r);
     const rn = String(r.sold_by || '').trim() ? (typeof flipLastFirst === 'function' ? flipLastFirst(String(r.sold_by).trim()) : String(r.sold_by).trim()) : 'No rep';
     const rc = cell(rep, rn); rc.s++; rc.svc += done; rc.cv += v;
   }
@@ -179,7 +186,7 @@ function mklMonth(ym, cap) {
       let best = null; for (const l of cands) if (l.d >= floor && l.d <= ceil && (!best || l.d > best.d)) best = l;
       r._mklLead = best || null;
       if (best) linked++; else unlinked.push(r);
-      const xc = xcell(TC(r.office_name || 'No branch'), _mklChannelOfSource(reportingSourceOf(r)));
+      const xc = xcell(TC(r.office_name || 'No branch'), _mklSaleChannel(r));
       if (best) xc.linked = (xc.linked || 0) + 1; else (xc.unlinked || (xc.unlinked = [])).push(r);
     }
   }
@@ -323,7 +330,9 @@ function _mktgLeanView() {
     const col = good == null ? 'var(--text-muted)' : good ? '#16A34A' : '#DC2626';
     const vals = series(o.get);
     const noPrior = b == null || !isFinite(b);
-    const cmpLine = el('div', { class: 'flex items-baseline gap-1.5 text-[12px] tabular-nums', style: { color: 'var(--text-muted)' } },
+    // The change sits to the RIGHT of the big number, a size smaller, stacked: % on top, the comparison under it
+    // (per Isaac, Nov 23) — frees the line under the number so the sparkline moves up.
+    const cmpLine = el('div', { class: 'flex flex-col items-end text-[11px] tabular-nums leading-tight text-right shrink-0', style: { color: 'var(--text-muted)' } },
       dv == null ? el('span', {}, noPrior ? '—' : '—') : el('span', { class: 'font-bold', style: { color: col } }, (dv >= 0 ? '↑ +' : '↓ ') + (dv * 100).toFixed(1) + '%'),
       el('span', { class: 'whitespace-nowrap' }, 'vs. ' + (noPrior ? 'no ' + cmpLbl : o.fmt(b))));
     return el('div', { class: 'card p-4 flex flex-col gap-2' + (o.onClick ? ' cursor-pointer' : ''), style: { borderTop: '3px solid ' + (o.color || 'var(--accent)') }, onclick: o.onClick || null },   // no title on the card itself — the browser tooltip sat on top of the sparkline table (per Isaac, Nov 16); the ⓘ carries the tip
@@ -331,10 +340,11 @@ function _mktgLeanView() {
         el('div', { class: 'text-[12px] font-semibold', style: { color: 'var(--text-muted)' } }, o.label, o.tip ? el('span', { class: 'ml-1 text-[10px]', style: { color: 'var(--text-subtle)' }, title: o.tip }, 'ⓘ') : null),
         // The comparison period sits beside the icon (per Isaac, Nov 19) — the line under the number keeps just the change.
         el('div', { class: 'flex items-center gap-2 shrink-0' }, cmp === 'none' ? null : el('span', { class: 'text-[10px] tabular-nums whitespace-nowrap', style: { color: 'var(--text-subtle)' } }, _cmpTag), icon(o.icon))),
-      el('div', { class: 'leading-none font-black tabular-nums', style: { fontFamily: 'ui-monospace, monospace', fontSize: '28px' } }, a == null || !isFinite(a) ? '—' : o.fmt(a),
-        // * = a cost input isn't in for this month yet (per Isaac, Nov 16), so the number will move when it is.
-        o.star ? el('span', { class: 'ml-1', style: { color: '#B45309', fontSize: '18px', verticalAlign: 'top' }, title: o.star }, '*') : null),
-      cmp === 'none' ? null : cmpLine,
+      el('div', { class: 'flex items-end justify-between gap-2 flex-wrap' },
+        el('div', { class: 'leading-none font-black tabular-nums', style: { fontFamily: 'ui-monospace, monospace', fontSize: '28px' } }, a == null || !isFinite(a) ? '—' : o.fmt(a),
+          // * = a cost input isn't in for this month yet (per Isaac, Nov 16), so the number will move when it is.
+          o.star ? el('span', { class: 'ml-1', style: { color: '#B45309', fontSize: '18px', verticalAlign: 'top' }, title: o.star }, '*') : null),
+        cmp === 'none' ? null : cmpLine),
       sparkPop(o, el('div', {}, spark(vals, o.color || 'var(--accent)'))),
       o.note ? el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-subtle)' }, title: o.note }, o.note) : null);
   };
@@ -458,8 +468,8 @@ function _mktgLeanView() {
   const dash = typeof mktgDashBlocks === 'function' ? (() => { try { return mktgDashBlocks(ym); } catch (e) { console.warn('[marketing] dash blocks', e); return []; } })() : [];
   const ltvSec = typeof mklLtvSection === 'function' ? (() => { try { return mklLtvSection(cur, ym, _cap); } catch (e) { console.warn('[marketing] ltv section', e); return null; } })() : null;   // LTV / CAC section (per Isaac, Nov 19)
   const ttc = (() => { try { return mklTimeToCloseCard(cur, RNG ? _mklLblS(ym) : _mklLblS(ym)); } catch (e) { console.warn('[marketing] time to close', e); return null; } })();   // (per Isaac, Nov 19)
-  const oppMon = typeof leadOppMonitorCard === 'function' ? (() => { try { return leadOppMonitorCard(); } catch (e) { console.warn('[marketing] lead-opp monitor', e); return null; } })() : null;   // Lead → opportunity monitor (per Isaac, Nov 19) — one line unless a source breaks
-  return el('div', { class: 'flex flex-col gap-4' }, oppMon, tiles, chart, ltvSec, ttc, ...dash, grid);   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
+  // Lead → opportunity monitor moved to the Auditing tab (per Isaac, Nov 23).
+  return el('div', { class: 'flex flex-col gap-4' }, tiles, chart, ltvSec, ttc, ...dash, grid);   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
 }
 // The month's new sales behind the New revenue tile (same rows the table counts).
 function mklOpenSales(D, title) {

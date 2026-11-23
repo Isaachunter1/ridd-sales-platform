@@ -103,8 +103,17 @@ function mkpAllLeads() {
   const _provOf = (i) => { const p = ghlProviderOf(lab[i]); if (!p || p === GHL_NOT_LEAD) return GHL_NOT_LEAD; return chSet && !chSet.has(p) ? GHL_NOT_LEAD : p; };
   const sorted = G.opps.filter(o => o && o[0] && (o[2] || o[3])).slice().sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : (a[4] || '') < (b[4] || '') ? -1 : (a[4] || '') > (b[4] || '') ? 1 : 0);   // plain compares: localeCompare on 36K rows cost ~1s
   const lastAt = new Map(), leads = []; let raw = 0, notLead = 0, curCust = 0;
+  // Batch-made opportunities (per Isaac, Nov 23 — "so many calls right at 7am"): when Pest AI back-fills cards
+  // (95 call cards on Nov 19 between 6:30 and 7:05 am Eastern), each is stamped with the moment it was made, not
+  // when the person called. Ten or more opportunities in the same 10 minutes is a batch, not traffic: those take the
+  // date and time their contact was created (when the call or form actually came in), or, with no earlier contact,
+  // keep their date but lose their hour so they stay off the traffic-by-hour chart.
+  const _bk = (o) => o[0] + ' ' + String(o[4] || '').slice(0, 4), _bkN = new Map();
+  for (const o of sorted) if (o[4]) _bkN.set(_bk(o), (_bkN.get(_bk(o)) || 0) + 1);
   for (const o of sorted) {
     const c = (o[2] && CI && CI.byP.get(o[2])) || (o[3] && CI && CI.byE.get(o[3])) || null;
+    let oD = o[0], oT = o[4] || '', batch = false;
+    if (oT && _bkN.get(_bk(o)) >= 10) { batch = true; if (c && c[0] && c[0] < o[0] && _mkpMs(o[0]) - _mkpMs(c[0]) <= 30 * 86400000) { oD = c[0]; oT = c[7] || ''; } else oT = ''; }
     // "Local Presence | <office>" is not a source (per Isaac, Nov 18): it is the tracking number people call back on
     // after an outbound call, so an opportunity stamped with it keeps the source that actually brought the lead in —
     // the contact's. Treated like a blank opportunity source that falls through to the contact.
@@ -112,11 +121,16 @@ function mkpAllLeads() {
     let prov = o[1] == null || o[1] < 0 || passThrough ? GHL_NOT_LEAD : provOf(o[1]);   // no source on the opportunity → not a lead either
     if ((first || passThrough) && c) { const fp = provOf(c[1] >= 0 ? c[1] : c[2]); if (fp && fp !== 'Unmapped' && fp !== GHL_NOT_LEAD) prov = fp; }
     if (prov === GHL_NOT_LEAD) { notLead++; continue; }
+    // Vendor rule (per Isaac, Oct 9 + Nov 19): DoLead and ElectGen run their own Meta ads, so their lead lands with a
+    // Facebook tag on the opportunity ("FB - $39", "Paid Social"). When the person's contact was CREATED by the vendor
+    // within a day of that opportunity, it's the vendor's lead — one touch, not a Facebook touch after it. (218
+    // opportunities in 2026 were reading as Facebook.)
+    if (prov === 'Facebook' && c && c[1] >= 0) { const v = provOf(c[1]); if ((v === 'DoLead' || v === 'ElectGen') && Math.abs(_mkpMs(c[0]) - _mkpMs(o[0])) <= 86400000) prov = v; }
     // A current customer calling or writing in is not a lead (per Isaac, Nov 19 — brand-search calls are mostly them).
     if (o[2] && typeof ghlIsCurrentCustomer === 'function' && ghlIsCurrentCustomer(o[2], o[0])) { notLead++; curCust++; continue; }
     raw++;
     const key = o[2] ? 'p' + o[2] : 'e' + o[3];
-    const ms = _mkpMs(o[0]), prev = lastAt.get(key);
+    const ms = _mkpMs(oD), prev = lastAt.get(key);
     if (prev != null && ms - prev < 30 * 86400000) continue;
     lastAt.set(key, ms);
     const stage = o[6] != null && o[6] >= 0 ? stages[o[6]] || '' : '';
@@ -136,8 +150,8 @@ function mkpAllLeads() {
     // opportunity in UTC, so anything after ~7 pm Eastern landed on the next day (and the next month on the 31st).
     // d = the date in the office's time zone; dUtc + t keep the raw stamp for the hour chart.
     const mkt = c ? (c[11] >= 0 && lab[c[11]] ? mkpMarketOf(lab[c[11]]) : mkpMarketOf(zipOff.get(c[6]))) : '';
-    const ld = _mkpLocalDay(o[0], o[4], mkt);
-    leads.push({ d: ld, dUtc: o[0], t: o[4] || '', p: o[2] || '', e: o[3] || '', prov, label: srcLabel, group: mkpGroupOf(prov), paid: paid.has(prov),
+    const ld = oT ? _mkpLocalDay(oD, oT, mkt) : oD;
+    leads.push({ d: ld, dUtc: oD, t: oT, batch, p: o[2] || '', e: o[3] || '', prov, label: srcLabel, group: mkpGroupOf(prov), paid: paid.has(prov),
       campaign: o[7] != null && o[7] >= 0 ? lab[o[7]] : '', status: String(o[5] || '').toLowerCase(), stage, firstStage,
       type: typeOf(firstStage) || typeOf(stage) || typeBySource, typeSure: !!typeOf(firstStage), market: mkt });   // office tag from Pest AI first, ZIP second (per Isaac, Nov 18)
   }

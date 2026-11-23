@@ -33,6 +33,7 @@ const GHL_AUTO_RULES = [
   [/marchex/, 'Marchex'],
   [/flow ?bridge/, 'FlowBridge'],
   [/click ?thesis/, 'Click Thesis'],
+  [/win[- ]?back/, 'Win-Back'],                 // win-back drip leads (per Isaac, Nov 23)
   [/chat ?gpt/, 'Organic'],
   [/^google\s*\|/, 'Organic'],                // 'Google | Office' = Google Reserve, organic (per Isaac, Nov 19)
   [/click[- ]?to[- ]?buy/, 'Click-To-Buy'],    // the old online booker, before PestBooker
