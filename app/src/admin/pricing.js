@@ -564,7 +564,8 @@ function viewPricing() {
         seg,
         el('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' } }, ...PKGS.map(pkgCard)),
         extrasRow(),
-        totalBar,
+        // No running total here (per Isaac, Nov 23) — the receipt alongside (on top on phones) already shows it.
+        el('div', { style: { height: '4px' } }),
         showBtn),
       footer);
   }
