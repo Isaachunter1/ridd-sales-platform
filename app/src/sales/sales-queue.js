@@ -1107,7 +1107,7 @@ function saleAuditChip(sale) {
     return el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' }, title: 'Renewal — the audit flag on the account is from the original sale and doesn\u2019t apply. Commissionable on the next treatment or next paid bill.' }, 'n/a');
   const v = sale.crm_audit;
   const mk = (txt, bg, colr, tip) => el('span', { title: tip, class: 'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold whitespace-nowrap', style: { background: bg, color: colr } }, txt);
-  if (v === 'passed') return mk('\u2713 Passed', 'rgba(95,108,91,.16)', '#5F6C5B', 'Passed Audit flag on the customer card in FieldRoutes');
+  if (v === 'passed') return mk('\u2713 Passed', 'rgba(95,108,91,.16)', '#5F6C5B', 'Passed Audit \u2014 from Nov 15 2026: initial scheduled + autopay on + $39 or more collected since the sale (add-ons pass automatically); before that, the flag on the FieldRoutes customer card');
   if (v === 'failed') return mk('\u2717 Failed', 'rgba(220,38,38,.12)', '#B91C1C', 'Failed Audit flag on the customer card in FieldRoutes — fix it in the CRM and the next sync clears it');
   return el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' }, title: 'No audit flag on the customer card yet' }, 'not yet');
 }
