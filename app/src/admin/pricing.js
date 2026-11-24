@@ -226,7 +226,7 @@ function viewPricing() {
   const SANS = 'Archivo, "Helvetica Neue", Arial, sans-serif', MONO = '"IBM Plex Mono", "Courier New", ui-monospace, monospace';
   const render = () => {
     const st = pricingStore();
-    if (!st.mode) st.mode = 'build';   // Build a plan opens first; the full price sheet is one tap away (per Isaac, Nov 23)
+    st.mode = 'build';   // Build a plan IS the price sheet now (per Isaac, Nov 24) — the old sheet and its toggle are gone
     // Landing on the builder with nothing picked starts on Home + Yard, the most popular package (the default most
     // customers keep).
     if (st.mode !== 'sheet' && !st.pkg && !st.base && !st.termite) { st.pkg = 'homeyard'; st.base = 'pest'; st.addons = { tfm: true }; }
@@ -397,7 +397,8 @@ function viewPricing() {
               tierName(PRICING_TIERS.find(t => t.id === st.tier) || T),
               locked ? null : el('span', { style: { opacity: '.85' } }, '▾'),
               sel)));
-    const headWrap = el('div', {}, modeBar, header);
+    void modeBar;   // Build a plan / Price sheet toggle retired (per Isaac, Nov 24)
+    const headWrap = el('div', { style: { paddingTop: '6px' } }, header);
     const footer = el('div', { class: 'flex items-center justify-between', style: { margin: '2px 22px 18px', paddingTop: '12px', borderTop: '1px solid rgba(43,43,41,.25)', color: C.char } },
       el('img', { src: 'ridd-logo.png', alt: 'RIDD', style: { height: '24px', width: 'auto', display: 'block' } }),
       (() => {   // RIDD's mark (the same path the header uses), in ink like the printed sheet
