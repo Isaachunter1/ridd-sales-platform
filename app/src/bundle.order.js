@@ -63,6 +63,7 @@ module.exports = [
   'sales/queues.js',
   'reporting/executive-pnl.js',
   'reporting/overview.js',
+  'reporting/market-watch.js',
   'reporting/config-panels.js',
   'integrations/ad-platforms.js',
   'core/exceptions.js',

@@ -474,9 +474,7 @@ function _mktgLeanView() {
   const _safe = (name, fn) => { try { return fn(); } catch (e) { console.warn('[marketing] ' + name, e); return null; } };
   const funnel = typeof mkxFunnelCard === 'function' ? _safe('funnel', () => mkxFunnelCard(cur, _mklLblS(ym))) : null;
   const payback = typeof mkxPaybackCard === 'function' ? _safe('payback', () => mkxPaybackCard(RNG ? RNG.through : ym)) : null;
-  const briefRow = typeof mkxOpenBrief === 'function' ? el('div', { class: 'flex justify-end', style: { marginBottom: '-8px' } },
-    el('button', { class: 'rounded-lg border px-3 py-1.5 text-[11px] font-bold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, title: 'Yesterday\u2019s sales, churn and leads, plus anything that needs fixing', onclick: () => mkxOpenBrief() }, '\u2600 Morning brief')) : null;
-  return el('div', { class: 'flex flex-col gap-4' }, briefRow, tiles, chart, funnel, ttc, payback, ...dash, grid);   // LTV / CAC section off for now (per Isaac, Nov 24) — mklLtvSection still built, just not shown   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
+  return el('div', { class: 'flex flex-col gap-4' }, tiles, chart, funnel, ttc, payback, ...dash, grid);   // LTV / CAC section off for now (per Isaac, Nov 24) — mklLtvSection still built, just not shown   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
 }
 // The month's new sales behind the New revenue tile (same rows the table counts).
 function mklOpenSales(D, title) {
@@ -715,5 +713,7 @@ function mklHeaderControls(monthOnly) {
   const m = _mktgStore();
   const ownerHint = (typeof isOwnerUser === 'function' && isOwnerUser()) ? el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Drag tiles to reorder', Array.isArray(m.tileOrder) && m.tileOrder.length ? el('button', { class: 'ml-2 font-semibold underline', style: { color: 'var(--accent)' }, onclick: () => { delete m.tileOrder; _mktgSave(); mountApp(); } }, 'Reset') : null) : null;
   void ownerHint;   // the "Drag tiles to reorder · Reset" hint is gone (per Isaac, Nov 19) — the tiles still drag
-  return (monthOnly ? [monthSel] : [cmpSel, monthSel]).filter(Boolean);   // Dashboard shows just the month (per Isaac, Nov 18)
+  // Morning brief sits on this bar, left of the change picker (per Isaac, Nov 24).
+  const briefBtn = typeof mkxOpenBrief === 'function' ? el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95', style: selSt, title: 'Yesterday\u2019s sales, churn and leads, plus anything that needs fixing', onclick: () => mkxOpenBrief() }, '\u2600 Morning brief') : null;
+  return (monthOnly ? [briefBtn, monthSel] : [briefBtn, cmpSel, monthSel]).filter(Boolean);   // Dashboard shows just the month (per Isaac, Nov 18)
 }
