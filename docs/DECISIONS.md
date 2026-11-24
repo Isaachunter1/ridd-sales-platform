@@ -71,3 +71,11 @@ Per Isaac: a sale whose FieldRoutes seller has no app account (rep_id null, e.g.
 through auto-approve like any other — the approval no longer requires rep_id. Payroll still holds those rows
 ("held" in openPayrollRun) until the account is linked; the live sync then attaches rep_id automatically.
 Commissions → Office Staff lists each unlinked seller as its own row ("No app account", estimated at base rates).
+
+## 2026-11-24 — Payable = the FieldRoutes Passed Audit flag
+Per Isaac: the computed Passed Audit (7bc9e61) is reverted — every account is still checked by hand. A new
+account becomes payable (auto-approve → Commissionable / Below Minimums) when the office puts the Passed Audit
+flag on it in FieldRoutes; no waiting on the service or a payment. Same for Sales Reps (D2D) when their
+auto-approve switch is on (Configurations → Commission Rules). Renewals keep their rule (next service or next
+paid bill). Add-ons and renewals stay out of the Passed Audit %. Pre-service cancels before payroll still come
+off; after payroll they're a chargeback.

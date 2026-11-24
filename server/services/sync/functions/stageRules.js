@@ -141,11 +141,15 @@ export function decideStage(s, r, d) {
   const _pmFrom = /^\d{4}-\d{2}-\d{2}$/.test(String(AL2.auto_approve_from || '')) ? String(AL2.auto_approve_from) : '2026-10-12';
   if (['pending', 'serviced', 'below_minimums'].includes(s.audit_status) && !s.payroll_processed_at && String(s.sold_date || '') >= _pmFrom) { const bm = belowMinReason(r); if (bm != null) belowMin.set(s.id, bm); }
   const upd = {};
+  // Payable = the FieldRoutes Passed Audit flag (per Isaac, Nov 24 2026): every new account is checked by hand,
+  // and the office's Passed Audit flag is what makes it payable — Office Staff and Sales Reps alike (each rep type
+  // still has its own auto-approve switch in Configurations). No waiting on the service or a payment. Renewals keep
+  // their own rule (next service or next paid bill — the flag on the account is from the original sale).
   if (s.audit_status === 'pending' && !s.payroll_processed_at) {
     if (cancelled && (!serviced || upfront)) { upd.audit_status = 'cancelled'; upd.audited_at = stamp; upd.notes = ((s.notes || '') + (upfront && serviced ? ' · Auto: cancelled in CRM (charged upfront)' : ' · Auto: cancelled in CRM before service')).trim(); }
     // Renewals are exempt from the audit flag (per Isaac, Oct 28): a Passed / Failed Audit flag on the account is
     // from the ORIGINAL sale, never the renewal — a renewal is approved on its next treatment or next paid bill.
-    else if (!nsfNow.has(s.id) && _autoApproveOn(s) && eligible && (serviced || upfront) && dpd <= 0 && (_isRenewal || s.crm_audit !== 'failed')) {
+    else if (!nsfNow.has(s.id) && _autoApproveOn(s) && (_isRenewal ? (eligible && (serviced || upfront) && dpd <= 0) : _upfrontOf(r))) {
       // Below the pricing minimum → approved as Below Minimums (when that switch is on).
       const bm = belowMin.get(s.id);
       upd.audit_status = (PR.auto && bm) ? 'below_minimums' : 'serviced'; upd.audited_at = stamp;

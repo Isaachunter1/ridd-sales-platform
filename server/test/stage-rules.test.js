@@ -15,8 +15,8 @@ const sale = (o) => ({ id: 's1', crm_subscription_id: '9', sold_date: '2026-10-2
 const row = (o) => ({ subscription_id: '9', subscription: 'Pest 4', initial_price: 99, recurring_charge: 53.87, initial_status: 'Completed',
   initial_serviced_date: '2026-10-22', customer_auto_pay: 'CC', subscription_source: 'Facebook', ...o });
 
-test('serviced, autopay, booked → Commissionable', () => {
-  assert.deepEqual(decideStage(sale({}), row({}), ctx()), { audit_status: 'serviced', audited_at: '2026-10-28T12:00:00Z' });
+test('Passed Audit flag on the account → Commissionable', () => {
+  assert.deepEqual(decideStage(sale({}), row({ customer_flags: 'Passed Audit' }), ctx()), { audit_status: 'serviced', audited_at: '2026-10-28T12:00:00Z' });
 });
 
 test('a Failed Audit flag holds a new sale', () => {
@@ -40,7 +40,7 @@ test('cancelled in the CRM before service → Cancelled', () => {
 
 test('under the recurring minimum → Below Minimums, with the reason', () => {
   // $44.87 carries the $4.87 service fee → plan price $40 < Pest 4's $49.
-  const u = decideStage(sale({}), row({ recurring_charge: 44.87 }), ctx());
+  const u = decideStage(sale({}), row({ recurring_charge: 44.87, customer_flags: 'Passed Audit' }), ctx());
   assert.equal(u.audit_status, 'below_minimums');
   assert.match(u.notes, /Recurring \$40 < \$49/);
 });
@@ -83,5 +83,14 @@ test('approved, serviced, then cancels before payroll → left alone (not a pre-
 });
 
 test('a seller with no app account (rep_id null) still moves to Commissionable', () => {
-  assert.equal(decideStage(sale({ rep_id: null }), row({}), ctx()).audit_status, 'serviced');
+  assert.equal(decideStage(sale({ rep_id: null }), row({ customer_flags: 'Passed Audit' }), ctx()).audit_status, 'serviced');
+});
+
+test('serviced and paid but no Passed Audit flag yet → stays Pending (accounts are checked by hand)', () => {
+  assert.deepEqual(decideStage(sale({}), row({}), ctx({ paidSince: new Map([['s1', { paid: true }]]) })), {});
+});
+
+test('Passed Audit flag before the appointment → payable right away', () => {
+  const r = row({ customer_flags: 'Passed Audit', initial_status: 'Pending', initial_serviced_date: null });
+  assert.equal(decideStage(sale({}), r, ctx()).audit_status, 'serviced');
 });
