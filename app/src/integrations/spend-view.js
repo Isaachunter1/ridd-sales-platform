@@ -62,8 +62,28 @@ function mktgSpendView() {
   const monthTotal = (i) => channels.reduce((a, c) => a + chanAmt(c, i), 0) + unTot(i);
   // Payees with no channel yet, across the year — one pick per payee, remembered for every month.
   const chanOpts = typeof spqChannelOptions === 'function' ? spqChannelOptions() : [...new Set([...(m.channels || []), 'Google Ads', 'Google Local Services', 'Facebook'])].sort();
+  // The note for the controller (per Isaac, Nov 24): the charges backed out of marketing, grouped by where they
+  // belong, ready to paste into an email. `only` = one payee key (the pick just made); without it, the whole year.
+  const reclassNote = (only) => {
+    const by = {}; let n = 0, tot = 0;
+    AY.forEach((X, i) => { if (!X) return; for (const L of X.lines) {
+      if (L.prov !== SPQ_SKIP || /^Sellify/.test(String(L.how || ''))) continue;
+      if (only && _spqKey(L.payee, L.memo) !== only) continue;
+      const c = spqSkipWhy(ymOf(i), L); (by[c] || (by[c] = [])).push({ d: String(i + 1).padStart(2, '0') + '/' + String(L.day || '').padStart(2, '0') + '/' + year, L }); n++; tot += L.amt; } });
+    if (!n) return '';
+    const out = ['Subject: Reclass out of Advertising & Marketing (' + year + ')', '', 'Hi,', '',
+      (n === 1 ? 'This charge is' : 'These ' + n + ' charges are') + ' booked to Advertising & Marketing in QuickBooks but ' + (n === 1 ? 'is' : 'are') + ' not marketing. Can you move ' + (n === 1 ? 'it' : 'them') + ' to the right account?', ''];
+    for (const c of SPQ_SKIP_CATS) { if (!by[c]) continue;
+      out.push(c === 'Other' ? 'Not marketing (you pick the account):' : 'Move to ' + c + ':');
+      for (const r of by[c].sort((a, b) => a.d.localeCompare(b.d))) out.push('  - ' + r.d + ' | ' + (r.L.payee || '(no name)') + ' | ' + usd(r.L.amt) + (r.L.memo ? ' | ' + String(r.L.memo).trim().slice(0, 80) : ''));
+      out.push(''); }
+    out.push('Total: ' + usd(tot), '', 'Thanks,', (state.profile && state.profile.full_name ? String(state.profile.full_name).split(' ')[0] : ''));
+    return out.join('\n');
+  };
+  const copyReclass = (only) => { const t = reclassNote(only); if (!t) { toast('Nothing backed out to copy', 'info'); return; }
+    try { navigator.clipboard.writeText(t).then(() => toast('Copied the note for the controller', 'success'), () => toast('Could not copy — use the Copy button on the table', 'error')); } catch (e) { toast('Could not copy — use the Copy button on the table', 'error'); } };
   const vendorPick = (lym, L, onlyThis) => el('select', { class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: Object.assign({}, selSt, L.prov ? {} : { borderColor: '#DC2626' }),
-    onchange: (e) => { let v = e.target.value; if (v.indexOf(SPQ_SKIP + ':') === 0) { spqSetSkip(lym, L, v.slice(SPQ_SKIP.length + 1), !!onlyThis); return; } if (v === SPQ_NEW) { v = spqAskNewVendor(); if (!v) { mountApp(); return; } } spqSetRule(lym, L, v, !!onlyThis); } },
+    onchange: (e) => { let v = e.target.value; if (v.indexOf(SPQ_SKIP + ':') === 0) { state._spqCopyAfter = _spqKey(L.payee, L.memo); spqSetSkip(lym, L, v.slice(SPQ_SKIP.length + 1), !!onlyThis); return; } if (v === SPQ_NEW) { v = spqAskNewVendor(); if (!v) { mountApp(); return; } } spqSetRule(lym, L, v, !!onlyThis); } },
     el('option', { value: '', selected: !L.prov, disabled: true }, 'Pick a channel…'),
     ...chanOpts.map(c => el('option', { value: c, selected: L.prov === c }, c)),
     el('option', { value: SPQ_TOOLS, selected: L.prov === SPQ_TOOLS }, SPQ_TOOLS_LABEL + ' (spread with the media)'),
@@ -87,11 +107,14 @@ function mktgSpendView() {
   const outRow = (c) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
     stickyTd(el('span', { style: muted }, 'Backed out · ' + (c === 'Other' ? 'Other (not marketing)' : c)), { fontWeight: '500' }),
     ...outBy[c].map(v => td(v ? usd0(v) : '—', muted, true)), td(usd0(outBy[c].reduce((x, y) => x + y, 0)), Object.assign({ fontWeight: '700' }, muted), true));
+  // A pick just backed a payee out: copy that payee's note straight away (the pick is the click that allows it).
+  if (state._spqCopyAfter) { const k = state._spqCopyAfter; state._spqCopyAfter = null; copyReclass(k); }
   const chanCard = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
       el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Marketing spend · ' + year),
         el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'QuickBooks Advertising & Marketing, each payee under its channel. ' + (outYear ? usd0(outYear) + ' in the account is backed out as not marketing (below the total). ' : '') + (unRows.length ? unRows.length + (unRows.length === 1 ? ' payee still needs' : ' payees still need') + ' a channel (red) — pick once, it sticks for every month.' : 'Every charge has a channel.'))),
-      el('span', { class: 'ml-auto text-sm font-black tabular-nums' }, usd0(yearTotal))),
+      outCats.length && admin ? el('button', { class: 'ml-auto rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)' }, title: 'Copies every backed-out charge this year, grouped by where it belongs, as a note for the controller', onclick: () => copyReclass() }, 'Copy reclass note') : null,
+      el('span', { class: (outCats.length && admin ? '' : 'ml-auto ') + 'text-sm font-black tabular-nums' }, usd0(yearTotal))),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('Channel', false, { position: 'sticky', left: 0, zIndex: 2 }), ...MON.map(thM), th('Total', true))),
       el('tbody', {}, ...unRows.map(unRow), ...channels.map(chRow), totRow('Total', [...MON.map((_, i) => monthTotal(i)), yearTotal]), ...outCats.map(outRow)))));
