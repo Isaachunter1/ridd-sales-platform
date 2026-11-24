@@ -192,3 +192,6 @@ The Agency pick is now a group: each agency by name, plus "+ New agency…". The
 
 ## 2026-11-24 — Active ARR by branch: legend out, swatch in the Branch column
 Isaac: hide the legend under the bar (the columns below carry the same numbers); keep the segments clickable; put each branch's colour beside its name in the table.
+
+## 2026-11-24 — Channels × offices: performance only, the "no lead" red moved out
+Isaac asked whether the table duplicates the Auditing tasks. The red "+N no lead" layer did (Auditing → Attribution has No GHL lead and Source check on the same lookup), so it is gone from the cells; the header count links to Auditing. The table stays because it is the only place that shows leads, booked and booking rate by channel BY OFFICE. Also: Channel metrics Read pacer became two thin bars.

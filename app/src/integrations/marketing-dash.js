@@ -59,7 +59,9 @@ function mktgDashGridCard(D, lbl) {
   // a lead that booked under another name / phone / email (expected now and then) or a sale with no opportunity at
   // all. Booking rate = linked sales ÷ leads, so a sale with no lead never inflates a channel's rate.
   const cellTd = (c, title, strong) => {
-    const r = rateL(c), has = c.leads || c.s, red = orphan(c);
+    // No red any more (per Isaac, Nov 24): sales with no lead are fixed from Auditing (No GHL lead / Source check), so
+    // this table only reads performance — leads, booked, booking rate. The cell's click-through still lists them.
+    const r = rateL(c), has = c.leads || c.s, red = false; void orphan;
     return el('td', { class: 'px-1.5 py-1 text-center align-middle' + (has ? ' cursor-pointer' : ''), style: { background: red ? 'rgba(220,38,38,.14)' : has ? shade(r) : 'transparent', color: red ? '#B91C1C' : has ? fg(r) : 'var(--text-subtle)', minWidth: '84px', borderLeft: '1px solid var(--border)' },
       title: red ? unl(c) + ' sale' + (unl(c) === 1 ? '' : 's') + ' with no GoHighLevel lead on the phone or email — click for the list' : has ? 'Click for the leads and sales behind this cell' : '', onclick: has ? () => _mkdOpenCell(title, c, D) : null },
       has ? el('div', { class: 'leading-tight' },
@@ -79,8 +81,8 @@ function mktgDashGridCard(D, lbl) {
   const grid = el('div', { class: 'card overflow-hidden bar-sage' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
       el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Channels × offices · ' + lbl),
-        el('div', { class: 'text-[11px]', style: muted }, 'Each cell: leads · booked (sales linked to a GoHighLevel lead by phone or email), then booking rate. Darker = higher; red = sales with no lead to link back to. Click a cell for the leads and the sales behind it.')),
-      el('span', { class: 'ml-auto text-[11px]', style: muted }, channels.length + ' channels · ' + offices.length + ' offices' + (orphanN ? ' · ' : ''), orphanN ? el('span', { style: { color: '#B91C1C', fontWeight: 700 } }, orphanN + ' sale' + (orphanN === 1 ? '' : 's') + ' with no lead') : null)),
+        el('div', { class: 'text-[11px]', style: muted }, 'Each cell: leads · booked (sales linked to a GoHighLevel lead by phone or email), then booking rate. Darker = higher. Click a cell for the leads and the sales behind it.')),
+      el('span', { class: 'ml-auto text-[11px]', style: muted }, channels.length + ' channels · ' + offices.length + ' offices' + (orphanN ? ' · ' : ''), orphanN ? el('button', { class: 'underline', style: { color: 'var(--accent)' }, title: 'These are worked from Auditing \u2192 Attribution', onclick: () => { state.reportingSubTab = 'auditing'; mountApp(); } }, orphanN + ' sale' + (orphanN === 1 ? '' : 's') + ' with no lead \u2192 Auditing') : null)),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } },
       el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
         el('thead', {}, el('tr', {}, th('Channel', false, { position: 'sticky', left: 0, zIndex: 2 }), ...offices.map(o => th(o, false, { textAlign: 'center' })), th('All offices', false, { textAlign: 'center' }))),
