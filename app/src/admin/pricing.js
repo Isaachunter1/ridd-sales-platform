@@ -832,7 +832,10 @@ function viewPricing() {
     const quoteFull = el('div', { class: 'pq-card mb-3', style: { background: C.cream, color: C.char, borderRadius: '12px', padding: '10px 12px', boxShadow: 'var(--shadow-lg)', border: '1.5px solid ' + C.orange } },
       el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '6px' } },
         el('div', { style: { font: '700 10px/1 ' + F, letterSpacing: '.16em', textTransform: 'uppercase', color: C.ink2 } }, 'Quote · ' + (st.tier === 'd2d' ? (st.min ? 'D2D minimums' : 'D2D') : T.label)),
-        el('button', { style: { padding: '5px 12px', borderRadius: '999px', border: '1.5px solid ' + C.ink3, background: 'transparent', color: C.char, font: '700 9px/1.2 ' + F, letterSpacing: '.1em', textTransform: 'uppercase', cursor: 'pointer' }, onclick: () => { st.base = null; st.addons = {}; st.onetime = {}; st.termite = false; st.custom = {}; editKey = null; rerender(); } }, 'Reset')),
+        el('button', { style: { padding: '5px 12px', borderRadius: '999px', border: '1.5px solid ' + C.ink3, background: 'transparent', color: C.char, font: '700 9px/1.2 ' + F, letterSpacing: '.1em', textTransform: 'uppercase', cursor: 'pointer' }, onclick: () => {
+          // Reset = the default start (per Isaac, Nov 24): RIDD Package with Pest + Tick, Flea & Mosquito, Bi-Monthly, nothing extra. The tier (and Ⓜ) stays where it is.
+          st.pkg = 'homeyard'; st.pk = { home: 'pest', yard: 'tfm', hy: { home: 'pest', yard: 'tfm' } }; st.base = 'pest'; st.addons = { tfm: true }; st.extras = {}; st.onetime = {}; st.termite = false; st.custom = {};
+          st.noPlan = false; st.freq = 'b'; st.customer = 'new'; st.qItems = false; st.qSaving = false; editKey = null; rerender(); } }, 'Reset')),
       strip, itemsToggle, items, saveRow());
 
     const quote = q.empty ? quoteEmpty : quoteFull;
