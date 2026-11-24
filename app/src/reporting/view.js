@@ -71,6 +71,7 @@ function viewReporting() {
           ...[['config', 'Configurations'], ['marketing', 'Marketing & lead sources'], ['data', 'Connections']].map(([k, l]) => el('button', { class: 'rounded-lg border px-3 text-[12px] font-semibold', style: { borderColor: 'var(--border-2)', minHeight: '40px' }, onclick: () => { state.view = 'admin'; state.adminSection = k; mountApp(); } }, l + ' →')))) :
     state.reportingSubTab === 'uploads'    ? reportingUploadsPanel() :
     state.reportingSubTab === 'putis'      ? reportingPutis() :
+    state.reportingSubTab === 'market'     ? (isAdminRole(state.profile?.role) || devSampleData() ? reportingMarketWatch() : reportingOverview()) :
     state.reportingSubTab === 'geographic' ? reportingGeographic() :
     state.reportingSubTab === 'waterfall'  ? reportingWaterfall() :
     // 'services' retired as a top tab; 'health'/'nextbest' fold into

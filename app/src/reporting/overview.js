@@ -8,7 +8,15 @@ function reportingOverview() {
 
   const scope = reportingScope();
   const { office, compareOffice, inCompare, scopeA, scopeB, officeLabel } = scope;
-  const dataA = reportingChartData(scopeA, state.reportingServiceConfig || []);
+  // The chart data is the slow part of this tab (~370ms over the full book) and every re-render rebuilt it. It is
+  // kept between renders only while the app-wide fingerprint is unchanged — the same one the view cache trusts
+  // (_vcFp: every value in state, any saved setting, the calendar day) — so a data refresh, filter, rule or setting
+  // change always rebuilds. (Nov 24 sweep.)
+  const _fp = typeof _vcFp === 'function' ? (() => { try { return _vcFp('reporting'); } catch (e) { return null; } })() : null;
+  const _cdM = reportingOverview._cd;
+  const dataA = (_fp && _cdM && _cdM.fp === _fp && _cdM.rows === scopeA.length && !inCompare) ? _cdM.data
+    : perfT('ov:chartData', () => reportingChartData(scopeA, state.reportingServiceConfig || []));
+  reportingOverview._cd = (_fp && !inCompare) ? { fp: _fp, rows: scopeA.length, data: dataA } : null;
   const dataB = inCompare ? reportingChartData(scopeB, state.reportingServiceConfig || []) : null;
   const filterBar = reportingFilterBar(scope);
 
@@ -596,7 +604,7 @@ function reportingOverview() {
       body));
     document.body.append(overlay);
   };
-  const pulseCard = (() => {
+  const pulseCard = perfT('ov:pulse', () => {
     // Window: today / yesterday (one day, broken out by branch) or the last
     // 7 / 30 / 90 days (one bar per day). Per Isaac, Sep 2026.
     // Longer windows (per Isaac, Sep 30): This year / Last year / Custom range
@@ -709,13 +717,16 @@ function reportingOverview() {
             fill: { target: 2, above: 'rgba(22,163,74,.10)', below: 'rgba(220,38,38,.12)' } },
           { type: 'bar', label: unitSubs ? 'Serviced' : 'Serviced (new ARR)', data: serviced, backgroundColor: C.svc, borderWidth: 0, order: 3 },
           { type: 'line', label: unitSubs ? 'Churned' : 'Churned (ARR)', data: churned, borderColor: C.cxl, backgroundColor: C.cxl, borderWidth: 2.5, tension: 0.3, pointRadius: 2, order: 2, fill: false },
+          // Net book change (per Isaac, Nov 24): serviced − churned for each bar — above zero the book grew that
+          // period, below zero it shrank. Dashed ink line; the same number the tooltip footer already gave.
+          { type: 'line', label: 'Net (serviced \u2212 churned)', data: serviced.map((v, i) => (Number(v) || 0) - (Number(churned[i]) || 0)), borderColor: txt, backgroundColor: txt, borderWidth: 1.8, borderDash: [5, 4], tension: 0.3, pointRadius: 0, order: 0, fill: false },
         ] },
         options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
           onClick: (evt, els) => {
             if (!els || !els.length) return;
             const i = single ? 0 : els[0].index, dsi = els[0].datasetIndex;
             if (!soldRows[i].length && !svcRows[i].length && !cxlRows[i].length) return;
-            openPulseDayDrill(lbl[i], longDate(i), { sold: soldRows[i], svc: svcRows[i], cxl: cxlRows[i] }, dsi === 0 ? 'sold' : dsi === 1 ? 'svc' : 'cxl');
+            openPulseDayDrill(lbl[i], longDate(i), { sold: soldRows[i], svc: svcRows[i], cxl: cxlRows[i] }, dsi === 0 ? 'sold' : dsi === 2 ? 'cxl' : 'svc');
           },
           plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 } } },
             tooltip: { callbacks: {
@@ -726,7 +737,7 @@ function reportingOverview() {
               // book actually gained — sold-but-not-started isn't in the book yet.
               footer: (items) => { const i = items && items[0] ? items[0].dataIndex : -1; if (i < 0) return ''; const n = (Number(dsSvc[i]) || 0) - (Number(dsCxl[i]) || 0); return ' Net (serviced − churned): ' + (n < 0 ? '−' : '') + (unitSubs ? '' : '$') + Math.round(Math.abs(n)).toLocaleString(); } } } },
           scales: { x: { ticks: { color: txt, maxTicksLimit: span > 30 ? 15 : 31 }, grid: { display: false } },
-                    y: { beginAtZero: true, ticks: { color: txt, callback: v => unitSubs ? v : (Math.abs(v) >= 1e6 ? '$' + (Math.round(v / 1e5) / 10).toString().replace(/\.0$/, '') + 'M' : Math.abs(v) >= 1000 ? '$' + Math.round(v / 1000) + 'k' : '$' + v) }, grid: { color: grid } } } },
+                    y: { beginAtZero: true, ticks: { color: txt, callback: v => { if (unitSubs) return v; const a = Math.abs(v), sg = v < 0 ? '\u2212' : ''; return sg + (a >= 1e6 ? '$' + (Math.round(a / 1e5) / 10).toString().replace(/\.0$/, '') + 'M' : a >= 1000 ? '$' + Math.round(a / 1000) + 'k' : '$' + a); } }, grid: { color: grid } } } },
       });
     }, 50);
     // The three headline numbers open the same drill for the WHOLE window
@@ -773,7 +784,7 @@ function reportingOverview() {
     // Churn = recurring ARR cancelled (the Churned rule above). The book = recurring subs whose first service was done
     // by the start date and not cancelled by then. Office filter applies; the date range at the top does not — the
     // three windows are fixed so the card reads the same every day. Click a number for the accounts.
-    const growthGrid = (() => {
+    const growthGrid = perfT('ov:growth', () => {
       const now = new Date();
       const end = iso(now);
       const back = (n) => { const d = new Date(now); d.setDate(d.getDate() - n); return iso(d); };
@@ -799,7 +810,7 @@ function reportingOverview() {
       });
       const pct = (v, b) => b > 0 ? (Math.round(v / b * 1000) / 10).toFixed(1) + '%' : '—';
       const money = (v) => unitSubs ? fmt.int(v) : (Math.abs(v) >= 1e6 ? '$' + (Math.round(v / 1e4) / 100).toFixed(2) + 'M' : fmt.usd0(v));
-      const cell = (w, kind) => {
+      const cell = (w, kind) => {   // (growth / churn cells — kept for the drill labels; the header shows netCell)
         if (kind === 'cxl') {
           // $ = every counted cancel in the window; % = cancels from the starting book ÷ that book; the small line under
           // it = what accounts that joined during the window already cancelled (not in the %).
@@ -822,12 +833,24 @@ function reportingOverview() {
           el('span', { class: 'text-sm font-black tabular-nums', style: { color } }, money(v)),
           el('span', { class: 'tabular-nums', style: { color, fontSize: '11px', fontWeight: 700, marginLeft: '6px' } }, pct(v, w.book)));
       };
+      // One row (per Isaac, Nov 24 — "consolidate down to net growth"): net = new recurring ARR serviced minus recurring
+      // ARR cancelled in the window, and that as a % of the book at the window's start. Green when the book grew, red
+      // when it shrank; the growth and churn behind it are on the hover, and a click opens the accounts.
+      const netCell = (w) => {
+        const net = w.addV - w.cxlV, color = net < 0 ? C.cxl : C.sold;
+        const sign = net < 0 ? '\u2212' : '+';
+        return el('button', { type: 'button', style: { textAlign: 'right', cursor: 'pointer', background: 'none', border: 0, padding: '0 2px' },
+            title: 'Last ' + w.label + ' (' + w.start + ' \u2192 ' + end + '): ' + money(w.addV) + ' new serviced \u2212 ' + money(w.cxlV) + ' churned'
+              + (w.cxlNewV ? ' (' + money(w.cxlNewV) + ' of it from accounts that joined in the window)' : '') + ', against the ' + money(w.book) + ' book on ' + w.start + '. Click for the accounts.',
+            onclick: () => openPulseDayDrill('Last ' + w.label, 'Last ' + w.label + ' \u00b7 ' + w.start + ' \u2192 ' + end, { sold: [], svc: w.add, cxl: w.cxl }, net < 0 ? 'cxl' : 'svc') },
+          el('span', { class: 'text-sm font-black tabular-nums', style: { color } }, sign + money(Math.abs(net))),
+          el('span', { class: 'tabular-nums', style: { color, fontSize: '11px', fontWeight: 700, marginLeft: '6px' } }, w.book > 0 ? sign + pct(Math.abs(net), w.book) : '\u2014'));
+      };
       const lab = (t, color) => el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color, alignSelf: 'center' } }, t);
       return el('div', { style: { display: 'grid', gridTemplateColumns: 'auto repeat(3, minmax(96px, auto))', columnGap: '14px', rowGap: '2px', alignItems: 'baseline' } },
         el('div', {}), ...wins.map(w => el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)', textAlign: 'right' } }, w.label)),
-        lab('Growth', C.sold), ...wins.map(w => cell(w, 'svc')),
-        lab('Churn', C.cxl), ...wins.map(w => cell(w, 'cxl')));
-    })();
+        lab('Net growth', 'var(--text-subtle)'), ...wins.map(netCell));
+    });
     return el('div', { class: 'card p-4' },
       el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-2' },
         el('div', {},
@@ -836,7 +859,90 @@ function reportingOverview() {
           growthGrid,
           unitToggle)),
       cvsWrap);
-  })();
+  });
+
+  // ── Branch scorecard (per Isaac, Nov 24): every branch on one table, under the ARR bar. Book numbers use the same
+  // rules as the Daily Pulse scorecard (new ARR = first service in the last 12 months, renewals out; churn = counted
+  // cancels of accounts already in the book 12 months ago ÷ that book). The last three columns are this year's new
+  // sales by who sold them — Office Staff, Technicians, Sales Reps (D2D). Always all branches — the
+  // office filter doesn't narrow it. Best three in a column read green, worst three red. Click a header to sort.
+  const branchScorecard = perfT('ov:branches', () => {
+    const sl = ((dataA.slices && dataA.slices.rarrOffice) || []);
+    if (office !== 'all' || inCompare || sl.length < 2) return null;
+    const { isRealCancel } = reportingFilters();
+    const _recMapB = typeof reportingServiceRecurringMap === 'function' ? reportingServiceRecurringMap() : new Map();
+    const isRec = (r) => reportingRecurringMode() === 'arv' ? (Number(r.annual_recurring_value) || 0) > 0 : !!_recMapB.get(r.subscription);
+    const isRen = (r) => typeof reportingSourceClass === 'function' && reportingSourceClass(reportingSourceOf(r)) === 'renewal';
+    const now = new Date(), isoD = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    const end = isoD(now), st = (() => { const d = new Date(now); d.setDate(d.getDate() - 365); return isoD(d); })();
+    const B = new Map(); const get = (k) => B.get(k) || B.set(k, { book: 0, add: 0, cxlBook: 0, cxlAll: 0, office: 0, tech: 0, d2d: 0 }).get(k);
+    const yr = String(now.getFullYear());
+    for (const r of (scope.visible || [])) {
+      const k = r.office_name || 'Unspecified', arr = Number(r.annual_recurring_value) || 0;
+      const done = String(r.initial_status || '').toLowerCase() === 'completed' || !!r.initial_serviced_date;
+      const sv = done ? String(r.initial_serviced_date || r.initial_service || r.sold_date || '').slice(0, 10) : '', cd = String(r.subscription_date_canceled || '').slice(0, 10);
+      const inBook = arr > 0 && sv && sv <= st && (!cd || cd > st);
+      const g = get(k);
+      if (inBook) g.book += arr;
+      // New sales this year by who sold them (per Isaac, Nov 24 — the mix across rep types): sold this year, renewals
+      // out, initial pending or serviced — the same "new sale" rule the Marketing tab and the leaderboard use.
+      if (String(r.sold_date || '').slice(0, 4) === yr && !isRen(r) && (done || String(r.initial_status || '').trim().toLowerCase() === 'pending')) {
+        const t = String(r.sold_by_type || '').trim();
+        if (t === 'Office Staff') g.office++; else if (t === 'Technician') g.tech++; else if (t === 'Sales Rep') g.d2d++;
+      }
+      if (sv && sv > st && sv <= end && !isRen(r) && isRec(r)) g.add += arr;
+      if (cd && cd > st && cd <= end && isRealCancel(r)) { g.cxlAll += arr; if (inBook) g.cxlBook += arr; }
+    }
+    const custBy = new Map(((dataA.slices && dataA.slices.custOffice) || []).map(x => [x.label, x.value]));
+    // Churn is the Retention tab's own number for that office (per Isaac, Nov 24 — "do they line up?"): trailing-12-month
+    // attrition = counted cancels in the last 365 days ÷ the subscriptions on the books a year ago, through the same
+    // scope steps and retention book (retenScopeSteps → semRetentionBook → trailing12_attrition). Pick the office on the
+    // Retention tab and its Trailing 12 months tile reads the same. Kept 5 minutes per office while the data and rules
+    // are unchanged.
+    const retOf = (label) => { try {
+      if (typeof _retenOfficeSlice !== 'function' || typeof retenScopeSteps !== 'function' || typeof semRetentionBook !== 'function' || typeof retenTrailing12 !== 'function') return null;
+      const ground = _retenOfficeSlice(label);
+      return refMemo('ov:brRet:' + label, [ground, typeof _retenMemoKey === 'function' ? _retenMemoKey() : '', window._riddMutRev || 0, new Date().toDateString()], 300000, () => { const t = retenTrailing12(semRetentionBook(retenScopeSteps(ground).out)); return t && t.boy >= 50 ? t.rate : null; });
+    } catch (e) { return null; } };
+    const tot = sl.reduce((a, x) => a + x.value, 0);
+    const rows = sl.filter(x => x.value > 0).map(x => { const g = B.get(x.label) || { book: 0, add: 0, cxlBook: 0, cxlAll: 0, office: 0, tech: 0, d2d: 0 };
+      return { label: x.label, arr: x.value, share: tot ? x.value / tot : null, cust: custBy.get(x.label) || null, add: g.add, churn: retOf(x.label), net: g.add - g.cxlAll,
+        growth: g.book > 0 ? (g.add - g.cxlAll) / g.book : null, office: g.office, tech: g.tech, d2d: g.d2d }; });
+    const usd = (v) => v == null ? '—' : fmt.usd0(v), pc = (v, d) => v == null || !isFinite(v) ? '—' : (v * 100).toFixed(d == null ? 1 : d) + '%';
+    const COLS = [
+      { k: 'arr', t: 'Active ARR', f: usd, up: true }, { k: 'share', t: 'Share', f: pc, up: null }, { k: 'cust', t: 'Customers', f: (v) => v == null ? '—' : fmt.int(v), up: true },
+      { k: 'add', t: 'New ARR · 12 mo', f: usd, up: true, tip: 'Recurring ARR first serviced in the last 12 months (renewals out)' },
+      { k: 'churn', t: 'Attrition \u00b7 12 mo', f: pc, up: false, tip: 'The Retention tab\u2019s Trailing 12 months for that office: counted cancels in the last 365 days \u00f7 subscriptions on the books a year ago' },
+      { k: 'net', t: 'Net · 12 mo', f: (v) => v == null ? '—' : (v < 0 ? '−' : '+') + fmt.usd0(Math.abs(v)), up: true, tip: 'New ARR minus every counted cancel in the last 12 months' },
+      { k: 'growth', t: 'Book growth', f: pc, up: true, tip: 'Net ÷ the book 12 months ago' },
+      { k: 'office', t: 'Office sales \u00b7 YTD', f: (v) => fmt.int(v || 0), up: true, tip: 'New sales this year sold by Office Staff (initial pending or serviced, renewals out)' },
+      { k: 'tech', t: 'Tech sales \u00b7 YTD', f: (v) => fmt.int(v || 0), up: true, tip: 'New sales this year sold by Technicians' },
+      { k: 'd2d', t: 'D2D sales \u00b7 YTD', f: (v) => fmt.int(v || 0), up: true, tip: 'New sales this year sold by Sales Reps (door to door)' }];
+    // Column order (per Isaac, Nov 24): the owner admin drags a header onto another to move it; the order is saved for
+    // everyone (admin rule brScoreCols). New columns added later fall in at the end.
+    const _ord = ((typeof _adminRules === 'function' && _adminRules()) || {}).brScoreCols;
+    if (Array.isArray(_ord) && _ord.length) COLS.sort((a, b) => { const i = _ord.indexOf(a.k), j = _ord.indexOf(b.k); return (i < 0 ? 999 : i) - (j < 0 ? 999 : j); });
+    const canOrder = typeof isOwnerUser === 'function' && isOwnerUser() && typeof _setAdminRule === 'function';
+    const moveCol = (from, to) => { if (!from || from === to) return; const ks = COLS.map(c => c.k); const i = ks.indexOf(from), j = ks.indexOf(to); if (i < 0 || j < 0) return; ks.splice(j, 0, ks.splice(i, 1)[0]); _setAdminRule('brScoreCols', ks); mountApp(); };
+    const S = state._brSort || { k: 'arr', dir: -1 };
+    rows.sort((a, b) => ((a[S.k] == null ? -Infinity : a[S.k]) - (b[S.k] == null ? -Infinity : b[S.k])) * S.dir);
+    const tone = {}; for (const c of COLS) { if (c.up == null) continue; const v = rows.map(r => r[c.k]).filter(x => x != null && isFinite(x)).sort((a, b) => a - b); if (v.length < 6) continue; tone[c.k] = { lo: v[2], hi: v[v.length - 3] }; }
+    const colorOf = (c, v) => { const t = tone[c.k]; if (!t || v == null || !isFinite(v)) return undefined; const good = c.up ? v >= t.hi : v <= t.lo, bad = c.up ? v <= t.lo : v >= t.hi; return good ? '#15803D' : bad ? '#B91C1C' : undefined; };
+    const nm = (l) => typeof _titleCaseWords === 'function' ? _titleCaseWords(l) : l;
+    const th = (c) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap text-left cursor-pointer', title: (c.tip ? c.tip + ' · ' : '') + 'click to sort' + (canOrder ? ' \u00b7 drag onto another column to move it' : ''), style: { color: S.k === c.k ? 'var(--accent)' : 'var(--text-muted)', background: 'var(--card-2)' },
+      ...(canOrder ? { draggable: 'true',
+        ondragstart: (e) => { state._brDrag = c.k; try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', c.k); } catch (err) { /* older browsers */ } },
+        ondragover: (e) => { if (state._brDrag && state._brDrag !== c.k) { e.preventDefault(); e.currentTarget.style.boxShadow = 'inset 3px 0 0 var(--accent)'; } },
+        ondragleave: (e) => { e.currentTarget.style.boxShadow = ''; },
+        ondrop: (e) => { e.preventDefault(); const from = state._brDrag; state._brDrag = null; moveCol(from, c.k); },
+        ondragend: () => { state._brDrag = null; } } : {}),
+      onclick: () => { state._brSort = { k: c.k, dir: S.k === c.k ? -S.dir : (c.up === false ? 1 : -1) }; mountApp(); } }, c.t + (S.k === c.k ? (S.dir < 0 ? ' ↓' : ' ↑') : ''));
+    return el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)', marginTop: '12px' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold text-left', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, 'Branch'), ...COLS.map(th))),
+      el('tbody', {}, ...rows.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        el('td', { class: 'px-3 py-1.5 font-semibold whitespace-nowrap' }, nm(r.label)),
+        ...COLS.map(c => el('td', { class: 'px-3 py-1.5 tabular-nums whitespace-nowrap', style: { color: colorOf(c, r[c.k]), fontWeight: colorOf(c, r[c.k]) ? '700' : undefined } }, c.f(r[c.k]))))))));
+  });
 
   // ARR by branch (per Isaac, Nov 24): one bar, each branch a segment sized by its share of Active ARR, with its ARR
   // and % under it. Same rows as the Active ARR tile and the "Active ARR by Office" card (slices.rarrOffice).
@@ -860,7 +966,8 @@ function reportingOverview() {
         ...sl.map((x, i) => el('span', { class: 'inline-flex items-center gap-1.5 text-[11px] cursor-pointer', onclick: drill(x.label) },
           el('span', { style: { width: '9px', height: '9px', borderRadius: '2px', background: pal[i % pal.length], display: 'inline-block' } }),
           el('span', { class: 'font-semibold' }, nm(x.label)),
-          el('span', { class: 'tabular-nums', style: { color: 'var(--text-muted)' } }, fmt.usd0(x.value) + ' \u00b7 ' + pc(x.value))))));
+          el('span', { class: 'tabular-nums', style: { color: 'var(--text-muted)' } }, fmt.usd0(x.value) + ' \u00b7 ' + pc(x.value))))),
+      branchScorecard);
   })();
 
   return el('div', { class: 'flex flex-col gap-4' },

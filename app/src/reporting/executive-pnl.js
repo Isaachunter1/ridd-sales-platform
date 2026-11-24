@@ -1280,7 +1280,8 @@ function _rptTabTaskCount(k) {
     if (k === 'auditing' && typeof auditTaskItems === 'function') { const raw = auditTaskItems(); if (raw == null) return 0; items = raw; }
     if (items.length && typeof rvApply === 'function') items = rvApply(items).active;
   } catch (e) { items = []; }
-  const n = items.filter(i => i && i.sev !== 'ok').length;
+  const _open = items.filter(i => i && i.sev !== 'ok');
+  const n = (k === 'auditing' && typeof auditTaskEntries === 'function') ? auditTaskEntries(_open).length : _open.length;   // same count as the list: a family is one task
   C[k] = { sig, at: Date.now(), n };
   return n;
 }
@@ -1294,8 +1295,9 @@ function reportingSubTabs() {
     ['geographic', 'Geographic'],
     // ['ops', 'Operations'] hidden for now (per Isaac, Nov 18) — reportingOpsHub() stays in the code; a saved 'ops' tab lands on Overview.
     ['putis',      'P&L'],
+    ['market',     'Market Watch'],   // public pest-control companies vs RIDD (per Isaac, Nov 24) — admins only
     // (Definitions moved to Settings → Reporting rules, per Isaac, Oct 14.)
-  ].filter(([k]) => isAdminRole(state.profile?.role) || devSampleData() || !['marketing', 'putis'].includes(k));   // developer: the UI, with sample data   // granted non-admins: read-only tabs only
+  ].filter(([k]) => isAdminRole(state.profile?.role) || devSampleData() || !['marketing', 'putis', 'market'].includes(k));   // developer: the UI, with sample data   // granted non-admins: read-only tabs only
   const go = (k) => { const t = tabs.find(([kk]) => kk === k); if (t && t[2]) { window.open(t[2], '_blank', 'noopener'); return; } state.reportingSubTab = k; mountApp(); };
   const cur = tabs.some(([k]) => k === state.reportingSubTab && !tabs.find(([kk]) => kk === k)[2]) ? state.reportingSubTab : tabs[0][0];
   // Desktop: the tab strip. Phones: one dropdown (the strip had grown past

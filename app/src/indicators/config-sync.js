@@ -285,6 +285,8 @@ async function _indicatorConfigUpsertNow() {
           // Explicit team renames (per Isaac, Oct 16 — "Excluded" → "Termite Pros" kept reverting).
           for (const op of _rp) {
             if (op[0] === 'renameTeam' && typeof renameTeam === 'function' && typeof distinctTeams === 'function' && distinctTeams().includes(op[1])) renameTeam(op[1], op[2]);
+            // Admin settings made just before the conflict (card order, column order, any Settings rule): back on top of the server copy.
+            if (op[0] === 'adminRule') { state._compExtras = state._compExtras || {}; (state._compExtras.adminRules = state._compExtras.adminRules || {})[op[1]] = op[2]; window._riddMutRev = (window._riddMutRev || 0) + 1; }
           }
           if (Array.isArray(state._cfgReplay)) state._cfgReplay.length = 0;   // the replays above re-queued themselves; this one save carries them
           // (renameTeam already refreshed the local cache via saveDemoData.)

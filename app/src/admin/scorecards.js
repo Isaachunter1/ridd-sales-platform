@@ -1727,6 +1727,10 @@ function _setAdminRule(key, val) {
   state._compExtras = state._compExtras || {};
   const r = state._compExtras.adminRules = state._compExtras.adminRules || {};
   r[key] = val;
+  // Survive a save conflict (per Isaac, Nov 24 — card and column orders kept "moving back"): when another browser
+  // saved the shared config first, this browser adopts the server copy, which used to drop the setting just made.
+  // Queue it so the conflict handler in config-sync.js puts it back on top and saves once more.
+  try { state._cfgReplay = (Array.isArray(state._cfgReplay) ? state._cfgReplay : []).filter(op => !(op[0] === 'adminRule' && op[1] === key)); state._cfgReplay.push(['adminRule', key, val]); } catch (e) { /* best effort */ }
   try { saveIndicatorState(); } catch (e) { /* localStorage fallback below still applies */ }
 }
 
@@ -1795,8 +1799,9 @@ function retenChainRenewalCohort() { return true; }   // always the year acquire
 function setRetenChainRenewalCohort(b) { _setAdminRule('retenChainRenewals', !!b); }
 // The year a subscription's cohort starts — the one place that decides it.
 function retenCohortStart(r) { return (retenChainRenewalCohort() && r.origin_initial_service) || r.initial_service; }
-function retenExclZeroPay()       { return true;   // always on (per Isaac, Nov 2): a sub that bills nothing is never in the book — step 5, no toggle
+function retenExclZeroPay()       {   // on by default (per Isaac, Nov 2); the Attrition Steps toggle can switch it off for the session (Nov 24)
   if (state._retenWhatIf && typeof state._retenWhatIf.zero === 'boolean' && state.reportingSubTab === 'waterfall') return state._retenWhatIf.zero;
+  return true;
   const r = _adminRules(); if (r && typeof r.retenExclZeroPay === 'boolean') return r.retenExclZeroPay;
   return true; }
 function setRetenExclZeroPay(b)       { _setAdminRule('retenExclZeroPay', !!b); try { localStorage.setItem('ridd_reten_excl_zeropay', b ? '1' : '0'); } catch {} }

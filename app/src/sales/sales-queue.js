@@ -2947,7 +2947,7 @@ function openPayrollRun(rows, opts = {}) {
       el('div', { class: 'flex items-center gap-2' },
         el('button', { class: 'rounded-lg border px-4 py-2 text-sm font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: close }, 'Cancel'), confirmBtn)),
     backendToggle,
-    held.length ? el('div', { class: 'card px-4 py-2.5 text-xs', style: { borderColor: '#B45309' } }, held.length + ' commissionable sale' + (held.length === 1 ? '' : 's') + ' held: the FieldRoutes seller has no app account yet. They pay on the next run once the account is linked.') : null,
+    held.length ? el('div', { class: 'card px-4 py-2.5 text-xs', style: { borderColor: '#B45309' } }, held.length + ' commissionable sale' + (held.length === 1 ? '' : 's') + ' held: the FieldRoutes seller has no app account yet. They pay on the next run once the account is linked. ' + (() => { const m = new Map(); for (const x of held) { const raw = String(x.crm_seller_name || '').trim(), n = raw.includes(',') ? raw.split(',').map(t => t.trim()).reverse().join(' ') : (raw || 'No seller in FieldRoutes'); m.set(n, (m.get(n) || 0) + 1); } return 'Sellers: ' + [...m].sort((a, b) => b[1] - a[1]).map(([n, c]) => n + ' (' + c + ')').join(', ') + '.'; })()) : null,   // named on every run (per Isaac, Nov 24)
     !stubs.length ? el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'Nothing commissionable yet — approve sales (Commissionable) on Upfront Sales first.') : null,
     // One stub at a time, picked from a rep dropdown (per Isaac, Oct 15) + its PDF (what Slack sends on Confirm).
     stubs.length ? (() => {

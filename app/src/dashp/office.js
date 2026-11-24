@@ -104,13 +104,16 @@ function dashpOfficeList(S) {
     sub: r => r.prof._unlinked ? (r.prof._seller ? 'FieldRoutes #' + r.prof._seller + ' \u00b7 est. at base rates' : 'Seller missing in FieldRoutes') : (r.prof.rep_type === 'loyalty_rep' ? 'Loyalty' : 'Inside Sales') + (r.active ? '' : ' · inactive') };
   const search = r => r.name;
   const money = (v) => fmt.usd0(Math.round(Number(v) || 0));
-  const sum = (k) => rows.reduce((a, r) => a + (Number(r[k]) || 0), 0);
+  // Tiles total the reps payroll can pay. Sellers with no app account are listed below but held by payroll, so their
+  // estimates stay out of 'Pays now' and the rep count (found in the Nov 24 sweep — the tiles had started including them).
+  const sum = (k) => rows.reduce((a, r) => a + (r.prof._unlinked ? 0 : (Number(r[k]) || 0)), 0);
+  const nUnlinked = rows.filter(r => r.prof._unlinked && r.has).length;
   const label = period === 'year' ? String(year) : period.label + (isCurrent ? ' (current)' : '');
 
   if (period === 'year') {
     return el('div', { class: 'flex flex-col gap-4' },
       dashpStatRow(
-        dashpStat('Office reps', fmt.int(rows.filter(r => r.has).length), year + ' · with pay activity'),
+        dashpStat('Office reps', fmt.int(rows.filter(r => r.has && !r.prof._unlinked).length), year + ' · with pay activity' + (nUnlinked ? ' · +' + nUnlinked + ' with no app account' : '')),
         dashpStat('Sales', fmt.int(sum('sold')), money(sum('soldRev')) + ' sold'),
         dashpStat('Upfront paid', money(sum('paid')), fmt.int(sum('paidN')) + ' accounts · ' + year),
         dashpStat('Backend paid', money(sum('backendPaid')), (typeof backendCadenceWord === 'function' ? backendCadenceWord() : 'quarterly') + ' runs'),
@@ -134,12 +137,33 @@ function dashpOfficeList(S) {
   }
   return el('div', { class: 'flex flex-col gap-4' },
     dashpStatRow(
-      dashpStat('Office reps', fmt.int(rows.filter(r => r.has).length), label),
+      dashpStat('Office reps', fmt.int(rows.filter(r => r.has && !r.prof._unlinked).length), label + (nUnlinked ? ' · +' + nUnlinked + ' with no app account' : '')),
       dashpStat('Sales', fmt.int(sum('sold')), money(sum('soldRev')) + ' sold in the period'),
-      dashpStat(isCurrent ? 'Pays now' : 'Paid', money(sum('total')), fmt.int(sum('stubN')) + ' accounts' + (isCurrent ? ' · if payroll ran today' : ' · ' + period.label)),
-      isCurrent ? dashpStat('Already paid this period', money(sum('paidHere')), fmt.int(sum('paidHereN')) + ' accounts') : null,
-      dashpStat('On its way', money(sum('pending') + sum('held')), fmt.int(sum('pendingN')) + ' pending · ' + fmt.int(sum('heldN')) + ' held (NSF / re-audit / no initial)'),
-      dashpStat('Building backend', money(sum('backend')), fmt.int(sum('backendN')) + ' accounts waiting on the lock')),
+      null),
+    // Pay as a pipeline (per Isaac, Nov 24 — in place of the separate tiles): where the period's commission sits, left
+    // to right. Same numbers the tiles showed; the stage that pays is the dark one.
+    (() => {
+      const stages = isCurrent
+        ? [['Pending', sum('pending'), fmt.int(sum('pendingN')) + ' waiting on Passed Audit', '#8F9A8C'],
+           ['Held', sum('held'), fmt.int(sum('heldN')) + ' \u00b7 NSF / re-audit / no initial', '#B45309'],
+           ['Pays now', sum('total'), fmt.int(sum('stubN')) + ' accounts \u00b7 if payroll ran today', '#15803D', true],
+           ['Paid this period', sum('paidHere'), fmt.int(sum('paidHereN')) + ' accounts', '#3E5A3A'],
+           ['Building backend', sum('backend'), fmt.int(sum('backendN')) + ' waiting on the lock', '#2F5D62']]
+        : [['Paid', sum('total'), fmt.int(sum('stubN')) + ' accounts \u00b7 ' + period.label, '#15803D', true],
+           ['Still pending', sum('pending'), fmt.int(sum('pendingN')) + ' accounts', '#8F9A8C'],
+           ['Held', sum('held'), fmt.int(sum('heldN')) + ' accounts', '#B45309'],
+           ['Building backend', sum('backend'), fmt.int(sum('backendN')) + ' waiting on the lock', '#2F5D62']];
+      const max = Math.max(1, ...stages.map(x => Number(x[1]) || 0));
+      return el('div', { class: 'card p-4' },
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-bold mb-3', style: { color: 'var(--text-subtle)' } }, 'Pay pipeline \u00b7 ' + label),
+        el('div', { class: 'office-pipe', style: { display: 'grid', gridTemplateColumns: 'repeat(' + stages.length + ', minmax(0, 1fr))', gap: '6px' } },
+          ...stages.map(([name, v, sub, color, main], i) => el('div', { style: { position: 'relative', minWidth: 0, borderRadius: '10px', padding: '10px 12px', background: main ? 'var(--text)' : 'var(--card-2)', color: main ? 'var(--card)' : 'var(--text)' } },
+            el('div', { class: 'text-[9px] uppercase tracking-widest font-bold', style: { opacity: main ? '.75' : '1', color: main ? undefined : 'var(--text-subtle)' } }, (i + 1) + ' \u00b7 ' + name),
+            el('div', { class: 'text-xl font-black tabular-nums', style: { fontFamily: 'ui-monospace, monospace', marginTop: '2px' } }, money(v)),
+            el('div', { class: 'text-[10px]', style: { opacity: '.75', minHeight: '26px' } }, sub),
+            el('div', { style: { height: '5px', borderRadius: '999px', background: main ? 'rgba(255,255,255,.18)' : 'var(--border)', marginTop: '6px', overflow: 'hidden' } },
+              el('div', { style: { width: Math.max(2, (Number(v) || 0) / max * 100) + '%', height: '100%', background: color, borderRadius: '999px' } }))))));
+    })(),
     dashpTable(S, 'office-period', {
       title: 'Office Staff · ' + label, rows, search, placeholder: 'Search name', defaultSort: { id: 'total', dir: 'desc' },
       filters: [['has', 'With pay activity', r => r.has], ['all', 'Everyone']], defaultFilter: 'has',

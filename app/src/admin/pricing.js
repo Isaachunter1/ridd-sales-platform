@@ -168,7 +168,7 @@ function pricingQuote(st) {
   if (st.termite) lines.push({ key: 'termite', kind: 'termite', label: 'Termite Defense', sub: 'annual · separate subscription', init: T.termite[0], mo: T.termite[1] });
   // Rep-entered custom prices replace the list price on a line —
   // but pricingFloor() is the hard floor, so anything under it is ignored.
-  for (const l of lines) {
+  for (const l of (st.tier === 'd2d' ? lines : [])) {   // D2D quotes only (per Isaac, Nov 24)
     const c = st.custom[l.key], f = pricingFloor(st, l.key);
     if (!c || !f || c.init < f.init || c.mo < f.mo) continue;
     l.list = { init: l.init, mo: l.mo }; l.init = c.init; l.mo = c.mo; l.custom = true;
@@ -197,15 +197,6 @@ function pricingQuote(st) {
   return { tier: T, lines, init, mo, acv: init + mo * 11, savings: Math.max(0, savings), ok, hasBase, empty: lines.length === 0 };
 }
 
-// Bundle & Save (per Isaac's savings table): standalone plan ACV (11 × monthly
-// + initial) minus add-on ACV (12 × add-on monthly + add-on initial), per tier.
-function pricingSavings(T, svc, fi) {
-  const prog = PRICING_SERVICES[svc].program;
-  const standalone = T[prog][fi] * 11 + T.init;
-  const a = T.addons.find(x => x[0] === svc);
-  return standalone - (a[2] * 12 + a[1]);
-}
-
 // ── The slick, live. Same card the reps carry (brand palette, program blocks
 // on top, add-ons / one-time / bundle & save below) — but every tile and row
 // is a control. Re-renders ITSELF on every click (no mountApp), so the page
@@ -226,15 +217,14 @@ function viewPricing() {
   const SANS = 'Archivo, "Helvetica Neue", Arial, sans-serif', MONO = '"IBM Plex Mono", "Courier New", ui-monospace, monospace';
   const render = () => {
     const st = pricingStore();
-    if (!st.mode) st.mode = 'build';   // Build a plan opens first; the full price sheet is one tap away (per Isaac, Nov 23)
+    // The builder IS the price sheet (per Isaac, Nov 24): the old printed-sheet layout, its Build a plan ⇄ Price sheet
+    // toggle, the customer view and the Custom Protection package were removed.
     // Landing on the builder with nothing picked starts on Home + Yard, the most popular package (the default most
     // customers keep).
-    if (st.mode !== 'sheet' && !st.pkg && !st.base && !st.termite) { st.pkg = 'homeyard'; st.base = 'pest'; st.addons = { tfm: true }; }
+    if (!st.pkg && !st.base && !st.termite && !st.noPlan) { st.pkg = 'homeyard'; st.base = 'pest'; st.addons = { tfm: true }; }
     const T = pricingTierOf(st);
     const isMin = false;   // the sheet's numbers stay white on green, minimums included (per Isaac, Nov 23)
     const PICK = pricingTierChoices(state.profile).map(id => PRICING_TIERS.find(t => t.id === id));   // sheets this user may see (per Isaac, Nov 23); D2D minimums is the Ⓜ toggle
-    const baseSvc = st.base ? PRICING_SERVICES[st.base] : null;
-    const hasPlan = !!baseSvc;
     const q = pricingQuote(st);
     const rerender = () => { const y = window.scrollY; render(); window.scrollTo(0, y); onScroll(); };
 
@@ -258,129 +248,10 @@ function viewPricing() {
     }, 'M') : null;
     const tierName = (t) => t.id === 'd2d' ? 'D2D Pricing' : (t.label + ' Pricing');   // the Ⓜ button shows minimums are on; the tag stays 'D2D Pricing' (per Isaac)
 
-    // ── sheet primitives (fixed colours — the sheet doesn't theme) ──
-    const card = (...kids) => el('div', { style: { background: C.card, border: '1.5px solid ' + C.line, borderRadius: '12px', overflow: 'hidden', color: C.char } }, ...kids);
+    // ── small-print label (IBM Plex Mono caps) ──
     const mono = (txt, o = {}) => el('div', { style: Object.assign({ font: '400 ' + (o.size || 9) + 'px/1.25 ' + MONO, letterSpacing: '.12em', textTransform: 'uppercase', color: o.color || C.ink2 }, o.style || {}) }, txt);
-    // `extra` (the New / Existing toggle) sits at the right edge of the header (per Isaac).
-    const secH = (title, sub, extra) => el('div', { class: 'flex items-center justify-between gap-3 flex-wrap', style: { padding: '12px 14px 6px' } },
-      el('div', { style: { font: '400 10px/1 ' + MONO, letterSpacing: '.16em', textTransform: 'uppercase', color: C.char } }, title),
-      extra || (sub ? mono(sub, { size: 8, style: { textAlign: 'right' } }) : null));
-    // Service pickers (Pest / Rodent …) sit at the top-right in the sheet's small mono caps; the picked one turns
-    // into an orange tag.
-    const svcPick = (txt, on, onclick) => el('button', { onclick, 'aria-pressed': on ? 'true' : 'false', style: { background: on ? C.orange : 'transparent', color: on ? '#fff' : C.char, border: '1.2px solid ' + (on ? C.orange : C.ink3), font: '500 9px/1 ' + MONO, letterSpacing: '.12em', textTransform: 'uppercase', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' } }, txt);
-    // Price tile — dark green, mono caps on top, "$99 initial", the big light number, "monthly". Orange = the
-    // highlighted plan (Standard's Bi-Monthly is MOST POPULAR, per Isaac); the picked tile gets a thick ink ring
-    // and a check so it reads on either colour.
-    const PICKED = { border: '3px solid ' + C.char, boxShadow: '0 0 0 2px #fff inset, 0 10px 20px -12px rgba(0,0,0,.8)' };
-    const tick = () => el('span', { style: { position: 'absolute', top: '-8px', right: '-8px', width: '20px', height: '20px', borderRadius: '50%', background: C.char, color: '#fff', font: '900 11px/20px ' + SANS, textAlign: 'center', boxShadow: '0 0 0 2px #fff' } }, '✓');
-    const tile = (label, initV, val, on, onclick, o = {}) => {
-      const hot = !!o.popular;
-      const dim = hot ? 'rgba(255,255,255,.88)' : 'rgba(242,241,234,.72)';
-      return el('button', { onclick, 'aria-pressed': on ? 'true' : 'false', style: Object.assign({ position: 'relative', background: hot ? C.orange : C.green, color: '#fff', borderRadius: '8px', padding: (hot ? '15px' : '10px') + ' 4px 9px', textAlign: 'center', border: '1.5px solid ' + (hot ? '#9C3209' : C.greenLine), cursor: onclick ? 'pointer' : 'default', minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '7px' }, on ? PICKED : {}) },
-        hot ? el('span', { style: { position: 'absolute', top: '-9px', left: '50%', transform: 'translateX(-50%)', background: C.char, color: '#fff', font: '700 7.5px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', padding: '4px 7px', borderRadius: '999px', whiteSpace: 'nowrap' } }, 'Most popular') : null,
-        on ? tick() : null,
-        el('div', { style: { font: '400 9px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', color: dim } }, label),
-        el('div', { style: { font: '400 9px/1 ' + MONO, color: dim } }, money(initV) + ' initial'),
-        el('div', { class: 'ps-big', style: { font: '300 34px/1 ' + SANS, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color: hot ? '#fff' : (isMin ? '#F2A27E' : C.light) } }, money(val)),
-        el('div', { style: { font: '400 9px/1 ' + MONO, letterSpacing: '.06em', color: dim } }, 'monthly'));
-    };
-
-    // ── program blocks (Home · Yard · Termite) ──
-    const program = (p) => {
-      const isT = p.id === 'termite';
-      const onProg = isT ? !!st.termite : (!!baseSvc && baseSvc.program === p.id);
-      const toggleT = () => { st.termite = !st.termite; rerender(); };
-      const head = el('div', { class: 'flex items-start justify-between gap-3', style: { padding: '14px 14px 10px' } },
-        el('div', { style: { font: '700 16px/1.1 ' + SANS, textTransform: 'uppercase', letterSpacing: '-.005em', color: C.char, whiteSpace: 'nowrap' } }, p.label),
-        isT
-          ? svcPick(st.termite ? 'Added ✓' : 'Termite · add', !!st.termite, toggleT)
-          : el('div', { class: 'flex flex-col items-end gap-1' }, ...(p.show || p.services).map(sid => svcPick(PRICING_SERVICES[sid].label, st.base === sid, () => { if (st.base === sid) { st.base = null; st.addons = {}; } else { st.base = sid; delete st.addons[sid]; } rerender(); }))));
-      if (isT) {
-        // The termite bar: one wide green strip like the price tiles (per Isaac, Nov 23 — was orange) — ANNUAL ·
-        // $399 initial · $29 monthly — tap to add.
-        const on = !!st.termite;
-        const dim = 'rgba(242,241,234,.72)';
-        return card(head, el('div', { style: { padding: '0 14px 14px' } },
-          el('button', { onclick: toggleT, 'aria-pressed': on ? 'true' : 'false', style: Object.assign({ position: 'relative', width: '100%', display: 'flex', alignItems: 'center', gap: '10px', background: C.green, border: '1.5px solid ' + C.greenLine, borderRadius: '8px', padding: '10px 14px', cursor: 'pointer', color: '#fff' }, on ? PICKED : {}) },
-            on ? tick() : null,
-            el('span', { style: { font: '400 9px/1 ' + MONO, letterSpacing: '.16em', textTransform: 'uppercase', color: dim } }, 'Annual'),
-            el('span', { style: { marginLeft: 'auto', font: '400 9px/1 ' + MONO, color: dim } }, money(T.termite[0]) + ' initial'),
-            el('span', { class: 'ps-big', style: { font: '300 30px/1 ' + SANS, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color: C.light, marginLeft: '8px' } }, money(T.termite[1])),
-            el('span', { style: { font: '400 9px/1 ' + MONO, color: dim } }, 'monthly'))));
-      }
-      return card(head,
-        el('div', { class: 'grid gap-2 ps-tiles', style: { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', padding: '0 14px 14px' } },
-          ...PRICING_FREQ.map(([k, lbl], i) => tile(lbl, T.init, T[p.id][i], onProg && st.freq === k, () => { if (onProg && st.freq === k) { st.base = null; st.addons = {}; } else { if (!onProg) { st.base = p.services[0]; delete st.addons[st.base]; } st.freq = k; } rerender(); }, { popular: T.id === 'standard' && k === 'b' }))));
-    };
-
-    // ── tables (add-ons / one-time / bundle & save) in the sheet's ledger style ──
-    const box = (on) => el('span', { style: { display: 'inline-flex', width: '13px', height: '13px', borderRadius: '3px', border: '1.3px solid ' + (on ? C.orange : C.ink3), background: on ? C.orange : 'transparent', color: '#fff', font: '900 9px/13px ' + SANS, justifyContent: 'center', alignItems: 'center', marginRight: '8px', flexShrink: 0 } }, on ? '✓' : '');
-    // cells: [label, ...values]; a value can be { v, muted } — muted values print light grey, like "$0" and the
-    // Existing column on the sheet. `valueColor` (optional): savings read green on Bundle & Save (per Isaac).
-    const trow = (cells, on, onclick, i, valueColor) => el('tr', { onclick, style: { cursor: onclick ? 'pointer' : 'default', background: on ? 'rgba(217,72,15,.13)' : 'transparent' } },
-      ...cells.map((c, j) => {
-        const boxed = c && typeof c === 'object' && !(c instanceof Node) && 'v' in c;
-        const muted = boxed && c.muted, v = boxed ? c.v : c;
-        return el('td', { style: { padding: '5px 6px', textAlign: j === 0 ? 'left' : 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums',
-          font: j === 0 ? '400 12px/1.25 ' + SANS : (muted ? '400 11px/1.25 ' + MONO : '700 11.5px/1.25 ' + MONO),
-          color: j === 0 ? C.char : (valueColor || (muted ? C.ink3 : C.char)), borderRadius: j === 0 ? '5px 0 0 5px' : (j === cells.length - 1 ? '0 5px 5px 0' : '0') } }, v);
-      }));
-    const thead = (cols) => el('thead', {}, el('tr', {}, ...cols.map((c, j) => el('th', { style: { padding: '2px 6px 7px', font: '400 8.5px/1 ' + MONO, letterSpacing: '.12em', textTransform: 'uppercase', color: j === 0 ? C.char : C.ink2, fontWeight: 400, textAlign: j === 0 ? 'left' : 'right', borderBottom: '1px solid rgba(43,43,41,.25)' } }, c))));
-    const table = (cols, rows) => el('div', { style: { padding: '0 8px 10px' } }, el('table', { style: { width: '100%', borderCollapse: 'separate', borderSpacing: '0 1px' } }, thead(cols), el('tbody', {}, ...rows)));
-    const addonsCard = card(
-      el('div', { style: { height: '10px' } }),
-      el('div', { style: hasPlan ? {} : { opacity: '.5' } },
-        table(['Add-ons w/ base plan', 'Initial', 'Monthly'],
-          // Every add-on row always renders (the base plan's own row, and any
-          // add-on it already covers, just dims — no label, reps know why) so the card never changes height and nothing below it
-          // shifts when a plan is picked (per Isaac).
-          T.addons.map(([id, init, mo], i) => {
-            const isBase = id === st.base;
-            const covered = !isBase && pricingCoveredBy(st.base, id);
-            const on = !isBase && !covered && !!st.addons[id];
-            const row = trow([el('span', { class: 'inline-flex items-center' }, box(on), PRICING_SERVICES[id].label), { v: money(init), muted: !init }, '+' + money(mo)], on, (hasPlan && !isBase && !covered) ? () => { if (on) delete st.addons[id]; else st.addons[id] = true; rerender(); } : null, i);
-            if (isBase || covered) row.style.opacity = '.4';
-            return row;
-          }))),
-      hasPlan ? null : mono('Pick a Home or Yard plan to add these', { size: 8, style: { padding: '0 14px 12px' } }));
-
-    // ── one-time (Standard / Loyalty) ──
-    const oneTimeCard = T.onetime ? card(
-      secH('One-time services', null, el('div', { class: 'inline-flex rounded-full overflow-hidden', style: { border: '1.2px solid ' + C.ink3 } },
-        ...[['new', 'New'], ['current', 'Existing']].map(([v, l]) => el('button', { onclick: () => { st.customer = v; rerender(); }, style: { padding: '3px 10px', font: '500 8.5px/1.4 ' + MONO, letterSpacing: '.1em', textTransform: 'uppercase', background: st.customer === v ? C.orange : 'transparent', color: st.customer === v ? '#fff' : C.char, border: 0, cursor: 'pointer' } }, l)))),
-      table(['Service', 'New', 'Existing'],
-        PRICING_ONETIME.map(([id, label, nw, cur], i) => {
-          const on = !!st.onetime[id];
-          const otp = (v) => v > 0 ? money(v) : 'FREE';
-          return trow([el('span', { class: 'inline-flex items-center' }, box(on), label), { v: otp(nw), muted: st.customer === 'current' }, { v: otp(cur), muted: st.customer !== 'current' }], on, () => { if (on) delete st.onetime[id]; else st.onetime[id] = true; rerender(); }, i);
-        }))) : null;
-
-    // ── bundle & save (informational, computed from this tier's numbers) ──
-    const saveCard = card(
-      secH('Bundle & save', 'Annual savings vs separate'),
-      table(['Plan', '+ TFM', '+ Mole', '+ Rodent'],
-        PRICING_FREQ.map(([k, lbl], i) => trow([lbl, money(pricingSavings(T, 'tfm', i)), money(pricingSavings(T, 'mole', i)), money(pricingSavings(T, 'rodent', i))], false, null, i, '#2F7D32'))));
-
-    // ── trust chips + reviews (D2D sheets) ──
-    const chip = (big, txt, sub) => el('div', { class: 'pricing-chip', style: { background: C.card, border: '1.5px solid ' + C.line, borderRadius: '12px', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '14px', minHeight: '76px', overflow: 'hidden' } },
-      el('div', { class: 'pricing-chip-big', style: { font: '700 ' + (big.length > 2 ? '24px' : '32px') + '/1 ' + SANS, color: C.orange, flexShrink: 0, letterSpacing: '-.02em' } }, big),
-      el('div', { style: { minWidth: 0, flex: '1 1 0' } },   // words wrap whole — never split mid-word (per Isaac)
-        el('div', { class: 'pricing-chip-txt', style: { font: '700 12px/1.2 ' + SANS, color: C.char, textTransform: 'uppercase', letterSpacing: '.01em', overflowWrap: 'normal', wordBreak: 'keep-all', hyphens: 'none' } }, txt),
-        sub ? mono(sub, { size: 8, style: { marginTop: '4px', letterSpacing: '.02em', textTransform: 'none', hyphens: 'none' } }) : null));
-    // Stretches to fill whatever height the add-ons column leaves (per Isaac).
-    const reviews = el('div', { style: { background: C.card, border: '1.5px solid ' + C.line, borderRadius: '12px', padding: '18px 14px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', justifyContent: 'center', flex: '1 1 auto', minHeight: '150px' } },
-      el('span', { style: { width: '40px', height: '40px', borderRadius: '50%', background: C.green, color: C.light, font: '700 22px/40px ' + SANS, display: 'inline-block' } }, 'G'),
-      el('span', { style: { color: C.orange, fontSize: '22px', letterSpacing: '.08em', lineHeight: 1 } }, '★★★★★'),
-      el('b', { style: { font: '700 14px/1.2 ' + SANS, color: C.char } }, 'Over 15,000+ Google Reviews'),
-      mono('5-star rated', { size: 8.5 }));
-
-    // ── the sheet ──
-    // Build a plan ⇄ Price sheet (per Isaac, Nov 23): same quote underneath, two ways to build it.
-    const modeOn = (v) => (st.mode === 'sheet') === (v === 'sheet');
-    const modeBar = el('div', { style: { display: 'flex', gap: '4px', padding: '14px 22px 0' } },
-      ...[['build', 'Build a plan'], ['sheet', 'Price sheet']].map(([v, l]) => el('button', { onclick: () => { st.mode = v; st.cust = false; rerender(); }, 'aria-pressed': modeOn(v) ? 'true' : 'false', style: { font: '600 9px/1 ' + MONO, letterSpacing: '.12em', textTransform: 'uppercase', padding: '7px 11px', borderRadius: '999px', border: '1.2px solid ' + (modeOn(v) ? C.char : C.ink3), background: modeOn(v) ? C.char : 'transparent', color: modeOn(v) ? '#fff' : C.char, cursor: 'pointer' } }, l)));
     const header = el('div', { class: 'flex items-center justify-between gap-3 flex-wrap ps-head', style: { padding: '22px 22px 4px' } },
-      el('div', { class: 'ps-title', style: { font: '800 34px/1 ' + SANS, letterSpacing: '-.015em', color: C.char, textTransform: 'uppercase' } }, st.mode === 'sheet' ? 'Price Sheet' : 'Build a Plan'),
+      el('div', { class: 'ps-title', style: { font: '800 34px/1 ' + SANS, letterSpacing: '-.015em', color: C.char, textTransform: 'uppercase' } }, 'Price Sheet'),
       // Admins get every tier as its own tag (per Isaac); office/loyalty users get one tag with a dropdown;
       // sales reps get a plain D2D label.
       isAdmin
@@ -397,7 +268,7 @@ function viewPricing() {
               tierName(PRICING_TIERS.find(t => t.id === st.tier) || T),
               locked ? null : el('span', { style: { opacity: '.85' } }, '▾'),
               sel)));
-    const headWrap = el('div', {}, modeBar, header);
+    const headWrap = el('div', { style: { paddingTop: '6px' } }, header);
     const footer = el('div', { class: 'flex items-center justify-between', style: { margin: '2px 22px 18px', paddingTop: '12px', borderTop: '1px solid rgba(43,43,41,.25)', color: C.char } },
       el('img', { src: 'ridd-logo.png', alt: 'RIDD', style: { height: '24px', width: 'auto', display: 'block' } }),
       (() => {   // RIDD's mark (the same path the header uses), in ink like the printed sheet
@@ -407,19 +278,6 @@ function viewPricing() {
         pa.setAttribute('d', RIDD_SPIDER_PATH); pa.setAttribute('fill', C.char); sv.append(pa); sv.style.display = 'block';
         return sv;
       })());
-    const board = st.mode !== 'sheet' ? null : el('div', { style: { background: C.page, borderRadius: '14px', overflow: 'hidden', border: '1px solid rgba(43,43,41,.18)', boxShadow: '0 18px 40px -28px rgba(0,0,0,.45)' } },
-      headWrap,
-      el('div', { class: 'flex flex-col gap-3 ps-body', style: { padding: '14px 22px 18px' } },
-        el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))' } }, program(PRICING_PROGRAMS[0]), program(PRICING_PROGRAMS[1])),
-        program(PRICING_PROGRAMS[2]),
-        el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))' } },
-          addonsCard,
-          el('div', { class: 'flex flex-col gap-3' }, oneTimeCard, saveCard, T.onetime ? null : reviews)),
-        // Trust chips — the guarantee goes last: on phones the last chip spans the full width, so its long word
-        // never has to squeeze (per Isaac).
-        T.onetime ? null : el('div', { class: 'grid gap-3 pricing-chips', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' } },
-          chip('🐾', 'Kid & Pet Friendly'), chip('✓', 'Licensed & Insured'), chip('100%', 'Satisfaction Guarantee', 'Backed by unlimited free re\u2011services'))),
-      footer);
 
 
     // ── BUILD A PLAN (per Isaac, Nov 23 — mockup option B): one frequency switch, three packages with one monthly
@@ -427,7 +285,7 @@ function viewPricing() {
     // customer view. Packages are just presets over the same quote (st.base / st.addons / st.termite), so every
     // price comes from this tier's numbers and custom prices / floors behave exactly as on the sheet.
   let builder = null;
-  if (st.mode !== 'sheet') {
+  {
     // Packages (per Isaac, Nov 23): Home (Pest or Rodent), Home + Yard (one Home service + one Yard service — Pest +
     // Tick, Flea & Mosquito picked, Rodent / Mole one tap away), Custom Protection (tap any services on or off) and
     // the Termite Defense contract on its own. Each card's picks live in st.pk; the card's config is a preset over
@@ -438,29 +296,17 @@ function viewPricing() {
     if (!pk.yard) pk.yard = 'tfm';
     if (!pk.hy) pk.hy = { home: 'pest', yard: 'tfm' };
     if (pk.hy.yard === 'mole') pk.hy.yard = 'tfm';   // Mole left the Home + Yard card (it's an extra now)
-    // Custom starts on Pest + Rodent + Tick, Flea & Mosquito; Mole and Seasonal one tap away; Termite rides on top via
-    // the Termite Defense box (per Isaac, Nov 23).
-    if (!pk.custom) pk.custom = { pest: true, rodent: true, tfm: true };
-    delete pk.custom.mole;   // Mole left the Custom card (it's an extra now)
-    const CORE = ['pest', 'rodent', 'tfm', 'mole'];
     const cfgOf = (id) => {
       if (id === 'home') return { id, label: 'Home', custName: 'Home Protection', base: pk.home, addons: [], termite: false };
       // Yard on its own (per Isaac, Nov 23): Tick, Flea & Mosquito or Mole as the plan.
       if (id === 'yard') return { id, label: 'Yard', custName: 'Yard Protection', base: pk.yard, addons: [], termite: false };
       if (id === 'homeyard') return { id, label: 'RIDD Package (Home + Yard)', custName: 'RIDD Package',   // branded RIDD Package (per Isaac, Nov 23)
          base: pk.hy.home, addons: [pk.hy.yard], termite: false, popular: true };
-      if (id === 'custom') {
-        const on = CORE.filter(s => pk.custom[s]);
-        const extra = pk.custom.seasonal && !pk.custom.tfm && on.length ? ['seasonal'] : [];   // Seasonal TFM is an add-on only
-        return { id, label: 'Custom Protection', custName: 'Custom Protection', base: on[0] || null, addons: [...on.slice(1), ...extra], termite: false };
-      }
       if (id === 'termite') return { id, label: 'Termite Defense', custName: 'Termite Defense', base: null, addons: [], termite: true };
       return null;
     };
-    // Custom Protection retired (per Isaac, Nov 23): any custom plan is a base package + extras.
     const PKGS = ['home', 'yard', 'homeyard', 'termite'].map(cfgOf);
     const fiB = Math.max(0, PRICING_FREQ.findIndex(([k]) => k === st.freq));
-    const freqWord = { q: 'every 3 months', b: 'every 2 months', m: 'every month' }[st.freq] || '';
     if (!st.extras) st.extras = {};
     const pkgOf = (id) => cfgOf(id);
     const pkgMo = (c) => pricingQuote(Object.assign({}, st, { base: c.base, addons: Object.fromEntries(c.addons.map(a => [a, true])), termite: c.termite, onetime: {}, custom: {} }));
@@ -469,6 +315,7 @@ function viewPricing() {
     const aloneMo = (id) => { if (!id) return 0; const prog = (PRICING_SERVICES[id] || {}).program; if (prog && T[prog]) return T[prog][fiB]; const a = T.addons.find(x => x[0] === id); return a ? a[2] : 0; };
     const separateMo = (c) => aloneMo(c.base) + c.addons.reduce((a, id) => a + aloneMo(id), 0) + (c.termite ? T.termite[1] : 0);
     const applyPkg = (c) => {
+      st.noPlan = false;
       st.pkg = c.id; st.base = c.base; st.termite = c.termite || !!st.extras.termite;
       st.addons = Object.fromEntries(c.addons.map(a => [a, true]));
       for (const id of Object.keys(st.extras)) if (id !== 'termite' && id !== c.base && !c.addons.includes(id) && (!c.base || !pricingCoveredBy(c.base, id)) && T.addons.some(x => x[0] === id)) st.addons[id] = true;
@@ -493,22 +340,30 @@ function viewPricing() {
       if (nv) st.extras.termite = true; else delete st.extras.termite;
       rerender();
     };
+    // Either/or picks (per Isaac, Nov 24 — "they are choosing THIS or THAT"): the two services sit in one joined
+    // switch with OR between them; the picked half is dark with a check, the other is outlined. Picking one is a swap,
+    // never an add.
+    // `live` = this card is the selected plan. Only then is the pick dark with a check; on the other cards the pick
+    // is just a light fill (per Isaac, Nov 24 — three dark checks read as three plans selected).
+    const choice = (opts, cur, onPick, live) => el('div', { role: 'radiogroup', class: 'ps-choice', style: { display: 'flex', alignItems: 'stretch', width: '100%', maxWidth: '300px', border: '1.3px solid ' + C.ink3, borderRadius: '14px', overflow: 'hidden', background: '#fff' } },
+      ...opts.flatMap(([id, label], i) => {
+        // Only the selected plan shows a pick; every option on the other cards is white and tappable — tapping one
+        // selects that plan with that option (per Isaac, Nov 24: the grey halves couldn't be clicked).
+        const on = live && cur === id;
+        const btn = el('button', { role: 'radio', 'aria-checked': on ? 'true' : 'false', onclick: (e) => { e.stopPropagation(); if (!on) onPick(id); },
+          style: { flex: '1 1 0', minWidth: 0, font: '600 8.5px/1.25 ' + MONO, letterSpacing: '.06em', textTransform: 'uppercase', padding: '6px 8px', border: 0, background: on ? C.char : 'transparent', color: on ? '#fff' : C.ink2, fontWeight: on ? '700' : '600', cursor: on ? 'default' : 'pointer', textAlign: 'center' } },
+          (on ? '\u2713 ' : '') + label);
+        return i === 0 ? [btn] : [el('span', { 'aria-hidden': 'true', style: { font: '700 7.5px/1 ' + MONO, letterSpacing: '.1em', color: C.ink3, display: 'flex', alignItems: 'center', padding: '0 5px', borderLeft: '1px solid ' + C.cream2, borderRight: '1px solid ' + C.cream2, background: C.cream } }, 'OR'), btn];
+      }));
     const pillsFor = (c) => {
-      if (c.id === 'home') return ['pest', 'rodent'].map(s => svcPill(L(s), pk.home === s, pickThen('home', () => { pk.home = s; })));
-      if (c.id === 'yard') return ['tfm', 'mole'].map(s => svcPill(L(s), pk.yard === s, pickThen('yard', () => { pk.yard = s; })));
+      const live = st.pkg === c.id && !!curPkg;
+      if (c.id === 'home') return [choice([['pest', L('pest')], ['rodent', L('rodent')]], pk.home, (s) => pickThen('home', () => { pk.home = s; })(), live)];
+      if (c.id === 'yard') return [choice([['tfm', L('tfm')], ['mole', L('mole')]], pk.yard, (s) => pickThen('yard', () => { pk.yard = s; })(), live)];
       if (c.id === 'homeyard') return [
-        ...['pest', 'rodent'].map(s => svcPill(L(s), pk.hy.home === s, pickThen('homeyard', () => { pk.hy.home = s; }))),
-        el('span', { style: { font: '400 10px/22px ' + MONO, color: C.ink3, padding: '0 2px' } }, '+'),
-        // Yard half: the full Tick, Flea & Mosquito program or the seasonal one (per Isaac, Nov 23). Mole is an add-on
-        // in Add extras, not a yard choice here.
-        ...['tfm', 'seasonal'].map(s => svcPill(s === 'seasonal' ? 'Seasonal TFM' : L(s), pk.hy.yard === s, pickThen('homeyard', () => { pk.hy.yard = s; })))];
-      // Tick, Flea & Mosquito and Seasonal TFM are either/or (the full program covers the season).
-      // Mole is an extra below, not a pill here (per Isaac, Nov 23).
-      if (c.id === 'custom') return ['pest', 'rodent', 'tfm', 'seasonal'].map(s => svcPill(s === 'seasonal' ? 'Seasonal TFM' : L(s), !!pk.custom[s], pickThen('custom', () => {
-        pk.custom[s] = !pk.custom[s];
-        if (pk.custom[s] && s === 'tfm') pk.custom.seasonal = false;
-        if (pk.custom[s] && s === 'seasonal') pk.custom.tfm = false;
-      })));
+        choice([['pest', L('pest')], ['rodent', L('rodent')]], pk.hy.home, (s) => pickThen('homeyard', () => { pk.hy.home = s; })(), live),
+        el('span', { style: { font: '700 11px/1 ' + MONO, color: C.ink2, padding: '0 2px', flexBasis: '100%' } }, '+'),
+        choice([['tfm', L('tfm')], ['seasonal', 'Seasonal TFM']], pk.hy.yard, (s) => pickThen('homeyard', () => { pk.hy.yard = s; })(), live)];
+
       return [svcPill('Termite', !!st.termite, toggleTermite)];
     };
 
@@ -517,8 +372,8 @@ function viewPricing() {
       const pq = empty ? { mo: 0, init: 0, savings: 0 } : pkgMo(c), sep = separateMo(c), save = pq.savings;   // same yearly savings math as the quote (Bundle & Save)
       const isT = c.id === 'termite';
       const on = isT ? !!st.termite : (st.pkg === c.id && !!curPkg);
-      return el('div', { role: 'button', tabindex: '0', onclick: () => { if (isT) return toggleTermite(); if (on) { st.pkg = null; st.base = null; st.addons = {}; rerender(); return; } if (!empty) { applyPkg(c); rerender(); } }, 'aria-pressed': on ? 'true' : 'false', style: { position: 'relative', display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', background: C.card, color: C.char, borderRadius: '10px', padding: '10px 12px', border: on ? '3px solid ' + C.orange : '1.5px solid ' + C.line, boxShadow: on ? '0 10px 22px -14px rgba(217,72,15,.9)' : 'none' } },
-        c.popular ? el('span', { style: { position: 'absolute', top: '-9px', right: '12px', background: C.orange, color: '#fff', font: '700 7.5px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', padding: '4px 8px', borderRadius: '999px' } }, 'Most homeowners pick this' + (on ? ' ✓' : '')) : (on ? el('span', { style: { position: 'absolute', top: '-9px', right: '12px', background: C.char, color: '#fff', font: '700 7.5px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', padding: '4px 8px', borderRadius: '999px' } }, 'Picked ✓') : null),
+      return el('div', { role: 'button', tabindex: '0', onclick: () => { if (isT) return toggleTermite(); if (on) { st.pkg = null; st.base = null; st.addons = {}; st.noPlan = true; rerender(); return; } if (!empty) { applyPkg(c); rerender(); } }, 'aria-pressed': on ? 'true' : 'false', style: { position: 'relative', display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', background: C.card, color: C.char, borderRadius: '10px', padding: '10px 12px', border: on ? '3px solid ' + C.orange : '1.5px solid ' + C.line, boxShadow: on ? '0 10px 22px -14px rgba(217,72,15,.9)' : 'none' } },
+        c.popular ? el('span', { style: { position: 'absolute', top: '-9px', right: '12px', background: C.orange, color: '#fff', font: '700 7.5px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', padding: '4px 8px', borderRadius: '999px' } }, 'Most popular' + (on ? ' ✓' : '')) : (on ? el('span', { style: { position: 'absolute', top: '-9px', right: '12px', background: C.char, color: '#fff', font: '700 7.5px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', padding: '4px 8px', borderRadius: '999px' } }, 'Picked ✓') : null),
         // Compact card (per Isaac, Nov 23): name + service pills on the left; price, then initial · per day, then
         // savings stacked on the right.
         el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' } },
@@ -578,53 +433,40 @@ function viewPricing() {
         el('div', { class: 'ps-extras', style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(165px, 1fr))', gap: '7px' } }, ...EXTRA_ORDER.map(tile)));
     };
 
-    const extrasNames = () => curPkg ? [...Object.keys(st.addons).filter(id => !curPkg.addons.includes(id)).map(id => PRICING_SERVICES[id].label), ...(st.termite && !curPkg.termite ? ['Termite'] : [])] : [];
-    const totalBar = el('div', { style: { background: C.green, color: '#fff', borderRadius: '12px', padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginTop: '14px', opacity: q.ok ? 1 : .55 } },
-      el('div', { style: { minWidth: 0 } },
-        mono(curPkg ? [curPkg.label, ...extrasNames()].join(' + ') : 'Pick a package', { size: 8.5, color: 'rgba(242,241,234,.75)', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }),
-        el('div', { style: { font: '300 28px/1.05 ' + SANS, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums' } }, money(q.mo), el('span', { style: { font: '400 10px/1 ' + MONO } }, '/mo'))),
-      el('div', { style: { textAlign: 'right', flexShrink: 0 } },
-        mono('Today', { size: 8.5, color: 'rgba(242,241,234,.75)' }),
-        el('div', { style: { font: '300 28px/1.05 ' + SANS, fontVariantNumeric: 'tabular-nums' } }, money(q.init))));
-    const showBtn = el('button', { onclick: () => { if (!q.ok) return; st.cust = true; rerender(); window.scrollTo(0, 0); }, style: { display: 'block', width: '100%', marginTop: '10px', background: C.orange, color: '#fff', font: '700 12.5px/1 ' + SANS, textTransform: 'uppercase', letterSpacing: '.06em', borderRadius: '10px', padding: '14px', border: '1.5px solid #9C3209', cursor: q.ok ? 'pointer' : 'not-allowed', opacity: q.ok ? 1 : .55 } }, 'Show customer →');
-
-    // Customer view: one big monthly, the struck-out separate price, daily cost, what's covered, the savings and the
-    // guarantee — no tiers, no minimums, no Ⓜ. The rep can hand the phone over.
-    const customerView = () => {
-      const sep = (curPkg ? separateMo(curPkg) : 0) + (q.mo - (curPkg ? pkgMo(curPkg).mo : 0));
-      const save = q.savings;   // same yearly savings the rep's quote shows
-      const lines = [
-        ...(st.base ? [[PRICING_SERVICES[st.base].label + (PRICING_SERVICES[st.base].program === 'yard' ? ', yard treatment' : ' control, inside + out'), freqWord]] : []),
-        ...Object.keys(st.addons).map(id => [PRICING_SERVICES[id].label, curPkg && curPkg.addons.includes(id) ? freqWord : 'included']),
-        ...(st.termite ? [['Termite Defense', 'yearly']] : []),
-        ['Free re-services between visits', 'unlimited'],
-      ];
-      const row = ([a, b]) => el('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '10px', padding: '9px 0', borderBottom: '1px dashed rgba(0,0,0,.25)' } },
-        el('span', { style: { font: '400 13px/1.2 ' + SANS } }, el('span', { style: { color: C.orange, fontWeight: 900, marginRight: '7px' } }, '✓'), a),
-        el('span', { style: { font: '400 10px/1.2 ' + MONO, color: C.ink2, whiteSpace: 'nowrap' } }, b));
-      return el('div', { style: { background: C.page, borderRadius: '14px', border: '1px solid rgba(43,43,41,.18)', boxShadow: '0 18px 40px -28px rgba(0,0,0,.45)', padding: '18px 20px 20px', textAlign: 'center', color: C.char } },
-        el('button', { onclick: () => { st.cust = false; rerender(); }, style: { display: 'block', marginLeft: 'auto', font: '600 9px/1 ' + MONO, letterSpacing: '.12em', textTransform: 'uppercase', background: 'transparent', border: '1.2px solid ' + C.ink3, borderRadius: '999px', padding: '6px 10px', cursor: 'pointer', color: C.char } }, '← Back to the builder'),
-        el('div', { style: { font: '800 26px/1.1 ' + SANS, textTransform: 'uppercase', marginTop: '10px' } }, (curPkg ? curPkg.custName + (st.termite && !curPkg.termite ? ' + Termite' : '') : (st.termite && !st.base ? 'Termite Defense' : 'Your Plan'))),
-        mono(PRICING_FREQ[fiB][1] + ' service', { size: 9.5, style: { marginTop: '4px' } }),
-        sep > q.mo + 0.5 ? el('div', { style: { font: '400 11px/1 ' + MONO, color: C.ink3, textDecoration: 'line-through', marginTop: '12px' } }, money(sep) + '/mo if bought separately') : null,
-        el('div', { style: { font: '300 68px/1 ' + SANS, letterSpacing: '-.03em', marginTop: '8px', fontVariantNumeric: 'tabular-nums' } }, money(q.mo), el('span', { style: { font: '400 13px/1 ' + MONO, color: C.ink2, letterSpacing: 0 } }, '/mo')),
-        el('div', { style: { font: '400 12px/1.5 ' + MONO, color: C.ink2, marginTop: '6px' } }, 'That’s about ' + perDay(q.mo).replace('/day', ' a day'), el('br'), money(q.init) + ' today to get started'),
-        el('div', { style: { textAlign: 'left', marginTop: '16px', borderTop: '1px dashed rgba(0,0,0,.25)' } }, ...lines.map(row)),
-        el('div', { style: { background: '#EAF4EA', border: '1.5px solid #2F7D32', borderRadius: '10px', padding: '11px', marginTop: '14px', font: '700 12px/1.4 ' + MONO, color: '#2F7D32' } },
-          save > 0 ? 'You keep ' + money(save) + ' a year by bundling' : 'Everything in one plan, one visit schedule',
-          el('div', { style: { fontWeight: 400, fontSize: '10px', marginTop: '3px' } }, '100% satisfaction guarantee · unlimited free re‑services · 15,000+ Google reviews ★★★★★')),
-        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px', paddingTop: '12px', borderTop: '1px solid rgba(43,43,41,.2)' } },
-          el('img', { src: 'ridd-logo.png', alt: 'RIDD', style: { height: '18px', width: 'auto', display: 'block' } }),
-          mono('Kid & pet friendly · licensed & insured', { size: 8.5 })));
+    // One-time services (per Isaac, Nov 24): Standard and Loyalty only — D2D / Ⓜ is the customer-facing door view and
+    // never shows them. New vs Existing customer price; a one-time can be quoted on its own (tap the picked plan off)
+    // or alongside a plan. Same PRICING_ONETIME numbers the old price sheet used.
+    const OT_ICON = { ot_termite: 'M10.5 4a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13M15.3 15.3 20 20', ot_tfm: EXTRA_ICON.tfm, ot_pest: EXTRA_ICON.pest, ot_rodent: EXTRA_ICON.rodent, ot_roach: EXTRA_ICON.roach, ot_flea: EXTRA_ICON.flea,
+      ot_sedan: 'M3 15.5v-3l2-4.5h14l2 4.5v3M3 15.5h18M6.5 15.5v2M17.5 15.5v2M5 12.5h14', ot_suv: 'M3 16v-4l1.5-5h15L21 12v4M3 16h18M6.5 16v2M17.5 16v2M4.5 12h15M12 7v5' };
+    const oneTimeRow = () => {
+      if (!T.onetime) return null;
+      const cur = st.customer === 'current';
+      const otIcon = (id, color) => { const sv = extraIcon('pest', color); sv.firstChild.setAttribute('d', OT_ICON[id] || ''); return sv; };
+      const tile = ([id, label, nw, ex]) => {
+        const on = !!st.onetime[id], price = cur ? ex : nw;
+        return el('button', { onclick: () => { if (on) delete st.onetime[id]; else st.onetime[id] = true; rerender(); }, 'aria-pressed': on ? 'true' : 'false', title: 'New customer ' + (nw ? money(nw) : 'FREE') + ' \u00b7 existing customer ' + (ex ? money(ex) : 'FREE'),
+          style: { display: 'flex', alignItems: 'center', gap: '9px', textAlign: 'left', minWidth: 0, padding: '9px 10px', borderRadius: '10px', cursor: 'pointer', background: on ? C.char : '#fff', color: on ? '#fff' : C.char, border: '1.2px solid ' + (on ? C.char : 'rgba(43,43,41,.22)') } },
+          el('span', { style: { width: '30px', height: '30px', borderRadius: '8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, background: on ? 'rgba(255,255,255,.12)' : C.card } }, otIcon(id, on ? '#fff' : C.green)),
+          el('span', { style: { minWidth: 0, flex: '1 1 auto' } },
+            el('span', { style: { display: 'block', font: '600 11px/1.2 ' + SANS, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, label.replace('Tick, Flea, & Mosquito', 'Tick, Flea & Mosquito')),
+            el('span', { style: { display: 'block', marginTop: '3px', font: '400 9.5px/1 ' + MONO, color: on ? 'rgba(255,255,255,.75)' : C.ink2 } }, price ? money(price) + ' one-time' : 'FREE')),
+          on ? el('span', { style: { font: '900 12px/1 ' + SANS, flexShrink: 0 } }, '\u2713') : null);
+      };
+      const tog = el('div', { style: { display: 'inline-flex', border: '1.2px solid ' + C.ink3, borderRadius: '999px', overflow: 'hidden' } },
+        ...[['new', 'New customer'], ['current', 'Existing']].map(([v, l]) => el('button', { onclick: () => { st.customer = v; rerender(); }, 'aria-pressed': st.customer === v ? 'true' : 'false', style: { padding: '4px 10px', font: '600 8.5px/1.3 ' + MONO, letterSpacing: '.08em', textTransform: 'uppercase', border: 0, background: st.customer === v ? C.char : 'transparent', color: st.customer === v ? '#fff' : C.ink2, cursor: 'pointer' } }, l)));
+      return el('div', {},
+        el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', margin: '16px 0 7px' } }, mono('One-time services', { size: 9 }), tog),
+        el('div', { class: 'ps-extras', style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(165px, 1fr))', gap: '7px' } }, ...PRICING_ONETIME.map(tile)));
     };
 
-    builder = st.cust ? customerView() : el('div', { style: { background: C.page, borderRadius: '14px', overflow: 'hidden', border: '1px solid rgba(43,43,41,.18)', boxShadow: '0 18px 40px -28px rgba(0,0,0,.45)' } },
+    builder = el('div', { style: { background: C.page, borderRadius: '14px', overflow: 'hidden', border: '1px solid rgba(43,43,41,.18)', boxShadow: '0 18px 40px -28px rgba(0,0,0,.45)' } },
       headWrap,
       el('div', { class: 'ps-body', style: { padding: '14px 22px 20px' } },
         mono('How often?', { size: 9, style: { marginBottom: '6px' } }),
         seg,
         el('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '14px' } }, ...PKGS.map(pkgCard)),
         extrasRow(),
+        oneTimeRow(),
         // No running total and no Show customer button (per Isaac, Nov 23) — the receipt alongside covers it.
         el('div', { style: { height: '4px' } })),
       footer);
@@ -666,7 +508,9 @@ function viewPricing() {
       return wrap;
     };
     const rline = (l) => {
-      const editable = !!l.key;
+      // Custom prices are a D2D thing (per Isaac, Nov 24): D2D Pricing and Ⓜ minimums, any line, never under the floor
+      // (the D2D minimum). Standard / Loyalty quotes are list price.
+      const editable = !!l.key && st.tier === 'd2d';
       const editing = editable && editKey === l.key;
       // While editing, the fields drop onto their own full-width row so the
       // service name never gets squeezed (per Isaac).
@@ -686,7 +530,82 @@ function viewPricing() {
     // — no totals block, no Reset (nothing to reset). ~44px instead of ~200.
     const quoteEmpty = el('div', { class: 'pq-card pq-empty mb-3', style: { background: C.cream, color: C.char, borderRadius: '12px', padding: '10px 14px', boxShadow: 'var(--shadow-lg)', border: '1.5px solid ' + C.orange } },
       el('div', { style: { font: '700 10px/1 ' + F, letterSpacing: '.16em', textTransform: 'uppercase', color: C.ink2 } }, tierLabel),
-      el('div', { style: { font: '500 11px/1.3 ' + F, color: C.ink3, textAlign: 'right' } }, 'Nothing selected yet \u00b7 tap a plan below'));
+      el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, el('span', { style: { font: '500 11px/1.3 ' + F, color: C.ink3, textAlign: 'right' } }, 'Nothing selected yet'), st.tier !== 'd2d' ? null : el('button', { onclick: () => openSavedList(), style: { padding: '5px 10px', borderRadius: '999px', border: '1.5px solid ' + C.ink3, background: 'transparent', color: C.char, font: '700 9px/1.2 ' + F, letterSpacing: '.1em', textTransform: 'uppercase', cursor: 'pointer' } }, 'Saved')));
+    // ── Saved quotes (per Isaac, Nov 24): Save quote → type the customer's name → it's on the rep's account
+    // (public.pricing_quotes, db/migrations/20261124_pricing_quotes.sql). Saved opens the list; Open puts the picks back
+    // exactly (tier the user may still see, plan, extras, one-time, custom prices). Admins see every rep's.
+    const SNAP = ['tier', 'min', 'freq', 'base', 'addons', 'termite', 'onetime', 'customer', 'custom', 'pkg', 'pk', 'extras', 'noPlan'];
+    const QS = (state._pricingQuotes = state._pricingQuotes || { rows: null, loading: false, error: null });
+    const loadQuotes = (force) => {
+      if (QS.loading || (QS.rows && !force) || typeof supabase === 'undefined' || !supabase) return;
+      QS.loading = true;
+      Promise.resolve(supabase.from('pricing_quotes').select('id, rep_id, customer_name, tier, initial, monthly, snapshot, created_at').order('created_at', { ascending: false }).limit(300))
+        .then(({ data, error }) => { QS.loading = false; QS.error = error ? error.message : null; QS.rows = error ? [] : (data || []); if (root.isConnected) rerender(); })
+        .catch((e) => { QS.loading = false; QS.error = String((e && e.message) || e); QS.rows = []; });
+    };
+    // D2D only (per Isaac, Nov 24): saved quotes are for sales reps on D2D Pricing / Ⓜ minimums — not Standard / Loyalty.
+    const canSaveQuotes = st.tier === 'd2d';
+    if (canSaveQuotes) loadQuotes();
+    const sBtn = (t, fn, primary) => el('button', { onclick: fn, style: { padding: '6px 12px', borderRadius: '999px', font: '700 9px/1.2 ' + F, letterSpacing: '.1em', textTransform: 'uppercase', cursor: 'pointer', border: '1.5px solid ' + (primary ? C.orange : C.ink3), background: primary ? C.orange : 'transparent', color: primary ? '#fff' : C.char, whiteSpace: 'nowrap' } }, t);
+    const saveQuote = async (name) => {
+      const nm = String(name || '').trim().slice(0, 120); if (!nm) return;
+      const snapshot = JSON.parse(JSON.stringify(Object.fromEntries(SNAP.map(k => [k, st[k]]))));
+      const { error } = await supabase.from('pricing_quotes').insert({ rep_id: state.profile.id, customer_name: nm, tier: st.tier === 'd2d' && st.min ? 'd2d_min' : st.tier, initial: q.init, monthly: q.mo, snapshot });
+      if (error) { if (typeof toast === 'function') toast('Couldn\u2019t save the quote: ' + error.message, 'error'); return; }
+      st.qSaving = false; if (typeof toast === 'function') toast('Quote saved for ' + nm, 'success');
+      loadQuotes(true); rerender();
+    };
+    const openQuote = (row) => {
+      const sn = row.snapshot || {};
+      for (const k of SNAP) { if (sn[k] === undefined) delete st[k]; else st[k] = JSON.parse(JSON.stringify(sn[k])); }
+      if (!pricingTierChoices(state.profile).includes(st.tier)) { st.tier = pricingDefaultTier(state.profile); st.min = false; st.custom = {}; }
+      editKey = null; st.qItems = true; rerender();
+    };
+    const openSavedList = () => {
+      const overlay = el('div', { class: 'modal-overlay' });
+      const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+      const onKey = (e) => { if (e.key === 'Escape') close(); };
+      document.addEventListener('keydown', onKey); overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+      const TL = { d2d: 'D2D', d2d_min: 'D2D min', standard: 'Standard', loyalty: 'Loyalty' };
+      const who = (id) => { const p = (state.allProfiles || []).find(x => x.id === id); return p ? p.full_name : ''; };
+      const body = el('div', {});
+      let find = '';
+      const paint = () => {
+        const rows = (QS.rows || []).filter(r => !find || String(r.customer_name).toLowerCase().includes(find));
+        body.replaceChildren(...(rows.length ? rows.map(r => el('div', { class: 'flex items-center gap-3 px-4 py-2.5 border-t', style: { borderColor: 'var(--border)' } },
+          el('div', { class: 'flex-1 min-w-0' },
+            el('div', { class: 'font-semibold text-sm truncate' }, r.customer_name),
+            el('div', { class: 'text-[11px] tabular-nums', style: { color: 'var(--text-muted)' } }, [new Date(r.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), TL[r.tier] || r.tier, money(Number(r.initial) || 0) + ' initial \u00b7 ' + money(Number(r.monthly) || 0) + '/mo', r.rep_id !== state.profile.id ? who(r.rep_id) : ''].filter(Boolean).join(' \u00b7 '))),
+          el('button', { class: 'rounded-lg px-3 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => { close(); openQuote(r); } }, 'Open'),
+          el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Remove this saved quote', onclick: async (e) => {
+            const b = e.currentTarget; if (b.dataset.sure !== '1') { b.dataset.sure = '1'; b.textContent = 'Sure?'; return; }
+            const { error } = await supabase.from('pricing_quotes').delete().eq('id', r.id);
+            if (error) { if (typeof toast === 'function') toast('Couldn\u2019t remove it: ' + error.message, 'error'); return; }
+            QS.rows = (QS.rows || []).filter(x => x.id !== r.id); paint(); rerender(); } }, 'Remove')))
+          : [el('div', { class: 'px-4 py-8 text-center text-sm', style: { color: 'var(--text-muted)' } }, QS.error ? 'Saved quotes aren\u2019t available yet (' + QS.error + ')' : find ? 'No saved quote matches.' : 'No saved quotes yet.')]));
+      };
+      paint();
+      overlay.append(el('div', { class: 'card', style: { width: 'min(560px, 96vw)', maxHeight: '80vh', display: 'flex', flexDirection: 'column', margin: '8vh auto 0' }, onclick: (e) => e.stopPropagation() },
+        el('div', { class: 'flex items-center gap-3 px-4 py-3' },
+          el('h3', { class: 'text-base font-bold flex-1' }, 'Saved quotes'),
+          el('input', { type: 'search', placeholder: 'Search name', class: 'rounded-lg border px-2.5 py-1 text-[12px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '150px' }, oninput: (e) => { find = String(e.target.value || '').trim().toLowerCase(); paint(); } }),
+          el('button', { class: 'text-2xl leading-none px-1', style: { color: 'var(--text-muted)' }, 'aria-label': 'Close', onclick: close }, '\u00d7')),
+        el('div', { style: { overflow: 'auto' } }, body)));
+      document.body.append(overlay);
+    };
+    const saveRow = () => {
+      if (!canSaveQuotes) return null;
+      const n = (QS.rows || []).length;
+      if (st.qSaving) {
+        const inp = el('input', { type: 'text', placeholder: 'Customer name', maxlength: 120, style: { flex: '1 1 120px', minWidth: 0, padding: '6px 10px', borderRadius: '8px', border: '1.5px solid ' + C.ink3, background: '#fff', color: C.char, font: '600 12px/1.2 ' + F } });
+        inp.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); saveQuote(inp.value); } else if (e.key === 'Escape') { st.qSaving = false; rerender(); } };
+        setTimeout(() => inp.focus(), 0);
+        return el('div', { style: { display: 'flex', gap: '6px', alignItems: 'center', marginTop: '10px', flexWrap: 'wrap' } }, inp, sBtn('Save', () => saveQuote(inp.value), true), sBtn('Cancel', () => { st.qSaving = false; rerender(); }));
+      }
+      return el('div', { style: { display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'space-between', marginTop: '10px' } },
+        q.ok ? sBtn('Save quote', () => { st.qSaving = true; rerender(); }, true) : el('span', {}),
+        sBtn('Saved' + (n ? ' (' + n + ')' : ''), openSavedList));
+    };
     // Receipt (per Isaac, Nov 24 — mobile recording): totals FIRST — initial · monthly · savings / yr — and the items in
     // the package BELOW them, folded away until the totals are tapped. Same on desktop. The card no longer swaps to a
     // one-line bar on scroll: that swap changed the sticky block's height mid-scroll and made the page jump.
@@ -711,8 +630,11 @@ function viewPricing() {
     const quoteFull = el('div', { class: 'pq-card mb-3', style: { background: C.cream, color: C.char, borderRadius: '12px', padding: '10px 12px', boxShadow: 'var(--shadow-lg)', border: '1.5px solid ' + C.orange } },
       el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '6px' } },
         el('div', { style: { font: '700 10px/1 ' + F, letterSpacing: '.16em', textTransform: 'uppercase', color: C.ink2 } }, 'Quote · ' + (st.tier === 'd2d' ? (st.min ? 'D2D minimums' : 'D2D') : T.label)),
-        el('button', { style: { padding: '5px 12px', borderRadius: '999px', border: '1.5px solid ' + C.ink3, background: 'transparent', color: C.char, font: '700 9px/1.2 ' + F, letterSpacing: '.1em', textTransform: 'uppercase', cursor: 'pointer' }, onclick: () => { st.base = null; st.addons = {}; st.onetime = {}; st.termite = false; st.custom = {}; editKey = null; rerender(); } }, 'Reset')),
-      strip, itemsToggle, items);
+        el('button', { style: { padding: '5px 12px', borderRadius: '999px', border: '1.5px solid ' + C.ink3, background: 'transparent', color: C.char, font: '700 9px/1.2 ' + F, letterSpacing: '.1em', textTransform: 'uppercase', cursor: 'pointer' }, onclick: () => {
+          // Reset = the default start (per Isaac, Nov 24): RIDD Package with Pest + Tick, Flea & Mosquito, Bi-Monthly, nothing extra. The tier (and Ⓜ) stays where it is.
+          st.pkg = 'homeyard'; st.pk = { home: 'pest', yard: 'tfm', hy: { home: 'pest', yard: 'tfm' } }; st.base = 'pest'; st.addons = { tfm: true }; st.extras = {}; st.onetime = {}; st.termite = false; st.custom = {};
+          st.noPlan = false; st.freq = 'b'; st.customer = 'new'; st.qItems = false; st.qSaving = false; editKey = null; rerender(); } }, 'Reset')),
+      strip, itemsToggle, items, saveRow());
 
     const quote = q.empty ? quoteEmpty : quoteFull;
     // Picker + quote ride together as one sticky block pinned right under
@@ -726,11 +648,11 @@ function viewPricing() {
     // Offset = the MEASURED header (--hdr-h, set by mountApp; safe-area and
     // banner included) so the quote never tucks under it; 60px was a guess.
     const top = el('div', { class: 'pricing-quote', style: { position: 'sticky', top: 'var(--hdr-h, calc(60px + env(safe-area-inset-top, 0px) + var(--nv-banner, 0px)))', zIndex: 5, background: 'var(--bg)' } }, quote);
-    const page = board || builder;
+    const page = builder;
     page.classList.add('pricing-board');
     quote.style.position = ''; quote.style.top = ''; quote.style.zIndex = '';
     // The customer view hides the rep's receipt (custom prices, floors, tiers) — the phone can be handed over.
-    if (builder && st.cust) root.replaceChildren(page); else root.replaceChildren(top, page);
+    root.replaceChildren(top, page);
     _pqTop = top;
   };
   let _pqTop = null;

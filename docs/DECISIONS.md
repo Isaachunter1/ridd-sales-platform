@@ -78,3 +78,51 @@ account becomes payable (auto-approve → Commissionable / Below Minimums) when 
 flag on it in FieldRoutes; no waiting on the service or a payment. Office Staff only: Sales Reps and Technicians
 are untouched (another developer owns them). Renewals keep their rule (next service or next paid bill). Add-ons and renewals stay out of the Passed Audit %. Pre-service cancels before payroll still come
 off; after payroll they're a chargeback.
+
+## 2026-11-24 — Add-ons count as new sales from Jan 1 2027 (NOT BUILT YET)
+Per Isaac: add-ons in their new form (FieldRoutes ticket items — Office Staff is mostly on it already) count as new
+sales for every rep type starting 2027-01-01. Nothing counts them yet: "new sales" on Overview (branch scorecard),
+Marketing and the leaderboards still reads subscriptions only. Which screens and whether they count as a sale, as
+revenue, or both is to be confirmed before any number changes.
+
+## 2026-11-24 — Market Watch: RIDD P&L lines mapped to the public companies' categories
+Per Isaac: COGS is tech wages, auto and fuel, and product; operating expenses are marketing, office and
+sales-related costs (commissions included); adjusted EBITDA adds back every sales-related expense,
+housing and door-to-door commissions included.
+Market Watch uses the P&L tab's own QuickBooks grouping (putisClassify / putisDerive), last 12 closed months:
+cost of services = QuickBooks COGS (merchant fees included, as QuickBooks books them);
+selling & marketing = Advertising & Marketing + Selling Expenses + Incentive Costs + Housing;
+"EBITDA before selling costs" = EBITDA + that selling & marketing total.
+OPEN: the P&L tab's "Adjusted EBITDA" adds back commissions + marketing + incentives but NOT housing.
+Not changed — waiting on Isaac. Admin only; a Developer sees "admin only", never sample or real numbers.
+
+## 2026-11-24 — Market Watch simplified; Rollins is the benchmark
+Per Isaac: lead with what moves the business, Rollins as the benchmark, plus its share price and next earnings date.
+Page order: share price + next earnings, RIDD vs Rollins (first 9 months of 2026 vs RIDD's last 12 closed months),
+What to act on (Rollins' own statements with a question for RIDD — suggestions, not findings), then the old tables folded away.
+Share price comes from a new function, /api/market-quote (fixed symbol ROL, public data, no secrets). NOT TESTED against
+the live sources from the build machine (network blocked) — if both sources fail the card shows a link instead of a number.
+Next earnings date is not announced; the page says "Mid-February 2027" as expected from the last three Q4 calls. Set
+MARKET_WATCH.nextEarnings.date when Rollins announces it.
+
+## 2026-11-24 — Owner layout / admin settings no longer lost on a save conflict
+Card and column orders "kept moving back": when another browser saved the shared config first, the conflict handler adopted
+the server copy and replayed only tier tags and team renames. Admin rules set just before the conflict are now replayed too.
+
+## 2026-11-24 — Auditing tasks: three sections, merged families, new checks
+Per Isaac's review of the task list. Presentation: Affects pay / Affects billing or the customer / Affects reporting;
+same-job tasks sit under one row (Wrong office, Renewals, Sold never serviced, Attribution, Below minimum). Every
+member keeps its own key and accounts. Cancellation opens split by the rule broken. Marketing data diagnostics card removed.
+New checks and their rules:
+- Passed audit: Office Staff sale flagged Passed Audit, not yet paid, account not on autopay.
+- Below minimum (Office Staff): unpaid sales the existing pricing check marked (sales.crm_below_min) — no new floor invented.
+- Below minimum (Technician): a technician's sale this year of the customer's FIRST plan with a free initial. Isaac: technicians
+  may give an add-on a free initial, not a normal service type; Sales Reps may sell a $1 initial (so no initial check for them).
+  "Add-on" is read as "the customer already had a plan" — CONFIRM with Isaac.
+- Autopay: active recurring plan not on autopay.
+- Not serviced: active plan, no completed service in more than 2x its frequency; mosquito/seasonal and custom frequencies left out.
+- Agreement: "sent" under 7 days old is no longer a task unless an initial is booked (7 days is our threshold, not Isaac's).
+Not built: seller with no app account (Isaac: not needed here); recurring price vs the Price Sheet floor beyond the existing
+pricing check; Sold By changed after the sale (the change log only records service and term changes — needs the sync extended).
+Sales Rep Audit Report: Pending no longer counts anything never serviced that was sold 30+ days ago (Isaac: those are deleted
+accounts). Team-colour row wash removed; red is the only cell colour, with a legend. Table scrolls one direction at a time.
