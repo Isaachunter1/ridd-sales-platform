@@ -602,7 +602,7 @@ function reportingGeographic() {
               const rated = s.subs >= floor;
               const v = isRetention ? (1 - s.cancelRate) : s.cancelRate;
               return el('tr', {
-                class: 'border-t tabular-nums' + ((s.rows || []).length ? ' cursor-pointer hover:brightness-95 transition' : ''),
+                class: 'border-t tabular-nums' + ((s.rows || []).length ? ' cursor-pointer' : ''),
                 style: { borderColor: 'var(--border)' },
                 // Click = the accounts in the row (per Isaac, Oct 14 — e.g. fix the "AC" / "AA" state codes in FieldRoutes).
                 title: (s.rows || []).length ? 'Show the ' + (s.rows || []).length.toLocaleString() + ' subscriptions in ' + s.name : '',
