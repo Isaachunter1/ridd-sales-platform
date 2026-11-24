@@ -717,13 +717,16 @@ function reportingOverview() {
             fill: { target: 2, above: 'rgba(22,163,74,.10)', below: 'rgba(220,38,38,.12)' } },
           { type: 'bar', label: unitSubs ? 'Serviced' : 'Serviced (new ARR)', data: serviced, backgroundColor: C.svc, borderWidth: 0, order: 3 },
           { type: 'line', label: unitSubs ? 'Churned' : 'Churned (ARR)', data: churned, borderColor: C.cxl, backgroundColor: C.cxl, borderWidth: 2.5, tension: 0.3, pointRadius: 2, order: 2, fill: false },
+          // Net book change (per Isaac, Nov 24): serviced − churned for each bar — above zero the book grew that
+          // period, below zero it shrank. Dashed ink line; the same number the tooltip footer already gave.
+          { type: 'line', label: 'Net (serviced \u2212 churned)', data: serviced.map((v, i) => (Number(v) || 0) - (Number(churned[i]) || 0)), borderColor: txt, backgroundColor: txt, borderWidth: 1.8, borderDash: [5, 4], tension: 0.3, pointRadius: 0, order: 0, fill: false },
         ] },
         options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
           onClick: (evt, els) => {
             if (!els || !els.length) return;
             const i = single ? 0 : els[0].index, dsi = els[0].datasetIndex;
             if (!soldRows[i].length && !svcRows[i].length && !cxlRows[i].length) return;
-            openPulseDayDrill(lbl[i], longDate(i), { sold: soldRows[i], svc: svcRows[i], cxl: cxlRows[i] }, dsi === 0 ? 'sold' : dsi === 1 ? 'svc' : 'cxl');
+            openPulseDayDrill(lbl[i], longDate(i), { sold: soldRows[i], svc: svcRows[i], cxl: cxlRows[i] }, dsi === 0 ? 'sold' : dsi === 2 ? 'cxl' : 'svc');
           },
           plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 } } },
             tooltip: { callbacks: {
@@ -734,7 +737,7 @@ function reportingOverview() {
               // book actually gained — sold-but-not-started isn't in the book yet.
               footer: (items) => { const i = items && items[0] ? items[0].dataIndex : -1; if (i < 0) return ''; const n = (Number(dsSvc[i]) || 0) - (Number(dsCxl[i]) || 0); return ' Net (serviced − churned): ' + (n < 0 ? '−' : '') + (unitSubs ? '' : '$') + Math.round(Math.abs(n)).toLocaleString(); } } } },
           scales: { x: { ticks: { color: txt, maxTicksLimit: span > 30 ? 15 : 31 }, grid: { display: false } },
-                    y: { beginAtZero: true, ticks: { color: txt, callback: v => unitSubs ? v : (Math.abs(v) >= 1e6 ? '$' + (Math.round(v / 1e5) / 10).toString().replace(/\.0$/, '') + 'M' : Math.abs(v) >= 1000 ? '$' + Math.round(v / 1000) + 'k' : '$' + v) }, grid: { color: grid } } } },
+                    y: { beginAtZero: true, ticks: { color: txt, callback: v => { if (unitSubs) return v; const a = Math.abs(v), sg = v < 0 ? '\u2212' : ''; return sg + (a >= 1e6 ? '$' + (Math.round(a / 1e5) / 10).toString().replace(/\.0$/, '') + 'M' : a >= 1000 ? '$' + Math.round(a / 1000) + 'k' : '$' + a); } }, grid: { color: grid } } } },
       });
     }, 50);
     // The three headline numbers open the same drill for the WHOLE window

@@ -1323,3 +1323,4 @@ input[type=checkbox] { border-radius: 4px; }
 @media (max-width: 640px) {
   a[href^="tel:"] { display: inline-flex; align-items: center; min-height: 40px; padding: 0 6px; margin: -8px -6px; }
 }
+@media (max-width: 640px) { .office-pipe { grid-template-columns: 1fr 1fr !important; } }
