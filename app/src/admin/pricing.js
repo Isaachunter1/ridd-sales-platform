@@ -494,15 +494,25 @@ function viewPricing() {
       if (nv) st.extras.termite = true; else delete st.extras.termite;
       rerender();
     };
+    // Either/or picks (per Isaac, Nov 24 — "they are choosing THIS or THAT"): the two services sit in one joined
+    // switch with OR between them; the picked half is dark with a check, the other is outlined. Picking one is a swap,
+    // never an add.
+    const choice = (opts, cur, onPick) => el('div', { role: 'radiogroup', class: 'ps-choice', style: { display: 'flex', alignItems: 'stretch', width: '100%', maxWidth: '300px', border: '1.3px solid ' + C.ink3, borderRadius: '14px', overflow: 'hidden', background: '#fff' } },
+      ...opts.flatMap(([id, label], i) => {
+        const on = cur === id;
+        const btn = el('button', { role: 'radio', 'aria-checked': on ? 'true' : 'false', onclick: (e) => { e.stopPropagation(); if (!on) onPick(id); },
+          style: { flex: '1 1 0', minWidth: 0, font: '600 8.5px/1.25 ' + MONO, letterSpacing: '.06em', textTransform: 'uppercase', padding: '6px 8px', border: 0, background: on ? C.char : 'transparent', color: on ? '#fff' : C.ink2, cursor: on ? 'default' : 'pointer', textAlign: 'center' } },
+          (on ? '\u2713 ' : '') + label);
+        return i === 0 ? [btn] : [el('span', { 'aria-hidden': 'true', style: { font: '700 7.5px/1 ' + MONO, letterSpacing: '.1em', color: C.ink3, display: 'flex', alignItems: 'center', padding: '0 5px', borderLeft: '1px solid ' + C.cream2, borderRight: '1px solid ' + C.cream2, background: C.cream } }, 'OR'), btn];
+      }));
     const pillsFor = (c) => {
-      if (c.id === 'home') return ['pest', 'rodent'].map(s => svcPill(L(s), pk.home === s, pickThen('home', () => { pk.home = s; })));
-      if (c.id === 'yard') return ['tfm', 'mole'].map(s => svcPill(L(s), pk.yard === s, pickThen('yard', () => { pk.yard = s; })));
+      if (c.id === 'home') return [choice([['pest', L('pest')], ['rodent', L('rodent')]], pk.home, (s) => pickThen('home', () => { pk.home = s; })())];
+      if (c.id === 'yard') return [choice([['tfm', L('tfm')], ['mole', L('mole')]], pk.yard, (s) => pickThen('yard', () => { pk.yard = s; })())];
       if (c.id === 'homeyard') return [
-        ...['pest', 'rodent'].map(s => svcPill(L(s), pk.hy.home === s, pickThen('homeyard', () => { pk.hy.home = s; }))),
-        el('span', { style: { font: '400 10px/22px ' + MONO, color: C.ink3, padding: '0 2px' } }, '+'),
-        // Yard half: the full Tick, Flea & Mosquito program or the seasonal one (per Isaac, Nov 23). Mole is an add-on
-        // in Add extras, not a yard choice here.
-        ...['tfm', 'seasonal'].map(s => svcPill(s === 'seasonal' ? 'Seasonal TFM' : L(s), pk.hy.yard === s, pickThen('homeyard', () => { pk.hy.yard = s; })))];
+        choice([['pest', L('pest')], ['rodent', L('rodent')]], pk.hy.home, (s) => pickThen('homeyard', () => { pk.hy.home = s; })()),
+        el('span', { style: { font: '700 11px/1 ' + MONO, color: C.ink2, padding: '0 2px', flexBasis: '100%' } }, '+'),
+        choice([['tfm', L('tfm')], ['seasonal', 'Seasonal TFM']], pk.hy.yard, (s) => pickThen('homeyard', () => { pk.hy.yard = s; })())];
+
       // Tick, Flea & Mosquito and Seasonal TFM are either/or (the full program covers the season).
       // Mole is an extra below, not a pill here (per Isaac, Nov 23).
       if (c.id === 'custom') return ['pest', 'rodent', 'tfm', 'seasonal'].map(s => svcPill(s === 'seasonal' ? 'Seasonal TFM' : L(s), !!pk.custom[s], pickThen('custom', () => {

@@ -367,6 +367,7 @@
      past the quote collapses it to a one-line sticky bar (tap to expand). */
   .ps-tl-short { display: none; }
   .pq-strip { -webkit-tap-highlight-color: transparent; }
+  .ps-choice { max-width: 100%; }
   @media (max-width: 639px) { .ps-tl-full { display: none; } .ps-tl-short { display: inline; } }
   .pricing-quote .pq-empty { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
   /* Phones: program tiles 2×2 instead of four across; quote totals stack. */
