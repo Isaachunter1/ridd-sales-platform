@@ -1044,13 +1044,22 @@ function reportingWaterfall() {
     for (const v of [0, 0.25, 0.5, 0.75, 1]) { add('line', { x1: L, x2: W - R, y1: sy(v), y2: sy(v), stroke: 'var(--border)', 'stroke-width': 1 }); add('text', { x: L - 6, y: sy(v) + 3, 'text-anchor': 'end', 'font-size': 10, fill: 'var(--text-muted)' }, Math.round(v * 100) + '%'); }
     for (const m of [0, 3, 6, 12, 18, 24, 30, 36]) { add('line', { x1: sx(m), x2: sx(m), y1: sy(0), y2: sy(0) + 4, stroke: 'var(--border-2)', 'stroke-width': 1 }); add('text', { x: sx(m), y: H - 10, 'text-anchor': 'middle', 'font-size': 10, fill: 'var(--text-muted)' }, m ? m + ' mo' : 'Start'); }
     add('line', { x1: sx(12), x2: sx(12), y1: T, y2: sy(0), stroke: 'var(--border-2)', 'stroke-width': 1, 'stroke-dasharray': '3 4' });
+    const ends = [];
     series.forEach((s, i) => {
       const col = PAL[i % PAL.length];
       add('path', { d: s.pts.map(([m, v], k) => (k ? 'L' : 'M') + sx(m).toFixed(1) + ' ' + sy(v).toFixed(1)).join(' '), fill: 'none', stroke: col, 'stroke-width': i === 0 ? 2.6 : 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' });
       const [lm, lv] = s.pts[s.pts.length - 1];
-      add('circle', { cx: sx(lm), cy: sy(lv), r: 3, fill: col });
-      add('text', { x: sx(lm) + 7, y: sy(lv) + 3.5, 'font-size': 10.5, 'font-weight': 700, fill: col, stroke: 'var(--card)', 'stroke-width': 3, 'paint-order': 'stroke' }, s.y + ' · ' + Math.round(lv * 100) + '%');
+      ends.push({ x: sx(lm), y: sy(lv), col, mid: lm < MAXM, text: s.y + ' · ' + Math.round(lv * 100) + '%' });
       for (const [m, v] of s.pts) { if (!m || m % 3) continue; const c = add('circle', { cx: sx(m), cy: sy(v), r: 6, fill: 'transparent' }); const t = document.createElementNS(NS, 'title'); t.textContent = s.y + ' starts · ' + (v * 100).toFixed(1) + '% still here at ' + m + ' months'; c.append(t); }
+    });
+    // End labels go on last, above every line, so no curve runs through them. A curve that stops mid-chart gets its
+    // label above its last point (other years keep running to the right of it); labels that would touch are spread apart.
+    ends.forEach(e => { e.lx = e.x + 7; e.ly = e.mid ? e.y - 9 : e.y + 3.5; });
+    const sortedEnds = ends.slice().sort((a, b2) => a.ly - b2.ly);
+    for (let pass = 0; pass < 6; pass++) for (let k = 1; k < sortedEnds.length; k++) { const a = sortedEnds[k - 1], b2 = sortedEnds[k]; if (Math.abs(a.lx - b2.lx) < 66 && b2.ly - a.ly < 12) { const push = (12 - (b2.ly - a.ly)) / 2; a.ly -= push; b2.ly += push; } }
+    ends.forEach(e => {
+      add('circle', { cx: e.x, cy: e.y, r: 3.2, fill: e.col, stroke: 'var(--card)', 'stroke-width': 1.5 });
+      add('text', { x: e.lx, y: Math.max(T + 8, e.ly), 'font-size': 10.5, 'font-weight': 700, fill: e.col, stroke: 'var(--card)', 'stroke-width': 4, 'stroke-linejoin': 'round', 'paint-order': 'stroke' }, e.text);
     });
     const at = (s, m) => { const p = s.pts.find(x => x[0] === m); return p ? (p[1] * 100).toFixed(0) + '%' : '—'; };
     return el('div', { class: 'card overflow-hidden' },
@@ -2450,19 +2459,104 @@ function reportingWaterfall() {
         .map(x => rowT([x.k, fmt.int(x.n), P(x.sa), P(x.so), el('span', { style: { color: x.d > 0 ? '#DC2626' : '#15803D', fontWeight: '700' } }, pts(x.d), bar(x.d))]));
       const traitRows = traits.map(t => rowT([t.label, P(t.a), P(t.o), '', el('span', { style: { color: Math.abs(t.d) < 0.02 ? 'var(--text-muted)' : t.d > 0 ? '#B45309' : '#1D4ED8', fontWeight: '700' } }, pts(t.d))]))
         .concat([rowT(['Average ARR', fmt.usd0(arv(b)), fmt.usd0(arv(rest)), '', ''])]);
-      return el('div', { class: 'rounded-xl p-4', style: { background: 'var(--card-2)' } },
-        el('div', { class: 'text-sm font-bold' }, 'Month ' + i + ' of customer life: ' + fmt.int(b.length) + ' cancels \u00b7 ' + P(b.length / rowsL.length) + ' of all cancels \u00b7 '
-          + (avgMonth ? (b.length / avgMonth).toFixed(1) + '\u00d7 an average month' : '')),
-        el('ul', { class: 'mt-2 text-[12px] flex flex-col gap-1', style: { listStyle: 'disc', paddingLeft: '18px' } }, ...say.map(t => el('li', {}, t))),
-        H('Why they left \u00b7 reasons vs every other month'),
+      // ── The story (per Isaac, Nov 24 — "what decisions do I need to make for the months where we have drop-off, and
+      // are there trends"): what is driving this month, whether it is getting better or worse by start year, the plays
+      // the data points to, and the active customers walking into this month right now. The comparison tables stay,
+      // folded under "The detail".
+      const bookAll = _retenEff(popA);
+      const dayOf = (r) => r.sold_date ? Math.round(((r._effCancel ? new Date(r._effCancel) : new Date()) - new Date(r.sold_date)) / 86400000) : null;
+      const arrSum = (rows) => rows.reduce((t, r) => t + (Number(r.annual_recurring_value) || 0), 0);
+      // Trend: of the customers from each start year who REACHED this month of life, the share who cancelled in it.
+      const byYear = new Map();
+      for (const r of bookAll) {
+        if (!r.sold_date) continue; const y = new Date(r.sold_date).getFullYear(); if (!(y > 2000)) continue;
+        const d = dayOf(r); if (d == null || d < 0) continue;
+        const g = byYear.get(y) || byYear.set(y, { y, risk: 0, lost: 0 }).get(y);
+        if (r._effCancel) { if (d >= i * 30) { g.risk++; if (d < (i + 1) * 30) g.lost++; } }
+        else if (d >= (i + 1) * 30) g.risk++;   // still active and already past this month
+      }
+      const trend = [...byYear.values()].filter(g => g.risk >= 200).sort((a, b2) => a.y - b2.y).slice(-4).map(g => Object.assign(g, { rate: g.lost / g.risk }));
+      const tFirst = trend[0], tLast = trend[trend.length - 1];
+      const tDelta = trend.length >= 2 ? tLast.rate - trend[trend.length - 2].rate : null;
+      const verdict = tDelta == null ? null : Math.abs(tDelta) < 0.002 ? ['Holding steady', 'var(--text-muted)'] : tDelta > 0 ? ['Getting worse', '#DC2626'] : ['Getting better', '#15803D'];
+      // Walking into this month now: active customers whose life is in the month before it or in it.
+      const nowIn = bookAll.filter(r => !r._effCancel && r.sold_date && /active/i.test(String(r.subscription_status || '')) && (() => { const d = dayOf(r); return d >= (i - 1) * 30 && d < (i + 1) * 30; })());
+      const owes = (r) => (Number(r.responsible_balance) || 0) > 0;
+      const nowOwe = nowIn.filter(owes), nowNoAp = nowIn.filter(r => !isAp(r));
+      // When in the year these cancels land (the busiest three-month stretch).
+      const MN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const cal = new Array(12).fill(0); b.forEach(r => { const m = new Date(r._effCancel).getMonth(); if (m >= 0) cal[m]++; });
+      let season = { s: 0, n: 0 }; for (let m = 0; m < 12; m++) { const n3 = cal[m] + cal[(m + 1) % 12] + cal[(m + 2) % 12]; if (n3 > season.n) season = { s: m, n: n3 }; }
+      const seasonShare = b.length ? season.n / b.length : 0, seasonLbl = MN[season.s] + '–' + MN[(season.s + 2) % 12];
+      // Plays the data points to (suggestions — each one says what triggered it).
+      const T = (label) => traits.find(t => t.label === label) || { a: 0, o: 0, d: 0 };
+      const R = (re) => rs.find(x => re.test(x.k));
+      const plays = [];
+      const rDel = R(/delinq|collect|non.?pay/i);
+      if (rDel && rDel.sa >= 0.25) plays.push({ t: 'Catch missed payments before they become cancels',
+        why: fmt.int(rDel.n) + ' of the ' + fmt.int(b.length) + ' cancels here (' + P(rDel.sa) + ') are ' + rDel.k + ' — ' + (rDel.d > 0.03 ? pts(rDel.d) + ' above other months. ' : '') + P(T('Still owes a balance').a) + ' still owe a balance, and ' + P(T('On autopay').a) + ' were on autopay, so most of them had a card on file that stopped working.',
+        decide: 'Non-payment starts before the cancel date, so the save window is month ' + Math.max(1, i - 3) + '–' + Math.max(1, i - 1) + ' of life: a call or text at the first failed payment with a card-update link, and a set rule for when service pauses.' });
+      if (T('Door-to-door sale').a >= 0.75 && seasonShare >= 0.45) plays.push({ t: 'Give door-to-door customers a reason to stay through ' + seasonLbl,
+        why: P(T('Door-to-door sale').a) + ' of these cancels were door-to-door sales and ' + P(seasonShare) + ' of them landed in ' + seasonLbl + ' — month ' + i + ' of a summer sale falls there.',
+        decide: 'Plan a touch before ' + MN[season.s] + ' for accounts sold the previous summer: what the off-season service covers, and an option to pause instead of cancel.' });
+      if (i < 11 && T('Left inside their contract').a >= 0.8) plays.push({ t: 'Decide how mid-contract exits are handled',
+        why: P(T('Left inside their contract').a) + ' of these customers left inside their agreement' + (T('18–24+ month contract').d > 0.05 ? ', and 18–24 month contracts are over-represented (' + P(T('18–24+ month contract').a) + ' vs ' + P(T('18–24+ month contract').o) + ' in other months) — the longer term is not holding them' : '') + '.',
+        decide: 'Whether the early-cancel terms are enforced, offered as a save (downgrade or pause), or waived — and that the office applies it the same way every time.' });
+      const rMoved = R(/^moved|moving|relocat/i);
+      if (rMoved && rMoved.sa >= 0.1) plays.push({ t: 'Keep movers when the new address is in a branch area', why: fmt.int(rMoved.n) + ' cancels (' + P(rMoved.sa) + ') were customers moving.', decide: 'A transfer-of-service offer on the cancel call, and asking for the new address before the account is closed.' });
+      const rSvc = rs.find(x => /not working|poor service|unhappy|dissatisf|service issue/i.test(x.k) && x.d > 0.02);
+      if (rSvc) plays.push({ t: 'Fix service complaints before month ' + i, why: '“' + rSvc.k + '” is ' + P(rSvc.sa) + ' of these cancels vs ' + P(rSvc.so) + ' in other months.', decide: 'A free re-service and a manager call when a customer reports the product is not working in the two months before.' });
+      if (i >= 11 && i <= 13) plays.push({ t: 'Work the renewal before the contract ends', why: 'This is the first-contract-ending window: customers are free to leave.', decide: 'Loyalty outreach 60 days before the term ends, on every account not yet renewed.' });
+      if (brs.length) plays.push({ t: 'Start with ' + brs.map(x => x.k).join(' and '), why: brs.map(x => x.k + ' is ' + P(x.sa) + ' of these cancels vs ' + P(x.so) + ' of the rest').join('; ') + '.', decide: 'Pilot the plays above in ' + (brs.length > 1 ? 'these offices' : 'this office') + ' first, where the month-' + i + ' loss is heaviest.' });
+      const stat = (k, v, sub, color) => el('div', { style: { flex: '1 1 150px', minWidth: 0, borderRadius: '10px', padding: '10px 12px', background: 'var(--card)' } },
+        el('div', { class: 'text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, k),
+        el('div', { class: 'text-xl font-black tabular-nums', style: { color: color || 'var(--text)' } }, v),
+        el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, sub));
+      const openNow = (title, rows2) => rows2.length ? () => openReportingDrillModal({ chartTitle: title, sliceLabel: fmt.int(rows2.length) + ' active account' + (rows2.length === 1 ? '' : 's'), rows: rows2, formatValue: (v) => fmt.usd0(v) }) : null;
+      const nowBtn = (label, rows2, title) => el('button', { class: 'rounded-lg border px-3 py-1.5 text-[11px] font-bold', disabled: rows2.length ? null : true, style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', opacity: rows2.length ? '1' : '.5' }, onclick: openNow(title, rows2) }, label + ' →');
+      const story = el('div', { class: 'flex flex-col gap-3' },
+        el('div', { class: 'flex flex-wrap gap-2' },
+          stat('Cancels in month ' + i, fmt.int(b.length), (avgMonth ? (b.length / avgMonth).toFixed(1) + '× an average month · ' : '') + P(b.length / rowsL.length) + ' of all cancels'),
+          stat('ARR lost here', fmt.usd0(arrSum(b)), 'average ' + fmt.usd0(arv(b)) + ' per account'),
+          tLast ? stat('Leave in this month', (tLast.rate * 100).toFixed(1) + '%', 'of ' + tLast.y + ' starts who reached it' + (verdict ? ' · ' + verdict[0].toLowerCase() : ''), verdict ? verdict[1] : undefined) : null,
+          stat('In this window now', fmt.int(nowIn.length), 'active customers in month ' + Math.max(0, i - 1) + '–' + i + ' · ' + fmt.usd0(arrSum(nowIn)) + ' ARR')),
+        el('div', {},
+          H('What is driving it'),
+          el('ul', { class: 'text-[12px] flex flex-col gap-1', style: { listStyle: 'disc', paddingLeft: '18px' } }, ...say.slice(0, 3).map(t => el('li', {}, t)),
+            seasonShare >= 0.45 ? el('li', {}, P(seasonShare) + ' of these cancels happened in ' + seasonLbl + '.') : null)),
+        trend.length >= 2 ? el('div', {},
+          H('Trend · share of customers who reached month ' + i + ' and cancelled in it'),
+          el('div', { class: 'flex flex-wrap items-end gap-3' },
+            ...trend.map(g => el('div', { class: 'flex flex-col items-center', title: fmt.int(g.lost) + ' of ' + fmt.int(g.risk) + ' customers from ' + g.y + ' who reached month ' + i },
+              el('div', { class: 'text-[11px] font-bold tabular-nums' }, (g.rate * 100).toFixed(1) + '%'),
+              el('div', { style: { width: '46px', height: Math.max(3, Math.round(g.rate / Math.max(...trend.map(x => x.rate), 0.0001) * 46)) + 'px', background: g === tLast ? (verdict ? verdict[1] : 'var(--accent)') : 'var(--border-2)', borderRadius: '4px 4px 0 0' } }),
+              el('div', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-muted)' } }, String(g.y)))),
+            verdict ? el('div', { class: 'text-[12px] font-bold pb-3', style: { color: verdict[1] } }, verdict[0] + ': ' + (trend[trend.length - 2].rate * 100).toFixed(1) + '% → ' + (tLast.rate * 100).toFixed(1) + '% from ' + trend[trend.length - 2].y + ' to ' + tLast.y + ' starts'
+              + (tLast.y === new Date().getFullYear() ? ' (' + tLast.y + ' is still filling in)' : '')) : null)) : null,
+        plays.length ? el('div', {},
+          H('Decisions this points to'),
+          el('div', { class: 'flex flex-col gap-2' }, ...plays.slice(0, 4).map((p, k) => el('div', { style: { borderRadius: '10px', padding: '10px 12px', background: 'var(--card)', borderLeft: '3px solid var(--accent)' } },
+            el('div', { class: 'text-[13px] font-bold' }, (k + 1) + '. ' + p.t),
+            el('div', { class: 'text-[12px] mt-0.5', style: { color: 'var(--text-muted)' } }, p.why),
+            el('div', { class: 'text-[12px] mt-1' }, el('b', {}, 'Decide: '), p.decide))))) : null,
+        el('div', {},
+          H('Act now · active customers in month ' + Math.max(0, i - 1) + '–' + i + ' of life'),
+          el('div', { class: 'flex flex-wrap gap-2 items-center' },
+            nowBtn(fmt.int(nowOwe.length) + ' owe a balance', nowOwe, 'Active · month ' + Math.max(0, i - 1) + '–' + i + ' of life · owe a balance'),
+            nowBtn(fmt.int(nowNoAp.length) + ' not on autopay', nowNoAp, 'Active · month ' + Math.max(0, i - 1) + '–' + i + ' of life · not on autopay'),
+            nowBtn('All ' + fmt.int(nowIn.length), nowIn, 'Active · month ' + Math.max(0, i - 1) + '–' + i + ' of life'))));
+      const detail = el('details', { class: 'mt-3' },
+        el('summary', { class: 'text-[11px] font-bold cursor-pointer', style: { color: 'var(--text-muted)' } }, 'The detail · reasons and customer traits vs every other month'),
+        H('Why they left · reasons vs every other month'),
         reasonRows.length ? tbl(['Reason', 'Cancels', 'This month', 'Other months', 'Gap'], reasonRows) : el('div', { class: 'text-[11px] text-muted-' }, 'Too few cancels to compare reasons.'),
-        H('Who left \u00b7 traits vs every other month'),
+        H('Who left · traits vs every other month'),
         tbl(['Trait', 'This month', 'Other months', '', 'Gap'], traitRows),
         (brs.length || svs.length) ? H('Over-represented this month') : null,
         (brs.length || svs.length) ? el('div', { class: 'text-[11px] flex flex-col gap-0.5' },
-          brs.length ? el('div', {}, el('b', {}, 'Offices: '), brs.map(x => x.k + ' ' + P(x.sa) + ' (vs ' + P(x.so) + ')').join(' \u00b7 ')) : null,
-          svs.length ? el('div', {}, el('b', {}, 'Services: '), svs.map(x => x.k + ' ' + P(x.sa) + ' (vs ' + P(x.so) + ')').join(' \u00b7 ')) : null) : null,
+          brs.length ? el('div', {}, el('b', {}, 'Offices: '), brs.map(x => x.k + ' ' + P(x.sa) + ' (vs ' + P(x.so) + ')').join(' · ')) : null,
+          svs.length ? el('div', {}, el('b', {}, 'Services: '), svs.map(x => x.k + ' ' + P(x.sa) + ' (vs ' + P(x.so) + ')').join(' · ')) : null) : null,
         el('div', { class: 'text-[10px] mt-3', style: { color: 'var(--text-muted)' } }, 'Shares are of the cancels in that month vs the cancels in every other month, same filters as the chart. Reasons need at least ' + minN + ' cancels to list.'));
+      return el('div', { class: 'rounded-xl p-4', style: { background: 'var(--card-2)' } }, story, detail);
     };
     const barL = (b, i) => el('button', {
       class: 'flex flex-col shrink-0 cursor-pointer transition hover:brightness-110',
