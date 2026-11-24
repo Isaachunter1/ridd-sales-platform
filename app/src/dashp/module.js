@@ -39,7 +39,20 @@ function dashpView() {
         el('span', { class: 'text-[10px] flex-1 text-right', style: { color: 'var(--text-subtle)' } }, 'Log a sale, the sales list and the auditing queue \u2014 what payroll pays from')),
       isOpen ? viewSales() : null);
   };
-  if (_aud) return el('div', { class: 'flex flex-col gap-4' }, salesSection(true));
+  // Add-ons with no rep, first thing on the tab for an admin or auditor, on all three rep types (per Isaac, Nov 25 —
+  // "a number one priority to fix"): no commission is paid on an add-on until Commission To is set on the line in
+  // FieldRoutes. Same check and list as Auditing → Add-ons (addOnNoRepAuditCard); it shows only while there is something to fix.
+  const addOnFirst = (() => {
+    if (!(isAdminRole(_r) || _aud) || typeof addOnNoRepAuditCard !== 'function') return null;
+    let it = null; try { it = addOnNoRepAuditCard({ item: true }); } catch (e) { return null; }
+    if (!it || !(it.count > 0)) return null;
+    let card = null; try { card = addOnNoRepAuditCard(); } catch (e) { return null; }
+    if (!card) return null;
+    card.style.border = '1.5px solid #DC2626';
+    return el('div', { class: 'flex flex-col gap-1 no-arrange' },
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-black', style: { color: '#DC2626' } }, 'Fix first \u00b7 these add-ons pay nobody until they are credited'), card);
+  })();
+  if (_aud) return el('div', { class: 'flex flex-col gap-4' }, addOnFirst, salesSection(true));
   const thisYear = new Date().getFullYear();
   const years = []; for (let y = thisYear; y >= 2024; y--) years.push([y, String(y)]);   // DASHP has no "which years exist" list; an empty year just shows an empty table
 
@@ -60,6 +73,7 @@ function dashpView() {
   // Build the list first: the technician list works out which quarter to show, and the bar's select reads it.
   const body = S.tab === 'tech' ? dashpTechList(S) : S.tab === 'office' ? dashpOfficeList(S) : dashpD2dList(S);
   return el('div', { class: 'flex flex-col gap-4' },
+    addOnFirst,
     el('div', { class: 'card p-3 flex items-center gap-3 flex-wrap' },
       dashpTabs(_tabs, S.tab, (v) => { S.tab = v; S.detail = null; mountApp(); }),
       dashpSelect('Year', S.year, years, (v) => { S.year = Number(v); S.techQuarter = null; mountApp(); }),

@@ -17,6 +17,8 @@
 const _mklYm = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
 const _mklShift = (ym, n) => { const d = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1 + n, 1); return _mklYm(d); };
 const _mklLbl = (ym) => new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+// Month with a four-digit year — 'Nov 26' read as November 26th (per Isaac, Nov 25).
+const _mklLblL = (ym) => new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 const _mklLblS = (ym) => new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
 // Default month = the CURRENT month (per Isaac, Nov 16: GHL, QuickBooks and new revenue all land close to real time
 // now). Replaces Nov 9's last-closed-month default.
@@ -71,7 +73,7 @@ function _mklPickerOptions(selected) {
   const opt = (v, l) => el('option', { value: v, selected: v === selected }, l);
   return [
     el('optgroup', { label: 'Ranges' }, opt(cy + '-ytd', cy + ' YTD'), opt((cy - 1) + '-ytd', (cy - 1) + ' YTD (same stretch)'), opt((cy - 1) + '-yr', (cy - 1) + ' full year')),
-    el('optgroup', { label: 'Months' }, ...months.map(k => opt(k, _mklLblS(k) + (k === months[0] ? ' · open' : '')))),
+    el('optgroup', { label: 'Months' }, ...months.map(k => opt(k, _mklLblL(k) + (k === months[0] ? ' · open' : '')))),
   ];
 }
 const _mklUsd = (v) => v == null || !isFinite(v) ? '—' : fmt.usd0(v);
@@ -211,7 +213,45 @@ function mklSeries(ym) {
   return out;
 }
 
-function mktgLeanView() { return perfT('lean:view', () => _mktgLeanView()); }
+// ── Last-loaded page, shown at once (per Isaac, Nov 25 — "keep the prior sync data so I don't have to wait") ──
+// A refresh used to show every tile blank for 20–30 seconds while FieldRoutes and Pest AI loaded. The page as it last
+// rendered with everything loaded is kept in this browser (IndexedDB, one copy per month / compare pick) and shown
+// straight away, greyed and marked with when it was saved, until the live numbers are ready — then the live page
+// replaces it. It is a picture of the last page, so nothing on it clicks; nothing is computed from it.
+const _MKL_SNAP = { key: null, html: null, at: 0, loading: null, saveT: 0 };
+function _mklSnapKey() { const F = mklState(); return 'keep:mkl:' + [F.ym, F.cmp, state.profile && state.profile.id].join('|'); }
+function _mklSnapReady() { return (state.reportingSubscriptions || []).length > 0 && !!state._ghl && Array.isArray(state._ghl.opps); }
+function _mklSnapSave(node, key) {
+  clearTimeout(_MKL_SNAP.saveT);
+  _MKL_SNAP.saveT = setTimeout(() => {
+    try {
+      if (!node || !node.isConnected || !_mklSnapReady() || key !== _mklSnapKey()) return;
+      const clone = node.cloneNode(true), src = node.querySelectorAll('canvas'), dst = clone.querySelectorAll('canvas');
+      dst.forEach((c, i) => { try { const img = document.createElement('img'); img.src = src[i].toDataURL('image/png'); img.style.cssText = 'width:' + (src[i].clientWidth || 300) + 'px;height:' + (src[i].clientHeight || 150) + 'px;display:block'; c.replaceWith(img); } catch (e) { /* tainted or empty canvas: leave the gap */ } });
+      clone.querySelectorAll('.arr-grip, .spinner').forEach(n => n.remove());
+      const html = clone.innerHTML; if (html.length > 4000000) return;
+      _MKL_SNAP.key = key; _MKL_SNAP.html = html; _MKL_SNAP.at = Date.now();
+      if (typeof reportingIdbPutKeep === 'function') reportingIdbPutKeep(key, { html, at: _MKL_SNAP.at });
+    } catch (e) { /* best effort */ }
+  }, 2500);
+}
+function mktgLeanView() {
+  const key = _mklSnapKey(), ready = _mklSnapReady();
+  const live = perfT('lean:view', () => _mktgLeanView());   // always built: it is also what starts the loads
+  if (ready) { _mklSnapSave(live, key); return live; }
+  if (_MKL_SNAP.key !== key && _MKL_SNAP.loading !== key && typeof reportingIdbGet === 'function') {
+    _MKL_SNAP.loading = key;
+    reportingIdbGet(key).then(v => { if (_MKL_SNAP.loading !== key) return; _MKL_SNAP.loading = null; if (v && v.html) { _MKL_SNAP.key = key; _MKL_SNAP.html = v.html; _MKL_SNAP.at = v.at || 0; if (!_mklSnapReady()) mountApp(); } else { _MKL_SNAP.key = key; _MKL_SNAP.html = null; } });
+  }
+  if (_MKL_SNAP.key !== key || !_MKL_SNAP.html) return live;
+  const when = _MKL_SNAP.at ? new Date(_MKL_SNAP.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+  const body = el('div', { class: 'flex flex-col gap-4 no-arrange', style: { pointerEvents: 'none', opacity: '.78' } });
+  body.innerHTML = _MKL_SNAP.html;   // this browser's own earlier render of this page
+  return el('div', { class: 'flex flex-col gap-4 no-arrange' },
+    el('div', { class: 'card px-4 py-2 text-[12px] flex items-center gap-2', style: { color: 'var(--text-muted)' } },
+      el('span', { class: 'spinner', style: { width: '14px', height: '14px' } }), 'Showing the page as it last loaded' + (when ? ' (' + when + ')' : '') + '. The current numbers replace it as soon as they finish loading.'),
+    body);
+}
 function _mktgLeanView() {
   if (typeof reportingLoadQboSpend === 'function') reportingLoadQboSpend();
   if (typeof ghlLoadLeads === 'function' && state._ghl === undefined) ghlLoadLeads();
@@ -230,7 +270,7 @@ function _mktgLeanView() {
   const _rCap = RNG ? (RNG.cap || (RNG.year === _today.getFullYear() ? _today.getDate() : 0)) : 0;
   const cur = RNG ? mklRange(RNG.year, RNG.last, RNG.cap) : mklMonth(ym), prev = RNG ? mklRange(RNG.year - 1, RNG.last, RNG.kind === 'yr' && RNG.year !== _today.getFullYear() ? 0 : _rCap) : mklMonth(pm, _cap);
   const _mtdLbl = _cap ? ' 1\u2013' + _cap : '';
-  const _cmpTag = RNG ? (RNG.year - 1) + (RNG.kind === 'yr' && RNG.year !== _today.getFullYear() ? ' full year' : ' same stretch') : _mklLblS(pm) + _mtdLbl;
+  const _cmpTag = RNG ? 'vs ' + (RNG.year - 1) + (RNG.kind === 'yr' && RNG.year !== _today.getFullYear() ? ' full year' : ' same stretch') : 'vs ' + new Date(Number(pm.slice(0, 4)), Number(pm.slice(5, 7)) - 1, 1).toLocaleDateString('en-US', pm.slice(0, 4) === ym.slice(0, 4) ? { month: 'short' } : { month: 'short', year: 'numeric' }) + _mtdLbl;   // the corner tag is the COMPARE period — say so (it read as the period shown)
   const muted = { color: 'var(--text-muted)' };
   const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
   const months = []; for (let i = 0; i < 18; i++) months.push(_mklYm(new Date(new Date().getFullYear(), new Date().getMonth() - i, 1)));
@@ -472,9 +512,13 @@ function _mktgLeanView() {
   // Lead → opportunity monitor moved to the Auditing tab (per Isaac, Nov 23).
   // Nov 24 (per Isaac): funnel by channel, channel payback and the morning brief button (marketing-extras.js).
   const _safe = (name, fn) => { try { return fn(); } catch (e) { console.warn('[marketing] ' + name, e); return null; } };
-  const funnel = typeof mkxFunnelCard === 'function' ? _safe('funnel', () => mkxFunnelCard(cur, _mklLblS(ym))) : null;
-  const payback = typeof mkxPaybackCard === 'function' ? _safe('payback', () => mkxPaybackCard(RNG ? RNG.through : ym)) : null;
-  return el('div', { class: 'flex flex-col gap-4' }, tiles, chart, funnel, ttc, payback, ...dash, grid);   // LTV / CAC section off for now (per Isaac, Nov 24) — mklLtvSection still built, just not shown   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
+  // (Funnel by channel became Channel metrics, and Channel payback is off for now — per Isaac, Nov 25. mkxFunnelCard / mkxPaybackCard are kept, not built.)
+  const provPulse = typeof mkxProviderPulseCard === 'function' ? _safe('provPulse', () => RNG ? mkxProviderPulseCard(ym, cur, RNG.label || 'range') : mkxProviderPulseCard(ym)) : null;   // Channel metrics (replaces Funnel by channel, per Isaac, Nov 25)
+  // Leads (Pest AI) arrive before the FieldRoutes snapshot does, and for that stretch every sales tile read "—" as if
+  // there were no sales (per Isaac, Nov 25). Say what is happening instead.
+  const subsWait = !(state.reportingSubscriptions || []).length ? el('div', { class: 'card px-4 py-2 text-[12px] flex items-center gap-2', style: { color: 'var(--text-muted)' } },
+    el('span', { class: 'spinner', style: { width: '14px', height: '14px' } }), 'Sales are still loading from FieldRoutes. New sales, revenue, CAC and close rate fill in when it arrives (usually under a minute).') : null;
+  return el('div', { class: 'flex flex-col gap-4' }, subsWait, tiles, provPulse, chart, ttc, ...dash, grid);   // LTV / CAC section off for now (per Isaac, Nov 24) — mklLtvSection still built, just not shown   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
 }
 // The month's new sales behind the New revenue tile (same rows the table counts).
 function mklOpenSales(D, title) {

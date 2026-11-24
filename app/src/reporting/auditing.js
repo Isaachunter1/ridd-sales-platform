@@ -519,7 +519,7 @@ function reportingAuditing() {
     inRange(a) && (offFilter === 'all' || a.office === offFilter) && (teamFilter === 'all' || a.team === teamFilter));
 
   if (!anyFlags) {
-    return el('div', { class: 'flex flex-col gap-4 max-w-3xl mx-auto' }, ..._auditLeadChecks(),
+    return el('div', { class: 'flex flex-col gap-4 max-w-3xl mx-auto' },
       el('div', { class: 'card p-10 text-center' },
         el('div', { class: 'text-4xl mb-3' }, '🛡️'),
         el('h2', { class: 'text-lg font-bold mb-2' }, 'This snapshot has no Customer Flags yet'),
@@ -569,7 +569,7 @@ function reportingAuditing() {
 
     // Lead data checks (per Isaac, Nov 23 — moved here from Marketing): the lead → opportunity monitor (starts
     // closed) and the unmapped GoHighLevel sources to-do.
-    ..._auditLeadChecks(),
+    // (Lead → opportunity and Unmapped GoHighLevel sources now sit in the task list: Affects reporting → Attribution.)
 
     // ONE rollup table with an Office ⇄ Teams toggle (per Isaac), then the per-rep detail table.
     (() => {
@@ -829,6 +829,7 @@ function _auditTaskItemsRaw() {
   try { items.push(addOnNoRepAuditCard({ item: true })); } catch (e) { console.warn('[auditing] add-on task', e); }
   try { if (typeof serviceChangeAuditItem === 'function') items.push(serviceChangeAuditItem()); } catch (e) { console.warn('[auditing] service-change task', e); }
   try { items.push(...auditSalesItems()); } catch (e) { console.warn('[auditing] sales tasks', e); }
+  try { const sc = auditSourceCheckItem(); if (sc) items.push(...(Array.isArray(sc) ? sc : [sc])); } catch (e) { console.warn('[auditing] source check', e); }
   for (const t of auditSubTasks()) {
     if (t.warn) { items.push({ key: t.title, tag: t.tag || 'Setup', title: t.title, sev: 'amber', count: null, text: t.warn }); continue; }
     const n = t.rows.length;
@@ -925,7 +926,7 @@ function crmDelReviewItem() {
 // moves a report — and tasks that are the same job in FieldRoutes sit under one row (wrong office, renewals, sold
 // and never serviced, attribution, below minimum). Presentation only: every member keeps its own key and its own
 // accounts, so nothing already ticked comes back and each list still opens on its own.
-const AUDIT_SECTIONS = [['pay', 'Affects pay'], ['cust', 'Affects billing or the customer'], ['rep', 'Affects reporting']];
+const AUDIT_SECTIONS = [['rep', 'Affects reporting'], ['pay', 'Affects pay'], ['cust', 'Affects billing or the customer']];   // reporting first (per Isaac, Nov 25)
 const AUDIT_PLACE = [
   // [tag (lower-case), section, family key, family label, order inside the family]
   ['add-ons', 'pay'], ['term', 'pay'], ['commission', 'pay'], ['seller type', 'pay'], ['seller', 'pay'], ['service fees', 'pay'], ['passed audit', 'pay'],
@@ -934,7 +935,7 @@ const AUDIT_PLACE = [
   ['renewal', 'cust', 'renewals', 'Renewals', 0], ['renewal · not renewed', 'cust', 'renewals', 'Renewals', 1], ['renewal source', 'cust', 'renewals', 'Renewals', 2], ['renewal · not coded', 'cust', 'renewals', 'Renewals', 3],
   ['not started', 'cust', 'unserviced', 'Sold, never serviced', 0], ['pending', 'cust', 'unserviced', 'Sold, never serviced', 1], ['deleted?', 'cust', 'unserviced', 'Sold, never serviced', 2],
   ['location', 'rep', 'office', 'Wrong office', 0], ['zip', 'rep', 'office', 'Wrong office', 1],
-  ['source', 'rep', 'attr', 'Attribution', 0], ['lead flow', 'rep', 'attr', 'Attribution', 1], ['no ghl lead', 'rep', 'attr', 'Attribution', 2], ['sellify', 'rep', 'attr', 'Attribution', 3],
+  ['source check', 'rep', 'attr', 'Attribution', -1], ['pestbooker', 'rep', 'attr', 'Attribution', -0.5], ['source', 'rep', 'attr', 'Attribution', 0], ['lead flow', 'rep', 'attr', 'Attribution', 1], ['no ghl lead', 'rep', 'attr', 'Attribution', 2], ['sellify', 'rep', 'attr', 'Attribution', 3], ['lead → opportunity', 'rep', 'attr', 'Attribution', 4], ['unmapped sources', 'rep', 'attr', 'Attribution', 5],
   ['cancellation', 'rep'], ['no reason', 'rep'],
 ];
 function auditPlaceOf(i) {
@@ -999,10 +1000,98 @@ function auditSalesItems() {
       (n) => n + ' Office Staff sale' + (n === 1 ? '' : 's') + ' not yet paid that the pricing check marked under the minimum — fix the price in FieldRoutes or confirm the sale pays at the below-minimum rate.',
       'All clear — no unpaid Office Staff sale is under the pricing minimum.')];
 }
+// ── Source check: FieldRoutes source vs the Pest AI source (per Isaac, Nov 25) ──
+// The provider numbers on Marketing count a sale on its FieldRoutes source, so that source has to agree with what
+// Pest AI (GoHighLevel) recorded for the same person wherever there is something to compare. For every new sale of
+// this month and last (the Marketing tab's own sale rows), the Pest AI opportunity behind the sale is looked up by
+// phone / email (mkdPestAiLookup — the same lookup as the "No lead" list). Flagged: the opportunity's source maps to a
+// different channel than the FieldRoutes source, has no source, or is a source nothing maps. Sales with nothing in
+// Pest AI at all are the separate "No GHL lead" task. The list opens with both sources side by side and what to change.
+function auditSourceCheckItem() {
+  if (typeof mklMonth !== 'function' || typeof mkdPestAiLookup !== 'function' || typeof _mklYm !== 'function') return null;
+  const G = state._ghl; if (!G || !Array.isArray(G.opps) || !G.opps.length) return { key: 'Source check', tag: 'Source check', title: 'FieldRoutes source vs Pest AI source', sev: 'amber', count: null, text: 'checking… (waiting on GoHighLevel)' };
+  const now = new Date(), yms = [_mklYm(now), _mklShift(_mklYm(now), -1)];
+  const seen = new Set(), bad = [], pbRows = []; let compared = 0, agree = 0;
+  for (const ym of yms) { const D = mklMonth(ym); if (!D || !D.x) continue;
+    for (const o in D.x) for (const c in D.x[o]) for (const r of (D.x[o][c].sales || [])) {
+      const id = String(r.subscription_id != null ? r.subscription_id : r.customer_id); if (seen.has(id)) continue; seen.add(id);
+      const x = mkdPestAiLookup(r); if (!x) continue;
+      // PestBooker is a SALES REP in FieldRoutes, not a source (per Isaac, Nov 25): a sale still sourced PestBooker needs
+      // Sold By = PestBooker and its source set to the channel that brought the lead in.
+      const frPb = /^pest\s*booker$/i.test(String(x.want || '')) || /^pest\s*booker$/i.test(String((typeof reportingSourceOf === 'function' ? reportingSourceOf(r) : r.subscription_source) || '').trim());
+      if (frPb) {
+        const real = x.oDate && x.oCh && x.oCh !== 'PestBooker' && x.oCh !== 'not a lead' ? x.oCh : '';
+        pbRows.push(Object.assign({}, r, { _flagReason: 'FieldRoutes source is PestBooker \u2014 PestBooker is the sales rep, not a source: set Sold By to PestBooker and the source to the channel that brought the lead in' + (real ? ' (Pest AI says ' + real + ')' : x.oDate ? ' (Pest AI says PestBooker too \u2014 fix both)' : ' (nothing in Pest AI to go by)') }));
+        continue;
+      }
+      if (!x.oDate) continue;                                                            // nothing in Pest AI to compare with
+      if (/^Opportunity made after the sale|^Only an old opportunity/.test(x.fix)) continue;   // not the lead behind this sale
+      // Only a lead that can be THE lead behind this sale is compared (Nov 25 accuracy pass): the opportunity is within 30
+      // days before the sale, and its source is a real lead source — Local Presence (a callback number), the Voice AI
+      // line and anything mapped "not a lead" are not a source, so they prove nothing either way.
+      const gap = (Date.parse(String(r.sold_date || '').slice(0, 10)) - Date.parse(x.oDate)) / 86400000;
+      if (!(gap <= 30)) continue;
+      if (x.oCh === 'not a lead' || /^local presence|voice ai/i.test(String(x.oSrc || '')) || (typeof MKP_NOT_A_SOURCE !== 'undefined' && MKP_NOT_A_SOURCE.test(String(x.oSrc || '')))) continue;
+      // PestBooker is the online booking page, NOT a source (per Isaac, Nov 25): an opportunity stamped PestBooker has
+      // lost the channel that really brought the lead in. Those are their own task (fix the opportunity's source in
+      // Pest AI), and say nothing about whether FieldRoutes is right — so they are out of the comparison either way.
+      if (x.oCh === 'PestBooker' || /^pest\s*booker/i.test(String(x.oSrc || ''))) {
+        pbRows.push(Object.assign({}, r, { _flagReason: 'Pest AI opportunity (' + x.oDate + ') has source PestBooker, which is not a source \u2014 set it to the channel that brought the lead in' + (x.want && x.want !== 'PestBooker' ? ' (FieldRoutes says ' + x.want + ')' : '; FieldRoutes says PestBooker too, so fix both') }));
+        continue;
+      }
+      compared++;
+      if (/^Matches/.test(x.fix)) { agree++; continue; }
+      bad.push(Object.assign({}, r, { _flagReason: 'FieldRoutes: ' + x.want + ' · Pest AI: ' + (x.oSrc || 'no source') + (x.oCh && x.oCh !== x.oSrc ? ' (' + x.oCh + ')' : '') + ' — ' + x.fix }));
+    } }
+  bad.sort((a, b) => String(b.sold_date || '').localeCompare(String(a.sold_date || '')));
+  const n = bad.length, open = (rs) => (typeof mkdOpenNoLead === 'function' ? mkdOpenNoLead('Source check · FieldRoutes vs Pest AI · this month and last', rs)
+    : openReportingDrillModal({ chartTitle: 'Auditing · Source check', sliceLabel: rs.length + ' sales', rows: rs, formatValue: fmt.usd0 }));
+  const main = { key: 'Source check', tag: 'Source check', title: 'FieldRoutes source vs Pest AI source', sev: n ? 'red' : 'ok', count: n,
+    text: n ? n.toLocaleString() + ' new sale' + (n === 1 ? '' : 's') + ' this month and last where FieldRoutes and Pest AI disagree on the source (' + agree.toLocaleString() + ' of ' + compared.toLocaleString() + ' compared agree) — the list shows both and what to change. Compared only when the Pest AI lead is within 30 days before the sale and has a real lead source.'
+      : 'All clear — every sale with a Pest AI lead behind it carries the same source in FieldRoutes (' + compared.toLocaleString() + ' compared).',
+    onClick: n ? () => open(bad) : null, rvIds: bad.map(r => String(r.subscription_id != null ? r.subscription_id : r.customer_id)),
+    rvOpen: (ids) => open(bad.filter(r => ids.has(String(r.subscription_id != null ? r.subscription_id : r.customer_id)))) };
+  pbRows.sort((a, b) => String(b.sold_date || '').localeCompare(String(a.sold_date || '')));
+  const idOf = (r) => String(r.subscription_id != null ? r.subscription_id : r.customer_id), np = pbRows.length;
+  const openPb = (rs) => (typeof mkdOpenNoLead === 'function' ? mkdOpenNoLead('PestBooker stamped as the source in Pest AI \u00b7 this month and last', rs) : openReportingDrillModal({ chartTitle: 'Auditing \u00b7 PestBooker as source', sliceLabel: rs.length + ' sales', rows: rs, formatValue: fmt.usd0 }));
+  const pbItem = { key: 'PestBooker as source', tag: 'PestBooker', title: 'PestBooker stamped as the source', sev: np ? 'red' : 'ok', count: np,
+    text: np ? np.toLocaleString() + ' new sale' + (np === 1 ? '' : 's') + ' this month and last with PestBooker as the source in FieldRoutes or on the Pest AI opportunity. PestBooker is a sales rep, not a source \u2014 set Sold By to PestBooker in FieldRoutes and the source, in both, to the channel that brought the lead in.'
+      : 'All clear \u2014 no recent sale has PestBooker as its source in FieldRoutes or Pest AI.',
+    onClick: np ? () => openPb(pbRows) : null, rvIds: pbRows.map(idOf), rvOpen: (ids) => openPb(pbRows.filter(r => ids.has(idOf(r)))) };
+  return [main, pbItem];
+}
+// Lead → opportunity and Unmapped GoHighLevel sources as Attribution tasks (per Isaac, Nov 25 — they were two
+// separate dropdown cards under the list). Same checks, same cards: each opens inside its row. Built live, not in the
+// memo, because mapping a source or toggling the card changes them.
+function auditLeadDataItems() {
+  if (state._ghl === undefined && typeof ghlLoadLeads === 'function') ghlLoadLeads();
+  const out = [];
+  const opened = (flag, fn) => { const was = state[flag]; state[flag] = true; try { return fn(); } catch (e) { console.warn('[auditing] ' + flag, e); return null; } finally { state[flag] = was; } };
+  const headText = (card) => { const sp = card && card.querySelector('button span:nth-of-type(3)'); return sp ? sp.textContent.trim() : ''; };
+  try {
+    const D = typeof _lomData === 'function' ? _lomData() : null;
+    if (D && D.rows && D.rows.length) {
+      const bad = D.rows.filter(r => r.broken).length, soft = D.rows.filter(r => r.soft).length;
+      const it = { key: 'Lead to opportunity', tag: 'Lead → opportunity', title: 'Lead → opportunity', sev: bad ? 'red' : soft ? 'amber' : 'ok', count: bad + soft,
+        text: (headText(opened('_lomOpen', () => leadOppMonitorCard())) || 'New contacts that never got an opportunity, by source') + ' — last 7 days against the 28 before.' };
+      Object.defineProperty(it, 'detail', { enumerable: true, get() { return opened('_lomOpen', () => leadOppMonitorCard()); } });
+      out.push(it);
+    }
+  } catch (e) { console.warn('[auditing] lead-opp', e); }
+  try {
+    const card = typeof ghlUnmappedTodoCard === 'function' ? opened('_ghlTodoOpen', () => ghlUnmappedTodoCard()) : null;
+    const text = headText(card), n = Number((text.match(/^([\d,]+)\s+source/) || [])[1] ? text.match(/^([\d,]+)\s+source/)[1].replace(/,/g, '') : 0);
+    const it = { key: 'Unmapped GoHighLevel sources', tag: 'Unmapped sources', title: 'Unmapped GoHighLevel sources', sev: card ? 'red' : 'ok', count: card ? n : 0,
+      text: card ? text : 'All clear — every GoHighLevel opportunity source is mapped to a channel.' };
+    if (card) Object.defineProperty(it, 'detail', { enumerable: true, get() { return opened('_ghlTodoOpen', () => ghlUnmappedTodoCard()); } });
+    out.push(it);
+  } catch (e) { console.warn('[auditing] unmapped sources', e); }
+  return out;
+}
 function auditTasksCard() {
   const _items0 = auditTaskItems();
   // The deleted-customer review is built live (its buttons change it), not in the memo.
-  const _items = _items0 == null ? null : [..._items0, crmDelReviewItem()];
+  const _items = _items0 == null ? null : [..._items0, crmDelReviewItem(), ...auditLeadDataItems()];
   if (_items == null) return el('div', { class: 'card overflow-hidden' }, el('div', { class: 'w-full flex items-center gap-2 px-4 py-2.5' },
     el('span', { class: 'inline-block rounded-full', style: { width: '8px', height: '8px', background: 'var(--border-2)' } }),
     el('span', { class: 'text-[11px] uppercase tracking-widest font-bold' }, 'Auditing tasks'), el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'checking…')));
