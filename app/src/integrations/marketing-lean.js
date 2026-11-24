@@ -419,7 +419,9 @@ function _mktgLeanView() {
   const sumOf = (o, keys) => keys.reduce((t, k) => { const c = o[k]; t.spend += c.spend; t.leads += c.leads; t.s += c.s; t.cv += c.cv; t.labor += c.labor || 0; return t; }, { spend: 0, leads: 0, s: 0, cv: 0, labor: 0 });
   const table = (title, sub, o, extraRows, noteOf, withLabor) => {
     showLabor = !!withLabor && Object.values(o).some(c => c.labor);
-    const keys = Object.keys(o).filter(k => (o[k].spend || o[k].leads || o[k].s || o[k].labor) && (o !== cur.ch || typeof mktgChannelShown !== 'function' || /^(Unmapped GHL source|Unspecified)$/.test(k) || mktgChannelShown(k))).sort((a, b) => (o[b].spend - o[a].spend) || (o[b].cv - o[a].cv) || (o[b].leads - o[a].leads));
+    const keys = Object.keys(o).filter(k => (o[k].spend || o[k].leads || o[k].s || o[k].labor) && (o !== cur.ch || typeof mktgChannelShown !== 'function' || /^(Unmapped GHL source|Unspecified)$/.test(k) || (mktgChannelShown(k) && !(typeof mktgChannelHidden === 'function' && mktgChannelHidden(k)))))
+      // Channels read A→Z (per Isaac, Nov 24); offices keep the biggest-spend-first order.
+      .sort((a, b) => o === cur.ch ? a.toLowerCase().localeCompare(b.toLowerCase()) : ((o[b].spend - o[a].spend) || (o[b].cv - o[a].cv) || (o[b].leads - o[a].leads)));
     const tot = sumOf(o, keys);
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-5 py-3' }, el('h3', { class: 'text-base font-bold' }, title), el('div', { class: 'text-[11px] mt-0.5', style: muted }, sub)),
@@ -550,13 +552,14 @@ function mklYearGrid(ym) {
   const add = (t, c) => { t.spend += c.spend || 0; t.leads += c.leads || 0; t.s += c.s || 0; t.svc += c.svc || 0; t.cv += c.cv || 0; t.labor += c.labor || 0; t.wages += c.wages || 0; t.inc += c.inc || 0; return t; };
   // Channels: Office Staff departments only (per Isaac, Nov 19 — Settings → Configurations → FieldRoutes sources). The
   // RIDD total row still adds every channel, so it matches the By office view.
-  const keys = [...new Set(months.flatMap(D => Object.keys(D[by] || {})))].filter(k => !/^(Unspecified|Unmapped GHL source|No branch)$/.test(k) && (by !== 'ch' || typeof mktgChannelShown !== 'function' || mktgChannelShown(k)));
+  const keys = [...new Set(months.flatMap(D => Object.keys(D[by] || {})))].filter(k => !/^(Unspecified|Unmapped GHL source|No branch)$/.test(k) && (by !== 'ch' || typeof mktgChannelShown !== 'function' || (mktgChannelShown(k) && !(typeof mktgChannelHidden === 'function' && mktgChannelHidden(k)))));
   const allKeys = [...new Set(months.flatMap(D => Object.keys(D[by] || {})))].filter(k => !/^(Unspecified|Unmapped GHL source|No branch)$/.test(k));
   const cellOf = (k, i) => (months[i][by] || {})[k] || zero();
   const pcellOf = (k, i) => prevMonths ? ((prevMonths[i][by] || {})[k] || zero()) : zero();
   const ytdOf = (k) => { const t = zero(); for (let i = 0; i < 12; i++) if (months[i].ym <= ym) add(t, cellOf(k, i)); return t; };
   const pytdOf = (k) => { const t = zero(); for (let i = 0; i < 12; i++) if (months[i].ym <= ym) add(t, pcellOf(k, i)); return t; };
-  keys.sort((a, b) => (ytdOf(b).cv - ytdOf(a).cv) || (ytdOf(b).spend - ytdOf(a).spend));
+  // Channels A→Z (per Isaac, Nov 24); offices and reps keep biggest-revenue-first.
+  keys.sort((a, b) => by === 'ch' ? a.toLowerCase().localeCompare(b.toLowerCase()) : ((ytdOf(b).cv - ytdOf(a).cv) || (ytdOf(b).spend - ytdOf(a).spend)));
   const totOf = (i) => allKeys.reduce((t, k) => add(t, cellOf(k, i)), zero());
   const ptotOf = (i) => allKeys.reduce((t, k) => add(t, pcellOf(k, i)), zero());
   const totYtd = () => { const t = zero(); for (let i = 0; i < 12; i++) if (months[i].ym <= ym) add(t, totOf(i)); return t; };

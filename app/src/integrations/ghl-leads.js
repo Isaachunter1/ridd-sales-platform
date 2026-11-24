@@ -73,6 +73,26 @@ function frSourceDeptDefault(name) {
 function frSourceDept(name) { const s = String(name || '').trim(); const o = frSourceDeptMap()[s]; return o || frSourceDeptDefault(s); }
 // A channel shows on Marketing only when its department is Office Staff.
 function mktgChannelShown(ch) { return frSourceDept(ch) === 'office'; }
+// Hidden in FieldRoutes (per Isaac, Nov 24): a channel whose FieldRoutes source is set to not visible (retired vendors —
+// Sellify, Pest Net, 6 Brothers, Click-To-Buy, eLocal …) stays off the Marketing channel tables. A channel is hidden only
+// when a hidden source lands on it and NO visible source does (so "Facebook Lead" being hidden never hides Facebook).
+// Visibility comes from the sources table (sources.fr_visible, stamped by the RevHawk sync from FieldRoutes).
+function mktgChannelHidden(ch) {
+  const src = state.sources || [];
+  let M = mktgChannelHidden._m;
+  if (!M || M.src !== src || M.map !== frSourceMap()) {
+    const hid = new Set(), vis = new Set();
+    for (const x of src) {
+      if (!x || !x.fr_source_id) continue;
+      const n = String(x.name || '').trim(); if (!n) continue;
+      const chans = [n, frChannelOf(n)];
+      for (const c of chans) (x.fr_visible === false ? hid : vis).add(c);
+    }
+    M = mktgChannelHidden._m = { src, map: frSourceMap(), hid, vis };
+  }
+  const c = String(ch || '').trim();
+  return M.hid.has(c) && !M.vis.has(c);
+}
 function ghlAutoProvider(label) { const s = String(label || '').toLowerCase().trim(); for (const [re, p] of GHL_AUTO_RULES) if (re.test(s)) return p; return ''; }
 // → provider name, GHL_NOT_LEAD, or null (blank label).
 function ghlProviderOf(label) {
