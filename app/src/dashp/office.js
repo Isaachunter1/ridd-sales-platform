@@ -104,13 +104,16 @@ function dashpOfficeList(S) {
     sub: r => r.prof._unlinked ? (r.prof._seller ? 'FieldRoutes #' + r.prof._seller + ' \u00b7 est. at base rates' : 'Seller missing in FieldRoutes') : (r.prof.rep_type === 'loyalty_rep' ? 'Loyalty' : 'Inside Sales') + (r.active ? '' : ' · inactive') };
   const search = r => r.name;
   const money = (v) => fmt.usd0(Math.round(Number(v) || 0));
-  const sum = (k) => rows.reduce((a, r) => a + (Number(r[k]) || 0), 0);
+  // Tiles total the reps payroll can pay. Sellers with no app account are listed below but held by payroll, so their
+  // estimates stay out of 'Pays now' and the rep count (found in the Nov 24 sweep — the tiles had started including them).
+  const sum = (k) => rows.reduce((a, r) => a + (r.prof._unlinked ? 0 : (Number(r[k]) || 0)), 0);
+  const nUnlinked = rows.filter(r => r.prof._unlinked && r.has).length;
   const label = period === 'year' ? String(year) : period.label + (isCurrent ? ' (current)' : '');
 
   if (period === 'year') {
     return el('div', { class: 'flex flex-col gap-4' },
       dashpStatRow(
-        dashpStat('Office reps', fmt.int(rows.filter(r => r.has).length), year + ' · with pay activity'),
+        dashpStat('Office reps', fmt.int(rows.filter(r => r.has && !r.prof._unlinked).length), year + ' · with pay activity' + (nUnlinked ? ' · +' + nUnlinked + ' with no app account' : '')),
         dashpStat('Sales', fmt.int(sum('sold')), money(sum('soldRev')) + ' sold'),
         dashpStat('Upfront paid', money(sum('paid')), fmt.int(sum('paidN')) + ' accounts · ' + year),
         dashpStat('Backend paid', money(sum('backendPaid')), (typeof backendCadenceWord === 'function' ? backendCadenceWord() : 'quarterly') + ' runs'),
@@ -134,7 +137,7 @@ function dashpOfficeList(S) {
   }
   return el('div', { class: 'flex flex-col gap-4' },
     dashpStatRow(
-      dashpStat('Office reps', fmt.int(rows.filter(r => r.has).length), label),
+      dashpStat('Office reps', fmt.int(rows.filter(r => r.has && !r.prof._unlinked).length), label + (nUnlinked ? ' · +' + nUnlinked + ' with no app account' : '')),
       dashpStat('Sales', fmt.int(sum('sold')), money(sum('soldRev')) + ' sold in the period'),
       dashpStat(isCurrent ? 'Pays now' : 'Paid', money(sum('total')), fmt.int(sum('stubN')) + ' accounts' + (isCurrent ? ' · if payroll ran today' : ' · ' + period.label)),
       isCurrent ? dashpStat('Already paid this period', money(sum('paidHere')), fmt.int(sum('paidHereN')) + ' accounts') : null,

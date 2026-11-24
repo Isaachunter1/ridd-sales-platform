@@ -1317,3 +1317,9 @@
 input:not([type=checkbox]):not([type=radio]):not(.door-field), select, textarea { border-radius: var(--r-ctl); }
 input[type=checkbox] { border-radius: 4px; }
 ::-webkit-scrollbar-thumb, *::-webkit-scrollbar-thumb, .scroll-x::-webkit-scrollbar-thumb { border-radius: 999px; }
+
+/* Phone sweep (Nov 24): tap-to-call links were 18px tall — the main action on the renewal / save queues. A proper
+   thumb target on phones without changing how they look. */
+@media (max-width: 640px) {
+  a[href^="tel:"] { display: inline-flex; align-items: center; min-height: 40px; padding: 0 6px; margin: -8px -6px; }
+}

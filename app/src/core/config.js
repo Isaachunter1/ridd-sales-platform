@@ -53,6 +53,7 @@ function deferredMemo(key, depsFn, fn, opts) {
   const deps = depsFn();
   const same = e.has && e.deps.length === deps.length && e.deps.every((d, i) => d === deps[i]) && Date.now() - e.at < ttl;
   if (!same && !e.timer) {
+    if (PERF_ON && e.has) console.info('[perf] deferredMemo ' + key + ' stale: ' + (Date.now() - e.at >= ttl ? 'ttl' : 'deps ' + deps.map((d, i) => d === e.deps[i] ? '' : i).filter(x => x !== '').join(',')));
     const wait = Math.max(delay, e.has ? minGap - (Date.now() - e.at) : 0);
     e.timer = setTimeout(() => {
       e.timer = null;

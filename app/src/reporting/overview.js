@@ -8,7 +8,15 @@ function reportingOverview() {
 
   const scope = reportingScope();
   const { office, compareOffice, inCompare, scopeA, scopeB, officeLabel } = scope;
-  const dataA = reportingChartData(scopeA, state.reportingServiceConfig || []);
+  // The chart data is the slow part of this tab (~370ms over the full book) and every re-render rebuilt it. It is
+  // kept between renders only while the app-wide fingerprint is unchanged — the same one the view cache trusts
+  // (_vcFp: every value in state, any saved setting, the calendar day) — so a data refresh, filter, rule or setting
+  // change always rebuilds. (Nov 24 sweep.)
+  const _fp = typeof _vcFp === 'function' ? (() => { try { return _vcFp('reporting'); } catch (e) { return null; } })() : null;
+  const _cdM = reportingOverview._cd;
+  const dataA = (_fp && _cdM && _cdM.fp === _fp && _cdM.rows === scopeA.length && !inCompare) ? _cdM.data
+    : perfT('ov:chartData', () => reportingChartData(scopeA, state.reportingServiceConfig || []));
+  reportingOverview._cd = (_fp && !inCompare) ? { fp: _fp, rows: scopeA.length, data: dataA } : null;
   const dataB = inCompare ? reportingChartData(scopeB, state.reportingServiceConfig || []) : null;
   const filterBar = reportingFilterBar(scope);
 
@@ -596,7 +604,7 @@ function reportingOverview() {
       body));
     document.body.append(overlay);
   };
-  const pulseCard = (() => {
+  const pulseCard = perfT('ov:pulse', () => {
     // Window: today / yesterday (one day, broken out by branch) or the last
     // 7 / 30 / 90 days (one bar per day). Per Isaac, Sep 2026.
     // Longer windows (per Isaac, Sep 30): This year / Last year / Custom range
@@ -773,7 +781,7 @@ function reportingOverview() {
     // Churn = recurring ARR cancelled (the Churned rule above). The book = recurring subs whose first service was done
     // by the start date and not cancelled by then. Office filter applies; the date range at the top does not — the
     // three windows are fixed so the card reads the same every day. Click a number for the accounts.
-    const growthGrid = (() => {
+    const growthGrid = perfT('ov:growth', () => {
       const now = new Date();
       const end = iso(now);
       const back = (n) => { const d = new Date(now); d.setDate(d.getDate() - n); return iso(d); };
@@ -827,7 +835,7 @@ function reportingOverview() {
         el('div', {}), ...wins.map(w => el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)', textAlign: 'right' } }, w.label)),
         lab('Growth', C.sold), ...wins.map(w => cell(w, 'svc')),
         lab('Churn', C.cxl), ...wins.map(w => cell(w, 'cxl')));
-    })();
+    });
     return el('div', { class: 'card p-4' },
       el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-2' },
         el('div', {},
@@ -836,7 +844,7 @@ function reportingOverview() {
           growthGrid,
           unitToggle)),
       cvsWrap);
-  })();
+  });
 
   // ARR by branch (per Isaac, Nov 24): one bar, each branch a segment sized by its share of Active ARR, with its ARR
   // and % under it. Same rows as the Active ARR tile and the "Active ARR by Office" card (slices.rarrOffice).

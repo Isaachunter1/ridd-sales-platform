@@ -86,6 +86,13 @@
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
+# Fonts never change under the same name — cache them for a year instead of re-checking all three on every open
+# (Nov 24 sweep). A new font ships under a new file name.
+[[headers]]
+  for = "/fonts/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
 [[headers]]
   for = "/*.html"
   [headers.values]
