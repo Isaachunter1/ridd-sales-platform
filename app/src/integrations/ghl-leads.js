@@ -78,6 +78,9 @@ function mktgChannelShown(ch) { return frSourceDept(ch) === 'office'; }
 // when a hidden source lands on it and NO visible source does (so "Facebook Lead" being hidden never hides Facebook).
 // Visibility comes from the sources table (sources.fr_visible, stamped by the RevHawk sync from FieldRoutes).
 function mktgChannelHidden(ch) {
+  // PestBooker is a sales rep, not a source (per Isaac, Nov 25): its row stays off the Marketing channel tables while the
+  // sources are being fixed (Auditing → Attribution → PestBooker). Totals still count those leads and sales.
+  if (/^pest\s*booker$/i.test(String(ch || '').trim())) return true;
   const src = state.sources || [];
   let M = mktgChannelHidden._m;
   if (!M || M.src !== src || M.map !== frSourceMap()) {
