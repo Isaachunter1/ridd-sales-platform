@@ -720,17 +720,26 @@ function addOnNoRepAuditCard(opts) {
     const day = (v) => String(v || '').slice(0, 10);
     const booked = !!sub && /^pending$/i.test(String(sub.initial_status || '').trim()) && !!day(sub.initial_appt_date);
     const servicedAfter = !!sub && !!addDay && [sub.initial_serviced_date, sub.last_completed_date].some(d => day(d) && day(d) >= addDay);
-    return { a, sold, days, seller, likely: days != null && days >= -1 && days <= ADDON_NOREP_DAYS, appt: booked || servicedAfter,
-      apptNote: booked ? 'initial booked ' + day(sub.initial_appt_date) : servicedAfter ? 'serviced ' + [sub.last_completed_date, sub.initial_serviced_date].map(day).filter(d => d && d >= addDay).sort().pop() : '' };
+    // …but a rep can add the upsell and forget to book the visit for it (Isaac, Nov 24). So a real customer still
+    // lists with no appointment behind the add-on: the plan is active and has a completed service, a signed agreement
+    // or a card on autopay. Only a dead lead (none of those — #186193) or a frozen/cancelled plan stays off.
+    const apOn = !!sub && (() => { const v = String(sub.customer_auto_pay == null ? '' : sub.customer_auto_pay).trim(); return !!v && !/^(no|0|false|none)$/i.test(v); })();
+    const live = !!sub && /active/i.test(String(sub.subscription_status || '')) && !sub.subscription_date_canceled;
+    const real = live && ((Number(sub.subscription_completed_services) || 0) > 0 || !!day(sub.last_completed_date) || String(sub.contract_state) === 'signed' || apOn);
+    const needsAppt = !(booked || servicedAfter) && real;
+    return { a, sold, days, seller, likely: days != null && days >= -1 && days <= ADDON_NOREP_DAYS, appt: booked || servicedAfter || real, needsAppt,
+      apptNote: booked ? 'initial booked ' + day(sub.initial_appt_date) : servicedAfter ? 'serviced ' + [sub.last_completed_date, sub.initial_serviced_date].map(day).filter(d => d && d >= addDay).sort().pop()
+        : needsAppt ? 'NOT SERVICED SINCE THE ADD-ON' + (day(sub.last_completed_date) ? ' (last service ' + day(sub.last_completed_date) + ')' : '') + ' — check a visit is booked for it' : '' };
   });
   const noApptN = _allNoRep.filter(r => !r.appt).length;
   const rows = _allNoRep.filter(r => r.appt).sort((x, y) => (y.likely - x.likely) || String(y.a.added_at).localeCompare(String(x.a.added_at)));
   const likelyN = rows.filter(r => r.likely).length;
+  const needsN = rows.filter(r => r.needsAppt).length;
   const open = opts && opts.item ? state._auditDetail === 'addon' : state._aoNoRepOpen === true;
   const status = d === undefined || d === null ? 'checking…'
     : d.error ? 'waiting on the add-ons sync (migration 20260922_add_ons.sql)'
-    : !rows.length ? 'All clear — every add-on with an appointment behind it is credited to a rep.' + (noApptN ? ' (' + noApptN + ' more with no rep are on plans with no appointment yet — not owed to anyone.)' : '')
-    : rows.length + ' add-on' + (rows.length === 1 ? '' : 's') + ' with no rep' + (likelyN ? ' — ' + likelyN + ' went on within ' + ADDON_NOREP_DAYS + ' days of the sale and probably belong' + (likelyN === 1 ? 's' : '') + ' to the seller' : '') + '. No commission is paid on these until Commission To is set on the line in FieldRoutes.' + (noApptN ? ' Not listed: ' + noApptN + ' more on plans with no appointment booked or serviced since the add-on.' : '');
+    : !rows.length ? 'All clear — every add-on with an appointment behind it is credited to a rep.' + (noApptN ? ' (' + noApptN + ' more with no rep are on plans that are frozen, cancelled or never started — not owed to anyone.)' : '')
+    : rows.length + ' add-on' + (rows.length === 1 ? '' : 's') + ' with no rep' + (likelyN ? ' — ' + likelyN + ' went on within ' + ADDON_NOREP_DAYS + ' days of the sale and probably belong' + (likelyN === 1 ? 's' : '') + ' to the seller' : '') + '. No commission is paid on these until Commission To is set on the line in FieldRoutes.' + (needsN ? ' ' + needsN + ' of these ' + (needsN === 1 ? 'has' : 'have') + ' not been serviced since the add-on went on — check a visit is booked.' : '') + (noApptN ? ' Not listed: ' + noApptN + ' more on plans that are frozen, cancelled or never started (no service, signed agreement or autopay).' : '');
   const head = el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', onclick: () => { state._aoNoRepOpen = !open; mountApp(); } },
     el('span', { class: 'inline-block rounded-full', style: { width: '8px', height: '8px', background: Array.isArray(d) ? (likelyN ? '#DC2626' : rows.length ? '#D97706' : 'var(--ok)') : '#D97706' } }),
     el('span', { class: 'text-[11px] uppercase tracking-widest font-bold' }, 'To do · Add-ons with no rep'),

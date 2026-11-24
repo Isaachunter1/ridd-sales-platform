@@ -169,3 +169,7 @@ carried it and should be Organic — he is having Pest AI stamp Organic. "Google
 ## 2026-11-24 — Add-ons with no rep: only list ones with an appointment behind them
 Isaac: "the only ones that really matter are ones where a appointment is scheduled after the add on" (#186193 was listed with no contract, payment or appointment).
 An add-on is listed only when its plan has an initial booked (initial pending with an appointment date) or a service completed on or after the add-on date. The rest are counted in a "Not listed: N more" note, not dropped silently. The Commissions "Fix first" banner now loads the FieldRoutes snapshot itself so it can make the same check, and shows nothing until that is in.
+
+## 2026-11-24 — Add-ons with no rep: a real customer lists even with no appointment
+Isaac: "what if a rep forgets to schedule an appointment for the upsell WITH the add on?"
+An add-on with no appointment behind it still lists when the plan is active and has a completed service, a signed agreement or autopay on — flagged "not serviced since the add-on, check a visit is booked". Only frozen/cancelled plans and plans that never started (none of the three, e.g. #186193) stay off, and are counted in the note. The snapshot has no future-appointment date for existing customers, so the flag says to check rather than claiming none is booked.
