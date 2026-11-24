@@ -719,7 +719,7 @@ function viewPricing() {
     const itemsToggle = el('button', { onclick: () => { st.qItems = !itemsOpen; if (!st.qItems) editKey = null; rerender(); },
         style: { width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', background: 'transparent', border: 0, padding: '2px 0', cursor: 'pointer', font: '700 9px/1 ' + F, letterSpacing: '.12em', textTransform: 'uppercase', color: C.ink2 } },
       el('span', {}, q.lines.length + ' item' + (q.lines.length === 1 ? '' : 's') + ' in this quote'),
-      el('span', { style: { color: C.orange } }, itemsOpen ? 'Hide \u25b4' : (st.tier === 'd2d' ? 'Show \u00b7 edit prices \u25be' : 'Show \u25be')));
+      el('span', { style: { color: C.orange } }, itemsOpen ? 'Hide \u25b4' : 'Show \u25be'));
     const items = itemsOpen ? el('div', { class: 'pq-items', style: { marginTop: '4px' } },
       ...q.lines.map(rline),
       // First-year cost lives with the items now (it was a tap on Monthly).
