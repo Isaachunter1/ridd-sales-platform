@@ -849,6 +849,69 @@ function reportingOverview() {
       cvsWrap);
   });
 
+  // ── Branch scorecard (per Isaac, Nov 24): every branch on one table, under the ARR bar. Book numbers use the same
+  // rules as the Daily Pulse scorecard (new ARR = first service in the last 12 months, renewals out; churn = counted
+  // cancels of accounts already in the book 12 months ago ÷ that book). Marketing numbers are the Marketing tab's own
+  // year-to-date cells (Office Staff new sales, spend ÷ new sales, new sales ÷ leads). Always all branches — the
+  // office filter doesn't narrow it. Best three in a column read green, worst three red. Click a header to sort.
+  const branchScorecard = perfT('ov:branches', () => {
+    const sl = ((dataA.slices && dataA.slices.rarrOffice) || []);
+    if (office !== 'all' || inCompare || sl.length < 2) return null;
+    const { isRealCancel } = reportingFilters();
+    const _recMapB = typeof reportingServiceRecurringMap === 'function' ? reportingServiceRecurringMap() : new Map();
+    const isRec = (r) => reportingRecurringMode() === 'arv' ? (Number(r.annual_recurring_value) || 0) > 0 : !!_recMapB.get(r.subscription);
+    const isRen = (r) => typeof reportingSourceClass === 'function' && reportingSourceClass(reportingSourceOf(r)) === 'renewal';
+    const now = new Date(), isoD = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    const end = isoD(now), st = (() => { const d = new Date(now); d.setDate(d.getDate() - 365); return isoD(d); })();
+    const B = new Map(); const get = (k) => B.get(k) || B.set(k, { book: 0, add: 0, cxlBook: 0, cxlAll: 0 }).get(k);
+    for (const r of (scope.visible || [])) {
+      const k = r.office_name || 'Unspecified', arr = Number(r.annual_recurring_value) || 0;
+      const done = String(r.initial_status || '').toLowerCase() === 'completed' || !!r.initial_serviced_date;
+      const sv = done ? String(r.initial_serviced_date || r.initial_service || r.sold_date || '').slice(0, 10) : '', cd = String(r.subscription_date_canceled || '').slice(0, 10);
+      const inBook = arr > 0 && sv && sv <= st && (!cd || cd > st);
+      const g = get(k);
+      if (inBook) g.book += arr;
+      if (sv && sv > st && sv <= end && !isRen(r) && isRec(r)) g.add += arr;
+      if (cd && cd > st && cd <= end && isRealCancel(r)) { g.cxlAll += arr; if (inBook) g.cxlBook += arr; }
+    }
+    const custBy = new Map(((dataA.slices && dataA.slices.custOffice) || []).map(x => [x.label, x.value]));
+    // Marketing (Office Staff) year to date — only when the Marketing data is in memory.
+    let MK = null;
+    // mklMonth memoizes each month itself, so this is cheap after the first build; the QuickBooks spend load is kicked
+    // here so CAC fills in without a visit to the Marketing tab.
+    // Admins only: the CAC column is built on QuickBooks spend, which the Developer role must never see — so the three
+    // Marketing columns (and the spend load) are skipped for everyone else.
+    const _mkOk = typeof isAdminRole === 'function' && isAdminRole(String(state.profile?.role || '')) && !(typeof isDeveloperRole === 'function' && isDeveloperRole(String(state.profile?.role || '')));
+    try { if (_mkOk && typeof mklRange === 'function' && state._ghl) { if (typeof reportingLoadQboSpend === 'function') reportingLoadQboSpend(); MK = mklRange(now.getFullYear(), now.getMonth(), 0); } } catch (e) { MK = null; }
+    const mkOf = (label) => { if (!MK || !MK.br) return null; const want = String(label).trim().toLowerCase(); const k = Object.keys(MK.br).find(x => x.trim().toLowerCase() === want); return k ? MK.br[k] : null; };
+    const tot = sl.reduce((a, x) => a + x.value, 0);
+    const rows = sl.filter(x => x.value > 0).map(x => { const g = B.get(x.label) || { book: 0, add: 0, cxlBook: 0, cxlAll: 0 }, m = mkOf(x.label);
+      return { label: x.label, arr: x.value, share: tot ? x.value / tot : null, cust: custBy.get(x.label) || null, add: g.add, churn: g.book > 0 ? g.cxlBook / g.book : null, net: g.add - g.cxlAll,
+        growth: g.book > 0 ? (g.add - g.cxlAll) / g.book : null, sales: m ? m.s : null, cac: m && m.svc && m.spend ? m.spend / m.svc : null, close: m && m.leads ? m.s / m.leads : null }; });
+    const usd = (v) => v == null ? '—' : fmt.usd0(v), pc = (v, d) => v == null || !isFinite(v) ? '—' : (v * 100).toFixed(d == null ? 1 : d) + '%';
+    const COLS = [
+      { k: 'arr', t: 'Active ARR', f: usd, up: true }, { k: 'share', t: 'Share', f: pc, up: null }, { k: 'cust', t: 'Customers', f: (v) => v == null ? '—' : fmt.int(v), up: true },
+      { k: 'add', t: 'New ARR · 12 mo', f: usd, up: true, tip: 'Recurring ARR first serviced in the last 12 months (renewals out)' },
+      { k: 'churn', t: 'Churn · 12 mo', f: pc, up: false, tip: 'ARR cancelled from the book as it stood 12 months ago ÷ that book' },
+      { k: 'net', t: 'Net · 12 mo', f: (v) => v == null ? '—' : (v < 0 ? '−' : '+') + fmt.usd0(Math.abs(v)), up: true, tip: 'New ARR minus every counted cancel in the last 12 months' },
+      { k: 'growth', t: 'Book growth', f: pc, up: true, tip: 'Net ÷ the book 12 months ago' },
+      ...(MK ? [{ k: 'sales', t: 'Office sales · YTD', f: (v) => v == null ? '—' : fmt.int(v), up: true, tip: 'Office Staff new sales this year (Marketing tab)' },
+        { k: 'cac', t: 'Mktg CAC · YTD', f: usd, up: false, tip: 'Marketing spend ÷ new sales, year to date (Marketing tab)' },
+        { k: 'close', t: 'Lead → sale', f: (v) => pc(v, 0), up: true, tip: 'New sales ÷ leads, year to date (Marketing tab)' }] : [])];
+    const S = state._brSort || { k: 'arr', dir: -1 };
+    rows.sort((a, b) => ((a[S.k] == null ? -Infinity : a[S.k]) - (b[S.k] == null ? -Infinity : b[S.k])) * S.dir);
+    const tone = {}; for (const c of COLS) { if (c.up == null) continue; const v = rows.map(r => r[c.k]).filter(x => x != null && isFinite(x)).sort((a, b) => a - b); if (v.length < 6) continue; tone[c.k] = { lo: v[2], hi: v[v.length - 3] }; }
+    const colorOf = (c, v) => { const t = tone[c.k]; if (!t || v == null || !isFinite(v)) return undefined; const good = c.up ? v >= t.hi : v <= t.lo, bad = c.up ? v <= t.lo : v >= t.hi; return good ? '#15803D' : bad ? '#B91C1C' : undefined; };
+    const nm = (l) => typeof _titleCaseWords === 'function' ? _titleCaseWords(l) : l;
+    const th = (c) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap text-left cursor-pointer', title: (c.tip ? c.tip + ' · ' : '') + 'click to sort', style: { color: S.k === c.k ? 'var(--accent)' : 'var(--text-muted)', background: 'var(--card-2)' },
+      onclick: () => { state._brSort = { k: c.k, dir: S.k === c.k ? -S.dir : (c.up === false ? 1 : -1) }; mountApp(); } }, c.t + (S.k === c.k ? (S.dir < 0 ? ' ↓' : ' ↑') : ''));
+    return el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)', marginTop: '12px' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold text-left', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, 'Branch'), ...COLS.map(th))),
+      el('tbody', {}, ...rows.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        el('td', { class: 'px-3 py-1.5 font-semibold whitespace-nowrap' }, nm(r.label)),
+        ...COLS.map(c => el('td', { class: 'px-3 py-1.5 tabular-nums whitespace-nowrap', style: { color: colorOf(c, r[c.k]), fontWeight: colorOf(c, r[c.k]) ? '700' : undefined } }, c.f(r[c.k]))))))));
+  });
+
   // ARR by branch (per Isaac, Nov 24): one bar, each branch a segment sized by its share of Active ARR, with its ARR
   // and % under it. Same rows as the Active ARR tile and the "Active ARR by Office" card (slices.rarrOffice).
   const branchArrBar = (() => {
@@ -871,7 +934,8 @@ function reportingOverview() {
         ...sl.map((x, i) => el('span', { class: 'inline-flex items-center gap-1.5 text-[11px] cursor-pointer', onclick: drill(x.label) },
           el('span', { style: { width: '9px', height: '9px', borderRadius: '2px', background: pal[i % pal.length], display: 'inline-block' } }),
           el('span', { class: 'font-semibold' }, nm(x.label)),
-          el('span', { class: 'tabular-nums', style: { color: 'var(--text-muted)' } }, fmt.usd0(x.value) + ' \u00b7 ' + pc(x.value))))));
+          el('span', { class: 'tabular-nums', style: { color: 'var(--text-muted)' } }, fmt.usd0(x.value) + ' \u00b7 ' + pc(x.value))))),
+      branchScorecard);
   })();
 
   return el('div', { class: 'flex flex-col gap-4' },

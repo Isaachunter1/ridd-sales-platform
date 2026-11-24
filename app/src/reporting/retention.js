@@ -1006,6 +1006,62 @@ function reportingWaterfall() {
   // colour, year 2 the same, and so on — so the same-age cells line up
   // visually down the diagonals instead of colouring by survival.
   const COHORT_AGE_BG = ['#DCEFD6', '#E4EED0', '#F1EBC7', '#F7E3C2', '#F7D9C4', '#F3CFC9', '#EBC9D3', '#E2CCE0'];
+  // ── Retention curves (per Isaac, Nov 24): the Cohort Waterfall's book, drawn. One line per start year — the share of
+  // that year's subscriptions still here N months after their first service (Kaplan–Meier over the retention book,
+  // so young cohorts stop where their data stops and a line never climbs). Steeper = losing customers faster.
+  const retentionCurvesCard = (pop) => {
+    const rows = _retenEff(pop); if (!rows || !rows.length) return null;
+    const nowMs = Date.now(), MAXM = 36, MIN_D = 100;
+    const by = new Map();
+    for (const r of rows) {
+      const y = Number(String(r.initial_service || '').slice(0, 4)); if (!(y >= 2000)) continue;
+      const age = semAgeMonths(r, nowMs); if (age == null || age < 1) continue;
+      const life = semLifeMonths(r);
+      let g = by.get(y); if (!g) { g = { y, d: new Array(MAXM + 2).fill(0), n: new Array(MAXM + 2).fill(0), total: 0 }; by.set(y, g); }
+      g.total++;
+      // Kaplan–Meier inputs: at risk in month k = still here entering it and observed through it. A cancelled
+      // subscription's event month is floor(life) + 1; an active one is at risk through floor(age) and then leaves
+      // the count without counting as a loss.
+      const obs = Math.floor(age);
+      if (life == null) { const e = Math.min(MAXM, obs); if (e >= 1) { g.d[1]++; g.d[e + 1]--; } }
+      else { const e = Math.floor(life) + 1; if (e <= MAXM) { g.d[1]++; g.d[e + 1]--; g.n[e]++; } else { g.d[1]++; g.d[MAXM + 1]--; } }
+    }
+    // Survival = the running product of (1 − cancelled that month ÷ at risk that month): the standard way to read
+    // retention when cohorts are still young — every subscription counts for the months it has been watched, and the
+    // line can only go down. Drawn while at least MIN_D are still at risk.
+    const series = [...by.values()].sort((p, q) => q.y - p.y).map(g => {
+      let risk = 0, surv = 1; const pts = [[0, 1]];
+      for (let m = 1; m <= MAXM; m++) { risk += g.d[m]; if (risk < MIN_D) break; surv *= 1 - g.n[m] / risk; pts.push([m, surv]); }
+      return { y: g.y, pts, total: g.total };
+    }).filter(s => s.pts.length > 3);
+    if (!series.length) return null;
+    const W = 920, H = 300, L = 44, R = 64, T = 12, B = 30;
+    const sx = (m) => L + (W - L - R) * m / MAXM, sy = (v) => T + (H - T - B) * (1 - v);
+    const PAL = ['#DF643A', '#2F5D62', '#5F6C5B', '#B45309', '#7C3AED', '#0E7490', '#9A988F', '#323230'];
+    const NS = 'http://www.w3.org/2000/svg';
+    const svgEl = document.createElementNS(NS, 'svg'); svgEl.setAttribute('viewBox', '0 0 ' + W + ' ' + H); svgEl.setAttribute('width', '100%'); svgEl.style.display = 'block'; svgEl.style.minWidth = '560px';
+    const add = (tag, attrs, text) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; svgEl.append(e); return e; };
+    for (const v of [0, 0.25, 0.5, 0.75, 1]) { add('line', { x1: L, x2: W - R, y1: sy(v), y2: sy(v), stroke: 'var(--border)', 'stroke-width': 1 }); add('text', { x: L - 6, y: sy(v) + 3, 'text-anchor': 'end', 'font-size': 10, fill: 'var(--text-muted)' }, Math.round(v * 100) + '%'); }
+    for (const m of [0, 3, 6, 12, 18, 24, 30, 36]) { add('line', { x1: sx(m), x2: sx(m), y1: sy(0), y2: sy(0) + 4, stroke: 'var(--border-2)', 'stroke-width': 1 }); add('text', { x: sx(m), y: H - 10, 'text-anchor': 'middle', 'font-size': 10, fill: 'var(--text-muted)' }, m ? m + ' mo' : 'Start'); }
+    add('line', { x1: sx(12), x2: sx(12), y1: T, y2: sy(0), stroke: 'var(--border-2)', 'stroke-width': 1, 'stroke-dasharray': '3 4' });
+    series.forEach((s, i) => {
+      const col = PAL[i % PAL.length];
+      add('path', { d: s.pts.map(([m, v], k) => (k ? 'L' : 'M') + sx(m).toFixed(1) + ' ' + sy(v).toFixed(1)).join(' '), fill: 'none', stroke: col, 'stroke-width': i === 0 ? 2.6 : 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' });
+      const [lm, lv] = s.pts[s.pts.length - 1];
+      add('circle', { cx: sx(lm), cy: sy(lv), r: 3, fill: col });
+      add('text', { x: sx(lm) + 7, y: sy(lv) + 3.5, 'font-size': 10.5, 'font-weight': 700, fill: col, stroke: 'var(--card)', 'stroke-width': 3, 'paint-order': 'stroke' }, s.y + ' · ' + Math.round(lv * 100) + '%');
+      for (const [m, v] of s.pts) { if (!m || m % 3) continue; const c = add('circle', { cx: sx(m), cy: sy(v), r: 6, fill: 'transparent' }); const t = document.createElementNS(NS, 'title'); t.textContent = s.y + ' starts · ' + (v * 100).toFixed(1) + '% still here at ' + m + ' months'; c.append(t); }
+    });
+    const at = (s, m) => { const p = s.pts.find(x => x[0] === m); return p ? (p[1] * 100).toFixed(0) + '%' : '—'; };
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b flex items-baseline gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+        el('h3', { class: 'text-base font-bold' }, 'Retention Curves' + (office !== 'all' ? ' \u00b7 ' + (typeof officeLabel === 'function' ? officeLabel(office) : officeLabel) : '')),
+        el('span', { class: 'text-xs', style: { color: 'var(--text-muted)' } }, 'Share of each start year still here, by months since first service')),
+      el('div', { class: 'scroll-x px-2 pt-3' }, svgEl),
+      el('div', { class: 'px-4 pb-3 flex flex-wrap gap-x-6 gap-y-1 text-[11px]', style: { color: 'var(--text-muted)' } },
+        ...series.map((s, i) => el('span', { class: 'inline-flex items-center gap-1.5 tabular-nums' }, el('span', { style: { width: '10px', height: '3px', borderRadius: '2px', background: PAL[i % PAL.length], display: 'inline-block' } }),
+          el('b', { style: { color: 'var(--text)' } }, String(s.y)), ' 6 mo ' + at(s, 6) + ' · 12 mo ' + at(s, 12) + ' · 24 mo ' + at(s, 24)))));
+  };
   const renderBlended = (pop) => {
     const scoped = pop;   // office scope comes from the tab's top filter
     const rows = _retenEff(scoped);
@@ -2590,6 +2646,7 @@ function reportingWaterfall() {
     _shell('Churn Timing', _pm('ret:timing', () => churnTimingCard(pop, label))),
     _shell('Customer Lifetime', lifetimeCard),                       // Customer Lifetime follows the trends chart (per Isaac)
     _shell('Cohort Waterfall', _pm('ret:blended', () => renderBlended(pop))),
+    _shell('Retention Curves', _pm('ret:curves', () => retentionCurvesCard(pop))),
     _shell('Monthly Churn', _pm('ret:seasonality', () => seasonalityCard(pop, label))),
     _shell('Retention by Start Month', _pm('ret:cohorts', () => startCohortCard(pop, label))));   // (LTV card retired per Isaac, Sep 2026)
 
@@ -2795,7 +2852,7 @@ function reportingWaterfall() {
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-start justify-between flex-wrap gap-3', style: { borderColor: 'var(--border)' } },
         el('div', { class: 'flex flex-col gap-1' },
-          el('h3', { class: 'text-base font-bold' }, 'Renewal Retention' + (office !== 'all' ? ' · ' + officeLabel : '')),
+          el('h3', { class: 'text-base font-bold' }, 'Renewal Retention' + (office !== 'all' ? ' \u00b7 ' + (typeof officeLabel === 'function' ? officeLabel(office) : officeLabel) : '')),
           (ta != null && tb != null) ? el('div', { class: 'text-sm' },
             'Renewed customers churn ', el('b', { style: { color: C_REN } }, (ta * 100).toFixed(1) + '%'), ' vs ', el('b', { style: { color: C_M2M } }, (tb * 100).toFixed(1) + '%'), ' month-to-month — ',
             el('b', { style: { color: ta <= tb ? '#15803D' : '#DC2626' } }, Math.abs((ta - tb) * 100).toFixed(1) + ' pts ' + (ta <= tb ? 'better' : 'worse')), ', same start-year cohorts.') : null,
