@@ -181,3 +181,7 @@ The task now covers every add-on, not only uncredited ones. No rep: as before. N
 ## 2026-11-24 — Channel metrics: descriptions out, pacer in the Read column
 Isaac: "get rid of the description and then on the read column get rid of the description and show like a pacer with revenue, spend, and projected".
 The card's header and footer sentences are gone. Under the Read pill, the sentence is replaced by a small grid: spend and revenue so far, and each projected to month end at the current daily pace (so far ÷ days gone × days in the month). Projected spend turns red when it lands over the budget. A closed month shows finals only. The reasoning sentence stays as the cell's hover text.
+
+## 2026-11-24 — Spend tab: every known lead vendor is a channel; "Not marketing" says where the charge belongs
+Isaac: Yelp was missing from "Pick a channel"; and the Advertising & Marketing account holds charges that are not marketing (Ruth's Chris = incentive, Kixie = technology, Wave = consulting/wages).
+The channel list now includes every vendor in the app's source list (Yelp, eLocal, Click-To-Buy…). "Not marketing" became four picks — Incentives, Technology, Wages & consulting, Other — all backed out of marketing spend exactly as before (rule stays SPQ_SKIP; the reason is kept in qbSkipWhy). The channel table shows the backed-out dollars by reason under the Total row. Nothing is moved into the incentives or wages tables automatically.

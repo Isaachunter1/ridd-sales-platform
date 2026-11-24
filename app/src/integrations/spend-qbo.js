@@ -79,7 +79,21 @@ function spqAddVendor(name) {
   m.channels = [...m.channels, n]; _mktgSave(); return n;
 }
 function spqAskNewVendor() { const n = window.prompt('New vendor / channel name (e.g. 6 Brothers):'); return n ? spqAddVendor(n) : ''; }
-function spqChannelOptions() { const m = _spqStore(); return [...new Set([...(m.channels || []), 'Google Ads', 'Google Local Services', 'Facebook'])].sort(); }
+// Every lead vendor the app already knows as a source is a channel here too (per Isaac, Nov 24 — Yelp was missing):
+// the FieldRoutes / Pest AI source list, less the ones that are not somebody we pay (Inside Sale, Referral, Website…).
+function spqChannelOptions() { const m = _spqStore();
+  const known = typeof IS_SOURCES !== 'undefined' ? [...IS_SOURCES].filter(c => !/^(Inside Sale|Miscellaneous|Referral|Unknown Source|Website)$/.test(c)) : [];
+  return [...new Set([...(m.channels || []), ...known, 'Google Ads', 'Google Local Services', 'Facebook'])].sort(); }
+// Charges in the Advertising & Marketing account that are not marketing (per Isaac, Nov 24 — Ruth's Chris is an
+// incentive, Kixie is technology, Wave is consulting): backed out of marketing spend, with where they belong, so the
+// list can go to the bookkeeper to reclass. The rule itself stays SPQ_SKIP; the reason is kept beside it.
+const SPQ_SKIP_CATS = ['Incentives', 'Technology', 'Wages & consulting', 'Other'];
+function spqSkipWhy(ym, L) { const m = _spqStore(), W = m.qbSkipWhy || {};
+  return W['l:' + _spqLineKey(ym, L.day, L.payee, L.memo, L.amt, L.txn)] || W[_spqKey(L.payee, L.memo)] || 'Other'; }
+function spqSetSkip(ym, L, cat, onlyThis) { const m = _spqStore(); m.qbSkipWhy = (m.qbSkipWhy && typeof m.qbSkipWhy === 'object') ? m.qbSkipWhy : {};
+  const c = SPQ_SKIP_CATS.includes(cat) ? cat : 'Other';
+  if (onlyThis) m.qbSkipWhy['l:' + _spqLineKey(ym, L.day, L.payee, L.memo, L.amt, L.txn)] = c; else { m.qbSkipWhy[_spqKey(L.payee, L.memo)] = c; delete m.qbSkipWhy['l:' + _spqLineKey(ym, L.day, L.payee, L.memo, L.amt, L.txn)]; }
+  spqSetRule(ym, L, SPQ_SKIP, onlyThis); }
 // Google Ads accounts the platform feed knows: last four → { acct, name, lsa }.
 function _spqGoogleAccts(year) {
   const S = (state._adSpend || {})[year] || {};

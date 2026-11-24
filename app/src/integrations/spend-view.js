@@ -63,12 +63,12 @@ function mktgSpendView() {
   // Payees with no channel yet, across the year — one pick per payee, remembered for every month.
   const chanOpts = typeof spqChannelOptions === 'function' ? spqChannelOptions() : [...new Set([...(m.channels || []), 'Google Ads', 'Google Local Services', 'Facebook'])].sort();
   const vendorPick = (lym, L, onlyThis) => el('select', { class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: Object.assign({}, selSt, L.prov ? {} : { borderColor: '#DC2626' }),
-    onchange: (e) => { let v = e.target.value; if (v === SPQ_NEW) { v = spqAskNewVendor(); if (!v) { mountApp(); return; } } spqSetRule(lym, L, v, !!onlyThis); } },
+    onchange: (e) => { let v = e.target.value; if (v.indexOf(SPQ_SKIP + ':') === 0) { spqSetSkip(lym, L, v.slice(SPQ_SKIP.length + 1), !!onlyThis); return; } if (v === SPQ_NEW) { v = spqAskNewVendor(); if (!v) { mountApp(); return; } } spqSetRule(lym, L, v, !!onlyThis); } },
     el('option', { value: '', selected: !L.prov, disabled: true }, 'Pick a channel…'),
     ...chanOpts.map(c => el('option', { value: c, selected: L.prov === c }, c)),
     el('option', { value: SPQ_TOOLS, selected: L.prov === SPQ_TOOLS }, SPQ_TOOLS_LABEL + ' (spread with the media)'),
-    el('option', { value: SPQ_SKIP, selected: L.prov === SPQ_SKIP }, 'Not marketing'),
-    el('option', { value: SPQ_NEW }, '+ New channel…'));
+    el('option', { value: SPQ_NEW }, '+ New channel…'),
+    el('optgroup', { label: 'Not marketing — back it out as' }, ...SPQ_SKIP_CATS.map(c => el('option', { value: SPQ_SKIP + ':' + c, selected: L.prov === SPQ_SKIP && spqSkipWhy(lym, L) === c }, c === 'Other' ? 'Other (not marketing)' : c))));
   const unByPayee = new Map();
   AY.forEach((X, i) => { if (!X) return; for (const L of X.lines) { if (L.prov) continue; const k = _spqKey(L.payee, L.memo); const g = unByPayee.get(k) || unByPayee.set(k, { L, ym: ymOf(i), months: Array(12).fill(0) }).get(k); g.months[i] += L.amt; } });
   const unRows = [...unByPayee.values()].sort((a, b) => b.months.reduce((x, y) => x + y, 0) - a.months.reduce((x, y) => x + y, 0));
@@ -78,14 +78,23 @@ function mktgSpendView() {
     stickyTd(el('div', { class: 'flex items-center gap-2' }, el('span', { style: { color: '#B91C1C' } }, g.L.payee || '(no name)'), admin ? vendorPick(g.ym, g.L) : null), { background: 'transparent' }),
     ...g.months.map(v => td(v ? usd0(v) : '—', v ? { color: '#B91C1C' } : muted, true)), td(usd0(g.months.reduce((x, y) => x + y, 0)), { fontWeight: '700', color: '#B91C1C' }, true));
   const yearTotal = MON.reduce((a, _, i) => a + monthTotal(i), 0);
+  // Backed out of marketing, by where it belongs — under the total, so the table still shows what QuickBooks holds
+  // in the account and how much of it is not marketing.
+  const outBy = {};
+  AY.forEach((X, i) => { if (!X) return; for (const L of X.lines) { if (L.prov !== SPQ_SKIP) continue; const c = spqSkipWhy(ymOf(i), L); (outBy[c] || (outBy[c] = Array(12).fill(0)))[i] += L.amt; } });
+  const outCats = SPQ_SKIP_CATS.filter(c => outBy[c] && outBy[c].some(v => Math.abs(v) > 0.5));
+  const outYear = outCats.reduce((a, c) => a + outBy[c].reduce((x, y) => x + y, 0), 0);
+  const outRow = (c) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+    stickyTd(el('span', { style: muted }, 'Backed out · ' + (c === 'Other' ? 'Other (not marketing)' : c)), { fontWeight: '500' }),
+    ...outBy[c].map(v => td(v ? usd0(v) : '—', muted, true)), td(usd0(outBy[c].reduce((x, y) => x + y, 0)), Object.assign({ fontWeight: '700' }, muted), true));
   const chanCard = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
       el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Marketing spend · ' + year),
-        el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'QuickBooks Advertising & Marketing, each payee under its channel. ' + (unRows.length ? unRows.length + (unRows.length === 1 ? ' payee still needs' : ' payees still need') + ' a channel (red) — pick once, it sticks for every month.' : 'Every charge has a channel.'))),
+        el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'QuickBooks Advertising & Marketing, each payee under its channel. ' + (outYear ? usd0(outYear) + ' in the account is backed out as not marketing (below the total). ' : '') + (unRows.length ? unRows.length + (unRows.length === 1 ? ' payee still needs' : ' payees still need') + ' a channel (red) — pick once, it sticks for every month.' : 'Every charge has a channel.'))),
       el('span', { class: 'ml-auto text-sm font-black tabular-nums' }, usd0(yearTotal))),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('Channel', false, { position: 'sticky', left: 0, zIndex: 2 }), ...MON.map(thM), th('Total', true))),
-      el('tbody', {}, ...unRows.map(unRow), ...channels.map(chRow), totRow('Total', [...MON.map((_, i) => monthTotal(i)), yearTotal])))));
+      el('tbody', {}, ...unRows.map(unRow), ...channels.map(chRow), totRow('Total', [...MON.map((_, i) => monthTotal(i)), yearTotal]), ...outCats.map(outRow)))));
 
   // ── 2. Spend by market ──
   const markets = [...new Set(AY.flatMap(X => X ? X.branches : []))];
