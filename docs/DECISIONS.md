@@ -84,3 +84,14 @@ Per Isaac: add-ons in their new form (FieldRoutes ticket items — Office Staff 
 sales for every rep type starting 2027-01-01. Nothing counts them yet: "new sales" on Overview (branch scorecard),
 Marketing and the leaderboards still reads subscriptions only. Which screens and whether they count as a sale, as
 revenue, or both is to be confirmed before any number changes.
+
+## 2026-11-24 — Market Watch: RIDD P&L lines mapped to the public companies' categories
+Per Isaac: COGS is tech wages, auto and fuel, and product; operating expenses are marketing, office and
+sales-related costs (commissions included); adjusted EBITDA adds back every sales-related expense,
+housing and door-to-door commissions included.
+Market Watch uses the P&L tab's own QuickBooks grouping (putisClassify / putisDerive), last 12 closed months:
+cost of services = QuickBooks COGS (merchant fees included, as QuickBooks books them);
+selling & marketing = Advertising & Marketing + Selling Expenses + Incentive Costs + Housing;
+"EBITDA before selling costs" = EBITDA + that selling & marketing total.
+OPEN: the P&L tab's "Adjusted EBITDA" adds back commissions + marketing + incentives but NOT housing.
+Not changed — waiting on Isaac. Admin only; a Developer sees "admin only", never sample or real numbers.

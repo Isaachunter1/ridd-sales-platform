@@ -9,8 +9,18 @@
 // │   · book growth  = (new recurring ARR serviced − recurring ARR cancelled,
 // │     last 365 days) ÷ the book a year ago — the Overview scorecard's rule
 // │   · retention    = 1 − the Retention tab's trailing-12-month attrition
-// │ RIDD's P&L lines (gross margin, selling % of revenue …) are NOT mapped
-// │ here yet — they need a line-by-line match to the QuickBooks chart first.
+// │ RIDD's P&L lines (per Isaac, Nov 24 2026) come from the SAME QuickBooks
+// │ grouping as the P&L tab (putisClassify / putisDerive), last 12 closed months:
+// │   · Cost of services = COGS: Technician Labor Wages + Auto and Fuel +
+// │     Chemicals and Job Supplies (+ Merchant Fees, which QuickBooks books
+// │     under Other COGS; Rollins carries card fees in SG&A)
+// │   · Selling & marketing = Advertising & Marketing + Selling Expenses
+// │     (commissions) + Incentive Costs + Housing — every sales-related cost
+// │   · G&A = every other operating expense group
+// │   · EBITDA before selling costs = EBITDA + selling & marketing above
+// │     (Isaac's adjusted EBITDA: adds back all sales-related expense, housing
+// │     and door-to-door commissions included)
+// │ Admin only. A Developer never sees these lines (no sample numbers either).
 // │ Refresh: update MARKET_WATCH each quarter when Rollins / Rentokil report.
 // └──────────────────────────────────────────────────────────────────────────
 const MARKET_WATCH = {
@@ -45,10 +55,19 @@ const MARKET_WATCH = {
   rollinsCosts: {
     label: 'Rollins · full-year 2025 cost structure (% of revenue)', src: 'rolFy', revenue: '$3,761.1M · +11.0% (organic +6.9%)',
     rows: [
-      ['Cost of services', '47.2%', true], ['· Service employee expenses', '31.0%'], ['· Materials & supplies', '6.0%'], ['· Fleet', '4.2%'], ['· Insurance & claims', '1.8%'], ['· Other', '4.3%'],
-      ['Gross margin', '52.8%', true],
-      ['SG&A', '30.1%', true], ['· Selling & marketing', '12.9%'], ['· Administrative employees', '9.2%'], ['· Insurance & claims', '1.1%'], ['· Fleet', '1.1%'], ['· Other', '5.9%'],
-      ['Depreciation & amortization', '3.3%'], ['Operating margin', '19.3%', true], ['Adjusted EBITDA margin', '22.7%', true], ['Net income margin', '14.0%', true],
+      // [Rollins line, Rollins %, strong, RIDD key (marketWatchPnl), what RIDD's number is made of]
+      ['Cost of services', '47.2%', true, 'cogs', 'QuickBooks Cost of Goods Sold: tech wages + auto and fuel + chemicals and job supplies + merchant fees'],
+      ['· Service employee expenses', '31.0%', false, 'tech', 'Technician Labor Wages'], ['· Materials & supplies', '6.0%', false, 'ms', 'Chemicals and Job Supplies'], ['· Fleet', '4.2%', false, 'auto', 'Auto and Fuel'],
+      ['· Insurance & claims', '1.8%', false, null, 'RIDD books insurance under operating expenses, not cost of services'], ['· Other', '4.3%', false, 'merchant', 'Merchant Fees (Other COGS). Rollins carries card fees in SG&A.'],
+      ['Gross margin', '52.8%', true, 'gp', 'Revenue minus the cost of services above'],
+      ['SG&A', '30.1%', true, 'opex', 'All operating expenses: selling & marketing + G&A'],
+      ['· Selling & marketing', '12.9%', false, 'selling', 'Advertising & Marketing + Selling Expenses (commissions) + Incentive Costs + Housing'],
+      ['· Administrative employees', '9.2%', false, 'officeWages', 'Office Wages'], ['· Insurance & claims', '1.1%', false, 'insurance', 'Insurance'], ['· Fleet', '1.1%', false, null, 'RIDD books all auto and fuel in cost of services'],
+      ['· Other', '5.9%', false, 'gaOther', 'Every other G&A group: rent, software, legal, travel, recruiting, office expenses …'],
+      ['Depreciation & amortization', '3.3%', false, 'da', 'Depreciation and amortization as booked in QuickBooks'], ['Operating margin', '19.3%', true, 'op', 'EBITDA minus depreciation and amortization'],
+      ['Adjusted EBITDA margin', '22.7%', true, 'ebitda', 'RIDD EBITDA: gross profit minus all operating expenses, before interest and depreciation'],
+      ['Net income margin', '14.0%', true, null, 'Rollins is after corporate income tax; RIDD is not taxed the same way, so no like-for-like figure'],
+      ['EBITDA before selling costs', 'not published', true, 'adj', 'RIDD adjusted EBITDA: EBITDA with every sales-related cost added back (marketing, commissions, incentives, housing). What the service business earns before growth spend.'],
     ],
     facts: ['Recurring services about 75% of the business, ancillary 10%, one-time 15% (10-K)', '21,946 employees at year-end 2025 (10-K)', '26 acquisitions in 2025; $310M cash invested (10-K / release)'],
     factsSrc: 'rol10k',
@@ -107,7 +126,33 @@ function marketWatchRidd() {
   return out;
 }
 
+// RIDD's P&L, last 12 closed months, on the P&L tab's own QuickBooks grouping. Null until the ledger is loaded.
+function marketWatchPnl() {
+  if (devSampleData()) return { blocked: true };
+  const M = typeof putisMonthly === 'function' ? putisMonthly() : null; if (!M) return null;
+  const br = [...PUTIS_BRANCHES, 'Corporate'], open = putisOpenMonth();
+  const closed = Object.keys(M).filter(ym => ym < open && putisDerive(M, ym, br).any).sort();
+  if (closed.length < 12) return null;
+  const yms = closed.slice(-12), prev = closed.slice(-24, -12);
+  const d = putisDeriveMonths(M, yms, br); if (!(d.revenue > 0)) return null;
+  const pc = (v) => v / d.revenue;
+  const selling = d.marketing + d.commissions + d.incentives + d.housing;
+  const officeWages = d.gaLines['Office Wages'] || 0, insurance = d.gaLines['Insurance'] || 0;
+  const out = { from: yms[0], to: yms[11], revenue: d.revenue,
+    cogs: pc(d.cogs), tech: pc(d.techWages), ms: pc(d.ms), auto: pc(d.auto), merchant: pc(d.merchant), gp: pc(d.gp),
+    opex: pc(selling + d.ga), selling: pc(selling), officeWages: pc(officeWages), insurance: pc(insurance), gaOther: pc(d.ga - officeWages - insurance),
+    da: d.da ? pc(d.da) : null, ebitda: pc(d.ebitda), op: d.da ? pc(d.ebitda - d.da) : null, adj: pc(d.ebitda + selling), revGrowth: null };
+  if (prev.length === 12) { const p = putisDeriveMonths(M, prev, br); if (p.revenue > 0) out.revGrowth = d.revenue / p.revenue - 1; }
+  return out;
+}
+
 function reportingMarketWatch() {
+  if (!devSampleData() && typeof reportingLoadLedger === 'function') reportingLoadLedger();
+  const P = marketWatchPnl();
+  const pPct = (k) => !P ? (state._ledgerErr === 'unavailable' ? 'QuickBooks unavailable' : state.reportingLedger && !state._ledgerLoading ? 'needs 12 closed months' : 'loading QuickBooks…') : P.blocked ? 'admin only' : P[k] == null ? '—' : (P[k] * 100).toFixed(1) + '%';
+  const pOn = !!(P && !P.blocked);
+  const ymLbl = (ym) => new Date(ym + '-01T00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  const pSpan = pOn ? ymLbl(P.from) + ' – ' + ymLbl(P.to) : '';
   const gate = typeof reportingDataGate === 'function' ? reportingDataGate() : null;
   const M = MARKET_WATCH, muted = { color: 'var(--text-muted)' };
   const R = gate ? { growth: null, retention: null } : refMemo('marketWatchRidd', [state.reportingSubscriptions, window._riddMutRev || 0, new Date().toDateString()], 300000, marketWatchRidd);
@@ -121,22 +166,24 @@ function reportingMarketWatch() {
 
   // ── RIDD vs public ──
   const cmp = [
-    ['Growth', 'Rollins organic revenue +4.4% (Q3) · +5.5% (9 mo); residential +2.3%', 'Rentokil N. America organic +3.7% (H1)', R.growth == null ? '—' : pc(R.growth) + ' book growth, last 12 mo',
+    ['Growth', 'Rollins organic revenue +4.4% (Q3) · +5.5% (9 mo); residential +2.3%', 'Rentokil N. America organic +3.7% (H1)', (R.growth == null ? '—' : pc(R.growth) + ' book growth, last 12 mo') + (pOn && P.revGrowth != null ? ' · revenue ' + pc(P.revGrowth) + ' (QuickBooks, last 12 closed months)' : ''),
       'RIDD’s figure is the change in the active recurring ARR book (new serviced minus cancelled, ÷ the book a year ago) — a recurring-book measure, not recognized revenue, and it includes door-to-door summer sales.'],
     ['Customer retention', 'Rollins: “strong”, no figure published', 'Rentokil N. America 80.7%', R.retention == null ? '—' : (R.retention * 100).toFixed(1) + '% (1 − trailing-12 attrition)',
       'RIDD’s is subscription-level from the Retention tab (counted cancels in the last 365 days ÷ subscriptions on the books a year ago). Rentokil’s is its own customer-retention definition, so read the gap as direction, not a like-for-like score.'],
     ['Revenue mix', 'Rollins: 75% recurring · 10% ancillary · 15% one-time', 'not published', 'not mapped yet', ''],
-    ['Selling & marketing % of revenue', 'Rollins 13.4% (Q3) · 12.9% (FY25)', 'not published', 'needs the P&L mapping', 'Wages, incentives and ad spend sit on different QuickBooks lines at RIDD — worth mapping line by line before putting a number here.'],
-    ['Gross margin', 'Rollins 53.5% (Q3) · 52.8% (FY25)', 'not published', 'needs the P&L mapping', ''],
-    ['Operating margin', 'Rollins 20.5% (Q3) · 19.3% (FY25)', 'Rentokil N. America adjusted 17.9% (H1)', 'needs the P&L mapping', ''],
+    ['Selling & marketing % of revenue', 'Rollins 13.4% (Q3) · 12.9% (FY25)', 'not published', pPct('selling'), 'RIDD: Advertising & Marketing + Selling Expenses (commissions) + Incentive Costs + Housing, ÷ revenue, last 12 closed months. RIDD sells door-to-door; Rollins sells mostly through inbound and cross-sell, so the gap is expected.'],
+    ['Gross margin', 'Rollins 53.5% (Q3) · 52.8% (FY25)', 'not published', pPct('gp'), 'RIDD: revenue minus QuickBooks cost of goods sold (tech wages, auto and fuel, chemicals and job supplies, merchant fees). Rollins also carries service-side insurance, claims and branch costs in cost of services, which RIDD books in operating expenses.'],
+    ['EBITDA margin', 'Rollins adjusted 22.7% (FY25)', 'not published for N. America', pPct('ebitda'), 'RIDD: gross profit minus all operating expenses, before interest and depreciation, ÷ revenue.'],
+    ['Operating margin', 'Rollins 20.5% (Q3) · 19.3% (FY25)', 'Rentokil N. America adjusted 17.9% (H1)', pOn && P.op == null ? 'no depreciation booked' : pPct('op'), 'RIDD: EBITDA minus depreciation and amortization as booked in QuickBooks.'],
+    ['EBITDA before selling costs', 'not published', 'not published', pPct('adj'), 'RIDD adjusted EBITDA: EBITDA with every sales-related cost added back (marketing, commissions, incentives, housing).'],
   ];
   const cmpCard = card('RIDD vs the public companies', 'Public figures as reported · RIDD live from the app',
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('Measure'), th('Rollins'), th('Rentokil (Terminix)'), th('RIDD'))),
       el('tbody', {}, ...cmp.map(([m, a, b, c, note]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' }, title: note || '' },
         td(m, { b: true }), el('td', { class: 'px-3 py-1.5' }, a), el('td', { class: 'px-3 py-1.5' }, b),
-        el('td', { class: 'px-3 py-1.5 font-bold', style: { color: /needs|not mapped/.test(c) ? 'var(--text-subtle)' : 'var(--accent)' } }, c, note ? el('span', { class: 'ml-1', style: { color: 'var(--text-subtle)', cursor: 'help' } }, 'ⓘ') : null)))))),
-    el('div', { class: 'px-5 py-2 text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Definitions differ between companies — hover a RIDD number for how it is counted. RIDD P&L lines are left blank until they are matched to the QuickBooks chart of accounts.'));
+        el('td', { class: 'px-3 py-1.5 font-bold', style: { color: /needs|not mapped|loading|admin only|no depreciation|unavailable/.test(c) ? 'var(--text-subtle)' : 'var(--accent)' } }, c, note ? el('span', { class: 'ml-1', style: { color: 'var(--text-subtle)', cursor: 'help' } }, 'ⓘ') : null)))))),
+    el('div', { class: 'px-5 py-2 text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Definitions differ between companies — hover a RIDD number for how it is counted. ' + (pOn ? 'RIDD P&L lines are QuickBooks, ' + pSpan + ', on the same grouping as the P&L tab.' : 'RIDD P&L lines come from QuickBooks (admins only).')));
 
   // ── What they're saying ──
   const sayCard = card('What they’re saying', 'Paraphrased from the latest results and calls',
@@ -155,12 +202,15 @@ function reportingMarketWatch() {
 
   // ── Rollins cost structure ──
   const K = M.rollinsCosts;
-  const kCard = card(K.label, 'Revenue ' + K.revenue,
+  const kCard = card('Cost structure · Rollins full-year 2025 vs RIDD (% of revenue)', 'Revenue ' + K.revenue,
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-      el('tbody', {}, ...K.rows.map(([n, v, strong]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: strong ? 'var(--card-2)' : undefined } },
+      el('thead', {}, el('tr', {}, th(''), th(''), th('Rollins', 1), th('RIDD' + (pOn ? ' · ' + pSpan : ''), 1))),
+      el('tbody', {}, ...K.rows.map(([n, v, strong, rk, how]) => el('tr', { title: how || '', class: 'border-t', style: { borderColor: 'var(--border)', background: strong ? 'var(--card-2)' : undefined } },
         td(n, { b: !!strong }),
-        el('td', { class: 'px-3 py-1.5', style: { width: '45%' } }, el('div', { style: { height: '8px', borderRadius: '999px', background: 'var(--card-2)', overflow: 'hidden', border: strong ? '1px solid var(--border)' : '0' } }, el('div', { style: { width: Math.min(100, parseFloat(v)) + '%', height: '100%', background: strong ? '#2F5D62' : '#8F9A8C', borderRadius: '999px' } }))),
-        td(v, { r: 1, b: !!strong })))))),
+        el('td', { class: 'px-3 py-1.5', style: { width: '45%' } }, el('div', { style: { height: '8px', borderRadius: '999px', background: 'var(--card-2)', overflow: 'hidden', border: strong ? '1px solid var(--border)' : '0' } }, el('div', { style: { width: Math.min(100, parseFloat(v) || 0) + '%', height: '100%', background: strong ? '#2F5D62' : '#8F9A8C', borderRadius: '999px' } }))),
+        td(v, { r: 1, b: !!strong }),
+        el('td', { class: 'px-3 py-1.5 text-right tabular-nums whitespace-nowrap' + (strong ? ' font-bold' : ''), style: { color: rk && pOn && P[rk] != null ? 'var(--accent)' : 'var(--text-subtle)', cursor: how ? 'help' : undefined } }, rk ? pPct(rk) : '—')))))),
+    el('div', { class: 'px-5 pt-2 text-[10px]', style: { color: 'var(--text-subtle)' } }, 'RIDD is % of QuickBooks revenue. Hover a row for the QuickBooks groups behind it. The companies sort costs differently (insurance, card fees, branch overhead), so compare the bold lines first.'),
     el('ul', { class: 'px-5 py-2 text-[12px] flex flex-col gap-0.5', style: muted }, ...K.facts.map(t => el('li', {}, '• ' + t))),
     el('div', { class: 'px-5 pb-3 flex gap-4 flex-wrap' }, src(K.src), src(K.factsSrc)));
 
