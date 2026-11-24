@@ -777,7 +777,7 @@ function _mktgSpendReset() {
     if (!state.profile || typeof isAdminRole !== 'function' || !isAdminRole(state.profile.role)) return;
     const m = _mktgStore();
     if (m._spendResetNov5) return;
-    for (const k of ['spend', 'spendUploads', 'spendLocMap', 'spendProvMap', 'spendTemplates', 'spendCpl', 'qbRules', 'qbAlloc', 'qbLineRules', 'qbSkipWhy']) delete m[k];
+    for (const k of ['spend', 'spendUploads', 'spendLocMap', 'spendProvMap', 'spendTemplates', 'spendCpl', 'qbRules', 'qbAlloc', 'qbLineRules', 'qbSkipWhy', 'qbAgency', 'agencies']) delete m[k];
     m.spend = {};
     m._spendResetNov5 = new Date().toISOString();
     state._spqMemo = {}; state._mkpMemo = null;

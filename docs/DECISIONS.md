@@ -185,3 +185,7 @@ The card's header and footer sentences are gone. Under the Read pill, the senten
 ## 2026-11-24 — Spend tab: every known lead vendor is a channel; "Not marketing" says where the charge belongs
 Isaac: Yelp was missing from "Pick a channel"; and the Advertising & Marketing account holds charges that are not marketing (Ruth's Chris = incentive, Kixie = technology, Wave = consulting/wages).
 The channel list now includes every vendor in the app's source list (Yelp, eLocal, Click-To-Buy…). "Not marketing" became four picks — Incentives, Technology, Wages & consulting, Other — all backed out of marketing spend exactly as before (rule stays SPQ_SKIP; the reason is kept in qbSkipWhy). The channel table shows the backed-out dollars by reason under the Total row. Nothing is moved into the incentives or wages tables automatically.
+
+## 2026-11-24 — Spend tab: Agency is a batch of named agencies
+Isaac: "I want them to be batched under agency but we have multiple agencies that can fall under that category too."
+The Agency pick is now a group: each agency by name, plus "+ New agency…". The rule stays SPQ_TOOLS, so agency dollars are still spread across markets with the media and the Agency row total is unchanged; the agency's name is kept beside the rule (qbAgency, list in agencies). The channel table shows one Agency row with a sub-row per agency (not added to the total twice). Charges already under Agency show as "Not named yet" until an agency is picked.

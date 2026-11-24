@@ -87,6 +87,20 @@ function spqChannelOptions() { const m = _spqStore();
 // Charges in the Advertising & Marketing account that are not marketing (per Isaac, Nov 24 — Ruth's Chris is an
 // incentive, Kixie is technology, Wave is consulting): backed out of marketing spend, with where they belong, so the
 // list can go to the bookkeeper to reclass. The rule itself stays SPQ_SKIP; the reason is kept beside it.
+// Agencies (per Isaac, Nov 24): several agencies are paid, all batched under Agency. The rule stays SPQ_TOOLS, so the
+// dollars are spread with the media exactly as before; which agency it is is kept beside the rule (qbAgency).
+const SPQ_AG = '__ag:', SPQ_AG_NEW = '__agnew', SPQ_AG_NONE = 'Unnamed agency';
+function spqAgencies() { const m = _spqStore(); return (Array.isArray(m.agencies) ? m.agencies : []).slice().sort((a, b) => a.localeCompare(b)); }
+function spqAddAgency(name) { const n = String(name || '').trim().replace(/\s+/g, ' ').slice(0, 60); if (!n) return '';
+  const m = _spqStore(); m.agencies = Array.isArray(m.agencies) ? m.agencies : [];
+  const hit = m.agencies.find(c => c.toLowerCase() === n.toLowerCase()); if (hit) return hit;
+  m.agencies = [...m.agencies, n]; return n; }
+function spqAgencyOf(ym, L) { const m = _spqStore(), W = m.qbAgency || {};
+  return W['l:' + _spqLineKey(ym, L.day, L.payee, L.memo, L.amt, L.txn)] || W[_spqKey(L.payee, L.memo)] || SPQ_AG_NONE; }
+function spqSetAgency(ym, L, name, onlyThis) { const m = _spqStore(); m.qbAgency = (m.qbAgency && typeof m.qbAgency === 'object') ? m.qbAgency : {};
+  const lk = 'l:' + _spqLineKey(ym, L.day, L.payee, L.memo, L.amt, L.txn), n = name ? spqAddAgency(name) : '';
+  if (onlyThis) { if (n) m.qbAgency[lk] = n; else delete m.qbAgency[lk]; } else { if (n) m.qbAgency[_spqKey(L.payee, L.memo)] = n; else delete m.qbAgency[_spqKey(L.payee, L.memo)]; delete m.qbAgency[lk]; }
+  spqSetRule(ym, L, SPQ_TOOLS, onlyThis); }
 const SPQ_SKIP_CATS = ['Incentives', 'Technology', 'Wages & consulting', 'Other'];
 function spqSkipWhy(ym, L) { const m = _spqStore(), W = m.qbSkipWhy || {};
   return W['l:' + _spqLineKey(ym, L.day, L.payee, L.memo, L.amt, L.txn)] || W[_spqKey(L.payee, L.memo)] || 'Other'; }

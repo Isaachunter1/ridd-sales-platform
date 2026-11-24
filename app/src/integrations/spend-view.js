@@ -83,10 +83,13 @@ function mktgSpendView() {
   const copyReclass = (only) => { const t = reclassNote(only); if (!t) { toast('Nothing backed out to copy', 'info'); return; }
     try { navigator.clipboard.writeText(t).then(() => toast('Copied the note for the controller', 'success'), () => toast('Could not copy — use the Copy button on the table', 'error')); } catch (e) { toast('Could not copy — use the Copy button on the table', 'error'); } };
   const vendorPick = (lym, L, onlyThis) => el('select', { class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: Object.assign({}, selSt, L.prov ? {} : { borderColor: '#DC2626' }),
-    onchange: (e) => { let v = e.target.value; if (v.indexOf(SPQ_SKIP + ':') === 0) { state._spqCopyAfter = _spqKey(L.payee, L.memo); spqSetSkip(lym, L, v.slice(SPQ_SKIP.length + 1), !!onlyThis); return; } if (v === SPQ_NEW) { v = spqAskNewVendor(); if (!v) { mountApp(); return; } } spqSetRule(lym, L, v, !!onlyThis); } },
+    onchange: (e) => { let v = e.target.value; if (v === SPQ_AG_NEW) { const n = window.prompt('Agency name (e.g. ROR, Incline Marketing):'); if (!n || !n.trim()) { mountApp(); return; } spqSetAgency(lym, L, n, !!onlyThis); return; } if (v.indexOf(SPQ_AG) === 0) { spqSetAgency(lym, L, v.slice(SPQ_AG.length), !!onlyThis); return; } if (v.indexOf(SPQ_SKIP + ':') === 0) { state._spqCopyAfter = _spqKey(L.payee, L.memo); spqSetSkip(lym, L, v.slice(SPQ_SKIP.length + 1), !!onlyThis); return; } if (v === SPQ_NEW) { v = spqAskNewVendor(); if (!v) { mountApp(); return; } } spqSetRule(lym, L, v, !!onlyThis); } },
     el('option', { value: '', selected: !L.prov, disabled: true }, 'Pick a channel…'),
     ...chanOpts.map(c => el('option', { value: c, selected: L.prov === c }, c)),
-    el('option', { value: SPQ_TOOLS, selected: L.prov === SPQ_TOOLS }, SPQ_TOOLS_LABEL + ' (spread with the media)'),
+    el('optgroup', { label: 'Agency (spread with the media)' },
+      ...spqAgencies().map(a => el('option', { value: SPQ_AG + a, selected: L.prov === SPQ_TOOLS && spqAgencyOf(lym, L) === a }, a)),
+      L.prov === SPQ_TOOLS && spqAgencyOf(lym, L) === SPQ_AG_NONE ? el('option', { value: SPQ_TOOLS, selected: true }, 'Agency — not named yet') : null,
+      el('option', { value: SPQ_AG_NEW }, '+ New agency…')),
     el('option', { value: SPQ_NEW }, '+ New channel…'),
     el('optgroup', { label: 'Not marketing — back it out as' }, ...SPQ_SKIP_CATS.map(c => el('option', { value: SPQ_SKIP + ':' + c, selected: L.prov === SPQ_SKIP && spqSkipWhy(lym, L) === c }, c === 'Other' ? 'Other (not marketing)' : c))));
   const unByPayee = new Map();
@@ -98,6 +101,15 @@ function mktgSpendView() {
     stickyTd(el('div', { class: 'flex items-center gap-2' }, el('span', { style: { color: '#B91C1C' } }, g.L.payee || '(no name)'), admin ? vendorPick(g.ym, g.L) : null), { background: 'transparent' }),
     ...g.months.map(v => td(v ? usd0(v) : '—', v ? { color: '#B91C1C' } : muted, true)), td(usd0(g.months.reduce((x, y) => x + y, 0)), { fontWeight: '700', color: '#B91C1C' }, true));
   const yearTotal = MON.reduce((a, _, i) => a + monthTotal(i), 0);
+  // Agency, split by agency under the one Agency row (per Isaac, Nov 24). The Agency row is the batch total; these
+  // rows only say who it went to, so they are not added to the table total again.
+  const agBy = {};
+  AY.forEach((X, i) => { if (!X) return; for (const L of X.lines) { if (L.prov !== SPQ_TOOLS) continue; const a = spqAgencyOf(ymOf(i), L); (agBy[a] || (agBy[a] = Array(12).fill(0)))[i] += L.amt; } });
+  const agNames = Object.keys(agBy).sort((a, b) => agBy[b].reduce((x, y) => x + y, 0) - agBy[a].reduce((x, y) => x + y, 0));
+  const agRow = (a) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+    stickyTd(el('span', { style: Object.assign({ paddingLeft: '16px' }, a === SPQ_AG_NONE ? { color: '#B45309' } : muted) }, '↳ ' + (a === SPQ_AG_NONE ? 'Not named yet — pick the agency under QuickBooks lines' : a)), { fontWeight: '500' }),
+    ...agBy[a].map(v => td(v ? usd0(v) : '—', muted, true)), td(usd0(agBy[a].reduce((x, y) => x + y, 0)), muted, true));
+  const chRows = (ch) => ch === SPQ_TOOLS && (agNames.length > 1 || (agNames.length === 1 && agNames[0] !== SPQ_AG_NONE)) ? [chRow(ch), ...agNames.map(agRow)] : [chRow(ch)];
   // Backed out of marketing, by where it belongs — under the total, so the table still shows what QuickBooks holds
   // in the account and how much of it is not marketing.
   const outBy = {};
@@ -117,7 +129,7 @@ function mktgSpendView() {
       el('span', { class: (outCats.length && admin ? '' : 'ml-auto ') + 'text-sm font-black tabular-nums' }, usd0(yearTotal))),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('Channel', false, { position: 'sticky', left: 0, zIndex: 2 }), ...MON.map(thM), th('Total', true))),
-      el('tbody', {}, ...unRows.map(unRow), ...channels.map(chRow), totRow('Total', [...MON.map((_, i) => monthTotal(i)), yearTotal]), ...outCats.map(outRow)))));
+      el('tbody', {}, ...unRows.map(unRow), ...channels.flatMap(chRows), totRow('Total', [...MON.map((_, i) => monthTotal(i)), yearTotal]), ...outCats.map(outRow)))));
 
   // ── 2. Spend by market ──
   const markets = [...new Set(AY.flatMap(X => X ? X.branches : []))];
