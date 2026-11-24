@@ -2867,11 +2867,27 @@ function reportingWaterfall() {
     // customer, which mixes 2021 lifers with 2025 sign-ups. Here each START YEAR (first service) is its own cohort:
     // the customers from that year who renewed vs the ones from the same year who reached contract end and rode
     // month-to-month — read at the same horizons, so the renewal's effect on attrition is apples to apples.
+    // Four stages that together cover every contract customer (per Isaac, Nov 24). A customer is counted in each
+    // stage they ENTERED, and "churned" is leaving DURING that stage, so the four rates read the same way:
+    //   In contract  = signed a first contract; churned = left before that contract ended, without renewing
+    //   M2M          = reached the end of the first contract still a customer, never renewed; churned = left since
+    //   Renewed      = bought a renewal; churned = left before the renewal term ended
+    //   Renewed M2M  = renewed, and outlived the renewal term; churned = left since
+    // The Gap chip and the headline still compare ALL renewers (in term or after) with month-to-month.
+    const _termEnd = (r) => { const len = Number(r.agreement_length) || 0; if (len <= 1) return null; const d = new Date(String(r.contract_signed_at || r.initial_service || r.sold_date || '').slice(0, 10) + 'T00:00'); if (isNaN(d)) return null; d.setMonth(d.getMonth() + len); return d.getTime(); };
+    const _renEnd = (c) => { if (c._renEnd !== undefined) return c._renEnd; let e = null; for (const r of c.subs) { if (reportingSourceClass(r.subscription_source) !== 'renewal' && !r.is_renewal_cont) continue; const t = _termEnd(r); if (t != null && (e == null || t > e)) e = t; } return (c._renEnd = e != null ? e : c.firstRenewal.at); };
+    const stage = (L, anchorOf, leftOf) => { const o = stat(L, anchorOf); const gone = L.filter(leftOf); o.left = gone.length; o.here = o.n - o.left; o.leftRows = gone.flatMap(c => c.subs); return o; };
+    const icL = [...lives.values()].filter(c => c.firstContract);
+    const rmL = allL.filter(c => { const e = _renEnd(c); return e <= nowMs && (c.alive || c.end == null || c.end > e); });
+    const icStat = (L) => stage(L, (c) => c.start, (c) => !c.alive && !c.firstRenewal && c.end != null && c.end <= c.firstContract.end);
+    const rtStat = (L) => stage(L, renAnchor, (c) => !c.alive && c.end != null && c.end <= _renEnd(c));
+    const rmStat = (L) => stage(L, _renEnd, (c) => !c.alive);
     const byYear = new Map();
     const _yr = (c) => c.start != null ? String(new Date(c.start).getFullYear()) : null;
-    for (const c of allL) { const y = _yr(c); if (!y) continue; (byYear.get(y) || byYear.set(y, { ren: [], m2m: [] }).get(y)).ren.push(c); }
-    for (const c of m2mL) { const y = _yr(c); if (!y) continue; (byYear.get(y) || byYear.set(y, { ren: [], m2m: [] }).get(y)).m2m.push(c); }
-    const yearRows = [...byYear.keys()].sort((a, b) => b.localeCompare(a)).map(y => ({ y, ren: stat(byYear.get(y).ren, renAnchor), m2m: stat(byYear.get(y).m2m, endAnchor) })).filter(x => x.ren.n || x.m2m.n);
+    const _put = (L, k) => { for (const c of L) { const y = _yr(c); if (!y) continue; (byYear.get(y) || byYear.set(y, { ren: [], m2m: [], ic: [], rm: [] }).get(y))[k].push(c); } };
+    _put(allL, 'ren'); _put(m2mL, 'm2m'); _put(icL, 'ic'); _put(rmL, 'rm');
+    const _four = (g) => ({ ren: stat(g.ren, renAnchor), m2m: stat(g.m2m, endAnchor), ic: icStat(g.ic), rt: rtStat(g.ren), rm: rmStat(g.rm) });
+    const yearRows = [...byYear.keys()].sort((a, b) => b.localeCompare(a)).map(y => Object.assign({ y }, _four(byYear.get(y)))).filter(x => x.ren.n || x.m2m.n || x.ic.n);
     if (!all.n && !m2m.n) return null;
     const pct = (n, d) => d ? (n / d * 100).toFixed(1) + '%' : '—';
     const mo = (v) => v == null ? '—' : v.toFixed(1) + ' mo';
@@ -2888,9 +2904,9 @@ function reportingWaterfall() {
     const sep = { borderLeft: '1px solid var(--border)' };
     const mix = typeof retenRenewalCohortCard === 'function' ? (() => { try { return retenRenewalCohortCard(popA, { dataOnly: true }); } catch (e) { return null; } })() : null;
     const mixOf = (y) => mix ? (y === 'All years' ? mix.tot : mix.years.find(g => String(g.yr) === String(y)) || null) : null;
-    const C_REN = '#15803D', C_M2M = '#B45309';
+    const C_REN = '#15803D', C_M2M = '#DC2626', C_IC = '#4B5563', C_RM = '#B45309';   // same colours as the Today bar
     const bar = (v, color, label, n, d, onclick, dim) => el('div', { class: 'flex items-center gap-2', style: { cursor: onclick ? 'pointer' : 'default', opacity: dim ? '.45' : '1' }, onclick, title: label + (d ? ' · ' + fmt.int(n) + ' of ' + fmt.int(d) : '') + (onclick ? ' · click for them' : '') },
-      el('span', { class: 'text-[9px] font-bold', style: { color, width: '24px' } }, label === 'Renewed' ? 'REN' : 'M2M'),
+      el('span', { class: 'text-[9px] font-bold whitespace-nowrap', style: { color, width: '70px' } }, label === 'Month-to-month' ? 'M2M' : label.toUpperCase()),
       el('span', { style: { position: 'relative', display: 'inline-block', width: '110px', height: '8px', background: 'var(--card-2)', borderRadius: '4px', overflow: 'hidden' } },
         v == null ? null : el('span', { style: { position: 'absolute', left: 0, top: 0, bottom: 0, width: Math.max(1, Math.min(100, v * 100)) + '%', background: color, borderRadius: '4px' } })),
       el('span', { class: 'tabular-nums text-[11px] font-semibold', style: { minWidth: '44px' } }, v == null ? '—' : (v * 100).toFixed(1) + '%'));
@@ -2906,7 +2922,8 @@ function reportingWaterfall() {
     };
     const h = (k, d) => d >= MIN_H ? k / d : null;
     const openKey = '_renRetOpen';
-    const line = (label, R, M, strong) => {
+    const line = (label, X, strong) => {
+      const R = X.ren, M = X.m2m, IC = X.ic, RT = X.rt, RM = X.rm;
       const a = attr(R), b = attr(M), d = (a != null && b != null && R.n >= MIN_N && M.n >= MIN_N) ? a - b : null;
       const small = !strong && (R.n < MIN_N || M.n < MIN_N);
       const isOpen = !!(state[openKey] || {})[label];
@@ -2915,15 +2932,12 @@ function reportingWaterfall() {
       const tr = el('tr', { class: 'border-t cursor-pointer', style: { borderColor: strong ? 'var(--border-2)' : 'var(--border)', background: strong ? 'var(--card-2)' : undefined, borderTopWidth: strong ? '2px' : undefined }, onclick: toggle, title: small ? 'Small cohort — fewer than ' + MIN_N + ' customers in a group, read with care' : 'Click for +24 months, tenure and today’s mix' },
         el('td', { class: 'px-3 py-2 whitespace-nowrap ' + (strong ? 'font-black' : 'font-semibold') }, (isOpen ? '▾ ' : '▸ ') + label),
         el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap', style: Object.assign({ opacity: small ? '.55' : '1' }, sep) },
-          el('div', {}, el('span', { class: 'font-semibold', style: { color: C_REN } }, fmt.int(R.n)), el('span', { style: { color: 'var(--text-muted)' } }, ' renewed')),
-          el('div', {}, el('span', { class: 'font-semibold', style: { color: C_M2M } }, fmt.int(M.n)), el('span', { style: { color: 'var(--text-muted)' } }, ' month-to-month'))),
+          ...[[IC, C_IC, ' in contract'], [M, C_M2M, ' month-to-month'], [RT, C_REN, ' renewed'], [RM, C_RM, ' renewed, now M2M']].map(([o, c2, t]) => el('div', {}, el('span', { class: 'font-semibold', style: { color: c2 } }, fmt.int(o.n)), el('span', { style: { color: 'var(--text-muted)' } }, t)))),
         el('td', { class: 'px-3 py-2', style: sep },
-          bar(a, C_REN, 'Renewed', R.left, R.n, open(label + ' · renewed · churned', R.left, R.leftRows), small),
-          bar(b, C_M2M, 'Month-to-month', M.left, M.n, open(label + ' · month-to-month · churned', M.left, M.leftRows), small)),
+          ...[[IC, C_IC, 'In contract'], [M, C_M2M, 'Month-to-month'], [RT, C_REN, 'Renewed'], [RM, C_RM, 'Renewed M2M']].map(([o, c2, t]) => bar(attr(o), c2, t, o.left, o.n, open(label + ' · ' + t.toLowerCase() + ' · churned', o.left, o.leftRows), !strong && o.n < MIN_N))),
         el('td', { class: 'px-3 py-2' }, gapChip(d)),
         el('td', { class: 'px-3 py-2', style: sep },
-          bar(h(R.h12k, R.h12n), C_REN, 'Renewed', R.h12k, R.h12n, null, small),
-          bar(h(M.h12k, M.h12n), C_M2M, 'Month-to-month', M.h12k, M.h12n, null, small)),
+          ...[[IC, C_IC, 'In contract'], [M, C_M2M, 'Month-to-month'], [RT, C_REN, 'Renewed'], [RM, C_RM, 'Renewed M2M']].map(([o, c2, t]) => bar(h(o.h12k, o.h12n), c2, t, o.h12k, o.h12n, null, !strong && o.n < MIN_N))),
         el('td', { class: 'px-3 py-2', style: sep }, todayBar(g, label)));
       if (!isOpen) return [tr];
       const kv = (k, v) => el('div', { class: 'flex flex-col gap-0.5' }, el('span', { class: 'text-[9px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)' } }, k), el('span', { class: 'tabular-nums text-[12px] font-semibold' }, v));
@@ -2933,12 +2947,13 @@ function reportingWaterfall() {
         el('div', { class: 'flex flex-wrap gap-x-6 gap-y-3' },
           kv('Still here +24 mo · renewed / M2M', p(R.h24k, R.h24n) + ' / ' + p(M.h24k, M.h24n)),
           kv('Tenure · renewed / M2M', mo(R.tenure) + ' / ' + mo(M.tenure)),
-          kv('Churned · renewed / M2M', fmt.int(R.left) + ' / ' + fmt.int(M.left)),
+          kv('Churned · in contract / M2M / renewed / renewed M2M', [IC, M, RT, RM].map(o => fmt.int(o.left)).join(' / ')),
+          kv('All renewers churned (in term or after)', fmt.int(R.left) + ' of ' + fmt.int(R.n)),
           ...(g ? mix.KEYS.map(k => kv(mix.LABEL[k], fmt.int(g.cnt[k]) + ' · ' + (g.n ? (g.cnt[k] / g.n * 100).toFixed(1) : '0') + '%')) : []),
           g && g.past ? kv('Renewed · past 1st term', (g.pastRen / g.past * 100).toFixed(1) + '%') : null)));
       return [tr, detail];
     };
-    const tot = { ren: stat(yearRows.flatMap(x => byYear.get(x.y).ren), renAnchor), m2m: stat(yearRows.flatMap(x => byYear.get(x.y).m2m), endAnchor) };
+    const tot = _four({ ren: yearRows.flatMap(x => byYear.get(x.y).ren), m2m: yearRows.flatMap(x => byYear.get(x.y).m2m), ic: yearRows.flatMap(x => byYear.get(x.y).ic), rm: yearRows.flatMap(x => byYear.get(x.y).rm) });
     const ta = attr(tot.ren), tb = attr(tot.m2m);
     const legend = mix ? el('div', { class: 'flex flex-wrap gap-x-3 gap-y-1 text-[10px]', style: { color: 'var(--text-muted)' } },
       ...mix.KEYS.map(k => el('span', { class: 'inline-flex items-center gap-1' }, el('span', { style: { width: '8px', height: '8px', borderRadius: '2px', background: mix.COLOR[k] === 'var(--text)' ? '#4B5563' : mix.COLOR[k], display: 'inline-block' } }), mix.LABEL[k]))) : null;
@@ -2951,15 +2966,15 @@ function reportingWaterfall() {
             'Renewed customers churn ', el('b', { style: { color: C_REN } }, (ta * 100).toFixed(1) + '%'), ' vs ', el('b', { style: { color: C_M2M } }, (tb * 100).toFixed(1) + '%'), ' month-to-month — ',
             el('b', { style: { color: ta <= tb ? '#15803D' : '#DC2626' } }, Math.abs((ta - tb) * 100).toFixed(1) + ' pts ' + (ta <= tb ? 'better' : 'worse')), ', same start-year cohorts.') : null,
           legend),
-        configInfoBtn('Renewal Retention', 'Each row is a cohort: customers whose first service was in that year. Renewed = bought a renewal subscription (decision point = the day the first renewal was sold). Month-to-month = reached the end of their first contract still a customer and never renewed (decision point = that contract end). Churned = no active subscription today. Still here +12 mo = still a customer 12 months after the decision point, counting only customers whose decision point is at least 12 months old (fewer than ' + MIN_H + ' reads —). Today = where the cohort’s active customers sit now. Groups under ' + MIN_N + ' customers are greyed. Sentricon and one-time services are left out.')),
+        configInfoBtn('Renewal Retention', 'Each row is a cohort: customers whose first service was in that year. A customer counts in every stage they entered, and Churned is leaving during that stage. In contract = signed a first contract; churned = left before it ended without renewing (clock starts at first service). Month-to-month = reached the end of the first contract still a customer and never renewed; churned = left since. Renewed = bought a renewal; churned = left before the renewal term ended. Renewed M2M = renewed and outlived the renewal term; churned = left since. The Gap and the headline compare all renewers (in term or after) with month-to-month. Still here +12 mo = still a customer 12 months after the decision point, counting only customers whose decision point is at least 12 months old (fewer than ' + MIN_H + ' reads —). Today = where the cohort’s active customers sit now. Groups under ' + MIN_N + ' customers are greyed. Sentricon and one-time services are left out.')),
       el('div', { class: 'scroll-x' },
         el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
           el('thead', {}, el('tr', {},
-            th2('Start year'), th2('Customers', 'Renewed vs month-to-month, same start year', true), th2('Churned', 'Share with no active subscription today', true), th2('Gap', 'Renewed churn minus month-to-month churn'),
-            th2('Still here 12 mo on', 'Still a customer 12 months after the renewal / contract end', true), th2('Today', 'Active customers from that start year, by where they sit now', true))),
+            th2('Start year'), th2('Customers', 'Customers who entered each stage, same start year', true), th2('Churned', 'Share who left during that stage', true), th2('Gap', 'All renewers’ churn minus month-to-month churn'),
+            th2('Still here 12 mo on', 'Still a customer 12 months after entering the stage (first service / contract end / renewal / renewal term end)', true), th2('Today', 'Active customers from that start year, by where they sit now', true))),
           el('tbody', {},
-            ...yearRows.flatMap(x => line(x.y, x.ren, x.m2m, false)),
-            ...line('All years', tot.ren, tot.m2m, true)))));
+            ...yearRows.flatMap(x => line(x.y, x, false)),
+            ...line('All years', tot, true)))));
   })();
 
   // (Renewal Timing card retired per Isaac, Sep 2026.)
