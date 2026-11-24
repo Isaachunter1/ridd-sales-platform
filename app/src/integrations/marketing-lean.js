@@ -213,7 +213,45 @@ function mklSeries(ym) {
   return out;
 }
 
-function mktgLeanView() { return perfT('lean:view', () => _mktgLeanView()); }
+// ── Last-loaded page, shown at once (per Isaac, Nov 25 — "keep the prior sync data so I don't have to wait") ──
+// A refresh used to show every tile blank for 20–30 seconds while FieldRoutes and Pest AI loaded. The page as it last
+// rendered with everything loaded is kept in this browser (IndexedDB, one copy per month / compare pick) and shown
+// straight away, greyed and marked with when it was saved, until the live numbers are ready — then the live page
+// replaces it. It is a picture of the last page, so nothing on it clicks; nothing is computed from it.
+const _MKL_SNAP = { key: null, html: null, at: 0, loading: null, saveT: 0 };
+function _mklSnapKey() { const F = mklState(); return 'keep:mkl:' + [F.ym, F.cmp, state.profile && state.profile.id].join('|'); }
+function _mklSnapReady() { return (state.reportingSubscriptions || []).length > 0 && !!state._ghl && Array.isArray(state._ghl.opps); }
+function _mklSnapSave(node, key) {
+  clearTimeout(_MKL_SNAP.saveT);
+  _MKL_SNAP.saveT = setTimeout(() => {
+    try {
+      if (!node || !node.isConnected || !_mklSnapReady() || key !== _mklSnapKey()) return;
+      const clone = node.cloneNode(true), src = node.querySelectorAll('canvas'), dst = clone.querySelectorAll('canvas');
+      dst.forEach((c, i) => { try { const img = document.createElement('img'); img.src = src[i].toDataURL('image/png'); img.style.cssText = 'width:' + (src[i].clientWidth || 300) + 'px;height:' + (src[i].clientHeight || 150) + 'px;display:block'; c.replaceWith(img); } catch (e) { /* tainted or empty canvas: leave the gap */ } });
+      clone.querySelectorAll('.arr-grip, .spinner').forEach(n => n.remove());
+      const html = clone.innerHTML; if (html.length > 4000000) return;
+      _MKL_SNAP.key = key; _MKL_SNAP.html = html; _MKL_SNAP.at = Date.now();
+      if (typeof reportingIdbPutKeep === 'function') reportingIdbPutKeep(key, { html, at: _MKL_SNAP.at });
+    } catch (e) { /* best effort */ }
+  }, 2500);
+}
+function mktgLeanView() {
+  const key = _mklSnapKey(), ready = _mklSnapReady();
+  const live = perfT('lean:view', () => _mktgLeanView());   // always built: it is also what starts the loads
+  if (ready) { _mklSnapSave(live, key); return live; }
+  if (_MKL_SNAP.key !== key && _MKL_SNAP.loading !== key && typeof reportingIdbGet === 'function') {
+    _MKL_SNAP.loading = key;
+    reportingIdbGet(key).then(v => { if (_MKL_SNAP.loading !== key) return; _MKL_SNAP.loading = null; if (v && v.html) { _MKL_SNAP.key = key; _MKL_SNAP.html = v.html; _MKL_SNAP.at = v.at || 0; if (!_mklSnapReady()) mountApp(); } else { _MKL_SNAP.key = key; _MKL_SNAP.html = null; } });
+  }
+  if (_MKL_SNAP.key !== key || !_MKL_SNAP.html) return live;
+  const when = _MKL_SNAP.at ? new Date(_MKL_SNAP.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+  const body = el('div', { class: 'flex flex-col gap-4 no-arrange', style: { pointerEvents: 'none', opacity: '.78' } });
+  body.innerHTML = _MKL_SNAP.html;   // this browser's own earlier render of this page
+  return el('div', { class: 'flex flex-col gap-4 no-arrange' },
+    el('div', { class: 'card px-4 py-2 text-[12px] flex items-center gap-2', style: { color: 'var(--text-muted)' } },
+      el('span', { class: 'spinner', style: { width: '14px', height: '14px' } }), 'Showing the page as it last loaded' + (when ? ' (' + when + ')' : '') + '. The current numbers replace it as soon as they finish loading.'),
+    body);
+}
 function _mktgLeanView() {
   if (typeof reportingLoadQboSpend === 'function') reportingLoadQboSpend();
   if (typeof ghlLoadLeads === 'function' && state._ghl === undefined) ghlLoadLeads();

@@ -68,7 +68,7 @@ async function reportingIdbPut(uploadId, rows) {
       // Keep only this snapshot — old ones are stale once a new upload lands.
       const keysReq = store.getAllKeys();
       keysReq.onsuccess = () => {
-        (keysReq.result || []).forEach(k => { if (k !== uploadId && !String(k).startsWith('geo:')) store.delete(k); });
+        (keysReq.result || []).forEach(k => { if (k !== uploadId && !/^(geo:|keep:)/.test(String(k))) store.delete(k); });
       };
       tx.oncomplete = () => resolve();
       tx.onerror = () => resolve();
