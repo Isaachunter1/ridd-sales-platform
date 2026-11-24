@@ -183,47 +183,54 @@ function mkxProviderPulseCard(ym, DR, rangeLbl) {
     const perDay = day > 0 ? c.spend / day : 0, runOut = budget && perDay > 0 ? Math.ceil(budget / perDay) : null;
     const sales = salesOf(k), linked = sales.filter(s => s._mklLead).length;
     const svcN = sales.filter(s => !!s.initial_serviced_date || String(s.initial_status || '').trim().toLowerCase() === 'completed').length;
-    const enough = c.s >= 5 || c.leads >= 30;
+    // The read (per Isaac, Nov 25): what the money spent so far SHOULD have bought, on the provider's own last three closed
+    // months (mkbBaseline — the same record the budget's expectation uses), against what it has bought.
+    const base = !isRange && typeof mkbBaseline === 'function' ? mkbBaseline(ym, k) : null;
+    const expS = budget && base && base.cac ? budget / base.cac : null;
+    const dueS = base && base.cac && c.spend ? c.spend / base.cac : null;
+    const ratio = dueS && dueS >= 3 ? c.s / dueS : null;
     let verdict = null, why = '';
-    if (!D.hasSpend || !c.spend) { verdict = null; why = 'No QuickBooks spend booked for this provider ' + (isRange ? 'in this period' : 'this month yet') + '.'; }
-    else if (!enough) why = 'Under 5 new sales and under 30 leads — too little to read.';
-    else if (allCac && ((cac != null && cac >= allCac * 1.5) || (!c.s && c.spend >= allCac * 2))) { verdict = 'cut'; why = cac != null ? 'CAC ' + fmt.usd0(cac) + ' is at least 1.5× the all-provider ' + fmt.usd0(allCac) + '.' : fmt.usd0(c.spend) + ' spent with no new sale (all-provider CAC ' + fmt.usd0(allCac) + ').'; }
-    else if (allCac && cac != null && cac <= allCac && (cac3 == null || cac <= cac3 * 1.15)) { verdict = 'raise'; why = 'CAC ' + fmt.usd0(cac) + ' is at or under the all-provider ' + fmt.usd0(allCac) + (cac3 != null ? ' and within 15% of its own 3-month ' + fmt.usd0(cac3) : '') + '.'; }
-    else { verdict = 'hold'; why = cac != null ? 'CAC ' + fmt.usd0(cac) + (allCac ? ' vs all-provider ' + fmt.usd0(allCac) : '') + (cac3 != null ? ' · its own 3-month ' + fmt.usd0(cac3) : '') + '.' : 'No new sale yet this month.'; }
-    return { k, c, p, budget, cac, cac3, runOut, linked, nSales: sales.length, svcN, verdict, why,
+    if (isRange) why = '';
+    else if (!D.hasSpend || !c.spend) why = 'No QuickBooks spend booked for this provider this month yet.';
+    else if (!base || !base.cac) why = 'No spend with bookings in its last three closed months, so there is nothing to expect yet.';
+    else if (ratio == null) why = 'The spend so far should have bought under 3 bookings — too little to read.';
+    else { verdict = ratio >= 1.1 ? 'raise' : ratio >= 0.9 ? 'hold' : 'cut';
+      why = fmt.int(c.s) + ' bookings against ' + fmt.int(Math.round(dueS)) + ' expected for ' + fmt.usd0(c.spend) + ' spent (' + Math.round(ratio * 100) + '%).' + (verdict === 'raise' ? ' More budget is buying at better than its usual cost.' : verdict === 'cut' ? ' More budget would buy at worse than its usual cost.' : ''); }
+    return { k, c, p, budget, cac, cac3, runOut, linked, nSales: sales.length, svcN, verdict, why, expS, dueS,
       cpl: c.leads > 0 && c.spend > 0 ? c.spend / c.leads : null, close: c.leads > 0 ? c.s / c.leads : null, close3: p.leads > 0 ? p.s / p.leads : null, roas: c.spend > 0 ? c.cv / c.spend : null };
   }).sort((a, b) => (b.c.spend - a.c.spend) || (b.c.leads - a.c.leads));
   const th = (t, tip) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap text-left', title: tip || '', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
   const td = (...kids) => el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap align-top' }, ...kids);
   const sub = (t, color) => el('div', { class: 'text-[10px]', style: { color: color || 'var(--text-subtle)' } }, t);
-  const V = { raise: ['Room to raise', 'rgba(21,128,61,.12)', '#15803D'], hold: ['Hold', 'var(--card-2)', 'var(--text-muted)'], cut: ['Cut back', 'rgba(220,38,38,.12)', '#DC2626'] };
+  const V = { raise: ['Ahead of plan', 'rgba(21,128,61,.12)', '#15803D'], hold: ['On plan', 'rgba(47,93,98,.12)', '#2F5D62'], cut: ['Behind plan', 'rgba(220,38,38,.12)', '#DC2626'] };
   const setBudget = (k, v) => { if (typeof mkbSetBudget === 'function') { mkbSetBudget(ym, k, v); mountApp(); return; } const next = Object.assign({}, B); const n = Number(String(v).replace(/[^0-9.]/g, '')); if (n > 0) next[k] = Math.round(n); else delete next[k]; _setAdminRule('provBudgets', next); try { if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {}); } catch (e) { /* syncs on the next save */ } mountApp(); };
   const dlt = (now, was, lowGood) => now == null || was == null || !was ? null : (() => { const d = now / was - 1; if (Math.abs(d) < 0.005) return null; const good = lowGood ? d < 0 : d > 0; return sub((d > 0 ? '↑ ' : '↓ ') + Math.abs(d * 100).toFixed(0) + '% vs its 3-mo', good ? '#15803D' : '#B91C1C'); })();
   const lbl = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   return el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkt-provpulse' },
     el('div', { class: 'px-5 py-3 flex items-baseline gap-3 flex-wrap' }, el('h3', { class: 'text-base font-bold' }, 'Channel metrics · ' + (isRange ? rangeLbl : lbl + (isOpen ? ' · day ' + day + ' of ' + dim : ''))),
-      el('span', { class: 'text-[11px]', style: _mkxMuted }, 'Spend from QuickBooks · leads from Pest AI · bookings and revenue from FieldRoutes' + (allCac ? ' · all-provider CAC ' + fmt.usd0(allCac) : '') + (owner && !isRange ? ' · type a monthly budget to track it' : ''))),
+      el('span', { class: 'text-[11px]', style: _mkxMuted }, 'Spend from QuickBooks · leads from Pest AI · bookings and revenue from FieldRoutes' + (allCac ? ' · all-provider CAC ' + fmt.usd0(allCac) : '') + (!isRange ? ' · budgets come from the Budget tab' : ''))),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse', minWidth: '980px' } },
       el('thead', {}, el('tr', {}, th('Channel'), isRange ? null : th('Budget', 'Monthly budget you gave the provider — saved for everyone'), th('Spend', 'QuickBooks spend booked this month, and when the budget runs out at this daily pace'),
         th('Leads', 'GoHighLevel leads this month and cost per lead'), th('Bookings', 'New sales: initial on the calendar or serviced, by the FieldRoutes source (last touch), with the close rate'), th('Serviced', 'Bookings whose initial service is done'), th('Revenue', 'Contract value of those bookings, from FieldRoutes'), th('CAC', 'Spend ÷ bookings'), th('Return', 'Revenue ÷ spend'),
-        th('Confirmed', 'New sales with a Pest AI lead behind them — how far the row can be trusted'), th('Suggestion', 'A rule, not a judgement: Raise = CAC at or under the all-provider CAC and within 15% of its own 3-month CAC. Cut = CAC at least 1.5× the all-provider CAC, or spend past two all-provider CACs with no sale. Needs 5 new sales or 30 leads.'))),
+        th('Confirmed', 'New sales with a Pest AI lead behind them — how far the row can be trusted'), th('Read', 'Bookings so far ÷ the bookings the spend so far should have bought, on the provider’s own last three closed months. Ahead = 110% or more, behind = under 90%. Needs at least 3 expected bookings.'))),
       el('tbody', {}, ...rows.map(r => { const used = r.budget ? r.c.spend / r.budget : null, over = used != null && used >= 1;
         const lateRun = r.runOut != null && isOpen && r.runOut < dim;
         return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
           el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap align-top' }, r.k),
-          isRange ? null : td(owner ? el('input', { type: 'text', inputmode: 'numeric', value: r.budget ? String(r.budget) : '', placeholder: 'set', class: 'rounded-lg border px-2 py-1 text-[11px] tabular-nums', style: { width: '84px', borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, title: 'Monthly budget for ' + r.k + ' — clear it to stop tracking',
-              onchange: (e) => setBudget(r.k, e.target.value), onkeydown: (e) => { if (e.key === 'Enter') e.target.blur(); } }) : (r.budget ? fmt.usd0(r.budget) : '—')),
+          // Budget comes from the Budget tab (per Isaac, Nov 25) — shown here, typed there.
+          isRange ? null : td(r.budget ? el('div', { class: 'font-semibold' }, fmt.usd0(r.budget)) : (owner ? el('button', { class: 'text-[11px] underline', style: { color: 'var(--accent)' }, onclick: () => { state._mktSub = 'budget'; mountApp(); } }, 'set on Budget →') : '—'),
+            r.expS != null ? sub('should bring ' + fmt.int(Math.round(r.expS)) + ' bookings') : null),
           td(el('div', { class: 'font-semibold' }, r.c.spend ? fmt.usd0(r.c.spend) : '—'),
             used != null ? el('div', { style: { width: '110px', height: '6px', borderRadius: '999px', background: 'var(--card-2)', overflow: 'hidden', margin: '3px 0' } }, el('div', { style: { width: Math.min(100, used * 100) + '%', height: '100%', borderRadius: '999px', background: over ? '#DC2626' : lateRun ? '#D97706' : '#2F5D62' } })) : null,
             used != null ? sub(Math.round(used * 100) + '% of budget' + (over ? ' · over' : lateRun ? ' · runs out about day ' + r.runOut : isOpen && r.runOut ? ' · lasts the month' : ''), over ? '#DC2626' : lateRun ? '#B45309' : undefined) : null),
           td(el('div', { class: 'font-semibold' }, fmt.int(r.c.leads)), sub(r.cpl != null ? fmt.usd0(r.cpl) + ' a lead' : '')),
-          td(el('div', { class: 'font-semibold' }, fmt.int(r.c.s)), sub(r.close != null ? (r.close * 100).toFixed(1) + '% close' : ''), dlt(r.close, r.close3, false)),
+          td(el('div', { class: 'font-semibold' }, fmt.int(r.c.s)), sub(r.close != null ? (r.close * 100).toFixed(1) + '% close' : ''), r.dueS != null && r.dueS >= 1 ? sub('should be ' + fmt.int(Math.round(r.dueS)) + ' by now', r.c.s >= r.dueS * 0.9 ? '#15803D' : '#B91C1C') : dlt(r.close, r.close3, false)),
           td(el('div', { class: 'font-semibold' }, fmt.int(r.svcN)), sub(r.c.s ? Math.round(r.svcN / r.c.s * 100) + '% of bookings' : '')),
           td(el('div', { class: 'font-semibold' }, r.c.cv ? fmt.usd0(r.c.cv) : '—'), sub(r.c.s && r.c.cv ? fmt.usd0(r.c.cv / r.c.s) + ' each' : '')),
           td(el('div', { class: 'font-black' }, r.cac != null ? fmt.usd0(r.cac) : '—'), dlt(r.cac, r.cac3, true)),
           td(r.roas != null ? r.roas.toFixed(1) + 'x' : '—'),
           td(r.nSales ? el('span', { style: { color: r.linked / r.nSales >= 0.8 ? '#15803D' : r.linked / r.nSales >= 0.5 ? '#B45309' : '#DC2626', fontWeight: 700 } }, Math.round(r.linked / r.nSales * 100) + '%') : '—', r.nSales ? sub(r.linked + ' of ' + r.nSales + ' sales') : null),
-          el('td', { class: 'px-3 py-2 align-top', title: r.why }, r.verdict ? el('span', { class: 'rounded-full px-2 py-0.5 text-[11px] font-black whitespace-nowrap', style: { background: V[r.verdict][1], color: V[r.verdict][2] } }, V[r.verdict][0]) : el('span', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, 'Too little to read'),
+          el('td', { class: 'px-3 py-2 align-top', title: r.why }, r.verdict ? el('span', { class: 'rounded-full px-2 py-0.5 text-[11px] font-black whitespace-nowrap', style: { background: V[r.verdict][1], color: V[r.verdict][2] } }, V[r.verdict][0]) : el('span', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, isRange ? '—' : 'Too little to read'),
             el('div', { class: 'text-[10px] mt-1', style: { color: 'var(--text-subtle)', whiteSpace: 'normal', maxWidth: '230px' } }, r.why))); })))),
     el('div', { class: 'px-5 py-2 text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Sales are counted on the FieldRoutes source, so a provider’s row is only as good as its sources: fix anything under Auditing → Attribution → Source check first. A provider that bills late shows less spend here than it has really used.'));
 }

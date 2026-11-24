@@ -90,7 +90,7 @@ function mktgBudgetView() {
   const planCard = el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkb-plan' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' }, el('h3', { class: 'text-base font-bold' }, 'Lead provider budgets · ' + year),
       el('span', { class: 'text-[11px] flex-1', style: muted }, (canEdit ? 'Type a month’s budget; it saves for everyone. ' : '') + 'Under each budget: what QuickBooks has booked that month, and the share of budget used.'),
-      canEdit ? el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, title: 'Re-run Plan vs actual with the budgets just typed', onclick: () => mountApp() }, '↻ Update plan vs actual') : null),
+      el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, title: 'Budget against actuals, provider by provider', onclick: () => { state._mktSub = 'providers'; mountApp(); } }, 'See it against actuals on Dashboard →')),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'text-xs', style: { borderCollapse: 'collapse', minWidth: '100%' } },
       el('thead', {}, el('tr', {}, th('Provider'), ...MON.map((m, i) => th(m + (yms[i] === openYm ? ' · open' : ''), '', true)), th('Total', '', true))),
       el('tbody', {}, ...keys.map(k => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
@@ -159,5 +159,8 @@ function mktgBudgetView() {
           el('td', { class: 'px-3 py-2 font-black' }, 'Total'), td(el('b', {}, usd(tot.b || null))), td(el('b', {}, tot.es ? fmt.int(Math.round(tot.es)) + ' bookings' : '—'), sub(tot.ecv ? usd(tot.ecv) + ' revenue' : '')),
           td(el('b', {}, D.hasSpend ? usd(tot.spend) : '—'), sub(tot.b && D.hasSpend ? Math.round(tot.spend / tot.b * 100) + '% of budget' : '')), td(el('b', {}, fmt.int(tot.leads))), td(el('b', {}, fmt.int(tot.s))), td(el('b', {}, usd(tot.cv || null))), td(el('b', {}, D.hasSpend && tot.s ? usd(tot.spend / tot.s) : '—')), td())))),
     el('div', { class: 'px-5 py-2 text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Spend is what QuickBooks has booked, so a provider that bills late reads low and its row can look ahead of plan until the bill lands. Bookings are counted on the FieldRoutes source — keep Auditing → Attribution → Source check clear.'));
-  return el('div', { class: 'flex flex-col gap-4' }, vsCard, planCard);
+  // Plan vs actual is not shown here (per Isaac, Nov 25): the Dashboard's Channel metrics carries the budget, what it
+  // should bring and the read. vsCard is still built so the table can come back with one word.
+  void vsCard;
+  return el('div', { class: 'flex flex-col gap-4' }, planCard);
 }
