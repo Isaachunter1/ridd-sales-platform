@@ -65,3 +65,9 @@ payroll run, the auto-stage pass moves it Commissionable/Below Minimums → Canc
 ran, it is not reopened — the existing lock pass marks it a chargeback for the next monthly run.
 Code: server/services/sync/functions/stageRules.js decideStage + the same block in
 netlify/functions/revhawk-sync-background.js (both, until the staging switch). Tests in stage-rules.test.js.
+
+## 2026-11-23 — Unlinked sellers still turn Commissionable
+Per Isaac: a sale whose FieldRoutes seller has no app account (rep_id null, e.g. McKay Hansen #19934) moves
+through auto-approve like any other — the approval no longer requires rep_id. Payroll still holds those rows
+("held" in openPayrollRun) until the account is linked; the live sync then attaches rep_id automatically.
+Commissions → Office Staff lists each unlinked seller as its own row ("No app account", estimated at base rates).

@@ -81,3 +81,7 @@ test('approved, serviced, then cancels before payroll → left alone (not a pre-
   const r = row({ subscription_status: 'Cancelled', subscription_date_canceled: '2026-10-27' });
   assert.equal(decideStage(sale({ audit_status: 'serviced' }), r, ctx()).audit_status, undefined);
 });
+
+test('a seller with no app account (rep_id null) still moves to Commissionable', () => {
+  assert.equal(decideStage(sale({ rep_id: null }), row({}), ctx()).audit_status, 'serviced');
+});
