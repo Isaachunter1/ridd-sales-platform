@@ -781,14 +781,18 @@ function reportingOverview() {
       const svcDate = (r) => { const done = String(r.initial_status || '').toLowerCase() === 'completed' || !!r.initial_serviced_date; return done ? String(r.initial_serviced_date || r.initial_service || r.sold_date || '').slice(0, 10) : ''; };
       const cxlDate = (r) => String(r.subscription_date_canceled || '').slice(0, 10);
       const measure = (start, end) => {
-        let book = 0; const add = [], cxl = []; let addV = 0, cxlV = 0;
+        // Churn % is churn FROM THE STARTING BOOK ÷ that book (per Isaac, Nov 24 — the 12-month read was 48% vs 33.8% on
+        // Retention because cancels of accounts that only joined during the window were divided by a book that didn't
+        // hold them). Those new-account cancels are kept and shown as their own line; the $ total is unchanged.
+        let book = 0; const add = [], cxl = [], cxlBook = [], cxlNew = []; let addV = 0, cxlV = 0, cxlBookV = 0, cxlNewV = 0;
         for (const r of rows) {
           const sv = svcDate(r), cd = cxlDate(r);
-          if ((Number(r.annual_recurring_value) || 0) > 0 && sv && sv <= start && (!cd || cd > start)) book += valOf(r);
+          const inBook = (Number(r.annual_recurring_value) || 0) > 0 && sv && sv <= start && (!cd || cd > start);
+          if (inBook) book += valOf(r);
           if (sv && sv > start && sv <= end && !_isRen(r) && _isRec(r)) { add.push(r); addV += valOf(r); }
-          if (cd && cd > start && cd <= end && isRealCancel(r)) { cxl.push(r); cxlV += valOf(r); }
+          if (cd && cd > start && cd <= end && isRealCancel(r)) { cxl.push(r); cxlV += valOf(r); if (inBook) { cxlBook.push(r); cxlBookV += valOf(r); } else { cxlNew.push(r); cxlNewV += valOf(r); } }
         }
-        return { start, book, add, cxl, addV, cxlV };
+        return { start, book, add, cxl, addV, cxlV, cxlBook, cxlNew, cxlBookV, cxlNewV };
       };
       const wins = [['7 days', back(7)], ['30 days', back(30)], ['12 months', back(365)]].map(([label, start]) => {
         return Object.assign(measure(start, end), { label });
@@ -796,6 +800,20 @@ function reportingOverview() {
       const pct = (v, b) => b > 0 ? (Math.round(v / b * 1000) / 10).toFixed(1) + '%' : '—';
       const money = (v) => unitSubs ? fmt.int(v) : (Math.abs(v) >= 1e6 ? '$' + (Math.round(v / 1e4) / 100).toFixed(2) + 'M' : fmt.usd0(v));
       const cell = (w, kind) => {
+        if (kind === 'cxl') {
+          // $ = every counted cancel in the window; % = cancels from the starting book ÷ that book; the small line under
+          // it = what accounts that joined during the window already cancelled (not in the %).
+          return el('div', { style: { textAlign: 'right', padding: '0 2px' } },
+            el('button', { type: 'button', style: { cursor: 'pointer', background: 'none', border: 0, padding: 0 },
+                title: 'Recurring ARR cancelled in the last ' + w.label + ' (' + w.start + ' \u2192 ' + end + '). % = ' + money(w.cxlBookV) + ' cancelled from the ' + money(w.book) + ' book on ' + w.start + ' (accounts already serviced by then) \u2014 the Retention tab\u2019s way of reading attrition. Click for every cancel.',
+                onclick: () => openPulseDayDrill('Last ' + w.label, 'Last ' + w.label + ' \u00b7 ' + w.start + ' \u2192 ' + end, { sold: [], svc: w.add, cxl: w.cxl }, kind) },
+              el('span', { class: 'text-sm font-black tabular-nums', style: { color: C.cxl } }, money(w.cxlV)),
+              el('span', { class: 'tabular-nums', style: { color: C.cxl, fontSize: '11px', fontWeight: 700, marginLeft: '6px' } }, pct(w.cxlBookV, w.book))),
+            w.cxlNewV ? el('button', { type: 'button', class: 'block tabular-nums', style: { marginLeft: 'auto', cursor: 'pointer', background: 'none', border: 0, padding: 0, fontSize: '10px', color: 'var(--text-muted)' },
+                title: 'Accounts first serviced during the window that already cancelled \u2014 included in the $ above, not in the % (they weren\u2019t in the starting book). Click for them.',
+                onclick: () => openPulseDayDrill('Last ' + w.label + ' \u00b7 new accounts', 'New accounts cancelled \u00b7 ' + w.start + ' \u2192 ' + end, { sold: [], svc: [], cxl: w.cxlNew }, kind) },
+              'incl. ' + money(w.cxlNewV) + ' new accts') : null);
+        }
         const v = kind === 'svc' ? w.addV : w.cxlV, color = kind === 'svc' ? C.sold : C.cxl;
         const net = w.addV - w.cxlV;
         return el('button', { type: 'button', style: { textAlign: 'right', cursor: 'pointer', background: 'none', border: 0, padding: '0 2px' },
