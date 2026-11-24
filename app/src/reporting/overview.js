@@ -820,9 +820,35 @@ function reportingOverview() {
       cvsWrap);
   })();
 
+  // ARR by branch (per Isaac, Nov 24): one bar, each branch a segment sized by its share of Active ARR, with its ARR
+  // and % under it. Same rows as the Active ARR tile and the "Active ARR by Office" card (slices.rarrOffice).
+  const branchArrBar = (() => {
+    const sl = ((dataA.slices && dataA.slices.rarrOffice) || []).filter(x => x.value > 0);
+    const tot = sl.reduce((a, x) => a + x.value, 0); if (!tot || sl.length < 2) return null;
+    const pal = typeof REPORTING_PALETTE !== 'undefined' ? REPORTING_PALETTE : ['#2F5D62', '#D9480F', '#4D574A', '#B45309', '#6B7280'];
+    const nm = (l) => typeof _titleCaseWords === 'function' ? _titleCaseWords(l) : l;
+    const pc = (v) => (v / tot * 100).toFixed(1) + '%';
+    const drill = typeof openReportingDrillModal === 'function' && dataA.drill && dataA.drill.rarrOffice
+      ? (label) => () => { const D = dataA.drill.rarrOffice; const rows = (D.source || []).filter(r => D.key(r) === label); openReportingDrillModal({ chartTitle: 'Active ARR · ' + nm(label), sliceLabel: fmt.int(rows.length) + ' subscriptions', rows, formatValue: fmt.usd0 }); } : () => null;
+    return el('div', { class: 'card p-4' },
+      el('div', { class: 'flex items-baseline justify-between gap-3 flex-wrap mb-2' },
+        el('h3', { class: 'text-base font-bold' }, 'Active ARR by branch'),
+        el('span', { class: 'text-sm font-black tabular-nums' }, fmt.usd0(tot))),
+      el('div', { style: { display: 'flex', height: '28px', borderRadius: '6px', overflow: 'hidden', background: 'var(--card-2)' } },
+        ...sl.map((x, i) => el('div', { title: nm(x.label) + ' · ' + fmt.usd0(x.value) + ' · ' + pc(x.value) + ' of Active ARR', onclick: drill(x.label),
+          style: { width: (x.value / tot * 100) + '%', background: pal[i % pal.length], color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: '700', overflow: 'hidden', whiteSpace: 'nowrap', borderRight: i < sl.length - 1 ? '1px solid var(--card)' : '0' } },
+          x.value / tot >= 0.06 ? pc(x.value) : ''))),
+      el('div', { class: 'flex flex-wrap gap-x-4 gap-y-1 mt-2' },
+        ...sl.map((x, i) => el('span', { class: 'inline-flex items-center gap-1.5 text-[11px] cursor-pointer', onclick: drill(x.label) },
+          el('span', { style: { width: '9px', height: '9px', borderRadius: '2px', background: pal[i % pal.length], display: 'inline-block' } }),
+          el('span', { class: 'font-semibold' }, nm(x.label)),
+          el('span', { class: 'tabular-nums', style: { color: 'var(--text-muted)' } }, fmt.usd0(x.value) + ' \u00b7 ' + pc(x.value))))));
+  })();
+
   return el('div', { class: 'flex flex-col gap-4' },
     filterBar ? reportingPinBar('overview', filterBar) : null,
     statsBlock,
+    branchArrBar,
     pulseCard,
     columnsBlock,
     chartGrid,
