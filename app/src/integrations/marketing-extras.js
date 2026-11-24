@@ -178,7 +178,7 @@ function mkxProviderPulseCard(ym, DR, rangeLbl) {
   const rows = keys.map(k => {
     const c = D.ch[k] || { spend: 0, leads: 0, s: 0, cv: 0 };
     const p = prior.reduce((t, M) => { const x = (M.ch || {})[k]; if (x) { t.spend += x.spend || 0; t.leads += x.leads || 0; t.s += x.s || 0; t.cv += x.cv || 0; } return t; }, { spend: 0, leads: 0, s: 0, cv: 0 });
-    const budget = !isRange && Number(B[k]) > 0 ? Number(B[k]) : null;
+    const budget = isRange ? null : (typeof mkbBudgetOf === 'function' ? mkbBudgetOf(ym, k) : (Number(B[k]) > 0 ? Number(B[k]) : null));
     const cac = c.s > 0 && c.spend > 0 ? c.spend / c.s : null, cac3 = p.s > 0 && p.spend > 0 ? p.spend / p.s : null;
     const perDay = day > 0 ? c.spend / day : 0, runOut = budget && perDay > 0 ? Math.ceil(budget / perDay) : null;
     const sales = salesOf(k), linked = sales.filter(s => s._mklLead).length;
@@ -197,7 +197,7 @@ function mkxProviderPulseCard(ym, DR, rangeLbl) {
   const td = (...kids) => el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap align-top' }, ...kids);
   const sub = (t, color) => el('div', { class: 'text-[10px]', style: { color: color || 'var(--text-subtle)' } }, t);
   const V = { raise: ['Room to raise', 'rgba(21,128,61,.12)', '#15803D'], hold: ['Hold', 'var(--card-2)', 'var(--text-muted)'], cut: ['Cut back', 'rgba(220,38,38,.12)', '#DC2626'] };
-  const setBudget = (k, v) => { const next = Object.assign({}, B); const n = Number(String(v).replace(/[^0-9.]/g, '')); if (n > 0) next[k] = Math.round(n); else delete next[k]; _setAdminRule('provBudgets', next); try { if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {}); } catch (e) { /* syncs on the next save */ } mountApp(); };
+  const setBudget = (k, v) => { if (typeof mkbSetBudget === 'function') { mkbSetBudget(ym, k, v); mountApp(); return; } const next = Object.assign({}, B); const n = Number(String(v).replace(/[^0-9.]/g, '')); if (n > 0) next[k] = Math.round(n); else delete next[k]; _setAdminRule('provBudgets', next); try { if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {}); } catch (e) { /* syncs on the next save */ } mountApp(); };
   const dlt = (now, was, lowGood) => now == null || was == null || !was ? null : (() => { const d = now / was - 1; if (Math.abs(d) < 0.005) return null; const good = lowGood ? d < 0 : d > 0; return sub((d > 0 ? '↑ ' : '↓ ') + Math.abs(d * 100).toFixed(0) + '% vs its 3-mo', good ? '#15803D' : '#B91C1C'); })();
   const lbl = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   return el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkt-provpulse' },

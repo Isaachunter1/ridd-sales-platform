@@ -137,3 +137,13 @@ within 15% of the provider's own 3-month CAC; Cut = CAC at least 1.5x the all-pr
 CACs with no sale; needs 5 bookings or 30 leads. Spend is QuickBooks, so a provider that bills late reads low.
 Auditing → Attribution → Source check: new sales of this month and last whose Pest AI opportunity source maps to a different
 channel than the FieldRoutes source (or has none / is unmapped). Sales with nothing in Pest AI stay under No GHL lead.
+
+## 2026-11-25 — Marketing → Budget tab
+Per Isaac: his old "LP Spend Projections" sheet, in the app. Year grid of provider budgets by month (admins type them;
+adminRules.provBudgetsYM), with QuickBooks spend under each cell, and a Plan vs actual table for one month.
+"Expected at this budget" = the provider's own last three closed months (cost per lead, cost per booking, revenue per
+booking) applied to the dollars — NOT typed targets. Isaac's sheet had an assumptions box (seasonal allocation, incentives %)
+that was cut off in the screenshot: ask whether expectations should come from typed targets instead.
+Read: bookings so far ÷ bookings the spend so far should have bought; Ahead >= 110%, Behind < 90%, needs 3 expected bookings
+(our thresholds). Channel metrics' budget box now reads and writes the same month store.
+Not built: the seasonal allocation row and the revenue-by-branch projection block of the sheet.
