@@ -851,8 +851,8 @@ function reportingOverview() {
 
   // ── Branch scorecard (per Isaac, Nov 24): every branch on one table, under the ARR bar. Book numbers use the same
   // rules as the Daily Pulse scorecard (new ARR = first service in the last 12 months, renewals out; churn = counted
-  // cancels of accounts already in the book 12 months ago ÷ that book). Marketing numbers are the Marketing tab's own
-  // year-to-date cells (Office Staff new sales, spend ÷ new sales, new sales ÷ leads). Always all branches — the
+  // cancels of accounts already in the book 12 months ago ÷ that book). The last three columns are this year's new
+  // sales by who sold them — Office Staff, Technicians, Sales Reps (D2D). Always all branches — the
   // office filter doesn't narrow it. Best three in a column read green, worst three red. Click a header to sort.
   const branchScorecard = perfT('ov:branches', () => {
     const sl = ((dataA.slices && dataA.slices.rarrOffice) || []);
@@ -863,7 +863,8 @@ function reportingOverview() {
     const isRen = (r) => typeof reportingSourceClass === 'function' && reportingSourceClass(reportingSourceOf(r)) === 'renewal';
     const now = new Date(), isoD = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
     const end = isoD(now), st = (() => { const d = new Date(now); d.setDate(d.getDate() - 365); return isoD(d); })();
-    const B = new Map(); const get = (k) => B.get(k) || B.set(k, { book: 0, add: 0, cxlBook: 0, cxlAll: 0 }).get(k);
+    const B = new Map(); const get = (k) => B.get(k) || B.set(k, { book: 0, add: 0, cxlBook: 0, cxlAll: 0, office: 0, tech: 0, d2d: 0 }).get(k);
+    const yr = String(now.getFullYear());
     for (const r of (scope.visible || [])) {
       const k = r.office_name || 'Unspecified', arr = Number(r.annual_recurring_value) || 0;
       const done = String(r.initial_status || '').toLowerCase() === 'completed' || !!r.initial_serviced_date;
@@ -871,23 +872,20 @@ function reportingOverview() {
       const inBook = arr > 0 && sv && sv <= st && (!cd || cd > st);
       const g = get(k);
       if (inBook) g.book += arr;
+      // New sales this year by who sold them (per Isaac, Nov 24 — the mix across rep types): sold this year, renewals
+      // out, initial pending or serviced — the same "new sale" rule the Marketing tab and the leaderboard use.
+      if (String(r.sold_date || '').slice(0, 4) === yr && !isRen(r) && (done || String(r.initial_status || '').trim().toLowerCase() === 'pending')) {
+        const t = String(r.sold_by_type || '').trim();
+        if (t === 'Office Staff') g.office++; else if (t === 'Technician') g.tech++; else if (t === 'Sales Rep') g.d2d++;
+      }
       if (sv && sv > st && sv <= end && !isRen(r) && isRec(r)) g.add += arr;
       if (cd && cd > st && cd <= end && isRealCancel(r)) { g.cxlAll += arr; if (inBook) g.cxlBook += arr; }
     }
     const custBy = new Map(((dataA.slices && dataA.slices.custOffice) || []).map(x => [x.label, x.value]));
-    // Marketing (Office Staff) year to date — only when the Marketing data is in memory.
-    let MK = null;
-    // mklMonth memoizes each month itself, so this is cheap after the first build; the QuickBooks spend load is kicked
-    // here so CAC fills in without a visit to the Marketing tab.
-    // Admins only: the CAC column is built on QuickBooks spend, which the Developer role must never see — so the three
-    // Marketing columns (and the spend load) are skipped for everyone else.
-    const _mkOk = typeof isAdminRole === 'function' && isAdminRole(String(state.profile?.role || '')) && !(typeof isDeveloperRole === 'function' && isDeveloperRole(String(state.profile?.role || '')));
-    try { if (_mkOk && typeof mklRange === 'function' && state._ghl) { if (typeof reportingLoadQboSpend === 'function') reportingLoadQboSpend(); MK = mklRange(now.getFullYear(), now.getMonth(), 0); } } catch (e) { MK = null; }
-    const mkOf = (label) => { if (!MK || !MK.br) return null; const want = String(label).trim().toLowerCase(); const k = Object.keys(MK.br).find(x => x.trim().toLowerCase() === want); return k ? MK.br[k] : null; };
     const tot = sl.reduce((a, x) => a + x.value, 0);
-    const rows = sl.filter(x => x.value > 0).map(x => { const g = B.get(x.label) || { book: 0, add: 0, cxlBook: 0, cxlAll: 0 }, m = mkOf(x.label);
+    const rows = sl.filter(x => x.value > 0).map(x => { const g = B.get(x.label) || { book: 0, add: 0, cxlBook: 0, cxlAll: 0, office: 0, tech: 0, d2d: 0 };
       return { label: x.label, arr: x.value, share: tot ? x.value / tot : null, cust: custBy.get(x.label) || null, add: g.add, churn: g.book > 0 ? g.cxlBook / g.book : null, net: g.add - g.cxlAll,
-        growth: g.book > 0 ? (g.add - g.cxlAll) / g.book : null, sales: m ? m.s : null, cac: m && m.svc && m.spend ? m.spend / m.svc : null, close: m && m.leads ? m.s / m.leads : null }; });
+        growth: g.book > 0 ? (g.add - g.cxlAll) / g.book : null, office: g.office, tech: g.tech, d2d: g.d2d }; });
     const usd = (v) => v == null ? '—' : fmt.usd0(v), pc = (v, d) => v == null || !isFinite(v) ? '—' : (v * 100).toFixed(d == null ? 1 : d) + '%';
     const COLS = [
       { k: 'arr', t: 'Active ARR', f: usd, up: true }, { k: 'share', t: 'Share', f: pc, up: null }, { k: 'cust', t: 'Customers', f: (v) => v == null ? '—' : fmt.int(v), up: true },
@@ -895,9 +893,9 @@ function reportingOverview() {
       { k: 'churn', t: 'Churn · 12 mo', f: pc, up: false, tip: 'ARR cancelled from the book as it stood 12 months ago ÷ that book' },
       { k: 'net', t: 'Net · 12 mo', f: (v) => v == null ? '—' : (v < 0 ? '−' : '+') + fmt.usd0(Math.abs(v)), up: true, tip: 'New ARR minus every counted cancel in the last 12 months' },
       { k: 'growth', t: 'Book growth', f: pc, up: true, tip: 'Net ÷ the book 12 months ago' },
-      ...(MK ? [{ k: 'sales', t: 'Office sales · YTD', f: (v) => v == null ? '—' : fmt.int(v), up: true, tip: 'Office Staff new sales this year (Marketing tab)' },
-        { k: 'cac', t: 'Mktg CAC · YTD', f: usd, up: false, tip: 'Marketing spend ÷ new sales, year to date (Marketing tab)' },
-        { k: 'close', t: 'Lead → sale', f: (v) => pc(v, 0), up: true, tip: 'New sales ÷ leads, year to date (Marketing tab)' }] : [])];
+      { k: 'office', t: 'Office sales \u00b7 YTD', f: (v) => fmt.int(v || 0), up: true, tip: 'New sales this year sold by Office Staff (initial pending or serviced, renewals out)' },
+      { k: 'tech', t: 'Tech sales \u00b7 YTD', f: (v) => fmt.int(v || 0), up: true, tip: 'New sales this year sold by Technicians' },
+      { k: 'd2d', t: 'D2D sales \u00b7 YTD', f: (v) => fmt.int(v || 0), up: true, tip: 'New sales this year sold by Sales Reps (door to door)' }];
     const S = state._brSort || { k: 'arr', dir: -1 };
     rows.sort((a, b) => ((a[S.k] == null ? -Infinity : a[S.k]) - (b[S.k] == null ? -Infinity : b[S.k])) * S.dir);
     const tone = {}; for (const c of COLS) { if (c.up == null) continue; const v = rows.map(r => r[c.k]).filter(x => x != null && isFinite(x)).sort((a, b) => a - b); if (v.length < 6) continue; tone[c.k] = { lo: v[2], hi: v[v.length - 3] }; }

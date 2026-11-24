@@ -78,3 +78,9 @@ account becomes payable (auto-approve → Commissionable / Below Minimums) when 
 flag on it in FieldRoutes; no waiting on the service or a payment. Office Staff only: Sales Reps and Technicians
 are untouched (another developer owns them). Renewals keep their rule (next service or next paid bill). Add-ons and renewals stay out of the Passed Audit %. Pre-service cancels before payroll still come
 off; after payroll they're a chargeback.
+
+## 2026-11-24 — Add-ons count as new sales from Jan 1 2027 (NOT BUILT YET)
+Per Isaac: add-ons in their new form (FieldRoutes ticket items — Office Staff is mostly on it already) count as new
+sales for every rep type starting 2027-01-01. Nothing counts them yet: "new sales" on Overview (branch scorecard),
+Marketing and the leaderboards still reads subscriptions only. Which screens and whether they count as a sale, as
+revenue, or both is to be confirmed before any number changes.
