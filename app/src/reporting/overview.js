@@ -929,6 +929,9 @@ function reportingOverview() {
     const tone = {}; for (const c of COLS) { if (c.up == null) continue; const v = rows.map(r => r[c.k]).filter(x => x != null && isFinite(x)).sort((a, b) => a - b); if (v.length < 6) continue; tone[c.k] = { lo: v[2], hi: v[v.length - 3] }; }
     const colorOf = (c, v) => { const t = tone[c.k]; if (!t || v == null || !isFinite(v)) return undefined; const good = c.up ? v >= t.hi : v <= t.lo, bad = c.up ? v <= t.lo : v >= t.hi; return good ? '#15803D' : bad ? '#B91C1C' : undefined; };
     const nm = (l) => typeof _titleCaseWords === 'function' ? _titleCaseWords(l) : l;
+    // Each branch's bar colour, as a swatch beside its name (per Isaac, Nov 24 — it replaces the legend under the bar).
+    const _brPal = typeof REPORTING_PALETTE !== 'undefined' ? REPORTING_PALETTE : ['#2F5D62', '#D9480F', '#4D574A', '#B45309', '#6B7280'];
+    const _brColor = new Map(sl.filter(x => x.value > 0).map((x, i) => [x.label, _brPal[i % _brPal.length]]));
     const th = (c) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap text-left cursor-pointer', title: (c.tip ? c.tip + ' · ' : '') + 'click to sort' + (canOrder ? ' \u00b7 drag onto another column to move it' : ''), style: { color: S.k === c.k ? 'var(--accent)' : 'var(--text-muted)', background: 'var(--card-2)' },
       ...(canOrder ? { draggable: 'true',
         ondragstart: (e) => { state._brDrag = c.k; try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', c.k); } catch (err) { /* older browsers */ } },
@@ -940,12 +943,13 @@ function reportingOverview() {
     return el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)', marginTop: '12px' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold text-left', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, 'Branch'), ...COLS.map(th))),
       el('tbody', {}, ...rows.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-        el('td', { class: 'px-3 py-1.5 font-semibold whitespace-nowrap' }, nm(r.label)),
+        el('td', { class: 'px-3 py-1.5 font-semibold whitespace-nowrap' }, el('span', { class: 'inline-flex items-center gap-2' },
+          el('span', { style: { width: '10px', height: '10px', borderRadius: '2px', background: _brColor.get(r.label) || 'var(--border-2)', display: 'inline-block', flexShrink: '0' } }), nm(r.label))),
         ...COLS.map(c => el('td', { class: 'px-3 py-1.5 tabular-nums whitespace-nowrap', style: { color: colorOf(c, r[c.k]), fontWeight: colorOf(c, r[c.k]) ? '700' : undefined } }, c.f(r[c.k]))))))));
   });
 
-  // ARR by branch (per Isaac, Nov 24): one bar, each branch a segment sized by its share of Active ARR, with its ARR
-  // and % under it. Same rows as the Active ARR tile and the "Active ARR by Office" card (slices.rarrOffice).
+  // ARR by branch (per Isaac, Nov 24): one bar, each branch a segment sized by its share of Active ARR; click a segment
+  // to drill in. The legend is gone — the scorecard below carries the colour swatch, ARR and share. Same rows as the Active ARR tile and the "Active ARR by Office" card (slices.rarrOffice).
   const branchArrBar = (() => {
     const sl = ((dataA.slices && dataA.slices.rarrOffice) || []).filter(x => x.value > 0);
     const tot = sl.reduce((a, x) => a + x.value, 0); if (!tot || sl.length < 2) return null;
@@ -962,11 +966,6 @@ function reportingOverview() {
         ...sl.map((x, i) => el('div', { title: nm(x.label) + ' · ' + fmt.usd0(x.value) + ' · ' + pc(x.value) + ' of Active ARR', onclick: drill(x.label),
           style: { width: (x.value / tot * 100) + '%', background: pal[i % pal.length], color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: '700', overflow: 'hidden', whiteSpace: 'nowrap', borderRight: i < sl.length - 1 ? '1px solid var(--card)' : '0' } },
           x.value / tot >= 0.06 ? pc(x.value) : ''))),
-      el('div', { class: 'flex flex-wrap gap-x-4 gap-y-1 mt-2' },
-        ...sl.map((x, i) => el('span', { class: 'inline-flex items-center gap-1.5 text-[11px] cursor-pointer', onclick: drill(x.label) },
-          el('span', { style: { width: '9px', height: '9px', borderRadius: '2px', background: pal[i % pal.length], display: 'inline-block' } }),
-          el('span', { class: 'font-semibold' }, nm(x.label)),
-          el('span', { class: 'tabular-nums', style: { color: 'var(--text-muted)' } }, fmt.usd0(x.value) + ' \u00b7 ' + pc(x.value))))),
       branchScorecard);
   })();
 

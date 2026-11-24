@@ -189,3 +189,6 @@ The channel list now includes every vendor in the app's source list (Yelp, eLoca
 ## 2026-11-24 — Spend tab: Agency is a batch of named agencies
 Isaac: "I want them to be batched under agency but we have multiple agencies that can fall under that category too."
 The Agency pick is now a group: each agency by name, plus "+ New agency…". The rule stays SPQ_TOOLS, so agency dollars are still spread across markets with the media and the Agency row total is unchanged; the agency's name is kept beside the rule (qbAgency, list in agencies). The channel table shows one Agency row with a sub-row per agency (not added to the total twice). Charges already under Agency show as "Not named yet" until an agency is picked.
+
+## 2026-11-24 — Active ARR by branch: legend out, swatch in the Branch column
+Isaac: hide the legend under the bar (the columns below carry the same numbers); keep the segments clickable; put each branch's colour beside its name in the table.
