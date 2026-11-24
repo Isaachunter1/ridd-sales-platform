@@ -195,3 +195,7 @@ Isaac: hide the legend under the bar (the columns below carry the same numbers);
 
 ## 2026-11-24 — Channels × offices: performance only, the "no lead" red moved out
 Isaac asked whether the table duplicates the Auditing tasks. The red "+N no lead" layer did (Auditing → Attribution has No GHL lead and Source check on the same lookup), so it is gone from the cells; the header count links to Auditing. The table stays because it is the only place that shows leads, booked and booking rate by channel BY OFFICE. Also: Channel metrics Read pacer became two thin bars.
+
+## 2026-11-24 — Time to close: every row drills to its sales and leads
+Isaac: "let me drill down into each of those and see the data for those leads so I can verify we are pulling in things correctly."
+Clicking a channel (or All channels) opens the timed sales behind it, slowest first: customer, office, rep, FieldRoutes source, Pest AI source/channel/type/stage, lead-in and sold stamps (both on the Mountain clock), time to close, CSV export. Sales left out because the lead is stamped after the sale are listed at the bottom, marked not timed.

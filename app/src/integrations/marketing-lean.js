@@ -538,13 +538,14 @@ function mklTimeToCloseCard(D, lbl) {
   const sales = (D && D.sales) || []; if (!sales.length) return null;
   const leadMs = (l) => { const d = l.dUtc || l.d; if (!d) return NaN; return Date.parse(d + 'T' + (/^\d{1,2}:\d{2}/.test(String(l.t || '')) ? String(l.t).padStart(5, '0').slice(0, 5) : '12:00') + ':00Z'); };
   const saleMs = (r) => { const a = String(r.sold_at || ''); if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(a)) return Date.parse(a.slice(0, 10) + 'T' + a.slice(11, 19).padEnd(8, ':00').slice(0, 8) + 'Z') + 7 * 3600000; const d = String(r.sold_date || '').slice(0, 10); return d ? Date.parse(d + 'T19:00:00Z') : NaN; };
-  const by = new Map(); let after = 0, noLead = 0;
+  const by = new Map(), det = new Map(), late = new Map(); let after = 0, noLead = 0;
   for (const r of sales) {
     const l = r._mklLead; if (!l) { noLead++; continue; }
     const ch = l.prov || 'Unknown'; if (typeof mktgChannelShown === 'function' && !mktgChannelShown(ch)) continue;
     const h = (saleMs(r) - leadMs(l)) / 3600000; if (!isFinite(h)) continue;
-    if (h < 0) { after++; continue; }
+    if (h < 0) { after++; (late.get(ch) || late.set(ch, []).get(ch)).push({ r, l, h }); continue; }
     (by.get(ch) || by.set(ch, []).get(ch)).push(h);
+    (det.get(ch) || det.set(ch, []).get(ch)).push({ r, l, h });
   }
   const all = [].concat(...by.values()); if (!all.length) return null;
   const med = (a) => { const b = a.slice().sort((x, y) => x - y), m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
@@ -554,7 +555,41 @@ function mklTimeToCloseCard(D, lbl) {
   // Everything left-aligned, the page's own font (per Isaac, Nov 24 — no monospace numbers, no description line).
   const th = (t, tip) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap text-left', title: tip || '', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
   const td = (v, b) => el('td', { class: 'px-3 py-1.5 tabular-nums whitespace-nowrap text-left' + (b ? ' font-black' : '') }, v);
-  const line = (k, a, tot) => el('tr', { class: 'border-t', style: tot ? { borderTop: '2px solid var(--text)', background: 'var(--card-2)' } : { borderColor: 'var(--border)' } },
+  // Drill-down (per Isaac, Nov 24 — "see the data for those leads so I can verify"): every timed sale behind a row,
+  // with the Pest AI lead it was matched to and both time stamps on the company clock (Mountain, UTC−7), plus the
+  // sales left out because their lead is stamped after the sale.
+  const mt = (ms) => isFinite(ms) ? new Date(ms - 7 * 3600000).toISOString().slice(0, 16).replace('T', ' ') : '';
+  const openRows = (title, list, lateList) => {
+    const overlay = el('div', { class: 'modal-overlay' });
+    const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+    const onKey = (ev) => { if (ev.key === 'Escape') close(); };
+    document.addEventListener('keydown', onKey); overlay.addEventListener('click', (ev) => { if (ev.target === overlay) close(); });
+    const data = list.slice().sort((a, b) => b.h - a.h).concat(lateList || []);
+    const nm = (r) => [String(r.first_name || '').trim(), String(r.last_name || '').trim()].filter(Boolean).join(' ');
+    const cols = [
+      ['Customer', d => (nm(d.r) ? nm(d.r) + ' ' : '') + (d.r.customer_id ? '#' + d.r.customer_id : '')], ['Office', d => d.r.office_name], ['Rep', d => d.r.sold_by],
+      ['FieldRoutes source', d => typeof reportingSourceOf === 'function' ? reportingSourceOf(d.r) : (d.r.subscription_source || '')],
+      ['Pest AI source', d => d.l.label], ['Channel', d => d.l.prov], ['Lead type', d => d.l.type], ['Lead stage', d => d.l.stage],
+      ['Lead in (MT)', d => mt(leadMs(d.l))], ['Sold (MT)', d => mt(saleMs(d.r)) + (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(String(d.r.sold_at || '')) ? '' : ' (date only)')],
+      ['Time to close', d => d.h < 0 ? 'not timed — lead stamped ' + dur(-d.h) + ' after the sale' : dur(d.h)]];
+    const csv = () => { const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+      const out = [cols.map(c => c[0]).join(',')]; for (const d of data) out.push(cols.map(c => esc(c[1](d))).join(','));
+      const url = URL.createObjectURL(new Blob([out.join('\n')], { type: 'text/csv' })); const a = el('a', { href: url, download: 'ridd-time-to-close-' + title.replace(/[^a-z0-9]+/gi, '-').toLowerCase() + '.csv' }); document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url); };
+    const hth = (t) => el('th', { class: 'px-3 py-2 text-left text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0 } }, t);
+    overlay.append(el('div', { class: 'card', style: { width: 'min(1300px, 96vw)', maxHeight: '86vh', display: 'flex', flexDirection: 'column', margin: '6vh auto 0' }, onclick: (ev) => ev.stopPropagation() },
+      el('div', { class: 'flex items-center gap-3 px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
+        el('div', { class: 'flex-1 min-w-0' }, el('h3', { class: 'text-base font-bold' }, 'Time to close · ' + title),
+          el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, fmt.int(list.length) + ' timed sale' + (list.length === 1 ? '' : 's') + ', slowest first' + ((lateList || []).length ? ' · ' + lateList.length + ' not timed (lead stamped after the sale), at the bottom' : '') + ' · each sale is matched to the latest Pest AI lead on its phone or email')),
+        el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold border', style: { borderColor: 'var(--border-2)' }, onclick: csv }, '↓ Export CSV'),
+        el('button', { class: 'text-2xl leading-none px-1', style: { color: 'var(--text-muted)' }, 'aria-label': 'Close', onclick: close }, '×')),
+      el('div', { style: { overflow: 'auto' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+        el('thead', {}, el('tr', {}, ...cols.map(c => hth(c[0])))),
+        el('tbody', {}, ...data.slice(0, 2000).map(d => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', color: d.h < 0 ? 'var(--text-muted)' : undefined } },
+          ...cols.map(c => el('td', { class: 'px-3 py-1.5 whitespace-nowrap tabular-nums' + (c[0] === 'Customer' || c[0] === 'Time to close' ? ' font-semibold' : '') }, (() => { const v = c[1](d); return v == null || v === '' ? '—' : String(v); })())))))))));
+    document.body.append(overlay);
+  };
+  const flat = (m) => [].concat(...m.values());
+  const line = (k, a, tot) => el('tr', { class: 'border-t cursor-pointer', title: 'Click for the sales and leads behind this row', onclick: () => tot ? openRows('All channels · ' + lbl, flat(det), flat(late)) : openRows(k + ' · ' + lbl, det.get(k) || [], late.get(k) || []), style: tot ? { borderTop: '2px solid var(--text)', background: 'var(--card-2)' } : { borderColor: 'var(--border)' } },
     td(k, true), td(a.length.toLocaleString(), tot, true), td(dur(a.reduce((x, y) => x + y, 0) / a.length), true, true), td(dur(med(a)), tot, true),
     td(pc(a, h => h < 24), tot, true), td(pc(a, h => h < 168), tot, true), td(pc(a, h => h >= 720), tot, true));
   return el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkt-ttc' },
