@@ -1280,7 +1280,8 @@ function _rptTabTaskCount(k) {
     if (k === 'auditing' && typeof auditTaskItems === 'function') { const raw = auditTaskItems(); if (raw == null) return 0; items = raw; }
     if (items.length && typeof rvApply === 'function') items = rvApply(items).active;
   } catch (e) { items = []; }
-  const n = items.filter(i => i && i.sev !== 'ok').length;
+  const _open = items.filter(i => i && i.sev !== 'ok');
+  const n = (k === 'auditing' && typeof auditTaskEntries === 'function') ? auditTaskEntries(_open).length : _open.length;   // same count as the list: a family is one task
   C[k] = { sig, at: Date.now(), n };
   return n;
 }

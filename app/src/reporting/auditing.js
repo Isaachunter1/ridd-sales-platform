@@ -144,7 +144,10 @@ function reportingAuditing() {
     // Pending-eligible = actually needs an audit: NOT frozen status, and not a
     // pre-service cancel (sold then cancelled before any service ran). Drives the
     // Pending count — frozen / on-hold and pre-service cancels never need auditing.
-    if ((r.subscription_status || '').toLowerCase() !== 'frozen' && !(r.subscription_date_canceled && !serviced)) {
+    // Never serviced and sold more than 30 days ago = not needed for audit either (per Isaac, Nov 24 — those are almost
+    // always accounts deleted in FieldRoutes), so they leave the Pending count.
+    const _staleUnsvc = !serviced && r.sold_date && (Date.now() - Date.parse(String(r.sold_date).slice(0, 10))) / 86400000 > 30;
+    if ((r.subscription_status || '').toLowerCase() !== 'frozen' && !(r.subscription_date_canceled && !serviced) && !_staleUnsvc) {
       a.pendingSubs = (a.pendingSubs || 0) + 1;
     }
   }
@@ -209,7 +212,7 @@ function reportingAuditing() {
   const repTeamOf = (rep) => (repMeta[rep] || {}).team || 'Unassigned';
 
   const rate = (pair) => pair[1] > 0 ? pair[0] / pair[1] : null;
-  const GOOD = 'rgba(223,100,58,.18)', BAD = 'rgba(220,38,38,.14)';
+  const GOOD = 'rgba(21,128,61,.14)', BAD = 'rgba(220,38,38,.14)';
   const passShade = (p) => p == null ? '' : (p >= 0.85 ? GOOD : p < 0.65 ? BAD : '');
 
   // ── UI bits ──
@@ -313,7 +316,7 @@ function reportingAuditing() {
           tile('Passed', fmt.int(s.passed), null, good, drill('Passed', r => _stat(r) === 'passed')),
           tile('Failed', fmt.int(s.failed), null, s.failed > 0 ? bad : null, drill('Failed', r => _stat(r) === 'failed')),
           tile('No Audit', fmt.int(s.noaudit), 'counts as passed', null, drill('No Audit', r => _stat(r) === 'noaudit')),
-          tile('Pending', fmt.int(s.pending), null, null, drill('Pending', r => _stat(r) === 'pending' && (r.subscription_status || '').toLowerCase() !== 'frozen' && !(r.subscription_date_canceled && !_svc(r)))),
+          tile('Pending', fmt.int(s.pending), null, null, drill('Pending', r => _stat(r) === 'pending' && (r.subscription_status || '').toLowerCase() !== 'frozen' && !(r.subscription_date_canceled && !_svc(r)) && !(!_svc(r) && r.sold_date && (Date.now() - Date.parse(String(r.sold_date).slice(0, 10))) / 86400000 > 30))),
           tile('Attrition on Audits: Pass / Fail', pctS(aP) + ' / ' + pctS(aF), 'cancelled ÷ serviced revenue · excl. 3-day ROR & one-time'),
         ]),
         group('Revenue · contract value  (Serviced = Active + Cancelled)', [
@@ -357,13 +360,15 @@ function reportingAuditing() {
       : null;
     const repTeam = (!opts.total && opts.kind === 'rep' && opts.org) ? opts.org.team : '';
     const washColor = (repTeam && repTeam !== 'Unassigned' && typeof getTeamColor === 'function') ? getTeamColor(repTeam) : null;
-    const wash = washColor ? 'color-mix(in srgb, ' + washColor + ' 9%, transparent)' : null;
-    const washSolid = washColor ? 'color-mix(in srgb, ' + washColor + ' 9%, var(--card))' : null;
+    // (Row wash in the team colour removed per Isaac, Nov 24 — it read as a status. A rep row now carries a small dot in
+    // its team colour, and red is the only cell colour: failed audits, a low pass rate, failed accounts churning more.)
+    const wash = null, washSolid = null;
     const td_ = (val, o = {}) => opts.total ? td0(val, { ...o, bg: 'var(--card-2)' }) : td0(val, o);
     const nameCell = groupColor
       ? el('span', { class: 'inline-flex items-center gap-1.5' },
           el('span', { class: 'inline-block rounded-full shrink-0', style: { width: '9px', height: '9px', background: groupColor } }),
           el('span', { class: 'font-semibold', style: { color: groupColor } }, name))
+      : washColor ? el('span', { class: 'inline-flex items-center gap-1.5', title: repTeam }, el('span', { class: 'inline-block rounded-full shrink-0', style: { width: '7px', height: '7px', background: washColor } }), el('span', {}, name))
       : name;
     // TOTAL row opens the same card for everything in scope (per Isaac).
     const totalOrg = opts.kind === 'rep' ? { repTeam: state._auditRepTeam || 'all', repOffice: state._auditRepOffice || 'all' } : {};
@@ -381,15 +386,15 @@ function reportingAuditing() {
       td_(fmt.int(s.activeSubs)),
       td_(s.sold > 0 ? (s.serviced / s.sold * 100).toFixed(1) + '%' : '—'),
       td_(fmt.int(auditedN)),
-      td_(fmt.int(s.passed), { bg: 'rgba(223,100,58,.08)' }),
+      td_(fmt.int(s.passed)),
       td_(fmt.int(s.failed), { bg: s.failed > 0 ? 'rgba(220,38,38,.08)' : 'transparent' }),
       td_(fmt.int(s.noaudit)),
       td_(fmt.int(s.pending)),
       td_(money(s.soldRev)),
       td_(money(s.servicedRev)),
       td_(money(activeRev)),
-      td_(money(s.cancelledRev), { bg: s.cancelledRev > 0 ? 'rgba(220,38,38,.06)' : 'transparent' }),
-      td_(money(s.agingRev), { bg: s.agingRev > 0 ? 'rgba(220,38,38,.06)' : 'transparent' }),
+      td_(money(s.cancelledRev)),
+      td_(money(s.agingRev)),
       td_(passPct == null ? '—' : (passPct * 100).toFixed(1) + '%', { bg: passShade(passPct), bold: true }),
       td_(aP == null ? '—' : (aP * 100).toFixed(1) + '%'),
       td_(aF == null ? '—' : (aF * 100).toFixed(1) + '%', { bg: aF != null && aP != null && aF > aP ? 'rgba(220,38,38,.08)' : 'transparent' }),
@@ -439,7 +444,7 @@ function reportingAuditing() {
       { id: 'passed', label: 'Passed', tip: 'Accounts flagged "Passed Audit".' },
       { id: 'failed', label: 'Failed', tip: 'Accounts flagged "Failed Audit".' },
       { id: 'noaudit', label: 'No Audit', tip: 'Accounts explicitly flagged "No Audit" — exempt from auditing.' },
-      { id: 'pending', label: 'Pending', tip: 'No audit result yet — awaiting audit (no Passed / Failed / No-Audit flag). Pre-service cancels are excluded — they never need an audit.' },
+      { id: 'pending', label: 'Pending', tip: 'No audit result yet — awaiting audit (no Passed / Failed / No-Audit flag). Pre-service cancels are excluded, and so is anything never serviced that was sold more than 30 days ago — neither needs an audit.' },
       { id: 'soldRev', label: 'Sold Rev', tip: 'Contract value across ALL sold subscriptions (everything, regardless of service or status).' },
       { id: 'servicedRev', label: 'Serviced Rev', tip: 'Contract value of subscriptions that received an initial service. Splits into Active + Cancelled + Frozen.' },
       { id: 'activeRev', label: 'Active Rev', tip: 'Contract value of subscriptions that were SERVICED and are still active (not cancelled). Always ≤ Serviced Rev. Includes aging.' },
@@ -471,10 +476,12 @@ function reportingAuditing() {
       title: c.tip || '',
       onclick: () => setSort(c.id),
     }, c.label);   // active column = accent color (no arrow, app-wide convention)
-    return el('div', { class: 'card overflow-hidden' },
+    const _lockAxis = (card) => { try { const sc = card.querySelector('.scroll-x'); if (sc && typeof axisLockScroll === 'function') axisLockScroll(sc); } catch (e) { /* plain scroll */ } return card; };   // one direction at a time (per Isaac, Nov 24)
+    return _lockAxis(el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 pt-4 pb-2 flex items-center justify-between gap-3 flex-wrap' },
         el('h3', { class: 'text-base font-bold' }, label),
         headerRight || null),
+      el('div', { class: 'px-4 pb-2 text-[10px]', style: { color: 'var(--text-muted)' } }, (kind === 'rep' ? 'Dot = the rep\u2019s team. ' : '') + 'Red = failed audits, or failed accounts churning more than passed ones. Pass % is green at 85% or better and red under 65%.'),
       el('div', { class: scrolls ? 'scroll-x' : '', style: scrolls ? { overflow: 'auto', maxHeight: '70vh' } : {} },
         // frozen-table: stays a real table on phones so the name column pins (per Isaac).
         el('table', { class: 'w-full' + (scrolls ? ' frozen-table' : ''), style: {
@@ -500,7 +507,7 @@ function reportingAuditing() {
         kind === 'rep' && sorted.length > 25 && !(state._auditRepSearch || '').trim() ? el('div', { class: 'px-4 py-2 border-t flex items-center justify-between gap-2 text-[11px]', style: { borderColor: 'var(--border)' } },
           el('span', { class: 'text-muted-' }, state._auditRepShowAll ? 'Showing all ' + sorted.length + ' reps' : 'Top 25 of ' + sorted.length + ' reps'),
           el('button', { class: 'font-semibold', style: { color: 'var(--accent)' }, onclick: () => { state._auditRepShowAll = !state._auditRepShowAll; mountApp(); } },
-            state._auditRepShowAll ? 'Show top 25' : 'Show all')) : null));
+            state._auditRepShowAll ? 'Show top 25' : 'Show all')) : null)));
   };
 
   const repEntries = Object.entries(reps).sort((a, b) => b[1].sold - a[1].sold || b[1].failed - a[1].failed);
@@ -808,7 +815,7 @@ function _auditNeedsAttentionItems() {
   if (typeof exceptionFeedScope !== 'function' || typeof _exceptionFeedItemsRaw !== 'function') return [];
   const scope = exceptionFeedScope(); if (!scope) return [];
   let raw = []; try { raw = _exceptionFeedItemsRaw(scope) || []; } catch (e) { console.warn('[auditing] needs-attention checks', e); return []; }
-  const DETAIL = { 'Lead flow': () => mktgLeadFlowTask({ embed: true }), 'ZIP': () => mktgZipFixTask({ embed: true }) };
+  const DETAIL = { 'Lead flow': () => mktgLeadFlowTask({ embed: true }), 'ZIP': () => mktgZipFixTask({ embed: true }), 'Cancellation': () => auditCancelSplit() };
   return raw.filter(i => i && !['No reason', 'Contract'].includes(i.tag)).map(i => {
     const it = { key: 'att:' + i.tag, rvKey: 'att:' + i.tag, tag: i.tag, title: i.text, sev: i.sev, count: i.count != null ? i.count : null, text: i.text, onClick: i.onClick, rvIds: i.rvIds, rvOpen: i.rvOpen };
     if (DETAIL[i.tag]) Object.defineProperty(it, 'detail', { enumerable: true, get() { try { return DETAIL[i.tag](); } catch (e) { return null; } } });   // built fresh each render (its own buttons)
@@ -821,6 +828,7 @@ function _auditTaskItemsRaw() {
   try { items.push(feeCreditAuditCard({ item: true })); } catch (e) { console.warn('[auditing] fee task', e); }
   try { items.push(addOnNoRepAuditCard({ item: true })); } catch (e) { console.warn('[auditing] add-on task', e); }
   try { if (typeof serviceChangeAuditItem === 'function') items.push(serviceChangeAuditItem()); } catch (e) { console.warn('[auditing] service-change task', e); }
+  try { items.push(...auditSalesItems()); } catch (e) { console.warn('[auditing] sales tasks', e); }
   for (const t of auditSubTasks()) {
     if (t.warn) { items.push({ key: t.title, tag: t.tag || 'Setup', title: t.title, sev: 'amber', count: null, text: t.warn }); continue; }
     const n = t.rows.length;
@@ -912,6 +920,85 @@ function crmDelReviewItem() {
     detail, rvIds: L.map(c => c.id) };
 }
 
+// ── Sections and families (per Isaac, Nov 24) ───────────────────────────
+// The list reads in three sections — what changes someone's pay, what touches billing or the customer, what only
+// moves a report — and tasks that are the same job in FieldRoutes sit under one row (wrong office, renewals, sold
+// and never serviced, attribution, below minimum). Presentation only: every member keeps its own key and its own
+// accounts, so nothing already ticked comes back and each list still opens on its own.
+const AUDIT_SECTIONS = [['pay', 'Affects pay'], ['cust', 'Affects billing or the customer'], ['rep', 'Affects reporting']];
+const AUDIT_PLACE = [
+  // [tag (lower-case), section, family key, family label, order inside the family]
+  ['add-ons', 'pay'], ['term', 'pay'], ['commission', 'pay'], ['seller type', 'pay'], ['seller', 'pay'], ['service fees', 'pay'], ['passed audit', 'pay'],
+  ['below minimum', 'pay', 'belowmin', 'Below minimum'],
+  ['duplicates', 'cust'], ['agreement', 'cust'], ['one-time', 'cust'], ['autopay', 'cust'], ['not serviced', 'cust'], ['contract', 'cust'], ['sentricon', 'cust'], ['status', 'cust'],
+  ['renewal', 'cust', 'renewals', 'Renewals', 0], ['renewal · not renewed', 'cust', 'renewals', 'Renewals', 1], ['renewal source', 'cust', 'renewals', 'Renewals', 2], ['renewal · not coded', 'cust', 'renewals', 'Renewals', 3],
+  ['not started', 'cust', 'unserviced', 'Sold, never serviced', 0], ['pending', 'cust', 'unserviced', 'Sold, never serviced', 1], ['deleted?', 'cust', 'unserviced', 'Sold, never serviced', 2],
+  ['location', 'rep', 'office', 'Wrong office', 0], ['zip', 'rep', 'office', 'Wrong office', 1],
+  ['source', 'rep', 'attr', 'Attribution', 0], ['lead flow', 'rep', 'attr', 'Attribution', 1], ['no ghl lead', 'rep', 'attr', 'Attribution', 2], ['sellify', 'rep', 'attr', 'Attribution', 3],
+  ['cancellation', 'rep'], ['no reason', 'rep'],
+];
+function auditPlaceOf(i) {
+  const t = String((i && i.tag) || '').trim().toLowerCase();
+  const p = AUDIT_PLACE.find(x => x[0] === t);
+  return p ? { sec: p[1], fam: p[2] || null, famLabel: p[3] || null, ord: p[4] || 0 } : { sec: 'rep', fam: null, famLabel: null, ord: 0 };
+}
+// Top-level entries of the to-do list: { sec, item } or { sec, fam, label, members } — a family with one open
+// member is shown as that member alone.
+function auditTaskEntries(todo) {
+  const RANK = { red: 0, amber: 1, ok: 2 }, out = [], fams = new Map();
+  for (const i of todo) {
+    const p = auditPlaceOf(i);
+    if (!p.fam) { out.push({ sec: p.sec, item: i }); continue; }
+    let f = fams.get(p.fam); if (!f) { f = { sec: p.sec, fam: p.fam, label: p.famLabel, members: [] }; fams.set(p.fam, f); out.push(f); }
+    f.members.push({ i, ord: p.ord });
+  }
+  return out.map(e => { if (!e.fam) return e; e.members.sort((a, b) => a.ord - b.ord); const ms = e.members.map(m => m.i); return ms.length === 1 ? { sec: e.sec, item: ms[0] } : { sec: e.sec, fam: e.fam, label: e.label, members: ms }; })
+    .sort((a, b) => { const sv = (e) => e.item ? RANK[e.item.sev] : Math.min(...e.members.map(m => RANK[m.sev])); return sv(a) - sv(b); });
+}
+// "Cancel reasons that can't be right", split by which rule each one breaks (per Isaac, Nov 24 — 824 in one list is
+// too many to work). Same rows as the check itself (crmReconciliationChecks), grouped on the reason it was flagged for.
+function auditCancelSplit() {
+  const subs = state.reportingSubscriptions || []; if (!subs.length || typeof crmReconciliationChecks !== 'function') return null;
+  const rec = refMemo('crmChecks', [subs, state.reportingSourceConfig], 300000, () => crmReconciliationChecks(subs));
+  const RULES = [
+    ['Sold, Not Started, but the initial was completed', /^Sold, Not Started/i], ['“Expired Subscription” (a retired reason)', /Expired Subscription/i],
+    ['Coded 3-day ROR on a sale that has no rescission', /coded as a 3-day ROR/i], ['Cancelled days after the sale with no reason', /after the sale with no reason/i],
+    ['Sales Rep cancel inside the rescission window, coded as something else', /^Sales Rep cancel/i], ['One-time plan closed with a recurring reason', /^One-time plan closed/i],
+    ['Recurring plan closed as One Time Service', /^Recurring plan closed as One Time/i]];
+  const groups = RULES.map(([label]) => ({ label, rows: [] })), other = { label: 'Other', rows: [] };
+  for (const r of (rec.cancel || [])) { const k = RULES.findIndex(([, re]) => re.test(String(r._flagReason || ''))); (k >= 0 ? groups[k] : other).rows.push(r); }
+  const all = [...groups, other].filter(g => g.rows.length).sort((a, b) => b.rows.length - a.rows.length);
+  const d30 = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  return el('div', { class: 'border-t', style: { borderColor: 'var(--border)' } }, ...all.map(g => el('div', { class: 'flex items-center gap-3 px-4 py-2 border-t text-xs', style: { borderColor: 'var(--border)', paddingLeft: '48px' } },
+    el('span', { class: 'text-sm font-black tabular-nums shrink-0', style: { minWidth: '52px', textAlign: 'right' } }, g.rows.length.toLocaleString()),
+    el('span', { class: 'flex-1 min-w-0' }, g.label, (() => { const n = g.rows.filter(r => r.sold_date && r.sold_date >= d30).length; return n ? el('span', { style: { color: 'var(--text-muted)' } }, ' · ' + n + ' sold in the last 30 days') : null; })()),
+    el('button', { class: 'text-[11px] font-bold whitespace-nowrap shrink-0', style: { color: 'var(--accent)' }, onclick: () => openReportingDrillModal({ chartTitle: 'CRM fixes · Cancellation · ' + g.label, sliceLabel: g.rows.length + ' account' + (g.rows.length === 1 ? '' : 's') + ' · newest first', rows: g.rows, formatValue: fmt.usd0, review: { key: 'att:Cancellation', idOf: (r) => r.subscription_id != null ? r.subscription_id : r.customer_id } }) }, 'Review →'))));
+}
+// Tasks built from the app's own sales (Office Staff): a Passed Audit flag with no autopay behind it, and sales the
+// pricing check already marked under the minimum. Shown as the subscription rows, so the list opens like every other.
+function auditSalesItems() {
+  const S = state.allSales || [], subs = state.reportingSubscriptions || [];
+  if (!S.length || !subs.length) return [];
+  const bySid = new Map(); for (const r of subs) if (r.subscription_id != null) bySid.set(String(r.subscription_id), r);
+  const rowOf = (s, why) => { const r = bySid.get(String(s.crm_subscription_id)); return r ? Object.assign({}, r, { _flagReason: why }) : null; };
+  const mk = (title, tag, rows, tone, todo, ok) => { const n = rows.length;
+    const drill = (rs) => openReportingDrillModal({ chartTitle: 'Auditing · ' + title, sliceLabel: rs.length.toLocaleString() + ' subscription' + (rs.length === 1 ? '' : 's'), rows: rs, formatValue: fmt.usd0, review: { key: title, idOf: (r) => r.subscription_id } });
+    return { key: title, tag, title, sev: n ? (tone === 'check' ? 'amber' : 'red') : 'ok', count: n, text: n ? todo(n) : ok, onClick: n ? () => drill(rows) : null,
+      rvIds: rows.map(r => String(r.subscription_id)), rvOpen: (ids) => drill(rows.filter(r => ids.has(String(r.subscription_id)))) }; };
+  const live = (s) => s.sale_kind !== 'upsell' && !/^cancel/i.test(String(s.audit_status || '')) && !(typeof isRenewalSource === 'function' && isRenewalSource(s));
+  // Passed Audit is what makes an Office Staff new account payable (Nov 24) — so a pass on an account with no autopay is worth a look.
+  const passed = S.filter(s => live(s) && s.crm_audit === 'passed' && s.crm_autopay === false && !s.payroll_processed_at)
+    .map(s => rowOf(s, 'Passed Audit, but not on autopay' + (s.crm_paid_since_sale === true ? ' — a payment has gone through since the sale' : ' and no payment since the sale'))).filter(Boolean);
+  const noPay = passed.filter(r => /no payment since/.test(r._flagReason)).length;
+  const below = S.filter(s => live(s) && s.crm_below_min && !s.payroll_processed_at).map(s => rowOf(s, 'Under the pricing minimum: ' + s.crm_below_min)).filter(Boolean);
+  return [
+    mk('Passed Audit with no autopay', 'Passed audit', passed, noPay ? 'fix' : 'check',
+      (n) => n + ' Office Staff sale' + (n === 1 ? '' : 's') + ' flagged Passed Audit and not yet paid, with the account not on autopay' + (noPay ? ' (' + noPay + ' with no payment since the sale)' : '') + ' — check the payment before payroll.',
+      'All clear — every unpaid Passed Audit sale is on autopay.'),
+    mk('Office Staff sales under the pricing minimum', 'Below minimum', below, 'check',
+      (n) => n + ' Office Staff sale' + (n === 1 ? '' : 's') + ' not yet paid that the pricing check marked under the minimum — fix the price in FieldRoutes or confirm the sale pays at the below-minimum rate.',
+      'All clear — no unpaid Office Staff sale is under the pricing minimum.')];
+}
 function auditTasksCard() {
   const _items0 = auditTaskItems();
   // The deleted-customer review is built live (its buttons change it), not in the memo.
@@ -923,22 +1010,23 @@ function auditTasksCard() {
   const all = _items;
   const RANK = { red: 0, amber: 1, ok: 2 };
   const todo = all.filter(i => i.sev !== 'ok').sort((a, b) => RANK[a.sev] - RANK[b.sev]);
+  const entries = auditTaskEntries(todo);
   const clear = all.filter(i => i.sev === 'ok');
   const open = state._auditTasksOpen !== false;
   const reds = todo.filter(i => i.sev === 'red').length;
   const head = el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', onclick: () => { state._auditTasksOpen = !open; mountApp(); } },
     el('span', { class: 'inline-block rounded-full', style: { width: '8px', height: '8px', background: !todo.length ? 'var(--ok)' : reds ? '#DC2626' : '#D97706' } }),
     el('span', { class: 'text-[11px] uppercase tracking-widest font-bold' }, 'Auditing tasks'),
-    el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, !todo.length ? 'All clear — nothing to fix in FieldRoutes.' : todo.length + ' to do' + (open ? '' : ' · ' + todo.slice(0, 3).map(i => i.tag).join(', ') + (todo.length > 3 ? '…' : '')) + (clear.length ? ' · ' + clear.length + ' clear' : '')),
+    el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, !todo.length ? 'All clear — nothing to fix in FieldRoutes.' : entries.length + ' to do' + (open ? '' : ' · ' + entries.slice(0, 3).map(e => e.item ? e.item.tag : e.label).join(', ') + (entries.length > 3 ? '…' : '')) + (clear.length ? ' · ' + clear.length + ' clear' : '')),
     el('span', { class: 'ml-auto text-[11px]', style: { color: 'var(--text-muted)' } }, open ? '▴' : '▾'));
   if (!open) return el('div', { class: 'card overflow-hidden' }, head);
-  const row = (i, idx) => {
+  const row = (i, idx, sub) => {
     const hasDetail = i.detail !== undefined;
     const showing = hasDetail && state._auditDetail === i.key;
     const click = hasDetail ? () => { state._auditDetail = showing ? null : i.key; mountApp(); } : i.onClick;
     const red = i.sev === 'red';
-    return [el('div', { class: 'flex items-center gap-3 px-4 py-2 border-t text-xs audit-task-row', style: { borderColor: 'var(--border)' }, title: i.title || '' },
-      el('span', { class: 'text-[10px] font-bold tabular-nums shrink-0', style: { color: 'var(--text-subtle)', width: '18px', textAlign: 'right' } }, String(idx + 1) + '.'),
+    return [el('div', { class: 'flex items-center gap-3 px-4 py-2 border-t text-xs audit-task-row', style: { borderColor: 'var(--border)', background: sub ? 'var(--card-2)' : undefined }, title: i.title || '' },
+      el('span', { class: 'text-[10px] font-bold tabular-nums shrink-0', style: { color: 'var(--text-subtle)', width: '18px', textAlign: 'right' } }, sub ? '\u21b3' : String(idx + 1) + '.'),
       el('span', { class: 'text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded shrink-0', style: { background: red ? 'rgba(220,38,38,.12)' : 'rgba(217,119,6,.14)', color: red ? '#DC2626' : '#B45309', minWidth: '72px', textAlign: 'center' } }, i.tag),
       el('span', { class: 'text-sm font-black tabular-nums shrink-0', style: { minWidth: '52px', textAlign: 'right', color: red ? '#DC2626' : 'var(--text)' } }, i.count != null ? Number(i.count).toLocaleString() : '…'),
       el('span', { class: 'flex-1 min-w-0 audit-task-text', style: { overflowWrap: 'anywhere' } }, i.text),
@@ -946,7 +1034,26 @@ function auditTasksCard() {
       showing ? i.detail : null];
   };
   return el('div', { class: 'card overflow-hidden' }, head,
-    todo.length ? el('div', { class: 'border-t', style: { borderColor: 'var(--border)' } }, ...todo.flatMap(row)) : null,
+    todo.length ? el('div', { class: 'border-t', style: { borderColor: 'var(--border)' } }, ...(() => {
+      const out = []; let num = 0;
+      const famRow = (e, idx) => {
+        const isOpen = (state._auditFamOpen || {})[e.fam] === true, red = e.members.some(m => m.sev === 'red');
+        const total = e.members.reduce((t, m) => t + (Number(m.count) || 0), 0), pend = e.members.some(m => m.count == null);
+        const head2 = el('div', { class: 'flex items-center gap-3 px-4 py-2 border-t text-xs audit-task-row cursor-pointer', style: { borderColor: 'var(--border)' }, onclick: () => { state._auditFamOpen = Object.assign({}, state._auditFamOpen || {}, { [e.fam]: !isOpen }); mountApp(); } },
+          el('span', { class: 'text-[10px] font-bold tabular-nums shrink-0', style: { color: 'var(--text-subtle)', width: '18px', textAlign: 'right' } }, String(idx + 1) + '.'),
+          el('span', { class: 'text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded shrink-0', style: { background: red ? 'rgba(220,38,38,.12)' : 'rgba(217,119,6,.14)', color: red ? '#DC2626' : '#B45309', minWidth: '72px', textAlign: 'center' } }, e.label),
+          el('span', { class: 'text-sm font-black tabular-nums shrink-0', style: { minWidth: '52px', textAlign: 'right', color: red ? '#DC2626' : 'var(--text)' } }, total.toLocaleString() + (pend ? '+' : '')),
+          el('span', { class: 'flex-1 min-w-0 audit-task-text', style: { overflowWrap: 'anywhere' } }, e.members.map(m => (m.title && m.title.length < 46 ? m.title : m.tag) + ' ' + (m.count != null ? Number(m.count).toLocaleString() : '…')).join(' · ')),
+          el('span', { class: 'text-[11px] font-bold whitespace-nowrap shrink-0', style: { color: 'var(--accent)' } }, (isOpen ? 'Hide' : 'Show ' + e.members.length) + ' →'));
+        return isOpen ? [head2, ...e.members.flatMap(m => row(m, 0, true))] : [head2];
+      };
+      for (const [sk, sl] of AUDIT_SECTIONS) {
+        const es = entries.filter(e => e.sec === sk); if (!es.length) continue;
+        out.push(el('div', { class: 'px-4 py-1.5 border-t text-[10px] uppercase tracking-widest font-bold', style: { borderColor: 'var(--border)', background: 'var(--card-2)', color: 'var(--text-muted)' } }, sl + ' · ' + es.length));
+        for (const e of es) { out.push(...(e.item ? row(e.item, num) : famRow(e, num))); num++; }
+      }
+      return out;
+    })()) : null,
     clear.length ? el('div', { class: 'px-4 py-2 border-t text-[11px]', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } },
       el('span', { style: { color: 'var(--ok)', fontWeight: 700 } }, '✓ All clear: '), clear.map(i => i.title || i.tag).join(' · ')) : null);
 }
@@ -1050,7 +1157,10 @@ function auditSubTasks() {
   const unsigned = rows.filter(r => { if (!isActive(r) || notSale(r.subscription) || /one[\s-]?time/i.test(String(r.subscription || ''))) return false;
       const sd = String(r.sold_date || '').slice(0, 10); if (sd.slice(0, 4) !== yr) return false;
       const age = (nowMs - Date.parse(sd)) / dayMs; if (isNaN(age) || age < 2) return false;
-      return String(r.contract_state || 'none') !== 'signed'; })
+      if (String(r.contract_state || 'none') === 'signed') return false;
+      // Sent and still inside a week is in progress, not a task (Nov 24 audit review) — unless an initial is already booked.
+      if (String(r.contract_state) === 'sent' && age < 7 && !/^pending$/i.test(String(r.initial_status || '').trim())) return false;
+      return true; })
     .sort((x, y) => String(y.sold_date).localeCompare(String(x.sold_date)))
     .map(r => ({ ...r, _flagReason: 'Customer #' + r.customer_id + ' · sold ' + String(r.sold_date).slice(0, 10) + ' · agreement ' + (String(r.contract_state) === 'sent' ? 'sent, not signed' : 'never sent') }));
   // An initial on the books with no signature is the red flag (per Isaac, Nov 7 — "we do NOT want scheduled
@@ -1058,7 +1168,7 @@ function auditSubTasks() {
   const unsignedSched = unsigned.filter(r => /^pending$/i.test(String(r.initial_status || '').trim())).length;
   tasks.push({ tag: 'Agreement', title: 'No signed agreement', noun: 'subscription', tone: unsignedSched ? 'fix' : 'check', rows: unsigned,
     ok: 'All clear — every active sale this year has a signed agreement.',
-    todo: (n) => n.toLocaleString() + ' active sale' + s(n) + ' in ' + yr + ' with no signed agreement (' + unsigned.filter(r => String(r.contract_state) === 'sent').length.toLocaleString() + ' sent and waiting'
+    todo: (n) => n.toLocaleString() + ' active sale' + s(n) + ' in ' + yr + ' with no signed agreement (' + unsigned.filter(r => String(r.contract_state) === 'sent').length.toLocaleString() + ' sent over a week ago or with an initial booked'
       + (unsignedSched ? ' · ' + unsignedSched.toLocaleString() + ' with an initial appointment scheduled — get it signed or pull the appointment' : '') + ') — resend it from Documents in FieldRoutes and get it signed.' });
   // 7. Cancelled with no reason (per Isaac, Oct 13 — the list he works through in FieldRoutes). Only cancels that
   //    count in the retention book: every year, the first service was completed, not a one-time / non-sale service,
@@ -1129,6 +1239,47 @@ function auditSubTasks() {
       bad.push({ ...r, _flagReason: 'Customer #' + r.customer_id + ' \u00b7 state ' + r.state_crm + ', ZIP ' + String(r.zip_code || '').slice(0, 5) + ' is ' + r.zip_state + ' \u2014 ' + (zipWrong ? 'the ZIP looks wrong (kept ' + r.state + ', the office\u2019s state)' : 'the state looks wrong (reporting uses ' + r.state + ')') }); }
     // (Since Nov 9 these customers are rows of the Location check from Needs attention — one list, not two.)
     void bad;
+  }
+  // 10. Active and not on autopay (per Isaac, Nov 24 — the same flag as the Upfront Sales rows, for the whole book).
+  {
+    const noAp = (r) => { const v = String(r.customer_auto_pay == null ? '' : r.customer_auto_pay).trim(); return !v || /^(no|0|false|none)$/i.test(v); };
+    const list = rows.filter(r => isActive(r) && Number(r.annual_recurring_value) > 0 && r.initial_service && !notSale(r.subscription) && noAp(r))
+      .sort((x, y) => (Number(y.days_past_due) || 0) - (Number(x.days_past_due) || 0))
+      .map(r => ({ ...r, _flagReason: 'Customer #' + r.customer_id + ' · not on autopay' + ((Number(r.days_past_due) || 0) > 0 ? ' · ' + Number(r.days_past_due) + ' days past due' : '') }));
+    const due = list.filter(r => (Number(r.days_past_due) || 0) > 0).length;
+    tasks.push({ tag: 'Autopay', title: 'Active plans not on autopay', noun: 'subscription', tone: 'check', rows: list,
+      ok: 'All clear — every active recurring plan is on autopay.',
+      todo: (n) => n.toLocaleString() + ' active recurring plan' + s(n) + ' not on autopay' + (due ? ' (' + due.toLocaleString() + ' past due)' : '') + ' — turn autopay on in FieldRoutes or get a payment method on file.' });
+  }
+  // 11. Active but not being serviced: no completed service in more than twice the plan's own service frequency
+  //     (a 90-day plan with nothing done in 180+ days). Mosquito and seasonal plans are left out (they pause for winter),
+  //     and so are plans with a custom frequency.
+  {
+    const list = rows.filter(r => { if (!isActive(r) || !(Number(r.annual_recurring_value) > 0) || !r.initial_service || notSale(r.subscription)) return false;
+        if (/mosquito|seasonal/i.test(String(r.subscription || ''))) return false;
+        const f = Number(r.recurring_frequency); if (!(f > 0) || !r.last_completed_date) return false;
+        const age = (nowMs - Date.parse(String(r.last_completed_date).slice(0, 10))) / dayMs;
+        return age > f * 2; })
+      .sort((x, y) => String(x.last_completed_date).localeCompare(String(y.last_completed_date)))
+      .map(r => ({ ...r, _flagReason: 'Customer #' + r.customer_id + ' · every ' + Number(r.recurring_frequency) + ' days · last service ' + String(r.last_completed_date).slice(0, 10) + ' (' + Math.round((nowMs - Date.parse(String(r.last_completed_date).slice(0, 10))) / dayMs) + ' days ago)' }));
+    tasks.push({ tag: 'Not serviced', title: 'Active but not being serviced', noun: 'subscription', tone: 'check', rows: list,
+      ok: 'All clear — every active plan has been serviced inside twice its frequency.',
+      todo: (n) => n.toLocaleString() + ' active plan' + s(n) + ' with no completed service in more than twice the plan’s frequency (' + fmt.usd0(list.reduce((a, r) => a + (Number(r.annual_recurring_value) || 0), 0)) + '/yr) — schedule the visit, or close the plan if the customer is gone.' });
+  }
+  // 12. Technician sale of a normal service with a free initial (per Isaac, Nov 24: technicians can give an add-on a free
+  //     initial, not a normal service type; a Sales Rep can sell a $1 initial). "Normal service" here = the customer's
+  //     FIRST plan — a plan added to a customer who already had one is the add-on.
+  {
+    const first = new Map(), paidDay = new Set();
+    for (const r of rows) { const d = String(r.sold_date || '').slice(0, 10); if (!d) continue; const k = String(r.customer_id); if (!first.has(k) || d < first.get(k)) first.set(k, d); if (Number(r.initial_price) > 0) paidDay.add(k + '|' + d); }
+    const list = rows.filter(r => String(r.sold_date || '').slice(0, 4) === yr && typeof crmSellerRole === 'function' && crmSellerRole(String(r.sold_by_type || '')) === 'technician'
+        && !(Number(r.initial_price) > 0) && !notSale(r.subscription) && !/one[\s-]?time/i.test(String(r.subscription || '')) && !r.subscription_date_canceled
+        && first.get(String(r.customer_id)) === String(r.sold_date).slice(0, 10) && !paidDay.has(String(r.customer_id) + '|' + String(r.sold_date).slice(0, 10)))
+      .sort((x, y) => String(y.sold_date).localeCompare(String(x.sold_date)))
+      .map(r => ({ ...r, _flagReason: 'Customer #' + r.customer_id + ' · sold ' + String(r.sold_date).slice(0, 10) + ' by a technician · first plan on the customer · free initial' }));
+    tasks.push({ tag: 'Below minimum', title: 'Technician sales with a free initial', noun: 'subscription', tone: 'check', rows: list,
+      ok: 'All clear — no technician sold a new customer a plan with a free initial this year.',
+      todo: (n) => n + ' technician sale' + s(n) + ' in ' + yr + ' of a customer’s first plan with a free initial — a free initial is for add-ons only; fix the initial price in FieldRoutes.' });
   }
   auditSubTasks._m = { src: rows, key, tasks };
   return tasks;

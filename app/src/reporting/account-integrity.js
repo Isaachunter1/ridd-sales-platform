@@ -33,8 +33,8 @@ function reportingAuditingTab() {
       onclick: () => { if (pane !== v) { state._auditPane = v; mountApp(); } },
     }, l))) : null;
   if (pane === 'integrity') return el('div', { class: 'flex flex-col gap-4' }, tabs, accountIntegrityView());
-  // Marketing data diagnostics live here since Nov 9 (per Isaac — off the Metrics page).
-  return el('div', { class: 'flex flex-col gap-4' }, tabs, auditTasksCard(), reportingAuditing(), typeof mkpDiagnosticsCard === 'function' ? mkpDiagnosticsCard() : null);
+  // (Marketing data diagnostics removed per Isaac, Nov 24 — its actionable checks are already tasks: lead flow, no GHL lead, ZIP.)
+  return el('div', { class: 'flex flex-col gap-4' }, tabs, auditTasksCard(), reportingAuditing());
 }
 
 // ── The review view (rebuilt per Isaac, Nov 19 — "a better way to intuitively display all of that … like an
