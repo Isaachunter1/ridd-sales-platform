@@ -22,6 +22,8 @@ function mkbBudgetOf(ym, k) {
   const R = (typeof _adminRules === 'function' && _adminRules()) || {};
   const M = R.provBudgetsYM && R.provBudgetsYM[ym];
   if (M && M[k] != null) return Number(M[k]) > 0 ? Number(M[k]) : null;
+  // Nothing typed for this month: the media plan's dollars for the channel are the budget (per Isaac, Nov 24).
+  if (typeof mkpBudgetFor === 'function') { const v = mkpBudgetFor(ym, k); if (v) return v; }
   const flat = R.provBudgets && R.provBudgets[k];
   return Number(flat) > 0 ? Number(flat) : null;
 }
@@ -66,6 +68,7 @@ function mktgBudgetView() {
   const set = new Set();
   for (const ym of yms) for (const k in ((R.provBudgetsYM || {})[ym] || {})) set.add(k);
   for (const k in (R.provBudgets || {})) set.add(k);
+  if (typeof mkpPlanChannels === 'function') for (const k of mkpPlanChannels(year)) set.add(k);
   Ds.forEach(D => { if (D && D.ch) for (const k in D.ch) if (D.ch[k].spend > 0 || D.ch[k].leads > 0) set.add(k); });
   const keys = [...set].filter(shown).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
   const usd = (v) => v == null || !isFinite(v) ? '—' : fmt.usd0(v);
@@ -89,7 +92,7 @@ function mktgBudgetView() {
   };
   const planCard = el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkb-plan' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' }, el('h3', { class: 'text-base font-bold' }, 'Lead provider budgets · ' + year),
-      el('span', { class: 'text-[11px] flex-1', style: muted }, (canEdit ? 'Type a month’s budget; it saves for everyone. ' : '') + 'Under each budget: what QuickBooks has booked that month, and the share of budget used.'),
+      el('span', { class: 'text-[11px] flex-1', style: muted }, (typeof mkpPlan === 'function' && mkpPlan(year) ? 'Budgets start from the Media plan; ' + (canEdit ? 'type over a month to change it. ' : '') : (canEdit ? 'Type a month’s budget; it saves for everyone. ' : '')) + 'Under each budget: what QuickBooks has booked that month, and the share of budget used.'),
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, title: 'Budget against actuals, provider by provider', onclick: () => { state._mktSub = 'providers'; mountApp(); } }, 'See it against actuals on Dashboard →')),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'text-xs', style: { borderCollapse: 'collapse', minWidth: '100%' } },
       el('thead', {}, el('tr', {}, th('Provider'), ...MON.map((m, i) => th(m + (yms[i] === openYm ? ' · open' : ''), '', true)), th('Total', '', true))),

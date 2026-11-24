@@ -199,3 +199,11 @@ Isaac asked whether the table duplicates the Auditing tasks. The red "+N no lead
 ## 2026-11-24 — Time to close: every row drills to its sales and leads
 Isaac: "let me drill down into each of those and see the data for those leads so I can verify we are pulling in things correctly."
 Clicking a channel (or All channels) opens the timed sales behind it, slowest first: customer, office, rep, FieldRoutes source, Pest AI source/channel/type/stage, lead-in and sold stamps (both on the Mountain clock), time to close, CSV export. Sales left out because the lead is stamped after the sale are listed at the bottom, marked not timed.
+
+## 2026-11-24 — Marketing → Media plan: the 2027 media calendar as a model in the app
+Isaac: use the "RIDD 2027 Media & Spend Calendar" sheet as budget projections across channels, adjustable, with plan, progress and what is excelling / lagging in one place.
+New sub-tab (integrations/marketing-plan.js). Levers, seasonal curve, LSA plan by month and channel mix are the sheet's values (built Nov 19) and are editable by admins; saved in adminRules.mediaPlan[year]. Arithmetic is the sheet's: budget = target × ratio; pool = budget − fee × 12 − LSA; month = pool × curve; channel = month × mix share. Checked against the sheet for the $7M case (total $2,730,000, pool $1,814,566, every month and the Facebook row to the dollar).
+The plan is each channel's monthly budget when nothing is typed on the Budget tab (mkbBudgetOf falls back to mkpBudgetFor), so Channel metrics reads it. Search and Performance Max are one "Google Ads" line for actuals because QuickBooks cannot split them.
+Read on Progress is derived, not typed: a channel's spend ÷ new revenue against the plan's media ratio ((budget − agency fee) ÷ target, 34.2% at the defaults); Excelling ≤ 85% of it, Lagging ≥ 115%, needs 5 sales.
+Not brought over: rep capacity & hiring, market flighting, the new-channels list, the 5–10M scenarios.
+OPEN: the sheet's 2026 base is $5.20M of inside-sales new revenue (Jan 1–Nov 18); the Marketing tab's own New revenue for 2026 reads $3.32M. Progress uses the Marketing tab's number, so the $7M target and the actuals are not yet on the same basis.
