@@ -253,12 +253,31 @@ exports.handler = async (event) => {
     // One row per opportunity: [date, source label, phone, email, HH:MM (UTC), status, stage index (into `stages`, -1 = none), campaign label, FIRST stage index (-1 = unknown)].
     const stageMap = await stageNames(headers, loc); const stages = []; const stageIx = new Map();
     const SI = (id) => { const nm = stageMap[String(id || '')]; if (!nm) return -1; if (!stageIx.has(nm)) { stageIx.set(nm, stages.length); stages.push(nm); } return stageIx.get(nm); };
+    // Birth stage from the "opportunity created" webhook (per Isaac, Nov 24 2026 — reps disposition calls within
+    // minutes, so this hourly sync rarely sees a call card in New Lead - Calls). By opportunity id, else the same
+    // contact's event within 15 minutes of the card's creation. Missing table / no events = the old first-seen stage.
+    const born = new Map(), bornByContact = new Map();
+    try {
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await sb.from('ghl_opp_created').select('opp_id, contact_id, created_at, stage_id, stage_name').gte('created_at', new Date(CUTOFF).toISOString()).range(from, from + 999);
+        if (error) break;
+        for (const e of data || []) { born.set(String(e.opp_id), e); if (e.contact_id) (bornByContact.get(String(e.contact_id)) || bornByContact.set(String(e.contact_id), []).get(String(e.contact_id))).push(e); }
+        if (!data || data.length < 1000) break;
+      }
+    } catch (e) { /* table not there yet */ }
+    const SIname = (nm) => { if (!nm) return -1; for (const k in stageMap) if (stageMap[k] === nm || String(stageMap[k]).endsWith(' · ' + nm) || String(stageMap[k]).replace(/\s+/g, ' ').endsWith(' · ' + String(nm).replace(/\s+/g, ' '))) return SI(k); return -1; };
+    const bornIx = (id, o) => {
+      let e = born.get(String(id));
+      if (!e && o[5]) { const t = Date.parse(o[0]) || 0; e = (bornByContact.get(String(o[5])) || []).find(x => Math.abs((Date.parse(x.created_at) || 0) - t) <= 15 * 60000); }
+      if (!e) return null;
+      const i = e.stage_id ? SI(e.stage_id) : -1; return i >= 0 ? i : SIname(e.stage_name);
+    };
     const opps = [];
     for (const id of Object.keys(oppStore || {})) {
       const o = oppStore[id]; const iso = String(o[0] || ''); if (!iso || Date.parse(iso) < CUTOFF) continue;
       const c = byContact.get(o[5]) || ['', ''];
       const ph = o[2] || c[0], em = o[3] || c[1]; if (!ph && !em) continue;
-      opps.push([iso.slice(0, 10), L(o[1]), ph, em, hhmm(iso), o[4] || '', SI(o[6]), L(c[2] || ''), SI(o[7])]);   // [7] the contact's campaign · [8] first stage seen (per Isaac, Nov 18)
+      opps.push([iso.slice(0, 10), L(o[1]), ph, em, hhmm(iso), o[4] || '', SI(o[6]), L(c[2] || ''), (() => { const b = bornIx(id, o); return b != null && b >= 0 ? b : SI(o[7]); })()]);   // [7] the contact's campaign · [8] first stage seen (per Isaac, Nov 18)
     }
     const gz = zlib.gzipSync(Buffer.from(JSON.stringify({ v: 2, at: new Date().toISOString(), backfillDone: !!st.backfillDone, oppBackfillDone: !!(st.opp && st.opp.backfillDone), labels, rows, opps, stages })));
     const { error } = await sb.storage.from('reporting').upload('ghl/leads.json.gz', gz, { contentType: 'application/gzip', upsert: true });
