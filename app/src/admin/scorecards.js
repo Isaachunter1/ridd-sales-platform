@@ -1799,8 +1799,9 @@ function retenChainRenewalCohort() { return true; }   // always the year acquire
 function setRetenChainRenewalCohort(b) { _setAdminRule('retenChainRenewals', !!b); }
 // The year a subscription's cohort starts — the one place that decides it.
 function retenCohortStart(r) { return (retenChainRenewalCohort() && r.origin_initial_service) || r.initial_service; }
-function retenExclZeroPay()       { return true;   // always on (per Isaac, Nov 2): a sub that bills nothing is never in the book — step 5, no toggle
+function retenExclZeroPay()       {   // on by default (per Isaac, Nov 2); the Attrition Steps toggle can switch it off for the session (Nov 24)
   if (state._retenWhatIf && typeof state._retenWhatIf.zero === 'boolean' && state.reportingSubTab === 'waterfall') return state._retenWhatIf.zero;
+  return true;
   const r = _adminRules(); if (r && typeof r.retenExclZeroPay === 'boolean') return r.retenExclZeroPay;
   return true; }
 function setRetenExclZeroPay(b)       { _setAdminRule('retenExclZeroPay', !!b); try { localStorage.setItem('ridd_reten_excl_zeropay', b ? '1' : '0'); } catch {} }

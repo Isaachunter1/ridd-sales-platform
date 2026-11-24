@@ -49,7 +49,7 @@ function semRetentionBook(pop) {
   const recurringByName = (typeof retenRecurringMap === 'function') ? retenRecurringMap() : reportingServiceRecurringMap();   // retired plans stay in the book
   const excludedReasons = reportingExcludedCancelReasons();
   const out = pop
-    .filter(r => !!recurringByName.get(r.subscription))
+    .filter(typeof retenServiceKeep === 'function' ? retenServiceKeep() : (r => !!recurringByName.get(r.subscription)))   // one-time / hidden types come back only when that step is switched off for the session
     .filter(r => !!r.initial_service && r.initial_service >= '2000-01-01')   // garbage dates can't blow up the year walks
     .filter(r => !retenPopulationExcluded(r))
     .map(r => {

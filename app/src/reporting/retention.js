@@ -51,6 +51,15 @@ function retenBranchesOff() {
 // Memoized per (ground array, rules) — the waterfall builds the population
 // and the steps card walks the same chain, so one pass serves both, and a
 // re-render with nothing changed costs nothing.
+// Which service types the book keeps. Normally recurring (and retired) types only; with the one-time or hidden step
+// switched OFF for the session (Attrition Steps toggles), those types are let back in so the toggle really moves the book.
+function retenServiceKeep() {
+  const rec = retenRecurringMap();
+  if (!_retenWhatIf('onetime', true)) return () => true;
+  if (_retenWhatIf('hidden', true)) return (r) => !!rec.get(r.subscription);
+  const hid = new Set((state.reportingServiceConfig || []).filter(c => c.is_hidden).map(c => c.service_name));
+  return (r) => !!rec.get(r.subscription) || hid.has(r.subscription);
+}
 const _retenScopeMemo = new WeakMap();
 function retenScopeSteps(rows) {
   const key = JSON.stringify([_adminRules() || null, state._retenWhatIf || null, state.reportingSubTab, (state.reportingServiceConfig || []).map(c => c.service_name + ':' + (c.lifecycle || '') + ':' + (c.is_recurring == null ? '' : c.is_recurring)).join('|'), (state.reportingSourceConfig || []).map(c => c.source + ':' + (c.revenue_class || '') + ':' + (c.included === false ? 0 : 1)).join('|'), state._reportingCancelConfigStamp || 0, (state._crmDeletedIds || []).length, (state._stalePendingCustIds || []).length, (state._ghostSubIds || []).length, (state.reportingSubscriptions || []).length]);   // every rule the book depends on (settings audit, Sep 30)
@@ -94,12 +103,12 @@ function _retenScopeStepsBuild(rows) {
   // sheet does every time, then the toggles.
   const lifecycleByName = reportingServiceLifecycleMap();
   const recurringByName = reportingServiceRecurringMap();
-  run('onetime', 'Remove one-time service types', 'One-time service types (Configurations → Service types). Nothing recurring to retain.', r => { const lc = lifecycleByName.get(r.subscription); return !(lc === 'recurring' || lc === 'retired'); }, true);
+  run('onetime', 'Remove one-time service types', 'One-time service types (Configurations → Service types). Nothing recurring to retain.', r => { const lc = lifecycleByName.get(r.subscription); return !(lc === 'recurring' || lc === 'retired'); });   // toggleable for the session (per Isaac, Nov 24 — anyone who disagrees with a step can switch it back on)
   // Hidden types run AFTER one-time types (per Isaac, Sep 21): the hidden
   // list is mostly performed one-time work that should fall off above.
-  run('hidden', 'Remove hidden service types', 'Hidden service types: fees, inspections and billing items, not a plan.', r => !!(cfgByName.get(r.subscription) || {}).is_hidden, true);
+  run('hidden', 'Remove hidden service types', 'Hidden service types: fees, inspections and billing items, not a plan.', r => !!(cfgByName.get(r.subscription) || {}).is_hidden);
   // Excluded lead sources run AFTER one-time types (per Isaac, Sep 21).
-  run('sources', 'Remove excluded lead sources', 'Lead sources switched off in Configurations' + (exclSrc.size ? ': ' + [...exclSrc].join(', ') : ' (none today)') + '.', r => exclSrc.has(reportingSourceOf(r)), true);
+  run('sources', 'Remove excluded lead sources', 'Lead sources switched off in Configurations' + (exclSrc.size ? ': ' + [...exclSrc].join(', ') : ' (none today)') + '.', r => exclSrc.has(reportingSourceOf(r)));
   // ("Remove retired service types" retired per Isaac, Oct 14 — customers still on a plan RIDD no longer sells are
   // paying customers, so they stay in the book; retenRecurringMap counts retired types as recurring.)
   return { steps, out: cur };
@@ -117,7 +126,7 @@ function _retenOfficeSlice(office) {
 }
 function _retenOfficial() {
   const saved = state._retenWhatIf; state._retenWhatIf = null;
-  const o = { initial: true, orphans: reportingAutoExcludeOrphans(), branches: true, hidden: true, sources: reportingExcludedSources().size > 0, popRor: [...retenPopExclReasons()].some(_isRorReason), popRorTiming: true, popRorServiced: true, popNoStart: true, popReplaced: true, popCombined: [...retenPopExclReasons()].some(x => /combined/.test(x)), popRenew: [...retenPopExclReasons()].some(x => !_isRorReason(x) && !/combined/.test(x)), zero: retenExclZeroPay(), oneSvc: retenExclOneSvc(), oneSvcExempt: true, frozenOneSvc: retenExclFrozenOneSvc(), takePay: true, exclReasons: reportingExcludedCancelReasons().size > 0, ror: reportingExcludeRorChurn() };
+  const o = { initial: true, onetime: true, orphans: reportingAutoExcludeOrphans(), branches: true, hidden: true, sources: reportingExcludedSources().size > 0, popRor: [...retenPopExclReasons()].some(_isRorReason), popRorTiming: true, popRorServiced: true, popNoStart: true, popReplaced: true, popCombined: [...retenPopExclReasons()].some(x => /combined/.test(x)), popRenew: [...retenPopExclReasons()].some(x => !_isRorReason(x) && !/combined/.test(x)), zero: retenExclZeroPay(), oneSvc: retenExclOneSvc(), oneSvcExempt: true, frozenOneSvc: retenExclFrozenOneSvc(), takePay: true, exclReasons: reportingExcludedCancelReasons().size > 0, ror: reportingExcludeRorChurn() };
   state._retenWhatIf = saved;
   return o;
 }
@@ -300,8 +309,9 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
   // The step chain is only built when the card is OPEN (speed pass, Nov 2): collapsed — the default — the header
   // needs the book and the attrition rates, not the thirteen filtered copies of the population (~7s on live data).
   const _chain = () => {
-    const s1o = pop.filter(r => lifecycleByName.get(r.subscription) === 'recurring' || lifecycleByName.get(r.subscription) === 'retired');
-    const s1 = s1o.filter(r => !!recurringByName.get(r.subscription));
+    const _keepSvc = retenServiceKeep();
+    const s1o = pop.filter(_keepSvc);
+    const s1 = s1o;
     const s2 = s1.filter(r => !!r.initial_service && r.initial_service >= '2000-01-01');
     // Population steps, applied in order so each count is "removed at this step".
     const popSet = retenPopExclReasons();
@@ -321,7 +331,8 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     // plan merged into another on the account, so taking combined first leaves the $0 step holding only what matters:
     // subscriptions billing nothing that are NOT a merge, i.e. someone possibly getting pest control for free.
     const sCb = s2.filter(r => !closedBy(r, 'combined'));                          // minus combined — step 5
-    const sZ = sCb.filter(r => _retenPaying(r));                                   // minus $0 ARR — step 6, always on (per Isaac, Nov 2)
+    const zeroOn = retenExclZeroPay();
+    const sZ = sCb.filter(r => !zeroOn || _retenPaying(r));                                   // minus $0 ARR — step 6, always on (per Isaac, Nov 2)
     const s2r = sZ.filter(r => !(rorOn && rorByReason(r)));                       // minus RORs coded as such (the sheet's rule)
     const s2t = s2r.filter(r => !(rorOn && rorTimingOn && _reporting3dayRor(r)));   // minus RORs caught by timing (6a)
     const noStartOn = _retenWhatIf('popNoStart', true);
@@ -482,7 +493,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       // not a merge. The ACTIVE ones are the risk — a customer being serviced for free — so they get their own flag.
       const zero = notIn(sCb, sZ);
       const freeActive = zero.filter(r => !r.subscription_date_canceled && !/cancel|inactive|frozen/i.test(String(r.subscription_status || r.status || '')));
-      const node = step(next(), 'Remove subs with no ARR', '$0 ARR and no per-visit charge — bills nothing. Combined plans are already out, so anything left here is either a data fix (ARR above $0) or a plan being serviced for nothing.', sCb.length - sZ.length, null, null, zero, sZ);
+      const node = step(next(), 'Remove subs with no ARR', '$0 ARR and no per-visit charge — bills nothing. Combined plans are already out, so anything left here is either a data fix (ARR above $0) or a plan being serviced for nothing.', sCb.length - sZ.length, 'zero', null, zero, sZ);
       if (freeActive.length) node.children[1].append(el('button', {
         class: 'mt-1.5 rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.3)' },
         title: 'Active subscriptions with $0 ARR and no per-visit charge that were not combined into another plan — check each one is meant to be free (Sentricon add-on, house account) and fix the rest in FieldRoutes.',
@@ -538,7 +549,18 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
       'Cancelled, but the customer bought another plan within 30 days — counted as retained.', step1.length - stepRp.length, 'popReplaced', null, notIn(step1, stepRp), stepRp),
     // Step 12 — Take and pay, ON by default (per Isaac, Nov 2; replaced "Keep timing-RORs with 2+ completed appointments", whose
     // exemption still applies inside step 10 so the official book is unchanged).
-    step(next(), 'Take and pay: only customers with 2+ services', 'Only customers with 2+ completed services, counted across all their plans.', stepZ.length - step2.length, 'takePay', null, notIn(stepZ, step2), step2),
+    (() => {
+      // Who this step takes out (per Isaac, Nov 24): still-active customers who are simply new, vs customers who had one
+      // service and were lost. The second group is the "serviced once, then lost" number — it appears nowhere else on the tab.
+      const out = notIn(stepZ, step2), lostOne = out.filter(r => !!r.subscription_date_canceled), stillOn = out.length - lostOne.length;
+      const rs = new Map(); lostOne.forEach(r => { const k = String(reportingCancelReasonOf(r) || '').trim() || 'No reason logged'; rs.set(k, (rs.get(k) || 0) + 1); });
+      const top = [...rs.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => k + ' ' + n(v)).join(' \u00b7 ');
+      const node = step(next(), 'Take and pay: only customers with 2+ services', 'Only customers with 2+ completed services, counted across all their plans.'
+        + (out.length ? ' Of the ' + n(out.length) + ' removed: ' + n(stillOn) + ' are still active (one service so far) and ' + n(lostOne.length) + ' were serviced once, then lost' + (top ? ' (' + top + ')' : '') + '.' : ''), stepZ.length - step2.length, 'takePay', null, out, step2);
+      if (lostOne.length) node.children[1].append(el('button', { class: 'mt-1.5 rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'var(--card-2)', color: 'var(--text)', border: '1px solid var(--border-2)' },
+        onclick: (e) => { e.stopPropagation(); openReportingDrillModal({ chartTitle: 'Attrition steps \u00b7 serviced once, then lost', sliceLabel: n(lostOne.length) + ' subscriptions \u00b7 removed by take and pay, cancelled', rows: lostOne, formatValue: fmt.usd0 }); } }, n(lostOne.length) + ' serviced once, then lost \u2192'));
+      return node;
+    })(),
     // (The one-visit steps — prior-year never-2nd-treatment, the Sentricon exemption,
     // and this-year frozen-after-one — were retired per Isaac, Oct 13: cancelling
     // after the initial is real churn.)
