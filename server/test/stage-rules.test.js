@@ -94,3 +94,8 @@ test('Passed Audit flag before the appointment → payable right away', () => {
   const r = row({ customer_flags: 'Passed Audit', initial_status: 'Pending', initial_serviced_date: null });
   assert.equal(decideStage(sale({}), r, ctx()).audit_status, 'serviced');
 });
+
+test('Sales Rep (D2D) sale keeps its old rule — the Passed Audit change is Office Staff only', () => {
+  const u = decideStage(sale({ queue_type: 'd2d' }), row({ contract_state: 'signed' }), ctx({ _autoApproveOn: () => true }));
+  assert.equal(u.audit_status, 'serviced');
+});
