@@ -497,21 +497,24 @@ function viewPricing() {
     // Either/or picks (per Isaac, Nov 24 — "they are choosing THIS or THAT"): the two services sit in one joined
     // switch with OR between them; the picked half is dark with a check, the other is outlined. Picking one is a swap,
     // never an add.
-    const choice = (opts, cur, onPick) => el('div', { role: 'radiogroup', class: 'ps-choice', style: { display: 'flex', alignItems: 'stretch', width: '100%', maxWidth: '300px', border: '1.3px solid ' + C.ink3, borderRadius: '14px', overflow: 'hidden', background: '#fff' } },
+    // `live` = this card is the selected plan. Only then is the pick dark with a check; on the other cards the pick
+    // is just a light fill (per Isaac, Nov 24 — three dark checks read as three plans selected).
+    const choice = (opts, cur, onPick, live) => el('div', { role: 'radiogroup', class: 'ps-choice', style: { display: 'flex', alignItems: 'stretch', width: '100%', maxWidth: '300px', border: '1.3px solid ' + C.ink3, borderRadius: '14px', overflow: 'hidden', background: '#fff' } },
       ...opts.flatMap(([id, label], i) => {
         const on = cur === id;
         const btn = el('button', { role: 'radio', 'aria-checked': on ? 'true' : 'false', onclick: (e) => { e.stopPropagation(); if (!on) onPick(id); },
-          style: { flex: '1 1 0', minWidth: 0, font: '600 8.5px/1.25 ' + MONO, letterSpacing: '.06em', textTransform: 'uppercase', padding: '6px 8px', border: 0, background: on ? C.char : 'transparent', color: on ? '#fff' : C.ink2, cursor: on ? 'default' : 'pointer', textAlign: 'center' } },
-          (on ? '\u2713 ' : '') + label);
+          style: { flex: '1 1 0', minWidth: 0, font: '600 8.5px/1.25 ' + MONO, letterSpacing: '.06em', textTransform: 'uppercase', padding: '6px 8px', border: 0, background: on ? (live ? C.char : C.cream2) : 'transparent', color: on ? (live ? '#fff' : C.char) : C.ink2, fontWeight: on ? '700' : '600', cursor: on ? 'default' : 'pointer', textAlign: 'center' } },
+          (on && live ? '\u2713 ' : '') + label);
         return i === 0 ? [btn] : [el('span', { 'aria-hidden': 'true', style: { font: '700 7.5px/1 ' + MONO, letterSpacing: '.1em', color: C.ink3, display: 'flex', alignItems: 'center', padding: '0 5px', borderLeft: '1px solid ' + C.cream2, borderRight: '1px solid ' + C.cream2, background: C.cream } }, 'OR'), btn];
       }));
     const pillsFor = (c) => {
-      if (c.id === 'home') return [choice([['pest', L('pest')], ['rodent', L('rodent')]], pk.home, (s) => pickThen('home', () => { pk.home = s; })())];
-      if (c.id === 'yard') return [choice([['tfm', L('tfm')], ['mole', L('mole')]], pk.yard, (s) => pickThen('yard', () => { pk.yard = s; })())];
+      const live = st.pkg === c.id && !!curPkg;
+      if (c.id === 'home') return [choice([['pest', L('pest')], ['rodent', L('rodent')]], pk.home, (s) => pickThen('home', () => { pk.home = s; })(), live)];
+      if (c.id === 'yard') return [choice([['tfm', L('tfm')], ['mole', L('mole')]], pk.yard, (s) => pickThen('yard', () => { pk.yard = s; })(), live)];
       if (c.id === 'homeyard') return [
-        choice([['pest', L('pest')], ['rodent', L('rodent')]], pk.hy.home, (s) => pickThen('homeyard', () => { pk.hy.home = s; })()),
+        choice([['pest', L('pest')], ['rodent', L('rodent')]], pk.hy.home, (s) => pickThen('homeyard', () => { pk.hy.home = s; })(), live),
         el('span', { style: { font: '700 11px/1 ' + MONO, color: C.ink2, padding: '0 2px', flexBasis: '100%' } }, '+'),
-        choice([['tfm', L('tfm')], ['seasonal', 'Seasonal TFM']], pk.hy.yard, (s) => pickThen('homeyard', () => { pk.hy.yard = s; })())];
+        choice([['tfm', L('tfm')], ['seasonal', 'Seasonal TFM']], pk.hy.yard, (s) => pickThen('homeyard', () => { pk.hy.yard = s; })(), live)];
 
       // Tick, Flea & Mosquito and Seasonal TFM are either/or (the full program covers the season).
       // Mole is an extra below, not a pill here (per Isaac, Nov 23).
