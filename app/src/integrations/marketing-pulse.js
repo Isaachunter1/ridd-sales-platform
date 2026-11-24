@@ -145,6 +145,10 @@ function mkpAllLeads() {
     // handful): LSA = calls (its "Message Lead" = form), Service Direct = calls, Voice AI Line = AI calls,
     // PestBooker = form. Mixed sources (Facebook, DoLead, Angi, Google Ads) stay unknown rather than guessed.
     const srcLabel = passThrough && c ? String(lab[c[1] >= 0 ? c[1] : c[2]] || '') : o[1] >= 0 ? String(lab[o[1]] || '') : '';
+    // Born in a worked stage (per Isaac, Nov 24 — calls read far too low): forms land in New Lead - Forms and the Voice AI
+    // line in AI Calls on their own, so an opportunity the sync first saw already in Sold / No Contact / Needs Follow
+    // Up / Lost / Text Preferred was opened by a rep on a live call. Nov 18–23: 87 born in Sold, 13 in No Contact.
+    const bornWorked = firstStage && /sold|no contact|follow ?up|lost|text preferred/i.test(firstStage) ? 'call' : '';
     const typeBySource = /message lead/i.test(srcLabel) ? 'form' : /local services|\blsa\b|service direct/i.test(srcLabel) ? 'call' : /voice ai/i.test(srcLabel) ? 'ai' : /pest ?booker/i.test(srcLabel) ? 'form' : '';
     // Office-local date (per Isaac, Nov 19 — leads dated Nov 19 on the evening of Nov 18): GoHighLevel stamps the
     // opportunity in UTC, so anything after ~7 pm Eastern landed on the next day (and the next month on the 31st).
@@ -153,7 +157,7 @@ function mkpAllLeads() {
     const ld = oT ? _mkpLocalDay(oD, oT, mkt) : oD;
     leads.push({ d: ld, dUtc: oD, t: oT, batch, p: o[2] || '', e: o[3] || '', prov, label: srcLabel, group: mkpGroupOf(prov), paid: paid.has(prov),
       campaign: o[7] != null && o[7] >= 0 ? lab[o[7]] : '', status: String(o[5] || '').toLowerCase(), stage, firstStage,
-      type: typeOf(firstStage) || typeOf(stage) || typeBySource, typeSure: !!typeOf(firstStage), market: mkt });   // office tag from Pest AI first, ZIP second (per Isaac, Nov 18)
+      type: typeOf(firstStage) || bornWorked || typeOf(stage) || typeBySource, typeSure: !!typeOf(firstStage), market: mkt });   // office tag from Pest AI first, ZIP second (per Isaac, Nov 18)
   }
   const out = { leads, raw, notLead, curCust };
   mkpAllLeads._m = { src: G.opps, sig, subs: state.reportingSubscriptions, zip: zipOff, out };
