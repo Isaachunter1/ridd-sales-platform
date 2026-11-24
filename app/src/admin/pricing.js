@@ -730,7 +730,82 @@ function viewPricing() {
     // — no totals block, no Reset (nothing to reset). ~44px instead of ~200.
     const quoteEmpty = el('div', { class: 'pq-card pq-empty mb-3', style: { background: C.cream, color: C.char, borderRadius: '12px', padding: '10px 14px', boxShadow: 'var(--shadow-lg)', border: '1.5px solid ' + C.orange } },
       el('div', { style: { font: '700 10px/1 ' + F, letterSpacing: '.16em', textTransform: 'uppercase', color: C.ink2 } }, tierLabel),
-      el('div', { style: { font: '500 11px/1.3 ' + F, color: C.ink3, textAlign: 'right' } }, 'Nothing selected yet \u00b7 tap a plan below'));
+      el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, el('span', { style: { font: '500 11px/1.3 ' + F, color: C.ink3, textAlign: 'right' } }, 'Nothing selected yet'), st.tier !== 'd2d' ? null : el('button', { onclick: () => openSavedList(), style: { padding: '5px 10px', borderRadius: '999px', border: '1.5px solid ' + C.ink3, background: 'transparent', color: C.char, font: '700 9px/1.2 ' + F, letterSpacing: '.1em', textTransform: 'uppercase', cursor: 'pointer' } }, 'Saved')));
+    // ── Saved quotes (per Isaac, Nov 24): Save quote → type the customer's name → it's on the rep's account
+    // (public.pricing_quotes, db/migrations/20261124_pricing_quotes.sql). Saved opens the list; Open puts the picks back
+    // exactly (tier the user may still see, plan, extras, one-time, custom prices). Admins see every rep's.
+    const SNAP = ['tier', 'min', 'freq', 'base', 'addons', 'termite', 'onetime', 'customer', 'custom', 'pkg', 'pk', 'extras', 'noPlan'];
+    const QS = (state._pricingQuotes = state._pricingQuotes || { rows: null, loading: false, error: null });
+    const loadQuotes = (force) => {
+      if (QS.loading || (QS.rows && !force) || typeof supabase === 'undefined' || !supabase) return;
+      QS.loading = true;
+      Promise.resolve(supabase.from('pricing_quotes').select('id, rep_id, customer_name, tier, initial, monthly, snapshot, created_at').order('created_at', { ascending: false }).limit(300))
+        .then(({ data, error }) => { QS.loading = false; QS.error = error ? error.message : null; QS.rows = error ? [] : (data || []); if (root.isConnected) rerender(); })
+        .catch((e) => { QS.loading = false; QS.error = String((e && e.message) || e); QS.rows = []; });
+    };
+    // D2D only (per Isaac, Nov 24): saved quotes are for sales reps on D2D Pricing / Ⓜ minimums — not Standard / Loyalty.
+    const canSaveQuotes = st.tier === 'd2d';
+    if (canSaveQuotes) loadQuotes();
+    const sBtn = (t, fn, primary) => el('button', { onclick: fn, style: { padding: '6px 12px', borderRadius: '999px', font: '700 9px/1.2 ' + F, letterSpacing: '.1em', textTransform: 'uppercase', cursor: 'pointer', border: '1.5px solid ' + (primary ? C.orange : C.ink3), background: primary ? C.orange : 'transparent', color: primary ? '#fff' : C.char, whiteSpace: 'nowrap' } }, t);
+    const saveQuote = async (name) => {
+      const nm = String(name || '').trim().slice(0, 120); if (!nm) return;
+      const snapshot = JSON.parse(JSON.stringify(Object.fromEntries(SNAP.map(k => [k, st[k]]))));
+      const { error } = await supabase.from('pricing_quotes').insert({ rep_id: state.profile.id, customer_name: nm, tier: st.tier === 'd2d' && st.min ? 'd2d_min' : st.tier, initial: q.init, monthly: q.mo, snapshot });
+      if (error) { if (typeof toast === 'function') toast('Couldn\u2019t save the quote: ' + error.message, 'error'); return; }
+      st.qSaving = false; if (typeof toast === 'function') toast('Quote saved for ' + nm, 'success');
+      loadQuotes(true); rerender();
+    };
+    const openQuote = (row) => {
+      const sn = row.snapshot || {};
+      for (const k of SNAP) { if (sn[k] === undefined) delete st[k]; else st[k] = JSON.parse(JSON.stringify(sn[k])); }
+      if (!pricingTierChoices(state.profile).includes(st.tier)) { st.tier = pricingDefaultTier(state.profile); st.min = false; st.custom = {}; }
+      editKey = null; st.qItems = true; rerender();
+    };
+    const openSavedList = () => {
+      const overlay = el('div', { class: 'modal-overlay' });
+      const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+      const onKey = (e) => { if (e.key === 'Escape') close(); };
+      document.addEventListener('keydown', onKey); overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+      const TL = { d2d: 'D2D', d2d_min: 'D2D min', standard: 'Standard', loyalty: 'Loyalty' };
+      const who = (id) => { const p = (state.allProfiles || []).find(x => x.id === id); return p ? p.full_name : ''; };
+      const body = el('div', {});
+      let find = '';
+      const paint = () => {
+        const rows = (QS.rows || []).filter(r => !find || String(r.customer_name).toLowerCase().includes(find));
+        body.replaceChildren(...(rows.length ? rows.map(r => el('div', { class: 'flex items-center gap-3 px-4 py-2.5 border-t', style: { borderColor: 'var(--border)' } },
+          el('div', { class: 'flex-1 min-w-0' },
+            el('div', { class: 'font-semibold text-sm truncate' }, r.customer_name),
+            el('div', { class: 'text-[11px] tabular-nums', style: { color: 'var(--text-muted)' } }, [new Date(r.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), TL[r.tier] || r.tier, money(Number(r.initial) || 0) + ' initial \u00b7 ' + money(Number(r.monthly) || 0) + '/mo', r.rep_id !== state.profile.id ? who(r.rep_id) : ''].filter(Boolean).join(' \u00b7 '))),
+          el('button', { class: 'rounded-lg px-3 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => { close(); openQuote(r); } }, 'Open'),
+          el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Remove this saved quote', onclick: async (e) => {
+            const b = e.currentTarget; if (b.dataset.sure !== '1') { b.dataset.sure = '1'; b.textContent = 'Sure?'; return; }
+            const { error } = await supabase.from('pricing_quotes').delete().eq('id', r.id);
+            if (error) { if (typeof toast === 'function') toast('Couldn\u2019t remove it: ' + error.message, 'error'); return; }
+            QS.rows = (QS.rows || []).filter(x => x.id !== r.id); paint(); rerender(); } }, 'Remove')))
+          : [el('div', { class: 'px-4 py-8 text-center text-sm', style: { color: 'var(--text-muted)' } }, QS.error ? 'Saved quotes aren\u2019t available yet (' + QS.error + ')' : find ? 'No saved quote matches.' : 'No saved quotes yet.')]));
+      };
+      paint();
+      overlay.append(el('div', { class: 'card', style: { width: 'min(560px, 96vw)', maxHeight: '80vh', display: 'flex', flexDirection: 'column', margin: '8vh auto 0' }, onclick: (e) => e.stopPropagation() },
+        el('div', { class: 'flex items-center gap-3 px-4 py-3' },
+          el('h3', { class: 'text-base font-bold flex-1' }, 'Saved quotes'),
+          el('input', { type: 'search', placeholder: 'Search name', class: 'rounded-lg border px-2.5 py-1 text-[12px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '150px' }, oninput: (e) => { find = String(e.target.value || '').trim().toLowerCase(); paint(); } }),
+          el('button', { class: 'text-2xl leading-none px-1', style: { color: 'var(--text-muted)' }, 'aria-label': 'Close', onclick: close }, '\u00d7')),
+        el('div', { style: { overflow: 'auto' } }, body)));
+      document.body.append(overlay);
+    };
+    const saveRow = () => {
+      if (!canSaveQuotes) return null;
+      const n = (QS.rows || []).length;
+      if (st.qSaving) {
+        const inp = el('input', { type: 'text', placeholder: 'Customer name', maxlength: 120, style: { flex: '1 1 120px', minWidth: 0, padding: '6px 10px', borderRadius: '8px', border: '1.5px solid ' + C.ink3, background: '#fff', color: C.char, font: '600 12px/1.2 ' + F } });
+        inp.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); saveQuote(inp.value); } else if (e.key === 'Escape') { st.qSaving = false; rerender(); } };
+        setTimeout(() => inp.focus(), 0);
+        return el('div', { style: { display: 'flex', gap: '6px', alignItems: 'center', marginTop: '10px', flexWrap: 'wrap' } }, inp, sBtn('Save', () => saveQuote(inp.value), true), sBtn('Cancel', () => { st.qSaving = false; rerender(); }));
+      }
+      return el('div', { style: { display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'space-between', marginTop: '10px' } },
+        q.ok ? sBtn('Save quote', () => { st.qSaving = true; rerender(); }, true) : el('span', {}),
+        sBtn('Saved' + (n ? ' (' + n + ')' : ''), openSavedList));
+    };
     // Receipt (per Isaac, Nov 24 — mobile recording): totals FIRST — initial · monthly · savings / yr — and the items in
     // the package BELOW them, folded away until the totals are tapped. Same on desktop. The card no longer swaps to a
     // one-line bar on scroll: that swap changed the sticky block's height mid-scroll and made the page jump.
@@ -756,7 +831,7 @@ function viewPricing() {
       el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '6px' } },
         el('div', { style: { font: '700 10px/1 ' + F, letterSpacing: '.16em', textTransform: 'uppercase', color: C.ink2 } }, 'Quote · ' + (st.tier === 'd2d' ? (st.min ? 'D2D minimums' : 'D2D') : T.label)),
         el('button', { style: { padding: '5px 12px', borderRadius: '999px', border: '1.5px solid ' + C.ink3, background: 'transparent', color: C.char, font: '700 9px/1.2 ' + F, letterSpacing: '.1em', textTransform: 'uppercase', cursor: 'pointer' }, onclick: () => { st.base = null; st.addons = {}; st.onetime = {}; st.termite = false; st.custom = {}; editKey = null; rerender(); } }, 'Reset')),
-      strip, itemsToggle, items);
+      strip, itemsToggle, items, saveRow());
 
     const quote = q.empty ? quoteEmpty : quoteFull;
     // Picker + quote ride together as one sticky block pinned right under
