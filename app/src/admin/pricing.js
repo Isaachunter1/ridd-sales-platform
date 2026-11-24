@@ -168,7 +168,7 @@ function pricingQuote(st) {
   if (st.termite) lines.push({ key: 'termite', kind: 'termite', label: 'Termite Defense', sub: 'annual · separate subscription', init: T.termite[0], mo: T.termite[1] });
   // Rep-entered custom prices replace the list price on a line —
   // but pricingFloor() is the hard floor, so anything under it is ignored.
-  for (const l of lines) {
+  for (const l of (st.tier === 'd2d' ? lines : [])) {   // D2D quotes only (per Isaac, Nov 24)
     const c = st.custom[l.key], f = pricingFloor(st, l.key);
     if (!c || !f || c.init < f.init || c.mo < f.mo) continue;
     l.list = { init: l.init, mo: l.mo }; l.init = c.init; l.mo = c.mo; l.custom = true;
@@ -680,7 +680,9 @@ function viewPricing() {
       return wrap;
     };
     const rline = (l) => {
-      const editable = !!l.key;
+      // Custom prices are a D2D thing (per Isaac, Nov 24): D2D Pricing and Ⓜ minimums, any line, never under the floor
+      // (the D2D minimum). Standard / Loyalty quotes are list price.
+      const editable = !!l.key && st.tier === 'd2d';
       const editing = editable && editKey === l.key;
       // While editing, the fields drop onto their own full-width row so the
       // service name never gets squeezed (per Isaac).
@@ -717,7 +719,7 @@ function viewPricing() {
     const itemsToggle = el('button', { onclick: () => { st.qItems = !itemsOpen; if (!st.qItems) editKey = null; rerender(); },
         style: { width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', background: 'transparent', border: 0, padding: '2px 0', cursor: 'pointer', font: '700 9px/1 ' + F, letterSpacing: '.12em', textTransform: 'uppercase', color: C.ink2 } },
       el('span', {}, q.lines.length + ' item' + (q.lines.length === 1 ? '' : 's') + ' in this quote'),
-      el('span', { style: { color: C.orange } }, itemsOpen ? 'Hide \u25b4' : 'Show \u25be'));
+      el('span', { style: { color: C.orange } }, itemsOpen ? 'Hide \u25b4' : (st.tier === 'd2d' ? 'Show \u00b7 edit prices \u25be' : 'Show \u25be')));
     const items = itemsOpen ? el('div', { class: 'pq-items', style: { marginTop: '4px' } },
       ...q.lines.map(rline),
       // First-year cost lives with the items now (it was a tap on Monthly).
