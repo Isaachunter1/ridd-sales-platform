@@ -126,3 +126,14 @@ Not built: seller with no app account (Isaac: not needed here); recurring price 
 pricing check; Sold By changed after the sale (the change log only records service and term changes — needs the sync extended).
 Sales Rep Audit Report: Pending no longer counts anything never serviced that was sold 30+ days ago (Isaac: those are deleted
 accounts). Team-colour row wash removed; red is the only cell colour, with a legend. Table scrolls one direction at a time.
+
+## 2026-11-25 — Channel metrics (provider budgets) and the Source check audit task
+Per Isaac: a provider that runs out of budget emails for more; he wants one glance on Marketing to decide. "Funnel by channel"
+is replaced by Channel metrics (one row per source: budget, QuickBooks spend and run-out pace, Pest AI leads, bookings,
+serviced, FieldRoutes revenue, CAC, return, share of sales confirmed by a Pest AI lead, and a Suggestion). Channel payback is
+off. Budgets are typed by the owner and saved in adminRules.provBudgets.
+The Suggestion is a written rule, ours not Isaac's — CONFIRM the thresholds: Raise = CAC at or under the all-provider CAC and
+within 15% of the provider's own 3-month CAC; Cut = CAC at least 1.5x the all-provider CAC, or spend past two all-provider
+CACs with no sale; needs 5 bookings or 30 leads. Spend is QuickBooks, so a provider that bills late reads low.
+Auditing → Attribution → Source check: new sales of this month and last whose Pest AI opportunity source maps to a different
+channel than the FieldRoutes source (or has none / is unmapped). Sales with nothing in Pest AI stay under No GHL lead.

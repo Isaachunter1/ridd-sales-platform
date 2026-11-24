@@ -474,9 +474,13 @@ function _mktgLeanView() {
   // Lead → opportunity monitor moved to the Auditing tab (per Isaac, Nov 23).
   // Nov 24 (per Isaac): funnel by channel, channel payback and the morning brief button (marketing-extras.js).
   const _safe = (name, fn) => { try { return fn(); } catch (e) { console.warn('[marketing] ' + name, e); return null; } };
-  const funnel = typeof mkxFunnelCard === 'function' ? _safe('funnel', () => mkxFunnelCard(cur, _mklLblS(ym))) : null;
-  const payback = typeof mkxPaybackCard === 'function' ? _safe('payback', () => mkxPaybackCard(RNG ? RNG.through : ym)) : null;
-  return el('div', { class: 'flex flex-col gap-4' }, tiles, chart, funnel, ttc, payback, ...dash, grid);   // LTV / CAC section off for now (per Isaac, Nov 24) — mklLtvSection still built, just not shown   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
+  // (Funnel by channel became Channel metrics, and Channel payback is off for now — per Isaac, Nov 25. mkxFunnelCard / mkxPaybackCard are kept, not built.)
+  const provPulse = typeof mkxProviderPulseCard === 'function' ? _safe('provPulse', () => RNG ? mkxProviderPulseCard(ym, cur, RNG.label || 'range') : mkxProviderPulseCard(ym)) : null;   // Channel metrics (replaces Funnel by channel, per Isaac, Nov 25)
+  // Leads (Pest AI) arrive before the FieldRoutes snapshot does, and for that stretch every sales tile read "—" as if
+  // there were no sales (per Isaac, Nov 25). Say what is happening instead.
+  const subsWait = !(state.reportingSubscriptions || []).length ? el('div', { class: 'card px-4 py-2 text-[12px] flex items-center gap-2', style: { color: 'var(--text-muted)' } },
+    el('span', { class: 'spinner', style: { width: '14px', height: '14px' } }), 'Sales are still loading from FieldRoutes. New sales, revenue, CAC and close rate fill in when it arrives (usually under a minute).') : null;
+  return el('div', { class: 'flex flex-col gap-4' }, subsWait, tiles, provPulse, chart, ttc, ...dash, grid);   // LTV / CAC section off for now (per Isaac, Nov 24) — mklLtvSection still built, just not shown   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
 }
 // The month's new sales behind the New revenue tile (same rows the table counts).
 function mklOpenSales(D, title) {
