@@ -17,6 +17,8 @@
 const _mklYm = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
 const _mklShift = (ym, n) => { const d = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1 + n, 1); return _mklYm(d); };
 const _mklLbl = (ym) => new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+// Month with a four-digit year — 'Nov 26' read as November 26th (per Isaac, Nov 25).
+const _mklLblL = (ym) => new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 const _mklLblS = (ym) => new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
 // Default month = the CURRENT month (per Isaac, Nov 16: GHL, QuickBooks and new revenue all land close to real time
 // now). Replaces Nov 9's last-closed-month default.
@@ -71,7 +73,7 @@ function _mklPickerOptions(selected) {
   const opt = (v, l) => el('option', { value: v, selected: v === selected }, l);
   return [
     el('optgroup', { label: 'Ranges' }, opt(cy + '-ytd', cy + ' YTD'), opt((cy - 1) + '-ytd', (cy - 1) + ' YTD (same stretch)'), opt((cy - 1) + '-yr', (cy - 1) + ' full year')),
-    el('optgroup', { label: 'Months' }, ...months.map(k => opt(k, _mklLblS(k) + (k === months[0] ? ' · open' : '')))),
+    el('optgroup', { label: 'Months' }, ...months.map(k => opt(k, _mklLblL(k) + (k === months[0] ? ' · open' : '')))),
   ];
 }
 const _mklUsd = (v) => v == null || !isFinite(v) ? '—' : fmt.usd0(v);
@@ -230,7 +232,7 @@ function _mktgLeanView() {
   const _rCap = RNG ? (RNG.cap || (RNG.year === _today.getFullYear() ? _today.getDate() : 0)) : 0;
   const cur = RNG ? mklRange(RNG.year, RNG.last, RNG.cap) : mklMonth(ym), prev = RNG ? mklRange(RNG.year - 1, RNG.last, RNG.kind === 'yr' && RNG.year !== _today.getFullYear() ? 0 : _rCap) : mklMonth(pm, _cap);
   const _mtdLbl = _cap ? ' 1\u2013' + _cap : '';
-  const _cmpTag = RNG ? (RNG.year - 1) + (RNG.kind === 'yr' && RNG.year !== _today.getFullYear() ? ' full year' : ' same stretch') : _mklLblS(pm) + _mtdLbl;
+  const _cmpTag = RNG ? 'vs ' + (RNG.year - 1) + (RNG.kind === 'yr' && RNG.year !== _today.getFullYear() ? ' full year' : ' same stretch') : 'vs ' + new Date(Number(pm.slice(0, 4)), Number(pm.slice(5, 7)) - 1, 1).toLocaleDateString('en-US', pm.slice(0, 4) === ym.slice(0, 4) ? { month: 'short' } : { month: 'short', year: 'numeric' }) + _mtdLbl;   // the corner tag is the COMPARE period — say so (it read as the period shown)
   const muted = { color: 'var(--text-muted)' };
   const selSt = { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' };
   const months = []; for (let i = 0; i < 18; i++) months.push(_mklYm(new Date(new Date().getFullYear(), new Date().getMonth() - i, 1)));
