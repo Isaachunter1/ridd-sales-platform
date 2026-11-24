@@ -468,10 +468,9 @@ function _mktgLeanView() {
   void brTable; void chTable;
   // Channels × offices grid + traffic by hour (marketing-dash.js) sit between the tiles and the year grid (per Isaac, Nov 18).
   const dash = typeof mktgDashBlocks === 'function' ? (() => { try { return mktgDashBlocks(ym); } catch (e) { console.warn('[marketing] dash blocks', e); return []; } })() : [];
-  const ltvSec = typeof mklLtvSection === 'function' ? (() => { try { return mklLtvSection(cur, ym, _cap); } catch (e) { console.warn('[marketing] ltv section', e); return null; } })() : null;   // LTV / CAC section (per Isaac, Nov 19)
-  const ttc = (() => { try { return mklTimeToCloseCard(cur, RNG ? _mklLblS(ym) : _mklLblS(ym)); } catch (e) { console.warn('[marketing] time to close', e); return null; } })();   // (per Isaac, Nov 19)
+    const ttc = (() => { try { return mklTimeToCloseCard(cur, RNG ? _mklLblS(ym) : _mklLblS(ym)); } catch (e) { console.warn('[marketing] time to close', e); return null; } })();   // (per Isaac, Nov 19)
   // Lead → opportunity monitor moved to the Auditing tab (per Isaac, Nov 23).
-  return el('div', { class: 'flex flex-col gap-4' }, tiles, chart, ltvSec, ttc, ...dash, grid);   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
+  return el('div', { class: 'flex flex-col gap-4' }, tiles, chart, ttc, ...dash, grid);   // LTV / CAC section off for now (per Isaac, Nov 24) — mklLtvSection still built, just not shown   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
 }
 // The month's new sales behind the New revenue tile (same rows the table counts).
 function mklOpenSales(D, title) {
@@ -502,14 +501,15 @@ function mklTimeToCloseCard(D, lbl) {
   const dur = (h) => h == null ? '—' : h < 1 ? Math.round(h * 60) + ' min' : h < 24 ? h.toFixed(1) + ' h' : (h / 24).toFixed(1) + ' days';
   const pc = (a, f) => Math.round(a.filter(f).length / a.length * 100) + '%';
   const rows = [...by.entries()].sort((a, b) => b[1].length - a[1].length);
-  const th = (t, tip, r) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (r ? 'text-right' : 'text-left'), title: tip || '', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
-  const td = (v, b, r) => el('td', { class: 'px-3 py-1.5 tabular-nums whitespace-nowrap ' + (r ? 'text-right' : '') + (b ? ' font-black' : ''), style: { fontFamily: r ? 'ui-monospace, monospace' : undefined } }, v);
+  // Everything left-aligned, the page's own font (per Isaac, Nov 24 — no monospace numbers, no description line).
+  const th = (t, tip) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap text-left', title: tip || '', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
+  const td = (v, b) => el('td', { class: 'px-3 py-1.5 tabular-nums whitespace-nowrap text-left' + (b ? ' font-black' : '') }, v);
   const line = (k, a, tot) => el('tr', { class: 'border-t', style: tot ? { borderTop: '2px solid var(--text)', background: 'var(--card-2)' } : { borderColor: 'var(--border)' } },
     td(k, true), td(a.length.toLocaleString(), tot, true), td(dur(a.reduce((x, y) => x + y, 0) / a.length), true, true), td(dur(med(a)), tot, true),
     td(pc(a, h => h < 24), tot, true), td(pc(a, h => h < 168), tot, true), td(pc(a, h => h >= 720), tot, true));
   return el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkt-ttc' },
     el('div', { class: 'px-5 py-3' }, el('h3', { class: 'text-base font-bold' }, 'Time to close · ' + lbl),
-      el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'From the lead’s GoHighLevel time stamp to the FieldRoutes sale time, by the lead’s channel (last touch). New sales in the period with a lead on the same phone or email' + (noLead ? ' · ' + noLead.toLocaleString() + (noLead === 1 ? ' sale with no lead isn\u2019t timed' : ' sales with no lead aren\u2019t timed') : '') + (after ? ' · ' + after.toLocaleString() + ' with the lead logged after the sale left out' : '') + '.')),
+      null),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('Channel'), th('Sales', 'New sales timed', 1), th('Average', 'Mean time from lead to sale', 1), th('Median', 'Half close faster, half slower — not pulled by a few slow ones', 1), th('Same day', 'Closed within 24 hours of the lead', 1), th('Within 7 days', '', 1), th('30+ days', '', 1))),
       el('tbody', {}, ...rows.map(([k, a]) => line(k, a)), line('All channels', all, true)))));
