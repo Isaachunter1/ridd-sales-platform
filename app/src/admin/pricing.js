@@ -384,13 +384,13 @@ function viewPricing() {
       // Admins get every tier as its own tag (per Isaac); office/loyalty users get one tag with a dropdown;
       // sales reps get a plain D2D label.
       isAdmin
-        ? el('div', { class: 'flex items-center gap-1.5 flex-wrap justify-end' },
+        ? el('div', { class: 'flex items-center gap-1.5 flex-wrap justify-end ps-tiers' },
             mBtn,
-            ...PICK.map(t => el('button', {
+            ...PICK.map(t => el('button', { class: 'ps-tier',
               onclick: () => { if (st.tier === t.id) return; st.tier = t.id; if (!t.onetime) st.onetime = {}; editKey = null; rerender(); },
               'aria-pressed': st.tier === t.id ? 'true' : 'false',
               style: { background: st.tier === t.id ? C.orange : 'transparent', color: st.tier === t.id ? '#fff' : C.char, border: '1.5px solid ' + (st.tier === t.id ? '#9C3209' : C.line), font: '700 12px/1 ' + SANS, padding: '8px 14px', borderRadius: '6px', cursor: 'pointer' },
-            }, st.tier === t.id ? tierName(t) : t.label)))
+            }, el('span', { class: 'ps-tl-full' }, st.tier === t.id ? tierName(t) : t.label), el('span', { class: 'ps-tl-short' }, t.id === 'd2d' ? 'D2D' : t.label))))
         : el('div', { class: 'flex items-center gap-2' },
             mBtn,
             el('span', { class: 'relative inline-flex items-center gap-2', style: { background: C.orange, color: '#fff', font: '700 13px/1 ' + SANS, padding: '9px 18px', borderRadius: '6px', border: '1.5px solid #9C3209', cursor: locked ? 'default' : 'pointer', minWidth: '170px', justifyContent: 'center' } },
@@ -687,30 +687,34 @@ function viewPricing() {
     const quoteEmpty = el('div', { class: 'pq-card pq-empty mb-3', style: { background: C.cream, color: C.char, borderRadius: '12px', padding: '10px 14px', boxShadow: 'var(--shadow-lg)', border: '1.5px solid ' + C.orange } },
       el('div', { style: { font: '700 10px/1 ' + F, letterSpacing: '.16em', textTransform: 'uppercase', color: C.ink2 } }, tierLabel),
       el('div', { style: { font: '500 11px/1.3 ' + F, color: C.ink3, textAlign: 'right' } }, 'Nothing selected yet \u00b7 tap a plan below'));
-    const quoteFull = el('div', { class: 'pq-card mb-3', style: { background: C.cream, color: C.char, borderRadius: '12px', padding: '12px 14px', boxShadow: 'var(--shadow-lg)', border: '1.5px solid ' + C.orange } },
+    // Receipt (per Isaac, Nov 24 — mobile recording): totals FIRST — initial · monthly · savings / yr — and the items in
+    // the package BELOW them, folded away until the totals are tapped. Same on desktop. The card no longer swaps to a
+    // one-line bar on scroll: that swap changed the sticky block's height mid-scroll and made the page jump.
+    const itemsOpen = !!st.qItems || editKey != null;
+    const tCell = (lbl, val, color, o = {}) => el('div', { style: { minWidth: 0, display: 'flex', flexDirection: 'column', gap: '3px', alignItems: o.right ? 'flex-end' : 'flex-start' } },
+      el('span', { style: { font: '700 8.5px/1 ' + F, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(251,244,218,.7)', whiteSpace: 'nowrap' } }, lbl),
+      el('span', { class: 'pq-num', style: { font: '700 20px/1.05 ' + F, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color, whiteSpace: 'nowrap' } }, val));
+    const strip = el('button', { class: 'pq-strip', 'aria-expanded': itemsOpen ? 'true' : 'false', title: itemsOpen ? 'Hide the items' : 'Show the items in this quote',
+        onclick: () => { st.qItems = !itemsOpen; if (!st.qItems) editKey = null; rerender(); },
+        style: { width: '100%', display: 'grid', gridTemplateColumns: q.savings > 0 ? '1fr 1fr 1fr' : '1fr 1fr', gap: '10px', alignItems: 'end', textAlign: 'left', background: C.green, color: C.cream, borderRadius: '8px', border: '1.5px solid ' + C.greenLine, padding: '10px 12px', cursor: 'pointer', opacity: q.ok ? 1 : .55 } },
+      tCell('Initial', money(q.init), C.cream),
+      tCell('Monthly', money(q.mo) + '/mo', '#F6A47F'),
+      q.savings > 0 ? tCell('Save / yr', money(q.savings), '#8FD19E', { right: true }) : null);
+    const itemsToggle = el('button', { onclick: () => { st.qItems = !itemsOpen; if (!st.qItems) editKey = null; rerender(); },
+        style: { width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', background: 'transparent', border: 0, padding: '2px 0', cursor: 'pointer', font: '700 9px/1 ' + F, letterSpacing: '.12em', textTransform: 'uppercase', color: C.ink2 } },
+      el('span', {}, q.lines.length + ' item' + (q.lines.length === 1 ? '' : 's') + ' in this quote'),
+      el('span', { style: { color: C.orange } }, itemsOpen ? 'Hide \u25b4' : 'Show \u25be'));
+    const items = itemsOpen ? el('div', { class: 'pq-items', style: { marginTop: '4px' } },
+      ...q.lines.map(rline),
+      // First-year cost lives with the items now (it was a tap on Monthly).
+      el('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '8px 0 2px', font: '700 11px/1.2 ' + F, color: C.ink2, textTransform: 'uppercase', letterSpacing: '.06em' } }, el('span', {}, 'First year'), el('span', { style: { color: C.char, fontVariantNumeric: 'tabular-nums' } }, money(q.acv)))) : null;
+    const quoteFull = el('div', { class: 'pq-card mb-3', style: { background: C.cream, color: C.char, borderRadius: '12px', padding: '10px 12px', boxShadow: 'var(--shadow-lg)', border: '1.5px solid ' + C.orange } },
       el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '6px' } },
         el('div', { style: { font: '700 10px/1 ' + F, letterSpacing: '.16em', textTransform: 'uppercase', color: C.ink2 } }, 'Quote · ' + (st.tier === 'd2d' ? (st.min ? 'D2D minimums' : 'D2D') : T.label)),
         el('button', { style: { padding: '5px 12px', borderRadius: '999px', border: '1.5px solid ' + C.ink3, background: 'transparent', color: C.char, font: '700 9px/1.2 ' + F, letterSpacing: '.1em', textTransform: 'uppercase', cursor: 'pointer' }, onclick: () => { st.base = null; st.addons = {}; st.onetime = {}; st.termite = false; st.custom = {}; editKey = null; rerender(); } }, 'Reset')),
-      el('div', { class: 'grid gap-3 items-start pricing-qgrid', style: { gridTemplateColumns: 'minmax(0, 1fr) auto' } },
-        el('div', { style: { minWidth: 0 } }, ...q.lines.map(rline)),
-        el('div', { style: { background: C.green, color: C.cream, borderRadius: '8px', border: '1.5px solid ' + C.greenLine, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '7px', flexShrink: 0, minWidth: '150px', opacity: q.ok ? 1 : .55 } },
-          total('Initial', money(q.init), { big: true }),
-          // D2D: first-year cost is tucked away — tap Monthly to flip it into
-          // view, tap again to hide (per Isaac). Standard / Loyalty show it.
-          // First-year cost is tucked away on every tier (per Isaac, Nov 23 — it was D2D-only): tap Monthly to flip it
-          // into view, tap again to hide.
-          total('Monthly', money(q.mo) + '/mo', { accent: true, title: st.showAcv ? 'Tap to hide first-year cost' : 'Tap to show first-year cost', onclick: () => { st.showAcv = !st.showAcv; rerender(); } }),
-          ...(st.showAcv ? [el('div', { style: { borderTop: '1px dashed rgba(251,244,218,.35)', margin: '1px 0' } }), total('First year', money(q.acv))] : []),
-          // Annual savings from bundling (per Isaac) — builds as add-ons are ticked; green like Bundle & Save.
-          ...(q.savings > 0 ? [el('div', { style: { borderTop: '1px dashed rgba(251,244,218,.35)', margin: '1px 0' } }), total('You save / yr', money(q.savings), { green: true, title: 'Annual savings vs buying each add-on as its own plan' })] : []))));
+      strip, itemsToggle, items);
 
     const quote = q.empty ? quoteEmpty : quoteFull;
-    // Phone: the one-line bar the quote collapses to once it's scrolled past.
-    const bar = el('button', { class: 'pq-bar', 'aria-label': 'Show the quote', style: { width: '100%', textAlign: 'left', background: C.char, color: C.cream, borderRadius: '12px', padding: '8px 14px', border: '1.5px solid ' + C.orange, boxShadow: 'var(--shadow-lg)', cursor: 'pointer' },
-      onclick: () => { top.classList.add('pq-open'); } },
-      el('span', { style: { font: '700 9px/1 ' + F, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(251,244,218,.7)' } }, 'Quote'),
-      el('span', { style: { font: '700 14px/1.1 ' + F, fontVariantNumeric: 'tabular-nums', letterSpacing: '-.01em', whiteSpace: 'nowrap' } }, money(q.init) + ' today', el('span', { style: { color: C.orange } }, ' \u00b7 ' + money(q.mo) + '/mo')),
-      el('span', { style: { font: '700 9px/1 ' + F, letterSpacing: '.1em', textTransform: 'uppercase', color: C.orange } }, 'View \u25be'));
     // Picker + quote ride together as one sticky block pinned right under
     // the fixed page header (measured live — it's ~60px, not 76 — so the
     // block no longer floats mid-page and overlaps the slick). The block
@@ -721,28 +725,16 @@ function viewPricing() {
     // left the quote floating mid-page over the slick (per Isaac).
     // Offset = the MEASURED header (--hdr-h, set by mountApp; safe-area and
     // banner included) so the quote never tucks under it; 60px was a guess.
-    const top = el('div', { class: 'pricing-quote', style: { position: 'sticky', top: 'var(--hdr-h, calc(60px + env(safe-area-inset-top, 0px) + var(--nv-banner, 0px)))', zIndex: 5, background: 'var(--bg)' } }, q.empty ? quote : bar, quote);
-    if (q.empty) bar.remove();
+    const top = el('div', { class: 'pricing-quote', style: { position: 'sticky', top: 'var(--hdr-h, calc(60px + env(safe-area-inset-top, 0px) + var(--nv-banner, 0px)))', zIndex: 5, background: 'var(--bg)' } }, quote);
     const page = board || builder;
     page.classList.add('pricing-board');
     quote.style.position = ''; quote.style.top = ''; quote.style.zIndex = '';
-    if (_pqOpen) top.classList.add('pq-open');
-    top.addEventListener('click', (e) => { if (e.target === bar || bar.contains(e.target)) { _pqOpen = true; top.classList.add('pq-open'); } });
     // The customer view hides the rep's receipt (custom prices, floors, tiers) — the phone can be handed over.
     if (builder && st.cust) root.replaceChildren(page); else root.replaceChildren(top, page);
     _pqTop = top;
   };
-  // Collapse/expand the phone quote on scroll: stuck = scrolled past where
-  // it sits at the top of the page. Expanding by tap holds until the user
-  // scrolls back up to the top or makes another selection.
-  let _pqTop = null, _pqOpen = false;
-  const onScroll = () => {
-    const t = _pqTop; if (!t || !t.isConnected) return;
-    const stuck = window.scrollY > 40;
-    t.classList.toggle('pq-stuck', stuck);
-    if (!stuck && _pqOpen) { _pqOpen = false; t.classList.remove('pq-open'); }
-  };
-  window.addEventListener('scroll', onScroll, { passive: true });
+  let _pqTop = null;
+  const onScroll = () => {};   // the quote no longer collapses on scroll (per Isaac, Nov 24 — it made the page jump)
   render();
   // Land at the top (per Isaac): a carried-over scroll position left the
   // first program's title tucked under the sticky quote on phones.

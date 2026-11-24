@@ -365,15 +365,22 @@
   /* Quote states (per Isaac, Sep 2026): an EMPTY quote is one compact row;
      once something is selected the full receipt shows. On phones, scrolling
      past the quote collapses it to a one-line sticky bar (tap to expand). */
-  .pricing-quote .pq-bar { display: none; }
+  .ps-tl-short { display: none; }
+  .pq-strip { -webkit-tap-highlight-color: transparent; }
+  @media (max-width: 639px) { .ps-tl-full { display: none; } .ps-tl-short { display: inline; } }
   .pricing-quote .pq-empty { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
   /* Phones: program tiles 2×2 instead of four across; quote totals stack. */
   @media (max-width: 639px) {
     .pricing-layout { gap: 12px; }
     .pricing-quote { padding-bottom: 0 !important; }
     .pricing-quote > .pq-card { margin-bottom: 0 !important; }
-    .pricing-quote.pq-stuck:not(.pq-open) > .pq-card { display: none; }
-    .pricing-quote.pq-stuck:not(.pq-open) .pq-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; }
+    /* Receipt items scroll inside the sticky quote instead of pushing the page (per Isaac, Nov 24). */
+    .pricing-quote .pq-items { max-height: 42vh; overflow-y: auto; }
+    .pricing-quote .pq-num { font-size: 17px !important; }
+    /* Tier tags (admins see D2D · Standard · Loyalty + Ⓜ): one row under the title, equal widths, short labels. */
+    .pricing-board .ps-head { flex-direction: column; align-items: stretch !important; gap: 10px !important; }
+    .pricing-board .ps-tiers { flex-wrap: nowrap !important; justify-content: stretch !important; width: 100%; }
+    .pricing-board .ps-tier { flex: 1 1 0; min-width: 0; padding: 8px 4px !important; font-size: 12px !important; white-space: nowrap; }
     .pricing-board > div:first-child { padding: 12px 16px !important; }
     .pricing-board > .flex.flex-col { padding: 12px !important; gap: 12px !important; }
     .pricing-board [style*="padding: 14px 18px 6px"] { padding: 12px 12px 4px !important; }
