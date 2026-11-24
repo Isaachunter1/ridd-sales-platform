@@ -11,8 +11,9 @@
 // │   No contract = every active plan is set up with NO agreement (length 0)
 // │              in FieldRoutes — on purpose (per Isaac, Oct 14), so pulled
 // │              out of month-to-month rather than read as a lapsed renewal
+// │ Nov 24 2026: the mix (opts.dataOnly) is the 'Today' bar on Renewal Retention; this card is no longer shown.
 // └────────────────────────────────────────────────────────────────────────
-function retenRenewalCohortCard(pop) {
+function retenRenewalCohortCard(pop, opts) {
   if (!Array.isArray(pop) || !pop.length || typeof semCustomerLives !== 'function') return null;
   const nowMs = Date.now();
   const sent = (r) => /sentricon/i.test(String(r.subscription || ''));
@@ -41,6 +42,7 @@ function retenRenewalCohortCard(pop) {
   if (!years.length) return null;
   const tot = { yr: 'All', n: 0, past: 0, pastRen: 0, cnt: { first: 0, renCon: 0, renM2M: 0, m2m: 0, none: 0 }, rows: { first: [], renCon: [], renM2M: [], m2m: [], none: [] } };
   years.forEach(g => { tot.n += g.n; tot.past += g.past; tot.pastRen += g.pastRen; KEYS.forEach(k => { tot.cnt[k] += g.cnt[k]; for (const r of g.rows[k]) tot.rows[k].push(r); /* loop, not push(...rows): Safari overflows the call stack */ }); });
+  if (opts && opts.dataOnly) return { years, tot, KEYS, LABEL, COLOR };
   const pct = (a, d) => d ? (a / d * 100).toFixed(1) + '%' : '—';
   const n = (v) => Number(v || 0).toLocaleString();
   const drill = (title, rows) => rows && rows.length ? () => openReportingDrillModal({ chartTitle: 'Renewals by cohort · ' + title, sliceLabel: n(rows.length) + ' subscriptions', rows, formatValue: fmt.usd0 }) : null;

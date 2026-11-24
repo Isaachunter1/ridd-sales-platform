@@ -15,8 +15,11 @@
 // │ (the list collapses straight to their stub).
 // └────────────────────────────────────────────────────────────────────────
 
+// Inside Sales + Loyalty reps only (per Isaac, Nov 23): the Office Staff pay is theirs. Office-office staff
+// (role office_staff, e.g. Cameron Prymak) aren't paid on it, so they stay off the list and the rep picker.
+const OFFICE_PAY_ROLES = new Set(['rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead']);
 function dashpOfficeIsRep(p) {
-  return !!p && typeof repTypeGroup === 'function' && repTypeGroup(p) === 'office' && p.role !== 'auditor' && p.role !== 'disabled';
+  return !!p && OFFICE_PAY_ROLES.has(String(p.role || '')) && p.is_active !== false;
 }
 function dashpOfficeCanSeeAll() { const r = state.profile && state.profile.role; return isAdminRole(r) || (typeof isDeveloperRole === 'function' && isDeveloperRole(r)); }
 
@@ -24,7 +27,10 @@ function dashpOfficeCanSeeAll() { const r = state.profile && state.profile.role;
 function dashpOfficeFigures(prof, year, period, isCurrent) {
   const repId = prof.id;
   const all = (dashpOfficeCanSeeAll() ? state.allSales : state.mySales) || [];
-  const mine = all.filter(s => s.rep_id === repId && (s.queue_type || 'office') === 'office' && String(s.sold_date || '') >= SALES_FEED_START
+  // Unlinked sellers (per Isaac, Nov 23): a FieldRoutes seller with no app account is a pseudo-rep keyed by
+  // their FieldRoutes employee id, so their payable accounts still show here until the account is linked.
+  const isMine = prof._unlinked ? (s => !s.rep_id && String(s.crm_seller_id || '') === prof._seller) : (s => s.rep_id === repId);
+  const mine = all.filter(s => isMine(s) && (s.queue_type || 'office') === 'office' && String(s.sold_date || '') >= SALES_FEED_START
     && !(typeof isNonCommSale === 'function' && isNonCommSale(s)));
   const unpaid = (s) => !s.payroll_processed_at && (s.lock_status || 'pending') === 'pending';
   const booked = (s) => typeof saleHasInitialScheduled !== 'function' || saleHasInitialScheduled(s);
@@ -74,12 +80,28 @@ function dashpOfficeList(S) {
   let reps = (state.allProfiles || []).filter(dashpOfficeIsRep);
   if (!all) reps = reps.filter(p => p.id === state.profile.id);
   if (!all && !reps.length && state.profile) reps = [state.profile];
+  // Sellers with Office Staff sales but no app account (admins only): one row each, flagged, so a payable account
+  // never hides because the login isn't set up. Payroll still holds them until the account is linked.
+  if (all) {
+    const seen = new Map();
+    for (const s of (state.allSales || [])) {
+      if (s.rep_id || (s.queue_type || 'office') !== 'office' || String(s.sold_date || '') < SALES_FEED_START) continue;
+      const k = String(s.crm_seller_id || '');
+      if (!seen.has(k)) {
+        const raw = String(s.crm_seller_name || '').trim();
+        const nm = raw.includes(',') ? raw.split(',').map(x => x.trim()).reverse().join(' ') : raw;
+        seen.set(k, { id: 'fr:' + (k || 'none'), full_name: nm || (k ? 'FieldRoutes #' + k : 'No seller in FieldRoutes'), _unlinked: true, _seller: k, is_active: true });
+      }
+    }
+    reps = reps.concat([...seen.values()]);
+  }
   // Reps with no sales in the feed stay out unless "Everyone" is picked (inactive logins drop off the same way).
   const rows = reps.map(p => { try { return dashpOfficeFigures(p, year, period, isCurrent); } catch (e) { console.warn('[commissions] office figures', p.id, e); return null; } }).filter(Boolean)
     .map(r => Object.assign(r, { name: r.prof.full_name || '—', active: r.prof.is_active !== false, has: !!(r.sold || r.total || r.pending || r.held || r.backend || r.paid) }));
-  const open = (r) => { S.detail = { kind: 'office', id: r.prof.id, name: r.name, year, period: period === 'year' ? (periods.find(p => p.id === nowPid) || periods[0]).id : period.id }; mountApp(); };
+  const open = (r) => { if (r.prof._unlinked) { if (typeof toast === 'function') toast(r.name + ' has no app account \u2014 add them with FieldRoutes ID ' + (r.prof._seller || '?') + ' and their sales attach on the next sync', 'info'); return; } S.detail = { kind: 'office', id: r.prof.id, name: r.name, year, period: period === 'year' ? (periods.find(p => p.id === nowPid) || periods[0]).id : period.id }; mountApp(); };
   if (!all && rows.length === 1) { open(rows[0]); return dashpNotice('Opening your pay…'); }
-  const who = { id: 'name', label: 'Rep', value: r => r.name, cell: r => el('span', { class: 'font-semibold' }, r.name), sub: r => (r.prof.rep_type === 'loyalty_rep' ? 'Loyalty' : 'Inside Sales') + (r.active ? '' : ' · inactive') };
+  const who = { id: 'name', label: 'Rep', value: r => r.name, cell: r => r.prof._unlinked ? el('span', { class: 'inline-flex items-center gap-1.5' }, el('span', { class: 'font-semibold' }, r.name), el('span', { class: 'rounded-full px-1.5 py-0.5 text-[9px] font-bold whitespace-nowrap', style: { background: 'rgba(184,134,43,.16)', color: '#8A5F12' }, title: 'Sales come in under this FieldRoutes seller, but there is no app account linked to them. The amounts use base rates and payroll holds them until the account is added.' }, 'No app account')) : el('span', { class: 'font-semibold' }, r.name),
+    sub: r => r.prof._unlinked ? (r.prof._seller ? 'FieldRoutes #' + r.prof._seller + ' \u00b7 est. at base rates' : 'Seller missing in FieldRoutes') : (r.prof.rep_type === 'loyalty_rep' ? 'Loyalty' : 'Inside Sales') + (r.active ? '' : ' · inactive') };
   const search = r => r.name;
   const money = (v) => fmt.usd0(Math.round(Number(v) || 0));
   const sum = (k) => rows.reduce((a, r) => a + (Number(r[k]) || 0), 0);
@@ -91,7 +113,7 @@ function dashpOfficeList(S) {
         dashpStat('Office reps', fmt.int(rows.filter(r => r.has).length), year + ' · with pay activity'),
         dashpStat('Sales', fmt.int(sum('sold')), money(sum('soldRev')) + ' sold'),
         dashpStat('Upfront paid', money(sum('paid')), fmt.int(sum('paidN')) + ' accounts · ' + year),
-        dashpStat('Backend paid', money(sum('backendPaid')), 'quarterly runs'),
+        dashpStat('Backend paid', money(sum('backendPaid')), (typeof backendCadenceWord === 'function' ? backendCadenceWord() : 'quarterly') + ' runs'),
         dashpStat('Ready now', money(sum('ready')), fmt.int(sum('readyN')) + ' accounts · if payroll ran today'),
         dashpStat('Building backend', money(sum('backend')), fmt.int(sum('backendN')) + ' accounts waiting on the lock'),
         dashpStat('Total paid', money(sum('total')), year)),
@@ -135,9 +157,14 @@ function dashpOfficeList(S) {
 // at the row that was clicked and render it. The stub's own rep + period pickers keep working inside.
 function dashpOfficeDetailView(S) {
   const d = S.detail;
-  if (dashpOfficeCanSeeAll()) state.payViewRepId = d.id;
-  if (d.year) state.payYear = d.year;
-  if (d.period) state.payPeriodId = Number(d.period);
+  // Seed the stub from the row that was opened ONCE — re-applying it every render undid the stub's own rep and
+  // period pickers (per Isaac, Nov 23: "nothing happens when i switch from rep to rep").
+  if (!d._seeded) {
+    if (dashpOfficeCanSeeAll()) state.payViewRepId = d.id;
+    if (d.year) state.payYear = d.year;
+    if (d.period) state.payPeriodId = Number(d.period);
+    d._seeded = true;
+  }
   if (typeof viewPayLive !== 'function') return dashpNotice('The pay stub is not available in this build.');
   try { return viewPayLive(); } catch (e) { console.warn('[commissions] office detail', e); return dashpNotice('The pay stub hit an error: ' + (e.message || e)); }
 }

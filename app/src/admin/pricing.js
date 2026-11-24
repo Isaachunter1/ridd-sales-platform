@@ -119,7 +119,7 @@ function pricingStore() {
   // Loyalty) can stand alone too.
   if (st.base && (!PRICING_SERVICES[st.base] || PRICING_SERVICES[st.base].program === 'termite')) st.base = null;
   if (!st.base) st.addons = {};
-  if (!st.freq) st.freq = 'q';
+  if (!st.freq) st.freq = 'b';   // Bi-Monthly opens first — the most popular frequency (per Isaac, Nov 23)
   if (!st.addons) st.addons = {};
   for (const id of Object.keys(st.addons)) { if (pricingCoveredBy(st.base, id)) delete st.addons[id]; }   // a base plan drops the add-ons it already covers
   if (!st.onetime) st.onetime = {};
@@ -296,15 +296,16 @@ function viewPricing() {
           ? svcPick(st.termite ? 'Added ✓' : 'Termite · add', !!st.termite, toggleT)
           : el('div', { class: 'flex flex-col items-end gap-1' }, ...(p.show || p.services).map(sid => svcPick(PRICING_SERVICES[sid].label, st.base === sid, () => { if (st.base === sid) { st.base = null; st.addons = {}; } else { st.base = sid; delete st.addons[sid]; } rerender(); }))));
       if (isT) {
-        // The termite bar: one wide orange strip (per Isaac) — ANNUAL · $399 initial · $29 monthly — tap to add.
+        // The termite bar: one wide green strip like the price tiles (per Isaac, Nov 23 — was orange) — ANNUAL ·
+        // $399 initial · $29 monthly — tap to add.
         const on = !!st.termite;
-        const dim = 'rgba(255,255,255,.88)';
+        const dim = 'rgba(242,241,234,.72)';
         return card(head, el('div', { style: { padding: '0 14px 14px' } },
-          el('button', { onclick: toggleT, 'aria-pressed': on ? 'true' : 'false', style: Object.assign({ position: 'relative', width: '100%', display: 'flex', alignItems: 'center', gap: '10px', background: C.orange, border: '1.5px solid #9C3209', borderRadius: '8px', padding: '10px 14px', cursor: 'pointer', color: '#fff' }, on ? PICKED : {}) },
+          el('button', { onclick: toggleT, 'aria-pressed': on ? 'true' : 'false', style: Object.assign({ position: 'relative', width: '100%', display: 'flex', alignItems: 'center', gap: '10px', background: C.green, border: '1.5px solid ' + C.greenLine, borderRadius: '8px', padding: '10px 14px', cursor: 'pointer', color: '#fff' }, on ? PICKED : {}) },
             on ? tick() : null,
             el('span', { style: { font: '400 9px/1 ' + MONO, letterSpacing: '.16em', textTransform: 'uppercase', color: dim } }, 'Annual'),
             el('span', { style: { marginLeft: 'auto', font: '400 9px/1 ' + MONO, color: dim } }, money(T.termite[0]) + ' initial'),
-            el('span', { class: 'ps-big', style: { font: '300 30px/1 ' + SANS, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color: '#fff', marginLeft: '8px' } }, money(T.termite[1])),
+            el('span', { class: 'ps-big', style: { font: '300 30px/1 ' + SANS, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color: C.light, marginLeft: '8px' } }, money(T.termite[1])),
             el('span', { style: { font: '400 9px/1 ' + MONO, color: dim } }, 'monthly'))));
       }
       return card(head,
@@ -383,13 +384,13 @@ function viewPricing() {
       // Admins get every tier as its own tag (per Isaac); office/loyalty users get one tag with a dropdown;
       // sales reps get a plain D2D label.
       isAdmin
-        ? el('div', { class: 'flex items-center gap-1.5 flex-wrap justify-end' },
+        ? el('div', { class: 'flex items-center gap-1.5 flex-wrap justify-end ps-tiers' },
             mBtn,
-            ...PICK.map(t => el('button', {
+            ...PICK.map(t => el('button', { class: 'ps-tier',
               onclick: () => { if (st.tier === t.id) return; st.tier = t.id; if (!t.onetime) st.onetime = {}; editKey = null; rerender(); },
               'aria-pressed': st.tier === t.id ? 'true' : 'false',
               style: { background: st.tier === t.id ? C.orange : 'transparent', color: st.tier === t.id ? '#fff' : C.char, border: '1.5px solid ' + (st.tier === t.id ? '#9C3209' : C.line), font: '700 12px/1 ' + SANS, padding: '8px 14px', borderRadius: '6px', cursor: 'pointer' },
-            }, st.tier === t.id ? tierName(t) : t.label)))
+            }, el('span', { class: 'ps-tl-full' }, st.tier === t.id ? tierName(t) : t.label), el('span', { class: 'ps-tl-short' }, t.id === 'd2d' ? 'D2D' : t.label))))
         : el('div', { class: 'flex items-center gap-2' },
             mBtn,
             el('span', { class: 'relative inline-flex items-center gap-2', style: { background: C.orange, color: '#fff', font: '700 13px/1 ' + SANS, padding: '9px 18px', borderRadius: '6px', border: '1.5px solid #9C3209', cursor: locked ? 'default' : 'pointer', minWidth: '170px', justifyContent: 'center' } },
@@ -434,20 +435,30 @@ function viewPricing() {
     if (!st.pk) st.pk = {};
     const pk = st.pk;
     if (!pk.home) pk.home = 'pest';
+    if (!pk.yard) pk.yard = 'tfm';
     if (!pk.hy) pk.hy = { home: 'pest', yard: 'tfm' };
-    if (!pk.custom) pk.custom = { pest: true, tfm: true, mole: true, rodent: true, termite: true };
+    if (pk.hy.yard === 'mole') pk.hy.yard = 'tfm';   // Mole left the Home + Yard card (it's an extra now)
+    // Custom starts on Pest + Rodent + Tick, Flea & Mosquito; Mole and Seasonal one tap away; Termite rides on top via
+    // the Termite Defense box (per Isaac, Nov 23).
+    if (!pk.custom) pk.custom = { pest: true, rodent: true, tfm: true };
+    delete pk.custom.mole;   // Mole left the Custom card (it's an extra now)
     const CORE = ['pest', 'rodent', 'tfm', 'mole'];
     const cfgOf = (id) => {
-      if (id === 'home') return { id, label: 'Home', custName: 'Home Protection', base: pk.home, addons: [], termite: false, blurb: 'Inside + outside the home' };
-      if (id === 'homeyard') return { id, label: 'Home + Yard', custName: 'Home + Yard Protection', base: pk.hy.home, addons: [pk.hy.yard], termite: false, popular: true };
+      if (id === 'home') return { id, label: 'Home', custName: 'Home Protection', base: pk.home, addons: [], termite: false };
+      // Yard on its own (per Isaac, Nov 23): Tick, Flea & Mosquito or Mole as the plan.
+      if (id === 'yard') return { id, label: 'Yard', custName: 'Yard Protection', base: pk.yard, addons: [], termite: false };
+      if (id === 'homeyard') return { id, label: 'RIDD Package (Home + Yard)', custName: 'RIDD Package',   // branded RIDD Package (per Isaac, Nov 23)
+         base: pk.hy.home, addons: [pk.hy.yard], termite: false, popular: true };
       if (id === 'custom') {
         const on = CORE.filter(s => pk.custom[s]);
-        return { id, label: 'Custom Protection', custName: 'Custom Protection', base: on[0] || null, addons: on.slice(1), termite: !!pk.custom.termite };
+        const extra = pk.custom.seasonal && !pk.custom.tfm && on.length ? ['seasonal'] : [];   // Seasonal TFM is an add-on only
+        return { id, label: 'Custom Protection', custName: 'Custom Protection', base: on[0] || null, addons: [...on.slice(1), ...extra], termite: false };
       }
-      if (id === 'termite') return { id, label: 'Termite Defense', custName: 'Termite Defense', base: null, addons: [], termite: true, blurb: 'Annual termite contract' };
+      if (id === 'termite') return { id, label: 'Termite Defense', custName: 'Termite Defense', base: null, addons: [], termite: true };
       return null;
     };
-    const PKGS = ['home', 'homeyard', 'custom', 'termite'].map(cfgOf);
+    // Custom Protection retired (per Isaac, Nov 23): any custom plan is a base package + extras.
+    const PKGS = ['home', 'yard', 'homeyard', 'termite'].map(cfgOf);
     const fiB = Math.max(0, PRICING_FREQ.findIndex(([k]) => k === st.freq));
     const freqWord = { q: 'every 3 months', b: 'every 2 months', m: 'every month' }[st.freq] || '';
     if (!st.extras) st.extras = {};
@@ -460,13 +471,13 @@ function viewPricing() {
     const applyPkg = (c) => {
       st.pkg = c.id; st.base = c.base; st.termite = c.termite || !!st.extras.termite;
       st.addons = Object.fromEntries(c.addons.map(a => [a, true]));
-      for (const id of Object.keys(st.extras)) if (id !== 'termite' && !CORE.includes(id) && (!c.base || !pricingCoveredBy(c.base, id)) && T.addons.some(x => x[0] === id)) st.addons[id] = true;
+      for (const id of Object.keys(st.extras)) if (id !== 'termite' && id !== c.base && !c.addons.includes(id) && (!c.base || !pricingCoveredBy(c.base, id)) && T.addons.some(x => x[0] === id)) st.addons[id] = true;
       if (!st.base) st.addons = {};   // add-ons need a Home / Yard plan; Termite Defense stands alone
     };
     // The package the quote still matches (an edit on the sheet can move it off every package).
     const fits = (c) => !!c && (st.base || null) === c.base && c.addons.every(a => st.addons[a]) && (!c.termite || !!st.termite);
     const curPkg = fits(pkgOf(st.pkg)) ? pkgOf(st.pkg) : null;
-    const perDay = (mo) => '$' + (mo * 12 / 365).toFixed(2) + '/day';
+    const perDay = (mo) => '$' + (mo * 12 / 365).toFixed(2) + '/day';   // shown as 'about $X/day' in the customer view
 
     const seg = el('div', { style: { display: 'flex', border: '1.5px solid ' + C.line, borderRadius: '8px', overflow: 'hidden' } },
       ...PRICING_FREQ.map(([k, lbl]) => el('button', { onclick: () => { st.freq = k; rerender(); }, 'aria-pressed': st.freq === k ? 'true' : 'false', style: { flex: '1 1 0', padding: '10px 0', font: '600 9.5px/1 ' + MONO, letterSpacing: '.1em', textTransform: 'uppercase', background: st.freq === k ? C.char : 'transparent', color: st.freq === k ? '#fff' : C.char, border: 0, cursor: 'pointer' } }, lbl)));
@@ -475,46 +486,96 @@ function viewPricing() {
     const svcPill = (txt, on, onTap) => el('button', { onclick: (e) => { e.stopPropagation(); onTap(); }, 'aria-pressed': on ? 'true' : 'false', style: { font: '500 8.5px/1 ' + MONO, letterSpacing: '.06em', textTransform: 'uppercase', background: on ? C.char : '#fff', color: on ? '#fff' : C.ink2, border: '1px solid ' + (on ? C.char : 'rgba(0,0,0,.18)'), borderStyle: on ? 'solid' : 'dashed', borderRadius: '999px', padding: '5px 8px', cursor: 'pointer' } }, (on ? '✓ ' : '+ ') + txt);
     const L = (id) => id === 'termite' ? 'Termite' : PRICING_SERVICES[id].label;
     const pickThen = (id, fn) => () => { fn(); applyPkg(cfgOf(id)); rerender(); };
+    // Termite Defense is its own subscription (per Isaac): its card is an on/off box that rides alongside whatever
+    // plan is picked (or stands alone), not a fourth package.
+    const toggleTermite = () => {
+      const nv = !st.termite; st.termite = nv;
+      if (nv) st.extras.termite = true; else delete st.extras.termite;
+      rerender();
+    };
     const pillsFor = (c) => {
       if (c.id === 'home') return ['pest', 'rodent'].map(s => svcPill(L(s), pk.home === s, pickThen('home', () => { pk.home = s; })));
+      if (c.id === 'yard') return ['tfm', 'mole'].map(s => svcPill(L(s), pk.yard === s, pickThen('yard', () => { pk.yard = s; })));
       if (c.id === 'homeyard') return [
         ...['pest', 'rodent'].map(s => svcPill(L(s), pk.hy.home === s, pickThen('homeyard', () => { pk.hy.home = s; }))),
         el('span', { style: { font: '400 10px/22px ' + MONO, color: C.ink3, padding: '0 2px' } }, '+'),
-        ...['tfm', 'mole'].map(s => svcPill(L(s), pk.hy.yard === s, pickThen('homeyard', () => { pk.hy.yard = s; })))];
-      if (c.id === 'custom') return [...CORE, 'termite'].map(s => svcPill(L(s), !!pk.custom[s], pickThen('custom', () => { pk.custom[s] = !pk.custom[s]; })));
-      return [svcPill('Termite', true, pickThen('termite', () => {}))];
+        // Yard half: the full Tick, Flea & Mosquito program or the seasonal one (per Isaac, Nov 23). Mole is an add-on
+        // in Add extras, not a yard choice here.
+        ...['tfm', 'seasonal'].map(s => svcPill(s === 'seasonal' ? 'Seasonal TFM' : L(s), pk.hy.yard === s, pickThen('homeyard', () => { pk.hy.yard = s; })))];
+      // Tick, Flea & Mosquito and Seasonal TFM are either/or (the full program covers the season).
+      // Mole is an extra below, not a pill here (per Isaac, Nov 23).
+      if (c.id === 'custom') return ['pest', 'rodent', 'tfm', 'seasonal'].map(s => svcPill(s === 'seasonal' ? 'Seasonal TFM' : L(s), !!pk.custom[s], pickThen('custom', () => {
+        pk.custom[s] = !pk.custom[s];
+        if (pk.custom[s] && s === 'tfm') pk.custom.seasonal = false;
+        if (pk.custom[s] && s === 'seasonal') pk.custom.tfm = false;
+      })));
+      return [svcPill('Termite', !!st.termite, toggleTermite)];
     };
 
     const pkgCard = (c) => {
       const empty = !c.base && !c.termite;
       const pq = empty ? { mo: 0, init: 0, savings: 0 } : pkgMo(c), sep = separateMo(c), save = pq.savings;   // same yearly savings math as the quote (Bundle & Save)
-      const on = st.pkg === c.id && !!curPkg;
       const isT = c.id === 'termite';
-      return el('div', { role: 'button', tabindex: '0', onclick: () => { if (!empty) { applyPkg(c); rerender(); } }, 'aria-pressed': on ? 'true' : 'false', style: { position: 'relative', display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', background: isT ? '#FBE9E1' : C.card, color: C.char, borderRadius: '12px', padding: '13px 13px 11px', border: on ? '3px solid ' + C.orange : '1.5px solid ' + (isT ? C.orange : C.line), boxShadow: on ? '0 10px 22px -14px rgba(217,72,15,.9)' : 'none' } },
+      const on = isT ? !!st.termite : (st.pkg === c.id && !!curPkg);
+      return el('div', { role: 'button', tabindex: '0', onclick: () => { if (isT) return toggleTermite(); if (on) { st.pkg = null; st.base = null; st.addons = {}; rerender(); return; } if (!empty) { applyPkg(c); rerender(); } }, 'aria-pressed': on ? 'true' : 'false', style: { position: 'relative', display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', background: C.card, color: C.char, borderRadius: '10px', padding: '10px 12px', border: on ? '3px solid ' + C.orange : '1.5px solid ' + C.line, boxShadow: on ? '0 10px 22px -14px rgba(217,72,15,.9)' : 'none' } },
         c.popular ? el('span', { style: { position: 'absolute', top: '-9px', right: '12px', background: C.orange, color: '#fff', font: '700 7.5px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', padding: '4px 8px', borderRadius: '999px' } }, 'Most homeowners pick this' + (on ? ' ✓' : '')) : (on ? el('span', { style: { position: 'absolute', top: '-9px', right: '12px', background: C.char, color: '#fff', font: '700 7.5px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', padding: '4px 8px', borderRadius: '999px' } }, 'Picked ✓') : null),
-        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '10px' } },
-          el('div', { style: { font: '800 16px/1 ' + SANS, textTransform: 'uppercase' } }, c.label),
-          el('div', { style: { whiteSpace: 'nowrap' } },
-            !empty && sep > pq.mo + 0.5 ? el('span', { style: { font: '400 11px/1 ' + MONO, color: C.ink3, textDecoration: 'line-through', marginRight: '6px' } }, money(sep)) : null,
-            el('span', { style: { font: '300 30px/1 ' + SANS, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums' } }, empty ? '—' : money(pq.mo)),
-            el('span', { style: { font: '400 10px/1 ' + MONO, color: C.ink2 } }, '/mo'))),
-        el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '9px' } }, ...pillsFor(c)),
-        el('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '8px', marginTop: '9px', font: '400 9.5px/1.3 ' + MONO, color: C.ink2 } },
-          el('span', {}, empty ? 'Tap the services this home needs' : money(pq.init) + ' initial · about ' + perDay(pq.mo)),
-          save > 0 ? el('b', { style: { color: '#2F7D32' } }, 'Saves ' + money(save) + '/yr') : el('span', {}, c.blurb || '')));
+        // Compact card (per Isaac, Nov 23): name + service pills on the left; price, then initial · per day, then
+        // savings stacked on the right.
+        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' } },
+          el('div', { style: { minWidth: 0, flex: '1 1 auto' } },
+            el('div', { style: { font: '800 14px/1 ' + SANS, textTransform: 'uppercase' } }, c.label),
+            el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '8px' } }, ...pillsFor(c))),
+          el('div', { style: { textAlign: 'right', flexShrink: 0 } },
+            el('div', { style: { whiteSpace: 'nowrap' } },
+              !empty && sep > pq.mo + 0.5 ? el('span', { style: { font: '400 10px/1 ' + MONO, color: C.ink3, textDecoration: 'line-through', marginRight: '5px' } }, money(sep)) : null,
+              el('span', { style: { font: '300 25px/1 ' + SANS, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums' } }, empty ? '—' : money(pq.mo)),
+              el('span', { style: { font: '400 9.5px/1 ' + MONO, color: C.ink2 } }, '/mo')),
+            el('div', { style: { font: '400 9px/1.35 ' + MONO, color: C.ink2, marginTop: '4px', whiteSpace: 'nowrap' } }, empty ? 'Tap the services' : money(pq.init) + ' initial · ' + perDay(pq.mo)),
+            save > 0 ? el('div', { style: { font: '700 9px/1.35 ' + MONO, color: '#2F7D32', whiteSpace: 'nowrap' } }, 'Saves ' + money(save) + '/yr') : null)));
     };
 
-    // Extras: every add-on the picked package doesn't already include (the core four are picked on the cards),
-    // plus Termite when it isn't in the package.
+    // Extras (per Isaac, Nov 23): a fixed grid — every service always in the same spot with a small icon, so swapping
+    // Pest ⇄ Rodent never reshuffles it. A service already in the plan reads "In plan", one the plan covers reads
+    // "Covered", a picked extra turns dark with a check. Termite is its own box above.
+    const EXTRA_ORDER = ['pest', 'rodent', 'tfm', 'seasonal', 'mole', 'snake', 'cbee', 'roach', 'flea'];
+    const EXTRA_ICON = {
+      pest:     'M12 6.5a2.2 2.2 0 1 0 0 .01M8.5 13.5a3.5 4.5 0 1 0 7 0a3.5 4.5 0 1 0 -7 0M8.6 11.5 4.5 9.5M15.4 11.5l4.1-2M8.6 15.5l-4.1 2M15.4 15.5l4.1 2M10.8 4.6 9.6 2.5M13.2 4.6l1.2-2.1',
+      rodent:   'M3.5 16.5c0-4.4 3.6-7.5 8-7.5 4.6 0 8 3 8 7.5zM16.5 9.6a2.3 2.3 0 1 1 3.4 2.6M19.5 16.5c1.8.2 2.3 2.6.5 3.5M7.5 13.2h.01',
+      tfm:      'M12 3.5c3 4 5.2 7 5.2 10a5.2 5.2 0 0 1-10.4 0c0-3 2.2-6 5.2-10z',
+      seasonal: 'M12 8.2a3.8 3.8 0 1 0 .01 0M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6',
+      mole:     'M2.5 19.5h19M5 19.5c1.2-5.2 4-8 7-8s5.8 2.8 7 8M10.2 9.2 12 6.5l1.8 2.7',
+      snake:    'M4 17.5c3.5 0 3.5-3.5 7-3.5s3.5 3.5 7 3.5M17 7.5c-1.6-1.6-4.5-1.6-6 0s-1.4 4 .6 4.6',
+      cbee:     'M8.5 9.5h7v8.5a3.5 3.5 0 0 1-7 0zM8.5 12.5h7M8.5 15.3h7M9.5 9.5c-3.4-3.6-7-1.4-5.6 1.2M14.5 9.5c3.4-3.6 7-1.4 5.6 1.2M12 9.5V7',
+      roach:    'M12 6.5c3 0 5 3.2 5 7s-2 7-5 7-5-3.2-5-7 2-7 5-7zM12 6.5v14M10.4 5 7.5 2M13.6 5l2.9-3M7 12.5H3.5M17 12.5h3.5M7.4 16.5l-3 2M16.6 16.5l3 2',
+      flea:     'M8.5 13.5a5 4 0 1 0 10 0a5 4 0 1 0-10 0M9.2 11.6 4 7.5M11 17.2 8 21M15.5 17.4l1.2 3.6M18 11.2a1 1 0 0 1 2 0',
+    };
+    const extraIcon = (id, color) => {
+      const NS = 'http://www.w3.org/2000/svg', sv = document.createElementNS(NS, 'svg'), pa = document.createElementNS(NS, 'path');
+      sv.setAttribute('viewBox', '0 0 24 24'); sv.setAttribute('width', 18); sv.setAttribute('height', 18); sv.setAttribute('aria-hidden', 'true');
+      pa.setAttribute('d', EXTRA_ICON[id] || ''); pa.setAttribute('fill', 'none'); pa.setAttribute('stroke', color); pa.setAttribute('stroke-width', '1.6'); pa.setAttribute('stroke-linecap', 'round'); pa.setAttribute('stroke-linejoin', 'round');
+      sv.append(pa); sv.style.cssText = 'display:block;flex-shrink:0';
+      return sv;
+    };
     const extrasRow = () => {
       if (!curPkg || !curPkg.base) return null;
-      const chipX = (id, label, mo, on, toggle) => el('button', { onclick: toggle, 'aria-pressed': on ? 'true' : 'false', style: { font: '500 9.5px/1 ' + MONO, border: '1.2px solid ' + (on ? C.char : C.ink3), borderRadius: '999px', padding: '7px 9px', background: on ? C.char : '#fff', color: on ? '#fff' : C.char, cursor: 'pointer' } }, (on ? '' : '+ ') + label + ' ' + money(mo) + (on ? ' ✓' : ''));
-      const ids = T.addons.filter(([id]) => !CORE.includes(id) && !pricingCoveredBy(curPkg.base, id) && !(curPkg.addons.includes('tfm') && id === 'seasonal'));
+      const inPlan = (id) => id === curPkg.base || curPkg.addons.includes(id);
+      const covered = (id) => pricingCoveredBy(curPkg.base, id) || (inPlan('tfm') && id === 'seasonal') || (inPlan('seasonal') && id === 'tfm');
+      const tile = (id) => {
+        const a = T.addons.find(x => x[0] === id); if (!a) return null;
+        const plan = inPlan(id), cov = !plan && covered(id), on = !plan && !cov && !!st.addons[id], off = plan || cov;
+        const toggle = () => { if (st.addons[id]) { delete st.addons[id]; delete st.extras[id]; } else { st.addons[id] = true; st.extras[id] = true; } rerender(); };
+        return el('button', { onclick: off ? null : toggle, disabled: off ? true : null, 'aria-pressed': on ? 'true' : 'false', title: off ? (plan ? 'Already in this plan' : 'Covered by this plan') : ((on ? 'Tap to remove' : 'Tap to add') + (a[1] ? ' · ' + money(a[1]) + ' initial' : '')),
+          style: { display: 'flex', alignItems: 'center', gap: '9px', textAlign: 'left', minWidth: 0, padding: '9px 10px', borderRadius: '10px', cursor: off ? 'default' : 'pointer', opacity: off ? .45 : 1,
+            background: on ? C.char : '#fff', color: on ? '#fff' : C.char, border: '1.2px ' + (off ? 'dashed ' : 'solid ') + (on ? C.char : 'rgba(43,43,41,.22)') } },
+          el('span', { style: { width: '30px', height: '30px', borderRadius: '8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, background: on ? 'rgba(255,255,255,.12)' : C.card } }, extraIcon(id, on ? '#fff' : C.green)),
+          el('span', { style: { minWidth: 0, flex: '1 1 auto' } },
+            el('span', { style: { display: 'block', font: '600 11px/1.2 ' + SANS, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, id === 'seasonal' ? 'Seasonal TFM' : id === 'tfm' ? 'Tick, Flea & Mosquito' : PRICING_SERVICES[id].label),
+            el('span', { style: { display: 'block', marginTop: '3px', font: '400 9.5px/1 ' + MONO, color: on ? 'rgba(255,255,255,.75)' : C.ink2 } }, plan ? 'In plan' : cov ? 'Covered' : '+' + money(a[2]) + '/mo')),   // any add-on initial shows on the receipt
+          on ? el('span', { style: { font: '900 12px/1 ' + SANS, flexShrink: 0 } }, '✓') : null);
+      };
       return el('div', {},
-        mono('Add extras', { size: 9, style: { margin: '14px 0 6px' } }),
-        el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px' } },
-          ...ids.map(([id, , mo]) => chipX(id, PRICING_SERVICES[id].label, mo, !!st.addons[id], () => { if (st.addons[id]) { delete st.addons[id]; delete st.extras[id]; } else { st.addons[id] = true; st.extras[id] = true; } rerender(); })),
-          curPkg.termite ? null : chipX('termite', 'Termite', T.termite[1], !!st.termite, () => { st.termite = !st.termite; st.extras.termite = st.termite; if (!st.termite) delete st.extras.termite; rerender(); })));
+        mono('Add extras', { size: 9, style: { margin: '16px 0 7px' } }),
+        el('div', { class: 'ps-extras', style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(165px, 1fr))', gap: '7px' } }, ...EXTRA_ORDER.map(tile)));
     };
 
     const extrasNames = () => curPkg ? [...Object.keys(st.addons).filter(id => !curPkg.addons.includes(id)).map(id => PRICING_SERVICES[id].label), ...(st.termite && !curPkg.termite ? ['Termite'] : [])] : [];
@@ -543,7 +604,7 @@ function viewPricing() {
         el('span', { style: { font: '400 10px/1.2 ' + MONO, color: C.ink2, whiteSpace: 'nowrap' } }, b));
       return el('div', { style: { background: C.page, borderRadius: '14px', border: '1px solid rgba(43,43,41,.18)', boxShadow: '0 18px 40px -28px rgba(0,0,0,.45)', padding: '18px 20px 20px', textAlign: 'center', color: C.char } },
         el('button', { onclick: () => { st.cust = false; rerender(); }, style: { display: 'block', marginLeft: 'auto', font: '600 9px/1 ' + MONO, letterSpacing: '.12em', textTransform: 'uppercase', background: 'transparent', border: '1.2px solid ' + C.ink3, borderRadius: '999px', padding: '6px 10px', cursor: 'pointer', color: C.char } }, '← Back to the builder'),
-        el('div', { style: { font: '800 26px/1.1 ' + SANS, textTransform: 'uppercase', marginTop: '10px' } }, (curPkg ? curPkg.custName : 'Your Plan')),
+        el('div', { style: { font: '800 26px/1.1 ' + SANS, textTransform: 'uppercase', marginTop: '10px' } }, (curPkg ? curPkg.custName + (st.termite && !curPkg.termite ? ' + Termite' : '') : (st.termite && !st.base ? 'Termite Defense' : 'Your Plan'))),
         mono(PRICING_FREQ[fiB][1] + ' service', { size: 9.5, style: { marginTop: '4px' } }),
         sep > q.mo + 0.5 ? el('div', { style: { font: '400 11px/1 ' + MONO, color: C.ink3, textDecoration: 'line-through', marginTop: '12px' } }, money(sep) + '/mo if bought separately') : null,
         el('div', { style: { font: '300 68px/1 ' + SANS, letterSpacing: '-.03em', marginTop: '8px', fontVariantNumeric: 'tabular-nums' } }, money(q.mo), el('span', { style: { font: '400 13px/1 ' + MONO, color: C.ink2, letterSpacing: 0 } }, '/mo')),
@@ -562,11 +623,10 @@ function viewPricing() {
       el('div', { class: 'ps-body', style: { padding: '14px 22px 20px' } },
         mono('How often?', { size: 9, style: { marginBottom: '6px' } }),
         seg,
-        el('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' } }, ...PKGS.map(pkgCard)),
+        el('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '14px' } }, ...PKGS.map(pkgCard)),
         extrasRow(),
-        // No running total here (per Isaac, Nov 23) — the receipt alongside (on top on phones) already shows it.
-        el('div', { style: { height: '4px' } }),
-        showBtn),
+        // No running total and no Show customer button (per Isaac, Nov 23) — the receipt alongside covers it.
+        el('div', { style: { height: '4px' } })),
       footer);
   }
 
@@ -627,30 +687,34 @@ function viewPricing() {
     const quoteEmpty = el('div', { class: 'pq-card pq-empty mb-3', style: { background: C.cream, color: C.char, borderRadius: '12px', padding: '10px 14px', boxShadow: 'var(--shadow-lg)', border: '1.5px solid ' + C.orange } },
       el('div', { style: { font: '700 10px/1 ' + F, letterSpacing: '.16em', textTransform: 'uppercase', color: C.ink2 } }, tierLabel),
       el('div', { style: { font: '500 11px/1.3 ' + F, color: C.ink3, textAlign: 'right' } }, 'Nothing selected yet \u00b7 tap a plan below'));
-    const quoteFull = el('div', { class: 'pq-card mb-3', style: { background: C.cream, color: C.char, borderRadius: '12px', padding: '12px 14px', boxShadow: 'var(--shadow-lg)', border: '1.5px solid ' + C.orange } },
+    // Receipt (per Isaac, Nov 24 — mobile recording): totals FIRST — initial · monthly · savings / yr — and the items in
+    // the package BELOW them, folded away until the totals are tapped. Same on desktop. The card no longer swaps to a
+    // one-line bar on scroll: that swap changed the sticky block's height mid-scroll and made the page jump.
+    const itemsOpen = !!st.qItems || editKey != null;
+    const tCell = (lbl, val, color, o = {}) => el('div', { style: { minWidth: 0, display: 'flex', flexDirection: 'column', gap: '3px', alignItems: o.right ? 'flex-end' : 'flex-start' } },
+      el('span', { style: { font: '700 8.5px/1 ' + F, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(251,244,218,.7)', whiteSpace: 'nowrap' } }, lbl),
+      el('span', { class: 'pq-num', style: { font: '700 20px/1.05 ' + F, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color, whiteSpace: 'nowrap' } }, val));
+    const strip = el('button', { class: 'pq-strip', 'aria-expanded': itemsOpen ? 'true' : 'false', title: itemsOpen ? 'Hide the items' : 'Show the items in this quote',
+        onclick: () => { st.qItems = !itemsOpen; if (!st.qItems) editKey = null; rerender(); },
+        style: { width: '100%', display: 'grid', gridTemplateColumns: q.savings > 0 ? '1fr 1fr 1fr' : '1fr 1fr', gap: '10px', alignItems: 'end', textAlign: 'left', background: C.green, color: C.cream, borderRadius: '8px', border: '1.5px solid ' + C.greenLine, padding: '10px 12px', cursor: 'pointer', opacity: q.ok ? 1 : .55 } },
+      tCell('Initial', money(q.init), C.cream),
+      tCell('Monthly', money(q.mo) + '/mo', '#F6A47F'),
+      q.savings > 0 ? tCell('Save / yr', money(q.savings), '#8FD19E', { right: true }) : null);
+    const itemsToggle = el('button', { onclick: () => { st.qItems = !itemsOpen; if (!st.qItems) editKey = null; rerender(); },
+        style: { width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', background: 'transparent', border: 0, padding: '2px 0', cursor: 'pointer', font: '700 9px/1 ' + F, letterSpacing: '.12em', textTransform: 'uppercase', color: C.ink2 } },
+      el('span', {}, q.lines.length + ' item' + (q.lines.length === 1 ? '' : 's') + ' in this quote'),
+      el('span', { style: { color: C.orange } }, itemsOpen ? 'Hide \u25b4' : 'Show \u25be'));
+    const items = itemsOpen ? el('div', { class: 'pq-items', style: { marginTop: '4px' } },
+      ...q.lines.map(rline),
+      // First-year cost lives with the items now (it was a tap on Monthly).
+      el('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '8px 0 2px', font: '700 11px/1.2 ' + F, color: C.ink2, textTransform: 'uppercase', letterSpacing: '.06em' } }, el('span', {}, 'First year'), el('span', { style: { color: C.char, fontVariantNumeric: 'tabular-nums' } }, money(q.acv)))) : null;
+    const quoteFull = el('div', { class: 'pq-card mb-3', style: { background: C.cream, color: C.char, borderRadius: '12px', padding: '10px 12px', boxShadow: 'var(--shadow-lg)', border: '1.5px solid ' + C.orange } },
       el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '6px' } },
         el('div', { style: { font: '700 10px/1 ' + F, letterSpacing: '.16em', textTransform: 'uppercase', color: C.ink2 } }, 'Quote · ' + (st.tier === 'd2d' ? (st.min ? 'D2D minimums' : 'D2D') : T.label)),
         el('button', { style: { padding: '5px 12px', borderRadius: '999px', border: '1.5px solid ' + C.ink3, background: 'transparent', color: C.char, font: '700 9px/1.2 ' + F, letterSpacing: '.1em', textTransform: 'uppercase', cursor: 'pointer' }, onclick: () => { st.base = null; st.addons = {}; st.onetime = {}; st.termite = false; st.custom = {}; editKey = null; rerender(); } }, 'Reset')),
-      el('div', { class: 'grid gap-3 items-start pricing-qgrid', style: { gridTemplateColumns: 'minmax(0, 1fr) auto' } },
-        el('div', { style: { minWidth: 0 } }, ...q.lines.map(rline)),
-        el('div', { style: { background: C.green, color: C.cream, borderRadius: '8px', border: '1.5px solid ' + C.greenLine, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '7px', flexShrink: 0, minWidth: '150px', opacity: q.ok ? 1 : .55 } },
-          total('Initial', money(q.init), { big: true }),
-          // D2D: first-year cost is tucked away — tap Monthly to flip it into
-          // view, tap again to hide (per Isaac). Standard / Loyalty show it.
-          // First-year cost is tucked away on every tier (per Isaac, Nov 23 — it was D2D-only): tap Monthly to flip it
-          // into view, tap again to hide.
-          total('Monthly', money(q.mo) + '/mo', { accent: true, title: st.showAcv ? 'Tap to hide first-year cost' : 'Tap to show first-year cost', onclick: () => { st.showAcv = !st.showAcv; rerender(); } }),
-          ...(st.showAcv ? [el('div', { style: { borderTop: '1px dashed rgba(251,244,218,.35)', margin: '1px 0' } }), total('First year', money(q.acv))] : []),
-          // Annual savings from bundling (per Isaac) — builds as add-ons are ticked; green like Bundle & Save.
-          ...(q.savings > 0 ? [el('div', { style: { borderTop: '1px dashed rgba(251,244,218,.35)', margin: '1px 0' } }), total('You save / yr', money(q.savings), { green: true, title: 'Annual savings vs buying each add-on as its own plan' })] : []))));
+      strip, itemsToggle, items);
 
     const quote = q.empty ? quoteEmpty : quoteFull;
-    // Phone: the one-line bar the quote collapses to once it's scrolled past.
-    const bar = el('button', { class: 'pq-bar', 'aria-label': 'Show the quote', style: { width: '100%', textAlign: 'left', background: C.char, color: C.cream, borderRadius: '12px', padding: '8px 14px', border: '1.5px solid ' + C.orange, boxShadow: 'var(--shadow-lg)', cursor: 'pointer' },
-      onclick: () => { top.classList.add('pq-open'); } },
-      el('span', { style: { font: '700 9px/1 ' + F, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(251,244,218,.7)' } }, 'Quote'),
-      el('span', { style: { font: '700 14px/1.1 ' + F, fontVariantNumeric: 'tabular-nums', letterSpacing: '-.01em', whiteSpace: 'nowrap' } }, money(q.init) + ' today', el('span', { style: { color: C.orange } }, ' \u00b7 ' + money(q.mo) + '/mo')),
-      el('span', { style: { font: '700 9px/1 ' + F, letterSpacing: '.1em', textTransform: 'uppercase', color: C.orange } }, 'View \u25be'));
     // Picker + quote ride together as one sticky block pinned right under
     // the fixed page header (measured live — it's ~60px, not 76 — so the
     // block no longer floats mid-page and overlaps the slick). The block
@@ -661,28 +725,16 @@ function viewPricing() {
     // left the quote floating mid-page over the slick (per Isaac).
     // Offset = the MEASURED header (--hdr-h, set by mountApp; safe-area and
     // banner included) so the quote never tucks under it; 60px was a guess.
-    const top = el('div', { class: 'pricing-quote', style: { position: 'sticky', top: 'var(--hdr-h, calc(60px + env(safe-area-inset-top, 0px) + var(--nv-banner, 0px)))', zIndex: 5, background: 'var(--bg)' } }, q.empty ? quote : bar, quote);
-    if (q.empty) bar.remove();
+    const top = el('div', { class: 'pricing-quote', style: { position: 'sticky', top: 'var(--hdr-h, calc(60px + env(safe-area-inset-top, 0px) + var(--nv-banner, 0px)))', zIndex: 5, background: 'var(--bg)' } }, quote);
     const page = board || builder;
     page.classList.add('pricing-board');
     quote.style.position = ''; quote.style.top = ''; quote.style.zIndex = '';
-    if (_pqOpen) top.classList.add('pq-open');
-    top.addEventListener('click', (e) => { if (e.target === bar || bar.contains(e.target)) { _pqOpen = true; top.classList.add('pq-open'); } });
     // The customer view hides the rep's receipt (custom prices, floors, tiers) — the phone can be handed over.
     if (builder && st.cust) root.replaceChildren(page); else root.replaceChildren(top, page);
     _pqTop = top;
   };
-  // Collapse/expand the phone quote on scroll: stuck = scrolled past where
-  // it sits at the top of the page. Expanding by tap holds until the user
-  // scrolls back up to the top or makes another selection.
-  let _pqTop = null, _pqOpen = false;
-  const onScroll = () => {
-    const t = _pqTop; if (!t || !t.isConnected) return;
-    const stuck = window.scrollY > 40;
-    t.classList.toggle('pq-stuck', stuck);
-    if (!stuck && _pqOpen) { _pqOpen = false; t.classList.remove('pq-open'); }
-  };
-  window.addEventListener('scroll', onScroll, { passive: true });
+  let _pqTop = null;
+  const onScroll = () => {};   // the quote no longer collapses on scroll (per Isaac, Nov 24 — it made the page jump)
   render();
   // Land at the top (per Isaac): a carried-over scroll position left the
   // first program's title tucked under the sticky quote on phones.

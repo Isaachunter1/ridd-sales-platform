@@ -31,3 +31,13 @@ Each row: the symptom as a person sees it, the question to ask Claude, and the o
 | Cron table | the `schedule` field on each job; `server/infra/scheduler.yaml` is generated |
 | Deploys | Cloud Build → History (server) · Netlify → Deploys (app) |
 | Player card Peak / leaderboard Peak Rev looks wrong or stale | `job_runs` for `peak-values` (daily 4:40am ET); `indicators/peak-values-v2.json` → `at`, `rule`, `changelog_since`. Peak below today = someone other than the rep upsold the account (expected — peak is as sold + the rep's own changes + the $4.87 fee, Nov 23). No file → Peak reads as today's value. Rebuild: `POST /api/jobs/peak-values`. Rule + fixture: `server/test/peak-values.test.js`. |
+
+## GoHighLevel "opportunity created" webhook (Nov 24 2026)
+Traffic by hour needs the stage each card was BORN in (reps move call cards within minutes; the hourly sync misses it).
+1. Run db/migrations/20261124_ghl_opp_created.sql.
+2. Netlify env: GHL_WEBHOOK_SECRET = a long random string (never put it in the repo or chat).
+3. Pest AI adds a workflow in the RIDD GoHighLevel account: Trigger "Opportunity Created" (Sales Pipeline, no filters) →
+   Action "Webhook", Method POST, URL https://<app domain>/api/ghl-opp-webhook?key=<GHL_WEBHOOK_SECRET>. Publish.
+4. Check: app_settings.ghl_webhook_status shows the last payload's field names and whether the opportunity id + stage
+   parsed. The next GHL sync folds the birth stage into reporting/ghl/leads.json.gz (opps [8]).
+Stores ids, stage, source and times only. Events before the workflow went live stay "first stage the sync saw".

@@ -158,6 +158,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/ghl-opp-webhook"
+  to   = "/.netlify/functions/ghl-opp-webhook"
+  status = 200
+
+[[redirects]]
   from = "/api/ad-spend"
   to   = "/.netlify/functions/ad-spend"
   status = 200

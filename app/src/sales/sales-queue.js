@@ -878,7 +878,6 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                 if (s.crm_paid_invoices != null && (s.queue_type || 'office') === 'office') { const _N = Math.max(1, parseInt((((state._autolog || {}).backend || {}).office || {}).paid_invoices, 10) || 4); const _n = Number(s.crm_paid_invoices) || 0;
                   lcChips.push(_n >= _N ? chip('🧾 ' + _n + ' of ' + _N + ' paid', 'rgba(95,108,91,.16)', '#5F6C5B', 'Paid invoices on the plan since the sale (initial included) — backend lock reached' + (s.crm_paid_invoices_at ? ' · counted ' + String(s.crm_paid_invoices_at).slice(0, 10) : ''))
                     : chip('🧾 ' + _n + ' of ' + _N + ' paid', 'var(--card-2)', 'var(--text-muted)', 'Paid invoices on the plan since the sale (initial included) — the backend locks at ' + _N + (s.crm_paid_invoices_at ? ' · counted ' + String(s.crm_paid_invoices_at).slice(0, 10) : ''))); }
-                if (saleUnsignedScheduled(s)) lcChips.push(chip('\u26a0 Scheduled, unsigned', 'rgba(185,28,28,.16)', '#B91C1C', 'Initial appointment on the books with no signed contract \u2014 get it signed or pull the appointment'));
                 if (s.audit_flag) lcChips.push(chip('\u2691 ' + s.audit_flag, 'rgba(109,40,217,.12)', '#6D28D9', s.audit_flag));
                 if (s.sale_kind === 'upsell') lcChips.push(chip('＋ Upsell', 'rgba(156,63,30,.14)', '#9C3F1E', 'Add-on' + (s.crm_ticket_id ? ' · FieldRoutes ticket #' + s.crm_ticket_id : '') + (s.parent_subscription_id ? ' on subscription ' + s.parent_subscription_id : '')));
                 // Add-on streak (docs/TECH_UPSELLS.md): backend pays after 5 paid
@@ -899,8 +898,10 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                                   : chip('✗ No appt', 'rgba(220,38,38,.12)', '#B91C1C', 'No initial appointment on the books (' + (s.crm_initial_status || 'none') + ')'));
                 }
                 if (s.crm_autopay != null) {
-                  lcChips.push(s.crm_autopay ? chip('✓ Billing', 'rgba(95,108,91,.16)', '#5F6C5B', 'Autopay on file in FieldRoutes')
-                                             : chip('✗ No billing', 'rgba(220,38,38,.12)', '#B91C1C', 'No autopay on file — not commission-eligible until billing is added'));
+                  const pf = salePayFlag(s);
+                  lcChips.push(s.crm_autopay ? chip('\u2713 Autopay', 'rgba(95,108,91,.16)', '#5F6C5B', 'Autopay on file in FieldRoutes')
+                    : pf ? chip(pf.label, pf.bg, pf.fg, pf.tip)
+                    : chip('\u2717 No autopay', 'rgba(220,38,38,.12)', '#B91C1C', 'No autopay on file'));
                 }
                 if (s.crm_serviced_at) lcChips.push(chip('✓ Svc', 'rgba(95,108,91,.16)', '#5F6C5B',
                   'Initial service completed ' + s.crm_serviced_at + (s.crm_completed_services ? ' · ' + s.crm_completed_services + ' service(s) run' : '')));
@@ -1123,12 +1124,21 @@ const SALE_STATUS_COLOR = {
   pending: '#8F9A8C', serviced: '#3E5A3A', below_minimums: '#B8862B', cancelled: '#E5532E',
   re_audit: '#B84A47', reschedule: '#C17A3B', nsf: '#1F1F1F', not_payable: '#6E6C5C', flagged_for_audit: '#6D28D9',
 };
-// A scheduled (or completed) initial with no signed contract (per Isaac, Nov 7): "we do NOT want scheduled
-// appointments without signed contracts" — the whole row goes red. One-time services need no contract.
-function saleUnsignedScheduled(s) {
-  if (!s || s.sale_kind === 'upsell' || !(Number(s.contract_months) > 0)) return false;
-  if (!['sent', 'none'].includes(String(s.crm_contract_state || ''))) return false;
-  return /^(pending|completed)$/i.test(String(s.crm_initial_status || '').trim()) || !!s.crm_serviced_at;
+// Payment flag on a sale with an initial on the books (per Isaac, Nov 23 2026 — replaces the red
+// "scheduled, unsigned" row from Nov 7): every scheduled account shows; only flag the ones missing autopay.
+//   • no autopay AND no payment on file  → red  "No payment on file"
+//   • payment on file but NOT on autopay → amber "On file · no autopay"
+// "Payment on file" reads sales.crm_card_on_file when the sync stamps it; until then a successful payment
+// since the sale is the only evidence we have, so an account with neither reads "No autopay · not paid".
+function salePayFlag(s) {
+  if (!s || s.sale_kind === 'upsell' || s.crm_autopay !== false) return null;
+  if (!/^(pending|completed)$/i.test(String(s.crm_initial_status || '').trim()) && !s.crm_serviced_at) return null;
+  const onFile = s.crm_card_on_file === true || s.crm_paid_since_sale === true;
+  if (onFile) return { tone: 'warn', short: '\u26a0 Autopay', label: 'On file \u00b7 no autopay', bg: 'rgba(184,134,43,.16)', fg: '#8A5F12',
+    tip: (s.crm_card_on_file === true ? 'Payment method on file' : 'A payment has gone through since the sale') + ' but the account is NOT on autopay \u2014 turn autopay on in FieldRoutes' };
+  const known = s.crm_card_on_file === false;
+  return { tone: 'bad', short: '\u2717 Payment', label: known ? 'No payment on file' : 'No autopay \u00b7 not paid', bg: 'rgba(220,38,38,.12)', fg: '#B91C1C',
+    tip: known ? 'Initial on the books with no autopay and no payment method on file' : 'Initial on the books, no autopay, and no payment since the sale \u2014 check for a card on file in FieldRoutes' };
 }
 // ⚑ what an auditor should look at (sales.audit_flag — the pricing-floors job, or a rep's own status pick).
 function saleAuditFlagChip(s) {
@@ -2450,9 +2460,8 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
       const tracked = s.crm_paid_invoices != null || s.payroll_processed_at;
       return el('div', {
         class: 'px-4 py-2.5 cursor-pointer transition hover:brightness-95',
-        style: gridRow({ borderTop: i ? '1px solid var(--border)' : '0', background: _bk ? backendTint(s.lock_status) : saleStatusTint(s.audit_status), ...(!_bk && saleAuditFlag(s) === 'passed' ? { boxShadow: 'inset 3px 0 0 #15803D' } : {}),
-          ...(!_bk && saleUnsignedScheduled(s) ? { background: 'rgba(185,28,28,.18)', boxShadow: 'inset 4px 0 0 #B91C1C' } : {}) }),   // red: scheduled with no signed contract (per Isaac, Nov 7)
-        title: saleUnsignedScheduled(s) ? 'Initial appointment on the books with NO signed contract \u2014 get it signed in FieldRoutes or pull the appointment. Not Payable until it\u2019s signed.' : saleAuditFlag(s) === 'passed' ? 'Passed Audit flag on the customer card in FieldRoutes' : undefined,   // never on renewals (Oct 28)
+        style: gridRow({ borderTop: i ? '1px solid var(--border)' : '0', background: _bk ? backendTint(s.lock_status) : saleStatusTint(s.audit_status), ...(!_bk && saleAuditFlag(s) === 'passed' ? { boxShadow: 'inset 3px 0 0 #15803D' } : {}), }),
+        title: saleAuditFlag(s) === 'passed' ? 'Passed Audit flag on the customer card in FieldRoutes' : undefined,   // never on renewals (Oct 28)
         onclick: (e) => { if (e.target.closest('select, button, input, textarea, a')) return; openSaleCommissionCard(s, { isAdmin, backend: _bk }); },   // small commission card, not the edit form (per Isaac, Oct 15)
       },
         el('div', { class: 'tabular-nums text-left', style: { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: '12px', fontWeight: '600', color: 'var(--text-subtle)' } }, String(i + 1).padStart(2, '0')),
@@ -2470,7 +2479,8 @@ function salesFeed(rows, { isAdmin = false, title = '', mode = 'upfront' } = {})
         el('div', { class: 'tabular-nums', style: clip },
           el('div', { style: { fontSize: '11px' } }, _t > 0 ? soldTxt.slice(0, _t) : soldTxt),
           _t > 0 ? el('div', { style: sub }, soldTxt.slice(_t + 3)) : null),
-        el('div', { style: { fontSize: '10px', ...clip } }, saleInitialDateNode(s, false)),
+        el('div', { style: { fontSize: '10px', ...clip } }, saleInitialDateNode(s, false),
+          !_bk ? (() => { const f = salePayFlag(s); return f ? el('div', { style: { marginTop: '2px' } }, el('span', { class: 'inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-bold whitespace-nowrap', style: { background: f.bg, color: f.fg }, title: f.label + ' \u2014 ' + f.tip }, f.short)) : null; })() : null),
         // Paid since the sale (per Isaac, Oct 15) — the customer's first real payment on/after this sale.
         s.crm_paid_since_sale === true ? el('div', { class: 'tabular-nums', style: { fontSize: '11px', color: ok, fontWeight: '600', ...clip }, title: 'A successful payment on the account since this sale' }, 'Paid' + (s.crm_paid_at ? ' ' + fmt.dateShort(s.crm_paid_at) : ''))
           : s.crm_paid_since_sale === false ? el('div', { class: 'tabular-nums', style: { fontSize: '11px', color: bad, fontWeight: '700', ...clip }, title: 'Card declined since this sale and nothing has gone through' }, 'Declined' + (s.crm_declined_at ? ' ' + fmt.dateShort(s.crm_declined_at) : ''))
@@ -2547,7 +2557,7 @@ function openSaleCommissionCard(s, { isAdmin = false, backend = false } = {}) {
     body.push(row(paidUp ? 'Upfront paid' : 'Upfront pay', money(l.amount), { top: true, big: true, color: 'var(--accent)',
       sub: paidUp ? 'On the ' + fmt.dateShort(String(s.payroll_processed_at).slice(0, 10)) + ' payroll' : (['serviced', 'below_minimums'].includes(s.audit_status) ? 'On the next payroll' : 'Once it’s Commissionable') }));
   }
-  body.push(row('Backend (quarterly)', backendAmt > 0 ? money(backendAmt) : '$0', { top: true,
+  body.push(row('Backend (' + (typeof backendCadenceWord === 'function' ? backendCadenceWord() : 'quarterly') + ')', backendAmt > 0 ? money(backendAmt) : '$0', { top: true,
     sub: (backendAmt > 0 ? 'At the lock — 4 paid invoices' : (Number(s.contract_months) === 12 ? '12-month plans have no backend' : 'No backend on this plan')) + (s.crm_paid_invoices != null ? ' · ' + (Number(s.crm_paid_invoices) || 0) + ' / 4 paid' : '') }));
   if (backend && s.lock_status === 'chargeback') body.push(row('Chargeback', '−' + money(l ? l.amount : 0), { color: '#DC2626', sub: 'The upfront commission comes back on the quarterly backend run' }));
   const back = el('div', { style: { position: 'fixed', inset: '0', zIndex: '9000', background: 'rgba(20,20,20,.38)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' } });
@@ -2626,7 +2636,8 @@ function payrollRunStub(repId, sales, period, backendSales) {
     return { sale_id: b.id, customer: b.customer_name || '', customer_number: b.customer_number || '', sold_date: b.sold_date || '', months: Number(b.contract_months) || 0,
       kind: cb ? 'chargeback' : 'lock', est, invoices: Number(b.crm_paid_invoices) || 0, revenue: Number(b.revenue_amount) || 0,
       amount: cb ? -amt : amt }; });
-  // Close-rate bonus (per Isaac, Oct 15) — rides the quarterly backend: the rep's own close rate (set per rep)
+  // Close-rate bonus (per Isaac, Oct 15) — rides the backend run (quarterly; monthly from Feb 2027 on the month's close
+  // rate, per Isaac, Nov 23): the rep's own close rate (set per rep)
   // picks the tier (Settings → close-rate tiers), paid on the subscription revenue (12/18/24-month + PIF base
   // plans, no renewals / add-ons — subscriptionRevenueOf) of the accounts that LOCKED in this run.
   const lockedB = (backendSales || []).filter(b => b.lock_status !== 'chargeback');
@@ -2875,7 +2886,13 @@ function openPayrollRun(rows, opts = {}) {
   const sales = payrollRunCandidates(rows);
   const held = (rows || []).filter(s => (s.audit_status === 'serviced' || s.audit_status === 'below_minimums') && !s.payroll_processed_at && !s.rep_id);
   // Quarterly backend (per Isaac, Oct 15): tick to add the decided Pending Backend Lock accounts to this run.
-  const backendAll = (opts.backend || []).filter(s => s.rep_id);
+  // Monthly from Feb 2027 (per Isaac, Nov 23): the box carries every account decided (Lock / Chargeback) BEFORE this
+  // month began — last month's locks plus any straggler — and anything that locked this month waits for next month's.
+  const _monthly = typeof backendIsMonthly === 'function' && today.toISOString().slice(0, 10) >= BACKEND_MONTHLY_FIRST_RUN;
+  const _bm = _monthly ? backendRunMonth(today) : null;
+  const _decidedBefore = (s) => !_monthly || String(s.audit_2_at || '').slice(0, 10) < _bm.end;
+  const backendWaitingThisMonth = (opts.backend || []).filter(s => s.rep_id && !_decidedBefore(s)).length;
+  const backendAll = (opts.backend || []).filter(s => s.rep_id && _decidedBefore(s));
   const incB = !!opts.includeBackend && backendAll.length > 0;
   // Chargebacks recoup what was actually paid upfront: read it off the stored upfront pay runs once, then re-open.
   if (incB && !opts._recoupLoaded && backendAll.some(s => s.lock_status === 'chargeback') && typeof supabase !== 'undefined' && supabase && !(typeof DEMO !== 'undefined' && DEMO)) {
@@ -2899,7 +2916,7 @@ function openPayrollRun(rows, opts = {}) {
   const backendToggle = backendAll.length ? el('label', { class: 'card flex items-center gap-3 px-4 py-3 cursor-pointer text-sm' },
     el('input', { type: 'checkbox', checked: incB, style: { width: '18px', height: '18px', accentColor: 'var(--accent)' },
       onchange: () => { back.remove(); openPayrollRun(rows, Object.assign({}, opts, { includeBackend: !incB })); } }),
-    el('div', {}, el('div', { class: 'font-bold' }, 'Include Pending Backend Lock (quarterly backend)'),
+    el('div', {}, el('div', { class: 'font-bold' }, _monthly ? 'Include monthly backend · ' + _bm.label + (backendWaitingThisMonth ? ' (' + backendWaitingThisMonth + ' locked this month wait for next month)' : '') : 'Include Pending Backend Lock (quarterly backend)'),
       el('div', { class: 'text-[11px] text-muted-' }, nLock + ' locked (4 paid invoices) \u00b7 ' + nCb + ' chargeback' + (nCb === 1 ? '' : 's') + ' \u2014 Lock pays the account\u2019s backend (multi-year / renewal; $0 on 12-month plans), Chargeback takes back the upfront commission paid on it. Confirm moves Locks to History and Chargebacks to Archived. Accounts still waiting on invoices stay put.'))) : null;
   const money = (v) => fmt.usd(Math.round((Number(v) || 0) * 100) / 100);
   const pct = (v) => v == null ? '—' : Math.round(v * 100) + '%';

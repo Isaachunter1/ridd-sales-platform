@@ -77,9 +77,9 @@ function payCommissionCards(repId, prof, period, x, ctx) {
       _payTile('Est. multi-year pay', money(B.multiYear), '18 / 24-month plans', undefined, 'Backend on 18- and 24-month plans at the multi-year rates.'),
       _payTile('Est. renewal pay', money(B.renewal), 'renewal-source plans', undefined, 'Backend on renewals at the renewal backend rate.'),
       _payTile('Est. close rate % pay', money(B.closeBonus), B.closeRateInfo ? 'on ' + money(B.subRev) + ' subscription revenue' : 'No Close Rate — nothing pays', B.closeRateInfo ? undefined : '#B91C1C', 'Close-rate bonus tier × the subscription revenue (12/18/24-month + PIF base plans) of the accounts waiting to lock.'),
-      _payTile('Pending backend pay', money(B.pending), 'multi-year + renewal + close rate', '#3E5A3A', 'What the quarterly backend run would pay if every waiting account locked today.'),
+      _payTile('Pending backend pay', money(B.pending), 'multi-year + renewal + close rate', '#3E5A3A', 'What the ' + (typeof backendCadenceWord === 'function' ? backendCadenceWord() : 'quarterly') + ' backend run would pay if every waiting account locked today.'),
       _payTile('Chargebacks', money(B.chargebacks), (ctx.backend || []).filter(s => s.lock_status === 'chargeback').length + ' to recoup', B.chargebacks ? '#B91C1C' : undefined, 'Upfront pay to recoup on accounts marked Chargeback, taken off the next backend run.'),
-      ctx.backendPaidYear != null ? _payTile('Backend paid · ' + ctx.year, money(ctx.backendPaidYear), 'quarterly runs this year') : null);
+      ctx.backendPaidYear != null ? _payTile('Backend paid · ' + ctx.year, money(ctx.backendPaidYear), (typeof backendCadenceWord === 'function' ? backendCadenceWord() : 'quarterly') + ' runs this year') : null);
   return el('div', { class: 'flex flex-col gap-3' },
     upfrontGrid ? head((ctx.isCurrent ? 'Upfront · if payroll ran now · ' : 'Upfront · paid · ') + period.label) : null, upfrontGrid,
     backendGrid ? head('Backend · ' + n(B.eligible, 'account') + ' waiting on the lock') : null, backendGrid);

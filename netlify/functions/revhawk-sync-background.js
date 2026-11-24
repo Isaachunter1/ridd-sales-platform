@@ -1954,14 +1954,27 @@ WHERE a.fieldRoutes_statusText = 'Completed' AND a.fieldRoutes_dateCompleted NOT
           const _pmFrom = /^\d{4}-\d{2}-\d{2}$/.test(String(AL2.auto_approve_from || '')) ? String(AL2.auto_approve_from) : '2026-10-12';
           if (['pending', 'serviced', 'below_minimums'].includes(s.audit_status) && !s.payroll_processed_at && String(s.sold_date || '') >= _pmFrom) { const bm = belowMinReason(r); if (bm != null) belowMin.set(s.id, bm); }
           const upd = {};
+          // Payable = the FieldRoutes Passed Audit flag (per Isaac, Nov 24 2026): every new account is checked by hand,
+          // and the office's Passed Audit flag is what makes it payable — OFFICE STAFF ONLY. Sales Reps / Technicians keep
+          // their own rules (per Isaac, Nov 24: another developer owns those). No waiting on the service or a payment. Renewals keep
+          // their own rule (next service or next paid bill — the flag on the account is from the original sale).
           if (s.audit_status === 'pending' && !s.payroll_processed_at) {
             if (cancelled && (!serviced || upfront)) { upd.audit_status = 'cancelled'; upd.audited_at = stamp; upd.notes = ((s.notes || '') + (upfront && serviced ? ' · Auto: cancelled in CRM (charged upfront)' : ' · Auto: cancelled in CRM before service')).trim(); }
-            else if (!nsfNow.has(s.id) && _autoApproveOn(s) && s.rep_id && eligible && (serviced || upfront) && dpd <= 0 && s.crm_audit !== 'failed') {
+            else if (!nsfNow.has(s.id) && _autoApproveOn(s) && (s.rep_id || (s.queue_type || 'office') === 'office') && (_isRenewal || (s.queue_type || 'office') !== 'office' ? (eligible && (serviced || upfront) && dpd <= 0) : _upfrontOf(r))) {
               // Below the pricing minimum → approved as Below Minimums (when that switch is on).
               const bm = belowMin.get(s.id);
               upd.audit_status = (PR.auto && bm) ? 'below_minimums' : 'serviced'; upd.audited_at = stamp;
               if (upd.audit_status === 'below_minimums') upd.notes = ((s.notes || '') + ' · Auto: Below Minimums — ' + bm).trim();
             }
+          }
+          // Pre-service cancel before payroll (per Isaac, Nov 23 2026): an Office Staff sale approved on a paid
+          // initial (before the appointment) is payable — but if the customer cancels before the initial is
+          // serviced and before the payroll run, it comes back off (Cancelled). Once payroll has run, the
+          // cancel is a chargeback on the next monthly run instead (the lock pass below handles that).
+          if (!upd.audit_status && ['serviced', 'below_minimums'].includes(s.audit_status) && !s.payroll_processed_at
+              && (s.queue_type || 'office') === 'office' && cancelled && !serviced) {
+            upd.audit_status = 'cancelled'; upd.audited_at = stamp;
+            upd.notes = ((s.notes || '') + ' · Auto: cancelled before the initial service, before payroll — taken off').trim();
           }
           // Already approved, not paid yet: Commissionable under a minimum → Below Minimums; an auto Below Minimums
           // that's back at/above the minimums (pricing changed) → Commissionable. A manual call is left alone.

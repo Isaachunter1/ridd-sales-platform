@@ -124,9 +124,79 @@ function _mkdOpenCell(title, c, D) {
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
       btn('Leads (' + fmt.int(leads.length) + ')', leads.length ? () => { close(); _mkdOpenLeads(title + ' · leads', leads); } : null),
       btn('Booked sales (' + fmt.int(sales.length) + ')', sales.length ? () => { close(); mklOpenSales({ s: sales.length, cv: sales.reduce((a, s) => a + (Number(s.subscription_contract_value) || 0), 0), sales }, title + ' · booked'); } : null),
-      unlinked.length ? el('button', { class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold border', style: { borderColor: '#DC2626', color: '#DC2626' }, onclick: () => { close(); mklOpenSales({ s: unlinked.length, cv: unlinked.reduce((a, s) => a + (Number(s.subscription_contract_value) || 0), 0), sales: unlinked }, title + ' · booked with no lead'); } }, 'No lead (' + fmt.int(unlinked.length) + ')') : null),
+      unlinked.length ? el('button', { class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold border', style: { borderColor: '#DC2626', color: '#DC2626' }, onclick: () => { close(); mkdOpenNoLead(title + ' · booked with no lead', unlinked); } }, 'No lead (' + fmt.int(unlinked.length) + ')') : null),
     el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Leads are GoHighLevel opportunities by lead date and office; booked are FieldRoutes new sales by sold date and office, each matched to the latest opportunity on its phone or email on or before the sale (up to 180 days back). A lead and its sale can sit in different months.')));
   document.body.append(overlay);
+}
+// ── Booked with no lead → what Pest AI (GoHighLevel) actually has for that person (per Isaac, Nov 24: "show me what
+// the proper source in Pest AI IS … identify the ones that should be changed"). Looks the sale's phone / email up in
+// the raw GoHighLevel file (every contact + every opportunity, before the lead rules), so it can say WHY the sale
+// didn't link: nothing in Pest AI, a contact with no opportunity, only an old opportunity (Pest AI reused a card
+// instead of opening a new one), or an opportunity whose source the lead rules leave out.
+function mkdPestAiLookup(r) {
+  const G = state._ghl || {}, lab = G.labels || [], stages = G.stages || [];
+  const p = (typeof _chPhone10 === 'function') ? _chPhone10(r.phone) : String(r.phone || '').replace(/\D/g, '').slice(-10);
+  const e = String(r.email || '').trim().toLowerCase();
+  let M = mkdPestAiLookup._m;
+  if (!M || M.rows !== G.rows || M.opps !== G.opps) {
+    const cp = new Map(), ce = new Map(), op = new Map(), oe = new Map();
+    const push = (m, k, v) => { if (!k) return; (m.get(k) || m.set(k, []).get(k)).push(v); };
+    for (const c of (G.rows || [])) { push(cp, c[4], c); push(ce, c[5], c); }
+    for (const o of (G.opps || [])) { if (!o || !o[0]) continue; push(op, o[2], o); push(oe, o[3], o); }
+    M = mkdPestAiLookup._m = { rows: G.rows, opps: G.opps, cp, ce, op, oe };
+  }
+  const uniq = (a) => [...new Set(a)];
+  const contacts = uniq([...(M.cp.get(p) || []), ...(M.ce.get(e) || [])]).sort((a, b) => String(b[0]).localeCompare(String(a[0])));
+  const opps = uniq([...(M.op.get(p) || []), ...(M.oe.get(e) || [])]).sort((a, b) => String(b[0]).localeCompare(String(a[0])));
+  const L = (i) => (typeof i === 'number' ? (i >= 0 ? lab[i] : '') : i) || '';
+  const sold = String(r.sold_date || '').slice(0, 10);
+  const days = (d) => Math.round((Date.parse(sold) - Date.parse(String(d).slice(0, 10))) / 86400000);
+  const o = opps.find(x => String(x[0]).slice(0, 10) <= sold) || opps[0] || null;
+  const c = contacts[0] || null;
+  const oSrc = o ? L(o[1]) : '', cSrc = c ? L(c[1]) : '';
+  const prov = (s) => { const v = s && typeof ghlProviderOf === 'function' ? ghlProviderOf(s) : ''; return v === GHL_NOT_LEAD ? 'not a lead' : v; };
+  const want = typeof _mklSaleChannel === 'function' ? _mklSaleChannel(r) : (r.subscription_source || '');
+  let fix;
+  if (!o && !c) fix = 'Not in Pest AI — add the lead with source ' + want;
+  else if (!o) fix = 'Contact only (created ' + String(c[0]).slice(0, 10) + '), no opportunity — open one with source ' + want;
+  else if (String(o[0]).slice(0, 10) > sold) fix = 'Opportunity made after the sale (' + String(o[0]).slice(0, 10) + ')';
+  else if (days(o[0]) > 180) fix = 'Only an old opportunity (' + String(o[0]).slice(0, 10) + ', ' + days(o[0]) + ' days before) — Pest AI reused it; needs a new opportunity with source ' + want;
+  else if (!oSrc) fix = 'Opportunity has no source — set it to ' + want;
+  else if (prov(oSrc) === 'not a lead' || prov(oSrc) === oSrc && typeof mkmChannelSet === 'function' && mkmChannelSet() && !mkmChannelSet().has(oSrc)) fix = 'Source "' + oSrc + '" isn’t mapped to a channel — change it to ' + want + ' (or map it on the Marketing to-do card)';
+  else if (prov(oSrc) !== want) fix = 'Source "' + oSrc + '" reads as ' + prov(oSrc) + ' — FieldRoutes says ' + want;
+  else fix = 'Matches (' + oSrc + ') — left out by a lead rule (current customer / repeat within 30 days)';
+  return { contacts: contacts.length, opps: opps.length, cDate: c ? String(c[0]).slice(0, 10) : '', cSrc, oDate: o ? String(o[0]).slice(0, 10) : '', oSrc, oCh: oSrc ? prov(oSrc) : '',
+    oStatus: o ? String(o[5] || '') : '', oStage: o && o[6] != null && o[6] >= 0 ? (stages[o[6]] || '') : '', want, fix };
+}
+function mkdOpenNoLead(title, rows) {
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (ev) => { if (ev.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey); overlay.addEventListener('click', (ev) => { if (ev.target === overlay) close(); });
+  const muted = { color: 'var(--text-muted)' };
+  const data = rows.slice().sort((a, b) => String(b.sold_date || '').localeCompare(String(a.sold_date || ''))).map(r => ({ r, x: mkdPestAiLookup(r) }));
+  const name = (r) => [String(r.first_name || '').trim(), String(r.last_name || '').trim()].filter(Boolean).join(' ');
+  const cols = [
+    ['Sold', d => String(d.r.sold_date || '').slice(0, 10)], ['Customer', d => name(d.r) + (d.r.customer_id ? ' #' + d.r.customer_id : '')], ['Rep', d => d.r.sold_by], ['Office', d => d.r.office_name],
+    ['FieldRoutes source', d => d.x.want], ['Pest AI contact', d => d.x.cDate ? d.x.cDate + ' · ' + (d.x.cSrc || 'no source') : '—'],
+    ['Pest AI opportunity', d => d.x.oDate ? d.x.oDate + ' · ' + (d.x.oSrc || 'no source') + (d.x.oCh && d.x.oCh !== d.x.oSrc ? ' → ' + d.x.oCh : '') : '—'],
+    ['Status / stage', d => [d.x.oStatus, d.x.oStage].filter(Boolean).join(' · ') || '—'], ['What to change', d => d.x.fix]];
+  const csv = () => { const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const out = [cols.map(c => c[0]).join(',')]; for (const d of data) out.push(cols.map(c => esc(c[1](d))).join(','));
+    const url = URL.createObjectURL(new Blob([out.join('\n')], { type: 'text/csv' })); const a = el('a', { href: url, download: 'ridd-no-lead-' + title.replace(/[^a-z0-9]+/gi, '-').toLowerCase() + '.csv' }); document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url); };
+  const th = (t) => el('th', { class: 'px-3 py-2 text-left text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0 } }, t);
+  const td = (v, st) => el('td', { class: 'px-3 py-1.5 align-top', style: Object.assign({ whiteSpace: 'nowrap' }, st || {}) }, v == null || v === '' ? '—' : v);
+  const card = el('div', { class: 'card', style: { width: 'min(1300px, 96vw)', maxHeight: '86vh', display: 'flex', flexDirection: 'column', margin: '6vh auto 0' }, onclick: (ev) => ev.stopPropagation() },
+    el('div', { class: 'flex items-center gap-3 px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
+      el('div', { class: 'flex-1 min-w-0' }, el('h3', { class: 'text-base font-bold' }, title),
+        el('div', { class: 'text-[11px]', style: muted }, fmt.int(rows.length) + ' sale' + (rows.length === 1 ? '' : 's') + ' with no lead linked · what Pest AI has on the same phone or email, and what to change there')),
+      el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold border', style: { borderColor: 'var(--border-2)' }, onclick: csv }, '↓ Export CSV'),
+      el('button', { class: 'text-2xl leading-none px-1', style: muted, 'aria-label': 'Close', onclick: close }, '×')),
+    el('div', { style: { overflow: 'auto' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, ...cols.map(c => th(c[0])))),
+      el('tbody', {}, ...data.map(d => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        ...cols.map(c => c[0] === 'What to change' ? td(c[1](d), { whiteSpace: 'normal', minWidth: '280px', fontWeight: '600', color: /^Matches/.test(d.x.fix) ? 'var(--text-muted)' : '#B91C1C' }) : td(c[1](d), c[0] === 'Customer' ? { fontWeight: '600' } : null))))))));
+  overlay.append(card); document.body.append(overlay);
 }
 // The leads behind a number: date, source label, channel, office, stage, type. No names on screen — GoHighLevel
 // is the place to open a lead; this is the list to reconcile against.
