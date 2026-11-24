@@ -882,26 +882,48 @@ function reportingOverview() {
       if (cd && cd > st && cd <= end && isRealCancel(r)) { g.cxlAll += arr; if (inBook) g.cxlBook += arr; }
     }
     const custBy = new Map(((dataA.slices && dataA.slices.custOffice) || []).map(x => [x.label, x.value]));
+    // Churn is the Retention tab's own number for that office (per Isaac, Nov 24 — "do they line up?"): trailing-12-month
+    // attrition = counted cancels in the last 365 days ÷ the subscriptions on the books a year ago, through the same
+    // scope steps and retention book (retenScopeSteps → semRetentionBook → trailing12_attrition). Pick the office on the
+    // Retention tab and its Trailing 12 months tile reads the same. Kept 5 minutes per office while the data and rules
+    // are unchanged.
+    const retOf = (label) => { try {
+      if (typeof _retenOfficeSlice !== 'function' || typeof retenScopeSteps !== 'function' || typeof semRetentionBook !== 'function' || typeof retenTrailing12 !== 'function') return null;
+      const ground = _retenOfficeSlice(label);
+      return refMemo('ov:brRet:' + label, [ground, typeof _retenMemoKey === 'function' ? _retenMemoKey() : '', window._riddMutRev || 0, new Date().toDateString()], 300000, () => { const t = retenTrailing12(semRetentionBook(retenScopeSteps(ground).out)); return t && t.boy >= 50 ? t.rate : null; });
+    } catch (e) { return null; } };
     const tot = sl.reduce((a, x) => a + x.value, 0);
     const rows = sl.filter(x => x.value > 0).map(x => { const g = B.get(x.label) || { book: 0, add: 0, cxlBook: 0, cxlAll: 0, office: 0, tech: 0, d2d: 0 };
-      return { label: x.label, arr: x.value, share: tot ? x.value / tot : null, cust: custBy.get(x.label) || null, add: g.add, churn: g.book > 0 ? g.cxlBook / g.book : null, net: g.add - g.cxlAll,
+      return { label: x.label, arr: x.value, share: tot ? x.value / tot : null, cust: custBy.get(x.label) || null, add: g.add, churn: retOf(x.label), net: g.add - g.cxlAll,
         growth: g.book > 0 ? (g.add - g.cxlAll) / g.book : null, office: g.office, tech: g.tech, d2d: g.d2d }; });
     const usd = (v) => v == null ? '—' : fmt.usd0(v), pc = (v, d) => v == null || !isFinite(v) ? '—' : (v * 100).toFixed(d == null ? 1 : d) + '%';
     const COLS = [
       { k: 'arr', t: 'Active ARR', f: usd, up: true }, { k: 'share', t: 'Share', f: pc, up: null }, { k: 'cust', t: 'Customers', f: (v) => v == null ? '—' : fmt.int(v), up: true },
       { k: 'add', t: 'New ARR · 12 mo', f: usd, up: true, tip: 'Recurring ARR first serviced in the last 12 months (renewals out)' },
-      { k: 'churn', t: 'Churn · 12 mo', f: pc, up: false, tip: 'ARR cancelled from the book as it stood 12 months ago ÷ that book' },
+      { k: 'churn', t: 'Attrition \u00b7 12 mo', f: pc, up: false, tip: 'The Retention tab\u2019s Trailing 12 months for that office: counted cancels in the last 365 days \u00f7 subscriptions on the books a year ago' },
       { k: 'net', t: 'Net · 12 mo', f: (v) => v == null ? '—' : (v < 0 ? '−' : '+') + fmt.usd0(Math.abs(v)), up: true, tip: 'New ARR minus every counted cancel in the last 12 months' },
       { k: 'growth', t: 'Book growth', f: pc, up: true, tip: 'Net ÷ the book 12 months ago' },
       { k: 'office', t: 'Office sales \u00b7 YTD', f: (v) => fmt.int(v || 0), up: true, tip: 'New sales this year sold by Office Staff (initial pending or serviced, renewals out)' },
       { k: 'tech', t: 'Tech sales \u00b7 YTD', f: (v) => fmt.int(v || 0), up: true, tip: 'New sales this year sold by Technicians' },
       { k: 'd2d', t: 'D2D sales \u00b7 YTD', f: (v) => fmt.int(v || 0), up: true, tip: 'New sales this year sold by Sales Reps (door to door)' }];
+    // Column order (per Isaac, Nov 24): the owner admin drags a header onto another to move it; the order is saved for
+    // everyone (admin rule brScoreCols). New columns added later fall in at the end.
+    const _ord = ((typeof _adminRules === 'function' && _adminRules()) || {}).brScoreCols;
+    if (Array.isArray(_ord) && _ord.length) COLS.sort((a, b) => { const i = _ord.indexOf(a.k), j = _ord.indexOf(b.k); return (i < 0 ? 999 : i) - (j < 0 ? 999 : j); });
+    const canOrder = typeof isOwnerUser === 'function' && isOwnerUser() && typeof _setAdminRule === 'function';
+    const moveCol = (from, to) => { if (!from || from === to) return; const ks = COLS.map(c => c.k); const i = ks.indexOf(from), j = ks.indexOf(to); if (i < 0 || j < 0) return; ks.splice(j, 0, ks.splice(i, 1)[0]); _setAdminRule('brScoreCols', ks); mountApp(); };
     const S = state._brSort || { k: 'arr', dir: -1 };
     rows.sort((a, b) => ((a[S.k] == null ? -Infinity : a[S.k]) - (b[S.k] == null ? -Infinity : b[S.k])) * S.dir);
     const tone = {}; for (const c of COLS) { if (c.up == null) continue; const v = rows.map(r => r[c.k]).filter(x => x != null && isFinite(x)).sort((a, b) => a - b); if (v.length < 6) continue; tone[c.k] = { lo: v[2], hi: v[v.length - 3] }; }
     const colorOf = (c, v) => { const t = tone[c.k]; if (!t || v == null || !isFinite(v)) return undefined; const good = c.up ? v >= t.hi : v <= t.lo, bad = c.up ? v <= t.lo : v >= t.hi; return good ? '#15803D' : bad ? '#B91C1C' : undefined; };
     const nm = (l) => typeof _titleCaseWords === 'function' ? _titleCaseWords(l) : l;
-    const th = (c) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap text-left cursor-pointer', title: (c.tip ? c.tip + ' · ' : '') + 'click to sort', style: { color: S.k === c.k ? 'var(--accent)' : 'var(--text-muted)', background: 'var(--card-2)' },
+    const th = (c) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap text-left cursor-pointer', title: (c.tip ? c.tip + ' · ' : '') + 'click to sort' + (canOrder ? ' \u00b7 drag onto another column to move it' : ''), style: { color: S.k === c.k ? 'var(--accent)' : 'var(--text-muted)', background: 'var(--card-2)' },
+      ...(canOrder ? { draggable: 'true',
+        ondragstart: (e) => { state._brDrag = c.k; try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', c.k); } catch (err) { /* older browsers */ } },
+        ondragover: (e) => { if (state._brDrag && state._brDrag !== c.k) { e.preventDefault(); e.currentTarget.style.boxShadow = 'inset 3px 0 0 var(--accent)'; } },
+        ondragleave: (e) => { e.currentTarget.style.boxShadow = ''; },
+        ondrop: (e) => { e.preventDefault(); const from = state._brDrag; state._brDrag = null; moveCol(from, c.k); },
+        ondragend: () => { state._brDrag = null; } } : {}),
       onclick: () => { state._brSort = { k: c.k, dir: S.k === c.k ? -S.dir : (c.up === false ? 1 : -1) }; mountApp(); } }, c.t + (S.k === c.k ? (S.dir < 0 ? ' ↓' : ' ↑') : ''));
     return el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)', marginTop: '12px' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold text-left', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, 'Branch'), ...COLS.map(th))),
