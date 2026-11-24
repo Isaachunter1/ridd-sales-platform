@@ -170,6 +170,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/market-quote"
+  to   = "/.netlify/functions/market-quote"
+  status = 200
+
+[[redirects]]
   from = "/api/ad-spend"
   to   = "/.netlify/functions/ad-spend"
   status = 200

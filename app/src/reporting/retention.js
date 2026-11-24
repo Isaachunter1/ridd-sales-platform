@@ -1823,21 +1823,27 @@ function reportingWaterfall() {
           viewToggle,
           )),
       view === 'timeline' ? (yoyOn ? yoyEl() : timelineEl()) : tableEl(),
-      // Tie-out to the Cohort Waterfall (per Isaac, Oct 12): same book, same cancels — the waterfall follows each
-      // start year, this grid follows the whole book month by month. Book on Jan 1 + started this year − active
-      // now = lost this year; this grid leaves out only subs acquired and lost inside the same month.
+      // Why these totals differ from Blended attrition (per Isaac, Nov 24 — replaces the waterfall tie-out line). Same
+      // book, same cancels, two different questions; the numbers below are computed, not typed.
       (!R && view === 'table') ? (() => {
-        const st = curY + '-01-01', ymNow = curY + '-' + pad2(curM);
-        const boy = rows.filter(r => r.initial_service < st && (!r._effCancel || r._effCancel >= st)).length;
-        const started = rows.filter(r => r.initial_service >= st).length;
-        const activeNow = rows.filter(r => !r._effCancel).length;
-        const lost = boy + started - activeNow;
-        let inGrid = 0; for (let m = 1; m <= curM; m++) inGrid += cancelsByYm[curY + '-' + pad2(m)] || 0;
-        const sameMonth = rows.filter(r => r._effCancel && String(r._effCancel).slice(0, 4) === String(curY) && String(r.initial_service).slice(0, 7) === String(r._effCancel).slice(0, 7)).length;
-        return el('div', { class: 'px-4 py-2 border-t text-[11px]', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } },
-          el('span', { class: 'font-semibold', style: { color: 'var(--text)' } }, 'Ties to the Cohort Waterfall · ' + curY + ': '),
-          fmt.int(boy) + ' on the book Jan 1 + ' + fmt.int(started) + ' started − ' + fmt.int(activeNow) + ' active now = ' + fmt.int(lost) + ' lost. ',
-          'This grid counts ' + fmt.int(inGrid) + ' of them; the other ' + fmt.int(Math.max(0, lost - inGrid)) + ' were acquired and lost in the same month' + (sameMonth ? ' (' + fmt.int(sameMonth) + ')' : '') + ', which monthly churn leaves out. The waterfall’s ' + curY + ' row is only the ' + fmt.int(started) + ' that started this year; the rest of the lost accounts started in earlier years.');
+        const explain = (y) => {
+          const A = semMetric('annual_attrition')(rows, y); if (!A || !A.d) return null;
+          let n = 0, rate = 0, first = null, last = null;
+          for (let m = 1; m <= 12; m++) { if (y === curY && m > curM) break; const v = rateOf(y, m); if (!v) continue; n += v.n; rate += v.rate; const bk = v.den || null; if (bk) { if (first == null) first = bk; last = bk; } }
+          if (!n) return null;
+          const ytd = y === curY ? ' so far' : '';
+          return el('div', {},
+            el('b', { style: { color: 'var(--text)' } }, y + ytd + ': ' + (rate * 100).toFixed(1) + '% here vs ' + (A.value * 100).toFixed(1) + '% blended. '),
+            'Blended follows only the ' + fmt.int(A.d) + ' subscriptions on the book Jan 1: ' + fmt.int(A.n) + ' of them left' + ytd + ' = ' + (A.value * 100).toFixed(1) + '%. ',
+            'This table counts every cancel in the year, ' + fmt.int(n) + ', so it also has ' + fmt.int(Math.max(0, n - A.n)) + ' from customers who started during ' + y + '. ',
+            (first && last ? 'And each month is divided by that month’s book, which went from ' + fmt.int(first) + ' to ' + fmt.int(last) + ' as new customers were added, then the monthly rates are added up.' : 'And each month is divided by that month’s book, then the monthly rates are added up.'));
+        };
+        const lines = [curY - 1, curY].map(explain).filter(Boolean);
+        if (!lines.length) return null;
+        return el('div', { class: 'px-4 py-2 border-t text-[11px] flex flex-col gap-1', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } },
+          el('div', {}, el('span', { class: 'font-semibold', style: { color: 'var(--text)' } }, 'Why the totals here are not the Blended attrition numbers: '),
+            'Blended attrition asks “of the customers we had on Jan 1, how many did we lose this year?” Monthly churn asks “each month, what share of that month’s customers left?” More cancels counted, on a base that grows all year.'),
+          ...lines);
       })() : null);
   };
 

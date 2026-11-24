@@ -95,3 +95,16 @@ selling & marketing = Advertising & Marketing + Selling Expenses + Incentive Cos
 "EBITDA before selling costs" = EBITDA + that selling & marketing total.
 OPEN: the P&L tab's "Adjusted EBITDA" adds back commissions + marketing + incentives but NOT housing.
 Not changed — waiting on Isaac. Admin only; a Developer sees "admin only", never sample or real numbers.
+
+## 2026-11-24 — Market Watch simplified; Rollins is the benchmark
+Per Isaac: lead with what moves the business, Rollins as the benchmark, plus its share price and next earnings date.
+Page order: share price + next earnings, RIDD vs Rollins (first 9 months of 2026 vs RIDD's last 12 closed months),
+What to act on (Rollins' own statements with a question for RIDD — suggestions, not findings), then the old tables folded away.
+Share price comes from a new function, /api/market-quote (fixed symbol ROL, public data, no secrets). NOT TESTED against
+the live sources from the build machine (network blocked) — if both sources fail the card shows a link instead of a number.
+Next earnings date is not announced; the page says "Mid-February 2027" as expected from the last three Q4 calls. Set
+MARKET_WATCH.nextEarnings.date when Rollins announces it.
+
+## 2026-11-24 — Owner layout / admin settings no longer lost on a save conflict
+Card and column orders "kept moving back": when another browser saved the shared config first, the conflict handler adopted
+the server copy and replayed only tier tags and team renames. Admin rules set just before the conflict are now replayed too.

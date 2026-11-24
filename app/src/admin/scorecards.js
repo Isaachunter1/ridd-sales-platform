@@ -1727,6 +1727,10 @@ function _setAdminRule(key, val) {
   state._compExtras = state._compExtras || {};
   const r = state._compExtras.adminRules = state._compExtras.adminRules || {};
   r[key] = val;
+  // Survive a save conflict (per Isaac, Nov 24 — card and column orders kept "moving back"): when another browser
+  // saved the shared config first, this browser adopts the server copy, which used to drop the setting just made.
+  // Queue it so the conflict handler in config-sync.js puts it back on top and saves once more.
+  try { state._cfgReplay = (Array.isArray(state._cfgReplay) ? state._cfgReplay : []).filter(op => !(op[0] === 'adminRule' && op[1] === key)); state._cfgReplay.push(['adminRule', key, val]); } catch (e) { /* best effort */ }
   try { saveIndicatorState(); } catch (e) { /* localStorage fallback below still applies */ }
 }
 
