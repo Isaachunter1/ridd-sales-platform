@@ -85,11 +85,3 @@ test('approved, serviced, then cancels before payroll → left alone (not a pre-
 test('a seller with no app account (rep_id null) still moves to Commissionable', () => {
   assert.equal(decideStage(sale({ rep_id: null }), row({}), ctx()).audit_status, 'serviced');
 });
-
-test('paid since the sale totals what was collected (computed Passed Audit $39 check)', () => {
-  const x = { id: 's1', customer_number: '#184', sold_date: '2026-11-20', audit_status: 'pending', notes: '', queue_type: 'office' };
-  const pays = new Map([['184', [{ d: '2026-11-20', st: '1', pm: '3', amt: 20 }, { d: '2026-11-21', st: '1', pm: '3', amt: 19 }, { d: '2026-11-21', st: '1', pm: '3', amt: 50, wo: '1' }]]]);
-  const a = paidSinceDecision(x, pays, { stamp: 'T', _autoApproveOn: () => true, nsfNow: new Set(), amountCol: true });
-  assert.equal(a.v.paidAmt, 39);
-  assert.equal(a.upd.crm_paid_amount, 39);
-});

@@ -79,18 +79,15 @@ export function stageSettings(AL2) {
 
 // Paid since the sale (per Isaac, Oct 15) — one sale's decision from the customer's FieldRoutes payments.
 // Returns { v, upd }; upd.audit_status is set only when the queue moves (NSF in, or back to Pending).
-export function paidSinceDecision(x, byCust, { stamp, _autoApproveOn, nsfNow, amountCol = false }) {
+export function paidSinceDecision(x, byCust, { stamp, _autoApproveOn, nsfNow }) {
   const isOk = (t) => String(t.st) === '1' && String(t.pm) !== '0' && (Number(t.amt) || 0) > 0 && String(t.wo || '0') !== '1' && String(t.cm || '0') !== '1';
   const isDecl = (t) => String(t.st) === '0';
   const day = String(x.sold_date || '').slice(0, 10);
   const mine = (byCust.get(String(x.customer_number).replace(/[^0-9]/g, '')) || []).filter(t => String(t.d || '') >= day);
   const ok = mine.filter(isOk).map(t => t.d).sort();
   const dec = mine.filter(isDecl).map(t => t.d).sort();
-  // Total collected since the sale — the computed Passed Audit's "$39 upfront" check (per Isaac, Nov 23 2026).
-  const paidAmt = Math.round(mine.filter(isOk).reduce((a, t) => a + (Number(t.amt) || 0), 0) * 100) / 100;
-  const v = { paid: ok.length > 0, paidAt: ok[0] || null, declinedAt: ok.length ? null : (dec[dec.length - 1] || null), paidAmt };
+  const v = { paid: ok.length > 0, paidAt: ok[0] || null, declinedAt: ok.length ? null : (dec[dec.length - 1] || null) };
   const upd = { crm_paid_since_sale: v.paid ? true : (v.declinedAt ? false : null), crm_paid_at: v.paidAt, crm_declined_at: v.declinedAt, crm_payment_checked_at: stamp };
-  if (amountCol) upd.crm_paid_amount = paidAmt;
   const inScope = _autoApproveOn(x);
   const autoNsf = /Auto: NSF/.test(String(x.notes || ''));
   if (inScope && x.audit_status === 'pending' && !v.paid && v.declinedAt) {

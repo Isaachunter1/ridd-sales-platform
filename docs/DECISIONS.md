@@ -71,11 +71,3 @@ Per Isaac: a sale whose FieldRoutes seller has no app account (rep_id null, e.g.
 through auto-approve like any other — the approval no longer requires rep_id. Payroll still holds those rows
 ("held" in openPayrollRun) until the account is linked; the live sync then attaches rep_id automatically.
 Commissions → Office Staff lists each unlinked seller as its own row ("No app account", estimated at base rates).
-
-## 2026-11-24 — Passed Audit is computed (sales from Nov 15 2026)
-Per Isaac: Passed Audit = new accounts only — initial appointment scheduled (Pending/Completed) + autopay on +
-at least $39 collected since the sale (successful card/ACH payments, summed; write-offs and credit memos out).
-Signed agreement dropped for now (e-sign record lags same-day). Add-ons pass automatically; renewals don't count
-(both were already out of the Passed Audit % — passedAuditExempt). The office's Failed Audit flag still holds a sale.
-Sales before autolog.audit_auto_from (default 2026-11-15, the current pay period) keep the manual FieldRoutes flag,
-so no paid period changes. $39 = autolog.audit_min_upfront. Needs db/migrations/20261124_sales_paid_amount.sql.

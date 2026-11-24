@@ -1551,16 +1551,6 @@ exports.handler = async (event) => {
         if (apErr) { _apptCol = false; console.warn('[revhawk-sync] crm_initial_appt_at missing — run migrations/20260921_sales_initial_appt.sql for the Service date column'); }
         else (ap || []).forEach(x => _apptNow.set(x.id, x.crm_initial_appt_at ? String(x.crm_initial_appt_at).slice(0, 10) : null));
       } catch (e) { _apptCol = false; }
-      // Computed Passed Audit inputs (per Isaac, Nov 23 2026) — 20261124_sales_paid_amount.sql.
-      const _alVal = (_alV.data && _alV.data.value) || {};
-      const _auditAutoFrom = /^\d{4}-\d{2}-\d{2}$/.test(String(_alVal.audit_auto_from || '')) ? String(_alVal.audit_auto_from) : '2026-11-15';
-      const _auditMinUpfront = Number(_alVal.audit_min_upfront) > 0 ? Number(_alVal.audit_min_upfront) : 39;
-      const _paidAmtNow = new Map();
-      try {
-        const { data: pa, error: paErr } = await selectAll(() => supabase.from('sales').select('id, crm_paid_amount').gte('sold_date', _auditAutoFrom));
-        if (paErr) console.warn('[revhawk-sync] crm_paid_amount missing — run db/migrations/20261124_sales_paid_amount.sql for the computed Passed Audit');
-        else (pa || []).forEach(x => _paidAmtNow.set(x.id, x.crm_paid_amount));
-      } catch (e) { /* column not there yet — computed audit reads $0 until it is */ }
       let _agreementCols = true;   // flips off if sales_crm_agreement.sql hasn't been run
       let _eligCols = true;        // flips off if 20260916_sales_eligibility.sql hasn't been run
       if (asErr && /crm_first_paid_at/i.test(asErr.message || '')) {
@@ -1670,23 +1660,9 @@ exports.handler = async (event) => {
           const apptChanged = _apptCol && !!lc.appt_at && !_upsellIds.has(s.id) && (_apptNow.get(s.id) || null) !== lc.appt_at;   // a snapshot without the appointment yet never blanks a date the live pull stamped
           const pifChanged = !!lc.cardKnown && (!!s.paid_in_full) !== lc.pif;
           const commChanged = !!lc.cardKnown && (!!s.is_commercial) !== !!lc.commercial;
-          // Passed Audit, computed (per Isaac, Nov 23 2026) for sales on/after autolog.audit_auto_from (default the
-          // Nov 15 pay period): NEW accounts pass when the initial is scheduled (Pending/Completed) + autopay is on +
-          // at least $39 collected since the sale. Add-ons pass automatically. Renewals keep the old flag reading —
-          // they're out of the Passed Audit % either way. The office's Failed Audit flag still holds a sale for review.
-          // Signed agreement isn't part of it (the e-sign record lags same-day — per Isaac, drop it for now).
-          const _autoAud = String(s.sold_date || '').slice(0, 10) >= _auditAutoFrom;
-          const _ren = !!lc.best && /renew/i.test(String(lc.best.subscription_source || '') + ' ' + String(lc.best.lead_source || ''));
-          let flagNow = _hasFlagV(lc.best), auditNow = _auditV(lc.best);
-          if (_autoAud && _upsellIds.has(s.id)) { flagNow = true; auditNow = 'passed'; }
-          else if (_autoAud && !_ren && lc.best) {
-            const _ap = /^(pending|completed)$/i.test(String(lc.best.initial_status || '').trim());
-            const _pay = (() => { const a = String(lc.best.customer_auto_pay || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); })();
-            const _amt = Number(_paidAmtNow.get(s.id)) || 0;
-            flagNow = _ap && _pay && _amt >= _auditMinUpfront - 0.001;
-            auditNow = auditNow === 'failed' ? 'failed' : (flagNow ? 'passed' : null);
-          }
+          const flagNow = _hasFlagV(lc.best);
           const flagChanged = !!s.crm_subscription_id && (!!s.upfront_collected) !== flagNow;
+          const auditNow = _auditV(lc.best);
           const auditChanged = !!s.crm_subscription_id && (s.crm_audit || null) !== auditNow;
           const sigChanged = _agreementCols && (
             String(s.crm_contract_signed_at || '') !== String(lc.signed_at || '') ||
@@ -1817,20 +1793,14 @@ exports.handler = async (event) => {
         const nsfNow = new Set();      // set to NSF this run — the approval pass below must not overwrite it
         try {
           const _from = (/^\d{4}-\d{2}-\d{2}$/.test(String(AL2.auto_approve_from || '')) ? String(AL2.auto_approve_from) : '2026-10-12');
-          const _amtCol = !(await supabase.from('sales').select('crm_paid_amount').limit(1)).error;   // 20261124_sales_paid_amount.sql
-          const _audFrom = /^\d{4}-\d{2}-\d{2}$/.test(String(AL2.audit_auto_from || '')) ? String(AL2.audit_auto_from) : '2026-11-15';
-          const _audMin = Number(AL2.audit_min_upfront) > 0 ? Number(AL2.audit_min_upfront) : 39;
           const { data: pc, error: pe } = await selectAll(() => supabase.from('sales')
-            .select('id, customer_number, sold_date, audit_status, notes, queue_type, sale_kind, rep_id, payroll_processed_at, crm_paid_since_sale, crm_payment_checked_at' + (_amtCol ? ', crm_paid_amount' : ''))
+            .select('id, customer_number, sold_date, audit_status, notes, queue_type, sale_kind, rep_id, payroll_processed_at, crm_paid_since_sale, crm_payment_checked_at')
             .gte('sold_date', _from).is('payroll_processed_at', null).in('audit_status', ['pending', 'nsf', 'serviced', 'below_minimums']));
           if (pe) throw new Error(pe.message);
           const RECHECK = 20 * 60000;   // unpaid-yet sales re-checked every 20 min (was 3h — per Isaac, Oct 15: as fast as we can)
           // Declined / NSF rows are re-checked every run so they flip back as soon as the customer pays.
-          // Paid sales under the $39 Passed Audit minimum (or not totalled yet) keep being re-checked too, so a
-          // second payment toward the upfront still counts (per Isaac, Nov 23 2026).
-          const _amtShort = (x) => _amtCol && x.crm_paid_since_sale === true && String(x.sold_date || '').slice(0, 10) >= _audFrom && !(Number(x.crm_paid_amount) >= _audMin - 0.001);
-          const due = (pc || []).filter(x => x.customer_number && (x.crm_paid_since_sale !== true || _amtShort(x))
-            && (x.audit_status === 'nsf' || x.crm_paid_since_sale === false || !x.crm_payment_checked_at || (today - Date.parse(x.crm_payment_checked_at)) > RECHECK || (_amtShort(x) && x.crm_paid_amount == null)));
+          const due = (pc || []).filter(x => x.customer_number && x.crm_paid_since_sale !== true
+            && (x.audit_status === 'nsf' || x.crm_paid_since_sale === false || !x.crm_payment_checked_at || (today - Date.parse(x.crm_payment_checked_at)) > RECHECK));
           if (due.length) {
             const tokPay = await getAccessToken();
             const TP = '`' + PROJECT + '.' + DATASET + '.FieldRoutesPayment`';
@@ -1854,11 +1824,9 @@ QUALIFY ROW_NUMBER() OVER (PARTITION BY fieldRoutes_paymentID ORDER BY updatedAt
               const mine = (byCust.get(String(x.customer_number).replace(/[^0-9]/g, '')) || []).filter(t => String(t.d || '') >= day);
               const ok = mine.filter(isOk).map(t => t.d).sort();
               const dec = mine.filter(isDecl).map(t => t.d).sort();
-              const paidAmt = Math.round(mine.filter(isOk).reduce((a, t) => a + (Number(t.amt) || 0), 0) * 100) / 100;
-              const v = { paid: ok.length > 0, paidAt: ok[0] || null, declinedAt: ok.length ? null : (dec[dec.length - 1] || null), paidAmt };
+              const v = { paid: ok.length > 0, paidAt: ok[0] || null, declinedAt: ok.length ? null : (dec[dec.length - 1] || null) };
               paidSince.set(x.id, v);
               const upd = { crm_paid_since_sale: v.paid ? true : (v.declinedAt ? false : null), crm_paid_at: v.paidAt, crm_declined_at: v.declinedAt, crm_payment_checked_at: stamp };
-              if (_amtCol) upd.crm_paid_amount = paidAmt;
               const inScope = _autoApproveOn(x);
               const autoNsf = /Auto: NSF/.test(String(x.notes || ''));
               if (inScope && x.audit_status === 'pending' && !v.paid && v.declinedAt) {
