@@ -177,3 +177,7 @@ An add-on with no appointment behind it still lists when the plan is active and 
 ## 2026-11-24 — Add-ons task runs two checks: no rep, and no visit booked
 Isaac: "is the add on assigned to a rep and did they also book the appointment FOR that add on?"
 The task now covers every add-on, not only uncredited ones. No rep: as before. No visit: a real customer (active, with a completed service, signed agreement or autopay) with no initial booked, no service completed on or after the add-on date, and no next service on the plan's calendar (next_appt_date). One day's grace on the no-visit check. FieldRoutes books visits on the plan, not the add-on line, so "a visit for the add-on" means a visit on that plan on or after the add-on date. Each row is tagged No rep, No visit, or both.
+
+## 2026-11-24 — Channel metrics: descriptions out, pacer in the Read column
+Isaac: "get rid of the description and then on the read column get rid of the description and show like a pacer with revenue, spend, and projected".
+The card's header and footer sentences are gone. Under the Read pill, the sentence is replaced by a small grid: spend and revenue so far, and each projected to month end at the current daily pace (so far ÷ days gone × days in the month). Projected spend turns red when it lands over the budget. A closed month shows finals only. The reasoning sentence stays as the cell's hover text.

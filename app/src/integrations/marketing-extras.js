@@ -205,10 +205,23 @@ function mkxProviderPulseCard(ym, DR, rangeLbl) {
   const V = { raise: ['Ahead of plan', 'rgba(21,128,61,.12)', '#15803D'], hold: ['On plan', 'rgba(47,93,98,.12)', '#2F5D62'], cut: ['Behind plan', 'rgba(220,38,38,.12)', '#DC2626'] };
   const setBudget = (k, v) => { if (typeof mkbSetBudget === 'function') { mkbSetBudget(ym, k, v); mountApp(); return; } const next = Object.assign({}, B); const n = Number(String(v).replace(/[^0-9.]/g, '')); if (n > 0) next[k] = Math.round(n); else delete next[k]; _setAdminRule('provBudgets', next); try { if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {}); } catch (e) { /* syncs on the next save */ } mountApp(); };
   const dlt = (now, was, lowGood) => now == null || was == null || !was ? null : (() => { const d = now / was - 1; if (Math.abs(d) < 0.005) return null; const good = lowGood ? d < 0 : d > 0; return sub((d > 0 ? '↑ ' : '↓ ') + Math.abs(d * 100).toFixed(0) + '% vs its 3-mo', good ? '#15803D' : '#B91C1C'); })();
+  // The pacer under the read (per Isaac, Nov 24 — in place of the sentence): spend and revenue so far, and where each
+  // lands at month end at this daily pace (so far ÷ days gone × days in the month). A closed month shows its finals.
+  const pacer = (r) => {
+    if (isRange || (!r.c.spend && !r.c.cv)) return null;
+    const proj = (v) => isOpen && day > 0 ? v / day * dim : v;
+    const pS = proj(r.c.spend || 0), pR = proj(r.c.cv || 0), overB = r.budget && pS > r.budget * 1.02;
+    const cell = (t, o) => el('div', Object.assign({ class: 'text-[10px] tabular-nums whitespace-nowrap' }, o || {}), t);
+    const hd = (t) => cell(t, { style: { color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '.06em' } });
+    const lab = (t) => cell(t, { style: { color: 'var(--text-subtle)' } });
+    return el('div', { class: 'mt-1.5', style: { display: 'grid', gridTemplateColumns: 'auto auto auto', columnGap: '10px', rowGap: '1px', justifyContent: 'start' } },
+      hd(''), hd(isOpen ? 'So far' : 'Final'), isOpen ? hd('Projected') : hd(''),
+      lab('Spend'), cell(r.c.spend ? fmt.usd0(r.c.spend) : '—', { style: { fontWeight: 600 } }), isOpen ? cell(r.c.spend ? fmt.usd0(pS) : '—', { title: r.budget ? 'Budget ' + fmt.usd0(r.budget) : '', style: { fontWeight: 700, color: overB ? '#DC2626' : undefined } }) : cell(''),
+      lab('Revenue'), cell(fmt.usd0(r.c.cv || 0), { style: { fontWeight: 600 } }), isOpen ? cell(fmt.usd0(pR), { style: { fontWeight: 700 } }) : cell(''));
+  };
   const lbl = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   return el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkt-provpulse' },
-    el('div', { class: 'px-5 py-3 flex items-baseline gap-3 flex-wrap' }, el('h3', { class: 'text-base font-bold' }, 'Channel metrics · ' + (isRange ? rangeLbl : lbl + (isOpen ? ' · day ' + day + ' of ' + dim : ''))),
-      el('span', { class: 'text-[11px]', style: _mkxMuted }, 'Spend from QuickBooks · leads from Pest AI · bookings and revenue from FieldRoutes' + (allCac ? ' · all-provider CAC ' + fmt.usd0(allCac) : '') + (!isRange ? ' · budgets come from the Budget tab' : ''))),
+    el('div', { class: 'px-5 py-3 flex items-baseline gap-3 flex-wrap' }, el('h3', { class: 'text-base font-bold' }, 'Channel metrics · ' + (isRange ? rangeLbl : lbl + (isOpen ? ' · day ' + day + ' of ' + dim : '')))),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse', minWidth: '980px' } },
       el('thead', {}, el('tr', {}, th('Channel'), isRange ? null : th('Budget', 'Monthly budget you gave the provider — saved for everyone'), th('Spend', 'QuickBooks spend booked this month, and when the budget runs out at this daily pace'),
         th('Leads', 'GoHighLevel leads this month and cost per lead'), th('Bookings', 'New sales: initial on the calendar or serviced, by the FieldRoutes source (last touch), with the close rate'), th('Serviced', 'Bookings whose initial service is done'), th('Revenue', 'Contract value of those bookings, from FieldRoutes'), th('CAC', 'Spend ÷ bookings'), th('Return', 'Revenue ÷ spend'),
@@ -231,8 +244,7 @@ function mkxProviderPulseCard(ym, DR, rangeLbl) {
           td(r.roas != null ? r.roas.toFixed(1) + 'x' : '—'),
           td(r.nSales ? el('span', { style: { color: r.linked / r.nSales >= 0.8 ? '#15803D' : r.linked / r.nSales >= 0.5 ? '#B45309' : '#DC2626', fontWeight: 700 } }, Math.round(r.linked / r.nSales * 100) + '%') : '—', r.nSales ? sub(r.linked + ' of ' + r.nSales + ' sales') : null),
           el('td', { class: 'px-3 py-2 align-top', title: r.why }, r.verdict ? el('span', { class: 'rounded-full px-2 py-0.5 text-[11px] font-black whitespace-nowrap', style: { background: V[r.verdict][1], color: V[r.verdict][2] } }, V[r.verdict][0]) : el('span', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, isRange ? '—' : 'Too little to read'),
-            el('div', { class: 'text-[10px] mt-1', style: { color: 'var(--text-subtle)', whiteSpace: 'normal', maxWidth: '230px' } }, r.why))); })))),
-    el('div', { class: 'px-5 py-2 text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Sales are counted on the FieldRoutes source, so a provider’s row is only as good as its sources: fix anything under Auditing → Attribution → Source check first. A provider that bills late shows less spend here than it has really used.'));
+            pacer(r))); })))));
 }
 
 // ── Morning brief ────────────────────────────────────────────────────────────
