@@ -502,10 +502,12 @@ function viewPricing() {
     // is just a light fill (per Isaac, Nov 24 — three dark checks read as three plans selected).
     const choice = (opts, cur, onPick, live) => el('div', { role: 'radiogroup', class: 'ps-choice', style: { display: 'flex', alignItems: 'stretch', width: '100%', maxWidth: '300px', border: '1.3px solid ' + C.ink3, borderRadius: '14px', overflow: 'hidden', background: '#fff' } },
       ...opts.flatMap(([id, label], i) => {
-        const on = cur === id;
+        // Only the selected plan shows a pick; every option on the other cards is white and tappable — tapping one
+        // selects that plan with that option (per Isaac, Nov 24: the grey halves couldn't be clicked).
+        const on = live && cur === id;
         const btn = el('button', { role: 'radio', 'aria-checked': on ? 'true' : 'false', onclick: (e) => { e.stopPropagation(); if (!on) onPick(id); },
-          style: { flex: '1 1 0', minWidth: 0, font: '600 8.5px/1.25 ' + MONO, letterSpacing: '.06em', textTransform: 'uppercase', padding: '6px 8px', border: 0, background: on ? (live ? C.char : C.cream2) : 'transparent', color: on ? (live ? '#fff' : C.char) : C.ink2, fontWeight: on ? '700' : '600', cursor: on ? 'default' : 'pointer', textAlign: 'center' } },
-          (on && live ? '\u2713 ' : '') + label);
+          style: { flex: '1 1 0', minWidth: 0, font: '600 8.5px/1.25 ' + MONO, letterSpacing: '.06em', textTransform: 'uppercase', padding: '6px 8px', border: 0, background: on ? C.char : 'transparent', color: on ? '#fff' : C.ink2, fontWeight: on ? '700' : '600', cursor: on ? 'default' : 'pointer', textAlign: 'center' } },
+          (on ? '\u2713 ' : '') + label);
         return i === 0 ? [btn] : [el('span', { 'aria-hidden': 'true', style: { font: '700 7.5px/1 ' + MONO, letterSpacing: '.1em', color: C.ink3, display: 'flex', alignItems: 'center', padding: '0 5px', borderLeft: '1px solid ' + C.cream2, borderRight: '1px solid ' + C.cream2, background: C.cream } }, 'OR'), btn];
       }));
     const pillsFor = (c) => {
