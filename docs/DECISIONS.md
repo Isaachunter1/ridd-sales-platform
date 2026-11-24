@@ -173,3 +173,7 @@ An add-on is listed only when its plan has an initial booked (initial pending wi
 ## 2026-11-24 — Add-ons with no rep: a real customer lists even with no appointment
 Isaac: "what if a rep forgets to schedule an appointment for the upsell WITH the add on?"
 An add-on with no appointment behind it still lists when the plan is active and has a completed service, a signed agreement or autopay on — flagged "not serviced since the add-on, check a visit is booked". Only frozen/cancelled plans and plans that never started (none of the three, e.g. #186193) stay off, and are counted in the note. The snapshot has no future-appointment date for existing customers, so the flag says to check rather than claiming none is booked.
+
+## 2026-11-24 — Add-ons task runs two checks: no rep, and no visit booked
+Isaac: "is the add on assigned to a rep and did they also book the appointment FOR that add on?"
+The task now covers every add-on, not only uncredited ones. No rep: as before. No visit: a real customer (active, with a completed service, signed agreement or autopay) with no initial booked, no service completed on or after the add-on date, and no next service on the plan's calendar (next_appt_date). One day's grace on the no-visit check. FieldRoutes books visits on the plan, not the add-on line, so "a visit for the add-on" means a visit on that plan on or after the add-on date. Each row is tagged No rep, No visit, or both.

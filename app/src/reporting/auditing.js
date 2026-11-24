@@ -708,7 +708,11 @@ function addOnNoRepAuditCard(opts) {
   const noRep = (a) => { const v = String(a.credited_employee_id == null ? '' : a.credited_employee_id).trim(); return !a.credited_profile_id && (!v || v === '0' || v.startsWith('-')); };
   const subs = state.reportingSubscriptions || [];
   const M = addOnNoRepAuditCard._m && addOnNoRepAuditCard._m.src === subs ? addOnNoRepAuditCard._m.map : (() => { const m = new Map(); for (const r of subs) if (r.subscription_id != null) m.set(String(r.subscription_id), r); addOnNoRepAuditCard._m = { src: subs, map: m }; return m; })();
-  const _allNoRep = (Array.isArray(d) ? d : []).filter(noRep).map(a => {
+  // Two checks on every add-on (per Isaac, Nov 24): is it credited to a rep, and is there a visit behind it?
+  const _today = new Date().toISOString().slice(0, 10);
+  const _repName = (a) => { const p = [].concat(state.allProfiles || [], state.profiles || []).find(x => (a.credited_profile_id && x.id === a.credited_profile_id) || (a.credited_employee_id != null && String(x.fieldroutes_employee_id || '') === String(a.credited_employee_id))); return p ? p.full_name : ''; };
+  const _allNoRep = (Array.isArray(d) ? d : []).map(a => {
+    const isNoRep = noRep(a);
     const sub = M.get(String(a.subscription_id)) || null;
     const sold = sub ? String(sub.sold_date || '').slice(0, 10) : '';
     const days = sold && a.added_at ? Math.round((Date.parse(String(a.added_at).slice(0, 10)) - Date.parse(sold)) / 86400000) : null;
@@ -726,23 +730,36 @@ function addOnNoRepAuditCard(opts) {
     const apOn = !!sub && (() => { const v = String(sub.customer_auto_pay == null ? '' : sub.customer_auto_pay).trim(); return !!v && !/^(no|0|false|none)$/i.test(v); })();
     const live = !!sub && /active/i.test(String(sub.subscription_status || '')) && !sub.subscription_date_canceled;
     const real = live && ((Number(sub.subscription_completed_services) || 0) > 0 || !!day(sub.last_completed_date) || String(sub.contract_state) === 'signed' || apOn);
-    const needsAppt = !(booked || servicedAfter) && real;
-    return { a, sold, days, seller, likely: days != null && days >= -1 && days <= ADDON_NOREP_DAYS, appt: booked || servicedAfter || real, needsAppt,
+    // The next service on the plan's calendar (pending, today or later) also counts as the visit for the add-on —
+    // FieldRoutes books visits on the plan, not on the add-on line, so that is as close as the data gets.
+    const nextAppt = sub ? day(sub.next_appt_date) : '';
+    const hasVisit = booked || servicedAfter || !!nextAppt;
+    // No visit: a real customer with nothing booked or serviced since the add-on. One day's grace so an add-on
+    // put on today is not flagged before the rep has had the chance to book it.
+    const needsAppt = !hasVisit && real && !!addDay && addDay < _today;
+    return { a, sold, days, seller, isNoRep, rep: isNoRep ? '' : _repName(a), likely: isNoRep && days != null && days >= -1 && days <= ADDON_NOREP_DAYS,
+      appt: isNoRep ? (hasVisit || real) : needsAppt, dead: isNoRep && !(hasVisit || real), needsAppt,
       apptNote: booked ? 'initial booked ' + day(sub.initial_appt_date) : servicedAfter ? 'serviced ' + [sub.last_completed_date, sub.initial_serviced_date].map(day).filter(d => d && d >= addDay).sort().pop()
-        : needsAppt ? 'NOT SERVICED SINCE THE ADD-ON' + (day(sub.last_completed_date) ? ' (last service ' + day(sub.last_completed_date) + ')' : '') + ' — check a visit is booked for it' : '' };
+        : nextAppt ? 'next service booked ' + nextAppt
+        : needsAppt ? 'NO VISIT BOOKED since the add-on' + (day(sub.last_completed_date) ? ' (last service ' + day(sub.last_completed_date) + ')' : '') : '' };
   });
-  const noApptN = _allNoRep.filter(r => !r.appt).length;
-  const rows = _allNoRep.filter(r => r.appt).sort((x, y) => (y.likely - x.likely) || String(y.a.added_at).localeCompare(String(x.a.added_at)));
+  const noApptN = _allNoRep.filter(r => r.dead).length;
+  const rows = _allNoRep.filter(r => r.appt).sort((x, y) => (y.isNoRep - x.isNoRep) || (y.likely - x.likely) || String(y.a.added_at).localeCompare(String(x.a.added_at)));
+  const noRepN = rows.filter(r => r.isNoRep).length;
   const likelyN = rows.filter(r => r.likely).length;
   const needsN = rows.filter(r => r.needsAppt).length;
+  const bothN = rows.filter(r => r.isNoRep && r.needsAppt).length;
   const open = opts && opts.item ? state._auditDetail === 'addon' : state._aoNoRepOpen === true;
   const status = d === undefined || d === null ? 'checking…'
     : d.error ? 'waiting on the add-ons sync (migration 20260922_add_ons.sql)'
-    : !rows.length ? 'All clear — every add-on with an appointment behind it is credited to a rep.' + (noApptN ? ' (' + noApptN + ' more with no rep are on plans that are frozen, cancelled or never started — not owed to anyone.)' : '')
-    : rows.length + ' add-on' + (rows.length === 1 ? '' : 's') + ' with no rep' + (likelyN ? ' — ' + likelyN + ' went on within ' + ADDON_NOREP_DAYS + ' days of the sale and probably belong' + (likelyN === 1 ? 's' : '') + ' to the seller' : '') + '. No commission is paid on these until Commission To is set on the line in FieldRoutes.' + (needsN ? ' ' + needsN + ' of these ' + (needsN === 1 ? 'has' : 'have') + ' not been serviced since the add-on went on — check a visit is booked.' : '') + (noApptN ? ' Not listed: ' + noApptN + ' more on plans that are frozen, cancelled or never started (no service, signed agreement or autopay).' : '');
+    : !rows.length ? 'All clear — every add-on is credited to a rep and has a visit booked or done.' + (noApptN ? ' (' + noApptN + ' more with no rep are on plans that are frozen, cancelled or never started — not owed to anyone.)' : '')
+    : rows.length + ' add-on' + (rows.length === 1 ? '' : 's') + ' to fix. '
+      + noRepN + ' with no rep' + (likelyN ? ' (' + likelyN + ' went on within ' + ADDON_NOREP_DAYS + ' days of the sale and probably belong' + (likelyN === 1 ? 's' : '') + ' to the seller)' : '') + ' — no commission is paid until Commission To is set on the line in FieldRoutes. '
+      + needsN + ' with no visit booked since the add-on went on' + (bothN ? ' (' + bothN + ' of them also have no rep)' : '') + ' — book the service.'
+      + (noApptN ? ' Not listed: ' + noApptN + ' more with no rep on plans that are frozen, cancelled or never started (no service, signed agreement or autopay).' : '');
   const head = el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', onclick: () => { state._aoNoRepOpen = !open; mountApp(); } },
     el('span', { class: 'inline-block rounded-full', style: { width: '8px', height: '8px', background: Array.isArray(d) ? (likelyN ? '#DC2626' : rows.length ? '#D97706' : 'var(--ok)') : '#D97706' } }),
-    el('span', { class: 'text-[11px] uppercase tracking-widest font-bold' }, 'To do · Add-ons with no rep'),
+    el('span', { class: 'text-[11px] uppercase tracking-widest font-bold' }, 'To do · Add-ons: no rep or no visit booked'),
     el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, status),
     rows.length ? el('span', { class: 'ml-auto text-sm font-black tabular-nums', style: { color: likelyN ? '#DC2626' : '#D97706' } }, String(rows.length)) : null,
     el('span', { class: rows.length ? 'text-[11px]' : 'ml-auto text-[11px]', style: { color: 'var(--text-muted)' } }, open ? '▴' : '▾'));
@@ -752,9 +769,10 @@ function addOnNoRepAuditCard(opts) {
       el('span', { class: 'font-semibold shrink-0', style: { minWidth: '70px' } }, '#' + r.a.customer_id),
       el('span', { class: 'shrink-0', style: { minWidth: '150px', color: 'var(--text-muted)' } }, (r.a.base_service || '') + ' · sub ' + r.a.subscription_id),
       el('span', { class: 'shrink-0 font-semibold', style: { minWidth: '170px' } }, r.a.service_name + ' ' + fmt.usd(Number(r.a.recurring_amount) || 0) + ' / service'),
+      el('span', { class: 'shrink-0 text-[10px] font-black uppercase tracking-widest', style: { minWidth: '118px', color: r.isNoRep ? '#DC2626' : '#B45309' } }, r.isNoRep && r.needsAppt ? 'No rep · no visit' : r.isNoRep ? 'No rep' : 'No visit'),
       el('span', { class: 'flex-1 min-w-0', style: { color: r.likely ? '#DC2626' : 'var(--text-muted)' } },
-        'added ' + String(r.a.added_at || '').slice(0, 10) + (r.days == null ? ' · sale date not found' : r.days <= 0 ? ' · the same day as the sale' : ' · ' + r.days + ' day' + (r.days === 1 ? '' : 's') + ' after the sale') + (r.likely && r.seller ? ' · sold by ' + r.seller + ', probably theirs' : r.seller ? ' · account sold by ' + r.seller : '') + (r.apptNote ? ' · ' + r.apptNote : ''))))) : null;
-  if (opts && opts.item) return { rvIds: rows.map(r => String(r.a.id)), key: 'addon', tag: 'Add-ons', sev: !Array.isArray(d) ? 'amber' : likelyN ? 'red' : rows.length ? 'amber' : 'ok', count: Array.isArray(d) ? rows.length : null, text: status, detail: list, title: 'Add-ons with no rep' };
+        'added ' + String(r.a.added_at || '').slice(0, 10) + (r.days == null ? ' · sale date not found' : r.days <= 0 ? ' · the same day as the sale' : ' · ' + r.days + ' day' + (r.days === 1 ? '' : 's') + ' after the sale') + (!r.isNoRep ? ' · credited to ' + (r.rep || 'a rep') : r.likely && r.seller ? ' · sold by ' + r.seller + ', probably theirs' : r.seller ? ' · account sold by ' + r.seller : '') + (r.apptNote ? ' · ' + r.apptNote : ''))))) : null;
+  if (opts && opts.item) return { rvIds: rows.map(r => String(r.a.id)), key: 'addon', tag: 'Add-ons', sev: !Array.isArray(d) ? 'amber' : likelyN ? 'red' : rows.length ? 'amber' : 'ok', count: Array.isArray(d) ? rows.length : null, text: status, detail: list, title: 'Add-ons: no rep or no visit booked' };
   return el('div', { class: 'card overflow-hidden' }, head, list);
 }
 function feeCreditAuditCard(opts) {

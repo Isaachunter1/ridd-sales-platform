@@ -64,7 +64,7 @@ function dashpView() {
     if (!card) return null;
     card.style.border = '1.5px solid #DC2626';
     return el('div', { class: 'flex flex-col gap-1 no-arrange' },
-      el('div', { class: 'text-[10px] uppercase tracking-widest font-black', style: { color: '#DC2626' } }, 'Fix first \u00b7 these add-ons pay nobody until they are credited'), card);
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-black', style: { color: '#DC2626' } }, 'Fix first \u00b7 add-ons with no rep or no visit booked'), card);
   })();
   if (_aud) return el('div', { class: 'flex flex-col gap-4' }, addOnFirst, salesSection(true));
   const thisYear = new Date().getFullYear();
