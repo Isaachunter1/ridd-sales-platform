@@ -147,3 +147,11 @@ that was cut off in the screenshot: ask whether expectations should come from ty
 Read: bookings so far ÷ bookings the spend so far should have bought; Ahead >= 110%, Behind < 90%, needs 3 expected bookings
 (our thresholds). Channel metrics' budget box now reads and writes the same month store.
 Not built: the seasonal allocation row and the revenue-by-branch projection block of the sheet.
+
+## 2026-11-25 — PestBooker is a sales rep, not a source
+Per Isaac. Auditing → Attribution → PestBooker lists new sales (this month and last) with PestBooker as the FieldRoutes
+source or as the Pest AI opportunity source: set Sold By to PestBooker and the source, in both, to the real channel.
+Those sales are out of Source check (a PestBooker stamp proves nothing about the real source). Source check itself only
+compares a Pest AI lead within 30 days before the sale with a real lead source.
+NOT changed: Marketing still shows PestBooker as a channel row wherever a lead or sale carries it — it empties as the
+sources are fixed. Decide with Isaac whether to hide it now.

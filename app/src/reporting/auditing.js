@@ -829,7 +829,7 @@ function _auditTaskItemsRaw() {
   try { items.push(addOnNoRepAuditCard({ item: true })); } catch (e) { console.warn('[auditing] add-on task', e); }
   try { if (typeof serviceChangeAuditItem === 'function') items.push(serviceChangeAuditItem()); } catch (e) { console.warn('[auditing] service-change task', e); }
   try { items.push(...auditSalesItems()); } catch (e) { console.warn('[auditing] sales tasks', e); }
-  try { const sc = auditSourceCheckItem(); if (sc) items.push(sc); } catch (e) { console.warn('[auditing] source check', e); }
+  try { const sc = auditSourceCheckItem(); if (sc) items.push(...(Array.isArray(sc) ? sc : [sc])); } catch (e) { console.warn('[auditing] source check', e); }
   for (const t of auditSubTasks()) {
     if (t.warn) { items.push({ key: t.title, tag: t.tag || 'Setup', title: t.title, sev: 'amber', count: null, text: t.warn }); continue; }
     const n = t.rows.length;
@@ -935,7 +935,7 @@ const AUDIT_PLACE = [
   ['renewal', 'cust', 'renewals', 'Renewals', 0], ['renewal · not renewed', 'cust', 'renewals', 'Renewals', 1], ['renewal source', 'cust', 'renewals', 'Renewals', 2], ['renewal · not coded', 'cust', 'renewals', 'Renewals', 3],
   ['not started', 'cust', 'unserviced', 'Sold, never serviced', 0], ['pending', 'cust', 'unserviced', 'Sold, never serviced', 1], ['deleted?', 'cust', 'unserviced', 'Sold, never serviced', 2],
   ['location', 'rep', 'office', 'Wrong office', 0], ['zip', 'rep', 'office', 'Wrong office', 1],
-  ['source check', 'rep', 'attr', 'Attribution', -1], ['source', 'rep', 'attr', 'Attribution', 0], ['lead flow', 'rep', 'attr', 'Attribution', 1], ['no ghl lead', 'rep', 'attr', 'Attribution', 2], ['sellify', 'rep', 'attr', 'Attribution', 3], ['lead → opportunity', 'rep', 'attr', 'Attribution', 4], ['unmapped sources', 'rep', 'attr', 'Attribution', 5],
+  ['source check', 'rep', 'attr', 'Attribution', -1], ['pestbooker', 'rep', 'attr', 'Attribution', -0.5], ['source', 'rep', 'attr', 'Attribution', 0], ['lead flow', 'rep', 'attr', 'Attribution', 1], ['no ghl lead', 'rep', 'attr', 'Attribution', 2], ['sellify', 'rep', 'attr', 'Attribution', 3], ['lead → opportunity', 'rep', 'attr', 'Attribution', 4], ['unmapped sources', 'rep', 'attr', 'Attribution', 5],
   ['cancellation', 'rep'], ['no reason', 'rep'],
 ];
 function auditPlaceOf(i) {
@@ -1011,11 +1011,20 @@ function auditSourceCheckItem() {
   if (typeof mklMonth !== 'function' || typeof mkdPestAiLookup !== 'function' || typeof _mklYm !== 'function') return null;
   const G = state._ghl; if (!G || !Array.isArray(G.opps) || !G.opps.length) return { key: 'Source check', tag: 'Source check', title: 'FieldRoutes source vs Pest AI source', sev: 'amber', count: null, text: 'checking… (waiting on GoHighLevel)' };
   const now = new Date(), yms = [_mklYm(now), _mklShift(_mklYm(now), -1)];
-  const seen = new Set(), bad = []; let compared = 0, agree = 0, pb = 0;
+  const seen = new Set(), bad = [], pbRows = []; let compared = 0, agree = 0;
   for (const ym of yms) { const D = mklMonth(ym); if (!D || !D.x) continue;
     for (const o in D.x) for (const c in D.x[o]) for (const r of (D.x[o][c].sales || [])) {
       const id = String(r.subscription_id != null ? r.subscription_id : r.customer_id); if (seen.has(id)) continue; seen.add(id);
-      const x = mkdPestAiLookup(r); if (!x || !x.oDate) continue;                       // nothing in Pest AI to compare with
+      const x = mkdPestAiLookup(r); if (!x) continue;
+      // PestBooker is a SALES REP in FieldRoutes, not a source (per Isaac, Nov 25): a sale still sourced PestBooker needs
+      // Sold By = PestBooker and its source set to the channel that brought the lead in.
+      const frPb = /^pest\s*booker$/i.test(String(x.want || '')) || /^pest\s*booker$/i.test(String((typeof reportingSourceOf === 'function' ? reportingSourceOf(r) : r.subscription_source) || '').trim());
+      if (frPb) {
+        const real = x.oDate && x.oCh && x.oCh !== 'PestBooker' && x.oCh !== 'not a lead' ? x.oCh : '';
+        pbRows.push(Object.assign({}, r, { _flagReason: 'FieldRoutes source is PestBooker \u2014 PestBooker is the sales rep, not a source: set Sold By to PestBooker and the source to the channel that brought the lead in' + (real ? ' (Pest AI says ' + real + ')' : x.oDate ? ' (Pest AI says PestBooker too \u2014 fix both)' : ' (nothing in Pest AI to go by)') }));
+        continue;
+      }
+      if (!x.oDate) continue;                                                            // nothing in Pest AI to compare with
       if (/^Opportunity made after the sale|^Only an old opportunity/.test(x.fix)) continue;   // not the lead behind this sale
       // Only a lead that can be THE lead behind this sale is compared (Nov 25 accuracy pass): the opportunity is within 30
       // days before the sale, and its source is a real lead source — Local Presence (a callback number), the Voice AI
@@ -1023,19 +1032,33 @@ function auditSourceCheckItem() {
       const gap = (Date.parse(String(r.sold_date || '').slice(0, 10)) - Date.parse(x.oDate)) / 86400000;
       if (!(gap <= 30)) continue;
       if (x.oCh === 'not a lead' || /^local presence|voice ai/i.test(String(x.oSrc || '')) || (typeof MKP_NOT_A_SOURCE !== 'undefined' && MKP_NOT_A_SOURCE.test(String(x.oSrc || '')))) continue;
+      // PestBooker is the online booking page, NOT a source (per Isaac, Nov 25): an opportunity stamped PestBooker has
+      // lost the channel that really brought the lead in. Those are their own task (fix the opportunity's source in
+      // Pest AI), and say nothing about whether FieldRoutes is right — so they are out of the comparison either way.
+      if (x.oCh === 'PestBooker' || /^pest\s*booker/i.test(String(x.oSrc || ''))) {
+        pbRows.push(Object.assign({}, r, { _flagReason: 'Pest AI opportunity (' + x.oDate + ') has source PestBooker, which is not a source \u2014 set it to the channel that brought the lead in' + (x.want && x.want !== 'PestBooker' ? ' (FieldRoutes says ' + x.want + ')' : '; FieldRoutes says PestBooker too, so fix both') }));
+        continue;
+      }
       compared++;
       if (/^Matches/.test(x.fix)) { agree++; continue; }
-      if (x.oCh === 'PestBooker') pb++;
       bad.push(Object.assign({}, r, { _flagReason: 'FieldRoutes: ' + x.want + ' · Pest AI: ' + (x.oSrc || 'no source') + (x.oCh && x.oCh !== x.oSrc ? ' (' + x.oCh + ')' : '') + ' — ' + x.fix }));
     } }
   bad.sort((a, b) => String(b.sold_date || '').localeCompare(String(a.sold_date || '')));
   const n = bad.length, open = (rs) => (typeof mkdOpenNoLead === 'function' ? mkdOpenNoLead('Source check · FieldRoutes vs Pest AI · this month and last', rs)
     : openReportingDrillModal({ chartTitle: 'Auditing · Source check', sliceLabel: rs.length + ' sales', rows: rs, formatValue: fmt.usd0 }));
-  return { key: 'Source check', tag: 'Source check', title: 'FieldRoutes source vs Pest AI source', sev: n ? 'red' : 'ok', count: n,
-    text: n ? n.toLocaleString() + ' new sale' + (n === 1 ? '' : 's') + ' this month and last where FieldRoutes and Pest AI disagree on the source (' + agree.toLocaleString() + ' of ' + compared.toLocaleString() + ' compared agree' + (pb ? '; ' + pb + ' are Pest AI = PestBooker, the online booking, against another source in FieldRoutes' : '') + ') — the list shows both and what to change. Compared only when the Pest AI lead is within 30 days before the sale and has a real lead source.'
+  const main = { key: 'Source check', tag: 'Source check', title: 'FieldRoutes source vs Pest AI source', sev: n ? 'red' : 'ok', count: n,
+    text: n ? n.toLocaleString() + ' new sale' + (n === 1 ? '' : 's') + ' this month and last where FieldRoutes and Pest AI disagree on the source (' + agree.toLocaleString() + ' of ' + compared.toLocaleString() + ' compared agree) — the list shows both and what to change. Compared only when the Pest AI lead is within 30 days before the sale and has a real lead source.'
       : 'All clear — every sale with a Pest AI lead behind it carries the same source in FieldRoutes (' + compared.toLocaleString() + ' compared).',
     onClick: n ? () => open(bad) : null, rvIds: bad.map(r => String(r.subscription_id != null ? r.subscription_id : r.customer_id)),
     rvOpen: (ids) => open(bad.filter(r => ids.has(String(r.subscription_id != null ? r.subscription_id : r.customer_id)))) };
+  pbRows.sort((a, b) => String(b.sold_date || '').localeCompare(String(a.sold_date || '')));
+  const idOf = (r) => String(r.subscription_id != null ? r.subscription_id : r.customer_id), np = pbRows.length;
+  const openPb = (rs) => (typeof mkdOpenNoLead === 'function' ? mkdOpenNoLead('PestBooker stamped as the source in Pest AI \u00b7 this month and last', rs) : openReportingDrillModal({ chartTitle: 'Auditing \u00b7 PestBooker as source', sliceLabel: rs.length + ' sales', rows: rs, formatValue: fmt.usd0 }));
+  const pbItem = { key: 'PestBooker as source', tag: 'PestBooker', title: 'PestBooker stamped as the source', sev: np ? 'red' : 'ok', count: np,
+    text: np ? np.toLocaleString() + ' new sale' + (np === 1 ? '' : 's') + ' this month and last with PestBooker as the source in FieldRoutes or on the Pest AI opportunity. PestBooker is a sales rep, not a source \u2014 set Sold By to PestBooker in FieldRoutes and the source, in both, to the channel that brought the lead in.'
+      : 'All clear \u2014 no recent sale has PestBooker as its source in FieldRoutes or Pest AI.',
+    onClick: np ? () => openPb(pbRows) : null, rvIds: pbRows.map(idOf), rvOpen: (ids) => openPb(pbRows.filter(r => ids.has(idOf(r)))) };
+  return [main, pbItem];
 }
 // Lead → opportunity and Unmapped GoHighLevel sources as Attribution tasks (per Isaac, Nov 25 — they were two
 // separate dropdown cards under the list). Same checks, same cards: each opens inside its row. Built live, not in the
