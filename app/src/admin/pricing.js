@@ -229,7 +229,7 @@ function viewPricing() {
     st.mode = 'build';   // Build a plan IS the price sheet now (per Isaac, Nov 24) — the old sheet and its toggle are gone
     // Landing on the builder with nothing picked starts on Home + Yard, the most popular package (the default most
     // customers keep).
-    if (st.mode !== 'sheet' && !st.pkg && !st.base && !st.termite) { st.pkg = 'homeyard'; st.base = 'pest'; st.addons = { tfm: true }; }
+    if (st.mode !== 'sheet' && !st.pkg && !st.base && !st.termite && !st.noPlan) { st.pkg = 'homeyard'; st.base = 'pest'; st.addons = { tfm: true }; }
     const T = pricingTierOf(st);
     const isMin = false;   // the sheet's numbers stay white on green, minimums included (per Isaac, Nov 23)
     const PICK = pricingTierChoices(state.profile).map(id => PRICING_TIERS.find(t => t.id === id));   // sheets this user may see (per Isaac, Nov 23); D2D minimums is the Ⓜ toggle
@@ -470,6 +470,7 @@ function viewPricing() {
     const aloneMo = (id) => { if (!id) return 0; const prog = (PRICING_SERVICES[id] || {}).program; if (prog && T[prog]) return T[prog][fiB]; const a = T.addons.find(x => x[0] === id); return a ? a[2] : 0; };
     const separateMo = (c) => aloneMo(c.base) + c.addons.reduce((a, id) => a + aloneMo(id), 0) + (c.termite ? T.termite[1] : 0);
     const applyPkg = (c) => {
+      st.noPlan = false;
       st.pkg = c.id; st.base = c.base; st.termite = c.termite || !!st.extras.termite;
       st.addons = Object.fromEntries(c.addons.map(a => [a, true]));
       for (const id of Object.keys(st.extras)) if (id !== 'termite' && id !== c.base && !c.addons.includes(id) && (!c.base || !pricingCoveredBy(c.base, id)) && T.addons.some(x => x[0] === id)) st.addons[id] = true;
@@ -531,8 +532,8 @@ function viewPricing() {
       const pq = empty ? { mo: 0, init: 0, savings: 0 } : pkgMo(c), sep = separateMo(c), save = pq.savings;   // same yearly savings math as the quote (Bundle & Save)
       const isT = c.id === 'termite';
       const on = isT ? !!st.termite : (st.pkg === c.id && !!curPkg);
-      return el('div', { role: 'button', tabindex: '0', onclick: () => { if (isT) return toggleTermite(); if (on) { st.pkg = null; st.base = null; st.addons = {}; rerender(); return; } if (!empty) { applyPkg(c); rerender(); } }, 'aria-pressed': on ? 'true' : 'false', style: { position: 'relative', display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', background: C.card, color: C.char, borderRadius: '10px', padding: '10px 12px', border: on ? '3px solid ' + C.orange : '1.5px solid ' + C.line, boxShadow: on ? '0 10px 22px -14px rgba(217,72,15,.9)' : 'none' } },
-        c.popular ? el('span', { style: { position: 'absolute', top: '-9px', right: '12px', background: C.orange, color: '#fff', font: '700 7.5px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', padding: '4px 8px', borderRadius: '999px' } }, 'Most homeowners pick this' + (on ? ' ✓' : '')) : (on ? el('span', { style: { position: 'absolute', top: '-9px', right: '12px', background: C.char, color: '#fff', font: '700 7.5px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', padding: '4px 8px', borderRadius: '999px' } }, 'Picked ✓') : null),
+      return el('div', { role: 'button', tabindex: '0', onclick: () => { if (isT) return toggleTermite(); if (on) { st.pkg = null; st.base = null; st.addons = {}; st.noPlan = true; rerender(); return; } if (!empty) { applyPkg(c); rerender(); } }, 'aria-pressed': on ? 'true' : 'false', style: { position: 'relative', display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', background: C.card, color: C.char, borderRadius: '10px', padding: '10px 12px', border: on ? '3px solid ' + C.orange : '1.5px solid ' + C.line, boxShadow: on ? '0 10px 22px -14px rgba(217,72,15,.9)' : 'none' } },
+        c.popular ? el('span', { style: { position: 'absolute', top: '-9px', right: '12px', background: C.orange, color: '#fff', font: '700 7.5px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', padding: '4px 8px', borderRadius: '999px' } }, 'Most popular' + (on ? ' ✓' : '')) : (on ? el('span', { style: { position: 'absolute', top: '-9px', right: '12px', background: C.char, color: '#fff', font: '700 7.5px/1 ' + MONO, letterSpacing: '.14em', textTransform: 'uppercase', padding: '4px 8px', borderRadius: '999px' } }, 'Picked ✓') : null),
         // Compact card (per Isaac, Nov 23): name + service pills on the left; price, then initial · per day, then
         // savings stacked on the right.
         el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' } },
@@ -632,6 +633,32 @@ function viewPricing() {
           mono('Kid & pet friendly · licensed & insured', { size: 8.5 })));
     };
 
+    // One-time services (per Isaac, Nov 24): Standard and Loyalty only — D2D / Ⓜ is the customer-facing door view and
+    // never shows them. New vs Existing customer price; a one-time can be quoted on its own (tap the picked plan off)
+    // or alongside a plan. Same PRICING_ONETIME numbers the old price sheet used.
+    const OT_ICON = { ot_termite: 'M10.5 4a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13M15.3 15.3 20 20', ot_tfm: EXTRA_ICON.tfm, ot_pest: EXTRA_ICON.pest, ot_rodent: EXTRA_ICON.rodent, ot_roach: EXTRA_ICON.roach, ot_flea: EXTRA_ICON.flea,
+      ot_sedan: 'M3 15.5v-3l2-4.5h14l2 4.5v3M3 15.5h18M6.5 15.5v2M17.5 15.5v2M5 12.5h14', ot_suv: 'M3 16v-4l1.5-5h15L21 12v4M3 16h18M6.5 16v2M17.5 16v2M4.5 12h15M12 7v5' };
+    const oneTimeRow = () => {
+      if (!T.onetime) return null;
+      const cur = st.customer === 'current';
+      const otIcon = (id, color) => { const sv = extraIcon('pest', color); sv.firstChild.setAttribute('d', OT_ICON[id] || ''); return sv; };
+      const tile = ([id, label, nw, ex]) => {
+        const on = !!st.onetime[id], price = cur ? ex : nw;
+        return el('button', { onclick: () => { if (on) delete st.onetime[id]; else st.onetime[id] = true; rerender(); }, 'aria-pressed': on ? 'true' : 'false', title: 'New customer ' + (nw ? money(nw) : 'FREE') + ' \u00b7 existing customer ' + (ex ? money(ex) : 'FREE'),
+          style: { display: 'flex', alignItems: 'center', gap: '9px', textAlign: 'left', minWidth: 0, padding: '9px 10px', borderRadius: '10px', cursor: 'pointer', background: on ? C.char : '#fff', color: on ? '#fff' : C.char, border: '1.2px solid ' + (on ? C.char : 'rgba(43,43,41,.22)') } },
+          el('span', { style: { width: '30px', height: '30px', borderRadius: '8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, background: on ? 'rgba(255,255,255,.12)' : C.card } }, otIcon(id, on ? '#fff' : C.green)),
+          el('span', { style: { minWidth: 0, flex: '1 1 auto' } },
+            el('span', { style: { display: 'block', font: '600 11px/1.2 ' + SANS, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, label.replace('Tick, Flea, & Mosquito', 'Tick, Flea & Mosquito')),
+            el('span', { style: { display: 'block', marginTop: '3px', font: '400 9.5px/1 ' + MONO, color: on ? 'rgba(255,255,255,.75)' : C.ink2 } }, price ? money(price) + ' one-time' : 'FREE')),
+          on ? el('span', { style: { font: '900 12px/1 ' + SANS, flexShrink: 0 } }, '\u2713') : null);
+      };
+      const tog = el('div', { style: { display: 'inline-flex', border: '1.2px solid ' + C.ink3, borderRadius: '999px', overflow: 'hidden' } },
+        ...[['new', 'New customer'], ['current', 'Existing']].map(([v, l]) => el('button', { onclick: () => { st.customer = v; rerender(); }, 'aria-pressed': st.customer === v ? 'true' : 'false', style: { padding: '4px 10px', font: '600 8.5px/1.3 ' + MONO, letterSpacing: '.08em', textTransform: 'uppercase', border: 0, background: st.customer === v ? C.char : 'transparent', color: st.customer === v ? '#fff' : C.ink2, cursor: 'pointer' } }, l)));
+      return el('div', {},
+        el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', margin: '16px 0 7px' } }, mono('One-time services', { size: 9 }), tog),
+        el('div', { class: 'ps-extras', style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(165px, 1fr))', gap: '7px' } }, ...PRICING_ONETIME.map(tile)));
+    };
+
     builder = st.cust ? customerView() : el('div', { style: { background: C.page, borderRadius: '14px', overflow: 'hidden', border: '1px solid rgba(43,43,41,.18)', boxShadow: '0 18px 40px -28px rgba(0,0,0,.45)' } },
       headWrap,
       el('div', { class: 'ps-body', style: { padding: '14px 22px 20px' } },
@@ -639,6 +666,7 @@ function viewPricing() {
         seg,
         el('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '14px' } }, ...PKGS.map(pkgCard)),
         extrasRow(),
+        oneTimeRow(),
         // No running total and no Show customer button (per Isaac, Nov 23) — the receipt alongside covers it.
         el('div', { style: { height: '4px' } })),
       footer);
