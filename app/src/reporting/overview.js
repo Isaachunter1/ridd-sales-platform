@@ -810,7 +810,7 @@ function reportingOverview() {
       });
       const pct = (v, b) => b > 0 ? (Math.round(v / b * 1000) / 10).toFixed(1) + '%' : '—';
       const money = (v) => unitSubs ? fmt.int(v) : (Math.abs(v) >= 1e6 ? '$' + (Math.round(v / 1e4) / 100).toFixed(2) + 'M' : fmt.usd0(v));
-      const cell = (w, kind) => {
+      const cell = (w, kind) => {   // (growth / churn cells — kept for the drill labels; the header shows netCell)
         if (kind === 'cxl') {
           // $ = every counted cancel in the window; % = cancels from the starting book ÷ that book; the small line under
           // it = what accounts that joined during the window already cancelled (not in the %).
@@ -833,11 +833,23 @@ function reportingOverview() {
           el('span', { class: 'text-sm font-black tabular-nums', style: { color } }, money(v)),
           el('span', { class: 'tabular-nums', style: { color, fontSize: '11px', fontWeight: 700, marginLeft: '6px' } }, pct(v, w.book)));
       };
+      // One row (per Isaac, Nov 24 — "consolidate down to net growth"): net = new recurring ARR serviced minus recurring
+      // ARR cancelled in the window, and that as a % of the book at the window's start. Green when the book grew, red
+      // when it shrank; the growth and churn behind it are on the hover, and a click opens the accounts.
+      const netCell = (w) => {
+        const net = w.addV - w.cxlV, color = net < 0 ? C.cxl : C.sold;
+        const sign = net < 0 ? '\u2212' : '+';
+        return el('button', { type: 'button', style: { textAlign: 'right', cursor: 'pointer', background: 'none', border: 0, padding: '0 2px' },
+            title: 'Last ' + w.label + ' (' + w.start + ' \u2192 ' + end + '): ' + money(w.addV) + ' new serviced \u2212 ' + money(w.cxlV) + ' churned'
+              + (w.cxlNewV ? ' (' + money(w.cxlNewV) + ' of it from accounts that joined in the window)' : '') + ', against the ' + money(w.book) + ' book on ' + w.start + '. Click for the accounts.',
+            onclick: () => openPulseDayDrill('Last ' + w.label, 'Last ' + w.label + ' \u00b7 ' + w.start + ' \u2192 ' + end, { sold: [], svc: w.add, cxl: w.cxl }, net < 0 ? 'cxl' : 'svc') },
+          el('span', { class: 'text-sm font-black tabular-nums', style: { color } }, sign + money(Math.abs(net))),
+          el('span', { class: 'tabular-nums', style: { color, fontSize: '11px', fontWeight: 700, marginLeft: '6px' } }, w.book > 0 ? sign + pct(Math.abs(net), w.book) : '\u2014'));
+      };
       const lab = (t, color) => el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color, alignSelf: 'center' } }, t);
       return el('div', { style: { display: 'grid', gridTemplateColumns: 'auto repeat(3, minmax(96px, auto))', columnGap: '14px', rowGap: '2px', alignItems: 'baseline' } },
         el('div', {}), ...wins.map(w => el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)', textAlign: 'right' } }, w.label)),
-        lab('Growth', C.sold), ...wins.map(w => cell(w, 'svc')),
-        lab('Churn', C.cxl), ...wins.map(w => cell(w, 'cxl')));
+        lab('Net growth', 'var(--text-subtle)'), ...wins.map(netCell));
     });
     return el('div', { class: 'card p-4' },
       el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-2' },
