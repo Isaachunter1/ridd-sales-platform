@@ -2520,9 +2520,20 @@ function reportingWaterfall() {
         el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, sub));
       const openNow = (title, rows2) => rows2.length ? () => openReportingDrillModal({ chartTitle: title, sliceLabel: fmt.int(rows2.length) + ' active account' + (rows2.length === 1 ? '' : 's'), rows: rows2, formatValue: (v) => fmt.usd0(v) }) : null;
       const nowBtn = (label, rows2, title) => el('button', { class: 'rounded-lg border px-3 py-1.5 text-[11px] font-bold', disabled: rows2.length ? null : true, style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', opacity: rows2.length ? '1' : '.5' }, onclick: openNow(title, rows2) }, label + ' →');
+      // Is this a drop-off month at all? (per Isaac, Nov 24 — a month with one cancel was getting a full "decision"
+      // write-up.) A drop-off = clearly above the months around it (three either side) AND enough cancels to read.
+      const MIN_READ = 30;
+      const nbOf = (m) => { let t = 0, k = 0; for (let j = m - 3; j <= m + 3; j++) { if (j === m || j < 0 || j >= buckets.length) continue; t += buckets[j].length; k++; } return k ? t / k : 0; };
+      const nb = nbOf(i), mult = nb > 0 ? b.length / nb : null;
+      const isDrop = b.length >= 50 && mult != null && mult >= 1.25;
+      const drops = buckets.map((x, m) => ({ m, n: x.length, nb: nbOf(m) })).filter(x => x.n >= 50 && x.nb > 0 && x.n / x.nb >= 1.25).sort((a, c) => (c.n - c.nb) - (a.n - a.nb)).slice(0, 5).sort((a, c) => a.m - c.m);
+      const dropLine = drops.length ? 'The drop-off months are ' + drops.map(x => 'month ' + x.m + ' (' + fmt.int(x.n) + ' cancels, ' + (x.n / x.nb).toFixed(1) + '\u00d7 the months around it)').join(', ') + '. Click one of those bars for what is driving it.' : '';
+      if (b.length < MIN_READ) return el('div', { class: 'rounded-xl p-4 text-[13px]', style: { background: 'var(--card-2)' } },
+        el('b', {}, fmt.int(b.length) + ' cancel' + (b.length === 1 ? '' : 's') + ' in month ' + i + ' \u2014 too few to read a pattern. '),
+        el('span', { style: { color: 'var(--text-muted)' } }, 'The account' + (b.length === 1 ? ' is' : 's are') + ' listed below. ' + dropLine));
       const story = el('div', { class: 'flex flex-col gap-3' },
         el('div', { class: 'flex flex-wrap gap-2' },
-          stat('Cancels in month ' + i, fmt.int(b.length), (avgMonth ? (b.length / avgMonth).toFixed(1) + '× an average month · ' : '') + P(b.length / rowsL.length) + ' of all cancels'),
+          stat('Cancels in month ' + i, fmt.int(b.length), (mult != null ? mult.toFixed(1) + '\u00d7 the months around it \u00b7 ' : '') + (b.length / rowsL.length * 100).toFixed(1) + '% of all cancels', isDrop ? '#DC2626' : undefined),
           stat('ARR lost here', fmt.usd0(arrSum(b)), 'average ' + fmt.usd0(arv(b)) + ' per account'),
           tLast ? stat('Leave in this month', (tLast.rate * 100).toFixed(1) + '%', 'of ' + tLast.y + ' starts who reached it' + (verdict ? ' · ' + verdict[0].toLowerCase() : ''), verdict ? verdict[1] : undefined) : null,
           stat('In this window now', fmt.int(nowIn.length), 'active customers in month ' + Math.max(0, i - 1) + '–' + i + ' · ' + fmt.usd0(arrSum(nowIn)) + ' ARR')),
@@ -2539,7 +2550,8 @@ function reportingWaterfall() {
               el('div', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-muted)' } }, String(g.y)))),
             verdict ? el('div', { class: 'text-[12px] font-bold pb-3', style: { color: verdict[1] } }, verdict[0] + ': ' + (trend[trend.length - 2].rate * 100).toFixed(1) + '% → ' + (tLast.rate * 100).toFixed(1) + '% from ' + trend[trend.length - 2].y + ' to ' + tLast.y + ' starts'
               + (tLast.y === new Date().getFullYear() ? ' (' + tLast.y + ' is still filling in)' : '')) : null)) : null,
-        plays.length ? el('div', {},
+        !isDrop ? el('div', { class: 'text-[12px]', style: { borderRadius: '10px', padding: '10px 12px', background: 'var(--card)' } }, el('b', {}, 'Not a drop-off month. '), 'Month ' + i + ' loses about what the months around it lose, so there is no specific decision here. ' + dropLine) : null,
+        (isDrop && plays.length) ? el('div', {},
           H('Decisions this points to'),
           el('div', { class: 'flex flex-col gap-2' }, ...plays.slice(0, 4).map((p, k) => el('div', { style: { borderRadius: '10px', padding: '10px 12px', background: 'var(--card)', borderLeft: '3px solid var(--accent)' } },
             el('div', { class: 'text-[13px] font-bold' }, (k + 1) + '. ' + p.t),
