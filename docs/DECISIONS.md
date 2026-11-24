@@ -165,3 +165,7 @@ sync lands mid-session. Marketing says "from the previous sync" while that is th
 Source check list: columns are FieldRoutes source / Pest AI source (last touch) / Pest AI first touch / Lead date.
 Open: bare GoHighLevel source "Google" maps to Google Ads by rule; Isaac's Nov 25 example (a Reserve with Google booking)
 carried it and should be Organic — he is having Pest AI stamp Organic. "Google | <office>" already maps to Organic.
+
+## 2026-11-24 — Add-ons with no rep: only list ones with an appointment behind them
+Isaac: "the only ones that really matter are ones where a appointment is scheduled after the add on" (#186193 was listed with no contract, payment or appointment).
+An add-on is listed only when its plan has an initial booked (initial pending with an appointment date) or a service completed on or after the add-on date. The rest are counted in a "Not listed: N more" note, not dropped silently. The Commissions "Fix first" banner now loads the FieldRoutes snapshot itself so it can make the same check, and shows nothing until that is in.

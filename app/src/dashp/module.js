@@ -44,6 +44,20 @@ function dashpView() {
   // FieldRoutes. Same check and list as Auditing → Add-ons (addOnNoRepAuditCard); it shows only while there is something to fix.
   const addOnFirst = (() => {
     if (!(isAdminRole(_r) || _aud) || typeof addOnNoRepAuditCard !== 'function') return null;
+    // The check reads each add-on's plan (is an appointment behind it?) from the FieldRoutes snapshot, which this tab
+    // does not otherwise load — fetch it once, and show nothing until it is in rather than a list that is wrong.
+    if (!(state.reportingSubscriptions || []).length) {
+      try {
+        const aid = state.reportingActiveUploadId;
+        if (!aid) { if (!S._metaKick && typeof loadReportingMetadata === 'function') { S._metaKick = true; loadReportingMetadata().then(() => mountApp()).catch(() => {}); } }
+        else if (S._subsKick !== aid && typeof loadReportingSubscriptions === 'function') {
+          S._subsKick = aid;
+          if (typeof reportingShowLastSnapshot === 'function') reportingShowLastSnapshot();
+          loadReportingSubscriptions(aid).then(rows => { if (rows && state.reportingActiveUploadId === aid) { state.reportingSubscriptions = rows; state.reportingSubscriptionsLoadedFor = aid; mountApp(); } }).catch(() => {});
+        }
+      } catch (e) { /* the banner simply stays off */ }
+      return null;
+    }
     let it = null; try { it = addOnNoRepAuditCard({ item: true }); } catch (e) { return null; }
     if (!it || !(it.count > 0)) return null;
     let card = null; try { card = addOnNoRepAuditCard(); } catch (e) { return null; }

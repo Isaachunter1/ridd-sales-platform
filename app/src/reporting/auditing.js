@@ -708,19 +708,29 @@ function addOnNoRepAuditCard(opts) {
   const noRep = (a) => { const v = String(a.credited_employee_id == null ? '' : a.credited_employee_id).trim(); return !a.credited_profile_id && (!v || v === '0' || v.startsWith('-')); };
   const subs = state.reportingSubscriptions || [];
   const M = addOnNoRepAuditCard._m && addOnNoRepAuditCard._m.src === subs ? addOnNoRepAuditCard._m.map : (() => { const m = new Map(); for (const r of subs) if (r.subscription_id != null) m.set(String(r.subscription_id), r); addOnNoRepAuditCard._m = { src: subs, map: m }; return m; })();
-  const rows = (Array.isArray(d) ? d : []).filter(noRep).map(a => {
+  const _allNoRep = (Array.isArray(d) ? d : []).filter(noRep).map(a => {
     const sub = M.get(String(a.subscription_id)) || null;
     const sold = sub ? String(sub.sold_date || '').slice(0, 10) : '';
     const days = sold && a.added_at ? Math.round((Date.parse(String(a.added_at).slice(0, 10)) - Date.parse(sold)) / 86400000) : null;
     const seller = sub ? ((typeof flipLastFirst === 'function' ? flipLastFirst(String(sub.sold_by || '').trim()) : String(sub.sold_by || '').trim())) : '';
-    return { a, sold, days, seller, likely: days != null && days >= -1 && days <= ADDON_NOREP_DAYS };
-  }).sort((x, y) => (y.likely - x.likely) || String(y.a.added_at).localeCompare(String(x.a.added_at)));
+    // Only add-ons with an appointment behind them matter (per Isaac, Nov 25 — #186193 was listed with no contract, no
+    // payment and no appointment): the plan has an initial on the calendar, or a service was completed on or after the
+    // day the add-on went on. An add-on on a plan with neither is not owed to anyone yet, so it stays off the list.
+    const addDay = String(a.added_at || '').slice(0, 10);
+    const day = (v) => String(v || '').slice(0, 10);
+    const booked = !!sub && /^pending$/i.test(String(sub.initial_status || '').trim()) && !!day(sub.initial_appt_date);
+    const servicedAfter = !!sub && !!addDay && [sub.initial_serviced_date, sub.last_completed_date].some(d => day(d) && day(d) >= addDay);
+    return { a, sold, days, seller, likely: days != null && days >= -1 && days <= ADDON_NOREP_DAYS, appt: booked || servicedAfter,
+      apptNote: booked ? 'initial booked ' + day(sub.initial_appt_date) : servicedAfter ? 'serviced ' + [sub.last_completed_date, sub.initial_serviced_date].map(day).filter(d => d && d >= addDay).sort().pop() : '' };
+  });
+  const noApptN = _allNoRep.filter(r => !r.appt).length;
+  const rows = _allNoRep.filter(r => r.appt).sort((x, y) => (y.likely - x.likely) || String(y.a.added_at).localeCompare(String(x.a.added_at)));
   const likelyN = rows.filter(r => r.likely).length;
   const open = opts && opts.item ? state._auditDetail === 'addon' : state._aoNoRepOpen === true;
   const status = d === undefined || d === null ? 'checking…'
     : d.error ? 'waiting on the add-ons sync (migration 20260922_add_ons.sql)'
-    : !rows.length ? 'All clear — every add-on on an account is credited to a rep.'
-    : rows.length + ' add-on' + (rows.length === 1 ? '' : 's') + ' with no rep' + (likelyN ? ' — ' + likelyN + ' went on within ' + ADDON_NOREP_DAYS + ' days of the sale and probably belong' + (likelyN === 1 ? 's' : '') + ' to the seller' : '') + '. No commission is paid on these until Commission To is set on the line in FieldRoutes.';
+    : !rows.length ? 'All clear — every add-on with an appointment behind it is credited to a rep.' + (noApptN ? ' (' + noApptN + ' more with no rep are on plans with no appointment yet — not owed to anyone.)' : '')
+    : rows.length + ' add-on' + (rows.length === 1 ? '' : 's') + ' with no rep' + (likelyN ? ' — ' + likelyN + ' went on within ' + ADDON_NOREP_DAYS + ' days of the sale and probably belong' + (likelyN === 1 ? 's' : '') + ' to the seller' : '') + '. No commission is paid on these until Commission To is set on the line in FieldRoutes.' + (noApptN ? ' Not listed: ' + noApptN + ' more on plans with no appointment booked or serviced since the add-on.' : '');
   const head = el('button', { class: 'w-full flex items-center gap-2 px-4 py-2.5 text-left', onclick: () => { state._aoNoRepOpen = !open; mountApp(); } },
     el('span', { class: 'inline-block rounded-full', style: { width: '8px', height: '8px', background: Array.isArray(d) ? (likelyN ? '#DC2626' : rows.length ? '#D97706' : 'var(--ok)') : '#D97706' } }),
     el('span', { class: 'text-[11px] uppercase tracking-widest font-bold' }, 'To do · Add-ons with no rep'),
@@ -734,7 +744,7 @@ function addOnNoRepAuditCard(opts) {
       el('span', { class: 'shrink-0', style: { minWidth: '150px', color: 'var(--text-muted)' } }, (r.a.base_service || '') + ' · sub ' + r.a.subscription_id),
       el('span', { class: 'shrink-0 font-semibold', style: { minWidth: '170px' } }, r.a.service_name + ' ' + fmt.usd(Number(r.a.recurring_amount) || 0) + ' / service'),
       el('span', { class: 'flex-1 min-w-0', style: { color: r.likely ? '#DC2626' : 'var(--text-muted)' } },
-        'added ' + String(r.a.added_at || '').slice(0, 10) + (r.days == null ? ' · sale date not found' : r.days <= 0 ? ' · the same day as the sale' : ' · ' + r.days + ' day' + (r.days === 1 ? '' : 's') + ' after the sale') + (r.likely && r.seller ? ' · sold by ' + r.seller + ', probably theirs' : r.seller ? ' · account sold by ' + r.seller : ''))))) : null;
+        'added ' + String(r.a.added_at || '').slice(0, 10) + (r.days == null ? ' · sale date not found' : r.days <= 0 ? ' · the same day as the sale' : ' · ' + r.days + ' day' + (r.days === 1 ? '' : 's') + ' after the sale') + (r.likely && r.seller ? ' · sold by ' + r.seller + ', probably theirs' : r.seller ? ' · account sold by ' + r.seller : '') + (r.apptNote ? ' · ' + r.apptNote : ''))))) : null;
   if (opts && opts.item) return { rvIds: rows.map(r => String(r.a.id)), key: 'addon', tag: 'Add-ons', sev: !Array.isArray(d) ? 'amber' : likelyN ? 'red' : rows.length ? 'amber' : 'ok', count: Array.isArray(d) ? rows.length : null, text: status, detail: list, title: 'Add-ons with no rep' };
   return el('div', { class: 'card overflow-hidden' }, head, list);
 }
