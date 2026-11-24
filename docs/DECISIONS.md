@@ -155,3 +155,13 @@ Those sales are out of Source check (a PestBooker stamp proves nothing about the
 compares a Pest AI lead within 30 days before the sale with a real lead source.
 NOT changed: Marketing still shows PestBooker as a channel row wherever a lead or sale carries it — it empties as the
 sources are fixed. Decide with Isaac whether to hide it now.
+
+## 2026-11-25 — Reporting shows the previous sync at once; one snapshot load at a time
+A RevHawk snapshot lands every ~5 minutes with a new upload id, so the per-upload IndexedDB cache almost never hit on a
+refresh: every reload re-downloaded 12 MB before any sales number showed (and each render started another download).
+Now (1) concurrent callers share one load per upload, and (2) on a cold start the last snapshot this browser has in
+IndexedDB is shown immediately and replaced when the newest finishes — the same hand-over that already happens when a
+sync lands mid-session. Marketing says "from the previous sync" while that is the case.
+Source check list: columns are FieldRoutes source / Pest AI source (last touch) / Pest AI first touch / Lead date.
+Open: bare GoHighLevel source "Google" maps to Google Ads by rule; Isaac's Nov 25 example (a Reserve with Google booking)
+carried it and should be Organic — he is having Pest AI stamp Organic. "Google | <office>" already maps to Organic.

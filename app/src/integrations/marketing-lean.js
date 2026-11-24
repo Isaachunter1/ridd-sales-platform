@@ -518,7 +518,9 @@ function _mktgLeanView() {
   // there were no sales (per Isaac, Nov 25). Say what is happening instead.
   const subsWait = !(state.reportingSubscriptions || []).length ? el('div', { class: 'card px-4 py-2 text-[12px] flex items-center gap-2', style: { color: 'var(--text-muted)' } },
     el('span', { class: 'spinner', style: { width: '14px', height: '14px' } }), 'Sales are still loading from FieldRoutes. New sales, revenue, CAC and close rate fill in when it arrives (usually under a minute).') : null;
-  return el('div', { class: 'flex flex-col gap-4' }, subsWait, tiles, provPulse, chart, ttc, ...dash, grid);   // LTV / CAC section off for now (per Isaac, Nov 24) — mklLtvSection still built, just not shown   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
+  const subsOld = !subsWait && typeof reportingSubsStale === 'function' && reportingSubsStale() ? el('div', { class: 'card px-4 py-2 text-[12px] flex items-center gap-2', style: { color: 'var(--text-muted)' } },
+    el('span', { class: 'spinner', style: { width: '14px', height: '14px' } }), 'Sales numbers are from the previous sync. The newest sync is loading and will replace them.') : null;
+  return el('div', { class: 'flex flex-col gap-4' }, subsWait, subsOld, tiles, provPulse, chart, ttc, ...dash, grid);   // LTV / CAC section off for now (per Isaac, Nov 24) — mklLtvSection still built, just not shown   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
 }
 // The month's new sales behind the New revenue tile (same rows the table counts).
 function mklOpenSales(D, title) {

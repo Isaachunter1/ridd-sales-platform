@@ -164,7 +164,7 @@ function mkdPestAiLookup(r) {
   else if (days(o[0]) > 180) fix = 'Only an old opportunity (' + String(o[0]).slice(0, 10) + ', ' + days(o[0]) + ' days before) — Pest AI reused it; needs a new opportunity with source ' + want;
   else if (!oSrc) fix = 'Opportunity has no source — set it to ' + want;
   else if (prov(oSrc) === 'not a lead' || prov(oSrc) === oSrc && typeof mkmChannelSet === 'function' && mkmChannelSet() && !mkmChannelSet().has(oSrc)) fix = 'Source "' + oSrc + '" isn’t mapped to a channel — change it to ' + want + ' (or map it on the Marketing to-do card)';
-  else if (prov(oSrc) !== want) fix = 'Source "' + oSrc + '" reads as ' + prov(oSrc) + ' — FieldRoutes says ' + want;
+  else if (prov(oSrc) !== want) fix = 'They disagree: FieldRoutes says ' + want + ', Pest AI\u2019s last touch says ' + prov(oSrc) + (prov(oSrc) !== oSrc ? ' (source "' + oSrc + '")' : '') + '. Last touch wins, so set FieldRoutes to ' + prov(oSrc) + ' \u2014 unless the Pest AI source is the wrong one, then fix it there.';
   else fix = 'Matches (' + oSrc + ') — left out by a lead rule (current customer / repeat within 30 days)';
   return { contacts: contacts.length, opps: opps.length, cDate: c ? String(c[0]).slice(0, 10) : '', cSrc, oDate: o ? String(o[0]).slice(0, 10) : '', oSrc, oCh: oSrc ? prov(oSrc) : '',
     oStatus: o ? String(o[5] || '') : '', oStage: o && o[6] != null && o[6] >= 0 ? (stages[o[6]] || '') : '', want, fix };
@@ -179,8 +179,13 @@ function mkdOpenNoLead(title, rows) {
   const name = (r) => [String(r.first_name || '').trim(), String(r.last_name || '').trim()].filter(Boolean).join(' ');
   const cols = [
     ['Sold', d => String(d.r.sold_date || '').slice(0, 10)], ['Customer', d => name(d.r) + (d.r.customer_id ? ' #' + d.r.customer_id : '')], ['Rep', d => d.r.sold_by], ['Office', d => d.r.office_name],
-    ['FieldRoutes source', d => d.x.want], ['Pest AI contact', d => d.x.cDate ? d.x.cDate + ' · ' + (d.x.cSrc || 'no source') : '—'],
-    ['Pest AI opportunity', d => d.x.oDate ? d.x.oDate + ' · ' + (d.x.oSrc || 'no source') + (d.x.oCh && d.x.oCh !== d.x.oSrc ? ' → ' + d.x.oCh : '') : '—'],
+    // Three sources side by side (per Isaac, Nov 25 — the old "Pest AI opportunity" column read as a date, not a source):
+    // what FieldRoutes has, what Pest AI's opportunity says (the last touch — the one attribution follows), and what the
+    // Pest AI contact says (the first touch). The dates sit in their own column.
+    ['FieldRoutes source', d => d.x.want],
+    ['Pest AI source (last touch)', d => d.x.oDate ? (d.x.oCh && d.x.oCh !== d.x.oSrc ? d.x.oCh + ' \u00b7 stamped \u201c' + (d.x.oSrc || 'no source') + '\u201d' : (d.x.oSrc || 'no source')) : 'nothing in Pest AI'],
+    ['Pest AI first touch', d => d.x.cDate ? (d.x.cSrc || 'no source') : '\u2014'],
+    ['Lead date', d => d.x.oDate || d.x.cDate || '\u2014'],
     ['Status / stage', d => [d.x.oStatus, d.x.oStage].filter(Boolean).join(' · ') || '—'], ['What to change', d => d.x.fix]];
   const csv = () => { const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
     const out = [cols.map(c => c[0]).join(',')]; for (const d of data) out.push(cols.map(c => esc(c[1](d))).join(','));

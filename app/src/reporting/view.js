@@ -16,6 +16,7 @@ function viewReporting() {
   // Re-checks on each render in case the user just switched snapshots.
   const activeId = state.reportingActiveUploadId;
   if (activeId && state.reportingSubscriptionsLoadedFor !== activeId) {
+    if (typeof reportingShowLastSnapshot === 'function') reportingShowLastSnapshot();   // the previous sync at once, while the newest downloads
     loadReportingSubscriptions(activeId).then(rows => {
       // Snapshot may have changed under us while the request was in flight.
       if (state.reportingActiveUploadId !== activeId) return;

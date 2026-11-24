@@ -303,7 +303,42 @@ function _applyLiveDataRules() {
   state.reportingSubscriptions = _filterDeletedRows(state._snapshotAllRows);
   if (typeof _indCfgRev !== 'undefined') _indCfgRev++;
 }
-async function loadReportingSubscriptions(uploadId) {
+// One load per snapshot at a time (Nov 25): every render of Reporting while the snapshot was still coming called
+// this again, and each call started its own 12 MB download + unpack — several at once on a slow morning. Callers
+// now share the load already in flight.
+const _subsInflight = new Map();
+function loadReportingSubscriptions(uploadId) {
+  if (uploadId && _subsInflight.has(uploadId)) return _subsInflight.get(uploadId);
+  const p = _loadReportingSubscriptionsOnce(uploadId);
+  if (uploadId) { _subsInflight.set(uploadId, p); const done = () => { if (_subsInflight.get(uploadId) === p) _subsInflight.delete(uploadId); }; p.then(done, done); }
+  return p;
+}
+// The previous sync, straight away (per Isaac, Nov 25 — "keep the prior sync data so I don't have to wait"): a new
+// snapshot lands every few minutes, so a refresh almost always meant a fresh 12 MB download before anything showed.
+// On a cold start the last snapshot this browser loaded is still in IndexedDB — show it at once; the newest one
+// replaces it when its download finishes (the same hand-over that already happens when a sync lands mid-session).
+// state._subsStaleFrom = the upload id being shown; it is "stale" only until reportingSubscriptionsLoadedFor
+// catches up with the active upload.
+function reportingShowLastSnapshot() {
+  if (state._lastSnapTried || (state.reportingSubscriptions || []).length) return;
+  const activeId = state.reportingActiveUploadId; if (!activeId) return;
+  state._lastSnapTried = true;
+  (async () => {
+    try {
+      const db = await _reportingIdb();
+      const keys = await new Promise((resolve) => { const r = db.transaction(REPORTING_IDB_STORE, 'readonly').objectStore(REPORTING_IDB_STORE).getAllKeys(); r.onsuccess = () => resolve(r.result || []); r.onerror = () => resolve([]); });
+      const old = keys.find(k => k !== activeId && !/^(geo:|keep:)/.test(String(k)));
+      if (!old) return;
+      const rows = await _loadReportingSubscriptionsOnce(old);
+      if (!rows || !rows.length || (state.reportingSubscriptions || []).length || state.reportingSubscriptionsLoadedFor === state.reportingActiveUploadId) return;
+      state.reportingSubscriptions = rows; state._subsStaleFrom = old;
+      if (typeof _refreshRepTypeMap === 'function') { try { _refreshRepTypeMap(); } catch (e) { /* optional */ } }
+      if (typeof mountApp === 'function') mountApp();
+    } catch (e) { /* no cache: the normal load carries on */ }
+  })();
+}
+function reportingSubsStale() { return !!state._subsStaleFrom && state.reportingSubscriptionsLoadedFor !== state.reportingActiveUploadId; }
+async function _loadReportingSubscriptionsOnce(uploadId) {
   const raw = await _loadReportingSubscriptionsRaw(uploadId);
   const noPhantom = stripPhantomOffices(raw);
   const deduped = dedupeSnapshotSubs(noPhantom);
