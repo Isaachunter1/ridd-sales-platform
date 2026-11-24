@@ -205,19 +205,25 @@ function mkxProviderPulseCard(ym, DR, rangeLbl) {
   const V = { raise: ['Ahead of plan', 'rgba(21,128,61,.12)', '#15803D'], hold: ['On plan', 'rgba(47,93,98,.12)', '#2F5D62'], cut: ['Behind plan', 'rgba(220,38,38,.12)', '#DC2626'] };
   const setBudget = (k, v) => { if (typeof mkbSetBudget === 'function') { mkbSetBudget(ym, k, v); mountApp(); return; } const next = Object.assign({}, B); const n = Number(String(v).replace(/[^0-9.]/g, '')); if (n > 0) next[k] = Math.round(n); else delete next[k]; _setAdminRule('provBudgets', next); try { if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {}); } catch (e) { /* syncs on the next save */ } mountApp(); };
   const dlt = (now, was, lowGood) => now == null || was == null || !was ? null : (() => { const d = now / was - 1; if (Math.abs(d) < 0.005) return null; const good = lowGood ? d < 0 : d > 0; return sub((d > 0 ? '↑ ' : '↓ ') + Math.abs(d * 100).toFixed(0) + '% vs its 3-mo', good ? '#15803D' : '#B91C1C'); })();
-  // The pacer under the read (per Isaac, Nov 24 — in place of the sentence): spend and revenue so far, and where each
-  // lands at month end at this daily pace (so far ÷ days gone × days in the month). A closed month shows its finals.
+  // The pacer under the read (per Isaac, Nov 24 — a bar, not a sentence or a grid: the table was too big). Two thin
+  // bars on one scale: spend and revenue. Solid = so far; the lighter run = where it lands at month end at this daily
+  // pace (so far ÷ days gone × days in the month); the tick on the spend bar is the budget. Numbers are on hover.
   const pacer = (r) => {
     if (isRange || (!r.c.spend && !r.c.cv)) return null;
     const proj = (v) => isOpen && day > 0 ? v / day * dim : v;
-    const pS = proj(r.c.spend || 0), pR = proj(r.c.cv || 0), overB = r.budget && pS > r.budget * 1.02;
-    const cell = (t, o) => el('div', Object.assign({ class: 'text-[10px] tabular-nums whitespace-nowrap' }, o || {}), t);
-    const hd = (t) => cell(t, { style: { color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '.06em' } });
-    const lab = (t) => cell(t, { style: { color: 'var(--text-subtle)' } });
-    return el('div', { class: 'mt-1.5', style: { display: 'grid', gridTemplateColumns: 'auto auto auto', columnGap: '10px', rowGap: '1px', justifyContent: 'start' } },
-      hd(''), hd(isOpen ? 'So far' : 'Final'), isOpen ? hd('Projected') : hd(''),
-      lab('Spend'), cell(r.c.spend ? fmt.usd0(r.c.spend) : '—', { style: { fontWeight: 600 } }), isOpen ? cell(r.c.spend ? fmt.usd0(pS) : '—', { title: r.budget ? 'Budget ' + fmt.usd0(r.budget) : '', style: { fontWeight: 700, color: overB ? '#DC2626' : undefined } }) : cell(''),
-      lab('Revenue'), cell(fmt.usd0(r.c.cv || 0), { style: { fontWeight: 600 } }), isOpen ? cell(fmt.usd0(pR), { style: { fontWeight: 700 } }) : cell(''));
+    const sp = r.c.spend || 0, rv = r.c.cv || 0, pS = proj(sp), pR = proj(rv), max = Math.max(pS, pR, r.budget || 0, 1), overB = r.budget && pS > r.budget * 1.02;
+    const W = 120, w = (v) => Math.max(0, Math.min(100, v / max * 100)) + '%';
+    const bar = (lab, now, end, solid, light, tick) => el('div', { class: 'flex items-center gap-1.5' },
+      el('span', { class: 'text-[9px] uppercase', style: { color: 'var(--text-subtle)', width: '24px', letterSpacing: '.04em' } }, lab),
+      el('div', { style: { position: 'relative', width: W + 'px', height: '5px', borderRadius: '999px', background: 'var(--card-2)', overflow: 'hidden' } },
+        el('div', { style: { position: 'absolute', left: 0, top: 0, bottom: 0, width: w(end), background: light } }),
+        el('div', { style: { position: 'absolute', left: 0, top: 0, bottom: 0, width: w(now), background: solid } }),
+        tick != null ? el('div', { style: { position: 'absolute', top: 0, bottom: 0, left: 'calc(' + w(tick) + ' - 1px)', width: '2px', background: 'var(--text)' } }) : null));
+    const tip = 'Spend ' + (sp ? fmt.usd0(sp) : '\u2014') + (isOpen && sp ? ' so far \u2192 ' + fmt.usd0(pS) + ' projected' : '') + (r.budget ? ' (budget ' + fmt.usd0(r.budget) + ')' : '')
+      + ' \u00b7 Revenue ' + fmt.usd0(rv) + (isOpen ? ' so far \u2192 ' + fmt.usd0(pR) + ' projected' : '') + (r.why ? ' \u00b7 ' + r.why : '');
+    return el('div', { class: 'mt-1.5 flex flex-col gap-1', title: tip },
+      bar('Spnd', sp, pS, overB ? '#DC2626' : '#2F5D62', overB ? 'rgba(220,38,38,.3)' : 'rgba(47,93,98,.3)', r.budget || null),
+      bar('Rev', rv, pR, '#15803D', 'rgba(21,128,61,.3)', null));
   };
   const lbl = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   return el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkt-provpulse' },
