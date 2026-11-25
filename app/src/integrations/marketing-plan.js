@@ -180,7 +180,11 @@ function mktgPlanView() {
   const canEdit = typeof isAdminRole === 'function' && isAdminRole(state.profile && state.profile.role);
   const muted = { color: 'var(--text-muted)' }, subtle = { color: 'var(--text-subtle)' };
   const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const P = mkpPlan(year);
+  const P0 = mkpPlan(year);
+  // While the goal slider is being dragged the page shows the plan at that goal without saving it (state._mkpPreview);
+  // letting go saves.
+  const _pv = state._mkpPreview && state._mkpPreview.year === year ? Number(state._mkpPreview.target) : null;
+  const P = P0 && _pv ? Object.assign({}, P0, { target: _pv }) : P0;
   if (!P) return el('div', { class: 'card p-6 flex items-center gap-3 flex-wrap' },
     el('div', { class: 'text-sm flex-1' }, el('b', {}, 'No media plan for ' + year + ' yet. '), 'The 2027 plan is built in; use the year arrows above to open it' + (canEdit ? ', or start ' + year + ' from the same levers.' : '.')),
     canEdit ? el('button', { class: 'rounded-lg px-3 py-1.5 text-[12px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => { mkpSavePlan(year, JSON.parse(JSON.stringify(MKP_DEFAULT_2027))); mountApp(); } }, 'Start ' + year + ' from the 2027 levers') : null);
@@ -189,7 +193,7 @@ function mktgPlanView() {
   const pct = (v, d) => v == null || !isFinite(v) ? '—' : (v * 100).toFixed(d == null ? 1 : d) + '%';
   const sum = (a) => a.reduce((x, y) => x + y, 0);
   // A change saves the whole plan and redraws; focus goes back to wherever Tab or the click landed.
-  const edit = (fn) => { const next = JSON.parse(JSON.stringify(P)); fn(next); mkpSavePlan(year, next);
+  const edit = (fn) => { const next = JSON.parse(JSON.stringify(P0)); fn(next); mkpSavePlan(year, next);
     setTimeout(() => { const a = document.activeElement, id = a && a.dataset ? a.dataset.mp : ''; mountApp(); if (id) { const t = document.querySelector('[data-mp="' + id + '"]'); if (t) { t.focus(); try { t.select(); } catch (e) { /* not a text field */ } } } }, 0); };
   const num = (s) => Number(String(s == null ? '' : s).replace(/[^0-9.\-]/g, '')) || 0;
   const inp = (id, val, onSet, w, tip) => canEdit
@@ -275,6 +279,29 @@ function mktgPlanView() {
   // typed over them. Folded here so there is one place to plan.
   const budgets = typeof mktgBudgetView === 'function' ? (() => { try { const v = mktgBudgetView(); return el('details', { class: 'card overflow-hidden', open: state._mkpBudgetsOpen ? '' : null, ontoggle: (e) => { state._mkpBudgetsOpen = e.target.open; } },
     el('summary', { class: 'px-5 py-3 text-sm font-bold cursor-pointer' }, 'Budgets by month \u00b7 type over a month to change it from the plan'), el('div', { class: 'p-3' }, v)); } catch (e) { return null; } })() : null;
-  return el('div', { class: 'flex flex-col gap-4' }, levers, calendar, budgets);
+  // ── The goal slider (per Isaac, Nov 25): slide the new-revenue goal and every line follows — the budget, the pool,
+  // each channel's months, the leads and sales needed. Dragging redraws the levers and the calendar in place without
+  // saving; letting go saves the goal. The fee and the LSA plan do not move with it, so the pool takes up the change.
+  const slider = (() => {
+    if (!canEdit) return null;
+    const min = 1000000, max = Math.max(15000000, Math.ceil(P0.target * 2 / 1e6) * 1e6), step = 50000;
+    const num = (t) => el('b', { class: 'tabular-nums', style: { color: 'var(--text)' } }, t);
+    const bGoal = num(fmt.usd0(P.target)), bSpend = num(usd(C.budget)), bPool = num(usd(C.pool)), bSubs = num(int(sum(C.subs)));
+    const swap = (fresh, id) => { try { const old = document.querySelector('#app [data-arrange-id="' + id + '"]'), nw = fresh.querySelector('[data-arrange-id="' + id + '"]'); if (old && nw) old.replaceWith(nw); } catch (e) { /* the release redraws everything */ } };
+    const rng = el('input', { type: 'range', min: String(min), max: String(max), step: String(step), value: String(P.target), 'data-mp': 'goalSlider', 'aria-label': 'New-revenue goal',
+      style: { flex: '1 1 320px', minWidth: '220px', accentColor: 'var(--accent)', cursor: 'pointer' },
+      oninput: (e) => { const v = Number(e.target.value); state._mkpPreview = { year, target: v };
+        const CC = mkpCalc(Object.assign({}, P0, { target: v }));
+        bGoal.textContent = fmt.usd0(v); bSpend.textContent = usd(CC.budget); bPool.textContent = usd(CC.pool); bPool.style.color = CC.pool < 0 ? '#DC2626' : 'var(--text)'; bSubs.textContent = int(sum(CC.subs));
+        let fresh = null; try { fresh = mktgPlanView(); } catch (err) { fresh = null; }
+        if (fresh) { swap(fresh, 'mkp-levers'); swap(fresh, 'mkp-cal'); } },
+      onchange: (e) => { const v = Number(e.target.value); state._mkpPreview = null; if (v !== Number(P0.target)) edit(n => { n.target = v; }); else mountApp(); } });
+    return el('div', { class: 'card px-5 py-3 flex items-center gap-x-4 gap-y-2 flex-wrap', 'data-arrange-id': 'mkp-slider' },
+      el('div', { class: 'text-[10px] uppercase tracking-wider font-semibold', style: muted }, 'Slide the revenue goal'),
+      el('span', { class: 'text-[10px] tabular-nums', style: subtle }, '$' + (min / 1e6) + 'M'), rng, el('span', { class: 'text-[10px] tabular-nums', style: subtle }, '$' + (max / 1e6) + 'M'),
+      el('div', { class: 'flex items-center gap-x-4 gap-y-1 flex-wrap text-[12px]', style: muted },
+        el('span', {}, 'Goal ', bGoal), el('span', {}, 'Marketing spend ', bSpend), el('span', {}, 'Flexible pool ', bPool), el('span', {}, 'Subscriptions ', bSubs)));
+  })();
+  return el('div', { class: 'flex flex-col gap-4' }, levers, slider, calendar, budgets);
 
 }

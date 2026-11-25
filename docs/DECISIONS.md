@@ -243,3 +243,7 @@ Isaac's goal as CMO: "a pulse on new revenue, spend, acquisition costs, across o
 Isaac: "when I refresh, I want to be able to click from tab to tab quicker."
 Two additions to core/page-keep.js. (1) Clicking to a tab that has a kept copy puts the copy up at once and builds the live page behind it (building ties the browser up for seconds; measured Retention: copy at 0.1 s, live at 3.8 s). Only for a move the user just clicked, only when a copy exists, and never held more than 0.4 s waiting for the copy. (2) A click on a TAB or the top bar inside a copy is passed to the same control on the live page as soon as it exists ("Opening Marketing…"), so you can leave a page without waiting for it; measured after a refresh: click at 0.3 s, Marketing's copy on screen at 1.5 s. Clicks elsewhere on a copy still do nothing.
 A refresh keeps you on the tab and sub-tab you were on (same browser tab); a new browser tab opens on the default.
+
+## 2026-11-25 — Media plan: a slider for the revenue goal
+Isaac: "make that a slider and let me readjust and rebalance everything as I slide the revenue goal higher or lower."
+A slider sits between the levers and the spend calendar ($1M to $15M, $50k steps). Dragging redraws the levers and the calendar live at that goal without saving; letting go saves it. Marketing spend follows as goal × ratio; the agency fee and the LSA plan are fixed, so the flexible pool (and every channel in it) takes up the change. Budgets by month and the Dashboard pick up the new goal on release.
