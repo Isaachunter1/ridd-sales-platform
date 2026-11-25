@@ -222,6 +222,47 @@ function linkRenewalChains(rows) {
       links++; inferred++;
     }
   }
+  // THIRD PASS — renewed by SOURCE, whatever the old plan's reason says (per Isaac, Nov 25 2026). Since Nov 19 a
+  // closed plan has not counted as a cancel when the same customer bought a Renewal-* plan around it
+  // (_renewalBySource), but the renewal plan itself was never chained to that old plan — so it sat in the cohort of
+  // the year it was sold, as if a new customer had started (173 renewal plans in the 2026 cohort; most were a plan
+  // closed as "Finances" the same day the Loyalty team re-signed the customer). Same test as _renewalBySource, read
+  // from the renewal's side: an earlier plan of the same customer, closed, not already someone's old plan, where the
+  // renewal was sold no later than 45 days after the close and was still running 7 days before it. No limit on how
+  // EARLY the renewal was sold — customers can renew two months before their plan goes month to month. The old
+  // plan's reason is left exactly as FieldRoutes has it. Closest close to the renewal's sold date wins.
+  let bySource = 0;
+  for (const subs of byCust.values()) {
+    if (subs.length < 2) continue;
+    const news = subs.filter(r => isRenewalSource(r) && r.sold_date && !r.is_renewal_cont);
+    if (!news.length) continue;
+    const used = new Set();
+    for (const n of news.sort((x, y) => String(x.sold_date).localeCompare(String(y.sold_date)))) {
+      const ns = t(n.sold_date); if (isNaN(ns)) continue;
+      const nc = t(n.subscription_date_canceled);
+      let best = null, bestGap = Infinity;
+      for (const o of subs) {
+        if (o === n || used.has(o) || o.renewed_into || !o.subscription_date_canceled) continue;
+        if (String(o.subscription_id || '') === String(n.subscription_id || '')) continue;
+        const os = String(o.sold_date || o.initial_service || '').slice(0, 10);
+        if (!os || !(os < String(n.sold_date).slice(0, 10))) continue;        // the old plan came first
+        const oc = t(o.subscription_date_canceled); if (isNaN(oc)) continue;
+        if (ns > oc + 45 * DAY) continue;                                       // sold too long after the close
+        if (!isNaN(nc) && nc < oc - 7 * DAY) continue;                          // the renewal was already gone by then
+        const gap = Math.abs(ns - oc);
+        if (gap < bestGap) { best = o; bestGap = gap; }
+      }
+      if (!best) continue;
+      used.add(best);
+      n.is_renewal_cont = true; n.renewal_link_by = 'source';
+      n.origin_initial_service = best.origin_initial_service || best.initial_service || null;
+      n.origin_sold_date = best.origin_sold_date || best.sold_date || null;
+      n.renewal_prev_arv = Number(best.annual_recurring_value) || 0;
+      best.renewed_into = n.subscription_id || true;
+      links++; bySource++;
+    }
+  }
+  state._renewalLinksBySource = bySource;
   state._renewalLinks = links;
   state._renewalReasonsInferred = inferred;
   return rows;

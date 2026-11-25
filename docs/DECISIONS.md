@@ -312,3 +312,19 @@ the accounts and yearly value the gap is worth (gap × the office's book × the 
 lost — marked "about"); and active accounts 30+ days past due with their yearly value.
 Every line is arithmetic on the same book and windows as the office table. Trend needs an earlier year, so it shows
 only in Trailing 12 months and calendar-year views; trailing 12 months is compared with the last full calendar year.
+
+## 2026-11-25 · Renewal plans chain to the customer's original year by source, not only by the old plan's reason
+Per Isaac: a renewal should sit in the customer's original cohort year, so 2026 should hold almost no renewal plans;
+customers may renew two months before their plan goes month to month. Found: the chain only linked a renewal to an
+old plan closed with a "Renewal" reason (or no reason). Since Nov 19 the CANCEL side already treats a plan as
+renewed when the customer bought a Renewal-* plan around its close, whatever its reason — but the renewal plan was
+never chained, so 173 renewal plans sat in the 2026 cohort as if new customers had started. 152 of the 2026 ones
+were a plan closed with another reason within a day of the renewal sale (106 "Finances"; 130 sold by Loyalty).
+Now a third pass chains a renewal-source plan to an earlier closed plan of the same customer when the renewal was
+sold no later than 45 days after the close and was still running 7 days before it — the same test as the cancel
+side, with no limit on how early it was sold. The old plan's reason is left as FieldRoutes has it.
+Measured on Nov 25: 268 more renewals chained (167 sold in 2026); renewal plans in the 2026 cohort 173 → 18 (14 where
+the old plan closed more than 45 days before the renewal — a win-back — and 4 whose old plan is already another
+renewal's); 2026 cohort 22,057 → 21,902. Trailing-12 attrition 33.90% → 33.71% (cancels 8,543 → 8,550, book a year
+ago 25,203 → 25,361): the chained plans now count in the opening book, and the few that later cancelled count as
+cancels. 2026 year-to-date: cancels 7,648 → 7,655 on a Jan 1 book of 24,374 → 24,529.
