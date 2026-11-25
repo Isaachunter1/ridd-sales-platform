@@ -336,3 +336,12 @@ the date, how many rows the task had then (the row shows "was 12" when the count
 it when that was not the person named. Admins and auditors can set or clear it; everyone else sees it read-only.
 Shared company-wide in app_settings 'audit_signoffs'. The per-account tick boxes inside a task's Review table are
 separate and unchanged.
+
+## 2026-11-25 · Retention by Start Month gains Channel rows and a start-year picker
+Per Isaac: "a pulse of how our accounts are doing by channel over time… all the channels at a glance, then look at
+them through time". The Retention by Start Month card now has Rows: Start month | Channel, and a "Started YYYY"
+picker. Channel = the Marketing tab's channel for the plan's FieldRoutes source (same mapping as sales by channel).
+A renewal plan counts under the channel of the customer's ORIGINAL plan — the chain now also carries the original
+plan's source and seller (origin_source, origin_sold_by) — so renewal sources are not channels here. Channels with
+under 25 subs pool into one "Other channels" row; a cell with under 25 eligible subs shows a dash, as before.
+Month view is unchanged apart from the year picker. The Subs count opens the subscriptions.

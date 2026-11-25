@@ -182,6 +182,8 @@ function linkRenewalChains(rows) {
       n.is_renewal_cont = true;
       n.origin_initial_service = best.origin_initial_service || best.initial_service || null;
       n.origin_sold_date = best.origin_sold_date || best.sold_date || null;
+      n.origin_source = best.origin_source || String(best.subscription_source || '').trim() || null;   // the channel that first brought the customer in (per Isaac, Nov 25)
+      n.origin_sold_by = best.origin_sold_by || best.sold_by || null;
       n.renewal_prev_arv = Number(best.annual_recurring_value) || 0;
       best.renewed_into = n.subscription_id || true;
       links++;
@@ -217,6 +219,8 @@ function linkRenewalChains(rows) {
       n.is_renewal_cont = true;
       n.origin_initial_service = best.origin_initial_service || best.initial_service || null;
       n.origin_sold_date = best.origin_sold_date || best.sold_date || null;
+      n.origin_source = best.origin_source || String(best.subscription_source || '').trim() || null;   // the channel that first brought the customer in (per Isaac, Nov 25)
+      n.origin_sold_by = best.origin_sold_by || best.sold_by || null;
       n.renewal_prev_arv = Number(best.annual_recurring_value) || 0;
       best.renewed_into = n.subscription_id || true;
       links++; inferred++;
@@ -257,6 +261,8 @@ function linkRenewalChains(rows) {
       n.is_renewal_cont = true; n.renewal_link_by = 'source';
       n.origin_initial_service = best.origin_initial_service || best.initial_service || null;
       n.origin_sold_date = best.origin_sold_date || best.sold_date || null;
+      n.origin_source = best.origin_source || String(best.subscription_source || '').trim() || null;   // the channel that first brought the customer in (per Isaac, Nov 25)
+      n.origin_sold_by = best.origin_sold_by || best.sold_by || null;
       n.renewal_prev_arv = Number(best.annual_recurring_value) || 0;
       best.renewed_into = n.subscription_id || true;
       links++; bySource++;

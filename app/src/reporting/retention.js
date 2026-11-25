@@ -1900,81 +1900,85 @@ function reportingWaterfall() {
     const _elig = (r, i) => hz.get(r)[i] <= todayMs;
     const _kept = (r, i) => { const c = cx.get(r); return c === undefined || c >= hz.get(r)[i]; };
     const greenHeat = (pct) => `hsl(${Math.max(0, Math.min(120, pct * 120))}, 70%, 88%)`;
-    const monthRow = (m) => {
-      const cohort = byMonth[m];
+    // Rows (per Isaac, Nov 25 — "a pulse of how our accounts are doing by channel over time"): the month a customer
+    // started, or the CHANNEL that brought them in. Channel = the Marketing tab's channel for the plan's FieldRoutes
+    // source; a renewal plan counts under the channel of the customer's ORIGINAL plan (it is the same customer,
+    // continuing), so "Renewal - Loyalty" is not a channel here. Channels with under 25 subs pool into one row.
+    // Start year narrows both views to customers first serviced that year, to compare one year's intake with another.
+    const smRows = state._rtStartRows === 'channel' ? 'channel' : 'month';
+    const yearsAvail = [...new Set(rows.map(r => String(r.initial_service || '').slice(0, 4)).filter(y => /^20\d\d$/.test(y)))].sort().reverse();
+    const smYear = yearsAvail.includes(String(state._rtStartYear || '')) ? String(state._rtStartYear) : '';
+    const scoped = (smYear ? rows.filter(r => String(r.initial_service || '').slice(0, 4) === smYear) : rows).filter(r => hz.has(r));
+    const chanOf = (r) => {
+      if (typeof _mklChannelOfSource !== 'function') return reportingSourceOf(r);
+      if (r.is_renewal_cont && r.origin_source) return (typeof _mklSaleChannel === 'function') ? _mklSaleChannel({ sold_by: r.origin_sold_by || '', subscription_source: r.origin_source }) : _mklChannelOfSource(r.origin_source);
+      return (typeof _mklSaleChannel === 'function') ? _mklSaleChannel(r) : _mklChannelOfSource(reportingSourceOf(r));
+    };
+    const medLifeOf = (cohort) => {
+      const lives = cohort.filter(r => r._effCancel).map(r => { const a = new Date(r.initial_service + 'T00:00'), b = new Date(r._effCancel + 'T00:00'); return (isNaN(a) || isNaN(b)) ? null : Math.max(0, (b - a) / 2629800000); }).filter(v => v != null).sort((a, b) => a - b);
+      return lives.length ? lives[Math.floor(lives.length / 2)] : null;
+    };
+    const what = (name) => smRows === 'channel' ? 'subs from ' + name : 'subs starting in ' + name;
+    const groupRow = (name, cohort, total) => {
       const cells = HORIZONS.map((h, hi) => {
         const eligible = cohort.filter(r => _elig(r, hi));
-        if (eligible.length < 25) return el('td', { class: 'px-2 py-1.5', style: { color: 'var(--text-subtle)' }, title: 'Fewer than 25 subs old enough for this horizon' }, '—');
+        if (eligible.length < 25) return el('td', { class: total ? 'px-2 py-2' : 'px-2 py-1.5', style: { color: 'var(--text-subtle)' }, title: 'Fewer than 25 subs old enough for this horizon' }, '—');
         const kept = eligible.filter(r => _kept(r, hi));
         const pct = kept.length / eligible.length;
         return el('td', {
-          class: 'px-2 py-1.5 tabular-nums',
-          style: { background: greenHeat(pct), color: '#323230', fontWeight: '600' },
-          title: fmt.int(kept.length) + ' of ' + fmt.int(eligible.length) + ' subs starting in ' + MONTHS_S[m] + ' (any year) still active ' + h + ' months in',
-        }, smCell(kept.length, eligible.length), smMode === 'count' ? el('span', { class: 'text-[9px] ml-1', style: { opacity: '.6' } }, '/ ' + fmt.int(eligible.length)) : null);
+          class: total ? 'px-2 py-2 tabular-nums font-black' : 'px-2 py-1.5 tabular-nums',
+          style: { background: greenHeat(pct), color: '#323230', fontWeight: total ? undefined : '600' },
+          title: fmt.int(kept.length) + ' of ' + fmt.int(eligible.length) + ' ' + (total ? 'subs (all rows pooled)' : what(name)) + (smYear ? ', first serviced in ' + smYear + ',' : smRows === 'month' && !total ? ' (any year)' : '') + ' still active ' + h + ' months in',
+        }, smCell(kept.length, eligible.length), smMode === 'count' ? el('span', { class: 'text-[9px] ml-1' + (total ? ' font-normal' : ''), style: { opacity: '.6' } }, '/ ' + fmt.int(eligible.length)) : null);
       });
-      const churned = cohort.filter(r => r._effCancel);
-      const lives = churned.map(r => {
-        const a = new Date(r.initial_service + 'T00:00'), b = new Date(r._effCancel + 'T00:00');
-        return (isNaN(a) || isNaN(b)) ? null : Math.max(0, (b - a) / 2629800000);
-      }).filter(v => v != null).sort((a, b) => a - b);
-      const medLife = lives.length ? lives[Math.floor(lives.length / 2)] : null;
-      return el('tr', { class: 'border-t border-' },
-        el('td', { class: 'px-2.5 py-1.5 font-semibold' }, MONTHS_S[m]),
-        el('td', { class: 'px-2 py-1.5 tabular-nums', style: { color: 'var(--text-muted)' } }, fmt.int(cohort.length)),
+      const medLife = medLifeOf(cohort);
+      const drill = cohort.length && typeof openReportingDrillModal === 'function' ? () => openReportingDrillModal({ chartTitle: 'Retention · ' + name + (smYear ? ' · started ' + smYear : ''), sliceLabel: fmt.int(cohort.length) + ' subscription' + (cohort.length === 1 ? '' : 's'), rows: cohort, formatValue: fmt.usd0 }) : null;
+      return el('tr', total ? { class: 'border-t-2', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } } : { class: 'border-t border-' },
+        el('td', { class: total ? 'px-2.5 py-2 font-black' : 'px-2.5 py-1.5 font-semibold whitespace-nowrap' }, name),
+        el('td', { class: (total ? 'px-2 py-2 tabular-nums font-bold' : 'px-2 py-1.5 tabular-nums') + (drill ? ' cursor-pointer underline' : ''), style: total ? {} : { color: 'var(--text-muted)' }, title: drill ? 'Click for the subscriptions' : '', onclick: drill }, fmt.int(cohort.length)),
         ...cells,
-        el('td', { class: 'px-2 py-1.5 tabular-nums', style: { color: 'var(--text-muted)' } }, medLife == null ? '—' : medLife.toFixed(1) + ' mo'));
+        el('td', { class: total ? 'px-2 py-2 tabular-nums' : 'px-2 py-1.5 tabular-nums', style: { color: 'var(--text-muted)' } }, medLife == null ? '—' : medLife.toFixed(1) + ' mo'));
     };
+    let groups;
+    if (smRows === 'channel') {
+      const m = new Map(); for (const r of scoped) { const k = chanOf(r) || 'Unspecified'; (m.get(k) || m.set(k, []).get(k)).push(r); }
+      const big = [...m.entries()].filter(([, v]) => v.length >= 25).sort((a, b) => b[1].length - a[1].length);
+      const small = [...m.entries()].filter(([, v]) => v.length < 25);
+      groups = big.map(([k, v]) => [k, v]);
+      if (small.length) groups.push(['Other channels (' + small.length + ', under 25 subs each)', small.flatMap(([, v]) => v)]);
+    } else {
+      const bm = Array.from({ length: 12 }, () => []);
+      for (const r of scoped) { const d = new Date(r.initial_service + 'T00:00'); if (!isNaN(d)) bm[d.getMonth()].push(r); }
+      groups = bm.map((v, i) => [MONTHS_S[i], v]);
+    }
+    const seg = (opts, cur, set) => el('div', { class: 'inline-flex', style: { border: '1px solid var(--border-2)' } },
+      ...opts.map(([k, l]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
+        style: cur === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card)', color: 'var(--text-muted)' }, onclick: () => { set(k); mountApp(); } }, l)));
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
         el('div', {},
-          el('h3', { class: 'text-base font-bold' }, 'Retention by Start Month' + (label ? ' — ' + label : ''))),
-        el('div', { class: 'flex items-center gap-2' },
-          el('div', { class: 'inline-flex', style: { border: '1px solid var(--border-2)' } },
-            ...[['pct', '% kept'], ['count', 'Subs left']].map(([k, l]) => el('button', {
-              class: 'px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
-              style: smMode === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card)', color: 'var(--text-muted)' },
-              onclick: () => { state._rtStartMonthMode = k; mountApp(); },
-            }, l))),
-          configInfoBtn('Retention by Start Month',
-          'Each row pools every sub whose first service landed in that calendar month, across all years. The 3/12/24-month columns show the share still active that long after starting (or, with “Subs left”, how many of the eligible subs are still active) — only subs old enough for the horizon count, and months with fewer than 25 eligible subs show a dash. Median lifetime is measured on churned subs only (survivors would push it higher). Same attrition rules as everywhere: excluded reasons and 3-day ROR count as retained.'))),
+          el('h3', { class: 'text-base font-bold' }, (smRows === 'channel' ? 'Retention by Channel' : 'Retention by Start Month') + (smYear ? ' · started ' + smYear : '') + (label ? ' — ' + label : '')),
+          el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Share of customers still active 3 to 24 months after their first service' + (smRows === 'channel' ? ' · by the channel that brought them in' : ''))),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          seg([['month', 'Start month'], ['channel', 'Channel']], smRows, (k) => { state._rtStartRows = k; }),
+          el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, title: 'Only customers first serviced in this year',
+            onchange: (e) => { state._rtStartYear = e.target.value; mountApp(); } },
+            el('option', { value: '', selected: !smYear }, 'All start years'), ...yearsAvail.map(y => el('option', { value: y, selected: smYear === y }, 'Started ' + y))),
+          seg([['pct', '% kept'], ['count', 'Subs left']], smMode, (k) => { state._rtStartMonthMode = k; }),
+          configInfoBtn('Retention by Start Month or Channel',
+          'Rows are the calendar month a customer started, or the channel that brought them in (the Marketing tab’s channel for the plan’s FieldRoutes source; a renewal plan counts under the channel of the customer’s original plan). The 3 to 24 month columns show the share still active that long after their first service (or, with “Subs left”, how many of the eligible subs are still active) — only subs old enough for the horizon count, and a cell with fewer than 25 eligible subs shows a dash. “Started YYYY” keeps only customers first serviced that year. Median lifetime is measured on churned subs only (survivors would push it higher). Same attrition rules as everywhere: excluded reasons and 3-day ROR count as retained.'))),
       el('div', { class: 'scroll-x' },
         el('table', { class: 'w-full text-xs' },
           el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' },
             el('tr', {},
-              el('th', { class: 'text-left px-2.5 py-2 font-semibold' }, 'Start Month'),
+              el('th', { class: 'text-left px-2.5 py-2 font-semibold' }, smRows === 'channel' ? 'Channel' : 'Start Month'),
               el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Subs'),
               ...HORIZONS.map(h => el('th', { class: 'text-left px-2 py-2 font-semibold' }, h + ' Mo')),
               el('th', { class: 'text-left px-2 py-2 font-semibold', title: 'Median lifetime of the subs that churned' }, 'Med Life'))),
           el('tbody', {},
-            ...Array.from({ length: 12 }, (_, i) => monthRow(i)),
-            // ── ALL row — the whole book pooled, so each horizon column is
-            // the true WEIGHTED average (kept ÷ eligible across every month,
-            // not an average of the monthly averages). ──
-            (() => {
-              const cells = HORIZONS.map((h, hi) => {
-                const eligible = rows.filter(r => hz.has(r) && _elig(r, hi));
-                if (eligible.length < 25) return el('td', { class: 'px-2 py-2', style: { color: 'var(--text-subtle)' } }, '—');
-                const kept = eligible.filter(r => _kept(r, hi));
-                const pct = kept.length / eligible.length;
-                return el('td', {
-                  class: 'px-2 py-2 tabular-nums font-black',
-                  style: { background: greenHeat(pct), color: '#323230' },
-                  title: fmt.int(kept.length) + ' of ' + fmt.int(eligible.length) + ' subs (all start months pooled) still active ' + h + ' months in',
-                }, smCell(kept.length, eligible.length), smMode === 'count' ? el('span', { class: 'text-[9px] ml-1 font-normal', style: { opacity: '.6' } }, '/ ' + fmt.int(eligible.length)) : null);
-              });
-              const churned = rows.filter(r => r._effCancel);
-              const lives = churned.map(r => {
-                const a = new Date(r.initial_service + 'T00:00'), b = new Date(r._effCancel + 'T00:00');
-                return (isNaN(a) || isNaN(b)) ? null : Math.max(0, (b - a) / 2629800000);
-              }).filter(v => v != null).sort((a, b) => a - b);
-              const medLife = lives.length ? lives[Math.floor(lives.length / 2)] : null;
-              return el('tr', { class: 'border-t-2', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
-                el('td', { class: 'px-2.5 py-2 font-black' }, 'ALL'),
-                el('td', { class: 'px-2 py-2 tabular-nums font-bold' }, fmt.int(rows.length)),
-                ...cells,
-                el('td', { class: 'px-2 py-2 tabular-nums', style: { color: 'var(--text-muted)' } }, medLife == null ? '—' : medLife.toFixed(1) + ' mo'));
-            })()))));
+            ...groups.map(([k, v]) => groupRow(k, v, false)),
+            // ALL row — everything shown, pooled, so each column is the true weighted average.
+            groupRow('ALL', scoped, true)))));
   };
 
   // ── LTV — lifetime value by segment. LTV = monthly ARPU ÷ monthly churn
