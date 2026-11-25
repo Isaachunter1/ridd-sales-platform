@@ -352,3 +352,19 @@ keeps the old source name on the plans sold under it: 99 plans, sold 2022 to Nov
 reads that name as "Upsell - Service Pro" when the snapshot loads, so it is one source everywhere (the FieldRoutes
 name stays on the row as subscription_source_crm). Nothing is changed in FieldRoutes. "Renewal - Service Pro
 Upsell" (683 plans, live) is a separate source and is left alone.
+
+## 2026-11-25 · Media plan: three tables, Seasonal curve, Left over, add a channel
+Per Isaac ("split out the spend calendar a bit more… the most important table for 2027"):
+- The one Spend calendar table is now three, with the month columns lined up: Spend plan by channel (first),
+  Revenue plan, What the spend buys. In the spend plan, a channel's share of the pool and its cost per lead have
+  columns of their own instead of sitting inside the channel's name.
+- "Share of the year (curve)" is called Seasonal curve.
+- The "Incline plan" label on Google Local Services is gone, and so are the last-year cost-per-lead hint in an empty
+  cost box and its hover text.
+- "New channels & tests" is gone as a line. Whatever share of the flexible pool the channels have not taken shows as
+  Left over (green), by month and for the year; if the shares pass 100% it reads Over budget (red). The header reads
+  "$X planned of $Y · $Z left over". Total planned spend is what is assigned (fee + Local Services + the channels),
+  so it no longer always equals the budget. A plan saved with the old line is read without it; nothing is rewritten
+  until the plan is next edited.
+- "+ Add channel": pick one of the app's channels or type a new name; it joins at 0%. The × beside a channel removes
+  it. Channels with spend that the plan does not name are read against Left over on the year-to-date view.
