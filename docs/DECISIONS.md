@@ -264,3 +264,14 @@ shown: "Placed by" (the office tag or the ZIP that put the lead in its office �
 the campaign GoHighLevel recorded on the opportunity, so a lead whose source label names another office can be
 checked. Display only: no lead count, channel or office changes. The Tag column is blank until the next contacts
 sync after deploy.
+
+## 2026-11-25 · A lead's office: source label first, then office tag, then ZIP
+Per Isaac ("the source should be the main one"): a lead goes to the office named in its GoHighLevel source label
+("Facebook | Atlanta", "FB | Charleston | RPC", "Google Local Services | Destin"). Campaigns and tracking numbers
+are set up per office, so the label is the office that paid for the lead. Only when the label names no office does
+the contact's office tag apply, then the contact's ZIP. Replaces "office tag first, ZIP second" (Nov 18); no
+contact carried an office tag, so every lead had been placed by ZIP alone. The ZIP's office is kept: when it differs
+from the label's, the drill-down's "Placed by" reads "source label · ZIP 29440 is Myrtle Beach".
+Measured on November 2026 (2,457 leads): Facebook leads with no office fall from 393 to 51 (195 leads of all channels still have none); 31 leads move office because
+the label and the ZIP disagree (25 Facebook, 4 Local Services, 2 Service Direct). Sales, spend and channels are
+untouched; office lead counts, close rate and cost per lead by office change with it.
