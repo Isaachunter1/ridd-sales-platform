@@ -2777,7 +2777,7 @@ function reportingWaterfall() {
     // wraps underneath instead of both squeezing side by side.
     // (Cohort matrix hidden per Isaac, Sep 2026 — renderMatrix stays for when it comes back.)
     _shell('Attrition Trends', _pm('ret:trends', () => attritionTrendsCard(pop, label))),   // right under Attrition Steps (per Isaac, Sep 2026)
-    _shell('Churn Timing', _pm('ret:timing', () => churnTimingCard(pop, label))),
+    // (Churn Timing moved to the bottom of the page, per Isaac, Nov 25.)
     _shell('Customer Lifetime', lifetimeCard),                       // Customer Lifetime follows the trends chart (per Isaac)
     _shell('Cohort Waterfall', _pm('ret:blended', () => renderBlended(pop))),
     _shell('Retention Curves', _pm('ret:curves', () => retentionCurvesCard(pop))),
@@ -3167,6 +3167,8 @@ function reportingWaterfall() {
   // (per Isaac, Sep 23) instead of being its own section.
   const contractLen = null;   // folded into Attrition Indicators → Contract Length (per Isaac, Oct 6)
   const insights = null;   // Insights is a pop-up now (per Isaac, Nov 25) — openRetenInsights()
-  return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, insights, body, _shell('Renewal Retention', renewalRetentionCard), contractLen);   // Renewals by Cohort folded into Renewal Retention (per Isaac, Nov 24)   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
+  return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, insights, body, _shell('Renewal Retention', renewalRetentionCard), contractLen,
+    _shell('Churn Timing', _pm('ret:timing', () => churnTimingCard(popA, inCompare ? officeLabel(office) : null))),   // last on the page (per Isaac, Nov 25)
+    inCompare ? _shell('Churn Timing', _pm('ret:timingB', () => churnTimingCard(popB, officeLabel(compareOffice)))) : null);   // Renewals by Cohort folded into Renewal Retention (per Isaac, Nov 24)   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
 }
 
