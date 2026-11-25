@@ -439,8 +439,8 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
         el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' projected attrition'), el('div', { class: 'text-base font-black' }, pct(projected), el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'seasonal pace'))),
         (() => { const t = retenTrailing12(book); const fn = drill('Trailing 12 months · counted cancels', t.rows.counted, 'counted as churn'); return el('div', { class: 'text-right', title: n(t.c) + ' cancels ' + t.st + ' → ' + t.en + ' ÷ ' + n(t.boy) + ' on the books a year ago' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Trailing 12 months'), el('div', { class: 'text-base font-black', style: fn ? { cursor: 'pointer' } : {}, onclick: fn ? (e) => { e.stopPropagation(); fn(); } : null }, pct(t.rate))); })()),
         // Insights › (per Isaac, Oct 13) — beside the branch button (moved up a row, same day).
-        el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: state._retenInsightsOpen ? 'var(--accent)' : 'var(--border-2)', background: state._retenInsightsOpen ? 'var(--accent)' : 'var(--card)', color: state._retenInsightsOpen ? 'var(--accent-text)' : 'var(--text)' },
-          title: 'Compare offices: who loses more, why, and when', onclick: (e) => { e.stopPropagation(); state._retenInsightsOpen = !state._retenInsightsOpen; mountApp(); } }, state._retenInsightsOpen ? 'Insights ▾' : 'Insights ›'),
+        el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+          title: 'Compare offices: who loses more, why, and when', onclick: (e) => { e.stopPropagation(); if (typeof openRetenInsights === 'function') openRetenInsights(); } }, 'Insights ›'),
         el('span', { class: 'inline-flex' }, retenBranchDropdown(retenGroundZero())),
         whatIf ? el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: (e) => { e.stopPropagation(); state._retenWhatIf = null; mountApp(); } }, 'Reset to official') : null,
         (() => {
@@ -3166,7 +3166,7 @@ function reportingWaterfall() {
   // Contract Length (12 vs 18 vs 24) rides at the bottom of Retention now
   // (per Isaac, Sep 23) instead of being its own section.
   const contractLen = null;   // folded into Attrition Indicators → Contract Length (per Isaac, Oct 6)
-  const insights = state._retenInsightsOpen && typeof retenInsightsCard === 'function' ? _pm('ret:insights', () => retenInsightsCard()) : null;
+  const insights = null;   // Insights is a pop-up now (per Isaac, Nov 25) — openRetenInsights()
   return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, insights, body, _shell('Renewal Retention', renewalRetentionCard), contractLen);   // Renewals by Cohort folded into Renewal Retention (per Isaac, Nov 24)   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
 }
 

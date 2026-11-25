@@ -46,6 +46,9 @@ function _riStats(base, counted) {
   S.apPct = pct(S.ap, S.base); S.multiPct = pct(S.multi, S.base); S.d2dPct = pct(S.d2d, S.base); S.arvAvg = S.arvN ? S.arv / S.arvN : null; S.pastDuePct = pct(S.pastDue, S.activeNow);
   S.earlyPct = pct(S.life.m0 + S.life.m3, S.cancels);
   S.bandPct = S.band.map(v => pct(v, S.cancels));
+  S.firstYrPct = pct(S.band[0] + S.band[1], S.cancels);
+  S.arvLost = counted.reduce((t, r) => t + (Number(r.annual_recurring_value) || 0), 0);   // yearly value of the plans lost (per Isaac, Nov 25)
+  { let k = null; for (const x in S.reasons) if (!k || S.reasons[x] > S.reasons[k]) k = x; S.topReason = k ? { k, n: S.reasons[k], pct: pct(S.reasons[k], S.base) } : null; }
   return S;
 }
 // Company + every branch, on the full retention book (all branches in), memoized on the book.
@@ -157,23 +160,38 @@ function retenInsightsCard() {
   // ── League table (always) ──
   // Life-month bands (share of the cancels): only the ones this window can reach —
   // a branch's year N is measured over 12 months, a cohort only as old as it is.
-  const RI_BANDS = [[0, 'Lost in 0–6 mo'], [6, 'Lost in 6–12 mo'], [12, 'Lost in 12–18 mo'], [18, 'Lost in 18–24 mo'], [24, 'Lost in 24+ mo']];
-  const _cohY = /^cohort:(\d{4})/.exec(D.mode || ''); const _cohAge = _cohY ? (Date.now() - new Date(+_cohY[1], 0, 1).getTime()) / (30.44 * 864e5) : null;
-  const bands = RI_BANDS.map((x, i) => ({ i, lo: x[0], label: x[1] })).filter(x => D.isBranchYr ? x.lo < 12 : _cohAge != null ? x.lo < _cohAge : true);
-  const cols = [[D.isBranchYr ? 'Office · cohort year' : 'Office', 'left'], [/^cohort/.test(D.mode) || D.isBranchYr ? 'Cohort size' : D.mode === 't12' ? 'Book a year ago' : 'Book on Jan 1', 'right'], ['Cancels', 'right'], [D.mode === 't12' ? 'T12 attrition' : /^cohort/.test(D.mode) ? 'Lost to date' : D.isBranchYr ? 'Lost in 1st 12 mo' : 'Attrition', 'right'], ['vs company', 'right'], ['Expected', 'right'], ['Multi-year', 'right'], ...bands.map(x => [x.label, 'right']), ['Past due 30+', 'right']];
-  const _thTip = { 'Expected': 'What the office would lose at the other offices’ rate for each contract length and channel it sells — above it = underperforming on a like-for-like book', 'vs company': 'Office attrition minus the company’s', 'Multi-year': 'Share of the book on 18–24 month agreements', 'Past due 30+': 'Share of active accounts 30+ days past due' };
-  const th = (l, a) => el('th', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap', style: { textAlign: a }, title: _thTip[l] || (/^Lost in/.test(l) ? 'Share of the office’s cancels that came in that stretch of the customer’s life' : '') }, l);
-  const td = (v, a, sty) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap', style: Object.assign({ textAlign: a }, sty || {}) }, v);
-  const row = (b, isCo) => el('tr', { class: 'border-t' + (isCo ? '' : ' cursor-pointer hover:brightness-95'), style: { borderColor: 'var(--border)', background: B && b === B ? 'rgba(223,100,58,.08)' : isCo ? 'var(--card-2)' : '', fontWeight: isCo ? '700' : '' },
-      onclick: isCo ? null : () => { state._retenInsBranch = state._retenInsBranch === b.name ? null : b.name; mountApp(); }, title: isCo ? '' : 'Click to compare this office with the company' },
-    td((b.rank ? '#' + b.rank + ' ' : '') + (isCo ? (D.isBranchYr ? 'All offices' : 'Company') : tc(b.name)) + (!isCo && D.isBranchYr && b.cohortYear ? ' · ' + b.cohortYear : '') + (b.base < RI_MIN_BASE && !isCo ? ' (small)' : ''), 'left'),
-    td(n(b.base), 'right'), td(n(b.cancels), 'right'),
+  // Columns (per Isaac, Nov 25 — "that top table doesn't give me the best metrics"): what was lost in accounts AND
+  // dollars, the rate, which way it is heading, whether it is the office or its mix, the reason behind most of it,
+  // how early customers leave, and the three levers an office controls (autopay, long agreements, past due).
+  // Replaces five "lost in N–N months" columns with one; the full timing is in the office comparison below.
+  const PRby = (D.prior && D.prior.by) || null;
+  const baseLbl = /^cohort/.test(D.mode) || D.isBranchYr ? 'Cohort' : D.mode === 't12' ? 'Book a year ago' : 'Book on Jan 1';
+  const rateLbl = D.mode === 't12' ? 'Attrition (T12)' : /^cohort/.test(D.mode) ? 'Lost to date' : D.isBranchYr ? 'Lost in 1st 12 mo' : 'Attrition';
+  const earlyLbl = D.isBranchYr ? 'Left in first 6 mo' : 'Left in first year';
+  const cols = [[D.isBranchYr ? 'Office · cohort year' : 'Office', 'left'], [baseLbl, 'right'], ['Lost', 'right'], ['Yearly value lost', 'right'], [rateLbl, 'right'], ['vs company', 'right'],
+    ...(PRby ? [['vs ' + D.prior.year, 'right']] : []), ['vs its mix', 'right'], ['Top reason', 'left'], [earlyLbl, 'right'], ['Autopay', 'right'], ['Multi-year', 'right'], ['Past due 30+', 'right']];
+  const _thTip = { 'Lost': 'Accounts counted as lost in this window — click for the list', 'Yearly value lost': 'Annual recurring value of the plans lost', 'vs company': 'Office attrition minus the company’s',
+    'vs its mix': 'Office attrition minus what it would lose at the other offices’ rate for each contract length and channel it sells — above zero is the office, not what it sells',
+    'Top reason': 'The cancel reason that took the largest share of the office’s book', 'Left in first year': 'Share of the office’s lost accounts that left inside 12 months of their first service', 'Left in first 6 mo': 'Share of the office’s lost accounts that left inside 6 months of their first service',
+    'Autopay': 'Share of the book on autopay', 'Multi-year': 'Share of the book on 18–24 month agreements', 'Past due 30+': 'Share of active accounts 30+ days past due' };
+  const th = (l, a) => el('th', { class: 'px-2 py-1.5 font-semibold', style: { textAlign: a, verticalAlign: 'bottom', lineHeight: '1.25', whiteSpace: l === 'Office' || l === 'Top reason' ? 'nowrap' : 'normal', minWidth: a === 'right' ? '58px' : '' }, title: _thTip[l] || (/^vs \d{4}$/.test(l) ? 'Attrition now minus the office’s attrition that year' : '') }, l);
+  const td = (v, a, sty, onclick) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap' + (onclick ? ' underline' : ''), style: Object.assign({ textAlign: a }, sty || {}), onclick: onclick ? (e) => { e.stopPropagation(); onclick(); } : null }, v);
+  const tone = (d, eps) => d == null ? {} : { color: d > (eps || 0) ? bad : d < -(eps || 0) ? good : 'var(--text-muted)' };
+  const row = (b, isCo) => { const nm = isCo ? (D.isBranchYr ? 'All offices' : 'Company') : tc(b.name);
+    const was = isCo ? (D.prior && D.prior.company) : (PRby ? PRby[b.name] : null), dWas = was != null && b.rate != null ? b.rate - was : null;
+    const dMix = !isCo && b.expected != null && b.rate != null ? b.rate - b.expected : null, T = b.topReason;
+    const early = D.isBranchYr ? (b.bandPct || [])[0] : b.firstYrPct;
+    return el('tr', { class: 'border-t' + (isCo ? '' : ' cursor-pointer hover:brightness-95'), style: { borderColor: 'var(--border)', background: B && b === B ? 'rgba(223,100,58,.08)' : isCo ? 'var(--card-2)' : '', fontWeight: isCo ? '700' : '' },
+      onclick: isCo ? null : () => { state._retenInsBranch = state._retenInsBranch === b.name ? null : b.name; _riRefresh(); }, title: isCo ? '' : 'Click to compare this office with the others' },
+    td((b.rank ? '#' + b.rank + ' ' : '') + nm + (!isCo && D.isBranchYr && b.cohortYear ? ' · ' + b.cohortYear : '') + (b.base < RI_MIN_BASE && !isCo ? ' (small)' : ''), 'left'),
+    td(n(b.base), 'right'), td(n(b.cancels), 'right', null, drill(nm + ' · lost', b.cancelRows)),
+    td(fmt.usd0(b.arvLost || 0), 'right'),
     td(pct(b.rate), 'right', { fontWeight: '700' }),
-    td(isCo ? '—' : pts((b.rate || 0) - (C.rate || 0)), 'right', isCo ? {} : { color: (b.rate || 0) > (C.rate || 0) ? bad : good }),
-    td(isCo ? '—' : pct(b.expected), 'right', { color: 'var(--text-muted)' }),
-    td(pct(b.multiPct, 0), 'right'),
-    ...bands.map(x => td(pct((b.bandPct || [])[x.i], 0), 'right', { color: 'var(--text-muted)' })),
-    td(pct(b.pastDuePct, 0), 'right'));
+    td(isCo ? '—' : pts((b.rate || 0) - (C.rate || 0)), 'right', isCo ? {} : tone((b.rate || 0) - (C.rate || 0))),
+    ...(PRby ? [td(dWas == null ? '—' : pts(dWas), 'right', tone(dWas, 0.005))] : []),
+    td(dMix == null ? '—' : pts(dMix), 'right', tone(dMix, 0.005)),
+    td(T ? T.k + ' · ' + pct(T.pct) : '—', 'left', { maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis' }, T ? drill(nm + ' · ' + T.k, b.cancelRows.filter(r => (String(reportingCancelReasonOf(r) || 'Unspecified').trim() || 'Unspecified') === T.k)) : null),
+    td(pct(early, 0), 'right'), td(pct(b.apPct, 0), 'right'), td(pct(b.multiPct, 0), 'right'), td(pct(b.pastDuePct, 0), 'right')); };
   const league = el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]' },
     el('thead', { class: 'text-[9px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } }, el('tr', {}, ...cols.map(([l, a]) => th(l, a)))),
     el('tbody', {}, row(C, true), ...D.branches.map(b => row(b, false)),
@@ -295,17 +313,42 @@ function retenInsightsCard() {
   return el('div', { class: 'card p-4 flex flex-col gap-4' },
     el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
       el('div', {},
-        el('h3', { class: 'text-base font-bold' }, 'Insights'),
+        el('h3', { class: 'text-base font-bold' }, 'Attrition insights · by office'),
         el('div', { class: 'flex items-center gap-2 flex-wrap mt-1' },
           el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, title: 'Which window the comparison reads',
-            onchange: (e) => { state._retenInsMode = e.target.value; mountApp(); } },
+            onchange: (e) => { state._retenInsMode = e.target.value; _riRefresh(); } },
             el('option', { value: 't12', selected: D.mode === 't12' }, 'Trailing 12 months'),
             el('optgroup', { label: 'Calendar year (book on Jan 1)' }, ...D.years.map(y => el('option', { value: 'year:' + y, selected: D.mode === 'year:' + y }, y))),
             el('optgroup', { label: 'Office’s own year (lost in first 12 months)' }, ...[1, 2, 3].map(n => el('option', { value: 'branchyr:' + n, selected: D.mode === 'branchyr:' + n }, 'Year ' + n + ' of each office'))),
             el('optgroup', { label: 'Start-year cohort (lost to date)' }, ...D.years.map(y => el('option', { value: 'cohort:' + y, selected: D.mode === 'cohort:' + y }, y + ' cohort'))))),
         el('div', { class: 'text-[11px] mt-1', style: { color: 'var(--text-muted)' } }, D.label + (B ? '' : ' · click an office to compare it'))),
-      el('button', { class: 'text-[11px] font-bold', style: { color: 'var(--text-muted)' }, onclick: () => { state._retenInsightsOpen = false; mountApp(); } }, 'Close ✕')),
-    focusBlock,
+      el('button', { class: 'text-[11px] font-bold', style: { color: 'var(--text-muted)' }, onclick: () => _riClose() }, 'Close ✕')),
     sec('All offices', null, league),
+    focusBlock,
     insightsBlock);
+}
+
+// Insights opens as a pop-up over the page (per Isaac, Nov 25 2026) instead of a card that pushes the page down.
+// The pop-up owns its own redraw: picking a window or an office rebuilds what is inside it, the page underneath
+// is left alone. Account lists opened from it stack on top; Esc closes the top one only.
+const _RI = { ov: null };
+function _riClose() { if (_RI.ov) { try { _RI.ov.remove(); } catch (e) { /* gone */ } _RI.ov = null; } document.removeEventListener('keydown', _riEsc); }
+function _riEsc(e) { if (e.key !== 'Escape' || !_RI.ov) return; const all = document.querySelectorAll('.modal-overlay'); if (all[all.length - 1] === _RI.ov) _riClose(); }
+function _riRefresh() {
+  if (!_RI.ov) return;
+  const y = _RI.ov.firstElementChild ? _RI.ov.firstElementChild.scrollTop : 0;
+  let card = null; try { card = retenInsightsCard(); } catch (e) { console.warn('[insights]', e); }
+  if (!card) card = el('div', { class: 'card p-6 text-sm', style: { color: 'var(--text-muted)' } }, 'Nothing to compare yet — the retention book is still loading.');
+  card.style.width = 'min(1280px, 96vw)'; card.style.maxHeight = '90vh'; card.style.overflow = 'auto'; card.style.margin = '4vh auto 0';
+  card.addEventListener('click', (e) => e.stopPropagation());
+  _RI.ov.replaceChildren(card);
+  card.scrollTop = y;
+}
+function openRetenInsights() {
+  _riClose();
+  const ov = el('div', { class: 'modal-overlay' });
+  ov.addEventListener('click', (e) => { if (e.target === ov) _riClose(); });
+  document.addEventListener('keydown', _riEsc);
+  document.body.append(ov); _RI.ov = ov;
+  _riRefresh();
 }

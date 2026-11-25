@@ -291,3 +291,13 @@ A change to a tracking-number label (Local Presence) is not a touch. First-touch
 Limits, stated plainly: history starts the day this deploys. A change Pest AI made earlier shows as one change dated
 by GoHighLevel's last-updated stamp on the opportunity, which can be later than the real change. Going forward a
 change is dated within one sync cycle. Channel on past sales moves wherever the stored source was stale.
+
+## 2026-11-25 · Retention Insights: a pop-up, and a different office table
+Per Isaac: Insights on Attrition Steps opens as a pop-up over the page instead of a card that pushes the page down,
+and "that top table doesn't give me the best metrics". The office table now reads: book, accounts lost (click for
+the list), yearly value lost (sum of annual recurring value on the lost plans), attrition, vs company, vs the year
+before, vs its mix (attrition minus what the office's contract-length and channel mix predicts — the old "Expected"
+column, shown as the gap), top cancel reason with its share of the book, share of lost accounts that left in their
+first year, autopay, multi-year, past due 30+. The five "lost in N–N months" columns became one; the full timing
+stays in the office comparison. Order in the pop-up: office table, the clicked office's comparison, then patterns,
+insights and trends. No definition changed: same book and windows as before.
