@@ -255,3 +255,12 @@ One card (arrange id mkt-tables) with a "By office & channel / By month" switch 
 ## 2026-11-25 — Collections tab; payback and lifetime value back on the Marketing dashboard
 - **Reporting → Collections** (reporting/collections.js): customers with a balance past due, in buckets 1–7, 8–14, 15–30, 31–60, 61–90, 91–120 and 120+ days. One row per customer (FieldRoutes holds balance and age on the customer). Tiles per bucket, a table by office (customers or balance), a switch for everyone / active plan / no active plan, and every number opens its customers. Isaac: collections is another department; this is visibility only.
 - **Payback and lifetime value** (mkxPaybackCard) is back on the Dashboard under Channel metrics, now by channel or by office, with a "kept 12 months" column. It was taken off on Nov 24; Isaac asked for the cost-to-retention join on Nov 25 and it belongs on Marketing because it decides budget. It reads the nightly lifetime file (marketing/ltv.json from the ltv-cohorts job), which has not been published yet — the card says so and offers admins a "Build it now" button. CAC here is marketing spend ÷ serviced new sales (wages and incentives not in).
+
+## 2026-11-25 · Leads drill-down: Tag, Placed by and Campaign replace Stage
+Per Isaac: on the leads drill-down (office × channel table), drop Stage and show the agency tag on the contact
+(ROR or Gravitate) so a Facebook lead shows who ran the ad. The contacts sync now writes that tag as column [12]
+of the compact contacts file (whole-word match on "ror" / "gravitate" in any contact tag; blank otherwise). Also
+shown: "Placed by" (the office tag or the ZIP that put the lead in its office — the source label never does) and
+the campaign GoHighLevel recorded on the opportunity, so a lead whose source label names another office can be
+checked. Display only: no lead count, channel or office changes. The Tag column is blank until the next contacts
+sync after deploy.

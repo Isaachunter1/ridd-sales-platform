@@ -157,7 +157,8 @@ function mkpAllLeads() {
     const ld = oT ? _mkpLocalDay(oD, oT, mkt) : oD;
     leads.push({ d: ld, dUtc: oD, t: oT, batch, p: o[2] || '', e: o[3] || '', prov, label: srcLabel, group: mkpGroupOf(prov), paid: paid.has(prov),
       campaign: o[7] != null && o[7] >= 0 ? lab[o[7]] : '', status: String(o[5] || '').toLowerCase(), stage, firstStage,
-      type: typeOf(firstStage) || bornWorked || typeOf(stage) || typeBySource, typeSure: !!typeOf(firstStage), market: mkt });   // office tag from Pest AI first, ZIP second (per Isaac, Nov 18)
+      type: typeOf(firstStage) || bornWorked || typeOf(stage) || typeBySource, typeSure: !!typeOf(firstStage), market: mkt,
+      tag: c && c[12] >= 0 && lab[c[12]] ? lab[c[12]] : '', mktBy: !c ? '' : c[11] >= 0 && lab[c[11]] ? 'office tag' : zipOff.get(c[6]) ? 'ZIP ' + c[6] : '' });   // office tag from Pest AI first, ZIP second (per Isaac, Nov 18)
   }
   const out = { leads, raw, notLead, curCust };
   mkpAllLeads._m = { src: G.opps, sig, subs: state.reportingSubscriptions, zip: zipOff, out };

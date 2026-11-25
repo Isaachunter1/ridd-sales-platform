@@ -39,6 +39,13 @@ function officeTag(tags) {
   for (const t of Array.isArray(tags) ? tags : []) { const m = /^\s*office\s*[:\-_|]\s*(.+?)\s*$/i.exec(String(t || '')); if (m) return m[1].replace(/[_-]+/g, ' ').trim(); }
   return '';
 }
+// The agency that ran the ad, when Pest AI tags the contact with it (per Isaac, Nov 25 2026): "ROR" or "Gravitate",
+// as a whole word inside any tag ("ror", "ROR - Atlanta", "gravitate lead"). Blank = neither. Shown as-is; counts nothing.
+function agencyTag(tags) {
+  let ror = false;
+  for (const t of Array.isArray(tags) ? tags : []) { const v = String(t || ''); if (/\bgravitate\b/i.test(v)) return 'Gravitate'; if (/(^|[^a-z0-9])ror([^a-z0-9]|$)/i.test(v)) ror = true; }
+  return ror ? 'ROR' : '';
+}
 function toRow(c, loc) {
   const added = c.dateAdded || c.createdAt || null, upd = c.dateUpdated || added;
   return {
@@ -246,7 +253,9 @@ exports.handler = async (event) => {
         // [8] first campaign, [9] last campaign (label indexes), [10] click id kind 'g' / 'f' / '' (per Isaac, Oct 15).
         L(r.first_campaign), L(r.last_campaign), (r.last_click || r.first_click) === 'gclid' ? 'g' : (r.last_click || r.first_click) === 'fbclid' ? 'f' : '',
         // [11] office Pest AI stamps on the contact as a tag "office: Atlanta" / "Office - Atlanta" (per Isaac, Nov 18) — beats the ZIP guess in the app.
-        L(officeTag(r.tags))]);
+        L(officeTag(r.tags)),
+        // [12] agency tag on the contact: 'ROR' / 'Gravitate' (per Isaac, Nov 25) — shown on the leads drill-down.
+        L(agencyTag(r.tags))]);
         if (r.id) byContact.set(String(r.id), [r.phone10 || '', r.email || '', r.last_campaign || r.first_campaign || '']); }
       if (!data || data.length < 1000) break;
     }
