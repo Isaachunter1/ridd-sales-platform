@@ -376,3 +376,19 @@ unless changed, saved with the plan), times Total planned spend — agency fee i
 "Budgets by month" is removed ("you can just get rid of it"). In a year that has a media plan, the plan is the
 budget for every channel and month: a number typed into the old budgets table no longer overrides it, and a channel
 the plan does not name has no budget. Years with no plan still read the older typed budgets.
+
+## 2026-11-25 · Media calendar: Spend or Revenue by channel, with actuals and pace
+Per Isaac: "Spend plan by channel" is renamed Media calendar, and he wants revenue by channel with "what we were
+expecting to do and what we actually did and how we are pacing". One table, two switches:
+- Spend | Revenue. Spend = the plan's dollars. Revenue = expected revenue, each line's planned spend × the ROAS
+  benchmark (every line the same multiple; the agency fee is a line with no actual of its own, so the channels have
+  to cover it). Revenue also ends with "All new revenue vs the goal": the goal against every Office Staff new sale,
+  including channels with no spend.
+- Plan + actual | Plan only (shown once the year has started). Under each planned number, the actual for that
+  month: QuickBooks spend in Spend, FieldRoutes new revenue (last-touch source) in Revenue. The year column shows the
+  actual to date and pace = actual ÷ the plan for the same stretch (closed months whole, the open month by days).
+  Colour: Revenue green at or above pace, amber within 10% under, red below; Spend red more than 10% over, amber
+  more than 10% under.
+Two plan lines that read one app channel (Google Ads Search and P Max) share one set of actuals, shown on the first
+and measured against both. Channels with spend that the plan does not name show against Left over (Spend) or as
+"Channels not in the plan" (Revenue). Months that have not started show the plan alone.
