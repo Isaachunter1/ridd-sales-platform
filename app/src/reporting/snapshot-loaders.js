@@ -384,6 +384,18 @@ function reportingShowLastSnapshot() {
     } catch (e) { /* no cache: the normal load carries on */ }
   })();
 }
+// Retired FieldRoutes source names (per Isaac, Nov 25 2026): "Service Pro Upsell" was replaced by "Upsell - Service
+// Pro", but FieldRoutes leaves the old name on the plans sold under it (99 plans, sold 2022–2025, none active), so it
+// kept showing as a source of its own. The old name is read as the new one everywhere; the name FieldRoutes holds is
+// kept on the row as subscription_source_crm. "Renewal - Service Pro Upsell" is a different, live source — untouched.
+const RETIRED_SOURCE_NAMES = { 'service pro upsell': 'Upsell - Service Pro' };
+function retiredSourceName(s) { const k = String(s || '').trim(); return RETIRED_SOURCE_NAMES[k.toLowerCase()] || k; }
+function retiredSourceRename(rows) {
+  let n = 0;
+  for (const r of rows || []) { if (r && r.origin_source) r.origin_source = retiredSourceName(r.origin_source); const s = String((r && r.subscription_source) || '').trim(); const to = s && RETIRED_SOURCE_NAMES[s.toLowerCase()]; if (to) { r.subscription_source_crm = s; r.subscription_source = to; n++; } }
+  state._retiredSourceRenamed = n;
+  return rows;
+}
 function reportingSubsStale() { return !!state._subsStaleFrom && state.reportingSubscriptionsLoadedFor !== state.reportingActiveUploadId; }
 async function _loadReportingSubscriptionsOnce(uploadId) {
   const raw = await _loadReportingSubscriptionsRaw(uploadId);
@@ -394,6 +406,7 @@ async function _loadReportingSubscriptionsOnce(uploadId) {
   state._snapshotLoadDrops = { raw: Array.isArray(raw) ? raw.length : 0, phantom: (Array.isArray(raw) ? raw.length : 0) - (Array.isArray(noPhantom) ? noPhantom.length : 0), dupes: (Array.isArray(noPhantom) ? noPhantom.length : 0) - (Array.isArray(deduped) ? deduped.length : 0) };
   // Cancellation reasons from an uploaded FieldRoutes report fill the blanks before renewal chains are linked.
   if (typeof retenApplyFileReasons === 'function') { try { retenApplyFileReasons(deduped); } catch (e) { /* settings not loaded yet */ } }
+  retiredSourceRename(deduped);
   const rows = linkRenewalChains(deduped);
   // Reinstated accounts (per Isaac, Sep 24): a sub that was cancelled and
   // then turned back on is ACTIVE in FieldRoutes but still carries the old

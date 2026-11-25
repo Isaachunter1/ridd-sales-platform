@@ -1911,7 +1911,7 @@ function reportingWaterfall() {
     const scoped = (smYear ? rows.filter(r => String(r.initial_service || '').slice(0, 4) === smYear) : rows).filter(r => hz.has(r));
     const chanOf = (r) => {
       if (typeof _mklChannelOfSource !== 'function') return reportingSourceOf(r);
-      if (r.is_renewal_cont && r.origin_source) return (typeof _mklSaleChannel === 'function') ? _mklSaleChannel({ sold_by: r.origin_sold_by || '', subscription_source: r.origin_source }) : _mklChannelOfSource(r.origin_source);
+      if (r.is_renewal_cont && r.origin_source) return (typeof _mklSaleChannel === 'function') ? _mklSaleChannel({ sold_by: r.origin_sold_by || '', subscription_source: (typeof retiredSourceName === 'function' ? retiredSourceName(r.origin_source) : r.origin_source) }) : _mklChannelOfSource(r.origin_source);
       return (typeof _mklSaleChannel === 'function') ? _mklSaleChannel(r) : _mklChannelOfSource(reportingSourceOf(r));
     };
     const medLifeOf = (cohort) => {

@@ -345,3 +345,10 @@ A renewal plan counts under the channel of the customer's ORIGINAL plan — the 
 plan's source and seller (origin_source, origin_sold_by) — so renewal sources are not channels here. Channels with
 under 25 subs pool into one "Other channels" row; a cell with under 25 eligible subs shows a dash, as before.
 Month view is unchanged apart from the year picker. The Subs count opens the subscriptions.
+
+## 2026-11-25 · Retired source name "Service Pro Upsell" reads as "Upsell - Service Pro"
+Per Isaac: "that shouldn't even be a thing. I thought I had moved those all into Upsell - Service Pro". FieldRoutes
+keeps the old source name on the plans sold under it: 99 plans, sold 2022 to Nov 2025, none active. The app now
+reads that name as "Upsell - Service Pro" when the snapshot loads, so it is one source everywhere (the FieldRoutes
+name stays on the row as subscription_source_crm). Nothing is changed in FieldRoutes. "Renewal - Service Pro
+Upsell" (683 plans, live) is a separate source and is left alone.
