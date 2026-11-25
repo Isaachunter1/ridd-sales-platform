@@ -177,7 +177,19 @@ async function loadReportingZipGeo(stateCode) {
   // 1-5MB GitHub fetch happens once per browser, not once per visit.
   const idbKey = 'geo:' + stateCode;
   const stored = await reportingIdbGet(idbKey);
-  if (stored && stored.type === 'FeatureCollection') { window._reportingZipGeoCache[stateCode] = stored; return stored; }
+  // The app ships its own slimmed-down boundaries for the states RIDD works in (per Isaac, Nov 25 — the map was slow
+  // and glitchy): about 1 MB a state against 20–45 MB from GitHub, simplified together so neighbouring states still
+  // share their border. A full-size copy an older version kept in this browser is replaced by the slim one.
+  const LOCAL = ['AL', 'AR', 'FL', 'GA', 'KS', 'MI', 'MO', 'NC', 'OH', 'OK', 'SC', 'TN', 'UT', 'VA'];
+  const hasLocal = LOCAL.includes(stateCode);
+  if (stored && stored.type === 'FeatureCollection' && (!hasLocal || stored.v === 2)) { window._reportingZipGeoCache[stateCode] = stored; return stored; }
+  if (hasLocal) {
+    try {
+      const geo = await _geoFetchJson('geo/zip/' + stateCode + '.json', 30000);
+      if (geo && geo.type === 'FeatureCollection') { geo.v = 2; window._reportingZipGeoCache[stateCode] = geo; reportingIdbPutKeep(idbKey, geo); return geo; }
+    } catch (e) { console.warn('[ridd] local zip boundaries failed for ' + stateCode, e && e.message); }
+    if (stored && stored.type === 'FeatureCollection') { window._reportingZipGeoCache[stateCode] = stored; return stored; }
+  }
   const url = reportingStateZipUrl(stateCode);
   if (!url) return null;
   // Primary (raw.githubusercontent) + a mirror of the same repo — corporate
@@ -274,30 +286,34 @@ async function loadReportingCountyGeo() {
 // detached islands) and trace the outer edge in red over a Leaflet map. Shared
 // by the ZIP map and the County map so the boundary shows in both drill modes.
 function drawReportingServiceBoundary(map, zipGeo, serviceZips) {
-  if (!serviceZips || !serviceZips.size || typeof turf === 'undefined' || !zipGeo) return;
+  if (!serviceZips || !serviceZips.size || !zipGeo) return;
+  // The outline is every ZIP edge that belongs to exactly ONE service ZIP: an edge two service ZIPs share is inside
+  // the area, an edge only one has is its border. One pass over the points — it replaced a polygon-by-polygon merge
+  // (turf.union) that froze the page for seconds on a big state (per Isaac, Nov 25).
   try {
-    let merged = null;
-    zipGeo.features.forEach(f => {
+    const seg = new Map();
+    const ring = (r) => { for (let i = 0; i < r.length - 1; i++) { const a = r[i][0] + ',' + r[i][1], b = r[i + 1][0] + ',' + r[i + 1][1]; if (a === b) continue; const k = a < b ? a + '|' + b : b + '|' + a; seg.set(k, (seg.get(k) || 0) + 1); } };
+    for (const f of zipGeo.features) {
       const zip = String(f.properties.ZCTA5CE10 || f.properties.zip || '').padStart(5, '0');
-      if (!serviceZips.has(zip)) return;
-      let sf; try { sf = turf.simplify(f, { tolerance: 0.004, highQuality: false }); } catch { sf = f; }
-      if (!merged) { merged = sf; return; }
-      try { merged = turf.union(merged, sf) || merged; } catch {}
-    });
-    if (!merged) return;
-    const parts = merged.geometry.type === 'MultiPolygon'
-      ? merged.geometry.coordinates.map(c => turf.polygon([c[0]]))
-      : [turf.polygon([merged.geometry.coordinates[0]])];
-    // Keep every real cluster — a market can have several disconnected service
-    // pockets (Charleston = Charleston metro + Beaufort + Savannah; Myrtle Beach
-    // spans the Pee Dee + Wilmington, etc.). Only drop micro-slivers thrown off
-    // by the dissolve (< ~0.4 km²), NOT legitimate satellite clusters.
-    const withA = parts.map(p => ({ p, a: turf.area(p) }));
-    const keep = withA.filter(x => x.a >= 4e5).map(x => x.p);
-    L.geoJSON({ type: 'FeatureCollection', features: keep }, {
-      interactive: false,
-      style: { color: '#e11d2e', weight: 3.5, opacity: 0.95, fill: false },
-    }).addTo(map);
+      if (!serviceZips.has(zip) || !f.geometry) continue;
+      const polys = f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates : [f.geometry.coordinates];
+      for (const p of polys) for (const r of p) ring(r);
+    }
+    // Chain the border edges end to end so the map draws a few long lines, not thousands of two-point ones.
+    const nb = new Map(), link = (a, b) => { (nb.get(a) || nb.set(a, []).get(a)).push(b); };
+    for (const [k, n] of seg) { if (n !== 1) continue; const i = k.indexOf('|'), a = k.slice(0, i), b = k.slice(i + 1); link(a, b); link(b, a); }
+    const ll = (s2) => { const i = s2.indexOf(','); return [Number(s2.slice(i + 1)), Number(s2.slice(0, i))]; };
+    const lines = [];
+    for (const start of nb.keys()) {
+      while (nb.get(start) && nb.get(start).length) {
+        const line = [start]; let cur = start;
+        for (;;) { const outs = nb.get(cur); if (!outs || !outs.length) break; const nx = outs.pop(); const back = nb.get(nx); const j = back ? back.indexOf(cur) : -1; if (j >= 0) back.splice(j, 1); line.push(nx); cur = nx; }
+        if (line.length > 1) lines.push(line.map(ll));
+      }
+    }
+    if (!lines.length) return;
+    if (!map.getPane('svcLine')) { const pn = map.createPane('svcLine'); pn.style.zIndex = 450; pn.style.pointerEvents = 'none'; }
+    L.polyline(lines, { pane: 'svcLine', renderer: L.svg({ pane: 'svcLine' }), interactive: false, color: '#e11d2e', weight: 3, opacity: 0.95, lineJoin: 'round' }).addTo(map);
   } catch (e) { console.warn('[ridd] service-area overlay failed', e); }
 }
 
@@ -441,8 +457,12 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
     let highlightedPolygon = null;
     const normalizedTarget = highlightZip ? String(highlightZip).padStart(5, '0') : null;
 
+    // One canvas for every ZIP shape (per Isaac, Nov 25): a state is 500–1,000 shapes, and as separate SVG elements
+    // they made panning and zooming stutter. Hover, click and restyle work the same on canvas.
+    const _zipCanvas = L.canvas({ padding: 0.4 });
     const addGeoLayer = (geo, isFirst) => {
     const layer = L.geoJSON(geo, {
+      renderer: _zipCanvas,
       style: (feature) => {
         // OpenDataDE uses ZCTA5CE10 as the 5-digit zip property name.
         const zip = String(feature.properties.ZCTA5CE10 || feature.properties.zip || '').padStart(5, '0');
