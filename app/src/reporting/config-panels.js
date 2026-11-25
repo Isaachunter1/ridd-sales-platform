@@ -795,7 +795,8 @@ const _mktgYm = (y, i) => y + '-' + String(i + 1).padStart(2, '0');
 // by-office wages keeps those. Returns { total, by: { BRANCH: $ }, src: 'reps' | 'offices' | null }.
 function mktgWagesMonth(ym, branches) {
   const m = _mktgStore(), RW = (m.repWages || {})[ym] || {};
-  const total = Object.values(RW).reduce((t, v) => t + (Number(v) || 0), 0);
+  const _qbW = typeof spqSegMonth === 'function' ? spqSegMonth(ym).wages : 0;   // QuickBooks charges tagged Wages on Spend setup
+  const total = Object.values(RW).reduce((t, v) => t + (Number(v) || 0), 0) + _qbW;
   const by = {};
   if (total > 0) {
     const y = Number(ym.slice(0, 4)), i = Number(ym.slice(5, 7)) - 1, a = _mktgActuals(y);
@@ -816,7 +817,8 @@ function mktgIncentivesMonth(ym, branches) {
   // Typed incentives + RIDDCOIN added to office reps' wallets that month, in dollars (100,000 ¤ = $100; the Nov 18 DashP
   // transfer is left out — per Isaac, Nov 19 — rcIncentivesMonth).
   const m = _mktgStore(); const rc = (typeof rcIncentivesMonth === 'function') ? rcIncentivesMonth(ym).total : 0;
-  const total = (Number((m.incentivesCo || {})[ym]) || 0) + rc; const by = {};
+  const _qbI = typeof spqSegMonth === 'function' ? spqSegMonth(ym).incentives : 0;   // QuickBooks charges tagged Incentives on Spend setup
+  const total = (Number((m.incentivesCo || {})[ym]) || 0) + rc + _qbI; const by = {};
   if (total > 0) {
     const y = Number(ym.slice(0, 4)), i = Number(ym.slice(5, 7)) - 1, a = _mktgActuals(y);
     const bs = (branches && branches.length ? branches : Object.keys(a.branch || {}));
@@ -964,7 +966,7 @@ const _mktgDiv = (a, b) => (b > 0 ? a / b : null);
 function _mktgYearBar(sub) {
   const y = _mktgYearSel();
   // Attribution (lead reconciliation) is a tab of its own (per Isaac, Oct 2) — it lived behind a button on the right.
-  const SUBS = [['providers', 'Dashboard'], ['spend', 'Spend'], ['budget', 'Budget'], ['plan', 'Media plan']];   // Media plan (per Isaac, Nov 24): the 2027 media calendar as a model   // Budget (per Isaac, Nov 25): provider budgets, plan vs actual   // Metrics renamed Dashboard, the channels × offices grid folded in (per Isaac, Nov 18)   // Just Metrics and Spend (per Isaac, Nov 16): P&L folded into the Metrics year grid, Channels = its By channel rows   // Attribution → Channels (per Isaac, Nov 10)   // Projections hidden (per Isaac, Oct 9); Disposition removed (Nov 5)
+  const SUBS = [['providers', 'Dashboard'], ['plan', 'Media plan'], ['spend', 'Spend setup']];   // three tabs (per Isaac, Nov 25): read, plan, inputs — Budget folded into Media plan   // Media plan (per Isaac, Nov 24): the 2027 media calendar as a model   // Budget (per Isaac, Nov 25): provider budgets, plan vs actual   // Metrics renamed Dashboard, the channels × offices grid folded in (per Isaac, Nov 18)   // Just Metrics and Spend (per Isaac, Nov 16): P&L folded into the Metrics year grid, Channels = its By channel rows   // Attribution → Channels (per Isaac, Nov 10)   // Projections hidden (per Isaac, Oct 9); Disposition removed (Nov 5)
   const _recon = sub === 'providers' && state._mktProvView === 'recon';
   return el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap mktg-bar' },
     el('div', { class: 'inline-flex rounded-lg border overflow-hidden mktg-bar-tabs', style: { borderColor: 'var(--border-2)' } },
@@ -1593,7 +1595,8 @@ function reportingMarketingPnl() {
   if (state._mktSub === 'demand') state._mktSub = 'providers';   // Demand folded into Metrics (per Isaac, Oct 6)
   if (state._mktSub === 'pnl' || state._mktSub === 'recon') { state._mktSub = 'providers'; state._mktProvView = 'cac'; }   // P&L and Channels tabs retired (per Isaac, Nov 16) — the Metrics grid has By office / By channel
   if (state._mktSub === 'dash') state._mktSub = 'providers';   // the separate Dashboard tab folded into Metrics → Dashboard (per Isaac, Nov 18)
-  const sub = ['providers', 'spend', 'disp', 'budget', 'plan'].includes(state._mktSub) ? state._mktSub : 'providers';   // Metrics opens first (per Isaac)
+  if (state._mktSub === 'budget') state._mktSub = 'plan';   // the Budget tab is part of Media plan now
+  const sub = ['providers', 'spend', 'disp', 'plan'].includes(state._mktSub) ? state._mktSub : 'providers';   // Metrics opens first (per Isaac)
   // Metrics (per Isaac, Sep 30): CAC on the page; Lead providers and Lead
   // reconciliation are buttons to the right of the Office dropdown.
   // Lead providers now sits directly under the CAC table (per Isaac, Sep 30).

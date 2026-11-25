@@ -210,3 +210,84 @@ OPEN: the sheet's 2026 base is $5.20M of inside-sales new revenue (Jan 1–Nov 1
 
 ## 2026-11-25 — Media plan: the 2026 base is $3.32M, not $5.20M
 Isaac: "we are only at 3.32m so that was a typo in that google sheet." The Marketing tab's New revenue is the right basis, so Progress and the target are on the same footing and nothing needs reconciling. The sheet will be rebuilt later once Isaac has the full picture; the levers in the app stay as they are until then.
+
+## 2026-11-25 — Geographic: the service area is the ZIPs with more than 3 active customers
+Isaac: FieldRoutes' drawn service areas "aren't perfect either" (Beaufort has plenty of customers and is not drawn as serviceable) — "should we just do zipcodes with more than 3 active customers as the zipcode boundaries?"
+The red outline is now each office's ZIPs with more than 3 active customers (distinct customers on recurring, active subscriptions — this tab's own rows), in place of the hand-kept RIDD_SERVICE_AREAS lists. The number is the admin rule svcAreaMin (default 3). The office banner counts the active customers and ZIPs that fall outside. RIDD_SERVICE_AREAS stays in the code, unused.
+
+## 2026-11-25 — Geographic map: slim boundaries shipped with the app, canvas drawing, outline without the merge
+Isaac: the map "still just loads so slow and is really glitchy."
+Three causes, three fixes. (1) Each state's ZIP boundaries came from GitHub at full detail, 19–44 MB a state; the app now ships its own copies for the 14 states RIDD works in or beside (app/public/geo/zip/XX.json, 0.6–1.5 MB each, 15 MB in all), made with mapshaper from the same OpenDataDE files — simplified to 4% in one pass so neighbouring states still share their border, coordinates to 4 decimals, only the ZIP kept. Other states still fall back to GitHub. A full-size copy cached in a browser is replaced. (2) The ZIP shapes are drawn on one canvas, not as hundreds of SVG elements. (3) The red service-area outline is the edges that belong to exactly one service ZIP, found in one pass; it replaced a polygon-by-polygon turf.union that froze the page. The outline now also traces holes inside an area (ZIPs under the threshold surrounded by ZIPs over it).
+
+## 2026-11-25 — Audit Report tables fit without a sideways scroll
+Isaac: "any way we can get that all to fit without having to scroll horizontally?" Tighter cells, headers allowed onto two lines with four shortened (Svc'd %, Cancel Rev, Attr. Passed, Attr. Failed), and the five revenue columns shortened ($1.24M, $186k) with the full dollar figure on hover. All 20 columns kept. Fits down to about 1,100 px wide; narrower than that it scrolls as before. Applies to the Office, Team and Sales Reps tables.
+
+## 2026-11-25 — Media plan: LSA row read-only; cost per lead by channel; ElectGen is per job
+Isaac: the Google Local Services row should not be editable; "I need to put in the average CPL per channel to see how many leads we can estimate"; ElectGen is "a $250 cost per job model instead of cost per lead."
+The LSA row shows Incline's forecast as given. Every channel (and LSA) has a cost box: per lead by default, or per job (click the unit to switch). New rows under the spend plan: leads the spend buys (spend ÷ cost per lead), new sales (leads × close rate + per-job channels), and that as a share of the subscriptions needed. Channels with no cost typed are listed as not counted. Defaults: DoLead $60 a lead (from the sheet), ElectGen $250 a job (per Isaac); the rest are blank — an empty box shows last year's actual cost per lead as a hint when QuickBooks spend is loaded, never as a filled-in value.
+
+## 2026-11-25 — A refresh shows the page you were on at once (core/page-keep.js)
+Isaac: "every time I refresh the app, it refreshes everything all over again. We should be able to hold older loaded tables and pages … Just on syncs."
+Measured on Reporting with the snapshot already cached: 3 s of splash, 6 s to a built Overview, about 9 s for Marketing — on every refresh, because the totals are added up again from 110k rows each time. Now the page as it last stood is kept in this browser (IndexedDB, per user, per tab/sub-tab, newest 12, 3.5 MB cap) and put back on screen in about half a second, over the live app while it loads; it scrolls but does not click, and a small "Checking for new data…" pill shows. It lifts when the live page has finished building (no render for 0.9 s, no spinner, snapshot in for Reporting pages) or after 25 s. A refresh also returns to the same sub-tab and scroll position. Nothing is computed from the kept copy. Not kept: view-as sessions, the TV board, pages with a pop-up open, password boxes.
+Not done: making the live page itself build faster (caching the computed totals per sync) — the copy covers the wait, it does not shorten it.
+
+## 2026-11-25 — Marketing is three tabs: Dashboard, Media plan, Spend setup
+Isaac's goal as CMO: "a pulse on new revenue, spend, acquisition costs, across our offices by channel … I don't want to convolute this." And: "there ARE some inputs I need to put in. Wages is a big one, and sometimes it's almost impossible to map charges to the proper segment of acquisition costs whether it's marketing, wages, or incentives."
+- **Office × channel table** on the Dashboard (mkxOfficeChannelCard): offices across, channels down, one measure at a time — New revenue, Spend, CAC, New sales, Leads, Close rate, Return — for the month or the year to date; a cell opens its sales and leads. CAC = spend ÷ new sales. CAC and Return are blank under 5 sales, Close rate under 10 leads; Close rate counts only sales that trace to a lead. It replaced the Channels × offices grid (mktgDashGridCard stays in the code).
+- **Budget tab folded into Media plan** ("Budgets by month", closed by default). A saved link to the Budget tab opens Media plan.
+- **Spend → "Spend setup"**, moved last.
+- **Plan vs actual in one place:** Channel metrics has a Month / Year to date switch; Year to date is the media plan's progress table (mkpProgressCard) when the year has a plan. Progress is no longer on the Media plan tab.
+- **Charges are sorted into segments** on Spend setup: a marketing channel, an agency, Wages, Incentives, or not an acquisition cost (Technology, Other). A charge tagged Wages or Incentives leaves marketing spend and is ADDED to that month's wages or incentives (mktgWagesMonth / mktgIncentivesMonth), shown as its own "from QuickBooks charges" row in those tables — so it still counts in CAC, under the right heading. This changes CAC for any month with such a charge. Typing the same amount into the Wages or Incentives table as well would count it twice.
+
+## 2026-11-25 — Moving between tabs: the kept copy goes up first, and tabs on a copy can be clicked
+Isaac: "when I refresh, I want to be able to click from tab to tab quicker."
+Two additions to core/page-keep.js. (1) Clicking to a tab that has a kept copy puts the copy up at once and builds the live page behind it (building ties the browser up for seconds; measured Retention: copy at 0.1 s, live at 3.8 s). Only for a move the user just clicked, only when a copy exists, and never held more than 0.4 s waiting for the copy. (2) A click on a TAB or the top bar inside a copy is passed to the same control on the live page as soon as it exists ("Opening Marketing…"), so you can leave a page without waiting for it; measured after a refresh: click at 0.3 s, Marketing's copy on screen at 1.5 s. Clicks elsewhere on a copy still do nothing.
+A refresh keeps you on the tab and sub-tab you were on (same browser tab); a new browser tab opens on the default.
+
+## 2026-11-25 — Media plan: a slider for the revenue goal
+Isaac: "make that a slider and let me readjust and rebalance everything as I slide the revenue goal higher or lower."
+A slider sits between the levers and the spend calendar ($1M to $15M, $50k steps). Dragging redraws the levers and the calendar live at that goal without saving; letting go saves it. Marketing spend follows as goal × ratio; the agency fee and the LSA plan are fixed, so the flexible pool (and every channel in it) takes up the change. Budgets by month and the Dashboard pick up the new goal on release.
+
+## 2026-11-25 — Dashboard: the office-and-channel table and the month table share one card
+Isaac: "combine that new table with the MoM table too. Just have a toggle there to swap between the two. Both should have clean title headers."
+One card (arrange id mkt-tables) with a "By office & channel / By month" switch in its header; only the table showing is built. Titles: "<measure> by office and channel · <month>" and "<measure> by month · <year>", with MoM / YoY as a small tag beside the title.
+
+## 2026-11-25 — Collections tab; payback and lifetime value back on the Marketing dashboard
+- **Reporting → Collections** (reporting/collections.js): customers with a balance past due, in buckets 1–7, 8–14, 15–30, 31–60, 61–90, 91–120 and 120+ days. One row per customer (FieldRoutes holds balance and age on the customer). Tiles per bucket, a table by office (customers or balance), a switch for everyone / active plan / no active plan, and every number opens its customers. Isaac: collections is another department; this is visibility only.
+- **Payback and lifetime value** (mkxPaybackCard) is back on the Dashboard under Channel metrics, now by channel or by office, with a "kept 12 months" column. It was taken off on Nov 24; Isaac asked for the cost-to-retention join on Nov 25 and it belongs on Marketing because it decides budget. It reads the nightly lifetime file (marketing/ltv.json from the ltv-cohorts job), which has not been published yet — the card says so and offers admins a "Build it now" button. CAC here is marketing spend ÷ serviced new sales (wages and incentives not in).
+
+## 2026-11-25 · Leads drill-down: Tag, Placed by and Campaign replace Stage
+Per Isaac: on the leads drill-down (office × channel table), drop Stage and show the agency tag on the contact
+(ROR or Gravitate) so a Facebook lead shows who ran the ad. The contacts sync now writes that tag as column [12]
+of the compact contacts file (whole-word match on "ror" / "gravitate" in any contact tag; blank otherwise). Also
+shown: "Placed by" (the office tag or the ZIP that put the lead in its office — the source label never does) and
+the campaign GoHighLevel recorded on the opportunity, so a lead whose source label names another office can be
+checked. Display only: no lead count, channel or office changes. The Tag column is blank until the next contacts
+sync after deploy.
+
+## 2026-11-25 · A lead's office: source label first, then office tag, then ZIP
+Per Isaac ("the source should be the main one"): a lead goes to the office named in its GoHighLevel source label
+("Facebook | Atlanta", "FB | Charleston | RPC", "Google Local Services | Destin"). Campaigns and tracking numbers
+are set up per office, so the label is the office that paid for the lead. Only when the label names no office does
+the contact's office tag apply, then the contact's ZIP. Replaces "office tag first, ZIP second" (Nov 18); no
+contact carried an office tag, so every lead had been placed by ZIP alone. The ZIP's office is kept: when it differs
+from the label's, the drill-down's "Placed by" reads "source label · ZIP 29440 is Myrtle Beach".
+Measured on November 2026 (2,457 leads): Facebook leads with no office fall from 393 to 51 (195 leads of all channels still have none); 31 leads move office because
+the label and the ZIP disagree (25 Facebook, 4 Local Services, 2 Service Direct). Sales, spend and channels are
+untouched; office lead counts, close rate and cost per lead by office change with it.
+
+## 2026-11-25 · Opportunities whose source changes: every channel counts its lead, the sale goes to the last one
+Per Isaac: Pest AI updates an opportunity when the same person comes back through another channel (Facebook, then
+a Google Ads resubmission) instead of opening a new one. Rule he set: both channels count the lead ("we do have to
+pay for them"; lead totals run slightly higher for it), and a sale books to the last touch on or before it.
+Before: the sync kept one row per opportunity and overwrote its source, and only re-read opportunities created in
+the last two days — so an older opportunity kept its old source in the app, a newer one lost its first source, and
+a resubmission was never a lead.
+Now: (1) the sync keeps each change of source with when it was seen; (2) with the time left in each run it re-reads
+all opportunities, a stretch at a time, and starts over at the end; (3) the app turns each change into a touch of
+its own on that date — counted as a lead for the new channel unless the same person already counted for that same
+channel in the last 30 days; (4) everything that matches a sale to its latest opportunity now sees those touches.
+A change to a tracking-number label (Local Presence) is not a touch. First-touch view ignores later touches.
+Limits, stated plainly: history starts the day this deploys. A change Pest AI made earlier shows as one change dated
+by GoHighLevel's last-updated stamp on the opportunity, which can be later than the real change. Going forward a
+change is dated within one sync cycle. Channel on past sales moves wherever the stored source was stale.

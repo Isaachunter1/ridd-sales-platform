@@ -504,7 +504,10 @@ function _mktgLeanView() {
   void ownerHint; void cmpSel; void monthSel; void srcTip;
   // ── The one grid (per Isaac, Nov 16): rows = offices (or channels), Jan–Dec + YTD, one metric at a time — the
   // old Marketing P&L table with every metric in its dropdown. Replaces the two single-month tables and the P&L tab.
-  const grid = mklYearGrid(ym);
+  // One card, two tables (per Isaac, Nov 25): by office and channel, or by month — a switch in the header swaps them.
+  // Only the one showing is built.
+  const _tblView = state._mkxTblView === 'month' ? 'month' : 'oc';
+  const grid = _tblView === 'month' ? mklYearGrid(ym) : null;
   void brTable; void chTable;
   // Channels × offices grid + traffic by hour (marketing-dash.js) sit between the tiles and the year grid (per Isaac, Nov 18).
   const dash = typeof mktgDashBlocks === 'function' ? (() => { try { return mktgDashBlocks(ym); } catch (e) { console.warn('[marketing] dash blocks', e); return []; } })() : [];
@@ -513,14 +516,19 @@ function _mktgLeanView() {
   // Nov 24 (per Isaac): funnel by channel, channel payback and the morning brief button (marketing-extras.js).
   const _safe = (name, fn) => { try { return fn(); } catch (e) { console.warn('[marketing] ' + name, e); return null; } };
   // (Funnel by channel became Channel metrics, and Channel payback is off for now — per Isaac, Nov 25. mkxFunnelCard / mkxPaybackCard are kept, not built.)
-  const provPulse = typeof mkxProviderPulseCard === 'function' ? _safe('provPulse', () => RNG ? mkxProviderPulseCard(ym, cur, RNG.label || 'range') : mkxProviderPulseCard(ym)) : null;   // Channel metrics (replaces Funnel by channel, per Isaac, Nov 25)
+  const provPulse = typeof mkxPulseBlock === 'function' ? _safe('provPulse', () => mkxPulseBlock(ym, cur, RNG)) : null;   // Channel metrics, Month / Year to date
+  // Office × channel (per Isaac, Nov 25) — the first table on the page; it replaced the Channels × offices grid lower down.
+  const officeChannel = _tblView === 'oc' && typeof mkxOfficeChannelCard === 'function' ? _safe('officeChannel', () => mkxOfficeChannelCard(ym, cur, RNG && RNG.label)) : null;
+  const tables = officeChannel || grid || mklYearGrid(ym);   // nothing to show by office and channel yet: the month table stands in
+  // Payback and lifetime value against CAC, by channel or office (back per Isaac, Nov 25 — the join between this tab and Retention).
+  const payback = typeof mkxPaybackCard === 'function' ? _safe('payback', () => mkxPaybackCard(ym)) : null;
   // Leads (Pest AI) arrive before the FieldRoutes snapshot does, and for that stretch every sales tile read "—" as if
   // there were no sales (per Isaac, Nov 25). Say what is happening instead.
   const subsWait = !(state.reportingSubscriptions || []).length ? el('div', { class: 'card px-4 py-2 text-[12px] flex items-center gap-2', style: { color: 'var(--text-muted)' } },
     el('span', { class: 'spinner', style: { width: '14px', height: '14px' } }), 'Sales are still loading from FieldRoutes. New sales, revenue, CAC and close rate fill in when it arrives (usually under a minute).') : null;
   const subsOld = !subsWait && typeof reportingSubsStale === 'function' && reportingSubsStale() ? el('div', { class: 'card px-4 py-2 text-[12px] flex items-center gap-2', style: { color: 'var(--text-muted)' } },
     el('span', { class: 'spinner', style: { width: '14px', height: '14px' } }), 'Sales numbers are from the previous sync. The newest sync is loading and will replace them.') : null;
-  return el('div', { class: 'flex flex-col gap-4' }, subsWait, subsOld, tiles, provPulse, chart, ttc, ...dash, grid);   // LTV / CAC section off for now (per Isaac, Nov 24) — mklLtvSection still built, just not shown   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
+  return el('div', { class: 'flex flex-col gap-4' }, subsWait, subsOld, tiles, tables, provPulse, payback, chart, ttc, ...dash);   // LTV / CAC section off for now (per Isaac, Nov 24) — mklLtvSection still built, just not shown   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
 }
 // The month's new sales behind the New revenue tile (same rows the table counts).
 function mklOpenSales(D, title) {
@@ -690,10 +698,11 @@ function mklYearGrid(ym) {
   // The grid's own dropdowns rebuild just this card in place (per Isaac, Nov 24 — the table jumped on the page when
   // the metric changed because the whole page re-rendered). Scroll position is held across the swap.
   const _swap = () => { const y = window.scrollY, next = mklYearGrid(ym); card.replaceWith(next); window.scrollTo(0, y); };
-  const card = el('div', { class: 'card overflow-hidden' },
+  const card = el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkt-tables' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
-      el('h3', { class: 'text-base font-bold', title: M.tip + '. YTD runs through ' + _mklLblS(ym) + '; ratios in YTD come from the summed dollars.' + (chg === 'mom' ? ' MoM: against the month before (Jan against last December); YTD has no MoM.' : chg === 'yoy' ? ' YoY: against the same month last year; YTD against the same stretch of last year.' : '') }, M.label + ' · ' + year + chgLbl),
-      el('span', { class: 'ml-auto' }), bySel, metricSel),
+      el('h3', { class: 'text-base font-bold', title: M.tip + '. YTD runs through ' + _mklLblS(ym) + '; ratios in YTD come from the summed dollars.' + (chg === 'mom' ? ' MoM: against the month before (Jan against last December); YTD has no MoM.' : chg === 'yoy' ? ' YoY: against the same month last year; YTD against the same stretch of last year.' : '') }, M.label + ' by month · ' + year),
+      chgLbl ? el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, chgLbl.replace(/^ · /, '')) : null,
+      el('span', { class: 'ml-auto' }), typeof mkxTableSwitch === 'function' ? mkxTableSwitch('month') : null, bySel, metricSel),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th(by === 'br' ? 'Office' : by === 'rep' ? 'Rep · Office Staff' : 'Channel', false, { position: 'sticky', left: 0, zIndex: 2 }), ...MON.map((m, i) => th(m, true, i === curMi ? { color: 'var(--accent)' } : null)), th('YTD', true))),
       el('tbody', {}, ...keys.map(rowOf), totRow))),

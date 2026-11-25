@@ -74,7 +74,7 @@ function mktgSpendView() {
     const out = ['Subject: Reclass out of Advertising & Marketing (' + year + ')', '', 'Hi,', '',
       (n === 1 ? 'This charge is' : 'These ' + n + ' charges are') + ' booked to Advertising & Marketing in QuickBooks but ' + (n === 1 ? 'is' : 'are') + ' not marketing. Can you move ' + (n === 1 ? 'it' : 'them') + ' to the right account?', ''];
     for (const c of SPQ_SKIP_CATS) { if (!by[c]) continue;
-      out.push(c === 'Other' ? 'Not marketing (you pick the account):' : 'Move to ' + c + ':');
+      out.push(c === 'Other' ? 'Not marketing (you pick the account):' : 'Move to ' + (c === 'Wages & consulting' ? 'Wages' : c) + ':');
       for (const r of by[c].sort((a, b) => a.d.localeCompare(b.d))) out.push('  - ' + r.d + ' | ' + (r.L.payee || '(no name)') + ' | ' + usd(r.L.amt) + (r.L.memo ? ' | ' + String(r.L.memo).trim().slice(0, 80) : ''));
       out.push(''); }
     out.push('Total: ' + usd(tot), '', 'Thanks,', (state.profile && state.profile.full_name ? String(state.profile.full_name).split(' ')[0] : ''));
@@ -84,14 +84,19 @@ function mktgSpendView() {
     try { navigator.clipboard.writeText(t).then(() => toast('Copied the note for the controller', 'success'), () => toast('Could not copy — use the Copy button on the table', 'error')); } catch (e) { toast('Could not copy — use the Copy button on the table', 'error'); } };
   const vendorPick = (lym, L, onlyThis) => el('select', { class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: Object.assign({}, selSt, L.prov ? {} : { borderColor: '#DC2626' }),
     onchange: (e) => { let v = e.target.value; if (v === SPQ_AG_NEW) { const n = window.prompt('Agency name (e.g. ROR, Incline Marketing):'); if (!n || !n.trim()) { mountApp(); return; } spqSetAgency(lym, L, n, !!onlyThis); return; } if (v.indexOf(SPQ_AG) === 0) { spqSetAgency(lym, L, v.slice(SPQ_AG.length), !!onlyThis); return; } if (v.indexOf(SPQ_SKIP + ':') === 0) { state._spqCopyAfter = _spqKey(L.payee, L.memo); spqSetSkip(lym, L, v.slice(SPQ_SKIP.length + 1), !!onlyThis); return; } if (v === SPQ_NEW) { v = spqAskNewVendor(); if (!v) { mountApp(); return; } } spqSetRule(lym, L, v, !!onlyThis); } },
-    el('option', { value: '', selected: !L.prov, disabled: true }, 'Pick a channel…'),
-    ...chanOpts.map(c => el('option', { value: c, selected: L.prov === c }, c)),
-    el('optgroup', { label: 'Agency (spread with the media)' },
+    el('option', { value: '', selected: !L.prov, disabled: true }, 'What is this charge?'),
+    // Three segments of acquisition cost (per Isaac, Nov 25), then what is not acquisition cost at all.
+    el('optgroup', { label: 'Marketing \u2014 which channel' }, ...chanOpts.map(c => el('option', { value: c, selected: L.prov === c }, c)), el('option', { value: SPQ_NEW }, '+ New channel…')),
+    el('optgroup', { label: 'Marketing \u2014 agency (spread with the media)' },
       ...spqAgencies().map(a => el('option', { value: SPQ_AG + a, selected: L.prov === SPQ_TOOLS && spqAgencyOf(lym, L) === a }, a)),
-      L.prov === SPQ_TOOLS && spqAgencyOf(lym, L) === SPQ_AG_NONE ? el('option', { value: SPQ_TOOLS, selected: true }, 'Agency — not named yet') : null,
+      L.prov === SPQ_TOOLS && spqAgencyOf(lym, L) === SPQ_AG_NONE ? el('option', { value: SPQ_TOOLS, selected: true }, 'Agency \u2014 not named yet') : null,
       el('option', { value: SPQ_AG_NEW }, '+ New agency…')),
-    el('option', { value: SPQ_NEW }, '+ New channel…'),
-    el('optgroup', { label: 'Not marketing — back it out as' }, ...SPQ_SKIP_CATS.map(c => el('option', { value: SPQ_SKIP + ':' + c, selected: L.prov === SPQ_SKIP && spqSkipWhy(lym, L) === c }, c === 'Other' ? 'Other (not marketing)' : c))));
+    el('optgroup', { label: 'Wages or incentives (still in CAC)' },
+      el('option', { value: SPQ_SKIP + ':Wages & consulting', selected: L.prov === SPQ_SKIP && spqSkipWhy(lym, L) === 'Wages & consulting' }, 'Wages'),
+      el('option', { value: SPQ_SKIP + ':Incentives', selected: L.prov === SPQ_SKIP && spqSkipWhy(lym, L) === 'Incentives' }, 'Incentives')),
+    el('optgroup', { label: 'Not an acquisition cost (left out)' },
+      el('option', { value: SPQ_SKIP + ':Technology', selected: L.prov === SPQ_SKIP && spqSkipWhy(lym, L) === 'Technology' }, 'Technology'),
+      el('option', { value: SPQ_SKIP + ':Other', selected: L.prov === SPQ_SKIP && spqSkipWhy(lym, L) === 'Other' }, 'Other')));
   const unByPayee = new Map();
   AY.forEach((X, i) => { if (!X) return; for (const L of X.lines) { if (L.prov) continue; const k = _spqKey(L.payee, L.memo); const g = unByPayee.get(k) || unByPayee.set(k, { L, ym: ymOf(i), months: Array(12).fill(0) }).get(k); g.months[i] += L.amt; } });
   const unRows = [...unByPayee.values()].sort((a, b) => b.months.reduce((x, y) => x + y, 0) - a.months.reduce((x, y) => x + y, 0));
@@ -117,14 +122,14 @@ function mktgSpendView() {
   const outCats = SPQ_SKIP_CATS.filter(c => outBy[c] && outBy[c].some(v => Math.abs(v) > 0.5));
   const outYear = outCats.reduce((a, c) => a + outBy[c].reduce((x, y) => x + y, 0), 0);
   const outRow = (c) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-    stickyTd(el('span', { style: muted }, 'Backed out · ' + (c === 'Other' ? 'Other (not marketing)' : c)), { fontWeight: '500' }),
+    stickyTd(el('span', { style: muted }, (c === 'Wages & consulting' ? 'Moved to Wages' : c === 'Incentives' ? 'Moved to Incentives' : 'Left out · ' + c)), { fontWeight: '500' }),
     ...outBy[c].map(v => td(v ? usd0(v) : '—', muted, true)), td(usd0(outBy[c].reduce((x, y) => x + y, 0)), Object.assign({ fontWeight: '700' }, muted), true));
   // A pick just backed a payee out: copy that payee's note straight away (the pick is the click that allows it).
   if (state._spqCopyAfter) { const k = state._spqCopyAfter; state._spqCopyAfter = null; copyReclass(k); }
   const chanCard = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
       el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Marketing spend · ' + year),
-        el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'QuickBooks Advertising & Marketing, each payee under its channel. ' + (outYear ? usd0(outYear) + ' in the account is backed out as not marketing (below the total). ' : '') + (unRows.length ? unRows.length + (unRows.length === 1 ? ' payee still needs' : ' payees still need') + ' a channel (red) — pick once, it sticks for every month.' : 'Every charge has a channel.'))),
+        el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'QuickBooks Advertising & Marketing, each payee under its channel. ' + (unRows.length ? unRows.length + (unRows.length === 1 ? ' payee still needs' : ' payees still need') + ' sorting (red): a marketing channel, wages, incentives, or not an acquisition cost. Pick once; it sticks for every month.' : 'Every charge is sorted.') + (outYear ? ' ' + usd0(outYear) + ' is not marketing (below the total); the wages and incentives part is added to those tables.' : ''))),
       outCats.length && admin ? el('button', { class: 'ml-auto rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)' }, title: 'Copies every backed-out charge this year, grouped by where it belongs, as a note for the controller', onclick: () => copyReclass() }, 'Copy reclass note') : null,
       el('span', { class: (outCats.length && admin ? '' : 'ml-auto ') + 'text-sm font-black tabular-nums' }, usd0(yearTotal))),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
@@ -195,9 +200,12 @@ function mktgSpendView() {
     ...MON.map((_, i) => el('td', { class: 'px-1.5 py-1 text-right' }, admin ? moneyIn(wOf(p.id, i), (n, inp) => { setRepW(p.id, i, n); const row = inp.closest('tr'); const t = row && row.querySelector('[data-tot]'); if (t) t.textContent = usd0(repTot(p)); refreshFoot(); }) : usd0(wOf(p.id, i)))),
     el('td', { class: 'px-3 py-1 text-right tabular-nums font-bold', 'data-tot': '1' }, usd0(repTot(p))));
   // Totals update in place as numbers are typed (no full re-render per cell).
+  // QuickBooks charges tagged Wages above count as wages too (per Isaac, Nov 25) — their own row, in the total.
+  const qbW = (i) => typeof spqSegMonth === 'function' ? spqSegMonth(ymOf(i)).wages : 0, qbWYear = MON.reduce((a, _, i) => a + qbW(i), 0);
+  const qbRow = (label, f, yr) => yr ? el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, el('td', { class: 'px-3 py-1 whitespace-nowrap font-semibold', style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1 } }, label, el('span', { class: 'ml-1.5 text-[9px] uppercase tracking-wider', style: muted }, 'from QuickBooks charges')), ...MON.map((_, i) => td(f(i) ? usd0(f(i)) : '—', f(i) ? null : muted, true)), td(usd0(yr), { fontWeight: '700' }, true)) : null;
   let footCells = [];
-  const refreshFoot = () => { footCells.forEach((c, i) => { c.textContent = i < 12 ? usd0(monTot(i, repsSum)) : usd0(MON.reduce((a, _, j) => a + monTot(j, repsSum), 0)); }); };
-  const footRow = () => { footCells = MON.map((_, i) => td(usd0(monTot(i, repsSum)), { fontWeight: '700' }, true)); const tot = td(usd0(yearTot), { fontWeight: '900' }, true); footCells.push(tot);
+  const refreshFoot = () => { footCells.forEach((c, i) => { c.textContent = i < 12 ? usd0(monTot(i, repsSum) + qbW(i)) : usd0(MON.reduce((a, _, j) => a + monTot(j, repsSum), 0) + qbWYear); }); };
+  const footRow = () => { footCells = MON.map((_, i) => td(usd0(monTot(i, repsSum) + qbW(i)), { fontWeight: '700' }, true)); const tot = td(usd0(yearTot + qbWYear), { fontWeight: '900' }, true); footCells.push(tot);
     return el('tr', { style: { borderTop: '2px solid var(--text)', background: 'var(--card-2)' } }, el('td', { class: 'px-3 py-1.5 font-black', style: { position: 'sticky', left: 0, background: 'var(--card-2)', zIndex: 1 } }, 'Total'), ...footCells); };
   const rowOf = (p) => wRow(p);
   const offOpen = !!state._spendWagesOffOpen;
@@ -213,6 +221,7 @@ function mktgSpendView() {
           repsOff.length ? el('tr', { class: 'border-t cursor-pointer', style: { borderColor: 'var(--border)', background: 'var(--card-2)' }, onclick: () => { state._spendWagesOffOpen = !offOpen; mountApp(); } },
             el('td', { class: 'px-3 py-1.5 text-[11px] font-semibold', colspan: 14, style: muted }, (offOpen ? '▴ ' : '▾ ') + repsOff.length + ' inactive rep' + (repsOff.length === 1 ? '' : 's') + (offOpen ? '' : ' — expand to add wages for a past month'))) : null,
           ...(offOpen ? repsOff.map(rowOf) : []),
+          qbRow('Tagged Wages', qbW, qbWYear),
           footRow()))));
 
   // ── Incentives (per Isaac, Nov 16): one company number a month, typed in; spread to offices by share of the
@@ -224,13 +233,14 @@ function mktgSpendView() {
   const rcOf = (i) => typeof rcIncentivesMonth === 'function' ? rcIncentivesMonth(ymOf(i)).total : 0;
   const incYear = () => MON.reduce((a, _, i) => a + incOf(i), 0);
   const rcYear = () => MON.reduce((a, _, i) => a + rcOf(i), 0);
+  const qbI = (i) => typeof spqSegMonth === 'function' ? spqSegMonth(ymOf(i)).incentives : 0, qbIYear = () => MON.reduce((a, _, i) => a + qbI(i), 0);
   let incTot, totCells = [];
-  const refreshIncTot = () => { if (incTot) incTot.textContent = usd0(incYear()); totCells.forEach((c, i) => { c.textContent = i < 12 ? usd0(incOf(i) + rcOf(i)) : usd0(incYear() + rcYear()); }); };
+  const refreshIncTot = () => { if (incTot) incTot.textContent = usd0(incYear()); totCells.forEach((c, i) => { c.textContent = i < 12 ? usd0(incOf(i) + rcOf(i) + qbI(i)) : usd0(incYear() + rcYear() + qbIYear()); }); };
   const incCard = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
       el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Incentives · ' + year),
         el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'RIDDCOIN added to office reps’ wallets lands here automatically in the month it was added (100,000 ¤ = $100; counted from Nov 18, after the DashP transfer); anything else is typed in. The total is spread to offices by each office’s share of the month’s new revenue; in CAC with wages.')),
-      el('span', { class: 'ml-auto text-sm font-black tabular-nums' }, usd0(incYear() + rcYear()))),
+      el('span', { class: 'ml-auto text-sm font-black tabular-nums' }, usd0(incYear() + rcYear() + qbIYear()))),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('', false, { position: 'sticky', left: 0, zIndex: 2 }), ...MON.map(thM), th('Total', true))),
       el('tbody', {},
@@ -242,7 +252,8 @@ function mktgSpendView() {
           el('td', { class: 'px-3 py-1 whitespace-nowrap font-semibold', style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1 } }, 'Other incentives', el('span', { class: 'ml-1.5 text-[9px] uppercase tracking-wider', style: muted }, 'typed')),
           ...MON.map((_, i) => el('td', { class: 'px-1.5 py-1 text-right' }, admin ? moneyIn(incOf(i), (n) => { setInc(i, n); refreshIncTot(); }) : usd0(incOf(i)))),
           (incTot = el('td', { class: 'px-3 py-1 text-right tabular-nums font-bold' }, usd0(incYear())))),
-        (() => { totCells = MON.map((_, i) => td(usd0(incOf(i) + rcOf(i)), { fontWeight: '700' }, true)); const t = td(usd0(incYear() + rcYear()), { fontWeight: '900' }, true); totCells.push(t);
+        qbRow('Tagged Incentives', qbI, qbIYear()),
+        (() => { totCells = MON.map((_, i) => td(usd0(incOf(i) + rcOf(i) + qbI(i)), { fontWeight: '700' }, true)); const t = td(usd0(incYear() + rcYear() + qbIYear()), { fontWeight: '900' }, true); totCells.push(t);
           return el('tr', { style: { borderTop: '2px solid var(--text)', background: 'var(--card-2)' } }, el('td', { class: 'px-3 py-1.5 font-black', style: { position: 'sticky', left: 0, background: 'var(--card-2)', zIndex: 1 } }, 'Total'), ...totCells); })()))));
 
   // ── 4. QuickBooks lines for the picked month — folded away; fix one charge's channel here. ──

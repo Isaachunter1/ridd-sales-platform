@@ -348,7 +348,10 @@ function reportingAuditing() {
     const aP = rate(s.attr.passed), aF = rate(s.attr.failed);
     // TOTAL row: uniform background — per-cell tints on the last row bled
     // past the card's rounded clip and looked like a stray extra row.
-    const td0 = td;
+    // Fit without a sideways scroll (per Isaac, Nov 25): tighter cells, and dollars shortened ($1.24M, $186k) with
+    // the full figure on hover. The name column keeps its room.
+    const td0 = (val, o = {}) => { const c = td(val, o); if (!o.sticky) { c.classList.remove('px-3'); c.classList.add('px-1.5'); } if (o.tip) c.title = o.tip; return c; };
+    const moneyC = (v) => { if (!v) return ['—', {}]; const a = Math.abs(v), t = a >= 1e6 ? '$' + (v / 1e6).toFixed(2) + 'M' : a >= 1e4 ? '$' + Math.round(v / 1e3) + 'k' : a >= 1e3 ? '$' + (v / 1e3).toFixed(1) + 'k' : '$' + Math.round(v); return [t, { tip: money(v) }]; };
     // Colour (per Isaac, Sep 2026): Office / Team rows carry the same colour
     // Indicators and Manage Teams use for them (swatch + coloured name);
     // rep rows get a faint wash of their team's colour so the table reads
@@ -390,11 +393,11 @@ function reportingAuditing() {
       td_(fmt.int(s.failed), { bg: s.failed > 0 ? 'rgba(220,38,38,.08)' : 'transparent' }),
       td_(fmt.int(s.noaudit)),
       td_(fmt.int(s.pending)),
-      td_(money(s.soldRev)),
-      td_(money(s.servicedRev)),
-      td_(money(activeRev)),
-      td_(money(s.cancelledRev)),
-      td_(money(s.agingRev)),
+      td_(...moneyC(s.soldRev)),
+      td_(...moneyC(s.servicedRev)),
+      td_(...moneyC(activeRev)),
+      td_(...moneyC(s.cancelledRev)),
+      td_(...moneyC(s.agingRev)),
       td_(passPct == null ? '—' : (passPct * 100).toFixed(1) + '%', { bg: passShade(passPct), bold: true }),
       td_(aP == null ? '—' : (aP * 100).toFixed(1) + '%'),
       td_(aF == null ? '—' : (aF * 100).toFixed(1) + '%', { bg: aF != null && aP != null && aF > aP ? 'rgba(220,38,38,.08)' : 'transparent' }),
@@ -439,7 +442,7 @@ function reportingAuditing() {
       { id: 'sold', label: 'Sold', tip: 'EVERY subscription sold in range (a customer with 2 subs counts as 2). Passed, failed, pending and no-audit all included. D2D production only.' },
       { id: 'serviced', label: 'Serviced', tip: 'Subscriptions that have been serviced — an initial service / at least one completed service.' },
       { id: 'activeSubs', label: 'Active', tip: 'Count of serviced subscriptions that are still active (not cancelled) — the unit behind Active Rev.' },
-      { id: 'soldServiced', label: 'Sold/Serviced', tip: 'Of subscriptions sold, the share that received an initial service — serviced ÷ sold. 89% = 89% of sold subs have been serviced; the rest are sold but not yet serviced.' },
+      { id: 'soldServiced', label: 'Svc\u2019d %', tip: 'Of subscriptions sold, the share that received an initial service — serviced ÷ sold. 89% = 89% of sold subs have been serviced; the rest are sold but not yet serviced.' },
       { id: 'audited', label: 'Audited', tip: 'Subscriptions with a final audit result = Passed + Failed. (Pending and No Audit are not yet audited.)' },
       { id: 'passed', label: 'Passed', tip: 'Accounts flagged "Passed Audit".' },
       { id: 'failed', label: 'Failed', tip: 'Accounts flagged "Failed Audit".' },
@@ -448,11 +451,11 @@ function reportingAuditing() {
       { id: 'soldRev', label: 'Sold Rev', tip: 'Contract value across ALL sold subscriptions (everything, regardless of service or status).' },
       { id: 'servicedRev', label: 'Serviced Rev', tip: 'Contract value of subscriptions that received an initial service. Splits into Active + Cancelled + Frozen.' },
       { id: 'activeRev', label: 'Active Rev', tip: 'Contract value of subscriptions that were SERVICED and are still active (not cancelled). Always ≤ Serviced Rev. Includes aging.' },
-      { id: 'cancelledRev', label: 'Cancelled Rev', tip: 'Contract value of SERVICED subscriptions that later cancelled — includes 3-day RORs that were serviced before being rescinded. Serviced = Active + Cancelled.' },
+      { id: 'cancelledRev', label: 'Cancel Rev', tip: 'Contract value of SERVICED subscriptions that later cancelled — includes 3-day RORs that were serviced before being rescinded. Serviced = Active + Cancelled.' },
       { id: 'agingRev', label: 'Aging Rev', tip: 'Contract value of serviced, active subscriptions 7+ days past due — the at-risk slice inside Active.' },
       { id: 'passpct', label: 'Pass %', tip: '(Passed + No Audit) ÷ (Passed + Failed + No Audit). No-Audit counts as passed; Pending excluded.' },
-      { id: 'attrP', label: 'Attrition · Passed', tip: 'Of passed-audit accounts, the share with a reportable cancel (ROR / Sold-Not-Started excluded).' },
-      { id: 'attrF', label: 'Attrition · Failed', tip: 'Of failed-audit accounts, the share with a reportable cancel (ROR / Sold-Not-Started excluded).' },
+      { id: 'attrP', label: 'Attr. Passed', tip: 'Of passed-audit accounts, the share with a reportable cancel (ROR / Sold-Not-Started excluded).' },
+      { id: 'attrF', label: 'Attr. Failed', tip: 'Of failed-audit accounts, the share with a reportable cancel (ROR / Sold-Not-Started excluded).' },
     ];
     if (!state.auditSort) state.auditSort = {};
     const sortState = state.auditSort[kind] || { key: 'sold', dir: 'desc' };
@@ -470,8 +473,7 @@ function reportingAuditing() {
     });
     const scrolls = true;   // every audit table scrolls sideways with the name column frozen (per Isaac, Sep 2026 — fixed layout crushed the numbers together)
     const thSort = (c, i) => el('th', {
-      class: 'px-3 py-2 text-[9px] uppercase tracking-wide font-semibold text-left cursor-pointer select-none hover:text-default transition'
-        + (scrolls ? ' whitespace-nowrap' : ''),
+      class: (i === 0 ? 'px-3' : 'px-1.5') + ' py-2 text-[9px] uppercase tracking-wide font-semibold text-left align-bottom cursor-pointer select-none hover:text-default transition',
       style: { background: 'var(--card-2)', color: sortState.key === c.id ? 'var(--accent)' : 'var(--text-muted)', fontWeight: sortState.key === c.id ? '800' : undefined, ...(i === 0 ? { position: 'sticky', left: 0, zIndex: 2, boxShadow: '1px 0 0 var(--border)' } : {}) },
       title: c.tip || '',
       onclick: () => setSort(c.id),

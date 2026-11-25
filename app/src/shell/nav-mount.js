@@ -868,10 +868,11 @@ function _mountCoalesce() {
   return true;
 }
 function mountApp() {
+  if (typeof pageKeepNav === 'function' && pageKeepNav()) return;   // the tab's kept copy goes up first; the build follows (core/page-keep.js)
   if (_mountCoalesce()) return;
   clearTimeout(_mountGate.timer); _mountGate.timer = null; _mountGate.since = 0;
   _mountGate.at = Date.now();
-  try { return _mountAppRender(); } finally { _mountGate.at = Date.now(); if (typeof arrangeSchedule === 'function') arrangeSchedule(); }   // stamped after the render too, so a slow one still holds the next burst · owner's card order applied after every render (shell/arrange.js)
+  try { return _mountAppRender(); } finally { _mountGate.at = Date.now(); if (typeof arrangeSchedule === 'function') arrangeSchedule(); if (typeof pageKeepAfterMount === 'function') pageKeepAfterMount(); }   // stamped after the render too, so a slow one still holds the next burst · owner's card order applied after every render (shell/arrange.js)
 }
 function _mountAppRender() {
   window._riddSeq = (window._riddSeq || 0) + 1;   // one render = one tick (per-render memos key on it)

@@ -102,7 +102,13 @@ function mkpAllLeads() {
   // until someone maps it on the Marketing to-do card, instead of piling up under 'Unmapped'.
   const _provOf = (i) => { const p = ghlProviderOf(lab[i]); if (!p || p === GHL_NOT_LEAD) return GHL_NOT_LEAD; return chSet && !chSet.has(p) ? GHL_NOT_LEAD : p; };
   const sorted = G.opps.filter(o => o && o[0] && (o[2] || o[3])).slice().sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : (a[4] || '') < (b[4] || '') ? -1 : (a[4] || '') > (b[4] || '') ? 1 : 0);   // plain compares: localeCompare on 36K rows cost ~1s
-  const lastAt = new Map(), leads = []; let raw = 0, notLead = 0, curCust = 0;
+  const lastAt = new Map(), lastProv = new Map(), leads = []; let raw = 0, notLead = 0, curCust = 0;
+  // Offices a source label can name: the active offices plus every office a ZIP maps to, longest name first so
+  // "Virginia Beach" is not read as another office's shorter name. Matched as whole words; one answer per label.
+  const _offNames = [...new Set((state.offices || []).filter(o => o && o.name && o.active !== false).map(o => mkpMarketOf(o.name)).concat([...zipOff.values()].map(mkpMarketOf)).filter(Boolean))].sort((x, y) => y.length - x.length);
+  const _offRx = _offNames.map(n => [n, new RegExp('(^|[^a-z0-9])' + n.toLowerCase().replace(/[^a-z0-9]+/g, '[^a-z0-9]+') + '([^a-z0-9]|$)', 'i')]);
+  const _labOff = new Map();
+  const labelOffice = (label) => { const k = String(label || ''); if (!k) return ''; if (_labOff.has(k)) return _labOff.get(k); const hit = _offRx.find(([, rx]) => rx.test(k)); const v = hit ? hit[0] : ''; _labOff.set(k, v); return v; };
   // Batch-made opportunities (per Isaac, Nov 23 — "so many calls right at 7am"): when Pest AI back-fills cards
   // (95 call cards on Nov 19 between 6:30 and 7:05 am Eastern), each is stamped with the moment it was made, not
   // when the person called. Ten or more opportunities in the same 10 minutes is a batch, not traffic: those take the
@@ -118,6 +124,8 @@ function mkpAllLeads() {
     // after an outbound call, so an opportunity stamped with it keeps the source that actually brought the lead in —
     // the contact's. Treated like a blank opportunity source that falls through to the contact.
     const passThrough = o[1] >= 0 && MKP_NOT_A_SOURCE.test(String(lab[o[1]] || ''));
+    const again = o[9] === 1;   // a later source on the same opportunity (a resubmission through another channel)
+    if (again && (passThrough || first)) continue;   // a tracking-number stamp is not a new touch; first-touch view ignores later ones
     let prov = o[1] == null || o[1] < 0 || passThrough ? GHL_NOT_LEAD : provOf(o[1]);   // no source on the opportunity → not a lead either
     if ((first || passThrough) && c) { const fp = provOf(c[1] >= 0 ? c[1] : c[2]); if (fp && fp !== 'Unmapped' && fp !== GHL_NOT_LEAD) prov = fp; }
     if (prov === GHL_NOT_LEAD) { notLead++; continue; }
@@ -131,8 +139,10 @@ function mkpAllLeads() {
     raw++;
     const key = o[2] ? 'p' + o[2] : 'e' + o[3];
     const ms = _mkpMs(oD), prev = lastAt.get(key);
-    if (prev != null && ms - prev < 30 * 86400000) continue;
-    lastAt.set(key, ms);
+    // A resubmission through a DIFFERENT channel counts for that channel too (per Isaac, Nov 25: "we do have to pay
+    // for them"); through the same channel inside 30 days it is still a repeat.
+    if (prev != null && ms - prev < 30 * 86400000 && !(again && lastProv.get(key) !== prov)) continue;
+    lastAt.set(key, ms); lastProv.set(key, prov);
     const stage = o[6] != null && o[6] >= 0 ? stages[o[6]] || '' : '';
     // How the lead arrived (per Isaac, Nov 18): the FIRST stage the sync saw it in ([8]) — every opportunity lands in
     // AI Calls, New Lead - Forms or New Lead - Calls first — falling back to the current stage for rows synced before
@@ -153,11 +163,19 @@ function mkpAllLeads() {
     // Office-local date (per Isaac, Nov 19 — leads dated Nov 19 on the evening of Nov 18): GoHighLevel stamps the
     // opportunity in UTC, so anything after ~7 pm Eastern landed on the next day (and the next month on the 31st).
     // d = the date in the office's time zone; dUtc + t keep the raw stamp for the hour chart.
-    const mkt = c ? (c[11] >= 0 && lab[c[11]] ? mkpMarketOf(lab[c[11]]) : mkpMarketOf(zipOff.get(c[6]))) : '';
+    // Office (per Isaac, Nov 25): the office named in the source label comes first ("Facebook | Atlanta",
+    // "FB | Charleston | RPC") — campaigns are built per office, so that is the office that paid for the lead. Then the
+    // office tag Pest AI puts on the contact, then the contact's ZIP. The ZIP's office is kept alongside so a lead whose
+    // ZIP sits in another market still shows it.
+    const zipMkt = c ? mkpMarketOf(zipOff.get(c[6])) : '', tagMkt = c && c[11] >= 0 && lab[c[11]] ? mkpMarketOf(lab[c[11]]) : '';
+    const labMkt = labelOffice(srcLabel);
+    const mkt = labMkt || tagMkt || zipMkt;
+    const mktBy = labMkt ? 'source label' + (zipMkt && zipMkt !== labMkt ? ' · ZIP ' + c[6] + ' is ' + zipMkt : '') : tagMkt ? 'office tag' : zipMkt ? 'ZIP ' + c[6] : '';
     const ld = oT ? _mkpLocalDay(oD, oT, mkt) : oD;
     leads.push({ d: ld, dUtc: oD, t: oT, batch, p: o[2] || '', e: o[3] || '', prov, label: srcLabel, group: mkpGroupOf(prov), paid: paid.has(prov),
       campaign: o[7] != null && o[7] >= 0 ? lab[o[7]] : '', status: String(o[5] || '').toLowerCase(), stage, firstStage,
-      type: typeOf(firstStage) || bornWorked || typeOf(stage) || typeBySource, typeSure: !!typeOf(firstStage), market: mkt });   // office tag from Pest AI first, ZIP second (per Isaac, Nov 18)
+      type: typeOf(firstStage) || bornWorked || typeOf(stage) || typeBySource, typeSure: !!typeOf(firstStage), market: mkt,
+      tag: c && c[12] >= 0 && lab[c[12]] ? lab[c[12]] : '', mktBy, again });   // office tag from Pest AI first, ZIP second (per Isaac, Nov 18)
   }
   const out = { leads, raw, notLead, curCust };
   mkpAllLeads._m = { src: G.opps, sig, subs: state.reportingSubscriptions, zip: zipOff, out };

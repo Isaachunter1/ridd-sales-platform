@@ -39,6 +39,13 @@ function officeTag(tags) {
   for (const t of Array.isArray(tags) ? tags : []) { const m = /^\s*office\s*[:\-_|]\s*(.+?)\s*$/i.exec(String(t || '')); if (m) return m[1].replace(/[_-]+/g, ' ').trim(); }
   return '';
 }
+// The agency that ran the ad, when Pest AI tags the contact with it (per Isaac, Nov 25 2026): "ROR" or "Gravitate",
+// as a whole word inside any tag ("ror", "ROR - Atlanta", "gravitate lead"). Blank = neither. Shown as-is; counts nothing.
+function agencyTag(tags) {
+  let ror = false;
+  for (const t of Array.isArray(tags) ? tags : []) { const v = String(t || ''); if (/\bgravitate\b/i.test(v)) return 'Gravitate'; if (/(^|[^a-z0-9])ror([^a-z0-9]|$)/i.test(v)) ror = true; }
+  return ror ? 'ROR' : '';
+}
 function toRow(c, loc) {
   const added = c.dateAdded || c.createdAt || null, upd = c.dateUpdated || added;
   return {
@@ -86,7 +93,21 @@ function oppRow(o, prev) {
   const created = Date.parse(o.createdAt || o.dateAdded || '') || 0, changed = Date.parse(o.lastStageChangeAt || '') || 0;
   const moved = created && changed && (changed - created) > 60 * 1000;
   const first = (prev && prev[7] != null) ? String(prev[7]) : (moved ? '' : String(o.pipelineStageId || ''));
-  return [o.createdAt || o.dateAdded || '', String(o.source == null ? '' : o.source).trim(), phone10(c.phone), String(c.email || '').trim().toLowerCase(), String(o.status || ''), String(o.contactId || c.id || ''), String(o.pipelineStageId || ''), first];
+  // [8] = source history (per Isaac, Nov 25 2026): Pest AI UPDATES an opportunity when the same person comes back
+  //   through another channel (Facebook, then a Google Ads resubmission) instead of opening a new one. Each change of
+  //   source is kept as [when seen, source], oldest first, so the earlier touch is not lost and the later one is a
+  //   touch of its own. "When" is GoHighLevel's updatedAt when it is later than the last entry, else the time of this
+  //   sync — never earlier than the change, at most one sync cycle (or a later stage move) after it. History starts
+  //   the day this shipped: a change made before then shows as one change, dated when it was first noticed.
+  const createdIso = o.createdAt || o.dateAdded || '';
+  const src = String(o.source == null ? '' : o.source).trim();
+  let hist = (prev && Array.isArray(prev[8]) && prev[8].length) ? prev[8].slice() : [[createdIso, prev ? String(prev[1] || '') : src]];
+  const last = hist[hist.length - 1];
+  if (src && src !== last[1]) {
+    if (!last[1]) last[1] = src;   // first seen with no source: the first real one is the original, not a change
+    else { const lt = Date.parse(last[0]) || 0, up = Date.parse(o.updatedAt || '') || 0, now = Date.now(); hist.push([new Date(up > lt && up <= now ? up : now).toISOString(), src]); if (hist.length > 12) hist = [hist[0]].concat(hist.slice(-11)); }
+  }
+  return [createdIso, src, phone10(c.phone), String(c.email || '').trim().toLowerCase(), String(o.status || ''), String(o.contactId || c.id || ''), String(o.pipelineStageId || ''), first, hist];
 }
 // Pipeline stage id → "Pipeline · Stage" (one small call per run; a failure just leaves stages blank).
 async function stageNames(headers, loc) {
@@ -142,6 +163,14 @@ async function syncOpps(sb, headers, loc, st, CUTOFF, started, log) {
     if (!o.mark) o.mark = new Date().toISOString();
     const r = await walk(o.backfillAfter || null, CUTOFF, end, (c) => { o.backfillAfter = c; });
     if (r === 'reached' || r === 'end') { o.backfillDone = true; delete o.backfillAfter; }
+  }
+  // Refresh: once history is in, keep walking ALL of it with whatever time is left, a stretch per run, and start
+  // over at the end (per Isaac, Nov 25 2026). The incremental pass above only sees opportunities CREATED in the last
+  // two days, so a source Pest AI changed on an older opportunity was never picked up.
+  else if (Date.now() < end - 20000) {
+    const r = await walk(o.refreshAfter || null, CUTOFF, end, (c) => { o.refreshAfter = c; });
+    if (r === 'reached' || r === 'end') { delete o.refreshAfter; o.refreshedAt = new Date().toISOString(); }
+    log.oppRefresh = r;
   }
   log.opps = pulled; o.count = Object.keys(store).length;
   if (pulled) {
@@ -246,7 +275,9 @@ exports.handler = async (event) => {
         // [8] first campaign, [9] last campaign (label indexes), [10] click id kind 'g' / 'f' / '' (per Isaac, Oct 15).
         L(r.first_campaign), L(r.last_campaign), (r.last_click || r.first_click) === 'gclid' ? 'g' : (r.last_click || r.first_click) === 'fbclid' ? 'f' : '',
         // [11] office Pest AI stamps on the contact as a tag "office: Atlanta" / "Office - Atlanta" (per Isaac, Nov 18) — beats the ZIP guess in the app.
-        L(officeTag(r.tags))]);
+        L(officeTag(r.tags)),
+        // [12] agency tag on the contact: 'ROR' / 'Gravitate' (per Isaac, Nov 25) — shown on the leads drill-down.
+        L(agencyTag(r.tags))]);
         if (r.id) byContact.set(String(r.id), [r.phone10 || '', r.email || '', r.last_campaign || r.first_campaign || '']); }
       if (!data || data.length < 1000) break;
     }
@@ -277,7 +308,11 @@ exports.handler = async (event) => {
       const o = oppStore[id]; const iso = String(o[0] || ''); if (!iso || Date.parse(iso) < CUTOFF) continue;
       const c = byContact.get(o[5]) || ['', ''];
       const ph = o[2] || c[0], em = o[3] || c[1]; if (!ph && !em) continue;
-      opps.push([iso.slice(0, 10), L(o[1]), ph, em, hhmm(iso), o[4] || '', SI(o[6]), L(c[2] || ''), (() => { const b = bornIx(id, o); return b != null && b >= 0 ? b : SI(o[7]); })()]);   // [7] the contact's campaign · [8] first stage seen (per Isaac, Nov 18)
+      // [1] is the source the opportunity CAME IN with; [9] lists each later source it was changed to, as
+      // [date, HH:MM, label] (0 = never changed) — the app counts each as a touch of its own (per Isaac, Nov 25).
+      const hist = Array.isArray(o[8]) && o[8].length ? o[8] : null;
+      const touches = hist && hist.length > 1 ? hist.slice(1).filter(h => h && h[0] && h[1]).map(h => [String(h[0]).slice(0, 10), hhmm(h[0]), L(h[1])]) : [];
+      opps.push([iso.slice(0, 10), L(hist && hist[0][1] ? hist[0][1] : o[1]), ph, em, hhmm(iso), o[4] || '', SI(o[6]), L(c[2] || ''), (() => { const b = bornIx(id, o); return b != null && b >= 0 ? b : SI(o[7]); })(), touches.length ? touches : 0]);   // [7] the contact's campaign · [8] first stage seen (per Isaac, Nov 18)
     }
     const gz = zlib.gzipSync(Buffer.from(JSON.stringify({ v: 2, at: new Date().toISOString(), backfillDone: !!st.backfillDone, oppBackfillDone: !!(st.opp && st.opp.backfillDone), labels, rows, opps, stages })));
     const { error } = await sb.storage.from('reporting').upload('ghl/leads.json.gz', gz, { contentType: 'application/gzip', upsert: true });

@@ -112,31 +112,38 @@ function mkxPaybackCard(ym) {
   if (typeof mklMonth !== 'function' || typeof ltvModel !== 'function') return null;
   const year = Number(String(ym).slice(0, 4)), last = Number(String(ym).slice(5, 7));
   if (!(year > 2000) || !(last >= 1)) return null;
-  const head = el('div', { class: 'px-5 py-3 flex items-baseline gap-3 flex-wrap' }, el('h3', { class: 'text-base font-bold' }, 'Channel payback · ' + year + ' to date'));
+  // By channel or by office (per Isaac, Nov 25 — payback against CAC "by channel and office").
+  const by = state._mkxPayBy === 'br' ? 'br' : 'ch';
+  const seg = el('div', { class: 'ml-auto inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } }, ...[['ch', 'By channel'], ['br', 'By office']].map(([k, l]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold', style: by === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._mkxPayBy = k; mountApp(); } }, l)));
+  const title = 'Payback and lifetime value · ' + (by === 'br' ? 'by office' : 'by channel') + ' · ' + year + ' to date';
+  const head = el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' }, el('h3', { class: 'text-base font-bold' }, title), seg);
   if (!state._ltv) return el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkt-payback' }, head,
-    el('div', { class: 'px-5 pb-4 text-sm', style: _mkxMuted }, state._ltvMissing ? 'Needs the LTV cohort file, which has not been published yet (it is built nightly by the ltv-cohorts server job).' : 'Loading the LTV cohorts…'));
+    el('div', { class: 'px-5 pb-4 text-sm flex items-center gap-3 flex-wrap', style: _mkxMuted }, state._ltvMissing ? 'This needs the customer lifetime file, which has not been built yet. It adds up what every customer has paid, month by month since they started.' : 'Loading customer lifetimes…',
+      state._ltvMissing && typeof _ltvKick === 'function' && typeof isAdminRole === 'function' && isAdminRole(state.profile && state.profile.role) ? el('button', { class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: (ev) => _ltvKick(ev.currentTarget) }, 'Build it now (1–2 min)') : null));
+  const skip = (k) => /^(Unspecified|No branch|Unmapped GHL source)$/.test(k);
   const agg = {};
   for (let i = 1; i <= last; i++) {
-    const M = mklMonth(year + '-' + String(i).padStart(2, '0')); if (!M || !M.ch || !M.hasSpend) continue;
-    for (const k in M.ch) { if (!_mkxShown(k)) continue; const c = M.ch[k], t = agg[k] || (agg[k] = { spend: 0, svc: 0 }); t.spend += c.spend || 0; t.svc += c.svc || 0; }
+    const M = mklMonth(year + '-' + String(i).padStart(2, '0')); if (!M || !M[by] || !M.hasSpend) continue;
+    for (const k in M[by]) { if (skip(k) || (by === 'ch' && !_mkxShown(k))) continue; const c = M[by][k], t = agg[k] || (agg[k] = { spend: 0, svc: 0 }); t.spend += c.spend || 0; t.svc += c.svc || 0; }
   }
   const margin = typeof ltvMargin === 'function' ? ltvMargin() : null;
+  const gidOf = (k) => by === 'br' ? (typeof _ltvOfficeGid === 'function' ? _ltvOfficeGid(k, 'office') : null) : 'source:' + k;
   const rows = Object.keys(agg).filter(k => agg[k].spend > 0 && agg[k].svc > 0).map(k => {
     const cac = agg[k].spend / agg[k].svc;
-    const own = ltvModel('source:' + k, { horizon: 36, margin });
+    const gid = gidOf(k), own = gid ? ltvModel(gid, { horizon: 36, margin }) : null;
     const M = own || ltvModel('seller:office', { horizon: 36, margin });
-    return { k, cac, svc: agg[k].svc, spend: agg[k].spend, pb: M ? M.payback(cac) : null, ltv: M ? M.ltv : null, own: !!own, n: own ? own.nAll : 0, seen: M ? M.observedTo : 0 };
+    return { k, cac, svc: agg[k].svc, spend: agg[k].spend, pb: M ? M.payback(cac) : null, ltv: M ? M.ltv : null, ret12: M ? M.ret12 : null, own: !!own, n: own ? own.nAll : 0, seen: M ? M.observedTo : 0 };
   }).sort((a, b) => (a.pb == null ? 999 : a.pb) - (b.pb == null ? 999 : b.pb) || a.cac - b.cac);
-  if (!rows.length) return el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkt-payback' }, head, el('div', { class: 'px-5 pb-4 text-sm', style: _mkxMuted }, 'No channel has both spend and new sales for ' + year + ' yet.'));
+  if (!rows.length) return el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkt-payback' }, head, el('div', { class: 'px-5 pb-4 text-sm', style: _mkxMuted }, 'Nothing has both spend and serviced new sales for ' + year + ' yet.'));
   const th = (t, tip) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap text-left', title: tip || '', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
   const col = (m) => m == null ? '#B91C1C' : m <= 6 ? '#15803D' : m <= 12 ? '#65A30D' : m <= 18 ? '#D97706' : '#B91C1C';
+  const tcn = (k) => by === 'br' && typeof _mktgTC === 'function' ? _mktgTC(k) : k;
   return el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkt-payback' },
-    el('div', { class: 'px-5 py-3 flex items-baseline gap-3 flex-wrap' }, el('h3', { class: 'text-base font-bold' }, 'Channel payback · ' + year + ' to date'),
-      el('span', { class: 'text-[11px]', style: _mkxMuted }, 'Months until a customer has paid back what it cost to get them' + (margin ? ' · at ' + Math.round(margin) + '% gross margin' : ' · on revenue (no margin set)') + ' · marketing spend only')),
+    head,
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-      el('thead', {}, el('tr', {}, th('Channel'), th('Payback', 'First month where cumulative ' + (margin ? 'margin' : 'revenue') + ' per customer reaches the CAC'), th('CAC', 'Marketing spend ÷ new sales (initial pending or serviced), year to date — the Marketing CAC tile\u2019s rule'), th('36-mo LTV', 'What one customer pays over 36 months' + (margin ? ', at margin' : '')), th('LTV ÷ CAC'), th('New sales'), th('Curve', 'Whose retention / revenue curve the payback uses'))),
+      el('thead', {}, el('tr', {}, th(by === 'br' ? 'Office' : 'Channel'), th('Payback', 'First month where what one customer has paid' + (margin ? ', at ' + Math.round(margin) + '% gross margin,' : '') + ' reaches the CAC'), th('CAC', 'Marketing spend ÷ serviced new sales, year to date. Marketing spend only: wages and incentives are not in this CAC.'), th('36-mo value', 'What one customer pays over 36 months' + (margin ? ', at ' + Math.round(margin) + '% gross margin' : ' (revenue, no margin set)')), th('Value ÷ CAC', '36-month value ÷ CAC'), th('Kept 12 mo', 'Share of customers still paying a year after they started'), th('New sales', 'Serviced new sales, year to date'), th('Lifetime from', 'Whose customers the lifetime is measured on'))),
       el('tbody', {}, ...rows.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-        el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, r.k),
+        el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, tcn(r.k)),
         el('td', { class: 'px-3 py-2', style: { minWidth: '200px' } }, el('div', { class: 'flex items-center gap-2' },
           el('div', { style: { flex: '1 1 auto', height: '8px', borderRadius: '999px', background: 'var(--card-2)', overflow: 'hidden' } },
             el('div', { style: { width: (r.pb == null ? 100 : Math.min(100, r.pb / 36 * 100)) + '%', height: '100%', background: col(r.pb), borderRadius: '999px', opacity: r.pb == null ? '.35' : '1' } })),
@@ -144,8 +151,9 @@ function mkxPaybackCard(ym) {
         el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap' }, fmt.usd0(r.cac)),
         el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap' }, r.ltv ? fmt.usd0(r.ltv) : '—'),
         el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap font-bold' }, r.ltv ? (r.ltv / r.cac).toFixed(1) + 'x' : '—'),
+        el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap' }, r.ret12 != null ? Math.round(r.ret12 * 100) + '%' : '—'),
         el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap' }, fmt.int(r.svc)),
-        el('td', { class: 'px-3 py-2 text-[11px] whitespace-nowrap', style: _mkxMuted }, r.own ? 'Its own customers (' + fmt.int(r.n) + ')' + (r.seen < 36 ? ' · company curve after month ' + r.seen : '') : 'Office Staff average (no cohort for this source)')))))));
+        el('td', { class: 'px-3 py-2 text-[11px] whitespace-nowrap', style: _mkxMuted }, r.own ? 'Its own customers (' + fmt.int(r.n) + ')' + (r.seen < 36 ? ' · company curve after month ' + r.seen : '') : 'Office Staff average (too few of its own)')))))));
 }
 
 // ── Provider pulse ───────────────────────────────────────────────────────────
@@ -237,7 +245,7 @@ function mkxProviderPulseCard(ym, DR, rangeLbl) {
         return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
           el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap align-top' }, r.k),
           // Budget comes from the Budget tab (per Isaac, Nov 25) — shown here, typed there.
-          isRange ? null : td(r.budget ? el('div', { class: 'font-semibold' }, fmt.usd0(r.budget)) : (owner ? el('button', { class: 'text-[11px] underline', style: { color: 'var(--accent)' }, onclick: () => { state._mktSub = 'budget'; mountApp(); } }, 'set on Budget →') : '—'),
+          isRange ? null : td(r.budget ? el('div', { class: 'font-semibold' }, fmt.usd0(r.budget)) : (owner ? el('button', { class: 'text-[11px] underline', style: { color: 'var(--accent)' }, onclick: () => { state._mktSub = 'plan'; mountApp(); } }, 'set on Media plan →') : '—'),
             r.expS != null ? sub('should bring ' + fmt.int(Math.round(r.expS)) + ' bookings') : null),
           td(el('div', { class: 'font-semibold' }, r.c.spend ? fmt.usd0(r.c.spend) : '—'),
             used != null ? el('div', { style: { width: '110px', height: '6px', borderRadius: '999px', background: 'var(--card-2)', overflow: 'hidden', margin: '3px 0' } }, el('div', { style: { width: Math.min(100, used * 100) + '%', height: '100%', borderRadius: '999px', background: over ? '#DC2626' : lateRun ? '#D97706' : '#2F5D62' } })) : null,
@@ -323,4 +331,103 @@ function mkxOpenBrief() {
       el('div', { class: 'text-[10px] uppercase tracking-widest font-bold mb-1', style: { color: 'var(--text-subtle)' } }, 'Needs a look'),
       B.issues.length ? el('ul', { class: 'text-[12px] flex flex-col gap-1' }, ...B.issues.map(x => el('li', { style: { color: '#B45309' } }, '• ' + x))) : el('div', { class: 'text-[12px]', style: { color: '#15803D' } }, 'Nothing flagged.'))));
   document.body.append(overlay);
+}
+
+// ── Office × channel (per Isaac, Nov 25): the CMO view — new revenue, spend and acquisition cost for every office by
+// every channel on one table, one measure at a time. Offices across, channels down, a total row and column. Cells are
+// the Marketing tab's own (mklMonth → x[office][channel]): revenue and sales from FieldRoutes by the account's office
+// and last-touch source, leads from Pest AI, spend from QuickBooks as split to offices on Spend setup — so a cell's
+// spend is only as exact as that channel's split rule. A cost or rate on a thin cell is noise, not a signal: CAC and
+// return need 5 sales, close rate needs 10 leads; under that the cell is blank. Replaces Channels × offices.
+function mkxOfficeChannelCard(ym, cur, rangeLbl) {
+  if (typeof mklMonth !== 'function' || !cur) return null;
+  const S = state._mkxOC || (state._mkxOC = { metric: 'cv', span: 'month' });
+  const year = Number(ym.slice(0, 4)), mi = Number(ym.slice(5, 7)) - 1;
+  const fixed = !!cur.range;   // the page's own picker is already on a range
+  const D = fixed ? cur : S.span === 'ytd' && typeof mklRange === 'function' ? mklRange(year, mi, 0) : cur;
+  if (!D || !D.ch || !D.br) return null;
+  const skip = (k) => /^(Unspecified|No branch|Unmapped GHL source)$/.test(k);
+  const has = (c) => c && ((c.spend || 0) || (c.leads || 0) || (c.s || 0));
+  const offices = Object.keys(D.br).filter(k => !skip(k) && has(D.br[k])).sort((a, b) => (D.br[b].cv || 0) - (D.br[a].cv || 0) || a.localeCompare(b));
+  const channels = Object.keys(D.ch).filter(k => !skip(k) && _mkxShown(k) && has(D.ch[k])).sort((a, b) => (D.ch[b].cv || 0) - (D.ch[a].cv || 0) || (D.ch[b].spend || 0) - (D.ch[a].spend || 0) || a.localeCompare(b));
+  if (!offices.length || !channels.length) return null;
+  const X = D.x || {}, zero = { spend: 0, leads: 0, s: 0, cv: 0 };
+  const usd = (v) => v == null || !isFinite(v) ? null : fmt.usd0(v), int = (v) => v ? fmt.int(v) : null;
+  const sp = (c) => D.hasSpend ? (c.spend || 0) : null;
+  const linkedOf = (c) => c._linked != null ? c._linked : c.linked != null ? c.linked : (c.s || 0) - ((c.unlinked || []).length);
+  // Totals carry the linked count summed from their cells (the month's own totals do not hold it by office or channel).
+  const sumLinked = (pick) => { let t = 0; for (const o in (D.x || {})) for (const c in D.x[o]) if (pick(o, c)) t += linkedOf(D.x[o][c]); return t; };
+  const withLinked = (cell, pick) => Object.assign({}, cell, { _linked: sumLinked(pick) });
+  const M = {
+    cv:    { t: 'New revenue', get: (c) => c.cv || null, f: usd, up: true, tip: 'Contract value of new sales (initial booked or serviced), by the account’s office and FieldRoutes source' },
+    spend: { t: 'Spend', get: (c) => sp(c) || null, f: usd, up: null, tip: 'QuickBooks marketing spend, split to offices by each channel’s rule on Spend setup' },
+    cac:   { t: 'CAC', get: (c) => sp(c) > 0 && (c.s || 0) >= 5 ? sp(c) / c.s : null, f: usd, up: false, tip: 'Spend ÷ new sales. Blank under 5 sales.' },
+    s:     { t: 'New sales', get: (c) => c.s || null, f: int, up: true, tip: 'New sales: initial booked or serviced' },
+    leads: { t: 'Leads', get: (c) => c.leads || null, f: int, up: true, tip: 'Pest AI leads, by the lead’s office' },
+    // Close rate counts only sales that trace back to a lead (as the old Channels × offices grid did): a channel like
+    // Organic books sales that never were a Pest AI lead, and counting every sale read as 200%+.
+    close: { t: 'Close rate', get: (c) => (c.leads || 0) >= 10 ? linkedOf(c) / c.leads : null, f: (v) => v == null ? null : (v * 100).toFixed(0) + '%', up: true, tip: 'New sales that came from a lead / leads. Blank under 10 leads.' },
+    ret:   { t: 'Return', get: (c) => sp(c) > 0 && (c.s || 0) >= 5 ? (c.cv || 0) / sp(c) : null, f: (v) => v == null ? null : v.toFixed(1) + 'x', up: true, tip: 'New revenue ÷ spend. Blank under 5 sales.' } };
+  const m = M[S.metric] || M.cv;
+  const cellOf = (o, c) => (X[o] && X[o][c]) || zero;
+  const vals = channels.flatMap(c => offices.map(o => m.get(cellOf(o, c)))).filter(v => v != null && isFinite(v));
+  const max = vals.length ? Math.max(...vals) : 0, all = m.get({ spend: D.spend, leads: D.leads, s: D.s, cv: D.cv, _linked: D.linked != null ? D.linked : D.s });
+  // Shade: bigger = darker for the measures where more is the point; for CAC the colour says which side of the
+  // company-wide figure a cell sits on (green = cheaper, red = dearer by 25% or more).
+  const style = (v) => { if (v == null) return { color: 'var(--text-subtle)' };
+    if (m.up === false) return all ? { color: v <= all * 0.75 ? '#15803D' : v >= all * 1.25 ? '#DC2626' : 'var(--text)', fontWeight: v <= all * 0.75 || v >= all * 1.25 ? '800' : '500' } : {};
+    if (m.up === null || !max) return {};
+    const r = Math.min(1, v / max); return { background: 'rgba(95,108,91,' + (0.06 + 0.6 * r).toFixed(2) + ')', color: r > 0.55 ? '#fff' : 'var(--text)' }; };
+  const lbl = fixed ? (rangeLbl || 'range') : S.span === 'ytd' ? 'Jan–' + new Date(year, mi, 1).toLocaleDateString('en-US', { month: 'short' }) + ' ' + year : new Date(year, mi, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const open = (title, o, c, base) => () => { if (typeof _mkdOpenCell === 'function' && typeof _mkdAgg === 'function') _mkdOpenCell(title, _mkdAgg(D, o, c, base), D); };
+  const td = (v, title, onclick, strong, bandBg) => { const st = bandBg ? { background: bandBg } : style(v);
+    return el('td', { class: 'px-2 py-1.5 text-right tabular-nums whitespace-nowrap' + (onclick && v != null ? ' cursor-pointer' : ''), title: title || '', onclick: v != null ? onclick : null,
+      style: Object.assign({ borderLeft: '1px solid var(--border)', fontWeight: strong ? '800' : undefined }, st) }, m.f(v) || '—'); };
+  const th = (t, right) => el('th', { class: 'px-2 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
+  const seg = (opts, cur2, set) => el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } }, ...opts.map(([k, l, tip]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold', title: tip || '', style: cur2 === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { set(k); mountApp(); } }, l)));
+  const tcn = (o) => typeof _mktgTC === 'function' ? _mktgTC(o) : o;
+  return el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkt-tables' },
+    el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
+      el('h3', { class: 'text-base font-bold' }, m.t + ' by office and channel · ' + lbl),
+      el('span', { class: 'ml-auto' }),
+      mkxTableSwitch('oc'),
+      seg(Object.keys(M).map(k => [k, M[k].t, M[k].tip]), S.metric in M ? S.metric : 'cv', (k) => { S.metric = k; }),
+      fixed ? null : seg([['month', 'Month'], ['ytd', 'Year to date']], S.span, (k) => { S.span = k; })),
+    (S.metric === 'spend' || S.metric === 'cac' || S.metric === 'ret') && !D.hasSpend ? el('div', { class: 'px-5 pb-2 text-[11px]', style: { color: '#B45309' } }, 'QuickBooks spend has not loaded, so there is nothing to show for this measure yet.') : null,
+    el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, th('Channel'), ...offices.map(o => th(tcn(o), true)), th('All offices', true))),
+      el('tbody', {},
+        ...channels.map(c => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          el('td', { class: 'px-3 py-1.5 font-semibold whitespace-nowrap', style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1 } }, c),
+          ...offices.map(o => { const cell = cellOf(o, c); return td(m.get(cell), c + ' · ' + tcn(o) + ' — click for the sales and leads', open(c + ' · ' + tcn(o), o, c, cell)); }),
+          td(m.get(withLinked(D.ch[c], (o2, c2) => c2 === c)), c + ' · all offices', open(c + ' · all offices', null, c, D.ch[c]), true, 'var(--card-2)'))),
+        el('tr', { style: { borderTop: '2px solid var(--text)', background: 'var(--card-2)' } },
+          el('td', { class: 'px-3 py-1.5 font-black', style: { position: 'sticky', left: 0, background: 'var(--card-2)', zIndex: 1 } }, 'All channels'),
+          ...offices.map(o => td(m.get(withLinked(D.br[o], (o2) => o2 === o)), tcn(o) + ' · all channels', open(tcn(o) + ' · all channels', o, null, D.br[o]), true, 'var(--card-2)')),
+          td(all, 'RIDD', null, true, 'var(--card-2)'))))));
+}
+
+// Channel metrics with its Month / Year-to-date switch (per Isaac, Nov 25 — plan vs actual in one place). Month is the
+// provider pulse; Year to date is the media plan's progress when the year has a plan, otherwise the same table over
+// the year so far (no budget to set it against).
+function mkxPulseBlock(ym, cur, RNG) {
+  if (RNG) return mkxProviderPulseCard(ym, cur, RNG.label || 'range');
+  const span = state._mkxPulseSpan === 'ytd' ? 'ytd' : 'month';
+  const year = Number(ym.slice(0, 4)), mi = Number(ym.slice(5, 7)) - 1;
+  let card = null;
+  if (span === 'ytd') { try { card = typeof mkpProgressCard === 'function' ? mkpProgressCard(year) : null; } catch (e) { card = null; }
+    if (!card && typeof mklRange === 'function') card = mkxProviderPulseCard(ym, mklRange(year, mi, 0), 'Jan\u2013' + new Date(year, mi, 1).toLocaleDateString('en-US', { month: 'short' }) + ' ' + year + ' (no plan for ' + year + ')'); }
+  else card = mkxProviderPulseCard(ym);
+  if (!card) return null;
+  const seg = el('div', { class: 'ml-auto inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } }, ...[['month', 'Month'], ['ytd', 'Year to date']].map(([k, l]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold', style: span === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._mkxPulseSpan = k; mountApp(); } }, l)));
+  try { const head = card.firstElementChild; if (head) { head.classList.add('flex', 'items-center', 'gap-3', 'flex-wrap'); head.appendChild(seg); } } catch (e) { /* no switch */ }
+  return card;
+}
+
+// The switch between the Dashboard's two tables (per Isaac, Nov 25): the same card shows revenue, spend and cost by
+// office and channel, or one measure by month across the year.
+function mkxTableSwitch(cur) {
+  return el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+    ...[['oc', 'By office & channel'], ['month', 'By month']].map(([k, l]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap', style: cur === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
+      onclick: () => { if (cur === k) return; state._mkxTblView = k; mountApp(); } }, l)));
 }

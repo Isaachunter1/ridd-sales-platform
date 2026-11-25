@@ -1291,6 +1291,7 @@ function reportingSubTabs() {
     ['overview',   'Overview'],
     ['marketing',  'Marketing'],
     ['waterfall',  'Retention'],
+    ['collections', 'Collections'],   // past-due customers by days owed (per Isaac, Nov 25)
     ['auditing',   'Auditing'],
     ['geographic', 'Geographic'],
     // ['ops', 'Operations'] hidden for now (per Isaac, Nov 18) — reportingOpsHub() stays in the code; a saved 'ops' tab lands on Overview.

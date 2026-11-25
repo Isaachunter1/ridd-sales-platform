@@ -113,6 +113,20 @@ function ghlPaidSet() {
   return s;
 }
 
+// Pest AI updates an opportunity when the same person comes back through another channel instead of opening a new
+// one (per Isaac, Nov 25 2026). The sync keeps each change of source ([9] on the row); here every change becomes a row
+// of its own — same person, the date and time the change was seen, the new source, [9] = 1 — so each channel that
+// brought the person in counts its lead, and a sale reads the latest source on or before it (last touch).
+function _ghlExpandOpps(opps) {
+  const out = [];
+  for (const o of opps) {
+    const t = o && o[9];
+    if (!Array.isArray(t) || !t.length) { out.push(o); continue; }
+    const b = o.slice(); b[9] = 0; out.push(b);
+    for (const x of t) { if (!x || !x[0] || x[2] == null || x[2] < 0) continue; const r = o.slice(); r[0] = x[0]; r[1] = x[2]; r[4] = x[1] || ''; r[8] = -1; r[9] = 1; out.push(r); }
+  }
+  return out;
+}
 async function ghlLoadLeads(force) {
   if (!force && state._ghl !== undefined) return;
   if (!supabase || (typeof DEMO !== 'undefined' && DEMO)) { state._ghl = { rows: [], labels: [] }; return; }
@@ -123,7 +137,7 @@ async function ghlLoadLeads(force) {
     else {
       const txt = await new Response(data.stream().pipeThrough(new DecompressionStream('gzip'))).text();
       const j = JSON.parse(txt);
-      state._ghl = { at: j.at, backfillDone: !!j.backfillDone, labels: j.labels || [], rows: j.rows || [], opps: j.opps || [], stages: j.stages || [], oppBackfillDone: !!j.oppBackfillDone };
+      state._ghl = { at: j.at, backfillDone: !!j.backfillDone, labels: j.labels || [], rows: j.rows || [], opps: _ghlExpandOpps(j.opps || []), stages: j.stages || [], oppBackfillDone: !!j.oppBackfillDone };
     }
   } catch (e) { state._ghl = { error: String((e && e.message) || e), rows: [], labels: [] }; }
   mountApp();

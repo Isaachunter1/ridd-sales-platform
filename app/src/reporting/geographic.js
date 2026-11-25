@@ -58,25 +58,25 @@ function reportingGeographic() {
   const svcTop = Object.keys(svcCounts).sort((a, b) => svcCounts[b] - svcCounts[a]).slice(0, 15);
   const svcColorMap = new Map(svcTop.map((s, i) => [s, REPORTING_PALETTE[i % REPORTING_PALETTE.length]]));
 
-  // Service-area boundary (RIDD_SERVICE_AREAS) for the selected office. Drawn in
-  // red on the ZIP map; the banner counts how many subs fall outside the line.
-  const svcAreaZips = (() => {
-    const names = office === 'all' ? Object.keys(RIDD_SERVICE_AREAS) : (RIDD_SERVICE_AREAS[office] ? [office] : []);
-    const s = new Set();
-    names.forEach(n => (RIDD_SERVICE_AREAS[n] || []).forEach(z => s.add(String(z).padStart(5, '0'))));
-    return s;
-  })();
+  // Service-area boundary (per Isaac, Nov 25): a ZIP is in an office's service area when that office has MORE THAN 3
+  // active customers there. It replaces the hand-kept ZIP lists (RIDD_SERVICE_AREAS) — and FieldRoutes' own drawn areas,
+  // which leave out places RIDD plainly services (Beaufort). Counted from the same rows as this tab: recurring, active
+  // subscriptions, distinct customers, per office per ZIP. The number is the admin rule svcAreaMin (default 3).
+  const SVC_MIN = Number(((typeof _adminRules === 'function' && _adminRules()) || {}).svcAreaMin) >= 0 ? Number(_adminRules().svcAreaMin) : 3;
+  const svcZipCust = new Map();   // 'OFFICE|zip' -> Set(customer ids)
+  for (const r of scopeServiced) { if (!geoF.isActive(r)) continue; const z = String(r.zip_code || '').slice(0, 5); if (!/^\d{5}$/.test(z)) continue;
+    const k = String(r.office_name || '') + '|' + z; (svcZipCust.get(k) || svcZipCust.set(k, new Set()).get(k)).add(String(r.customer_id)); }
+  const svcAreaZips = new Set(); let svcOutCust = 0, svcOutZips = 0, svcInCust = 0;
+  for (const [k, set] of svcZipCust) { if (set.size > SVC_MIN) { svcAreaZips.add(k.slice(k.lastIndexOf('|') + 1)); svcInCust += set.size; } else { svcOutCust += set.size; svcOutZips++; } }
   let svcOutBanner = null;
   if (svcAreaZips.size) {
     const redLine = el('span', { style: { display: 'inline-block', width: '22px', borderTop: '3px solid #e11d2e' } });
-    if (office !== 'all' && RIDD_SERVICE_AREAS[office]) {
-      let inN = 0, outN = 0;
-      for (const r of scopeServiced) { (svcAreaZips.has(String(r.zip_code || '').slice(0, 5)) ? inN++ : outN++); }
-      const tot = inN + outN;
+    if (office !== 'all') {
+      const tot = svcInCust + svcOutCust;
       svcOutBanner = el('div', { class: 'card p-3 text-xs flex items-center gap-2 flex-wrap' },
         redLine,
-        el('span', {}, office + ' service-area line in red — drill into the state to see it. '),
-        el('b', {}, outN.toLocaleString() + ' of ' + tot.toLocaleString() + ' subs (' + (tot ? Math.round(100 * outN / tot) : 0) + '%) sit OUTSIDE the line.'),
+        el('span', {}, office + ' service area in red: the ' + svcAreaZips.size.toLocaleString() + ' ZIPs with more than ' + SVC_MIN + ' active customers. Drill into the state to see it. '),
+        el('b', {}, svcOutCust.toLocaleString() + ' of ' + tot.toLocaleString() + ' active customers (' + (tot ? Math.round(100 * svcOutCust / tot) : 0) + '%) are in ' + svcOutZips.toLocaleString() + ' ZIPs outside it.'),
       );
     }
     // (generic "lines shown in red" explainer retired — the red line on the

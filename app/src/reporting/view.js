@@ -75,6 +75,7 @@ function viewReporting() {
     state.reportingSubTab === 'market'     ? (isAdminRole(state.profile?.role) || devSampleData() ? reportingMarketWatch() : reportingOverview()) :
     state.reportingSubTab === 'geographic' ? reportingGeographic() :
     state.reportingSubTab === 'waterfall'  ? reportingWaterfall() :
+    state.reportingSubTab === 'collections' ? reportingCollectionsView() :
     // 'services' retired as a top tab; 'health'/'nextbest' fold into
     // Retention — legacy persisted values land there too.
     (state.reportingSubTab === 'health' || state.reportingSubTab === 'nextbest' || state.reportingSubTab === 'services') ? reportingWaterfall() :
