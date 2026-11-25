@@ -96,29 +96,91 @@ async function pageKeepShow() {
   try {
     if (PK.el || _pkOff() || typeof reportingIdbGet !== 'function') return;
     const key = _pkKey(); if (!key) return;
+    PK.curKey = key;
     const v = await reportingIdbGet(key);
     if (!v || !v.html || PK.el) return;
     if (state.profile && document.getElementById('app') && !document.getElementById('splashMark') && (window._riddSeq || 0) > 0 && !document.querySelector('#app .spinner')) return;   // the live page beat it
-    const ov = document.createElement('div');
-    ov.id = 'pageKeep';
-    ov.style.cssText = 'position:fixed;inset:0;z-index:9000;overflow:auto;background:var(--bg);-webkit-overflow-scrolling:touch;';
-    const inner = document.createElement('div');
-    inner.style.cssText = 'pointer-events:none;min-height:100%;';
-    inner.setAttribute('aria-hidden', 'true');
-    inner.innerHTML = v.html;   // this browser's own earlier render of this page, for this user
-    const pill = document.createElement('div');
-    pill.style.cssText = 'position:fixed;right:14px;bottom:14px;z-index:9001;display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:rgba(29,29,29,.82);color:#fff;font:600 11px Archivo,system-ui,sans-serif;pointer-events:none;';
-    pill.innerHTML = '<span class="spinner" style="width:12px;height:12px;border-color:#fff;border-top-color:transparent"></span><span>Checking for new data…</span>';
-    ov.appendChild(inner); ov.appendChild(pill);
-    document.body.appendChild(ov);
-    PK.el = ov; PK.shownAt = Date.now(); PK.lastSeq = -1; PK.lastSeqAt = Date.now();
     // Scroll: where you actually left the page (noted as the tab closed or reloaded) beats where it was when the copy was taken.
     let y = Number(v.y) || 0;
     try { const r = JSON.parse(localStorage.getItem(RESUME_KEY) || 'null'); if (r && r.view === state.view && Date.now() - (r.at || 0) < 10 * 60 * 1000 && r.scroll != null) y = Number(r.scroll) || 0; } catch (e) { /* keep the copy's own */ }
-    try { ov.scrollTop = y; } catch (e) { /* top is fine */ }
+    _pkPut(v, y);
     state._resumeScroll = 0;   // the copy carries the scroll position; boot must not jump the window under it
-    clearInterval(PK.poll); PK.poll = setInterval(_pkTick, 250);
   } catch (e) { /* no copy: the normal load shows */ }
+}
+function _pkPut(v, y) {
+  const ov = document.createElement('div');
+  ov.id = 'pageKeep';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:9000;overflow:auto;background:var(--bg);-webkit-overflow-scrolling:touch;';
+  const inner = document.createElement('div');
+  inner.style.cssText = 'min-height:100%;';
+  inner.setAttribute('aria-hidden', 'true');
+  inner.innerHTML = v.html;   // this browser's own earlier render of this page, for this user
+  inner.querySelectorAll('input, textarea, select').forEach(n => { n.disabled = true; });   // nothing can be typed into a copy
+  const pill = document.createElement('div');
+  pill.style.cssText = 'position:fixed;right:14px;bottom:14px;z-index:9001;display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:rgba(29,29,29,.82);color:#fff;font:600 11px Archivo,system-ui,sans-serif;pointer-events:none;';
+  pill.innerHTML = '<span class="spinner" style="width:12px;height:12px;border-color:#fff;border-top-color:transparent"></span><span>Checking for new data…</span>';
+  ov.appendChild(inner); ov.appendChild(pill);
+  ov.addEventListener('click', _pkClick, true);
+  document.body.appendChild(ov);
+  PK.el = ov; PK.pill = pill; PK.pending = null; PK.shownAt = Date.now(); PK.lastSeq = -1; PK.lastSeqAt = Date.now();
+  try { ov.scrollTop = Number(y) || 0; } catch (e) { /* top is fine */ }
+  clearInterval(PK.poll); PK.poll = setInterval(_pkTick, 250);
+}
+// A click on the copy (per Isaac, Nov 25 — "click from tab to tab quicker"). Nothing in a copy runs, but a click on a
+// TAB or the top bar is passed to the same control on the live page as soon as it exists, so you can leave for another
+// tab without waiting for this one to finish. A click anywhere else just lifts the copy if the live page is up.
+function _pkClick(e) {
+  try { e.preventDefault(); e.stopPropagation(); } catch (err) { /* fine */ }
+  const ov = PK.el, inner = ov && ov.firstElementChild; if (!inner) return;
+  const t = e.target && e.target.closest ? e.target.closest('button, a, [role="tab"]') : null;
+  const nav = t && inner.contains(t) && t.closest('.rpt-subtabs, .sales-subtabs, .mktg-bar-tabs, .mktg-bar, header, nav');
+  if (nav) {
+    const text = _pkTxt(t);
+    if (text) { const same = [...inner.querySelectorAll('button, a, [role="tab"]')].filter(x => _pkTxt(x) === text);
+      PK.pending = { text, idx: Math.max(0, same.indexOf(t)) };
+      try { if (PK.pill) PK.pill.lastChild.textContent = 'Opening ' + text.slice(0, 30) + '…'; } catch (err) { /* no pill */ } }
+  }   // a click anywhere else does nothing: the copy stays until the live page is ready
+  _pkTryPending();
+}
+// A control's words, without a count bubble riding on it ("Auditing 19" is still Auditing).
+function _pkTxt(n) { return String((n && n.innerText) || '').replace(/\s*\d+\s*$/, '').trim(); }
+function _pkBuilt() { const root = document.getElementById('app'); return !!state.profile && (window._riddSeq || 0) > 0 && !!root && !document.getElementById('splashMark'); }
+function _pkTryPending() {
+  const p = PK.pending; if (!p || !PK.el || !_pkBuilt()) return false;
+  PK.pending = null;
+  const root = document.getElementById('app');
+  const live = [...root.querySelectorAll('button, a, [role="tab"]')].filter(x => _pkTxt(x) === p.text);
+  const target = live[p.idx] || live[0];
+  pageKeepDone();   // lift first, so the tab being opened can put up its own copy
+  if (target) { try { target.click(); } catch (e) { /* the live page is there to click */ } }
+  return true;
+}
+// Going to another tab (per Isaac, Nov 25): if that tab has a copy, it goes up first and the live page is built a
+// moment later, behind it — building a page ties the browser up for seconds, and nothing can be drawn while it does.
+// Only for a move the user just clicked, and only when a copy exists; every other render goes straight through.
+function pageKeepNav() {
+  try {
+    if (PK.navBusy || _pkOff() || !state.profile || typeof reportingIdbGet !== 'function') return false;
+    const key = _pkKey(); if (!key) return false;
+    const prev = PK.curKey; PK.curKey = key;
+    if (!prev || prev === key) return false;
+    const ev = window.event; if (!ev || ev.type !== 'click') return false;
+    let idx = []; try { idx = JSON.parse(localStorage.getItem(PK_IDX) || '[]'); } catch (e) { idx = []; }
+    if (!Array.isArray(idx) || !idx.some(x => x && x.k === key)) return false;
+    if (PK.el) pageKeepDone();   // a copy of the page being left
+    PK.navBusy = true;
+    const go = () => { if (!PK.navBusy) return; PK.navBusy = false; try { mountApp(); } catch (e) { console.warn('[page-keep] mount', e); } };
+    const timer = setTimeout(go, 400);   // never hold a click longer than this for a copy
+    reportingIdbGet(key).then(v => {
+      if (!PK.navBusy) return;
+      if (v && v.html && _pkKey() === key && !PK.el) { _pkPut(v, 0); try { window.scrollTo(0, 0); } catch (e) { /* fine */ } }
+      clearTimeout(timer);
+      // Two frames so the copy is actually on screen before the build starts.
+      const raf = window.requestAnimationFrame || ((f) => setTimeout(f, 16));
+      raf(() => raf(() => setTimeout(go, 0)));
+    }).catch(() => { clearTimeout(timer); go(); });
+    return true;
+  } catch (e) { PK.navBusy = false; return false; }
 }
 // Lift the copy once the live page underneath has finished building.
 function _pkTick() {
@@ -132,6 +194,7 @@ function _pkTick() {
   // Reporting pages are built from the FieldRoutes snapshot — wait for it to be in.
   const needSubs = state.view === 'reporting' && !['config', 'uploads', 'putis'].includes(state.reportingSubTab || '');
   const subsIn = !needSubs || (state.reportingSubscriptions || []).length > 0;
+  if (PK.pending && _pkTryPending()) return;
   PK.dbg = { age, built, quietMs: now - PK.lastSeqAt, spin: root ? root.querySelectorAll('.spinner').length : -1, subsIn, seq };
   if (authScreen || age > 25000 || (built && quiet && subsIn)) pageKeepDone();
 }
