@@ -328,3 +328,11 @@ the old plan closed more than 45 days before the renewal — a win-back — and 
 renewal's); 2026 cohort 22,057 → 21,902. Trailing-12 attrition 33.90% → 33.71% (cancels 8,543 → 8,550, book a year
 ago 25,203 → 25,361): the chained plans now count in the opening book, and the few that later cancelled count as
 cancels. 2026 year-to-date: cancels 7,648 → 7,655 on a Jan 1 book of 24,374 → 24,529.
+
+## 2026-11-25 · Auditing tasks: "Reviewed by" — who signed each one off
+Per Isaac: not a checkmark, a dropdown of admins and auditors on each Auditing task, so it shows WHO approved it.
+The pick is a record only: the task stays on the list while it has rows (Nov 19 rule unchanged). Stored with it:
+the date, how many rows the task had then (the row shows "was 12" when the count has moved since), and who entered
+it when that was not the person named. Admins and auditors can set or clear it; everyone else sees it read-only.
+Shared company-wide in app_settings 'audit_signoffs'. The per-account tick boxes inside a task's Review table are
+separate and unchanged.

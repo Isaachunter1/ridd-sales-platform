@@ -78,6 +78,62 @@ function rvDoneLine(done) {
       rvBox(i), el('span', {}, i.title || i.tag))));
 }
 
+// ── Reviewed by (per Isaac, Nov 25 2026) ──────────────────────────────────────
+// "We should have checkmarks next to each one verifying it's been reviewed. Even better… a dropdown with admins and
+// auditors only so we can see WHO approved it." Each Auditing task carries a Reviewed-by pick: an admin or auditor's
+// name. It is a record, not a filter — the task stays on the list while it has rows (per Isaac, Nov 19). Kept with
+// it: when it was signed, how many rows the task had then (so "12 when reviewed, 15 now" shows), and who made the
+// pick if it was not the person named. Only admins and auditors can change it; everyone else sees it.
+// Shared: app_settings 'audit_signoffs' = { taskKey: { id, name, at, count, setBy } }.
+function asLoad() {
+  if (state._auditSignoffs !== undefined) return;
+  state._auditSignoffs = {};
+  if (typeof supabase === 'undefined' || !supabase || (typeof DEMO !== 'undefined' && DEMO)) return;
+  Promise.resolve(supabase.from('app_settings').select('value').eq('key', 'audit_signoffs').maybeSingle())
+    .then(({ data }) => { if (data && data.value && typeof data.value === 'object') { state._auditSignoffs = data.value; mountApp(); } }).catch(() => {});
+}
+function asReviewers() {
+  return (state.allProfiles || []).filter(p => p && p.full_name && p.is_active !== false && (isAdminRole(p.role) || (typeof isAuditorRole === 'function' && isAuditorRole(p.role))))
+    .sort((a, b) => String(a.full_name).localeCompare(String(b.full_name)));
+}
+function asCanSign() { const r = state.profile && state.profile.role; return !!r && (isAdminRole(r) || (typeof isAuditorRole === 'function' && isAuditorRole(r))); }
+async function asSet(key, item, profileId) {
+  asLoad();
+  const who = profileId ? asReviewers().find(p => String(p.id) === String(profileId)) : null;
+  const me = state.profile || {};
+  const apply = (M) => { const N = Object.assign({}, M || {}); if (who) N[key] = { id: who.id, name: who.full_name, at: new Date().toISOString(), count: item && item.count != null ? Number(item.count) : null, setBy: String(me.id) === String(who.id) ? null : (me.full_name || '') }; else delete N[key]; return N; };
+  state._auditSignoffs = apply(state._auditSignoffs); mountApp();
+  if (typeof supabase === 'undefined' || !supabase || (typeof DEMO !== 'undefined' && DEMO)) return;
+  try {
+    // Read the saved copy first so two people signing different tasks at once don't overwrite each other.
+    const { data } = await supabase.from('app_settings').select('value').eq('key', 'audit_signoffs').maybeSingle();
+    const merged = apply(data && data.value && typeof data.value === 'object' ? data.value : state._auditSignoffs);
+    const { error } = await supabase.from('app_settings').upsert({ key: 'audit_signoffs', value: merged }, { onConflict: 'key' });
+    if (error) { toast('Couldn’t save who reviewed it: ' + error.message, 'error'); return; }
+    state._auditSignoffs = merged;
+  } catch (e) { toast('Couldn’t save who reviewed it.', 'error'); }
+}
+// The pick itself, for one task row.
+function asPick(i) {
+  asLoad();
+  if (!i || i.sev === 'ok') return null;
+  const key = i.rvKey || i.key || i.tag; if (!key) return null;
+  const m = (state._auditSignoffs || {})[key] || null;
+  const when = m && m.at ? fmt.dateShort(String(m.at).slice(0, 10)) : '';
+  const moved = m && m.count != null && i.count != null && Number(m.count) !== Number(i.count);
+  const tip = m ? 'Reviewed by ' + m.name + ' on ' + when + (m.setBy ? ' (entered by ' + m.setBy + ')' : '') + (m.count != null ? ' · ' + Number(m.count).toLocaleString() + ' on the list then' + (moved ? ', ' + Number(i.count).toLocaleString() + ' now' : '') : '') : 'Nobody has signed this off yet';
+  const note = m ? el('span', { class: 'text-[10px] whitespace-nowrap', style: { color: moved ? '#B45309' : 'var(--text-muted)' } }, when + (moved ? ' · was ' + Number(m.count).toLocaleString() : '')) : null;
+  if (!asCanSign()) return el('span', { class: 'inline-flex items-center gap-1.5 shrink-0 text-[11px]', title: tip, style: { color: m ? 'var(--text)' : 'var(--text-subtle)' } }, m ? '✓ ' + m.name : 'Not reviewed', note);
+  const people = asReviewers(), known = !m || people.some(p => String(p.id) === String(m.id));
+  return el('span', { class: 'inline-flex items-center gap-1.5 shrink-0', title: tip, onclick: (e) => e.stopPropagation() },
+    el('select', { class: 'rounded-lg border px-1.5 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: m ? 'var(--ok)' : 'var(--border-2)', background: 'var(--card)', color: m ? 'var(--text)' : 'var(--text-muted)', maxWidth: '170px' },
+      onchange: (e) => asSet(key, i, e.target.value) },
+      el('option', { value: '', selected: !m }, m ? 'Clear review' : 'Reviewed by…'),
+      ...(known ? [] : [el('option', { value: m.id, selected: true }, '✓ ' + m.name)]),
+      ...people.map(p => el('option', { value: p.id, selected: !!m && String(m.id) === String(p.id) }, (m && String(m.id) === String(p.id) ? '✓ ' : '') + p.full_name))),
+    note);
+}
+
 // ── Service type changed → contract length (per Isaac, Oct 15) ────────────────
 // Changing a plan's service in FieldRoutes often changes its agreement length too, so a rep can be paid on a
 // term the account no longer has. The RevHawk sync publishes every service-type change from the change log

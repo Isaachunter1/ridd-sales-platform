@@ -1158,6 +1158,7 @@ function auditTasksCard() {
       el('span', { class: 'text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded shrink-0', style: { background: red ? 'rgba(220,38,38,.12)' : 'rgba(217,119,6,.14)', color: red ? '#DC2626' : '#B45309', minWidth: '72px', textAlign: 'center' } }, i.tag),
       el('span', { class: 'text-sm font-black tabular-nums shrink-0', style: { minWidth: '52px', textAlign: 'right', color: red ? '#DC2626' : 'var(--text)' } }, i.count != null ? Number(i.count).toLocaleString() : '…'),
       el('span', { class: 'flex-1 min-w-0 audit-task-text', style: { overflowWrap: 'anywhere' } }, i.text),
+      typeof asPick === 'function' ? asPick(i) : null,   // Reviewed by (per Isaac, Nov 25): who signed this task off
       click && (i.count == null || i.count > 0) ? el('button', { class: 'text-[11px] font-bold whitespace-nowrap shrink-0', style: { color: 'var(--accent)' }, onclick: click }, (showing ? 'Hide' : 'Review') + ' →') : null),
       showing ? i.detail : null];
   };
