@@ -22,7 +22,7 @@
 // │ Saved company-wide in adminRules.mediaPlan = { 'YYYY': plan }.
 // └──────────────────────────────────────────────────────────────────────────
 const MKP_DEFAULT_2027 = {
-  target: 7000000, ratio: 0.39, fee: 28000, lsaExtra: 0, acv: 800, close: 0.15,
+  target: 7000000, ratio: 0.39, fee: 28000, lsaExtra: 0, acv: 800, close: 0.15, roas: 2.5,   // roas = the return benchmark (per Isaac, Nov 25)
   // Share of the year's new revenue by month — the sheet's goal row ÷ the target (sums to 100).
   curve: [2.001, 3.002, 5.003, 9.006, 10.006, 12.008, 17.011, 14.009, 10.992, 10.006, 5.003, 1.953],
   // Google Local Services by month — Incline's 2027 forecast, existing markets (the sheet's "LSA 2027 plan" total row).
@@ -217,19 +217,22 @@ function mktgPlanView() {
         onchange: (e) => onSet(num(e.target.value)), onkeydown: (e) => { if (e.key === 'Enter') e.target.blur(); } })
     : el('span', { class: 'text-[11px] tabular-nums font-semibold' }, val);
 
+  // Return benchmark (per Isaac, Nov 25): new revenue expected per dollar of planned spend; 2.5x unless the plan says otherwise.
+  const roas = Number(P.roas) > 0 ? Number(P.roas) : 2.5;
   // ── 1. Levers ──
   const lever = (label, node, note) => el('div', { class: 'flex flex-col gap-1', style: { minWidth: '150px' } },
     el('div', { class: 'text-[10px] uppercase tracking-wider font-semibold', style: muted }, label), node, note ? el('div', { class: 'text-[10px]', style: subtle }, note) : null);
   const isDefault = !(((typeof _adminRules === 'function' && _adminRules()) || {}).mediaPlan || {})[String(year)];
   const levers = el('div', { class: 'card p-4 flex flex-col gap-3', 'data-arrange-id': 'mkp-levers' },
     el('div', { class: 'flex items-baseline gap-3 flex-wrap' }, el('h3', { class: 'text-base font-bold' }, 'Media plan · ' + year),
-      el('span', { class: 'text-[11px] flex-1', style: muted }, canEdit ? 'Change a lever and the calendar, the budgets and the progress below all follow.' : ''),
+      el('span', { class: 'text-[11px] flex-1', style: muted }, canEdit ? 'Change a lever and the tables below all follow.' : ''),
       canEdit && !isDefault && year === 2027 ? el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, title: 'Puts every lever, the curve, the LSA plan and the mix back to the spreadsheet’s values', onclick: () => { mkpSavePlan(year, JSON.parse(JSON.stringify(MKP_DEFAULT_2027))); mountApp(); } }, 'Reset to the spreadsheet') : null),
     el('div', { class: 'flex gap-x-6 gap-y-3 flex-wrap' },
       lever('New-revenue target', inp('target', fmt.usd0(P.target), (v) => edit(n => { n.target = v; }), 110), 'Office Staff new sales, contract value'),
       lever('Marketing spend ÷ new revenue', inp('ratio', (P.ratio * 100).toFixed(1) + '%', (v) => edit(n => { n.ratio = v / 100; }), 70), 'Media + agency. Budget ' + usd(C.budget)),
       lever('Agency fee / month', inp('fee', fmt.usd0(P.fee), (v) => edit(n => { n.fee = v; }), 90), usd(C.feeYear) + ' a year, flat'),
       lever('LSA for new locations / year', inp('lsaExtra', fmt.usd0(P.lsaExtra || 0), (v) => edit(n => { n.lsaExtra = v; }), 90), 'On top of the LSA row; follows its shape'),
+      lever('ROAS benchmark', inp('roas', roas.toFixed(2).replace(/0$/, '') + 'x', (v) => edit(n => { n.roas = v > 0 ? v : 2.5; }), 60, 'New revenue expected for each dollar of planned spend'), 'Expected revenue ' + usd(sum(C.total) * roas)),
       lever('Average contract value', inp('acv', fmt.usd0(P.acv), (v) => edit(n => { n.acv = v; }), 80), int(sum(C.subs)) + ' new subscriptions needed'),
       lever('Lead → sale close rate', inp('close', (P.close * 100).toFixed(1) + '%', (v) => edit(n => { n.close = v / 100; }), 70), int(sum(C.leads)) + ' leads needed'),
       lever('Flexible media pool', el('div', { class: 'text-sm font-black tabular-nums', style: { color: C.pool < 0 ? '#DC2626' : undefined } }, usd(C.pool)), C.pool < 0 ? 'Negative: the target is too small for LSA + the fee at this ratio' : 'Budget − agency fee − LSA ' + usd(C.lsaYear))));
@@ -308,7 +311,11 @@ function mktgPlanView() {
       spendRow(over ? 'Over budget' : 'Left over', cell(leftShare.toFixed(0) + '%', { fontWeight: '800', color: over ? '#DC2626' : '#15803D' }), null, C.left,
         { indent: true, total: C.leftYear, f: (v) => el('span', { style: { color: v < -0.5 ? '#DC2626' : v > 0.5 ? '#15803D' : 'var(--text-muted)', fontWeight: '700' } }, usd(v)) }),
       spendRow('Total planned spend', null, null, C.total, { strong: true, band: true }),
-      spendRow('Spend ÷ revenue goal', null, null, C.total.map((t, i) => C.goal[i] > 0 ? t / C.goal[i] : null), { soft: true, f: (v) => pct(v, 1), total: sum(C.goal) > 0 ? sum(C.total) / sum(C.goal) : null })]));
+      spendRow('Spend ÷ revenue goal', null, null, C.total.map((t, i) => C.goal[i] > 0 ? t / C.goal[i] : null), { soft: true, f: (v) => pct(v, 1), total: sum(C.goal) > 0 ? sum(C.total) / sum(C.goal) : null }),
+      // Expected revenue (per Isaac, Nov 25): planned spend × the ROAS benchmark, and how much of the goal that is.
+      spendRow('Expected revenue at ' + roas.toFixed(2).replace(/0$/, '') + 'x ROAS', null, null, C.total.map(t => t * roas), { strong: true, band: true }),
+      spendRow('Of the revenue goal', null, null, C.total.map((t, i) => C.goal[i] > 0 ? t * roas / C.goal[i] : null), { soft: true, total: sum(C.goal) > 0 ? sum(C.total) * roas / sum(C.goal) : null,
+        f: (v) => v == null || !isFinite(v) ? '\u2014' : el('span', { style: { color: v >= 1 ? '#15803D' : '#B45309', fontWeight: '700' } }, pct(v, 0)) })]));
 
   // 3 · What the spend buys
   const buysCard = block('What the spend buys · ' + year, 'From the cost per lead typed above and the close rate',
@@ -324,8 +331,9 @@ function mktgPlanView() {
   // Plan against actuals lives on the Dashboard now (Channel metrics → Year to date); see mkpProgressCard.
   // Budgets by month (the old Budget tab, per Isaac, Nov 25): the plan's dollars per channel per month, with anything
   // typed over them. Folded here so there is one place to plan.
-  const budgets = typeof mktgBudgetView === 'function' ? (() => { try { const v = mktgBudgetView(); return el('details', { class: 'card overflow-hidden', open: state._mkpBudgetsOpen ? '' : null, ontoggle: (e) => { state._mkpBudgetsOpen = e.target.open; } },
-    el('summary', { class: 'px-5 py-3 text-sm font-bold cursor-pointer' }, 'Budgets by month \u00b7 type over a month to change it from the plan'), el('div', { class: 'p-3' }, v)); } catch (e) { return null; } })() : null;
+  // "Budgets by month" removed (per Isaac, Nov 25): the spend plan shows every channel by month, and the plan is the
+  // budget — see mkbBudgetOf. mktgBudgetView stays in the code.
+  const budgets = null;
   // ── The goal slider (per Isaac, Nov 25): slide the new-revenue goal and every line follows — the budget, the pool,
   // each channel's months, the leads and sales needed. Dragging redraws the levers and the calendar in place without
   // saving; letting go saves the goal. The fee and the LSA plan do not move with it, so the pool takes up the change.

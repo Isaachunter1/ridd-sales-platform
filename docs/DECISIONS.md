@@ -368,3 +368,11 @@ Per Isaac ("split out the spend calendar a bit more… the most important table 
   until the plan is next edited.
 - "+ Add channel": pick one of the app's channels or type a new name; it joins at 0%. The × beside a channel removes
   it. Channels with spend that the plan does not name are read against Left over on the year-to-date view.
+
+## 2026-11-25 · Media plan: expected revenue at a ROAS benchmark; "Budgets by month" removed
+Per Isaac: the spend plan shows the revenue the planned spend should bring in. A new lever, ROAS benchmark (2.5x
+unless changed, saved with the plan), times Total planned spend — agency fee included — gives "Expected revenue at
+2.5x ROAS" by month and for the year, with "Of the revenue goal" under it (green at 100% or more).
+"Budgets by month" is removed ("you can just get rid of it"). In a year that has a media plan, the plan is the
+budget for every channel and month: a number typed into the old budgets table no longer overrides it, and a channel
+the plan does not name has no budget. Years with no plan still read the older typed budgets.
