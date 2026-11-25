@@ -291,3 +291,48 @@ A change to a tracking-number label (Local Presence) is not a touch. First-touch
 Limits, stated plainly: history starts the day this deploys. A change Pest AI made earlier shows as one change dated
 by GoHighLevel's last-updated stamp on the opportunity, which can be later than the real change. Going forward a
 change is dated within one sync cycle. Channel on past sales moves wherever the stored source was stale.
+
+## 2026-11-25 · Retention Insights: a pop-up, and a different office table
+Per Isaac: Insights on Attrition Steps opens as a pop-up over the page instead of a card that pushes the page down,
+and "that top table doesn't give me the best metrics". The office table now reads: book, accounts lost (click for
+the list), yearly value lost (sum of annual recurring value on the lost plans), attrition, vs company, vs the year
+before, vs its mix (attrition minus what the office's contract-length and channel mix predicts — the old "Expected"
+column, shown as the gap), top cancel reason with its share of the book, share of lost accounts that left in their
+first year, autopay, multi-year, past due 30+. The five "lost in N–N months" columns became one; the full timing
+stays in the office comparison. Order in the pop-up: office table, the clicked office's comparison, then patterns,
+insights and trends. No definition changed: same book and windows as before.
+
+## 2026-11-25 · Retention Insights: patterns, insights and trends by office
+Per Isaac: one row an office (company first), three columns. What's happening = everything that used to sit under
+Act on now / Outliers / Patterns for that office. Trend = against the year before: the rate, the cancel reason that
+grew most and the one that shrank most as a share of the book (1 pt or more), and whether losses are coming earlier
+(first-year share of losses, 5 pts or more). Why, and what it costs = how much of the gap to the company is the
+office's mix and how much is the office; the reason and the stretch of the customer's life where the gap sits;
+the accounts and yearly value the gap is worth (gap × the office's book × the average yearly value of an account it
+lost — marked "about"); and active accounts 30+ days past due with their yearly value.
+Every line is arithmetic on the same book and windows as the office table. Trend needs an earlier year, so it shows
+only in Trailing 12 months and calendar-year views; trailing 12 months is compared with the last full calendar year.
+
+## 2026-11-25 · Renewal plans chain to the customer's original year by source, not only by the old plan's reason
+Per Isaac: a renewal should sit in the customer's original cohort year, so 2026 should hold almost no renewal plans;
+customers may renew two months before their plan goes month to month. Found: the chain only linked a renewal to an
+old plan closed with a "Renewal" reason (or no reason). Since Nov 19 the CANCEL side already treats a plan as
+renewed when the customer bought a Renewal-* plan around its close, whatever its reason — but the renewal plan was
+never chained, so 173 renewal plans sat in the 2026 cohort as if new customers had started. 152 of the 2026 ones
+were a plan closed with another reason within a day of the renewal sale (106 "Finances"; 130 sold by Loyalty).
+Now a third pass chains a renewal-source plan to an earlier closed plan of the same customer when the renewal was
+sold no later than 45 days after the close and was still running 7 days before it — the same test as the cancel
+side, with no limit on how early it was sold. The old plan's reason is left as FieldRoutes has it.
+Measured on Nov 25: 268 more renewals chained (167 sold in 2026); renewal plans in the 2026 cohort 173 → 18 (14 where
+the old plan closed more than 45 days before the renewal — a win-back — and 4 whose old plan is already another
+renewal's); 2026 cohort 22,057 → 21,902. Trailing-12 attrition 33.90% → 33.71% (cancels 8,543 → 8,550, book a year
+ago 25,203 → 25,361): the chained plans now count in the opening book, and the few that later cancelled count as
+cancels. 2026 year-to-date: cancels 7,648 → 7,655 on a Jan 1 book of 24,374 → 24,529.
+
+## 2026-11-25 · Auditing tasks: "Reviewed by" — who signed each one off
+Per Isaac: not a checkmark, a dropdown of admins and auditors on each Auditing task, so it shows WHO approved it.
+The pick is a record only: the task stays on the list while it has rows (Nov 19 rule unchanged). Stored with it:
+the date, how many rows the task had then (the row shows "was 12" when the count has moved since), and who entered
+it when that was not the person named. Admins and auditors can set or clear it; everyone else sees it read-only.
+Shared company-wide in app_settings 'audit_signoffs'. The per-account tick boxes inside a task's Review table are
+separate and unchanged.

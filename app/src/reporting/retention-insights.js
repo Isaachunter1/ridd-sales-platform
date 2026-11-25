@@ -46,6 +46,9 @@ function _riStats(base, counted) {
   S.apPct = pct(S.ap, S.base); S.multiPct = pct(S.multi, S.base); S.d2dPct = pct(S.d2d, S.base); S.arvAvg = S.arvN ? S.arv / S.arvN : null; S.pastDuePct = pct(S.pastDue, S.activeNow);
   S.earlyPct = pct(S.life.m0 + S.life.m3, S.cancels);
   S.bandPct = S.band.map(v => pct(v, S.cancels));
+  S.firstYrPct = pct(S.band[0] + S.band[1], S.cancels);
+  S.arvLost = counted.reduce((t, r) => t + (Number(r.annual_recurring_value) || 0), 0);   // yearly value of the plans lost (per Isaac, Nov 25)
+  { let k = null; for (const x in S.reasons) if (!k || S.reasons[x] > S.reasons[k]) k = x; S.topReason = k ? { k, n: S.reasons[k], pct: pct(S.reasons[k], S.base) } : null; }
   return S;
 }
 // Company + every branch, on the full retention book (all branches in), memoized on the book.
@@ -113,7 +116,13 @@ function retenBranchInsightsData() {
       for (const r of P.rows.boy) { const o = String(r.office_name || '—').trim(); pb[o] = (pb[o] || 0) + 1; }
       for (const r of P.rows.counted) { const o = String(r.office_name || '—').trim(); pc[o] = (pc[o] || 0) + 1; }
       const by = {}; for (const o in pb) if (pb[o] >= RI_MIN_BASE) by[o] = (pc[o] || 0) / pb[o];
-      prior = { year: py, company: P.rows.boy.length ? P.rows.counted.length / P.rows.boy.length : null, by };
+      // Full stats for the year before, company and each office (per Isaac, Nov 25 — trends by office): which
+      // reasons grew or shrank and whether losses are coming earlier, on the same definitions as the current window.
+      const gb = new Map(), gc = new Map();
+      for (const r of P.rows.boy) { const o = String(r.office_name || '—').trim(); (gb.get(o) || gb.set(o, []).get(o)).push(r); }
+      for (const r of P.rows.counted) { const o = String(r.office_name || '—').trim(); (gc.get(o) || gc.set(o, []).get(o)).push(r); }
+      const S = {}; for (const o in by) S[o] = _riStats(gb.get(o) || [], gc.get(o) || []);
+      prior = { year: py, company: P.rows.boy.length ? P.rows.counted.length / P.rows.boy.length : null, by, S, companyS: _riStats(P.rows.boy, P.rows.counted) };
     }
   } catch (e) { prior = null; }
   const out = { company, branches, ranked, rels, st, en, label, mode, years, isBranchYr: !!bm, notReady, prior };
@@ -157,23 +166,38 @@ function retenInsightsCard() {
   // ── League table (always) ──
   // Life-month bands (share of the cancels): only the ones this window can reach —
   // a branch's year N is measured over 12 months, a cohort only as old as it is.
-  const RI_BANDS = [[0, 'Lost in 0–6 mo'], [6, 'Lost in 6–12 mo'], [12, 'Lost in 12–18 mo'], [18, 'Lost in 18–24 mo'], [24, 'Lost in 24+ mo']];
-  const _cohY = /^cohort:(\d{4})/.exec(D.mode || ''); const _cohAge = _cohY ? (Date.now() - new Date(+_cohY[1], 0, 1).getTime()) / (30.44 * 864e5) : null;
-  const bands = RI_BANDS.map((x, i) => ({ i, lo: x[0], label: x[1] })).filter(x => D.isBranchYr ? x.lo < 12 : _cohAge != null ? x.lo < _cohAge : true);
-  const cols = [[D.isBranchYr ? 'Office · cohort year' : 'Office', 'left'], [/^cohort/.test(D.mode) || D.isBranchYr ? 'Cohort size' : D.mode === 't12' ? 'Book a year ago' : 'Book on Jan 1', 'right'], ['Cancels', 'right'], [D.mode === 't12' ? 'T12 attrition' : /^cohort/.test(D.mode) ? 'Lost to date' : D.isBranchYr ? 'Lost in 1st 12 mo' : 'Attrition', 'right'], ['vs company', 'right'], ['Expected', 'right'], ['Multi-year', 'right'], ...bands.map(x => [x.label, 'right']), ['Past due 30+', 'right']];
-  const _thTip = { 'Expected': 'What the office would lose at the other offices’ rate for each contract length and channel it sells — above it = underperforming on a like-for-like book', 'vs company': 'Office attrition minus the company’s', 'Multi-year': 'Share of the book on 18–24 month agreements', 'Past due 30+': 'Share of active accounts 30+ days past due' };
-  const th = (l, a) => el('th', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap', style: { textAlign: a }, title: _thTip[l] || (/^Lost in/.test(l) ? 'Share of the office’s cancels that came in that stretch of the customer’s life' : '') }, l);
-  const td = (v, a, sty) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap', style: Object.assign({ textAlign: a }, sty || {}) }, v);
-  const row = (b, isCo) => el('tr', { class: 'border-t' + (isCo ? '' : ' cursor-pointer hover:brightness-95'), style: { borderColor: 'var(--border)', background: B && b === B ? 'rgba(223,100,58,.08)' : isCo ? 'var(--card-2)' : '', fontWeight: isCo ? '700' : '' },
-      onclick: isCo ? null : () => { state._retenInsBranch = state._retenInsBranch === b.name ? null : b.name; mountApp(); }, title: isCo ? '' : 'Click to compare this office with the company' },
-    td((b.rank ? '#' + b.rank + ' ' : '') + (isCo ? (D.isBranchYr ? 'All offices' : 'Company') : tc(b.name)) + (!isCo && D.isBranchYr && b.cohortYear ? ' · ' + b.cohortYear : '') + (b.base < RI_MIN_BASE && !isCo ? ' (small)' : ''), 'left'),
-    td(n(b.base), 'right'), td(n(b.cancels), 'right'),
+  // Columns (per Isaac, Nov 25 — "that top table doesn't give me the best metrics"): what was lost in accounts AND
+  // dollars, the rate, which way it is heading, whether it is the office or its mix, the reason behind most of it,
+  // how early customers leave, and the three levers an office controls (autopay, long agreements, past due).
+  // Replaces five "lost in N–N months" columns with one; the full timing is in the office comparison below.
+  const PRby = (D.prior && D.prior.by) || null;
+  const baseLbl = /^cohort/.test(D.mode) || D.isBranchYr ? 'Cohort' : D.mode === 't12' ? 'Book a year ago' : 'Book on Jan 1';
+  const rateLbl = D.mode === 't12' ? 'Attrition (T12)' : /^cohort/.test(D.mode) ? 'Lost to date' : D.isBranchYr ? 'Lost in 1st 12 mo' : 'Attrition';
+  const earlyLbl = D.isBranchYr ? 'Left in first 6 mo' : 'Left in first year';
+  const cols = [[D.isBranchYr ? 'Office · cohort year' : 'Office', 'left'], [baseLbl, 'right'], ['Lost', 'right'], ['Yearly value lost', 'right'], [rateLbl, 'right'], ['vs company', 'right'],
+    ...(PRby ? [['vs ' + D.prior.year, 'right']] : []), ['vs its mix', 'right'], ['Top reason', 'left'], [earlyLbl, 'right'], ['Autopay', 'right'], ['Multi-year', 'right'], ['Past due 30+', 'right']];
+  const _thTip = { 'Lost': 'Accounts counted as lost in this window — click for the list', 'Yearly value lost': 'Annual recurring value of the plans lost', 'vs company': 'Office attrition minus the company’s',
+    'vs its mix': 'Office attrition minus what it would lose at the other offices’ rate for each contract length and channel it sells — above zero is the office, not what it sells',
+    'Top reason': 'The cancel reason that took the largest share of the office’s book', 'Left in first year': 'Share of the office’s lost accounts that left inside 12 months of their first service', 'Left in first 6 mo': 'Share of the office’s lost accounts that left inside 6 months of their first service',
+    'Autopay': 'Share of the book on autopay', 'Multi-year': 'Share of the book on 18–24 month agreements', 'Past due 30+': 'Share of active accounts 30+ days past due' };
+  const th = (l, a) => el('th', { class: 'px-2 py-1.5 font-semibold', style: { textAlign: a, verticalAlign: 'bottom', lineHeight: '1.25', whiteSpace: l === 'Office' || l === 'Top reason' ? 'nowrap' : 'normal', minWidth: a === 'right' ? '58px' : '' }, title: _thTip[l] || (/^vs \d{4}$/.test(l) ? 'Attrition now minus the office’s attrition that year' : '') }, l);
+  const td = (v, a, sty, onclick) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap' + (onclick ? ' underline' : ''), style: Object.assign({ textAlign: a }, sty || {}), onclick: onclick ? (e) => { e.stopPropagation(); onclick(); } : null }, v);
+  const tone = (d, eps) => d == null ? {} : { color: d > (eps || 0) ? bad : d < -(eps || 0) ? good : 'var(--text-muted)' };
+  const row = (b, isCo) => { const nm = isCo ? (D.isBranchYr ? 'All offices' : 'Company') : tc(b.name);
+    const was = isCo ? (D.prior && D.prior.company) : (PRby ? PRby[b.name] : null), dWas = was != null && b.rate != null ? b.rate - was : null;
+    const dMix = !isCo && b.expected != null && b.rate != null ? b.rate - b.expected : null, T = b.topReason;
+    const early = D.isBranchYr ? (b.bandPct || [])[0] : b.firstYrPct;
+    return el('tr', { class: 'border-t' + (isCo ? '' : ' cursor-pointer hover:brightness-95'), style: { borderColor: 'var(--border)', background: B && b === B ? 'rgba(223,100,58,.08)' : isCo ? 'var(--card-2)' : '', fontWeight: isCo ? '700' : '' },
+      onclick: isCo ? null : () => { state._retenInsBranch = state._retenInsBranch === b.name ? null : b.name; _riRefresh(); }, title: isCo ? '' : 'Click to compare this office with the others' },
+    td((b.rank ? '#' + b.rank + ' ' : '') + nm + (!isCo && D.isBranchYr && b.cohortYear ? ' · ' + b.cohortYear : '') + (b.base < RI_MIN_BASE && !isCo ? ' (small)' : ''), 'left'),
+    td(n(b.base), 'right'), td(n(b.cancels), 'right', null, drill(nm + ' · lost', b.cancelRows)),
+    td(fmt.usd0(b.arvLost || 0), 'right'),
     td(pct(b.rate), 'right', { fontWeight: '700' }),
-    td(isCo ? '—' : pts((b.rate || 0) - (C.rate || 0)), 'right', isCo ? {} : { color: (b.rate || 0) > (C.rate || 0) ? bad : good }),
-    td(isCo ? '—' : pct(b.expected), 'right', { color: 'var(--text-muted)' }),
-    td(pct(b.multiPct, 0), 'right'),
-    ...bands.map(x => td(pct((b.bandPct || [])[x.i], 0), 'right', { color: 'var(--text-muted)' })),
-    td(pct(b.pastDuePct, 0), 'right'));
+    td(isCo ? '—' : pts((b.rate || 0) - (C.rate || 0)), 'right', isCo ? {} : tone((b.rate || 0) - (C.rate || 0))),
+    ...(PRby ? [td(dWas == null ? '—' : pts(dWas), 'right', tone(dWas, 0.005))] : []),
+    td(dMix == null ? '—' : pts(dMix), 'right', tone(dMix, 0.005)),
+    td(T ? T.k + ' · ' + pct(T.pct) : '—', 'left', { maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis' }, T ? drill(nm + ' · ' + T.k, b.cancelRows.filter(r => (String(reportingCancelReasonOf(r) || 'Unspecified').trim() || 'Unspecified') === T.k)) : null),
+    td(pct(early, 0), 'right'), td(pct(b.apPct, 0), 'right'), td(pct(b.multiPct, 0), 'right'), td(pct(b.pastDuePct, 0), 'right')); };
   const league = el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]' },
     el('thead', { class: 'text-[9px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } }, el('tr', {}, ...cols.map(([l, a]) => th(l, a)))),
     el('tbody', {}, row(C, true), ...D.branches.map(b => row(b, false)),
@@ -184,51 +208,88 @@ function retenInsightsCard() {
   const relLines = D.rels.filter(x => Math.abs(x.r) >= 0.45).sort((a, b) => Math.abs(b.r) - Math.abs(a.r)).map(x =>
     el('div', { class: 'text-[11px]' }, '• Offices with a higher ', el('b', {}, x.label), x.r < 0 ? ' tend to have LOWER attrition' : ' tend to have HIGHER attrition', el('span', { style: { color: 'var(--text-muted)' } }, ' (r = ' + x.r.toFixed(2) + ' across ' + D.ranked.length + ' offices)')));
 
-  // ── Patterns, insights & trends (per Isaac, Nov 19): what needs noticing — act-now items, outliers, trends, patterns ──
+  // ── Patterns, insights & trends, BY OFFICE (per Isaac, Nov 25): one row an office, three columns —
+  //   What's happening (everything that used to sit under Act on now / Outliers / Patterns),
+  //   Trend (against the year before), and Why (what drives it, when it happens, what it costs).
+  // Every line is arithmetic on the same book as the table above; nothing is a guess at a cause the data can't show.
   const insightsBlock = (() => {
     const RK = D.ranked; if (!RK.length) return null;
     const P = (v, d) => pct(v, d == null ? 1 : d);
+    const dotOf = { bad, good, warn: '#D97706', mute: 'var(--border-2)' };
     const item = (tone, head, text, rows, title) => el('div', { class: 'flex items-start gap-2 text-[12px]' + (rows && rows.length ? ' cursor-pointer hover:brightness-95' : ''), onclick: rows && rows.length ? drill(title || head, rows) : null, title: rows && rows.length ? 'Click for the accounts' : '' },
-      el('span', { style: { width: '8px', height: '8px', borderRadius: '50%', marginTop: '5px', flexShrink: 0, background: tone === 'bad' ? bad : tone === 'good' ? good : '#D97706' } }),
-      el('span', {}, el('b', {}, head), ' ', text));
-    const act = [], outl = [], trend = [], patt = [];
-    // 1 · Underperforming on a like-for-like book (performance, not mix)
-    RK.map(b => ({ b, d: (b.rate || 0) - (b.expected || 0) })).filter(x => x.d >= 0.02).sort((a, b) => b.d - a.d)
-      .forEach(x => act.push(item('bad', tc(x.b.name) + ' is ' + pts(x.d).replace('+', '') + ' worse than its mix predicts', '(' + P(x.b.rate) + ' lost vs ' + P(x.b.expected) + ' expected) — a performance gap, not the contracts or channels it sells.', x.b.cancelRows, tc(x.b.name) + ' · cancels')));
-    // 2 · A cancel reason running hot in one office
-    for (const b of RK) {
-      let top = null;
-      for (const k in b.reasons) { const bs = b.reasons[k] / b.base, cs = (C.reasons[k] || 0) / C.base, d = bs - cs; if (d >= 0.015 && (!top || d > top.d)) top = { k, bs, cs, d, n: b.reasons[k] }; }
-      if (top) act.push(item('bad', tc(b.name) + ' loses ' + P(top.bs) + ' of its book to ' + top.k, 'vs ' + P(top.cs) + ' company-wide (' + pts(top.d) + ', ' + n(top.n) + ' accounts).', b.cancelRows.filter(r => (String(reportingCancelReasonOf(r) || 'Unspecified').trim() || 'Unspecified') === top.k), tc(b.name) + ' · ' + top.k));
-    }
-    // 3 · Collections: past due well above the company
-    for (const b of RK) {
-      if (b.pastDuePct == null || C.pastDuePct == null || b.pastDue < 15 || b.pastDuePct < C.pastDuePct * 1.4) continue;
-      const rows = b.baseRows.filter(r => !r._effCancel && (Number(r.days_past_due) || 0) >= 30);
-      act.push(item('bad', tc(b.name) + ': ' + n(b.pastDue) + ' active accounts 30+ days past due', '(' + P(b.pastDuePct) + ' vs ' + P(C.pastDuePct) + ' company) — next quarter’s cancels; work the list now.', rows, tc(b.name) + ' · 30+ days past due'));
-    }
-    // 4 · Early-life churn concentrated in one office (onboarding / first bills)
-    const early = (x) => ((x.bandPct || [])[0] || 0) + ((x.bandPct || [])[1] || 0);
-    for (const b of RK) { const d = early(b) - early(C); if (d >= 0.08 && b.cancels >= 30) act.push(item('warn', tc(b.name) + ': ' + P(early(b), 0) + ' of its cancels come in the first 12 months', 'vs ' + P(early(C), 0) + ' company — onboarding, first bills and the first service visits.', b.cancelRows.filter(r => { const l = semLifeMonths(r); return l != null && l < 12; }), tc(b.name) + ' · lost in months 0–12')); }
-    // Outliers: more than 1.2 standard deviations from the office average; small offices that run far off the company
+      el('span', { style: { width: '8px', height: '8px', borderRadius: '50%', marginTop: '5px', flexShrink: 0, background: dotOf[tone] || dotOf.warn } }),
+      el('span', {}, head ? el('b', {}, head) : null, head ? ' ' : '', text));
+    const reasonOf = (r) => String(reportingCancelReasonOf(r) || 'Unspecified').trim() || 'Unspecified';
+    const PR = D.prior, PS = (PR && PR.S) || null;
     const rates = RK.map(b => b.rate || 0), mu = rates.reduce((a, v) => a + v, 0) / rates.length, sd = Math.sqrt(rates.reduce((a, v) => a + (v - mu) ** 2, 0) / rates.length) || 0;
-    if (sd > 0) RK.forEach(b => { const z = ((b.rate || 0) - mu) / sd; if (Math.abs(z) >= 1.2) outl.push(item(z > 0 ? 'bad' : 'good', tc(b.name) + (z > 0 ? ' is the high outlier' : ' is the low outlier'), P(b.rate) + ' vs a ' + P(mu) + ' office average (' + (z > 0 ? '+' : '−') + Math.abs(z).toFixed(1) + ' sd)' + (z < 0 ? ' — worth copying what it does.' : '.'), z > 0 ? b.cancelRows : null, tc(b.name) + ' · cancels')); });
-    D.branches.filter(b => b.base < RI_MIN_BASE && b.base >= 30 && C.rate != null && (b.rate || 0) >= C.rate + 0.10).forEach(b => outl.push(item('warn', tc(b.name) + ' (small, ' + n(b.base) + ' accounts)', 'is running ' + P(b.rate) + ' vs ' + P(C.rate) + ' company — too small to rank, big enough to watch.', b.cancelRows, tc(b.name) + ' · cancels')));
-    // Trends: vs the year before this window
-    const PR = D.prior;
-    if (PR && PR.company != null && C.rate != null) {
-      const dc = C.rate - PR.company;
-      trend.push(item(dc > 0.01 ? 'bad' : dc < -0.01 ? 'good' : 'warn', 'Company ' + (dc > 0.005 ? 'worsening' : dc < -0.005 ? 'improving' : 'flat') + ':', P(C.rate) + ' now vs ' + P(PR.company) + ' in ' + PR.year + ' (' + pts(dc) + ').'));
-      RK.map(b => ({ b, was: PR.by[b.name] })).filter(x => x.was != null).map(x => Object.assign(x, { d: (x.b.rate || 0) - x.was })).filter(x => Math.abs(x.d) >= 0.03).sort((a, b) => b.d - a.d)
-        .forEach(x => trend.push(item(x.d > 0 ? 'bad' : 'good', tc(x.b.name) + (x.d > 0 ? ' getting worse:' : ' getting better:'), P(x.b.rate) + ' vs ' + P(x.was) + ' in ' + PR.year + ' (' + pts(x.d) + ').')));
-    }
-    // Patterns: what travels with attrition across offices (correlation), plus mix levers below the company
-    D.rels.filter(x => Math.abs(x.r) >= 0.45).sort((a, b) => Math.abs(b.r) - Math.abs(a.r)).forEach(x => patt.push(item('warn', 'Higher ' + x.label, (x.r < 0 ? '→ lower attrition' : '→ higher attrition') + ' across offices (r = ' + x.r.toFixed(2) + ', ' + RK.length + ' offices).')));
-    RK.filter(b => b.apPct != null && C.apPct != null && b.apPct <= C.apPct - 0.08).forEach(b => patt.push(item('warn', tc(b.name) + ' autopay ' + P(b.apPct, 0), 'vs ' + P(C.apPct, 0) + ' company — set autopay at the sale.')));
-    RK.filter(b => b.multiPct != null && C.multiPct != null && b.multiPct <= C.multiPct - 0.08).forEach(b => patt.push(item('warn', tc(b.name) + ' multi-year ' + P(b.multiPct, 0), 'vs ' + P(C.multiPct, 0) + ' company — fewer long agreements in the book.')));
-    const grp = (title, list) => list.length ? el('div', { class: 'flex flex-col gap-1.5' }, el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, title), ...list) : null;
-    const body = [grp('Act on now', act), grp('Outliers', outl), grp('Trends' + (PR ? ' · vs ' + PR.year : ''), trend), grp('Patterns', patt)].filter(Boolean);
-    return body.length ? sec('Patterns, insights & trends', null, el('div', { class: 'grid gap-4', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' } }, ...body)) : null;
+    const early = (x) => x.firstYrPct || 0;
+    const pdRowsOf = (b) => b.baseRows.filter(r => !r._effCancel && (Number(r.days_past_due) || 0) >= 30);
+    const arvOf = (rows) => rows.reduce((t, r) => t + (Number(r.annual_recurring_value) || 0), 0);
+    // Reasons as a share of the book: this window vs another set of stats (the company, or the same office a year before).
+    const reasonGaps = (b, o) => [...new Set(Object.keys(b.reasons).concat(Object.keys(o.reasons)))].map(k => ({ k, b: (b.reasons[k] || 0) / b.base, c: o.base ? (o.reasons[k] || 0) / o.base : 0, n: b.reasons[k] || 0 })).map(x => Object.assign(x, { d: x.b - x.c }));
+
+    const happening = (b) => { const out = [], nm = tc(b.name), small = b.base < RI_MIN_BASE;
+      if (small) { out.push(item((b.rate || 0) >= (C.rate || 0) + 0.10 ? 'warn' : 'mute', 'Small office (' + n(b.base) + ' accounts):', P(b.rate) + ' vs ' + P(C.rate) + ' company — too small to rank' + ((b.rate || 0) >= (C.rate || 0) + 0.10 ? ', big enough to watch.' : '.'), b.cancelRows, nm + ' · lost')); return out; }
+      const dMix = (b.rate || 0) - (b.expected || 0);
+      if (dMix >= 0.02) out.push(item('bad', pts(dMix).replace('+', '') + ' worse than its mix predicts', '(' + P(b.rate) + ' lost vs ' + P(b.expected) + ' expected).', b.cancelRows, nm + ' · lost'));
+      else if (dMix <= -0.02) out.push(item('good', pts(dMix).replace('−', '') + ' better than its mix predicts', '(' + P(b.rate) + ' lost vs ' + P(b.expected) + ' expected).'));
+      if (sd > 0) { const z = ((b.rate || 0) - mu) / sd; if (Math.abs(z) >= 1.2) out.push(item(z > 0 ? 'bad' : 'good', z > 0 ? 'The high outlier:' : 'The low outlier:', P(b.rate) + ' vs a ' + P(mu) + ' office average.')); }
+      const hot = reasonGaps(b, C).filter(x => x.d >= 0.015).sort((x, y) => y.d - x.d)[0];
+      if (hot) out.push(item('bad', hot.k + ' is running hot:', P(hot.b) + ' of its book vs ' + P(hot.c) + ' company (' + n(hot.n) + ' accounts).', b.cancelRows.filter(r => reasonOf(r) === hot.k), nm + ' · ' + hot.k));
+      if (b.pastDuePct != null && C.pastDuePct != null && b.pastDue >= 15 && b.pastDuePct >= C.pastDuePct * 1.4) out.push(item('bad', n(b.pastDue) + ' active accounts 30+ days past due', '(' + P(b.pastDuePct) + ' vs ' + P(C.pastDuePct) + ' company).', pdRowsOf(b), nm + ' · 30+ days past due'));
+      if (early(b) - early(C) >= 0.08 && b.cancels >= 30) out.push(item('warn', P(early(b), 0) + ' of its losses are first-year customers', 'vs ' + P(early(C), 0) + ' company.', b.cancelRows.filter(r => { const l = semLifeMonths(r); return l != null && l < 12; }), nm + ' · lost in the first 12 months'));
+      if (b.apPct != null && C.apPct != null && b.apPct <= C.apPct - 0.08) out.push(item('warn', 'Autopay ' + P(b.apPct, 0), 'vs ' + P(C.apPct, 0) + ' company.'));
+      if (b.multiPct != null && C.multiPct != null && b.multiPct <= C.multiPct - 0.08) out.push(item('warn', 'Multi-year ' + P(b.multiPct, 0), 'vs ' + P(C.multiPct, 0) + ' company — fewer long agreements.'));
+      if (!out.length) out.push(item('mute', '', 'In line with the company: ' + P(b.rate) + ' vs ' + P(C.rate) + ', nothing flagged.'));
+      return out; };
+
+    const trendOf = (b, was) => { const out = [];
+      if (!was || was.rate == null || b.rate == null) { out.push(item('mute', '', PR ? 'No ' + PR.year + ' number to compare (too small or not open then).' : 'This view has no earlier year to compare — use Trailing 12 months or a calendar year.')); return out; }
+      const d = b.rate - was.rate;
+      out.push(item(d > 0.01 ? 'bad' : d < -0.01 ? 'good' : 'mute', d > 0.01 ? 'Getting worse:' : d < -0.01 ? 'Getting better:' : 'Flat:', P(b.rate) + ' now vs ' + P(was.rate) + ' in ' + PR.year + ' (' + pts(d) + ').'));
+      const mv = reasonGaps(b, was).filter(x => Math.abs(x.d) >= 0.01).sort((x, y) => y.d - x.d);
+      const up = mv[0] && mv[0].d > 0 ? mv[0] : null, dn = mv.length && mv[mv.length - 1].d < 0 ? mv[mv.length - 1] : null;
+      if (up) out.push(item('bad', up.k + ' is growing:', P(up.b) + ' of the book vs ' + P(up.c) + ' in ' + PR.year + ' (' + pts(up.d) + ').', b.cancelRows.filter(r => reasonOf(r) === up.k), tc(b.name || 'Company') + ' · ' + up.k));
+      if (dn) out.push(item('good', dn.k + ' is shrinking:', P(dn.b) + ' of the book vs ' + P(dn.c) + ' in ' + PR.year + ' (' + pts(dn.d) + ').'));
+      const de = early(b) - early(was);
+      if (Math.abs(de) >= 0.05 && b.cancels >= 30 && was.cancels >= 30) out.push(item(de > 0 ? 'bad' : 'good', de > 0 ? 'Losing customers earlier:' : 'Losing customers later:', P(early(b), 0) + ' of losses were first-year customers vs ' + P(early(was), 0) + ' in ' + PR.year + '.'));
+      return out; };
+
+    const whyOf = (b) => { const out = [], nm = tc(b.name);
+      if (b.base < RI_MIN_BASE) { out.push(item('mute', '', 'Too few accounts for a reliable read on what drives it.')); return out; }
+      const gap = (b.rate || 0) - (C.rate || 0), mixGap = (b.expected || 0) - (C.rate || 0), perf = (b.rate || 0) - (b.expected || 0);
+      if (Math.abs(gap) >= 0.01) out.push(item('mute', 'Mix or the office:', 'of its ' + pts(gap) + ' against the company, ' + pts(mixGap) + ' is what it sells (contract lengths and channels) and ' + pts(perf) + ' is how the office performs on the same kind of account.'));
+      const rg = reasonGaps(b, C).sort((x, y) => gap >= 0 ? y.d - x.d : x.d - y.d)[0];
+      if (rg && Math.abs(rg.d) >= 0.005) out.push(item('mute', gap >= 0 ? 'Biggest driver:' : 'Where it does best:', rg.k + ' — ' + P(rg.b) + ' of the book vs ' + P(rg.c) + ' company (' + pts(rg.d) + ').', gap >= 0 ? b.cancelRows.filter(r => reasonOf(r) === rg.k) : null, nm + ' · ' + rg.k));
+      const lf = RI_LIFE.map(L => ({ L, d: (b.life[L.k] || 0) / b.base - (C.life[L.k] || 0) / C.base, n: b.life[L.k] || 0 })).sort((x, y) => gap >= 0 ? y.d - x.d : x.d - y.d)[0];
+      if (lf && Math.abs(lf.d) >= 0.005) out.push(item('mute', gap >= 0 ? 'When:' : 'Holds best in', (gap >= 0 ? 'the excess sits in ' : '') + lf.L.label.toLowerCase() + ' (' + lf.L.note + '), ' + pts(lf.d) + ' against the company.', gap >= 0 ? b.cancelRows.filter(r => { const l = semLifeMonths(r); return l != null && l >= lf.L.lo && l < lf.L.hi; }) : null, nm + ' · ' + lf.L.label));
+      const extra = Math.round(gap * b.base), avg = b.cancels ? (b.arvLost || 0) / b.cancels : 0;
+      if (extra >= 5) out.push(item('bad', 'What it costs:', 'at the company’s rate it would have kept about ' + n(extra) + ' more accounts, about ' + fmt.usd0(extra * avg) + ' a year.'));
+      else if (extra <= -5) out.push(item('good', 'What it saves:', 'it kept about ' + n(-extra) + ' more accounts than the company’s rate would have, about ' + fmt.usd0(-extra * avg) + ' a year.'));
+      const pd = pdRowsOf(b);
+      if (pd.length >= 10) out.push(item('warn', 'At risk next:', n(pd.length) + ' active accounts are 30+ days past due, worth ' + fmt.usd0(arvOf(pd)) + ' a year.', pd, nm + ' · 30+ days past due'));
+      return out; };
+
+    // Company row: what holds across offices.
+    const coHappen = D.rels.filter(x => Math.abs(x.r) >= 0.45).sort((a, b) => Math.abs(b.r) - Math.abs(a.r)).map(x => item('warn', 'Higher ' + x.label, (x.r < 0 ? 'goes with lower attrition' : 'goes with higher attrition') + ' across offices (r = ' + x.r.toFixed(2) + ', ' + RK.length + ' offices).'));
+    { const over = RK.filter(b => (b.rate || 0) - (b.expected || 0) >= 0.02).length; coHappen.unshift(item(over ? 'warn' : 'mute', n(over) + ' of ' + RK.length + ' offices', 'lose more than their mix predicts.')); }
+    const coWhy = [];
+    if (C.topReason) coWhy.push(item('mute', 'Biggest driver:', C.topReason.k + ' — ' + P(C.topReason.pct) + ' of the book (' + n(C.topReason.n) + ' accounts).', C.cancelRows.filter(r => reasonOf(r) === C.topReason.k), 'Company · ' + C.topReason.k));
+    coWhy.push(item('bad', 'What it costs:', n(C.cancels) + ' accounts lost, worth ' + fmt.usd0(C.arvLost || 0) + ' a year.', C.cancelRows, 'Company · lost'));
+    { const pd = pdRowsOf(C); if (pd.length) coWhy.push(item('warn', 'At risk next:', n(pd.length) + ' active accounts are 30+ days past due, worth ' + fmt.usd0(arvOf(pd)) + ' a year.', pd, 'Company · 30+ days past due')); }
+
+    const hd = (t, w) => el('th', { class: 'px-3 py-2 text-left text-[10px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)', background: 'var(--card-2)', width: w || '' } }, t);
+    const cell = (list) => el('td', { class: 'px-3 py-2.5 align-top' }, el('div', { class: 'flex flex-col gap-1.5' }, ...list));
+    const line = (name, sub, a, t, w, isCo) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: isCo ? 'var(--card-2)' : '' } },
+      el('td', { class: 'px-3 py-2.5 align-top whitespace-nowrap' }, el('div', { class: 'text-[13px] font-black' }, name), el('div', { class: 'text-[11px] tabular-nums', style: { color: 'var(--text-muted)' } }, sub)),
+      cell(a), cell(t), cell(w));
+    const small = D.branches.filter(b => b.base < RI_MIN_BASE && b.base >= 30);
+    const rowsEl = [line(D.isBranchYr ? 'All offices' : 'Company', P(C.rate) + ' lost', coHappen, trendOf(C, PR && PR.companyS), coWhy, true),
+      ...RK.concat(small).map(b => line(tc(b.name), P(b.rate) + ' lost' + (b.rank ? ' · #' + b.rank + ' of ' + RK.length : ''), happening(b), trendOf(b, PS && PS[b.name]), whyOf(b)))];
+    return sec('Patterns, insights & trends · by office', 'Click a line with accounts behind it to see them.',
+      el('div', { class: 'scroll-x rounded-xl border', style: { borderColor: 'var(--border)' } }, el('table', { class: 'w-full', style: { borderCollapse: 'collapse', minWidth: '900px' } },
+        el('thead', {}, el('tr', {}, hd('Office', '150px'), hd('What’s happening', '32%'), hd('Trend' + (PR ? ' · vs ' + PR.year : ''), '28%'), hd('Why, and what it costs'))),
+        el('tbody', {}, ...rowsEl))));
   })();
   let focusBlock = null;
   const _nr = focus && !B && (D.notReady || []).find(x => x.name === focus);
@@ -295,17 +356,42 @@ function retenInsightsCard() {
   return el('div', { class: 'card p-4 flex flex-col gap-4' },
     el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
       el('div', {},
-        el('h3', { class: 'text-base font-bold' }, 'Insights'),
+        el('h3', { class: 'text-base font-bold' }, 'Attrition insights · by office'),
         el('div', { class: 'flex items-center gap-2 flex-wrap mt-1' },
           el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, title: 'Which window the comparison reads',
-            onchange: (e) => { state._retenInsMode = e.target.value; mountApp(); } },
+            onchange: (e) => { state._retenInsMode = e.target.value; _riRefresh(); } },
             el('option', { value: 't12', selected: D.mode === 't12' }, 'Trailing 12 months'),
             el('optgroup', { label: 'Calendar year (book on Jan 1)' }, ...D.years.map(y => el('option', { value: 'year:' + y, selected: D.mode === 'year:' + y }, y))),
             el('optgroup', { label: 'Office’s own year (lost in first 12 months)' }, ...[1, 2, 3].map(n => el('option', { value: 'branchyr:' + n, selected: D.mode === 'branchyr:' + n }, 'Year ' + n + ' of each office'))),
             el('optgroup', { label: 'Start-year cohort (lost to date)' }, ...D.years.map(y => el('option', { value: 'cohort:' + y, selected: D.mode === 'cohort:' + y }, y + ' cohort'))))),
         el('div', { class: 'text-[11px] mt-1', style: { color: 'var(--text-muted)' } }, D.label + (B ? '' : ' · click an office to compare it'))),
-      el('button', { class: 'text-[11px] font-bold', style: { color: 'var(--text-muted)' }, onclick: () => { state._retenInsightsOpen = false; mountApp(); } }, 'Close ✕')),
-    focusBlock,
+      el('button', { class: 'text-[11px] font-bold', style: { color: 'var(--text-muted)' }, onclick: () => _riClose() }, 'Close ✕')),
     sec('All offices', null, league),
+    focusBlock,
     insightsBlock);
+}
+
+// Insights opens as a pop-up over the page (per Isaac, Nov 25 2026) instead of a card that pushes the page down.
+// The pop-up owns its own redraw: picking a window or an office rebuilds what is inside it, the page underneath
+// is left alone. Account lists opened from it stack on top; Esc closes the top one only.
+const _RI = { ov: null };
+function _riClose() { if (_RI.ov) { try { _RI.ov.remove(); } catch (e) { /* gone */ } _RI.ov = null; } document.removeEventListener('keydown', _riEsc); }
+function _riEsc(e) { if (e.key !== 'Escape' || !_RI.ov) return; const all = document.querySelectorAll('.modal-overlay'); if (all[all.length - 1] === _RI.ov) _riClose(); }
+function _riRefresh() {
+  if (!_RI.ov) return;
+  const y = _RI.ov.firstElementChild ? _RI.ov.firstElementChild.scrollTop : 0;
+  let card = null; try { card = retenInsightsCard(); } catch (e) { console.warn('[insights]', e); }
+  if (!card) card = el('div', { class: 'card p-6 text-sm', style: { color: 'var(--text-muted)' } }, 'Nothing to compare yet — the retention book is still loading.');
+  card.style.width = 'min(1280px, 96vw)'; card.style.maxHeight = '90vh'; card.style.overflow = 'auto'; card.style.margin = '4vh auto 0';
+  card.addEventListener('click', (e) => e.stopPropagation());
+  _RI.ov.replaceChildren(card);
+  card.scrollTop = y;
+}
+function openRetenInsights() {
+  _riClose();
+  const ov = el('div', { class: 'modal-overlay' });
+  ov.addEventListener('click', (e) => { if (e.target === ov) _riClose(); });
+  document.addEventListener('keydown', _riEsc);
+  document.body.append(ov); _RI.ov = ov;
+  _riRefresh();
 }

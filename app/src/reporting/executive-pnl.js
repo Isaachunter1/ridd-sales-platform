@@ -1291,11 +1291,11 @@ function reportingSubTabs() {
     ['overview',   'Overview'],
     ['marketing',  'Marketing'],
     ['waterfall',  'Retention'],
-    ['collections', 'Collections'],   // past-due customers by days owed (per Isaac, Nov 25)
     ['auditing',   'Auditing'],
     ['geographic', 'Geographic'],
     // ['ops', 'Operations'] hidden for now (per Isaac, Nov 18) — reportingOpsHub() stays in the code; a saved 'ops' tab lands on Overview.
     ['putis',      'P&L'],
+    ['collections', 'Collections'],   // past-due customers by days owed (per Isaac, Nov 25) — between P&L and Market Watch
     ['market',     'Market Watch'],   // public pest-control companies vs RIDD (per Isaac, Nov 24) — admins only
     // (Definitions moved to Settings → Reporting rules, per Isaac, Oct 14.)
   ].filter(([k]) => isAdminRole(state.profile?.role) || devSampleData() || !['marketing', 'putis', 'market'].includes(k));   // developer: the UI, with sample data   // granted non-admins: read-only tabs only
