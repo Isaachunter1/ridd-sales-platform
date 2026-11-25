@@ -378,10 +378,11 @@ function mkxOfficeChannelCard(ym, cur, rangeLbl) {
   const th = (t, right) => el('th', { class: 'px-2 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
   const seg = (opts, cur2, set) => el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } }, ...opts.map(([k, l, tip]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold', title: tip || '', style: cur2 === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { set(k); mountApp(); } }, l)));
   const tcn = (o) => typeof _mktgTC === 'function' ? _mktgTC(o) : o;
-  return el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkt-officechannel' },
+  return el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkt-tables' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
       el('h3', { class: 'text-base font-bold' }, m.t + ' by office and channel · ' + lbl),
       el('span', { class: 'ml-auto' }),
+      mkxTableSwitch('oc'),
       seg(Object.keys(M).map(k => [k, M[k].t, M[k].tip]), S.metric in M ? S.metric : 'cv', (k) => { S.metric = k; }),
       fixed ? null : seg([['month', 'Month'], ['ytd', 'Year to date']], S.span, (k) => { S.span = k; })),
     (S.metric === 'spend' || S.metric === 'cac' || S.metric === 'ret') && !D.hasSpend ? el('div', { class: 'px-5 pb-2 text-[11px]', style: { color: '#B45309' } }, 'QuickBooks spend has not loaded, so there is nothing to show for this measure yet.') : null,
@@ -413,4 +414,12 @@ function mkxPulseBlock(ym, cur, RNG) {
   const seg = el('div', { class: 'ml-auto inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } }, ...[['month', 'Month'], ['ytd', 'Year to date']].map(([k, l]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold', style: span === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._mkxPulseSpan = k; mountApp(); } }, l)));
   try { const head = card.firstElementChild; if (head) { head.classList.add('flex', 'items-center', 'gap-3', 'flex-wrap'); head.appendChild(seg); } } catch (e) { /* no switch */ }
   return card;
+}
+
+// The switch between the Dashboard's two tables (per Isaac, Nov 25): the same card shows revenue, spend and cost by
+// office and channel, or one measure by month across the year.
+function mkxTableSwitch(cur) {
+  return el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+    ...[['oc', 'By office & channel'], ['month', 'By month']].map(([k, l]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap', style: cur === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
+      onclick: () => { if (cur === k) return; state._mkxTblView = k; mountApp(); } }, l)));
 }

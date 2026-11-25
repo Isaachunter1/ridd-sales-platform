@@ -247,3 +247,7 @@ A refresh keeps you on the tab and sub-tab you were on (same browser tab); a new
 ## 2026-11-25 — Media plan: a slider for the revenue goal
 Isaac: "make that a slider and let me readjust and rebalance everything as I slide the revenue goal higher or lower."
 A slider sits between the levers and the spend calendar ($1M to $15M, $50k steps). Dragging redraws the levers and the calendar live at that goal without saving; letting go saves it. Marketing spend follows as goal × ratio; the agency fee and the LSA plan are fixed, so the flexible pool (and every channel in it) takes up the change. Budgets by month and the Dashboard pick up the new goal on release.
+
+## 2026-11-25 — Dashboard: the office-and-channel table and the month table share one card
+Isaac: "combine that new table with the MoM table too. Just have a toggle there to swap between the two. Both should have clean title headers."
+One card (arrange id mkt-tables) with a "By office & channel / By month" switch in its header; only the table showing is built. Titles: "<measure> by office and channel · <month>" and "<measure> by month · <year>", with MoM / YoY as a small tag beside the title.
