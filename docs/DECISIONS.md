@@ -221,3 +221,7 @@ Three causes, three fixes. (1) Each state's ZIP boundaries came from GitHub at f
 
 ## 2026-11-25 — Audit Report tables fit without a sideways scroll
 Isaac: "any way we can get that all to fit without having to scroll horizontally?" Tighter cells, headers allowed onto two lines with four shortened (Svc'd %, Cancel Rev, Attr. Passed, Attr. Failed), and the five revenue columns shortened ($1.24M, $186k) with the full dollar figure on hover. All 20 columns kept. Fits down to about 1,100 px wide; narrower than that it scrolls as before. Applies to the Office, Team and Sales Reps tables.
+
+## 2026-11-25 — Media plan: LSA row read-only; cost per lead by channel; ElectGen is per job
+Isaac: the Google Local Services row should not be editable; "I need to put in the average CPL per channel to see how many leads we can estimate"; ElectGen is "a $250 cost per job model instead of cost per lead."
+The LSA row shows Incline's forecast as given. Every channel (and LSA) has a cost box: per lead by default, or per job (click the unit to switch). New rows under the spend plan: leads the spend buys (spend ÷ cost per lead), new sales (leads × close rate + per-job channels), and that as a share of the subscriptions needed. Channels with no cost typed are listed as not counted. Defaults: DoLead $60 a lead (from the sheet), ElectGen $250 a job (per Isaac); the rest are blank — an empty box shows last year's actual cost per lead as a hint when QuickBooks spend is loaded, never as a filled-in value.

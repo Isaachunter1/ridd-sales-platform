@@ -29,10 +29,10 @@ const MKP_DEFAULT_2027 = {
   lsa: [12708, 12263, 22565, 46428, 52655, 71550, 105217, 91744, 64054, 53375, 31625, 15250],
   // Share of the flexible pool. ch = the app's channel the actuals are read from ('' = everything not named here).
   mix: [
-    { n: 'Facebook / Meta', ch: 'Facebook', s: 34 }, { n: 'DoLead (pay per lead)', ch: 'DoLead', s: 18 },
+    { n: 'Facebook / Meta', ch: 'Facebook', s: 34 }, { n: 'DoLead (pay per lead)', ch: 'DoLead', s: 18, cpl: 60 },
     { n: 'Google Ads — Search', ch: 'Google Ads', s: 8 }, { n: 'Google Ads — Performance Max', ch: 'Google Ads', s: 4 },
     { n: 'Service Direct (pay per call)', ch: 'Service Direct', s: 8 }, { n: 'Angi / HomeAdvisor', ch: 'Angi', s: 5 },
-    { n: 'Baton (referral network)', ch: 'Baton', s: 5 }, { n: 'ElectGen', ch: 'ElectGen', s: 3 },
+    { n: 'Baton (referral network)', ch: 'Baton', s: 5 }, { n: 'ElectGen', ch: 'ElectGen', s: 3, cpl: 250, per: 'job' },   // $250 a job, not per lead (per Isaac, Nov 25)
     { n: 'New channels & tests', ch: '', s: 15 }],
 };
 const MKP_LSA_CH = 'Google Local Services';
@@ -67,7 +67,17 @@ function mkpCalc(P) {
   const subs = goal.map(g => n(P.acv) > 0 ? g / n(P.acv) : 0), leads = subs.map(s => n(P.close) > 0 ? s / n(P.close) : 0);
   const fee = M.map(() => n(P.fee));
   const total = M.map(i => fee[i] + lsa[i] + rows.reduce((a, r) => a + r.m[i], 0));
-  const v = { curve, curveSum, lsa, lsaYear, budget, feeYear, pool, poolM, rows, mixSum, goal, subs, leads, fee, total,
+  // What the spend buys (per Isaac, Nov 25): each channel's dollars ÷ the cost typed for it. Most channels are paid
+  // per LEAD, so they buy leads, and leads × the close rate are sales. A channel paid per JOB (ElectGen, $250 a job)
+  // buys sales directly and no counted leads. A channel with no cost typed buys nothing here, and is named so the
+  // totals are not read as complete.
+  (P.mix || []).forEach((r, j) => { rows[j].cpl = n(r.cpl); rows[j].per = r.per === 'job' ? 'job' : 'lead'; });
+  const lsaCpl = n(P.lsaCpl);
+  const buys = M.map(i => (lsaCpl > 0 ? lsa[i] / lsaCpl : 0) + rows.reduce((a, r) => a + (r.cpl > 0 && r.per === 'lead' ? r.m[i] / r.cpl : 0), 0));
+  const jobs = M.map(i => rows.reduce((a, r) => a + (r.cpl > 0 && r.per === 'job' ? r.m[i] / r.cpl : 0), 0));
+  const buysSales = M.map(i => buys[i] * n(P.close) + jobs[i]);
+  const noCpl = [...(lsaCpl > 0 ? [] : ['Google Local Services']), ...rows.filter(r => !(r.cpl > 0) && r.s > 0).map(r => r.n)];
+  const v = { curve, curveSum, lsa, lsaYear, budget, feeYear, pool, poolM, rows, mixSum, goal, subs, leads, fee, total, buys, jobs, buysSales, noCpl, lsaCpl,
     mediaRatio: n(P.target) > 0 ? (budget - feeYear) / n(P.target) : null };   // media (no agency fee) ÷ new revenue — the bar a channel is read against
   mkpCalc._m = { P, v }; return v;
 }
@@ -132,14 +142,27 @@ function mktgPlanView() {
       first(label, Object.assign({ fontWeight: o.strong ? '800' : '600' }, o.band ? { background: 'var(--card-2)' } : {}, o.soft ? muted : {})), ...vals.map(v => cell(f(v), st)), cell(o.noTotal ? '' : f(o.total != null ? o.total : sum(vals)), Object.assign({ fontWeight: '800' }, o.soft ? muted : {}))); };
   const head = (t) => el('tr', {}, el('td', { colspan: 14, class: 'px-3 pt-3 pb-1 text-[10px] uppercase tracking-widest font-bold', style: subtle }, t));
   const curveBad = Math.abs(C.curveSum - 1) > 0.002, mixBad = Math.abs(C.mixSum - 100) > 0.05;
+  // Last year's own cost per lead by channel (QuickBooks spend ÷ Pest AI leads), shown as the hint in an empty box.
+  const lastCpl = (() => { const t = {}; try { for (let i = 1; i <= 12; i++) { const D = mklMonth((year - 1) + '-' + String(i).padStart(2, '0')); if (!D || !D.hasSpend || !D.ch) continue; for (const k in D.ch) { const c = D.ch[k], o = t[k] || (t[k] = { spend: 0, leads: 0 }); o.spend += c.spend || 0; o.leads += c.leads || 0; } } } catch (e) { /* no hint */ }
+    return (k) => { const o = t[k]; return o && o.spend > 0 && o.leads > 0 ? o.spend / o.leads : null; }; })();
+  const cplBox = (id, val, hintCh, onSet, per, onPer) => { const job = per === 'job', h = hintCh && !job ? lastCpl(hintCh) : null;
+    const tip = (job ? 'Cost per job \u2014 this channel is paid per sale, not per lead' : 'Average cost per lead') + (h ? ' \u00b7 ' + (year - 1) + ' actual ' + fmt.usd0(h) : '');
+    const unit = onPer && canEdit
+      ? el('button', { class: 'text-[10px] underline', style: muted, title: 'Paid per ' + (job ? 'job' : 'lead') + ' \u2014 click to switch to per ' + (job ? 'lead' : 'job'), onclick: () => onPer(job ? 'lead' : 'job') }, job ? '/ job' : '/ lead')
+      : el('span', { class: 'text-[10px]', style: muted }, job ? '/ job' : '/ lead');
+    if (!canEdit) return el('span', { class: 'inline-flex items-center gap-1 text-[10px] tabular-nums', style: muted, title: tip }, val > 0 ? fmt.usd0(val) : 'no cost', unit);
+    const box = inp(id, val > 0 ? fmt.usd0(val) : '', onSet, 58, tip); box.placeholder = h ? '\u2019' + String(year - 1).slice(2) + ' ' + fmt.usd0(h) : (job ? 'cost' : 'CPL');
+    return el('span', { class: 'inline-flex items-center gap-1' }, box, unit); };
   const curveRow = el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, first(['Share of the year (curve)']),
     ...C.curve.map((v, i) => el('td', { class: 'px-1.5 py-1.5 text-right' }, inp('curve' + i, (v * 100).toFixed(1) + '%', (x) => edit(n => { n.curve[i] = x; }), 62, MON[i] + ' share of the year’s new revenue'))),
     cell(pct(C.curveSum, 1), { fontWeight: '800', color: curveBad ? '#DC2626' : undefined }));
-  const lsaRow = el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, first(['Google Local Services (Incline plan' + (P.lsaExtra ? ' + new locations' : '') + ')']),
-    ...C.lsa.map((v, i) => el('td', { class: 'px-1.5 py-1.5 text-right' }, P.lsaExtra ? el('span', { class: 'text-[11px] tabular-nums', title: 'Plan ' + usd((P.lsa || [])[i]) + ' + new locations' }, usd(v)) : inp('lsa' + i, fmt.usd0(v), (x) => edit(n => { n.lsa[i] = x; }), 72, MON[i] + ' LSA plan'))),
-    cell(usd(C.lsaYear), { fontWeight: '800' }));
+  // The LSA row is Incline's forecast, shown as given (per Isaac, Nov 25 — not typed over here); new-location dollars
+  // come from the lever above.
+  const lsaRow = el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+    first([el('span', { class: 'inline-flex items-center gap-2' }, el('span', {}, 'Google Local Services (Incline plan' + (P.lsaExtra ? ' + new locations' : '') + ')'), cplBox('lsaCpl', C.lsaCpl, MKP_LSA_CH, (x) => edit(n => { n.lsaCpl = x; })))]),
+    ...C.lsa.map(v => cell(usd(v))), cell(usd(C.lsaYear), { fontWeight: '800' }));
   const mixRow = (r, j) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-    first([el('span', { class: 'inline-flex items-center gap-2', style: { paddingLeft: '14px' } }, inp('mix' + j, r.s + '%', (x) => edit(n => { n.mix[j].s = x; }), 48, 'Share of the flexible pool'), el('span', {}, r.n))], { fontWeight: '500' }),
+    first([el('span', { class: 'inline-flex items-center gap-2', style: { paddingLeft: '14px' } }, inp('mix' + j, r.s + '%', (x) => edit(n => { n.mix[j].s = x; }), 48, 'Share of the flexible pool'), el('span', {}, r.n), cplBox('cpl' + j, r.cpl, r.ch, (x) => edit(n => { n.mix[j].cpl = x; }), r.per, (v) => edit(n => { n.mix[j].per = v; })))], { fontWeight: '500' }),
     ...r.m.map(v => cell(usd(v))), cell(usd(sum(r.m)), { fontWeight: '800' }));
   const calendar = el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkp-cal' },
     el('div', { class: 'px-5 py-3 flex items-baseline gap-3 flex-wrap' }, el('h3', { class: 'text-base font-bold' }, 'Spend calendar · ' + year),
@@ -158,6 +181,12 @@ function mktgPlanView() {
         ...C.rows.map(mixRow),
         line('Total marketing spend', C.total, usd, { strong: true, band: true }),
         line('Spend ÷ revenue goal', C.total.map((t, i) => C.goal[i] > 0 ? t / C.goal[i] : null), (v) => pct(v, 1), { soft: true, total: sum(C.goal) > 0 ? sum(C.total) / sum(C.goal) : null }),
+        head('What the spend buys'),
+        line('Leads (spend \u00f7 cost per lead)', C.buys, int),
+        line('New sales (leads \u00d7 close rate' + (sum(C.jobs) > 0 ? ' + per-job channels' : '') + ')', C.buysSales, int, { strong: true }),
+        line('Of the subscriptions needed', C.buysSales.map((b, i) => C.subs[i] > 0 ? b / C.subs[i] : null), (v) => pct(v, 0), { soft: true, total: sum(C.subs) > 0 ? sum(C.buysSales) / sum(C.subs) : null }),
+        C.noCpl.length ? el('tr', {}, el('td', { colspan: 14, class: 'px-3 pb-2 text-[10px]', style: { color: '#B45309' } }, 'Not counted yet, no cost typed: ' + C.noCpl.join(', ') + '. Organic and unpaid leads are not in these numbers either.')) : null,
+        head('Unit cost'),
         line('Media cost per new subscription', C.total.map((t, i) => C.subs[i] > 0 ? (t - C.fee[i]) / C.subs[i] : null), usd, { soft: true, total: sum(C.subs) > 0 ? (sum(C.total) - C.feeYear) / sum(C.subs) : null })))));
 
   // ── 3. Progress: plan against actuals for the year so far ──
