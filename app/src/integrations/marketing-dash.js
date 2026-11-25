@@ -227,7 +227,7 @@ function _mkdOpenLeads(title, rows) {
       el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
         el('thead', {}, el('tr', {}, th('Date'), th('Time'), th('Source (GoHighLevel)'), th('Channel'), th('Office'), th('Placed by'), th('Tag'), th('Campaign'), th('Type'), th('Phone'))),
         el('tbody', {}, ...sorted.slice(0, 1500).map(l => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-          td(l.d, 'tabular-nums'), td(l._lt || (l.t ? l.t + ' UTC' : ''), 'tabular-nums'), td(l.label), td(l.prov === 'Unmapped' ? 'Unmapped' : l.prov), td(l.market), td(l.mktBy), td(l.tag), td(l.campaign), td(l.type), td(mask(l.p), 'tabular-nums')))))),
+          td(l.d, 'tabular-nums'), td(l._lt || (l.t ? l.t + ' UTC' : ''), 'tabular-nums'), td(l.label), td(l.prov === 'Unmapped' ? 'Unmapped' : l.prov), td(l.market), td(l.mktBy), td(l.tag), td(l.campaign), td((l.type || '') + (l.again ? (l.type ? ' · ' : '') + 'came back' : '')), td(mask(l.p), 'tabular-nums')))))),
     sorted.length > 1500 ? el('div', { class: 'text-[10px] mt-2', style: { color: 'var(--text-subtle)' } }, 'Showing the newest 1,500.') : null));
   document.body.append(overlay);
 }

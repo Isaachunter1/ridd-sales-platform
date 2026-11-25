@@ -275,3 +275,19 @@ from the label's, the drill-down's "Placed by" reads "source label · ZIP 29440 
 Measured on November 2026 (2,457 leads): Facebook leads with no office fall from 393 to 51 (195 leads of all channels still have none); 31 leads move office because
 the label and the ZIP disagree (25 Facebook, 4 Local Services, 2 Service Direct). Sales, spend and channels are
 untouched; office lead counts, close rate and cost per lead by office change with it.
+
+## 2026-11-25 · Opportunities whose source changes: every channel counts its lead, the sale goes to the last one
+Per Isaac: Pest AI updates an opportunity when the same person comes back through another channel (Facebook, then
+a Google Ads resubmission) instead of opening a new one. Rule he set: both channels count the lead ("we do have to
+pay for them"; lead totals run slightly higher for it), and a sale books to the last touch on or before it.
+Before: the sync kept one row per opportunity and overwrote its source, and only re-read opportunities created in
+the last two days — so an older opportunity kept its old source in the app, a newer one lost its first source, and
+a resubmission was never a lead.
+Now: (1) the sync keeps each change of source with when it was seen; (2) with the time left in each run it re-reads
+all opportunities, a stretch at a time, and starts over at the end; (3) the app turns each change into a touch of
+its own on that date — counted as a lead for the new channel unless the same person already counted for that same
+channel in the last 30 days; (4) everything that matches a sale to its latest opportunity now sees those touches.
+A change to a tracking-number label (Local Presence) is not a touch. First-touch view ignores later touches.
+Limits, stated plainly: history starts the day this deploys. A change Pest AI made earlier shows as one change dated
+by GoHighLevel's last-updated stamp on the opportunity, which can be later than the real change. Going forward a
+change is dated within one sync cycle. Channel on past sales moves wherever the stored source was stale.
