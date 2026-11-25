@@ -392,3 +392,14 @@ expecting to do and what we actually did and how we are pacing". One table, two 
 Two plan lines that read one app channel (Google Ads Search and P Max) share one set of actuals, shown on the first
 and measured against both. Channels with spend that the plan does not name show against Left over (Spend) or as
 "Channels not in the plan" (Revenue). Months that have not started show the plan alone.
+
+## 2026-11-25 · Media calendar: no toggles — four lines per channel
+Per Isaac: "I don't want toggles, I just want to see each channel with projected spend and revenue and then actual
+spend and revenue." The Spend | Revenue and Plan + actual | Plan only switches are gone (same day they were added).
+Every channel is a block of four lines by month: Projected spend, Projected revenue (projected spend × the ROAS
+benchmark), Actual spend (QuickBooks), Actual revenue (FieldRoutes new revenue, last-touch source). Actual lines
+are coloured by pace against the projected line for the same stretch, and the year column carries the actual to
+date with "N% of pace". The actual lines appear only once the year has started, so a future year shows two lines per
+channel. Agency fee has spend lines only (no channel of its own). Total has all four; its projected revenue is total
+planned spend × the benchmark, fee included. "All new revenue" closes the table: goal, actual (every Office Staff
+new sale, paid or not) and spend ÷ goal. Shared channels and channels outside the plan are handled as before.
