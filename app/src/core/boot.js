@@ -131,6 +131,8 @@ async function boot() {
   if (_freshLogin) { state.view = 'dashboard'; try { history.replaceState(null, '', VIEW_TO_HASH.dashboard || '#dashboard'); } catch { /* keep */ } }   // Sales tab; the role guards send reps to their own Sales home
   else if (hv2) { state.view = hv2; state._navChosen = true; }
   else if (_applyResume()) { state._navChosen = true; /* re-opened within the window → land on the last tab */ }
+  // The page as it last stood goes up at once while the live one loads underneath (per Isaac, Nov 25) — core/page-keep.js.
+  try { if (typeof pageKeepRestoreWhere === 'function') pageKeepRestoreWhere(); if (typeof pageKeepShow === 'function') pageKeepShow(); } catch (e) { /* the normal load shows */ }
   await loadAndRender();
   // Put them back at the scroll position they left (best-effort — data
   // sections finish loading async, so a slightly different height is fine).

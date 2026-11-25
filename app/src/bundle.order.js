@@ -21,6 +21,7 @@ module.exports = [
   'slack.js',
   'core/dom.js',
   'core/state.js',
+  'core/page-keep.js',
   'core/boot.js',
   'demo-data.js',
   'core/data-loaders.js',
