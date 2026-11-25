@@ -30,7 +30,7 @@ const MKP_DEFAULT_2027 = {
   // Share of the flexible pool. ch = the app's channel the actuals are read from ('' = everything not named here).
   mix: [
     { n: 'Facebook / Meta', ch: 'Facebook', s: 34 }, { n: 'DoLead (pay per lead)', ch: 'DoLead', s: 18, cpl: 60 },
-    { n: 'Google Ads — Search', ch: 'Google Ads', s: 8 }, { n: 'Google Ads — Performance Max', ch: 'Google Ads', s: 4 },
+    { n: 'Google Ads — Search', ch: 'Google Ads', s: 8 }, { n: 'Google Ads — P Max', ch: 'Google Ads', s: 4 },
     { n: 'Service Direct (pay per call)', ch: 'Service Direct', s: 8 }, { n: 'Angi / HomeAdvisor', ch: 'Angi', s: 5 },
     { n: 'Baton (referral network)', ch: 'Baton', s: 5 }, { n: 'ElectGen', ch: 'ElectGen', s: 3, cpl: 250, per: 'job' }],   // $250 a job, not per lead (per Isaac, Nov 25)
   // (No "New channels & tests" line — per Isaac, Nov 25: whatever the channels don't take is shown as Left over.)
@@ -72,7 +72,8 @@ function mkpCalc(P) {
   const budget = n(P.target) * n(P.ratio), feeYear = n(P.fee) * 12, pool = budget - feeYear - lsaYear;
   const mixSum = (P.mix || []).reduce((a, r) => a + n(r.s), 0);
   const poolM = M.map(i => pool * curve[i]);
-  const rows = (P.mix || []).map(r => ({ n: r.n, ch: r.ch || '', s: n(r.s), m: M.map(i => poolM[i] * n(r.s) / 100) }));
+  const rows = (P.mix || []).map(r => ({ n: String(r.n || '').replace(/Performance Max/i, 'P Max'), ch: r.ch || '',   // shown short (per Isaac, Nov 25), whatever the saved plan calls it
+    s: n(r.s), m: M.map(i => poolM[i] * n(r.s) / 100) }));
   const goal = M.map(i => n(P.target) * curve[i]);
   const subs = goal.map(g => n(P.acv) > 0 ? g / n(P.acv) : 0), leads = subs.map(s => n(P.close) > 0 ? s / n(P.close) : 0);
   const fee = M.map(() => n(P.fee));
