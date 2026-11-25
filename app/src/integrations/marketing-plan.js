@@ -271,10 +271,10 @@ function mktgPlanView() {
   // A spend-plan row: name · share of the pool · cost · 12 months · year.
   // ── Media calendar (per Isaac, Nov 25 — "I don't want toggles, I just want to see each channel with projected spend
   // and revenue and then actual spend and revenue"). Every channel is four lines, by month:
-  //   Projected spend    the plan's dollars
   //   Projected revenue  projected spend × the ROAS benchmark (every line the same multiple)
-  //   Actual spend       QuickBooks spend for the channel
+  //   Projected spend    the plan's dollars
   //   Actual revenue     FieldRoutes new revenue, last-touch source
+  //   Actual spend       QuickBooks spend for the channel
   // The actual lines are coloured by pace against the projected line for the same stretch (closed months whole, the
   // open month by days gone), and the year column shows the actual to date with that pace. Spend: red more than 10%
   // over, amber more than 10% under. Revenue: green at or above, amber within 10% under, red below.
@@ -320,9 +320,10 @@ function mktgPlanView() {
   const paidKeys = [MKP_LSA_CH, ...firstOf.keys(), ...otherKeys];
   // The four lines for a line of the plan that has actuals of its own.
   const four = (spend, keys, cmpSpend) => { const cs = cmpSpend || spend; return [
-    { label: P_SPEND, vals: spend }, { label: P_REV, vals: xr(spend), soft: true },
-    started && keys ? { label: A_SPEND, vals: actOf(keys, false), act: true, cmp: cs } : null,
-    started && keys ? { label: A_REV, vals: actOf(keys, true), act: true, rev: true, cmp: xr(cs) } : null]; };
+    // Order per Isaac, Nov 25: revenue above spend, projected above actual.
+    { label: P_REV, vals: xr(spend) }, { label: P_SPEND, vals: spend, soft: true },
+    started && keys ? { label: A_REV, vals: actOf(keys, true), act: true, rev: true, cmp: xr(cs) } : null,
+    started && keys ? { label: A_SPEND, vals: actOf(keys, false), act: true, cmp: cs } : null]; };
   const chanRows = C.rows.flatMap((r, j) => { const lead = r.ch && firstOf.get(r.ch) === j, shared = r.ch && C.rows.filter(x => x.ch === r.ch).length > 1;
     const lines = four(r.m, lead ? [r.ch] : null, lead && shared ? groupSpend(r.ch) : null), n = lines.filter(Boolean).length;
     return group(canEdit ? el('span', { class: 'inline-flex items-center gap-1.5' },
@@ -353,11 +354,11 @@ function mktgPlanView() {
           el('button', { class: 'rounded-md border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--accent)' }, onclick: () => add(box.value) }, '+ Add channel'),
           el('span', { class: 'text-[10px]', style: subtle }, 'Joins at 0% — give it a share and it comes out of Left over')))); })() : null,
       ...group(over ? 'Over budget' : 'Left over', el('td', { class: 'px-2 py-1.5 text-right tabular-nums', style: { fontWeight: '800', color: over ? '#DC2626' : '#15803D' } }, leftShare.toFixed(0) + '%'), null, [{ label: P_SPEND, vals: C.left, total: C.leftYear, f: leftF }], { indent: true }),
-      started && otherKeys.length ? group('Not in the plan', null, null, [{ label: A_SPEND, vals: actOf(otherKeys, false), act: true, cmp: C.left.map(v => Math.max(0, v)) }, { label: A_REV, vals: actOf(otherKeys, true), act: true, rev: true }], { indent: true, tip: otherTip }) : [],
+      started && otherKeys.length ? group('Not in the plan', null, null, [{ label: A_REV, vals: actOf(otherKeys, true), act: true, rev: true }, { label: A_SPEND, vals: actOf(otherKeys, false), act: true, cmp: C.left.map(v => Math.max(0, v)) }], { indent: true, tip: otherTip }) : [],
       ...group('Total', null, null, [
-        { label: P_SPEND, vals: C.total }, { label: P_REV, vals: xr(C.total) },
-        started ? { label: A_SPEND, vals: actOf([agencyCh, ...paidKeys], false), act: true, cmp: C.total } : null,
-        started ? { label: A_REV, vals: actOf(paidKeys, true), act: true, rev: true, cmp: xr(C.total) } : null], { strong: true, band: true, tip: 'Projected revenue = total planned spend × ' + roas + ', agency fee included. Actual revenue = new revenue from the channels above.' }),
+        { label: P_REV, vals: xr(C.total) }, { label: P_SPEND, vals: C.total },
+        started ? { label: A_REV, vals: actOf(paidKeys, true), act: true, rev: true, cmp: xr(C.total) } : null,
+        started ? { label: A_SPEND, vals: actOf([agencyCh, ...paidKeys], false), act: true, cmp: C.total } : null], { strong: true, band: true, tip: 'Projected revenue = total planned spend × ' + roas + ', agency fee included. Actual revenue = new revenue from the channels above.' }),
       // The whole goal, paid or not: every Office Staff new sale, including channels with no spend (Organic, referrals).
       ...group('All new revenue', null, null, [{ label: 'Goal', vals: C.goal }, started ? { label: 'Actual', vals: actOf(allKeys, true), act: true, rev: true, cmp: C.goal } : null,
         { label: 'Spend ÷ goal', vals: C.total.map((t, i) => C.goal[i] > 0 ? t / C.goal[i] : null), f: (v) => pct(v, 1), total: sum(C.goal) > 0 ? sum(C.total) / sum(C.goal) : null, soft: true }], { strong: true, band: true, tip: 'Every Office Staff new sale, including channels with no spend, against the new-revenue goal' })].flat();
