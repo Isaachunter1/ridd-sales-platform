@@ -210,3 +210,7 @@ OPEN: the sheet's 2026 base is $5.20M of inside-sales new revenue (Jan 1–Nov 1
 
 ## 2026-11-25 — Media plan: the 2026 base is $3.32M, not $5.20M
 Isaac: "we are only at 3.32m so that was a typo in that google sheet." The Marketing tab's New revenue is the right basis, so Progress and the target are on the same footing and nothing needs reconciling. The sheet will be rebuilt later once Isaac has the full picture; the levers in the app stay as they are until then.
+
+## 2026-11-25 — Geographic: the service area is the ZIPs with more than 3 active customers
+Isaac: FieldRoutes' drawn service areas "aren't perfect either" (Beaufort has plenty of customers and is not drawn as serviceable) — "should we just do zipcodes with more than 3 active customers as the zipcode boundaries?"
+The red outline is now each office's ZIPs with more than 3 active customers (distinct customers on recurring, active subscriptions — this tab's own rows), in place of the hand-kept RIDD_SERVICE_AREAS lists. The number is the admin rule svcAreaMin (default 3). The office banner counts the active customers and ZIPs that fall outside. RIDD_SERVICE_AREAS stays in the code, unused.
