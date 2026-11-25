@@ -62,13 +62,36 @@ function mktgSpendView() {
   const monthTotal = (i) => channels.reduce((a, c) => a + chanAmt(c, i), 0) + unTot(i);
   // Payees with no channel yet, across the year — one pick per payee, remembered for every month.
   const chanOpts = typeof spqChannelOptions === 'function' ? spqChannelOptions() : [...new Set([...(m.channels || []), 'Google Ads', 'Google Local Services', 'Facebook'])].sort();
+  // The note for the controller (per Isaac, Nov 24): the charges backed out of marketing, grouped by where they
+  // belong, ready to paste into an email. `only` = one payee key (the pick just made); without it, the whole year.
+  const reclassNote = (only) => {
+    const by = {}; let n = 0, tot = 0;
+    AY.forEach((X, i) => { if (!X) return; for (const L of X.lines) {
+      if (L.prov !== SPQ_SKIP || /^Sellify/.test(String(L.how || ''))) continue;
+      if (only && _spqKey(L.payee, L.memo) !== only) continue;
+      const c = spqSkipWhy(ymOf(i), L); (by[c] || (by[c] = [])).push({ d: String(i + 1).padStart(2, '0') + '/' + String(L.day || '').padStart(2, '0') + '/' + year, L }); n++; tot += L.amt; } });
+    if (!n) return '';
+    const out = ['Subject: Reclass out of Advertising & Marketing (' + year + ')', '', 'Hi,', '',
+      (n === 1 ? 'This charge is' : 'These ' + n + ' charges are') + ' booked to Advertising & Marketing in QuickBooks but ' + (n === 1 ? 'is' : 'are') + ' not marketing. Can you move ' + (n === 1 ? 'it' : 'them') + ' to the right account?', ''];
+    for (const c of SPQ_SKIP_CATS) { if (!by[c]) continue;
+      out.push(c === 'Other' ? 'Not marketing (you pick the account):' : 'Move to ' + c + ':');
+      for (const r of by[c].sort((a, b) => a.d.localeCompare(b.d))) out.push('  - ' + r.d + ' | ' + (r.L.payee || '(no name)') + ' | ' + usd(r.L.amt) + (r.L.memo ? ' | ' + String(r.L.memo).trim().slice(0, 80) : ''));
+      out.push(''); }
+    out.push('Total: ' + usd(tot), '', 'Thanks,', (state.profile && state.profile.full_name ? String(state.profile.full_name).split(' ')[0] : ''));
+    return out.join('\n');
+  };
+  const copyReclass = (only) => { const t = reclassNote(only); if (!t) { toast('Nothing backed out to copy', 'info'); return; }
+    try { navigator.clipboard.writeText(t).then(() => toast('Copied the note for the controller', 'success'), () => toast('Could not copy — use the Copy button on the table', 'error')); } catch (e) { toast('Could not copy — use the Copy button on the table', 'error'); } };
   const vendorPick = (lym, L, onlyThis) => el('select', { class: 'rounded-lg border px-2 py-0.5 text-[11px]', style: Object.assign({}, selSt, L.prov ? {} : { borderColor: '#DC2626' }),
-    onchange: (e) => { let v = e.target.value; if (v === SPQ_NEW) { v = spqAskNewVendor(); if (!v) { mountApp(); return; } } spqSetRule(lym, L, v, !!onlyThis); } },
+    onchange: (e) => { let v = e.target.value; if (v === SPQ_AG_NEW) { const n = window.prompt('Agency name (e.g. ROR, Incline Marketing):'); if (!n || !n.trim()) { mountApp(); return; } spqSetAgency(lym, L, n, !!onlyThis); return; } if (v.indexOf(SPQ_AG) === 0) { spqSetAgency(lym, L, v.slice(SPQ_AG.length), !!onlyThis); return; } if (v.indexOf(SPQ_SKIP + ':') === 0) { state._spqCopyAfter = _spqKey(L.payee, L.memo); spqSetSkip(lym, L, v.slice(SPQ_SKIP.length + 1), !!onlyThis); return; } if (v === SPQ_NEW) { v = spqAskNewVendor(); if (!v) { mountApp(); return; } } spqSetRule(lym, L, v, !!onlyThis); } },
     el('option', { value: '', selected: !L.prov, disabled: true }, 'Pick a channel…'),
     ...chanOpts.map(c => el('option', { value: c, selected: L.prov === c }, c)),
-    el('option', { value: SPQ_TOOLS, selected: L.prov === SPQ_TOOLS }, SPQ_TOOLS_LABEL + ' (spread with the media)'),
-    el('option', { value: SPQ_SKIP, selected: L.prov === SPQ_SKIP }, 'Not marketing'),
-    el('option', { value: SPQ_NEW }, '+ New channel…'));
+    el('optgroup', { label: 'Agency (spread with the media)' },
+      ...spqAgencies().map(a => el('option', { value: SPQ_AG + a, selected: L.prov === SPQ_TOOLS && spqAgencyOf(lym, L) === a }, a)),
+      L.prov === SPQ_TOOLS && spqAgencyOf(lym, L) === SPQ_AG_NONE ? el('option', { value: SPQ_TOOLS, selected: true }, 'Agency — not named yet') : null,
+      el('option', { value: SPQ_AG_NEW }, '+ New agency…')),
+    el('option', { value: SPQ_NEW }, '+ New channel…'),
+    el('optgroup', { label: 'Not marketing — back it out as' }, ...SPQ_SKIP_CATS.map(c => el('option', { value: SPQ_SKIP + ':' + c, selected: L.prov === SPQ_SKIP && spqSkipWhy(lym, L) === c }, c === 'Other' ? 'Other (not marketing)' : c))));
   const unByPayee = new Map();
   AY.forEach((X, i) => { if (!X) return; for (const L of X.lines) { if (L.prov) continue; const k = _spqKey(L.payee, L.memo); const g = unByPayee.get(k) || unByPayee.set(k, { L, ym: ymOf(i), months: Array(12).fill(0) }).get(k); g.months[i] += L.amt; } });
   const unRows = [...unByPayee.values()].sort((a, b) => b.months.reduce((x, y) => x + y, 0) - a.months.reduce((x, y) => x + y, 0));
@@ -78,14 +101,35 @@ function mktgSpendView() {
     stickyTd(el('div', { class: 'flex items-center gap-2' }, el('span', { style: { color: '#B91C1C' } }, g.L.payee || '(no name)'), admin ? vendorPick(g.ym, g.L) : null), { background: 'transparent' }),
     ...g.months.map(v => td(v ? usd0(v) : '—', v ? { color: '#B91C1C' } : muted, true)), td(usd0(g.months.reduce((x, y) => x + y, 0)), { fontWeight: '700', color: '#B91C1C' }, true));
   const yearTotal = MON.reduce((a, _, i) => a + monthTotal(i), 0);
+  // Agency, split by agency under the one Agency row (per Isaac, Nov 24). The Agency row is the batch total; these
+  // rows only say who it went to, so they are not added to the table total again.
+  const agBy = {};
+  AY.forEach((X, i) => { if (!X) return; for (const L of X.lines) { if (L.prov !== SPQ_TOOLS) continue; const a = spqAgencyOf(ymOf(i), L); (agBy[a] || (agBy[a] = Array(12).fill(0)))[i] += L.amt; } });
+  const agNames = Object.keys(agBy).sort((a, b) => agBy[b].reduce((x, y) => x + y, 0) - agBy[a].reduce((x, y) => x + y, 0));
+  const agRow = (a) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+    stickyTd(el('span', { style: Object.assign({ paddingLeft: '16px' }, a === SPQ_AG_NONE ? { color: '#B45309' } : muted) }, '↳ ' + (a === SPQ_AG_NONE ? 'Not named yet — pick the agency under QuickBooks lines' : a)), { fontWeight: '500' }),
+    ...agBy[a].map(v => td(v ? usd0(v) : '—', muted, true)), td(usd0(agBy[a].reduce((x, y) => x + y, 0)), muted, true));
+  const chRows = (ch) => ch === SPQ_TOOLS && (agNames.length > 1 || (agNames.length === 1 && agNames[0] !== SPQ_AG_NONE)) ? [chRow(ch), ...agNames.map(agRow)] : [chRow(ch)];
+  // Backed out of marketing, by where it belongs — under the total, so the table still shows what QuickBooks holds
+  // in the account and how much of it is not marketing.
+  const outBy = {};
+  AY.forEach((X, i) => { if (!X) return; for (const L of X.lines) { if (L.prov !== SPQ_SKIP) continue; const c = spqSkipWhy(ymOf(i), L); (outBy[c] || (outBy[c] = Array(12).fill(0)))[i] += L.amt; } });
+  const outCats = SPQ_SKIP_CATS.filter(c => outBy[c] && outBy[c].some(v => Math.abs(v) > 0.5));
+  const outYear = outCats.reduce((a, c) => a + outBy[c].reduce((x, y) => x + y, 0), 0);
+  const outRow = (c) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+    stickyTd(el('span', { style: muted }, 'Backed out · ' + (c === 'Other' ? 'Other (not marketing)' : c)), { fontWeight: '500' }),
+    ...outBy[c].map(v => td(v ? usd0(v) : '—', muted, true)), td(usd0(outBy[c].reduce((x, y) => x + y, 0)), Object.assign({ fontWeight: '700' }, muted), true));
+  // A pick just backed a payee out: copy that payee's note straight away (the pick is the click that allows it).
+  if (state._spqCopyAfter) { const k = state._spqCopyAfter; state._spqCopyAfter = null; copyReclass(k); }
   const chanCard = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
       el('div', {}, el('h3', { class: 'text-base font-bold' }, 'Marketing spend · ' + year),
-        el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'QuickBooks Advertising & Marketing, each payee under its channel. ' + (unRows.length ? unRows.length + (unRows.length === 1 ? ' payee still needs' : ' payees still need') + ' a channel (red) — pick once, it sticks for every month.' : 'Every charge has a channel.'))),
-      el('span', { class: 'ml-auto text-sm font-black tabular-nums' }, usd0(yearTotal))),
+        el('div', { class: 'text-[11px] mt-0.5', style: muted }, 'QuickBooks Advertising & Marketing, each payee under its channel. ' + (outYear ? usd0(outYear) + ' in the account is backed out as not marketing (below the total). ' : '') + (unRows.length ? unRows.length + (unRows.length === 1 ? ' payee still needs' : ' payees still need') + ' a channel (red) — pick once, it sticks for every month.' : 'Every charge has a channel.'))),
+      outCats.length && admin ? el('button', { class: 'ml-auto rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)' }, title: 'Copies every backed-out charge this year, grouped by where it belongs, as a note for the controller', onclick: () => copyReclass() }, 'Copy reclass note') : null,
+      el('span', { class: (outCats.length && admin ? '' : 'ml-auto ') + 'text-sm font-black tabular-nums' }, usd0(yearTotal))),
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('Channel', false, { position: 'sticky', left: 0, zIndex: 2 }), ...MON.map(thM), th('Total', true))),
-      el('tbody', {}, ...unRows.map(unRow), ...channels.map(chRow), totRow('Total', [...MON.map((_, i) => monthTotal(i)), yearTotal])))));
+      el('tbody', {}, ...unRows.map(unRow), ...channels.flatMap(chRows), totRow('Total', [...MON.map((_, i) => monthTotal(i)), yearTotal]), ...outCats.map(outRow)))));
 
   // ── 2. Spend by market ──
   const markets = [...new Set(AY.flatMap(X => X ? X.branches : []))];

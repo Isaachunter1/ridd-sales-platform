@@ -155,3 +155,58 @@ Those sales are out of Source check (a PestBooker stamp proves nothing about the
 compares a Pest AI lead within 30 days before the sale with a real lead source.
 NOT changed: Marketing still shows PestBooker as a channel row wherever a lead or sale carries it — it empties as the
 sources are fixed. Decide with Isaac whether to hide it now.
+
+## 2026-11-25 — Reporting shows the previous sync at once; one snapshot load at a time
+A RevHawk snapshot lands every ~5 minutes with a new upload id, so the per-upload IndexedDB cache almost never hit on a
+refresh: every reload re-downloaded 12 MB before any sales number showed (and each render started another download).
+Now (1) concurrent callers share one load per upload, and (2) on a cold start the last snapshot this browser has in
+IndexedDB is shown immediately and replaced when the newest finishes — the same hand-over that already happens when a
+sync lands mid-session. Marketing says "from the previous sync" while that is the case.
+Source check list: columns are FieldRoutes source / Pest AI source (last touch) / Pest AI first touch / Lead date.
+Open: bare GoHighLevel source "Google" maps to Google Ads by rule; Isaac's Nov 25 example (a Reserve with Google booking)
+carried it and should be Organic — he is having Pest AI stamp Organic. "Google | <office>" already maps to Organic.
+
+## 2026-11-24 — Add-ons with no rep: only list ones with an appointment behind them
+Isaac: "the only ones that really matter are ones where a appointment is scheduled after the add on" (#186193 was listed with no contract, payment or appointment).
+An add-on is listed only when its plan has an initial booked (initial pending with an appointment date) or a service completed on or after the add-on date. The rest are counted in a "Not listed: N more" note, not dropped silently. The Commissions "Fix first" banner now loads the FieldRoutes snapshot itself so it can make the same check, and shows nothing until that is in.
+
+## 2026-11-24 — Add-ons with no rep: a real customer lists even with no appointment
+Isaac: "what if a rep forgets to schedule an appointment for the upsell WITH the add on?"
+An add-on with no appointment behind it still lists when the plan is active and has a completed service, a signed agreement or autopay on — flagged "not serviced since the add-on, check a visit is booked". Only frozen/cancelled plans and plans that never started (none of the three, e.g. #186193) stay off, and are counted in the note. The snapshot has no future-appointment date for existing customers, so the flag says to check rather than claiming none is booked.
+
+## 2026-11-24 — Add-ons task runs two checks: no rep, and no visit booked
+Isaac: "is the add on assigned to a rep and did they also book the appointment FOR that add on?"
+The task now covers every add-on, not only uncredited ones. No rep: as before. No visit: a real customer (active, with a completed service, signed agreement or autopay) with no initial booked, no service completed on or after the add-on date, and no next service on the plan's calendar (next_appt_date). One day's grace on the no-visit check. FieldRoutes books visits on the plan, not the add-on line, so "a visit for the add-on" means a visit on that plan on or after the add-on date. Each row is tagged No rep, No visit, or both.
+
+## 2026-11-24 — Channel metrics: descriptions out, pacer in the Read column
+Isaac: "get rid of the description and then on the read column get rid of the description and show like a pacer with revenue, spend, and projected".
+The card's header and footer sentences are gone. Under the Read pill, the sentence is replaced by a small grid: spend and revenue so far, and each projected to month end at the current daily pace (so far ÷ days gone × days in the month). Projected spend turns red when it lands over the budget. A closed month shows finals only. The reasoning sentence stays as the cell's hover text.
+
+## 2026-11-24 — Spend tab: every known lead vendor is a channel; "Not marketing" says where the charge belongs
+Isaac: Yelp was missing from "Pick a channel"; and the Advertising & Marketing account holds charges that are not marketing (Ruth's Chris = incentive, Kixie = technology, Wave = consulting/wages).
+The channel list now includes every vendor in the app's source list (Yelp, eLocal, Click-To-Buy…). "Not marketing" became four picks — Incentives, Technology, Wages & consulting, Other — all backed out of marketing spend exactly as before (rule stays SPQ_SKIP; the reason is kept in qbSkipWhy). The channel table shows the backed-out dollars by reason under the Total row. Nothing is moved into the incentives or wages tables automatically.
+
+## 2026-11-24 — Spend tab: Agency is a batch of named agencies
+Isaac: "I want them to be batched under agency but we have multiple agencies that can fall under that category too."
+The Agency pick is now a group: each agency by name, plus "+ New agency…". The rule stays SPQ_TOOLS, so agency dollars are still spread across markets with the media and the Agency row total is unchanged; the agency's name is kept beside the rule (qbAgency, list in agencies). The channel table shows one Agency row with a sub-row per agency (not added to the total twice). Charges already under Agency show as "Not named yet" until an agency is picked.
+
+## 2026-11-24 — Active ARR by branch: legend out, swatch in the Branch column
+Isaac: hide the legend under the bar (the columns below carry the same numbers); keep the segments clickable; put each branch's colour beside its name in the table.
+
+## 2026-11-24 — Channels × offices: performance only, the "no lead" red moved out
+Isaac asked whether the table duplicates the Auditing tasks. The red "+N no lead" layer did (Auditing → Attribution has No GHL lead and Source check on the same lookup), so it is gone from the cells; the header count links to Auditing. The table stays because it is the only place that shows leads, booked and booking rate by channel BY OFFICE. Also: Channel metrics Read pacer became two thin bars.
+
+## 2026-11-24 — Time to close: every row drills to its sales and leads
+Isaac: "let me drill down into each of those and see the data for those leads so I can verify we are pulling in things correctly."
+Clicking a channel (or All channels) opens the timed sales behind it, slowest first: customer, office, rep, FieldRoutes source, Pest AI source/channel/type/stage, lead-in and sold stamps (both on the Mountain clock), time to close, CSV export. Sales left out because the lead is stamped after the sale are listed at the bottom, marked not timed.
+
+## 2026-11-24 — Marketing → Media plan: the 2027 media calendar as a model in the app
+Isaac: use the "RIDD 2027 Media & Spend Calendar" sheet as budget projections across channels, adjustable, with plan, progress and what is excelling / lagging in one place.
+New sub-tab (integrations/marketing-plan.js). Levers, seasonal curve, LSA plan by month and channel mix are the sheet's values (built Nov 19) and are editable by admins; saved in adminRules.mediaPlan[year]. Arithmetic is the sheet's: budget = target × ratio; pool = budget − fee × 12 − LSA; month = pool × curve; channel = month × mix share. Checked against the sheet for the $7M case (total $2,730,000, pool $1,814,566, every month and the Facebook row to the dollar).
+The plan is each channel's monthly budget when nothing is typed on the Budget tab (mkbBudgetOf falls back to mkpBudgetFor), so Channel metrics reads it. Search and Performance Max are one "Google Ads" line for actuals because QuickBooks cannot split them.
+Read on Progress is derived, not typed: a channel's spend ÷ new revenue against the plan's media ratio ((budget − agency fee) ÷ target, 34.2% at the defaults); Excelling ≤ 85% of it, Lagging ≥ 115%, needs 5 sales.
+Not brought over: rep capacity & hiring, market flighting, the new-channels list, the 5–10M scenarios.
+OPEN: the sheet's 2026 base is $5.20M of inside-sales new revenue (Jan 1–Nov 18); the Marketing tab's own New revenue for 2026 reads $3.32M. Progress uses the Marketing tab's number, so the $7M target and the actuals are not yet on the same basis.
+
+## 2026-11-25 — Media plan: the 2026 base is $3.32M, not $5.20M
+Isaac: "we are only at 3.32m so that was a typo in that google sheet." The Marketing tab's New revenue is the right basis, so Progress and the target are on the same footing and nothing needs reconciling. The sheet will be rebuilt later once Isaac has the full picture; the levers in the app stay as they are until then.
