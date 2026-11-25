@@ -1620,7 +1620,8 @@ function reportingMarketingPnl() {
   // Unmapped GoHighLevel sources to-do (per Isaac, Nov 16): pinned under the sub-tab bar on every Marketing view.
   // The two to-do cards show on Metrics only (per Isaac, Nov 16) — not on Spend.
   const todo = null;   // Unmapped GoHighLevel sources moved to the Auditing tab (per Isaac, Nov 23)
-  const todoAds = sub !== 'providers' ? null : (() => { try { return typeof adOpenCampaignsTodoCard === 'function' ? adOpenCampaignsTodoCard() : null; } catch (e) { console.warn('[marketing] campaigns to-do', e); return null; } })();
+  // On Spend setup, not the Dashboard (per Isaac, Nov 25): placing a campaign in an office is setup work.
+  const todoAds = sub !== 'spend' ? null : (() => { try { return typeof adOpenCampaignsTodoCard === 'function' ? adOpenCampaignsTodoCard() : null; } catch (e) { console.warn('[marketing] campaigns to-do', e); return null; } })();
   // The Metrics/Spend bar pins under the Reporting tabs while the page scrolls (per Isaac, Nov 16).
   const _bar = _mktgYearBar(sub);
   return el('div', { class: 'flex flex-col gap-4' }, typeof reportingPinBar === 'function' ? reportingPinBar('mktg', _bar) : _bar, todo, todoAds, body);
