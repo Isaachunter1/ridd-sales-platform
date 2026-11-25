@@ -16,7 +16,8 @@ function mktgDashBlocks(ym) {
   const D = mklMonth(ym);
   const lbl = typeof _mklLblS === 'function' ? _mklLblS(ym) : ym;
   const heat = typeof mkxHeatCard === 'function' ? (() => { try { return mkxHeatCard(D, lbl); } catch (e) { console.warn('[marketing] heatmap', e); return null; } })() : null;   // weekday × hour (Nov 24)
-  return [mktgDashGridCard(D, lbl), mktgDashHoursCard(D, lbl), heat];
+  // The Channels × offices grid gave way to Office × channel at the top of the Dashboard (per Isaac, Nov 25); mktgDashGridCard stays in the code.
+  return [mktgDashHoursCard(D, lbl), heat];
 }
 function mktgDashGridCard(D, lbl) {
   const muted = { color: 'var(--text-muted)' };

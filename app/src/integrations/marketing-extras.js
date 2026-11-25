@@ -237,7 +237,7 @@ function mkxProviderPulseCard(ym, DR, rangeLbl) {
         return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
           el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap align-top' }, r.k),
           // Budget comes from the Budget tab (per Isaac, Nov 25) — shown here, typed there.
-          isRange ? null : td(r.budget ? el('div', { class: 'font-semibold' }, fmt.usd0(r.budget)) : (owner ? el('button', { class: 'text-[11px] underline', style: { color: 'var(--accent)' }, onclick: () => { state._mktSub = 'budget'; mountApp(); } }, 'set on Budget →') : '—'),
+          isRange ? null : td(r.budget ? el('div', { class: 'font-semibold' }, fmt.usd0(r.budget)) : (owner ? el('button', { class: 'text-[11px] underline', style: { color: 'var(--accent)' }, onclick: () => { state._mktSub = 'plan'; mountApp(); } }, 'set on Media plan →') : '—'),
             r.expS != null ? sub('should bring ' + fmt.int(Math.round(r.expS)) + ' bookings') : null),
           td(el('div', { class: 'font-semibold' }, r.c.spend ? fmt.usd0(r.c.spend) : '—'),
             used != null ? el('div', { style: { width: '110px', height: '6px', borderRadius: '999px', background: 'var(--card-2)', overflow: 'hidden', margin: '3px 0' } }, el('div', { style: { width: Math.min(100, used * 100) + '%', height: '100%', borderRadius: '999px', background: over ? '#DC2626' : lateRun ? '#D97706' : '#2F5D62' } })) : null,
@@ -323,4 +323,94 @@ function mkxOpenBrief() {
       el('div', { class: 'text-[10px] uppercase tracking-widest font-bold mb-1', style: { color: 'var(--text-subtle)' } }, 'Needs a look'),
       B.issues.length ? el('ul', { class: 'text-[12px] flex flex-col gap-1' }, ...B.issues.map(x => el('li', { style: { color: '#B45309' } }, '• ' + x))) : el('div', { class: 'text-[12px]', style: { color: '#15803D' } }, 'Nothing flagged.'))));
   document.body.append(overlay);
+}
+
+// ── Office × channel (per Isaac, Nov 25): the CMO view — new revenue, spend and acquisition cost for every office by
+// every channel on one table, one measure at a time. Offices across, channels down, a total row and column. Cells are
+// the Marketing tab's own (mklMonth → x[office][channel]): revenue and sales from FieldRoutes by the account's office
+// and last-touch source, leads from Pest AI, spend from QuickBooks as split to offices on Spend setup — so a cell's
+// spend is only as exact as that channel's split rule. A cost or rate on a thin cell is noise, not a signal: CAC and
+// return need 5 sales, close rate needs 10 leads; under that the cell is blank. Replaces Channels × offices.
+function mkxOfficeChannelCard(ym, cur, rangeLbl) {
+  if (typeof mklMonth !== 'function' || !cur) return null;
+  const S = state._mkxOC || (state._mkxOC = { metric: 'cv', span: 'month' });
+  const year = Number(ym.slice(0, 4)), mi = Number(ym.slice(5, 7)) - 1;
+  const fixed = !!cur.range;   // the page's own picker is already on a range
+  const D = fixed ? cur : S.span === 'ytd' && typeof mklRange === 'function' ? mklRange(year, mi, 0) : cur;
+  if (!D || !D.ch || !D.br) return null;
+  const skip = (k) => /^(Unspecified|No branch|Unmapped GHL source)$/.test(k);
+  const has = (c) => c && ((c.spend || 0) || (c.leads || 0) || (c.s || 0));
+  const offices = Object.keys(D.br).filter(k => !skip(k) && has(D.br[k])).sort((a, b) => (D.br[b].cv || 0) - (D.br[a].cv || 0) || a.localeCompare(b));
+  const channels = Object.keys(D.ch).filter(k => !skip(k) && _mkxShown(k) && has(D.ch[k])).sort((a, b) => (D.ch[b].cv || 0) - (D.ch[a].cv || 0) || (D.ch[b].spend || 0) - (D.ch[a].spend || 0) || a.localeCompare(b));
+  if (!offices.length || !channels.length) return null;
+  const X = D.x || {}, zero = { spend: 0, leads: 0, s: 0, cv: 0 };
+  const usd = (v) => v == null || !isFinite(v) ? null : fmt.usd0(v), int = (v) => v ? fmt.int(v) : null;
+  const sp = (c) => D.hasSpend ? (c.spend || 0) : null;
+  const linkedOf = (c) => c._linked != null ? c._linked : c.linked != null ? c.linked : (c.s || 0) - ((c.unlinked || []).length);
+  // Totals carry the linked count summed from their cells (the month's own totals do not hold it by office or channel).
+  const sumLinked = (pick) => { let t = 0; for (const o in (D.x || {})) for (const c in D.x[o]) if (pick(o, c)) t += linkedOf(D.x[o][c]); return t; };
+  const withLinked = (cell, pick) => Object.assign({}, cell, { _linked: sumLinked(pick) });
+  const M = {
+    cv:    { t: 'New revenue', get: (c) => c.cv || null, f: usd, up: true, tip: 'Contract value of new sales (initial booked or serviced), by the account’s office and FieldRoutes source' },
+    spend: { t: 'Spend', get: (c) => sp(c) || null, f: usd, up: null, tip: 'QuickBooks marketing spend, split to offices by each channel’s rule on Spend setup' },
+    cac:   { t: 'CAC', get: (c) => sp(c) > 0 && (c.s || 0) >= 5 ? sp(c) / c.s : null, f: usd, up: false, tip: 'Spend ÷ new sales. Blank under 5 sales.' },
+    s:     { t: 'New sales', get: (c) => c.s || null, f: int, up: true, tip: 'New sales: initial booked or serviced' },
+    leads: { t: 'Leads', get: (c) => c.leads || null, f: int, up: true, tip: 'Pest AI leads, by the lead’s office' },
+    // Close rate counts only sales that trace back to a lead (as the old Channels × offices grid did): a channel like
+    // Organic books sales that never were a Pest AI lead, and counting every sale read as 200%+.
+    close: { t: 'Close rate', get: (c) => (c.leads || 0) >= 10 ? linkedOf(c) / c.leads : null, f: (v) => v == null ? null : (v * 100).toFixed(0) + '%', up: true, tip: 'New sales that came from a lead / leads. Blank under 10 leads.' },
+    ret:   { t: 'Return', get: (c) => sp(c) > 0 && (c.s || 0) >= 5 ? (c.cv || 0) / sp(c) : null, f: (v) => v == null ? null : v.toFixed(1) + 'x', up: true, tip: 'New revenue ÷ spend. Blank under 5 sales.' } };
+  const m = M[S.metric] || M.cv;
+  const cellOf = (o, c) => (X[o] && X[o][c]) || zero;
+  const vals = channels.flatMap(c => offices.map(o => m.get(cellOf(o, c)))).filter(v => v != null && isFinite(v));
+  const max = vals.length ? Math.max(...vals) : 0, all = m.get({ spend: D.spend, leads: D.leads, s: D.s, cv: D.cv, _linked: D.linked != null ? D.linked : D.s });
+  // Shade: bigger = darker for the measures where more is the point; for CAC the colour says which side of the
+  // company-wide figure a cell sits on (green = cheaper, red = dearer by 25% or more).
+  const style = (v) => { if (v == null) return { color: 'var(--text-subtle)' };
+    if (m.up === false) return all ? { color: v <= all * 0.75 ? '#15803D' : v >= all * 1.25 ? '#DC2626' : 'var(--text)', fontWeight: v <= all * 0.75 || v >= all * 1.25 ? '800' : '500' } : {};
+    if (m.up === null || !max) return {};
+    const r = Math.min(1, v / max); return { background: 'rgba(95,108,91,' + (0.06 + 0.6 * r).toFixed(2) + ')', color: r > 0.55 ? '#fff' : 'var(--text)' }; };
+  const lbl = fixed ? (rangeLbl || 'range') : S.span === 'ytd' ? 'Jan–' + new Date(year, mi, 1).toLocaleDateString('en-US', { month: 'short' }) + ' ' + year : new Date(year, mi, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const open = (title, o, c, base) => () => { if (typeof _mkdOpenCell === 'function' && typeof _mkdAgg === 'function') _mkdOpenCell(title, _mkdAgg(D, o, c, base), D); };
+  const td = (v, title, onclick, strong, bandBg) => { const st = bandBg ? { background: bandBg } : style(v);
+    return el('td', { class: 'px-2 py-1.5 text-right tabular-nums whitespace-nowrap' + (onclick && v != null ? ' cursor-pointer' : ''), title: title || '', onclick: v != null ? onclick : null,
+      style: Object.assign({ borderLeft: '1px solid var(--border)', fontWeight: strong ? '800' : undefined }, st) }, m.f(v) || '—'); };
+  const th = (t, right) => el('th', { class: 'px-2 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
+  const seg = (opts, cur2, set) => el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } }, ...opts.map(([k, l, tip]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold', title: tip || '', style: cur2 === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { set(k); mountApp(); } }, l)));
+  const tcn = (o) => typeof _mktgTC === 'function' ? _mktgTC(o) : o;
+  return el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkt-officechannel' },
+    el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' },
+      el('h3', { class: 'text-base font-bold' }, m.t + ' by office and channel · ' + lbl),
+      el('span', { class: 'ml-auto' }),
+      seg(Object.keys(M).map(k => [k, M[k].t, M[k].tip]), S.metric in M ? S.metric : 'cv', (k) => { S.metric = k; }),
+      fixed ? null : seg([['month', 'Month'], ['ytd', 'Year to date']], S.span, (k) => { S.span = k; })),
+    (S.metric === 'spend' || S.metric === 'cac' || S.metric === 'ret') && !D.hasSpend ? el('div', { class: 'px-5 pb-2 text-[11px]', style: { color: '#B45309' } }, 'QuickBooks spend has not loaded, so there is nothing to show for this measure yet.') : null,
+    el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, th('Channel'), ...offices.map(o => th(tcn(o), true)), th('All offices', true))),
+      el('tbody', {},
+        ...channels.map(c => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          el('td', { class: 'px-3 py-1.5 font-semibold whitespace-nowrap', style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1 } }, c),
+          ...offices.map(o => { const cell = cellOf(o, c); return td(m.get(cell), c + ' · ' + tcn(o) + ' — click for the sales and leads', open(c + ' · ' + tcn(o), o, c, cell)); }),
+          td(m.get(withLinked(D.ch[c], (o2, c2) => c2 === c)), c + ' · all offices', open(c + ' · all offices', null, c, D.ch[c]), true, 'var(--card-2)'))),
+        el('tr', { style: { borderTop: '2px solid var(--text)', background: 'var(--card-2)' } },
+          el('td', { class: 'px-3 py-1.5 font-black', style: { position: 'sticky', left: 0, background: 'var(--card-2)', zIndex: 1 } }, 'All channels'),
+          ...offices.map(o => td(m.get(withLinked(D.br[o], (o2) => o2 === o)), tcn(o) + ' · all channels', open(tcn(o) + ' · all channels', o, null, D.br[o]), true, 'var(--card-2)')),
+          td(all, 'RIDD', null, true, 'var(--card-2)'))))));
+}
+
+// Channel metrics with its Month / Year-to-date switch (per Isaac, Nov 25 — plan vs actual in one place). Month is the
+// provider pulse; Year to date is the media plan's progress when the year has a plan, otherwise the same table over
+// the year so far (no budget to set it against).
+function mkxPulseBlock(ym, cur, RNG) {
+  if (RNG) return mkxProviderPulseCard(ym, cur, RNG.label || 'range');
+  const span = state._mkxPulseSpan === 'ytd' ? 'ytd' : 'month';
+  const year = Number(ym.slice(0, 4)), mi = Number(ym.slice(5, 7)) - 1;
+  let card = null;
+  if (span === 'ytd') { try { card = typeof mkpProgressCard === 'function' ? mkpProgressCard(year) : null; } catch (e) { card = null; }
+    if (!card && typeof mklRange === 'function') card = mkxProviderPulseCard(ym, mklRange(year, mi, 0), 'Jan\u2013' + new Date(year, mi, 1).toLocaleDateString('en-US', { month: 'short' }) + ' ' + year + ' (no plan for ' + year + ')'); }
+  else card = mkxProviderPulseCard(ym);
+  if (!card) return null;
+  const seg = el('div', { class: 'ml-auto inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } }, ...[['month', 'Month'], ['ytd', 'Year to date']].map(([k, l]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold', style: span === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._mkxPulseSpan = k; mountApp(); } }, l)));
+  try { const head = card.firstElementChild; if (head) { head.classList.add('flex', 'items-center', 'gap-3', 'flex-wrap'); head.appendChild(seg); } } catch (e) { /* no switch */ }
+  return card;
 }

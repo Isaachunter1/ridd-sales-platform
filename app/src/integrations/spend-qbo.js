@@ -102,6 +102,17 @@ function spqSetAgency(ym, L, name, onlyThis) { const m = _spqStore(); m.qbAgency
   if (onlyThis) { if (n) m.qbAgency[lk] = n; else delete m.qbAgency[lk]; } else { if (n) m.qbAgency[_spqKey(L.payee, L.memo)] = n; else delete m.qbAgency[_spqKey(L.payee, L.memo)]; delete m.qbAgency[lk]; }
   spqSetRule(ym, L, SPQ_TOOLS, onlyThis); }
 const SPQ_SKIP_CATS = ['Incentives', 'Technology', 'Wages & consulting', 'Other'];
+// Acquisition cost has three segments — marketing, wages, incentives (per Isaac, Nov 25). A charge booked to
+// Advertising & Marketing that is really a wage or an incentive is tagged as such on Spend setup: it leaves marketing
+// spend and is ADDED to that month's wages or incentives (mktgWagesMonth / mktgIncentivesMonth), so it still counts in
+// CAC under the right heading. Technology and Other leave acquisition cost altogether.
+function spqSegMonth(ym) {
+  const out = { wages: 0, incentives: 0, other: 0 };
+  try { const A = spqAllocMonth(ym); if (!A) return out;
+    for (const L of A.lines) { if (L.prov !== SPQ_SKIP || /^Sellify/.test(String(L.how || ''))) continue; const c = spqSkipWhy(ym, L);
+      if (c === 'Wages & consulting') out.wages += L.amt; else if (c === 'Incentives') out.incentives += L.amt; else out.other += L.amt; } } catch (e) { /* QuickBooks not in */ }
+  return out;
+}
 function spqSkipWhy(ym, L) { const m = _spqStore(), W = m.qbSkipWhy || {};
   return W['l:' + _spqLineKey(ym, L.day, L.payee, L.memo, L.amt, L.txn)] || W[_spqKey(L.payee, L.memo)] || 'Other'; }
 function spqSetSkip(ym, L, cat, onlyThis) { const m = _spqStore(); m.qbSkipWhy = (m.qbSkipWhy && typeof m.qbSkipWhy === 'object') ? m.qbSkipWhy : {};
