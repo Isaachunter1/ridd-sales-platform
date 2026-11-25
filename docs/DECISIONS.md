@@ -207,3 +207,6 @@ The plan is each channel's monthly budget when nothing is typed on the Budget ta
 Read on Progress is derived, not typed: a channel's spend ÷ new revenue against the plan's media ratio ((budget − agency fee) ÷ target, 34.2% at the defaults); Excelling ≤ 85% of it, Lagging ≥ 115%, needs 5 sales.
 Not brought over: rep capacity & hiring, market flighting, the new-channels list, the 5–10M scenarios.
 OPEN: the sheet's 2026 base is $5.20M of inside-sales new revenue (Jan 1–Nov 18); the Marketing tab's own New revenue for 2026 reads $3.32M. Progress uses the Marketing tab's number, so the $7M target and the actuals are not yet on the same basis.
+
+## 2026-11-25 — Media plan: the 2026 base is $3.32M, not $5.20M
+Isaac: "we are only at 3.32m so that was a typo in that google sheet." The Marketing tab's New revenue is the right basis, so Progress and the target are on the same footing and nothing needs reconciling. The sheet will be rebuilt later once Isaac has the full picture; the levers in the app stay as they are until then.
