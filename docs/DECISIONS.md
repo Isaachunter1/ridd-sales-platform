@@ -301,3 +301,14 @@ column, shown as the gap), top cancel reason with its share of the book, share o
 first year, autopay, multi-year, past due 30+. The five "lost in N–N months" columns became one; the full timing
 stays in the office comparison. Order in the pop-up: office table, the clicked office's comparison, then patterns,
 insights and trends. No definition changed: same book and windows as before.
+
+## 2026-11-25 · Retention Insights: patterns, insights and trends by office
+Per Isaac: one row an office (company first), three columns. What's happening = everything that used to sit under
+Act on now / Outliers / Patterns for that office. Trend = against the year before: the rate, the cancel reason that
+grew most and the one that shrank most as a share of the book (1 pt or more), and whether losses are coming earlier
+(first-year share of losses, 5 pts or more). Why, and what it costs = how much of the gap to the company is the
+office's mix and how much is the office; the reason and the stretch of the customer's life where the gap sits;
+the accounts and yearly value the gap is worth (gap × the office's book × the average yearly value of an account it
+lost — marked "about"); and active accounts 30+ days past due with their yearly value.
+Every line is arithmetic on the same book and windows as the office table. Trend needs an earlier year, so it shows
+only in Trailing 12 months and calendar-year views; trailing 12 months is compared with the last full calendar year.

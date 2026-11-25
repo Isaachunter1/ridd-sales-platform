@@ -116,7 +116,13 @@ function retenBranchInsightsData() {
       for (const r of P.rows.boy) { const o = String(r.office_name || '—').trim(); pb[o] = (pb[o] || 0) + 1; }
       for (const r of P.rows.counted) { const o = String(r.office_name || '—').trim(); pc[o] = (pc[o] || 0) + 1; }
       const by = {}; for (const o in pb) if (pb[o] >= RI_MIN_BASE) by[o] = (pc[o] || 0) / pb[o];
-      prior = { year: py, company: P.rows.boy.length ? P.rows.counted.length / P.rows.boy.length : null, by };
+      // Full stats for the year before, company and each office (per Isaac, Nov 25 — trends by office): which
+      // reasons grew or shrank and whether losses are coming earlier, on the same definitions as the current window.
+      const gb = new Map(), gc = new Map();
+      for (const r of P.rows.boy) { const o = String(r.office_name || '—').trim(); (gb.get(o) || gb.set(o, []).get(o)).push(r); }
+      for (const r of P.rows.counted) { const o = String(r.office_name || '—').trim(); (gc.get(o) || gc.set(o, []).get(o)).push(r); }
+      const S = {}; for (const o in by) S[o] = _riStats(gb.get(o) || [], gc.get(o) || []);
+      prior = { year: py, company: P.rows.boy.length ? P.rows.counted.length / P.rows.boy.length : null, by, S, companyS: _riStats(P.rows.boy, P.rows.counted) };
     }
   } catch (e) { prior = null; }
   const out = { company, branches, ranked, rels, st, en, label, mode, years, isBranchYr: !!bm, notReady, prior };
@@ -202,51 +208,88 @@ function retenInsightsCard() {
   const relLines = D.rels.filter(x => Math.abs(x.r) >= 0.45).sort((a, b) => Math.abs(b.r) - Math.abs(a.r)).map(x =>
     el('div', { class: 'text-[11px]' }, '• Offices with a higher ', el('b', {}, x.label), x.r < 0 ? ' tend to have LOWER attrition' : ' tend to have HIGHER attrition', el('span', { style: { color: 'var(--text-muted)' } }, ' (r = ' + x.r.toFixed(2) + ' across ' + D.ranked.length + ' offices)')));
 
-  // ── Patterns, insights & trends (per Isaac, Nov 19): what needs noticing — act-now items, outliers, trends, patterns ──
+  // ── Patterns, insights & trends, BY OFFICE (per Isaac, Nov 25): one row an office, three columns —
+  //   What's happening (everything that used to sit under Act on now / Outliers / Patterns),
+  //   Trend (against the year before), and Why (what drives it, when it happens, what it costs).
+  // Every line is arithmetic on the same book as the table above; nothing is a guess at a cause the data can't show.
   const insightsBlock = (() => {
     const RK = D.ranked; if (!RK.length) return null;
     const P = (v, d) => pct(v, d == null ? 1 : d);
+    const dotOf = { bad, good, warn: '#D97706', mute: 'var(--border-2)' };
     const item = (tone, head, text, rows, title) => el('div', { class: 'flex items-start gap-2 text-[12px]' + (rows && rows.length ? ' cursor-pointer hover:brightness-95' : ''), onclick: rows && rows.length ? drill(title || head, rows) : null, title: rows && rows.length ? 'Click for the accounts' : '' },
-      el('span', { style: { width: '8px', height: '8px', borderRadius: '50%', marginTop: '5px', flexShrink: 0, background: tone === 'bad' ? bad : tone === 'good' ? good : '#D97706' } }),
-      el('span', {}, el('b', {}, head), ' ', text));
-    const act = [], outl = [], trend = [], patt = [];
-    // 1 · Underperforming on a like-for-like book (performance, not mix)
-    RK.map(b => ({ b, d: (b.rate || 0) - (b.expected || 0) })).filter(x => x.d >= 0.02).sort((a, b) => b.d - a.d)
-      .forEach(x => act.push(item('bad', tc(x.b.name) + ' is ' + pts(x.d).replace('+', '') + ' worse than its mix predicts', '(' + P(x.b.rate) + ' lost vs ' + P(x.b.expected) + ' expected) — a performance gap, not the contracts or channels it sells.', x.b.cancelRows, tc(x.b.name) + ' · cancels')));
-    // 2 · A cancel reason running hot in one office
-    for (const b of RK) {
-      let top = null;
-      for (const k in b.reasons) { const bs = b.reasons[k] / b.base, cs = (C.reasons[k] || 0) / C.base, d = bs - cs; if (d >= 0.015 && (!top || d > top.d)) top = { k, bs, cs, d, n: b.reasons[k] }; }
-      if (top) act.push(item('bad', tc(b.name) + ' loses ' + P(top.bs) + ' of its book to ' + top.k, 'vs ' + P(top.cs) + ' company-wide (' + pts(top.d) + ', ' + n(top.n) + ' accounts).', b.cancelRows.filter(r => (String(reportingCancelReasonOf(r) || 'Unspecified').trim() || 'Unspecified') === top.k), tc(b.name) + ' · ' + top.k));
-    }
-    // 3 · Collections: past due well above the company
-    for (const b of RK) {
-      if (b.pastDuePct == null || C.pastDuePct == null || b.pastDue < 15 || b.pastDuePct < C.pastDuePct * 1.4) continue;
-      const rows = b.baseRows.filter(r => !r._effCancel && (Number(r.days_past_due) || 0) >= 30);
-      act.push(item('bad', tc(b.name) + ': ' + n(b.pastDue) + ' active accounts 30+ days past due', '(' + P(b.pastDuePct) + ' vs ' + P(C.pastDuePct) + ' company) — next quarter’s cancels; work the list now.', rows, tc(b.name) + ' · 30+ days past due'));
-    }
-    // 4 · Early-life churn concentrated in one office (onboarding / first bills)
-    const early = (x) => ((x.bandPct || [])[0] || 0) + ((x.bandPct || [])[1] || 0);
-    for (const b of RK) { const d = early(b) - early(C); if (d >= 0.08 && b.cancels >= 30) act.push(item('warn', tc(b.name) + ': ' + P(early(b), 0) + ' of its cancels come in the first 12 months', 'vs ' + P(early(C), 0) + ' company — onboarding, first bills and the first service visits.', b.cancelRows.filter(r => { const l = semLifeMonths(r); return l != null && l < 12; }), tc(b.name) + ' · lost in months 0–12')); }
-    // Outliers: more than 1.2 standard deviations from the office average; small offices that run far off the company
+      el('span', { style: { width: '8px', height: '8px', borderRadius: '50%', marginTop: '5px', flexShrink: 0, background: dotOf[tone] || dotOf.warn } }),
+      el('span', {}, head ? el('b', {}, head) : null, head ? ' ' : '', text));
+    const reasonOf = (r) => String(reportingCancelReasonOf(r) || 'Unspecified').trim() || 'Unspecified';
+    const PR = D.prior, PS = (PR && PR.S) || null;
     const rates = RK.map(b => b.rate || 0), mu = rates.reduce((a, v) => a + v, 0) / rates.length, sd = Math.sqrt(rates.reduce((a, v) => a + (v - mu) ** 2, 0) / rates.length) || 0;
-    if (sd > 0) RK.forEach(b => { const z = ((b.rate || 0) - mu) / sd; if (Math.abs(z) >= 1.2) outl.push(item(z > 0 ? 'bad' : 'good', tc(b.name) + (z > 0 ? ' is the high outlier' : ' is the low outlier'), P(b.rate) + ' vs a ' + P(mu) + ' office average (' + (z > 0 ? '+' : '−') + Math.abs(z).toFixed(1) + ' sd)' + (z < 0 ? ' — worth copying what it does.' : '.'), z > 0 ? b.cancelRows : null, tc(b.name) + ' · cancels')); });
-    D.branches.filter(b => b.base < RI_MIN_BASE && b.base >= 30 && C.rate != null && (b.rate || 0) >= C.rate + 0.10).forEach(b => outl.push(item('warn', tc(b.name) + ' (small, ' + n(b.base) + ' accounts)', 'is running ' + P(b.rate) + ' vs ' + P(C.rate) + ' company — too small to rank, big enough to watch.', b.cancelRows, tc(b.name) + ' · cancels')));
-    // Trends: vs the year before this window
-    const PR = D.prior;
-    if (PR && PR.company != null && C.rate != null) {
-      const dc = C.rate - PR.company;
-      trend.push(item(dc > 0.01 ? 'bad' : dc < -0.01 ? 'good' : 'warn', 'Company ' + (dc > 0.005 ? 'worsening' : dc < -0.005 ? 'improving' : 'flat') + ':', P(C.rate) + ' now vs ' + P(PR.company) + ' in ' + PR.year + ' (' + pts(dc) + ').'));
-      RK.map(b => ({ b, was: PR.by[b.name] })).filter(x => x.was != null).map(x => Object.assign(x, { d: (x.b.rate || 0) - x.was })).filter(x => Math.abs(x.d) >= 0.03).sort((a, b) => b.d - a.d)
-        .forEach(x => trend.push(item(x.d > 0 ? 'bad' : 'good', tc(x.b.name) + (x.d > 0 ? ' getting worse:' : ' getting better:'), P(x.b.rate) + ' vs ' + P(x.was) + ' in ' + PR.year + ' (' + pts(x.d) + ').')));
-    }
-    // Patterns: what travels with attrition across offices (correlation), plus mix levers below the company
-    D.rels.filter(x => Math.abs(x.r) >= 0.45).sort((a, b) => Math.abs(b.r) - Math.abs(a.r)).forEach(x => patt.push(item('warn', 'Higher ' + x.label, (x.r < 0 ? '→ lower attrition' : '→ higher attrition') + ' across offices (r = ' + x.r.toFixed(2) + ', ' + RK.length + ' offices).')));
-    RK.filter(b => b.apPct != null && C.apPct != null && b.apPct <= C.apPct - 0.08).forEach(b => patt.push(item('warn', tc(b.name) + ' autopay ' + P(b.apPct, 0), 'vs ' + P(C.apPct, 0) + ' company — set autopay at the sale.')));
-    RK.filter(b => b.multiPct != null && C.multiPct != null && b.multiPct <= C.multiPct - 0.08).forEach(b => patt.push(item('warn', tc(b.name) + ' multi-year ' + P(b.multiPct, 0), 'vs ' + P(C.multiPct, 0) + ' company — fewer long agreements in the book.')));
-    const grp = (title, list) => list.length ? el('div', { class: 'flex flex-col gap-1.5' }, el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, title), ...list) : null;
-    const body = [grp('Act on now', act), grp('Outliers', outl), grp('Trends' + (PR ? ' · vs ' + PR.year : ''), trend), grp('Patterns', patt)].filter(Boolean);
-    return body.length ? sec('Patterns, insights & trends', null, el('div', { class: 'grid gap-4', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' } }, ...body)) : null;
+    const early = (x) => x.firstYrPct || 0;
+    const pdRowsOf = (b) => b.baseRows.filter(r => !r._effCancel && (Number(r.days_past_due) || 0) >= 30);
+    const arvOf = (rows) => rows.reduce((t, r) => t + (Number(r.annual_recurring_value) || 0), 0);
+    // Reasons as a share of the book: this window vs another set of stats (the company, or the same office a year before).
+    const reasonGaps = (b, o) => [...new Set(Object.keys(b.reasons).concat(Object.keys(o.reasons)))].map(k => ({ k, b: (b.reasons[k] || 0) / b.base, c: o.base ? (o.reasons[k] || 0) / o.base : 0, n: b.reasons[k] || 0 })).map(x => Object.assign(x, { d: x.b - x.c }));
+
+    const happening = (b) => { const out = [], nm = tc(b.name), small = b.base < RI_MIN_BASE;
+      if (small) { out.push(item((b.rate || 0) >= (C.rate || 0) + 0.10 ? 'warn' : 'mute', 'Small office (' + n(b.base) + ' accounts):', P(b.rate) + ' vs ' + P(C.rate) + ' company — too small to rank' + ((b.rate || 0) >= (C.rate || 0) + 0.10 ? ', big enough to watch.' : '.'), b.cancelRows, nm + ' · lost')); return out; }
+      const dMix = (b.rate || 0) - (b.expected || 0);
+      if (dMix >= 0.02) out.push(item('bad', pts(dMix).replace('+', '') + ' worse than its mix predicts', '(' + P(b.rate) + ' lost vs ' + P(b.expected) + ' expected).', b.cancelRows, nm + ' · lost'));
+      else if (dMix <= -0.02) out.push(item('good', pts(dMix).replace('−', '') + ' better than its mix predicts', '(' + P(b.rate) + ' lost vs ' + P(b.expected) + ' expected).'));
+      if (sd > 0) { const z = ((b.rate || 0) - mu) / sd; if (Math.abs(z) >= 1.2) out.push(item(z > 0 ? 'bad' : 'good', z > 0 ? 'The high outlier:' : 'The low outlier:', P(b.rate) + ' vs a ' + P(mu) + ' office average.')); }
+      const hot = reasonGaps(b, C).filter(x => x.d >= 0.015).sort((x, y) => y.d - x.d)[0];
+      if (hot) out.push(item('bad', hot.k + ' is running hot:', P(hot.b) + ' of its book vs ' + P(hot.c) + ' company (' + n(hot.n) + ' accounts).', b.cancelRows.filter(r => reasonOf(r) === hot.k), nm + ' · ' + hot.k));
+      if (b.pastDuePct != null && C.pastDuePct != null && b.pastDue >= 15 && b.pastDuePct >= C.pastDuePct * 1.4) out.push(item('bad', n(b.pastDue) + ' active accounts 30+ days past due', '(' + P(b.pastDuePct) + ' vs ' + P(C.pastDuePct) + ' company).', pdRowsOf(b), nm + ' · 30+ days past due'));
+      if (early(b) - early(C) >= 0.08 && b.cancels >= 30) out.push(item('warn', P(early(b), 0) + ' of its losses are first-year customers', 'vs ' + P(early(C), 0) + ' company.', b.cancelRows.filter(r => { const l = semLifeMonths(r); return l != null && l < 12; }), nm + ' · lost in the first 12 months'));
+      if (b.apPct != null && C.apPct != null && b.apPct <= C.apPct - 0.08) out.push(item('warn', 'Autopay ' + P(b.apPct, 0), 'vs ' + P(C.apPct, 0) + ' company.'));
+      if (b.multiPct != null && C.multiPct != null && b.multiPct <= C.multiPct - 0.08) out.push(item('warn', 'Multi-year ' + P(b.multiPct, 0), 'vs ' + P(C.multiPct, 0) + ' company — fewer long agreements.'));
+      if (!out.length) out.push(item('mute', '', 'In line with the company: ' + P(b.rate) + ' vs ' + P(C.rate) + ', nothing flagged.'));
+      return out; };
+
+    const trendOf = (b, was) => { const out = [];
+      if (!was || was.rate == null || b.rate == null) { out.push(item('mute', '', PR ? 'No ' + PR.year + ' number to compare (too small or not open then).' : 'This view has no earlier year to compare — use Trailing 12 months or a calendar year.')); return out; }
+      const d = b.rate - was.rate;
+      out.push(item(d > 0.01 ? 'bad' : d < -0.01 ? 'good' : 'mute', d > 0.01 ? 'Getting worse:' : d < -0.01 ? 'Getting better:' : 'Flat:', P(b.rate) + ' now vs ' + P(was.rate) + ' in ' + PR.year + ' (' + pts(d) + ').'));
+      const mv = reasonGaps(b, was).filter(x => Math.abs(x.d) >= 0.01).sort((x, y) => y.d - x.d);
+      const up = mv[0] && mv[0].d > 0 ? mv[0] : null, dn = mv.length && mv[mv.length - 1].d < 0 ? mv[mv.length - 1] : null;
+      if (up) out.push(item('bad', up.k + ' is growing:', P(up.b) + ' of the book vs ' + P(up.c) + ' in ' + PR.year + ' (' + pts(up.d) + ').', b.cancelRows.filter(r => reasonOf(r) === up.k), tc(b.name || 'Company') + ' · ' + up.k));
+      if (dn) out.push(item('good', dn.k + ' is shrinking:', P(dn.b) + ' of the book vs ' + P(dn.c) + ' in ' + PR.year + ' (' + pts(dn.d) + ').'));
+      const de = early(b) - early(was);
+      if (Math.abs(de) >= 0.05 && b.cancels >= 30 && was.cancels >= 30) out.push(item(de > 0 ? 'bad' : 'good', de > 0 ? 'Losing customers earlier:' : 'Losing customers later:', P(early(b), 0) + ' of losses were first-year customers vs ' + P(early(was), 0) + ' in ' + PR.year + '.'));
+      return out; };
+
+    const whyOf = (b) => { const out = [], nm = tc(b.name);
+      if (b.base < RI_MIN_BASE) { out.push(item('mute', '', 'Too few accounts for a reliable read on what drives it.')); return out; }
+      const gap = (b.rate || 0) - (C.rate || 0), mixGap = (b.expected || 0) - (C.rate || 0), perf = (b.rate || 0) - (b.expected || 0);
+      if (Math.abs(gap) >= 0.01) out.push(item('mute', 'Mix or the office:', 'of its ' + pts(gap) + ' against the company, ' + pts(mixGap) + ' is what it sells (contract lengths and channels) and ' + pts(perf) + ' is how the office performs on the same kind of account.'));
+      const rg = reasonGaps(b, C).sort((x, y) => gap >= 0 ? y.d - x.d : x.d - y.d)[0];
+      if (rg && Math.abs(rg.d) >= 0.005) out.push(item('mute', gap >= 0 ? 'Biggest driver:' : 'Where it does best:', rg.k + ' — ' + P(rg.b) + ' of the book vs ' + P(rg.c) + ' company (' + pts(rg.d) + ').', gap >= 0 ? b.cancelRows.filter(r => reasonOf(r) === rg.k) : null, nm + ' · ' + rg.k));
+      const lf = RI_LIFE.map(L => ({ L, d: (b.life[L.k] || 0) / b.base - (C.life[L.k] || 0) / C.base, n: b.life[L.k] || 0 })).sort((x, y) => gap >= 0 ? y.d - x.d : x.d - y.d)[0];
+      if (lf && Math.abs(lf.d) >= 0.005) out.push(item('mute', gap >= 0 ? 'When:' : 'Holds best in', (gap >= 0 ? 'the excess sits in ' : '') + lf.L.label.toLowerCase() + ' (' + lf.L.note + '), ' + pts(lf.d) + ' against the company.', gap >= 0 ? b.cancelRows.filter(r => { const l = semLifeMonths(r); return l != null && l >= lf.L.lo && l < lf.L.hi; }) : null, nm + ' · ' + lf.L.label));
+      const extra = Math.round(gap * b.base), avg = b.cancels ? (b.arvLost || 0) / b.cancels : 0;
+      if (extra >= 5) out.push(item('bad', 'What it costs:', 'at the company’s rate it would have kept about ' + n(extra) + ' more accounts, about ' + fmt.usd0(extra * avg) + ' a year.'));
+      else if (extra <= -5) out.push(item('good', 'What it saves:', 'it kept about ' + n(-extra) + ' more accounts than the company’s rate would have, about ' + fmt.usd0(-extra * avg) + ' a year.'));
+      const pd = pdRowsOf(b);
+      if (pd.length >= 10) out.push(item('warn', 'At risk next:', n(pd.length) + ' active accounts are 30+ days past due, worth ' + fmt.usd0(arvOf(pd)) + ' a year.', pd, nm + ' · 30+ days past due'));
+      return out; };
+
+    // Company row: what holds across offices.
+    const coHappen = D.rels.filter(x => Math.abs(x.r) >= 0.45).sort((a, b) => Math.abs(b.r) - Math.abs(a.r)).map(x => item('warn', 'Higher ' + x.label, (x.r < 0 ? 'goes with lower attrition' : 'goes with higher attrition') + ' across offices (r = ' + x.r.toFixed(2) + ', ' + RK.length + ' offices).'));
+    { const over = RK.filter(b => (b.rate || 0) - (b.expected || 0) >= 0.02).length; coHappen.unshift(item(over ? 'warn' : 'mute', n(over) + ' of ' + RK.length + ' offices', 'lose more than their mix predicts.')); }
+    const coWhy = [];
+    if (C.topReason) coWhy.push(item('mute', 'Biggest driver:', C.topReason.k + ' — ' + P(C.topReason.pct) + ' of the book (' + n(C.topReason.n) + ' accounts).', C.cancelRows.filter(r => reasonOf(r) === C.topReason.k), 'Company · ' + C.topReason.k));
+    coWhy.push(item('bad', 'What it costs:', n(C.cancels) + ' accounts lost, worth ' + fmt.usd0(C.arvLost || 0) + ' a year.', C.cancelRows, 'Company · lost'));
+    { const pd = pdRowsOf(C); if (pd.length) coWhy.push(item('warn', 'At risk next:', n(pd.length) + ' active accounts are 30+ days past due, worth ' + fmt.usd0(arvOf(pd)) + ' a year.', pd, 'Company · 30+ days past due')); }
+
+    const hd = (t, w) => el('th', { class: 'px-3 py-2 text-left text-[10px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)', background: 'var(--card-2)', width: w || '' } }, t);
+    const cell = (list) => el('td', { class: 'px-3 py-2.5 align-top' }, el('div', { class: 'flex flex-col gap-1.5' }, ...list));
+    const line = (name, sub, a, t, w, isCo) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: isCo ? 'var(--card-2)' : '' } },
+      el('td', { class: 'px-3 py-2.5 align-top whitespace-nowrap' }, el('div', { class: 'text-[13px] font-black' }, name), el('div', { class: 'text-[11px] tabular-nums', style: { color: 'var(--text-muted)' } }, sub)),
+      cell(a), cell(t), cell(w));
+    const small = D.branches.filter(b => b.base < RI_MIN_BASE && b.base >= 30);
+    const rowsEl = [line(D.isBranchYr ? 'All offices' : 'Company', P(C.rate) + ' lost', coHappen, trendOf(C, PR && PR.companyS), coWhy, true),
+      ...RK.concat(small).map(b => line(tc(b.name), P(b.rate) + ' lost' + (b.rank ? ' · #' + b.rank + ' of ' + RK.length : ''), happening(b), trendOf(b, PS && PS[b.name]), whyOf(b)))];
+    return sec('Patterns, insights & trends · by office', 'Click a line with accounts behind it to see them.',
+      el('div', { class: 'scroll-x rounded-xl border', style: { borderColor: 'var(--border)' } }, el('table', { class: 'w-full', style: { borderCollapse: 'collapse', minWidth: '900px' } },
+        el('thead', {}, el('tr', {}, hd('Office', '150px'), hd('What’s happening', '32%'), hd('Trend' + (PR ? ' · vs ' + PR.year : ''), '28%'), hd('Why, and what it costs'))),
+        el('tbody', {}, ...rowsEl))));
   })();
   let focusBlock = null;
   const _nr = focus && !B && (D.notReady || []).find(x => x.name === focus);
