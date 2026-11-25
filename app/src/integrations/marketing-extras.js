@@ -112,31 +112,38 @@ function mkxPaybackCard(ym) {
   if (typeof mklMonth !== 'function' || typeof ltvModel !== 'function') return null;
   const year = Number(String(ym).slice(0, 4)), last = Number(String(ym).slice(5, 7));
   if (!(year > 2000) || !(last >= 1)) return null;
-  const head = el('div', { class: 'px-5 py-3 flex items-baseline gap-3 flex-wrap' }, el('h3', { class: 'text-base font-bold' }, 'Channel payback · ' + year + ' to date'));
+  // By channel or by office (per Isaac, Nov 25 — payback against CAC "by channel and office").
+  const by = state._mkxPayBy === 'br' ? 'br' : 'ch';
+  const seg = el('div', { class: 'ml-auto inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } }, ...[['ch', 'By channel'], ['br', 'By office']].map(([k, l]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold', style: by === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._mkxPayBy = k; mountApp(); } }, l)));
+  const title = 'Payback and lifetime value · ' + (by === 'br' ? 'by office' : 'by channel') + ' · ' + year + ' to date';
+  const head = el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap' }, el('h3', { class: 'text-base font-bold' }, title), seg);
   if (!state._ltv) return el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkt-payback' }, head,
-    el('div', { class: 'px-5 pb-4 text-sm', style: _mkxMuted }, state._ltvMissing ? 'Needs the LTV cohort file, which has not been published yet (it is built nightly by the ltv-cohorts server job).' : 'Loading the LTV cohorts…'));
+    el('div', { class: 'px-5 pb-4 text-sm flex items-center gap-3 flex-wrap', style: _mkxMuted }, state._ltvMissing ? 'This needs the customer lifetime file, which has not been built yet. It adds up what every customer has paid, month by month since they started.' : 'Loading customer lifetimes…',
+      state._ltvMissing && typeof _ltvKick === 'function' && typeof isAdminRole === 'function' && isAdminRole(state.profile && state.profile.role) ? el('button', { class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: (ev) => _ltvKick(ev.currentTarget) }, 'Build it now (1–2 min)') : null));
+  const skip = (k) => /^(Unspecified|No branch|Unmapped GHL source)$/.test(k);
   const agg = {};
   for (let i = 1; i <= last; i++) {
-    const M = mklMonth(year + '-' + String(i).padStart(2, '0')); if (!M || !M.ch || !M.hasSpend) continue;
-    for (const k in M.ch) { if (!_mkxShown(k)) continue; const c = M.ch[k], t = agg[k] || (agg[k] = { spend: 0, svc: 0 }); t.spend += c.spend || 0; t.svc += c.svc || 0; }
+    const M = mklMonth(year + '-' + String(i).padStart(2, '0')); if (!M || !M[by] || !M.hasSpend) continue;
+    for (const k in M[by]) { if (skip(k) || (by === 'ch' && !_mkxShown(k))) continue; const c = M[by][k], t = agg[k] || (agg[k] = { spend: 0, svc: 0 }); t.spend += c.spend || 0; t.svc += c.svc || 0; }
   }
   const margin = typeof ltvMargin === 'function' ? ltvMargin() : null;
+  const gidOf = (k) => by === 'br' ? (typeof _ltvOfficeGid === 'function' ? _ltvOfficeGid(k, 'office') : null) : 'source:' + k;
   const rows = Object.keys(agg).filter(k => agg[k].spend > 0 && agg[k].svc > 0).map(k => {
     const cac = agg[k].spend / agg[k].svc;
-    const own = ltvModel('source:' + k, { horizon: 36, margin });
+    const gid = gidOf(k), own = gid ? ltvModel(gid, { horizon: 36, margin }) : null;
     const M = own || ltvModel('seller:office', { horizon: 36, margin });
-    return { k, cac, svc: agg[k].svc, spend: agg[k].spend, pb: M ? M.payback(cac) : null, ltv: M ? M.ltv : null, own: !!own, n: own ? own.nAll : 0, seen: M ? M.observedTo : 0 };
+    return { k, cac, svc: agg[k].svc, spend: agg[k].spend, pb: M ? M.payback(cac) : null, ltv: M ? M.ltv : null, ret12: M ? M.ret12 : null, own: !!own, n: own ? own.nAll : 0, seen: M ? M.observedTo : 0 };
   }).sort((a, b) => (a.pb == null ? 999 : a.pb) - (b.pb == null ? 999 : b.pb) || a.cac - b.cac);
-  if (!rows.length) return el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkt-payback' }, head, el('div', { class: 'px-5 pb-4 text-sm', style: _mkxMuted }, 'No channel has both spend and new sales for ' + year + ' yet.'));
+  if (!rows.length) return el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkt-payback' }, head, el('div', { class: 'px-5 pb-4 text-sm', style: _mkxMuted }, 'Nothing has both spend and serviced new sales for ' + year + ' yet.'));
   const th = (t, tip) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap text-left', title: tip || '', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
   const col = (m) => m == null ? '#B91C1C' : m <= 6 ? '#15803D' : m <= 12 ? '#65A30D' : m <= 18 ? '#D97706' : '#B91C1C';
+  const tcn = (k) => by === 'br' && typeof _mktgTC === 'function' ? _mktgTC(k) : k;
   return el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkt-payback' },
-    el('div', { class: 'px-5 py-3 flex items-baseline gap-3 flex-wrap' }, el('h3', { class: 'text-base font-bold' }, 'Channel payback · ' + year + ' to date'),
-      el('span', { class: 'text-[11px]', style: _mkxMuted }, 'Months until a customer has paid back what it cost to get them' + (margin ? ' · at ' + Math.round(margin) + '% gross margin' : ' · on revenue (no margin set)') + ' · marketing spend only')),
+    head,
     el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-      el('thead', {}, el('tr', {}, th('Channel'), th('Payback', 'First month where cumulative ' + (margin ? 'margin' : 'revenue') + ' per customer reaches the CAC'), th('CAC', 'Marketing spend ÷ new sales (initial pending or serviced), year to date — the Marketing CAC tile\u2019s rule'), th('36-mo LTV', 'What one customer pays over 36 months' + (margin ? ', at margin' : '')), th('LTV ÷ CAC'), th('New sales'), th('Curve', 'Whose retention / revenue curve the payback uses'))),
+      el('thead', {}, el('tr', {}, th(by === 'br' ? 'Office' : 'Channel'), th('Payback', 'First month where what one customer has paid' + (margin ? ', at ' + Math.round(margin) + '% gross margin,' : '') + ' reaches the CAC'), th('CAC', 'Marketing spend ÷ serviced new sales, year to date. Marketing spend only: wages and incentives are not in this CAC.'), th('36-mo value', 'What one customer pays over 36 months' + (margin ? ', at ' + Math.round(margin) + '% gross margin' : ' (revenue, no margin set)')), th('Value ÷ CAC', '36-month value ÷ CAC'), th('Kept 12 mo', 'Share of customers still paying a year after they started'), th('New sales', 'Serviced new sales, year to date'), th('Lifetime from', 'Whose customers the lifetime is measured on'))),
       el('tbody', {}, ...rows.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-        el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, r.k),
+        el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, tcn(r.k)),
         el('td', { class: 'px-3 py-2', style: { minWidth: '200px' } }, el('div', { class: 'flex items-center gap-2' },
           el('div', { style: { flex: '1 1 auto', height: '8px', borderRadius: '999px', background: 'var(--card-2)', overflow: 'hidden' } },
             el('div', { style: { width: (r.pb == null ? 100 : Math.min(100, r.pb / 36 * 100)) + '%', height: '100%', background: col(r.pb), borderRadius: '999px', opacity: r.pb == null ? '.35' : '1' } })),
@@ -144,8 +151,9 @@ function mkxPaybackCard(ym) {
         el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap' }, fmt.usd0(r.cac)),
         el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap' }, r.ltv ? fmt.usd0(r.ltv) : '—'),
         el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap font-bold' }, r.ltv ? (r.ltv / r.cac).toFixed(1) + 'x' : '—'),
+        el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap' }, r.ret12 != null ? Math.round(r.ret12 * 100) + '%' : '—'),
         el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap' }, fmt.int(r.svc)),
-        el('td', { class: 'px-3 py-2 text-[11px] whitespace-nowrap', style: _mkxMuted }, r.own ? 'Its own customers (' + fmt.int(r.n) + ')' + (r.seen < 36 ? ' · company curve after month ' + r.seen : '') : 'Office Staff average (no cohort for this source)')))))));
+        el('td', { class: 'px-3 py-2 text-[11px] whitespace-nowrap', style: _mkxMuted }, r.own ? 'Its own customers (' + fmt.int(r.n) + ')' + (r.seen < 36 ? ' · company curve after month ' + r.seen : '') : 'Office Staff average (too few of its own)')))))));
 }
 
 // ── Provider pulse ───────────────────────────────────────────────────────────

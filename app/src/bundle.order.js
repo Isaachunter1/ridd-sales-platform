@@ -103,6 +103,7 @@ module.exports = [
   'reporting/renewal-cohorts.js',
   'reporting/retention-insights.js',
   'reporting/retention.js',
+  'reporting/collections.js',
   'admin/intel.js',
   'admin/admin.js',
   'pay/commission-rates.js',

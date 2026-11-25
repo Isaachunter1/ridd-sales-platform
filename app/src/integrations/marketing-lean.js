@@ -520,13 +520,15 @@ function _mktgLeanView() {
   // Office × channel (per Isaac, Nov 25) — the first table on the page; it replaced the Channels × offices grid lower down.
   const officeChannel = _tblView === 'oc' && typeof mkxOfficeChannelCard === 'function' ? _safe('officeChannel', () => mkxOfficeChannelCard(ym, cur, RNG && RNG.label)) : null;
   const tables = officeChannel || grid || mklYearGrid(ym);   // nothing to show by office and channel yet: the month table stands in
+  // Payback and lifetime value against CAC, by channel or office (back per Isaac, Nov 25 — the join between this tab and Retention).
+  const payback = typeof mkxPaybackCard === 'function' ? _safe('payback', () => mkxPaybackCard(ym)) : null;
   // Leads (Pest AI) arrive before the FieldRoutes snapshot does, and for that stretch every sales tile read "—" as if
   // there were no sales (per Isaac, Nov 25). Say what is happening instead.
   const subsWait = !(state.reportingSubscriptions || []).length ? el('div', { class: 'card px-4 py-2 text-[12px] flex items-center gap-2', style: { color: 'var(--text-muted)' } },
     el('span', { class: 'spinner', style: { width: '14px', height: '14px' } }), 'Sales are still loading from FieldRoutes. New sales, revenue, CAC and close rate fill in when it arrives (usually under a minute).') : null;
   const subsOld = !subsWait && typeof reportingSubsStale === 'function' && reportingSubsStale() ? el('div', { class: 'card px-4 py-2 text-[12px] flex items-center gap-2', style: { color: 'var(--text-muted)' } },
     el('span', { class: 'spinner', style: { width: '14px', height: '14px' } }), 'Sales numbers are from the previous sync. The newest sync is loading and will replace them.') : null;
-  return el('div', { class: 'flex flex-col gap-4' }, subsWait, subsOld, tiles, tables, provPulse, chart, ttc, ...dash);   // LTV / CAC section off for now (per Isaac, Nov 24) — mklLtvSection still built, just not shown   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
+  return el('div', { class: 'flex flex-col gap-4' }, subsWait, subsOld, tiles, tables, provPulse, payback, chart, ttc, ...dash);   // LTV / CAC section off for now (per Isaac, Nov 24) — mklLtvSection still built, just not shown   // tiles first, Spend vs new revenue under them (per Isaac, Nov 19); the header card is gone — its controls sit on the sub-tab bar (per Isaac, Nov 16)
 }
 // The month's new sales behind the New revenue tile (same rows the table counts).
 function mklOpenSales(D, title) {
