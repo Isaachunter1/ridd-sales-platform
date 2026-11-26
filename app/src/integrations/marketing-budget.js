@@ -20,10 +20,12 @@
 // └──────────────────────────────────────────────────────────────────────────
 function mkbBudgetOf(ym, k) {
   const R = (typeof _adminRules === 'function' && _adminRules()) || {};
+  // A year with a media plan: the plan IS the budget (per Isaac, Nov 25 — "Budgets by month" is gone, so a number
+  // typed there earlier no longer overrides the plan where nobody can see it). A channel the plan does not name has
+  // no budget. Years with no plan keep the older typed budgets below.
+  if (typeof mkpPlan === 'function' && typeof mkpBudgetFor === 'function' && mkpPlan(String(ym).slice(0, 4))) return mkpBudgetFor(ym, k);
   const M = R.provBudgetsYM && R.provBudgetsYM[ym];
   if (M && M[k] != null) return Number(M[k]) > 0 ? Number(M[k]) : null;
-  // Nothing typed for this month: the media plan's dollars for the channel are the budget (per Isaac, Nov 24).
-  if (typeof mkpBudgetFor === 'function') { const v = mkpBudgetFor(ym, k); if (v) return v; }
   const flat = R.provBudgets && R.provBudgets[k];
   return Number(flat) > 0 ? Number(flat) : null;
 }

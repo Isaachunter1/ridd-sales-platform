@@ -336,3 +336,70 @@ the date, how many rows the task had then (the row shows "was 12" when the count
 it when that was not the person named. Admins and auditors can set or clear it; everyone else sees it read-only.
 Shared company-wide in app_settings 'audit_signoffs'. The per-account tick boxes inside a task's Review table are
 separate and unchanged.
+
+## 2026-11-25 · Retention by Start Month gains Channel rows and a start-year picker
+Per Isaac: "a pulse of how our accounts are doing by channel over time… all the channels at a glance, then look at
+them through time". The Retention by Start Month card now has Rows: Start month | Channel, and a "Started YYYY"
+picker. Channel = the Marketing tab's channel for the plan's FieldRoutes source (same mapping as sales by channel).
+A renewal plan counts under the channel of the customer's ORIGINAL plan — the chain now also carries the original
+plan's source and seller (origin_source, origin_sold_by) — so renewal sources are not channels here. Channels with
+under 25 subs pool into one "Other channels" row; a cell with under 25 eligible subs shows a dash, as before.
+Month view is unchanged apart from the year picker. The Subs count opens the subscriptions.
+
+## 2026-11-25 · Retired source name "Service Pro Upsell" reads as "Upsell - Service Pro"
+Per Isaac: "that shouldn't even be a thing. I thought I had moved those all into Upsell - Service Pro". FieldRoutes
+keeps the old source name on the plans sold under it: 99 plans, sold 2022 to Nov 2025, none active. The app now
+reads that name as "Upsell - Service Pro" when the snapshot loads, so it is one source everywhere (the FieldRoutes
+name stays on the row as subscription_source_crm). Nothing is changed in FieldRoutes. "Renewal - Service Pro
+Upsell" (683 plans, live) is a separate source and is left alone.
+
+## 2026-11-25 · Media plan: three tables, Seasonal curve, Left over, add a channel
+Per Isaac ("split out the spend calendar a bit more… the most important table for 2027"):
+- The one Spend calendar table is now three, with the month columns lined up: Spend plan by channel (first),
+  Revenue plan, What the spend buys. In the spend plan, a channel's share of the pool and its cost per lead have
+  columns of their own instead of sitting inside the channel's name.
+- "Share of the year (curve)" is called Seasonal curve.
+- The "Incline plan" label on Google Local Services is gone, and so are the last-year cost-per-lead hint in an empty
+  cost box and its hover text.
+- "New channels & tests" is gone as a line. Whatever share of the flexible pool the channels have not taken shows as
+  Left over (green), by month and for the year; if the shares pass 100% it reads Over budget (red). The header reads
+  "$X planned of $Y · $Z left over". Total planned spend is what is assigned (fee + Local Services + the channels),
+  so it no longer always equals the budget. A plan saved with the old line is read without it; nothing is rewritten
+  until the plan is next edited.
+- "+ Add channel": pick one of the app's channels or type a new name; it joins at 0%. The × beside a channel removes
+  it. Channels with spend that the plan does not name are read against Left over on the year-to-date view.
+
+## 2026-11-25 · Media plan: expected revenue at a ROAS benchmark; "Budgets by month" removed
+Per Isaac: the spend plan shows the revenue the planned spend should bring in. A new lever, ROAS benchmark (2.5x
+unless changed, saved with the plan), times Total planned spend — agency fee included — gives "Expected revenue at
+2.5x ROAS" by month and for the year, with "Of the revenue goal" under it (green at 100% or more).
+"Budgets by month" is removed ("you can just get rid of it"). In a year that has a media plan, the plan is the
+budget for every channel and month: a number typed into the old budgets table no longer overrides it, and a channel
+the plan does not name has no budget. Years with no plan still read the older typed budgets.
+
+## 2026-11-25 · Media calendar: Spend or Revenue by channel, with actuals and pace
+Per Isaac: "Spend plan by channel" is renamed Media calendar, and he wants revenue by channel with "what we were
+expecting to do and what we actually did and how we are pacing". One table, two switches:
+- Spend | Revenue. Spend = the plan's dollars. Revenue = expected revenue, each line's planned spend × the ROAS
+  benchmark (every line the same multiple; the agency fee is a line with no actual of its own, so the channels have
+  to cover it). Revenue also ends with "All new revenue vs the goal": the goal against every Office Staff new sale,
+  including channels with no spend.
+- Plan + actual | Plan only (shown once the year has started). Under each planned number, the actual for that
+  month: QuickBooks spend in Spend, FieldRoutes new revenue (last-touch source) in Revenue. The year column shows the
+  actual to date and pace = actual ÷ the plan for the same stretch (closed months whole, the open month by days).
+  Colour: Revenue green at or above pace, amber within 10% under, red below; Spend red more than 10% over, amber
+  more than 10% under.
+Two plan lines that read one app channel (Google Ads Search and P Max) share one set of actuals, shown on the first
+and measured against both. Channels with spend that the plan does not name show against Left over (Spend) or as
+"Channels not in the plan" (Revenue). Months that have not started show the plan alone.
+
+## 2026-11-25 · Media calendar: no toggles — four lines per channel
+Per Isaac: "I don't want toggles, I just want to see each channel with projected spend and revenue and then actual
+spend and revenue." The Spend | Revenue and Plan + actual | Plan only switches are gone (same day they were added).
+Every channel is a block of four lines by month: Projected spend, Projected revenue (projected spend × the ROAS
+benchmark), Actual spend (QuickBooks), Actual revenue (FieldRoutes new revenue, last-touch source). Actual lines
+are coloured by pace against the projected line for the same stretch, and the year column carries the actual to
+date with "N% of pace". The actual lines appear only once the year has started, so a future year shows two lines per
+channel. Agency fee has spend lines only (no channel of its own). Total has all four; its projected revenue is total
+planned spend × the benchmark, fee included. "All new revenue" closes the table: goal, actual (every Office Staff
+new sale, paid or not) and spend ÷ goal. Shared channels and channels outside the plan are handled as before.

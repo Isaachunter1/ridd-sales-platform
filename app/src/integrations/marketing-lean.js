@@ -804,6 +804,6 @@ function mklHeaderControls(monthOnly) {
   const ownerHint = (typeof isOwnerUser === 'function' && isOwnerUser()) ? el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Drag tiles to reorder', Array.isArray(m.tileOrder) && m.tileOrder.length ? el('button', { class: 'ml-2 font-semibold underline', style: { color: 'var(--accent)' }, onclick: () => { delete m.tileOrder; _mktgSave(); mountApp(); } }, 'Reset') : null) : null;
   void ownerHint;   // the "Drag tiles to reorder · Reset" hint is gone (per Isaac, Nov 19) — the tiles still drag
   // Morning brief sits on this bar, left of the change picker (per Isaac, Nov 24).
-  const briefBtn = typeof mkxOpenBrief === 'function' ? el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95', style: selSt, title: 'Yesterday\u2019s sales, churn and leads, plus anything that needs fixing', onclick: () => mkxOpenBrief() }, '\u2600 Morning brief') : null;
+  const briefBtn = null;   // Morning brief button removed (per Isaac, Nov 25); mkxOpenBrief stays in the code.
   return (monthOnly ? [briefBtn, monthSel] : [briefBtn, cmpSel, monthSel]).filter(Boolean);   // Dashboard shows just the month (per Isaac, Nov 18)
 }

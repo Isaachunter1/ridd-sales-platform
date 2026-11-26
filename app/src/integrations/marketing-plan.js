@@ -22,7 +22,7 @@
 // │ Saved company-wide in adminRules.mediaPlan = { 'YYYY': plan }.
 // └──────────────────────────────────────────────────────────────────────────
 const MKP_DEFAULT_2027 = {
-  target: 7000000, ratio: 0.39, fee: 28000, lsaExtra: 0, acv: 800, close: 0.15,
+  target: 7000000, ratio: 0.39, fee: 28000, lsaExtra: 0, acv: 800, close: 0.15, roas: 2.5,   // roas = the return benchmark (per Isaac, Nov 25)
   // Share of the year's new revenue by month — the sheet's goal row ÷ the target (sums to 100).
   curve: [2.001, 3.002, 5.003, 9.006, 10.006, 12.008, 17.011, 14.009, 10.992, 10.006, 5.003, 1.953],
   // Google Local Services by month — Incline's 2027 forecast, existing markets (the sheet's "LSA 2027 plan" total row).
@@ -30,17 +30,27 @@ const MKP_DEFAULT_2027 = {
   // Share of the flexible pool. ch = the app's channel the actuals are read from ('' = everything not named here).
   mix: [
     { n: 'Facebook / Meta', ch: 'Facebook', s: 34 }, { n: 'DoLead (pay per lead)', ch: 'DoLead', s: 18, cpl: 60 },
-    { n: 'Google Ads — Search', ch: 'Google Ads', s: 8 }, { n: 'Google Ads — Performance Max', ch: 'Google Ads', s: 4 },
+    { n: 'Google Ads — Search', ch: 'Google Ads', s: 8 }, { n: 'Google Ads — P Max', ch: 'Google Ads', s: 4 },
     { n: 'Service Direct (pay per call)', ch: 'Service Direct', s: 8 }, { n: 'Angi / HomeAdvisor', ch: 'Angi', s: 5 },
-    { n: 'Baton (referral network)', ch: 'Baton', s: 5 }, { n: 'ElectGen', ch: 'ElectGen', s: 3, cpl: 250, per: 'job' },   // $250 a job, not per lead (per Isaac, Nov 25)
-    { n: 'New channels & tests', ch: '', s: 15 }],
+    { n: 'Baton (referral network)', ch: 'Baton', s: 5 }, { n: 'ElectGen', ch: 'ElectGen', s: 3, cpl: 250, per: 'job' }],   // $250 a job, not per lead (per Isaac, Nov 25)
+  // (No "New channels & tests" line — per Isaac, Nov 25: whatever the channels don't take is shown as Left over.)
 };
 const MKP_LSA_CH = 'Google Local Services';
 function _mkpAgencyCh() { return typeof spqLabel === 'function' && typeof SPQ_TOOLS !== 'undefined' ? spqLabel(SPQ_TOOLS) : 'Agency'; }
+// A plan saved before Nov 25 carries a "New channels & tests" line that soaked up the rest of the pool. That line is
+// gone: the same plan is read without it (one object per saved plan, so the calendar's memo still holds), and the
+// share it held shows as Left over until a channel is added for it.
+const _mkpNormMemo = new WeakMap();
+function _mkpNorm(P) {
+  if (!Array.isArray(P.mix) || !P.mix.some(r => r && !r.ch && /^new channels/i.test(String(r.n || '')))) return P;
+  let N = _mkpNormMemo.get(P);
+  if (!N) { N = Object.assign({}, P, { mix: P.mix.filter(r => !(r && !r.ch && /^new channels/i.test(String(r.n || '')))) }); _mkpNormMemo.set(P, N); }
+  return N;
+}
 function mkpPlan(year) {
   const R = (typeof _adminRules === 'function' && _adminRules()) || {};
   const P = R.mediaPlan && R.mediaPlan[String(year)];
-  if (P && typeof P === 'object') return P;
+  if (P && typeof P === 'object') return _mkpNorm(P);
   return Number(year) === 2027 ? MKP_DEFAULT_2027 : null;
 }
 function mkpSavePlan(year, P) {
@@ -62,11 +72,15 @@ function mkpCalc(P) {
   const budget = n(P.target) * n(P.ratio), feeYear = n(P.fee) * 12, pool = budget - feeYear - lsaYear;
   const mixSum = (P.mix || []).reduce((a, r) => a + n(r.s), 0);
   const poolM = M.map(i => pool * curve[i]);
-  const rows = (P.mix || []).map(r => ({ n: r.n, ch: r.ch || '', s: n(r.s), m: M.map(i => poolM[i] * n(r.s) / 100) }));
+  const rows = (P.mix || []).map(r => ({ n: String(r.n || '').replace(/Performance Max/i, 'P Max'), ch: r.ch || '',   // shown short (per Isaac, Nov 25), whatever the saved plan calls it
+    s: n(r.s), m: M.map(i => poolM[i] * n(r.s) / 100) }));
   const goal = M.map(i => n(P.target) * curve[i]);
   const subs = goal.map(g => n(P.acv) > 0 ? g / n(P.acv) : 0), leads = subs.map(s => n(P.close) > 0 ? s / n(P.close) : 0);
   const fee = M.map(() => n(P.fee));
   const total = M.map(i => fee[i] + lsa[i] + rows.reduce((a, r) => a + r.m[i], 0));
+  // Left over (per Isaac, Nov 25): the part of the flexible pool no channel has taken. Negative = the channels add
+  // up to more than the pool, i.e. over budget. total above is what is actually assigned.
+  const left = M.map(i => poolM[i] * (100 - mixSum) / 100), leftYear = pool * (100 - mixSum) / 100;
   // What the spend buys (per Isaac, Nov 25): each channel's dollars ÷ the cost typed for it. Most channels are paid
   // per LEAD, so they buy leads, and leads × the close rate are sales. A channel paid per JOB (ElectGen, $250 a job)
   // buys sales directly and no counted leads. A channel with no cost typed buys nothing here, and is named so the
@@ -77,7 +91,7 @@ function mkpCalc(P) {
   const jobs = M.map(i => rows.reduce((a, r) => a + (r.cpl > 0 && r.per === 'job' ? r.m[i] / r.cpl : 0), 0));
   const buysSales = M.map(i => buys[i] * n(P.close) + jobs[i]);
   const noCpl = [...(lsaCpl > 0 ? [] : ['Google Local Services']), ...rows.filter(r => !(r.cpl > 0) && r.s > 0).map(r => r.n)];
-  const v = { curve, curveSum, lsa, lsaYear, budget, feeYear, pool, poolM, rows, mixSum, goal, subs, leads, fee, total, buys, jobs, buysSales, noCpl, lsaCpl,
+  const v = { curve, curveSum, lsa, lsaYear, budget, feeYear, pool, poolM, rows, mixSum, left, leftYear, goal, subs, leads, fee, total, buys, jobs, buysSales, noCpl, lsaCpl,
     mediaRatio: n(P.target) > 0 ? (budget - feeYear) / n(P.target) : null };   // media (no agency fee) ÷ new revenue — the bar a channel is read against
   mkpCalc._m = { P, v }; return v;
 }
@@ -120,7 +134,9 @@ function mkpProgressCard(year) {
     // Plan rows that read the same app channel are one line here (Search and Performance Max are both "Google Ads" in QuickBooks).
     const groups = new Map();
     for (const r of C.rows) { const key = r.ch || '\u0001new'; const g = groups.get(key) || groups.set(key, { n: r.n, ch: r.ch, m: Array(12).fill(0), names: [] }).get(key); g.names.push(r.n); r.m.forEach((v, i) => { g.m[i] += v; }); }
-    for (const g of groups.values()) if (g.names.length > 1) g.n = g.ch + ' (' + g.names.length + ' plan lines)';
+    for (const g of groups.values()) if (g.names.length > 1 && g.ch) g.n = g.ch + ' (' + g.names.length + ' plan lines)';
+    // Channels with spend that the plan does not name are read against what the plan left over.
+    { const k0 = '\u0001new', g0 = groups.get(k0) || groups.set(k0, { n: '', ch: '', m: Array(12).fill(0), names: [] }).get(k0); g0.n = 'Channels not in the plan (against Left over)'; C.left.forEach((v, i) => { g0.m[i] += Math.max(0, v); }); }
     const named = new Set([MKP_LSA_CH, agencyCh, ...C.rows.map(r => r.ch).filter(Boolean)]);
     // "New channels & tests" = every channel with spend this year that the plan does not name.
     const otherKeys = [...new Set(Ds.flatMap(D => D && D.ch ? Object.keys(D.ch).filter(k => (D.ch[k].spend || 0) > 0) : []))].filter(k => !named.has(k) && (typeof _mkxShown !== 'function' || _mkxShown(k)));
@@ -201,19 +217,22 @@ function mktgPlanView() {
         onchange: (e) => onSet(num(e.target.value)), onkeydown: (e) => { if (e.key === 'Enter') e.target.blur(); } })
     : el('span', { class: 'text-[11px] tabular-nums font-semibold' }, val);
 
+  // Return benchmark (per Isaac, Nov 25): new revenue expected per dollar of planned spend; 2.5x unless the plan says otherwise.
+  const roas = Number(P.roas) > 0 ? Number(P.roas) : 2.5;
   // ── 1. Levers ──
   const lever = (label, node, note) => el('div', { class: 'flex flex-col gap-1', style: { minWidth: '150px' } },
     el('div', { class: 'text-[10px] uppercase tracking-wider font-semibold', style: muted }, label), node, note ? el('div', { class: 'text-[10px]', style: subtle }, note) : null);
   const isDefault = !(((typeof _adminRules === 'function' && _adminRules()) || {}).mediaPlan || {})[String(year)];
   const levers = el('div', { class: 'card p-4 flex flex-col gap-3', 'data-arrange-id': 'mkp-levers' },
     el('div', { class: 'flex items-baseline gap-3 flex-wrap' }, el('h3', { class: 'text-base font-bold' }, 'Media plan · ' + year),
-      el('span', { class: 'text-[11px] flex-1', style: muted }, canEdit ? 'Change a lever and the calendar, the budgets and the progress below all follow.' : ''),
+      el('span', { class: 'text-[11px] flex-1', style: muted }, canEdit ? 'Change a lever and the tables below all follow.' : ''),
       canEdit && !isDefault && year === 2027 ? el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, title: 'Puts every lever, the curve, the LSA plan and the mix back to the spreadsheet’s values', onclick: () => { mkpSavePlan(year, JSON.parse(JSON.stringify(MKP_DEFAULT_2027))); mountApp(); } }, 'Reset to the spreadsheet') : null),
     el('div', { class: 'flex gap-x-6 gap-y-3 flex-wrap' },
       lever('New-revenue target', inp('target', fmt.usd0(P.target), (v) => edit(n => { n.target = v; }), 110), 'Office Staff new sales, contract value'),
       lever('Marketing spend ÷ new revenue', inp('ratio', (P.ratio * 100).toFixed(1) + '%', (v) => edit(n => { n.ratio = v / 100; }), 70), 'Media + agency. Budget ' + usd(C.budget)),
       lever('Agency fee / month', inp('fee', fmt.usd0(P.fee), (v) => edit(n => { n.fee = v; }), 90), usd(C.feeYear) + ' a year, flat'),
       lever('LSA for new locations / year', inp('lsaExtra', fmt.usd0(P.lsaExtra || 0), (v) => edit(n => { n.lsaExtra = v; }), 90), 'On top of the LSA row; follows its shape'),
+      lever('ROAS benchmark', inp('roas', roas.toFixed(2).replace(/0$/, '') + 'x', (v) => edit(n => { n.roas = v > 0 ? v : 2.5; }), 60, 'New revenue expected for each dollar of planned spend'), 'Expected revenue ' + usd(sum(C.total) * roas)),
       lever('Average contract value', inp('acv', fmt.usd0(P.acv), (v) => edit(n => { n.acv = v; }), 80), int(sum(C.subs)) + ' new subscriptions needed'),
       lever('Lead → sale close rate', inp('close', (P.close * 100).toFixed(1) + '%', (v) => edit(n => { n.close = v / 100; }), 70), int(sum(C.leads)) + ' leads needed'),
       lever('Flexible media pool', el('div', { class: 'text-sm font-black tabular-nums', style: { color: C.pool < 0 ? '#DC2626' : undefined } }, usd(C.pool)), C.pool < 0 ? 'Negative: the target is too small for LSA + the fee at this ratio' : 'Budget − agency fee − LSA ' + usd(C.lsaYear))));
@@ -226,59 +245,154 @@ function mktgPlanView() {
     return el('tr', { class: 'border-t', style: Object.assign({ borderColor: 'var(--border)' }, o.band ? { background: 'var(--card-2)', borderTop: '2px solid var(--border-2)' } : {}) },
       first(label, Object.assign({ fontWeight: o.strong ? '800' : '600' }, o.band ? { background: 'var(--card-2)' } : {}, o.soft ? muted : {})), ...vals.map(v => cell(f(v), st)), cell(o.noTotal ? '' : f(o.total != null ? o.total : sum(vals)), Object.assign({ fontWeight: '800' }, o.soft ? muted : {}))); };
   const head = (t) => el('tr', {}, el('td', { colspan: 14, class: 'px-3 pt-3 pb-1 text-[10px] uppercase tracking-widest font-bold', style: subtle }, t));
-  const curveBad = Math.abs(C.curveSum - 1) > 0.002, mixBad = Math.abs(C.mixSum - 100) > 0.05;
-  // Last year's own cost per lead by channel (QuickBooks spend ÷ Pest AI leads), shown as the hint in an empty box.
-  const lastCpl = (() => { const t = {}; try { for (let i = 1; i <= 12; i++) { const D = mklMonth((year - 1) + '-' + String(i).padStart(2, '0')); if (!D || !D.hasSpend || !D.ch) continue; for (const k in D.ch) { const c = D.ch[k], o = t[k] || (t[k] = { spend: 0, leads: 0 }); o.spend += c.spend || 0; o.leads += c.leads || 0; } } } catch (e) { /* no hint */ }
-    return (k) => { const o = t[k]; return o && o.spend > 0 && o.leads > 0 ? o.spend / o.leads : null; }; })();
-  const cplBox = (id, val, hintCh, onSet, per, onPer) => { const job = per === 'job', h = hintCh && !job ? lastCpl(hintCh) : null;
-    const tip = (job ? 'Cost per job \u2014 this channel is paid per sale, not per lead' : 'Average cost per lead') + (h ? ' \u00b7 ' + (year - 1) + ' actual ' + fmt.usd0(h) : '');
+  const curveBad = Math.abs(C.curveSum - 1) > 0.002, over = C.mixSum > 100.05, leftShare = 100 - C.mixSum;
+  // (The last-year cost-per-lead hint in the empty box and its hover text were removed per Isaac, Nov 25.)
+  const cplBox = (id, val, hintCh, onSet, per, onPer) => { const job = per === 'job';
+    const tip = (job ? 'Cost per job \u2014 this channel is paid per sale, not per lead' : 'Average cost per lead') ;
     const unit = onPer && canEdit
       ? el('button', { class: 'text-[10px] underline', style: muted, title: 'Paid per ' + (job ? 'job' : 'lead') + ' \u2014 click to switch to per ' + (job ? 'lead' : 'job'), onclick: () => onPer(job ? 'lead' : 'job') }, job ? '/ job' : '/ lead')
       : el('span', { class: 'text-[10px]', style: muted }, job ? '/ job' : '/ lead');
     if (!canEdit) return el('span', { class: 'inline-flex items-center gap-1 text-[10px] tabular-nums', style: muted, title: tip }, val > 0 ? fmt.usd0(val) : 'no cost', unit);
-    const box = inp(id, val > 0 ? fmt.usd0(val) : '', onSet, 58, tip); box.placeholder = h ? '\u2019' + String(year - 1).slice(2) + ' ' + fmt.usd0(h) : (job ? 'cost' : 'CPL');
+    const box = inp(id, val > 0 ? fmt.usd0(val) : '', onSet, 58, tip); box.placeholder = job ? 'cost' : 'CPL';
     return el('span', { class: 'inline-flex items-center gap-1' }, box, unit); };
-  const curveRow = el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, first(['Share of the year (curve)']),
+  // Three tables instead of one (per Isaac, Nov 25 — "split out the spend calendar a bit more, it's a little messy…
+  // the most important table for 2027"): the revenue plan, the spend plan by channel, and what the spend buys. The
+  // month columns line up down the page (same fixed widths in all three). In the spend plan the two things typed per
+  // channel — its share of the flexible pool and its cost per lead — have columns of their own instead of sitting
+  // inside the channel's name.
+  const W_NAME = 150, W_SHARE = 58, W_COST = 112, W_LINE = 98, W_FIRST = W_NAME + W_SHARE + W_COST + W_LINE, W_MON = 76, W_YEAR = 104;
+  const cols = (split) => el('colgroup', {}, ...(split ? [W_NAME, W_SHARE, W_COST, W_LINE] : [W_FIRST]).map(w => el('col', { style: { width: w + 'px' } })), ...MON.map(() => el('col', { style: { width: W_MON + 'px' } })), el('col', { style: { width: W_YEAR + 'px' } }));
+  const tableOf = (split, headCells, rows) => el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } },
+    el('table', { class: 'text-xs', style: { borderCollapse: 'collapse', tableLayout: 'fixed', width: (W_FIRST + 12 * W_MON + W_YEAR) + 'px', minWidth: '100%' } }, cols(split),
+      el('thead', {}, el('tr', {}, ...headCells, ...MON.map(m => th(m, true)), th(String(year), true))), el('tbody', {}, ...rows.filter(Boolean))));
+  const block = (title, sub, right, table) => el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-5 py-3 flex items-baseline gap-3 flex-wrap' }, el('h3', { class: 'text-base font-bold' }, title), sub ? el('span', { class: 'text-[11px]', style: muted }, sub) : null, right ? el('span', { class: 'ml-auto text-sm font-black tabular-nums' }, right) : null), table);
+  const dash = () => cell('—', subtle);
+  // A spend-plan row: name · share of the pool · cost · 12 months · year.
+  // ── Media calendar (per Isaac, Nov 25 — "I don't want toggles, I just want to see each channel with projected spend
+  // and revenue and then actual spend and revenue"). Every channel is four lines, by month:
+  //   Projected revenue  projected spend × the ROAS benchmark (every line the same multiple)
+  //   Projected spend    the plan's dollars
+  //   Actual revenue     FieldRoutes new revenue, last-touch source
+  //   Actual spend       QuickBooks spend for the channel
+  // The actual lines are coloured by pace against the projected line for the same stretch (closed months whole, the
+  // open month by days gone), and the year column shows the actual to date with that pace. Spend: red more than 10%
+  // over, amber more than 10% under. Revenue: green at or above, amber within 10% under, red below.
+  // The actual lines only appear once the year has started. Two plan lines that read one app channel (Google Ads
+  // Search and P Max) share one set of actuals: on the first, measured against both.
+  const today = new Date(), pad2 = (n) => String(n).padStart(2, '0');
+  const openYm = typeof _mklYm === 'function' ? _mklYm(today) : today.getFullYear() + '-' + pad2(today.getMonth() + 1);
+  const yms = MON.map((_, i) => year + '-' + pad2(i + 1));
+  const part = yms.map(ym => { if (ym > openYm) return 0; if (ym < openYm) return 1; const dim = new Date(year, Number(ym.slice(5, 7)), 0).getDate(); return today.getDate() / dim; });
+  const started = part.some(v => v > 0);
+  const Ds = started && typeof mklMonth === 'function' ? yms.map(ym => { if (ym > openYm) return null; try { return mklMonth(ym); } catch (e) { return null; } }) : yms.map(() => null);
+  // Actuals for a set of app channels, Jan–Dec (null = month not started, or — for spend — QuickBooks not in yet).
+  const actOf = (keys, rev) => Ds.map(D => { if (!D || !D.ch) return null; if (!rev && !D.hasSpend) return null; let t = 0; for (const k of keys) { const c = D.ch[k]; if (c) t += (rev ? c.cv : c.spend) || 0; } return t; });
+  const xr = (m) => m.map(v => v * roas);
+  const toneOf = (ratio, rev) => ratio == null || !isFinite(ratio) ? undefined : rev ? (ratio >= 1 ? '#15803D' : ratio >= 0.9 ? '#B45309' : '#DC2626') : (ratio > 1.1 ? '#DC2626' : ratio < 0.9 ? '#B45309' : undefined);
+  const inCell = (node, span) => el('td', { class: 'px-2 py-1 text-right whitespace-nowrap align-top', rowspan: span || 1 }, node);
+  const P_SPEND = 'Projected spend', P_REV = 'Projected revenue', A_SPEND = 'Actual spend', A_REV = 'Actual revenue';
+  // One channel = a block of lines. lines: [{ label, vals, act?: true, rev?: true, cmp?: the projected line it paces against, f?, total? }]
+  const group = (name, share, cost, lines, o) => { o = o || {}; lines = lines.filter(Boolean); const n = lines.length, bg = o.band ? 'var(--card-2)' : 'var(--card)';
+    return lines.map((L, k) => { const f = L.f || usd, isAct = !!L.act;
+      const labelTd = el('td', { class: 'px-2 py-1 whitespace-nowrap text-[11px]', style: { color: isAct ? 'var(--text)' : 'var(--text-muted)', fontWeight: isAct ? '700' : '500' } }, L.label);
+      const mcell = (v, i) => { if (!isAct) return cell(f(v), o.strong ? { fontWeight: '700' } : L.soft ? muted : {});
+        if (v == null) return cell('—', subtle);
+        const planTo = L.cmp ? (L.cmp[i] || 0) * part[i] : 0, r = planTo > 0 ? v / planTo : null;
+        return el('td', { class: 'px-2 py-1.5 text-right tabular-nums whitespace-nowrap', title: L.cmp ? MON[i] + ': ' + usd(v) + ' actual' + (planTo > 0 ? ' · ' + pct(r, 0) + ' of ' + usd(planTo) + (part[i] < 1 ? ' projected to date' : ' projected') : '') : '', style: { fontWeight: '700', color: toneOf(r, L.rev) } }, usd(v)); };
+      const ycell = () => { if (!isAct) return cell(f(L.total != null ? L.total : sum(L.vals)), { fontWeight: '800' });
+        if (!L.vals.some(v => v != null)) return cell('—', subtle);
+        const a = L.vals.reduce((t, v) => t + (v || 0), 0), pt = L.cmp ? L.cmp.reduce((t, v, i) => t + (v || 0) * part[i], 0) : 0, r = pt > 0 ? a / pt : null;
+        return el('td', { class: 'px-2 py-1 text-right tabular-nums whitespace-nowrap', title: 'Year to date: ' + usd(a) + ' actual' + (pt > 0 ? ' against ' + usd(pt) + ' projected to date' : ''), style: { fontWeight: '800', color: toneOf(r, L.rev) } },
+          el('div', {}, usd(a)), r != null ? el('div', { class: 'text-[10px]', style: { lineHeight: '1.1' } }, pct(r, 0) + ' of pace') : null); };
+      return el('tr', { style: Object.assign({ background: o.band ? bg : undefined }, k === 0 ? { borderTop: (o.band ? '2px' : '1px') + ' solid ' + (o.band || n > 1 ? 'var(--border-2)' : 'var(--border)') } : { borderTop: '1px dotted var(--border)' }) },
+        ...(k === 0 ? [
+          el('td', { rowspan: n, class: 'px-3 py-1.5 align-top', title: o.tip || (typeof name === 'string' ? name : ''), style: { position: 'sticky', left: 0, zIndex: 1, background: bg, fontWeight: o.strong ? '800' : '600', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: o.indent ? '14px' : undefined } }, name),
+          share || el('td', { rowspan: n, class: 'px-2 py-1.5 text-right align-top', style: subtle }, '—'), cost || el('td', { rowspan: n, class: 'px-2 py-1.5 text-right align-top', style: subtle }, '—')] : []),
+        labelTd, ...L.vals.map(mcell), ycell()); }); };
+  // Which actuals belong to which plan row.
+  const agencyCh = _mkpAgencyCh();
+  const firstOf = new Map(); C.rows.forEach((r, j) => { if (r.ch && !firstOf.has(r.ch)) firstOf.set(r.ch, j); });
+  const groupSpend = (ch) => MON.map((_, i) => C.rows.reduce((t, r) => t + (r.ch === ch ? r.m[i] : 0), 0));
+  const named = new Set([MKP_LSA_CH, agencyCh, ...C.rows.map(r => r.ch).filter(Boolean)]);
+  const otherKeys = [...new Set(Ds.flatMap(D => D && D.ch ? Object.keys(D.ch).filter(k => (D.ch[k].spend || 0) > 0) : []))].filter(k => !named.has(k) && (typeof _mkxShown !== 'function' || _mkxShown(k)));
+  const allKeys = [...new Set(Ds.flatMap(D => D && D.ch ? Object.keys(D.ch) : []))];
+  const paidKeys = [MKP_LSA_CH, ...firstOf.keys(), ...otherKeys];
+  // The four lines for a line of the plan that has actuals of its own.
+  const four = (spend, keys, cmpSpend) => { const cs = cmpSpend || spend; return [
+    // Order per Isaac, Nov 25: revenue above spend, projected above actual.
+    { label: P_REV, vals: xr(spend) }, { label: P_SPEND, vals: spend, soft: true },
+    started && keys ? { label: A_REV, vals: actOf(keys, true), act: true, rev: true, cmp: xr(cs) } : null,
+    started && keys ? { label: A_SPEND, vals: actOf(keys, false), act: true, cmp: cs } : null]; };
+  const chanRows = C.rows.flatMap((r, j) => { const lead = r.ch && firstOf.get(r.ch) === j, shared = r.ch && C.rows.filter(x => x.ch === r.ch).length > 1;
+    const lines = four(r.m, lead ? [r.ch] : null, lead && shared ? groupSpend(r.ch) : null), n = lines.filter(Boolean).length;
+    return group(canEdit ? el('span', { class: 'inline-flex items-center gap-1.5' },
+        el('button', { class: 'text-[13px] leading-none', style: subtle, title: 'Remove ' + r.n + ' from the plan', 'aria-label': 'Remove ' + r.n, onclick: () => edit(n2 => { n2.mix.splice(j, 1); }) }, '×'), el('span', {}, r.n)) : r.n,
+      inCell(inp('mix' + j, r.s + '%', (x) => edit(n2 => { n2.mix[j].s = x; }), 44, 'Share of the flexible pool'), n),
+      inCell(cplBox('cpl' + j, r.cpl, r.ch, (x) => edit(n2 => { n2.mix[j].cpl = x; }), r.per, (v) => edit(n2 => { n2.mix[j].per = v; })), n), lines,
+      { indent: true, tip: !r.ch ? r.n + ' — not one of the app’s channels, so it has no actuals' : shared ? (lead ? r.n + ' — actuals are all of ' + r.ch + ', paced against every ' + r.ch + ' line in the plan' : r.n + ' — actuals for ' + r.ch + ' are on its first line') : r.n }); });
+  const spendOff = started && !Ds.some(D => D && D.hasSpend);
+  const calHead = el('span', { class: 'inline-flex items-center gap-3 flex-wrap justify-end' },
+    started ? el('span', { class: 'text-[10px] font-normal', style: muted }, spendOff ? 'QuickBooks spend isn’t loaded, so actual spend is blank' : 'Actual lines are coloured by pace against the projected line') : null,
+    el('span', {}, usd(sum(C.total)) + ' planned of ' + usd(C.budget) + ' · ', el('span', { style: { color: over ? '#DC2626' : '#15803D' } }, over ? usd(-C.leftYear) + ' over budget' : usd(C.leftYear) + ' left over')));
+  const heads = [th('Channel'), th('Share', true, 'Each channel’s share of the flexible media pool'), th('Cost per lead', true, 'Average cost per lead (or per job for channels paid per sale). Empty = not counted in what the spend buys'), th('Line')];
+  const lsaLines = four(C.lsa, [MKP_LSA_CH]), lsaN = lsaLines.filter(Boolean).length;
+  const otherTip = otherKeys.length ? 'Channels with spend that the plan does not name: ' + otherKeys.join(', ') : '';
+  const leftF = (v) => el('span', { style: { color: v < -0.5 ? '#DC2626' : v > 0.5 ? '#15803D' : 'var(--text-muted)', fontWeight: '700' } }, usd(v));
+  const calRows = [
+      ...group('Agency flat fee', null, null, [{ label: P_SPEND, vals: C.fee }, started ? { label: A_SPEND, vals: actOf([agencyCh], false), act: true, cmp: C.fee } : null], { tip: 'The fee has no channel of its own, so it has no revenue lines; it is in the totals below' }),
+      ...group('Google Local Services' + (P.lsaExtra ? ' + new locations' : ''), null, inCell(cplBox('lsaCpl', C.lsaCpl, MKP_LSA_CH, (x) => edit(n => { n.lsaCpl = x; })), lsaN), lsaLines),
+      ...group('Flexible media pool', el('td', { class: 'px-2 py-1.5 text-right tabular-nums whitespace-nowrap text-[11px]', style: { fontWeight: '800', color: over ? '#DC2626' : undefined } }, C.mixSum.toFixed(0) + '% used'), null, [{ label: P_SPEND, vals: C.poolM }], { strong: true, band: true }),
+      ...chanRows,
+      // Add a channel (per Isaac, Nov 25): pick one of the app's channels or type a new name; it joins at 0% and takes
+      // its share out of Left over.
+      canEdit ? (() => { const have = new Set(C.rows.map(r => r.ch).filter(Boolean)); const opts = (typeof spqChannelOptions === 'function' ? spqChannelOptions() : []).filter(c => c !== MKP_LSA_CH && !have.has(c));
+        const add = (name) => { const v = String(name || '').trim(); if (!v) return; const ch = opts.find(c => c.toLowerCase() === v.toLowerCase()) || ''; edit(n => { n.mix = (n.mix || []).concat([{ n: ch || v, ch, s: 0 }]); }); };
+        const box = el('input', { type: 'text', list: 'mkpAddCh', placeholder: 'Channel name…', 'data-mp': 'addCh', class: 'rounded-md border px-2 py-1 text-[11px]', style: { width: '150px', borderColor: 'var(--border)', background: 'var(--card)', color: 'var(--text)' }, onkeydown: (e) => { if (e.key === 'Enter') add(e.target.value); } });
+        return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, el('td', { colspan: 17, class: 'px-3 py-1.5' }, el('span', { class: 'inline-flex items-center gap-2', style: { paddingLeft: '14px' } },
+          box, el('datalist', { id: 'mkpAddCh' }, ...opts.map(c => el('option', { value: c }))),
+          el('button', { class: 'rounded-md border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--accent)' }, onclick: () => add(box.value) }, '+ Add channel'),
+          el('span', { class: 'text-[10px]', style: subtle }, 'Joins at 0% — give it a share and it comes out of Left over')))); })() : null,
+      ...group(over ? 'Over budget' : 'Left over', el('td', { class: 'px-2 py-1.5 text-right tabular-nums', style: { fontWeight: '800', color: over ? '#DC2626' : '#15803D' } }, leftShare.toFixed(0) + '%'), null, [{ label: P_SPEND, vals: C.left, total: C.leftYear, f: leftF }], { indent: true }),
+      started && otherKeys.length ? group('Not in the plan', null, null, [{ label: A_REV, vals: actOf(otherKeys, true), act: true, rev: true }, { label: A_SPEND, vals: actOf(otherKeys, false), act: true, cmp: C.left.map(v => Math.max(0, v)) }], { indent: true, tip: otherTip }) : [],
+      ...group('Total', null, null, [
+        { label: P_REV, vals: xr(C.total) }, { label: P_SPEND, vals: C.total },
+        started ? { label: A_REV, vals: actOf(paidKeys, true), act: true, rev: true, cmp: xr(C.total) } : null,
+        started ? { label: A_SPEND, vals: actOf([agencyCh, ...paidKeys], false), act: true, cmp: C.total } : null], { strong: true, band: true, tip: 'Projected revenue = total planned spend × ' + roas + ', agency fee included. Actual revenue = new revenue from the channels above.' }),
+      // The whole goal, paid or not: every Office Staff new sale, including channels with no spend (Organic, referrals).
+      ...group('All new revenue', null, null, [{ label: 'Goal', vals: C.goal }, started ? { label: 'Actual', vals: actOf(allKeys, true), act: true, rev: true, cmp: C.goal } : null,
+        { label: 'Spend ÷ goal', vals: C.total.map((t, i) => C.goal[i] > 0 ? t / C.goal[i] : null), f: (v) => pct(v, 1), total: sum(C.goal) > 0 ? sum(C.total) / sum(C.goal) : null, soft: true }], { strong: true, band: true, tip: 'Every Office Staff new sale, including channels with no spend, against the new-revenue goal' })].flat();
+  const spendCard = block('Media calendar · ' + year, 'Projected revenue = projected spend × ' + roas.toFixed(2).replace(/0$/, '') + 'x', calHead, tableOf(true, heads, calRows));
+
+  // 1 · Revenue plan
+  const curveRow = el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, first(['Seasonal curve']),
     ...C.curve.map((v, i) => el('td', { class: 'px-1.5 py-1.5 text-right' }, inp('curve' + i, (v * 100).toFixed(1) + '%', (x) => edit(n => { n.curve[i] = x; }), 62, MON[i] + ' share of the year’s new revenue'))),
     cell(pct(C.curveSum, 1), { fontWeight: '800', color: curveBad ? '#DC2626' : undefined }));
-  // The LSA row is Incline's forecast, shown as given (per Isaac, Nov 25 — not typed over here); new-location dollars
-  // come from the lever above.
-  const lsaRow = el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-    first([el('span', { class: 'inline-flex items-center gap-2' }, el('span', {}, 'Google Local Services (Incline plan' + (P.lsaExtra ? ' + new locations' : '') + ')'), cplBox('lsaCpl', C.lsaCpl, MKP_LSA_CH, (x) => edit(n => { n.lsaCpl = x; })))]),
-    ...C.lsa.map(v => cell(usd(v))), cell(usd(C.lsaYear), { fontWeight: '800' }));
-  const mixRow = (r, j) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-    first([el('span', { class: 'inline-flex items-center gap-2', style: { paddingLeft: '14px' } }, inp('mix' + j, r.s + '%', (x) => edit(n => { n.mix[j].s = x; }), 48, 'Share of the flexible pool'), el('span', {}, r.n), cplBox('cpl' + j, r.cpl, r.ch, (x) => edit(n => { n.mix[j].cpl = x; }), r.per, (v) => edit(n => { n.mix[j].per = v; })))], { fontWeight: '500' }),
-    ...r.m.map(v => cell(usd(v))), cell(usd(sum(r.m)), { fontWeight: '800' }));
-  const calendar = el('div', { class: 'card overflow-hidden', 'data-arrange-id': 'mkp-cal' },
-    el('div', { class: 'px-5 py-3 flex items-baseline gap-3 flex-wrap' }, el('h3', { class: 'text-base font-bold' }, 'Spend calendar · ' + year),
-      curveBad ? el('span', { class: 'text-[11px] font-bold', style: { color: '#DC2626' } }, 'The curve adds up to ' + pct(C.curveSum, 1) + ' — it should be 100%.') : null,
-      mixBad ? el('span', { class: 'text-[11px] font-bold', style: { color: '#DC2626' } }, 'The channel mix adds up to ' + C.mixSum.toFixed(0) + '% — it should be 100%.') : null,
-      el('span', { class: 'ml-auto text-sm font-black tabular-nums' }, usd(sum(C.total)))),
-    el('div', { class: 'scroll-x', style: { borderTop: '1px solid var(--border)' } }, el('table', { class: 'text-xs', style: { borderCollapse: 'collapse', minWidth: '100%' } },
-      el('thead', {}, el('tr', {}, th('Line'), ...MON.map(m => th(m, true)), th(String(year), true))),
-      el('tbody', {},
-        head('Revenue plan'), curveRow,
-        line('New-revenue goal', C.goal, usd, { strong: true }),
-        line('New subscriptions needed', C.subs, int), line('Leads needed', C.leads, int),
-        head('Spend plan'),
-        line('Agency flat fee', C.fee, usd), lsaRow,
-        line('Flexible media pool', C.poolM, usd, { strong: true }),
-        ...C.rows.map(mixRow),
-        line('Total marketing spend', C.total, usd, { strong: true, band: true }),
-        line('Spend ÷ revenue goal', C.total.map((t, i) => C.goal[i] > 0 ? t / C.goal[i] : null), (v) => pct(v, 1), { soft: true, total: sum(C.goal) > 0 ? sum(C.total) / sum(C.goal) : null }),
-        head('What the spend buys'),
-        line('Leads (spend \u00f7 cost per lead)', C.buys, int),
-        line('New sales (leads \u00d7 close rate' + (sum(C.jobs) > 0 ? ' + per-job channels' : '') + ')', C.buysSales, int, { strong: true }),
-        line('Of the subscriptions needed', C.buysSales.map((b, i) => C.subs[i] > 0 ? b / C.subs[i] : null), (v) => pct(v, 0), { soft: true, total: sum(C.subs) > 0 ? sum(C.buysSales) / sum(C.subs) : null }),
-        C.noCpl.length ? el('tr', {}, el('td', { colspan: 14, class: 'px-3 pb-2 text-[10px]', style: { color: '#B45309' } }, 'Not counted yet, no cost typed: ' + C.noCpl.join(', ') + '. Organic and unpaid leads are not in these numbers either.')) : null,
-        head('Unit cost'),
-        line('Media cost per new subscription', C.total.map((t, i) => C.subs[i] > 0 ? (t - C.fee[i]) / C.subs[i] : null), usd, { soft: true, total: sum(C.subs) > 0 ? (sum(C.total) - C.feeYear) / sum(C.subs) : null })))));
+  const revenueCard = block('Revenue plan · ' + year, curveBad ? null : 'The goal, spread by the seasonal curve',
+    fmt.usd0(sum(C.goal)),
+    tableOf(false, [th('Line')], [curveRow,
+      curveBad ? el('tr', {}, el('td', { colspan: 14, class: 'px-3 pb-2 text-[11px] font-bold', style: { color: '#DC2626' } }, 'The seasonal curve adds up to ' + pct(C.curveSum, 1) + ' — it should be 100%.')) : null,
+      line('New-revenue goal', C.goal, usd, { strong: true }),
+      line('New subscriptions needed', C.subs, int), line('Leads needed', C.leads, int)]));
+
+
+  // 3 · What the spend buys
+  const buysCard = block('What the spend buys · ' + year, 'From the cost per lead typed above and the close rate',
+    int(sum(C.buysSales)) + ' new sales',
+    tableOf(false, [th('Line')], [
+      line('Leads (spend ÷ cost per lead)', C.buys, int),
+      line('New sales (leads × close rate' + (sum(C.jobs) > 0 ? ' + per-job channels' : '') + ')', C.buysSales, int, { strong: true }),
+      line('Of the subscriptions needed', C.buysSales.map((b, i) => C.subs[i] > 0 ? b / C.subs[i] : null), (v) => pct(v, 0), { soft: true, total: sum(C.subs) > 0 ? sum(C.buysSales) / sum(C.subs) : null }),
+      line('Media cost per new subscription', C.total.map((t, i) => C.subs[i] > 0 ? (t - C.fee[i]) / C.subs[i] : null), usd, { soft: true, total: sum(C.subs) > 0 ? (sum(C.total) - C.feeYear) / sum(C.subs) : null }),
+      C.noCpl.length ? el('tr', {}, el('td', { colspan: 14, class: 'px-3 py-2 text-[10px]', style: { color: '#B45309' } }, 'Not counted yet, no cost typed: ' + C.noCpl.join(', ') + '. Organic and unpaid leads are not in these numbers either.')) : null]));
+  const calendar = el('div', { class: 'flex flex-col gap-4', 'data-arrange-id': 'mkp-cal' }, spendCard, revenueCard, buysCard);
 
   // Plan against actuals lives on the Dashboard now (Channel metrics → Year to date); see mkpProgressCard.
   // Budgets by month (the old Budget tab, per Isaac, Nov 25): the plan's dollars per channel per month, with anything
   // typed over them. Folded here so there is one place to plan.
-  const budgets = typeof mktgBudgetView === 'function' ? (() => { try { const v = mktgBudgetView(); return el('details', { class: 'card overflow-hidden', open: state._mkpBudgetsOpen ? '' : null, ontoggle: (e) => { state._mkpBudgetsOpen = e.target.open; } },
-    el('summary', { class: 'px-5 py-3 text-sm font-bold cursor-pointer' }, 'Budgets by month \u00b7 type over a month to change it from the plan'), el('div', { class: 'p-3' }, v)); } catch (e) { return null; } })() : null;
+  // "Budgets by month" removed (per Isaac, Nov 25): the spend plan shows every channel by month, and the plan is the
+  // budget — see mkbBudgetOf. mktgBudgetView stays in the code.
+  const budgets = null;
   // ── The goal slider (per Isaac, Nov 25): slide the new-revenue goal and every line follows — the budget, the pool,
   // each channel's months, the leads and sales needed. Dragging redraws the levers and the calendar in place without
   // saving; letting go saves the goal. The fee and the LSA plan do not move with it, so the pool takes up the change.
